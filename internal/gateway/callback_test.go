@@ -21,7 +21,10 @@ import (
 func TestOACallbackHMACSubmissionApprovalReplayAndBadSignature(t *testing.T) {
 	harness := newGatewayHarness(t)
 	requestResult := mustCallGatewayTool(t, harness.service, harness.alice, "request_data_task", map[string]any{
-		"objective": "summarize travel expenses",
+		"objective":     "summarize travel expenses",
+		"data_products": []string{"expense_summary"},
+		"columns":       map[string][]string{"expense_summary": {"month", "total_amount"}},
+		"scopes":        map[string]any{"department": []any{"销售部"}},
 	})
 	taskID := requestResult["task_id"].(string)
 	task, err := harness.store.GetTask(context.Background(), taskID)
@@ -99,7 +102,7 @@ func TestOACallbackHMACSubmissionApprovalReplayAndBadSignature(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal tampered pending context: %v", err)
 	}
-	if _, err := harness.store.DB().Exec(`UPDATE tasks SET request_context_json=? WHERE id=?`, tamperedPendingJSON, taskID); err != nil {
+	if _, err := harness.store.DB().Exec(`UPDATE tasks SET request_context_json=$1 WHERE id=$2`, string(tamperedPendingJSON), taskID); err != nil {
 		t.Fatalf("tamper pending context: %v", err)
 	}
 	tamperedPendingApproval := approved
@@ -111,7 +114,7 @@ func TestOACallbackHMACSubmissionApprovalReplayAndBadSignature(t *testing.T) {
 	if _, err := harness.store.GetGrant(context.Background(), taskID); !errors.Is(err, control.ErrNotFound) {
 		t.Fatalf("tampered pending context created a grant: %v", err)
 	}
-	if _, err := harness.store.DB().Exec(`UPDATE tasks SET request_context_json=? WHERE id=?`, originalPendingJSON, taskID); err != nil {
+	if _, err := harness.store.DB().Exec(`UPDATE tasks SET request_context_json=$1 WHERE id=$2`, string(originalPendingJSON), taskID); err != nil {
 		t.Fatalf("restore pending context: %v", err)
 	}
 	approveResponse := sendGatewayCallback(t, harness, approved, "")
@@ -152,7 +155,7 @@ func TestOACallbackHMACSubmissionApprovalReplayAndBadSignature(t *testing.T) {
 	if err := harness.store.DB().QueryRow(`SELECT COUNT(*) FROM callback_idempotency`).Scan(&callbackCount); err != nil {
 		t.Fatalf("count callback claims: %v", err)
 	}
-	if err := harness.store.DB().QueryRow(`SELECT COUNT(*) FROM approval_events WHERE task_id=?`, taskID).Scan(&approvalEventCount); err != nil {
+	if err := harness.store.DB().QueryRow(`SELECT COUNT(*) FROM approval_events WHERE task_id=$1`, taskID).Scan(&approvalEventCount); err != nil {
 		t.Fatalf("count approval events: %v", err)
 	}
 	if callbackCount != 2 || approvalEventCount != 2 {

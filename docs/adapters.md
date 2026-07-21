@@ -15,7 +15,7 @@ type ApprovalAdapter interface {
 内置客户端调用：
 
 ```http
-POST http://oa-demo:8090/api/drafts
+POST http://oa-demo:8092/api/drafts
 Authorization: Bearer <OA_SERVICE_TOKEN>
 Content-Type: application/json
 ```
@@ -51,11 +51,11 @@ Content-Type: application/json
 {
   "draft_id": "oa_...",
   "state": "draft",
-  "url": "http://127.0.0.1:8090/tasks/oa_..."
+  "url": "http://127.0.0.1:8092/tasks/oa_..."
 }
 ```
 
-内置客户端超时 5 秒，响应体上限 64 KiB。创建失败时 Gateway 不创建本地任务；若 OA 已创建草稿而后续 SQLite 写入失败，当前 Demo 没有补偿删除协议，生产适配器应提供幂等创建和补偿/对账机制。
+内置客户端超时 5 秒，响应体上限 64 KiB。创建失败时 Gateway 不创建本地任务；若 OA 已创建草稿而后续控制 PostgreSQL 写入失败，当前 Demo 没有补偿删除协议，生产适配器应提供幂等创建和补偿/对账机制。
 
 OA 展示 Gateway 已确定的产品、字段、强制范围、敏感级别、五维预算、审批方式、目录版本与快照 Hash。创建、提交和决定前都会重验 Hash；OA 不能自行降低审批路由、改变数据范围或预算。
 
@@ -64,7 +64,7 @@ OA 展示 Gateway 已确定的产品、字段、强制范围、敏感级别、�
 OA 向 Gateway 调用：
 
 ```http
-POST http://gateway:8080/api/v1/oa/callback
+POST http://gateway:8082/api/v1/oa/callback
 Content-Type: application/json
 X-OA-Event-ID: evt_...
 X-OA-Timestamp: <Unix 秒>
@@ -112,7 +112,7 @@ Gateway 会同时校验：
 - 回调快照 Hash 与本地 pending 一致，且本地 pending 的字段、范围、预算等重算 Hash 后仍一致。
 - actor、审批模式和当前任务状态允许该动作。
 
-`event_id + raw body SHA-256` 用于幂等：首次处理把审批事件、Grant、预算、状态和 HTTP 响应写在同一个 SQLite 事务；验证当前请求签名后，完全相同的已完成事件即使原始事件时间已过窗口或当前 Catalog 已更新，也返回首次保存的响应。复用 Event ID 但改变 Body 返回冲突。Gateway 重启会把单独 Claim 后未完成的事件标记为可重试。
+`event_id + raw body SHA-256` 用于幂等：首次处理锁定回调与任务行，并把审批事件、Grant、预算、状态和 HTTP 响应写入同一个控制 PostgreSQL 事务；验证当前请求签名后，完全相同的已完成事件即使原始事件时间已过窗口或当前 Catalog 已更新，也返回首次保存的响应。复用 Event ID 但改变 Body 返回冲突。Gateway 重启会把单独 Claim 后未完成的事件标记为可重试。
 
 OA Demo 对回调最多尝试 3 次。企业 OA 应采用持久化 Outbox、指数退避、告警和人工对账，不能依赖进程内 goroutine。
 

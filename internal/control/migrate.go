@@ -15,10 +15,18 @@ import (
 var migrationFS embed.FS
 
 func (s *Store) migrate(ctx context.Context) error {
-	if _, err := s.db.ExecContext(ctx, `
+	tx, err := beginTx(ctx, s.db)
+	if err != nil {
+		return opErr("begin migrations", ErrConflict, err)
+	}
+	defer rollback(tx)
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(728194631044)`); err != nil {
+		return opErr("lock migrations", ErrConflict, err)
+	}
+	if _, err := tx.ExecContext(ctx, `
 CREATE TABLE IF NOT EXISTS schema_migrations (
-    version INTEGER PRIMARY KEY,
-    applied_at TEXT NOT NULL
+    version BIGINT PRIMARY KEY,
+    applied_at TIMESTAMPTZ NOT NULL
 )`); err != nil {
 		return opErr("create migration table", ErrConflict, err)
 	}
@@ -41,7 +49,7 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 			return opErr("parse migration", ErrInvalid, fmt.Errorf("invalid migration name %q: %w", entry.Name(), err))
 		}
 		var exists int
-		err = s.db.QueryRowContext(ctx, `SELECT 1 FROM schema_migrations WHERE version = ?`, version).Scan(&exists)
+		err = tx.QueryRowContext(ctx, `SELECT 1 FROM schema_migrations WHERE version = $1`, version).Scan(&exists)
 		if err == nil {
 			continue
 		}
@@ -52,21 +60,15 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 		if err != nil {
 			return opErr("read migration", ErrConflict, err)
 		}
-		tx, err := s.db.BeginTx(ctx, nil)
-		if err != nil {
-			return opErr("begin migration", ErrConflict, err)
-		}
 		if _, err = tx.ExecContext(ctx, string(sqlBytes)); err != nil {
-			_ = tx.Rollback()
 			return opErr("apply migration", ErrConflict, fmt.Errorf("%s: %w", entry.Name(), err))
 		}
-		if _, err = tx.ExecContext(ctx, `INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)`, version, formatTime(s.now())); err != nil {
-			_ = tx.Rollback()
+		if _, err = tx.ExecContext(ctx, `INSERT INTO schema_migrations(version, applied_at) VALUES ($1, $2)`, version, dbTime(s.now())); err != nil {
 			return opErr("record migration", ErrConflict, err)
 		}
-		if err = tx.Commit(); err != nil {
-			return opErr("commit migration", ErrConflict, err)
-		}
+	}
+	if err := tx.Commit(); err != nil {
+		return opErr("commit migrations", ErrConflict, err)
 	}
 	return nil
 }

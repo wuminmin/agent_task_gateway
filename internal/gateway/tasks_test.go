@@ -3,34 +3,29 @@ package gateway
 import (
 	"context"
 	"encoding/json"
-	"strings"
 	"testing"
 
 	"taskbound.local/agent-data-gateway/internal/apierr"
 	"taskbound.local/agent-data-gateway/internal/approval"
 	"taskbound.local/agent-data-gateway/internal/control"
-	"taskbound.local/agent-data-gateway/internal/deepseek"
 )
 
 func TestRequestDataTaskUsesCatalogPolicyAndBudgetCeiling(t *testing.T) {
 	harness := newGatewayHarness(t)
-	harness.translator.intent = deepseek.TaskIntent{
-		Objective:    "compare aggregate and employee expenses",
-		DataProducts: []string{"expense_summary", "expense_detail"},
-		Columns: map[string][]string{
+	request := map[string]any{
+		"objective":     "compare aggregate and employee expenses",
+		"data_products": []string{"expense_summary", "expense_detail"},
+		"columns": map[string][]string{
 			"expense_summary": {"month", "total_amount"},
 			"expense_detail":  {"receipt_no", "employee_name", "amount"},
 		},
-		Scopes: map[string]any{
+		"scopes": map[string]any{
 			"department": []any{"销售部"},
 		},
-		RequestedBudget: &deepseek.RequestedBudget{MaxQueries: 4, MaxRows: 80},
+		"requested_budget": map[string]any{"max_queries": 3, "max_rows": 50},
 	}
 
-	result := mustCallGatewayTool(t, harness.service, harness.alice, "request_data_task", map[string]any{
-		"objective":        "compare aggregate and employee expenses",
-		"requested_budget": map[string]any{"max_queries": 3, "max_rows": 50},
-	})
+	result := mustCallGatewayTool(t, harness.service, harness.alice, "request_data_task", request)
 	if got := result["approval_mode"]; got != "manual" {
 		t.Fatalf("approval_mode = %v, want manual", got)
 	}
@@ -94,18 +89,11 @@ func TestRequestDataTaskUsesCatalogPolicyAndBudgetCeiling(t *testing.T) {
 		t.Fatalf("pending snapshot hash = %q, OA hash = %q", persistedPending.AuthorizationSnapshotSHA256, draft.AuthorizationSnapshotSHA256)
 	}
 
-	if harness.translator.intentCalls != 1 || len(harness.translator.intentCatalogs) != 1 {
-		t.Fatalf("translator calls = %d, catalogs = %d", harness.translator.intentCalls, len(harness.translator.intentCatalogs))
-	}
-	logicalCatalog := harness.translator.intentCatalogs[0]
-	for _, forbiddenText := range []string{"reporting.", "secretRef", "GATEWAY_DB_PASSWORD", `"address"`} {
-		if strings.Contains(logicalCatalog, forbiddenText) {
-			t.Fatalf("sanitized model catalog leaked %q: %s", forbiddenText, logicalCatalog)
-		}
-	}
-
 	_, err = callGatewayTool(harness.service, harness.alice, "request_data_task", map[string]any{
 		"objective":        "request more than the detail policy permits",
+		"data_products":    []string{"expense_detail"},
+		"columns":          map[string][]string{"expense_detail": {"receipt_no", "amount"}},
+		"scopes":           map[string]any{"department": []any{"销售部"}},
 		"requested_budget": map[string]any{"max_queries": 6, "max_rows": 50},
 	})
 	requireToolCode(t, err, apierr.CodeInvalidRequest)
@@ -126,5 +114,21 @@ func TestRequestDataTaskUsesCatalogPolicyAndBudgetCeiling(t *testing.T) {
 	}
 	if requested["max_queries"] != float64(3) || requested["max_rows"] != float64(50) {
 		t.Fatalf("explicit requested budget was not persisted: %#v", requested)
+	}
+}
+
+func TestRequestDataTaskRequiresExplicitColumnsAndScopes(t *testing.T) {
+	harness := newGatewayHarness(t)
+	_, err := callGatewayTool(harness.service, harness.alice, "request_data_task", map[string]any{
+		"objective": "missing structured authorization", "data_products": []string{"expense_summary"},
+	})
+	requireToolCode(t, err, apierr.CodeInvalidRequest)
+	_, err = callGatewayTool(harness.service, harness.alice, "request_data_task", map[string]any{
+		"objective": "empty product columns", "data_products": []string{"expense_summary"},
+		"columns": map[string][]string{"expense_summary": {}}, "scopes": map[string]any{"department": []any{"销售部"}},
+	})
+	requireToolCode(t, err, apierr.CodeInvalidRequest)
+	if len(harness.approval.requests) != 0 {
+		t.Fatalf("invalid structured requests reached OA: %d", len(harness.approval.requests))
 	}
 }

@@ -19,7 +19,6 @@ import (
 	"taskbound.local/agent-data-gateway/internal/catalog"
 	"taskbound.local/agent-data-gateway/internal/control"
 	"taskbound.local/agent-data-gateway/internal/dataconnector"
-	"taskbound.local/agent-data-gateway/internal/deepseek"
 	"taskbound.local/agent-data-gateway/internal/domain"
 	"taskbound.local/agent-data-gateway/internal/mcp"
 	"taskbound.local/agent-data-gateway/internal/sqlpolicy"
@@ -34,7 +33,6 @@ type Config struct {
 	Catalog        *catalog.Catalog
 	Store          *control.Store
 	Approval       approval.ApprovalAdapter
-	Translator     deepseek.Translator
 	Connector      DataConnector
 	CallbackSecret string
 	Logger         *slog.Logger
@@ -46,14 +44,12 @@ type Service struct {
 	catalog        *catalog.Catalog
 	store          *control.Store
 	approval       approval.ApprovalAdapter
-	translator     deepseek.Translator
 	connector      DataConnector
 	callbackSecret []byte
 	logger         *slog.Logger
 	clock          func() time.Time
 	background     context.Context
 	pendingSettles atomic.Int64
-	logicalCatalog string
 }
 
 type pendingContext struct {
@@ -68,8 +64,8 @@ type pendingContext struct {
 }
 
 func New(config Config) (*Service, error) {
-	if config.Catalog == nil || config.Store == nil || config.Approval == nil || config.Translator == nil || config.Connector == nil || config.CallbackSecret == "" {
-		return nil, errors.New("gateway catalog, store, approval, translator, connector, and callback secret are required")
+	if config.Catalog == nil || config.Store == nil || config.Approval == nil || config.Connector == nil || config.CallbackSecret == "" {
+		return nil, errors.New("gateway catalog, store, approval, connector, and callback secret are required")
 	}
 	if config.Logger == nil {
 		config.Logger = slog.Default()
@@ -80,15 +76,11 @@ func New(config Config) (*Service, error) {
 	if config.Background == nil {
 		config.Background = context.Background()
 	}
-	prompt, err := sanitizedCatalog(config.Catalog)
-	if err != nil {
-		return nil, fmt.Errorf("build logical catalog: %w", err)
-	}
 	return &Service{
 		catalog: config.Catalog, store: config.Store, approval: config.Approval,
-		translator: config.Translator, connector: config.Connector,
+		connector:      config.Connector,
 		callbackSecret: []byte(config.CallbackSecret), logger: config.Logger,
-		clock: config.Clock, background: config.Background, logicalCatalog: prompt,
+		clock: config.Clock, background: config.Background,
 	}, nil
 }
 
@@ -103,41 +95,6 @@ func (s *Service) ReadyError() error {
 		return fmt.Errorf("%d query budget settlement(s) pending", pending)
 	}
 	return nil
-}
-
-func sanitizedCatalog(source *catalog.Catalog) (string, error) {
-	type logicalField struct {
-		Name        string             `json:"name"`
-		Type        string             `json:"type"`
-		Description string             `json:"description"`
-		Sensitivity domain.Sensitivity `json:"sensitivity,omitempty"`
-	}
-	type logicalProduct struct {
-		Name              string             `json:"name"`
-		Description       string             `json:"description"`
-		Sensitivity       domain.Sensitivity `json:"sensitivity"`
-		Fields            []logicalField     `json:"fields"`
-		Scopes            []string           `json:"scopes"`
-		AllowedAggregates []string           `json:"allowed_aggregates,omitempty"`
-	}
-	products := make([]logicalProduct, 0, len(source.Products))
-	for _, product := range source.ListProducts() {
-		sensitivity, err := product.EffectiveSensitivity()
-		if err != nil {
-			return "", err
-		}
-		logical := logicalProduct{
-			Name: product.Name, Description: product.Description, Sensitivity: sensitivity,
-			Scopes:            append([]string(nil), product.Scopes...),
-			AllowedAggregates: append([]string(nil), product.AllowedAggregates...),
-		}
-		for _, field := range product.Fields {
-			logical.Fields = append(logical.Fields, logicalField{Name: field.Name, Type: field.Type, Description: field.Description, Sensitivity: field.Sensitivity})
-		}
-		products = append(products, logical)
-	}
-	encoded, err := json.Marshal(map[string]any{"catalog_version": source.CatalogVersion, "products": products, "scopes": source.Scopes})
-	return string(encoded), err
 }
 
 func randomID(prefix string) string {

@@ -13,7 +13,6 @@ import (
 	"taskbound.local/agent-data-gateway/internal/approval"
 	"taskbound.local/agent-data-gateway/internal/catalog"
 	"taskbound.local/agent-data-gateway/internal/control"
-	"taskbound.local/agent-data-gateway/internal/deepseek"
 	"taskbound.local/agent-data-gateway/internal/domain"
 	"taskbound.local/agent-data-gateway/internal/mcp"
 )
@@ -45,7 +44,11 @@ func (s *Service) listDataProducts(_ context.Context, _ mcp.Principal, raw json.
 			"fields": fields, "scopes": product.Scopes,
 		})
 	}
-	return map[string]any{"catalog_version": s.catalog.CatalogVersion, "products": products}, nil
+	return map[string]any{
+		"catalog_version": s.catalog.CatalogVersion,
+		"products":        products,
+		"scopes":          append([]catalog.Scope(nil), s.catalog.Scopes...),
+	}, nil
 }
 
 type requestedBudgetArgs struct {
@@ -56,7 +59,9 @@ type requestedBudgetArgs struct {
 func (s *Service) requestDataTask(ctx context.Context, principal mcp.Principal, raw json.RawMessage) (any, error) {
 	var args struct {
 		Objective       string               `json:"objective"`
-		DataProducts    []string             `json:"data_products,omitempty"`
+		DataProducts    []string             `json:"data_products"`
+		Columns         map[string][]string  `json:"columns"`
+		Scopes          map[string]any       `json:"scopes"`
 		RequestedBudget *requestedBudgetArgs `json:"requested_budget,omitempty"`
 	}
 	if err := decodeArgs(raw, &args); err != nil {
@@ -66,25 +71,31 @@ func (s *Service) requestDataTask(ctx context.Context, principal mcp.Principal, 
 	if args.Objective == "" || len(args.Objective) > 4000 {
 		return nil, &mcp.ToolError{Code: apierr.CodeInvalidRequest, Message: "objective 必须为 1 到 4000 个字符"}
 	}
-
-	intent, err := s.translator.TranslateIntent(ctx, args.Objective, s.logicalCatalog)
-	if err != nil {
-		return nil, err
+	if len(args.DataProducts) == 0 || args.Columns == nil || args.Scopes == nil {
+		return nil, &mcp.ToolError{Code: apierr.CodeInvalidRequest, Message: "data_products、columns 和 scopes 必须显式提供"}
 	}
-	requestedProducts := args.DataProducts
-	if len(requestedProducts) == 0 {
-		requestedProducts = intent.DataProducts
+	seenProducts := make(map[string]struct{}, len(args.DataProducts))
+	for index, product := range args.DataProducts {
+		product = strings.TrimSpace(product)
+		if product == "" {
+			return nil, &mcp.ToolError{Code: apierr.CodeInvalidRequest, Message: "data_products 不能包含空值"}
+		}
+		if _, duplicate := seenProducts[product]; duplicate {
+			return nil, &mcp.ToolError{Code: apierr.CodeInvalidRequest, Message: "data_products 不能包含重复产品"}
+		}
+		args.DataProducts[index] = product
+		seenProducts[product] = struct{}{}
 	}
-	requestedBudget := budgetRequest(args.RequestedBudget, intent.RequestedBudget)
-	policy, err := s.catalog.ResolveTaskPolicy(requestedProducts, requestedBudget)
+	requestedBudget := budgetRequest(args.RequestedBudget)
+	policy, err := s.catalog.ResolveTaskPolicy(args.DataProducts, requestedBudget)
 	if err != nil {
 		return nil, &mcp.ToolError{Code: apierr.CodeInvalidRequest, Message: "请求的数据产品或预算不符合目录策略"}
 	}
-	columns, err := resolveColumns(policy.Products, intent.Columns)
+	columns, err := resolveColumns(policy.Products, args.Columns)
 	if err != nil {
 		return nil, err
 	}
-	scope, err := s.normalizeScopes(policy.Products, intent.Scopes)
+	scope, err := s.normalizeScopes(policy.Products, args.Scopes)
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +104,7 @@ func (s *Service) requestDataTask(ctx context.Context, principal mcp.Principal, 
 	correlation := randomID("callback")
 	draftRequest := approval.DraftRequest{
 		TaskID: taskID, Requester: principal.Subject, Objective: args.Objective,
-		DataProducts: append([]string(nil), requestedProducts...), ApprovedColumns: cloneColumns(columns),
+		DataProducts: append([]string(nil), args.DataProducts...), ApprovedColumns: cloneColumns(columns),
 		MandatoryScope: cloneScope(scope), Sensitivity: string(policy.Sensitivity),
 		Budget:       approvalDraftBudget(policy.Budget),
 		ApprovalMode: string(policy.ApprovalRoute.Mode), Approver: policy.ApprovalRoute.Approver,
@@ -108,7 +119,7 @@ func (s *Service) requestDataTask(ctx context.Context, principal mcp.Principal, 
 		return nil, fmt.Errorf("build OA authorization snapshot: %w", err)
 	}
 	pending := pendingContext{
-		Products: requestedProducts, Columns: columns, MandatoryScope: scope, Budget: policy.Budget,
+		Products: args.DataProducts, Columns: columns, MandatoryScope: scope, Budget: policy.Budget,
 		Sensitivity: policy.Sensitivity, ApprovalMode: policy.ApprovalRoute.Mode,
 		Approver: policy.ApprovalRoute.Approver, CallbackContext: correlation,
 	}
@@ -145,28 +156,16 @@ func (s *Service) requestDataTask(ctx context.Context, principal mcp.Principal, 
 	}, nil
 }
 
-func budgetRequest(explicit *requestedBudgetArgs, model *deepseek.RequestedBudget) *domain.BudgetRequest {
-	if explicit == nil && model == nil {
+func budgetRequest(explicit *requestedBudgetArgs) *domain.BudgetRequest {
+	if explicit == nil {
 		return nil
 	}
 	request := &domain.BudgetRequest{}
-	if model != nil {
-		if model.MaxQueries > 0 {
-			value := int64(model.MaxQueries)
-			request.MaxQueries = &value
-		}
-		if model.MaxRows > 0 {
-			value := int64(model.MaxRows)
-			request.MaxRows = &value
-		}
+	if explicit.MaxQueries != nil {
+		request.MaxQueries = explicit.MaxQueries
 	}
-	if explicit != nil {
-		if explicit.MaxQueries != nil {
-			request.MaxQueries = explicit.MaxQueries
-		}
-		if explicit.MaxRows != nil {
-			request.MaxRows = explicit.MaxRows
-		}
+	if explicit.MaxRows != nil {
+		request.MaxRows = explicit.MaxRows
 	}
 	return request
 }
@@ -178,7 +177,7 @@ func resolveColumns(products []catalog.Product, requested map[string][]string) (
 	}
 	for name := range requested {
 		if _, ok := productMap[name]; !ok {
-			return nil, &mcp.ToolError{Code: apierr.CodeInvalidRequest, Message: "TaskIntent 包含未申请产品的字段"}
+			return nil, &mcp.ToolError{Code: apierr.CodeInvalidRequest, Message: "columns 包含未申请产品"}
 		}
 	}
 	resolved := make(map[string][]string, len(products))
@@ -189,15 +188,15 @@ func resolveColumns(products []catalog.Product, requested map[string][]string) (
 		}
 		columns := requested[product.Name]
 		if len(columns) == 0 {
-			columns = product.FieldNames()
+			return nil, &mcp.ToolError{Code: apierr.CodeInvalidRequest, Message: "每个申请产品都必须显式提供至少一个字段"}
 		}
 		seen := make(map[string]struct{}, len(columns))
 		for _, column := range columns {
 			if _, ok := available[column]; !ok {
-				return nil, &mcp.ToolError{Code: apierr.CodeInvalidRequest, Message: "TaskIntent 包含目录外字段"}
+				return nil, &mcp.ToolError{Code: apierr.CodeInvalidRequest, Message: "columns 包含目录外字段"}
 			}
 			if _, duplicate := seen[column]; duplicate {
-				return nil, &mcp.ToolError{Code: apierr.CodeInvalidRequest, Message: "TaskIntent 包含重复字段"}
+				return nil, &mcp.ToolError{Code: apierr.CodeInvalidRequest, Message: "columns 包含重复字段"}
 			}
 			seen[column] = struct{}{}
 		}
@@ -232,7 +231,7 @@ func (s *Service) normalizeScopes(products []catalog.Product, input map[string]a
 	result := make(map[string]any, len(input))
 	for name, raw := range input {
 		if _, ok := allowedScopes[name]; !ok {
-			return nil, &mcp.ToolError{Code: apierr.CodeInvalidRequest, Message: "TaskIntent 包含未批准的数据范围"}
+			return nil, &mcp.ToolError{Code: apierr.CodeInvalidRequest, Message: "scopes 包含未批准的数据范围"}
 		}
 		definition, ok := definitions[name]
 		if !ok {

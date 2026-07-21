@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"time"
 )
 
 func resultAAD(taskID, queryID string) []byte {
@@ -63,7 +64,7 @@ func (s *Store) FinalizeQuery(ctx context.Context, settlement BudgetSettlement, 
 		return QueryRecord{}, opErr(op, ErrConflict, fmt.Errorf("query already finalized with a different result"))
 	}
 	if record.ResultSHA256 == "" {
-		if _, err := tx.ExecContext(ctx, `UPDATE query_records SET result_sha256=? WHERE id=?`, hash, record.ID); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE query_records SET result_sha256=$1 WHERE id=$2`, hash, record.ID); err != nil {
 			return QueryRecord{}, opErr(op, ErrConflict, err)
 		}
 		record.ResultSHA256 = hash
@@ -110,7 +111,7 @@ func (s *Store) SaveEncryptedResult(ctx context.Context, taskID, queryID string,
 	var queryTask string
 	var status QueryStatus
 	var existingHash string
-	if err := tx.QueryRowContext(ctx, `SELECT task_id, status, result_sha256 FROM query_records WHERE id=?`, queryID).
+	if err := tx.QueryRowContext(ctx, `SELECT task_id, status, result_sha256 FROM query_records WHERE id=$1 FOR UPDATE`, queryID).
 		Scan(&queryTask, &status, &existingHash); err != nil {
 		if isNoRows(err) {
 			return EncryptedResult{}, opErr(op, ErrNotFound, err)
@@ -131,7 +132,7 @@ func (s *Store) SaveEncryptedResult(ctx context.Context, taskID, queryID string,
 		return EncryptedResult{}, opErr(op, ErrConflict, fmt.Errorf("query already has a different result hash"))
 	}
 	if existingHash == "" {
-		if _, err := tx.ExecContext(ctx, `UPDATE query_records SET result_sha256=? WHERE id=?`, result.SHA256, queryID); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE query_records SET result_sha256=$1 WHERE id=$2`, result.SHA256, queryID); err != nil {
 			return EncryptedResult{}, opErr(op, ErrConflict, err)
 		}
 	}
@@ -158,7 +159,7 @@ func (s *Store) SaveEncryptedResult(ctx context.Context, taskID, queryID string,
 // an idempotent replay of the same plaintext hash.
 func insertEncryptedResultTx(ctx context.Context, tx *sql.Tx, result EncryptedResult) (bool, error) {
 	var existingHash string
-	err := tx.QueryRowContext(ctx, `SELECT plaintext_sha256 FROM encrypted_query_results WHERE query_id=?`, result.QueryID).Scan(&existingHash)
+	err := tx.QueryRowContext(ctx, `SELECT plaintext_sha256 FROM encrypted_query_results WHERE query_id=$1 FOR UPDATE`, result.QueryID).Scan(&existingHash)
 	if err == nil {
 		if subtle.ConstantTimeCompare([]byte(existingHash), []byte(result.SHA256)) == 1 {
 			return false, nil
@@ -170,8 +171,8 @@ func insertEncryptedResultTx(ctx context.Context, tx *sql.Tx, result EncryptedRe
 	}
 	_, err = tx.ExecContext(ctx, `
 INSERT INTO encrypted_query_results(query_id, task_id, nonce, ciphertext, plaintext_sha256, created_at)
-VALUES (?, ?, ?, ?, ?, ?)`, result.QueryID, result.TaskID, result.Nonce, result.Ciphertext, result.SHA256,
-		formatTime(result.CreatedAt))
+VALUES ($1, $2, $3, $4, $5, $6)`, result.QueryID, result.TaskID, result.Nonce, result.Ciphertext, result.SHA256,
+		dbTime(result.CreatedAt))
 	if err != nil {
 		return false, opErr("save encrypted result", ErrConflict, err)
 	}
@@ -188,10 +189,10 @@ func (s *Store) GetEncryptedResult(ctx context.Context, taskID, queryID string) 
 		return EncryptedResult{}, nil, opErr(op, ErrCipherUnavailable, nil)
 	}
 	var result EncryptedResult
-	var created string
+	var created time.Time
 	err := s.db.QueryRowContext(ctx, `
 SELECT query_id, task_id, nonce, ciphertext, plaintext_sha256, created_at
-FROM encrypted_query_results WHERE query_id=? AND task_id=?`, queryID, taskID).
+FROM encrypted_query_results WHERE query_id=$1 AND task_id=$2`, queryID, taskID).
 		Scan(&result.QueryID, &result.TaskID, &result.Nonce, &result.Ciphertext, &result.SHA256, &created)
 	if err != nil {
 		if isNoRows(err) {
@@ -199,10 +200,7 @@ FROM encrypted_query_results WHERE query_id=? AND task_id=?`, queryID, taskID).
 		}
 		return EncryptedResult{}, nil, opErr(op, ErrConflict, err)
 	}
-	result.CreatedAt, err = parseTime(created)
-	if err != nil {
-		return EncryptedResult{}, nil, opErr(op, ErrConflict, err)
-	}
+	result.CreatedAt = dbTime(created)
 	plaintext, err := s.cipher.Decrypt(result.Nonce, result.Ciphertext, resultAAD(taskID, queryID))
 	if err != nil {
 		return EncryptedResult{}, nil, opErr(op, ErrCiphertextInvalid, err)

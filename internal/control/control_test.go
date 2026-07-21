@@ -3,12 +3,15 @@ package control
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
+
+	"taskbound.local/agent-data-gateway/internal/testpostgres"
 )
 
 type fixedClock struct{ value time.Time }
@@ -26,7 +29,7 @@ func testCipher(t *testing.T, fill byte) *AES256GCM {
 
 func openTestStore(t *testing.T, path string, cipher ResultCipher, options ...Option) *Store {
 	t.Helper()
-	store, err := Open(context.Background(), path+`?_foreign_keys=on&_busy_timeout=5000`, cipher, options...)
+	store, err := Open(context.Background(), path, cipher, options...)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -81,7 +84,7 @@ func approveTask(t *testing.T, store *Store, taskID string, expires time.Time, l
 }
 
 func TestMigrationsAndTaskRequestContext(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "control.db")
+	path := testpostgres.SchemaDSN(t)
 	clock := fixedClock{value: time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)}
 	store := openTestStore(t, path, testCipher(t, 1), WithClock(clock))
 	expires := clock.value.Add(time.Hour)
@@ -91,26 +94,33 @@ func TestMigrationsAndTaskRequestContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetTask: %v", err)
 	}
-	if string(task.RequestContext) != `{"products":["expense_summary"],"scope":{"department":"sales"}}` {
+	var gotContext, wantContext any
+	if err := json.Unmarshal(task.RequestContext, &gotContext); err != nil {
+		t.Fatalf("decode request context: %v", err)
+	}
+	if err := json.Unmarshal([]byte(`{"products":["expense_summary"],"scope":{"department":"sales"}}`), &wantContext); err != nil {
+		t.Fatalf("decode expected request context: %v", err)
+	}
+	if !reflect.DeepEqual(gotContext, wantContext) {
 		t.Fatalf("request context was not preserved: %s", task.RequestContext)
 	}
 	for _, relation := range []string{
 		"principals", "tasks", "task_grants", "grants", "approval_events", "budget_ledger",
 		"query_records", "encrypted_query_results", "encrypted_results", "audit_events", "callback_idempotency",
 	} {
-		var count int
+		var exists bool
 		if err := store.DB().QueryRowContext(context.Background(), `
-SELECT COUNT(*) FROM sqlite_master WHERE name=? AND type IN ('table','view')`, relation).Scan(&count); err != nil {
+SELECT to_regclass($1) IS NOT NULL`, relation).Scan(&exists); err != nil {
 			t.Fatalf("inspect %s: %v", relation, err)
 		}
-		if count != 1 {
+		if !exists {
 			t.Errorf("relation %s missing", relation)
 		}
 	}
 }
 
 func TestApprovalCallbackReplayAndConflict(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "control.db")
+	path := testpostgres.SchemaDSN(t)
 	clock := fixedClock{value: time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)}
 	store := openTestStore(t, path, testCipher(t, 2), WithClock(clock))
 	expires := clock.value.Add(time.Hour)
@@ -135,10 +145,57 @@ func TestApprovalCallbackReplayAndConflict(t *testing.T) {
 	if _, err := store.GetGrant(context.Background(), "task_callback"); err != nil {
 		t.Fatalf("GetGrant: %v", err)
 	}
+	if _, err := store.DB().ExecContext(context.Background(), `UPDATE task_grants SET purpose='tampered' WHERE task_id='task_callback'`); err == nil {
+		t.Fatal("immutable grant update unexpectedly succeeded")
+	}
+	if _, err := store.DB().ExecContext(context.Background(), `DELETE FROM task_grants WHERE task_id='task_callback'`); err == nil {
+		t.Fatal("immutable grant delete unexpectedly succeeded")
+	}
+}
+
+func TestConcurrentAuditAppendProducesContinuousChain(t *testing.T) {
+	store := openTestStore(t, testpostgres.SchemaDSN(t), testCipher(t, 8))
+	const count = 24
+	errorsCh := make(chan error, count)
+	var wait sync.WaitGroup
+	for index := 0; index < count; index++ {
+		index := index
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			_, err := store.AppendAuditEvent(context.Background(), AuditEvent{
+				EventID: fmt.Sprintf("audit_concurrent_%02d", index), Actor: "test", EventType: "CONCURRENT_APPEND",
+				Payload: mustJSON(map[string]any{"index": index}),
+			})
+			errorsCh <- err
+		}()
+	}
+	wait.Wait()
+	close(errorsCh)
+	for err := range errorsCh {
+		if err != nil {
+			t.Fatalf("concurrent audit append: %v", err)
+		}
+	}
+	if err := store.VerifyAuditChain(context.Background()); err != nil {
+		t.Fatalf("VerifyAuditChain after concurrent appends: %v", err)
+	}
+	events, err := store.ListAuditEvents(context.Background(), AuditFilter{Limit: count})
+	if err != nil {
+		t.Fatalf("ListAuditEvents: %v", err)
+	}
+	if len(events) != count {
+		t.Fatalf("audit event count = %d, want %d", len(events), count)
+	}
+	for index, event := range events {
+		if event.Sequence != int64(index+1) {
+			t.Fatalf("audit sequence[%d] = %d, want %d", index, event.Sequence, index+1)
+		}
+	}
 }
 
 func TestBudgetSerializationFinalizationAndAuditChain(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "control.db")
+	path := testpostgres.SchemaDSN(t)
 	clock := fixedClock{value: time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)}
 	store := openTestStore(t, path, testCipher(t, 3), WithClock(clock))
 	expires := clock.value.Add(time.Hour)
@@ -201,7 +258,7 @@ func TestBudgetSerializationFinalizationAndAuditChain(t *testing.T) {
 		t.Fatalf("decrypted result differs: %s", decrypted)
 	}
 	var ciphertext []byte
-	if err := store.DB().QueryRowContext(context.Background(), `SELECT ciphertext FROM encrypted_query_results WHERE query_id=?`, winner.QueryID).Scan(&ciphertext); err != nil {
+	if err := store.DB().QueryRowContext(context.Background(), `SELECT ciphertext FROM encrypted_query_results WHERE query_id=$1`, winner.QueryID).Scan(&ciphertext); err != nil {
 		t.Fatalf("read ciphertext: %v", err)
 	}
 	if bytes.Contains(ciphertext, []byte("2026-07")) {
@@ -234,7 +291,7 @@ func TestBudgetSerializationFinalizationAndAuditChain(t *testing.T) {
 }
 
 func TestRestartRecoveryAndCallbackRetry(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "control.db")
+	path := testpostgres.SchemaDSN(t)
 	clock := fixedClock{value: time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)}
 	cipher := testCipher(t, 4)
 	store := openTestStore(t, path, cipher, WithClock(clock))
@@ -255,7 +312,7 @@ func TestRestartRecoveryAndCallbackRetry(t *testing.T) {
 		t.Fatalf("close first store: %v", err)
 	}
 
-	restarted, err := Open(context.Background(), path+`?_foreign_keys=on&_busy_timeout=5000`, cipher, WithClock(clock))
+	restarted, err := Open(context.Background(), path, cipher, WithClock(clock))
 	if err != nil {
 		t.Fatalf("restart Open: %v", err)
 	}
@@ -304,7 +361,7 @@ func TestRestartRecoveryAndCallbackRetry(t *testing.T) {
 }
 
 func TestRecoveryChargesReservationAndArchivesAtHardLimit(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "control.db")
+	path := testpostgres.SchemaDSN(t)
 	clock := fixedClock{value: time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)}
 	store := openTestStore(t, path, testCipher(t, 8), WithClock(clock))
 	expires := clock.value.Add(time.Hour)
@@ -390,7 +447,7 @@ func TestAES256GCMValidationAndAuthentication(t *testing.T) {
 }
 
 func TestAuditChainDetectsTampering(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "control.db")
+	path := testpostgres.SchemaDSN(t)
 	store := openTestStore(t, path, testCipher(t, 5))
 	if _, err := store.AppendAuditEvent(context.Background(), AuditEvent{
 		EventID: "audit_test", Actor: "carol", EventType: "AUDIT_READ", Payload: []byte(`{"task_id":"t"}`),
@@ -400,7 +457,10 @@ func TestAuditChainDetectsTampering(t *testing.T) {
 	if _, err := store.DB().ExecContext(context.Background(), `UPDATE audit_events SET payload_json='{}' WHERE event_id='audit_test'`); err == nil {
 		t.Fatal("immutable audit update unexpectedly succeeded")
 	}
-	if _, err := store.DB().ExecContext(context.Background(), `DROP TRIGGER audit_events_no_update`); err != nil {
+	if _, err := store.DB().ExecContext(context.Background(), `DELETE FROM audit_events WHERE event_id='audit_test'`); err == nil {
+		t.Fatal("immutable audit delete unexpectedly succeeded")
+	}
+	if _, err := store.DB().ExecContext(context.Background(), `DROP TRIGGER audit_events_no_update ON audit_events`); err != nil {
 		t.Fatalf("drop test trigger: %v", err)
 	}
 	if _, err := store.DB().ExecContext(context.Background(), `UPDATE audit_events SET payload_json='{}' WHERE event_id='audit_test'`); err != nil {

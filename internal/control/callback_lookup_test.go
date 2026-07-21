@@ -4,12 +4,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"path/filepath"
 	"testing"
+
+	"taskbound.local/agent-data-gateway/internal/testpostgres"
 )
 
 func TestLookupCallbackIsReadOnlyAcrossStatuses(t *testing.T) {
-	store := openTestStore(t, filepath.Join(t.TempDir(), "control.db"), testCipher(t, 9))
+	store := openTestStore(t, testpostgres.SchemaDSN(t), testCipher(t, 9))
 	ctx := context.Background()
 	payload := []byte(`{"task_id":"task_lookup","decision":"approved"}`)
 

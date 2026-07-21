@@ -2,8 +2,6 @@ package queryplan
 
 import (
 	"testing"
-
-	"taskbound.local/agent-data-gateway/internal/deepseek"
 )
 
 func TestCompileEscapesLiteralsAndRestrictsColumns(t *testing.T) {
@@ -13,13 +11,13 @@ func TestCompileEscapesLiteralsAndRestrictsColumns(t *testing.T) {
 		Columns:           map[string]struct{}{"month": {}, "department": {}, "total_amount": {}},
 		AllowedAggregates: map[string]struct{}{"sum": {}},
 	}
-	plan := deepseek.QueryPlan{
+	plan := QueryPlan{
 		Product:    "expense_summary",
 		Columns:    []string{"month"},
-		Aggregates: []deepseek.Aggregate{{Function: "sum", Column: "total_amount", Alias: "amount"}},
-		Filters:    []deepseek.Filter{{Column: "department", Op: "=", Value: "销售'部"}},
+		Aggregates: []Aggregate{{Function: "sum", Column: "total_amount", Alias: "amount"}},
+		Filters:    []Filter{{Column: "department", Op: "=", Value: "销售'部"}},
 		GroupBy:    []string{"month"},
-		OrderBy:    []deepseek.Order{{Column: "month", Direction: "asc"}},
+		OrderBy:    []Order{{Column: "month", Direction: "asc"}},
 		Limit:      10,
 	}
 	got, err := Compile(plan, product)
@@ -33,5 +31,37 @@ func TestCompileEscapesLiteralsAndRestrictsColumns(t *testing.T) {
 	plan.Columns = append(plan.Columns, "salary")
 	if _, err := Compile(plan, product); err == nil {
 		t.Fatal("expected unapproved column rejection")
+	}
+}
+
+func TestCompileRejectsNegativeLimitAndDuplicateSelectNames(t *testing.T) {
+	t.Parallel()
+	product := Product{Name: "expense_summary", Columns: map[string]struct{}{"month": {}}, AllowedAggregates: map[string]struct{}{"count": {}}}
+	if _, err := Compile(QueryPlan{Product: product.Name, Columns: []string{"month"}, Limit: -1}, product); err == nil {
+		t.Fatal("negative limit was accepted")
+	}
+	if _, err := Compile(QueryPlan{Product: product.Name, Columns: []string{"month", "month"}}, product); err == nil {
+		t.Fatal("duplicate select column was accepted")
+	}
+}
+
+func TestCompileRejectsInvalidGroupingOrderingAndFilters(t *testing.T) {
+	t.Parallel()
+	product := Product{
+		Name: "expense_summary", Columns: map[string]struct{}{"month": {}, "department": {}, "total_amount": {}},
+		AllowedAggregates: map[string]struct{}{"sum": {}},
+	}
+	tests := []QueryPlan{
+		{Product: product.Name, Columns: []string{"month"}, Aggregates: []Aggregate{{Function: "sum", Column: "total_amount", Alias: "amount"}}},
+		{Product: product.Name, Columns: []string{"month"}, GroupBy: []string{"month", "month"}},
+		{Product: product.Name, Columns: []string{"month", "department"}, GroupBy: []string{"month"}},
+		{Product: product.Name, Columns: []string{"month"}, OrderBy: []Order{{Column: "department"}}},
+		{Product: product.Name, Columns: []string{"month"}, OrderBy: []Order{{Column: "month"}, {Column: "month"}}},
+		{Product: product.Name, Columns: []string{"month"}, Filters: []Filter{{Column: "month", Op: "LIKE", Value: true}}},
+	}
+	for index, plan := range tests {
+		if _, err := Compile(plan, product); err == nil {
+			t.Errorf("invalid plan %d was accepted: %#v", index, plan)
+		}
 	}
 }

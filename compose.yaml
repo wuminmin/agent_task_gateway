@@ -1,15 +1,37 @@
 name: taskbound-agent-data-gateway
 
 services:
-  postgres:
+  control-postgres:
+    image: postgres:16-bookworm
+    environment:
+      POSTGRES_DB: ${CONTROL_POSTGRES_DB:-taskbound_gateway}
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${CONTROL_POSTGRES_ADMIN_PASSWORD:?set CONTROL_POSTGRES_ADMIN_PASSWORD in .env}
+      CONTROL_DB_PASSWORD: ${CONTROL_DB_PASSWORD:?set CONTROL_DB_PASSWORD in .env}
+    ports:
+      - 127.0.0.1:${CONTROL_POSTGRES_PORT:-25433}:5432
+    volumes:
+      - control-pg-data:/var/lib/postgresql/data
+      - ./db/control-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d $${POSTGRES_DB}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    security_opt:
+      - no-new-privileges:true
+
+  business-postgres:
     image: postgres:16-bookworm
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-travel_demo}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       GATEWAY_DB_PASSWORD: ${GATEWAY_DB_PASSWORD:?set GATEWAY_DB_PASSWORD in .env}
+    ports:
+      - 127.0.0.1:${POSTGRES_PORT:-25434}:5432
     volumes:
-      - pg-data:/var/lib/postgresql/data
+      - business-pg-data:/var/lib/postgresql/data
       - ./db/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
@@ -26,7 +48,7 @@ services:
         TARGET: gateway
     environment:
       GATEWAY_ADDR: :8082
-      CONTROL_DB_PATH: /data/gateway.db
+      CONTROL_POSTGRES_DSN: postgres://gateway_control:${CONTROL_DB_PASSWORD:?set CONTROL_DB_PASSWORD in .env}@control-postgres:5432/${CONTROL_POSTGRES_DB:-taskbound_gateway}?sslmode=disable
       CATALOG_PATH: /etc/taskbound/catalog.yaml
       GATEWAY_DATA_KEY: ${GATEWAY_DATA_KEY:?set GATEWAY_DATA_KEY in .env}
       TASKBOUND_ALICE_TOKEN: ${TASKBOUND_ALICE_TOKEN:?set TASKBOUND_ALICE_TOKEN in .env}
@@ -35,19 +57,17 @@ services:
       OA_CALLBACK_SECRET: ${OA_CALLBACK_SECRET:?set OA_CALLBACK_SECRET in .env}
       OA_BASE_URL: http://oa-demo:8092
       PUBLIC_OA_BASE_URL: http://127.0.0.1:8092
-      POSTGRES_DSN: postgres://gateway_reader:${GATEWAY_DB_PASSWORD:?set GATEWAY_DB_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-travel_demo}?sslmode=disable
-      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
-      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
-      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-v4-flash}
+      POSTGRES_DSN: postgres://gateway_reader:${GATEWAY_DB_PASSWORD:?set GATEWAY_DB_PASSWORD in .env}@business-postgres:5432/${POSTGRES_DB:-travel_demo}?sslmode=disable
     depends_on:
-      postgres:
+      control-postgres:
+        condition: service_healthy
+      business-postgres:
         condition: service_healthy
       oa-demo:
         condition: service_healthy
     ports:
       - 127.0.0.1:8082:8082
     volumes:
-      - gateway-data:/data
       - ./config/catalog.yaml:/etc/taskbound/catalog.yaml:ro
     read_only: true
     tmpfs:
@@ -88,5 +108,5 @@ services:
       - no-new-privileges:true
 
 volumes:
-  gateway-data:
-  pg-data:
+  control-pg-data:
+  business-pg-data:

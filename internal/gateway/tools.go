@@ -20,14 +20,22 @@ func objectSchema(properties map[string]any, required ...string) map[string]any 
 
 var queryTools = []mcp.Tool{
 	{Name: "list_data_products", Description: "列出可申请的逻辑数据产品、字段、说明和敏感等级。", InputSchema: objectSchema(nil), Annotations: map[string]any{"readOnlyHint": true}},
-	{Name: "request_data_task", Description: "创建任务和 OA 草稿。未给出 data_products 时由 DeepSeek 将目标转成候选 TaskIntent，最终策略由 Gateway 确定。", InputSchema: objectSchema(map[string]any{
+	{Name: "request_data_task", Description: "使用显式产品、字段和范围创建任务及 OA 草稿，最终策略由 Gateway 确定。", InputSchema: objectSchema(map[string]any{
 		"objective":     map[string]any{"type": "string", "minLength": 1, "maxLength": 4000},
-		"data_products": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "uniqueItems": true},
+		"data_products": map[string]any{"type": "array", "items": map[string]any{"type": "string", "minLength": 1}, "minItems": 1, "uniqueItems": true},
+		"columns": map[string]any{"type": "object", "minProperties": 1, "additionalProperties": map[string]any{
+			"type": "array", "items": map[string]any{"type": "string", "minLength": 1}, "minItems": 1, "uniqueItems": true,
+		}},
+		"scopes": map[string]any{"type": "object", "additionalProperties": map[string]any{"oneOf": []any{
+			map[string]any{"type": "string"},
+			map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "minItems": 1, "uniqueItems": true},
+			objectSchema(map[string]any{"from": map[string]any{"type": "string"}, "to": map[string]any{"type": "string"}}),
+		}}},
 		"requested_budget": objectSchema(map[string]any{
 			"max_queries": map[string]any{"type": "integer", "minimum": 1},
 			"max_rows":    map[string]any{"type": "integer", "minimum": 1},
 		}),
-	}, "objective")},
+	}, "objective", "data_products", "columns", "scopes")},
 	{Name: "list_my_tasks", Description: "列出当前 Alice 身份自己的任务。", InputSchema: objectSchema(map[string]any{
 		"state":  map[string]any{"type": "string", "enum": []string{"AWAITING_SUBMISSION", "AWAITING_APPROVAL", "ACTIVE", "ARCHIVED"}},
 		"cursor": map[string]any{"type": "string"},
@@ -37,10 +45,10 @@ var queryTools = []mcp.Tool{
 		"task_id": map[string]any{"type": "string"}, "timeout_seconds": map[string]any{"type": "integer", "minimum": 0, "maximum": 45},
 	}, "task_id"), Annotations: map[string]any{"readOnlyHint": true}},
 	{Name: "get_task_context", Description: "读取 ACTIVE 任务的批准范围、预算和期限。", InputSchema: taskIDSchema(), Annotations: map[string]any{"readOnlyHint": true}},
-	{Name: "query_data", Description: "将自然语言问题转换为声明式 QueryPlan，经本地确定性编译和 SQL 策略验证后查询。", InputSchema: objectSchema(map[string]any{
-		"task_id": map[string]any{"type": "string"}, "question": map[string]any{"type": "string", "minLength": 1, "maxLength": 8000},
+	{Name: "execute_plan", Description: "执行声明式 QueryPlan，经确定性编译和 SQL 策略验证后查询。", InputSchema: objectSchema(map[string]any{
+		"task_id": map[string]any{"type": "string"}, "plan": queryPlanSchema(),
 		"output_format": map[string]any{"type": "string", "enum": []string{"json", "table"}},
-	}, "task_id", "question")},
+	}, "task_id", "plan")},
 	{Name: "query_sql", Description: "在任务授权内执行单条 PostgreSQL SELECT；只能引用逻辑数据产品。", InputSchema: objectSchema(map[string]any{
 		"task_id": map[string]any{"type": "string"}, "sql": map[string]any{"type": "string", "minLength": 1, "maxLength": 100000},
 	}, "task_id", "sql")},
@@ -54,6 +62,24 @@ var queryTools = []mcp.Tool{
 	{Name: "complete_task", Description: "完成并归档自己的 ACTIVE 任务。", InputSchema: objectSchema(map[string]any{
 		"task_id": map[string]any{"type": "string"}, "summary": map[string]any{"type": "string", "maxLength": 8000},
 	}, "task_id")},
+}
+
+func queryPlanSchema() map[string]any {
+	return objectSchema(map[string]any{
+		"product": map[string]any{"type": "string", "minLength": 1},
+		"columns": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "uniqueItems": true},
+		"aggregates": map[string]any{"type": "array", "items": objectSchema(map[string]any{
+			"function": map[string]any{"type": "string"}, "column": map[string]any{"type": "string"}, "alias": map[string]any{"type": "string"},
+		}, "function", "column", "alias")},
+		"filters": map[string]any{"type": "array", "items": objectSchema(map[string]any{
+			"column": map[string]any{"type": "string"}, "op": map[string]any{"type": "string"}, "value": map[string]any{},
+		}, "column", "op", "value")},
+		"group_by": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "uniqueItems": true},
+		"order_by": map[string]any{"type": "array", "items": objectSchema(map[string]any{
+			"column": map[string]any{"type": "string"}, "direction": map[string]any{"type": "string", "enum": []string{"", "asc", "desc"}},
+		}, "column")},
+		"limit": map[string]any{"type": "integer", "minimum": 0},
+	}, "product", "columns")
 }
 
 var auditTools = []mcp.Tool{
@@ -99,8 +125,8 @@ func (s *Service) CallTool(ctx context.Context, principal mcp.Principal, name st
 			result, err = s.waitForApproval(ctx, principal, raw)
 		case "get_task_context":
 			result, err = s.getTaskContext(ctx, principal, raw)
-		case "query_data":
-			result, err = s.queryData(ctx, principal, raw)
+		case "execute_plan":
+			result, err = s.executePlan(ctx, principal, raw)
 		case "query_sql":
 			result, err = s.querySQL(ctx, principal, raw)
 		case "get_query_result":

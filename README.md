@@ -1,80 +1,72 @@
 # Task-bound Agent Data Gateway
 
-Task-bound Agent Data Gateway 是一个本地演示系统：Agent 必须先申请一个有目的、有范围、有预算且有期限的数据任务，经 OA 审批后，才能查询只读数据产品。Gateway 负责确定性授权、PostgreSQL SQL AST 审计、预算扣减、结果加密和审计凭证；DeepSeek 只负责把自然语言翻译成候选 JSON，不参与最终授权。
+Task-bound Agent Data Gateway 是一个本地演示系统：Agent 必须先提交明确的数据产品、字段、Scope、预算和目的，经 OA 审批后，才能查询只读数据产品。Gateway 不包含模型层；它只接受结构化任务申请、声明式 `QueryPlan` 或 SQL，并以确定性策略完成授权、PostgreSQL AST 校验、预算扣减、结果加密和审计。
 
-> 当前仓库是单机 Demo，不是可直接上线的生产网关。生产差距见[威胁模型与生产化差距](docs/threat-model.md)。
+> 当前仓库是单实例 Demo，不是可直接上线的生产网关。生产差距见[威胁模型与生产化差距](docs/threat-model.md)。
 
 ## 架构概览
 
 ```text
 本地 Codex / MCP Client
-          │ Bearer Token + MCP
+          │ Bearer Token + MCP 2.0
           ▼
- Gateway :8080 ──────► DeepSeek API（仅问题与脱敏逻辑目录）
-    │    │
-    │    ├───────────► OA Demo :8090（草稿、提交、审批、签名回调）
-    │    │
-    │    ├───────────► PostgreSQL 16（gateway_reader，只读 Reporting Views）
-    │    │
-    │    └───────────► SQLite /data/gateway.db（任务、预算、AES-GCM 结果、审计链）
+ Gateway :8082 ─────────► OA Demo :8092（草稿、审批、HMAC 回调）
     │
-    └─ Alice：申请与查询自己的任务；Carol：只读审计，不读取原始结果
+    ├───────────────────► Control PostgreSQL :5432（宿主机 127.0.0.1:25433）
+    │                       任务、Grant、预算、AES-GCM 结果、审计链
+    │
+    └───────────────────► Business PostgreSQL :5432（宿主机 127.0.0.1:25434）
+                            gateway_reader 只读 Reporting Views
 ```
 
-核心安全边界与数据流见[一页式架构与安全边界](docs/architecture.md)。
+两个 PostgreSQL 使用独立容器、账号和 Volume。Gateway 仍按单实例部署；数据库行锁保证请求并发安全，本版本不提供多 Gateway 租约协议。
 
 ## 快速启动
 
-宿主机需要 Docker Engine 与 Docker Compose v2；构建、格式检查和 Go 测试都在容器内完成，不要求宿主机安装 Go。
+宿主机只需要 Docker Engine 与 Docker Compose v2：
 
 ```bash
 cp .env.example .env
-```
-
-编辑 `.env`：至少生成并填写一个稳定的 32 字节 Base64 数据密钥，替换所有 Demo Token、共享密钥和密码；要运行自然语言申请与查询，还需填写有效的 `DEEPSEEK_API_KEY`。
-
-```bash
-# 若宿主机有 OpenSSL：
-openssl rand -base64 32
-# 或者只使用 Docker：
-docker run --rm --entrypoint sh postgres:16-bookworm -c 'head -c 32 /dev/urandom | base64'
+openssl rand -base64 32  # 填入 GATEWAY_DATA_KEY
+# 同时替换 .env 中的全部 Token、共享密钥和数据库密码
 docker compose up --build -d --wait
 docker compose ps
-curl -i http://127.0.0.1:8080/health/ready
-curl -i http://127.0.0.1:8090/health/ready
+curl -i http://127.0.0.1:8082/health/ready
+curl -i http://127.0.0.1:8092/health/ready
 ```
 
-两个健康检查成功时返回 `204 No Content`。服务只发布到本机回环地址：
+本机入口：
 
-- Gateway / MCP：`http://127.0.0.1:8080/mcp`
-- OA Demo：`http://127.0.0.1:8090/login`
+| 服务 | 地址 |
+|---|---|
+| Gateway / MCP | `http://127.0.0.1:8082/mcp` |
+| OA Demo | `http://127.0.0.1:8092/login` |
+| 系统控制库 | `127.0.0.1:25433` / `taskbound_gateway` |
+| 业务数据源库 | `127.0.0.1:25434` / `travel_demo` |
 
-仓库已提供 [`.codex/config.toml`](.codex/config.toml)。启动 Alice 的 Codex 会话：
+Navicat 的用户名和密码对应关系见[本地启动与数据库调试](docs/getting-started.md#navicat-连接参数)。数据库端口仅绑定宿主机回环地址。
 
-```bash
-export TASKBOUND_GATEWAY_TOKEN='<与 .env 中 TASKBOUND_ALICE_TOKEN 相同的值>'
-codex
+## MCP 2.0 工作流
+
+1. 调用 `list_data_products` 获取完整逻辑产品、字段和 Scope 的允许值/日期边界。
+2. 调用 `request_data_task`，显式提交非空 `objective`、`data_products`、每个产品的非空 `columns` 及 `scopes`。请求预算只能缩小 Catalog 上限。
+3. 在 OA 提交并完成自动或人工审批。
+4. ACTIVE 后调用 `execute_plan(task_id, plan)` 或 `query_sql(task_id, sql)`。
+
+`execute_plan` 的最小示例：
+
+```json
+{
+  "task_id": "task_...",
+  "plan": {
+    "product": "expense_summary",
+    "columns": ["month", "total_amount"],
+    "order_by": [{"column": "month", "direction": "asc"}]
+  }
+}
 ```
 
-完整的 Alice 自动审批、Bob 人工审批和 Carol 审计流程见[Compose 启动与 Codex MCP 演示](docs/getting-started.md)。
-
-## Demo 身份
-
-| 身份 | 入口 | 权限 | 凭据来源 |
-|---|---|---|---|
-| Alice | MCP | 申请任务、查询自己的 ACTIVE 任务、读取自己的结果与凭证 | `TASKBOUND_ALICE_TOKEN` |
-| Carol | MCP | 列出审计事件、读取查询凭证；不能读取原始查询结果 | `TASKBOUND_CAROL_TOKEN` |
-| Alice | OA | 提交自己的 OA 草稿 | 用户名 `alice`，密码 `OA_ALICE_PASSWORD` |
-| Bob | OA | 审批分配给 Bob 的人工审批任务 | 用户名 `bob`，密码 `OA_BOB_PASSWORD` |
-
-## 数据产品与默认策略
-
-| 逻辑产品 | 内容 | 有效敏感级别 | 强制范围 | 审批 | 默认预算 |
-|---|---|---|---|---|---|
-| `expense_summary` | 月份、部门、费用类型汇总 | `low` | `department` | Alice 提交后自动批准 | 10 次、500 行、30 秒 DB 时间、单次 5 秒、TTL 30 分钟 |
-| `expense_detail` | 员工级报销明细 | `high` | `department` | Bob 人工批准或拒绝 | 5 次、100 行、15 秒 DB 时间、单次 5 秒、TTL 15 分钟 |
-
-Agent SQL 只引用逻辑产品名和获批字段，例如：
+直接 SQL 只能引用逻辑产品名和获批字段，例如：
 
 ```sql
 SELECT month, sum(total_amount) AS amount
@@ -83,9 +75,18 @@ GROUP BY month
 ORDER BY month
 ```
 
-不得引用 `reporting.*`、`legacy.*` 或系统目录；Gateway 会在服务端注入强制范围并加上剩余行预算限制。
+不得引用 `reporting.*`、`legacy.*` 或系统目录。Gateway 会注入强制 Scope，并按剩余预算限制结果行数和执行时间。
 
-## 验证与运维
+## 身份
+
+| 身份 | 入口 | 权限 | 凭据来源 |
+|---|---|---|---|
+| Alice | MCP | 申请任务、查询自己的 ACTIVE 任务、读取自己的结果与凭证 | `TASKBOUND_ALICE_TOKEN` |
+| Carol | MCP | 读取审计事件和查询凭证，不能读取原始结果 | `TASKBOUND_CAROL_TOKEN` |
+| Alice | OA | 提交自己的 OA 草稿 | `alice` / `OA_ALICE_PASSWORD` |
+| Bob | OA | 审批人工任务 | `bob` / `OA_BOB_PASSWORD` |
+
+## 验证与数据保留
 
 ```bash
 make verify
@@ -93,17 +94,15 @@ make logs
 docker compose down
 ```
 
-`make verify` 在 Docker 中执行格式检查、`go vet`、race 单元测试、镜像构建和隔离的 Compose 端到端验收：官方 Go MCP Client、Alice 自动审批、Bob 批准/拒绝、预算耗尽、重启恢复、身份隔离、数据库权限及模型停机降级均会被实际验证。测试使用本地确定性模型替身，不调用外部 DeepSeek，并在成功或失败后删除专用测试 Volume。`docker compose down` 保留普通开发栈的 `gateway-data` 与 `pg-data`；`docker compose down --volumes` 会永久删除 Demo 数据。
+`make verify` 会执行格式检查、`go vet`、真实 PostgreSQL `go test -race ./...`、镜像构建和隔离的 Compose 端到端验收。
+
+`docker compose down` 保留 `control-pg-data` 与 `business-pg-data`；`docker compose down --volumes` 会删除当前 Compose 项目的这两个 Volume。旧版本的 `gateway-data` Volume 已不再挂载，也不会被本次改造自动删除，可按需手工备份或清理。
 
 ## 文档
 
-- [一页式架构与安全边界](docs/architecture.md)
-- [Compose 启动与 Codex MCP 演示](docs/getting-started.md)
+- [架构与安全边界](docs/architecture.md)
+- [Compose 启动、Navicat 与 MCP 演示](docs/getting-started.md)
 - [Catalog 编写指南](docs/catalog-guide.md)
 - [OA 与数据源适配器接口](docs/adapters.md)
-- [SQL 安全规则与已知限制](docs/sql-security.md)
+- [SQL 与 QueryPlan 安全规则](docs/sql-security.md)
 - [威胁模型与生产化差距](docs/threat-model.md)
-
-## 明确不做
-
-本项目不建设 OA、BI 或数据仓库，不复制生产数据库，不安装 PostgreSQL 扩展，不管理 Agent Skill，也不渲染图表。它返回结构化数据与审计证据，由 Codex 及其 Skill 负责分析和呈现。

@@ -8,7 +8,6 @@ import (
 
 	"taskbound.local/agent-data-gateway/internal/apierr"
 	"taskbound.local/agent-data-gateway/internal/control"
-	"taskbound.local/agent-data-gateway/internal/deepseek"
 	"taskbound.local/agent-data-gateway/internal/mcp"
 )
 
@@ -55,31 +54,29 @@ func TestAliceCannotObserveAnotherQueryPrincipalTask(t *testing.T) {
 	}
 }
 
-func TestModelOutageDoesNotDisableDirectSQLAndCarolCannotReadRawResult(t *testing.T) {
+func TestStructuredPlanAndDirectSQLKeepRawResultsOwnerOnly(t *testing.T) {
 	harness := newGatewayHarness(t)
 	harness.createActiveSummaryTask(t, "task-direct-sql")
-	harness.translator.queryErr = apierr.New(apierr.CodeModelUnavailable, "model unavailable in test")
 
-	_, err := callGatewayTool(harness.service, harness.alice, "query_data", map[string]any{
-		"task_id": "task-direct-sql", "question": "show monthly totals",
+	planned := mustCallGatewayTool(t, harness.service, harness.alice, "execute_plan", map[string]any{
+		"task_id": "task-direct-sql", "plan": map[string]any{
+			"product": "expense_summary", "columns": []string{"month", "total_amount"},
+			"order_by": []map[string]any{{"column": "month", "direction": "asc"}},
+		},
 	})
-	requireToolCode(t, err, apierr.CodeModelUnavailable)
-	if harness.translator.queryCalls != 1 || len(harness.connector.requests) != 0 {
-		t.Fatalf("model failure reached connector: translator=%d connector=%d", harness.translator.queryCalls, len(harness.connector.requests))
+	if planned["query_plan"] == nil || len(harness.connector.requests) != 1 {
+		t.Fatalf("structured plan was not executed: result=%#v connector=%d", planned, len(harness.connector.requests))
 	}
 
 	direct := mustCallGatewayTool(t, harness.service, harness.alice, "query_sql", map[string]any{
 		"task_id": "task-direct-sql",
 		"sql":     "SELECT month, total_amount FROM expense_summary",
 	})
-	if harness.translator.queryCalls != 1 {
-		t.Fatalf("direct SQL unexpectedly called translator %d times", harness.translator.queryCalls)
+	if len(harness.connector.requests) != 2 {
+		t.Fatalf("query connector calls = %d, want 2", len(harness.connector.requests))
 	}
-	if len(harness.connector.requests) != 1 {
-		t.Fatalf("direct SQL connector calls = %d, want 1", len(harness.connector.requests))
-	}
-	if harness.connector.requests[0].MaxRows <= 0 || harness.connector.requests[0].StatementTimeout <= 0 {
-		t.Fatalf("direct SQL omitted enforced connector bounds: %+v", harness.connector.requests[0])
+	if harness.connector.requests[1].MaxRows <= 0 || harness.connector.requests[1].StatementTimeout <= 0 {
+		t.Fatalf("direct SQL omitted enforced connector bounds: %+v", harness.connector.requests[1])
 	}
 	queryID, ok := direct["query_id"].(string)
 	if !ok || queryID == "" {
@@ -102,7 +99,7 @@ func TestModelOutageDoesNotDisableDirectSQLAndCarolCannotReadRawResult(t *testin
 	})
 	requireToolCode(t, err, apierr.CodeForbidden)
 	for _, tool := range harness.service.ListTools(harness.carol) {
-		if tool.Name == "get_query_result" || tool.Name == "query_sql" || tool.Name == "query_data" {
+		if tool.Name == "get_query_result" || tool.Name == "query_sql" || tool.Name == "execute_plan" {
 			t.Fatalf("Carol was advertised raw-data tool %q", tool.Name)
 		}
 	}
@@ -123,5 +120,3 @@ func TestModelOutageDoesNotDisableDirectSQLAndCarolCannotReadRawResult(t *testin
 		}
 	}
 }
-
-var _ deepseek.Translator = (*fakeTranslator)(nil)

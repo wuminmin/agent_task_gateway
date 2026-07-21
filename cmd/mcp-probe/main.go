@@ -86,13 +86,13 @@ func main() {
 // ownership test. The helper container mounts the isolated integration volume;
 // no test-only endpoint or identity is added to the production Gateway.
 func seedOtherPrincipalTask(ctx context.Context, catalogVersion string) {
-	databasePath := os.Getenv("CONTROL_DB_PATH")
+	databaseDSN := os.Getenv("CONTROL_POSTGRES_DSN")
 	dataKey := os.Getenv("GATEWAY_DATA_KEY")
-	if databasePath == "" && dataKey == "" {
+	if databaseDSN == "" && dataKey == "" {
 		return
 	}
-	if databasePath == "" || dataKey == "" {
-		fatal("seed another principal task", errors.New("CONTROL_DB_PATH and GATEWAY_DATA_KEY must be set together"))
+	if databaseDSN == "" || dataKey == "" {
+		fatal("seed another principal task", errors.New("CONTROL_POSTGRES_DSN and GATEWAY_DATA_KEY must be set together"))
 	}
 	key, err := control.ParseAES256Key(dataKey)
 	if err != nil {
@@ -102,7 +102,7 @@ func seedOtherPrincipalTask(ctx context.Context, catalogVersion string) {
 	if err != nil {
 		fatal("create integration result cipher", err)
 	}
-	store, err := control.Open(ctx, databasePath, cipher)
+	store, err := control.Open(ctx, databaseDSN, cipher)
 	if err != nil {
 		fatal("open integration control store", err)
 	}

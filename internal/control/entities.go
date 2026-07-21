@@ -27,8 +27,8 @@ func (s *Store) CreatePrincipal(ctx context.Context, principal Principal) error 
 	defer rollback(tx)
 	_, err = tx.ExecContext(ctx, `
 INSERT INTO principals(id, subject, role, token_hash, created_at, disabled_at)
-VALUES (?, ?, ?, ?, ?, ?)`, principal.ID, principal.Subject, principal.Role, principal.TokenHash,
-		formatTime(principal.CreatedAt), nullableTime(principal.DisabledAt))
+VALUES ($1, $2, $3, $4, $5, $6)`, principal.ID, principal.Subject, principal.Role, principal.TokenHash,
+		dbTime(principal.CreatedAt), nullableTime(principal.DisabledAt))
 	if err != nil {
 		return opErr(op, ErrConflict, err)
 	}
@@ -53,7 +53,7 @@ func (s *Store) GetPrincipal(ctx context.Context, id string) (Principal, error) 
 		return Principal{}, err
 	}
 	return scanPrincipal(op, s.db.QueryRowContext(ctx, `
-SELECT id, subject, role, token_hash, created_at, disabled_at FROM principals WHERE id = ?`, id))
+SELECT id, subject, role, token_hash, created_at, disabled_at FROM principals WHERE id = $1`, id))
 }
 
 func (s *Store) GetPrincipalBySubject(ctx context.Context, subject string) (Principal, error) {
@@ -62,28 +62,21 @@ func (s *Store) GetPrincipalBySubject(ctx context.Context, subject string) (Prin
 		return Principal{}, err
 	}
 	return scanPrincipal(op, s.db.QueryRowContext(ctx, `
-SELECT id, subject, role, token_hash, created_at, disabled_at FROM principals WHERE subject = ?`, subject))
+SELECT id, subject, role, token_hash, created_at, disabled_at FROM principals WHERE subject = $1`, subject))
 }
 
 func scanPrincipal(op string, row rowScanner) (Principal, error) {
 	var principal Principal
-	var created string
-	var disabled sql.NullString
+	var created time.Time
+	var disabled sql.NullTime
 	if err := row.Scan(&principal.ID, &principal.Subject, &principal.Role, &principal.TokenHash, &created, &disabled); err != nil {
 		if isNoRows(err) {
 			return Principal{}, opErr(op, ErrNotFound, err)
 		}
 		return Principal{}, opErr(op, ErrConflict, err)
 	}
-	var err error
-	principal.CreatedAt, err = parseTime(created)
-	if err != nil {
-		return Principal{}, opErr(op, ErrConflict, err)
-	}
-	principal.DisabledAt, err = scanNullableTime(disabled)
-	if err != nil {
-		return Principal{}, opErr(op, ErrConflict, err)
-	}
+	principal.CreatedAt = dbTime(created)
+	principal.DisabledAt = scanNullableTime(disabled)
 	return principal, nil
 }
 
@@ -124,9 +117,9 @@ func (s *Store) CreateTask(ctx context.Context, task Task) error {
 	_, err = tx.ExecContext(ctx, `
 INSERT INTO tasks(id, principal_id, objective, state, terminal_reason, catalog_version, sensitivity,
                   requested_budget_json, request_context_json, approval_ref, created_at, updated_at, expires_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, task.ID, task.PrincipalID, task.Objective, task.State,
-		task.TerminalReason, task.CatalogVersion, task.Sensitivity, []byte(requested), []byte(requestContext), task.ApprovalRef,
-		formatTime(task.CreatedAt), formatTime(task.UpdatedAt), nullableTime(task.ExpiresAt))
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`, task.ID, task.PrincipalID, task.Objective, task.State,
+		task.TerminalReason, task.CatalogVersion, task.Sensitivity, string(requested), string(requestContext), task.ApprovalRef,
+		dbTime(task.CreatedAt), dbTime(task.UpdatedAt), nullableTime(task.ExpiresAt))
 	if err != nil {
 		return opErr(op, ErrConflict, err)
 	}
@@ -149,7 +142,7 @@ func (s *Store) GetTask(ctx context.Context, id string) (Task, error) {
 	if err := s.checkOpen(op); err != nil {
 		return Task{}, err
 	}
-	return scanTask(op, s.db.QueryRowContext(ctx, taskSelect+` WHERE id = ?`, id))
+	return scanTask(op, s.db.QueryRowContext(ctx, taskSelect+` WHERE id = $1`, id))
 }
 
 const taskSelect = `SELECT id, principal_id, objective, state, terminal_reason, catalog_version, sensitivity,
@@ -158,8 +151,8 @@ requested_budget_json, request_context_json, approval_ref, created_at, updated_a
 func scanTask(op string, row rowScanner) (Task, error) {
 	var task Task
 	var requested, requestContext []byte
-	var created, updated string
-	var expires sql.NullString
+	var created, updated time.Time
+	var expires sql.NullTime
 	if err := row.Scan(&task.ID, &task.PrincipalID, &task.Objective, &task.State, &task.TerminalReason,
 		&task.CatalogVersion, &task.Sensitivity, &requested, &requestContext, &task.ApprovalRef, &created, &updated, &expires); err != nil {
 		if isNoRows(err) {
@@ -167,21 +160,11 @@ func scanTask(op string, row rowScanner) (Task, error) {
 		}
 		return Task{}, opErr(op, ErrConflict, err)
 	}
-	var err error
 	task.RequestedBudget = append(json.RawMessage(nil), requested...)
 	task.RequestContext = append(json.RawMessage(nil), requestContext...)
-	task.CreatedAt, err = parseTime(created)
-	if err != nil {
-		return Task{}, opErr(op, ErrConflict, err)
-	}
-	task.UpdatedAt, err = parseTime(updated)
-	if err != nil {
-		return Task{}, opErr(op, ErrConflict, err)
-	}
-	task.ExpiresAt, err = scanNullableTime(expires)
-	if err != nil {
-		return Task{}, opErr(op, ErrConflict, err)
-	}
+	task.CreatedAt = dbTime(created)
+	task.UpdatedAt = dbTime(updated)
+	task.ExpiresAt = scanNullableTime(expires)
 	return task, nil
 }
 
@@ -195,8 +178,8 @@ func (s *Store) ListTasks(ctx context.Context, filter TaskFilter) ([]Task, error
 		limit = 100
 	}
 	rows, err := s.db.QueryContext(ctx, taskSelect+`
-WHERE (? = '' OR principal_id = ?) AND (? = '' OR state = ?) AND (? = '' OR id > ?)
-ORDER BY id LIMIT ?`, filter.PrincipalID, filter.PrincipalID, filter.State, filter.State,
+WHERE ($1 = '' OR principal_id = $2) AND ($3 = '' OR state = $4) AND ($5 = '' OR id > $6)
+ORDER BY id LIMIT $7`, filter.PrincipalID, filter.PrincipalID, filter.State, filter.State,
 		filter.AfterID, filter.AfterID, limit)
 	if err != nil {
 		return nil, opErr(op, ErrConflict, err)
@@ -244,7 +227,7 @@ func (s *Store) TransitionTask(ctx context.Context, change TaskTransition) (Task
 		return Task{}, opErr(op, ErrConflict, err)
 	}
 	defer rollback(tx)
-	current, err := scanTask(op, tx.QueryRowContext(ctx, taskSelect+` WHERE id = ?`, change.TaskID))
+	current, err := scanTask(op, tx.QueryRowContext(ctx, taskSelect+` WHERE id = $1 FOR UPDATE`, change.TaskID))
 	if err != nil {
 		return Task{}, err
 	}
@@ -259,8 +242,8 @@ func (s *Store) TransitionTask(ctx context.Context, change TaskTransition) (Task
 	if change.ExpiresAt != nil {
 		expires = change.ExpiresAt
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE tasks SET state=?, terminal_reason=?, updated_at=?, expires_at=? WHERE id=?`,
-		change.To, change.Reason, formatTime(now), nullableTime(expires), change.TaskID)
+	_, err = tx.ExecContext(ctx, `UPDATE tasks SET state=$1, terminal_reason=$2, updated_at=$3, expires_at=$4 WHERE id=$5`,
+		change.To, change.Reason, dbTime(now), nullableTime(expires), change.TaskID)
 	if err != nil {
 		return Task{}, opErr(op, ErrConflict, err)
 	}
@@ -345,7 +328,7 @@ func (s *Store) PutGrant(ctx context.Context, grant TaskGrant) error {
 	}
 	defer rollback(tx)
 	var state TaskState
-	if err := tx.QueryRowContext(ctx, `SELECT state FROM tasks WHERE id=?`, grant.TaskID).Scan(&state); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT state FROM tasks WHERE id=$1 FOR UPDATE`, grant.TaskID).Scan(&state); err != nil {
 		if isNoRows(err) {
 			return opErr(op, ErrNotFound, err)
 		}
@@ -375,17 +358,17 @@ func insertGrantAndBudget(ctx context.Context, tx *sql.Tx, grant TaskGrant, prod
 INSERT INTO task_grants(task_id, subject, purpose, approved_products_json, approved_columns_json,
  mandatory_scope_json, sensitivity_ceiling, max_queries, max_rows, max_db_ms, expires_at,
  catalog_version, approval_receipt, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, grant.TaskID, grant.Subject, grant.Purpose,
-		products, columns, scope, grant.SensitivityCeiling, grant.Budget.Queries, grant.Budget.Rows,
-		grant.Budget.DBMS, formatTime(grant.ExpiresAt), grant.CatalogVersion, grant.ApprovalReceipt,
-		formatTime(grant.CreatedAt))
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`, grant.TaskID, grant.Subject, grant.Purpose,
+		string(products), string(columns), string(scope), grant.SensitivityCeiling, grant.Budget.Queries, grant.Budget.Rows,
+		grant.Budget.DBMS, dbTime(grant.ExpiresAt), grant.CatalogVersion, grant.ApprovalReceipt,
+		dbTime(grant.CreatedAt))
 	if err != nil {
 		return err
 	}
 	_, err = tx.ExecContext(ctx, `
 INSERT INTO budget_ledger(task_id, max_queries, max_rows, max_db_ms, updated_at)
-VALUES (?, ?, ?, ?, ?)`, grant.TaskID, grant.Budget.Queries, grant.Budget.Rows, grant.Budget.DBMS,
-		formatTime(grant.CreatedAt))
+VALUES ($1, $2, $3, $4, $5)`, grant.TaskID, grant.Budget.Queries, grant.Budget.Rows, grant.Budget.DBMS,
+		dbTime(grant.CreatedAt))
 	return err
 }
 
@@ -396,11 +379,11 @@ func (s *Store) GetGrant(ctx context.Context, taskID string) (TaskGrant, error) 
 	}
 	var grant TaskGrant
 	var products, columns, scope []byte
-	var expires, created string
+	var expires, created time.Time
 	err := s.db.QueryRowContext(ctx, `
 SELECT task_id, subject, purpose, approved_products_json, approved_columns_json, mandatory_scope_json,
  sensitivity_ceiling, max_queries, max_rows, max_db_ms, expires_at, catalog_version, approval_receipt, created_at
-FROM task_grants WHERE task_id=?`, taskID).Scan(&grant.TaskID, &grant.Subject, &grant.Purpose, &products,
+FROM task_grants WHERE task_id=$1`, taskID).Scan(&grant.TaskID, &grant.Subject, &grant.Purpose, &products,
 		&columns, &scope, &grant.SensitivityCeiling, &grant.Budget.Queries, &grant.Budget.Rows, &grant.Budget.DBMS,
 		&expires, &grant.CatalogVersion, &grant.ApprovalReceipt, &created)
 	if err != nil {
@@ -416,14 +399,8 @@ FROM task_grants WHERE task_id=?`, taskID).Scan(&grant.TaskID, &grant.Subject, &
 		return TaskGrant{}, opErr(op, ErrConflict, err)
 	}
 	grant.MandatoryScope = append(json.RawMessage(nil), scope...)
-	grant.ExpiresAt, err = parseTime(expires)
-	if err != nil {
-		return TaskGrant{}, opErr(op, ErrConflict, err)
-	}
-	grant.CreatedAt, err = parseTime(created)
-	if err != nil {
-		return TaskGrant{}, opErr(op, ErrConflict, err)
-	}
+	grant.ExpiresAt = dbTime(expires)
+	grant.CreatedAt = dbTime(created)
 	return grant, nil
 }
 
@@ -449,7 +426,7 @@ func (s *Store) RecordApprovalEvent(ctx context.Context, event ApprovalEvent) er
 	defer rollback(tx)
 	_, err = tx.ExecContext(ctx, `
 INSERT INTO approval_events(event_id, task_id, actor, decision, payload_json, created_at)
-VALUES (?, ?, ?, ?, ?, ?)`, event.EventID, event.TaskID, event.Actor, event.Decision, []byte(payload), formatTime(event.CreatedAt))
+VALUES ($1, $2, $3, $4, $5, $6)`, event.EventID, event.TaskID, event.Actor, event.Decision, string(payload), dbTime(event.CreatedAt))
 	if err != nil {
 		return opErr(op, ErrConflict, err)
 	}
@@ -473,7 +450,7 @@ func (s *Store) ListApprovalEvents(ctx context.Context, taskID string) ([]Approv
 	}
 	rows, err := s.db.QueryContext(ctx, `
 SELECT event_id, task_id, actor, decision, payload_json, created_at
-FROM approval_events WHERE task_id=? ORDER BY created_at, event_id`, taskID)
+FROM approval_events WHERE task_id=$1 ORDER BY created_at, event_id`, taskID)
 	if err != nil {
 		return nil, opErr(op, ErrConflict, err)
 	}
@@ -482,15 +459,12 @@ FROM approval_events WHERE task_id=? ORDER BY created_at, event_id`, taskID)
 	for rows.Next() {
 		var event ApprovalEvent
 		var payload []byte
-		var created string
+		var created time.Time
 		if err := rows.Scan(&event.EventID, &event.TaskID, &event.Actor, &event.Decision, &payload, &created); err != nil {
 			return nil, opErr(op, ErrConflict, err)
 		}
 		event.Payload = append(json.RawMessage(nil), payload...)
-		event.CreatedAt, err = parseTime(created)
-		if err != nil {
-			return nil, opErr(op, ErrConflict, err)
-		}
+		event.CreatedAt = dbTime(created)
 		events = append(events, event)
 	}
 	if err := rows.Err(); err != nil {

@@ -19,7 +19,7 @@ func main() {
 		CallbackSecret: requiredEnv("OA_CALLBACK_SECRET"),
 		SessionSecret:  requiredEnv("OA_SESSION_SECRET"),
 		CallbackURL:    requiredEnv("GATEWAY_CALLBACK_URL"),
-		PublicBaseURL:  env("PUBLIC_OA_BASE_URL", "http://127.0.0.1:8090"),
+		PublicBaseURL:  env("PUBLIC_OA_BASE_URL", "http://127.0.0.1:8092"),
 		AlicePassword:  requiredEnv("OA_ALICE_PASSWORD"),
 		BobPassword:    requiredEnv("OA_BOB_PASSWORD"),
 		Logger:         logger,
@@ -28,7 +28,7 @@ func main() {
 		logger.Error("initialize OA demo", "error", err)
 		os.Exit(1)
 	}
-	server := &http.Server{Addr: env("OA_ADDR", ":8090"), Handler: oa.Handler(), ReadHeaderTimeout: 5 * time.Second}
+	server := &http.Server{Addr: env("OA_ADDR", ":8092"), Handler: oa.Handler(), ReadHeaderTimeout: 5 * time.Second}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	go func() {

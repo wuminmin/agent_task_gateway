@@ -14,8 +14,6 @@ const (
 	CodeTaskNotActive         = "TASK_NOT_ACTIVE"
 	CodePolicyDenied          = "POLICY_DENIED"
 	CodeBudgetExhausted       = "BUDGET_EXHAUSTED"
-	CodeModelUnavailable      = "MODEL_UNAVAILABLE"
-	CodeInvalidModelOutput    = "INVALID_MODEL_OUTPUT"
 	CodeApprovalUnavailable   = "APPROVAL_UNAVAILABLE"
 	CodeDataSourceUnavailable = "DATA_SOURCE_UNAVAILABLE"
 	CodeInternal              = "INTERNAL_ERROR"

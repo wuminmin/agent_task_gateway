@@ -52,18 +52,14 @@ func (s *Service) querySQL(ctx context.Context, principal mcp.Principal, raw jso
 	return s.executeSQL(ctx, principal, task, args.SQL, args.SQL)
 }
 
-func (s *Service) queryData(ctx context.Context, principal mcp.Principal, raw json.RawMessage) (any, error) {
+func (s *Service) executePlan(ctx context.Context, principal mcp.Principal, raw json.RawMessage) (any, error) {
 	var args struct {
-		TaskID       string `json:"task_id"`
-		Question     string `json:"question"`
-		OutputFormat string `json:"output_format,omitempty"`
+		TaskID       string              `json:"task_id"`
+		Plan         queryplan.QueryPlan `json:"plan"`
+		OutputFormat string              `json:"output_format,omitempty"`
 	}
 	if err := decodeArgs(raw, &args); err != nil {
 		return nil, err
-	}
-	args.Question = strings.TrimSpace(args.Question)
-	if args.Question == "" || len(args.Question) > 8000 {
-		return nil, &mcp.ToolError{Code: apierr.CodeInvalidRequest, Message: "question 必须为 1 到 8000 个字符"}
 	}
 	if args.OutputFormat != "" && args.OutputFormat != "json" && args.OutputFormat != "table" {
 		return nil, &mcp.ToolError{Code: apierr.CodeInvalidRequest, Message: "output_format 仅支持 json 或 table"}
@@ -79,37 +75,33 @@ func (s *Service) queryData(ctx context.Context, principal mcp.Principal, raw js
 	if err != nil {
 		return nil, err
 	}
-	prompt, err := s.grantCatalogPrompt(grant)
-	if err != nil {
-		return nil, err
-	}
-	plan, err := s.translator.TranslateQuery(ctx, args.Question, prompt)
-	if err != nil {
-		return nil, err
-	}
-	product, ok := s.catalog.LookupProduct(plan.Product)
-	if !ok || !contains(grant.ApprovedProducts, plan.Product) {
+	product, ok := s.catalog.LookupProduct(args.Plan.Product)
+	if !ok || !contains(grant.ApprovedProducts, args.Plan.Product) {
 		return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "QueryPlan 请求了任务授权外的数据产品"}
 	}
-	columns := make(map[string]struct{}, len(grant.ApprovedColumns[plan.Product]))
-	for _, column := range grant.ApprovedColumns[plan.Product] {
+	columns := make(map[string]struct{}, len(grant.ApprovedColumns[args.Plan.Product]))
+	for _, column := range grant.ApprovedColumns[args.Plan.Product] {
 		columns[column] = struct{}{}
 	}
 	aggregates := make(map[string]struct{}, len(product.AllowedAggregates))
 	for _, aggregate := range product.AllowedAggregates {
 		aggregates[strings.ToLower(aggregate)] = struct{}{}
 	}
-	compiled, err := queryplan.Compile(plan, queryplan.Product{
-		Name: plan.Product, Columns: columns, AllowedAggregates: aggregates,
+	compiled, err := queryplan.Compile(args.Plan, queryplan.Product{
+		Name: args.Plan.Product, Columns: columns, AllowedAggregates: aggregates,
 	})
 	if err != nil {
 		return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "QueryPlan 无法在任务授权内编译"}
 	}
-	result, err := s.executeSQL(ctx, principal, task, compiled, args.Question)
+	requestJSON, err := json.Marshal(args.Plan)
+	if err != nil {
+		return nil, &mcp.ToolError{Code: apierr.CodeInvalidRequest, Message: "QueryPlan 无法编码"}
+	}
+	result, err := s.executeSQL(ctx, principal, task, compiled, string(requestJSON))
 	if err != nil {
 		return nil, err
 	}
-	result.(map[string]any)["query_plan"] = plan
+	result.(map[string]any)["query_plan"] = args.Plan
 	result.(map[string]any)["output_format"] = defaultString(args.OutputFormat, "json")
 	return result, nil
 }
@@ -387,26 +379,6 @@ func scopePredicates(product catalog.Product, scope map[string]any) ([]sqlpolicy
 		}
 	}
 	return predicates, nil
-}
-
-func (s *Service) grantCatalogPrompt(grant control.TaskGrant) (string, error) {
-	products := make([]queryplan.Product, 0, len(grant.ApprovedProducts))
-	for _, name := range grant.ApprovedProducts {
-		product, ok := s.catalog.LookupProduct(name)
-		if !ok {
-			return "", errors.New("grant product not found in catalog")
-		}
-		columns := make(map[string]struct{}, len(grant.ApprovedColumns[name]))
-		for _, column := range grant.ApprovedColumns[name] {
-			columns[column] = struct{}{}
-		}
-		aggregates := make(map[string]struct{}, len(product.AllowedAggregates))
-		for _, aggregate := range product.AllowedAggregates {
-			aggregates[aggregate] = struct{}{}
-		}
-		products = append(products, queryplan.Product{Name: name, Columns: columns, AllowedAggregates: aggregates})
-	}
-	return queryplan.CatalogPrompt(products)
 }
 
 func (s *Service) getQueryResult(ctx context.Context, principal mcp.Principal, raw json.RawMessage) (any, error) {

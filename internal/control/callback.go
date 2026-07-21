@@ -32,7 +32,7 @@ func (s *Store) LookupCallback(ctx context.Context, eventID string, rawPayload [
 	var response []byte
 	err := s.db.QueryRowContext(ctx, `
 SELECT payload_sha256, status, response_body
-FROM callback_idempotency WHERE event_id=?`, eventID).Scan(&storedHash, &status, &response)
+FROM callback_idempotency WHERE event_id=$1`, eventID).Scan(&storedHash, &status, &response)
 	if err != nil {
 		if isNoRows(err) {
 			return CallbackClaim{}, opErr(op, ErrNotFound, err)
@@ -97,21 +97,23 @@ func (s *Store) RetryCallback(ctx context.Context, eventID string, rawPayload []
 }
 
 func claimCallbackTx(ctx context.Context, tx *sql.Tx, eventID, payloadHash string, now time.Time) (CallbackClaim, error) {
+	result, err := tx.ExecContext(ctx, `
+INSERT INTO callback_idempotency(event_id, payload_sha256, status, claimed_at)
+VALUES ($1, $2, 'PROCESSING', $3)
+ON CONFLICT (event_id) DO NOTHING`, eventID, payloadHash, dbTime(now))
+	if err != nil {
+		return CallbackClaim{}, opErr("claim callback", ErrConflict, err)
+	}
+	if affected, _ := result.RowsAffected(); affected == 1 {
+		return CallbackClaim{EventID: eventID, Status: CallbackProcessing, Claimed: true}, nil
+	}
 	var storedHash string
 	var status CallbackStatus
 	var response []byte
-	err := tx.QueryRowContext(ctx, `
-SELECT payload_sha256, status, response_body FROM callback_idempotency WHERE event_id=?`, eventID).
+	err = tx.QueryRowContext(ctx, `
+SELECT payload_sha256, status, response_body
+FROM callback_idempotency WHERE event_id=$1 FOR UPDATE`, eventID).
 		Scan(&storedHash, &status, &response)
-	if isNoRows(err) {
-		_, err = tx.ExecContext(ctx, `
-INSERT INTO callback_idempotency(event_id, payload_sha256, status, claimed_at)
-VALUES (?, ?, 'PROCESSING', ?)`, eventID, payloadHash, formatTime(now))
-		if err != nil {
-			return CallbackClaim{}, opErr("claim callback", ErrConflict, err)
-		}
-		return CallbackClaim{EventID: eventID, Status: CallbackProcessing, Claimed: true}, nil
-	}
 	if err != nil {
 		return CallbackClaim{}, opErr("claim callback", ErrConflict, err)
 	}
@@ -126,8 +128,8 @@ VALUES (?, ?, 'PROCESSING', ?)`, eventID, payloadHash, formatTime(now))
 	case CallbackRetryable:
 		_, err = tx.ExecContext(ctx, `
 UPDATE callback_idempotency
-SET status='PROCESSING', last_error='', claimed_at=?, completed_at=NULL
-WHERE event_id=? AND status='RETRYABLE'`, formatTime(now), eventID)
+SET status='PROCESSING', last_error='', claimed_at=$1, completed_at=NULL
+WHERE event_id=$2 AND status='RETRYABLE'`, dbTime(now), eventID)
 		if err != nil {
 			return CallbackClaim{}, opErr("claim callback", ErrConflict, err)
 		}
@@ -153,7 +155,7 @@ func (s *Store) CompleteCallback(ctx context.Context, eventID string, rawPayload
 	var storedHash string
 	var status CallbackStatus
 	var storedResponse []byte
-	err = tx.QueryRowContext(ctx, `SELECT payload_sha256, status, response_body FROM callback_idempotency WHERE event_id=?`, eventID).
+	err = tx.QueryRowContext(ctx, `SELECT payload_sha256, status, response_body FROM callback_idempotency WHERE event_id=$1 FOR UPDATE`, eventID).
 		Scan(&storedHash, &status, &storedResponse)
 	if err != nil {
 		if isNoRows(err) {
@@ -192,8 +194,8 @@ func (s *Store) CompleteCallback(ctx context.Context, eventID string, rawPayload
 func completeCallbackTx(ctx context.Context, tx *sql.Tx, eventID string, response []byte, now time.Time) error {
 	result, err := tx.ExecContext(ctx, `
 UPDATE callback_idempotency
-SET status='COMPLETED', response_body=?, last_error='', completed_at=?
-WHERE event_id=? AND status='PROCESSING'`, response, formatTime(now), eventID)
+SET status='COMPLETED', response_body=$1, last_error='', completed_at=$2
+WHERE event_id=$3 AND status='PROCESSING'`, response, dbTime(now), eventID)
 	if err != nil {
 		return err
 	}
@@ -213,8 +215,8 @@ func (s *Store) FailCallback(ctx context.Context, eventID string, rawPayload []b
 	}
 	result, err := s.db.ExecContext(ctx, `
 UPDATE callback_idempotency
-SET status='RETRYABLE', last_error=?, completed_at=NULL
-WHERE event_id=? AND payload_sha256=? AND status='PROCESSING'`, failure, eventID, callbackPayloadHash(rawPayload))
+SET status='RETRYABLE', last_error=$1, completed_at=NULL
+WHERE event_id=$2 AND payload_sha256=$3 AND status='PROCESSING'`, failure, eventID, callbackPayloadHash(rawPayload))
 	if err != nil {
 		return opErr(op, ErrConflict, err)
 	}
@@ -225,7 +227,7 @@ WHERE event_id=? AND payload_sha256=? AND status='PROCESSING'`, failure, eventID
 }
 
 // ApprovalCallback applies an OA decision and its idempotency marker in one
-// SQLite transaction. Grant is required when NewState is ACTIVE.
+// PostgreSQL transaction. Grant is required when NewState is ACTIVE.
 type ApprovalCallback struct {
 	EventID       string
 	RawPayload    []byte
@@ -278,7 +280,7 @@ func (s *Store) ApplyApprovalCallback(ctx context.Context, callback ApprovalCall
 		return claim, nil
 	}
 	var current TaskState
-	if err := tx.QueryRowContext(ctx, `SELECT state FROM tasks WHERE id=?`, callback.Event.TaskID).Scan(&current); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT state FROM tasks WHERE id=$1 FOR UPDATE`, callback.Event.TaskID).Scan(&current); err != nil {
 		if isNoRows(err) {
 			return CallbackClaim{}, opErr(op, ErrNotFound, err)
 		}
@@ -292,8 +294,8 @@ func (s *Store) ApplyApprovalCallback(ctx context.Context, callback ApprovalCall
 	}
 	_, err = tx.ExecContext(ctx, `
 INSERT INTO approval_events(event_id, task_id, actor, decision, payload_json, created_at)
-VALUES (?, ?, ?, ?, ?, ?)`, callback.Event.EventID, callback.Event.TaskID, callback.Event.Actor,
-		callback.Event.Decision, []byte(payload), formatTime(callback.Event.CreatedAt))
+VALUES ($1, $2, $3, $4, $5, $6)`, callback.Event.EventID, callback.Event.TaskID, callback.Event.Actor,
+		callback.Event.Decision, string(payload), dbTime(callback.Event.CreatedAt))
 	if err != nil {
 		return CallbackClaim{}, opErr(op, ErrConflict, err)
 	}
@@ -321,11 +323,11 @@ VALUES (?, ?, ?, ?, ?, ?)`, callback.Event.EventID, callback.Event.TaskID, callb
 		if err := insertGrantAndBudget(ctx, tx, grant, products, columns, scope); err != nil {
 			return CallbackClaim{}, opErr(op, ErrConflict, err)
 		}
-		expires = formatTime(grant.ExpiresAt)
+		expires = dbTime(grant.ExpiresAt)
 	}
 	_, err = tx.ExecContext(ctx, `
-UPDATE tasks SET state=?, terminal_reason=?, updated_at=?, expires_at=COALESCE(?, expires_at) WHERE id=?`,
-		callback.NewState, callback.Reason, formatTime(now), expires, callback.Event.TaskID)
+UPDATE tasks SET state=$1, terminal_reason=$2, updated_at=$3, expires_at=COALESCE($4, expires_at) WHERE id=$5`,
+		callback.NewState, callback.Reason, dbTime(now), expires, callback.Event.TaskID)
 	if err != nil {
 		return CallbackClaim{}, opErr(op, ErrConflict, err)
 	}

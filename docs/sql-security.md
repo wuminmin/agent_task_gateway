@@ -2,7 +2,7 @@
 
 ## 决策链
 
-无论 SQL 来自 `query_sql` 还是自然语言 `QueryPlan` 的确定性编译，都会经过同一条本地链路：
+无论 SQL 来自 `query_sql` 还是 `execute_plan` 的确定性编译，都会经过同一条本地链路：
 
 ```text
 Agent SQL / 编译后的 QueryPlan SQL
@@ -11,8 +11,8 @@ Agent SQL / 编译后的 QueryPlan SQL
   → 语句/对象/字段/函数/运算符/特性白名单
   → 为每个逻辑产品生成 TaskGrant 约束 CTE
   → 外层 LIMIT = 剩余累计行预算
-  → SQLite 事务预留预算
-  → PostgreSQL 显式只读事务 + statement_timeout
+  → 控制 PostgreSQL 行锁事务预留预算
+  → 业务 PostgreSQL 显式只读事务 + statement_timeout
   → 结算预算、AES-GCM 保存结果、写查询凭证和审计事件
 ```
 
@@ -27,7 +27,7 @@ Agent SQL / 编译后的 QueryPlan SQL
 - 函数、聚合与运算符必须处于当前获批产品 Catalog 允许列表和引擎安全集合内。
 - 白名单标量类型的普通 Cast，例如 `CAST(amount AS numeric)`。
 - 显式选择列。普通 `SELECT *` 和 `product.*` 禁止；聚合参数中的 `count(*)` 是特意允许的例外。
-- 字符串、布尔、数字和 `NULL` 等普通常量。自然语言 QueryPlan 的文字值由 Go 编译器转义，不把模型输出当 SQL 片段。
+- 字符串、布尔、数字和 `NULL` 等普通常量。QueryPlan 的 literal 由 Go 编译器转义，不把客户端值当 SQL 片段。
 
 一个合法直接 SQL 示例：
 
@@ -76,7 +76,7 @@ FROM (
 LIMIT 25
 ```
 
-Scope 值不是任意 SQL：它来自经 Catalog 边界校验的 TaskIntent，并由受控运算符和字面量转义器渲染。Catalog 启动校验要求每个产品 Scope 对应一个发布字段；任务申请缺少任一强制 Scope 会失败。
+Scope 值不是任意 SQL：它来自显式任务申请并经过 Catalog 允许值或日期边界校验，再由受控运算符和字面量转义器渲染。Catalog 启动校验要求每个产品 Scope 对应一个发布字段；任务申请缺少任一强制 Scope 会失败。
 
 Agent 自己写的内层 `LIMIT` 只能进一步缩小结果。外层限制按剩余累计行预算生成，Connector 还有独立行上限。达到硬上限的合法查询会返回本次允许行，再在同一控制面结算中归档任务。
 
@@ -91,16 +91,16 @@ Agent 自己写的内层 `LIMIT` 只能进一步缩小结果。外层限制按�
 - `search_path=pg_catalog`，生成 SQL 对物理 View 使用安全引用标识符。
 - Context Deadline 与 PostgreSQL 取消错误统一映射为安全错误码。
 
-## 自然语言路径
+## QueryPlan 路径
 
-`query_data` 不让模型生成 SQL。DeepSeek 只能返回单产品声明式 `QueryPlan`：字段、聚合、过滤、分组、排序和 Limit。Go 编译器校验产品、字段、聚合、别名、Filter 运算符与 literal 类型，再把编译结果送入完整 AST 策略。
+`execute_plan` 接受单产品声明式 `QueryPlan`：选择字段、聚合、过滤、分组、排序和 Limit。确定性的 Go 编译器校验产品必须已获批、字段和聚合位于 Catalog/Grant 白名单、别名不重复、Filter 运算符与 literal 类型安全、排序引用有效且 Limit 非负，再把编译结果送入完整 AST 策略。
 
-模型输出严格 JSON；首次失败只允许一次修复。DeepSeek 不接收查询结果、数据库密码或物理 View。模型不可用时 `query_data` 返回 `MODEL_UNAVAILABLE`，已有 ACTIVE 任务的 `query_sql` 不依赖模型。
+Gateway 不包含模型客户端、Prompt 或自然语言翻译器。需要从自然语言构造 QueryPlan 时，由 Gateway 外部的 Agent 完成；Gateway 只信任经过本地验证后的结构化字段。
 
 ## 已知限制
 
 - SQL 是保守子集。合法但 AST 节点未列入白名单的 PostgreSQL 特性会被拒绝；这属于预期的关闭式行为。
-- `query_data` 的 QueryPlan 只支持一个产品；需要 Join 多个已批准产品时使用 `query_sql`，仍受同一 Grant 和策略约束。
+- `execute_plan` 的 QueryPlan 只支持一个产品；需要 Join 多个已批准产品时使用 `query_sql`，仍受同一 Grant 和策略约束。
 - 直接 SQL 不支持客户端占位符。调用方必须提交完整 SQL；Gateway 不提供任意 Session 变量入口。
 - Catalog 不查询 PostgreSQL 元数据，列名和类型漂移只能通过数据库迁移纪律与集成测试发现。
 - 结果在 Gateway 内存中物化后整体 JSON 编码并加密；没有流式结果，Connector 全局硬上限为 10,000 行，Demo Profile 更低。

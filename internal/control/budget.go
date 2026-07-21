@@ -14,7 +14,7 @@ func (s *Store) GetBudget(ctx context.Context, taskID string) (BudgetSnapshot, e
 	if err := s.checkOpen(op); err != nil {
 		return BudgetSnapshot{}, err
 	}
-	budget, err := scanBudget(s.db.QueryRowContext(ctx, budgetSelect+` WHERE task_id=?`, taskID))
+	budget, err := scanBudget(s.db.QueryRowContext(ctx, budgetSelect+` WHERE task_id=$1`, taskID))
 	if err != nil {
 		if isNoRows(err) {
 			return BudgetSnapshot{}, opErr(op, ErrNotFound, err)
@@ -29,15 +29,15 @@ reserved_queries, reserved_rows, reserved_db_ms, updated_at FROM budget_ledger`
 
 func scanBudget(row rowScanner) (BudgetSnapshot, error) {
 	var budget BudgetSnapshot
-	var updated string
+	var updated time.Time
 	err := row.Scan(&budget.TaskID, &budget.Limits.Queries, &budget.Limits.Rows, &budget.Limits.DBMS,
 		&budget.Usage.UsedQueries, &budget.Usage.UsedRows, &budget.Usage.UsedDBMS,
 		&budget.Usage.ReservedQueries, &budget.Usage.ReservedRows, &budget.Usage.ReservedDBMS, &updated)
 	if err != nil {
 		return BudgetSnapshot{}, err
 	}
-	budget.UpdatedAt, err = parseTime(updated)
-	return budget, err
+	budget.UpdatedAt = dbTime(updated)
+	return budget, nil
 }
 
 func (s *Store) ReserveBudget(ctx context.Context, request ReserveRequest) (BudgetReservation, error) {
@@ -58,9 +58,9 @@ func (s *Store) ReserveBudget(ctx context.Context, request ReserveRequest) (Budg
 	defer rollback(tx)
 
 	var state TaskState
-	var expires sql.NullString
+	var expires sql.NullTime
 	var catalogVersion string
-	err = tx.QueryRowContext(ctx, `SELECT state, expires_at, catalog_version FROM tasks WHERE id=?`, request.TaskID).
+	err = tx.QueryRowContext(ctx, `SELECT state, expires_at, catalog_version FROM tasks WHERE id=$1 FOR UPDATE`, request.TaskID).
 		Scan(&state, &expires, &catalogVersion)
 	if err != nil {
 		if isNoRows(err) {
@@ -72,10 +72,7 @@ func (s *Store) ReserveBudget(ctx context.Context, request ReserveRequest) (Budg
 		return BudgetReservation{}, opErr(op, ErrTaskNotActive, fmt.Errorf("state is %s", state))
 	}
 	if expires.Valid {
-		expiresAt, err := parseTime(expires.String)
-		if err != nil {
-			return BudgetReservation{}, opErr(op, ErrConflict, err)
-		}
+		expiresAt := dbTime(expires.Time)
 		if !s.now().Before(expiresAt) {
 			if err := archiveTaskTx(ctx, tx, request.TaskID, TerminalExpired, "system", s.now()); err != nil {
 				return BudgetReservation{}, opErr(op, ErrConflict, err)
@@ -93,7 +90,7 @@ func (s *Store) ReserveBudget(ctx context.Context, request ReserveRequest) (Budg
 		request.CatalogVersion = catalogVersion
 	}
 
-	before, err := scanBudget(tx.QueryRowContext(ctx, budgetSelect+` WHERE task_id=?`, request.TaskID))
+	before, err := scanBudget(tx.QueryRowContext(ctx, budgetSelect+` WHERE task_id=$1 FOR UPDATE`, request.TaskID))
 	if err != nil {
 		if isNoRows(err) {
 			return BudgetReservation{}, opErr(op, ErrNotFound, fmt.Errorf("grant budget: %w", err))
@@ -130,8 +127,8 @@ func (s *Store) ReserveBudget(ctx context.Context, request ReserveRequest) (Budg
 	beforeJSON, _ := json.Marshal(before)
 	result, err := tx.ExecContext(ctx, `
 UPDATE budget_ledger
-SET reserved_queries=reserved_queries+1, reserved_rows=reserved_rows+?, reserved_db_ms=reserved_db_ms+?, updated_at=?
-WHERE task_id=? AND reserved_queries=0`, allowedRows, allowedDBMS, formatTime(now), request.TaskID)
+SET reserved_queries=reserved_queries+1, reserved_rows=reserved_rows+$1, reserved_db_ms=reserved_db_ms+$2, updated_at=$3
+WHERE task_id=$4 AND reserved_queries=0`, allowedRows, allowedDBMS, dbTime(now), request.TaskID)
 	if err != nil {
 		return BudgetReservation{}, opErr(op, ErrConflict, err)
 	}
@@ -141,9 +138,9 @@ WHERE task_id=? AND reserved_queries=0`, allowedRows, allowedDBMS, formatTime(no
 	_, err = tx.ExecContext(ctx, `
 INSERT INTO query_records(id, task_id, actor, request_digest, sql_fingerprint, catalog_version,
  policy_decision, status, reserved_rows, reserved_db_ms, budget_before_json, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, 'RESERVED', ?, ?, ?, ?)`, request.QueryID, request.TaskID, request.Actor,
+VALUES ($1, $2, $3, $4, $5, $6, $7, 'RESERVED', $8, $9, $10, $11)`, request.QueryID, request.TaskID, request.Actor,
 		request.RequestDigest, request.SQLFingerprint, request.CatalogVersion, request.PolicyDecision,
-		allowedRows, allowedDBMS, beforeJSON, formatTime(now))
+		allowedRows, allowedDBMS, string(beforeJSON), dbTime(now))
 	if err != nil {
 		return BudgetReservation{}, opErr(op, ErrConflict, err)
 	}
@@ -206,7 +203,7 @@ func settlementErrorKind(err error) error {
 }
 
 func settleBudgetTx(ctx context.Context, tx *sql.Tx, now time.Time, settlement BudgetSettlement, status QueryStatus, resultHash string) (QueryRecord, error) {
-	record, err := scanQuery(tx.QueryRowContext(ctx, querySelect+` WHERE id=?`, settlement.QueryID))
+	record, err := scanQuery(tx.QueryRowContext(ctx, querySelect+` WHERE id=$1 FOR UPDATE`, settlement.QueryID))
 	if err != nil {
 		if isNoRows(err) {
 			return QueryRecord{}, fmt.Errorf("reservation not found: %w", err)
@@ -224,7 +221,7 @@ func settleBudgetTx(ctx context.Context, tx *sql.Tx, now time.Time, settlement B
 	if status != QueryCompleted && status != QueryReleased {
 		return QueryRecord{}, fmt.Errorf("invalid settlement status %q", status)
 	}
-	budget, err := scanBudget(tx.QueryRowContext(ctx, budgetSelect+` WHERE task_id=?`, record.TaskID))
+	budget, err := scanBudget(tx.QueryRowContext(ctx, budgetSelect+` WHERE task_id=$1 FOR UPDATE`, record.TaskID))
 	if err != nil {
 		return QueryRecord{}, err
 	}
@@ -253,9 +250,9 @@ func settleBudgetTx(ctx context.Context, tx *sql.Tx, now time.Time, settlement B
 	}
 	_, err = tx.ExecContext(ctx, `
 UPDATE budget_ledger
-SET used_queries=?, used_rows=?, used_db_ms=?, reserved_queries=?, reserved_rows=?, reserved_db_ms=?, updated_at=?
-WHERE task_id=?`, after.Usage.UsedQueries, after.Usage.UsedRows, after.Usage.UsedDBMS,
-		after.Usage.ReservedQueries, after.Usage.ReservedRows, after.Usage.ReservedDBMS, formatTime(now), record.TaskID)
+SET used_queries=$1, used_rows=$2, used_db_ms=$3, reserved_queries=$4, reserved_rows=$5, reserved_db_ms=$6, updated_at=$7
+WHERE task_id=$8`, after.Usage.UsedQueries, after.Usage.UsedRows, after.Usage.UsedDBMS,
+		after.Usage.ReservedQueries, after.Usage.ReservedRows, after.Usage.ReservedDBMS, dbTime(now), record.TaskID)
 	if err != nil {
 		return QueryRecord{}, err
 	}
@@ -265,10 +262,10 @@ WHERE task_id=?`, after.Usage.UsedQueries, after.Usage.UsedRows, after.Usage.Use
 	}
 	_, err = tx.ExecContext(ctx, `
 UPDATE query_records
-SET status=?, result_rows=?, result_db_ms=?, charged_queries=?, charged_rows=?, charged_db_ms=?,
-    budget_after_json=?, result_sha256=?, error_code=?, completed_at=?
-WHERE id=? AND status='RESERVED'`, status, settlement.Rows, settlement.DBMS, chargedQueries, chargedRows,
-		chargedDBMS, afterJSON, resultHash, settlement.ErrorCode, formatTime(now), settlement.QueryID)
+SET status=$1, result_rows=$2, result_db_ms=$3, charged_queries=$4, charged_rows=$5, charged_db_ms=$6,
+    budget_after_json=$7, result_sha256=$8, error_code=$9, completed_at=$10
+WHERE id=$11 AND status='RESERVED'`, status, settlement.Rows, settlement.DBMS, chargedQueries, chargedRows,
+		chargedDBMS, string(afterJSON), resultHash, settlement.ErrorCode, dbTime(now), settlement.QueryID)
 	if err != nil {
 		return QueryRecord{}, err
 	}
@@ -301,14 +298,15 @@ WHERE id=? AND status='RESERVED'`, status, settlement.Rows, settlement.DBMS, cha
 	record.BudgetAfter = &after
 	record.ResultSHA256 = resultHash
 	record.ErrorCode = settlement.ErrorCode
-	record.CompletedAt = &now
+	completedAt := dbTime(now)
+	record.CompletedAt = &completedAt
 	return record, nil
 }
 
 func archiveTaskTx(ctx context.Context, tx *sql.Tx, taskID string, reason TerminalReason, actor string, now time.Time) error {
 	result, err := tx.ExecContext(ctx, `
-UPDATE tasks SET state='ARCHIVED', terminal_reason=?, updated_at=?
-WHERE id=? AND state <> 'ARCHIVED'`, reason, formatTime(now), taskID)
+UPDATE tasks SET state='ARCHIVED', terminal_reason=$1, updated_at=$2
+WHERE id=$3 AND state <> 'ARCHIVED'`, reason, dbTime(now), taskID)
 	if err != nil {
 		return err
 	}
@@ -327,7 +325,7 @@ func (s *Store) GetQuery(ctx context.Context, queryID string) (QueryRecord, erro
 	if err := s.checkOpen(op); err != nil {
 		return QueryRecord{}, err
 	}
-	record, err := scanQuery(s.db.QueryRowContext(ctx, querySelect+` WHERE id=?`, queryID))
+	record, err := scanQuery(s.db.QueryRowContext(ctx, querySelect+` WHERE id=$1`, queryID))
 	if err != nil {
 		if isNoRows(err) {
 			return QueryRecord{}, opErr(op, ErrNotFound, err)
@@ -346,8 +344,8 @@ func scanQuery(row rowScanner) (QueryRecord, error) {
 	var record QueryRecord
 	var before []byte
 	var after []byte
-	var created string
-	var completed sql.NullString
+	var created time.Time
+	var completed sql.NullTime
 	err := row.Scan(&record.ID, &record.TaskID, &record.Actor, &record.RequestDigest, &record.SQLFingerprint,
 		&record.CatalogVersion, &record.PolicyDecision, &record.Status, &record.ReservedRows, &record.ReservedDBMS,
 		&record.ResultRows, &record.ResultDBMS, &record.ChargedQueries, &record.ChargedRows, &record.ChargedDBMS,
@@ -365,12 +363,9 @@ func scanQuery(row rowScanner) (QueryRecord, error) {
 		}
 		record.BudgetAfter = &snapshot
 	}
-	record.CreatedAt, err = parseTime(created)
-	if err != nil {
-		return QueryRecord{}, err
-	}
-	record.CompletedAt, err = scanNullableTime(completed)
-	return record, err
+	record.CreatedAt = dbTime(created)
+	record.CompletedAt = scanNullableTime(completed)
+	return record, nil
 }
 
 func (s *Store) ListQueries(ctx context.Context, taskID string, limit int) ([]QueryRecord, error) {
@@ -381,7 +376,7 @@ func (s *Store) ListQueries(ctx context.Context, taskID string, limit int) ([]Qu
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
-	rows, err := s.db.QueryContext(ctx, querySelect+` WHERE task_id=? ORDER BY created_at, id LIMIT ?`, taskID, limit)
+	rows, err := s.db.QueryContext(ctx, querySelect+` WHERE task_id=$1 ORDER BY created_at, id LIMIT $2`, taskID, limit)
 	if err != nil {
 		return nil, opErr(op, ErrConflict, err)
 	}
@@ -418,7 +413,7 @@ func (s *Store) GetQueryReceipt(ctx context.Context, queryID string) (QueryRecei
 SELECT sequence, event_id, COALESCE(task_id,''), COALESCE(query_id,''), actor, event_type,
        payload_json, occurred_at, previous_hash, current_hash
 FROM audit_events
-WHERE query_id=? AND event_type='QUERY_COMPLETED'
+WHERE query_id=$1 AND event_type='QUERY_COMPLETED'
 ORDER BY sequence DESC LIMIT 1`, queryID))
 	if err != nil {
 		if isNoRows(err) {
@@ -438,7 +433,7 @@ func (s *Store) ListQueryReceipts(ctx context.Context, taskID string, limit int)
 		limit = 100
 	}
 	rows, err := s.db.QueryContext(ctx, `
-SELECT id FROM query_records WHERE task_id=? AND status='COMPLETED' ORDER BY created_at, id LIMIT ?`, taskID, limit)
+SELECT id FROM query_records WHERE task_id=$1 AND status='COMPLETED' ORDER BY created_at, id LIMIT $2`, taskID, limit)
 	if err != nil {
 		return nil, opErr(op, ErrConflict, err)
 	}

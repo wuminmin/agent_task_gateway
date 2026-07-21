@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
 
@@ -19,7 +18,6 @@ import (
 	"taskbound.local/agent-data-gateway/internal/catalog"
 	"taskbound.local/agent-data-gateway/internal/control"
 	"taskbound.local/agent-data-gateway/internal/dataconnector"
-	"taskbound.local/agent-data-gateway/internal/deepseek"
 	gatewayapp "taskbound.local/agent-data-gateway/internal/gateway"
 	"taskbound.local/agent-data-gateway/internal/mcp"
 )
@@ -44,12 +42,7 @@ func main() {
 		logger.Error("initialize result cipher", "error", err)
 		os.Exit(1)
 	}
-	databasePath := requiredEnv("CONTROL_DB_PATH")
-	if err := os.MkdirAll(filepath.Dir(databasePath), 0o700); err != nil {
-		logger.Error("create control data directory", "error", err)
-		os.Exit(1)
-	}
-	store, err := control.Open(ctx, databasePath, cipher)
+	store, err := control.Open(ctx, requiredEnv("CONTROL_POSTGRES_DSN"), cipher)
 	if err != nil {
 		logger.Error("open control store", "error", err)
 		os.Exit(1)
@@ -80,9 +73,8 @@ func main() {
 		os.Exit(1)
 	}
 	defer connector.Close()
-	translator := deepseek.New(os.Getenv("DEEPSEEK_API_KEY"), env("DEEPSEEK_BASE_URL", "https://api.deepseek.com"), env("DEEPSEEK_MODEL", "deepseek-v4-flash"), nil)
 	service, err := gatewayapp.New(gatewayapp.Config{
-		Catalog: logicalCatalog, Store: store, Approval: oaClient, Translator: translator,
+		Catalog: logicalCatalog, Store: store, Approval: oaClient,
 		Connector: connector, CallbackSecret: requiredEnv("OA_CALLBACK_SECRET"), Logger: logger,
 		Background: ctx,
 	})
@@ -109,7 +101,7 @@ func main() {
 	go sweepExpired(ctx, store, logger)
 
 	server := &http.Server{
-		Addr: env("GATEWAY_ADDR", ":8080"), Handler: router, ReadHeaderTimeout: 5 * time.Second,
+		Addr: env("GATEWAY_ADDR", ":8082"), Handler: router, ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout: 130 * time.Second, WriteTimeout: 130 * time.Second, IdleTimeout: 60 * time.Second,
 	}
 	go func() {

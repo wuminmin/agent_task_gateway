@@ -99,7 +99,7 @@ func New(config Config) (*Server, error) {
 		return nil, errors.New("OA demo passwords are required")
 	}
 	if config.PublicBaseURL == "" {
-		config.PublicBaseURL = "http://127.0.0.1:8090"
+		config.PublicBaseURL = "http://127.0.0.1:8092"
 	}
 	if _, err := url.ParseRequestURI(config.PublicBaseURL); err != nil {
 		return nil, fmt.Errorf("invalid public base URL: %w", err)

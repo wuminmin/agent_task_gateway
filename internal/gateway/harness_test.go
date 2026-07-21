@@ -16,37 +16,14 @@ import (
 	"taskbound.local/agent-data-gateway/internal/catalog"
 	"taskbound.local/agent-data-gateway/internal/control"
 	"taskbound.local/agent-data-gateway/internal/dataconnector"
-	"taskbound.local/agent-data-gateway/internal/deepseek"
 	"taskbound.local/agent-data-gateway/internal/domain"
 	"taskbound.local/agent-data-gateway/internal/mcp"
+	"taskbound.local/agent-data-gateway/internal/testpostgres"
 )
 
 type gatewayTestClock struct{ value time.Time }
 
 func (clock *gatewayTestClock) Now() time.Time { return clock.value }
-
-type fakeTranslator struct {
-	intent         deepseek.TaskIntent
-	intentErr      error
-	queryPlan      deepseek.QueryPlan
-	queryErr       error
-	intentCalls    int
-	queryCalls     int
-	intentCatalogs []string
-	queryCatalogs  []string
-}
-
-func (translator *fakeTranslator) TranslateIntent(_ context.Context, _ string, logicalCatalog string) (deepseek.TaskIntent, error) {
-	translator.intentCalls++
-	translator.intentCatalogs = append(translator.intentCatalogs, logicalCatalog)
-	return translator.intent, translator.intentErr
-}
-
-func (translator *fakeTranslator) TranslateQuery(_ context.Context, _ string, logicalCatalog string) (deepseek.QueryPlan, error) {
-	translator.queryCalls++
-	translator.queryCatalogs = append(translator.queryCatalogs, logicalCatalog)
-	return translator.queryPlan, translator.queryErr
-}
 
 type fakeApproval struct {
 	requests []approval.DraftRequest
@@ -91,16 +68,15 @@ func (connector *fakeConnector) Query(ctx context.Context, request dataconnector
 func (connector *fakeConnector) Ping(context.Context) error { return connector.pingErr }
 
 type gatewayHarness struct {
-	service    *Service
-	store      *control.Store
-	catalog    *catalog.Catalog
-	translator *fakeTranslator
-	approval   *fakeApproval
-	connector  *fakeConnector
-	clock      *gatewayTestClock
-	alice      mcp.Principal
-	carol      mcp.Principal
-	secret     string
+	service   *Service
+	store     *control.Store
+	catalog   *catalog.Catalog
+	approval  *fakeApproval
+	connector *fakeConnector
+	clock     *gatewayTestClock
+	alice     mcp.Principal
+	carol     mcp.Principal
+	secret    string
 }
 
 func newGatewayHarness(t *testing.T) *gatewayHarness {
@@ -115,7 +91,7 @@ func newGatewayHarness(t *testing.T) *gatewayHarness {
 		t.Fatalf("create result cipher: %v", err)
 	}
 	clock := &gatewayTestClock{value: time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)}
-	store, err := control.Open(ctx, filepath.Join(t.TempDir(), "gateway.db")+`?_foreign_keys=on&_busy_timeout=5000`, cipher, control.WithClock(clock))
+	store, err := control.Open(ctx, testpostgres.SchemaDSN(t), cipher, control.WithClock(clock))
 	if err != nil {
 		t.Fatalf("open control store: %v", err)
 	}
@@ -131,11 +107,6 @@ func newGatewayHarness(t *testing.T) *gatewayHarness {
 		}
 	}
 
-	translator := &fakeTranslator{intent: deepseek.TaskIntent{
-		Objective: "summarize travel expenses", DataProducts: []string{"expense_summary"},
-		Columns: map[string][]string{"expense_summary": {"month", "total_amount"}},
-		Scopes:  map[string]any{"department": []any{"销售部"}},
-	}}
 	approvalAdapter := &fakeApproval{}
 	connector := &fakeConnector{result: dataconnector.Result{
 		Columns: []dataconnector.Column{{Name: "month", DataTypeOID: 25}, {Name: "total_amount", DataTypeOID: 1700}},
@@ -145,7 +116,7 @@ func newGatewayHarness(t *testing.T) *gatewayHarness {
 	background, cancelBackground := context.WithCancel(context.Background())
 	t.Cleanup(cancelBackground)
 	service, err := New(Config{
-		Catalog: loadedCatalog, Store: store, Approval: approvalAdapter, Translator: translator,
+		Catalog: loadedCatalog, Store: store, Approval: approvalAdapter,
 		Connector: connector, CallbackSecret: secret,
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Clock: clock.Now, Background: background,
 	})
@@ -153,7 +124,7 @@ func newGatewayHarness(t *testing.T) *gatewayHarness {
 		t.Fatalf("create gateway service: %v", err)
 	}
 	return &gatewayHarness{
-		service: service, store: store, catalog: loadedCatalog, translator: translator,
+		service: service, store: store, catalog: loadedCatalog,
 		approval: approvalAdapter, connector: connector, clock: clock,
 		alice: alice, carol: carol, secret: secret,
 	}

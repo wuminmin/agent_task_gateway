@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 type Clock interface {
@@ -51,13 +51,13 @@ func WithoutStartupRecovery() Option {
 	return func(options *storeOptions) { options.recover = false }
 }
 
-// Open opens a SQLite control database, applies embedded migrations, and
+// Open opens a PostgreSQL control database, applies embedded migrations, and
 // recovers transactions that were in flight when the previous process exited.
 func Open(ctx context.Context, dsn string, cipher ResultCipher, options ...Option) (*Store, error) {
 	if strings.TrimSpace(dsn) == "" {
-		return nil, opErr("open", ErrInvalid, fmt.Errorf("empty SQLite DSN"))
+		return nil, opErr("open", ErrInvalid, fmt.Errorf("empty PostgreSQL DSN"))
 	}
-	db, err := sql.Open("sqlite3", dsn)
+	db, err := sql.Open("pgx", dsn)
 	if err != nil {
 		return nil, opErr("open", ErrConflict, err)
 	}
@@ -69,7 +69,7 @@ func Open(ctx context.Context, dsn string, cipher ResultCipher, options ...Optio
 	return store, nil
 }
 
-// New initializes a store around an existing SQLite *sql.DB. The store takes
+// New initializes a store around an existing PostgreSQL *sql.DB. The store takes
 // ownership of db and Close closes it.
 func New(ctx context.Context, db *sql.DB, cipher ResultCipher, options ...Option) (*Store, error) {
 	if db == nil {
@@ -83,22 +83,11 @@ func New(ctx context.Context, db *sql.DB, cipher ResultCipher, options ...Option
 	}
 	store := &Store{db: db, cipher: cipher, clock: config.clock}
 
-	// Gateway v1 is deliberately single-instance. A single connection also
-	// makes each task's reservation/settlement sequence strictly serialized.
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
+	db.SetMaxOpenConns(10)
+	db.SetMaxIdleConns(4)
+	db.SetConnMaxLifetime(30 * time.Minute)
 	if err := db.PingContext(ctx); err != nil {
 		return nil, opErr("ping", ErrConflict, err)
-	}
-	for _, pragma := range []string{
-		`PRAGMA foreign_keys = ON`,
-		`PRAGMA busy_timeout = 5000`,
-		`PRAGMA journal_mode = WAL`,
-		`PRAGMA synchronous = FULL`,
-	} {
-		if _, err := db.ExecContext(ctx, pragma); err != nil {
-			return nil, opErr("configure SQLite", ErrConflict, err)
-		}
 	}
 	if err := store.migrate(ctx); err != nil {
 		return nil, err
@@ -127,34 +116,25 @@ func (s *Store) checkOpen(op string) error {
 	return nil
 }
 
-func (s *Store) now() time.Time { return s.clock.Now().UTC() }
+func (s *Store) now() time.Time { return dbTime(s.clock.Now()) }
 
-func formatTime(value time.Time) string { return value.UTC().Format(time.RFC3339Nano) }
+func dbTime(value time.Time) time.Time { return value.UTC().Truncate(time.Microsecond) }
 
-func parseTime(value string) (time.Time, error) {
-	parsed, err := time.Parse(time.RFC3339Nano, value)
-	if err != nil {
-		return time.Time{}, err
-	}
-	return parsed.UTC(), nil
-}
+func formatTime(value time.Time) string { return dbTime(value).Format(time.RFC3339Nano) }
 
 func nullableTime(value *time.Time) any {
 	if value == nil || value.IsZero() {
 		return nil
 	}
-	return formatTime(*value)
+	return dbTime(*value)
 }
 
-func scanNullableTime(value sql.NullString) (*time.Time, error) {
-	if !value.Valid || value.String == "" {
-		return nil, nil
+func scanNullableTime(value sql.NullTime) *time.Time {
+	if !value.Valid || value.Time.IsZero() {
+		return nil
 	}
-	parsed, err := parseTime(value.String)
-	if err != nil {
-		return nil, err
-	}
-	return &parsed, nil
+	parsed := dbTime(value.Time)
+	return &parsed
 }
 
 func isNoRows(err error) bool { return errors.Is(err, sql.ErrNoRows) }
@@ -187,7 +167,7 @@ func mustJSON(value any) json.RawMessage {
 }
 
 func beginTx(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
-	return db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	return db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 }
 
 func rollback(tx *sql.Tx) {

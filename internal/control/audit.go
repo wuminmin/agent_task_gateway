@@ -58,34 +58,43 @@ func appendAuditTx(ctx context.Context, tx *sql.Tx, event AuditEvent) (AuditEven
 		return AuditEvent{}, fmt.Errorf("actor and event type are required")
 	}
 	if event.OccurredAt.IsZero() {
-		event.OccurredAt = time.Now().UTC()
+		event.OccurredAt = dbTime(time.Now())
 	} else {
-		event.OccurredAt = event.OccurredAt.UTC()
+		event.OccurredAt = dbTime(event.OccurredAt)
 	}
 	payload, err := normalizeJSON(event.Payload, `{}`)
 	if err != nil {
 		return AuditEvent{}, fmt.Errorf("invalid audit payload: %w", err)
 	}
 	event.Payload = payload
+	var sequence int64
 	previous := auditGenesisHash
-	err = tx.QueryRowContext(ctx, `SELECT current_hash FROM audit_events ORDER BY sequence DESC LIMIT 1`).Scan(&previous)
-	if err != nil && !isNoRows(err) {
+	err = tx.QueryRowContext(ctx, `
+SELECT last_sequence, last_hash
+FROM audit_chain_head
+WHERE singleton=TRUE
+FOR UPDATE`).Scan(&sequence, &previous)
+	if err != nil {
 		return AuditEvent{}, err
 	}
+	event.Sequence = sequence + 1
 	event.PreviousHash = previous
 	event.CurrentHash, err = hashAudit(previous, event)
 	if err != nil {
 		return AuditEvent{}, err
 	}
-	result, err := tx.ExecContext(ctx, `
-INSERT INTO audit_events(event_id, task_id, query_id, actor, event_type, payload_json, occurred_at, previous_hash, current_hash)
-VALUES (?, NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, ?, ?, ?)`,
-		event.EventID, event.TaskID, event.QueryID, event.Actor, event.EventType, []byte(event.Payload),
-		formatTime(event.OccurredAt), event.PreviousHash, event.CurrentHash)
+	_, err = tx.ExecContext(ctx, `
+INSERT INTO audit_events(sequence, event_id, task_id, query_id, actor, event_type, payload_json, occurred_at, previous_hash, current_hash)
+VALUES ($1, $2, NULLIF($3, ''), NULLIF($4, ''), $5, $6, $7, $8, $9, $10)`,
+		event.Sequence,
+		event.EventID, event.TaskID, event.QueryID, event.Actor, event.EventType, string(event.Payload),
+		dbTime(event.OccurredAt), event.PreviousHash, event.CurrentHash)
 	if err != nil {
 		return AuditEvent{}, err
 	}
-	event.Sequence, err = result.LastInsertId()
+	_, err = tx.ExecContext(ctx, `
+UPDATE audit_chain_head SET last_sequence=$1, last_hash=$2 WHERE singleton=TRUE`,
+		event.Sequence, event.CurrentHash)
 	return event, err
 }
 
@@ -125,8 +134,8 @@ func (s *Store) ListAuditEvents(ctx context.Context, filter AuditFilter) ([]Audi
 SELECT sequence, event_id, COALESCE(task_id,''), COALESCE(query_id,''), actor, event_type,
        payload_json, occurred_at, previous_hash, current_hash
 FROM audit_events
-WHERE sequence > ? AND (? = '' OR task_id = ?) AND (? = '' OR actor = ?) AND (? = '' OR event_type = ?)
-ORDER BY sequence LIMIT ?`, filter.After, filter.TaskID, filter.TaskID, filter.Actor, filter.Actor,
+WHERE sequence > $1 AND ($2 = '' OR task_id = $3) AND ($4 = '' OR actor = $5) AND ($6 = '' OR event_type = $7)
+ORDER BY sequence LIMIT $8`, filter.After, filter.TaskID, filter.TaskID, filter.Actor, filter.Actor,
 		filter.EventType, filter.EventType, limit)
 	if err != nil {
 		return nil, opErr(op, ErrConflict, err)
@@ -151,15 +160,15 @@ type rowScanner interface{ Scan(...any) error }
 func scanAudit(row rowScanner) (AuditEvent, error) {
 	var event AuditEvent
 	var payload []byte
-	var occurred string
+	var occurred time.Time
 	err := row.Scan(&event.Sequence, &event.EventID, &event.TaskID, &event.QueryID, &event.Actor,
 		&event.EventType, &payload, &occurred, &event.PreviousHash, &event.CurrentHash)
 	if err != nil {
 		return AuditEvent{}, err
 	}
 	event.Payload = append(json.RawMessage(nil), payload...)
-	event.OccurredAt, err = parseTime(occurred)
-	return event, err
+	event.OccurredAt = dbTime(occurred)
+	return event, nil
 }
 
 func (s *Store) VerifyAuditChain(ctx context.Context) error {
@@ -197,6 +206,14 @@ FROM audit_events ORDER BY sequence`)
 	}
 	if err := rows.Err(); err != nil {
 		return opErr(op, ErrConflict, err)
+	}
+	var headSequence int64
+	var headHash string
+	if err := s.db.QueryRowContext(ctx, `SELECT last_sequence, last_hash FROM audit_chain_head WHERE singleton=TRUE`).Scan(&headSequence, &headHash); err != nil {
+		return opErr(op, ErrConflict, err)
+	}
+	if headSequence != expectedSequence-1 || headHash != previous {
+		return opErr(op, ErrAuditChainBroken, fmt.Errorf("audit chain head does not match the final event"))
 	}
 	return nil
 }

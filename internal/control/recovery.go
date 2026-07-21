@@ -31,7 +31,7 @@ func (s *Store) Recover(ctx context.Context) (RecoveryReport, error) {
 
 	rows, err := tx.QueryContext(ctx, `
 SELECT id, task_id, actor, reserved_rows, reserved_db_ms
-FROM query_records WHERE status='RESERVED' ORDER BY created_at, id`)
+FROM query_records WHERE status='RESERVED' ORDER BY created_at, id FOR UPDATE`)
 	if err != nil {
 		return RecoveryReport{}, opErr(op, ErrConflict, err)
 	}
@@ -49,7 +49,7 @@ FROM query_records WHERE status='RESERVED' ORDER BY created_at, id`)
 		return RecoveryReport{}, opErr(op, ErrConflict, err)
 	}
 	for _, reservation := range interrupted {
-		before, err := scanBudget(tx.QueryRowContext(ctx, budgetSelect+` WHERE task_id=?`, reservation.taskID))
+		before, err := scanBudget(tx.QueryRowContext(ctx, budgetSelect+` WHERE task_id=$1 FOR UPDATE`, reservation.taskID))
 		if err != nil {
 			return RecoveryReport{}, opErr(op, ErrConflict, err)
 		}
@@ -69,10 +69,10 @@ FROM query_records WHERE status='RESERVED' ORDER BY created_at, id`)
 		}
 		if _, err := tx.ExecContext(ctx, `
 UPDATE budget_ledger
-SET used_queries=?, used_rows=?, used_db_ms=?, reserved_queries=?, reserved_rows=?, reserved_db_ms=?, updated_at=?
-WHERE task_id=?`, after.Usage.UsedQueries, after.Usage.UsedRows, after.Usage.UsedDBMS,
+SET used_queries=$1, used_rows=$2, used_db_ms=$3, reserved_queries=$4, reserved_rows=$5, reserved_db_ms=$6, updated_at=$7
+WHERE task_id=$8`, after.Usage.UsedQueries, after.Usage.UsedRows, after.Usage.UsedDBMS,
 			after.Usage.ReservedQueries, after.Usage.ReservedRows, after.Usage.ReservedDBMS,
-			formatTime(now), reservation.taskID); err != nil {
+			dbTime(now), reservation.taskID); err != nil {
 			return RecoveryReport{}, opErr(op, ErrConflict, err)
 		}
 		budgetJSON, err := json.Marshal(after)
@@ -81,10 +81,10 @@ WHERE task_id=?`, after.Usage.UsedQueries, after.Usage.UsedRows, after.Usage.Use
 		}
 		result, err := tx.ExecContext(ctx, `
 UPDATE query_records
-	SET status='INTERRUPTED', charged_queries=1, charged_rows=?, charged_db_ms=?,
-	    error_code='GATEWAY_RESTART', budget_after_json=?, completed_at=?
-	WHERE id=? AND status='RESERVED'`, reservation.reservedRows, reservation.reservedDBMS,
-			budgetJSON, formatTime(now), reservation.queryID)
+	SET status='INTERRUPTED', charged_queries=1, charged_rows=$1, charged_db_ms=$2,
+	    error_code='GATEWAY_RESTART', budget_after_json=$3, completed_at=$4
+	WHERE id=$5 AND status='RESERVED'`, reservation.reservedRows, reservation.reservedDBMS,
+			string(budgetJSON), dbTime(now), reservation.queryID)
 		if err != nil {
 			return RecoveryReport{}, opErr(op, ErrConflict, err)
 		}
@@ -111,8 +111,8 @@ UPDATE query_records
 	type expiringTask struct{ id string }
 	expiringRows, err := tx.QueryContext(ctx, `
 SELECT id FROM tasks
-WHERE state <> 'ARCHIVED' AND expires_at IS NOT NULL AND expires_at <= ?
-ORDER BY id`, formatTime(now))
+WHERE state <> 'ARCHIVED' AND expires_at IS NOT NULL AND expires_at <= $1
+ORDER BY id FOR UPDATE`, dbTime(now))
 	if err != nil {
 		return RecoveryReport{}, opErr(op, ErrConflict, err)
 	}

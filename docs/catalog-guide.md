@@ -25,7 +25,7 @@ budget_profiles: []
 sources:
   - name: travel_demo
     type: postgres
-    address: postgres
+    address: business-postgres
     port: 5432
     database: travel_demo
     user: gateway_reader
@@ -156,7 +156,7 @@ catalog_version: "2026-07-21.2"
 sources:
   - name: demo
     type: postgres
-    address: postgres
+    address: business-postgres
     port: 5432
     database: travel_demo
     user: gateway_reader

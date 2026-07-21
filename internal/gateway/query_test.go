@@ -37,11 +37,14 @@ func TestQueryFinalizationFailureSettlesActualUsage(t *testing.T) {
 	harness := newGatewayHarness(t)
 	harness.createActiveSummaryTask(t, "task-finalization-failure")
 	if _, err := harness.store.DB().ExecContext(context.Background(), `
+CREATE FUNCTION force_result_finalization_failure_fn() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  RAISE EXCEPTION 'forced result finalization failure';
+END;
+$$;
 CREATE TRIGGER force_result_finalization_failure
 BEFORE INSERT ON encrypted_query_results
-BEGIN
-  SELECT RAISE(FAIL, 'forced result finalization failure');
-END`); err != nil {
+FOR EACH ROW EXECUTE FUNCTION force_result_finalization_failure_fn()`); err != nil {
 		t.Fatalf("create finalization failure trigger: %v", err)
 	}
 	harness.connector.result.DatabaseTime = 11 * time.Millisecond
@@ -61,12 +64,15 @@ func TestFailedSettlementMakesServiceUnreadyUntilBackgroundRetrySucceeds(t *test
 	harness := newGatewayHarness(t)
 	harness.createActiveSummaryTask(t, "task-settlement-retry")
 	if _, err := harness.store.DB().ExecContext(context.Background(), `
+CREATE FUNCTION force_query_settlement_failure_fn() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  RAISE EXCEPTION 'forced query settlement failure';
+END;
+$$;
 CREATE TRIGGER force_query_settlement_failure
 BEFORE UPDATE OF status ON query_records
-WHEN NEW.status = 'COMPLETED'
-BEGIN
-  SELECT RAISE(FAIL, 'forced query settlement failure');
-END`); err != nil {
+FOR EACH ROW WHEN (NEW.status = 'COMPLETED')
+EXECUTE FUNCTION force_query_settlement_failure_fn()`); err != nil {
 		t.Fatalf("create settlement failure trigger: %v", err)
 	}
 
@@ -87,7 +93,7 @@ END`); err != nil {
 	if len(records) != 1 || records[0].Status != control.QueryReserved {
 		t.Fatalf("queries before retry = %#v, want one RESERVED query", records)
 	}
-	if _, err := harness.store.DB().ExecContext(context.Background(), `DROP TRIGGER force_query_settlement_failure`); err != nil {
+	if _, err := harness.store.DB().ExecContext(context.Background(), `DROP TRIGGER force_query_settlement_failure ON query_records`); err != nil {
 		t.Fatalf("drop settlement failure trigger: %v", err)
 	}
 
