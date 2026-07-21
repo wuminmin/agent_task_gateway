@@ -6,8 +6,8 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-travel_demo}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres-demo-change-me}
-      GATEWAY_DB_PASSWORD: ${GATEWAY_DB_PASSWORD:-gateway-reader-demo-change-me}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      GATEWAY_DB_PASSWORD: ${GATEWAY_DB_PASSWORD:?set GATEWAY_DB_PASSWORD in .env}
     volumes:
       - pg-data:/var/lib/postgresql/data
       - ./db/init:/docker-entrypoint-initdb.d:ro
@@ -28,14 +28,14 @@ services:
       GATEWAY_ADDR: :8080
       CONTROL_DB_PATH: /data/gateway.db
       CATALOG_PATH: /etc/taskbound/catalog.yaml
-      GATEWAY_DATA_KEY: ${GATEWAY_DATA_KEY:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}
-      TASKBOUND_ALICE_TOKEN: ${TASKBOUND_ALICE_TOKEN:-alice-demo-token-change-me}
-      TASKBOUND_CAROL_TOKEN: ${TASKBOUND_CAROL_TOKEN:-carol-demo-token-change-me}
-      OA_SERVICE_TOKEN: ${OA_SERVICE_TOKEN:-oa-service-token-change-me}
-      OA_CALLBACK_SECRET: ${OA_CALLBACK_SECRET:-oa-callback-secret-change-me}
+      GATEWAY_DATA_KEY: ${GATEWAY_DATA_KEY:?set GATEWAY_DATA_KEY in .env}
+      TASKBOUND_ALICE_TOKEN: ${TASKBOUND_ALICE_TOKEN:?set TASKBOUND_ALICE_TOKEN in .env}
+      TASKBOUND_CAROL_TOKEN: ${TASKBOUND_CAROL_TOKEN:?set TASKBOUND_CAROL_TOKEN in .env}
+      OA_SERVICE_TOKEN: ${OA_SERVICE_TOKEN:?set OA_SERVICE_TOKEN in .env}
+      OA_CALLBACK_SECRET: ${OA_CALLBACK_SECRET:?set OA_CALLBACK_SECRET in .env}
       OA_BASE_URL: http://oa-demo:8090
       PUBLIC_OA_BASE_URL: http://127.0.0.1:8090
-      POSTGRES_DSN: postgres://gateway_reader:${GATEWAY_DB_PASSWORD:-gateway-reader-demo-change-me}@postgres:5432/${POSTGRES_DB:-travel_demo}?sslmode=disable
+      POSTGRES_DSN: postgres://gateway_reader:${GATEWAY_DB_PASSWORD:?set GATEWAY_DB_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-travel_demo}?sslmode=disable
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
       DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-v4-flash}
@@ -67,11 +67,11 @@ services:
         TARGET: oa-demo
     environment:
       OA_ADDR: :8090
-      OA_SERVICE_TOKEN: ${OA_SERVICE_TOKEN:-oa-service-token-change-me}
-      OA_CALLBACK_SECRET: ${OA_CALLBACK_SECRET:-oa-callback-secret-change-me}
-      OA_SESSION_SECRET: ${OA_SESSION_SECRET:-oa-session-secret-change-me}
-      OA_ALICE_PASSWORD: ${OA_ALICE_PASSWORD:-alice-demo-change-me}
-      OA_BOB_PASSWORD: ${OA_BOB_PASSWORD:-bob-demo-change-me}
+      OA_SERVICE_TOKEN: ${OA_SERVICE_TOKEN:?set OA_SERVICE_TOKEN in .env}
+      OA_CALLBACK_SECRET: ${OA_CALLBACK_SECRET:?set OA_CALLBACK_SECRET in .env}
+      OA_SESSION_SECRET: ${OA_SESSION_SECRET:?set OA_SESSION_SECRET in .env}
+      OA_ALICE_PASSWORD: ${OA_ALICE_PASSWORD:?set OA_ALICE_PASSWORD in .env}
+      OA_BOB_PASSWORD: ${OA_BOB_PASSWORD:?set OA_BOB_PASSWORD in .env}
       GATEWAY_CALLBACK_URL: http://gateway:8080/api/v1/oa/callback
       PUBLIC_OA_BASE_URL: http://127.0.0.1:8090
     ports:

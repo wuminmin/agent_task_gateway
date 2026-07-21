@@ -264,15 +264,21 @@ func TestRestartRecoveryAndCallbackRetry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetQuery after restart: %v", err)
 	}
-	if record.Status != QueryInterrupted || record.ErrorCode != "GATEWAY_RESTART" {
+	if record.Status != QueryInterrupted || record.ErrorCode != "GATEWAY_RESTART" ||
+		record.ChargedQueries != 1 || record.ChargedRows != 10 || record.ChargedDBMS != 500 {
 		t.Fatalf("query was not recovered: %+v", record)
+	}
+	if record.BudgetAfter == nil || record.BudgetAfter.Usage.UsedQueries != 1 ||
+		record.BudgetAfter.Usage.UsedRows != 10 || record.BudgetAfter.Usage.UsedDBMS != 500 {
+		t.Fatalf("query does not contain recovered budget: %+v", record.BudgetAfter)
 	}
 	budget, err := restarted.GetBudget(context.Background(), "task_restart")
 	if err != nil {
 		t.Fatalf("GetBudget after restart: %v", err)
 	}
-	if budget.Usage.ReservedQueries != 0 || budget.Usage.ReservedRows != 0 || budget.Usage.UsedQueries != 0 {
-		t.Fatalf("reservation was not released: %+v", budget)
+	if budget.Usage.ReservedQueries != 0 || budget.Usage.ReservedRows != 0 || budget.Usage.ReservedDBMS != 0 ||
+		budget.Usage.UsedQueries != 1 || budget.Usage.UsedRows != 10 || budget.Usage.UsedDBMS != 500 {
+		t.Fatalf("reservation was not conservatively charged: %+v", budget)
 	}
 	claim, err := restarted.ClaimCallback(context.Background(), "callback_interrupted", payload)
 	if err != nil {
@@ -294,6 +300,68 @@ func TestRestartRecoveryAndCallbackRetry(t *testing.T) {
 	}
 	if err := restarted.VerifyAuditChain(context.Background()); err != nil {
 		t.Fatalf("VerifyAuditChain after restart: %v", err)
+	}
+}
+
+func TestRecoveryChargesReservationAndArchivesAtHardLimit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "control.db")
+	clock := fixedClock{value: time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)}
+	store := openTestStore(t, path, testCipher(t, 8), WithClock(clock))
+	expires := clock.value.Add(time.Hour)
+	createAwaitingApprovalTask(t, store, "task_recovery_limit", expires)
+	approveTask(t, store, "task_recovery_limit", expires, BudgetLimits{Queries: 4, Rows: 10, DBMS: 1000})
+	if _, err := store.ReserveBudget(context.Background(), ReserveRequest{
+		QueryID: "query_recovery_limit", TaskID: "task_recovery_limit", Actor: "alice",
+		RequestDigest: "request", SQLFingerprint: "select", RequestedRows: 10, RequestedDBMS: 400,
+	}); err != nil {
+		t.Fatalf("ReserveBudget: %v", err)
+	}
+
+	report, err := store.Recover(context.Background())
+	if err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+	if report.InterruptedQueries != 1 {
+		t.Fatalf("recovery report = %+v", report)
+	}
+	record, err := store.GetQuery(context.Background(), "query_recovery_limit")
+	if err != nil {
+		t.Fatalf("GetQuery: %v", err)
+	}
+	if record.Status != QueryInterrupted || record.ChargedQueries != 1 || record.ChargedRows != 10 || record.ChargedDBMS != 400 {
+		t.Fatalf("unexpected interrupted query: %+v", record)
+	}
+	budget, err := store.GetBudget(context.Background(), "task_recovery_limit")
+	if err != nil {
+		t.Fatalf("GetBudget: %v", err)
+	}
+	if budget.Usage != (BudgetUsage{UsedQueries: 1, UsedRows: 10, UsedDBMS: 400}) {
+		t.Fatalf("unexpected recovered budget: %+v", budget)
+	}
+	task, err := store.GetTask(context.Background(), "task_recovery_limit")
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if task.State != TaskArchived || task.TerminalReason != TerminalBudgetExhausted {
+		t.Fatalf("task was not archived at the hard limit: %+v", task)
+	}
+
+	second, err := store.Recover(context.Background())
+	if err != nil {
+		t.Fatalf("second Recover: %v", err)
+	}
+	if second.InterruptedQueries != 0 {
+		t.Fatalf("second recovery charged query again: %+v", second)
+	}
+	afterSecond, err := store.GetBudget(context.Background(), "task_recovery_limit")
+	if err != nil {
+		t.Fatalf("GetBudget after second recovery: %v", err)
+	}
+	if afterSecond.Usage != budget.Usage {
+		t.Fatalf("second recovery changed budget: before=%+v after=%+v", budget.Usage, afterSecond.Usage)
+	}
+	if err := store.VerifyAuditChain(context.Background()); err != nil {
+		t.Fatalf("VerifyAuditChain: %v", err)
 	}
 }
 

@@ -116,6 +116,36 @@ func TestDangerousFunctionCannotBeEnabled(t *testing.T) {
 	}
 }
 
+func TestIndirectSQLAndMetadataExportFunctionsCannotBeEnabled(t *testing.T) {
+	tests := map[string]string{
+		"query to XML":                `SELECT query_to_xml('SELECT employee_name FROM reporting.expense_detail', true, false, '')`,
+		"query XML schema":            `SELECT query_to_xmlschema('SELECT employee_name FROM reporting.expense_detail', true, false, '')`,
+		"query XML and schema":        `SELECT query_to_xml_and_xmlschema('SELECT employee_name FROM reporting.expense_detail', true, false, '')`,
+		"table to XML":                `SELECT table_to_xml('reporting.expense_detail', true, false, '')`,
+		"table XML schema":            `SELECT table_to_xmlschema('reporting.expense_detail', true, false, '')`,
+		"table XML and schema":        `SELECT table_to_xml_and_xmlschema('reporting.expense_detail', true, false, '')`,
+		"schema to XML":               `SELECT schema_to_xml('reporting', true, false, '')`,
+		"schema XML schema":           `SELECT schema_to_xmlschema('reporting', true, false, '')`,
+		"schema XML and schema":       `SELECT schema_to_xml_and_xmlschema('reporting', true, false, '')`,
+		"database to XML":             `SELECT database_to_xml(true, false, '')`,
+		"database XML schema":         `SELECT database_to_xmlschema(true, false, '')`,
+		"database XML and schema":     `SELECT database_to_xml_and_xmlschema(true, false, '')`,
+		"cursor to XML":               `SELECT cursor_to_xml('portal', 10, true, false, '')`,
+		"cursor XML schema":           `SELECT cursor_to_xmlschema('portal', true, false, '')`,
+		"text search SQL passthrough": `SELECT ts_stat('SELECT employee_name::tsvector FROM reporting.expense_detail')`,
+	}
+	for name, sql := range tests {
+		t.Run(name, func(t *testing.T) {
+			functionName, _, _ := strings.Cut(strings.TrimPrefix(sql, "SELECT "), "(")
+			engine := New(Config{AllowedFunctions: []string{functionName}})
+			_, err := engine.Authorize(Request{SQL: sql, Grant: testGrant(), RowLimit: 1})
+			if !IsCode(err, CodeFunctionNotAllowed) {
+				t.Fatalf("Authorize() error = %v, want %s", err, CodeFunctionNotAllowed)
+			}
+		})
+	}
+}
+
 func TestExplicitEmptyAllowlistsDenyFunctionsAndOperators(t *testing.T) {
 	engine := New(Config{AllowedFunctions: []string{}, AllowedOperators: []string{}})
 	if _, err := engine.Authorize(Request{SQL: `SELECT sum(amount) FROM expense_detail`, Grant: testGrant(), RowLimit: 1}); !IsCode(err, CodeFunctionNotAllowed) {

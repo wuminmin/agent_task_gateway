@@ -4,7 +4,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
-COPY go.mod ./
+COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 
@@ -22,7 +22,9 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system --gid 10001 taskbound \
-    && useradd --system --uid 10001 --gid taskbound --home-dir /nonexistent --shell /usr/sbin/nologin taskbound
+    && useradd --system --uid 10001 --gid taskbound --home-dir /nonexistent --shell /usr/sbin/nologin taskbound \
+    && mkdir -p /data \
+    && chown 10001:10001 /data
 COPY --from=build /out/app /usr/local/bin/app
 USER 10001:10001
 ENTRYPOINT ["/usr/local/bin/app"]

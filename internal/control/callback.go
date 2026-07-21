@@ -16,6 +16,45 @@ func callbackPayloadHash(payload []byte) string {
 	return hex.EncodeToString(digest[:])
 }
 
+// LookupCallback reads an existing OA event without claiming or modifying it.
+// A completed event with the same payload returns its durable response as a
+// replay; in-flight and retryable events return their current status.
+func (s *Store) LookupCallback(ctx context.Context, eventID string, rawPayload []byte) (CallbackClaim, error) {
+	const op = "lookup callback"
+	if err := s.checkOpen(op); err != nil {
+		return CallbackClaim{}, err
+	}
+	if eventID == "" || len(rawPayload) == 0 {
+		return CallbackClaim{}, opErr(op, ErrInvalid, fmt.Errorf("event ID and raw payload are required"))
+	}
+	var storedHash string
+	var status CallbackStatus
+	var response []byte
+	err := s.db.QueryRowContext(ctx, `
+SELECT payload_sha256, status, response_body
+FROM callback_idempotency WHERE event_id=?`, eventID).Scan(&storedHash, &status, &response)
+	if err != nil {
+		if isNoRows(err) {
+			return CallbackClaim{}, opErr(op, ErrNotFound, err)
+		}
+		return CallbackClaim{}, opErr(op, ErrConflict, err)
+	}
+	if storedHash != callbackPayloadHash(rawPayload) {
+		return CallbackClaim{}, opErr(op, ErrIdempotencyConflict, nil)
+	}
+	claim := CallbackClaim{EventID: eventID, Status: status}
+	switch status {
+	case CallbackCompleted:
+		claim.Replay = true
+		claim.Response = append([]byte(nil), response...)
+	case CallbackProcessing, CallbackRetryable:
+		// A lookup intentionally leaves the existing claim unchanged.
+	default:
+		return CallbackClaim{}, opErr(op, ErrConflict, fmt.Errorf("unknown callback status %q", status))
+	}
+	return claim, nil
+}
+
 // ClaimCallback claims an OA event ID. Completed events return their original
 // response with Replay=true; the same ID with a different body fails closed.
 func (s *Store) ClaimCallback(ctx context.Context, eventID string, rawPayload []byte) (CallbackClaim, error) {

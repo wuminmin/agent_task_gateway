@@ -56,44 +56,39 @@ type user struct {
 	PasswordHash []byte
 }
 
-type DraftRequest struct {
-	TaskID          string   `json:"task_id"`
-	Requester       string   `json:"requester"`
-	Objective       string   `json:"objective"`
-	DataProducts    []string `json:"data_products"`
-	Sensitivity     string   `json:"sensitivity"`
-	ApprovalMode    string   `json:"approval_mode"`
-	Approver        string   `json:"approver,omitempty"`
-	CatalogVersion  string   `json:"catalog_version"`
-	CallbackContext string   `json:"callback_context,omitempty"`
-}
+type DraftRequest = approval.DraftRequest
 
 type Draft struct {
-	ID              string    `json:"id"`
-	TaskID          string    `json:"task_id"`
-	Requester       string    `json:"requester"`
-	Objective       string    `json:"objective"`
-	DataProducts    []string  `json:"data_products"`
-	Sensitivity     string    `json:"sensitivity"`
-	ApprovalMode    string    `json:"approval_mode"`
-	Approver        string    `json:"approver,omitempty"`
-	CatalogVersion  string    `json:"catalog_version"`
-	CallbackContext string    `json:"callback_context,omitempty"`
-	State           string    `json:"state"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	ID                          string               `json:"id"`
+	TaskID                      string               `json:"task_id"`
+	Requester                   string               `json:"requester"`
+	Objective                   string               `json:"objective"`
+	DataProducts                []string             `json:"data_products"`
+	ApprovedColumns             map[string][]string  `json:"approved_columns"`
+	MandatoryScope              map[string]any       `json:"mandatory_scope"`
+	Sensitivity                 string               `json:"sensitivity"`
+	Budget                      approval.DraftBudget `json:"budget"`
+	ApprovalMode                string               `json:"approval_mode"`
+	Approver                    string               `json:"approver,omitempty"`
+	CatalogVersion              string               `json:"catalog_version"`
+	CallbackContext             string               `json:"callback_context"`
+	AuthorizationSnapshotSHA256 string               `json:"authorization_snapshot_sha256"`
+	State                       string               `json:"state"`
+	CreatedAt                   time.Time            `json:"created_at"`
+	UpdatedAt                   time.Time            `json:"updated_at"`
 }
 
 type callbackEvent struct {
-	EventID         string    `json:"event_id"`
-	TaskID          string    `json:"task_id"`
-	DraftID         string    `json:"draft_id"`
-	Status          string    `json:"status"`
-	Actor           string    `json:"actor"`
-	OccurredAt      time.Time `json:"occurred_at"`
-	CatalogVersion  string    `json:"catalog_version"`
-	CallbackContext string    `json:"callback_context,omitempty"`
-	ApprovalReceipt string    `json:"approval_receipt,omitempty"`
+	EventID                     string    `json:"event_id"`
+	TaskID                      string    `json:"task_id"`
+	DraftID                     string    `json:"draft_id"`
+	Status                      string    `json:"status"`
+	Actor                       string    `json:"actor"`
+	OccurredAt                  time.Time `json:"occurred_at"`
+	CatalogVersion              string    `json:"catalog_version"`
+	CallbackContext             string    `json:"callback_context,omitempty"`
+	AuthorizationSnapshotSHA256 string    `json:"authorization_snapshot_sha256"`
+	ApprovalReceipt             string    `json:"approval_receipt,omitempty"`
 }
 
 func New(config Config) (*Server, error) {
@@ -184,9 +179,12 @@ func (s *Server) createDraft(w http.ResponseWriter, r *http.Request) {
 	draft := &Draft{
 		ID: randomID("oa"), TaskID: request.TaskID, Requester: strings.ToLower(request.Requester),
 		Objective: request.Objective, DataProducts: append([]string(nil), request.DataProducts...),
-		Sensitivity: request.Sensitivity, ApprovalMode: request.ApprovalMode, Approver: strings.ToLower(request.Approver),
+		ApprovedColumns: cloneColumns(request.ApprovedColumns), MandatoryScope: cloneMandatoryScope(request.MandatoryScope),
+		Sensitivity: request.Sensitivity, Budget: request.Budget,
+		ApprovalMode: request.ApprovalMode, Approver: strings.ToLower(request.Approver),
 		CatalogVersion: request.CatalogVersion, CallbackContext: request.CallbackContext,
-		State: "draft", CreatedAt: now, UpdatedAt: now,
+		AuthorizationSnapshotSHA256: request.AuthorizationSnapshotSHA256,
+		State:                       "draft", CreatedAt: now, UpdatedAt: now,
 	}
 	s.mu.Lock()
 	s.drafts[draft.ID] = draft
@@ -199,8 +197,11 @@ func (s *Server) createDraft(w http.ResponseWriter, r *http.Request) {
 }
 
 func validateDraftRequest(request DraftRequest) error {
-	if request.TaskID == "" || strings.ToLower(request.Requester) != "alice" || strings.TrimSpace(request.Objective) == "" || len(request.DataProducts) == 0 || request.CatalogVersion == "" {
+	if request.TaskID == "" || request.Requester != "alice" || strings.TrimSpace(request.Objective) == "" || len(request.DataProducts) == 0 || request.CatalogVersion == "" {
 		return errors.New("task_id, Alice requester, objective, data_products, and catalog_version are required")
+	}
+	if err := approval.ValidateAuthorizationSnapshot(request); err != nil {
+		return fmt.Errorf("invalid authorization snapshot: %w", err)
 	}
 	switch request.ApprovalMode {
 	case "auto":
@@ -208,7 +209,7 @@ func validateDraftRequest(request DraftRequest) error {
 			return errors.New("auto approval cannot specify an approver")
 		}
 	case "manual":
-		if strings.ToLower(request.Approver) != "bob" {
+		if request.Approver != "bob" {
 			return errors.New("manual demo approval requires Bob")
 		}
 	default:
@@ -334,6 +335,12 @@ func (s *Server) submitDraft(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "draft cannot be submitted", http.StatusConflict)
 		return
 	}
+	if err := validateStoredDraft(draft); err != nil {
+		s.mu.Unlock()
+		s.config.Logger.Error("authorization snapshot changed before submission", "draft_id", draftID, "error", err)
+		http.Error(w, "draft authorization snapshot is invalid", http.StatusConflict)
+		return
+	}
 	draft.State = "pending"
 	draft.UpdatedAt = s.config.Clock().UTC()
 	snapshot := cloneDraft(draft)
@@ -370,6 +377,12 @@ func (s *Server) decideDraft(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "draft cannot be decided", http.StatusConflict)
 		return
 	}
+	if err := validateStoredDraft(draft); err != nil {
+		s.mu.Unlock()
+		s.config.Logger.Error("authorization snapshot changed before decision", "draft_id", draftID, "error", err)
+		http.Error(w, "draft authorization snapshot is invalid", http.StatusConflict)
+		return
+	}
 	draft.State = decision
 	draft.UpdatedAt = s.config.Clock().UTC()
 	snapshot := cloneDraft(draft)
@@ -382,7 +395,7 @@ func (s *Server) dispatch(draft Draft, status, actor string) {
 	event := callbackEvent{
 		EventID: randomID("evt"), TaskID: draft.TaskID, DraftID: draft.ID, Status: status,
 		Actor: actor, OccurredAt: s.config.Clock().UTC(), CatalogVersion: draft.CatalogVersion,
-		CallbackContext: draft.CallbackContext,
+		CallbackContext: draft.CallbackContext, AuthorizationSnapshotSHA256: draft.AuthorizationSnapshotSHA256,
 	}
 	if status == "approved" || status == "rejected" {
 		event.ApprovalReceipt = randomID("receipt")
@@ -438,7 +451,54 @@ func (s *Server) authorizedDraft(id string, data sessionData) (Draft, bool) {
 func cloneDraft(draft *Draft) Draft {
 	copy := *draft
 	copy.DataProducts = append([]string(nil), draft.DataProducts...)
+	copy.ApprovedColumns = cloneColumns(draft.ApprovedColumns)
+	copy.MandatoryScope = cloneMandatoryScope(draft.MandatoryScope)
 	return copy
+}
+
+func validateStoredDraft(draft *Draft) error {
+	return approval.ValidateAuthorizationSnapshot(approval.DraftRequest{
+		TaskID: draft.TaskID, Requester: draft.Requester, Objective: draft.Objective,
+		DataProducts: draft.DataProducts, ApprovedColumns: draft.ApprovedColumns,
+		MandatoryScope: draft.MandatoryScope, Sensitivity: draft.Sensitivity, Budget: draft.Budget,
+		ApprovalMode: draft.ApprovalMode, Approver: draft.Approver, CatalogVersion: draft.CatalogVersion,
+		CallbackContext: draft.CallbackContext, AuthorizationSnapshotSHA256: draft.AuthorizationSnapshotSHA256,
+	})
+}
+
+func cloneColumns(source map[string][]string) map[string][]string {
+	result := make(map[string][]string, len(source))
+	for product, columns := range source {
+		result[product] = append([]string(nil), columns...)
+	}
+	return result
+}
+
+func cloneMandatoryScope(source map[string]any) map[string]any {
+	result := make(map[string]any, len(source))
+	for name, value := range source {
+		switch typed := value.(type) {
+		case []string:
+			result[name] = append([]string(nil), typed...)
+		case []any:
+			result[name] = append([]any(nil), typed...)
+		case map[string]string:
+			copy := make(map[string]string, len(typed))
+			for key, item := range typed {
+				copy[key] = item
+			}
+			result[name] = copy
+		case map[string]any:
+			copy := make(map[string]any, len(typed))
+			for key, item := range typed {
+				copy[key] = item
+			}
+			result[name] = copy
+		default:
+			result[name] = typed
+		}
+	}
+	return result
 }
 
 func (s *Server) session(r *http.Request) (string, bool) {
@@ -541,5 +601,5 @@ body{font-family:system-ui,sans-serif;background:#f4f6f8;color:#17202a;margin:0}
 {{define "login"}}{{template "head" .}}<div class="card"><h1>OA Demo 登录</h1><p class="muted">Alice 提交申请；Bob 审批明细申请。</p>{{if .Error}}<p class="error">用户名或密码错误</p>{{end}}<form method="post" action="/login"><input type="hidden" name="csrf" value="{{.CSRF}}"><p><label>用户<br><select name="username"><option value="alice">Alice</option><option value="bob">Bob</option></select></label></p><p><label>密码<br><input type="password" name="password" required autocomplete="current-password"></label></p><button type="submit">登录</button></form></div>{{template "foot" .}}{{end}}
 {{define "nav"}}<nav><div><strong>Task-bound OA</strong> · {{.Username}} / {{.Role}}</div><form class="inline" method="post" action="/logout"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">退出</button></form></nav>{{end}}
 {{define "tasks"}}{{template "head" .}}{{template "nav" .Session}}<h1>审批任务</h1>{{range .Drafts}}<div class="card"><span class="tag">{{.State}}</span><h2><a href="/tasks/{{.ID}}">{{.Objective}}</a></h2><p class="muted">{{.TaskID}} · {{.Sensitivity}} · {{.ApprovalMode}}</p></div>{{else}}<div class="card"><p>暂无任务。</p></div>{{end}}{{template "foot" .}}{{end}}
-{{define "task"}}{{template "head" .}}{{template "nav" .Session}}<div class="card"><span class="tag">{{.Draft.State}}</span><h1>{{.Draft.Objective}}</h1><dl><dt>Task ID</dt><dd>{{.Draft.TaskID}}</dd><dt>数据产品</dt><dd>{{range .Draft.DataProducts}}{{.}} {{end}}</dd><dt>敏感级别</dt><dd>{{.Draft.Sensitivity}}</dd><dt>审批方式</dt><dd>{{.Draft.ApprovalMode}}</dd><dt>目录版本</dt><dd>{{.Draft.CatalogVersion}}</dd></dl>{{if and (eq .Session.Role "requester") (eq .Draft.State "draft")}}<form method="post" action="/tasks/{{.Draft.ID}}/submit"><input type="hidden" name="csrf" value="{{.Session.CSRF}}"><button type="submit">提交申请</button></form>{{end}}{{if and (eq .Session.Role "approver") (eq .Draft.State "pending")}}<form class="inline" method="post" action="/tasks/{{.Draft.ID}}/decision"><input type="hidden" name="csrf" value="{{.Session.CSRF}}"><input type="hidden" name="decision" value="approved"><button type="submit">批准</button></form> <form class="inline" method="post" action="/tasks/{{.Draft.ID}}/decision"><input type="hidden" name="csrf" value="{{.Session.CSRF}}"><input type="hidden" name="decision" value="rejected"><button class="danger" type="submit">拒绝</button></form>{{end}}</div><p><a href="/tasks">← 返回任务列表</a></p>{{template "foot" .}}{{end}}
+{{define "task"}}{{template "head" .}}{{template "nav" .Session}}<div class="card"><span class="tag">{{.Draft.State}}</span><h1>{{.Draft.Objective}}</h1><dl><dt>Task ID</dt><dd>{{.Draft.TaskID}}</dd><dt>已批准数据产品</dt><dd>{{range .Draft.DataProducts}}{{.}} {{end}}</dd><dt>已批准字段</dt><dd>{{range $product, $columns := .Draft.ApprovedColumns}}<strong>{{$product}}</strong>: {{range $columns}}{{.}} {{end}}<br>{{end}}</dd><dt>强制数据范围</dt><dd>{{range $name, $value := .Draft.MandatoryScope}}<strong>{{$name}}</strong>: {{$value}}<br>{{end}}</dd><dt>敏感级别上限</dt><dd>{{.Draft.Sensitivity}}</dd><dt>预算</dt><dd>查询次数 {{.Draft.Budget.MaxQueries}}；返回行数 {{.Draft.Budget.MaxRows}}；数据库时间 {{.Draft.Budget.MaxDBMS}} ms；单次超时 {{.Draft.Budget.QueryTimeoutMS}} ms；任务 TTL {{.Draft.Budget.TaskTTLMS}} ms</dd><dt>审批方式</dt><dd>{{.Draft.ApprovalMode}}{{if .Draft.Approver}} / {{.Draft.Approver}}{{end}}</dd><dt>目录版本</dt><dd>{{.Draft.CatalogVersion}}</dd><dt>授权快照 SHA-256</dt><dd><code>{{.Draft.AuthorizationSnapshotSHA256}}</code></dd></dl>{{if and (eq .Session.Role "requester") (eq .Draft.State "draft")}}<form method="post" action="/tasks/{{.Draft.ID}}/submit"><input type="hidden" name="csrf" value="{{.Session.CSRF}}"><button type="submit">提交申请</button></form>{{end}}{{if and (eq .Session.Role "approver") (eq .Draft.State "pending")}}<form class="inline" method="post" action="/tasks/{{.Draft.ID}}/decision"><input type="hidden" name="csrf" value="{{.Session.CSRF}}"><input type="hidden" name="decision" value="approved"><button type="submit">批准</button></form> <form class="inline" method="post" action="/tasks/{{.Draft.ID}}/decision"><input type="hidden" name="csrf" value="{{.Session.CSRF}}"><input type="hidden" name="decision" value="rejected"><button class="danger" type="submit">拒绝</button></form>{{end}}</div><p><a href="/tasks">← 返回任务列表</a></p>{{template "foot" .}}{{end}}
 `

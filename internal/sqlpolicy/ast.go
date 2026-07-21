@@ -392,9 +392,17 @@ var dangerousFunctions = map[string]struct{}{
 	"pg_notify": {}, "pg_reload_conf": {}, "pg_rotate_logfile": {}, "pg_sleep": {},
 	"pg_sleep_for": {}, "pg_sleep_until": {}, "pg_terminate_backend": {},
 	"lo_export": {}, "lo_import": {}, "dblink": {}, "dblink_exec": {},
+	// ts_stat executes the SQL text supplied by its caller. Letting a catalog
+	// enable it would create a second SQL parser/execution path that bypasses
+	// logical-product, column, and mandatory-scope validation.
+	"ts_stat": {},
 }
 
 var dangerousFunctionPrefixes = []string{
+	// PostgreSQL's XML mapping helpers either execute caller-supplied SQL or
+	// export a table, schema, database, or cursor. They must remain denied even
+	// when a trusted catalog accidentally includes them in an allowlist.
+	"cursor_to_xml", "database_to_xml", "query_to_xml", "schema_to_xml", "table_to_xml",
 	"dblink_", "lo_", "pg_backup_", "pg_create_restore_point", "pg_file_", "pg_log_",
 	"pg_ls_", "pg_promote", "pg_read_", "pg_replication_", "pg_stat_file", "pg_switch_wal",
 	"pg_wal_replay_",

@@ -3,17 +3,20 @@ package control
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 )
 
 type interruptedReservation struct {
-	queryID string
-	taskID  string
-	actor   string
+	queryID      string
+	taskID       string
+	actor        string
+	reservedRows int64
+	reservedDBMS int64
 }
 
-// Recover deterministically releases in-flight reservations, makes unfinished
-// callback claims retryable, and expires stale tasks. It is safe to call more
-// than once and is run automatically by Open/New.
+// Recover deterministically charges the full reservation for interrupted
+// queries, makes unfinished callback claims retryable, and expires stale tasks.
+// It is safe to call more than once and is run automatically by Open/New.
 func (s *Store) Recover(ctx context.Context) (RecoveryReport, error) {
 	const op = "recover store"
 	if err := s.checkOpen(op); err != nil {
@@ -26,14 +29,17 @@ func (s *Store) Recover(ctx context.Context) (RecoveryReport, error) {
 	defer rollback(tx)
 	now := s.now()
 
-	rows, err := tx.QueryContext(ctx, `SELECT id, task_id, actor FROM query_records WHERE status='RESERVED' ORDER BY created_at, id`)
+	rows, err := tx.QueryContext(ctx, `
+SELECT id, task_id, actor, reserved_rows, reserved_db_ms
+FROM query_records WHERE status='RESERVED' ORDER BY created_at, id`)
 	if err != nil {
 		return RecoveryReport{}, opErr(op, ErrConflict, err)
 	}
 	var interrupted []interruptedReservation
 	for rows.Next() {
 		var reservation interruptedReservation
-		if err := rows.Scan(&reservation.queryID, &reservation.taskID, &reservation.actor); err != nil {
+		if err := rows.Scan(&reservation.queryID, &reservation.taskID, &reservation.actor,
+			&reservation.reservedRows, &reservation.reservedDBMS); err != nil {
 			_ = rows.Close()
 			return RecoveryReport{}, opErr(op, ErrConflict, err)
 		}
@@ -42,31 +48,63 @@ func (s *Store) Recover(ctx context.Context) (RecoveryReport, error) {
 	if err := rows.Close(); err != nil {
 		return RecoveryReport{}, opErr(op, ErrConflict, err)
 	}
-	if _, err := tx.ExecContext(ctx, `
-UPDATE budget_ledger
-SET reserved_queries=0, reserved_rows=0, reserved_db_ms=0, updated_at=?
-WHERE reserved_queries<>0 OR reserved_rows<>0 OR reserved_db_ms<>0`, formatTime(now)); err != nil {
-		return RecoveryReport{}, opErr(op, ErrConflict, err)
-	}
 	for _, reservation := range interrupted {
-		budget, err := scanBudget(tx.QueryRowContext(ctx, budgetSelect+` WHERE task_id=?`, reservation.taskID))
+		before, err := scanBudget(tx.QueryRowContext(ctx, budgetSelect+` WHERE task_id=?`, reservation.taskID))
 		if err != nil {
 			return RecoveryReport{}, opErr(op, ErrConflict, err)
 		}
-		budgetJSON, _ := json.Marshal(budget)
-		_, err = tx.ExecContext(ctx, `
-UPDATE query_records
-SET status='INTERRUPTED', error_code='GATEWAY_RESTART', budget_after_json=?, completed_at=?
-WHERE id=? AND status='RESERVED'`, budgetJSON, formatTime(now), reservation.queryID)
+		if before.Usage.ReservedQueries < 1 || before.Usage.ReservedRows < reservation.reservedRows || before.Usage.ReservedDBMS < reservation.reservedDBMS {
+			return RecoveryReport{}, opErr(op, ErrConflict, fmt.Errorf("reservation ledger is inconsistent for query %s", reservation.queryID))
+		}
+		after := before
+		after.Usage.ReservedQueries--
+		after.Usage.ReservedRows -= reservation.reservedRows
+		after.Usage.ReservedDBMS -= reservation.reservedDBMS
+		after.Usage.UsedQueries++
+		after.Usage.UsedRows += reservation.reservedRows
+		after.Usage.UsedDBMS += reservation.reservedDBMS
+		after.UpdatedAt = now
+		if after.Usage.UsedQueries > after.Limits.Queries || after.Usage.UsedRows > after.Limits.Rows || after.Usage.UsedDBMS > after.Limits.DBMS {
+			return RecoveryReport{}, opErr(op, ErrConflict, fmt.Errorf("recovered reservation would exceed hard budget for query %s", reservation.queryID))
+		}
+		if _, err := tx.ExecContext(ctx, `
+UPDATE budget_ledger
+SET used_queries=?, used_rows=?, used_db_ms=?, reserved_queries=?, reserved_rows=?, reserved_db_ms=?, updated_at=?
+WHERE task_id=?`, after.Usage.UsedQueries, after.Usage.UsedRows, after.Usage.UsedDBMS,
+			after.Usage.ReservedQueries, after.Usage.ReservedRows, after.Usage.ReservedDBMS,
+			formatTime(now), reservation.taskID); err != nil {
+			return RecoveryReport{}, opErr(op, ErrConflict, err)
+		}
+		budgetJSON, err := json.Marshal(after)
 		if err != nil {
 			return RecoveryReport{}, opErr(op, ErrConflict, err)
+		}
+		result, err := tx.ExecContext(ctx, `
+UPDATE query_records
+	SET status='INTERRUPTED', charged_queries=1, charged_rows=?, charged_db_ms=?,
+	    error_code='GATEWAY_RESTART', budget_after_json=?, completed_at=?
+	WHERE id=? AND status='RESERVED'`, reservation.reservedRows, reservation.reservedDBMS,
+			budgetJSON, formatTime(now), reservation.queryID)
+		if err != nil {
+			return RecoveryReport{}, opErr(op, ErrConflict, err)
+		}
+		if affected, _ := result.RowsAffected(); affected != 1 {
+			return RecoveryReport{}, opErr(op, ErrConflict, fmt.Errorf("reservation changed during recovery for query %s", reservation.queryID))
 		}
 		_, err = appendAuditTx(ctx, tx, AuditEvent{
 			TaskID: reservation.taskID, QueryID: reservation.queryID, Actor: reservation.actor,
-			EventType: "QUERY_INTERRUPTED", Payload: mustJSON(map[string]any{"reason": "gateway_restart"}), OccurredAt: now,
+			EventType: "QUERY_INTERRUPTED", Payload: mustJSON(map[string]any{
+				"reason": "gateway_restart", "charged_queries": int64(1),
+				"charged_rows": reservation.reservedRows, "charged_db_ms": reservation.reservedDBMS,
+			}), OccurredAt: now,
 		})
 		if err != nil {
 			return RecoveryReport{}, opErr(op, ErrConflict, err)
+		}
+		if after.Usage.UsedQueries >= after.Limits.Queries || after.Usage.UsedRows >= after.Limits.Rows || after.Usage.UsedDBMS >= after.Limits.DBMS {
+			if err := archiveTaskTx(ctx, tx, reservation.taskID, TerminalBudgetExhausted, "system", now); err != nil {
+				return RecoveryReport{}, opErr(op, ErrConflict, err)
+			}
 		}
 	}
 
