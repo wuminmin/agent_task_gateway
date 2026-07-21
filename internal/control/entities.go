@@ -1,0 +1,500 @@
+package control
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"time"
+)
+
+func (s *Store) CreatePrincipal(ctx context.Context, principal Principal) error {
+	const op = "create principal"
+	if err := s.checkOpen(op); err != nil {
+		return err
+	}
+	if strings.TrimSpace(principal.ID) == "" || strings.TrimSpace(principal.Subject) == "" || strings.TrimSpace(principal.Role) == "" {
+		return opErr(op, ErrInvalid, fmt.Errorf("id, subject, and role are required"))
+	}
+	if principal.CreatedAt.IsZero() {
+		principal.CreatedAt = s.now()
+	}
+	tx, err := beginTx(ctx, s.db)
+	if err != nil {
+		return opErr(op, ErrConflict, err)
+	}
+	defer rollback(tx)
+	_, err = tx.ExecContext(ctx, `
+INSERT INTO principals(id, subject, role, token_hash, created_at, disabled_at)
+VALUES (?, ?, ?, ?, ?, ?)`, principal.ID, principal.Subject, principal.Role, principal.TokenHash,
+		formatTime(principal.CreatedAt), nullableTime(principal.DisabledAt))
+	if err != nil {
+		return opErr(op, ErrConflict, err)
+	}
+	_, err = appendAuditTx(ctx, tx, AuditEvent{
+		Actor:      principal.Subject,
+		EventType:  "PRINCIPAL_CREATED",
+		Payload:    mustJSON(map[string]any{"principal_id": principal.ID, "role": principal.Role}),
+		OccurredAt: principal.CreatedAt,
+	})
+	if err != nil {
+		return opErr(op, ErrConflict, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return opErr(op, ErrConflict, err)
+	}
+	return nil
+}
+
+func (s *Store) GetPrincipal(ctx context.Context, id string) (Principal, error) {
+	const op = "get principal"
+	if err := s.checkOpen(op); err != nil {
+		return Principal{}, err
+	}
+	return scanPrincipal(op, s.db.QueryRowContext(ctx, `
+SELECT id, subject, role, token_hash, created_at, disabled_at FROM principals WHERE id = ?`, id))
+}
+
+func (s *Store) GetPrincipalBySubject(ctx context.Context, subject string) (Principal, error) {
+	const op = "get principal by subject"
+	if err := s.checkOpen(op); err != nil {
+		return Principal{}, err
+	}
+	return scanPrincipal(op, s.db.QueryRowContext(ctx, `
+SELECT id, subject, role, token_hash, created_at, disabled_at FROM principals WHERE subject = ?`, subject))
+}
+
+func scanPrincipal(op string, row rowScanner) (Principal, error) {
+	var principal Principal
+	var created string
+	var disabled sql.NullString
+	if err := row.Scan(&principal.ID, &principal.Subject, &principal.Role, &principal.TokenHash, &created, &disabled); err != nil {
+		if isNoRows(err) {
+			return Principal{}, opErr(op, ErrNotFound, err)
+		}
+		return Principal{}, opErr(op, ErrConflict, err)
+	}
+	var err error
+	principal.CreatedAt, err = parseTime(created)
+	if err != nil {
+		return Principal{}, opErr(op, ErrConflict, err)
+	}
+	principal.DisabledAt, err = scanNullableTime(disabled)
+	if err != nil {
+		return Principal{}, opErr(op, ErrConflict, err)
+	}
+	return principal, nil
+}
+
+func (s *Store) CreateTask(ctx context.Context, task Task) error {
+	const op = "create task"
+	if err := s.checkOpen(op); err != nil {
+		return err
+	}
+	if strings.TrimSpace(task.ID) == "" || strings.TrimSpace(task.PrincipalID) == "" || strings.TrimSpace(task.Objective) == "" || strings.TrimSpace(task.CatalogVersion) == "" {
+		return opErr(op, ErrInvalid, fmt.Errorf("id, principal, objective, and catalog version are required"))
+	}
+	if task.State == "" {
+		task.State = TaskAwaitingSubmission
+	}
+	if !validTaskState(task.State) || (task.State != TaskArchived && task.TerminalReason != "") || (task.State == TaskArchived && task.TerminalReason == "") {
+		return opErr(op, ErrInvalid, fmt.Errorf("invalid state/terminal reason combination"))
+	}
+	requested, err := normalizeJSON(task.RequestedBudget, `{}`)
+	if err != nil {
+		return opErr(op, ErrInvalid, fmt.Errorf("requested budget: %w", err))
+	}
+	requestContext, err := normalizeJSON(task.RequestContext, `{}`)
+	if err != nil {
+		return opErr(op, ErrInvalid, fmt.Errorf("request context: %w", err))
+	}
+	now := s.now()
+	if task.CreatedAt.IsZero() {
+		task.CreatedAt = now
+	}
+	if task.UpdatedAt.IsZero() {
+		task.UpdatedAt = task.CreatedAt
+	}
+	tx, err := beginTx(ctx, s.db)
+	if err != nil {
+		return opErr(op, ErrConflict, err)
+	}
+	defer rollback(tx)
+	_, err = tx.ExecContext(ctx, `
+INSERT INTO tasks(id, principal_id, objective, state, terminal_reason, catalog_version, sensitivity,
+                  requested_budget_json, request_context_json, approval_ref, created_at, updated_at, expires_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, task.ID, task.PrincipalID, task.Objective, task.State,
+		task.TerminalReason, task.CatalogVersion, task.Sensitivity, []byte(requested), []byte(requestContext), task.ApprovalRef,
+		formatTime(task.CreatedAt), formatTime(task.UpdatedAt), nullableTime(task.ExpiresAt))
+	if err != nil {
+		return opErr(op, ErrConflict, err)
+	}
+	actor := task.PrincipalID
+	_, err = appendAuditTx(ctx, tx, AuditEvent{
+		TaskID: task.ID, Actor: actor, EventType: "TASK_CREATED", OccurredAt: task.CreatedAt,
+		Payload: mustJSON(map[string]any{"state": task.State, "catalog_version": task.CatalogVersion}),
+	})
+	if err != nil {
+		return opErr(op, ErrConflict, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return opErr(op, ErrConflict, err)
+	}
+	return nil
+}
+
+func (s *Store) GetTask(ctx context.Context, id string) (Task, error) {
+	const op = "get task"
+	if err := s.checkOpen(op); err != nil {
+		return Task{}, err
+	}
+	return scanTask(op, s.db.QueryRowContext(ctx, taskSelect+` WHERE id = ?`, id))
+}
+
+const taskSelect = `SELECT id, principal_id, objective, state, terminal_reason, catalog_version, sensitivity,
+requested_budget_json, request_context_json, approval_ref, created_at, updated_at, expires_at FROM tasks`
+
+func scanTask(op string, row rowScanner) (Task, error) {
+	var task Task
+	var requested, requestContext []byte
+	var created, updated string
+	var expires sql.NullString
+	if err := row.Scan(&task.ID, &task.PrincipalID, &task.Objective, &task.State, &task.TerminalReason,
+		&task.CatalogVersion, &task.Sensitivity, &requested, &requestContext, &task.ApprovalRef, &created, &updated, &expires); err != nil {
+		if isNoRows(err) {
+			return Task{}, opErr(op, ErrNotFound, err)
+		}
+		return Task{}, opErr(op, ErrConflict, err)
+	}
+	var err error
+	task.RequestedBudget = append(json.RawMessage(nil), requested...)
+	task.RequestContext = append(json.RawMessage(nil), requestContext...)
+	task.CreatedAt, err = parseTime(created)
+	if err != nil {
+		return Task{}, opErr(op, ErrConflict, err)
+	}
+	task.UpdatedAt, err = parseTime(updated)
+	if err != nil {
+		return Task{}, opErr(op, ErrConflict, err)
+	}
+	task.ExpiresAt, err = scanNullableTime(expires)
+	if err != nil {
+		return Task{}, opErr(op, ErrConflict, err)
+	}
+	return task, nil
+}
+
+func (s *Store) ListTasks(ctx context.Context, filter TaskFilter) ([]Task, error) {
+	const op = "list tasks"
+	if err := s.checkOpen(op); err != nil {
+		return nil, err
+	}
+	limit := filter.Limit
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	rows, err := s.db.QueryContext(ctx, taskSelect+`
+WHERE (? = '' OR principal_id = ?) AND (? = '' OR state = ?) AND (? = '' OR id > ?)
+ORDER BY id LIMIT ?`, filter.PrincipalID, filter.PrincipalID, filter.State, filter.State,
+		filter.AfterID, filter.AfterID, limit)
+	if err != nil {
+		return nil, opErr(op, ErrConflict, err)
+	}
+	defer rows.Close()
+	var tasks []Task
+	for rows.Next() {
+		task, err := scanTask(op, rows)
+		if err != nil {
+			return nil, err
+		}
+		tasks = append(tasks, task)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, opErr(op, ErrConflict, err)
+	}
+	return tasks, nil
+}
+
+type TaskTransition struct {
+	TaskID       string
+	ExpectedFrom TaskState
+	To           TaskState
+	Reason       TerminalReason
+	Actor        string
+	EventID      string
+	Payload      json.RawMessage
+	ExpiresAt    *time.Time
+}
+
+func (s *Store) TransitionTask(ctx context.Context, change TaskTransition) (Task, error) {
+	const op = "transition task"
+	if err := s.checkOpen(op); err != nil {
+		return Task{}, err
+	}
+	if change.TaskID == "" || change.Actor == "" || !validTaskState(change.To) {
+		return Task{}, opErr(op, ErrInvalid, fmt.Errorf("task, actor, and target state are required"))
+	}
+	payload, err := normalizeJSON(change.Payload, `{}`)
+	if err != nil {
+		return Task{}, opErr(op, ErrInvalid, err)
+	}
+	tx, err := beginTx(ctx, s.db)
+	if err != nil {
+		return Task{}, opErr(op, ErrConflict, err)
+	}
+	defer rollback(tx)
+	current, err := scanTask(op, tx.QueryRowContext(ctx, taskSelect+` WHERE id = ?`, change.TaskID))
+	if err != nil {
+		return Task{}, err
+	}
+	if change.ExpectedFrom != "" && current.State != change.ExpectedFrom {
+		return Task{}, opErr(op, ErrConflict, fmt.Errorf("expected %s, found %s", change.ExpectedFrom, current.State))
+	}
+	if !allowedTransition(current.State, change.To, change.Reason) {
+		return Task{}, opErr(op, ErrInvalidStateChange, fmt.Errorf("%s -> %s (%s)", current.State, change.To, change.Reason))
+	}
+	now := s.now()
+	expires := current.ExpiresAt
+	if change.ExpiresAt != nil {
+		expires = change.ExpiresAt
+	}
+	_, err = tx.ExecContext(ctx, `UPDATE tasks SET state=?, terminal_reason=?, updated_at=?, expires_at=? WHERE id=?`,
+		change.To, change.Reason, formatTime(now), nullableTime(expires), change.TaskID)
+	if err != nil {
+		return Task{}, opErr(op, ErrConflict, err)
+	}
+	_, err = appendAuditTx(ctx, tx, AuditEvent{
+		EventID: change.EventID, TaskID: change.TaskID, Actor: change.Actor, EventType: "TASK_STATE_CHANGED",
+		Payload:    mustJSON(map[string]any{"from": current.State, "to": change.To, "terminal_reason": change.Reason, "detail": json.RawMessage(payload)}),
+		OccurredAt: now,
+	})
+	if err != nil {
+		return Task{}, opErr(op, ErrConflict, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return Task{}, opErr(op, ErrConflict, err)
+	}
+	current.State, current.TerminalReason, current.UpdatedAt, current.ExpiresAt = change.To, change.Reason, now, expires
+	return current, nil
+}
+
+func validTaskState(state TaskState) bool {
+	switch state {
+	case TaskAwaitingSubmission, TaskAwaitingApproval, TaskActive, TaskArchived:
+		return true
+	default:
+		return false
+	}
+}
+
+func allowedTransition(from, to TaskState, reason TerminalReason) bool {
+	if to == TaskArchived {
+		if reason == "" {
+			return false
+		}
+		switch reason {
+		case TerminalCompleted, TerminalBudgetExhausted, TerminalRejected, TerminalExpired, TerminalRevoked, TerminalFailed:
+		default:
+			return false
+		}
+	} else if reason != "" {
+		return false
+	}
+	switch from {
+	case TaskAwaitingSubmission:
+		return to == TaskAwaitingApproval || to == TaskArchived
+	case TaskAwaitingApproval:
+		return to == TaskActive || to == TaskArchived
+	case TaskActive:
+		return to == TaskArchived
+	default:
+		return false
+	}
+}
+
+func (s *Store) PutGrant(ctx context.Context, grant TaskGrant) error {
+	const op = "put task grant"
+	if err := s.checkOpen(op); err != nil {
+		return err
+	}
+	if grant.TaskID == "" || grant.Subject == "" || grant.Purpose == "" || grant.CatalogVersion == "" || grant.ApprovalReceipt == "" || grant.ExpiresAt.IsZero() {
+		return opErr(op, ErrInvalid, fmt.Errorf("required grant field is empty"))
+	}
+	if grant.Budget.Queries <= 0 || grant.Budget.Rows <= 0 || grant.Budget.DBMS <= 0 {
+		return opErr(op, ErrInvalid, fmt.Errorf("all budget limits must be positive"))
+	}
+	products, err := json.Marshal(grant.ApprovedProducts)
+	if err != nil {
+		return opErr(op, ErrInvalid, err)
+	}
+	columns, err := json.Marshal(grant.ApprovedColumns)
+	if err != nil {
+		return opErr(op, ErrInvalid, err)
+	}
+	scope, err := normalizeJSON(grant.MandatoryScope, `{}`)
+	if err != nil {
+		return opErr(op, ErrInvalid, err)
+	}
+	if grant.CreatedAt.IsZero() {
+		grant.CreatedAt = s.now()
+	}
+	tx, err := beginTx(ctx, s.db)
+	if err != nil {
+		return opErr(op, ErrConflict, err)
+	}
+	defer rollback(tx)
+	var state TaskState
+	if err := tx.QueryRowContext(ctx, `SELECT state FROM tasks WHERE id=?`, grant.TaskID).Scan(&state); err != nil {
+		if isNoRows(err) {
+			return opErr(op, ErrNotFound, err)
+		}
+		return opErr(op, ErrConflict, err)
+	}
+	if state != TaskAwaitingApproval && state != TaskActive {
+		return opErr(op, ErrInvalidStateChange, fmt.Errorf("cannot grant task in state %s", state))
+	}
+	if err := insertGrantAndBudget(ctx, tx, grant, products, columns, scope); err != nil {
+		return opErr(op, ErrConflict, err)
+	}
+	_, err = appendAuditTx(ctx, tx, AuditEvent{
+		TaskID: grant.TaskID, Actor: grant.Subject, EventType: "TASK_GRANT_CREATED", OccurredAt: grant.CreatedAt,
+		Payload: mustJSON(map[string]any{"catalog_version": grant.CatalogVersion, "budget": grant.Budget, "expires_at": formatTime(grant.ExpiresAt)}),
+	})
+	if err != nil {
+		return opErr(op, ErrConflict, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return opErr(op, ErrConflict, err)
+	}
+	return nil
+}
+
+func insertGrantAndBudget(ctx context.Context, tx *sql.Tx, grant TaskGrant, products, columns, scope []byte) error {
+	_, err := tx.ExecContext(ctx, `
+INSERT INTO task_grants(task_id, subject, purpose, approved_products_json, approved_columns_json,
+ mandatory_scope_json, sensitivity_ceiling, max_queries, max_rows, max_db_ms, expires_at,
+ catalog_version, approval_receipt, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, grant.TaskID, grant.Subject, grant.Purpose,
+		products, columns, scope, grant.SensitivityCeiling, grant.Budget.Queries, grant.Budget.Rows,
+		grant.Budget.DBMS, formatTime(grant.ExpiresAt), grant.CatalogVersion, grant.ApprovalReceipt,
+		formatTime(grant.CreatedAt))
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `
+INSERT INTO budget_ledger(task_id, max_queries, max_rows, max_db_ms, updated_at)
+VALUES (?, ?, ?, ?, ?)`, grant.TaskID, grant.Budget.Queries, grant.Budget.Rows, grant.Budget.DBMS,
+		formatTime(grant.CreatedAt))
+	return err
+}
+
+func (s *Store) GetGrant(ctx context.Context, taskID string) (TaskGrant, error) {
+	const op = "get task grant"
+	if err := s.checkOpen(op); err != nil {
+		return TaskGrant{}, err
+	}
+	var grant TaskGrant
+	var products, columns, scope []byte
+	var expires, created string
+	err := s.db.QueryRowContext(ctx, `
+SELECT task_id, subject, purpose, approved_products_json, approved_columns_json, mandatory_scope_json,
+ sensitivity_ceiling, max_queries, max_rows, max_db_ms, expires_at, catalog_version, approval_receipt, created_at
+FROM task_grants WHERE task_id=?`, taskID).Scan(&grant.TaskID, &grant.Subject, &grant.Purpose, &products,
+		&columns, &scope, &grant.SensitivityCeiling, &grant.Budget.Queries, &grant.Budget.Rows, &grant.Budget.DBMS,
+		&expires, &grant.CatalogVersion, &grant.ApprovalReceipt, &created)
+	if err != nil {
+		if isNoRows(err) {
+			return TaskGrant{}, opErr(op, ErrNotFound, err)
+		}
+		return TaskGrant{}, opErr(op, ErrConflict, err)
+	}
+	if err := json.Unmarshal(products, &grant.ApprovedProducts); err != nil {
+		return TaskGrant{}, opErr(op, ErrConflict, err)
+	}
+	if err := json.Unmarshal(columns, &grant.ApprovedColumns); err != nil {
+		return TaskGrant{}, opErr(op, ErrConflict, err)
+	}
+	grant.MandatoryScope = append(json.RawMessage(nil), scope...)
+	grant.ExpiresAt, err = parseTime(expires)
+	if err != nil {
+		return TaskGrant{}, opErr(op, ErrConflict, err)
+	}
+	grant.CreatedAt, err = parseTime(created)
+	if err != nil {
+		return TaskGrant{}, opErr(op, ErrConflict, err)
+	}
+	return grant, nil
+}
+
+func (s *Store) RecordApprovalEvent(ctx context.Context, event ApprovalEvent) error {
+	const op = "record approval event"
+	if err := s.checkOpen(op); err != nil {
+		return err
+	}
+	if event.EventID == "" || event.TaskID == "" || event.Actor == "" || event.Decision == "" {
+		return opErr(op, ErrInvalid, fmt.Errorf("event, task, actor, and decision are required"))
+	}
+	payload, err := normalizeJSON(event.Payload, `{}`)
+	if err != nil {
+		return opErr(op, ErrInvalid, err)
+	}
+	if event.CreatedAt.IsZero() {
+		event.CreatedAt = s.now()
+	}
+	tx, err := beginTx(ctx, s.db)
+	if err != nil {
+		return opErr(op, ErrConflict, err)
+	}
+	defer rollback(tx)
+	_, err = tx.ExecContext(ctx, `
+INSERT INTO approval_events(event_id, task_id, actor, decision, payload_json, created_at)
+VALUES (?, ?, ?, ?, ?, ?)`, event.EventID, event.TaskID, event.Actor, event.Decision, []byte(payload), formatTime(event.CreatedAt))
+	if err != nil {
+		return opErr(op, ErrConflict, err)
+	}
+	_, err = appendAuditTx(ctx, tx, AuditEvent{
+		TaskID: event.TaskID, Actor: event.Actor, EventType: "APPROVAL_EVENT_RECORDED",
+		Payload: mustJSON(map[string]any{"event_id": event.EventID, "decision": event.Decision}), OccurredAt: event.CreatedAt,
+	})
+	if err != nil {
+		return opErr(op, ErrConflict, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return opErr(op, ErrConflict, err)
+	}
+	return nil
+}
+
+func (s *Store) ListApprovalEvents(ctx context.Context, taskID string) ([]ApprovalEvent, error) {
+	const op = "list approval events"
+	if err := s.checkOpen(op); err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, `
+SELECT event_id, task_id, actor, decision, payload_json, created_at
+FROM approval_events WHERE task_id=? ORDER BY created_at, event_id`, taskID)
+	if err != nil {
+		return nil, opErr(op, ErrConflict, err)
+	}
+	defer rows.Close()
+	var events []ApprovalEvent
+	for rows.Next() {
+		var event ApprovalEvent
+		var payload []byte
+		var created string
+		if err := rows.Scan(&event.EventID, &event.TaskID, &event.Actor, &event.Decision, &payload, &created); err != nil {
+			return nil, opErr(op, ErrConflict, err)
+		}
+		event.Payload = append(json.RawMessage(nil), payload...)
+		event.CreatedAt, err = parseTime(created)
+		if err != nil {
+			return nil, opErr(op, ErrConflict, err)
+		}
+		events = append(events, event)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, opErr(op, ErrConflict, err)
+	}
+	return events, nil
+}
