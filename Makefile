@@ -2,7 +2,6 @@
 
 verify:
 	docker build --target verify -t taskbound-agent-data-gateway-verify .
-	docker compose build
 	./scripts/compose-test.sh
 
 test:

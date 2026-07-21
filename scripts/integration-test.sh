@@ -1,0 +1,471 @@
+#!/bin/sh
+set -eu
+
+# Standalone Compose acceptance suite. A dedicated Compose project keeps its
+# containers and volumes separate from a developer's normal stack.
+
+PROJECT_NAME=${TASKBOUND_INTEGRATION_PROJECT:-taskbound-gateway-integration}
+KEEP_STACK=${TASKBOUND_INTEGRATION_KEEP_STACK:-0}
+GATEWAY_PORT=${TASKBOUND_INTEGRATION_GATEWAY_PORT:-18080}
+OA_PORT=${TASKBOUND_INTEGRATION_OA_PORT:-18090}
+if [ -n "${TASKBOUND_INTEGRATION_GATEWAY_URL:-}" ]; then
+  GATEWAY_URL=$TASKBOUND_INTEGRATION_GATEWAY_URL
+else
+  GATEWAY_URL=http://127.0.0.1:$GATEWAY_PORT
+fi
+
+: "${TASKBOUND_ALICE_TOKEN:=alice-demo-token-change-me}"
+: "${TASKBOUND_CAROL_TOKEN:=carol-demo-token-change-me}"
+: "${POSTGRES_DB:=travel_demo}"
+: "${POSTGRES_USER:=postgres}"
+: "${POSTGRES_PASSWORD:=postgres-demo-change-me}"
+: "${GATEWAY_DB_PASSWORD:=gateway-reader-demo-change-me}"
+: "${GATEWAY_DATA_KEY:=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}"
+: "${OA_SERVICE_TOKEN:=oa-service-token-change-me}"
+: "${OA_CALLBACK_SECRET:=oa-callback-secret-change-me}"
+: "${OA_SESSION_SECRET:=oa-session-secret-change-me}"
+: "${OA_ALICE_PASSWORD:=alice-demo-change-me}"
+: "${OA_BOB_PASSWORD:=bob-demo-change-me}"
+
+# The Compose override routes model calls to a deterministic local double and
+# later stops it to exercise model-unavailable fail-closed behavior.
+DEEPSEEK_API_KEY=
+export TASKBOUND_ALICE_TOKEN TASKBOUND_CAROL_TOKEN
+export POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD GATEWAY_DB_PASSWORD
+export GATEWAY_DATA_KEY OA_SERVICE_TOKEN OA_CALLBACK_SECRET OA_SESSION_SECRET
+export OA_ALICE_PASSWORD OA_BOB_PASSWORD DEEPSEEK_API_KEY
+
+TMP_FILE=$(mktemp /tmp/taskbound-integration.XXXXXX)
+ALICE_COOKIE=$(mktemp /tmp/taskbound-alice-cookie.XXXXXX)
+BOB_COOKIE=$(mktemp /tmp/taskbound-bob-cookie.XXXXXX)
+OA_PAGE=$(mktemp /tmp/taskbound-oa-page.XXXXXX)
+
+COMPOSE_PORT_OVERRIDE="services:
+  deepseek-mock:
+    build:
+      context: .
+      args:
+        TARGET: deepseek-mock
+    environment:
+      MOCK_ADDR: :8081
+    healthcheck:
+      test: [\"CMD\", \"curl\", \"--fail\", \"--silent\", \"http://127.0.0.1:8081/health/ready\"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+  gateway:
+    ports: !override
+      - 127.0.0.1:${GATEWAY_PORT}:8080
+    environment:
+      DEEPSEEK_API_KEY: integration-mock-key
+      DEEPSEEK_BASE_URL: http://deepseek-mock:8081
+    depends_on:
+      postgres:
+        condition: service_healthy
+      oa-demo:
+        condition: service_healthy
+      deepseek-mock:
+        condition: service_healthy
+  oa-demo:
+    ports: !override
+      - 127.0.0.1:${OA_PORT}:8090
+    environment:
+      PUBLIC_OA_BASE_URL: http://127.0.0.1:${OA_PORT}
+  mcp-probe:
+    profiles: [integration-tools]
+    build:
+      context: .
+      args:
+        TARGET: mcp-probe
+    environment:
+      MCP_ENDPOINT: http://gateway:8080/mcp
+      MCP_TOKEN: ${TASKBOUND_ALICE_TOKEN}
+      CONTROL_DB_PATH: /data/gateway.db
+      GATEWAY_DATA_KEY: ${GATEWAY_DATA_KEY}
+    volumes:
+      - gateway-data:/data"
+
+compose() {
+  printf '%s\n' "$COMPOSE_PORT_OVERRIDE" | \
+    docker compose --project-name "$PROJECT_NAME" --file compose.yaml --file - "$@"
+}
+
+cleanup() {
+  status=$?
+  trap - EXIT INT TERM
+  case "$TMP_FILE" in
+    /tmp/taskbound-integration.*) rm -f "$TMP_FILE" ;;
+  esac
+  case "$ALICE_COOKIE" in
+    /tmp/taskbound-alice-cookie.*) rm -f "$ALICE_COOKIE" ;;
+  esac
+  case "$BOB_COOKIE" in
+    /tmp/taskbound-bob-cookie.*) rm -f "$BOB_COOKIE" ;;
+  esac
+  case "$OA_PAGE" in
+    /tmp/taskbound-oa-page.*) rm -f "$OA_PAGE" ;;
+  esac
+  if [ "$KEEP_STACK" != "1" ]; then
+    if ! compose down --volumes --remove-orphans >/dev/null 2>&1; then
+      echo "warning: failed to remove integration Compose project $PROJECT_NAME" >&2
+    fi
+  fi
+  exit "$status"
+}
+trap cleanup EXIT INT TERM
+
+fail() {
+  echo "integration test failed: $*" >&2
+  exit 1
+}
+
+curl_safe() {
+  command curl --connect-timeout 5 --max-time 60 "$@"
+}
+
+pass() {
+  echo "ok - $*"
+}
+
+assert_contains() {
+  value=$1
+  expected=$2
+  label=$3
+  case "$value" in
+    *"$expected"*) ;;
+    *) fail "$label: response did not contain $expected" ;;
+  esac
+}
+
+assert_not_contains() {
+  value=$1
+  unexpected=$2
+  label=$3
+  case "$value" in
+    *"$unexpected"*) fail "$label: response unexpectedly contained $unexpected" ;;
+    *) ;;
+  esac
+}
+
+json_string() {
+  value=$1
+  field=$2
+  printf '%s\n' "$value" | sed -n "s/.*\"$field\":\"\\([^\"]*\\)\".*/\\1/p" | tail -n 1
+}
+
+csrf_from_page() {
+  sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' "$1" | head -n 1
+}
+
+oa_login() {
+  username=$1
+  password=$2
+  cookie_file=$3
+  curl_safe --fail --silent --show-error --cookie-jar "$cookie_file" \
+    "http://127.0.0.1:$OA_PORT/login" --output "$OA_PAGE"
+  csrf=$(csrf_from_page "$OA_PAGE")
+  [ -n "$csrf" ] || fail "OA login page omitted CSRF token for $username"
+  curl_safe --fail --silent --show-error --location \
+    --cookie "$cookie_file" --cookie-jar "$cookie_file" \
+    --data-urlencode "csrf=$csrf" --data-urlencode "username=$username" \
+    --data-urlencode "password=$password" \
+    "http://127.0.0.1:$OA_PORT/login" --output "$OA_PAGE"
+  assert_contains "$(cat "$OA_PAGE")" '审批任务' "OA login for $username"
+}
+
+oa_action() {
+  cookie_file=$1
+  draft_id=$2
+  action=$3
+  decision=${4:-}
+  task_url="http://127.0.0.1:$OA_PORT/tasks/$draft_id"
+  curl_safe --fail --silent --show-error --cookie "$cookie_file" "$task_url" --output "$OA_PAGE"
+  csrf=$(csrf_from_page "$OA_PAGE")
+  [ -n "$csrf" ] || fail "OA task page omitted CSRF token for $draft_id"
+  if [ "$action" = "submit" ]; then
+    target="$task_url/submit"
+    curl_safe --fail --silent --show-error --location --cookie "$cookie_file" --cookie-jar "$cookie_file" \
+      --data-urlencode "csrf=$csrf" "$target" --output "$OA_PAGE"
+  else
+    target="$task_url/decision"
+    curl_safe --fail --silent --show-error --location --cookie "$cookie_file" --cookie-jar "$cookie_file" \
+      --data-urlencode "csrf=$csrf" --data-urlencode "decision=$decision" "$target" --output "$OA_PAGE"
+  fi
+}
+
+wait_task_state() {
+  task_id=$1
+  expected=$2
+  attempt=0
+  while [ "$attempt" -lt 40 ]; do
+    response=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
+      "{\"jsonrpc\":\"2.0\",\"id\":90,\"method\":\"tools/call\",\"params\":{\"name\":\"get_task_status\",\"arguments\":{\"task_id\":\"$task_id\"}}}")
+    case "$response" in
+      *"\"state\":\"$expected\""*) printf '%s\n' "$response"; return ;;
+    esac
+    attempt=$((attempt + 1))
+    sleep 1
+  done
+  fail "task $task_id did not reach $expected; last response: $response"
+}
+
+mcp_call() {
+  token=$1
+  payload=$2
+  curl_safe --fail --silent --show-error \
+    --header "Authorization: Bearer $token" \
+    --header "Content-Type: application/json" \
+    --header "Accept: application/json" \
+    --data "$payload" \
+    "$GATEWAY_URL/mcp"
+}
+
+reader_psql() {
+  compose exec --no-TTY --env "PGPASSWORD=$GATEWAY_DB_PASSWORD" postgres \
+    psql --username gateway_reader --dbname "$POSTGRES_DB" --no-psqlrc \
+    --set ON_ERROR_STOP=1 "$@"
+}
+
+# Remove only this script's dedicated project so reruns start deterministically.
+if ! compose down --volumes --remove-orphans >/dev/null 2>&1; then
+  :
+fi
+compose up --build --detach --wait
+
+attempt=0
+until curl_safe --fail --silent --show-error "$GATEWAY_URL/health/ready" >/dev/null 2>&1; do
+  attempt=$((attempt + 1))
+  if [ "$attempt" -ge 30 ]; then
+    fail "gateway did not become ready"
+  fi
+  sleep 1
+done
+
+# MCP authentication is checked before JSON-RPC dispatch.
+unauthorized_status=$(curl_safe --silent --show-error \
+  --output "$TMP_FILE" --write-out '%{http_code}' \
+  --header 'Authorization: Bearer definitely-wrong-token' \
+  --header 'Content-Type: application/json' \
+  --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"integration-test","version":"1"}}}' \
+  "$GATEWAY_URL/mcp")
+[ "$unauthorized_status" = "401" ] || fail "invalid MCP token returned HTTP $unauthorized_status, want 401"
+unauthorized_body=$(cat "$TMP_FILE")
+assert_contains "$unauthorized_body" '"error":"unauthenticated"' "invalid MCP token"
+pass "MCP initialize rejects an invalid bearer token"
+
+initialize_response=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
+  '{"jsonrpc":"2.0","id":2,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"integration-test","version":"1"}}}')
+assert_contains "$initialize_response" '"protocolVersion":"2025-06-18"' "MCP initialize"
+assert_contains "$initialize_response" '"name":"taskbound-agent-data-gateway"' "MCP initialize"
+assert_not_contains "$initialize_response" '"error"' "MCP initialize"
+pass "MCP initialize succeeds with Alice credentials"
+
+compose --profile integration-tools run --rm --build mcp-probe
+pass "official Go MCP client completed a protocol-level call against the Compose Gateway"
+
+# Tool discovery is role-filtered, not merely guarded at invocation time.
+alice_tools=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
+  '{"jsonrpc":"2.0","id":3,"method":"tools/list","params":{}}')
+assert_contains "$alice_tools" '"name":"list_data_products"' "Alice tools/list"
+assert_contains "$alice_tools" '"name":"query_data"' "Alice tools/list"
+assert_contains "$alice_tools" '"name":"query_sql"' "Alice tools/list"
+assert_not_contains "$alice_tools" '"name":"list_audit_events"' "Alice tools/list"
+assert_not_contains "$alice_tools" '"name":"get_audit_receipt"' "Alice tools/list"
+pass "Alice sees query tools and no auditor tools"
+
+carol_tools=$(mcp_call "$TASKBOUND_CAROL_TOKEN" \
+  '{"jsonrpc":"2.0","id":4,"method":"tools/list","params":{}}')
+assert_contains "$carol_tools" '"name":"list_audit_events"' "Carol tools/list"
+assert_contains "$carol_tools" '"name":"get_audit_receipt"' "Carol tools/list"
+assert_not_contains "$carol_tools" '"name":"list_data_products"' "Carol tools/list"
+assert_not_contains "$carol_tools" '"name":"query_sql"' "Carol tools/list"
+pass "Carol sees auditor tools and no query tools"
+
+carol_forbidden=$(mcp_call "$TASKBOUND_CAROL_TOKEN" \
+  '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"list_data_products","arguments":{}}}')
+assert_contains "$carol_forbidden" '"isError":true' "Carol forbidden tool call"
+assert_contains "$carol_forbidden" '"code":"FORBIDDEN"' "Carol forbidden tool call"
+pass "Carol cannot invoke a hidden Alice tool"
+
+# Deterministic catalog and control-plane paths expose logical names only.
+products_response=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
+  '{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"list_data_products","arguments":{}}}')
+assert_contains "$products_response" '"isError":false' "list_data_products"
+assert_contains "$products_response" '"name":"expense_summary"' "list_data_products"
+assert_contains "$products_response" '"name":"expense_detail"' "list_data_products"
+assert_contains "$products_response" '"trace_id":"trace_' "list_data_products"
+assert_not_contains "$products_response" 'reporting.expense_' "list_data_products physical-name redaction"
+pass "list_data_products hides physical view names"
+
+tasks_response=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
+  '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"list_my_tasks","arguments":{}}}')
+assert_contains "$tasks_response" '"isError":false' "list_my_tasks"
+assert_not_contains "$tasks_response" 'MODEL_UNAVAILABLE' "list_my_tasks"
+pass "deterministic task listing works"
+
+# Alice submits a low-sensitivity summary request. The local model double goes
+# through the production HTTP adapter; OA then automatically approves it.
+summary_request=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
+  '{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"request_data_task","arguments":{"objective":"按月份分析销售部差旅报销","data_products":["expense_summary"],"requested_budget":{"max_queries":2,"max_rows":50}}}}')
+assert_contains "$summary_request" '"isError":false' "summary task request"
+assert_contains "$summary_request" '"approval_mode":"auto"' "summary task approval route"
+summary_task=$(json_string "$summary_request" task_id)
+summary_oa_url=$(json_string "$summary_request" oa_url)
+[ -n "$summary_task" ] && [ -n "$summary_oa_url" ] || fail "summary request omitted task_id or oa_url"
+curl_safe --fail --silent --show-error --location "$summary_oa_url" --output "$OA_PAGE"
+assert_contains "$(cat "$OA_PAGE")" 'OA Demo 登录' "returned public OA URL"
+summary_draft=${summary_oa_url##*/}
+
+oa_login alice "$OA_ALICE_PASSWORD" "$ALICE_COOKIE"
+oa_action "$ALICE_COOKIE" "$summary_draft" submit
+summary_status=$(wait_task_state "$summary_task" ACTIVE)
+assert_contains "$summary_status" '"state":"ACTIVE"' "summary auto approval"
+pass "summary task is submitted and automatically approved"
+
+summary_query=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
+  "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\",\"params\":{\"name\":\"query_data\",\"arguments\":{\"task_id\":\"$summary_task\",\"question\":\"按月份查询销售部汇总\"}}}")
+assert_contains "$summary_query" '"isError":false' "summary natural-language query"
+assert_contains "$summary_query" '"row_count":' "summary natural-language query"
+summary_query_id=$(json_string "$summary_query" query_id)
+[ -n "$summary_query_id" ] || fail "summary query omitted query_id"
+pass "approved summary task executes a natural-language query"
+
+# Restart only Gateway; OA and PostgreSQL stay up. The task, budget, encrypted
+# result and audit receipt must remain available from the SQLite named volume.
+compose restart gateway >/dev/null
+attempt=0
+until curl_safe --fail --silent --show-error "$GATEWAY_URL/health/ready" >/dev/null 2>&1; do
+  attempt=$((attempt + 1))
+  [ "$attempt" -lt 30 ] || fail "gateway did not become ready after restart"
+  sleep 1
+done
+summary_after_restart=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
+  "{\"jsonrpc\":\"2.0\",\"id\":10,\"method\":\"tools/call\",\"params\":{\"name\":\"get_task_status\",\"arguments\":{\"task_id\":\"$summary_task\"}}}")
+assert_contains "$summary_after_restart" '"state":"ACTIVE"' "persisted summary task"
+budget_after_restart=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
+  "{\"jsonrpc\":\"2.0\",\"id\":11,\"method\":\"tools/call\",\"params\":{\"name\":\"get_budget\",\"arguments\":{\"task_id\":\"$summary_task\"}}}")
+assert_contains "$budget_after_restart" '"used":{"db_ms":' "persisted budget"
+assert_contains "$budget_after_restart" '"queries":1' "persisted budget usage"
+stored_result=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
+  "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"tools/call\",\"params\":{\"name\":\"get_query_result\",\"arguments\":{\"task_id\":\"$summary_task\",\"query_id\":\"$summary_query_id\"}}}")
+assert_contains "$stored_result" '"isError":false' "persisted encrypted result"
+assert_contains "$stored_result" '"result_sha256":' "persisted result receipt"
+carol_receipt=$(mcp_call "$TASKBOUND_CAROL_TOKEN" \
+  "{\"jsonrpc\":\"2.0\",\"id\":13,\"method\":\"tools/call\",\"params\":{\"name\":\"get_audit_receipt\",\"arguments\":{\"receipt_id\":\"$summary_query_id\"}}}")
+assert_contains "$carol_receipt" '"isError":false' "persisted Carol audit receipt"
+assert_contains "$carol_receipt" '"current_hash":' "persisted audit chain"
+assert_not_contains "$carol_receipt" '"columns":' "Carol audit receipt raw columns"
+pass "Gateway restart preserves task, budget, encrypted result, and audit evidence"
+
+# The second allowed query is returned and atomically exhausts max_queries,
+# after which the task is archived and cannot execute again.
+summary_last_query=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
+  "{\"jsonrpc\":\"2.0\",\"id\":14,\"method\":\"tools/call\",\"params\":{\"name\":\"query_sql\",\"arguments\":{\"task_id\":\"$summary_task\",\"sql\":\"SELECT month, total_amount FROM expense_summary ORDER BY month\"}}}")
+assert_contains "$summary_last_query" '"isError":false' "budget-exhausting query"
+exhausted_status=$(wait_task_state "$summary_task" ARCHIVED)
+assert_contains "$exhausted_status" '"terminal_reason":"budget_exhausted"' "budget exhaustion archive"
+after_exhaustion=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
+  "{\"jsonrpc\":\"2.0\",\"id\":15,\"method\":\"tools/call\",\"params\":{\"name\":\"query_sql\",\"arguments\":{\"task_id\":\"$summary_task\",\"sql\":\"SELECT month FROM expense_summary\"}}}")
+assert_contains "$after_exhaustion" '"isError":true' "query after budget exhaustion"
+assert_contains "$after_exhaustion" '"code":"TASK_NOT_ACTIVE"' "query after budget exhaustion"
+pass "hard query budget archives the task and blocks later access"
+
+# High-sensitivity detail requires Bob. Querying before his decision fails;
+# approval makes the exact displayed snapshot queryable.
+detail_request=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
+  '{"jsonrpc":"2.0","id":16,"method":"tools/call","params":{"name":"request_data_task","arguments":{"objective":"查询销售部员工报销明细","data_products":["expense_detail"]}}}')
+assert_contains "$detail_request" '"approval_mode":"manual"' "detail approval route"
+detail_task=$(json_string "$detail_request" task_id)
+detail_oa_url=$(json_string "$detail_request" oa_url)
+[ -n "$detail_task" ] && [ -n "$detail_oa_url" ] || fail "detail request omitted task_id or oa_url"
+detail_draft=${detail_oa_url##*/}
+oa_action "$ALICE_COOKIE" "$detail_draft" submit
+wait_task_state "$detail_task" AWAITING_APPROVAL >/dev/null
+detail_before=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
+  "{\"jsonrpc\":\"2.0\",\"id\":17,\"method\":\"tools/call\",\"params\":{\"name\":\"query_sql\",\"arguments\":{\"task_id\":\"$detail_task\",\"sql\":\"SELECT receipt_no FROM expense_detail\"}}}")
+assert_contains "$detail_before" '"code":"TASK_NOT_ACTIVE"' "detail query before Bob approval"
+
+oa_login bob "$OA_BOB_PASSWORD" "$BOB_COOKIE"
+oa_action "$BOB_COOKIE" "$detail_draft" decision approved
+wait_task_state "$detail_task" ACTIVE >/dev/null
+detail_query=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
+  "{\"jsonrpc\":\"2.0\",\"id\":18,\"method\":\"tools/call\",\"params\":{\"name\":\"query_data\",\"arguments\":{\"task_id\":\"$detail_task\",\"question\":\"查询销售部报销明细\"}}}")
+assert_contains "$detail_query" '"isError":false' "detail query after Bob approval"
+assert_contains "$detail_query" '"receipt_no"' "detail query after Bob approval"
+pass "Bob approval gates and then enables a high-sensitivity detail query"
+
+# A separate Bob rejection is terminal. Repeated query attempts remain denied.
+reject_request=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
+  '{"jsonrpc":"2.0","id":19,"method":"tools/call","params":{"name":"request_data_task","arguments":{"objective":"拒绝此销售部员工报销明细申请","data_products":["expense_detail"]}}}')
+reject_task=$(json_string "$reject_request" task_id)
+reject_oa_url=$(json_string "$reject_request" oa_url)
+[ -n "$reject_task" ] && [ -n "$reject_oa_url" ] || fail "reject request omitted task_id or oa_url"
+reject_draft=${reject_oa_url##*/}
+oa_action "$ALICE_COOKIE" "$reject_draft" submit
+wait_task_state "$reject_task" AWAITING_APPROVAL >/dev/null
+oa_action "$BOB_COOKIE" "$reject_draft" decision rejected
+rejected_status=$(wait_task_state "$reject_task" ARCHIVED)
+assert_contains "$rejected_status" '"terminal_reason":"rejected"' "Bob rejected task"
+for attempt in 1 2; do
+  rejected_query=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
+    "{\"jsonrpc\":\"2.0\",\"id\":20,\"method\":\"tools/call\",\"params\":{\"name\":\"query_sql\",\"arguments\":{\"task_id\":\"$reject_task\",\"sql\":\"SELECT receipt_no FROM expense_detail\"}}}")
+  assert_contains "$rejected_query" '"code":"TASK_NOT_ACTIVE"' "rejected task query attempt $attempt"
+done
+pass "Bob rejection archives the task permanently"
+
+# The official-client helper seeded a real task owned by another query
+# principal in this isolated control volume. Alice must receive the same
+# non-enumerating response as she would for an unknown task.
+carol_raw=$(mcp_call "$TASKBOUND_CAROL_TOKEN" \
+  "{\"jsonrpc\":\"2.0\",\"id\":21,\"method\":\"tools/call\",\"params\":{\"name\":\"get_query_result\",\"arguments\":{\"task_id\":\"$detail_task\",\"query_id\":\"$summary_query_id\"}}}")
+assert_contains "$carol_raw" '"code":"FORBIDDEN"' "Carol raw result access"
+alice_unknown=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
+  '{"jsonrpc":"2.0","id":22,"method":"tools/call","params":{"name":"get_task_status","arguments":{"task_id":"task-owned-by-another-subject"}}}')
+assert_contains "$alice_unknown" '"code":"NOT_FOUND"' "Alice non-owned task enumeration"
+pass "Alice cannot read another principal's real task and Carol remains receipt-only"
+
+# Stop the model double: natural-language translation fails closed while an
+# already-approved task continues to support deterministic direct SQL.
+compose stop deepseek-mock >/dev/null
+model_response=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
+  '{"jsonrpc":"2.0","id":23,"method":"tools/call","params":{"name":"request_data_task","arguments":{"objective":"再次申请销售部汇总","data_products":["expense_summary"]}}}')
+assert_contains "$model_response" '"code":"MODEL_UNAVAILABLE"' "model unavailable"
+direct_response=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
+  "{\"jsonrpc\":\"2.0\",\"id\":24,\"method\":\"tools/call\",\"params\":{\"name\":\"query_sql\",\"arguments\":{\"task_id\":\"$detail_task\",\"sql\":\"SELECT receipt_no, amount FROM expense_detail ORDER BY receipt_no\"}}}")
+assert_contains "$direct_response" '"isError":false' "direct SQL during model outage"
+assert_not_contains "$direct_response" 'MODEL_UNAVAILABLE' "direct SQL during model outage"
+pass "DeepSeek outage fails natural language closed but leaves deterministic SQL available"
+
+# PostgreSQL's gateway role can read only published reporting views.
+if ! reader_psql --tuples-only --no-align \
+  --command 'SELECT count(*) FROM reporting.expense_summary' >"$TMP_FILE" 2>&1; then
+  fail "gateway_reader could not read the reporting view"
+fi
+reporting_count=$(tr -d '[:space:]' <"$TMP_FILE")
+case "$reporting_count" in
+  ''|*[!0-9]*) fail "reporting view returned a non-numeric row count" ;;
+esac
+pass "gateway_reader can read a published reporting view"
+
+if reader_psql --tuples-only --no-align \
+  --command 'SELECT count(*) FROM legacy.employees' >"$TMP_FILE" 2>&1; then
+  fail "gateway_reader unexpectedly read legacy.employees"
+fi
+pass "gateway_reader has no access to legacy schema objects"
+
+if ! reader_psql --tuples-only --no-align \
+  --command 'SHOW default_transaction_read_only' >"$TMP_FILE" 2>&1; then
+  fail "could not inspect gateway_reader read-only setting"
+fi
+read_only_setting=$(tr -d '[:space:]' <"$TMP_FILE")
+[ "$read_only_setting" = "on" ] || fail "gateway_reader default_transaction_read_only is $read_only_setting, want on"
+
+# Turn off the role's defensive session default for this probe. DDL must still
+# fail because gateway_reader lacks CREATE privileges, independently proving
+# the database grant boundary rather than only the read-only transaction flag.
+if reader_psql --command "SET default_transaction_read_only=off; CREATE TABLE public.__taskbound_write_probe(id integer)" >"$TMP_FILE" 2>&1; then
+  fail "gateway_reader unexpectedly executed a write/DDL statement"
+fi
+pass "gateway_reader cannot execute writes"
+
+echo "all Compose end-to-end acceptance checks passed"
