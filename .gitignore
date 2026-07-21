@@ -1,0 +1,10 @@
+.env
+.idea/
+.vscode/
+*.local
+*.db
+*.db-shm
+*.db-wal
+coverage.out
+dist/
+tmp/
