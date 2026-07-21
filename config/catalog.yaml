@@ -52,7 +52,7 @@ products:
     reporting_view: reporting.expense_detail
     description: 员工级差旅报销明细
     sensitivity: high
-    scopes: [department, expense_date]
+    scopes: [department]
     allowed_functions: [date_trunc, to_char]
     allowed_operators: ["=", "<>", "<", "<=", ">", ">=", "+", "-", "*", "/"]
     allowed_aggregates: [sum, count, min, max, avg]

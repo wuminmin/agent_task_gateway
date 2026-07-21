@@ -1,0 +1,103 @@
+package domain
+
+import (
+	"errors"
+	"fmt"
+	"time"
+)
+
+var (
+	ErrInvalidBudget   = errors.New("invalid budget")
+	ErrBudgetExpansion = errors.New("budget expansion")
+)
+
+// Budget contains all hard limits attached to a task grant.
+type Budget struct {
+	MaxQueries      int64         `json:"max_queries" yaml:"max_queries"`
+	MaxRows         int64         `json:"max_rows" yaml:"max_rows"`
+	MaxDBTime       time.Duration `json:"max_db_time" yaml:"max_db_time"`
+	PerQueryTimeout time.Duration `json:"per_query_timeout" yaml:"per_query_timeout"`
+	TaskTTL         time.Duration `json:"task_ttl" yaml:"task_ttl"`
+}
+
+func (b Budget) Validate() error {
+	switch {
+	case b.MaxQueries <= 0:
+		return fmt.Errorf("%w: max_queries must be positive", ErrInvalidBudget)
+	case b.MaxRows <= 0:
+		return fmt.Errorf("%w: max_rows must be positive", ErrInvalidBudget)
+	case b.MaxDBTime <= 0:
+		return fmt.Errorf("%w: max_db_time must be positive", ErrInvalidBudget)
+	case b.PerQueryTimeout <= 0:
+		return fmt.Errorf("%w: per_query_timeout must be positive", ErrInvalidBudget)
+	case b.PerQueryTimeout > b.MaxDBTime:
+		return fmt.Errorf("%w: per_query_timeout exceeds max_db_time", ErrInvalidBudget)
+	case b.TaskTTL <= 0:
+		return fmt.Errorf("%w: task_ttl must be positive", ErrInvalidBudget)
+	default:
+		return nil
+	}
+}
+
+// Within reports whether every limit is no greater than its parent limit.
+func (b Budget) Within(parent Budget) bool {
+	return b.MaxQueries <= parent.MaxQueries &&
+		b.MaxRows <= parent.MaxRows &&
+		b.MaxDBTime <= parent.MaxDBTime &&
+		b.PerQueryTimeout <= parent.PerQueryTimeout &&
+		b.TaskTTL <= parent.TaskTTL
+}
+
+// EnsureWithin returns a stable expansion error when a requested budget would
+// exceed an approved budget.
+func (b Budget) EnsureWithin(parent Budget) error {
+	if err := b.Validate(); err != nil {
+		return err
+	}
+	if err := parent.Validate(); err != nil {
+		return fmt.Errorf("parent: %w", err)
+	}
+	if !b.Within(parent) {
+		return ErrBudgetExpansion
+	}
+	return nil
+}
+
+// BudgetRequest is a partial client request. Nil fields retain the catalog
+// profile's limit; supplied fields may only reduce it.
+type BudgetRequest struct {
+	MaxQueries      *int64         `json:"max_queries,omitempty"`
+	MaxRows         *int64         `json:"max_rows,omitempty"`
+	MaxDBTime       *time.Duration `json:"max_db_time,omitempty"`
+	PerQueryTimeout *time.Duration `json:"per_query_timeout,omitempty"`
+	TaskTTL         *time.Duration `json:"task_ttl,omitempty"`
+}
+
+// Apply returns the requested budget after enforcing the profile ceiling.
+func (r BudgetRequest) Apply(profile Budget) (Budget, error) {
+	if err := profile.Validate(); err != nil {
+		return Budget{}, fmt.Errorf("profile: %w", err)
+	}
+
+	result := profile
+	if r.MaxQueries != nil {
+		result.MaxQueries = *r.MaxQueries
+	}
+	if r.MaxRows != nil {
+		result.MaxRows = *r.MaxRows
+	}
+	if r.MaxDBTime != nil {
+		result.MaxDBTime = *r.MaxDBTime
+	}
+	if r.PerQueryTimeout != nil {
+		result.PerQueryTimeout = *r.PerQueryTimeout
+	}
+	if r.TaskTTL != nil {
+		result.TaskTTL = *r.TaskTTL
+	}
+
+	if err := result.EnsureWithin(profile); err != nil {
+		return Budget{}, err
+	}
+	return result, nil
+}

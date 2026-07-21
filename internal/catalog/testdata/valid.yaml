@@ -1,0 +1,79 @@
+catalog_version: "2026.07.21"
+sources:
+  - name: expenses
+    type: postgres
+    address: postgres
+    port: 5432
+    database: travel_demo
+    user: gateway_reader
+    secretRef: env:EXPENSES_DB_PASSWORD
+products:
+  - name: expense_summary
+    source: expenses
+    reporting_view: reporting.expense_summary
+    description: Monthly travel expense aggregates
+    sensitivity: low
+    fields:
+      - name: month
+        type: date
+        description: Calendar month
+      - name: department
+        type: text
+        description: Department name
+      - name: total_amount
+        type: numeric(12,2)
+        description: Total reimbursed amount
+    scopes: [department]
+    allowed_operators: ["=", ">=", "<="]
+    allowed_aggregates: [sum, count]
+  - name: expense_detail
+    source: expenses
+    reporting_view: reporting.expense_detail
+    description: Employee-level travel expense records
+    sensitivity: high
+    fields:
+      - name: claim_number
+        type: text
+        description: Reimbursement claim number
+      - name: employee_name
+        type: text
+        description: Employee display name
+      - name: amount
+        type: numeric(12,2)
+        description: Claimed amount
+      - name: department
+        type: text
+        description: Employee department
+    scopes: [department]
+    allowed_operators: ["=", ">=", "<="]
+scopes:
+  - name: department
+    type: enum
+    description: Permitted departments
+    allowed_values: [sales, finance]
+  - name: expense_date
+    type: date_range
+    description: Permitted expense dates
+    min: "2024-01-01"
+    max: "2026-12-31"
+approval_routes:
+  - sensitivity: low
+    mode: auto
+    budget_profile: summary_auto
+  - sensitivity: high
+    mode: manual
+    approver: bob
+    budget_profile: detail_manual
+budget_profiles:
+  - name: summary_auto
+    max_queries: 10
+    max_rows: 500
+    max_db_time: 30s
+    query_timeout: 5s
+    task_ttl: 30m
+  - name: detail_manual
+    max_queries: 5
+    max_rows: 100
+    max_db_time: 15s
+    query_timeout: 5s
+    task_ttl: 15m
