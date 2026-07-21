@@ -70,7 +70,10 @@ services:
       OA_SERVICE_TOKEN: ${OA_SERVICE_TOKEN:-oa-service-token-change-me}
       OA_CALLBACK_SECRET: ${OA_CALLBACK_SECRET:-oa-callback-secret-change-me}
       OA_SESSION_SECRET: ${OA_SESSION_SECRET:-oa-session-secret-change-me}
+      OA_ALICE_PASSWORD: ${OA_ALICE_PASSWORD:-alice-demo-change-me}
+      OA_BOB_PASSWORD: ${OA_BOB_PASSWORD:-bob-demo-change-me}
       GATEWAY_CALLBACK_URL: http://gateway:8080/api/v1/oa/callback
+      PUBLIC_OA_BASE_URL: http://127.0.0.1:8090
     ports:
       - 127.0.0.1:8090:8090
     read_only: true

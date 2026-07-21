@@ -8,14 +8,27 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	"taskbound.local/agent-data-gateway/internal/oademo"
 )
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /health/live", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
-	mux.HandleFunc("GET /health/ready", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
-	server := &http.Server{Addr: ":8090", Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	oa, err := oademo.New(oademo.Config{
+		ServiceToken:   requiredEnv("OA_SERVICE_TOKEN"),
+		CallbackSecret: requiredEnv("OA_CALLBACK_SECRET"),
+		SessionSecret:  requiredEnv("OA_SESSION_SECRET"),
+		CallbackURL:    requiredEnv("GATEWAY_CALLBACK_URL"),
+		PublicBaseURL:  env("PUBLIC_OA_BASE_URL", "http://127.0.0.1:8090"),
+		AlicePassword:  requiredEnv("OA_ALICE_PASSWORD"),
+		BobPassword:    requiredEnv("OA_BOB_PASSWORD"),
+		Logger:         logger,
+	})
+	if err != nil {
+		logger.Error("initialize OA demo", "error", err)
+		os.Exit(1)
+	}
+	server := &http.Server{Addr: env("OA_ADDR", ":8090"), Handler: oa.Handler(), ReadHeaderTimeout: 5 * time.Second}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	go func() {
@@ -29,4 +42,20 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = server.Shutdown(shutdownCtx)
+}
+
+func requiredEnv(key string) string {
+	value := os.Getenv(key)
+	if value == "" {
+		slog.Error("required environment variable is missing", "name", key)
+		os.Exit(1)
+	}
+	return value
+}
+
+func env(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
 }
