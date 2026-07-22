@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "grant": "evaluation/ast-gateway/tpch.json",
+  "cases": [
+    {"id": "multi-statement", "file": "sql/multi_statement.sql", "expected": "SQL_MULTIPLE_STATEMENTS"},
+    {"id": "write-delete", "file": "sql/write_delete.sql", "expected": "SQL_WRITE_FORBIDDEN"},
+    {"id": "select-into", "file": "sql/select_into.sql", "expected": "SQL_SELECT_INTO_FORBIDDEN"},
+    {"id": "locking", "file": "sql/locking.sql", "expected": "SQL_LOCKING_FORBIDDEN"},
+    {"id": "recursive-cte", "file": "sql/recursive_cte.sql", "expected": "SQL_RECURSIVE_CTE_FORBIDDEN"},
+    {"id": "system-catalog", "file": "sql/system_catalog.sql", "expected": "SQL_SYSTEM_OBJECT_FORBIDDEN"},
+    {"id": "physical-schema", "file": "sql/physical_schema.sql", "expected": "SQL_SYSTEM_OBJECT_FORBIDDEN"},
+    {"id": "wildcard", "file": "sql/wildcard.sql", "expected": "SQL_WILDCARD_FORBIDDEN"},
+    {"id": "dangerous-function", "file": "sql/dangerous_function.sql", "expected": "SQL_FUNCTION_NOT_ALLOWED"},
+    {"id": "unauthorized-column", "file": "sql/unauthorized_column.sql", "expected": "SQL_COLUMN_NOT_ALLOWED"},
+    {"id": "unauthorized-union", "file": "sql/unauthorized_union.sql", "expected": "SQL_OBJECT_NOT_ALLOWED"},
+    {"id": "parameter", "file": "sql/parameter.sql", "expected": "SQL_PARAMETER_FORBIDDEN"},
+    {"id": "comment-evasion", "file": "sql/comment_evasion.sql", "expected": "SQL_MULTIPLE_STATEMENTS"},
+    {"id": "scope-contradiction", "file": "sql/scope_contradiction.sql", "expected": "ALLOW_WITH_MANDATORY_SCOPE"},
+    {"id": "nested-authorized", "file": "sql/nested_authorized.sql", "expected": "ALLOW_WITH_MANDATORY_SCOPE"}
+  ]
+}

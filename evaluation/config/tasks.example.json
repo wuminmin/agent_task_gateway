@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "experiments": {
+    "tpch_sf1": {
+      "1": ["replace-tpch-sf1-c1-01"],
+      "8": [
+        "replace-tpch-sf1-c8-01", "replace-tpch-sf1-c8-02", "replace-tpch-sf1-c8-03", "replace-tpch-sf1-c8-04",
+        "replace-tpch-sf1-c8-05", "replace-tpch-sf1-c8-06", "replace-tpch-sf1-c8-07", "replace-tpch-sf1-c8-08"
+      ],
+      "32": [
+        "replace-tpch-sf1-c32-01", "replace-tpch-sf1-c32-02", "replace-tpch-sf1-c32-03", "replace-tpch-sf1-c32-04",
+        "replace-tpch-sf1-c32-05", "replace-tpch-sf1-c32-06", "replace-tpch-sf1-c32-07", "replace-tpch-sf1-c32-08",
+        "replace-tpch-sf1-c32-09", "replace-tpch-sf1-c32-10", "replace-tpch-sf1-c32-11", "replace-tpch-sf1-c32-12",
+        "replace-tpch-sf1-c32-13", "replace-tpch-sf1-c32-14", "replace-tpch-sf1-c32-15", "replace-tpch-sf1-c32-16",
+        "replace-tpch-sf1-c32-17", "replace-tpch-sf1-c32-18", "replace-tpch-sf1-c32-19", "replace-tpch-sf1-c32-20",
+        "replace-tpch-sf1-c32-21", "replace-tpch-sf1-c32-22", "replace-tpch-sf1-c32-23", "replace-tpch-sf1-c32-24",
+        "replace-tpch-sf1-c32-25", "replace-tpch-sf1-c32-26", "replace-tpch-sf1-c32-27", "replace-tpch-sf1-c32-28",
+        "replace-tpch-sf1-c32-29", "replace-tpch-sf1-c32-30", "replace-tpch-sf1-c32-31", "replace-tpch-sf1-c32-32"
+      ]
+    },
+    "tpcds_sf1": {
+      "1": ["replace-tpcds-sf1-c1-01"],
+      "8": [
+        "replace-tpcds-sf1-c8-01", "replace-tpcds-sf1-c8-02", "replace-tpcds-sf1-c8-03", "replace-tpcds-sf1-c8-04",
+        "replace-tpcds-sf1-c8-05", "replace-tpcds-sf1-c8-06", "replace-tpcds-sf1-c8-07", "replace-tpcds-sf1-c8-08"
+      ],
+      "32": [
+        "replace-tpcds-sf1-c32-01", "replace-tpcds-sf1-c32-02", "replace-tpcds-sf1-c32-03", "replace-tpcds-sf1-c32-04",
+        "replace-tpcds-sf1-c32-05", "replace-tpcds-sf1-c32-06", "replace-tpcds-sf1-c32-07", "replace-tpcds-sf1-c32-08",
+        "replace-tpcds-sf1-c32-09", "replace-tpcds-sf1-c32-10", "replace-tpcds-sf1-c32-11", "replace-tpcds-sf1-c32-12",
+        "replace-tpcds-sf1-c32-13", "replace-tpcds-sf1-c32-14", "replace-tpcds-sf1-c32-15", "replace-tpcds-sf1-c32-16",
+        "replace-tpcds-sf1-c32-17", "replace-tpcds-sf1-c32-18", "replace-tpcds-sf1-c32-19", "replace-tpcds-sf1-c32-20",
+        "replace-tpcds-sf1-c32-21", "replace-tpcds-sf1-c32-22", "replace-tpcds-sf1-c32-23", "replace-tpcds-sf1-c32-24",
+        "replace-tpcds-sf1-c32-25", "replace-tpcds-sf1-c32-26", "replace-tpcds-sf1-c32-27", "replace-tpcds-sf1-c32-28",
+        "replace-tpcds-sf1-c32-29", "replace-tpcds-sf1-c32-30", "replace-tpcds-sf1-c32-31", "replace-tpcds-sf1-c32-32"
+      ]
+    },
+    "tpch_sf10": {
+      "1": ["replace-tpch-sf10-c1-01"],
+      "8": [
+        "replace-tpch-sf10-c8-01", "replace-tpch-sf10-c8-02", "replace-tpch-sf10-c8-03", "replace-tpch-sf10-c8-04",
+        "replace-tpch-sf10-c8-05", "replace-tpch-sf10-c8-06", "replace-tpch-sf10-c8-07", "replace-tpch-sf10-c8-08"
+      ],
+      "32": [
+        "replace-tpch-sf10-c32-01", "replace-tpch-sf10-c32-02", "replace-tpch-sf10-c32-03", "replace-tpch-sf10-c32-04",
+        "replace-tpch-sf10-c32-05", "replace-tpch-sf10-c32-06", "replace-tpch-sf10-c32-07", "replace-tpch-sf10-c32-08",
+        "replace-tpch-sf10-c32-09", "replace-tpch-sf10-c32-10", "replace-tpch-sf10-c32-11", "replace-tpch-sf10-c32-12",
+        "replace-tpch-sf10-c32-13", "replace-tpch-sf10-c32-14", "replace-tpch-sf10-c32-15", "replace-tpch-sf10-c32-16",
+        "replace-tpch-sf10-c32-17", "replace-tpch-sf10-c32-18", "replace-tpch-sf10-c32-19", "replace-tpch-sf10-c32-20",
+        "replace-tpch-sf10-c32-21", "replace-tpch-sf10-c32-22", "replace-tpch-sf10-c32-23", "replace-tpch-sf10-c32-24",
+        "replace-tpch-sf10-c32-25", "replace-tpch-sf10-c32-26", "replace-tpch-sf10-c32-27", "replace-tpch-sf10-c32-28",
+        "replace-tpch-sf10-c32-29", "replace-tpch-sf10-c32-30", "replace-tpch-sf10-c32-31", "replace-tpch-sf10-c32-32"
+      ]
+    },
+    "tpcds_sf10": {
+      "1": ["replace-tpcds-sf10-c1-01"],
+      "8": [
+        "replace-tpcds-sf10-c8-01", "replace-tpcds-sf10-c8-02", "replace-tpcds-sf10-c8-03", "replace-tpcds-sf10-c8-04",
+        "replace-tpcds-sf10-c8-05", "replace-tpcds-sf10-c8-06", "replace-tpcds-sf10-c8-07", "replace-tpcds-sf10-c8-08"
+      ],
+      "32": [
+        "replace-tpcds-sf10-c32-01", "replace-tpcds-sf10-c32-02", "replace-tpcds-sf10-c32-03", "replace-tpcds-sf10-c32-04",
+        "replace-tpcds-sf10-c32-05", "replace-tpcds-sf10-c32-06", "replace-tpcds-sf10-c32-07", "replace-tpcds-sf10-c32-08",
+        "replace-tpcds-sf10-c32-09", "replace-tpcds-sf10-c32-10", "replace-tpcds-sf10-c32-11", "replace-tpcds-sf10-c32-12",
+        "replace-tpcds-sf10-c32-13", "replace-tpcds-sf10-c32-14", "replace-tpcds-sf10-c32-15", "replace-tpcds-sf10-c32-16",
+        "replace-tpcds-sf10-c32-17", "replace-tpcds-sf10-c32-18", "replace-tpcds-sf10-c32-19", "replace-tpcds-sf10-c32-20",
+        "replace-tpcds-sf10-c32-21", "replace-tpcds-sf10-c32-22", "replace-tpcds-sf10-c32-23", "replace-tpcds-sf10-c32-24",
+        "replace-tpcds-sf10-c32-25", "replace-tpcds-sf10-c32-26", "replace-tpcds-sf10-c32-27", "replace-tpcds-sf10-c32-28",
+        "replace-tpcds-sf10-c32-29", "replace-tpcds-sf10-c32-30", "replace-tpcds-sf10-c32-31", "replace-tpcds-sf10-c32-32"
+      ]
+    }
+  }
+}

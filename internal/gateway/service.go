@@ -21,6 +21,7 @@ import (
 	"taskbound.local/agent-data-gateway/internal/dataconnector"
 	"taskbound.local/agent-data-gateway/internal/domain"
 	"taskbound.local/agent-data-gateway/internal/mcp"
+	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 	"taskbound.local/agent-data-gateway/internal/sqlpolicy"
 )
 
@@ -30,26 +31,30 @@ type DataConnector interface {
 }
 
 type Config struct {
-	Catalog        *catalog.Catalog
-	Store          *control.Store
-	Approval       approval.ApprovalAdapter
-	Connector      DataConnector
-	CallbackSecret string
-	Logger         *slog.Logger
-	Clock          func() time.Time
-	Background     context.Context
+	Catalog            *catalog.Catalog
+	Store              *control.Store
+	Approval           approval.ApprovalAdapter
+	ReceiptVerifier    approval.ReceiptVerifier
+	QueryReceiptSigner *queryreceipt.Signer
+	Connector          DataConnector
+	CallbackSecret     string
+	Logger             *slog.Logger
+	Clock              func() time.Time
+	Background         context.Context
 }
 
 type Service struct {
-	catalog        *catalog.Catalog
-	store          *control.Store
-	approval       approval.ApprovalAdapter
-	connector      DataConnector
-	callbackSecret []byte
-	logger         *slog.Logger
-	clock          func() time.Time
-	background     context.Context
-	pendingSettles atomic.Int64
+	catalog            *catalog.Catalog
+	store              *control.Store
+	approval           approval.ApprovalAdapter
+	receiptVerifier    approval.ReceiptVerifier
+	queryReceiptSigner *queryreceipt.Signer
+	connector          DataConnector
+	callbackSecret     []byte
+	logger             *slog.Logger
+	clock              func() time.Time
+	background         context.Context
+	pendingSettles     atomic.Int64
 }
 
 type pendingContext struct {
@@ -76,9 +81,21 @@ func New(config Config) (*Service, error) {
 	if config.Background == nil {
 		config.Background = context.Background()
 	}
+	if config.ReceiptVerifier == nil {
+		// The demo derives a stable Ed25519 key from its existing secret so old
+		// compose environments keep working. Deployments can supply a public-key
+		// verifier independently of the HMAC transport secret.
+		config.ReceiptVerifier = approval.DemoReceiptVerifier([]byte(config.CallbackSecret))
+	}
+	if config.QueryReceiptSigner == nil {
+		// Tests and the self-contained demo get a deterministic fallback. The
+		// production entry point supplies an independently configured key.
+		config.QueryReceiptSigner = queryreceipt.DemoSigner([]byte(config.CallbackSecret))
+	}
 	return &Service{
 		catalog: config.Catalog, store: config.Store, approval: config.Approval,
-		connector:      config.Connector,
+		receiptVerifier:    config.ReceiptVerifier,
+		queryReceiptSigner: config.QueryReceiptSigner, connector: config.Connector,
 		callbackSecret: []byte(config.CallbackSecret), logger: config.Logger,
 		clock: config.Clock, background: config.Background,
 	}, nil

@@ -23,11 +23,16 @@ fi
 : "${POSTGRES_PASSWORD:=postgres-demo-change-me}"
 : "${GATEWAY_DB_PASSWORD:=gateway-reader-demo-change-me}"
 : "${GATEWAY_DATA_KEY:=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}"
+: "${GATEWAY_RECEIPT_KEY_ID:=gateway-integration-ed25519-v1}"
+: "${GATEWAY_RECEIPT_PRIVATE_KEY:=AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=}"
 : "${CONTROL_POSTGRES_DB:=taskbound_gateway}"
 : "${CONTROL_POSTGRES_ADMIN_PASSWORD:=control-admin-demo-change-me}"
 : "${CONTROL_DB_PASSWORD:=control-app-demo-change-me}"
 : "${OA_SERVICE_TOKEN:=oa-service-token-change-me}"
 : "${OA_CALLBACK_SECRET:=oa-callback-secret-change-me}"
+: "${OA_RECEIPT_KEY_ID:=oa-integration-ed25519-v1}"
+: "${OA_RECEIPT_PRIVATE_KEY:=nWGxne/9WmC6hEr0kuwsxERJxWl7MmkZcDusAxyuf2A=}"
+: "${OA_RECEIPT_PUBLIC_KEY:=11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=}"
 : "${OA_SESSION_SECRET:=oa-session-secret-change-me}"
 : "${OA_ALICE_PASSWORD:=alice-demo-change-me}"
 : "${OA_BOB_PASSWORD:=bob-demo-change-me}"
@@ -36,7 +41,9 @@ export TASKBOUND_ALICE_TOKEN TASKBOUND_CAROL_TOKEN
 export POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD GATEWAY_DB_PASSWORD
 export CONTROL_POSTGRES_DB CONTROL_POSTGRES_ADMIN_PASSWORD CONTROL_DB_PASSWORD
 export CONTROL_POSTGRES_PORT POSTGRES_PORT
-export GATEWAY_DATA_KEY OA_SERVICE_TOKEN OA_CALLBACK_SECRET OA_SESSION_SECRET
+export GATEWAY_DATA_KEY GATEWAY_RECEIPT_KEY_ID GATEWAY_RECEIPT_PRIVATE_KEY
+export OA_SERVICE_TOKEN OA_CALLBACK_SECRET OA_RECEIPT_KEY_ID OA_RECEIPT_PRIVATE_KEY OA_RECEIPT_PUBLIC_KEY
+export OA_SESSION_SECRET
 export OA_ALICE_PASSWORD OA_BOB_PASSWORD
 
 TMP_FILE=$(mktemp /tmp/taskbound-integration.XXXXXX)
@@ -51,6 +58,9 @@ COMPOSE_PORT_OVERRIDE="services:
   business-postgres:
     ports: !override
       - 127.0.0.1:${POSTGRES_PORT}:5432
+    networks:
+      - business-data
+      - integration-host
   gateway:
     ports: !override
       - 127.0.0.1:${GATEWAY_PORT}:8082
@@ -77,6 +87,9 @@ COMPOSE_PORT_OVERRIDE="services:
       MCP_TOKEN: ${TASKBOUND_ALICE_TOKEN}
       CONTROL_POSTGRES_DSN: postgres://gateway_control:${CONTROL_DB_PASSWORD}@control-postgres:5432/${CONTROL_POSTGRES_DB}?sslmode=disable
       GATEWAY_DATA_KEY: ${GATEWAY_DATA_KEY}
+    networks:
+      - public-edge
+      - control-plane
   test-runner:
     profiles: [integration-tools]
     build:
@@ -84,10 +97,18 @@ COMPOSE_PORT_OVERRIDE="services:
       target: base
     environment:
       CONTROL_TEST_POSTGRES_DSN: postgres://postgres:${CONTROL_POSTGRES_ADMIN_PASSWORD}@control-postgres:5432/${CONTROL_POSTGRES_DB}?sslmode=disable
+      BUSINESS_TEST_POSTGRES_DSN: postgres://gateway_reader:${GATEWAY_DB_PASSWORD}@business-postgres:5432/${POSTGRES_DB}?sslmode=disable
     depends_on:
       control-postgres:
         condition: service_healthy
-    command: [\"go\", \"test\", \"-race\", \"./...\"]"
+      business-postgres:
+        condition: service_healthy
+    networks:
+      - control-plane
+      - business-data
+    command: [\"go\", \"test\", \"-race\", \"./...\"]
+networks:
+  integration-host:"
 
 compose() {
   printf '%s\n' "$COMPOSE_PORT_OVERRIDE" | \
@@ -364,7 +385,7 @@ assert_contains "$summary_status" '"state":"ACTIVE"' "summary auto approval"
 pass "summary task is submitted and automatically approved"
 
 summary_query=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
-  "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\",\"params\":{\"name\":\"execute_plan\",\"arguments\":{\"task_id\":\"$summary_task\",\"plan\":{\"product\":\"expense_summary\",\"columns\":[\"month\",\"total_amount\"],\"order_by\":[{\"column\":\"month\",\"direction\":\"asc\"}]}}}}")
+  "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\",\"params\":{\"name\":\"execute_plan\",\"arguments\":{\"task_id\":\"$summary_task\",\"request_id\":\"integration-summary-plan-1\",\"plan\":{\"product\":\"expense_summary\",\"columns\":[\"month\",\"total_amount\"],\"order_by\":[{\"column\":\"month\",\"direction\":\"asc\"}]}}}}")
 assert_contains "$summary_query" '"isError":false' "summary structured plan"
 assert_contains "$summary_query" '"row_count":' "summary structured plan"
 summary_query_id=$(json_string "$summary_query" query_id)
@@ -390,7 +411,9 @@ assert_contains "$budget_after_restart" '"queries":1' "persisted budget usage"
 stored_result=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
   "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"tools/call\",\"params\":{\"name\":\"get_query_result\",\"arguments\":{\"task_id\":\"$summary_task\",\"query_id\":\"$summary_query_id\"}}}")
 assert_contains "$stored_result" '"isError":false' "persisted encrypted result"
-assert_contains "$stored_result" '"result_sha256":' "persisted result receipt"
+assert_contains "$stored_result" '"result_hash":' "persisted result receipt"
+assert_contains "$stored_result" '"gateway_key_id":"gateway-integration-ed25519-v1"' "signed query receipt key"
+assert_contains "$stored_result" '"signature":' "signed query receipt signature"
 carol_receipt=$(mcp_call "$TASKBOUND_CAROL_TOKEN" \
   "{\"jsonrpc\":\"2.0\",\"id\":13,\"method\":\"tools/call\",\"params\":{\"name\":\"get_audit_receipt\",\"arguments\":{\"receipt_id\":\"$summary_query_id\"}}}")
 assert_contains "$carol_receipt" '"isError":false' "persisted Carol audit receipt"
@@ -401,12 +424,12 @@ pass "Gateway restart preserves task, budget, encrypted result, and audit eviden
 # The second allowed query is returned and atomically exhausts max_queries,
 # after which the task is archived and cannot execute again.
 summary_last_query=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
-  "{\"jsonrpc\":\"2.0\",\"id\":14,\"method\":\"tools/call\",\"params\":{\"name\":\"query_sql\",\"arguments\":{\"task_id\":\"$summary_task\",\"sql\":\"SELECT month, total_amount FROM expense_summary ORDER BY month\"}}}")
+  "{\"jsonrpc\":\"2.0\",\"id\":14,\"method\":\"tools/call\",\"params\":{\"name\":\"query_sql\",\"arguments\":{\"task_id\":\"$summary_task\",\"request_id\":\"integration-summary-sql-2\",\"sql\":\"SELECT month, total_amount FROM expense_summary ORDER BY month\"}}}")
 assert_contains "$summary_last_query" '"isError":false' "budget-exhausting query"
 exhausted_status=$(wait_task_state "$summary_task" ARCHIVED)
 assert_contains "$exhausted_status" '"terminal_reason":"budget_exhausted"' "budget exhaustion archive"
 after_exhaustion=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
-  "{\"jsonrpc\":\"2.0\",\"id\":15,\"method\":\"tools/call\",\"params\":{\"name\":\"query_sql\",\"arguments\":{\"task_id\":\"$summary_task\",\"sql\":\"SELECT month FROM expense_summary\"}}}")
+  "{\"jsonrpc\":\"2.0\",\"id\":15,\"method\":\"tools/call\",\"params\":{\"name\":\"query_sql\",\"arguments\":{\"task_id\":\"$summary_task\",\"request_id\":\"integration-summary-sql-3\",\"sql\":\"SELECT month FROM expense_summary\"}}}")
 assert_contains "$after_exhaustion" '"isError":true' "query after budget exhaustion"
 assert_contains "$after_exhaustion" '"code":"TASK_NOT_ACTIVE"' "query after budget exhaustion"
 pass "hard query budget archives the task and blocks later access"
@@ -423,14 +446,14 @@ detail_draft=${detail_oa_url##*/}
 oa_action "$ALICE_COOKIE" "$detail_draft" submit
 wait_task_state "$detail_task" AWAITING_APPROVAL >/dev/null
 detail_before=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
-  "{\"jsonrpc\":\"2.0\",\"id\":17,\"method\":\"tools/call\",\"params\":{\"name\":\"query_sql\",\"arguments\":{\"task_id\":\"$detail_task\",\"sql\":\"SELECT receipt_no FROM expense_detail\"}}}")
+  "{\"jsonrpc\":\"2.0\",\"id\":17,\"method\":\"tools/call\",\"params\":{\"name\":\"query_sql\",\"arguments\":{\"task_id\":\"$detail_task\",\"request_id\":\"integration-detail-before-approval\",\"sql\":\"SELECT receipt_no FROM expense_detail\"}}}")
 assert_contains "$detail_before" '"code":"TASK_NOT_ACTIVE"' "detail query before Bob approval"
 
 oa_login bob "$OA_BOB_PASSWORD" "$BOB_COOKIE"
 oa_action "$BOB_COOKIE" "$detail_draft" decision approved
 wait_task_state "$detail_task" ACTIVE >/dev/null
 detail_query=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
-  "{\"jsonrpc\":\"2.0\",\"id\":18,\"method\":\"tools/call\",\"params\":{\"name\":\"execute_plan\",\"arguments\":{\"task_id\":\"$detail_task\",\"plan\":{\"product\":\"expense_detail\",\"columns\":[\"receipt_no\",\"amount\"]}}}}")
+  "{\"jsonrpc\":\"2.0\",\"id\":18,\"method\":\"tools/call\",\"params\":{\"name\":\"execute_plan\",\"arguments\":{\"task_id\":\"$detail_task\",\"request_id\":\"integration-detail-plan-1\",\"plan\":{\"product\":\"expense_detail\",\"columns\":[\"receipt_no\",\"amount\"]}}}}")
 assert_contains "$detail_query" '"isError":false' "detail query after Bob approval"
 assert_contains "$detail_query" '"receipt_no"' "detail query after Bob approval"
 pass "Bob approval gates and then enables a high-sensitivity detail query"
@@ -449,7 +472,7 @@ rejected_status=$(wait_task_state "$reject_task" ARCHIVED)
 assert_contains "$rejected_status" '"terminal_reason":"rejected"' "Bob rejected task"
 for attempt in 1 2; do
   rejected_query=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
-    "{\"jsonrpc\":\"2.0\",\"id\":20,\"method\":\"tools/call\",\"params\":{\"name\":\"query_sql\",\"arguments\":{\"task_id\":\"$reject_task\",\"sql\":\"SELECT receipt_no FROM expense_detail\"}}}")
+    "{\"jsonrpc\":\"2.0\",\"id\":20,\"method\":\"tools/call\",\"params\":{\"name\":\"query_sql\",\"arguments\":{\"task_id\":\"$reject_task\",\"request_id\":\"integration-rejected-query\",\"sql\":\"SELECT receipt_no FROM expense_detail\"}}}")
   assert_contains "$rejected_query" '"code":"TASK_NOT_ACTIVE"' "rejected task query attempt $attempt"
 done
 pass "Bob rejection archives the task permanently"
@@ -471,7 +494,7 @@ invalid_request=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
   '{"jsonrpc":"2.0","id":23,"method":"tools/call","params":{"name":"request_data_task","arguments":{"objective":"缺少字段和范围","data_products":["expense_summary"]}}}')
 assert_contains "$invalid_request" '"code":"INVALID_REQUEST"' "explicit authorization input"
 direct_response=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
-  "{\"jsonrpc\":\"2.0\",\"id\":24,\"method\":\"tools/call\",\"params\":{\"name\":\"query_sql\",\"arguments\":{\"task_id\":\"$detail_task\",\"sql\":\"SELECT receipt_no, amount FROM expense_detail ORDER BY receipt_no\"}}}")
+  "{\"jsonrpc\":\"2.0\",\"id\":24,\"method\":\"tools/call\",\"params\":{\"name\":\"query_sql\",\"arguments\":{\"task_id\":\"$detail_task\",\"request_id\":\"integration-detail-sql-2\",\"sql\":\"SELECT receipt_no, amount FROM expense_detail ORDER BY receipt_no\"}}}")
 assert_contains "$direct_response" '"isError":false' "direct SQL"
 pass "incomplete authorization fails closed and direct SQL remains available"
 

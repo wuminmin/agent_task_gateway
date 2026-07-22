@@ -1,0 +1,2 @@
+go test fuzz v1
+string("WITH Y AS(SELECT)SELEcT++\xef2ACy.A00010")

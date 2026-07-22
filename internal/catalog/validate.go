@@ -17,9 +17,20 @@ var (
 	secretRefPattern     = regexp.MustCompile(`^(?:env:)?[A-Z][A-Z0-9_]{1,127}$`)
 	databaseNamePattern  = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]*$`)
 	reportingViewPattern = regexp.MustCompile(`^reporting\.[a-z_][a-z0-9_]*$`)
-	typePattern          = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_ ]*(?:\([0-9]+(?:,[0-9]+)?\))?$`)
 	functionPattern      = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
 )
+
+// Catalog V1 attests the generic PostgreSQL data_type reported by
+// information_schema.columns. Precision, scale, length, domains, and array
+// element types are deliberately outside this version, so accepting typmod
+// syntax such as numeric(10,2) would promise an attestation we do not perform.
+var attestedPostgreSQLTypes = map[string]struct{}{
+	"bigint": {}, "boolean": {}, "bytea": {}, "character": {}, "character varying": {},
+	"date": {}, "double precision": {}, "integer": {}, "json": {}, "jsonb": {},
+	"numeric": {}, "real": {}, "smallint": {}, "text": {},
+	"time with time zone": {}, "time without time zone": {},
+	"timestamp with time zone": {}, "timestamp without time zone": {}, "uuid": {},
+}
 
 var safeOperators = map[string]struct{}{
 	"=": {}, "<>": {}, "!=": {}, "<": {}, "<=": {}, ">": {}, ">=": {},
@@ -271,8 +282,8 @@ func validateProduct(path string, product Product, sources, scopes map[string]st
 			problems = append(problems, fieldError(fieldPath+".name", "field name is duplicated", ErrDuplicateField))
 		}
 		fieldNames[field.Name] = struct{}{}
-		if !typePattern.MatchString(field.Type) {
-			problems = append(problems, fieldError(fieldPath+".type", "a safe logical type is required", ErrMissingField))
+		if _, supported := attestedPostgreSQLTypes[strings.ToLower(strings.TrimSpace(field.Type))]; !supported {
+			problems = append(problems, fieldError(fieldPath+".type", "a supported generic PostgreSQL data_type without modifiers is required", ErrInvalidCatalog))
 		}
 		if strings.TrimSpace(field.Description) == "" {
 			problems = append(problems, fieldError(fieldPath+".description", "description is required", ErrMissingField))

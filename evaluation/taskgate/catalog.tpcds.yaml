@@ -1,0 +1,78 @@
+catalog_version: "eval-tpcds-v1"
+
+sources:
+  - name: benchmark
+    type: postgres
+    address: business-postgres
+    port: 5432
+    database: benchmark
+    user: gateway_reader
+    secretRef: GATEWAY_DB_PASSWORD
+
+scopes:
+  - name: eval_scope
+    type: enum
+    description: Constant full-dataset scope used to exercise mandatory rewriting equally across baselines
+    allowed_values: [all]
+
+products:
+  - name: tpcds_store_sales
+    source: benchmark
+    reporting_view: reporting.tpcds_store_sales
+    description: Evaluation projection of TPC-DS store sales
+    sensitivity: low
+    scopes: [eval_scope]
+    allowed_functions: []
+    allowed_operators: ["=", "<", ">="]
+    allowed_aggregates: [count, sum]
+    fields:
+      - {name: ss_sold_date_sk, type: integer, description: Sold date key}
+      - {name: ss_item_sk, type: integer, description: Item key}
+      - {name: ss_store_sk, type: integer, description: Store key}
+      - {name: ss_quantity, type: integer, description: Quantity}
+      - {name: ss_net_paid, type: numeric, description: Net paid}
+      - {name: eval_scope, type: text, description: Mandatory evaluation scope}
+
+  - name: tpcds_item
+    source: benchmark
+    reporting_view: reporting.tpcds_item
+    description: Evaluation projection of TPC-DS items
+    sensitivity: low
+    scopes: [eval_scope]
+    allowed_functions: []
+    allowed_operators: ["="]
+    allowed_aggregates: [count, avg]
+    fields:
+      - {name: i_item_sk, type: integer, description: Item key}
+      - {name: i_item_id, type: text, description: Item identifier}
+      - {name: i_current_price, type: numeric, description: Current price}
+      - {name: i_category, type: text, description: Category}
+      - {name: eval_scope, type: text, description: Mandatory evaluation scope}
+
+  - name: tpcds_customer_demographics
+    source: benchmark
+    reporting_view: reporting.tpcds_customer_demographics
+    description: Evaluation projection of TPC-DS customer demographics
+    sensitivity: low
+    scopes: [eval_scope]
+    allowed_functions: []
+    allowed_operators: ["="]
+    allowed_aggregates: [count]
+    fields:
+      - {name: cd_demo_sk, type: integer, description: Demographic key}
+      - {name: cd_gender, type: text, description: Gender code}
+      - {name: cd_marital_status, type: text, description: Marital status code}
+      - {name: eval_scope, type: text, description: Mandatory evaluation scope}
+
+approval_routes:
+  - sensitivity: low
+    mode: auto
+    budget_profile: evaluation
+
+budget_profiles:
+  - name: evaluation
+    max_queries: 64
+    max_rows: 10000
+    max_db_time: 30m
+    query_timeout: 30s
+    task_ttl: 12h

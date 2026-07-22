@@ -1,0 +1,4 @@
+*
+!.gitignore
+!evidence-20260722-v1-fuzz/
+!evidence-20260722-v1-fuzz/**

@@ -27,6 +27,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"taskbound.local/agent-data-gateway/internal/approval"
+	"taskbound.local/agent-data-gateway/internal/domain"
 )
 
 type Config struct {
@@ -40,6 +41,7 @@ type Config struct {
 	HTTPClient     *http.Client
 	Logger         *slog.Logger
 	Clock          func() time.Time
+	ReceiptSigner  approval.ReceiptSigner
 }
 
 type Server struct {
@@ -59,36 +61,30 @@ type user struct {
 type DraftRequest = approval.DraftRequest
 
 type Draft struct {
-	ID                          string               `json:"id"`
-	TaskID                      string               `json:"task_id"`
-	Requester                   string               `json:"requester"`
-	Objective                   string               `json:"objective"`
-	DataProducts                []string             `json:"data_products"`
-	ApprovedColumns             map[string][]string  `json:"approved_columns"`
-	MandatoryScope              map[string]any       `json:"mandatory_scope"`
-	Sensitivity                 string               `json:"sensitivity"`
-	Budget                      approval.DraftBudget `json:"budget"`
-	ApprovalMode                string               `json:"approval_mode"`
-	Approver                    string               `json:"approver,omitempty"`
-	CatalogVersion              string               `json:"catalog_version"`
-	CallbackContext             string               `json:"callback_context"`
-	AuthorizationSnapshotSHA256 string               `json:"authorization_snapshot_sha256"`
-	State                       string               `json:"state"`
-	CreatedAt                   time.Time            `json:"created_at"`
-	UpdatedAt                   time.Time            `json:"updated_at"`
+	ID              string                           `json:"id"`
+	Manifest        approval.AuthorizationManifestV1 `json:"authorization_manifest"`
+	ManifestDigest  string                           `json:"manifest_digest"`
+	ApprovalMode    string                           `json:"approval_mode"`
+	Approver        string                           `json:"approver,omitempty"`
+	ApprovedGrant   *approval.TaskGrantCoreV1        `json:"approved_grant,omitempty"`
+	ApprovalReceipt *approval.ApprovalReceiptV1      `json:"approval_receipt,omitempty"`
+	State           string                           `json:"state"`
+	CreatedAt       time.Time                        `json:"created_at"`
+	UpdatedAt       time.Time                        `json:"updated_at"`
 }
 
 type callbackEvent struct {
-	EventID                     string    `json:"event_id"`
-	TaskID                      string    `json:"task_id"`
-	DraftID                     string    `json:"draft_id"`
-	Status                      string    `json:"status"`
-	Actor                       string    `json:"actor"`
-	OccurredAt                  time.Time `json:"occurred_at"`
-	CatalogVersion              string    `json:"catalog_version"`
-	CallbackContext             string    `json:"callback_context,omitempty"`
-	AuthorizationSnapshotSHA256 string    `json:"authorization_snapshot_sha256"`
-	ApprovalReceipt             string    `json:"approval_receipt,omitempty"`
+	EventID         string                      `json:"event_id"`
+	TaskID          string                      `json:"task_id"`
+	DraftID         string                      `json:"draft_id"`
+	Status          string                      `json:"status"`
+	Actor           string                      `json:"actor"`
+	OccurredAt      time.Time                   `json:"occurred_at"`
+	CatalogVersion  string                      `json:"catalog_version"`
+	CallbackContext string                      `json:"callback_context,omitempty"`
+	ManifestDigest  string                      `json:"manifest_digest"`
+	ApprovedGrant   *approval.TaskGrantCoreV1   `json:"approved_grant,omitempty"`
+	ApprovalReceipt *approval.ApprovalReceiptV1 `json:"approval_receipt,omitempty"`
 }
 
 func New(config Config) (*Server, error) {
@@ -113,6 +109,9 @@ func New(config Config) (*Server, error) {
 	if config.Clock == nil {
 		config.Clock = time.Now
 	}
+	if config.ReceiptSigner == nil {
+		config.ReceiptSigner = approval.DemoReceiptSigner([]byte(config.CallbackSecret))
+	}
 	aliceHash, err := bcrypt.GenerateFromPassword([]byte(config.AlicePassword), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, err
@@ -121,7 +120,7 @@ func New(config Config) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	parsedTemplates, err := template.New("layout").Parse(pageTemplates)
+	parsedTemplates, err := template.New("layout").Funcs(template.FuncMap{"json": templateJSON}).Parse(pageTemplates)
 	if err != nil {
 		return nil, err
 	}
@@ -171,20 +170,20 @@ func (s *Server) createDraft(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid draft request"})
 		return
 	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid draft request"})
+		return
+	}
 	if err := validateDraftRequest(request); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return
 	}
 	now := s.config.Clock().UTC()
 	draft := &Draft{
-		ID: randomID("oa"), TaskID: request.TaskID, Requester: strings.ToLower(request.Requester),
-		Objective: request.Objective, DataProducts: append([]string(nil), request.DataProducts...),
-		ApprovedColumns: cloneColumns(request.ApprovedColumns), MandatoryScope: cloneMandatoryScope(request.MandatoryScope),
-		Sensitivity: request.Sensitivity, Budget: request.Budget,
+		ID: randomID("oa"), Manifest: cloneManifest(request.Manifest), ManifestDigest: request.ManifestDigest,
 		ApprovalMode: request.ApprovalMode, Approver: strings.ToLower(request.Approver),
-		CatalogVersion: request.CatalogVersion, CallbackContext: request.CallbackContext,
-		AuthorizationSnapshotSHA256: request.AuthorizationSnapshotSHA256,
-		State:                       "draft", CreatedAt: now, UpdatedAt: now,
+		State: "draft", CreatedAt: now, UpdatedAt: now,
 	}
 	s.mu.Lock()
 	s.drafts[draft.ID] = draft
@@ -197,11 +196,8 @@ func (s *Server) createDraft(w http.ResponseWriter, r *http.Request) {
 }
 
 func validateDraftRequest(request DraftRequest) error {
-	if request.TaskID == "" || request.Requester != "alice" || strings.TrimSpace(request.Objective) == "" || len(request.DataProducts) == 0 || request.CatalogVersion == "" {
-		return errors.New("task_id, Alice requester, objective, data_products, and catalog_version are required")
-	}
 	if err := approval.ValidateAuthorizationSnapshot(request); err != nil {
-		return fmt.Errorf("invalid authorization snapshot: %w", err)
+		return fmt.Errorf("invalid authorization manifest: %w", err)
 	}
 	switch request.ApprovalMode {
 	case "auto":
@@ -298,7 +294,7 @@ func (s *Server) listDrafts(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()
 	drafts := make([]Draft, 0, len(s.drafts))
 	for _, draft := range s.drafts {
-		if data.Role == "requester" && draft.Requester != data.Username {
+		if data.Role == "requester" && !strings.EqualFold(draft.Manifest.HumanSubject, data.Username) {
 			continue
 		}
 		if data.Role == "approver" && draft.ApprovalMode != "manual" {
@@ -330,30 +326,41 @@ func (s *Server) submitDraft(w http.ResponseWriter, r *http.Request) {
 	draftID := chi.URLParam(r, "draftID")
 	s.mu.Lock()
 	draft, ok := s.drafts[draftID]
-	if !ok || draft.Requester != data.Username || draft.State != "draft" {
+	if !ok || !strings.EqualFold(draft.Manifest.HumanSubject, data.Username) || draft.State != "draft" {
 		s.mu.Unlock()
 		http.Error(w, "draft cannot be submitted", http.StatusConflict)
 		return
 	}
 	if err := validateStoredDraft(draft); err != nil {
 		s.mu.Unlock()
-		s.config.Logger.Error("authorization snapshot changed before submission", "draft_id", draftID, "error", err)
-		http.Error(w, "draft authorization snapshot is invalid", http.StatusConflict)
+		s.config.Logger.Error("authorization manifest changed before submission", "draft_id", draftID, "error", err)
+		http.Error(w, "draft authorization manifest is invalid", http.StatusConflict)
 		return
 	}
 	draft.State = "pending"
 	draft.UpdatedAt = s.config.Clock().UTC()
-	snapshot := cloneDraft(draft)
+	submittedSnapshot := cloneDraft(draft)
+	var approvedSnapshot *Draft
 	if draft.ApprovalMode == "auto" {
+		issuedAt := s.config.Clock().UTC()
+		grant, err := domainCoreForDraft(draft, issuedAt)
+		if err != nil || s.issueDecision(draft, approval.ApprovalDecisionApprove, data.Username, issuedAt, &grant) != nil {
+			s.mu.Unlock()
+			http.Error(w, "cannot issue approval receipt", http.StatusInternalServerError)
+			return
+		}
 		draft.State = "approved"
-		draft.UpdatedAt = s.config.Clock().UTC()
-		snapshot = cloneDraft(draft)
+		draft.UpdatedAt = issuedAt
+		copy := cloneDraft(draft)
+		approvedSnapshot = &copy
 	}
 	s.mu.Unlock()
 
-	s.dispatch(snapshot, "submitted", data.Username)
-	if snapshot.State == "approved" {
-		s.dispatch(snapshot, "approved", "oa-auto")
+	s.dispatch(submittedSnapshot, "submitted", data.Username)
+	if approvedSnapshot != nil {
+		// Alice's authenticated submission is the explicit human decision for
+		// the demo auto route; do not attribute a human receipt to "oa-auto".
+		s.dispatch(*approvedSnapshot, "approved", data.Username)
 	}
 	http.Redirect(w, r, "/tasks/"+draftID, http.StatusSeeOther)
 }
@@ -365,7 +372,10 @@ func (s *Server) decideDraft(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	decision := strings.ToLower(r.Form.Get("decision"))
-	if decision != "approved" && decision != "rejected" {
+	if decision == "narrowed" {
+		decision = "narrow"
+	}
+	if decision != "approved" && decision != "rejected" && decision != "narrow" {
 		http.Error(w, "invalid decision", http.StatusBadRequest)
 		return
 	}
@@ -379,26 +389,60 @@ func (s *Server) decideDraft(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := validateStoredDraft(draft); err != nil {
 		s.mu.Unlock()
-		s.config.Logger.Error("authorization snapshot changed before decision", "draft_id", draftID, "error", err)
-		http.Error(w, "draft authorization snapshot is invalid", http.StatusConflict)
+		s.config.Logger.Error("authorization manifest changed before decision", "draft_id", draftID, "error", err)
+		http.Error(w, "draft authorization manifest is invalid", http.StatusConflict)
 		return
 	}
-	draft.State = decision
-	draft.UpdatedAt = s.config.Clock().UTC()
+	issuedAt := s.config.Clock().UTC()
+	var candidate *approval.TaskGrantCoreV1
+	protocolDecision := approval.ApprovalDecisionReject
+	state := "rejected"
+	switch decision {
+	case "approved":
+		grant, err := domainCoreForDraft(draft, issuedAt)
+		if err != nil {
+			s.mu.Unlock()
+			http.Error(w, "cannot construct approved grant", http.StatusInternalServerError)
+			return
+		}
+		candidate = &grant
+		protocolDecision = approval.ApprovalDecisionApprove
+		state = "approved"
+	case "narrow":
+		grant, err := narrowedGrantFromForm(draft, r, issuedAt)
+		if err != nil {
+			s.mu.Unlock()
+			http.Error(w, "invalid narrowing: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		candidate = &grant
+		protocolDecision = approval.ApprovalDecisionNarrow
+		state = "narrowed"
+	}
+	if err := s.issueDecision(draft, protocolDecision, data.Username, issuedAt, candidate); err != nil {
+		s.mu.Unlock()
+		s.config.Logger.Error("sign approval decision", "draft_id", draftID, "error", err)
+		http.Error(w, "cannot issue approval receipt", http.StatusInternalServerError)
+		return
+	}
+	draft.State = state
+	draft.UpdatedAt = issuedAt
 	snapshot := cloneDraft(draft)
 	s.mu.Unlock()
-	s.dispatch(snapshot, decision, data.Username)
+	s.dispatch(snapshot, state, data.Username)
 	http.Redirect(w, r, "/tasks/"+draftID, http.StatusSeeOther)
 }
 
 func (s *Server) dispatch(draft Draft, status, actor string) {
-	event := callbackEvent{
-		EventID: randomID("evt"), TaskID: draft.TaskID, DraftID: draft.ID, Status: status,
-		Actor: actor, OccurredAt: s.config.Clock().UTC(), CatalogVersion: draft.CatalogVersion,
-		CallbackContext: draft.CallbackContext, AuthorizationSnapshotSHA256: draft.AuthorizationSnapshotSHA256,
+	occurredAt := s.config.Clock().UTC()
+	if draft.ApprovalReceipt != nil {
+		occurredAt = draft.ApprovalReceipt.IssuedAt
 	}
-	if status == "approved" || status == "rejected" {
-		event.ApprovalReceipt = randomID("receipt")
+	event := callbackEvent{
+		EventID: randomID("evt"), TaskID: draft.Manifest.TaskID, DraftID: draft.ID, Status: status,
+		Actor: actor, OccurredAt: occurredAt, CatalogVersion: draft.Manifest.CatalogVersion,
+		CallbackContext: draft.Manifest.CallbackContext, ManifestDigest: draft.ManifestDigest,
+		ApprovedGrant: cloneGrantPointer(draft.ApprovedGrant), ApprovalReceipt: cloneReceiptPointer(draft.ApprovalReceipt),
 	}
 	go func() {
 		for attempt := 1; attempt <= 3; attempt++ {
@@ -442,7 +486,7 @@ func (s *Server) authorizedDraft(id string, data sessionData) (Draft, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	draft, ok := s.drafts[id]
-	if !ok || (data.Role == "requester" && draft.Requester != data.Username) || (data.Role == "approver" && (draft.ApprovalMode != "manual" || draft.Approver != data.Username)) {
+	if !ok || (data.Role == "requester" && !strings.EqualFold(draft.Manifest.HumanSubject, data.Username)) || (data.Role == "approver" && (draft.ApprovalMode != "manual" || draft.Approver != data.Username)) {
 		return Draft{}, false
 	}
 	return cloneDraft(draft), true
@@ -450,20 +494,25 @@ func (s *Server) authorizedDraft(id string, data sessionData) (Draft, bool) {
 
 func cloneDraft(draft *Draft) Draft {
 	copy := *draft
-	copy.DataProducts = append([]string(nil), draft.DataProducts...)
-	copy.ApprovedColumns = cloneColumns(draft.ApprovedColumns)
-	copy.MandatoryScope = cloneMandatoryScope(draft.MandatoryScope)
+	copy.Manifest = cloneManifest(draft.Manifest)
+	copy.ApprovedGrant = cloneGrantPointer(draft.ApprovedGrant)
+	copy.ApprovalReceipt = cloneReceiptPointer(draft.ApprovalReceipt)
 	return copy
 }
 
 func validateStoredDraft(draft *Draft) error {
 	return approval.ValidateAuthorizationSnapshot(approval.DraftRequest{
-		TaskID: draft.TaskID, Requester: draft.Requester, Objective: draft.Objective,
-		DataProducts: draft.DataProducts, ApprovedColumns: draft.ApprovedColumns,
-		MandatoryScope: draft.MandatoryScope, Sensitivity: draft.Sensitivity, Budget: draft.Budget,
-		ApprovalMode: draft.ApprovalMode, Approver: draft.Approver, CatalogVersion: draft.CatalogVersion,
-		CallbackContext: draft.CallbackContext, AuthorizationSnapshotSHA256: draft.AuthorizationSnapshotSHA256,
+		Manifest: draft.Manifest, ManifestDigest: draft.ManifestDigest,
+		ApprovalMode: draft.ApprovalMode, Approver: draft.Approver,
 	})
+}
+
+func cloneManifest(source approval.AuthorizationManifestV1) approval.AuthorizationManifestV1 {
+	copy := source
+	copy.Products = append([]string(nil), source.Products...)
+	copy.ApprovedColumns = cloneColumns(source.ApprovedColumns)
+	copy.MandatoryScope = cloneMandatoryScope(source.MandatoryScope)
+	return copy
 }
 
 func cloneColumns(source map[string][]string) map[string][]string {
@@ -499,6 +548,158 @@ func cloneMandatoryScope(source map[string]any) map[string]any {
 		}
 	}
 	return result
+}
+
+func domainCoreForDraft(draft *Draft, issuedAt time.Time) (approval.TaskGrantCoreV1, error) {
+	return domain.CoreFromManifest(draft.Manifest, draft.ManifestDigest, issuedAt)
+}
+
+func (s *Server) issueDecision(draft *Draft, decision approval.ApprovalDecision, actor string, issuedAt time.Time, grant *approval.TaskGrantCoreV1) error {
+	grantDigest := ""
+	if grant != nil {
+		computed, err := approval.GrantCoreDigest(*grant)
+		if err != nil {
+			return err
+		}
+		grantDigest = computed
+	}
+	receipt, err := s.config.ReceiptSigner.SignReceipt(approval.ApprovalReceiptV1{
+		Version: domain.ApprovalReceiptV1Version, ReceiptID: randomID("receipt"),
+		TaskID: draft.Manifest.TaskID, Decision: decision, ManifestDigest: draft.ManifestDigest,
+		ApprovedGrantDigest: grantDigest, ApproverID: actor, IssuedAt: issuedAt.UTC(),
+	})
+	if err != nil {
+		return err
+	}
+	draft.ApprovedGrant = cloneGrantPointer(grant)
+	draft.ApprovalReceipt = cloneReceiptPointer(&receipt)
+	return nil
+}
+
+func narrowedGrantFromForm(draft *Draft, r *http.Request, issuedAt time.Time) (approval.TaskGrantCoreV1, error) {
+	parent, err := domainCoreForDraft(draft, issuedAt)
+	if err != nil {
+		return approval.TaskGrantCoreV1{}, err
+	}
+	candidate := parent
+
+	productsRaw := strings.TrimSpace(r.Form.Get("approved_products"))
+	if productsRaw == "" {
+		return approval.TaskGrantCoreV1{}, errors.New("approved_products is required")
+	}
+	var products []string
+	if strings.HasPrefix(productsRaw, "[") {
+		if err := decodeStrictJSON(productsRaw, &products); err != nil {
+			return approval.TaskGrantCoreV1{}, fmt.Errorf("approved_products: %w", err)
+		}
+	} else {
+		for _, product := range strings.Split(productsRaw, ",") {
+			if product = strings.TrimSpace(product); product != "" {
+				products = append(products, product)
+			}
+		}
+	}
+	if len(products) == 0 {
+		return approval.TaskGrantCoreV1{}, errors.New("approved_products cannot be empty")
+	}
+	sort.Strings(products)
+	candidate.ApprovedProducts = products
+
+	var columns map[string][]string
+	if err := decodeStrictJSON(r.Form.Get("approved_columns"), &columns); err != nil {
+		return approval.TaskGrantCoreV1{}, fmt.Errorf("approved_columns: %w", err)
+	}
+	for product := range columns {
+		sort.Strings(columns[product])
+	}
+	candidate.ApprovedColumns = columns
+
+	var scope map[string]any
+	if err := decodeStrictJSON(r.Form.Get("mandatory_scope"), &scope); err != nil {
+		return approval.TaskGrantCoreV1{}, fmt.Errorf("mandatory_scope: %w", err)
+	}
+	for name, value := range scope {
+		if values, ok := value.([]any); ok {
+			sort.Slice(values, func(i, j int) bool {
+				left, _ := values[i].(string)
+				right, _ := values[j].(string)
+				return left < right
+			})
+			scope[name] = values
+		}
+	}
+	candidate.MandatoryScope = scope
+
+	candidate.Budget = approval.AuthorizationBudgetV1{}
+	budgetFields := []struct {
+		name   string
+		target *int64
+	}{
+		{"max_queries", &candidate.Budget.MaxQueries},
+		{"max_result_rows", &candidate.Budget.MaxResultRows},
+		{"max_db_ms", &candidate.Budget.MaxDBMS},
+		{"per_query_timeout_ms", &candidate.Budget.PerQueryTimeoutMS},
+		{"task_ttl_ms", &candidate.Budget.TaskTTLMS},
+	}
+	for _, field := range budgetFields {
+		value, err := strconv.ParseInt(strings.TrimSpace(r.Form.Get(field.name)), 10, 64)
+		if err != nil || value <= 0 {
+			return approval.TaskGrantCoreV1{}, fmt.Errorf("%s must be a positive integer", field.name)
+		}
+		*field.target = value
+	}
+	candidate.ExpiresAt = issuedAt.UTC().Add(time.Duration(candidate.Budget.TaskTTLMS) * time.Millisecond)
+	if err := parent.CheckNarrowing(candidate); err != nil {
+		return approval.TaskGrantCoreV1{}, err
+	}
+	parentDigest, err := approval.GrantCoreDigest(parent)
+	if err != nil {
+		return approval.TaskGrantCoreV1{}, err
+	}
+	candidateDigest, err := approval.GrantCoreDigest(candidate)
+	if err != nil {
+		return approval.TaskGrantCoreV1{}, err
+	}
+	if candidateDigest == parentDigest {
+		return approval.TaskGrantCoreV1{}, errors.New("narrow must reduce at least one authorization dimension")
+	}
+	return candidate, nil
+}
+
+func decodeStrictJSON(raw string, target any) error {
+	if strings.TrimSpace(raw) == "" {
+		return errors.New("value is required")
+	}
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	decoder.UseNumber()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return errors.New("trailing JSON is forbidden")
+	}
+	return nil
+}
+
+func cloneGrantPointer(source *approval.TaskGrantCoreV1) *approval.TaskGrantCoreV1 {
+	if source == nil {
+		return nil
+	}
+	copy := *source
+	copy.ApprovedProducts = append([]string(nil), source.ApprovedProducts...)
+	copy.ApprovedColumns = cloneColumns(source.ApprovedColumns)
+	copy.MandatoryScope = cloneMandatoryScope(source.MandatoryScope)
+	return &copy
+}
+
+func cloneReceiptPointer(source *approval.ApprovalReceiptV1) *approval.ApprovalReceiptV1 {
+	if source == nil {
+		return nil
+	}
+	copy := *source
+	return &copy
 }
 
 func (s *Server) session(r *http.Request) (string, bool) {
@@ -594,12 +795,20 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	_ = json.NewEncoder(w).Encode(value)
 }
 
+func templateJSON(value any) string {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return ""
+	}
+	return string(encoded)
+}
+
 const pageTemplates = `
 {{define "head"}}<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Task-bound OA Demo</title><style>
-body{font-family:system-ui,sans-serif;background:#f4f6f8;color:#17202a;margin:0}.wrap{max-width:880px;margin:48px auto;padding:0 20px}.card{background:white;border:1px solid #dfe5eb;border-radius:12px;padding:24px;margin:16px 0;box-shadow:0 2px 10px #17202a0d}input,select,button{font:inherit;padding:10px 12px;border:1px solid #bcc7d1;border-radius:8px}button{background:#1769aa;color:white;border:0;cursor:pointer}.danger{background:#a92828}.muted{color:#617080}.tag{display:inline-block;padding:3px 8px;border-radius:99px;background:#e8f1f8}nav{display:flex;justify-content:space-between;align-items:center}form.inline{display:inline}dt{font-weight:600;margin-top:12px}dd{margin-left:0}.error{color:#a92828}a{color:#1769aa;text-decoration:none}</style></head><body><div class="wrap">{{end}}
+body{font-family:system-ui,sans-serif;background:#f4f6f8;color:#17202a;margin:0}.wrap{max-width:880px;margin:48px auto;padding:0 20px}.card{background:white;border:1px solid #dfe5eb;border-radius:12px;padding:24px;margin:16px 0;box-shadow:0 2px 10px #17202a0d}input,select,textarea,button{font:inherit;padding:10px 12px;border:1px solid #bcc7d1;border-radius:8px}textarea{box-sizing:border-box;width:100%;min-height:70px}button{background:#1769aa;color:white;border:0;cursor:pointer}.danger{background:#a92828}.muted{color:#617080}.tag{display:inline-block;padding:3px 8px;border-radius:99px;background:#e8f1f8}nav{display:flex;justify-content:space-between;align-items:center}form.inline{display:inline}.narrow{margin-top:20px;padding-top:16px;border-top:1px solid #dfe5eb}.budget-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.budget-grid input{width:90%}dt{font-weight:600;margin-top:12px}dd{margin-left:0}.error{color:#a92828}a{color:#1769aa;text-decoration:none}</style></head><body><div class="wrap">{{end}}
 {{define "foot"}}</div></body></html>{{end}}
 {{define "login"}}{{template "head" .}}<div class="card"><h1>OA Demo 登录</h1><p class="muted">Alice 提交申请；Bob 审批明细申请。</p>{{if .Error}}<p class="error">用户名或密码错误</p>{{end}}<form method="post" action="/login"><input type="hidden" name="csrf" value="{{.CSRF}}"><p><label>用户<br><select name="username"><option value="alice">Alice</option><option value="bob">Bob</option></select></label></p><p><label>密码<br><input type="password" name="password" required autocomplete="current-password"></label></p><button type="submit">登录</button></form></div>{{template "foot" .}}{{end}}
 {{define "nav"}}<nav><div><strong>Task-bound OA</strong> · {{.Username}} / {{.Role}}</div><form class="inline" method="post" action="/logout"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">退出</button></form></nav>{{end}}
-{{define "tasks"}}{{template "head" .}}{{template "nav" .Session}}<h1>审批任务</h1>{{range .Drafts}}<div class="card"><span class="tag">{{.State}}</span><h2><a href="/tasks/{{.ID}}">{{.Objective}}</a></h2><p class="muted">{{.TaskID}} · {{.Sensitivity}} · {{.ApprovalMode}}</p></div>{{else}}<div class="card"><p>暂无任务。</p></div>{{end}}{{template "foot" .}}{{end}}
-{{define "task"}}{{template "head" .}}{{template "nav" .Session}}<div class="card"><span class="tag">{{.Draft.State}}</span><h1>{{.Draft.Objective}}</h1><dl><dt>Task ID</dt><dd>{{.Draft.TaskID}}</dd><dt>已批准数据产品</dt><dd>{{range .Draft.DataProducts}}{{.}} {{end}}</dd><dt>已批准字段</dt><dd>{{range $product, $columns := .Draft.ApprovedColumns}}<strong>{{$product}}</strong>: {{range $columns}}{{.}} {{end}}<br>{{end}}</dd><dt>强制数据范围</dt><dd>{{range $name, $value := .Draft.MandatoryScope}}<strong>{{$name}}</strong>: {{$value}}<br>{{end}}</dd><dt>敏感级别上限</dt><dd>{{.Draft.Sensitivity}}</dd><dt>预算</dt><dd>查询次数 {{.Draft.Budget.MaxQueries}}；返回行数 {{.Draft.Budget.MaxRows}}；数据库时间 {{.Draft.Budget.MaxDBMS}} ms；单次超时 {{.Draft.Budget.QueryTimeoutMS}} ms；任务 TTL {{.Draft.Budget.TaskTTLMS}} ms</dd><dt>审批方式</dt><dd>{{.Draft.ApprovalMode}}{{if .Draft.Approver}} / {{.Draft.Approver}}{{end}}</dd><dt>目录版本</dt><dd>{{.Draft.CatalogVersion}}</dd><dt>授权快照 SHA-256</dt><dd><code>{{.Draft.AuthorizationSnapshotSHA256}}</code></dd></dl>{{if and (eq .Session.Role "requester") (eq .Draft.State "draft")}}<form method="post" action="/tasks/{{.Draft.ID}}/submit"><input type="hidden" name="csrf" value="{{.Session.CSRF}}"><button type="submit">提交申请</button></form>{{end}}{{if and (eq .Session.Role "approver") (eq .Draft.State "pending")}}<form class="inline" method="post" action="/tasks/{{.Draft.ID}}/decision"><input type="hidden" name="csrf" value="{{.Session.CSRF}}"><input type="hidden" name="decision" value="approved"><button type="submit">批准</button></form> <form class="inline" method="post" action="/tasks/{{.Draft.ID}}/decision"><input type="hidden" name="csrf" value="{{.Session.CSRF}}"><input type="hidden" name="decision" value="rejected"><button class="danger" type="submit">拒绝</button></form>{{end}}</div><p><a href="/tasks">← 返回任务列表</a></p>{{template "foot" .}}{{end}}
+{{define "tasks"}}{{template "head" .}}{{template "nav" .Session}}<h1>审批任务</h1>{{range .Drafts}}<div class="card"><span class="tag">{{.State}}</span><h2><a href="/tasks/{{.ID}}">{{.Manifest.DeclaredObjective}}</a></h2><p class="muted">{{.Manifest.TaskID}} · Agent {{.Manifest.AgentID}} · {{.Manifest.Sensitivity}} · {{.ApprovalMode}}</p></div>{{else}}<div class="card"><p>暂无任务。</p></div>{{end}}{{template "foot" .}}{{end}}
+{{define "task"}}{{template "head" .}}{{template "nav" .Session}}<div class="card"><span class="tag">{{.Draft.State}}</span><h1>{{.Draft.Manifest.DeclaredObjective}}</h1><dl><dt>Task ID</dt><dd>{{.Draft.Manifest.TaskID}}</dd><dt>人类主体</dt><dd>{{.Draft.Manifest.HumanSubject}}</dd><dt>Agent 身份</dt><dd>{{.Draft.Manifest.AgentID}}</dd><dt>申请数据产品</dt><dd>{{range .Draft.Manifest.Products}}{{.}} {{end}}</dd><dt>申请字段</dt><dd>{{range $product, $columns := .Draft.Manifest.ApprovedColumns}}<strong>{{$product}}</strong>: {{range $columns}}{{.}} {{end}}<br>{{end}}</dd><dt>强制数据范围</dt><dd>{{range $name, $value := .Draft.Manifest.MandatoryScope}}<strong>{{$name}}</strong>: {{$value}}<br>{{end}}</dd><dt>敏感级别上限</dt><dd>{{.Draft.Manifest.Sensitivity}}</dd><dt>全部预算与有效期</dt><dd>最大查询次数 {{.Draft.Manifest.Budget.MaxQueries}}；最大返回行数 {{.Draft.Manifest.Budget.MaxResultRows}}；最大数据库时间 {{.Draft.Manifest.Budget.MaxDBMS}} ms；单次查询超时 {{.Draft.Manifest.Budget.PerQueryTimeoutMS}} ms；任务有效期 TTL {{.Draft.Manifest.Budget.TaskTTLMS}} ms</dd><dt>审批方式</dt><dd>{{.Draft.ApprovalMode}}{{if .Draft.Approver}} / {{.Draft.Approver}}{{end}}</dd><dt>目录版本 / SHA-256</dt><dd>{{.Draft.Manifest.CatalogVersion}} / <code>{{.Draft.Manifest.CatalogSHA256}}</code></dd><dt>Manifest SHA-256</dt><dd><code>{{.Draft.ManifestDigest}}</code></dd></dl>{{if and (eq .Session.Role "requester") (eq .Draft.State "draft")}}<form method="post" action="/tasks/{{.Draft.ID}}/submit"><input type="hidden" name="csrf" value="{{.Session.CSRF}}"><button type="submit">提交申请</button></form>{{end}}{{if and (eq .Session.Role "approver") (eq .Draft.State "pending")}}<form class="inline" method="post" action="/tasks/{{.Draft.ID}}/decision"><input type="hidden" name="csrf" value="{{.Session.CSRF}}"><input type="hidden" name="decision" value="approved"><button type="submit">按原申请批准</button></form> <form class="inline" method="post" action="/tasks/{{.Draft.ID}}/decision"><input type="hidden" name="csrf" value="{{.Session.CSRF}}"><input type="hidden" name="decision" value="rejected"><button class="danger" type="submit">拒绝</button></form><form class="narrow" method="post" action="/tasks/{{.Draft.ID}}/decision"><input type="hidden" name="csrf" value="{{.Session.CSRF}}"><input type="hidden" name="decision" value="narrow"><h2>缩小后批准</h2><p><label>产品（JSON 数组或逗号分隔）<br><textarea name="approved_products" required>{{json .Draft.Manifest.Products}}</textarea></label></p><p><label>字段（JSON 对象）<br><textarea name="approved_columns" required>{{json .Draft.Manifest.ApprovedColumns}}</textarea></label></p><p><label>强制范围（枚举可取子集，日期区间可收紧）<br><textarea name="mandatory_scope" required>{{json .Draft.Manifest.MandatoryScope}}</textarea></label></p><div class="budget-grid"><label>最大查询次数<input name="max_queries" type="number" min="1" max="{{.Draft.Manifest.Budget.MaxQueries}}" value="{{.Draft.Manifest.Budget.MaxQueries}}" required></label><label>最大返回行数<input name="max_result_rows" type="number" min="1" max="{{.Draft.Manifest.Budget.MaxResultRows}}" value="{{.Draft.Manifest.Budget.MaxResultRows}}" required></label><label>最大数据库时间 (ms)<input name="max_db_ms" type="number" min="1" max="{{.Draft.Manifest.Budget.MaxDBMS}}" value="{{.Draft.Manifest.Budget.MaxDBMS}}" required></label><label>单次超时 (ms)<input name="per_query_timeout_ms" type="number" min="1" max="{{.Draft.Manifest.Budget.PerQueryTimeoutMS}}" value="{{.Draft.Manifest.Budget.PerQueryTimeoutMS}}" required></label><label>任务 TTL (ms)<input name="task_ttl_ms" type="number" min="1" max="{{.Draft.Manifest.Budget.TaskTTLMS}}" value="{{.Draft.Manifest.Budget.TaskTTLMS}}" required></label></div><p><button type="submit">缩小后批准</button></p></form>{{end}}</div><p><a href="/tasks">← 返回任务列表</a></p>{{template "foot" .}}{{end}}
 `

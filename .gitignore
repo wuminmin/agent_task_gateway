@@ -1,7 +1,10 @@
 .env
 .idea/
 .vscode/
+__pycache__/
+*.pyc
 *.local
+evaluation/config/tasks.local.json
 *.db
 *.db-shm
 *.db-wal

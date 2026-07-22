@@ -42,8 +42,7 @@ func TestTaskGrantNarrowing(t *testing.T) {
 		"expense_summary": {"total_amount"},
 	}
 	candidate.MandatoryScope = map[string]any{
-		"department":   []string{"sales"},
-		"expense_date": map[string]string{"from": "2026-01-01", "to": "2026-06-30"},
+		"department": []string{"sales"},
 	}
 	candidate.SensitivityCeiling = SensitivityLow
 	candidate.Budget.MaxQueries = 2

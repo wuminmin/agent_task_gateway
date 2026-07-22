@@ -1,0 +1,31 @@
+{
+  "listen_address": ":8088",
+  "dsn_env": "EVAL_AST_DATABASE_DSN",
+  "token_env": "EVAL_AST_TOKEN",
+  "statement_timeout": "30s",
+  "max_rows": 10000,
+  "max_connections": 32,
+  "products": [
+    {
+      "LogicalName": "tpch_orders",
+      "PhysicalSchema": "reporting",
+      "PhysicalView": "tpch_orders",
+      "ApprovedColumns": ["o_orderkey", "o_custkey", "o_orderstatus", "o_totalprice", "o_orderdate", "o_orderpriority", "eval_scope"],
+      "MandatoryScope": [{"Column": "eval_scope", "Operator": "eq", "Values": ["all"]}]
+    },
+    {
+      "LogicalName": "tpch_customer",
+      "PhysicalSchema": "reporting",
+      "PhysicalView": "tpch_customer",
+      "ApprovedColumns": ["c_custkey", "c_name", "c_mktsegment", "c_acctbal", "eval_scope"],
+      "MandatoryScope": [{"Column": "eval_scope", "Operator": "eq", "Values": ["all"]}]
+    },
+    {
+      "LogicalName": "tpch_lineitem",
+      "PhysicalSchema": "reporting",
+      "PhysicalView": "tpch_lineitem",
+      "ApprovedColumns": ["l_orderkey", "l_quantity", "l_extendedprice", "l_shipdate", "l_shipmode", "eval_scope"],
+      "MandatoryScope": [{"Column": "eval_scope", "Operator": "eq", "Values": ["all"]}]
+    }
+  ]
+}

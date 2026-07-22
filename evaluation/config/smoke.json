@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "name": "taskgate-four-baseline-smoke",
+  "mode": "smoke",
+  "seed": 20260722,
+  "warmup_runs_per_worker": 1,
+  "measured_runs_per_worker": 3,
+  "concurrency": [1],
+  "baseline_order": [
+    "direct_postgresql",
+    "native_view_rls",
+    "ast_only_gateway",
+    "full_taskgate"
+  ],
+  "max_result_rows": 10000,
+  "statement_timeout": "30s",
+  "require_resource_metrics": false,
+  "experiments": [
+    {
+      "id": "tpch_sf1",
+      "family": "tpch",
+      "scale_factor": 1,
+      "workload": "../workloads/tpch/manifest.json",
+      "dataset_digest_env": "EVAL_TPCH_SF1_DATASET_SHA256",
+      "dataset_manifest_env": "EVAL_TPCH_SF1_DATASET_MANIFEST",
+      "direct_dsn_env": "EVAL_TPCH_SF1_DIRECT_DSN",
+      "native_dsn_env": "EVAL_TPCH_SF1_NATIVE_DSN",
+      "ast_url_env": "EVAL_TPCH_SF1_AST_URL",
+      "ast_token_env": "EVAL_TPCH_SF1_AST_TOKEN",
+      "taskgate_url_env": "EVAL_TPCH_SF1_TASKGATE_URL",
+      "taskgate_token_env": "EVAL_TPCH_SF1_TASKGATE_TOKEN",
+      "taskgate_tasks_file_env": "EVAL_TPCH_SF1_TASKS_FILE",
+      "metrics_probe_env": {}
+    }
+  ]
+}

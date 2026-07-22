@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "captured_by": "evaluation runner run.json plus operator-supplied metrics probes",
+  "required_software": {
+    "docker_engine": "record exact client/server versions",
+    "postgresql": "16.x; record SELECT version() for every database copy",
+    "go": "1.25.x evaluation image",
+    "tla_tools": "1.7.1 for formal results",
+    "tpch_tools": "record licensed kit release, seed, and generated-file manifest",
+    "tpcds_tools": "record licensed kit release, seed, and generated-file manifest"
+  },
+  "required_host_fields": [
+    "cpu model and logical CPU count",
+    "memory capacity",
+    "kernel and container runtime",
+    "storage device and filesystem",
+    "CPU governor or cloud instance type",
+    "co-located workload policy"
+  ],
+  "required_database_fields": [
+    "server image digest",
+    "postgresql.conf overrides",
+    "shared_buffers and work_mem",
+    "dataset checksum-manifest digest",
+    "ANALYZE completion",
+    "cache reset or warm-cache policy"
+  ]
+}

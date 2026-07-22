@@ -1,0 +1,31 @@
+{
+  "listen_address": ":8088",
+  "dsn_env": "EVAL_AST_DATABASE_DSN",
+  "token_env": "EVAL_AST_TOKEN",
+  "statement_timeout": "30s",
+  "max_rows": 10000,
+  "max_connections": 32,
+  "products": [
+    {
+      "LogicalName": "tpcds_store_sales",
+      "PhysicalSchema": "reporting",
+      "PhysicalView": "tpcds_store_sales",
+      "ApprovedColumns": ["ss_sold_date_sk", "ss_item_sk", "ss_store_sk", "ss_quantity", "ss_net_paid", "eval_scope"],
+      "MandatoryScope": [{"Column": "eval_scope", "Operator": "eq", "Values": ["all"]}]
+    },
+    {
+      "LogicalName": "tpcds_item",
+      "PhysicalSchema": "reporting",
+      "PhysicalView": "tpcds_item",
+      "ApprovedColumns": ["i_item_sk", "i_item_id", "i_current_price", "i_category", "eval_scope"],
+      "MandatoryScope": [{"Column": "eval_scope", "Operator": "eq", "Values": ["all"]}]
+    },
+    {
+      "LogicalName": "tpcds_customer_demographics",
+      "PhysicalSchema": "reporting",
+      "PhysicalView": "tpcds_customer_demographics",
+      "ApprovedColumns": ["cd_demo_sk", "cd_gender", "cd_marital_status", "eval_scope"],
+      "MandatoryScope": [{"Column": "eval_scope", "Operator": "eq", "Values": ["all"]}]
+    }
+  ]
+}

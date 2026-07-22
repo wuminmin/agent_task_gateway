@@ -1,0 +1,81 @@
+catalog_version: "eval-tpch-v1"
+
+sources:
+  - name: benchmark
+    type: postgres
+    address: business-postgres
+    port: 5432
+    database: benchmark
+    user: gateway_reader
+    secretRef: GATEWAY_DB_PASSWORD
+
+scopes:
+  - name: eval_scope
+    type: enum
+    description: Constant full-dataset scope used to exercise mandatory rewriting equally across baselines
+    allowed_values: [all]
+
+products:
+  - name: tpch_orders
+    source: benchmark
+    reporting_view: reporting.tpch_orders
+    description: Evaluation projection of TPC-H orders
+    sensitivity: low
+    scopes: [eval_scope]
+    allowed_functions: []
+    allowed_operators: ["=", "<", ">="]
+    allowed_aggregates: [count, sum]
+    fields:
+      - {name: o_orderkey, type: integer, description: Order key}
+      - {name: o_custkey, type: integer, description: Customer key}
+      - {name: o_orderstatus, type: character, description: Order status}
+      - {name: o_totalprice, type: numeric, description: Total price}
+      - {name: o_orderdate, type: date, description: Order date}
+      - {name: o_orderpriority, type: text, description: Order priority}
+      - {name: eval_scope, type: text, description: Mandatory evaluation scope}
+
+  - name: tpch_customer
+    source: benchmark
+    reporting_view: reporting.tpch_customer
+    description: Evaluation projection of TPC-H customers
+    sensitivity: low
+    scopes: [eval_scope]
+    allowed_functions: []
+    allowed_operators: ["="]
+    allowed_aggregates: [count, avg]
+    fields:
+      - {name: c_custkey, type: integer, description: Customer key}
+      - {name: c_name, type: text, description: Customer name}
+      - {name: c_mktsegment, type: text, description: Market segment}
+      - {name: c_acctbal, type: numeric, description: Account balance}
+      - {name: eval_scope, type: text, description: Mandatory evaluation scope}
+
+  - name: tpch_lineitem
+    source: benchmark
+    reporting_view: reporting.tpch_lineitem
+    description: Evaluation projection of TPC-H line items
+    sensitivity: low
+    scopes: [eval_scope]
+    allowed_functions: []
+    allowed_operators: ["=", "<", ">="]
+    allowed_aggregates: [count, sum, avg]
+    fields:
+      - {name: l_orderkey, type: integer, description: Order key}
+      - {name: l_quantity, type: numeric, description: Quantity}
+      - {name: l_extendedprice, type: numeric, description: Extended price}
+      - {name: l_shipdate, type: date, description: Ship date}
+      - {name: l_shipmode, type: text, description: Ship mode}
+      - {name: eval_scope, type: text, description: Mandatory evaluation scope}
+
+approval_routes:
+  - sensitivity: low
+    mode: auto
+    budget_profile: evaluation
+
+budget_profiles:
+  - name: evaluation
+    max_queries: 64
+    max_rows: 10000
+    max_db_time: 30m
+    query_timeout: 30s
+    task_ttl: 12h

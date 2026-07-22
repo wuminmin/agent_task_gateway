@@ -20,6 +20,8 @@ services:
       retries: 20
     security_opt:
       - no-new-privileges:true
+    networks:
+      - control-plane
 
   business-postgres:
     image: postgres:16-bookworm
@@ -28,8 +30,6 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       GATEWAY_DB_PASSWORD: ${GATEWAY_DB_PASSWORD:?set GATEWAY_DB_PASSWORD in .env}
-    ports:
-      - 127.0.0.1:${POSTGRES_PORT:-25434}:5432
     volumes:
       - business-pg-data:/var/lib/postgresql/data
       - ./db/init:/docker-entrypoint-initdb.d:ro
@@ -40,6 +40,8 @@ services:
       retries: 20
     security_opt:
       - no-new-privileges:true
+    networks:
+      - business-data
 
   gateway:
     build:
@@ -51,10 +53,14 @@ services:
       CONTROL_POSTGRES_DSN: postgres://gateway_control:${CONTROL_DB_PASSWORD:?set CONTROL_DB_PASSWORD in .env}@control-postgres:5432/${CONTROL_POSTGRES_DB:-taskbound_gateway}?sslmode=disable
       CATALOG_PATH: /etc/taskbound/catalog.yaml
       GATEWAY_DATA_KEY: ${GATEWAY_DATA_KEY:?set GATEWAY_DATA_KEY in .env}
+      GATEWAY_RECEIPT_KEY_ID: ${GATEWAY_RECEIPT_KEY_ID:?set GATEWAY_RECEIPT_KEY_ID in .env}
+      GATEWAY_RECEIPT_PRIVATE_KEY: ${GATEWAY_RECEIPT_PRIVATE_KEY:?set GATEWAY_RECEIPT_PRIVATE_KEY in .env}
       TASKBOUND_ALICE_TOKEN: ${TASKBOUND_ALICE_TOKEN:?set TASKBOUND_ALICE_TOKEN in .env}
       TASKBOUND_CAROL_TOKEN: ${TASKBOUND_CAROL_TOKEN:?set TASKBOUND_CAROL_TOKEN in .env}
       OA_SERVICE_TOKEN: ${OA_SERVICE_TOKEN:?set OA_SERVICE_TOKEN in .env}
       OA_CALLBACK_SECRET: ${OA_CALLBACK_SECRET:?set OA_CALLBACK_SECRET in .env}
+      OA_RECEIPT_KEY_ID: ${OA_RECEIPT_KEY_ID:?set OA_RECEIPT_KEY_ID in .env}
+      OA_RECEIPT_PUBLIC_KEY: ${OA_RECEIPT_PUBLIC_KEY:?set OA_RECEIPT_PUBLIC_KEY in .env}
       OA_BASE_URL: http://oa-demo:8092
       PUBLIC_OA_BASE_URL: http://127.0.0.1:8092
       POSTGRES_DSN: postgres://gateway_reader:${GATEWAY_DB_PASSWORD:?set GATEWAY_DB_PASSWORD in .env}@business-postgres:5432/${POSTGRES_DB:-travel_demo}?sslmode=disable
@@ -79,6 +85,10 @@ services:
       retries: 30
     security_opt:
       - no-new-privileges:true
+    networks:
+      - public-edge
+      - control-plane
+      - business-data
 
   oa-demo:
     build:
@@ -89,6 +99,8 @@ services:
       OA_ADDR: :8092
       OA_SERVICE_TOKEN: ${OA_SERVICE_TOKEN:?set OA_SERVICE_TOKEN in .env}
       OA_CALLBACK_SECRET: ${OA_CALLBACK_SECRET:?set OA_CALLBACK_SECRET in .env}
+      OA_RECEIPT_KEY_ID: ${OA_RECEIPT_KEY_ID:?set OA_RECEIPT_KEY_ID in .env}
+      OA_RECEIPT_PRIVATE_KEY: ${OA_RECEIPT_PRIVATE_KEY:?set OA_RECEIPT_PRIVATE_KEY in .env}
       OA_SESSION_SECRET: ${OA_SESSION_SECRET:?set OA_SESSION_SECRET in .env}
       OA_ALICE_PASSWORD: ${OA_ALICE_PASSWORD:?set OA_ALICE_PASSWORD in .env}
       OA_BOB_PASSWORD: ${OA_BOB_PASSWORD:?set OA_BOB_PASSWORD in .env}
@@ -106,7 +118,15 @@ services:
       retries: 20
     security_opt:
       - no-new-privileges:true
+    networks:
+      - public-edge
 
 volumes:
   control-pg-data:
   business-pg-data:
+
+networks:
+  public-edge:
+  control-plane:
+  business-data:
+    internal: true

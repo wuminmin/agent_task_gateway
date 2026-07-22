@@ -1,4 +1,4 @@
-# Task-bound Agent Data Gateway
+# TaskGate
 
 Task-bound Agent Data Gateway 是一个本地演示系统：Agent 必须先提交明确的数据产品、字段、Scope、预算和目的，经 OA 审批后，才能查询只读数据产品。Gateway 不包含模型层；它只接受结构化任务申请、声明式 `QueryPlan` 或 SQL，并以确定性策略完成授权、PostgreSQL AST 校验、预算扣减、结果加密和审计。
 
@@ -10,12 +10,12 @@ Task-bound Agent Data Gateway 是一个本地演示系统：Agent 必须先提�
 本地 Codex / MCP Client
           │ Bearer Token + MCP 2.0
           ▼
- Gateway :8082 ─────────► OA Demo :8092（草稿、审批、HMAC 回调）
+ Gateway :8082 ─────────► OA Demo :8092（草稿、审批、HMAC 回调 + Ed25519 回执）
     │
     ├───────────────────► Control PostgreSQL :5432（宿主机 127.0.0.1:25433）
     │                       任务、Grant、预算、AES-GCM 结果、审计链
     │
-    └───────────────────► Business PostgreSQL :5432（宿主机 127.0.0.1:25434）
+    └───────────────────► Business PostgreSQL :5432（仅内部网络，默认不发布宿主机端口）
                             gateway_reader 只读 Reporting Views
 ```
 
@@ -27,7 +27,7 @@ Task-bound Agent Data Gateway 是一个本地演示系统：Agent 必须先提�
 
 ```bash
 cp .env.example .env
-openssl rand -base64 32  # 填入 GATEWAY_DATA_KEY
+# 按 docs/getting-started.md 生成加密密钥和两个独立 Ed25519 密钥
 # 同时替换 .env 中的全部 Token、共享密钥和数据库密码
 docker compose up --build -d --wait
 docker compose ps
@@ -42,22 +42,31 @@ curl -i http://127.0.0.1:8092/health/ready
 | Gateway / MCP | `http://127.0.0.1:8082/mcp` |
 | OA Demo | `http://127.0.0.1:8092/login` |
 | 系统控制库 | `127.0.0.1:25433` / `taskbound_gateway` |
-| 业务数据源库 | `127.0.0.1:25434` / `travel_demo` |
+| 业务数据源库 | 仅 Gateway 内部网络 / `travel_demo` |
 
-Navicat 的用户名和密码对应关系见[本地启动与数据库调试](docs/getting-started.md#navicat-连接参数)。数据库端口仅绑定宿主机回环地址。
+如需本机数据库客户端调试，可显式启用非论文部署覆盖：
+
+```bash
+docker compose -f compose.yaml -f compose.debug.yaml up --build -d --wait
+```
+
+Navicat 的用户名和密码对应关系见[本地启动与数据库调试](docs/getting-started.md#navicat-连接参数)。Business PostgreSQL 仅在显式启用调试覆盖时绑定宿主机回环地址。
 
 ## MCP 2.0 工作流
 
 1. 调用 `list_data_products` 获取完整逻辑产品、字段和 Scope 的允许值/日期边界。
 2. 调用 `request_data_task`，显式提交非空 `objective`、`data_products`、每个产品的非空 `columns` 及 `scopes`。请求预算只能缩小 Catalog 上限。
 3. 在 OA 提交并完成自动或人工审批。
-4. ACTIVE 后调用 `execute_plan(task_id, plan)` 或 `query_sql(task_id, sql)`。
+4. ACTIVE 后调用 `execute_plan(task_id, request_id, plan)` 或 `query_sql(task_id, request_id, sql)`。
+
+`request_id` 由客户端生成并在一个任务内保持唯一。相同 ID 和相同请求只返回首次持久化结果/状态；相同 ID 搭配不同请求会关闭式拒绝，重试不会产生第二次执行或预算消费。
 
 `execute_plan` 的最小示例：
 
 ```json
 {
   "task_id": "task_...",
+  "request_id": "analysis-step-001",
   "plan": {
     "product": "expense_summary",
     "columns": ["month", "total_amount"],
@@ -90,6 +99,9 @@ ORDER BY month
 
 ```bash
 make verify
+make formal
+make eval-smoke
+make paper
 make logs
 docker compose down
 ```

@@ -24,24 +24,30 @@ Content-Type: application/json
 
 ```json
 {
-  "task_id": "task_...",
-  "requester": "alice",
-  "objective": "查询销售部月度报销总额",
-  "data_products": ["expense_summary"],
-  "approved_columns": {"expense_summary": ["month", "department", "total_amount"]},
-  "mandatory_scope": {"department": ["销售部"]},
-  "sensitivity": "low",
-  "budget": {
-    "max_queries": 10,
-    "max_rows": 500,
-    "max_db_ms": 30000,
-    "query_timeout_ms": 5000,
-    "task_ttl_ms": 1800000
+  "authorization_manifest": {
+    "version": "1",
+    "task_id": "task_...",
+    "human_subject": "alice",
+    "agent_id": "principal_alice",
+    "declared_objective": "查询销售部月度报销总额",
+    "products": ["expense_summary"],
+    "approved_columns": {"expense_summary": ["department", "month", "total_amount"]},
+    "mandatory_scope": {"department": ["销售部"]},
+    "sensitivity": "low",
+    "budget": {
+      "max_queries": 10,
+      "max_result_rows": 500,
+      "max_db_ms": 30000,
+      "per_query_timeout_ms": 5000,
+      "task_ttl_ms": 1800000
+    },
+    "catalog_version": "2026-07-21.1",
+    "catalog_sha256": "<64 位小写十六进制 SHA-256>",
+    "callback_context": "callback_...",
+    "nonce": "<32 位小写十六进制随机数>"
   },
-  "approval_mode": "auto",
-  "catalog_version": "2026-07-21.1",
-  "callback_context": "callback_...",
-  "authorization_snapshot_sha256": "<64 位十六进制 SHA-256>"
+  "manifest_digest": "<RFC 8785 + TASKGATE-MANIFEST-V1 域分隔摘要>",
+  "approval_mode": "auto"
 }
 ```
 
@@ -57,7 +63,7 @@ Content-Type: application/json
 
 内置客户端超时 5 秒，响应体上限 64 KiB。创建失败时 Gateway 不创建本地任务；若 OA 已创建草稿而后续控制 PostgreSQL 写入失败，当前 Demo 没有补偿删除协议，生产适配器应提供幂等创建和补偿/对账机制。
 
-OA 展示 Gateway 已确定的产品、字段、强制范围、敏感级别、五维预算、审批方式、目录版本与快照 Hash。创建、提交和决定前都会重验 Hash；OA 不能自行降低审批路由、改变数据范围或预算。
+OA 展示 Gateway 已确定的目标、Agent/人类身份、产品、字段、强制范围、敏感级别、五维预算、有效期、目录版本与 Manifest Hash。创建、提交和决定前都会重验 Hash。人工审批可明确 `approve/reject/narrow`；Demo 表单可缩小产品、字段、枚举/日期范围、期限和预算。协议层也校验敏感级别只能降低、绝不能提高，但 Demo 表单不提供敏感级别编辑控件。任何扩权都会被 OA 与 Gateway 双重拒绝。
 
 ## OA 回调接口
 
@@ -89,8 +95,15 @@ Body 契约：
   "occurred_at": "2026-07-21T12:00:00Z",
   "catalog_version": "2026-07-21.1",
   "callback_context": "callback_...",
-  "authorization_snapshot_sha256": "<与草稿一致的 SHA-256>",
-  "approval_receipt": "receipt_..."
+  "manifest_digest": "<与草稿一致的 SHA-256>",
+  "approved_grant": {"version":"1", "task_id":"task_...", "...":"TaskGrantCoreV1"},
+  "approval_receipt": {
+    "version":"1", "receipt_id":"receipt_...", "task_id":"task_...",
+    "decision":"approve", "manifest_digest":"<SHA-256>",
+    "approved_grant_digest":"<SHA-256>", "approver_id":"bob",
+    "issued_at":"2026-07-21T12:00:00Z", "key_id":"oa-ed25519-v1",
+    "signature":"<unpadded base64url Ed25519>"
+  }
 }
 ```
 
@@ -99,9 +112,10 @@ Body 契约：
 | 状态 | 允许 actor | 状态变化 | 额外要求 |
 |---|---|---|---|
 | `submitted` | `alice` | `AWAITING_SUBMISSION → AWAITING_APPROVAL` | 无 |
-| `approved`（自动） | `oa-auto` | `AWAITING_APPROVAL → ACTIVE` | `approval_receipt` 必需 |
-| `approved`（人工） | Catalog 指定的 `bob` | `AWAITING_APPROVAL → ACTIVE` | `approval_receipt` 必需 |
-| `rejected` | Catalog 指定的 `bob` | `AWAITING_APPROVAL → ARCHIVED(rejected)` | `approval_receipt` 必需 |
+| `approved`（自动） | 已认证申请人 `alice` | `AWAITING_APPROVAL → ACTIVE` | 完整 Grant + Ed25519 回执 |
+| `approved`（人工） | Catalog 指定的 `bob` | `AWAITING_APPROVAL → ACTIVE` | 完整 Grant + Ed25519 回执 |
+| `narrowed` | Catalog 指定的 `bob` | `AWAITING_APPROVAL → ACTIVE` | 严格收缩 Grant + `decision=narrow` 回执 |
+| `rejected` | Catalog 指定的 `bob` | `AWAITING_APPROVAL → ARCHIVED(rejected)` | 无 Grant；`decision=reject` 回执 |
 
 Gateway 会同时校验：
 
@@ -111,6 +125,7 @@ Gateway 会同时校验：
 - task、draft、Catalog 版本、随机 callback context 与持久化任务一致。
 - 回调快照 Hash 与本地 pending 一致，且本地 pending 的字段、范围、预算等重算 Hash 后仍一致。
 - actor、审批模式和当前任务状态允许该动作。
+- Ed25519 Key ID 已配置，签名有效，回执绑定 Manifest 与最终 Grant 摘要；HMAC 只负责传输认证和防重放。
 
 `event_id + raw body SHA-256` 用于幂等：首次处理锁定回调与任务行，并把审批事件、Grant、预算、状态和 HTTP 响应写入同一个控制 PostgreSQL 事务；验证当前请求签名后，完全相同的已完成事件即使原始事件时间已过窗口或当前 Catalog 已更新，也返回首次保存的响应。复用 Event ID 但改变 Body 返回冲突。Gateway 重启会把单独 Claim 后未完成的事件标记为可重试。
 

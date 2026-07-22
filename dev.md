@@ -13,14 +13,14 @@ docker compose
 ├── gateway:8082
 ├── oa-demo:8092
 ├── control-postgres:5432   -> host 127.0.0.1:25433
-└── business-postgres:5432  -> host 127.0.0.1:25434
+└── business-postgres:5432  -> internal business-data network only
 ```
 
 - `control-postgres` 使用 `control-pg-data`，保存任务、Grant、预算、加密结果、回调幂等与审计链。
 - `business-postgres` 使用 `business-pg-data`，保存 `travel_demo`、`legacy.*` 与 `reporting.*`。
 - 两个 PG 的数据库、账号、密码、端口与 Volume 独立。
 - 旧 `gateway-data` Volume 不再挂载，也不会自动删除。
-- Gateway 与 OA 为非 root、只读根文件系统；宿主机入口只绑定回环地址。
+- Gateway 与 OA 为非 root、只读根文件系统；宿主机入口只绑定回环地址。只有 Gateway 同时加入隔离的 `business-data` 网络；OA 和控制库没有到业务库的网络路由。`compose.debug.yaml` 是唯一发布业务库回环端口的、明确标记为非论文部署的 override。
 
 系统控制库由 `gateway_control` 连接，DSN 通过 `CONTROL_POSTGRES_DSN` 注入。业务库由受限角色 `gateway_reader` 连接，DSN 通过 `POSTGRES_DSN` 注入。
 
@@ -34,12 +34,13 @@ docker compose
 - `get_task_status(task_id)`
 - `wait_for_approval(task_id, timeout_seconds?)`
 - `get_task_context(task_id)`
-- `execute_plan(task_id, plan, output_format?)`
-- `query_sql(task_id, sql)`
+- `execute_plan(task_id, request_id, plan, output_format?)`
+- `query_sql(task_id, request_id, sql)`
 - `get_query_result(task_id, query_id)`
 - `get_budget(task_id)`
 - `list_receipts(task_id, cursor?)`
 - `complete_task(task_id, summary?)`
+- `revoke_task(task_id, reason)`
 
 审计员工具：
 
@@ -81,7 +82,7 @@ ACTIVE              --complete-->  ARCHIVED(completed)
 ACTIVE              --budget/TTL-> ARCHIVED(...)
 ```
 
-审批快照包含产品、字段、Scope、敏感级别、预算、TTL、审批路由和 Catalog 版本。Gateway 与 OA 都重算 SHA-256；回调还校验 HMAC、Header/Body Event ID、双时间窗口、actor、状态和 callback context。
+Gateway 从认证主体构造版本化 `AuthorizationManifestV1`，其中包含产品、字段、Scope、敏感级别、全部预算、TTL、Agent/人类身份、Callback Context 以及 Catalog 版本和精确文件摘要。Gateway 与 OA 使用 RFC 8785 规范化和带域分隔的 SHA-256 重算 Manifest 摘要。OA 可批准、拒绝或收缩产品、字段、Scope、期限和预算；协议验证还保证敏感级别绝不提高。最终 `TaskGrantV1` 携带 OA Ed25519 `ApprovalReceiptV1`。回调 HMAC 只负责传输认证与防重放，回调还校验 Header/Body Event ID、双时间窗口、actor、状态和 callback context。
 
 回调幂等、任务转换、Grant/预算创建位于同一控制 PG 事务，并对回调/任务行加锁。`task_grants` 的 UPDATE/DELETE 由 PostgreSQL Trigger 拒绝。
 
@@ -117,13 +118,13 @@ Gateway 当前仍只允许单实例部署。行锁保证请求并发安全，但
 `query_sql` 和 QueryPlan 编译结果共用以下链路：
 
 ```text
-所有权 / ACTIVE / Catalog / Grant / TTL / 预算
+所有权 / ACTIVE / Grant / TTL / Catalog 与实时 Schema Attestation
   -> pg_query_go/v6 AST 白名单
   -> 获批字段与 Scope CTE
   -> 外层剩余行数 LIMIT
-  -> 控制 PG 预留
+  -> 控制 PG 按 (task_id, request_id) 幂等预留
   -> 业务 PG READ ONLY + statement_timeout
-  -> 控制 PG 结算、密文结果、查询凭证、审计事件
+  -> 控制 PG 结算、密文结果、Ed25519 QueryReceiptV1、审计事件
 ```
 
 Agent SQL 只能引用未限定的逻辑产品名。物理 `reporting.*`、`legacy.*`、系统对象、多语句、写操作、递归 CTE、锁、通配符、危险函数、参数和未知 AST 特性均关闭式拒绝。
@@ -131,19 +132,20 @@ Agent SQL 只能引用未限定的逻辑产品名。物理 `reporting.*`、`lega
 业务数据库还有独立防线：
 
 - `gateway_reader` 仅拥有两个 Reporting View 的 `SELECT`。
-- 角色、连接和事务均为只读。
+- 角色显式为非 owner、非 superuser、无 `BYPASSRLS`，角色、连接和事务均为只读。
 - `search_path=pg_catalog`。
 - Connector 超时和 10,000 行硬上限。
+- Catalog 固定 Reporting View 的列顺序和 PostgreSQL 类型；启动、readiness 和新查询前的 Attestation 检测漂移并关闭式拒绝。
 
 ## 加密、预算与恢复
 
 结果编码为 JSON 后使用 AES-256-GCM 加密；随机 Nonce 和 Ciphertext 存入 `BYTEA`。AAD 绑定 `task_id/query_id`，另存明文 SHA-256 并在读取时验证。
 
-查询执行前预留 1 次查询、剩余允许行数和 DB 时间。结算释放未使用额度，达到任何硬上限后归档为 `budget_exhausted`。运行期结算失败使 readiness 返回失败，后台幂等重试。
+查询执行前预留 1 次查询、剩余允许行数和 DB 时间，同一任务同时最多有一个预留。必填 `request_id` 在任务内唯一；同 ID、同摘要只观察首次持久状态，同 ID、不同摘要关闭式拒绝。结算释放未使用额度，达到任何硬上限后归档为 `budget_exhausted`。运行期结算失败使 readiness 返回失败，后台幂等重试。
 
 启动恢复会：
 
-- 将 RESERVED 查询按完整预留保守计费并标记 `INTERRUPTED`。
+- 将 RESERVED 查询按完整预留保守计费并标记 `INDETERMINATE`，该 `request_id` 不得自动重执行。
 - 将 PROCESSING 回调改为 `RETRYABLE`。
 - 归档已过期任务。
 
@@ -173,7 +175,7 @@ scripts                 Compose/race/E2E 验收
 |---|---|
 | 控制库 | `CONTROL_POSTGRES_PORT`、`CONTROL_POSTGRES_DB`、`CONTROL_POSTGRES_ADMIN_PASSWORD`、`CONTROL_DB_PASSWORD` |
 | 业务库 | `POSTGRES_PORT`、`POSTGRES_DB`、`POSTGRES_USER`、`POSTGRES_PASSWORD`、`GATEWAY_DB_PASSWORD` |
-| Gateway | `GATEWAY_DATA_KEY`、Alice/Carol Token、OA Token/Secret |
+| Gateway/OA | `GATEWAY_DATA_KEY`、Gateway/OA Ed25519 Key ID 与密钥、Alice/Carol Token、OA Token、Callback HMAC Secret |
 
 Compose 内部生成 `CONTROL_POSTGRES_DSN` 和 `POSTGRES_DSN`；直接启动二进制时必须显式设置这两个 DSN。
 
@@ -193,7 +195,7 @@ make verify
 - 真实 PG 的迁移、重启恢复、密文、不可变 Trigger、回调重放、并发预算、审计链并发与故障 Trigger。
 - `go test -race ./...`。
 - 官方 MCP Client、自动/人工审批、拒绝、预算耗尽、Gateway 重启、身份隔离与业务账号最小权限 E2E。
-- 宿主机两个 PG 端口默认分别为 25433 和 25434。
+- 默认只发布控制 PG 的回环端口；集成测试和显式 `compose.debug.yaml` 调试会临时发布业务 PG 回环端口。
 
 不要让本地单元测试共享固定 Schema；这会使并行测试互相污染。数据库故障注入使用临时 PostgreSQL PL/pgSQL Trigger，并在测试清理时删除。
 

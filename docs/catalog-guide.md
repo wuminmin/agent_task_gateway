@@ -1,6 +1,6 @@
 # Catalog 编写指南
 
-`config/catalog.yaml` 是 Gateway 的可信、版本化逻辑数据契约。它不是数据库元数据缓存：Gateway 启动时只校验 YAML，不查询 PostgreSQL Schema。目录声明必须与 Reporting View 和只读角色权限由管理员共同维护。
+`config/catalog.yaml` 是 Gateway 的可信、版本化逻辑数据契约。Gateway 校验 YAML 后，会在启动、readiness 检查和每个新查询前，把其中声明的 Reporting View 列顺序与 PostgreSQL 通用类型同实时 Schema 做 Attestation；任何漂移都会关闭式拒绝。目录仍不是数据库元数据缓存，Reporting View 和只读角色权限必须由管理员共同维护。
 
 ## 顶层结构
 
@@ -99,7 +99,7 @@ products:
 - 必须提供描述、至少一个字段和至少一个强制 Scope；每个 Scope 必须对应发布字段。
 - 支持的敏感级别从低到高为 `public`、`low`、`medium`、`high`、`restricted`。
 - 产品有效敏感级别取产品级与所有字段级标记的最高值。审批路由按有效级别选择，不能通过给产品标低级而降低高敏字段。
-- 字段 `type` 是文档化的逻辑类型。当前启动校验不会连接数据库核对真实列名/类型；发布前必须在数据库迁移和集成测试中核对。
+- 字段 `type` 必须是受支持的 PostgreSQL `information_schema.columns.data_type` 通用类型；Gateway 会逐列核对名称、顺序和类型。Catalog V1 不声称核对 `numeric` 精度/小数位、字符长度、Domain 或数组元素类型，因此拒绝 `numeric(10,2)` 等带修饰符写法；需要该边界时应在 Reporting View 中选用独立通用类型并提升协议版本。
 - Reporting View 应只暴露业务所需字段。手机号、工资、银行卡等即使“不写入 Catalog”，若仍出现在 View 中，也不应向 `gateway_reader` 暴露。
 - 函数和聚合必须是未限定的小写名，且不能是文件、网络、管理、睡眠等禁止函数；运行时还会经过 SQL AST 的危险函数硬拒绝表。
 - 运算符必须来自安全词汇表。允许列表是上限，不会使 AST 原本不支持的 SQL 特性变为可用。

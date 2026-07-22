@@ -27,6 +27,9 @@ func TestParseValidCatalogAndResolvePolicy(t *testing.T) {
 	if parsed.CatalogVersion != "2026.07.21" || len(parsed.Products) != 2 {
 		t.Fatalf("unexpected catalog: %#v", parsed)
 	}
+	if len(parsed.SHA256) != 64 {
+		t.Fatalf("catalog SHA-256 = %q, want 64 lowercase hex characters", parsed.SHA256)
+	}
 	maxRows := int64(50)
 	policy, err := parsed.ResolveTaskPolicy([]string{"expense_summary", "expense_detail"}, &domain.BudgetRequest{MaxRows: &maxRows})
 	if err != nil {
@@ -101,6 +104,11 @@ func TestCatalogRejectsRequiredInvalidInputs(t *testing.T) {
 			name:   "invalid budget",
 			yaml:   strings.Replace(valid, "    query_timeout: 5s", "    query_timeout: 45s", 1),
 			target: ErrInvalidBudgetProfile,
+		},
+		{
+			name:   "unattested type modifier",
+			yaml:   strings.Replace(valid, "type: numeric", "type: numeric(10,2)", 1),
+			target: ErrInvalidCatalog,
 		},
 	}
 	for _, test := range tests {

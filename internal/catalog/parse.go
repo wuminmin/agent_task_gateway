@@ -2,6 +2,8 @@ package catalog
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -60,6 +62,8 @@ func ParseReader(reader io.Reader) (*Catalog, error) {
 	if err := result.Validate(); err != nil {
 		return nil, err
 	}
+	digest := sha256.Sum256(data)
+	result.SHA256 = hex.EncodeToString(digest[:])
 	return &result, nil
 }
 

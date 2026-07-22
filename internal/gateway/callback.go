@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -14,19 +15,21 @@ import (
 
 	"taskbound.local/agent-data-gateway/internal/approval"
 	"taskbound.local/agent-data-gateway/internal/control"
+	"taskbound.local/agent-data-gateway/internal/domain"
 )
 
 type oaCallbackEvent struct {
-	EventID                     string    `json:"event_id"`
-	TaskID                      string    `json:"task_id"`
-	DraftID                     string    `json:"draft_id"`
-	Status                      string    `json:"status"`
-	Actor                       string    `json:"actor"`
-	OccurredAt                  time.Time `json:"occurred_at"`
-	CatalogVersion              string    `json:"catalog_version"`
-	CallbackContext             string    `json:"callback_context,omitempty"`
-	AuthorizationSnapshotSHA256 string    `json:"authorization_snapshot_sha256"`
-	ApprovalReceipt             string    `json:"approval_receipt,omitempty"`
+	EventID         string                      `json:"event_id"`
+	TaskID          string                      `json:"task_id"`
+	DraftID         string                      `json:"draft_id"`
+	Status          string                      `json:"status"`
+	Actor           string                      `json:"actor"`
+	OccurredAt      time.Time                   `json:"occurred_at"`
+	CatalogVersion  string                      `json:"catalog_version"`
+	CallbackContext string                      `json:"callback_context,omitempty"`
+	ManifestDigest  string                      `json:"manifest_digest"`
+	ApprovedGrant   *approval.TaskGrantCoreV1   `json:"approved_grant,omitempty"`
+	ApprovalReceipt *approval.ApprovalReceiptV1 `json:"approval_receipt,omitempty"`
 }
 
 func (s *Service) OACallbackHandler() http.Handler {
@@ -53,7 +56,7 @@ func (s *Service) handleOACallback(w http.ResponseWriter, r *http.Request) {
 	var event oaCallbackEvent
 	decoder := json.NewDecoder(bytes.NewReader(rawBody))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&event); err != nil || event.EventID != eventID || event.TaskID == "" || event.DraftID == "" || event.OccurredAt.IsZero() || !validSnapshotSHA256(event.AuthorizationSnapshotSHA256) {
+	if err := decoder.Decode(&event); err != nil || event.EventID != eventID || event.TaskID == "" || event.DraftID == "" || event.OccurredAt.IsZero() || !validSnapshotSHA256(event.ManifestDigest) {
 		writeCallbackError(w, http.StatusBadRequest, "invalid callback")
 		return
 	}
@@ -101,12 +104,14 @@ func (s *Service) handleOACallback(w http.ResponseWriter, r *http.Request) {
 		writeControlCallbackError(w, err)
 		return
 	}
-	computedSnapshotSHA256, err := approval.AuthorizationSnapshotSHA256(authorizationDraftForPending(task, principal.Subject, pending))
-	if err != nil || event.DraftID != task.ApprovalRef || event.CatalogVersion != task.CatalogVersion || event.CatalogVersion != s.catalog.CatalogVersion || event.CallbackContext != pending.CallbackContext || !sameSnapshotSHA256(computedSnapshotSHA256, persistedPending.AuthorizationSnapshotSHA256) || !sameSnapshotSHA256(event.AuthorizationSnapshotSHA256, persistedPending.AuthorizationSnapshotSHA256) {
+	if !manifestMatchesTask(persistedPending, task, principal, s.catalog.SHA256) ||
+		event.DraftID != task.ApprovalRef || event.CatalogVersion != task.CatalogVersion ||
+		event.CatalogVersion != s.catalog.CatalogVersion || event.CallbackContext != pending.CallbackContext ||
+		!sameSnapshotSHA256(event.ManifestDigest, persistedPending.ManifestDigest) {
 		writeCallbackError(w, http.StatusConflict, "callback does not match task")
 		return
 	}
-	if !validCallbackActor(event, pending) {
+	if !validCallbackActor(event, pending, persistedPending.Manifest.HumanSubject) {
 		writeCallbackError(w, http.StatusForbidden, "callback actor is not allowed")
 		return
 	}
@@ -120,28 +125,42 @@ func (s *Service) handleOACallback(w http.ResponseWriter, r *http.Request) {
 	}
 	switch event.Status {
 	case "submitted":
-		callback.ExpectedState = control.TaskAwaitingSubmission
-		callback.NewState = control.TaskAwaitingApproval
-	case "approved":
-		if event.ApprovalReceipt == "" {
-			writeCallbackError(w, http.StatusBadRequest, "approval receipt is required")
+		if event.ApprovedGrant != nil || event.ApprovalReceipt != nil {
+			writeCallbackError(w, http.StatusBadRequest, "submitted callback cannot contain approval evidence")
 			return
 		}
-		scope, _ := json.Marshal(pending.MandatoryScope)
-		now := s.clock().UTC()
+		callback.ExpectedState = control.TaskAwaitingSubmission
+		callback.NewState = control.TaskAwaitingApproval
+	case "approved", "narrowed":
+		finalGrant, err := s.validateApprovedGrant(event, persistedPending.Manifest)
+		if err != nil {
+			writeCallbackError(w, http.StatusConflict, "approval grant or receipt is invalid")
+			return
+		}
+		scope, err := json.Marshal(finalGrant.Core.MandatoryScope)
+		if err != nil {
+			writeCallbackError(w, http.StatusBadRequest, "approved scope is invalid")
+			return
+		}
+		encodedGrant, err := approval.EncodeTaskGrantV1(finalGrant)
+		if err != nil {
+			writeCallbackError(w, http.StatusBadRequest, "approved grant is invalid")
+			return
+		}
 		callback.ExpectedState = control.TaskAwaitingApproval
 		callback.NewState = control.TaskActive
 		callback.Grant = &control.TaskGrant{
-			TaskID: task.ID, Subject: principal.Subject, Purpose: task.Objective,
-			ApprovedProducts: append([]string(nil), pending.Products...), ApprovedColumns: cloneColumns(pending.Columns),
-			MandatoryScope: scope, SensitivityCeiling: string(pending.Sensitivity),
-			Budget:    control.BudgetLimits{Queries: pending.Budget.MaxQueries, Rows: pending.Budget.MaxRows, DBMS: pending.Budget.MaxDBTime.Milliseconds()},
-			ExpiresAt: now.Add(pending.Budget.TaskTTL), CatalogVersion: task.CatalogVersion,
-			ApprovalReceipt: event.ApprovalReceipt, CreatedAt: now,
+			TaskID: task.ID, Subject: finalGrant.Core.HumanSubject, Purpose: finalGrant.Core.DeclaredObjective,
+			ApprovedProducts: append([]string(nil), finalGrant.Core.ApprovedProducts...), ApprovedColumns: cloneColumns(finalGrant.Core.ApprovedColumns),
+			MandatoryScope: scope, SensitivityCeiling: string(finalGrant.Core.SensitivityCeiling),
+			Budget: control.BudgetLimits{Queries: finalGrant.Core.Budget.MaxQueries,
+				Rows: finalGrant.Core.Budget.MaxResultRows, DBMS: finalGrant.Core.Budget.MaxDBMS},
+			ExpiresAt: finalGrant.Core.ExpiresAt, CatalogVersion: finalGrant.Core.CatalogVersion,
+			ApprovalReceipt: encodedGrant, CreatedAt: finalGrant.ApprovalReceipt.IssuedAt,
 		}
 	case "rejected":
-		if event.ApprovalReceipt == "" {
-			writeCallbackError(w, http.StatusBadRequest, "approval receipt is required")
+		if err := s.validateRejectedReceipt(event, persistedPending.Manifest); err != nil {
+			writeCallbackError(w, http.StatusConflict, "rejection receipt is invalid")
 			return
 		}
 		callback.ExpectedState = control.TaskAwaitingApproval
@@ -163,6 +182,9 @@ func (s *Service) handleOACallback(w http.ResponseWriter, r *http.Request) {
 }
 
 func validSnapshotSHA256(value string) bool {
+	if value != strings.ToLower(value) {
+		return false
+	}
 	decoded, err := hex.DecodeString(value)
 	return err == nil && len(decoded) == sha256.Size
 }
@@ -184,16 +206,110 @@ func writeCallbackResponse(w http.ResponseWriter, response []byte) {
 	_, _ = w.Write(response)
 }
 
-func validCallbackActor(event oaCallbackEvent, pending pendingContext) bool {
+func manifestMatchesTask(persisted persistedPendingContext, task control.Task, principal control.Principal, catalogSHA256 string) bool {
+	manifest := persisted.Manifest
+	pending := persisted.pendingContext
+	if manifest.TaskID != task.ID || manifest.HumanSubject != principal.Subject || manifest.AgentID != principal.ID ||
+		manifest.DeclaredObjective != task.Objective || manifest.CatalogVersion != task.CatalogVersion ||
+		manifest.CatalogSHA256 != catalogSHA256 || manifest.CallbackContext != pending.CallbackContext ||
+		manifest.Sensitivity != pending.Sensitivity {
+		return false
+	}
+	if manifest.Budget != authorizationBudget(pending.Budget) || !sameCanonicalJSON(manifest.Products, pending.Products) ||
+		!sameCanonicalJSON(manifest.ApprovedColumns, pending.Columns) || !sameCanonicalJSON(manifest.MandatoryScope, pending.MandatoryScope) {
+		return false
+	}
+	digest, err := approval.ManifestDigest(manifest)
+	return err == nil && sameSnapshotSHA256(digest, persisted.ManifestDigest)
+}
+
+func sameCanonicalJSON(left, right any) bool {
+	leftJSON, leftErr := approval.CanonicalJSON(left)
+	rightJSON, rightErr := approval.CanonicalJSON(right)
+	return leftErr == nil && rightErr == nil && bytes.Equal(leftJSON, rightJSON)
+}
+
+func (s *Service) validateApprovedGrant(event oaCallbackEvent, manifest approval.AuthorizationManifestV1) (approval.TaskGrantV1, error) {
+	if event.ApprovedGrant == nil || event.ApprovalReceipt == nil {
+		return approval.TaskGrantV1{}, errors.New("approved grant and receipt are required")
+	}
+	receipt := *event.ApprovalReceipt
+	candidate := *event.ApprovedGrant
+	expectedDecision := approval.ApprovalDecisionApprove
+	if event.Status == "narrowed" {
+		expectedDecision = approval.ApprovalDecisionNarrow
+	}
+	if receipt.Decision != expectedDecision || receipt.TaskID != event.TaskID ||
+		!sameSnapshotSHA256(receipt.ManifestDigest, event.ManifestDigest) ||
+		receipt.ApproverID != event.Actor || !receipt.IssuedAt.Equal(event.OccurredAt) {
+		return approval.TaskGrantV1{}, errors.New("receipt does not match callback")
+	}
+	if candidate.TaskID != event.TaskID || !sameSnapshotSHA256(candidate.ManifestDigest, event.ManifestDigest) {
+		return approval.TaskGrantV1{}, errors.New("grant does not match callback")
+	}
+	if !candidate.ExpiresAt.Equal(receipt.IssuedAt.UTC().Add(time.Duration(candidate.Budget.TaskTTLMS) * time.Millisecond)) {
+		return approval.TaskGrantV1{}, errors.New("grant expiry is not derived from its signed TTL")
+	}
+	parent, err := domain.CoreFromManifest(manifest, event.ManifestDigest, receipt.IssuedAt)
+	if err != nil {
+		return approval.TaskGrantV1{}, err
+	}
+	if err := parent.CheckNarrowing(candidate); err != nil {
+		return approval.TaskGrantV1{}, err
+	}
+	parentDigest, err := approval.GrantCoreDigest(parent)
+	if err != nil {
+		return approval.TaskGrantV1{}, err
+	}
+	candidateDigest, err := approval.GrantCoreDigest(candidate)
+	if err != nil {
+		return approval.TaskGrantV1{}, err
+	}
+	if event.Status == "approved" && candidateDigest != parentDigest {
+		return approval.TaskGrantV1{}, errors.New("approve must preserve the complete manifest envelope")
+	}
+	if event.Status == "narrowed" && candidateDigest == parentDigest {
+		return approval.TaskGrantV1{}, errors.New("narrow must reduce the authorization envelope")
+	}
+	if !sameSnapshotSHA256(receipt.ApprovedGrantDigest, candidateDigest) {
+		return approval.TaskGrantV1{}, errors.New("receipt does not bind the approved grant")
+	}
+	finalGrant := approval.TaskGrantV1{
+		Version: domain.TaskGrantV1Version, Core: candidate, ApprovalReceipt: receipt,
+	}
+	if err := approval.VerifyTaskGrantV1(s.receiptVerifier, finalGrant); err != nil {
+		return approval.TaskGrantV1{}, fmt.Errorf("verify final grant: %w", err)
+	}
+	return finalGrant, nil
+}
+
+func (s *Service) validateRejectedReceipt(event oaCallbackEvent, manifest approval.AuthorizationManifestV1) error {
+	if event.ApprovedGrant != nil || event.ApprovalReceipt == nil {
+		return errors.New("rejection must contain only a receipt")
+	}
+	receipt := *event.ApprovalReceipt
+	if receipt.Decision != approval.ApprovalDecisionReject || receipt.TaskID != event.TaskID ||
+		!sameSnapshotSHA256(receipt.ManifestDigest, event.ManifestDigest) || receipt.ApproverID != event.Actor ||
+		!receipt.IssuedAt.Equal(event.OccurredAt) || receipt.ApprovedGrantDigest != "" {
+		return errors.New("rejection receipt does not match callback")
+	}
+	manifestDigest, err := approval.ManifestDigest(manifest)
+	if err != nil || !sameSnapshotSHA256(manifestDigest, receipt.ManifestDigest) {
+		return errors.New("rejection receipt does not match manifest")
+	}
+	return s.receiptVerifier.VerifyReceipt(receipt)
+}
+
+func validCallbackActor(event oaCallbackEvent, pending pendingContext, humanSubject string) bool {
 	switch event.Status {
 	case "submitted":
-		return strings.EqualFold(event.Actor, "alice")
+		return strings.EqualFold(event.Actor, humanSubject)
 	case "approved":
 		if pending.ApprovalMode == "auto" {
-			return event.Actor == "oa-auto"
+			return strings.EqualFold(event.Actor, humanSubject)
 		}
 		return pending.ApprovalMode == "manual" && strings.EqualFold(event.Actor, pending.Approver)
-	case "rejected":
+	case "narrowed", "rejected":
 		return pending.ApprovalMode == "manual" && strings.EqualFold(event.Actor, pending.Approver)
 	default:
 		return false

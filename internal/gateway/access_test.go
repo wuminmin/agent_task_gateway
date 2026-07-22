@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"taskbound.local/agent-data-gateway/internal/apierr"
 	"taskbound.local/agent-data-gateway/internal/control"
 	"taskbound.local/agent-data-gateway/internal/mcp"
+	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 )
 
 func TestAliceCannotObserveAnotherQueryPrincipalTask(t *testing.T) {
@@ -59,7 +61,7 @@ func TestStructuredPlanAndDirectSQLKeepRawResultsOwnerOnly(t *testing.T) {
 	harness.createActiveSummaryTask(t, "task-direct-sql")
 
 	planned := mustCallGatewayTool(t, harness.service, harness.alice, "execute_plan", map[string]any{
-		"task_id": "task-direct-sql", "plan": map[string]any{
+		"task_id": "task-direct-sql", "request_id": "plan-access-1", "plan": map[string]any{
 			"product": "expense_summary", "columns": []string{"month", "total_amount"},
 			"order_by": []map[string]any{{"column": "month", "direction": "asc"}},
 		},
@@ -69,8 +71,9 @@ func TestStructuredPlanAndDirectSQLKeepRawResultsOwnerOnly(t *testing.T) {
 	}
 
 	direct := mustCallGatewayTool(t, harness.service, harness.alice, "query_sql", map[string]any{
-		"task_id": "task-direct-sql",
-		"sql":     "SELECT month, total_amount FROM expense_summary",
+		"task_id":    "task-direct-sql",
+		"request_id": "direct-access-1",
+		"sql":        "SELECT month, total_amount FROM expense_summary",
 	})
 	if len(harness.connector.requests) != 2 {
 		t.Fatalf("query connector calls = %d, want 2", len(harness.connector.requests))
@@ -118,5 +121,27 @@ func TestStructuredPlanAndDirectSQLKeepRawResultsOwnerOnly(t *testing.T) {
 		if _, exists := receipt[rawResultField]; exists {
 			t.Fatalf("Carol receipt exposed raw result field %q: %#v", rawResultField, receipt)
 		}
+	}
+	signedJSON, err := json.Marshal(receipt["receipt"])
+	if err != nil {
+		t.Fatalf("marshal signed receipt: %v", err)
+	}
+	var signed queryreceipt.QueryReceiptV1
+	if err := json.Unmarshal(signedJSON, &signed); err != nil {
+		t.Fatalf("decode signed receipt: %v", err)
+	}
+	verifier, err := queryreceipt.NewVerifier(map[string]ed25519.PublicKey{
+		harness.service.queryReceiptSigner.KeyID(): harness.service.queryReceiptSigner.PublicKey(),
+	})
+	if err != nil {
+		t.Fatalf("create query receipt verifier: %v", err)
+	}
+	if err := verifier.Verify(signed); err != nil {
+		t.Fatalf("query receipt did not verify: %v", err)
+	}
+	tampered := signed
+	tampered.RowCount++
+	if verifier.Verify(tampered) == nil {
+		t.Fatal("tampered query receipt signature verified")
 	}
 }

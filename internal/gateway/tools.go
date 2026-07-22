@@ -46,12 +46,12 @@ var queryTools = []mcp.Tool{
 	}, "task_id"), Annotations: map[string]any{"readOnlyHint": true}},
 	{Name: "get_task_context", Description: "读取 ACTIVE 任务的批准范围、预算和期限。", InputSchema: taskIDSchema(), Annotations: map[string]any{"readOnlyHint": true}},
 	{Name: "execute_plan", Description: "执行声明式 QueryPlan，经确定性编译和 SQL 策略验证后查询。", InputSchema: objectSchema(map[string]any{
-		"task_id": map[string]any{"type": "string"}, "plan": queryPlanSchema(),
+		"task_id": map[string]any{"type": "string"}, "request_id": requestIDSchema(), "plan": queryPlanSchema(),
 		"output_format": map[string]any{"type": "string", "enum": []string{"json", "table"}},
-	}, "task_id", "plan")},
+	}, "task_id", "request_id", "plan")},
 	{Name: "query_sql", Description: "在任务授权内执行单条 PostgreSQL SELECT；只能引用逻辑数据产品。", InputSchema: objectSchema(map[string]any{
-		"task_id": map[string]any{"type": "string"}, "sql": map[string]any{"type": "string", "minLength": 1, "maxLength": 100000},
-	}, "task_id", "sql")},
+		"task_id": map[string]any{"type": "string"}, "request_id": requestIDSchema(), "sql": map[string]any{"type": "string", "minLength": 1, "maxLength": 100000},
+	}, "task_id", "request_id", "sql")},
 	{Name: "get_query_result", Description: "读取自己的加密保存查询结果。", InputSchema: objectSchema(map[string]any{
 		"task_id": map[string]any{"type": "string"}, "query_id": map[string]any{"type": "string"},
 	}, "task_id", "query_id"), Annotations: map[string]any{"readOnlyHint": true}},
@@ -62,6 +62,13 @@ var queryTools = []mcp.Tool{
 	{Name: "complete_task", Description: "完成并归档自己的 ACTIVE 任务。", InputSchema: objectSchema(map[string]any{
 		"task_id": map[string]any{"type": "string"}, "summary": map[string]any{"type": "string", "maxLength": 8000},
 	}, "task_id")},
+	{Name: "revoke_task", Description: "撤销自己的任务并阻止新查询；已在途查询仍由原授权期限和超时约束。", InputSchema: objectSchema(map[string]any{
+		"task_id": map[string]any{"type": "string"}, "reason": map[string]any{"type": "string", "maxLength": 1000},
+	}, "task_id")},
+}
+
+func requestIDSchema() map[string]any {
+	return map[string]any{"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9._:-]+$"}
 }
 
 func queryPlanSchema() map[string]any {
@@ -137,6 +144,8 @@ func (s *Service) CallTool(ctx context.Context, principal mcp.Principal, name st
 			result, err = s.listReceipts(ctx, principal, raw)
 		case "complete_task":
 			result, err = s.completeTask(ctx, principal, raw)
+		case "revoke_task":
+			result, err = s.revokeTask(ctx, principal, raw)
 		default:
 			err = forbidden()
 		}

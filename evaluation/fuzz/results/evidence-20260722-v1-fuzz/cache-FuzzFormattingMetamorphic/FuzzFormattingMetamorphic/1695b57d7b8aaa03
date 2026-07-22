@@ -1,0 +1,2 @@
+go test fuzz v1
+string("SELECT!Y0 FROM B27*ORDER BY+1")

@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "name": "taskgate-sf10-four-baseline",
+  "mode": "full",
+  "seed": 20260722,
+  "warmup_runs_per_worker": 5,
+  "measured_runs_per_worker": 30,
+  "concurrency": [1, 8, 32],
+  "baseline_order": [
+    "direct_postgresql",
+    "native_view_rls",
+    "ast_only_gateway",
+    "full_taskgate"
+  ],
+  "max_result_rows": 10000,
+  "statement_timeout": "30s",
+  "require_resource_metrics": true,
+  "experiments": [
+    {
+      "id": "tpch_sf10",
+      "family": "tpch",
+      "scale_factor": 10,
+      "workload": "../workloads/tpch/manifest.json",
+      "dataset_digest_env": "EVAL_TPCH_SF10_DATASET_SHA256",
+      "dataset_manifest_env": "EVAL_TPCH_SF10_DATASET_MANIFEST",
+      "direct_dsn_env": "EVAL_TPCH_SF10_DIRECT_DSN",
+      "native_dsn_env": "EVAL_TPCH_SF10_NATIVE_DSN",
+      "ast_url_env": "EVAL_TPCH_SF10_AST_URL",
+      "ast_token_env": "EVAL_TPCH_SF10_AST_TOKEN",
+      "taskgate_url_env": "EVAL_TPCH_SF10_TASKGATE_URL",
+      "taskgate_token_env": "EVAL_TPCH_SF10_TASKGATE_TOKEN",
+      "taskgate_tasks_file_env": "EVAL_TPCH_SF10_TASKS_FILE",
+      "metrics_probe_env": {
+        "direct_postgresql": "EVAL_TPCH_SF10_DIRECT_METRICS_COMMAND",
+        "native_view_rls": "EVAL_TPCH_SF10_NATIVE_METRICS_COMMAND",
+        "ast_only_gateway": "EVAL_TPCH_SF10_AST_METRICS_COMMAND",
+        "full_taskgate": "EVAL_TPCH_SF10_TASKGATE_METRICS_COMMAND"
+      }
+    },
+    {
+      "id": "tpcds_sf10",
+      "family": "tpcds",
+      "scale_factor": 10,
+      "workload": "../workloads/tpcds/manifest.json",
+      "dataset_digest_env": "EVAL_TPCDS_SF10_DATASET_SHA256",
+      "dataset_manifest_env": "EVAL_TPCDS_SF10_DATASET_MANIFEST",
+      "direct_dsn_env": "EVAL_TPCDS_SF10_DIRECT_DSN",
+      "native_dsn_env": "EVAL_TPCDS_SF10_NATIVE_DSN",
+      "ast_url_env": "EVAL_TPCDS_SF10_AST_URL",
+      "ast_token_env": "EVAL_TPCDS_SF10_AST_TOKEN",
+      "taskgate_url_env": "EVAL_TPCDS_SF10_TASKGATE_URL",
+      "taskgate_token_env": "EVAL_TPCDS_SF10_TASKGATE_TOKEN",
+      "taskgate_tasks_file_env": "EVAL_TPCDS_SF10_TASKS_FILE",
+      "metrics_probe_env": {
+        "direct_postgresql": "EVAL_TPCDS_SF10_DIRECT_METRICS_COMMAND",
+        "native_view_rls": "EVAL_TPCDS_SF10_NATIVE_METRICS_COMMAND",
+        "ast_only_gateway": "EVAL_TPCDS_SF10_AST_METRICS_COMMAND",
+        "full_taskgate": "EVAL_TPCDS_SF10_TASKGATE_METRICS_COMMAND"
+      }
+    }
+  ]
+}

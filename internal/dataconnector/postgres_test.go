@@ -51,6 +51,25 @@ func TestCeilingsCanOnlyNarrow(t *testing.T) {
 	}
 }
 
+func TestSchemaAttestationComparisonIsExact(t *testing.T) {
+	expected := []SchemaColumn{{Name: "month", PostgreSQLType: "text"}, {Name: "total_amount", PostgreSQLType: "numeric"}}
+	if !sameSchemaColumns(expected, []SchemaColumn{{Name: "month", PostgreSQLType: "TEXT"}, {Name: "total_amount", PostgreSQLType: "numeric"}}) {
+		t.Fatal("equivalent PostgreSQL type spelling was rejected")
+	}
+	for name, actual := range map[string][]SchemaColumn{
+		"missing":   {{Name: "month", PostgreSQLType: "text"}},
+		"reordered": {{Name: "total_amount", PostgreSQLType: "numeric"}, {Name: "month", PostgreSQLType: "text"}},
+		"renamed":   {{Name: "month", PostgreSQLType: "text"}, {Name: "amount", PostgreSQLType: "numeric"}},
+		"retyped":   {{Name: "month", PostgreSQLType: "text"}, {Name: "total_amount", PostgreSQLType: "double precision"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if sameSchemaColumns(expected, actual) {
+				t.Fatalf("schema drift %q was accepted", name)
+			}
+		})
+	}
+}
+
 func TestClassifyQueryError(t *testing.T) {
 	tests := []struct {
 		name string

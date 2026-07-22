@@ -14,22 +14,6 @@ import (
 	"taskbound.local/agent-data-gateway/internal/apierr"
 )
 
-type DraftRequest struct {
-	TaskID                      string              `json:"task_id"`
-	Requester                   string              `json:"requester"`
-	Objective                   string              `json:"objective"`
-	DataProducts                []string            `json:"data_products"`
-	ApprovedColumns             map[string][]string `json:"approved_columns"`
-	MandatoryScope              map[string]any      `json:"mandatory_scope"`
-	Sensitivity                 string              `json:"sensitivity"`
-	Budget                      DraftBudget         `json:"budget"`
-	ApprovalMode                string              `json:"approval_mode"`
-	Approver                    string              `json:"approver,omitempty"`
-	CatalogVersion              string              `json:"catalog_version"`
-	CallbackContext             string              `json:"callback_context"`
-	AuthorizationSnapshotSHA256 string              `json:"authorization_snapshot_sha256"`
-}
-
 type DraftResponse struct {
 	DraftID string `json:"draft_id"`
 	State   string `json:"state"`

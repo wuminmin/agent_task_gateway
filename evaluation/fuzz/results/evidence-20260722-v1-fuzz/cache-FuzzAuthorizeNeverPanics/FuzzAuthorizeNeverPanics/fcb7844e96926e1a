@@ -1,0 +1,2 @@
+go test fuzz v1
+string("SELECT A000000\xcf\xcf\xcf\xcf\xcf000 A000000000")

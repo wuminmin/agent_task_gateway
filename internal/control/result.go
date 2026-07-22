@@ -22,50 +22,68 @@ func plaintextHash(plaintext []byte) string {
 // FinalizeQuery atomically settles budget usage and stores the encrypted
 // result. It is the preferred success path for query execution.
 func (s *Store) FinalizeQuery(ctx context.Context, settlement BudgetSettlement, plaintext []byte) (QueryRecord, error) {
+	record, _, err := s.FinalizeQueryMeasured(ctx, settlement, plaintext)
+	return record, err
+}
+
+// FinalizeQueryMetrics separates local authenticated encryption from the
+// Control PostgreSQL settlement-and-persistence transaction for evaluation.
+type FinalizeQueryMetrics struct {
+	Encryption      time.Duration
+	SettlementStore time.Duration
+}
+
+// FinalizeQueryMeasured is the measured form of FinalizeQuery. The returned
+// timings are observational only and do not alter the atomic transaction.
+func (s *Store) FinalizeQueryMeasured(ctx context.Context, settlement BudgetSettlement, plaintext []byte) (QueryRecord, FinalizeQueryMetrics, error) {
 	const op = "finalize query"
+	var metrics FinalizeQueryMetrics
 	if err := s.checkOpen(op); err != nil {
-		return QueryRecord{}, err
+		return QueryRecord{}, metrics, err
 	}
 	if s.cipher == nil {
-		return QueryRecord{}, opErr(op, ErrCipherUnavailable, nil)
+		return QueryRecord{}, metrics, opErr(op, ErrCipherUnavailable, nil)
 	}
 	if settlement.QueryID == "" || settlement.Rows < 0 || settlement.DBMS < 0 {
-		return QueryRecord{}, opErr(op, ErrInvalid, fmt.Errorf("invalid settlement"))
+		return QueryRecord{}, metrics, opErr(op, ErrInvalid, fmt.Errorf("invalid settlement"))
 	}
 	current, err := s.GetQuery(ctx, settlement.QueryID)
 	if err != nil {
-		return QueryRecord{}, err
+		return QueryRecord{}, metrics, err
 	}
 	if current.Status == QueryReleased || current.Status == QueryInterrupted {
-		return QueryRecord{}, opErr(op, ErrReservationNotFound, fmt.Errorf("query is %s", current.Status))
+		return QueryRecord{}, metrics, opErr(op, ErrReservationNotFound, fmt.Errorf("query is %s", current.Status))
 	}
+	encryptionStarted := time.Now()
 	hash := plaintextHash(plaintext)
 	nonce, ciphertext, err := s.cipher.Encrypt(plaintext, resultAAD(current.TaskID, current.ID))
+	metrics.Encryption = time.Since(encryptionStarted)
 	if err != nil {
-		return QueryRecord{}, opErr(op, ErrCipherUnavailable, err)
+		return QueryRecord{}, metrics, opErr(op, ErrCipherUnavailable, err)
 	}
+	settlementStarted := time.Now()
 	now := s.now()
 	tx, err := beginTx(ctx, s.db)
 	if err != nil {
-		return QueryRecord{}, opErr(op, ErrConflict, err)
+		return QueryRecord{}, metrics, opErr(op, ErrConflict, err)
 	}
 	defer rollback(tx)
 	record, err := settleBudgetTx(ctx, tx, now, settlement, QueryCompleted, hash)
 	if err != nil {
-		return QueryRecord{}, opErr(op, settlementErrorKind(err), err)
+		return QueryRecord{}, metrics, opErr(op, settlementErrorKind(err), err)
 	}
 	created, err := insertEncryptedResultTx(ctx, tx, EncryptedResult{
 		QueryID: current.ID, TaskID: current.TaskID, Nonce: nonce, Ciphertext: ciphertext, SHA256: hash, CreatedAt: now,
 	})
 	if err != nil {
-		return QueryRecord{}, err
+		return QueryRecord{}, metrics, err
 	}
 	if record.ResultSHA256 != "" && record.ResultSHA256 != hash {
-		return QueryRecord{}, opErr(op, ErrConflict, fmt.Errorf("query already finalized with a different result"))
+		return QueryRecord{}, metrics, opErr(op, ErrConflict, fmt.Errorf("query already finalized with a different result"))
 	}
 	if record.ResultSHA256 == "" {
 		if _, err := tx.ExecContext(ctx, `UPDATE query_records SET result_sha256=$1 WHERE id=$2`, hash, record.ID); err != nil {
-			return QueryRecord{}, opErr(op, ErrConflict, err)
+			return QueryRecord{}, metrics, opErr(op, ErrConflict, err)
 		}
 		record.ResultSHA256 = hash
 	}
@@ -75,13 +93,14 @@ func (s *Store) FinalizeQuery(ctx context.Context, settlement BudgetSettlement, 
 			Payload: mustJSON(map[string]any{"result_sha256": hash, "cipher": "AES-256-GCM"}), OccurredAt: now,
 		})
 		if err != nil {
-			return QueryRecord{}, opErr(op, ErrConflict, err)
+			return QueryRecord{}, metrics, opErr(op, ErrConflict, err)
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		return QueryRecord{}, opErr(op, ErrConflict, err)
+		return QueryRecord{}, metrics, opErr(op, ErrConflict, err)
 	}
-	return record, nil
+	metrics.SettlementStore = time.Since(settlementStarted)
+	return record, metrics, nil
 }
 
 // SaveEncryptedResult stores a result for an already completed query. Prefer

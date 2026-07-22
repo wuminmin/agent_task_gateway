@@ -4,20 +4,39 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"taskbound.local/agent-data-gateway/internal/approval"
+	"taskbound.local/agent-data-gateway/internal/domain"
 )
 
-func TestCreateDraftAuthenticationAndCallbackSignature(t *testing.T) {
-	callbacks := make(chan *http.Request, 1)
-	callbackBodies := make(chan []byte, 1)
-	callback := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body := make([]byte, r.ContentLength)
-		_, _ = r.Body.Read(body)
-		callbacks <- r.Clone(r.Context())
-		callbackBodies <- body
+func TestOAManifestDigestMatchesSharedFixedVector(t *testing.T) {
+	encoded, err := os.ReadFile("../../testdata/authorization-manifest-v1-vector.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var vector struct {
+		Manifest approval.AuthorizationManifestV1 `json:"manifest"`
+		Digest   string                           `json:"digest"`
+	}
+	if err := json.Unmarshal(encoded, &vector); err != nil {
+		t.Fatal(err)
+	}
+	digest, err := approval.ManifestDigest(vector.Manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if digest != vector.Digest {
+		t.Fatalf("OA manifest digest = %s, shared vector = %s", digest, vector.Digest)
+	}
+}
+
+func TestCreateDraftAuthenticatesAndDisplaysCompleteManifest(t *testing.T) {
+	callback := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer callback.Close()
@@ -32,27 +51,12 @@ func TestCreateDraftAuthenticationAndCallbackSignature(t *testing.T) {
 	httpServer := httptest.NewServer(server.Handler())
 	defer httpServer.Close()
 
-	draftRequest := DraftRequest{
-		TaskID: "task-1", Requester: "alice", Objective: "summary",
-		DataProducts:    []string{"expense_summary"},
-		ApprovedColumns: map[string][]string{"expense_summary": {"month", "total_amount"}},
-		MandatoryScope:  map[string]any{"department": []string{"销售部"}}, Sensitivity: "low",
-		Budget: approval.DraftBudget{
-			MaxQueries: 10, MaxRows: 500, MaxDBMS: 30_000, QueryTimeoutMS: 5_000, TaskTTLMS: 1_800_000,
-		},
-		ApprovalMode: "auto", CatalogVersion: "v1", CallbackContext: "callback-1",
-	}
-	snapshotSHA256, err := approval.AuthorizationSnapshotSHA256(draftRequest)
-	if err != nil {
-		t.Fatalf("hash authorization snapshot: %v", err)
-	}
-	draftRequest.AuthorizationSnapshotSHA256 = snapshotSHA256
+	draftRequest := testDraftRequest(t)
 	bodyBytes, err := json.Marshal(draftRequest)
 	if err != nil {
-		t.Fatalf("marshal draft request: %v", err)
+		t.Fatal(err)
 	}
-	body := string(bodyBytes)
-	request, _ := http.NewRequest(http.MethodPost, httpServer.URL+"/api/drafts", strings.NewReader(body))
+	request, _ := http.NewRequest(http.MethodPost, httpServer.URL+"/api/drafts", strings.NewReader(string(bodyBytes)))
 	request.Header.Set("Authorization", "Bearer wrong")
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
@@ -60,16 +64,13 @@ func TestCreateDraftAuthenticationAndCallbackSignature(t *testing.T) {
 	}
 	response.Body.Close()
 	if response.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("status = %d", response.StatusCode)
+		t.Fatalf("unauthenticated status = %d", response.StatusCode)
 	}
 
 	tampered := draftRequest
-	tampered.ApprovedColumns = cloneColumns(draftRequest.ApprovedColumns)
-	tampered.ApprovedColumns["expense_summary"] = []string{"month", "department", "total_amount"}
-	tamperedBody, err := json.Marshal(tampered)
-	if err != nil {
-		t.Fatalf("marshal tampered draft: %v", err)
-	}
+	tampered.Manifest = cloneManifest(draftRequest.Manifest)
+	tampered.Manifest.ApprovedColumns["expense_summary"] = []string{"month", "department", "total_amount"}
+	tamperedBody, _ := json.Marshal(tampered)
 	request, _ = http.NewRequest(http.MethodPost, httpServer.URL+"/api/drafts", strings.NewReader(string(tamperedBody)))
 	request.Header.Set("Authorization", "Bearer service")
 	response, err = http.DefaultClient.Do(request)
@@ -78,10 +79,10 @@ func TestCreateDraftAuthenticationAndCallbackSignature(t *testing.T) {
 	}
 	response.Body.Close()
 	if response.StatusCode != http.StatusBadRequest {
-		t.Fatalf("tampered snapshot status = %d, want %d", response.StatusCode, http.StatusBadRequest)
+		t.Fatalf("tampered manifest status = %d, want %d", response.StatusCode, http.StatusBadRequest)
 	}
 
-	request, _ = http.NewRequest(http.MethodPost, httpServer.URL+"/api/drafts", strings.NewReader(body))
+	request, _ = http.NewRequest(http.MethodPost, httpServer.URL+"/api/drafts", strings.NewReader(string(bodyBytes)))
 	request.Header.Set("Authorization", "Bearer service")
 	response, err = http.DefaultClient.Do(request)
 	if err != nil {
@@ -89,7 +90,7 @@ func TestCreateDraftAuthenticationAndCallbackSignature(t *testing.T) {
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusCreated {
-		t.Fatalf("status = %d", response.StatusCode)
+		t.Fatalf("create draft status = %d", response.StatusCode)
 	}
 	var created map[string]any
 	if err := json.NewDecoder(response.Body).Decode(&created); err != nil || created["draft_id"] == "" {
@@ -99,8 +100,8 @@ func TestCreateDraftAuthenticationAndCallbackSignature(t *testing.T) {
 	server.mu.RLock()
 	stored := cloneDraft(server.drafts[draftID])
 	server.mu.RUnlock()
-	if stored.AuthorizationSnapshotSHA256 != snapshotSHA256 || stored.Budget.MaxRows != 500 || len(stored.ApprovedColumns["expense_summary"]) != 2 {
-		t.Fatalf("stored OA authorization snapshot is incomplete: %+v", stored)
+	if stored.ManifestDigest != draftRequest.ManifestDigest || stored.Manifest.Budget.MaxResultRows != 500 || len(stored.Manifest.ApprovedColumns["expense_summary"]) != 2 {
+		t.Fatalf("stored OA authorization manifest is incomplete: %+v", stored)
 	}
 
 	page := httptest.NewRecorder()
@@ -108,11 +109,73 @@ func TestCreateDraftAuthenticationAndCallbackSignature(t *testing.T) {
 		"Session": sessionData{Username: "alice", Role: "requester", CSRF: "csrf"},
 		"Draft":   stored,
 	})
-	for _, visible := range []string{"total_amount", "department", "500", "30000", snapshotSHA256} {
+	for _, visible := range []string{
+		"summarize travel expenses", "expense_summary", "total_amount", "department", "high",
+		"agent:expense-research", "alice", "10", "500", "30000", "5000", "1800000",
+		draftRequest.ManifestDigest,
+	} {
 		if !strings.Contains(page.Body.String(), visible) {
 			t.Fatalf("OA detail page does not display %q: %s", visible, page.Body.String())
 		}
 	}
-	_ = callbacks
-	_ = callbackBodies
+}
+
+func TestNarrowedGrantFromFormContractsScopeColumnsAndBudgets(t *testing.T) {
+	request := testDraftRequest(t)
+	draft := &Draft{Manifest: request.Manifest, ManifestDigest: request.ManifestDigest, ApprovalMode: "manual", Approver: "bob"}
+	issuedAt := time.Date(2026, 7, 22, 10, 0, 0, 0, time.UTC)
+	form := url.Values{
+		"approved_products":    {`["expense_summary"]`},
+		"approved_columns":     {`{"expense_summary":["total_amount"]}`},
+		"mandatory_scope":      {`{"department":["销售部"]}`},
+		"max_queries":          {"2"},
+		"max_result_rows":      {"100"},
+		"max_db_ms":            {"10000"},
+		"per_query_timeout_ms": {"2000"},
+		"task_ttl_ms":          {"600000"},
+	}
+	httpRequest := httptest.NewRequest(http.MethodPost, "/decision", strings.NewReader(form.Encode()))
+	httpRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if err := httpRequest.ParseForm(); err != nil {
+		t.Fatal(err)
+	}
+	grant, err := narrowedGrantFromForm(draft, httpRequest, issuedAt)
+	if err != nil {
+		t.Fatalf("safe narrowing rejected: %v", err)
+	}
+	if len(grant.ApprovedProducts) != 1 || grant.Budget.MaxQueries != 2 || grant.Budget.PerQueryTimeoutMS != 2000 ||
+		!grant.ExpiresAt.Equal(issuedAt.Add(10*time.Minute)) {
+		t.Fatalf("unexpected narrowed grant: %+v", grant)
+	}
+
+	form.Set("max_queries", "11")
+	httpRequest = httptest.NewRequest(http.MethodPost, "/decision", strings.NewReader(form.Encode()))
+	httpRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	_ = httpRequest.ParseForm()
+	if _, err := narrowedGrantFromForm(draft, httpRequest, issuedAt); err == nil {
+		t.Fatal("budget expansion was accepted")
+	}
+}
+
+func testDraftRequest(t *testing.T) DraftRequest {
+	t.Helper()
+	manifest := approval.AuthorizationManifestV1{
+		Version: domain.AuthorizationManifestV1Version, TaskID: "task-1",
+		HumanSubject: "alice", AgentID: "agent:expense-research",
+		DeclaredObjective: "summarize travel expenses", Products: []string{"expense_summary"},
+		ApprovedColumns: map[string][]string{"expense_summary": {"month", "total_amount"}},
+		MandatoryScope:  map[string]any{"department": []string{"销售部", "市场部"}},
+		Sensitivity:     domain.SensitivityHigh,
+		Budget: approval.AuthorizationBudgetV1{
+			MaxQueries: 10, MaxResultRows: 500, MaxDBMS: 30_000,
+			PerQueryTimeoutMS: 5_000, TaskTTLMS: 1_800_000,
+		},
+		CatalogVersion: "v1", CatalogSHA256: strings.Repeat("a", 64),
+		CallbackContext: "callback-1", Nonce: "000102030405060708090a0b0c0d0e0f",
+	}
+	digest, err := approval.ManifestDigest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return DraftRequest{Manifest: manifest, ManifestDigest: digest, ApprovalMode: "manual", Approver: "bob"}
 }

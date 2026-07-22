@@ -6,17 +6,19 @@
 
 ```text
 Agent SQL / 编译后的 QueryPlan SQL
-  → 所有权、ACTIVE、TTL、Catalog 版本、预算检查
+  → 所有权、任务状态、签名 Grant、TTL、Catalog 摘要与 Schema Attestation
   → pg_query_go/v6 PostgreSQL AST 解析
   → 语句/对象/字段/函数/运算符/特性白名单
   → 为每个逻辑产品生成 TaskGrant 约束 CTE
   → 外层 LIMIT = 剩余累计行预算
-  → 控制 PostgreSQL 行锁事务预留预算
+  → Control PostgreSQL 以 (task_id, request_id) 幂等检查并预留预算
   → 业务 PostgreSQL 显式只读事务 + statement_timeout
-  → 结算预算、AES-GCM 保存结果、写查询凭证和审计事件
+  → 结算预算、AES-GCM 保存结果、写 Ed25519 查询回执和审计事件
 ```
 
 安全判断不使用正则或注释剥离来猜测 SQL。解析失败或出现未识别 AST 节点时关闭式拒绝。
+
+`query_sql` 和 `execute_plan` 都要求客户端提供任务内唯一的 `request_id`。相同 ID/相同请求摘要只观察首次持久化结果或状态；相同 ID/不同摘要返回冲突，绝不再次执行或消费预算。
 
 ## 允许的 SQL
 
@@ -84,7 +86,7 @@ Agent 自己写的内层 `LIMIT` 只能进一步缩小结果。外层限制按�
 
 即使策略层失误，数据面仍施加：
 
-- `gateway_reader` 只对两个 `reporting.*` View 有 `SELECT`，对 `legacy.*` 无权限。
+- 非 owner、`NOSUPERUSER`、`NOBYPASSRLS` 的 `gateway_reader` 只对两个 `reporting.*` View 有 `SELECT`，对 `legacy.*` 无权限。
 - 角色级和连接级 `default_transaction_read_only=on`。
 - 每次执行显式 `READ ONLY` 事务。
 - 角色、连接及事务本地 `statement_timeout`，最终取任务剩余 DB 预算、Profile 单次上限、Grant 剩余有效期和 Connector 5 秒上限中的更小值；在途查询不能越过授权截止点继续返回结果。
@@ -102,9 +104,10 @@ Gateway 不包含模型客户端、Prompt 或自然语言翻译器。需要从�
 - SQL 是保守子集。合法但 AST 节点未列入白名单的 PostgreSQL 特性会被拒绝；这属于预期的关闭式行为。
 - `execute_plan` 的 QueryPlan 只支持一个产品；需要 Join 多个已批准产品时使用 `query_sql`，仍受同一 Grant 和策略约束。
 - 直接 SQL 不支持客户端占位符。调用方必须提交完整 SQL；Gateway 不提供任意 Session 变量入口。
-- Catalog 不查询 PostgreSQL 元数据，列名和类型漂移只能通过数据库迁移纪律与集成测试发现。
+- Connector 在启动、readiness 和每次新查询前对 Reporting View 的列顺序与 PostgreSQL 类型执行 Catalog-pinned Schema Attestation；任何漂移都会关闭式拒绝。
 - 结果在 Gateway 内存中物化后整体 JSON 编码并加密；没有流式结果，Connector 全局硬上限为 10,000 行，Demo Profile 更低。
 - `output_format=table` 目前只作为结构化响应元数据返回，Gateway 不负责表格或图表渲染。
 - SQL 指纹是规范化 Agent SQL 的 SHA-256；它证明请求文本，不是数据库执行计划 Hash。
-- 预算 DB 时间是 Gateway 观测并按预留上限记账的耗时，不等同于 PostgreSQL `EXPLAIN ANALYZE` 的精确执行指标。
+- 结果确定时，预算 DB 时间按 Gateway 观测的实际有界用量结算；执行结果无法确定时标记 `INDETERMINATE` 并按完整预留保守计费。它不等同于 PostgreSQL `EXPLAIN ANALYZE` 的精确执行指标。
 - Reporting View 与只读角色仍是关键安全边界；SQL AST 策略不能修复一个错误暴露敏感列的 View。
+- Audit Hash Chain 只能检测 Gateway 日志的事后修改；它不是 WORM 存储或外部不可篡改账本。

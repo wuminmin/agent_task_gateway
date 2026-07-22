@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"taskbound.local/agent-data-gateway/internal/dataconnector"
 	gatewayapp "taskbound.local/agent-data-gateway/internal/gateway"
 	"taskbound.local/agent-data-gateway/internal/mcp"
+	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 )
 
 func main() {
@@ -64,19 +66,39 @@ func main() {
 		logger.Error("initialize OA adapter", "error", err)
 		os.Exit(1)
 	}
+	oaReceiptVerifier, err := approval.NewReceiptVerifierFromBase64(
+		requiredEnv("OA_RECEIPT_KEY_ID"), requiredEnv("OA_RECEIPT_PUBLIC_KEY"),
+	)
+	if err != nil {
+		logger.Error("initialize OA approval receipt verifier", "error", err)
+		os.Exit(1)
+	}
+	expectedSchema, err := expectedReportingSchema(logicalCatalog)
+	if err != nil {
+		logger.Error("build reporting schema attestation", "error", err)
+		os.Exit(1)
+	}
 	connector, err := dataconnector.New(ctx, dataconnector.Config{
 		DSN: requiredEnv("POSTGRES_DSN"), StatementTimeout: 5 * time.Second,
 		ConnectTimeout: 10 * time.Second, MaxRows: 10000, MaxConnections: 4,
+		ExpectedSchema: expectedSchema,
 	})
 	if err != nil {
 		logger.Error("initialize PostgreSQL connector", "error", err)
 		os.Exit(1)
 	}
 	defer connector.Close()
+	queryReceiptSigner, err := queryreceipt.NewSignerFromBase64(
+		requiredEnv("GATEWAY_RECEIPT_KEY_ID"), requiredEnv("GATEWAY_RECEIPT_PRIVATE_KEY"),
+	)
+	if err != nil {
+		logger.Error("initialize query receipt signer", "error", err)
+		os.Exit(1)
+	}
 	service, err := gatewayapp.New(gatewayapp.Config{
 		Catalog: logicalCatalog, Store: store, Approval: oaClient,
 		Connector: connector, CallbackSecret: requiredEnv("OA_CALLBACK_SECRET"), Logger: logger,
-		Background: ctx,
+		ReceiptVerifier: oaReceiptVerifier, QueryReceiptSigner: queryReceiptSigner, Background: ctx,
 	})
 	if err != nil {
 		logger.Error("initialize gateway service", "error", err)
@@ -115,6 +137,22 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = server.Shutdown(shutdownCtx)
+}
+
+func expectedReportingSchema(logicalCatalog *catalog.Catalog) ([]dataconnector.ViewSchema, error) {
+	result := make([]dataconnector.ViewSchema, 0, len(logicalCatalog.Products))
+	for _, product := range logicalCatalog.Products {
+		schema, view, ok := strings.Cut(product.ReportingView, ".")
+		if !ok || schema == "" || view == "" {
+			return nil, errors.New("validated catalog contains an invalid reporting view")
+		}
+		columns := make([]dataconnector.SchemaColumn, 0, len(product.Fields))
+		for _, field := range product.Fields {
+			columns = append(columns, dataconnector.SchemaColumn{Name: field.Name, PostgreSQLType: field.Type})
+		}
+		result = append(result, dataconnector.ViewSchema{Schema: schema, View: view, Columns: columns})
+	}
+	return result, nil
 }
 
 func requiredEnv(key string) string {

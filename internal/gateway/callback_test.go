@@ -14,6 +14,7 @@ import (
 
 	"taskbound.local/agent-data-gateway/internal/approval"
 	"taskbound.local/agent-data-gateway/internal/control"
+	"taskbound.local/agent-data-gateway/internal/domain"
 )
 
 // Exercise the public callback handler so signature checks happen before any
@@ -39,8 +40,8 @@ func TestOACallbackHMACSubmissionApprovalReplayAndBadSignature(t *testing.T) {
 	submitted := oaCallbackEvent{
 		EventID: "oa-submit-1", TaskID: taskID, DraftID: task.ApprovalRef,
 		Status: "submitted", Actor: "Alice", OccurredAt: harness.clock.value,
-		CatalogVersion: harness.catalog.CatalogVersion, CallbackContext: draft.CallbackContext,
-		AuthorizationSnapshotSHA256: draft.AuthorizationSnapshotSHA256,
+		CatalogVersion: harness.catalog.CatalogVersion, CallbackContext: draft.Manifest.CallbackContext,
+		ManifestDigest: draft.ManifestDigest,
 	}
 	badSignature := sendGatewayCallback(t, harness, submitted, "v1=00")
 	if badSignature.Code != http.StatusUnauthorized {
@@ -66,16 +67,31 @@ func TestOACallbackHMACSubmissionApprovalReplayAndBadSignature(t *testing.T) {
 		t.Fatalf("submitted task state = %s, want %s", task.State, control.TaskAwaitingApproval)
 	}
 
+	approvedCore, err := domain.CoreFromManifest(draft.Manifest, draft.ManifestDigest, harness.clock.value)
+	if err != nil {
+		t.Fatalf("build approved core: %v", err)
+	}
+	approvedDigest, err := approval.GrantCoreDigest(approvedCore)
+	if err != nil {
+		t.Fatalf("hash approved core: %v", err)
+	}
+	approvedReceipt, err := approval.DemoReceiptSigner([]byte(harness.secret)).SignReceipt(approval.ApprovalReceiptV1{
+		Version: domain.ApprovalReceiptV1Version, ReceiptID: "oa-receipt-1", TaskID: taskID,
+		Decision: approval.ApprovalDecisionApprove, ManifestDigest: draft.ManifestDigest,
+		ApprovedGrantDigest: approvedDigest, ApproverID: harness.alice.Subject, IssuedAt: harness.clock.value,
+	})
+	if err != nil {
+		t.Fatalf("sign approval receipt: %v", err)
+	}
 	approved := oaCallbackEvent{
 		EventID: "oa-approve-1", TaskID: taskID, DraftID: task.ApprovalRef,
-		Status: "approved", Actor: "oa-auto", OccurredAt: harness.clock.value,
-		CatalogVersion: harness.catalog.CatalogVersion, CallbackContext: draft.CallbackContext,
-		AuthorizationSnapshotSHA256: draft.AuthorizationSnapshotSHA256,
-		ApprovalReceipt:             "oa-receipt-1",
+		Status: "approved", Actor: harness.alice.Subject, OccurredAt: harness.clock.value,
+		CatalogVersion: harness.catalog.CatalogVersion, CallbackContext: draft.Manifest.CallbackContext,
+		ManifestDigest: draft.ManifestDigest, ApprovedGrant: &approvedCore, ApprovalReceipt: &approvedReceipt,
 	}
 	tamperedApproval := approved
 	tamperedApproval.EventID = "oa-approve-tampered"
-	tamperedApproval.AuthorizationSnapshotSHA256 = strings.Repeat("0", 64)
+	tamperedApproval.ManifestDigest = strings.Repeat("0", 64)
 	tamperedResponse := sendGatewayCallback(t, harness, tamperedApproval, "")
 	if tamperedResponse.Code != http.StatusConflict {
 		t.Fatalf("tampered snapshot status = %d, want %d; body=%s", tamperedResponse.Code, http.StatusConflict, tamperedResponse.Body.String())
@@ -132,7 +148,11 @@ func TestOACallbackHMACSubmissionApprovalReplayAndBadSignature(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load grant: %v", err)
 	}
-	if grant.ApprovalReceipt != approved.ApprovalReceipt || grant.Subject != harness.alice.Subject || grant.CatalogVersion != harness.catalog.CatalogVersion {
+	finalGrant, err := approval.DecodeTaskGrantV1(grant.ApprovalReceipt)
+	if err != nil {
+		t.Fatalf("decode persisted final grant: %v", err)
+	}
+	if finalGrant.ApprovalReceipt.ReceiptID != approvedReceipt.ReceiptID || grant.Subject != harness.alice.Subject || grant.CatalogVersion != harness.catalog.CatalogVersion {
 		t.Fatalf("unexpected approved grant: %+v", grant)
 	}
 
@@ -160,6 +180,156 @@ func TestOACallbackHMACSubmissionApprovalReplayAndBadSignature(t *testing.T) {
 	}
 	if callbackCount != 2 || approvalEventCount != 2 {
 		t.Fatalf("replay created duplicates: callbacks=%d approval_events=%d", callbackCount, approvalEventCount)
+	}
+}
+
+func TestOACallbackNarrowingIsEnforcedBeforeGrantPersistence(t *testing.T) {
+	harness := newGatewayHarness(t)
+	requestTask := func(objective string) (string, control.Task, approval.DraftRequest) {
+		result := mustCallGatewayTool(t, harness.service, harness.alice, "request_data_task", map[string]any{
+			"objective": objective, "data_products": []string{"expense_detail"},
+			"columns": map[string][]string{"expense_detail": {"receipt_no", "employee_name", "amount"}},
+			"scopes":  map[string]any{"department": []any{"销售部"}},
+		})
+		taskID := result["task_id"].(string)
+		task, err := harness.store.GetTask(context.Background(), taskID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		draft := harness.approval.requests[len(harness.approval.requests)-1]
+		submitted := oaCallbackEvent{
+			EventID: "submit-" + taskID, TaskID: taskID, DraftID: task.ApprovalRef,
+			Status: "submitted", Actor: harness.alice.Subject, OccurredAt: harness.clock.value,
+			CatalogVersion: harness.catalog.CatalogVersion, CallbackContext: draft.Manifest.CallbackContext,
+			ManifestDigest: draft.ManifestDigest,
+		}
+		if response := sendGatewayCallback(t, harness, submitted, ""); response.Code != http.StatusOK {
+			t.Fatalf("submit callback = %d %s", response.Code, response.Body.String())
+		}
+		return taskID, task, draft
+	}
+
+	taskID, task, draft := requestTask("narrow employee expense detail")
+	core, err := domain.CoreFromManifest(draft.Manifest, draft.ManifestDigest, harness.clock.value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	core.ApprovedColumns = map[string][]string{"expense_detail": {"amount", "receipt_no"}}
+	core.Budget.MaxQueries--
+	core.Budget.PerQueryTimeoutMS = 2_000
+	core.Budget.TaskTTLMS = 5 * 60 * 1000
+	core.ExpiresAt = harness.clock.value.Add(5 * time.Minute)
+	narrowed := signedFinalCallback(t, harness, task, draft, "narrowed", "bob", core)
+	response := sendGatewayCallback(t, harness, narrowed, "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("narrow callback = %d %s", response.Code, response.Body.String())
+	}
+	grant, err := harness.store.GetGrant(context.Background(), taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(grant.ApprovedColumns["expense_detail"]) != 2 || grant.Budget.Queries != core.Budget.MaxQueries || !grant.ExpiresAt.Equal(core.ExpiresAt) {
+		t.Fatalf("narrowed grant was not persisted: %+v", grant)
+	}
+
+	widenTaskID, widenTask, widenDraft := requestTask("attempt widened employee expense detail")
+	widenedCore, err := domain.CoreFromManifest(widenDraft.Manifest, widenDraft.ManifestDigest, harness.clock.value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	widenedCore.ApprovedColumns["expense_detail"] = append(widenedCore.ApprovedColumns["expense_detail"], "department")
+	widened := signedFinalCallback(t, harness, widenTask, widenDraft, "narrowed", "bob", widenedCore)
+	response = sendGatewayCallback(t, harness, widened, "")
+	if response.Code != http.StatusConflict {
+		t.Fatalf("widen callback = %d, want conflict; body=%s", response.Code, response.Body.String())
+	}
+	if _, err := harness.store.GetGrant(context.Background(), widenTaskID); !errors.Is(err, control.ErrNotFound) {
+		t.Fatalf("widening created a grant: %v", err)
+	}
+}
+
+func TestOACallbackRejectRequiresValidSignedReceipt(t *testing.T) {
+	harness := newGatewayHarness(t)
+	result := mustCallGatewayTool(t, harness.service, harness.alice, "request_data_task", map[string]any{
+		"objective": "review employee expenses", "data_products": []string{"expense_detail"},
+		"columns": map[string][]string{"expense_detail": {"receipt_no", "amount"}},
+		"scopes":  map[string]any{"department": []any{"销售部"}},
+	})
+	taskID := result["task_id"].(string)
+	task, err := harness.store.GetTask(context.Background(), taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	draft := harness.approval.requests[0]
+	submitted := oaCallbackEvent{
+		EventID: "reject-submit", TaskID: taskID, DraftID: task.ApprovalRef,
+		Status: "submitted", Actor: harness.alice.Subject, OccurredAt: harness.clock.value,
+		CatalogVersion: harness.catalog.CatalogVersion, CallbackContext: draft.Manifest.CallbackContext,
+		ManifestDigest: draft.ManifestDigest,
+	}
+	if response := sendGatewayCallback(t, harness, submitted, ""); response.Code != http.StatusOK {
+		t.Fatalf("submit callback = %d %s", response.Code, response.Body.String())
+	}
+	receipt, err := approval.DemoReceiptSigner([]byte(harness.secret)).SignReceipt(approval.ApprovalReceiptV1{
+		Version: domain.ApprovalReceiptV1Version, ReceiptID: "receipt-reject", TaskID: taskID,
+		Decision: approval.ApprovalDecisionReject, ManifestDigest: draft.ManifestDigest,
+		ApproverID: "bob", IssuedAt: harness.clock.value,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rejected := oaCallbackEvent{
+		EventID: "reject-final", TaskID: taskID, DraftID: task.ApprovalRef,
+		Status: "rejected", Actor: "bob", OccurredAt: harness.clock.value,
+		CatalogVersion: harness.catalog.CatalogVersion, CallbackContext: draft.Manifest.CallbackContext,
+		ManifestDigest: draft.ManifestDigest, ApprovalReceipt: &receipt,
+	}
+	tampered := rejected
+	tampered.EventID = "reject-tampered"
+	tamperedReceipt := receipt
+	tamperedReceipt.ApproverID = "mallory"
+	tampered.ApprovalReceipt = &tamperedReceipt
+	if response := sendGatewayCallback(t, harness, tampered, ""); response.Code != http.StatusConflict {
+		t.Fatalf("tampered rejection = %d, want conflict; body=%s", response.Code, response.Body.String())
+	}
+	if response := sendGatewayCallback(t, harness, rejected, ""); response.Code != http.StatusOK {
+		t.Fatalf("rejection callback = %d %s", response.Code, response.Body.String())
+	}
+	task, err = harness.store.GetTask(context.Background(), taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.State != control.TaskArchived || task.TerminalReason != control.TerminalRejected {
+		t.Fatalf("rejected task state = %+v", task)
+	}
+	if _, err := harness.store.GetGrant(context.Background(), taskID); !errors.Is(err, control.ErrNotFound) {
+		t.Fatalf("rejection created a grant: %v", err)
+	}
+}
+
+func signedFinalCallback(t *testing.T, harness *gatewayHarness, task control.Task, draft approval.DraftRequest, status, actor string, core approval.TaskGrantCoreV1) oaCallbackEvent {
+	t.Helper()
+	decision := approval.ApprovalDecisionApprove
+	if status == "narrowed" {
+		decision = approval.ApprovalDecisionNarrow
+	}
+	digest, err := approval.GrantCoreDigest(core)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := approval.DemoReceiptSigner([]byte(harness.secret)).SignReceipt(approval.ApprovalReceiptV1{
+		Version: domain.ApprovalReceiptV1Version, ReceiptID: "receipt-" + task.ID,
+		TaskID: task.ID, Decision: decision, ManifestDigest: draft.ManifestDigest,
+		ApprovedGrantDigest: digest, ApproverID: actor, IssuedAt: harness.clock.value,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return oaCallbackEvent{
+		EventID: "decision-" + task.ID, TaskID: task.ID, DraftID: task.ApprovalRef,
+		Status: status, Actor: actor, OccurredAt: harness.clock.value,
+		CatalogVersion: harness.catalog.CatalogVersion, CallbackContext: draft.Manifest.CallbackContext,
+		ManifestDigest: draft.ManifestDigest, ApprovedGrant: &core, ApprovalReceipt: &receipt,
 	}
 }
 

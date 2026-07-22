@@ -9,11 +9,19 @@ import (
 	"syscall"
 	"time"
 
+	"taskbound.local/agent-data-gateway/internal/approval"
 	"taskbound.local/agent-data-gateway/internal/oademo"
 )
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	receiptSigner, err := approval.NewReceiptSignerFromBase64(
+		requiredEnv("OA_RECEIPT_KEY_ID"), requiredEnv("OA_RECEIPT_PRIVATE_KEY"),
+	)
+	if err != nil {
+		logger.Error("initialize OA approval receipt signer", "error", err)
+		os.Exit(1)
+	}
 	oa, err := oademo.New(oademo.Config{
 		ServiceToken:   requiredEnv("OA_SERVICE_TOKEN"),
 		CallbackSecret: requiredEnv("OA_CALLBACK_SECRET"),
@@ -22,6 +30,7 @@ func main() {
 		PublicBaseURL:  env("PUBLIC_OA_BASE_URL", "http://127.0.0.1:8092"),
 		AlicePassword:  requiredEnv("OA_ALICE_PASSWORD"),
 		BobPassword:    requiredEnv("OA_BOB_PASSWORD"),
+		ReceiptSigner:  receiptSigner,
 		Logger:         logger,
 	})
 	if err != nil {

@@ -40,27 +40,33 @@ func TestRequestDataTaskUsesCatalogPolicyAndBudgetCeiling(t *testing.T) {
 		t.Fatalf("OA draft calls = %d, want 1", len(harness.approval.requests))
 	}
 	draft := harness.approval.requests[0]
-	if draft.ApprovalMode != "manual" || draft.Approver != "bob" || draft.Sensitivity != "high" {
+	if draft.ApprovalMode != "manual" || draft.Approver != "bob" || draft.Manifest.Sensitivity != "high" {
 		t.Fatalf("OA route was not catalog-derived: %+v", draft)
 	}
-	if len(draft.DataProducts) != 2 || draft.DataProducts[0] != "expense_summary" || draft.DataProducts[1] != "expense_detail" {
-		t.Fatalf("unexpected OA products: %#v", draft.DataProducts)
+	if draft.Manifest.HumanSubject != harness.alice.Subject || draft.Manifest.AgentID != harness.alice.ID {
+		t.Fatalf("manifest identity was not gateway-derived: %+v", draft.Manifest)
 	}
-	if got := draft.ApprovedColumns["expense_detail"]; len(got) != 3 || got[0] != "receipt_no" || got[2] != "amount" {
-		t.Fatalf("OA draft did not receive normalized approved columns: %#v", draft.ApprovedColumns)
+	if len(draft.Manifest.Products) != 2 || draft.Manifest.Products[0] != "expense_detail" || draft.Manifest.Products[1] != "expense_summary" {
+		t.Fatalf("unexpected OA products: %#v", draft.Manifest.Products)
 	}
-	if departments, ok := draft.MandatoryScope["department"].([]string); !ok || len(departments) != 1 || departments[0] != "销售部" {
-		t.Fatalf("OA draft did not receive normalized mandatory scope: %#v", draft.MandatoryScope)
+	if got := draft.Manifest.ApprovedColumns["expense_detail"]; len(got) != 3 || got[0] != "amount" || got[2] != "receipt_no" {
+		t.Fatalf("OA draft did not receive normalized approved columns: %#v", draft.Manifest.ApprovedColumns)
 	}
-	if draft.Budget.MaxQueries != 3 || draft.Budget.MaxRows != 50 || draft.Budget.MaxDBMS != 15_000 || draft.Budget.QueryTimeoutMS != 5_000 || draft.Budget.TaskTTLMS != 900_000 {
-		t.Fatalf("OA draft did not receive the exact budget: %+v", draft.Budget)
+	if departments, ok := draft.Manifest.MandatoryScope["department"].([]string); !ok || len(departments) != 1 || departments[0] != "销售部" {
+		t.Fatalf("OA draft did not receive normalized mandatory scope: %#v", draft.Manifest.MandatoryScope)
+	}
+	if draft.Manifest.Budget.MaxQueries != 3 || draft.Manifest.Budget.MaxResultRows != 50 || draft.Manifest.Budget.MaxDBMS != 15_000 || draft.Manifest.Budget.PerQueryTimeoutMS != 5_000 || draft.Manifest.Budget.TaskTTLMS != 900_000 {
+		t.Fatalf("OA draft did not receive the exact budget: %+v", draft.Manifest.Budget)
+	}
+	if draft.Manifest.CatalogSHA256 != harness.catalog.SHA256 || len(draft.Manifest.Nonce) != 32 {
+		t.Fatalf("manifest omitted catalog digest or nonce: %+v", draft.Manifest)
 	}
 	expectedSnapshot, err := approval.AuthorizationSnapshotSHA256(draft)
 	if err != nil {
 		t.Fatalf("recompute OA snapshot: %v", err)
 	}
-	if draft.AuthorizationSnapshotSHA256 == "" || draft.AuthorizationSnapshotSHA256 != expectedSnapshot {
-		t.Fatalf("OA snapshot hash = %q, want %q", draft.AuthorizationSnapshotSHA256, expectedSnapshot)
+	if draft.ManifestDigest == "" || draft.ManifestDigest != expectedSnapshot {
+		t.Fatalf("OA manifest hash = %q, want %q", draft.ManifestDigest, expectedSnapshot)
 	}
 
 	taskID, ok := result["task_id"].(string)
@@ -85,8 +91,8 @@ func TestRequestDataTaskUsesCatalogPolicyAndBudgetCeiling(t *testing.T) {
 	if departments, ok := pending.MandatoryScope["department"].([]any); !ok || len(departments) != 1 || departments[0] != "销售部" {
 		t.Fatalf("mandatory department scope was not persisted: %#v", pending.MandatoryScope)
 	}
-	if persistedPending.AuthorizationSnapshotSHA256 != draft.AuthorizationSnapshotSHA256 {
-		t.Fatalf("pending snapshot hash = %q, OA hash = %q", persistedPending.AuthorizationSnapshotSHA256, draft.AuthorizationSnapshotSHA256)
+	if persistedPending.ManifestDigest != draft.ManifestDigest || persistedPending.Manifest.AgentID != harness.alice.ID {
+		t.Fatalf("persisted manifest does not match OA: %+v vs %+v", persistedPending, draft)
 	}
 
 	_, err = callGatewayTool(harness.service, harness.alice, "request_data_task", map[string]any{

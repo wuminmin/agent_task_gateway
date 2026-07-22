@@ -1,0 +1,31 @@
+{
+  "manifest": {
+    "version": "1",
+    "task_id": "task-vector-001",
+    "human_subject": "oidc:alice@example.com",
+    "agent_id": "agent:research-01",
+    "declared_objective": "Compare H1 expenses for 销售部",
+    "products": ["expense_detail", "expense_summary"],
+    "approved_columns": {
+      "expense_detail": ["amount", "receipt_no"],
+      "expense_summary": ["month", "total_amount"]
+    },
+    "mandatory_scope": {
+      "department": ["销售部"],
+      "expense_date": {"from": "2026-01-01", "to": "2026-06-30"}
+    },
+    "sensitivity": "high",
+    "budget": {
+      "max_queries": 3,
+      "max_result_rows": 50,
+      "max_db_ms": 15000,
+      "per_query_timeout_ms": 5000,
+      "task_ttl_ms": 900000
+    },
+    "catalog_version": "catalog-v1",
+    "catalog_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "callback_context": "callback-vector-001",
+    "nonce": "000102030405060708090a0b0c0d0e0f"
+  },
+  "digest": "c8f30b5ea4e5704b0261f8c95c167f1020c50c444daf4653c1902916beae36d8"
+}

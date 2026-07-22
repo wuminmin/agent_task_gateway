@@ -203,8 +203,8 @@ func TestBudgetSerializationFinalizationAndAuditChain(t *testing.T) {
 	approveTask(t, store, "task_budget", expires, BudgetLimits{Queries: 5, Rows: 5, DBMS: 1000})
 
 	requests := []ReserveRequest{
-		{QueryID: "query_a", TaskID: "task_budget", Actor: "alice", RequestDigest: "req-a", SQLFingerprint: "sql-a", RequestedRows: 100, RequestedDBMS: 500},
-		{QueryID: "query_b", TaskID: "task_budget", Actor: "alice", RequestDigest: "req-b", SQLFingerprint: "sql-b", RequestedRows: 100, RequestedDBMS: 500},
+		{QueryID: "query_a", TaskID: "task_budget", RequestID: "request-a", Actor: "alice", RequestDigest: "req-a", SQLFingerprint: "sql-a", RequestedRows: 100, RequestedDBMS: 500},
+		{QueryID: "query_b", TaskID: "task_budget", RequestID: "request-b", Actor: "alice", RequestDigest: "req-b", SQLFingerprint: "sql-b", RequestedRows: 100, RequestedDBMS: 500},
 	}
 	type reserveResult struct {
 		reservation BudgetReservation
@@ -290,6 +290,54 @@ func TestBudgetSerializationFinalizationAndAuditChain(t *testing.T) {
 	}
 }
 
+func TestRequestIDReplayIsAtomicAndDigestBound(t *testing.T) {
+	path := testpostgres.SchemaDSN(t)
+	clock := fixedClock{value: time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)}
+	store := openTestStore(t, path, testCipher(t, 9), WithClock(clock))
+	expires := clock.value.Add(time.Hour)
+	createAwaitingApprovalTask(t, store, "task_request_id", expires)
+	approveTask(t, store, "task_request_id", expires, BudgetLimits{Queries: 3, Rows: 30, DBMS: 3000})
+
+	request := ReserveRequest{
+		QueryID: "query_request_id", TaskID: "task_request_id", RequestID: "client-request-1",
+		Actor: "alice", RequestDigest: "digest-a", SQLFingerprint: "sql-a",
+		RequestedRows: 10, RequestedDBMS: 500,
+	}
+	first, err := store.ReserveBudget(context.Background(), request)
+	if err != nil || first.Replay {
+		t.Fatalf("first ReserveBudget = %+v, %v", first, err)
+	}
+	retry := request
+	retry.QueryID = "query_must_not_be_inserted"
+	replayed, err := store.ReserveBudget(context.Background(), retry)
+	if err != nil {
+		t.Fatalf("replayed ReserveBudget: %v", err)
+	}
+	if !replayed.Replay || replayed.QueryID != first.QueryID || replayed.Record == nil || replayed.Record.Status != QueryReserved {
+		t.Fatalf("replayed reservation = %+v", replayed)
+	}
+	conflict := retry
+	conflict.RequestDigest = "digest-b"
+	if _, err := store.ReserveBudget(context.Background(), conflict); !errors.Is(err, ErrIdempotencyConflict) {
+		t.Fatalf("conflicting request id error = %v", err)
+	}
+	if _, err := store.FinalizeQuery(context.Background(), BudgetSettlement{QueryID: first.QueryID, Rows: 2, DBMS: 7}, []byte(`{"rows":[[1],[2]]}`)); err != nil {
+		t.Fatalf("FinalizeQuery: %v", err)
+	}
+	replayed, err = store.ReserveBudget(context.Background(), retry)
+	if err != nil || replayed.Record == nil || replayed.Record.Status != QueryCompleted {
+		t.Fatalf("terminal replay = %+v, %v", replayed, err)
+	}
+	queries, err := store.ListQueries(context.Background(), "task_request_id", 10)
+	if err != nil || len(queries) != 1 {
+		t.Fatalf("queries = %#v, %v; want exactly one", queries, err)
+	}
+	budget, err := store.GetBudget(context.Background(), "task_request_id")
+	if err != nil || budget.Usage.UsedQueries != 1 || budget.Usage.ReservedQueries != 0 {
+		t.Fatalf("budget = %+v, %v", budget, err)
+	}
+}
+
 func TestRestartRecoveryAndCallbackRetry(t *testing.T) {
 	path := testpostgres.SchemaDSN(t)
 	clock := fixedClock{value: time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)}
@@ -299,7 +347,7 @@ func TestRestartRecoveryAndCallbackRetry(t *testing.T) {
 	createAwaitingApprovalTask(t, store, "task_restart", expires)
 	approveTask(t, store, "task_restart", expires, BudgetLimits{Queries: 3, Rows: 20, DBMS: 1000})
 	if _, err := store.ReserveBudget(context.Background(), ReserveRequest{
-		QueryID: "query_interrupted", TaskID: "task_restart", Actor: "alice", RequestDigest: "request",
+		QueryID: "query_interrupted", TaskID: "task_restart", RequestID: "request-restart", Actor: "alice", RequestDigest: "request",
 		SQLFingerprint: "select", RequestedRows: 10, RequestedDBMS: 500,
 	}); err != nil {
 		t.Fatalf("ReserveBudget: %v", err)
@@ -321,7 +369,7 @@ func TestRestartRecoveryAndCallbackRetry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetQuery after restart: %v", err)
 	}
-	if record.Status != QueryInterrupted || record.ErrorCode != "GATEWAY_RESTART" ||
+	if record.Status != QueryIndeterminate || record.ErrorCode != "GATEWAY_RESTART" ||
 		record.ChargedQueries != 1 || record.ChargedRows != 10 || record.ChargedDBMS != 500 {
 		t.Fatalf("query was not recovered: %+v", record)
 	}
@@ -368,7 +416,7 @@ func TestRecoveryChargesReservationAndArchivesAtHardLimit(t *testing.T) {
 	createAwaitingApprovalTask(t, store, "task_recovery_limit", expires)
 	approveTask(t, store, "task_recovery_limit", expires, BudgetLimits{Queries: 4, Rows: 10, DBMS: 1000})
 	if _, err := store.ReserveBudget(context.Background(), ReserveRequest{
-		QueryID: "query_recovery_limit", TaskID: "task_recovery_limit", Actor: "alice",
+		QueryID: "query_recovery_limit", TaskID: "task_recovery_limit", RequestID: "request-recovery-limit", Actor: "alice",
 		RequestDigest: "request", SQLFingerprint: "select", RequestedRows: 10, RequestedDBMS: 400,
 	}); err != nil {
 		t.Fatalf("ReserveBudget: %v", err)
@@ -385,7 +433,7 @@ func TestRecoveryChargesReservationAndArchivesAtHardLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetQuery: %v", err)
 	}
-	if record.Status != QueryInterrupted || record.ChargedQueries != 1 || record.ChargedRows != 10 || record.ChargedDBMS != 400 {
+	if record.Status != QueryIndeterminate || record.ChargedQueries != 1 || record.ChargedRows != 10 || record.ChargedDBMS != 400 {
 		t.Fatalf("unexpected interrupted query: %+v", record)
 	}
 	budget, err := store.GetBudget(context.Background(), "task_recovery_limit")

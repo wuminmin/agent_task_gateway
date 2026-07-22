@@ -3,7 +3,6 @@ package domain
 import (
 	"errors"
 	"fmt"
-	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -155,13 +154,8 @@ func (g TaskGrant) CheckNarrowing(candidate TaskGrant) error {
 		}
 	}
 
-	// Existing mandatory predicates cannot be removed or altered. New
-	// predicates are safe because they can only further constrain a query.
-	for key, value := range g.MandatoryScope {
-		candidateValue, ok := candidate.MandatoryScope[key]
-		if !ok || !reflect.DeepEqual(value, candidateValue) {
-			return grantExpansion("mandatory scope weakened")
-		}
+	if !scopeMapNarrower(g.MandatoryScope, candidate.MandatoryScope) {
+		return grantExpansion("mandatory scope weakened or changed incompatibly")
 	}
 	return nil
 }

@@ -1,0 +1,2 @@
+go test fuzz v1
+string("SELECT o_orderkey FROM tpch_orders ORDER\xd4\xd4\xd4\xd4\xd4_orderkey")

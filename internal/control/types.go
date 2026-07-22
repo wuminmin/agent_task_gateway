@@ -114,19 +114,29 @@ func (b BudgetSnapshot) Remaining() BudgetLimits {
 type QueryStatus string
 
 const (
-	QueryReserved    QueryStatus = "RESERVED"
-	QueryCompleted   QueryStatus = "COMPLETED"
-	QueryReleased    QueryStatus = "RELEASED"
-	QueryInterrupted QueryStatus = "INTERRUPTED"
+	QueryReserved  QueryStatus = "RESERVED"
+	QueryCompleted QueryStatus = "COMPLETED"
+	QueryReleased  QueryStatus = "RELEASED"
+	// QueryIndeterminate means the connector may have executed the statement,
+	// but the gateway cannot prove its outcome.  The full reservation is
+	// charged and the request_id is never executed again automatically.
+	QueryIndeterminate QueryStatus = "INDETERMINATE"
+	// QueryInterrupted is kept as a source-compatibility alias for callers of
+	// the pre-V1 API. New durable records use QueryIndeterminate.
+	QueryInterrupted QueryStatus = QueryIndeterminate
 )
 
 type QueryRecord struct {
 	ID             string
 	TaskID         string
+	RequestID      string
 	Actor          string
 	RequestDigest  string
 	SQLFingerprint string
 	CatalogVersion string
+	CatalogDigest  string
+	ManifestDigest string
+	GrantDigest    string
 	PolicyDecision string
 	Status         QueryStatus
 	ReservedRows   int64
@@ -147,19 +157,28 @@ type QueryRecord struct {
 type BudgetReservation struct {
 	QueryID     string
 	TaskID      string
+	RequestID   string
 	AllowedRows int64
 	AllowedDBMS int64
 	Before      BudgetSnapshot
 	After       BudgetSnapshot
+	// Replay is true when (task_id, request_id) already exists. Record is the
+	// first durable status and no new budget was reserved.
+	Replay bool
+	Record *QueryRecord
 }
 
 type ReserveRequest struct {
 	QueryID        string
 	TaskID         string
+	RequestID      string
 	Actor          string
 	RequestDigest  string
 	SQLFingerprint string
 	CatalogVersion string
+	CatalogDigest  string
+	ManifestDigest string
+	GrantDigest    string
 	PolicyDecision string
 	RequestedRows  int64
 	RequestedDBMS  int64

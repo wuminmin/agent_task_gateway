@@ -8,7 +8,11 @@ import (
 
 // Catalog is the complete, versioned logical data contract loaded at startup.
 type Catalog struct {
-	CatalogVersion string          `yaml:"catalog_version" json:"catalog_version"`
+	CatalogVersion string `yaml:"catalog_version" json:"catalog_version"`
+	// SHA256 is the lowercase digest of the exact validated catalog artifact
+	// bytes. It is carried into manifests and receipts so formatting or policy
+	// edits necessarily create a new authorization binding.
+	SHA256         string          `yaml:"-" json:"catalog_sha256"`
 	Sources        []Source        `yaml:"sources" json:"sources"`
 	Products       []Product       `yaml:"products" json:"products"`
 	Scopes         []Scope         `yaml:"scopes" json:"scopes"`

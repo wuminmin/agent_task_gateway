@@ -21,7 +21,7 @@ products:
         type: text
         description: Department name
       - name: total_amount
-        type: numeric(12,2)
+        type: numeric
         description: Total reimbursed amount
     scopes: [department]
     allowed_operators: ["=", ">=", "<="]
@@ -39,7 +39,7 @@ products:
         type: text
         description: Employee display name
       - name: amount
-        type: numeric(12,2)
+        type: numeric
         description: Claimed amount
       - name: department
         type: text

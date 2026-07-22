@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -55,12 +56,25 @@ type fakeConnector struct {
 	result            dataconnector.Result
 	queryErr          error
 	pingErr           error
+	started           chan struct{}
+	release           <-chan struct{}
+	startOnce         sync.Once
 }
 
 func (connector *fakeConnector) Query(ctx context.Context, request dataconnector.QueryRequest) (dataconnector.Result, error) {
 	connector.requests = append(connector.requests, request)
 	if deadline, ok := ctx.Deadline(); ok {
 		connector.deadlineRemaining = append(connector.deadlineRemaining, time.Until(deadline))
+	}
+	if connector.started != nil {
+		connector.startOnce.Do(func() { close(connector.started) })
+	}
+	if connector.release != nil {
+		select {
+		case <-connector.release:
+		case <-ctx.Done():
+			return dataconnector.Result{}, &dataconnector.Error{Code: dataconnector.CodeQueryTimeout}
+		}
 	}
 	return connector.result, connector.queryErr
 }
@@ -167,6 +181,18 @@ func requireToolCode(t *testing.T, err error, code string) {
 }
 
 func (harness *gatewayHarness) createActiveSummaryTask(t *testing.T, taskID string) {
+	harness.createSummaryTaskWithGrant(t, taskID, nil)
+}
+
+func (harness *gatewayHarness) createNarrowedSummaryTask(t *testing.T, taskID string, narrow func(*domain.TaskGrantCoreV1)) {
+	t.Helper()
+	if narrow == nil {
+		t.Fatal("narrowing function is required")
+	}
+	harness.createSummaryTaskWithGrant(t, taskID, narrow)
+}
+
+func (harness *gatewayHarness) createSummaryTaskWithGrant(t *testing.T, taskID string, narrow func(*domain.TaskGrantCoreV1)) {
 	t.Helper()
 	budget := domain.Budget{
 		MaxQueries: 10, MaxRows: 500, MaxDBTime: 30 * time.Second,
@@ -178,23 +204,25 @@ func (harness *gatewayHarness) createActiveSummaryTask(t *testing.T, taskID stri
 		MandatoryScope: map[string]any{"department": []any{"销售部"}}, Budget: budget, Sensitivity: domain.SensitivityLow,
 		ApprovalMode: domain.ApprovalModeAuto, CallbackContext: "seed-context-" + taskID,
 	}
-	snapshotRequest := approval.DraftRequest{
-		TaskID: taskID, Requester: harness.alice.Subject, Objective: "summarize travel expenses",
-		DataProducts: pendingValue.Products, ApprovedColumns: pendingValue.Columns,
-		MandatoryScope: pendingValue.MandatoryScope, Sensitivity: string(pendingValue.Sensitivity),
-		Budget: approval.DraftBudget{
-			MaxQueries: budget.MaxQueries, MaxRows: budget.MaxRows, MaxDBMS: budget.MaxDBTime.Milliseconds(),
-			QueryTimeoutMS: budget.PerQueryTimeout.Milliseconds(), TaskTTLMS: budget.TaskTTL.Milliseconds(),
+	manifest := approval.AuthorizationManifestV1{
+		Version: domain.AuthorizationManifestV1Version, TaskID: taskID,
+		HumanSubject: harness.alice.Subject, AgentID: harness.alice.ID,
+		DeclaredObjective: "summarize travel expenses", Products: pendingValue.Products,
+		ApprovedColumns: pendingValue.Columns, MandatoryScope: pendingValue.MandatoryScope,
+		Sensitivity: pendingValue.Sensitivity,
+		Budget: approval.AuthorizationBudgetV1{
+			MaxQueries: budget.MaxQueries, MaxResultRows: budget.MaxRows, MaxDBMS: budget.MaxDBTime.Milliseconds(),
+			PerQueryTimeoutMS: budget.PerQueryTimeout.Milliseconds(), TaskTTLMS: budget.TaskTTL.Milliseconds(),
 		},
-		ApprovalMode: string(pendingValue.ApprovalMode), CatalogVersion: harness.catalog.CatalogVersion,
-		CallbackContext: pendingValue.CallbackContext,
+		CatalogVersion: harness.catalog.CatalogVersion, CatalogSHA256: harness.catalog.SHA256,
+		CallbackContext: pendingValue.CallbackContext, Nonce: "00000000000000000000000000000001",
 	}
-	snapshotSHA256, err := approval.AuthorizationSnapshotSHA256(snapshotRequest)
+	manifestDigest, err := approval.ManifestDigest(manifest)
 	if err != nil {
-		t.Fatalf("hash pending context: %v", err)
+		t.Fatalf("hash authorization manifest: %v", err)
 	}
 	pending, err := json.Marshal(persistedPendingContext{
-		pendingContext: pendingValue, AuthorizationSnapshotSHA256: snapshotSHA256,
+		pendingContext: pendingValue, Manifest: manifest, ManifestDigest: manifestDigest,
 	})
 	if err != nil {
 		t.Fatalf("marshal pending context: %v", err)
@@ -208,11 +236,40 @@ func (harness *gatewayHarness) createActiveSummaryTask(t *testing.T, taskID stri
 	}); err != nil {
 		t.Fatalf("create active-task seed: %v", err)
 	}
-	expiresAt := harness.clock.value.Add(budget.TaskTTL)
+	core, err := domain.CoreFromManifest(manifest, manifestDigest, harness.clock.value)
+	if err != nil {
+		t.Fatalf("build grant core: %v", err)
+	}
+	decision := approval.ApprovalDecisionApprove
+	if narrow != nil {
+		narrow(&core)
+		if err := core.Validate(); err != nil {
+			t.Fatalf("validate narrowed grant core: %v", err)
+		}
+		decision = approval.ApprovalDecisionNarrow
+	}
+	coreDigest, err := approval.GrantCoreDigest(core)
+	if err != nil {
+		t.Fatalf("hash grant core: %v", err)
+	}
+	receipt, err := approval.DemoReceiptSigner([]byte(harness.secret)).SignReceipt(approval.ApprovalReceiptV1{
+		Version: domain.ApprovalReceiptV1Version, ReceiptID: "seed-receipt-" + taskID,
+		TaskID: taskID, Decision: decision, ManifestDigest: manifestDigest,
+		ApprovedGrantDigest: coreDigest, ApproverID: harness.alice.Subject, IssuedAt: harness.clock.value,
+	})
+	if err != nil {
+		t.Fatalf("sign approval receipt: %v", err)
+	}
+	finalGrantJSON, err := approval.EncodeTaskGrantV1(approval.TaskGrantV1{
+		Version: domain.TaskGrantV1Version, Core: core, ApprovalReceipt: receipt,
+	})
+	if err != nil {
+		t.Fatalf("encode final grant: %v", err)
+	}
 	_, err = harness.store.ApplyApprovalCallback(context.Background(), control.ApprovalCallback{
 		EventID: "seed-event-" + taskID, RawPayload: []byte(`{"decision":"approved"}`),
 		Event: control.ApprovalEvent{
-			TaskID: taskID, Actor: "oa-auto", Decision: "approved",
+			TaskID: taskID, Actor: harness.alice.Subject, Decision: "approved",
 			Payload: json.RawMessage(`{"source":"test"}`), CreatedAt: harness.clock.value,
 		},
 		ExpectedState: control.TaskAwaitingApproval, NewState: control.TaskActive,
@@ -221,9 +278,11 @@ func (harness *gatewayHarness) createActiveSummaryTask(t *testing.T, taskID stri
 			ApprovedProducts: []string{"expense_summary"},
 			ApprovedColumns:  map[string][]string{"expense_summary": {"month", "total_amount"}},
 			MandatoryScope:   json.RawMessage(`{"department":["销售部"]}`), SensitivityCeiling: string(domain.SensitivityLow),
-			Budget:    control.BudgetLimits{Queries: 10, Rows: 500, DBMS: 30_000},
-			ExpiresAt: expiresAt, CatalogVersion: harness.catalog.CatalogVersion,
-			ApprovalReceipt: "seed-receipt-" + taskID, CreatedAt: harness.clock.value,
+			Budget: control.BudgetLimits{
+				Queries: core.Budget.MaxQueries, Rows: core.Budget.MaxResultRows, DBMS: core.Budget.MaxDBMS,
+			},
+			ExpiresAt: core.ExpiresAt, CatalogVersion: harness.catalog.CatalogVersion,
+			ApprovalReceipt: finalGrantJSON, CreatedAt: harness.clock.value,
 		},
 		Response: []byte(`{"ok":true}`),
 	})

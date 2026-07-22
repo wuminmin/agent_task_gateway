@@ -17,17 +17,17 @@ Agent 提交的结构化申请、QueryPlan、SQL、浏览器请求、网络回�
 |---|---|---|
 | Agent 越权读取其他主体任务/结果 | Bearer Token 映射固定 Principal；任务和结果同时校验 principal、task、query 与 actor；越权按不存在返回 | 长期静态 Token 没有设备绑定、短期会话、集中撤销或组织级权限 |
 | Carol 读取敏感原始结果 | Carol 只注册两个审计工具，凭证不含结果行 | 拥有控制库和数据密钥的管理员可以解密；审计元数据可能包含目标和 OA 信息 |
-| 客户端伪造授权字段 | 产品、字段和 Scope 必须显式且非空；Catalog 校验允许值和边界；客户端预算只能缩小；OA 展示并绑定授权快照 Hash | 审批人仍须核对快照，不能只阅读自然语言目的 |
+| 客户端伪造授权字段 | 身份字段由 Gateway 生成；产品、字段和 Scope 必须显式且非空；OA 展示并绑定 RFC 8785 `AuthorizationManifestV1` 摘要 | 不验证自然语言目标与查询语义；审批人仍须核对结构化 Manifest |
 | 恶意 QueryPlan | 本地编译器验证产品、字段、聚合、过滤、排序、literal 与 Limit，随后进入完整 SQL AST 策略 | 编译器或策略实现缺陷仍需模糊测试和攻击语料覆盖 |
 | SQL 注入、注释绕过或写操作 | PostgreSQL AST 单语句白名单、逻辑产品/字段/函数/运算符限制、Scope CTE、外层行限制 | Parser/策略缺陷和依赖漏洞仍可能存在 |
-| 策略失误后修改业务库 | 独立 `gateway_reader`、角色/连接/事务只读、仅 Reporting View `SELECT` | DBA 误授权、View 误暴露列或数据库漏洞可绕过应用意图 |
-| OA 回调伪造、重放或乱序 | HMAC-SHA256 原始 Body、双时间窗口、Event ID、草稿/版本/context/actor/state/快照 Hash 校验；回调行锁与事务幂等 | 共享密钥没有 Key ID/轮换；Demo OA Outbox 不持久 |
-| 并发查询超预算 | 控制 PG 对任务、预算和查询记录加行锁；预留与结算均在事务中；同一任务只允许一个在途查询 | 单 Gateway 没有跨实例执行租约，不能安全横向扩容 |
-| Gateway 崩溃遗留预算/回调 | 启动恢复将 RESERVED 查询保守计费并标记 INTERRUPTED，将 PROCESSING 回调设为可重试；结算失败使 readiness 失败并后台重试 | 保守计费可能高于实际消耗；业务查询取消仍依赖连接断开 |
+| 策略失误后修改业务库 | 非 owner、非 superuser、无 `BYPASSRLS` 的独立 `gateway_reader`；角色/连接/事务只读；仅 Reporting View `SELECT`；Schema Attestation | DBA 误授权、View 内容语义错误或数据库漏洞可绕过应用意图 |
+| OA 回调伪造、重放或乱序 | HMAC-SHA256 认证原始 Body；Event ID/状态/context/actor 校验；独立 OA Ed25519 回执绑定 Manifest 与最终 Grant；事务幂等 | Demo OA Outbox 不持久；密钥轮换仍需外部运维 |
+| 并发/重试查询超预算 | 控制 PG 对任务和预算加行锁；`(task_id, request_id)` 唯一；预留与结算在事务中；同一任务一个在途查询 | 单 Gateway 没有跨实例执行租约，不能安全横向扩容 |
+| Gateway 崩溃遗留预算/回调 | 启动恢复将 RESERVED 查询保守计费并标记 `INDETERMINATE`，禁止同 request ID 重执行；PROCESSING 回调可重试 | 保守计费可能高于实际消耗；不声称立即取消已在途查询 |
 | 并发审计链分叉或序列空洞 | 单行 `audit_chain_head` 通过 `SELECT ... FOR UPDATE` 串行化；连续序号、事件和链头在同一事务提交 | 没有外部时间戳、签名锚或独立 WORM 副本；高写入量时链头是串行瓶颈 |
 | Grant/审计记录被应用修改 | PostgreSQL Trigger 禁止 UPDATE/DELETE，逐事件 SHA-256 链可验证 | 超级用户可禁用 Trigger 并重建整条链 |
 | 磁盘结果泄露或篡改 | AES-256-GCM 随机 Nonce，AAD 绑定 task/query，读取时校验明文 SHA-256 | 任务、Scope、Grant、预算与审计元数据未加密；密钥位于环境变量且无轮换/Key ID |
-| 本机网络窃听 | Gateway、OA 和两个 PG 端口只绑定 `127.0.0.1` | 本地仍使用明文 HTTP/PG；同机恶意进程可尝试连接或截获凭据 |
+| 本机网络窃听 | Gateway、OA 和 Control PG 绑定 `127.0.0.1`；Business PG 默认仅内部网络 | 本地仍使用明文 HTTP/PG；同机恶意进程可尝试连接或截获凭据 |
 | 浏览器会话伪造与 CSRF | 签名 Cookie、bcrypt、`HttpOnly`、`SameSite=Lax`、CSRF Token、CSP | 本地 HTTP Cookie 无 `Secure`；无 MFA、锁定、SSO 与登录审计 |
 | DoS 与成本滥用 | HTTP Body/Timeout、连接池、数据库 Timeout、任务预算和结果行上限 | 目录和任务申请缺少租户配额、速率限制和异常检测 |
 | 容器逃逸或供应链攻击 | 非 root、只读根文件系统、`no-new-privileges` | 未固定所有镜像 Digest，缺少定制 seccomp/AppArmor、签名和 SBOM 门禁 |
@@ -38,11 +38,11 @@ Gateway 不向外部模型或翻译服务发送目标、Catalog、SQL 或结果�
 
 查询结果会以明文返回给获批 Alice 的 MCP 客户端；数据库加密只保护控制库中的静态结果，不是端到端显示控制。终端历史、截图、Agent 工具或用户后续复制均在 Gateway 边界之外。
 
-两个 PostgreSQL 虽然为本机调试开放 25433/25434，但仅绑定回环地址。控制库与业务库使用不同数据库、角色、密码和 Volume，业务只读账号无法访问控制库。
+默认论文部署不向宿主机发布 Business PostgreSQL 端口；只有 Gateway 所在内部网络可达。`compose.debug.yaml` 是明确标记的非论文调试覆盖，可将业务库绑定到宿主机回环地址。控制库与业务库使用不同数据库、角色、密码和 Volume，业务只读账号无法访问控制库。
 
 ## 需要运营配合的边界
 
-- Catalog 管理员必须保证逻辑字段与 Reporting View 一致，且 View 不包含未发布敏感列。
+- Catalog 管理员必须保证字段的业务语义正确且 View 不包含未发布敏感列；自动 Attestation 只校验列顺序与 PostgreSQL 类型，不能证明语义。
 - `.env` 应保持 Git 忽略并收紧文件权限；数据密钥需与控制库备份一起安全管理。
 - Catalog 升级前应排空或重新申请 ACTIVE 任务，因为版本不一致会关闭式拒绝查询。
 - 应监控回调重试、启动恢复、数据库 Timeout、预算耗尽、结算重试、readiness 和审计链验证。

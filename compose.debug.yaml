@@ -1,0 +1,14 @@
+# NON-PAPER DEBUG OVERRIDE.
+# This file deliberately publishes database ports to the host loopback
+# interface for local inspection. Reproducible paper deployments use only
+# compose.yaml, where Business PostgreSQL has no host-published port.
+services:
+  business-postgres:
+    ports:
+      - 127.0.0.1:${POSTGRES_PORT:-25434}:5432
+    networks:
+      - business-data
+      - debug-host
+
+networks:
+  debug-host:

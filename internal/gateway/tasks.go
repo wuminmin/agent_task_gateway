@@ -100,23 +100,36 @@ func (s *Service) requestDataTask(ctx context.Context, principal mcp.Principal, 
 		return nil, err
 	}
 
+	// Products, columns, and enum scopes are sets in the authorization model.
+	// Normalize them before hashing because RFC 8785 preserves array order.
+	sort.Strings(args.DataProducts)
+	for product := range columns {
+		sort.Strings(columns[product])
+	}
+	normalizeScopeSets(scope)
+
 	taskID := randomID("task")
 	correlation := randomID("callback")
+	manifest := approval.AuthorizationManifestV1{
+		Version: domain.AuthorizationManifestV1Version, TaskID: taskID,
+		HumanSubject: principal.Subject, AgentID: principal.ID, DeclaredObjective: args.Objective,
+		Products: append([]string(nil), args.DataProducts...), ApprovedColumns: cloneColumns(columns),
+		MandatoryScope: cloneScope(scope), Sensitivity: policy.Sensitivity,
+		Budget: authorizationBudget(policy.Budget), CatalogVersion: s.catalog.CatalogVersion,
+		CatalogSHA256: s.catalog.SHA256, CallbackContext: correlation,
+		Nonce: strings.TrimPrefix(randomID(""), "_"),
+	}
 	draftRequest := approval.DraftRequest{
-		TaskID: taskID, Requester: principal.Subject, Objective: args.Objective,
-		DataProducts: append([]string(nil), args.DataProducts...), ApprovedColumns: cloneColumns(columns),
-		MandatoryScope: cloneScope(scope), Sensitivity: string(policy.Sensitivity),
-		Budget:       approvalDraftBudget(policy.Budget),
+		Manifest:     manifest,
 		ApprovalMode: string(policy.ApprovalRoute.Mode), Approver: policy.ApprovalRoute.Approver,
-		CatalogVersion: s.catalog.CatalogVersion, CallbackContext: correlation,
 	}
 	snapshotSHA256, err := approval.AuthorizationSnapshotSHA256(draftRequest)
 	if err != nil {
 		return nil, err
 	}
-	draftRequest.AuthorizationSnapshotSHA256 = snapshotSHA256
+	draftRequest.ManifestDigest = snapshotSHA256
 	if err := approval.ValidateAuthorizationSnapshot(draftRequest); err != nil {
-		return nil, fmt.Errorf("build OA authorization snapshot: %w", err)
+		return nil, fmt.Errorf("build OA authorization manifest: %w", err)
 	}
 	pending := pendingContext{
 		Products: args.DataProducts, Columns: columns, MandatoryScope: scope, Budget: policy.Budget,
@@ -124,7 +137,7 @@ func (s *Service) requestDataTask(ctx context.Context, principal mcp.Principal, 
 		Approver: policy.ApprovalRoute.Approver, CallbackContext: correlation,
 	}
 	pendingJSON, err := json.Marshal(persistedPendingContext{
-		pendingContext: pending, AuthorizationSnapshotSHA256: snapshotSHA256,
+		pendingContext: pending, Manifest: manifest, ManifestDigest: snapshotSHA256,
 	})
 	if err != nil {
 		return nil, err
@@ -149,7 +162,7 @@ func (s *Service) requestDataTask(ctx context.Context, principal mcp.Principal, 
 	return map[string]any{
 		"task_id": taskID, "state": control.TaskAwaitingSubmission, "oa_url": draft.URL,
 		"approval_mode": string(policy.ApprovalRoute.Mode), "sensitivity": string(policy.Sensitivity),
-		"catalog_version": s.catalog.CatalogVersion,
+		"catalog_version": s.catalog.CatalogVersion, "manifest_digest": snapshotSHA256,
 		"budget": map[string]any{"max_queries": policy.Budget.MaxQueries, "max_rows": policy.Budget.MaxRows,
 			"max_db_ms": policy.Budget.MaxDBTime.Milliseconds(), "query_timeout_ms": policy.Budget.PerQueryTimeout.Milliseconds(),
 			"task_ttl_seconds": int64(policy.Budget.TaskTTL.Seconds())},
@@ -469,12 +482,17 @@ func (s *Service) getTaskContext(ctx context.Context, principal mcp.Principal, r
 	if err := json.Unmarshal(grant.MandatoryScope, &mandatoryScope); err != nil {
 		return nil, err
 	}
+	finalGrant, err := approval.DecodeTaskGrantV1(grant.ApprovalReceipt)
+	if err != nil {
+		return nil, fmt.Errorf("decode persisted task grant: %w", err)
+	}
 	return map[string]any{
 		"task": publicTask(task), "subject": grant.Subject, "purpose": grant.Purpose,
 		"approved_products": grant.ApprovedProducts, "approved_columns": grant.ApprovedColumns,
 		"mandatory_scope": mandatoryScope, "sensitivity_ceiling": grant.SensitivityCeiling,
 		"expires_at": grant.ExpiresAt, "catalog_version": grant.CatalogVersion,
-		"approval_receipt": grant.ApprovalReceipt, "budget": publicBudget(budget),
+		"manifest_digest": finalGrant.Core.ManifestDigest, "task_grant": finalGrant,
+		"approval_receipt": finalGrant.ApprovalReceipt, "budget": publicBudget(budget),
 	}, nil
 }
 
@@ -524,26 +542,51 @@ func (s *Service) completeTask(ctx context.Context, principal mcp.Principal, raw
 	return publicTask(updated), nil
 }
 
+func (s *Service) revokeTask(ctx context.Context, principal mcp.Principal, raw json.RawMessage) (any, error) {
+	var args struct {
+		TaskID string `json:"task_id"`
+		Reason string `json:"reason,omitempty"`
+	}
+	if err := decodeArgs(raw, &args); err != nil {
+		return nil, err
+	}
+	if len(args.Reason) > 1000 {
+		return nil, &mcp.ToolError{Code: apierr.CodeInvalidRequest, Message: "reason 过长"}
+	}
+	task, err := s.ownedTask(ctx, principal, args.TaskID)
+	if err != nil {
+		return nil, err
+	}
+	if task.State == control.TaskArchived {
+		return nil, &mcp.ToolError{Code: apierr.CodeTaskNotActive, Message: "任务已经处于终态"}
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"reason":              args.Reason,
+		"in_flight_semantics": "not_cancelled; bounded by the approved timeout and grant expiry",
+	})
+	updated, err := s.store.TransitionTask(ctx, control.TaskTransition{
+		TaskID: task.ID, ExpectedFrom: task.State, To: control.TaskArchived,
+		Reason: control.TerminalRevoked, Actor: principal.Subject, Payload: payload,
+	})
+	if err != nil {
+		return nil, err
+	}
+	result := publicTask(updated)
+	result["in_flight_queries_cancelled"] = false
+	return result, nil
+}
+
 type persistedPendingContext struct {
 	pendingContext
-	AuthorizationSnapshotSHA256 string `json:"authorization_snapshot_sha256"`
+	Manifest       approval.AuthorizationManifestV1 `json:"authorization_manifest"`
+	ManifestDigest string                           `json:"manifest_digest"`
 }
 
-func approvalDraftBudget(budget domain.Budget) approval.DraftBudget {
-	return approval.DraftBudget{
-		MaxQueries: budget.MaxQueries, MaxRows: budget.MaxRows,
-		MaxDBMS: budget.MaxDBTime.Milliseconds(), QueryTimeoutMS: budget.PerQueryTimeout.Milliseconds(),
+func authorizationBudget(budget domain.Budget) approval.AuthorizationBudgetV1 {
+	return approval.AuthorizationBudgetV1{
+		MaxQueries: budget.MaxQueries, MaxResultRows: budget.MaxRows,
+		MaxDBMS: budget.MaxDBTime.Milliseconds(), PerQueryTimeoutMS: budget.PerQueryTimeout.Milliseconds(),
 		TaskTTLMS: budget.TaskTTL.Milliseconds(),
-	}
-}
-
-func authorizationDraftForPending(task control.Task, requester string, pending pendingContext) approval.DraftRequest {
-	return approval.DraftRequest{
-		TaskID: task.ID, Requester: requester, Objective: task.Objective,
-		DataProducts: append([]string(nil), pending.Products...), ApprovedColumns: cloneColumns(pending.Columns),
-		MandatoryScope: cloneScope(pending.MandatoryScope), Sensitivity: string(pending.Sensitivity),
-		Budget: approvalDraftBudget(pending.Budget), ApprovalMode: string(pending.ApprovalMode), Approver: pending.Approver,
-		CatalogVersion: task.CatalogVersion, CallbackContext: pending.CallbackContext,
 	}
 }
 
@@ -558,8 +601,12 @@ func decodePersistedPending(task control.Task) (persistedPendingContext, error) 
 	if len(pending.Products) == 0 || len(pending.Columns) == 0 || pending.Budget.Validate() != nil || pending.CallbackContext == "" {
 		return persisted, fmt.Errorf("invalid pending task context")
 	}
-	if len(persisted.AuthorizationSnapshotSHA256) != 64 {
-		return persisted, fmt.Errorf("invalid pending authorization snapshot")
+	if err := persisted.Manifest.Validate(); err != nil {
+		return persisted, fmt.Errorf("invalid pending authorization manifest: %w", err)
+	}
+	digest, err := approval.ManifestDigest(persisted.Manifest)
+	if err != nil || !sameSnapshotSHA256(digest, persisted.ManifestDigest) {
+		return persisted, fmt.Errorf("invalid pending authorization manifest digest")
 	}
 	return persisted, nil
 }
@@ -567,4 +614,21 @@ func decodePersistedPending(task control.Task) (persistedPendingContext, error) 
 func decodePending(task control.Task) (pendingContext, error) {
 	persisted, err := decodePersistedPending(task)
 	return persisted.pendingContext, err
+}
+
+func normalizeScopeSets(scope map[string]any) {
+	for name, value := range scope {
+		switch typed := value.(type) {
+		case []string:
+			sort.Strings(typed)
+			scope[name] = typed
+		case []any:
+			sort.Slice(typed, func(i, j int) bool {
+				left, _ := typed[i].(string)
+				right, _ := typed[j].(string)
+				return left < right
+			})
+			scope[name] = typed
+		}
+	}
 }

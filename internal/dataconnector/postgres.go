@@ -30,6 +30,7 @@ const (
 	CodeInvalidQuery  ErrorCode = "DATA_CONNECTOR_INVALID_QUERY"
 	CodeQueryFailed   ErrorCode = "DATA_CONNECTOR_QUERY_FAILED"
 	CodeQueryTimeout  ErrorCode = "DATA_CONNECTOR_QUERY_TIMEOUT"
+	CodeSchemaDrift   ErrorCode = "DATA_CONNECTOR_SCHEMA_DRIFT"
 )
 
 // Error wraps an internal cause for logs while keeping Error() safe for an API
@@ -52,6 +53,8 @@ func (e *Error) Error() string {
 		return string(e.Code) + ": the executable query is invalid"
 	case CodeQueryTimeout:
 		return string(e.Code) + ": the database statement timed out"
+	case CodeSchemaDrift:
+		return string(e.Code) + ": reporting schema does not match the approved catalog"
 	default:
 		return string(e.Code) + ": the read-only query failed"
 	}
@@ -83,6 +86,21 @@ type Config struct {
 	MaxRows          int64
 	MaxConnections   int32
 	ApplicationName  string
+	ExpectedSchema   []ViewSchema
+}
+
+// ViewSchema is the catalog-pinned shape of one PostgreSQL reporting view.
+// Column order is significant because SELECT * is forbidden and result
+// metadata must remain stable across an approved task's lifetime.
+type ViewSchema struct {
+	Schema  string
+	View    string
+	Columns []SchemaColumn
+}
+
+type SchemaColumn struct {
+	Name           string
+	PostgreSQLType string
 }
 
 // QueryRequest accepts only already-authorized executable SQL. Client
@@ -114,6 +132,7 @@ type Connector struct {
 	pool             *pgxpool.Pool
 	statementTimeout time.Duration
 	maxRows          int64
+	expectedSchema   []ViewSchema
 }
 
 // New validates config, builds a pgx/v5 pool, and verifies connectivity. The
@@ -146,11 +165,17 @@ func New(ctx context.Context, config Config) (*Connector, error) {
 		pool.Close()
 		return nil, connectorError(CodeConnection, err)
 	}
-	return &Connector{
+	connector := &Connector{
 		pool:             pool,
 		statementTimeout: normalized.StatementTimeout,
 		maxRows:          normalized.MaxRows,
-	}, nil
+		expectedSchema:   cloneViewSchemas(normalized.ExpectedSchema),
+	}
+	if err := connector.AttestSchema(connectContext); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	return connector, nil
 }
 
 // Close releases all PostgreSQL connections.
@@ -167,6 +192,43 @@ func (c *Connector) Ping(ctx context.Context) error {
 	}
 	if err := c.pool.Ping(ctx); err != nil {
 		return connectorError(CodeConnection, err)
+	}
+	return c.AttestSchema(ctx)
+}
+
+// AttestSchema compares every expected reporting view column and PostgreSQL
+// type against the live database. It is called at startup and on readiness so
+// drift closes the execution path instead of silently changing L(G).
+func (c *Connector) AttestSchema(ctx context.Context) error {
+	if c == nil || c.pool == nil {
+		return connectorError(CodeConnection, errors.New("connector is closed"))
+	}
+	for _, expected := range c.expectedSchema {
+		rows, err := c.pool.Query(ctx, `
+SELECT column_name, data_type
+FROM information_schema.columns
+WHERE table_schema=$1 AND table_name=$2
+ORDER BY ordinal_position`, expected.Schema, expected.View)
+		if err != nil {
+			return connectorError(CodeConnection, err)
+		}
+		var actual []SchemaColumn
+		for rows.Next() {
+			var column SchemaColumn
+			if err := rows.Scan(&column.Name, &column.PostgreSQLType); err != nil {
+				rows.Close()
+				return connectorError(CodeConnection, err)
+			}
+			actual = append(actual, column)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return connectorError(CodeConnection, err)
+		}
+		rows.Close()
+		if !sameSchemaColumns(expected.Columns, actual) {
+			return connectorError(CodeSchemaDrift, errors.New("catalog/view mismatch"))
+		}
 	}
 	return nil
 }
@@ -268,7 +330,39 @@ func normalizeConfig(config Config) (Config, error) {
 	if config.ApplicationName == "" {
 		config.ApplicationName = "taskbound-agent-data-gateway"
 	}
+	for _, view := range config.ExpectedSchema {
+		if strings.TrimSpace(view.Schema) == "" || strings.TrimSpace(view.View) == "" || len(view.Columns) == 0 {
+			return Config{}, connectorError(CodeInvalidConfig, errors.New("invalid expected reporting schema"))
+		}
+		for _, column := range view.Columns {
+			if strings.TrimSpace(column.Name) == "" || strings.TrimSpace(column.PostgreSQLType) == "" {
+				return Config{}, connectorError(CodeInvalidConfig, errors.New("invalid expected reporting column"))
+			}
+		}
+	}
 	return config, nil
+}
+
+func sameSchemaColumns(expected, actual []SchemaColumn) bool {
+	if len(expected) != len(actual) {
+		return false
+	}
+	for index := range expected {
+		if expected[index].Name != actual[index].Name ||
+			strings.ToLower(strings.TrimSpace(expected[index].PostgreSQLType)) != strings.ToLower(strings.TrimSpace(actual[index].PostgreSQLType)) {
+			return false
+		}
+	}
+	return true
+}
+
+func cloneViewSchemas(source []ViewSchema) []ViewSchema {
+	result := make([]ViewSchema, len(source))
+	for index, view := range source {
+		result[index] = view
+		result[index].Columns = append([]SchemaColumn(nil), view.Columns...)
+	}
+	return result
 }
 
 func clampRows(requested, maximum int64) int64 {

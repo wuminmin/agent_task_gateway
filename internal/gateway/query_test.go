@@ -8,9 +8,139 @@ import (
 	"taskbound.local/agent-data-gateway/internal/apierr"
 	"taskbound.local/agent-data-gateway/internal/control"
 	"taskbound.local/agent-data-gateway/internal/dataconnector"
+	"taskbound.local/agent-data-gateway/internal/domain"
 )
 
 const testSummarySQL = "SELECT month, total_amount FROM expense_summary"
+
+func TestRequestIDIsRequiredAndRetriesNeverExecuteTwice(t *testing.T) {
+	harness := newGatewayHarness(t)
+	harness.createActiveSummaryTask(t, "task-idempotent")
+
+	_, err := callGatewayTool(harness.service, harness.alice, "query_sql", map[string]any{
+		"task_id": "task-idempotent", "sql": testSummarySQL,
+	})
+	requireToolCode(t, err, apierr.CodeInvalidRequest)
+
+	first := mustCallGatewayTool(t, harness.service, harness.alice, "query_sql", map[string]any{
+		"task_id": "task-idempotent", "request_id": "client-request-001", "sql": testSummarySQL,
+	})
+	components, ok := first["component_ms"].(map[string]float64)
+	if !ok {
+		t.Fatalf("query response omitted component timings: %#v", first["component_ms"])
+	}
+	for _, name := range []string{"authorization", "parse_policy", "reserve", "business_postgresql", "connector_overhead", "result_encoding", "encryption", "settle_persist", "receipt_signing"} {
+		if value, found := components[name]; !found || value < 0 {
+			t.Fatalf("component timing %q = %v, present=%v", name, value, found)
+		}
+	}
+	replay := mustCallGatewayTool(t, harness.service, harness.alice, "query_sql", map[string]any{
+		"task_id": "task-idempotent", "request_id": "client-request-001", "sql": testSummarySQL,
+	})
+	if first["query_id"] != replay["query_id"] || replay["idempotent_replay"] != true {
+		t.Fatalf("retry did not return the first durable result: first=%#v replay=%#v", first, replay)
+	}
+	if len(harness.connector.requests) != 1 {
+		t.Fatalf("connector calls = %d, want exactly one", len(harness.connector.requests))
+	}
+	budget, err := harness.store.GetBudget(context.Background(), "task-idempotent")
+	if err != nil {
+		t.Fatalf("GetBudget: %v", err)
+	}
+	if budget.Usage.UsedQueries != 1 {
+		t.Fatalf("used queries = %d, want 1", budget.Usage.UsedQueries)
+	}
+
+	_, err = callGatewayTool(harness.service, harness.alice, "query_sql", map[string]any{
+		"task_id": "task-idempotent", "request_id": "client-request-001", "sql": "SELECT month FROM expense_summary",
+	})
+	requireToolCode(t, err, apierr.CodeConflict)
+	if len(harness.connector.requests) != 1 {
+		t.Fatalf("conflicting retry reached connector: %d calls", len(harness.connector.requests))
+	}
+
+	mustCallGatewayTool(t, harness.service, harness.alice, "revoke_task", map[string]any{
+		"task_id": "task-idempotent", "reason": "test revocation",
+	})
+	afterRevocation := mustCallGatewayTool(t, harness.service, harness.alice, "query_sql", map[string]any{
+		"task_id": "task-idempotent", "request_id": "client-request-001", "sql": testSummarySQL,
+	})
+	if afterRevocation["query_id"] != first["query_id"] || len(harness.connector.requests) != 1 {
+		t.Fatalf("retry after revocation was not observational: %#v", afterRevocation)
+	}
+	_, err = callGatewayTool(harness.service, harness.alice, "query_sql", map[string]any{
+		"task_id": "task-idempotent", "request_id": "client-request-002", "sql": testSummarySQL,
+	})
+	requireToolCode(t, err, apierr.CodeTaskNotActive)
+}
+
+func TestSchemaDriftFailsQueryClosedBeforeReservation(t *testing.T) {
+	harness := newGatewayHarness(t)
+	harness.createActiveSummaryTask(t, "task-schema-drift")
+	harness.connector.pingErr = &dataconnector.Error{Code: dataconnector.CodeSchemaDrift}
+
+	_, err := callGatewayTool(harness.service, harness.alice, "query_sql", map[string]any{
+		"task_id": "task-schema-drift", "request_id": "schema-drift-1", "sql": testSummarySQL,
+	})
+	requireToolCode(t, err, string(dataconnector.CodeSchemaDrift))
+	if len(harness.connector.requests) != 0 {
+		t.Fatalf("schema drift reached Query: %d calls", len(harness.connector.requests))
+	}
+	records, listErr := harness.store.ListQueries(context.Background(), "task-schema-drift", 10)
+	if listErr != nil {
+		t.Fatalf("ListQueries: %v", listErr)
+	}
+	if len(records) != 0 {
+		t.Fatalf("schema drift consumed a reservation: %#v", records)
+	}
+}
+
+func TestRevocationBlocksNewQueriesWithoutCancellingInFlightQuery(t *testing.T) {
+	harness := newGatewayHarness(t)
+	harness.createActiveSummaryTask(t, "task-revoke-in-flight")
+	started := make(chan struct{})
+	release := make(chan struct{})
+	harness.connector.started = started
+	harness.connector.release = release
+
+	type callResult struct {
+		value map[string]any
+		err   error
+	}
+	finished := make(chan callResult, 1)
+	go func() {
+		value, err := callGatewayTool(harness.service, harness.alice, "query_sql", map[string]any{
+			"task_id": "task-revoke-in-flight", "request_id": "in-flight-1", "sql": testSummarySQL,
+		})
+		finished <- callResult{value: value, err: err}
+	}()
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("query did not reach connector")
+	}
+
+	revoked := mustCallGatewayTool(t, harness.service, harness.alice, "revoke_task", map[string]any{
+		"task_id": "task-revoke-in-flight", "reason": "operator revoked task",
+	})
+	if revoked["terminal_reason"] != control.TerminalRevoked || revoked["in_flight_queries_cancelled"] != false {
+		t.Fatalf("unexpected revocation response: %#v", revoked)
+	}
+	close(release)
+	select {
+	case completed := <-finished:
+		if completed.err != nil || completed.value["status"] != control.QueryCompleted {
+			t.Fatalf("in-flight query was not allowed to settle: value=%#v err=%v", completed.value, completed.err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("in-flight query did not settle after revocation")
+	}
+
+	_, err := callGatewayTool(harness.service, harness.alice, "query_sql", map[string]any{
+		"task_id": "task-revoke-in-flight", "request_id": "after-revoke-1", "sql": testSummarySQL,
+	})
+	requireToolCode(t, err, apierr.CodeTaskNotActive)
+}
 
 func TestQueryEncodingFailureSettlesActualUsage(t *testing.T) {
 	harness := newGatewayHarness(t)
@@ -23,7 +153,7 @@ func TestQueryEncodingFailureSettlesActualUsage(t *testing.T) {
 	}
 
 	_, err := callGatewayTool(harness.service, harness.alice, "query_sql", map[string]any{
-		"task_id": "task-encoding-failure", "sql": testSummarySQL,
+		"task_id": "task-encoding-failure", "request_id": "encoding-failure-1", "sql": testSummarySQL,
 	})
 	if err == nil {
 		t.Fatal("query_sql succeeded with a JSON-unsupported result")
@@ -50,7 +180,7 @@ FOR EACH ROW EXECUTE FUNCTION force_result_finalization_failure_fn()`); err != n
 	harness.connector.result.DatabaseTime = 11 * time.Millisecond
 
 	_, err := callGatewayTool(harness.service, harness.alice, "query_sql", map[string]any{
-		"task_id": "task-finalization-failure", "sql": testSummarySQL,
+		"task_id": "task-finalization-failure", "request_id": "finalization-failure-1", "sql": testSummarySQL,
 	})
 	if err == nil {
 		t.Fatal("query_sql succeeded despite forced result finalization failure")
@@ -77,7 +207,7 @@ EXECUTE FUNCTION force_query_settlement_failure_fn()`); err != nil {
 	}
 
 	_, err := callGatewayTool(harness.service, harness.alice, "query_sql", map[string]any{
-		"task_id": "task-settlement-retry", "sql": testSummarySQL,
+		"task_id": "task-settlement-retry", "request_id": "settlement-retry-1", "sql": testSummarySQL,
 	})
 	if err == nil {
 		t.Fatal("query_sql succeeded despite forced settlement failure")
@@ -108,7 +238,7 @@ EXECUTE FUNCTION force_query_settlement_failure_fn()`); err != nil {
 	requireChargedUsage(t, record, 1, 2, resultFinalizationFailed)
 }
 
-func TestConnectorErrorSettlesReturnedUsageAndStableCode(t *testing.T) {
+func TestConnectorAmbiguityChargesReservationAndUsesStableCode(t *testing.T) {
 	harness := newGatewayHarness(t)
 	harness.createActiveSummaryTask(t, "task-connector-failure")
 	harness.connector.result = dataconnector.Result{
@@ -119,14 +249,50 @@ func TestConnectorErrorSettlesReturnedUsageAndStableCode(t *testing.T) {
 	harness.connector.queryErr = &dataconnector.Error{Code: dataconnector.CodeQueryTimeout}
 
 	_, err := callGatewayTool(harness.service, harness.alice, "query_sql", map[string]any{
-		"task_id": "task-connector-failure", "sql": testSummarySQL,
+		"task_id": "task-connector-failure", "request_id": "connector-failure-1", "sql": testSummarySQL,
 	})
 	if err == nil {
 		t.Fatal("query_sql succeeded despite connector error")
 	}
 
-	record := requireSingleSettledQuery(t, harness, "task-connector-failure")
-	requireChargedUsage(t, record, 2, 9, string(dataconnector.CodeQueryTimeout))
+	record := requireSingleQuery(t, harness, "task-connector-failure")
+	if record.Status != control.QueryIndeterminate {
+		t.Fatalf("query status = %s, want %s", record.Status, control.QueryIndeterminate)
+	}
+	requireChargedUsage(t, record, 500, 5000, string(dataconnector.CodeQueryTimeout))
+	replay := mustCallGatewayTool(t, harness.service, harness.alice, "query_sql", map[string]any{
+		"task_id": "task-connector-failure", "request_id": "connector-failure-1", "sql": testSummarySQL,
+	})
+	if replay["status"] != control.QueryIndeterminate || replay["idempotent_replay"] != true || len(harness.connector.requests) != 1 {
+		t.Fatalf("indeterminate request was not terminally replayed: %#v calls=%d", replay, len(harness.connector.requests))
+	}
+}
+
+func TestDefinitePreExecutionConnectorFailureReleasesAndNeverRetriesRequestID(t *testing.T) {
+	harness := newGatewayHarness(t)
+	harness.createActiveSummaryTask(t, "task-connection-failure")
+	harness.connector.queryErr = &dataconnector.Error{Code: dataconnector.CodeConnection}
+
+	arguments := map[string]any{
+		"task_id": "task-connection-failure", "request_id": "connection-failure-1", "sql": testSummarySQL,
+	}
+	_, err := callGatewayTool(harness.service, harness.alice, "query_sql", arguments)
+	requireToolCode(t, err, string(dataconnector.CodeConnection))
+	record := requireSingleQuery(t, harness, "task-connection-failure")
+	if record.Status != control.QueryReleased || record.ChargedQueries != 0 || record.ChargedRows != 0 || record.ChargedDBMS != 0 {
+		t.Fatalf("definite pre-execution failure was charged: %+v", record)
+	}
+	replay := mustCallGatewayTool(t, harness.service, harness.alice, "query_sql", arguments)
+	if replay["status"] != control.QueryReleased || replay["idempotent_replay"] != true {
+		t.Fatalf("released request did not replay its status: %#v", replay)
+	}
+	if len(harness.connector.requests) != 1 {
+		t.Fatalf("released request was executed again: %d connector calls", len(harness.connector.requests))
+	}
+	budget, err := harness.store.GetBudget(context.Background(), "task-connection-failure")
+	if err != nil || budget.Usage != (control.BudgetUsage{}) {
+		t.Fatalf("released request changed used budget: %+v, %v", budget, err)
+	}
 }
 
 func TestGrantExpiryBoundsStatementAndQueryTimeoutsAndRejectsExpiredGrant(t *testing.T) {
@@ -140,7 +306,7 @@ func TestGrantExpiryBoundsStatementAndQueryTimeoutsAndRejectsExpiredGrant(t *tes
 	harness.clock.value = grant.ExpiresAt.Add(-grantWindow)
 
 	_, err = callGatewayTool(harness.service, harness.alice, "query_sql", map[string]any{
-		"task_id": "task-expiry-bound", "sql": testSummarySQL,
+		"task_id": "task-expiry-bound", "request_id": "expiry-bound-1", "sql": testSummarySQL,
 	})
 	if err != nil {
 		t.Fatalf("query within grant lifetime: %v", err)
@@ -159,7 +325,7 @@ func TestGrantExpiryBoundsStatementAndQueryTimeoutsAndRejectsExpiredGrant(t *tes
 
 	harness.clock.value = grant.ExpiresAt
 	_, err = callGatewayTool(harness.service, harness.alice, "query_sql", map[string]any{
-		"task_id": "task-expiry-bound", "sql": testSummarySQL,
+		"task_id": "task-expiry-bound", "request_id": "expiry-bound-2", "sql": testSummarySQL,
 	})
 	requireToolCode(t, err, apierr.CodeTaskNotActive)
 	if len(harness.connector.requests) != 1 {
@@ -167,7 +333,44 @@ func TestGrantExpiryBoundsStatementAndQueryTimeoutsAndRejectsExpiredGrant(t *tes
 	}
 }
 
+func TestNarrowedSignedGrantControlsReservationAndStatementTimeout(t *testing.T) {
+	harness := newGatewayHarness(t)
+	harness.createNarrowedSummaryTask(t, "task-narrowed-execution", func(core *domain.TaskGrantCoreV1) {
+		core.Budget.MaxQueries = 2
+		core.Budget.MaxResultRows = 7
+		core.Budget.MaxDBMS = 1_500
+		core.Budget.PerQueryTimeoutMS = 750
+	})
+
+	result := mustCallGatewayTool(t, harness.service, harness.alice, "query_sql", map[string]any{
+		"task_id": "task-narrowed-execution", "request_id": "narrowed-execution-1", "sql": testSummarySQL,
+	})
+	if result["status"] != control.QueryCompleted {
+		t.Fatalf("narrowed query status = %#v, want %s", result["status"], control.QueryCompleted)
+	}
+	if len(harness.connector.requests) != 1 {
+		t.Fatalf("connector calls = %d, want 1", len(harness.connector.requests))
+	}
+	request := harness.connector.requests[0]
+	if request.MaxRows != 7 || request.StatementTimeout != 750*time.Millisecond {
+		t.Fatalf("connector bounds = (%d rows, %v), want (7 rows, 750ms)", request.MaxRows, request.StatementTimeout)
+	}
+	record := requireSingleSettledQuery(t, harness, "task-narrowed-execution")
+	if record.ReservedRows != 7 || record.ReservedDBMS != 750 {
+		t.Fatalf("reservation = (%d rows, %dms), want (7 rows, 750ms)", record.ReservedRows, record.ReservedDBMS)
+	}
+}
+
 func requireSingleSettledQuery(t *testing.T, harness *gatewayHarness, taskID string) control.QueryRecord {
+	t.Helper()
+	record := requireSingleQuery(t, harness, taskID)
+	if record.Status != control.QueryCompleted {
+		t.Fatalf("query status = %s, want %s", record.Status, control.QueryCompleted)
+	}
+	return record
+}
+
+func requireSingleQuery(t *testing.T, harness *gatewayHarness, taskID string) control.QueryRecord {
 	t.Helper()
 	records, err := harness.store.ListQueries(context.Background(), taskID, 10)
 	if err != nil {
@@ -175,9 +378,6 @@ func requireSingleSettledQuery(t *testing.T, harness *gatewayHarness, taskID str
 	}
 	if len(records) != 1 {
 		t.Fatalf("query records = %d, want 1", len(records))
-	}
-	if records[0].Status != control.QueryCompleted {
-		t.Fatalf("query status = %s, want %s", records[0].Status, control.QueryCompleted)
 	}
 	return records[0]
 }
