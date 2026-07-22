@@ -4,9 +4,14 @@ package dataconnector
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"fmt"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -80,22 +85,43 @@ func connectorError(code ErrorCode, cause error) error {
 // Config defines hard connector ceilings. A Query may request a shorter
 // timeout or smaller row count, but never enlarge these values.
 type Config struct {
-	DSN              string
-	StatementTimeout time.Duration
-	ConnectTimeout   time.Duration
-	MaxRows          int64
-	MaxConnections   int32
-	ApplicationName  string
-	ExpectedSchema   []ViewSchema
+	DSN                  string
+	StatementTimeout     time.Duration
+	ConnectTimeout       time.Duration
+	MaxRows              int64
+	MaxConnections       int32
+	ApplicationName      string
+	ExpectedSchema       []ViewSchema
+	ExpectedSchemaDigest string
+	ExpectedAttestation  ExpectedAttestation
+}
+
+// ExpectedAttestation pins the live PostgreSQL endpoint to the signed catalog
+// source instead of accepting any DSN that exposes a compatible schema.
+type ExpectedAttestation struct {
+	DatasourceID           string
+	Database               string
+	User                   string
+	PostgreSQLMajorVersion int
+}
+
+// Attestation is the datasource evidence carried into grants and receipts.
+type Attestation struct {
+	DatasourceID           string `json:"datasource_id"`
+	Database               string `json:"database"`
+	User                   string `json:"user"`
+	PostgreSQLMajorVersion int    `json:"postgres_major_version"`
+	SchemaDigest           string `json:"schema_digest"`
 }
 
 // ViewSchema is the catalog-pinned shape of one PostgreSQL reporting view.
 // Column order is significant because SELECT * is forbidden and result
 // metadata must remain stable across an approved task's lifetime.
 type ViewSchema struct {
-	Schema  string
-	View    string
-	Columns []SchemaColumn
+	Schema     string
+	View       string
+	Definition string
+	Columns    []SchemaColumn
 }
 
 type SchemaColumn struct {
@@ -129,10 +155,14 @@ type Result struct {
 
 // Connector owns a pgx connection pool. Its fields are immutable after New.
 type Connector struct {
-	pool             *pgxpool.Pool
-	statementTimeout time.Duration
-	maxRows          int64
-	expectedSchema   []ViewSchema
+	pool                 *pgxpool.Pool
+	statementTimeout     time.Duration
+	maxRows              int64
+	expectedSchema       []ViewSchema
+	expectedSchemaDigest string
+	expectedAttestation  ExpectedAttestation
+	attestationMu        sync.RWMutex
+	attestation          Attestation
 }
 
 // New validates config, builds a pgx/v5 pool, and verifies connectivity. The
@@ -166,12 +196,14 @@ func New(ctx context.Context, config Config) (*Connector, error) {
 		return nil, connectorError(CodeConnection, err)
 	}
 	connector := &Connector{
-		pool:             pool,
-		statementTimeout: normalized.StatementTimeout,
-		maxRows:          normalized.MaxRows,
-		expectedSchema:   cloneViewSchemas(normalized.ExpectedSchema),
+		pool:                 pool,
+		statementTimeout:     normalized.StatementTimeout,
+		maxRows:              normalized.MaxRows,
+		expectedSchema:       cloneViewSchemas(normalized.ExpectedSchema),
+		expectedSchemaDigest: normalized.ExpectedSchemaDigest,
+		expectedAttestation:  normalized.ExpectedAttestation,
 	}
-	if err := connector.AttestSchema(connectContext); err != nil {
+	if _, err := connector.Attestation(connectContext); err != nil {
 		pool.Close()
 		return nil, err
 	}
@@ -193,16 +225,78 @@ func (c *Connector) Ping(ctx context.Context) error {
 	if err := c.pool.Ping(ctx); err != nil {
 		return connectorError(CodeConnection, err)
 	}
-	return c.AttestSchema(ctx)
+	_, err := c.Attestation(ctx)
+	return err
 }
 
-// AttestSchema compares every expected reporting view column and PostgreSQL
-// type against the live database. It is called at startup and on readiness so
-// drift closes the execution path instead of silently changing L(G).
+// AttestSchema preserves the earlier readiness API while delegating to the full
+// datasource attestation used by query execution.
 func (c *Connector) AttestSchema(ctx context.Context) error {
+	_, err := c.Attestation(ctx)
+	return err
+}
+
+// Attestation verifies the configured datasource identity and reporting schema,
+// then returns the evidence that higher layers bind into signed grants and
+// gateway query receipts.
+func (c *Connector) Attestation(ctx context.Context) (Attestation, error) {
 	if c == nil || c.pool == nil {
-		return connectorError(CodeConnection, errors.New("connector is closed"))
+		return Attestation{}, connectorError(CodeConnection, errors.New("connector is closed"))
 	}
+	attestation, err := c.attestDatasource(ctx)
+	if err != nil {
+		return Attestation{}, err
+	}
+	c.attestationMu.Lock()
+	c.attestation = attestation
+	c.attestationMu.Unlock()
+	return attestation, nil
+}
+
+func (c *Connector) attestDatasource(ctx context.Context) (Attestation, error) {
+	attestation, err := c.liveIdentity(ctx)
+	if err != nil {
+		return Attestation{}, err
+	}
+	schemaDigest, err := c.attestSchemaDigest(ctx)
+	if err != nil {
+		return Attestation{}, err
+	}
+	attestation.SchemaDigest = schemaDigest
+	if err := c.compareAttestation(attestation); err != nil {
+		return Attestation{}, err
+	}
+	return attestation, nil
+}
+
+func (c *Connector) liveIdentity(ctx context.Context) (Attestation, error) {
+	expected := c.expectedAttestation
+	if expected == (ExpectedAttestation{}) {
+		return Attestation{}, nil
+	}
+	var attestation Attestation
+	var serverVersionNum string
+	err := c.pool.QueryRow(ctx, `
+SELECT COALESCE((SELECT datasource_id FROM reporting.datasource_attestation WHERE singleton = TRUE), ''),
+       current_database(), current_user, current_setting('server_version_num')`).Scan(
+		&attestation.DatasourceID, &attestation.Database, &attestation.User, &serverVersionNum,
+	)
+	if err != nil {
+		return Attestation{}, connectorError(CodeSchemaDrift, err)
+	}
+	major, err := postgresMajorVersion(serverVersionNum)
+	if err != nil {
+		return Attestation{}, connectorError(CodeSchemaDrift, err)
+	}
+	attestation.PostgreSQLMajorVersion = major
+	return attestation, nil
+}
+
+func (c *Connector) attestSchemaDigest(ctx context.Context) (string, error) {
+	if len(c.expectedSchema) == 0 {
+		return "", nil
+	}
+	actualSchemas := make([]ViewSchema, 0, len(c.expectedSchema))
 	for _, expected := range c.expectedSchema {
 		rows, err := c.pool.Query(ctx, `
 SELECT column_name, data_type
@@ -210,25 +304,64 @@ FROM information_schema.columns
 WHERE table_schema=$1 AND table_name=$2
 ORDER BY ordinal_position`, expected.Schema, expected.View)
 		if err != nil {
-			return connectorError(CodeConnection, err)
+			return "", connectorError(CodeConnection, err)
 		}
 		var actual []SchemaColumn
 		for rows.Next() {
 			var column SchemaColumn
 			if err := rows.Scan(&column.Name, &column.PostgreSQLType); err != nil {
 				rows.Close()
-				return connectorError(CodeConnection, err)
+				return "", connectorError(CodeConnection, err)
 			}
 			actual = append(actual, column)
 		}
 		if err := rows.Err(); err != nil {
 			rows.Close()
-			return connectorError(CodeConnection, err)
+			return "", connectorError(CodeConnection, err)
 		}
 		rows.Close()
 		if !sameSchemaColumns(expected.Columns, actual) {
-			return connectorError(CodeSchemaDrift, errors.New("catalog/view mismatch"))
+			return "", connectorError(CodeSchemaDrift, errors.New("catalog/view mismatch"))
 		}
+		definition, err := c.viewDefinition(ctx, expected)
+		if err != nil {
+			return "", err
+		}
+		actualSchemas = append(actualSchemas, ViewSchema{Schema: expected.Schema, View: expected.View, Definition: definition, Columns: actual})
+	}
+	digest, err := SchemaDigest(actualSchemas)
+	if err != nil {
+		return "", connectorError(CodeSchemaDrift, err)
+	}
+	return digest, nil
+}
+
+func (c *Connector) viewDefinition(ctx context.Context, expected ViewSchema) (string, error) {
+	var definition string
+	err := c.pool.QueryRow(ctx, `
+WITH taskgate_schema_digest_path AS (
+	SELECT set_config('search_path', 'pg_catalog', true)
+)
+SELECT pg_get_viewdef(format('%I.%I', $1::text, $2::text)::regclass, true)
+FROM taskgate_schema_digest_path`, expected.Schema, expected.View).Scan(&definition)
+	if err != nil {
+		return "", connectorError(CodeSchemaDrift, err)
+	}
+	return definition, nil
+}
+
+func (c *Connector) compareAttestation(actual Attestation) error {
+	expected := c.expectedAttestation
+	if expected != (ExpectedAttestation{}) {
+		if actual.DatasourceID != expected.DatasourceID ||
+			actual.Database != expected.Database ||
+			actual.User != expected.User ||
+			actual.PostgreSQLMajorVersion != expected.PostgreSQLMajorVersion {
+			return connectorError(CodeSchemaDrift, errors.New("datasource identity mismatch"))
+		}
+	}
+	if c.expectedSchemaDigest != "" && actual.SchemaDigest != c.expectedSchemaDigest {
+		return connectorError(CodeSchemaDrift, errors.New("schema digest mismatch"))
 	}
 	return nil
 }
@@ -340,7 +473,64 @@ func normalizeConfig(config Config) (Config, error) {
 			}
 		}
 	}
+	if config.ExpectedSchemaDigest != "" && !isSHA256Hex(config.ExpectedSchemaDigest) {
+		return Config{}, connectorError(CodeInvalidConfig, errors.New("invalid expected schema digest"))
+	}
+	expected := config.ExpectedAttestation
+	if expected != (ExpectedAttestation{}) {
+		if strings.TrimSpace(expected.DatasourceID) == "" || strings.TrimSpace(expected.Database) == "" ||
+			strings.TrimSpace(expected.User) == "" || expected.PostgreSQLMajorVersion <= 0 {
+			return Config{}, connectorError(CodeInvalidConfig, errors.New("invalid expected datasource attestation"))
+		}
+	}
 	return config, nil
+}
+
+func SchemaDigest(schemas []ViewSchema) (string, error) {
+	if len(schemas) == 0 {
+		return "", errors.New("schema digest requires at least one reporting view")
+	}
+	views := cloneViewSchemas(schemas)
+	sort.Slice(views, func(i, j int) bool {
+		left := views[i].Schema + "." + views[i].View
+		right := views[j].Schema + "." + views[j].View
+		return left < right
+	})
+	hash := sha256.New()
+	_, _ = hash.Write([]byte("TASKGATE-REPORTING-SCHEMA-V2\x00"))
+	for _, view := range views {
+		if strings.TrimSpace(view.Schema) == "" || strings.TrimSpace(view.View) == "" || len(view.Columns) == 0 {
+			return "", errors.New("invalid reporting view shape")
+		}
+		_, _ = fmt.Fprintf(hash, "%s\x00%s\x00%s\x00%d\x00", view.Schema, view.View, normalizeViewDefinition(view.Definition), len(view.Columns))
+		for _, column := range view.Columns {
+			if strings.TrimSpace(column.Name) == "" || strings.TrimSpace(column.PostgreSQLType) == "" {
+				return "", errors.New("invalid reporting column shape")
+			}
+			_, _ = fmt.Fprintf(hash, "%s\x00%s\x00", column.Name, strings.ToLower(strings.TrimSpace(column.PostgreSQLType)))
+		}
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+func normalizeViewDefinition(definition string) string {
+	return strings.Join(strings.Fields(definition), " ")
+}
+
+func postgresMajorVersion(serverVersionNum string) (int, error) {
+	value, err := strconv.Atoi(strings.TrimSpace(serverVersionNum))
+	if err != nil || value <= 0 {
+		return 0, errors.New("invalid PostgreSQL server_version_num")
+	}
+	return value / 10000, nil
+}
+
+func isSHA256Hex(value string) bool {
+	if len(value) != sha256.Size*2 || value != strings.ToLower(value) {
+		return false
+	}
+	decoded, err := hex.DecodeString(value)
+	return err == nil && len(decoded) == sha256.Size
 }
 
 func sameSchemaColumns(expected, actual []SchemaColumn) bool {
@@ -360,6 +550,7 @@ func cloneViewSchemas(source []ViewSchema) []ViewSchema {
 	result := make([]ViewSchema, len(source))
 	for index, view := range source {
 		result[index] = view
+		result[index].Definition = view.Definition
 		result[index].Columns = append([]SchemaColumn(nil), view.Columns...)
 	}
 	return result

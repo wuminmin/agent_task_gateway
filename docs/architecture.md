@@ -19,7 +19,7 @@ flowchart LR
 |---|---|---|
 | Agent / MCP 客户端 | 显式提交产品、字段、Scope、QueryPlan 或 SQL | Bearer Token 映射固定 Principal；Alice 只能访问自己的任务，Carol 只有审计工具 |
 | Gateway 控制面 | Catalog、任务状态、OA 回调、Grant、预算、结果与审计 | 独立控制 PG；行级锁串行化状态和预算；Grant/审计 Trigger 禁止修改；审计链头加锁后连续追加 |
-| 业务数据面 | 执行通过策略的查询 | 独立业务 PG；`gateway_reader` 仅有 Reporting Views 的 `SELECT`；只读事务、超时和行数上限 |
+| 业务数据面 | 执行通过策略的查询 | 独立业务 PG；`gateway_reader` 仅有 Datasource Attestation 表与 Reporting Views 的 `SELECT`；只读事务、超时和行数上限 |
 
 Docker 宿主机、Catalog 管理者及能读取 `.env`/Volume 的管理员属于可信运维域。默认只发布 Control PG 回环调试端口；Business PG 仅内部网络可达，只有非论文 `compose.debug.yaml` 覆盖会发布回环端口。两库账号、数据库和 Volume 相互独立。
 
@@ -34,7 +34,7 @@ Docker 宿主机、Catalog 管理者及能读取 `.env`/Volume 的管理员属�
 7. 策略把物理 Reporting View 封装为只暴露获批字段和强制 Scope 的 CTE，并在最外层施加剩余行预算。
 8. 控制库以 `(task_id, request_id)` 唯一约束和任务行锁完成幂等检查，再预留查询数、行数和 DB 时间。业务库在显式只读事务中执行；确定结果按实际量结算，无法确定则按预留上限计费并标记 `INDETERMINATE`。
 9. 结果以结构化 JSON 返回 Alice，并用 AES-256-GCM 加密保存到控制库；AAD 绑定 `task_id` 与 `query_id`，明文 SHA-256 用于完整性校验。
-10. Gateway 生成绑定 Manifest/Grant/Catalog、请求、预算、结果和审计位置的 Ed25519 `QueryReceiptV1`。状态事件进入全局审计 Hash Chain；该链只提供 Gateway 日志修改检测，不声称 WORM 或外部不可篡改。
+10. Gateway 生成并持久化绑定 Manifest/Grant/Catalog、请求、预算、结果、签名时间和审计位置的 Ed25519 V3 查询回执，并在 `/.well-known/taskgate/query-receipt-keyring.json` 发布 active/historical 验签公钥及有效/退役窗口。审计凭证返回终态事件、前驱事件、通向当前 checkpoint 的后继路径和 checkpoint，并在返回前重建 Hash Chain 校验。配置 `GATEWAY_AUDIT_ANCHOR_URL` 时，Gateway 会定期把当前 checkpoint 签名为 `taskgate-audit-checkpoint-anchor/v1` 并 POST 到外部日志/WORM 服务。未配置外部 Anchor 时，该链只提供 Gateway 日志修改检测，不声称 WORM 或外部不可篡改。
 
 ## 生命周期
 
@@ -49,13 +49,15 @@ ACTIVE              --complete-->  ARCHIVED(completed)
 ACTIVE 达到任一预算硬上限           ARCHIVED(budget_exhausted)
 ```
 
+任务归档后不再接受新的查询，但已有查询结果、查询记录、回执和审计证据仍按保留策略存在。`get_query_result` 允许任务所有者读取已保存的旧结果，直到结果保留清理删除 `encrypted_query_results` 密文，或管理员擦除该密文绑定的 `result_encryption_keys.key_id`；清理后原始行不可再读，Key 被标记 `ERASED` 后密文行仍保留但读取会 fail closed，查询记录、回执和审计链均仍保留。清理可由 `GATEWAY_RESULT_RETENTION_TTL` 调度，也可由带 `GATEWAY_ADMIN_TOKEN` 的管理员接口按截止时间触发；任务处于 active legal hold 时，其结果密文不会被保留清理删除。禁用 Principal 后，即使旧 Bearer Token 仍被客户端持有，Gateway 也不再列出或执行任何工具。
+
 ## 控制 PostgreSQL
 
 控制 Schema 使用 PostgreSQL 原生类型：时间为 `TIMESTAMPTZ`，JSON 为 `JSONB`，密文/Nonce/回调响应为 `BYTEA`，预算和审计序号为 `BIGINT`。应用写入时间统一为 UTC 微秒精度。
 
 Gateway 启动时执行嵌入式迁移，再完成中断恢复：
 
-- RESERVED 查询按完整预留量保守计费并标记 `INDETERMINATE`，禁止同一 `request_id` 自动重执行。
+- RESERVED 查询按完整预留量保守计费并标记 `INDETERMINATE`，同时在配置查询回执签名密钥时于同一恢复事务中写入 V3 回执；同一 `request_id` 禁止自动重执行。
 - PROCESSING 回调恢复为可重试。
 - 过期任务被归档。
 - 运行期结算持久化失败会使 readiness 失败并由后台重试。

@@ -156,6 +156,8 @@ func (s *Service) handleOACallback(w http.ResponseWriter, r *http.Request) {
 			Budget: control.BudgetLimits{Queries: finalGrant.Core.Budget.MaxQueries,
 				Rows: finalGrant.Core.Budget.MaxResultRows, DBMS: finalGrant.Core.Budget.MaxDBMS},
 			ExpiresAt: finalGrant.Core.ExpiresAt, CatalogVersion: finalGrant.Core.CatalogVersion,
+			CatalogDigest: finalGrant.Core.CatalogSHA256, DatasourceID: finalGrant.Core.DatasourceID,
+			SchemaDigest:    finalGrant.Core.SchemaDigest,
 			ApprovalReceipt: encodedGrant, CreatedAt: finalGrant.ApprovalReceipt.IssuedAt,
 		}
 	case "rejected":
@@ -212,7 +214,8 @@ func manifestMatchesTask(persisted persistedPendingContext, task control.Task, p
 	if manifest.TaskID != task.ID || manifest.HumanSubject != principal.Subject || manifest.AgentID != principal.ID ||
 		manifest.DeclaredObjective != task.Objective || manifest.CatalogVersion != task.CatalogVersion ||
 		manifest.CatalogSHA256 != catalogSHA256 || manifest.CallbackContext != pending.CallbackContext ||
-		manifest.Sensitivity != pending.Sensitivity {
+		manifest.Sensitivity != pending.Sensitivity || manifest.DatasourceID != pending.DatasourceID ||
+		manifest.SchemaDigest != pending.SchemaDigest {
 		return false
 	}
 	if manifest.Budget != authorizationBudget(pending.Budget) || !sameCanonicalJSON(manifest.Products, pending.Products) ||

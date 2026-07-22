@@ -3,12 +3,17 @@
   "name": "taskgate-sf1-four-baseline",
   "mode": "full",
   "seed": 20260722,
+  "workload_lineage": "TPC-derived",
+  "ordering_strategy": "seeded_random",
+  "cache_strategy": "warm",
+  "task_concurrency_mode": "distinct_task",
+  "environment_manifest_env": "EVAL_ENVIRONMENT_MANIFEST",
   "warmup_runs_per_worker": 5,
   "measured_runs_per_worker": 30,
   "concurrency": [1, 8, 32],
   "baseline_order": [
     "direct_postgresql",
-    "native_view_rls",
+    "native_view",
     "ast_only_gateway",
     "full_taskgate"
   ],
@@ -32,7 +37,7 @@
       "taskgate_tasks_file_env": "EVAL_TPCH_SF1_TASKS_FILE",
       "metrics_probe_env": {
         "direct_postgresql": "EVAL_TPCH_SF1_DIRECT_METRICS_COMMAND",
-        "native_view_rls": "EVAL_TPCH_SF1_NATIVE_METRICS_COMMAND",
+        "native_view": "EVAL_TPCH_SF1_NATIVE_METRICS_COMMAND",
         "ast_only_gateway": "EVAL_TPCH_SF1_AST_METRICS_COMMAND",
         "full_taskgate": "EVAL_TPCH_SF1_TASKGATE_METRICS_COMMAND"
       }
@@ -53,7 +58,7 @@
       "taskgate_tasks_file_env": "EVAL_TPCDS_SF1_TASKS_FILE",
       "metrics_probe_env": {
         "direct_postgresql": "EVAL_TPCDS_SF1_DIRECT_METRICS_COMMAND",
-        "native_view_rls": "EVAL_TPCDS_SF1_NATIVE_METRICS_COMMAND",
+        "native_view": "EVAL_TPCDS_SF1_NATIVE_METRICS_COMMAND",
         "ast_only_gateway": "EVAL_TPCDS_SF1_AST_METRICS_COMMAND",
         "full_taskgate": "EVAL_TPCDS_SF1_TASKGATE_METRICS_COMMAND"
       }

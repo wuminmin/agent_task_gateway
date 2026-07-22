@@ -1,9 +1,12 @@
 # Dataset preparation
 
-The repository does not redistribute TPC-H or TPC-DS data. Generate SF1 and
-SF10 with the licensed benchmark kits, import each generated dataset into a
-dedicated PostgreSQL 16 database, and retain the generator version and seed.
-Do not silently substitute synthetic rows in a paper run.
+The repository does not redistribute benchmark data. The checked workloads are
+TPC-derived, using a small fixed query subset over TPC-H/TPC-DS-shaped schemas.
+Generate SF1 and SF10 with the licensed benchmark kits or another documented
+generator, import each generated dataset into a dedicated PostgreSQL 16
+database, and retain the generator version and seed. Do not claim a standard
+TPC-H or TPC-DS result unless the official generator, query templates, run
+rules, and disclosure requirements are independently satisfied.
 
 After import, install the evaluation views as the database owner:
 
@@ -34,3 +37,8 @@ path (for the example above,
 `EVAL_*_DATASET_SHA256` to the exact 64-character lowercase SHA-256 printed by
 the script. The combined full-run preflight reads every SF1/SF10 manifest and
 verifies its digest before any measurements begin.
+
+For full runs, also copy `evaluation/environment/reference.json` to an ignored
+repository-local manifest, replace every placeholder with measured environment
+and post-import dataset facts, and point `EVAL_ENVIRONMENT_MANIFEST` at that
+container path. The runner records the manifest path and SHA-256 in `run.json`.

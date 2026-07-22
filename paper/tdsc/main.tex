@@ -54,8 +54,8 @@ choice between a broad reusable credential and repeated human approval.  We
 present \system, a task-bound authorization and continuous usage-control design
 for a deliberately narrow setting: restricted, read-only PostgreSQL~16
 \code{SELECT} queries.  An authenticated subject proposes a versioned manifest
-containing products, columns, mandatory row scopes, a catalog digest, expiry,
-and cumulative query, result-row, and database-time budgets.  An approval
+containing products, columns, mandatory row scopes, catalog and datasource
+digests, expiry, and cumulative query, result-row, and database-time budgets.  An approval
 service may reject or monotonically narrow that manifest.  A separate Go
 gateway then mediates every query, validates the PostgreSQL abstract syntax
 tree, injects scope predicates and an outer row limit, and reserves budget in a
@@ -383,11 +383,26 @@ $G$, $q\in\grantlang(G)$ only if all of the following hold:
 \begin{enumerate}
   \item $A(q)$ contains exactly one top-level \code{SELECT}; write statements,
   utility statements, locking forms, and disallowed constructs are absent;
-  \item every relation reference is an unqualified logical product in $P_G$;
-  every referenced column is in $C_G$; and stars or constructs that can expand
+  \item each \code{SELECT}, CTE, and subquery has its own lexical relation
+  scope.  A relation name denotes either an unqualified logical product in
+  $P_G$, a CTE, or a derived relation.  Aliases bind to that concrete product
+  or derived relation.  A qualified column must exist in the named relation;
+  an unqualified column is accepted only when it resolves to exactly one
+  in-scope relation.  Ambiguous names, stars, and constructs that can expand
   the approved projection are rejected;
-  \item every function, aggregate, and operator is in the catalog allowlist,
-  and system catalogs, schema-qualified agent objects, and dangerous
+  \item the implementation materializes a product-indexed authorization
+  environment
+  $E_G(p)=(R(p), C(p), F(p), A(p), O(p))$ for relation, approved columns,
+  scalar functions, aggregates, and operators.  Derived columns carry the set
+  of source products used to compute them;
+  \item a function, aggregate, or catalog-controlled operator over one product
+  must be in that product's allowlist.  An expression over multiple products
+  must use names in the intersection of the source products' allowlists.
+  Constant expressions that reference no data columns use a separate
+  task-global safe list.  Structural SQL nodes such as \code{AND}, \code{OR},
+  \code{NULL TEST}, and \code{CASE} are syntax, not catalog-controlled
+  functions or operators;
+  \item system catalogs, schema-qualified agent objects, and dangerous
   introspection or side-effecting functions are absent; and
   \item deterministic rewriting replaces each logical product with a CTE over
   its cataloged reporting view, exposing only approved columns and applying all
@@ -521,14 +536,16 @@ releases a reservation once it cannot establish that execution did not occur.
 \begin{enumerate}
   \item Authenticate; load owned task and any existing request record.
   \item If the same request is durable, return it; if its digest differs, deny.
-  \item Check active state, grant/TTL, catalog digest, and schema readiness.
+  \item Check active state, grant/TTL, catalog digest, and live datasource/schema readiness.
   \item Parse one PostgreSQL statement and validate the AST allowlists.
   \item Rewrite products, projections, scopes, and the outer row limit.
   \item Atomically reserve query, row, and database-time budget.
   \item Execute in a bounded read-only Business PG transaction.
-  \item Atomically settle actual use and result, or conservatively mark the
-  request \code{INDETERMINATE}; append durable evidence from which a terminal
-  receipt can be signed.
+  \item Atomically settle actual use and result, release known pre-execution
+  failures, record post-execution \code{FAILED} outcomes, or conservatively mark
+  ambiguous outcomes \code{INDETERMINATE}; append durable terminal audit
+  evidence and persist a gateway-signed receipt before the same Control PG
+  transaction commits.
 \end{enumerate}
 \caption{Security-relevant execution order.}
 \label{alg:execution}
@@ -544,22 +561,56 @@ gateway-rendered literals, and applies a final cap.  No client string is
 concatenated as a scope predicate or physical identifier.
 
 The remaining grant lifetime bounds both statement timeout and the gateway
-context.  Result collection is also capped in the connector.  A successful
-result and settlement are persisted together where possible; transient
-settlement failure makes readiness fail and enters an idempotent retry loop.
+context.  Result collection is also capped in the connector.  Successful
+results, post-execution failures, releases, indeterminate settlements, terminal
+audit events, and signed receipts are persisted in the same Control PG
+settlement transaction; transient settlement failure makes readiness fail and
+enters an idempotent retry loop.
 Startup recovery changes a left-over \code{RESERVED} record to
 \code{INDETERMINATE} and charges its full reservation because the process cannot
-reconstruct whether the connector crossed the read boundary.
+reconstruct whether the connector crossed the read boundary.  Production startup
+uses the configured gateway receipt key to persist that recovery receipt in the
+same recovery transaction.
 
 \subsection{Receipts and Audit}
 
-A query receipt binds task, query and request identifiers; manifest, grant, and
-catalog digests; request digest and canonical SQL fingerprint; policy decision;
-budget before, reservation, charge, and budget after; row count and database
-time; result hash; terminal status/error; timestamps; audit sequence and previous
-audit hash; and a gateway key identifier.  The gateway signs canonical,
-domain-separated receipt bytes with Ed25519.  The receipt contains result
-metadata and a digest, not raw rows.
+A query receipt binds task, query and request identifiers; manifest, grant,
+catalog, datasource, and schema digests; request digest and canonical SQL
+fingerprint; policy decision; budget before, reservation, charge, and budget
+after; row count and database time; result hash; terminal status/error;
+operation and signing timestamps; audit sequence and previous audit hash; and a
+gateway key identifier.  The gateway signs canonical, domain-separated V3
+receipt bytes with Ed25519 and stores the signed receipt bytes in Control PG.
+Repeated reads
+return the stored receipt rather than re-signing a mutable query row.  The
+receipt contains result metadata and a digest, not raw rows.  Receipt listing
+uses a durable query-record cursor rather than a fixed prefix.  Audit-receipt
+reads fetch the exact query audit events and return the terminal event,
+predecessor evidence when present, the successor path from the terminal event
+to the current audit checkpoint, and the checkpoint itself.
+Archived tasks no longer accept new queries, but retained result ciphertext
+remains readable to the owning principal until retention cleanup deletes the
+encrypted result row or an administrator erases the result encryption key ID.
+Ciphertext cleanup can be driven by a configured TTL scheduler or by an
+administrator cutoff request, and active legal holds exclude a task's result
+ciphertext from deletion.  Key-ID erasure marks the corresponding
+\code{result\_encryption\_keys} row \code{ERASED}, appends audit evidence, and
+causes later result reads to fail closed while leaving ciphertext rows, query
+records, signed receipts, and audit evidence intact.  Disabling a principal
+prevents tool listing and tool execution even if a client still presents the old
+static bearer token.
+The verifier keeps compatibility for older V1/V2 receipt formats while V3
+binds \code{signed\_at} so historical gateway keys can have valid-from and
+retirement windows.  The gateway publishes a
+\code{taskgate-query-receipt-keyring/v1} bundle containing the active key ID,
+historical verification keys, and validity windows, so external verifiers can
+reconstruct the receipt verifier without private key material.  A shared
+audit-chain verifier reconstructs the hash material for each returned event,
+checks the predecessor and successor links, and binds the terminal event's
+sequence and hashes to the signed receipt.  When configured with an external
+anchor URL, the gateway also signs the current audit checkpoint as a
+\code{taskgate-audit-checkpoint-anchor/v1} payload and posts it to an
+independent log or WORM service.
 
 For audit event fields $e_i=(id,task,query,actor,type,payload,time)$, the
 implementation forms
@@ -578,17 +629,22 @@ writers from creating forks.  Given a retained trusted head or signed receipt,
 verification can reveal changed, removed, or reordered events on the observed
 prefix.  It is not WORM storage: a privileged administrator who can replace the
 database and recompute the entire unanchored chain can present an alternative
-history.  Likewise, a query-receipt signature proves that the configured gateway
-key signed the record, not that Business PG independently attested execution.
+history.  Likewise, a query-receipt signature plus inclusion path proves that
+the configured gateway key signed evidence for an event on this retained chain
+head, not that Business PG independently attested execution.
 
 \subsection{Catalog and Schema Drift}
 
-The signed authorization includes both catalog version and SHA-256 digest.
-Every catalog product also gives the expected reporting-view column names,
-order, and PostgreSQL types.  At startup and readiness checks, the connector
-compares those expectations with \code{information\_schema.columns}.  Any
-missing, extra, reordered, or mistyped column makes readiness fail and blocks
-the execution path.  Catalog upgrades therefore require draining or replacing
+The signed authorization includes catalog version, catalog SHA-256 digest,
+datasource identifier, and reporting-schema digest.  Every catalog product also
+gives the expected reporting-view column names, order, and PostgreSQL types. At
+startup, readiness checks, and query execution before budget reservation, the
+connector compares those expectations with the live datasource marker,
+\code{current\_database()}, \code{current\_user}, PostgreSQL major version,
+\code{information\_schema.columns}, and normalized \code{pg\_get\_viewdef}
+output.  Any missing, extra, reordered, or mistyped column, or any changed
+normalized reporting-view definition, makes readiness fail and blocks the
+execution path.  Catalog upgrades therefore require draining or replacing
 active grants; an old grant is not silently reinterpreted under a new schema.
 Catalog V1 compares generic \code{information\_schema.data\_type} values and
 rejects type strings carrying modifiers.  It therefore does not attest numeric
@@ -599,10 +655,20 @@ precision/scale, character length, domain identity, or array element type.
 
 \subsection{State Machine}
 
-The TLA+ specification~\cite{lamport2002specifying} is a finite abstraction of
-one task.  It instantiates finite sets of request identifiers, receipt
-identifiers, relations, columns, and scopes, together with a scalar budget.
-Its task state is
+The TLA+ suite~\cite{lamport2002specifying} contains six finite abstractions.
+\code{TaskGate.tla} models one task with finite sets of request identifiers,
+receipt identifiers, relations, columns, and scopes, together with a scalar
+budget for the core lifecycle.  \code{VectorBudget.tla} is a separate split
+model of the query, row, and database-millisecond budget ledger, including
+hard-limit archival under weak fairness.  \code{SQLAuthorization.tla} models a
+finite two-product SQL authorization abstraction with product--column
+provenance, qualified and unqualified binding, constant-only safe lists, and
+multi-product function/operator intersections.  \code{MultiTaskAudit.tla}
+models finite multi-task interleavings, global audit sequence order, and
+revocation/expiry races with in-flight requests.  \code{ReceiptAudit.tla}
+models persisted terminal receipt field semantics and binding to the terminal
+audit event.  \code{RecoveryLiveness.tla} models conservative recovery
+convergence under weak fairness.  The core model's task state is
 
 \begin{equation*}
 \begin{aligned}
@@ -613,28 +679,35 @@ Its task state is
 
 Each request moves through \code{NEW}, \code{RESERVED}, \code{EXECUTING},
 \code{RESULT\_KNOWN}, \code{SETTLING}, \code{RECOVERING}, and one of the
-terminal states \code{SETTLED}, \code{RELEASED}, or \code{INDETERMINATE}.
-State variables record approval and catalog-validity flags, a monotonically
-narrowed grant history, processed receipt identifiers and their effects,
-scalar used/reserved budget, per-request grant and validity snapshots, request
-state, and an abstract execution count.  Actions cover grant narrowing, a fresh
-approval, approval replay, invalid approval rejection, reservation, duplicate
-request attempts, connector/result/settlement phases, a definite pre-connector
-release, three crash outcomes, revocation, expiry, rejection, completion, and
-catalog drift.
+terminal states \code{SETTLED}, \code{RELEASED}, \code{FAILED}, or
+\code{INDETERMINATE}.
+In the core model, state variables record approval and catalog-validity flags,
+a monotonically narrowed grant history, processed receipt identifiers and their
+effects, scalar used/reserved budget, per-request grant and validity snapshots,
+request state, and an abstract execution count.  Actions cover grant narrowing,
+a fresh approval, approval replay, invalid approval rejection, reservation,
+duplicate request attempts, connector/result/settlement phases, a definite
+pre-connector release, three crash outcomes, revocation, expiry, rejection,
+completion, and catalog drift.  The split models keep SQL authorization,
+vector accounting, audit ordering, receipt semantics, and recovery liveness in
+separate finite state spaces.
 
-The model deliberately matches the fixed boundary of one gateway and no more
-than one in-flight query for the modeled task.  It does not model task
-interleavings, manifest bytes, cryptography, SQL syntax, or the catalog/schema
-attestation procedure.  Instead, grant containment and approval/catalog checks
-are abstract predicates captured when a request starts.  In particular, the
-model permits an already-reserved request to finish after a later terminal
-transition; its terminal invariant forbids \emph{new} requests.  Parser,
-signature, persistence, and schema-attestation behavior require separate tests.
+The suite deliberately does not combine all concerns into one state space.  It
+does not model full PostgreSQL parser syntax, arbitrary AST nesting,
+cryptographic signature bytes, JSON canonicalization bytes, row contents,
+network I/O, external WORM/timestamp storage, or wall-clock scheduling.
+Instead, grant containment, approval/catalog checks, parser output, audit hash
+material, and recovery scheduling are abstracted at the boundary named by each
+split model.  The core model permits an already-reserved request to finish
+after a later terminal transition; its terminal invariant forbids \emph{new}
+requests.  The repository includes \code{formal/REFINEMENT.md}, an audit map
+from each modeled action to the current Go method, Control PostgreSQL
+transaction or invariant, and test or fault-injection point.  That map is
+traceability evidence, not a mechanized refinement proof.
 
 \subsection{Safety Properties}
 
-The configuration checks the following named invariants:
+The submitted finite configurations check the following named invariants:
 
 \begin{itemize}
   \item \code{TypeOK}: every variable remains in its declared finite domain.
@@ -645,6 +718,33 @@ The configuration checks the following named invariants:
   \item \code{GrantMonotonic}: each grant-history element narrows the preceding
   relation, column, scope, and scalar-limit components.
   \item \code{BudgetSafety}: $used+reserved\leq limit$ for the scalar instance.
+  \item \code{VectorBudgetSafety}: per-dimension $used+reserved\leq limit$ in
+  the split vector-budget instance.
+  \item \code{TerminalChargeBounded}, \code{ReleaseChargesNothing}, and
+  \code{IndeterminateChargesFullReservation}: vector terminal transitions
+  charge no more than the reservation, release without charge, and charge the
+  full reservation for indeterminate outcomes.
+  \item \code{NoReservationAfterArchive} and
+  \code{EventualArchiveAtHardLimit}: after a vector hard limit is reached and
+  reservations drain, weak fairness eventually archives the task and no new
+  reservation is admitted.
+  \item \code{AcceptedQueriesAuthorized},
+  \code{AcceptedSourcesMatchColumns}, \code{ConstantsUseGlobalSafeList},
+  \code{UnqualifiedColumnsAreUnique}, and
+  \code{MultiProductUsesIntersection}: accepted abstract SQL shapes preserve
+  product--column provenance, reject ambiguous unqualified columns, and require
+  functions/operators to be in the relevant product intersection.
+  \item \code{SingleInFlightPerTask}, \code{AuditIsLinear},
+  \code{NoNewRequestAfterTaskTerminal}, and
+  \code{TerminalRequestsHaveTerminalAudit}: finite multi-task interleavings
+  preserve per-task one-in-flight admission, global audit order, terminal-task
+  admission closure, and terminal audit evidence.
+  \item \code{ReceiptExistsForTerminal}, \code{ReceiptBindsTerminalAudit},
+  \code{ChargeWithinReservation}, \code{BudgetTransitionValid}, and
+  \code{StatusFieldsValid}: persisted terminal receipts have legal
+  budget/status/result/error fields and bind the terminal audit event.
+  \item \code{RecoveryConverges}: under weak fairness for the recovery action,
+  every finite recovering request eventually becomes terminal.
   \item \code{ApprovalReplaySafe}: each receipt identifier has at most one approval
   effect.
   \item \code{AtMostOnceExecution}: each request identifier executes at most once.
@@ -659,9 +759,9 @@ The configuration checks the following named invariants:
 Here \code{CatalogFailClosed} is intentionally narrower than its name might
 suggest: it says that the abstract catalog-match flag was true at reservation;
 the Go/schema refinement is not part of the model.  Likewise, the scalar model
-adds and settles one unit per request.  The implementation independently uses
-the same reserve/settle discipline for queries, rows, and database milliseconds,
-but TLC does not prove that vector lifting.
+adds and settles one unit per request.  The split vector, SQL, audit, receipt,
+and recovery models check their own finite boundaries without proving that all
+Go and PostgreSQL code refines a single composed TLA+ specification.
 
 Three local inductive arguments explain the abstraction.  First, reservation
 is the only action that raises \code{reserved}; its guard establishes
@@ -702,18 +802,27 @@ any earlier error.
 
 Control PG uses row locks for task/budget serialization and a unique constraint
 on $(task\_id,request\_id)$.  It stores budget snapshots with each request,
-encrypted result bytes using AES-256-GCM, a plaintext result SHA-256 digest, and
-append-only grant/audit rows protected from ordinary updates and deletes by
-triggers.  A single audit-head row provides a total order.  These database
+encrypted result bytes using AES-256-GCM under a recorded result key ID, a
+plaintext result SHA-256 digest, and append-only grant/audit/receipt rows
+protected from ordinary updates and deletes by triggers.  Result key registry
+rows can transition from \code{ACTIVE} to \code{ERASED} but cannot be
+reactivated or deleted through ordinary SQL.  Terminal query rows reject
+deletes, authorization-evidence rewrites, and updates after settlement.  A
+single audit-head row provides a total order.  These database
 mechanisms protect against application bugs and concurrent requests, not a
 control-database superuser.
 
 Protocol objects are RFC~8785-canonicalized and domain-separated before hashing
-or signing.  OA receipts are Ed25519-signed and verified by key identifier.
-For any terminal query, the gateway can separately construct and sign a receipt
-binding task, query and request identities; manifest, grant, request, and catalog digests;
-policy decision; before/reserved/charged/after budget evidence; outcome and
-result hash; and the corresponding audit-chain position.  Its dedicated key is
+or signing.  OA receipts are Ed25519-signed and verified by key identifier; the
+gateway can load a keyring of OA verification keys with valid-from and
+retirement times, so grants issued before a key's retirement can continue to
+verify while later signatures under that key are rejected.
+For any terminal query without a stored receipt, the gateway constructs, signs,
+and then persists a receipt binding task, query and request identities;
+manifest, grant, request, catalog, datasource, and schema digests; policy
+decision; before/reserved/charged/after budget evidence; outcome and result
+hash; signing time; and the corresponding audit-chain position.  Its dedicated
+key is
 loaded through \code{GATEWAY\_RECEIPT\_KEY\_ID} and
 \code{GATEWAY\_RECEIPT\_PRIVATE\_KEY}; a still-reserved query exposes only an
 unsigned status record.  HMAC remains on OA callbacks for freshness and
@@ -804,25 +913,30 @@ cells and unmeasured cells remain separate in the generated table.
 
 \subsection{Performance Method}
 
-The four baselines are (B1) direct PostgreSQL, (B2) native reporting
-View/RLS, (B3) an AST-only gateway without approval, control ledger, encrypted
-result persistence, or signed receipt, and (B4) full \system.  The workload uses
-TPC-H and TPC-DS at SF1 and SF10.  Each configuration runs at concurrency
-$1,8,32$ after warmup; every concurrent worker uses a distinct task so the
-experiment does not violate per-task serialization.  Each cell requires at
-least 30 measured repetitions.
+The four baselines are (B1) direct PostgreSQL, (B2) native reporting views,
+(B3) an AST-only gateway without approval, control ledger, encrypted result
+persistence, or signed receipt, and (B4) full \system.  The current workload is
+TPC-derived rather than a standards-compliant TPC-H/TPC-DS result.  Each
+configuration records a baseline-order seed and executes cells in a seeded
+random order at concurrency $1,8,32$ after warmup; the checked configs use
+distinct-task concurrency so the experiment does not violate per-task
+serialization.  Each cell requires at least 30 measured repetitions.
 
-The driver records throughput, p50/p95/p99 end-to-end latency, gateway and
-database CPU, peak resident memory, Control PG transaction counts/latency,
-receipt bytes, and available baseline-specific component times.  For the full
+The driver records per-query throughput, p50/p95 end-to-end latency, p99 only
+for rows with at least 10,000 observations, deterministic p50 bootstrap
+intervals, direct-baseline latency ratios, gateway and database CPU, peak
+resident memory, Control PG transaction counts/latency, receipt bytes, and
+available baseline-specific component times.  For the full
 gateway, current probes group authorization/control before connector invocation,
 database execution, connector overhead, and post-connector settlement/receipt;
 they do not yet isolate parse from reservation or settlement from encryption and
 signing.  Environment artifacts include CPU model and allocation, memory,
-storage, kernel, Docker, Go, PostgreSQL, image digests, dataset checksums, commit,
-warmup rule, seed, and exact command.  Baselines use the same query texts, data,
-client host, connection policy, and result consumption.  Raw JSON or CSV is the
-sole source for reported tables and figures.
+storage, kernel, Docker, Go, PostgreSQL, image digests, database parameters,
+dataset-generator version/seed and checksums, commit, warmup/cache rule, seed,
+task-concurrency mode, and exact command.  Baselines use semantically
+equivalent query variants, the same data, client host, connection policy, and
+result consumption.  Raw JSON or CSV is the sole source for reported tables and
+figures.
 
 \input{generated/performance_status.tex}
 
@@ -863,7 +977,8 @@ The artifact contract exposes five repository commands:
 \begin{itemize}\raggedright
   \item \code{make verify}: functional, race, security, and Compose integration
   tests;
-  \item \code{make formal}: TLC with archived configuration and log;
+  \item \code{make formal}: TLC with the submitted finite configurations and
+  retained logs;
   \item \code{make eval-smoke}: a small four-baseline pipeline check;
   \item \code{make eval-full}: the complete security/performance campaigns; and
   \item \code{make paper}: regenerate tables/figures from raw artifacts and
@@ -897,7 +1012,7 @@ Scoped claim & Implementation / specification evidence & Validation evidence and
 \midrule
 Manifest identity and digest binding; approval can only narrow & \code{internal/domain/authorization.go}, \code{internal/approval/protocol.go}, OA callback validation & Unit vectors and narrowing/callback tests; cross-component campaign pending. \\
 Executing SQL stays within product, column, function/operator, scope, and row envelope & \code{internal/sqlpolicy}, gateway rewrite path, restricted business role & Policy unit corpus and PostgreSQL integration tests; extended adversarial/fuzz campaign pending. \\
-$used+reserved\leq limit$ and one in-flight query per task & \code{internal/control/budget.go}, task/budget row locks, TLA+ \code{BudgetSafety} and \code{SingleInFlight} & Store concurrency tests; finite TLC status is generated separately and is not a general proof. \\
+$used+reserved\leq limit$ and one in-flight query per task & \code{internal/control/budget.go}, task/budget row locks, TLA+ \code{BudgetSafety}, \code{VectorBudgetSafety}, and \code{SingleInFlight} & Store concurrency tests; finite TLC status is generated separately and is not a general proof. \\
 Automatic retry does not execute a request identifier twice & unique $(task\_id,request\_id)$ migration and durable request state & Equal/different-digest replay tests plus \code{AtMostOnceExecution}; a new identifier is explicitly a new operation. \\
 Unknown post-boundary outcomes are not released & \code{MarkIndeterminate}, startup recovery, full-reservation charge & Failure-path tests; exhaustive injected crash matrix pending. \\
 Catalog/reporting-view drift fails readiness & connector schema attestation at startup and readiness & Connector drift tests; trusted catalog/view policy correctness remains outside scope. \\
@@ -948,19 +1063,25 @@ behind a generic ``agent authorization'' label.
   The gateway signature analogously authenticates a gateway record, not an
   independent execution witness.
   \item \textbf{Unanchored audit.}  Hash chaining detects inconsistencies only
-  relative to evidence retained outside the mutable history.  The prototype has
-  no WORM replica, transparency log, trusted timestamp, or external chain-head
-  anchor.
+  relative to evidence retained outside the mutable history.  The prototype can
+  post signed checkpoint anchors to an external sink, but it does not itself
+  provide a WORM replica, transparency log, trusted timestamp, or independent
+  retention guarantees for that sink.
   \item \textbf{Trusted policy and infrastructure.}  A malicious/incorrect
   catalog, reporting view, OA, gateway, database administrator, host, or key
-  manager defeats the corresponding guarantee.  Schema attestation checks shape,
-  not the semantic correctness of a view definition.  Its V1 type check uses
-  generic \code{information\_schema.data\_type}; precision, scale, length,
-  domains, and array element types are not attested.
+  manager defeats the corresponding guarantee.  Schema attestation binds generic
+  column shape and normalized PostgreSQL view definitions, but it does not prove
+  that a view definition is semantically correct for the intended business
+  policy.  Its V1 type check uses generic
+  \code{information\_schema.data\_type}; precision, scale, length, domains, and
+  array element types are not attested.
   \item \textbf{Prototype identity and key management.}  Static tokens, local
   plaintext HTTP, environment-variable secrets, and demo OA persistence are not
   production controls.  Deployment needs OIDC/OAuth, TLS/mTLS, a durable OA
-  outbox, key rotation/KMS, backup/restore, retention, rate limits, and
+  outbox, centralized KMS/HSM-backed key custody, result-key material
+  destruction, revocation transparency, enterprise WORM or transparency-log
+  retention for audit anchors,
+  backup/restore, organizational retention workflows, rate limits, and
   operational monitoring.
   \item \textbf{Incomplete empirical evidence.}  A finite TLC run does not
   prove unbounded behavior, fuzzing cannot prove parser-policy completeness, and

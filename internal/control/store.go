@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
@@ -33,8 +34,9 @@ type Store struct {
 type Option func(*storeOptions)
 
 type storeOptions struct {
-	clock   Clock
-	recover bool
+	clock                  Clock
+	recover                bool
+	recoveryReceiptBuilder TerminalReceiptBuilder
 }
 
 func WithClock(clock Clock) Option {
@@ -49,6 +51,13 @@ func WithClock(clock Clock) Option {
 // gateway startup should retain the default recovery behavior.
 func WithoutStartupRecovery() Option {
 	return func(options *storeOptions) { options.recover = false }
+}
+
+// WithRecoveryReceiptBuilder persists signed receipts for queries that startup
+// recovery conservatively marks INDETERMINATE. Without it, recovery still
+// settles budget safely but leaves receipt backfill to a later gateway read.
+func WithRecoveryReceiptBuilder(builder TerminalReceiptBuilder) Option {
+	return func(options *storeOptions) { options.recoveryReceiptBuilder = builder }
 }
 
 // Open opens a PostgreSQL control database, applies embedded migrations, and
@@ -93,7 +102,7 @@ func New(ctx context.Context, db *sql.DB, cipher ResultCipher, options ...Option
 		return nil, err
 	}
 	if config.recover {
-		if _, err := store.Recover(ctx); err != nil {
+		if _, err := store.recover(ctx, config.recoveryReceiptBuilder); err != nil {
 			return nil, err
 		}
 	}
@@ -164,6 +173,14 @@ func mustJSON(value any) json.RawMessage {
 		panic(err)
 	}
 	return encoded
+}
+
+func validSHA256Hex(value string) bool {
+	if len(value) != sha256.Size*2 || value != strings.ToLower(value) {
+		return false
+	}
+	decoded, err := hex.DecodeString(value)
+	return err == nil && len(decoded) == sha256.Size
 }
 
 func beginTx(ctx context.Context, db *sql.DB) (*sql.Tx, error) {

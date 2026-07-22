@@ -32,6 +32,8 @@ func TestTaskGrantCoreV1RejectsEveryExpansionDimension(t *testing.T) {
 	issuedAt := time.Date(2026, 7, 22, 9, 0, 0, 0, time.UTC)
 	tests := map[string]func(*TaskGrantCoreV1){
 		"agent identity": func(candidate *TaskGrantCoreV1) { candidate.AgentID = "agent:other" },
+		"datasource id":  func(candidate *TaskGrantCoreV1) { candidate.DatasourceID = "taskgate-other" },
+		"schema digest":  func(candidate *TaskGrantCoreV1) { candidate.SchemaDigest = strings.Repeat("d", 64) },
 		"product": func(candidate *TaskGrantCoreV1) {
 			candidate.ApprovedProducts = append(candidate.ApprovedProducts, "payroll")
 			candidate.ApprovedColumns["payroll"] = []string{"salary"}
@@ -86,6 +88,7 @@ func testGrantCoreV1(t *testing.T, issuedAt time.Time) TaskGrantCoreV1 {
 			PerQueryTimeoutMS: 5_000, TaskTTLMS: 900_000,
 		},
 		CatalogVersion: "catalog-v1", CatalogSHA256: strings.Repeat("a", 64),
+		DatasourceID: "taskgate-test-expenses", SchemaDigest: strings.Repeat("c", 64),
 		CallbackContext: "callback-1", Nonce: strings.Repeat("0", 32),
 	}
 	core, err := CoreFromManifest(manifest, strings.Repeat("b", 64), issuedAt)

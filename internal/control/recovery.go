@@ -18,6 +18,10 @@ type interruptedReservation struct {
 // queries, makes unfinished callback claims retryable, and expires stale tasks.
 // It is safe to call more than once and is run automatically by Open/New.
 func (s *Store) Recover(ctx context.Context) (RecoveryReport, error) {
+	return s.recover(ctx, nil)
+}
+
+func (s *Store) recover(ctx context.Context, receiptBuilder TerminalReceiptBuilder) (RecoveryReport, error) {
 	const op = "recover store"
 	if err := s.checkOpen(op); err != nil {
 		return RecoveryReport{}, err
@@ -92,7 +96,7 @@ UPDATE query_records
 		if affected, _ := result.RowsAffected(); affected != 1 {
 			return RecoveryReport{}, opErr(op, ErrConflict, fmt.Errorf("reservation changed during recovery for query %s", reservation.queryID))
 		}
-		_, err = appendAuditTx(ctx, tx, AuditEvent{
+		audit, err := appendAuditTx(ctx, tx, AuditEvent{
 			TaskID: reservation.taskID, QueryID: reservation.queryID, Actor: reservation.actor,
 			EventType: "QUERY_INDETERMINATE", Payload: mustJSON(map[string]any{
 				"reason": "gateway_restart", "status": QueryIndeterminate, "charged_queries": int64(1),
@@ -101,6 +105,15 @@ UPDATE query_records
 		})
 		if err != nil {
 			return RecoveryReport{}, opErr(op, ErrConflict, err)
+		}
+		if receiptBuilder != nil {
+			record, err := scanQuery(tx.QueryRowContext(ctx, querySelect+` WHERE id=$1 FOR UPDATE`, reservation.queryID))
+			if err != nil {
+				return RecoveryReport{}, opErr(op, ErrConflict, err)
+			}
+			if _, err := persistTerminalReceiptTx(ctx, tx, now, QueryReceipt{Query: record, Audit: audit}, receiptBuilder); err != nil {
+				return RecoveryReport{}, opErr(op, receiptErrorKind(err), err)
+			}
 		}
 		if after.Usage.UsedQueries >= after.Limits.Queries || after.Usage.UsedRows >= after.Limits.Rows || after.Usage.UsedDBMS >= after.Limits.DBMS {
 			if err := archiveTaskTx(ctx, tx, reservation.taskID, TerminalBudgetExhausted, "system", now); err != nil {

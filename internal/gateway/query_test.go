@@ -2,13 +2,17 @@ package gateway
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
 	"taskbound.local/agent-data-gateway/internal/apierr"
+	"taskbound.local/agent-data-gateway/internal/approval"
 	"taskbound.local/agent-data-gateway/internal/control"
 	"taskbound.local/agent-data-gateway/internal/dataconnector"
 	"taskbound.local/agent-data-gateway/internal/domain"
+	"taskbound.local/agent-data-gateway/internal/sqlpolicy"
 )
 
 const testSummarySQL = "SELECT month, total_amount FROM expense_summary"
@@ -42,6 +46,34 @@ func TestRequestIDIsRequiredAndRetriesNeverExecuteTwice(t *testing.T) {
 	}
 	if len(harness.connector.requests) != 1 {
 		t.Fatalf("connector calls = %d, want exactly one", len(harness.connector.requests))
+	}
+	firstReceipt, err := approval.CanonicalJSON(first["receipt"])
+	if err != nil {
+		t.Fatalf("canonical first receipt: %v", err)
+	}
+	replayReceipt, err := approval.CanonicalJSON(replay["receipt"])
+	if err != nil {
+		t.Fatalf("canonical replay receipt: %v", err)
+	}
+	if string(firstReceipt) != string(replayReceipt) {
+		t.Fatalf("replay receipt changed:\nfirst=%s\nreplay=%s", firstReceipt, replayReceipt)
+	}
+	var persistedReceipts int
+	if err := harness.store.DB().QueryRowContext(context.Background(), `SELECT count(*) FROM query_receipts WHERE query_id=$1`, first["query_id"]).Scan(&persistedReceipts); err != nil {
+		t.Fatalf("count persisted receipts: %v", err)
+	}
+	if persistedReceipts != 1 {
+		t.Fatalf("persisted receipt count = %d, want 1", persistedReceipts)
+	}
+	record := requireSingleSettledQuery(t, harness, "task-idempotent")
+	if record.DatasourceID != harness.connector.attestation.DatasourceID ||
+		record.SchemaDigest != harness.connector.attestation.SchemaDigest ||
+		record.CatalogDigest != harness.catalog.SHA256 {
+		t.Fatalf("query record omitted datasource evidence: %+v", record)
+	}
+	receipt, ok := first["receipt"].(map[string]any)
+	if !ok || receipt["datasource_id"] != record.DatasourceID || receipt["schema_digest"] != record.SchemaDigest {
+		t.Fatalf("query receipt omitted datasource evidence: %#v", first["receipt"])
 	}
 	budget, err := harness.store.GetBudget(context.Background(), "task-idempotent")
 	if err != nil {
@@ -95,6 +127,48 @@ func TestSchemaDriftFailsQueryClosedBeforeReservation(t *testing.T) {
 	}
 }
 
+func TestDatasourceMismatchFailsQueryClosedBeforeReservation(t *testing.T) {
+	harness := newGatewayHarness(t)
+	harness.createActiveSummaryTask(t, "task-datasource-mismatch")
+	harness.connector.attestation.DatasourceID = "taskgate-other-source"
+
+	_, err := callGatewayTool(harness.service, harness.alice, "query_sql", map[string]any{
+		"task_id": "task-datasource-mismatch", "request_id": "datasource-mismatch-1", "sql": testSummarySQL,
+	})
+	requireToolCode(t, err, string(dataconnector.CodeSchemaDrift))
+	if len(harness.connector.requests) != 0 {
+		t.Fatalf("datasource mismatch reached Query: %d calls", len(harness.connector.requests))
+	}
+	records, listErr := harness.store.ListQueries(context.Background(), "task-datasource-mismatch", 10)
+	if listErr != nil {
+		t.Fatalf("ListQueries: %v", listErr)
+	}
+	if len(records) != 0 {
+		t.Fatalf("datasource mismatch consumed a reservation: %#v", records)
+	}
+}
+
+func TestPolicyDenialFailsBeforeConnectorAndReservation(t *testing.T) {
+	harness := newGatewayHarness(t)
+	harness.createActiveSummaryTask(t, "task-policy-denied")
+
+	_, err := callGatewayTool(harness.service, harness.alice, "query_sql", map[string]any{
+		"task_id": "task-policy-denied", "request_id": "policy-denied-1",
+		"sql": "SELECT employee_name FROM expense_summary",
+	})
+	requireToolCode(t, err, string(sqlpolicy.CodeColumnNotAllowed))
+	if len(harness.connector.requests) != 0 {
+		t.Fatalf("policy-denied query reached connector: %d calls", len(harness.connector.requests))
+	}
+	records, listErr := harness.store.ListQueries(context.Background(), "task-policy-denied", 10)
+	if listErr != nil {
+		t.Fatalf("ListQueries: %v", listErr)
+	}
+	if len(records) != 0 {
+		t.Fatalf("policy denial consumed a reservation: %#v", records)
+	}
+}
+
 func TestRevocationBlocksNewQueriesWithoutCancellingInFlightQuery(t *testing.T) {
 	harness := newGatewayHarness(t)
 	harness.createActiveSummaryTask(t, "task-revoke-in-flight")
@@ -142,6 +216,98 @@ func TestRevocationBlocksNewQueriesWithoutCancellingInFlightQuery(t *testing.T) 
 	requireToolCode(t, err, apierr.CodeTaskNotActive)
 }
 
+func TestArchivedTaskResultsStayReadableUntilRetentionPurge(t *testing.T) {
+	tests := []struct {
+		name    string
+		taskID  string
+		archive func(t *testing.T, harness *gatewayHarness, taskID string)
+	}{
+		{
+			name:   "revoked",
+			taskID: "task-retention-revoked",
+			archive: func(t *testing.T, harness *gatewayHarness, taskID string) {
+				t.Helper()
+				archived := mustCallGatewayTool(t, harness.service, harness.alice, "revoke_task", map[string]any{
+					"task_id": taskID, "reason": "operator revoked task",
+				})
+				if archived["terminal_reason"] != control.TerminalRevoked {
+					t.Fatalf("revoked terminal reason = %#v", archived)
+				}
+			},
+		},
+		{
+			name:   "expired",
+			taskID: "task-retention-expired",
+			archive: func(t *testing.T, harness *gatewayHarness, taskID string) {
+				t.Helper()
+				expiredAt := harness.clock.value
+				task, err := harness.store.TransitionTask(context.Background(), control.TaskTransition{
+					TaskID: taskID, ExpectedFrom: control.TaskActive, To: control.TaskArchived,
+					Reason: control.TerminalExpired, Actor: "system", ExpiresAt: &expiredAt,
+				})
+				if err != nil {
+					t.Fatalf("TransitionTask expired: %v", err)
+				}
+				if task.TerminalReason != control.TerminalExpired {
+					t.Fatalf("expired terminal reason = %+v", task)
+				}
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			harness := newGatewayHarness(t)
+			harness.createActiveSummaryTask(t, test.taskID)
+			query := mustCallGatewayTool(t, harness.service, harness.alice, "query_sql", map[string]any{
+				"task_id": test.taskID, "request_id": test.name + "-query-1", "sql": testSummarySQL,
+			})
+			queryID, ok := query["query_id"].(string)
+			if !ok || queryID == "" {
+				t.Fatalf("query result omitted query_id: %#v", query)
+			}
+			test.archive(t, harness, test.taskID)
+
+			stored := mustCallGatewayTool(t, harness.service, harness.alice, "get_query_result", map[string]any{
+				"task_id": test.taskID, "query_id": queryID,
+			})
+			storedJSON, err := json.Marshal(stored)
+			if err != nil {
+				t.Fatalf("marshal stored result: %v", err)
+			}
+			if !strings.Contains(string(storedJSON), "sensitive-row") {
+				t.Fatalf("archived task did not retain owner result: %s", storedJSON)
+			}
+			listed := mustCallGatewayTool(t, harness.service, harness.alice, "list_receipts", map[string]any{
+				"task_id": test.taskID,
+			})
+			receipts, ok := listed["receipts"].([]map[string]any)
+			if !ok || len(receipts) != 1 || receipts[0]["query_id"] != queryID {
+				t.Fatalf("receipt listing before purge = %#v", listed)
+			}
+
+			purged, err := harness.store.PurgeEncryptedResultsBefore(context.Background(), harness.clock.value.Add(time.Second))
+			if err != nil {
+				t.Fatalf("PurgeEncryptedResultsBefore: %v", err)
+			}
+			if purged != 1 {
+				t.Fatalf("purged rows = %d, want 1", purged)
+			}
+			_, err = callGatewayTool(harness.service, harness.alice, "get_query_result", map[string]any{
+				"task_id": test.taskID, "query_id": queryID,
+			})
+			requireToolCode(t, err, apierr.CodeNotFound)
+			afterPurge := mustCallGatewayTool(t, harness.service, harness.alice, "list_receipts", map[string]any{
+				"task_id": test.taskID,
+			})
+			retainedReceipts, ok := afterPurge["receipts"].([]map[string]any)
+			if !ok || len(retainedReceipts) != 1 || retainedReceipts[0]["query_id"] != queryID {
+				t.Fatalf("receipt listing after purge = %#v", afterPurge)
+			}
+		})
+	}
+}
+
 func TestQueryEncodingFailureSettlesActualUsage(t *testing.T) {
 	harness := newGatewayHarness(t)
 	harness.createActiveSummaryTask(t, "task-encoding-failure")
@@ -159,7 +325,7 @@ func TestQueryEncodingFailureSettlesActualUsage(t *testing.T) {
 		t.Fatal("query_sql succeeded with a JSON-unsupported result")
 	}
 
-	record := requireSingleSettledQuery(t, harness, "task-encoding-failure")
+	record := requireSingleFailedQuery(t, harness, "task-encoding-failure")
 	requireChargedUsage(t, record, 1, 7, resultEncodingFailed)
 }
 
@@ -186,7 +352,7 @@ FOR EACH ROW EXECUTE FUNCTION force_result_finalization_failure_fn()`); err != n
 		t.Fatal("query_sql succeeded despite forced result finalization failure")
 	}
 
-	record := requireSingleSettledQuery(t, harness, "task-finalization-failure")
+	record := requireSingleFailedQuery(t, harness, "task-finalization-failure")
 	requireChargedUsage(t, record, 1, 11, resultFinalizationFailed)
 }
 
@@ -201,7 +367,7 @@ END;
 $$;
 CREATE TRIGGER force_query_settlement_failure
 BEFORE UPDATE OF status ON query_records
-FOR EACH ROW WHEN (NEW.status = 'COMPLETED')
+FOR EACH ROW WHEN (NEW.status IN ('COMPLETED','FAILED'))
 EXECUTE FUNCTION force_query_settlement_failure_fn()`); err != nil {
 		t.Fatalf("create settlement failure trigger: %v", err)
 	}
@@ -234,7 +400,7 @@ EXECUTE FUNCTION force_query_settlement_failure_fn()`); err != nil {
 	if err := harness.service.ReadyError(); err != nil {
 		t.Fatalf("ReadyError after retry = %v, want nil", err)
 	}
-	record := requireSingleSettledQuery(t, harness, "task-settlement-retry")
+	record := requireSingleFailedQuery(t, harness, "task-settlement-retry")
 	requireChargedUsage(t, record, 1, 2, resultFinalizationFailed)
 }
 
@@ -366,6 +532,15 @@ func requireSingleSettledQuery(t *testing.T, harness *gatewayHarness, taskID str
 	record := requireSingleQuery(t, harness, taskID)
 	if record.Status != control.QueryCompleted {
 		t.Fatalf("query status = %s, want %s", record.Status, control.QueryCompleted)
+	}
+	return record
+}
+
+func requireSingleFailedQuery(t *testing.T, harness *gatewayHarness, taskID string) control.QueryRecord {
+	t.Helper()
+	record := requireSingleQuery(t, harness, taskID)
+	if record.Status != control.QueryFailed {
+		t.Fatalf("query status = %s, want %s", record.Status, control.QueryFailed)
 	}
 	return record
 }

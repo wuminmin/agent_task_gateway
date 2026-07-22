@@ -34,6 +34,7 @@ var (
 	ErrCanonicalJSON       = errors.New("cannot produce RFC 8785 canonical JSON")
 	ErrInvalidReceiptKey   = errors.New("invalid approval receipt key")
 	ErrUnknownReceiptKey   = errors.New("unknown approval receipt key ID")
+	ErrReceiptKeyNotValid  = errors.New("approval receipt key not valid at issuance time")
 	ErrInvalidReceiptSig   = errors.New("invalid approval receipt signature")
 	ErrProtocolDigestMatch = errors.New("protocol digest does not match")
 )
@@ -360,20 +361,42 @@ func (s *Ed25519ReceiptSigner) SignReceipt(receipt ApprovalReceiptV1) (ApprovalR
 	return receipt, nil
 }
 
+type ReceiptVerifyingKey struct {
+	KeyID     string
+	PublicKey ed25519.PublicKey
+	ValidFrom time.Time
+	RetiredAt time.Time
+}
+
 type Ed25519ReceiptVerifier struct {
-	keys map[string]ed25519.PublicKey
+	keys map[string]ReceiptVerifyingKey
 }
 
 func NewEd25519ReceiptVerifier(keys map[string]ed25519.PublicKey) (*Ed25519ReceiptVerifier, error) {
 	if len(keys) == 0 {
 		return nil, ErrInvalidReceiptKey
 	}
-	copyKeys := make(map[string]ed25519.PublicKey, len(keys))
+	keyring := make([]ReceiptVerifyingKey, 0, len(keys))
 	for keyID, key := range keys {
-		if strings.TrimSpace(keyID) == "" || len(key) != ed25519.PublicKeySize {
+		keyring = append(keyring, ReceiptVerifyingKey{KeyID: keyID, PublicKey: key})
+	}
+	return NewEd25519ReceiptVerifierWithKeyring(keyring)
+}
+
+func NewEd25519ReceiptVerifierWithKeyring(keys []ReceiptVerifyingKey) (*Ed25519ReceiptVerifier, error) {
+	if len(keys) == 0 {
+		return nil, ErrInvalidReceiptKey
+	}
+	copyKeys := make(map[string]ReceiptVerifyingKey, len(keys))
+	for _, key := range keys {
+		normalized, err := normalizeReceiptVerifyingKey(key)
+		if err != nil {
+			return nil, err
+		}
+		if _, duplicate := copyKeys[normalized.KeyID]; duplicate {
 			return nil, ErrInvalidReceiptKey
 		}
-		copyKeys[keyID] = append(ed25519.PublicKey(nil), key...)
+		copyKeys[normalized.KeyID] = normalized
 	}
 	return &Ed25519ReceiptVerifier{keys: copyKeys}, nil
 }
@@ -405,6 +428,9 @@ func (v *Ed25519ReceiptVerifier) VerifyReceipt(receipt ApprovalReceiptV1) error 
 	if !ok {
 		return ErrUnknownReceiptKey
 	}
+	if err := key.validFor(receipt.IssuedAt); err != nil {
+		return err
+	}
 	signature, err := base64.RawURLEncoding.DecodeString(receipt.Signature)
 	if err != nil || len(signature) != ed25519.SignatureSize {
 		return ErrInvalidReceiptSig
@@ -413,8 +439,37 @@ func (v *Ed25519ReceiptVerifier) VerifyReceipt(receipt ApprovalReceiptV1) error 
 	if err != nil {
 		return err
 	}
-	if !ed25519.Verify(key, payload, signature) {
+	if !ed25519.Verify(key.PublicKey, payload, signature) {
 		return ErrInvalidReceiptSig
+	}
+	return nil
+}
+
+func normalizeReceiptVerifyingKey(key ReceiptVerifyingKey) (ReceiptVerifyingKey, error) {
+	key.KeyID = strings.TrimSpace(key.KeyID)
+	if key.KeyID == "" || len(key.PublicKey) != ed25519.PublicKeySize {
+		return ReceiptVerifyingKey{}, ErrInvalidReceiptKey
+	}
+	if !key.ValidFrom.IsZero() {
+		key.ValidFrom = key.ValidFrom.UTC()
+	}
+	if !key.RetiredAt.IsZero() {
+		key.RetiredAt = key.RetiredAt.UTC()
+		if !key.ValidFrom.IsZero() && key.RetiredAt.Before(key.ValidFrom) {
+			return ReceiptVerifyingKey{}, ErrInvalidReceiptKey
+		}
+	}
+	key.PublicKey = append(ed25519.PublicKey(nil), key.PublicKey...)
+	return key, nil
+}
+
+func (key ReceiptVerifyingKey) validFor(issuedAt time.Time) error {
+	issuedAt = issuedAt.UTC()
+	if !key.ValidFrom.IsZero() && issuedAt.Before(key.ValidFrom) {
+		return ErrReceiptKeyNotValid
+	}
+	if !key.RetiredAt.IsZero() && issuedAt.After(key.RetiredAt) {
+		return ErrReceiptKeyNotValid
 	}
 	return nil
 }

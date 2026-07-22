@@ -171,6 +171,7 @@ func testDraftRequest(t *testing.T) DraftRequest {
 			PerQueryTimeoutMS: 5_000, TaskTTLMS: 1_800_000,
 		},
 		CatalogVersion: "v1", CatalogSHA256: strings.Repeat("a", 64),
+		DatasourceID: "taskgate-test-expenses", SchemaDigest: strings.Repeat("b", 64),
 		CallbackContext: "callback-1", Nonce: "000102030405060708090a0b0c0d0e0f",
 	}
 	digest, err := approval.ManifestDigest(manifest)

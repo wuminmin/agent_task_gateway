@@ -81,6 +81,8 @@ type AuthorizationManifestV1 struct {
 	Budget            AuthorizationBudgetV1 `json:"budget"`
 	CatalogVersion    string                `json:"catalog_version"`
 	CatalogSHA256     string                `json:"catalog_sha256"`
+	DatasourceID      string                `json:"datasource_id"`
+	SchemaDigest      string                `json:"schema_digest"`
 	CallbackContext   string                `json:"callback_context"`
 	Nonce             string                `json:"nonce"`
 }
@@ -103,8 +105,9 @@ func (m AuthorizationManifestV1) Validate() error {
 		return fmt.Errorf("%w: %v", ErrInvalidAuthorizationManifest, err)
 	}
 	if strings.TrimSpace(m.CatalogVersion) == "" || !isSHA256Hex(m.CatalogSHA256) ||
+		strings.TrimSpace(m.DatasourceID) == "" || !isSHA256Hex(m.SchemaDigest) ||
 		strings.TrimSpace(m.CallbackContext) == "" || len(m.Nonce) != 32 || !isLowerHex(m.Nonce) {
-		return fmt.Errorf("%w: catalog version/digest, callback_context, and nonce are required", ErrInvalidAuthorizationManifest)
+		return fmt.Errorf("%w: catalog, datasource, callback_context, and nonce are required", ErrInvalidAuthorizationManifest)
 	}
 	return nil
 }
@@ -125,6 +128,8 @@ type TaskGrantCoreV1 struct {
 	ExpiresAt          time.Time             `json:"expires_at"`
 	CatalogVersion     string                `json:"catalog_version"`
 	CatalogSHA256      string                `json:"catalog_sha256"`
+	DatasourceID       string                `json:"datasource_id"`
+	SchemaDigest       string                `json:"schema_digest"`
 	ManifestDigest     string                `json:"manifest_digest"`
 }
 
@@ -146,8 +151,9 @@ func (g TaskGrantCoreV1) Validate() error {
 		return fmt.Errorf("%w: %v", ErrInvalidTaskGrantCore, err)
 	}
 	if g.ExpiresAt.IsZero() || strings.TrimSpace(g.CatalogVersion) == "" ||
-		!isSHA256Hex(g.CatalogSHA256) || !isSHA256Hex(g.ManifestDigest) {
-		return fmt.Errorf("%w: expiry and catalog/manifest digests are required", ErrInvalidTaskGrantCore)
+		!isSHA256Hex(g.CatalogSHA256) || strings.TrimSpace(g.DatasourceID) == "" ||
+		!isSHA256Hex(g.SchemaDigest) || !isSHA256Hex(g.ManifestDigest) {
+		return fmt.Errorf("%w: expiry, catalog, datasource, and manifest digests are required", ErrInvalidTaskGrantCore)
 	}
 	return nil
 }
@@ -178,6 +184,7 @@ func (g TaskGrantCoreV1) CheckNarrowing(candidate TaskGrantCoreV1) error {
 	if candidate.TaskID != g.TaskID || candidate.HumanSubject != g.HumanSubject ||
 		candidate.AgentID != g.AgentID || candidate.DeclaredObjective != g.DeclaredObjective ||
 		candidate.CatalogVersion != g.CatalogVersion || candidate.CatalogSHA256 != g.CatalogSHA256 ||
+		candidate.DatasourceID != g.DatasourceID || candidate.SchemaDigest != g.SchemaDigest ||
 		candidate.ManifestDigest != g.ManifestDigest {
 		return grantExpansion("identity or authorization provenance changed")
 	}
@@ -224,6 +231,7 @@ func CoreFromManifest(manifest AuthorizationManifestV1, manifestDigest string, i
 		SensitivityCeiling: manifest.Sensitivity, Budget: manifest.Budget,
 		ExpiresAt:      issuedAt.Add(time.Duration(manifest.Budget.TaskTTLMS) * time.Millisecond),
 		CatalogVersion: manifest.CatalogVersion, CatalogSHA256: manifest.CatalogSHA256,
+		DatasourceID: manifest.DatasourceID, SchemaDigest: manifest.SchemaDigest,
 		ManifestDigest: manifestDigest,
 	}, nil
 }

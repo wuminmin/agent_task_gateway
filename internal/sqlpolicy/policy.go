@@ -12,8 +12,9 @@ import (
 
 // Engine is immutable and safe for concurrent use.
 type Engine struct {
-	allowedFunctions map[string]struct{}
-	allowedOperators map[string]struct{}
+	defaultFunctions  map[string]struct{}
+	defaultAggregates map[string]struct{}
+	defaultOperators  map[string]struct{}
 }
 
 // New constructs a PostgreSQL AST policy engine.
@@ -22,13 +23,22 @@ func New(config Config) *Engine {
 	if functions == nil {
 		functions = defaultFunctions
 	}
+	aggregates := config.AllowedAggregates
+	if aggregates == nil {
+		if config.AllowedFunctions != nil {
+			aggregates = config.AllowedFunctions
+		} else {
+			aggregates = defaultAggregates
+		}
+	}
 	operators := config.AllowedOperators
 	if operators == nil {
 		operators = defaultOperators
 	}
 	return &Engine{
-		allowedFunctions: stringSet(functions),
-		allowedOperators: stringSet(operators),
+		defaultFunctions:  stringSet(functions),
+		defaultAggregates: stringSet(aggregates),
+		defaultOperators:  stringSet(operators),
 	}
 }
 
@@ -38,7 +48,7 @@ func (e *Engine) Authorize(request Request) (Decision, error) {
 	if request.RowLimit <= 0 {
 		return Decision{}, reject(CodeBudgetExhausted)
 	}
-	products, approvedColumns, err := validateGrant(request.Grant)
+	products, err := e.validateGrant(request.Grant)
 	if err != nil {
 		return Decision{}, err
 	}
@@ -78,9 +88,8 @@ func (e *Engine) Authorize(request Request) (Decision, error) {
 		return Decision{}, reject(topLevelCode(stmt))
 	}
 
-	analyzer := newAnalyzer(products, approvedColumns, e.allowedFunctions, e.allowedOperators)
-	analyzer.discover(selectBody)
-	if err := analyzer.validateNode("SelectStmt", selectBody); err != nil {
+	analyzer := newAnalyzer(products, e.defaultFunctions, e.defaultAggregates, e.defaultOperators)
+	if _, err := analyzer.analyzeSelect(selectBody, nil, nil); err != nil {
 		return Decision{}, err
 	}
 
@@ -100,7 +109,7 @@ func (e *Engine) Authorize(request Request) (Decision, error) {
 
 	referencedProducts := sortedKeys(analyzer.referencedProducts)
 	referencedColumns := sortedKeys(analyzer.referencedColumns)
-	executable, err := renderExecutable(canonical, referencedProducts, products, request.RowLimit)
+	executable, err := renderExecutable(canonical, referencedProducts, analyzer.renderProducts(), request.RowLimit)
 	if err != nil {
 		return Decision{}, err
 	}
@@ -143,43 +152,81 @@ func topLevelCode(stmt map[string]any) Code {
 	return CodeNotSelect
 }
 
-func validateGrant(grant Grant) (map[string]ProductGrant, map[string]struct{}, error) {
-	products := make(map[string]ProductGrant, len(grant.Products))
-	columns := make(map[string]struct{})
+func (e *Engine) validateGrant(grant Grant) (map[string]productPolicy, error) {
+	products := make(map[string]productPolicy, len(grant.Products))
 	for _, product := range grant.Products {
 		if !safeCatalogIdentifier(product.LogicalName) || product.PhysicalSchema == "" || product.PhysicalView == "" || len(product.ApprovedColumns) == 0 {
-			return nil, nil, reject(CodeInvalidGrant)
+			return nil, reject(CodeInvalidGrant)
 		}
 		if _, duplicate := products[product.LogicalName]; duplicate {
-			return nil, nil, reject(CodeInvalidGrant)
+			return nil, reject(CodeInvalidGrant)
 		}
 		seenColumns := make(map[string]struct{}, len(product.ApprovedColumns))
 		for _, column := range product.ApprovedColumns {
 			if !safeCatalogIdentifier(column) {
-				return nil, nil, reject(CodeInvalidGrant)
+				return nil, reject(CodeInvalidGrant)
 			}
 			if _, duplicate := seenColumns[column]; duplicate {
-				return nil, nil, reject(CodeInvalidGrant)
+				return nil, reject(CodeInvalidGrant)
 			}
 			seenColumns[column] = struct{}{}
-			columns[column] = struct{}{}
 		}
 		for _, predicate := range product.MandatoryScope {
 			if !safeCatalogIdentifier(predicate.Column) || !validPredicateShape(predicate) {
-				return nil, nil, reject(CodeInvalidGrant)
+				return nil, reject(CodeInvalidGrant)
 			}
 			for _, value := range predicate.Values {
 				if strings.IndexByte(value, 0) >= 0 {
-					return nil, nil, reject(CodeInvalidGrant)
+					return nil, reject(CodeInvalidGrant)
 				}
 			}
 		}
 		if strings.IndexByte(product.PhysicalSchema, 0) >= 0 || strings.IndexByte(product.PhysicalView, 0) >= 0 {
-			return nil, nil, reject(CodeInvalidGrant)
+			return nil, reject(CodeInvalidGrant)
 		}
-		products[product.LogicalName] = product
+		policy, err := e.productPolicy(product)
+		if err != nil {
+			return nil, err
+		}
+		products[product.LogicalName] = policy
 	}
-	return products, columns, nil
+	return products, nil
+}
+
+func (e *Engine) productPolicy(product ProductGrant) (productPolicy, error) {
+	functions := product.AllowedFunctions
+	if functions == nil {
+		functions = sortedKeys(e.defaultFunctions)
+	}
+	aggregates := product.AllowedAggregates
+	if aggregates == nil {
+		if product.AllowedFunctions != nil {
+			aggregates = product.AllowedFunctions
+		} else {
+			aggregates = sortedKeys(e.defaultAggregates)
+		}
+	}
+	operators := product.AllowedOperators
+	if operators == nil {
+		operators = sortedKeys(e.defaultOperators)
+	}
+	for _, function := range append(append([]string(nil), functions...), aggregates...) {
+		if function == "" {
+			return productPolicy{}, reject(CodeInvalidGrant)
+		}
+	}
+	for _, operator := range operators {
+		if operator == "" {
+			return productPolicy{}, reject(CodeInvalidGrant)
+		}
+	}
+	return productPolicy{
+		grant:      product,
+		columns:    stringSet(product.ApprovedColumns),
+		functions:  stringSet(functions),
+		aggregates: stringSet(aggregates),
+		operators:  stringSet(operators),
+	}, nil
 }
 
 func safeCatalogIdentifier(value string) bool {
@@ -196,11 +243,14 @@ func safeCatalogIdentifier(value string) bool {
 }
 
 var defaultFunctions = []string{
-	"abs", "avg", "btrim", "ceil", "ceiling", "char_length", "concat",
-	"concat_ws", "count", "date_part", "date_trunc", "floor", "jsonb_array_length",
+	"abs", "btrim", "ceil", "ceiling", "char_length", "concat",
+	"concat_ws", "date_part", "date_trunc", "floor", "jsonb_array_length",
 	"jsonb_extract_path", "jsonb_extract_path_text", "length", "lower", "ltrim",
-	"max", "min", "replace", "round", "rtrim", "substring", "sum", "to_char",
-	"trim", "upper",
+	"replace", "round", "rtrim", "substring", "to_char", "trim", "upper",
+}
+
+var defaultAggregates = []string{
+	"avg", "count", "max", "min", "sum",
 }
 
 var defaultOperators = []string{

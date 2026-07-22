@@ -23,7 +23,7 @@ OUT = PAPER_DIR / "generated"
 SUMMARY = ROOT / "evaluation" / "generated" / "paper-results.json"
 PERFORMANCE_BASELINES = {
     "direct_postgresql": "Direct PostgreSQL",
-    "native_view_rls": "Native View/RLS",
+    "native_view": "Native View",
     "ast_only_gateway": "AST-only Gateway",
     "full_taskgate": "Full TaskGate",
 }
@@ -32,6 +32,14 @@ FUZZ_TARGETS = {
     "FuzzFormattingMetamorphic",
     "FuzzQueryPlanCompileNeverPanics",
 }
+FORMAL_RESULT_FILES = (
+    ("TaskGate core", ROOT / "formal" / "results" / "tlc.json"),
+    ("Vector budget", ROOT / "formal" / "results" / "vector_budget.json"),
+    ("SQL authorization", ROOT / "formal" / "results" / "sql_authorization.json"),
+    ("Multi-task audit", ROOT / "formal" / "results" / "multi_task_audit.json"),
+    ("Receipt/audit", ROOT / "formal" / "results" / "receipt_audit.json"),
+    ("Recovery liveness", ROOT / "formal" / "results" / "recovery_liveness.json"),
+)
 
 
 def latex_escape(value: Any) -> str:
@@ -127,14 +135,20 @@ def scalar(record: dict[str, Any], key: str) -> str:
     return r"\notmeasured"
 
 
-def load_direct_formal() -> tuple[dict[str, Any] | None, str]:
-    result_path = ROOT / "formal" / "results" / "tlc.json"
+def display_path(path: Path) -> str:
+    try:
+        return path.resolve().relative_to(ROOT.resolve()).as_posix()
+    except ValueError:
+        return path.resolve().as_posix()
+
+
+def load_formal_result(result_path: Path) -> tuple[dict[str, Any] | None, str]:
     if not result_path.is_file():
-        return None, "TLC result absent"
+        return None, f"TLC result absent: {display_path(result_path)}"
     try:
         formal = json.loads(result_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return None, "TLC result malformed"
+        return None, f"TLC result malformed: {display_path(result_path)}"
     if (
         not isinstance(formal, dict)
         or formal.get("schema_version") != 1
@@ -143,10 +157,10 @@ def load_direct_formal() -> tuple[dict[str, Any] | None, str]:
         or not isinstance(formal.get("tool_version"), str)
         or not formal["tool_version"].strip()
     ):
-        return None, "TLC result schema invalid"
+        return None, f"TLC result schema invalid: {display_path(result_path)}"
     exit_code = formal.get("exit_code")
     if type(exit_code) is not int or (formal["status"] == "passed") != (exit_code == 0):
-        return None, "TLC status and exit code disagree"
+        return None, f"TLC status and exit code disagree: {display_path(result_path)}"
 
     verified: dict[str, Path] = {}
     for label, path_key, digest_key in (
@@ -156,13 +170,13 @@ def load_direct_formal() -> tuple[dict[str, Any] | None, str]:
     ):
         resolved, error = verify_repository_input(formal.get(path_key), formal.get(digest_key))
         if resolved is None:
-            return None, f"TLC {label}: {error}"
+            return None, f"{display_path(result_path)} TLC {label}: {error}"
         verified[label] = resolved
 
     try:
         log_text = verified["log"].read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
-        return None, "TLC log unreadable"
+        return None, f"TLC log unreadable: {display_path(verified['log'])}"
 
     # Numeric fields in tlc.json are metadata, not primary evidence.  Remove
     # them before examining the log so a parse failure can never fall back to a
@@ -194,15 +208,15 @@ def load_direct_formal() -> tuple[dict[str, Any] | None, str]:
 
     if formal["status"] == "failed":
         if success:
-            return None, "TLC failed status conflicts with no-error completion marker"
+            return None, f"TLC failed status conflicts with no-error completion marker: {display_path(result_path)}"
         return formal, "verified TLC failure; no passing statistics reported"
 
     if len(success) != 1:
-        return None, "TLC no-error completion marker absent or ambiguous"
+        return None, f"TLC no-error completion marker absent or ambiguous: {display_path(result_path)}"
     if len(counts) != 1 or len(depths) != 1:
-        return None, "TLC final state/depth statistics absent or ambiguous"
+        return None, f"TLC final state/depth statistics absent or ambiguous: {display_path(result_path)}"
     if not success[0].start() < counts[0].start() < depths[0].start():
-        return None, "TLC completion and final-statistics order invalid"
+        return None, f"TLC completion and final-statistics order invalid: {display_path(result_path)}"
 
     parsed_stats = {
         "states_generated": int(counts[0].group(1).replace(",", "")),
@@ -213,11 +227,11 @@ def load_direct_formal() -> tuple[dict[str, Any] | None, str]:
         parsed_stats["states_generated"] >= parsed_stats["distinct_states"] >= 1
         and parsed_stats["search_depth"] >= 1
     ):
-        return None, "TLC parsed statistics are outside valid ranges"
+        return None, f"TLC parsed statistics are outside valid ranges: {display_path(result_path)}"
     for key, parsed in parsed_stats.items():
         declared = declared_stats[key]
         if type(declared) is not int or declared != parsed:
-            return None, f"TLC JSON {key} disagrees with verified log"
+            return None, f"TLC JSON {key} disagrees with verified log: {display_path(result_path)}"
     formal.update(parsed_stats)
     return formal, (
         "TLC result, no-error completion marker, final statistics, and "
@@ -225,53 +239,63 @@ def load_direct_formal() -> tuple[dict[str, Any] | None, str]:
     )
 
 
+def load_direct_formal() -> tuple[dict[str, Any] | None, str]:
+    return load_formal_result(FORMAL_RESULT_FILES[0][1])
+
+
+def load_formal_results() -> list[tuple[str, dict[str, Any] | None, str]]:
+    return [
+        (label, *load_formal_result(path))
+        for label, path in FORMAL_RESULT_FILES
+    ]
+
+
 def generate_formal(summary: dict[str, Any] | None, reason: str) -> None:
     del summary  # Formal evidence is verified independently of benchmark data.
-    formal, formal_reason = load_direct_formal()
-    if not isinstance(formal, dict) or formal.get("status") not in {"passed", "failed"}:
-        status = r"\notmeasured"
-        states = r"\notmeasured"
-        distinct = r"\notmeasured"
-        depth = r"\notmeasured"
-        tool_version = r"\notmeasured"
-        model = r"\notmeasured"
-        config = r"\notmeasured"
-        checked_at = r"\notmeasured"
-        note = latex_escape(formal_reason)
-    else:
-        status = latex_escape(formal["status"])
-        states = scalar(formal, "states_generated")
-        distinct = scalar(formal, "distinct_states")
-        depth = scalar(formal, "search_depth")
-        tool_version = latex_escape(f"{formal['tool']} {formal['tool_version']}")
-        model = latex_escape(formal["model"])
-        config = latex_escape(formal["config"])
-        checked_at = scalar(formal, "checked_at")
-        note = latex_escape(f"{formal.get('raw_log', 'verified TLC log')}; {formal_reason}")
+    del reason
+    rows = []
+    for label, formal, formal_reason in load_formal_results():
+        if not isinstance(formal, dict) or formal.get("status") not in {"passed", "failed"}:
+            model_config = latex_escape(label)
+            status = r"\notmeasured"
+            checked_at = r"\notmeasured"
+            states = r"\notmeasured"
+            distinct = r"\notmeasured"
+            depth = r"\notmeasured"
+            evidence = latex_escape(formal_reason)
+        else:
+            model_config = latex_escape(f"{formal['model']} / {formal['config']}")
+            status = latex_escape(formal["status"])
+            checked_at = scalar(formal, "checked_at")
+            states = scalar(formal, "states_generated")
+            distinct = scalar(formal, "distinct_states")
+            depth = scalar(formal, "search_depth")
+            evidence = latex_escape(
+                f"{formal['tool']} {formal['tool_version']}; "
+                f"{formal.get('raw_log', 'verified TLC log')}; {formal_reason}"
+            )
+        rows.append(
+            rf"\parbox[t]{{0.20\textwidth}}{{{model_config}}} & {status} & "
+            rf"{checked_at} & {states} & {distinct} & {depth} & "
+            rf"\parbox[t]{{0.30\textwidth}}{{{evidence}}} " + r"\\"
+        )
+    row_text = "\n".join(rows)
     write(
         "formal_status.tex",
         rf"""
-\begin{{table}}[t]
+\begin{{table*}}[t]
 \centering
-\caption{{Generated finite-model status.  A missing raw log is not a pass.}}
+\caption{{Generated finite-model status.  A missing raw log is not a pass; each row is independently verified from its raw log.}}
 \label{{tab:formal-status}}
-\footnotesize
-\begin{{tabular}}{{ll}}
+\scriptsize
+\begin{{tabular}}{{p{{0.20\textwidth}}lllllp{{0.30\textwidth}}}}
 \toprule
-Field & Generated value \\
+Model/config & Outcome & Checked at & States & Distinct & Depth & Evidence \\
 \midrule
-TLC outcome & {status} \\
-Tool & {tool_version} \\
-Model & \parbox[t]{{0.48\columnwidth}}{{{model}}} \\
-Config & \parbox[t]{{0.48\columnwidth}}{{{config}}} \\
-Checked at & {checked_at} \\
-States generated & {states} \\
-Distinct states & {distinct} \\
-Search depth & {depth} \\
-Evidence & \parbox[t]{{0.48\columnwidth}}{{{note}}} \\
+{row_text}
 \bottomrule
 \end{{tabular}}
-\end{{table}}
+\end{{table*}}
 """,
     )
 
@@ -467,12 +491,18 @@ def validate_security(
 def generate_performance(summary: dict[str, Any] | None, reason: str) -> None:
     performance = summary.get("performance") if summary else None
     records = performance.get("summary") if isinstance(performance, dict) else None
+    performance_reason = reason
+    if isinstance(performance, dict):
+        note = performance.get("note")
+        if isinstance(note, str) and note.strip():
+            performance_reason = note.strip()
     valid_records: list[dict[str, Any]] = []
     if isinstance(performance, dict) and performance.get("status") == "complete" and isinstance(records, list):
-        required_text = {"baseline"}
+        required_text = {"baseline", "query_id"}
         required_numbers = {
             "concurrency", "measured_runs", "throughput_qps", "p50_ms",
-            "p95_ms", "p99_ms",
+            "p50_bootstrap_ci_low_ms", "p50_bootstrap_ci_high_ms", "p95_ms",
+            "p50_ratio_vs_direct",
         }
         for record in records:
             if not isinstance(record, dict):
@@ -497,9 +527,21 @@ def generate_performance(summary: dict[str, Any] | None, reason: str) -> None:
                 and not isinstance(record["measured_runs"], bool)
                 and record["measured_runs"] >= 30
                 and record["throughput_qps"] > 0
-                and record["p50_ms"] <= record["p95_ms"] <= record["p99_ms"]
+                and record["p50_ratio_vs_direct"] > 0
+                and record["p50_bootstrap_ci_low_ms"] <= record["p50_bootstrap_ci_high_ms"]
+                and record["p50_ms"] <= record["p95_ms"]
             ):
-                valid_records.append(record)
+                p99 = record.get("p99_ms")
+                p99_ok = (
+                    is_finite_number(p99)
+                    and record["p95_ms"] <= p99
+                ) or (
+                    p99 is None
+                    and record.get("p99_reportable") is False
+                    and record["measured_runs"] < 10000
+                )
+                if p99_ok:
+                    valid_records.append(record)
 
     if not valid_records:
         body = rf"""
@@ -507,31 +549,38 @@ def generate_performance(summary: dict[str, Any] | None, reason: str) -> None:
 \centering
 \caption{{Generated performance status.  No complete source-backed record set is present; no latency or throughput conclusion is drawn.}}
 \label{{tab:performance-status}}
-\footnotesize
-\begin{{tabular}}{{lllllll}}
+\scriptsize
+\begin{{tabular}}{{llllllllll}}
 \toprule
-Experiment & SF & Concurrency & Baseline & Runs & Throughput & p50/p95/p99 \\
+Experiment & Query & SF & C & Baseline & Runs & Throughput & p50 [95\% CI] & p95/p99 & p50/direct \\
 \midrule
-\notmeasured & \notmeasured & \notmeasured & \notmeasured & \notmeasured & \notmeasured & \notmeasured \\
+\notmeasured & \notmeasured & \notmeasured & \notmeasured & \notmeasured & \notmeasured & \notmeasured & \notmeasured & \notmeasured & \notmeasured \\
 \bottomrule
 \end{{tabular}}
-\\[1mm]\scriptsize Generated reason: {latex_escape(reason)}.
+\\[1mm]\scriptsize Generated reason: {latex_escape(performance_reason)}.
 \end{{table*}}
 """
     else:
         rows = []
         for record in valid_records:
+            p50_ci = "{} [{}, {}]".format(
+                scalar(record, "p50_ms"),
+                scalar(record, "p50_bootstrap_ci_low_ms"),
+                scalar(record, "p50_bootstrap_ci_high_ms"),
+            )
             rows.append(
-                "{} & {} & {} & {} & {} & {} & {}/{}/{} \\\\".format(
+                "{} & {} & {} & {} & {} & {} & {} & {} & {}/{} & {} \\\\".format(
                     latex_escape(record.get("experiment", record.get("workload"))),
+                    latex_escape(record.get("query_id", "")),
                     scalar(record, "scale_factor"),
                     scalar(record, "concurrency"),
                     latex_escape(PERFORMANCE_BASELINES[record["baseline"]]),
                     scalar(record, "measured_runs"),
                     scalar(record, "throughput_qps"),
-                    scalar(record, "p50_ms"),
+                    p50_ci,
                     scalar(record, "p95_ms"),
                     scalar(record, "p99_ms"),
+                    scalar(record, "p50_ratio_vs_direct"),
                 )
             )
         body = r"""
@@ -539,10 +588,10 @@ Experiment & SF & Concurrency & Baseline & Runs & Throughput & p50/p95/p99 \\
 \centering
 \caption{Generated performance measurements.  Every record is linked by the manifest to checksummed raw input.}
 \label{tab:performance-status}
-\footnotesize
-\begin{tabular}{lllllll}
+\scriptsize
+\begin{tabular}{llllllllll}
 \toprule
-Experiment & SF & Concurrency & Baseline & Runs & Throughput (q/s) & p50/p95/p99 (ms) \\
+Experiment & Query & SF & C & Baseline & Runs & Throughput (q/s) & p50 [95\% CI] & p95/p99 (ms) & p50/direct \\
 \midrule
 """ + "\n".join(rows) + r"""
 \bottomrule
@@ -593,7 +642,7 @@ def make_targets() -> set[str]:
 def generate_artifact_status(summary: dict[str, Any] | None, reason: str) -> None:
     targets = make_targets()
     observed = summary.get("commands") if summary else None
-    direct_formal, _ = load_direct_formal()
+    formal_results = load_formal_results()
     rows = []
     for command in ("verify", "formal", "eval-smoke", "eval-full", "paper"):
         present = "yes" if command in targets else "no"
@@ -604,9 +653,17 @@ def generate_artifact_status(summary: dict[str, Any] | None, reason: str) -> Non
             if record.get("status") in {"passed", "failed"} and record.get("raw_log"):
                 outcome = latex_escape(record["status"])
                 evidence = latex_escape(record["raw_log"])
-        elif command == "formal" and isinstance(direct_formal, dict):
-            outcome = latex_escape(direct_formal["status"])
-            evidence = latex_escape(direct_formal["raw_log"])
+        elif command == "formal":
+            verified = [(label, formal) for label, formal, _ in formal_results if isinstance(formal, dict)]
+            if verified:
+                statuses = {str(formal["status"]) for _, formal in verified}
+                if len(statuses) == 1:
+                    outcome = latex_escape(f"{next(iter(statuses))} ({len(verified)} models)")
+                else:
+                    outcome = latex_escape(f"mixed ({len(verified)} models)")
+                evidence = latex_escape(", ".join(str(formal["raw_log"]) for _, formal in verified))
+            else:
+                evidence = latex_escape("; ".join(f"{label}: {formal_reason}" for label, _, formal_reason in formal_results))
         rows.append(rf"\code{{make {command}}} & {present} & {outcome} & {evidence} " + r"\\")
     write(
         "artifact_status.tex",

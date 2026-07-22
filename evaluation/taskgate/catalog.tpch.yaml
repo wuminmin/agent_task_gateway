@@ -2,11 +2,13 @@ catalog_version: "eval-tpch-v1"
 
 sources:
   - name: benchmark
+    datasource_id: taskgate-eval-tpch
     type: postgres
     address: business-postgres
     port: 5432
     database: benchmark
     user: gateway_reader
+    postgres_major_version: 16
     secretRef: GATEWAY_DB_PASSWORD
 
 scopes:

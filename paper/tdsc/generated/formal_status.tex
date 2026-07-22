@@ -1,22 +1,19 @@
 
-\begin{table}[t]
+\begin{table*}[t]
 \centering
-\caption{Generated finite-model status.  A missing raw log is not a pass.}
+\caption{Generated finite-model status.  A missing raw log is not a pass; each row is independently verified from its raw log.}
 \label{tab:formal-status}
-\footnotesize
-\begin{tabular}{ll}
+\scriptsize
+\begin{tabular}{p{0.20\textwidth}lllllp{0.30\textwidth}}
 \toprule
-Field & Generated value \\
+Model/config & Outcome & Checked at & States & Distinct & Depth & Evidence \\
 \midrule
-TLC outcome & passed \\
-Tool & TLC 1.7.1 \\
-Model & \parbox[t]{0.48\columnwidth}{formal/TaskGate.tla} \\
-Config & \parbox[t]{0.48\columnwidth}{formal/TaskGate.cfg} \\
-Checked at & 2026-07-21T17:38:38Z \\
-States generated & 14824257 \\
-Distinct states & 3255552 \\
-Search depth & 18 \\
-Evidence & \parbox[t]{0.48\columnwidth}{formal/results/tlc.log; TLC result, no-error completion marker, final statistics, and referenced inputs SHA-256 verified} \\
+\parbox[t]{0.20\textwidth}{formal/TaskGate.tla / formal/TaskGate.cfg} & passed & 2026-07-22T13:11:36Z & 14824257 & 3255552 & 18 & \parbox[t]{0.30\textwidth}{TLC 1.7.1; formal/results/tlc.log; TLC result, no-error completion marker, final statistics, and referenced inputs SHA-256 verified} \\
+\parbox[t]{0.20\textwidth}{formal/VectorBudget.tla / formal/VectorBudget.cfg} & passed & 2026-07-22T13:11:44Z & 263229 & 201134 & 6 & \parbox[t]{0.30\textwidth}{TLC 1.7.1; formal/results/vector\_budget.log; TLC result, no-error completion marker, final statistics, and referenced inputs SHA-256 verified} \\
+\parbox[t]{0.20\textwidth}{formal/SQLAuthorization.tla / formal/SQLAuthorization.cfg} & passed & 2026-07-22T13:11:46Z & 3073 & 2561 & 2 & \parbox[t]{0.30\textwidth}{TLC 1.7.1; formal/results/sql\_authorization.log; TLC result, no-error completion marker, final statistics, and referenced inputs SHA-256 verified} \\
+\parbox[t]{0.20\textwidth}{formal/MultiTaskAudit.tla / formal/MultiTaskAudit.cfg} & passed & 2026-07-22T13:11:49Z & 129103 & 129103 & 7 & \parbox[t]{0.30\textwidth}{TLC 1.7.1; formal/results/multi\_task\_audit.log; TLC result, no-error completion marker, final statistics, and referenced inputs SHA-256 verified} \\
+\parbox[t]{0.20\textwidth}{formal/ReceiptAudit.tla / formal/ReceiptAudit.cfg} & passed & 2026-07-22T13:11:50Z & 3281 & 3281 & 3 & \parbox[t]{0.30\textwidth}{TLC 1.7.1; formal/results/receipt\_audit.log; TLC result, no-error completion marker, final statistics, and referenced inputs SHA-256 verified} \\
+\parbox[t]{0.20\textwidth}{formal/RecoveryLiveness.tla / formal/RecoveryLiveness.cfg} & passed & 2026-07-22T13:11:52Z & 221 & 135 & 7 & \parbox[t]{0.30\textwidth}{TLC 1.7.1; formal/results/recovery\_liveness.log; TLC result, no-error completion marker, final statistics, and referenced inputs SHA-256 verified} \\
 \bottomrule
 \end{tabular}
-\end{table}
+\end{table*}

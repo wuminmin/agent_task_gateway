@@ -3,6 +3,13 @@ BEGIN;
 CREATE SCHEMA legacy;
 CREATE SCHEMA reporting;
 
+CREATE TABLE reporting.datasource_attestation (
+    singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton),
+    datasource_id TEXT NOT NULL
+);
+INSERT INTO reporting.datasource_attestation(singleton, datasource_id)
+VALUES (TRUE, 'taskgate-demo-travel');
+
 CREATE TABLE legacy.employees (
     employee_no text PRIMARY KEY,
     full_name text NOT NULL,

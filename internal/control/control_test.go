@@ -18,6 +18,8 @@ type fixedClock struct{ value time.Time }
 
 func (clock fixedClock) Now() time.Time { return clock.value }
 
+const controlTestDigest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
 func testCipher(t *testing.T, fill byte) *AES256GCM {
 	t.Helper()
 	cipher, err := NewAES256GCM(bytes.Repeat([]byte{fill}, 32))
@@ -70,7 +72,8 @@ func approveTask(t *testing.T, store *Store, taskID string, expires time.Time, l
 			ApprovedProducts: []string{"expense_summary"},
 			ApprovedColumns:  map[string][]string{"expense_summary": {"month", "amount"}},
 			MandatoryScope:   []byte(`{"department":"sales"}`), SensitivityCeiling: "internal",
-			Budget: limits, ExpiresAt: expires, CatalogVersion: "catalog-v1", ApprovalReceipt: "receipt_" + taskID,
+			Budget: limits, ExpiresAt: expires, CatalogVersion: "catalog-v1", CatalogDigest: controlTestDigest,
+			DatasourceID: "taskgate-test-expenses", SchemaDigest: controlTestDigest, ApprovalReceipt: "receipt_" + taskID,
 		},
 	}
 	claim, err := store.ApplyApprovalCallback(context.Background(), callback)
@@ -81,6 +84,28 @@ func approveTask(t *testing.T, store *Store, taskID string, expires time.Time, l
 		t.Fatalf("unexpected callback claim: %+v", claim)
 	}
 	return callback
+}
+
+func testReserveRequest(request ReserveRequest) ReserveRequest {
+	if request.CatalogDigest == "" {
+		request.CatalogDigest = controlTestDigest
+	}
+	if request.DatasourceID == "" {
+		request.DatasourceID = "taskgate-test-expenses"
+	}
+	if request.SchemaDigest == "" {
+		request.SchemaDigest = controlTestDigest
+	}
+	if request.ManifestDigest == "" {
+		request.ManifestDigest = controlTestDigest
+	}
+	if request.GrantDigest == "" {
+		request.GrantDigest = controlTestDigest
+	}
+	if request.PolicyDecision == "" {
+		request.PolicyDecision = "ALLOW"
+	}
+	return request
 }
 
 func TestMigrationsAndTaskRequestContext(t *testing.T) {
@@ -106,7 +131,7 @@ func TestMigrationsAndTaskRequestContext(t *testing.T) {
 	}
 	for _, relation := range []string{
 		"principals", "tasks", "task_grants", "grants", "approval_events", "budget_ledger",
-		"query_records", "encrypted_query_results", "encrypted_results", "audit_events", "callback_idempotency",
+		"query_records", "result_encryption_keys", "encrypted_query_results", "encrypted_results", "result_retention_holds", "audit_events", "query_receipts", "callback_idempotency",
 	} {
 		var exists bool
 		if err := store.DB().QueryRowContext(context.Background(), `
@@ -203,8 +228,8 @@ func TestBudgetSerializationFinalizationAndAuditChain(t *testing.T) {
 	approveTask(t, store, "task_budget", expires, BudgetLimits{Queries: 5, Rows: 5, DBMS: 1000})
 
 	requests := []ReserveRequest{
-		{QueryID: "query_a", TaskID: "task_budget", RequestID: "request-a", Actor: "alice", RequestDigest: "req-a", SQLFingerprint: "sql-a", RequestedRows: 100, RequestedDBMS: 500},
-		{QueryID: "query_b", TaskID: "task_budget", RequestID: "request-b", Actor: "alice", RequestDigest: "req-b", SQLFingerprint: "sql-b", RequestedRows: 100, RequestedDBMS: 500},
+		testReserveRequest(ReserveRequest{QueryID: "query_a", TaskID: "task_budget", RequestID: "request-a", Actor: "alice", RequestDigest: "req-a", SQLFingerprint: "sql-a", RequestedRows: 100, RequestedDBMS: 500}),
+		testReserveRequest(ReserveRequest{QueryID: "query_b", TaskID: "task_budget", RequestID: "request-b", Actor: "alice", RequestDigest: "req-b", SQLFingerprint: "sql-b", RequestedRows: 100, RequestedDBMS: 500}),
 	}
 	type reserveResult struct {
 		reservation BudgetReservation
@@ -290,6 +315,369 @@ func TestBudgetSerializationFinalizationAndAuditChain(t *testing.T) {
 	}
 }
 
+func TestPurgeEncryptedResultsBeforeErasesCiphertextOnly(t *testing.T) {
+	path := testpostgres.SchemaDSN(t)
+	clock := fixedClock{value: time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)}
+	store := openTestStore(t, path, testCipher(t, 15), WithClock(clock))
+	expires := clock.value.Add(time.Hour)
+	createAwaitingApprovalTask(t, store, "task_retention", expires)
+	approveTask(t, store, "task_retention", expires, BudgetLimits{Queries: 3, Rows: 30, DBMS: 3000})
+	reservation, err := store.ReserveBudget(context.Background(), testReserveRequest(ReserveRequest{
+		QueryID: "query_retention", TaskID: "task_retention", RequestID: "request-retention",
+		Actor: "alice", RequestDigest: "digest-retention", SQLFingerprint: "sql-retention",
+		RequestedRows: 10, RequestedDBMS: 500,
+	}))
+	if err != nil {
+		t.Fatalf("ReserveBudget: %v", err)
+	}
+	plaintext := []byte(`{"columns":["month"],"rows":[["2026-07"]]}`)
+	record, err := store.FinalizeQuery(context.Background(), BudgetSettlement{QueryID: reservation.QueryID, Rows: 1, DBMS: 5}, plaintext)
+	if err != nil {
+		t.Fatalf("FinalizeQuery: %v", err)
+	}
+	if _, decrypted, err := store.GetEncryptedResult(context.Background(), "task_retention", reservation.QueryID); err != nil || !bytes.Equal(decrypted, plaintext) {
+		t.Fatalf("GetEncryptedResult before purge = %q, %v", decrypted, err)
+	}
+	hold, err := store.SetResultRetentionHold(context.Background(), "task_retention", "litigation hold", "admin")
+	if err != nil {
+		t.Fatalf("SetResultRetentionHold: %v", err)
+	}
+	if hold.TaskID != "task_retention" || hold.Reason != "litigation hold" || hold.ReleasedAt != nil {
+		t.Fatalf("unexpected active hold: %+v", hold)
+	}
+	purged, err := store.PurgeEncryptedResultsBefore(context.Background(), clock.value.Add(time.Second))
+	if err != nil {
+		t.Fatalf("PurgeEncryptedResultsBefore: %v", err)
+	}
+	if purged != 0 {
+		t.Fatalf("purged rows under legal hold = %d, want 0", purged)
+	}
+	if _, decrypted, err := store.GetEncryptedResult(context.Background(), "task_retention", reservation.QueryID); err != nil || !bytes.Equal(decrypted, plaintext) {
+		t.Fatalf("GetEncryptedResult after held purge = %q, %v", decrypted, err)
+	}
+	cleared, err := store.ClearResultRetentionHold(context.Background(), "task_retention", "admin")
+	if err != nil {
+		t.Fatalf("ClearResultRetentionHold: %v", err)
+	}
+	if cleared.ReleasedAt == nil || cleared.ReleasedBy != "admin" {
+		t.Fatalf("unexpected cleared hold: %+v", cleared)
+	}
+	if _, err := store.GetResultRetentionHold(context.Background(), "task_retention"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("GetResultRetentionHold after clear = %v, want not found", err)
+	}
+	purged, err = store.PurgeEncryptedResultsBefore(context.Background(), clock.value.Add(time.Second))
+	if err != nil {
+		t.Fatalf("PurgeEncryptedResultsBefore after clear: %v", err)
+	}
+	if purged != 1 {
+		t.Fatalf("purged rows = %d, want 1", purged)
+	}
+	if _, _, err := store.GetEncryptedResult(context.Background(), "task_retention", reservation.QueryID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("GetEncryptedResult after purge = %v, want not found", err)
+	}
+	retained, err := store.GetQuery(context.Background(), reservation.QueryID)
+	if err != nil {
+		t.Fatalf("GetQuery after purge: %v", err)
+	}
+	if retained.Status != QueryCompleted || retained.ResultSHA256 != record.ResultSHA256 {
+		t.Fatalf("purge changed terminal query evidence: before=%+v after=%+v", record, retained)
+	}
+	evidence, err := store.GetQueryReceipt(context.Background(), reservation.QueryID)
+	if err != nil {
+		t.Fatalf("GetQueryReceipt after purge: %v", err)
+	}
+	if evidence.Query.ID != reservation.QueryID || evidence.Audit.QueryID != reservation.QueryID {
+		t.Fatalf("purge removed receipt/audit evidence: %+v", evidence)
+	}
+	holdEvents, err := store.ListAuditEvents(context.Background(), AuditFilter{TaskID: "task_retention", EventType: "RETENTION_HOLD_SET", Limit: 10})
+	if err != nil || len(holdEvents) != 1 {
+		t.Fatalf("RETENTION_HOLD_SET events = %d, err=%v", len(holdEvents), err)
+	}
+	clearEvents, err := store.ListAuditEvents(context.Background(), AuditFilter{TaskID: "task_retention", EventType: "RETENTION_HOLD_CLEARED", Limit: 10})
+	if err != nil || len(clearEvents) != 1 {
+		t.Fatalf("RETENTION_HOLD_CLEARED events = %d, err=%v", len(clearEvents), err)
+	}
+	purgeEvents, err := store.ListAuditEvents(context.Background(), AuditFilter{EventType: "RETENTION_PURGE_RESULTS", Limit: 10})
+	if err != nil || len(purgeEvents) != 1 {
+		t.Fatalf("RETENTION_PURGE_RESULTS events = %d, err=%v", len(purgeEvents), err)
+	}
+	if again, err := store.PurgeEncryptedResultsBefore(context.Background(), clock.value.Add(2*time.Second)); err != nil || again != 0 {
+		t.Fatalf("second purge = %d, %v; want 0, nil", again, err)
+	}
+	if _, err := store.PurgeEncryptedResultsBefore(context.Background(), time.Time{}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("zero cutoff error = %v, want invalid", err)
+	}
+}
+
+func TestEraseResultEncryptionKeyMakesCiphertextUnreadableButEvidenceRemains(t *testing.T) {
+	path := testpostgres.SchemaDSN(t)
+	clock := fixedClock{value: time.Date(2026, 7, 21, 13, 0, 0, 0, time.UTC)}
+	keyID := "result-key-erasure-test"
+	cipher, err := NewAES256GCMWithKeyID(keyID, bytes.Repeat([]byte{0x16}, 32))
+	if err != nil {
+		t.Fatalf("NewAES256GCMWithKeyID: %v", err)
+	}
+	store := openTestStore(t, path, cipher, WithClock(clock))
+	expires := clock.value.Add(time.Hour)
+	createAwaitingApprovalTask(t, store, "task_key_erasure", expires)
+	approveTask(t, store, "task_key_erasure", expires, BudgetLimits{Queries: 3, Rows: 30, DBMS: 3000})
+	reservation, err := store.ReserveBudget(context.Background(), testReserveRequest(ReserveRequest{
+		QueryID: "query_key_erasure", TaskID: "task_key_erasure", RequestID: "request-key-erasure",
+		Actor: "alice", RequestDigest: "digest-key-erasure", SQLFingerprint: "sql-key-erasure",
+		RequestedRows: 10, RequestedDBMS: 500,
+	}))
+	if err != nil {
+		t.Fatalf("ReserveBudget: %v", err)
+	}
+	plaintext := []byte(`{"rows":[["redacted"]]}`)
+	record, err := store.FinalizeQuery(context.Background(), BudgetSettlement{QueryID: reservation.QueryID, Rows: 1, DBMS: 5}, plaintext)
+	if err != nil {
+		t.Fatalf("FinalizeQuery: %v", err)
+	}
+	stored, decrypted, err := store.GetEncryptedResult(context.Background(), "task_key_erasure", reservation.QueryID)
+	if err != nil || !bytes.Equal(decrypted, plaintext) {
+		t.Fatalf("GetEncryptedResult before key erasure = %q, %v", decrypted, err)
+	}
+	if stored.KeyID != keyID {
+		t.Fatalf("stored key id = %q, want %q", stored.KeyID, keyID)
+	}
+	key, err := store.GetResultEncryptionKey(context.Background(), keyID)
+	if err != nil {
+		t.Fatalf("GetResultEncryptionKey: %v", err)
+	}
+	if key.Status != ResultEncryptionKeyActive || key.ErasedAt != nil {
+		t.Fatalf("unexpected active key state: %+v", key)
+	}
+	erased, err := store.EraseResultEncryptionKey(context.Background(), keyID, "privacy-admin")
+	if err != nil {
+		t.Fatalf("EraseResultEncryptionKey: %v", err)
+	}
+	if erased.Status != ResultEncryptionKeyErased || erased.ErasedAt == nil || erased.ErasedBy != "privacy-admin" {
+		t.Fatalf("unexpected erased key state: %+v", erased)
+	}
+	if _, _, err := store.GetEncryptedResult(context.Background(), "task_key_erasure", reservation.QueryID); !errors.Is(err, ErrCipherUnavailable) {
+		t.Fatalf("GetEncryptedResult after key erasure = %v, want cipher unavailable", err)
+	}
+	if _, err := store.DB().ExecContext(context.Background(), `
+UPDATE result_encryption_keys SET status='ACTIVE', erased_at=NULL, erased_by='' WHERE key_id=$1`, keyID); err == nil {
+		t.Fatal("erased result encryption key was reactivated")
+	}
+	retained, err := store.GetQuery(context.Background(), reservation.QueryID)
+	if err != nil {
+		t.Fatalf("GetQuery after key erasure: %v", err)
+	}
+	if retained.Status != QueryCompleted || retained.ResultSHA256 != record.ResultSHA256 {
+		t.Fatalf("key erasure changed terminal query evidence: before=%+v after=%+v", record, retained)
+	}
+	evidence, err := store.GetQueryReceipt(context.Background(), reservation.QueryID)
+	if err != nil {
+		t.Fatalf("GetQueryReceipt after key erasure: %v", err)
+	}
+	if evidence.Query.ID != reservation.QueryID || evidence.Audit.QueryID != reservation.QueryID {
+		t.Fatalf("key erasure removed receipt/audit evidence: %+v", evidence)
+	}
+	var resultRows int
+	if err := store.DB().QueryRowContext(context.Background(), `
+SELECT count(*) FROM encrypted_query_results WHERE query_id=$1 AND key_id=$2`, reservation.QueryID, keyID).Scan(&resultRows); err != nil {
+		t.Fatalf("count encrypted result rows: %v", err)
+	}
+	if resultRows != 1 {
+		t.Fatalf("encrypted result rows after key erasure = %d, want 1", resultRows)
+	}
+	events, err := store.ListAuditEvents(context.Background(), AuditFilter{EventType: "RESULT_ENCRYPTION_KEY_ERASED", Limit: 10})
+	if err != nil || len(events) != 1 {
+		t.Fatalf("RESULT_ENCRYPTION_KEY_ERASED events = %d, err=%v", len(events), err)
+	}
+	again, err := store.EraseResultEncryptionKey(context.Background(), keyID, "privacy-admin")
+	if err != nil {
+		t.Fatalf("EraseResultEncryptionKey replay: %v", err)
+	}
+	if again.ErasedAt == nil || !again.ErasedAt.Equal(*erased.ErasedAt) {
+		t.Fatalf("erasure replay changed timestamp: first=%+v again=%+v", erased, again)
+	}
+}
+
+func TestPersistedQueryReceiptIsIdempotentAndImmutable(t *testing.T) {
+	path := testpostgres.SchemaDSN(t)
+	clock := fixedClock{value: time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)}
+	store := openTestStore(t, path, testCipher(t, 13), WithClock(clock))
+	expires := clock.value.Add(time.Hour)
+	createAwaitingApprovalTask(t, store, "task_receipt", expires)
+	approveTask(t, store, "task_receipt", expires, BudgetLimits{Queries: 3, Rows: 30, DBMS: 3000})
+	reservation, err := store.ReserveBudget(context.Background(), testReserveRequest(ReserveRequest{
+		QueryID: "query_receipt", TaskID: "task_receipt", RequestID: "request-receipt",
+		Actor: "alice", RequestDigest: "digest-receipt", SQLFingerprint: "sql-receipt",
+		RequestedRows: 10, RequestedDBMS: 500,
+	}))
+	if err != nil || reservation.QueryID == "" {
+		t.Fatalf("ReserveBudget: %+v, %v", reservation, err)
+	}
+	if _, err := store.FinalizeQuery(context.Background(), BudgetSettlement{QueryID: reservation.QueryID, Rows: 2, DBMS: 7}, []byte(`{"rows":[[1],[2]]}`)); err != nil {
+		t.Fatalf("FinalizeQuery: %v", err)
+	}
+	evidence, err := store.GetQueryReceipt(context.Background(), reservation.QueryID)
+	if err != nil {
+		t.Fatalf("GetQueryReceipt before save: %v", err)
+	}
+	if evidence.Receipt != nil {
+		t.Fatalf("receipt unexpectedly persisted before save: %+v", evidence.Receipt)
+	}
+	request := SaveQueryReceiptRequest{
+		QueryID: reservation.QueryID, Version: "2", GatewayKeyID: "gateway-key-1", Signature: "signature",
+		SignedAt: clock.value.Add(time.Second), TerminalAuditSequence: evidence.Audit.Sequence,
+		TerminalAuditHash: evidence.Audit.CurrentHash,
+		ReceiptJSON:       []byte(`{"gateway_key_id":"gateway-key-1","query_id":"query_receipt","signature":"signature","version":"2"}`),
+	}
+	saved, err := store.SaveQueryReceipt(context.Background(), request)
+	if err != nil {
+		t.Fatalf("SaveQueryReceipt: %v", err)
+	}
+	if saved.ReceiptSHA256 == "" || !bytes.Equal(saved.ReceiptJSON, request.ReceiptJSON) {
+		t.Fatalf("unexpected persisted receipt: %+v", saved)
+	}
+	replayed, err := store.SaveQueryReceipt(context.Background(), request)
+	if err != nil {
+		t.Fatalf("SaveQueryReceipt replay: %v", err)
+	}
+	if !bytes.Equal(replayed.ReceiptJSON, saved.ReceiptJSON) || replayed.ReceiptSHA256 != saved.ReceiptSHA256 {
+		t.Fatalf("receipt replay changed evidence: saved=%+v replay=%+v", saved, replayed)
+	}
+	changed := request
+	changed.ReceiptJSON = []byte(`{"gateway_key_id":"gateway-key-1","query_id":"query_receipt","signature":"changed","version":"2"}`)
+	if _, err := store.SaveQueryReceipt(context.Background(), changed); !errors.Is(err, ErrConflict) {
+		t.Fatalf("changed receipt save error = %v, want conflict", err)
+	}
+	loaded, err := store.GetQueryReceipt(context.Background(), reservation.QueryID)
+	if err != nil {
+		t.Fatalf("GetQueryReceipt after save: %v", err)
+	}
+	if loaded.Receipt == nil || !bytes.Equal(loaded.Receipt.ReceiptJSON, request.ReceiptJSON) {
+		t.Fatalf("stored receipt not returned: %+v", loaded.Receipt)
+	}
+	if _, err := store.DB().ExecContext(context.Background(), `UPDATE query_records SET result_rows=999 WHERE id=$1`, reservation.QueryID); err == nil {
+		t.Fatal("terminal query record update unexpectedly succeeded")
+	}
+	if _, err := store.DB().ExecContext(context.Background(), `DELETE FROM query_records WHERE id=$1`, reservation.QueryID); err == nil {
+		t.Fatal("terminal query record delete unexpectedly succeeded")
+	}
+	if _, err := store.DB().ExecContext(context.Background(), `UPDATE query_receipts SET signature='tampered' WHERE query_id=$1`, reservation.QueryID); err == nil {
+		t.Fatal("immutable query receipt update unexpectedly succeeded")
+	}
+	if _, err := store.DB().ExecContext(context.Background(), `DELETE FROM query_receipts WHERE query_id=$1`, reservation.QueryID); err == nil {
+		t.Fatal("immutable query receipt delete unexpectedly succeeded")
+	}
+}
+
+func TestTerminalSettlementWithReceiptPersistsAtomically(t *testing.T) {
+	path := testpostgres.SchemaDSN(t)
+	clock := fixedClock{value: time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)}
+	store := openTestStore(t, path, testCipher(t, 16), WithClock(clock))
+	expires := clock.value.Add(time.Hour)
+	ctx := context.Background()
+	builder := func(evidence QueryReceipt) (SaveQueryReceiptRequest, error) {
+		return SaveQueryReceiptRequest{
+			QueryID: evidence.Query.ID, Version: "test-v3", GatewayKeyID: "gateway-test-key",
+			Signature: "signature-" + evidence.Query.ID, SignedAt: clock.value.Add(time.Second),
+			TerminalAuditSequence: evidence.Audit.Sequence, TerminalAuditHash: evidence.Audit.CurrentHash,
+			ReceiptJSON: []byte(fmt.Sprintf(`{"query_id":%q,"sequence":%d}`, evidence.Query.ID, evidence.Audit.Sequence)),
+		}, nil
+	}
+	reserve := func(taskID, queryID string) {
+		t.Helper()
+		createAwaitingApprovalTask(t, store, taskID, expires)
+		approveTask(t, store, taskID, expires, BudgetLimits{Queries: 5, Rows: 50, DBMS: 5000})
+		if _, err := store.ReserveBudget(ctx, testReserveRequest(ReserveRequest{
+			QueryID: queryID, TaskID: taskID, RequestID: "request-" + queryID,
+			Actor: "alice", RequestDigest: "digest-" + queryID, SQLFingerprint: "sql-" + queryID,
+			RequestedRows: 10, RequestedDBMS: 500,
+		})); err != nil {
+			t.Fatalf("ReserveBudget %s: %v", queryID, err)
+		}
+	}
+	requireReceipt := func(queryID string, status QueryStatus, receipt PersistedQueryReceipt) {
+		t.Helper()
+		if receipt.QueryID != queryID || receipt.TerminalAuditSequence <= 0 || receipt.TerminalAuditHash == "" {
+			t.Fatalf("incomplete persisted receipt for %s: %+v", queryID, receipt)
+		}
+		stored, err := store.GetPersistedQueryReceipt(ctx, queryID)
+		if err != nil {
+			t.Fatalf("GetPersistedQueryReceipt %s: %v", queryID, err)
+		}
+		if !bytes.Equal(stored.ReceiptJSON, receipt.ReceiptJSON) || stored.TerminalAuditSequence != receipt.TerminalAuditSequence {
+			t.Fatalf("stored receipt changed for %s: returned=%+v stored=%+v", queryID, receipt, stored)
+		}
+		evidence, err := store.GetQueryReceipt(ctx, queryID)
+		if err != nil {
+			t.Fatalf("GetQueryReceipt %s: %v", queryID, err)
+		}
+		if evidence.Query.Status != status || evidence.Receipt == nil ||
+			evidence.Audit.Sequence != receipt.TerminalAuditSequence || evidence.Audit.CurrentHash != receipt.TerminalAuditHash {
+			t.Fatalf("receipt evidence mismatch for %s: evidence=%+v receipt=%+v", queryID, evidence, receipt)
+		}
+	}
+
+	reserve("task_atomic_completed", "query_atomic_completed")
+	completed, completedReceipt, _, err := store.FinalizeQueryMeasuredWithReceipt(ctx,
+		BudgetSettlement{QueryID: "query_atomic_completed", Rows: 2, DBMS: 9},
+		[]byte(`{"rows":[[1],[2]]}`), builder)
+	if err != nil || completed.Status != QueryCompleted {
+		t.Fatalf("FinalizeQueryMeasuredWithReceipt = %+v, %v", completed, err)
+	}
+	requireReceipt("query_atomic_completed", QueryCompleted, completedReceipt)
+
+	reserve("task_atomic_released", "query_atomic_released")
+	released, releasedReceipt, err := store.ReleaseBudgetWithReceipt(ctx, "query_atomic_released", "AUTHORIZATION_EXPIRED", builder)
+	if err != nil || released.Status != QueryReleased {
+		t.Fatalf("ReleaseBudgetWithReceipt = %+v, %v", released, err)
+	}
+	requireReceipt("query_atomic_released", QueryReleased, releasedReceipt)
+
+	reserve("task_atomic_failed", "query_atomic_failed")
+	failed, failedReceipt, err := store.FailBudgetWithReceipt(ctx,
+		BudgetSettlement{QueryID: "query_atomic_failed", Rows: 3, DBMS: 11, ErrorCode: "RESULT_ENCODING_FAILED"}, builder)
+	if err != nil || failed.Status != QueryFailed {
+		t.Fatalf("FailBudgetWithReceipt = %+v, %v", failed, err)
+	}
+	requireReceipt("query_atomic_failed", QueryFailed, failedReceipt)
+
+	reserve("task_atomic_indeterminate", "query_atomic_indeterminate")
+	indeterminate, indeterminateReceipt, err := store.MarkIndeterminateWithReceipt(ctx, "query_atomic_indeterminate", "QUERY_TIMEOUT", builder)
+	if err != nil || indeterminate.Status != QueryIndeterminate {
+		t.Fatalf("MarkIndeterminateWithReceipt = %+v, %v", indeterminate, err)
+	}
+	requireReceipt("query_atomic_indeterminate", QueryIndeterminate, indeterminateReceipt)
+
+	reserve("task_atomic_rollback", "query_atomic_rollback")
+	_, _, _, err = store.FinalizeQueryMeasuredWithReceipt(ctx,
+		BudgetSettlement{QueryID: "query_atomic_rollback", Rows: 1, DBMS: 5},
+		[]byte(`{"rows":[[1]]}`), func(QueryReceipt) (SaveQueryReceiptRequest, error) {
+			return SaveQueryReceiptRequest{}, errors.New("forced receipt builder failure")
+		})
+	if err == nil {
+		t.Fatal("FinalizeQueryMeasuredWithReceipt succeeded despite receipt builder failure")
+	}
+	rolledBack, err := store.GetQuery(ctx, "query_atomic_rollback")
+	if err != nil {
+		t.Fatalf("GetQuery rollback: %v", err)
+	}
+	if rolledBack.Status != QueryReserved || rolledBack.CompletedAt != nil {
+		t.Fatalf("receipt failure did not roll back terminal transition: %+v", rolledBack)
+	}
+	if _, err := store.GetPersistedQueryReceipt(ctx, "query_atomic_rollback"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("receipt exists after rollback = %v, want not found", err)
+	}
+	if _, _, err := store.GetEncryptedResult(ctx, "task_atomic_rollback", "query_atomic_rollback"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("encrypted result exists after rollback = %v, want not found", err)
+	}
+	budget, err := store.GetBudget(ctx, "task_atomic_rollback")
+	if err != nil {
+		t.Fatalf("GetBudget rollback: %v", err)
+	}
+	if budget.Usage.ReservedQueries != 1 || budget.Usage.UsedQueries != 0 {
+		t.Fatalf("receipt failure changed budget ledger: %+v", budget)
+	}
+}
+
 func TestRequestIDReplayIsAtomicAndDigestBound(t *testing.T) {
 	path := testpostgres.SchemaDSN(t)
 	clock := fixedClock{value: time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)}
@@ -298,11 +686,11 @@ func TestRequestIDReplayIsAtomicAndDigestBound(t *testing.T) {
 	createAwaitingApprovalTask(t, store, "task_request_id", expires)
 	approveTask(t, store, "task_request_id", expires, BudgetLimits{Queries: 3, Rows: 30, DBMS: 3000})
 
-	request := ReserveRequest{
+	request := testReserveRequest(ReserveRequest{
 		QueryID: "query_request_id", TaskID: "task_request_id", RequestID: "client-request-1",
 		Actor: "alice", RequestDigest: "digest-a", SQLFingerprint: "sql-a",
 		RequestedRows: 10, RequestedDBMS: 500,
-	}
+	})
 	first, err := store.ReserveBudget(context.Background(), request)
 	if err != nil || first.Replay {
 		t.Fatalf("first ReserveBudget = %+v, %v", first, err)
@@ -338,6 +726,61 @@ func TestRequestIDReplayIsAtomicAndDigestBound(t *testing.T) {
 	}
 }
 
+func TestListQueriesPageTraversesBeyondFiveHundredRecords(t *testing.T) {
+	path := testpostgres.SchemaDSN(t)
+	clock := fixedClock{value: time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)}
+	store := openTestStore(t, path, testCipher(t, 14), WithClock(clock))
+	expires := clock.value.Add(time.Hour)
+	createAwaitingApprovalTask(t, store, "task_query_pages", expires)
+	approveTask(t, store, "task_query_pages", expires, BudgetLimits{Queries: 1, Rows: 1, DBMS: 1})
+	const total = 505
+	for index := 0; index < total; index++ {
+		queryID := fmt.Sprintf("query_page_%03d", index)
+		if _, err := store.ReserveBudget(context.Background(), testReserveRequest(ReserveRequest{
+			QueryID: queryID, TaskID: "task_query_pages", RequestID: fmt.Sprintf("request-page-%03d", index),
+			Actor: "alice", RequestDigest: fmt.Sprintf("digest-page-%03d", index),
+			SQLFingerprint: "sql-page", RequestedRows: 1, RequestedDBMS: 1,
+		})); err != nil {
+			t.Fatalf("ReserveBudget %d: %v", index, err)
+		}
+		if _, err := store.ReleaseBudget(context.Background(), queryID, "TEST_RELEASE"); err != nil {
+			t.Fatalf("ReleaseBudget %d: %v", index, err)
+		}
+	}
+	seen := make(map[string]struct{}, total)
+	cursor := ""
+	pages := 0
+	for {
+		page, err := store.ListQueriesPage(context.Background(), "task_query_pages", cursor, 100)
+		if err != nil {
+			t.Fatalf("ListQueriesPage cursor %q: %v", cursor, err)
+		}
+		pages++
+		if len(page.Records) > 100 {
+			t.Fatalf("page contains %d records, want <= 100", len(page.Records))
+		}
+		for _, record := range page.Records {
+			if record.Status != QueryReleased {
+				t.Fatalf("record %s status = %s, want RELEASED", record.ID, record.Status)
+			}
+			if _, duplicate := seen[record.ID]; duplicate {
+				t.Fatalf("duplicate query record %s", record.ID)
+			}
+			seen[record.ID] = struct{}{}
+		}
+		if page.NextCursor == "" {
+			break
+		}
+		cursor = page.NextCursor
+	}
+	if len(seen) != total {
+		t.Fatalf("paged query count = %d, want %d across %d pages", len(seen), total, pages)
+	}
+	if pages < 6 {
+		t.Fatalf("expected traversal beyond five 100-record pages, got %d", pages)
+	}
+}
+
 func TestRestartRecoveryAndCallbackRetry(t *testing.T) {
 	path := testpostgres.SchemaDSN(t)
 	clock := fixedClock{value: time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)}
@@ -346,10 +789,10 @@ func TestRestartRecoveryAndCallbackRetry(t *testing.T) {
 	expires := clock.value.Add(time.Hour)
 	createAwaitingApprovalTask(t, store, "task_restart", expires)
 	approveTask(t, store, "task_restart", expires, BudgetLimits{Queries: 3, Rows: 20, DBMS: 1000})
-	if _, err := store.ReserveBudget(context.Background(), ReserveRequest{
+	if _, err := store.ReserveBudget(context.Background(), testReserveRequest(ReserveRequest{
 		QueryID: "query_interrupted", TaskID: "task_restart", RequestID: "request-restart", Actor: "alice", RequestDigest: "request",
 		SQLFingerprint: "select", RequestedRows: 10, RequestedDBMS: 500,
-	}); err != nil {
+	})); err != nil {
 		t.Fatalf("ReserveBudget: %v", err)
 	}
 	payload := []byte(`{"task_id":"task_restart","decision":"approved"}`)
@@ -408,6 +851,55 @@ func TestRestartRecoveryAndCallbackRetry(t *testing.T) {
 	}
 }
 
+func TestStartupRecoveryCanPersistIndeterminateReceipt(t *testing.T) {
+	path := testpostgres.SchemaDSN(t)
+	clock := fixedClock{value: time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)}
+	cipher := testCipher(t, 17)
+	store := openTestStore(t, path, cipher, WithClock(clock), WithoutStartupRecovery())
+	expires := clock.value.Add(time.Hour)
+	createAwaitingApprovalTask(t, store, "task_recovery_receipt", expires)
+	approveTask(t, store, "task_recovery_receipt", expires, BudgetLimits{Queries: 4, Rows: 10, DBMS: 1000})
+	if _, err := store.ReserveBudget(context.Background(), testReserveRequest(ReserveRequest{
+		QueryID: "query_recovery_receipt", TaskID: "task_recovery_receipt", RequestID: "request-recovery-receipt",
+		Actor: "alice", RequestDigest: "request-recovery-receipt", SQLFingerprint: "select",
+		RequestedRows: 10, RequestedDBMS: 400,
+	})); err != nil {
+		t.Fatalf("ReserveBudget: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("close first store: %v", err)
+	}
+
+	builder := func(evidence QueryReceipt) (SaveQueryReceiptRequest, error) {
+		return SaveQueryReceiptRequest{
+			QueryID: evidence.Query.ID, Version: "test-v3", GatewayKeyID: "gateway-recovery-key",
+			Signature: "signature-" + evidence.Query.ID, SignedAt: clock.value.Add(time.Second),
+			TerminalAuditSequence: evidence.Audit.Sequence, TerminalAuditHash: evidence.Audit.CurrentHash,
+			ReceiptJSON: []byte(fmt.Sprintf(`{"query_id":%q,"recovered":true}`, evidence.Query.ID)),
+		}, nil
+	}
+	restarted, err := Open(context.Background(), path, cipher, WithClock(clock), WithRecoveryReceiptBuilder(builder))
+	if err != nil {
+		t.Fatalf("restart Open with recovery receipt builder: %v", err)
+	}
+	defer restarted.Close()
+	record, err := restarted.GetQuery(context.Background(), "query_recovery_receipt")
+	if err != nil {
+		t.Fatalf("GetQuery after recovery: %v", err)
+	}
+	if record.Status != QueryIndeterminate || record.ErrorCode != "GATEWAY_RESTART" {
+		t.Fatalf("query was not recovered as indeterminate: %+v", record)
+	}
+	evidence, err := restarted.GetQueryReceipt(context.Background(), "query_recovery_receipt")
+	if err != nil {
+		t.Fatalf("GetQueryReceipt after recovery: %v", err)
+	}
+	if evidence.Receipt == nil || evidence.Receipt.TerminalAuditSequence != evidence.Audit.Sequence ||
+		evidence.Audit.EventType != "QUERY_INDETERMINATE" {
+		t.Fatalf("recovery receipt was not persisted with terminal evidence: %+v", evidence)
+	}
+}
+
 func TestRecoveryChargesReservationAndArchivesAtHardLimit(t *testing.T) {
 	path := testpostgres.SchemaDSN(t)
 	clock := fixedClock{value: time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)}
@@ -415,10 +907,10 @@ func TestRecoveryChargesReservationAndArchivesAtHardLimit(t *testing.T) {
 	expires := clock.value.Add(time.Hour)
 	createAwaitingApprovalTask(t, store, "task_recovery_limit", expires)
 	approveTask(t, store, "task_recovery_limit", expires, BudgetLimits{Queries: 4, Rows: 10, DBMS: 1000})
-	if _, err := store.ReserveBudget(context.Background(), ReserveRequest{
+	if _, err := store.ReserveBudget(context.Background(), testReserveRequest(ReserveRequest{
 		QueryID: "query_recovery_limit", TaskID: "task_recovery_limit", RequestID: "request-recovery-limit", Actor: "alice",
 		RequestDigest: "request", SQLFingerprint: "select", RequestedRows: 10, RequestedDBMS: 400,
-	}); err != nil {
+	})); err != nil {
 		t.Fatalf("ReserveBudget: %v", err)
 	}
 
@@ -474,10 +966,16 @@ func TestAES256GCMValidationAndAuthentication(t *testing.T) {
 	if _, err := NewAES256GCM(make([]byte, 31)); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("31-byte key error = %v", err)
 	}
+	if _, err := NewAES256GCMWithKeyID(" bad ", bytes.Repeat([]byte{0x7a}, 32)); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("invalid key id error = %v, want invalid", err)
+	}
 	key := bytes.Repeat([]byte{0x7a}, 32)
 	cipher, err := NewAES256GCM(key)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if cipher.KeyID() != DefaultResultEncryptionKeyID {
+		t.Fatalf("default key id = %q, want %q", cipher.KeyID(), DefaultResultEncryptionKeyID)
 	}
 	nonce, ciphertext, err := cipher.Encrypt([]byte("secret result"), []byte("task/query"))
 	if err != nil {

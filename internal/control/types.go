@@ -3,6 +3,8 @@ package control
 import (
 	"encoding/json"
 	"time"
+
+	"taskbound.local/agent-data-gateway/internal/auditchain"
 )
 
 type TaskState string
@@ -68,6 +70,9 @@ type TaskGrant struct {
 	Budget             BudgetLimits
 	ExpiresAt          time.Time
 	CatalogVersion     string
+	CatalogDigest      string
+	DatasourceID       string
+	SchemaDigest       string
 	ApprovalReceipt    string
 	CreatedAt          time.Time
 }
@@ -117,6 +122,7 @@ const (
 	QueryReserved  QueryStatus = "RESERVED"
 	QueryCompleted QueryStatus = "COMPLETED"
 	QueryReleased  QueryStatus = "RELEASED"
+	QueryFailed    QueryStatus = "FAILED"
 	// QueryIndeterminate means the connector may have executed the statement,
 	// but the gateway cannot prove its outcome.  The full reservation is
 	// charged and the request_id is never executed again automatically.
@@ -135,6 +141,8 @@ type QueryRecord struct {
 	SQLFingerprint string
 	CatalogVersion string
 	CatalogDigest  string
+	DatasourceID   string
+	SchemaDigest   string
 	ManifestDigest string
 	GrantDigest    string
 	PolicyDecision string
@@ -177,6 +185,8 @@ type ReserveRequest struct {
 	SQLFingerprint string
 	CatalogVersion string
 	CatalogDigest  string
+	DatasourceID   string
+	SchemaDigest   string
 	ManifestDigest string
 	GrantDigest    string
 	PolicyDecision string
@@ -197,37 +207,88 @@ type BudgetSettlement struct {
 type EncryptedResult struct {
 	QueryID    string
 	TaskID     string
+	KeyID      string
 	Nonce      []byte
 	Ciphertext []byte
 	SHA256     string
 	CreatedAt  time.Time
 }
 
-type AuditEvent struct {
-	Sequence     int64
-	EventID      string
-	TaskID       string
-	QueryID      string
-	Actor        string
-	EventType    string
-	Payload      json.RawMessage
-	OccurredAt   time.Time
-	PreviousHash string
-	CurrentHash  string
+type ResultEncryptionKeyStatus string
+
+const (
+	ResultEncryptionKeyActive ResultEncryptionKeyStatus = "ACTIVE"
+	ResultEncryptionKeyErased ResultEncryptionKeyStatus = "ERASED"
+)
+
+type ResultEncryptionKey struct {
+	KeyID     string
+	Status    ResultEncryptionKeyStatus
+	CreatedAt time.Time
+	ErasedAt  *time.Time
+	ErasedBy  string
 }
+
+type ResultRetentionHold struct {
+	TaskID     string
+	Reason     string
+	CreatedBy  string
+	CreatedAt  time.Time
+	ReleasedBy string
+	ReleasedAt *time.Time
+}
+
+type AuditEvent = auditchain.Event
 
 type AuditFilter struct {
 	TaskID    string
+	QueryID   string
 	Actor     string
 	EventType string
 	After     int64
 	Limit     int
 }
 
-type QueryReceipt struct {
-	Query QueryRecord
-	Audit AuditEvent
+type AuditCheckpoint = auditchain.Checkpoint
+
+type QueryRecordPage struct {
+	Records    []QueryRecord
+	NextCursor string
 }
+
+type QueryReceipt struct {
+	Query   QueryRecord
+	Audit   AuditEvent
+	Receipt *PersistedQueryReceipt
+}
+
+type PersistedQueryReceipt struct {
+	QueryID               string
+	Version               string
+	GatewayKeyID          string
+	Signature             string
+	SignedAt              time.Time
+	TerminalAuditSequence int64
+	TerminalAuditHash     string
+	ReceiptJSON           []byte
+	ReceiptSHA256         string
+	CreatedAt             time.Time
+}
+
+type SaveQueryReceiptRequest struct {
+	QueryID               string
+	Version               string
+	GatewayKeyID          string
+	Signature             string
+	SignedAt              time.Time
+	TerminalAuditSequence int64
+	TerminalAuditHash     string
+	ReceiptJSON           []byte
+}
+
+// TerminalReceiptBuilder signs the terminal query evidence that was just
+// written in the surrounding transaction and returns the persisted receipt row.
+type TerminalReceiptBuilder func(QueryReceipt) (SaveQueryReceiptRequest, error)
 
 type CallbackStatus string
 

@@ -61,6 +61,10 @@ func TestRequestDataTaskUsesCatalogPolicyAndBudgetCeiling(t *testing.T) {
 	if draft.Manifest.CatalogSHA256 != harness.catalog.SHA256 || len(draft.Manifest.Nonce) != 32 {
 		t.Fatalf("manifest omitted catalog digest or nonce: %+v", draft.Manifest)
 	}
+	if draft.Manifest.DatasourceID != harness.connector.attestation.DatasourceID ||
+		draft.Manifest.SchemaDigest != harness.connector.attestation.SchemaDigest {
+		t.Fatalf("manifest omitted datasource evidence: %+v", draft.Manifest)
+	}
 	expectedSnapshot, err := approval.AuthorizationSnapshotSHA256(draft)
 	if err != nil {
 		t.Fatalf("recompute OA snapshot: %v", err)
@@ -87,6 +91,9 @@ func TestRequestDataTaskUsesCatalogPolicyAndBudgetCeiling(t *testing.T) {
 	pending := persistedPending.pendingContext
 	if pending.Budget.MaxQueries != 3 || pending.Budget.MaxRows != 50 || pending.ApprovalMode != "manual" || pending.Approver != "bob" {
 		t.Fatalf("unexpected pending policy: %+v", pending)
+	}
+	if pending.DatasourceID != draft.Manifest.DatasourceID || pending.SchemaDigest != draft.Manifest.SchemaDigest {
+		t.Fatalf("pending datasource evidence does not match manifest: %+v", pending)
 	}
 	if departments, ok := pending.MandatoryScope["department"].([]any); !ok || len(departments) != 1 || departments[0] != "销售部" {
 		t.Fatalf("mandatory department scope was not persisted: %#v", pending.MandatoryScope)

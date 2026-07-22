@@ -5,248 +5,970 @@ import (
 	"strings"
 )
 
+type productPolicy struct {
+	grant      ProductGrant
+	columns    map[string]struct{}
+	functions  map[string]struct{}
+	aggregates map[string]struct{}
+	operators  map[string]struct{}
+}
+
+type productSet map[string]struct{}
+
+type columnBinding struct {
+	Name       string
+	Sources    productSet
+	References map[string]struct{}
+	Ambiguous  bool
+}
+
+type relationBinding struct {
+	Name    string
+	Columns map[string]columnBinding
+	Order   []columnBinding
+}
+
+type selectResult struct {
+	Columns []columnBinding
+	Sources productSet
+}
+
 type analyzer struct {
-	products           map[string]ProductGrant
-	approvedColumns    map[string]struct{}
-	derivedColumns     map[string]struct{}
-	relations          map[string]struct{}
-	ctes               map[string]struct{}
-	allowedFunctions   map[string]struct{}
-	allowedOperators   map[string]struct{}
-	referencedProducts map[string]struct{}
-	referencedColumns  map[string]struct{}
+	products            map[string]productPolicy
+	taskGlobalFunctions map[string]struct{}
+	taskGlobalOperators map[string]struct{}
+	referencedProducts  map[string]struct{}
+	referencedColumns   map[string]struct{}
 }
 
-func newAnalyzer(products map[string]ProductGrant, columns, functions, operators map[string]struct{}) *analyzer {
-	relations := make(map[string]struct{}, len(products))
-	for product := range products {
-		relations[product] = struct{}{}
-	}
+type scope struct {
+	analyzer      *analyzer
+	parent        *scope
+	relations     map[string]relationBinding
+	ctes          map[string]relationBinding
+	outputAliases map[string]columnBinding
+}
+
+func newAnalyzer(products map[string]productPolicy, functions, _ map[string]struct{}, operators map[string]struct{}) *analyzer {
 	return &analyzer{
-		products:           products,
-		approvedColumns:    columns,
-		derivedColumns:     make(map[string]struct{}),
-		relations:          relations,
-		ctes:               make(map[string]struct{}),
-		allowedFunctions:   functions,
-		allowedOperators:   operators,
-		referencedProducts: make(map[string]struct{}),
-		referencedColumns:  make(map[string]struct{}),
+		products:            products,
+		taskGlobalFunctions: functions,
+		taskGlobalOperators: operators,
+		referencedProducts:  make(map[string]struct{}),
+		referencedColumns:   make(map[string]struct{}),
 	}
 }
 
-// discover makes later validation independent of Go map iteration order. It
-// records query-local relation aliases and derived output names, never grants.
-func (a *analyzer) discover(value any) {
-	switch typed := value.(type) {
-	case []any:
-		for _, item := range typed {
-			a.discover(item)
-		}
-	case map[string]any:
-		if raw, ok := typed["CommonTableExpr"].(map[string]any); ok {
-			if name, ok := raw["ctename"].(string); ok && name != "" {
-				a.ctes[name] = struct{}{}
-				a.relations[name] = struct{}{}
-			}
-			for _, name := range nodeStringList(raw["aliascolnames"]) {
-				a.derivedColumns[name] = struct{}{}
-			}
-		}
-		if raw, ok := typed["ResTarget"].(map[string]any); ok {
-			if name, ok := raw["name"].(string); ok && name != "" {
-				a.derivedColumns[name] = struct{}{}
-			}
-		}
-		if alias, ok := typed["alias"].(map[string]any); ok {
-			if name, ok := alias["aliasname"].(string); ok && name != "" {
-				a.relations[name] = struct{}{}
-			}
-			for _, name := range nodeStringList(alias["colnames"]) {
-				a.derivedColumns[name] = struct{}{}
-			}
-		}
-		for _, child := range typed {
-			a.discover(child)
-		}
+func (a *analyzer) renderProducts() map[string]ProductGrant {
+	result := make(map[string]ProductGrant, len(a.products))
+	for name, product := range a.products {
+		result[name] = product.grant
 	}
+	return result
 }
 
-func (a *analyzer) validateNode(nodeName string, body map[string]any) error {
-	if code, denied := deniedNodes[nodeName]; denied {
-		return reject(code)
+func (a *analyzer) analyzeSelect(body map[string]any, parent *scope, inheritedCTEs map[string]relationBinding) (selectResult, error) {
+	if err := validateSelectBasics(body); err != nil {
+		return selectResult{}, err
 	}
-	if _, allowed := allowedNodes[nodeName]; !allowed {
+	if hasSetOperation(body) {
+		return a.analyzeSetOperation(body, parent, inheritedCTEs)
+	}
+
+	current := &scope{
+		analyzer:  a,
+		parent:    parent,
+		relations: make(map[string]relationBinding),
+		ctes:      cloneRelations(inheritedCTEs),
+	}
+	if err := a.processWithClause(current, body["withClause"]); err != nil {
+		return selectResult{}, err
+	}
+	if err := a.processFromClause(current, body["fromClause"]); err != nil {
+		return selectResult{}, err
+	}
+
+	sources := make(productSet)
+	for _, key := range []string{"whereClause", "groupClause", "havingClause", "distinctClause"} {
+		binding, err := a.validateExpr(body[key], current, false)
+		if err != nil {
+			return selectResult{}, err
+		}
+		mergeInto(sources, binding.Sources)
+	}
+
+	output, targetSources, err := a.analyzeTargetList(current, body["targetList"])
+	if err != nil {
+		return selectResult{}, err
+	}
+	mergeInto(sources, targetSources)
+	current.outputAliases = outputAliasMap(output)
+
+	for _, key := range []string{"sortClause"} {
+		binding, err := a.validateExpr(body[key], current, true)
+		if err != nil {
+			return selectResult{}, err
+		}
+		mergeInto(sources, binding.Sources)
+	}
+	for _, key := range []string{"limitCount", "limitOffset", "windowClause"} {
+		binding, err := a.validateExpr(body[key], current, false)
+		if err != nil {
+			return selectResult{}, err
+		}
+		mergeInto(sources, binding.Sources)
+	}
+
+	if err := a.validateUnhandledSelectFields(body, current); err != nil {
+		return selectResult{}, err
+	}
+	return selectResult{Columns: output, Sources: sources}, nil
+}
+
+func validateSelectBasics(body map[string]any) error {
+	if _, present := body["intoClause"]; present {
+		return reject(CodeSelectInto)
+	}
+	if clauses, present := body["lockingClause"].([]any); present && len(clauses) != 0 {
+		return reject(CodeLocking)
+	}
+	if values, present := body["valuesLists"].([]any); present && len(values) != 0 {
 		return reject(CodeFeatureNotAllowed)
 	}
+	if with, present := body["withClause"].(map[string]any); present {
+		if recursive, _ := with["recursive"].(bool); recursive {
+			return reject(CodeRecursiveCTE)
+		}
+	}
+	return nil
+}
 
-	switch nodeName {
-	case "SelectStmt":
-		if _, present := body["intoClause"]; present {
-			return reject(CodeSelectInto)
+func hasSetOperation(body map[string]any) bool {
+	if _, ok := body["larg"]; ok {
+		return true
+	}
+	if _, ok := body["rarg"]; ok {
+		return true
+	}
+	if op, ok := body["op"].(string); ok && op != "" && op != "SETOP_NONE" {
+		return true
+	}
+	return false
+}
+
+func (a *analyzer) analyzeSetOperation(body map[string]any, parent *scope, inheritedCTEs map[string]relationBinding) (selectResult, error) {
+	ctes := cloneRelations(inheritedCTEs)
+	if _, present := body["withClause"]; present {
+		current := &scope{
+			analyzer:  a,
+			parent:    parent,
+			relations: make(map[string]relationBinding),
+			ctes:      ctes,
 		}
-		if clauses, present := body["lockingClause"].([]any); present && len(clauses) != 0 {
-			return reject(CodeLocking)
+		if err := a.processWithClause(current, body["withClause"]); err != nil {
+			return selectResult{}, err
 		}
-		if values, present := body["valuesLists"].([]any); present && len(values) != 0 {
-			return reject(CodeFeatureNotAllowed)
+		ctes = current.ctes
+	}
+	leftBody, err := selectStmtBody(body["larg"])
+	if err != nil {
+		return selectResult{}, err
+	}
+	rightBody, err := selectStmtBody(body["rarg"])
+	if err != nil {
+		return selectResult{}, err
+	}
+	left, err := a.analyzeSelect(leftBody, parent, ctes)
+	if err != nil {
+		return selectResult{}, err
+	}
+	right, err := a.analyzeSelect(rightBody, parent, ctes)
+	if err != nil {
+		return selectResult{}, err
+	}
+	if len(left.Columns) != len(right.Columns) {
+		return selectResult{}, reject(CodeColumnNotAllowed)
+	}
+	output := make([]columnBinding, len(left.Columns))
+	sources := copyProductSet(left.Sources)
+	mergeInto(sources, right.Sources)
+	for index := range left.Columns {
+		output[index] = mergeColumns(left.Columns[index], right.Columns[index])
+		if output[index].Name == "" {
+			output[index].Name = left.Columns[index].Name
 		}
-		if with, present := body["withClause"].(map[string]any); present {
-			if recursive, _ := with["recursive"].(bool); recursive {
-				return reject(CodeRecursiveCTE)
-			}
+	}
+	return selectResult{Columns: output, Sources: sources}, nil
+}
+
+func (a *analyzer) processWithClause(current *scope, value any) error {
+	with, ok := value.(map[string]any)
+	if !ok {
+		return nil
+	}
+	if recursive, _ := with["recursive"].(bool); recursive {
+		return reject(CodeRecursiveCTE)
+	}
+	items, _ := with["ctes"].([]any)
+	for _, item := range items {
+		name, body, ok := unwrapNode(item)
+		if !ok || name != "CommonTableExpr" {
+			return reject(CodeInvalidSQL)
 		}
-	case "CommonTableExpr":
 		if recursive, _ := body["cterecursive"].(bool); recursive {
 			return reject(CodeRecursiveCTE)
 		}
-	case "RangeVar":
-		if err := a.validateRangeVar(body); err != nil {
+		cteName, _ := body["ctename"].(string)
+		if !safeCatalogIdentifier(cteName) {
+			return reject(CodeInvalidSQL)
+		}
+		queryBody, err := selectStmtBody(body["ctequery"])
+		if err != nil {
 			return err
 		}
-	case "ColumnRef":
-		if err := a.validateColumnRef(body); err != nil {
+		cteScope := &scope{
+			analyzer:  a,
+			relations: make(map[string]relationBinding),
+			ctes:      cloneRelations(current.ctes),
+		}
+		result, err := a.analyzeSelect(queryBody, cteScope.parent, cteScope.ctes)
+		if err != nil {
 			return err
 		}
-	case "FuncCall":
-		if err := a.validateFunction(body); err != nil {
+		relation, err := relationFromOutputs(cteName, result.Columns)
+		if err != nil {
 			return err
 		}
-	case "A_Expr":
-		if err := a.validateOperator(body); err != nil {
+		relation, err = applyAliasColumnNames(relation, nodeStringList(body["aliascolnames"]))
+		if err != nil {
 			return err
 		}
-	case "TypeCast":
-		if err := validateTypeCast(body); err != nil {
+		current.ctes[cteName] = relation
+	}
+	return nil
+}
+
+func (a *analyzer) processFromClause(current *scope, value any) error {
+	items, ok := value.([]any)
+	if !ok {
+		return nil
+	}
+	for _, item := range items {
+		if err := a.addFromItem(current, item); err != nil {
 			return err
 		}
 	}
+	return nil
+}
 
+func (a *analyzer) addFromItem(current *scope, item any) error {
+	name, body, ok := unwrapNode(item)
+	if !ok {
+		return reject(CodeInvalidSQL)
+	}
+	switch name {
+	case "RangeVar":
+		relation, err := a.rangeVarRelation(current, body)
+		if err != nil {
+			return err
+		}
+		aliasName, aliasColumns, err := parseAlias(body["alias"])
+		if err != nil {
+			return err
+		}
+		if aliasName != "" {
+			relation.Name = aliasName
+		}
+		relation, err = applyAliasColumnNames(relation, aliasColumns)
+		if err != nil {
+			return err
+		}
+		return current.addRelation(relation)
+	case "RangeSubselect":
+		aliasName, aliasColumns, err := parseAlias(body["alias"])
+		if err != nil {
+			return err
+		}
+		if aliasName == "" {
+			return reject(CodeObjectNotAllowed)
+		}
+		queryBody, err := selectStmtBody(body["subquery"])
+		if err != nil {
+			return err
+		}
+		var parent *scope
+		if lateral, _ := body["lateral"].(bool); lateral {
+			parent = current
+		}
+		result, err := a.analyzeSelect(queryBody, parent, current.ctes)
+		if err != nil {
+			return err
+		}
+		relation, err := relationFromOutputs(aliasName, result.Columns)
+		if err != nil {
+			return err
+		}
+		relation, err = applyAliasColumnNames(relation, aliasColumns)
+		if err != nil {
+			return err
+		}
+		return current.addRelation(relation)
+	case "JoinExpr":
+		return a.addJoin(current, body)
+	default:
+		if code, denied := deniedNodes[name]; denied {
+			return reject(code)
+		}
+		return reject(CodeFeatureNotAllowed)
+	}
+}
+
+func (a *analyzer) rangeVarRelation(current *scope, body map[string]any) (relationBinding, error) {
+	if schema, _ := body["schemaname"].(string); schema != "" {
+		return relationBinding{}, reject(CodeSystemObject)
+	}
+	if catalog, _ := body["catalogname"].(string); catalog != "" {
+		return relationBinding{}, reject(CodeSystemObject)
+	}
+	relationName, _ := body["relname"].(string)
+	if relationName == "" {
+		return relationBinding{}, reject(CodeObjectNotAllowed)
+	}
+	if systemRelation(relationName) {
+		return relationBinding{}, reject(CodeSystemObject)
+	}
+	if cte, ok := current.ctes[relationName]; ok {
+		cte.Name = relationName
+		return cte, nil
+	}
+	product, ok := a.products[relationName]
+	if !ok {
+		return relationBinding{}, reject(CodeObjectNotAllowed)
+	}
+	a.referencedProducts[relationName] = struct{}{}
+	return productRelation(product), nil
+}
+
+func (a *analyzer) addJoin(current *scope, body map[string]any) error {
+	before := relationNames(current.relations)
+	if err := a.addFromItem(current, body["larg"]); err != nil {
+		return err
+	}
+	if err := a.addFromItem(current, body["rarg"]); err != nil {
+		return err
+	}
+	if _, err := a.validateExpr(body["quals"], current, false); err != nil {
+		return err
+	}
+	aliasName, aliasColumns, err := parseAlias(body["alias"])
+	if err != nil {
+		return err
+	}
+	if aliasName == "" {
+		return nil
+	}
+	joined := current.relationsAddedSince(before)
+	for name := range joined {
+		delete(current.relations, name)
+	}
+	relation, err := combineJoinRelations(aliasName, joined)
+	if err != nil {
+		return err
+	}
+	relation, err = applyAliasColumnNames(relation, aliasColumns)
+	if err != nil {
+		return err
+	}
+	return current.addRelation(relation)
+}
+
+func (a *analyzer) analyzeTargetList(current *scope, value any) ([]columnBinding, productSet, error) {
+	items, ok := value.([]any)
+	if !ok || len(items) == 0 {
+		return nil, nil, reject(CodeFeatureNotAllowed)
+	}
+	output := make([]columnBinding, 0, len(items))
+	sources := make(productSet)
+	for _, item := range items {
+		name, body, ok := unwrapNode(item)
+		if !ok || name != "ResTarget" {
+			return nil, nil, reject(CodeInvalidSQL)
+		}
+		alias, _ := body["name"].(string)
+		if alias != "" && !safeCatalogIdentifier(alias) {
+			return nil, nil, reject(CodeColumnNotAllowed)
+		}
+		expr, err := a.validateExpr(body["val"], current, false)
+		if err != nil {
+			return nil, nil, err
+		}
+		mergeInto(sources, expr.Sources)
+		if alias == "" {
+			alias = outputName(body["val"])
+		}
+		expr.Name = alias
+		output = append(output, expr)
+	}
+	return output, sources, nil
+}
+
+func (a *analyzer) validateUnhandledSelectFields(body map[string]any, current *scope) error {
+	handled := map[string]struct{}{
+		"all": {}, "distinctClause": {}, "fromClause": {}, "groupClause": {}, "havingClause": {},
+		"intoClause": {}, "larg": {}, "limitCount": {}, "limitOffset": {}, "lockingClause": {},
+		"op": {}, "rarg": {}, "sortClause": {}, "targetList": {}, "valuesLists": {},
+		"whereClause": {}, "windowClause": {}, "withClause": {},
+	}
 	keys := make([]string, 0, len(body))
 	for key := range body {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
 	for _, key := range keys {
-		if err := a.validateValue(body[key]); err != nil {
+		if _, ok := handled[key]; ok {
+			continue
+		}
+		if _, err := a.validateExpr(body[key], current, false); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (a *analyzer) validateValue(value any) error {
+func (a *analyzer) validateExpr(value any, current *scope, allowOutput bool) (columnBinding, error) {
 	switch typed := value.(type) {
+	case nil:
+		return emptyBinding(), nil
 	case []any:
-		for _, child := range typed {
-			if err := a.validateValue(child); err != nil {
-				return err
+		result := emptyBinding()
+		for _, item := range typed {
+			child, err := a.validateExpr(item, current, allowOutput)
+			if err != nil {
+				return columnBinding{}, err
 			}
+			result = mergeColumns(result, child)
 		}
+		return result, nil
 	case map[string]any:
-		keys := make([]string, 0, len(typed))
-		for key := range typed {
-			keys = append(keys, key)
+		if name, body, ok := unwrapNode(typed); ok {
+			if code, denied := deniedNodes[name]; denied {
+				return columnBinding{}, reject(code)
+			}
+			if _, allowed := allowedNodes[name]; !allowed {
+				return columnBinding{}, reject(CodeFeatureNotAllowed)
+			}
+			switch name {
+			case "ColumnRef":
+				return a.validateColumnRef(current, body, allowOutput)
+			case "FuncCall":
+				return a.validateFunction(current, body, allowOutput)
+			case "A_Expr":
+				return a.validateOperator(current, body, allowOutput)
+			case "TypeCast":
+				if err := validateTypeCast(body); err != nil {
+					return columnBinding{}, err
+				}
+				return a.validateExpr(body["arg"], current, allowOutput)
+			case "SelectStmt":
+				result, err := a.analyzeSelect(body, current, current.ctes)
+				if err != nil {
+					return columnBinding{}, err
+				}
+				return bindingFromResult(result), nil
+			case "RangeVar", "RangeSubselect", "JoinExpr", "CommonTableExpr":
+				return columnBinding{}, reject(CodeFeatureNotAllowed)
+			default:
+				return a.validateExprMap(body, current, allowOutput)
+			}
 		}
-		sort.Strings(keys)
-		for _, key := range keys {
-			child := typed[key]
-			if isNodeWrapper(key, child) {
-				body, ok := child.(map[string]any)
-				if !ok {
-					return reject(CodeInvalidSQL)
-				}
-				if err := a.validateNode(key, body); err != nil {
-					return err
-				}
-				continue
-			}
-			if key == "recursive" {
-				if recursive, _ := child.(bool); recursive {
-					return reject(CodeRecursiveCTE)
-				}
-			}
-			if err := a.validateValue(child); err != nil {
-				return err
-			}
-		}
+		return a.validateExprMap(typed, current, allowOutput)
+	default:
+		return emptyBinding(), nil
 	}
-	return nil
 }
 
-func (a *analyzer) validateRangeVar(body map[string]any) error {
-	if schema, _ := body["schemaname"].(string); schema != "" {
-		return reject(CodeSystemObject)
+func (a *analyzer) validateExprMap(body map[string]any, current *scope, allowOutput bool) (columnBinding, error) {
+	keys := make([]string, 0, len(body))
+	for key := range body {
+		keys = append(keys, key)
 	}
-	if catalog, _ := body["catalogname"].(string); catalog != "" {
-		return reject(CodeSystemObject)
+	sort.Strings(keys)
+	result := emptyBinding()
+	for _, key := range keys {
+		if key == "location" {
+			continue
+		}
+		child, err := a.validateExpr(body[key], current, allowOutput)
+		if err != nil {
+			return columnBinding{}, err
+		}
+		result = mergeColumns(result, child)
 	}
-	relation, _ := body["relname"].(string)
-	if relation == "" {
-		return reject(CodeObjectNotAllowed)
-	}
-	if systemRelation(relation) {
-		return reject(CodeSystemObject)
-	}
-	if _, allowed := a.products[relation]; allowed {
-		a.referencedProducts[relation] = struct{}{}
-		return nil
-	}
-	if _, allowed := a.ctes[relation]; allowed {
-		return nil
-	}
-	return reject(CodeObjectNotAllowed)
+	return result, nil
 }
 
-func (a *analyzer) validateColumnRef(body map[string]any) error {
+func (a *analyzer) validateColumnRef(current *scope, body map[string]any, allowOutput bool) (columnBinding, error) {
 	parts, wildcard, valid := nodeIdentifierPath(body["fields"])
 	if wildcard {
-		return reject(CodeWildcard)
+		return columnBinding{}, reject(CodeWildcard)
 	}
 	if !valid || len(parts) == 0 || len(parts) > 2 {
-		return reject(CodeColumnNotAllowed)
+		return columnBinding{}, reject(CodeColumnNotAllowed)
 	}
-	column := parts[len(parts)-1]
-	if len(parts) == 2 {
-		if _, allowed := a.relations[parts[0]]; !allowed {
-			return reject(CodeObjectNotAllowed)
-		}
+	binding, err := current.resolveColumn(parts, allowOutput)
+	if err != nil {
+		return columnBinding{}, err
 	}
-	if _, allowed := a.approvedColumns[column]; !allowed {
-		if _, derived := a.derivedColumns[column]; !derived {
-			return reject(CodeColumnNotAllowed)
-		}
+	if binding.Ambiguous {
+		return columnBinding{}, reject(CodeColumnNotAllowed)
 	}
-	a.referencedColumns[column] = struct{}{}
-	return nil
+	for reference := range binding.References {
+		a.referencedColumns[reference] = struct{}{}
+	}
+	return binding, nil
 }
 
-func (a *analyzer) validateFunction(body map[string]any) error {
+func (a *analyzer) validateFunction(current *scope, body map[string]any, allowOutput bool) (columnBinding, error) {
 	nameParts := nodeStringList(body["funcname"])
 	if len(nameParts) != 1 {
-		return reject(CodeFunctionNotAllowed)
+		return columnBinding{}, reject(CodeFunctionNotAllowed)
 	}
 	name := nameParts[0]
 	if dangerousFunction(name) {
-		return reject(CodeFunctionNotAllowed)
+		return columnBinding{}, reject(CodeFunctionNotAllowed)
 	}
-	if _, allowed := a.allowedFunctions[name]; !allowed {
-		return reject(CodeFunctionNotAllowed)
+	args, err := a.functionArgumentSources(current, body, allowOutput)
+	if err != nil {
+		return columnBinding{}, err
 	}
+	sources := copyProductSet(args.Sources)
+	if isAggregateStar(body) && len(sources) == 0 {
+		sources = current.localVisibleProducts()
+	}
+	if !a.functionAllowed(name, sources) {
+		return columnBinding{}, reject(CodeFunctionNotAllowed)
+	}
+	args.Sources = sources
+	return args, nil
+}
+
+func (a *analyzer) functionArgumentSources(current *scope, body map[string]any, allowOutput bool) (columnBinding, error) {
+	keys := make([]string, 0, len(body))
+	for key := range body {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	result := emptyBinding()
+	for _, key := range keys {
+		switch key {
+		case "funcname", "location", "agg_star", "agg_distinct", "func_variadic", "funcformat":
+			continue
+		}
+		child, err := a.validateExpr(body[key], current, allowOutput)
+		if err != nil {
+			return columnBinding{}, err
+		}
+		result = mergeColumns(result, child)
+	}
+	return result, nil
+}
+
+func (a *analyzer) functionAllowed(name string, sources productSet) bool {
+	if len(sources) == 0 {
+		_, ok := a.taskGlobalFunctions[name]
+		return ok
+	}
+	for productName := range sources {
+		product, ok := a.products[productName]
+		if !ok {
+			return false
+		}
+		if _, ok := product.functions[name]; ok {
+			continue
+		}
+		if _, ok := product.aggregates[name]; ok {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func (a *analyzer) validateOperator(current *scope, body map[string]any, allowOutput bool) (columnBinding, error) {
+	operands := emptyBinding()
+	for _, key := range []string{"lexpr", "rexpr"} {
+		child, err := a.validateExpr(body[key], current, allowOutput)
+		if err != nil {
+			return columnBinding{}, err
+		}
+		operands = mergeColumns(operands, child)
+	}
+	operators := nodeStringList(body["name"])
+	if len(operators) != 1 {
+		return columnBinding{}, reject(CodeOperatorNotAllowed)
+	}
+	if !a.operatorAllowed(operators[0], operands.Sources) {
+		return columnBinding{}, reject(CodeOperatorNotAllowed)
+	}
+	return operands, nil
+}
+
+func (a *analyzer) operatorAllowed(name string, sources productSet) bool {
+	if len(sources) == 0 {
+		_, ok := a.taskGlobalOperators[name]
+		return ok
+	}
+	for productName := range sources {
+		product, ok := a.products[productName]
+		if !ok {
+			return false
+		}
+		if _, ok := product.operators[name]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *scope) addRelation(relation relationBinding) error {
+	if relation.Name == "" || !safeCatalogIdentifier(relation.Name) {
+		return reject(CodeObjectNotAllowed)
+	}
+	if _, exists := s.relations[relation.Name]; exists {
+		return reject(CodeObjectNotAllowed)
+	}
+	s.relations[relation.Name] = relation
 	return nil
 }
 
-func (a *analyzer) validateOperator(body map[string]any) error {
-	operators := nodeStringList(body["name"])
-	if len(operators) > 1 {
-		return reject(CodeOperatorNotAllowed)
+func (s *scope) resolveColumn(parts []string, allowOutput bool) (columnBinding, error) {
+	if len(parts) == 2 {
+		relation, ok := s.lookupRelation(parts[0])
+		if !ok {
+			return columnBinding{}, reject(CodeObjectNotAllowed)
+		}
+		column, ok := relation.Columns[parts[1]]
+		if !ok || column.Ambiguous {
+			return columnBinding{}, reject(CodeColumnNotAllowed)
+		}
+		return column, nil
 	}
-	if len(operators) == 1 {
-		if _, allowed := a.allowedOperators[operators[0]]; !allowed {
-			return reject(CodeOperatorNotAllowed)
+	name := parts[0]
+	if allowOutput && s.outputAliases != nil {
+		if column, ok := s.outputAliases[name]; ok {
+			if column.Ambiguous {
+				return columnBinding{}, reject(CodeColumnNotAllowed)
+			}
+			return column, nil
 		}
 	}
-	return nil
+	var match columnBinding
+	matches := 0
+	for _, relation := range s.relations {
+		column, ok := relation.Columns[name]
+		if !ok {
+			continue
+		}
+		if column.Ambiguous {
+			return columnBinding{}, reject(CodeColumnNotAllowed)
+		}
+		match = column
+		matches++
+	}
+	if matches > 1 {
+		return columnBinding{}, reject(CodeColumnNotAllowed)
+	}
+	if matches == 1 {
+		return match, nil
+	}
+	if s.parent != nil {
+		return s.parent.resolveColumn(parts, false)
+	}
+	return columnBinding{}, reject(CodeColumnNotAllowed)
+}
+
+func (s *scope) lookupRelation(name string) (relationBinding, bool) {
+	if relation, ok := s.relations[name]; ok {
+		return relation, true
+	}
+	if s.parent != nil {
+		return s.parent.lookupRelation(name)
+	}
+	return relationBinding{}, false
+}
+
+func (s *scope) localVisibleProducts() productSet {
+	result := make(productSet)
+	for _, relation := range s.relations {
+		for _, column := range relation.Columns {
+			mergeInto(result, column.Sources)
+		}
+	}
+	return result
+}
+
+func (s *scope) relationsAddedSince(before map[string]struct{}) map[string]relationBinding {
+	result := make(map[string]relationBinding)
+	for name, relation := range s.relations {
+		if _, existed := before[name]; !existed {
+			result[name] = relation
+		}
+	}
+	return result
+}
+
+func productRelation(product productPolicy) relationBinding {
+	relation := relationBinding{
+		Name:    product.grant.LogicalName,
+		Columns: make(map[string]columnBinding, len(product.grant.ApprovedColumns)),
+		Order:   make([]columnBinding, 0, len(product.grant.ApprovedColumns)),
+	}
+	for _, column := range product.grant.ApprovedColumns {
+		binding := columnBinding{
+			Name:       column,
+			Sources:    productSet{product.grant.LogicalName: {}},
+			References: map[string]struct{}{product.grant.LogicalName + "." + column: {}},
+		}
+		relation.Columns[column] = binding
+		relation.Order = append(relation.Order, binding)
+	}
+	return relation
+}
+
+func relationFromOutputs(name string, columns []columnBinding) (relationBinding, error) {
+	relation := relationBinding{
+		Name:    name,
+		Columns: make(map[string]columnBinding, len(columns)),
+		Order:   make([]columnBinding, len(columns)),
+	}
+	for index, column := range columns {
+		relation.Order[index] = column
+		if column.Name == "" {
+			continue
+		}
+		if !safeCatalogIdentifier(column.Name) {
+			return relationBinding{}, reject(CodeColumnNotAllowed)
+		}
+		if existing, exists := relation.Columns[column.Name]; exists {
+			column = mergeColumns(existing, column)
+			column.Ambiguous = true
+		}
+		relation.Columns[column.Name] = column
+	}
+	return relation, nil
+}
+
+func combineJoinRelations(name string, relations map[string]relationBinding) (relationBinding, error) {
+	combined := relationBinding{
+		Name:    name,
+		Columns: make(map[string]columnBinding),
+	}
+	names := make([]string, 0, len(relations))
+	for relationName := range relations {
+		names = append(names, relationName)
+	}
+	sort.Strings(names)
+	for _, relationName := range names {
+		relation := relations[relationName]
+		for _, column := range relation.Order {
+			combined.Order = append(combined.Order, column)
+			if column.Name == "" {
+				continue
+			}
+			if existing, exists := combined.Columns[column.Name]; exists {
+				column = mergeColumns(existing, column)
+				column.Ambiguous = true
+			}
+			combined.Columns[column.Name] = column
+		}
+	}
+	return combined, nil
+}
+
+func applyAliasColumnNames(relation relationBinding, names []string) (relationBinding, error) {
+	if len(names) == 0 {
+		return relation, nil
+	}
+	if len(names) > len(relation.Order) {
+		return relationBinding{}, reject(CodeColumnNotAllowed)
+	}
+	for _, name := range names {
+		if !safeCatalogIdentifier(name) {
+			return relationBinding{}, reject(CodeColumnNotAllowed)
+		}
+	}
+	renamed := relationBinding{
+		Name:    relation.Name,
+		Columns: make(map[string]columnBinding, len(relation.Columns)),
+		Order:   make([]columnBinding, len(relation.Order)),
+	}
+	copy(renamed.Order, relation.Order)
+	for index, name := range names {
+		renamed.Order[index].Name = name
+	}
+	for _, column := range renamed.Order {
+		if column.Name == "" {
+			continue
+		}
+		if existing, exists := renamed.Columns[column.Name]; exists {
+			column = mergeColumns(existing, column)
+			column.Ambiguous = true
+		}
+		renamed.Columns[column.Name] = column
+	}
+	return renamed, nil
+}
+
+func outputAliasMap(columns []columnBinding) map[string]columnBinding {
+	result := make(map[string]columnBinding)
+	for _, column := range columns {
+		if column.Name == "" {
+			continue
+		}
+		if existing, exists := result[column.Name]; exists {
+			column = mergeColumns(existing, column)
+			column.Ambiguous = true
+		}
+		result[column.Name] = column
+	}
+	return result
+}
+
+func outputName(value any) string {
+	name, body, ok := unwrapNode(value)
+	if !ok || name != "ColumnRef" {
+		return ""
+	}
+	parts, wildcard, valid := nodeIdentifierPath(body["fields"])
+	if wildcard || !valid || len(parts) == 0 {
+		return ""
+	}
+	return parts[len(parts)-1]
+}
+
+func parseAlias(value any) (string, []string, error) {
+	if value == nil {
+		return "", nil, nil
+	}
+	body, ok := value.(map[string]any)
+	if !ok {
+		return "", nil, reject(CodeInvalidSQL)
+	}
+	name, _ := body["aliasname"].(string)
+	if name != "" && !safeCatalogIdentifier(name) {
+		return "", nil, reject(CodeObjectNotAllowed)
+	}
+	columns := nodeStringList(body["colnames"])
+	return name, columns, nil
+}
+
+func selectStmtBody(value any) (map[string]any, error) {
+	if body, ok := value.(map[string]any); ok && looksLikeSelectBody(body) {
+		return body, nil
+	}
+	name, body, ok := unwrapNode(value)
+	if !ok {
+		return nil, reject(CodeInvalidSQL)
+	}
+	if name != "SelectStmt" {
+		if code, denied := deniedNodes[name]; denied {
+			return nil, reject(code)
+		}
+		return nil, reject(topLevelCode(map[string]any{name: body}))
+	}
+	return body, nil
+}
+
+func looksLikeSelectBody(body map[string]any) bool {
+	for _, key := range []string{"targetList", "fromClause", "whereClause", "larg", "rarg", "withClause", "valuesLists"} {
+		if _, ok := body[key]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func unwrapNode(value any) (string, map[string]any, bool) {
+	node, ok := value.(map[string]any)
+	if !ok || len(node) != 1 {
+		return "", nil, false
+	}
+	for name, raw := range node {
+		body, ok := raw.(map[string]any)
+		return name, body, ok
+	}
+	return "", nil, false
+}
+
+func isAggregateStar(body map[string]any) bool {
+	star, _ := body["agg_star"].(bool)
+	return star
+}
+
+func bindingFromResult(result selectResult) columnBinding {
+	binding := emptyBinding()
+	mergeInto(binding.Sources, result.Sources)
+	for _, column := range result.Columns {
+		binding = mergeColumns(binding, column)
+	}
+	return binding
+}
+
+func emptyBinding() columnBinding {
+	return columnBinding{Sources: make(productSet), References: make(map[string]struct{})}
+}
+
+func mergeColumns(left, right columnBinding) columnBinding {
+	result := columnBinding{
+		Name:       left.Name,
+		Sources:    copyProductSet(left.Sources),
+		References: copyStringSet(left.References),
+		Ambiguous:  left.Ambiguous || right.Ambiguous,
+	}
+	if result.Name == "" {
+		result.Name = right.Name
+	}
+	mergeInto(result.Sources, right.Sources)
+	for reference := range right.References {
+		result.References[reference] = struct{}{}
+	}
+	return result
+}
+
+func copyProductSet(source productSet) productSet {
+	result := make(productSet, len(source))
+	mergeInto(result, source)
+	return result
+}
+
+func mergeInto(destination, source productSet) {
+	for value := range source {
+		destination[value] = struct{}{}
+	}
+}
+
+func copyStringSet(source map[string]struct{}) map[string]struct{} {
+	result := make(map[string]struct{}, len(source))
+	for value := range source {
+		result[value] = struct{}{}
+	}
+	return result
+}
+
+func cloneRelations(source map[string]relationBinding) map[string]relationBinding {
+	result := make(map[string]relationBinding, len(source))
+	for name, relation := range source {
+		result[name] = relation
+	}
+	return result
+}
+
+func relationNames(relations map[string]relationBinding) map[string]struct{} {
+	result := make(map[string]struct{}, len(relations))
+	for name := range relations {
+		result[name] = struct{}{}
+	}
+	return result
 }
 
 func validateTypeCast(body map[string]any) error {
@@ -327,14 +1049,6 @@ func nodeStringList(value any) []string {
 		result = append(result, value)
 	}
 	return result
-}
-
-func isNodeWrapper(key string, value any) bool {
-	if key == "" || key[0] < 'A' || key[0] > 'Z' {
-		return false
-	}
-	_, ok := value.(map[string]any)
-	return ok
 }
 
 func systemRelation(name string) bool {

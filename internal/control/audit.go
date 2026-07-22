@@ -2,48 +2,17 @@ package control
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
+
+	"taskbound.local/agent-data-gateway/internal/auditchain"
 )
 
-const auditGenesisHash = "0000000000000000000000000000000000000000000000000000000000000000"
-
-type auditHashMaterial struct {
-	PreviousHash string          `json:"previous_hash"`
-	EventID      string          `json:"event_id"`
-	TaskID       string          `json:"task_id"`
-	QueryID      string          `json:"query_id"`
-	Actor        string          `json:"actor"`
-	EventType    string          `json:"event_type"`
-	Payload      json.RawMessage `json:"payload"`
-	OccurredAt   string          `json:"occurred_at"`
-}
-
 func hashAudit(previous string, event AuditEvent) (string, error) {
-	payload, err := normalizeJSON(event.Payload, `{}`)
-	if err != nil {
-		return "", err
-	}
-	material, err := json.Marshal(auditHashMaterial{
-		PreviousHash: previous,
-		EventID:      event.EventID,
-		TaskID:       event.TaskID,
-		QueryID:      event.QueryID,
-		Actor:        event.Actor,
-		EventType:    event.EventType,
-		Payload:      payload,
-		OccurredAt:   formatTime(event.OccurredAt),
-	})
-	if err != nil {
-		return "", err
-	}
-	digest := sha256.Sum256(material)
-	return hex.EncodeToString(digest[:]), nil
+	return auditchain.Hash(previous, event)
 }
 
 func appendAuditTx(ctx context.Context, tx *sql.Tx, event AuditEvent) (AuditEvent, error) {
@@ -68,7 +37,7 @@ func appendAuditTx(ctx context.Context, tx *sql.Tx, event AuditEvent) (AuditEven
 	}
 	event.Payload = payload
 	var sequence int64
-	previous := auditGenesisHash
+	previous := auditchain.GenesisHash
 	err = tx.QueryRowContext(ctx, `
 SELECT last_sequence, last_hash
 FROM audit_chain_head
@@ -134,9 +103,13 @@ func (s *Store) ListAuditEvents(ctx context.Context, filter AuditFilter) ([]Audi
 SELECT sequence, event_id, COALESCE(task_id,''), COALESCE(query_id,''), actor, event_type,
        payload_json, occurred_at, previous_hash, current_hash
 FROM audit_events
-WHERE sequence > $1 AND ($2 = '' OR task_id = $3) AND ($4 = '' OR actor = $5) AND ($6 = '' OR event_type = $7)
-ORDER BY sequence LIMIT $8`, filter.After, filter.TaskID, filter.TaskID, filter.Actor, filter.Actor,
-		filter.EventType, filter.EventType, limit)
+WHERE sequence > $1
+  AND ($2 = '' OR task_id = $3)
+  AND ($4 = '' OR query_id = $5)
+  AND ($6 = '' OR actor = $7)
+  AND ($8 = '' OR event_type = $9)
+ORDER BY sequence LIMIT $10`, filter.After, filter.TaskID, filter.TaskID, filter.QueryID, filter.QueryID,
+		filter.Actor, filter.Actor, filter.EventType, filter.EventType, limit)
 	if err != nil {
 		return nil, opErr(op, ErrConflict, err)
 	}
@@ -156,6 +129,109 @@ ORDER BY sequence LIMIT $8`, filter.After, filter.TaskID, filter.TaskID, filter.
 }
 
 type rowScanner interface{ Scan(...any) error }
+
+func (s *Store) ListAuditEventsForQuery(ctx context.Context, queryID string) ([]AuditEvent, error) {
+	const op = "list query audit events"
+	if err := s.checkOpen(op); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(queryID) == "" {
+		return nil, opErr(op, ErrInvalid, fmt.Errorf("query id is required"))
+	}
+	rows, err := s.db.QueryContext(ctx, `
+SELECT sequence, event_id, COALESCE(task_id,''), COALESCE(query_id,''), actor, event_type,
+       payload_json, occurred_at, previous_hash, current_hash
+FROM audit_events
+WHERE query_id=$1
+ORDER BY sequence`, queryID)
+	if err != nil {
+		return nil, opErr(op, ErrConflict, err)
+	}
+	defer rows.Close()
+	var events []AuditEvent
+	for rows.Next() {
+		event, err := scanAudit(rows)
+		if err != nil {
+			return nil, opErr(op, ErrConflict, err)
+		}
+		events = append(events, event)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, opErr(op, ErrConflict, err)
+	}
+	return events, nil
+}
+
+func (s *Store) ListAuditEventsRange(ctx context.Context, after, through int64) ([]AuditEvent, error) {
+	const op = "list audit event range"
+	if err := s.checkOpen(op); err != nil {
+		return nil, err
+	}
+	if after < 0 || through < after {
+		return nil, opErr(op, ErrInvalid, fmt.Errorf("invalid audit range"))
+	}
+	if through == after {
+		return nil, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+SELECT sequence, event_id, COALESCE(task_id,''), COALESCE(query_id,''), actor, event_type,
+       payload_json, occurred_at, previous_hash, current_hash
+FROM audit_events
+WHERE sequence > $1 AND sequence <= $2
+ORDER BY sequence`, after, through)
+	if err != nil {
+		return nil, opErr(op, ErrConflict, err)
+	}
+	defer rows.Close()
+	var events []AuditEvent
+	for rows.Next() {
+		event, err := scanAudit(rows)
+		if err != nil {
+			return nil, opErr(op, ErrConflict, err)
+		}
+		events = append(events, event)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, opErr(op, ErrConflict, err)
+	}
+	return events, nil
+}
+
+func (s *Store) GetAuditEvent(ctx context.Context, sequence int64) (AuditEvent, error) {
+	const op = "get audit event"
+	if err := s.checkOpen(op); err != nil {
+		return AuditEvent{}, err
+	}
+	if sequence <= 0 {
+		return AuditEvent{}, opErr(op, ErrInvalid, fmt.Errorf("sequence must be positive"))
+	}
+	event, err := scanAudit(s.db.QueryRowContext(ctx, `
+SELECT sequence, event_id, COALESCE(task_id,''), COALESCE(query_id,''), actor, event_type,
+       payload_json, occurred_at, previous_hash, current_hash
+FROM audit_events
+WHERE sequence=$1`, sequence))
+	if err != nil {
+		if isNoRows(err) {
+			return AuditEvent{}, opErr(op, ErrNotFound, err)
+		}
+		return AuditEvent{}, opErr(op, ErrConflict, err)
+	}
+	return event, nil
+}
+
+func (s *Store) AuditCheckpoint(ctx context.Context) (AuditCheckpoint, error) {
+	const op = "audit checkpoint"
+	if err := s.checkOpen(op); err != nil {
+		return AuditCheckpoint{}, err
+	}
+	var checkpoint AuditCheckpoint
+	err := s.db.QueryRowContext(ctx, `SELECT last_sequence, last_hash FROM audit_chain_head WHERE singleton=TRUE`).
+		Scan(&checkpoint.Sequence, &checkpoint.Hash)
+	if err != nil {
+		return AuditCheckpoint{}, opErr(op, ErrConflict, err)
+	}
+	return checkpoint, nil
+}
 
 func scanAudit(row rowScanner) (AuditEvent, error) {
 	var event AuditEvent
@@ -184,7 +260,7 @@ FROM audit_events ORDER BY sequence`)
 		return opErr(op, ErrConflict, err)
 	}
 	defer rows.Close()
-	previous := auditGenesisHash
+	previous := auditchain.GenesisHash
 	var expectedSequence int64 = 1
 	for rows.Next() {
 		event, err := scanAudit(rows)

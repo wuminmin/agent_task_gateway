@@ -2,12 +2,13 @@
   "schema_version": 1,
   "id": "taskgate-tpcds-readonly-v1",
   "family": "tpcds",
+  "lineage": "TPC-derived",
   "queries": [
     {
       "id": "store-sales-window",
       "sql": {
         "direct_postgresql": "queries/store_sales_window.direct.sql",
-        "native_view_rls": "queries/store_sales_window.native.sql",
+        "native_view": "queries/store_sales_window.native.sql",
         "ast_only_gateway": "queries/store_sales_window.gateway.sql",
         "full_taskgate": "queries/store_sales_window.gateway.sql"
       }
@@ -16,7 +17,7 @@
       "id": "items-by-category",
       "sql": {
         "direct_postgresql": "queries/items_by_category.direct.sql",
-        "native_view_rls": "queries/items_by_category.native.sql",
+        "native_view": "queries/items_by_category.native.sql",
         "ast_only_gateway": "queries/items_by_category.gateway.sql",
         "full_taskgate": "queries/items_by_category.gateway.sql"
       }
@@ -25,7 +26,7 @@
       "id": "customers-by-demographic",
       "sql": {
         "direct_postgresql": "queries/customers_by_demographic.direct.sql",
-        "native_view_rls": "queries/customers_by_demographic.native.sql",
+        "native_view": "queries/customers_by_demographic.native.sql",
         "ast_only_gateway": "queries/customers_by_demographic.gateway.sql",
         "full_taskgate": "queries/customers_by_demographic.gateway.sql"
       }

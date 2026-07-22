@@ -15,18 +15,19 @@ Agent 提交的结构化申请、QueryPlan、SQL、浏览器请求、网络回�
 
 | 威胁 | 当前控制 | 残余风险 |
 |---|---|---|
-| Agent 越权读取其他主体任务/结果 | Bearer Token 映射固定 Principal；任务和结果同时校验 principal、task、query 与 actor；越权按不存在返回 | 长期静态 Token 没有设备绑定、短期会话、集中撤销或组织级权限 |
+| Agent 越权读取其他主体任务/结果 | Bearer Token 映射固定 Principal；任务和结果同时校验 principal、task、query 与 actor；越权按不存在返回；Principal 禁用后 Gateway 不再列出或执行工具 | 长期静态 Token 没有设备绑定、短期会话、组织级权限或外部会话吊销发布 |
 | Carol 读取敏感原始结果 | Carol 只注册两个审计工具，凭证不含结果行 | 拥有控制库和数据密钥的管理员可以解密；审计元数据可能包含目标和 OA 信息 |
 | 客户端伪造授权字段 | 身份字段由 Gateway 生成；产品、字段和 Scope 必须显式且非空；OA 展示并绑定 RFC 8785 `AuthorizationManifestV1` 摘要 | 不验证自然语言目标与查询语义；审批人仍须核对结构化 Manifest |
 | 恶意 QueryPlan | 本地编译器验证产品、字段、聚合、过滤、排序、literal 与 Limit，随后进入完整 SQL AST 策略 | 编译器或策略实现缺陷仍需模糊测试和攻击语料覆盖 |
 | SQL 注入、注释绕过或写操作 | PostgreSQL AST 单语句白名单、逻辑产品/字段/函数/运算符限制、Scope CTE、外层行限制 | Parser/策略缺陷和依赖漏洞仍可能存在 |
-| 策略失误后修改业务库 | 非 owner、非 superuser、无 `BYPASSRLS` 的独立 `gateway_reader`；角色/连接/事务只读；仅 Reporting View `SELECT`；Schema Attestation | DBA 误授权、View 内容语义错误或数据库漏洞可绕过应用意图 |
-| OA 回调伪造、重放或乱序 | HMAC-SHA256 认证原始 Body；Event ID/状态/context/actor 校验；独立 OA Ed25519 回执绑定 Manifest 与最终 Grant；事务幂等 | Demo OA Outbox 不持久；密钥轮换仍需外部运维 |
+| 策略失误后修改业务库 | 非 owner、非 superuser、无 `BYPASSRLS` 的独立 `gateway_reader`；角色/连接/事务只读；仅 Datasource Attestation 表与 Reporting View `SELECT`；Schema Attestation | DBA 误授权、View 内容语义错误或数据库漏洞可绕过应用意图 |
+| OA 回调伪造、重放或乱序 | HMAC-SHA256 认证原始 Body；Event ID/状态/context/actor 校验；独立 OA Ed25519 回执绑定 Manifest 与最终 Grant；Gateway 可配置多把 OA 验签公钥及有效/退役窗口；事务幂等 | Demo OA Outbox 不持久；KMS、密钥分发和吊销发布仍需外部运维 |
 | 并发/重试查询超预算 | 控制 PG 对任务和预算加行锁；`(task_id, request_id)` 唯一；预留与结算在事务中；同一任务一个在途查询 | 单 Gateway 没有跨实例执行租约，不能安全横向扩容 |
-| Gateway 崩溃遗留预算/回调 | 启动恢复将 RESERVED 查询保守计费并标记 `INDETERMINATE`，禁止同 request ID 重执行；PROCESSING 回调可重试 | 保守计费可能高于实际消耗；不声称立即取消已在途查询 |
-| 并发审计链分叉或序列空洞 | 单行 `audit_chain_head` 通过 `SELECT ... FOR UPDATE` 串行化；连续序号、事件和链头在同一事务提交 | 没有外部时间戳、签名锚或独立 WORM 副本；高写入量时链头是串行瓶颈 |
+| Gateway 崩溃遗留预算/回调 | 启动恢复将 RESERVED 查询保守计费并标记 `INDETERMINATE`，在同一恢复事务中写入查询回执，并禁止同 request ID 重执行；PROCESSING 回调可重试 | 保守计费可能高于实际消耗；不声称立即取消已在途查询 |
+| 查询回执伪造或历史密钥混淆 | V3 回执绑定 `signed_at`、Gateway Key ID 和终态审计位置；Gateway 发布 `taskgate-query-receipt-keyring/v1` 验签公钥 Bundle，包含 active/historical key 与有效/退役窗口；Verifier 可从 Bundle 重建 keyring | Keyring 发布仍依赖 Gateway 配置和部署重启；没有集中 KMS/HSM、透明日志或外部撤销服务 |
+| 并发审计链分叉或序列空洞 | 单行 `audit_chain_head` 通过 `SELECT ... FOR UPDATE` 串行化；连续序号、事件和链头在同一事务提交；可配置 `taskgate-audit-checkpoint-anchor/v1` 签名 checkpoint POST 到外部日志/WORM 服务 | 外部 Anchor 服务本身的保留、不可篡改性和时间戳可信度依赖部署；高写入量时链头是串行瓶颈 |
 | Grant/审计记录被应用修改 | PostgreSQL Trigger 禁止 UPDATE/DELETE，逐事件 SHA-256 链可验证 | 超级用户可禁用 Trigger 并重建整条链 |
-| 磁盘结果泄露或篡改 | AES-256-GCM 随机 Nonce，AAD 绑定 task/query，读取时校验明文 SHA-256 | 任务、Scope、Grant、预算与审计元数据未加密；密钥位于环境变量且无轮换/Key ID |
+| 磁盘结果泄露或篡改 | AES-256-GCM 随机 Nonce，AAD 绑定 task/query，读取时校验明文 SHA-256；每个结果行保存 `key_id` 并登记在 `result_encryption_keys`；结果保留清理可按 TTL 调度或管理员截止时间删除密文并保留查询/回执/审计证据；管理员 key ID 擦除会把 key 标记为 `ERASED`、追加审计事件，并让现有密文读取 fail closed；active legal hold 阻止密文清理 | 任务、Scope、Grant、预算与审计元数据未加密；本 Demo 的 AES key 仍位于环境变量和进程内存；实际 key material 销毁、轮换、集中 KMS/HSM custody 和撤销透明性仍需外部平台 |
 | 本机网络窃听 | Gateway、OA 和 Control PG 绑定 `127.0.0.1`；Business PG 默认仅内部网络 | 本地仍使用明文 HTTP/PG；同机恶意进程可尝试连接或截获凭据 |
 | 浏览器会话伪造与 CSRF | 签名 Cookie、bcrypt、`HttpOnly`、`SameSite=Lax`、CSRF Token、CSP | 本地 HTTP Cookie 无 `Secure`；无 MFA、锁定、SSO 与登录审计 |
 | DoS 与成本滥用 | HTTP Body/Timeout、连接池、数据库 Timeout、任务预算和结果行上限 | 目录和任务申请缺少租户配额、速率限制和异常检测 |
@@ -54,19 +55,19 @@ Gateway 不向外部模型或翻译服务发送目标、Catalog、SQL 或结果�
 
 1. 用 OIDC/OAuth 2.0、短期 Token、Audience/Scope、租户绑定和集中撤销替代静态 Token。
 2. Gateway、OA 与数据库全部启用 TLS/mTLS，并置于受控网络与反向代理后。
-3. 使用 KMS/HSM 或 Secret Manager 做 Envelope Encryption，保存 Key ID 并支持轮换。
+3. 使用 KMS/HSM 或 Secret Manager 做 Envelope Encryption，保存 Key ID，支持轮换，并把 key ID 擦除操作绑定到真实 key material 销毁与透明撤销日志。
 4. 使用工作负载身份或编排平台 Secret，避免秘密长期存在于 `.env` 和进程环境。
 
 ### 持久化与高可用
 
 1. 持久化 OA 草稿、用户、Outbox 和审批历史，提供双向对账与死信队列。
 2. 在横向扩容 Gateway 前实现跨实例、可续租且可恢复的每任务执行租约；只有数据库行锁不足以覆盖业务查询执行窗口。
-3. 定义任务、结果、凭证和审计的保留、删除和法务冻结策略。
+3. 将结果保留清理的 TTL、管理员操作和 legal hold 接入组织级工单、审批和告警流程。
 4. 对控制库和业务库分别建立最小权限、备份、时间点恢复和一致性演练。
 
 ### 审计与策略
 
-1. 定期签名 Audit Head 并锚定到独立 WORM/日志服务或可信时间戳。
+1. 将签名 Audit Head Anchor 接入企业级 WORM/透明日志、可信时间戳和告警流程，并监控 Anchor 失败。
 2. 启动及周期性验证 Hash Chain，失败时停止敏感查询并告警。
 3. 将 Catalog、Reporting View、角色 Grant 和数据库迁移作为同一个受审发布单元，并做 Schema/类型校验。
 4. 对 QueryPlan 编译器、SQL Parser、Scope 注入和渲染器持续做 Fuzz、属性测试及 PostgreSQL 版本兼容测试。

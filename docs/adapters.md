@@ -150,6 +150,7 @@ Gateway 服务层使用：
 type DataConnector interface {
     Query(context.Context, dataconnector.QueryRequest) (dataconnector.Result, error)
     Ping(context.Context) error
+    Attestation(context.Context) (dataconnector.Attestation, error)
 }
 ```
 
@@ -157,13 +158,14 @@ type DataConnector interface {
 
 内置 PostgreSQL Connector 使用 `pgx/v5`：
 
-1. 从运行时 `POSTGRES_DSN` 建立最多 4 个连接的 Pool，并在启动时 Ping。
+1. 从 Catalog Source 和 `secretRef` 构造业务库 DSN，建立最多 4 个连接的 Pool，并在启动时 Ping。
 2. Connection Runtime Params 固定 `default_transaction_read_only=on`、`search_path=pg_catalog`、最大 `statement_timeout=5s`。
-3. 每次 Query 再开启显式 `READ ONLY` 事务，并用事务本地 `set_config` 缩小超时、重设 `search_path`。
-4. Connector 将请求行数限制压到自身 10,000 行硬上限以内；Demo 的任务 Profile 上限更低。
-5. 错误对客户端只暴露稳定码，不回显 DSN、原始 SQL 或物理对象；内部 Cause 只供可信日志处理。
+3. 启动、readiness 和每次查询预算预留前校验 `datasource_id`、`current_database()`、`current_user`、PostgreSQL 主版本和 Reporting View Schema 摘要；该摘要覆盖列名、列顺序、PostgreSQL 通用类型和 `pg_get_viewdef` 规范化后的 View 定义。
+4. 每次 Query 再开启显式 `READ ONLY` 事务，并用事务本地 `set_config` 缩小超时、重设 `search_path`。
+5. Connector 将请求行数限制压到自身 10,000 行硬上限以内；Demo 的任务 Profile 上限更低。
+6. 错误对客户端只暴露稳定码，不回显 DSN、原始 SQL 或物理对象；内部 Cause 只供可信日志处理。
 
-PostgreSQL 中的 `gateway_reader` 还有独立权限边界：只授予 `reporting.expense_summary` 与 `reporting.expense_detail` 的 `SELECT`，不授予 `legacy.*` 权限，并设置角色级只读和 5 秒超时。
+PostgreSQL 中的 `gateway_reader` 还有独立权限边界：只授予 `reporting.datasource_attestation`、`reporting.expense_summary` 与 `reporting.expense_detail` 的 `SELECT`，不授予 `legacy.*` 权限，并设置角色级只读和 5 秒超时。
 
 ## 新适配器要求
 

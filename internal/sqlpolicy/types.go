@@ -102,11 +102,14 @@ type ScopePredicate struct {
 // ProductGrant maps the public logical product name exposed to an agent to a
 // physical reporting view. Physical names never appear in a policy error.
 type ProductGrant struct {
-	LogicalName     string
-	PhysicalSchema  string
-	PhysicalView    string
-	ApprovedColumns []string
-	MandatoryScope  []ScopePredicate
+	LogicalName       string
+	PhysicalSchema    string
+	PhysicalView      string
+	ApprovedColumns   []string
+	AllowedFunctions  []string
+	AllowedAggregates []string
+	AllowedOperators  []string
+	MandatoryScope    []ScopePredicate
 }
 
 // Grant is the immutable data portion of an approved task grant.
@@ -135,6 +138,7 @@ type Decision struct {
 // Config controls the YAML/catalog-level expression allowlists. Empty slices
 // select the package's conservative defaults.
 type Config struct {
-	AllowedFunctions []string
-	AllowedOperators []string
+	AllowedFunctions  []string
+	AllowedAggregates []string
+	AllowedOperators  []string
 }

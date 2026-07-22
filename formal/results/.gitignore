@@ -3,3 +3,13 @@
 !README.md
 !tlc.json
 !tlc.log
+!vector_budget.json
+!vector_budget.log
+!sql_authorization.json
+!sql_authorization.log
+!multi_task_audit.json
+!multi_task_audit.log
+!receipt_audit.json
+!receipt_audit.log
+!recovery_liveness.json
+!recovery_liveness.log

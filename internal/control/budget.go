@@ -45,8 +45,12 @@ func (s *Store) ReserveBudget(ctx context.Context, request ReserveRequest) (Budg
 	if err := s.checkOpen(op); err != nil {
 		return BudgetReservation{}, err
 	}
-	if request.QueryID == "" || request.TaskID == "" || request.RequestID == "" || request.Actor == "" || request.RequestDigest == "" || request.SQLFingerprint == "" {
-		return BudgetReservation{}, opErr(op, ErrInvalid, fmt.Errorf("query, task, request id, actor, request digest, and SQL fingerprint are required"))
+	if request.QueryID == "" || request.TaskID == "" || request.RequestID == "" || request.Actor == "" ||
+		request.RequestDigest == "" || request.SQLFingerprint == "" || request.DatasourceID == "" ||
+		!validSHA256Hex(request.CatalogDigest) || !validSHA256Hex(request.SchemaDigest) ||
+		!validSHA256Hex(request.ManifestDigest) || !validSHA256Hex(request.GrantDigest) ||
+		request.PolicyDecision == "" {
+		return BudgetReservation{}, opErr(op, ErrInvalid, fmt.Errorf("query, task, request, policy, and datasource evidence are required"))
 	}
 	if request.RequestedRows < 0 || request.RequestedDBMS < 0 {
 		return BudgetReservation{}, opErr(op, ErrInvalid, fmt.Errorf("requested budget cannot be negative"))
@@ -155,18 +159,24 @@ WHERE task_id=$4 AND reserved_queries=0`, allowedRows, allowedDBMS, dbTime(now),
 	}
 	_, err = tx.ExecContext(ctx, `
 	INSERT INTO query_records(id, task_id, request_id, actor, request_digest, sql_fingerprint, catalog_version,
-	 catalog_digest, manifest_digest, grant_digest, policy_decision, status, reserved_rows, reserved_db_ms,
+	 catalog_digest, datasource_id, schema_digest, manifest_digest, grant_digest, policy_decision, status, reserved_rows, reserved_db_ms,
 	 budget_before_json, created_at)
-	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'RESERVED', $12, $13, $14, $15)`,
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'RESERVED', $14, $15, $16, $17)`,
 		request.QueryID, request.TaskID, request.RequestID, request.Actor, request.RequestDigest,
-		request.SQLFingerprint, request.CatalogVersion, request.CatalogDigest, request.ManifestDigest,
-		request.GrantDigest, request.PolicyDecision, allowedRows, allowedDBMS, string(beforeJSON), dbTime(now))
+		request.SQLFingerprint, request.CatalogVersion, request.CatalogDigest, request.DatasourceID,
+		request.SchemaDigest, request.ManifestDigest, request.GrantDigest, request.PolicyDecision,
+		allowedRows, allowedDBMS, string(beforeJSON), dbTime(now))
 	if err != nil {
 		return BudgetReservation{}, opErr(op, ErrConflict, err)
 	}
 	_, err = appendAuditTx(ctx, tx, AuditEvent{
 		TaskID: request.TaskID, QueryID: request.QueryID, Actor: request.Actor, EventType: "QUERY_BUDGET_RESERVED",
-		Payload: mustJSON(map[string]any{"request_id": request.RequestID, "rows": allowedRows, "db_ms": allowedDBMS}), OccurredAt: now,
+		Payload: mustJSON(map[string]any{
+			"request_id": request.RequestID, "rows": allowedRows, "db_ms": allowedDBMS,
+			"catalog_digest": request.CatalogDigest, "datasource_id": request.DatasourceID,
+			"schema_digest": request.SchemaDigest, "manifest_digest": request.ManifestDigest,
+			"grant_digest": request.GrantDigest,
+		}), OccurredAt: now,
 	})
 	if err != nil {
 		return BudgetReservation{}, opErr(op, ErrConflict, err)
@@ -184,9 +194,32 @@ func (s *Store) SettleBudget(ctx context.Context, settlement BudgetSettlement) (
 	return s.settle(ctx, settlement, QueryCompleted, "")
 }
 
+// SettleBudgetWithReceipt settles a successful query and persists its signed
+// receipt inside the same Control PG transaction.
+func (s *Store) SettleBudgetWithReceipt(ctx context.Context, settlement BudgetSettlement, builder TerminalReceiptBuilder) (QueryRecord, PersistedQueryReceipt, error) {
+	return s.settleWithReceipt(ctx, settlement, QueryCompleted, "", builder)
+}
+
 // ReleaseBudget releases a reservation without charging it.
 func (s *Store) ReleaseBudget(ctx context.Context, queryID, errorCode string) (QueryRecord, error) {
 	return s.settle(ctx, BudgetSettlement{QueryID: queryID, ErrorCode: errorCode}, QueryReleased, "")
+}
+
+// ReleaseBudgetWithReceipt releases a reservation and persists its signed
+// receipt inside the same Control PG transaction.
+func (s *Store) ReleaseBudgetWithReceipt(ctx context.Context, queryID, errorCode string, builder TerminalReceiptBuilder) (QueryRecord, PersistedQueryReceipt, error) {
+	return s.settleWithReceipt(ctx, BudgetSettlement{QueryID: queryID, ErrorCode: errorCode}, QueryReleased, "", builder)
+}
+
+// FailBudget records a post-execution failure with bounded observed usage.
+func (s *Store) FailBudget(ctx context.Context, settlement BudgetSettlement) (QueryRecord, error) {
+	return s.settle(ctx, settlement, QueryFailed, "")
+}
+
+// FailBudgetWithReceipt records a post-execution failure and persists its
+// signed receipt inside the same Control PG transaction.
+func (s *Store) FailBudgetWithReceipt(ctx context.Context, settlement BudgetSettlement, builder TerminalReceiptBuilder) (QueryRecord, PersistedQueryReceipt, error) {
+	return s.settleWithReceipt(ctx, settlement, QueryFailed, "", builder)
 }
 
 // MarkIndeterminate conservatively charges the entire reservation when a
@@ -202,27 +235,52 @@ func (s *Store) MarkIndeterminate(ctx context.Context, queryID, errorCode string
 	}, QueryIndeterminate, "")
 }
 
+// MarkIndeterminateWithReceipt conservatively charges the full reservation and
+// persists its signed receipt inside the same Control PG transaction.
+func (s *Store) MarkIndeterminateWithReceipt(ctx context.Context, queryID, errorCode string, builder TerminalReceiptBuilder) (QueryRecord, PersistedQueryReceipt, error) {
+	record, err := s.GetQuery(ctx, queryID)
+	if err != nil {
+		return QueryRecord{}, PersistedQueryReceipt{}, err
+	}
+	return s.settleWithReceipt(ctx, BudgetSettlement{
+		QueryID: queryID, Rows: record.ReservedRows, DBMS: record.ReservedDBMS, ErrorCode: errorCode,
+	}, QueryIndeterminate, "", builder)
+}
+
 func (s *Store) settle(ctx context.Context, settlement BudgetSettlement, status QueryStatus, resultHash string) (QueryRecord, error) {
+	record, _, err := s.settleWithReceipt(ctx, settlement, status, resultHash, nil)
+	return record, err
+}
+
+func (s *Store) settleWithReceipt(ctx context.Context, settlement BudgetSettlement, status QueryStatus, resultHash string, builder TerminalReceiptBuilder) (QueryRecord, PersistedQueryReceipt, error) {
 	const op = "settle budget"
 	if err := s.checkOpen(op); err != nil {
-		return QueryRecord{}, err
+		return QueryRecord{}, PersistedQueryReceipt{}, err
 	}
 	if settlement.QueryID == "" || settlement.Rows < 0 || settlement.DBMS < 0 {
-		return QueryRecord{}, opErr(op, ErrInvalid, fmt.Errorf("query is required and use cannot be negative"))
+		return QueryRecord{}, PersistedQueryReceipt{}, opErr(op, ErrInvalid, fmt.Errorf("query is required and use cannot be negative"))
 	}
 	tx, err := beginTx(ctx, s.db)
 	if err != nil {
-		return QueryRecord{}, opErr(op, ErrConflict, err)
+		return QueryRecord{}, PersistedQueryReceipt{}, opErr(op, ErrConflict, err)
 	}
 	defer rollback(tx)
-	record, err := settleBudgetTx(ctx, tx, s.now(), settlement, status, resultHash)
+	now := s.now()
+	record, audit, err := settleBudgetTx(ctx, tx, now, settlement, status, resultHash)
 	if err != nil {
-		return QueryRecord{}, opErr(op, settlementErrorKind(err), err)
+		return QueryRecord{}, PersistedQueryReceipt{}, opErr(op, settlementErrorKind(err), err)
+	}
+	var receipt PersistedQueryReceipt
+	if builder != nil {
+		receipt, err = persistTerminalReceiptTx(ctx, tx, now, QueryReceipt{Query: record, Audit: audit}, builder)
+		if err != nil {
+			return QueryRecord{}, PersistedQueryReceipt{}, opErr(op, receiptErrorKind(err), err)
+		}
 	}
 	if err := tx.Commit(); err != nil {
-		return QueryRecord{}, opErr(op, ErrConflict, err)
+		return QueryRecord{}, PersistedQueryReceipt{}, opErr(op, ErrConflict, err)
 	}
-	return record, nil
+	return record, receipt, nil
 }
 
 func settlementErrorKind(err error) error {
@@ -235,37 +293,38 @@ func settlementErrorKind(err error) error {
 	return ErrConflict
 }
 
-func settleBudgetTx(ctx context.Context, tx *sql.Tx, now time.Time, settlement BudgetSettlement, status QueryStatus, resultHash string) (QueryRecord, error) {
+func settleBudgetTx(ctx context.Context, tx *sql.Tx, now time.Time, settlement BudgetSettlement, status QueryStatus, resultHash string) (QueryRecord, AuditEvent, error) {
 	record, err := scanQuery(tx.QueryRowContext(ctx, querySelect+` WHERE id=$1 FOR UPDATE`, settlement.QueryID))
 	if err != nil {
 		if isNoRows(err) {
-			return QueryRecord{}, fmt.Errorf("reservation not found: %w", err)
+			return QueryRecord{}, AuditEvent{}, fmt.Errorf("reservation not found: %w", err)
 		}
-		return QueryRecord{}, err
+		return QueryRecord{}, AuditEvent{}, err
 	}
 	if record.Status != QueryReserved {
 		// A repeated delivery gets the durable first result. This is important
 		// when a caller loses the HTTP response after the commit succeeded.
 		if record.Status == status {
-			return record, nil
+			audit, err := terminalAuditForQueryTx(ctx, tx, record.ID)
+			return record, audit, err
 		}
-		return QueryRecord{}, fmt.Errorf("reservation not found: query is %s", record.Status)
+		return QueryRecord{}, AuditEvent{}, fmt.Errorf("reservation not found: query is %s", record.Status)
 	}
-	if status != QueryCompleted && status != QueryReleased && status != QueryIndeterminate {
-		return QueryRecord{}, fmt.Errorf("invalid settlement status %q", status)
+	if status != QueryCompleted && status != QueryReleased && status != QueryFailed && status != QueryIndeterminate {
+		return QueryRecord{}, AuditEvent{}, fmt.Errorf("invalid settlement status %q", status)
 	}
 	budget, err := scanBudget(tx.QueryRowContext(ctx, budgetSelect+` WHERE task_id=$1 FOR UPDATE`, record.TaskID))
 	if err != nil {
-		return QueryRecord{}, err
+		return QueryRecord{}, AuditEvent{}, err
 	}
 	if budget.Usage.ReservedQueries < 1 || budget.Usage.ReservedRows < record.ReservedRows || budget.Usage.ReservedDBMS < record.ReservedDBMS {
-		return QueryRecord{}, fmt.Errorf("reservation ledger is inconsistent")
+		return QueryRecord{}, AuditEvent{}, fmt.Errorf("reservation ledger is inconsistent")
 	}
 	if settlement.Rows > record.ReservedRows {
-		return QueryRecord{}, fmt.Errorf("invalid settlement: result rows %d exceed reserved rows %d", settlement.Rows, record.ReservedRows)
+		return QueryRecord{}, AuditEvent{}, fmt.Errorf("invalid settlement: result rows %d exceed reserved rows %d", settlement.Rows, record.ReservedRows)
 	}
 	chargedQueries, chargedRows, chargedDBMS := int64(0), int64(0), int64(0)
-	if status == QueryCompleted || status == QueryIndeterminate {
+	if status == QueryCompleted || status == QueryFailed || status == QueryIndeterminate {
 		chargedQueries = 1
 		chargedRows = settlement.Rows
 		chargedDBMS = min64(settlement.DBMS, record.ReservedDBMS)
@@ -279,7 +338,7 @@ func settleBudgetTx(ctx context.Context, tx *sql.Tx, now time.Time, settlement B
 	after.Usage.UsedDBMS += chargedDBMS
 	after.UpdatedAt = now
 	if after.Usage.UsedQueries > after.Limits.Queries || after.Usage.UsedRows > after.Limits.Rows || after.Usage.UsedDBMS > after.Limits.DBMS {
-		return QueryRecord{}, fmt.Errorf("invalid settlement would exceed hard budget")
+		return QueryRecord{}, AuditEvent{}, fmt.Errorf("invalid settlement would exceed hard budget")
 	}
 	_, err = tx.ExecContext(ctx, `
 UPDATE budget_ledger
@@ -287,11 +346,11 @@ SET used_queries=$1, used_rows=$2, used_db_ms=$3, reserved_queries=$4, reserved_
 WHERE task_id=$8`, after.Usage.UsedQueries, after.Usage.UsedRows, after.Usage.UsedDBMS,
 		after.Usage.ReservedQueries, after.Usage.ReservedRows, after.Usage.ReservedDBMS, dbTime(now), record.TaskID)
 	if err != nil {
-		return QueryRecord{}, err
+		return QueryRecord{}, AuditEvent{}, err
 	}
 	afterJSON, err := json.Marshal(after)
 	if err != nil {
-		return QueryRecord{}, err
+		return QueryRecord{}, AuditEvent{}, err
 	}
 	_, err = tx.ExecContext(ctx, `
 UPDATE query_records
@@ -300,28 +359,32 @@ SET status=$1, result_rows=$2, result_db_ms=$3, charged_queries=$4, charged_rows
 WHERE id=$11 AND status='RESERVED'`, status, settlement.Rows, settlement.DBMS, chargedQueries, chargedRows,
 		chargedDBMS, string(afterJSON), resultHash, settlement.ErrorCode, dbTime(now), settlement.QueryID)
 	if err != nil {
-		return QueryRecord{}, err
+		return QueryRecord{}, AuditEvent{}, err
 	}
 	eventType := "QUERY_BUDGET_RELEASED"
 	if status == QueryCompleted {
 		eventType = "QUERY_COMPLETED"
+	} else if status == QueryFailed {
+		eventType = "QUERY_FAILED"
 	} else if status == QueryIndeterminate {
 		eventType = "QUERY_INDETERMINATE"
 	}
-	_, err = appendAuditTx(ctx, tx, AuditEvent{
+	audit, err := appendAuditTx(ctx, tx, AuditEvent{
 		TaskID: record.TaskID, QueryID: record.ID, Actor: record.Actor, EventType: eventType, OccurredAt: now,
 		Payload: mustJSON(map[string]any{
 			"result_rows": settlement.Rows, "result_db_ms": settlement.DBMS,
 			"charged_queries": chargedQueries, "charged_rows": chargedRows, "charged_db_ms": chargedDBMS,
 			"result_sha256": resultHash, "error_code": settlement.ErrorCode,
+			"catalog_digest": record.CatalogDigest, "datasource_id": record.DatasourceID,
+			"schema_digest": record.SchemaDigest,
 		}),
 	})
 	if err != nil {
-		return QueryRecord{}, err
+		return QueryRecord{}, AuditEvent{}, err
 	}
-	if (status == QueryCompleted || status == QueryIndeterminate) && (after.Usage.UsedQueries >= after.Limits.Queries || after.Usage.UsedRows >= after.Limits.Rows || after.Usage.UsedDBMS >= after.Limits.DBMS) {
+	if (status == QueryCompleted || status == QueryFailed || status == QueryIndeterminate) && (after.Usage.UsedQueries >= after.Limits.Queries || after.Usage.UsedRows >= after.Limits.Rows || after.Usage.UsedDBMS >= after.Limits.DBMS) {
 		if err := archiveTaskTx(ctx, tx, record.TaskID, TerminalBudgetExhausted, "system", now); err != nil {
-			return QueryRecord{}, err
+			return QueryRecord{}, AuditEvent{}, err
 		}
 	}
 	record.Status = status
@@ -335,7 +398,11 @@ WHERE id=$11 AND status='RESERVED'`, status, settlement.Rows, settlement.DBMS, c
 	record.ErrorCode = settlement.ErrorCode
 	completedAt := dbTime(now)
 	record.CompletedAt = &completedAt
-	return record, nil
+	return record, audit, nil
+}
+
+func terminalAuditForQueryTx(ctx context.Context, tx *sql.Tx, queryID string) (AuditEvent, error) {
+	return scanAudit(tx.QueryRowContext(ctx, terminalAuditSelect, queryID))
 }
 
 func archiveTaskTx(ctx context.Context, tx *sql.Tx, taskID string, reason TerminalReason, actor string, now time.Time) error {
@@ -390,7 +457,7 @@ func (s *Store) GetQueryByRequestID(ctx context.Context, taskID, requestID strin
 }
 
 const querySelect = `SELECT id, task_id, request_id, actor, request_digest, sql_fingerprint, catalog_version,
-catalog_digest, manifest_digest, grant_digest, policy_decision, status, reserved_rows, reserved_db_ms, result_rows, result_db_ms, charged_queries,
+catalog_digest, datasource_id, schema_digest, manifest_digest, grant_digest, policy_decision, status, reserved_rows, reserved_db_ms, result_rows, result_db_ms, charged_queries,
 charged_rows, charged_db_ms, budget_before_json, budget_after_json, result_sha256, error_code,
 created_at, completed_at FROM query_records`
 
@@ -401,7 +468,8 @@ func scanQuery(row rowScanner) (QueryRecord, error) {
 	var created time.Time
 	var completed sql.NullTime
 	err := row.Scan(&record.ID, &record.TaskID, &record.RequestID, &record.Actor, &record.RequestDigest, &record.SQLFingerprint,
-		&record.CatalogVersion, &record.CatalogDigest, &record.ManifestDigest, &record.GrantDigest,
+		&record.CatalogVersion, &record.CatalogDigest, &record.DatasourceID, &record.SchemaDigest,
+		&record.ManifestDigest, &record.GrantDigest,
 		&record.PolicyDecision, &record.Status, &record.ReservedRows, &record.ReservedDBMS,
 		&record.ResultRows, &record.ResultDBMS, &record.ChargedQueries, &record.ChargedRows, &record.ChargedDBMS,
 		&before, &after, &record.ResultSHA256, &record.ErrorCode, &created, &completed)
@@ -450,6 +518,61 @@ func (s *Store) ListQueries(ctx context.Context, taskID string, limit int) ([]Qu
 	return records, nil
 }
 
+func (s *Store) ListQueriesPage(ctx context.Context, taskID, cursor string, limit int) (QueryRecordPage, error) {
+	const op = "list queries page"
+	if err := s.checkOpen(op); err != nil {
+		return QueryRecordPage{}, err
+	}
+	if strings.TrimSpace(taskID) == "" {
+		return QueryRecordPage{}, opErr(op, ErrInvalid, fmt.Errorf("task id is required"))
+	}
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	args := []any{taskID, limit + 1}
+	predicate := ""
+	if strings.TrimSpace(cursor) != "" {
+		var cursorCreated time.Time
+		if err := s.db.QueryRowContext(ctx, `SELECT created_at FROM query_records WHERE task_id=$1 AND id=$2`, taskID, cursor).Scan(&cursorCreated); err != nil {
+			if isNoRows(err) {
+				return QueryRecordPage{}, opErr(op, ErrInvalid, fmt.Errorf("cursor does not belong to task"))
+			}
+			return QueryRecordPage{}, opErr(op, ErrConflict, err)
+		}
+		predicate = ` AND (created_at, id) > ($3, $4)`
+		args = append(args, dbTime(cursorCreated), cursor)
+	}
+	rows, err := s.db.QueryContext(ctx, querySelect+` WHERE task_id=$1`+predicate+` ORDER BY created_at, id LIMIT $2`, args...)
+	if err != nil {
+		return QueryRecordPage{}, opErr(op, ErrConflict, err)
+	}
+	defer rows.Close()
+	records := make([]QueryRecord, 0, limit)
+	for rows.Next() {
+		record, err := scanQuery(rows)
+		if err != nil {
+			return QueryRecordPage{}, opErr(op, ErrConflict, err)
+		}
+		records = append(records, record)
+	}
+	if err := rows.Err(); err != nil {
+		return QueryRecordPage{}, opErr(op, ErrConflict, err)
+	}
+	next := ""
+	if len(records) > limit {
+		next = records[limit-1].ID
+		records = records[:limit]
+	}
+	return QueryRecordPage{Records: records, NextCursor: next}, nil
+}
+
+const terminalAuditSelect = `
+SELECT sequence, event_id, COALESCE(task_id,''), COALESCE(query_id,''), actor, event_type,
+       payload_json, occurred_at, previous_hash, current_hash
+FROM audit_events
+WHERE query_id=$1 AND event_type IN ('QUERY_COMPLETED','QUERY_BUDGET_RELEASED','QUERY_FAILED','QUERY_INDETERMINATE','QUERY_INTERRUPTED')
+ORDER BY sequence DESC LIMIT 1`
+
 // GetQueryReceipt returns the durable query evidence together with the hash
 // chained completion event that authenticates it.
 func (s *Store) GetQueryReceipt(ctx context.Context, queryID string) (QueryReceipt, error) {
@@ -464,19 +587,23 @@ func (s *Store) GetQueryReceipt(ctx context.Context, queryID string) (QueryRecei
 	if query.Status == QueryReserved {
 		return QueryReceipt{}, opErr(op, ErrNotFound, fmt.Errorf("query is %s", query.Status))
 	}
-	audit, err := scanAudit(s.db.QueryRowContext(ctx, `
-SELECT sequence, event_id, COALESCE(task_id,''), COALESCE(query_id,''), actor, event_type,
-       payload_json, occurred_at, previous_hash, current_hash
-FROM audit_events
-WHERE query_id=$1 AND event_type IN ('QUERY_COMPLETED','QUERY_BUDGET_RELEASED','QUERY_INDETERMINATE','QUERY_INTERRUPTED')
-ORDER BY sequence DESC LIMIT 1`, queryID))
+	audit, err := scanAudit(s.db.QueryRowContext(ctx, terminalAuditSelect, queryID))
 	if err != nil {
 		if isNoRows(err) {
 			return QueryReceipt{}, opErr(op, ErrNotFound, err)
 		}
 		return QueryReceipt{}, opErr(op, ErrConflict, err)
 	}
-	return QueryReceipt{Query: query, Audit: audit}, nil
+	evidence := QueryReceipt{Query: query, Audit: audit}
+	receipt, err := scanPersistedQueryReceipt(s.db.QueryRowContext(ctx, receiptSelect+` WHERE query_id=$1`, queryID))
+	if err == nil {
+		evidence.Receipt = &receipt
+		return evidence, nil
+	}
+	if !isNoRows(err) {
+		return QueryReceipt{}, opErr(op, ErrConflict, err)
+	}
+	return evidence, nil
 }
 
 func (s *Store) ListQueryReceipts(ctx context.Context, taskID string, limit int) ([]QueryReceipt, error) {

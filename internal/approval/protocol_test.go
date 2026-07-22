@@ -1,6 +1,7 @@
 package approval
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"encoding/json"
 	"errors"
@@ -17,7 +18,7 @@ func TestAuthorizationManifestV1RFC8785FixedVector(t *testing.T) {
 	if err != nil {
 		t.Fatalf("canonicalize manifest: %v", err)
 	}
-	wantCanonical := `{"agent_id":"agent:research-01","approved_columns":{"expense_detail":["amount","receipt_no"],"expense_summary":["month","total_amount"]},"budget":{"max_db_ms":15000,"max_queries":3,"max_result_rows":50,"per_query_timeout_ms":5000,"task_ttl_ms":900000},"callback_context":"callback-vector-001","catalog_sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","catalog_version":"catalog-v1","declared_objective":"Compare H1 expenses for 销售部","human_subject":"oidc:alice@example.com","mandatory_scope":{"department":["销售部"],"expense_date":{"from":"2026-01-01","to":"2026-06-30"}},"nonce":"000102030405060708090a0b0c0d0e0f","products":["expense_detail","expense_summary"],"sensitivity":"high","task_id":"task-vector-001","version":"1"}`
+	wantCanonical := `{"agent_id":"agent:research-01","approved_columns":{"expense_detail":["amount","receipt_no"],"expense_summary":["month","total_amount"]},"budget":{"max_db_ms":15000,"max_queries":3,"max_result_rows":50,"per_query_timeout_ms":5000,"task_ttl_ms":900000},"callback_context":"callback-vector-001","catalog_sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","catalog_version":"catalog-v1","datasource_id":"taskgate-test-expenses","declared_objective":"Compare H1 expenses for 销售部","human_subject":"oidc:alice@example.com","mandatory_scope":{"department":["销售部"],"expense_date":{"from":"2026-01-01","to":"2026-06-30"}},"nonce":"000102030405060708090a0b0c0d0e0f","products":["expense_detail","expense_summary"],"schema_digest":"abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789","sensitivity":"high","task_id":"task-vector-001","version":"1"}`
 	if string(canonical) != wantCanonical {
 		t.Fatalf("canonical manifest mismatch\n got: %s\nwant: %s", canonical, wantCanonical)
 	}
@@ -25,7 +26,7 @@ func TestAuthorizationManifestV1RFC8785FixedVector(t *testing.T) {
 	if err != nil {
 		t.Fatalf("digest manifest: %v", err)
 	}
-	const wantDigest = "c8f30b5ea4e5704b0261f8c95c167f1020c50c444daf4653c1902916beae36d8"
+	const wantDigest = "d9217433a20331bddcd2e697e73401211988b0eeca51fdd4420f56681804e056"
 	if digest != wantDigest {
 		t.Fatalf("manifest digest = %s, want %s", digest, wantDigest)
 	}
@@ -157,6 +158,77 @@ func TestApprovalReceiptV1Ed25519RoundTripAndTampering(t *testing.T) {
 	}
 }
 
+func TestApprovalReceiptKeyringHonorsOverlapAndRetirement(t *testing.T) {
+	oldSigner := testReceiptSigner(t, "oa-2026-q2", 0x44)
+	newSigner := testReceiptSigner(t, "oa-2026-q3", 0x55)
+	validFrom := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	overlapStart := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	oldRetiredAt := time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC)
+	verifier, err := NewEd25519ReceiptVerifierWithKeyring([]ReceiptVerifyingKey{
+		{KeyID: oldSigner.KeyID(), PublicKey: oldSigner.key.Public().(ed25519.PublicKey), ValidFrom: validFrom, RetiredAt: oldRetiredAt},
+		{KeyID: newSigner.KeyID(), PublicKey: newSigner.key.Public().(ed25519.PublicKey), ValidFrom: overlapStart},
+	})
+	if err != nil {
+		t.Fatalf("NewEd25519ReceiptVerifierWithKeyring: %v", err)
+	}
+
+	oldGrant := signedTestGrant(t, oldSigner, time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC), "old")
+	if err := VerifyTaskGrantV1(verifier, oldGrant); err != nil {
+		t.Fatalf("old grant signed before retirement did not verify: %v", err)
+	}
+
+	newGrant := signedTestGrant(t, newSigner, time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC), "new")
+	if err := VerifyTaskGrantV1(verifier, newGrant); err != nil {
+		t.Fatalf("active-key grant did not verify: %v", err)
+	}
+
+	tooLate := signedTestGrant(t, oldSigner, oldRetiredAt.Add(time.Nanosecond), "late")
+	if err := VerifyTaskGrantV1(verifier, tooLate); !errors.Is(err, ErrReceiptKeyNotValid) {
+		t.Fatalf("post-retirement grant error = %v, want %v", err, ErrReceiptKeyNotValid)
+	}
+
+	tooEarly := signedTestGrant(t, oldSigner, validFrom.Add(-time.Nanosecond), "early")
+	if err := VerifyTaskGrantV1(verifier, tooEarly); !errors.Is(err, ErrReceiptKeyNotValid) {
+		t.Fatalf("pre-validity grant error = %v, want %v", err, ErrReceiptKeyNotValid)
+	}
+}
+
+func testReceiptSigner(t *testing.T, keyID string, seedByte byte) *Ed25519ReceiptSigner {
+	t.Helper()
+	signer, err := NewEd25519ReceiptSigner(keyID, ed25519.NewKeyFromSeed(bytes.Repeat([]byte{seedByte}, ed25519.SeedSize)))
+	if err != nil {
+		t.Fatalf("NewEd25519ReceiptSigner %s: %v", keyID, err)
+	}
+	return signer
+}
+
+func signedTestGrant(t *testing.T, signer ReceiptSigner, issuedAt time.Time, suffix string) TaskGrantV1 {
+	t.Helper()
+	manifest := testManifest()
+	manifestDigest, err := ManifestDigest(manifest)
+	if err != nil {
+		t.Fatalf("ManifestDigest: %v", err)
+	}
+	core, err := domain.CoreFromManifest(manifest, manifestDigest, issuedAt)
+	if err != nil {
+		t.Fatalf("CoreFromManifest: %v", err)
+	}
+	grantDigest, err := GrantCoreDigest(core)
+	if err != nil {
+		t.Fatalf("GrantCoreDigest: %v", err)
+	}
+	receipt, err := signer.SignReceipt(ApprovalReceiptV1{
+		Version: domain.ApprovalReceiptV1Version, ReceiptID: "receipt-" + suffix,
+		TaskID: manifest.TaskID, Decision: ApprovalDecisionApprove,
+		ManifestDigest: manifestDigest, ApprovedGrantDigest: grantDigest,
+		ApproverID: "bob", IssuedAt: issuedAt,
+	})
+	if err != nil {
+		t.Fatalf("SignReceipt: %v", err)
+	}
+	return TaskGrantV1{Version: domain.TaskGrantV1Version, Core: core, ApprovalReceipt: receipt}
+}
+
 func testManifest() AuthorizationManifestV1 {
 	return AuthorizationManifestV1{
 		Version: domain.AuthorizationManifestV1Version,
@@ -178,6 +250,8 @@ func testManifest() AuthorizationManifestV1 {
 		},
 		CatalogVersion:  "catalog-v1",
 		CatalogSHA256:   "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		DatasourceID:    "taskgate-test-expenses",
+		SchemaDigest:    "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
 		CallbackContext: "callback-vector-001", Nonce: "000102030405060708090a0b0c0d0e0f",
 	}
 }

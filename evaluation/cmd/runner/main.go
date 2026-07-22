@@ -14,6 +14,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"os"
@@ -35,11 +36,27 @@ import (
 
 const schemaVersion = 1
 
+const (
+	baselineDirect       = "direct_postgresql"
+	baselineNativeView   = "native_view"
+	baselineASTOnly      = "ast_only_gateway"
+	baselineFullTaskGate = "full_taskgate"
+
+	orderingSeededRandom       = "seeded_random"
+	cacheStrategyWarm          = "warm"
+	cacheStrategyCold          = "cold"
+	taskConcurrencyDistinct    = "distinct_task"
+	taskConcurrencySameTask    = "same_task"
+	defaultApplicationDirect   = "taskgate-eval-direct"
+	defaultApplicationNative   = "taskgate-eval-native"
+	environmentManifestVersion = 1
+)
+
 var requiredBaselines = []string{
-	"direct_postgresql",
-	"native_view_rls",
-	"ast_only_gateway",
-	"full_taskgate",
+	baselineDirect,
+	baselineNativeView,
+	baselineASTOnly,
+	baselineFullTaskGate,
 }
 
 var sha256Pattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -62,6 +79,11 @@ type suiteConfig struct {
 	Name                   string       `json:"name"`
 	Mode                   string       `json:"mode"`
 	Seed                   int64        `json:"seed"`
+	WorkloadLineage        string       `json:"workload_lineage"`
+	OrderingStrategy       string       `json:"ordering_strategy"`
+	CacheStrategy          string       `json:"cache_strategy"`
+	TaskConcurrencyMode    string       `json:"task_concurrency_mode"`
+	EnvironmentManifestEnv string       `json:"environment_manifest_env"`
 	WarmupRunsPerWorker    int          `json:"warmup_runs_per_worker"`
 	MeasuredRunsPerWorker  int          `json:"measured_runs_per_worker"`
 	Concurrency            []int        `json:"concurrency"`
@@ -87,6 +109,7 @@ type experiment struct {
 	TaskGateTokenEnv     string            `json:"taskgate_token_env"`
 	TaskGateTasksFileEnv string            `json:"taskgate_tasks_file_env"`
 	MetricsProbeEnv      map[string]string `json:"metrics_probe_env"`
+	CacheResetEnv        map[string]string `json:"cache_reset_env,omitempty"`
 	configDir            string
 }
 
@@ -94,6 +117,7 @@ type workloadManifest struct {
 	SchemaVersion int          `json:"schema_version"`
 	ID            string       `json:"id"`
 	Family        string       `json:"family"`
+	Lineage       string       `json:"lineage"`
 	Queries       []queryEntry `json:"queries"`
 	path          string
 }
@@ -114,32 +138,49 @@ type taskPoolFile struct {
 }
 
 type runMetadata struct {
-	SchemaVersion          int                          `json:"schema_version"`
-	RunID                  string                       `json:"run_id"`
-	Suite                  string                       `json:"suite"`
-	Mode                   string                       `json:"mode"`
-	CampaignID             string                       `json:"campaign_id,omitempty"`
-	Status                 string                       `json:"status"`
-	StartedAt              string                       `json:"started_at"`
-	FinishedAt             string                       `json:"finished_at,omitempty"`
-	GitRevision            string                       `json:"git_revision"`
-	GitDirty               bool                         `json:"git_dirty"`
-	ConfigPath             string                       `json:"config_path"`
-	ConfigSHA256           string                       `json:"config_sha256"`
-	WorkloadSHA256         map[string]string            `json:"workload_sha256"`
-	DatasetSHA256Manifests map[string]string            `json:"dataset_sha256_manifests"`
-	DatasetManifestPaths   map[string]string            `json:"dataset_manifest_paths"`
-	MetricsProbePaths      map[string]map[string]string `json:"metrics_probe_paths"`
-	MetricsProbeSHA256     map[string]map[string]string `json:"metrics_probe_sha256"`
-	GoVersion              string                       `json:"go_version"`
-	GOOS                   string                       `json:"goos"`
-	GOARCH                 string                       `json:"goarch"`
-	BaselineOrder          []string                     `json:"baseline_order"`
-	WarmupRunsPerWorker    int                          `json:"warmup_runs_per_worker"`
-	MeasuredRunsPerWorker  int                          `json:"measured_runs_per_worker"`
-	Concurrency            []int                        `json:"concurrency"`
-	Endpoints              map[string]interface{}       `json:"endpoints"`
-	Error                  string                       `json:"error,omitempty"`
+	SchemaVersion             int                          `json:"schema_version"`
+	RunID                     string                       `json:"run_id"`
+	Suite                     string                       `json:"suite"`
+	Mode                      string                       `json:"mode"`
+	CampaignID                string                       `json:"campaign_id,omitempty"`
+	Status                    string                       `json:"status"`
+	StartedAt                 string                       `json:"started_at"`
+	FinishedAt                string                       `json:"finished_at,omitempty"`
+	GitRevision               string                       `json:"git_revision"`
+	GitDirty                  bool                         `json:"git_dirty"`
+	ConfigPath                string                       `json:"config_path"`
+	ConfigSHA256              string                       `json:"config_sha256"`
+	WorkloadSHA256            map[string]string            `json:"workload_sha256"`
+	DatasetSHA256Manifests    map[string]string            `json:"dataset_sha256_manifests"`
+	DatasetManifestPaths      map[string]string            `json:"dataset_manifest_paths"`
+	MetricsProbePaths         map[string]map[string]string `json:"metrics_probe_paths"`
+	MetricsProbeSHA256        map[string]map[string]string `json:"metrics_probe_sha256"`
+	CacheResetPaths           map[string]map[string]string `json:"cache_reset_paths,omitempty"`
+	CacheResetSHA256          map[string]map[string]string `json:"cache_reset_sha256,omitempty"`
+	GoVersion                 string                       `json:"go_version"`
+	GOOS                      string                       `json:"goos"`
+	GOARCH                    string                       `json:"goarch"`
+	BaselineOrder             []string                     `json:"baseline_order"`
+	BaselineOrderSeed         int64                        `json:"baseline_order_seed"`
+	OrderingStrategy          string                       `json:"ordering_strategy"`
+	CellOrder                 []cellSchedule               `json:"cell_order"`
+	CacheStrategy             string                       `json:"cache_strategy"`
+	TaskConcurrencyMode       string                       `json:"task_concurrency_mode"`
+	WorkloadLineage           string                       `json:"workload_lineage"`
+	EnvironmentManifestPath   string                       `json:"environment_manifest_path,omitempty"`
+	EnvironmentManifestSHA256 string                       `json:"environment_manifest_sha256,omitempty"`
+	WarmupRunsPerWorker       int                          `json:"warmup_runs_per_worker"`
+	MeasuredRunsPerWorker     int                          `json:"measured_runs_per_worker"`
+	Concurrency               []int                        `json:"concurrency"`
+	Endpoints                 map[string]interface{}       `json:"endpoints"`
+	Error                     string                       `json:"error,omitempty"`
+}
+
+type cellSchedule struct {
+	Order       int    `json:"order"`
+	Experiment  string `json:"experiment"`
+	Baseline    string `json:"baseline"`
+	Concurrency int    `json:"concurrency"`
 }
 
 type sample struct {
@@ -310,23 +351,48 @@ func main() {
 func executeSuite(ctx context.Context, cfg suiteConfig, workloads map[string][]loadedQuery, runID string) ([]sample, []cell, error) {
 	var allSamples []sample
 	var allCells []cell
+	experiments := make(map[string]experiment, len(cfg.Experiments))
 	for _, exp := range cfg.Experiments {
+		experiments[exp.ID] = exp
+	}
+	for _, item := range buildCellSchedule(cfg) {
+		exp, ok := experiments[item.Experiment]
+		if !ok {
+			return allSamples, allCells, fmt.Errorf("scheduled unknown experiment %s", item.Experiment)
+		}
 		queries := workloads[exp.ID]
-		for _, concurrency := range cfg.Concurrency {
-			for _, baseline := range cfg.BaselineOrder {
-				fmt.Printf("run experiment=%s baseline=%s concurrency=%d\n", exp.ID, baseline, concurrency)
-				observations, summary, err := runCell(ctx, cfg, exp, queries, runID, baseline, concurrency)
-				allSamples = append(allSamples, observations...)
-				if summary != nil {
-					allCells = append(allCells, *summary)
-				}
-				if err != nil {
-					return allSamples, allCells, fmt.Errorf("%s/%s/c%d: %w", exp.ID, baseline, concurrency, err)
-				}
-			}
+		fmt.Printf("run order=%d experiment=%s baseline=%s concurrency=%d\n", item.Order, exp.ID, item.Baseline, item.Concurrency)
+		observations, summary, err := runCell(ctx, cfg, exp, queries, runID, item.Baseline, item.Concurrency)
+		allSamples = append(allSamples, observations...)
+		if summary != nil {
+			allCells = append(allCells, *summary)
+		}
+		if err != nil {
+			return allSamples, allCells, fmt.Errorf("%s/%s/c%d: %w", exp.ID, item.Baseline, item.Concurrency, err)
 		}
 	}
 	return allSamples, allCells, nil
+}
+
+func buildCellSchedule(cfg suiteConfig) []cellSchedule {
+	var schedule []cellSchedule
+	for _, exp := range cfg.Experiments {
+		for _, concurrency := range cfg.Concurrency {
+			for _, baseline := range cfg.BaselineOrder {
+				schedule = append(schedule, cellSchedule{
+					Experiment: exp.ID, Baseline: baseline, Concurrency: concurrency,
+				})
+			}
+		}
+	}
+	rng := rand.New(rand.NewSource(cfg.Seed))
+	rng.Shuffle(len(schedule), func(i, j int) {
+		schedule[i], schedule[j] = schedule[j], schedule[i]
+	})
+	for index := range schedule {
+		schedule[index].Order = index + 1
+	}
+	return schedule
 }
 
 func runCell(ctx context.Context, cfg suiteConfig, exp experiment, queries []loadedQuery, runID, baseline string, concurrency int) ([]sample, *cell, error) {
@@ -338,6 +404,11 @@ func runCell(ctx context.Context, cfg suiteConfig, exp experiment, queries []loa
 
 	if err := runPhase(ctx, b, queries, runID, exp, baseline, concurrency, cfg.WarmupRunsPerWorker, true, nil); err != nil {
 		return nil, nil, fmt.Errorf("warmup: %w", err)
+	}
+	if cfg.CacheStrategy == cacheStrategyCold {
+		if err := resetCache(ctx, exp, baseline, concurrency, "measurement_start"); err != nil {
+			return nil, nil, err
+		}
 	}
 
 	started := time.Now().UTC()
@@ -458,14 +529,14 @@ func newSample(runID string, exp experiment, baseline string, concurrency, worke
 
 func openBackend(ctx context.Context, cfg suiteConfig, exp experiment, baseline string, concurrency int) (backend, error) {
 	switch baseline {
-	case "direct_postgresql":
-		return openPostgres(ctx, cfg, exp.DirectDSNEnv, concurrency, "taskgate-eval-direct")
-	case "native_view_rls":
-		return openPostgres(ctx, cfg, exp.NativeDSNEnv, concurrency, "taskgate-eval-native")
-	case "ast_only_gateway":
+	case baselineDirect:
+		return openPostgres(ctx, cfg, exp.DirectDSNEnv, concurrency, defaultApplicationDirect)
+	case baselineNativeView:
+		return openPostgres(ctx, cfg, exp.NativeDSNEnv, concurrency, defaultApplicationNative)
+	case baselineASTOnly:
 		return openAST(exp)
-	case "full_taskgate":
-		return openTaskGate(exp, concurrency)
+	case baselineFullTaskGate:
+		return openTaskGate(exp, concurrency, cfg.TaskConcurrencyMode)
 	default:
 		return nil, fmt.Errorf("unknown baseline %q", baseline)
 	}
@@ -535,7 +606,7 @@ func openAST(exp experiment) (backend, error) {
 	return newHTTPBackend(endpoint, token, exp.ID, nil, false), nil
 }
 
-func openTaskGate(exp experiment, concurrency int) (backend, error) {
+func openTaskGate(exp experiment, concurrency int, taskConcurrencyMode string) (backend, error) {
 	endpoint := os.Getenv(exp.TaskGateURLenv)
 	if endpoint == "" {
 		return nil, fmt.Errorf("required environment variable %s is not set", exp.TaskGateURLenv)
@@ -551,7 +622,7 @@ func openTaskGate(exp experiment, concurrency int) (backend, error) {
 	if path == "" {
 		return nil, fmt.Errorf("required environment variable %s is not set", exp.TaskGateTasksFileEnv)
 	}
-	tasks, err := loadTaskPool(path, exp.ID, concurrency)
+	tasks, err := loadTaskPool(path, exp.ID, concurrency, taskConcurrencyMode)
 	if err != nil {
 		return nil, err
 	}
@@ -758,7 +829,7 @@ func preflightSuites(configs []suiteConfig) error {
 				poolCache[poolPath] = pool
 			}
 			for _, concurrency := range cfg.Concurrency {
-				tasks, taskErr := tasksForCell(pool, exp.ID, concurrency)
+				tasks, taskErr := tasksForCell(pool, exp.ID, concurrency, cfg.TaskConcurrencyMode)
 				if taskErr != nil {
 					return taskErr
 				}
@@ -782,6 +853,22 @@ func preflightSuites(configs []suiteConfig) error {
 						return fmt.Errorf("%s/%s: %w", location, baseline, err)
 					}
 				}
+			}
+			if cfg.CacheStrategy == cacheStrategyCold {
+				for _, baseline := range requiredBaselines {
+					envName := exp.CacheResetEnv[baseline]
+					if envName == "" {
+						return fmt.Errorf("%s has no cache reset environment name for %s", location, baseline)
+					}
+					if _, _, err := cacheResetProvenance(envName); err != nil {
+						return fmt.Errorf("%s/%s: %w", location, baseline, err)
+					}
+				}
+			}
+		}
+		if cfg.Mode == "full" {
+			if _, _, err := environmentManifestProvenance(cfg); err != nil {
+				return err
 			}
 		}
 	}
@@ -839,8 +926,55 @@ func datasetProvenance(exp experiment) (string, string, error) {
 	return digest, relativePath, nil
 }
 
+func environmentManifestProvenance(cfg suiteConfig) (string, string, error) {
+	envName := strings.TrimSpace(cfg.EnvironmentManifestEnv)
+	if envName == "" {
+		if cfg.Mode == "full" {
+			return "", "", errors.New("full evaluation requires environment_manifest_env")
+		}
+		return "", "", nil
+	}
+	path := strings.TrimSpace(os.Getenv(envName))
+	if path == "" {
+		if cfg.Mode == "full" {
+			return "", "", fmt.Errorf("required environment variable %s is not set (environment manifest)", envName)
+		}
+		return "", "", nil
+	}
+	relativePath, err := repositoryRelativePath(path)
+	if err != nil {
+		return "", "", fmt.Errorf("%s: %w", envName, err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", "", fmt.Errorf("read environment manifest from %s: %w", envName, err)
+	}
+	var manifest map[string]any
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	if err := decoder.Decode(&manifest); err != nil {
+		return "", "", fmt.Errorf("decode environment manifest from %s: %w", envName, err)
+	}
+	if version, ok := manifest["schema_version"].(float64); !ok || int(version) != environmentManifestVersion {
+		return "", "", fmt.Errorf("%s must point to a schema_version=%d environment manifest", envName, environmentManifestVersion)
+	}
+	for _, field := range []string{"host", "software", "database", "datasets"} {
+		if _, ok := manifest[field].(map[string]any); !ok {
+			return "", "", fmt.Errorf("%s environment manifest omits object field %q", envName, field)
+		}
+	}
+	return sha256Hex(data), relativePath, nil
+}
+
 func metricsProbeProvenance(envName string) ([]string, string, error) {
-	encoded, err := requiredEnvironment(envName, "metrics probe")
+	return commandProvenance(envName, "metrics probe")
+}
+
+func cacheResetProvenance(envName string) ([]string, string, error) {
+	return commandProvenance(envName, "cache reset command")
+}
+
+func commandProvenance(envName string, label string) ([]string, string, error) {
+	encoded, err := requiredEnvironment(envName, label)
 	if err != nil {
 		return nil, "", err
 	}
@@ -855,17 +989,37 @@ func metricsProbeProvenance(envName string) ([]string, string, error) {
 	}
 	executable, err := exec.LookPath(arguments[0])
 	if err != nil {
-		return nil, "", fmt.Errorf("metrics probe %s is not executable: %w", envName, err)
+		return nil, "", fmt.Errorf("%s %s is not executable: %w", label, envName, err)
 	}
 	relativePath, err := repositoryRelativePath(executable)
 	if err != nil {
-		return nil, "", fmt.Errorf("metrics probe %s must use a checksummable executable under /workspace: %w", envName, err)
+		return nil, "", fmt.Errorf("%s %s must use a checksummable executable under /workspace: %w", label, envName, err)
 	}
 	info, err := os.Stat(executable)
 	if err != nil || !info.Mode().IsRegular() || info.Mode()&0o111 == 0 {
-		return nil, "", fmt.Errorf("metrics probe %s command is not a regular executable file", envName)
+		return nil, "", fmt.Errorf("%s %s command is not a regular executable file", label, envName)
 	}
 	return arguments, relativePath, nil
+}
+
+func resetCache(ctx context.Context, exp experiment, baseline string, concurrency int, phase string) error {
+	envName := exp.CacheResetEnv[baseline]
+	arguments, _, err := cacheResetProvenance(envName)
+	if err != nil {
+		return err
+	}
+	command := exec.CommandContext(ctx, arguments[0], arguments[1:]...)
+	command.Env = append(os.Environ(),
+		"EVAL_CACHE_EXPERIMENT="+exp.ID,
+		"EVAL_CACHE_BASELINE="+baseline,
+		"EVAL_CACHE_CONCURRENCY="+strconv.Itoa(concurrency),
+		"EVAL_CACHE_PHASE="+phase,
+	)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("cache reset %s failed: %w (%s)", envName, err, safeError(strings.TrimSpace(string(output))))
+	}
+	return nil
 }
 
 func collectMetrics(ctx context.Context, cfg suiteConfig, exp experiment, baseline string, concurrency int, started, finished time.Time) (*metricsResult, error) {
@@ -930,6 +1084,21 @@ func loadSuite(path string) (suiteConfig, []byte, error) {
 	if _, err := time.ParseDuration(cfg.StatementTimeout); err != nil {
 		return suiteConfig{}, nil, fmt.Errorf("runner: invalid statement_timeout: %w", err)
 	}
+	if cfg.WorkloadLineage != "TPC-derived" {
+		return suiteConfig{}, nil, errors.New("runner: workload_lineage must be TPC-derived for the current benchmark-derived workloads")
+	}
+	if cfg.OrderingStrategy != orderingSeededRandom {
+		return suiteConfig{}, nil, fmt.Errorf("runner: ordering_strategy must be %q", orderingSeededRandom)
+	}
+	if cfg.CacheStrategy != cacheStrategyWarm && cfg.CacheStrategy != cacheStrategyCold {
+		return suiteConfig{}, nil, fmt.Errorf("runner: cache_strategy must be %q or %q", cacheStrategyWarm, cacheStrategyCold)
+	}
+	if cfg.TaskConcurrencyMode != taskConcurrencyDistinct && cfg.TaskConcurrencyMode != taskConcurrencySameTask {
+		return suiteConfig{}, nil, fmt.Errorf("runner: task_concurrency_mode must be %q or %q", taskConcurrencyDistinct, taskConcurrencySameTask)
+	}
+	if cfg.Mode == "full" && strings.TrimSpace(cfg.EnvironmentManifestEnv) == "" {
+		return suiteConfig{}, nil, errors.New("runner: full suites require environment_manifest_env")
+	}
 	if cfg.Mode == "full" {
 		if cfg.MeasuredRunsPerWorker < 30 {
 			return suiteConfig{}, nil, errors.New("runner: full suites require at least 30 measured runs per worker")
@@ -968,6 +1137,9 @@ func loadSuite(path string) (suiteConfig, []byte, error) {
 		if cfg.Mode == "full" && (exp.DatasetDigestEnv == "" || exp.DatasetManifestEnv == "") {
 			return suiteConfig{}, nil, fmt.Errorf("runner: full experiment %s requires dataset_digest_env and dataset_manifest_env", exp.ID)
 		}
+		if cfg.CacheStrategy == cacheStrategyCold && !sameStringKeys(exp.CacheResetEnv, requiredBaselines) {
+			return suiteConfig{}, nil, fmt.Errorf("runner: cold-cache experiment %s requires cache_reset_env entries for all baselines", exp.ID)
+		}
 	}
 	return cfg, data, nil
 }
@@ -989,8 +1161,8 @@ func loadWorkloads(cfg suiteConfig) (map[string][]loadedQuery, error) {
 		if err := decoder.Decode(&manifest); err != nil {
 			return nil, fmt.Errorf("runner: decode workload %s: %w", exp.ID, err)
 		}
-		if manifest.SchemaVersion != schemaVersion || manifest.ID == "" || manifest.Family != exp.Family || len(manifest.Queries) == 0 {
-			return nil, fmt.Errorf("runner: workload %s has invalid identity, family, or empty queries", exp.ID)
+		if manifest.SchemaVersion != schemaVersion || manifest.ID == "" || manifest.Family != exp.Family || manifest.Lineage != cfg.WorkloadLineage || len(manifest.Queries) == 0 {
+			return nil, fmt.Errorf("runner: workload %s has invalid identity, family, lineage, or empty queries", exp.ID)
 		}
 		manifest.path = manifestPath
 		queries := make([]loadedQuery, 0, len(manifest.Queries))
@@ -1022,12 +1194,12 @@ func loadWorkloads(cfg suiteConfig) (map[string][]loadedQuery, error) {
 	return result, nil
 }
 
-func loadTaskPool(path, experimentID string, concurrency int) ([]string, error) {
+func loadTaskPool(path, experimentID string, concurrency int, taskConcurrencyMode string) ([]string, error) {
 	pool, err := readTaskPoolFile(path)
 	if err != nil {
 		return nil, err
 	}
-	return tasksForCell(pool, experimentID, concurrency)
+	return tasksForCell(pool, experimentID, concurrency, taskConcurrencyMode)
 }
 
 func readTaskPoolFile(path string) (taskPoolFile, error) {
@@ -1047,23 +1219,45 @@ func readTaskPoolFile(path string) (taskPoolFile, error) {
 	return pool, nil
 }
 
-func tasksForCell(pool taskPoolFile, experimentID string, concurrency int) ([]string, error) {
+func tasksForCell(pool taskPoolFile, experimentID string, concurrency int, taskConcurrencyMode string) ([]string, error) {
 	tasks := pool.Experiments[experimentID][strconv.Itoa(concurrency)]
-	if len(tasks) != concurrency {
-		return nil, fmt.Errorf("TaskGate task pool %s/c%d must contain exactly %d tasks, got %d", experimentID, concurrency, concurrency, len(tasks))
-	}
-	seen := make(map[string]bool)
-	for _, task := range tasks {
-		if strings.TrimSpace(task) == "" || seen[task] {
-			return nil, fmt.Errorf("TaskGate task pool %s/c%d contains empty or duplicate task IDs", experimentID, concurrency)
+	switch taskConcurrencyMode {
+	case taskConcurrencyDistinct:
+		if len(tasks) != concurrency {
+			return nil, fmt.Errorf("TaskGate task pool %s/c%d must contain exactly %d tasks for distinct_task mode, got %d", experimentID, concurrency, concurrency, len(tasks))
 		}
-		seen[task] = true
+		seen := make(map[string]bool)
+		for _, task := range tasks {
+			if strings.TrimSpace(task) == "" || seen[task] {
+				return nil, fmt.Errorf("TaskGate task pool %s/c%d contains empty or duplicate task IDs", experimentID, concurrency)
+			}
+			seen[task] = true
+		}
+		return append([]string(nil), tasks...), nil
+	case taskConcurrencySameTask:
+		if len(tasks) != 1 {
+			return nil, fmt.Errorf("TaskGate task pool %s/c%d must contain exactly 1 task for same_task mode, got %d", experimentID, concurrency, len(tasks))
+		}
+		if strings.TrimSpace(tasks[0]) == "" {
+			return nil, fmt.Errorf("TaskGate task pool %s/c%d contains an empty task ID", experimentID, concurrency)
+		}
+		result := make([]string, concurrency)
+		for index := range result {
+			result[index] = tasks[0]
+		}
+		return result, nil
+	default:
+		return nil, fmt.Errorf("unknown task_concurrency_mode %q", taskConcurrencyMode)
 	}
-	return append([]string(nil), tasks...), nil
 }
 
 func reserveUniqueTasks(seen map[string]string, tasks []string, cell string) error {
+	local := make(map[string]bool)
 	for _, task := range tasks {
+		if local[task] {
+			continue
+		}
+		local[task] = true
 		if previous := seen[task]; previous != "" {
 			return fmt.Errorf("TaskGate task ID is reused across cells: %s appears in %s and %s", task, previous, cell)
 		}
@@ -1093,12 +1287,25 @@ func buildMetadata(cfg suiteConfig, configPath string, configBytes []byte, workl
 		WorkloadSHA256: make(map[string]string), DatasetSHA256Manifests: make(map[string]string),
 		DatasetManifestPaths: make(map[string]string), MetricsProbePaths: make(map[string]map[string]string),
 		MetricsProbeSHA256: make(map[string]map[string]string),
-		GoVersion:          runtime.Version(), GOOS: runtime.GOOS, GOARCH: runtime.GOARCH,
+		CacheResetPaths:    make(map[string]map[string]string), CacheResetSHA256: make(map[string]map[string]string),
+		GoVersion: runtime.Version(), GOOS: runtime.GOOS, GOARCH: runtime.GOARCH,
 		BaselineOrder:         append([]string(nil), cfg.BaselineOrder...),
+		BaselineOrderSeed:     cfg.Seed,
+		OrderingStrategy:      cfg.OrderingStrategy,
+		CellOrder:             buildCellSchedule(cfg),
+		CacheStrategy:         cfg.CacheStrategy,
+		TaskConcurrencyMode:   cfg.TaskConcurrencyMode,
+		WorkloadLineage:       cfg.WorkloadLineage,
 		WarmupRunsPerWorker:   cfg.WarmupRunsPerWorker,
 		MeasuredRunsPerWorker: cfg.MeasuredRunsPerWorker,
 		Concurrency:           append([]int(nil), cfg.Concurrency...), Endpoints: make(map[string]interface{}),
 	}
+	envDigest, envPath, err := environmentManifestProvenance(cfg)
+	if err != nil {
+		return runMetadata{}, err
+	}
+	metadata.EnvironmentManifestSHA256 = envDigest
+	metadata.EnvironmentManifestPath = envPath
 	for _, exp := range cfg.Experiments {
 		queryHasher := sha256.New()
 		for _, query := range workloads[exp.ID] {
@@ -1134,11 +1341,28 @@ func buildMetadata(cfg suiteConfig, configPath string, configBytes []byte, workl
 				metadata.MetricsProbeSHA256[exp.ID][baseline] = sha256Hex(probeBytes)
 			}
 		}
+		if cfg.CacheStrategy == cacheStrategyCold {
+			metadata.CacheResetPaths[exp.ID] = make(map[string]string)
+			metadata.CacheResetSHA256[exp.ID] = make(map[string]string)
+			for _, baseline := range requiredBaselines {
+				envName := exp.CacheResetEnv[baseline]
+				_, resetPath, provenanceErr := cacheResetProvenance(envName)
+				if provenanceErr != nil {
+					return runMetadata{}, provenanceErr
+				}
+				resetBytes, readErr := os.ReadFile(filepath.Join("/workspace", filepath.FromSlash(resetPath)))
+				if readErr != nil {
+					return runMetadata{}, fmt.Errorf("read cache reset command %s: %w", envName, readErr)
+				}
+				metadata.CacheResetPaths[exp.ID][baseline] = resetPath
+				metadata.CacheResetSHA256[exp.ID][baseline] = sha256Hex(resetBytes)
+			}
+		}
 		metadata.Endpoints[exp.ID] = map[string]string{
-			"direct_postgresql": redactDSN(os.Getenv(exp.DirectDSNEnv)),
-			"native_view_rls":   redactDSN(os.Getenv(exp.NativeDSNEnv)),
-			"ast_only_gateway":  redactedURL(os.Getenv(exp.ASTURLenv)),
-			"full_taskgate":     redactedURL(os.Getenv(exp.TaskGateURLenv)),
+			baselineDirect:       redactDSN(os.Getenv(exp.DirectDSNEnv)),
+			baselineNativeView:   redactDSN(os.Getenv(exp.NativeDSNEnv)),
+			baselineASTOnly:      redactedURL(os.Getenv(exp.ASTURLenv)),
+			baselineFullTaskGate: redactedURL(os.Getenv(exp.TaskGateURLenv)),
 		}
 	}
 	return metadata, nil

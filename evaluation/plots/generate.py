@@ -11,6 +11,7 @@ import importlib.util
 import json
 import math
 import pathlib
+import random
 import re
 import sys
 from collections import defaultdict
@@ -19,19 +20,19 @@ from typing import Any, Iterable
 
 BASELINE_ORDER = {
     "direct_postgresql": 0,
-    "native_view_rls": 1,
+    "native_view": 1,
     "ast_only_gateway": 2,
     "full_taskgate": 3,
 }
 BASELINE_LABEL = {
     "direct_postgresql": "Direct PostgreSQL",
-    "native_view_rls": "Native View/RLS",
+    "native_view": "Native View",
     "ast_only_gateway": "AST-only Gateway",
     "full_taskgate": "Full TaskGate",
 }
 COLORS = {
     "direct_postgresql": "#4477AA",
-    "native_view_rls": "#66CCEE",
+    "native_view": "#66CCEE",
     "ast_only_gateway": "#228833",
     "full_taskgate": "#CC6677",
 }
@@ -119,14 +120,38 @@ def full_campaign_error(
     revision = next(iter(revisions))
     if any(metadata.get("git_dirty") is not False for _, metadata in items):
         return "full suites must all record git_dirty=false", None
+    for _, metadata in items:
+        if metadata.get("ordering_strategy") != "seeded_random":
+            return "full suites must record ordering_strategy=seeded_random", None
+        if metadata.get("cache_strategy") not in {"warm", "cold"}:
+            return "full suites must record cache_strategy=warm or cold", None
+        if metadata.get("task_concurrency_mode") not in {"distinct_task", "same_task"}:
+            return "full suites must record task_concurrency_mode", None
+        if metadata.get("workload_lineage") != "TPC-derived":
+            return "full suites must record workload_lineage=TPC-derived", None
+        if type(metadata.get("baseline_order_seed")) is not int:
+            return "full suites must record baseline_order_seed", None
+        if not isinstance(metadata.get("cell_order"), list) or not metadata["cell_order"]:
+            return "full suites must record cell_order", None
+        env_path = metadata.get("environment_manifest_path")
+        env_digest = metadata.get("environment_manifest_sha256")
+        if not isinstance(env_path, str) or not env_path.strip() or not isinstance(env_digest, str) or not SHA256_PATTERN.fullmatch(env_digest):
+            return "full suites must record environment manifest path and SHA-256", None
     for field in (
         "go_version",
         "goos",
         "goarch",
         "baseline_order",
+        "baseline_order_seed",
+        "ordering_strategy",
+        "cache_strategy",
+        "task_concurrency_mode",
+        "workload_lineage",
         "concurrency",
         "warmup_runs_per_worker",
         "measured_runs_per_worker",
+        "environment_manifest_path",
+        "environment_manifest_sha256",
     ):
         values = {json.dumps(metadata.get(field), sort_keys=True) for _, metadata in items}
         if len(values) != 1:
@@ -198,10 +223,17 @@ def discover_runs(raw_root: pathlib.Path, explicit: list[pathlib.Path], allow_em
         if full:
             if len(full) != len(completed):
                 fail("explicit run selection mixes full and non-full suites")
-            error, _ = full_campaign_error(full)
-            if error:
-                fail(f"explicit full run selection is not a publishable campaign: {error}")
-            return [item[0] for item in sorted(full, key=lambda item: str(item[1].get("suite", "")))]
+            grouped: dict[str, list[tuple[pathlib.Path, dict[str, Any]]]] = defaultdict(list)
+            for item in full:
+                campaign_id = str(item[1].get("campaign_id", ""))
+                grouped[campaign_id].append(item)
+            selected: list[tuple[pathlib.Path, dict[str, Any]]] = []
+            for campaign_id, items in sorted(grouped.items()):
+                error, _ = full_campaign_error(items)
+                if error:
+                    fail(f"explicit full run selection contains an unpublished campaign {campaign_id}: {error}")
+                selected.extend(items)
+            return [item[0] for item in sorted(selected, key=lambda item: (str(item[1].get("campaign_id", "")), str(item[1].get("suite", ""))))]
         modes = {str(metadata.get("mode", "")) for _, metadata in completed}
         if modes != {"smoke"}:
             fail("explicit non-full runs must all be smoke runs")
@@ -231,11 +263,8 @@ def discover_runs(raw_root: pathlib.Path, explicit: list[pathlib.Path], allow_em
                 return []
             detail = "; ".join(reasons) or "no linked campaign was found"
             fail(f"completed full runs exist, but none form a publishable SF1+SF10 campaign: {detail}")
-        selected = max(
-            valid,
-            key=lambda items: max(str(metadata.get("finished_at", "")) for _, metadata in items),
-        )
-        return [item[0] for item in sorted(selected, key=lambda item: str(item[1].get("suite", "")))]
+        selected = [item for campaign in valid for item in campaign]
+        return [item[0] for item in sorted(selected, key=lambda item: (str(item[1].get("campaign_id", "")), str(item[1].get("suite", ""))))]
 
     pool = completed
     latest_by_suite: dict[str, tuple[pathlib.Path, dict[str, Any]]] = {}
@@ -270,6 +299,21 @@ def rounded(value: float | int | None) -> float | int | None:
     if value is None or isinstance(value, int):
         return value
     return round(float(value), 6)
+
+
+def bootstrap_ci(values: list[float], seed_parts: tuple[Any, ...], probability: float) -> tuple[float | None, float | None]:
+    if len(values) < 2:
+        return None, None
+    seed_material = "|".join(str(part) for part in seed_parts).encode("utf-8")
+    seed = int(hashlib.sha256(seed_material).hexdigest()[:16], 16)
+    rng = random.Random(seed)
+    estimates: list[float] = []
+    for _ in range(500):
+        sample = [values[rng.randrange(len(values))] for _ in values]
+        estimate = percentile(sample, probability)
+        if estimate is not None:
+            estimates.append(float(estimate))
+    return percentile(estimates, 0.025), percentile(estimates, 0.975)
 
 
 def sum_map(values: dict[str, Any] | None) -> float | None:
@@ -310,11 +354,48 @@ def verified_input_path(root: pathlib.Path, value: Any, digest: Any, label: str)
     return path
 
 
+def validate_cell_order(metadata: dict[str, Any], config: dict[str, Any]) -> None:
+    run_id = metadata.get("run_id")
+    experiments = config.get("experiments")
+    concurrency = config.get("concurrency")
+    baselines = config.get("baseline_order")
+    order = metadata.get("cell_order")
+    if (
+        not isinstance(experiments, list)
+        or not isinstance(concurrency, list)
+        or not isinstance(baselines, list)
+        or not isinstance(order, list)
+    ):
+        fail(f"run {run_id} omits configured cell-order provenance")
+    expected = {
+        (experiment.get("id"), baseline, level)
+        for experiment in experiments
+        if isinstance(experiment, dict)
+        for baseline in baselines
+        for level in concurrency
+    }
+    actual: set[tuple[Any, Any, Any]] = set()
+    positions: set[int] = set()
+    for entry in order:
+        if not isinstance(entry, dict):
+            fail(f"run {run_id} cell_order contains a non-object entry")
+        position = entry.get("order")
+        key = (entry.get("experiment"), entry.get("baseline"), entry.get("concurrency"))
+        if type(position) is not int or position < 1 or position in positions:
+            fail(f"run {run_id} cell_order has invalid or duplicate order positions")
+        positions.add(position)
+        if key in actual:
+            fail(f"run {run_id} cell_order duplicates cell {key}")
+        actual.add(key)
+    if positions != set(range(1, len(order) + 1)) or actual != expected:
+        fail(f"run {run_id} cell_order is not an exact permutation of the configured cells")
+
+
 def validate_config_provenance(
     root: pathlib.Path,
     metadata: dict[str, Any],
     inputs: list[pathlib.Path],
-) -> dict[str, tuple[str, int]]:
+) -> dict[str, tuple[str, int, set[str]]]:
     config_path = verified_input_path(
         root,
         metadata.get("config_path"),
@@ -325,14 +406,33 @@ def validate_config_provenance(
     config = read_json(config_path)
     if not isinstance(config, dict):
         fail(f"evaluation config is not a JSON object: {config_path}")
-    for field in ("name", "mode", "baseline_order", "concurrency", "warmup_runs_per_worker", "measured_runs_per_worker"):
-        metadata_field = "suite" if field == "name" else field
-        if config.get(field) != metadata.get(metadata_field):
-            fail(f"run {metadata.get('run_id')} metadata does not match config field {field}")
+    field_pairs = (
+        ("name", "suite"),
+        ("mode", "mode"),
+        ("baseline_order", "baseline_order"),
+        ("seed", "baseline_order_seed"),
+        ("ordering_strategy", "ordering_strategy"),
+        ("cache_strategy", "cache_strategy"),
+        ("task_concurrency_mode", "task_concurrency_mode"),
+        ("workload_lineage", "workload_lineage"),
+        ("concurrency", "concurrency"),
+        ("warmup_runs_per_worker", "warmup_runs_per_worker"),
+        ("measured_runs_per_worker", "measured_runs_per_worker"),
+    )
+    for config_field, metadata_field in field_pairs:
+        if config.get(config_field) != metadata.get(metadata_field):
+            fail(f"run {metadata.get('run_id')} metadata does not match config field {config_field}")
+    if config.get("mode") == "full":
+        env_name = config.get("environment_manifest_env")
+        if not isinstance(env_name, str) or not env_name:
+            fail(f"full evaluation config omits environment_manifest_env: {config_path}")
+        if not metadata.get("environment_manifest_path") or not metadata.get("environment_manifest_sha256"):
+            fail(f"run {metadata.get('run_id')} omits environment manifest provenance")
+    validate_cell_order(metadata, config)
     experiments = config.get("experiments")
     if not isinstance(experiments, list) or not experiments:
         fail(f"evaluation config has no experiments: {config_path}")
-    details: dict[str, tuple[str, int]] = {}
+    details: dict[str, tuple[str, int, set[str]]] = {}
     workload_digests = metadata.get("workload_sha256")
     if not isinstance(workload_digests, dict):
         fail(f"run {metadata.get('run_id')} omits workload_sha256 provenance")
@@ -347,7 +447,11 @@ def validate_config_provenance(
             fail(f"evaluation config has an empty or duplicate experiment ID: {config_path}")
         if family not in {"tpch", "tpcds"} or type(scale_factor) is not int:
             fail(f"evaluation config has invalid family/scale for {experiment_id}")
-        details[experiment_id] = (str(family), int(scale_factor))
+        details[experiment_id] = (str(family), int(scale_factor), set())
+        if config.get("cache_strategy") == "cold":
+            reset_env = experiment.get("cache_reset_env")
+            if not isinstance(reset_env, dict) or set(reset_env) != set(BASELINE_ORDER):
+                fail(f"cold-cache experiment {experiment_id} does not map cache_reset_env for all baselines")
 
         workload_value = experiment.get("workload")
         if not isinstance(workload_value, str) or not workload_value:
@@ -359,6 +463,7 @@ def validate_config_provenance(
             not isinstance(workload, dict)
             or workload.get("schema_version") != 1
             or workload.get("family") != family
+            or workload.get("lineage") != config.get("workload_lineage")
             or not isinstance(workload.get("queries"), list)
             or not workload["queries"]
         ):
@@ -384,6 +489,7 @@ def validate_config_provenance(
                 inputs.append(sql_path)
                 workload_hasher.update(baseline.encode("utf-8"))
                 workload_hasher.update(sql_path.read_bytes())
+        details[experiment_id] = (str(family), int(scale_factor), seen_queries)
         computed_digests[experiment_id] = workload_hasher.hexdigest()
     if set(workload_digests) != set(details):
         fail(f"run {metadata.get('run_id')} workload provenance does not cover its exact experiments")
@@ -420,10 +526,14 @@ def load_measurements(root: pathlib.Path, run_dirs: list[pathlib.Path]) -> tuple
     if full:
         if len(full) != len(selected):
             fail("selected measurement set mixes full and non-full runs")
-        error, manifest_path = full_campaign_error(full)
-        if error or manifest_path is None:
-            fail(f"selected full runs are not one publishable campaign: {error}")
-        inputs.append(manifest_path)
+        grouped: dict[str, list[tuple[pathlib.Path, dict[str, Any]]]] = defaultdict(list)
+        for item in full:
+            grouped[str(item[1].get("campaign_id", ""))].append(item)
+        for campaign_id, items in sorted(grouped.items()):
+            error, manifest_path = full_campaign_error(items)
+            if error or manifest_path is None:
+                fail(f"selected full runs contain unpublished campaign {campaign_id}: {error}")
+            inputs.append(manifest_path)
 
     metadata_rows: list[dict[str, Any]] = []
     for directory, metadata in selected:
@@ -458,12 +568,20 @@ def load_measurements(root: pathlib.Path, run_dirs: list[pathlib.Path]) -> tuple
             suite = metadata.get("suite")
             if suite not in REQUIRED_FULL_SUITES or set(experiment_details) != REQUIRED_FULL_SUITES[str(suite)]:
                 fail(f"full run {run_id} does not have the exact experiments required for suite {suite}")
-            if any(experiment_details[key] != REQUIRED_FULL_EXPERIMENTS[key] for key in experiment_details):
+            if any(experiment_details[key][:2] != REQUIRED_FULL_EXPERIMENTS[key] for key in experiment_details):
                 fail(f"full run {run_id} has incorrect family/scale provenance")
             if set(concurrency_values) != REQUIRED_FULL_CONCURRENCY or len(concurrency_values) != len(REQUIRED_FULL_CONCURRENCY):
                 fail(f"full run {run_id} must cover exactly concurrency 1, 8, and 32")
             if measured_per_worker < 30:
                 fail(f"full run has fewer than 30 measurements per worker: {directory}")
+            inputs.append(
+                verified_input_path(
+                    root,
+                    metadata.get("environment_manifest_path"),
+                    metadata.get("environment_manifest_sha256"),
+                    f"{run_id} environment manifest",
+                )
+            )
 
             dataset_digests = metadata.get("dataset_sha256_manifests")
             dataset_paths = metadata.get("dataset_manifest_paths")
@@ -501,6 +619,27 @@ def load_measurements(root: pathlib.Path, run_dirs: list[pathlib.Path]) -> tuple
                             f"{run_id}/{experiment_id}/{baseline} metrics probe",
                         )
                     )
+            if metadata.get("cache_strategy") == "cold":
+                reset_paths = metadata.get("cache_reset_paths")
+                reset_digests = metadata.get("cache_reset_sha256")
+                if not isinstance(reset_paths, dict) or not isinstance(reset_digests, dict):
+                    fail(f"cold-cache full run {run_id} omits cache-reset provenance")
+                if set(reset_paths) != set(experiment_details) or set(reset_digests) != set(experiment_details):
+                    fail(f"cold-cache full run {run_id} cache-reset provenance does not cover its exact experiments")
+                for experiment_id in sorted(experiment_details):
+                    paths = reset_paths.get(experiment_id)
+                    digests = reset_digests.get(experiment_id)
+                    if not isinstance(paths, dict) or not isinstance(digests, dict) or set(paths) != set(BASELINE_ORDER) or set(digests) != set(BASELINE_ORDER):
+                        fail(f"cold-cache full run {run_id} has incomplete cache-reset provenance for {experiment_id}")
+                    for baseline in BASELINE_ORDER:
+                        inputs.append(
+                            verified_input_path(
+                                root,
+                                paths[baseline],
+                                digests[baseline],
+                                f"{run_id}/{experiment_id}/{baseline} cache reset",
+                            )
+                        )
 
         run_samples = read_jsonl(samples_path)
         run_cells = read_jsonl(cells_path)
@@ -524,7 +663,7 @@ def load_measurements(root: pathlib.Path, run_dirs: list[pathlib.Path]) -> tuple
             experiment_id, _, concurrency = key
             if row.get("run_id") != run_id or experiment_id not in experiment_details:
                 fail(f"cell identity does not match run {run_id}: {key}")
-            family, scale_factor = experiment_details[experiment_id]
+            family, scale_factor, _ = experiment_details[experiment_id]
             if row.get("family") != family or row.get("scale_factor") != scale_factor:
                 fail(f"cell family/scale does not match config in run {run_id}: {key}")
             expected_samples = measured_per_worker * concurrency
@@ -543,9 +682,11 @@ def load_measurements(root: pathlib.Path, run_dirs: list[pathlib.Path]) -> tuple
             experiment_id, _, concurrency = key
             if key not in expected_cells or row.get("run_id") != run_id:
                 fail(f"sample identity does not match run {run_id}: {key}")
-            family, scale_factor = experiment_details[experiment_id]
+            family, scale_factor, query_ids = experiment_details[experiment_id]
             if row.get("family") != family or row.get("scale_factor") != scale_factor:
                 fail(f"sample family/scale does not match config in run {run_id}: {key}")
+            if row.get("query_id") not in query_ids:
+                fail(f"sample query_id is not declared by workload manifest in run {run_id}: {key}")
             worker = row.get("worker")
             iteration = row.get("iteration")
             if type(worker) is not int or type(iteration) is not int:
@@ -570,57 +711,103 @@ def load_measurements(root: pathlib.Path, run_dirs: list[pathlib.Path]) -> tuple
 
 def build_summary(samples: list[dict[str, Any]], cells: list[dict[str, Any]]) -> list[dict[str, Any]]:
     grouped_samples: dict[tuple[Any, ...], list[dict[str, Any]]] = defaultdict(list)
-    cell_by_key: dict[tuple[Any, ...], dict[str, Any]] = {}
+    cells_by_key: dict[tuple[Any, ...], list[dict[str, Any]]] = defaultdict(list)
     for row in samples:
-        key = (row["experiment"], row["family"], int(row["scale_factor"]), row["baseline"], int(row["concurrency"]))
+        key = (
+            row["experiment"],
+            row["family"],
+            int(row["scale_factor"]),
+            row["baseline"],
+            int(row["concurrency"]),
+            row["query_id"],
+        )
         grouped_samples[key].append(row)
     for row in cells:
         key = (row["experiment"], row["family"], int(row["scale_factor"]), row["baseline"], int(row["concurrency"]))
-        if key in cell_by_key:
-            fail(f"duplicate evaluation cell across selected runs: {key}")
-        cell_by_key[key] = row
-    if set(grouped_samples) != set(cell_by_key):
+        cells_by_key[key].append(row)
+    grouped_cell_keys = {key[:5] for key in grouped_samples}
+    if grouped_cell_keys != set(cells_by_key):
         fail("sample groups and cell summaries do not match")
 
     result: list[dict[str, Any]] = []
-    for key in sorted(grouped_samples, key=lambda item: (item[2], item[1], item[0], item[4], BASELINE_ORDER.get(item[3], 99))):
-        experiment, family, scale_factor, baseline, concurrency = key
+    direct_p50: dict[tuple[Any, ...], float | int | None] = {}
+    direct_p95: dict[tuple[Any, ...], float | int | None] = {}
+    for key in sorted(grouped_samples, key=lambda item: (item[2], item[1], item[0], item[5], item[4], BASELINE_ORDER.get(item[3], 99))):
+        experiment, family, scale_factor, baseline, concurrency, query_id = key
         rows = grouped_samples[key]
-        cell = cell_by_key[key]
+        cell_rows = cells_by_key[key[:5]]
+        measurement_seconds = sum(float(row["measurement_seconds"]) for row in cell_rows)
+        if measurement_seconds <= 0:
+            fail(f"non-positive aggregate measurement duration for {key}")
+        cpu_values = [sum_map(row.get("cpu_seconds")) for row in cell_rows]
+        peak_values = [max_map(row.get("peak_memory_bytes")) for row in cell_rows]
+        control_values = [row.get("control_transactions") for row in cell_rows if row.get("control_transactions") is not None]
+        receipt_storage_values = [row.get("receipt_storage_bytes") for row in cell_rows if row.get("receipt_storage_bytes") is not None]
+        component_totals: dict[str, float] = defaultdict(float)
+        component_counts: dict[str, int] = defaultdict(int)
+        for cell in cell_rows:
+            for name, value in (cell.get("component_ms") or {}).items():
+                component_totals[str(name)] += float(value)
+                component_counts[str(name)] += 1
         latencies = [float(row["latency_ms"]) for row in rows]
         database = [float(row["database_ms"]) for row in rows if row.get("database_ms") is not None]
         receipts = [int(row["receipt_bytes"]) for row in rows if row.get("receipt_bytes") is not None]
-        result.append(
-            {
-                "experiment": experiment,
-                "family": family,
-                "workload": family,
-                "scale_factor": scale_factor,
-                "baseline": baseline,
-                "concurrency": concurrency,
-                "measured_runs": len(rows),
-                "p50_ms": rounded(percentile(latencies, 0.50)),
-                "p95_ms": rounded(percentile(latencies, 0.95)),
-                "p99_ms": rounded(percentile(latencies, 0.99)),
-                "database_p50_ms": rounded(percentile(database, 0.50)),
-                "throughput_qps": rounded(float(cell["throughput_qps"])),
-                "measurement_seconds": rounded(float(cell["measurement_seconds"])),
-                "cpu_seconds": rounded(sum_map(cell.get("cpu_seconds"))),
-                "peak_memory_bytes": max_map(cell.get("peak_memory_bytes")),
-                "control_transactions": cell.get("control_transactions"),
-                "receipt_storage_bytes": cell.get("receipt_storage_bytes"),
-                "receipt_mean_bytes": rounded(sum(receipts) / len(receipts)) if receipts else None,
-                "component_ms": cell.get("component_ms") or {},
-            }
-        )
+        p50 = percentile(latencies, 0.50)
+        p95 = percentile(latencies, 0.95)
+        p99_reportable = len(latencies) >= 10000
+        p50_low, p50_high = bootstrap_ci(latencies, key, 0.50)
+        record = {
+            "experiment": experiment,
+            "family": family,
+            "workload": family,
+            "query_id": query_id,
+            "scale_factor": scale_factor,
+            "baseline": baseline,
+            "concurrency": concurrency,
+            "measured_runs": len(rows),
+            "p50_ms": rounded(p50),
+            "p50_bootstrap_ci_low_ms": rounded(p50_low),
+            "p50_bootstrap_ci_high_ms": rounded(p50_high),
+            "p95_ms": rounded(p95),
+            "p99_ms": rounded(percentile(latencies, 0.99)) if p99_reportable else None,
+            "p99_reportable": p99_reportable,
+            "database_p50_ms": rounded(percentile(database, 0.50)),
+            "throughput_qps": rounded(len(rows) / measurement_seconds),
+            "cell_throughput_qps": rounded(sum(float(cell["throughput_qps"]) for cell in cell_rows) / len(cell_rows)),
+            "measurement_seconds": rounded(measurement_seconds),
+            "cpu_seconds": rounded(sum(value for value in cpu_values if value is not None)) if any(value is not None for value in cpu_values) else None,
+            "peak_memory_bytes": max(value for value in peak_values if value is not None) if any(value is not None for value in peak_values) else None,
+            "control_transactions": sum(int(value) for value in control_values) if control_values else None,
+            "receipt_storage_bytes": sum(int(value) for value in receipt_storage_values) if receipt_storage_values else None,
+            "receipt_mean_bytes": rounded(sum(receipts) / len(receipts)) if receipts else None,
+            "component_ms": {
+                name: rounded(component_totals[name] / component_counts[name])
+                for name in sorted(component_totals)
+            },
+        }
+        result.append(record)
+        direct_key = (experiment, concurrency, query_id)
+        if baseline == "direct_postgresql":
+            direct_p50[direct_key] = p50
+            direct_p95[direct_key] = p95
+    for record in result:
+        direct_key = (record["experiment"], record["concurrency"], record["query_id"])
+        direct50 = direct_p50.get(direct_key)
+        direct95 = direct_p95.get(direct_key)
+        p50 = record.get("p50_ms")
+        p95 = record.get("p95_ms")
+        record["p50_ratio_vs_direct"] = rounded(float(p50) / float(direct50)) if p50 is not None and direct50 else None
+        record["p95_ratio_vs_direct"] = rounded(float(p95) / float(direct95)) if p95 is not None and direct95 else None
     return result
 
 
 def write_summary_csv(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
     fields = [
-        "experiment", "family", "workload", "scale_factor", "baseline", "concurrency",
-        "measured_runs", "p50_ms", "p95_ms", "p99_ms", "database_p50_ms",
-        "throughput_qps", "measurement_seconds", "cpu_seconds", "peak_memory_bytes",
+        "experiment", "family", "workload", "query_id", "scale_factor", "baseline",
+        "concurrency", "measured_runs", "p50_ms", "p50_bootstrap_ci_low_ms",
+        "p50_bootstrap_ci_high_ms", "p95_ms", "p99_ms", "p99_reportable",
+        "p50_ratio_vs_direct", "p95_ratio_vs_direct", "database_p50_ms",
+        "throughput_qps", "cell_throughput_qps", "measurement_seconds", "cpu_seconds", "peak_memory_bytes",
         "control_transactions", "receipt_storage_bytes", "receipt_mean_bytes", "component_ms_json",
     ]
     with path.open("w", encoding="utf-8", newline="") as destination:
@@ -652,15 +839,15 @@ def fmt(value: Any, digits: int = 2) -> str:
 def write_latex(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
     lines = [
         "% Generated from raw evaluation JSON; do not edit.",
-        r"\begin{tabular}{llrrrrr}",
+        r"\begin{tabular}{lllrrrrr}",
         r"\hline",
-        r"Workload & Baseline & C & $n$ & p50 ms & p95 ms & QPS \\",
+        r"Workload & Query & Baseline & C & $n$ & p50 ms & p95 ms & QPS \\",
         r"\hline",
     ]
     for row in rows:
         workload = f"{row['family'].upper()} SF{row['scale_factor']}"
         lines.append(
-            f"{latex_escape(workload)} & {latex_escape(BASELINE_LABEL[row['baseline']])} & "
+            f"{latex_escape(workload)} & {latex_escape(row['query_id'])} & {latex_escape(BASELINE_LABEL[row['baseline']])} & "
             f"{row['concurrency']} & {row['measured_runs']} & {fmt(row['p50_ms'])} & "
             f"{fmt(row['p95_ms'])} & {fmt(row['throughput_qps'])} \\\\"
         )
@@ -687,7 +874,7 @@ def write_bar_svg(path: pathlib.Path, rows: list[dict[str, Any]], field: str, ti
     ]
     for index, row in enumerate(rows):
         y = top + index * row_height
-        label = f"{row['family'].upper()} SF{row['scale_factor']} c={row['concurrency']} {BASELINE_LABEL[row['baseline']]}"
+        label = f"{row['family'].upper()} SF{row['scale_factor']} {row['query_id']} c={row['concurrency']} {BASELINE_LABEL[row['baseline']]}"
         value = float(row[field] or 0.0)
         bar_width = value / maximum * plot_width
         color = COLORS[row["baseline"]]
@@ -698,12 +885,11 @@ def write_bar_svg(path: pathlib.Path, rows: list[dict[str, Any]], field: str, ti
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def load_formal(root: pathlib.Path, provenance: list[pathlib.Path]) -> dict[str, Any]:
-    path = root / "formal" / "results" / "tlc.json"
-    if not path.is_file():
-        return {"status": "not_run", "note": "Run make formal to create a machine-readable TLC result."}
-    value = read_json(path)
-    provenance.append(path)
+def add_formal_provenance(
+    root: pathlib.Path,
+    value: dict[str, Any],
+    provenance: list[pathlib.Path],
+) -> None:
     for field in ("model", "config", "raw_log"):
         relative_path = value.get(field)
         if relative_path:
@@ -711,24 +897,42 @@ def load_formal(root: pathlib.Path, provenance: list[pathlib.Path]) -> dict[str,
             if not referenced.is_file():
                 fail(f"formal result references missing {field}: {referenced}")
             provenance.append(referenced)
+
+
+def load_formal(root: pathlib.Path, provenance: list[pathlib.Path]) -> dict[str, Any]:
+    path = root / "formal" / "results" / "tlc.json"
+    if not path.is_file():
+        return {
+            "status": "not_run",
+            "note": "Run make formal to create a machine-readable TLC result.",
+        }
+    value = read_json(path)
+    provenance.append(path)
+    add_formal_provenance(root, value, provenance)
+    additional_results: list[dict[str, Any]] = []
+    for additional_path in (
+        root / "formal" / "results" / "vector_budget.json",
+        root / "formal" / "results" / "sql_authorization.json",
+        root / "formal" / "results" / "multi_task_audit.json",
+        root / "formal" / "results" / "receipt_audit.json",
+        root / "formal" / "results" / "recovery_liveness.json",
+    ):
+        if not additional_path.is_file():
+            continue
+        additional = read_json(additional_path)
+        provenance.append(additional_path)
+        add_formal_provenance(root, additional, provenance)
+        additional_results.append(additional)
+    if additional_results:
+        value["additional_results"] = additional_results
     return value
 
 
-def load_security(root: pathlib.Path, provenance: list[pathlib.Path]) -> dict[str, Any]:
-    result_path = root / "evaluation" / "security" / "results.json"
-    if result_path.is_file():
-        verifier_path = root / "evaluation" / "security" / "verify.py"
-        spec = importlib.util.spec_from_file_location("taskgate_security_verify", verifier_path)
-        if spec is None or spec.loader is None:
-            fail(f"cannot load security verifier: {verifier_path}")
-        verifier = importlib.util.module_from_spec(spec)
-        try:
-            spec.loader.exec_module(verifier)
-            value, evidence_paths = verifier.verify_results_file(root, result_path)
-        except Exception as exc:  # The verifier supplies the actionable evidence error.
-            fail(f"security result verification failed: {exc}")
-        provenance.extend([result_path, *evidence_paths])
-        return value
+def load_unmeasured_security(
+    root: pathlib.Path,
+    provenance: list[pathlib.Path],
+    note: str,
+) -> dict[str, Any]:
     corpus_path = root / "evaluation" / "attacks" / "corpus.json"
     prompt_path = root / "evaluation" / "attacks" / "prompt-injection.json"
     corpus = read_json(corpus_path)
@@ -738,8 +942,42 @@ def load_security(root: pathlib.Path, provenance: list[pathlib.Path]) -> dict[st
         "status": "not_measured",
         "corpus_cases_defined": len(corpus.get("cases", [])),
         "prompt_injection_boundaries_defined": len(prompts.get("cases", [])),
-        "note": "Attack and prompt-boundary corpora exist, but no verified machine-readable security run was selected.",
+        "note": note,
     }
+
+
+def load_security(root: pathlib.Path, provenance: list[pathlib.Path]) -> dict[str, Any]:
+    result_path = root / "evaluation" / "security" / "results.json"
+    if result_path.is_file():
+        verifier_path = root / "evaluation" / "security" / "verify.py"
+        spec = importlib.util.spec_from_file_location("taskgate_security_verify", verifier_path)
+        if spec is None or spec.loader is None:
+            provenance.extend([result_path, verifier_path])
+            return load_unmeasured_security(
+                root,
+                provenance,
+                "Existing security result rejected because its verifier could "
+                f"not be loaded: {verifier_path}",
+            )
+        verifier = importlib.util.module_from_spec(spec)
+        try:
+            spec.loader.exec_module(verifier)
+            value, evidence_paths = verifier.verify_results_file(root, result_path)
+        except Exception as exc:  # The verifier supplies the actionable evidence error.
+            provenance.extend([result_path, verifier_path])
+            detail = str(exc).replace(str(root.resolve()), ".")
+            return load_unmeasured_security(
+                root,
+                provenance,
+                f"Existing security result rejected as stale or invalid: {detail}",
+            )
+        provenance.extend([result_path, *evidence_paths])
+        return value
+    return load_unmeasured_security(
+        root,
+        provenance,
+        "Attack and prompt-boundary corpora exist, but no verified machine-readable security run was selected.",
+    )
 
 
 def main() -> None:
@@ -770,7 +1008,14 @@ def main() -> None:
         {"path": relative(path, root), "sha256": sha256(path)}
         for path in sorted(set(provenance_paths), key=lambda value: relative(value, root))
     ]
-    generated_at = max((str(row.get("finished_at", "")) for row in metadata_rows), default=str(formal.get("checked_at", "")))
+    formal_checked_at = [str(formal.get("checked_at", ""))]
+    for additional in formal.get("additional_results", []):
+        if isinstance(additional, dict):
+            formal_checked_at.append(str(additional.get("checked_at", "")))
+    generated_at = max(
+        [str(row.get("finished_at", "")) for row in metadata_rows] + formal_checked_at,
+        default="",
+    )
     selected_modes = {str(row.get("mode", "")) for row in metadata_rows}
     if summary and selected_modes == {"full"}:
         performance_status = "complete"
@@ -778,6 +1023,10 @@ def main() -> None:
         performance_status = "smoke"
     else:
         performance_status = "not_measured"
+    performance = {"status": performance_status, "summary": summary}
+    if not run_dirs:
+        performance["note"] = "no completed raw run selected"
+
     paper_results = {
         "schema_version": 1,
         "generated_at": generated_at,
@@ -789,7 +1038,7 @@ def main() -> None:
         },
         "formal": formal,
         "security": security,
-        "performance": {"status": performance_status, "summary": summary},
+        "performance": performance,
     }
 
     (output / "summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")

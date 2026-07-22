@@ -18,12 +18,31 @@ type ResultCipher interface {
 	Decrypt(nonce, ciphertext, aad []byte) ([]byte, error)
 }
 
+// DefaultResultEncryptionKeyID is used for legacy ciphers that do not expose a
+// stable key identifier.
+const DefaultResultEncryptionKeyID = "local-aes256-gcm-v1"
+
+// ResultCipherKeyer is implemented by ciphers that can identify the result
+// encryption key used for newly encrypted rows.
+type ResultCipherKeyer interface {
+	KeyID() string
+}
+
 type AES256GCM struct {
-	aead cipher.AEAD
-	rand io.Reader
+	aead  cipher.AEAD
+	rand  io.Reader
+	keyID string
 }
 
 func NewAES256GCM(key []byte) (*AES256GCM, error) {
+	return NewAES256GCMWithKeyID(DefaultResultEncryptionKeyID, key)
+}
+
+func NewAES256GCMWithKeyID(keyID string, key []byte) (*AES256GCM, error) {
+	keyID, err := normalizeResultEncryptionKeyID(keyID)
+	if err != nil {
+		return nil, opErr("new cipher", ErrInvalid, err)
+	}
 	if len(key) != 32 {
 		return nil, opErr("new cipher", ErrInvalid, fmt.Errorf("AES-256 key must be exactly 32 bytes, got %d", len(key)))
 	}
@@ -35,7 +54,14 @@ func NewAES256GCM(key []byte) (*AES256GCM, error) {
 	if err != nil {
 		return nil, opErr("new cipher", ErrInvalid, err)
 	}
-	return &AES256GCM{aead: aead, rand: rand.Reader}, nil
+	return &AES256GCM{aead: aead, rand: rand.Reader, keyID: keyID}, nil
+}
+
+func (c *AES256GCM) KeyID() string {
+	if c == nil || c.keyID == "" {
+		return DefaultResultEncryptionKeyID
+	}
+	return c.keyID
 }
 
 // ParseAES256Key accepts 64-character hexadecimal or padded/unpadded base64.

@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,6 +14,7 @@ import (
 
 	"taskbound.local/agent-data-gateway/internal/apierr"
 	"taskbound.local/agent-data-gateway/internal/approval"
+	"taskbound.local/agent-data-gateway/internal/auditchain"
 	"taskbound.local/agent-data-gateway/internal/catalog"
 	"taskbound.local/agent-data-gateway/internal/control"
 	"taskbound.local/agent-data-gateway/internal/dataconnector"
@@ -158,11 +160,6 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 	if task.CatalogVersion != s.catalog.CatalogVersion {
 		return nil, &mcp.ToolError{Code: apierr.CodeConflict, Message: "任务目录版本与当前实例不一致；为避免扩权已拒绝查询"}
 	}
-	if err := s.connector.Ping(ctx); err != nil {
-		// The PostgreSQL connector's Ping includes catalog-pinned schema
-		// attestation. Drift therefore fails both readiness and execution closed.
-		return nil, err
-	}
 	grant, err := s.store.GetGrant(ctx, task.ID)
 	if err != nil {
 		return nil, err
@@ -203,17 +200,26 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 	}
 	componentMS := map[string]float64{}
 	policyStarted := time.Now()
-	policyGrant, functions, operators, err := s.policyGrant(grant)
+	policyGrant, err := s.policyGrant(grant)
 	if err != nil {
 		return nil, err
 	}
-	engine := sqlpolicy.New(sqlpolicy.Config{AllowedFunctions: functions, AllowedOperators: operators})
+	engine := sqlpolicy.New(sqlpolicy.Config{})
 	decision, err := engine.Authorize(sqlpolicy.Request{SQL: agentSQL, Grant: policyGrant, RowLimit: remaining.Rows})
 	if err != nil {
 		return nil, err
 	}
 	componentMS["parse_policy"] = durationMS(time.Since(policyStarted))
 	componentMS["authorization"] = durationMS(policyStarted.Sub(pipelineStarted))
+	evidence, err := s.datasourceEvidence(ctx, protocolGrant.Core.ApprovedProducts)
+	if err != nil {
+		return nil, err
+	}
+	if protocolGrant.Core.DatasourceID != evidence.DatasourceID ||
+		protocolGrant.Core.SchemaDigest != evidence.SchemaDigest ||
+		grant.DatasourceID != evidence.DatasourceID || grant.SchemaDigest != evidence.SchemaDigest {
+		return nil, &mcp.ToolError{Code: apierr.CodeConflict, Message: "授权数据源与当前实例不一致；查询已关闭式拒绝"}
+	}
 	queryID := randomID("query")
 	approvedPerQueryTimeout := time.Duration(protocolGrant.Core.Budget.PerQueryTimeoutMS) * time.Millisecond
 	requestedTimeout := approvedPerQueryTimeout
@@ -229,6 +235,7 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 		QueryID: queryID, TaskID: task.ID, RequestID: requestID, Actor: principal.Subject,
 		RequestDigest: requestDigest, SQLFingerprint: decision.Fingerprint,
 		CatalogVersion: task.CatalogVersion, CatalogDigest: protocolGrant.Core.CatalogSHA256,
+		DatasourceID: evidence.DatasourceID, SchemaDigest: evidence.SchemaDigest,
 		ManifestDigest: protocolGrant.Core.ManifestDigest, GrantDigest: grantDigest, PolicyDecision: "ALLOW",
 		RequestedRows: decision.RowLimit, RequestedDBMS: requestedDBMS,
 	})
@@ -299,25 +306,24 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 	componentMS["result_encoding"] = durationMS(time.Since(encodingStarted))
 	if err != nil {
 		settlement.ErrorCode = resultEncodingFailed
-		s.settleQueryBudget(ctx, settlement)
+		s.failQueryBudget(ctx, settlement)
 		return nil, err
 	}
 	finalizeCtx, finalizeCancel := detachedContext(ctx)
-	record, finalizeMetrics, err := s.store.FinalizeQueryMeasured(finalizeCtx, settlement, plaintext)
+	record, persistedReceipt, finalizeMetrics, err := s.store.FinalizeQueryMeasuredWithReceipt(finalizeCtx, settlement, plaintext, s.terminalReceiptBuilder())
 	finalizeCancel()
 	if err != nil {
 		settlement.ErrorCode = resultFinalizationFailed
-		s.settleQueryBudget(ctx, settlement)
+		s.failQueryBudget(ctx, settlement)
 		return nil, err
 	}
 	componentMS["encryption"] = durationMS(finalizeMetrics.Encryption)
 	componentMS["settle_persist"] = durationMS(finalizeMetrics.SettlementStore)
-	signingStarted := time.Now()
-	receipt, err := s.queryReceipt(ctx, record)
+	componentMS["receipt_signing"] = durationMS(finalizeMetrics.ReceiptSigning)
+	receipt, err := decodeReceiptJSON(persistedReceipt.ReceiptJSON)
 	if err != nil {
 		return nil, err
 	}
-	componentMS["receipt_signing"] = durationMS(time.Since(signingStarted))
 	return map[string]any{
 		"task_id": task.ID, "query_id": queryID, "request_id": requestID, "status": record.Status, "columns": stored.Columns,
 		"rows": stored.Rows, "row_count": stored.RowCount, "database_ms": stored.DatabaseMS,
@@ -399,29 +405,24 @@ func querySettlement(queryID string, data dataconnector.Result, started time.Tim
 	}
 }
 
-// settleQueryBudget makes one detached attempt before handing a failed
-// durable settlement to a background retry loop. SettleBudget is idempotent,
-// so retrying is safe even when a database commit succeeded but its result was
-// lost to the caller.
-func (s *Service) settleQueryBudget(ctx context.Context, settlement control.BudgetSettlement) {
-	settleCtx, settleCancel := detachedContext(ctx)
-	_, err := s.store.SettleBudget(settleCtx, settlement)
-	settleCancel()
+func (s *Service) failQueryBudget(ctx context.Context, settlement control.BudgetSettlement) {
+	failCtx, cancel := detachedContext(ctx)
+	_, _, err := s.store.FailBudgetWithReceipt(failCtx, settlement, s.terminalReceiptBuilder())
+	cancel()
 	if err == nil {
 		return
 	}
-	s.logger.Error("settle query budget", "trace_id", mcp.TraceID(ctx), "query_id", settlement.QueryID, "error", err)
+	s.logger.Error("fail query budget", "trace_id", mcp.TraceID(ctx), "query_id", settlement.QueryID, "error", err)
 	if errors.Is(err, control.ErrClosed) || s.background.Err() != nil {
 		return
 	}
-
 	s.pendingSettles.Add(1)
-	go s.retryQuerySettlement(settlement)
+	go s.retryFailedQuerySettlement(settlement)
 }
 
 func (s *Service) releaseQueryBudget(ctx context.Context, queryID, errorCode string) {
 	releaseCtx, cancel := detachedContext(ctx)
-	_, err := s.store.ReleaseBudget(releaseCtx, queryID, errorCode)
+	_, _, err := s.store.ReleaseBudgetWithReceipt(releaseCtx, queryID, errorCode, s.terminalReceiptBuilder())
 	cancel()
 	if err == nil {
 		return
@@ -436,7 +437,7 @@ func (s *Service) releaseQueryBudget(ctx context.Context, queryID, errorCode str
 
 func (s *Service) markQueryIndeterminate(ctx context.Context, queryID, errorCode string) {
 	markCtx, cancel := detachedContext(ctx)
-	_, err := s.store.MarkIndeterminate(markCtx, queryID, errorCode)
+	_, _, err := s.store.MarkIndeterminateWithReceipt(markCtx, queryID, errorCode, s.terminalReceiptBuilder())
 	cancel()
 	if err == nil {
 		return
@@ -463,9 +464,9 @@ func (s *Service) retryTerminalQuery(queryID, errorCode string, indeterminate bo
 		attemptCtx, cancel := context.WithTimeout(s.background, settlementAttemptTimeout)
 		var err error
 		if indeterminate {
-			_, err = s.store.MarkIndeterminate(attemptCtx, queryID, errorCode)
+			_, _, err = s.store.MarkIndeterminateWithReceipt(attemptCtx, queryID, errorCode, s.terminalReceiptBuilder())
 		} else {
-			_, err = s.store.ReleaseBudget(attemptCtx, queryID, errorCode)
+			_, _, err = s.store.ReleaseBudgetWithReceipt(attemptCtx, queryID, errorCode, s.terminalReceiptBuilder())
 		}
 		cancel()
 		if err == nil || errors.Is(err, control.ErrClosed) {
@@ -480,7 +481,7 @@ func (s *Service) retryTerminalQuery(queryID, errorCode string, indeterminate bo
 	}
 }
 
-func (s *Service) retryQuerySettlement(settlement control.BudgetSettlement) {
+func (s *Service) retryFailedQuerySettlement(settlement control.BudgetSettlement) {
 	defer s.pendingSettles.Add(-1)
 	delay := settlementRetryDelay
 	for {
@@ -493,12 +494,12 @@ func (s *Service) retryQuerySettlement(settlement control.BudgetSettlement) {
 		}
 
 		attemptCtx, cancel := context.WithTimeout(s.background, settlementAttemptTimeout)
-		_, err := s.store.SettleBudget(attemptCtx, settlement)
+		_, _, err := s.store.FailBudgetWithReceipt(attemptCtx, settlement, s.terminalReceiptBuilder())
 		cancel()
 		if err == nil || errors.Is(err, control.ErrClosed) {
 			return
 		}
-		s.logger.Error("retry query budget settlement", "query_id", settlement.QueryID, "error", err)
+		s.logger.Error("retry failed query budget settlement", "query_id", settlement.QueryID, "error", err)
 		if delay < time.Second {
 			delay *= 2
 			if delay > time.Second {
@@ -508,44 +509,40 @@ func (s *Service) retryQuerySettlement(settlement control.BudgetSettlement) {
 	}
 }
 
-func (s *Service) policyGrant(grant control.TaskGrant) (sqlpolicy.Grant, []string, []string, error) {
+func (s *Service) policyGrant(grant control.TaskGrant) (sqlpolicy.Grant, error) {
 	var scope map[string]any
 	if err := json.Unmarshal(grant.MandatoryScope, &scope); err != nil {
-		return sqlpolicy.Grant{}, nil, nil, err
+		return sqlpolicy.Grant{}, err
 	}
 	result := sqlpolicy.Grant{Products: make([]sqlpolicy.ProductGrant, 0, len(grant.ApprovedProducts))}
-	functionSet := make(map[string]struct{})
-	operatorSet := make(map[string]struct{})
 	for _, name := range grant.ApprovedProducts {
 		product, ok := s.catalog.LookupProduct(name)
 		if !ok {
-			return sqlpolicy.Grant{}, nil, nil, &mcp.ToolError{Code: apierr.CodeConflict, Message: "任务引用了当前目录中不存在的数据产品"}
+			return sqlpolicy.Grant{}, &mcp.ToolError{Code: apierr.CodeConflict, Message: "任务引用了当前目录中不存在的数据产品"}
 		}
 		parts := strings.Split(product.ReportingView, ".")
 		if len(parts) != 2 {
-			return sqlpolicy.Grant{}, nil, nil, errors.New("validated catalog has invalid reporting view")
+			return sqlpolicy.Grant{}, errors.New("validated catalog has invalid reporting view")
 		}
 		for _, scopeName := range product.Scopes {
 			if _, present := scope[scopeName]; !present {
-				return sqlpolicy.Grant{}, nil, nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "任务授权缺少目录要求的强制数据范围"}
+				return sqlpolicy.Grant{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "任务授权缺少目录要求的强制数据范围"}
 			}
 		}
 		predicates, err := scopePredicates(product, scope)
 		if err != nil {
-			return sqlpolicy.Grant{}, nil, nil, err
+			return sqlpolicy.Grant{}, err
 		}
 		result.Products = append(result.Products, sqlpolicy.ProductGrant{
 			LogicalName: name, PhysicalSchema: parts[0], PhysicalView: parts[1],
-			ApprovedColumns: append([]string(nil), grant.ApprovedColumns[name]...), MandatoryScope: predicates,
+			ApprovedColumns:   append([]string(nil), grant.ApprovedColumns[name]...),
+			AllowedFunctions:  append([]string(nil), product.AllowedFunctions...),
+			AllowedAggregates: append([]string(nil), product.AllowedAggregates...),
+			AllowedOperators:  append([]string(nil), product.AllowedOperators...),
+			MandatoryScope:    predicates,
 		})
-		for _, function := range append(append([]string(nil), product.AllowedFunctions...), product.AllowedAggregates...) {
-			functionSet[strings.ToLower(function)] = struct{}{}
-		}
-		for _, operator := range product.AllowedOperators {
-			operatorSet[operator] = struct{}{}
-		}
 	}
-	return result, sortedSet(functionSet), sortedSet(operatorSet), nil
+	return result, nil
 }
 
 func scopePredicates(product catalog.Product, scope map[string]any) ([]sqlpolicy.ScopePredicate, error) {
@@ -639,37 +636,19 @@ func (s *Service) listReceipts(ctx context.Context, principal mcp.Principal, raw
 	if _, err := s.ownedTask(ctx, principal, args.TaskID); err != nil {
 		return nil, err
 	}
-	records, err := s.store.ListQueries(ctx, args.TaskID, 500)
+	page, err := s.store.ListQueriesPage(ctx, args.TaskID, args.Cursor, 100)
 	if err != nil {
 		return nil, err
 	}
-	start := 0
-	if args.Cursor != "" {
-		start = len(records)
-		for index, record := range records {
-			if record.ID == args.Cursor {
-				start = index + 1
-				break
-			}
-		}
-	}
-	end := start + 100
-	if end > len(records) {
-		end = len(records)
-	}
-	receipts := make([]map[string]any, 0, end-start)
-	for _, record := range records[start:end] {
+	receipts := make([]map[string]any, 0, len(page.Records))
+	for _, record := range page.Records {
 		receipt, err := s.queryReceipt(ctx, record)
 		if err != nil {
 			return nil, err
 		}
 		receipts = append(receipts, receipt)
 	}
-	next := ""
-	if end < len(records) && end > start {
-		next = records[end-1].ID
-	}
-	return map[string]any{"task_id": args.TaskID, "receipts": receipts, "next_cursor": next}, nil
+	return map[string]any{"task_id": args.TaskID, "receipts": receipts, "next_cursor": page.NextCursor}, nil
 }
 
 func (s *Service) listAuditEvents(ctx context.Context, _ mcp.Principal, raw json.RawMessage) (any, error) {
@@ -696,14 +675,7 @@ func (s *Service) listAuditEvents(ctx context.Context, _ mcp.Principal, raw json
 	}
 	items := make([]map[string]any, 0, len(events))
 	for _, event := range events {
-		var payload any
-		_ = json.Unmarshal(event.Payload, &payload)
-		items = append(items, map[string]any{
-			"sequence": event.Sequence, "event_id": event.EventID, "task_id": event.TaskID,
-			"query_id": event.QueryID, "actor": event.Actor, "event_type": event.EventType,
-			"payload": payload, "occurred_at": event.OccurredAt,
-			"previous_hash": event.PreviousHash, "current_hash": event.CurrentHash,
-		})
+		items = append(items, publicAuditEvent(event, true))
 	}
 	next := ""
 	if len(events) == 100 {
@@ -723,24 +695,88 @@ func (s *Service) getAuditReceipt(ctx context.Context, _ mcp.Principal, raw json
 	if err != nil {
 		return nil, err
 	}
-	events, err := s.store.ListAuditEvents(ctx, control.AuditFilter{TaskID: record.TaskID, Limit: 500})
+	evidence, err := s.store.GetQueryReceipt(ctx, record.ID)
 	if err != nil {
 		return nil, err
 	}
-	chain := make([]map[string]any, 0)
+	events, err := s.store.ListAuditEventsForQuery(ctx, record.ID)
+	if err != nil {
+		return nil, err
+	}
+	chain := make([]map[string]any, 0, len(events))
 	for _, event := range events {
-		if event.QueryID == record.ID {
-			chain = append(chain, map[string]any{
-				"sequence": event.Sequence, "event_id": event.EventID, "event_type": event.EventType,
-				"occurred_at": event.OccurredAt, "previous_hash": event.PreviousHash, "current_hash": event.CurrentHash,
-			})
-		}
+		chain = append(chain, publicAuditEvent(event, true))
 	}
 	receipt, err := s.queryReceipt(ctx, record)
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"receipt": receipt, "audit_chain_events": chain}, nil
+	publicProof, typedProof, err := s.auditInclusionProof(ctx, evidence.Audit)
+	if err != nil {
+		return nil, err
+	}
+	signed, err := decodeSignedQueryReceipt(receipt)
+	if err != nil {
+		return nil, err
+	}
+	if err := queryreceipt.VerifyAuditInclusion(signed, typedProof); err != nil {
+		return nil, err
+	}
+	return map[string]any{"receipt": receipt, "audit_chain_events": chain, "audit_inclusion": publicProof}, nil
+}
+
+func publicAuditEvent(event control.AuditEvent, includePayload bool) map[string]any {
+	result := map[string]any{
+		"sequence": event.Sequence, "event_id": event.EventID, "task_id": event.TaskID,
+		"query_id": event.QueryID, "actor": event.Actor, "event_type": event.EventType,
+		"occurred_at": event.OccurredAt, "previous_hash": event.PreviousHash, "current_hash": event.CurrentHash,
+	}
+	if includePayload {
+		var payload any
+		_ = json.Unmarshal(event.Payload, &payload)
+		result["payload"] = payload
+	}
+	return result
+}
+
+func (s *Service) auditInclusionProof(ctx context.Context, terminal control.AuditEvent) (map[string]any, auditchain.InclusionProof, error) {
+	checkpoint, err := s.store.AuditCheckpoint(ctx)
+	if err != nil {
+		return nil, auditchain.InclusionProof{}, err
+	}
+	proof := auditchain.InclusionProof{TerminalEvent: terminal, Checkpoint: checkpoint}
+	var predecessor any
+	if terminal.Sequence > 1 {
+		event, err := s.store.GetAuditEvent(ctx, terminal.Sequence-1)
+		if err != nil && !errors.Is(err, control.ErrNotFound) {
+			return nil, auditchain.InclusionProof{}, err
+		}
+		if err == nil {
+			proof.PredecessorEvent = &event
+			predecessor = publicAuditEvent(event, true)
+		}
+	}
+	successors, err := s.store.ListAuditEventsRange(ctx, terminal.Sequence, checkpoint.Sequence)
+	if err != nil {
+		return nil, auditchain.InclusionProof{}, err
+	}
+	proof.SuccessorEvents = successors
+	publicSuccessors := make([]map[string]any, 0, len(successors))
+	for _, event := range successors {
+		publicSuccessors = append(publicSuccessors, publicAuditEvent(event, true))
+	}
+	if err := auditchain.VerifyInclusion(proof); err != nil {
+		return nil, auditchain.InclusionProof{}, err
+	}
+	return map[string]any{
+		"terminal_event":    publicAuditEvent(terminal, true),
+		"predecessor_event": predecessor,
+		"successor_events":  publicSuccessors,
+		"checkpoint": map[string]any{
+			"sequence": checkpoint.Sequence,
+			"hash":     checkpoint.Hash,
+		},
+	}, proof, nil
 }
 
 func (s *Service) queryReceipt(ctx context.Context, record control.QueryRecord) (map[string]any, error) {
@@ -752,14 +788,47 @@ func (s *Service) queryReceipt(ctx context.Context, record control.QueryRecord) 
 		return nil, err
 	}
 	record = evidence.Query
+	if evidence.Receipt != nil {
+		return decodeReceiptJSON(evidence.Receipt.ReceiptJSON)
+	}
 	if record.BudgetAfter == nil || record.CompletedAt == nil {
 		return nil, fmt.Errorf("terminal query is missing durable budget or timestamp evidence")
 	}
+	request, err := s.buildQueryReceiptRequest(control.QueryReceipt{Query: record, Audit: evidence.Audit}, s.clock().UTC())
+	if err != nil {
+		return nil, err
+	}
+	persisted, err := s.store.SaveQueryReceipt(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+	return decodeReceiptJSON(persisted.ReceiptJSON)
+}
+
+func (s *Service) terminalReceiptBuilder() control.TerminalReceiptBuilder {
+	return func(evidence control.QueryReceipt) (control.SaveQueryReceiptRequest, error) {
+		return BuildQueryReceiptRequest(evidence, s.queryReceiptSigner, s.clock().UTC())
+	}
+}
+
+func (s *Service) buildQueryReceiptRequest(evidence control.QueryReceipt, signedAt time.Time) (control.SaveQueryReceiptRequest, error) {
+	return BuildQueryReceiptRequest(evidence, s.queryReceiptSigner, signedAt)
+}
+
+// BuildQueryReceiptRequest signs terminal query evidence and returns the
+// immutable Control PG receipt row that should be saved with that evidence.
+func BuildQueryReceiptRequest(evidence control.QueryReceipt, signer *queryreceipt.Signer, signedAt time.Time) (control.SaveQueryReceiptRequest, error) {
+	record := evidence.Query
+	if record.BudgetAfter == nil || record.CompletedAt == nil {
+		return control.SaveQueryReceiptRequest{}, fmt.Errorf("terminal query is missing durable budget or timestamp evidence")
+	}
+	signedAt = signedAt.UTC()
 	receipt := queryreceipt.QueryReceiptV1{
-		Version: queryreceipt.VersionV1, ReceiptID: record.ID,
+		Version: queryreceipt.VersionV3, ReceiptID: record.ID,
 		TaskID: record.TaskID, QueryID: record.ID, RequestID: record.RequestID,
 		ManifestDigest: record.ManifestDigest, GrantDigest: record.GrantDigest,
 		CatalogDigest: record.CatalogDigest, CatalogVersion: record.CatalogVersion,
+		DatasourceID: record.DatasourceID, SchemaDigest: record.SchemaDigest,
 		RequestDigest: record.RequestDigest, SQLFingerprint: record.SQLFingerprint,
 		PolicyDecision: record.PolicyDecision, BudgetBefore: queryReceiptBudget(record.BudgetBefore),
 		BudgetReserved: queryreceipt.BudgetVectorV1{Queries: 1, Rows: record.ReservedRows, DBMS: record.ReservedDBMS},
@@ -771,23 +840,44 @@ func (s *Service) queryReceipt(ctx context.Context, record control.QueryRecord) 
 		Status: string(record.Status), ErrorCode: record.ErrorCode,
 		CreatedAt: record.CreatedAt, CompletedAt: *record.CompletedAt,
 		AuditSequence: evidence.Audit.Sequence, PreviousAuditHash: evidence.Audit.PreviousHash,
-		AuditHash: evidence.Audit.CurrentHash,
+		AuditHash: evidence.Audit.CurrentHash, SignedAt: &signedAt,
 	}
-	signed, err := s.queryReceiptSigner.Sign(receipt)
+	signed, err := signer.Sign(receipt)
 	if err != nil {
-		return nil, err
+		return control.SaveQueryReceiptRequest{}, err
 	}
-	encoded, err := json.Marshal(signed)
+	encoded, err := approval.CanonicalJSON(signed)
 	if err != nil {
-		return nil, err
+		return control.SaveQueryReceiptRequest{}, err
 	}
+	return control.SaveQueryReceiptRequest{
+		QueryID: record.ID, Version: signed.Version, GatewayKeyID: signed.GatewayKeyID,
+		Signature: signed.Signature, SignedAt: signedAt,
+		TerminalAuditSequence: evidence.Audit.Sequence, TerminalAuditHash: evidence.Audit.CurrentHash,
+		ReceiptJSON: encoded,
+	}, nil
+}
+
+func decodeReceiptJSON(encoded []byte) (map[string]any, error) {
 	var result map[string]any
-	decoder := json.NewDecoder(strings.NewReader(string(encoded)))
+	decoder := json.NewDecoder(bytes.NewReader(encoded))
 	decoder.UseNumber()
 	if err := decoder.Decode(&result); err != nil {
 		return nil, err
 	}
 	return result, nil
+}
+
+func decodeSignedQueryReceipt(value map[string]any) (queryreceipt.QueryReceiptV1, error) {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return queryreceipt.QueryReceiptV1{}, err
+	}
+	var receipt queryreceipt.QueryReceiptV1
+	if err := json.Unmarshal(encoded, &receipt); err != nil {
+		return queryreceipt.QueryReceiptV1{}, err
+	}
+	return receipt, nil
 }
 
 func queryReceiptBudget(snapshot control.BudgetSnapshot) queryreceipt.BudgetStateV1 {
@@ -810,6 +900,7 @@ func unsignedPublicReceipt(record control.QueryRecord) map[string]any {
 		"request_id": record.RequestID, "actor": record.Actor,
 		"request_digest": record.RequestDigest, "sql_fingerprint": record.SQLFingerprint,
 		"catalog_version": record.CatalogVersion, "catalog_digest": record.CatalogDigest,
+		"datasource_id": record.DatasourceID, "schema_digest": record.SchemaDigest,
 		"manifest_digest": record.ManifestDigest, "grant_digest": record.GrantDigest,
 		"policy_decision": record.PolicyDecision,
 		"status":          record.Status, "result_rows": record.ResultRows, "database_ms": record.ResultDBMS,
@@ -825,21 +916,14 @@ func unsignedPublicReceipt(record control.QueryRecord) map[string]any {
 	return result
 }
 
-func sortedSet(values map[string]struct{}) []string {
-	result := make([]string, 0, len(values))
-	for value := range values {
-		result = append(result, value)
-	}
-	sort.Strings(result)
-	return result
-}
-
 func storedGrantMatchesProtocol(task control.Task, stored control.TaskGrant, protocol approval.TaskGrantV1) bool {
 	core := protocol.Core
 	if core.TaskID != task.ID || core.TaskID != stored.TaskID || core.AgentID != task.PrincipalID ||
 		core.HumanSubject != stored.Subject || core.DeclaredObjective != task.Objective ||
 		core.DeclaredObjective != stored.Purpose || string(core.SensitivityCeiling) != stored.SensitivityCeiling ||
 		core.CatalogVersion != task.CatalogVersion || core.CatalogVersion != stored.CatalogVersion ||
+		core.CatalogSHA256 != stored.CatalogDigest ||
+		core.DatasourceID != stored.DatasourceID || core.SchemaDigest != stored.SchemaDigest ||
 		!stored.ExpiresAt.Equal(core.ExpiresAt.UTC().Truncate(time.Microsecond)) ||
 		stored.Budget != (control.BudgetLimits{Queries: core.Budget.MaxQueries, Rows: core.Budget.MaxResultRows, DBMS: core.Budget.MaxDBMS}) ||
 		!sameStringSet(stored.ApprovedProducts, core.ApprovedProducts) ||

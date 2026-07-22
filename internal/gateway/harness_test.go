@@ -56,6 +56,8 @@ type fakeConnector struct {
 	result            dataconnector.Result
 	queryErr          error
 	pingErr           error
+	attestation       dataconnector.Attestation
+	attestationErr    error
 	started           chan struct{}
 	release           <-chan struct{}
 	startOnce         sync.Once
@@ -80,6 +82,16 @@ func (connector *fakeConnector) Query(ctx context.Context, request dataconnector
 }
 
 func (connector *fakeConnector) Ping(context.Context) error { return connector.pingErr }
+
+func (connector *fakeConnector) Attestation(context.Context) (dataconnector.Attestation, error) {
+	if connector.pingErr != nil {
+		return dataconnector.Attestation{}, connector.pingErr
+	}
+	if connector.attestationErr != nil {
+		return dataconnector.Attestation{}, connector.attestationErr
+	}
+	return connector.attestation, nil
+}
 
 type gatewayHarness struct {
 	service   *Service
@@ -122,7 +134,7 @@ func newGatewayHarness(t *testing.T) *gatewayHarness {
 	}
 
 	approvalAdapter := &fakeApproval{}
-	connector := &fakeConnector{result: dataconnector.Result{
+	connector := &fakeConnector{attestation: testCatalogAttestation(t, loadedCatalog), result: dataconnector.Result{
 		Columns: []dataconnector.Column{{Name: "month", DataTypeOID: 25}, {Name: "total_amount", DataTypeOID: 1700}},
 		Rows:    [][]any{{"sensitive-row", 123.45}}, RowCount: 1, DatabaseTime: 2 * time.Millisecond,
 	}}
@@ -141,6 +153,21 @@ func newGatewayHarness(t *testing.T) *gatewayHarness {
 		service: service, store: store, catalog: loadedCatalog,
 		approval: approvalAdapter, connector: connector, clock: clock,
 		alice: alice, carol: carol, secret: secret,
+	}
+}
+
+func testCatalogAttestation(t *testing.T, loadedCatalog *catalog.Catalog) dataconnector.Attestation {
+	t.Helper()
+	if len(loadedCatalog.Sources) != 1 {
+		t.Fatalf("test catalog sources = %d, want 1", len(loadedCatalog.Sources))
+	}
+	source := loadedCatalog.Sources[0]
+	if source.SchemaDigest == "" {
+		t.Fatal("test catalog source is missing schema_digest")
+	}
+	return dataconnector.Attestation{
+		DatasourceID: source.DatasourceID, Database: source.Database, User: source.User,
+		PostgreSQLMajorVersion: source.PostgreSQLMajorVersion, SchemaDigest: source.SchemaDigest,
 	}
 }
 
@@ -202,6 +229,7 @@ func (harness *gatewayHarness) createSummaryTaskWithGrant(t *testing.T, taskID s
 		Products:       []string{"expense_summary"},
 		Columns:        map[string][]string{"expense_summary": {"month", "total_amount"}},
 		MandatoryScope: map[string]any{"department": []any{"销售部"}}, Budget: budget, Sensitivity: domain.SensitivityLow,
+		DatasourceID: harness.connector.attestation.DatasourceID, SchemaDigest: harness.connector.attestation.SchemaDigest,
 		ApprovalMode: domain.ApprovalModeAuto, CallbackContext: "seed-context-" + taskID,
 	}
 	manifest := approval.AuthorizationManifestV1{
@@ -215,6 +243,8 @@ func (harness *gatewayHarness) createSummaryTaskWithGrant(t *testing.T, taskID s
 			PerQueryTimeoutMS: budget.PerQueryTimeout.Milliseconds(), TaskTTLMS: budget.TaskTTL.Milliseconds(),
 		},
 		CatalogVersion: harness.catalog.CatalogVersion, CatalogSHA256: harness.catalog.SHA256,
+		DatasourceID:    harness.connector.attestation.DatasourceID,
+		SchemaDigest:    harness.connector.attestation.SchemaDigest,
 		CallbackContext: pendingValue.CallbackContext, Nonce: "00000000000000000000000000000001",
 	}
 	manifestDigest, err := approval.ManifestDigest(manifest)
@@ -282,6 +312,7 @@ func (harness *gatewayHarness) createSummaryTaskWithGrant(t *testing.T, taskID s
 				Queries: core.Budget.MaxQueries, Rows: core.Budget.MaxResultRows, DBMS: core.Budget.MaxDBMS,
 			},
 			ExpiresAt: core.ExpiresAt, CatalogVersion: harness.catalog.CatalogVersion,
+			CatalogDigest: core.CatalogSHA256, DatasourceID: core.DatasourceID, SchemaDigest: core.SchemaDigest,
 			ApprovalReceipt: finalGrantJSON, CreatedAt: harness.clock.value,
 		},
 		Response: []byte(`{"ok":true}`),

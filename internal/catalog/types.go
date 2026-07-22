@@ -21,13 +21,16 @@ type Catalog struct {
 }
 
 type Source struct {
-	Name      string `yaml:"name" json:"name"`
-	Type      string `yaml:"type" json:"type"`
-	Address   string `yaml:"address" json:"address"`
-	Port      int    `yaml:"port" json:"port"`
-	Database  string `yaml:"database" json:"database"`
-	User      string `yaml:"user" json:"user"`
-	SecretRef string `yaml:"secretRef" json:"secret_ref"`
+	Name                   string `yaml:"name" json:"name"`
+	DatasourceID           string `yaml:"datasource_id" json:"datasource_id"`
+	Type                   string `yaml:"type" json:"type"`
+	Address                string `yaml:"address" json:"address"`
+	Port                   int    `yaml:"port" json:"port"`
+	Database               string `yaml:"database" json:"database"`
+	User                   string `yaml:"user" json:"user"`
+	PostgreSQLMajorVersion int    `yaml:"postgres_major_version" json:"postgres_major_version"`
+	SchemaDigest           string `yaml:"schema_digest" json:"schema_digest"`
+	SecretRef              string `yaml:"secretRef" json:"secret_ref"`
 
 	// These fields exist only so a strict decoder can return a deliberate,
 	// redacted security error instead of treating secret-bearing input as an

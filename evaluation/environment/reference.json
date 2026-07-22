@@ -1,28 +1,73 @@
 {
   "schema_version": 1,
-  "captured_by": "evaluation runner run.json plus operator-supplied metrics probes",
-  "required_software": {
-    "docker_engine": "record exact client/server versions",
-    "postgresql": "16.x; record SELECT version() for every database copy",
-    "go": "1.25.x evaluation image",
-    "tla_tools": "1.7.1 for formal results",
-    "tpch_tools": "record licensed kit release, seed, and generated-file manifest",
-    "tpcds_tools": "record licensed kit release, seed, and generated-file manifest"
+  "captured_by": "operator-supplied environment manifest; copy this shape into an ignored local file with real values",
+  "host": {
+    "cpu_model": "record exact CPU model or cloud instance type",
+    "logical_cpus": "record integer logical CPU count",
+    "memory_bytes": "record integer memory capacity",
+    "kernel": "record uname -a",
+    "storage": "record device, filesystem, and relevant volume class",
+    "co_located_workload_policy": "record isolation policy"
   },
-  "required_host_fields": [
-    "cpu model and logical CPU count",
-    "memory capacity",
-    "kernel and container runtime",
-    "storage device and filesystem",
-    "CPU governor or cloud instance type",
-    "co-located workload policy"
-  ],
-  "required_database_fields": [
-    "server image digest",
-    "postgresql.conf overrides",
-    "shared_buffers and work_mem",
-    "dataset checksum-manifest digest",
-    "ANALYZE completion",
-    "cache reset or warm-cache policy"
-  ]
+  "software": {
+    "docker_client_version": "record docker version client",
+    "docker_server_version": "record docker version server",
+    "evaluation_image_digest": "record runner image digest",
+    "go_version": "record runner Go version"
+  },
+  "database": {
+    "postgresql_versions": {
+      "direct_postgresql": "record SELECT version()",
+      "native_view": "record SELECT version()",
+      "ast_only_gateway": "record SELECT version()",
+      "full_taskgate": "record SELECT version()"
+    },
+    "image_digests": {
+      "direct_postgresql": "record database image digest",
+      "native_view": "record database image digest",
+      "ast_only_gateway": "record database image digest",
+      "full_taskgate": "record database image digest"
+    },
+    "parameters": {
+      "shared_buffers": "record value",
+      "work_mem": "record value",
+      "effective_cache_size": "record value",
+      "other_overrides": "record complete override list"
+    },
+    "cache_policy": "warm"
+  },
+  "datasets": {
+    "tpch_sf1": {
+      "lineage": "TPC-derived",
+      "generator": "record generator",
+      "generator_version": "record version",
+      "generator_seed": "record seed",
+      "manifest_sha256": "record dataset manifest SHA-256",
+      "import_fingerprint": "record post-import row counts/checksums"
+    },
+    "tpcds_sf1": {
+      "lineage": "TPC-derived",
+      "generator": "record generator",
+      "generator_version": "record version",
+      "generator_seed": "record seed",
+      "manifest_sha256": "record dataset manifest SHA-256",
+      "import_fingerprint": "record post-import row counts/checksums"
+    },
+    "tpch_sf10": {
+      "lineage": "TPC-derived",
+      "generator": "record generator",
+      "generator_version": "record version",
+      "generator_seed": "record seed",
+      "manifest_sha256": "record dataset manifest SHA-256",
+      "import_fingerprint": "record post-import row counts/checksums"
+    },
+    "tpcds_sf10": {
+      "lineage": "TPC-derived",
+      "generator": "record generator",
+      "generator_version": "record version",
+      "generator_seed": "record seed",
+      "manifest_sha256": "record dataset manifest SHA-256",
+      "import_fingerprint": "record post-import row counts/checksums"
+    }
+  }
 }

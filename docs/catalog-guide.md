@@ -24,23 +24,29 @@ budget_profiles: []
 ```yaml
 sources:
   - name: travel_demo
+    datasource_id: taskgate-demo-travel
     type: postgres
     address: business-postgres
     port: 5432
     database: travel_demo
     user: gateway_reader
+    postgres_major_version: 16
+    schema_digest: 02b4a211cfbab7347fdce28e2dd76406b1118c5f18e1d2146cc2e85a38ccf1cc
     secretRef: GATEWAY_DB_PASSWORD
 ```
 
 规则：
 
 - `name` 是小写逻辑标识符：`[a-z_][a-z0-9_]*`。
+- `datasource_id` 是稳定小写数据源身份，会由业务库 `reporting.datasource_attestation` 证明，并写入 Grant 与查询 Receipt。
 - `address` 只写主机，不得包含空白、路径、`@` 或凭据。
 - `port` 必须为 1–65535；数据库名和用户名必须是简单标识符。
+- `postgres_major_version` 必须匹配运行时业务 PostgreSQL 主版本。
+- `schema_digest` 是 Gateway 启动时要求的 Reporting View attestation 摘要，包含列顺序、通用 PostgreSQL 类型和 PostgreSQL 规范化后的 View 定义。
 - `secretRef` 必须引用大写环境变量，可写 `GATEWAY_DB_PASSWORD` 或 `env:GATEWAY_DB_PASSWORD`。
 - `password`、`passwd`、`pwd`、`dsn`、带 `user:password@host` 的地址等明文秘密会被语法树预检拒绝，错误不会回显秘密。
 
-重要现状：Demo 运行时的 PostgreSQL 连接由 `POSTGRES_DSN` 注入，尚未按 `sources[].secretRef` 动态构造连接，也只实例化一个 Connector。`sources` 目前主要用于验证和未来适配器路由；两处配置必须由运维保持一致。
+当前 Gateway 只实例化一个业务 Connector，因此同一任务的产品必须来自同一 `sources[]`。启动时 Gateway 按该 Source 和 `secretRef` 构造业务 DSN，并校验 `datasource_id`、数据库名、角色、PostgreSQL 主版本和 Reporting View Schema 摘要。
 
 ## Scope
 
@@ -155,11 +161,14 @@ catalog_version: "2026-07-21.2"
 
 sources:
   - name: demo
+    datasource_id: taskgate-demo-travel
     type: postgres
     address: business-postgres
     port: 5432
     database: travel_demo
     user: gateway_reader
+    postgres_major_version: 16
+    schema_digest: 02b4a211cfbab7347fdce28e2dd76406b1118c5f18e1d2146cc2e85a38ccf1cc
     secretRef: GATEWAY_DB_PASSWORD
 
 scopes:

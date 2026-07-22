@@ -1,14 +1,24 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -16,6 +26,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"taskbound.local/agent-data-gateway/internal/approval"
+	"taskbound.local/agent-data-gateway/internal/auditchain"
 	"taskbound.local/agent-data-gateway/internal/catalog"
 	"taskbound.local/agent-data-gateway/internal/control"
 	"taskbound.local/agent-data-gateway/internal/dataconnector"
@@ -39,12 +50,27 @@ func main() {
 		logger.Error("invalid result encryption key", "error", err)
 		os.Exit(1)
 	}
-	cipher, err := control.NewAES256GCM(key)
+	cipher, err := control.NewAES256GCMWithKeyID(env("GATEWAY_DATA_KEY_ID", control.DefaultResultEncryptionKeyID), key)
 	if err != nil {
 		logger.Error("initialize result cipher", "error", err)
 		os.Exit(1)
 	}
-	store, err := control.Open(ctx, requiredEnv("CONTROL_POSTGRES_DSN"), cipher)
+	queryReceiptSigner, err := queryreceipt.NewSignerFromBase64(
+		requiredEnv("GATEWAY_RECEIPT_KEY_ID"), requiredEnv("GATEWAY_RECEIPT_PRIVATE_KEY"),
+	)
+	if err != nil {
+		logger.Error("initialize query receipt signer", "error", err)
+		os.Exit(1)
+	}
+	queryReceiptKeyBundle, err := queryReceiptPublicKeyBundleFromEnv(queryReceiptSigner, time.Now().UTC())
+	if err != nil {
+		logger.Error("initialize query receipt public key bundle", "error", err)
+		os.Exit(1)
+	}
+	store, err := control.Open(ctx, requiredEnv("CONTROL_POSTGRES_DSN"), cipher,
+		control.WithRecoveryReceiptBuilder(func(evidence control.QueryReceipt) (control.SaveQueryReceiptRequest, error) {
+			return gatewayapp.BuildQueryReceiptRequest(evidence, queryReceiptSigner, time.Now().UTC())
+		}))
 	if err != nil {
 		logger.Error("open control store", "error", err)
 		os.Exit(1)
@@ -66,35 +92,31 @@ func main() {
 		logger.Error("initialize OA adapter", "error", err)
 		os.Exit(1)
 	}
-	oaReceiptVerifier, err := approval.NewReceiptVerifierFromBase64(
-		requiredEnv("OA_RECEIPT_KEY_ID"), requiredEnv("OA_RECEIPT_PUBLIC_KEY"),
-	)
+	oaReceiptVerifier, err := approvalReceiptVerifierFromEnv()
 	if err != nil {
 		logger.Error("initialize OA approval receipt verifier", "error", err)
 		os.Exit(1)
 	}
-	expectedSchema, err := expectedReportingSchema(logicalCatalog)
+	source, expectedSchema, err := expectedDatasource(logicalCatalog)
 	if err != nil {
-		logger.Error("build reporting schema attestation", "error", err)
+		logger.Error("build datasource attestation", "error", err)
 		os.Exit(1)
 	}
+	businessDSN := sourceDSN(source, requiredSecret(source.SecretRef))
 	connector, err := dataconnector.New(ctx, dataconnector.Config{
-		DSN: requiredEnv("POSTGRES_DSN"), StatementTimeout: 5 * time.Second,
+		DSN: businessDSN, StatementTimeout: 5 * time.Second,
 		ConnectTimeout: 10 * time.Second, MaxRows: 10000, MaxConnections: 4,
-		ExpectedSchema: expectedSchema,
+		ExpectedSchema: expectedSchema, ExpectedSchemaDigest: source.SchemaDigest,
+		ExpectedAttestation: dataconnector.ExpectedAttestation{
+			DatasourceID: source.DatasourceID, Database: source.Database, User: source.User,
+			PostgreSQLMajorVersion: source.PostgreSQLMajorVersion,
+		},
 	})
 	if err != nil {
 		logger.Error("initialize PostgreSQL connector", "error", err)
 		os.Exit(1)
 	}
 	defer connector.Close()
-	queryReceiptSigner, err := queryreceipt.NewSignerFromBase64(
-		requiredEnv("GATEWAY_RECEIPT_KEY_ID"), requiredEnv("GATEWAY_RECEIPT_PRIVATE_KEY"),
-	)
-	if err != nil {
-		logger.Error("initialize query receipt signer", "error", err)
-		os.Exit(1)
-	}
 	service, err := gatewayapp.New(gatewayapp.Config{
 		Catalog: logicalCatalog, Store: store, Approval: oaClient,
 		Connector: connector, CallbackSecret: requiredEnv("OA_CALLBACK_SECRET"), Logger: logger,
@@ -102,6 +124,16 @@ func main() {
 	})
 	if err != nil {
 		logger.Error("initialize gateway service", "error", err)
+		os.Exit(1)
+	}
+	retention, err := retentionConfigFromEnv()
+	if err != nil {
+		logger.Error("initialize retention policy", "error", err)
+		os.Exit(1)
+	}
+	auditAnchor, err := auditAnchorConfigFromEnv()
+	if err != nil {
+		logger.Error("initialize audit anchor publisher", "error", err)
 		os.Exit(1)
 	}
 	authenticator := mcp.NewStaticAuthenticator([]mcp.TokenIdentity{
@@ -117,10 +149,18 @@ func main() {
 	router := chi.NewRouter()
 	router.Get("/health/live", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	router.Get("/health/ready", readiness(store, connector, service))
+	router.Get("/.well-known/taskgate/query-receipt-keyring.json", queryReceiptKeyringHandler(queryReceiptKeyBundle))
 	router.Handle("/mcp", mcpServer)
 	router.Handle("/api/v1/oa/callback", service.OACallbackHandler())
+	mountRetentionAdmin(router, store, retention, logger)
 
 	go sweepExpired(ctx, store, logger)
+	if retention.ResultTTL > 0 {
+		go sweepRetention(ctx, store, retention, logger)
+	}
+	if auditAnchor.enabled() {
+		go sweepAuditAnchors(ctx, store, auditAnchor, logger)
+	}
 
 	server := &http.Server{
 		Addr: env("GATEWAY_ADDR", ":8082"), Handler: router, ReadHeaderTimeout: 5 * time.Second,
@@ -139,12 +179,29 @@ func main() {
 	_ = server.Shutdown(shutdownCtx)
 }
 
-func expectedReportingSchema(logicalCatalog *catalog.Catalog) ([]dataconnector.ViewSchema, error) {
+func expectedDatasource(logicalCatalog *catalog.Catalog) (catalog.Source, []dataconnector.ViewSchema, error) {
+	if logicalCatalog == nil || len(logicalCatalog.Products) == 0 {
+		return catalog.Source{}, nil, errors.New("validated catalog contains no products")
+	}
+	sources := make(map[string]catalog.Source, len(logicalCatalog.Sources))
+	for _, source := range logicalCatalog.Sources {
+		sources[source.Name] = source
+	}
+	var selected catalog.Source
 	result := make([]dataconnector.ViewSchema, 0, len(logicalCatalog.Products))
 	for _, product := range logicalCatalog.Products {
+		source, ok := sources[product.Source]
+		if !ok {
+			return catalog.Source{}, nil, errors.New("validated catalog contains a product with an invalid source")
+		}
+		if selected.Name == "" {
+			selected = source
+		} else if selected.Name != source.Name {
+			return catalog.Source{}, nil, errors.New("multiple catalog sources require connector routing")
+		}
 		schema, view, ok := strings.Cut(product.ReportingView, ".")
 		if !ok || schema == "" || view == "" {
-			return nil, errors.New("validated catalog contains an invalid reporting view")
+			return catalog.Source{}, nil, errors.New("validated catalog contains an invalid reporting view")
 		}
 		columns := make([]dataconnector.SchemaColumn, 0, len(product.Fields))
 		for _, field := range product.Fields {
@@ -152,7 +209,155 @@ func expectedReportingSchema(logicalCatalog *catalog.Catalog) ([]dataconnector.V
 		}
 		result = append(result, dataconnector.ViewSchema{Schema: schema, View: view, Columns: columns})
 	}
-	return result, nil
+	if selected.Name == "" {
+		return catalog.Source{}, nil, errors.New("validated catalog contains no source")
+	}
+	if selected.SchemaDigest == "" {
+		return catalog.Source{}, nil, errors.New("selected catalog source is missing schema_digest")
+	}
+	return selected, result, nil
+}
+
+func sourceDSN(source catalog.Source, password string) string {
+	value := url.URL{
+		Scheme: "postgres",
+		User:   url.UserPassword(source.User, password),
+		Host:   net.JoinHostPort(source.Address, strconv.Itoa(source.Port)),
+		Path:   source.Database,
+	}
+	query := value.Query()
+	query.Set("sslmode", "disable")
+	value.RawQuery = query.Encode()
+	return value.String()
+}
+
+type receiptKeyringEntry struct {
+	KeyID     string `json:"key_id"`
+	PublicKey string `json:"public_key"`
+	ValidFrom string `json:"valid_from,omitempty"`
+	RetiredAt string `json:"retired_at,omitempty"`
+}
+
+func approvalReceiptVerifierFromEnv() (approval.ReceiptVerifier, error) {
+	if raw := strings.TrimSpace(os.Getenv("OA_RECEIPT_KEYRING_JSON")); raw != "" {
+		var entries []receiptKeyringEntry
+		if err := json.Unmarshal([]byte(raw), &entries); err != nil {
+			return nil, err
+		}
+		keys := make([]approval.ReceiptVerifyingKey, 0, len(entries))
+		for _, entry := range entries {
+			publicKey, err := decodeEd25519PublicKey(entry.PublicKey)
+			if err != nil {
+				return nil, err
+			}
+			validFrom, err := parseOptionalRFC3339(entry.ValidFrom)
+			if err != nil {
+				return nil, err
+			}
+			retiredAt, err := parseOptionalRFC3339(entry.RetiredAt)
+			if err != nil {
+				return nil, err
+			}
+			keys = append(keys, approval.ReceiptVerifyingKey{
+				KeyID: entry.KeyID, PublicKey: publicKey, ValidFrom: validFrom, RetiredAt: retiredAt,
+			})
+		}
+		return approval.NewEd25519ReceiptVerifierWithKeyring(keys)
+	}
+	return approval.NewReceiptVerifierFromBase64(requiredEnv("OA_RECEIPT_KEY_ID"), requiredEnv("OA_RECEIPT_PUBLIC_KEY"))
+}
+
+func queryReceiptPublicKeyBundleFromEnv(signer *queryreceipt.Signer, publishedAt time.Time) (queryreceipt.PublicKeyBundleV1, error) {
+	if signer == nil || signer.KeyID() == "" || signer.PublicKey() == nil {
+		return queryreceipt.PublicKeyBundleV1{}, queryreceipt.ErrInvalidKey
+	}
+	keys, err := queryReceiptVerifyingKeysFromEnv(strings.TrimSpace(os.Getenv("GATEWAY_RECEIPT_KEYRING_JSON")))
+	if err != nil {
+		return queryreceipt.PublicKeyBundleV1{}, err
+	}
+	activePublicKey := signer.PublicKey()
+	activeFound := false
+	for _, key := range keys {
+		if key.KeyID != signer.KeyID() {
+			continue
+		}
+		activeFound = true
+		if !bytes.Equal(key.PublicKey, activePublicKey) {
+			return queryreceipt.PublicKeyBundleV1{}, queryreceipt.ErrInvalidKey
+		}
+		if !key.RetiredAt.IsZero() && publishedAt.UTC().After(key.RetiredAt.UTC()) {
+			return queryreceipt.PublicKeyBundleV1{}, queryreceipt.ErrKeyNotValid
+		}
+	}
+	if !activeFound {
+		keys = append(keys, queryreceipt.VerifyingKey{KeyID: signer.KeyID(), PublicKey: activePublicKey})
+	}
+	return queryreceipt.NewPublicKeyBundle(signer.KeyID(), keys, publishedAt)
+}
+
+func queryReceiptVerifyingKeysFromEnv(raw string) ([]queryreceipt.VerifyingKey, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	var entries []receiptKeyringEntry
+	if err := json.Unmarshal([]byte(raw), &entries); err != nil {
+		return nil, err
+	}
+	keys := make([]queryreceipt.VerifyingKey, 0, len(entries))
+	for _, entry := range entries {
+		publicKey, err := decodeEd25519PublicKey(entry.PublicKey)
+		if err != nil {
+			return nil, queryreceipt.ErrInvalidKey
+		}
+		validFrom, err := parseOptionalRFC3339(entry.ValidFrom)
+		if err != nil {
+			return nil, err
+		}
+		retiredAt, err := parseOptionalRFC3339(entry.RetiredAt)
+		if err != nil {
+			return nil, err
+		}
+		keys = append(keys, queryreceipt.VerifyingKey{
+			KeyID: entry.KeyID, PublicKey: publicKey, ValidFrom: validFrom, RetiredAt: retiredAt,
+		})
+	}
+	return keys, nil
+}
+
+func queryReceiptKeyringHandler(bundle queryreceipt.PublicKeyBundleV1) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "max-age=300")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(bundle)
+	}
+}
+
+func decodeEd25519PublicKey(encoded string) (ed25519.PublicKey, error) {
+	key, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		key, err = base64.RawURLEncoding.DecodeString(encoded)
+	}
+	if err != nil || len(key) != ed25519.PublicKeySize {
+		return nil, approval.ErrInvalidReceiptKey
+	}
+	return ed25519.PublicKey(key), nil
+}
+
+func parseOptionalRFC3339(value string) (time.Time, error) {
+	if strings.TrimSpace(value) == "" {
+		return time.Time{}, nil
+	}
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return parsed.UTC(), nil
+}
+
+func requiredSecret(secretRef string) string {
+	name := strings.TrimPrefix(secretRef, "env:")
+	return requiredEnv(name)
 }
 
 func requiredEnv(key string) string {
@@ -202,6 +407,345 @@ func readiness(store *control.Store, connector *dataconnector.Connector, service
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
+}
+
+type retentionConfig struct {
+	ResultTTL     time.Duration
+	SweepInterval time.Duration
+	AdminToken    string
+}
+
+func retentionConfigFromEnv() (retentionConfig, error) {
+	resultTTL, err := optionalDurationEnv("GATEWAY_RESULT_RETENTION_TTL")
+	if err != nil {
+		return retentionConfig{}, err
+	}
+	interval, err := optionalDurationEnv("GATEWAY_RESULT_RETENTION_SWEEP_INTERVAL")
+	if err != nil {
+		return retentionConfig{}, err
+	}
+	if interval == 0 {
+		interval = time.Hour
+	}
+	if resultTTL < 0 || interval < 0 {
+		return retentionConfig{}, errors.New("retention durations must be non-negative")
+	}
+	return retentionConfig{
+		ResultTTL: resultTTL, SweepInterval: interval, AdminToken: strings.TrimSpace(os.Getenv("GATEWAY_ADMIN_TOKEN")),
+	}, nil
+}
+
+func optionalDurationEnv(key string) (time.Duration, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return 0, nil
+	}
+	if parsed, err := time.ParseDuration(raw); err == nil {
+		return parsed, nil
+	}
+	seconds, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	return time.Duration(seconds) * time.Second, nil
+}
+
+func mountRetentionAdmin(router chi.Router, store *control.Store, config retentionConfig, logger *slog.Logger) {
+	if strings.TrimSpace(config.AdminToken) == "" {
+		return
+	}
+	router.Group(func(r chi.Router) {
+		r.Use(adminTokenAuth(config.AdminToken))
+		r.Post("/admin/v1/retention/purge", purgeRetentionHandler(store, config, logger))
+		r.Put("/admin/v1/retention/legal-holds/{task_id}", setRetentionHoldHandler(store))
+		r.Delete("/admin/v1/retention/legal-holds/{task_id}", clearRetentionHoldHandler(store))
+		r.Post("/admin/v1/result-encryption-keys/{key_id}/erase", eraseResultEncryptionKeyHandler(store))
+	})
+}
+
+func adminTokenAuth(token string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			value, ok := strings.CutPrefix(strings.TrimSpace(r.Header.Get("Authorization")), "Bearer ")
+			if !ok {
+				http.Error(w, "admin token required", http.StatusUnauthorized)
+				return
+			}
+			value = strings.TrimSpace(value)
+			got := sha256.Sum256([]byte(value))
+			want := sha256.Sum256([]byte(token))
+			if strings.TrimSpace(token) == "" || subtle.ConstantTimeCompare(got[:], want[:]) != 1 {
+				http.Error(w, "admin token required", http.StatusUnauthorized)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func purgeRetentionHandler(store *control.Store, config retentionConfig, logger *slog.Logger) http.HandlerFunc {
+	type requestBody struct {
+		Cutoff string `json:"cutoff"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body requestBody
+		if r.Body != nil {
+			decoder := json.NewDecoder(r.Body)
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+				http.Error(w, "invalid purge request", http.StatusBadRequest)
+				return
+			}
+		}
+		cutoff, err := retentionCutoff(body.Cutoff, config.ResultTTL, time.Now().UTC())
+		if err != nil {
+			http.Error(w, "cutoff or GATEWAY_RESULT_RETENTION_TTL is required", http.StatusBadRequest)
+			return
+		}
+		purged, err := store.PurgeEncryptedResultsBefore(r.Context(), cutoff)
+		if err != nil {
+			logger.Warn("manual retention purge failed", "error", err)
+			http.Error(w, "retention purge failed", http.StatusConflict)
+			return
+		}
+		writeMainJSON(w, http.StatusOK, map[string]any{"cutoff": jsonTime(cutoff), "purged_results": purged})
+	}
+}
+
+func retentionCutoff(raw string, ttl time.Duration, now time.Time) (time.Time, error) {
+	if strings.TrimSpace(raw) != "" {
+		parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(raw))
+		if err != nil {
+			return time.Time{}, err
+		}
+		return parsed.UTC(), nil
+	}
+	if ttl <= 0 {
+		return time.Time{}, errors.New("retention TTL disabled")
+	}
+	return now.Add(-ttl).UTC(), nil
+}
+
+func setRetentionHoldHandler(store *control.Store) http.HandlerFunc {
+	type requestBody struct {
+		Reason string `json:"reason"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body requestBody
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&body); err != nil {
+			http.Error(w, "invalid legal hold request", http.StatusBadRequest)
+			return
+		}
+		hold, err := store.SetResultRetentionHold(r.Context(), chi.URLParam(r, "task_id"), body.Reason, "admin")
+		if err != nil {
+			retentionHTTPError(w, err)
+			return
+		}
+		writeMainJSON(w, http.StatusOK, retentionHoldJSON(hold))
+	}
+}
+
+func clearRetentionHoldHandler(store *control.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		hold, err := store.ClearResultRetentionHold(r.Context(), chi.URLParam(r, "task_id"), "admin")
+		if err != nil {
+			retentionHTTPError(w, err)
+			return
+		}
+		writeMainJSON(w, http.StatusOK, retentionHoldJSON(hold))
+	}
+}
+
+func eraseResultEncryptionKeyHandler(store *control.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		key, err := store.EraseResultEncryptionKey(r.Context(), chi.URLParam(r, "key_id"), "admin")
+		if err != nil {
+			retentionHTTPError(w, err)
+			return
+		}
+		writeMainJSON(w, http.StatusOK, resultEncryptionKeyJSON(key))
+	}
+}
+
+func retentionHTTPError(w http.ResponseWriter, err error) {
+	switch control.CodeOf(err) {
+	case control.CodeNotFound:
+		http.Error(w, "admin resource not found", http.StatusNotFound)
+	case control.CodeInvalid:
+		http.Error(w, "invalid admin request", http.StatusBadRequest)
+	default:
+		http.Error(w, "admin request failed", http.StatusConflict)
+	}
+}
+
+func resultEncryptionKeyJSON(key control.ResultEncryptionKey) map[string]any {
+	return map[string]any{
+		"key_id":     key.KeyID,
+		"status":     string(key.Status),
+		"created_at": jsonTime(key.CreatedAt),
+		"erased_at":  nullableJSONTime(key.ErasedAt),
+		"erased_by":  key.ErasedBy,
+	}
+}
+
+func retentionHoldJSON(hold control.ResultRetentionHold) map[string]any {
+	return map[string]any{
+		"task_id":     hold.TaskID,
+		"reason":      hold.Reason,
+		"created_by":  hold.CreatedBy,
+		"created_at":  jsonTime(hold.CreatedAt),
+		"released_by": hold.ReleasedBy,
+		"released_at": nullableJSONTime(hold.ReleasedAt),
+	}
+}
+
+func writeMainJSON(w http.ResponseWriter, status int, value any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(value)
+}
+
+func nullableJSONTime(value *time.Time) any {
+	if value == nil {
+		return nil
+	}
+	return jsonTime(*value)
+}
+
+func jsonTime(value time.Time) string {
+	return value.UTC().Truncate(time.Microsecond).Format(time.RFC3339Nano)
+}
+
+func sweepRetention(ctx context.Context, store *control.Store, config retentionConfig, logger *slog.Logger) {
+	ticker := time.NewTicker(config.SweepInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			cutoff := time.Now().UTC().Add(-config.ResultTTL)
+			purged, err := store.PurgeEncryptedResultsBefore(ctx, cutoff)
+			if err != nil {
+				logger.Warn("retention purge sweep failed", "error", err)
+				continue
+			}
+			if purged > 0 {
+				logger.Info("retention purge sweep completed", "purged_results", purged, "cutoff", cutoff)
+			}
+		}
+	}
+}
+
+type auditAnchorConfig struct {
+	URL      string
+	Interval time.Duration
+	Signer   *auditchain.AnchorSigner
+	Client   *http.Client
+}
+
+func (config auditAnchorConfig) enabled() bool {
+	return strings.TrimSpace(config.URL) != ""
+}
+
+func auditAnchorConfigFromEnv() (auditAnchorConfig, error) {
+	anchorURL := strings.TrimSpace(os.Getenv("GATEWAY_AUDIT_ANCHOR_URL"))
+	if anchorURL == "" {
+		return auditAnchorConfig{}, nil
+	}
+	parsed, err := url.Parse(anchorURL)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" ||
+		(parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return auditAnchorConfig{}, errors.New("GATEWAY_AUDIT_ANCHOR_URL must be an absolute http(s) URL")
+	}
+	interval, err := optionalDurationEnv("GATEWAY_AUDIT_ANCHOR_INTERVAL")
+	if err != nil {
+		return auditAnchorConfig{}, err
+	}
+	if interval == 0 {
+		interval = 5 * time.Minute
+	}
+	if interval < 0 {
+		return auditAnchorConfig{}, errors.New("audit anchor interval must be non-negative")
+	}
+	keyID := strings.TrimSpace(os.Getenv("GATEWAY_AUDIT_ANCHOR_KEY_ID"))
+	privateKey := strings.TrimSpace(os.Getenv("GATEWAY_AUDIT_ANCHOR_PRIVATE_KEY"))
+	if keyID == "" || privateKey == "" {
+		return auditAnchorConfig{}, errors.New("GATEWAY_AUDIT_ANCHOR_KEY_ID and GATEWAY_AUDIT_ANCHOR_PRIVATE_KEY are required when GATEWAY_AUDIT_ANCHOR_URL is set")
+	}
+	signer, err := auditchain.NewAnchorSignerFromBase64(keyID, privateKey)
+	if err != nil {
+		return auditAnchorConfig{}, err
+	}
+	return auditAnchorConfig{
+		URL: anchorURL, Interval: interval, Signer: signer, Client: &http.Client{Timeout: 5 * time.Second},
+	}, nil
+}
+
+func sweepAuditAnchors(ctx context.Context, store *control.Store, config auditAnchorConfig, logger *slog.Logger) {
+	ticker := time.NewTicker(config.Interval)
+	defer ticker.Stop()
+	var last auditchain.Checkpoint
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			anchor, err := publishAuditAnchor(ctx, store, config, time.Now().UTC())
+			if err != nil {
+				logger.Warn("audit checkpoint anchor failed", "error", err)
+				continue
+			}
+			if anchor.Sequence != last.Sequence || anchor.Hash != last.Hash {
+				logger.Info("audit checkpoint anchored", "sequence", anchor.Sequence, "hash", anchor.Hash)
+				last = auditchain.Checkpoint{Sequence: anchor.Sequence, Hash: anchor.Hash}
+			}
+		}
+	}
+}
+
+func publishAuditAnchor(ctx context.Context, store *control.Store, config auditAnchorConfig, signedAt time.Time) (auditchain.SignedCheckpointAnchorV1, error) {
+	checkpoint, err := store.AuditCheckpoint(ctx)
+	if err != nil {
+		return auditchain.SignedCheckpointAnchorV1{}, err
+	}
+	return postAuditCheckpointAnchor(ctx, config, checkpoint, signedAt)
+}
+
+func postAuditCheckpointAnchor(ctx context.Context, config auditAnchorConfig, checkpoint auditchain.Checkpoint, signedAt time.Time) (auditchain.SignedCheckpointAnchorV1, error) {
+	if !config.enabled() || config.Signer == nil {
+		return auditchain.SignedCheckpointAnchorV1{}, errors.New("audit anchor publisher is not configured")
+	}
+	anchor, err := config.Signer.SignCheckpoint(checkpoint, signedAt)
+	if err != nil {
+		return auditchain.SignedCheckpointAnchorV1{}, err
+	}
+	body, err := json.Marshal(anchor)
+	if err != nil {
+		return auditchain.SignedCheckpointAnchorV1{}, err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, config.URL, bytes.NewReader(body))
+	if err != nil {
+		return auditchain.SignedCheckpointAnchorV1{}, err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Idempotency-Key", anchor.AnchorID)
+	client := config.Client
+	if client == nil {
+		client = &http.Client{Timeout: 5 * time.Second}
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		return auditchain.SignedCheckpointAnchorV1{}, err
+	}
+	defer response.Body.Close()
+	_, _ = io.Copy(io.Discard, response.Body)
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return auditchain.SignedCheckpointAnchorV1{}, fmt.Errorf("audit anchor sink returned %s", response.Status)
+	}
+	return anchor, nil
 }
 
 func sweepExpired(ctx context.Context, store *control.Store, logger *slog.Logger) {

@@ -99,6 +99,10 @@ func (s *Service) requestDataTask(ctx context.Context, principal mcp.Principal, 
 	if err != nil {
 		return nil, err
 	}
+	evidence, err := s.datasourceEvidence(ctx, args.DataProducts)
+	if err != nil {
+		return nil, err
+	}
 
 	// Products, columns, and enum scopes are sets in the authorization model.
 	// Normalize them before hashing because RFC 8785 preserves array order.
@@ -116,7 +120,8 @@ func (s *Service) requestDataTask(ctx context.Context, principal mcp.Principal, 
 		Products: append([]string(nil), args.DataProducts...), ApprovedColumns: cloneColumns(columns),
 		MandatoryScope: cloneScope(scope), Sensitivity: policy.Sensitivity,
 		Budget: authorizationBudget(policy.Budget), CatalogVersion: s.catalog.CatalogVersion,
-		CatalogSHA256: s.catalog.SHA256, CallbackContext: correlation,
+		CatalogSHA256: s.catalog.SHA256, DatasourceID: evidence.DatasourceID,
+		SchemaDigest: evidence.SchemaDigest, CallbackContext: correlation,
 		Nonce: strings.TrimPrefix(randomID(""), "_"),
 	}
 	draftRequest := approval.DraftRequest{
@@ -133,8 +138,9 @@ func (s *Service) requestDataTask(ctx context.Context, principal mcp.Principal, 
 	}
 	pending := pendingContext{
 		Products: args.DataProducts, Columns: columns, MandatoryScope: scope, Budget: policy.Budget,
-		Sensitivity: policy.Sensitivity, ApprovalMode: policy.ApprovalRoute.Mode,
-		Approver: policy.ApprovalRoute.Approver, CallbackContext: correlation,
+		Sensitivity: policy.Sensitivity, DatasourceID: evidence.DatasourceID, SchemaDigest: evidence.SchemaDigest,
+		ApprovalMode: policy.ApprovalRoute.Mode,
+		Approver:     policy.ApprovalRoute.Approver, CallbackContext: correlation,
 	}
 	pendingJSON, err := json.Marshal(persistedPendingContext{
 		pendingContext: pending, Manifest: manifest, ManifestDigest: snapshotSHA256,
@@ -162,7 +168,8 @@ func (s *Service) requestDataTask(ctx context.Context, principal mcp.Principal, 
 	return map[string]any{
 		"task_id": taskID, "state": control.TaskAwaitingSubmission, "oa_url": draft.URL,
 		"approval_mode": string(policy.ApprovalRoute.Mode), "sensitivity": string(policy.Sensitivity),
-		"catalog_version": s.catalog.CatalogVersion, "manifest_digest": snapshotSHA256,
+		"catalog_version": s.catalog.CatalogVersion, "datasource_id": evidence.DatasourceID,
+		"schema_digest": evidence.SchemaDigest, "manifest_digest": snapshotSHA256,
 		"budget": map[string]any{"max_queries": policy.Budget.MaxQueries, "max_rows": policy.Budget.MaxRows,
 			"max_db_ms": policy.Budget.MaxDBTime.Milliseconds(), "query_timeout_ms": policy.Budget.PerQueryTimeout.Milliseconds(),
 			"task_ttl_seconds": int64(policy.Budget.TaskTTL.Seconds())},
@@ -491,6 +498,8 @@ func (s *Service) getTaskContext(ctx context.Context, principal mcp.Principal, r
 		"approved_products": grant.ApprovedProducts, "approved_columns": grant.ApprovedColumns,
 		"mandatory_scope": mandatoryScope, "sensitivity_ceiling": grant.SensitivityCeiling,
 		"expires_at": grant.ExpiresAt, "catalog_version": grant.CatalogVersion,
+		"catalog_digest": grant.CatalogDigest, "datasource_id": grant.DatasourceID,
+		"schema_digest":   grant.SchemaDigest,
 		"manifest_digest": finalGrant.Core.ManifestDigest, "task_grant": finalGrant,
 		"approval_receipt": finalGrant.ApprovalReceipt, "budget": publicBudget(budget),
 	}, nil
@@ -598,7 +607,8 @@ func decodePersistedPending(task control.Task) (persistedPendingContext, error) 
 		return persisted, err
 	}
 	pending := persisted.pendingContext
-	if len(pending.Products) == 0 || len(pending.Columns) == 0 || pending.Budget.Validate() != nil || pending.CallbackContext == "" {
+	if len(pending.Products) == 0 || len(pending.Columns) == 0 || pending.Budget.Validate() != nil ||
+		pending.DatasourceID == "" || !validSnapshotSHA256(pending.SchemaDigest) || pending.CallbackContext == "" {
 		return persisted, fmt.Errorf("invalid pending task context")
 	}
 	if err := persisted.Manifest.Validate(); err != nil {

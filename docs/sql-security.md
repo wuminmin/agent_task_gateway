@@ -86,7 +86,7 @@ Agent 自己写的内层 `LIMIT` 只能进一步缩小结果。外层限制按�
 
 即使策略层失误，数据面仍施加：
 
-- 非 owner、`NOSUPERUSER`、`NOBYPASSRLS` 的 `gateway_reader` 只对两个 `reporting.*` View 有 `SELECT`，对 `legacy.*` 无权限。
+- 非 owner、`NOSUPERUSER`、`NOBYPASSRLS` 的 `gateway_reader` 只对 `reporting.datasource_attestation` 和两个 `reporting.*` View 有 `SELECT`，对 `legacy.*` 无权限。
 - 角色级和连接级 `default_transaction_read_only=on`。
 - 每次执行显式 `READ ONLY` 事务。
 - 角色、连接及事务本地 `statement_timeout`，最终取任务剩余 DB 预算、Profile 单次上限、Grant 剩余有效期和 Connector 5 秒上限中的更小值；在途查询不能越过授权截止点继续返回结果。

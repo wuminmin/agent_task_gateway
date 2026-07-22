@@ -22,7 +22,7 @@ docker compose
 - 旧 `gateway-data` Volume 不再挂载，也不会自动删除。
 - Gateway 与 OA 为非 root、只读根文件系统；宿主机入口只绑定回环地址。只有 Gateway 同时加入隔离的 `business-data` 网络；OA 和控制库没有到业务库的网络路由。`compose.debug.yaml` 是唯一发布业务库回环端口的、明确标记为非论文部署的 override。
 
-系统控制库由 `gateway_control` 连接，DSN 通过 `CONTROL_POSTGRES_DSN` 注入。业务库由受限角色 `gateway_reader` 连接，DSN 通过 `POSTGRES_DSN` 注入。
+系统控制库由 `gateway_control` 连接，DSN 通过 `CONTROL_POSTGRES_DSN` 注入。业务库由受限角色 `gateway_reader` 连接，Gateway 按 Catalog Source 和 `secretRef` 构造 DSN，并校验业务库内的 `datasource_id`。
 
 ## MCP 2.0 接口
 
@@ -131,7 +131,7 @@ Agent SQL 只能引用未限定的逻辑产品名。物理 `reporting.*`、`lega
 
 业务数据库还有独立防线：
 
-- `gateway_reader` 仅拥有两个 Reporting View 的 `SELECT`。
+- `gateway_reader` 仅拥有 Datasource Attestation 表和两个 Reporting View 的 `SELECT`。
 - 角色显式为非 owner、非 superuser、无 `BYPASSRLS`，角色、连接和事务均为只读。
 - `search_path=pg_catalog`。
 - Connector 超时和 10,000 行硬上限。
@@ -177,7 +177,7 @@ scripts                 Compose/race/E2E 验收
 | 业务库 | `POSTGRES_PORT`、`POSTGRES_DB`、`POSTGRES_USER`、`POSTGRES_PASSWORD`、`GATEWAY_DB_PASSWORD` |
 | Gateway/OA | `GATEWAY_DATA_KEY`、Gateway/OA Ed25519 Key ID 与密钥、Alice/Carol Token、OA Token、Callback HMAC Secret |
 
-Compose 内部生成 `CONTROL_POSTGRES_DSN` 和 `POSTGRES_DSN`；直接启动二进制时必须显式设置这两个 DSN。
+Compose 内部生成 `CONTROL_POSTGRES_DSN`，业务库连接由 `config/catalog.yaml` 的 Source 字段和 `GATEWAY_DB_PASSWORD` 构造；直接启动二进制时必须设置控制库 DSN 以及 Catalog `secretRef` 指向的密码环境变量。
 
 ## 测试与验收
 

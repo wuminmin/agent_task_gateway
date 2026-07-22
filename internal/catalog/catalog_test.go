@@ -86,6 +86,31 @@ func TestCatalogRejectsRequiredInvalidInputs(t *testing.T) {
 			target: ErrMissingSecretRef,
 		},
 		{
+			name:   "missing datasource id",
+			yaml:   strings.Replace(valid, "    datasource_id: taskgate-test-expenses\n", "", 1),
+			target: ErrMissingField,
+		},
+		{
+			name:   "invalid schema digest",
+			yaml:   strings.Replace(valid, "    schema_digest: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "    schema_digest: not-a-digest", 1),
+			target: ErrInvalidCatalog,
+		},
+		{
+			name: "duplicate datasource id",
+			yaml: strings.Replace(valid, "    secretRef: env:EXPENSES_DB_PASSWORD\n", `    secretRef: env:EXPENSES_DB_PASSWORD
+  - name: warehouse
+    datasource_id: taskgate-test-expenses
+    type: postgres
+    address: warehouse
+    port: 5432
+    database: travel_demo
+    user: gateway_reader
+    postgres_major_version: 16
+    secretRef: env:EXPENSES_DB_PASSWORD
+`, 1),
+			target: ErrDuplicateSource,
+		},
+		{
 			name:   "invalid secretRef",
 			yaml:   strings.Replace(valid, "env:EXPENSES_DB_PASSWORD", "actual-password", 1),
 			target: ErrInvalidSecretRef,

@@ -308,6 +308,10 @@ VALUES ($1, $2, $3, $4, $5, $6)`, callback.Event.EventID, callback.Event.TaskID,
 		if grant.Budget.Queries <= 0 || grant.Budget.Rows <= 0 || grant.Budget.DBMS <= 0 || grant.ExpiresAt.IsZero() {
 			return CallbackClaim{}, opErr(op, ErrInvalid, fmt.Errorf("invalid grant budget or expiry"))
 		}
+		if grant.CatalogVersion == "" || !validSHA256Hex(grant.CatalogDigest) ||
+			grant.DatasourceID == "" || !validSHA256Hex(grant.SchemaDigest) || grant.ApprovalReceipt == "" {
+			return CallbackClaim{}, opErr(op, ErrInvalid, fmt.Errorf("invalid grant provenance"))
+		}
 		products, err := json.Marshal(grant.ApprovedProducts)
 		if err != nil {
 			return CallbackClaim{}, opErr(op, ErrInvalid, err)
@@ -333,8 +337,7 @@ UPDATE tasks SET state=$1, terminal_reason=$2, updated_at=$3, expires_at=COALESC
 	}
 	_, err = appendAuditTx(ctx, tx, AuditEvent{
 		TaskID: callback.Event.TaskID, Actor: callback.Event.Actor, EventType: "APPROVAL_CALLBACK_APPLIED", OccurredAt: now,
-		Payload: mustJSON(map[string]any{"event_id": callback.EventID, "decision": callback.Event.Decision,
-			"from": current, "to": callback.NewState, "terminal_reason": callback.Reason}),
+		Payload: approvalCallbackAuditPayload(callback, current),
 	})
 	if err != nil {
 		return CallbackClaim{}, opErr(op, ErrConflict, err)
@@ -348,4 +351,18 @@ UPDATE tasks SET state=$1, terminal_reason=$2, updated_at=$3, expires_at=COALESC
 	claim.Status = CallbackCompleted
 	claim.Response = append([]byte(nil), callback.Response...)
 	return claim, nil
+}
+
+func approvalCallbackAuditPayload(callback ApprovalCallback, from TaskState) json.RawMessage {
+	payload := map[string]any{
+		"event_id": callback.EventID, "decision": callback.Event.Decision,
+		"from": from, "to": callback.NewState, "terminal_reason": callback.Reason,
+	}
+	if callback.Grant != nil {
+		payload["catalog_version"] = callback.Grant.CatalogVersion
+		payload["catalog_digest"] = callback.Grant.CatalogDigest
+		payload["datasource_id"] = callback.Grant.DatasourceID
+		payload["schema_digest"] = callback.Grant.SchemaDigest
+	}
+	return mustJSON(payload)
 }

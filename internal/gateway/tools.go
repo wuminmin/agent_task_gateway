@@ -3,7 +3,9 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
+	"taskbound.local/agent-data-gateway/internal/control"
 	"taskbound.local/agent-data-gateway/internal/mcp"
 )
 
@@ -103,6 +105,9 @@ func taskIDSchema() map[string]any {
 }
 
 func (s *Service) ListTools(principal mcp.Principal) []mcp.Tool {
+	if s.principalEnabled(context.Background(), principal) != nil {
+		return nil
+	}
 	switch principal.Role {
 	case "query":
 		return append([]mcp.Tool(nil), queryTools...)
@@ -118,6 +123,9 @@ func (s *Service) CallTool(ctx context.Context, principal mcp.Principal, name st
 		result any
 		err    error
 	)
+	if err := s.principalEnabled(ctx, principal); err != nil {
+		return mcp.ToolResult{}, toolError(err)
+	}
 	if principal.Role == "query" {
 		switch name {
 		case "list_data_products":
@@ -165,4 +173,18 @@ func (s *Service) CallTool(ctx context.Context, principal mcp.Principal, name st
 		return mcp.ToolResult{}, toolError(err)
 	}
 	return mcp.ToolResult{Structured: result}, nil
+}
+
+func (s *Service) principalEnabled(ctx context.Context, principal mcp.Principal) error {
+	stored, err := s.store.GetPrincipal(ctx, principal.ID)
+	if err != nil {
+		if errors.Is(err, control.ErrNotFound) {
+			return forbidden()
+		}
+		return err
+	}
+	if stored.Subject != principal.Subject || stored.Role != principal.Role || stored.DisabledAt != nil {
+		return forbidden()
+	}
+	return nil
 }

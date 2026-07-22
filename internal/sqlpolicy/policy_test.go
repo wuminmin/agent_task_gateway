@@ -156,6 +156,128 @@ func TestExplicitEmptyAllowlistsDenyFunctionsAndOperators(t *testing.T) {
 	}
 }
 
+func TestProductIndexedColumnFunctionAndOperatorPermissions(t *testing.T) {
+	engine := New(Config{})
+	grant := productIndexedGrant()
+	tests := []struct {
+		name string
+		sql  string
+		code Code
+	}{
+		{name: "alpha column accepted", sql: `SELECT a_only FROM alpha`, code: ""},
+		{name: "beta cannot borrow alpha column", sql: `SELECT beta.a_only FROM beta`, code: CodeColumnNotAllowed},
+		{name: "unique unqualified column accepted", sql: `SELECT a_only FROM alpha AS a JOIN beta AS b ON a.join_key = b.join_key`, code: ""},
+		{name: "ambiguous unqualified column rejected", sql: `SELECT shared FROM alpha AS a JOIN beta AS b ON a.join_key = b.join_key`, code: CodeColumnNotAllowed},
+		{name: "qualified column accepted", sql: `SELECT b.b_only FROM beta AS b`, code: ""},
+		{name: "alias hides original relation name", sql: `SELECT beta.b_only FROM beta AS b`, code: CodeObjectNotAllowed},
+		{name: "alpha scalar function accepted", sql: `SELECT lower(a_only) FROM alpha`, code: ""},
+		{name: "beta cannot borrow alpha function", sql: `SELECT lower(b_only) FROM beta`, code: CodeFunctionNotAllowed},
+		{name: "alpha operator accepted", sql: `SELECT metric + 1 FROM alpha`, code: ""},
+		{name: "beta cannot borrow alpha operator", sql: `SELECT metric + 1 FROM beta`, code: CodeOperatorNotAllowed},
+		{name: "join equality uses operator intersection", sql: `SELECT a.a_only, b.b_only FROM alpha AS a JOIN beta AS b ON a.join_key = b.join_key`, code: ""},
+		{name: "cross product arithmetic requires operator intersection", sql: `SELECT a.metric + b.metric FROM alpha AS a JOIN beta AS b ON a.join_key = b.join_key`, code: CodeOperatorNotAllowed},
+		{name: "multi product function requires function intersection", sql: `SELECT concat(a.a_only, b.b_only) FROM alpha AS a JOIN beta AS b ON a.join_key = b.join_key`, code: CodeFunctionNotAllowed},
+		{name: "constant function uses task global safe list", sql: `SELECT lower('ABC') AS c`, code: ""},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := engine.Authorize(Request{SQL: test.sql, Grant: grant, RowLimit: 10})
+			if test.code == "" {
+				if err != nil {
+					t.Fatalf("Authorize() error = %v", err)
+				}
+				return
+			}
+			if !IsCode(err, test.code) {
+				t.Fatalf("Authorize() error = %v, want %s", err, test.code)
+			}
+		})
+	}
+}
+
+func TestLexicalScopesShadowingAndDerivedColumnProvenance(t *testing.T) {
+	engine := New(Config{})
+	grant := productIndexedGrant()
+	tests := []struct {
+		name string
+		sql  string
+		code Code
+	}{
+		{
+			name: "output alias is visible to order by",
+			sql:  `SELECT a_only AS sorted_name FROM alpha ORDER BY sorted_name`,
+			code: "",
+		},
+		{
+			name: "output alias is not visible to where",
+			sql:  `SELECT a_only AS sorted_name FROM alpha WHERE sorted_name <> ''`,
+			code: CodeColumnNotAllowed,
+		},
+		{
+			name: "CTE shadows product without inheriting product columns",
+			sql:  `WITH alpha AS (SELECT b_only FROM beta) SELECT b_only FROM alpha`,
+			code: "",
+		},
+		{
+			name: "CTE shadow does not inherit shadowed product permissions",
+			sql:  `WITH alpha AS (SELECT b_only FROM beta) SELECT a_only FROM alpha`,
+			code: CodeColumnNotAllowed,
+		},
+		{
+			name: "derived column keeps source product for allowed operator",
+			sql:  `SELECT d.x + 1 FROM (SELECT metric AS x FROM alpha) AS d`,
+			code: "",
+		},
+		{
+			name: "derived column keeps source product for denied operator",
+			sql:  `SELECT d.x - 1 FROM (SELECT metric AS x FROM alpha) AS d`,
+			code: CodeOperatorNotAllowed,
+		},
+		{
+			name: "alias column names bind derived relation",
+			sql:  `SELECT d.renamed + 1 FROM (SELECT metric FROM alpha) AS d(renamed)`,
+			code: "",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := engine.Authorize(Request{SQL: test.sql, Grant: grant, RowLimit: 10})
+			if test.code == "" {
+				if err != nil {
+					t.Fatalf("Authorize() error = %v", err)
+				}
+				return
+			}
+			if !IsCode(err, test.code) {
+				t.Fatalf("Authorize() error = %v, want %s", err, test.code)
+			}
+		})
+	}
+}
+
+func TestStructuralNodesAndCorrelatedSubqueryUseSourceProducts(t *testing.T) {
+	engine := New(Config{})
+	grant := productIndexedGrant()
+	tests := []string{
+		`SELECT CASE WHEN a.a_only IS NULL THEN 'missing' ELSE a.a_only END
+FROM alpha AS a
+WHERE a.metric > 0 AND (a.a_only IS NULL OR a.a_only <> '')`,
+		`SELECT a.a_only
+FROM alpha AS a
+WHERE EXISTS (
+  SELECT 1 FROM beta AS b
+  WHERE b.join_key = a.join_key AND b.b_only IS NOT NULL
+)`,
+	}
+	for _, sql := range tests {
+		t.Run(sql, func(t *testing.T) {
+			if _, err := engine.Authorize(Request{SQL: sql, Grant: grant, RowLimit: 10}); err != nil {
+				t.Fatalf("Authorize() error = %v", err)
+			}
+		})
+	}
+}
+
 func TestAuthorizeRejectsInvalidGrantAndExhaustedBudget(t *testing.T) {
 	engine := New(Config{})
 	if _, err := engine.Authorize(Request{SQL: `SELECT department FROM expense_detail`, Grant: testGrant(), RowLimit: 0}); !IsCode(err, CodeBudgetExhausted) {
@@ -193,4 +315,27 @@ func testGrant() Grant {
 			Column: "department", Operator: ScopeEqual, Values: []string{"Sales' East"},
 		}},
 	}}}
+}
+
+func productIndexedGrant() Grant {
+	return Grant{Products: []ProductGrant{
+		{
+			LogicalName:       "alpha",
+			PhysicalSchema:    "reporting",
+			PhysicalView:      "alpha",
+			ApprovedColumns:   []string{"id", "join_key", "shared", "a_only", "metric"},
+			AllowedFunctions:  []string{"lower"},
+			AllowedAggregates: []string{"count", "sum"},
+			AllowedOperators:  []string{"=", "<>", ">", "+", "is", "is not"},
+		},
+		{
+			LogicalName:       "beta",
+			PhysicalSchema:    "reporting",
+			PhysicalView:      "beta",
+			ApprovedColumns:   []string{"id", "join_key", "shared", "b_only", "metric"},
+			AllowedFunctions:  []string{"upper"},
+			AllowedAggregates: []string{"count"},
+			AllowedOperators:  []string{"=", "<>", "is", "is not"},
+		},
+	}}
 }

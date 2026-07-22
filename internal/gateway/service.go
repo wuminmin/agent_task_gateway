@@ -28,6 +28,7 @@ import (
 type DataConnector interface {
 	Query(context.Context, dataconnector.QueryRequest) (dataconnector.Result, error)
 	Ping(context.Context) error
+	Attestation(context.Context) (dataconnector.Attestation, error)
 }
 
 type Config struct {
@@ -63,6 +64,8 @@ type pendingContext struct {
 	MandatoryScope  map[string]any      `json:"mandatory_scope"`
 	Budget          domain.Budget       `json:"budget"`
 	Sensitivity     domain.Sensitivity  `json:"sensitivity"`
+	DatasourceID    string              `json:"datasource_id"`
+	SchemaDigest    string              `json:"schema_digest"`
 	ApprovalMode    domain.ApprovalMode `json:"approval_mode"`
 	Approver        string              `json:"approver,omitempty"`
 	CallbackContext string              `json:"callback_context"`

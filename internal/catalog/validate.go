@@ -18,6 +18,7 @@ var (
 	databaseNamePattern  = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]*$`)
 	reportingViewPattern = regexp.MustCompile(`^reporting\.[a-z_][a-z0-9_]*$`)
 	functionPattern      = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
+	sha256HexPattern     = regexp.MustCompile(`^[a-f0-9]{64}$`)
 )
 
 // Catalog V1 attests the generic PostgreSQL data_type reported by
@@ -71,6 +72,7 @@ func (c *Catalog) Validate() error {
 	}
 
 	sources := make(map[string]struct{}, len(c.Sources))
+	datasources := make(map[string]struct{}, len(c.Sources))
 	for index, source := range c.Sources {
 		path := fmt.Sprintf("sources[%d]", index)
 		problems = append(problems, validateSource(path, source)...)
@@ -79,6 +81,12 @@ func (c *Catalog) Validate() error {
 				problems = append(problems, fieldError(path+".name", "source name is duplicated", ErrDuplicateSource))
 			}
 			sources[source.Name] = struct{}{}
+		}
+		if source.DatasourceID != "" {
+			if _, exists := datasources[source.DatasourceID]; exists {
+				problems = append(problems, fieldError(path+".datasource_id", "datasource_id is duplicated", ErrDuplicateSource))
+			}
+			datasources[source.DatasourceID] = struct{}{}
 		}
 	}
 
@@ -153,6 +161,9 @@ func validateSource(path string, source Source) ValidationErrors {
 	if !identifierPattern.MatchString(source.Name) {
 		problems = append(problems, fieldError(path+".name", "a lowercase logical name is required", ErrMissingField))
 	}
+	if !configNamePattern.MatchString(source.DatasourceID) {
+		problems = append(problems, fieldError(path+".datasource_id", "a stable lowercase datasource_id is required", ErrMissingField))
+	}
 	if source.Type != "postgres" && source.Type != "postgresql" {
 		problems = append(problems, fieldError(path+".type", "type must be postgres", ErrInvalidCatalog))
 	}
@@ -167,6 +178,12 @@ func validateSource(path string, source Source) ValidationErrors {
 	}
 	if !databaseNamePattern.MatchString(source.User) {
 		problems = append(problems, fieldError(path+".user", "a database user is required", ErrMissingField))
+	}
+	if source.PostgreSQLMajorVersion <= 0 {
+		problems = append(problems, fieldError(path+".postgres_major_version", "PostgreSQL major version is required", ErrMissingField))
+	}
+	if source.SchemaDigest != "" && !sha256HexPattern.MatchString(source.SchemaDigest) {
+		problems = append(problems, fieldError(path+".schema_digest", "schema_digest must be lowercase SHA-256", ErrInvalidCatalog))
 	}
 	if source.Password != "" || source.DSN != "" {
 		problems = append(problems, fieldError(path, "plaintext credentials and DSNs are forbidden; use secretRef", ErrPlaintextPassword))

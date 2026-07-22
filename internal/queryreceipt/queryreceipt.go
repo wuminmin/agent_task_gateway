@@ -4,6 +4,7 @@
 package queryreceipt
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -15,17 +16,28 @@ import (
 	"time"
 
 	"taskbound.local/agent-data-gateway/internal/approval"
+	"taskbound.local/agent-data-gateway/internal/auditchain"
 )
 
 const (
-	VersionV1       = "1"
-	signatureDomain = "TASKGATE-QUERY-RECEIPT-V1\x00"
+	VersionV1         = "1"
+	VersionV2         = "2"
+	VersionV3         = "3"
+	signatureDomainV1 = "TASKGATE-QUERY-RECEIPT-V1\x00"
+	signatureDomainV2 = "TASKGATE-QUERY-RECEIPT-V2\x00"
+	signatureDomainV3 = "TASKGATE-QUERY-RECEIPT-V3\x00"
+
+	StatusCompleted     = "COMPLETED"
+	StatusReleased      = "RELEASED"
+	StatusFailed        = "FAILED"
+	StatusIndeterminate = "INDETERMINATE"
 )
 
 var (
 	ErrInvalidReceipt   = errors.New("invalid query receipt")
 	ErrInvalidKey       = errors.New("invalid query receipt key")
 	ErrUnknownKey       = errors.New("unknown query receipt key ID")
+	ErrKeyNotValid      = errors.New("query receipt key not valid at signing time")
 	ErrInvalidSignature = errors.New("invalid query receipt signature")
 )
 
@@ -53,6 +65,8 @@ type QueryReceiptV1 struct {
 	GrantDigest       string         `json:"grant_digest"`
 	CatalogDigest     string         `json:"catalog_digest"`
 	CatalogVersion    string         `json:"catalog_version"`
+	DatasourceID      string         `json:"datasource_id"`
+	SchemaDigest      string         `json:"schema_digest"`
 	RequestDigest     string         `json:"request_digest"`
 	SQLFingerprint    string         `json:"sql_fingerprint"`
 	PolicyDecision    string         `json:"policy_decision"`
@@ -70,24 +84,35 @@ type QueryReceiptV1 struct {
 	AuditSequence     int64          `json:"audit_sequence"`
 	PreviousAuditHash string         `json:"previous_audit_hash"`
 	AuditHash         string         `json:"audit_hash"`
+	SignedAt          *time.Time     `json:"signed_at,omitempty"`
 	GatewayKeyID      string         `json:"gateway_key_id"`
 	Signature         string         `json:"signature"`
 }
 
 func (r QueryReceiptV1) ValidateUnsigned() error {
-	if r.Version != VersionV1 || strings.TrimSpace(r.ReceiptID) == "" ||
-		strings.TrimSpace(r.TaskID) == "" || strings.TrimSpace(r.QueryID) == "" ||
-		strings.TrimSpace(r.RequestID) == "" || r.ReceiptID != r.QueryID {
+	if r.Version != VersionV1 && r.Version != VersionV2 && r.Version != VersionV3 {
+		return fmt.Errorf("%w: unsupported version %q", ErrInvalidReceipt, r.Version)
+	}
+	if strings.TrimSpace(r.ReceiptID) == "" || strings.TrimSpace(r.TaskID) == "" ||
+		strings.TrimSpace(r.QueryID) == "" || strings.TrimSpace(r.RequestID) == "" || r.ReceiptID != r.QueryID {
 		return fmt.Errorf("%w: identity field is missing or inconsistent", ErrInvalidReceipt)
 	}
-	for name, value := range map[string]string{
+	digests := map[string]string{
 		"manifest_digest": r.ManifestDigest, "grant_digest": r.GrantDigest,
-		"catalog_digest": r.CatalogDigest, "request_digest": r.RequestDigest,
+		"catalog_digest":      r.CatalogDigest,
+		"request_digest":      r.RequestDigest,
 		"previous_audit_hash": r.PreviousAuditHash, "audit_hash": r.AuditHash,
-	} {
+	}
+	if r.Version == VersionV2 || r.Version == VersionV3 {
+		digests["schema_digest"] = r.SchemaDigest
+	}
+	for name, value := range digests {
 		if !isSHA256(value) {
 			return fmt.Errorf("%w: %s is not lowercase SHA-256", ErrInvalidReceipt, name)
 		}
+	}
+	if (r.Version == VersionV2 || r.Version == VersionV3) && strings.TrimSpace(r.DatasourceID) == "" {
+		return fmt.Errorf("%w: datasource_id is required", ErrInvalidReceipt)
 	}
 	if strings.TrimSpace(r.CatalogVersion) == "" || strings.TrimSpace(r.SQLFingerprint) == "" ||
 		strings.TrimSpace(r.PolicyDecision) == "" || strings.TrimSpace(r.Status) == "" ||
@@ -97,6 +122,14 @@ func (r QueryReceiptV1) ValidateUnsigned() error {
 	}
 	if r.CompletedAt.Before(r.CreatedAt) {
 		return fmt.Errorf("%w: completion precedes creation", ErrInvalidReceipt)
+	}
+	if r.Version == VersionV3 {
+		if r.SignedAt == nil || r.SignedAt.IsZero() {
+			return fmt.Errorf("%w: signed_at is required", ErrInvalidReceipt)
+		}
+		if r.SignedAt.UTC().Before(r.CompletedAt.UTC()) {
+			return fmt.Errorf("%w: signed_at precedes terminal evidence", ErrInvalidReceipt)
+		}
 	}
 	for _, vector := range []BudgetVectorV1{
 		r.BudgetBefore.Limits, r.BudgetBefore.Used, r.BudgetBefore.Reserved,
@@ -109,6 +142,12 @@ func (r QueryReceiptV1) ValidateUnsigned() error {
 	}
 	if r.ResultHash != "" && !isSHA256(r.ResultHash) {
 		return fmt.Errorf("%w: result hash is invalid", ErrInvalidReceipt)
+	}
+	if err := r.validateBudgetSemantics(); err != nil {
+		return err
+	}
+	if err := r.validateStatusSemantics(); err != nil {
+		return err
 	}
 	return nil
 }
@@ -178,6 +217,10 @@ func (s *Signer) Sign(receipt QueryReceiptV1) (QueryReceiptV1, error) {
 		return QueryReceiptV1{}, ErrInvalidKey
 	}
 	receipt.GatewayKeyID = s.keyID
+	if receipt.SignedAt != nil {
+		signedAt := receipt.SignedAt.UTC()
+		receipt.SignedAt = &signedAt
+	}
 	receipt.Signature = ""
 	if err := receipt.ValidateUnsigned(); err != nil {
 		return QueryReceiptV1{}, err
@@ -190,18 +233,126 @@ func (s *Signer) Sign(receipt QueryReceiptV1) (QueryReceiptV1, error) {
 	return receipt, nil
 }
 
-type Verifier struct{ keys map[string]ed25519.PublicKey }
+type VerifyingKey struct {
+	KeyID     string
+	PublicKey ed25519.PublicKey
+	ValidFrom time.Time
+	RetiredAt time.Time
+}
+
+type Keyring struct {
+	active   *Signer
+	verifier *Verifier
+}
+
+func NewKeyring(active *Signer, historical []VerifyingKey) (*Keyring, error) {
+	if active == nil || active.KeyID() == "" || active.PublicKey() == nil {
+		return nil, ErrInvalidKey
+	}
+	keys := append([]VerifyingKey(nil), historical...)
+	activePublicKey := active.PublicKey()
+	foundActive := false
+	for _, key := range keys {
+		if key.KeyID == active.KeyID() {
+			foundActive = true
+			if len(key.PublicKey) == ed25519.PublicKeySize && !bytes.Equal(key.PublicKey, activePublicKey) {
+				return nil, ErrInvalidKey
+			}
+			break
+		}
+	}
+	if !foundActive {
+		keys = append(keys, VerifyingKey{KeyID: active.KeyID(), PublicKey: activePublicKey})
+	}
+	verifier, err := NewVerifierWithKeyring(keys)
+	if err != nil {
+		return nil, err
+	}
+	return &Keyring{active: active, verifier: verifier}, nil
+}
+
+func (k *Keyring) KeyID() string {
+	if k == nil || k.active == nil {
+		return ""
+	}
+	return k.active.KeyID()
+}
+
+func (k *Keyring) PublicKey() ed25519.PublicKey {
+	if k == nil || k.active == nil {
+		return nil
+	}
+	return k.active.PublicKey()
+}
+
+func (k *Keyring) Sign(receipt QueryReceiptV1) (QueryReceiptV1, error) {
+	if k == nil || k.active == nil {
+		return QueryReceiptV1{}, ErrInvalidKey
+	}
+	return k.active.Sign(receipt)
+}
+
+func (k *Keyring) Verify(receipt QueryReceiptV1) error {
+	if k == nil || k.verifier == nil {
+		return ErrInvalidKey
+	}
+	return k.verifier.Verify(receipt)
+}
+
+func (k *Keyring) Verifier() *Verifier {
+	if k == nil {
+		return nil
+	}
+	return k.verifier
+}
+
+func VerifyAuditInclusion(receipt QueryReceiptV1, proof auditchain.InclusionProof) error {
+	if err := receipt.Validate(); err != nil {
+		return err
+	}
+	terminal := proof.TerminalEvent
+	if terminal.QueryID != receipt.QueryID ||
+		terminal.Sequence != receipt.AuditSequence ||
+		terminal.PreviousHash != receipt.PreviousAuditHash ||
+		terminal.CurrentHash != receipt.AuditHash {
+		return fmt.Errorf("%w: audit terminal event does not match receipt", ErrInvalidReceipt)
+	}
+	if !statusMatchesTerminalAuditEvent(receipt.Status, terminal.EventType) {
+		return fmt.Errorf("%w: terminal audit event does not match receipt status", ErrInvalidReceipt)
+	}
+	if err := auditchain.VerifyInclusion(proof); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidReceipt, err)
+	}
+	return nil
+}
+
+type Verifier struct{ keys map[string]VerifyingKey }
 
 func NewVerifier(keys map[string]ed25519.PublicKey) (*Verifier, error) {
 	if len(keys) == 0 {
 		return nil, ErrInvalidKey
 	}
-	copyKeys := make(map[string]ed25519.PublicKey, len(keys))
+	keyring := make([]VerifyingKey, 0, len(keys))
 	for keyID, key := range keys {
-		if strings.TrimSpace(keyID) == "" || len(key) != ed25519.PublicKeySize {
+		keyring = append(keyring, VerifyingKey{KeyID: keyID, PublicKey: key})
+	}
+	return NewVerifierWithKeyring(keyring)
+}
+
+func NewVerifierWithKeyring(keys []VerifyingKey) (*Verifier, error) {
+	if len(keys) == 0 {
+		return nil, ErrInvalidKey
+	}
+	copyKeys := make(map[string]VerifyingKey, len(keys))
+	for _, key := range keys {
+		normalized, err := normalizeVerifyingKey(key)
+		if err != nil {
+			return nil, err
+		}
+		if _, duplicate := copyKeys[normalized.KeyID]; duplicate {
 			return nil, ErrInvalidKey
 		}
-		copyKeys[keyID] = append(ed25519.PublicKey(nil), key...)
+		copyKeys[normalized.KeyID] = normalized
 	}
 	return &Verifier{keys: copyKeys}, nil
 }
@@ -210,9 +361,15 @@ func (v *Verifier) Verify(receipt QueryReceiptV1) error {
 	if err := receipt.Validate(); err != nil {
 		return err
 	}
+	if v == nil {
+		return ErrInvalidKey
+	}
 	key, ok := v.keys[receipt.GatewayKeyID]
 	if !ok {
 		return ErrUnknownKey
+	}
+	if err := key.validFor(receipt); err != nil {
+		return err
 	}
 	signature, err := base64.RawURLEncoding.DecodeString(receipt.Signature)
 	if err != nil || len(signature) != ed25519.SignatureSize {
@@ -222,10 +379,134 @@ func (v *Verifier) Verify(receipt QueryReceiptV1) error {
 	if err != nil {
 		return err
 	}
-	if !ed25519.Verify(key, payload, signature) {
+	if !ed25519.Verify(key.PublicKey, payload, signature) {
 		return ErrInvalidSignature
 	}
 	return nil
+}
+
+func normalizeVerifyingKey(key VerifyingKey) (VerifyingKey, error) {
+	key.KeyID = strings.TrimSpace(key.KeyID)
+	if key.KeyID == "" || len(key.PublicKey) != ed25519.PublicKeySize {
+		return VerifyingKey{}, ErrInvalidKey
+	}
+	if !key.ValidFrom.IsZero() {
+		key.ValidFrom = key.ValidFrom.UTC()
+	}
+	if !key.RetiredAt.IsZero() {
+		key.RetiredAt = key.RetiredAt.UTC()
+		if !key.ValidFrom.IsZero() && key.RetiredAt.Before(key.ValidFrom) {
+			return VerifyingKey{}, ErrInvalidKey
+		}
+	}
+	key.PublicKey = append(ed25519.PublicKey(nil), key.PublicKey...)
+	return key, nil
+}
+
+func (key VerifyingKey) validFor(receipt QueryReceiptV1) error {
+	if receipt.SignedAt == nil {
+		if !key.ValidFrom.IsZero() || !key.RetiredAt.IsZero() {
+			return fmt.Errorf("%w: receipt lacks signed_at for keyring policy", ErrInvalidReceipt)
+		}
+		return nil
+	}
+	signedAt := receipt.SignedAt.UTC()
+	if !key.ValidFrom.IsZero() && signedAt.Before(key.ValidFrom) {
+		return ErrKeyNotValid
+	}
+	if !key.RetiredAt.IsZero() && signedAt.After(key.RetiredAt) {
+		return ErrKeyNotValid
+	}
+	return nil
+}
+
+func (r QueryReceiptV1) validateBudgetSemantics() error {
+	if !sameVector(r.BudgetBefore.Limits, r.BudgetAfter.Limits) {
+		return fmt.Errorf("%w: budget limits changed across receipt", ErrInvalidReceipt)
+	}
+	if !validBudgetState(r.BudgetBefore) || !validBudgetState(r.BudgetAfter) {
+		return fmt.Errorf("%w: budget state exceeds limits", ErrInvalidReceipt)
+	}
+	if r.BudgetReserved.Queries != 1 || r.BudgetReserved.Rows <= 0 || r.BudgetReserved.DBMS <= 0 {
+		return fmt.Errorf("%w: invalid reservation vector", ErrInvalidReceipt)
+	}
+	if !vectorLTE(r.BudgetCharged, r.BudgetReserved) {
+		return fmt.Errorf("%w: charge exceeds reservation", ErrInvalidReceipt)
+	}
+	if !sameVector(r.BudgetAfter.Used, addVector(r.BudgetBefore.Used, r.BudgetCharged)) {
+		return fmt.Errorf("%w: budget usage transition is invalid", ErrInvalidReceipt)
+	}
+	if !sameVector(r.BudgetAfter.Reserved, r.BudgetBefore.Reserved) {
+		return fmt.Errorf("%w: reservation was not released", ErrInvalidReceipt)
+	}
+	if r.RowCount != r.BudgetCharged.Rows || r.DatabaseMS != r.BudgetCharged.DBMS {
+		return fmt.Errorf("%w: result metrics do not match charged budget", ErrInvalidReceipt)
+	}
+	return nil
+}
+
+func (r QueryReceiptV1) validateStatusSemantics() error {
+	switch r.Status {
+	case StatusCompleted:
+		if r.ResultHash == "" || r.ErrorCode != "" || r.BudgetCharged.Queries != 1 ||
+			r.RowCount < 0 || r.DatabaseMS <= 0 {
+			return fmt.Errorf("%w: invalid completed receipt evidence", ErrInvalidReceipt)
+		}
+	case StatusReleased:
+		if r.ResultHash != "" || !sameVector(r.BudgetCharged, BudgetVectorV1{}) ||
+			r.RowCount != 0 || r.DatabaseMS != 0 {
+			return fmt.Errorf("%w: invalid released receipt evidence", ErrInvalidReceipt)
+		}
+	case StatusFailed:
+		if r.ResultHash != "" || strings.TrimSpace(r.ErrorCode) == "" ||
+			r.BudgetCharged.Queries != 1 || r.RowCount < 0 || r.DatabaseMS <= 0 {
+			return fmt.Errorf("%w: failed receipt requires an error code", ErrInvalidReceipt)
+		}
+	case StatusIndeterminate:
+		if r.ResultHash != "" || strings.TrimSpace(r.ErrorCode) == "" ||
+			!sameVector(r.BudgetCharged, r.BudgetReserved) {
+			return fmt.Errorf("%w: invalid indeterminate receipt evidence", ErrInvalidReceipt)
+		}
+	default:
+		return fmt.Errorf("%w: unsupported terminal status %q", ErrInvalidReceipt, r.Status)
+	}
+	return nil
+}
+
+func statusMatchesTerminalAuditEvent(status, eventType string) bool {
+	switch status {
+	case StatusCompleted:
+		return eventType == "QUERY_COMPLETED"
+	case StatusReleased:
+		return eventType == "QUERY_BUDGET_RELEASED"
+	case StatusFailed:
+		return eventType == "QUERY_FAILED"
+	case StatusIndeterminate:
+		return eventType == "QUERY_INDETERMINATE" || eventType == "QUERY_INTERRUPTED"
+	default:
+		return false
+	}
+}
+
+func validBudgetState(state BudgetStateV1) bool {
+	if state.Limits.Queries <= 0 || state.Limits.Rows <= 0 || state.Limits.DBMS <= 0 {
+		return false
+	}
+	return state.Used.Queries+state.Reserved.Queries <= state.Limits.Queries &&
+		state.Used.Rows+state.Reserved.Rows <= state.Limits.Rows &&
+		state.Used.DBMS+state.Reserved.DBMS <= state.Limits.DBMS
+}
+
+func sameVector(left, right BudgetVectorV1) bool {
+	return left.Queries == right.Queries && left.Rows == right.Rows && left.DBMS == right.DBMS
+}
+
+func vectorLTE(left, right BudgetVectorV1) bool {
+	return left.Queries <= right.Queries && left.Rows <= right.Rows && left.DBMS <= right.DBMS
+}
+
+func addVector(left, right BudgetVectorV1) BudgetVectorV1 {
+	return BudgetVectorV1{Queries: left.Queries + right.Queries, Rows: left.Rows + right.Rows, DBMS: left.DBMS + right.DBMS}
 }
 
 func signingPayload(receipt QueryReceiptV1) ([]byte, error) {
@@ -243,11 +524,21 @@ func signingPayload(receipt QueryReceiptV1) ([]byte, error) {
 		"audit_sequence": receipt.AuditSequence, "previous_audit_hash": receipt.PreviousAuditHash,
 		"audit_hash": receipt.AuditHash, "gateway_key_id": receipt.GatewayKeyID,
 	}
+	domain := signatureDomainV1
+	if receipt.Version == VersionV2 || receipt.Version == VersionV3 {
+		domain = signatureDomainV2
+		unsigned["datasource_id"] = receipt.DatasourceID
+		unsigned["schema_digest"] = receipt.SchemaDigest
+	}
+	if receipt.Version == VersionV3 {
+		domain = signatureDomainV3
+		unsigned["signed_at"] = receipt.SignedAt
+	}
 	canonical, err := approval.CanonicalJSON(unsigned)
 	if err != nil {
 		return nil, err
 	}
-	return append([]byte(signatureDomain), canonical...), nil
+	return append([]byte(domain), canonical...), nil
 }
 
 func isSHA256(value string) bool {

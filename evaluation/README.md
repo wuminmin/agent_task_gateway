@@ -10,8 +10,9 @@ The driver executes the same deterministic, ordered result set through:
 
 1. `direct_postgresql`: a persistent PostgreSQL connection using a read-only
    transaction and the physical benchmark tables.
-2. `native_view_rls`: a distinct non-owner PostgreSQL role restricted to the
-   native reporting views (deployments may add RLS beneath those views).
+2. `native_view`: a distinct non-owner PostgreSQL role restricted to the
+   native reporting views. It is not labeled RLS unless the deployment adds and
+   records real PostgreSQL RLS policies separately.
 3. `ast_only_gateway`: `evaluation/cmd/ast-gateway`, which uses the repository's
    PostgreSQL AST policy/rewrite and read-only connector but has no task,
    approval, Control PostgreSQL, budget ledger, or receipt work.
@@ -19,21 +20,43 @@ The driver executes the same deterministic, ordered result set through:
    independent tasks.
 
 Direct and native queries use physical/view names; both Gateway paths use the
-logical product name. Every query is ordered. The driver hashes returned rows
-and fails the run if a query is unstable or differs across baselines.
+logical product name. The query files are semantically equivalent variants, not
+identical text. Every query orders its result set. The driver hashes returned
+rows and fails the run if a query is unstable or differs across baselines.
 
 Each worker owns a distinct TaskGate task and issues only one query at a time.
-Warmups complete before measurement begins. Full configurations use five
-warmups and 30 measured runs **per worker** at concurrency 1, 8, and 32 for
-TPC-H and TPC-DS SF1/SF10.
+The checked configs record `task_concurrency_mode=distinct_task`; a same-task
+mode is supported only when the task pool supplies exactly one shared task for
+that cell. Warmups complete before measurement begins, and the checked configs
+record `cache_strategy=warm`. Full configurations use five warmups and 30
+measured runs **per worker** at concurrency 1, 8, and 32 for TPC-derived
+TPC-H/TPC-DS-shaped SF1/SF10 workloads. The runner records
+`ordering_strategy=seeded_random`, `baseline_order_seed`, and the exact cell
+execution order in `run.json`.
+
+Custom configs may instead record `cache_strategy=cold`. Cold mode requires a
+`cache_reset_env` command for every experiment/baseline, runs that command
+after warmup and immediately before measured timing for the cell, and records
+the reset-command path and SHA-256 in `run.json`. This is a cell-level cache
+reset hook; claims that need per-observation cold cache must use a separately
+defined config and measurement method.
 
 ## Prerequisites
 
 - Docker Engine and a network path from the evaluation container to every
   service.
 - Four isolated PostgreSQL/Gateway deployment paths for each selected dataset.
-- Licensed TPC-H/TPC-DS kits and generated SF1/SF10 data. See
-  `datasets/README.md`; generated data is intentionally not redistributed.
+- Licensed TPC-H/TPC-DS kits or another documented generator for the
+  TPC-derived SF1/SF10 data. See `datasets/README.md`; generated data is
+  intentionally not redistributed. Do not claim standard TPC-H/TPC-DS
+  compliance unless the official generator, templates, and all rules are
+  independently satisfied and recorded.
+- For a full run, a repository-local environment manifest named by
+  `EVAL_ENVIRONMENT_MANIFEST`. It must be a `schema_version=1` JSON object with
+  `host`, `software`, `database`, and `datasets` objects covering CPU, memory,
+  kernel, storage, Docker/Go/PostgreSQL versions, image digests, database
+  parameters, generator/version/seed, import/data fingerprints, and cache
+  policy. The runner stores the manifest path and SHA-256 in `run.json`.
 - One ACTIVE TaskGate task per worker **and per concurrency cell**. Every task
   ID must be globally distinct across all four experiments and all concurrency
   cells; do not reuse a task between SF1/SF10, TPC-H/TPC-DS, or concurrency
@@ -44,6 +67,9 @@ TPC-H and TPC-DS SF1/SF10.
   four-experiment pool.
 - For a full run, a real metrics probe per baseline and dataset. It should
   query the deployment's monitoring system over the supplied time window.
+- For a custom cold-cache run, a real cache-reset command per baseline and
+  dataset. It must reset only the deployment resources assigned to that
+  baseline cell and must not erase raw evidence.
 
 Create the ignored local environment file, then replace every placeholder used
 by the selected suite:
@@ -145,12 +171,29 @@ do not apply, but a paper must leave them unreported rather than infer values.
 The harness does not mount the Docker socket or guess server resource use from
 client process metrics.
 
+## Cache reset contract
+
+Cold-cache configs name environment variables whose values use the same JSON
+argv format and `/workspace` executable requirement as metrics probes. The
+runner invokes the command with:
+
+- `EVAL_CACHE_EXPERIMENT`
+- `EVAL_CACHE_BASELINE`
+- `EVAL_CACHE_CONCURRENCY`
+- `EVAL_CACHE_PHASE`
+
+The current cold phase is `measurement_start`. Any nonzero exit status fails
+the cell before measured samples are collected. Artifact generation verifies
+the recorded reset-command path and SHA-256 for cold full campaigns.
+
 ## Raw and derived data
 
 Every run gets a new `raw/<run-id>/` directory:
 
-- `run.json`: config/workload/dataset/probe paths and digests, campaign and Git
-  provenance, endpoints with secrets removed, and success/failure status.
+- `run.json`: config/workload/dataset/probe/environment paths and digests,
+  campaign and Git provenance, seeded cell order, cache/task-concurrency mode,
+  cache-reset provenance when `cache_strategy=cold`, endpoints with secrets
+  removed, and success/failure status.
 - `samples.jsonl` and `samples.csv`: one measured query per row.
 - `cells.jsonl`: elapsed interval, observed throughput, and probe output.
 - `campaign-<id>.json`: the exact SF1+SF10 run IDs and their sealed `run.json`
@@ -164,9 +207,10 @@ make artifacts
 
 By default the generator selects the latest publishable full campaign, or the
 latest smoke suite only when no completed full run exists. A publishable
-campaign is exactly one SF1 and one SF10 suite with exact TPC-H/TPC-DS,
+campaign is exactly one SF1 and one SF10 suite with exact TPC-derived workload,
 four-baseline, and concurrency 1/8/32 coverage; both runs must have the same
-campaign ID, known Git revision, clean worktree, runtime provenance, and a
+campaign ID, known Git revision, clean worktree, ordering/cache/task-mode and
+environment provenance, cold reset-command provenance when applicable, and a
 matching complete campaign manifest. Partial, dirty, mixed-revision, or
 unlinked full runs are never labeled complete. With `--allow-empty` they
 produce `performance.status=not_measured`; ordinary artifact generation fails.
@@ -181,8 +225,11 @@ EVAL_RAW_RUNS=evaluation/raw/full-sf1-...:evaluation/raw/full-sf10-... make arti
 ```
 
 The output `generated/paper-results.json` includes SHA-256 provenance for every
-raw input. Percentiles use Hyndman-Fan type 7. No human-study metric is present;
-approval counts are computational protocol events only.
+raw input. Latency summaries are per query, baseline, and concurrency.
+Percentiles use Hyndman-Fan type 7. p99 is withheld unless a row has at least
+10,000 observations. p50 bootstrap intervals and direct-baseline ratios are
+deterministic derived statistics, not additional measurements. No human-study
+metric is present; approval counts are computational protocol events only.
 
 ## Fuzz and attack scaffolding
 

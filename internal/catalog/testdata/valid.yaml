@@ -1,11 +1,14 @@
 catalog_version: "2026.07.21"
 sources:
   - name: expenses
+    datasource_id: taskgate-test-expenses
     type: postgres
     address: postgres
     port: 5432
     database: travel_demo
     user: gateway_reader
+    postgres_major_version: 16
+    schema_digest: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
     secretRef: env:EXPENSES_DB_PASSWORD
 products:
   - name: expense_summary

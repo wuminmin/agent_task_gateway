@@ -65,6 +65,24 @@ func (s *Store) GetPrincipalBySubject(ctx context.Context, subject string) (Prin
 SELECT id, subject, role, token_hash, created_at, disabled_at FROM principals WHERE subject = $1`, subject))
 }
 
+func (s *Store) DisablePrincipal(ctx context.Context, principalID string, disabledAt time.Time) (Principal, error) {
+	const op = "disable principal"
+	if err := s.checkOpen(op); err != nil {
+		return Principal{}, err
+	}
+	if strings.TrimSpace(principalID) == "" {
+		return Principal{}, opErr(op, ErrInvalid, fmt.Errorf("principal id is required"))
+	}
+	if disabledAt.IsZero() {
+		disabledAt = s.now()
+	}
+	return scanPrincipal(op, s.db.QueryRowContext(ctx, `
+UPDATE principals
+SET disabled_at = COALESCE(disabled_at, $2)
+WHERE id = $1
+RETURNING id, subject, role, token_hash, created_at, disabled_at`, principalID, dbTime(disabledAt)))
+}
+
 func scanPrincipal(op string, row rowScanner) (Principal, error) {
 	var principal Principal
 	var created time.Time
@@ -301,7 +319,9 @@ func (s *Store) PutGrant(ctx context.Context, grant TaskGrant) error {
 	if err := s.checkOpen(op); err != nil {
 		return err
 	}
-	if grant.TaskID == "" || grant.Subject == "" || grant.Purpose == "" || grant.CatalogVersion == "" || grant.ApprovalReceipt == "" || grant.ExpiresAt.IsZero() {
+	if grant.TaskID == "" || grant.Subject == "" || grant.Purpose == "" || grant.CatalogVersion == "" ||
+		!validSHA256Hex(grant.CatalogDigest) || grant.DatasourceID == "" || !validSHA256Hex(grant.SchemaDigest) ||
+		grant.ApprovalReceipt == "" || grant.ExpiresAt.IsZero() {
 		return opErr(op, ErrInvalid, fmt.Errorf("required grant field is empty"))
 	}
 	if grant.Budget.Queries <= 0 || grant.Budget.Rows <= 0 || grant.Budget.DBMS <= 0 {
@@ -342,7 +362,11 @@ func (s *Store) PutGrant(ctx context.Context, grant TaskGrant) error {
 	}
 	_, err = appendAuditTx(ctx, tx, AuditEvent{
 		TaskID: grant.TaskID, Actor: grant.Subject, EventType: "TASK_GRANT_CREATED", OccurredAt: grant.CreatedAt,
-		Payload: mustJSON(map[string]any{"catalog_version": grant.CatalogVersion, "budget": grant.Budget, "expires_at": formatTime(grant.ExpiresAt)}),
+		Payload: mustJSON(map[string]any{
+			"catalog_version": grant.CatalogVersion, "catalog_digest": grant.CatalogDigest,
+			"datasource_id": grant.DatasourceID, "schema_digest": grant.SchemaDigest,
+			"budget": grant.Budget, "expires_at": formatTime(grant.ExpiresAt),
+		}),
 	})
 	if err != nil {
 		return opErr(op, ErrConflict, err)
@@ -357,10 +381,11 @@ func insertGrantAndBudget(ctx context.Context, tx *sql.Tx, grant TaskGrant, prod
 	_, err := tx.ExecContext(ctx, `
 INSERT INTO task_grants(task_id, subject, purpose, approved_products_json, approved_columns_json,
  mandatory_scope_json, sensitivity_ceiling, max_queries, max_rows, max_db_ms, expires_at,
- catalog_version, approval_receipt, created_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`, grant.TaskID, grant.Subject, grant.Purpose,
+ catalog_version, catalog_digest, datasource_id, schema_digest, approval_receipt, created_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`, grant.TaskID, grant.Subject, grant.Purpose,
 		string(products), string(columns), string(scope), grant.SensitivityCeiling, grant.Budget.Queries, grant.Budget.Rows,
-		grant.Budget.DBMS, dbTime(grant.ExpiresAt), grant.CatalogVersion, grant.ApprovalReceipt,
+		grant.Budget.DBMS, dbTime(grant.ExpiresAt), grant.CatalogVersion, grant.CatalogDigest,
+		grant.DatasourceID, grant.SchemaDigest, grant.ApprovalReceipt,
 		dbTime(grant.CreatedAt))
 	if err != nil {
 		return err
@@ -382,10 +407,12 @@ func (s *Store) GetGrant(ctx context.Context, taskID string) (TaskGrant, error) 
 	var expires, created time.Time
 	err := s.db.QueryRowContext(ctx, `
 SELECT task_id, subject, purpose, approved_products_json, approved_columns_json, mandatory_scope_json,
- sensitivity_ceiling, max_queries, max_rows, max_db_ms, expires_at, catalog_version, approval_receipt, created_at
+ sensitivity_ceiling, max_queries, max_rows, max_db_ms, expires_at, catalog_version, catalog_digest,
+ datasource_id, schema_digest, approval_receipt, created_at
 FROM task_grants WHERE task_id=$1`, taskID).Scan(&grant.TaskID, &grant.Subject, &grant.Purpose, &products,
 		&columns, &scope, &grant.SensitivityCeiling, &grant.Budget.Queries, &grant.Budget.Rows, &grant.Budget.DBMS,
-		&expires, &grant.CatalogVersion, &grant.ApprovalReceipt, &created)
+		&expires, &grant.CatalogVersion, &grant.CatalogDigest, &grant.DatasourceID, &grant.SchemaDigest,
+		&grant.ApprovalReceipt, &created)
 	if err != nil {
 		if isNoRows(err) {
 			return TaskGrant{}, opErr(op, ErrNotFound, err)

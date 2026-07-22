@@ -13,9 +13,14 @@
     {"id": "dangerous-function", "file": "sql/dangerous_function.sql", "expected": "SQL_FUNCTION_NOT_ALLOWED"},
     {"id": "unauthorized-column", "file": "sql/unauthorized_column.sql", "expected": "SQL_COLUMN_NOT_ALLOWED"},
     {"id": "unauthorized-union", "file": "sql/unauthorized_union.sql", "expected": "SQL_OBJECT_NOT_ALLOWED"},
+    {"id": "ambiguous-column", "file": "sql/ambiguous_column.sql", "expected": "SQL_COLUMN_NOT_ALLOWED"},
+    {"id": "alias-shadow", "file": "sql/alias_shadow.sql", "expected": "SQL_OBJECT_NOT_ALLOWED"},
+    {"id": "cte-shadow-column", "file": "sql/cte_shadow_column.sql", "expected": "SQL_COLUMN_NOT_ALLOWED"},
     {"id": "parameter", "file": "sql/parameter.sql", "expected": "SQL_PARAMETER_FORBIDDEN"},
     {"id": "comment-evasion", "file": "sql/comment_evasion.sql", "expected": "SQL_MULTIPLE_STATEMENTS"},
     {"id": "scope-contradiction", "file": "sql/scope_contradiction.sql", "expected": "ALLOW_WITH_MANDATORY_SCOPE"},
-    {"id": "nested-authorized", "file": "sql/nested_authorized.sql", "expected": "ALLOW_WITH_MANDATORY_SCOPE"}
+    {"id": "nested-authorized", "file": "sql/nested_authorized.sql", "expected": "ALLOW_WITH_MANDATORY_SCOPE"},
+    {"id": "correlated-authorized", "file": "sql/correlated_authorized.sql", "expected": "ALLOW_WITH_MANDATORY_SCOPE"},
+    {"id": "structural-nodes-authorized", "file": "sql/structural_nodes_authorized.sql", "expected": "ALLOW_WITH_MANDATORY_SCOPE"}
   ]
 }

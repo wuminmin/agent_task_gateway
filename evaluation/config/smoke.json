@@ -3,12 +3,17 @@
   "name": "taskgate-four-baseline-smoke",
   "mode": "smoke",
   "seed": 20260722,
+  "workload_lineage": "TPC-derived",
+  "ordering_strategy": "seeded_random",
+  "cache_strategy": "warm",
+  "task_concurrency_mode": "distinct_task",
+  "environment_manifest_env": "EVAL_ENVIRONMENT_MANIFEST",
   "warmup_runs_per_worker": 1,
   "measured_runs_per_worker": 3,
   "concurrency": [1],
   "baseline_order": [
     "direct_postgresql",
-    "native_view_rls",
+    "native_view",
     "ast_only_gateway",
     "full_taskgate"
   ],

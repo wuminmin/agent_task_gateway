@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"taskbound.local/agent-data-gateway/internal/apierr"
 	"taskbound.local/agent-data-gateway/internal/control"
@@ -117,6 +118,10 @@ func TestStructuredPlanAndDirectSQLKeepRawResultsOwnerOnly(t *testing.T) {
 	if strings.Contains(string(receiptJSON), "sensitive-row") {
 		t.Fatalf("Carol receipt leaked raw query data: %s", receiptJSON)
 	}
+	inclusion, ok := receipt["audit_inclusion"].(map[string]any)
+	if !ok || inclusion["terminal_event"] == nil || inclusion["checkpoint"] == nil || inclusion["successor_events"] == nil {
+		t.Fatalf("Carol receipt omitted audit inclusion evidence: %#v", receipt["audit_inclusion"])
+	}
 	for _, rawResultField := range []string{"rows", "columns"} {
 		if _, exists := receipt[rawResultField]; exists {
 			t.Fatalf("Carol receipt exposed raw result field %q: %#v", rawResultField, receipt)
@@ -143,5 +148,45 @@ func TestStructuredPlanAndDirectSQLKeepRawResultsOwnerOnly(t *testing.T) {
 	tampered.RowCount++
 	if verifier.Verify(tampered) == nil {
 		t.Fatal("tampered query receipt signature verified")
+	}
+}
+
+func TestDisabledPrincipalCannotUseStolenBearerToken(t *testing.T) {
+	harness := newGatewayHarness(t)
+	harness.createActiveSummaryTask(t, "task-disabled-principal")
+	first := mustCallGatewayTool(t, harness.service, harness.alice, "query_sql", map[string]any{
+		"task_id": "task-disabled-principal", "request_id": "before-disable-1", "sql": testSummarySQL,
+	})
+	queryID, ok := first["query_id"].(string)
+	if !ok || queryID == "" {
+		t.Fatalf("query result omitted query_id: %#v", first)
+	}
+	if len(harness.service.ListTools(harness.alice)) == 0 {
+		t.Fatal("Alice tools were hidden before principal disable")
+	}
+
+	disabled, err := harness.store.DisablePrincipal(context.Background(), harness.alice.ID, harness.clock.value.Add(time.Second))
+	if err != nil {
+		t.Fatalf("DisablePrincipal: %v", err)
+	}
+	if disabled.DisabledAt == nil {
+		t.Fatalf("disabled principal has nil disabled_at: %+v", disabled)
+	}
+	if tools := harness.service.ListTools(harness.alice); len(tools) != 0 {
+		t.Fatalf("disabled principal still sees tools: %#v", tools)
+	}
+
+	_, err = callGatewayTool(harness.service, harness.alice, "list_data_products", map[string]any{})
+	requireToolCode(t, err, apierr.CodeForbidden)
+	_, err = callGatewayTool(harness.service, harness.alice, "query_sql", map[string]any{
+		"task_id": "task-disabled-principal", "request_id": "after-disable-1", "sql": testSummarySQL,
+	})
+	requireToolCode(t, err, apierr.CodeForbidden)
+	_, err = callGatewayTool(harness.service, harness.alice, "get_query_result", map[string]any{
+		"task_id": "task-disabled-principal", "query_id": queryID,
+	})
+	requireToolCode(t, err, apierr.CodeForbidden)
+	if len(harness.connector.requests) != 1 {
+		t.Fatalf("disabled principal reached connector: %d calls", len(harness.connector.requests))
 	}
 }

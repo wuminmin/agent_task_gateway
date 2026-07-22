@@ -70,6 +70,96 @@ func TestSchemaAttestationComparisonIsExact(t *testing.T) {
 	}
 }
 
+func TestSchemaDigestIsDeterministicAndColumnOrderSensitive(t *testing.T) {
+	left, err := SchemaDigest([]ViewSchema{
+		{Schema: "reporting", View: "expense_summary", Columns: []SchemaColumn{{Name: "month", PostgreSQLType: "text"}, {Name: "total_amount", PostgreSQLType: "numeric"}}},
+		{Schema: "reporting", View: "expense_detail", Columns: []SchemaColumn{{Name: "receipt_no", PostgreSQLType: "text"}}},
+	})
+	if err != nil {
+		t.Fatalf("SchemaDigest: %v", err)
+	}
+	right, err := SchemaDigest([]ViewSchema{
+		{Schema: "reporting", View: "expense_detail", Columns: []SchemaColumn{{Name: "receipt_no", PostgreSQLType: "TEXT"}}},
+		{Schema: "reporting", View: "expense_summary", Columns: []SchemaColumn{{Name: "month", PostgreSQLType: "TEXT"}, {Name: "total_amount", PostgreSQLType: "numeric"}}},
+	})
+	if err != nil {
+		t.Fatalf("SchemaDigest reordered views: %v", err)
+	}
+	if left != right {
+		t.Fatalf("schema digest depends on view order: %s != %s", left, right)
+	}
+	reorderedColumns, err := SchemaDigest([]ViewSchema{
+		{Schema: "reporting", View: "expense_summary", Columns: []SchemaColumn{{Name: "total_amount", PostgreSQLType: "numeric"}, {Name: "month", PostgreSQLType: "text"}}},
+		{Schema: "reporting", View: "expense_detail", Columns: []SchemaColumn{{Name: "receipt_no", PostgreSQLType: "text"}}},
+	})
+	if err != nil {
+		t.Fatalf("SchemaDigest reordered columns: %v", err)
+	}
+	if reorderedColumns == left {
+		t.Fatal("schema digest accepted reordered columns")
+	}
+	changedDefinition, err := SchemaDigest([]ViewSchema{
+		{Schema: "reporting", View: "expense_summary", Definition: "SELECT month, total_amount FROM source_a", Columns: []SchemaColumn{{Name: "month", PostgreSQLType: "text"}, {Name: "total_amount", PostgreSQLType: "numeric"}}},
+		{Schema: "reporting", View: "expense_detail", Columns: []SchemaColumn{{Name: "receipt_no", PostgreSQLType: "text"}}},
+	})
+	if err != nil {
+		t.Fatalf("SchemaDigest changed definition: %v", err)
+	}
+	if changedDefinition == left {
+		t.Fatal("schema digest accepted changed view definition")
+	}
+	sameDefinitionSpacing, err := SchemaDigest([]ViewSchema{
+		{Schema: "reporting", View: "expense_summary", Definition: "SELECT   month,\n total_amount   FROM source_a", Columns: []SchemaColumn{{Name: "month", PostgreSQLType: "text"}, {Name: "total_amount", PostgreSQLType: "numeric"}}},
+		{Schema: "reporting", View: "expense_detail", Columns: []SchemaColumn{{Name: "receipt_no", PostgreSQLType: "text"}}},
+	})
+	if err != nil {
+		t.Fatalf("SchemaDigest definition spacing: %v", err)
+	}
+	if sameDefinitionSpacing != changedDefinition {
+		t.Fatal("schema digest depended on insignificant definition whitespace")
+	}
+}
+
+func TestPostgreSQLMajorVersionParsing(t *testing.T) {
+	for input, want := range map[string]int{"160002": 16, "150007": 15, "90624": 9} {
+		got, err := postgresMajorVersion(input)
+		if err != nil || got != want {
+			t.Fatalf("postgresMajorVersion(%q) = %d, %v; want %d", input, got, err, want)
+		}
+	}
+	if _, err := postgresMajorVersion("not-a-version"); err == nil {
+		t.Fatal("invalid PostgreSQL version was accepted")
+	}
+}
+
+func TestCompareAttestationRejectsIdentityAndSchemaMismatches(t *testing.T) {
+	expected := ExpectedAttestation{
+		DatasourceID: "taskgate-test-expenses", Database: "travel_demo",
+		User: "gateway_reader", PostgreSQLMajorVersion: 16,
+	}
+	valid := Attestation{
+		DatasourceID: "taskgate-test-expenses", Database: "travel_demo",
+		User: "gateway_reader", PostgreSQLMajorVersion: 16,
+		SchemaDigest: strings.Repeat("a", 64),
+	}
+	for name, mutate := range map[string]func(*Attestation){
+		"datasource": func(value *Attestation) { value.DatasourceID = "other-source" },
+		"database":   func(value *Attestation) { value.Database = "other_database" },
+		"user":       func(value *Attestation) { value.User = "other_reader" },
+		"version":    func(value *Attestation) { value.PostgreSQLMajorVersion = 15 },
+		"schema":     func(value *Attestation) { value.SchemaDigest = strings.Repeat("b", 64) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			actual := valid
+			mutate(&actual)
+			connector := Connector{expectedAttestation: expected, expectedSchemaDigest: valid.SchemaDigest}
+			if err := connector.compareAttestation(actual); !IsCode(err, CodeSchemaDrift) {
+				t.Fatalf("compareAttestation() = %v, want %s", err, CodeSchemaDrift)
+			}
+		})
+	}
+}
+
 func TestClassifyQueryError(t *testing.T) {
 	tests := []struct {
 		name string

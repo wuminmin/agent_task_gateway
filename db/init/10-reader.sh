@@ -10,5 +10,5 @@ ALTER ROLE gateway_reader SET statement_timeout = '5s';
 ALTER ROLE gateway_reader SET search_path = pg_catalog;
 GRANT CONNECT ON DATABASE :DBNAME TO gateway_reader;
 GRANT USAGE ON SCHEMA reporting TO gateway_reader;
-GRANT SELECT ON reporting.expense_summary, reporting.expense_detail TO gateway_reader;
+GRANT SELECT ON reporting.datasource_attestation, reporting.expense_summary, reporting.expense_detail TO gateway_reader;
 SQL
