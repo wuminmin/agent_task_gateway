@@ -16,6 +16,8 @@ products:
     reporting_view: reporting.expense_summary
     description: Monthly travel expense aggregates
     sensitivity: low
+    snapshot: test-travel-2026-v1
+    entity_key: [month, department]
     fields:
       - name: month
         type: date
@@ -34,6 +36,8 @@ products:
     reporting_view: reporting.expense_detail
     description: Employee-level travel expense records
     sensitivity: high
+    snapshot: test-travel-2026-v1
+    entity_key: [claim_number]
     fields:
       - name: claim_number
         type: text

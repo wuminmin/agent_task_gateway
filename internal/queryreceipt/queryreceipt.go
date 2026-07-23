@@ -23,9 +23,11 @@ const (
 	VersionV1         = "1"
 	VersionV2         = "2"
 	VersionV3         = "3"
+	VersionV4         = "4"
 	signatureDomainV1 = "TASKGATE-QUERY-RECEIPT-V1\x00"
 	signatureDomainV2 = "TASKGATE-QUERY-RECEIPT-V2\x00"
 	signatureDomainV3 = "TASKGATE-QUERY-RECEIPT-V3\x00"
+	signatureDomainV4 = "TASKGATE-QUERY-RECEIPT-V4\x00"
 
 	StatusCompleted     = "COMPLETED"
 	StatusReleased      = "RELEASED"
@@ -53,44 +55,55 @@ type BudgetStateV1 struct {
 	Reserved BudgetVectorV1 `json:"reserved"`
 }
 
+type ExposureEvidenceV1 struct {
+	RootTaskID            string `json:"root_task_id"`
+	ProfileVersion        string `json:"profile_version"`
+	ActualReleaseFacts    int64  `json:"actual_release_facts"`
+	ActualInfluenceFacts  int64  `json:"actual_influence_facts"`
+	ChargedReleaseFacts   int64  `json:"charged_release_facts"`
+	ChargedInfluenceFacts int64  `json:"charged_influence_facts"`
+	ObservationSHA256     string `json:"observation_sha256"`
+}
+
 // QueryReceiptV1 contains no raw rows, SQL text, credentials, or physical
 // relation names. Signature is unpadded base64url Ed25519.
 type QueryReceiptV1 struct {
-	Version           string         `json:"version"`
-	ReceiptID         string         `json:"receipt_id"`
-	TaskID            string         `json:"task_id"`
-	QueryID           string         `json:"query_id"`
-	RequestID         string         `json:"request_id"`
-	ManifestDigest    string         `json:"manifest_digest"`
-	GrantDigest       string         `json:"grant_digest"`
-	CatalogDigest     string         `json:"catalog_digest"`
-	CatalogVersion    string         `json:"catalog_version"`
-	DatasourceID      string         `json:"datasource_id"`
-	SchemaDigest      string         `json:"schema_digest"`
-	RequestDigest     string         `json:"request_digest"`
-	SQLFingerprint    string         `json:"sql_fingerprint"`
-	PolicyDecision    string         `json:"policy_decision"`
-	BudgetBefore      BudgetStateV1  `json:"budget_before"`
-	BudgetReserved    BudgetVectorV1 `json:"budget_reserved"`
-	BudgetCharged     BudgetVectorV1 `json:"budget_charged"`
-	BudgetAfter       BudgetStateV1  `json:"budget_after"`
-	RowCount          int64          `json:"row_count"`
-	DatabaseMS        int64          `json:"db_ms"`
-	ResultHash        string         `json:"result_hash"`
-	Status            string         `json:"status"`
-	ErrorCode         string         `json:"error_code"`
-	CreatedAt         time.Time      `json:"created_at"`
-	CompletedAt       time.Time      `json:"completed_at"`
-	AuditSequence     int64          `json:"audit_sequence"`
-	PreviousAuditHash string         `json:"previous_audit_hash"`
-	AuditHash         string         `json:"audit_hash"`
-	SignedAt          *time.Time     `json:"signed_at,omitempty"`
-	GatewayKeyID      string         `json:"gateway_key_id"`
-	Signature         string         `json:"signature"`
+	Version           string              `json:"version"`
+	ReceiptID         string              `json:"receipt_id"`
+	TaskID            string              `json:"task_id"`
+	QueryID           string              `json:"query_id"`
+	RequestID         string              `json:"request_id"`
+	ManifestDigest    string              `json:"manifest_digest"`
+	GrantDigest       string              `json:"grant_digest"`
+	CatalogDigest     string              `json:"catalog_digest"`
+	CatalogVersion    string              `json:"catalog_version"`
+	DatasourceID      string              `json:"datasource_id"`
+	SchemaDigest      string              `json:"schema_digest"`
+	RequestDigest     string              `json:"request_digest"`
+	SQLFingerprint    string              `json:"sql_fingerprint"`
+	PolicyDecision    string              `json:"policy_decision"`
+	BudgetBefore      BudgetStateV1       `json:"budget_before"`
+	BudgetReserved    BudgetVectorV1      `json:"budget_reserved"`
+	BudgetCharged     BudgetVectorV1      `json:"budget_charged"`
+	BudgetAfter       BudgetStateV1       `json:"budget_after"`
+	RowCount          int64               `json:"row_count"`
+	DatabaseMS        int64               `json:"db_ms"`
+	ResultHash        string              `json:"result_hash"`
+	Status            string              `json:"status"`
+	ErrorCode         string              `json:"error_code"`
+	CreatedAt         time.Time           `json:"created_at"`
+	CompletedAt       time.Time           `json:"completed_at"`
+	AuditSequence     int64               `json:"audit_sequence"`
+	PreviousAuditHash string              `json:"previous_audit_hash"`
+	AuditHash         string              `json:"audit_hash"`
+	SignedAt          *time.Time          `json:"signed_at,omitempty"`
+	GatewayKeyID      string              `json:"gateway_key_id"`
+	Signature         string              `json:"signature"`
+	Exposure          *ExposureEvidenceV1 `json:"exposure,omitempty"`
 }
 
 func (r QueryReceiptV1) ValidateUnsigned() error {
-	if r.Version != VersionV1 && r.Version != VersionV2 && r.Version != VersionV3 {
+	if r.Version != VersionV1 && r.Version != VersionV2 && r.Version != VersionV3 && r.Version != VersionV4 {
 		return fmt.Errorf("%w: unsupported version %q", ErrInvalidReceipt, r.Version)
 	}
 	if strings.TrimSpace(r.ReceiptID) == "" || strings.TrimSpace(r.TaskID) == "" ||
@@ -103,7 +116,7 @@ func (r QueryReceiptV1) ValidateUnsigned() error {
 		"request_digest":      r.RequestDigest,
 		"previous_audit_hash": r.PreviousAuditHash, "audit_hash": r.AuditHash,
 	}
-	if r.Version == VersionV2 || r.Version == VersionV3 {
+	if r.Version == VersionV2 || r.Version == VersionV3 || r.Version == VersionV4 {
 		digests["schema_digest"] = r.SchemaDigest
 	}
 	for name, value := range digests {
@@ -111,7 +124,7 @@ func (r QueryReceiptV1) ValidateUnsigned() error {
 			return fmt.Errorf("%w: %s is not lowercase SHA-256", ErrInvalidReceipt, name)
 		}
 	}
-	if (r.Version == VersionV2 || r.Version == VersionV3) && strings.TrimSpace(r.DatasourceID) == "" {
+	if (r.Version == VersionV2 || r.Version == VersionV3 || r.Version == VersionV4) && strings.TrimSpace(r.DatasourceID) == "" {
 		return fmt.Errorf("%w: datasource_id is required", ErrInvalidReceipt)
 	}
 	if strings.TrimSpace(r.CatalogVersion) == "" || strings.TrimSpace(r.SQLFingerprint) == "" ||
@@ -123,7 +136,7 @@ func (r QueryReceiptV1) ValidateUnsigned() error {
 	if r.CompletedAt.Before(r.CreatedAt) {
 		return fmt.Errorf("%w: completion precedes creation", ErrInvalidReceipt)
 	}
-	if r.Version == VersionV3 {
+	if r.Version == VersionV3 || r.Version == VersionV4 {
 		if r.SignedAt == nil || r.SignedAt.IsZero() {
 			return fmt.Errorf("%w: signed_at is required", ErrInvalidReceipt)
 		}
@@ -142,6 +155,19 @@ func (r QueryReceiptV1) ValidateUnsigned() error {
 	}
 	if r.ResultHash != "" && !isSHA256(r.ResultHash) {
 		return fmt.Errorf("%w: result hash is invalid", ErrInvalidReceipt)
+	}
+	if r.Exposure != nil {
+		exposure := r.Exposure
+		if r.Version != VersionV4 || strings.TrimSpace(exposure.RootTaskID) == "" ||
+			strings.TrimSpace(exposure.ProfileVersion) == "" || !isSHA256(exposure.ObservationSHA256) ||
+			exposure.ActualReleaseFacts < 0 || exposure.ActualInfluenceFacts < 0 ||
+			exposure.ChargedReleaseFacts < 0 || exposure.ChargedInfluenceFacts < 0 ||
+			exposure.ChargedReleaseFacts > exposure.ActualReleaseFacts ||
+			exposure.ChargedInfluenceFacts > exposure.ActualInfluenceFacts {
+			return fmt.Errorf("%w: exposure evidence is invalid", ErrInvalidReceipt)
+		}
+	} else if r.Version == VersionV4 {
+		return fmt.Errorf("%w: V4 requires exposure evidence", ErrInvalidReceipt)
 	}
 	if err := r.validateBudgetSemantics(); err != nil {
 		return err
@@ -525,7 +551,7 @@ func signingPayload(receipt QueryReceiptV1) ([]byte, error) {
 		"audit_hash": receipt.AuditHash, "gateway_key_id": receipt.GatewayKeyID,
 	}
 	domain := signatureDomainV1
-	if receipt.Version == VersionV2 || receipt.Version == VersionV3 {
+	if receipt.Version == VersionV2 || receipt.Version == VersionV3 || receipt.Version == VersionV4 {
 		domain = signatureDomainV2
 		unsigned["datasource_id"] = receipt.DatasourceID
 		unsigned["schema_digest"] = receipt.SchemaDigest
@@ -533,6 +559,11 @@ func signingPayload(receipt QueryReceiptV1) ([]byte, error) {
 	if receipt.Version == VersionV3 {
 		domain = signatureDomainV3
 		unsigned["signed_at"] = receipt.SignedAt
+	}
+	if receipt.Version == VersionV4 {
+		domain = signatureDomainV4
+		unsigned["signed_at"] = receipt.SignedAt
+		unsigned["exposure"] = receipt.Exposure
 	}
 	canonical, err := approval.CanonicalJSON(unsigned)
 	if err != nil {

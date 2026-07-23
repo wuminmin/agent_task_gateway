@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
@@ -137,6 +138,10 @@ func (s *Service) handleOACallback(w http.ResponseWriter, r *http.Request) {
 			writeCallbackError(w, http.StatusConflict, "approval grant or receipt is invalid")
 			return
 		}
+		if err := s.validateDelegatedGrant(r.Context(), task, finalGrant.Core, event.OccurredAt.UTC()); err != nil {
+			writeCallbackError(w, http.StatusConflict, "delegated grant exceeds or outlives its parent")
+			return
+		}
 		scope, err := json.Marshal(finalGrant.Core.MandatoryScope)
 		if err != nil {
 			writeCallbackError(w, http.StatusBadRequest, "approved scope is invalid")
@@ -155,6 +160,10 @@ func (s *Service) handleOACallback(w http.ResponseWriter, r *http.Request) {
 			MandatoryScope: scope, SensitivityCeiling: string(finalGrant.Core.SensitivityCeiling),
 			Budget: control.BudgetLimits{Queries: finalGrant.Core.Budget.MaxQueries,
 				Rows: finalGrant.Core.Budget.MaxResultRows, DBMS: finalGrant.Core.Budget.MaxDBMS},
+			Exposure: control.ExposureGrant{
+				Limits:         control.ExposureLimits{ReleaseFacts: finalGrant.Core.Budget.MaxReleaseFacts, InfluenceFacts: finalGrant.Core.Budget.MaxInfluenceFacts},
+				ProfileVersion: finalGrant.Core.Budget.ExposureProfileVersion,
+			},
 			ExpiresAt: finalGrant.Core.ExpiresAt, CatalogVersion: finalGrant.Core.CatalogVersion,
 			CatalogDigest: finalGrant.Core.CatalogSHA256, DatasourceID: finalGrant.Core.DatasourceID,
 			SchemaDigest:    finalGrant.Core.SchemaDigest,
@@ -211,7 +220,9 @@ func writeCallbackResponse(w http.ResponseWriter, response []byte) {
 func manifestMatchesTask(persisted persistedPendingContext, task control.Task, principal control.Principal, catalogSHA256 string) bool {
 	manifest := persisted.Manifest
 	pending := persisted.pendingContext
-	if manifest.TaskID != task.ID || manifest.HumanSubject != principal.Subject || manifest.AgentID != principal.ID ||
+	if manifest.TaskID != task.ID || manifest.RootTaskID != lineageValue(task.RootTaskID, task.ParentTaskID) ||
+		manifest.ParentTaskID != task.ParentTaskID || (task.ParentTaskID == "" && manifest.HumanSubject != principal.Subject) ||
+		manifest.AgentID != principal.ID ||
 		manifest.DeclaredObjective != task.Objective || manifest.CatalogVersion != task.CatalogVersion ||
 		manifest.CatalogSHA256 != catalogSHA256 || manifest.CallbackContext != pending.CallbackContext ||
 		manifest.Sensitivity != pending.Sensitivity || manifest.DatasourceID != pending.DatasourceID ||
@@ -224,6 +235,39 @@ func manifestMatchesTask(persisted persistedPendingContext, task control.Task, p
 	}
 	digest, err := approval.ManifestDigest(manifest)
 	return err == nil && sameSnapshotSHA256(digest, persisted.ManifestDigest)
+}
+
+func lineageValue(rootTaskID, parentTaskID string) string {
+	if parentTaskID == "" {
+		return ""
+	}
+	return rootTaskID
+}
+
+func (s *Service) validateDelegatedGrant(ctx context.Context, task control.Task, candidate domain.TaskGrantCoreV1, at time.Time) error {
+	if task.ParentTaskID == "" {
+		if candidate.RootTaskID != "" || candidate.ParentTaskID != "" {
+			return errors.New("root grant carries delegated lineage")
+		}
+		return nil
+	}
+	parentTask, err := s.store.GetTask(ctx, task.ParentTaskID)
+	if err != nil {
+		return err
+	}
+	if parentTask.State != control.TaskActive || parentTask.RootTaskID != task.RootTaskID {
+		return errors.New("parent task is not active in the same family")
+	}
+	stored, err := s.store.GetGrant(ctx, parentTask.ID)
+	if err != nil {
+		return err
+	}
+	protocol, err := approval.DecodeTaskGrantV1(stored.ApprovalReceipt)
+	if err != nil || approval.VerifyTaskGrantV1(s.receiptVerifier, protocol) != nil ||
+		!storedGrantMatchesProtocol(parentTask, stored, protocol) || protocol.Core.ValidateAt(at) != nil {
+		return errors.New("parent grant evidence is invalid")
+	}
+	return protocol.Core.CheckDelegation(candidate)
 }
 
 func sameCanonicalJSON(left, right any) bool {

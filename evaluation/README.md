@@ -1,8 +1,14 @@
 # Reproducible evaluation harness
 
-This directory implements the four-baseline TDSC evaluation without shipping
-benchmark data or checked-in measurements. It never substitutes mock timing
-data when a prerequisite is absent.
+This directory contains two evidence tracks. `exposure/` is the deterministic
+TKDE-oriented ground-truth, rewrite, anti-arbitrage, baseline-charge, and
+planner suite. The existing runner remains the four-path system-performance
+harness. Neither track substitutes mock timing data when a prerequisite is
+absent, and the older measurements are not relabeled as exposure overhead.
+
+Run the deterministic exposure suite with `make eval-exposure`. Its report
+marks RQ4 runtime overhead as unmeasured until a fresh external PostgreSQL
+campaign is supplied; see `exposure/README.md` for the exact RQ1-RQ5 boundary.
 
 ## Baselines and fairness boundary
 
@@ -17,7 +23,8 @@ The driver executes the same deterministic, ordered result set through:
    PostgreSQL AST policy/rewrite and read-only connector but has no task,
    approval, Control PostgreSQL, budget ledger, or receipt work.
 4. `full_taskgate`: the real Gateway `query_sql` MCP tool with pre-approved,
-   independent tasks.
+   independent resource-only tasks. It measures the older gateway path and is
+   not an exposure/provenance baseline.
 
 Direct and native queries use physical/view names; both Gateway paths use the
 logical product name. The query files are semantically equivalent variants, not

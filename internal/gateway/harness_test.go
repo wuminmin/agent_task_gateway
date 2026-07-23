@@ -54,6 +54,7 @@ type fakeConnector struct {
 	requests          []dataconnector.QueryRequest
 	deadlineRemaining []time.Duration
 	result            dataconnector.Result
+	provenanceResult  dataconnector.Result
 	queryErr          error
 	pingErr           error
 	attestation       dataconnector.Attestation
@@ -79,6 +80,31 @@ func (connector *fakeConnector) Query(ctx context.Context, request dataconnector
 		}
 	}
 	return connector.result, connector.queryErr
+}
+
+func (connector *fakeConnector) QueryPair(ctx context.Context, request dataconnector.QueryPairRequest) (dataconnector.QueryPairResult, error) {
+	connector.requests = append(connector.requests, request.Visible, request.Provenance)
+	if deadline, ok := ctx.Deadline(); ok {
+		connector.deadlineRemaining = append(connector.deadlineRemaining, time.Until(deadline))
+	}
+	if connector.started != nil {
+		connector.startOnce.Do(func() { close(connector.started) })
+	}
+	if connector.release != nil {
+		select {
+		case <-connector.release:
+		case <-ctx.Done():
+			return dataconnector.QueryPairResult{}, &dataconnector.Error{Code: dataconnector.CodeQueryTimeout}
+		}
+	}
+	if connector.queryErr != nil {
+		return dataconnector.QueryPairResult{}, connector.queryErr
+	}
+	provenance := connector.provenanceResult
+	if provenance.Columns == nil {
+		provenance = connector.result
+	}
+	return dataconnector.QueryPairResult{Visible: connector.result, Provenance: provenance}, nil
 }
 
 func (connector *fakeConnector) Ping(context.Context) error { return connector.pingErr }
@@ -220,10 +246,23 @@ func (harness *gatewayHarness) createNarrowedSummaryTask(t *testing.T, taskID st
 }
 
 func (harness *gatewayHarness) createSummaryTaskWithGrant(t *testing.T, taskID string, narrow func(*domain.TaskGrantCoreV1)) {
+	harness.createSummaryTaskWithGrantAndExposure(t, taskID, narrow, control.ExposureLimits{})
+}
+
+func (harness *gatewayHarness) createExposureSummaryTask(t *testing.T, taskID string, limits control.ExposureLimits) {
+	harness.createSummaryTaskWithGrantAndExposure(t, taskID, nil, limits)
+}
+
+func (harness *gatewayHarness) createSummaryTaskWithGrantAndExposure(t *testing.T, taskID string, narrow func(*domain.TaskGrantCoreV1), exposureLimits control.ExposureLimits) {
 	t.Helper()
 	budget := domain.Budget{
 		MaxQueries: 10, MaxRows: 500, MaxDBTime: 30 * time.Second,
 		PerQueryTimeout: 5 * time.Second, TaskTTL: 30 * time.Minute,
+	}
+	if exposureLimits.ReleaseFacts > 0 || exposureLimits.InfluenceFacts > 0 {
+		budget.MaxReleaseFacts = exposureLimits.ReleaseFacts
+		budget.MaxInfluenceFacts = exposureLimits.InfluenceFacts
+		budget.ExposureProfileVersion = "taskgate-exposure-v1"
 	}
 	pendingValue := pendingContext{
 		Products:       []string{"expense_summary"},
@@ -241,6 +280,8 @@ func (harness *gatewayHarness) createSummaryTaskWithGrant(t *testing.T, taskID s
 		Budget: approval.AuthorizationBudgetV1{
 			MaxQueries: budget.MaxQueries, MaxResultRows: budget.MaxRows, MaxDBMS: budget.MaxDBTime.Milliseconds(),
 			PerQueryTimeoutMS: budget.PerQueryTimeout.Milliseconds(), TaskTTLMS: budget.TaskTTL.Milliseconds(),
+			MaxReleaseFacts: budget.MaxReleaseFacts, MaxInfluenceFacts: budget.MaxInfluenceFacts,
+			ExposureProfileVersion: budget.ExposureProfileVersion,
 		},
 		CatalogVersion: harness.catalog.CatalogVersion, CatalogSHA256: harness.catalog.SHA256,
 		DatasourceID:    harness.connector.attestation.DatasourceID,
@@ -310,6 +351,10 @@ func (harness *gatewayHarness) createSummaryTaskWithGrant(t *testing.T, taskID s
 			MandatoryScope:   json.RawMessage(`{"department":["销售部"]}`), SensitivityCeiling: string(domain.SensitivityLow),
 			Budget: control.BudgetLimits{
 				Queries: core.Budget.MaxQueries, Rows: core.Budget.MaxResultRows, DBMS: core.Budget.MaxDBMS,
+			},
+			Exposure: control.ExposureGrant{
+				Limits:         control.ExposureLimits{ReleaseFacts: core.Budget.MaxReleaseFacts, InfluenceFacts: core.Budget.MaxInfluenceFacts},
+				ProfileVersion: core.Budget.ExposureProfileVersion,
 			},
 			ExpiresAt: core.ExpiresAt, CatalogVersion: harness.catalog.CatalogVersion,
 			CatalogDigest: core.CatalogSHA256, DatasourceID: core.DatasourceID, SchemaDigest: core.SchemaDigest,

@@ -22,9 +22,11 @@ func objectSchema(properties map[string]any, required ...string) map[string]any 
 
 var queryTools = []mcp.Tool{
 	{Name: "list_data_products", Description: "列出可申请的逻辑数据产品、字段、说明和敏感等级。", InputSchema: objectSchema(nil), Annotations: map[string]any{"readOnlyHint": true}},
-	{Name: "request_data_task", Description: "使用显式产品、字段和范围创建任务及 OA 草稿，最终策略由 Gateway 确定。", InputSchema: objectSchema(map[string]any{
-		"objective":     map[string]any{"type": "string", "minLength": 1, "maxLength": 4000},
-		"data_products": map[string]any{"type": "array", "items": map[string]any{"type": "string", "minLength": 1}, "minItems": 1, "uniqueItems": true},
+	{Name: "request_data_task", Description: "使用显式产品、字段和范围创建根任务或受父 Grant 约束的委托任务及 OA 草稿。", InputSchema: objectSchema(map[string]any{
+		"objective":             map[string]any{"type": "string", "minLength": 1, "maxLength": 4000},
+		"parent_task_id":        map[string]any{"type": "string", "minLength": 1},
+		"delegate_principal_id": map[string]any{"type": "string", "minLength": 1},
+		"data_products":         map[string]any{"type": "array", "items": map[string]any{"type": "string", "minLength": 1}, "minItems": 1, "uniqueItems": true},
 		"columns": map[string]any{"type": "object", "minProperties": 1, "additionalProperties": map[string]any{
 			"type": "array", "items": map[string]any{"type": "string", "minLength": 1}, "minItems": 1, "uniqueItems": true,
 		}},
@@ -34,8 +36,10 @@ var queryTools = []mcp.Tool{
 			objectSchema(map[string]any{"from": map[string]any{"type": "string"}, "to": map[string]any{"type": "string"}}),
 		}}},
 		"requested_budget": objectSchema(map[string]any{
-			"max_queries": map[string]any{"type": "integer", "minimum": 1},
-			"max_rows":    map[string]any{"type": "integer", "minimum": 1},
+			"max_queries":         map[string]any{"type": "integer", "minimum": 1},
+			"max_rows":            map[string]any{"type": "integer", "minimum": 1},
+			"max_release_facts":   map[string]any{"type": "integer", "minimum": 1},
+			"max_influence_facts": map[string]any{"type": "integer", "minimum": 1},
 		}),
 	}, "objective", "data_products", "columns", "scopes")},
 	{Name: "list_my_tasks", Description: "列出当前 Alice 身份自己的任务。", InputSchema: objectSchema(map[string]any{
@@ -58,6 +62,21 @@ var queryTools = []mcp.Tool{
 		"task_id": map[string]any{"type": "string"}, "query_id": map[string]any{"type": "string"},
 	}, "task_id", "query_id"), Annotations: map[string]any{"readOnlyHint": true}},
 	{Name: "get_budget", Description: "读取任务预算上限、已用和剩余值。", InputSchema: taskIDSchema(), Annotations: map[string]any{"readOnlyHint": true}},
+	{Name: "plan_exposure", Description: "在根任务剩余的释放和来源影响预算内，选择可测量效用最高的数据产品表示。", InputSchema: objectSchema(map[string]any{
+		"task_id": map[string]any{"type": "string"},
+		"candidates": map[string]any{"type": "array", "minItems": 1, "items": objectSchema(map[string]any{
+			"id": map[string]any{"type": "string", "minLength": 1}, "requirement": map[string]any{"type": "string", "minLength": 1},
+			"product":        map[string]any{"type": "string", "minLength": 1},
+			"representation": map[string]any{"type": "string", "enum": []string{"raw", "projection", "aggregate", "generalized"}},
+			"release_cost":   map[string]any{"type": "integer", "minimum": 0}, "influence_cost": map[string]any{"type": "integer", "minimum": 0},
+			"answer_completeness": map[string]any{"type": "number", "minimum": 0, "maximum": 1},
+			"query_coverage":      map[string]any{"type": "number", "minimum": 0, "maximum": 1},
+		}, "id", "requirement", "product", "representation", "release_cost", "influence_cost", "answer_completeness", "query_coverage")},
+		"weights": objectSchema(map[string]any{
+			"answer_completeness": map[string]any{"type": "number", "minimum": 0},
+			"query_coverage":      map[string]any{"type": "number", "minimum": 0},
+		}, "answer_completeness", "query_coverage"),
+	}, "task_id", "candidates"), Annotations: map[string]any{"readOnlyHint": true}},
 	{Name: "list_receipts", Description: "列出自己的查询审计凭证，不含物理表名或数据库凭据。", InputSchema: objectSchema(map[string]any{
 		"task_id": map[string]any{"type": "string"}, "cursor": map[string]any{"type": "string"},
 	}, "task_id"), Annotations: map[string]any{"readOnlyHint": true}},
@@ -148,6 +167,8 @@ func (s *Service) CallTool(ctx context.Context, principal mcp.Principal, name st
 			result, err = s.getQueryResult(ctx, principal, raw)
 		case "get_budget":
 			result, err = s.getBudget(ctx, principal, raw)
+		case "plan_exposure":
+			result, err = s.planExposure(ctx, principal, raw)
 		case "list_receipts":
 			result, err = s.listReceipts(ctx, principal, raw)
 		case "complete_task":

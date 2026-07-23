@@ -308,6 +308,9 @@ VALUES ($1, $2, $3, $4, $5, $6)`, callback.Event.EventID, callback.Event.TaskID,
 		if grant.Budget.Queries <= 0 || grant.Budget.Rows <= 0 || grant.Budget.DBMS <= 0 || grant.ExpiresAt.IsZero() {
 			return CallbackClaim{}, opErr(op, ErrInvalid, fmt.Errorf("invalid grant budget or expiry"))
 		}
+		if err := validateExposureGrant(grant.Exposure); err != nil {
+			return CallbackClaim{}, opErr(op, ErrInvalid, err)
+		}
 		if grant.CatalogVersion == "" || !validSHA256Hex(grant.CatalogDigest) ||
 			grant.DatasourceID == "" || !validSHA256Hex(grant.SchemaDigest) || grant.ApprovalReceipt == "" {
 			return CallbackClaim{}, opErr(op, ErrInvalid, fmt.Errorf("invalid grant provenance"))
@@ -363,6 +366,7 @@ func approvalCallbackAuditPayload(callback ApprovalCallback, from TaskState) jso
 		payload["catalog_digest"] = callback.Grant.CatalogDigest
 		payload["datasource_id"] = callback.Grant.DatasourceID
 		payload["schema_digest"] = callback.Grant.SchemaDigest
+		payload["exposure"] = callback.Grant.Exposure
 	}
 	return mustJSON(payload)
 }

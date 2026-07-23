@@ -8,43 +8,47 @@ import (
 // Stable sentinel errors returned by the control store. Callers should use
 // errors.Is rather than matching database-driver error strings.
 var (
-	ErrNotFound            = errors.New("control: not found")
-	ErrConflict            = errors.New("control: conflict")
-	ErrInvalid             = errors.New("control: invalid argument")
-	ErrClosed              = errors.New("control: store closed")
-	ErrTaskNotActive       = errors.New("control: task is not active")
-	ErrTaskExpired         = errors.New("control: task expired")
-	ErrBudgetExhausted     = errors.New("control: budget exhausted")
-	ErrQueryInProgress     = errors.New("control: query already in progress")
-	ErrReservationNotFound = errors.New("control: budget reservation not found")
-	ErrIdempotencyConflict = errors.New("control: idempotency key reused with different payload")
-	ErrCallbackInProgress  = errors.New("control: callback already in progress")
-	ErrCipherUnavailable   = errors.New("control: result cipher unavailable")
-	ErrCiphertextInvalid   = errors.New("control: encrypted result is invalid")
-	ErrAuditChainBroken    = errors.New("control: audit hash chain is broken")
-	ErrInvalidStateChange  = errors.New("control: invalid task state transition")
+	ErrNotFound                 = errors.New("control: not found")
+	ErrConflict                 = errors.New("control: conflict")
+	ErrInvalid                  = errors.New("control: invalid argument")
+	ErrClosed                   = errors.New("control: store closed")
+	ErrTaskNotActive            = errors.New("control: task is not active")
+	ErrTaskExpired              = errors.New("control: task expired")
+	ErrBudgetExhausted          = errors.New("control: budget exhausted")
+	ErrExposureBudgetExhausted  = errors.New("control: exposure budget exhausted")
+	ErrExposureEvidenceRequired = errors.New("control: exposure evidence required")
+	ErrQueryInProgress          = errors.New("control: query already in progress")
+	ErrReservationNotFound      = errors.New("control: budget reservation not found")
+	ErrIdempotencyConflict      = errors.New("control: idempotency key reused with different payload")
+	ErrCallbackInProgress       = errors.New("control: callback already in progress")
+	ErrCipherUnavailable        = errors.New("control: result cipher unavailable")
+	ErrCiphertextInvalid        = errors.New("control: encrypted result is invalid")
+	ErrAuditChainBroken         = errors.New("control: audit hash chain is broken")
+	ErrInvalidStateChange       = errors.New("control: invalid task state transition")
 )
 
 // ErrorCode is suitable for transport-layer error mapping.
 type ErrorCode string
 
 const (
-	CodeInternal            ErrorCode = "INTERNAL"
-	CodeNotFound            ErrorCode = "NOT_FOUND"
-	CodeConflict            ErrorCode = "CONFLICT"
-	CodeInvalid             ErrorCode = "INVALID_ARGUMENT"
-	CodeClosed              ErrorCode = "STORE_CLOSED"
-	CodeTaskNotActive       ErrorCode = "TASK_NOT_ACTIVE"
-	CodeTaskExpired         ErrorCode = "TASK_EXPIRED"
-	CodeBudgetExhausted     ErrorCode = "BUDGET_EXHAUSTED"
-	CodeQueryInProgress     ErrorCode = "QUERY_IN_PROGRESS"
-	CodeReservationMissing  ErrorCode = "RESERVATION_NOT_FOUND"
-	CodeIdempotencyConflict ErrorCode = "IDEMPOTENCY_CONFLICT"
-	CodeCallbackInProgress  ErrorCode = "CALLBACK_IN_PROGRESS"
-	CodeCipherUnavailable   ErrorCode = "CIPHER_UNAVAILABLE"
-	CodeCiphertextInvalid   ErrorCode = "CIPHERTEXT_INVALID"
-	CodeAuditChainBroken    ErrorCode = "AUDIT_CHAIN_BROKEN"
-	CodeInvalidStateChange  ErrorCode = "INVALID_STATE_TRANSITION"
+	CodeInternal                 ErrorCode = "INTERNAL"
+	CodeNotFound                 ErrorCode = "NOT_FOUND"
+	CodeConflict                 ErrorCode = "CONFLICT"
+	CodeInvalid                  ErrorCode = "INVALID_ARGUMENT"
+	CodeClosed                   ErrorCode = "STORE_CLOSED"
+	CodeTaskNotActive            ErrorCode = "TASK_NOT_ACTIVE"
+	CodeTaskExpired              ErrorCode = "TASK_EXPIRED"
+	CodeBudgetExhausted          ErrorCode = "BUDGET_EXHAUSTED"
+	CodeExposureBudgetExhausted  ErrorCode = "EXPOSURE_BUDGET_EXHAUSTED"
+	CodeExposureEvidenceRequired ErrorCode = "EXPOSURE_EVIDENCE_REQUIRED"
+	CodeQueryInProgress          ErrorCode = "QUERY_IN_PROGRESS"
+	CodeReservationMissing       ErrorCode = "RESERVATION_NOT_FOUND"
+	CodeIdempotencyConflict      ErrorCode = "IDEMPOTENCY_CONFLICT"
+	CodeCallbackInProgress       ErrorCode = "CALLBACK_IN_PROGRESS"
+	CodeCipherUnavailable        ErrorCode = "CIPHER_UNAVAILABLE"
+	CodeCiphertextInvalid        ErrorCode = "CIPHERTEXT_INVALID"
+	CodeAuditChainBroken         ErrorCode = "AUDIT_CHAIN_BROKEN"
+	CodeInvalidStateChange       ErrorCode = "INVALID_STATE_TRANSITION"
 )
 
 // OpError adds operation context while retaining a stable errors.Is target.
@@ -95,6 +99,10 @@ func CodeOf(err error) ErrorCode {
 		return CodeTaskExpired
 	case errors.Is(err, ErrBudgetExhausted):
 		return CodeBudgetExhausted
+	case errors.Is(err, ErrExposureBudgetExhausted):
+		return CodeExposureBudgetExhausted
+	case errors.Is(err, ErrExposureEvidenceRequired):
+		return CodeExposureEvidenceRequired
 	case errors.Is(err, ErrQueryInProgress):
 		return CodeQueryInProgress
 	case errors.Is(err, ErrReservationNotFound):

@@ -388,6 +388,8 @@ summary_query=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
   "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\",\"params\":{\"name\":\"execute_plan\",\"arguments\":{\"task_id\":\"$summary_task\",\"request_id\":\"integration-summary-plan-1\",\"plan\":{\"product\":\"expense_summary\",\"columns\":[\"month\",\"total_amount\"],\"order_by\":[{\"column\":\"month\",\"direction\":\"asc\"}]}}}}")
 assert_contains "$summary_query" '"isError":false' "summary structured plan"
 assert_contains "$summary_query" '"row_count":' "summary structured plan"
+assert_contains "$summary_query" '"exposure":' "summary exposure settlement"
+assert_contains "$summary_query" '"charged_release_facts":' "summary exposure settlement"
 summary_query_id=$(json_string "$summary_query" query_id)
 [ -n "$summary_query_id" ] || fail "summary query omitted query_id"
 pass "approved summary task executes a structured QueryPlan"
@@ -424,7 +426,7 @@ pass "Gateway restart preserves task, budget, encrypted result, and audit eviden
 # The second allowed query is returned and atomically exhausts max_queries,
 # after which the task is archived and cannot execute again.
 summary_last_query=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
-  "{\"jsonrpc\":\"2.0\",\"id\":14,\"method\":\"tools/call\",\"params\":{\"name\":\"query_sql\",\"arguments\":{\"task_id\":\"$summary_task\",\"request_id\":\"integration-summary-sql-2\",\"sql\":\"SELECT month, total_amount FROM expense_summary ORDER BY month\"}}}")
+  "{\"jsonrpc\":\"2.0\",\"id\":14,\"method\":\"tools/call\",\"params\":{\"name\":\"execute_plan\",\"arguments\":{\"task_id\":\"$summary_task\",\"request_id\":\"integration-summary-plan-2\",\"plan\":{\"product\":\"expense_summary\",\"columns\":[\"month\",\"total_amount\"],\"order_by\":[{\"column\":\"month\",\"direction\":\"asc\"}]}}}}")
 assert_contains "$summary_last_query" '"isError":false' "budget-exhausting query"
 exhausted_status=$(wait_task_state "$summary_task" ARCHIVED)
 assert_contains "$exhausted_status" '"terminal_reason":"budget_exhausted"' "budget exhaustion archive"
@@ -488,15 +490,18 @@ alice_unknown=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
 assert_contains "$alice_unknown" '"code":"NOT_FOUND"' "Alice non-owned task enumeration"
 pass "Alice cannot read another principal's real task and Carol remains receipt-only"
 
-# Incomplete authorization input fails before OA while an approved task keeps
-# supporting deterministic direct SQL.
+# Incomplete authorization input fails before OA. Exposure-enabled grants also
+# require structured plans so exact paired-snapshot provenance is available.
 invalid_request=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
   '{"jsonrpc":"2.0","id":23,"method":"tools/call","params":{"name":"request_data_task","arguments":{"objective":"缺少字段和范围","data_products":["expense_summary"]}}}')
 assert_contains "$invalid_request" '"code":"INVALID_REQUEST"' "explicit authorization input"
 direct_response=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
   "{\"jsonrpc\":\"2.0\",\"id\":24,\"method\":\"tools/call\",\"params\":{\"name\":\"query_sql\",\"arguments\":{\"task_id\":\"$detail_task\",\"request_id\":\"integration-detail-sql-2\",\"sql\":\"SELECT receipt_no, amount FROM expense_detail ORDER BY receipt_no\"}}}")
-assert_contains "$direct_response" '"isError":false' "direct SQL"
-pass "incomplete authorization fails closed and direct SQL remains available"
+assert_contains "$direct_response" '"code":"EXPOSURE_EVIDENCE_REQUIRED"' "direct SQL exposure evidence"
+detail_second_plan=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
+  "{\"jsonrpc\":\"2.0\",\"id\":25,\"method\":\"tools/call\",\"params\":{\"name\":\"execute_plan\",\"arguments\":{\"task_id\":\"$detail_task\",\"request_id\":\"integration-detail-plan-2\",\"plan\":{\"product\":\"expense_detail\",\"columns\":[\"receipt_no\",\"amount\"],\"order_by\":[{\"column\":\"receipt_no\",\"direction\":\"asc\"}]}}}}")
+assert_contains "$detail_second_plan" '"isError":false' "second structured detail plan"
+pass "incomplete authorization and provenance-free direct SQL fail closed"
 
 # PostgreSQL's gateway role can read only published reporting views.
 if ! reader_psql --tuples-only --no-align \

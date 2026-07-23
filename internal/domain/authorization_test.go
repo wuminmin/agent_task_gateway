@@ -67,6 +67,60 @@ func TestTaskGrantCoreV1RejectsEveryExpansionDimension(t *testing.T) {
 	}
 }
 
+func TestTaskGrantCoreV1DelegationPreservesFamilyAndNarrowsAuthority(t *testing.T) {
+	issuedAt := time.Date(2026, 7, 22, 9, 0, 0, 0, time.UTC)
+	parent := testGrantCoreV1(t, issuedAt)
+	parent.Budget.MaxReleaseFacts = 100
+	parent.Budget.MaxInfluenceFacts = 200
+	parent.Budget.ExposureProfileVersion = "taskgate-exposure-v1"
+	candidate := parent
+	candidate.TaskID = "task-child"
+	candidate.RootTaskID = parent.TaskID
+	candidate.ParentTaskID = parent.TaskID
+	candidate.AgentID = "agent-2"
+	candidate.DeclaredObjective = "summarize approved expenses"
+	candidate.ManifestDigest = strings.Repeat("d", 64)
+	candidate.ApprovedProducts = []string{"expense_summary"}
+	candidate.ApprovedColumns = map[string][]string{"expense_summary": {"total_amount"}}
+	candidate.MandatoryScope = map[string]any{
+		"department":   []string{"sales"},
+		"expense_date": map[string]string{"from": "2026-02-01", "to": "2026-05-31"},
+	}
+	candidate.Budget.MaxQueries = 2
+	candidate.Budget.MaxResultRows = 20
+	candidate.Budget.MaxDBMS = 10_000
+	candidate.Budget.PerQueryTimeoutMS = 2_000
+	candidate.Budget.TaskTTLMS = 300_000
+	candidate.Budget.MaxReleaseFacts = 40
+	candidate.Budget.MaxInfluenceFacts = 80
+	candidate.ExpiresAt = issuedAt.Add(5 * time.Minute)
+	candidate.SensitivityCeiling = SensitivityLow
+	if err := parent.CheckDelegation(candidate); err != nil {
+		t.Fatalf("safe delegation rejected: %v", err)
+	}
+
+	for name, mutate := range map[string]func(*TaskGrantCoreV1){
+		"wrong root":        func(child *TaskGrantCoreV1) { child.RootTaskID = "another-root" },
+		"wrong parent":      func(child *TaskGrantCoreV1) { child.ParentTaskID = "another-parent" },
+		"different human":   func(child *TaskGrantCoreV1) { child.HumanSubject = "mallory" },
+		"release expansion": func(child *TaskGrantCoreV1) { child.Budget.MaxReleaseFacts = 101 },
+		"product expansion": func(child *TaskGrantCoreV1) {
+			child.ApprovedProducts = append(child.ApprovedProducts, "payroll")
+			child.ApprovedColumns["payroll"] = []string{"salary"}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			invalid := candidate
+			invalid.ApprovedProducts = append([]string(nil), candidate.ApprovedProducts...)
+			invalid.ApprovedColumns = cloneAuthorizationColumns(candidate.ApprovedColumns)
+			mutate(&invalid)
+			if err := parent.CheckDelegation(invalid); !errors.Is(err, ErrGrantExpansion) {
+				t.Fatalf("CheckDelegation error = %v, want ErrGrantExpansion", err)
+			}
+		})
+	}
+}
+
 func testGrantCoreV1(t *testing.T, issuedAt time.Time) TaskGrantCoreV1 {
 	t.Helper()
 	manifest := AuthorizationManifestV1{

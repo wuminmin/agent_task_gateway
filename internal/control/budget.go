@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -52,7 +53,8 @@ func (s *Store) ReserveBudget(ctx context.Context, request ReserveRequest) (Budg
 		request.PolicyDecision == "" {
 		return BudgetReservation{}, opErr(op, ErrInvalid, fmt.Errorf("query, task, request, policy, and datasource evidence are required"))
 	}
-	if request.RequestedRows < 0 || request.RequestedDBMS < 0 {
+	if request.RequestedRows < 0 || request.RequestedDBMS < 0 ||
+		(request.Exposure != nil && (request.Exposure.EstimatedReleaseFacts < 0 || request.Exposure.EstimatedInfluenceFacts < 0)) {
 		return BudgetReservation{}, opErr(op, ErrInvalid, fmt.Errorf("requested budget cannot be negative"))
 	}
 	tx, err := beginTx(ctx, s.db)
@@ -169,6 +171,14 @@ WHERE task_id=$4 AND reserved_queries=0`, allowedRows, allowedDBMS, dbTime(now),
 	if err != nil {
 		return BudgetReservation{}, opErr(op, ErrConflict, err)
 	}
+	exposureReservation, err := reserveExposureTx(ctx, tx, request.QueryID, request.TaskID, request.Exposure, now)
+	if err != nil {
+		kind := ErrConflict
+		if errors.Is(err, ErrExposureEvidenceRequired) {
+			kind = ErrExposureEvidenceRequired
+		}
+		return BudgetReservation{}, opErr(op, kind, err)
+	}
 	_, err = appendAuditTx(ctx, tx, AuditEvent{
 		TaskID: request.TaskID, QueryID: request.QueryID, Actor: request.Actor, EventType: "QUERY_BUDGET_RESERVED",
 		Payload: mustJSON(map[string]any{
@@ -185,7 +195,7 @@ WHERE task_id=$4 AND reserved_queries=0`, allowedRows, allowedDBMS, dbTime(now),
 		return BudgetReservation{}, opErr(op, ErrConflict, err)
 	}
 	return BudgetReservation{QueryID: request.QueryID, TaskID: request.TaskID, RequestID: request.RequestID, AllowedRows: allowedRows,
-		AllowedDBMS: allowedDBMS, Before: before, After: after}, nil
+		AllowedDBMS: allowedDBMS, Before: before, After: after, Exposure: exposureReservation}, nil
 }
 
 // SettleBudget releases the reservation and atomically charges bounded actual
@@ -266,13 +276,22 @@ func (s *Store) settleWithReceipt(ctx context.Context, settlement BudgetSettleme
 	}
 	defer rollback(tx)
 	now := s.now()
+	var exposureCharge *ExposureCharge
+	if status == QueryCompleted {
+		exposureCharge, err = settleExposureTx(ctx, tx, now, settlement.QueryID, settlement.Exposure)
+		if err != nil {
+			return QueryRecord{}, PersistedQueryReceipt{}, opErr(op, settlementErrorKind(err), err)
+		}
+	} else if err := releaseExposureReservationTx(ctx, tx, now, settlement.QueryID); err != nil {
+		return QueryRecord{}, PersistedQueryReceipt{}, opErr(op, settlementErrorKind(err), err)
+	}
 	record, audit, err := settleBudgetTx(ctx, tx, now, settlement, status, resultHash)
 	if err != nil {
 		return QueryRecord{}, PersistedQueryReceipt{}, opErr(op, settlementErrorKind(err), err)
 	}
 	var receipt PersistedQueryReceipt
 	if builder != nil {
-		receipt, err = persistTerminalReceiptTx(ctx, tx, now, QueryReceipt{Query: record, Audit: audit}, builder)
+		receipt, err = persistTerminalReceiptTx(ctx, tx, now, QueryReceipt{Query: record, Audit: audit, Exposure: exposureCharge}, builder)
 		if err != nil {
 			return QueryRecord{}, PersistedQueryReceipt{}, opErr(op, receiptErrorKind(err), err)
 		}
@@ -289,6 +308,12 @@ func settlementErrorKind(err error) error {
 	}
 	if strings.Contains(err.Error(), "invalid settlement") {
 		return ErrInvalid
+	}
+	if errors.Is(err, ErrExposureBudgetExhausted) {
+		return ErrExposureBudgetExhausted
+	}
+	if errors.Is(err, ErrExposureEvidenceRequired) {
+		return ErrExposureEvidenceRequired
 	}
 	return ErrConflict
 }
@@ -603,6 +628,14 @@ func (s *Store) GetQueryReceipt(ctx context.Context, queryID string) (QueryRecei
 		return QueryReceipt{}, opErr(op, ErrConflict, err)
 	}
 	evidence := QueryReceipt{Query: query, Audit: audit}
+	if query.Status == QueryCompleted {
+		charge, chargeErr := s.GetExposureCharge(ctx, queryID)
+		if chargeErr == nil {
+			evidence.Exposure = &charge
+		} else if !errors.Is(chargeErr, ErrNotFound) {
+			return QueryReceipt{}, chargeErr
+		}
+	}
 	receipt, err := scanPersistedQueryReceipt(s.db.QueryRowContext(ctx, receiptSelect+` WHERE query_id=$1`, queryID))
 	if err == nil {
 		evidence.Receipt = &receipt

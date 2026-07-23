@@ -39,7 +39,10 @@ Content-Type: application/json
       "max_result_rows": 500,
       "max_db_ms": 30000,
       "per_query_timeout_ms": 5000,
-      "task_ttl_ms": 1800000
+      "task_ttl_ms": 1800000,
+      "max_release_facts": 1000,
+      "max_influence_facts": 5000,
+      "exposure_profile_version": "taskgate-exposure-v1"
     },
     "catalog_version": "2026-07-21.1",
     "catalog_sha256": "<64 位小写十六进制 SHA-256>",
@@ -63,7 +66,11 @@ Content-Type: application/json
 
 内置客户端超时 5 秒，响应体上限 64 KiB。创建失败时 Gateway 不创建本地任务；若 OA 已创建草稿而后续控制 PostgreSQL 写入失败，当前 Demo 没有补偿删除协议，生产适配器应提供幂等创建和补偿/对账机制。
 
-OA 展示 Gateway 已确定的目标、Agent/人类身份、产品、字段、强制范围、敏感级别、五维预算、有效期、目录版本与 Manifest Hash。创建、提交和决定前都会重验 Hash。人工审批可明确 `approve/reject/narrow`；Demo 表单可缩小产品、字段、枚举/日期范围、期限和预算。协议层也校验敏感级别只能降低、绝不能提高，但 Demo 表单不提供敏感级别编辑控件。任何扩权都会被 OA 与 Gateway 双重拒绝。
+OA 展示 Gateway 已确定的目标、Agent/人类身份、产品、字段、强制范围、敏感级别、资源预算、release/influence 上限、有效期、目录版本与 Manifest Hash。创建、提交和决定前都会重验 Hash。人工审批可明确 `approve/reject/narrow`；Demo 表单可缩小产品、字段、枚举/日期范围、期限和预算。协议层也校验敏感级别只能降低、绝不能提高，但 Demo 表单不提供敏感级别编辑控件。任何扩权都会被 OA 与 Gateway 双重拒绝。
+
+委托任务的 Manifest 还包含 `root_task_id` 和 `parent_task_id`。OA 签发的
+`TaskGrantCoreV1` 必须原样绑定该 lineage；Gateway 会将 child Grant 与已验签
+parent Grant 做逐维 delegation narrowing，而不是只信任 OA 表单。
 
 ## OA 回调接口
 
@@ -154,6 +161,19 @@ type DataConnector interface {
 }
 ```
 
+Exposure 在线路径另外要求 Connector 实现：
+
+```go
+type PairedQueryConnector interface {
+    QueryPair(context.Context, dataconnector.QueryPairRequest) (dataconnector.QueryPairResult, error)
+}
+```
+
+`QueryPair` 必须让可见查询和 provenance companion 观察同一个一致性快照。
+内置 PostgreSQL Connector 在一个显式只读 `REPEATABLE READ` 事务中顺序执行
+两者，并分别报告业务与 provenance 数据库耗时。Connector 不实现该接口时，
+exposure Grant 会在执行前关闭式拒绝。
+
 `QueryRequest` 只包含经过 SQL 策略生成的 SQL、单次 `StatementTimeout` 与 `MaxRows`，刻意不提供客户端参数、DSN 或任意 Session 设置入口。结果包含逻辑列名、PostgreSQL类型 OID、二维行、行数、数据库耗时和截断标记。
 
 内置 PostgreSQL Connector 使用 `pgx/v5`：
@@ -161,7 +181,7 @@ type DataConnector interface {
 1. 从 Catalog Source 和 `secretRef` 构造业务库 DSN，建立最多 4 个连接的 Pool，并在启动时 Ping。
 2. Connection Runtime Params 固定 `default_transaction_read_only=on`、`search_path=pg_catalog`、最大 `statement_timeout=5s`。
 3. 启动、readiness 和每次查询预算预留前校验 `datasource_id`、`current_database()`、`current_user`、PostgreSQL 主版本和 Reporting View Schema 摘要；该摘要覆盖列名、列顺序、PostgreSQL 通用类型和 `pg_get_viewdef` 规范化后的 View 定义。
-4. 每次 Query 再开启显式 `READ ONLY` 事务，并用事务本地 `set_config` 缩小超时、重设 `search_path`。
+4. 普通 Query 开启显式 `READ ONLY` 事务；paired exposure 查询使用同一个 `READ ONLY, REPEATABLE READ` 事务，并用事务本地 `set_config` 缩小超时、重设 `search_path`。
 5. Connector 将请求行数限制压到自身 10,000 行硬上限以内；Demo 的任务 Profile 上限更低。
 6. 错误对客户端只暴露稳定码，不回显 DSN、原始 SQL 或物理对象；内部 Cause 只供可信日志处理。
 
@@ -181,5 +201,6 @@ PostgreSQL 中的 `gateway_reader` 还有独立权限边界：只授予 `reporti
 - 独立实施只读事务/账号、Server-side Timeout、行上限和连接池上限。
 - 返回稳定且不泄密的错误；不得把凭据、内部对象名或驱动诊断发给 MCP 客户端。
 - 提供 Ready Ping 和取消传播；查询结果必须可确定地编码后加密。
+- 对 exposure Profile 提供同快照 paired execution，保留两条查询各自的截断和耗时证据；不能生成完整 provenance 时必须拒绝而不是退回估算收费。
 
 当前 SQL 策略使用 PostgreSQL 专用 `pg_query_go/v6` AST 和 PostgreSQL CTE 渲染。支持 MySQL、SQL Server 等不仅是实现 `DataConnector`，还必须新增对应方言的 AST 策略、引用解析、Scope 注入和攻击语料测试。当前服务也只有一个 Connector，尚不支持多 Source 路由或跨源 Join。

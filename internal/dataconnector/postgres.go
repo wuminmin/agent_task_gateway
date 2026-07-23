@@ -153,6 +153,18 @@ type Result struct {
 	Truncated    bool          `json:"truncated"`
 }
 
+// QueryPairRequest binds a visible query and its provenance companion to one
+// repeatable-read database snapshot.
+type QueryPairRequest struct {
+	Visible    QueryRequest
+	Provenance QueryRequest
+}
+
+type QueryPairResult struct {
+	Visible    Result
+	Provenance Result
+}
+
 // Connector owns a pgx connection pool. Its fields are immutable after New.
 type Connector struct {
 	pool                 *pgxpool.Pool
@@ -454,6 +466,96 @@ func (c *Connector) Query(ctx context.Context, request QueryRequest) (result Res
 		return Result{}, classifyQueryError(err)
 	}
 	committed = true
+	result.RowCount = int64(len(result.Rows))
+	return result, nil
+}
+
+// QueryPair executes a visible query and its provenance companion in one
+// read-only repeatable-read transaction. Neither result is returned unless
+// both statements and the transaction commit succeed.
+func (c *Connector) QueryPair(ctx context.Context, request QueryPairRequest) (result QueryPairResult, err error) {
+	if c == nil || c.pool == nil {
+		return QueryPairResult{}, connectorError(CodeConnection, errors.New("connector is closed"))
+	}
+	for _, query := range []QueryRequest{request.Visible, request.Provenance} {
+		if strings.TrimSpace(query.SQL) == "" || query.MaxRows < 0 || query.StatementTimeout < 0 {
+			return QueryPairResult{}, connectorError(CodeInvalidQuery, errors.New("empty query or negative limit"))
+		}
+	}
+	tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return QueryPairResult{}, connectorError(CodeConnection, err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(context.Background())
+		}
+	}()
+	if _, err := tx.Exec(ctx, `SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)`); err != nil {
+		return QueryPairResult{}, classifyQueryError(err)
+	}
+	attestation, err := c.attestDatasource(ctx, tx)
+	if err != nil {
+		return QueryPairResult{}, err
+	}
+	c.rememberAttestation(attestation)
+	result.Visible, err = c.queryInTx(ctx, tx, request.Visible)
+	if err != nil {
+		return QueryPairResult{}, err
+	}
+	result.Provenance, err = c.queryInTx(ctx, tx, request.Provenance)
+	if err != nil {
+		return QueryPairResult{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return QueryPairResult{}, classifyQueryError(err)
+	}
+	committed = true
+	return result, nil
+}
+
+func (c *Connector) queryInTx(ctx context.Context, tx pgx.Tx, request QueryRequest) (Result, error) {
+	maxRows := clampRows(request.MaxRows, c.maxRows)
+	if maxRows <= 0 {
+		return Result{}, connectorError(CodeInvalidQuery, errors.New("row limit is zero"))
+	}
+	timeout := clampTimeout(request.StatementTimeout, c.statementTimeout)
+	if _, err := tx.Exec(ctx, `SELECT pg_catalog.set_config('statement_timeout', $1, true)`, timeoutSetting(timeout)); err != nil {
+		return Result{}, classifyQueryError(err)
+	}
+	startedAt := time.Now()
+	rows, err := tx.Query(ctx, request.SQL)
+	if err != nil {
+		return Result{}, classifyQueryError(err)
+	}
+	defer rows.Close()
+	fields := rows.FieldDescriptions()
+	result := Result{Columns: make([]Column, 0, len(fields))}
+	for _, field := range fields {
+		result.Columns = append(result.Columns, Column{Name: field.Name, DataTypeOID: field.DataTypeOID})
+	}
+	capacity := maxRows
+	if capacity > 1024 {
+		capacity = 1024
+	}
+	result.Rows = make([][]any, 0, int(capacity))
+	for rows.Next() {
+		if int64(len(result.Rows)) == maxRows {
+			result.Truncated = true
+			break
+		}
+		values, err := rows.Values()
+		if err != nil {
+			return Result{}, classifyQueryError(err)
+		}
+		result.Rows = append(result.Rows, append([]any(nil), values...))
+	}
+	rows.Close()
+	result.DatabaseTime = time.Since(startedAt)
+	if err := rows.Err(); err != nil {
+		return Result{}, classifyQueryError(err)
+	}
 	result.RowCount = int64(len(result.Rows))
 	return result, nil
 }

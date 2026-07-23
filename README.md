@@ -1,8 +1,26 @@
-# TaskGate
+# TaskGate: Task-Bound Exposure Accounting for Database Agents
 
-Task-bound Agent Data Gateway 是一个本地演示系统：Agent 必须先提交明确的数据产品、字段、Scope、预算和目的，经 OA 审批后，才能查询只读数据产品。Gateway 不包含模型层；它只接受结构化任务申请、声明式 `QueryPlan` 或 SQL，并以确定性策略完成授权、PostgreSQL AST 校验、预算扣减、结果加密和审计。
+TaskGate 是一个数据库研究原型：它把累计数据暴露绑定到人类授权的根任务，使自适应查询、重试、分页和子 Agent 共享同一知识账本。Agent 必须先提交明确的数据产品、字段、Scope、预算和目的，经 OA 审批后，才能查询只读数据产品。Gateway 不包含模型层；授权、provenance、计量、结算和规划均由确定性代码完成。
 
 > 当前仓库是单实例 Demo，不是可直接上线的生产网关。生产差距见[威胁模型与生产化差距](docs/threat-model.md)。
+
+## 核心模型
+
+每个事实至少绑定 `(product, snapshot, entity key, field, value version)`。
+根任务维护两个集合账本：实际交付的 `release exposure`，以及影响 Join、过滤
+或聚合结果的 `source influence`。一次查询只支付相对根任务已知集合的新事实：
+
+```text
+delta(T, q) = (|F_release(q) - K_release(T)|,
+               |F_influence(q) - K_influence(T)|)
+```
+
+在线路径是 `reserve -> execute/buffer -> derive provenance -> settle -> release`。
+可见结果与 provenance companion 在同一个只读 `REPEATABLE READ` 事务执行；
+只有双账本结算、加密结果、审计和 V4 签名回执原子提交后，结果才会释放。
+超出任一 exposure 上限的结果不会交付或保存。
+
+实现范围和非目标见[任务级数据暴露记账](docs/exposure-accounting.md)。
 
 ## 架构概览
 
@@ -13,10 +31,10 @@ Task-bound Agent Data Gateway 是一个本地演示系统：Agent 必须先提�
  Gateway :8082 ─────────► OA Demo :8092（草稿、审批、HMAC 回调 + Ed25519 回执）
     │
     ├───────────────────► Control PostgreSQL :5432（宿主机 127.0.0.1:25433）
-    │                       任务、Grant、预算、AES-GCM 结果、审计链
+    │                       任务族、双 Exposure 账本、资源预算、密文结果、审计链
     │
     └───────────────────► Business PostgreSQL :5432（仅内部网络，默认不发布宿主机端口）
-                            gateway_reader 只读 Attestation + Reporting Views
+                            同一快照的结果 + Provenance Companion
 ```
 
 两个 PostgreSQL 使用独立容器、账号和 Volume。Gateway 仍按单实例部署；数据库行锁保证请求并发安全，本版本不提供多 Gateway 租约协议。
@@ -55,9 +73,10 @@ Navicat 的用户名和密码对应关系见[本地启动与数据库调试](doc
 ## MCP 2.0 工作流
 
 1. 调用 `list_data_products` 获取完整逻辑产品、字段和 Scope 的允许值/日期边界。
-2. 调用 `request_data_task`，显式提交非空 `objective`、`data_products`、每个产品的非空 `columns` 及 `scopes`。请求预算只能缩小 Catalog 上限。
+2. 调用 `request_data_task`，显式提交非空 `objective`、`data_products`、每个产品的非空 `columns` 及 `scopes`。资源预算与 release/influence 上限都只能缩小 Catalog Profile。
 3. 在 OA 提交并完成自动或人工审批。
-4. ACTIVE 后调用 `execute_plan(task_id, request_id, plan)` 或 `query_sql(task_id, request_id, sql)`。
+4. ACTIVE 后使用 `execute_plan(task_id, request_id, plan)`。默认 Catalog 已启用 exposure Profile，因此该路径会生成同快照 provenance 并进行双账本结算。
+5. 可用 `plan_exposure` 在根任务剩余双预算内选择可测量效用最高的候选表示。子 Agent 任务通过 `parent_task_id` 和 `delegate_principal_id` 创建，且共享根账本。
 
 `request_id` 由客户端生成并在一个任务内保持唯一。相同 ID 和相同请求只返回首次持久化结果/状态；相同 ID 搭配不同请求会关闭式拒绝，重试不会产生第二次执行或预算消费。
 
@@ -75,16 +94,14 @@ Navicat 的用户名和密码对应关系见[本地启动与数据库调试](doc
 }
 ```
 
-直接 SQL 只能引用逻辑产品名和获批字段，例如：
+成功响应包含 `exposure` 与 `exposure_budget`：前者区分本次 actual facts 和
+相对根任务的 charged facts，后者给出共享账本的上限、已用和剩余值。相同
+`request_id` 只观察首次终态；新的 request ID 查询相同事实时，增量收费为零。
 
-```sql
-SELECT month, sum(total_amount) AS amount
-FROM expense_summary
-GROUP BY month
-ORDER BY month
-```
-
-不得引用 `reporting.*`、`legacy.*` 或系统目录。Gateway 会注入强制 Scope，并按剩余预算限制结果行数和执行时间。
+`query_sql` 仍用于 resource-only 兼容 Grant；对启用 exposure 的任务，它会因
+无法构造完整 provenance 而关闭式拒绝。当前在线精确计量片段是单产品
+QueryPlan 的 projection/filter/order/limit 与 `COUNT/SUM/MIN/MAX` 聚合；Join
+和 Union 已在可执行代数中实现，但尚未接入在线 compiler。
 
 ## 身份
 
@@ -100,6 +117,7 @@ ORDER BY month
 ```bash
 make verify
 make formal
+make eval-exposure
 make eval-smoke
 make paper
 make logs
@@ -107,6 +125,11 @@ docker compose down
 ```
 
 `make verify` 会执行格式检查、`go vet`、真实 PostgreSQL `go test -race ./...`、镜像构建和隔离的 Compose 端到端验收。
+
+`make eval-exposure` 运行可审计的 ground truth、1,024 对等价改写、
+anti-arbitrage cases、计费基线与双预算 planner oracle。它不会把尚未执行的
+外部 PostgreSQL 开销实验伪装成结果。`make paper` 构建新的 TKDE 工作稿；
+旧的安全网关稿仍可用 `make paper-tdsc` 构建。
 
 设置 `GATEWAY_RESULT_RETENTION_TTL` 会让 Gateway 定期删除超过保留期的结果密文，同时保留查询记录、回执和审计证据。每个结果密文还绑定 `GATEWAY_DATA_KEY_ID` 并登记在 `result_encryption_keys`；带 `GATEWAY_ADMIN_TOKEN` 的管理员可以擦除 key ID，使对应密文保留但后续读取 fail closed。该 Demo 不销毁外部 KMS 中的真实 key material，生产环境需要把 key ID 擦除接入 KMS/HSM/Secret Manager。设置 `GATEWAY_ADMIN_TOKEN` 也会启用本机管理员接口，用于手动 purge 以及设置/释放 legal hold；active hold 会阻止对应任务的结果密文被清理。
 
@@ -119,6 +142,7 @@ docker compose down
 ## 文档
 
 - [架构与安全边界](docs/architecture.md)
+- [任务级 Exposure 语义、在线算法与支持边界](docs/exposure-accounting.md)
 - [Compose 启动、Navicat 与 MCP 演示](docs/getting-started.md)
 - [Catalog 编写指南](docs/catalog-guide.md)
 - [OA 与数据源适配器接口](docs/adapters.md)

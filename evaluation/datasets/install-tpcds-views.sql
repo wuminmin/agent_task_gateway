@@ -4,7 +4,7 @@ BEGIN;
 CREATE SCHEMA IF NOT EXISTS reporting;
 
 CREATE OR REPLACE VIEW reporting.tpcds_store_sales AS
-SELECT ss_sold_date_sk, ss_item_sk, ss_store_sk, ss_quantity, ss_net_paid,
+SELECT ss_sold_date_sk, ss_ticket_number, ss_item_sk, ss_store_sk, ss_quantity, ss_net_paid,
        'all'::text AS eval_scope
 FROM public.store_sales;
 

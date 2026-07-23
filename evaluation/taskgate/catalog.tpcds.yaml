@@ -23,12 +23,15 @@ products:
     reporting_view: reporting.tpcds_store_sales
     description: Evaluation projection of TPC-DS store sales
     sensitivity: low
+    snapshot: tpcds-loaded-dataset-v1
+    entity_key: [ss_ticket_number, ss_item_sk]
     scopes: [eval_scope]
     allowed_functions: []
     allowed_operators: ["=", "<", ">="]
     allowed_aggregates: [count, sum]
     fields:
       - {name: ss_sold_date_sk, type: integer, description: Sold date key}
+      - {name: ss_ticket_number, type: integer, description: Ticket number}
       - {name: ss_item_sk, type: integer, description: Item key}
       - {name: ss_store_sk, type: integer, description: Store key}
       - {name: ss_quantity, type: integer, description: Quantity}
@@ -40,6 +43,8 @@ products:
     reporting_view: reporting.tpcds_item
     description: Evaluation projection of TPC-DS items
     sensitivity: low
+    snapshot: tpcds-loaded-dataset-v1
+    entity_key: [i_item_sk]
     scopes: [eval_scope]
     allowed_functions: []
     allowed_operators: ["="]
@@ -56,6 +61,8 @@ products:
     reporting_view: reporting.tpcds_customer_demographics
     description: Evaluation projection of TPC-DS customer demographics
     sensitivity: low
+    snapshot: tpcds-loaded-dataset-v1
+    entity_key: [cd_demo_sk]
     scopes: [eval_scope]
     allowed_functions: []
     allowed_operators: ["="]

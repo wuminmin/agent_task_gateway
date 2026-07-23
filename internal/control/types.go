@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"taskbound.local/agent-data-gateway/internal/auditchain"
+	"taskbound.local/agent-data-gateway/internal/exposure"
 )
 
 type TaskState string
@@ -50,6 +51,8 @@ type Task struct {
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 	ExpiresAt       *time.Time
+	RootTaskID      string
+	ParentTaskID    string
 }
 
 type TaskFilter struct {
@@ -68,6 +71,7 @@ type TaskGrant struct {
 	MandatoryScope     json.RawMessage
 	SensitivityCeiling string
 	Budget             BudgetLimits
+	Exposure           ExposureGrant
 	ExpiresAt          time.Time
 	CatalogVersion     string
 	CatalogDigest      string
@@ -75,6 +79,61 @@ type TaskGrant struct {
 	SchemaDigest       string
 	ApprovalReceipt    string
 	CreatedAt          time.Time
+}
+
+type ExposureLimits struct {
+	ReleaseFacts   int64 `json:"release_facts"`
+	InfluenceFacts int64 `json:"influence_facts"`
+}
+
+type ExposureGrant struct {
+	Limits         ExposureLimits `json:"limits"`
+	ProfileVersion string         `json:"profile_version"`
+}
+
+func (g ExposureGrant) Enabled() bool {
+	return g.Limits.ReleaseFacts > 0 || g.Limits.InfluenceFacts > 0 || g.ProfileVersion != ""
+}
+
+type ExposureLedgerSnapshot struct {
+	RootTaskID     string         `json:"root_task_id"`
+	ProfileVersion string         `json:"profile_version"`
+	Limits         ExposureLimits `json:"limits"`
+	Used           ExposureLimits `json:"used"`
+	UpdatedAt      time.Time      `json:"updated_at"`
+}
+
+func (s ExposureLedgerSnapshot) Remaining() ExposureLimits {
+	return ExposureLimits{
+		ReleaseFacts:   max64(0, s.Limits.ReleaseFacts-s.Used.ReleaseFacts),
+		InfluenceFacts: max64(0, s.Limits.InfluenceFacts-s.Used.InfluenceFacts),
+	}
+}
+
+type ExposureReservationRequest struct {
+	ProfileVersion          string
+	EstimatedReleaseFacts   int64
+	EstimatedInfluenceFacts int64
+}
+
+type ExposureReservation struct {
+	QueryID                 string
+	TaskID                  string
+	RootTaskID              string
+	ProfileVersion          string
+	EstimatedReleaseFacts   int64
+	EstimatedInfluenceFacts int64
+}
+
+type ExposureCharge struct {
+	QueryID               string `json:"query_id"`
+	RootTaskID            string `json:"root_task_id"`
+	ProfileVersion        string `json:"profile_version"`
+	ActualReleaseFacts    int64  `json:"actual_release_facts"`
+	ActualInfluenceFacts  int64  `json:"actual_influence_facts"`
+	ChargedReleaseFacts   int64  `json:"charged_release_facts"`
+	ChargedInfluenceFacts int64  `json:"charged_influence_facts"`
+	ObservationSHA256     string `json:"observation_sha256"`
 }
 
 type ApprovalEvent struct {
@@ -176,8 +235,9 @@ type BudgetReservation struct {
 	After       BudgetSnapshot
 	// Replay is true when (task_id, request_id) already exists. Record is the
 	// first durable status and no new budget was reserved.
-	Replay bool
-	Record *QueryRecord
+	Replay   bool
+	Record   *QueryRecord
+	Exposure *ExposureReservation
 }
 
 type ReserveRequest struct {
@@ -196,6 +256,7 @@ type ReserveRequest struct {
 	PolicyDecision string
 	RequestedRows  int64
 	RequestedDBMS  int64
+	Exposure       *ExposureReservationRequest
 }
 
 // BudgetSettlement commits actual resource use. Every completed settlement
@@ -212,6 +273,7 @@ type BudgetSettlement struct {
 	DBMS         int64
 	ObservedDBMS int64
 	ErrorCode    string
+	Exposure     *exposure.Observation
 }
 
 type EncryptedResult struct {
@@ -267,9 +329,10 @@ type QueryRecordPage struct {
 }
 
 type QueryReceipt struct {
-	Query   QueryRecord
-	Audit   AuditEvent
-	Receipt *PersistedQueryReceipt
+	Query    QueryRecord
+	Audit    AuditEvent
+	Receipt  *PersistedQueryReceipt
+	Exposure *ExposureCharge
 }
 
 type PersistedQueryReceipt struct {

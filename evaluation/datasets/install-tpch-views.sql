@@ -14,7 +14,7 @@ SELECT c_custkey, c_name::text AS c_name, c_mktsegment::text AS c_mktsegment, c_
 FROM public.customer;
 
 CREATE OR REPLACE VIEW reporting.tpch_lineitem AS
-SELECT l_orderkey, l_quantity, l_extendedprice, l_shipdate,
+SELECT l_orderkey, l_linenumber, l_quantity, l_extendedprice, l_shipdate,
        l_shipmode::text AS l_shipmode,
        'all'::text AS eval_scope
 FROM public.lineitem;

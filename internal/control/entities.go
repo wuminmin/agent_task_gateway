@@ -132,19 +132,50 @@ func (s *Store) CreateTask(ctx context.Context, task Task) error {
 		return opErr(op, ErrConflict, err)
 	}
 	defer rollback(tx)
+	rootTaskID := task.ID
+	if task.ParentTaskID != "" {
+		var parentCatalog string
+		var parentState TaskState
+		if err := tx.QueryRowContext(ctx, `SELECT root_task_id, catalog_version, state FROM tasks WHERE id=$1 FOR SHARE`, task.ParentTaskID).
+			Scan(&rootTaskID, &parentCatalog, &parentState); err != nil {
+			if isNoRows(err) {
+				return opErr(op, ErrNotFound, fmt.Errorf("parent task: %w", err))
+			}
+			return opErr(op, ErrConflict, err)
+		}
+		var targetDisabled sql.NullTime
+		if err := tx.QueryRowContext(ctx, `SELECT disabled_at FROM principals WHERE id=$1 FOR SHARE`, task.PrincipalID).
+			Scan(&targetDisabled); err != nil {
+			if isNoRows(err) {
+				return opErr(op, ErrNotFound, fmt.Errorf("delegated principal: %w", err))
+			}
+			return opErr(op, ErrConflict, err)
+		}
+		if parentState != TaskActive || parentCatalog != task.CatalogVersion || targetDisabled.Valid {
+			return opErr(op, ErrInvalid, fmt.Errorf("delegation requires an active parent, the same catalog, and an enabled principal"))
+		}
+	} else if task.RootTaskID != "" && task.RootTaskID != task.ID {
+		return opErr(op, ErrInvalid, fmt.Errorf("a root task must identify itself as root"))
+	}
+	if task.RootTaskID != "" && task.RootTaskID != rootTaskID {
+		return opErr(op, ErrInvalid, fmt.Errorf("root task does not match parent family"))
+	}
+	task.RootTaskID = rootTaskID
 	_, err = tx.ExecContext(ctx, `
-INSERT INTO tasks(id, principal_id, objective, state, terminal_reason, catalog_version, sensitivity,
-                  requested_budget_json, request_context_json, approval_ref, created_at, updated_at, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`, task.ID, task.PrincipalID, task.Objective, task.State,
+	INSERT INTO tasks(id, principal_id, objective, state, terminal_reason, catalog_version, sensitivity,
+	                  requested_budget_json, request_context_json, approval_ref, created_at, updated_at, expires_at,
+	                  root_task_id, parent_task_id)
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NULLIF($15, ''))`, task.ID, task.PrincipalID, task.Objective, task.State,
 		task.TerminalReason, task.CatalogVersion, task.Sensitivity, string(requested), string(requestContext), task.ApprovalRef,
-		dbTime(task.CreatedAt), dbTime(task.UpdatedAt), nullableTime(task.ExpiresAt))
+		dbTime(task.CreatedAt), dbTime(task.UpdatedAt), nullableTime(task.ExpiresAt), task.RootTaskID, task.ParentTaskID)
 	if err != nil {
 		return opErr(op, ErrConflict, err)
 	}
 	actor := task.PrincipalID
 	_, err = appendAuditTx(ctx, tx, AuditEvent{
 		TaskID: task.ID, Actor: actor, EventType: "TASK_CREATED", OccurredAt: task.CreatedAt,
-		Payload: mustJSON(map[string]any{"state": task.State, "catalog_version": task.CatalogVersion}),
+		Payload: mustJSON(map[string]any{"state": task.State, "catalog_version": task.CatalogVersion,
+			"root_task_id": task.RootTaskID, "parent_task_id": task.ParentTaskID}),
 	})
 	if err != nil {
 		return opErr(op, ErrConflict, err)
@@ -164,7 +195,8 @@ func (s *Store) GetTask(ctx context.Context, id string) (Task, error) {
 }
 
 const taskSelect = `SELECT id, principal_id, objective, state, terminal_reason, catalog_version, sensitivity,
-requested_budget_json, request_context_json, approval_ref, created_at, updated_at, expires_at FROM tasks`
+	requested_budget_json, request_context_json, approval_ref, created_at, updated_at, expires_at,
+	root_task_id, COALESCE(parent_task_id, '') FROM tasks`
 
 func scanTask(op string, row rowScanner) (Task, error) {
 	var task Task
@@ -172,7 +204,8 @@ func scanTask(op string, row rowScanner) (Task, error) {
 	var created, updated time.Time
 	var expires sql.NullTime
 	if err := row.Scan(&task.ID, &task.PrincipalID, &task.Objective, &task.State, &task.TerminalReason,
-		&task.CatalogVersion, &task.Sensitivity, &requested, &requestContext, &task.ApprovalRef, &created, &updated, &expires); err != nil {
+		&task.CatalogVersion, &task.Sensitivity, &requested, &requestContext, &task.ApprovalRef, &created, &updated, &expires,
+		&task.RootTaskID, &task.ParentTaskID); err != nil {
 		if isNoRows(err) {
 			return Task{}, opErr(op, ErrNotFound, err)
 		}
@@ -327,6 +360,9 @@ func (s *Store) PutGrant(ctx context.Context, grant TaskGrant) error {
 	if grant.Budget.Queries <= 0 || grant.Budget.Rows <= 0 || grant.Budget.DBMS <= 0 {
 		return opErr(op, ErrInvalid, fmt.Errorf("all budget limits must be positive"))
 	}
+	if err := validateExposureGrant(grant.Exposure); err != nil {
+		return opErr(op, ErrInvalid, err)
+	}
 	products, err := json.Marshal(grant.ApprovedProducts)
 	if err != nil {
 		return opErr(op, ErrInvalid, err)
@@ -365,7 +401,7 @@ func (s *Store) PutGrant(ctx context.Context, grant TaskGrant) error {
 		Payload: mustJSON(map[string]any{
 			"catalog_version": grant.CatalogVersion, "catalog_digest": grant.CatalogDigest,
 			"datasource_id": grant.DatasourceID, "schema_digest": grant.SchemaDigest,
-			"budget": grant.Budget, "expires_at": formatTime(grant.ExpiresAt),
+			"budget": grant.Budget, "exposure": grant.Exposure, "expires_at": formatTime(grant.ExpiresAt),
 		}),
 	})
 	if err != nil {
@@ -379,22 +415,27 @@ func (s *Store) PutGrant(ctx context.Context, grant TaskGrant) error {
 
 func insertGrantAndBudget(ctx context.Context, tx *sql.Tx, grant TaskGrant, products, columns, scope []byte) error {
 	_, err := tx.ExecContext(ctx, `
-INSERT INTO task_grants(task_id, subject, purpose, approved_products_json, approved_columns_json,
- mandatory_scope_json, sensitivity_ceiling, max_queries, max_rows, max_db_ms, expires_at,
- catalog_version, catalog_digest, datasource_id, schema_digest, approval_receipt, created_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`, grant.TaskID, grant.Subject, grant.Purpose,
+	INSERT INTO task_grants(task_id, subject, purpose, approved_products_json, approved_columns_json,
+	 mandatory_scope_json, sensitivity_ceiling, max_queries, max_rows, max_db_ms, expires_at,
+	 catalog_version, catalog_digest, datasource_id, schema_digest, approval_receipt, created_at,
+	 max_release_facts, max_influence_facts, exposure_profile_version)
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`, grant.TaskID, grant.Subject, grant.Purpose,
 		string(products), string(columns), string(scope), grant.SensitivityCeiling, grant.Budget.Queries, grant.Budget.Rows,
 		grant.Budget.DBMS, dbTime(grant.ExpiresAt), grant.CatalogVersion, grant.CatalogDigest,
 		grant.DatasourceID, grant.SchemaDigest, grant.ApprovalReceipt,
-		dbTime(grant.CreatedAt))
+		dbTime(grant.CreatedAt), grant.Exposure.Limits.ReleaseFacts, grant.Exposure.Limits.InfluenceFacts,
+		grant.Exposure.ProfileVersion)
 	if err != nil {
 		return err
 	}
 	_, err = tx.ExecContext(ctx, `
-INSERT INTO budget_ledger(task_id, max_queries, max_rows, max_db_ms, updated_at)
-VALUES ($1, $2, $3, $4, $5)`, grant.TaskID, grant.Budget.Queries, grant.Budget.Rows, grant.Budget.DBMS,
+	INSERT INTO budget_ledger(task_id, max_queries, max_rows, max_db_ms, updated_at)
+	VALUES ($1, $2, $3, $4, $5)`, grant.TaskID, grant.Budget.Queries, grant.Budget.Rows, grant.Budget.DBMS,
 		dbTime(grant.CreatedAt))
-	return err
+	if err != nil {
+		return err
+	}
+	return ensureExposureLedgerTx(ctx, tx, grant.TaskID, grant.Exposure, grant.CreatedAt)
 }
 
 func (s *Store) GetGrant(ctx context.Context, taskID string) (TaskGrant, error) {
@@ -406,13 +447,15 @@ func (s *Store) GetGrant(ctx context.Context, taskID string) (TaskGrant, error) 
 	var products, columns, scope []byte
 	var expires, created time.Time
 	err := s.db.QueryRowContext(ctx, `
-SELECT task_id, subject, purpose, approved_products_json, approved_columns_json, mandatory_scope_json,
- sensitivity_ceiling, max_queries, max_rows, max_db_ms, expires_at, catalog_version, catalog_digest,
- datasource_id, schema_digest, approval_receipt, created_at
-FROM task_grants WHERE task_id=$1`, taskID).Scan(&grant.TaskID, &grant.Subject, &grant.Purpose, &products,
+	SELECT task_id, subject, purpose, approved_products_json, approved_columns_json, mandatory_scope_json,
+	 sensitivity_ceiling, max_queries, max_rows, max_db_ms, expires_at, catalog_version, catalog_digest,
+	 datasource_id, schema_digest, approval_receipt, created_at, max_release_facts, max_influence_facts,
+	 exposure_profile_version
+	FROM task_grants WHERE task_id=$1`, taskID).Scan(&grant.TaskID, &grant.Subject, &grant.Purpose, &products,
 		&columns, &scope, &grant.SensitivityCeiling, &grant.Budget.Queries, &grant.Budget.Rows, &grant.Budget.DBMS,
 		&expires, &grant.CatalogVersion, &grant.CatalogDigest, &grant.DatasourceID, &grant.SchemaDigest,
-		&grant.ApprovalReceipt, &created)
+		&grant.ApprovalReceipt, &created, &grant.Exposure.Limits.ReleaseFacts, &grant.Exposure.Limits.InfluenceFacts,
+		&grant.Exposure.ProfileVersion)
 	if err != nil {
 		if isNoRows(err) {
 			return TaskGrant{}, opErr(op, ErrNotFound, err)

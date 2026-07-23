@@ -1,5 +1,5 @@
 TLC2 Version 2.16 of 31 December 2020 (rev: cdddf55)
-Running breadth-first search Model-Checking with fp 80 and seed 4369283138904568871 with 32 workers on 32 cores with 3524MB heap and 64MB offheap memory [pid: 1] (Linux 6.18.33.2-microsoft-standard-WSL2 amd64, Eclipse Adoptium 21.0.11 x86_64, MSBDiskFPSet, DiskStateQueue).
+Running breadth-first search Model-Checking with fp 75 and seed 1352114041933498536 with 32 workers on 32 cores with 3524MB heap and 64MB offheap memory [pid: 1] (Linux 6.18.33.2-microsoft-standard-WSL2 amd64, Eclipse Adoptium 21.0.11 x86_64, MSBDiskFPSet, DiskStateQueue).
 Parsing file /model/TaskGate.tla
 Parsing file /tmp/Naturals.tla
 Parsing file /tmp/FiniteSets.tla
@@ -8,16 +8,16 @@ Semantic processing of module Naturals
 Semantic processing of module Sequences
 Semantic processing of module FiniteSets
 Semantic processing of module TaskGate
-Starting... (2026-07-22 13:11:23)
+Starting... (2026-07-23 13:13:17)
 Computing initial states...
-Finished computing initial states: 1 distinct state generated at 2026-07-22 13:11:23.
-Progress(11) at 2026-07-22 13:11:26: 2,984,304 states generated (2,984,304 s/min), 956,901 distinct states found (956,901 ds/min), 417,493 states left on queue.
+Finished computing initial states: 1 distinct state generated at 2026-07-23 13:13:17.
+Progress(11) at 2026-07-23 13:13:20: 3,071,872 states generated (3,071,872 s/min), 981,152 distinct states found (981,152 ds/min), 426,176 states left on queue.
 Model checking completed. No error has been found.
   Estimates of the probability that TLC did not check all reachable states
   because two distinct states had the same fingerprint:
   calculated (optimistic):  val = 2.0E-6
-  based on the actual fingerprints:  val = 7.2E-5
+  based on the actual fingerprints:  val = 1.1E-6
 14824257 states generated, 3255552 distinct states found, 0 states left on queue.
 The depth of the complete state graph search is 18.
 The average outdegree of the complete state graph is 1 (minimum is 0, the maximum 31 and the 95th percentile is 4).
-Finished in 12s at (2026-07-22 13:11:36)
+Finished in 11s at (2026-07-23 13:13:29)

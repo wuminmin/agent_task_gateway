@@ -12,10 +12,194 @@ import (
 	"taskbound.local/agent-data-gateway/internal/control"
 	"taskbound.local/agent-data-gateway/internal/dataconnector"
 	"taskbound.local/agent-data-gateway/internal/domain"
+	"taskbound.local/agent-data-gateway/internal/exposure"
+	"taskbound.local/agent-data-gateway/internal/queryplan"
 	"taskbound.local/agent-data-gateway/internal/sqlpolicy"
 )
 
-const testSummarySQL = "SELECT month, total_amount FROM expense_summary"
+const (
+	testSummarySQL      = "SELECT month, total_amount FROM expense_summary"
+	testExposureProfile = "taskgate-exposure-v1"
+)
+
+func TestExposurePlanHidesMeteringKeysAndDeduplicatesReplay(t *testing.T) {
+	harness := newGatewayHarness(t)
+	harness.createExposureSummaryTask(t, "task-exposure-plan", control.ExposureLimits{ReleaseFacts: 20, InfluenceFacts: 20})
+	harness.connector.result = dataconnector.Result{
+		Columns: []dataconnector.Column{{Name: "month"}, {Name: "total_amount"}, {Name: "department"}, {Name: "expense_type"}},
+		Rows:    [][]any{{"2026-01", 123.45, "销售部", "机票"}}, RowCount: 1, DatabaseTime: 2 * time.Millisecond,
+	}
+	harness.connector.provenanceResult = dataconnector.Result{
+		Columns: []dataconnector.Column{{Name: "department"}, {Name: "expense_type"}, {Name: "month"}, {Name: "total_amount"}},
+		Rows:    [][]any{{"销售部", "机票", "2026-01", 123.45}}, RowCount: 1, DatabaseTime: time.Millisecond,
+	}
+	arguments := map[string]any{
+		"task_id": "task-exposure-plan", "request_id": "exposure-request-1",
+		"plan": map[string]any{"product": "expense_summary", "columns": []string{"month", "total_amount"}},
+	}
+	first := mustCallGatewayTool(t, harness.service, harness.alice, "execute_plan", arguments)
+	columns := first["columns"].([]dataconnector.Column)
+	rows := first["rows"].([][]any)
+	if len(columns) != 2 || columns[0].Name != "month" || columns[1].Name != "total_amount" || len(rows) != 1 || len(rows[0]) != 2 {
+		t.Fatalf("metering keys leaked into result: columns=%+v rows=%+v", columns, rows)
+	}
+	charge := first["exposure"].(control.ExposureCharge)
+	if charge.ActualReleaseFacts != 2 || charge.ChargedReleaseFacts != 2 || charge.ActualInfluenceFacts != 5 || charge.ChargedInfluenceFacts != 5 {
+		t.Fatalf("first exposure charge = %+v", charge)
+	}
+	receipt := first["receipt"].(map[string]any)
+	if receipt["version"] != "4" || receipt["exposure"] == nil {
+		t.Fatalf("exposure receipt is not signed as V4: %#v", receipt)
+	}
+	if len(harness.connector.requests) != 2 {
+		t.Fatalf("paired query calls = %d, want visible and provenance", len(harness.connector.requests))
+	}
+	if harness.connector.requests[0].SQL != harness.connector.requests[1].SQL ||
+		harness.connector.requests[0].MaxRows != harness.connector.requests[1].MaxRows {
+		t.Fatalf("non-grouped pair selected different bounded row sets: visible=%+v provenance=%+v",
+			harness.connector.requests[0], harness.connector.requests[1])
+	}
+
+	replay := mustCallGatewayTool(t, harness.service, harness.alice, "execute_plan", arguments)
+	if replay["idempotent_replay"] != true || len(harness.connector.requests) != 2 {
+		t.Fatalf("replay executed again: replay=%+v calls=%d", replay, len(harness.connector.requests))
+	}
+
+	arguments["request_id"] = "exposure-request-2"
+	second := mustCallGatewayTool(t, harness.service, harness.alice, "execute_plan", arguments)
+	secondCharge := second["exposure"].(control.ExposureCharge)
+	if secondCharge.ChargedReleaseFacts != 0 || secondCharge.ChargedInfluenceFacts != 0 {
+		t.Fatalf("same facts were charged twice: %+v", secondCharge)
+	}
+}
+
+func TestGroupedExposureUsesOverflowProbeAndMatchesAlgebraRelease(t *testing.T) {
+	harness := newGatewayHarness(t)
+	harness.createExposureSummaryTask(t, "task-exposure-grouped", control.ExposureLimits{ReleaseFacts: 20, InfluenceFacts: 20})
+	harness.connector.result = dataconnector.Result{
+		Columns: []dataconnector.Column{{Name: "month"}, {Name: "total"}},
+		Rows:    [][]any{{"2026-01", float64(30)}}, RowCount: 1, DatabaseTime: 2 * time.Millisecond,
+	}
+	harness.connector.provenanceResult = dataconnector.Result{
+		Columns:  []dataconnector.Column{{Name: "department"}, {Name: "expense_type"}, {Name: "month"}, {Name: "total_amount"}},
+		Rows:     [][]any{{"销售部", "机票", "2026-01", int64(10)}, {"销售部", "酒店", "2026-01", int64(20)}},
+		RowCount: 2, DatabaseTime: time.Millisecond,
+	}
+	plan := queryplan.QueryPlan{Product: "expense_summary", Columns: []string{"month"},
+		Aggregates: []queryplan.Aggregate{{Function: "sum", Column: "total_amount", Alias: "total"}},
+		GroupBy:    []string{"month"}}
+	result := mustCallGatewayTool(t, harness.service, harness.alice, "execute_plan", map[string]any{
+		"task_id": "task-exposure-grouped", "request_id": "grouped-overflow-probe", "plan": plan,
+	})
+	if len(harness.connector.requests) != 2 || harness.connector.requests[1].MaxRows != 20 ||
+		!strings.HasSuffix(harness.connector.requests[1].SQL, "LIMIT 21") {
+		t.Fatalf("grouped provenance did not use a one-row overflow probe: %+v", harness.connector.requests)
+	}
+
+	product, _ := harness.catalog.LookupProduct("expense_summary")
+	approved := make(map[string]struct{})
+	for _, field := range product.Fields {
+		approved[field.Name] = struct{}{}
+	}
+	exposureContext, err := buildPlanExposureContext(plan, product, approved, map[string]struct{}{"sum": {}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	online := result["exposure"].(control.ExposureCharge)
+	if online.ActualReleaseFacts != 2 {
+		t.Fatalf("grouped release count = %d, want 2", online.ActualReleaseFacts)
+	}
+
+	keys := make([]string, 2)
+	keys[0], _ = exposure.ComposeKey("2026-01", "销售部", "机票")
+	keys[1], _ = exposure.ComposeKey("2026-01", "销售部", "酒店")
+	base, err := exposure.NewBaseRelation(product.Name, product.Snapshot, exposureContext.provenanceFields, []exposure.BaseRow{
+		{EntityKey: keys[0], Values: map[string]any{"department": "销售部", "expense_type": "机票", "month": "2026-01", "total_amount": int64(10)}},
+		{EntityKey: keys[1], Values: map[string]any{"department": "销售部", "expense_type": "酒店", "month": "2026-01", "total_amount": int64(20)}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	aggregated, err := exposure.Aggregate(base, []string{"month"}, []exposure.AggregateSpec{{Function: "sum", Field: "total_amount", Alias: "renamed"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected, err := exposure.Observe(testExposureProfile, aggregated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	charge, err := harness.store.GetExposureCharge(context.Background(), result["query_id"].(string))
+	if err != nil || charge.ObservationSHA256 == "" {
+		t.Fatalf("grouped charge = %+v, %v", charge, err)
+	}
+	// deriveObservation is checked directly so canonical source-bound identities,
+	// rather than only their count in the persisted charge, are compared.
+	derived, err := exposureContext.deriveObservation(harness.connector.result, harness.connector.provenanceResult, testExposureProfile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sameExposureFactIDs(t, derived.Release, expected.Release) {
+		t.Fatalf("online release differs from algebra:\nonline=%+v\nalgebra=%+v", derived.Release, expected.Release)
+	}
+}
+
+func sameExposureFactIDs(t *testing.T, left, right []exposure.FactID) bool {
+	t.Helper()
+	leftSet, err := exposure.NewFactSet(left...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rightSet, err := exposure.NewFactSet(right...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(leftSet) != len(rightSet) {
+		return false
+	}
+	for hash := range leftSet {
+		if _, present := rightSet[hash]; !present {
+			return false
+		}
+	}
+	return true
+}
+
+func TestExposureTaskRejectsDirectSQLWithoutProvenance(t *testing.T) {
+	harness := newGatewayHarness(t)
+	harness.createExposureSummaryTask(t, "task-exposure-direct", control.ExposureLimits{ReleaseFacts: 20, InfluenceFacts: 20})
+	_, err := callGatewayTool(harness.service, harness.alice, "query_sql", map[string]any{
+		"task_id": "task-exposure-direct", "request_id": "direct-request", "sql": testSummarySQL,
+	})
+	requireToolCode(t, err, apierr.CodeExposureEvidenceRequired)
+	if len(harness.connector.requests) != 0 {
+		t.Fatalf("direct SQL reached connector %d times", len(harness.connector.requests))
+	}
+}
+
+func TestExposureBudgetRejectsBufferedResultBeforeRelease(t *testing.T) {
+	harness := newGatewayHarness(t)
+	harness.createExposureSummaryTask(t, "task-exposure-over", control.ExposureLimits{ReleaseFacts: 1, InfluenceFacts: 10})
+	harness.connector.result = dataconnector.Result{
+		Columns: []dataconnector.Column{{Name: "month"}, {Name: "total_amount"}, {Name: "department"}, {Name: "expense_type"}},
+		Rows:    [][]any{{"2026-01", 123.45, "销售部", "机票"}}, RowCount: 1, DatabaseTime: 2 * time.Millisecond,
+	}
+	harness.connector.provenanceResult = dataconnector.Result{
+		Columns: []dataconnector.Column{{Name: "department"}, {Name: "expense_type"}, {Name: "month"}, {Name: "total_amount"}},
+		Rows:    [][]any{{"销售部", "机票", "2026-01", 123.45}}, RowCount: 1, DatabaseTime: time.Millisecond,
+	}
+	_, err := callGatewayTool(harness.service, harness.alice, "execute_plan", map[string]any{
+		"task_id": "task-exposure-over", "request_id": "over-request",
+		"plan": map[string]any{"product": "expense_summary", "columns": []string{"month", "total_amount"}},
+	})
+	requireToolCode(t, err, apierr.CodeExposureBudgetExhausted)
+	record, lookupErr := harness.store.GetQueryByRequestID(context.Background(), "task-exposure-over", "over-request")
+	if lookupErr != nil || record.Status != control.QueryFailed || record.ResultSHA256 != "" {
+		t.Fatalf("over-budget query = %+v, %v", record, lookupErr)
+	}
+	if _, _, resultErr := harness.store.GetEncryptedResult(context.Background(), "task-exposure-over", record.ID); resultErr == nil {
+		t.Fatal("over-budget buffered result was persisted")
+	}
+}
 
 func TestRequestIDIsRequiredAndRetriesNeverExecuteTwice(t *testing.T) {
 	harness := newGatewayHarness(t)

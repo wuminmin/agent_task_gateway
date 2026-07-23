@@ -92,6 +92,37 @@ func TestQueryReceiptV2VerificationRemainsCompatible(t *testing.T) {
 	}
 }
 
+func TestQueryReceiptV4SignatureBindsExposureEvidence(t *testing.T) {
+	signer := DemoSigner([]byte("unit-test-secret"))
+	verifier, err := NewVerifier(map[string]ed25519.PublicKey{signer.KeyID(): signer.PublicKey()})
+	if err != nil {
+		t.Fatalf("NewVerifier: %v", err)
+	}
+	receipt, err := signer.Sign(validV4Receipt())
+	if err != nil {
+		t.Fatalf("Sign V4: %v", err)
+	}
+	if err := verifier.Verify(receipt); err != nil {
+		t.Fatalf("Verify V4: %v", err)
+	}
+
+	tampered := receipt
+	exposureCopy := *receipt.Exposure
+	tampered.Exposure = &exposureCopy
+	tampered.Exposure.ChargedReleaseFacts++
+	if err := verifier.Verify(tampered); !errors.Is(err, ErrInvalidSignature) {
+		t.Fatalf("exposure charge tamper error = %v", err)
+	}
+
+	tampered = receipt
+	exposureCopy = *receipt.Exposure
+	tampered.Exposure = &exposureCopy
+	tampered.Exposure.ObservationSHA256 = fmt.Sprintf("%064x", 2)
+	if err := verifier.Verify(tampered); !errors.Is(err, ErrInvalidSignature) {
+		t.Fatalf("observation digest tamper error = %v", err)
+	}
+}
+
 func TestQueryReceiptSemanticValidation(t *testing.T) {
 	signer := DemoSigner([]byte("unit-test-secret"))
 	verifier, err := NewVerifier(map[string]ed25519.PublicKey{signer.KeyID(): signer.PublicKey()})
@@ -100,6 +131,7 @@ func TestQueryReceiptSemanticValidation(t *testing.T) {
 	}
 	for _, receipt := range []QueryReceiptV1{
 		validReceipt(),
+		validV4Receipt(),
 		validReleasedReceipt(StatusReleased, "AUTHORIZATION_EXPIRED"),
 		validFailedReceipt(),
 		validIndeterminateReceipt(),
@@ -145,6 +177,18 @@ func TestQueryReceiptSemanticValidation(t *testing.T) {
 			*receipt = validV3Receipt()
 			signedAt := receipt.CompletedAt.Add(-time.Nanosecond)
 			receipt.SignedAt = &signedAt
+		}},
+		{name: "v4 missing exposure", mutate: func(receipt *QueryReceiptV1) {
+			*receipt = validV4Receipt()
+			receipt.Exposure = nil
+		}},
+		{name: "v3 carries exposure", mutate: func(receipt *QueryReceiptV1) {
+			*receipt = validV4Receipt()
+			receipt.Version = VersionV3
+		}},
+		{name: "exposure charge exceeds actual", mutate: func(receipt *QueryReceiptV1) {
+			*receipt = validV4Receipt()
+			receipt.Exposure.ChargedInfluenceFacts = receipt.Exposure.ActualInfluenceFacts + 1
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -334,6 +378,19 @@ func validV3ReceiptAt(signedAt time.Time) QueryReceiptV1 {
 	receipt.CompletedAt = signedAt.Add(-time.Millisecond)
 	signedAt = signedAt.UTC()
 	receipt.SignedAt = &signedAt
+	return receipt
+}
+
+func validV4Receipt() QueryReceiptV1 {
+	receipt := validV3Receipt()
+	receipt.Version = VersionV4
+	digest := sha256.Sum256([]byte("normalized exposure observation"))
+	receipt.Exposure = &ExposureEvidenceV1{
+		RootTaskID: "task-root", ProfileVersion: "taskgate-exposure-v1",
+		ActualReleaseFacts: 3, ActualInfluenceFacts: 7,
+		ChargedReleaseFacts: 2, ChargedInfluenceFacts: 5,
+		ObservationSHA256: fmt.Sprintf("%x", digest),
+	}
 	return receipt
 }
 

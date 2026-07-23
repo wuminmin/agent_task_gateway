@@ -26,11 +26,14 @@ var (
 // budget exchanged between Gateway and OA. Milliseconds avoid implementation-
 // specific duration encodings in the signed protocol objects.
 type AuthorizationBudgetV1 struct {
-	MaxQueries        int64 `json:"max_queries"`
-	MaxResultRows     int64 `json:"max_result_rows"`
-	MaxDBMS           int64 `json:"max_db_ms"`
-	PerQueryTimeoutMS int64 `json:"per_query_timeout_ms"`
-	TaskTTLMS         int64 `json:"task_ttl_ms"`
+	MaxQueries             int64  `json:"max_queries"`
+	MaxResultRows          int64  `json:"max_result_rows"`
+	MaxDBMS                int64  `json:"max_db_ms"`
+	PerQueryTimeoutMS      int64  `json:"per_query_timeout_ms"`
+	TaskTTLMS              int64  `json:"task_ttl_ms"`
+	MaxReleaseFacts        int64  `json:"max_release_facts,omitempty"`
+	MaxInfluenceFacts      int64  `json:"max_influence_facts,omitempty"`
+	ExposureProfileVersion string `json:"exposure_profile_version,omitempty"`
 }
 
 func (b AuthorizationBudgetV1) Validate() error {
@@ -40,9 +43,19 @@ func (b AuthorizationBudgetV1) Validate() error {
 	if b.PerQueryTimeoutMS > b.MaxDBMS {
 		return errors.New("per_query_timeout_ms cannot exceed max_db_ms")
 	}
+	if b.MaxReleaseFacts < 0 || b.MaxInfluenceFacts < 0 || (b.MaxReleaseFacts == 0) != (b.MaxInfluenceFacts == 0) {
+		return errors.New("release and influence limits must both be positive or both be disabled")
+	}
+	if b.MaxReleaseFacts > 0 && strings.TrimSpace(b.ExposureProfileVersion) == "" {
+		return errors.New("exposure_profile_version is required when exposure accounting is enabled")
+	}
+	if b.MaxReleaseFacts == 0 && b.ExposureProfileVersion != "" {
+		return errors.New("exposure_profile_version requires exposure limits")
+	}
 	const maxDurationMilliseconds = int64(^uint64(0)>>1) / int64(time.Millisecond)
 	const maxSafeJSONInteger = int64(1<<53 - 1)
 	if b.MaxQueries > maxSafeJSONInteger || b.MaxResultRows > maxSafeJSONInteger ||
+		b.MaxReleaseFacts > maxSafeJSONInteger || b.MaxInfluenceFacts > maxSafeJSONInteger ||
 		b.MaxDBMS > maxDurationMilliseconds || b.PerQueryTimeoutMS > maxDurationMilliseconds ||
 		b.TaskTTLMS > maxDurationMilliseconds {
 		return errors.New("authorization budget exceeds the V1 interoperable integer or duration range")
@@ -59,7 +72,8 @@ func (b AuthorizationBudgetV1) EnsureWithin(parent AuthorizationBudgetV1) error 
 	}
 	if b.MaxQueries > parent.MaxQueries || b.MaxResultRows > parent.MaxResultRows ||
 		b.MaxDBMS > parent.MaxDBMS || b.PerQueryTimeoutMS > parent.PerQueryTimeoutMS ||
-		b.TaskTTLMS > parent.TaskTTLMS {
+		b.TaskTTLMS > parent.TaskTTLMS || b.MaxReleaseFacts > parent.MaxReleaseFacts ||
+		b.MaxInfluenceFacts > parent.MaxInfluenceFacts || b.ExposureProfileVersion != parent.ExposureProfileVersion {
 		return errors.New("authorization budget exceeds parent")
 	}
 	return nil
@@ -71,6 +85,8 @@ func (b AuthorizationBudgetV1) EnsureWithin(parent AuthorizationBudgetV1) error 
 type AuthorizationManifestV1 struct {
 	Version           string                `json:"version"`
 	TaskID            string                `json:"task_id"`
+	RootTaskID        string                `json:"root_task_id,omitempty"`
+	ParentTaskID      string                `json:"parent_task_id,omitempty"`
 	HumanSubject      string                `json:"human_subject"`
 	AgentID           string                `json:"agent_id"`
 	DeclaredObjective string                `json:"declared_objective"`
@@ -95,6 +111,10 @@ func (m AuthorizationManifestV1) Validate() error {
 		strings.TrimSpace(m.AgentID) == "" || strings.TrimSpace(m.DeclaredObjective) == "" {
 		return fmt.Errorf("%w: task_id, human_subject, agent_id, and declared_objective are required", ErrInvalidAuthorizationManifest)
 	}
+	if (m.RootTaskID == "") != (m.ParentTaskID == "") ||
+		(m.ParentTaskID != "" && (m.RootTaskID == m.TaskID || m.ParentTaskID == m.TaskID)) {
+		return fmt.Errorf("%w: delegated task lineage is invalid", ErrInvalidAuthorizationManifest)
+	}
 	if err := validateAuthorizationEnvelope(m.Products, m.ApprovedColumns, m.MandatoryScope); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidAuthorizationManifest, err)
 	}
@@ -117,6 +137,8 @@ func (m AuthorizationManifestV1) Validate() error {
 type TaskGrantCoreV1 struct {
 	Version            string                `json:"version"`
 	TaskID             string                `json:"task_id"`
+	RootTaskID         string                `json:"root_task_id,omitempty"`
+	ParentTaskID       string                `json:"parent_task_id,omitempty"`
 	HumanSubject       string                `json:"human_subject"`
 	AgentID            string                `json:"agent_id"`
 	DeclaredObjective  string                `json:"declared_objective"`
@@ -140,6 +162,10 @@ func (g TaskGrantCoreV1) Validate() error {
 	if strings.TrimSpace(g.TaskID) == "" || strings.TrimSpace(g.HumanSubject) == "" ||
 		strings.TrimSpace(g.AgentID) == "" || strings.TrimSpace(g.DeclaredObjective) == "" {
 		return fmt.Errorf("%w: task and identity fields are required", ErrInvalidTaskGrantCore)
+	}
+	if (g.RootTaskID == "") != (g.ParentTaskID == "") ||
+		(g.ParentTaskID != "" && (g.RootTaskID == g.TaskID || g.ParentTaskID == g.TaskID)) {
+		return fmt.Errorf("%w: delegated task lineage is invalid", ErrInvalidTaskGrantCore)
 	}
 	if err := validateAuthorizationEnvelope(g.ApprovedProducts, g.ApprovedColumns, g.MandatoryScope); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidTaskGrantCore, err)
@@ -181,12 +207,59 @@ func (g TaskGrantCoreV1) CheckNarrowing(candidate TaskGrantCoreV1) error {
 	if err := candidate.Validate(); err != nil {
 		return fmt.Errorf("candidate: %w", err)
 	}
-	if candidate.TaskID != g.TaskID || candidate.HumanSubject != g.HumanSubject ||
+	if candidate.TaskID != g.TaskID || candidate.RootTaskID != g.RootTaskID || candidate.ParentTaskID != g.ParentTaskID ||
+		candidate.HumanSubject != g.HumanSubject ||
 		candidate.AgentID != g.AgentID || candidate.DeclaredObjective != g.DeclaredObjective ||
 		candidate.CatalogVersion != g.CatalogVersion || candidate.CatalogSHA256 != g.CatalogSHA256 ||
 		candidate.DatasourceID != g.DatasourceID || candidate.SchemaDigest != g.SchemaDigest ||
 		candidate.ManifestDigest != g.ManifestDigest {
 		return grantExpansion("identity or authorization provenance changed")
+	}
+	if !candidate.SensitivityCeiling.AtMost(g.SensitivityCeiling) {
+		return grantExpansion("sensitivity ceiling increased")
+	}
+	if candidate.ExpiresAt.After(g.ExpiresAt) {
+		return grantExpansion("expiry extended")
+	}
+	if err := candidate.Budget.EnsureWithin(g.Budget); err != nil {
+		return grantExpansion("budget increased")
+	}
+	for _, product := range candidate.ApprovedProducts {
+		if !contains(g.ApprovedProducts, product) {
+			return grantExpansion("product added")
+		}
+		for _, column := range candidate.ApprovedColumns[product] {
+			if !contains(g.ApprovedColumns[product], column) {
+				return grantExpansion("column added")
+			}
+		}
+	}
+	if !scopeMapNarrower(g.MandatoryScope, candidate.MandatoryScope) {
+		return grantExpansion("mandatory scope weakened or changed incompatibly")
+	}
+	return nil
+}
+
+// CheckDelegation verifies that candidate is a child authorization whose
+// authority is no broader than this grant. Child task, agent, objective, and
+// manifest provenance are intentionally distinct; the human, task family,
+// datasource, and every authorization dimension remain constrained.
+func (g TaskGrantCoreV1) CheckDelegation(candidate TaskGrantCoreV1) error {
+	if err := g.Validate(); err != nil {
+		return fmt.Errorf("parent: %w", err)
+	}
+	if err := candidate.Validate(); err != nil {
+		return fmt.Errorf("candidate: %w", err)
+	}
+	expectedRoot := g.RootTaskID
+	if expectedRoot == "" {
+		expectedRoot = g.TaskID
+	}
+	if candidate.TaskID == g.TaskID || candidate.ParentTaskID != g.TaskID || candidate.RootTaskID != expectedRoot ||
+		candidate.HumanSubject != g.HumanSubject || candidate.CatalogVersion != g.CatalogVersion ||
+		candidate.CatalogSHA256 != g.CatalogSHA256 || candidate.DatasourceID != g.DatasourceID ||
+		candidate.SchemaDigest != g.SchemaDigest {
+		return grantExpansion("task family, human, catalog, or datasource changed")
 	}
 	if !candidate.SensitivityCeiling.AtMost(g.SensitivityCeiling) {
 		return grantExpansion("sensitivity ceiling increased")
@@ -223,6 +296,7 @@ func CoreFromManifest(manifest AuthorizationManifestV1, manifestDigest string, i
 	issuedAt = issuedAt.UTC()
 	return TaskGrantCoreV1{
 		Version: TaskGrantCoreV1Version, TaskID: manifest.TaskID,
+		RootTaskID: manifest.RootTaskID, ParentTaskID: manifest.ParentTaskID,
 		HumanSubject: manifest.HumanSubject, AgentID: manifest.AgentID,
 		DeclaredObjective:  manifest.DeclaredObjective,
 		ApprovedProducts:   append([]string(nil), manifest.Products...),

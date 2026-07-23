@@ -19,31 +19,38 @@ Current formal status:
 - Receipt/audit config: `formal/ReceiptAudit.cfg`
 - Recovery liveness model: `formal/RecoveryLiveness.tla`
 - Recovery liveness config: `formal/RecoveryLiveness.cfg`
+- Root-family exposure model: `formal/ExposureLedger.tla`
+- Root-family exposure config: `formal/ExposureLedger.cfg`
 - Primary result: `formal/results/tlc.json`
 - Vector-budget result: `formal/results/vector_budget.json`
 - SQL authorization result: `formal/results/sql_authorization.json`
 - Multi-task audit result: `formal/results/multi_task_audit.json`
 - Receipt/audit result: `formal/results/receipt_audit.json`
 - Recovery liveness result: `formal/results/recovery_liveness.json`
+- Root-family exposure result: `formal/results/exposure_ledger.json`
 - Archived tool: TLC 1.7.1
-- Latest core TLC result: passed at 2026-07-22T13:11:36Z with 14,824,257
+- Latest core TLC result: passed at 2026-07-23T13:13:29Z with 14,824,257
   states generated, 3,255,552 distinct states, and depth 18.
-- Latest vector-budget TLC result: passed at 2026-07-22T13:11:44Z with
+- Latest vector-budget TLC result: passed at 2026-07-23T13:13:39Z with
   263,229 states generated, 201,134 distinct states, and depth 6.
-- Latest SQL authorization TLC result: passed at 2026-07-22T13:11:46Z with
+- Latest SQL authorization TLC result: passed at 2026-07-23T13:13:41Z with
   3,073 states generated, 2,561 distinct states, and depth 2.
-- Latest multi-task audit TLC result: passed at 2026-07-22T13:11:49Z with
+- Latest multi-task audit TLC result: passed at 2026-07-23T13:13:43Z with
   129,103 states generated, 129,103 distinct states, and depth 7.
-- Latest receipt/audit TLC result: passed at 2026-07-22T13:11:50Z with
+- Latest receipt/audit TLC result: passed at 2026-07-23T13:13:44Z with
   3,281 states generated, 3,281 distinct states, and depth 3.
-- Latest recovery-liveness TLC result: passed at 2026-07-22T13:11:52Z with
+- Latest recovery-liveness TLC result: passed at 2026-07-23T13:13:45Z with
   221 states generated, 135 distinct states, and depth 7.
+- Latest root-family exposure result: passed at 2026-07-23T13:13:46Z with
+  107,286 states generated, 39,010 distinct states, and depth 12.
 - Scope: one core task, finite request/receipt sets, abstract
   relation/column/scope sets, explicit crash transitions, a separate finite
   vector-budget ledger over query, row, and DBMS dimensions, a finite
   two-product SQL authorization abstraction, finite two-task audit
   interleavings, finite terminal receipt/audit consistency, and finite
-  recovery liveness under weak fairness.
+  recovery liveness under weak fairness. The exposure split adds two requests,
+  one root and one child task, finite release/influence fact universes, and
+  bounded terminal replay.
 
 The model intentionally abstracts away SQL parser byte-level syntax, full AST
 coverage, cryptographic signatures, PostgreSQL row contents, network I/O,
@@ -77,6 +84,13 @@ at the named abstraction boundaries.
 | `ReceiptAudit.receiptPersisted` | Immutable terminal query receipt exists | `query_receipts` row keyed by `query_id` with canonical receipt bytes and signature |
 | `ReceiptAudit.receiptAuditSeq` and `receiptAuditHash` | Receipt fields naming the terminal audit event | `query_receipts.terminal_audit_sequence` and `terminal_audit_hash` |
 | `RecoveryLiveness.requestState = "RECOVERING"` | Durable or in-memory settlement retry remains pending | Startup recovery over durable `RESERVED` records or Gateway background retry after finalization failure |
+| `ExposureLedger.knownRelease` and `knownInfluence` | Root-family exposure knowledge and usage | Immutable `exposure_facts` rows partitioned by `ledger_kind`, plus `exposure_ledgers.used_release_facts` and `used_influence_facts` |
+| `ExposureLedger.requestTask` | Root or delegated task that issued a request | `query_exposure_reservations.task_id` and `root_task_id`; every family member resolves to the same root ledger |
+| `ExposureLedger.requestState = "RESERVED"` | Exposure evidence is required for the query | `query_exposure_reservations.status='RESERVED'` created with the ordinary resource reservation |
+| `ExposureLedger.requestState IN {"BUFFERED","DERIVED"}` | Business result and companion provenance have executed but remain internal | Gateway memory between `QueryPair` and `FinalizeQuery`; these transient states are intentionally not durable database states |
+| `ExposureLedger.requestState = "SETTLED"` | Novel facts were atomically accepted and the encrypted result became releasable | Exposure reservation and root ledger updated in the same transaction as terminal query evidence and encrypted result |
+| `ExposureLedger.requestState = "REJECTED"` | Actual novel exposure exceeded either root limit | Transaction rolls back fact inserts and result persistence; Gateway returns `exposure_budget_exhausted` without the buffered result |
+| `ExposureLedger.delivered` | Successful MCP response or later authorized result read | Result is returned only after the atomic finalization transaction commits |
 
 ## Action Mapping
 
@@ -117,6 +131,14 @@ at the named abstraction boundaries.
 | `ReceiptAudit.Fail` | `Store.FailBudgetWithReceipt` | Post-execution failure charges bounded observed use and persists terminal evidence | `TestQueryEncodingFailureSettlesActualUsage`, `TestQueryFinalizationFailureSettlesActualUsage` | Model checks failure has no result hash, has an error, and charges no more than reservation. |
 | `ReceiptAudit.Indeterminate` | `Store.MarkIndeterminateWithReceipt`, `Store.recover` | Ambiguous outcome charges full reservation and binds receipt to terminal audit event | `TestConnectorAmbiguityChargesReservationAndUsesStableCode`, `TestStartupRecoveryCanPersistIndeterminateReceipt` | Model checks indeterminate charge equals reservation. |
 | `RecoveryLiveness.RecoverStep` | `Store.recover`, Gateway settlement retry loop | Durable `RESERVED` rows are eventually made `INDETERMINATE`; known-result retry eventually completes when retry remains enabled | `TestStartupRecoveryCanPersistIndeterminateReceipt`, `TestFailedSettlementMakesServiceUnreadyUntilBackgroundRetrySucceeds` | Liveness is finite and assumes weak fairness for recovery execution; it is not a scheduler proof for arbitrary process crashes. |
+| `ExposureLedger.Reserve` | `gateway.Service.executeSQL`, `Store.ReserveBudget` with `ExposureReservationRequest` | Inserts `query_records` and `query_exposure_reservations` in the resource-budget reservation transaction after resolving `tasks.root_task_id` | `TestExposurePlanHidesMeteringKeysAndDeduplicatesReplay`, `TestExposureTaskRejectsDirectSQLWithoutProvenance` | Estimated exposure is admission metadata; only actual novel FactIDs affect the root ledger. |
+| `ExposureLedger.ExecuteAndBuffer` | `dataconnector.Connector.QueryPair` | Visible and provenance companion queries run in one read-only `REPEATABLE READ` business-database transaction; no Control PG result is yet committed | `TestExposurePlanHidesMeteringKeysAndDeduplicatesReplay`, live Compose acceptance | The model represents both result sets as fact sets and tracks physical execution separately from exposure charge. |
+| `ExposureLedger.DeriveProvenance` | `planExposureContext.deriveObservation` | Hidden entity keys and source rows are normalized into release and influence `FactID` sets before finalization | exposure algebra tests; `TestExposurePlanHidesMeteringKeysAndDeduplicatesReplay` | TLC assumes this derivation is exact; executable ground-truth and rewrite tests cover the compiler/algebra boundary. |
+| `ExposureLedger.Settle` | `settleExposureTx` inside `FinalizeQueryMeasuredWithReceipt` | Locks the root ledger, inserts immutable facts with `ON CONFLICT DO NOTHING`, checks both limits, updates dual counters, stores the encrypted result, terminal audit, and V4 receipt in one transaction | `TestExposureSettlementIsNovelFactIdempotent`, `TestDelegatedTasksShareRootExposureKnowledge`, `TestConcurrentTaskFamilySettlementCannotOverspend` | A row lock serializes concurrent family settlement; charges equal only successful novel inserts. |
+| `ExposureLedger.RejectOverBudget` | failed `settleExposureTx` / finalization rollback | Conditional root-ledger update fails with `ErrExposureBudgetExhausted`; the surrounding transaction rolls back novel facts and result persistence | `TestExposureOverBudgetDoesNotStoreOrChargeResult`, `TestExposureBudgetRejectsBufferedResultBeforeRelease` | Physical DB work is still represented in ordinary execution telemetry, while the result is never released. |
+| `ExposureLedger.ReleaseBeforeExecution` | `releaseExposureReservationTx` inside resource reservation release | Marks the exposure reservation `RELEASED` and appends audit evidence without adding facts | definite pre-execution failure tests | This action excludes failures after visible data has been produced. |
+| `ExposureLedger.Replay` | `queryReplayResponse` and immutable query result/receipt lookup | Unique `(task_id, request_id)` returns the terminal observation; no connector or settlement transaction is rerun | `TestRequestIDIsRequiredAndRetriesNeverExecuteTwice`, `TestExposurePlanHidesMeteringKeysAndDeduplicatesReplay` | Replay count is bounded only to keep the TLC state space finite. |
+| `ExposureLedger.RevokeRoot` | `revokeTask`, ancestor checks in execution | Root archival blocks new descendant requests; already terminal request IDs remain observationally replayable | `TestDelegatedTaskSharesRootExposureAndStopsWithParent` | The split model tracks root activity but abstracts the full signed delegation chain. |
 
 ## Database Invariants Used By The Mapping
 
@@ -130,6 +152,11 @@ at the named abstraction boundaries.
 | Receipt immutability | `query_receipts_no_update` and `query_receipts_no_delete` triggers |
 | Audit total order | Single `audit_chain_head` row locked `FOR UPDATE`, unique audit sequence/current hash |
 | Result key erasure is durable evidence | `result_encryption_keys` `ACTIVE`/`ERASED` check constraints and no-reactivation trigger |
+| Root-family exposure cannot exceed either limit | `exposure_ledgers` checks plus a `FOR UPDATE` root-ledger lock and conditional settlement update |
+| A fact is charged at most once per root and ledger kind | `exposure_facts` primary key on `(root_task_id, ledger_kind, fact_sha256)` |
+| Exposure facts are immutable | `exposure_facts_no_update` and `exposure_facts_no_delete` triggers |
+| Delegated tasks share the root budget subject | signed `root_task_id`/`parent_task_id`, task foreign keys, delegation narrowing checks, and root-ledger lookup |
+| Exposure evidence and result commit together | `FinalizeQueryMeasuredWithReceipt` performs exposure settlement, encrypted result insertion, terminal audit, and receipt persistence in one Control PG transaction |
 
 ## Current Non-Refinement Gaps
 
@@ -160,6 +187,18 @@ These gaps are intentionally not hidden by the mapping:
 7. The repository still does not provide centralized KMS/HSM key custody,
    actual result-key material destruction, external verifier transparency logs,
    or WORM/trusted-timestamp guarantees for audit anchors.
+8. `ExposureLedger.tla` treats release and source-influence observations as
+   finite sets supplied by an exact derivation step. It does not model SQL
+   parsing, row encoding, cryptographic FactID collisions, hash preimages, or
+   malformed connector values. Those boundaries are tested but not refined.
+9. The exposure model has one root, one child, two requests, two facts per
+   ledger, and one terminal replay in the checked configuration. It establishes
+   the invariants only for that finite scope; larger delegation DAGs and
+   workloads are implementation/evaluation evidence.
+10. The online compiler currently supports one-product structured plans with
+    projection, filtering, pagination, and `COUNT`/`SUM`/`MIN`/`MAX` grouping.
+    The executable algebra covers joins and unions, but arbitrary SQL and
+    multi-product online provenance remain unsupported and fail closed.
 
 ## Stage 4 Acceptance Impact
 
@@ -169,9 +208,9 @@ This file satisfies the traceability deliverable:
 TLA+ action -> Go method -> PostgreSQL transaction -> database invariant -> test/fault-injection point
 ```
 
-Together with the submitted TLC JSON/log pairs, this satisfies the Stage 4
-finite-model deliverables for split product-column authorization, vector
-budgeting and hard-limit archival, multi-task audit ordering, terminal
+Together with the submitted TLC JSON/log pairs, this provides finite-model
+evidence for split product-column authorization, vector resource budgeting,
+root-family dual exposure accounting, multi-task audit ordering, terminal
 receipt/audit consistency, and recovery liveness. It remains finite-state
 design evidence plus an audit map, not a mechanized Go/PostgreSQL refinement
 proof.

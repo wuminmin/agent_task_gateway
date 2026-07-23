@@ -174,6 +174,10 @@ func toolError(err error) error {
 		return &mcp.ToolError{Code: apierr.CodeTaskNotActive, Message: "任务当前不可查询；请检查审批、期限或归档状态"}
 	case control.CodeBudgetExhausted:
 		return &mcp.ToolError{Code: apierr.CodeBudgetExhausted, Message: "任务预算已耗尽并已归档"}
+	case control.CodeExposureBudgetExhausted:
+		return &mcp.ToolError{Code: apierr.CodeExposureBudgetExhausted, Message: "查询结果会超过根任务的数据暴露预算，因此未释放"}
+	case control.CodeExposureEvidenceRequired:
+		return &mcp.ToolError{Code: apierr.CodeExposureEvidenceRequired, Message: "该任务要求使用可生成精确暴露证据的结构化查询计划"}
 	case control.CodeQueryInProgress:
 		return &mcp.ToolError{Code: apierr.CodeConflict, Message: "同一任务已有查询正在执行"}
 	case control.CodeInvalid, control.CodeInvalidStateChange:
@@ -211,6 +215,7 @@ func publicTask(task control.Task) map[string]any {
 		"terminal_reason": task.TerminalReason, "catalog_version": task.CatalogVersion,
 		"sensitivity": task.Sensitivity, "created_at": task.CreatedAt,
 		"updated_at": task.UpdatedAt, "expires_at": task.ExpiresAt,
+		"root_task_id": task.RootTaskID, "parent_task_id": task.ParentTaskID,
 	}
 }
 

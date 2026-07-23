@@ -61,7 +61,7 @@ func (s *Service) querySQL(ctx context.Context, principal mcp.Principal, raw jso
 		return nil, err
 	}
 	requestSummary := "query_sql\x00" + task.ID + "\x00" + args.SQL
-	return s.executeSQL(ctx, principal, task, args.RequestID, args.SQL, requestSummary)
+	return s.executeSQL(ctx, principal, task, args.RequestID, args.SQL, requestSummary, nil)
 }
 
 func (s *Service) executePlan(ctx context.Context, principal mcp.Principal, raw json.RawMessage) (any, error) {
@@ -108,6 +108,9 @@ func (s *Service) executePlan(ctx context.Context, principal mcp.Principal, raw 
 	if task.State != control.TaskActive {
 		return nil, &mcp.ToolError{Code: apierr.CodeTaskNotActive, Message: "任务尚未批准或已经归档"}
 	}
+	if err := s.ensureActiveTaskFamily(ctx, task); err != nil {
+		return nil, toolError(err)
+	}
 	grant, err := s.store.GetGrant(ctx, task.ID)
 	if err != nil {
 		return nil, err
@@ -130,7 +133,15 @@ func (s *Service) executePlan(ctx context.Context, principal mcp.Principal, raw 
 	if err != nil {
 		return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "QueryPlan 无法在任务授权内编译"}
 	}
-	result, err := s.executeSQL(ctx, principal, task, args.RequestID, compiled, requestSummary)
+	var exposureContext *planExposureContext
+	if grant.Exposure.Enabled() {
+		exposureContext, err = buildPlanExposureContext(args.Plan, product, columns, aggregates)
+		if err != nil {
+			return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "QueryPlan 不在可精确计量的数据暴露片段内"}
+		}
+		compiled = exposureContext.mainSQL
+	}
+	result, err := s.executeSQL(ctx, principal, task, args.RequestID, compiled, requestSummary, exposureContext)
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +150,7 @@ func (s *Service) executePlan(ctx context.Context, principal mcp.Principal, raw 
 	return result, nil
 }
 
-func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task control.Task, requestID, agentSQL, requestSummary string) (any, error) {
+func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task control.Task, requestID, agentSQL, requestSummary string, exposureContext *planExposureContext) (any, error) {
 	pipelineStarted := time.Now()
 	requestDigest := digest(requestSummary)
 	// An idempotent retry observes the first durable result/status even if the
@@ -157,12 +168,18 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 	if task.State != control.TaskActive {
 		return nil, &mcp.ToolError{Code: apierr.CodeTaskNotActive, Message: "任务尚未批准或已经归档"}
 	}
+	if err := s.ensureActiveTaskFamily(ctx, task); err != nil {
+		return nil, toolError(err)
+	}
 	if task.CatalogVersion != s.catalog.CatalogVersion {
 		return nil, &mcp.ToolError{Code: apierr.CodeConflict, Message: "任务目录版本与当前实例不一致；为避免扩权已拒绝查询"}
 	}
 	grant, err := s.store.GetGrant(ctx, task.ID)
 	if err != nil {
 		return nil, err
+	}
+	if grant.Exposure.Enabled() && exposureContext == nil {
+		return nil, toolError(control.ErrExposureEvidenceRequired)
 	}
 	protocolGrant, err := approval.DecodeTaskGrantV1(grant.ApprovalReceipt)
 	if err != nil || approval.VerifyTaskGrantV1(s.receiptVerifier, protocolGrant) != nil {
@@ -172,6 +189,9 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 	if err != nil || !storedGrantMatchesProtocol(task, grant, protocolGrant) ||
 		protocolGrant.Core.CatalogSHA256 != s.catalog.SHA256 {
 		return nil, &mcp.ToolError{Code: apierr.CodeConflict, Message: "授权、目录或持久 Grant 不一致；查询已关闭式拒绝"}
+	}
+	if err := s.validateDelegatedGrant(ctx, task, protocolGrant.Core, s.clock().UTC()); err != nil {
+		return nil, &mcp.ToolError{Code: apierr.CodeConflict, Message: "委托 Grant 不再受有效父任务约束；查询已关闭式拒绝"}
 	}
 	grantRemaining := grant.ExpiresAt.Sub(s.clock().UTC())
 	if grantRemaining < time.Millisecond {
@@ -204,10 +224,44 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 	if err != nil {
 		return nil, err
 	}
+	var exposureLedger control.ExposureLedgerSnapshot
+	if exposureContext != nil {
+		policyGrant, err = exposureContext.extendGrant(policyGrant)
+		if err != nil {
+			return nil, toolError(control.ErrExposureEvidenceRequired)
+		}
+		exposureLedger, err = s.store.GetExposureLedger(ctx, task.ID)
+		if err != nil || exposureLedger.ProfileVersion != grant.Exposure.ProfileVersion {
+			return nil, toolError(control.ErrExposureEvidenceRequired)
+		}
+	}
 	engine := sqlpolicy.New(sqlpolicy.Config{})
-	decision, err := engine.Authorize(sqlpolicy.Request{SQL: agentSQL, Grant: policyGrant, RowLimit: remaining.Rows})
+	visibleRowLimit := remaining.Rows
+	if exposureContext != nil && !exposureContext.grouped {
+		visibleRowLimit = min64(visibleRowLimit, exposureLedger.Limits.InfluenceFacts)
+	}
+	decision, err := engine.Authorize(sqlpolicy.Request{SQL: agentSQL, Grant: policyGrant, RowLimit: visibleRowLimit})
 	if err != nil {
 		return nil, err
+	}
+	var provenanceDecision sqlpolicy.Decision
+	var provenanceEvidenceRows int64
+	if exposureContext != nil {
+		provenanceEvidenceRows = decision.RowLimit
+		provenancePolicyRows := provenanceEvidenceRows
+		if exposureContext.grouped {
+			provenanceEvidenceRows = exposureLedger.Limits.InfluenceFacts
+			provenancePolicyRows = provenanceEvidenceRows + 1
+		}
+		if provenanceEvidenceRows < 1 {
+			return nil, toolError(control.ErrExposureBudgetExhausted)
+		}
+		provenanceDecision, err = engine.Authorize(sqlpolicy.Request{
+			SQL: exposureContext.provenanceSQL, Grant: policyGrant, RowLimit: provenancePolicyRows,
+		})
+		if err != nil {
+			return nil, toolError(control.ErrExposureEvidenceRequired)
+		}
 	}
 	componentMS["parse_policy"] = durationMS(time.Since(policyStarted))
 	componentMS["authorization"] = durationMS(policyStarted.Sub(pipelineStarted))
@@ -231,14 +285,22 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 		return nil, toolError(control.ErrTaskExpired)
 	}
 	reserveStarted := time.Now()
-	reservation, err := s.store.ReserveBudget(ctx, control.ReserveRequest{
+	reserveRequest := control.ReserveRequest{
 		QueryID: queryID, TaskID: task.ID, RequestID: requestID, Actor: principal.Subject,
 		RequestDigest: requestDigest, SQLFingerprint: decision.Fingerprint,
 		CatalogVersion: task.CatalogVersion, CatalogDigest: protocolGrant.Core.CatalogSHA256,
 		DatasourceID: evidence.DatasourceID, SchemaDigest: evidence.SchemaDigest,
 		ManifestDigest: protocolGrant.Core.ManifestDigest, GrantDigest: grantDigest, PolicyDecision: "ALLOW",
 		RequestedRows: decision.RowLimit, RequestedDBMS: requestedDBMS,
-	})
+	}
+	if exposureContext != nil {
+		reserveRequest.Exposure = &control.ExposureReservationRequest{
+			ProfileVersion:          exposureLedger.ProfileVersion,
+			EstimatedReleaseFacts:   saturatedProduct(decision.RowLimit, int64(len(exposureContext.visibleFields))),
+			EstimatedInfluenceFacts: saturatedProduct(provenanceEvidenceRows, int64(len(exposureContext.provenanceFields)+1)),
+		}
+	}
+	reservation, err := s.store.ReserveBudget(ctx, reserveRequest)
 	if err != nil {
 		return nil, err
 	}
@@ -267,10 +329,33 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 	queryCtx, cancel := context.WithTimeout(ctx, queryTimeout)
 	defer cancel()
 	connectorStarted := time.Now()
-	data, queryErr := s.connector.Query(queryCtx, dataconnector.QueryRequest{
-		SQL: decision.SQL, StatementTimeout: timeout, MaxRows: reservation.AllowedRows,
-	})
+	var data dataconnector.Result
+	var provenanceData dataconnector.Result
+	var queryErr error
+	if exposureContext == nil {
+		data, queryErr = s.connector.Query(queryCtx, dataconnector.QueryRequest{
+			SQL: decision.SQL, StatementTimeout: timeout, MaxRows: reservation.AllowedRows,
+		})
+	} else {
+		paired, ok := s.connector.(interface {
+			QueryPair(context.Context, dataconnector.QueryPairRequest) (dataconnector.QueryPairResult, error)
+		})
+		if !ok {
+			s.releaseQueryBudget(ctx, queryID, "EXPOSURE_SNAPSHOT_UNAVAILABLE")
+			return nil, toolError(control.ErrExposureEvidenceRequired)
+		}
+		pair, pairErr := paired.QueryPair(queryCtx, dataconnector.QueryPairRequest{
+			Visible:    dataconnector.QueryRequest{SQL: decision.SQL, StatementTimeout: timeout, MaxRows: reservation.AllowedRows},
+			Provenance: dataconnector.QueryRequest{SQL: provenanceDecision.SQL, StatementTimeout: timeout, MaxRows: provenanceEvidenceRows},
+		})
+		data, provenanceData, queryErr = pair.Visible, pair.Provenance, pairErr
+	}
 	connectorFinished := time.Now()
+	businessDatabaseDuration := data.DatabaseTime
+	provenanceDatabaseDuration := provenanceData.DatabaseTime
+	if exposureContext != nil {
+		data.DatabaseTime = businessDatabaseDuration + provenanceDatabaseDuration
+	}
 	settlement := querySettlement(queryID, data, connectorStarted, reservation)
 	if queryErr != nil {
 		code := string(dataconnector.CodeQueryFailed)
@@ -286,15 +371,36 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 		}
 		return nil, queryErr
 	}
-	databaseDuration := data.DatabaseTime
-	if databaseDuration <= 0 {
-		databaseDuration = connectorFinished.Sub(connectorStarted)
+	if exposureContext != nil {
+		observation, deriveErr := exposureContext.deriveObservation(data, provenanceData, exposureLedger.ProfileVersion)
+		if deriveErr != nil {
+			settlement.ErrorCode = "EXPOSURE_PROVENANCE_INVALID"
+			s.failQueryBudget(ctx, settlement)
+			return nil, &mcp.ToolError{Code: apierr.CodeExposureEvidenceRequired, Message: "查询的来源证据不完整，因此结果未释放"}
+		}
+		settlement.Exposure = &observation
+		data, err = exposureContext.visibleResult(data)
+		if err != nil {
+			settlement.ErrorCode = "EXPOSURE_RESULT_INVALID"
+			s.failQueryBudget(ctx, settlement)
+			return nil, err
+		}
 	}
-	connectorOverhead := connectorFinished.Sub(connectorStarted) - databaseDuration
+	totalDatabaseDuration := data.DatabaseTime
+	if totalDatabaseDuration <= 0 {
+		totalDatabaseDuration = connectorFinished.Sub(connectorStarted)
+	}
+	if exposureContext == nil && businessDatabaseDuration <= 0 {
+		businessDatabaseDuration = totalDatabaseDuration
+	}
+	connectorOverhead := connectorFinished.Sub(connectorStarted) - totalDatabaseDuration
 	if connectorOverhead < 0 {
 		connectorOverhead = 0
 	}
-	componentMS["business_postgresql"] = durationMS(databaseDuration)
+	componentMS["business_postgresql"] = durationMS(businessDatabaseDuration)
+	if exposureContext != nil {
+		componentMS["provenance_postgresql"] = durationMS(provenanceDatabaseDuration)
+	}
 	componentMS["connector_overhead"] = durationMS(connectorOverhead)
 	stored := storedQueryResult{
 		Columns: data.Columns, Rows: data.Rows, RowCount: data.RowCount,
@@ -324,11 +430,18 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{
+	result := map[string]any{
 		"task_id": task.ID, "query_id": queryID, "request_id": requestID, "status": record.Status, "columns": stored.Columns,
 		"rows": stored.Rows, "row_count": stored.RowCount, "database_ms": stored.DatabaseMS,
 		"component_ms": componentMS, "limited": stored.Limited, "receipt": receipt,
-	}, nil
+	}
+	if charge, exposureErr := s.store.GetExposureCharge(ctx, record.ID); exposureErr == nil {
+		result["exposure"] = charge
+		if ledger, ledgerErr := s.store.GetExposureLedger(ctx, record.TaskID); ledgerErr == nil {
+			result["exposure_budget"] = ledger
+		}
+	}
+	return result, nil
 }
 
 func validateRequestID(requestID string) error {
@@ -353,6 +466,12 @@ func (s *Service) queryReplayResponse(ctx context.Context, record control.QueryR
 	result := map[string]any{
 		"task_id": record.TaskID, "query_id": record.ID, "request_id": record.RequestID,
 		"status": record.Status, "receipt": receipt, "idempotent_replay": true,
+	}
+	if charge, exposureErr := s.store.GetExposureCharge(ctx, record.ID); exposureErr == nil {
+		result["exposure"] = charge
+		if ledger, ledgerErr := s.store.GetExposureLedger(ctx, record.TaskID); ledgerErr == nil {
+			result["exposure_budget"] = ledger
+		}
 	}
 	if record.Status != control.QueryCompleted || record.ResultSHA256 == "" {
 		return result, nil
@@ -824,8 +943,19 @@ func BuildQueryReceiptRequest(evidence control.QueryReceipt, signer *queryreceip
 		return control.SaveQueryReceiptRequest{}, fmt.Errorf("terminal query is missing durable budget or timestamp evidence")
 	}
 	signedAt = signedAt.UTC()
+	version := queryreceipt.VersionV3
+	var exposureEvidence *queryreceipt.ExposureEvidenceV1
+	if evidence.Exposure != nil {
+		version = queryreceipt.VersionV4
+		exposureEvidence = &queryreceipt.ExposureEvidenceV1{
+			RootTaskID: evidence.Exposure.RootTaskID, ProfileVersion: evidence.Exposure.ProfileVersion,
+			ActualReleaseFacts: evidence.Exposure.ActualReleaseFacts, ActualInfluenceFacts: evidence.Exposure.ActualInfluenceFacts,
+			ChargedReleaseFacts: evidence.Exposure.ChargedReleaseFacts, ChargedInfluenceFacts: evidence.Exposure.ChargedInfluenceFacts,
+			ObservationSHA256: evidence.Exposure.ObservationSHA256,
+		}
+	}
 	receipt := queryreceipt.QueryReceiptV1{
-		Version: queryreceipt.VersionV3, ReceiptID: record.ID,
+		Version: version, ReceiptID: record.ID,
 		TaskID: record.TaskID, QueryID: record.ID, RequestID: record.RequestID,
 		ManifestDigest: record.ManifestDigest, GrantDigest: record.GrantDigest,
 		CatalogDigest: record.CatalogDigest, CatalogVersion: record.CatalogVersion,
@@ -842,6 +972,7 @@ func BuildQueryReceiptRequest(evidence control.QueryReceipt, signer *queryreceip
 		CreatedAt: record.CreatedAt, CompletedAt: *record.CompletedAt,
 		AuditSequence: evidence.Audit.Sequence, PreviousAuditHash: evidence.Audit.PreviousHash,
 		AuditHash: evidence.Audit.CurrentHash, SignedAt: &signedAt,
+		Exposure: exposureEvidence,
 	}
 	signed, err := signer.Sign(receipt)
 	if err != nil {
@@ -920,6 +1051,7 @@ func unsignedPublicReceipt(record control.QueryRecord) map[string]any {
 func storedGrantMatchesProtocol(task control.Task, stored control.TaskGrant, protocol approval.TaskGrantV1) bool {
 	core := protocol.Core
 	if core.TaskID != task.ID || core.TaskID != stored.TaskID || core.AgentID != task.PrincipalID ||
+		core.RootTaskID != lineageValue(task.RootTaskID, task.ParentTaskID) || core.ParentTaskID != task.ParentTaskID ||
 		core.HumanSubject != stored.Subject || core.DeclaredObjective != task.Objective ||
 		core.DeclaredObjective != stored.Purpose || string(core.SensitivityCeiling) != stored.SensitivityCeiling ||
 		core.CatalogVersion != task.CatalogVersion || core.CatalogVersion != stored.CatalogVersion ||
@@ -927,6 +1059,7 @@ func storedGrantMatchesProtocol(task control.Task, stored control.TaskGrant, pro
 		core.DatasourceID != stored.DatasourceID || core.SchemaDigest != stored.SchemaDigest ||
 		!stored.ExpiresAt.Equal(core.ExpiresAt.UTC().Truncate(time.Microsecond)) ||
 		stored.Budget != (control.BudgetLimits{Queries: core.Budget.MaxQueries, Rows: core.Budget.MaxResultRows, DBMS: core.Budget.MaxDBMS}) ||
+		stored.Exposure != (control.ExposureGrant{Limits: control.ExposureLimits{ReleaseFacts: core.Budget.MaxReleaseFacts, InfluenceFacts: core.Budget.MaxInfluenceFacts}, ProfileVersion: core.Budget.ExposureProfileVersion}) ||
 		!sameStringSet(stored.ApprovedProducts, core.ApprovedProducts) ||
 		!sameColumnSets(stored.ApprovedColumns, core.ApprovedColumns) {
 		return false
@@ -941,6 +1074,36 @@ func storedGrantMatchesProtocol(task control.Task, stored control.TaskGrant, pro
 	}
 	coreCanonical, err := approval.CanonicalJSON(core.MandatoryScope)
 	return err == nil && string(storedCanonical) == string(coreCanonical)
+}
+
+func (s *Service) ensureActiveTaskFamily(ctx context.Context, task control.Task) error {
+	if task.ParentTaskID == "" {
+		return nil
+	}
+	expectedRoot := task.RootTaskID
+	seen := map[string]struct{}{task.ID: {}}
+	parentID := task.ParentTaskID
+	for depth := 0; depth < 64; depth++ {
+		if _, duplicate := seen[parentID]; duplicate {
+			return control.ErrInvalidStateChange
+		}
+		seen[parentID] = struct{}{}
+		parent, err := s.store.GetTask(ctx, parentID)
+		if err != nil {
+			return err
+		}
+		if parent.State != control.TaskActive || parent.RootTaskID != expectedRoot {
+			return control.ErrTaskNotActive
+		}
+		if parent.ParentTaskID == "" {
+			if parent.ID != expectedRoot {
+				return control.ErrInvalidStateChange
+			}
+			return nil
+		}
+		parentID = parent.ParentTaskID
+	}
+	return control.ErrInvalidStateChange
 }
 
 func sameStringSet(left, right []string) bool {
@@ -987,6 +1150,17 @@ func min64(left, right int64) int64 {
 		return left
 	}
 	return right
+}
+
+func saturatedProduct(left, right int64) int64 {
+	if left <= 0 || right <= 0 {
+		return 0
+	}
+	const maxInt64 = int64(^uint64(0) >> 1)
+	if left > maxInt64/right {
+		return maxInt64
+	}
+	return left * right
 }
 
 func detachedContext(parent context.Context) (context.Context, context.CancelFunc) {

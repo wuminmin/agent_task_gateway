@@ -100,6 +100,10 @@ func (s *Store) FinalizeQueryMeasuredWithReceipt(ctx context.Context, settlement
 		return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, ErrConflict, err)
 	}
 	defer rollback(tx)
+	exposureCharge, err := settleExposureTx(ctx, tx, now, settlement.QueryID, settlement.Exposure)
+	if err != nil {
+		return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, settlementErrorKind(err), err)
+	}
 	record, audit, err := settleBudgetTx(ctx, tx, now, settlement, QueryCompleted, hash)
 	if err != nil {
 		return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, settlementErrorKind(err), err)
@@ -131,7 +135,7 @@ func (s *Store) FinalizeQueryMeasuredWithReceipt(ctx context.Context, settlement
 	var receipt PersistedQueryReceipt
 	if builder != nil {
 		signingStarted := time.Now()
-		receipt, err = persistTerminalReceiptTx(ctx, tx, now, QueryReceipt{Query: record, Audit: audit}, builder)
+		receipt, err = persistTerminalReceiptTx(ctx, tx, now, QueryReceipt{Query: record, Audit: audit, Exposure: exposureCharge}, builder)
 		metrics.ReceiptSigning = time.Since(signingStarted)
 		if err != nil {
 			return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, receiptErrorKind(err), err)

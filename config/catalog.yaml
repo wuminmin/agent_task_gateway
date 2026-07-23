@@ -29,6 +29,9 @@ products:
     reporting_view: reporting.expense_summary
     description: 按月份、部门和费用类型汇总的差旅报销数据
     sensitivity: low
+    # Stable published-row identity for task-bound exposure accounting.
+    snapshot: travel-demo-2026-v1
+    entity_key: [month, department, expense_type]
     scopes: [department]
     allowed_functions: [date_trunc, to_char]
     allowed_operators: ["=", "<>", "<", "<=", ">", ">=", "+", "-", "*", "/"]
@@ -55,6 +58,8 @@ products:
     reporting_view: reporting.expense_detail
     description: 员工级差旅报销明细
     sensitivity: high
+    snapshot: travel-demo-2026-v1
+    entity_key: [receipt_no]
     scopes: [department]
     allowed_functions: [date_trunc, to_char]
     allowed_operators: ["=", "<>", "<", "<=", ">", ">=", "+", "-", "*", "/"]
@@ -113,9 +118,15 @@ budget_profiles:
     max_db_time: 30s
     query_timeout: 5s
     task_ttl: 30m
+    max_release_facts: 1000
+    max_influence_facts: 5000
+    exposure_profile_version: taskgate-exposure-v1
   - name: detail-manual
     max_queries: 5
     max_rows: 100
     max_db_time: 15s
     query_timeout: 5s
     task_ttl: 15m
+    max_release_facts: 500
+    max_influence_facts: 2500
+    exposure_profile_version: taskgate-exposure-v1

@@ -110,11 +110,11 @@ export TASKBOUND_GATEWAY_TOKEN='<Alice Token>'
 codex
 ```
 
-MCP `serverInfo.version` 为 `2.0.0`。Alice 可见 12 个任务/查询工具，Carol 只可见两个审计工具：
+MCP `serverInfo.version` 为 `2.0.0`。Alice 可见 14 个任务/查询工具，Carol 只可见两个审计工具：
 
 | 身份 | 工具 |
 |---|---|
-| Alice | `list_data_products`、`request_data_task`、`list_my_tasks`、`get_task_status`、`wait_for_approval`、`get_task_context`、`execute_plan`、`query_sql`、`get_query_result`、`get_budget`、`list_receipts`、`complete_task`、`revoke_task` |
+| Alice | `list_data_products`、`request_data_task`、`list_my_tasks`、`get_task_status`、`wait_for_approval`、`get_task_context`、`execute_plan`、`query_sql`、`get_query_result`、`get_budget`、`plan_exposure`、`list_receipts`、`complete_task`、`revoke_task` |
 | Carol | `list_audit_events`、`get_audit_receipt` |
 
 ## 4. 结构化申请与自动审批
@@ -133,12 +133,15 @@ MCP `serverInfo.version` 为 `2.0.0`。Alice 可见 12 个任务/查询工具，
   },
   "requested_budget": {
     "max_queries": 2,
-    "max_rows": 50
+    "max_rows": 50,
+    "max_release_facts": 100,
+    "max_influence_facts": 500
   }
 }
 ```
 
-每个申请产品必须有非空字段列表；未知产品、字段、Scope 或越界值会被拒绝。`requested_budget` 只能缩小 Catalog Profile 的上限。
+每个申请产品必须有非空字段列表；未知产品、字段、Scope 或越界值会被拒绝。
+`requested_budget` 只能缩小 Catalog Profile 的资源和双 exposure 上限。
 
 `request_data_task` 返回 `task_id`、`oa_url`、审批模式和 `AuthorizationManifestV1` 摘要。用 `.env` 的 `OA_ALICE_PASSWORD` 以 `alice` 登录 OA，打开草稿并提交。低敏 `expense_summary` 会自动批准。
 
@@ -164,30 +167,52 @@ MCP `serverInfo.version` 为 `2.0.0`。Alice 可见 12 个任务/查询工具，
 
 `execute_plan` 在本地严格校验产品、字段、聚合、过滤、排序和 Limit，确定性编译为 SQL，再进入与 `query_sql` 相同的 PostgreSQL AST 策略。Gateway 不调用外部模型。
 
-## 5. 人工审批与直接 SQL
+默认 Catalog 启用 `taskgate-exposure-v1`。Gateway 会在一个只读
+`REPEATABLE READ` 事务中执行可见查询和 provenance companion，先在内存
+缓冲，再按根任务已知集合结算。响应中的 `exposure` 给出本次
+`actual_*_facts` 与真正新增的 `charged_*_facts`；`exposure_budget` 给出共享
+根账本。内部补取的 `entity_key` 不会出现在客户端结果中。
+
+## 5. 人工审批、规划与委托
 
 申请高敏 `expense_detail` 时，Alice 提交草稿后任务停留在 `AWAITING_APPROVAL`。以 `bob` 和 `OA_BOB_PASSWORD` 登录 OA 批准或拒绝。批准前查询返回 `TASK_NOT_ACTIVE`；拒绝后任务归档为 `ARCHIVED(rejected)`。
 
-批准后可执行直接 SQL；调用 `query_sql` 时还必须提供任务内唯一的 `request_id`：
+启用 exposure 的 Grant 不接受直接 SQL，因为任意 SQL 尚不能生成完整、可证明
+的 provenance companion；`query_sql` 会返回 `EXPOSURE_EVIDENCE_REQUIRED`。
+它只保留给旧的 resource-only 兼容 Grant。默认 Demo 应继续使用
+`execute_plan`，例如上面的聚合。
 
-```sql
-SELECT receipt_no, amount
-FROM expense_detail
-ORDER BY receipt_no
+在执行前，可让 `plan_exposure` 从已估算的候选表示中选择双预算内的最大效用组合：
+
+```json
+{
+  "task_id": "task_...",
+  "candidates": [
+    {"id":"raw","requirement":"monthly-spend","product":"expense_summary","representation":"raw","release_cost":40,"influence_cost":120,"answer_completeness":1.0,"query_coverage":1.0},
+    {"id":"agg","requirement":"monthly-spend","product":"expense_summary","representation":"aggregate","release_cost":12,"influence_cost":80,"answer_completeness":0.9,"query_coverage":1.0}
+  ],
+  "weights": {"answer_completeness":0.5,"query_coverage":0.5}
+}
 ```
 
-SQL 只能使用逻辑产品和获批字段。Gateway 会注入申请时批准的 Scope、外层行数限制和只读超时。
+Planner 只使用调用方提供的可测量 completeness、coverage 和成本，不执行查询，
+也不接受 LLM 主观分。每个 requirement 至多选择一个表示。
+
+`request_data_task` 还支持 `parent_task_id` 和 `delegate_principal_id`。子任务必须
+由父任务所有者发起，所有授权维度只能收缩，且父子共享同一 exposure 账本。
+默认 Compose 只注册 Alice 这个 query Principal，因此跨主体演示需要部署者先
+注册第二个已启用 query Principal；同主体也可创建受父 Grant 约束的子任务。
 
 ## 6. 预算、结果与审计
 
 - `get_task_context`：获批产品、字段、Scope、凭证与期限。
-- `get_budget`：查询数、累计行数和累计 DB 毫秒的上限、已用、预留和剩余值。
+- `get_budget`：查询数、累计行数和累计 DB 毫秒的上限、已用、预留和剩余值，并在 exposure 启用时返回根任务双账本。
 - `get_query_result`：Alice 按 `task_id + query_id` 读取 AES-256-GCM 加密保存的结果。
-- `list_receipts`：Gateway Ed25519 签名的 V3 查询回执，绑定 Manifest/Grant/Catalog 摘要、`request_id`、SQL 指纹、预算预留/结算、结果 Hash、签名时间和审计链位置。
+- `list_receipts`：成功 exposure 查询使用 Gateway Ed25519 V4 回执，额外绑定 root task、Profile、actual/charged 双事实数和 observation SHA-256；无 exposure evidence 的兼容终态使用 V3。
 - `complete_task`：主动归档任务。
 - `revoke_task`：阻止新查询；已在途查询不会被宣称立即取消，仍受原超时和 Grant 到期约束。
 
-任务被撤销、过期或完成归档后，旧查询结果仍可由任务所有者读取，直到结果保留清理删除对应密文，或管理员擦除对应结果密钥 ID；查询回执和审计证据不会随密文清理或 key ID 擦除删除。设置 `GATEWAY_RESULT_RETENTION_TTL` 会启动定期密文清理；设置 `GATEWAY_ADMIN_TOKEN` 会启用 `/admin/v1/retention/purge`、`/admin/v1/retention/legal-holds/{task_id}` 以及 `/admin/v1/result-encryption-keys/{key_id}/erase` 的本机管理员接口。active legal hold 会阻止该任务密文被清理，但不会自动阻止单独的 key ID 擦除流程；生产环境应把该接口接入组织级审批/KMS 流程。禁用 Principal 会阻止该身份继续列出或调用任何 MCP 工具，即使客户端仍持有旧 Bearer Token。达到任一硬预算时，当前合法查询会在允许范围内返回，随后任务归档为 `budget_exhausted`。Carol 只能读取审计事件和凭证，不能读取原始行。
+任务被撤销、过期或完成归档后，旧查询结果仍可由任务所有者读取，直到结果保留清理删除对应密文，或管理员擦除对应结果密钥 ID；查询回执和审计证据不会随密文清理或 key ID 擦除删除。设置 `GATEWAY_RESULT_RETENTION_TTL` 会启动定期密文清理；设置 `GATEWAY_ADMIN_TOKEN` 会启用 `/admin/v1/retention/purge`、`/admin/v1/retention/legal-holds/{task_id}` 以及 `/admin/v1/result-encryption-keys/{key_id}/erase` 的本机管理员接口。active legal hold 会阻止该任务密文被清理，但不会自动阻止单独的 key ID 擦除流程；生产环境应把该接口接入组织级审批/KMS 流程。禁用 Principal 会阻止该身份继续列出或调用任何 MCP 工具，即使客户端仍持有旧 Bearer Token。达到任一资源预算硬上限时，当前合法查询会在允许范围内返回，随后任务归档为 `budget_exhausted`；exposure 超限则不返回当前结果。Carol 只能读取审计事件和凭证，不能读取原始行。
 
 ## 7. 停止、恢复与重置
 
@@ -195,7 +220,7 @@ SQL 只能使用逻辑产品和获批字段。Gateway 会注入申请时批准�
 docker compose down
 ```
 
-再次启动时，Gateway 从 `control-pg-data` 恢复任务、Grant、预算、加密结果与审计链；业务数据保存在独立的 `business-pg-data`。不确定是否完成的 RESERVED 查询按完整预留量保守计费并标记 `INDETERMINATE`，并在同一恢复事务中写入查询回执；同一 `request_id` 禁止自动重执行；PROCESSING 回调变为可重试。OA Demo 草稿仍在内存中，OA 容器重启后会丢失。
+再次启动时，Gateway 从 `control-pg-data` 恢复任务、Grant、预算、加密结果与审计链；业务数据保存在独立的 `business-pg-data`。不确定是否完成的 RESERVED 查询按完整资源预留量保守计费并标记 `INDETERMINATE`，释放未结算的 exposure reservation，并在同一恢复事务中写入查询回执；结果从不在结算提交前释放，同一 `request_id` 也禁止自动重执行。PROCESSING 回调变为可重试。OA Demo 草稿仍在内存中，OA 容器重启后会丢失。
 
 彻底重置当前版本数据：
 

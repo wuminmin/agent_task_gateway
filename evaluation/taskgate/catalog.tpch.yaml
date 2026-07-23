@@ -23,6 +23,8 @@ products:
     reporting_view: reporting.tpch_orders
     description: Evaluation projection of TPC-H orders
     sensitivity: low
+    snapshot: tpch-loaded-dataset-v1
+    entity_key: [o_orderkey]
     scopes: [eval_scope]
     allowed_functions: []
     allowed_operators: ["=", "<", ">="]
@@ -41,6 +43,8 @@ products:
     reporting_view: reporting.tpch_customer
     description: Evaluation projection of TPC-H customers
     sensitivity: low
+    snapshot: tpch-loaded-dataset-v1
+    entity_key: [c_custkey]
     scopes: [eval_scope]
     allowed_functions: []
     allowed_operators: ["="]
@@ -57,12 +61,15 @@ products:
     reporting_view: reporting.tpch_lineitem
     description: Evaluation projection of TPC-H line items
     sensitivity: low
+    snapshot: tpch-loaded-dataset-v1
+    entity_key: [l_orderkey, l_linenumber]
     scopes: [eval_scope]
     allowed_functions: []
     allowed_operators: ["=", "<", ">="]
     allowed_aggregates: [count, sum, avg]
     fields:
       - {name: l_orderkey, type: integer, description: Order key}
+      - {name: l_linenumber, type: integer, description: Line number within order}
       - {name: l_quantity, type: numeric, description: Quantity}
       - {name: l_extendedprice, type: numeric, description: Extended price}
       - {name: l_shipdate, type: date, description: Ship date}

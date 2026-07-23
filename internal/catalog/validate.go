@@ -311,6 +311,17 @@ func validateProduct(path string, product Product, sources, scopes map[string]st
 			}
 		}
 	}
+	if strings.TrimSpace(product.Snapshot) == "" {
+		problems = append(problems, fieldError(path+".snapshot", "a versioned data snapshot is required", ErrMissingField))
+	}
+	if len(product.EntityKey) == 0 || duplicateOrEmpty(product.EntityKey) {
+		problems = append(problems, fieldError(path+".entity_key", "at least one unique entity key field is required", ErrMissingField))
+	}
+	for _, key := range product.EntityKey {
+		if _, published := fieldNames[key]; !published {
+			problems = append(problems, fieldError(path+".entity_key", "entity key must name a published product field", ErrInvalidCatalog))
+		}
+	}
 	if len(product.Scopes) == 0 {
 		problems = append(problems, fieldError(path+".scopes", "at least one mandatory scope is required", ErrMissingField))
 	}

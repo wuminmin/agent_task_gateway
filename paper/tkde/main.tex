@@ -1,0 +1,608 @@
+\IfFileExists{IEEEtran.cls}{%
+  \documentclass[10pt,journal,compsoc]{IEEEtran}
+}{%
+  \documentclass[10pt,twocolumn]{article}
+}
+
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{cite}
+\usepackage{graphicx}
+\usepackage[expansion=false]{microtype}
+\usepackage{xcolor}
+\usepackage{xspace}
+\usepackage{url}
+\usepackage[hidelinks]{hyperref}
+
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\providecommand{\IEEEPARstart}[2]{#1#2}
+\makeatletter
+\@ifundefined{IEEEkeywords}{%
+  \newenvironment{IEEEkeywords}{\par\small\noindent\textbf{Index Terms---}}{\par}
+}{}
+\makeatother
+
+\newcommand{\system}{TaskGate\xspace}
+\newcommand{\code}[1]{\texttt{\detokenize{#1}}}
+\newcommand{\release}{\mathsf{release}}
+\newcommand{\influence}{\mathsf{influence}}
+\newcommand{\facts}{\mathcal{F}}
+\newcommand{\known}{\mathcal{K}}
+\newcommand{\effect}{\mathcal{E}}
+\newcommand{\notmeasured}{\textcolor{gray}{not measured}}
+\newtheorem{definition}{Definition}
+\newtheorem{property}{Property}
+
+\input{generated/evidence.tex}
+
+\title{TaskGate: Task-Bound Exposure Accounting and\\
+Budget-Constrained Query Processing for Autonomous Database Agents}
+
+\author{Anonymous Author(s)%
+\thanks{Working manuscript. The current artifact establishes semantics and
+finite-scope correctness evidence but does not yet contain the publication-scale
+overhead and agent-task campaigns required for submission.}}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Autonomous database agents issue adaptive sequences of queries and may delegate
+subtasks to other agents. Conventional access control bounds each query but does
+not directly bound how many distinct facts an authorized task accumulates across
+rewrites, pagination, retries, and delegation. We present TaskGate, a prototype
+for task-bound exposure accounting. A versioned fact identity binds a data
+product, snapshot, entity key, field, and value version. Each human-authorized
+root task maintains separate release and source-influence ledgers, preventing a
+small aggregate result from hiding a large contributing input. The online path
+executes a visible query and provenance companion in one read-only snapshot,
+buffers the result, derives its fact sets, and atomically settles only facts
+novel to the root task before release. Signed delegation preserves the same
+ledger. We define compositional semantics for a positive relational fragment
+with grouping and four aggregates, implement an exact dual-budget representation
+planner, and check a finite ledger model. A deterministic artifact validates
+ground truth, 1,024 rewrite pairs, anti-arbitrage cases, and planner oracles. We
+report runtime overhead and end-to-end agent utility as not yet measured.
+\end{abstract}
+
+\begin{IEEEkeywords}
+data exposure, query processing, provenance, autonomous agents, cumulative
+budget, query planning
+\end{IEEEkeywords}
+
+\section{Introduction}
+\label{sec:introduction}
+
+\IEEEPARstart{D}{atabase} authorization answers whether a principal may execute
+a particular operation. An autonomous agent creates a second problem: during a
+single human-approved task it can adaptively issue many individually legal
+queries. It can split a projection, overlap pages, retry with a new request
+identifier, ask an equivalent query, or delegate a narrower subtask. Per-query
+authorization and row limits do not state how much distinct data the resulting
+task family has learned.
+
+Counting queries is insensitive to answer size. Counting returned rows makes a
+one-row aggregate appear cheap even when it depends on millions of source rows.
+Counting bytes or cells varies with encoding and query shape. Monetary query
+pricing has developed formal anti-arbitrage objectives
+\cite{koutris2012query,deep2017qirana,peng2025aria}, while provenance explains
+where results came from \cite{green2007provenance,amsterdamer2011aggregate}.
+Our question is narrower and operational: how can a human authorization create
+a stateful, explicit-disclosure budget that remains conserved while database
+agents query and delegate?
+
+\system treats the root task as the budget subject. A result has two effects.
+\emph{Release exposure} identifies values actually delivered. \emph{Source
+influence} identifies positive source facts that affected selection, joining,
+grouping, or aggregation. The latter prevents a count from being accounted as
+one input fact merely because it returns one cell. Both effects are sets, so a
+fact already known anywhere in the task family has zero incremental charge.
+
+The system follows a withhold-before-settlement discipline:
+
+\begin{center}
+\small
+\code{reserve -> execute/buffer -> derive -> settle -> release}.
+\end{center}
+
+The visible query and its provenance companion observe one PostgreSQL snapshot.
+The gateway releases neither until a control-database transaction has inserted
+novel facts, checked both root limits, settled resource use, stored the encrypted
+result, and persisted audit and receipt evidence. A failed limit check rolls the
+transaction back while the business execution remains separately measurable.
+
+This paper makes four implementation-backed contributions:
+
+\begin{enumerate}
+\item A dual exposure effect over a restricted positive relational algebra,
+including projection, selection, join, union, pagination, grouping, and
+\code{COUNT}/\code{SUM}/\code{MIN}/\code{MAX}.
+\item An online paired-snapshot algorithm and a PostgreSQL root-family ledger
+whose settlement charges exactly novel facts and withholds over-budget results.
+\item Signed, monotonic multi-agent delegation that shares root knowledge, plus
+an exact planner for choosing raw, projected, aggregate, or generalized
+representations under two budgets.
+\item Executable ground truth, rewrite and anti-arbitrage tests, a finite TLA+
+model, and a claim ledger that distinguishes completed evidence from required
+publication-scale experiments.
+\end{enumerate}
+
+The implementation does \emph{not} claim arbitrary SQL equivalence, differential
+privacy, or inference control. The online compiler currently accepts one-product
+structured plans; join and union exist in the executable algebra but are not yet
+connected to online provenance. These boundaries are part of the result, rather
+than hidden behind a broad ``SQL support'' label.
+
+\section{Context and Related Work}
+\label{sec:related}
+
+\subsection{Query Pricing and History}
+
+Query-based pricing derives monetary prices from priced views and studies
+arbitrage induced by query determinacy \cite{koutris2012query}. QIRANA extends
+scalable, history-aware pricing to a broad SQL class including aggregation
+\cite{deep2017qirana}; ARIA uses tuple information gain for linear-time pricing
+of SPJA and simple aggregate queries \cite{peng2025aria}. These systems are the
+closest semantic neighbors, and they preclude claims that attribute weighting,
+history-aware charging, or rewrite resistance are new by themselves.
+
+\system differs in objective and enforcement point. It does not infer a market
+price from hypothetical worlds. Its atoms are contract-defined explicit facts;
+its state is scoped to a signed human task and descendants; and a failed charge
+prevents delivery. The intended novelty is this composition of task authority,
+an exposure effect, online settlement, and delegation conservation.
+
+\subsection{Provenance and Privacy Budgets}
+
+Semiring provenance gives compositional annotations for positive relational
+queries \cite{green2007provenance}. Aggregation requires value-level treatment
+beyond tuple annotation \cite{amsterdamer2011aggregate}. We use provenance as a
+metering substrate, retaining set-valued sources because the accounting target
+is unique positive influence rather than how-many polynomials.
+
+History also matters in differential privacy systems. CacheDP reuses past noisy
+answers to reduce privacy spending \cite{mazmudar2022cachedp}, and DProvDB tracks
+privacy loss by analyst provenance \cite{zhang2023dprovdb}. Those systems reason
+about randomized mechanisms and privacy composition \cite{dwork2014foundations}.
+\system releases exact answers and therefore offers no $\epsilon$-DP guarantee.
+Its budget bounds only the explicit facts recognized by its profile.
+
+\subsection{Usage Control and Query Mediation}
+
+Usage control extends authorization across an ongoing use
+\cite{park2004ucon}. Database-backed policy systems rewrite or validate queries
+against application policy \cite{mehta2017qapla,zhang2022blockaid}. Agent
+security benchmarks additionally show that tool-using models must be treated as
+untrusted callers \cite{debenedetti2024agentdojo}. TaskGate retains these access
+controls but adds a stateful disclosure effect shared by delegated callers.
+
+\section{Exposure Model}
+\label{sec:model}
+
+\subsection{Facts and Task State}
+
+Let $p$ be a logical data product, $s$ its administrator-published snapshot,
+$e$ a stable entity key, $a$ a field, and $h(v)$ the SHA-256 version of a typed
+JSON value. A base fact is
+
+\begin{equation}
+ f = \langle p,s,e,a,h(v)\rangle .
+ \label{eq:fact}
+\end{equation}
+
+Row existence is represented by a reserved field. Composite entity keys are
+hashes of typed key tuples, avoiding delimiter ambiguity. A changed snapshot or
+value yields a new identity. The snapshot is a catalog contract, not an MVCC
+identifier; Sec.~\ref{sec:limits} discusses this trust assumption.
+
+\begin{definition}[Exposure effect]
+For query $q$ over snapshot $D_s$, the effect
+$\effect(q,D_s)=\langle \facts_r,\facts_i\rangle$ contains release facts
+$\facts_r$ and source-influence facts $\facts_i$ under a versioned profile
+$\pi$.
+\end{definition}
+
+Every root task $T$ stores known sets
+$\known_T=\langle\known_T^r,\known_T^i\rangle$ and limits
+$B_T=\langle B_T^r,B_T^i\rangle$. Settlement computes
+
+\begin{align}
+ \Delta_T^r(q) &= \facts_r(q,D_s)\setminus\known_T^r,\\
+ \Delta_T^i(q) &= \facts_i(q,D_s)\setminus\known_T^i.
+ \label{eq:delta}
+\end{align}
+
+V1 measures cardinality independently in each dimension. A query may settle
+only if
+$|\known_T^r|+|\Delta_T^r|\leq B_T^r$ and
+$|\known_T^i|+|\Delta_T^i|\leq B_T^i$.
+
+\subsection{Annotated Relations}
+
+An intermediate cell stores a value and a set of source facts. A row stores a
+stable key and lineage that includes row existence and predicate/join evidence.
+Table~\ref{tab:operators} summarizes the implemented positive fragment.
+
+\begin{table*}[t]
+\centering
+\caption{Exposure semantics of the executable algebra.}
+\label{tab:operators}
+\small
+\begin{tabular}{L{0.13\textwidth}L{0.36\textwidth}L{0.40\textwidth}}
+\toprule
+Operator & Release effect & Source-influence propagation \\
+\midrule
+Projection & Output cells under their row keys & Existing row lineage and selected cell sources \\
+Selection & Output cells of retained rows & Retained row lineage plus sources of predicate fields \\
+Pagination & Cells in the selected interval & Lineage and sources for selected rows only \\
+Equijoin & Prefixed output cells under paired keys & Both row lineages, both join keys, and selected cell sources \\
+Set union & One fact per deduplicated output cell & Union of all lineages and cell sources producing the tuple \\
+Grouping & Group-key cells and aggregate cells & Member row existence, group fields, and aggregate inputs \\
+Aggregates & One source-bound derived fact per output cell & \code{COUNT(*)} uses row lineage; other functions use input-cell sources \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+For a derived aggregate, the release fact's field is the canonical expression
+such as \code{sum(amount)}, independent of its output alias. Its value version
+hashes both the typed value and the ordered source-hash set. Thus equal sums
+from different contributors remain different disclosures, while alias changes
+do not manufacture a new fact.
+
+\subsection{Conservation Properties}
+
+The following properties apply only to the operators and rewrites stated here.
+They are not claims about all semantically equivalent SQL.
+
+\begin{property}[Normalization]
+Fact-set normalization is deterministic, idempotent, and commutative under
+merge.
+\end{property}
+\begin{proof}[Proof sketch]
+Every validated FactID maps deterministically to a digest key. Normalization is
+map insertion followed by lexical key order; merge is set union. The three
+properties follow from set union and deterministic serialization.
+\end{proof}
+
+\begin{property}[Restricted rewrite invariance]
+Selection followed by a projection that retains every predicate and output
+field has the same effect as the corresponding projection followed by
+selection. Reordering projected fields also preserves the normalized effect.
+\end{property}
+\begin{proof}[Proof sketch]
+Both plans retain the same keyed rows. Projection copies cell sources and row
+lineage; selection adds the same predicate sources to retained lineage. Release
+and influence are sets, so traversal and field order disappear on
+normalization. The executable corpus checks both target predicates and field
+orders for a fixed seed.
+\end{proof}
+
+\begin{property}[Split, page, and retry conservation]
+Merging observations for disjoint projections or a complete page partition
+equals observing the combined result. Overlapping pages and repeated terminal
+observations charge each FactID at most once.
+\end{property}
+\begin{proof}[Proof sketch]
+Projection and page preserve the identities attached to selected cells and
+rows. Merging is set union, for which duplicate membership has no additional
+cardinality. Durable request replay does not invoke execution or settlement.
+\end{proof}
+
+\begin{property}[Join multiplicity conservation]
+Repeated join output can increase release facts for distinct result entities,
+but cannot multiply the charge for one source fact.
+\end{property}
+\begin{proof}[Proof sketch]
+Each joined row unions both input lineages and join-key sources. Influence is
+the union across output rows; an input FactID therefore occurs at most once in
+the normalized influence set, independent of join fanout.
+\end{proof}
+
+\section{Online Accounting}
+\label{sec:online}
+
+\subsection{Compilation and Paired Execution}
+
+An exposure-enabled grant accepts a one-product structured plan. The compiler
+first validates visible fields, filters, grouping, ordering, limit, and one of
+four aggregates. It then produces two SQL statements. For ungrouped output,
+both statements use the same hidden projection, entity-key tie-breaker, and row
+ceiling; the gateway also checks their key sets before settlement. For grouped
+output, the companion selects entity keys, mandatory scopes, visible and
+predicate fields, grouping fields, and aggregate inputs, and requests one row
+beyond its evidence ceiling to detect truncation. Both statements pass the same
+PostgreSQL AST authorization and scope-injection policy.
+
+The connector executes both statements in one explicit read-only
+\code{REPEATABLE READ} transaction \cite{postgres16transaction}. This prevents
+a concurrent update from making output and provenance refer to different
+database states. The connector reports business and provenance execution time
+separately, while resource settlement charges their total. Truncation of the
+provenance result is a hard error.
+
+\subsection{Atomic Settlement}
+
+For a successful paired execution, the gateway performs the following steps:
+
+\begin{enumerate}
+\item Buffer both results and derive a normalized observation.
+\item Lock the query exposure reservation and root ledger.
+\item Insert release and influence FactIDs with a primary key on root, ledger
+kind, and fact hash; conflicts contribute zero novel facts.
+\item Conditionally increment both used counters only if both limits remain
+valid.
+\item In the same transaction, settle query/row/database-time resources, store
+the encrypted result, append terminal audit evidence, and persist a signed
+receipt.
+\item Commit, remove hidden keys, and return the visible result.
+\end{enumerate}
+
+If Step 4 affects no row, the transaction returns an exposure-budget error.
+Fact inserts and result storage roll back, and the caller never receives the
+buffer. PostgreSQL row locking serializes concurrent children at the shared
+root. Unique fact keys make charge equal to successful novel inserts, rather
+than a count computed before a race.
+
+Let $n$ be the number of unique candidate source and release references in one
+observation. Hashing is linear in encoded input size and normalization sorts at
+most $n$ hashes, giving $O(n\log n)$ in-memory work and $O(n)$ memory. Ledger
+inserts are chunked; index maintenance adds database-dependent
+$O(n\log |\known_T|)$ work under a conventional balanced index model. These are
+complexity bounds, not measured latency claims.
+
+\subsection{Receipts and Failure Semantics}
+
+A V4 Ed25519 receipt binds the root task, profile, actual and charged counts in
+both dimensions, and the SHA-256 of the normalized observation, in addition to
+authorization, datasource, resource budget, result, and audit evidence. It does
+not expose raw values or FactIDs.
+
+Failures before connector invocation release both reservations. Ambiguous
+connector outcomes conservatively charge the ordinary resource reservation but
+release exposure because no result can be delivered before successful
+settlement. A process restart applies the same rule. Terminal request replay is
+observational: it returns the first persisted status or result and never starts
+a second execution.
+
+\section{Delegation and Planning}
+\label{sec:planning}
+
+\subsection{Root-Family Conservation}
+
+A child authorization signs both \code{root_task_id} and
+\code{parent_task_id}. Its human subject, catalog, datasource, schema, and
+profile remain fixed, while products, columns, scopes, sensitivity, expiry, and
+all budget dimensions may only narrow. Every execution revalidates the signed
+parent grant and active ancestor chain.
+
+All descendants resolve to one root ledger. If a parent and child request the
+same fact, only the first successful settlement inserts it. Revoking the root
+blocks new descendant queries, while an already terminal request ID remains
+readable. Consequently, creating agents or task nodes cannot create fresh
+exposure capacity. A child that signs a lower exposure ceiling may add novel
+facts only while the shared family total remains within that ceiling; a
+zero-novelty replay remains admissible.
+
+\begin{property}[Task-family non-amplification]
+After any committed settlement sequence, each root ledger equals the union of
+the novel charges of its settled family queries, and neither cardinality
+exceeds its root limit.
+\end{property}
+\begin{proof}[Proof sketch]
+All family settlements lock the same root row. The unique fact key admits one
+first insert for each root/kind/hash tuple. A transaction adds exactly its
+successful inserts to the counters, checks both limits, and otherwise rolls
+back. Induction over the resulting serial commit order establishes the union
+identity and both bounds.
+\end{proof}
+
+\subsection{Dual-Budget Representation Planning}
+
+For requirement $j$, let $C_j$ contain raw, projected, aggregate, or generalized
+candidates. Candidate $c$ has estimated costs $(r_c,i_c)$ and measured answer
+completeness and query coverage. With nonnegative weights, the planner solves
+
+\begin{align}
+\max_{S}\quad &\sum_{c\in S} u(c) \\
+\text{s.t.}\quad &\sum_{c\in S}r_c\leq B^r_{\mathrm{remaining}},\quad
+\sum_{c\in S}i_c\leq B^i_{\mathrm{remaining}},\\
+&|S\cap C_j|\leq 1\quad\forall j.
+\end{align}
+
+This is a two-constraint multiple-choice knapsack form
+\cite{kellerer2004knapsack}. The implementation expands candidates one
+requirement at a time and retains a Pareto frontier over both costs and utility,
+with deterministic tie breaking. If frontier size before group $j$ is
+$H_{j-1}$ and the group has $m_j$ candidates, the current pairwise dominance
+implementation takes
+$O(\sum_j(H_{j-1}(m_j+1))^2)$ time and $O(\max_j H_j)$ memory. Worst-case
+frontier size is exponential; the current tool is exact for small catalog
+choice sets, not a large-workload optimizer. Its contract requires caller-side
+measurements, but the prototype validates only numeric ranges and cannot prove
+that a supplied score was not subjective or fabricated.
+
+\section{System Realization}
+\label{sec:system}
+
+The prototype is implemented in Go with separate control and business
+PostgreSQL 16 databases. A logical catalog declares reporting views, mandatory
+scopes, stable snapshots, entity keys, allowed operations, approval routes, and
+resource/exposure profiles. Startup and per-query attestation bind datasource
+identity, database, role, PostgreSQL major version, ordered view schema, and
+normalized view definitions.
+
+Agents use MCP tools to list products, request a task, execute a structured
+plan, inspect both budgets, invoke the representation planner, delegate a
+narrower task, and retrieve results or receipts. An external approval adapter
+signs the immutable grant. Arbitrary direct SQL remains available only for
+legacy resource-only grants; it fails closed when exposure evidence is
+required.
+
+The control schema stores one dual ledger per root, per-query reservations, and
+immutable fact identities. The primary-key and check constraints are backed by
+application transactions and update/delete rejection triggers. Result rows are
+encrypted with AES-GCM; audit events form a hash chain. These mechanisms are
+orthogonal to exposure semantics but make settlement and later verification
+observable.
+
+\section{Finite-State Analysis}
+\label{sec:formal}
+
+The split TLA+ model \code{ExposureLedger.tla} contains one root, one child, two
+requests, two facts in each ledger universe, both limits set to one, and one
+terminal replay. Its transitions are reserve, execute/buffer, derive,
+settle, over-budget reject, pre-execution release, replay, and root revocation.
+It checks dual-budget safety, exact novel charge, no delivery before settlement,
+no charge without settlement, buffered rejection, evidence/buffer agreement,
+non-overlapping novel charges, task-family non-amplification, and at-most-once
+physical execution for delivered requests.
+
+Using pinned TLC 1.7.1, the provenance-checked run generated
+\ExposureFormalStates{} states, found \ExposureFormalDistinct{} distinct states,
+and reached depth \ExposureFormalDepth{} with no invariant error. Model,
+configuration, and raw-log digests are validated before this manuscript builds
+\cite{lamport2002specifying}.
+
+This is exhaustive only for the submitted finite configuration. The model
+assumes exact fact derivation, abstracts SQL bytes and cryptographic hashes, and
+does not mechanically prove that Go/PostgreSQL refines TLA+. The repository
+therefore includes an action-to-method-to-transaction-to-test refinement map
+rather than claiming a proof that does not exist.
+
+\section{Evaluation Status}
+\label{sec:evaluation}
+
+\subsection{Questions and Reproducibility}
+
+The evaluation is organized around five questions: RQ1 ground-truth accuracy;
+RQ2 rewrite invariance; RQ3 resistance to split, page, retry, join, snapshot,
+delegation, and concurrency amplification; RQ4 runtime/storage overhead; and RQ5
+utility under a fixed dual budget. The deterministic report is rebuilt from a
+source-controlled corpus under profile \ExposureProfile{}, fixed seed
+\code{20260723}, and corpus digest prefix \ExposureCorpusHash{}.
+
+\begin{table}[t]
+\centering
+\caption{Current source-backed evidence.}
+\label{tab:current-evidence}
+\small
+\begin{tabular}{L{0.12\columnwidth}L{0.70\columnwidth}}
+\toprule
+RQ & Current result \\
+\midrule
+RQ1 & \RQOnePassed{}/\RQOneCases{} committed fact-set digests match \\
+RQ2 & \RQTwoPairs{} generated pairs; \RQTwoMismatches{} mismatches \\
+RQ3 & \RQThreePassed{}/\RQThreeCases{} deterministic cases; \RQThreeIntegration{} PostgreSQL integration cases declared separately \\
+RQ4 & \notmeasured{}; external PostgreSQL campaign required \\
+RQ5 & \RQFivePassed{}/\RQFiveCases{} exact planner oracles; no agent task-success study \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+RQ1 includes projection, filtered projection, grouped sum/count, global count,
+and a join, checking both cardinalities and SHA-256 digests of the complete
+release and influence sets. RQ2 generates projection/selection commutations and complete page
+partitions. RQ3 deterministically checks join multiplicity, split/merge,
+overlapping pages, cache/retry, and snapshot update. Delegation and concurrent
+settlement are exercised by real-PostgreSQL race tests, but the deterministic
+report intentionally lists their test identifiers instead of counting them as
+in-memory passes.
+
+\subsection{Descriptive Baseline Contrast}
+
+For one grouped sum/count fixture, Table~\ref{tab:baselines} reports six
+descriptive accounting baselines. Their units differ, so the table is not a
+ranking. It demonstrates why row count alone misses source influence and why
+history is required for zero incremental replay.
+
+\begin{table}[t]
+\centering
+\caption{Charges for one auditable fixture, not performance results.}
+\label{tab:baselines}
+\small
+\begin{tabular}{lr}
+\toprule
+Baseline & Charge \\
+\midrule
+Query count & \BaseQueryCount{} \\
+Returned rows & \BaseRows{} \\
+Serialized bytes & \BaseBytes{} \\
+Weighted cells & \BaseCells{} \\
+Provenance without history & \BaseNoHistory{} \\
+Full, first execution $(r,i)$ & \BaseFirst{} \\
+Full, replay $(r,i)$ & \BaseReplay{} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+In one planner scenario, utility-greedy selection obtains $1.0$ while the exact
+dual-budget plan obtains $1.6$; in the second, both obtain $1.695$. These two
+oracles establish implementation correctness on the fixtures, not a general
+advantage or an agent-level success claim.
+
+\subsection{Required Publication Campaign}
+
+The current artifact is not sufficient for a TKDE empirical claim. A submission
+campaign must add: complete TPC-H and TPC-DS query families at multiple scales;
+hundreds to thousands of independently specified equivalent rewrites; a second
+database engine or a justified portability boundary; multi-agent task traces;
+and isolated ablations for paired lineage, history lookup, immutable fact
+storage, and signed settlement. RQ4 must report latency percentiles, throughput,
+business/provenance database time, gateway CPU and memory, ledger growth, and
+settlement contention. RQ5 must use externally scored task correctness or
+answer completeness under matched budgets. Raw observations, environment
+manifests, query transformations, and failures must remain available.
+
+\section{Limitations and Threats to Validity}
+\label{sec:limits}
+
+\textbf{Semantic scope.} The model accounts positive explicit disclosure. It
+does not measure facts inferred from empty answers, ordering, correlations,
+background knowledge, or timing. It is not differential privacy and should be
+combined with a privacy mechanism when those threats matter.
+
+\textbf{Query scope.} The executable algebra includes join and union, but the
+online compiler supports one product with projection, filtering, ordering,
+limit, grouping, and four aggregates. \code{AVG}, windows, negation,
+difference, recursion, arbitrary subqueries, and cross-source plans fail closed.
+
+\textbf{Identity trust.} Stable entity keys and snapshot labels are
+administrator declarations. Schema attestation cannot prove uniqueness or that
+a snapshot was advanced after data changes. Production use requires a
+versioned publication or CDC pipeline and collision/security review for the
+chosen hash and serialization profile.
+
+\textbf{Cost.} Exact source sets can be large, root-ledger locking can become a
+hot spot, and immutable history grows monotonically. Compression, sketches,
+partitioned settlement, retention, and audited deletion are open design points;
+approximations would require new safety semantics.
+
+\textbf{Planning evidence.} Runtime candidate costs and utility measurements are
+caller-supplied. A production planner needs an authenticated measurement catalog
+or reproducible scoring adapter; the two deterministic oracle scenarios validate
+optimization logic, not the trustworthiness or external validity of those inputs.
+
+\textbf{Deployment.} The prototype has one gateway instance, static local
+tokens, an in-memory approval demo, and one PostgreSQL connector. It lacks a
+distributed execution lease, centralized key custody, and publication-scale
+operational evidence.
+
+\section{Conclusion}
+
+Task-bound authorization answers what an agent may query; task-bound exposure
+accounting additionally constrains what its entire delegated workload may
+accumulate. \system realizes that distinction with stable facts, separate
+release and source-influence sets, same-snapshot provenance, atomic novel-fact
+settlement, and an exact dual-budget representation planner. The current
+artifact establishes a coherent semantic and systems foundation and finds no
+violation in a finite ledger model. Its small deterministic corpus is evidence
+of implementation agreement, not a substitute for the overhead and agent-task
+campaign still required before submission.
+
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+\end{document}

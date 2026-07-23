@@ -6,17 +6,19 @@ import (
 )
 
 const (
-	CodeInvalidRequest        = "INVALID_REQUEST"
-	CodeUnauthenticated       = "UNAUTHENTICATED"
-	CodeForbidden             = "FORBIDDEN"
-	CodeNotFound              = "NOT_FOUND"
-	CodeConflict              = "CONFLICT"
-	CodeTaskNotActive         = "TASK_NOT_ACTIVE"
-	CodePolicyDenied          = "POLICY_DENIED"
-	CodeBudgetExhausted       = "BUDGET_EXHAUSTED"
-	CodeApprovalUnavailable   = "APPROVAL_UNAVAILABLE"
-	CodeDataSourceUnavailable = "DATA_SOURCE_UNAVAILABLE"
-	CodeInternal              = "INTERNAL_ERROR"
+	CodeInvalidRequest           = "INVALID_REQUEST"
+	CodeUnauthenticated          = "UNAUTHENTICATED"
+	CodeForbidden                = "FORBIDDEN"
+	CodeNotFound                 = "NOT_FOUND"
+	CodeConflict                 = "CONFLICT"
+	CodeTaskNotActive            = "TASK_NOT_ACTIVE"
+	CodePolicyDenied             = "POLICY_DENIED"
+	CodeBudgetExhausted          = "BUDGET_EXHAUSTED"
+	CodeExposureBudgetExhausted  = "EXPOSURE_BUDGET_EXHAUSTED"
+	CodeExposureEvidenceRequired = "EXPOSURE_EVIDENCE_REQUIRED"
+	CodeApprovalUnavailable      = "APPROVAL_UNAVAILABLE"
+	CodeDataSourceUnavailable    = "DATA_SOURCE_UNAVAILABLE"
+	CodeInternal                 = "INTERNAL_ERROR"
 )
 
 // Error contains a stable machine-readable code and a client-safe explanation.

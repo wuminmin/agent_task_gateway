@@ -12,9 +12,12 @@ import (
 	"testing"
 	"time"
 
+	"taskbound.local/agent-data-gateway/internal/apierr"
 	"taskbound.local/agent-data-gateway/internal/approval"
 	"taskbound.local/agent-data-gateway/internal/control"
+	"taskbound.local/agent-data-gateway/internal/dataconnector"
 	"taskbound.local/agent-data-gateway/internal/domain"
+	"taskbound.local/agent-data-gateway/internal/mcp"
 )
 
 // Exercise the public callback handler so signature checks happen before any
@@ -181,6 +184,102 @@ func TestOACallbackHMACSubmissionApprovalReplayAndBadSignature(t *testing.T) {
 	if callbackCount != 2 || approvalEventCount != 2 {
 		t.Fatalf("replay created duplicates: callbacks=%d approval_events=%d", callbackCount, approvalEventCount)
 	}
+}
+
+func TestDelegatedTaskSharesRootExposureAndStopsWithParent(t *testing.T) {
+	harness := newGatewayHarness(t)
+	harness.createExposureSummaryTask(t, "task-family-root", control.ExposureLimits{ReleaseFacts: 20, InfluenceFacts: 20})
+	bob := mcp.Principal{ID: "principal-bob-agent", Subject: "bob-agent", Role: "query"}
+	if err := harness.store.CreatePrincipal(context.Background(), control.Principal{
+		ID: bob.ID, Subject: bob.Subject, Role: bob.Role, CreatedAt: harness.clock.value,
+	}); err != nil {
+		t.Fatalf("create delegated principal: %v", err)
+	}
+
+	request := mustCallGatewayTool(t, harness.service, harness.alice, "request_data_task", map[string]any{
+		"objective":      "delegate the approved monthly summary",
+		"parent_task_id": "task-family-root", "delegate_principal_id": bob.ID,
+		"data_products": []string{"expense_summary"},
+		"columns":       map[string][]string{"expense_summary": {"month", "total_amount"}},
+		"scopes":        map[string]any{"department": []any{"销售部"}},
+	})
+	childID := request["task_id"].(string)
+	child, err := harness.store.GetTask(context.Background(), childID)
+	if err != nil {
+		t.Fatalf("load child task: %v", err)
+	}
+	if child.RootTaskID != "task-family-root" || child.ParentTaskID != "task-family-root" || child.PrincipalID != bob.ID {
+		t.Fatalf("child lineage = %+v", child)
+	}
+	draft := harness.approval.requests[len(harness.approval.requests)-1]
+	if draft.Manifest.RootTaskID != "task-family-root" || draft.Manifest.ParentTaskID != "task-family-root" ||
+		draft.Manifest.HumanSubject != harness.alice.Subject || draft.Manifest.AgentID != bob.ID {
+		t.Fatalf("delegated manifest lineage = %+v", draft.Manifest)
+	}
+
+	submitted := oaCallbackEvent{
+		EventID: "oa-family-submit", TaskID: childID, DraftID: child.ApprovalRef,
+		Status: "submitted", Actor: harness.alice.Subject, OccurredAt: harness.clock.value,
+		CatalogVersion: harness.catalog.CatalogVersion, CallbackContext: draft.Manifest.CallbackContext,
+		ManifestDigest: draft.ManifestDigest,
+	}
+	if response := sendGatewayCallback(t, harness, submitted, ""); response.Code != http.StatusOK {
+		t.Fatalf("delegated submit = %d %s", response.Code, response.Body.String())
+	}
+	core, err := domain.CoreFromManifest(draft.Manifest, draft.ManifestDigest, harness.clock.value)
+	if err != nil {
+		t.Fatalf("build delegated core: %v", err)
+	}
+	coreDigest, err := approval.GrantCoreDigest(core)
+	if err != nil {
+		t.Fatalf("hash delegated core: %v", err)
+	}
+	receipt, err := approval.DemoReceiptSigner([]byte(harness.secret)).SignReceipt(approval.ApprovalReceiptV1{
+		Version: domain.ApprovalReceiptV1Version, ReceiptID: "oa-family-receipt", TaskID: childID,
+		Decision: approval.ApprovalDecisionApprove, ManifestDigest: draft.ManifestDigest,
+		ApprovedGrantDigest: coreDigest, ApproverID: harness.alice.Subject, IssuedAt: harness.clock.value,
+	})
+	if err != nil {
+		t.Fatalf("sign delegated approval: %v", err)
+	}
+	approved := oaCallbackEvent{
+		EventID: "oa-family-approve", TaskID: childID, DraftID: child.ApprovalRef,
+		Status: "approved", Actor: harness.alice.Subject, OccurredAt: harness.clock.value,
+		CatalogVersion: harness.catalog.CatalogVersion, CallbackContext: draft.Manifest.CallbackContext,
+		ManifestDigest: draft.ManifestDigest, ApprovedGrant: &core, ApprovalReceipt: &receipt,
+	}
+	if response := sendGatewayCallback(t, harness, approved, ""); response.Code != http.StatusOK {
+		t.Fatalf("delegated approval = %d %s", response.Code, response.Body.String())
+	}
+
+	harness.connector.result = dataconnector.Result{
+		Columns: []dataconnector.Column{{Name: "month"}, {Name: "total_amount"}, {Name: "department"}, {Name: "expense_type"}},
+		Rows:    [][]any{{"2026-01", 123.45, "销售部", "机票"}}, RowCount: 1, DatabaseTime: 2 * time.Millisecond,
+	}
+	harness.connector.provenanceResult = dataconnector.Result{
+		Columns: []dataconnector.Column{{Name: "department"}, {Name: "expense_type"}, {Name: "month"}, {Name: "total_amount"}},
+		Rows:    [][]any{{"销售部", "机票", "2026-01", 123.45}}, RowCount: 1, DatabaseTime: time.Millisecond,
+	}
+	plan := map[string]any{"product": "expense_summary", "columns": []string{"month", "total_amount"}}
+	rootResult := mustCallGatewayTool(t, harness.service, harness.alice, "execute_plan", map[string]any{
+		"task_id": "task-family-root", "request_id": "family-root-query", "plan": plan,
+	})
+	childResult := mustCallGatewayTool(t, harness.service, bob, "execute_plan", map[string]any{
+		"task_id": childID, "request_id": "family-child-query", "plan": plan,
+	})
+	if rootResult["exposure"].(control.ExposureCharge).ChargedReleaseFacts == 0 ||
+		childResult["exposure"].(control.ExposureCharge).ChargedReleaseFacts != 0 ||
+		childResult["exposure"].(control.ExposureCharge).RootTaskID != "task-family-root" {
+		t.Fatalf("family exposure was not conserved: root=%+v child=%+v", rootResult["exposure"], childResult["exposure"])
+	}
+
+	mustCallGatewayTool(t, harness.service, harness.alice, "revoke_task", map[string]any{
+		"task_id": "task-family-root", "reason": "delegation test",
+	})
+	_, err = callGatewayTool(harness.service, bob, "execute_plan", map[string]any{
+		"task_id": childID, "request_id": "family-child-after-revoke", "plan": plan,
+	})
+	requireToolCode(t, err, apierr.CodeTaskNotActive)
 }
 
 func TestOACallbackNarrowingIsEnforcedBeforeGrantPersistence(t *testing.T) {

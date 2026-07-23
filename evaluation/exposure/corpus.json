@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "profile_version": "taskgate-exposure-v1",
+  "rewrite_trials": 512,
+  "relations": [
+    {
+      "name": "expenses",
+      "product": "expense_detail",
+      "snapshot": "snapshot-2026-01",
+      "fields": ["department", "amount"],
+      "rows": [
+        {"entity_key": "r1", "values": {"department": "sales", "amount": 10}},
+        {"entity_key": "r2", "values": {"department": "sales", "amount": 20}},
+        {"entity_key": "r3", "values": {"department": "rnd", "amount": 30}},
+        {"entity_key": "r4", "values": {"department": "sales", "amount": 10}}
+      ]
+    },
+    {
+      "name": "departments",
+      "product": "departments",
+      "snapshot": "snapshot-2026-01",
+      "fields": ["department", "manager"],
+      "rows": [
+        {"entity_key": "d1", "values": {"department": "sales", "manager": "Ana"}},
+        {"entity_key": "d2", "values": {"department": "rnd", "manager": "Rui"}}
+      ]
+    }
+  ],
+  "ground_truth": [
+    {"id": "projection_amount", "operation": "projection_amount", "release_facts": 4, "influence_facts": 8, "release_set_sha256": "8f1bb4ef422118025be23083b7b59461e9adcb0fb4436c8907f31ff7ea000c23", "influence_set_sha256": "8d39aae568cdefd738c2dd737003ea5b03dbee082c194eecab4aca4dc4cf483d"},
+    {"id": "selection_sales_amount", "operation": "selection_sales_amount", "release_facts": 3, "influence_facts": 9, "release_set_sha256": "6e0ae68356568dc8ee3cb47b5646b9024594fac9f946770c75e934aea9bae761", "influence_set_sha256": "609bc6091f966deedab840405ac5b17da5d5efdcbabd3d9915676c0a5eed5903"},
+    {"id": "group_sum_count", "operation": "group_sum_count", "release_facts": 6, "influence_facts": 12, "release_set_sha256": "e863709ff6cd34b367eed1b3b1374d5ea6d69a770bf7b7bcdb67ab350258b931", "influence_set_sha256": "a576f7fc2e8c4dbab52d7bf6a1a11fbc930a999e066a3503da609ca6e848298d"},
+    {"id": "global_count", "operation": "global_count", "release_facts": 1, "influence_facts": 4, "release_set_sha256": "b00cb8956a999342eed0c02e1f82e4c8869c7a5c018736787e6c54391c1cd2da", "influence_set_sha256": "1bcb793050d418140aa462a03bb62f453a52599cf24bfd0f7e5d6041d29b975e"},
+    {"id": "department_join", "operation": "department_join", "release_facts": 8, "influence_facts": 18, "release_set_sha256": "15ae8bd1eddcb46844093ed1d489a3ab940928c2ae1b42e7ea1194ab9ca8eb1b", "influence_set_sha256": "c213342e91a56d51ee83a59d90d44f97b2f3de596598356dd423f31ea774cefd"}
+  ],
+  "adversarial_cases": [
+    {"id": "join_multiplicity", "execution": "deterministic"},
+    {"id": "split_merge", "execution": "deterministic"},
+    {"id": "overlapping_pagination", "execution": "deterministic"},
+    {"id": "cache_retry", "execution": "deterministic"},
+    {"id": "snapshot_update", "execution": "deterministic"},
+    {"id": "task_family_delegation", "execution": "postgres_integration"},
+    {"id": "concurrent_settlement", "execution": "postgres_integration"}
+  ],
+  "planner_scenarios": [
+    {
+      "id": "release_bottleneck",
+      "release_budget": 6,
+      "influence_budget": 6,
+      "weights": {"answer_completeness": 0.5, "query_coverage": 0.5},
+      "expected_ids": ["a-aggregate", "b-projection"],
+      "candidates": [
+        {"id": "a-raw", "requirement": "a", "product": "detail_a", "representation": "raw", "release_cost": 6, "influence_cost": 6, "answer_completeness": 1.0, "query_coverage": 1.0},
+        {"id": "a-aggregate", "requirement": "a", "product": "summary_a", "representation": "aggregate", "release_cost": 2, "influence_cost": 2, "answer_completeness": 0.7, "query_coverage": 0.7},
+        {"id": "b-projection", "requirement": "b", "product": "projection_b", "representation": "projection", "release_cost": 4, "influence_cost": 4, "answer_completeness": 0.9, "query_coverage": 0.9}
+      ]
+    },
+    {
+      "id": "dual_axis_bottleneck",
+      "release_budget": 7,
+      "influence_budget": 8,
+      "weights": {"answer_completeness": 0.7, "query_coverage": 0.3},
+      "expected_ids": ["detail-generalized", "trend-aggregate"],
+      "candidates": [
+        {"id": "detail-projection", "requirement": "detail", "product": "detail", "representation": "projection", "release_cost": 5, "influence_cost": 8, "answer_completeness": 0.95, "query_coverage": 0.8},
+        {"id": "detail-generalized", "requirement": "detail", "product": "detail_generalized", "representation": "generalized", "release_cost": 3, "influence_cost": 4, "answer_completeness": 0.75, "query_coverage": 0.8},
+        {"id": "trend-aggregate", "requirement": "trend", "product": "trend", "representation": "aggregate", "release_cost": 4, "influence_cost": 4, "answer_completeness": 0.9, "query_coverage": 1.0}
+      ]
+    }
+  ]
+}

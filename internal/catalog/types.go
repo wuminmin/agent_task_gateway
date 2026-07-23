@@ -50,6 +50,8 @@ type Product struct {
 	AllowedFunctions  []string           `yaml:"allowed_functions,omitempty" json:"allowed_functions,omitempty"`
 	AllowedOperators  []string           `yaml:"allowed_operators,omitempty" json:"allowed_operators,omitempty"`
 	AllowedAggregates []string           `yaml:"allowed_aggregates,omitempty" json:"allowed_aggregates,omitempty"`
+	Snapshot          string             `yaml:"snapshot" json:"snapshot"`
+	EntityKey         []string           `yaml:"entity_key" json:"entity_key"`
 }
 
 type Field struct {
@@ -81,12 +83,15 @@ type ApprovalRoute struct {
 }
 
 type BudgetProfile struct {
-	Name         string   `yaml:"name" json:"name"`
-	MaxQueries   int64    `yaml:"max_queries" json:"max_queries"`
-	MaxRows      int64    `yaml:"max_rows" json:"max_rows"`
-	MaxDBTime    Duration `yaml:"max_db_time" json:"max_db_time"`
-	QueryTimeout Duration `yaml:"query_timeout" json:"query_timeout"`
-	TaskTTL      Duration `yaml:"task_ttl" json:"task_ttl"`
+	Name                   string   `yaml:"name" json:"name"`
+	MaxQueries             int64    `yaml:"max_queries" json:"max_queries"`
+	MaxRows                int64    `yaml:"max_rows" json:"max_rows"`
+	MaxDBTime              Duration `yaml:"max_db_time" json:"max_db_time"`
+	QueryTimeout           Duration `yaml:"query_timeout" json:"query_timeout"`
+	TaskTTL                Duration `yaml:"task_ttl" json:"task_ttl"`
+	MaxReleaseFacts        int64    `yaml:"max_release_facts,omitempty" json:"max_release_facts,omitempty"`
+	MaxInfluenceFacts      int64    `yaml:"max_influence_facts,omitempty" json:"max_influence_facts,omitempty"`
+	ExposureProfileVersion string   `yaml:"exposure_profile_version,omitempty" json:"exposure_profile_version,omitempty"`
 }
 
 func (p BudgetProfile) Budget() domain.Budget {
@@ -96,6 +101,8 @@ func (p BudgetProfile) Budget() domain.Budget {
 		MaxDBTime:       p.MaxDBTime.Duration,
 		PerQueryTimeout: p.QueryTimeout.Duration,
 		TaskTTL:         p.TaskTTL.Duration,
+		MaxReleaseFacts: p.MaxReleaseFacts, MaxInfluenceFacts: p.MaxInfluenceFacts,
+		ExposureProfileVersion: p.ExposureProfileVersion,
 	}
 }
 
