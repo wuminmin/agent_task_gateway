@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "experiment": "crash_recovery",
+  "cases": [
+    {
+      "id": "orphan_reserved_charged_indeterminate_on_restart",
+      "description": "A query left RESERVED when the gateway process exits is charged its full reservation and marked INDETERMINATE on restart."
+    },
+    {
+      "id": "completed_before_crash_not_recharged",
+      "description": "A query that settled before the crash keeps its durable charge; recovery does not double-charge terminal records."
+    },
+    {
+      "id": "audit_chain_continuous_after_recovery",
+      "description": "The hash-chain audit log has no gap after recovery appends its INDETERMINATE event."
+    },
+    {
+      "id": "reservation_at_hard_limit_charged_on_recovery",
+      "description": "An orphaned query whose reservation equals the task limit is charged to the hard limit on recovery without breaking the ledger invariant."
+    }
+  ]
+}

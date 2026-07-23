@@ -12,6 +12,7 @@ case "$ALLOW_PARTIAL" in 0|1) ;; *) echo "SECURITY_ALLOW_PARTIAL must be 0 or 1"
 
 command -v docker >/dev/null 2>&1 || { echo "full security campaign requires Docker" >&2; exit 1; }
 docker info >/dev/null 2>&1 || { echo "the Docker daemon is unavailable or not permitted" >&2; exit 1; }
+[ -n "${CONTROL_TEST_POSTGRES_DSN:-}" ] || { echo "full security campaign requires CONTROL_TEST_POSTGRES_DSN for the end-to-end experiments" >&2; exit 1; }
 
 campaign_id=${SECURITY_FULL_RUN_ID:-full-$(date -u +%Y%m%dT%H%M%SZ)-$$}
 fuzz_id=${FUZZ_RUN_ID:-$campaign_id-fuzz}

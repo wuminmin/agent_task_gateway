@@ -418,14 +418,16 @@ def validate_security(
         return False, "passed prompt-injection count exceeds defined cases"
 
     components = security.get("component_status")
-    if (
-        not isinstance(components, dict)
-        or not isinstance(components.get("attack_corpus"), str)
-        or not components["attack_corpus"].strip()
-        or not isinstance(components.get("fuzz"), str)
-        or not components["fuzz"].strip()
-    ):
-        return False, "security component status invalid"
+    required_components = (
+        "attack_corpus", "connector_crossing", "budget_fault",
+        "concurrency", "crash_recovery", "fuzz",
+    )
+    if not isinstance(components, dict) or set(components) != set(required_components):
+        return False, "security component status key set invalid"
+    for component in required_components:
+        value = components.get(component)
+        if not isinstance(value, str) or not value.strip():
+            return False, f"security component status {component} invalid"
 
     requested_hours = security.get("requested_fuzz_cpu_hours")
     actual_seconds = security.get("actual_fuzz_cpu_seconds")

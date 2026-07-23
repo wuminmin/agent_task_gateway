@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "experiment": "connector_crossing",
+  "cases": [
+    {
+      "id": "policy_denies_ungranted_relation",
+      "description": "Agent SQL that names a relation outside the granted logical products is rejected before any connector call."
+    },
+    {
+      "id": "policy_denies_system_object",
+      "description": "Agent SQL that references PostgreSQL catalog or system objects is rejected."
+    },
+    {
+      "id": "policy_denies_write_statement",
+      "description": "A write statement is rejected; only read-only SELECT against granted products is permitted."
+    },
+    {
+      "id": "live_schema_drift_detected_after_ddl",
+      "description": "After DDL changes a reporting view definition, the data connector re-attestation detects schema drift and refuses to start (closing the attestation/execution TOCTOU window)."
+    }
+  ]
+}

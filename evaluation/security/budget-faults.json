@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "experiment": "budget_fault",
+  "cases": [
+    {
+      "id": "overspend_settlement_rejected",
+      "description": "A settlement whose result rows exceed the reserved rows is rejected and never recorded."
+    },
+    {
+      "id": "dbms_observations_clamped_to_reservation",
+      "description": "Observed database time above the reservation is clamped to the reserved amount; the ledger records the clamped (charged) value while the invariant holds."
+    },
+    {
+      "id": "exhausted_budget_blocks_new_reservation",
+      "description": "Once the task budget is consumed, a new reservation is rejected rather than oversold."
+    },
+    {
+      "id": "timeout_indeterminate_charges_full_reservation",
+      "description": "A connector outcome that cannot be proved marks the query INDETERMINATE and charges the full reservation."
+    },
+    {
+      "id": "repeated_settlement_is_idempotent",
+      "description": "Settling a query twice with the same outcome charges it exactly once."
+    },
+    {
+      "id": "release_charges_zero",
+      "description": "A reservation released before connector execution is charged nothing."
+    }
+  ]
+}

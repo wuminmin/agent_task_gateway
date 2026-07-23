@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "experiment": "concurrency",
+  "cases": [
+    {
+      "id": "concurrent_reserve_single_winner",
+      "description": "Many concurrent reservations on the same task serialize to exactly one in-flight winner; the rest are rejected."
+    },
+    {
+      "id": "concurrent_replay_single_insert",
+      "description": "Concurrent reservations with the same durable request_id insert exactly once; the rest observe the durable replay."
+    },
+    {
+      "id": "concurrent_audit_chain_stays_continuous",
+      "description": "Concurrent query settlements append to the hash-chain audit log without gaps or sequence collisions."
+    },
+    {
+      "id": "concurrent_settle_charges_once",
+      "description": "Concurrent settlement of the same query charges the ledger exactly once."
+    }
+  ]
+}

@@ -25,6 +25,46 @@ SYSTEM_TIME_RE = re.compile(r"^\s*System time \(seconds\):\s*([0-9]+(?:\.[0-9]+)
 EXIT_STATUS_RE = re.compile(r"^\s*Exit status:\s*([0-9]+)\s*$", re.MULTILINE)
 PACKAGE = "taskbound.local/agent-data-gateway/evaluation/security"
 
+# End-to-end security experiments. Each entry binds the experiment's corpus
+# file, top-level Go test name, the source file that implements it, and the
+# summary metric keys its summary JSON carries. verify.py enumerates the
+# expected subtest set from each corpus (mirroring the attack corpus) and reads
+# the integer metric from the summary so unauthorized_crossings /
+# budget_violations are evidence-derived rather than hardcoded.
+SECURITY_EXPERIMENTS = (
+    {
+        "name": "connector_crossing",
+        "corpus": "evaluation/security/connector-crossing.json",
+        "test": "TestConnectorCrossing",
+        "source": "evaluation/security/connector_crossing_test.go",
+        "metrics": ("unauthorized_crossings",),
+    },
+    {
+        "name": "budget_fault",
+        "corpus": "evaluation/security/budget-faults.json",
+        "test": "TestBudgetFault",
+        "source": "evaluation/security/budget_fault_test.go",
+        "metrics": ("budget_violations",),
+    },
+    {
+        "name": "concurrency",
+        "corpus": "evaluation/security/concurrency.json",
+        "test": "TestConcurrency",
+        "source": "evaluation/security/concurrency_test.go",
+        "metrics": ("budget_violations",),
+    },
+    {
+        "name": "crash_recovery",
+        "corpus": "evaluation/security/crash-recovery.json",
+        "test": "TestCrashRecovery",
+        "source": "evaluation/security/crash_recovery_test.go",
+        "metrics": ("budget_violations",),
+    },
+)
+# SECURITY_SUMMARY_MIN_REPORTABLE == 0: a passed experiment must report zero
+# breaches on every measured metric. Non-zero metrics downgrade the campaign.
+
+
 
 class VerificationError(ValueError):
     """Raised when raw evidence is missing, inconsistent, or malformed."""
@@ -142,9 +182,13 @@ def expected_attack_inputs(root: pathlib.Path) -> set[str]:
         "evaluation/attacks/prompt-injection.json",
         "evaluation/ast-gateway/tpch.json",
         "evaluation/security/security_test.go",
+        "evaluation/security/store_harness_test.go",
         "evaluation/security/run-corpus.sh",
         "evaluation/Dockerfile",
     }
+    for experiment in SECURITY_EXPERIMENTS:
+        fixed.add(experiment["corpus"])
+        fixed.add(experiment["source"])
     sql_inputs = {
         relative(path, root)
         for path in (root / "evaluation/attacks/sql").glob("*.sql")
@@ -368,6 +412,76 @@ def parse_attack_corpora(root: pathlib.Path) -> dict[str, Any]:
     }
 
 
+def parse_experiment_corpora(root: pathlib.Path) -> tuple[set[str], dict[str, dict[str, Any]]]:
+    """Parse every end-to-end experiment corpus into its expected subtest set.
+
+    Returns the union expected-test set and a per-experiment map keyed by the
+    experiment name carrying the spec and its case IDs. verify_attack_run unions
+    these with the attack/prompt tests so a single go-test log must cover every
+    security test exactly.
+    """
+    expected_tests: set[str] = set()
+    by_name: dict[str, dict[str, Any]] = {}
+    for spec in SECURITY_EXPERIMENTS:
+        corpus = load_json(root / spec["corpus"])
+        if corpus.get("schema_version") != 1 or corpus.get("experiment") != spec["name"]:
+            raise VerificationError(
+                f"experiment corpus {spec['corpus']} has unsupported schema or experiment name"
+            )
+        cases = corpus.get("cases")
+        if not isinstance(cases, list) or not cases:
+            raise VerificationError(f"experiment corpus {spec['corpus']} has no cases")
+        case_ids: list[str] = []
+        for index, case in enumerate(cases):
+            if not isinstance(case, dict) or not isinstance(case.get("id"), str) or not case["id"]:
+                raise VerificationError(f"experiment case {spec['corpus']}[{index}] has no id")
+            if case["id"] in case_ids:
+                raise VerificationError(f"duplicate experiment case id in {spec['corpus']}: {case['id']}")
+            case_ids.append(case["id"])
+        expected_tests.add(spec["test"])
+        for case_id in case_ids:
+            expected_tests.add(f"{spec['test']}/{case_id}")
+        by_name[spec["name"]] = {"spec": spec, "case_ids": case_ids}
+    return expected_tests, by_name
+
+
+def verify_experiment_summaries(
+    root: pathlib.Path,
+    manifest: dict[str, Any],
+    experiments: dict[str, dict[str, Any]],
+) -> tuple[list[pathlib.Path], dict[str, int]]:
+    """Validate each experiment's measured summary and aggregate its metrics.
+
+    The campaign manifest declares one summary per experiment with a checksummed
+    path. Each summary's metric must be a non-negative integer; the metric key
+    names the aggregation bucket (unauthorized_crossings or budget_violations),
+    so summing by key yields the campaign-level count.
+    """
+    declared = manifest.get("experiment_summaries")
+    if not isinstance(declared, dict) or set(declared) != set(experiments):
+        missing = sorted(set(experiments) - set(declared if isinstance(declared, dict) else []))
+        extra = sorted(set(declared if isinstance(declared, dict) else []) - set(experiments))
+        raise VerificationError(f"experiment summary set mismatch; missing={missing}, extra={extra}")
+    summary_paths: list[pathlib.Path] = []
+    metrics: dict[str, int] = {}
+    for name, info in experiments.items():
+        spec = info["spec"]
+        entry = declared[name]
+        if not isinstance(entry, dict) or set(entry) != {"path", "sha256"}:
+            raise VerificationError(f"experiment summary {name} must contain only path and sha256")
+        summary_path = repository_path(root, entry["path"], f"experiment summary {name} path")
+        check_declared_sha(summary_path, entry["sha256"], f"experiment summary {name} sha256")
+        summary = load_json(summary_path)
+        if summary.get("schema_version") != 1 or summary.get("experiment") != name:
+            raise VerificationError(f"experiment summary {name} has unsupported schema or experiment name")
+        for metric in spec["metrics"]:
+            value = summary.get(metric)
+            count = require_int(value, f"experiment summary {name} {metric}")
+            metrics[metric] = metrics.get(metric, 0) + count
+        summary_paths.append(summary_path)
+    return summary_paths, metrics
+
+
 def verify_attack_run(root: pathlib.Path, manifest_path: pathlib.Path) -> dict[str, Any]:
     manifest = load_json(manifest_path)
     if manifest.get("schema_version") != 1 or manifest.get("status") != "passed" or manifest.get("exit_code") != 0:
@@ -387,12 +501,14 @@ def verify_attack_run(root: pathlib.Path, manifest_path: pathlib.Path) -> dict[s
     check_declared_sha(log_path, manifest.get("raw_log_sha256"), "attack raw_log_sha256")
 
     corpora = parse_attack_corpora(root)
+    experiment_tests, experiments = parse_experiment_corpora(root)
     expected_tests = {"TestAttackCorpus", "TestPromptInjectionBoundaryCases"}
     expected_tests.update(f"TestAttackCorpus/{case_id}" for case_id in corpora["case_ids"])
     for prompt_id in corpora["prompt_ids"]:
         prefix = f"TestPromptInjectionBoundaryCases/{prompt_id}"
         expected_tests.add(prefix)
         expected_tests.update(f"{prefix}/{attempt_id}" for attempt_id in corpora["prompt_attempts"][prompt_id])
+    expected_tests |= experiment_tests
 
     passed_tests: list[str] = []
     package_passed = False
@@ -424,12 +540,16 @@ def verify_attack_run(root: pathlib.Path, manifest_path: pathlib.Path) -> dict[s
         missing = sorted(expected_tests - set(passed_tests))
         extra = sorted(set(passed_tests) - expected_tests)
         raise VerificationError(f"attack test set mismatch; missing={missing}, extra={extra}")
+    summary_paths, metrics = verify_experiment_summaries(root, manifest, experiments)
     return {
         "manifest": manifest_path,
         "inputs": input_paths,
         "log": log_path,
+        "summaries": summary_paths,
         "cases": len(corpora["case_ids"]),
         "prompt_cases": len(corpora["prompt_ids"]),
+        "unauthorized_crossings": metrics.get("unauthorized_crossings", 0),
+        "budget_violations": metrics.get("budget_violations", 0),
     }
 
 
@@ -463,37 +583,66 @@ def build_results(root: pathlib.Path, campaign_path: pathlib.Path, attack_path: 
         *fuzz["logs"],
         *fuzz["corpus"],
         *attack["inputs"],
+        *attack["summaries"],
     }
     evidence = [
         {"path": relative(path, root), "sha256": sha256(path)}
         for path in sorted(evidence_paths, key=lambda item: relative(item, root))
     ]
     fuzz_status = "passed" if fuzz["publication_requirement_met"] else "completed_below_24_cpu_hours"
+    # verify_attack_run only returns once every attack/prompt/experiment subtest
+    # has passed, so the measured crossing/budget counts are zero here; the
+    # acceptance gate still asserts them explicitly as defense in depth. The
+    # only remaining publication gate is the 24-CPU-hour fuzz requirement.
+    unauthorized_crossings = attack["unauthorized_crossings"]
+    budget_violations = attack["budget_violations"]
+    panics = 0
+    fuzz_cpu_met = fuzz["publication_requirement_met"]
+    acceptance = (
+        unauthorized_crossings == 0
+        and budget_violations == 0
+        and panics == 0
+        and fuzz_cpu_met
+    )
+    if unauthorized_crossings or budget_violations or panics:
+        status = "failed"
+    elif acceptance:
+        status = "passed"
+    else:
+        status = "partial"
     return {
         "schema_version": 1,
-        "status": "partial",
-        "scope": "sql_policy_attack_and_prompt_boundaries_plus_three_target_fuzz",
-        "security_acceptance_met": False,
-        "component_status": {"attack_corpus": "passed", "fuzz": fuzz_status},
+        "status": status,
+        "scope": "sql_policy_prompt_boundary_four_end_to_end_experiments_three_target_fuzz",
+        "security_acceptance_met": acceptance,
+        "component_status": {
+            "attack_corpus": "passed",
+            "connector_crossing": "passed" if unauthorized_crossings == 0 else "failed",
+            "budget_fault": "passed" if budget_violations == 0 else "failed",
+            "concurrency": "passed" if budget_violations == 0 else "failed",
+            "crash_recovery": "passed" if budget_violations == 0 else "failed",
+            "fuzz": fuzz_status,
+        },
         "cases": attack["cases"],
         "corpus_passed": attack["cases"],
         "prompt_injection_cases": attack["prompt_cases"],
         "prompt_injection_passed": attack["prompt_cases"],
-        "unauthorized_crossings": None,
-        "budget_violations": None,
-        "panics": 0,
+        "unauthorized_crossings": unauthorized_crossings,
+        "budget_violations": budget_violations,
+        "panics": panics,
         "requested_fuzz_cpu_hours": fuzz["requested_hours"],
         "actual_fuzz_cpu_seconds": fuzz["actual_seconds"],
         "fuzz_cpu_hours": round(fuzz["actual_seconds"] / 3600, 6),
-        "fuzz_cpu_requirement_met": fuzz["publication_requirement_met"],
+        "fuzz_cpu_requirement_met": fuzz_cpu_met,
         "fuzz_targets": fuzz["targets"],
         "raw_log": relative(attack["log"], root),
         "attack_manifest": relative(attack_manifest, root),
         "fuzz_campaign": relative(campaign_manifest, root),
         "evidence": evidence,
         "note": (
-            "Verified SQL-policy and prompt-boundary corpus plus three fuzz targets; "
-            "connector-crossing and budget-fault metrics remain unmeasured, so full security acceptance is not claimed."
+            "Verified SQL-policy and prompt-boundary corpus, four end-to-end experiments "
+            "(connector crossing, budget fault, concurrency, crash recovery), and three fuzz targets; "
+            "status and violation counts are derived from checksummed evidence."
         ),
     }
 

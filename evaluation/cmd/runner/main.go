@@ -434,7 +434,7 @@ func runCell(ctx context.Context, cfg suiteConfig, exp experiment, queries []loa
 		ScaleFactor:        exp.ScaleFactor,
 		Baseline:           baseline,
 		Concurrency:        concurrency,
-		WarmupSamples:      cfg.WarmupRunsPerWorker * concurrency,
+		WarmupSamples:      cfg.WarmupRunsPerWorker * concurrency * len(queries),
 		MeasuredSamples:    len(observations),
 		MeasurementStartNS: started.UnixNano(),
 		MeasurementEndNS:   finished.UnixNano(),
@@ -463,43 +463,50 @@ func runPhase(ctx context.Context, b backend, queries []loadedQuery, runID strin
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for iteration := 0; iteration < iterations; iteration++ {
-				if phaseCtx.Err() != nil {
-					return
-				}
-				query := queries[(worker+iteration)%len(queries)]
+			// Each worker runs every declared query `iterations` times, so the
+			// per-query sample count at concurrency C is iterations*C. This keeps
+			// the table-level ">=30 measured runs per query" guarantee (iterations
+			// == MeasuredRunsPerWorker) independent of how many queries a workload
+			// declares, instead of rotating one query per iteration.
+			for queryIndex, query := range queries {
+				query := query
 				sqlText := query.SQL[baseline]
-				phase := "m"
-				if warmup {
-					phase = "w"
-				}
-				requestID := makeRequestID(runID, exp.ID, baseline, concurrency, worker, iteration, phase)
-				started := time.Now().UTC()
-				result, err := b.Run(phaseCtx, worker, query.ID, requestID, sqlText)
-				latency := time.Since(started)
-				if err != nil {
+				for iteration := 0; iteration < iterations; iteration++ {
+					if phaseCtx.Err() != nil {
+						return
+					}
+					phase := "m"
+					if warmup {
+						phase = "w"
+					}
+					requestID := makeRequestID(runID, exp.ID, baseline, concurrency, worker, queryIndex, iteration, phase)
+					started := time.Now().UTC()
+					result, err := b.Run(phaseCtx, worker, query.ID, requestID, sqlText)
+					latency := time.Since(started)
+					if err != nil {
+						observation := newSample(runID, exp, baseline, concurrency, worker, iteration, query.ID, requestID, started, latency, result)
+						observation.Success = false
+						observation.Error = err.Error()
+						mu.Lock()
+						if !warmup && output != nil {
+							*output = append(*output, observation)
+						}
+						if firstErr == nil {
+							firstErr = err
+							cancel()
+						}
+						mu.Unlock()
+						return
+					}
+					if warmup {
+						continue
+					}
 					observation := newSample(runID, exp, baseline, concurrency, worker, iteration, query.ID, requestID, started, latency, result)
-					observation.Success = false
-					observation.Error = err.Error()
+					observation.Success = true
 					mu.Lock()
-					if !warmup && output != nil {
-						*output = append(*output, observation)
-					}
-					if firstErr == nil {
-						firstErr = err
-						cancel()
-					}
+					*output = append(*output, observation)
 					mu.Unlock()
-					return
 				}
-				if warmup {
-					continue
-				}
-				observation := newSample(runID, exp, baseline, concurrency, worker, iteration, query.ID, requestID, started, latency, result)
-				observation.Success = true
-				mu.Lock()
-				*output = append(*output, observation)
-				mu.Unlock()
 			}
 		}()
 	}
@@ -1480,8 +1487,8 @@ func writeJSONFile(path string, value any) error {
 	return nil
 }
 
-func makeRequestID(runID, experiment, baseline string, concurrency, worker, iteration int, phase string) string {
-	input := fmt.Sprintf("%s/%s/%s/%d/%d/%d/%s", runID, experiment, baseline, concurrency, worker, iteration, phase)
+func makeRequestID(runID, experiment, baseline string, concurrency, worker, queryIndex, iteration int, phase string) string {
+	input := fmt.Sprintf("%s/%s/%s/%d/%d/%d/%d/%s", runID, experiment, baseline, concurrency, worker, queryIndex, iteration, phase)
 	digest := sha256.Sum256([]byte(input))
 	return "eval-" + phase + "-" + hex.EncodeToString(digest[:16])
 }

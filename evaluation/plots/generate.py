@@ -573,7 +573,7 @@ def load_measurements(root: pathlib.Path, run_dirs: list[pathlib.Path]) -> tuple
             if set(concurrency_values) != REQUIRED_FULL_CONCURRENCY or len(concurrency_values) != len(REQUIRED_FULL_CONCURRENCY):
                 fail(f"full run {run_id} must cover exactly concurrency 1, 8, and 32")
             if measured_per_worker < 30:
-                fail(f"full run has fewer than 30 measurements per worker: {directory}")
+                fail(f"full run has fewer than 30 measurements per query per worker: {directory}")
             inputs.append(
                 verified_input_path(
                     root,
@@ -663,11 +663,12 @@ def load_measurements(root: pathlib.Path, run_dirs: list[pathlib.Path]) -> tuple
             experiment_id, _, concurrency = key
             if row.get("run_id") != run_id or experiment_id not in experiment_details:
                 fail(f"cell identity does not match run {run_id}: {key}")
-            family, scale_factor, _ = experiment_details[experiment_id]
+            family, scale_factor, query_ids = experiment_details[experiment_id]
             if row.get("family") != family or row.get("scale_factor") != scale_factor:
                 fail(f"cell family/scale does not match config in run {run_id}: {key}")
-            expected_samples = measured_per_worker * concurrency
-            if row.get("measured_samples") != expected_samples or row.get("warmup_samples") != warmup_per_worker * concurrency:
+            num_queries = len(query_ids)
+            expected_samples = measured_per_worker * concurrency * num_queries
+            if row.get("measured_samples") != expected_samples or row.get("warmup_samples") != warmup_per_worker * concurrency * num_queries:
                 fail(f"cell has incomplete or surplus samples in run {run_id}: {key}")
             if metadata.get("mode") == "full" and (not row.get("cpu_seconds") or not row.get("peak_memory_bytes")):
                 fail(f"full cell omits required resource metrics in run {run_id}: {key}")
@@ -676,7 +677,8 @@ def load_measurements(root: pathlib.Path, run_dirs: list[pathlib.Path]) -> tuple
             extra = sorted(set(cell_by_key) - expected_cells)
             fail(f"run {run_id} does not contain its exact cell matrix; missing={missing}, extra={extra}")
 
-        sample_pairs: dict[tuple[str, str, int], set[tuple[int, int]]] = defaultdict(set)
+        sample_pairs: dict[tuple[str, str, int], set[tuple[int, str, int]]] = defaultdict(set)
+        sample_counts: dict[tuple[str, str, int], dict[str, int]] = defaultdict(lambda: defaultdict(int))
         for row in run_samples:
             key = measurement_key(row, samples_path)
             experiment_id, _, concurrency = key
@@ -685,25 +687,34 @@ def load_measurements(root: pathlib.Path, run_dirs: list[pathlib.Path]) -> tuple
             family, scale_factor, query_ids = experiment_details[experiment_id]
             if row.get("family") != family or row.get("scale_factor") != scale_factor:
                 fail(f"sample family/scale does not match config in run {run_id}: {key}")
-            if row.get("query_id") not in query_ids:
+            query_id = row.get("query_id")
+            if query_id not in query_ids:
                 fail(f"sample query_id is not declared by workload manifest in run {run_id}: {key}")
             worker = row.get("worker")
             iteration = row.get("iteration")
             if type(worker) is not int or type(iteration) is not int:
                 fail(f"sample has invalid worker/iteration in run {run_id}: {key}")
-            pair = (worker, iteration)
-            if pair in sample_pairs[key]:
-                fail(f"duplicate worker/iteration sample in run {run_id}: {key}/{pair}")
-            sample_pairs[key].add(pair)
+            triple = (worker, query_id, iteration)
+            if triple in sample_pairs[key]:
+                fail(f"duplicate worker/query/iteration sample in run {run_id}: {key}/{triple}")
+            sample_pairs[key].add(triple)
+            sample_counts[key][query_id] += 1
         for key in expected_cells:
             concurrency = key[2]
+            query_ids = experiment_details[key[0]][2]
             expected_pairs = {
-                (worker, iteration)
+                (worker, query_id, iteration)
                 for worker in range(concurrency)
+                for query_id in query_ids
                 for iteration in range(measured_per_worker)
             }
             if sample_pairs[key] != expected_pairs:
                 fail(f"run {run_id} has incomplete or surplus sample rows for {key}")
+            if metadata.get("mode") == "full":
+                for query_id in query_ids:
+                    count = sample_counts[key][query_id]
+                    if count < 30:
+                        fail(f"full run {run_id} has fewer than 30 measured samples per query for {key}/{query_id} ({count})")
         samples.extend(run_samples)
         cells.extend(run_cells)
     return samples, cells, inputs, metadata_rows
