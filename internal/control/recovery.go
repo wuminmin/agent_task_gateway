@@ -85,7 +85,7 @@ WHERE task_id=$8`, after.Usage.UsedQueries, after.Usage.UsedRows, after.Usage.Us
 		}
 		result, err := tx.ExecContext(ctx, `
 UPDATE query_records
-	SET status='INDETERMINATE', result_rows=$1, result_db_ms=$2,
+	SET status='INDETERMINATE', result_rows=$1, result_db_ms=$2, result_db_ms_observed=$2,
 	    charged_queries=1, charged_rows=$1, charged_db_ms=$2,
 	    error_code='GATEWAY_RESTART', budget_after_json=$3, completed_at=$4
 	WHERE id=$5 AND status='RESERVED'`, reservation.reservedRows, reservation.reservedDBMS,
@@ -101,6 +101,7 @@ UPDATE query_records
 			EventType: "QUERY_INDETERMINATE", Payload: mustJSON(map[string]any{
 				"reason": "gateway_restart", "status": QueryIndeterminate, "charged_queries": int64(1),
 				"charged_rows": reservation.reservedRows, "charged_db_ms": reservation.reservedDBMS,
+				"result_db_ms_observed": reservation.reservedDBMS,
 			}), OccurredAt: now,
 		})
 		if err != nil {

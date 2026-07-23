@@ -3,6 +3,7 @@ package dataconnector
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"net/url"
 	"testing"
 	"time"
@@ -55,6 +56,51 @@ func TestLiveSchemaDigestDetectsViewDefinitionDrift(t *testing.T) {
 	}
 	if !IsCode(err, CodeSchemaDrift) {
 		t.Fatalf("view definition drift error = %v, want %s", err, CodeSchemaDrift)
+	}
+}
+
+func TestQueryReattestsSchemaDigestInsideReadOnlyTransaction(t *testing.T) {
+	dsn := testpostgres.SchemaDSN(t)
+	parsed, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatalf("parse test DSN: %v", err)
+	}
+	schema := parsed.Query().Get("search_path")
+	if schema == "" {
+		t.Fatal("test DSN did not include search_path")
+	}
+	ctx := context.Background()
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatalf("open test database: %v", err)
+	}
+	defer db.Close()
+	mustExec(t, db, `CREATE TABLE source_a(month text, total_amount numeric)`)
+	mustExec(t, db, `CREATE TABLE source_b(month text, total_amount numeric)`)
+	mustExec(t, db, `CREATE VIEW expense_summary AS SELECT month, total_amount FROM source_a`)
+
+	expected := []ViewSchema{{
+		Schema: schema, View: "expense_summary",
+		Columns: []SchemaColumn{{Name: "month", PostgreSQLType: "text"}, {Name: "total_amount", PostgreSQLType: "numeric"}},
+	}}
+	digest := liveSchemaDigest(t, ctx, db, expected)
+	connector, err := New(ctx, Config{
+		DSN: dsn, StatementTimeout: time.Second, ConnectTimeout: time.Second,
+		MaxRows: 10, MaxConnections: 1, ExpectedSchema: expected, ExpectedSchemaDigest: digest,
+	})
+	if err != nil {
+		t.Fatalf("initial connector attestation: %v", err)
+	}
+	defer connector.Close()
+
+	mustExec(t, db, `CREATE OR REPLACE VIEW expense_summary AS SELECT month, total_amount FROM source_b`)
+	_, err = connector.Query(ctx, QueryRequest{
+		SQL:              fmt.Sprintf(`SELECT month, total_amount FROM %s.expense_summary`, schema),
+		StatementTimeout: time.Second,
+		MaxRows:          10,
+	})
+	if !IsCode(err, CodeSchemaDrift) {
+		t.Fatalf("query after in-transaction schema re-attestation = %v, want %s", err, CodeSchemaDrift)
 	}
 }
 

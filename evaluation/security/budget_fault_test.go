@@ -70,13 +70,16 @@ func dbmsClamped(t *testing.T, rec *violationRecorder) {
 	store := budgetFaultStore(t, control.BudgetLimits{Queries: 8, Rows: 100, DBMS: 500}, "task_clamp")
 	reserveQuery(t, store, "task_clamp", "q_clamp", "req_clamp", 10, 500)
 	record, err := store.SettleBudget(context.Background(), control.BudgetSettlement{
-		QueryID: "q_clamp", Rows: 3, DBMS: 100000,
+		QueryID: "q_clamp", Rows: 3, DBMS: 500, ObservedDBMS: 100000,
 	})
 	if err != nil {
 		t.Fatalf("SettleBudget: %v", err)
 	}
 	if record.ChargedDBMS != 500 {
 		rec.budget(t, "observed DB time was not clamped to the reserved amount")
+	}
+	if record.ResultObservedDBMS != 100000 {
+		rec.budget(t, "raw observed DB time was not preserved alongside the clamped charge")
 	}
 	if record.ChargedRows != 3 {
 		rec.budget(t, "charged rows do not match the observed rows")

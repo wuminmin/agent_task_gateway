@@ -17,6 +17,10 @@
     {
       "id": "live_schema_drift_detected_after_ddl",
       "description": "After DDL changes a reporting view definition, the data connector re-attestation detects schema drift and refuses to start (closing the attestation/execution TOCTOU window)."
+    },
+    {
+      "id": "live_query_reattests_schema_drift_after_ddl",
+      "description": "After DDL changes a reporting view definition, an existing connector re-attests schema digest inside Query's read-only transaction and returns CodeSchemaDrift before execution."
     }
   ]
 }

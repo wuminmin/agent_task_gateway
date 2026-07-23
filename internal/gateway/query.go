@@ -399,9 +399,10 @@ func querySettlement(queryID string, data dataconnector.Result, started time.Tim
 		databaseMS = 1
 	}
 	return control.BudgetSettlement{
-		QueryID: queryID,
-		Rows:    rows,
-		DBMS:    min64(databaseMS, reservation.AllowedDBMS),
+		QueryID:      queryID,
+		Rows:         rows,
+		DBMS:         min64(databaseMS, reservation.AllowedDBMS),
+		ObservedDBMS: databaseMS,
 	}
 }
 

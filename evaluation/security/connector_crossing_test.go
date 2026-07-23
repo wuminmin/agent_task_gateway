@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -45,6 +46,8 @@ func runConnectorCrossingCase(t *testing.T, id string, rec *violationRecorder) {
 		policyDenies(t, rec, "DELETE FROM zzz_ungranted_product", "write statement was authorized")
 	case "live_schema_drift_detected_after_ddl":
 		liveSchemaDriftDetected(t, rec)
+	case "live_query_reattests_schema_drift_after_ddl":
+		liveQueryReattestsSchemaDrift(t, rec)
 	default:
 		t.Fatalf("unknown connector-crossing case: %s", id)
 	}
@@ -125,6 +128,58 @@ func liveSchemaDriftDetected(t *testing.T, rec *violationRecorder) {
 	}
 	if !dataconnector.IsCode(err, dataconnector.CodeSchemaDrift) {
 		rec.crossing(t, "view definition drift did not surface CodeSchemaDrift")
+	}
+}
+
+// liveQueryReattestsSchemaDrift proves an already-started connector re-attests
+// the reporting schema inside the same read-only transaction used for Query.
+// DDL drift after startup must be fenced before authorized SQL executes.
+func liveQueryReattestsSchemaDrift(t *testing.T, rec *violationRecorder) {
+	t.Helper()
+	dsn := testpostgres.SchemaDSN(t)
+	parsed, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatalf("parse test DSN: %v", err)
+	}
+	schema := parsed.Query().Get("search_path")
+	if schema == "" {
+		t.Fatal("test DSN did not include search_path")
+	}
+	ctx := context.Background()
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatalf("open test database: %v", err)
+	}
+	defer db.Close()
+	crossingExec(t, db, `CREATE TABLE source_a(month text, total_amount numeric)`)
+	crossingExec(t, db, `CREATE TABLE source_b(month text, total_amount numeric)`)
+	crossingExec(t, db, `CREATE VIEW expense_summary AS SELECT month, total_amount FROM source_a`)
+
+	expected := []dataconnector.ViewSchema{{
+		Schema: schema, View: "expense_summary",
+		Columns: []dataconnector.SchemaColumn{{Name: "month", PostgreSQLType: "text"}, {Name: "total_amount", PostgreSQLType: "numeric"}},
+	}}
+	digest := liveDigest(t, ctx, db, expected)
+	connector, err := dataconnector.New(ctx, dataconnector.Config{
+		DSN: dsn, StatementTimeout: time.Second, ConnectTimeout: time.Second,
+		MaxRows: 10, MaxConnections: 1, ExpectedSchema: expected, ExpectedSchemaDigest: digest,
+	})
+	if err != nil {
+		t.Fatalf("initial connector attestation failed: %v", err)
+	}
+	defer connector.Close()
+
+	crossingExec(t, db, `CREATE OR REPLACE VIEW expense_summary AS SELECT month, total_amount FROM source_b`)
+	_, err = connector.Query(ctx, dataconnector.QueryRequest{
+		SQL:              fmt.Sprintf(`SELECT month, total_amount FROM %s.expense_summary`, schema),
+		StatementTimeout: time.Second,
+		MaxRows:          10,
+	})
+	if err == nil {
+		rec.crossing(t, "query accepted DDL drift after startup")
+	}
+	if !dataconnector.IsCode(err, dataconnector.CodeSchemaDrift) {
+		rec.crossing(t, "query schema drift did not surface CodeSchemaDrift")
 	}
 }
 

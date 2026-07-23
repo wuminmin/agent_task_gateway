@@ -315,6 +315,69 @@ func TestBudgetSerializationFinalizationAndAuditChain(t *testing.T) {
 	}
 }
 
+func TestSettlementPreservesObservedDBMSWhenChargedIsClamped(t *testing.T) {
+	path := testpostgres.SchemaDSN(t)
+	clock := fixedClock{value: time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)}
+	store := openTestStore(t, path, testCipher(t, 18), WithClock(clock))
+	expires := clock.value.Add(time.Hour)
+	createAwaitingApprovalTask(t, store, "task_observed_dbms", expires)
+	approveTask(t, store, "task_observed_dbms", expires, BudgetLimits{Queries: 4, Rows: 100, DBMS: 1000})
+	reservation, err := store.ReserveBudget(context.Background(), testReserveRequest(ReserveRequest{
+		QueryID: "query_observed_dbms", TaskID: "task_observed_dbms", RequestID: "request-observed-dbms",
+		Actor: "alice", RequestDigest: "digest-observed-dbms", SQLFingerprint: "sql-observed-dbms",
+		RequestedRows: 10, RequestedDBMS: 500,
+	}))
+	if err != nil {
+		t.Fatalf("ReserveBudget: %v", err)
+	}
+
+	record, err := store.SettleBudget(context.Background(), BudgetSettlement{
+		QueryID: reservation.QueryID, Rows: 3, DBMS: reservation.AllowedDBMS, ObservedDBMS: 100000,
+	})
+	if err != nil {
+		t.Fatalf("SettleBudget: %v", err)
+	}
+	if record.ResultDBMS != reservation.AllowedDBMS || record.ResultObservedDBMS != 100000 ||
+		record.ChargedDBMS != reservation.AllowedDBMS {
+		t.Fatalf("returned settlement did not preserve observed/clamped DBMS: %+v", record)
+	}
+	persisted, err := store.GetQuery(context.Background(), reservation.QueryID)
+	if err != nil {
+		t.Fatalf("GetQuery: %v", err)
+	}
+	if persisted.ResultDBMS != record.ResultDBMS || persisted.ResultObservedDBMS != record.ResultObservedDBMS ||
+		persisted.ChargedDBMS != record.ChargedDBMS {
+		t.Fatalf("persisted settlement differs: returned=%+v persisted=%+v", record, persisted)
+	}
+	budget, err := store.GetBudget(context.Background(), "task_observed_dbms")
+	if err != nil {
+		t.Fatalf("GetBudget: %v", err)
+	}
+	if budget.Usage.UsedDBMS != reservation.AllowedDBMS || budget.Usage.ReservedDBMS != 0 ||
+		budget.Usage.UsedDBMS+budget.Usage.ReservedDBMS > budget.Limits.DBMS {
+		t.Fatalf("ledger invariant broken after observed DBMS clamp: %+v", budget)
+	}
+	events, err := store.ListAuditEvents(context.Background(), AuditFilter{
+		TaskID: "task_observed_dbms", EventType: "QUERY_COMPLETED", Limit: 10,
+	})
+	if err != nil {
+		t.Fatalf("ListAuditEvents: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("QUERY_COMPLETED events = %d, want 1", len(events))
+	}
+	var payload struct {
+		ResultObservedDBMS int64 `json:"result_db_ms_observed"`
+		ChargedDBMS        int64 `json:"charged_db_ms"`
+	}
+	if err := json.Unmarshal(events[0].Payload, &payload); err != nil {
+		t.Fatalf("decode audit payload: %v", err)
+	}
+	if payload.ResultObservedDBMS != 100000 || payload.ChargedDBMS != reservation.AllowedDBMS {
+		t.Fatalf("audit omitted observed/clamped DBMS: %+v", payload)
+	}
+}
+
 func TestPurgeEncryptedResultsBeforeErasesCiphertextOnly(t *testing.T) {
 	path := testpostgres.SchemaDSN(t)
 	clock := fixedClock{value: time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)}
@@ -813,7 +876,8 @@ func TestRestartRecoveryAndCallbackRetry(t *testing.T) {
 		t.Fatalf("GetQuery after restart: %v", err)
 	}
 	if record.Status != QueryIndeterminate || record.ErrorCode != "GATEWAY_RESTART" ||
-		record.ChargedQueries != 1 || record.ChargedRows != 10 || record.ChargedDBMS != 500 {
+		record.ChargedQueries != 1 || record.ChargedRows != 10 || record.ChargedDBMS != 500 ||
+		record.ResultObservedDBMS != 500 {
 		t.Fatalf("query was not recovered: %+v", record)
 	}
 	if record.BudgetAfter == nil || record.BudgetAfter.Usage.UsedQueries != 1 ||
@@ -889,6 +953,9 @@ func TestStartupRecoveryCanPersistIndeterminateReceipt(t *testing.T) {
 	}
 	if record.Status != QueryIndeterminate || record.ErrorCode != "GATEWAY_RESTART" {
 		t.Fatalf("query was not recovered as indeterminate: %+v", record)
+	}
+	if record.ResultObservedDBMS != record.ReservedDBMS || record.ChargedDBMS != record.ReservedDBMS {
+		t.Fatalf("recovery did not preserve observed reserved DBMS: %+v", record)
 	}
 	evidence, err := restarted.GetQueryReceipt(context.Background(), "query_recovery_receipt")
 	if err != nil {

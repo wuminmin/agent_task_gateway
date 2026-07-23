@@ -72,7 +72,7 @@ func (s *Store) FinalizeQueryMeasuredWithReceipt(ctx context.Context, settlement
 	if s.cipher == nil {
 		return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, ErrCipherUnavailable, nil)
 	}
-	if settlement.QueryID == "" || settlement.Rows < 0 || settlement.DBMS < 0 {
+	if settlement.QueryID == "" || settlement.Rows < 0 || settlement.DBMS < 0 || settlement.ObservedDBMS < 0 {
 		return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, ErrInvalid, fmt.Errorf("invalid settlement"))
 	}
 	current, err := s.GetQuery(ctx, settlement.QueryID)

@@ -155,15 +155,15 @@ type QueryRecord struct {
 	// this query, before clamping to the reservation. It may exceed ChargedDBMS,
 	// which is the value that was actually debited from the budget ledger.
 	ResultObservedDBMS int64
-	ChargedQueries int64
-	ChargedRows    int64
-	ChargedDBMS    int64
-	BudgetBefore   BudgetSnapshot
-	BudgetAfter    *BudgetSnapshot
-	ResultSHA256   string
-	ErrorCode      string
-	CreatedAt      time.Time
-	CompletedAt    *time.Time
+	ChargedQueries     int64
+	ChargedRows        int64
+	ChargedDBMS        int64
+	BudgetBefore       BudgetSnapshot
+	BudgetAfter        *BudgetSnapshot
+	ResultSHA256       string
+	ErrorCode          string
+	CreatedAt          time.Time
+	CompletedAt        *time.Time
 }
 
 type BudgetReservation struct {

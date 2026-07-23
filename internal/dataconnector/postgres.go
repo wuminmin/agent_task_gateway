@@ -165,6 +165,11 @@ type Connector struct {
 	attestation          Attestation
 }
 
+type attestationQuerier interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
 // New validates config, builds a pgx/v5 pool, and verifies connectivity. The
 // reporting role should also be read-only at the PostgreSQL privilege layer.
 func New(ctx context.Context, config Config) (*Connector, error) {
@@ -243,22 +248,20 @@ func (c *Connector) Attestation(ctx context.Context) (Attestation, error) {
 	if c == nil || c.pool == nil {
 		return Attestation{}, connectorError(CodeConnection, errors.New("connector is closed"))
 	}
-	attestation, err := c.attestDatasource(ctx)
+	attestation, err := c.attestDatasource(ctx, c.pool)
 	if err != nil {
 		return Attestation{}, err
 	}
-	c.attestationMu.Lock()
-	c.attestation = attestation
-	c.attestationMu.Unlock()
+	c.rememberAttestation(attestation)
 	return attestation, nil
 }
 
-func (c *Connector) attestDatasource(ctx context.Context) (Attestation, error) {
-	attestation, err := c.liveIdentity(ctx)
+func (c *Connector) attestDatasource(ctx context.Context, querier attestationQuerier) (Attestation, error) {
+	attestation, err := c.liveIdentity(ctx, querier)
 	if err != nil {
 		return Attestation{}, err
 	}
-	schemaDigest, err := c.attestSchemaDigest(ctx)
+	schemaDigest, err := c.attestSchemaDigest(ctx, querier)
 	if err != nil {
 		return Attestation{}, err
 	}
@@ -269,14 +272,14 @@ func (c *Connector) attestDatasource(ctx context.Context) (Attestation, error) {
 	return attestation, nil
 }
 
-func (c *Connector) liveIdentity(ctx context.Context) (Attestation, error) {
+func (c *Connector) liveIdentity(ctx context.Context, querier attestationQuerier) (Attestation, error) {
 	expected := c.expectedAttestation
 	if expected == (ExpectedAttestation{}) {
 		return Attestation{}, nil
 	}
 	var attestation Attestation
 	var serverVersionNum string
-	err := c.pool.QueryRow(ctx, `
+	err := querier.QueryRow(ctx, `
 SELECT COALESCE((SELECT datasource_id FROM reporting.datasource_attestation WHERE singleton = TRUE), ''),
        current_database(), current_user, current_setting('server_version_num')`).Scan(
 		&attestation.DatasourceID, &attestation.Database, &attestation.User, &serverVersionNum,
@@ -292,13 +295,13 @@ SELECT COALESCE((SELECT datasource_id FROM reporting.datasource_attestation WHER
 	return attestation, nil
 }
 
-func (c *Connector) attestSchemaDigest(ctx context.Context) (string, error) {
+func (c *Connector) attestSchemaDigest(ctx context.Context, querier attestationQuerier) (string, error) {
 	if len(c.expectedSchema) == 0 {
 		return "", nil
 	}
 	actualSchemas := make([]ViewSchema, 0, len(c.expectedSchema))
 	for _, expected := range c.expectedSchema {
-		rows, err := c.pool.Query(ctx, `
+		rows, err := querier.Query(ctx, `
 SELECT column_name, data_type
 FROM information_schema.columns
 WHERE table_schema=$1 AND table_name=$2
@@ -323,7 +326,7 @@ ORDER BY ordinal_position`, expected.Schema, expected.View)
 		if !sameSchemaColumns(expected.Columns, actual) {
 			return "", connectorError(CodeSchemaDrift, errors.New("catalog/view mismatch"))
 		}
-		definition, err := c.viewDefinition(ctx, expected)
+		definition, err := c.viewDefinition(ctx, querier, expected)
 		if err != nil {
 			return "", err
 		}
@@ -336,9 +339,9 @@ ORDER BY ordinal_position`, expected.Schema, expected.View)
 	return digest, nil
 }
 
-func (c *Connector) viewDefinition(ctx context.Context, expected ViewSchema) (string, error) {
+func (c *Connector) viewDefinition(ctx context.Context, querier attestationQuerier, expected ViewSchema) (string, error) {
 	var definition string
-	err := c.pool.QueryRow(ctx, `
+	err := querier.QueryRow(ctx, `
 WITH taskgate_schema_digest_path AS (
 	SELECT set_config('search_path', 'pg_catalog', true)
 )
@@ -364,6 +367,12 @@ func (c *Connector) compareAttestation(actual Attestation) error {
 		return connectorError(CodeSchemaDrift, errors.New("schema digest mismatch"))
 	}
 	return nil
+}
+
+func (c *Connector) rememberAttestation(attestation Attestation) {
+	c.attestationMu.Lock()
+	c.attestation = attestation
+	c.attestationMu.Unlock()
 }
 
 // Query runs one bounded query in an explicit PostgreSQL read-only transaction.
@@ -402,6 +411,11 @@ func (c *Connector) Query(ctx context.Context, request QueryRequest) (result Res
 	if _, err := tx.Exec(ctx, `SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)`); err != nil {
 		return Result{}, classifyQueryError(err)
 	}
+	attestation, err := c.attestDatasource(ctx, tx)
+	if err != nil {
+		return Result{}, err
+	}
+	c.rememberAttestation(attestation)
 
 	startedAt := time.Now()
 	rows, err := tx.Query(ctx, request.SQL)

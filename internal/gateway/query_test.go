@@ -527,6 +527,16 @@ func TestNarrowedSignedGrantControlsReservationAndStatementTimeout(t *testing.T)
 	}
 }
 
+func TestQuerySettlementPreservesObservedDBMSWhenClamped(t *testing.T) {
+	reservation := control.BudgetReservation{QueryID: "query-clamped", AllowedRows: 10, AllowedDBMS: 500}
+	settlement := querySettlement("query-clamped", dataconnector.Result{
+		RowCount: 10, DatabaseTime: 1500 * time.Millisecond, Truncated: true,
+	}, time.Now(), reservation)
+	if settlement.Rows != 10 || settlement.DBMS != reservation.AllowedDBMS || settlement.ObservedDBMS != 1500 {
+		t.Fatalf("querySettlement = %+v, want rows=10 charged DBMS=500 observed DBMS=1500", settlement)
+	}
+}
+
 func requireSingleSettledQuery(t *testing.T, harness *gatewayHarness, taskID string) control.QueryRecord {
 	t.Helper()
 	record := requireSingleQuery(t, harness, taskID)

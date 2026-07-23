@@ -64,6 +64,9 @@ func orphanChargedIndeterminate(t *testing.T, rec *violationRecorder) {
 	if record.ChargedQueries != 1 || record.ChargedRows != 10 || record.ChargedDBMS != 500 {
 		rec.budget(t, "orphan not charged its full reservation on restart")
 	}
+	if record.ResultObservedDBMS != 500 {
+		rec.budget(t, "orphan recovery did not preserve observed DBMS as the full reservation")
+	}
 	if !budgetInvariantHolds(t, restarted, "task_orphan") {
 		rec.budget(t, "ledger invariant broken after orphan recovery")
 	}
@@ -92,6 +95,9 @@ func completedNotRecharged(t *testing.T, rec *violationRecorder) {
 	}
 	if record.Status != control.QueryCompleted || record.ChargedRows != 5 || record.ChargedDBMS != 120 {
 		rec.budget(t, "completed query mutated by recovery")
+	}
+	if record.ResultObservedDBMS != 120 {
+		rec.budget(t, "completed query observed DBMS changed or was not preserved across recovery")
 	}
 	usageAfterRecovery := budgetUsage(t, restarted, "task_done")
 	if usageAfterRecovery != usageBeforeCrash {

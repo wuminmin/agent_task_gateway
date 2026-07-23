@@ -257,7 +257,7 @@ func (s *Store) settleWithReceipt(ctx context.Context, settlement BudgetSettleme
 	if err := s.checkOpen(op); err != nil {
 		return QueryRecord{}, PersistedQueryReceipt{}, err
 	}
-	if settlement.QueryID == "" || settlement.Rows < 0 || settlement.DBMS < 0 {
+	if settlement.QueryID == "" || settlement.Rows < 0 || settlement.DBMS < 0 || settlement.ObservedDBMS < 0 {
 		return QueryRecord{}, PersistedQueryReceipt{}, opErr(op, ErrInvalid, fmt.Errorf("query is required and use cannot be negative"))
 	}
 	tx, err := beginTx(ctx, s.db)
@@ -333,8 +333,8 @@ func settleBudgetTx(ctx context.Context, tx *sql.Tx, now time.Time, settlement B
 	// untruncated (it may exceed the charged/clamped value). The ledger
 	// invariant is still enforced via chargedDBMS above.
 	observedDBMS := settlement.ObservedDBMS
-	if observedDBMS < 0 {
-		observedDBMS = 0
+	if observedDBMS == 0 && settlement.DBMS > 0 {
+		observedDBMS = settlement.DBMS
 	}
 	after := budget
 	after.Usage.ReservedQueries--
@@ -397,6 +397,7 @@ WHERE id=$12 AND status='RESERVED'`, status, settlement.Rows, settlement.DBMS, o
 	record.Status = status
 	record.ResultRows = settlement.Rows
 	record.ResultDBMS = settlement.DBMS
+	record.ResultObservedDBMS = observedDBMS
 	record.ChargedQueries = chargedQueries
 	record.ChargedRows = chargedRows
 	record.ChargedDBMS = chargedDBMS
