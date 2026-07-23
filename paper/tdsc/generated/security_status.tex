@@ -8,15 +8,15 @@
 \toprule
 Measure & Generated value \\
 \midrule
-Campaign outcome & \notmeasured \\
-SQL corpus passed/cases & \notmeasured \\
-Prompt boundaries passed/cases & \notmeasured \\
-Unauthorized connector crossings & \notmeasured \\
-Budget invariant violations & \notmeasured \\
-Panics & \notmeasured \\
-Aggregate fuzz CPU-hours & \notmeasured \\
+Campaign outcome & partial \\
+SQL corpus passed/cases & 20/20 \\
+Prompt boundaries passed/cases & 2/2 \\
+Unauthorized connector crossings & 0 \\
+Budget invariant violations & 0 \\
+Panics & 0 \\
+Aggregate fuzz CPU-hours & 0.005436 \\
 \midrule
-\multicolumn{2}{>{\raggedright\arraybackslash}p{0.86\columnwidth}}{Evidence: Existing security result rejected as stale or invalid: fuzz inputs[8].sha256 mismatch for ./internal/sqlpolicy/ast.go: declared 3aafb60fd42e03c9aeb3b56cec2535844be2e1581808c2f5b29a3a222f8d67d6, actual f0cca47ab62faea8bea79ca4b2b38542b9d06caa5a42c2089e534283c68e8345} \\
+\multicolumn{2}{>{\raggedright\arraybackslash}p{0.86\columnwidth}}{Evidence: partial; 208 checksummed security inputs; deterministically reconstructed from evaluation/security/results.json} \\
 \bottomrule
 \end{tabular}
 \end{table}

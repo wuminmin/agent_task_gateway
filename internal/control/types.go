@@ -151,6 +151,10 @@ type QueryRecord struct {
 	ReservedDBMS   int64
 	ResultRows     int64
 	ResultDBMS     int64
+	// ResultObservedDBMS is the raw database time reported by the connector for
+	// this query, before clamping to the reservation. It may exceed ChargedDBMS,
+	// which is the value that was actually debited from the budget ledger.
+	ResultObservedDBMS int64
 	ChargedQueries int64
 	ChargedRows    int64
 	ChargedDBMS    int64
@@ -196,12 +200,18 @@ type ReserveRequest struct {
 
 // BudgetSettlement commits actual resource use. Every completed settlement
 // consumes one query; use ReleaseBudget for an execution that should not be
-// charged. Rows and DBMS are bounded by the reservation.
+// charged. Rows and DBMS are bounded by the reservation. ObservedDBMS is the
+// raw, untruncated database time reported by the connector; DBMS is the value
+// actually charged (clamped to the reservation). Recording both keeps the
+// ledger invariant (used+reserved <= limit, enforced via DBMS) while preserving
+// the observed measurement so accounting quota, observed time, and the physical
+// upper bound remain distinguishable.
 type BudgetSettlement struct {
-	QueryID   string
-	Rows      int64
-	DBMS      int64
-	ErrorCode string
+	QueryID      string
+	Rows         int64
+	DBMS         int64
+	ObservedDBMS int64
+	ErrorCode    string
 }
 
 type EncryptedResult struct {

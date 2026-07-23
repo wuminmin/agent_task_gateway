@@ -231,7 +231,7 @@ func (s *Store) MarkIndeterminate(ctx context.Context, queryID, errorCode string
 		return QueryRecord{}, err
 	}
 	return s.settle(ctx, BudgetSettlement{
-		QueryID: queryID, Rows: record.ReservedRows, DBMS: record.ReservedDBMS, ErrorCode: errorCode,
+		QueryID: queryID, Rows: record.ReservedRows, DBMS: record.ReservedDBMS, ObservedDBMS: record.ReservedDBMS, ErrorCode: errorCode,
 	}, QueryIndeterminate, "")
 }
 
@@ -243,7 +243,7 @@ func (s *Store) MarkIndeterminateWithReceipt(ctx context.Context, queryID, error
 		return QueryRecord{}, PersistedQueryReceipt{}, err
 	}
 	return s.settleWithReceipt(ctx, BudgetSettlement{
-		QueryID: queryID, Rows: record.ReservedRows, DBMS: record.ReservedDBMS, ErrorCode: errorCode,
+		QueryID: queryID, Rows: record.ReservedRows, DBMS: record.ReservedDBMS, ObservedDBMS: record.ReservedDBMS, ErrorCode: errorCode,
 	}, QueryIndeterminate, "", builder)
 }
 
@@ -329,6 +329,13 @@ func settleBudgetTx(ctx context.Context, tx *sql.Tx, now time.Time, settlement B
 		chargedRows = settlement.Rows
 		chargedDBMS = min64(settlement.DBMS, record.ReservedDBMS)
 	}
+	// observedDBMS is the raw connector-reported database time, preserved
+	// untruncated (it may exceed the charged/clamped value). The ledger
+	// invariant is still enforced via chargedDBMS above.
+	observedDBMS := settlement.ObservedDBMS
+	if observedDBMS < 0 {
+		observedDBMS = 0
+	}
 	after := budget
 	after.Usage.ReservedQueries--
 	after.Usage.ReservedRows -= record.ReservedRows
@@ -354,9 +361,9 @@ WHERE task_id=$8`, after.Usage.UsedQueries, after.Usage.UsedRows, after.Usage.Us
 	}
 	_, err = tx.ExecContext(ctx, `
 UPDATE query_records
-SET status=$1, result_rows=$2, result_db_ms=$3, charged_queries=$4, charged_rows=$5, charged_db_ms=$6,
-    budget_after_json=$7, result_sha256=$8, error_code=$9, completed_at=$10
-WHERE id=$11 AND status='RESERVED'`, status, settlement.Rows, settlement.DBMS, chargedQueries, chargedRows,
+SET status=$1, result_rows=$2, result_db_ms=$3, result_db_ms_observed=$4, charged_queries=$5, charged_rows=$6, charged_db_ms=$7,
+    budget_after_json=$8, result_sha256=$9, error_code=$10, completed_at=$11
+WHERE id=$12 AND status='RESERVED'`, status, settlement.Rows, settlement.DBMS, observedDBMS, chargedQueries, chargedRows,
 		chargedDBMS, string(afterJSON), resultHash, settlement.ErrorCode, dbTime(now), settlement.QueryID)
 	if err != nil {
 		return QueryRecord{}, AuditEvent{}, err
@@ -372,7 +379,7 @@ WHERE id=$11 AND status='RESERVED'`, status, settlement.Rows, settlement.DBMS, c
 	audit, err := appendAuditTx(ctx, tx, AuditEvent{
 		TaskID: record.TaskID, QueryID: record.ID, Actor: record.Actor, EventType: eventType, OccurredAt: now,
 		Payload: mustJSON(map[string]any{
-			"result_rows": settlement.Rows, "result_db_ms": settlement.DBMS,
+			"result_rows": settlement.Rows, "result_db_ms": settlement.DBMS, "result_db_ms_observed": observedDBMS,
 			"charged_queries": chargedQueries, "charged_rows": chargedRows, "charged_db_ms": chargedDBMS,
 			"result_sha256": resultHash, "error_code": settlement.ErrorCode,
 			"catalog_digest": record.CatalogDigest, "datasource_id": record.DatasourceID,
@@ -457,7 +464,7 @@ func (s *Store) GetQueryByRequestID(ctx context.Context, taskID, requestID strin
 }
 
 const querySelect = `SELECT id, task_id, request_id, actor, request_digest, sql_fingerprint, catalog_version,
-catalog_digest, datasource_id, schema_digest, manifest_digest, grant_digest, policy_decision, status, reserved_rows, reserved_db_ms, result_rows, result_db_ms, charged_queries,
+catalog_digest, datasource_id, schema_digest, manifest_digest, grant_digest, policy_decision, status, reserved_rows, reserved_db_ms, result_rows, result_db_ms, result_db_ms_observed, charged_queries,
 charged_rows, charged_db_ms, budget_before_json, budget_after_json, result_sha256, error_code,
 created_at, completed_at FROM query_records`
 
@@ -471,7 +478,7 @@ func scanQuery(row rowScanner) (QueryRecord, error) {
 		&record.CatalogVersion, &record.CatalogDigest, &record.DatasourceID, &record.SchemaDigest,
 		&record.ManifestDigest, &record.GrantDigest,
 		&record.PolicyDecision, &record.Status, &record.ReservedRows, &record.ReservedDBMS,
-		&record.ResultRows, &record.ResultDBMS, &record.ChargedQueries, &record.ChargedRows, &record.ChargedDBMS,
+		&record.ResultRows, &record.ResultDBMS, &record.ResultObservedDBMS, &record.ChargedQueries, &record.ChargedRows, &record.ChargedDBMS,
 		&before, &after, &record.ResultSHA256, &record.ErrorCode, &created, &completed)
 	if err != nil {
 		return QueryRecord{}, err
