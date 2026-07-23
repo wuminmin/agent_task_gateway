@@ -36,8 +36,8 @@
 \newcommand{\grantlang}{\mathcal{L}}
 \newcommand{\claimstatus}{Artifact draft; see Sec.~\ref{sec:evaluation}}
 
-\title{TaskGate: Human-Approved, Budget-Constrained Authorization\\
-for Autonomous Database Agents}
+\title{TaskGate: Task-Scoped, Policy-Approved Database Access\\
+for Autonomous Agents}
 
 \author{Anonymous Author(s)%
 \thanks{Anonymous manuscript prepared for review. The artifact status in this
@@ -50,13 +50,16 @@ are not presented as results.}}
 
 \begin{abstract}
 Autonomous agents often need a sequence of related database queries, creating a
-choice between a broad reusable credential and repeated human approval.  We
+choice between a broad reusable credential and repeated operation-by-operation
+approval.  We
 present \system, a task-bound authorization and continuous usage-control design
 for a deliberately narrow setting: restricted, read-only PostgreSQL~16
 \code{SELECT} queries.  An authenticated subject proposes a versioned manifest
 containing products, columns, mandatory row scopes, catalog and datasource
-digests, expiry, and cumulative query, result-row, and database-time budgets.  An approval
-service may reject or monotonically narrow that manifest.  A separate Go
+digests, expiry, and cumulative query, result-row, and database-time budgets.
+Catalog policy first bounds this request and chooses either automatic or manual
+approval.  The automatic route issues the unchanged envelope; the manual route
+may reject it or issue only a monotonic narrowing.  A separate Go
 gateway then mediates every query, validates the PostgreSQL abstract syntax
 tree, injects scope predicates and an outer row limit, and reserves budget in a
 control PostgreSQL database before contacting a credential-isolated business
@@ -64,8 +67,10 @@ database.  Durable request identifiers and conservative treatment of
 indeterminate outcomes prevent automatic retries from consuming authority
 twice.  Signed approval and query receipts bind decisions to protocol objects;
 their signatures authenticate the issuing services, not a person's legal
-intent.  We give a TLA+ model and an evaluation design covering policy bypass,
-fault injection, and four performance baselines.  This artifact draft does not
+intent.  We give six separately checked finite TLA+ abstractions and an
+action-to-implementation audit map; we do not claim a composed model or a
+mechanized refinement proof.  The evaluation design covers policy bypass, fault
+injection, and four performance baselines.  This artifact draft does not
 report a completed full benchmark, an accepted 24-CPU-hour fuzz campaign, or a
 human-subject study.
 Its only approval-effort result is an algebraic count of approval events.  The
@@ -75,7 +80,7 @@ cognitive load.
 \end{abstract}
 
 \begin{IEEEkeywords}
-agent authorization, database security, usage control, human approval,
+agent authorization, database security, usage control, policy approval,
 PostgreSQL, idempotency, audit receipts
 \end{IEEEkeywords}
 
@@ -93,9 +98,12 @@ after authentication and approval.
 
 \system addresses this problem for one intentionally constrained deployment.
 An external gateway is the only component given the business database
-credential.  The agent requests logical data products, columns, mandatory
-scope values, and a bounded lifetime.  A human-facing office-automation (OA)
-service displays this structured request and may approve, reject, or narrow it.
+credential.  The agent requests logical data products, columns, mandatory scope
+values, and a bounded lifetime.  Catalog policy rejects requests outside its
+deployment-wide ceiling and selects an office-automation (OA) approval route.
+The low-sensitivity demo route approves the unchanged request automatically; the
+manual route displays the request to a designated approver, who may approve,
+reject, or narrow it.
 After approval, the same grant governs every query in the task.  The gateway
 does not ask an LLM whether a query ``matches the objective.''  It instead
 checks deterministic properties of a PostgreSQL abstract syntax tree (AST),
@@ -108,9 +116,10 @@ The design separates three questions that are often conflated:
   \item \emph{Who is calling?}  OAuth/OIDC or an enterprise identity system is
   assumed to authenticate the human and agent workload.  The prototype uses
   static local identities only as a demo substitute.
-  \item \emph{What future operations were approved?}  A versioned,
-  RFC~8785-canonicalized manifest and a narrowing-only grant define the task
-  envelope; the OA-signed approval receipt binds their digests.
+  \item \emph{What task entitlement may be activated?}  Catalog policy bounds a
+  versioned, RFC~8785-canonicalized manifest; a narrowing-only grant defines the
+  task envelope.  The gateway checks callback actors against the policy-selected
+  route, while the OA-signed receipt binds the decision and object digests.
   \item \emph{May this operation execute now?}  The gateway checks task state,
   catalog/schema agreement, SQL structure, remaining budget, and durable retry
   state immediately before execution.
@@ -125,23 +134,25 @@ reasoning to a human-visible, machine-enforceable database envelope.
 The paper makes four scoped contributions:
 
 \begin{itemize}
-  \item a versioned authorization object and partial order under which OA
-  decisions can only remove products, columns, scope values, time, sensitivity,
-  or budget;
+  \item a catalog-bounded authorization object and partial order under which an
+  automatic or manual OA decision can only preserve or remove products, columns,
+  scope values, time, sensitivity, or budget;
   \item an execution protocol that combines PostgreSQL AST enforcement,
   scope/limit rewriting, one in-flight query per task, reserve--execute--settle
   accounting, and durable request idempotency;
   \item approval and query evidence bound to manifest, grant, catalog, request,
   result, and audit-chain digests, with deliberately restrained integrity
   claims; and
-  \item a formal safety model and a source-backed evaluation plan whose absent
-  measurements remain visibly absent rather than being replaced with estimates.
+  \item six finite design models, checked separately, plus an auditable mapping
+  from modeled actions to implementation mechanisms and tests, and a
+  source-backed evaluation contract that keeps absent measurements visible.
 \end{itemize}
 
 We make no priority claim.  The design specializes ideas from task-based and
 usage control, structured authorization, database query mediation, and recent
-agent-authorization protocols.  Its value is the composition and the explicit
-failure semantics for a concrete read-only database path.
+agent-authorization protocols.  Its value is their engineering integration and
+the explicit failure semantics for a concrete read-only database path; this is
+not a claim that the separate formal models compose into an end-to-end theorem.
 
 \section{Related Work}
 \label{sec:related}
@@ -157,6 +168,16 @@ deployment.  \system supplies one such domain model together with a stateful
 cumulative ledger, query rewriter, and crash/retry semantics; it does not
 replace OAuth authentication or token issuance.
 
+RBAC assigns permissions through roles and constraints, while ABAC evaluates
+subject, object, operation, and environmental attributes against policy
+~\cite{ferraiolo2001rbac,hu2019abac}.  These models are natural sources of a
+principal's baseline enterprise entitlement.  \system addresses a later and
+shorter-lived decision: activating a task envelope within a catalog ceiling and
+then accounting for its use.  The prototype does not ingest roles or subject
+attributes; its catalog ceiling is shared by authenticated demo subjects.  A
+production entitlement decision would therefore precede \system and be
+intersected with the catalog ceiling before an approval draft is created.
+
 Task-Based Authorization Controls (TBAC) connect permissions and their usage to
 the progress of enterprise tasks~\cite{thomas1998tbac}.  UCON$_{ABC}$ broadens
 access control with authorizations, obligations, conditions, continuity, and
@@ -166,17 +187,37 @@ obligation language, delegation administration, or arbitrary mutable subject
 attributes.  Its mutable state is an explicit resource ledger and request
 record for one read-only SQL task.
 
+Macaroons encode contextual caveats in attenuable bearer credentials and support
+decentralized delegation~\cite{birgisson2014macaroons}.  \system shares the
+monotonic-authority intuition, but its grant is neither a freely delegable
+capability nor sufficient by possession alone: every operation also consults
+online task, request, and budget state.  This distinction permits durable
+cumulative accounting and conservative handling of ambiguous outcomes.
+
 \subsection{Database Query Mediation}
 
-Blockaid intercepts web-application queries and uses SMT reasoning to check
-compliance with view-based data-access policies while preserving application
-semantics~\cite{zhang2022blockaid}.  \system instead chooses a closed,
-restricted SQL subset and deterministically rewrites approved logical products
-to reporting views with mandatory predicates and a result cap.  This sacrifices
+Qapla stores row/column policies in SQL and specializes queries using identity,
+time, and database values~\cite{mehta2017qapla}.  ShillDB uses table capabilities
+and executable contracts to confine the database authority of application
+components~\cite{zigmond2020shilldb}.  Blockaid intercepts web-application
+queries and uses SMT reasoning to check compliance with view-based data-access
+policies while preserving application semantics~\cite{zhang2022blockaid}.
+These systems provide richer application-oriented policy mechanisms than
+\system's deliberately closed language.  \system instead chooses a restricted
+SQL subset and deterministically rewrites approved logical products to reporting
+views with mandatory predicates and a result cap.  This sacrifices
 compatibility with arbitrary applications in exchange for a smaller policy
-language, and adds human task grants, cumulative budgets, retry records, and
+language, and adds task grants, cumulative budgets, retry records, and
 approval evidence.  Native views, role privileges, and read-only transactions
 remain defense-in-depth rather than competitors to the gateway.
+
+Cryptographic audit logging has long distinguished tamper evidence from the
+stronger guarantees obtained through forward-secure key evolution or trusted
+storage~\cite{schneier1999audit}.  \system's transactional hash chain and signed
+checkpoints authenticate retained evidence relative to a trusted prefix.  They
+do not provide forward integrity after signing-key compromise, prevent
+privileged wholesale deletion, or supply the external WORM retention and trusted
+timestamps needed for stronger audit claims.
 
 \subsection{Authorization and Guardrails for Agents}
 
@@ -228,8 +269,10 @@ inferring that a cited system could not be extended.}
 Work & Primary policy/evidence unit & Principal enforcement focus & Relationship to \system \\
 \midrule
 OAuth RAR~\cite{rfc9396} & Structured OAuth authorization detail & Transport and processing of fine-grained authorization data & Can carry a task detail; does not itself define the SQL language, cumulative ledger, or crash semantics. \\
+RBAC/ABAC~\cite{ferraiolo2001rbac,hu2019abac} & Role/attribute-derived enterprise entitlement & Baseline authorization administration and decisions & Expected upstream source of principal eligibility; the prototype has only a deployment-wide catalog ceiling. \\
 TBAC~\cite{thomas1998tbac} / UCON~\cite{park2004ucon} & Task step / continuing usage decision & Lifecycle, usage, obligations, conditions, mutable attributes & Conceptual foundation; \system is a concrete, restricted database instantiation. \\
-Blockaid~\cite{zhang2022blockaid} & View-based data policy & Per-query semantic policy compliance for web applications & Stronger application compatibility; task approval and durable aggregate consumption are not its focus. \\
+Macaroons~\cite{birgisson2014macaroons} & Attenuable credential with contextual caveats & Decentralized delegation and contextual confinement & Similar monotonic restriction; \system uses non-delegable grants plus online cumulative state. \\
+Qapla, ShillDB, Blockaid~\cite{mehta2017qapla,zigmond2020shilldb,zhang2022blockaid} & SQL policy, database capability/contract, or view policy & Fine-grained application query mediation & Richer application policy; \system adds task approval, bounded usage, and crash semantics to a smaller SQL language. \\
 Task Shield~\cite{jia2025taskshield} & User Task Set and LLM \emph{ContributesTo} decision & Model-mediated semantic alignment under prompt injection & Complementary semantic defense; \system provides deterministic effect containment without judging meaning. \\
 PAuth~\cite{sharma2026pauth} & Signed natural-language task, server-derived slices, and signed operand envelopes & Task-implied server calls & Derives precise authority from language; \system requires explicit structured authority and supports a narrower SQL domain. \\
 AP2~\cite{ap2v02} & Signed commerce/payment mandate & Agentic checkout, payment verification, and evidence & Similar trusted-surface separation, but domain and effect semantics differ. \\
@@ -300,19 +343,42 @@ privacy, prove that the declared objective is truthful, or guarantee the
 availability of a query that is authorized.
 
 \paragraph{Manual and automatic routes.}
-The paper's ``human-approved'' claim applies only when the catalog selects the
-manual OA route.  The demonstration catalog also contains an explicitly labeled
-low-sensitivity automatic route.  On that route, submitting the draft is an
-authenticated requester action and OA issues its approval receipt with that
-requester as the attributed actor.  This records requester assent and a policy
-decision, but it does not establish review by a separate human approver.
-Security experiments intended to substantiate such review must select the
-manual route.
+``Policy-approved'' covers both catalog-selected routes, but the evidentiary
+meaning differs.  On the manual route, OA records a decision attributed to the
+configured authenticated approver.  On the explicitly labeled low-sensitivity
+automatic route, submission by the authenticated requester causes OA to sign the
+unchanged policy-admissible core with that requester as actor.  The latter is a
+policy decision and requester assent, not review by a second human.  Any claim or
+experiment specifically about human review must therefore select the manual
+route and must not generalize to automatic approvals.
 
 \section{Authorization Model}
 \label{sec:model}
 
-\subsection{Manifest and Grant}
+\subsection{Entitlement Ceiling, Manifest, and Grant}
+
+We use \emph{entitlement} for the maximum authority that policy makes eligible
+for activation, and \emph{grant} for the immutable, task-specific authority that
+the gateway actually enforces.  For requested products $P$, catalog resolution
+constructs a ceiling $E_{\mathrm{cat}}(P)$ from cataloged products and columns, allowed
+scope domains, the highest effective sensitivity, the corresponding approval
+route, and that route's budget profile.  Let $\mathsf{auth}(X)$ project an object
+onto products, per-product columns, mandatory scopes, sensitivity, lifetime, and
+budget.  Using the component-wise order defined below, the gateway creates a
+manifest only after checking
+
+\begin{equation}
+  \mathsf{auth}(M)\preceq E_{\mathrm{cat}}(P).
+  \label{eq:catalog-entitlement}
+\end{equation}
+
+This ceiling is deployment-wide in the prototype: authentication supplies stable
+subject and agent identifiers, but no RBAC/ABAC or per-subject entitlement feed
+is queried.  Consequently, $E_{\mathrm{cat}}$ must not be interpreted as proof that a
+particular employee is organizationally entitled to a product.  A production
+integration would additionally require an identity-policy ceiling $E_I(h,a)$ and
+admit $M$ only below both $E_I(h,a)$ and $E_{\mathrm{cat}}$; that intersection is outside
+the implemented and formally checked system.
 
 Let a manifest $M$ contain
 
@@ -366,6 +432,22 @@ equal.  For an enum scope, $S'\preceq_S S$ means set inclusion; for a date
 range, it means interval containment.  Unknown or removed mandatory scope keys
 are rejected.  The component-wise order makes narrowing transitive and rules
 out approval-time expansion.
+
+Let $G_M$ be the unchanged core derived from $M$.  Catalog sensitivity selects a
+route $r$.  The automatic demo route emits $G=G_M$ after requester submission;
+the manual route permits reject, $G=G_M$, or $G\preceq G_M$.  Thus every
+successful prototype decision satisfies
+
+\begin{equation}
+  \mathsf{auth}(G)\preceq\mathsf{auth}(M)\preceq E_{\mathrm{cat}}(P).
+  \label{eq:approval-chain}
+\end{equation}
+
+Approval is therefore an activation and possible attenuation of already
+catalog-admissible authority.  It cannot manufacture authority beyond the
+catalog ceiling.  Conversely, because the prototype ceiling is not
+principal-specific, the approval receipt is not evidence of an upstream
+enterprise entitlement decision.
 
 An \code{ApprovalReceiptV1} contains a receipt and task identifier, decision,
 $H_M$, approved grant-core digest, approver identifier, issue time, key
@@ -497,7 +579,8 @@ The approval path has seven stages:
   supplies an objective, products, nonempty per-product columns, all mandatory
   scopes, and optional smaller budgets.
   \item The gateway resolves a catalog route and hard ceilings, derives identity
-  fields, normalizes sets, creates $M$, and computes $H_M$.
+  fields, rejects any request outside $E_{\mathrm{cat}}(P)$, normalizes sets, creates
+  $M$, and computes $H_M$.
   \item OA displays the objective, agent identity, products, columns, scope,
   sensitivity, every budget dimension, and lifetime.  The display is generated
   from the same manifest that is hashed, not from a separate summary.
@@ -655,7 +738,10 @@ precision/scale, character length, domain identity, or array element type.
 
 \subsection{State Machine}
 
-The TLA+ suite~\cite{lamport2002specifying} contains six finite abstractions.
+The TLA+ suite~\cite{lamport2002specifying} contains six finite abstractions that
+are model checked separately.  No submitted configuration forms their product,
+and successful checks of the six configurations must not be read as a theorem
+about their conjunction or about the Go/PostgreSQL implementation.
 \code{TaskGate.tla} models one task with finite sets of request identifiers,
 receipt identifiers, relations, columns, and scopes, together with a scalar
 budget for the core lifecycle.  \code{VectorBudget.tla} is a separate split
@@ -705,9 +791,11 @@ from each modeled action to the current Go method, Control PostgreSQL
 transaction or invariant, and test or fault-injection point.  That map is
 traceability evidence, not a mechanized refinement proof.
 
-\subsection{Safety Properties}
+\subsection{Finite-State Checks and Local Safety Properties}
 
-The submitted finite configurations check the following named invariants:
+Within the constants and abstraction boundary of the model that defines it, TLC
+checks each of the following named properties.  A property listed in one split
+model is not silently imported into another:
 
 \begin{itemize}
   \item \code{TypeOK}: every variable remains in its declared finite domain.
@@ -760,18 +848,22 @@ Here \code{CatalogFailClosed} is intentionally narrower than its name might
 suggest: it says that the abstract catalog-match flag was true at reservation;
 the Go/schema refinement is not part of the model.  Likewise, the scalar model
 adds and settles one unit per request.  The split vector, SQL, audit, receipt,
-and recovery models check their own finite boundaries without proving that all
-Go and PostgreSQL code refines a single composed TLA+ specification.
+and recovery models check their own finite boundaries.  Their results cannot be
+conjoined into a system-level invariant without an explicit composition argument
+covering shared variables and rely/guarantee assumptions; no such argument is
+provided.  Nor do they prove that Go and PostgreSQL refine a single composed
+TLA+ specification.
 
-Three local inductive arguments explain the abstraction.  First, reservation
+Three local preservation arguments explain the modeled transitions.  First, reservation
 is the only action that raises \code{reserved}; its guard establishes
 $used+reserved\leq limit$, and every modeled settle/release transition preserves
 the inequality.  Second, narrowing is component-wise subset order for relation,
 column, and scope sets plus non-increasing scalar limit.  Third, a request is
 never returned to \code{NEW}, and the only execution-producing actions advance
-it, so duplicate attempts cannot execute it again.  Connecting those arguments
-to production behavior depends on Control PG atomicity and on all writers using
-the modeled transactions.
+it, so duplicate attempts cannot execute it again.  These are arguments about
+the abstractions, not mechanized proofs.  Connecting them to production behavior
+depends on Control PG atomicity, all writers using the mapped transactions, and
+the unproved assumptions at model boundaries.
 
 TLC is an explicit-state checker over a finite configuration, not a proof for
 unbounded tasks, budgets, or SQL syntax.  We therefore report the exact model,
@@ -1010,9 +1102,10 @@ the source or test exists but no complete raw campaign is asserted here.}
 \toprule
 Scoped claim & Implementation / specification evidence & Validation evidence and current restraint \\
 \midrule
-Manifest identity and digest binding; approval can only narrow & \code{internal/domain/authorization.go}, \code{internal/approval/protocol.go}, OA callback validation & Unit vectors and narrowing/callback tests; cross-component campaign pending. \\
+Catalog-bounded manifest identity and digest binding; approval can only preserve or narrow & \code{internal/catalog}, \code{internal/domain/authorization.go}, \code{internal/approval/protocol.go}, OA callback validation & Unit vectors and narrowing/callback tests; no principal-specific enterprise entitlement source is implemented. \\
 Executing SQL stays within product, column, function/operator, scope, and row envelope & \code{internal/sqlpolicy}, gateway rewrite path, restricted business role & Policy unit corpus and PostgreSQL integration tests; extended adversarial/fuzz campaign pending. \\
 $used+reserved\leq limit$ and one in-flight query per task & \code{internal/control/budget.go}, task/budget row locks, TLA+ \code{BudgetSafety}, \code{VectorBudgetSafety}, and \code{SingleInFlight} & Store concurrency tests; finite TLC status is generated separately and is not a general proof. \\
+Composed end-to-end safety across SQL, vector budget, audit, receipts, and recovery & No claim in this revision; these concerns are split across finite models and linked to code only by \code{formal/REFINEMENT.md} & Separate TLC results and tests are evidence for their named boundaries, not a composition or mechanized refinement theorem. \\
 Automatic retry does not execute a request identifier twice & unique $(task\_id,request\_id)$ migration and durable request state & Equal/different-digest replay tests plus \code{AtMostOnceExecution}; a new identifier is explicitly a new operation. \\
 Unknown post-boundary outcomes are not released & \code{MarkIndeterminate}, startup recovery, full-reservation charge & Failure-path tests; exhaustive injected crash matrix pending. \\
 Catalog/reporting-view drift fails readiness & connector schema attestation at startup and readiness & Connector drift tests; trusted catalog/view policy correctness remains outside scope. \\
@@ -1040,6 +1133,12 @@ behind a generic ``agent authorization'' label.
   natural language but cannot determine whether a query is necessary, useful,
   or faithful to it.  A human can approve a misleading objective, and allowed
   data can prompt-inject the agent after release.
+  \item \textbf{No principal-specific enterprise entitlement.}  The prototype
+  authenticates subjects but applies one deployment-wide Catalog to them; it
+  does not evaluate organizational roles or subject attributes.  Manual approval
+  can attenuate a request but is not a substitute for an upstream RBAC/ABAC
+  eligibility decision.  Production deployment must intersect that decision
+  before constructing the manifest.
   \item \textbf{No privacy budget.}  Query count, returned rows, and database
   milliseconds bound resource use, not information leakage.  Repeated allowed
   aggregates may support inference.  There is no differential privacy,
@@ -1096,9 +1195,11 @@ behind a generic ``agent authorization'' label.
 database reads without handing an autonomous agent a reusable database
 credential.  A human-visible manifest, narrowing-only grant, deterministic SQL
 enforcement, transactional reservation ledger, explicit indeterminate state,
-schema attestation, and scoped receipts together address authorization drift,
-retry, concurrency, and crash ambiguity in the fixed single-gateway PostgreSQL
-deployment.  The mechanism is best understood as task-bound authorization and
+schema attestation, and scoped receipts are implemented together to mitigate
+authorization drift, retry, concurrency, and crash ambiguity in the fixed
+single-gateway PostgreSQL deployment.  The separate model checks and tests do
+not establish a composed whole-system safety theorem.  The mechanism is best
+understood as task-bound authorization and
 continuous usage control, not as a new authentication framework or a semantic
 alignment oracle.  Its strongest conclusions remain correspondingly modest:
 the design makes a precise enforcement boundary implementable and auditable;
