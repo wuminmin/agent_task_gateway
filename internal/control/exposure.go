@@ -1,12 +1,14 @@
 package control
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -30,6 +32,9 @@ func validateExposureGrant(grant ExposureGrant) error {
 	}
 	if release > 0 && strings.TrimSpace(grant.ProfileVersion) == "" {
 		return fmt.Errorf("exposure profile version is required")
+	}
+	if release > 0 && grant.ProfileVersion != exposure.ProfileV1 && grant.ProfileVersion != exposure.ProfileV2 {
+		return fmt.Errorf("unsupported exposure profile version")
 	}
 	if release == 0 && grant.ProfileVersion != "" {
 		return fmt.Errorf("exposure profile requires positive limits")
@@ -264,6 +269,128 @@ WHERE query_id=$7 AND status='RESERVED'`, len(normalized.Release), len(normalize
 		ChargedInfluenceFacts: newInfluence, ObservationSHA256: digest}, nil
 }
 
+func planAndSettleExposureTx(ctx context.Context, tx *sql.Tx, now time.Time, queryID string, request RepresentationPlanningRequest) (exposure.ExactPlan, *ExposureCharge, error) {
+	if len(request.Candidates) == 0 || !validSHA256Hex(request.CandidatesSHA256) || !validSHA256Hex(request.SnapshotBundleSHA256) {
+		return exposure.ExactPlan{}, nil, fmt.Errorf("invalid V2 representation planning request")
+	}
+	var taskID, rootTaskID, profile, status string
+	if err := tx.QueryRowContext(ctx, `
+SELECT task_id, root_task_id, profile_version, status
+FROM query_exposure_reservations WHERE query_id=$1 FOR UPDATE`, queryID).
+		Scan(&taskID, &rootTaskID, &profile, &status); err != nil {
+		return exposure.ExactPlan{}, nil, err
+	}
+	if profile != exposure.ProfileV2 || status != exposureReserved {
+		return exposure.ExactPlan{}, nil, fmt.Errorf("V2 planner requires a reserved %s ledger", exposure.ProfileV2)
+	}
+	var ledger ExposureLedgerSnapshot
+	if err := tx.QueryRowContext(ctx, `
+SELECT root_task_id, profile_version, max_release_facts, max_influence_facts,
+       used_release_facts, used_influence_facts, updated_at
+FROM exposure_ledgers WHERE root_task_id=$1 FOR UPDATE`, rootTaskID).
+		Scan(&ledger.RootTaskID, &ledger.ProfileVersion, &ledger.Limits.ReleaseFacts,
+			&ledger.Limits.InfluenceFacts, &ledger.Used.ReleaseFacts, &ledger.Used.InfluenceFacts,
+			&ledger.UpdatedAt); err != nil {
+		return exposure.ExactPlan{}, nil, err
+	}
+	history, err := exposureHistoryTx(ctx, tx, rootTaskID)
+	if err != nil {
+		return exposure.ExactPlan{}, nil, err
+	}
+	var taskLimits ExposureLimits
+	if err := tx.QueryRowContext(ctx, `SELECT max_release_facts, max_influence_facts FROM task_grants WHERE task_id=$1`, taskID).
+		Scan(&taskLimits.ReleaseFacts, &taskLimits.InfluenceFacts); err != nil {
+		return exposure.ExactPlan{}, nil, err
+	}
+	releaseBudget := min64(ledger.Limits.ReleaseFacts-ledger.Used.ReleaseFacts, taskLimits.ReleaseFacts-ledger.Used.ReleaseFacts)
+	influenceBudget := min64(ledger.Limits.InfluenceFacts-ledger.Used.InfluenceFacts, taskLimits.InfluenceFacts-ledger.Used.InfluenceFacts)
+	if releaseBudget < 0 {
+		releaseBudget = 0
+	}
+	if influenceBudget < 0 {
+		influenceBudget = 0
+	}
+	plan, err := exposure.OptimizeEffects(request.Candidates, history, releaseBudget, influenceBudget, request.Weights)
+	if err != nil {
+		return exposure.ExactPlan{}, nil, err
+	}
+	charge, err := settleExposureTx(ctx, tx, now, queryID, &plan.UnionEffect)
+	if err != nil {
+		return exposure.ExactPlan{}, nil, err
+	}
+	selectedJSON, err := json.Marshal(plan.Selected)
+	if err != nil {
+		return exposure.ExactPlan{}, nil, err
+	}
+	selectedDigestBytes := sha256.Sum256(selectedJSON)
+	selectedDigest := hex.EncodeToString(selectedDigestBytes[:])
+	effects := make([]map[string]any, 0, len(request.Candidates))
+	for _, candidate := range request.Candidates {
+		effectDigest, digestErr := exposure.ObservationDigest(candidate.Effect)
+		if digestErr != nil {
+			return exposure.ExactPlan{}, nil, digestErr
+		}
+		effects = append(effects, map[string]any{"id": candidate.ID, "requirement": candidate.Requirement,
+			"plan_digest": candidate.PlanDigest, "effect_digest": effectDigest})
+	}
+	sort.Slice(effects, func(i, j int) bool { return effects[i]["id"].(string) < effects[j]["id"].(string) })
+	effectsJSON, err := json.Marshal(effects)
+	if err != nil {
+		return exposure.ExactPlan{}, nil, err
+	}
+	_, err = tx.ExecContext(ctx, `
+INSERT INTO representation_plans(query_id, task_id, root_task_id, profile_version, planner_version,
+ snapshot_bundle_sha256, candidates_sha256, candidate_effects_json, selected_json, selected_sha256,
+ union_effect_sha256, release_facts, influence_facts, utility, created_at)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`, queryID, taskID, rootTaskID,
+		exposure.ProfileV2, plan.PlannerVersion, request.SnapshotBundleSHA256, request.CandidatesSHA256,
+		string(effectsJSON), string(selectedJSON), selectedDigest, plan.UnionEffectHash, plan.ReleaseCost, plan.InfluenceCost,
+		plan.Utility, dbTime(now))
+	if err != nil {
+		return exposure.ExactPlan{}, nil, err
+	}
+	charge.PlannerVersion = plan.PlannerVersion
+	charge.CandidatesSHA256 = request.CandidatesSHA256
+	charge.SelectedSHA256 = selectedDigest
+	charge.UnionEffectSHA256 = plan.UnionEffectHash
+	charge.SnapshotBundleSHA256 = request.SnapshotBundleSHA256
+	return plan, charge, nil
+}
+
+func exposureHistoryTx(ctx context.Context, tx *sql.Tx, rootTaskID string) (exposure.Observation, error) {
+	rows, err := tx.QueryContext(ctx, `
+SELECT ledger_kind, identity_json FROM exposure_facts
+WHERE root_task_id=$1 ORDER BY ledger_kind, fact_sha256`, rootTaskID)
+	if err != nil {
+		return exposure.Observation{}, err
+	}
+	defer rows.Close()
+	history := exposure.Observation{ProfileVersion: exposure.ProfileV2}
+	for rows.Next() {
+		var kind string
+		var identity []byte
+		if err := rows.Scan(&kind, &identity); err != nil {
+			return exposure.Observation{}, err
+		}
+		var fact exposure.FactID
+		if err := json.Unmarshal(identity, &fact); err != nil {
+			return exposure.Observation{}, err
+		}
+		if !fact.IsV2() {
+			return exposure.Observation{}, fmt.Errorf("V2 root ledger contains a V1 fact")
+		}
+		if kind == "RELEASE" {
+			history.Release = append(history.Release, fact)
+		} else if kind == "INFLUENCE" {
+			history.Influence = append(history.Influence, fact)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return exposure.Observation{}, err
+	}
+	return history.Normalize()
+}
+
 func insertNovelFactsTx(ctx context.Context, tx *sql.Tx, rootTaskID, kind, queryID string, facts []exposure.FactID, now time.Time) (int64, error) {
 	const chunkSize = 200
 	var inserted int64
@@ -273,8 +400,8 @@ func insertNovelFactsTx(ctx context.Context, tx *sql.Tx, rootTaskID, kind, query
 			end = len(facts)
 		}
 		var statement strings.Builder
-		statement.WriteString(`INSERT INTO exposure_facts(root_task_id, ledger_kind, fact_sha256, identity_json, first_query_id, first_seen_at) VALUES `)
-		args := make([]any, 0, (end-start)*6)
+		statement.WriteString(`INSERT INTO exposure_facts(root_task_id, ledger_kind, fact_sha256, identity_json, canonical_payload, first_query_id, first_seen_at) VALUES `)
+		args := make([]any, 0, (end-start)*7)
 		for index, fact := range facts[start:end] {
 			if index != 0 {
 				statement.WriteString(",")
@@ -287,9 +414,13 @@ func insertNovelFactsTx(ctx context.Context, tx *sql.Tx, rootTaskID, kind, query
 			if err != nil {
 				return 0, err
 			}
+			payload, err := fact.CanonicalPayload()
+			if err != nil {
+				return 0, err
+			}
 			base := len(args) + 1
-			fmt.Fprintf(&statement, "($%d,$%d,$%d,$%d,$%d,$%d)", base, base+1, base+2, base+3, base+4, base+5)
-			args = append(args, rootTaskID, kind, hash, string(identity), queryID, dbTime(now))
+			fmt.Fprintf(&statement, "($%d,$%d,$%d,$%d,$%d,$%d,$%d)", base, base+1, base+2, base+3, base+4, base+5, base+6)
+			args = append(args, rootTaskID, kind, hash, string(identity), payload, queryID, dbTime(now))
 		}
 		statement.WriteString(` ON CONFLICT DO NOTHING RETURNING fact_sha256`)
 		rows, err := tx.QueryContext(ctx, statement.String(), args...)
@@ -311,8 +442,46 @@ func insertNovelFactsTx(ctx context.Context, tx *sql.Tx, rootTaskID, kind, query
 		if err := rows.Close(); err != nil {
 			return 0, err
 		}
+		// ON CONFLICT is safe only after comparing the semantic payload. A
+		// same-hash/different-payload row is a fail-closed collision.
+		for _, fact := range facts[start:end] {
+			hash, _ := fact.Hash()
+			expectedPayload, _ := fact.CanonicalPayload()
+			var storedIdentity []byte
+			var storedPayload []byte
+			if err := tx.QueryRowContext(ctx, `
+SELECT identity_json, canonical_payload FROM exposure_facts
+WHERE root_task_id=$1 AND ledger_kind=$2 AND fact_sha256=$3`, rootTaskID, kind, hash).
+				Scan(&storedIdentity, &storedPayload); err != nil {
+				return 0, err
+			}
+			if storedPayload != nil {
+				if !bytes.Equal(storedPayload, expectedPayload) {
+					return 0, fmt.Errorf("fact hash collision for %s", hash)
+				}
+				continue
+			}
+			expectedIdentity, _ := json.Marshal(fact)
+			if !sameJSON(storedIdentity, expectedIdentity) {
+				return 0, fmt.Errorf("fact hash collision for %s", hash)
+			}
+		}
 	}
 	return inserted, nil
+}
+
+func sameJSON(left, right []byte) bool {
+	var leftValue, rightValue any
+	leftDecoder := json.NewDecoder(bytes.NewReader(left))
+	leftDecoder.UseNumber()
+	rightDecoder := json.NewDecoder(bytes.NewReader(right))
+	rightDecoder.UseNumber()
+	if leftDecoder.Decode(&leftValue) != nil || rightDecoder.Decode(&rightValue) != nil {
+		return false
+	}
+	leftCanonical, _ := json.Marshal(leftValue)
+	rightCanonical, _ := json.Marshal(rightValue)
+	return bytes.Equal(leftCanonical, rightCanonical)
 }
 
 func releaseExposureReservationTx(ctx context.Context, tx *sql.Tx, now time.Time, queryID string) error {
@@ -366,5 +535,41 @@ FROM query_exposure_reservations WHERE query_id=$1`, queryID).
 	if status != exposureSettled {
 		return ExposureCharge{}, opErr(op, ErrNotFound, fmt.Errorf("exposure reservation is %s", status))
 	}
+	planErr := s.db.QueryRowContext(ctx, `
+SELECT planner_version, candidates_sha256, selected_sha256, union_effect_sha256, snapshot_bundle_sha256
+FROM representation_plans WHERE query_id=$1`, queryID).Scan(&charge.PlannerVersion, &charge.CandidatesSHA256,
+		&charge.SelectedSHA256, &charge.UnionEffectSHA256, &charge.SnapshotBundleSHA256)
+	if planErr != nil && !isNoRows(planErr) {
+		return ExposureCharge{}, opErr(op, ErrConflict, planErr)
+	}
 	return charge, nil
+}
+
+func (s *Store) GetRepresentationPlan(ctx context.Context, queryID string) (RepresentationPlanRecord, error) {
+	const op = "get representation plan"
+	if err := s.checkOpen(op); err != nil {
+		return RepresentationPlanRecord{}, err
+	}
+	var result RepresentationPlanRecord
+	var selectedJSON []byte
+	var created time.Time
+	err := s.db.QueryRowContext(ctx, `
+SELECT query_id, task_id, root_task_id, profile_version, planner_version,
+       snapshot_bundle_sha256, candidates_sha256, selected_json, union_effect_sha256,
+       release_facts, influence_facts, utility, created_at
+FROM representation_plans WHERE query_id=$1`, queryID).Scan(&result.QueryID, &result.TaskID,
+		&result.RootTaskID, &result.ProfileVersion, &result.PlannerVersion, &result.SnapshotBundleSHA256,
+		&result.CandidatesSHA256, &selectedJSON, &result.UnionEffectSHA256, &result.ReleaseFacts,
+		&result.InfluenceFacts, &result.Utility, &created)
+	if err != nil {
+		if isNoRows(err) {
+			return RepresentationPlanRecord{}, opErr(op, ErrNotFound, err)
+		}
+		return RepresentationPlanRecord{}, opErr(op, ErrConflict, err)
+	}
+	if err := json.Unmarshal(selectedJSON, &result.Selected); err != nil {
+		return RepresentationPlanRecord{}, opErr(op, ErrConflict, err)
+	}
+	result.CreatedAt = dbTime(created)
+	return result, nil
 }

@@ -84,7 +84,7 @@ reserve -> execute/buffer -> derive provenance -> settle -> release
 4. Gateway 从两份结果构造并规范化 release/influence FactID 集。
 5. Control PostgreSQL 锁定根账本，使用不可变事实表的唯一键只插入 novel
    facts，并分别检查两个上限。
-6. exposure 结算、资源结算、AES-GCM 结果、终态审计和 Ed25519 V4 回执在
+6. exposure 结算、资源结算、AES-GCM 结果、终态审计和 Ed25519 V4/V5 回执在
    同一事务提交后，Gateway 才向客户端释放结果。
 
 任一 exposure 维度超限时，整笔控制事务回滚：新事实、账本计数和结果密文
@@ -141,23 +141,24 @@ resource-only grant 保留直接 SQL 兼容行为。
 | `exposure_facts` | 按 root + ledger kind + FactID Hash 唯一且不可变的已知事实 |
 
 查询 V4 回执签名绑定 `root_task_id`、Profile、两类 actual facts、两类 charged
-facts 和规范化 observation SHA-256。回执不包含原始 FactID 或结果行；审计员
+facts 和规范化 observation SHA-256；V2 planner 的 V5 还绑定候选、选择、snapshot
+bundle、planner 和联合 Effect。回执不包含原始 FactID 或结果行；审计员
 可验证收费证据与终态审计位置，但不能据此恢复敏感值。
 
 ## 预算规划
 
-`plan_exposure` 在当前根账本的剩余双预算内，从每个 requirement 的
-`raw`、`projection`、`aggregate` 或 `generalized` 候选中至多选一个，求解：
+V1 的 `plan_exposure` 保留标量兼容契约。新的 `taskgate-exposure-v2` 不接受
+客户端成本，而是执行候选 QueryPlan 并生成精确 Effect。完整定义见
+[exposure-v2.md](exposure-v2.md)。V2 从每个 requirement 至多选一个，并求解：
 
 ```text
 maximize sum(weighted answer_completeness and query_coverage)
-subject to sum(release_cost) <= remaining_release
-           sum(influence_cost) <= remaining_influence
+subject to |union(candidate.release) - root_history.release| <= remaining_release
+           |union(candidate.influence) - root_history.influence| <= remaining_influence
 ```
 
-候选成本和效用的契约要求调用者提供外部测量值。Planner 使用确定性的 Pareto
-frontier 动态规划和稳定 tie-break，且不会执行候选；当前原型只验证数值范围，
-尚不能证明输入不是主观或伪造评分，生产适配器必须校验测量证据。
+V2 候选成本和 FactID 均由服务端生成。Planner 使用稠密双 bitset、精确集合并、
+集合包含支配和稳定 tie-break；utility evidence 仍需生产适配器认证。
 
 ## 证据与限制
 

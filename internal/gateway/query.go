@@ -19,6 +19,7 @@ import (
 	"taskbound.local/agent-data-gateway/internal/control"
 	"taskbound.local/agent-data-gateway/internal/dataconnector"
 	"taskbound.local/agent-data-gateway/internal/domain"
+	"taskbound.local/agent-data-gateway/internal/exposure"
 	"taskbound.local/agent-data-gateway/internal/mcp"
 	"taskbound.local/agent-data-gateway/internal/queryplan"
 	"taskbound.local/agent-data-gateway/internal/queryreceipt"
@@ -138,6 +139,11 @@ func (s *Service) executePlan(ctx context.Context, principal mcp.Principal, raw 
 		exposureContext, err = buildPlanExposureContext(args.Plan, product, columns, aggregates)
 		if err != nil {
 			return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "QueryPlan 不在可精确计量的数据暴露片段内"}
+		}
+		if grant.Exposure.ProfileVersion == exposure.ProfileV2 {
+			if err := exposureContext.configureV2(columns, aggregates); err != nil {
+				return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "QueryPlan 缺少 V2 规范身份或无法归一化"}
+			}
 		}
 		compiled = exposureContext.mainSQL
 	}
@@ -481,6 +487,20 @@ func (s *Service) queryReplayResponse(ctx context.Context, record control.QueryR
 		// The query status remains the durable answer for a result that could not
 		// be encoded or atomically stored after execution.
 		return result, nil
+	}
+	if representationPlan, planErr := s.store.GetRepresentationPlan(ctx, record.ID); planErr == nil {
+		var stored storedRepresentationResult
+		if err := json.Unmarshal(plaintext, &stored); err != nil {
+			return nil, err
+		}
+		result["profile_version"] = representationPlan.ProfileVersion
+		result["planner_version"] = representationPlan.PlannerVersion
+		result["plan"] = representationPlan
+		result["results"] = stored.Results
+		result["database_ms"] = stored.DatabaseMS
+		return result, nil
+	} else if !errors.Is(planErr, control.ErrNotFound) {
+		return nil, planErr
 	}
 	var stored storedQueryResult
 	if err := json.Unmarshal(plaintext, &stored); err != nil {
@@ -952,6 +972,14 @@ func BuildQueryReceiptRequest(evidence control.QueryReceipt, signer *queryreceip
 			ActualReleaseFacts: evidence.Exposure.ActualReleaseFacts, ActualInfluenceFacts: evidence.Exposure.ActualInfluenceFacts,
 			ChargedReleaseFacts: evidence.Exposure.ChargedReleaseFacts, ChargedInfluenceFacts: evidence.Exposure.ChargedInfluenceFacts,
 			ObservationSHA256: evidence.Exposure.ObservationSHA256,
+		}
+		if evidence.Exposure.PlannerVersion != "" {
+			version = queryreceipt.VersionV5
+			exposureEvidence.PlannerVersion = evidence.Exposure.PlannerVersion
+			exposureEvidence.CandidatesSHA256 = evidence.Exposure.CandidatesSHA256
+			exposureEvidence.SelectedSHA256 = evidence.Exposure.SelectedSHA256
+			exposureEvidence.UnionEffectSHA256 = evidence.Exposure.UnionEffectSHA256
+			exposureEvidence.SnapshotBundleSHA256 = evidence.Exposure.SnapshotBundleSHA256
 		}
 	}
 	receipt := queryreceipt.QueryReceiptV1{

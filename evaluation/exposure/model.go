@@ -168,6 +168,9 @@ func Run() (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
+	if err := runRandomV2PlannerOracle(&report.RQ5, 500); err != nil {
+		return Report{}, err
+	}
 	return report, nil
 }
 
@@ -410,6 +413,96 @@ func runPlannerScenarios(scenarios []plannerScenario) (PlannerSummary, error) {
 		result.Passed++
 	}
 	return result, nil
+}
+
+func runRandomV2PlannerOracle(summary *PlannerSummary, trials int) error {
+	random := rand.New(rand.NewSource(20260724))
+	pool := make([]exposure.FactID, 8)
+	for index := range pool {
+		fact, err := exposure.NewBaseCellFactV2("evaluation.oracle", "snapshot-v2", fmt.Sprintf("row-%d", index), "value", "bigint", int64(index))
+		if err != nil {
+			return err
+		}
+		pool[index] = fact
+	}
+	for trial := 0; trial < trials; trial++ {
+		var candidates []exposure.EffectCandidate
+		for requirement := 0; requirement < 3; requirement++ {
+			for option := 0; option < 2; option++ {
+				candidates = append(candidates, exposure.EffectCandidate{
+					ID: fmt.Sprintf("c-%d-%d", requirement, option), Requirement: fmt.Sprintf("r-%d", requirement),
+					AnswerCompleteness: float64(1+random.Intn(5)) / 5,
+					Effect: exposure.Observation{ProfileVersion: exposure.ProfileV2,
+						Release: randomV2Facts(random, pool), Influence: randomV2Facts(random, pool)},
+				})
+			}
+		}
+		history := exposure.Observation{ProfileVersion: exposure.ProfileV2,
+			Release: randomV2Facts(random, pool), Influence: randomV2Facts(random, pool)}
+		releaseBudget, influenceBudget := int64(random.Intn(7)), int64(random.Intn(7))
+		plan, err := exposure.OptimizeEffects(candidates, history, releaseBudget, influenceBudget,
+			exposure.UtilityWeights{AnswerCompleteness: 1})
+		if err != nil {
+			return err
+		}
+		oracle := bruteForceV2Utility(candidates, history, releaseBudget, influenceBudget)
+		if plan.Utility != oracle {
+			return fmt.Errorf("V2 random planner trial %d utility %v, oracle %v", trial, plan.Utility, oracle)
+		}
+		summary.Scenarios++
+		summary.Passed++
+	}
+	summary.Results = append(summary.Results, PlannerResult{ID: fmt.Sprintf("v2-random-bruteforce-%d", trials)})
+	return nil
+}
+
+func randomV2Facts(random *rand.Rand, pool []exposure.FactID) []exposure.FactID {
+	var result []exposure.FactID
+	for _, fact := range pool {
+		if random.Intn(3) == 0 {
+			result = append(result, fact)
+		}
+	}
+	return result
+}
+
+func bruteForceV2Utility(candidates []exposure.EffectCandidate, history exposure.Observation, releaseBudget, influenceBudget int64) float64 {
+	historyRelease, _ := exposure.NewFactSet(history.Release...)
+	historyInfluence, _ := exposure.NewFactSet(history.Influence...)
+	best := float64(0)
+	for mask := 0; mask < 1<<len(candidates); mask++ {
+		requirements := make(map[string]struct{})
+		release, influence := make(exposure.FactSet), make(exposure.FactSet)
+		utility, valid := float64(0), true
+		for index, candidate := range candidates {
+			if mask&(1<<index) == 0 {
+				continue
+			}
+			if _, duplicate := requirements[candidate.Requirement]; duplicate {
+				valid = false
+				break
+			}
+			requirements[candidate.Requirement] = struct{}{}
+			candidateRelease, _ := exposure.NewFactSet(candidate.Effect.Release...)
+			candidateInfluence, _ := exposure.NewFactSet(candidate.Effect.Influence...)
+			release.Merge(candidateRelease)
+			influence.Merge(candidateInfluence)
+			utility += candidate.AnswerCompleteness
+		}
+		if !valid {
+			continue
+		}
+		for hash := range historyRelease {
+			delete(release, hash)
+		}
+		for hash := range historyInfluence {
+			delete(influence, hash)
+		}
+		if int64(len(release)) <= releaseBudget && int64(len(influence)) <= influenceBudget && utility > best {
+			best = utility
+		}
+	}
+	return best
 }
 
 func greedyPlan(scenario plannerScenario) exposure.Plan {

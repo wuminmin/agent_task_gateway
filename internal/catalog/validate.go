@@ -240,6 +240,9 @@ func validateBudgetProfile(path string, profile BudgetProfile) ValidationErrors 
 	if err := profile.Budget().Validate(); err != nil {
 		problems = append(problems, fieldError(path, err.Error(), ErrInvalidBudgetProfile))
 	}
+	if profile.ExposureProfileVersion != "" && profile.ExposureProfileVersion != "taskgate-exposure-v1" && profile.ExposureProfileVersion != "taskgate-exposure-v2" {
+		problems = append(problems, fieldError(path+".exposure_profile_version", "profile must be taskgate-exposure-v1 or taskgate-exposure-v2", ErrInvalidBudgetProfile))
+	}
 	return problems
 }
 
@@ -313,6 +316,15 @@ func validateProduct(path string, product Product, sources, scopes map[string]st
 	}
 	if strings.TrimSpace(product.Snapshot) == "" {
 		problems = append(problems, fieldError(path+".snapshot", "a versioned data snapshot is required", ErrMissingField))
+	}
+	if product.FactNamespace != "" && (strings.TrimSpace(product.FactNamespace) != product.FactNamespace || strings.ContainsAny(product.FactNamespace, "\x00\r\n\t")) {
+		problems = append(problems, fieldError(path+".fact_namespace", "fact namespace must be a stable non-whitespace semantic identifier", ErrInvalidCatalog))
+	}
+	if product.StableRelationRole != "" && !configNamePattern.MatchString(product.StableRelationRole) {
+		problems = append(problems, fieldError(path+".stable_relation_role", "stable relation role must be a lowercase catalog identifier", ErrInvalidCatalog))
+	}
+	if product.LineageManifestDigest != "" && !sha256HexPattern.MatchString(product.LineageManifestDigest) {
+		problems = append(problems, fieldError(path+".lineage_manifest_digest", "lineage manifest digest must be lowercase SHA-256", ErrInvalidCatalog))
 	}
 	if len(product.EntityKey) == 0 || duplicateOrEmpty(product.EntityKey) {
 		problems = append(problems, fieldError(path+".entity_key", "at least one unique entity key field is required", ErrMissingField))

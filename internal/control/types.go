@@ -134,6 +134,34 @@ type ExposureCharge struct {
 	ChargedReleaseFacts   int64  `json:"charged_release_facts"`
 	ChargedInfluenceFacts int64  `json:"charged_influence_facts"`
 	ObservationSHA256     string `json:"observation_sha256"`
+	PlannerVersion        string `json:"planner_version,omitempty"`
+	CandidatesSHA256      string `json:"candidates_sha256,omitempty"`
+	SelectedSHA256        string `json:"selected_sha256,omitempty"`
+	UnionEffectSHA256     string `json:"union_effect_sha256,omitempty"`
+	SnapshotBundleSHA256  string `json:"snapshot_bundle_sha256,omitempty"`
+}
+
+type RepresentationPlanningRequest struct {
+	Candidates           []exposure.EffectCandidate
+	Weights              exposure.UtilityWeights
+	CandidatesSHA256     string
+	SnapshotBundleSHA256 string
+}
+
+type RepresentationPlanRecord struct {
+	QueryID              string                        `json:"query_id"`
+	TaskID               string                        `json:"task_id"`
+	RootTaskID           string                        `json:"root_task_id"`
+	ProfileVersion       string                        `json:"profile_version"`
+	PlannerVersion       string                        `json:"planner_version"`
+	SnapshotBundleSHA256 string                        `json:"snapshot_bundle_sha256"`
+	CandidatesSHA256     string                        `json:"candidates_sha256"`
+	Selected             []exposure.CandidateSelection `json:"selected"`
+	UnionEffectSHA256    string                        `json:"union_effect_sha256"`
+	ReleaseFacts         int64                         `json:"release_facts"`
+	InfluenceFacts       int64                         `json:"influence_facts"`
+	Utility              float64                       `json:"utility"`
+	CreatedAt            time.Time                     `json:"created_at"`
 }
 
 type ApprovalEvent struct {
@@ -268,13 +296,22 @@ type ReserveRequest struct {
 // the observed measurement so accounting quota, observed time, and the physical
 // upper bound remain distinguishable.
 type BudgetSettlement struct {
-	QueryID      string
-	Rows         int64
+	QueryID string
+	Rows    int64
+	// ChargeRows can exceed released Rows for V2 candidate planning because
+	// every buffered candidate consumes ordinary resource budget. Zero keeps
+	// the legacy behavior of charging Rows.
+	ChargeRows   int64
 	DBMS         int64
 	ObservedDBMS int64
 	ErrorCode    string
 	Exposure     *exposure.Observation
 }
+
+// PlannedResultBuilder serializes only the candidates selected under the
+// locked root ledger. It runs inside the Control PG transaction and must be a
+// pure in-memory operation.
+type PlannedResultBuilder func(exposure.ExactPlan) (plaintext []byte, releasedRows int64, err error)
 
 type EncryptedResult struct {
 	QueryID    string

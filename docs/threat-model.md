@@ -30,7 +30,7 @@ Agent 提交的结构化申请、QueryPlan、SQL、浏览器请求、网络回�
 | OA 回调伪造、重放或乱序 | HMAC-SHA256 认证原始 Body；Event ID/状态/context/actor 校验；独立 OA Ed25519 回执绑定 Manifest 与最终 Grant；Gateway 可配置多把 OA 验签公钥及有效/退役窗口；事务幂等 | Demo OA Outbox 不持久；KMS、密钥分发和吊销发布仍需外部运维 |
 | 并发/重试查询超资源预算 | 控制 PG 对任务和资源预算加行锁；`(task_id, request_id)` 唯一；预留与结算在事务中；同一任务一个在途查询 | 单 Gateway 没有跨实例执行租约，不能安全横向扩容 |
 | Gateway 崩溃遗留预算/回调 | 启动恢复将 RESERVED 查询按资源预留保守计费并标记 `INDETERMINATE`，释放未结算 exposure reservation，写入查询回执，并禁止同 request ID 重执行；结果只在结算提交后释放 | 资源计费可能高于实际消耗；不声称立即取消已在途查询；瞬态缓冲不具备跨进程恢复 |
-| 查询回执伪造或历史密钥混淆 | V4 成功回执绑定 exposure observation/charge、`signed_at`、Gateway Key ID 和终态审计位置；无 exposure evidence 的兼容终态使用 V3；Gateway 发布带有效/退役窗口的公钥 Bundle | Keyring 发布仍依赖 Gateway 配置和部署重启；没有集中 KMS/HSM、透明日志或外部撤销服务 |
+| 查询回执伪造或历史密钥混淆 | V4/V5 成功回执绑定 exposure observation/charge、V2 planner evidence、`signed_at`、Gateway Key ID 和终态审计位置；无 exposure evidence 的兼容终态使用 V3；Gateway 发布带有效/退役窗口的公钥 Bundle | Keyring 发布仍依赖 Gateway 配置和部署重启；没有集中 KMS/HSM、透明日志或外部撤销服务 |
 | 并发审计链分叉或序列空洞 | 单行 `audit_chain_head` 通过 `SELECT ... FOR UPDATE` 串行化；连续序号、事件和链头在同一事务提交；可配置 `taskgate-audit-checkpoint-anchor/v1` 签名 checkpoint POST 到外部日志/WORM 服务 | 外部 Anchor 服务本身的保留、不可篡改性和时间戳可信度依赖部署；高写入量时链头是串行瓶颈 |
 | Grant/审计记录被应用修改 | PostgreSQL Trigger 禁止 UPDATE/DELETE，逐事件 SHA-256 链可验证 | 超级用户可禁用 Trigger 并重建整条链 |
 | 磁盘结果泄露或篡改 | AES-256-GCM 随机 Nonce，AAD 绑定 task/query，读取时校验明文 SHA-256；每个结果行保存 `key_id` 并登记在 `result_encryption_keys`；结果保留清理可按 TTL 调度或管理员截止时间删除密文并保留查询/回执/审计证据；管理员 key ID 擦除会把 key 标记为 `ERASED`、追加审计事件，并让现有密文读取 fail closed；active legal hold 阻止密文清理 | 任务、Scope、Grant、预算与审计元数据未加密；本 Demo 的 AES key 仍位于环境变量和进程内存；实际 key material 销毁、轮换、集中 KMS/HSM custody 和撤销透明性仍需外部平台 |

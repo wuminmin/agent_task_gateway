@@ -34,6 +34,7 @@
 \newcommand{\notmeasured}{\textcolor{gray}{not measured}}
 \newtheorem{definition}{Definition}
 \newtheorem{property}{Property}
+\newtheorem{theorem}{Theorem}
 
 \input{generated/evidence.tex}
 
@@ -184,19 +185,37 @@ controls but adds a stateful disclosure effect shared by delegated callers.
 
 \subsection{Facts and Task State}
 
-Let $p$ be a logical data product, $s$ its administrator-published snapshot,
-$e$ a stable entity key, $a$ a field, and $h(v)$ the SHA-256 version of a typed
-JSON value. A base fact is
+V2 treats a FactID as a semantic object and its SHA-256 as only a database
+index.  Let $\nu$ be a catalog-owned source namespace (not a view alias), $s$
+an immutable snapshot, $e$ a stable entity key, $a$ a field ID, $\tau$ a
+PostgreSQL type, and $\operatorname{canon}_\tau(v)$ its canonical value.  Base identities are
 
-\begin{equation}
- f = \langle p,s,e,a,h(v)\rangle .
+\begin{align}
+ f_{row}&=\langle\pi,\nu,s,e\rangle,\\
+ f_{cell}&=\langle\pi,\nu,s,e,a,\tau,\operatorname{canon}_\tau(v)\rangle .
  \label{eq:fact}
-\end{equation}
+\end{align}
 
-Row existence is represented by a reserved field. Composite entity keys are
-hashes of typed key tuples, avoiding delimiter ambiguity. A changed snapshot or
-value yields a new identity. The snapshot is a catalog contract, not an MVCC
-identifier; Sec.~\ref{sec:limits} discusses this trust assumption.
+A derived identity is
+$f_d=\langle\pi,\mathcal S,k_o,N_\pi(x),\tau,\operatorname{canon}_\tau(v),H(W)\rangle$,
+where $\mathcal S$ is a sorted snapshot bundle, $k_o$ is the canonical output
+row key, $N_\pi(x)$ erases aliases and normalizes the supported expression, and
+$W$ is a base-fact witness multiset. The durable key is
+$\mathrm{SHA256}(\texttt{TASKGATE-FACT-V2\textbackslash0}\|\operatorname{Canon}(f))$.
+Control PostgreSQL stores $\operatorname{Canon}(f)$ and compares it on every hash conflict;
+a same-hash, different-payload row aborts the transaction. V1 and V2 tagged
+payloads are disjoint and one root ledger fixes exactly one profile.
+
+\begin{theorem}[Fact identity well-definedness]
+For every value in the V2 supported PostgreSQL type domain, canonical encoding
+is deterministic and injective over the typed semantic payload.
+\end{theorem}
+\begin{proof}[Proof sketch]
+Every component is type tagged and length delimited; lists are cardinality
+prefixed and canonically sorted. Integers and exact numerics use unbounded
+integer/rational normal forms, timestamps use the profile timezone, and NULL
+has its own token. Tuple injectivity follows by unique decoding.
+\end{proof}
 
 \begin{definition}[Exposure effect]
 For query $q$ over snapshot $D_s$, the effect
@@ -222,8 +241,10 @@ $|\known_T^i|+|\Delta_T^i|\leq B_T^i$.
 
 \subsection{Annotated Relations}
 
-An intermediate cell stores a value and a set of source facts. A row stores a
-stable key and lineage that includes row existence and predicate/join evidence.
+An intermediate row stores $\langle k,v,S_r,S_a,W_a\rangle$: row support
+$S_r$, per-cell support sets $S_a$, and per-cell witness multisets $W_a$.
+Support drives the influence ledger, while multiplicity in $W_a$ distinguishes,
+for example, three-way from five-way join fanout in a derived identity.
 Table~\ref{tab:operators} summarizes the implemented positive fragment.
 
 \begin{table*}[t]
@@ -238,7 +259,7 @@ Operator & Release effect & Source-influence propagation \\
 Projection & Output cells under their row keys & Existing row lineage and selected cell sources \\
 Selection & Output cells of retained rows & Retained row lineage plus sources of predicate fields \\
 Pagination & Cells in the selected interval & Lineage and sources for selected rows only \\
-Equijoin & Prefixed output cells under paired keys & Both row lineages, both join keys, and selected cell sources \\
+Equijoin & Base cells under an order-independent role/entity multiset key & Both row lineages, both join keys, and selected cell sources; witness multiplicity retained \\
 Set union & One fact per deduplicated output cell & Union of all lineages and cell sources producing the tuple \\
 Grouping & Group-key cells and aggregate cells & Member row existence, group fields, and aggregate inputs \\
 Aggregates & One source-bound derived fact per output cell & \code{COUNT(*)} uses row lineage; other functions use input-cell sources \\
@@ -246,11 +267,23 @@ Aggregates & One source-bound derived fact per output cell & \code{COUNT(*)} use
 \end{tabular}
 \end{table*}
 
-For a derived aggregate, the release fact's field is the canonical expression
-such as \code{sum(amount)}, independent of its output alias. Its value version
-hashes both the typed value and the ordered source-hash set. Thus equal sums
+For a derived aggregate, the release fact uses a canonical expression such as
+\code{sum(expense.amount)}, independent of its output alias. Its witness
+commitment hashes sorted $(\mathrm{FactHash},\mathrm{multiplicity})$ pairs. Thus equal sums
 from different contributors remain different disclosures, while alias changes
 do not manufacture a new fact.
+
+\begin{theorem}[Effect determinism]
+Fixed $q$, snapshot bundle $D_s$, and V2 profile $\pi$ uniquely determine
+$\effect_\pi(q,D_s)$.
+\end{theorem}
+\begin{proof}[Proof sketch]
+PostgreSQL bag, NULL, aggregate, collation, timezone, and numeric rules are
+profile fixed; volatile expressions are excluded. Induction over scan,
+selection, projection, equijoin, union-distinct, grouping, and stable pagination
+shows that each annotation and output identity is a deterministic function of
+its children.
+\end{proof}
 
 \subsection{Conservation Properties}
 
@@ -267,11 +300,11 @@ map insertion followed by lexical key order; merge is set union. The three
 properties follow from set union and deterministic serialization.
 \end{proof}
 
-\begin{property}[Restricted rewrite invariance]
+\begin{theorem}[Restricted rewrite invariance]
 Selection followed by a projection that retains every predicate and output
 field has the same effect as the corresponding projection followed by
 selection. Reordering projected fields also preserves the normalized effect.
-\end{property}
+\end{theorem}
 \begin{proof}[Proof sketch]
 Both plans retain the same keyed rows. Projection copies cell sources and row
 lineage; selection adds the same predicate sources to retained lineage. Release
@@ -280,26 +313,24 @@ normalization. The executable corpus checks both target predicates and field
 orders for a fixed seed.
 \end{proof}
 
-\begin{property}[Split, page, and retry conservation]
+\begin{theorem}[Split/page/join conservation]
 Merging observations for disjoint projections or a complete page partition
 equals observing the combined result. Overlapping pages and repeated terminal
-observations charge each FactID at most once.
-\end{property}
+observations charge each FactID at most once; join fanout changes witness
+multiplicity but not the union of influence support.
+\end{theorem}
 \begin{proof}[Proof sketch]
 Projection and page preserve the identities attached to selected cells and
 rows. Merging is set union, for which duplicate membership has no additional
 cardinality. Durable request replay does not invoke execution or settlement.
 \end{proof}
 
-\begin{property}[Join multiplicity conservation]
-Repeated join output can increase release facts for distinct result entities,
-but cannot multiply the charge for one source fact.
-\end{property}
-\begin{proof}[Proof sketch]
-Each joined row unions both input lineages and join-key sources. Influence is
-the union across output rows; an input FactID therefore occurs at most once in
-the normalized influence set, independent of join fanout.
-\end{proof}
+V2 additionally computes an explicit query normal form $NF_\pi(q)$. Its rewrite
+set erases aliases, qualifies field IDs, sorts AND terms, projections, join and
+union operands, and group expressions, and normalizes aggregate names/types.
+The theorem asserts only
+$NF_\pi(q_1)=NF_\pi(q_2)\Rightarrow\effect_\pi(q_1,D_s)=\effect_\pi(q_2,D_s)$,
+not completeness for arbitrary equivalent SQL.
 
 \section{Online Accounting}
 \label{sec:online}
@@ -325,19 +356,24 @@ provenance result is a hard error.
 
 \subsection{Atomic Settlement}
 
-For a successful paired execution, the gateway performs the following steps:
+For a successful V2 planning call, the gateway performs the following steps:
 
 \begin{enumerate}
-\item Buffer both results and derive a normalized observation.
-\item Lock the query exposure reservation and root ledger.
-\item Insert release and influence FactIDs with a primary key on root, ledger
+\item Authorize every candidate plan, then execute and buffer every visible and
+provenance pair in one Business PostgreSQL \code{REPEATABLE READ} snapshot.
+\item Derive exact candidate effects; no client cost is accepted.
+\item In Control PostgreSQL, lock the query reservation and root ledger, reload
+the latest known sets, and run the overlap-aware exact planner.
+\item Insert the selected candidates' release and influence union with a primary key on root, ledger
 kind, and fact hash; conflicts contribute zero novel facts.
 \item Conditionally increment both used counters only if both limits remain
 valid.
 \item In the same transaction, settle query/row/database-time resources, store
 the encrypted result, append terminal audit evidence, and persist a signed
 receipt.
-\item Commit, remove hidden keys, and return the visible result.
+\item Persist the candidate/effect digests, selected set, union-effect digest,
+encrypted selected results, terminal audit, and V5 receipt.
+\item Commit, discard unselected buffers, and only then return selected results.
 \end{enumerate}
 
 If Step 4 affects no row, the transaction returns an exposure-budget error.
@@ -355,7 +391,8 @@ complexity bounds, not measured latency claims.
 
 \subsection{Receipts and Failure Semantics}
 
-A V4 Ed25519 receipt binds the root task, profile, actual and charged counts in
+A V5 Ed25519 receipt binds all candidate summaries, selected candidates,
+planner version, snapshot bundle, union effect, root task, profile, and actual and charged counts in
 both dimensions, and the SHA-256 of the normalized observation, in addition to
 authorization, datasource, resource budget, result, and audit evidence. It does
 not expose raw values or FactIDs.
@@ -386,11 +423,11 @@ exposure capacity. A child that signs a lower exposure ceiling may add novel
 facts only while the shared family total remains within that ceiling; a
 zero-novelty replay remains admissible.
 
-\begin{property}[Task-family non-amplification]
+\begin{theorem}[Atomic budget safety]
 After any committed settlement sequence, each root ledger equals the union of
 the novel charges of its settled family queries, and neither cardinality
 exceeds its root limit.
-\end{property}
+\end{theorem}
 \begin{proof}[Proof sketch]
 All family settlements lock the same root row. The unique fact key admits one
 first insert for each root/kind/hash tuple. A transaction adds exactly its
@@ -401,28 +438,42 @@ identity and both bounds.
 
 \subsection{Dual-Budget Representation Planning}
 
-For requirement $j$, let $C_j$ contain raw, projected, aggregate, or generalized
-candidates. Candidate $c$ has estimated costs $(r_c,i_c)$ and measured answer
-completeness and query coverage. With nonnegative weights, the planner solves
+For requirement $j$, let $C_j$ contain server-executed raw, projected,
+aggregate, or generalized candidates with exact effect
+$E_c=\langle E_c^r,E_c^i\rangle$. With root history $K_T$ and nonnegative
+measured utility, the planner solves
 
 \begin{align}
 \max_{S}\quad &\sum_{c\in S} u(c) \\
-\text{s.t.}\quad &\sum_{c\in S}r_c\leq B^r_{\mathrm{remaining}},\quad
-\sum_{c\in S}i_c\leq B^i_{\mathrm{remaining}},\\
+\text{s.t.}\quad &|\bigcup_{c\in S}E_c^r\setminus K_T^r|\leq B^r_{\mathrm{remaining}},\\
+&|\bigcup_{c\in S}E_c^i\setminus K_T^i|\leq B^i_{\mathrm{remaining}},\\
 &|S\cap C_j|\leq 1\quad\forall j.
 \end{align}
 
-This is a two-constraint multiple-choice knapsack form
-\cite{kellerer2004knapsack}. The implementation expands candidates one
-requirement at a time and retains a Pareto frontier over both costs and utility,
-with deterministic tie breaking. If frontier size before group $j$ is
+The implementation subtracts root history, assigns remaining fact hashes dense
+integers, and represents each set as a release/influence bit vector. It expands
+one requirement at a time using bitwise OR and popcount. A state can dominate
+another only by release-set inclusion, influence-set inclusion, and no lower
+utility; comparing cardinalities alone is unsound because future candidates may
+overlap the larger set. If frontier size before group $j$ is
 $H_{j-1}$ and the group has $m_j$ candidates, the current pairwise dominance
 implementation takes
 $O(\sum_j(H_{j-1}(m_j+1))^2)$ time and $O(\max_j H_j)$ memory. Worst-case
-frontier size is exponential; the current tool is exact for small catalog
-choice sets, not a large-workload optimizer. Its contract requires caller-side
-measurements, but the prototype validates only numeric ranges and cannot prove
-that a supplied score was not subjective or fabricated.
+frontier size is exponential; V2 therefore limits calls to a small
+representation catalog.
+
+\begin{theorem}[Planner optimality]
+For fixed candidate effects, root history, budgets, and utility, the V2 planner
+returns maximum utility among all feasible choices with at most one candidate
+per requirement.
+\end{theorem}
+\begin{proof}[Proof sketch]
+For each requirement the frontier enumerates skipping it or choosing each one
+of its candidates. Every state stores the exact two set unions. Inclusion-based
+pruning removes a state only when another uses subsets in both dimensions and
+has no lower utility, so every optimal continuation is retained or replaced by
+a no-worse continuation. Induction over requirements proves optimality.
+\end{proof}
 
 \section{System Realization}
 \label{sec:system}
@@ -481,8 +532,9 @@ The evaluation is organized around five questions: RQ1 ground-truth accuracy;
 RQ2 rewrite invariance; RQ3 resistance to split, page, retry, join, snapshot,
 delegation, and concurrency amplification; RQ4 runtime/storage overhead; and RQ5
 utility under a fixed dual budget. The deterministic report is rebuilt from a
-source-controlled corpus under profile \ExposureProfile{}, fixed seed
-\code{20260723}, and corpus digest prefix \ExposureCorpusHash{}.
+source-controlled V1 algebra corpus with seed \code{20260723} and digest prefix
+\ExposureCorpusHash{}, plus 500 V2 exact-planner instances with seed
+\code{20260724} checked against an independent brute-force oracle.
 
 \begin{table}[t]
 \centering
@@ -580,10 +632,10 @@ hot spot, and immutable history grows monotonically. Compression, sketches,
 partitioned settlement, retention, and audited deletion are open design points;
 approximations would require new safety semantics.
 
-\textbf{Planning evidence.} Runtime candidate costs and utility measurements are
-caller-supplied. A production planner needs an authenticated measurement catalog
-or reproducible scoring adapter; the two deterministic oracle scenarios validate
-optimization logic, not the trustworthiness or external validity of those inputs.
+\textbf{Planning evidence.} Candidate costs and effects are server generated;
+utility evidence remains caller supplied. A production planner still needs an
+authenticated or reproducible utility-scoring adapter. Random small-instance
+brute-force comparisons validate optimization logic, not external utility.
 
 \textbf{Deployment.} The prototype has one gateway instance, static local
 tokens, an in-memory approval demo, and one PostgreSQL connector. It lacks a

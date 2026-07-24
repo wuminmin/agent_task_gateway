@@ -25,6 +25,8 @@ type planExposureContext struct {
 	provenanceFields []string
 	meteringColumns  []string
 	grouped          bool
+	normalForm       *queryplan.NormalForm
+	planDigest       string
 }
 
 func buildPlanExposureContext(plan queryplan.QueryPlan, product catalog.Product, approvedColumns map[string]struct{}, allowedAggregates map[string]struct{}) (*planExposureContext, error) {
@@ -81,7 +83,9 @@ func buildPlanExposureContext(plan queryplan.QueryPlan, product catalog.Product,
 		provenanceSet[column] = struct{}{}
 	}
 	for _, aggregate := range plan.Aggregates {
-		provenanceSet[aggregate.Column] = struct{}{}
+		if aggregate.Column != "*" {
+			provenanceSet[aggregate.Column] = struct{}{}
+		}
 	}
 	for _, filter := range plan.Filters {
 		provenanceSet[filter.Column] = struct{}{}
@@ -112,6 +116,17 @@ func buildPlanExposureContext(plan queryplan.QueryPlan, product catalog.Product,
 				ordered[key] = struct{}{}
 			}
 		}
+	} else if plan.Limit > 0 || plan.Offset > 0 {
+		ordered := make(map[string]struct{}, len(mainPlan.OrderBy)+len(plan.GroupBy))
+		for _, order := range mainPlan.OrderBy {
+			ordered[order.Column] = struct{}{}
+		}
+		for _, key := range plan.GroupBy {
+			if _, present := ordered[key]; !present {
+				mainPlan.OrderBy = append(mainPlan.OrderBy, queryplan.Order{Column: key, Direction: "asc"})
+				ordered[key] = struct{}{}
+			}
+		}
 	}
 	mainSQL, err := queryplan.Compile(mainPlan, internalProduct)
 	if err != nil {
@@ -128,6 +143,31 @@ func buildPlanExposureContext(plan queryplan.QueryPlan, product catalog.Product,
 	return &planExposureContext{product: product, plan: cloneQueryPlan(plan), mainSQL: mainSQL,
 		provenanceSQL: provenanceSQL, visibleFields: visibleFields, factFields: factFields,
 		provenanceFields: provenanceFields, meteringColumns: meteringColumns, grouped: grouped}, nil
+}
+
+func (context *planExposureContext) configureV2(approvedColumns map[string]struct{}, allowedAggregates map[string]struct{}) error {
+	if strings.TrimSpace(context.product.FactNamespace) == "" || strings.TrimSpace(context.product.StableRelationRole) == "" {
+		return fmt.Errorf("V2 product lacks canonical fact namespace or stable relation role")
+	}
+	columnTypes := make(map[string]string, len(context.product.Fields))
+	for _, field := range context.product.Fields {
+		columnTypes[field.Name] = field.Type
+	}
+	normal, err := queryplan.NormalizeV2(context.plan, queryplan.Product{
+		Name: context.product.Name, Columns: approvedColumns, AllowedAggregates: allowedAggregates,
+		ColumnTypes: columnTypes, SourceNamespace: context.product.FactNamespace, Snapshot: context.product.Snapshot,
+		StableEntityKey: append([]string(nil), context.product.EntityKey...), LineageDigest: context.product.LineageManifestDigest,
+	})
+	if err != nil {
+		return err
+	}
+	digest, err := normal.Digest()
+	if err != nil {
+		return err
+	}
+	context.normalForm = &normal
+	context.planDigest = digest
+	return nil
 }
 
 func (context *planExposureContext) extendGrant(grant sqlpolicy.Grant) (sqlpolicy.Grant, error) {
@@ -151,6 +191,9 @@ func (context *planExposureContext) extendGrant(grant sqlpolicy.Grant) (sqlpolic
 }
 
 func (context *planExposureContext) deriveObservation(visible, provenance dataconnector.Result, profile string) (exposure.Observation, error) {
+	if profile == exposure.ProfileV2 {
+		return context.deriveObservationV2(visible, provenance)
+	}
 	if provenance.Truncated {
 		return exposure.Observation{}, errProvenanceTruncated
 	}
@@ -282,6 +325,218 @@ func (context *planExposureContext) deriveObservation(visible, provenance dataco
 		}
 	}
 	return (exposure.Observation{ProfileVersion: profile, Release: release.Values(), Influence: sourceObservation.Influence}).Normalize()
+}
+
+func (context *planExposureContext) deriveObservationV2(visible, provenance dataconnector.Result) (exposure.Observation, error) {
+	if context.normalForm == nil || context.planDigest == "" {
+		return exposure.Observation{}, fmt.Errorf("V2 query context has no normal form")
+	}
+	if provenance.Truncated {
+		return exposure.Observation{}, errProvenanceTruncated
+	}
+	positions, err := columnPositions(provenance.Columns)
+	if err != nil {
+		return exposure.Observation{}, err
+	}
+	types := make(map[string]string, len(context.product.Fields))
+	for _, field := range context.product.Fields {
+		types[field.Name] = field.Type
+	}
+	fields := make([]exposure.FieldV2, 0, len(context.provenanceFields))
+	for _, field := range context.provenanceFields {
+		if types[field] == "" {
+			return exposure.Observation{}, fmt.Errorf("V2 provenance field %q has no catalog type", field)
+		}
+		fields = append(fields, exposure.FieldV2{ID: field, SQLType: types[field]})
+	}
+	baseRows := make([]exposure.BaseRowV2, 0, len(provenance.Rows))
+	provenanceKeys := make(map[string]struct{}, len(provenance.Rows))
+	for _, values := range provenance.Rows {
+		key, err := context.baseEntityKeyV2(values, positions, types)
+		if err != nil {
+			return exposure.Observation{}, err
+		}
+		rowValues := make(map[string]any, len(context.provenanceFields))
+		for _, field := range context.provenanceFields {
+			if positions[field] >= len(values) {
+				return exposure.Observation{}, fmt.Errorf("provenance row is shorter than its metadata")
+			}
+			rowValues[field] = values[positions[field]]
+		}
+		if _, duplicate := provenanceKeys[key]; duplicate {
+			return exposure.Observation{}, fmt.Errorf("V2 provenance contains a duplicate stable entity key")
+		}
+		provenanceKeys[key] = struct{}{}
+		baseRows = append(baseRows, exposure.BaseRowV2{EntityKey: key, Values: rowValues})
+	}
+	relation, err := exposure.ScanV2(exposure.BaseRelationSpecV2{SourceNamespace: context.product.FactNamespace,
+		Snapshot: context.product.Snapshot, StableRole: context.product.StableRelationRole, Fields: fields, Rows: baseRows})
+	if err != nil {
+		return exposure.Observation{}, err
+	}
+	predicateFields := make([]string, 0, len(context.plan.Filters))
+	for _, filter := range context.plan.Filters {
+		predicateFields = append(predicateFields, filter.Column)
+	}
+	predicateFields = uniqueStrings(predicateFields)
+	if len(predicateFields) > 0 {
+		relation, err = exposure.SelectV2(relation, predicateFields, func(exposure.AnnotatedRowV2) exposure.SQLTruth { return exposure.SQLTrue })
+		if err != nil {
+			return exposure.Observation{}, err
+		}
+	}
+	visiblePositions, err := columnPositions(visible.Columns)
+	if err != nil {
+		return exposure.Observation{}, err
+	}
+	if !context.grouped {
+		if len(visible.Rows) != len(provenance.Rows) {
+			return exposure.Observation{}, fmt.Errorf("visible and provenance row sets differ")
+		}
+		visibleKeys := make(map[string]struct{}, len(visible.Rows))
+		for _, values := range visible.Rows {
+			key, err := context.baseEntityKeyV2(values, visiblePositions, types)
+			if err != nil {
+				return exposure.Observation{}, err
+			}
+			visibleKeys[key] = struct{}{}
+		}
+		for key := range provenanceKeys {
+			if _, present := visibleKeys[key]; !present {
+				return exposure.Observation{}, fmt.Errorf("visible and provenance entity sets differ")
+			}
+		}
+		return exposure.ObserveV2(relation, context.visibleFields...)
+	}
+
+	// The companion query returns every positive source row. Restrict it to
+	// groups actually returned by a paged aggregate before constructing effects.
+	groupKeys := make(map[string]struct{}, len(visible.Rows))
+	for _, row := range visible.Rows {
+		key, err := typedGroupKeyV2(context.plan.GroupBy, row, visiblePositions, types, context.product.FactNamespace)
+		if err != nil {
+			return exposure.Observation{}, err
+		}
+		groupKeys[key] = struct{}{}
+	}
+	if len(context.plan.GroupBy) > 0 {
+		relation, err = exposure.SelectV2(relation, context.plan.GroupBy, func(row exposure.AnnotatedRowV2) exposure.SQLTruth {
+			key, keyErr := annotatedGroupKeyV2(context.plan.GroupBy, row, types, context.product.FactNamespace)
+			if keyErr == nil {
+				if _, present := groupKeys[key]; present {
+					return exposure.SQLTrue
+				}
+			}
+			return exposure.SQLFalse
+		})
+		if err != nil {
+			return exposure.Observation{}, err
+		}
+	}
+	outputs := make([]map[string]any, 0, len(visible.Rows))
+	for _, row := range visible.Rows {
+		output := make(map[string]any, len(context.visibleFields))
+		for _, field := range context.visibleFields {
+			position, present := visiblePositions[field]
+			if !present || position >= len(row) {
+				return exposure.Observation{}, fmt.Errorf("visible result is missing field %q", field)
+			}
+			output[field] = row[position]
+		}
+		outputs = append(outputs, output)
+	}
+	specs := make([]exposure.AggregateSpecV2, 0, len(context.plan.Aggregates))
+	for _, aggregate := range context.plan.Aggregates {
+		function := strings.ToLower(aggregate.Function)
+		outputType := aggregateSQLType(function, types[aggregate.Column])
+		specs = append(specs, exposure.AggregateSpecV2{Function: function, Field: aggregate.Column,
+			OutputID: aggregate.Alias, OutputType: outputType})
+	}
+	aggregated, err := exposure.AggregateFromResultsV2(relation, context.plan.GroupBy, specs, outputs)
+	if err != nil {
+		return exposure.Observation{}, err
+	}
+	return exposure.ObserveV2(aggregated, context.visibleFields...)
+}
+
+func (context *planExposureContext) baseEntityKeyV2(row []any, positions map[string]int, types map[string]string) (string, error) {
+	components := []string{context.product.FactNamespace}
+	for _, field := range context.product.EntityKey {
+		position, present := positions[field]
+		if !present || position >= len(row) {
+			return "", fmt.Errorf("result is missing stable entity key %q", field)
+		}
+		canonical, err := exposure.CanonicalSQLValue(types[field], row[position])
+		if err != nil {
+			return "", err
+		}
+		components = append(components, field, types[field], canonical)
+	}
+	return exposure.ComposeCanonicalKeyV2("base-entity", components...)
+}
+
+func typedGroupKeyV2(fields []string, row []any, positions map[string]int, types map[string]string, namespace string) (string, error) {
+	components := make([]string, 0, len(fields)*2)
+	for _, field := range fields {
+		position, present := positions[field]
+		if !present || position >= len(row) {
+			return "", fmt.Errorf("result is missing group field %q", field)
+		}
+		canonical, err := exposure.CanonicalSQLValue(types[field], row[position])
+		if err != nil {
+			return "", err
+		}
+		components = append(components, namespace+"."+field+"\x00"+types[field]+"\x00"+canonical)
+	}
+	if len(components) == 0 {
+		components = append(components, "global")
+	}
+	sort.Strings(components)
+	return exposure.ComposeCanonicalKeyV2("group-row", components...)
+}
+
+func annotatedGroupKeyV2(fields []string, row exposure.AnnotatedRowV2, types map[string]string, namespace string) (string, error) {
+	components := make([]string, 0, len(fields)*2)
+	for _, field := range fields {
+		canonical, err := exposure.CanonicalSQLValue(types[field], row.Cells[field].Value)
+		if err != nil {
+			return "", err
+		}
+		components = append(components, namespace+"."+field+"\x00"+types[field]+"\x00"+canonical)
+	}
+	if len(components) == 0 {
+		components = append(components, "global")
+	}
+	sort.Strings(components)
+	return exposure.ComposeCanonicalKeyV2("group-row", components...)
+}
+
+func aggregateSQLType(function, input string) string {
+	switch function {
+	case "count":
+		return "bigint"
+	case "sum":
+		switch strings.ToLower(strings.TrimSpace(input)) {
+		case "smallint", "integer":
+			return "bigint"
+		case "bigint":
+			return "numeric"
+		}
+	}
+	return input
+}
+
+func uniqueStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if _, present := seen[value]; present {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
 }
 
 func (context *planExposureContext) visibleResult(result dataconnector.Result) (dataconnector.Result, error) {

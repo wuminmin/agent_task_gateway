@@ -62,21 +62,27 @@ var queryTools = []mcp.Tool{
 		"task_id": map[string]any{"type": "string"}, "query_id": map[string]any{"type": "string"},
 	}, "task_id", "query_id"), Annotations: map[string]any{"readOnlyHint": true}},
 	{Name: "get_budget", Description: "读取任务预算上限、已用和剩余值。", InputSchema: taskIDSchema(), Annotations: map[string]any{"readOnlyHint": true}},
-	{Name: "plan_exposure", Description: "在根任务剩余的释放和来源影响预算内，选择可测量效用最高的数据产品表示。", InputSchema: objectSchema(map[string]any{
-		"task_id": map[string]any{"type": "string"},
-		"candidates": map[string]any{"type": "array", "minItems": 1, "items": objectSchema(map[string]any{
+	{Name: "plan_exposure", Description: "按任务 Exposure Profile 规划表示：V1 兼容标量规划；V2 在同一快照执行候选 QueryPlan、生成精确 Effect、原子结算并仅释放选中结果。", InputSchema: objectSchema(map[string]any{
+		"task_id": map[string]any{"type": "string"}, "request_id": requestIDSchema(),
+		"candidates": map[string]any{"type": "array", "minItems": 1, "maxItems": 16, "items": map[string]any{"oneOf": []any{objectSchema(map[string]any{
 			"id": map[string]any{"type": "string", "minLength": 1}, "requirement": map[string]any{"type": "string", "minLength": 1},
 			"product":        map[string]any{"type": "string", "minLength": 1},
 			"representation": map[string]any{"type": "string", "enum": []string{"raw", "projection", "aggregate", "generalized"}},
 			"release_cost":   map[string]any{"type": "integer", "minimum": 0}, "influence_cost": map[string]any{"type": "integer", "minimum": 0},
 			"answer_completeness": map[string]any{"type": "number", "minimum": 0, "maximum": 1},
 			"query_coverage":      map[string]any{"type": "number", "minimum": 0, "maximum": 1},
-		}, "id", "requirement", "product", "representation", "release_cost", "influence_cost", "answer_completeness", "query_coverage")},
+		}, "id", "requirement", "product", "representation", "release_cost", "influence_cost", "answer_completeness", "query_coverage"), objectSchema(map[string]any{
+			"id": map[string]any{"type": "string", "minLength": 1}, "requirement": map[string]any{"type": "string", "minLength": 1},
+			"plan": queryPlanSchema(), "utility_evidence": objectSchema(map[string]any{
+				"answer_completeness": map[string]any{"type": "number", "minimum": 0, "maximum": 1},
+				"query_coverage":      map[string]any{"type": "number", "minimum": 0, "maximum": 1},
+			}, "answer_completeness", "query_coverage"),
+		}, "id", "requirement", "plan", "utility_evidence")}}},
 		"weights": objectSchema(map[string]any{
 			"answer_completeness": map[string]any{"type": "number", "minimum": 0},
 			"query_coverage":      map[string]any{"type": "number", "minimum": 0},
 		}, "answer_completeness", "query_coverage"),
-	}, "task_id", "candidates"), Annotations: map[string]any{"readOnlyHint": true}},
+	}, "task_id", "candidates")},
 	{Name: "list_receipts", Description: "列出自己的查询审计凭证，不含物理表名或数据库凭据。", InputSchema: objectSchema(map[string]any{
 		"task_id": map[string]any{"type": "string"}, "cursor": map[string]any{"type": "string"},
 	}, "task_id"), Annotations: map[string]any{"readOnlyHint": true}},
@@ -106,7 +112,8 @@ func queryPlanSchema() map[string]any {
 		"order_by": map[string]any{"type": "array", "items": objectSchema(map[string]any{
 			"column": map[string]any{"type": "string"}, "direction": map[string]any{"type": "string", "enum": []string{"", "asc", "desc"}},
 		}, "column")},
-		"limit": map[string]any{"type": "integer", "minimum": 0},
+		"limit":  map[string]any{"type": "integer", "minimum": 0},
+		"offset": map[string]any{"type": "integer", "minimum": 0},
 	}, "product", "columns")
 }
 

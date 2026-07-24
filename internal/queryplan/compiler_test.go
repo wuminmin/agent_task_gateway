@@ -45,6 +45,26 @@ func TestCompileRejectsNegativeLimitAndDuplicateSelectNames(t *testing.T) {
 	}
 }
 
+func TestCompileDistinguishesCountStarFromCountColumn(t *testing.T) {
+	t.Parallel()
+	product := Product{Name: "expense_summary", Columns: map[string]struct{}{"month": {}}, AllowedAggregates: map[string]struct{}{"count": {}}}
+	star, err := Compile(QueryPlan{Product: product.Name, Aggregates: []Aggregate{{Function: "count", Column: "*", Alias: "rows"}}}, product)
+	if err != nil {
+		t.Fatal(err)
+	}
+	column, err := Compile(QueryPlan{Product: product.Name, Aggregates: []Aggregate{{Function: "count", Column: "month", Alias: "months"}}}, product)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if star != `SELECT count(*) AS "rows" FROM "expense_summary"` || column != `SELECT count("month") AS "months" FROM "expense_summary"` {
+		t.Fatalf("count SQL is not canonical: %q / %q", star, column)
+	}
+	if _, err := Compile(QueryPlan{Product: product.Name, Aggregates: []Aggregate{{Function: "sum", Column: "*", Alias: "bad"}}},
+		Product{Name: product.Name, Columns: product.Columns, AllowedAggregates: map[string]struct{}{"sum": {}}}); err == nil {
+		t.Fatal("SUM(*) was accepted")
+	}
+}
+
 func TestCompileRejectsInvalidGroupingOrderingAndFilters(t *testing.T) {
 	t.Parallel()
 	product := Product{

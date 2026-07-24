@@ -267,7 +267,7 @@ func (s *Store) settleWithReceipt(ctx context.Context, settlement BudgetSettleme
 	if err := s.checkOpen(op); err != nil {
 		return QueryRecord{}, PersistedQueryReceipt{}, err
 	}
-	if settlement.QueryID == "" || settlement.Rows < 0 || settlement.DBMS < 0 || settlement.ObservedDBMS < 0 {
+	if settlement.QueryID == "" || settlement.Rows < 0 || settlement.ChargeRows < 0 || settlement.DBMS < 0 || settlement.ObservedDBMS < 0 {
 		return QueryRecord{}, PersistedQueryReceipt{}, opErr(op, ErrInvalid, fmt.Errorf("query is required and use cannot be negative"))
 	}
 	tx, err := beginTx(ctx, s.db)
@@ -345,13 +345,17 @@ func settleBudgetTx(ctx context.Context, tx *sql.Tx, now time.Time, settlement B
 	if budget.Usage.ReservedQueries < 1 || budget.Usage.ReservedRows < record.ReservedRows || budget.Usage.ReservedDBMS < record.ReservedDBMS {
 		return QueryRecord{}, AuditEvent{}, fmt.Errorf("reservation ledger is inconsistent")
 	}
-	if settlement.Rows > record.ReservedRows {
-		return QueryRecord{}, AuditEvent{}, fmt.Errorf("invalid settlement: result rows %d exceed reserved rows %d", settlement.Rows, record.ReservedRows)
+	chargeRows := settlement.ChargeRows
+	if chargeRows == 0 {
+		chargeRows = settlement.Rows
+	}
+	if settlement.Rows > record.ReservedRows || chargeRows > record.ReservedRows {
+		return QueryRecord{}, AuditEvent{}, fmt.Errorf("invalid settlement: result/charged rows (%d/%d) exceed reserved rows %d", settlement.Rows, chargeRows, record.ReservedRows)
 	}
 	chargedQueries, chargedRows, chargedDBMS := int64(0), int64(0), int64(0)
 	if status == QueryCompleted || status == QueryFailed || status == QueryIndeterminate {
 		chargedQueries = 1
-		chargedRows = settlement.Rows
+		chargedRows = chargeRows
 		chargedDBMS = min64(settlement.DBMS, record.ReservedDBMS)
 	}
 	// observedDBMS is the raw connector-reported database time, preserved

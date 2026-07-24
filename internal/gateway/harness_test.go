@@ -107,6 +107,18 @@ func (connector *fakeConnector) QueryPair(ctx context.Context, request dataconne
 	return dataconnector.QueryPairResult{Visible: connector.result, Provenance: provenance}, nil
 }
 
+func (connector *fakeConnector) QueryBatch(ctx context.Context, request dataconnector.QueryBatchRequest) (dataconnector.QueryBatchResult, error) {
+	result := dataconnector.QueryBatchResult{Candidates: make([]dataconnector.QueryPairResult, 0, len(request.Candidates))}
+	for _, candidate := range request.Candidates {
+		pair, err := connector.QueryPair(ctx, candidate)
+		if err != nil {
+			return dataconnector.QueryBatchResult{}, err
+		}
+		result.Candidates = append(result.Candidates, pair)
+	}
+	return result, nil
+}
+
 func (connector *fakeConnector) Ping(context.Context) error { return connector.pingErr }
 
 func (connector *fakeConnector) Attestation(context.Context) (dataconnector.Attestation, error) {
@@ -254,6 +266,14 @@ func (harness *gatewayHarness) createExposureSummaryTask(t *testing.T, taskID st
 }
 
 func (harness *gatewayHarness) createSummaryTaskWithGrantAndExposure(t *testing.T, taskID string, narrow func(*domain.TaskGrantCoreV1), exposureLimits control.ExposureLimits) {
+	harness.createSummaryTaskWithGrantAndExposureProfile(t, taskID, narrow, exposureLimits, "taskgate-exposure-v1")
+}
+
+func (harness *gatewayHarness) createExposureV2SummaryTask(t *testing.T, taskID string, limits control.ExposureLimits) {
+	harness.createSummaryTaskWithGrantAndExposureProfile(t, taskID, nil, limits, "taskgate-exposure-v2")
+}
+
+func (harness *gatewayHarness) createSummaryTaskWithGrantAndExposureProfile(t *testing.T, taskID string, narrow func(*domain.TaskGrantCoreV1), exposureLimits control.ExposureLimits, profile string) {
 	t.Helper()
 	budget := domain.Budget{
 		MaxQueries: 10, MaxRows: 500, MaxDBTime: 30 * time.Second,
@@ -262,7 +282,7 @@ func (harness *gatewayHarness) createSummaryTaskWithGrantAndExposure(t *testing.
 	if exposureLimits.ReleaseFacts > 0 || exposureLimits.InfluenceFacts > 0 {
 		budget.MaxReleaseFacts = exposureLimits.ReleaseFacts
 		budget.MaxInfluenceFacts = exposureLimits.InfluenceFacts
-		budget.ExposureProfileVersion = "taskgate-exposure-v1"
+		budget.ExposureProfileVersion = profile
 	}
 	pendingValue := pendingContext{
 		Products:       []string{"expense_summary"},

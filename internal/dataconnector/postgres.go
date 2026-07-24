@@ -165,6 +165,17 @@ type QueryPairResult struct {
 	Provenance Result
 }
 
+// QueryBatchRequest executes every candidate's visible/provenance pair inside
+// one immutable PostgreSQL snapshot. Results remain buffered until Control PG
+// chooses and settles a representation set.
+type QueryBatchRequest struct {
+	Candidates []QueryPairRequest
+}
+
+type QueryBatchResult struct {
+	Candidates []QueryPairResult
+}
+
 // Connector owns a pgx connection pool. Its fields are immutable after New.
 type Connector struct {
 	pool                 *pgxpool.Pool
@@ -495,6 +506,9 @@ func (c *Connector) QueryPair(ctx context.Context, request QueryPairRequest) (re
 	if _, err := tx.Exec(ctx, `SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)`); err != nil {
 		return QueryPairResult{}, classifyQueryError(err)
 	}
+	if _, err := tx.Exec(ctx, `SELECT pg_catalog.set_config('TimeZone', 'UTC', true), pg_catalog.set_config('extra_float_digits', '3', true)`); err != nil {
+		return QueryPairResult{}, classifyQueryError(err)
+	}
 	attestation, err := c.attestDatasource(ctx, tx)
 	if err != nil {
 		return QueryPairResult{}, err
@@ -510,6 +524,63 @@ func (c *Connector) QueryPair(ctx context.Context, request QueryPairRequest) (re
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return QueryPairResult{}, classifyQueryError(err)
+	}
+	committed = true
+	return result, nil
+}
+
+// QueryBatch is the V2 candidate executor. It intentionally executes all
+// candidates before planning, so their effects are exact and share one
+// REPEATABLE READ snapshot.
+func (c *Connector) QueryBatch(ctx context.Context, request QueryBatchRequest) (result QueryBatchResult, err error) {
+	if c == nil || c.pool == nil {
+		return QueryBatchResult{}, connectorError(CodeConnection, errors.New("connector is closed"))
+	}
+	if len(request.Candidates) == 0 || len(request.Candidates) > 32 {
+		return QueryBatchResult{}, connectorError(CodeInvalidQuery, errors.New("candidate batch size is outside 1..32"))
+	}
+	for _, candidate := range request.Candidates {
+		for _, query := range []QueryRequest{candidate.Visible, candidate.Provenance} {
+			if strings.TrimSpace(query.SQL) == "" || query.MaxRows < 0 || query.StatementTimeout < 0 {
+				return QueryBatchResult{}, connectorError(CodeInvalidQuery, errors.New("empty query or negative limit"))
+			}
+		}
+	}
+	tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return QueryBatchResult{}, connectorError(CodeConnection, err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(context.Background())
+		}
+	}()
+	if _, err := tx.Exec(ctx, `SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)`); err != nil {
+		return QueryBatchResult{}, classifyQueryError(err)
+	}
+	if _, err := tx.Exec(ctx, `SELECT pg_catalog.set_config('TimeZone', 'UTC', true), pg_catalog.set_config('extra_float_digits', '3', true)`); err != nil {
+		return QueryBatchResult{}, classifyQueryError(err)
+	}
+	attestation, err := c.attestDatasource(ctx, tx)
+	if err != nil {
+		return QueryBatchResult{}, err
+	}
+	c.rememberAttestation(attestation)
+	result.Candidates = make([]QueryPairResult, 0, len(request.Candidates))
+	for _, candidate := range request.Candidates {
+		visible, err := c.queryInTx(ctx, tx, candidate.Visible)
+		if err != nil {
+			return QueryBatchResult{}, err
+		}
+		provenance, err := c.queryInTx(ctx, tx, candidate.Provenance)
+		if err != nil {
+			return QueryBatchResult{}, err
+		}
+		result.Candidates = append(result.Candidates, QueryPairResult{Visible: visible, Provenance: provenance})
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return QueryBatchResult{}, classifyQueryError(err)
 	}
 	committed = true
 	return result, nil

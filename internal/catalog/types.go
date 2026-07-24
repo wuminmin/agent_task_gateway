@@ -52,6 +52,12 @@ type Product struct {
 	AllowedAggregates []string           `yaml:"allowed_aggregates,omitempty" json:"allowed_aggregates,omitempty"`
 	Snapshot          string             `yaml:"snapshot" json:"snapshot"`
 	EntityKey         []string           `yaml:"entity_key" json:"entity_key"`
+	// FactNamespace is the Catalog-owned canonical semantic relation, not the
+	// logical reporting view name. StableRelationRole disambiguates self-joins.
+	FactNamespace      string `yaml:"fact_namespace,omitempty" json:"fact_namespace,omitempty"`
+	StableRelationRole string `yaml:"stable_relation_role,omitempty" json:"stable_relation_role,omitempty"`
+	// A derived/generalized product must pin its trusted base-lineage manifest.
+	LineageManifestDigest string `yaml:"lineage_manifest_digest,omitempty" json:"lineage_manifest_digest,omitempty"`
 }
 
 type Field struct {

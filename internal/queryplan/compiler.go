@@ -15,6 +15,11 @@ type Product struct {
 	Name              string
 	Columns           map[string]struct{}
 	AllowedAggregates map[string]struct{}
+	ColumnTypes       map[string]string
+	SourceNamespace   string
+	Snapshot          string
+	StableEntityKey   []string
+	LineageDigest     string
 }
 
 type QueryPlan struct {
@@ -25,6 +30,7 @@ type QueryPlan struct {
 	GroupBy    []string    `json:"group_by,omitempty"`
 	OrderBy    []Order     `json:"order_by,omitempty"`
 	Limit      int         `json:"limit,omitempty"`
+	Offset     int         `json:"offset,omitempty"`
 }
 
 type Aggregate struct {
@@ -54,8 +60,8 @@ func Compile(plan QueryPlan, product Product) (string, error) {
 	if len(plan.Columns)+len(plan.Aggregates) == 0 {
 		return "", errors.New("empty select list")
 	}
-	if plan.Limit < 0 {
-		return "", errors.New("limit cannot be negative")
+	if plan.Limit < 0 || plan.Offset < 0 {
+		return "", errors.New("limit and offset cannot be negative")
 	}
 	selects := make([]string, 0, len(plan.Columns)+len(plan.Aggregates))
 	selectNames := make(map[string]struct{}, len(plan.Columns)+len(plan.Aggregates))
@@ -76,8 +82,17 @@ func Compile(plan QueryPlan, product Product) (string, error) {
 		if _, ok := product.AllowedAggregates[fn]; !ok || !safeIdentifier(fn) {
 			return "", fmt.Errorf("aggregate %q is not allowed", aggregate.Function)
 		}
-		if err := allowedColumn(aggregate.Column, product); err != nil {
-			return "", err
+		argument := ""
+		if aggregate.Column == "*" {
+			if fn != "count" {
+				return "", fmt.Errorf("aggregate %q does not accept *", aggregate.Function)
+			}
+			argument = "*"
+		} else {
+			if err := allowedColumn(aggregate.Column, product); err != nil {
+				return "", err
+			}
+			argument = quoteIdentifier(aggregate.Column)
 		}
 		if !safeIdentifier(aggregate.Alias) {
 			return "", errors.New("aggregate alias is invalid")
@@ -86,7 +101,7 @@ func Compile(plan QueryPlan, product Product) (string, error) {
 			return "", fmt.Errorf("duplicate select name %q", aggregate.Alias)
 		}
 		selectNames[aggregate.Alias] = struct{}{}
-		selects = append(selects, fn+"("+quoteIdentifier(aggregate.Column)+") AS "+quoteIdentifier(aggregate.Alias))
+		selects = append(selects, fn+"("+argument+") AS "+quoteIdentifier(aggregate.Alias))
 	}
 
 	var b strings.Builder
@@ -187,6 +202,10 @@ func Compile(plan QueryPlan, product Product) (string, error) {
 	if plan.Limit > 0 {
 		b.WriteString(" LIMIT ")
 		b.WriteString(strconv.Itoa(plan.Limit))
+	}
+	if plan.Offset > 0 {
+		b.WriteString(" OFFSET ")
+		b.WriteString(strconv.Itoa(plan.Offset))
 	}
 	return b.String(), nil
 }

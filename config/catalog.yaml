@@ -32,6 +32,9 @@ products:
     # Stable published-row identity for task-bound exposure accounting.
     snapshot: travel-demo-2026-v1
     entity_key: [month, department, expense_type]
+    # Canonical semantic identity is independent from the reporting view alias.
+    fact_namespace: travel.expense_summary
+    stable_relation_role: expense_summary
     scopes: [department]
     allowed_functions: [date_trunc, to_char]
     allowed_operators: ["=", "<>", "<", "<=", ">", ">=", "+", "-", "*", "/"]
@@ -60,6 +63,8 @@ products:
     sensitivity: high
     snapshot: travel-demo-2026-v1
     entity_key: [receipt_no]
+    fact_namespace: travel.expense_receipt
+    stable_relation_role: expense_detail
     scopes: [department]
     allowed_functions: [date_trunc, to_char]
     allowed_operators: ["=", "<>", "<", "<=", ">", ">=", "+", "-", "*", "/"]
@@ -130,3 +135,23 @@ budget_profiles:
     max_release_facts: 500
     max_influence_facts: 2500
     exposure_profile_version: taskgate-exposure-v1
+  # Opt-in V2 profiles are deliberately separate from V1 routes. A deployment
+  # switches an approval route atomically; one root task can never mix them.
+  - name: summary-auto-v2
+    max_queries: 10
+    max_rows: 500
+    max_db_time: 30s
+    query_timeout: 5s
+    task_ttl: 30m
+    max_release_facts: 1000
+    max_influence_facts: 5000
+    exposure_profile_version: taskgate-exposure-v2
+  - name: detail-manual-v2
+    max_queries: 5
+    max_rows: 100
+    max_db_time: 15s
+    query_timeout: 5s
+    task_ttl: 15m
+    max_release_facts: 500
+    max_influence_facts: 2500
+    exposure_profile_version: taskgate-exposure-v2

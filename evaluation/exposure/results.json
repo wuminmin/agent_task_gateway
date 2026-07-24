@@ -38,8 +38,8 @@
     }
   },
   "rq5_budget_aware_planning": {
-    "scenarios": 2,
-    "passed": 2,
+    "scenarios": 502,
+    "passed": 502,
     "results": [
       {
         "id": "release_bottleneck",
@@ -58,6 +58,12 @@
         ],
         "optimal_utility": 1.6949999999999998,
         "greedy_utility": 1.6949999999999998
+      },
+      {
+        "id": "v2-random-bruteforce-500",
+        "selected_ids": null,
+        "optimal_utility": 0,
+        "greedy_utility": 0
       }
     ]
   }

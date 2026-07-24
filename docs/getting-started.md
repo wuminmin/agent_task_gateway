@@ -182,7 +182,10 @@ MCP `serverInfo.version` 为 `2.0.0`。Alice 可见 14 个任务/查询工具，
 它只保留给旧的 resource-only 兼容 Grant。默认 Demo 应继续使用
 `execute_plan`，例如上面的聚合。
 
-在执行前，可让 `plan_exposure` 从已估算的候选表示中选择双预算内的最大效用组合：
+V1 任务仍可在执行前让 `plan_exposure` 从已估算的标量候选中选择组合。
+`taskgate-exposure-v2` 任务改为提交候选 QueryPlan；该调用会实际执行全部候选、
+在锁定后的最新 root ledger 上规划并原子结算，只返回选中结果。V2 示例和语义见
+[`exposure-v2.md`](exposure-v2.md)。V1 兼容示例：
 
 ```json
 {
@@ -208,7 +211,7 @@ Planner 只使用调用方提供的可测量 completeness、coverage 和成本�
 - `get_task_context`：获批产品、字段、Scope、凭证与期限。
 - `get_budget`：查询数、累计行数和累计 DB 毫秒的上限、已用、预留和剩余值，并在 exposure 启用时返回根任务双账本。
 - `get_query_result`：Alice 按 `task_id + query_id` 读取 AES-256-GCM 加密保存的结果。
-- `list_receipts`：成功 exposure 查询使用 Gateway Ed25519 V4 回执，额外绑定 root task、Profile、actual/charged 双事实数和 observation SHA-256；无 exposure evidence 的兼容终态使用 V3。
+- `list_receipts`：单查询 exposure 结算使用 V4；V2 候选规划使用 V5，额外绑定全部候选、选中集合、snapshot bundle、planner 与联合 Effect；无 exposure evidence 的兼容终态使用 V3。
 - `complete_task`：主动归档任务。
 - `revoke_task`：阻止新查询；已在途查询不会被宣称立即取消，仍受原超时和 Grant 到期约束。
 
