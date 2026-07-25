@@ -128,8 +128,10 @@ docker compose down
 
 `make eval-exposure` 运行可审计的 ground truth、由独立 oracle 校验的
 1,024 个唯一 PostgreSQL 等价改写、
-anti-arbitrage cases、计费基线与双预算 planner oracle。它不会把尚未执行的
-外部 PostgreSQL 开销实验伪装成结果。`make paper` 构建新的 TKDE 工作稿；
+anti-arbitrage cases、计费基线、双预算 planner oracle 和 120 条 gold-scored
+agent-task traces。`evaluation/exposure-performance/results.json` 保存三次独立
+PostgreSQL 全路径 trial 的 31,296 个 RQ4 观测；该结果限定为本地十行 fixture，
+不冒充 TPC 或生产规模。`make paper` 构建新的 TKDE 工作稿；
 旧的安全网关稿仍可用 `make paper-tdsc` 构建。
 
 设置 `GATEWAY_RESULT_RETENTION_TTL` 会让 Gateway 定期删除超过保留期的结果密文，同时保留查询记录、回执和审计证据。每个结果密文还绑定 `GATEWAY_DATA_KEY_ID` 并登记在 `result_encryption_keys`；带 `GATEWAY_ADMIN_TOKEN` 的管理员可以擦除 key ID，使对应密文保留但后续读取 fail closed。该 Demo 不销毁外部 KMS 中的真实 key material，生产环境需要把 key ID 擦除接入 KMS/HSM/Secret Manager。设置 `GATEWAY_ADMIN_TOKEN` 也会启用本机管理员接口，用于手动 purge 以及设置/释放 legal hold；active hold 会阻止对应任务的结果密文被清理。

@@ -35,19 +35,16 @@ did not match.
   multiplicity, and snapshot-update cases run here. Task-family delegation and
   concurrent settlement are identified separately and run by the PostgreSQL
   race suite in `internal/control` and `internal/gateway`.
-- **RQ4:** the report contrasts query-count, row-count, serialized-byte,
-  weighted-cell, no-history provenance, and full history-aware charges. Runtime
-  overhead is deliberately `not_measured` until a fresh external PostgreSQL
-  campaign is recorded. `../exposure-performance/` now provides the real
-  public-MCP path, five-stage ablation, ledger/lock/history instrumentation,
-  and a local Compose smoke; the bundled demo result remains engineering
-  evidence and is not promoted to a publication claim. Go benchmarks are
-  development diagnostics, not paper measurements.
+- **RQ4:** `../exposure-performance/results.json` records three fresh isolated
+  PostgreSQL deployments, 31,296 operations, five-stage ablation,
+  latency/throughput, component timing, ledger growth, memory, contention, and
+  history-hit metrics. The result is explicitly a controlled local fixture
+  campaign rather than a TPC or production-scale measurement.
 - **RQ5:** exact dual-budget optimization is checked against declared expected
-  choices and a deterministic utility-greedy baseline using answer completeness
-  and query coverage only.
+  choices and 500 brute-force instances. `../agenttasks/` separately replays
+  120 four-part database-agent traces and scores selected answer tokens against
+  gold assertions without consulting planner utility values.
 
-`corpus.json` and the PostgreSQL oracle fixture are intentionally small enough
-to audit. Publication-scale TPC-H, TPC-DS, second-engine, agent-task, and
-overhead campaigns remain external experiments and must retain their own data,
-environment, and run provenance.
+`corpus.json`, the PostgreSQL oracle fixture, and the agent-task generator are
+intentionally small enough to audit. TPC-scale, second-engine, multi-node, and
+live-LLM generalization remain outside the reported scope.

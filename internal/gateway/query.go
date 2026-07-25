@@ -970,6 +970,11 @@ func BuildQueryReceiptRequest(evidence control.QueryReceipt, signer *queryreceip
 		return control.SaveQueryReceiptRequest{}, fmt.Errorf("terminal query is missing durable budget or timestamp evidence")
 	}
 	signedAt = signedAt.UTC()
+	if signedAt.Before(record.CompletedAt.UTC()) {
+		// Preserve causal receipt ordering even if the host wall clock is
+		// adjusted backwards between settlement and signing.
+		signedAt = record.CompletedAt.UTC()
+	}
 	version := queryreceipt.VersionV3
 	var exposureEvidence *queryreceipt.ExposureEvidenceV1
 	if evidence.Exposure != nil {

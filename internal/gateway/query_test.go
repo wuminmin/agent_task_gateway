@@ -23,6 +23,26 @@ const (
 	testExposureProfile = "taskgate-exposure-v1"
 )
 
+func TestReceiptSigningClampsRegressedWallClock(t *testing.T) {
+	harness := newGatewayHarness(t)
+	harness.createActiveSummaryTask(t, "task-receipt-clock")
+	result := mustCallGatewayTool(t, harness.service, harness.alice, "query_sql", map[string]any{
+		"task_id": "task-receipt-clock", "request_id": "receipt-clock-1", "sql": testSummarySQL,
+	})
+	evidence, err := harness.store.GetQueryReceipt(t.Context(), result["query_id"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := BuildQueryReceiptRequest(evidence, harness.service.queryReceiptSigner,
+		evidence.Query.CreatedAt.Add(-time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if evidence.Query.CompletedAt == nil || request.SignedAt.Before(*evidence.Query.CompletedAt) {
+		t.Fatalf("signed_at %s precedes completed_at %v", request.SignedAt, evidence.Query.CompletedAt)
+	}
+}
+
 func TestExposurePlanHidesMeteringKeysAndDeduplicatesReplay(t *testing.T) {
 	harness := newGatewayHarness(t)
 	harness.createExposureSummaryTask(t, "task-exposure-plan", control.ExposureLimits{ReleaseFacts: 20, InfluenceFacts: 20})

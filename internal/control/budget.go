@@ -335,6 +335,10 @@ func settleBudgetTx(ctx context.Context, tx *sql.Tx, now time.Time, settlement B
 		}
 		return QueryRecord{}, AuditEvent{}, fmt.Errorf("reservation not found: query is %s", record.Status)
 	}
+	// Wall clocks can move backwards by a few microseconds under host time
+	// synchronization. A terminal receipt must nevertheless preserve the causal
+	// order established by the reservation and settlement transactions.
+	now = notBefore(now, record.CreatedAt)
 	if status != QueryCompleted && status != QueryReleased && status != QueryFailed && status != QueryIndeterminate {
 		return QueryRecord{}, AuditEvent{}, fmt.Errorf("invalid settlement status %q", status)
 	}
@@ -436,6 +440,13 @@ WHERE id=$12 AND status='RESERVED'`, status, settlement.Rows, settlement.DBMS, o
 	completedAt := dbTime(now)
 	record.CompletedAt = &completedAt
 	return record, audit, nil
+}
+
+func notBefore(value, lowerBound time.Time) time.Time {
+	if value.Before(lowerBound) {
+		return lowerBound
+	}
+	return value
 }
 
 func terminalAuditForQueryTx(ctx context.Context, tx *sql.Tx, queryID string) (AuditEvent, error) {

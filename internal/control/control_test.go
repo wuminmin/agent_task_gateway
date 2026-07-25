@@ -18,6 +18,17 @@ type fixedClock struct{ value time.Time }
 
 func (clock fixedClock) Now() time.Time { return clock.value }
 
+func TestNotBeforePreservesCausalTimestampOrder(t *testing.T) {
+	created := time.Date(2026, 7, 25, 12, 0, 0, 500, time.UTC)
+	if got := notBefore(created.Add(-time.Microsecond), created); !got.Equal(created) {
+		t.Fatalf("regressed timestamp = %s, want lower bound %s", got, created)
+	}
+	later := created.Add(time.Microsecond)
+	if got := notBefore(later, created); !got.Equal(later) {
+		t.Fatalf("monotonic timestamp = %s, want %s", got, later)
+	}
+}
+
 const controlTestDigest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 func testCipher(t *testing.T, fill byte) *AES256GCM {

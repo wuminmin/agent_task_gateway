@@ -13,6 +13,9 @@ PAPER_DIR = Path(__file__).resolve().parent
 ROOT = PAPER_DIR.parent.parent
 RESULT = ROOT / "evaluation/exposure/results.json"
 CORPUS = ROOT / "evaluation/exposure/corpus.json"
+PERFORMANCE = ROOT / "evaluation/exposure-performance/results.json"
+PERFORMANCE_ENVIRONMENT = ROOT / "evaluation/exposure-performance/environment.json"
+AGENT_CORPUS = ROOT / "evaluation/agenttasks/corpus.json"
 FORMAL = ROOT / "formal/results/exposure_ledger.json"
 OUTPUT = PAPER_DIR / "generated/evidence.tex"
 
@@ -38,6 +41,10 @@ def comma(value: int) -> str:
     return f"{value:,}"
 
 
+def decimal(value: float, digits: int = 1) -> str:
+    return f"{value:.{digits}f}"
+
+
 def validate_exposure() -> dict:
     report = load_json(RESULT)
     require(report.get("schema_version") == 1, "unsupported exposure report schema")
@@ -47,6 +54,7 @@ def validate_exposure() -> dict:
     rq2 = report.get("rq2_rewrite_invariance", {})
     rq3 = report.get("rq3_anti_arbitrage", {})
     rq5 = report.get("rq5_budget_aware_planning", {})
+    agent = report.get("rq5_agent_tasks", {})
     require(rq1.get("cases", 0) > 0 and rq1.get("passed") == rq1.get("cases"), "RQ1 is incomplete")
     require(
         rq2.get("generated_pairs") == 1024
@@ -73,13 +81,68 @@ def validate_exposure() -> dict:
         == rq3.get("cases", 0) - rq3.get("deterministic_cases", 0),
         "RQ3 integration-case manifest is inconsistent",
     )
-    require(rq5.get("scenarios", 0) > 0 and rq5.get("passed") == rq5.get("scenarios"), "RQ5 is incomplete")
+    require(rq5.get("scenarios", 0) > 0 and rq5.get("passed") == rq5.get("scenarios"), "RQ5 planner oracle is incomplete")
     require(
         report.get("rq4_runtime_overhead_status")
-        == "not_measured_requires_external_postgresql_campaign",
-        "RQ4 must remain explicitly unmeasured",
+        == "measured_controlled_local_postgresql_campaign",
+        "RQ4 status is stale",
+    )
+    require(
+        agent.get("status") == "complete"
+        and agent.get("corpus_sha256") == sha256(AGENT_CORPUS)
+        and agent.get("seed") == 20260725
+        and agent.get("tasks") == 120
+        and agent.get("objectives") == 24
+        and agent.get("budget_profiles") == 5,
+        "RQ5 agent-task campaign is incomplete",
+    )
+    policies = {item.get("policy"): item for item in agent.get("policies", [])}
+    require(
+        set(policies) == {"taskgate_exact", "utility_greedy", "taskgate_exact_no_history"}
+        and all(item.get("tasks") == 120 and item.get("budget_violations") == 0 for item in policies.values())
+        and policies["taskgate_exact"].get("task_successes", 0) > policies["utility_greedy"].get("task_successes", 0)
+        and policies["taskgate_exact"].get("mean_answer_completeness", 0)
+        > policies["utility_greedy"].get("mean_answer_completeness", 0),
+        "RQ5 agent-task policy results are invalid",
     )
     return report
+
+
+def validate_performance() -> dict:
+    result = load_json(PERFORMANCE)
+    require(result.get("schema_version") == 1, "unsupported RQ4 report schema")
+    require(result.get("status") == "complete_controlled_local_campaign", "RQ4 campaign is incomplete")
+    require(result.get("trials") == 3 and result.get("observations") == 31296, "RQ4 trial/sample count is incomplete")
+    require(result.get("environment_sha256") == sha256(PERFORMANCE_ENVIRONMENT), "RQ4 environment digest is stale")
+    configuration = result.get("configuration", {})
+    require(
+        configuration.get("concurrency") == [1, 4, 8]
+        and configuration.get("runs_per_worker") == 200
+        and configuration.get("ramp_runs") == 32
+        and configuration.get("task_concurrency_mode") == "delegated_tasks_shared_root",
+        "RQ4 configuration is unexpected",
+    )
+    require(len(result.get("raw_provenance", [])) == 3, "RQ4 raw provenance is incomplete")
+    cells = {(item.get("phase"), item.get("concurrency")): item for item in result.get("cells", [])}
+    for key in (
+        ("business_sql", 1),
+        ("paired_snapshot", 1),
+        ("paired_plus_algebra", 1),
+        ("full_history_ramp", 1),
+        ("full_history_hit", 1),
+        ("full_history_hit", 4),
+        ("full_history_hit", 8),
+    ):
+        require(key in cells, f"RQ4 omits cell {key}")
+    for concurrency in (1, 4, 8):
+        hit = cells[("full_history_hit", concurrency)]
+        require(
+            hit.get("fact_history_hit_rate") == 1
+            and hit.get("query_history_hit_rate") == 1
+            and hit.get("ledger_growth", {}).get("fact_rows") == 0,
+            f"RQ4 history-hit cell {concurrency} is inconsistent",
+        )
+    return result
 
 
 def validate_formal() -> dict:
@@ -109,11 +172,22 @@ def validate_formal() -> dict:
 
 def main() -> None:
     report = validate_exposure()
+    performance = validate_performance()
     formal = validate_formal()
     rq1 = report["rq1_ground_truth"]
     rq2 = report["rq2_rewrite_invariance"]
     rq3 = report["rq3_anti_arbitrage"]
     rq5 = report["rq5_budget_aware_planning"]
+    agent = report["rq5_agent_tasks"]
+    policies = {item["policy"]: item for item in agent["policies"]}
+    performance_cells = {(item["phase"], item["concurrency"]): item for item in performance["cells"]}
+    direct_one = performance_cells[("business_sql", 1)]
+    paired_one = performance_cells[("paired_snapshot", 1)]
+    algebra_one = performance_cells[("paired_plus_algebra", 1)]
+    full_one = performance_cells[("full_history_hit", 1)]
+    full_four = performance_cells[("full_history_hit", 4)]
+    full_eight = performance_cells[("full_history_hit", 8)]
+    ramp = performance_cells[("full_history_ramp", 1)]
     baseline = report["charge_baselines"]
     first = baseline["full_first"]
     replay = baseline["full_replay"]
@@ -132,6 +206,30 @@ def main() -> None:
         rf"\newcommand{{\RQThreeIntegration}}{{{len(rq3['postgres_integration_ids'])}}}",
         rf"\newcommand{{\RQFiveCases}}{{{rq5['scenarios']}}}",
         rf"\newcommand{{\RQFivePassed}}{{{rq5['passed']}}}",
+        rf"\newcommand{{\RQFourTrials}}{{{performance['trials']}}}",
+        rf"\newcommand{{\RQFourObservations}}{{{comma(performance['observations'])}}}",
+        rf"\newcommand{{\RQFourDirectOneMedian}}{{{decimal(direct_one['latency_ms']['p50'], 2)}}}",
+        rf"\newcommand{{\RQFourPairedOneMedian}}{{{decimal(paired_one['latency_ms']['p50'], 2)}}}",
+        rf"\newcommand{{\RQFourAlgebraOneMedian}}{{{decimal(algebra_one['latency_ms']['p50'], 2)}}}",
+        rf"\newcommand{{\RQFourFullOneMedian}}{{{decimal(full_one['latency_ms']['p50'])}}}",
+        rf"\newcommand{{\RQFourFullOneTail}}{{{decimal(full_one['latency_ms']['p95'])}}}",
+        rf"\newcommand{{\RQFourFullOneQPS}}{{{decimal(full_one['throughput_qps'])}}}",
+        rf"\newcommand{{\RQFourLockOneTail}}{{{decimal(full_one['component_ms']['exposure_ledger_lock']['p95'])}}}",
+        rf"\newcommand{{\RQFourFullFourMedian}}{{{decimal(full_four['latency_ms']['p50'])}}}",
+        rf"\newcommand{{\RQFourFullFourTail}}{{{decimal(full_four['latency_ms']['p95'])}}}",
+        rf"\newcommand{{\RQFourFullFourQPS}}{{{decimal(full_four['throughput_qps'])}}}",
+        rf"\newcommand{{\RQFourLockFourTail}}{{{decimal(full_four['component_ms']['exposure_ledger_lock']['p95'])}}}",
+        rf"\newcommand{{\RQFourFullEightMedian}}{{{decimal(full_eight['latency_ms']['p50'])}}}",
+        rf"\newcommand{{\RQFourFullEightTail}}{{{decimal(full_eight['latency_ms']['p95'])}}}",
+        rf"\newcommand{{\RQFourFullEightQPS}}{{{decimal(full_eight['throughput_qps'])}}}",
+        rf"\newcommand{{\RQFourLockEightTail}}{{{decimal(full_eight['component_ms']['exposure_ledger_lock']['p95'])}}}",
+        rf"\newcommand{{\RQFourRampFacts}}{{{int(ramp['ledger_growth']['fact_rows'])}}}",
+        rf"\newcommand{{\RQFiveAgentTasks}}{{{agent['tasks']}}}",
+        rf"\newcommand{{\RQFiveExactSuccess}}{{{policies['taskgate_exact']['task_successes']}}}",
+        rf"\newcommand{{\RQFiveGreedySuccess}}{{{policies['utility_greedy']['task_successes']}}}",
+        rf"\newcommand{{\RQFiveNoHistorySuccess}}{{{policies['taskgate_exact_no_history']['task_successes']}}}",
+        rf"\newcommand{{\RQFiveExactCompleteness}}{{{decimal(100 * policies['taskgate_exact']['mean_answer_completeness'])}\%}}",
+        rf"\newcommand{{\RQFiveGreedyCompleteness}}{{{decimal(100 * policies['utility_greedy']['mean_answer_completeness'])}\%}}",
         rf"\newcommand{{\BaseQueryCount}}{{{baseline['query_count']}}}",
         rf"\newcommand{{\BaseRows}}{{{baseline['returned_rows']}}}",
         rf"\newcommand{{\BaseBytes}}{{{baseline['serialized_bytes']}}}",

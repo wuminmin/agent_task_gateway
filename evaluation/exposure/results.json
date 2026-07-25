@@ -30,7 +30,7 @@
     ],
     "postgres_integration_note": "run_go_test_race_with_control_test_postgres_dsn"
   },
-  "rq4_runtime_overhead_status": "not_measured_requires_external_postgresql_campaign",
+  "rq4_runtime_overhead_status": "measured_controlled_local_postgresql_campaign",
   "charge_baselines": {
     "query_count": 1,
     "returned_rows": 2,
@@ -73,6 +73,76 @@
         "selected_ids": null,
         "optimal_utility": 0,
         "greedy_utility": 0
+      }
+    ]
+  },
+  "rq5_agent_tasks": {
+    "schema_version": 1,
+    "status": "complete",
+    "corpus_sha256": "2da7b523b1b25a5c21560498495aaef0e765a049a58768d53bdded846841757e",
+    "seed": 20260725,
+    "objectives": 24,
+    "budget_profiles": 5,
+    "tasks": 120,
+    "requirements_per_task": 4,
+    "candidates_per_task": 8,
+    "scorer": "gold-answer-token-recall-with-per-requirement-threshold-v1",
+    "policies": [
+      {
+        "policy": "taskgate_exact",
+        "tasks": 120,
+        "task_successes": 72,
+        "task_success_rate": 0.6,
+        "mean_answer_completeness": 0.6833333333333335,
+        "budget_violations": 0
+      },
+      {
+        "policy": "utility_greedy",
+        "tasks": 120,
+        "task_successes": 48,
+        "task_success_rate": 0.4,
+        "mean_answer_completeness": 0.55,
+        "budget_violations": 0
+      },
+      {
+        "policy": "taskgate_exact_no_history",
+        "tasks": 120,
+        "task_successes": 48,
+        "task_success_rate": 0.4,
+        "mean_answer_completeness": 0.6333333333333332,
+        "budget_violations": 0
+      }
+    ],
+    "profiles": [
+      {
+        "profile": "balanced",
+        "tasks": 24,
+        "exact_successes": 24,
+        "greedy_successes": 0
+      },
+      {
+        "profile": "release_tight",
+        "tasks": 24,
+        "exact_successes": 0,
+        "greedy_successes": 0
+      },
+      {
+        "profile": "influence_tight",
+        "tasks": 24,
+        "exact_successes": 0,
+        "greedy_successes": 0
+      },
+      {
+        "profile": "ample",
+        "tasks": 24,
+        "exact_successes": 24,
+        "greedy_successes": 24
+      },
+      {
+        "profile": "history_overlap",
+        "tasks": 24,
+        "exact_successes": 24,
+        "greedy_successes": 24
       }
     ]
   }

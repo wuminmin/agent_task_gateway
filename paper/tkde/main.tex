@@ -31,7 +31,6 @@
 \newcommand{\facts}{\mathcal{F}}
 \newcommand{\known}{\mathcal{K}}
 \newcommand{\effect}{\mathcal{E}}
-\newcommand{\notmeasured}{\textcolor{gray}{not measured}}
 \newtheorem{definition}{Definition}
 \newtheorem{property}{Property}
 \newtheorem{theorem}{Theorem}
@@ -42,9 +41,10 @@
 Budget-Constrained Query Processing for Autonomous Database Agents}
 
 \author{Anonymous Author(s)%
-\thanks{Working manuscript. The current artifact establishes semantics and
-finite-scope correctness evidence but does not yet contain the publication-scale
-overhead and agent-task campaigns required for submission.}}
+\thanks{The artifact includes a controlled local PostgreSQL performance
+campaign and deterministic, externally scored agent-task trace replay. Results
+are scoped to the bundled fixture, one host, and non-LLM policies; they do not
+claim TPC-scale or live-model generality.}}
 \date{}
 
 \begin{document}
@@ -66,8 +66,12 @@ ledger. We define compositional semantics for a positive relational fragment
 with grouping and four aggregates, implement an exact dual-budget representation
 planner, and check a finite ledger model. A deterministic artifact validates
 ground truth, 1,024 unique PostgreSQL-checked rewrites, anti-arbitrage cases,
-and planner oracles. We
-report runtime overhead and end-to-end agent utility as not yet measured.
+and planner oracles. Across three local trials and 31,296 measured operations,
+a warm full-path history hit has 12.1-ms median and 14.2-ms p95 latency at one
+worker; at eight workers p95 rises to 70.5~ms as root-ledger lock p95 reaches
+40.5~ms. On 120 externally scored four-part agent-task traces, exact planning
+achieves 60\% task success versus 40\% for utility-greedy selection, with no
+budget violation.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -128,8 +132,8 @@ whose settlement charges exactly novel facts and withholds over-budget results.
 an exact planner for choosing raw, projected, aggregate, or generalized
 representations under two budgets.
 \item Executable ground truth, rewrite and anti-arbitrage tests, a finite TLA+
-model, and a claim ledger that distinguishes completed evidence from required
-publication-scale experiments.
+model, a repeated full-path PostgreSQL overhead campaign, and externally scored
+budget-constrained agent-task traces.
 \end{enumerate}
 
 The implementation does \emph{not} claim arbitrary SQL equivalence, differential
@@ -680,7 +684,7 @@ does not mechanically prove that Go/PostgreSQL refines TLA+. The repository
 therefore includes an action-to-method-to-transaction-to-test refinement map
 rather than claiming a proof that does not exist.
 
-\section{Evaluation Status}
+\section{Evaluation}
 \label{sec:evaluation}
 
 \subsection{Questions and Reproducibility}
@@ -693,7 +697,9 @@ source-controlled V1 algebra corpus with seed \code{20260723} and digest prefix
 \ExposureCorpusHash{}. RQ2 additionally runs a real PostgreSQL~16
 differential/metamorphic campaign against an independent fixture evaluator.
 RQ5 includes 500 V2 exact-planner instances with seed \code{20260724} checked
-against an independent brute-force oracle.
+against an independent brute-force oracle, plus 120 agent-task traces scored
+against gold answer assertions. RQ4 contains \RQFourTrials{} fresh isolated
+PostgreSQL deployments and \RQFourObservations{} measured operations.
 
 \begin{table}[t]
 \centering
@@ -707,8 +713,8 @@ RQ & Current result \\
 RQ1 & \RQOnePassed{}/\RQOneCases{} committed fact-set digests match \\
 RQ2 & \RQTwoUnique{} unique rewrites (\RQTwoTemplates{} templates); \RQTwoMismatches{} mismatches \\
 RQ3 & \RQThreePassed{}/\RQThreeCases{} deterministic cases; \RQThreeIntegration{} PostgreSQL integration cases declared separately \\
-RQ4 & \notmeasured{}; external PostgreSQL campaign required \\
-RQ5 & \RQFivePassed{}/\RQFiveCases{} exact planner oracles; no agent task-success study \\
+RQ4 & \RQFourObservations{} operations/\RQFourTrials{} trials; full hit p50/p95 $=\RQFourFullOneMedian{}/\RQFourFullOneTail{}$ ms at $c=1$ \\
+RQ5 & \RQFiveAgentTasks{} traces: exact \RQFiveExactSuccess{}/\RQFiveAgentTasks{} vs. greedy \RQFiveGreedySuccess{}/\RQFiveAgentTasks{} successes \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -755,26 +761,78 @@ Full, replay $(r,i)$ & \BaseReplay{} \\
 \end{tabular}
 \end{table}
 
-In one planner scenario, utility-greedy selection obtains $1.0$ while the exact
-dual-budget plan obtains $1.6$; in the second, both obtain $1.695$. These two
-oracles establish implementation correctness on the fixtures, not a general
-advantage or an agent-level success claim.
+\subsection{RQ4: End-to-End Overhead and Contention}
 
-\subsection{Required Publication Campaign}
+The controlled local campaign uses an i9-13900HX host with 32 logical CPUs and
+16.6~GB RAM under WSL2/Docker 29.1.3. Each of three trials creates fresh
+Business and Control PostgreSQL~16.14 databases, a gateway, one root task, and
+eight delegated workers. After a 32-query history ramp, each worker issues 200
+measured warm-cache queries at concurrency 1, 4, and 8. Every full-path request
+enters through public MCP and includes authorization, reservation, paired
+visible/provenance execution, effect derivation, exact history lookup,
+transactional settlement, encryption, audit, and receipt signing. Results use
+the median of trial summaries; each trial percentile is Hyndman--Fan type~7.
 
-The current artifact is not sufficient for a TKDE empirical claim. A submission
-campaign must add: complete TPC-H and TPC-DS query families at multiple scales;
-workload-derived equivalent rewrites beyond the eight current templates; a second
-database engine or a justified portability boundary; multi-agent task traces;
-and isolated ablations for paired lineage, history lookup, immutable fact
-storage, and signed settlement. The artifact now contains a local end-to-end
-smoke driver at \code{evaluation/exposure-performance}; it establishes the
-measurement path but its ten-sample demo cells are not included in
-Table~\ref{tab:current-evidence}. RQ4 must report latency percentiles, throughput,
-business/provenance database time, gateway CPU and memory, ledger growth, and
-settlement contention. RQ5 must use externally scored task correctness or
-answer completeness under matched budgets. Raw observations, environment
-manifests, query transformations, and failures must remain available.
+At concurrency one, median p50 latency rises from
+\RQFourDirectOneMedian{}~ms for Business PostgreSQL alone, through
+\RQFourPairedOneMedian{}~ms for the paired snapshot and
+\RQFourAlgebraOneMedian{}~ms with effect derivation, to
+\RQFourFullOneMedian{}~ms for the complete path. Table~\ref{tab:rq4} shows the
+full-path scaling result. Throughput saturates near 170 queries/s: the shared
+root ledger intentionally serializes descendants, and its p95 lock component
+grows from \RQFourLockOneTail{} to \RQFourLockEightTail{}~ms. This identifies
+settlement, rather than provenance execution, as the dominant bottleneck at
+high concurrency.
+
+\begin{table}[t]
+\centering
+\caption{Warm full-path history-hit performance; median over three trials.}
+\label{tab:rq4}
+\small
+\begin{tabular}{rrrrr}
+\toprule
+$c$ & p50 ms & p95 ms & query/s & lock p95 ms \\
+\midrule
+1 & \RQFourFullOneMedian{} & \RQFourFullOneTail{} & \RQFourFullOneQPS{} & \RQFourLockOneTail{} \\
+4 & \RQFourFullFourMedian{} & \RQFourFullFourTail{} & \RQFourFullFourQPS{} & \RQFourLockFourTail{} \\
+8 & \RQFourFullEightMedian{} & \RQFourFullEightTail{} & \RQFourFullEightQPS{} & \RQFourLockEightTail{} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The ramp inserts \RQFourRampFacts{} immutable facts (12 release and 16
+influence) in every trial. All subsequent hit queries have 100\% fact- and
+query-history hit rates and zero ledger-row growth, confirming that replay cost
+is processing overhead rather than repeated exposure charge.
+
+\subsection{RQ5: Externally Scored Agent Tasks}
+
+Planner correctness alone does not measure usefulness, so we replay a separate
+agent-task corpus with 24 database-analysis objectives crossed with five
+release/influence budget and history profiles (\RQFiveAgentTasks{} traces).
+Each trace has four answer requirements and eight candidate representations.
+The exact and utility-greedy policies receive the same candidate utility
+evidence and budgets. An external scorer then ignores those utility values and
+compares only the selected answer-token payloads with gold assertions; success
+requires at least two of three gold assertions for every requirement.
+
+Exact planning succeeds on \RQFiveExactSuccess{}/\RQFiveAgentTasks{} traces
+(60\%) versus \RQFiveGreedySuccess{}/\RQFiveAgentTasks{} (40\%) for greedy,
+and mean answer completeness is \RQFiveExactCompleteness{} versus
+\RQFiveGreedyCompleteness{}. Removing root history from the exact policy reduces
+success to \RQFiveNoHistorySuccess{}/\RQFiveAgentTasks{}. All three policies
+have zero budget violations. The two hand-written planner cases and 500
+brute-force instances remain algorithmic correctness evidence; the trace
+campaign supplies the separate task-level utility measurement.
+
+\subsection{Reproducibility Boundary}
+
+The performance result is a controlled single-host microbenchmark on the
+bundled ten-row travel fixture, not a TPC-H/TPC-DS or production-scale claim.
+The agent campaign is a deterministic tool-policy replay, not a comparison of
+live language models or prompts. Source-controlled reports bind the environment,
+corpus, code, raw-result and sample digests. These boundaries limit external
+validity but no longer leave RQ4 or RQ5 unmeasured within the stated scope.
 
 \section{Limitations and Threats to Validity}
 \label{sec:limits}
@@ -801,14 +859,15 @@ partitioned settlement, retention, and audited deletion are open design points;
 approximations would require new safety semantics.
 
 \textbf{Planning evidence.} Candidate costs and effects are server generated;
-utility evidence remains caller supplied. A production planner still needs an
-authenticated or reproducible utility-scoring adapter. Random small-instance
-brute-force comparisons validate optimization logic, not external utility.
+utility evidence remains caller supplied. The gold-answer trace scorer measures
+the consequence of selection independently, but it does not authenticate
+utility at runtime or test model-generated candidates. Production still needs
+an authenticated scoring adapter and live-agent evaluation.
 
 \textbf{Deployment.} The prototype has one gateway instance, static local
 tokens, an in-memory approval demo, and one PostgreSQL connector. It lacks a
-distributed execution lease, centralized key custody, and publication-scale
-operational evidence.
+distributed execution lease and centralized key custody. The measured
+single-host fixture does not establish multi-node scaling or production SLOs.
 
 \section{Conclusion}
 
@@ -817,10 +876,14 @@ accounting additionally constrains what its entire delegated workload may
 accumulate. \system realizes that distinction with stable facts, separate
 release and source-influence sets, same-snapshot provenance, atomic novel-fact
 settlement, and an exact dual-budget representation planner. The current
-artifact establishes a coherent semantic and systems foundation and finds no
-violation in a finite ledger model. Its small deterministic corpus is evidence
-of implementation agreement, not a substitute for the overhead and agent-task
-campaign still required before submission.
+artifact establishes a coherent semantic and systems foundation, finds no
+violation in a finite ledger model, and observes zero mismatch across 1,024
+unique PostgreSQL rewrites. The full path has 12.1-ms p50 latency at one worker
+and exposes root-ledger serialization at higher concurrency. Exact planning
+improves externally scored trace success from 40\% to 60\% under matched
+budgets. These empirical results answer RQ4 and RQ5 for the declared local and
+deterministic scope; TPC-scale, multi-node, and live-LLM generalization remain
+outside the claims.
 
 \bibliographystyle{IEEEtran}
 \bibliography{references}

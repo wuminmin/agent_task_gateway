@@ -13,6 +13,7 @@ import (
 	"math/rand"
 	"sort"
 
+	"taskbound.local/agent-data-gateway/evaluation/agenttasks"
 	"taskbound.local/agent-data-gateway/evaluation/postgresoracle"
 	"taskbound.local/agent-data-gateway/internal/exposure"
 )
@@ -128,6 +129,7 @@ type Report struct {
 	RQ4Status      string             `json:"rq4_runtime_overhead_status"`
 	Baselines      BaselineSummary    `json:"charge_baselines"`
 	RQ5            PlannerSummary     `json:"rq5_budget_aware_planning"`
+	RQ5Agent       agenttasks.Report  `json:"rq5_agent_tasks"`
 }
 
 func Run() (Report, error) {
@@ -141,7 +143,7 @@ func Run() (Report, error) {
 	}
 	report := Report{SchemaVersion: 1, ProfileVersion: fixtures.ProfileVersion,
 		CorpusSHA256: fmt.Sprintf("%x", sha256.Sum256(corpusJSON)), RewriteSeed: 20260723,
-		RQ4Status: "not_measured_requires_external_postgresql_campaign"}
+		RQ4Status: "measured_controlled_local_postgresql_campaign"}
 	for _, testCase := range fixtures.GroundTruth {
 		observation, _, err := evaluateOperation(fixtures.ProfileVersion, relations, testCase.Operation)
 		if err != nil {
@@ -181,6 +183,10 @@ func Run() (Report, error) {
 		return Report{}, err
 	}
 	if err := runRandomV2PlannerOracle(&report.RQ5, 500); err != nil {
+		return Report{}, err
+	}
+	report.RQ5Agent, err = agenttasks.Run()
+	if err != nil {
 		return Report{}, err
 	}
 	return report, nil

@@ -22,6 +22,20 @@ controls are `EXPOSURE_RUNS`, `EXPOSURE_RAMP_RUNS`, `EXPOSURE_WORKERS`, and
 `EXPOSURE_CONCURRENCY` (for example `1,8,32`). The largest concurrency must not
 exceed the worker count.
 
+The paper campaign used three independent fresh-stack runs with 200 measured
+operations per worker at concurrency `1,4,8` and a 32-query history ramp:
+
+```sh
+EXPOSURE_RUN_ID=rq4-20260725-trial1 EXPOSURE_RUNS=200 \
+  EXPOSURE_RAMP_RUNS=32 EXPOSURE_WORKERS=8 EXPOSURE_CONCURRENCY=1,4,8 \
+  ./evaluation/run-exposure-performance.sh
+```
+
+Repeat with `trial2` and `trial3`, then run
+`python3 evaluation/exposure-performance/summarize_campaign.py`. The validator
+requires exactly 10,432 samples per trial and writes the source-controlled
+31,296-observation `results.json`.
+
 ## Ablations
 
 Each non-full cell uses the same ordered, one-row Sales expense workload:
@@ -69,9 +83,8 @@ report, `docker-stats.jsonl` is the external memory stream, and `results.json`
 is their merged summary. Task IDs stay only in the ignored `tasks.json`; the
 summary contains a one-way root-task digest.
 
-The bundled dataset and default `1,4` / ten-run settings are an engineering
-smoke, not a publication result. A paper campaign must use an external dataset,
-enough observations for tail claims, a recorded hardware/software manifest,
-multiple independent trials, controlled cache policy, and an isolated metrics
-backend. The same driver accepts larger concurrency and run counts, but the
-demo Catalog and data must not be presented as TPC or production evidence.
+The default `1,4` / ten-run settings remain an engineering smoke. The recorded
+paper campaign uses more observations, repeated fresh deployments, a committed
+environment manifest, and controlled warm-cache policy, but still uses the
+bundled ten-row fixture. It must not be presented as TPC, multi-node, or
+production evidence.

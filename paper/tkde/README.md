@@ -16,8 +16,10 @@ exposure report. `generate_evidence.py` then verifies:
 - the report's `corpus.json` SHA-256 and fixed rewrite seed;
 - RQ2's independent-oracle fixture digest, real PostgreSQL 16 version,
   generated/unique rewrite counts, check counts, and zero mismatches;
-- complete RQ1/RQ2/RQ3/RQ5 deterministic results;
-- the explicit `not_measured` status for RQ4 runtime overhead; and
+- complete RQ1/RQ2/RQ3 planner-oracle results;
+- the three-trial, 31,296-observation RQ4 performance report and environment
+  digest;
+- the 120-trace RQ5 gold-answer scoring report; and
 - the model, configuration, and raw-log hashes in
   `formal/results/exposure_ledger.json`.
 
@@ -25,12 +27,9 @@ It then emits `generated/evidence.tex` and compiles `main.tex` with a pinned
 Docker TeX environment. A local TeX syntax build is available through
 `paper/tkde/build.sh`, but it still uses Docker for the exposure evaluation.
 
-The draft intentionally says that publication-scale overhead, second-engine,
-full TPC-H/TPC-DS, and agent task-success campaigns are not measured. The old
-TDSC manuscript remains available through `make paper-tdsc` for provenance and
-comparison; its results are not relabeled as exposure evidence.
-
-The engineering smoke in `evaluation/exposure-performance/` exercises the real
-public MCP/OA/PostgreSQL path and records latency, throughput, memory, ledger
-growth, contention, and history hits. It validates the measurement machinery;
-the evidence generator deliberately does not upgrade that demo run to RQ4.
+The draft reports a controlled single-host result rather than claiming
+TPC-scale, second-engine, multi-node, or live-LLM generality. The old TDSC
+manuscript remains available through `make paper-tdsc`; its results are not
+relabeled as exposure evidence. `evaluation/exposure-performance/results.json`
+and `evaluation/exposure/results.json` are the source-controlled RQ4/RQ5
+interchange files consumed by the paper build.

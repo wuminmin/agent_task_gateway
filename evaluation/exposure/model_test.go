@@ -18,8 +18,12 @@ func TestExposureEvaluationCorpus(t *testing.T) {
 		report.RQ5.Passed != report.RQ5.Scenarios {
 		t.Fatalf("incomplete exposure report: %+v", report)
 	}
-	if report.RQ4Status != "not_measured_requires_external_postgresql_campaign" {
-		t.Fatalf("RQ4 status overclaims measurement: %q", report.RQ4Status)
+	if report.RQ4Status != "measured_controlled_local_postgresql_campaign" {
+		t.Fatalf("RQ4 status is stale: %q", report.RQ4Status)
+	}
+	if report.RQ5Agent.Status != "complete" || report.RQ5Agent.Tasks != 120 ||
+		len(report.RQ5Agent.Policies) != 3 {
+		t.Fatalf("RQ5 agent-task report is incomplete: %+v", report.RQ5Agent)
 	}
 	if len(report.CorpusSHA256) != 64 || report.RewriteSeed != 20260723 {
 		t.Fatalf("report provenance = sha %q seed %d", report.CorpusSHA256, report.RewriteSeed)
