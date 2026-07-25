@@ -11,7 +11,8 @@ RUN test -z "$(gofmt -l evaluation)" \
     && go test ./evaluation/... \
     && CGO_ENABLED=1 go build -trimpath -o /out/eval-runner ./evaluation/cmd/runner \
     && CGO_ENABLED=1 go build -trimpath -o /out/ast-gateway ./evaluation/cmd/ast-gateway \
-    && CGO_ENABLED=1 go build -trimpath -o /out/exposure-eval ./evaluation/cmd/exposure-eval
+    && CGO_ENABLED=1 go build -trimpath -o /out/exposure-eval ./evaluation/cmd/exposure-eval \
+    && CGO_ENABLED=1 go build -trimpath -o /out/exposure-bench ./evaluation/cmd/exposure-bench
 
 FROM debian:bookworm-slim AS runner
 RUN apt-get update \
@@ -36,6 +37,13 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /out/exposure-eval /usr/local/bin/exposure-eval
 ENTRYPOINT ["/usr/local/bin/exposure-eval"]
+
+FROM debian:bookworm-slim AS exposure-bench
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=build /out/exposure-bench /usr/local/bin/exposure-bench
+ENTRYPOINT ["/usr/local/bin/exposure-bench"]
 
 FROM python:3.12.4-slim-bookworm AS artifacts
 WORKDIR /workspace

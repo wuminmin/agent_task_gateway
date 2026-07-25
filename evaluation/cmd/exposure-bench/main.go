@@ -67,20 +67,20 @@ type taskPool struct {
 }
 
 type sample struct {
-	Phase                  string             `json:"phase"`
-	Concurrency            int                `json:"concurrency"`
-	Worker                 int                `json:"worker"`
-	Iteration              int                `json:"iteration"`
-	LatencyMS              float64            `json:"latency_ms"`
-	DatabaseMS             float64            `json:"database_ms,omitempty"`
-	ComponentMS            map[string]float64 `json:"component_ms,omitempty"`
-	ActualReleaseFacts     int64              `json:"actual_release_facts,omitempty"`
-	ActualInfluenceFacts   int64              `json:"actual_influence_facts,omitempty"`
-	ChargedReleaseFacts    int64              `json:"charged_release_facts,omitempty"`
-	ChargedInfluenceFacts  int64              `json:"charged_influence_facts,omitempty"`
-	ObservationSHA256      string             `json:"observation_sha256,omitempty"`
-	Rows                   int64              `json:"rows"`
-	RequestID              string             `json:"request_id,omitempty"`
+	Phase                 string             `json:"phase"`
+	Concurrency           int                `json:"concurrency"`
+	Worker                int                `json:"worker"`
+	Iteration             int                `json:"iteration"`
+	LatencyMS             float64            `json:"latency_ms"`
+	DatabaseMS            float64            `json:"database_ms,omitempty"`
+	ComponentMS           map[string]float64 `json:"component_ms,omitempty"`
+	ActualReleaseFacts    int64              `json:"actual_release_facts"`
+	ActualInfluenceFacts  int64              `json:"actual_influence_facts"`
+	ChargedReleaseFacts   int64              `json:"charged_release_facts"`
+	ChargedInfluenceFacts int64              `json:"charged_influence_facts"`
+	ObservationSHA256     string             `json:"observation_sha256,omitempty"`
+	Rows                  int64              `json:"rows"`
+	RequestID             string             `json:"request_id,omitempty"`
 }
 
 type distribution struct {
@@ -94,12 +94,12 @@ type distribution struct {
 }
 
 type ledgerSnapshot struct {
-	ReleaseUsed       int64 `json:"release_used"`
-	InfluenceUsed     int64 `json:"influence_used"`
-	FactRows          int64 `json:"fact_rows"`
-	FactPayloadBytes  int64 `json:"fact_payload_bytes"`
-	TableBytes        int64 `json:"table_bytes"`
-	IndexesBytes      int64 `json:"indexes_bytes"`
+	ReleaseUsed      int64 `json:"release_used"`
+	InfluenceUsed    int64 `json:"influence_used"`
+	FactRows         int64 `json:"fact_rows"`
+	FactPayloadBytes int64 `json:"fact_payload_bytes"`
+	TableBytes       int64 `json:"table_bytes"`
+	IndexesBytes     int64 `json:"indexes_bytes"`
 }
 
 type ledgerDelta struct {
@@ -112,31 +112,31 @@ type ledgerDelta struct {
 }
 
 type lockStats struct {
-	Samples                int   `json:"samples"`
-	SamplesWithWaiters     int   `json:"samples_with_waiters"`
-	MaxWaitingSessions     int64 `json:"max_waiting_sessions"`
-	WaitingSessionMillis   int64 `json:"waiting_session_ms_approx"`
-	SamplerErrors          int   `json:"sampler_errors"`
+	Samples              int   `json:"samples"`
+	SamplesWithWaiters   int   `json:"samples_with_waiters"`
+	MaxWaitingSessions   int64 `json:"max_waiting_sessions"`
+	WaitingSessionMillis int64 `json:"waiting_session_ms_approx"`
+	SamplerErrors        int   `json:"sampler_errors"`
 }
 
 type cell struct {
-	Phase                 string                    `json:"phase"`
-	Concurrency           int                       `json:"concurrency"`
-	Samples               int                       `json:"samples"`
-	ElapsedMS             float64                   `json:"elapsed_ms"`
-	ThroughputQPS         float64                   `json:"throughput_qps"`
-	LatencyMS             distribution              `json:"latency_ms"`
-	DatabaseMS            *distribution             `json:"database_ms,omitempty"`
-	ComponentMS           map[string]distribution   `json:"component_ms,omitempty"`
-	ClientPeakHeapBytes   uint64                    `json:"client_peak_heap_bytes"`
-	LedgerBefore          *ledgerSnapshot           `json:"ledger_before,omitempty"`
-	LedgerAfter           *ledgerSnapshot           `json:"ledger_after,omitempty"`
-	LedgerGrowth          *ledgerDelta              `json:"ledger_growth,omitempty"`
-	LockContention        *lockStats                `json:"lock_contention,omitempty"`
-	FactHistoryHitRate    *float64                  `json:"fact_history_hit_rate,omitempty"`
-	QueryHistoryHitRate   *float64                  `json:"query_history_hit_rate,omitempty"`
-	ActualFacts           int64                     `json:"actual_facts,omitempty"`
-	ChargedFacts          int64                     `json:"charged_facts,omitempty"`
+	Phase               string                  `json:"phase"`
+	Concurrency         int                     `json:"concurrency"`
+	Samples             int                     `json:"samples"`
+	ElapsedMS           float64                 `json:"elapsed_ms"`
+	ThroughputQPS       float64                 `json:"throughput_qps"`
+	LatencyMS           distribution            `json:"latency_ms"`
+	DatabaseMS          *distribution           `json:"database_ms,omitempty"`
+	ComponentMS         map[string]distribution `json:"component_ms,omitempty"`
+	ClientPeakHeapBytes uint64                  `json:"client_peak_heap_bytes"`
+	LedgerBefore        *ledgerSnapshot         `json:"ledger_before,omitempty"`
+	LedgerAfter         *ledgerSnapshot         `json:"ledger_after,omitempty"`
+	LedgerGrowth        *ledgerDelta            `json:"ledger_growth,omitempty"`
+	LockContention      *lockStats              `json:"lock_contention,omitempty"`
+	FactHistoryHitRate  *float64                `json:"fact_history_hit_rate,omitempty"`
+	QueryHistoryHitRate *float64                `json:"query_history_hit_rate,omitempty"`
+	ActualFacts         int64                   `json:"actual_facts"`
+	ChargedFacts        int64                   `json:"charged_facts"`
 }
 
 type report struct {
@@ -258,8 +258,8 @@ func bootstrap(ctx context.Context, opts options) error {
 		arguments := map[string]any{
 			"objective":     fmt.Sprintf("Exposure end-to-end benchmark worker %d", index),
 			"data_products": []string{"expense_detail"},
-			"columns": map[string][]string{"expense_detail": {"receipt_no", "department", "amount"}},
-			"scopes":  map[string]any{"department": []string{"销售部"}},
+			"columns":       map[string][]string{"expense_detail": {"receipt_no", "department", "amount"}},
+			"scopes":        map[string]any{"department": []string{"销售部"}},
 			"requested_budget": map[string]int64{"max_queries": 1000, "max_rows": 1000,
 				"max_release_facts": 100000, "max_influence_facts": 500000},
 		}
@@ -269,6 +269,13 @@ func bootstrap(ctx context.Context, opts options) error {
 		var created struct {
 			TaskID string `json:"task_id"`
 			OAURL  string `json:"oa_url"`
+			Budget struct {
+				MaxQueries     int64 `json:"max_queries"`
+				MaxRows        int64 `json:"max_rows"`
+				MaxDBMS        int64 `json:"max_db_ms"`
+				QueryTimeoutMS int64 `json:"query_timeout_ms"`
+				TaskTTLSeconds int64 `json:"task_ttl_seconds"`
+			} `json:"budget"`
 		}
 		if err := mcp.call(ctx, "request_data_task", arguments, &created); err != nil {
 			return fmt.Errorf("request worker task %d: %w", index, err)
@@ -287,7 +294,12 @@ func bootstrap(ctx context.Context, opts options) error {
 		if err := waitTask(ctx, mcp, created.TaskID, "AWAITING_APPROVAL", opts.requestTimeout); err != nil {
 			return err
 		}
-		if err := oaAction(ctx, bob, opts.oaURL, draftID, "decision", "approved"); err != nil {
+		if index == 0 {
+			err = oaAction(ctx, bob, opts.oaURL, draftID, "decision", "approved")
+		} else {
+			err = oaNarrow(ctx, bob, opts.oaURL, draftID, created.Budget)
+		}
+		if err != nil {
 			return fmt.Errorf("approve worker task %d: %w", index, err)
 		}
 		if err := waitTask(ctx, mcp, created.TaskID, "ACTIVE", opts.requestTimeout); err != nil {
@@ -331,7 +343,7 @@ func run(ctx context.Context, opts options) error {
 		Configuration: map[string]any{"runs_per_worker": opts.runs, "ramp_runs": opts.rampRuns,
 			"concurrency": opts.concurrencies, "lock_sample_interval_ms": float64(opts.lockInterval) / float64(time.Millisecond),
 			"workload": "expense_detail/sales/ordered/limit-1", "cache_strategy": "warm", "task_concurrency_mode": "delegated_tasks_shared_root"},
-		TaskFamily: map[string]any{"root_task_sha256": hashString(tasks.RootTaskID), "worker_count": len(tasks.WorkerTaskIDs)},
+		TaskFamily:      map[string]any{"root_task_sha256": hashString(tasks.RootTaskID), "worker_count": len(tasks.WorkerTaskIDs)},
 		MetricSemantics: metricSemantics()}
 	var allSamples []sample
 	for _, concurrency := range opts.concurrencies {
@@ -405,7 +417,10 @@ func runCell(ctx context.Context, opts options, phase string, concurrency int, f
 		go func() {
 			defer wg.Done()
 			for iteration := 0; iteration < iterations; iteration++ {
-				if firstErr != nil {
+				mu.Lock()
+				stopped := firstErr != nil
+				mu.Unlock()
+				if stopped {
 					return
 				}
 				one, err := executeSample(ctx, opts, phase, worker, iteration, connector, mcp, tasks)
@@ -463,7 +478,7 @@ func executeSample(ctx context.Context, opts options, phase string, worker, iter
 		result.DatabaseMS = durationMS(data.DatabaseTime)
 	case "paired_snapshot", "paired_plus_algebra":
 		pair, err := connector.QueryPair(ctx, dataconnector.QueryPairRequest{
-			Visible: dataconnector.QueryRequest{SQL: statement, StatementTimeout: opts.statementTimout, MaxRows: 1},
+			Visible:    dataconnector.QueryRequest{SQL: statement, StatementTimeout: opts.statementTimout, MaxRows: 1},
 			Provenance: dataconnector.QueryRequest{SQL: statement, StatementTimeout: opts.statementTimout, MaxRows: 1},
 		})
 		if err != nil {
@@ -486,7 +501,7 @@ func executeSample(ctx context.Context, opts options, phase string, worker, iter
 		requestID := fmt.Sprintf("expbench-%d-%s-%d-%d", time.Now().UnixNano(), phase, worker, iteration)
 		arguments := map[string]any{"task_id": tasks.WorkerTaskIDs[worker], "request_id": requestID,
 			"plan": map[string]any{"product": "expense_detail", "columns": []string{"receipt_no", "department", "amount"},
-				"filters": []map[string]any{{"column": "department", "op": "=", "value": "销售部"}},
+				"filters":  []map[string]any{{"column": "department", "op": "=", "value": "销售部"}},
 				"order_by": []map[string]any{{"column": "receipt_no", "direction": "asc"}}, "limit": 1, "offset": offset}}
 		var response executeResponse
 		if err := mcp.call(ctx, "execute_plan", arguments, &response); err != nil {
@@ -598,7 +613,7 @@ func summarizeCell(phase string, concurrency int, elapsed time.Duration, peak ui
 			FactPayloadBytes: after.FactPayloadBytes - before.FactPayloadBytes, TableBytes: after.TableBytes - before.TableBytes,
 			IndexesBytes: after.IndexesBytes - before.IndexesBytes}
 	}
-	if actual > 0 {
+	if actual > 0 && strings.HasPrefix(phase, "full_history_") {
 		factRate := float64(actual-charged) / float64(actual)
 		queryRate := float64(queryHits) / float64(len(samples))
 		result.FactHistoryHitRate = &factRate
@@ -810,6 +825,41 @@ func oaAction(ctx context.Context, client *http.Client, baseURL, draftID, action
 	return err
 }
 
+func oaNarrow(ctx context.Context, client *http.Client, baseURL, draftID string, budget struct {
+	MaxQueries     int64 `json:"max_queries"`
+	MaxRows        int64 `json:"max_rows"`
+	MaxDBMS        int64 `json:"max_db_ms"`
+	QueryTimeoutMS int64 `json:"query_timeout_ms"`
+	TaskTTLSeconds int64 `json:"task_ttl_seconds"`
+}) error {
+	if budget.TaskTTLSeconds < 2 {
+		return errors.New("delegated manifest has no room for a strict TTL narrowing")
+	}
+	taskURL := strings.TrimRight(baseURL, "/") + "/tasks/" + url.PathEscape(draftID)
+	page, err := httpGet(ctx, client, taskURL)
+	if err != nil {
+		return err
+	}
+	csrf, err := csrfToken(page)
+	if err != nil {
+		return err
+	}
+	values := url.Values{
+		"csrf":                 {csrf},
+		"decision":             {"narrow"},
+		"approved_products":    {`["expense_detail"]`},
+		"approved_columns":     {`{"expense_detail":["amount","department","receipt_no"]}`},
+		"mandatory_scope":      {`{"department":["销售部"]}`},
+		"max_queries":          {strconv.FormatInt(budget.MaxQueries, 10)},
+		"max_result_rows":      {strconv.FormatInt(budget.MaxRows, 10)},
+		"max_db_ms":            {strconv.FormatInt(budget.MaxDBMS, 10)},
+		"per_query_timeout_ms": {strconv.FormatInt(budget.QueryTimeoutMS, 10)},
+		"task_ttl_ms":          {strconv.FormatInt(budget.TaskTTLSeconds*1000/2, 10)},
+	}
+	_, err = httpPostForm(ctx, client, taskURL+"/decision", values)
+	return err
+}
+
 var csrfPattern = regexp.MustCompile(`name="csrf" value="([^"]+)"`)
 
 func csrfToken(page []byte) (string, error) {
@@ -867,16 +917,16 @@ func waitTask(ctx context.Context, client *mcpClient, taskID, expected string, t
 
 func metricSemantics() map[string]string {
 	return map[string]string{
-		"latency_ms": "client wall-clock latency per completed operation",
-		"throughput_qps": "completed measured operations divided by cell wall-clock seconds",
-		"client_peak_heap_bytes": "maximum Go HeapAlloc sampled every 5 ms during the cell",
+		"latency_ms":                "client wall-clock latency per completed operation",
+		"throughput_qps":            "completed measured operations divided by cell wall-clock seconds",
+		"client_peak_heap_bytes":    "maximum Go HeapAlloc sampled every 5 ms during the cell",
 		"service_peak_memory_bytes": "peak container memory usage from Docker stats; injected by the Compose wrapper",
-		"ledger_growth": "after-minus-before root-ledger counters, root fact payload, and global exposure_facts physical sizes",
-		"lock_contention": "10 ms pg_stat_activity sampling; waiting_session_ms is a sampling approximation",
-		"exposure_ledger_lock": "client-side duration of SELECT ... FOR UPDATE on the root ledger, including driver/server round-trip",
-		"fact_history_hit_rate": "(actual release+influence facts - newly charged facts) / actual facts",
-		"query_history_hit_rate": "fraction of exposure queries with nonzero actual facts and zero newly charged facts",
-		"percentiles": "Hyndman-Fan type 7 over per-operation samples",
+		"ledger_growth":             "after-minus-before root-ledger counters, root fact payload, and global exposure_facts physical sizes",
+		"lock_contention":           "10 ms pg_stat_activity sampling; waiting_session_ms is a sampling approximation",
+		"exposure_ledger_lock":      "client-side duration of SELECT ... FOR UPDATE on the root ledger, including driver/server round-trip",
+		"fact_history_hit_rate":     "(actual release+influence facts - newly charged facts) / actual facts",
+		"query_history_hit_rate":    "fraction of exposure queries with nonzero actual facts and zero newly charged facts",
+		"percentiles":               "Hyndman-Fan type 7 over per-operation samples",
 	}
 }
 

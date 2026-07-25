@@ -48,6 +48,12 @@ func TestExposurePlanHidesMeteringKeysAndDeduplicatesReplay(t *testing.T) {
 	if charge.ActualReleaseFacts != 2 || charge.ChargedReleaseFacts != 2 || charge.ActualInfluenceFacts != 5 || charge.ChargedInfluenceFacts != 5 {
 		t.Fatalf("first exposure charge = %+v", charge)
 	}
+	components := first["component_ms"].(map[string]float64)
+	for _, name := range []string{"exposure_derivation", "exposure_reservation_lock", "exposure_ledger_lock", "exposure_fact_store"} {
+		if value, present := components[name]; !present || value < 0 {
+			t.Fatalf("exposure component timing %q = %v, present=%v", name, value, present)
+		}
+	}
 	receipt := first["receipt"].(map[string]any)
 	if receipt["version"] != "4" || receipt["exposure"] == nil {
 		t.Fatalf("exposure receipt is not signed as V4: %#v", receipt)

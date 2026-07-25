@@ -30,8 +30,11 @@ anti-arbitrage case, or planner oracle did not match.
 - **RQ4:** the report contrasts query-count, row-count, serialized-byte,
   weighted-cell, no-history provenance, and full history-aware charges. Runtime
   overhead is deliberately `not_measured` until a fresh external PostgreSQL
-  campaign is recorded. Go benchmarks are development diagnostics, not paper
-  measurements.
+  campaign is recorded. `../exposure-performance/` now provides the real
+  public-MCP path, five-stage ablation, ledger/lock/history instrumentation,
+  and a local Compose smoke; the bundled demo result remains engineering
+  evidence and is not promoted to a publication claim. Go benchmarks are
+  development diagnostics, not paper measurements.
 - **RQ5:** exact dual-budget optimization is checked against declared expected
   choices and a deterministic utility-greedy baseline using answer completeness
   and query coverage only.

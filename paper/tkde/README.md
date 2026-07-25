@@ -27,3 +27,8 @@ The draft intentionally says that publication-scale overhead, second-engine,
 full TPC-H/TPC-DS, and agent task-success campaigns are not measured. The old
 TDSC manuscript remains available through `make paper-tdsc` for provenance and
 comparison; its results are not relabeled as exposure evidence.
+
+The engineering smoke in `evaluation/exposure-performance/` exercises the real
+public MCP/OA/PostgreSQL path and records latency, throughput, memory, ledger
+growth, contention, and history hits. It validates the measurement machinery;
+the evidence generator deliberately does not upgrade that demo run to RQ4.

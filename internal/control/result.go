@@ -50,12 +50,12 @@ func (s *Store) FinalizeQuery(ctx context.Context, settlement BudgetSettlement, 
 // FinalizeQueryMetrics separates local authenticated encryption from the
 // Control PostgreSQL settlement-and-persistence transaction for evaluation.
 type FinalizeQueryMetrics struct {
-	Encryption                 time.Duration
-	ReceiptSigning             time.Duration
-	SettlementStore            time.Duration
-	ExposureReservationLock    time.Duration
-	ExposureLedgerLock         time.Duration
-	ExposureFactStore          time.Duration
+	Encryption              time.Duration
+	ReceiptSigning          time.Duration
+	SettlementStore         time.Duration
+	ExposureReservationLock time.Duration
+	ExposureLedgerLock      time.Duration
+	ExposureFactStore       time.Duration
 }
 
 // FinalizeQueryMeasured is the measured form of FinalizeQuery. The returned

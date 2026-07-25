@@ -12,6 +12,7 @@ import (
 
 	"taskbound.local/agent-data-gateway/internal/approval"
 	"taskbound.local/agent-data-gateway/internal/domain"
+	"taskbound.local/agent-data-gateway/internal/exposure"
 )
 
 func TestOAManifestDigestMatchesSharedFixedVector(t *testing.T) {
@@ -144,6 +145,9 @@ func TestNarrowedGrantFromFormContractsScopeColumnsAndBudgets(t *testing.T) {
 		t.Fatalf("safe narrowing rejected: %v", err)
 	}
 	if len(grant.ApprovedProducts) != 1 || grant.Budget.MaxQueries != 2 || grant.Budget.PerQueryTimeoutMS != 2000 ||
+		grant.Budget.MaxReleaseFacts != request.Manifest.Budget.MaxReleaseFacts ||
+		grant.Budget.MaxInfluenceFacts != request.Manifest.Budget.MaxInfluenceFacts ||
+		grant.Budget.ExposureProfileVersion != request.Manifest.Budget.ExposureProfileVersion ||
 		!grant.ExpiresAt.Equal(issuedAt.Add(10*time.Minute)) {
 		t.Fatalf("unexpected narrowed grant: %+v", grant)
 	}
@@ -169,6 +173,8 @@ func testDraftRequest(t *testing.T) DraftRequest {
 		Budget: approval.AuthorizationBudgetV1{
 			MaxQueries: 10, MaxResultRows: 500, MaxDBMS: 30_000,
 			PerQueryTimeoutMS: 5_000, TaskTTLMS: 1_800_000,
+			MaxReleaseFacts: 100, MaxInfluenceFacts: 500,
+			ExposureProfileVersion: exposure.ProfileV2,
 		},
 		CatalogVersion: "v1", CatalogSHA256: strings.Repeat("a", 64),
 		DatasourceID: "taskgate-test-expenses", SchemaDigest: strings.Repeat("b", 64),

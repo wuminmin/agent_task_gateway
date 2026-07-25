@@ -607,7 +607,14 @@ func narrowedGrantFromForm(draft *Draft, r *http.Request, issuedAt time.Time) (a
 	}
 	candidate.MandatoryScope = scope
 
-	candidate.Budget = approval.AuthorizationBudgetV1{}
+	// The form narrows resource limits, but exposure limits and their semantic
+	// profile are not editable dimensions in the demo UI. Preserve those
+	// signed ceilings instead of accidentally disabling exposure accounting.
+	candidate.Budget = approval.AuthorizationBudgetV1{
+		MaxReleaseFacts:        parent.Budget.MaxReleaseFacts,
+		MaxInfluenceFacts:      parent.Budget.MaxInfluenceFacts,
+		ExposureProfileVersion: parent.Budget.ExposureProfileVersion,
+	}
 	budgetFields := []struct {
 		name   string
 		target *int64

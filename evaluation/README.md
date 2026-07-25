@@ -1,14 +1,18 @@
 # Reproducible evaluation harness
 
-This directory contains two evidence tracks. `exposure/` is the deterministic
+This directory contains three evidence tracks. `exposure/` is the deterministic
 TKDE-oriented ground-truth, rewrite, anti-arbitrage, baseline-charge, and
-planner suite. The existing runner remains the four-path system-performance
-harness. Neither track substitutes mock timing data when a prerequisite is
-absent, and the older measurements are not relabeled as exposure overhead.
+planner suite. `exposure-performance/` is the real public-MCP exposure path and
+ablation harness. The existing runner remains the four-path resource-only
+system-performance harness. No track substitutes mock timing data when a
+prerequisite is absent, and older measurements are not relabeled as exposure
+overhead.
 
 Run the deterministic exposure suite with `make eval-exposure`. Its report
 marks RQ4 runtime overhead as unmeasured until a fresh external PostgreSQL
 campaign is supplied; see `exposure/README.md` for the exact RQ1-RQ5 boundary.
+Run `make eval-exposure-performance` for the isolated local engineering smoke;
+its result is explicitly not promoted to a publication RQ4 claim.
 
 ## Baselines and fairness boundary
 

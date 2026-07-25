@@ -1,4 +1,4 @@
-.PHONY: verify test build up down logs formal eval-validate eval-exposure eval-smoke eval-full artifacts fuzz paper paper-tkde paper-tdsc
+.PHONY: verify test build up down logs formal eval-validate eval-exposure eval-exposure-performance eval-smoke eval-full artifacts fuzz paper paper-tkde paper-tdsc
 
 verify:
 	docker build --target verify -t taskbound-agent-data-gateway-verify .
@@ -27,6 +27,9 @@ eval-validate:
 
 eval-exposure:
 	./evaluation/run-exposure.sh
+
+eval-exposure-performance:
+	./evaluation/run-exposure-performance.sh
 
 eval-smoke:
 	./evaluation/run.sh smoke

@@ -1,0 +1,59 @@
+services:
+  control-postgres:
+    ports: !override
+      - 127.0.0.1:${EXPOSURE_CONTROL_PORT:-28433}:5432
+
+  business-postgres:
+    ports: !override
+      - 127.0.0.1:${EXPOSURE_BUSINESS_PORT:-28434}:5432
+
+  gateway:
+    ports: !override
+      - 127.0.0.1:${EXPOSURE_GATEWAY_PORT:-28082}:8082
+    environment:
+      PUBLIC_OA_BASE_URL: http://oa-demo:8092
+    volumes: !override
+      - ./evaluation/exposure-performance/catalog.yaml:/etc/taskbound/catalog.yaml:ro
+
+  oa-demo:
+    ports: !override
+      - 127.0.0.1:${EXPOSURE_OA_PORT:-28092}:8092
+    environment:
+      PUBLIC_OA_BASE_URL: http://oa-demo:8092
+
+  exposure-bench:
+    profiles: [exposure-tools]
+    build:
+      context: .
+      dockerfile: evaluation/Dockerfile
+      target: exposure-bench
+    environment:
+      EXPOSURE_GATEWAY_URL: http://gateway:8082
+      EXPOSURE_OA_URL: http://oa-demo:8092
+      EXPOSURE_BUSINESS_DSN: postgres://gateway_reader:${GATEWAY_DB_PASSWORD}@business-postgres:5432/${POSTGRES_DB}?sslmode=disable
+      EXPOSURE_CONTROL_DSN: postgres://gateway_control:${CONTROL_DB_PASSWORD}@control-postgres:5432/${CONTROL_POSTGRES_DB}?sslmode=disable
+      EXPOSURE_TASKS_PATH: /results/tasks.json
+      EXPOSURE_OUTPUT_DIR: /results
+      EXPOSURE_WORKERS: ${EXPOSURE_WORKERS:-4}
+      EXPOSURE_RUNS: ${EXPOSURE_RUNS:-10}
+      EXPOSURE_RAMP_RUNS: ${EXPOSURE_RAMP_RUNS:-8}
+      EXPOSURE_CONCURRENCY: ${EXPOSURE_CONCURRENCY:-1,4}
+      EXPOSURE_LOCK_SAMPLE_INTERVAL: ${EXPOSURE_LOCK_SAMPLE_INTERVAL:-10ms}
+      TASKBOUND_ALICE_TOKEN: ${TASKBOUND_ALICE_TOKEN}
+      OA_ALICE_PASSWORD: ${OA_ALICE_PASSWORD}
+      OA_BOB_PASSWORD: ${OA_BOB_PASSWORD}
+    volumes:
+      - ${EXPOSURE_RUN_DIR:?set EXPOSURE_RUN_DIR}:/results
+    depends_on:
+      control-postgres:
+        condition: service_healthy
+      business-postgres:
+        condition: service_healthy
+      gateway:
+        condition: service_healthy
+      oa-demo:
+        condition: service_healthy
+    networks:
+      - public-edge
+      - control-plane
+      - business-data
