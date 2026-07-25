@@ -180,3 +180,12 @@ func testDraftRequest(t *testing.T) DraftRequest {
 	}
 	return DraftRequest{Manifest: manifest, ManifestDigest: digest, ApprovalMode: "manual", Approver: "bob"}
 }
+
+func TestValidateDraftRequestRejectsAutomaticApproval(t *testing.T) {
+	request := testDraftRequest(t)
+	request.ApprovalMode = "auto"
+	request.Approver = ""
+	if err := validateDraftRequest(request); err == nil {
+		t.Fatal("OA accepted an automatic approval draft")
+	}
+}

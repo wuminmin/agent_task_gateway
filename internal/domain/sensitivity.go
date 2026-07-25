@@ -79,7 +79,6 @@ func HighestSensitivity(values ...Sensitivity) (Sensitivity, error) {
 type ApprovalMode string
 
 const (
-	ApprovalModeAuto   ApprovalMode = "auto"
 	ApprovalModeManual ApprovalMode = "manual"
 )
 
@@ -87,7 +86,7 @@ var ErrInvalidApprovalMode = errors.New("invalid approval mode")
 
 func (m ApprovalMode) Validate() error {
 	switch m {
-	case ApprovalModeAuto, ApprovalModeManual:
+	case ApprovalModeManual:
 		return nil
 	default:
 		return fmt.Errorf("%w: %q", ErrInvalidApprovalMode, m)

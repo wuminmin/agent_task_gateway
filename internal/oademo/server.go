@@ -200,16 +200,12 @@ func validateDraftRequest(request DraftRequest) error {
 		return fmt.Errorf("invalid authorization manifest: %w", err)
 	}
 	switch request.ApprovalMode {
-	case "auto":
-		if request.Approver != "" {
-			return errors.New("auto approval cannot specify an approver")
-		}
 	case "manual":
 		if request.Approver != "bob" {
 			return errors.New("manual demo approval requires Bob")
 		}
 	default:
-		return errors.New("approval_mode must be auto or manual")
+		return errors.New("approval_mode must be manual; automatic task approval is disabled")
 	}
 	return nil
 }
@@ -340,28 +336,9 @@ func (s *Server) submitDraft(w http.ResponseWriter, r *http.Request) {
 	draft.State = "pending"
 	draft.UpdatedAt = s.config.Clock().UTC()
 	submittedSnapshot := cloneDraft(draft)
-	var approvedSnapshot *Draft
-	if draft.ApprovalMode == "auto" {
-		issuedAt := s.config.Clock().UTC()
-		grant, err := domainCoreForDraft(draft, issuedAt)
-		if err != nil || s.issueDecision(draft, approval.ApprovalDecisionApprove, data.Username, issuedAt, &grant) != nil {
-			s.mu.Unlock()
-			http.Error(w, "cannot issue approval receipt", http.StatusInternalServerError)
-			return
-		}
-		draft.State = "approved"
-		draft.UpdatedAt = issuedAt
-		copy := cloneDraft(draft)
-		approvedSnapshot = &copy
-	}
 	s.mu.Unlock()
 
 	s.dispatch(submittedSnapshot, "submitted", data.Username)
-	if approvedSnapshot != nil {
-		// Alice's authenticated submission is the explicit human decision for
-		// the demo auto route; do not attribute a human receipt to "oa-auto".
-		s.dispatch(*approvedSnapshot, "approved", data.Username)
-	}
 	http.Redirect(w, r, "/tasks/"+draftID, http.StatusSeeOther)
 }
 

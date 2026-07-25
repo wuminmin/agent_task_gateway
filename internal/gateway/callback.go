@@ -352,9 +352,6 @@ func validCallbackActor(event oaCallbackEvent, pending pendingContext, humanSubj
 	case "submitted":
 		return strings.EqualFold(event.Actor, humanSubject)
 	case "approved":
-		if pending.ApprovalMode == "auto" {
-			return strings.EqualFold(event.Actor, humanSubject)
-		}
 		return pending.ApprovalMode == "manual" && strings.EqualFold(event.Actor, pending.Approver)
 	case "narrowed", "rejected":
 		return pending.ApprovalMode == "manual" && strings.EqualFold(event.Actor, pending.Approver)

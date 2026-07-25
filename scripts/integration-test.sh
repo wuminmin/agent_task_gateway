@@ -365,12 +365,13 @@ tasks_response=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
 assert_contains "$tasks_response" '"isError":false' "list_my_tasks"
 pass "deterministic task listing works"
 
-# Alice submits an explicit low-sensitivity summary request; OA then
-# automatically approves it.
+# Alice submits an explicit low-sensitivity summary request. Low sensitivity
+# still requires a separate human approval by Bob.
 summary_request=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
   '{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"request_data_task","arguments":{"objective":"按月份分析销售部差旅报销","data_products":["expense_summary"],"columns":{"expense_summary":["month","total_amount"]},"scopes":{"department":["销售部"]},"requested_budget":{"max_queries":2,"max_rows":50}}}}')
 assert_contains "$summary_request" '"isError":false' "summary task request"
-assert_contains "$summary_request" '"approval_mode":"auto"' "summary task approval route"
+assert_contains "$summary_request" '"approval_mode":"manual"' "summary task approval route"
+assert_contains "$summary_request" '"exposure_profile_version":"taskgate-exposure-v2"' "summary V2 profile"
 summary_task=$(json_string "$summary_request" task_id)
 summary_oa_url=$(json_string "$summary_request" oa_url)
 [ -n "$summary_task" ] && [ -n "$summary_oa_url" ] || fail "summary request omitted task_id or oa_url"
@@ -380,9 +381,15 @@ summary_draft=${summary_oa_url##*/}
 
 oa_login alice "$OA_ALICE_PASSWORD" "$ALICE_COOKIE"
 oa_action "$ALICE_COOKIE" "$summary_draft" submit
+wait_task_state "$summary_task" AWAITING_APPROVAL >/dev/null
+summary_before=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
+  "{\"jsonrpc\":\"2.0\",\"id\":81,\"method\":\"tools/call\",\"params\":{\"name\":\"execute_plan\",\"arguments\":{\"task_id\":\"$summary_task\",\"request_id\":\"integration-summary-before-approval\",\"plan\":{\"product\":\"expense_summary\",\"columns\":[\"month\"]}}}}")
+assert_contains "$summary_before" '"code":"TASK_NOT_ACTIVE"' "summary query before Bob approval"
+oa_login bob "$OA_BOB_PASSWORD" "$BOB_COOKIE"
+oa_action "$BOB_COOKIE" "$summary_draft" decision approved
 summary_status=$(wait_task_state "$summary_task" ACTIVE)
-assert_contains "$summary_status" '"state":"ACTIVE"' "summary auto approval"
-pass "summary task is submitted and automatically approved"
+assert_contains "$summary_status" '"state":"ACTIVE"' "summary human approval"
+pass "Bob approval gates low-sensitivity summary task"
 
 summary_query=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
   "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\",\"params\":{\"name\":\"execute_plan\",\"arguments\":{\"task_id\":\"$summary_task\",\"request_id\":\"integration-summary-plan-1\",\"plan\":{\"product\":\"expense_summary\",\"columns\":[\"month\",\"total_amount\"],\"order_by\":[{\"column\":\"month\",\"direction\":\"asc\"}]}}}}")
@@ -451,7 +458,6 @@ detail_before=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
   "{\"jsonrpc\":\"2.0\",\"id\":17,\"method\":\"tools/call\",\"params\":{\"name\":\"query_sql\",\"arguments\":{\"task_id\":\"$detail_task\",\"request_id\":\"integration-detail-before-approval\",\"sql\":\"SELECT receipt_no FROM expense_detail\"}}}")
 assert_contains "$detail_before" '"code":"TASK_NOT_ACTIVE"' "detail query before Bob approval"
 
-oa_login bob "$OA_BOB_PASSWORD" "$BOB_COOKIE"
 oa_action "$BOB_COOKIE" "$detail_draft" decision approved
 wait_task_state "$detail_task" ACTIVE >/dev/null
 detail_query=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \

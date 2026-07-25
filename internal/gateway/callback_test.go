@@ -81,14 +81,14 @@ func TestOACallbackHMACSubmissionApprovalReplayAndBadSignature(t *testing.T) {
 	approvedReceipt, err := approval.DemoReceiptSigner([]byte(harness.secret)).SignReceipt(approval.ApprovalReceiptV1{
 		Version: domain.ApprovalReceiptV1Version, ReceiptID: "oa-receipt-1", TaskID: taskID,
 		Decision: approval.ApprovalDecisionApprove, ManifestDigest: draft.ManifestDigest,
-		ApprovedGrantDigest: approvedDigest, ApproverID: harness.alice.Subject, IssuedAt: harness.clock.value,
+		ApprovedGrantDigest: approvedDigest, ApproverID: "bob", IssuedAt: harness.clock.value,
 	})
 	if err != nil {
 		t.Fatalf("sign approval receipt: %v", err)
 	}
 	approved := oaCallbackEvent{
 		EventID: "oa-approve-1", TaskID: taskID, DraftID: task.ApprovalRef,
-		Status: "approved", Actor: harness.alice.Subject, OccurredAt: harness.clock.value,
+		Status: "approved", Actor: "bob", OccurredAt: harness.clock.value,
 		CatalogVersion: harness.catalog.CatalogVersion, CallbackContext: draft.Manifest.CallbackContext,
 		ManifestDigest: draft.ManifestDigest, ApprovedGrant: &approvedCore, ApprovalReceipt: &approvedReceipt,
 	}
@@ -188,7 +188,7 @@ func TestOACallbackHMACSubmissionApprovalReplayAndBadSignature(t *testing.T) {
 
 func TestDelegatedTaskSharesRootExposureAndStopsWithParent(t *testing.T) {
 	harness := newGatewayHarness(t)
-	harness.createExposureSummaryTask(t, "task-family-root", control.ExposureLimits{ReleaseFacts: 20, InfluenceFacts: 20})
+	harness.createExposureV2SummaryTask(t, "task-family-root", control.ExposureLimits{ReleaseFacts: 20, InfluenceFacts: 20})
 	bob := mcp.Principal{ID: "principal-bob-agent", Subject: "bob-agent", Role: "query"}
 	if err := harness.store.CreatePrincipal(context.Background(), control.Principal{
 		ID: bob.ID, Subject: bob.Subject, Role: bob.Role, CreatedAt: harness.clock.value,
@@ -237,14 +237,14 @@ func TestDelegatedTaskSharesRootExposureAndStopsWithParent(t *testing.T) {
 	receipt, err := approval.DemoReceiptSigner([]byte(harness.secret)).SignReceipt(approval.ApprovalReceiptV1{
 		Version: domain.ApprovalReceiptV1Version, ReceiptID: "oa-family-receipt", TaskID: childID,
 		Decision: approval.ApprovalDecisionApprove, ManifestDigest: draft.ManifestDigest,
-		ApprovedGrantDigest: coreDigest, ApproverID: harness.alice.Subject, IssuedAt: harness.clock.value,
+		ApprovedGrantDigest: coreDigest, ApproverID: "bob", IssuedAt: harness.clock.value,
 	})
 	if err != nil {
 		t.Fatalf("sign delegated approval: %v", err)
 	}
 	approved := oaCallbackEvent{
 		EventID: "oa-family-approve", TaskID: childID, DraftID: child.ApprovalRef,
-		Status: "approved", Actor: harness.alice.Subject, OccurredAt: harness.clock.value,
+		Status: "approved", Actor: "bob", OccurredAt: harness.clock.value,
 		CatalogVersion: harness.catalog.CatalogVersion, CallbackContext: draft.Manifest.CallbackContext,
 		ManifestDigest: draft.ManifestDigest, ApprovedGrant: &core, ApprovalReceipt: &receipt,
 	}

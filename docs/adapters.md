@@ -42,19 +42,20 @@ Content-Type: application/json
       "task_ttl_ms": 1800000,
       "max_release_facts": 1000,
       "max_influence_facts": 5000,
-      "exposure_profile_version": "taskgate-exposure-v1"
+      "exposure_profile_version": "taskgate-exposure-v2"
     },
-    "catalog_version": "2026-07-21.1",
+    "catalog_version": "2026-07-25.2",
     "catalog_sha256": "<64 位小写十六进制 SHA-256>",
     "callback_context": "callback_...",
     "nonce": "<32 位小写十六进制随机数>"
   },
   "manifest_digest": "<RFC 8785 + TASKGATE-MANIFEST-V1 域分隔摘要>",
-  "approval_mode": "auto"
+  "approval_mode": "manual",
+  "approver": "bob"
 }
 ```
 
-人工审批还会包含 `"approver":"bob"`。OA 必须返回 HTTP `201 Created`；响应不允许未知字段，`draft_id` 与 `url` 必须非空。Demo 同时返回 `state: draft`：
+所有审批请求都必须包含 `"approver":"bob"`。OA 必须返回 HTTP `201 Created`；响应不允许未知字段，`draft_id` 与 `url` 必须非空。Demo 同时返回 `state: draft`：
 
 ```json
 {

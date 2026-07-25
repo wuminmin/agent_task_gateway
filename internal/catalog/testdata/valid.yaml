@@ -65,7 +65,8 @@ scopes:
     max: "2026-12-31"
 approval_routes:
   - sensitivity: low
-    mode: auto
+    mode: manual
+    approver: bob
     budget_profile: summary_auto
   - sensitivity: high
     mode: manual

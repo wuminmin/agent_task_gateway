@@ -58,6 +58,12 @@ func TestAuthorizationManifestDigestStableAndTamperEvident(t *testing.T) {
 	if err := ValidateAuthorizationSnapshot(request); err != nil {
 		t.Fatalf("validate manifest: %v", err)
 	}
+	automatic := request
+	automatic.ApprovalMode = "auto"
+	automatic.Approver = ""
+	if err := ValidateAuthorizationSnapshot(automatic); err == nil {
+		t.Fatal("automatic approval request was accepted")
+	}
 	request.Manifest.Budget.MaxResultRows++
 	if err := ValidateAuthorizationSnapshot(request); !errors.Is(err, ErrProtocolDigestMatch) {
 		t.Fatalf("tampered manifest error = %v, want digest mismatch", err)

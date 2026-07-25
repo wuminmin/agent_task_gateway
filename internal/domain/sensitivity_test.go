@@ -17,3 +17,12 @@ func TestHighestSensitivity(t *testing.T) {
 		t.Fatalf("invalid sensitivity error = %v", err)
 	}
 }
+
+func TestApprovalModeRejectsAutomaticApproval(t *testing.T) {
+	if err := ApprovalMode("auto").Validate(); !errors.Is(err, ErrInvalidApprovalMode) {
+		t.Fatalf("automatic approval error = %v, want ErrInvalidApprovalMode", err)
+	}
+	if err := ApprovalModeManual.Validate(); err != nil {
+		t.Fatalf("manual approval = %v", err)
+	}
+}

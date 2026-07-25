@@ -121,6 +121,11 @@ func TestCatalogRejectsRequiredInvalidInputs(t *testing.T) {
 			target: ErrInvalidApprovalRoute,
 		},
 		{
+			name:   "automatic approval disabled",
+			yaml:   strings.Replace(valid, "    mode: manual", "    mode: auto", 1),
+			target: ErrInvalidApprovalRoute,
+		},
+		{
 			name:   "route with missing budget",
 			yaml:   strings.Replace(valid, "budget_profile: detail_manual", "budget_profile: absent", 1),
 			target: ErrInvalidApprovalRoute,
@@ -128,6 +133,14 @@ func TestCatalogRejectsRequiredInvalidInputs(t *testing.T) {
 		{
 			name:   "invalid budget",
 			yaml:   strings.Replace(valid, "    query_timeout: 5s", "    query_timeout: 45s", 1),
+			target: ErrInvalidBudgetProfile,
+		},
+		{
+			name: "V1 exposure profile removed",
+			yaml: strings.Replace(valid, "    task_ttl: 30m", `    task_ttl: 30m
+    max_release_facts: 10
+    max_influence_facts: 20
+    exposure_profile_version: taskgate-exposure-v1`, 1),
 			target: ErrInvalidBudgetProfile,
 		},
 		{

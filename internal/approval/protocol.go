@@ -280,16 +280,12 @@ func ValidateAuthorizationSnapshot(request DraftRequest) error {
 		return err
 	}
 	switch request.ApprovalMode {
-	case "auto":
-		if request.Approver != "" {
-			return errors.New("auto approval cannot specify an approver")
-		}
 	case "manual":
 		if strings.TrimSpace(request.Approver) == "" {
 			return errors.New("manual approval requires an approver")
 		}
 	default:
-		return errors.New("approval_mode must be auto or manual")
+		return errors.New("approval_mode must be manual; automatic task approval is disabled")
 	}
 	provided, err := hex.DecodeString(request.ManifestDigest)
 	if err != nil || len(provided) != sha256.Size || request.ManifestDigest != strings.ToLower(request.ManifestDigest) {

@@ -121,16 +121,17 @@ products:
 ```yaml
 approval_routes:
   - sensitivity: low
-    mode: auto
-    budget_profile: summary-auto
+    mode: manual
+    approver: bob
+    budget_profile: summary-manual-v2
   - sensitivity: high
     mode: manual
     approver: bob
-    budget_profile: detail-manual
+    budget_profile: detail-manual-v2
 ```
 
-- `mode: auto` 不能配置 `approver`。
-- `mode: manual` 必须配置非空 `approver`；OA Demo 只接受 `bob`。
+- 只允许 `mode: manual`；自动任务审批已关闭。
+- 每条路由必须配置非空 `approver`；OA Demo 只接受 `bob`。
 - `budget_profile` 必须引用已定义 Profile。
 - 多产品申请以最高有效敏感级别路由。
 
@@ -138,7 +139,7 @@ approval_routes:
 
 ```yaml
 budget_profiles:
-  - name: summary-auto
+  - name: summary-manual-v2
     max_queries: 10
     max_rows: 500
     max_db_time: 30s
@@ -146,7 +147,7 @@ budget_profiles:
     task_ttl: 30m
     max_release_facts: 1000
     max_influence_facts: 5000
-    exposure_profile_version: taskgate-exposure-v1
+    exposure_profile_version: taskgate-exposure-v2
 ```
 
 资源数值必须为正；可选 exposure 上限必须同时为零/省略或同时为正。
@@ -219,11 +220,12 @@ products:
 
 approval_routes:
   - sensitivity: low
-    mode: auto
-    budget_profile: small-auto
+    mode: manual
+    approver: bob
+    budget_profile: small-manual
 
 budget_profiles:
-  - name: small-auto
+  - name: small-manual
     max_queries: 5
     max_rows: 100
     max_db_time: 10s
@@ -231,7 +233,7 @@ budget_profiles:
     task_ttl: 15m
     max_release_facts: 200
     max_influence_facts: 1000
-    exposure_profile_version: taskgate-exposure-v1
+    exposure_profile_version: taskgate-exposure-v2
 ```
 
 ## 发布清单

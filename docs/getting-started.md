@@ -117,7 +117,7 @@ MCP `serverInfo.version` 为 `2.0.0`。Alice 可见 14 个任务/查询工具，
 | Alice | `list_data_products`、`request_data_task`、`list_my_tasks`、`get_task_status`、`wait_for_approval`、`get_task_context`、`execute_plan`、`query_sql`、`get_query_result`、`get_budget`、`plan_exposure`、`list_receipts`、`complete_task`、`revoke_task` |
 | Carol | `list_audit_events`、`get_audit_receipt` |
 
-## 4. 结构化申请与自动审批
+## 4. 结构化申请与人工审批
 
 先调用 `list_data_products`。响应会给出逻辑产品字段，以及全部 Scope 的类型、允许值或日期边界。申请不得省略产品、字段或 Scope：
 
@@ -143,7 +143,7 @@ MCP `serverInfo.version` 为 `2.0.0`。Alice 可见 14 个任务/查询工具，
 每个申请产品必须有非空字段列表；未知产品、字段、Scope 或越界值会被拒绝。
 `requested_budget` 只能缩小 Catalog Profile 的资源和双 exposure 上限。
 
-`request_data_task` 返回 `task_id`、`oa_url`、审批模式和 `AuthorizationManifestV1` 摘要。用 `.env` 的 `OA_ALICE_PASSWORD` 以 `alice` 登录 OA，打开草稿并提交。低敏 `expense_summary` 会自动批准。
+`request_data_task` 返回 `task_id`、`oa_url`、审批模式和 `AuthorizationManifestV1` 摘要。用 `.env` 的 `OA_ALICE_PASSWORD` 以 `alice` 登录 OA，打开草稿并提交。所有敏感级别（包括低敏 `expense_summary`）都会停在 `AWAITING_APPROVAL`；必须由 `bob` 登录 OA 明确批准或缩小后批准，任务才会进入 `ACTIVE`。
 
 任务 ACTIVE 后可提交 QueryPlan：
 
@@ -167,7 +167,8 @@ MCP `serverInfo.version` 为 `2.0.0`。Alice 可见 14 个任务/查询工具，
 
 `execute_plan` 在本地严格校验产品、字段、聚合、过滤、排序和 Limit，确定性编译为 SQL，再进入与 `query_sql` 相同的 PostgreSQL AST 策略。Gateway 不调用外部模型。
 
-默认 Catalog 启用 `taskgate-exposure-v1`。Gateway 会在一个只读
+默认 Catalog 只定义 `taskgate-exposure-v2` budget profiles，且所有 approval
+route 都是人工审批。Gateway 会在一个只读
 `REPEATABLE READ` 事务中执行可见查询和 provenance companion，先在内存
 缓冲，再按根任务已知集合结算。响应中的 `exposure` 给出本次
 `actual_*_facts` 与真正新增的 `charged_*_facts`；`exposure_budget` 给出共享
@@ -182,24 +183,10 @@ MCP `serverInfo.version` 为 `2.0.0`。Alice 可见 14 个任务/查询工具，
 它只保留给旧的 resource-only 兼容 Grant。默认 Demo 应继续使用
 `execute_plan`，例如上面的聚合。
 
-V1 任务仍可在执行前让 `plan_exposure` 从已估算的标量候选中选择组合。
-`taskgate-exposure-v2` 任务改为提交候选 QueryPlan；该调用会实际执行全部候选、
+`plan_exposure` 接受候选 QueryPlan；该调用会实际执行全部候选、
 在锁定后的最新 root ledger 上规划并原子结算，只返回选中结果。V2 示例和语义见
-[`exposure-v2.md`](exposure-v2.md)。V1 兼容示例：
-
-```json
-{
-  "task_id": "task_...",
-  "candidates": [
-    {"id":"raw","requirement":"monthly-spend","product":"expense_summary","representation":"raw","release_cost":40,"influence_cost":120,"answer_completeness":1.0,"query_coverage":1.0},
-    {"id":"agg","requirement":"monthly-spend","product":"expense_summary","representation":"aggregate","release_cost":12,"influence_cost":80,"answer_completeness":0.9,"query_coverage":1.0}
-  ],
-  "weights": {"answer_completeness":0.5,"query_coverage":0.5}
-}
-```
-
-Planner 只使用调用方提供的可测量 completeness、coverage 和成本，不执行查询，
-也不接受 LLM 主观分。每个 requirement 至多选择一个表示。
+[`exposure-v2.md`](exposure-v2.md)。客户端不提交 FactID 或候选成本；每个
+requirement 至多选择一个表示。
 
 `request_data_task` 还支持 `parent_task_id` 和 `delegate_principal_id`。子任务必须
 由父任务所有者发起，所有授权维度只能收缩，且父子共享同一 exposure 账本。

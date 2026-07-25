@@ -289,7 +289,7 @@ func (harness *gatewayHarness) createSummaryTaskWithGrantAndExposureProfile(t *t
 		Columns:        map[string][]string{"expense_summary": {"month", "total_amount"}},
 		MandatoryScope: map[string]any{"department": []any{"销售部"}}, Budget: budget, Sensitivity: domain.SensitivityLow,
 		DatasourceID: harness.connector.attestation.DatasourceID, SchemaDigest: harness.connector.attestation.SchemaDigest,
-		ApprovalMode: domain.ApprovalModeAuto, CallbackContext: "seed-context-" + taskID,
+		ApprovalMode: domain.ApprovalModeManual, Approver: "bob", CallbackContext: "seed-context-" + taskID,
 	}
 	manifest := approval.AuthorizationManifestV1{
 		Version: domain.AuthorizationManifestV1Version, TaskID: taskID,
@@ -346,7 +346,7 @@ func (harness *gatewayHarness) createSummaryTaskWithGrantAndExposureProfile(t *t
 	receipt, err := approval.DemoReceiptSigner([]byte(harness.secret)).SignReceipt(approval.ApprovalReceiptV1{
 		Version: domain.ApprovalReceiptV1Version, ReceiptID: "seed-receipt-" + taskID,
 		TaskID: taskID, Decision: decision, ManifestDigest: manifestDigest,
-		ApprovedGrantDigest: coreDigest, ApproverID: harness.alice.Subject, IssuedAt: harness.clock.value,
+		ApprovedGrantDigest: coreDigest, ApproverID: "bob", IssuedAt: harness.clock.value,
 	})
 	if err != nil {
 		t.Fatalf("sign approval receipt: %v", err)
@@ -360,7 +360,7 @@ func (harness *gatewayHarness) createSummaryTaskWithGrantAndExposureProfile(t *t
 	_, err = harness.store.ApplyApprovalCallback(context.Background(), control.ApprovalCallback{
 		EventID: "seed-event-" + taskID, RawPayload: []byte(`{"decision":"approved"}`),
 		Event: control.ApprovalEvent{
-			TaskID: taskID, Actor: harness.alice.Subject, Decision: "approved",
+			TaskID: taskID, Actor: "bob", Decision: "approved",
 			Payload: json.RawMessage(`{"source":"test"}`), CreatedAt: harness.clock.value,
 		},
 		ExpectedState: control.TaskAwaitingApproval, NewState: control.TaskActive,

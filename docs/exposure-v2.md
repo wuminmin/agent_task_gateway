@@ -2,6 +2,9 @@
 
 `taskgate-exposure-v2` 是与 V1 不可混用的 Exposure Profile。一个 root task family 的 Control PG ledger 在创建时固定 profile；委托任务不能改变它。
 
+默认 Catalog 只定义 V2 budget profiles；low、medium、high approval routes
+全部要求独立的人类审批，不存在自动批准路径。
+
 V2 的执行边界是：客户端提交候选 `QueryPlan` 与 utility evidence，不提交 FactID 或成本。Gateway 在同一个 Business PostgreSQL `REPEATABLE READ` 快照内执行所有候选及 provenance companion，生成每个候选的精确 `(release, influence)` FactSet。Control PostgreSQL 随后锁定 root ledger，扣除最新历史集合，用双 bitset exact planner 选择候选，并在同一事务中完成联合 FactSet 结算、资源扣费、选中结果加密、representation plan、审计与 V5 receipt。事务提交前不会释放任何候选结果。
 
 ## Fact identity

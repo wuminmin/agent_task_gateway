@@ -1,4 +1,4 @@
-catalog_version: "2026-07-21.1"
+catalog_version: "2026-07-25.2"
 
 sources:
   - name: travel_demo
@@ -105,39 +105,20 @@ products:
 
 approval_routes:
   - sensitivity: low
-    mode: auto
-    budget_profile: summary-auto
+    mode: manual
+    approver: bob
+    budget_profile: summary-manual-v2
   - sensitivity: medium
     mode: manual
     approver: bob
-    budget_profile: detail-manual
+    budget_profile: detail-manual-v2
   - sensitivity: high
     mode: manual
     approver: bob
-    budget_profile: detail-manual
+    budget_profile: detail-manual-v2
 
 budget_profiles:
-  - name: summary-auto
-    max_queries: 10
-    max_rows: 500
-    max_db_time: 30s
-    query_timeout: 5s
-    task_ttl: 30m
-    max_release_facts: 1000
-    max_influence_facts: 5000
-    exposure_profile_version: taskgate-exposure-v1
-  - name: detail-manual
-    max_queries: 5
-    max_rows: 100
-    max_db_time: 15s
-    query_timeout: 5s
-    task_ttl: 15m
-    max_release_facts: 500
-    max_influence_facts: 2500
-    exposure_profile_version: taskgate-exposure-v1
-  # Opt-in V2 profiles are deliberately separate from V1 routes. A deployment
-  # switches an approval route atomically; one root task can never mix them.
-  - name: summary-auto-v2
+  - name: summary-manual-v2
     max_queries: 10
     max_rows: 500
     max_db_time: 30s

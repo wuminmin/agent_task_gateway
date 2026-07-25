@@ -240,8 +240,8 @@ func validateBudgetProfile(path string, profile BudgetProfile) ValidationErrors 
 	if err := profile.Budget().Validate(); err != nil {
 		problems = append(problems, fieldError(path, err.Error(), ErrInvalidBudgetProfile))
 	}
-	if profile.ExposureProfileVersion != "" && profile.ExposureProfileVersion != "taskgate-exposure-v1" && profile.ExposureProfileVersion != "taskgate-exposure-v2" {
-		problems = append(problems, fieldError(path+".exposure_profile_version", "profile must be taskgate-exposure-v1 or taskgate-exposure-v2", ErrInvalidBudgetProfile))
+	if profile.ExposureProfileVersion != "" && profile.ExposureProfileVersion != "taskgate-exposure-v2" {
+		problems = append(problems, fieldError(path+".exposure_profile_version", "new catalog profiles must use taskgate-exposure-v2", ErrInvalidBudgetProfile))
 	}
 	return problems
 }
@@ -251,18 +251,11 @@ func validateApprovalRoute(path string, route ApprovalRoute, profiles map[string
 	if err := route.Sensitivity.Validate(); err != nil {
 		problems = append(problems, fieldError(path+".sensitivity", "a supported sensitivity is required", ErrInvalidApprovalRoute))
 	}
-	if err := route.Mode.Validate(); err != nil {
-		problems = append(problems, fieldError(path+".mode", "mode must be auto or manual", ErrInvalidApprovalRoute))
+	if route.Mode != domain.ApprovalModeManual {
+		problems = append(problems, fieldError(path+".mode", "mode must be manual; automatic task approval is disabled", ErrInvalidApprovalRoute))
 	}
-	switch route.Mode {
-	case domain.ApprovalModeAuto:
-		if strings.TrimSpace(route.Approver) != "" {
-			problems = append(problems, fieldError(path+".approver", "auto route cannot name an approver", ErrInvalidApprovalRoute))
-		}
-	case domain.ApprovalModeManual:
-		if strings.TrimSpace(route.Approver) == "" {
-			problems = append(problems, fieldError(path+".approver", "manual route requires an approver", ErrInvalidApprovalRoute))
-		}
+	if strings.TrimSpace(route.Approver) == "" {
+		problems = append(problems, fieldError(path+".approver", "manual route requires an approver", ErrInvalidApprovalRoute))
 	}
 	if strings.TrimSpace(route.BudgetProfile) == "" {
 		problems = append(problems, fieldError(path+".budget_profile", "budget profile is required", ErrInvalidApprovalRoute))

@@ -78,7 +78,8 @@ products:
 
 approval_routes:
   - sensitivity: low
-    mode: auto
+    mode: manual
+    approver: bob
     budget_profile: evaluation
 
 budget_profiles:
