@@ -516,6 +516,21 @@ func TestOptimizeEffectsCountsSharedFactOnce(t *testing.T) {
 	}
 }
 
+func TestOptimizeEffectsTieBreakIsDeterministic(t *testing.T) {
+	fact := v2Fact(t, "tie")
+	effect := Observation{ProfileVersion: ProfileV2, Release: []FactID{fact}, Influence: []FactID{fact}}
+	plan, err := OptimizeEffects([]EffectCandidate{
+		{ID: "b", Requirement: "r", AnswerCompleteness: 1, Effect: effect},
+		{ID: "a", Requirement: "r", AnswerCompleteness: 1, Effect: effect},
+	}, Observation{ProfileVersion: ProfileV2}, 1, 1, UtilityWeights{AnswerCompleteness: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Selected) != 1 || plan.Selected[0].ID != "a" {
+		t.Fatalf("tie-break plan = %+v, want a", plan)
+	}
+}
+
 func TestOptimizeEffectsMatchesBruteForceOracle(t *testing.T) {
 	random := rand.New(rand.NewSource(20260724))
 	pool := make([]FactID, 8)

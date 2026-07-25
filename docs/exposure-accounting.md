@@ -149,18 +149,20 @@ bundle、planner 和联合 Effect。回执不包含原始 FactID 或结果行；
 
 ## 预算规划
 
-V1 的 `plan_exposure` 保留标量兼容契约。新的 `taskgate-exposure-v2` 不接受
-客户端成本，而是执行候选 QueryPlan 并生成精确 Effect。完整定义见
-[exposure-v2.md](exposure-v2.md)。V2 从每个 requirement 至多选一个，并求解：
+`plan_exposure` 只接受 `taskgate-exposure-v2`；V1 标量规划路径已删除。
+客户端提交 required-output 契约和候选 QueryPlan，Gateway 执行候选并生成
+精确 Effect 与固定版本 utility。完整定义见 [exposure-v2.md](exposure-v2.md)。
+V2 从每个 requirement 至多选一个，并求解：
 
 ```text
-maximize sum(weighted answer_completeness and query_coverage)
+maximize sum(server-derived required-output utility)
 subject to |union(candidate.release) - root_history.release| <= remaining_release
            |union(candidate.influence) - root_history.influence| <= remaining_influence
 ```
 
-V2 候选成本和 FactID 均由服务端生成。Planner 使用稠密双 bitset、精确集合并、
-集合包含支配和稳定 tie-break；utility evidence 仍需生产适配器认证。
+V2 候选成本、FactID 和 utility 标量均由服务端生成。Planner 使用稠密双
+bitset、精确集合并、集合包含支配和稳定 tie-break。required-output 契约由调用
+请求声明并进入回执证据；它不是对语义答案真值的认证。
 
 ## 证据与限制
 

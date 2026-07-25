@@ -1,7 +1,7 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "profile_version": "taskgate-exposure-v2",
-  "corpus_sha256": "94d2e563fd1f10899b1fce82711f8cefad274e9b683a84ea98d26721f61877dd",
+  "corpus_sha256": "9af7d912a53ab2521490375d6c74fd9b5a04a77dec6a24275473b6231a7a8afc",
   "rewrite_seed": 20260723,
   "rq1_ground_truth": {
     "cases": 5,
@@ -47,32 +47,23 @@
     }
   },
   "rq5_budget_aware_planning": {
-    "scenarios": 502,
-    "passed": 502,
+    "scenarios": 501,
+    "passed": 501,
     "results": [
       {
-        "id": "release_bottleneck",
+        "id": "shared-fact-budget-one",
         "selected_ids": [
-          "a-aggregate",
-          "b-projection"
+          "requirement-a",
+          "requirement-b"
         ],
-        "optimal_utility": 1.6,
-        "greedy_utility": 1
-      },
-      {
-        "id": "dual_axis_bottleneck",
-        "selected_ids": [
-          "detail-generalized",
-          "trend-aggregate"
-        ],
-        "optimal_utility": 1.6949999999999998,
-        "greedy_utility": 1.6949999999999998
+        "exact_utility": 2,
+        "additive_proxy_utility": 1
       },
       {
         "id": "v2-random-bruteforce-500",
         "selected_ids": null,
-        "optimal_utility": 0,
-        "greedy_utility": 0
+        "exact_utility": 0,
+        "additive_proxy_utility": 0
       }
     ]
   },

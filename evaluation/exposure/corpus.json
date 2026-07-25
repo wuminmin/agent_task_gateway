@@ -49,31 +49,5 @@
     {"id": "snapshot_update", "execution": "deterministic"},
     {"id": "task_family_delegation", "execution": "postgres_integration"},
     {"id": "concurrent_settlement", "execution": "postgres_integration"}
-  ],
-  "planner_scenarios": [
-    {
-      "id": "release_bottleneck",
-      "release_budget": 6,
-      "influence_budget": 6,
-      "weights": {"answer_completeness": 0.5, "query_coverage": 0.5},
-      "expected_ids": ["a-aggregate", "b-projection"],
-      "candidates": [
-        {"id": "a-raw", "requirement": "a", "product": "detail_a", "representation": "raw", "release_cost": 6, "influence_cost": 6, "answer_completeness": 1.0, "query_coverage": 1.0},
-        {"id": "a-aggregate", "requirement": "a", "product": "summary_a", "representation": "aggregate", "release_cost": 2, "influence_cost": 2, "answer_completeness": 0.7, "query_coverage": 0.7},
-        {"id": "b-projection", "requirement": "b", "product": "projection_b", "representation": "projection", "release_cost": 4, "influence_cost": 4, "answer_completeness": 0.9, "query_coverage": 0.9}
-      ]
-    },
-    {
-      "id": "dual_axis_bottleneck",
-      "release_budget": 7,
-      "influence_budget": 8,
-      "weights": {"answer_completeness": 0.7, "query_coverage": 0.3},
-      "expected_ids": ["detail-generalized", "trend-aggregate"],
-      "candidates": [
-        {"id": "detail-projection", "requirement": "detail", "product": "detail", "representation": "projection", "release_cost": 5, "influence_cost": 8, "answer_completeness": 0.95, "query_coverage": 0.8},
-        {"id": "detail-generalized", "requirement": "detail", "product": "detail_generalized", "representation": "generalized", "release_cost": 3, "influence_cost": 4, "answer_completeness": 0.75, "query_coverage": 0.8},
-        {"id": "trend-aggregate", "requirement": "trend", "product": "trend", "representation": "aggregate", "release_cost": 4, "influence_cost": 4, "answer_completeness": 0.9, "query_coverage": 1.0}
-      ]
-    }
   ]
 }

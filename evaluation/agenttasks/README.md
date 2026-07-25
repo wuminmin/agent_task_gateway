@@ -19,4 +19,6 @@ from the selected exact effects. The campaign is run automatically by
 
 This is a reproducible tool-policy trace replay. It measures the representation
 planner's consequence under matched budgets; it is not a live-LLM or prompt
-quality benchmark.
+quality benchmark. Its synthetic utility evidence is internal experimental
+input, not the public `plan_exposure` contract; the online gateway derives its
+fixed utility profile from executed output schemas and truncation.

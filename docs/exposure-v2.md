@@ -7,7 +7,15 @@
 默认 Catalog 只定义 V2 budget profiles；low、medium、high approval routes
 全部要求独立的人类审批，不存在自动批准路径。
 
-V2 的执行边界是：客户端提交候选 `QueryPlan` 与 utility evidence，不提交 FactID 或成本。Gateway 在同一个 Business PostgreSQL `REPEATABLE READ` 快照内执行所有候选及 provenance companion，生成每个候选的精确 `(release, influence)` FactSet。Control PostgreSQL 随后锁定 root ledger，扣除最新历史集合，用双 bitset exact planner 选择候选，并在同一事务中完成联合 FactSet 结算、资源扣费、选中结果加密、representation plan、审计与 V5 receipt。事务提交前不会释放任何候选结果。
+V2 的执行边界是：客户端提交 requirement 的 `required_outputs` 契约与候选
+`QueryPlan`，不提交 FactID、成本、utility 或权重。Gateway 在同一个 Business
+PostgreSQL `REPEATABLE READ` 快照内执行所有候选及 provenance companion，生成
+每个候选的精确 `(release, influence)` FactSet，并按实际输出 schema 与截断状态
+生成固定版本 utility。Control PostgreSQL 随后锁定 root ledger，扣除最新历史
+集合，用双 bitset exact planner 选择候选，并在同一事务中完成联合 FactSet
+结算、资源扣费、选中结果加密、representation plan、审计与 V5 receipt。
+事务提交前不会释放任何候选结果。V1 可继续执行兼容查询，但不能调用
+`plan_exposure` 的旧标量规划路径。
 
 ## Fact identity
 
@@ -45,6 +53,22 @@ I(S) = |union(E_c.influence for c in S) - K_T.influence|
 
 实现先批量扣除历史 hash，再分配稠密整数并构造 release/influence bitset。每个 requirement 枚举 skip 或选择一个候选，扩展使用 OR 与 popcount。唯一安全的 frontier 支配条件是两个集合均为子集且 utility 不低；仅比较集合大小不安全。
 
+候选成本不能相加：若两个 requirement 的候选都只包含同一新事实 `f`，预算为
+1，则联合成本仍为 1，两个候选都可选择。`taskgate-overlap-exact-v3` 的状态保存
+完整双 bitset，因而覆盖该反例。
+
+在线 utility profile 固定为 `taskgate-required-output-coverage-v1`。对 requirement
+要求的输出名集合 `A`、实际输出 schema `O` 和截断位 `t`：
+
+```text
+query_coverage      = |A intersect O| / |A|
+answer_completeness = query_coverage * (1 - t)
+utility             = 0.5 * query_coverage + 0.5 * answer_completeness
+```
+
+`A` 是请求声明并被 request/receipt 证据绑定的输出契约；两个分数及权重由服务端
+生成。该 profile 衡量结构覆盖与是否完整缓冲，不声称判断答案的语义真值。
+
 V2 默认限制每次最多 16 个候选。所有候选的可见查询与 provenance 数据库时间都计入普通 DB 时间预算；只有选中结果被持久化和释放。
 
 ## API example
@@ -53,6 +77,9 @@ V2 默认限制每次最多 16 个候选。所有候选的可见查询与 proven
 {
   "task_id": "task_...",
   "request_id": "monthly-representations-1",
+  "requirements": [
+    {"id": "trend", "required_outputs": ["month", "total"]}
+  ],
   "candidates": [
     {
       "id": "monthly-summary",
@@ -63,11 +90,12 @@ V2 默认限制每次最多 16 个候选。所有候选的可见查询与 proven
         "aggregates": [{"function":"sum","column":"total_amount","alias":"total"}],
         "group_by": ["month"],
         "order_by": [{"column":"month","direction":"asc"}]
-      },
-      "utility_evidence": {"answer_completeness": 0.9, "query_coverage": 1.0}
+      }
     }
   ]
 }
 ```
 
-响应只公开选中候选、cost cardinality、effect digest 和选中结果，不公开 FactID payload。V5 receipt 绑定 snapshot bundle、全部候选摘要、选中摘要、planner version 与联合 Effect digest。
+响应只公开 utility profile、选中候选、cost cardinality、effect digest 和选中结果，
+不公开 FactID payload。V5 receipt 绑定 snapshot bundle、全部候选摘要（含服务端
+utility）、选中摘要、planner version 与联合 Effect digest。

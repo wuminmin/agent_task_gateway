@@ -22,18 +22,16 @@ import (
 	"taskbound.local/agent-data-gateway/internal/sqlpolicy"
 )
 
-const maxV2Candidates = 16
-
-type plannerWeights struct {
-	AnswerCompleteness float64 `json:"answer_completeness"`
-	QueryCoverage      float64 `json:"query_coverage"`
-}
+const (
+	maxV2Candidates              = 16
+	requiredOutputUtilityProfile = "taskgate-required-output-coverage-v1"
+)
 
 type planExposureEnvelope struct {
-	TaskID     string          `json:"task_id"`
-	RequestID  string          `json:"request_id,omitempty"`
-	Candidates json.RawMessage `json:"candidates"`
-	Weights    *plannerWeights `json:"weights,omitempty"`
+	TaskID       string                 `json:"task_id"`
+	RequestID    string                 `json:"request_id,omitempty"`
+	Requirements []v2RequirementRequest `json:"requirements"`
+	Candidates   json.RawMessage        `json:"candidates"`
 }
 
 type v2UtilityEvidence struct {
@@ -41,11 +39,15 @@ type v2UtilityEvidence struct {
 	QueryCoverage      float64 `json:"query_coverage"`
 }
 
+type v2RequirementRequest struct {
+	ID              string   `json:"id"`
+	RequiredOutputs []string `json:"required_outputs"`
+}
+
 type v2CandidateRequest struct {
-	ID              string              `json:"id"`
-	Requirement     string              `json:"requirement"`
-	Plan            queryplan.QueryPlan `json:"plan"`
-	UtilityEvidence v2UtilityEvidence   `json:"utility_evidence"`
+	ID          string              `json:"id"`
+	Requirement string              `json:"requirement"`
+	Plan        queryplan.QueryPlan `json:"plan"`
 }
 
 type bufferedCandidateResult struct {
@@ -82,48 +84,11 @@ func (s *Service) planExposure(ctx context.Context, principal mcp.Principal, raw
 	if !grant.Exposure.Enabled() {
 		return nil, toolError(control.ErrExposureEvidenceRequired)
 	}
-	if grant.Exposure.ProfileVersion == exposure.ProfileV2 {
-		return s.planExposureV2(ctx, principal, task, grant, envelope)
+	if grant.Exposure.ProfileVersion != exposure.ProfileV2 {
+		return nil, &mcp.ToolError{Code: apierr.CodeExposureEvidenceRequired,
+			Message: "plan_exposure 仅支持服务端生成 FactSet 与 utility 的 taskgate-exposure-v2"}
 	}
-	return s.planExposureV1(ctx, task, grant, envelope)
-}
-
-func (s *Service) planExposureV1(ctx context.Context, task control.Task, grant control.TaskGrant, envelope planExposureEnvelope) (any, error) {
-	if task.State != control.TaskActive {
-		return nil, toolError(control.ErrTaskNotActive)
-	}
-	var candidates []exposure.Candidate
-	if err := strictJSON(envelope.Candidates, &candidates); err != nil || len(candidates) == 0 {
-		return nil, &mcp.ToolError{Code: apierr.CodeInvalidRequest, Message: "V1 candidates 不符合标量成本契约"}
-	}
-	approved := make(map[string]struct{}, len(grant.ApprovedProducts))
-	for _, product := range grant.ApprovedProducts {
-		approved[product] = struct{}{}
-	}
-	for _, candidate := range candidates {
-		if _, ok := approved[candidate.Product]; !ok {
-			return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "候选表示包含任务授权外的数据产品"}
-		}
-	}
-	ledger, err := s.store.GetExposureLedger(ctx, task.ID)
-	if err != nil {
-		return nil, err
-	}
-	weights := exposure.UtilityWeights{AnswerCompleteness: 0.5, QueryCoverage: 0.5}
-	if envelope.Weights != nil {
-		weights.AnswerCompleteness = envelope.Weights.AnswerCompleteness
-		weights.QueryCoverage = envelope.Weights.QueryCoverage
-	}
-	remaining := ledger.Remaining()
-	plan, err := exposure.Optimize(candidates, remaining.ReleaseFacts, remaining.InfluenceFacts, weights)
-	if err != nil {
-		if errors.Is(err, exposure.ErrInvalid) {
-			return nil, &mcp.ToolError{Code: apierr.CodeInvalidRequest, Message: "候选成本或可测量效用不符合规划契约"}
-		}
-		return nil, err
-	}
-	return map[string]any{"task_id": task.ID, "root_task_id": ledger.RootTaskID,
-		"profile_version": ledger.ProfileVersion, "budget_remaining": remaining, "weights": weights, "plan": plan}, nil
+	return s.planExposureV2(ctx, principal, task, grant, envelope)
 }
 
 func (s *Service) planExposureV2(ctx context.Context, principal mcp.Principal, task control.Task, grant control.TaskGrant, envelope planExposureEnvelope) (any, error) {
@@ -140,18 +105,15 @@ func (s *Service) planExposureV2(ctx context.Context, principal mcp.Principal, t
 	if err := strictJSON(envelope.Candidates, &requested); err != nil || len(requested) == 0 || len(requested) > maxV2Candidates {
 		return nil, &mcp.ToolError{Code: apierr.CodeInvalidRequest, Message: "V2 candidates 必须是 1 到 16 个服务端执行的 QueryPlan"}
 	}
-	weights := exposure.UtilityWeights{AnswerCompleteness: 0.5, QueryCoverage: 0.5}
-	if envelope.Weights != nil {
-		weights.AnswerCompleteness = envelope.Weights.AnswerCompleteness
-		weights.QueryCoverage = envelope.Weights.QueryCoverage
-	}
-	if weights.AnswerCompleteness < 0 || weights.QueryCoverage < 0 || weights.AnswerCompleteness+weights.QueryCoverage <= 0 {
-		return nil, &mcp.ToolError{Code: apierr.CodeInvalidRequest, Message: "V2 utility weights 非法"}
+	requirements, err := validateV2Requirements(envelope.Requirements)
+	if err != nil {
+		return nil, &mcp.ToolError{Code: apierr.CodeInvalidRequest, Message: err.Error()}
 	}
 	inputJSON, _ := json.Marshal(struct {
-		Candidates []v2CandidateRequest    `json:"candidates"`
-		Weights    exposure.UtilityWeights `json:"weights"`
-	}{requested, weights})
+		Requirements   []v2RequirementRequest `json:"requirements"`
+		Candidates     []v2CandidateRequest   `json:"candidates"`
+		UtilityProfile string                 `json:"utility_profile"`
+	}{envelope.Requirements, requested, requiredOutputUtilityProfile})
 	requestSummary := "plan_exposure_v2\x00" + task.ID + "\x00" + string(inputJSON)
 	if envelope.RequestID == "" {
 		envelope.RequestID = "plan-v2-" + digest(requestSummary)[:24]
@@ -210,6 +172,7 @@ func (s *Service) planExposureV2(ctx context.Context, principal mcp.Principal, t
 	planParts := make([]string, 0, len(requested))
 	snapshotParts := make([]string, 0, len(requested))
 	seenIDs := make(map[string]struct{}, len(requested))
+	coveredRequirements := make(map[string]struct{}, len(requirements))
 	physicalSource := ""
 	perCandidateRows := remaining.Rows / int64(len(requested))
 	if perCandidateRows < 1 {
@@ -225,10 +188,10 @@ func (s *Service) planExposureV2(ctx context.Context, principal mcp.Principal, t
 			return nil, &mcp.ToolError{Code: apierr.CodeInvalidRequest, Message: "候选 id 重复"}
 		}
 		seenIDs[candidate.ID] = struct{}{}
-		if candidate.UtilityEvidence.AnswerCompleteness < 0 || candidate.UtilityEvidence.AnswerCompleteness > 1 ||
-			candidate.UtilityEvidence.QueryCoverage < 0 || candidate.UtilityEvidence.QueryCoverage > 1 {
-			return nil, &mcp.ToolError{Code: apierr.CodeInvalidRequest, Message: "候选 utility_evidence 超出 0..1"}
+		if _, ok := requirements[candidate.Requirement]; !ok {
+			return nil, &mcp.ToolError{Code: apierr.CodeInvalidRequest, Message: "候选引用了未声明的 requirement"}
 		}
+		coveredRequirements[candidate.Requirement] = struct{}{}
 		product, ok := s.catalog.LookupProduct(candidate.Plan.Product)
 		if !ok || !contains(grant.ApprovedProducts, candidate.Plan.Product) {
 			return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "候选 QueryPlan 请求了授权外产品"}
@@ -275,6 +238,9 @@ func (s *Service) planExposureV2(ctx context.Context, principal mcp.Principal, t
 		contexts = append(contexts, planContext)
 		planParts = append(planParts, candidate.ID+"\x00"+planContext.planDigest+"\x00"+visibleDecision.Fingerprint+"\x00"+provenanceDecision.Fingerprint)
 		snapshotParts = append(snapshotParts, product.FactNamespace+"\x00"+product.Snapshot+"\x00"+product.LineageManifestDigest)
+	}
+	if len(coveredRequirements) != len(requirements) {
+		return nil, &mcp.ToolError{Code: apierr.CodeInvalidRequest, Message: "每个 requirement 至少需要一个候选 QueryPlan"}
 	}
 	sort.Strings(planParts)
 	sort.Strings(snapshotParts)
@@ -353,18 +319,21 @@ func (s *Service) planExposureV2(ctx context.Context, principal mcp.Principal, t
 			return nil, &mcp.ToolError{Code: apierr.CodeExposureEvidenceRequired, Message: "候选结果与来源证据不一致，未释放任何结果"}
 		}
 		candidate := requested[index]
-		effectCandidates = append(effectCandidates, exposure.EffectCandidate{ID: candidate.ID, Requirement: candidate.Requirement,
-			AnswerCompleteness: candidate.UtilityEvidence.AnswerCompleteness, QueryCoverage: candidate.UtilityEvidence.QueryCoverage,
-			Effect: observation, PlanDigest: contexts[index].planDigest})
-		buffered[candidate.ID] = bufferedCandidateResult{ID: candidate.ID, Requirement: candidate.Requirement,
+		bufferedResult := bufferedCandidateResult{ID: candidate.ID, Requirement: candidate.Requirement,
 			Plan: candidate.Plan, Columns: visible.Columns, Rows: visible.Rows, RowCount: visible.RowCount,
 			Limited: visible.Truncated || visible.RowCount == perCandidateRows}
+		utility := deriveRequiredOutputUtility(requirements[candidate.Requirement], bufferedResult)
+		effectCandidates = append(effectCandidates, exposure.EffectCandidate{ID: candidate.ID, Requirement: candidate.Requirement,
+			AnswerCompleteness: utility.AnswerCompleteness, QueryCoverage: utility.QueryCoverage,
+			Effect: observation, PlanDigest: contexts[index].planDigest})
+		buffered[candidate.ID] = bufferedResult
 	}
 	summaries := make([]map[string]any, 0, len(effectCandidates))
 	for _, candidate := range effectCandidates {
 		effectDigest, _ := exposure.ObservationDigest(candidate.Effect)
 		summaries = append(summaries, map[string]any{"id": candidate.ID, "requirement": candidate.Requirement,
 			"plan_digest": candidate.PlanDigest, "effect_digest": effectDigest,
+			"utility_profile":     requiredOutputUtilityProfile,
 			"answer_completeness": candidate.AnswerCompleteness, "query_coverage": candidate.QueryCoverage})
 	}
 	sort.Slice(summaries, func(i, j int) bool { return summaries[i]["id"].(string) < summaries[j]["id"].(string) })
@@ -372,7 +341,8 @@ func (s *Service) planExposureV2(ctx context.Context, principal mcp.Principal, t
 	candidatesSHA := sha256.Sum256(summaryJSON)
 	settlement := control.BudgetSettlement{QueryID: queryID, ChargeRows: totalRows,
 		DBMS: min64(totalDatabaseMS, reservation.AllowedDBMS), ObservedDBMS: totalDatabaseMS}
-	planning := control.RepresentationPlanningRequest{Candidates: effectCandidates, Weights: weights,
+	planning := control.RepresentationPlanningRequest{Candidates: effectCandidates,
+		Weights:          exposure.UtilityWeights{AnswerCompleteness: 0.5, QueryCoverage: 0.5},
 		CandidatesSHA256: hex.EncodeToString(candidatesSHA[:]), SnapshotBundleSHA256: snapshotBundleSHA}
 	finalizeCtx, finalizeCancel := detachedContext(ctx)
 	record, persistedReceipt, plan, _, err := s.store.FinalizePlannedQueryWithReceipt(finalizeCtx, settlement, planning,
@@ -406,7 +376,8 @@ func (s *Service) planExposureV2(ctx context.Context, principal mcp.Principal, t
 	}
 	response := map[string]any{"task_id": task.ID, "root_task_id": ledger.RootTaskID, "query_id": queryID,
 		"request_id": envelope.RequestID, "status": record.Status, "profile_version": exposure.ProfileV2,
-		"planner_version": plan.PlannerVersion, "plan": plan, "results": results, "database_ms": totalDatabaseMS,
+		"planner_version": plan.PlannerVersion, "utility_profile": requiredOutputUtilityProfile,
+		"plan": plan, "results": results, "database_ms": totalDatabaseMS,
 		"receipt": receipt}
 	if charge, chargeErr := s.store.GetExposureCharge(ctx, queryID); chargeErr == nil {
 		response["exposure"] = charge
@@ -415,6 +386,58 @@ func (s *Service) planExposureV2(ctx context.Context, principal mcp.Principal, t
 		response["exposure_budget"] = latest
 	}
 	return response, nil
+}
+
+func validateV2Requirements(requested []v2RequirementRequest) (map[string][]string, error) {
+	if len(requested) == 0 || len(requested) > maxV2Candidates {
+		return nil, fmt.Errorf("requirements 必须包含 1 到 16 个输出契约")
+	}
+	result := make(map[string][]string, len(requested))
+	for _, requirement := range requested {
+		id := strings.TrimSpace(requirement.ID)
+		if id == "" || id != requirement.ID || len(requirement.RequiredOutputs) == 0 || len(requirement.RequiredOutputs) > 64 {
+			return nil, fmt.Errorf("requirement id 或 required_outputs 非法")
+		}
+		if _, duplicate := result[id]; duplicate {
+			return nil, fmt.Errorf("requirement id 重复")
+		}
+		seen := make(map[string]struct{}, len(requirement.RequiredOutputs))
+		for _, output := range requirement.RequiredOutputs {
+			normalized := strings.ToLower(strings.TrimSpace(output))
+			if normalized == "" {
+				return nil, fmt.Errorf("required_outputs 包含空名称")
+			}
+			if _, duplicate := seen[normalized]; duplicate {
+				return nil, fmt.Errorf("required_outputs 包含重复名称")
+			}
+			seen[normalized] = struct{}{}
+			result[id] = append(result[id], normalized)
+		}
+	}
+	return result, nil
+}
+
+// deriveRequiredOutputUtility is the only online utility profile. Query
+// coverage is the fraction of declared output names present in the executed
+// result schema. Answer completeness receives that coverage only when the
+// result was fully buffered; a truncated result receives zero completeness.
+func deriveRequiredOutputUtility(required []string, result bufferedCandidateResult) v2UtilityEvidence {
+	available := make(map[string]struct{}, len(result.Columns))
+	for _, column := range result.Columns {
+		available[strings.ToLower(strings.TrimSpace(column.Name))] = struct{}{}
+	}
+	matched := 0
+	for _, output := range required {
+		if _, ok := available[output]; ok {
+			matched++
+		}
+	}
+	coverage := float64(matched) / float64(len(required))
+	completeness := coverage
+	if result.Limited {
+		completeness = 0
+	}
+	return v2UtilityEvidence{AnswerCompleteness: completeness, QueryCoverage: coverage}
 }
 
 func strictJSON(raw json.RawMessage, target any) error {

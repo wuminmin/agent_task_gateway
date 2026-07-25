@@ -64,18 +64,16 @@ var queryTools = []mcp.Tool{
 	{Name: "get_budget", Description: "读取任务预算上限、已用和剩余值。", InputSchema: taskIDSchema(), Annotations: map[string]any{"readOnlyHint": true}},
 	{Name: "plan_exposure", Description: "在同一快照执行候选 QueryPlan、生成 V2 精确 Effect、原子规划结算并仅释放选中结果。", InputSchema: objectSchema(map[string]any{
 		"task_id": map[string]any{"type": "string"}, "request_id": requestIDSchema(),
+		"requirements": map[string]any{"type": "array", "minItems": 1, "maxItems": 16, "items": objectSchema(map[string]any{
+			"id": map[string]any{"type": "string", "minLength": 1},
+			"required_outputs": map[string]any{"type": "array", "minItems": 1, "maxItems": 64,
+				"items": map[string]any{"type": "string", "minLength": 1}},
+		}, "id", "required_outputs")},
 		"candidates": map[string]any{"type": "array", "minItems": 1, "maxItems": 16, "items": objectSchema(map[string]any{
 			"id": map[string]any{"type": "string", "minLength": 1}, "requirement": map[string]any{"type": "string", "minLength": 1},
-			"plan": queryPlanSchema(), "utility_evidence": objectSchema(map[string]any{
-				"answer_completeness": map[string]any{"type": "number", "minimum": 0, "maximum": 1},
-				"query_coverage":      map[string]any{"type": "number", "minimum": 0, "maximum": 1},
-			}, "answer_completeness", "query_coverage"),
-		}, "id", "requirement", "plan", "utility_evidence")},
-		"weights": objectSchema(map[string]any{
-			"answer_completeness": map[string]any{"type": "number", "minimum": 0},
-			"query_coverage":      map[string]any{"type": "number", "minimum": 0},
-		}, "answer_completeness", "query_coverage"),
-	}, "task_id", "candidates")},
+			"plan": queryPlanSchema(),
+		}, "id", "requirement", "plan")},
+	}, "task_id", "requirements", "candidates")},
 	{Name: "list_receipts", Description: "列出自己的查询审计凭证，不含物理表名或数据库凭据。", InputSchema: objectSchema(map[string]any{
 		"task_id": map[string]any{"type": "string"}, "cursor": map[string]any{"type": "string"},
 	}, "task_id"), Annotations: map[string]any{"readOnlyHint": true}},

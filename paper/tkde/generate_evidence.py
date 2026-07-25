@@ -47,7 +47,7 @@ def decimal(value: float, digits: int = 1) -> str:
 
 def validate_exposure() -> dict:
     report = load_json(RESULT)
-    require(report.get("schema_version") == 1, "unsupported exposure report schema")
+    require(report.get("schema_version") == 2, "unsupported exposure report schema")
     require(report.get("corpus_sha256") == sha256(CORPUS), "exposure corpus digest is stale")
     require(report.get("rewrite_seed") == 20260723, "unexpected rewrite seed")
     rq1 = report.get("rq1_ground_truth", {})

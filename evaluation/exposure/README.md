@@ -40,8 +40,9 @@ did not match.
   latency/throughput, component timing, ledger growth, memory, contention, and
   history-hit metrics. The result is explicitly a controlled local fixture
   campaign rather than a TPC or production-scale measurement.
-- **RQ5:** exact dual-budget optimization is checked against declared expected
-  choices and 500 brute-force instances. `../agenttasks/` separately replays
+- **RQ5:** exact set-valued dual-budget optimization is checked on the
+  two-requirement/shared-fact/budget-one counterexample and 500 brute-force
+  instances. `../agenttasks/` separately replays
   120 four-part database-agent traces and scores selected answer tokens against
   gold assertions without consulting planner utility values.
 

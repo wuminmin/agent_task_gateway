@@ -22,13 +22,12 @@ import (
 var corpusJSON []byte
 
 type corpus struct {
-	SchemaVersion    int               `json:"schema_version"`
-	ProfileVersion   string            `json:"profile_version"`
-	RewriteTrials    int               `json:"rewrite_trials"`
-	Relations        []relationFixture `json:"relations"`
-	GroundTruth      []groundTruthCase `json:"ground_truth"`
-	Adversarial      []adversarialCase `json:"adversarial_cases"`
-	PlannerScenarios []plannerScenario `json:"planner_scenarios"`
+	SchemaVersion  int               `json:"schema_version"`
+	ProfileVersion string            `json:"profile_version"`
+	RewriteTrials  int               `json:"rewrite_trials"`
+	Relations      []relationFixture `json:"relations"`
+	GroundTruth    []groundTruthCase `json:"ground_truth"`
+	Adversarial    []adversarialCase `json:"adversarial_cases"`
 }
 
 type relationFixture struct {
@@ -52,15 +51,6 @@ type groundTruthCase struct {
 type adversarialCase struct {
 	ID        string `json:"id"`
 	Execution string `json:"execution"`
-}
-
-type plannerScenario struct {
-	ID              string                  `json:"id"`
-	ReleaseBudget   int64                   `json:"release_budget"`
-	InfluenceBudget int64                   `json:"influence_budget"`
-	Weights         exposure.UtilityWeights `json:"weights"`
-	ExpectedIDs     []string                `json:"expected_ids"`
-	Candidates      []exposure.Candidate    `json:"candidates"`
 }
 
 type ValidationSummary struct {
@@ -106,10 +96,10 @@ type BaselineSummary struct {
 }
 
 type PlannerResult struct {
-	ID             string   `json:"id"`
-	SelectedIDs    []string `json:"selected_ids"`
-	OptimalUtility float64  `json:"optimal_utility"`
-	GreedyUtility  float64  `json:"greedy_utility"`
+	ID                   string   `json:"id"`
+	SelectedIDs          []string `json:"selected_ids"`
+	ExactUtility         float64  `json:"exact_utility"`
+	AdditiveProxyUtility float64  `json:"additive_proxy_utility"`
 }
 
 type PlannerSummary struct {
@@ -141,7 +131,7 @@ func Run() (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
-	report := Report{SchemaVersion: 1, ProfileVersion: fixtures.ProfileVersion,
+	report := Report{SchemaVersion: 2, ProfileVersion: fixtures.ProfileVersion,
 		CorpusSHA256: fmt.Sprintf("%x", sha256.Sum256(corpusJSON)), RewriteSeed: 20260723,
 		RQ4Status: "measured_controlled_local_postgresql_campaign"}
 	for _, testCase := range fixtures.GroundTruth {
@@ -178,7 +168,7 @@ func Run() (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
-	report.RQ5, err = runPlannerScenarios(fixtures.PlannerScenarios)
+	report.RQ5, err = runSharedFactPlannerRegression()
 	if err != nil {
 		return Report{}, err
 	}
@@ -247,7 +237,7 @@ func loadCorpus() (corpus, error) {
 		return corpus{}, err
 	}
 	if result.SchemaVersion != 1 || result.ProfileVersion == "" || result.RewriteTrials < 1 ||
-		len(result.Relations) == 0 || len(result.GroundTruth) == 0 || len(result.PlannerScenarios) == 0 {
+		len(result.Relations) == 0 || len(result.GroundTruth) == 0 {
 		return corpus{}, fmt.Errorf("invalid exposure evaluation corpus")
 	}
 	for _, testCase := range result.GroundTruth {
@@ -462,23 +452,30 @@ func baselineSummary(profile string, relations map[string]exposure.RelationV2) (
 	}, nil
 }
 
-func runPlannerScenarios(scenarios []plannerScenario) (PlannerSummary, error) {
-	result := PlannerSummary{Scenarios: len(scenarios)}
-	for _, scenario := range scenarios {
-		plan, err := exposure.Optimize(scenario.Candidates, scenario.ReleaseBudget, scenario.InfluenceBudget, scenario.Weights)
-		if err != nil {
-			return result, err
-		}
-		ids := candidateIDs(plan.Candidates)
-		if !sameStrings(ids, scenario.ExpectedIDs) {
-			return result, fmt.Errorf("planner scenario %s selected %v, want %v", scenario.ID, ids, scenario.ExpectedIDs)
-		}
-		greedy := greedyPlan(scenario)
-		result.Results = append(result.Results, PlannerResult{ID: scenario.ID, SelectedIDs: ids,
-			OptimalUtility: plan.Utility, GreedyUtility: greedy.Utility})
-		result.Passed++
+func runSharedFactPlannerRegression() (PlannerSummary, error) {
+	fact, err := exposure.NewBaseCellFactV2("evaluation.planner", "snapshot-v2", "shared", "value", "text", "shared")
+	if err != nil {
+		return PlannerSummary{}, err
 	}
-	return result, nil
+	effect := exposure.Observation{ProfileVersion: exposure.ProfileV2, Release: []exposure.FactID{fact}, Influence: []exposure.FactID{fact}}
+	plan, err := exposure.OptimizeEffects([]exposure.EffectCandidate{
+		{ID: "requirement-a", Requirement: "a", AnswerCompleteness: 1, Effect: effect},
+		{ID: "requirement-b", Requirement: "b", AnswerCompleteness: 1, Effect: effect},
+	}, exposure.Observation{ProfileVersion: exposure.ProfileV2}, 1, 1, exposure.UtilityWeights{AnswerCompleteness: 1})
+	if err != nil {
+		return PlannerSummary{}, err
+	}
+	ids := make([]string, 0, len(plan.Selected))
+	for _, selected := range plan.Selected {
+		ids = append(ids, selected.ID)
+	}
+	if len(ids) != 2 || plan.ReleaseCost != 1 || plan.InfluenceCost != 1 || plan.Utility != 2 {
+		return PlannerSummary{}, fmt.Errorf("shared-fact regression selected %v with (%d,%d,%v)",
+			ids, plan.ReleaseCost, plan.InfluenceCost, plan.Utility)
+	}
+	return PlannerSummary{Scenarios: 1, Passed: 1, Results: []PlannerResult{{
+		ID: "shared-fact-budget-one", SelectedIDs: ids, ExactUtility: plan.Utility, AdditiveProxyUtility: 1,
+	}}}, nil
 }
 
 func runRandomV2PlannerOracle(summary *PlannerSummary, trials int) error {
@@ -569,63 +566,6 @@ func bruteForceV2Utility(candidates []exposure.EffectCandidate, history exposure
 		}
 	}
 	return best
-}
-
-func greedyPlan(scenario plannerScenario) exposure.Plan {
-	candidates := append([]exposure.Candidate(nil), scenario.Candidates...)
-	sort.Slice(candidates, func(i, j int) bool {
-		left := measuredUtility(candidates[i], scenario.Weights)
-		right := measuredUtility(candidates[j], scenario.Weights)
-		if left != right {
-			return left > right
-		}
-		return candidates[i].ID < candidates[j].ID
-	})
-	selectedRequirements := make(map[string]struct{})
-	var result exposure.Plan
-	for _, candidate := range candidates {
-		if _, selected := selectedRequirements[candidate.Requirement]; selected ||
-			result.ReleaseCost+candidate.ReleaseCost > scenario.ReleaseBudget ||
-			result.InfluenceCost+candidate.InfluenceCost > scenario.InfluenceBudget {
-			continue
-		}
-		selectedRequirements[candidate.Requirement] = struct{}{}
-		result.Candidates = append(result.Candidates, candidate)
-		result.ReleaseCost += candidate.ReleaseCost
-		result.InfluenceCost += candidate.InfluenceCost
-		result.Utility += measuredUtility(candidate, scenario.Weights)
-	}
-	return result
-}
-
-func measuredUtility(candidate exposure.Candidate, weights exposure.UtilityWeights) float64 {
-	total := weights.AnswerCompleteness + weights.QueryCoverage
-	return (candidate.AnswerCompleteness*weights.AnswerCompleteness + candidate.QueryCoverage*weights.QueryCoverage) / total
-}
-
-func candidateIDs(candidates []exposure.Candidate) []string {
-	result := make([]string, 0, len(candidates))
-	for _, candidate := range candidates {
-		result = append(result, candidate.ID)
-	}
-	sort.Strings(result)
-	return result
-}
-
-func sameStrings(left, right []string) bool {
-	leftCopy := append([]string(nil), left...)
-	rightCopy := append([]string(nil), right...)
-	sort.Strings(leftCopy)
-	sort.Strings(rightCopy)
-	if len(leftCopy) != len(rightCopy) {
-		return false
-	}
-	for index := range leftCopy {
-		if leftCopy[index] != rightCopy[index] {
-			return false
-		}
-	}
-	return true
 }
 
 func sameObservation(left, right exposure.Observation) bool {

@@ -76,7 +76,7 @@ Navicat 的用户名和密码对应关系见[本地启动与数据库调试](doc
 2. 调用 `request_data_task`，显式提交非空 `objective`、`data_products`、每个产品的非空 `columns` 及 `scopes`。资源预算与 release/influence 上限都只能缩小 Catalog Profile。
 3. 在 OA 提交并完成自动或人工审批。
 4. ACTIVE 后使用 `execute_plan(task_id, request_id, plan)`。默认 Catalog 已启用 exposure Profile，因此该路径会生成同快照 provenance 并进行双账本结算。
-5. `taskgate-exposure-v2` 的 `plan_exposure` 会在同一快照执行候选 QueryPlan，以服务端 FactSet 的真实重叠做 exact planning，并在同一 root-lock 事务结算后只释放选中结果；V1 标量 planner 仅作不混用的兼容路径。详见 [V2 Profile](docs/exposure-v2.md)。子 Agent 任务通过 `parent_task_id` 和 `delegate_principal_id` 创建，且共享根账本。
+5. `taskgate-exposure-v2` 的 `plan_exposure` 会在同一快照执行候选 QueryPlan，以服务端 FactSet 的真实重叠做 exact planning，并从 required-output 契约、实际输出 schema 与截断状态生成 utility；客户端不能提交成本、utility 或权重。V1 标量 planner 已删除。详见 [V2 Profile](docs/exposure-v2.md)。子 Agent 任务通过 `parent_task_id` 和 `delegate_principal_id` 创建，且共享根账本。
 
 `request_id` 由客户端生成并在一个任务内保持唯一。相同 ID 和相同请求只返回首次持久化结果/状态；相同 ID 搭配不同请求会关闭式拒绝，重试不会产生第二次执行或预算消费。
 

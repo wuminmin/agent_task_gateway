@@ -129,8 +129,8 @@ including projection, selection, join, union, pagination, grouping, and
 \item An online paired-snapshot algorithm and a PostgreSQL root-family ledger
 whose settlement charges exactly novel facts and withholds over-budget results.
 \item Signed, monotonic multi-agent delegation that shares root knowledge, plus
-an exact planner for choosing raw, projected, aggregate, or generalized
-representations under two budgets.
+an overlap-aware exact selector for choosing server-executed representations
+under two set-valued budgets and a fixed measurable utility profile.
 \item Executable ground truth, rewrite and anti-arbitrage tests, a finite TLA+
 model, a repeated full-path PostgreSQL overhead campaign, and externally scored
 budget-constrained agent-task traces.
@@ -522,7 +522,9 @@ For a successful V2 planning call, the gateway performs the following steps:
 \begin{enumerate}
 \item Authorize every candidate plan, then execute and buffer every visible and
 provenance pair in one Business PostgreSQL \code{REPEATABLE READ} snapshot.
-\item Derive exact candidate effects; no client cost is accepted.
+\item Derive exact candidate effects and output-contract utility from the
+executed schema and truncation state; no client cost, utility, or weight is
+accepted.
 \item In Control PostgreSQL, lock the query reservation and root ledger, reload
 the latest known sets, and run the overlap-aware exact planner.
 \item Insert the selected candidates' release and influence union with a primary key on root, ledger
@@ -601,15 +603,30 @@ identity and both bounds.
 
 For requirement $j$, let $C_j$ contain server-executed raw, projected,
 aggregate, or generalized candidates with exact effect
-$E_c=\langle E_c^r,E_c^i\rangle$. With root history $K_T$ and nonnegative
-measured utility, the planner solves
+$E_c=\langle E_c^r,E_c^i\rangle$. The request declares a nonempty required
+output-name set $A_j$. After execution, candidate $c$ has observed output schema
+$O_c$ and a server-observed truncation bit $\tau_c$. The fixed online utility
+profile is
+\begin{align*}
+q(c)&=|A_j\cap O_c|/|A_j|,\\
+a(c)&=q(c)(1-\tau_c),\\
+u(c)&=\tfrac12(a(c)+q(c)).
+\end{align*}
+The caller supplies plans and the output contract, but no cost, utility scalar,
+or weight. With root history $K_T$, the selector solves
 
 \begin{align}
 \max_{S}\quad &\sum_{c\in S} u(c) \\
-\text{s.t.}\quad &|\bigcup_{c\in S}E_c^r\setminus K_T^r|\leq B^r_{\mathrm{remaining}},\\
-&|\bigcup_{c\in S}E_c^i\setminus K_T^i|\leq B^i_{\mathrm{remaining}},\\
+\text{s.t.}\quad &|\left(\bigcup_{c\in S}E_c^r\right)\setminus K_T^r|\leq B^r_{\mathrm{remaining}},\\
+&|\left(\bigcup_{c\in S}E_c^i\right)\setminus K_T^i|\leq B^i_{\mathrm{remaining}},\\
 &|S\cap C_j|\leq 1\quad\forall j.
 \end{align}
+
+Candidate cardinalities are deliberately not added. For example, if candidates
+for two requirements both add only fact $f$ and the budget is one, their joint
+cost is $|\{f\}|=1$ and both remain feasible; the additive proxy
+$|E_{c_1}|+|E_{c_2}|=2$ would incorrectly reject them. The public V1 scalar
+planning path has therefore been removed; non-V2 planning calls fail closed.
 
 The implementation subtracts root history, assigns remaining fact hashes dense
 integers, and represents each set as a release/influence bit vector. It expands
@@ -624,9 +641,10 @@ frontier size is exponential; V2 therefore limits calls to a small
 representation catalog.
 
 \begin{theorem}[Planner optimality]
-For fixed candidate effects, root history, budgets, and utility, the V2 planner
-returns maximum utility among all feasible choices with at most one candidate
-per requirement.
+For fixed executed candidate effects and outputs, required-output contracts,
+root history, and budgets, the V2 selector returns maximum utility under the
+profile above among all feasible choices with at most one candidate per
+requirement.
 \end{theorem}
 \begin{proof}[Proof sketch]
 For each requirement the frontier enumerates skipping it or choosing each one
@@ -651,7 +669,8 @@ plan, inspect both budgets, invoke the representation planner, delegate a
 narrower task, and retrieve results or receipts. An external approval adapter
 signs the immutable grant. Arbitrary direct SQL remains available only for
 legacy resource-only grants; it fails closed when exposure evidence is
-required.
+required. \code{plan_exposure} accepts only V2 QueryPlans and required-output
+contracts; it executes candidates before deriving their FactSets and utility.
 
 The control schema stores one dual ledger per root, per-query reservations, and
 immutable fact identities. The primary-key and check constraints are backed by
@@ -821,9 +840,9 @@ Exact planning succeeds on \RQFiveExactSuccess{}/\RQFiveAgentTasks{} traces
 and mean answer completeness is \RQFiveExactCompleteness{} versus
 \RQFiveGreedyCompleteness{}. Removing root history from the exact policy reduces
 success to \RQFiveNoHistorySuccess{}/\RQFiveAgentTasks{}. All three policies
-have zero budget violations. The two hand-written planner cases and 500
-brute-force instances remain algorithmic correctness evidence; the trace
-campaign supplies the separate task-level utility measurement.
+have zero budget violations. The shared-fact budget-one counterexample and 500
+set-valued brute-force instances provide algorithmic correctness evidence; the
+trace campaign supplies the separate task-level utility measurement.
 
 \subsection{Reproducibility Boundary}
 
@@ -858,11 +877,13 @@ hot spot, and immutable history grows monotonically. Compression, sketches,
 partitioned settlement, retention, and audited deletion are open design points;
 approximations would require new safety semantics.
 
-\textbf{Planning evidence.} Candidate costs and effects are server generated;
-utility evidence remains caller supplied. The gold-answer trace scorer measures
-the consequence of selection independently, but it does not authenticate
-utility at runtime or test model-generated candidates. Production still needs
-an authenticated scoring adapter and live-agent evaluation.
+\textbf{Planning evidence.} Candidate costs, effects, and scalar utility are
+server generated. The online utility profile measures required-output coverage
+and truncation, not semantic answer truth; its output contract is caller declared
+and receipt bound. The gold-answer trace scorer measures the consequence of
+selection independently, but does not test model-generated candidates.
+Production still needs an approved semantic task contract and live-agent
+evaluation.
 
 \textbf{Deployment.} The prototype has one gateway instance, static local
 tokens, an in-memory approval demo, and one PostgreSQL connector. It lacks a

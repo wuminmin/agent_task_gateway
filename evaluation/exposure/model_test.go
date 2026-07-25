@@ -15,8 +15,15 @@ func TestExposureEvaluationCorpus(t *testing.T) {
 		report.RQ2.UniqueRewrites != 8 || report.RQ2.RewriteTemplates != 2 || report.RQ2.Mismatches != 0 ||
 		report.RQ3.DeterministicPassed != report.RQ3.DeterministicCases ||
 		report.RQ3.DeterministicCases+len(report.RQ3.PostgresIntegrationIDs) != report.RQ3.Cases ||
-		report.RQ5.Passed != report.RQ5.Scenarios {
+		report.RQ5.Passed != report.RQ5.Scenarios || report.RQ5.Scenarios != 501 {
 		t.Fatalf("incomplete exposure report: %+v", report)
+	}
+	if report.SchemaVersion != 2 {
+		t.Fatalf("exposure report schema = %d, want 2", report.SchemaVersion)
+	}
+	if len(report.RQ5.Results) == 0 || report.RQ5.Results[0].ID != "shared-fact-budget-one" ||
+		report.RQ5.Results[0].ExactUtility != 2 || report.RQ5.Results[0].AdditiveProxyUtility != 1 {
+		t.Fatalf("shared-fact planner regression is missing: %+v", report.RQ5)
 	}
 	if report.RQ4Status != "measured_controlled_local_postgresql_campaign" {
 		t.Fatalf("RQ4 status is stale: %q", report.RQ4Status)

@@ -18,40 +18,29 @@ func TestStrictJSONRejectsTrailingValue(t *testing.T) {
 	}
 }
 
-func TestPlanExposureUsesRootLedgerRemainingBudget(t *testing.T) {
+func TestPlanExposureRejectsScalarV1Contract(t *testing.T) {
 	harness := newGatewayHarness(t)
 	harness.createExposureSummaryTask(t, "task-planner", control.ExposureLimits{ReleaseFacts: 6, InfluenceFacts: 8})
 
-	result := mustCallGatewayTool(t, harness.service, harness.alice, "plan_exposure", map[string]any{
+	_, err := callGatewayTool(harness.service, harness.alice, "plan_exposure", map[string]any{
 		"task_id": "task-planner",
 		"candidates": []map[string]any{
-			{"id": "detail-raw", "requirement": "detail", "product": "expense_summary", "representation": "raw", "release_cost": 6, "influence_cost": 8, "answer_completeness": 1.0, "query_coverage": 1.0},
-			{"id": "detail-projection", "requirement": "detail", "product": "expense_summary", "representation": "projection", "release_cost": 4, "influence_cost": 5, "answer_completeness": 0.8, "query_coverage": 0.8},
-			{"id": "trend-aggregate", "requirement": "trend", "product": "expense_summary", "representation": "aggregate", "release_cost": 2, "influence_cost": 3, "answer_completeness": 0.9, "query_coverage": 0.9},
-			{"id": "trend-generalized", "requirement": "trend", "product": "expense_summary", "representation": "generalized", "release_cost": 1, "influence_cost": 1, "answer_completeness": 0.5, "query_coverage": 0.6},
+			{"id": "forged", "requirement": "detail", "product": "expense_summary",
+				"release_cost": 0, "influence_cost": 0, "answer_completeness": 1.0},
 		},
 	})
-	plan := result["plan"].(exposure.Plan)
-	if len(plan.Candidates) != 2 || plan.Candidates[0].ID != "detail-projection" || plan.Candidates[1].ID != "trend-aggregate" {
-		t.Fatalf("selected candidates = %+v", plan.Candidates)
-	}
-	if plan.ReleaseCost != 6 || plan.InfluenceCost != 8 {
-		t.Fatalf("selected cost = (%d,%d), want (6,8)", plan.ReleaseCost, plan.InfluenceCost)
-	}
-	remaining := result["budget_remaining"].(control.ExposureLimits)
-	if remaining.ReleaseFacts != 6 || remaining.InfluenceFacts != 8 {
-		t.Fatalf("remaining budget = %+v", remaining)
-	}
+	requireToolCode(t, err, apierr.CodeExposureEvidenceRequired)
 }
 
 func TestPlanExposureRejectsUnapprovedProducts(t *testing.T) {
 	harness := newGatewayHarness(t)
-	harness.createExposureSummaryTask(t, "task-planner-scope", control.ExposureLimits{ReleaseFacts: 6, InfluenceFacts: 8})
+	harness.createExposureV2SummaryTask(t, "task-planner-scope", control.ExposureLimits{ReleaseFacts: 6, InfluenceFacts: 8})
 	_, err := callGatewayTool(harness.service, harness.alice, "plan_exposure", map[string]any{
-		"task_id": "task-planner-scope",
+		"task_id":      "task-planner-scope",
+		"requirements": []map[string]any{{"id": "people", "required_outputs": []string{"employee_no"}}},
 		"candidates": []map[string]any{{
-			"id": "employee-raw", "requirement": "people", "product": "employee_directory", "representation": "raw",
-			"release_cost": 1, "influence_cost": 1, "answer_completeness": 1.0, "query_coverage": 1.0,
+			"id": "employee-raw", "requirement": "people",
+			"plan": map[string]any{"product": "employee_directory", "columns": []string{"employee_no"}},
 		}},
 	})
 	requireToolCode(t, err, apierr.CodePolicyDenied)
@@ -68,11 +57,13 @@ func TestPlanExposureV2ExecutesCandidatesAndSettlesTheirExactUnion(t *testing.T)
 	plan := map[string]any{"product": "expense_summary", "columns": []string{"month", "total_amount"}}
 	result := mustCallGatewayTool(t, harness.service, harness.alice, "plan_exposure", map[string]any{
 		"task_id": "task-planner-v2", "request_id": "planner-v2-request",
+		"requirements": []map[string]any{
+			{"id": "monthly", "required_outputs": []string{"month", "total_amount"}},
+			{"id": "trend", "required_outputs": []string{"month", "total_amount"}},
+		},
 		"candidates": []map[string]any{
-			{"id": "monthly", "requirement": "monthly", "plan": plan,
-				"utility_evidence": map[string]any{"answer_completeness": 1.0, "query_coverage": 1.0}},
-			{"id": "trend", "requirement": "trend", "plan": plan,
-				"utility_evidence": map[string]any{"answer_completeness": 1.0, "query_coverage": 1.0}},
+			{"id": "monthly", "requirement": "monthly", "plan": plan},
+			{"id": "trend", "requirement": "trend", "plan": plan},
 		},
 	})
 	exact := result["plan"].(exposure.ExactPlan)
@@ -96,15 +87,29 @@ func TestPlanExposureV2ExecutesCandidatesAndSettlesTheirExactUnion(t *testing.T)
 	}
 }
 
-func TestPlanExposureV2RejectsClientSuppliedCosts(t *testing.T) {
+func TestPlanExposureV2RejectsClientSuppliedCostsAndUtility(t *testing.T) {
 	harness := newGatewayHarness(t)
 	harness.createExposureV2SummaryTask(t, "task-planner-v2-cost", control.ExposureLimits{ReleaseFacts: 5, InfluenceFacts: 5})
 	_, err := callGatewayTool(harness.service, harness.alice, "plan_exposure", map[string]any{
-		"task_id": "task-planner-v2-cost",
+		"task_id":      "task-planner-v2-cost",
+		"requirements": []map[string]any{{"id": "r", "required_outputs": []string{"month"}}},
 		"candidates": []map[string]any{{"id": "forged", "requirement": "r",
 			"plan":             map[string]any{"product": "expense_summary", "columns": []string{"month"}},
 			"utility_evidence": map[string]any{"answer_completeness": 1.0, "query_coverage": 1.0},
 			"release_cost":     0, "influence_cost": 0}},
 	})
 	requireToolCode(t, err, apierr.CodeInvalidRequest)
+}
+
+func TestDeriveRequiredOutputUtilityUsesExecutedSchemaAndTruncation(t *testing.T) {
+	result := bufferedCandidateResult{Columns: []dataconnector.Column{{Name: "month"}, {Name: "total_amount"}}}
+	utility := deriveRequiredOutputUtility([]string{"month", "total_amount", "request_count"}, result)
+	if utility.QueryCoverage != 2.0/3.0 || utility.AnswerCompleteness != 2.0/3.0 {
+		t.Fatalf("complete result utility = %+v", utility)
+	}
+	result.Limited = true
+	utility = deriveRequiredOutputUtility([]string{"month", "total_amount"}, result)
+	if utility.QueryCoverage != 1 || utility.AnswerCompleteness != 0 {
+		t.Fatalf("truncated result utility = %+v", utility)
+	}
 }
