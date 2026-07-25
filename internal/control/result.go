@@ -50,9 +50,12 @@ func (s *Store) FinalizeQuery(ctx context.Context, settlement BudgetSettlement, 
 // FinalizeQueryMetrics separates local authenticated encryption from the
 // Control PostgreSQL settlement-and-persistence transaction for evaluation.
 type FinalizeQueryMetrics struct {
-	Encryption      time.Duration
-	ReceiptSigning  time.Duration
-	SettlementStore time.Duration
+	Encryption                 time.Duration
+	ReceiptSigning             time.Duration
+	SettlementStore            time.Duration
+	ExposureReservationLock    time.Duration
+	ExposureLedgerLock         time.Duration
+	ExposureFactStore          time.Duration
 }
 
 // FinalizeQueryMeasured is the measured form of FinalizeQuery. The returned
@@ -102,10 +105,13 @@ func (s *Store) FinalizeQueryMeasuredWithReceipt(ctx context.Context, settlement
 		return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, ErrConflict, err)
 	}
 	defer rollback(tx)
-	exposureCharge, err := settleExposureTx(ctx, tx, now, settlement.QueryID, settlement.Exposure)
+	exposureCharge, exposureMetrics, err := settleExposureMeasuredTx(ctx, tx, now, settlement.QueryID, settlement.Exposure)
 	if err != nil {
 		return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, settlementErrorKind(err), err)
 	}
+	metrics.ExposureReservationLock = exposureMetrics.ReservationLock
+	metrics.ExposureLedgerLock = exposureMetrics.LedgerLock
+	metrics.ExposureFactStore = exposureMetrics.FactStore
 	record, audit, err := settleBudgetTx(ctx, tx, now, settlement, QueryCompleted, hash)
 	if err != nil {
 		return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, settlementErrorKind(err), err)

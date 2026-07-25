@@ -378,7 +378,9 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 		return nil, queryErr
 	}
 	if exposureContext != nil {
+		derivationStarted := time.Now()
 		observation, deriveErr := exposureContext.deriveObservation(data, provenanceData, exposureLedger.ProfileVersion)
+		componentMS["exposure_derivation"] = durationMS(time.Since(derivationStarted))
 		if deriveErr != nil {
 			settlement.ErrorCode = "EXPOSURE_PROVENANCE_INVALID"
 			s.failQueryBudget(ctx, settlement)
@@ -432,6 +434,11 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 	componentMS["encryption"] = durationMS(finalizeMetrics.Encryption)
 	componentMS["settle_persist"] = durationMS(finalizeMetrics.SettlementStore)
 	componentMS["receipt_signing"] = durationMS(finalizeMetrics.ReceiptSigning)
+	if exposureContext != nil {
+		componentMS["exposure_reservation_lock"] = durationMS(finalizeMetrics.ExposureReservationLock)
+		componentMS["exposure_ledger_lock"] = durationMS(finalizeMetrics.ExposureLedgerLock)
+		componentMS["exposure_fact_store"] = durationMS(finalizeMetrics.ExposureFactStore)
+	}
 	receipt, err := decodeReceiptJSON(persistedReceipt.ReceiptJSON)
 	if err != nil {
 		return nil, err
