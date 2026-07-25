@@ -81,6 +81,9 @@ func TestV2AggregateAliasRewriteProducesIdenticalFactPayloadAndHash(t *testing.T
 	}
 	leftEffect, _ := ObserveV2(left, "total")
 	rightEffect, _ := ObserveV2(right, "renamed")
+	if len(leftEffect.Release) != 2 {
+		t.Fatalf("equal-valued aggregate groups collapsed to %d derived facts", len(leftEffect.Release))
+	}
 	assertSameObservation(t, leftEffect, rightEffect)
 	for index := range leftEffect.Release {
 		leftPayload, _ := leftEffect.Release[index].CanonicalPayload()
@@ -118,6 +121,90 @@ func TestV2CountStarAndCountColumnUseDifferentWitnessKinds(t *testing.T) {
 	right, _ := effect.Release[1].Hash()
 	if left == right {
 		t.Fatal("COUNT(*) and COUNT(column) collapsed to one derived fact")
+	}
+}
+
+func TestV2EmptyGlobalAggregateFactBindsProductAndSnapshotBundle(t *testing.T) {
+	observe := func(namespace, snapshot string) (RelationV2, map[string]string) {
+		t.Helper()
+		base, err := ScanV2(BaseRelationSpecV2{SourceNamespace: namespace, Snapshot: snapshot, StableRole: "input",
+			Fields: []FieldV2{{ID: "amount", SQLType: "numeric"}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		aggregated, err := AggregateFromResultsV2(base, nil, []AggregateSpecV2{
+			{Function: "count", Field: "*", OutputID: "n", OutputType: "bigint"},
+			{Function: "sum", Field: "amount", OutputID: "total", OutputType: "numeric"},
+		}, []map[string]any{{"n": int64(0), "total": nil}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(aggregated.Rows) != 1 || aggregated.Rows[0].Cells["n"].Value != int64(0) || aggregated.Rows[0].Cells["total"].Value != nil {
+			t.Fatalf("empty global aggregate = %+v", aggregated.Rows)
+		}
+		effect, err := ObserveV2(aggregated)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(effect.Release) != 2 || len(effect.Influence) != 0 {
+			t.Fatalf("empty global effect = %+v", effect)
+		}
+		hashes := make(map[string]string, len(effect.Release))
+		for _, fact := range effect.Release {
+			hash, hashErr := fact.Hash()
+			if hashErr != nil {
+				t.Fatal(hashErr)
+			}
+			hashes[fact.NormalizedExpression] = hash
+		}
+		return aggregated, hashes
+	}
+
+	first, firstFacts := observe("global.product", "snapshot-1")
+	changedSnapshot, snapshotFacts := observe("global.product", "snapshot-2")
+	changedProduct, productFacts := observe("other.product", "snapshot-1")
+	if first.Rows[0].Key != changedSnapshot.Rows[0].Key || first.Rows[0].Key != changedProduct.Rows[0].Key {
+		t.Fatal("global aggregate did not use its canonical constant output-row key")
+	}
+	if firstFacts["count(*)"] == snapshotFacts["count(*)"] || firstFacts["count(*)"] == productFacts["count(*)"] {
+		t.Fatal("global aggregate FactID omitted its product/snapshot bundle")
+	}
+}
+
+func TestV2OutputRowKeysDistinguishJoinPairsAndUnionTuples(t *testing.T) {
+	left, err := ScanV2(BaseRelationSpecV2{SourceNamespace: "keys.left", Snapshot: "s1", StableRole: "left",
+		Fields: []FieldV2{{ID: "left.k", SQLType: "integer"}},
+		Rows:   []BaseRowV2{{EntityKey: "l1", Values: map[string]any{"left.k": int64(1)}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	right, err := ScanV2(BaseRelationSpecV2{SourceNamespace: "keys.right", Snapshot: "s1", StableRole: "right",
+		Fields: []FieldV2{{ID: "right.k", SQLType: "integer"}}, Rows: []BaseRowV2{
+			{EntityKey: "r1", Values: map[string]any{"right.k": int64(1)}},
+			{EntityKey: "r2", Values: map[string]any{"right.k": int64(1)}},
+		}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined, err := JoinV2(left, right, "left.k", "right.k")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(joined.Rows) != 2 || joined.Rows[0].Key == joined.Rows[1].Key {
+		t.Fatalf("join pair keys = %+v", joined.Rows)
+	}
+
+	base := v2Expenses(t)
+	projected, err := ProjectV2(base, "department")
+	if err != nil {
+		t.Fatal(err)
+	}
+	union, err := UnionDistinctV2(projected, projected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(union.Rows) != 2 || union.Rows[0].Key == union.Rows[1].Key {
+		t.Fatalf("union typed-tuple keys = %+v", union.Rows)
 	}
 }
 

@@ -1,6 +1,8 @@
 package exposureeval
 
 import (
+	"os"
+	"strings"
 	"testing"
 
 	"taskbound.local/agent-data-gateway/internal/exposure"
@@ -11,15 +13,18 @@ func TestExposureEvaluationCorpus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.RQ1.Passed != report.RQ1.Cases || report.RQ2.GeneratedPairs != 1024 ||
-		report.RQ2.UniqueRewrites != 8 || report.RQ2.RewriteTemplates != 2 || report.RQ2.Mismatches != 0 ||
+	if report.RQ1.Passed != report.RQ1.Cases || report.RQ1.Cases != 14 || report.RQ1.DatasetRows != 16 ||
+		report.RQ1.ReleaseFacts == 0 || report.RQ1.InfluenceFacts == 0 || len(report.RQ1.OracleSourceSHA256) != 64 ||
+		report.RQ2.GeneratedAttempts != 16 || report.RQ2.UniqueNormalizedPairs != 16 ||
+		report.RQ2.ExecutedUniquePairs != 16 || report.RQ2.DuplicateAttempts != 0 ||
+		report.RQ2.RewriteTemplates != 2 || report.RQ2.Mismatches != 0 ||
 		report.RQ3.DeterministicPassed != report.RQ3.DeterministicCases ||
-		report.RQ3.DeterministicCases+len(report.RQ3.PostgresIntegrationIDs) != report.RQ3.Cases ||
+		report.RQ3.DeterministicCases+len(report.RQ3.IntegrationManifest) != report.RQ3.Cases ||
 		report.RQ5.Passed != report.RQ5.Scenarios || report.RQ5.Scenarios != 501 {
 		t.Fatalf("incomplete exposure report: %+v", report)
 	}
-	if report.SchemaVersion != 2 {
-		t.Fatalf("exposure report schema = %d, want 2", report.SchemaVersion)
+	if report.SchemaVersion != 3 {
+		t.Fatalf("exposure report schema = %d, want 3", report.SchemaVersion)
 	}
 	if len(report.RQ5.Results) == 0 || report.RQ5.Results[0].ID != "shared-fact-budget-one" ||
 		report.RQ5.Results[0].ExactUtility != 2 || report.RQ5.Results[0].AdditiveProxyUtility != 1 {
@@ -32,8 +37,20 @@ func TestExposureEvaluationCorpus(t *testing.T) {
 		len(report.RQ5Agent.Policies) != 3 {
 		t.Fatalf("RQ5 agent-task report is incomplete: %+v", report.RQ5Agent)
 	}
-	if len(report.CorpusSHA256) != 64 || report.RewriteSeed != 20260723 {
-		t.Fatalf("report provenance = sha %q seed %d", report.CorpusSHA256, report.RewriteSeed)
+	if len(report.CorpusSHA256) != 64 {
+		t.Fatalf("report provenance = sha %q", report.CorpusSHA256)
+	}
+}
+
+func TestRQ1OracleHasNoProductionExposureDependency(t *testing.T) {
+	source, err := os.ReadFile("../exposureoracle/oracle.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"internal/exposure", "evaluation/exposure\"", "evaluation/postgresoracle"} {
+		if strings.Contains(string(source), forbidden) {
+			t.Fatalf("independent RQ1 oracle imports forbidden package %q", forbidden)
+		}
 	}
 }
 

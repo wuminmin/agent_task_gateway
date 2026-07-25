@@ -1,0 +1,31 @@
+{
+  "command": "go test -race -json -count=1 -run ^(TestDelegatedTasksShareRootExposureKnowledge|TestConcurrentTaskFamilySettlementCannotOverspend)$ ./internal/control",
+  "command_exit_code": 0,
+  "executed": 2,
+  "failed": 0,
+  "finished_at": "2026-07-25T14:35:40.46810984Z",
+  "go_version": "go version go1.25.12 linux/amd64",
+  "package": "taskbound.local/agent-data-gateway/internal/control",
+  "passed": 2,
+  "postgres_version": "16.14 (Debian 16.14-1.pgdg12+1)",
+  "race_enabled": true,
+  "raw_log": "evaluation/exposure/raw/rq3-postgres-go-test.jsonl",
+  "raw_log_sha256": "8bdac7a3971b430bc03df66b131405086ad4ae46d200b1961f974a75651eb081",
+  "schema_version": 1,
+  "started_at": "2026-07-25T14:35:39.134288386Z",
+  "status": "complete",
+  "tests": [
+    {
+      "elapsed_seconds": 0.16,
+      "id": "concurrent_settlement",
+      "status": "pass",
+      "test": "TestConcurrentTaskFamilySettlementCannotOverspend"
+    },
+    {
+      "elapsed_seconds": 0.16,
+      "id": "task_family_delegation",
+      "status": "pass",
+      "test": "TestDelegatedTasksShareRootExposureKnowledge"
+    }
+  ]
+}

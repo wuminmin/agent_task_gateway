@@ -13,6 +13,7 @@ PAPER_DIR = Path(__file__).resolve().parent
 ROOT = PAPER_DIR.parent.parent
 RESULT = ROOT / "evaluation/exposure/results.json"
 CORPUS = ROOT / "evaluation/exposure/corpus.json"
+RQ1_ORACLE = ROOT / "evaluation/exposureoracle/oracle.go"
 PERFORMANCE = ROOT / "evaluation/exposure-performance/results.json"
 PERFORMANCE_ENVIRONMENT = ROOT / "evaluation/exposure-performance/environment.json"
 AGENT_CORPUS = ROOT / "evaluation/agenttasks/corpus.json"
@@ -45,25 +46,66 @@ def decimal(value: float, digits: int = 1) -> str:
     return f"{value:.{digits}f}"
 
 
+def string_set_sha256(domain: str, values: list[str]) -> str:
+    digest = hashlib.sha256()
+    digest.update(domain.encode("utf-8"))
+    for value in sorted(values):
+        digest.update(value.encode("utf-8"))
+        digest.update(b"\x00")
+    return digest.hexdigest()
+
+
 def validate_exposure() -> dict:
     report = load_json(RESULT)
-    require(report.get("schema_version") == 2, "unsupported exposure report schema")
+    require(report.get("schema_version") == 3, "unsupported exposure report schema")
     require(report.get("corpus_sha256") == sha256(CORPUS), "exposure corpus digest is stale")
-    require(report.get("rewrite_seed") == 20260723, "unexpected rewrite seed")
     rq1 = report.get("rq1_ground_truth", {})
     rq2 = report.get("rq2_rewrite_invariance", {})
     rq3 = report.get("rq3_anti_arbitrage", {})
     rq5 = report.get("rq5_budget_aware_planning", {})
     agent = report.get("rq5_agent_tasks", {})
-    require(rq1.get("cases", 0) > 0 and rq1.get("passed") == rq1.get("cases"), "RQ1 is incomplete")
+    corpus = load_json(CORPUS)
+    ground_truth = corpus.get("ground_truth", [])
+    relation_rows = sum(len(relation.get("rows", [])) for relation in corpus.get("relations", []))
     require(
-        rq2.get("generated_pairs") == 1024
-        and rq2.get("unique_rewrites") == 1024
+        rq1.get("cases") == len(ground_truth) >= 10
+        and rq1.get("passed") == rq1.get("cases")
+        and rq1.get("dataset_relations") == len(corpus.get("relations", []))
+        and rq1.get("dataset_rows") == relation_rows >= 16
+        and rq1.get("release_fact_comparisons", 0) > 0
+        and rq1.get("influence_fact_comparisons", 0) > 0
+        and rq1.get("oracle") == "independent-rq1-relational-oracle-v1"
+        and rq1.get("oracle_source_sha256") == sha256(RQ1_ORACLE)
+        and len(rq1.get("results", [])) == len(ground_truth)
+        and all(
+            re.fullmatch(r"[0-9a-f]{64}", item.get("release_set_sha256", ""))
+            and re.fullmatch(r"[0-9a-f]{64}", item.get("influence_set_sha256", ""))
+            for item in rq1.get("results", [])
+        ),
+        "RQ1 independent-oracle evidence is incomplete",
+    )
+    pair_signatures = rq2.get("normalized_pair_signatures", [])
+    require(
+        rq2.get("generated_attempts") == 1024
+        and rq2.get("unique_normalized_pairs") == 1024
+        and rq2.get("executed_unique_pairs") == 1024
+        and rq2.get("duplicate_attempts") == 0
         and rq2.get("rewrite_templates") == 8
+        and rq2.get("scenarios") == 128
+        and rq2.get("fixture_rows") == 12
+        and rq2.get("pair_normalization")
+        == "collapse-sql-whitespace+ordered-statement-framing+sha256-v1"
+        and re.fullmatch(r"[0-9a-f]{64}", rq2.get("pair_set_sha256", "")) is not None
+        and len(pair_signatures) == 1024
+        and len(set(pair_signatures)) == 1024
+        and pair_signatures == sorted(pair_signatures)
+        and all(re.fullmatch(r"[0-9a-f]{64}", signature) for signature in pair_signatures)
+        and rq2.get("pair_set_sha256")
+        == string_set_sha256("TASKGATE-POSTGRES-REWRITE-PAIR-SET-V1\x00", pair_signatures)
         and rq2.get("differential_checks") == 1152
         and rq2.get("metamorphic_checks") == 1024
         and rq2.get("postgres_statements") == 2176
-        and rq2.get("oracle") == "independent-go-fixture-oracle-v1"
+        and rq2.get("oracle") == "independent-go-fixture-oracle-v2"
         and re.fullmatch(r"[0-9a-f]{64}", rq2.get("oracle_fixture_sha256", "")) is not None
         and rq2.get("postgres_major") == 16
         and isinstance(rq2.get("postgres_version"), str)
@@ -76,10 +118,62 @@ def validate_exposure() -> dict:
         and rq3.get("deterministic_passed") == rq3.get("deterministic_cases"),
         "RQ3 deterministic cases are incomplete",
     )
+    manifest = rq3.get("postgres_integration_manifest", [])
+    expected_manifest = {
+        item.get("test"): item.get("id")
+        for item in corpus.get("adversarial_cases", [])
+        if item.get("execution") == "postgres_integration"
+    }
     require(
-        len(rq3.get("postgres_integration_ids", []))
-        == rq3.get("cases", 0) - rq3.get("deterministic_cases", 0),
+        {item.get("test"): item.get("id") for item in manifest} == expected_manifest,
         "RQ3 integration-case manifest is inconsistent",
+    )
+    integration = rq3.get("postgres_integration", {})
+    artifact_relative = integration.get("artifact", "")
+    artifact_path = ROOT / artifact_relative
+    require(
+        integration.get("status") == "complete"
+        and integration.get("executed") == len(expected_manifest)
+        and integration.get("passed") == len(expected_manifest)
+        and integration.get("failed") == 0
+        and artifact_relative
+        and artifact_path.is_file()
+        and integration.get("artifact_sha256") == sha256(artifact_path),
+        "RQ3 PostgreSQL integration summary is incomplete",
+    )
+    artifact = load_json(artifact_path)
+    raw_relative = artifact.get("raw_log", "")
+    raw_path = ROOT / raw_relative
+    require(
+        artifact.get("schema_version") == 1
+        and artifact.get("status") == "complete"
+        and artifact.get("command_exit_code") == 0
+        and artifact.get("race_enabled") is True
+        and artifact.get("package") == "taskbound.local/agent-data-gateway/internal/control"
+        and artifact.get("executed") == len(expected_manifest)
+        and artifact.get("passed") == len(expected_manifest)
+        and artifact.get("failed") == 0
+        and raw_relative
+        and raw_path.is_file()
+        and artifact.get("raw_log_sha256") == sha256(raw_path),
+        "RQ3 integration artifact or raw-log digest is invalid",
+    )
+    terminal: dict[str, str] = {}
+    package_pass = False
+    for line in raw_path.read_text(encoding="utf-8").splitlines():
+        event = json.loads(line)
+        if event.get("Package") != artifact["package"]:
+            continue
+        if event.get("Test") in expected_manifest and event.get("Action") in {"pass", "fail", "skip"}:
+            terminal[event["Test"]] = event["Action"]
+        if not event.get("Test") and event.get("Action") == "pass":
+            package_pass = True
+    artifact_tests = {item.get("test"): item.get("id") for item in artifact.get("tests", []) if item.get("status") == "pass"}
+    require(
+        package_pass
+        and terminal == {test: "pass" for test in expected_manifest}
+        and artifact_tests == expected_manifest,
+        "RQ3 raw go-test events do not prove every declared test passed",
     )
     require(rq5.get("scenarios", 0) > 0 and rq5.get("passed") == rq5.get("scenarios"), "RQ5 planner oracle is incomplete")
     require(
@@ -197,13 +291,17 @@ def main() -> None:
         rf"\newcommand{{\ExposureCorpusHash}}{{\texttt{{{report['corpus_sha256'][:12]}}}}}",
         rf"\newcommand{{\RQOneCases}}{{{rq1['cases']}}}",
         rf"\newcommand{{\RQOnePassed}}{{{rq1['passed']}}}",
-        rf"\newcommand{{\RQTwoPairs}}{{{comma(rq2['generated_pairs'])}}}",
-        rf"\newcommand{{\RQTwoUnique}}{{{comma(rq2['unique_rewrites'])}}}",
+        rf"\newcommand{{\RQOneRows}}{{{rq1['dataset_rows']}}}",
+        rf"\newcommand{{\RQOneReleaseFacts}}{{{comma(rq1['release_fact_comparisons'])}}}",
+        rf"\newcommand{{\RQOneInfluenceFacts}}{{{comma(rq1['influence_fact_comparisons'])}}}",
+        rf"\newcommand{{\RQTwoPairs}}{{{comma(rq2['generated_attempts'])}}}",
+        rf"\newcommand{{\RQTwoUnique}}{{{comma(rq2['unique_normalized_pairs'])}}}",
         rf"\newcommand{{\RQTwoTemplates}}{{{rq2['rewrite_templates']}}}",
         rf"\newcommand{{\RQTwoMismatches}}{{{rq2['mismatches']}}}",
         rf"\newcommand{{\RQThreeCases}}{{{rq3['deterministic_cases']}}}",
         rf"\newcommand{{\RQThreePassed}}{{{rq3['deterministic_passed']}}}",
-        rf"\newcommand{{\RQThreeIntegration}}{{{len(rq3['postgres_integration_ids'])}}}",
+        rf"\newcommand{{\RQThreeExecuted}}{{{rq3['postgres_integration']['executed']}}}",
+        rf"\newcommand{{\RQThreeIntegration}}{{{rq3['postgres_integration']['passed']}}}",
         rf"\newcommand{{\RQFiveCases}}{{{rq5['scenarios']}}}",
         rf"\newcommand{{\RQFivePassed}}{{{rq5['passed']}}}",
         rf"\newcommand{{\RQFourTrials}}{{{performance['trials']}}}",

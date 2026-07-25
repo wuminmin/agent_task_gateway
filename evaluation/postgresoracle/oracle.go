@@ -21,9 +21,10 @@ import (
 )
 
 const (
-	OracleID          = "independent-go-fixture-oracle-v1"
+	OracleID          = "independent-go-fixture-oracle-v2"
 	ExpectedAttempts  = 1024
 	ExpectedTemplates = 8
+	PairNormalization = "collapse-sql-whitespace+ordered-statement-framing+sha256-v1"
 )
 
 var departments = []string{"sales", "rnd", "ops", "legal"}
@@ -53,17 +54,24 @@ type rewrite struct {
 // oracle; metamorphic checks compare every rewrite with its PostgreSQL
 // baseline.
 type Summary struct {
-	GeneratedAttempts   int    `json:"generated_attempts"`
-	UniqueRewrites      int    `json:"unique_rewrites"`
-	RewriteTemplates    int    `json:"rewrite_templates"`
-	DifferentialChecks  int    `json:"differential_checks"`
-	MetamorphicChecks   int    `json:"metamorphic_checks"`
-	PostgresStatements  int    `json:"postgres_statements"`
-	Mismatches          int    `json:"mismatches"`
-	Oracle              string `json:"oracle"`
-	OracleFixtureSHA256 string `json:"oracle_fixture_sha256"`
-	PostgresVersion     string `json:"postgres_version"`
-	PostgresMajor       int    `json:"postgres_major"`
+	GeneratedAttempts     int      `json:"generated_attempts"`
+	UniqueNormalizedPairs int      `json:"unique_normalized_pairs"`
+	ExecutedUniquePairs   int      `json:"executed_unique_pairs"`
+	DuplicateAttempts     int      `json:"duplicate_attempts"`
+	RewriteTemplates      int      `json:"rewrite_templates"`
+	Scenarios             int      `json:"scenarios"`
+	FixtureRows           int      `json:"fixture_rows"`
+	PairNormalization     string   `json:"pair_normalization"`
+	PairSetSHA256         string   `json:"pair_set_sha256"`
+	PairSignatures        []string `json:"normalized_pair_signatures"`
+	DifferentialChecks    int      `json:"differential_checks"`
+	MetamorphicChecks     int      `json:"metamorphic_checks"`
+	PostgresStatements    int      `json:"postgres_statements"`
+	Mismatches            int      `json:"mismatches"`
+	Oracle                string   `json:"oracle"`
+	OracleFixtureSHA256   string   `json:"oracle_fixture_sha256"`
+	PostgresVersion       string   `json:"postgres_version"`
+	PostgresMajor         int      `json:"postgres_major"`
 }
 
 // Run provisions a connection-local fixture, executes every rewrite on the
@@ -85,7 +93,8 @@ func Run(ctx context.Context, dsn string) (Summary, error) {
 	defer conn.Close()
 
 	rows := oracleFixture()
-	summary := Summary{Oracle: OracleID, OracleFixtureSHA256: fixtureDigest(rows)}
+	summary := Summary{Oracle: OracleID, OracleFixtureSHA256: fixtureDigest(rows),
+		FixtureRows: len(rows), PairNormalization: PairNormalization}
 	if err := loadFixture(ctx, conn, rows); err != nil {
 		return summary, err
 	}
@@ -98,7 +107,9 @@ func Run(ctx context.Context, dsn string) (Summary, error) {
 
 	unique := make(map[string]struct{}, ExpectedAttempts)
 	templates := make(map[string]struct{}, ExpectedTemplates)
-	for _, current := range campaignScenarios() {
+	scenarios := campaignScenarios()
+	summary.Scenarios = len(scenarios)
+	for _, current := range scenarios {
 		expected := evaluateFixture(rows, current)
 		baselineSQL := baselineQuery(current)
 		baseline, err := queryRows(ctx, conn, baselineSQL)
@@ -115,7 +126,13 @@ func Run(ctx context.Context, dsn string) (Summary, error) {
 		for _, candidate := range rewrites(current) {
 			summary.GeneratedAttempts++
 			templates[candidate.Template] = struct{}{}
-			unique[rewriteSignature(baselineSQL, candidate.SQL)] = struct{}{}
+			signature := rewriteSignature(baselineSQL, candidate.SQL)
+			if _, duplicate := unique[signature]; duplicate {
+				summary.DuplicateAttempts++
+				continue
+			}
+			unique[signature] = struct{}{}
+			summary.ExecutedUniquePairs++
 			actual := make([][]string, 0)
 			failed := false
 			for _, statement := range candidate.SQL {
@@ -136,13 +153,16 @@ func Run(ctx context.Context, dsn string) (Summary, error) {
 			}
 		}
 	}
-	summary.UniqueRewrites = len(unique)
+	summary.UniqueNormalizedPairs = len(unique)
 	summary.RewriteTemplates = len(templates)
-	if summary.GeneratedAttempts != ExpectedAttempts || summary.UniqueRewrites != ExpectedAttempts ||
-		summary.RewriteTemplates != ExpectedTemplates {
-		return summary, fmt.Errorf("rewrite coverage attempts=%d unique=%d templates=%d, want %d/%d/%d",
-			summary.GeneratedAttempts, summary.UniqueRewrites, summary.RewriteTemplates,
-			ExpectedAttempts, ExpectedAttempts, ExpectedTemplates)
+	summary.PairSetSHA256 = signatureSetDigest(unique)
+	summary.PairSignatures = sortedSignatures(unique)
+	if summary.GeneratedAttempts != ExpectedAttempts || summary.UniqueNormalizedPairs != ExpectedAttempts ||
+		summary.ExecutedUniquePairs != ExpectedAttempts || summary.DuplicateAttempts != 0 || summary.RewriteTemplates != ExpectedTemplates {
+		return summary, fmt.Errorf("rewrite coverage attempts=%d unique=%d executed=%d duplicates=%d templates=%d, want %d/%d/%d/0/%d",
+			summary.GeneratedAttempts, summary.UniqueNormalizedPairs, summary.ExecutedUniquePairs,
+			summary.DuplicateAttempts, summary.RewriteTemplates,
+			ExpectedAttempts, ExpectedAttempts, ExpectedAttempts, ExpectedTemplates)
 	}
 	if summary.Mismatches != 0 {
 		return summary, fmt.Errorf("PostgreSQL oracle campaign found %d mismatches", summary.Mismatches)
@@ -156,17 +176,27 @@ func Run(ctx context.Context, dsn string) (Summary, error) {
 func CoverageSummary() Summary {
 	unique := make(map[string]struct{}, ExpectedAttempts)
 	templates := make(map[string]struct{}, ExpectedTemplates)
-	result := Summary{Oracle: OracleID}
-	for _, current := range campaignScenarios() {
+	result := Summary{Oracle: OracleID, PairNormalization: PairNormalization, FixtureRows: len(oracleFixture())}
+	scenarios := campaignScenarios()
+	result.Scenarios = len(scenarios)
+	for _, current := range scenarios {
 		baseline := baselineQuery(current)
 		for _, candidate := range rewrites(current) {
 			result.GeneratedAttempts++
 			templates[candidate.Template] = struct{}{}
-			unique[rewriteSignature(baseline, candidate.SQL)] = struct{}{}
+			signature := rewriteSignature(baseline, candidate.SQL)
+			if _, duplicate := unique[signature]; duplicate {
+				result.DuplicateAttempts++
+				continue
+			}
+			unique[signature] = struct{}{}
+			result.ExecutedUniquePairs++
 		}
 	}
-	result.UniqueRewrites = len(unique)
+	result.UniqueNormalizedPairs = len(unique)
 	result.RewriteTemplates = len(templates)
+	result.PairSetSHA256 = signatureSetDigest(unique)
+	result.PairSignatures = sortedSignatures(unique)
 	return result
 }
 
@@ -224,6 +254,26 @@ func rewriteSignature(baseline string, candidate []string) string {
 }
 
 func normalizeSQL(statement string) string { return strings.Join(strings.Fields(statement), " ") }
+
+func signatureSetDigest(signatures map[string]struct{}) string {
+	values := sortedSignatures(signatures)
+	digest := sha256.New()
+	_, _ = digest.Write([]byte("TASKGATE-POSTGRES-REWRITE-PAIR-SET-V1\x00"))
+	for _, signature := range values {
+		_, _ = digest.Write([]byte(signature))
+		_, _ = digest.Write([]byte{0})
+	}
+	return fmt.Sprintf("%x", digest.Sum(nil))
+}
+
+func sortedSignatures(signatures map[string]struct{}) []string {
+	values := make([]string, 0, len(signatures))
+	for signature := range signatures {
+		values = append(values, signature)
+	}
+	sort.Strings(values)
+	return values
+}
 
 func quoteLiteral(value string) string { return `'` + strings.ReplaceAll(value, `'`, `''`) + `'` }
 

@@ -31,6 +31,10 @@
 \newcommand{\facts}{\mathcal{F}}
 \newcommand{\known}{\mathcal{K}}
 \newcommand{\effect}{\mathcal{E}}
+\newcommand{\lbag}{\{\!\{}
+\newcommand{\rbag}{\}\!\}}
+\newcommand{\llbracket}{[\![}
+\newcommand{\rrbracket}{]\!]}
 \newtheorem{definition}{Definition}
 \newtheorem{property}{Property}
 \newtheorem{theorem}{Theorem}
@@ -64,9 +68,10 @@ buffers the result, derives its fact sets, and atomically settles only facts
 novel to the root task before release. Signed delegation preserves the same
 ledger. We define compositional semantics for a positive relational fragment
 with grouping and four aggregates, implement an exact dual-budget representation
-planner, and check a finite ledger model. A deterministic artifact validates
-ground truth, 1,024 unique PostgreSQL-checked rewrites, anti-arbitrage cases,
-and planner oracles. Across three local trials and 31,296 measured operations,
+planner, and check a finite ledger model. An independent RQ1 oracle validates
+14 queries on 16 source rows; PostgreSQL executes 1,024 unique normalized
+baseline/rewrite SQL pairs, and two ledger tests retain passing race logs.
+Across three local trials and 31,296 measured operations,
 a warm full-path history hit has 12.1-ms median and 14.2-ms p95 latency at one
 worker; at eight workers p95 rises to 70.5~ms as root-ledger lock p95 reaches
 40.5~ms. On 120 externally scored four-part agent-task traces, exact planning
@@ -269,21 +274,34 @@ than stateless authorization for the modeled positive-disclosure threat.
 \subsection{Facts and Task State}
 
 V2 treats a FactID as a semantic object and its SHA-256 as only a database
-index.  Let $\nu$ be a catalog-owned source namespace (not a view alias), $s$
-an immutable snapshot, $e$ a stable entity key, $a$ a field ID, $\tau$ a
-PostgreSQL type, and $\operatorname{canon}_\tau(v)$ its canonical value.  Base identities are
+index.  Its semantic environment is
+$\Pi=\langle pg,\mathcal T,UTC,\mathcal C,D,h_C\rangle$: a PostgreSQL major
+version, admitted type domain, timezone, exact deterministic collation
+name/version map, immutable snapshot map, and catalog/lineage digest.  A
+judgment is defined only for an \emph{admissible} $\Pi$: source schemas and
+entity keys are attested, every collatable field has a deterministic collation,
+and volatile expressions are absent.  Let $\nu$ be a catalog-owned source
+namespace (not a view alias), $s$ an immutable snapshot, $e$ a canonical stable
+entity key, $a$ a role-qualified field ID, $\tau\in\mathcal T$, and
+$C_\tau(v)$ its typed canonical value.  Base identities are
 
 \begin{align}
  f_{row}&=\langle\pi,\nu,s,e\rangle,\\
- f_{cell}&=\langle\pi,\nu,s,e,a,\tau,\operatorname{canon}_\tau(v)\rangle .
+ f_{cell}&=\langle\pi,\nu,s,e,a,\tau,C_\tau(v)\rangle .
  \label{eq:fact}
 \end{align}
 
 A derived identity is
-$f_d=\langle\pi,\mathcal S,k_o,N_\pi(x),\tau,\operatorname{canon}_\tau(v),H(W)\rangle$,
-where $\mathcal S$ is a sorted snapshot bundle, $k_o$ is the canonical output
-row key, $N_\pi(x)$ erases aliases and normalizes the supported expression, and
-$W$ is a base-fact witness multiset. The durable key is
+$f_d=\langle\pi,\mathcal B,k_o,N_\pi(x),\tau,C_\tau(v),CW(W)\rangle$,
+where $\mathcal B=\operatorname{sort}\{(\nu,s)\}$ is the relation's snapshot
+bundle, $k_o$ is the canonical output-row entity key, $N_\pi(x)$ erases aliases
+and normalizes the supported expression, and
+$W:\facts_{base}\rightharpoonup\mathbb N^+$
+is a finite-support witness multiset (the empty support is allowed).  The product identity is not a caller-supplied
+name: it is exactly the namespace projection of $\mathcal B$.  The witness
+commitment $CW(W)$ length-prefixes the lexically sorted
+$(\operatorname{FactHash}(f),W(f))$ pairs; the empty multiset has a separate
+token.  The durable key is
 $\mathrm{SHA256}(\texttt{TASKGATE-FACT-V2\textbackslash0}\|\operatorname{Canon}(f))$.
 Control PostgreSQL stores $\operatorname{Canon}(f)$ and compares it on every hash conflict;
 a same-hash, different-payload row aborts the transaction. V1 and V2 tagged
@@ -291,13 +309,19 @@ payloads are disjoint and one root ledger fixes exactly one profile.
 
 \begin{theorem}[Fact identity well-definedness]
 For every value in the V2 supported PostgreSQL type domain, canonical encoding
-is deterministic and injective over the typed semantic payload.
+is deterministic and injective over the typed semantic payload (that is, over
+PostgreSQL semantic-value equivalence, not raw float NaN bit patterns).
 \end{theorem}
-\begin{proof}[Proof sketch]
-Every component is type tagged and length delimited; lists are cardinality
-prefixed and canonically sorted. Integers and exact numerics use unbounded
-integer/rational normal forms, timestamps use the profile timezone, and NULL
-has its own token. Tuple injectivity follows by unique decoding.
+\begin{proof}
+Each scalar encoder is a canonical representative of its typed equivalence
+class: bounded integers use signed decimal, exact numerics reduced rationals,
+floats fixed-width hexadecimal with canonical NaN and zero, temporal values
+PostgreSQL microseconds (UTC for \code{timestamptz}), and NULL a disjoint token.
+Every tuple component is type tagged and length delimited; every list is count
+prefixed and sorted where its mathematical carrier is a set.  Decoding first
+recovers the unique tag and component boundaries, then the unique scalar
+representatives.  Therefore equal encodings imply equal typed payloads, and
+determinism follows from the unique representative and ordering functions.
 \end{proof}
 
 \begin{definition}[Exposure effect]
@@ -322,107 +346,307 @@ only if
 $|\known_T^r|+|\Delta_T^r|\leq B_T^r$ and
 $|\known_T^i|+|\Delta_T^i|\leq B_T^i$.
 
-\subsection{Annotated Relations}
+\subsection{Closed Typed Query Language}
 
-The complete core grammar is
+The complete core syntax is
 \begin{align*}
 e ::= {}& \operatorname{Scan}[\nu,s,r,\Gamma]
  \mid \sigma_{p;F}(e) \mid \pi_A(e) \mid e\bowtie_{\Theta}e \\
  &\mid e\cup_\delta e \mid \gamma_{G;\mathcal A}(e)
- \mid \operatorname{Page}_{O,K,o,l}(e),
+ \mid \operatorname{Page}_{O,K,o,l}(e),\\
+p ::= {}& b \mid p\wedge b,\qquad b ::= a\;op\;c,\\
+op\in {}&\{=,\ne,<,\le,>,\ge\}
+ \cup\{\code{LIKE},\code{IN},\code{NOT IN}\},
 \end{align*}
-where $\Theta$ is a nonempty conjunction of same-typed equalities,
+where $F$ is exactly the fields read by $p$, $\Theta$ is a nonempty
+conjunction of equalities, $\cup_\delta$ is union-distinct, and
 $\mathcal A\subseteq\{\code{COUNT(*)},\code{COUNT},\code{SUM},\code{MIN},
-\code{MAX}\}$, and $O$ extended by stable key $K$ is a total order.  The
-typing rules require disjoint role-qualified join schemas, identical typed
-union schemas, existing predicate/group/aggregate fields, PostgreSQL-correct
-aggregate output types, nonnegative page bounds, and exact deterministic
-collation name/version bindings for collatable fields.  An ill-typed node is
-rejected rather than assigned an effect.
+\code{MAX}\}$.  No implicit SQL construct is hidden in $e$: outer joins,
+difference, negation beyond the listed scalar predicates, windows, recursion,
+subqueries, volatile functions, and \code{UNION ALL} are not terms.
 
-An intermediate row stores $\langle k,v,S_r,W_r,S_a,W_a\rangle$: row support
-$S_r$ and witness $W_r$, plus per-cell support sets $S_a$ and witness
-multisets $W_a$.  Each relation field also carries a data-independent
-canonical lineage expression: scans bind it to the namespace-qualified field,
-unary operators propagate it, grouping composes it, and union canonicalizes the
-sorted child expressions.  The representation invariant is
-$\operatorname{support}(W_r)=S_r$ and
-$\operatorname{support}(W_a)=S_a$; all support members are snapshot-covered V2
-base facts.  Ordinary proof composition adds multiplicities ($\oplus$), while
-alternative proofs under union-distinct use pointwise maximum ($\sqcup_{max}$).
-Support drives the influence ledger, while multiplicity in $W_a$ distinguishes,
-for example, three-way from five-way join fanout in a derived identity.
-Table~\ref{tab:operators} summarizes the implemented positive fragment.
+The typing judgment $\Pi\vdash e:\Gamma$ is generated only by the following
+rules (undefined premises mean rejection):
+\begin{figure*}[t]
+\small
+\begin{gather*}
+\frac{D(\nu,s):\Gamma\quad \operatorname{canonical}_\Pi(\Gamma,r)}
+ {\Pi\vdash\operatorname{Scan}[\nu,s,r,\Gamma]:\Gamma}
+\;(T\text{-Scan})\\[1mm]
+\frac{\Pi\vdash e:\Gamma\quad F\subseteq\operatorname{dom}\Gamma
+      \quad \Pi;\Gamma\vdash p:\mathbb B_3}
+ {\Pi\vdash\sigma_{p;F}(e):\Gamma}
+\;(T\text{-Select})\\[1mm]
+\frac{\Pi\vdash e:\Gamma\quad \varnothing\ne A\subseteq\operatorname{dom}\Gamma}
+ {\Pi\vdash\pi_A(e):\Gamma|_A}
+\;(T\text{-Project})\\[1mm]
+\frac{\Pi\vdash e_i:\Gamma_i\;(i=1,2)\quad
+      \operatorname{dom}\Gamma_1\cap\operatorname{dom}\Gamma_2=\varnothing
+      \quad\operatorname{eqtyped}_\Pi(\Theta)}
+ {\Pi\vdash e_1\bowtie_\Theta e_2:\Gamma_1\uplus\Gamma_2}
+\;(T\text{-Join})\\[1mm]
+\frac{\Pi\vdash e_1:\Gamma\quad\Pi\vdash e_2:\Gamma
+      \quad\operatorname{distinctable}_\Pi(\Gamma)}
+ {\Pi\vdash e_1\cup_\delta e_2:\Gamma}
+\;(T\text{-Union})\\[1mm]
+\frac{\Pi\vdash e:\Gamma\quad G\subseteq\operatorname{dom}\Gamma
+      \quad |G|+|\mathcal A|>0\quad
+      \operatorname{distinctable}_\Pi(G)\quad
+      \Pi;\Gamma\vdash\mathcal A:\Gamma_{\mathcal A}}
+ {\Pi\vdash\gamma_{G;\mathcal A}(e):\Gamma|_G\uplus\Gamma_{\mathcal A}}
+\;(T\text{-Group})\\[1mm]
+\frac{\Pi\vdash e:\Gamma\quad o,l\in\mathbb N\quad
+      \Pi;\Gamma\vdash O{+}K:\operatorname{TotalOrder}}
+ {\Pi\vdash\operatorname{Page}_{O,K,o,l}(e):\Gamma}
+\;(T\text{-Page}).
+\end{gather*}
+\caption{Complete V2 typing rules.  Join fields are stable role-qualified IDs;
+equalities require the same canonical type and collation.  Union schemas are
+identical including type and collation.}
+\label{fig:typing}
+\end{figure*}
+
+Here $\mathbb B_3=\{\mathsf T,\mathsf F,\mathsf U\}$ is PostgreSQL
+three-valued logic.  Equality with either operand NULL is $\mathsf U$;
+$\mathsf F\wedge x=\mathsf F$, $\mathsf T\wedge x=x$, and
+$\mathsf U\wedge\mathsf U=\mathsf U$.  Selection retains only $\mathsf T$.
+By contrast, grouping and distinct use the typed equivalence
+$v\equiv_\tau w$ defined by \code{IS NOT DISTINCT FROM}, so NULL is equivalent
+to NULL.  Predicate evaluation and ordering are PostgreSQL functions fixed by
+$pg$ and $\mathcal C$, not Go approximations.
+
+The closed scalar domain $\mathcal T$ contains exactly the canonical types
+\code{smallint}, \code{integer}, \code{bigint}, \code{numeric}, \code{real},
+\code{double precision}, \code{boolean}, \code{bytea}, \code{date},
+\code{time without time zone}, \code{timestamp without time zone},
+\code{timestamp with time zone}, \code{uuid}, \code{text}, \code{character},
+\code{character varying}, \code{json}, and \code{jsonb}, with PostgreSQL
+aliases mapped to these canonical names.  Integers retain their
+16/32/64-bit ranges; exact numerics are encoded as reduced rationals and never
+accepted through a binary-float conversion; floats use their IEEE width and
+canonicalize NaN, infinities, and negative zero.  Temporal values have
+PostgreSQL microsecond precision, \code{timestamptz} is UTC, and
+\code{time with time zone} is excluded.  Text equality/order binds exact
+deterministic collation name and actual version.  \code{json} lacks equality
+and cannot join, group, or distinct; \code{jsonb} has structural canonical
+equality.  Aggregate result types are exactly PostgreSQL's:
+\code{COUNT}$\to$\code{int8}, \code{SUM(int2/int4)}$\to$\code{int8},
+\code{SUM(int8)}$\to$\code{numeric}, \code{SUM(numeric/float)}$\to$its input
+family, and \code{MIN/MAX}$\to$the input type.  Any cast, arithmetic, aggregate,
+witness-multiplicity, or canonical-range overflow makes evaluation undefined
+and the gateway releases and settles nothing.
+
+\subsection{Annotated Bags and Complete Output Keys}
+
+A relation is $R=\langle\Gamma,\mathcal B,M,\prec?\rangle$, where $M$ is a
+finite PostgreSQL bag implemented by unique row keys.  Equal value tuples remain
+distinct bag occurrences when their keys differ; only union-distinct and group
+quotient occurrences into classes.  An optional $\prec$ records a proven total
+order.  A row is
+$t=\langle k,\{a\mapsto c_a\},S_r,W_r,O_r\rangle$ and a cell is
+$c_a=\langle v,\tau,S_a,W_a,x_a,\rho_a?\rangle$.  $S$ is a finite set of
+snapshot-covered base facts, $W$ a finite multiset with positive stored
+multiplicities (possibly empty), $x$ a canonical
+data-independent lineage expression, and $\rho$ an optional already
+materialized release fact.  Every operator preserves
+\begin{equation}
+ \operatorname{support}(W_r)=S_r,\qquad
+ \operatorname{support}(W_a)=S_a.                 \label{eq:anninv}
+\end{equation}
+For annotations define same-proof composition
+$\bigoplus_i(S_i,W_i)=(\bigcup_iS_i,\sum_iW_i)$ and alternative-proof
+composition
+$\bigsqcup_i(S_i,W_i)=(\bigcup_iS_i,\max_iW_i)$, with pointwise multiset
+sum/max.  Thus $A\bigsqcup A=A$, while join fanout remains in $\bigoplus$.
+
+Let
+\begin{equation}
+ \operatorname{RID}(R,t)=H(\code{relation-row},N(\Gamma),\mathcal B,t.k).
+ \label{eq:rid}
+\end{equation}
+Table~\ref{tab:rowkeys} closes the previously implicit product, snapshot, and
+entity-key cases.  $H$ is domain-separated, typed, and length delimited; an
+implementation hash collision that creates duplicate unequal row keys is a
+validation error, not a row merge.
 
 \begin{table*}[t]
 \centering
-\caption{Exposure semantics of the executable algebra.}
-\label{tab:operators}
+\caption{Complete output-row identity used by derived FactID.  Every derived
+fact additionally contains the displayed bundle $\mathcal B$.}
+\label{tab:rowkeys}
 \small
-\begin{tabular}{L{0.13\textwidth}L{0.36\textwidth}L{0.40\textwidth}}
+\begin{tabular}{L{0.13\textwidth}L{0.19\textwidth}L{0.59\textwidth}}
 \toprule
-Operator & Release effect & Source-influence propagation \\
+Result & Product/snapshot bundle & Canonical output entity key $k_o$ \\
 \midrule
-Projection & Output cells under their row keys & Existing row lineage and selected cell sources \\
-Selection & Output cells of retained rows & Retained row lineage plus sources of predicate fields \\
-Pagination & Cells in the selected interval & Lineage and sources for selected rows only \\
-Equijoin & Cells under a key hashing the sorted immediate input-row identities & Both row lineages, every conjunctive join key, and selected cell sources; witness multiplicity retained \\
-Set union & One fact per typed, deduplicated output cell; identical materialized facts are preserved & Set-union of all supports and pointwise-max of alternative witnesses \\
-Grouping & Group-key cells and aggregate cells & Member row existence, group fields, and aggregate inputs \\
-Aggregates & One source-bound derived fact per output cell & \code{COUNT(*)} uses row lineage; other functions use input-cell sources \\
+Scan & $[(\nu,s)]$ & Catalog entity key $e$; online lowering computes
+$H(\code{base-entity},\nu,(a,\tau,C_\tau(v))_{a\in K})$ \\
+Unary/Page & Child bundle & The retained child's $k_o$ \\
+Join pair $(t_1,t_2)$ & Sorted namespace-wise merge of both bundles & $H(\code{join-row},\operatorname{sort}[\operatorname{RID}(R_1,t_1),\operatorname{RID}(R_2,t_2)])$ \\
+Union-distinct class $Q$ & Sorted namespace-wise merge of both bundles & $H(\code{union-distinct-row},N(\Gamma),(a,\tau,C_\tau(v_a))_{a\in\operatorname{sort}\Gamma})$ \\
+Keyed group $Q$ & Child bundle & $H(\code{group-row},\operatorname{sort}(N(x_a),\tau_a,C_{\tau_a}(v_a))_{a\in G})$ \\
+Global aggregate & Child bundle & $H(\code{group-row},\code{global})$; the Fact also binds aggregate expression, value, bundle, and $CW(W)$ \\
 \bottomrule
 \end{tabular}
 \end{table*}
 
-For a derived aggregate, the release fact uses a canonical expression such as
-\code{sum(expense.amount)}, independent of its output alias. Its witness
-commitment hashes sorted $(\mathrm{FactHash},\mathrm{multiplicity})$ pairs. Thus equal sums
-from different contributors remain different disclosures, while alias changes
-do not manufacture a new fact.
+Consequently, equal global aggregates from different products or snapshots have
+different $\mathcal B$; equal group values from different sources differ in
+$\mathcal B$ and witness; a join key commits to the paired immediate child
+schema/bundle/entity identities; and a union key commits to the typed
+deduplicated tuple while its Fact commits to the merged bundle, lineage
+expression, and all alternative support.  No SQL alias or caller-provided
+``product'' string participates.
 
-The executable rules are as follows.  Scan gives each row the singleton
-existence fact and each cell its singleton typed cell fact.  Selection retains
-only SQL \code{TRUE} rows and adds all predicate-field annotations to row
-support. Projection copies selected annotations.  A conjunctive join emits a
-pair only when every equality is \code{TRUE}; \code{FALSE} and \code{UNKNOWN}
-both exclude it.  Its row key hashes the sorted identities
-$H(\Gamma,\mathcal S,k)$ of its two immediate inputs, which closes Join over
-Group, Union, Page, and nested Join results.  Union-distinct partitions typed
-tuples by \code{IS NOT DISTINCT FROM}, unions support, and combines alternative
-witnesses with $\sqcup_{max}$; hence $W\sqcup_{max}W=W$. Its schema-level
-lineage expression is likewise sorted and idempotent, so a downstream Group
-cannot observe union operand order through an arbitrarily chosen first row. Grouping uses the
-same NULL-equality relation, sums member witnesses, and accepts only a complete
-PostgreSQL aggregate-result oracle. Observation unions row support and visible
-cell support, and materializes a derived FactID only when no identical existing
-release FactID can be reused.
+\subsection{Operator Evaluation and Effect Extraction}
 
-\begin{theorem}[Representation closure]
-If the V2 typing judgment derives $\Pi;D\vdash e:\Gamma$ and evaluation
-returns $R$, every row of $R$ satisfies the equal-support invariant, has a
-unique canonical key, and is a valid input to any well-typed parent operator.
+Evaluation is the partial judgment $\Pi;D\vdash e\Downarrow R$; ``partial''
+means that a failed premise yields no relation, effect, settlement, or release.
+For compactness, $\alpha_r(t)=(S_r,W_r)$,
+$\alpha_a(t)=(S_a,W_a)$, $\operatorname{aug}_F(t)$ replaces
+$\alpha_r(t)$ by $\alpha_r(t)\oplus\bigoplus_{a\in F}\alpha_a(t)$, and cell
+maps are otherwise copied.  A displayed row bag is paired with the statically
+derived schema and the bundle in Table~\ref{tab:rowkeys}; these relation fields
+are omitted only to keep the fractions legible.  The complete rules are:
+
+\begin{figure*}[t]
+\small
+\begin{align*}
+[E\text{-Scan}]\quad
+&\frac{D(\nu,s)=[(e_i,v_i)]_i}
+ {\Pi;D\vdash\operatorname{Scan}[\nu,s,r,\Gamma]\Downarrow
+  \lbag\langle e_i,\{a\mapsto\langle v_i[a],\tau_a,\{BC_i^a\},[BC_i^a\mapsto1],\nu.a,BC_i^a\rangle\},
+  \{BR_i\},[BR_i\mapsto1],\{(r,\nu,e_i)\}\rangle\rbag_i},\\[-1mm]
+&\hspace{8mm}BR_i=f_{row}(\nu,s,e_i),\qquad BC_i^a=f_{cell}(\nu,s,e_i,a,\tau_a,v_i[a]).\\[1mm]
+[E\text{-Select}]\quad
+&\frac{\Pi;D\vdash e\Downarrow R}
+ {\Pi;D\vdash\sigma_{p;F}(e)\Downarrow
+  R[\operatorname{rows}:=\lbag\operatorname{aug}_F(t)\mid t\in R,
+  \llbracket p\rrbracket_{\Pi,t}=\mathsf T\rbag]}.\\[1mm]
+[E\text{-Project}]\quad
+&\frac{\Pi;D\vdash e\Downarrow R}
+ {\Pi;D\vdash\pi_A(e)\Downarrow
+  R[\Gamma:=\Gamma|_A,\operatorname{cells}(t):=\operatorname{cells}(t)|_A]}.\\[1mm]
+[E\text{-Join}]\quad
+&\frac{\Pi;D\vdash e_j\Downarrow R_j\;(j=1,2)}
+ {\Pi;D\vdash e_1\bowtie_\Theta e_2\Downarrow
+  \lbag J(t_1,t_2)\mid t_j\in R_j,
+  \bigwedge_{(a=b)\in\Theta}\llbracket t_1.a=t_2.b\rrbracket_\Pi=\mathsf T\rbag},\\[-1mm]
+&\hspace{8mm}J.k=H(\code{join-row},\operatorname{sort}[RID_1,RID_2]),\quad
+  \alpha_r(J)=\alpha_r(t_1)\oplus\alpha_r(t_2)
+  \oplus\!\bigoplus_{(a=b)\in\Theta}(\alpha_a(t_1)\oplus\alpha_b(t_2)),\\[-1mm]
+&\hspace{8mm}J.\operatorname{cells}=t_1.\operatorname{cells}\uplus t_2.\operatorname{cells}.\\[1mm]
+[E\text{-Union}]\quad
+&\frac{\Pi;D\vdash e_j\Downarrow R_j\;(j=1,2)}
+ {\Pi;D\vdash e_1\cup_\delta e_2\Downarrow
+  \lbag U_Q\mid Q\in(R_1\uplus R_2)/{\equiv_\Gamma}\rbag},\\[-1mm]
+&\hspace{8mm}\alpha_r(U_Q)=\bigsqcup_{t\in Q}\alpha_r(t),\quad
+  \alpha_a(U_Q)=\bigsqcup_{t\in Q}\alpha_a(t),\quad
+  U_Q.k=k_{union}(\Gamma,\operatorname{tuple}(Q)).\\[1mm]
+[E\text{-Group}]\quad
+&\frac{\Pi;D\vdash e\Downarrow R}
+ {\Pi;D\vdash\gamma_{G;\mathcal A}(e)\Downarrow
+  \lbag G_Q\mid Q\in\operatorname{Part}_G(R)\rbag},\\[-1mm]
+&\hspace{8mm}\alpha_r(G_Q)=\bigoplus_{t\in Q}\alpha_r(t),\quad
+  G_Q.k=k_{group}(G,Q),\quad
+  G_Q.v=\operatorname{PgAgg}_{\Pi}(Q,G,\mathcal A).\\[1mm]
+[E\text{-Page}]\quad
+&\frac{\Pi;D\vdash e\Downarrow R\quad L=\operatorname{sort}_{\prec_{O,K}}(R)}
+ {\Pi;D\vdash\operatorname{Page}_{O,K,o,l}(e)\Downarrow
+  R[\operatorname{rows}:=L[b:z]]},\\[-1mm]
+&\hspace{8mm}b=\min(o,n),\quad z=\min(n,o+l^*),\quad
+  l^*=\begin{cases}n,&l=0,\\l,&l>0.\end{cases}
+\end{align*}
+\caption{Big-step V2 evaluation.  $\lbag\cdot\rbag$ denotes a bag.  Every
+conclusion is followed by the representation validator; failure removes the
+derivation.}
+\label{fig:evaluation}
+\end{figure*}
+
+The auxiliary functions in Fig.~\ref{fig:evaluation} are total on typed
+premises.  $\equiv_\Gamma$ is componentwise \code{IS NOT DISTINCT FROM}.
+For a union class, its typed-tuple key is Table~\ref{tab:rowkeys}; support uses
+set union, witness uses pointwise maximum, and an existing cell release fact is
+retained iff every member materializes to that identical FactID.  Otherwise
+$\rho=\bot$ and the cell expression is the sorted, idempotent
+$N(\code{union}(x_1,x_2))$.  This makes both operand exchange and
+$R\cup_\delta R$ identities exact, including in a downstream operator.
+
+$\operatorname{Part}_G(R)$ uses $\equiv_\tau$ on group fields.  If
+$G\ne\varnothing$, empty input has no classes; if $G=\varnothing$, there is
+exactly one class even for empty input.  Group-key cell annotations are
+$\bigoplus_{t\in Q}\alpha_a(t)$; \code{COUNT(*)} uses row annotations; and
+\code{COUNT(a)}, \code{SUM(a)}, \code{MIN(a)}, and \code{MAX(a)} use all
+argument-cell annotations, including a NULL fact, while PostgreSQL ignores NULL
+when computing the scalar.  Hence an empty global aggregate returns
+\code{COUNT}=0 and \code{SUM/MIN/MAX}=NULL with empty witness.  A keyed group
+must correspond one-to-one with all positive input classes; the gateway accepts
+only a complete aggregate-result oracle from the same snapshot.
+
+The page comparator is PostgreSQL lexicographic order under $\mathcal C$:
+ascending defaults to NULLS LAST, descending to NULLS FIRST.  The compiler
+appends Catalog entity keys (or every group key) ascending until $O{+}K$ is a
+proven total order; a global aggregate has at most one row.  SQL executes this
+same order before the algebra marks it canonical.  $l=0$ is the structured-plan
+sentinel for no limit.  Page copies annotations and intentionally does not
+charge non-output rows or rank information; that negative-information boundary
+is stated in Sec.~\ref{sec:limits}.
+
+Finally, define materialization and the effect---they are not an implementation
+afterthought:
+\begin{align}
+\operatorname{new}(R,t,a)&=
+ f_d(\mathcal B,t.k,N(x_a),\tau_a,v_a,W_a),\\
+\operatorname{mat}(R,t,a)&=
+\begin{cases}
+\rho_a,&\operatorname{valid}(\rho_a,R,t,a),\\
+\operatorname{new}(R,t,a),&\text{otherwise},
+\end{cases}\\
+\facts_r(R,V)&=\{\operatorname{mat}(R,t,a)\mid t\in R,\ a\in V\},\\
+\facts_i(R,V)&=\bigcup_{t\in R}S_r(t)\ \cup
+                \bigcup_{t\in R,a\in V}S_a(t),\\
+\effect_\Pi(e,D,V)&=\operatorname{normalize}
+  \langle\facts_r(R,V),\facts_i(R,V)\rangle.       \label{eq:observe}
+\end{align}
+Here $\Pi;D\vdash e\Downarrow R$, and $\operatorname{valid}$ checks value,
+type and bundle, plus support for a base fact or expression/witness for a
+derived fact, against the pre-existing release fact.
+Thus query bags and witness multiplicity are retained during composition, while
+the two final ledgers are sets.  Empty answers have the empty effect except for
+the single visible row of a global aggregate.
+
+\begin{theorem}[Representation closure and partial-function semantics]
+For every admissible $\Pi$, typed finite $e$, and immutable $D$, evaluation has
+at most one result.  If $\Pi;D\vdash e\Downarrow R$, $R$ satisfies
+Eq.~\eqref{eq:anninv}, has canonical schema/bundle and unique row keys, and is a
+valid input to every well-typed parent rule.
 \end{theorem}
 \begin{proof}
-By structural induction. Scan establishes singleton equal support. Select,
-Project, and Page copy or union equal-support annotations. Join uses disjoint
-schemas and immediate child identities, so its key construction applies to
-every child operator; $\cup$ and $\oplus$ preserve equal support. Union creates
-one typed-tuple class key and uses $\cup/\sqcup_{max}$ on the same domains.
-Group creates one key per \code{IS NOT DISTINCT FROM} class and uses
-$\cup/\oplus$. The implementation checks the full invariant at every operator
-boundary.
+By structural induction on $e$.  Scan is fixed by $D$ and constructs singleton
+support/witness pairs.  Select's three-valued predicate and dependency set are
+fixed by $\Pi$; Select, Project, and Page only take a deterministic subbag or
+copy annotations.  Join enumerates a uniquely determined bag of matching key
+pairs; disjoint schemas, Eq.~\eqref{eq:rid}, and the pair key make each output
+usable by another Join.  Union has unique typed-tuple equivalence classes and
+uses deterministic union/max folds.  Group has unique not-distinct classes,
+the explicitly defined empty class, deterministic sum folds, and one complete
+PostgreSQL result per class.  Set union with multiset sum or max preserves equal
+support.  Total order makes Page's slice unique.  Each case constructs the
+claimed invariant, and the validator converts any range, collision, schema,
+oracle, or multiplicity violation into no derivation.
 \end{proof}
 
 \begin{theorem}[Effect determinism]
-Fixed $q$, snapshot bundle $D_s$, and V2 profile $\pi$ uniquely determine
-$\effect_\pi(q,D_s)$.
+Fixed admissible $\Pi$, typed $e$, snapshot map $D$, and visible field set $V$
+uniquely determine $\effect_\Pi(e,D,V)$ whenever evaluation succeeds.
 \end{theorem}
-\begin{proof}[Proof sketch]
-PostgreSQL major version, bag, NULL, aggregate, exact collation name and actual
-version, UTC, and numeric rules are profile fixed; volatile expressions are excluded. Induction over scan,
-selection, projection, equijoin, union-distinct, grouping, and stable pagination
-shows that each annotation and output identity is a deterministic function of
-its children.
+\begin{proof}
+The preceding theorem gives a unique $R$.  Equation~\eqref{eq:observe} ranges
+over its unique keyed occurrences and fields.  $C_\tau$, expression
+normalization, bundle/key construction, witness commitment, Fact
+materialization, and final set normalization are deterministic functions.
+Therefore both finite Fact sets, and hence their ordered canonical encodings,
+are unique.
 \end{proof}
 
 \subsection{Conservation Properties}
@@ -434,30 +658,39 @@ They are not claims about all semantically equivalent SQL.
 Fact-set normalization is deterministic, idempotent, and commutative under
 merge.
 \end{property}
-\begin{proof}[Proof sketch]
-Every validated FactID maps deterministically to a digest key. Normalization is
-map insertion followed by lexical key order; merge is set union. The three
-properties follow from set union and deterministic serialization.
+\begin{proof}
+By Fact identity well-definedness, a validated canonical payload has one map
+key; a same-digest unequal payload aborts rather than merges.  Normalization is
+therefore finite-set insertion followed by lexical canonical-payload order.
+Idempotence and commutativity follow from $A\cup A=A$ and $A\cup B=B\cup A$;
+the fixed serialization order gives the same bytes in each case.
 \end{proof}
 
 \begin{theorem}[Restricted projection/selection invariance]
-Selection followed by a projection that retains every predicate and output
-field has the same effect as the corresponding projection followed by
-selection. Reordering projected fields also preserves the normalized effect.
+For $F\cup V\subseteq A$, selection followed by projection and projection
+followed by selection have the same visible effect:
+\[
+ \effect_\Pi(\pi_A(\sigma_{p;F}e),D,V)=
+ \effect_\Pi(\sigma_{p;F}(\pi_Ae),D,V).
+\]
+Reordering $A$ also preserves this normalized terminal effect.
 \end{theorem}
-\begin{proof}[Proof sketch]
-Both plans retain the same keyed rows. Projection copies cell sources and row
-lineage; selection adds the same predicate sources to retained lineage. Release
-and influence are sets, so traversal and field order disappear on
-normalization. The executable corpus checks both target predicates and field
-orders for a fixed seed.
+\begin{proof}
+Because $F\subseteq A$, both selection predicates read identical typed cells
+and retain exactly the rows whose truth value is $\mathsf T$.  By E-Select each
+retained row receives the same
+$\alpha_r(t)\oplus\bigoplus_{a\in F}\alpha_a(t)$; by E-Project both retain the
+same keys and cells in $A$.  Equation~\eqref{eq:observe} over $V\subseteq A$
+therefore yields identical release and influence sets.  Field traversal order
+is absent from Fact payloads and removed by set normalization.
 \end{proof}
 
 \begin{theorem}[Typed normal-form soundness]
-For admissible profile $\Pi$ and snapshot bundle $D$,
+For admissible $\Pi$, immutable snapshot map $D$, typed $q_1,q_2$, and the
+same visible field set $V$,
 \[
  NF_\Pi(q_1)=NF_\Pi(q_2)\Longrightarrow
- \effect_\Pi(q_1,D)=\effect_\Pi(q_2,D).
+ \effect_\Pi(q_1,D,V)=\effect_\Pi(q_2,D,V).
 \]
 This implication is not a completeness claim for arbitrary equivalent SQL.
 \end{theorem}
@@ -467,7 +700,7 @@ join operand and predicate order, union operand order, an identical duplicate
 union branch, and alternate spelling of the same stable page suffix. Alias is
 absent from derived expressions. Set normalization removes traversal order.
 Join hashes sorted child identities and uses commutative $\cup/\oplus$.
-Union classes are operand independent and $\sqcup_{max}$ is commutative and
+Union classes are operand independent and alternative max-merge is commutative and
 idempotent; an identical materialized fact is retained, and relation-level
 union expressions are sorted before any downstream composition. Group keys and witness
 commitments are sorted. The SQL compiler emits the same catalog-canonical page
@@ -481,10 +714,16 @@ equals observing the combined result. Overlapping pages and repeated terminal
 observations charge each FactID at most once; join fanout changes witness
 multiplicity but not the union of influence support.
 \end{theorem}
-\begin{proof}[Proof sketch]
-Projection and page preserve the identities attached to selected cells and
-rows. Merging is set union, for which duplicate membership has no additional
-cardinality. Durable request replay does not invoke execution or settlement.
+\begin{proof}
+For $V=V_1\cup V_2$, distribute both unions in
+Eq.~\eqref{eq:observe} over $V_1,V_2$; this gives
+$\effect(R,V)=\operatorname{merge}(\effect(R,V_1),\effect(R,V_2))$.
+E-Page copies each selected keyed row and cell, so a complete disjoint slice
+partition distributes the same two unions over the row index set.  Overlap and
+repetition disappear by set idempotence.  E-Join adds witness multiplicities
+with $\oplus$, but Eq.~\eqref{eq:observe} takes their support sets; repeated
+support membership consequently has influence cardinality one.  (A changed
+derived witness may still change its release Fact, as required.)
 \end{proof}
 
 V2 uses \code{taskgate-query-normal-form-v3}. Besides the rewrites above it
@@ -712,7 +951,7 @@ The evaluation is organized around five questions: RQ1 ground-truth accuracy;
 RQ2 rewrite invariance; RQ3 resistance to split, page, retry, join, snapshot,
 delegation, and concurrency amplification; RQ4 runtime/storage overhead; and RQ5
 utility under a fixed dual budget. The report is rebuilt from a
-source-controlled V1 algebra corpus with seed \code{20260723} and digest prefix
+source-controlled V2 algebra corpus with digest prefix
 \ExposureCorpusHash{}. RQ2 additionally runs a real PostgreSQL~16
 differential/metamorphic campaign against an independent fixture evaluator.
 RQ5 includes 500 V2 exact-planner instances with seed \code{20260724} checked
@@ -729,29 +968,36 @@ PostgreSQL deployments and \RQFourObservations{} measured operations.
 \toprule
 RQ & Current result \\
 \midrule
-RQ1 & \RQOnePassed{}/\RQOneCases{} committed fact-set digests match \\
-RQ2 & \RQTwoUnique{} unique rewrites (\RQTwoTemplates{} templates); \RQTwoMismatches{} mismatches \\
-RQ3 & \RQThreePassed{}/\RQThreeCases{} deterministic cases; \RQThreeIntegration{} PostgreSQL integration cases declared separately \\
+RQ1 & \RQOnePassed{}/\RQOneCases{} independent-oracle cases on \RQOneRows{} source rows \\
+RQ2 & \RQTwoUnique{} unique normalized SQL pairs (\RQTwoTemplates{} templates); \RQTwoMismatches{} mismatches \\
+RQ3 & \RQThreePassed{}/\RQThreeCases{} deterministic; \RQThreeIntegration{}/\RQThreeExecuted{} PostgreSQL race tests passed with raw logs \\
 RQ4 & \RQFourObservations{} operations/\RQFourTrials{} trials; full hit p50/p95 $=\RQFourFullOneMedian{}/\RQFourFullOneTail{}$ ms at $c=1$ \\
 RQ5 & \RQFiveAgentTasks{} traces: exact \RQFiveExactSuccess{}/\RQFiveAgentTasks{} vs. greedy \RQFiveGreedySuccess{}/\RQFiveAgentTasks{} successes \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-RQ1 includes projection, filtered projection, grouped sum/count, global count,
-and a join, checking both cardinalities and SHA-256 digests of the complete
-release and influence sets. RQ2 executes \RQTwoPairs{} generated and
-\RQTwoUnique{} distinct instantiated rewrites from \RQTwoTemplates{} structural
-templates on PostgreSQL~16. A separate Go fixture evaluator, which imports none
-of the exposure, query-plan, or SQL-policy implementation, supplies expected
-ordered bags; every rewrite is checked both against that oracle and its
-PostgreSQL baseline. The templates cover predicate reorder, derived projection,
-CTE pushdown, De Morgan, correlated \code{EXISTS}, a one-row \code{VALUES}
-join, and two complete page partitions. RQ3 deterministically checks join multiplicity, split/merge,
+RQ1 uses 12 expense and four department rows and covers projection, positive
+and empty selections, NULL, grouped sum/count, global count/sum, join, and two
+pages. A separate reference package imports none of the production exposure,
+query-plan, gateway, or policy code; it independently constructs the complete
+semantic Fact objects, witness commitments, and hashes. The production output
+matches its \RQOneReleaseFacts{} release and \RQOneInfluenceFacts{} influence
+case-level fact memberships, with per-case set digests retained in the report.
+RQ2 generates \RQTwoPairs{} attempts from 128 predicate instantiations and
+\RQTwoTemplates{} structural templates. It defines a pair as the normalized
+PostgreSQL baseline plus the ordered rewritten statement sequence, collapses
+SQL whitespace, hashes every pair and the sorted pair set, rejects duplicates,
+and executes all \RQTwoUnique{} unique pairs on PostgreSQL~16. A second
+independent Go fixture evaluator supplies expected ordered bags; every pair is
+checked both against that oracle and its PostgreSQL baseline. The templates
+cover predicate reorder, derived projection, CTE pushdown, De Morgan,
+correlated \code{EXISTS}, a one-row \code{VALUES} join, and two complete page
+partitions. RQ3 deterministically checks join multiplicity, split/merge,
 overlapping pages, cache/retry, and snapshot update. Delegation and concurrent
-settlement are exercised by real-PostgreSQL race tests, but the deterministic
-report intentionally lists their test identifiers instead of counting them as
-in-memory passes.
+root-ledger settlement additionally run against PostgreSQL with the Go race
+detector; the artifact binds both named test-pass events and the package-pass
+event to the SHA-256 of the raw \code{go test -json} log.
 
 \subsection{Descriptive Baseline Contrast}
 
@@ -846,8 +1092,11 @@ trace campaign supplies the separate task-level utility measurement.
 
 \subsection{Reproducibility Boundary}
 
-The performance result is a controlled single-host microbenchmark on the
-bundled ten-row travel fixture, not a TPC-H/TPC-DS or production-scale claim.
+RQ1 and RQ2 remain auditable fixture tests: RQ1 has 16 source rows, while RQ2
+crosses eight rewrite templates with 128 predicates over 12 rows. Thus 1,024
+counts unique normalized SQL pairs, not independent schemas, datasets, or
+workloads. The performance result is a controlled single-host microbenchmark on
+the bundled ten-row travel fixture, not a TPC-H/TPC-DS or production-scale claim.
 The agent campaign is a deterministic tool-policy replay, not a comparison of
 live language models or prompts. Source-controlled reports bind the environment,
 corpus, code, raw-result and sample digests. These boundaries limit external
@@ -899,7 +1148,8 @@ release and source-influence sets, same-snapshot provenance, atomic novel-fact
 settlement, and an exact dual-budget representation planner. The current
 artifact establishes a coherent semantic and systems foundation, finds no
 violation in a finite ledger model, and observes zero mismatch across 1,024
-unique PostgreSQL rewrites. The full path has 12.1-ms p50 latency at one worker
+unique normalized PostgreSQL baseline/rewrite SQL pairs over 128 predicates.
+The full path has 12.1-ms p50 latency at one worker
 and exposes root-ledger serialization at higher concurrency. Exact planning
 improves externally scored trace success from 40\% to 60\% under matched
 budgets. These empirical results answer RQ4 and RQ5 for the declared local and

@@ -8,8 +8,11 @@ system-performance harness. No track substitutes mock timing data when a
 prerequisite is absent, and older measurements are not relabeled as exposure
 overhead.
 
-Run the exposure suite with `make eval-exposure`. Its RQ2 track uses an
+Run the exposure suite with `make eval-exposure`. Its RQ1 track uses a separate
+reference package with no production exposure dependency. Its RQ2 track uses an
 independent fixture evaluator and a disposable real PostgreSQL 16 server; the
+RQ3 track retains digest-bound test- and package-pass events from
+`go test -race -json`. The
 report still marks RQ4 runtime overhead as unmeasured until a fresh external
 performance campaign is supplied. See `exposure/README.md` for the exact
 RQ1-RQ5 boundary.

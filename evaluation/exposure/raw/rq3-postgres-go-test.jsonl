@@ -1,0 +1,12 @@
+{"Time":"2026-07-25T14:35:39.134288386Z","Action":"start","Package":"taskbound.local/agent-data-gateway/internal/control"}
+{"Time":"2026-07-25T14:35:39.141225259Z","Action":"run","Package":"taskbound.local/agent-data-gateway/internal/control","Test":"TestDelegatedTasksShareRootExposureKnowledge"}
+{"Time":"2026-07-25T14:35:39.141264805Z","Action":"output","Package":"taskbound.local/agent-data-gateway/internal/control","Test":"TestDelegatedTasksShareRootExposureKnowledge","Output":"=== RUN   TestDelegatedTasksShareRootExposureKnowledge\n"}
+{"Time":"2026-07-25T14:35:39.302605317Z","Action":"output","Package":"taskbound.local/agent-data-gateway/internal/control","Test":"TestDelegatedTasksShareRootExposureKnowledge","Output":"--- PASS: TestDelegatedTasksShareRootExposureKnowledge (0.16s)\n"}
+{"Time":"2026-07-25T14:35:39.30263283Z","Action":"pass","Package":"taskbound.local/agent-data-gateway/internal/control","Test":"TestDelegatedTasksShareRootExposureKnowledge","Elapsed":0.16}
+{"Time":"2026-07-25T14:35:39.302638611Z","Action":"run","Package":"taskbound.local/agent-data-gateway/internal/control","Test":"TestConcurrentTaskFamilySettlementCannotOverspend"}
+{"Time":"2026-07-25T14:35:39.302639628Z","Action":"output","Package":"taskbound.local/agent-data-gateway/internal/control","Test":"TestConcurrentTaskFamilySettlementCannotOverspend","Output":"=== RUN   TestConcurrentTaskFamilySettlementCannotOverspend\n"}
+{"Time":"2026-07-25T14:35:39.465497756Z","Action":"output","Package":"taskbound.local/agent-data-gateway/internal/control","Test":"TestConcurrentTaskFamilySettlementCannotOverspend","Output":"--- PASS: TestConcurrentTaskFamilySettlementCannotOverspend (0.16s)\n"}
+{"Time":"2026-07-25T14:35:39.465530149Z","Action":"pass","Package":"taskbound.local/agent-data-gateway/internal/control","Test":"TestConcurrentTaskFamilySettlementCannotOverspend","Elapsed":0.16}
+{"Time":"2026-07-25T14:35:39.465538327Z","Action":"output","Package":"taskbound.local/agent-data-gateway/internal/control","Output":"PASS\n"}
+{"Time":"2026-07-25T14:35:40.468080573Z","Action":"output","Package":"taskbound.local/agent-data-gateway/internal/control","Output":"ok  \ttaskbound.local/agent-data-gateway/internal/control\t1.333s\n"}
+{"Time":"2026-07-25T14:35:40.46810984Z","Action":"pass","Package":"taskbound.local/agent-data-gateway/internal/control","Elapsed":1.334}

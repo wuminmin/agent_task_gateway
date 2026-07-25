@@ -14,6 +14,7 @@ import (
 	"sort"
 
 	"taskbound.local/agent-data-gateway/evaluation/agenttasks"
+	"taskbound.local/agent-data-gateway/evaluation/exposureoracle"
 	"taskbound.local/agent-data-gateway/evaluation/postgresoracle"
 	"taskbound.local/agent-data-gateway/internal/exposure"
 )
@@ -24,7 +25,6 @@ var corpusJSON []byte
 type corpus struct {
 	SchemaVersion  int               `json:"schema_version"`
 	ProfileVersion string            `json:"profile_version"`
-	RewriteTrials  int               `json:"rewrite_trials"`
 	Relations      []relationFixture `json:"relations"`
 	GroundTruth    []groundTruthCase `json:"ground_truth"`
 	Adversarial    []adversarialCase `json:"adversarial_cases"`
@@ -40,44 +40,77 @@ type relationFixture struct {
 }
 
 type groundTruthCase struct {
+	ID        string `json:"id"`
+	Operation string `json:"operation"`
+}
+
+type adversarialCase struct {
+	ID        string `json:"id"`
+	Execution string `json:"execution"`
+	Test      string `json:"test,omitempty"`
+}
+
+type ValidationSummary struct {
+	Cases              int                 `json:"cases"`
+	Passed             int                 `json:"passed"`
+	DatasetRelations   int                 `json:"dataset_relations"`
+	DatasetRows        int                 `json:"dataset_rows"`
+	ReleaseFacts       int                 `json:"release_fact_comparisons"`
+	InfluenceFacts     int                 `json:"influence_fact_comparisons"`
+	Oracle             string              `json:"oracle"`
+	OracleSourceSHA256 string              `json:"oracle_source_sha256"`
+	Results            []GroundTruthResult `json:"results"`
+}
+
+type GroundTruthResult struct {
 	ID                 string `json:"id"`
-	Operation          string `json:"operation"`
 	ReleaseFacts       int    `json:"release_facts"`
 	InfluenceFacts     int    `json:"influence_facts"`
 	ReleaseSetSHA256   string `json:"release_set_sha256"`
 	InfluenceSetSHA256 string `json:"influence_set_sha256"`
 }
 
-type adversarialCase struct {
-	ID        string `json:"id"`
-	Execution string `json:"execution"`
-}
-
-type ValidationSummary struct {
-	Cases  int `json:"cases"`
-	Passed int `json:"passed"`
-}
-
 type RewriteSummary struct {
-	GeneratedPairs      int    `json:"generated_pairs"`
-	UniqueRewrites      int    `json:"unique_rewrites"`
-	RewriteTemplates    int    `json:"rewrite_templates"`
-	DifferentialChecks  int    `json:"differential_checks,omitempty"`
-	MetamorphicChecks   int    `json:"metamorphic_checks,omitempty"`
-	PostgresStatements  int    `json:"postgres_statements,omitempty"`
-	Mismatches          int    `json:"mismatches"`
-	Oracle              string `json:"oracle"`
-	OracleFixtureSHA256 string `json:"oracle_fixture_sha256,omitempty"`
-	PostgresVersion     string `json:"postgres_version,omitempty"`
-	PostgresMajor       int    `json:"postgres_major,omitempty"`
+	GeneratedAttempts     int      `json:"generated_attempts"`
+	UniqueNormalizedPairs int      `json:"unique_normalized_pairs"`
+	ExecutedUniquePairs   int      `json:"executed_unique_pairs"`
+	DuplicateAttempts     int      `json:"duplicate_attempts"`
+	RewriteTemplates      int      `json:"rewrite_templates"`
+	Scenarios             int      `json:"scenarios,omitempty"`
+	FixtureRows           int      `json:"fixture_rows,omitempty"`
+	PairNormalization     string   `json:"pair_normalization"`
+	PairSetSHA256         string   `json:"pair_set_sha256"`
+	PairSignatures        []string `json:"normalized_pair_signatures,omitempty"`
+	DifferentialChecks    int      `json:"differential_checks,omitempty"`
+	MetamorphicChecks     int      `json:"metamorphic_checks,omitempty"`
+	PostgresStatements    int      `json:"postgres_statements,omitempty"`
+	Mismatches            int      `json:"mismatches"`
+	Oracle                string   `json:"oracle"`
+	OracleFixtureSHA256   string   `json:"oracle_fixture_sha256,omitempty"`
+	PostgresVersion       string   `json:"postgres_version,omitempty"`
+	PostgresMajor         int      `json:"postgres_major,omitempty"`
+}
+
+type IntegrationCase struct {
+	ID   string `json:"id"`
+	Test string `json:"test"`
+}
+
+type IntegrationEvidence struct {
+	Status         string `json:"status"`
+	Artifact       string `json:"artifact,omitempty"`
+	ArtifactSHA256 string `json:"artifact_sha256,omitempty"`
+	Executed       int    `json:"executed"`
+	Passed         int    `json:"passed"`
+	Failed         int    `json:"failed"`
 }
 
 type AdversarialSummary struct {
-	Cases                   int      `json:"cases"`
-	DeterministicCases      int      `json:"deterministic_cases"`
-	DeterministicPassed     int      `json:"deterministic_passed"`
-	PostgresIntegrationIDs  []string `json:"postgres_integration_ids"`
-	PostgresIntegrationNote string   `json:"postgres_integration_note"`
+	Cases               int                 `json:"cases"`
+	DeterministicCases  int                 `json:"deterministic_cases"`
+	DeterministicPassed int                 `json:"deterministic_passed"`
+	IntegrationManifest []IntegrationCase   `json:"postgres_integration_manifest"`
+	PostgresIntegration IntegrationEvidence `json:"postgres_integration"`
 }
 
 type ChargeVector struct {
@@ -112,7 +145,6 @@ type Report struct {
 	SchemaVersion  int                `json:"schema_version"`
 	ProfileVersion string             `json:"profile_version"`
 	CorpusSHA256   string             `json:"corpus_sha256"`
-	RewriteSeed    int64              `json:"rewrite_seed"`
 	RQ1            ValidationSummary  `json:"rq1_ground_truth"`
 	RQ2            RewriteSummary     `json:"rq2_rewrite_invariance"`
 	RQ3            AdversarialSummary `json:"rq3_anti_arbitrage"`
@@ -131,32 +163,47 @@ func Run() (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
-	report := Report{SchemaVersion: 2, ProfileVersion: fixtures.ProfileVersion,
-		CorpusSHA256: fmt.Sprintf("%x", sha256.Sum256(corpusJSON)), RewriteSeed: 20260723,
-		RQ4Status: "measured_controlled_local_postgresql_campaign"}
+	relationsCount, rowsCount, err := exposureoracle.DatasetShape(corpusJSON)
+	if err != nil {
+		return Report{}, err
+	}
+	report := Report{SchemaVersion: 3, ProfileVersion: fixtures.ProfileVersion,
+		CorpusSHA256: fmt.Sprintf("%x", sha256.Sum256(corpusJSON)),
+		RQ4Status:    "measured_controlled_local_postgresql_campaign"}
+	report.RQ1 = ValidationSummary{DatasetRelations: relationsCount, DatasetRows: rowsCount,
+		Oracle: exposureoracle.OracleID, OracleSourceSHA256: exposureoracle.SourceSHA256()}
 	for _, testCase := range fixtures.GroundTruth {
 		observation, _, err := evaluateOperation(fixtures.ProfileVersion, relations, testCase.Operation)
 		if err != nil {
 			return Report{}, fmt.Errorf("ground truth %s: %w", testCase.ID, err)
 		}
-		releaseDigest, err := factSetSHA256(observation.Release)
+		expected, err := exposureoracle.Evaluate(corpusJSON, testCase.Operation)
 		if err != nil {
-			return Report{}, fmt.Errorf("ground truth %s release: %w", testCase.ID, err)
+			return Report{}, fmt.Errorf("independent ground truth %s: %w", testCase.ID, err)
 		}
-		influenceDigest, err := factSetSHA256(observation.Influence)
+		actualRelease, err := oracleFactSet(observation.Release)
 		if err != nil {
-			return Report{}, fmt.Errorf("ground truth %s influence: %w", testCase.ID, err)
+			return Report{}, fmt.Errorf("ground truth %s release hash: %w", testCase.ID, err)
+		}
+		actualInfluence, err := oracleFactSet(observation.Influence)
+		if err != nil {
+			return Report{}, fmt.Errorf("ground truth %s influence hash: %w", testCase.ID, err)
 		}
 		report.RQ1.Cases++
-		if len(observation.Release) != testCase.ReleaseFacts || len(observation.Influence) != testCase.InfluenceFacts ||
-			releaseDigest != testCase.ReleaseSetSHA256 || influenceDigest != testCase.InfluenceSetSHA256 {
-			return Report{}, fmt.Errorf("ground truth %s = (%d,%d,%s,%s), want (%d,%d,%s,%s)", testCase.ID,
-				len(observation.Release), len(observation.Influence), releaseDigest, influenceDigest,
-				testCase.ReleaseFacts, testCase.InfluenceFacts, testCase.ReleaseSetSHA256, testCase.InfluenceSetSHA256)
+		if !sameOracleSet(actualRelease, expected.Release) || !sameOracleSet(actualInfluence, expected.Influence) {
+			return Report{}, fmt.Errorf("ground truth %s differs from independent oracle: release=%d/%d influence=%d/%d",
+				testCase.ID, len(actualRelease), len(expected.Release), len(actualInfluence), len(expected.Influence))
 		}
+		releaseDigest := oracleSetSHA256(expected.Release)
+		influenceDigest := oracleSetSHA256(expected.Influence)
+		report.RQ1.ReleaseFacts += len(expected.Release)
+		report.RQ1.InfluenceFacts += len(expected.Influence)
+		report.RQ1.Results = append(report.RQ1.Results, GroundTruthResult{ID: testCase.ID,
+			ReleaseFacts: len(expected.Release), InfluenceFacts: len(expected.Influence),
+			ReleaseSetSHA256: releaseDigest, InfluenceSetSHA256: influenceDigest})
 		report.RQ1.Passed++
 	}
-	report.RQ2, err = runRewriteTrials(fixtures.ProfileVersion, relations["expenses"], fixtures.RewriteTrials)
+	report.RQ2, err = runRewriteTrials(fixtures.ProfileVersion, relations["expenses"])
 	if err != nil {
 		return Report{}, err
 	}
@@ -195,38 +242,77 @@ func RunPostgreSQL(ctx context.Context, dsn string) (Report, error) {
 		return Report{}, err
 	}
 	report.RQ2 = RewriteSummary{
-		GeneratedPairs:      summary.GeneratedAttempts,
-		UniqueRewrites:      summary.UniqueRewrites,
-		RewriteTemplates:    summary.RewriteTemplates,
-		DifferentialChecks:  summary.DifferentialChecks,
-		MetamorphicChecks:   summary.MetamorphicChecks,
-		PostgresStatements:  summary.PostgresStatements,
-		Mismatches:          summary.Mismatches,
-		Oracle:              summary.Oracle,
-		OracleFixtureSHA256: summary.OracleFixtureSHA256,
-		PostgresVersion:     summary.PostgresVersion,
-		PostgresMajor:       summary.PostgresMajor,
+		GeneratedAttempts:     summary.GeneratedAttempts,
+		UniqueNormalizedPairs: summary.UniqueNormalizedPairs,
+		ExecutedUniquePairs:   summary.ExecutedUniquePairs,
+		DuplicateAttempts:     summary.DuplicateAttempts,
+		RewriteTemplates:      summary.RewriteTemplates,
+		Scenarios:             summary.Scenarios,
+		FixtureRows:           summary.FixtureRows,
+		PairNormalization:     summary.PairNormalization,
+		PairSetSHA256:         summary.PairSetSHA256,
+		PairSignatures:        summary.PairSignatures,
+		DifferentialChecks:    summary.DifferentialChecks,
+		MetamorphicChecks:     summary.MetamorphicChecks,
+		PostgresStatements:    summary.PostgresStatements,
+		Mismatches:            summary.Mismatches,
+		Oracle:                summary.Oracle,
+		OracleFixtureSHA256:   summary.OracleFixtureSHA256,
+		PostgresVersion:       summary.PostgresVersion,
+		PostgresMajor:         summary.PostgresMajor,
 	}
 	return report, nil
 }
 
-func factSetSHA256(facts []exposure.FactID) (string, error) {
-	set, err := exposure.NewFactSet(facts...)
-	if err != nil {
-		return "", err
+func oracleFactSet(facts []exposure.FactID) (map[string]exposureoracle.Fact, error) {
+	result := make(map[string]exposureoracle.Fact, len(facts))
+	for _, fact := range facts {
+		bindings := make([]exposureoracle.SnapshotBinding, 0, len(fact.SnapshotBundle))
+		for _, binding := range fact.SnapshotBundle {
+			bindings = append(bindings, exposureoracle.SnapshotBinding{SourceNamespace: binding.SourceNamespace, Snapshot: binding.Snapshot})
+		}
+		converted := exposureoracle.Fact{Profile: fact.Profile, Kind: string(fact.Kind), Snapshot: fact.Snapshot,
+			EntityKey: fact.EntityKey, Field: fact.Field, SourceNamespace: fact.SourceNamespace,
+			SQLType: fact.SQLType, CanonicalValue: fact.CanonicalValue, SnapshotBundle: bindings,
+			OutputRowKey: fact.OutputRowKey, NormalizedExpression: fact.NormalizedExpression,
+			WitnessCommitment: fact.WitnessCommitment}
+		productionHash, err := fact.Hash()
+		if err != nil {
+			return nil, err
+		}
+		if oracleHash := exposureoracle.Hash(converted); oracleHash != productionHash {
+			return nil, fmt.Errorf("independent hash %s differs from production hash %s", oracleHash, productionHash)
+		}
+		result[exposureoracle.Key(converted)] = converted
 	}
-	hashes := make([]string, 0, len(set))
-	for hash := range set {
-		hashes = append(hashes, hash)
+	return result, nil
+}
+
+func sameOracleSet(left, right map[string]exposureoracle.Fact) bool {
+	if len(left) != len(right) {
+		return false
 	}
-	sort.Strings(hashes)
+	for key := range left {
+		if _, present := right[key]; !present {
+			return false
+		}
+	}
+	return true
+}
+
+func oracleSetSHA256(set map[string]exposureoracle.Fact) string {
+	keys := make([]string, 0, len(set))
+	for key := range set {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
 	digest := sha256.New()
-	_, _ = digest.Write([]byte("TASKGATE-EXPOSURE-FACT-SET-V2\x00"))
-	for _, hash := range hashes {
-		_, _ = digest.Write([]byte(hash))
+	_, _ = digest.Write([]byte("TASKGATE-INDEPENDENT-ORACLE-FACT-SET-V1\x00"))
+	for _, key := range keys {
+		_, _ = digest.Write([]byte(key))
 		_, _ = digest.Write([]byte{0})
 	}
-	return fmt.Sprintf("%x", digest.Sum(nil)), nil
+	return fmt.Sprintf("%x", digest.Sum(nil))
 }
 
 func loadCorpus() (corpus, error) {
@@ -236,13 +322,13 @@ func loadCorpus() (corpus, error) {
 	if err := decoder.Decode(&result); err != nil {
 		return corpus{}, err
 	}
-	if result.SchemaVersion != 1 || result.ProfileVersion == "" || result.RewriteTrials < 1 ||
+	if result.SchemaVersion != 2 || result.ProfileVersion == "" ||
 		len(result.Relations) == 0 || len(result.GroundTruth) == 0 {
 		return corpus{}, fmt.Errorf("invalid exposure evaluation corpus")
 	}
 	for _, testCase := range result.GroundTruth {
-		if len(testCase.ReleaseSetSHA256) != sha256.Size*2 || len(testCase.InfluenceSetSHA256) != sha256.Size*2 {
-			return corpus{}, fmt.Errorf("ground truth %s is missing exact set digests", testCase.ID)
+		if testCase.ID == "" || testCase.Operation == "" {
+			return corpus{}, fmt.Errorf("ground truth case is incomplete")
 		}
 	}
 	return result, nil
@@ -272,10 +358,22 @@ func evaluateOperation(profile string, relations map[string]exposure.RelationV2,
 	switch operation {
 	case "projection_amount":
 		relation, err = exposure.ProjectV2(expenses, "expense.amount")
-	case "selection_sales_amount":
+	case "projection_department":
+		relation, err = exposure.ProjectV2(expenses, "expense.department")
+	case "projection_pair":
+		relation, err = exposure.ProjectV2(expenses, "expense.department", "expense.amount")
+	case "selection_sales_amount", "selection_rnd_amount", "selection_ops_amount", "selection_legal_amount", "selection_missing_amount":
+		targets := map[string]string{
+			"selection_sales_amount": "sales", "selection_rnd_amount": "rnd", "selection_ops_amount": "ops",
+			"selection_legal_amount": "legal", "selection_missing_amount": "missing",
+		}
+		target := targets[operation]
 		relation, err = exposure.SelectV2(expenses, []string{"expense.department"}, func(row exposure.AnnotatedRowV2) exposure.SQLTruth {
-			if row.Cells["expense.department"].Value == "sales" {
+			if value, ok := row.Cells["expense.department"].Value.(string); ok && value == target {
 				return exposure.SQLTrue
+			}
+			if row.Cells["expense.department"].Value == nil {
+				return exposure.SQLUnknown
 			}
 			return exposure.SQLFalse
 		})
@@ -287,19 +385,30 @@ func evaluateOperation(profile string, relations map[string]exposure.RelationV2,
 			{Function: "sum", Field: "expense.amount", OutputID: "total", OutputType: "numeric"},
 			{Function: "count", Field: "*", OutputID: "items", OutputType: "bigint"},
 		}, []map[string]any{
-			{"expense.department": "sales", "total": "40", "items": int64(3)},
-			{"expense.department": "rnd", "total": "30", "items": int64(1)},
+			{"expense.department": "sales", "total": "80", "items": int64(5)},
+			{"expense.department": "rnd", "total": "45", "items": int64(2)},
+			{"expense.department": "ops", "total": "40", "items": int64(2)},
+			{"expense.department": "legal", "total": "25", "items": int64(2)},
+			{"expense.department": nil, "total": "40", "items": int64(1)},
 		})
 	case "global_count":
 		relation, err = exposure.AggregateFromResultsV2(expenses, nil, []exposure.AggregateSpecV2{
 			{Function: "count", Field: "*", OutputID: "items", OutputType: "bigint"},
-		}, []map[string]any{{"items": int64(4)}})
+		}, []map[string]any{{"items": int64(12)}})
+	case "global_sum":
+		relation, err = exposure.AggregateFromResultsV2(expenses, nil, []exposure.AggregateSpecV2{
+			{Function: "sum", Field: "expense.amount", OutputID: "total", OutputType: "numeric"},
+		}, []map[string]any{{"total": "230"}})
 	case "department_join":
 		relation, err = exposure.JoinV2(relations["departments"], expenses, "department.department", "expense.department")
 		if err == nil {
 			observation, observeErr := exposure.ObserveV2(relation, "department.manager", "expense.amount")
 			return observation, relation, observeErr
 		}
+	case "page_first_four":
+		relation, err = exposure.PageV2(expenses, 0, 4)
+	case "page_middle_five":
+		relation, err = exposure.PageV2(expenses, 3, 5)
 	default:
 		return exposure.Observation{}, exposure.RelationV2{}, fmt.Errorf("unknown operation %q", operation)
 	}
@@ -310,54 +419,48 @@ func evaluateOperation(profile string, relations map[string]exposure.RelationV2,
 	return observation, relation, err
 }
 
-func runRewriteTrials(profile string, base exposure.RelationV2, trials int) (RewriteSummary, error) {
-	random := rand.New(rand.NewSource(20260723))
-	result := RewriteSummary{RewriteTemplates: 2, Oracle: "shared-implementation-preflight"}
+func runRewriteTrials(profile string, base exposure.RelationV2) (RewriteSummary, error) {
+	result := RewriteSummary{RewriteTemplates: 2, Oracle: "shared-implementation-preflight",
+		PairNormalization: "semantic-parameter-key-v1", FixtureRows: len(base.Rows)}
 	unique := make(map[string]struct{})
-	for index := 0; index < trials; index++ {
-		target := "sales"
-		if random.Intn(2) == 0 {
-			target = "rnd"
-		}
-		fields := []string{"expense.department", "expense.amount"}
-		if random.Intn(2) == 0 {
-			fields[0], fields[1] = fields[1], fields[0]
-		}
-		selected, err := exposure.SelectV2(base, []string{"expense.department"}, func(row exposure.AnnotatedRowV2) exposure.SQLTruth {
-			if row.Cells["expense.department"].Value == target {
-				return exposure.SQLTrue
+	for _, target := range []string{"sales", "rnd"} {
+		for _, fields := range [][]string{{"expense.department", "expense.amount"}, {"expense.amount", "expense.department"}} {
+			selected, err := exposure.SelectV2(base, []string{"expense.department"}, func(row exposure.AnnotatedRowV2) exposure.SQLTruth {
+				if row.Cells["expense.department"].Value == target {
+					return exposure.SQLTrue
+				}
+				return exposure.SQLFalse
+			})
+			if err != nil {
+				return result, err
 			}
-			return exposure.SQLFalse
-		})
-		if err != nil {
-			return result, err
-		}
-		left, err := exposure.ProjectV2(selected, fields...)
-		if err != nil {
-			return result, err
-		}
-		projected, err := exposure.ProjectV2(base, fields...)
-		if err != nil {
-			return result, err
-		}
-		right, err := exposure.SelectV2(projected, []string{"expense.department"}, func(row exposure.AnnotatedRowV2) exposure.SQLTruth {
-			if row.Cells["expense.department"].Value == target {
-				return exposure.SQLTrue
+			left, err := exposure.ProjectV2(selected, fields...)
+			if err != nil {
+				return result, err
 			}
-			return exposure.SQLFalse
-		})
-		if err != nil {
-			return result, err
+			projected, err := exposure.ProjectV2(base, fields...)
+			if err != nil {
+				return result, err
+			}
+			right, err := exposure.SelectV2(projected, []string{"expense.department"}, func(row exposure.AnnotatedRowV2) exposure.SQLTruth {
+				if row.Cells["expense.department"].Value == target {
+					return exposure.SQLTrue
+				}
+				return exposure.SQLFalse
+			})
+			if err != nil {
+				return result, err
+			}
+			leftObservation, _ := exposure.ObserveV2(left)
+			rightObservation, _ := exposure.ObserveV2(right)
+			result.GeneratedAttempts++
+			unique[fmt.Sprintf("selection_projection:%s:%s,%s", target, fields[0], fields[1])] = struct{}{}
+			if !sameObservation(leftObservation, rightObservation) {
+				result.Mismatches++
+			}
 		}
-		leftObservation, _ := exposure.ObserveV2(left)
-		rightObservation, _ := exposure.ObserveV2(right)
-		result.GeneratedPairs++
-		unique[fmt.Sprintf("selection_projection:%s:%s,%s", target, fields[0], fields[1])] = struct{}{}
-		if !sameObservation(leftObservation, rightObservation) {
-			result.Mismatches++
-		}
-
-		pageSize := 1 + random.Intn(len(base.Rows))
+	}
+	for pageSize := 1; pageSize <= len(base.Rows); pageSize++ {
 		var pages []exposure.Observation
 		for offset := 0; offset < len(base.Rows); offset += pageSize {
 			page, _ := exposure.PageV2(base, offset, pageSize)
@@ -369,23 +472,30 @@ func runRewriteTrials(profile string, base exposure.RelationV2, trials int) (Rew
 			return result, err
 		}
 		full, _ := exposure.ObserveV2(base)
-		result.GeneratedPairs++
+		result.GeneratedAttempts++
 		unique[fmt.Sprintf("page_partition:%d", pageSize)] = struct{}{}
 		if !sameObservation(full, merged) {
 			result.Mismatches++
 		}
 	}
-	result.UniqueRewrites = len(unique)
+	result.UniqueNormalizedPairs = len(unique)
+	result.ExecutedUniquePairs = len(unique)
+	result.DuplicateAttempts = result.GeneratedAttempts - result.UniqueNormalizedPairs
+	result.MetamorphicChecks = result.ExecutedUniquePairs
+	result.PairSetSHA256 = stringSetSHA256("TASKGATE-PREFLIGHT-PAIR-SET-V1\x00", unique)
 	return result, nil
 }
 
 func runAdversarial(fixtures corpus, relations map[string]exposure.RelationV2) (AdversarialSummary, error) {
 	result := AdversarialSummary{Cases: len(fixtures.Adversarial),
-		PostgresIntegrationNote: "run_go_test_race_with_control_test_postgres_dsn"}
+		PostgresIntegration: IntegrationEvidence{Status: "not_run"}}
 	full, _ := exposure.ObserveV2(relations["expenses"])
 	for _, testCase := range fixtures.Adversarial {
 		if testCase.Execution == "postgres_integration" {
-			result.PostgresIntegrationIDs = append(result.PostgresIntegrationIDs, testCase.ID)
+			if testCase.ID == "" || testCase.Test == "" {
+				return result, fmt.Errorf("PostgreSQL integration case is incomplete")
+			}
+			result.IntegrationManifest = append(result.IntegrationManifest, IntegrationCase{ID: testCase.ID, Test: testCase.Test})
 			continue
 		}
 		result.DeterministicCases++
@@ -393,7 +503,7 @@ func runAdversarial(fixtures corpus, relations map[string]exposure.RelationV2) (
 		switch testCase.ID {
 		case "join_multiplicity":
 			observation, _, err := evaluateOperation(fixtures.ProfileVersion, relations, "department_join")
-			passed = err == nil && len(observation.Influence) == 18
+			passed = err == nil && len(observation.Influence) == 45
 		case "split_merge":
 			departments, _ := exposure.ProjectV2(relations["expenses"], "expense.department")
 			amounts, _ := exposure.ProjectV2(relations["expenses"], "expense.amount")
@@ -402,8 +512,8 @@ func runAdversarial(fixtures corpus, relations map[string]exposure.RelationV2) (
 			merged, err := exposure.MergeObservations(fixtures.ProfileVersion, left, right)
 			passed = err == nil && sameObservation(full, merged)
 		case "overlapping_pagination":
-			first, _ := exposure.PageV2(relations["expenses"], 0, 3)
-			second, _ := exposure.PageV2(relations["expenses"], 2, 3)
+			first, _ := exposure.PageV2(relations["expenses"], 0, 8)
+			second, _ := exposure.PageV2(relations["expenses"], 6, 6)
 			left, _ := exposure.ObserveV2(first)
 			right, _ := exposure.ObserveV2(second)
 			merged, err := exposure.MergeObservations(fixtures.ProfileVersion, left, right)
@@ -423,8 +533,23 @@ func runAdversarial(fixtures corpus, relations map[string]exposure.RelationV2) (
 		}
 		result.DeterministicPassed++
 	}
-	sort.Strings(result.PostgresIntegrationIDs)
+	sort.Slice(result.IntegrationManifest, func(i, j int) bool { return result.IntegrationManifest[i].ID < result.IntegrationManifest[j].ID })
 	return result, nil
+}
+
+func stringSetSHA256(domain string, set map[string]struct{}) string {
+	values := make([]string, 0, len(set))
+	for value := range set {
+		values = append(values, value)
+	}
+	sort.Strings(values)
+	digest := sha256.New()
+	_, _ = digest.Write([]byte(domain))
+	for _, value := range values {
+		_, _ = digest.Write([]byte(value))
+		_, _ = digest.Write([]byte{0})
+	}
+	return fmt.Sprintf("%x", digest.Sum(nil))
 }
 
 func baselineSummary(profile string, relations map[string]exposure.RelationV2) (BaselineSummary, error) {

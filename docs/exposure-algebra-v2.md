@@ -19,6 +19,7 @@
 5. 类型属于第 6 节的 V2 值域。`time with time zone` 不可接受；`json` 可扫描、选择和投影，但因 PostgreSQL 没有 `json` equality，不可进入 Join、Group 或 Union-Distinct 的相等关系。
 6. Group 的输出值来自同一 PostgreSQL snapshot 中实际执行的 `COUNT|SUM|MIN|MAX`；输出 oracle 不得遗漏、重复或虚构正向 group。
 7. Page 的输入已经按“用户 order key + Catalog stable entity/group key”构成的全序排列。没有可证明全序时关闭式失败。
+8. PostgreSQL cast、算术和 aggregate 必须正常完成；SQL overflow、typed range、witness `uint64` multiplicity 或 canonical encoding 失败都使求值无定义，不能生成、结算或释放 Effect。
 
 这些条件是定理的前提，不是隐藏假设。在线编译器在 Catalog 验证、schema/collation 证明、结构化计划检查、同一 `REPEATABLE READ` snapshot 和 provenance 完整性检查中执行它们。
 
@@ -105,7 +106,7 @@ DV(B,kout,x,τ,Cτ(v),CW(W))
 - `kout` 是输出行键；
 - `x` 是删除 alias 后的规范表达式；
 - `Cτ` 是第 6 节的类型化值规范函数；
-- `W : BaseFact → ℕ+` 是 witness multiset。
+- `W : BaseFact ⇀ ℕ+` 是 finite-support witness multiset；空 support 合法。
 
 每个字符串编码为 `uint64_be(byte_length) || UTF8_bytes`，列表先编码 `uint64_be(count)`，再编码元素。V2 payload 先编码 `kind` 和字面 profile `taskgate-exposure-v2`，然后按上面的字段顺序编码。Snapshot bundle 在编码前按 `(namespace,snapshot)` 排序。
 
@@ -118,6 +119,27 @@ FactHash = SHA256("TASKGATE-FACT-V2\0" || CanonicalPayload)
 ```
 
 空 witness 使用单个 token `empty`。`exposure_facts` 同时保存 hash 和完整 canonical payload；同一 hash 遇到不同 payload 时事务关闭式失败，因此安全性不以“不会发生 SHA-256 collision”为数据库一致性假设。
+
+### 3.1 产品、快照与逐算子输出实体键
+
+派生 Fact 没有调用者可填写的 `product` 字符串。其产品身份严格定义为 snapshot bundle `B` 的 namespace 投影，快照身份是完整、按 namespace 排序的 `(namespace,snapshot)` bundle。令：
+
+```text
+RID(R,t) = H("relation-row", normalizedSchema(R), snapshotBundle(R), t.key)
+```
+
+各运算的 `DV.outputRowKey` 完整定义如下：
+
+| 输出 | Snapshot/product bundle | `outputRowKey` |
+|---|---|---|
+| Scan | `[(N,s)]` | Catalog stable entity key `e`；在线 lowering 将键字段编码为 `H("base-entity",N,(field,type,Cτ(value))*)` |
+| Select/Project/Page | child bundle | 保留 child key |
+| Join pair `(l,r)` | 两侧 bundle 的 namespace-wise merge | `H("join-row", sort(RID(L,l),RID(R,r)))` |
+| Union-Distinct class | 两侧 bundle 的 namespace-wise merge | `H("union-distinct-row", normalizedSchema, sorted(field,type,Cτ(value)) tuple)` |
+| Keyed Group | child bundle | `H("group-row", sort(expression,type,Cτ(groupValue))*)` |
+| Global aggregate | child bundle | `H("group-row","global")` |
+
+因此 global aggregate 的常量 row key 并不丢失产品/快照：`DV` 仍绑定 bundle、aggregate expression、typed output value 和 witness。Group 同时绑定 group tuple 和 bundle/witness；Join pair key 递归绑定两个 immediate child 的 schema、bundle 与 entity key；Union 的 row key 绑定 typed dedup tuple，而最终 `DV` 还绑定 merged bundle、canonical union expression 和 alternative witness。若同一 namespace 在一个表达式内对应两个 snapshot，bundle merge 失败。
 
 ## 4. 标注关系
 
@@ -134,6 +156,8 @@ t = ⟨k, cells, Sr, Wr, origins⟩
 ```
 
 关系 schema 还为每个字段携带与数据行无关的规范 lineage expression `exprR(f)`。Scan 令其为 `namespace.fieldID`；Project、Select、Join、Page 传播它；Group 构造 `group(exprR(f))`/`fn(exprR(f))`；Union 对相同表达式保持原值，否则取排序后的 `union(exprL(f),exprR(f))`。因此空关系以及交换 Union operand 都不会通过“第一行”影响后续 derived FactID。
+
+关系的值载体是由唯一 row key 实现的有限 PostgreSQL bag：两个 value tuple 即使逐字段相等，只要 row key 不同就仍是两个 occurrence。Select、Project、Join 和 Page 保持 bag multiplicity；只有 Union-Distinct 和 Group 按 typed equivalence class 产生一个输出 occurrence。Effect 最终是 Fact 集合，但中间 witness multiset 保留 join fanout 与 aggregate multiplicity。
 
 `S`、`Sr` 是 V2 base Fact 的有限集合；`W`、`Wr` 是正整数 multiset，并始终满足：
 
@@ -189,7 +213,7 @@ Project[F](⟨k,cells,Sr,Wr,O⟩)
 对左右行 `l,r`，若 `Θ` 中每个 typed equality 都是 SQL `TRUE`，产生一行；任一比较为 `FALSE` 或 `UNKNOWN` 就不产生行。每个输入行的闭合身份为：
 
 ```text
-RID(R,t) = H("relation-row", sort(schema(R)), snapshotBundle(R), t.key)
+RID(R,t) = H("relation-row", normalizedSchema(R), snapshotBundle(R), t.key)
 kjoin    = H("join-row", sort([RID(L,l),RID(R,r)]))
 ```
 
@@ -223,7 +247,8 @@ Wf(Q) = ⊔max t∈Q . t.cell[f].W
 Group key 使用逐字段 `IS NOT DISTINCT FROM`；NULL 因而形成一个普通 group。对成员集 `M`：
 
 ```text
-kgroup = H("group-row", sort([expr(f), τf, Cτf(valuef)] for f∈G))
+kgroup = H("group-row", sort([expr(f), τf, Cτf(valuef)] for f∈G))  when G≠∅
+kgroup = H("group-row", "global")                                 when G=∅
 Sr     = ⊔ m∈M . m.Sr
 Wr     = ⊕ m∈M . m.Wr
 
@@ -244,6 +269,8 @@ COUNT(f), SUM(f), MIN(f), MAX(f) cell:
 
 ### 5.7 Stable Page
 
+语义上先用固定 PostgreSQL comparator 排序。Comparator 对每个字段使用 Catalog 证明的 exact collation name/version；未显式指定时，`ASC` 使用 `NULLS LAST`、`DESC` 使用 `NULLS FIRST`。编译器在用户 order 后追加 Catalog entity key 或全部 group key（ASC），直到证明 lexicographic total order；global aggregate 至多一行。在线 SQL 执行相同 order 后才将关系标记为 `CanonicalOrder=true`。
+
 若 `R.CanonicalOrder=true`：
 
 ```text
@@ -251,7 +278,7 @@ Page(R,o,l) = R.rows[min(o,n) : min(n, o+l)]   when l>0
 Page(R,o,0) = R.rows[min(o,n) : n]
 ```
 
-标注逐项不变。负边界或未证明全序时失败。
+这里 `limit=0` 是结构化 QueryPlan 的“未设置上限”哨兵，不是 SQL `LIMIT 0`。标注逐项不变。负边界或未证明全序时失败。当前正向 profile 不把未输出行的排序字段、rank 或 absence 加入 Influence；这是明示的 negative-information 边界，不是 noninterference 保证。
 
 ### 5.8 Observation
 
@@ -271,7 +298,7 @@ Effect(R,V)    = normalize(Release, Influence)
 
 | 类型 | `Cτ(v)` |
 |---|---|
-| `smallint/integer/bigint` | 任意精度十进制整数 |
+| `smallint/integer/bigint` | 先检查 PostgreSQL 16/32/64-bit 范围，再编码为规范十进制整数 |
 | `numeric` | exact rational `p` 或 `p/q`；支持 PostgreSQL NaN/±Infinity；拒绝 binary float 输入 |
 | `real/double precision` | 对应 IEEE 位宽的规范 hexadecimal float；NaN、±Infinity 和 `-0=0` 规范化 |
 | `boolean` | `true/false` |
@@ -287,6 +314,10 @@ Effect(R,V)    = normalize(Release, Influence)
 | SQL NULL | 独立 token `null`，不与字符串 `"null"` 混同 |
 
 `SQLValueEqualV2(τ,a,b)` 实现 SQL `=`：任一侧 NULL 得 `UNKNOWN`；否则比较 `Cτ`。`SQLValueNotDistinctV2` 实现 Group/Distinct 等价：两个 NULL 相等。字符串 equality 的这一步要求 collation 为 deterministic；Page 和有序 predicate 仍由固定名称及版本的 PostgreSQL collation 执行。Connector 每次证明都核对该名称、实际版本及 `collisdeterministic=true`。
+
+合取遵循 PostgreSQL 三值逻辑：`FALSE AND x=FALSE`、`TRUE AND x=x`、`UNKNOWN AND TRUE/UNKNOWN=UNKNOWN`；Selection 和 Join 只保留 `TRUE`。`IN/NOT IN`、比较与 `LIKE` 的 NULL/collation 行为由固定 PostgreSQL profile 执行。
+
+整数输入先检查 16/32/64-bit PostgreSQL 范围。Aggregate 输出类型固定为：`COUNT→bigint`、`SUM(smallint/integer)→bigint`、`SUM(bigint)→numeric`、`SUM(numeric/real/double precision)→` 同族、`MIN/MAX→` 输入类型。Aggregate value 来自 PostgreSQL，不在 Go 中重算；任何数据库 overflow/error 都没有求值结论。无 key 的空输入严格产生一行：`COUNT(*)=0`、`COUNT(f)=0`、`SUM/MIN/MAX=NULL`；有 key 的空输入产生零行。所有 aggregate argument cell（包括 NULL fact）进入 profile-defined Influence，而 scalar 仍按 PostgreSQL 忽略 NULL。
 
 ## 7. Query Normal Form
 
@@ -308,7 +339,7 @@ Effect(R,V)    = normalize(Release, Influence)
 
 ### 定理 1（表示不变量与闭包）
 
-若 `Π;D ⊢ e ⇓ R`，则 `ValidateRelationV2(R)=OK`；而且 `R` 可作为任意满足类型规则的父 operator 输入，包括 Group/Union 后再次 Join。
+求值是偏函数：若 cast/overflow、collation、schema、bundle、oracle、key collision 或 representation premise 失败，则没有 `R`、Effect、settlement 或 release。若 `Π;D ⊢ e ⇓ R`，则该 `R` 唯一且 `ValidateRelationV2(R)=OK`；而且 `R` 可作为任意满足类型规则的父 operator 输入，包括 Group/Union 后再次 Join。
 
 证明：对 `e` 的结构归纳。Scan 直接构造唯一 row key、singleton support/witness 和规范 cell。Select、Project、Page 只复制或以 `∪/⊕` 合并已验证标注。Join 的 schema disjointness 和 `RID` 构造给出闭合行身份；Union 的 typed tuple class 给出唯一输出键，`∪/max` 保持等支撑；Group 的 group equivalence class 给出唯一键，`∪/⊕` 保持等支撑。每个实现规则返回前再次执行完整 validator。证毕。
 

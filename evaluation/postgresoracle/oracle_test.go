@@ -4,11 +4,12 @@ import "testing"
 
 func TestCampaignRewritesAreUnique(t *testing.T) {
 	summary := CoverageSummary()
-	if summary.GeneratedAttempts != ExpectedAttempts || summary.UniqueRewrites != ExpectedAttempts ||
-		summary.RewriteTemplates != ExpectedTemplates {
-		t.Fatalf("coverage = attempts %d, unique %d, templates %d; want %d/%d/%d",
-			summary.GeneratedAttempts, summary.UniqueRewrites, summary.RewriteTemplates,
-			ExpectedAttempts, ExpectedAttempts, ExpectedTemplates)
+	if summary.GeneratedAttempts != ExpectedAttempts || summary.UniqueNormalizedPairs != ExpectedAttempts ||
+		summary.ExecutedUniquePairs != ExpectedAttempts || summary.DuplicateAttempts != 0 ||
+		summary.RewriteTemplates != ExpectedTemplates || len(summary.PairSetSHA256) != 64 ||
+		len(summary.PairSignatures) != ExpectedAttempts {
+		t.Fatalf("coverage = %+v; want %d unique normalized pairs from %d templates",
+			summary, ExpectedAttempts, ExpectedTemplates)
 	}
 }
 

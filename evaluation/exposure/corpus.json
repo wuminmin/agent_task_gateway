@@ -1,7 +1,6 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "profile_version": "taskgate-exposure-v2",
-  "rewrite_trials": 512,
   "relations": [
     {
       "name": "expenses",
@@ -13,10 +12,18 @@
         {"id":"expense.amount","sql_type":"numeric"}
       ],
       "rows": [
-        {"entity_key": "r1", "values": {"expense.department": "sales", "expense.amount": 10}},
-        {"entity_key": "r2", "values": {"expense.department": "sales", "expense.amount": 20}},
-        {"entity_key": "r3", "values": {"expense.department": "rnd", "expense.amount": 30}},
-        {"entity_key": "r4", "values": {"expense.department": "sales", "expense.amount": 10}}
+        {"entity_key":"r01","values":{"expense.department":"sales","expense.amount":10}},
+        {"entity_key":"r02","values":{"expense.department":"sales","expense.amount":20}},
+        {"entity_key":"r03","values":{"expense.department":"rnd","expense.amount":30}},
+        {"entity_key":"r04","values":{"expense.department":"sales","expense.amount":10}},
+        {"entity_key":"r05","values":{"expense.department":"ops","expense.amount":5}},
+        {"entity_key":"r06","values":{"expense.department":"ops","expense.amount":35}},
+        {"entity_key":"r07","values":{"expense.department":"rnd","expense.amount":15}},
+        {"entity_key":"r08","values":{"expense.department":"legal","expense.amount":25}},
+        {"entity_key":"r09","values":{"expense.department":"legal","expense.amount":0}},
+        {"entity_key":"r10","values":{"expense.department":null,"expense.amount":40}},
+        {"entity_key":"r11","values":{"expense.department":"sales","expense.amount":null}},
+        {"entity_key":"r12","values":{"expense.department":"sales","expense.amount":40}}
       ]
     },
     {
@@ -29,25 +36,36 @@
         {"id":"department.manager","sql_type":"text","collation":"C","collation_version":"builtin","collation_deterministic":true}
       ],
       "rows": [
-        {"entity_key": "d1", "values": {"department.department": "sales", "department.manager": "Ana"}},
-        {"entity_key": "d2", "values": {"department.department": "rnd", "department.manager": "Rui"}}
+        {"entity_key":"d01","values":{"department.department":"sales","department.manager":"Ana"}},
+        {"entity_key":"d02","values":{"department.department":"rnd","department.manager":"Rui"}},
+        {"entity_key":"d03","values":{"department.department":"ops","department.manager":"Omar"}},
+        {"entity_key":"d04","values":{"department.department":"legal","department.manager":"Lea"}}
       ]
     }
   ],
   "ground_truth": [
-    {"id": "projection_amount", "operation": "projection_amount", "release_facts": 4, "influence_facts": 8, "release_set_sha256": "47a15f92d0377a873106ebcddd29b7adc9bbf13bbaec9b79afeda5de6367f57d", "influence_set_sha256": "2a02dd2f090e4d8880f796ba53d91b2ca2d2ebe03541b5af3771f1b2058693eb"},
-    {"id": "selection_sales_amount", "operation": "selection_sales_amount", "release_facts": 3, "influence_facts": 9, "release_set_sha256": "9b3785570b563e6a5df84845eb121e1a215aab1111a70075b72d23254e7bf192", "influence_set_sha256": "95a0ef91eb4ab4d23a475b9f895288ee0bf4b2625de9b02e8db3d940e7f4ae4b"},
-    {"id": "group_sum_count", "operation": "group_sum_count", "release_facts": 6, "influence_facts": 12, "release_set_sha256": "ea186943fe055f1da4e2e7dc5f7ae689e9651524cd0458a582e88ca08b8ed6c4", "influence_set_sha256": "7a81f31f11290152517c0c0cdce998fc46b072275a3b623eb10386e8493b9af1"},
-    {"id": "global_count", "operation": "global_count", "release_facts": 1, "influence_facts": 4, "release_set_sha256": "0775927c2ecd9502a2781b29d67f1a03bc0b239bb330cf2245072cb672d7f715", "influence_set_sha256": "d2c9495bfec2d7711467eebeb4164fa11a7c59c3f88dfe6c483b7f4c0a84bffe"},
-    {"id": "department_join", "operation": "department_join", "release_facts": 6, "influence_facts": 18, "release_set_sha256": "056bafae57dd11e89060268ae5932192777879a1f9141bfbe076e7d440b4cb99", "influence_set_sha256": "cb062a4895dc5a0e26acbdd88d17e7a9fa0b3a1dd0484777c415470325116ba0"}
+    {"id":"projection_amount","operation":"projection_amount"},
+    {"id":"projection_department","operation":"projection_department"},
+    {"id":"projection_pair","operation":"projection_pair"},
+    {"id":"selection_sales_amount","operation":"selection_sales_amount"},
+    {"id":"selection_rnd_amount","operation":"selection_rnd_amount"},
+    {"id":"selection_ops_amount","operation":"selection_ops_amount"},
+    {"id":"selection_legal_amount","operation":"selection_legal_amount"},
+    {"id":"selection_missing_amount","operation":"selection_missing_amount"},
+    {"id":"group_sum_count","operation":"group_sum_count"},
+    {"id":"global_count","operation":"global_count"},
+    {"id":"global_sum","operation":"global_sum"},
+    {"id":"department_join","operation":"department_join"},
+    {"id":"page_first_four","operation":"page_first_four"},
+    {"id":"page_middle_five","operation":"page_middle_five"}
   ],
   "adversarial_cases": [
-    {"id": "join_multiplicity", "execution": "deterministic"},
-    {"id": "split_merge", "execution": "deterministic"},
-    {"id": "overlapping_pagination", "execution": "deterministic"},
-    {"id": "cache_retry", "execution": "deterministic"},
-    {"id": "snapshot_update", "execution": "deterministic"},
-    {"id": "task_family_delegation", "execution": "postgres_integration"},
-    {"id": "concurrent_settlement", "execution": "postgres_integration"}
+    {"id":"join_multiplicity","execution":"deterministic"},
+    {"id":"split_merge","execution":"deterministic"},
+    {"id":"overlapping_pagination","execution":"deterministic"},
+    {"id":"cache_retry","execution":"deterministic"},
+    {"id":"snapshot_update","execution":"deterministic"},
+    {"id":"task_family_delegation","execution":"postgres_integration","test":"TestDelegatedTasksShareRootExposureKnowledge"},
+    {"id":"concurrent_settlement","execution":"postgres_integration","test":"TestConcurrentTaskFamilySettlementCannotOverspend"}
   ]
 }
