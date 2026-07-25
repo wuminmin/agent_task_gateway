@@ -141,45 +141,123 @@ than hidden behind a broad ``SQL support'' label.
 \section{Context and Related Work}
 \label{sec:related}
 
-\subsection{Query Pricing and History}
+\subsection{History-Based Query Auditing and Inference Control}
+
+Database auditing has long treated a query log, rather than an isolated query,
+as the security object. Hippocratic-database auditing reconstructs which logged
+queries accessed protected data \cite{agrawal2004hippocratic}, while batch SQL
+auditing asks whether a sequence of answers determines a forbidden view
+\cite{motwani2008auditing}. Online auditors decide whether to answer the next
+query: early work studies Boolean attributes \cite{kleinberg2003auditing},
+simulatable auditing prevents the accept/deny bit itself from leaking the secret
+\cite{kenthapadi2005simulatable}, and robust auditing analyzes partial versus
+full disclosure under aggregate queries \cite{nabar2006robustness}.
+
+The broader inference-control literature models integrity constraints,
+inference channels, and accumulated disclosures \cite{brodsky2000secure}, and
+surveys attacks that combine answers with external knowledge
+\cite{farkas2002inference}. Query--view disclosure analysis further formalizes
+collusion and partial information release \cite{miklau2004formal}. These results
+rule out a broad ``history makes querying safe'' claim. \system is deliberately
+narrower: it neither models an adversary's prior knowledge nor protects against
+negative answers, denial leakage, or implicit logical inference. It meters a
+contract-declared set of positive facts, and its history is one signed root task
+and all descendants rather than a global user history. Simulatable or
+knowledge-aware inference control is complementary and could sit outside the
+gateway.
+
+\subsection{Query Pricing and Privacy Accounting}
 
 Query-based pricing derives monetary prices from priced views and studies
 arbitrage induced by query determinacy \cite{koutris2012query}. QIRANA extends
 scalable, history-aware pricing to a broad SQL class including aggregation
 \cite{deep2017qirana}; ARIA uses tuple information gain for linear-time pricing
-of SPJA and simple aggregate queries \cite{peng2025aria}. These systems are the
-closest semantic neighbors, and they preclude claims that attribute weighting,
-history-aware charging, or rewrite resistance are new by themselves.
-
-\system differs in objective and enforcement point. It does not infer a market
-price from hypothetical worlds. Its atoms are contract-defined explicit facts;
-its state is scoped to a signed human task and descendants; and a failed charge
-prevents delivery. The intended novelty is this composition of task authority,
-an exposure effect, online settlement, and delegation conservation.
-
-\subsection{Provenance and Privacy Budgets}
-
-Semiring provenance gives compositional annotations for positive relational
-queries \cite{green2007provenance}. Aggregation requires value-level treatment
-beyond tuple annotation \cite{amsterdamer2011aggregate}. We use provenance as a
-metering substrate, retaining set-valued sources because the accounting target
-is unique positive influence rather than how-many polynomials.
+of SPJA and simple aggregate queries \cite{peng2025aria}. Thus attribute
+weighting, history-aware charging, and rewrite resistance are not new by
+themselves. \system instead treats price as an admission budget over explicit
+contract facts, scopes state to a task family, and withholds delivery when the
+atomic settlement fails.
 
 History also matters in differential privacy systems. CacheDP reuses past noisy
 answers to reduce privacy spending \cite{mazmudar2022cachedp}, and DProvDB tracks
-privacy loss by analyst provenance \cite{zhang2023dprovdb}. Those systems reason
-about randomized mechanisms and privacy composition \cite{dwork2014foundations}.
-\system releases exact answers and therefore offers no $\epsilon$-DP guarantee.
-Its budget bounds only the explicit facts recognized by its profile.
+privacy loss by analyst provenance \cite{zhang2023dprovdb}. These systems reason
+about randomized mechanisms and privacy composition
+\cite{dwork2014foundations}. \system releases exact answers and therefore offers
+no $\epsilon$-DP guarantee; its budget bounds only facts recognized by the
+active exposure profile.
 
-\subsection{Usage Control and Query Mediation}
+\subsection{Provenance Foundations and Systems}
 
-Usage control extends authorization across an ongoing use
-\cite{park2004ucon}. Database-backed policy systems rewrite or validate queries
-against application policy \cite{mehta2017qapla,zhang2022blockaid}. Agent
-security benchmarks additionally show that tool-using models must be treated as
-untrusted callers \cite{debenedetti2024agentdojo}. TaskGate retains these access
-controls but adds a stateful disclosure effect shared by delegated callers.
+Why- and where-provenance identify contributing data and output locations
+\cite{buneman2001why}, while lineage traces warehouse outputs back through
+transformations \cite{cui2001lineage}; Cheney et al. survey the resulting
+database-provenance design space \cite{cheney2009provenance}. Semiring
+provenance provides compositional annotations for positive relational queries
+\cite{green2007provenance}, and aggregation requires value-level treatment
+beyond tuple annotations \cite{amsterdamer2011aggregate}.
+
+Provenance is also an implemented database capability. Perm and GProM compile
+provenance questions through query rewriting \cite{glavic2009perm,arab2018gprom};
+ProvSQL adds provenance and probability to PostgreSQL
+\cite{senellart2018provsql}; and Smoke integrates fine-grained lineage into
+operators for interactive performance \cite{psallidas2018smoke}. \system claims
+neither a new provenance algebra nor a general provenance engine. It specializes
+provenance to two set-valued effects---facts explicitly released and base facts
+that positively influence them---then requires answer/effect co-generation in
+one snapshot and atomic settlement before release. Multiplicity, negation, and
+general recursive SQL remain outside the current online profile.
+
+\subsection{Usage Control, Delegation, and Quotas}
+
+Usage control extends authorization across an ongoing use and permits mutable
+attributes and obligations \cite{park2004ucon}; execution-history access
+control likewise makes past actions part of authorization
+\cite{abadi2003history}. Delegation has mature logical and role-based
+foundations \cite{li2003delegation,barka2000delegation}, while macaroons provide
+cryptographic attenuation through contextual caveats
+\cite{birgisson2014macaroons}. Consumable credentials encode bounded use in
+linear logic \cite{bowers2007consumable}; distributed storage quotas use
+reconcilable vouchers \cite{pollack2007quota}; and PERMIS combines delegated
+authorization with history-sensitive cumulative-resource decisions
+\cite{chadwick2008permis}.
+
+Consequently, neither token attenuation, delegation depth, consumable authority,
+nor quota accounting is claimed independently. \system's narrower systems claim
+is that every descendant settles the same semantic disclosure effect against a
+single root-task exposure ledger, so delegation cannot mint a fresh disclosure
+budget. The prototype uses centralized transactional settlement; distributed
+vouchers and reconciliation would require an additional safety argument.
+
+\subsection{Database Policy Enforcement and Agents}
+
+Database-backed policy systems rewrite or validate queries against application
+policy \cite{mehta2017qapla,zhang2022blockaid}. Natural-language database work
+initially emphasized text-to-SQL accuracy on cross-domain schemas
+\cite{yu2018spider} and then larger realistic databases
+\cite{li2023bird}. AgentBench includes database operation among interactive
+agent environments \cite{liu2024agentbench}; D-Bot applies a multi-agent system
+to database diagnosis \cite{zhou2024dbot}; and Spider~2.0 evaluates enterprise
+workflows involving multiple queries, metadata, and dialects
+\cite{lei2025spider2}. Recent security work aligns natural-language interfaces
+with database access policy \cite{liu2026safenlidb}, measures indirect prompt
+injection against tool-using agents \cite{debenedetti2024agentdojo}, and applies
+runtime data-flow control to agents \cite{summers2026dataflow}.
+
+These systems motivate treating generated SQL and agent tools as untrusted, but
+they pursue complementary targets: generation quality, operational assistance,
+per-request policy, prompt-injection resilience, or information-flow labels.
+\system places the model outside the trusted computing base and focuses on
+cumulative, explicit database disclosure across retries, pagination, supported
+rewrites, and delegation.
+
+\textbf{Novelty boundary.} History, inference control, pricing, provenance,
+query mediation, delegation, and quotas are all established separately. The
+claim evaluated here is their enforcement composition: a typed,
+contract-defined release/influence effect generated beside the answer in the
+same database snapshot, exact novel-set settlement against one root task-family
+ledger before delivery, and invariance over the supported rewrite and delegation
+closure. This boundary is narrower than general SQL noninterference and stronger
+than stateless authorization for the modeled positive-disclosure threat.
 
 \section{Exposure Model}
 \label{sec:model}
