@@ -9,6 +9,7 @@ import (
 
 	"taskbound.local/agent-data-gateway/internal/apierr"
 	"taskbound.local/agent-data-gateway/internal/approval"
+	"taskbound.local/agent-data-gateway/internal/catalog"
 	"taskbound.local/agent-data-gateway/internal/control"
 	"taskbound.local/agent-data-gateway/internal/dataconnector"
 	"taskbound.local/agent-data-gateway/internal/domain"
@@ -140,6 +141,21 @@ func TestGroupedExposureUsesOverflowProbeAndMatchesAlgebraRelease(t *testing.T) 
 	}
 	if !sameExposureFactIDs(t, derived.Release, expected.Release) {
 		t.Fatalf("online release differs from algebra:\nonline=%+v\nalgebra=%+v", derived.Release, expected.Release)
+	}
+}
+
+func TestGroupedPaginationSQLUsesCanonicalGroupKeySuffix(t *testing.T) {
+	product := catalog.Product{Name: "expenses", Snapshot: "s1", EntityKey: []string{"a", "b"},
+		Fields: []catalog.Field{{Name: "a", Type: "text"}, {Name: "b", Type: "text"}, {Name: "amount", Type: "numeric"}}}
+	columns := map[string]struct{}{"a": {}, "b": {}, "amount": {}}
+	context, err := buildPlanExposureContext(queryplan.QueryPlan{Product: "expenses", Columns: []string{"b", "a"},
+		Aggregates: []queryplan.Aggregate{{Function: "sum", Column: "amount", Alias: "total"}},
+		GroupBy:    []string{"b", "a"}, Limit: 5}, product, columns, map[string]struct{}{"sum": {}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(context.mainSQL, `ORDER BY "a" ASC, "b" ASC LIMIT 5`) {
+		t.Fatalf("group pagination did not use the canonical key suffix: %s", context.mainSQL)
 	}
 }
 

@@ -125,8 +125,11 @@ type ViewSchema struct {
 }
 
 type SchemaColumn struct {
-	Name           string
-	PostgreSQLType string
+	Name                   string
+	PostgreSQLType         string
+	Collation              string
+	CollationVersion       string
+	CollationDeterministic bool
 }
 
 // QueryRequest accepts only already-authorized executable SQL. Client
@@ -325,17 +328,26 @@ func (c *Connector) attestSchemaDigest(ctx context.Context, querier attestationQ
 	actualSchemas := make([]ViewSchema, 0, len(c.expectedSchema))
 	for _, expected := range c.expectedSchema {
 		rows, err := querier.Query(ctx, `
-SELECT column_name, data_type
-FROM information_schema.columns
-WHERE table_schema=$1 AND table_name=$2
-ORDER BY ordinal_position`, expected.Schema, expected.View)
+SELECT cols.column_name,
+       cols.data_type,
+       CASE WHEN coll.oid IS NULL THEN '' WHEN coll.collname = 'default' THEN db.datcollate ELSE coll.collname END,
+       COALESCE(CASE WHEN coll.oid IS NULL THEN '' WHEN coll.collname = 'default' THEN db.datcollversion ELSE pg_collation_actual_version(coll.oid) END, ''),
+       COALESCE(coll.collisdeterministic, TRUE)
+FROM information_schema.columns AS cols
+JOIN pg_namespace AS ns ON ns.nspname = cols.table_schema
+JOIN pg_class AS cls ON cls.relnamespace = ns.oid AND cls.relname = cols.table_name
+JOIN pg_attribute AS attr ON attr.attrelid = cls.oid AND attr.attname = cols.column_name AND attr.attnum > 0 AND NOT attr.attisdropped
+LEFT JOIN pg_collation AS coll ON coll.oid = attr.attcollation
+JOIN pg_database AS db ON db.datname = current_database()
+WHERE cols.table_schema=$1 AND cols.table_name=$2
+ORDER BY cols.ordinal_position`, expected.Schema, expected.View)
 		if err != nil {
 			return "", connectorError(CodeConnection, err)
 		}
 		var actual []SchemaColumn
 		for rows.Next() {
 			var column SchemaColumn
-			if err := rows.Scan(&column.Name, &column.PostgreSQLType); err != nil {
+			if err := rows.Scan(&column.Name, &column.PostgreSQLType, &column.Collation, &column.CollationVersion, &column.CollationDeterministic); err != nil {
 				rows.Close()
 				return "", connectorError(CodeConnection, err)
 			}
@@ -727,6 +739,10 @@ func sameSchemaColumns(expected, actual []SchemaColumn) bool {
 	for index := range expected {
 		if expected[index].Name != actual[index].Name ||
 			strings.ToLower(strings.TrimSpace(expected[index].PostgreSQLType)) != strings.ToLower(strings.TrimSpace(actual[index].PostgreSQLType)) {
+			return false
+		}
+		if expected[index].Collation != "" && (expected[index].Collation != actual[index].Collation ||
+			expected[index].CollationVersion != actual[index].CollationVersion || !actual[index].CollationDeterministic) {
 			return false
 		}
 	}

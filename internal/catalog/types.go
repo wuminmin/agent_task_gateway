@@ -61,10 +61,12 @@ type Product struct {
 }
 
 type Field struct {
-	Name        string             `yaml:"name" json:"name"`
-	Type        string             `yaml:"type" json:"type"`
-	Description string             `yaml:"description" json:"description"`
-	Sensitivity domain.Sensitivity `yaml:"sensitivity,omitempty" json:"sensitivity,omitempty"`
+	Name             string             `yaml:"name" json:"name"`
+	Type             string             `yaml:"type" json:"type"`
+	Description      string             `yaml:"description" json:"description"`
+	Sensitivity      domain.Sensitivity `yaml:"sensitivity,omitempty" json:"sensitivity,omitempty"`
+	Collation        string             `yaml:"collation,omitempty" json:"collation,omitempty"`
+	CollationVersion string             `yaml:"collation_version,omitempty" json:"collation_version,omitempty"`
 }
 
 type Scope struct {

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "profile_version": "taskgate-exposure-v1",
-  "corpus_sha256": "1a3f6f924f733f6a414e91a807d7bd82aa94eacc6dffa61427988b0b3b046b6b",
+  "profile_version": "taskgate-exposure-v2",
+  "corpus_sha256": "94d2e563fd1f10899b1fce82711f8cefad274e9b683a84ea98d26721f61877dd",
   "rewrite_seed": 20260723,
   "rq1_ground_truth": {
     "cases": 5,
@@ -25,7 +25,7 @@
   "charge_baselines": {
     "query_count": 1,
     "returned_rows": 2,
-    "serialized_bytes": 29,
+    "serialized_bytes": 33,
     "weighted_cells": 6,
     "provenance_no_history": 12,
     "full_first": {

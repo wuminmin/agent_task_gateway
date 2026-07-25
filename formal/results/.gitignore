@@ -13,3 +13,5 @@
 !receipt_audit.log
 !recovery_liveness.json
 !recovery_liveness.log
+!exposure_ledger.json
+!exposure_ledger.log

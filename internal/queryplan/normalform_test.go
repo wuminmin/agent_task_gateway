@@ -1,10 +1,14 @@
 package queryplan
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func TestNormalFormV2ErasesAliasesAndSortsRestrictedRewrites(t *testing.T) {
 	product := Product{Name: "expenses", Columns: map[string]struct{}{"department": {}, "amount": {}, "id": {}},
 		AllowedAggregates: map[string]struct{}{"sum": {}}, ColumnTypes: map[string]string{"department": "text", "amount": "numeric", "id": "bigint"},
+		ColumnCollations: map[string]string{"department": "en_US.utf8"}, CollationVersions: map[string]string{"department": "2.36"},
 		SourceNamespace: "travel.expense", Snapshot: "s1", StableEntityKey: []string{"id"}}
 	left := QueryPlan{Product: "expenses", Columns: []string{"department"},
 		Aggregates: []Aggregate{{Function: "SUM", Column: "amount", Alias: "total"}},
@@ -65,13 +69,17 @@ func TestCompileSupportsOffset(t *testing.T) {
 }
 
 func TestAlgebraNormalFormV2CanonicalizesJoinAndUnionOperands(t *testing.T) {
-	left := AlgebraPlanV2{Op: "scan", SourceNamespace: "travel.employee", Snapshot: "s1", StableRole: "employee"}
-	right := AlgebraPlanV2{Op: "scan", SourceNamespace: "travel.expense", Snapshot: "s1", StableRole: "expense"}
-	first, err := NormalizeAlgebraV2(AlgebraPlanV2{Op: "join", Left: &left, Right: &right, JoinPredicates: []string{"employee.department=expense.department"}})
+	left := AlgebraPlanV2{Op: "scan", SourceNamespace: "travel.employee", Snapshot: "s1", StableRole: "employee",
+		Schema: []AlgebraFieldV2{{ID: "employee.department", SQLType: "text", Collation: "en_US.utf8", CollationVersion: "2.36", CollationDeterministic: true}}}
+	right := AlgebraPlanV2{Op: "scan", SourceNamespace: "travel.expense", Snapshot: "s1", StableRole: "expense",
+		Schema: []AlgebraFieldV2{{ID: "expense.department", SQLType: "text", Collation: "en_US.utf8", CollationVersion: "2.36", CollationDeterministic: true}}}
+	predicates := []AlgebraJoinPredicateV2{{LeftField: "employee.department", RightField: "expense.department"}}
+	first, err := NormalizeAlgebraV2(AlgebraPlanV2{Op: "join", Left: &left, Right: &right, JoinPredicates: predicates})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := NormalizeAlgebraV2(AlgebraPlanV2{Op: "join", Left: &right, Right: &left, JoinPredicates: []string{"employee.department=expense.department"}})
+	second, err := NormalizeAlgebraV2(AlgebraPlanV2{Op: "join", Left: &right, Right: &left,
+		JoinPredicates: []AlgebraJoinPredicateV2{{LeftField: "expense.department", RightField: "employee.department"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,5 +96,59 @@ func TestAlgebraNormalFormV2CanonicalizesJoinAndUnionOperands(t *testing.T) {
 	}
 	if _, err := NormalizeAlgebraV2(AlgebraPlanV2{Op: "union", Left: &left, Right: &right, UnionAll: true}); err == nil {
 		t.Fatal("UNION ALL unexpectedly entered the V2 normal form")
+	}
+}
+
+func TestAlgebraNormalFormV2IsTypedAndFailClosed(t *testing.T) {
+	numeric := AlgebraPlanV2{Op: "scan", SourceNamespace: "n", Snapshot: "s1", StableRole: "n",
+		Schema: []AlgebraFieldV2{{ID: "n.value", SQLType: "decimal"}}}
+	text := AlgebraPlanV2{Op: "scan", SourceNamespace: "t", Snapshot: "s1", StableRole: "t",
+		Schema: []AlgebraFieldV2{{ID: "t.value", SQLType: "text", Collation: "en_US.utf8", CollationVersion: "2.36", CollationDeterministic: true}}}
+	if _, err := NormalizeAlgebraV2(AlgebraPlanV2{Op: "join", Left: &numeric, Right: &text,
+		JoinPredicates: []AlgebraJoinPredicateV2{{LeftField: "n.value", RightField: "t.value"}}}); err == nil {
+		t.Fatal("ill-typed join entered the algebra normal form")
+	}
+	if _, err := NormalizeAlgebraV2(AlgebraPlanV2{Op: "join", Left: &numeric, Right: &numeric}); err == nil {
+		t.Fatal("predicate-free equijoin entered the algebra normal form")
+	}
+	badCollation := AlgebraPlanV2{Op: "scan", SourceNamespace: "t", Snapshot: "s1", StableRole: "t",
+		Schema: []AlgebraFieldV2{{ID: "t.value", SQLType: "text"}}}
+	if _, err := NormalizeAlgebraV2(badCollation); err == nil {
+		t.Fatal("unattested text collation entered the algebra normal form")
+	}
+	group, err := NormalizeAlgebraV2(AlgebraPlanV2{Op: "group", Input: &numeric,
+		Aggregates: []AlgebraAggregateV2{{Function: "sum", Field: "n.value", OutputType: "numeric"}}})
+	if err != nil || len(group.Canonical) == 0 {
+		t.Fatalf("typed numeric group normal form: %v", err)
+	}
+	if _, err := NormalizeAlgebraV2(AlgebraPlanV2{Op: "group", Input: &numeric,
+		Aggregates: []AlgebraAggregateV2{{Function: "sum", Field: "n.value", OutputType: "bigint"}}}); err == nil {
+		t.Fatal("aggregate with incorrect PostgreSQL output type entered the normal form")
+	}
+	if _, err := NormalizeAlgebraV2(AlgebraPlanV2{Op: "select", Input: &numeric,
+		Predicates: []NormalizedFilter{{Column: "n.value", Op: "IN", Value: json.RawMessage(`1`)}}}); err == nil {
+		t.Fatal("scalar IN literal entered the algebra normal form")
+	}
+	if _, err := NormalizeAlgebraV2(AlgebraPlanV2{Op: "select", Input: &numeric,
+		Predicates: []NormalizedFilter{{Column: "n.value", Op: "LIKE", Value: json.RawMessage(`"1%"`)}}}); err == nil {
+		t.Fatal("numeric LIKE entered the algebra normal form")
+	}
+	if _, err := NormalizeAlgebraV2(AlgebraPlanV2{Op: "select", Input: &numeric,
+		Predicates: []NormalizedFilter{{Column: "n.value", Op: "=", Value: json.RawMessage(`"not-a-number"`)}}}); err == nil {
+		t.Fatal("mistyped numeric literal entered the algebra normal form")
+	}
+	jsonLeft := AlgebraPlanV2{Op: "scan", SourceNamespace: "jl", Snapshot: "s1", StableRole: "jl",
+		Schema: []AlgebraFieldV2{{ID: "jl.value", SQLType: "json"}}}
+	jsonRight := AlgebraPlanV2{Op: "scan", SourceNamespace: "jr", Snapshot: "s1", StableRole: "jr",
+		Schema: []AlgebraFieldV2{{ID: "jr.value", SQLType: "json"}}}
+	if _, err := NormalizeAlgebraV2(AlgebraPlanV2{Op: "join", Left: &jsonLeft, Right: &jsonRight,
+		JoinPredicates: []AlgebraJoinPredicateV2{{LeftField: "jl.value", RightField: "jr.value"}}}); err == nil {
+		t.Fatal("PostgreSQL json equality entered the V2 join normal form")
+	}
+	if _, err := NormalizeAlgebraV2(AlgebraPlanV2{Op: "group", Input: &jsonLeft, GroupBy: []string{"jl.value"}}); err == nil {
+		t.Fatal("PostgreSQL json equality entered the V2 group normal form")
+	}
+	if _, err := NormalizeAlgebraV2(AlgebraPlanV2{Op: "union", Left: &jsonLeft, Right: &jsonLeft}); err == nil {
+		t.Fatal("PostgreSQL json equality entered the V2 union normal form")
 	}
 }

@@ -29,19 +29,19 @@ Current formal status:
 - Recovery liveness result: `formal/results/recovery_liveness.json`
 - Root-family exposure result: `formal/results/exposure_ledger.json`
 - Archived tool: TLC 1.7.1
-- Latest core TLC result: passed at 2026-07-23T13:13:29Z with 14,824,257
+- Latest core TLC result: passed at 2026-07-25T03:38:31Z with 14,824,257
   states generated, 3,255,552 distinct states, and depth 18.
-- Latest vector-budget TLC result: passed at 2026-07-23T13:13:39Z with
+- Latest vector-budget TLC result: passed at 2026-07-25T03:38:39Z with
   263,229 states generated, 201,134 distinct states, and depth 6.
-- Latest SQL authorization TLC result: passed at 2026-07-23T13:13:41Z with
+- Latest SQL authorization TLC result: passed at 2026-07-25T03:38:40Z with
   3,073 states generated, 2,561 distinct states, and depth 2.
-- Latest multi-task audit TLC result: passed at 2026-07-23T13:13:43Z with
+- Latest multi-task audit TLC result: passed at 2026-07-25T03:38:42Z with
   129,103 states generated, 129,103 distinct states, and depth 7.
-- Latest receipt/audit TLC result: passed at 2026-07-23T13:13:44Z with
+- Latest receipt/audit TLC result: passed at 2026-07-25T03:38:43Z with
   3,281 states generated, 3,281 distinct states, and depth 3.
-- Latest recovery-liveness TLC result: passed at 2026-07-23T13:13:45Z with
+- Latest recovery-liveness TLC result: passed at 2026-07-25T03:38:44Z with
   221 states generated, 135 distinct states, and depth 7.
-- Latest root-family exposure result: passed at 2026-07-23T13:13:46Z with
+- Latest root-family exposure result: passed at 2026-07-25T03:38:45Z with
   107,286 states generated, 39,010 distinct states, and depth 12.
 - Scope: one core task, finite request/receipt sets, abstract
   relation/column/scope sets, explicit crash transitions, a separate finite
@@ -133,7 +133,7 @@ at the named abstraction boundaries.
 | `RecoveryLiveness.RecoverStep` | `Store.recover`, Gateway settlement retry loop | Durable `RESERVED` rows are eventually made `INDETERMINATE`; known-result retry eventually completes when retry remains enabled | `TestStartupRecoveryCanPersistIndeterminateReceipt`, `TestFailedSettlementMakesServiceUnreadyUntilBackgroundRetrySucceeds` | Liveness is finite and assumes weak fairness for recovery execution; it is not a scheduler proof for arbitrary process crashes. |
 | `ExposureLedger.Reserve` | `gateway.Service.executeSQL`, `Store.ReserveBudget` with `ExposureReservationRequest` | Inserts `query_records` and `query_exposure_reservations` in the resource-budget reservation transaction after resolving `tasks.root_task_id` | `TestExposurePlanHidesMeteringKeysAndDeduplicatesReplay`, `TestExposureTaskRejectsDirectSQLWithoutProvenance` | Estimated exposure is admission metadata; only actual novel FactIDs affect the root ledger. |
 | `ExposureLedger.ExecuteAndBuffer` | `dataconnector.Connector.QueryPair` | Visible and provenance companion queries run in one read-only `REPEATABLE READ` business-database transaction; no Control PG result is yet committed | `TestExposurePlanHidesMeteringKeysAndDeduplicatesReplay`, live Compose acceptance | The model represents both result sets as fact sets and tracks physical execution separately from exposure charge. |
-| `ExposureLedger.DeriveProvenance` | `planExposureContext.deriveObservation` | Hidden entity keys and source rows are normalized into release and influence `FactID` sets before finalization | exposure algebra tests; `TestExposurePlanHidesMeteringKeysAndDeduplicatesReplay` | TLC assumes this derivation is exact; executable ground-truth and rewrite tests cover the compiler/algebra boundary. |
+| `ExposureLedger.DeriveProvenance` | `planExposureContext.deriveObservationV2`, `ValidateRelationV2`, `ObserveV2` | Hidden typed entity keys and source rows are normalized into V2 release and influence `FactID` sets before finalization | V2 exposure algebra tests, 1,024-pair V2 evaluation corpus; `TestExposurePlanHidesMeteringKeysAndDeduplicatesReplay` | TLC assumes this derivation is exact; the typed semantics and theorem scope are specified in `docs/exposure-algebra-v2.md`. |
 | `ExposureLedger.Settle` | `settleExposureTx` inside `FinalizeQueryMeasuredWithReceipt` | Locks the root ledger, inserts immutable facts with `ON CONFLICT DO NOTHING`, checks both limits, updates dual counters, stores the encrypted result, terminal audit, and V4 receipt in one transaction | `TestExposureSettlementIsNovelFactIdempotent`, `TestDelegatedTasksShareRootExposureKnowledge`, `TestConcurrentTaskFamilySettlementCannotOverspend` | A row lock serializes concurrent family settlement; charges equal only successful novel inserts. |
 | `ExposureLedger.RejectOverBudget` | failed `settleExposureTx` / finalization rollback | Conditional root-ledger update fails with `ErrExposureBudgetExhausted`; the surrounding transaction rolls back novel facts and result persistence | `TestExposureOverBudgetDoesNotStoreOrChargeResult`, `TestExposureBudgetRejectsBufferedResultBeforeRelease` | Physical DB work is still represented in ordinary execution telemetry, while the result is never released. |
 | `ExposureLedger.ReleaseBeforeExecution` | `releaseExposureReservationTx` inside resource reservation release | Marks the exposure reservation `RELEASED` and appends audit evidence without adding facts | definite pre-execution failure tests | This action excludes failures after visible data has been produced. |
@@ -190,7 +190,9 @@ These gaps are intentionally not hidden by the mapping:
 8. `ExposureLedger.tla` treats release and source-influence observations as
    finite sets supplied by an exact derivation step. It does not model SQL
    parsing, row encoding, cryptographic FactID collisions, hash preimages, or
-   malformed connector values. Those boundaries are tested but not refined.
+   malformed connector values. Those boundaries are specified in
+   `docs/exposure-algebra-v2.md` and tested by the V2 corpus, but not
+   mechanized as a Go refinement proof.
 9. The exposure model has one root, one child, two requests, two facts per
    ledger, and one terminal replay in the checked configuration. It establishes
    the invariants only for that finite scope; larger delegation DAGs and

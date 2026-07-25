@@ -1,37 +1,45 @@
 {
   "schema_version": 1,
-  "profile_version": "taskgate-exposure-v1",
+  "profile_version": "taskgate-exposure-v2",
   "rewrite_trials": 512,
   "relations": [
     {
       "name": "expenses",
-      "product": "expense_detail",
+      "source_namespace": "travel.expense",
       "snapshot": "snapshot-2026-01",
-      "fields": ["department", "amount"],
+      "stable_role": "expense",
+      "fields": [
+        {"id":"expense.department","sql_type":"text","collation":"C","collation_version":"builtin","collation_deterministic":true},
+        {"id":"expense.amount","sql_type":"numeric"}
+      ],
       "rows": [
-        {"entity_key": "r1", "values": {"department": "sales", "amount": 10}},
-        {"entity_key": "r2", "values": {"department": "sales", "amount": 20}},
-        {"entity_key": "r3", "values": {"department": "rnd", "amount": 30}},
-        {"entity_key": "r4", "values": {"department": "sales", "amount": 10}}
+        {"entity_key": "r1", "values": {"expense.department": "sales", "expense.amount": 10}},
+        {"entity_key": "r2", "values": {"expense.department": "sales", "expense.amount": 20}},
+        {"entity_key": "r3", "values": {"expense.department": "rnd", "expense.amount": 30}},
+        {"entity_key": "r4", "values": {"expense.department": "sales", "expense.amount": 10}}
       ]
     },
     {
       "name": "departments",
-      "product": "departments",
+      "source_namespace": "travel.department",
       "snapshot": "snapshot-2026-01",
-      "fields": ["department", "manager"],
+      "stable_role": "department",
+      "fields": [
+        {"id":"department.department","sql_type":"text","collation":"C","collation_version":"builtin","collation_deterministic":true},
+        {"id":"department.manager","sql_type":"text","collation":"C","collation_version":"builtin","collation_deterministic":true}
+      ],
       "rows": [
-        {"entity_key": "d1", "values": {"department": "sales", "manager": "Ana"}},
-        {"entity_key": "d2", "values": {"department": "rnd", "manager": "Rui"}}
+        {"entity_key": "d1", "values": {"department.department": "sales", "department.manager": "Ana"}},
+        {"entity_key": "d2", "values": {"department.department": "rnd", "department.manager": "Rui"}}
       ]
     }
   ],
   "ground_truth": [
-    {"id": "projection_amount", "operation": "projection_amount", "release_facts": 4, "influence_facts": 8, "release_set_sha256": "8f1bb4ef422118025be23083b7b59461e9adcb0fb4436c8907f31ff7ea000c23", "influence_set_sha256": "8d39aae568cdefd738c2dd737003ea5b03dbee082c194eecab4aca4dc4cf483d"},
-    {"id": "selection_sales_amount", "operation": "selection_sales_amount", "release_facts": 3, "influence_facts": 9, "release_set_sha256": "6e0ae68356568dc8ee3cb47b5646b9024594fac9f946770c75e934aea9bae761", "influence_set_sha256": "609bc6091f966deedab840405ac5b17da5d5efdcbabd3d9915676c0a5eed5903"},
-    {"id": "group_sum_count", "operation": "group_sum_count", "release_facts": 6, "influence_facts": 12, "release_set_sha256": "e863709ff6cd34b367eed1b3b1374d5ea6d69a770bf7b7bcdb67ab350258b931", "influence_set_sha256": "a576f7fc2e8c4dbab52d7bf6a1a11fbc930a999e066a3503da609ca6e848298d"},
-    {"id": "global_count", "operation": "global_count", "release_facts": 1, "influence_facts": 4, "release_set_sha256": "b00cb8956a999342eed0c02e1f82e4c8869c7a5c018736787e6c54391c1cd2da", "influence_set_sha256": "1bcb793050d418140aa462a03bb62f453a52599cf24bfd0f7e5d6041d29b975e"},
-    {"id": "department_join", "operation": "department_join", "release_facts": 8, "influence_facts": 18, "release_set_sha256": "15ae8bd1eddcb46844093ed1d489a3ab940928c2ae1b42e7ea1194ab9ca8eb1b", "influence_set_sha256": "c213342e91a56d51ee83a59d90d44f97b2f3de596598356dd423f31ea774cefd"}
+    {"id": "projection_amount", "operation": "projection_amount", "release_facts": 4, "influence_facts": 8, "release_set_sha256": "47a15f92d0377a873106ebcddd29b7adc9bbf13bbaec9b79afeda5de6367f57d", "influence_set_sha256": "2a02dd2f090e4d8880f796ba53d91b2ca2d2ebe03541b5af3771f1b2058693eb"},
+    {"id": "selection_sales_amount", "operation": "selection_sales_amount", "release_facts": 3, "influence_facts": 9, "release_set_sha256": "9b3785570b563e6a5df84845eb121e1a215aab1111a70075b72d23254e7bf192", "influence_set_sha256": "95a0ef91eb4ab4d23a475b9f895288ee0bf4b2625de9b02e8db3d940e7f4ae4b"},
+    {"id": "group_sum_count", "operation": "group_sum_count", "release_facts": 6, "influence_facts": 12, "release_set_sha256": "ea186943fe055f1da4e2e7dc5f7ae689e9651524cd0458a582e88ca08b8ed6c4", "influence_set_sha256": "7a81f31f11290152517c0c0cdce998fc46b072275a3b623eb10386e8493b9af1"},
+    {"id": "global_count", "operation": "global_count", "release_facts": 1, "influence_facts": 4, "release_set_sha256": "0775927c2ecd9502a2781b29d67f1a03bc0b239bb330cf2245072cb672d7f715", "influence_set_sha256": "d2c9495bfec2d7711467eebeb4164fa11a7c59c3f88dfe6c483b7f4c0a84bffe"},
+    {"id": "department_join", "operation": "department_join", "release_facts": 6, "influence_facts": 18, "release_set_sha256": "056bafae57dd11e89060268ae5932192777879a1f9141bfbe076e7d440b4cb99", "influence_set_sha256": "cb062a4895dc5a0e26acbdd88d17e7a9fa0b3a1dd0484777c415470325116ba0"}
   ],
   "adversarial_cases": [
     {"id": "join_multiplicity", "execution": "deterministic"},

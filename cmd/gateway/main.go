@@ -205,7 +205,8 @@ func expectedDatasource(logicalCatalog *catalog.Catalog) (catalog.Source, []data
 		}
 		columns := make([]dataconnector.SchemaColumn, 0, len(product.Fields))
 		for _, field := range product.Fields {
-			columns = append(columns, dataconnector.SchemaColumn{Name: field.Name, PostgreSQLType: field.Type})
+			columns = append(columns, dataconnector.SchemaColumn{Name: field.Name, PostgreSQLType: field.Type,
+				Collation: field.Collation, CollationVersion: field.CollationVersion, CollationDeterministic: field.Collation != ""})
 		}
 		result = append(result, dataconnector.ViewSchema{Schema: schema, View: view, Columns: columns})
 	}

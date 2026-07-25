@@ -267,6 +267,7 @@ func validateApprovalRoute(path string, route ApprovalRoute, profiles map[string
 
 func validateProduct(path string, product Product, sources, scopes map[string]struct{}) ValidationErrors {
 	var problems ValidationErrors
+	v2Product := product.FactNamespace != "" || product.StableRelationRole != ""
 	if !identifierPattern.MatchString(product.Name) {
 		problems = append(problems, fieldError(path+".name", "a lowercase logical name is required", ErrMissingField))
 	}
@@ -298,6 +299,20 @@ func validateProduct(path string, product Product, sources, scopes map[string]st
 		if _, supported := attestedPostgreSQLTypes[strings.ToLower(strings.TrimSpace(field.Type))]; !supported {
 			problems = append(problems, fieldError(fieldPath+".type", "a supported generic PostgreSQL data_type without modifiers is required", ErrInvalidCatalog))
 		}
+		fieldType := strings.ToLower(strings.TrimSpace(field.Type))
+		collatable := fieldType == "text" || fieldType == "character" || fieldType == "character varying"
+		if v2Product && collatable && (strings.TrimSpace(field.Collation) == "" || strings.TrimSpace(field.CollationVersion) == "") {
+			problems = append(problems, fieldError(fieldPath+".collation", "V2 collatable fields require an exact deterministic collation name and version", ErrInvalidCatalog))
+		}
+		if (!collatable || !v2Product) && (field.Collation != "" || field.CollationVersion != "") {
+			problems = append(problems, fieldError(fieldPath+".collation", "collation metadata is allowed only on collatable V2 fields", ErrInvalidCatalog))
+		}
+		if strings.ContainsAny(field.Collation+field.CollationVersion, "\x00\r\n\t") || field.Collation != strings.TrimSpace(field.Collation) || field.CollationVersion != strings.TrimSpace(field.CollationVersion) {
+			problems = append(problems, fieldError(fieldPath+".collation", "collation metadata must be canonical tokens", ErrInvalidCatalog))
+		}
+		if v2Product && fieldType == "time with time zone" {
+			problems = append(problems, fieldError(fieldPath+".type", "time with time zone is outside taskgate-exposure-v2", ErrInvalidCatalog))
+		}
 		if strings.TrimSpace(field.Description) == "" {
 			problems = append(problems, fieldError(fieldPath+".description", "description is required", ErrMissingField))
 		}
@@ -312,6 +327,9 @@ func validateProduct(path string, product Product, sources, scopes map[string]st
 	}
 	if product.FactNamespace != "" && (strings.TrimSpace(product.FactNamespace) != product.FactNamespace || strings.ContainsAny(product.FactNamespace, "\x00\r\n\t")) {
 		problems = append(problems, fieldError(path+".fact_namespace", "fact namespace must be a stable non-whitespace semantic identifier", ErrInvalidCatalog))
+	}
+	if v2Product && (product.FactNamespace == "" || product.StableRelationRole == "") {
+		problems = append(problems, fieldError(path+".fact_namespace", "V2 products require both fact_namespace and stable_relation_role", ErrInvalidCatalog))
 	}
 	if product.StableRelationRole != "" && !configNamePattern.MatchString(product.StableRelationRole) {
 		problems = append(problems, fieldError(path+".stable_relation_role", "stable relation role must be a lowercase catalog identifier", ErrInvalidCatalog))
@@ -343,6 +361,15 @@ func validateProduct(path string, product Product, sources, scopes map[string]st
 	}
 	problems = append(problems, validateFunctions(path+".allowed_functions", product.AllowedFunctions)...)
 	problems = append(problems, validateFunctions(path+".allowed_aggregates", product.AllowedAggregates)...)
+	if v2Product {
+		for _, aggregate := range product.AllowedAggregates {
+			switch strings.ToLower(strings.TrimSpace(aggregate)) {
+			case "count", "sum", "min", "max":
+			default:
+				problems = append(problems, fieldError(path+".allowed_aggregates", "V2 supports only count, sum, min, and max", ErrInvalidCatalog))
+			}
+		}
+	}
 	for _, operator := range product.AllowedOperators {
 		if _, ok := safeOperators[strings.ToLower(strings.TrimSpace(operator))]; !ok {
 			problems = append(problems, fieldError(path+".allowed_operators", "operator is not in the safe catalog vocabulary", ErrInvalidCatalog))

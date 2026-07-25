@@ -29,11 +29,12 @@ type corpus struct {
 }
 
 type relationFixture struct {
-	Name     string             `json:"name"`
-	Product  string             `json:"product"`
-	Snapshot string             `json:"snapshot"`
-	Fields   []string           `json:"fields"`
-	Rows     []exposure.BaseRow `json:"rows"`
+	Name            string               `json:"name"`
+	SourceNamespace string               `json:"source_namespace"`
+	Snapshot        string               `json:"snapshot"`
+	StableRole      string               `json:"stable_role"`
+	Fields          []exposure.FieldV2   `json:"fields"`
+	Rows            []exposure.BaseRowV2 `json:"rows"`
 }
 
 type groundTruthCase struct {
@@ -185,7 +186,7 @@ func factSetSHA256(facts []exposure.FactID) (string, error) {
 	}
 	sort.Strings(hashes)
 	digest := sha256.New()
-	_, _ = digest.Write([]byte("TASKGATE-EXPOSURE-FACT-SET-V1\x00"))
+	_, _ = digest.Write([]byte("TASKGATE-EXPOSURE-FACT-SET-V2\x00"))
 	for _, hash := range hashes {
 		_, _ = digest.Write([]byte(hash))
 		_, _ = digest.Write([]byte{0})
@@ -212,59 +213,69 @@ func loadCorpus() (corpus, error) {
 	return result, nil
 }
 
-func buildRelations(fixtures []relationFixture) (map[string]exposure.Relation, error) {
-	result := make(map[string]exposure.Relation, len(fixtures))
+func buildRelations(fixtures []relationFixture) (map[string]exposure.RelationV2, error) {
+	result := make(map[string]exposure.RelationV2, len(fixtures))
 	for _, fixture := range fixtures {
 		if fixture.Name == "" {
 			return nil, fmt.Errorf("relation fixture name is required")
 		}
-		relation, err := exposure.NewBaseRelation(fixture.Product, fixture.Snapshot, fixture.Fields, fixture.Rows)
+		relation, err := exposure.ScanV2(exposure.BaseRelationSpecV2{SourceNamespace: fixture.SourceNamespace,
+			Snapshot: fixture.Snapshot, StableRole: fixture.StableRole, Fields: fixture.Fields, Rows: fixture.Rows})
 		if err != nil {
 			return nil, err
 		}
+		relation.CanonicalOrder = true // source-controlled fixture order is the stable entity-key order
 		result[fixture.Name] = relation
 	}
 	return result, nil
 }
 
-func evaluateOperation(profile string, relations map[string]exposure.Relation, operation string) (exposure.Observation, exposure.Relation, error) {
+func evaluateOperation(profile string, relations map[string]exposure.RelationV2, operation string) (exposure.Observation, exposure.RelationV2, error) {
 	expenses := relations["expenses"]
-	var relation exposure.Relation
+	var relation exposure.RelationV2
 	var err error
 	switch operation {
 	case "projection_amount":
-		relation, err = exposure.Project(expenses, "amount")
+		relation, err = exposure.ProjectV2(expenses, "expense.amount")
 	case "selection_sales_amount":
-		relation, err = exposure.Select(expenses, []string{"department"}, func(row exposure.Row) bool {
-			return row.Cells["department"].Value == "sales"
+		relation, err = exposure.SelectV2(expenses, []string{"expense.department"}, func(row exposure.AnnotatedRowV2) exposure.SQLTruth {
+			if row.Cells["expense.department"].Value == "sales" {
+				return exposure.SQLTrue
+			}
+			return exposure.SQLFalse
 		})
 		if err == nil {
-			relation, err = exposure.Project(relation, "amount")
+			relation, err = exposure.ProjectV2(relation, "expense.amount")
 		}
 	case "group_sum_count":
-		relation, err = exposure.Aggregate(expenses, []string{"department"}, []exposure.AggregateSpec{
-			{Function: "sum", Field: "amount", Alias: "total"},
-			{Function: "count", Field: "*", Alias: "items"},
+		relation, err = exposure.AggregateFromResultsV2(expenses, []string{"expense.department"}, []exposure.AggregateSpecV2{
+			{Function: "sum", Field: "expense.amount", OutputID: "total", OutputType: "numeric"},
+			{Function: "count", Field: "*", OutputID: "items", OutputType: "bigint"},
+		}, []map[string]any{
+			{"expense.department": "sales", "total": "40", "items": int64(3)},
+			{"expense.department": "rnd", "total": "30", "items": int64(1)},
 		})
 	case "global_count":
-		relation, err = exposure.Aggregate(expenses, nil, []exposure.AggregateSpec{{Function: "count", Field: "*", Alias: "items"}})
+		relation, err = exposure.AggregateFromResultsV2(expenses, nil, []exposure.AggregateSpecV2{
+			{Function: "count", Field: "*", OutputID: "items", OutputType: "bigint"},
+		}, []map[string]any{{"items": int64(4)}})
 	case "department_join":
-		relation, err = exposure.Join(relations["departments"], expenses, "department", "department")
+		relation, err = exposure.JoinV2(relations["departments"], expenses, "department.department", "expense.department")
 		if err == nil {
-			observation, observeErr := exposure.Observe(profile, relation, "left.manager", "right.amount")
+			observation, observeErr := exposure.ObserveV2(relation, "department.manager", "expense.amount")
 			return observation, relation, observeErr
 		}
 	default:
-		return exposure.Observation{}, exposure.Relation{}, fmt.Errorf("unknown operation %q", operation)
+		return exposure.Observation{}, exposure.RelationV2{}, fmt.Errorf("unknown operation %q", operation)
 	}
 	if err != nil {
-		return exposure.Observation{}, exposure.Relation{}, err
+		return exposure.Observation{}, exposure.RelationV2{}, err
 	}
-	observation, err := exposure.Observe(profile, relation)
+	observation, err := exposure.ObserveV2(relation)
 	return observation, relation, err
 }
 
-func runRewriteTrials(profile string, base exposure.Relation, trials int) (RewriteSummary, error) {
+func runRewriteTrials(profile string, base exposure.RelationV2, trials int) (RewriteSummary, error) {
 	random := rand.New(rand.NewSource(20260723))
 	result := RewriteSummary{}
 	for index := 0; index < trials; index++ {
@@ -272,32 +283,38 @@ func runRewriteTrials(profile string, base exposure.Relation, trials int) (Rewri
 		if random.Intn(2) == 0 {
 			target = "rnd"
 		}
-		fields := []string{"department", "amount"}
+		fields := []string{"expense.department", "expense.amount"}
 		if random.Intn(2) == 0 {
 			fields[0], fields[1] = fields[1], fields[0]
 		}
-		selected, err := exposure.Select(base, []string{"department"}, func(row exposure.Row) bool {
-			return row.Cells["department"].Value == target
+		selected, err := exposure.SelectV2(base, []string{"expense.department"}, func(row exposure.AnnotatedRowV2) exposure.SQLTruth {
+			if row.Cells["expense.department"].Value == target {
+				return exposure.SQLTrue
+			}
+			return exposure.SQLFalse
 		})
 		if err != nil {
 			return result, err
 		}
-		left, err := exposure.Project(selected, fields...)
+		left, err := exposure.ProjectV2(selected, fields...)
 		if err != nil {
 			return result, err
 		}
-		projected, err := exposure.Project(base, fields...)
+		projected, err := exposure.ProjectV2(base, fields...)
 		if err != nil {
 			return result, err
 		}
-		right, err := exposure.Select(projected, []string{"department"}, func(row exposure.Row) bool {
-			return row.Cells["department"].Value == target
+		right, err := exposure.SelectV2(projected, []string{"expense.department"}, func(row exposure.AnnotatedRowV2) exposure.SQLTruth {
+			if row.Cells["expense.department"].Value == target {
+				return exposure.SQLTrue
+			}
+			return exposure.SQLFalse
 		})
 		if err != nil {
 			return result, err
 		}
-		leftObservation, _ := exposure.Observe(profile, left)
-		rightObservation, _ := exposure.Observe(profile, right)
+		leftObservation, _ := exposure.ObserveV2(left)
+		rightObservation, _ := exposure.ObserveV2(right)
 		result.GeneratedPairs++
 		if !sameObservation(leftObservation, rightObservation) {
 			result.Mismatches++
@@ -306,15 +323,15 @@ func runRewriteTrials(profile string, base exposure.Relation, trials int) (Rewri
 		pageSize := 1 + random.Intn(len(base.Rows))
 		var pages []exposure.Observation
 		for offset := 0; offset < len(base.Rows); offset += pageSize {
-			page, _ := exposure.Page(base, offset, pageSize)
-			observation, _ := exposure.Observe(profile, page)
+			page, _ := exposure.PageV2(base, offset, pageSize)
+			observation, _ := exposure.ObserveV2(page)
 			pages = append(pages, observation)
 		}
 		merged, err := exposure.MergeObservations(profile, pages...)
 		if err != nil {
 			return result, err
 		}
-		full, _ := exposure.Observe(profile, base)
+		full, _ := exposure.ObserveV2(base)
 		result.GeneratedPairs++
 		if !sameObservation(full, merged) {
 			result.Mismatches++
@@ -323,10 +340,10 @@ func runRewriteTrials(profile string, base exposure.Relation, trials int) (Rewri
 	return result, nil
 }
 
-func runAdversarial(fixtures corpus, relations map[string]exposure.Relation) (AdversarialSummary, error) {
+func runAdversarial(fixtures corpus, relations map[string]exposure.RelationV2) (AdversarialSummary, error) {
 	result := AdversarialSummary{Cases: len(fixtures.Adversarial),
 		PostgresIntegrationNote: "run_go_test_race_with_control_test_postgres_dsn"}
-	full, _ := exposure.Observe(fixtures.ProfileVersion, relations["expenses"])
+	full, _ := exposure.ObserveV2(relations["expenses"])
 	for _, testCase := range fixtures.Adversarial {
 		if testCase.Execution == "postgres_integration" {
 			result.PostgresIntegrationIDs = append(result.PostgresIntegrationIDs, testCase.ID)
@@ -339,25 +356,25 @@ func runAdversarial(fixtures corpus, relations map[string]exposure.Relation) (Ad
 			observation, _, err := evaluateOperation(fixtures.ProfileVersion, relations, "department_join")
 			passed = err == nil && len(observation.Influence) == 18
 		case "split_merge":
-			departments, _ := exposure.Project(relations["expenses"], "department")
-			amounts, _ := exposure.Project(relations["expenses"], "amount")
-			left, _ := exposure.Observe(fixtures.ProfileVersion, departments)
-			right, _ := exposure.Observe(fixtures.ProfileVersion, amounts)
+			departments, _ := exposure.ProjectV2(relations["expenses"], "expense.department")
+			amounts, _ := exposure.ProjectV2(relations["expenses"], "expense.amount")
+			left, _ := exposure.ObserveV2(departments)
+			right, _ := exposure.ObserveV2(amounts)
 			merged, err := exposure.MergeObservations(fixtures.ProfileVersion, left, right)
 			passed = err == nil && sameObservation(full, merged)
 		case "overlapping_pagination":
-			first, _ := exposure.Page(relations["expenses"], 0, 3)
-			second, _ := exposure.Page(relations["expenses"], 2, 3)
-			left, _ := exposure.Observe(fixtures.ProfileVersion, first)
-			right, _ := exposure.Observe(fixtures.ProfileVersion, second)
+			first, _ := exposure.PageV2(relations["expenses"], 0, 3)
+			second, _ := exposure.PageV2(relations["expenses"], 2, 3)
+			left, _ := exposure.ObserveV2(first)
+			right, _ := exposure.ObserveV2(second)
 			merged, err := exposure.MergeObservations(fixtures.ProfileVersion, left, right)
 			passed = err == nil && sameObservation(full, merged)
 		case "cache_retry":
 			merged, err := exposure.MergeObservations(fixtures.ProfileVersion, full, full, full)
 			passed = err == nil && sameObservation(full, merged)
 		case "snapshot_update":
-			before, _ := exposure.NewFact("expense_detail", "snapshot-1", "r1", "amount", 10)
-			after, _ := exposure.NewFact("expense_detail", "snapshot-2", "r1", "amount", 10)
+			before, _ := exposure.NewBaseCellFactV2("travel.expense", "snapshot-1", "r1", "expense.amount", "numeric", "10")
+			after, _ := exposure.NewBaseCellFactV2("travel.expense", "snapshot-2", "r1", "expense.amount", "numeric", "10")
 			beforeHash, _ := before.Hash()
 			afterHash, _ := after.Hash()
 			passed = beforeHash != afterHash
@@ -371,7 +388,7 @@ func runAdversarial(fixtures corpus, relations map[string]exposure.Relation) (Ad
 	return result, nil
 }
 
-func baselineSummary(profile string, relations map[string]exposure.Relation) (BaselineSummary, error) {
+func baselineSummary(profile string, relations map[string]exposure.RelationV2) (BaselineSummary, error) {
 	observation, relation, err := evaluateOperation(profile, relations, "group_sum_count")
 	if err != nil {
 		return BaselineSummary{}, err
@@ -380,7 +397,7 @@ func baselineSummary(profile string, relations map[string]exposure.Relation) (Ba
 	for _, row := range relation.Rows {
 		current := make([]any, 0, len(relation.Fields))
 		for _, field := range relation.Fields {
-			current = append(current, row.Cells[field].Value)
+			current = append(current, row.Cells[field.ID].Value)
 		}
 		values = append(values, current)
 	}

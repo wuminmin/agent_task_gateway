@@ -16,6 +16,8 @@ type Product struct {
 	Columns           map[string]struct{}
 	AllowedAggregates map[string]struct{}
 	ColumnTypes       map[string]string
+	ColumnCollations  map[string]string
+	CollationVersions map[string]string
 	SourceNamespace   string
 	Snapshot          string
 	StableEntityKey   []string

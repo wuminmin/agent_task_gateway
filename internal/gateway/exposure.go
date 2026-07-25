@@ -121,7 +121,7 @@ func buildPlanExposureContext(plan queryplan.QueryPlan, product catalog.Product,
 		for _, order := range mainPlan.OrderBy {
 			ordered[order.Column] = struct{}{}
 		}
-		for _, key := range plan.GroupBy {
+		for _, key := range sortedStringSet(stringSetFromSlice(plan.GroupBy)) {
 			if _, present := ordered[key]; !present {
 				mainPlan.OrderBy = append(mainPlan.OrderBy, queryplan.Order{Column: key, Direction: "asc"})
 				ordered[key] = struct{}{}
@@ -150,12 +150,17 @@ func (context *planExposureContext) configureV2(approvedColumns map[string]struc
 		return fmt.Errorf("V2 product lacks canonical fact namespace or stable relation role")
 	}
 	columnTypes := make(map[string]string, len(context.product.Fields))
+	columnCollations := make(map[string]string, len(context.product.Fields))
+	collationVersions := make(map[string]string, len(context.product.Fields))
 	for _, field := range context.product.Fields {
 		columnTypes[field.Name] = field.Type
+		columnCollations[field.Name] = field.Collation
+		collationVersions[field.Name] = field.CollationVersion
 	}
 	normal, err := queryplan.NormalizeV2(context.plan, queryplan.Product{
 		Name: context.product.Name, Columns: approvedColumns, AllowedAggregates: allowedAggregates,
-		ColumnTypes: columnTypes, SourceNamespace: context.product.FactNamespace, Snapshot: context.product.Snapshot,
+		ColumnTypes: columnTypes, ColumnCollations: columnCollations, CollationVersions: collationVersions,
+		SourceNamespace: context.product.FactNamespace, Snapshot: context.product.Snapshot,
 		StableEntityKey: append([]string(nil), context.product.EntityKey...), LineageDigest: context.product.LineageManifestDigest,
 	})
 	if err != nil {
@@ -347,7 +352,12 @@ func (context *planExposureContext) deriveObservationV2(visible, provenance data
 		if types[field] == "" {
 			return exposure.Observation{}, fmt.Errorf("V2 provenance field %q has no catalog type", field)
 		}
-		fields = append(fields, exposure.FieldV2{ID: field, SQLType: types[field]})
+		catalogField, present := catalogFieldByName(context.product.Fields, field)
+		if !present {
+			return exposure.Observation{}, fmt.Errorf("V2 provenance field %q is absent from the Catalog", field)
+		}
+		fields = append(fields, exposure.FieldV2{ID: field, SQLType: types[field], Collation: catalogField.Collation,
+			CollationVersion: catalogField.CollationVersion, CollationDeterministic: catalogField.Collation != ""})
 	}
 	baseRows := make([]exposure.BaseRowV2, 0, len(provenance.Rows))
 	provenanceKeys := make(map[string]struct{}, len(provenance.Rows))
@@ -457,6 +467,15 @@ func (context *planExposureContext) deriveObservationV2(visible, provenance data
 		return exposure.Observation{}, err
 	}
 	return exposure.ObserveV2(aggregated, context.visibleFields...)
+}
+
+func catalogFieldByName(fields []catalog.Field, name string) (catalog.Field, bool) {
+	for _, field := range fields {
+		if field.Name == name {
+			return field, true
+		}
+	}
+	return catalog.Field{}, false
 }
 
 func (context *planExposureContext) baseEntityKeyV2(row []any, positions map[string]int, types map[string]string) (string, error) {

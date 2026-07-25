@@ -84,16 +84,22 @@ products:
     sensitivity: low
     snapshot: travel-demo-2026-v1
     entity_key: [month, department, expense_type]
+    fact_namespace: travel.expense_summary
+    stable_relation_role: expense_summary
     scopes: [department]
     allowed_functions: [date_trunc, to_char]
     allowed_operators: ["=", "<>", "<", "<=", ">", ">=", "+", "-", "*", "/"]
-    allowed_aggregates: [sum, count, min, max, avg]
+    allowed_aggregates: [sum, count, min, max]
     fields:
       - name: month
         type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
         description: 月份，格式 YYYY-MM
       - name: department
         type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
         description: 部门
       - name: total_amount
         type: numeric
@@ -106,12 +112,14 @@ products:
 - `source` 必须存在。`reporting_view` 必须严格匹配未加引号的 `reporting.<lowercase_name>`，同一 View 不能发布两次。
 - 必须提供描述、至少一个字段和至少一个强制 Scope；每个 Scope 必须对应发布字段。
 - `snapshot` 是稳定、非空的数据发布版本。影响事实身份或查询语义的数据更新必须提升它；它不是自动采集的 MVCC transaction ID。
+- V2 产品必须同时提供 `fact_namespace` 与 `stable_relation_role`。所有 `text`/`character`/`character varying` 字段还必须固定数据库实际报告的 deterministic collation 名称及版本；Gateway 会在每次 schema 证明中核对名称、版本和 `collisdeterministic`。数据库 libc/ICU 升级后应先提升 Catalog 版本并重新审批，而不是静默接受排序语义漂移。
 - `entity_key` 必须是非空、不重复的已发布字段列表，并在该 snapshot 内唯一、稳定。Gateway 会在 exposure 路径内部读取这些字段用于 FactID，但不会把未获批的 key 字段返回客户端。
 - 支持的敏感级别从低到高为 `public`、`low`、`medium`、`high`、`restricted`。
 - 产品有效敏感级别取产品级与所有字段级标记的最高值。审批路由按有效级别选择，不能通过给产品标低级而降低高敏字段。
 - 字段 `type` 必须是受支持的 PostgreSQL `information_schema.columns.data_type` 通用类型；Gateway 会逐列核对名称、顺序和类型。Catalog V1 不声称核对 `numeric` 精度/小数位、字符长度、Domain 或数组元素类型，因此拒绝 `numeric(10,2)` 等带修饰符写法；需要该边界时应在 Reporting View 中选用独立通用类型并提升协议版本。
 - Reporting View 应只暴露业务所需字段。手机号、工资、银行卡等即使“不写入 Catalog”，若仍出现在 View 中，也不应向 `gateway_reader` 暴露。
 - 函数和聚合必须是未限定的小写名，且不能是文件、网络、管理、睡眠等禁止函数；运行时还会经过 SQL AST 的危险函数硬拒绝表。
+- Exposure V2 只允许 `count`、`sum`、`min`、`max`；`avg` 即使在传统 SQL allowlist 中存在，也不能进入 V2 计划。
 - 运算符必须来自安全词汇表。允许列表是上限，不会使 AST 原本不支持的 SQL 特性变为可用。
 
 ## Approval Route

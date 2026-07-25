@@ -1,7 +1,8 @@
 # Exposure evaluation
 
 This suite is the deterministic evidence layer for the TKDE-oriented TaskGate
-model. The source-controlled corpus drives the executable exposure algebra; it
+V2 model. The source-controlled corpus drives `taskgate-exposure-v2` typed
+FactID, witness, NULL, Join, Group, Page, and Observation semantics; it
 does not reuse the older gateway latency measurements as exposure evidence.
 
 Run it with:
@@ -17,10 +18,10 @@ anti-arbitrage case, or planner oracle did not match.
 
 ## Research-question coverage
 
-- **RQ1:** five manually enumerated SPJA/aggregate/join ground-truth cases check
+- **RQ1:** five manually enumerated V2 SPJA/aggregate/join ground-truth cases check
   counts and committed SHA-256 digests of the exact release and source-influence
   fact sets.
-- **RQ2:** a fixed seed generates 1,024 equivalent projection/selection and
+- **RQ2:** a fixed seed generates 1,024 V2 equivalent projection/selection and
   pagination pairs. The report counts mismatches.
 - **RQ3:** deterministic split/merge, overlapping pagination, retry, join
   multiplicity, and snapshot-update cases run here. Task-family delegation and

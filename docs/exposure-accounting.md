@@ -45,6 +45,8 @@ delta_influence = |F_influence(q,D) - K_influence(T)|
 
 ## 可执行代数
 
+V2 的规范性定义见 [Exposure Algebra V2：正式语义](exposure-algebra-v2.md)；以下表格只是便于阅读的摘要。
+
 `internal/exposure` 为有限关系实现逐单元来源集合和逐行 lineage：
 
 | 运算 | release | source influence |
@@ -93,7 +95,7 @@ reserve -> execute/buffer -> derive provenance -> settle -> release
 
 ## 在线支持边界
 
-| 能力 | 可执行代数 | 在线 Gateway V1 |
+| 能力 | 可执行代数 V2 | 在线 Gateway V2 |
 |---|---:|---:|
 | Projection / filter / order / limit | 是 | 单产品 QueryPlan |
 | `GROUP BY`, `COUNT`, `SUM`, `MIN`, `MAX` | 是 | 单产品 QueryPlan |
@@ -162,8 +164,8 @@ V2 候选成本和 FactID 均由服务端生成。Planner 使用稠密双 bitset
 
 ## 证据与限制
 
-- `make eval-exposure` 运行 ground truth、1,024 对等价改写、确定性
-  anti-arbitrage cases、六个计费基线和 planner oracle。
+- `make eval-exposure` 运行 ground truth、等价改写、确定性
+  anti-arbitrage cases、计费基线和 planner oracle；V2 单元/性质测试另覆盖 typed NULL、multi-key Join、Union commutativity/idempotence、Group NULL 与嵌套闭包。
 - `make verify` 运行真实 PostgreSQL race/integration suite，包括并发结算、
   委托共享账本、重放及超限结果不落库。
 - `make formal` 检查 `ExposureLedger.tla` 的双预算安全、exact novel charge、

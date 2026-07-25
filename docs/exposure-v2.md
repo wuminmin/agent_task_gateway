@@ -1,5 +1,7 @@
 # taskgate-exposure-v2
 
+规范性的完整语法、类型规则、逐运算推导、FactID 编码、SQL 值域条件与严格定理见 [Exposure Algebra V2：正式语义](exposure-algebra-v2.md)。本文保留系统集成与 planner 概览。
+
 `taskgate-exposure-v2` 是与 V1 不可混用的 Exposure Profile。一个 root task family 的 Control PG ledger 在创建时固定 profile；委托任务不能改变它。
 
 默认 Catalog 只定义 V2 budget profiles；low、medium、high approval routes
@@ -22,15 +24,15 @@ Derived(profile, snapshot_bundle, output_row_key,
 
 索引键为 `SHA256("TASKGATE-FACT-V2\0" || CanonicalEncode(payload))`。`exposure_facts.canonical_payload` 同时保存规范 payload；相同 hash 对应不同 payload 时事务关闭式失败。`source_namespace` 和 self-join role 来自 Catalog，不使用 SQL alias。预计算 summary/generalized product 若要展开到另一个 base namespace，必须提供受信 lineage manifest；未提供时不能声称跨产品 influence overlap。
 
-支持值域保留 PostgreSQL 类型：整数、exact numeric、浮点、布尔、文本、bytea、date/timestamp、JSON/JSONB 与 UUID。NULL 有独立编码；numeric 用任意精度有理数规范化，不经 `float64`。
+支持值域保留 PostgreSQL 类型：整数、exact numeric、浮点、布尔、文本、bytea、date/timestamp、JSON/JSONB 与 UUID。NULL 有独立编码；numeric 用任意精度有理数规范化，不经 `float64`。字符串字段必须由 Catalog 固定确定性 PostgreSQL collation 的精确名称和版本，Connector 在启动和每次查询事务内重新证明；`time with time zone` 关闭式拒绝。
 
 ## Annotation and algebra
 
 每行含 row support、每单元格 support，以及保留 multiplicity 的 witness multiset。Influence 使用 support set；Derived FactID 使用 witness commitment。因此 Join fanout 不重复收取 influence，但会改变聚合派生事实的 witness。
 
-正式支持 scan、selection、projection、equijoin、union-distinct、group/`COUNT|SUM|MIN|MAX` 和稳定分页。语义固定为 PostgreSQL bag semantics、SQL NULL/三值逻辑、exact numeric、UTC 与 profile collation。分页必须由用户排序字段加 Catalog stable entity/group key 构成全序。
+正式支持 scan、selection、projection、多列 conjunctive equijoin、union-distinct、group/`COUNT|SUM|MIN|MAX` 和稳定分页。语义固定为 PostgreSQL bag semantics、SQL NULL/三值逻辑、exact numeric、UTC 与精确证明的 deterministic collation。分页必须由用户排序字段加 Catalog stable entity/group key 构成全序。
 
-Query Normal Form 只覆盖受限 rewrite：alias 删除、字段限定、AND 条件排序、projection/group 归一化、aggregate 名称与类型归一化，以及稳定分页 tie-break。它不声称解决任意 SQL 等价。
+`taskgate-query-normal-form-v3` 是 typed normal form：除 alias 删除、字段限定、AND/projection/group 归一化、aggregate 名称与类型归一化及稳定分页 tie-break 外，还静态检查 Scan schema、Join predicate、Union schema 和 collation profile。它不声称解决任意 SQL 等价。
 
 ## Exact planner
 

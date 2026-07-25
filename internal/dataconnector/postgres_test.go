@@ -70,6 +70,25 @@ func TestSchemaAttestationComparisonIsExact(t *testing.T) {
 	}
 }
 
+func TestSchemaAttestationPinsDeterministicCollationNameAndVersion(t *testing.T) {
+	expected := []SchemaColumn{{Name: "label", PostgreSQLType: "text", Collation: "en_US.utf8", CollationVersion: "2.36", CollationDeterministic: true}}
+	actual := []SchemaColumn{{Name: "label", PostgreSQLType: "text", Collation: "en_US.utf8", CollationVersion: "2.36", CollationDeterministic: true}}
+	if !sameSchemaColumns(expected, actual) {
+		t.Fatal("exact deterministic collation was rejected")
+	}
+	for _, mutate := range []func(*SchemaColumn){
+		func(column *SchemaColumn) { column.Collation = "C" },
+		func(column *SchemaColumn) { column.CollationVersion = "2.37" },
+		func(column *SchemaColumn) { column.CollationDeterministic = false },
+	} {
+		candidate := append([]SchemaColumn(nil), actual...)
+		mutate(&candidate[0])
+		if sameSchemaColumns(expected, candidate) {
+			t.Fatalf("collation drift was accepted: %+v", candidate[0])
+		}
+	}
+}
+
 func TestSchemaDigestIsDeterministicAndColumnOrderSensitive(t *testing.T) {
 	left, err := SchemaDigest([]ViewSchema{
 		{Schema: "reporting", View: "expense_summary", Columns: []SchemaColumn{{Name: "month", PostgreSQLType: "text"}, {Name: "total_amount", PostgreSQLType: "numeric"}}},

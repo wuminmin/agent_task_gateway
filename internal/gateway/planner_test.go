@@ -63,7 +63,7 @@ func TestPlanExposureV2ExecutesCandidatesAndSettlesTheirExactUnion(t *testing.T)
 	harness.connector.result = dataconnector.Result{
 		Columns: []dataconnector.Column{{Name: "month", DataTypeOID: 25}, {Name: "total_amount", DataTypeOID: 1700},
 			{Name: "department", DataTypeOID: 25}, {Name: "expense_type", DataTypeOID: 25}},
-		Rows: [][]any{{"2026-07", 123.45, "销售部", "机票"}}, RowCount: 1,
+		Rows: [][]any{{"2026-07", "123.45", "销售部", "机票"}}, RowCount: 1,
 	}
 	plan := map[string]any{"product": "expense_summary", "columns": []string{"month", "total_amount"}}
 	result := mustCallGatewayTool(t, harness.service, harness.alice, "plan_exposure", map[string]any{

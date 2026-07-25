@@ -234,15 +234,39 @@ $B_T=\langle B_T^r,B_T^i\rangle$. Settlement computes
  \label{eq:delta}
 \end{align}
 
-V1 measures cardinality independently in each dimension. A query may settle
+V2 measures cardinality independently in each dimension. A query may settle
 only if
 $|\known_T^r|+|\Delta_T^r|\leq B_T^r$ and
 $|\known_T^i|+|\Delta_T^i|\leq B_T^i$.
 
 \subsection{Annotated Relations}
 
-An intermediate row stores $\langle k,v,S_r,S_a,W_a\rangle$: row support
-$S_r$, per-cell support sets $S_a$, and per-cell witness multisets $W_a$.
+The complete core grammar is
+\begin{align*}
+e ::= {}& \operatorname{Scan}[\nu,s,r,\Gamma]
+ \mid \sigma_{p;F}(e) \mid \pi_A(e) \mid e\bowtie_{\Theta}e \\
+ &\mid e\cup_\delta e \mid \gamma_{G;\mathcal A}(e)
+ \mid \operatorname{Page}_{O,K,o,l}(e),
+\end{align*}
+where $\Theta$ is a nonempty conjunction of same-typed equalities,
+$\mathcal A\subseteq\{\code{COUNT(*)},\code{COUNT},\code{SUM},\code{MIN},
+\code{MAX}\}$, and $O$ extended by stable key $K$ is a total order.  The
+typing rules require disjoint role-qualified join schemas, identical typed
+union schemas, existing predicate/group/aggregate fields, PostgreSQL-correct
+aggregate output types, nonnegative page bounds, and exact deterministic
+collation name/version bindings for collatable fields.  An ill-typed node is
+rejected rather than assigned an effect.
+
+An intermediate row stores $\langle k,v,S_r,W_r,S_a,W_a\rangle$: row support
+$S_r$ and witness $W_r$, plus per-cell support sets $S_a$ and witness
+multisets $W_a$.  Each relation field also carries a data-independent
+canonical lineage expression: scans bind it to the namespace-qualified field,
+unary operators propagate it, grouping composes it, and union canonicalizes the
+sorted child expressions.  The representation invariant is
+$\operatorname{support}(W_r)=S_r$ and
+$\operatorname{support}(W_a)=S_a$; all support members are snapshot-covered V2
+base facts.  Ordinary proof composition adds multiplicities ($\oplus$), while
+alternative proofs under union-distinct use pointwise maximum ($\sqcup_{max}$).
 Support drives the influence ledger, while multiplicity in $W_a$ distinguishes,
 for example, three-way from five-way join fanout in a derived identity.
 Table~\ref{tab:operators} summarizes the implemented positive fragment.
@@ -259,8 +283,8 @@ Operator & Release effect & Source-influence propagation \\
 Projection & Output cells under their row keys & Existing row lineage and selected cell sources \\
 Selection & Output cells of retained rows & Retained row lineage plus sources of predicate fields \\
 Pagination & Cells in the selected interval & Lineage and sources for selected rows only \\
-Equijoin & Base cells under an order-independent role/entity multiset key & Both row lineages, both join keys, and selected cell sources; witness multiplicity retained \\
-Set union & One fact per deduplicated output cell & Union of all lineages and cell sources producing the tuple \\
+Equijoin & Cells under a key hashing the sorted immediate input-row identities & Both row lineages, every conjunctive join key, and selected cell sources; witness multiplicity retained \\
+Set union & One fact per typed, deduplicated output cell; identical materialized facts are preserved & Set-union of all supports and pointwise-max of alternative witnesses \\
 Grouping & Group-key cells and aggregate cells & Member row existence, group fields, and aggregate inputs \\
 Aggregates & One source-bound derived fact per output cell & \code{COUNT(*)} uses row lineage; other functions use input-cell sources \\
 \bottomrule
@@ -273,13 +297,46 @@ commitment hashes sorted $(\mathrm{FactHash},\mathrm{multiplicity})$ pairs. Thus
 from different contributors remain different disclosures, while alias changes
 do not manufacture a new fact.
 
+The executable rules are as follows.  Scan gives each row the singleton
+existence fact and each cell its singleton typed cell fact.  Selection retains
+only SQL \code{TRUE} rows and adds all predicate-field annotations to row
+support. Projection copies selected annotations.  A conjunctive join emits a
+pair only when every equality is \code{TRUE}; \code{FALSE} and \code{UNKNOWN}
+both exclude it.  Its row key hashes the sorted identities
+$H(\Gamma,\mathcal S,k)$ of its two immediate inputs, which closes Join over
+Group, Union, Page, and nested Join results.  Union-distinct partitions typed
+tuples by \code{IS NOT DISTINCT FROM}, unions support, and combines alternative
+witnesses with $\sqcup_{max}$; hence $W\sqcup_{max}W=W$. Its schema-level
+lineage expression is likewise sorted and idempotent, so a downstream Group
+cannot observe union operand order through an arbitrarily chosen first row. Grouping uses the
+same NULL-equality relation, sums member witnesses, and accepts only a complete
+PostgreSQL aggregate-result oracle. Observation unions row support and visible
+cell support, and materializes a derived FactID only when no identical existing
+release FactID can be reused.
+
+\begin{theorem}[Representation closure]
+If the V2 typing judgment derives $\Pi;D\vdash e:\Gamma$ and evaluation
+returns $R$, every row of $R$ satisfies the equal-support invariant, has a
+unique canonical key, and is a valid input to any well-typed parent operator.
+\end{theorem}
+\begin{proof}
+By structural induction. Scan establishes singleton equal support. Select,
+Project, and Page copy or union equal-support annotations. Join uses disjoint
+schemas and immediate child identities, so its key construction applies to
+every child operator; $\cup$ and $\oplus$ preserve equal support. Union creates
+one typed-tuple class key and uses $\cup/\sqcup_{max}$ on the same domains.
+Group creates one key per \code{IS NOT DISTINCT FROM} class and uses
+$\cup/\oplus$. The implementation checks the full invariant at every operator
+boundary.
+\end{proof}
+
 \begin{theorem}[Effect determinism]
 Fixed $q$, snapshot bundle $D_s$, and V2 profile $\pi$ uniquely determine
 $\effect_\pi(q,D_s)$.
 \end{theorem}
 \begin{proof}[Proof sketch]
-PostgreSQL bag, NULL, aggregate, collation, timezone, and numeric rules are
-profile fixed; volatile expressions are excluded. Induction over scan,
+PostgreSQL major version, bag, NULL, aggregate, exact collation name and actual
+version, UTC, and numeric rules are profile fixed; volatile expressions are excluded. Induction over scan,
 selection, projection, equijoin, union-distinct, grouping, and stable pagination
 shows that each annotation and output identity is a deterministic function of
 its children.
@@ -300,7 +357,7 @@ map insertion followed by lexical key order; merge is set union. The three
 properties follow from set union and deterministic serialization.
 \end{proof}
 
-\begin{theorem}[Restricted rewrite invariance]
+\begin{theorem}[Restricted projection/selection invariance]
 Selection followed by a projection that retains every predicate and output
 field has the same effect as the corresponding projection followed by
 selection. Reordering projected fields also preserves the normalized effect.
@@ -311,6 +368,28 @@ lineage; selection adds the same predicate sources to retained lineage. Release
 and influence are sets, so traversal and field order disappear on
 normalization. The executable corpus checks both target predicates and field
 orders for a fixed seed.
+\end{proof}
+
+\begin{theorem}[Typed normal-form soundness]
+For admissible profile $\Pi$ and snapshot bundle $D$,
+\[
+ NF_\Pi(q_1)=NF_\Pi(q_2)\Longrightarrow
+ \effect_\Pi(q_1,D)=\effect_\Pi(q_2,D).
+\]
+This implication is not a completeness claim for arbitrary equivalent SQL.
+\end{theorem}
+\begin{proof}
+The typed normalizer can erase only aliases, conjunction/set traversal order,
+join operand and predicate order, union operand order, an identical duplicate
+union branch, and alternate spelling of the same stable page suffix. Alias is
+absent from derived expressions. Set normalization removes traversal order.
+Join hashes sorted child identities and uses commutative $\cup/\oplus$.
+Union classes are operand independent and $\sqcup_{max}$ is commutative and
+idempotent; an identical materialized fact is retained, and relation-level
+union expressions are sorted before any downstream composition. Group keys and witness
+commitments are sorted. The SQL compiler emits the same catalog-canonical page
+suffix represented by the normal form. Each atomic rewrite therefore preserves
+Effect; structural induction over well-typed contexts proves the result.
 \end{proof}
 
 \begin{theorem}[Split/page/join conservation]
@@ -325,12 +404,11 @@ rows. Merging is set union, for which duplicate membership has no additional
 cardinality. Durable request replay does not invoke execution or settlement.
 \end{proof}
 
-V2 additionally computes an explicit query normal form $NF_\pi(q)$. Its rewrite
-set erases aliases, qualifies field IDs, sorts AND terms, projections, join and
-union operands, and group expressions, and normalizes aggregate names/types.
-The theorem asserts only
-$NF_\pi(q_1)=NF_\pi(q_2)\Rightarrow\effect_\pi(q_1,D_s)=\effect_\pi(q_2,D_s)$,
-not completeness for arbitrary equivalent SQL.
+V2 uses \code{taskgate-query-normal-form-v3}. Besides the rewrites above it
+binds namespace, snapshot, lineage digest, canonical SQL types, collation
+names/versions, PostgreSQL three-valued bag semantics, UTC, and exact numeric
+mode. It deliberately performs no outer-join, arithmetic, window, subquery, or
+general SQL equivalence reasoning.
 
 \section{Online Accounting}
 \label{sec:online}

@@ -254,11 +254,11 @@ func TestDelegatedTaskSharesRootExposureAndStopsWithParent(t *testing.T) {
 
 	harness.connector.result = dataconnector.Result{
 		Columns: []dataconnector.Column{{Name: "month"}, {Name: "total_amount"}, {Name: "department"}, {Name: "expense_type"}},
-		Rows:    [][]any{{"2026-01", 123.45, "销售部", "机票"}}, RowCount: 1, DatabaseTime: 2 * time.Millisecond,
+		Rows:    [][]any{{"2026-01", "123.45", "销售部", "机票"}}, RowCount: 1, DatabaseTime: 2 * time.Millisecond,
 	}
 	harness.connector.provenanceResult = dataconnector.Result{
 		Columns: []dataconnector.Column{{Name: "department"}, {Name: "expense_type"}, {Name: "month"}, {Name: "total_amount"}},
-		Rows:    [][]any{{"销售部", "机票", "2026-01", 123.45}}, RowCount: 1, DatabaseTime: time.Millisecond,
+		Rows:    [][]any{{"销售部", "机票", "2026-01", "123.45"}}, RowCount: 1, DatabaseTime: time.Millisecond,
 	}
 	plan := map[string]any{"product": "expense_summary", "columns": []string{"month", "total_amount"}}
 	rootResult := mustCallGatewayTool(t, harness.service, harness.alice, "execute_plan", map[string]any{

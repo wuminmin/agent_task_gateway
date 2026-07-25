@@ -1,4 +1,4 @@
-catalog_version: "2026-07-25.2"
+catalog_version: "2026-07-25.3"
 
 sources:
   - name: travel_demo
@@ -38,16 +38,22 @@ products:
     scopes: [department]
     allowed_functions: [date_trunc, to_char]
     allowed_operators: ["=", "<>", "<", "<=", ">", ">=", "+", "-", "*", "/"]
-    allowed_aggregates: [sum, count, min, max, avg]
+    allowed_aggregates: [sum, count, min, max]
     fields:
       - name: month
         type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
         description: 月份，格式 YYYY-MM
       - name: department
         type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
         description: 部门
       - name: expense_type
         type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
         description: 费用类型
       - name: total_amount
         type: numeric
@@ -68,39 +74,55 @@ products:
     scopes: [department]
     allowed_functions: [date_trunc, to_char]
     allowed_operators: ["=", "<>", "<", "<=", ">", ">=", "+", "-", "*", "/"]
-    allowed_aggregates: [sum, count, min, max, avg]
+    allowed_aggregates: [sum, count, min, max]
     fields:
       - name: receipt_no
         type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
         description: 报销单号
       - name: employee_no
         type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
         description: 员工编号
         sensitivity: high
       - name: employee_name
         type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
         description: 员工姓名
         sensitivity: high
       - name: department
         type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
         description: 部门
       - name: expense_date
         type: date
         description: 报销日期
       - name: expense_type
         type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
         description: 费用类型
       - name: amount
         type: numeric
         description: 报销金额
       - name: city
         type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
         description: 出差城市
       - name: purpose
         type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
         description: 报销用途
       - name: status
         type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
         description: 审批状态
 
 approval_routes:
