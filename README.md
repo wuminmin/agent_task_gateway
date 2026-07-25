@@ -126,7 +126,8 @@ docker compose down
 
 `make verify` 会执行格式检查、`go vet`、真实 PostgreSQL `go test -race ./...`、镜像构建和隔离的 Compose 端到端验收。
 
-`make eval-exposure` 运行可审计的 ground truth、1,024 对等价改写、
+`make eval-exposure` 运行可审计的 ground truth、由独立 oracle 校验的
+1,024 个唯一 PostgreSQL 等价改写、
 anti-arbitrage cases、计费基线与双预算 planner oracle。它不会把尚未执行的
 外部 PostgreSQL 开销实验伪装成结果。`make paper` 构建新的 TKDE 工作稿；
 旧的安全网关稿仍可用 `make paper-tdsc` 构建。

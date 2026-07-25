@@ -14,6 +14,8 @@ The build first runs `make eval-exposure`, which refreshes the deterministic
 exposure report. `generate_evidence.py` then verifies:
 
 - the report's `corpus.json` SHA-256 and fixed rewrite seed;
+- RQ2's independent-oracle fixture digest, real PostgreSQL 16 version,
+  generated/unique rewrite counts, check counts, and zero mismatches;
 - complete RQ1/RQ2/RQ3/RQ5 deterministic results;
 - the explicit `not_measured` status for RQ4 runtime overhead; and
 - the model, configuration, and raw-log hashes in

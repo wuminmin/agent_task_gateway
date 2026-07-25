@@ -11,7 +11,8 @@ func TestExposureEvaluationCorpus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.RQ1.Passed != report.RQ1.Cases || report.RQ2.GeneratedPairs != 1024 || report.RQ2.Mismatches != 0 ||
+	if report.RQ1.Passed != report.RQ1.Cases || report.RQ2.GeneratedPairs != 1024 ||
+		report.RQ2.UniqueRewrites != 8 || report.RQ2.RewriteTemplates != 2 || report.RQ2.Mismatches != 0 ||
 		report.RQ3.DeterministicPassed != report.RQ3.DeterministicCases ||
 		report.RQ3.DeterministicCases+len(report.RQ3.PostgresIntegrationIDs) != report.RQ3.Cases ||
 		report.RQ5.Passed != report.RQ5.Scenarios {

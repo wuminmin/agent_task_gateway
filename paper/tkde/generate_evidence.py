@@ -48,7 +48,21 @@ def validate_exposure() -> dict:
     rq3 = report.get("rq3_anti_arbitrage", {})
     rq5 = report.get("rq5_budget_aware_planning", {})
     require(rq1.get("cases", 0) > 0 and rq1.get("passed") == rq1.get("cases"), "RQ1 is incomplete")
-    require(rq2.get("generated_pairs") == 1024 and rq2.get("mismatches") == 0, "RQ2 is incomplete")
+    require(
+        rq2.get("generated_pairs") == 1024
+        and rq2.get("unique_rewrites") == 1024
+        and rq2.get("rewrite_templates") == 8
+        and rq2.get("differential_checks") == 1152
+        and rq2.get("metamorphic_checks") == 1024
+        and rq2.get("postgres_statements") == 2176
+        and rq2.get("oracle") == "independent-go-fixture-oracle-v1"
+        and re.fullmatch(r"[0-9a-f]{64}", rq2.get("oracle_fixture_sha256", "")) is not None
+        and rq2.get("postgres_major") == 16
+        and isinstance(rq2.get("postgres_version"), str)
+        and rq2.get("postgres_version")
+        and rq2.get("mismatches") == 0,
+        "RQ2 independent PostgreSQL campaign is incomplete",
+    )
     require(
         rq3.get("deterministic_cases", 0) > 0
         and rq3.get("deterministic_passed") == rq3.get("deterministic_cases"),
@@ -110,6 +124,8 @@ def main() -> None:
         rf"\newcommand{{\RQOneCases}}{{{rq1['cases']}}}",
         rf"\newcommand{{\RQOnePassed}}{{{rq1['passed']}}}",
         rf"\newcommand{{\RQTwoPairs}}{{{comma(rq2['generated_pairs'])}}}",
+        rf"\newcommand{{\RQTwoUnique}}{{{comma(rq2['unique_rewrites'])}}}",
+        rf"\newcommand{{\RQTwoTemplates}}{{{rq2['rewrite_templates']}}}",
         rf"\newcommand{{\RQTwoMismatches}}{{{rq2['mismatches']}}}",
         rf"\newcommand{{\RQThreeCases}}{{{rq3['deterministic_cases']}}}",
         rf"\newcommand{{\RQThreePassed}}{{{rq3['deterministic_passed']}}}",

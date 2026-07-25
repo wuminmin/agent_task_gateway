@@ -5,6 +5,7 @@ package exposureeval
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	_ "embed"
 	"encoding/json"
@@ -12,6 +13,7 @@ import (
 	"math/rand"
 	"sort"
 
+	"taskbound.local/agent-data-gateway/evaluation/postgresoracle"
 	"taskbound.local/agent-data-gateway/internal/exposure"
 )
 
@@ -66,8 +68,17 @@ type ValidationSummary struct {
 }
 
 type RewriteSummary struct {
-	GeneratedPairs int `json:"generated_pairs"`
-	Mismatches     int `json:"mismatches"`
+	GeneratedPairs      int    `json:"generated_pairs"`
+	UniqueRewrites      int    `json:"unique_rewrites"`
+	RewriteTemplates    int    `json:"rewrite_templates"`
+	DifferentialChecks  int    `json:"differential_checks,omitempty"`
+	MetamorphicChecks   int    `json:"metamorphic_checks,omitempty"`
+	PostgresStatements  int    `json:"postgres_statements,omitempty"`
+	Mismatches          int    `json:"mismatches"`
+	Oracle              string `json:"oracle"`
+	OracleFixtureSHA256 string `json:"oracle_fixture_sha256,omitempty"`
+	PostgresVersion     string `json:"postgres_version,omitempty"`
+	PostgresMajor       int    `json:"postgres_major,omitempty"`
 }
 
 type AdversarialSummary struct {
@@ -175,6 +186,34 @@ func Run() (Report, error) {
 	return report, nil
 }
 
+// RunPostgreSQL replaces the shared-implementation RQ2 preflight from Run
+// with a real PostgreSQL 16 differential/metamorphic campaign whose expected
+// rows come from the independent postgresoracle package.
+func RunPostgreSQL(ctx context.Context, dsn string) (Report, error) {
+	report, err := Run()
+	if err != nil {
+		return Report{}, err
+	}
+	summary, err := postgresoracle.Run(ctx, dsn)
+	if err != nil {
+		return Report{}, err
+	}
+	report.RQ2 = RewriteSummary{
+		GeneratedPairs:      summary.GeneratedAttempts,
+		UniqueRewrites:      summary.UniqueRewrites,
+		RewriteTemplates:    summary.RewriteTemplates,
+		DifferentialChecks:  summary.DifferentialChecks,
+		MetamorphicChecks:   summary.MetamorphicChecks,
+		PostgresStatements:  summary.PostgresStatements,
+		Mismatches:          summary.Mismatches,
+		Oracle:              summary.Oracle,
+		OracleFixtureSHA256: summary.OracleFixtureSHA256,
+		PostgresVersion:     summary.PostgresVersion,
+		PostgresMajor:       summary.PostgresMajor,
+	}
+	return report, nil
+}
+
 func factSetSHA256(facts []exposure.FactID) (string, error) {
 	set, err := exposure.NewFactSet(facts...)
 	if err != nil {
@@ -277,7 +316,8 @@ func evaluateOperation(profile string, relations map[string]exposure.RelationV2,
 
 func runRewriteTrials(profile string, base exposure.RelationV2, trials int) (RewriteSummary, error) {
 	random := rand.New(rand.NewSource(20260723))
-	result := RewriteSummary{}
+	result := RewriteSummary{RewriteTemplates: 2, Oracle: "shared-implementation-preflight"}
+	unique := make(map[string]struct{})
 	for index := 0; index < trials; index++ {
 		target := "sales"
 		if random.Intn(2) == 0 {
@@ -316,6 +356,7 @@ func runRewriteTrials(profile string, base exposure.RelationV2, trials int) (Rew
 		leftObservation, _ := exposure.ObserveV2(left)
 		rightObservation, _ := exposure.ObserveV2(right)
 		result.GeneratedPairs++
+		unique[fmt.Sprintf("selection_projection:%s:%s,%s", target, fields[0], fields[1])] = struct{}{}
 		if !sameObservation(leftObservation, rightObservation) {
 			result.Mismatches++
 		}
@@ -333,10 +374,12 @@ func runRewriteTrials(profile string, base exposure.RelationV2, trials int) (Rew
 		}
 		full, _ := exposure.ObserveV2(base)
 		result.GeneratedPairs++
+		unique[fmt.Sprintf("page_partition:%d", pageSize)] = struct{}{}
 		if !sameObservation(full, merged) {
 			result.Mismatches++
 		}
 	}
+	result.UniqueRewrites = len(unique)
 	return result, nil
 }
 

@@ -8,9 +8,11 @@ system-performance harness. No track substitutes mock timing data when a
 prerequisite is absent, and older measurements are not relabeled as exposure
 overhead.
 
-Run the deterministic exposure suite with `make eval-exposure`. Its report
-marks RQ4 runtime overhead as unmeasured until a fresh external PostgreSQL
-campaign is supplied; see `exposure/README.md` for the exact RQ1-RQ5 boundary.
+Run the exposure suite with `make eval-exposure`. Its RQ2 track uses an
+independent fixture evaluator and a disposable real PostgreSQL 16 server; the
+report still marks RQ4 runtime overhead as unmeasured until a fresh external
+performance campaign is supplied. See `exposure/README.md` for the exact
+RQ1-RQ5 boundary.
 Run `make eval-exposure-performance` for the isolated local engineering smoke;
 its result is explicitly not promoted to a publication RQ4 claim.
 

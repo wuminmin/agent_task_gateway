@@ -9,7 +9,16 @@
   },
   "rq2_rewrite_invariance": {
     "generated_pairs": 1024,
-    "mismatches": 0
+    "unique_rewrites": 1024,
+    "rewrite_templates": 8,
+    "differential_checks": 1152,
+    "metamorphic_checks": 1024,
+    "postgres_statements": 2176,
+    "mismatches": 0,
+    "oracle": "independent-go-fixture-oracle-v1",
+    "oracle_fixture_sha256": "4ec556743b401fbcbba10d20e347647824934df1ebfd4524bd6284a1855f421e",
+    "postgres_version": "16.14 (Debian 16.14-1.pgdg12+1)",
+    "postgres_major": 16
   },
   "rq3_anti_arbitrage": {
     "cases": 7,

@@ -11,18 +11,26 @@ Run it with:
 make eval-exposure
 ```
 
-The command emits one JSON report to standard output and refreshes
-`results.json`. The report records the SHA-256 of `corpus.json` and the fixed
-rewrite seed. A nonzero exit means a ground-truth count, rewrite pair,
-anti-arbitrage case, or planner oracle did not match.
+The command builds a disposable PostgreSQL 16 instance, emits one JSON report
+to standard output, and refreshes `results.json`. The report records the
+SHA-256 of `corpus.json`, the independent-oracle fixture digest, the exact
+PostgreSQL version, and the fixed rewrite seed. A nonzero exit means a
+ground-truth count, rewrite comparison, anti-arbitrage case, or planner oracle
+did not match.
 
 ## Research-question coverage
 
 - **RQ1:** five manually enumerated V2 SPJA/aggregate/join ground-truth cases check
   counts and committed SHA-256 digests of the exact release and source-influence
   fact sets.
-- **RQ2:** a fixed seed generates 1,024 V2 equivalent projection/selection and
-  pagination pairs. The report counts mismatches.
+- **RQ2:** a fixture evaluator that imports none of TaskGate's exposure,
+  query-plan, or SQL-policy code supplies expected rows. A real PostgreSQL 16
+  server executes 1,024 unique instantiated rewrites from eight templates:
+  predicate reorder, derived-table projection, CTE pushdown, De Morgan,
+  correlated `EXISTS`, one-row `VALUES` join, and complete offset-page
+  partitions of sizes two and three. The report separately records generated
+  attempts, unique rewrites, templates, differential checks, metamorphic
+  checks, executed PostgreSQL statements, and mismatches.
 - **RQ3:** deterministic split/merge, overlapping pagination, retry, join
   multiplicity, and snapshot-update cases run here. Task-family delegation and
   concurrent settlement are identified separately and run by the PostgreSQL
@@ -39,6 +47,7 @@ anti-arbitrage case, or planner oracle did not match.
   choices and a deterministic utility-greedy baseline using answer completeness
   and query coverage only.
 
-`corpus.json` is intentionally small enough to audit. Publication-scale TPC-H,
-TPC-DS, second-engine, agent-task, and overhead campaigns remain external
-experiments and must retain their own data, environment, and run provenance.
+`corpus.json` and the PostgreSQL oracle fixture are intentionally small enough
+to audit. Publication-scale TPC-H, TPC-DS, second-engine, agent-task, and
+overhead campaigns remain external experiments and must retain their own data,
+environment, and run provenance.
