@@ -12,12 +12,11 @@ Run the exposure suite with `make eval-exposure`. Its RQ1 track uses a separate
 reference package with no production exposure dependency. Its RQ2 track uses an
 independent fixture evaluator and a disposable real PostgreSQL 16 server; the
 RQ3 track retains digest-bound test- and package-pass events from
-`go test -race -json`. The
-report still marks RQ4 runtime overhead as unmeasured until a fresh external
-performance campaign is supplied. See `exposure/README.md` for the exact
-RQ1-RQ5 boundary.
-Run `make eval-exposure-performance` for the isolated local engineering smoke;
-its result is explicitly not promoted to a publication RQ4 claim.
+`go test -race -json`. The source-controlled RQ4 result comes from three fresh,
+isolated runs of the dedicated public-`execute_plan` exposure harness; see
+`exposure/README.md` and `exposure-performance/README.md` for its exact local
+fixture boundary. `make eval-exposure-performance` runs the smaller default
+engineering smoke, which must not be substituted for that recorded campaign.
 
 ## Baselines and fairness boundary
 
@@ -31,9 +30,10 @@ The driver executes the same deterministic, ordered result set through:
 3. `ast_only_gateway`: `evaluation/cmd/ast-gateway`, which uses the repository's
    PostgreSQL AST policy/rewrite and read-only connector but has no task,
    approval, Control PostgreSQL, budget ledger, or receipt work.
-4. `full_taskgate`: the real Gateway `query_sql` MCP tool with pre-approved,
-   independent resource-only tasks. It measures the older gateway path and is
-   not an exposure/provenance baseline.
+4. `resource_taskgate`: the real Gateway `query_sql` MCP tool with pre-approved,
+   independent resource-only tasks. It measures the legacy gateway path and is
+   neither a full TaskGate path nor an exposure/provenance baseline. In
+   particular, results from this four-baseline runner cannot answer RQ4.
 
 Direct and native queries use physical/view names; both Gateway paths use the
 logical product name. The query files are semantically equivalent variants, not
@@ -77,8 +77,14 @@ defined config and measurement method.
   ID must be globally distinct across all four experiments and all concurrency
   cells; do not reuse a task between SF1/SF10, TPC-H/TPC-DS, or concurrency
   1/8/32. Each task must approve every workload product/column,
-  `eval_scope=["all"]`, at least `warmup + measured` queries (the supplied
-  catalogs allow 64), and a TTL long enough for the cell.
+  `eval_scope=["all"]`, and a TTL long enough for the cell. Its query budget
+  must cover `number_of_workload_queries * (warmup + measured)` calls per
+  worker (and additionally `* concurrency` in `same_task` mode). The checked
+  workloads contain three queries, so a full distinct-task cell needs
+  `3 * (5 + 30) = 105` calls; the supplied catalogs allow 128. The runner records
+  this as `taskgate_queries_per_task`, rejects config/workload drift, and calls
+  the public read-only `get_task_context` tool during runtime preflight to verify
+  that every task is ACTIVE with enough remaining query budget.
   `config/tasks.example.json` contains distinct placeholders for the complete
   four-experiment pool.
 - For a full run, a real metrics probe per baseline and dataset. It should

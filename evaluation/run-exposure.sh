@@ -51,12 +51,12 @@ until docker exec "$POSTGRES_CONTAINER" pg_isready --username postgres --dbname 
   sleep 1
 done
 
-integration_command="go test -race -json -count=1 -run ^(TestDelegatedTasksShareRootExposureKnowledge|TestConcurrentTaskFamilySettlementCannotOverspend)$ ./internal/control"
+integration_command="go test -race -json -count=1 -run ^(TestDelegatedTasksShareRootAccountingState|TestConcurrentTaskFamilySettlementCannotOverspend)$ ./internal/control"
 set +e
 docker run --rm --network "$POSTGRES_NETWORK" \
   --env "CONTROL_TEST_POSTGRES_DSN=postgres://postgres:${POSTGRES_PASSWORD}@${POSTGRES_CONTAINER}:5432/${POSTGRES_DATABASE}?sslmode=disable" \
   "$BUILD_IMAGE" go test -race -json -count=1 \
-  -run '^(TestDelegatedTasksShareRootExposureKnowledge|TestConcurrentTaskFamilySettlementCannotOverspend)$' \
+  -run '^(TestDelegatedTasksShareRootAccountingState|TestConcurrentTaskFamilySettlementCannotOverspend)$' \
   ./internal/control >"$integration_tmp" 2>&1
 integration_status=$?
 set -e

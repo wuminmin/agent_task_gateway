@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -63,6 +65,42 @@ func TestTasksForCellSupportsSameTaskMode(t *testing.T) {
 	}
 }
 
+func TestTaskQueryBudgetAccountsForEveryWorkloadQuery(t *testing.T) {
+	cfg := suiteConfig{WarmupRunsPerWorker: 5, MeasuredRunsPerWorker: 30,
+		TaskConcurrencyMode: taskConcurrencyDistinct, Concurrency: []int{1, 8, 32}}
+	if got := taskQueriesForLargestCell(cfg, 3); got != 105 {
+		t.Fatalf("distinct-task calls = %d, want 105", got)
+	}
+	cfg.TaskConcurrencyMode = taskConcurrencySameTask
+	if got := taskQueriesForCell(cfg, 3, 8); got != 840 {
+		t.Fatalf("shared-task c8 calls = %d, want 840", got)
+	}
+	if got := taskQueriesForLargestCell(cfg, 3); got != 3360 {
+		t.Fatalf("largest shared-task calls = %d, want 3360", got)
+	}
+}
+
+func TestPreflightOneTaskBudgetRejectsInsufficientRemainingQueries(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(response).Encode(map[string]any{
+			"jsonrpc": "2.0", "id": 1,
+			"result": map[string]any{"isError": false, "structuredContent": map[string]any{
+				"budget": map[string]any{"remaining": map[string]any{"queries": 105}},
+			}},
+		})
+	}))
+	defer server.Close()
+	client := newHTTPBackend(server.URL, "token", "experiment", nil, false)
+	defer client.Close()
+	if err := preflightOneTaskBudget(client, 1, "task-ok", 105); err != nil {
+		t.Fatalf("exact remaining budget rejected: %v", err)
+	}
+	if err := preflightOneTaskBudget(client, 2, "task-short", 106); err == nil || !strings.Contains(err.Error(), "has 105 remaining queries, need 106") {
+		t.Fatalf("insufficient budget error = %v", err)
+	}
+}
+
 func TestBuildCellScheduleIsSeededCompletePermutation(t *testing.T) {
 	cfg := suiteConfig{
 		Seed:          42,
@@ -98,22 +136,23 @@ func TestBuildCellScheduleIsSeededCompletePermutation(t *testing.T) {
 
 func TestLoadSuiteRequiresColdCacheResetEnv(t *testing.T) {
 	config := map[string]any{
-		"schema_version":           schemaVersion,
-		"name":                     "cold-cache-test",
-		"mode":                     "smoke",
-		"seed":                     42,
-		"workload_lineage":         "TPC-derived",
-		"ordering_strategy":        orderingSeededRandom,
-		"cache_strategy":           cacheStrategyCold,
-		"task_concurrency_mode":    taskConcurrencyDistinct,
-		"environment_manifest_env": "EVAL_ENVIRONMENT_MANIFEST",
-		"warmup_runs_per_worker":   1,
-		"measured_runs_per_worker": 1,
-		"concurrency":              []int{1},
-		"baseline_order":           append([]string(nil), requiredBaselines...),
-		"max_result_rows":          10,
-		"statement_timeout":        "1s",
-		"require_resource_metrics": false,
+		"schema_version":            schemaVersion,
+		"name":                      "cold-cache-test",
+		"mode":                      "smoke",
+		"seed":                      42,
+		"workload_lineage":          "TPC-derived",
+		"ordering_strategy":         orderingSeededRandom,
+		"cache_strategy":            cacheStrategyCold,
+		"task_concurrency_mode":     taskConcurrencyDistinct,
+		"environment_manifest_env":  "EVAL_ENVIRONMENT_MANIFEST",
+		"warmup_runs_per_worker":    1,
+		"measured_runs_per_worker":  1,
+		"taskgate_queries_per_task": 3,
+		"concurrency":               []int{1},
+		"baseline_order":            append([]string(nil), requiredBaselines...),
+		"max_result_rows":           10,
+		"statement_timeout":         "1s",
+		"require_resource_metrics":  false,
 		"experiments": []map[string]any{{
 			"id":                      "tpch_sf1",
 			"family":                  "tpch",
@@ -135,10 +174,10 @@ func TestLoadSuiteRequiresColdCacheResetEnv(t *testing.T) {
 
 	experiments := config["experiments"].([]map[string]any)
 	experiments[0]["cache_reset_env"] = map[string]string{
-		baselineDirect:       "RESET_DIRECT",
-		baselineNativeView:   "RESET_NATIVE",
-		baselineASTOnly:      "RESET_AST",
-		baselineFullTaskGate: "RESET_FULL",
+		baselineDirect:           "RESET_DIRECT",
+		baselineNativeView:       "RESET_NATIVE",
+		baselineASTOnly:          "RESET_AST",
+		baselineResourceTaskGate: "RESET_FULL",
 	}
 	path = writeTempConfig(t, config)
 	if _, _, err := loadSuite(path); err != nil {

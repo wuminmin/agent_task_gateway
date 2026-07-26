@@ -20,13 +20,13 @@
       "direct_postgresql": "record SELECT version()",
       "native_view": "record SELECT version()",
       "ast_only_gateway": "record SELECT version()",
-      "full_taskgate": "record SELECT version()"
+      "resource_taskgate": "record SELECT version()"
     },
     "image_digests": {
       "direct_postgresql": "record database image digest",
       "native_view": "record database image digest",
       "ast_only_gateway": "record database image digest",
-      "full_taskgate": "record database image digest"
+      "resource_taskgate": "record database image digest"
     },
     "parameters": {
       "shared_buffers": "record value",

@@ -10,12 +10,13 @@
   "environment_manifest_env": "EVAL_ENVIRONMENT_MANIFEST",
   "warmup_runs_per_worker": 5,
   "measured_runs_per_worker": 30,
+  "taskgate_queries_per_task": 105,
   "concurrency": [1, 8, 32],
   "baseline_order": [
     "direct_postgresql",
     "native_view",
     "ast_only_gateway",
-    "full_taskgate"
+    "resource_taskgate"
   ],
   "max_result_rows": 10000,
   "statement_timeout": "30s",
@@ -39,7 +40,7 @@
         "direct_postgresql": "EVAL_TPCH_SF1_DIRECT_METRICS_COMMAND",
         "native_view": "EVAL_TPCH_SF1_NATIVE_METRICS_COMMAND",
         "ast_only_gateway": "EVAL_TPCH_SF1_AST_METRICS_COMMAND",
-        "full_taskgate": "EVAL_TPCH_SF1_TASKGATE_METRICS_COMMAND"
+        "resource_taskgate": "EVAL_TPCH_SF1_TASKGATE_METRICS_COMMAND"
       }
     },
     {
@@ -60,7 +61,7 @@
         "direct_postgresql": "EVAL_TPCDS_SF1_DIRECT_METRICS_COMMAND",
         "native_view": "EVAL_TPCDS_SF1_NATIVE_METRICS_COMMAND",
         "ast_only_gateway": "EVAL_TPCDS_SF1_AST_METRICS_COMMAND",
-        "full_taskgate": "EVAL_TPCDS_SF1_TASKGATE_METRICS_COMMAND"
+        "resource_taskgate": "EVAL_TPCDS_SF1_TASKGATE_METRICS_COMMAND"
       }
     }
   ]

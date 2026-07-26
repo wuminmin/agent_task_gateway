@@ -10,7 +10,7 @@
         "direct_postgresql": "queries/store_sales_window.direct.sql",
         "native_view": "queries/store_sales_window.native.sql",
         "ast_only_gateway": "queries/store_sales_window.gateway.sql",
-        "full_taskgate": "queries/store_sales_window.gateway.sql"
+        "resource_taskgate": "queries/store_sales_window.gateway.sql"
       }
     },
     {
@@ -19,7 +19,7 @@
         "direct_postgresql": "queries/items_by_category.direct.sql",
         "native_view": "queries/items_by_category.native.sql",
         "ast_only_gateway": "queries/items_by_category.gateway.sql",
-        "full_taskgate": "queries/items_by_category.gateway.sql"
+        "resource_taskgate": "queries/items_by_category.gateway.sql"
       }
     },
     {
@@ -28,7 +28,7 @@
         "direct_postgresql": "queries/customers_by_demographic.direct.sql",
         "native_view": "queries/customers_by_demographic.native.sql",
         "ast_only_gateway": "queries/customers_by_demographic.gateway.sql",
-        "full_taskgate": "queries/customers_by_demographic.gateway.sql"
+        "resource_taskgate": "queries/customers_by_demographic.gateway.sql"
       }
     }
   ]

@@ -185,6 +185,59 @@ func TestGroupedPaginationSQLUsesCanonicalGroupKeySuffix(t *testing.T) {
 	}
 }
 
+func TestExposureV2OnlinePathSupportsOffset(t *testing.T) {
+	harness := newGatewayHarness(t)
+	harness.createExposureV2SummaryTask(t, "task-v2-offset", control.ExposureLimits{ReleaseFacts: 20, InfluenceFacts: 20})
+	page := dataconnector.Result{
+		Columns: []dataconnector.Column{{Name: "month", DataTypeOID: 25}, {Name: "department", DataTypeOID: 25}, {Name: "expense_type", DataTypeOID: 25}},
+		Rows:    [][]any{{"2026-03", "销售部", "机票"}}, RowCount: 1,
+	}
+	harness.connector.result = page
+	harness.connector.provenanceResult = page
+	result := mustCallGatewayTool(t, harness.service, harness.alice, "execute_plan", map[string]any{
+		"task_id": "task-v2-offset", "request_id": "v2-offset-page",
+		"plan": map[string]any{"product": "expense_summary", "columns": []string{"month"},
+			"order_by": []map[string]any{{"column": "month", "direction": "asc"}}, "limit": 1, "offset": 2},
+	})
+	if len(harness.connector.requests) != 2 {
+		t.Fatalf("paired online calls = %d, want 2", len(harness.connector.requests))
+	}
+	for _, request := range harness.connector.requests {
+		if !strings.Contains(request.SQL, "LIMIT 1 OFFSET 2") {
+			t.Fatalf("online pagination SQL omitted offset: %s", request.SQL)
+		}
+	}
+	columns := result["columns"].([]dataconnector.Column)
+	if len(columns) != 1 || columns[0].Name != "month" {
+		t.Fatalf("hidden pagination evidence leaked: %+v", columns)
+	}
+}
+
+func TestExposureV2OnlinePathSupportsCountStar(t *testing.T) {
+	harness := newGatewayHarness(t)
+	harness.createExposureV2SummaryTask(t, "task-v2-count-star", control.ExposureLimits{ReleaseFacts: 20, InfluenceFacts: 20})
+	harness.connector.result = dataconnector.Result{
+		Columns: []dataconnector.Column{{Name: "rows", DataTypeOID: 20}},
+		Rows:    [][]any{{int64(2)}}, RowCount: 1,
+	}
+	harness.connector.provenanceResult = dataconnector.Result{
+		Columns: []dataconnector.Column{{Name: "department", DataTypeOID: 25}, {Name: "expense_type", DataTypeOID: 25}, {Name: "month", DataTypeOID: 25}},
+		Rows:    [][]any{{"销售部", "机票", "2026-01"}, {"销售部", "酒店", "2026-01"}}, RowCount: 2,
+	}
+	result := mustCallGatewayTool(t, harness.service, harness.alice, "execute_plan", map[string]any{
+		"task_id": "task-v2-count-star", "request_id": "v2-count-star",
+		"plan": map[string]any{"product": "expense_summary", "columns": []string{},
+			"aggregates": []map[string]any{{"function": "count", "column": "*", "alias": "rows"}}},
+	})
+	if len(harness.connector.requests) != 2 || !strings.Contains(harness.connector.requests[0].SQL, "count(*)") {
+		t.Fatalf("COUNT(*) did not use the paired online path: %+v", harness.connector.requests)
+	}
+	charge := result["exposure"].(control.ExposureCharge)
+	if charge.ActualReleaseFacts != 1 || charge.ActualInfluenceFacts == 0 {
+		t.Fatalf("COUNT(*) exposure charge = %+v", charge)
+	}
+}
+
 func sameExposureFactIDs(t *testing.T, left, right []exposure.FactID) bool {
 	t.Helper()
 	leftSet, err := exposure.NewFactSet(left...)

@@ -10,12 +10,13 @@
   "environment_manifest_env": "EVAL_ENVIRONMENT_MANIFEST",
   "warmup_runs_per_worker": 1,
   "measured_runs_per_worker": 3,
+  "taskgate_queries_per_task": 12,
   "concurrency": [1],
   "baseline_order": [
     "direct_postgresql",
     "native_view",
     "ast_only_gateway",
-    "full_taskgate"
+    "resource_taskgate"
   ],
   "max_result_rows": 10000,
   "statement_timeout": "30s",

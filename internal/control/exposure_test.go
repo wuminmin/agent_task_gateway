@@ -83,7 +83,7 @@ func TestExposureOverBudgetDoesNotStoreOrChargeResult(t *testing.T) {
 	}
 }
 
-func TestDelegatedTasksShareRootExposureKnowledge(t *testing.T) {
+func TestDelegatedTasksShareRootAccountingState(t *testing.T) {
 	store := openTestStore(t, testpostgres.SchemaDSN(t), testCipher(t, 23))
 	expires := time.Now().UTC().Add(time.Hour)
 	createAwaitingApprovalTask(t, store, "task_root", expires)
@@ -119,10 +119,10 @@ func TestDelegatedTaskCannotAddFactsBeyondNarrowedFamilyCeiling(t *testing.T) {
 	approveExposureTask(t, store, "task_narrow_root", expires, ExposureLimits{ReleaseFacts: 3, InfluenceFacts: 3})
 	createDelegatedExposureTask(t, store, "task_narrow_child", "task_narrow_root", expires, ExposureLimits{ReleaseFacts: 1, InfluenceFacts: 1})
 
-	known := exposureObservation(t, "known-row", "amount", 10)
+	accounted := exposureObservation(t, "accounted-row", "amount", 10)
 	rootQuery := reserveExposureQuery(t, store, "task_narrow_root", "query_narrow_root", "request-root")
 	if _, err := store.FinalizeQuery(context.Background(), BudgetSettlement{
-		QueryID: rootQuery.QueryID, Rows: 1, DBMS: 1, Exposure: &known,
+		QueryID: rootQuery.QueryID, Rows: 1, DBMS: 1, Exposure: &accounted,
 	}, []byte(`{"rows":[[10]]}`)); err != nil {
 		t.Fatal(err)
 	}

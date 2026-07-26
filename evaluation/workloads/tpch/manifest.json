@@ -10,7 +10,7 @@
         "direct_postgresql": "queries/orders_by_status.direct.sql",
         "native_view": "queries/orders_by_status.native.sql",
         "ast_only_gateway": "queries/orders_by_status.gateway.sql",
-        "full_taskgate": "queries/orders_by_status.gateway.sql"
+        "resource_taskgate": "queries/orders_by_status.gateway.sql"
       }
     },
     {
@@ -19,7 +19,7 @@
         "direct_postgresql": "queries/customers_by_segment.direct.sql",
         "native_view": "queries/customers_by_segment.native.sql",
         "ast_only_gateway": "queries/customers_by_segment.gateway.sql",
-        "full_taskgate": "queries/customers_by_segment.gateway.sql"
+        "resource_taskgate": "queries/customers_by_segment.gateway.sql"
       }
     },
     {
@@ -28,7 +28,7 @@
         "direct_postgresql": "queries/lineitems_by_shipmode.direct.sql",
         "native_view": "queries/lineitems_by_shipmode.native.sql",
         "ast_only_gateway": "queries/lineitems_by_shipmode.gateway.sql",
-        "full_taskgate": "queries/lineitems_by_shipmode.gateway.sql"
+        "resource_taskgate": "queries/lineitems_by_shipmode.gateway.sql"
       }
     }
   ]

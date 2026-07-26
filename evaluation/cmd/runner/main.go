@@ -37,10 +37,10 @@ import (
 const schemaVersion = 1
 
 const (
-	baselineDirect       = "direct_postgresql"
-	baselineNativeView   = "native_view"
-	baselineASTOnly      = "ast_only_gateway"
-	baselineFullTaskGate = "full_taskgate"
+	baselineDirect           = "direct_postgresql"
+	baselineNativeView       = "native_view"
+	baselineASTOnly          = "ast_only_gateway"
+	baselineResourceTaskGate = "resource_taskgate"
 
 	orderingSeededRandom       = "seeded_random"
 	cacheStrategyWarm          = "warm"
@@ -56,7 +56,7 @@ var requiredBaselines = []string{
 	baselineDirect,
 	baselineNativeView,
 	baselineASTOnly,
-	baselineFullTaskGate,
+	baselineResourceTaskGate,
 }
 
 var sha256Pattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -86,6 +86,7 @@ type suiteConfig struct {
 	EnvironmentManifestEnv string       `json:"environment_manifest_env"`
 	WarmupRunsPerWorker    int          `json:"warmup_runs_per_worker"`
 	MeasuredRunsPerWorker  int          `json:"measured_runs_per_worker"`
+	TaskGateQueriesPerTask int          `json:"taskgate_queries_per_task"`
 	Concurrency            []int        `json:"concurrency"`
 	BaselineOrder          []string     `json:"baseline_order"`
 	MaxResultRows          int64        `json:"max_result_rows"`
@@ -171,6 +172,7 @@ type runMetadata struct {
 	EnvironmentManifestSHA256 string                       `json:"environment_manifest_sha256,omitempty"`
 	WarmupRunsPerWorker       int                          `json:"warmup_runs_per_worker"`
 	MeasuredRunsPerWorker     int                          `json:"measured_runs_per_worker"`
+	TaskGateQueriesPerTask    int                          `json:"taskgate_queries_per_task"`
 	Concurrency               []int                        `json:"concurrency"`
 	Endpoints                 map[string]interface{}       `json:"endpoints"`
 	Error                     string                       `json:"error,omitempty"`
@@ -282,17 +284,20 @@ func main() {
 	}
 	if *preflightOnly {
 		configs := []suiteConfig{cfg}
+		workloadSets := []map[string][]loadedQuery{workloads}
 		for _, path := range additionalConfigs {
 			additional, _, loadErr := loadSuite(path)
 			if loadErr != nil {
 				fatal(loadErr)
 			}
-			if _, loadErr = loadWorkloads(additional); loadErr != nil {
+			additionalWorkloads, loadErr := loadWorkloads(additional)
+			if loadErr != nil {
 				fatal(loadErr)
 			}
 			configs = append(configs, additional)
+			workloadSets = append(workloadSets, additionalWorkloads)
 		}
-		if err := preflightSuites(configs); err != nil {
+		if err := preflightSuites(configs, workloadSets); err != nil {
 			fatal(fmt.Errorf("runner preflight: %w", err))
 		}
 		fmt.Printf("ok - runtime preflight passed for %d suite(s) before measurement\n", len(configs))
@@ -304,7 +309,7 @@ func main() {
 	if *outputDir == "" || *runID == "" {
 		fatal(errors.New("runner: -output and -run-id are required unless -validate-only is used"))
 	}
-	if err := preflightSuites([]suiteConfig{cfg}); err != nil {
+	if err := preflightSuites([]suiteConfig{cfg}, []map[string][]loadedQuery{workloads}); err != nil {
 		fatal(fmt.Errorf("runner preflight: %w", err))
 	}
 
@@ -542,7 +547,7 @@ func openBackend(ctx context.Context, cfg suiteConfig, exp experiment, baseline 
 		return openPostgres(ctx, cfg, exp.NativeDSNEnv, concurrency, defaultApplicationNative)
 	case baselineASTOnly:
 		return openAST(exp)
-	case baselineFullTaskGate:
+	case baselineResourceTaskGate:
 		return openTaskGate(exp, concurrency, cfg.TaskConcurrencyMode)
 	default:
 		return nil, fmt.Errorf("unknown baseline %q", baseline)
@@ -779,11 +784,14 @@ func (b *httpBackend) Close() {
 	}
 }
 
-func preflightSuites(configs []suiteConfig) error {
+func preflightSuites(configs []suiteConfig, workloadSets []map[string][]loadedQuery) error {
+	if len(configs) != len(workloadSets) {
+		return errors.New("suite/workload preflight input mismatch")
+	}
 	seenExperiments := make(map[string]string)
 	seenTasks := make(map[string]string)
 	poolCache := make(map[string]taskPoolFile)
-	for _, cfg := range configs {
+	for suiteIndex, cfg := range configs {
 		for _, exp := range cfg.Experiments {
 			location := cfg.Name + "/" + exp.ID
 			if previous := seenExperiments[exp.ID]; previous != "" {
@@ -844,6 +852,10 @@ func preflightSuites(configs []suiteConfig) error {
 				if err := reserveUniqueTasks(seenTasks, tasks, cell); err != nil {
 					return err
 				}
+				requiredQueries := taskQueriesForCell(cfg, len(workloadSets[suiteIndex][exp.ID]), concurrency)
+				if err := preflightTaskBudgets(exp, tasks, requiredQueries); err != nil {
+					return fmt.Errorf("%s: %w", cell, err)
+				}
 			}
 			if cfg.Mode == "full" {
 				if _, _, err := datasetProvenance(exp); err != nil {
@@ -878,6 +890,88 @@ func preflightSuites(configs []suiteConfig) error {
 				return err
 			}
 		}
+	}
+	return nil
+}
+
+// preflightTaskBudgets uses the public read-only task context tool so a
+// campaign fails before warmup when a task is inactive or its remaining query
+// budget cannot cover every query in that worker's cell.
+func preflightTaskBudgets(exp experiment, tasks []string, requiredQueries int) error {
+	endpoint := os.Getenv(exp.TaskGateURLenv)
+	token := os.Getenv(exp.TaskGateTokenEnv)
+	client := newHTTPBackend(endpoint, token, exp.ID, nil, false)
+	defer client.Close()
+
+	unique := make([]string, 0, len(tasks))
+	seen := make(map[string]bool, len(tasks))
+	for _, taskID := range tasks {
+		if !seen[taskID] {
+			seen[taskID] = true
+			unique = append(unique, taskID)
+		}
+	}
+	errorsByTask := make([]error, len(unique))
+	var wg sync.WaitGroup
+	for index, taskID := range unique {
+		index, taskID := index, taskID
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errorsByTask[index] = preflightOneTaskBudget(client, index+1, taskID, requiredQueries)
+		}()
+	}
+	wg.Wait()
+	for _, err := range errorsByTask {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func preflightOneTaskBudget(client *httpBackend, rpcID int, taskID string, requiredQueries int) error {
+	payload := map[string]any{
+		"jsonrpc": "2.0", "id": rpcID, "method": "tools/call",
+		"params": map[string]any{
+			"name": "get_task_context", "arguments": map[string]any{"task_id": taskID},
+		},
+	}
+	var envelope struct {
+		Error *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+		Result struct {
+			IsError           bool            `json:"isError"`
+			StructuredContent json.RawMessage `json:"structuredContent"`
+		} `json:"result"`
+	}
+	status, err := client.postJSON(context.Background(), payload, &envelope)
+	if err != nil {
+		return fmt.Errorf("TaskGate task %s budget preflight failed: %w", taskID, err)
+	}
+	if status != http.StatusOK {
+		return fmt.Errorf("TaskGate task %s budget preflight returned HTTP %d", taskID, status)
+	}
+	if envelope.Error != nil {
+		return fmt.Errorf("TaskGate task %s budget preflight RPC error %d (%s)", taskID, envelope.Error.Code, safeError(envelope.Error.Message))
+	}
+	if envelope.Result.IsError {
+		return fmt.Errorf("TaskGate task %s is not an accessible ACTIVE task", taskID)
+	}
+	var content struct {
+		Budget struct {
+			Remaining struct {
+				Queries int64 `json:"queries"`
+			} `json:"remaining"`
+		} `json:"budget"`
+	}
+	if err := json.Unmarshal(envelope.Result.StructuredContent, &content); err != nil {
+		return fmt.Errorf("decode TaskGate task %s budget preflight: %w", taskID, err)
+	}
+	if content.Budget.Remaining.Queries < int64(requiredQueries) {
+		return fmt.Errorf("TaskGate task %s has %d remaining queries, need %d", taskID, content.Budget.Remaining.Queries, requiredQueries)
 	}
 	return nil
 }
@@ -1088,6 +1182,9 @@ func loadSuite(path string) (suiteConfig, []byte, error) {
 	if cfg.WarmupRunsPerWorker < 1 || cfg.MeasuredRunsPerWorker < 1 || cfg.MaxResultRows < 1 {
 		return suiteConfig{}, nil, errors.New("runner: warmup, measured runs, and max_result_rows must be positive")
 	}
+	if cfg.TaskGateQueriesPerTask < 1 {
+		return suiteConfig{}, nil, errors.New("runner: taskgate_queries_per_task must be positive")
+	}
 	if _, err := time.ParseDuration(cfg.StatementTimeout); err != nil {
 		return suiteConfig{}, nil, fmt.Errorf("runner: invalid statement_timeout: %w", err)
 	}
@@ -1197,8 +1294,43 @@ func loadWorkloads(cfg suiteConfig) (map[string][]loadedQuery, error) {
 			queries = append(queries, loaded)
 		}
 		result[exp.ID] = queries
+		required := taskQueriesForLargestCell(cfg, len(queries))
+		if cfg.TaskGateQueriesPerTask != required {
+			return nil, fmt.Errorf("runner: taskgate_queries_per_task=%d, want %d for workload %s (%d queries x %d warmup+measured calls%s)",
+				cfg.TaskGateQueriesPerTask, required, exp.ID, len(queries), cfg.WarmupRunsPerWorker+cfg.MeasuredRunsPerWorker,
+				taskQueryConcurrencySuffix(cfg))
+		}
 	}
 	return result, nil
+}
+
+func taskQueriesForCell(cfg suiteConfig, queryCount, concurrency int) int {
+	result := queryCount * (cfg.WarmupRunsPerWorker + cfg.MeasuredRunsPerWorker)
+	if cfg.TaskConcurrencyMode == taskConcurrencySameTask {
+		result *= concurrency
+	}
+	return result
+}
+
+func taskQueriesForLargestCell(cfg suiteConfig, queryCount int) int {
+	result := queryCount * (cfg.WarmupRunsPerWorker + cfg.MeasuredRunsPerWorker)
+	if cfg.TaskConcurrencyMode != taskConcurrencySameTask {
+		return result
+	}
+	largest := 0
+	for _, concurrency := range cfg.Concurrency {
+		if concurrency > largest {
+			largest = concurrency
+		}
+	}
+	return result * largest
+}
+
+func taskQueryConcurrencySuffix(cfg suiteConfig) string {
+	if cfg.TaskConcurrencyMode == taskConcurrencySameTask {
+		return " x largest shared-task concurrency"
+	}
+	return ""
 }
 
 func loadTaskPool(path, experimentID string, concurrency int, taskConcurrencyMode string) ([]string, error) {
@@ -1296,16 +1428,17 @@ func buildMetadata(cfg suiteConfig, configPath string, configBytes []byte, workl
 		MetricsProbeSHA256: make(map[string]map[string]string),
 		CacheResetPaths:    make(map[string]map[string]string), CacheResetSHA256: make(map[string]map[string]string),
 		GoVersion: runtime.Version(), GOOS: runtime.GOOS, GOARCH: runtime.GOARCH,
-		BaselineOrder:         append([]string(nil), cfg.BaselineOrder...),
-		BaselineOrderSeed:     cfg.Seed,
-		OrderingStrategy:      cfg.OrderingStrategy,
-		CellOrder:             buildCellSchedule(cfg),
-		CacheStrategy:         cfg.CacheStrategy,
-		TaskConcurrencyMode:   cfg.TaskConcurrencyMode,
-		WorkloadLineage:       cfg.WorkloadLineage,
-		WarmupRunsPerWorker:   cfg.WarmupRunsPerWorker,
-		MeasuredRunsPerWorker: cfg.MeasuredRunsPerWorker,
-		Concurrency:           append([]int(nil), cfg.Concurrency...), Endpoints: make(map[string]interface{}),
+		BaselineOrder:          append([]string(nil), cfg.BaselineOrder...),
+		BaselineOrderSeed:      cfg.Seed,
+		OrderingStrategy:       cfg.OrderingStrategy,
+		CellOrder:              buildCellSchedule(cfg),
+		CacheStrategy:          cfg.CacheStrategy,
+		TaskConcurrencyMode:    cfg.TaskConcurrencyMode,
+		WorkloadLineage:        cfg.WorkloadLineage,
+		WarmupRunsPerWorker:    cfg.WarmupRunsPerWorker,
+		MeasuredRunsPerWorker:  cfg.MeasuredRunsPerWorker,
+		TaskGateQueriesPerTask: cfg.TaskGateQueriesPerTask,
+		Concurrency:            append([]int(nil), cfg.Concurrency...), Endpoints: make(map[string]interface{}),
 	}
 	envDigest, envPath, err := environmentManifestProvenance(cfg)
 	if err != nil {
@@ -1366,10 +1499,10 @@ func buildMetadata(cfg suiteConfig, configPath string, configBytes []byte, workl
 			}
 		}
 		metadata.Endpoints[exp.ID] = map[string]string{
-			baselineDirect:       redactDSN(os.Getenv(exp.DirectDSNEnv)),
-			baselineNativeView:   redactDSN(os.Getenv(exp.NativeDSNEnv)),
-			baselineASTOnly:      redactedURL(os.Getenv(exp.ASTURLenv)),
-			baselineFullTaskGate: redactedURL(os.Getenv(exp.TaskGateURLenv)),
+			baselineDirect:           redactDSN(os.Getenv(exp.DirectDSNEnv)),
+			baselineNativeView:       redactDSN(os.Getenv(exp.NativeDSNEnv)),
+			baselineASTOnly:          redactedURL(os.Getenv(exp.ASTURLenv)),
+			baselineResourceTaskGate: redactedURL(os.Getenv(exp.TaskGateURLenv)),
 		}
 	}
 	return metadata, nil

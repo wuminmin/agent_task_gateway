@@ -22,19 +22,19 @@ BASELINE_ORDER = {
     "direct_postgresql": 0,
     "native_view": 1,
     "ast_only_gateway": 2,
-    "full_taskgate": 3,
+    "resource_taskgate": 3,
 }
 BASELINE_LABEL = {
     "direct_postgresql": "Direct PostgreSQL",
     "native_view": "Native View",
     "ast_only_gateway": "AST-only Gateway",
-    "full_taskgate": "Full TaskGate",
+    "resource_taskgate": "Resource-only TaskGate",
 }
 COLORS = {
     "direct_postgresql": "#4477AA",
     "native_view": "#66CCEE",
     "ast_only_gateway": "#228833",
-    "full_taskgate": "#CC6677",
+    "resource_taskgate": "#CC6677",
 }
 REQUIRED_FULL_SUITES = {
     "taskgate-sf1-four-baseline": {"tpch_sf1", "tpcds_sf1"},
@@ -150,6 +150,7 @@ def full_campaign_error(
         "concurrency",
         "warmup_runs_per_worker",
         "measured_runs_per_worker",
+        "taskgate_queries_per_task",
         "environment_manifest_path",
         "environment_manifest_sha256",
     ):

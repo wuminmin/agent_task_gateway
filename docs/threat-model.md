@@ -18,10 +18,12 @@ Agent 提交的结构化申请、QueryPlan、SQL、浏览器请求、网络回�
 | Agent 越权读取其他主体任务/结果 | Bearer Token 映射固定 Principal；任务和结果同时校验 principal、task、query 与 actor；越权按不存在返回；Principal 禁用后 Gateway 不再列出或执行工具 | 长期静态 Token 没有设备绑定、短期会话、组织级权限或外部会话吊销发布 |
 | Carol 读取敏感原始结果 | Carol 只注册两个审计工具，凭证不含结果行 | 拥有控制库和数据密钥的管理员可以解密；审计元数据可能包含目标和 OA 信息 |
 | 客户端伪造授权字段 | 身份字段由 Gateway 生成；产品、字段和 Scope 必须显式且非空；OA 展示并绑定 RFC 8785 `AuthorizationManifestV1` 摘要 | 不验证自然语言目标与查询语义；审批人仍须核对结构化 Manifest |
-| 恶意 QueryPlan | 本地编译器验证产品、字段、聚合、过滤、排序、literal 与 Limit，随后进入完整 SQL AST 策略 | 编译器或策略实现缺陷仍需模糊测试和攻击语料覆盖 |
-| 通过拆分查询、重叠分页或新 request ID 重复提取数据 | release/influence 以根任务已知 FactID 集合结算；唯一键只计 novel facts；终态 request replay 不重执行 | 只覆盖已定义 FactID 与正向 provenance；不限制输出顺序、空结果等负信息推断 |
+| 恶意 QueryPlan | 本地编译器验证产品、字段、聚合、过滤、排序、literal、Limit 与 Offset，随后进入完整 SQL AST 策略 | 编译器或策略实现缺陷仍需模糊测试和攻击语料覆盖 |
+| 通过拆分查询、重叠分页或新 request ID 重复提取数据 | release/influence 以根任务已计量 FactID 集合结算；唯一键只计 novel facts；终态 request replay 不重执行 | 只覆盖已定义 FactID 与正向 provenance；不限制输出顺序、空结果等负信息推断 |
+| 通过预算拒绝探测数据相关阈值 | 超预算结果始终在释放前丢弃，成功结算保持账本上限 | 接受/拒绝位本身不计 exposure，可能泄漏候选 Effect 是否超过剩余额度；当前机制不是 simulatable auditor，不能把拒绝称为无泄漏 |
 | 聚合把百万来源伪装成一个返回行 | release 与 source influence 分账；聚合输出只占少量 release，但所有正向贡献来源进入 influence | 当前 lineage 物化有高空间和延迟成本；尚无 sketch、压缩或近似模式 |
 | 子 Agent 通过委托重置预算 | 签名 root/parent lineage、逐维 Grant narrowing、每次执行验证祖先 ACTIVE；整个任务族共享 root ledger | 默认 Demo 只有一个 query Principal；更大委托 DAG 只有有限模型与实现测试，尚无大规模实验 |
+| 同一主体申请多个根任务重置账本 | 每个 root 都需要一次独立的人类审批并在其后代内守恒 | 系统没有 principal/tenant 级全局 exposure ledger；若审批策略允许多个 root，同一主体会获得多个独立预算，root-family 定理不阻止这种放大 |
 | 并发子任务同时花费最后额度 | 根 exposure ledger `FOR UPDATE` 串行结算；FactID 唯一键、双上限条件更新、结果持久化处于同一事务 | 单一根 ledger 会成为高并发热点；当前没有分片或分布式 settlement 协议 |
 | 可见结果与 provenance 观察不同数据版本 | 两条策略 SQL 在一个只读 `REPEATABLE READ` 事务执行；证据缺失或截断时结果不释放 | Catalog snapshot 是管理员版本标签，未接 CDC；错误 entity key 或漏升 snapshot 会破坏跨查询语义 |
 | 通过直接 SQL 绕开 exposure compiler | 启用 exposure 的 Grant 要求结构化 `execute_plan` 和完整 observation；`query_sql` 关闭式拒绝 | 在线 compiler 尚不支持 Join、Union、AVG、窗口函数或任意 SQL provenance |
@@ -44,6 +46,8 @@ Agent 提交的结构化申请、QueryPlan、SQL、浏览器请求、网络回�
 Gateway 不向外部模型或翻译服务发送目标、Catalog、SQL 或结果。所有任务申请和 QueryPlan 校验均在本地确定性代码中完成。
 
 查询结果会以明文返回给获批 Alice 的 MCP 客户端；数据库加密只保护控制库中的静态结果，不是端到端显示控制。终端历史、截图、Agent 工具或用户后续复制均在 Gateway 边界之外。
+
+Source-influence FactID 是 Gateway 内部的计量证据，响应和收据只交付计数与摘要，不把这些 FactID 当作 Agent 已知事实返回。因此 exposure ledger 表示“此前已计量的正向事实集合”，不是主体知识状态，也不是总体隐私损失。空答案、排序、背景知识、timing 以及预算接受/拒绝产生的推断均不进入该集合。
 
 `exposure_facts.identity_json` 保存产品、snapshot、Hash 化 entity key、字段名和
 value-version Hash，不保存原始值；但它仍是敏感访问元数据。事实账本在当前

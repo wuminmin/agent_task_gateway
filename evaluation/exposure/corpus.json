@@ -65,7 +65,7 @@
     {"id":"overlapping_pagination","execution":"deterministic"},
     {"id":"cache_retry","execution":"deterministic"},
     {"id":"snapshot_update","execution":"deterministic"},
-    {"id":"task_family_delegation","execution":"postgres_integration","test":"TestDelegatedTasksShareRootExposureKnowledge"},
+    {"id":"task_family_delegation","execution":"postgres_integration","test":"TestDelegatedTasksShareRootAccountingState"},
     {"id":"concurrent_settlement","execution":"postgres_integration","test":"TestConcurrentTaskFamilySettlementCannotOverspend"}
   ]
 }

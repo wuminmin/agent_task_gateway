@@ -81,7 +81,8 @@ approval_routes:
 
 budget_profiles:
   - name: evaluation
-    max_queries: 64
+    # Three queries x (5 warmups + 30 measured) = 105 calls per task/cell.
+    max_queries: 128
     max_rows: 10000
     max_db_time: 30m
     query_timeout: 30s

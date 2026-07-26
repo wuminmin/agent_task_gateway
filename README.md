@@ -100,7 +100,7 @@ Navicat 的用户名和密码对应关系见[本地启动与数据库调试](doc
 
 `query_sql` 仍用于 resource-only 兼容 Grant；对启用 exposure 的任务，它会因
 无法构造完整 provenance 而关闭式拒绝。当前在线精确计量片段是单产品
-QueryPlan 的 projection/filter/order/limit 与 `COUNT/SUM/MIN/MAX` 聚合；Join
+QueryPlan 的 projection/filter/order/limit/offset 与 `COUNT(*)/COUNT(column)/SUM/MIN/MAX` 聚合；Join
 和 Union 已在可执行代数中实现，但尚未接入在线 compiler。
 
 ## 身份

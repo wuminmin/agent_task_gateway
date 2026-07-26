@@ -29,7 +29,7 @@
 \newcommand{\release}{\mathsf{release}}
 \newcommand{\influence}{\mathsf{influence}}
 \newcommand{\facts}{\mathcal{F}}
-\newcommand{\known}{\mathcal{K}}
+\newcommand{\accounted}{\mathcal{K}}
 \newcommand{\effect}{\mathcal{E}}
 \newcommand{\lbag}{\{\!\{}
 \newcommand{\rbag}{\}\!\}}
@@ -57,7 +57,7 @@ claim TPC-scale or live-model generality.}}
 \begin{abstract}
 Autonomous database agents issue adaptive sequences of queries and may delegate
 subtasks to other agents. Conventional access control bounds each query but does
-not directly bound how many distinct facts an authorized task accumulates across
+not directly bound how many distinct metered facts a task ledger records across
 rewrites, pagination, retries, and delegation. We present TaskGate, a prototype
 for task-bound exposure accounting. A versioned fact identity binds a data
 product, snapshot, entity key, field, and value version. Each human-authorized
@@ -65,8 +65,9 @@ root task maintains separate release and source-influence ledgers, preventing a
 small aggregate result from hiding a large contributing input. The online path
 executes a visible query and provenance companion in one read-only snapshot,
 buffers the result, derives its fact sets, and atomically settles only facts
-novel to the root task before release. Signed delegation preserves the same
-ledger. We define compositional semantics for a positive relational fragment
+novel to that root ledger before release. Source-influence identities remain
+server-side accounting evidence rather than facts delivered to the agent.
+Signed delegation preserves the same ledger. We define compositional semantics for a positive relational fragment
 with grouping and four aggregates, implement an exact dual-budget representation
 planner, and check a finite ledger model. An independent RQ1 oracle validates
 14 queries on 16 source rows; PostgreSQL executes 1,024 unique normalized
@@ -93,7 +94,7 @@ single human-approved task it can adaptively issue many individually legal
 queries. It can split a projection, overlap pages, retry with a new request
 identifier, ask an equivalent query, or delegate a narrower subtask. Per-query
 authorization and row limits do not state how much distinct data the resulting
-task family has learned.
+root ledger has already accounted. This is not a model of the agent's knowledge.
 
 Counting queries is insensitive to answer size. Counting returned rows makes a
 one-row aggregate appear cheap even when it depends on millions of source rows.
@@ -110,7 +111,7 @@ agents query and delegate?
 influence} identifies positive source facts that affected selection, joining,
 grouping, or aggregation. The latter prevents a count from being accounted as
 one input fact merely because it returns one cell. Both effects are sets, so a
-fact already known anywhere in the task family has zero incremental charge.
+fact already recorded in the root-family ledger has zero incremental charge.
 
 The system follows a withhold-before-settlement discipline:
 
@@ -128,12 +129,15 @@ transaction back while the business execution remains separately measurable.
 This paper makes four implementation-backed contributions:
 
 \begin{enumerate}
-\item A dual exposure effect over a restricted positive relational algebra,
-including projection, selection, join, union, pagination, grouping, and
-\code{COUNT}/\code{SUM}/\code{MIN}/\code{MAX}.
-\item An online paired-snapshot algorithm and a PostgreSQL root-family ledger
-whose settlement charges exactly novel facts and withholds over-budget results.
-\item Signed, monotonic multi-agent delegation that shares root knowledge, plus
+\item Executable semantics and ground-truth tests for a restricted positive
+relational algebra, including projection, selection, join, union, pagination,
+grouping, and \code{COUNT}/\code{SUM}/\code{MIN}/\code{MAX}. This item is an
+algebra contribution, not a claim that every operator is online.
+\item An online paired-snapshot algorithm for the implemented one-product
+projection/filter/order/limit/offset/group fragment, including \code{COUNT(*)},
+and a PostgreSQL root-family ledger whose settlement charges exactly novel
+facts and withholds over-budget results.
+\item Signed, monotonic multi-agent delegation that shares root accounting state, plus
 an overlap-aware exact selector for choosing server-executed representations
 under two set-valued budgets and a fixed measurable utility profile.
 \item Executable ground truth, rewrite and anti-arbitrage tests, a finite TLA+
@@ -142,10 +146,11 @@ budget-constrained agent-task traces.
 \end{enumerate}
 
 The implementation does \emph{not} claim arbitrary SQL equivalence, differential
-privacy, or inference control. The online compiler currently accepts one-product
-structured plans; join and union exist in the executable algebra but are not yet
-connected to online provenance. These boundaries are part of the result, rather
-than hidden behind a broad ``SQL support'' label.
+privacy, inference control, principal-wide accounting, or denial-oblivious
+auditing. The online compiler currently accepts one-product structured plans;
+join and union exist in the executable algebra but are not connected to online
+provenance. A newly approved root creates a distinct ledger. These boundaries
+are part of the result, rather than hidden behind a broad ``SQL support'' label.
 
 \section{Context and Related Work}
 \label{sec:related}
@@ -213,8 +218,8 @@ operators for interactive performance \cite{psallidas2018smoke}. \system claims
 neither a new provenance algebra nor a general provenance engine. It specializes
 provenance to two set-valued effects---facts explicitly released and base facts
 that positively influence them---then requires answer/effect co-generation in
-one snapshot and atomic settlement before release. Multiplicity, negation, and
-general recursive SQL remain outside the current online profile.
+one snapshot and atomic settlement before release. Join/union multiplicity,
+negation, and general recursive SQL remain outside the current online profile.
 
 \subsection{Usage Control, Delegation, and Quotas}
 
@@ -331,20 +336,26 @@ $\facts_r$ and source-influence facts $\facts_i$ under a versioned profile
 $\pi$.
 \end{definition}
 
-Every root task $T$ stores known sets
-$\known_T=\langle\known_T^r,\known_T^i\rangle$ and limits
+Every root task $T$ stores previously accounted sets
+$\accounted_T=\langle\accounted_T^r,\accounted_T^i\rangle$ and limits
 $B_T=\langle B_T^r,B_T^i\rangle$. Settlement computes
 
 \begin{align}
- \Delta_T^r(q) &= \facts_r(q,D_s)\setminus\known_T^r,\\
- \Delta_T^i(q) &= \facts_i(q,D_s)\setminus\known_T^i.
+ \Delta_T^r(q) &= \facts_r(q,D_s)\setminus\accounted_T^r,\\
+ \Delta_T^i(q) &= \facts_i(q,D_s)\setminus\accounted_T^i.
  \label{eq:delta}
 \end{align}
 
 V2 measures cardinality independently in each dimension. A query may settle
 only if
-$|\known_T^r|+|\Delta_T^r|\leq B_T^r$ and
-$|\known_T^i|+|\Delta_T^i|\leq B_T^i$.
+$|\accounted_T^r|+|\Delta_T^r|\leq B_T^r$ and
+$|\accounted_T^i|+|\Delta_T^i|\leq B_T^i$.
+
+The word ``accounted'' is intentional. Release facts describe delivered values,
+but source-influence FactIDs remain internal to the gateway; the agent receives
+only result data, counts, and receipt digests. Hence $\accounted_T^i$ is not a
+set of facts known by the agent, and neither component is a complete epistemic
+or privacy-loss state.
 
 \subsection{Closed Typed Query Language}
 
@@ -738,8 +749,9 @@ general SQL equivalence reasoning.
 \subsection{Compilation and Paired Execution}
 
 An exposure-enabled grant accepts a one-product structured plan. The compiler
-first validates visible fields, filters, grouping, ordering, limit, and one of
-four aggregates. It then produces two SQL statements. For ungrouped output,
+first validates visible fields, filters, grouping, ordering, limit/offset, and
+one of four aggregates; \code{COUNT(*)} and \code{COUNT(field)} have distinct
+normal forms. It then produces two SQL statements. For ungrouped output,
 both statements use the same hidden projection, entity-key tie-breaker, and row
 ceiling; the gateway also checks their key sets before settlement. For grouped
 output, the companion selects entity keys, mandatory scopes, visible and
@@ -765,7 +777,7 @@ provenance pair in one Business PostgreSQL \code{REPEATABLE READ} snapshot.
 executed schema and truncation state; no client cost, utility, or weight is
 accepted.
 \item In Control PostgreSQL, lock the query reservation and root ledger, reload
-the latest known sets, and run the overlap-aware exact planner.
+the latest accounted sets, and run the overlap-aware exact planner.
 \item Insert the selected candidates' release and influence union with a primary key on root, ledger
 kind, and fact hash; conflicts contribute zero novel facts.
 \item Conditionally increment both used counters only if both limits remain
@@ -778,7 +790,8 @@ encrypted selected results, terminal audit, and V5 receipt.
 \item Commit, discard unselected buffers, and only then return selected results.
 \end{enumerate}
 
-If Step 4 affects no row, the transaction returns an exposure-budget error.
+If the conditional budget update in Step 5 affects no row, the transaction
+returns an exposure-budget error.
 Fact inserts and result storage roll back, and the caller never receives the
 buffer. PostgreSQL row locking serializes concurrent children at the shared
 root. Unique fact keys make charge equal to successful novel inserts, rather
@@ -788,7 +801,7 @@ Let $n$ be the number of unique candidate source and release references in one
 observation. Hashing is linear in encoded input size and normalization sorts at
 most $n$ hashes, giving $O(n\log n)$ in-memory work and $O(n)$ memory. Ledger
 inserts are chunked; index maintenance adds database-dependent
-$O(n\log |\known_T|)$ work under a conventional balanced index model. These are
+$O(n\log |\accounted_T|)$ work under a conventional balanced index model. These are
 complexity bounds, not measured latency claims.
 
 \subsection{Receipts and Failure Semantics}
@@ -805,6 +818,12 @@ release exposure because no result can be delivered before successful
 settlement. A process restart applies the same rule. Terminal request replay is
 observational: it returns the first persisted status or result and never starts
 a second execution.
+
+Withholding the buffer does not hide the decision bit. Whether settlement
+accepts a candidate reveals whether its data-dependent novel Effect fits the
+remaining budgets, and a rejected Effect is not itself inserted into either
+ledger. Thus rejection can act as an uncharged threshold oracle. The current
+protocol is not a simulatable auditor and makes no denial-noninterference claim.
 
 \section{Delegation and Planning}
 \label{sec:planning}
@@ -825,7 +844,13 @@ exposure capacity. A child that signs a lower exposure ceiling may add novel
 facts only while the shared family total remains within that ceiling; a
 zero-novelty replay remains admissible.
 
-\begin{theorem}[Atomic budget safety]
+This conservation scope stops at the root boundary. A second root task for the
+same principal has an independent ledger and therefore a fresh budget if a
+human approves it. The prototype has no principal-, tenant-, or organization-
+wide exposure ledger, so neither delegation monotonicity nor the theorem below
+prevents cross-root accumulation.
+
+\begin{theorem}[Atomic root-family budget safety]
 After any committed settlement sequence, each root ledger equals the union of
 the novel charges of its settled family queries, and neither cardinality
 exceeds its root limit.
@@ -948,8 +973,9 @@ rather than claiming a proof that does not exist.
 \subsection{Questions and Reproducibility}
 
 The evaluation is organized around five questions: RQ1 ground-truth accuracy;
-RQ2 rewrite invariance; RQ3 resistance to split, page, retry, join, snapshot,
-delegation, and concurrency amplification; RQ4 runtime/storage overhead; and RQ5
+RQ2 rewrite invariance; RQ3 resistance to split, page, retry, snapshot,
+delegation, and concurrency amplification, plus join amplification at the
+executable-algebra boundary; RQ4 runtime/storage overhead; and RQ5
 utility under a fixed dual budget. The report is rebuilt from a
 source-controlled V2 algebra corpus with digest prefix
 \ExposureCorpusHash{}. RQ2 additionally runs a real PostgreSQL~16
@@ -993,11 +1019,12 @@ independent Go fixture evaluator supplies expected ordered bags; every pair is
 checked both against that oracle and its PostgreSQL baseline. The templates
 cover predicate reorder, derived projection, CTE pushdown, De Morgan,
 correlated \code{EXISTS}, a one-row \code{VALUES} join, and two complete page
-partitions. RQ3 deterministically checks join multiplicity, split/merge,
-overlapping pages, cache/retry, and snapshot update. Delegation and concurrent
-root-ledger settlement additionally run against PostgreSQL with the Go race
-detector; the artifact binds both named test-pass events and the package-pass
-event to the SHA-256 of the raw \code{go test -json} log.
+partitions. RQ3 deterministically checks join multiplicity in the in-memory
+annotated algebra and checks split/merge, overlapping pages, cache/retry, and
+snapshot update. It is not an end-to-end online Join experiment. Delegation and
+concurrent root-ledger settlement additionally run against PostgreSQL with the
+Go race detector; the artifact binds both named test-pass events and the
+package-pass event to the SHA-256 of the raw \code{go test -json} log.
 
 \subsection{Descriptive Baseline Contrast}
 
@@ -1027,6 +1054,11 @@ Full, replay $(r,i)$ & \BaseReplay{} \\
 \end{table}
 
 \subsection{RQ4: End-to-End Overhead and Contention}
+
+RQ4 uses the dedicated public-\code{execute_plan} exposure harness. The separate
+four-baseline TPC-derived runner calls legacy resource-only \code{query_sql}; it
+is labeled \code{resource_taskgate}, is not used below, and cannot substantiate
+an exposure/provenance overhead claim.
 
 The controlled local campaign uses an i9-13900HX host with 32 logical CPUs and
 16.6~GB RAM under WSL2/Docker 29.1.3. Each of three trials creates fresh
@@ -1110,9 +1142,18 @@ does not measure facts inferred from empty answers, ordering, correlations,
 background knowledge, or timing. It is not differential privacy and should be
 combined with a privacy mechanism when those threats matter.
 
+\textbf{Decision and subject scope.} A budget refusal exposes one uncharged bit
+about whether the candidate's novel Effect crosses the remaining threshold; no
+simulatability or denial-noninterference result is claimed. Ledgers are scoped to
+one root family, not to a principal. Repeated human approval of new roots gives
+the same subject independent ledgers unless an external policy imposes a
+principal- or tenant-wide budget.
+
 \textbf{Query scope.} The executable algebra includes join and union, but the
 online compiler supports one product with projection, filtering, ordering,
-limit, grouping, and four aggregates. \code{AVG}, windows, negation,
+limit/offset, grouping, and \code{COUNT(*)}/\code{COUNT(field)}/\code{SUM}/
+\code{MIN}/\code{MAX}. Join-amplification and union results in this paper are
+algebra/oracle evidence, not online system coverage. \code{AVG}, windows, negation,
 difference, recursion, arbitrary subqueries, and cross-source plans fail closed.
 
 \textbf{Identity trust.} Stable entity keys and snapshot labels are
@@ -1142,8 +1183,8 @@ single-host fixture does not establish multi-node scaling or production SLOs.
 \section{Conclusion}
 
 Task-bound authorization answers what an agent may query; task-bound exposure
-accounting additionally constrains what its entire delegated workload may
-accumulate. \system realizes that distinction with stable facts, separate
+accounting additionally constrains what one root ledger records for its
+delegated workload. \system realizes that distinction with stable facts, separate
 release and source-influence sets, same-snapshot provenance, atomic novel-fact
 settlement, and an exact dual-budget representation planner. The current
 artifact establishes a coherent semantic and systems foundation, finds no
@@ -1154,7 +1195,8 @@ and exposes root-ledger serialization at higher concurrency. Exact planning
 improves externally scored trace success from 40\% to 60\% under matched
 budgets. These empirical results answer RQ4 and RQ5 for the declared local and
 deterministic scope; TPC-scale, multi-node, and live-LLM generalization remain
-outside the claims.
+outside the claims, as do online Join/Union coverage, cross-root accounting, and
+inference protection for denial or negative information.
 
 \bibliographystyle{IEEEtran}
 \bibliography{references}

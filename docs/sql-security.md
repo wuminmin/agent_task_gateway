@@ -100,10 +100,10 @@ Agent 自己写的内层 `LIMIT` 只能进一步缩小结果。外层限制按�
 
 ## QueryPlan 路径
 
-`execute_plan` 接受单产品声明式 `QueryPlan`：选择字段、聚合、过滤、分组、排序和 Limit。确定性的 Go 编译器校验产品必须已获批、字段和聚合位于 Catalog/Grant 白名单、别名不重复、Filter 运算符与 literal 类型安全、排序引用有效且 Limit 非负，再把编译结果送入完整 AST 策略。
+`execute_plan` 接受单产品声明式 `QueryPlan`：选择字段、聚合、过滤、分组、排序、Limit 和 Offset。确定性的 Go 编译器校验产品必须已获批、字段和聚合位于 Catalog/Grant 白名单、别名不重复、Filter 运算符与 literal 类型安全、排序引用有效且 Limit/Offset 非负，再把编译结果送入完整 AST 策略。`COUNT(*)` 与 `COUNT(column)` 是不同的规范表达式；只有 `COUNT` 可接受 `*`。
 
-启用 exposure 时，第二个编译阶段只接受 projection、filter、order、limit 和
-`COUNT/SUM/MIN/MAX`（可带 `GROUP BY`）。它加入 Catalog `entity_key`、Scope、
+启用 exposure 时，第二个编译阶段只接受 projection、filter、order、limit/offset 和
+`COUNT(*)/COUNT(column)/SUM/MIN/MAX`（可带 `GROUP BY`）。它加入 Catalog `entity_key`、Scope、
 谓词和聚合输入字段来生成 provenance companion。未获批的实体键仅在策略
 内部扩展 Grant，返回前会被删除；客户端不能借此查询 key。来源结果截断、
 列缺失、值不可规范化或两份结果不一致都会阻止结果释放。

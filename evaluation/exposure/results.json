@@ -1,7 +1,7 @@
 {
   "schema_version": 3,
   "profile_version": "taskgate-exposure-v2",
-  "corpus_sha256": "873bc66ab46e45d963261b5c902a9c4b55ab3da77275198088d029ed081c9461",
+  "corpus_sha256": "0870636d8196462667fdaaae3fb1e5b7066835dfa13f1fb0912d650d62dc5156",
   "rq1_ground_truth": {
     "cases": 14,
     "passed": 14,
@@ -1168,13 +1168,13 @@
       },
       {
         "id": "task_family_delegation",
-        "test": "TestDelegatedTasksShareRootExposureKnowledge"
+        "test": "TestDelegatedTasksShareRootAccountingState"
       }
     ],
     "postgres_integration": {
       "status": "complete",
       "artifact": "evaluation/exposure/rq3-integration.json",
-      "artifact_sha256": "0f21f4e4e26dd442c5eebcdbf11c791f5152825bb844400f09149c4d93972ae1",
+      "artifact_sha256": "915f36ed6678749c8a4488a87ad688df21fffdf4e00ddbc3aed2e9d1d4c7435b",
       "executed": 2,
       "passed": 2,
       "failed": 0
