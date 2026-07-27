@@ -475,6 +475,22 @@ func TestV2UnionDistinctIsIdempotentForBaseAndDerivedEffects(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertSameObservation(t, aggregateEffect, aggregateUnionEffect)
+
+	baseCount, err := AggregateFromResultsV2(base, nil, []AggregateSpecV2{
+		{Function: "count", Field: "*", OutputID: "n", OutputType: "bigint"},
+	}, []map[string]any{{"n": int64(len(base.Rows))}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	unionCount, err := AggregateFromResultsV2(baseUnion, nil, []AggregateSpecV2{
+		{Function: "count", Field: "*", OutputID: "n", OutputType: "bigint"},
+	}, []map[string]any{{"n": int64(len(base.Rows))}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseCountEffect, _ := ObserveV2(baseCount)
+	unionCountEffect, _ := ObserveV2(unionCount)
+	assertSameObservation(t, baseCountEffect, unionCountEffect)
 }
 
 func TestV2UnionDistinctCommutativitySurvivesDownstreamJoin(t *testing.T) {
@@ -578,6 +594,167 @@ func TestV2GroupUsesNotDistinctNullSemanticsAndCompleteOracle(t *testing.T) {
 	if _, err := AggregateFromResultsV2(base, []string{"group.key"}, nil, nil); err == nil {
 		t.Fatal("incomplete PostgreSQL group oracle was accepted")
 	}
+}
+
+func TestV2HiddenGroupKeyIsPositiveOutputDependency(t *testing.T) {
+	base := v2Expenses(t)
+	grouped, err := AggregateFromResultsV2(base, []string{"department"}, []AggregateSpecV2{
+		{Function: "sum", Field: "amount", OutputID: "total", OutputType: "numeric"},
+	}, []map[string]any{{"department": "sales", "total": "30"}, {"department": "rnd", "total": "30"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	effect, err := ObserveV2(grouped, "total")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dependency := mustFactSet(t, effect.Influence)
+	if len(effect.Release) != 2 || len(dependency) != 9 {
+		t.Fatalf("hidden-key group release=%d dependency=%d, want 2/9", len(effect.Release), len(dependency))
+	}
+	for _, row := range base.Rows {
+		assertFactSetContainsV2(t, dependency, row.RowSupport)
+		assertFactSetContainsV2(t, dependency, row.Cells["department"].Support)
+		assertFactSetContainsV2(t, dependency, row.Cells["amount"].Support)
+	}
+}
+
+func TestV2UnionDistinctIncludesHiddenEquivalenceFields(t *testing.T) {
+	base, err := ScanV2(BaseRelationSpecV2{SourceNamespace: "union.hidden", Snapshot: "s1", StableRole: "input",
+		Fields: []FieldV2{
+			{ID: "visible", SQLType: "text", Collation: "C", CollationVersion: "builtin", CollationDeterministic: true},
+			{ID: "dedup", SQLType: "text", Collation: "C", CollationVersion: "builtin", CollationDeterministic: true},
+		}, Rows: []BaseRowV2{
+			{EntityKey: "r1", Values: map[string]any{"visible": "same", "dedup": "left"}},
+			{EntityKey: "r2", Values: map[string]any{"visible": "same", "dedup": "right"}},
+		}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	left, err := SelectV2(base, nil, func(row AnnotatedRowV2) SQLTruth {
+		if row.Key == "r1" {
+			return SQLTrue
+		}
+		return SQLFalse
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	right, err := SelectV2(base, nil, func(row AnnotatedRowV2) SQLTruth {
+		if row.Key == "r2" {
+			return SQLTrue
+		}
+		return SQLFalse
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	union, err := UnionDistinctV2(left, right)
+	if err != nil {
+		t.Fatal(err)
+	}
+	effect, err := ObserveV2(union, "visible")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dependency := mustFactSet(t, effect.Influence)
+	if len(effect.Release) != 2 || len(dependency) != 6 {
+		t.Fatalf("hidden-dedup union release=%d dependency=%d, want 2/6", len(effect.Release), len(dependency))
+	}
+	for _, row := range base.Rows {
+		assertFactSetContainsV2(t, dependency, row.RowSupport)
+		assertFactSetContainsV2(t, dependency, row.Cells["visible"].Support)
+		assertFactSetContainsV2(t, dependency, row.Cells["dedup"].Support)
+	}
+}
+
+func TestV2AggregateArgumentsConservativelyIncludeNullAndNonExtrema(t *testing.T) {
+	base, err := ScanV2(BaseRelationSpecV2{SourceNamespace: "aggregate.inputs", Snapshot: "s1", StableRole: "input",
+		Fields: []FieldV2{{ID: "amount", SQLType: "numeric"}}, Rows: []BaseRowV2{
+			{EntityKey: "r1", Values: map[string]any{"amount": "2"}},
+			{EntityKey: "r2", Values: map[string]any{"amount": "5"}},
+			{EntityKey: "r3", Values: map[string]any{"amount": "7"}},
+			{EntityKey: "r4", Values: map[string]any{"amount": nil}},
+		}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	grouped, err := AggregateFromResultsV2(base, nil, []AggregateSpecV2{
+		{Function: "count", Field: "amount", OutputID: "n", OutputType: "bigint"},
+		{Function: "min", Field: "amount", OutputID: "lo", OutputType: "numeric"},
+		{Function: "max", Field: "amount", OutputID: "hi", OutputType: "numeric"},
+	}, []map[string]any{{"n": int64(3), "lo": "2", "hi": "7"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	effect, err := ObserveV2(grouped)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dependency := mustFactSet(t, effect.Influence)
+	if len(effect.Release) != 3 || len(dependency) != 8 {
+		t.Fatalf("aggregate release=%d dependency=%d, want 3/8", len(effect.Release), len(dependency))
+	}
+	for _, row := range base.Rows {
+		assertFactSetContainsV2(t, dependency, row.RowSupport)
+		assertFactSetContainsV2(t, dependency, row.Cells["amount"].Support)
+	}
+}
+
+func TestV2SelectionAndPageExcludeNegativeAndOrderInformation(t *testing.T) {
+	base, err := ScanV2(BaseRelationSpecV2{SourceNamespace: "boundary.input", Snapshot: "s1", StableRole: "input",
+		Fields: []FieldV2{
+			{ID: "predicate", SQLType: "boolean"},
+			{ID: "order", SQLType: "integer"},
+			{ID: "payload", SQLType: "text", Collation: "C", CollationVersion: "builtin", CollationDeterministic: true},
+		}, Rows: []BaseRowV2{
+			{EntityKey: "r1", Values: map[string]any{"predicate": true, "order": int64(1), "payload": "kept"}},
+			{EntityKey: "r2", Values: map[string]any{"predicate": false, "order": int64(2), "payload": "false"}},
+			{EntityKey: "r3", Values: map[string]any{"predicate": nil, "order": int64(3), "payload": "unknown"}},
+		}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected, err := SelectV2(base, []string{"predicate"}, func(row AnnotatedRowV2) SQLTruth {
+		switch row.Cells["predicate"].Value {
+		case true:
+			return SQLTrue
+		case false:
+			return SQLFalse
+		default:
+			return SQLUnknown
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	selectedEffect, err := ObserveV2(selected, "payload")
+	if err != nil {
+		t.Fatal(err)
+	}
+	selectedDependency := mustFactSet(t, selectedEffect.Influence)
+	if len(selectedDependency) != 3 {
+		t.Fatalf("selection dependency=%d, want retained row/predicate/payload only", len(selectedDependency))
+	}
+	assertFactSetContainsV2(t, selectedDependency, base.Rows[0].RowSupport)
+	assertFactSetContainsV2(t, selectedDependency, base.Rows[0].Cells["predicate"].Support)
+	assertFactSetContainsV2(t, selectedDependency, base.Rows[0].Cells["payload"].Support)
+
+	base.CanonicalOrder = true // fixture order is the proven order-field order
+	page, err := PageV2(base, 1, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pageEffect, err := ObserveV2(page, "payload")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pageDependency := mustFactSet(t, pageEffect.Influence)
+	if len(pageDependency) != 2 {
+		t.Fatalf("page dependency=%d, want delivered row/payload only", len(pageDependency))
+	}
+	assertFactSetContainsV2(t, pageDependency, base.Rows[1].RowSupport)
+	assertFactSetContainsV2(t, pageDependency, base.Rows[1].Cells["payload"].Support)
 }
 
 func TestV2CanonicalSQLDomainIsTypedAndTotalOnAdmissibleValues(t *testing.T) {
@@ -708,6 +885,15 @@ func v2Fact(t *testing.T, entity string) FactID {
 		t.Fatal(err)
 	}
 	return fact
+}
+
+func assertFactSetContainsV2(t *testing.T, actual FactSet, expected FactSet) {
+	t.Helper()
+	for hash := range expected {
+		if _, present := actual[hash]; !present {
+			t.Fatalf("dependency FactSet is missing %s", hash)
+		}
+	}
 }
 
 func randomFactSlice(random *rand.Rand, pool []FactID) []FactID {

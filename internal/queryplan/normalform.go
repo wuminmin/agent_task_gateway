@@ -336,7 +336,8 @@ type AlgebraNormalFormV2 struct {
 
 // NormalizeAlgebraV2 canonicalizes exactly Scan, Select, Project, Join,
 // Union-distinct, Group and Page. Join/Union children are digest ordered,
-// duplicate Union branches are idempotent, and UNION ALL is fail-closed.
+// duplicate set-valued Union branches are idempotent, and UNION ALL is
+// fail-closed.
 func NormalizeAlgebraV2(plan AlgebraPlanV2) (AlgebraNormalFormV2, error) {
 	node, err := normalizeAlgebraNodeV2(plan)
 	if err != nil {
@@ -349,6 +350,9 @@ func NormalizeAlgebraV2(plan AlgebraPlanV2) (AlgebraNormalFormV2, error) {
 type normalizedAlgebraNodeV2 struct {
 	Canonical json.RawMessage
 	Schema    []AlgebraFieldV2
+	// TupleDistinct is a conservative proof that the node cannot contain two
+	// equal full typed tuples. It is deliberately not inferred for Scan.
+	TupleDistinct bool
 }
 
 func normalizeAlgebraNodeV2(plan AlgebraPlanV2) (normalizedAlgebraNodeV2, error) {
@@ -386,7 +390,7 @@ func normalizeAlgebraNodeV2(plan AlgebraPlanV2) (normalizedAlgebraNodeV2, error)
 			return string(left) < string(right)
 		})
 		canonical, err := json.Marshal(map[string]any{"op": "select", "input": input.Canonical, "predicates": predicates})
-		return normalizedAlgebraNodeV2{Canonical: canonical, Schema: input.Schema}, err
+		return normalizedAlgebraNodeV2{Canonical: canonical, Schema: input.Schema, TupleDistinct: input.TupleDistinct}, err
 	case "project":
 		input, err := requiredAlgebraInputV2(plan.Input)
 		if err != nil {
@@ -409,7 +413,7 @@ func normalizeAlgebraNodeV2(plan AlgebraPlanV2) (normalizedAlgebraNodeV2, error)
 			schema = append(schema, definition)
 		}
 		canonical, err := json.Marshal(map[string]any{"op": "project", "input": input.Canonical, "fields": fields})
-		return normalizedAlgebraNodeV2{Canonical: canonical, Schema: schema}, err
+		return normalizedAlgebraNodeV2{Canonical: canonical, Schema: schema, TupleDistinct: input.TupleDistinct && sameAlgebraSchemaV2(input.Schema, schema)}, err
 	case "join":
 		if plan.Left == nil || plan.Right == nil {
 			return normalizedAlgebraNodeV2{}, errors.New("V2 join normal form requires two inputs")
@@ -434,7 +438,7 @@ func normalizeAlgebraNodeV2(plan AlgebraPlanV2) (normalizedAlgebraNodeV2, error)
 			left, right = right, left
 		}
 		canonical, err := json.Marshal(map[string]any{"op": op, "left": left.Canonical, "right": right.Canonical, "predicates": predicates})
-		return normalizedAlgebraNodeV2{Canonical: canonical, Schema: schema}, err
+		return normalizedAlgebraNodeV2{Canonical: canonical, Schema: schema, TupleDistinct: left.TupleDistinct && right.TupleDistinct}, err
 	case "union":
 		if plan.Left == nil || plan.Right == nil {
 			return normalizedAlgebraNodeV2{}, errors.New("V2 union normal form requires two inputs")
@@ -461,11 +465,11 @@ func normalizeAlgebraNodeV2(plan AlgebraPlanV2) (normalizedAlgebraNodeV2, error)
 		if string(right.Canonical) < string(left.Canonical) {
 			left, right = right, left
 		}
-		if string(left.Canonical) == string(right.Canonical) {
+		if string(left.Canonical) == string(right.Canonical) && left.TupleDistinct {
 			return left, nil
 		}
 		canonical, err := json.Marshal(map[string]any{"op": op, "left": left.Canonical, "right": right.Canonical})
-		return normalizedAlgebraNodeV2{Canonical: canonical, Schema: left.Schema}, err
+		return normalizedAlgebraNodeV2{Canonical: canonical, Schema: left.Schema, TupleDistinct: true}, err
 	case "group":
 		input, err := requiredAlgebraInputV2(plan.Input)
 		if err != nil {
@@ -497,7 +501,7 @@ func normalizeAlgebraNodeV2(plan AlgebraPlanV2) (normalizedAlgebraNodeV2, error)
 		schema = append(schema, aggregateSchema...)
 		sort.Slice(schema, func(i, j int) bool { return schema[i].ID < schema[j].ID })
 		canonical, err := json.Marshal(map[string]any{"op": "group", "input": input.Canonical, "group_by": groupFields, "aggregates": aggregates})
-		return normalizedAlgebraNodeV2{Canonical: canonical, Schema: schema}, err
+		return normalizedAlgebraNodeV2{Canonical: canonical, Schema: schema, TupleDistinct: true}, err
 	case "page":
 		input, err := requiredAlgebraInputV2(plan.Input)
 		if err != nil {
@@ -541,7 +545,7 @@ func normalizeAlgebraNodeV2(plan AlgebraPlanV2) (normalizedAlgebraNodeV2, error)
 			return normalizedAlgebraNodeV2{}, errors.New("V2 page requires a canonical total order")
 		}
 		canonical, err := json.Marshal(map[string]any{"op": "page", "input": input.Canonical, "order_by": orders, "limit": plan.Limit, "offset": plan.Offset})
-		return normalizedAlgebraNodeV2{Canonical: canonical, Schema: input.Schema}, err
+		return normalizedAlgebraNodeV2{Canonical: canonical, Schema: input.Schema, TupleDistinct: input.TupleDistinct}, err
 	default:
 		return normalizedAlgebraNodeV2{}, fmt.Errorf("operator %q is outside taskgate-exposure-v2", plan.Op)
 	}

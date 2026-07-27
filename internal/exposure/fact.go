@@ -984,7 +984,9 @@ func (s FactSet) Values() []FactID {
 	return result
 }
 
-// Observation is the dual-ledger effect of a buffered result.
+// Observation is the dual-ledger effect of a buffered result. Influence is the
+// compatibility wire/storage label for the V2 positive-output dependency
+// footprint; it does not denote minimal causal influence or physical reads.
 type Observation struct {
 	ProfileVersion string   `json:"profile_version"`
 	Release        []FactID `json:"release"`

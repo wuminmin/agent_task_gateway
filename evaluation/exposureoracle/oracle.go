@@ -90,8 +90,9 @@ func DatasetShape(corpusJSON []byte) (relations, rows int, err error) {
 	return len(parsed.Relations), rows, nil
 }
 
-// Evaluate derives the complete release and positive-support influence sets
-// from the source fixture without calling production exposure code.
+// Evaluate derives the complete release and positive-output dependency sets
+// from the source fixture without calling production exposure code. Influence
+// is retained only as the compatibility field name.
 func Evaluate(corpusJSON []byte, operation string) (Observation, error) {
 	parsed, err := parseCorpus(corpusJSON)
 	if err != nil {
@@ -118,12 +119,22 @@ func Evaluate(corpusJSON []byte, operation string) (Observation, error) {
 		return selectAndProject(expenses, "legal", "expense.amount")
 	case "selection_missing_amount":
 		return selectAndProject(expenses, "missing", "expense.amount")
+	case "selection_positive_boundary":
+		return selectAndProject(expenses, "sales", "expense.amount")
 	case "group_sum_count":
 		return groupSumCount(expenses)
+	case "group_hidden_key_sum":
+		return groupHiddenKeySum(expenses)
 	case "global_count":
 		return globalAggregate(expenses, "count", "*", "bigint", strconv.Itoa(len(expenses.Rows)))
+	case "global_count_column_null":
+		return globalAggregate(expenses, "count", "expense.amount", "bigint", int64(11))
 	case "global_sum":
 		return globalAggregate(expenses, "sum", "expense.amount", "numeric", sumRows(expenses.Rows, "expense.amount"))
+	case "global_min_all_inputs":
+		return globalAggregate(expenses, "min", "expense.amount", "numeric", "0")
+	case "global_max_all_inputs":
+		return globalAggregate(expenses, "max", "expense.amount", "numeric", "40")
 	case "department_join":
 		departments, relationErr := namedRelation(parsed, "departments")
 		if relationErr != nil {
@@ -134,6 +145,10 @@ func Evaluate(corpusJSON []byte, operation string) (Observation, error) {
 		return project(expenses, page(expenses.Rows, 0, 4), "expense.department", "expense.amount")
 	case "page_middle_five":
 		return project(expenses, page(expenses.Rows, 3, 5), "expense.department", "expense.amount")
+	case "page_order_boundary":
+		return pageOrderBoundary(expenses)
+	case "union_hidden_distinct":
+		return unionHiddenDistinct(expenses)
 	default:
 		return Observation{}, fmt.Errorf("independent oracle: unknown operation %q", operation)
 	}
@@ -276,6 +291,45 @@ func groupSumCount(source relation) (Observation, error) {
 	return result, nil
 }
 
+func groupHiddenKeySum(source relation) (Observation, error) {
+	groups := make(map[string][]row)
+	for _, current := range source.Rows {
+		canonical, err := canonicalValue("text", current.Values["expense.department"])
+		if err != nil {
+			return Observation{}, err
+		}
+		groups[canonical] = append(groups[canonical], current)
+	}
+	result := newObservation()
+	bundle := []SnapshotBinding{{SourceNamespace: source.SourceNamespace, Snapshot: source.Snapshot}}
+	for canonical, members := range groups {
+		component := source.SourceNamespace + ".expense.department\x00text\x00" + canonical
+		rowKey := composeKey("group-row", component)
+		amountWitness := make([]Fact, 0, len(members))
+		for _, member := range members {
+			rowFact := baseRow(source, member)
+			department, err := baseCell(source, member, "expense.department")
+			if err != nil {
+				return Observation{}, err
+			}
+			amount, err := baseCell(source, member, "expense.amount")
+			if err != nil {
+				return Observation{}, err
+			}
+			amountWitness = append(amountWitness, amount)
+			add(result.Influence, rowFact)
+			add(result.Influence, department)
+			add(result.Influence, amount)
+		}
+		sumFact, err := derived(bundle, rowKey, "sum("+source.SourceNamespace+".expense.amount)", "numeric", sumRows(members, "expense.amount"), amountWitness)
+		if err != nil {
+			return Observation{}, err
+		}
+		add(result.Release, sumFact)
+	}
+	return result, nil
+}
+
 func globalAggregate(source relation, function, fieldID, outputType string, value any) (Observation, error) {
 	result := newObservation()
 	witness := make([]Fact, 0, len(source.Rows))
@@ -342,6 +396,43 @@ func joinDepartments(departments, expenses relation) (Observation, error) {
 		}
 	}
 	return result, nil
+}
+
+func unionHiddenDistinct(source relation) (Observation, error) {
+	result := newObservation()
+	for _, current := range source.Rows {
+		if current.EntityKey != "r10" && current.EntityKey != "r12" {
+			continue
+		}
+		add(result.Influence, baseRow(source, current))
+		for _, fieldID := range []string{"expense.department", "expense.amount"} {
+			fact, err := baseCell(source, current, fieldID)
+			if err != nil {
+				return Observation{}, err
+			}
+			add(result.Influence, fact)
+			if fieldID == "expense.amount" {
+				add(result.Release, fact)
+			}
+		}
+	}
+	return result, nil
+}
+
+func pageOrderBoundary(source relation) (Observation, error) {
+	rows := append([]row(nil), source.Rows...)
+	sort.SliceStable(rows, func(i, j int) bool {
+		left, leftOK := rows[i].Values["expense.department"].(string)
+		right, rightOK := rows[j].Values["expense.department"].(string)
+		if leftOK != rightOK {
+			return leftOK // NULLS LAST
+		}
+		if left != right {
+			return left < right
+		}
+		return rows[i].EntityKey < rows[j].EntityKey
+	})
+	return project(source, page(rows, 0, 1), "expense.amount")
 }
 
 func page(rows []row, offset, limit int) []row {

@@ -26,9 +26,11 @@
 不要只给一个任意加权标量。更稳妥的是双账本：
 
 - `release exposure`：Agent 实际收到的原始或派生事实；
-- `source influence`：影响 Join、聚合结果的唯一来源事实/实体。
+- `positive-output dependency`：按声明的闭合代数规则参与已交付正向输出成功
+  推导的保守 row/cell fact footprint；内部兼容名可保留 `influence`。
 
-扫描百万行返回一个 `COUNT(*)` 时，release 可能只有一个聚合事实，但 influence 不能被误记为一行。
+扫描百万行返回一个 `COUNT(*)` 时，release 可能只有一个聚合事实，但 dependency
+不能被误记为一个 fact。它不声称是最小 causal provenance 或完整 physical read set。
 
 ## 如何避开撞车
 
@@ -105,7 +107,7 @@
 
 建议设置五个 RQ：
 
-- RQ1：计量结果与精确 provenance ground truth 是否一致？
+- RQ1：计量结果与独立的 positive-output dependency ground truth 是否一致？
 - RQ2：数百至上千组等价改写的 charge 是否一致？
 - RQ3：Join 放大、查询拆分、重叠分页、缓存、重试和子 Agent 是否可套利？
 - RQ4：lineage、历史去重和账本分别增加多少时间、空间和吞吐开销？

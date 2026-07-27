@@ -238,6 +238,40 @@ func TestExposureV2OnlinePathSupportsCountStar(t *testing.T) {
 	}
 }
 
+func TestExposureV2GroupedHiddenKeyIsMeteredButNotReleased(t *testing.T) {
+	harness := newGatewayHarness(t)
+	harness.createExposureV2SummaryTask(t, "task-v2-hidden-group", control.ExposureLimits{ReleaseFacts: 20, InfluenceFacts: 20})
+	harness.connector.result = dataconnector.Result{
+		Columns: []dataconnector.Column{{Name: "month", DataTypeOID: 25}, {Name: "total", DataTypeOID: 1700}},
+		Rows:    [][]any{{"2026-01", "30"}}, RowCount: 1,
+	}
+	harness.connector.provenanceResult = dataconnector.Result{
+		Columns: []dataconnector.Column{{Name: "department", DataTypeOID: 25}, {Name: "expense_type", DataTypeOID: 25}, {Name: "month", DataTypeOID: 25}, {Name: "total_amount", DataTypeOID: 1700}},
+		Rows: [][]any{
+			{"销售部", "机票", "2026-01", "10"},
+			{"销售部", "酒店", "2026-01", "20"},
+		}, RowCount: 2,
+	}
+	result := mustCallGatewayTool(t, harness.service, harness.alice, "execute_plan", map[string]any{
+		"task_id": "task-v2-hidden-group", "request_id": "v2-hidden-group",
+		"plan": map[string]any{"product": "expense_summary", "columns": []string{},
+			"aggregates": []map[string]any{{"function": "sum", "column": "total_amount", "alias": "total"}},
+			"group_by":   []string{"month"}},
+	})
+	columns := result["columns"].([]dataconnector.Column)
+	rows := result["rows"].([][]any)
+	if len(columns) != 1 || columns[0].Name != "total" || len(rows) != 1 || len(rows[0]) != 1 {
+		t.Fatalf("hidden group key leaked into result: columns=%+v rows=%+v", columns, rows)
+	}
+	if len(harness.connector.requests) != 2 || !strings.Contains(harness.connector.requests[0].SQL, `SELECT "month", sum("total_amount") AS "total"`) {
+		t.Fatalf("hidden group key was not selected internally: %+v", harness.connector.requests)
+	}
+	charge := result["exposure"].(control.ExposureCharge)
+	if charge.ActualReleaseFacts != 1 || charge.ActualInfluenceFacts != 6 {
+		t.Fatalf("hidden-key grouped exposure = %+v, want release=1 dependency=6", charge)
+	}
+}
+
 func sameExposureFactIDs(t *testing.T, left, right []exposure.FactID) bool {
 	t.Helper()
 	leftSet, err := exposure.NewFactSet(left...)

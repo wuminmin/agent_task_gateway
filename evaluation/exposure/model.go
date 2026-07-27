@@ -142,18 +142,18 @@ type PlannerSummary struct {
 }
 
 type Report struct {
-	SchemaVersion  int                    `json:"schema_version"`
-	ProfileVersion string                 `json:"profile_version"`
-	CorpusSHA256   string                 `json:"corpus_sha256"`
-	RQ1            ValidationSummary      `json:"rq1_ground_truth"`
-	RQ2            RewriteSummary         `json:"rq2_rewrite_invariance"`
+	SchemaVersion  int                      `json:"schema_version"`
+	ProfileVersion string                   `json:"profile_version"`
+	CorpusSHA256   string                   `json:"corpus_sha256"`
+	RQ1            ValidationSummary        `json:"rq1_ground_truth"`
+	RQ2            RewriteSummary           `json:"rq2_rewrite_invariance"`
 	RQ2Exposure    RewriteInvarianceSummary `json:"rq2_exposure_invariance"`
-	RQ3            AdversarialSummary     `json:"rq3_anti_arbitrage"`
-	RQ4Status      string                 `json:"rq4_runtime_overhead_status"`
-	RQ4Scaling     ScalingSummary         `json:"rq4_scaling"`
-	Baselines      BaselineSummary        `json:"charge_baselines"`
-	RQ5            PlannerSummary         `json:"rq5_budget_aware_planning"`
-	RQ5Agent       agenttasks.Report      `json:"rq5_agent_tasks"`
+	RQ3            AdversarialSummary       `json:"rq3_anti_arbitrage"`
+	RQ4Status      string                   `json:"rq4_runtime_overhead_status"`
+	RQ4Scaling     ScalingSummary           `json:"rq4_scaling"`
+	Baselines      BaselineSummary          `json:"charge_baselines"`
+	RQ5            PlannerSummary           `json:"rq5_budget_aware_planning"`
+	RQ5Agent       agenttasks.Report        `json:"rq5_agent_tasks"`
 }
 
 func Run() (Report, error) {
@@ -372,10 +372,10 @@ func evaluateOperation(profile string, relations map[string]exposure.RelationV2,
 		relation, err = exposure.ProjectV2(expenses, "expense.department")
 	case "projection_pair":
 		relation, err = exposure.ProjectV2(expenses, "expense.department", "expense.amount")
-	case "selection_sales_amount", "selection_rnd_amount", "selection_ops_amount", "selection_legal_amount", "selection_missing_amount":
+	case "selection_sales_amount", "selection_rnd_amount", "selection_ops_amount", "selection_legal_amount", "selection_missing_amount", "selection_positive_boundary":
 		targets := map[string]string{
 			"selection_sales_amount": "sales", "selection_rnd_amount": "rnd", "selection_ops_amount": "ops",
-			"selection_legal_amount": "legal", "selection_missing_amount": "missing",
+			"selection_legal_amount": "legal", "selection_missing_amount": "missing", "selection_positive_boundary": "sales",
 		}
 		target := targets[operation]
 		relation, err = exposure.SelectV2(expenses, []string{"expense.department"}, func(row exposure.AnnotatedRowV2) exposure.SQLTruth {
@@ -401,14 +401,40 @@ func evaluateOperation(profile string, relations map[string]exposure.RelationV2,
 			{"expense.department": "legal", "total": "25", "items": int64(2)},
 			{"expense.department": nil, "total": "40", "items": int64(1)},
 		})
+	case "group_hidden_key_sum":
+		relation, err = exposure.AggregateFromResultsV2(expenses, []string{"expense.department"}, []exposure.AggregateSpecV2{
+			{Function: "sum", Field: "expense.amount", OutputID: "total", OutputType: "numeric"},
+		}, []map[string]any{
+			{"expense.department": "sales", "total": "80"},
+			{"expense.department": "rnd", "total": "45"},
+			{"expense.department": "ops", "total": "40"},
+			{"expense.department": "legal", "total": "25"},
+			{"expense.department": nil, "total": "40"},
+		})
+		if err == nil {
+			observation, observeErr := exposure.ObserveV2(relation, "total")
+			return observation, relation, observeErr
+		}
 	case "global_count":
 		relation, err = exposure.AggregateFromResultsV2(expenses, nil, []exposure.AggregateSpecV2{
 			{Function: "count", Field: "*", OutputID: "items", OutputType: "bigint"},
 		}, []map[string]any{{"items": int64(12)}})
+	case "global_count_column_null":
+		relation, err = exposure.AggregateFromResultsV2(expenses, nil, []exposure.AggregateSpecV2{
+			{Function: "count", Field: "expense.amount", OutputID: "items", OutputType: "bigint"},
+		}, []map[string]any{{"items": int64(11)}})
 	case "global_sum":
 		relation, err = exposure.AggregateFromResultsV2(expenses, nil, []exposure.AggregateSpecV2{
 			{Function: "sum", Field: "expense.amount", OutputID: "total", OutputType: "numeric"},
 		}, []map[string]any{{"total": "230"}})
+	case "global_min_all_inputs":
+		relation, err = exposure.AggregateFromResultsV2(expenses, nil, []exposure.AggregateSpecV2{
+			{Function: "min", Field: "expense.amount", OutputID: "minimum", OutputType: "numeric"},
+		}, []map[string]any{{"minimum": "0"}})
+	case "global_max_all_inputs":
+		relation, err = exposure.AggregateFromResultsV2(expenses, nil, []exposure.AggregateSpecV2{
+			{Function: "max", Field: "expense.amount", OutputID: "maximum", OutputType: "numeric"},
+		}, []map[string]any{{"maximum": "40"}})
 	case "department_join":
 		relation, err = exposure.JoinV2(relations["departments"], expenses, "department.department", "expense.department")
 		if err == nil {
@@ -419,6 +445,50 @@ func evaluateOperation(profile string, relations map[string]exposure.RelationV2,
 		relation, err = exposure.PageV2(expenses, 0, 4)
 	case "page_middle_five":
 		relation, err = exposure.PageV2(expenses, 3, 5)
+	case "page_order_boundary":
+		relation = expenses
+		relation.Rows = append([]exposure.AnnotatedRowV2(nil), expenses.Rows...)
+		sort.SliceStable(relation.Rows, func(i, j int) bool {
+			left, leftOK := relation.Rows[i].Cells["expense.department"].Value.(string)
+			right, rightOK := relation.Rows[j].Cells["expense.department"].Value.(string)
+			if leftOK != rightOK {
+				return leftOK // PostgreSQL ASC NULLS LAST
+			}
+			if left != right {
+				return left < right
+			}
+			return relation.Rows[i].Key < relation.Rows[j].Key
+		})
+		relation.CanonicalOrder = true
+		relation, err = exposure.PageV2(relation, 0, 1)
+		if err == nil {
+			observation, observeErr := exposure.ObserveV2(relation, "expense.amount")
+			return observation, relation, observeErr
+		}
+	case "union_hidden_distinct":
+		left, selectErr := exposure.SelectV2(expenses, nil, func(row exposure.AnnotatedRowV2) exposure.SQLTruth {
+			if row.Key == "r10" {
+				return exposure.SQLTrue
+			}
+			return exposure.SQLFalse
+		})
+		if selectErr != nil {
+			return exposure.Observation{}, exposure.RelationV2{}, selectErr
+		}
+		right, selectErr := exposure.SelectV2(expenses, nil, func(row exposure.AnnotatedRowV2) exposure.SQLTruth {
+			if row.Key == "r12" {
+				return exposure.SQLTrue
+			}
+			return exposure.SQLFalse
+		})
+		if selectErr != nil {
+			return exposure.Observation{}, exposure.RelationV2{}, selectErr
+		}
+		relation, err = exposure.UnionDistinctV2(left, right)
+		if err == nil {
+			observation, observeErr := exposure.ObserveV2(relation, "expense.amount")
+			return observation, relation, observeErr
+		}
 	default:
 		return exposure.Observation{}, exposure.RelationV2{}, fmt.Errorf("unknown operation %q", operation)
 	}

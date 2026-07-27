@@ -34,14 +34,6 @@ func buildPlanExposureContext(plan queryplan.QueryPlan, product catalog.Product,
 		return nil, fmt.Errorf("product does not define a stable snapshot and entity key")
 	}
 	grouped := len(plan.GroupBy) > 0 || len(plan.Aggregates) > 0
-	if grouped {
-		selected := stringSetFromSlice(plan.Columns)
-		for _, group := range plan.GroupBy {
-			if _, ok := selected[group]; !ok {
-				return nil, fmt.Errorf("exposure-accounted group_by fields must be selected")
-			}
-		}
-	}
 	visibleFields := append([]string(nil), plan.Columns...)
 	factFields := append([]string(nil), plan.Columns...)
 	for _, aggregate := range plan.Aggregates {
@@ -116,7 +108,20 @@ func buildPlanExposureContext(plan queryplan.QueryPlan, product catalog.Product,
 				ordered[key] = struct{}{}
 			}
 		}
-	} else if plan.Limit > 0 || plan.Offset > 0 {
+	} else {
+		// Group keys participate in positive-output dependency even when they
+		// are not delivered. Select them internally so the paired result can
+		// identify groups and build their annotations, then visibleResult removes
+		// them from the external response.
+		selected := stringSetFromSlice(mainPlan.Columns)
+		for _, group := range plan.GroupBy {
+			if _, present := selected[group]; !present {
+				mainPlan.Columns = append(mainPlan.Columns, group)
+				selected[group] = struct{}{}
+			}
+		}
+	}
+	if grouped && (plan.Limit > 0 || plan.Offset > 0) {
 		ordered := make(map[string]struct{}, len(mainPlan.OrderBy)+len(plan.GroupBy))
 		for _, order := range mainPlan.OrderBy {
 			ordered[order.Column] = struct{}{}
@@ -445,11 +450,18 @@ func (context *planExposureContext) deriveObservationV2(visible, provenance data
 	}
 	outputs := make([]map[string]any, 0, len(visible.Rows))
 	for _, row := range visible.Rows {
-		output := make(map[string]any, len(context.visibleFields))
+		output := make(map[string]any, len(context.visibleFields)+len(context.plan.GroupBy))
 		for _, field := range context.visibleFields {
 			position, present := visiblePositions[field]
 			if !present || position >= len(row) {
 				return exposure.Observation{}, fmt.Errorf("visible result is missing field %q", field)
+			}
+			output[field] = row[position]
+		}
+		for _, field := range context.plan.GroupBy {
+			position, present := visiblePositions[field]
+			if !present || position >= len(row) {
+				return exposure.Observation{}, fmt.Errorf("visible result is missing hidden group field %q", field)
 			}
 			output[field] = row[position]
 		}
@@ -559,20 +571,33 @@ func uniqueStrings(values []string) []string {
 }
 
 func (context *planExposureContext) visibleResult(result dataconnector.Result) (dataconnector.Result, error) {
-	if context.grouped || len(result.Columns) == len(context.visibleFields) {
+	if len(result.Columns) == len(context.visibleFields) {
 		return result, nil
 	}
-	if len(result.Columns) < len(context.visibleFields) {
-		return dataconnector.Result{}, fmt.Errorf("visible result is missing requested columns")
+	positions, err := columnPositions(result.Columns)
+	if err != nil {
+		return dataconnector.Result{}, err
 	}
 	trimmed := result
-	trimmed.Columns = append([]dataconnector.Column(nil), result.Columns[:len(context.visibleFields)]...)
+	trimmed.Columns = make([]dataconnector.Column, 0, len(context.visibleFields))
+	for _, field := range context.visibleFields {
+		position, present := positions[field]
+		if !present || position >= len(result.Columns) {
+			return dataconnector.Result{}, fmt.Errorf("visible result is missing requested field %q", field)
+		}
+		trimmed.Columns = append(trimmed.Columns, result.Columns[position])
+	}
 	trimmed.Rows = make([][]any, 0, len(result.Rows))
 	for _, row := range result.Rows {
-		if len(row) < len(context.visibleFields) {
-			return dataconnector.Result{}, fmt.Errorf("visible result row is shorter than its metadata")
+		visible := make([]any, 0, len(context.visibleFields))
+		for _, field := range context.visibleFields {
+			position := positions[field]
+			if position >= len(row) {
+				return dataconnector.Result{}, fmt.Errorf("visible result row is shorter than its metadata")
+			}
+			visible = append(visible, row[position])
 		}
-		trimmed.Rows = append(trimmed.Rows, append([]any(nil), row[:len(context.visibleFields)]...))
+		trimmed.Rows = append(trimmed.Rows, visible)
 	}
 	return trimmed, nil
 }

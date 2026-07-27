@@ -11,7 +11,8 @@ package exposureeval
 // the SAME data instance with TaskGate's own V2 algebra operators, and require:
 //   (a) the typed normal forms agree: NormalizeAlgebraV2(left) == NormalizeAlgebraV2(right);
 //   (b) the release FactSets agree: ObserveV2(left).Release == ObserveV2(right).Release;
-//   (c) the influence FactSets agree likewise; and
+//   (c) the positive-output dependency FactSets (compatibility field
+//       "influence") agree likewise; and
 //   (d) the incremental charge is zero in both directions.
 // Because both the normal form and the effect come from one plan tree, there is
 // no drift between a "description" of the rewrite and its execution.
@@ -29,33 +30,33 @@ import (
 
 // RewriteInvarianceCaseResult records one (rewrite x dataset) measurement.
 type RewriteInvarianceCaseResult struct {
-	Case                string `json:"case"`
-	Dataset             string `json:"dataset"`
-	NormalFormRequired  bool   `json:"normal_form_required"`
-	NormalFormEqual     bool   `json:"normal_form_equal"`
-	ReleaseEqual        bool   `json:"release_equal"`
-	InfluenceEqual      bool   `json:"influence_equal"`
-	ChargeDeltaZero     bool   `json:"charge_delta_zero"`
-	ReleaseCharge       int    `json:"release_charge"`
-	InfluenceCharge     int    `json:"influence_charge"`
+	Case               string `json:"case"`
+	Dataset            string `json:"dataset"`
+	NormalFormRequired bool   `json:"normal_form_required"`
+	NormalFormEqual    bool   `json:"normal_form_equal"`
+	ReleaseEqual       bool   `json:"release_equal"`
+	InfluenceEqual     bool   `json:"influence_equal"`
+	ChargeDeltaZero    bool   `json:"charge_delta_zero"`
+	ReleaseCharge      int    `json:"release_charge"`
+	InfluenceCharge    int    `json:"influence_charge"`
 }
 
 // RewriteInvarianceSummary is the RQ2 exposure-level evidence.
 type RewriteInvarianceSummary struct {
-	Status              string                      `json:"status"`
-	Oracle              string                      `json:"oracle"`
-	Normalization       string                      `json:"normalization"`
-	Rewrites            int                         `json:"rewrites"`
-	Datasets            int                         `json:"datasets"`
-	Cases               int                         `json:"cases"`
-	NormalFormChecks    int                         `json:"normal_form_checks"`
-	EffectChecks        int                         `json:"effect_checks"`
-	Mismatches          int                         `json:"mismatches"`
-	PairSetSHA256       string                      `json:"pair_set_sha256"`
-	Results             []RewriteInvarianceCaseResult `json:"results"`
+	Status           string                        `json:"status"`
+	Oracle           string                        `json:"oracle"`
+	Normalization    string                        `json:"normalization"`
+	Rewrites         int                           `json:"rewrites"`
+	Datasets         int                           `json:"datasets"`
+	Cases            int                           `json:"cases"`
+	NormalFormChecks int                           `json:"normal_form_checks"`
+	EffectChecks     int                           `json:"effect_checks"`
+	Mismatches       int                           `json:"mismatches"`
+	PairSetSHA256    string                        `json:"pair_set_sha256"`
+	Results          []RewriteInvarianceCaseResult `json:"results"`
 }
 
-const rewriteInvarianceNormalization = "algebra-normal-form-v3+release-influence-factset+zero-incremental-charge"
+const rewriteInvarianceNormalization = "algebra-normal-form-v3+release-positive-output-dependency-factset+zero-incremental-charge"
 
 // RunExposureRewriteInvariance evaluates every closed-language rewrite over
 // every dataset and returns the summary. A single mismatch is a hard error.
@@ -95,7 +96,7 @@ func RunExposureRewriteInvariance() (RewriteInvarianceSummary, error) {
 			summary.EffectChecks += 2 // release + influence set comparison
 			pairDigest.Write([]byte(signature))
 			pairDigest.Write([]byte{0})
-			// Every rewrite must preserve the release/influence FactSets and yield
+			// Every rewrite must preserve the release/dependency FactSets and yield
 			// zero incremental charge. Only NF-canonical rewrites must additionally
 			// agree on the typed normal form; select/project reordering is an
 			// effect-level equivalence (Restricted projection/selection invariance),
@@ -261,8 +262,9 @@ func evalAlgebraPlan(plan queryplan.AlgebraPlanV2, scans map[string]exposure.Rel
 		}
 		specs := make([]exposure.AggregateSpecV2, 0, len(plan.Aggregates))
 		for _, aggregate := range plan.Aggregates {
+			outputID := strings.ToLower(strings.TrimSpace(aggregate.Function)) + "(" + strings.ToLower(strings.TrimSpace(aggregate.Field)) + ")"
 			specs = append(specs, exposure.AggregateSpecV2{Function: aggregate.Function, Field: aggregate.Field,
-				OutputID: aggregate.Field + ":" + aggregate.Function, OutputType: aggregate.OutputType})
+				OutputID: outputID, OutputType: aggregate.OutputType})
 		}
 		outputRows, err := computeGroupOracle(input, plan.GroupBy, specs)
 		if err != nil {
@@ -557,10 +559,10 @@ func computeAggregate(spec exposure.AggregateSpecV2, members []exposure.Annotate
 // ---- closed-language rewrites ----
 
 type rewriteSpec struct {
-	id           string
-	requires     []string
-	nfInvariant  bool // rewrite is canonicalized by NF_Π, so normal forms must agree
-	build        func(scans map[string]queryplan.AlgebraPlanV2) (queryplan.AlgebraPlanV2, queryplan.AlgebraPlanV2, error)
+	id          string
+	requires    []string
+	nfInvariant bool // rewrite is canonicalized by NF_Π, so normal forms must agree
+	build       func(scans map[string]queryplan.AlgebraPlanV2) (queryplan.AlgebraPlanV2, queryplan.AlgebraPlanV2, error)
 }
 
 func closedLanguageRewrites() []rewriteSpec {
@@ -573,9 +575,9 @@ func closedLanguageRewrites() []rewriteSpec {
 
 	return []rewriteSpec{
 		{
-			id: "select_project_order",
+			id:          "select_project_order",
 			nfInvariant: false, // effect-level (Restricted projection/selection invariance), not NF-canonical
-			requires: []string{"expenses"},
+			requires:    []string{"expenses"},
 			build: func(scans map[string]queryplan.AlgebraPlanV2) (queryplan.AlgebraPlanV2, queryplan.AlgebraPlanV2, error) {
 				base := scans["expenses"]
 				predicate := []queryplan.NormalizedFilter{eq("expense.department", "sales")}
@@ -585,9 +587,9 @@ func closedLanguageRewrites() []rewriteSpec {
 			},
 		},
 		{
-			id: "conjunction_order",
+			id:          "conjunction_order",
 			nfInvariant: true,
-			requires: []string{"expenses"},
+			requires:    []string{"expenses"},
 			build: func(scans map[string]queryplan.AlgebraPlanV2) (queryplan.AlgebraPlanV2, queryplan.AlgebraPlanV2, error) {
 				base := scans["expenses"]
 				first := []queryplan.NormalizedFilter{eq("expense.department", "sales"), ge("expense.amount", "15")}
@@ -596,9 +598,9 @@ func closedLanguageRewrites() []rewriteSpec {
 			},
 		},
 		{
-			id: "project_field_order",
+			id:          "project_field_order",
 			nfInvariant: true,
-			requires: []string{"expenses"},
+			requires:    []string{"expenses"},
 			build: func(scans map[string]queryplan.AlgebraPlanV2) (queryplan.AlgebraPlanV2, queryplan.AlgebraPlanV2, error) {
 				base := scans["expenses"]
 				return projectPlan(base, []string{"expense.department", "expense.amount"}),
@@ -606,9 +608,9 @@ func closedLanguageRewrites() []rewriteSpec {
 			},
 		},
 		{
-			id: "group_key_order",
+			id:          "group_key_order",
 			nfInvariant: true,
-			requires: []string{"expenses"},
+			requires:    []string{"expenses"},
 			build: func(scans map[string]queryplan.AlgebraPlanV2) (queryplan.AlgebraPlanV2, queryplan.AlgebraPlanV2, error) {
 				base := scans["expenses"]
 				aggregates := []queryplan.AlgebraAggregateV2{{Function: "count", Field: "*", OutputType: "bigint"},
@@ -619,9 +621,21 @@ func closedLanguageRewrites() []rewriteSpec {
 			},
 		},
 		{
-			id: "join_operand_swap",
+			id:          "hidden_group_key_order",
 			nfInvariant: true,
-			requires: []string{"departments", "expenses"},
+			requires:    []string{"expenses"},
+			build: func(scans map[string]queryplan.AlgebraPlanV2) (queryplan.AlgebraPlanV2, queryplan.AlgebraPlanV2, error) {
+				base := scans["expenses"]
+				aggregates := []queryplan.AlgebraAggregateV2{{Function: "count", Field: "*", OutputType: "bigint"}}
+				leftGroup := groupPlan(base, []string{"expense.department", "expense.amount"}, aggregates)
+				rightGroup := groupPlan(base, []string{"expense.amount", "expense.department"}, aggregates)
+				return projectPlan(leftGroup, []string{"count(*)"}), projectPlan(rightGroup, []string{"count(*)"}), nil
+			},
+		},
+		{
+			id:          "join_operand_swap",
+			nfInvariant: true,
+			requires:    []string{"departments", "expenses"},
 			build: func(scans map[string]queryplan.AlgebraPlanV2) (queryplan.AlgebraPlanV2, queryplan.AlgebraPlanV2, error) {
 				predicate := []queryplan.AlgebraJoinPredicateV2{{LeftField: "department.department", RightField: "expense.department"}}
 				return joinPlan(scans["departments"], scans["expenses"], predicate),
@@ -629,9 +643,9 @@ func closedLanguageRewrites() []rewriteSpec {
 			},
 		},
 		{
-			id: "join_predicate_order",
+			id:          "join_predicate_order",
 			nfInvariant: true,
-			requires: []string{"ledger", "codebook"},
+			requires:    []string{"ledger", "codebook"},
 			build: func(scans map[string]queryplan.AlgebraPlanV2) (queryplan.AlgebraPlanV2, queryplan.AlgebraPlanV2, error) {
 				first := []queryplan.AlgebraJoinPredicateV2{{LeftField: "ledger.department", RightField: "codebook.department"},
 					{LeftField: "ledger.code", RightField: "codebook.code"}}
@@ -642,20 +656,33 @@ func closedLanguageRewrites() []rewriteSpec {
 			},
 		},
 		{
-			id: "union_idempotence",
+			id:          "union_operand_exchange",
 			nfInvariant: true,
-			requires: []string{"east"},
+			requires:    []string{"east", "west"},
 			build: func(scans map[string]queryplan.AlgebraPlanV2) (queryplan.AlgebraPlanV2, queryplan.AlgebraPlanV2, error) {
-				return unionPlan(scans["east"], scans["east"]), scans["east"], nil
+				return unionPlan(scans["east"], scans["west"]), unionPlan(scans["west"], scans["east"]), nil
 			},
 		},
 		{
-			id: "duplicate_union_collapse",
+			id:          "union_idempotence",
 			nfInvariant: true,
-			requires: []string{"east"},
+			requires:    []string{"east"},
 			build: func(scans map[string]queryplan.AlgebraPlanV2) (queryplan.AlgebraPlanV2, queryplan.AlgebraPlanV2, error) {
-				nested := unionPlan(scans["east"], scans["east"])
-				return unionPlan(nested, scans["east"]), scans["east"], nil
+				setValued := unionPlan(scans["east"], scans["east"])
+				return unionPlan(setValued, setValued), setValued, nil
+			},
+		},
+		{
+			id:          "duplicate_union_collapse",
+			nfInvariant: true,
+			requires:    []string{"east"},
+			build: func(scans map[string]queryplan.AlgebraPlanV2) (queryplan.AlgebraPlanV2, queryplan.AlgebraPlanV2, error) {
+				setValued := unionPlan(scans["east"], scans["east"])
+				left := groupPlan(unionPlan(setValued, setValued), nil,
+					[]queryplan.AlgebraAggregateV2{{Function: "count", Field: "*", OutputType: "bigint"}})
+				right := groupPlan(setValued, nil,
+					[]queryplan.AlgebraAggregateV2{{Function: "count", Field: "*", OutputType: "bigint"}})
+				return left, right, nil
 			},
 		},
 	}
@@ -782,12 +809,18 @@ func rewriteDatasets() ([]rewriteDataset, error) {
 		{"snapshots-A", []scanSpec{
 			{"east", exposure.BaseRelationSpecV2{SourceNamespace: "travel.expense", Snapshot: "snapshot-A", StableRole: "expense",
 				Fields: []exposure.FieldV2{textC("expense.department"), numeric("expense.amount")},
-				Rows: []exposure.BaseRowV2{row("e1", "sales", "10"), row("e2", "rnd", "30"), row("e3", "ops", "5"), row("e4", "legal", "25")}}},
+				Rows:   []exposure.BaseRowV2{row("e1", "sales", "10"), row("e2", "rnd", "30"), row("e3", "ops", "5"), row("e4", "legal", "25")}}},
+			{"west", exposure.BaseRelationSpecV2{SourceNamespace: "travel.expense.west", Snapshot: "snapshot-A", StableRole: "expense_west",
+				Fields: []exposure.FieldV2{textC("expense.department"), numeric("expense.amount")},
+				Rows:   []exposure.BaseRowV2{row("w1", "sales", "10"), row("w2", "rnd", "15"), row("w3", "legal", "25")}}},
 		}},
 		{"snapshots-B", []scanSpec{
 			{"east", exposure.BaseRelationSpecV2{SourceNamespace: "travel.expense", Snapshot: "snapshot-A", StableRole: "expense",
 				Fields: []exposure.FieldV2{textC("expense.department"), numeric("expense.amount")},
-				Rows: []exposure.BaseRowV2{row("e1", "sales", "20"), row("e2", "rnd", "15"), row("e3", "legal", "40"), row("e4", "ops", "35")}}},
+				Rows:   []exposure.BaseRowV2{row("e1", "sales", "20"), row("e2", "rnd", "15"), row("e3", "legal", "40"), row("e4", "ops", "35")}}},
+			{"west", exposure.BaseRelationSpecV2{SourceNamespace: "travel.expense.west", Snapshot: "snapshot-A", StableRole: "expense_west",
+				Fields: []exposure.FieldV2{textC("expense.department"), numeric("expense.amount")},
+				Rows:   []exposure.BaseRowV2{row("w1", "sales", "20"), row("w2", "ops", "35"), row("w3", "legal", "5")}}},
 		}},
 	}
 
@@ -829,4 +862,3 @@ func toAlgebraSchema(fields []exposure.FieldV2) []queryplan.AlgebraFieldV2 {
 	}
 	return result
 }
-

@@ -5,10 +5,13 @@ TaskGate 的核心预算主体是人类授权的根任务，而不是单条 SQL�
 两个互相独立的事实账本：
 
 - **release exposure**：已经交付给任务族的原始或派生结果事实；
-- **source influence**：对这些结果的选择、连接或聚合产生影响的来源事实。
+- **positive-output dependency**：按 V2 闭合代数规则参与已交付正向输出成功推导
+  的基础 row/cell facts；API/数据库仍以 `influence` 作为兼容标签。
 
 这不是差分隐私预算，也不估算互信息或推断风险。它是一个版本化契约下的
-确定性显式披露计量模型。
+确定性显式披露计量模型。dependency 是保守 operator-input footprint：既不
+要求是最小 causal provenance，也不声称等于数据库执行期间的完整 physical
+read set。
 
 ## 事实身份
 
@@ -47,25 +50,29 @@ delta_influence = |F_influence(q,D) - K_influence(T)|
 
 V2 的规范性定义见 [Exposure Algebra V2：正式语义](exposure-algebra-v2.md)；以下表格只是便于阅读的摘要。
 
-`internal/exposure` 为有限关系实现逐单元来源集合和逐行 lineage：
+`internal/exposure` 为有限关系实现逐单元 dependency support 和逐行 annotation：
 
-| 运算 | release | source influence |
+| 运算 | release | positive-output dependency |
 |---|---|---|
 | Projection | 实际输出字段 | 输出字段来源和保留行存在性 |
 | Selection | 通过谓词后的输出 | 输出来源、保留行存在性、谓词字段 |
 | Pagination | 当前页实际输出 | 当前页输出对应来源 |
 | Join | 连接结果字段 | 两侧行存在性、连接键和输出字段来源；重复连接结果不重复计算同一 FactID |
-| Union | 去重后的结果字段 | 所有能产生该结果 tuple 的来源并集 |
-| `GROUP BY` | 分组键和派生聚合事实 | 组内行存在性、分组字段及聚合输入字段 |
-| `COUNT/SUM/MIN/MAX` | 每个结果单元一个派生事实 | 产生该值的唯一来源事实集合 |
+| Union | 去重后的结果字段 | distinct class 全部候选 row dependency 与全部 schema 去重字段，包括隐藏字段 |
+| `GROUP BY` | 实际可见的分组键和派生聚合事实 | 组内 row dependency 与全部 group key，包括隐藏 key |
+| `COUNT/SUM/MIN/MAX` | 每个结果单元一个派生事实 | 完整逻辑参数输入；包含 NULL 与 MIN/MAX 非极值 |
 
-派生聚合 FactID 绑定输出值与有序来源 Hash 集，避免相同数值但不同来源被
-错误视为同一披露。代数测试覆盖 projection/selection rewrite、Join
+派生聚合 FactID 绑定输出值与规范 witness commitment，避免相同数值但不同
+dependency witness 被错误视为同一披露。代数测试覆盖
+projection/selection rewrite、Join
 multiplicity、split/merge、pagination、retry、aggregate 和 snapshot update。
 
-这里的 conservation 是在已定义 FactID 和 rewrite 集合内的集合等价，不是
-“任意 SQL 等价查询都具有相同信息量”的声明。特别是，V1 只记正向产生结果
-的来源，不计量从空结果、排序位置或未命中行推断出的负信息。
+NULL 与非极值的纳入是保守 operator-input dependency，不是 causal influence
+声明。这里的 conservation 是在已定义 FactID 和 rewrite 集合内的集合等价，不是
+“任意 SQL 等价查询都具有相同信息量”的声明。特别是，V2 只记正向产生结果
+的来源，不计量 selection 失败行、空结果、未返回 group、page 外行、排序位置
+或未命中行所隐含的负信息。PostgreSQL 物理计划读取但未进入正向输出推导的
+数据也不属于该 footprint。
 
 ## 在线执行
 
@@ -91,7 +98,7 @@ reserve -> execute/buffer -> derive provenance -> settle -> release
 
 任一 exposure 维度超限时，整笔控制事务回滚：新事实、账本计数和结果密文
 都不落库，缓冲结果也不返回。Business PostgreSQL 已经完成的物理工作仍在
-资源遥测中独立处理。来源证据缺失、截断或无法规范化时同样 fail closed。
+资源遥测中独立处理。dependency 证据缺失、截断或无法规范化时同样 fail closed。
 
 ## 在线支持边界
 

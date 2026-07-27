@@ -4,6 +4,9 @@ This suite is the deterministic evidence layer for the TKDE-oriented TaskGate
 V2 model. The source-controlled corpus drives `taskgate-exposure-v2` typed
 FactID, witness, NULL, Join, Group, Page, and Observation semantics; it
 does not reuse the older gateway latency measurements as exposure evidence.
+The report field `influence` is retained for compatibility and denotes the
+contract-defined conservative positive-output dependency footprint, not causal
+influence or PostgreSQL's physical read set.
 
 Run it with:
 
@@ -24,10 +27,11 @@ anti-arbitrage case, or planner oracle did not match.
 
 - **RQ1:** an independent reference package that imports none of the production
   exposure, query-plan, gateway, or policy code derives complete semantic Fact
-  objects, witnesses, and hashes for 14 V2 cases over 12 expense and four
-  department rows. Projection, positive and empty selection, NULL, group/global
-  aggregation, join, and pagination compare 109 release and 261 influence
-  case-level fact memberships; per-case set digests are retained.
+  objects, witnesses, and hashes for every source-controlled V2 case. The
+  counterexamples include hidden group keys, hidden union-distinct fields,
+  `COUNT(a)` NULL inputs, `MIN/MAX` non-extrema, TRUE/FALSE/UNKNOWN selection,
+  and page/order boundaries; exact totals and per-case set digests are generated
+  in `results.json`.
 - **RQ2:** a fixture evaluator that imports none of TaskGate's exposure,
   query-plan, or SQL-policy code supplies expected rows. A real PostgreSQL 16
   server executes 1,024 unique normalized baseline/rewrite SQL pairs from eight
@@ -38,6 +42,10 @@ anti-arbitrage case, or planner oracle did not match.
   correlated `EXISTS`, one-row `VALUES` join, and complete offset-page
   partitions of sizes two and three. Differential checks, metamorphic checks,
   executed PostgreSQL statements, and mismatches are also reported separately.
+  A second closed-language stream checks release/dependency FactSet and
+  incremental-charge invariance for hidden group-key ordering, union operand
+  exchange, idempotence, and duplicate-branch collapse in addition to the
+  existing projection, selection, join, and group rewrites.
 - **RQ3:** deterministic split/merge, overlapping pagination, retry, join
   multiplicity, and snapshot-update cases run here. Two named PostgreSQL control
   store tests cover task-family delegation and concurrent settlement. The

@@ -2,12 +2,13 @@ package exposure
 
 import (
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 )
 
 // SQLTruth models PostgreSQL three-valued predicate evaluation. Only TRUE
-// contributes to positive-support influence.
+// contributes to the positive-output dependency footprint.
 type SQLTruth uint8
 
 const (
@@ -21,8 +22,9 @@ type WitnessItem struct {
 	Multiplicity uint64
 }
 
-// WitnessMultiset retains join fanout and aggregate multiplicity. Influence
-// derives a set from it; derived identity commits to the full multiset.
+// WitnessMultiset retains join fanout and aggregate multiplicity. The
+// positive-output dependency footprint derives a set from it; derived identity
+// commits to the full multiset.
 type WitnessMultiset map[string]WitnessItem
 
 func NewWitness(facts ...FactID) (WitnessMultiset, error) {
@@ -470,6 +472,19 @@ func UnionDistinctV2(left, right RelationV2) (RelationV2, error) {
 			return RelationV2{}, fmt.Errorf("%w: PostgreSQL json has no equality for UNION DISTINCT", ErrInvalid)
 		}
 	}
+	// An identical branch is foldable only when its full typed tuples are already
+	// distinct. Otherwise SQL bag semantics still require duplicate elimination.
+	// This mirrors the normal form's set-valued idempotence without suppressing
+	// the equivalence-field dependencies of a real DISTINCT operation.
+	if reflect.DeepEqual(left, right) {
+		distinct, err := relationTuplesDistinctV2(left)
+		if err != nil {
+			return RelationV2{}, err
+		}
+		if distinct {
+			return cloneRelationV2(left), nil
+		}
+	}
 	resultFields := append([]FieldV2(nil), left.Fields...)
 	rightFieldIndex := make(map[string]FieldV2, len(right.Fields))
 	for _, field := range right.Fields {
@@ -500,6 +515,10 @@ func UnionDistinctV2(left, right RelationV2) (RelationV2, error) {
 	}
 	for _, input := range inputs {
 		source := input.row
+		rowSupport, rowWitness, err := unionDistinctRowDependencyV2(source, result.Fields)
+		if err != nil {
+			return RelationV2{}, err
+		}
 		components := make([]string, 0, len(result.Fields)*2+1)
 		components = append(components, normalizedSchemaV2(result.Fields))
 		for _, field := range result.Fields {
@@ -512,10 +531,10 @@ func UnionDistinctV2(left, right RelationV2) (RelationV2, error) {
 		key, _ := ComposeCanonicalKeyV2("union-distinct-row", components...)
 		if existing, present := index[key]; present {
 			row := &result.Rows[existing]
-			if err := row.RowSupport.MergeChecked(source.RowSupport); err != nil {
+			if err := row.RowSupport.MergeChecked(rowSupport); err != nil {
 				return RelationV2{}, err
 			}
-			if err := row.RowWitness.MergeMax(source.RowWitness); err != nil {
+			if err := row.RowWitness.MergeMax(rowWitness); err != nil {
 				return RelationV2{}, err
 			}
 			for _, field := range result.Fields {
@@ -541,6 +560,8 @@ func UnionDistinctV2(left, right RelationV2) (RelationV2, error) {
 		}
 		row := cloneRowV2(source)
 		row.Key = key
+		row.RowSupport = rowSupport
+		row.RowWitness = rowWitness
 		for _, field := range result.Fields {
 			cell := row.Cells[field.ID]
 			fact, err := materializeCellReleaseV2(input.relation, source, cell)
@@ -666,6 +687,18 @@ func AggregateFromResultsV2(input RelationV2, groupFields []string, specs []Aggr
 			}
 			if err := row.RowWitness.Merge(member.RowWitness); err != nil {
 				return RelationV2{}, err
+			}
+			// Group membership is established by every key field, even when the
+			// caller does not include that key in the final visible field set.
+			// Key cells are same-proof inputs for this member, then members compose
+			// with ordinary multiplicity-preserving addition.
+			for _, field := range groupFields {
+				if err := row.RowSupport.MergeChecked(member.Cells[field].Support); err != nil {
+					return RelationV2{}, err
+				}
+				if err := row.RowWitness.Merge(member.Cells[field].Witness); err != nil {
+					return RelationV2{}, err
+				}
 			}
 		}
 		for _, field := range groupFields {
@@ -937,7 +970,7 @@ func sameFactV2(left, right FactID) bool {
 }
 
 // ValidateRelationV2 checks the representation invariant assumed by every
-// inference rule. In particular, influence annotations contain only V2 base
+// inference rule. In particular, dependency annotations contain only V2 base
 // facts, witness support equals set support, row keys are unique, and every
 // typed cell value belongs to the admitted PostgreSQL scalar domain.
 func ValidateRelationV2(relation RelationV2) error {
@@ -1156,6 +1189,39 @@ func cloneRelationShapeV2(input RelationV2) RelationV2 {
 	return RelationV2{Fields: append([]FieldV2(nil), input.Fields...), SnapshotBundle: append([]SnapshotBinding(nil), input.SnapshotBundle...), CanonicalOrder: input.CanonicalOrder}
 }
 
+func cloneRelationV2(input RelationV2) RelationV2 {
+	result := cloneRelationShapeV2(input)
+	for _, row := range input.Rows {
+		result.Rows = append(result.Rows, cloneRowV2(row))
+	}
+	return result
+}
+
+func relationTuplesDistinctV2(input RelationV2) (bool, error) {
+	fields := append([]FieldV2(nil), input.Fields...)
+	sort.Slice(fields, func(i, j int) bool { return fields[i].ID < fields[j].ID })
+	seen := make(map[string]struct{}, len(input.Rows))
+	for _, row := range input.Rows {
+		components := []string{normalizedSchemaV2(fields)}
+		for _, field := range fields {
+			canonical, err := CanonicalSQLValue(field.SQLType, row.Cells[field.ID].Value)
+			if err != nil {
+				return false, err
+			}
+			components = append(components, field.SQLType, canonical)
+		}
+		key, err := ComposeCanonicalKeyV2("union-distinct-row", components...)
+		if err != nil {
+			return false, err
+		}
+		if _, duplicate := seen[key]; duplicate {
+			return false, nil
+		}
+		seen[key] = struct{}{}
+	}
+	return true, nil
+}
+
 func cloneCellV2(source CellV2) CellV2 {
 	result := CellV2{Value: source.Value, SQLType: source.SQLType, Support: source.Support.Clone(), Witness: source.Witness.Clone(), Expression: source.Expression}
 	if source.ReleaseFact != nil {
@@ -1172,6 +1238,26 @@ func cloneRowV2(source AnnotatedRowV2) AnnotatedRowV2 {
 		result.Cells[field] = cloneCellV2(cell)
 	}
 	return result
+}
+
+// unionDistinctRowDependencyV2 constructs one candidate member's same-proof
+// dependency annotation. Duplicate elimination compares every schema field,
+// so all of those cell annotations belong to the row-level dependency even if
+// ObserveV2 later exposes only a projection. Alternative class members are
+// combined by the caller with MergeMax to preserve UNION DISTINCT idempotence.
+func unionDistinctRowDependencyV2(source AnnotatedRowV2, fields []FieldV2) (FactSet, WitnessMultiset, error) {
+	support := source.RowSupport.Clone()
+	witness := source.RowWitness.Clone()
+	for _, field := range fields {
+		cell := source.Cells[field.ID]
+		if err := support.MergeChecked(cell.Support); err != nil {
+			return nil, nil, err
+		}
+		if err := witness.Merge(cell.Witness); err != nil {
+			return nil, nil, err
+		}
+	}
+	return support, witness, nil
 }
 
 func sameSchemaV2(left, right []FieldV2) bool {

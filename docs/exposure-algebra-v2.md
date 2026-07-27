@@ -23,6 +23,11 @@
 
 这些条件是定理的前提，不是隐藏假设。在线编译器在 Catalog 验证、schema/collation 证明、结构化计划检查、同一 `REPEATABLE READ` snapshot 和 provenance 完整性检查中执行它们。
 
+本规范的第二账本是 **conservative positive-output dependency footprint**：
+对每个实际交付输出行和单元格，按以下归纳规则计入参与成功推导的基础事实。
+`Influence` 仅是兼容字段名。该足迹既不是最小 causal provenance，也不是
+PostgreSQL 的完整 physical read set；“精确”仅指相对于本规范规则精确且不漏计。
+
 ## 2. 正式语法与类型规则
 
 令 `N` 为 source namespace，`s` 为 snapshot，`r` 为稳定 relation role，`f` 为稳定字段 ID，`τ` 为规范 SQL 类型，`κ` 为精确 collation `(name,version,deterministic=true)`。
@@ -197,7 +202,8 @@ Wr' = Wr ⊕ (⊕ f∈deps . Wf)
 cells' = cells
 ```
 
-因此 predicate 字段进入正向 influence，即使之后未投影；FALSE/UNKNOWN 行不产生正向事实。
+因此 predicate 字段进入保留行的 positive-output dependency，即使之后未投影；
+FALSE/UNKNOWN 行不产生依赖事实。这是明确的 negative-information boundary。
 
 ### 5.3 Projection
 
@@ -231,16 +237,27 @@ cells = l.cells ∪ r.cells
 
 两行在每个同名 typed field 上满足 PostgreSQL `IS NOT DISTINCT FROM` 时属于同一 equivalence class；两个 NULL 相同，单边 NULL 不同。输出 row key 是规范 schema 和规范 typed tuple 的 hash。
 
+对完整 typed tuple 已无重复的 set-valued `R`，Normalizer 与可执行代数可按
+幂等律短路完全相同的已注解分支 `UnionDistinct(R,R)=R`；这保证合法的
+duplicate-branch collapse 在下游 Group/Join 中也不改变 Effect。普通 Scan
+仍按 PostgreSQL bag 处理：若其完整 tuple 有重复，`R UNION DISTINCT R` 等于
+`Distinct(R)` 而不是 `R`，不能折叠。以下 class 规则应用于未被折叠的
+operands。
+
 对一个 class `Q`：
 
 ```text
-Sr(Q) = ⊔ t∈Q . t.Sr
-Wr(Q) = ⊔max t∈Q . t.Wr
+member-row(t) = (t.Sr,t.Wr) ⊕ (⊕ f∈Γ . (t.cell[f].S,t.cell[f].W))
+(Sr(Q),Wr(Q)) = ⊔max t∈Q . member-row(t)
 Sf(Q) = ⊔ t∈Q . t.cell[f].S
 Wf(Q) = ⊔max t∈Q . t.cell[f].W
 ```
 
-若该 class 中所有 `cell[f]` materialize 为同一个 FactID，则保留该 FactID；否则清除预置 release fact，并令表达式为 schema 中排序、幂等的 `union(exprL(f),exprR(f))`，由新 row key、值和 `Wf(Q)` 构造 `DV`。这条规则同时保证所有不同来源进入 influence，并保证 `UnionDistinct(A,A)` 不制造新的 release identity 或 multiplicity。
+若该 class 中所有 `cell[f]` materialize 为同一个 FactID，则保留该 FactID；否则清除预置 release fact，并令表达式为 schema 中排序、幂等的 `union(exprL(f),exprR(f))`，由新 row key、值和 `Wf(Q)` 构造 `DV`。这条规则同时保证所有不同候选的 dependency 进入足迹，并保证 `UnionDistinct(A,A)` 不制造新的 release identity 或 multiplicity。
+
+`member-row` 将一个候选成员的 row dependency 与全部 schema equivalence
+字段作为同一证明组合；不同 alternative members 再用幂等 `⊔max`。因此即使
+最终可见字段 `V` 隐藏某个去重字段，该字段仍属于 distinct class 的依赖足迹。
 
 ### 5.6 Group 与 aggregate
 
@@ -249,8 +266,7 @@ Group key 使用逐字段 `IS NOT DISTINCT FROM`；NULL 因而形成一个普通
 ```text
 kgroup = H("group-row", sort([expr(f), τf, Cτf(valuef)] for f∈G))  when G≠∅
 kgroup = H("group-row", "global")                                 when G=∅
-Sr     = ⊔ m∈M . m.Sr
-Wr     = ⊕ m∈M . m.Wr
+(Sr,Wr) = ⊕ m∈M . ((m.Sr,m.Wr) ⊕ (⊕ g∈G . (m.cell[g].S,m.cell[g].W)))
 
 group-cell f:
   Sf = ⊔ m∈M . m.cell[f].S
@@ -267,6 +283,11 @@ COUNT(f), SUM(f), MIN(f), MAX(f) cell:
 
 表达式分别为 `count(*)` 或 `fn(input-expression)`。无 `GROUP BY` 的 PostgreSQL aggregate 必须恰有一行，包括空输入；有 key 的 Group 必须与输入的全部正向 group 一一对应。Aggregate 值本身由满足第 1 节条件的 PostgreSQL oracle 计算，而不是在 Go 中近似重算。
 
+所以每个实际输出 group 的全部 group-key source facts 都在行级 dependency 中，
+即使 key 不属于最终可见字段 `V`。`COUNT(f)` 的 NULL 参数 fact，以及
+`MIN/MAX` 的非极值参数 fact，都按完整 operator-input 集合计入；PostgreSQL
+计算标量时仍按自身规则忽略 NULL。这是保守依赖声明，不是反事实因果声明。
+
 ### 5.7 Stable Page
 
 语义上先用固定 PostgreSQL comparator 排序。Comparator 对每个字段使用 Catalog 证明的 exact collation name/version；未显式指定时，`ASC` 使用 `NULLS LAST`、`DESC` 使用 `NULLS FIRST`。编译器在用户 order 后追加 Catalog entity key 或全部 group key（ASC），直到证明 lexicographic total order；global aggregate 至多一行。在线 SQL 执行相同 order 后才将关系标记为 `CanonicalOrder=true`。
@@ -278,7 +299,10 @@ Page(R,o,l) = R.rows[min(o,n) : min(n, o+l)]   when l>0
 Page(R,o,0) = R.rows[min(o,n) : n]
 ```
 
-这里 `limit=0` 是结构化 QueryPlan 的“未设置上限”哨兵，不是 SQL `LIMIT 0`。标注逐项不变。负边界或未证明全序时失败。当前正向 profile 不把未输出行的排序字段、rank 或 absence 加入 Influence；这是明示的 negative-information 边界，不是 noninterference 保证。
+这里 `limit=0` 是结构化 QueryPlan 的“未设置上限”哨兵，不是 SQL `LIMIT 0`。
+标注逐项不变。负边界或未证明全序时失败。当前正向 profile 不把未输出行、
+排序字段、rank 或 absence 加入 dependency；这不是完整 top-k/read dependency，
+而是明示的 negative/order-information boundary，不是 noninterference 保证。
 
 ### 5.8 Observation
 
@@ -286,8 +310,8 @@ Page(R,o,0) = R.rows[min(o,n) : n]
 
 ```text
 Release(R,V)   = { materialize(t, t.cell[f]) | t∈R, f∈V }
-Influence(R,V) = (⊔ t∈R . t.Sr) ⊔ (⊔ t∈R,f∈V . t.cell[f].S)
-Effect(R,V)    = normalize(Release, Influence)
+Dependency(R,V) = (⊔ t∈R . t.Sr) ⊔ (⊔ t∈R,f∈V . t.cell[f].S)
+Effect(R,V)     = normalize(Release, Dependency)
 ```
 
 `materialize` 优先复用合法的 base/derived `optionalReleaseFact`；否则产生 `DV(snapshotBundle,rowKey,expression,type,value,CW(W))`。两类集合分别规范化、排序和持久化，不相互折叠。
@@ -317,7 +341,7 @@ Effect(R,V)    = normalize(Release, Influence)
 
 合取遵循 PostgreSQL 三值逻辑：`FALSE AND x=FALSE`、`TRUE AND x=x`、`UNKNOWN AND TRUE/UNKNOWN=UNKNOWN`；Selection 和 Join 只保留 `TRUE`。`IN/NOT IN`、比较与 `LIKE` 的 NULL/collation 行为由固定 PostgreSQL profile 执行。
 
-整数输入先检查 16/32/64-bit PostgreSQL 范围。Aggregate 输出类型固定为：`COUNT→bigint`、`SUM(smallint/integer)→bigint`、`SUM(bigint)→numeric`、`SUM(numeric/real/double precision)→` 同族、`MIN/MAX→` 输入类型。Aggregate value 来自 PostgreSQL，不在 Go 中重算；任何数据库 overflow/error 都没有求值结论。无 key 的空输入严格产生一行：`COUNT(*)=0`、`COUNT(f)=0`、`SUM/MIN/MAX=NULL`；有 key 的空输入产生零行。所有 aggregate argument cell（包括 NULL fact）进入 profile-defined Influence，而 scalar 仍按 PostgreSQL 忽略 NULL。
+整数输入先检查 16/32/64-bit PostgreSQL 范围。Aggregate 输出类型固定为：`COUNT→bigint`、`SUM(smallint/integer)→bigint`、`SUM(bigint)→numeric`、`SUM(numeric/real/double precision)→` 同族、`MIN/MAX→` 输入类型。Aggregate value 来自 PostgreSQL，不在 Go 中重算；任何数据库 overflow/error 都没有求值结论。无 key 的空输入严格产生一行：`COUNT(*)=0`、`COUNT(f)=0`、`SUM/MIN/MAX=NULL`；有 key 的空输入产生零行。所有 aggregate argument cell（包括 NULL 与 MIN/MAX 非极值 fact）进入 profile-defined positive-output dependency，而 scalar 仍按 PostgreSQL 规则忽略 NULL 并只返回极值。
 
 ## 7. Query Normal Form
 
@@ -343,11 +367,30 @@ Effect(R,V)    = normalize(Release, Influence)
 
 证明：对 `e` 的结构归纳。Scan 直接构造唯一 row key、singleton support/witness 和规范 cell。Select、Project、Page 只复制或以 `∪/⊕` 合并已验证标注。Join 的 schema disjointness 和 `RID` 构造给出闭合行身份；Union 的 typed tuple class 给出唯一输出键，`∪/max` 保持等支撑；Group 的 group equivalence class 给出唯一键，`∪/⊕` 保持等支撑。每个实现规则返回前再次执行完整 validator。证毕。
 
-### 定理 2（Effect 确定性）
+### 定理 2（Positive-output dependency 确定性）
 
-固定 `Π,D,e,V` 后，`Effect(Eval(e,D),V)` 唯一。
+固定 `Π,D,e,V` 后，`Dependency(Eval(e,D),V)` 唯一，因此完整 `Effect` 唯一。
 
 证明：基础值和 PostgreSQL oracle 在固定 snapshot 下唯一。`Cτ`、typed truth、row-key hash、set union、multiset addition/max、canonical sorting 和 Fact materialization 都是确定函数。对语法树结构归纳即可；Page 的全序前提排除了 tie 的非确定选择。证毕。
+
+### 性质 1（Group-key completeness）
+
+对每个交付 group `Q` 和每个 `g∈G`，所有成员的 `cell[g].S` 都属于该输出行
+的 dependency，因此在 `g∉V` 时也不会被 projection 丢失。该性质直接来自
+第 5.6 节的行级 same-proof composition。
+
+### 性质 2（Distinct-dependency completeness）
+
+对每个交付的 union-distinct class `Q`，每个候选成员和每个 `f∈Γ` 的
+`cell[f].S` 都属于该输出行 dependency，即使 `f∉V`。不同 members 的
+alternative max composition 不改变最终 support union。
+
+### 性质 3（Conservative aggregate-input）
+
+每个交付 aggregate cell 的完整逻辑参数输入都属于 dependency：`COUNT(*)`
+包含全部成员 row dependency，其他已支持 aggregate 包含全部参数 cell facts。
+NULL 和 MIN/MAX 非极值均不得遗漏；该性质不声称这些输入是最小 causal
+provenance。
 
 ### 定理 3（正规形可靠性，而非完备性）
 
@@ -357,7 +400,7 @@ Effect(R,V)    = normalize(Release, Influence)
 NFΠ(e1) = NFΠ(e2)  ⇒  EffectΠ(e1,D) = EffectΠ(e2,D).
 ```
 
-证明：Normalizer 可能消除的差异只有 alias、集合型字段/合取顺序、Join operand/predicate 顺序、Union operand 顺序、重复的同一 Union 分支，以及固定 stable suffix 的拼写。Alias 不进入 `DV.expression`；集合规范化消除遍历顺序；Join 使用排序后的 immediate row identities 且 `∪/⊕` 可交换；Union class、relation-level expression、`∪/⊔max` 均按规范顺序构造，且 `W⊔maxW=W` 并保留相同 materialized Fact，故 Union commutativity/idempotence 在包括下游 Group 的上下文中成立；Group key 和 witness 构造先排序；Page 的实际 SQL 和 NF 使用同一 canonical suffix。各原子 rewrite 在任意 well-typed context 下保持 Effect，由 context 结构归纳得到 closure。证毕。
+证明：Normalizer 可能消除的差异只有 alias、集合型字段/合取顺序、Join operand/predicate 顺序、Union operand 顺序、已证明完整 tuple 无重复的同一 Union 分支，以及固定 stable suffix 的拼写。Scan 不携带该证明；Union-distinct 与 Group 的结果携带，Select/Page 可保留，Project 仅在 schema 不变时保留。Alias 不进入 `DV.expression`；集合规范化消除遍历顺序；Join 使用排序后的 immediate row identities 且 `∪/⊕` 可交换；Union class、relation-level expression、`∪/⊔max` 均按规范顺序构造，且 `W⊔maxW=W` 并保留相同 materialized Fact，故合法的 Union commutativity/idempotence 在包括下游 Group 的上下文中成立；Group key 和 witness 构造先排序；Page 的实际 SQL 和 NF 使用同一 canonical suffix。各原子 rewrite 在任意 well-typed context 下保持 Effect，由 context 结构归纳得到 closure。证毕。
 
 逆命题不成立：两个 NF 不同的计划仍可能在某个特定数据集上产生同一 Effect。该定理也不覆盖任意 SQL optimizer rewrite。
 

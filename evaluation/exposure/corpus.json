@@ -52,12 +52,19 @@
     {"id":"selection_ops_amount","operation":"selection_ops_amount"},
     {"id":"selection_legal_amount","operation":"selection_legal_amount"},
     {"id":"selection_missing_amount","operation":"selection_missing_amount"},
+    {"id":"selection_positive_boundary","operation":"selection_positive_boundary"},
     {"id":"group_sum_count","operation":"group_sum_count"},
+    {"id":"group_hidden_key_sum","operation":"group_hidden_key_sum"},
     {"id":"global_count","operation":"global_count"},
+    {"id":"global_count_column_null","operation":"global_count_column_null"},
     {"id":"global_sum","operation":"global_sum"},
+    {"id":"global_min_all_inputs","operation":"global_min_all_inputs"},
+    {"id":"global_max_all_inputs","operation":"global_max_all_inputs"},
     {"id":"department_join","operation":"department_join"},
     {"id":"page_first_four","operation":"page_first_four"},
-    {"id":"page_middle_five","operation":"page_middle_five"}
+    {"id":"page_middle_five","operation":"page_middle_five"},
+    {"id":"page_order_boundary","operation":"page_order_boundary"},
+    {"id":"union_hidden_distinct","operation":"union_hidden_distinct"}
   ],
   "adversarial_cases": [
     {"id":"join_multiplicity","execution":"deterministic"},

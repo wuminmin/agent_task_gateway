@@ -7,8 +7,11 @@ TaskGate 是一个数据库研究原型：它把累计数据暴露绑定到人�
 ## 核心模型
 
 每个事实至少绑定 `(product, snapshot, entity key, field, value version)`。
-根任务维护两个集合账本：实际交付的 `release exposure`，以及影响 Join、过滤
-或聚合结果的 `source influence`。一次查询只支付相对根任务已知集合的新事实：
+根任务维护两个集合账本：实际交付的 `release exposure`，以及保守的
+`positive-output dependency footprint`。后者在 API、数据库和回执中继续使用
+兼容标签 `influence`，但表示按 V2 规则参与已交付正向输出推导的 row/cell
+facts，不是最小 causal influence，也不是完整 physical read set。一次查询只
+支付相对根任务已计量集合的新事实：
 
 ```text
 delta(T, q) = (|F_release(q) - K_release(T)|,

@@ -1,318 +1,176 @@
 {
-  "charge_baselines": {
-    "full_first": {
-      "influence": 36,
-      "release": 15
-    },
-    "full_replay": {
-      "influence": 0,
-      "release": 0
-    },
-    "provenance_no_history": 36,
-    "query_count": 1,
-    "returned_rows": 5,
-    "serialized_bytes": 79,
-    "weighted_cells": 15
-  },
-  "corpus_sha256": "0870636d8196462667fdaaae3fb1e5b7066835dfa13f1fb0912d650d62dc5156",
+  "schema_version": 3,
   "profile_version": "taskgate-exposure-v2",
+  "corpus_sha256": "160ebe97fd82bd33a98462d1f66e25025b05e3de42f07516ca53655ef06e98ec",
   "rq1_ground_truth": {
-    "cases": 14,
+    "cases": 21,
+    "passed": 21,
     "dataset_relations": 2,
     "dataset_rows": 16,
-    "influence_fact_comparisons": 261,
+    "release_fact_comparisons": 125,
+    "influence_fact_comparisons": 392,
     "oracle": "independent-rq1-relational-oracle-v1",
-    "oracle_source_sha256": "77c43cf0375203b3cfee37c4b23441677c4b668ad0833402839b629267d6ecaf",
-    "passed": 14,
-    "release_fact_comparisons": 109,
+    "oracle_source_sha256": "4548b9ae4ce46e056a39ff6cffafc6cd615a7d34966786f03cc59e749b0e064b",
     "results": [
       {
         "id": "projection_amount",
-        "influence_facts": 24,
-        "influence_set_sha256": "afa78b2110408890a62a475142f531a9c55f21f7886e2f1333c10fa09e200034",
         "release_facts": 12,
-        "release_set_sha256": "f9774421b71419bac4d1dd43d2c6b1424e6705223fc139e2c8a3bfdcaea3196c"
+        "influence_facts": 24,
+        "release_set_sha256": "f9774421b71419bac4d1dd43d2c6b1424e6705223fc139e2c8a3bfdcaea3196c",
+        "influence_set_sha256": "afa78b2110408890a62a475142f531a9c55f21f7886e2f1333c10fa09e200034"
       },
       {
         "id": "projection_department",
-        "influence_facts": 24,
-        "influence_set_sha256": "00491fddb7e92929472f43acf2efc58610b7c1372c597e9f72ade7a806e85ec5",
         "release_facts": 12,
-        "release_set_sha256": "5cd6ae9eda5849751683b0e031d3fc89c354f172500135cad5a565de848535c8"
+        "influence_facts": 24,
+        "release_set_sha256": "5cd6ae9eda5849751683b0e031d3fc89c354f172500135cad5a565de848535c8",
+        "influence_set_sha256": "00491fddb7e92929472f43acf2efc58610b7c1372c597e9f72ade7a806e85ec5"
       },
       {
         "id": "projection_pair",
-        "influence_facts": 36,
-        "influence_set_sha256": "3f8f1a99cbf744f7d3c63b10e5277a235cbc55725fd1e78468165bad3991bef6",
         "release_facts": 24,
-        "release_set_sha256": "59dda3f4d40815e817f72116c022e933c5afa527ffa2bced957b8398811527ff"
+        "influence_facts": 36,
+        "release_set_sha256": "59dda3f4d40815e817f72116c022e933c5afa527ffa2bced957b8398811527ff",
+        "influence_set_sha256": "3f8f1a99cbf744f7d3c63b10e5277a235cbc55725fd1e78468165bad3991bef6"
       },
       {
         "id": "selection_sales_amount",
-        "influence_facts": 15,
-        "influence_set_sha256": "b5c414487872d1ba44f0f903f7b2a9de0c48cd5f10cc7afedc56e15d62c00c19",
         "release_facts": 5,
-        "release_set_sha256": "3260d2fb2995229f43455513db2759caaca169098d56b5b3a5540b35824d0849"
+        "influence_facts": 15,
+        "release_set_sha256": "3260d2fb2995229f43455513db2759caaca169098d56b5b3a5540b35824d0849",
+        "influence_set_sha256": "b5c414487872d1ba44f0f903f7b2a9de0c48cd5f10cc7afedc56e15d62c00c19"
       },
       {
         "id": "selection_rnd_amount",
-        "influence_facts": 6,
-        "influence_set_sha256": "711177ce1124f09229dbb8a4cda1a2075ede5eb5e8a50f6fe903c85a9044fe87",
         "release_facts": 2,
-        "release_set_sha256": "f795345e8e0dd5ed9d5936fbe1f2b4294a1d8261a00f10ab3194dafff9a27bb7"
+        "influence_facts": 6,
+        "release_set_sha256": "f795345e8e0dd5ed9d5936fbe1f2b4294a1d8261a00f10ab3194dafff9a27bb7",
+        "influence_set_sha256": "711177ce1124f09229dbb8a4cda1a2075ede5eb5e8a50f6fe903c85a9044fe87"
       },
       {
         "id": "selection_ops_amount",
-        "influence_facts": 6,
-        "influence_set_sha256": "f45b2e9eed6021f848145fafc19592d98e97937cab905403d550c3ba894fcf92",
         "release_facts": 2,
-        "release_set_sha256": "96496a3aefd4f155d41c087e256cc7420659e5d26ddd0dace26f876c0bf9b1d7"
+        "influence_facts": 6,
+        "release_set_sha256": "96496a3aefd4f155d41c087e256cc7420659e5d26ddd0dace26f876c0bf9b1d7",
+        "influence_set_sha256": "f45b2e9eed6021f848145fafc19592d98e97937cab905403d550c3ba894fcf92"
       },
       {
         "id": "selection_legal_amount",
-        "influence_facts": 6,
-        "influence_set_sha256": "6109d25cbaa72d4235b9330ff00ea7367333ee349ad52df536ecdcdb24dc6618",
         "release_facts": 2,
-        "release_set_sha256": "cca1954dcdb6b844a4b1475cfcaa15203bde962ed324f3297a6c7759fde1dc31"
+        "influence_facts": 6,
+        "release_set_sha256": "cca1954dcdb6b844a4b1475cfcaa15203bde962ed324f3297a6c7759fde1dc31",
+        "influence_set_sha256": "6109d25cbaa72d4235b9330ff00ea7367333ee349ad52df536ecdcdb24dc6618"
       },
       {
         "id": "selection_missing_amount",
-        "influence_facts": 0,
-        "influence_set_sha256": "8182931d4be2df8cbc879b67fdc5df15cd640d803b7b9a42173619df7d5acfbb",
         "release_facts": 0,
-        "release_set_sha256": "8182931d4be2df8cbc879b67fdc5df15cd640d803b7b9a42173619df7d5acfbb"
+        "influence_facts": 0,
+        "release_set_sha256": "8182931d4be2df8cbc879b67fdc5df15cd640d803b7b9a42173619df7d5acfbb",
+        "influence_set_sha256": "8182931d4be2df8cbc879b67fdc5df15cd640d803b7b9a42173619df7d5acfbb"
+      },
+      {
+        "id": "selection_positive_boundary",
+        "release_facts": 5,
+        "influence_facts": 15,
+        "release_set_sha256": "3260d2fb2995229f43455513db2759caaca169098d56b5b3a5540b35824d0849",
+        "influence_set_sha256": "b5c414487872d1ba44f0f903f7b2a9de0c48cd5f10cc7afedc56e15d62c00c19"
       },
       {
         "id": "group_sum_count",
-        "influence_facts": 36,
-        "influence_set_sha256": "3f8f1a99cbf744f7d3c63b10e5277a235cbc55725fd1e78468165bad3991bef6",
         "release_facts": 15,
-        "release_set_sha256": "4379b8ad42a41a6b3db6adc319276890431bb75374d902be5238a66b52e32f94"
+        "influence_facts": 36,
+        "release_set_sha256": "4379b8ad42a41a6b3db6adc319276890431bb75374d902be5238a66b52e32f94",
+        "influence_set_sha256": "3f8f1a99cbf744f7d3c63b10e5277a235cbc55725fd1e78468165bad3991bef6"
+      },
+      {
+        "id": "group_hidden_key_sum",
+        "release_facts": 5,
+        "influence_facts": 36,
+        "release_set_sha256": "3be16f3fc80bee4599ea49cf854c04ea2eea4565707639bf3db1c265c3396fa9",
+        "influence_set_sha256": "3f8f1a99cbf744f7d3c63b10e5277a235cbc55725fd1e78468165bad3991bef6"
       },
       {
         "id": "global_count",
-        "influence_facts": 12,
-        "influence_set_sha256": "d2f9f78b6d5ad871ebbccdb43fc61de7c538d864515f6cba022394621acfe2d7",
         "release_facts": 1,
-        "release_set_sha256": "4d63da23455455761a809acbe5e889b71265c01bb5699137c2bd2fdf5ae882e8"
+        "influence_facts": 12,
+        "release_set_sha256": "4d63da23455455761a809acbe5e889b71265c01bb5699137c2bd2fdf5ae882e8",
+        "influence_set_sha256": "d2f9f78b6d5ad871ebbccdb43fc61de7c538d864515f6cba022394621acfe2d7"
+      },
+      {
+        "id": "global_count_column_null",
+        "release_facts": 1,
+        "influence_facts": 24,
+        "release_set_sha256": "182c6ee61d4227d520de2b0ac4d65f1b4b29246be5c06fe80a95c3d6a1822021",
+        "influence_set_sha256": "afa78b2110408890a62a475142f531a9c55f21f7886e2f1333c10fa09e200034"
       },
       {
         "id": "global_sum",
-        "influence_facts": 24,
-        "influence_set_sha256": "afa78b2110408890a62a475142f531a9c55f21f7886e2f1333c10fa09e200034",
         "release_facts": 1,
-        "release_set_sha256": "5d984d42d967b8944edc3caf5076981613f07a0bdb8458c2a381e2cc826f2d3a"
+        "influence_facts": 24,
+        "release_set_sha256": "5d984d42d967b8944edc3caf5076981613f07a0bdb8458c2a381e2cc826f2d3a",
+        "influence_set_sha256": "afa78b2110408890a62a475142f531a9c55f21f7886e2f1333c10fa09e200034"
+      },
+      {
+        "id": "global_min_all_inputs",
+        "release_facts": 1,
+        "influence_facts": 24,
+        "release_set_sha256": "b7f710923e95f872a5c65b0d9009fee304044520faa7a25d74f6c5cff6a980f5",
+        "influence_set_sha256": "afa78b2110408890a62a475142f531a9c55f21f7886e2f1333c10fa09e200034"
+      },
+      {
+        "id": "global_max_all_inputs",
+        "release_facts": 1,
+        "influence_facts": 24,
+        "release_set_sha256": "f8aba550a6acb91f95c6fed0cbd51da4987ec68aef35947acca27728e8c12bb4",
+        "influence_set_sha256": "afa78b2110408890a62a475142f531a9c55f21f7886e2f1333c10fa09e200034"
       },
       {
         "id": "department_join",
-        "influence_facts": 45,
-        "influence_set_sha256": "6dea82ede88fb3b75f2133e00a5c404256ab48ed59747bca744ec381ca7edac1",
         "release_facts": 15,
-        "release_set_sha256": "760929a799264d533bab8b2eaf1f96d7b64fa51eb6fb44f00ee1ee4e70d379f5"
+        "influence_facts": 45,
+        "release_set_sha256": "760929a799264d533bab8b2eaf1f96d7b64fa51eb6fb44f00ee1ee4e70d379f5",
+        "influence_set_sha256": "6dea82ede88fb3b75f2133e00a5c404256ab48ed59747bca744ec381ca7edac1"
       },
       {
         "id": "page_first_four",
-        "influence_facts": 12,
-        "influence_set_sha256": "cb9982016441e562b229534b737b7a29146db93ec74802a58e36811ddce98936",
         "release_facts": 8,
-        "release_set_sha256": "1a9d143e047effb0112b0a5e44a4a18c52579c3cfeb3408864682203bf21878c"
+        "influence_facts": 12,
+        "release_set_sha256": "1a9d143e047effb0112b0a5e44a4a18c52579c3cfeb3408864682203bf21878c",
+        "influence_set_sha256": "cb9982016441e562b229534b737b7a29146db93ec74802a58e36811ddce98936"
       },
       {
         "id": "page_middle_five",
-        "influence_facts": 15,
-        "influence_set_sha256": "ebaa48e60d38158d0763f7b61788343d635ecf3416e624d8096987e881db1ba7",
         "release_facts": 10,
-        "release_set_sha256": "ecbc9b25dd25263fbdb529d3748c1a42656361e16bb9cbaf4dadf06b4e9f1b3a"
-      }
-    ]
-  },
-  "rq2_exposure_invariance": {
-    "status": "complete",
-    "oracle": "taskgate-v2-algebra-self-invariance",
-    "normalization": "algebra-normal-form-v3+release-influence-factset+zero-incremental-charge",
-    "rewrites": 8,
-    "datasets": 5,
-    "cases": 15,
-    "normal_form_checks": 13,
-    "effect_checks": 30,
-    "mismatches": 0,
-    "pair_set_sha256": "715068a404120ceed3f9811c3340813b184ca498dfcf2dc88cb819d8453a48dc",
-    "results": [
-      {
-        "case": "select_project_order",
-        "dataset": "travel-A",
-        "normal_form_required": false,
-        "normal_form_equal": false,
-        "release_equal": true,
-        "influence_equal": true,
-        "charge_delta_zero": true,
-        "release_charge": 0,
-        "influence_charge": 0
+        "influence_facts": 15,
+        "release_set_sha256": "ecbc9b25dd25263fbdb529d3748c1a42656361e16bb9cbaf4dadf06b4e9f1b3a",
+        "influence_set_sha256": "ebaa48e60d38158d0763f7b61788343d635ecf3416e624d8096987e881db1ba7"
       },
       {
-        "case": "select_project_order",
-        "dataset": "travel-B",
-        "normal_form_required": false,
-        "normal_form_equal": false,
-        "release_equal": true,
-        "influence_equal": true,
-        "charge_delta_zero": true,
-        "release_charge": 0,
-        "influence_charge": 0
+        "id": "page_order_boundary",
+        "release_facts": 1,
+        "influence_facts": 2,
+        "release_set_sha256": "5baac95293837b3efbdeef2cabdff5849ec80b1fe6ff2cc76708b9273498ac45",
+        "influence_set_sha256": "55b2051118e4cbc63fe8bbb75737e56d263da3381a253e68824ef867143eb7e1"
       },
       {
-        "case": "conjunction_order",
-        "dataset": "travel-A",
-        "normal_form_required": true,
-        "normal_form_equal": true,
-        "release_equal": true,
-        "influence_equal": true,
-        "charge_delta_zero": true,
-        "release_charge": 0,
-        "influence_charge": 0
-      },
-      {
-        "case": "conjunction_order",
-        "dataset": "travel-B",
-        "normal_form_required": true,
-        "normal_form_equal": true,
-        "release_equal": true,
-        "influence_equal": true,
-        "charge_delta_zero": true,
-        "release_charge": 0,
-        "influence_charge": 0
-      },
-      {
-        "case": "project_field_order",
-        "dataset": "travel-A",
-        "normal_form_required": true,
-        "normal_form_equal": true,
-        "release_equal": true,
-        "influence_equal": true,
-        "charge_delta_zero": true,
-        "release_charge": 0,
-        "influence_charge": 0
-      },
-      {
-        "case": "project_field_order",
-        "dataset": "travel-B",
-        "normal_form_required": true,
-        "normal_form_equal": true,
-        "release_equal": true,
-        "influence_equal": true,
-        "charge_delta_zero": true,
-        "release_charge": 0,
-        "influence_charge": 0
-      },
-      {
-        "case": "group_key_order",
-        "dataset": "travel-A",
-        "normal_form_required": true,
-        "normal_form_equal": true,
-        "release_equal": true,
-        "influence_equal": true,
-        "charge_delta_zero": true,
-        "release_charge": 0,
-        "influence_charge": 0
-      },
-      {
-        "case": "group_key_order",
-        "dataset": "travel-B",
-        "normal_form_required": true,
-        "normal_form_equal": true,
-        "release_equal": true,
-        "influence_equal": true,
-        "charge_delta_zero": true,
-        "release_charge": 0,
-        "influence_charge": 0
-      },
-      {
-        "case": "join_operand_swap",
-        "dataset": "travel-A",
-        "normal_form_required": true,
-        "normal_form_equal": true,
-        "release_equal": true,
-        "influence_equal": true,
-        "charge_delta_zero": true,
-        "release_charge": 0,
-        "influence_charge": 0
-      },
-      {
-        "case": "join_operand_swap",
-        "dataset": "travel-B",
-        "normal_form_required": true,
-        "normal_form_equal": true,
-        "release_equal": true,
-        "influence_equal": true,
-        "charge_delta_zero": true,
-        "release_charge": 0,
-        "influence_charge": 0
-      },
-      {
-        "case": "join_predicate_order",
-        "dataset": "ledger-A",
-        "normal_form_required": true,
-        "normal_form_equal": true,
-        "release_equal": true,
-        "influence_equal": true,
-        "charge_delta_zero": true,
-        "release_charge": 0,
-        "influence_charge": 0
-      },
-      {
-        "case": "union_idempotence",
-        "dataset": "snapshots-A",
-        "normal_form_required": true,
-        "normal_form_equal": true,
-        "release_equal": true,
-        "influence_equal": true,
-        "charge_delta_zero": true,
-        "release_charge": 0,
-        "influence_charge": 0
-      },
-      {
-        "case": "union_idempotence",
-        "dataset": "snapshots-B",
-        "normal_form_required": true,
-        "normal_form_equal": true,
-        "release_equal": true,
-        "influence_equal": true,
-        "charge_delta_zero": true,
-        "release_charge": 0,
-        "influence_charge": 0
-      },
-      {
-        "case": "duplicate_union_collapse",
-        "dataset": "snapshots-A",
-        "normal_form_required": true,
-        "normal_form_equal": true,
-        "release_equal": true,
-        "influence_equal": true,
-        "charge_delta_zero": true,
-        "release_charge": 0,
-        "influence_charge": 0
-      },
-      {
-        "case": "duplicate_union_collapse",
-        "dataset": "snapshots-B",
-        "normal_form_required": true,
-        "normal_form_equal": true,
-        "release_equal": true,
-        "influence_equal": true,
-        "charge_delta_zero": true,
-        "release_charge": 0,
-        "influence_charge": 0
+        "id": "union_hidden_distinct",
+        "release_facts": 2,
+        "influence_facts": 6,
+        "release_set_sha256": "32c016833652eafe8be668cfefd4848d0985c7abfc44a13e1e43481802b6194b",
+        "influence_set_sha256": "26e7ae955b2d6d7648f3f27ed3535a2dcf8ad0229d53ad43a6b09ec2a7a3d414"
       }
     ]
   },
   "rq2_rewrite_invariance": {
-    "differential_checks": 1152,
-    "duplicate_attempts": 0,
-    "executed_unique_pairs": 1024,
-    "fixture_rows": 12,
     "generated_attempts": 1024,
-    "metamorphic_checks": 1024,
-    "mismatches": 0,
+    "unique_normalized_pairs": 1024,
+    "executed_unique_pairs": 1024,
+    "duplicate_attempts": 0,
+    "rewrite_templates": 8,
+    "scenarios": 128,
+    "fixture_rows": 12,
+    "pair_normalization": "collapse-sql-whitespace+ordered-statement-framing+sha256-v1",
+    "pair_set_sha256": "1137e9f847d0231ad2f7de30471462195fa7149f8a9992cc3a63ddc0bb0cee5f",
     "normalized_pair_signatures": [
       "000237e231d4fff6445affb2575689e7dee343f39765d748686241fa5181d8a4",
       "008a158bb47081db92f05ee9db4bf063ce598f337928bc2f5e1e5a945731c696",
@@ -1339,29 +1197,242 @@
       "ff5a39944cfa0f592830bc792c2bc4f800c33a327daf7f3c49d93e90dfa13f9c",
       "ff6f919d7c840437a0684875ea300011ea7ba50478f7ac708d6301e2506179cb"
     ],
+    "differential_checks": 1152,
+    "metamorphic_checks": 1024,
+    "postgres_statements": 2176,
+    "mismatches": 0,
     "oracle": "independent-go-fixture-oracle-v2",
     "oracle_fixture_sha256": "4ec556743b401fbcbba10d20e347647824934df1ebfd4524bd6284a1855f421e",
-    "pair_normalization": "collapse-sql-whitespace+ordered-statement-framing+sha256-v1",
-    "pair_set_sha256": "1137e9f847d0231ad2f7de30471462195fa7149f8a9992cc3a63ddc0bb0cee5f",
-    "postgres_major": 16,
-    "postgres_statements": 2176,
     "postgres_version": "16.14 (Debian 16.14-1.pgdg12+1)",
-    "rewrite_templates": 8,
-    "scenarios": 128,
-    "unique_normalized_pairs": 1024
+    "postgres_major": 16
+  },
+  "rq2_exposure_invariance": {
+    "status": "complete",
+    "oracle": "taskgate-v2-algebra-self-invariance",
+    "normalization": "algebra-normal-form-v3+release-positive-output-dependency-factset+zero-incremental-charge",
+    "rewrites": 10,
+    "datasets": 5,
+    "cases": 19,
+    "normal_form_checks": 17,
+    "effect_checks": 38,
+    "mismatches": 0,
+    "pair_set_sha256": "6512786f8929df03d58da578389b9d007ec5a750afb906eee6cd22b5b4ea5097",
+    "results": [
+      {
+        "case": "select_project_order",
+        "dataset": "travel-A",
+        "normal_form_required": false,
+        "normal_form_equal": false,
+        "release_equal": true,
+        "influence_equal": true,
+        "charge_delta_zero": true,
+        "release_charge": 0,
+        "influence_charge": 0
+      },
+      {
+        "case": "select_project_order",
+        "dataset": "travel-B",
+        "normal_form_required": false,
+        "normal_form_equal": false,
+        "release_equal": true,
+        "influence_equal": true,
+        "charge_delta_zero": true,
+        "release_charge": 0,
+        "influence_charge": 0
+      },
+      {
+        "case": "conjunction_order",
+        "dataset": "travel-A",
+        "normal_form_required": true,
+        "normal_form_equal": true,
+        "release_equal": true,
+        "influence_equal": true,
+        "charge_delta_zero": true,
+        "release_charge": 0,
+        "influence_charge": 0
+      },
+      {
+        "case": "conjunction_order",
+        "dataset": "travel-B",
+        "normal_form_required": true,
+        "normal_form_equal": true,
+        "release_equal": true,
+        "influence_equal": true,
+        "charge_delta_zero": true,
+        "release_charge": 0,
+        "influence_charge": 0
+      },
+      {
+        "case": "project_field_order",
+        "dataset": "travel-A",
+        "normal_form_required": true,
+        "normal_form_equal": true,
+        "release_equal": true,
+        "influence_equal": true,
+        "charge_delta_zero": true,
+        "release_charge": 0,
+        "influence_charge": 0
+      },
+      {
+        "case": "project_field_order",
+        "dataset": "travel-B",
+        "normal_form_required": true,
+        "normal_form_equal": true,
+        "release_equal": true,
+        "influence_equal": true,
+        "charge_delta_zero": true,
+        "release_charge": 0,
+        "influence_charge": 0
+      },
+      {
+        "case": "group_key_order",
+        "dataset": "travel-A",
+        "normal_form_required": true,
+        "normal_form_equal": true,
+        "release_equal": true,
+        "influence_equal": true,
+        "charge_delta_zero": true,
+        "release_charge": 0,
+        "influence_charge": 0
+      },
+      {
+        "case": "group_key_order",
+        "dataset": "travel-B",
+        "normal_form_required": true,
+        "normal_form_equal": true,
+        "release_equal": true,
+        "influence_equal": true,
+        "charge_delta_zero": true,
+        "release_charge": 0,
+        "influence_charge": 0
+      },
+      {
+        "case": "hidden_group_key_order",
+        "dataset": "travel-A",
+        "normal_form_required": true,
+        "normal_form_equal": true,
+        "release_equal": true,
+        "influence_equal": true,
+        "charge_delta_zero": true,
+        "release_charge": 0,
+        "influence_charge": 0
+      },
+      {
+        "case": "hidden_group_key_order",
+        "dataset": "travel-B",
+        "normal_form_required": true,
+        "normal_form_equal": true,
+        "release_equal": true,
+        "influence_equal": true,
+        "charge_delta_zero": true,
+        "release_charge": 0,
+        "influence_charge": 0
+      },
+      {
+        "case": "join_operand_swap",
+        "dataset": "travel-A",
+        "normal_form_required": true,
+        "normal_form_equal": true,
+        "release_equal": true,
+        "influence_equal": true,
+        "charge_delta_zero": true,
+        "release_charge": 0,
+        "influence_charge": 0
+      },
+      {
+        "case": "join_operand_swap",
+        "dataset": "travel-B",
+        "normal_form_required": true,
+        "normal_form_equal": true,
+        "release_equal": true,
+        "influence_equal": true,
+        "charge_delta_zero": true,
+        "release_charge": 0,
+        "influence_charge": 0
+      },
+      {
+        "case": "join_predicate_order",
+        "dataset": "ledger-A",
+        "normal_form_required": true,
+        "normal_form_equal": true,
+        "release_equal": true,
+        "influence_equal": true,
+        "charge_delta_zero": true,
+        "release_charge": 0,
+        "influence_charge": 0
+      },
+      {
+        "case": "union_operand_exchange",
+        "dataset": "snapshots-A",
+        "normal_form_required": true,
+        "normal_form_equal": true,
+        "release_equal": true,
+        "influence_equal": true,
+        "charge_delta_zero": true,
+        "release_charge": 0,
+        "influence_charge": 0
+      },
+      {
+        "case": "union_operand_exchange",
+        "dataset": "snapshots-B",
+        "normal_form_required": true,
+        "normal_form_equal": true,
+        "release_equal": true,
+        "influence_equal": true,
+        "charge_delta_zero": true,
+        "release_charge": 0,
+        "influence_charge": 0
+      },
+      {
+        "case": "union_idempotence",
+        "dataset": "snapshots-A",
+        "normal_form_required": true,
+        "normal_form_equal": true,
+        "release_equal": true,
+        "influence_equal": true,
+        "charge_delta_zero": true,
+        "release_charge": 0,
+        "influence_charge": 0
+      },
+      {
+        "case": "union_idempotence",
+        "dataset": "snapshots-B",
+        "normal_form_required": true,
+        "normal_form_equal": true,
+        "release_equal": true,
+        "influence_equal": true,
+        "charge_delta_zero": true,
+        "release_charge": 0,
+        "influence_charge": 0
+      },
+      {
+        "case": "duplicate_union_collapse",
+        "dataset": "snapshots-A",
+        "normal_form_required": true,
+        "normal_form_equal": true,
+        "release_equal": true,
+        "influence_equal": true,
+        "charge_delta_zero": true,
+        "release_charge": 0,
+        "influence_charge": 0
+      },
+      {
+        "case": "duplicate_union_collapse",
+        "dataset": "snapshots-B",
+        "normal_form_required": true,
+        "normal_form_equal": true,
+        "release_equal": true,
+        "influence_equal": true,
+        "charge_delta_zero": true,
+        "release_charge": 0,
+        "influence_charge": 0
+      }
+    ]
   },
   "rq3_anti_arbitrage": {
     "cases": 7,
     "deterministic_cases": 5,
     "deterministic_passed": 5,
-    "postgres_integration": {
-      "artifact": "evaluation/exposure/rq3-integration.json",
-      "artifact_sha256": "915f36ed6678749c8a4488a87ad688df21fffdf4e00ddbc3aed2e9d1d4c7435b",
-      "executed": 2,
-      "failed": 0,
-      "passed": 2,
-      "status": "complete"
-    },
     "postgres_integration_manifest": [
       {
         "id": "concurrent_settlement",
@@ -1371,7 +1442,15 @@
         "id": "task_family_delegation",
         "test": "TestDelegatedTasksShareRootAccountingState"
       }
-    ]
+    ],
+    "postgres_integration": {
+      "status": "complete",
+      "artifact": "evaluation/exposure/rq3-integration.json",
+      "artifact_sha256": "915f36ed6678749c8a4488a87ad688df21fffdf4e00ddbc3aed2e9d1d4c7435b",
+      "executed": 2,
+      "passed": 2,
+      "failed": 0
+    }
   },
   "rq4_runtime_overhead_status": "measured_controlled_local_postgresql_campaign",
   "rq4_scaling": {
@@ -1384,7 +1463,7 @@
         "points": [
           {
             "size": 10,
-            "ns_per_op": 124714,
+            "ns_per_op": 116091,
             "release_facts": 20,
             "influence_facts": 30,
             "novel_charge": 0,
@@ -1392,7 +1471,7 @@
           },
           {
             "size": 100,
-            "ns_per_op": 1599145,
+            "ns_per_op": 1479636,
             "release_facts": 200,
             "influence_facts": 300,
             "novel_charge": 0,
@@ -1400,7 +1479,7 @@
           },
           {
             "size": 1000,
-            "ns_per_op": 15171707,
+            "ns_per_op": 16150675,
             "release_facts": 2000,
             "influence_facts": 3000,
             "novel_charge": 0,
@@ -1408,7 +1487,7 @@
           },
           {
             "size": 10000,
-            "ns_per_op": 175233291,
+            "ns_per_op": 175961203,
             "release_facts": 20000,
             "influence_facts": 30000,
             "novel_charge": 0,
@@ -1422,31 +1501,31 @@
         "points": [
           {
             "size": 4,
-            "ns_per_op": 81106,
+            "ns_per_op": 84683,
             "novel_charge": 0,
             "replay_charge": 0
           },
           {
             "size": 6,
-            "ns_per_op": 128473,
+            "ns_per_op": 146811,
             "novel_charge": 0,
             "replay_charge": 0
           },
           {
             "size": 8,
-            "ns_per_op": 193071,
+            "ns_per_op": 199963,
             "novel_charge": 0,
             "replay_charge": 0
           },
           {
             "size": 10,
-            "ns_per_op": 376774,
+            "ns_per_op": 378611,
             "novel_charge": 0,
             "replay_charge": 0
           },
           {
             "size": 12,
-            "ns_per_op": 1530443,
+            "ns_per_op": 1873402,
             "novel_charge": 0,
             "replay_charge": 0
           }
@@ -1458,31 +1537,31 @@
         "points": [
           {
             "size": 1,
-            "ns_per_op": 4154,
+            "ns_per_op": 4923,
             "novel_charge": 0,
             "replay_charge": 0
           },
           {
             "size": 4,
-            "ns_per_op": 14056,
+            "ns_per_op": 18600,
             "novel_charge": 0,
             "replay_charge": 0
           },
           {
             "size": 8,
-            "ns_per_op": 32844,
+            "ns_per_op": 39907,
             "novel_charge": 0,
             "replay_charge": 0
           },
           {
             "size": 16,
-            "ns_per_op": 91642,
+            "ns_per_op": 103780,
             "novel_charge": 0,
             "replay_charge": 0
           },
           {
             "size": 32,
-            "ns_per_op": 258410,
+            "ns_per_op": 317468,
             "novel_charge": 0,
             "replay_charge": 0
           }
@@ -1494,29 +1573,65 @@
         "points": [
           {
             "size": 10,
-            "ns_per_op": 9860,
+            "ns_per_op": 12130,
             "novel_charge": 10,
             "replay_charge": 0
           },
           {
             "size": 100,
-            "ns_per_op": 98360,
+            "ns_per_op": 116027,
             "novel_charge": 100,
             "replay_charge": 0
           },
           {
             "size": 1000,
-            "ns_per_op": 993153,
+            "ns_per_op": 1181803,
             "novel_charge": 1000,
             "replay_charge": 0
           },
           {
             "size": 10000,
-            "ns_per_op": 12069647,
+            "ns_per_op": 12583047,
             "novel_charge": 10000,
             "replay_charge": 0
           }
         ]
+      }
+    ]
+  },
+  "charge_baselines": {
+    "query_count": 1,
+    "returned_rows": 5,
+    "serialized_bytes": 79,
+    "weighted_cells": 15,
+    "provenance_no_history": 36,
+    "full_first": {
+      "release": 15,
+      "influence": 36
+    },
+    "full_replay": {
+      "release": 0,
+      "influence": 0
+    }
+  },
+  "rq5_budget_aware_planning": {
+    "scenarios": 501,
+    "passed": 501,
+    "results": [
+      {
+        "id": "shared-fact-budget-one",
+        "selected_ids": [
+          "requirement-a",
+          "requirement-b"
+        ],
+        "exact_utility": 2,
+        "additive_proxy_utility": 1
+      },
+      {
+        "id": "v2-random-bruteforce-500",
+        "selected_ids": null,
+        "exact_utility": 0,
+        "additive_proxy_utility": 0
       }
     ]
   },
@@ -1623,27 +1738,5 @@
         }
       }
     ]
-  },
-  "rq5_budget_aware_planning": {
-    "passed": 501,
-    "results": [
-      {
-        "additive_proxy_utility": 1,
-        "exact_utility": 2,
-        "id": "shared-fact-budget-one",
-        "selected_ids": [
-          "requirement-a",
-          "requirement-b"
-        ]
-      },
-      {
-        "additive_proxy_utility": 0,
-        "exact_utility": 0,
-        "id": "v2-random-bruteforce-500",
-        "selected_ids": null
-      }
-    ],
-    "scenarios": 501
-  },
-  "schema_version": 3
+  }
 }

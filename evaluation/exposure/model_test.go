@@ -13,7 +13,7 @@ func TestExposureEvaluationCorpus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.RQ1.Passed != report.RQ1.Cases || report.RQ1.Cases != 14 || report.RQ1.DatasetRows != 16 ||
+	if report.RQ1.Passed != report.RQ1.Cases || report.RQ1.Cases != 21 || report.RQ1.DatasetRows != 16 ||
 		report.RQ1.ReleaseFacts == 0 || report.RQ1.InfluenceFacts == 0 || len(report.RQ1.OracleSourceSHA256) != 64 ||
 		report.RQ2.GeneratedAttempts != 16 || report.RQ2.UniqueNormalizedPairs != 16 ||
 		report.RQ2.ExecutedUniquePairs != 16 || report.RQ2.DuplicateAttempts != 0 ||
@@ -47,7 +47,10 @@ func TestRQ1OracleHasNoProductionExposureDependency(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, forbidden := range []string{"internal/exposure", "evaluation/exposure\"", "evaluation/postgresoracle"} {
+	for _, forbidden := range []string{
+		"internal/exposure", "internal/queryplan", "internal/gateway", "internal/sqlpolicy",
+		"evaluation/exposure\"", "evaluation/postgresoracle",
+	} {
 		if strings.Contains(string(source), forbidden) {
 			t.Fatalf("independent RQ1 oracle imports forbidden package %q", forbidden)
 		}

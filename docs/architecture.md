@@ -36,7 +36,7 @@ Docker 宿主机、Catalog 管理者及能读取 `.env`/Volume 的管理员属�
 6. ACTIVE exposure 任务调用带必填 `request_id` 的 `execute_plan`。QueryPlan 由本地 Go 包严格验证，并确定性编译成可见查询和 provenance companion；两条 SQL 都经过 `pg_query_go/v6` PostgreSQL AST 白名单策略。Exposure grant 下的任意 `query_sql` 会关闭式拒绝。
 7. 策略把物理 Reporting View 封装为只暴露获批字段和强制 Scope 的 CTE，在最外层施加剩余行预算，并只为计量临时加入 Catalog 固定的实体键。
 8. 控制库以 `(task_id, request_id)` 唯一约束完成幂等检查，同时预留资源预算和 exposure evidence。业务库在同一个只读 `REPEATABLE READ` 事务中执行两条查询，结果先留在 Gateway 内。
-9. Gateway 推导 release 与 source-influence FactID。控制库锁定 root ledger，只插入相对整个任务族的新事实；双上限检查、资源结算、AES-256-GCM 结果、终态审计和回执在同一事务提交。超限或证据不完整时不交付缓冲结果。
+9. Gateway 推导 release 与 positive-output dependency FactID（兼容 ledger 标签仍为 `influence`）。控制库锁定 root ledger，只插入相对整个任务族的新事实；双上限检查、资源结算、AES-256-GCM 结果、终态审计和回执在同一事务提交。超限或证据不完整时不交付缓冲结果。
 10. 成功结果以结构化 JSON 返回任务主体。Gateway 的 Ed25519 V4 查询回执绑定 Manifest/Grant/Catalog、请求、资源预算、result hash、root task、Profile、actual/charged 双 exposure 和 observation digest；V2 representation planning 使用 V5 继续绑定 snapshot bundle、全部候选、选中集合、planner 和联合 Effect；无 exposure evidence 的兼容终态继续使用 V3。公钥由 `/.well-known/taskgate/query-receipt-keyring.json` 发布。审计凭证返回终态事件、前驱事件、通向当前 checkpoint 的后继路径和 checkpoint，并在返回前重建 Hash Chain 校验。配置 `GATEWAY_AUDIT_ANCHOR_URL` 时，Gateway 会定期把当前 checkpoint 签名为 `taskgate-audit-checkpoint-anchor/v1` 并 POST 到外部日志/WORM 服务。未配置外部 Anchor 时，该链只提供 Gateway 日志修改检测，不声称 WORM 或外部不可篡改。
 
 Exposure 语义、代数和在线支持矩阵见[任务级数据暴露记账](exposure-accounting.md)。

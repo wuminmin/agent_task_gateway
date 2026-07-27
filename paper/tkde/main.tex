@@ -27,7 +27,6 @@
 \newcommand{\system}{TaskGate\xspace}
 \newcommand{\code}[1]{\texttt{\detokenize{#1}}}
 \newcommand{\release}{\mathsf{release}}
-\newcommand{\influence}{\mathsf{influence}}
 \newcommand{\facts}{\mathcal{F}}
 \newcommand{\accounted}{\mathcal{K}}
 \newcommand{\effect}{\mathcal{E}}
@@ -61,18 +60,19 @@ not directly bound how many distinct metered facts a task ledger records across
 rewrites, pagination, retries, and delegation. We present TaskGate, a prototype
 for task-bound exposure accounting. A versioned fact identity binds a data
 product, snapshot, entity key, field, and value version. Each human-authorized
-root task maintains separate release and source-influence ledgers, preventing a
-small aggregate result from hiding a large contributing input. The online path
+root task maintains separate release and positive-output-dependency ledgers,
+preventing a small aggregate result from hiding a large conservative input
+footprint. The online path
 executes a visible query and provenance companion in one read-only snapshot,
 buffers the result, derives its fact sets, and atomically settles only facts
-novel to that root ledger before release. Source-influence identities remain
+novel to that root ledger before release. Dependency identities remain
 server-side accounting evidence rather than facts delivered to the agent.
 Signed delegation preserves the same ledger. We define compositional semantics for a positive relational fragment
 with grouping and four aggregates, implement an exact dual-budget representation
 planner, and check a finite ledger model. An independent RQ1 oracle validates
-14 queries on 16 source rows. For rewrite invariance we report two independent
+\RQOneCases{} queries on 16 source rows. For rewrite invariance we report two independent
 streams: across \RQTwoExposureRewrites{} closed-language rewrites over
-\RQTwoExposureDatasets{} data instances, TaskGate's release and influence
+\RQTwoExposureDatasets{} data instances, TaskGate's release and dependency
 FactSets and incremental charge are invariant (\RQTwoExposureMismatches{}
 mismatches), and a separate PostgreSQL~16 campaign confirms result-row
 equivalence on \RQTwoUnique{} normalized baseline/rewrite SQL pairs. Across
@@ -114,11 +114,13 @@ a stateful, explicit-disclosure budget that remains conserved while database
 agents query and delegate?
 
 \system treats the root task as the budget subject. A result has two effects.
-\emph{Release exposure} identifies values actually delivered. \emph{Source
-influence} identifies positive source facts that affected selection, joining,
-grouping, or aggregation. The latter prevents a count from being accounted as
-one input fact merely because it returns one cell. Both effects are sets, so a
-fact already recorded in the root-family ledger has zero incremental charge.
+\emph{Release exposure} identifies values actually delivered.
+\emph{Positive-output dependency} is a contract-defined conservative footprint
+of base facts participating in the successful derivation of delivered output.
+It is neither minimal causal provenance nor the complete physical read set.
+This second dimension prevents a count from being accounted as one input fact
+merely because it returns one cell. Both effects are sets, so a fact already
+recorded in the root-family ledger has zero incremental charge.
 
 The system follows a withhold-before-settlement discipline:
 
@@ -223,8 +225,9 @@ ProvSQL adds provenance and probability to PostgreSQL
 \cite{senellart2018provsql}; and Smoke integrates fine-grained lineage into
 operators for interactive performance \cite{psallidas2018smoke}. \system claims
 neither a new provenance algebra nor a general provenance engine. It specializes
-provenance to two set-valued effects---facts explicitly released and base facts
-that positively influence them---then requires answer/effect co-generation in
+provenance to two set-valued effects---facts explicitly released and a
+conservative operator-input footprint for their successful positive
+derivations---then requires answer/effect co-generation in
 one snapshot and atomic settlement before release. Join/union multiplicity,
 negation, and general recursive SQL remain outside the current online profile.
 
@@ -274,7 +277,7 @@ rewrites, and delegation.
 \textbf{Novelty boundary.} History, inference control, pricing, provenance,
 query mediation, delegation, and quotas are all established separately. The
 claim evaluated here is their enforcement composition: a typed,
-contract-defined release/influence effect generated beside the answer in the
+contract-defined release/dependency effect generated beside the answer in the
 same database snapshot, exact novel-set settlement against one root task-family
 ledger before delivery, and invariance over the supported rewrite and delegation
 closure. This boundary is narrower than general SQL noninterference and stronger
@@ -339,8 +342,10 @@ determinism follows from the unique representative and ordering functions.
 \begin{definition}[Exposure effect]
 For query $q$ over snapshot $D_s$, the effect
 $\effect(q,D_s)=\langle \facts_r,\facts_i\rangle$ contains release facts
-$\facts_r$ and source-influence facts $\facts_i$ under a versioned profile
-$\pi$.
+$\facts_r$ and positive-output dependency facts $\facts_i$ under a versioned
+profile $\pi$.  The latter are the conservative base facts selected by the
+inductive rules below for successfully derived delivered rows and cells; they
+are not claimed to be minimal causal provenance or all physical reads.
 \end{definition}
 
 Every root task $T$ stores previously accounted sets
@@ -359,10 +364,12 @@ $|\accounted_T^r|+|\Delta_T^r|\leq B_T^r$ and
 $|\accounted_T^i|+|\Delta_T^i|\leq B_T^i$.
 
 The word ``accounted'' is intentional. Release facts describe delivered values,
-but source-influence FactIDs remain internal to the gateway; the agent receives
+but dependency FactIDs remain internal to the gateway; the agent receives
 only result data, counts, and receipt digests. Hence $\accounted_T^i$ is not a
 set of facts known by the agent, and neither component is a complete epistemic
-or privacy-loss state.
+or privacy-loss state.  The wire and storage label \code{influence} is retained
+for compatibility; under the V2 profile it denotes positive-output dependency,
+not causal influence.
 
 \subsection{Closed Typed Query Language}
 
@@ -568,7 +575,8 @@ to keep the fractions legible.  The complete rules are:
  {\Pi;D\vdash e_1\cup_\delta e_2\Downarrow
   \lbag U_Q\mid Q\in(R_1\uplus R_2)/{\equiv_\Gamma}\rbag},\\[-1mm]
 &\hspace{8mm}U_Q.k=k_{union}(\Gamma,\operatorname{tuple}(Q)),\quad
-  \alpha_r(U_Q)=\bigsqcup_{t\in Q}\alpha_r(t),\\[-1mm]
+  \beta_\Gamma(t)=\alpha_r(t)\oplus\!\bigoplus_{a\in\Gamma}\alpha_a(t),\quad
+  \alpha_r(U_Q)=\bigsqcup_{t\in Q}\beta_\Gamma(t),\\[-1mm]
 &\hspace{8mm}U_Q.\operatorname{cells}(a)=\langle v_a,\tau_a,\bigsqcup_{t\in Q}\alpha_a(t),
   N(\code{union}(x_{t,a})),\rho_a\rangle\quad(a\in\Gamma),\\[-1mm]
 &\hspace{8mm}\rho_a=\begin{cases}\operatorname{mat}(U_Q,a),&\text{every }t\in Q\text{ materializes to one FactID},\\\bot,&\text{otherwise.}\end{cases}\\[1mm]
@@ -577,7 +585,8 @@ to keep the fractions legible.  The complete rules are:
  {\Pi;D\vdash\gamma_{G;\mathcal A}(e)\Downarrow
   \lbag G_Q\mid Q\in\operatorname{Part}_G(R)\rbag},\\[-1mm]
 &\hspace{8mm}G_Q.k=k_{group}(G,Q),\quad
-  \alpha_r(G_Q)=\bigoplus_{t\in Q}\alpha_r(t),\\[-1mm]
+  \alpha_r(G_Q)=\bigoplus_{t\in Q}\left(
+  \alpha_r(t)\oplus\!\bigoplus_{g\in G}\alpha_g(t)\right),\\[-1mm]
 &\hspace{8mm}G_Q.\operatorname{cells}(g)=\langle v_g,\tau_g,\bigoplus_{t\in Q}\alpha_g(t),
   N(x_g),\operatorname{mat}(G_Q,g)\rangle\quad(g\in G),\\[-1mm]
 &\hspace{8mm}G_Q.\operatorname{cells}(a')=\langle \operatorname{PgAgg}_{\Pi}(Q,G,\mathcal A)_{a'},
@@ -599,11 +608,21 @@ derivation.}
 The auxiliary functions in Fig.~\ref{fig:evaluation} are total on typed
 premises.  $\equiv_\Gamma$ is componentwise \code{IS NOT DISTINCT FROM}.
 For a union class, its typed-tuple key is Table~\ref{tab:rowkeys}; support uses
-set union, witness uses pointwise maximum, and an existing cell release fact is
-retained iff every member materializes to that identical FactID.  Otherwise
+set union.  An identical annotated branch is collapsed only when its complete
+typed tuples are already known to be duplicate-free, so
+$R\cup_\delta R=R$ for such a set-valued $R$, also inside a downstream
+context.  A Scan is conservatively bag-valued: if it contains duplicate full
+tuples, duplicate elimination still runs.  For remaining operands, within one candidate member,
+$\beta_\Gamma$ uses same-proof
+composition over its row and every schema field used for typed-tuple
+equivalence; alternative members use pointwise maximum.  Thus hidden
+duplicate-elimination fields remain in the row dependency.  An existing cell
+release fact is retained iff every member materializes to that identical
+FactID.  Otherwise
 $\rho=\bot$ and the cell expression is the sorted, idempotent
 $N(\code{union}(x_1,x_2))$.  This makes both operand exchange and
-$R\cup_\delta R$ identities exact, including in a downstream operator.
+the admissible set-valued $R\cup_\delta R$ identity exact, including in a
+downstream operator.
 
 $\operatorname{Part}_G(R)$ uses $\equiv_\tau$ on group fields.  If
 $G\ne\varnothing$, empty input has no classes; if $G=\varnothing$, there is
@@ -611,7 +630,9 @@ exactly one class even for empty input.  The argument annotation of an
 aggregate cell $(f,a')$ is $\alpha_{\arg(a')}(t)=\alpha_r(t)$ for
 \code{COUNT(*)} and the argument-cell annotation $\alpha_a(t)$ for
 \code{COUNT(a)}, \code{SUM(a)}, \code{MIN(a)}, and \code{MAX(a)}, including a
-NULL fact, while PostgreSQL ignores NULL when computing the scalar.  Hence an
+NULL fact and every non-extreme \code{MIN/MAX} input, while PostgreSQL ignores
+NULL when computing the scalar.  These are conservative operator-input
+dependencies, not claims of causal influence.  Hence an
 empty global aggregate returns \code{COUNT}=0 and \code{SUM/MIN/MAX}=NULL with
 empty witness.  \code{SUM} is admitted only over the exact/integer fragment
 $\{\code{smallint},\code{integer},\code{bigint},\code{numeric}\}$: because
@@ -628,7 +649,8 @@ appends Catalog entity keys (or every group key) ascending until $O{+}K$ is a
 proven total order; a global aggregate has at most one row.  SQL executes this
 same order before the algebra marks it canonical.  $l=0$ is the structured-plan
 sentinel for no limit.  Page copies annotations and intentionally does not
-charge non-output rows or rank information; that negative-information boundary
+charge non-output rows, ordering fields, or rank information.  It is therefore
+not a complete top-$k$ or physical-read dependency; the negative/order boundary
 is stated in Sec.~\ref{sec:limits}.
 
 Finally, define materialization and the effect---they are not an implementation
@@ -651,8 +673,11 @@ Here $\Pi;D\vdash e\Downarrow R$, and $\operatorname{valid}$ checks value,
 type and bundle, plus support for a base fact or expression/witness for a
 derived fact, against the pre-existing release fact.
 Thus query bags and witness multiplicity are retained during composition, while
-the two final ledgers are sets.  Empty answers have the empty effect except for
-the single visible row of a global aggregate.
+the two final ledgers are sets.  Equation~\eqref{eq:observe} is the declared
+positive-output dependency profile: it is exact with respect to these
+inductive rules, not with respect to arbitrary causal provenance or physical
+source access.  Empty answers have the empty effect except for the single
+visible row of a global aggregate.
 
 \begin{theorem}[Representation closure and partial-function semantics]
 For every admissible $\Pi$, typed finite $e$, and immutable $D$, evaluation has
@@ -666,22 +691,27 @@ support/witness pairs.  Select's three-valued predicate and dependency set are
 fixed by $\Pi$; Select, Project, and Page only take a deterministic subbag or
 copy annotations.  Join enumerates a uniquely determined bag of matching key
 pairs; disjoint schemas, Eq.~\eqref{eq:rid}, and the pair key make each output
-usable by another Join.  Union has unique typed-tuple equivalence classes and
-uses deterministic union/max folds, and E-Union constructs each output cell
+usable by another Join.  Union first collapses an identical annotated branch
+only under the duplicate-free full-tuple premise, then has unique typed-tuple
+equivalence classes and uses deterministic
+same-proof union/addition within a candidate and alternative union/max across
+candidates; E-Union constructs each output cell
 $\langle v_a,\tau_a,\bigsqcup\alpha_a,N(\code{union}(x)),\rho_a\rangle$ from
 those classes.  Group has unique not-distinct classes, the explicitly defined
 empty class, deterministic exact/numeric sum folds (floating-point SUM is
 excluded from the closed language, so no order-dependent fold arises), and one
-complete PostgreSQL result per class; E-Group constructs both the group-key and
-aggregate cells from that result.  Set union with multiset sum or max preserves equal
+complete PostgreSQL result per class; E-Group composes every group-key input
+into the row annotation and constructs both group-key and aggregate cells from
+that result.  Set union with multiset sum or max preserves equal
 support.  Total order makes Page's slice unique.  Each case constructs the
 claimed invariant, and the validator converts any range, collision, schema,
 oracle, or multiplicity violation into no derivation.
 \end{proof}
 
-\begin{theorem}[Effect determinism]
+\begin{theorem}[Dependency determinism]
 Fixed admissible $\Pi$, typed $e$, snapshot map $D$, and visible field set $V$
-uniquely determine $\effect_\Pi(e,D,V)$ whenever evaluation succeeds.
+uniquely determine the positive-output dependency FactSet $\facts_i$, and hence
+$\effect_\Pi(e,D,V)$, whenever evaluation succeeds.
 \end{theorem}
 \begin{proof}
 The preceding theorem gives a unique $R$.  Equation~\eqref{eq:observe} ranges
@@ -690,6 +720,40 @@ normalization, bundle/key construction, witness commitment, Fact
 materialization, and final set normalization are deterministic functions.
 Therefore both finite Fact sets, and hence their ordered canonical encodings,
 are unique.
+\end{proof}
+
+\begin{property}[Group-key completeness]
+For every delivered group $Q$, member $t\in Q$, and group field $g\in G$,
+$S_g(t)\subseteq\facts_i$, including when $g\notin V$.
+\end{property}
+\begin{proof}
+E-Group includes $\bigoplus_{g\in G}\alpha_g(t)$ in the output row annotation.
+Projection preserves that row annotation, and Eq.~\eqref{eq:observe} includes
+every delivered row's $S_r$ independently of $V$.
+\end{proof}
+
+\begin{property}[Distinct-dependency completeness]
+For every delivered union-distinct class $Q$, candidate $t\in Q$, and schema
+field $a\in\Gamma$, $S_a(t)\subseteq\facts_i$, including when $a\notin V$.
+\end{property}
+\begin{proof}
+E-Union first composes every schema-field annotation into $\beta_\Gamma(t)$,
+then alternative-composes all candidates into the output row annotation.
+Alternative max changes multiplicity but its support is the union, which
+Eq.~\eqref{eq:observe} includes.
+\end{proof}
+
+\begin{property}[Conservative aggregate input]
+Every delivered aggregate cell includes its complete declared logical input:
+all member row annotations for \code{COUNT(*)}, and every member argument cell
+for \code{COUNT(a)}, \code{SUM(a)}, \code{MIN(a)}, and \code{MAX(a)}.  NULL and
+non-extreme \code{MIN/MAX} inputs are not omitted.
+\end{property}
+\begin{proof}
+This is the aggregate-cell clause of E-Group followed by
+Eq.~\eqref{eq:observe}.  PostgreSQL's scalar fold may ignore NULL or retain only
+an extreme value, but the V2 dependency rule deliberately ranges over the
+complete argument bag.
 \end{proof}
 
 \subsection{Conservation Properties}
@@ -724,7 +788,7 @@ and retain exactly the rows whose truth value is $\mathsf T$.  By E-Select each
 retained row receives the same
 $\alpha_r(t)\oplus\bigoplus_{a\in F}\alpha_a(t)$; by E-Project both retain the
 same keys and cells in $A$.  Equation~\eqref{eq:observe} over $V\subseteq A$
-therefore yields identical release and influence sets.  Field traversal order
+therefore yields identical release and dependency sets.  Field traversal order
 is absent from Fact payloads and removed by set normalization.
 \end{proof}
 
@@ -737,7 +801,9 @@ display names; sort conjunction literals in $p$, dependency fields $F$,
 projection lists, group keys $G$, and aggregate families $\mathcal A$ by their
 stable role-qualified field IDs and canonical expressions; sort join operands
 and equality predicates by their child digests; sort union operands by digest
-and collapse an identical duplicate branch, so $e\cup_\delta e\equiv e$; sort
+and collapse an identical duplicate branch only when the child normal form
+proves full-tuple distinctness, so $e\cup_\delta e\equiv e$ for that
+set-valued $e$; sort
 relation-level union operands before any enclosing operator; and map a stable
 page suffix to its catalog-canonical spelling (entity-key or all-group-key
 suffix).  $NF_\Pi(q_1)=NF_\Pi(q_2)$ iff the two canonical terms are syntactically
@@ -760,11 +826,15 @@ This implication is not a completeness claim for arbitrary equivalent SQL.
 \begin{proof}
 The typed normalizer can erase only aliases, conjunction/set traversal order,
 join operand and predicate order, union operand order, an identical duplicate
-union branch, and alternate spelling of the same stable page suffix. Alias is
+union branch whose child is proven full-tuple distinct, and alternate spelling
+of the same stable page suffix. A Scan carries no such proof; Union and Group
+produce it, Select/Page preserve it, and Project preserves it only for an
+unchanged schema. Alias is
 absent from derived expressions. Set normalization removes traversal order.
 Join hashes sorted child identities and uses commutative $\cup/\oplus$.
-Union classes are operand independent and alternative max-merge is commutative and
-idempotent; an identical materialized fact is retained, and relation-level
+Union classes are operand independent; same-proof member composition includes
+all equivalence fields, while alternative max-merge is commutative and
+idempotent.  An identical materialized fact is retained, and relation-level
 union expressions are sorted before any downstream composition. Group keys and witness
 commitments are sorted. The SQL compiler emits the same catalog-canonical page
 suffix represented by the normal form. Each atomic rewrite therefore preserves
@@ -775,7 +845,7 @@ Effect; structural induction over well-typed contexts proves the result.
 Merging observations for disjoint projections or a complete page partition
 equals observing the combined result. Overlapping pages and repeated terminal
 observations charge each FactID at most once; join fanout changes witness
-multiplicity but not the union of influence support.
+multiplicity but not the union of dependency support.
 \end{theorem}
 \begin{proof}
 For $V=V_1\cup V_2$, distribute both unions in
@@ -785,7 +855,7 @@ E-Page copies each selected keyed row and cell, so a complete disjoint slice
 partition distributes the same two unions over the row index set.  Overlap and
 repetition disappear by set idempotence.  E-Join adds witness multiplicities
 with $\oplus$, but Eq.~\eqref{eq:observe} takes their support sets; repeated
-support membership consequently has influence cardinality one.  (A changed
+support membership consequently has dependency cardinality one.  (A changed
 derived witness may still change its release Fact, as required.)
 \end{proof}
 
@@ -807,7 +877,8 @@ normal forms. It then produces two SQL statements. For ungrouped output,
 both statements use the same hidden projection, entity-key tie-breaker, and row
 ceiling; the gateway also checks their key sets before settlement. For grouped
 output, the companion selects entity keys, mandatory scopes, visible and
-predicate fields, grouping fields, and aggregate inputs, and requests one row
+predicate fields, grouping fields (including keys hidden from final $V$), and
+aggregate inputs, and requests one row
 beyond its evidence ceiling to detect truncation. Both statements pass the same
 PostgreSQL AST authorization and scope-injection policy.
 
@@ -825,12 +896,12 @@ For a successful V2 planning call, the gateway performs the following steps:
 \begin{enumerate}
 \item Authorize every candidate plan, then execute and buffer every visible and
 provenance pair in one Business PostgreSQL \code{REPEATABLE READ} snapshot.
-\item Derive exact candidate effects and output-contract utility from the
-executed schema and truncation state; no client cost, utility, or weight is
-accepted.
+\item Derive candidate effects exact with respect to the declared
+positive-output dependency profile and output-contract utility from the
+executed schema and truncation state; no client cost, utility, or weight is accepted.
 \item In Control PostgreSQL, lock the query reservation and root ledger, reload
 the latest accounted sets, and run the overlap-aware exact planner.
-\item Insert the selected candidates' release and influence union with a primary key on root, ledger
+\item Insert the selected candidates' release and dependency union with a primary key on root, ledger
 kind, and fact hash; conflicts contribute zero novel facts.
 \item Conditionally increment both used counters only if both limits remain
 valid.
@@ -849,7 +920,7 @@ buffer. PostgreSQL row locking serializes concurrent children at the shared
 root. Unique fact keys make charge equal to successful novel inserts, rather
 than a count computed before a race.
 
-Let $n$ be the number of unique candidate source and release references in one
+Let $n$ be the number of unique candidate dependency and release facts in one
 observation. Hashing is linear in encoded input size and normalization sorts at
 most $n$ hashes, giving $O(n\log n)$ in-memory work and $O(n)$ memory. Ledger
 inserts are chunked; index maintenance adds database-dependent
@@ -918,7 +989,8 @@ identity and both bounds.
 \subsection{Dual-Budget Representation Planning}
 
 For requirement $j$, let $C_j$ contain server-executed raw, projected,
-aggregate, or generalized candidates with exact effect
+aggregate, or generalized candidates with effects exact under the declared
+dependency profile,
 $E_c=\langle E_c^r,E_c^i\rangle$. The request declares a nonempty required
 output-name set $A_j$. After execution, candidate $c$ has observed output schema
 $O_c$ and a server-observed truncation bit $\tau_c$. The fixed online utility
@@ -947,8 +1019,8 @@ planning path has therefore been removed; non-V2 planning calls fail closed.
 \textbf{Budget calibration.} The two ceilings $B^r_T,B^i_T$ are authorizer
 declarations, not learned parameters: the human approving a root task sets them
 in the same distinct-fact-count units the ledgers record, derived from a
-disclosure policy (how many distinct released values, and how many distinct
-source rows, this task family may account for). The fixed utility weight
+disclosure policy (how many distinct released facts, and how many distinct
+dependency facts, this task family may account for). The fixed utility weight
 $\tfrac12$ is a definitional default that balances required-output coverage
 against truncation; the caller cannot retune it, so selection is not an
 optimization over hidden weights. Fact counts are unit-weighted by construction:
@@ -960,9 +1032,9 @@ deployment that needs harm-weighted limits must layer such a mechanism on the
 same fact boundary rather than reinterpret the count.
 
 The implementation subtracts root history, assigns remaining fact hashes dense
-integers, and represents each set as a release/influence bit vector. It expands
+integers, and represents each set as a release/dependency bit vector. It expands
 one requirement at a time using bitwise OR and popcount. A state can dominate
-another only by release-set inclusion, influence-set inclusion, and no lower
+another only by release-set inclusion, dependency-set inclusion, and no lower
 utility; comparing cardinalities alone is unsound because future candidates may
 overlap the larger set. If frontier size before group $j$ is
 $H_{j-1}$ and the group has $m_j$ candidates, the current pairwise dominance
@@ -1002,6 +1074,9 @@ signs the immutable grant. Arbitrary direct SQL remains available only for
 legacy resource-only grants; it fails closed when exposure evidence is
 required. \code{plan_exposure} accepts only V2 QueryPlans and required-output
 contracts; it executes candidates before deriving their FactSets and utility.
+The wire and storage label \code{influence} is retained for compatibility;
+under the V2 profile it denotes positive-output dependency, not causal
+influence.
 
 The control schema stores one dual ledger per root, per-query reservations, and
 immutable fact identities. The primary-key and check constraints are backed by
@@ -1073,20 +1148,23 @@ RQ5 & \RQFiveAgentTasks{} non-isomorphic traces over \RQFiveKinds{} kinds: exact
 \end{table}
 
 RQ1 uses 12 expense and four department rows and covers projection, positive
-and empty selections, NULL, grouped sum/count, global count/sum, join, and two
-pages. A separate reference package imports none of the production exposure,
+and empty selections, TRUE/FALSE/UNKNOWN boundaries, a hidden group key, a
+hidden union-distinct field, \code{COUNT(a)} with NULL, \code{MIN/MAX} with
+non-extreme inputs, join, and page/order boundaries. A separate reference
+package imports none of the production exposure,
 query-plan, gateway, or policy code; it independently constructs the complete
 semantic Fact objects, witness commitments, and hashes. The production output
-matches its \RQOneReleaseFacts{} release and \RQOneInfluenceFacts{} influence
+matches its \RQOneReleaseFacts{} release and \RQOneInfluenceFacts{} dependency
 case-level fact memberships, with per-case set digests retained in the report.
 RQ2 has two independent streams. The first measures rewrite invariance of the
 accounting itself, not merely of query results. We express each side of
 \RQTwoExposureRewrites{} closed-language rewrites (selection/projection
-reordering, conjunction reordering, projection and group-key field ordering,
-join operand and predicate reordering, union-distinct idempotence and duplicate
-branch collapse) as an algebra term over \RQTwoExposureDatasets{} data instances
+reordering, conjunction reordering, projection and visible/hidden group-key
+field ordering, join operand and predicate reordering, union operand exchange,
+union-distinct idempotence, and duplicate branch collapse) as an algebra term
+over \RQTwoExposureDatasets{} data instances
 and snapshots, and require, for each pair, that the typed normal form agrees
-(where the rewrite is NF-canonical), that the release and influence FactSets are
+(where the rewrite is NF-canonical), that the release and dependency FactSets are
 identical, and that the incremental charge is zero in both directions. The
 campaign reports \RQTwoExposureCases{} cases and \RQTwoExposureNFCases{}
 normal-form checks with \RQTwoExposureMismatches{} mismatches. The second
@@ -1110,7 +1188,7 @@ package-pass event to the SHA-256 of the raw \code{go test -json} log.
 
 For one grouped sum/count fixture, Table~\ref{tab:baselines} reports six
 descriptive accounting baselines. Their units differ, so the table is not a
-ranking. It demonstrates why row count alone misses source influence and why
+ranking. It demonstrates why row count alone misses dependency facts and why
 history is required for zero incremental replay.
 
 \begin{table}[t]
@@ -1178,7 +1256,8 @@ $c$ & p50 ms & p95 ms & query/s & lock p95 ms \\
 \end{table}
 
 The ramp inserts \RQFourRampFacts{} immutable facts (12 release and 16
-influence) in every trial. All subsequent hit queries have 100\% fact- and
+dependency facts, stored under the compatibility ledger label) in every trial.
+All subsequent hit queries have 100\% fact- and
 query-history hit rates and zero ledger-row growth, confirming that replay cost
 is processing overhead rather than repeated exposure charge.
 
@@ -1250,9 +1329,14 @@ within the stated scope.
 \label{sec:limits}
 
 \textbf{Semantic scope.} The model accounts positive explicit disclosure. It
-does not measure facts inferred from empty answers, ordering, correlations,
-background knowledge, or timing. It is not differential privacy and should be
-combined with a privacy mechanism when those threats matter.
+does not measure rows rejected by selection, negative information implied by
+empty answers, groups not returned, rows outside a delivered page, non-output
+rows or fields used only to determine order/rank, cardinality or timing side
+channels, correlations, or background knowledge.  Nor does it reproduce all
+tuples and pages physically read by PostgreSQL.  Thus it is neither a complete
+top-$k$/physical-read dependency nor a causal provenance semantics.  It is not
+differential privacy and should be combined with a privacy mechanism when those
+threats matter.
 
 \textbf{Decision and subject scope.} A budget refusal exposes one uncharged bit
 about whether the candidate's novel Effect crosses the remaining threshold; no
@@ -1274,7 +1358,7 @@ a snapshot was advanced after data changes. Production use requires a
 versioned publication or CDC pipeline and collision/security review for the
 chosen hash and serialization profile.
 
-\textbf{Cost.} Exact source sets can be large, root-ledger locking can become a
+\textbf{Cost.} Exact dependency FactSets can be large, root-ledger locking can become a
 hot spot, and immutable history grows monotonically. Compression, sketches,
 partitioned settlement, retention, and audited deletion are open design points;
 approximations would require new safety semantics.
@@ -1297,8 +1381,11 @@ single-host fixture does not establish multi-node scaling or production SLOs.
 Task-bound authorization answers what an agent may query; task-bound exposure
 accounting additionally constrains what one root ledger records for its
 delegated workload. \system realizes that distinction with stable facts, separate
-release and source-influence sets, same-snapshot provenance, atomic novel-fact
+release and positive-output dependency sets, same-snapshot provenance, atomic novel-fact
 settlement, and an exact dual-budget representation planner. The current
+dependency set is a conservative footprint exact under the declared inductive
+profile; it makes no claim of causal minimality or complete physical reads. The
+current
 artifact establishes a coherent semantic and systems foundation, finds no
 violation in a finite ledger model, and observes zero mismatch both for
 \RQTwoExposureRewrites{} closed-language rewrites (FactSet and incremental

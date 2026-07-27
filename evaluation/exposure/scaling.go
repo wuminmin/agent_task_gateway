@@ -23,24 +23,24 @@ import (
 )
 
 type ScalingPoint struct {
-	Size            int   `json:"size"`
-	NsPerOp         int64 `json:"ns_per_op"`
-	ReleaseFacts    int   `json:"release_facts,omitempty"`
-	InfluenceFacts  int   `json:"influence_facts,omitempty"`
-	NovelCharge     int   `json:"novel_charge"`
-	ReplayCharge    int   `json:"replay_charge"`
+	Size           int   `json:"size"`
+	NsPerOp        int64 `json:"ns_per_op"`
+	ReleaseFacts   int   `json:"release_facts,omitempty"`
+	InfluenceFacts int   `json:"influence_facts,omitempty"`
+	NovelCharge    int   `json:"novel_charge"`
+	ReplayCharge   int   `json:"replay_charge"`
 }
 
 type ScalingCurve struct {
-	Dimension string          `json:"dimension"`
-	Unit      string          `json:"unit"`
-	Points    []ScalingPoint  `json:"points"`
+	Dimension string         `json:"dimension"`
+	Unit      string         `json:"unit"`
+	Points    []ScalingPoint `json:"points"`
 }
 
 type ScalingSummary struct {
-	Status string          `json:"status"`
-	Oracle string          `json:"oracle"`
-	Curves []ScalingCurve  `json:"curves"`
+	Status string         `json:"status"`
+	Oracle string         `json:"oracle"`
+	Curves []ScalingCurve `json:"curves"`
 }
 
 const scalingIterations = 3
@@ -65,7 +65,8 @@ func RunScaling() (ScalingSummary, error) {
 	return summary, nil
 }
 
-// scaleObserveRows measures ObserveV2 (release + influence FactSet derivation)
+// scaleObserveRows measures ObserveV2 (release + positive-output dependency
+// FactSet derivation; Influence remains the compatibility field name)
 // as the source/provenance row count grows.
 func scaleObserveRows() (ScalingCurve, error) {
 	curve := ScalingCurve{Dimension: "observe_rows", Unit: "rows"}

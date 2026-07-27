@@ -86,13 +86,21 @@ func TestAlgebraNormalFormV2CanonicalizesJoinAndUnionOperands(t *testing.T) {
 	if first.SHA256 != second.SHA256 {
 		t.Fatal("join operand order changed the V2 normal form")
 	}
-	union, err := NormalizeAlgebraV2(AlgebraPlanV2{Op: "union", Left: &left, Right: &left})
+	unionPlan := AlgebraPlanV2{Op: "union", Left: &left, Right: &left}
+	union, err := NormalizeAlgebraV2(unionPlan)
 	if err != nil {
 		t.Fatal(err)
 	}
 	scan, _ := NormalizeAlgebraV2(left)
-	if union.SHA256 != scan.SHA256 {
-		t.Fatal("duplicate UNION branch was not idempotent")
+	if union.SHA256 == scan.SHA256 {
+		t.Fatal("bag-valued scan was incorrectly assumed to be tuple-distinct")
+	}
+	setUnion, err := NormalizeAlgebraV2(AlgebraPlanV2{Op: "union", Left: &unionPlan, Right: &unionPlan})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if setUnion.SHA256 != union.SHA256 {
+		t.Fatal("duplicate set-valued UNION branch was not idempotent")
 	}
 	if _, err := NormalizeAlgebraV2(AlgebraPlanV2{Op: "union", Left: &left, Right: &right, UnionAll: true}); err == nil {
 		t.Fatal("UNION ALL unexpectedly entered the V2 normal form")

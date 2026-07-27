@@ -170,7 +170,7 @@ budget_profiles:
 | `query_timeout` | 单次 PostgreSQL `statement_timeout` 上限 |
 | `task_ttl` | 从批准生成 Grant 起的可用时长 |
 | `max_release_facts` | 根任务族可新增的已交付结果 FactID 上限 |
-| `max_influence_facts` | 根任务族可新增的来源影响 FactID 上限 |
+| `max_influence_facts` | 根任务族可新增的 positive-output dependency FactID 上限；字段名为兼容标签 |
 | `exposure_profile_version` | 固定 FactID、lineage 和收费语义的版本标识 |
 
 三个 exposure 字段必须同时启用或同时省略：两个上限都为正时 Profile 必须

@@ -4,8 +4,9 @@ import "testing"
 
 // TestRewriteInvarianceClosedLanguage is the load-bearing RQ2 check: every
 // closed-language rewrite preserves TaskGate's typed normal form, its release
-// and influence FactSets, and yields zero incremental charge, across every data
-// instance and snapshot. A single mismatch fails the build.
+// and positive-output dependency FactSets (stored under the compatibility name
+// Influence), and yields zero incremental charge, across every data instance
+// and snapshot. A single mismatch fails the build.
 func TestRewriteInvarianceClosedLanguage(t *testing.T) {
 	summary, err := RunExposureRewriteInvariance()
 	if err != nil {
