@@ -1,6 +1,7 @@
 package exposure
 
 import (
+	"bytes"
 	"fmt"
 	"reflect"
 	"sort"
@@ -387,22 +388,25 @@ func JoinOnV2(left, right RelationV2, predicates []JoinPredicateV2) (RelationV2,
 	}
 	sort.Slice(fields, func(i, j int) bool { return fields[i].ID < fields[j].ID })
 	result := RelationV2{Fields: fields, SnapshotBundle: bundle}
+	rightIndex := make(map[string][]AnnotatedRowV2, len(right.Rows))
+	for _, rightRow := range right.Rows {
+		key, comparable, err := joinEqualityKeyV2(rightRow, rightKeys, types)
+		if err != nil {
+			return RelationV2{}, err
+		}
+		if comparable {
+			rightIndex[key] = append(rightIndex[key], rightRow)
+		}
+	}
 	for _, leftRow := range left.Rows {
-		for _, rightRow := range right.Rows {
-			matches := true
-			for index := range predicates {
-				truth, equalErr := SQLValueEqualV2(types[index], leftRow.Cells[leftKeys[index]].Value, rightRow.Cells[rightKeys[index]].Value)
-				if equalErr != nil {
-					return RelationV2{}, equalErr
-				}
-				if truth != SQLTrue {
-					matches = false
-					break
-				}
-			}
-			if !matches {
-				continue
-			}
+		key, comparable, err := joinEqualityKeyV2(leftRow, leftKeys, types)
+		if err != nil {
+			return RelationV2{}, err
+		}
+		if !comparable {
+			continue
+		}
+		for _, rightRow := range rightIndex[key] {
 			origins := append(append([]RowOriginV2(nil), leftRow.Origins...), rightRow.Origins...)
 			leftIdentity, err := relationRowIdentityV2(left, leftRow)
 			if err != nil {
@@ -444,6 +448,25 @@ func JoinOnV2(left, right RelationV2, predicates []JoinPredicateV2) (RelationV2,
 		}
 	}
 	return result, ValidateRelationV2(result)
+}
+
+// joinEqualityKeyV2 is an injective, in-memory encoding of a conjunctive
+// equality tuple. NULL has no key because SQL equality with NULL is UNKNOWN.
+func joinEqualityKeyV2(row AnnotatedRowV2, fields, types []string) (string, bool, error) {
+	var encoded bytes.Buffer
+	writeCanonicalUint64(&encoded, uint64(len(fields)))
+	for index, field := range fields {
+		canonical, err := CanonicalSQLValue(types[index], row.Cells[field].Value)
+		if err != nil {
+			return "", false, err
+		}
+		if canonical == "null" {
+			return "", false, nil
+		}
+		writeCanonicalString(&encoded, types[index])
+		writeCanonicalString(&encoded, canonical)
+	}
+	return encoded.String(), true, nil
 }
 
 func UnionDistinctV2(left, right RelationV2) (RelationV2, error) {

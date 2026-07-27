@@ -18,7 +18,11 @@ exposure report. `generate_evidence.py` then verifies:
   generated/unique rewrite counts, check counts, and zero mismatches;
 - complete RQ1/RQ2/RQ3 oracle and integration results;
 - the three-trial, 31,296-observation RQ4 performance report and environment
-  digest;
+  and implementation digests;
+- the three-scale PostgreSQL 16 Join--Group report, its 27 direct/novel/replay
+  points, exact million-fact accounting, raw-artifact digest, implementation
+  digest, and service memory peaks;
+- the production Control PostgreSQL storage curve and budget-boundary trials;
 - the model, configuration, and raw-log hashes in
   `formal/results/exposure_ledger.json`.
 
@@ -28,9 +32,10 @@ pair PostgreSQL result-equivalence stress test is confined to the supplement;
 the main paper's RQ2 evidence is closed-language FactSet/charge invariance. A local TeX syntax build is available through
 `paper/tkde/build.sh`, but it still uses Docker for the exposure evaluation.
 
-The draft reports a controlled single-host result rather than claiming
-TPC-scale, second-engine, multi-node, or live-LLM generality. The old TDSC
-manuscript remains available through `make paper-tdsc`; its results are not
-relabeled as exposure evidence. `evaluation/exposure-performance/results.json`
-and `evaluation/exposure/results.json` are the source-controlled RQ4 and semantic
-interchange files consumed by the paper build.
+The draft reports controlled single-host evidence, including a TPC-H-derived
+(not official TPC-H) workload up to 225,000 joined members and 1,035,000
+dependency facts. It does not claim second-engine, multi-node, production-SLO,
+or live-LLM generality. The old TDSC manuscript remains available through
+`make paper-tdsc`; its results are not relabeled as exposure evidence. The
+source-controlled semantic, performance, storage, and scale reports are all
+consumed by the paper build.

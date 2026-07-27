@@ -42,6 +42,7 @@ type Config struct {
 	Logger             *slog.Logger
 	Clock              func() time.Time
 	Background         context.Context
+	SettlementTimeout  time.Duration
 }
 
 type Service struct {
@@ -55,6 +56,7 @@ type Service struct {
 	logger             *slog.Logger
 	clock              func() time.Time
 	background         context.Context
+	settlementTimeout  time.Duration
 	pendingSettles     atomic.Int64
 }
 
@@ -84,6 +86,9 @@ func New(config Config) (*Service, error) {
 	if config.Background == nil {
 		config.Background = context.Background()
 	}
+	if config.SettlementTimeout <= 0 {
+		config.SettlementTimeout = defaultSettlementTimeout
+	}
 	if config.ReceiptVerifier == nil {
 		// The demo derives a stable Ed25519 key from its existing secret so old
 		// compose environments keep working. Deployments can supply a public-key
@@ -100,7 +105,7 @@ func New(config Config) (*Service, error) {
 		receiptVerifier:    config.ReceiptVerifier,
 		queryReceiptSigner: config.QueryReceiptSigner, connector: config.Connector,
 		callbackSecret: []byte(config.CallbackSecret), logger: config.Logger,
-		clock: config.Clock, background: config.Background,
+		clock: config.Clock, background: config.Background, settlementTimeout: config.SettlementTimeout,
 	}, nil
 }
 

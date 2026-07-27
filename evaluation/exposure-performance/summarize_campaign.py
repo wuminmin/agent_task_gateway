@@ -11,7 +11,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_RUNS = [f"rq4-20260725-trial{index}" for index in range(1, 4)]
+DEFAULT_RUNS = [f"rq4-20260727-trial{index}" for index in range(1, 4)]
 
 
 def digest(path: Path) -> str:
@@ -158,7 +158,7 @@ def main() -> None:
     result = {
         "schema_version": 1,
         "status": "complete_controlled_local_campaign",
-        "campaign_id": "rq4-local-postgresql-20260725",
+        "campaign_id": "rq4-local-postgresql-20260727",
         "trials": len(trials),
         "observations": sum(item["samples"] for item in provenance),
         "aggregation": "median of three independent trial summaries; per-trial percentiles use Hyndman-Fan type 7",
@@ -178,7 +178,8 @@ def main() -> None:
         },
     }
     args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(f"wrote {args.output.relative_to(ROOT)}: {result['observations']} observations")
+    output_label = args.output.resolve().relative_to(ROOT).as_posix()
+    print(f"wrote {output_label}: {result['observations']} observations")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,5 @@
+*
+!.gitignore
+!paper-20260727/
+paper-20260727/*
+!paper-20260727/report-with-memory.json

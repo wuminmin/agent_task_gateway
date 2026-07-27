@@ -103,9 +103,24 @@ func main() {
 		os.Exit(1)
 	}
 	businessDSN := sourceDSN(source, requiredSecret(source.SecretRef))
+	connectorMaxRows, err := positiveInt64Env("GATEWAY_CONNECTOR_MAX_ROWS", 10000)
+	if err != nil {
+		logger.Error("invalid connector row ceiling", "error", err)
+		os.Exit(1)
+	}
+	connectorStatementTimeout, err := positiveDurationEnv("GATEWAY_CONNECTOR_STATEMENT_TIMEOUT", 5*time.Second)
+	if err != nil {
+		logger.Error("invalid connector statement timeout", "error", err)
+		os.Exit(1)
+	}
+	settlementTimeout, err := positiveDurationEnv("GATEWAY_SETTLEMENT_TIMEOUT", 5*time.Second)
+	if err != nil {
+		logger.Error("invalid settlement timeout", "error", err)
+		os.Exit(1)
+	}
 	connector, err := dataconnector.New(ctx, dataconnector.Config{
-		DSN: businessDSN, StatementTimeout: 5 * time.Second,
-		ConnectTimeout: 10 * time.Second, MaxRows: 10000, MaxConnections: 4,
+		DSN: businessDSN, StatementTimeout: connectorStatementTimeout,
+		ConnectTimeout: 10 * time.Second, MaxRows: connectorMaxRows, MaxConnections: 4,
 		ExpectedSchema: expectedSchema, ExpectedSchemaDigest: source.SchemaDigest,
 		ExpectedAttestation: dataconnector.ExpectedAttestation{
 			DatasourceID: source.DatasourceID, Database: source.Database, User: source.User,
@@ -121,6 +136,7 @@ func main() {
 		Catalog: logicalCatalog, Store: store, Approval: oaClient,
 		Connector: connector, CallbackSecret: requiredEnv("OA_CALLBACK_SECRET"), Logger: logger,
 		ReceiptVerifier: oaReceiptVerifier, QueryReceiptSigner: queryReceiptSigner, Background: ctx,
+		SettlementTimeout: settlementTimeout,
 	})
 	if err != nil {
 		logger.Error("initialize gateway service", "error", err)
@@ -162,9 +178,14 @@ func main() {
 		go sweepAuditAnchors(ctx, store, auditAnchor, logger)
 	}
 
+	httpRequestTimeout, err := positiveDurationEnv("GATEWAY_HTTP_REQUEST_TIMEOUT", 130*time.Second)
+	if err != nil {
+		logger.Error("invalid HTTP request timeout", "error", err)
+		os.Exit(1)
+	}
 	server := &http.Server{
 		Addr: env("GATEWAY_ADDR", ":8082"), Handler: router, ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout: 130 * time.Second, WriteTimeout: 130 * time.Second, IdleTimeout: 60 * time.Second,
+		ReadTimeout: httpRequestTimeout, WriteTimeout: httpRequestTimeout, IdleTimeout: 60 * time.Second,
 	}
 	go func() {
 		logger.Info("gateway listening", "address", server.Addr)
@@ -791,4 +812,30 @@ func env(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func positiveInt64Env(key string, fallback int64) (int64, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback, nil
+	}
+	value, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || value <= 0 {
+		return 0, fmt.Errorf("%s must be a positive integer", key)
+	}
+	return value, nil
+}
+
+func positiveDurationEnv(key string, fallback time.Duration) (time.Duration, error) {
+	value, err := optionalDurationEnv(key)
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", key, err)
+	}
+	if value == 0 {
+		return fallback, nil
+	}
+	if value < 0 {
+		return 0, fmt.Errorf("%s must be positive", key)
+	}
+	return value, nil
 }

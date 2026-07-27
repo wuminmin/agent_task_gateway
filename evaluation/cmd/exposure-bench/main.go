@@ -58,6 +58,8 @@ type options struct {
 	lockInterval    time.Duration
 	requestTimeout  time.Duration
 	statementTimout time.Duration
+	scaleSizes      []int
+	scaleTrials     int
 }
 
 type taskPool struct {
@@ -191,6 +193,10 @@ func main() {
 		err = bootstrap(ctx, opts)
 	case "run":
 		err = run(ctx, opts)
+	case "scale-bootstrap":
+		err = bootstrapScale(ctx, opts)
+	case "scale-run":
+		err = runScale(ctx, opts)
 	default:
 		err = fmt.Errorf("unsupported mode %q", opts.mode)
 	}
@@ -202,6 +208,7 @@ func main() {
 func parseOptions() (options, error) {
 	var opts options
 	var concurrencies string
+	var scaleSizes string
 	flag.StringVar(&opts.mode, "mode", env("EXPOSURE_BENCH_MODE", "run"), "bootstrap or run")
 	flag.StringVar(&opts.gatewayURL, "gateway-url", env("EXPOSURE_GATEWAY_URL", "http://gateway:8082"), "Gateway base URL")
 	flag.StringVar(&opts.gatewayToken, "gateway-token", env("TASKBOUND_ALICE_TOKEN", ""), "Alice MCP bearer token")
@@ -219,6 +226,8 @@ func parseOptions() (options, error) {
 	flag.DurationVar(&opts.lockInterval, "lock-sample-interval", envDuration("EXPOSURE_LOCK_SAMPLE_INTERVAL", 10*time.Millisecond), "Control PG lock sampling interval")
 	flag.DurationVar(&opts.requestTimeout, "request-timeout", envDuration("EXPOSURE_REQUEST_TIMEOUT", 30*time.Second), "MCP/OA request timeout")
 	flag.DurationVar(&opts.statementTimout, "statement-timeout", envDuration("EXPOSURE_STATEMENT_TIMEOUT", 5*time.Second), "Business PostgreSQL statement timeout")
+	flag.StringVar(&scaleSizes, "scale-sizes", env("EXPOSURE_SCALE_SIZES", "1000,10000,45000"), "comma-separated order counts for scale modes")
+	flag.IntVar(&opts.scaleTrials, "scale-trials", envInt("EXPOSURE_SCALE_TRIALS", 3), "independent root tasks per scale")
 	flag.Parse()
 	for _, raw := range strings.Split(concurrencies, ",") {
 		value, err := strconv.Atoi(strings.TrimSpace(raw))
@@ -227,13 +236,23 @@ func parseOptions() (options, error) {
 		}
 		opts.concurrencies = append(opts.concurrencies, value)
 	}
+	for _, raw := range strings.Split(scaleSizes, ",") {
+		value, err := strconv.Atoi(strings.TrimSpace(raw))
+		if err != nil || value < 1 || value > 50000 {
+			return opts, fmt.Errorf("invalid scale size %q", raw)
+		}
+		if len(opts.scaleSizes) > 0 && value <= opts.scaleSizes[len(opts.scaleSizes)-1] {
+			return opts, errors.New("scale sizes must be strictly increasing")
+		}
+		opts.scaleSizes = append(opts.scaleSizes, value)
+	}
 	if opts.gatewayToken == "" {
 		return opts, errors.New("TASKBOUND_ALICE_TOKEN or -gateway-token is required")
 	}
-	if opts.mode == "bootstrap" && (opts.alicePassword == "" || opts.bobPassword == "") {
+	if (opts.mode == "bootstrap" || opts.mode == "scale-bootstrap") && (opts.alicePassword == "" || opts.bobPassword == "") {
 		return opts, errors.New("OA_ALICE_PASSWORD and OA_BOB_PASSWORD are required for bootstrap")
 	}
-	if opts.mode == "run" && (opts.businessDSN == "" || opts.controlDSN == "") {
+	if (opts.mode == "run" || opts.mode == "scale-run") && (opts.businessDSN == "" || opts.controlDSN == "") {
 		return opts, errors.New("business and control PostgreSQL DSNs are required")
 	}
 	return opts, nil

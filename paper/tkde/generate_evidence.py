@@ -18,8 +18,28 @@ PERFORMANCE = ROOT / "evaluation/exposure-performance/results.json"
 PERFORMANCE_ENVIRONMENT = ROOT / "evaluation/exposure-performance/environment.json"
 PATH_ANALYSIS = ROOT / "evaluation/exposure-performance/path_analysis.json"
 STORAGE_SCALING = ROOT / "evaluation/exposure-storage/results.json"
+SCALE = ROOT / "evaluation/exposure-scale/results.json"
 FORMAL = ROOT / "formal/results/exposure_ledger.json"
 OUTPUT = PAPER_DIR / "generated/evidence.tex"
+
+SCALE_SOURCE_DIRS = (
+    "evaluation/cmd/exposure-bench",
+    "internal/control",
+    "internal/exposure",
+    "internal/gateway",
+    "internal/queryplan",
+)
+SCALE_SOURCE_FILES = (
+    "go.mod",
+    "go.sum",
+    "cmd/gateway/main.go",
+    "evaluation/exposure-scale/05-scale-data.sql",
+    "evaluation/exposure-scale/15-scale-reader.sql",
+    "evaluation/exposure-scale/catalog.yaml",
+    "evaluation/exposure-scale/compose.yaml",
+    "evaluation/exposure-scale/finalize.py",
+    "evaluation/run-exposure-scale.sh",
+)
 
 
 def sha256(path: Path) -> str:
@@ -54,6 +74,41 @@ def string_set_sha256(domain: str, values: list[str]) -> str:
         digest.update(value.encode("utf-8"))
         digest.update(b"\x00")
     return digest.hexdigest()
+
+
+def path_set_sha256(paths: list[Path]) -> str:
+    digest = hashlib.sha256()
+    for path in sorted(set(paths)):
+        digest.update(path.relative_to(ROOT).as_posix().encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def performance_source_sha256() -> str:
+    paths: list[Path] = []
+    for path in (
+        ROOT / "internal",
+        ROOT / "cmd/gateway",
+        ROOT / "evaluation/cmd/exposure-bench",
+        ROOT / "compose.yaml",
+        ROOT / "evaluation/exposure-performance/compose.yaml",
+        ROOT / "evaluation/exposure-performance/catalog.yaml",
+    ):
+        paths.extend(path.rglob("*.go") if path.is_dir() else [path])
+    return path_set_sha256(paths)
+
+
+def scale_source_sha256() -> str:
+    paths = [ROOT / relative for relative in SCALE_SOURCE_FILES]
+    for relative in SCALE_SOURCE_DIRS:
+        paths.extend(
+            path
+            for path in (ROOT / relative).rglob("*")
+            if path.suffix in {".go", ".sql"}
+        )
+    return path_set_sha256(paths)
 
 
 def storage_source_sha256() -> str:
@@ -222,6 +277,10 @@ def validate_performance() -> dict:
     require(result.get("status") == "complete_controlled_local_campaign", "RQ4 campaign is incomplete")
     require(result.get("trials") == 3 and result.get("observations") == 31296, "RQ4 trial/sample count is incomplete")
     require(result.get("environment_sha256") == sha256(PERFORMANCE_ENVIRONMENT), "RQ4 environment digest is stale")
+    require(
+        result.get("gateway_benchmark_source_sha256") == performance_source_sha256(),
+        "RQ4 performance campaign source digest is stale",
+    )
     configuration = result.get("configuration", {})
     require(
         configuration.get("concurrency") == [1, 4, 8]
@@ -349,6 +408,80 @@ def validate_storage_scaling() -> dict:
     return result
 
 
+def validate_scale() -> dict:
+    result = load_json(SCALE)
+    require(
+        result.get("schema_version") == 1
+        and result.get("status") == "complete_postgresql16_multiscale_join_group_campaign"
+        and re.match(r"^16\.", result.get("postgres_version", "")) is not None
+        and result.get("source_sha256") == scale_source_sha256(),
+        "RQ4 multi-scale PostgreSQL campaign is stale",
+    )
+    config = result.get("configuration", {})
+    sizes = config.get("orders_per_scale")
+    trials = config.get("trials")
+    require(
+        sizes == [1000, 10000, 45000]
+        and trials == 3
+        and config.get("lineitems_per_order") == 5
+        and sizes[-1] * 23 >= 1_000_000,
+        "RQ4 multi-scale configuration is incomplete",
+    )
+    provenance = result.get("raw_provenance", {})
+    artifact_relative = provenance.get("artifact", "")
+    artifact_path = ROOT / artifact_relative
+    require(
+        artifact_relative
+        and artifact_path.is_file()
+        and provenance.get("artifact_sha256") == sha256(artifact_path),
+        "RQ4 multi-scale raw artifact is missing or stale",
+    )
+    points = {
+        (item.get("orders"), item.get("trial"), item.get("operation")): item
+        for item in result.get("raw_points", [])
+    }
+    require(len(points) == len(sizes) * trials * 3 == 27, "RQ4 multi-scale raw points are incomplete")
+    for size in sizes:
+        for trial in range(1, trials + 1):
+            direct = points.get((size, trial, "direct_sql"), {})
+            novel = points.get((size, trial, "novel"), {})
+            replay = points.get((size, trial, "replay"), {})
+            expected = size * 23
+            require(
+                direct.get("rows") == novel.get("rows") == replay.get("rows") == 3
+                and novel.get("expected_influence_facts") == expected
+                and novel.get("actual_influence_facts") == expected
+                and novel.get("charged_influence_facts") == expected
+                and novel.get("actual_release_facts") == 12
+                and novel.get("charged_release_facts") == 12
+                and replay.get("actual_influence_facts") == expected
+                and replay.get("actual_release_facts") == 12
+                and replay.get("charged_influence_facts") == 0
+                and replay.get("charged_release_facts") == 0
+                and replay.get("observation_sha256") == novel.get("observation_sha256")
+                and replay.get("ledger_before", {}).get("fact_rows")
+                == replay.get("ledger_after", {}).get("fact_rows")
+                == novel.get("ledger_after", {}).get("fact_rows"),
+                f"RQ4 multi-scale accounting is invalid at scale={size}, trial={trial}",
+            )
+    aggregates = {
+        (item.get("orders"), item.get("operation")): item
+        for item in result.get("aggregates", [])
+    }
+    require(
+        len(aggregates) == len(sizes) * 3
+        and all(item.get("trials") == trials for item in aggregates.values()),
+        "RQ4 multi-scale aggregates are incomplete",
+    )
+    peaks = result.get("service_peak_memory_bytes", {})
+    require(
+        set(peaks) == {"control-postgres", "business-postgres", "gateway"}
+        and all(value > 0 for value in peaks.values()),
+        "RQ4 multi-scale peak-memory evidence is incomplete",
+    )
+    return result
+
+
 def validate_formal() -> dict:
     result = load_json(FORMAL)
     require(result.get("schema_version") == 1 and result.get("status") == "passed", "exposure TLC did not pass")
@@ -379,6 +512,7 @@ def main() -> None:
     performance = validate_performance()
     path_analysis = validate_path_analysis(performance)
     storage_scaling = validate_storage_scaling()
+    scale = validate_scale()
     formal = validate_formal()
     rq1 = report["rq1_ground_truth"]
     rq2 = report["rq2_rewrite_invariance"]
@@ -401,6 +535,16 @@ def main() -> None:
     ramp_hit = paths["ramp_hit"]
     storage = path_analysis["ledger_storage"]
     storage_points = {(item["facts_per_ledger"], item["operation"]): item for item in storage_scaling["aggregates"]}
+    scale_points = {(item["orders"], item["operation"]): item for item in scale["aggregates"]}
+    scale_low = scale_points[(1000, "novel")]
+    scale_mid = scale_points[(10000, "novel")]
+    scale_high = scale_points[(45000, "novel")]
+    scale_low_replay = scale_points[(1000, "replay")]
+    scale_mid_replay = scale_points[(10000, "replay")]
+    scale_high_replay = scale_points[(45000, "replay")]
+    scale_low_direct = scale_points[(1000, "direct_sql")]
+    scale_mid_direct = scale_points[(10000, "direct_sql")]
+    scale_high_direct = scale_points[(45000, "direct_sql")]
     baseline = report["charge_baselines"]
     first = baseline["full_first"]
     replay = baseline["full_replay"]
@@ -486,6 +630,31 @@ def main() -> None:
         rf"\newcommand{{\RQFourStorageTenThousandReplayLow}}{{{decimal(storage_points[(10000, 'replay')]['settlement_ms']['trial_range'][0])}}}",
         rf"\newcommand{{\RQFourStorageTenThousandReplayHigh}}{{{decimal(storage_points[(10000, 'replay')]['settlement_ms']['trial_range'][1])}}}",
         rf"\newcommand{{\RQFourBudgetBoundaryPassed}}{{{sum(1 for item in storage_scaling['budget_boundaries'] if item['rejected'])}}}",
+        rf"\newcommand{{\RQFourScaleTrials}}{{{scale['configuration']['trials']}}}",
+        rf"\newcommand{{\RQFourScalePoints}}{{{len(scale['configuration']['orders_per_scale'])}}}",
+        rf"\newcommand{{\RQFourScaleMaxOrders}}{{{comma(45000)}}}",
+        rf"\newcommand{{\RQFourScaleMaxJoined}}{{{comma(scale_high['joined_rows'])}}}",
+        rf"\newcommand{{\RQFourScaleMaxFacts}}{{{comma(scale_high['expected_influence_facts'])}}}",
+        rf"\newcommand{{\RQFourScaleReleaseFacts}}{{{12}}}",
+        rf"\newcommand{{\RQFourScaleGatewayGiB}}{{{decimal(scale['service_peak_memory_bytes']['gateway'] / 1073741824)}}}",
+        rf"\newcommand{{\RQFourScaleControlGiB}}{{{decimal(scale['service_peak_memory_bytes']['control-postgres'] / 1073741824)}}}",
+        rf"\newcommand{{\RQFourScaleLowDirectMS}}{{{decimal(scale_low_direct['latency_ms']['p50'])}}}",
+        rf"\newcommand{{\RQFourScaleMidDirectMS}}{{{decimal(scale_mid_direct['latency_ms']['p50'])}}}",
+        rf"\newcommand{{\RQFourScaleHighDirectMS}}{{{decimal(scale_high_direct['latency_ms']['p50'])}}}",
+        rf"\newcommand{{\RQFourScaleLowNovelS}}{{{decimal(scale_low['latency_ms']['p50'] / 1000)}}}",
+        rf"\newcommand{{\RQFourScaleMidNovelS}}{{{decimal(scale_mid['latency_ms']['p50'] / 1000)}}}",
+        rf"\newcommand{{\RQFourScaleHighNovelS}}{{{decimal(scale_high['latency_ms']['p50'] / 1000)}}}",
+        rf"\newcommand{{\RQFourScaleLowReplayS}}{{{decimal(scale_low_replay['latency_ms']['p50'] / 1000)}}}",
+        rf"\newcommand{{\RQFourScaleMidReplayS}}{{{decimal(scale_mid_replay['latency_ms']['p50'] / 1000)}}}",
+        rf"\newcommand{{\RQFourScaleHighReplayS}}{{{decimal(scale_high_replay['latency_ms']['p50'] / 1000)}}}",
+        rf"\newcommand{{\RQFourScaleHighNovelLowS}}{{{decimal(scale_high['latency_ms']['min'] / 1000)}}}",
+        rf"\newcommand{{\RQFourScaleHighNovelHighS}}{{{decimal(scale_high['latency_ms']['max'] / 1000)}}}",
+        rf"\newcommand{{\RQFourScaleHighReplayLowS}}{{{decimal(scale_high_replay['latency_ms']['min'] / 1000)}}}",
+        rf"\newcommand{{\RQFourScaleHighReplayHighS}}{{{decimal(scale_high_replay['latency_ms']['max'] / 1000)}}}",
+        rf"\newcommand{{\RQFourScaleHighNovelDeriveS}}{{{decimal(scale_high['component_ms']['exposure_derivation']['p50'] / 1000)}}}",
+        rf"\newcommand{{\RQFourScaleHighReplayDeriveS}}{{{decimal(scale_high_replay['component_ms']['exposure_derivation']['p50'] / 1000)}}}",
+        rf"\newcommand{{\RQFourScaleHighNovelStoreS}}{{{decimal(scale_high['component_ms']['exposure_fact_store']['p50'] / 1000)}}}",
+        rf"\newcommand{{\RQFourScaleHighReplayStoreS}}{{{decimal(scale_high_replay['component_ms']['exposure_fact_store']['p50'] / 1000)}}}",
         rf"\newcommand{{\RQFourScalingDims}}{{{len(scaling['curves'])}}}",
         rf"\newcommand{{\RQFourScalingMaxRows}}{{{comma(scaling_curves['observe_rows']['points'][-1]['size'])}}}",
         rf"\newcommand{{\RQFourScalingObserveMicros}}{{{decimal(scaling_curves['observe_rows']['points'][-1]['ns_per_op'] / 1000)}}}",

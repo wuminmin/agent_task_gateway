@@ -263,7 +263,9 @@ func TestExposureV2GroupedHiddenKeyIsMeteredButNotReleased(t *testing.T) {
 	if len(columns) != 1 || columns[0].Name != "total" || len(rows) != 1 || len(rows[0]) != 1 {
 		t.Fatalf("hidden group key leaked into result: columns=%+v rows=%+v", columns, rows)
 	}
-	if len(harness.connector.requests) != 2 || !strings.Contains(harness.connector.requests[0].SQL, `SELECT "month", sum("total_amount") AS "total"`) {
+	if len(harness.connector.requests) != 2 ||
+		(!strings.Contains(harness.connector.requests[0].SQL, `SELECT "month", sum("total_amount") AS "total"`) &&
+			!strings.Contains(harness.connector.requests[0].SQL, `SELECT month, sum(total_amount) AS total`)) {
 		t.Fatalf("hidden group key was not selected internally: %+v", harness.connector.requests)
 	}
 	charge := result["exposure"].(control.ExposureCharge)

@@ -38,7 +38,7 @@ type storedQueryResult struct {
 const (
 	resultEncodingFailed     = "RESULT_ENCODING_FAILED"
 	resultFinalizationFailed = "RESULT_FINALIZATION_FAILED"
-	settlementAttemptTimeout = 5 * time.Second
+	defaultSettlementTimeout = 5 * time.Second
 	settlementRetryDelay     = 100 * time.Millisecond
 )
 
@@ -453,7 +453,7 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 		s.failQueryBudget(ctx, settlement)
 		return nil, err
 	}
-	finalizeCtx, finalizeCancel := detachedContext(ctx)
+	finalizeCtx, finalizeCancel := s.detachedContext(ctx)
 	record, persistedReceipt, finalizeMetrics, err := s.store.FinalizeQueryMeasuredWithReceipt(finalizeCtx, settlement, plaintext, s.terminalReceiptBuilder())
 	finalizeCancel()
 	if err != nil {
@@ -569,7 +569,7 @@ func querySettlement(queryID string, data dataconnector.Result, started time.Tim
 }
 
 func (s *Service) failQueryBudget(ctx context.Context, settlement control.BudgetSettlement) {
-	failCtx, cancel := detachedContext(ctx)
+	failCtx, cancel := s.detachedContext(ctx)
 	_, _, err := s.store.FailBudgetWithReceipt(failCtx, settlement, s.terminalReceiptBuilder())
 	cancel()
 	if err == nil {
@@ -584,7 +584,7 @@ func (s *Service) failQueryBudget(ctx context.Context, settlement control.Budget
 }
 
 func (s *Service) releaseQueryBudget(ctx context.Context, queryID, errorCode string) {
-	releaseCtx, cancel := detachedContext(ctx)
+	releaseCtx, cancel := s.detachedContext(ctx)
 	_, _, err := s.store.ReleaseBudgetWithReceipt(releaseCtx, queryID, errorCode, s.terminalReceiptBuilder())
 	cancel()
 	if err == nil {
@@ -599,7 +599,7 @@ func (s *Service) releaseQueryBudget(ctx context.Context, queryID, errorCode str
 }
 
 func (s *Service) markQueryIndeterminate(ctx context.Context, queryID, errorCode string) {
-	markCtx, cancel := detachedContext(ctx)
+	markCtx, cancel := s.detachedContext(ctx)
 	_, _, err := s.store.MarkIndeterminateWithReceipt(markCtx, queryID, errorCode, s.terminalReceiptBuilder())
 	cancel()
 	if err == nil {
@@ -624,7 +624,7 @@ func (s *Service) retryTerminalQuery(queryID, errorCode string, indeterminate bo
 			return
 		case <-timer.C:
 		}
-		attemptCtx, cancel := context.WithTimeout(s.background, settlementAttemptTimeout)
+		attemptCtx, cancel := context.WithTimeout(s.background, s.settlementTimeout)
 		var err error
 		if indeterminate {
 			_, _, err = s.store.MarkIndeterminateWithReceipt(attemptCtx, queryID, errorCode, s.terminalReceiptBuilder())
@@ -656,7 +656,7 @@ func (s *Service) retryFailedQuerySettlement(settlement control.BudgetSettlement
 		case <-timer.C:
 		}
 
-		attemptCtx, cancel := context.WithTimeout(s.background, settlementAttemptTimeout)
+		attemptCtx, cancel := context.WithTimeout(s.background, s.settlementTimeout)
 		_, _, err := s.store.FailBudgetWithReceipt(attemptCtx, settlement, s.terminalReceiptBuilder())
 		cancel()
 		if err == nil || errors.Is(err, control.ErrClosed) {
@@ -1211,6 +1211,6 @@ func saturatedProduct(left, right int64) int64 {
 	return left * right
 }
 
-func detachedContext(parent context.Context) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.WithoutCancel(parent), 5*time.Second)
+func (s *Service) detachedContext(parent context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(parent), s.settlementTimeout)
 }

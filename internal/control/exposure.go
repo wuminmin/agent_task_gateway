@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -287,20 +288,20 @@ WHERE query_id=$7 AND status='RESERVED'`, len(normalized.Release), len(normalize
 }
 
 func insertNovelFactsTx(ctx context.Context, tx *sql.Tx, rootTaskID, kind, queryID string, facts []exposure.FactID, now time.Time) (int64, error) {
-	const chunkSize = 200
+	const chunkSize = 5000
+	type encodedFact struct {
+		hash     string
+		identity []byte
+		payload  []byte
+	}
 	var inserted int64
 	for start := 0; start < len(facts); start += chunkSize {
 		end := start + chunkSize
 		if end > len(facts) {
 			end = len(facts)
 		}
-		var statement strings.Builder
-		statement.WriteString(`INSERT INTO exposure_facts(root_task_id, ledger_kind, fact_sha256, identity_json, canonical_payload, first_query_id, first_seen_at) VALUES `)
-		args := make([]any, 0, (end-start)*7)
-		for index, fact := range facts[start:end] {
-			if index != 0 {
-				statement.WriteString(",")
-			}
+		encodedFacts := make([]encodedFact, 0, end-start)
+		for _, fact := range facts[start:end] {
 			hash, err := fact.Hash()
 			if err != nil {
 				return 0, err
@@ -313,22 +314,79 @@ func insertNovelFactsTx(ctx context.Context, tx *sql.Tx, rootTaskID, kind, query
 			if err != nil {
 				return 0, err
 			}
+			encodedFacts = append(encodedFacts, encodedFact{hash: hash, identity: identity, payload: payload})
+		}
+		// ON CONFLICT is safe only after comparing every semantic payload. Do
+		// that in one fixed-shape array query per chunk before attempting writes.
+		// The caller holds the root ledger FOR UPDATE, so a same-root settlement
+		// cannot appear between this read and the following insert.
+		expected := make(map[string]encodedFact, len(encodedFacts))
+		hashes := make([]string, 0, len(encodedFacts))
+		for _, fact := range encodedFacts {
+			hashes = append(hashes, fact.hash)
+			expected[fact.hash] = fact
+		}
+		storedRows, err := tx.QueryContext(ctx, `SELECT fact_sha256, identity_json, canonical_payload FROM exposure_facts
+	WHERE root_task_id=$1 AND ledger_kind=$2 AND fact_sha256 = ANY($3)`, rootTaskID, kind, hashes)
+		if err != nil {
+			return 0, err
+		}
+		seen := make(map[string]struct{}, len(encodedFacts))
+		for storedRows.Next() {
+			var hash string
+			var storedIdentity, storedPayload []byte
+			if err := storedRows.Scan(&hash, &storedIdentity, &storedPayload); err != nil {
+				storedRows.Close()
+				return 0, err
+			}
+			fact, present := expected[hash]
+			if !present || (storedPayload != nil && !bytes.Equal(storedPayload, fact.payload)) ||
+				(storedPayload == nil && !sameJSON(storedIdentity, fact.identity)) {
+				storedRows.Close()
+				return 0, fmt.Errorf("fact hash collision for %s", hash)
+			}
+			seen[hash] = struct{}{}
+		}
+		if err := storedRows.Err(); err != nil {
+			storedRows.Close()
+			return 0, err
+		}
+		if err := storedRows.Close(); err != nil {
+			return 0, err
+		}
+		missing := make([]encodedFact, 0, len(encodedFacts)-len(seen))
+		for _, fact := range encodedFacts {
+			if _, present := seen[fact.hash]; !present {
+				missing = append(missing, fact)
+			}
+		}
+		if len(missing) == 0 {
+			continue
+		}
+		var statement strings.Builder
+		statement.WriteString(`INSERT INTO exposure_facts(root_task_id, ledger_kind, fact_sha256, identity_json, canonical_payload, first_query_id, first_seen_at) VALUES `)
+		args := make([]any, 0, len(missing)*7)
+		for index, fact := range missing {
+			if index != 0 {
+				statement.WriteString(",")
+			}
 			base := len(args) + 1
 			fmt.Fprintf(&statement, "($%d,$%d,$%d,$%d,$%d,$%d,$%d)", base, base+1, base+2, base+3, base+4, base+5, base+6)
-			args = append(args, rootTaskID, kind, hash, string(identity), payload, queryID, dbTime(now))
+			args = append(args, rootTaskID, kind, fact.hash, string(fact.identity), fact.payload, queryID, dbTime(now))
 		}
 		statement.WriteString(` ON CONFLICT DO NOTHING RETURNING fact_sha256`)
 		rows, err := tx.QueryContext(ctx, statement.String(), args...)
 		if err != nil {
 			return 0, err
 		}
+		var chunkInserted int
 		for rows.Next() {
 			var ignored string
 			if err := rows.Scan(&ignored); err != nil {
 				rows.Close()
 				return 0, err
 			}
-			inserted++
+			chunkInserted++
 		}
 		if err := rows.Err(); err != nil {
 			rows.Close()
@@ -337,30 +395,10 @@ func insertNovelFactsTx(ctx context.Context, tx *sql.Tx, rootTaskID, kind, query
 		if err := rows.Close(); err != nil {
 			return 0, err
 		}
-		// ON CONFLICT is safe only after comparing the semantic payload. A
-		// same-hash/different-payload row is a fail-closed collision.
-		for _, fact := range facts[start:end] {
-			hash, _ := fact.Hash()
-			expectedPayload, _ := fact.CanonicalPayload()
-			var storedIdentity []byte
-			var storedPayload []byte
-			if err := tx.QueryRowContext(ctx, `
-SELECT identity_json, canonical_payload FROM exposure_facts
-WHERE root_task_id=$1 AND ledger_kind=$2 AND fact_sha256=$3`, rootTaskID, kind, hash).
-				Scan(&storedIdentity, &storedPayload); err != nil {
-				return 0, err
-			}
-			if storedPayload != nil {
-				if !bytes.Equal(storedPayload, expectedPayload) {
-					return 0, fmt.Errorf("fact hash collision for %s", hash)
-				}
-				continue
-			}
-			expectedIdentity, _ := json.Marshal(fact)
-			if !sameJSON(storedIdentity, expectedIdentity) {
-				return 0, fmt.Errorf("fact hash collision for %s", hash)
-			}
+		if chunkInserted != len(missing) {
+			return 0, errors.New("fact insertion conflicted despite the root ledger lock")
 		}
+		inserted += int64(chunkInserted)
 	}
 	return inserted, nil
 }

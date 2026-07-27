@@ -1,0 +1,68 @@
+services:
+  business-postgres:
+    ports: !override
+      - 127.0.0.1:${EXPOSURE_SCALE_BUSINESS_PORT:-29434}:5432
+    volumes: !override
+      - business-pg-data:/var/lib/postgresql/data
+      - ./db/init/00-schema.sql:/docker-entrypoint-initdb.d/00-schema.sql:ro
+      - ./evaluation/exposure-scale/05-scale-data.sql:/docker-entrypoint-initdb.d/05-scale-data.sql:ro
+      - ./db/init/10-reader.sh:/docker-entrypoint-initdb.d/10-reader.sh:ro
+      - ./evaluation/exposure-scale/15-scale-reader.sql:/docker-entrypoint-initdb.d/15-scale-reader.sql:ro
+
+  control-postgres:
+    ports: !override
+      - 127.0.0.1:${EXPOSURE_SCALE_CONTROL_PORT:-29433}:5432
+
+  gateway:
+    ports: !override
+      - 127.0.0.1:${EXPOSURE_SCALE_GATEWAY_PORT:-29082}:8082
+    environment:
+      PUBLIC_OA_BASE_URL: http://oa-demo:8092
+      GATEWAY_CONNECTOR_MAX_ROWS: 1200000
+      GATEWAY_CONNECTOR_STATEMENT_TIMEOUT: 15m
+      GATEWAY_HTTP_REQUEST_TIMEOUT: 15m
+      GATEWAY_SETTLEMENT_TIMEOUT: 15m
+    volumes: !override
+      - ./evaluation/exposure-scale/catalog.yaml:/etc/taskbound/catalog.yaml:ro
+
+  oa-demo:
+    ports: !override
+      - 127.0.0.1:${EXPOSURE_SCALE_OA_PORT:-29092}:8092
+    environment:
+      PUBLIC_OA_BASE_URL: http://oa-demo:8092
+
+  exposure-bench:
+    profiles: [exposure-tools]
+    build:
+      context: .
+      dockerfile: evaluation/Dockerfile
+      target: exposure-bench
+    environment:
+      EXPOSURE_GATEWAY_URL: http://gateway:8082
+      EXPOSURE_OA_URL: http://oa-demo:8092
+      EXPOSURE_BUSINESS_DSN: postgres://gateway_reader:${GATEWAY_DB_PASSWORD}@business-postgres:5432/${POSTGRES_DB}?sslmode=disable
+      EXPOSURE_CONTROL_DSN: postgres://gateway_control:${CONTROL_DB_PASSWORD}@control-postgres:5432/${CONTROL_POSTGRES_DB}?sslmode=disable
+      EXPOSURE_TASKS_PATH: /results/tasks.json
+      EXPOSURE_OUTPUT_DIR: /results
+      EXPOSURE_SCALE_SIZES: ${EXPOSURE_SCALE_SIZES:-1000,10000,45000}
+      EXPOSURE_SCALE_TRIALS: ${EXPOSURE_SCALE_TRIALS:-3}
+      EXPOSURE_REQUEST_TIMEOUT: ${EXPOSURE_SCALE_REQUEST_TIMEOUT:-15m}
+      EXPOSURE_STATEMENT_TIMEOUT: ${EXPOSURE_SCALE_STATEMENT_TIMEOUT:-15m}
+      TASKBOUND_ALICE_TOKEN: ${TASKBOUND_ALICE_TOKEN}
+      OA_ALICE_PASSWORD: ${OA_ALICE_PASSWORD}
+      OA_BOB_PASSWORD: ${OA_BOB_PASSWORD}
+    volumes:
+      - ${EXPOSURE_SCALE_RUN_DIR:?set EXPOSURE_SCALE_RUN_DIR}:/results
+    depends_on:
+      control-postgres:
+        condition: service_healthy
+      business-postgres:
+        condition: service_healthy
+      gateway:
+        condition: service_healthy
+      oa-demo:
+        condition: service_healthy
+    networks:
+      - public-edge
+      - control-plane
+      - business-data

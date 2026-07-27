@@ -26,7 +26,7 @@ The paper campaign used three independent fresh-stack runs with 200 measured
 operations per worker at concurrency `1,4,8` and a 32-query history ramp:
 
 ```sh
-EXPOSURE_RUN_ID=rq4-20260725-trial1 EXPOSURE_RUNS=200 \
+EXPOSURE_RUN_ID=rq4-20260727-trial1 EXPOSURE_RUNS=200 \
   EXPOSURE_RAMP_RUNS=32 EXPOSURE_WORKERS=8 EXPOSURE_CONCURRENCY=1,4,8 \
   ./evaluation/run-exposure-performance.sh
 ```
