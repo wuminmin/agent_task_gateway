@@ -136,20 +136,29 @@ novel facts, checked both root limits, settled resource use, stored the encrypte
 result, and persisted audit and receipt evidence. A failed limit check rolls the
 transaction back while the business execution remains separately measurable.
 
-This paper makes four implementation-backed contributions:
+TaskGate is a direct successor to SessionBound
+\cite{wu2026sessionbound}. SessionBound already turns task approval into a
+short-lived database session with signed tokens, SQL/view/scope boundaries,
+query and disclosure budgets, and allow/deny receipts. We treat that substrate
+as prior work and do not claim those mechanisms here. Relative to it, this
+paper makes five implementation-backed contributions:
 
 \begin{enumerate}
-\item Executable semantics and ground-truth tests for a restricted positive
-relational algebra, including projection, selection, join, union, pagination,
-grouping, and \code{COUNT}/\code{SUM}/\code{MIN}/\code{MAX}.
-\item An online paired-snapshot compiler for the one-product fragment and
-bounded two-scan inner equijoins and union-distinct, including grouping and the
-four aggregates.  Its PostgreSQL root-family ledger charges exactly novel
-facts and withholds over-budget results.
-\item Signed, monotonic multi-agent delegation that shares root accounting
-state and prevents task-tree fan-out from multiplying exposure capacity.
-\item Executable ground truth, rewrite and anti-arbitrage tests, a finite TLA+
-model, and a repeated full-path PostgreSQL overhead and contention campaign.
+\item A versioned, typed FactID and dual set semantics separating delivered
+release facts from positive-output dependencies in a restricted relational
+algebra.
+\item A same-snapshot provenance companion for one-product plans and bounded
+two-scan inner equijoins/union-distinct, including grouping and four aggregates.
+\item Exact novel-set settlement: atomically charge
+$E_q\setminus\accounted_T$, withhold on either limit, and make semantic replay
+zero-charge rather than merely incrementing a per-query counter.
+\item Signed, monotonic root-family delegation whose descendants share one
+dual ledger, preventing task-tree fan-out from multiplying exposure capacity.
+\item New formal properties and evidence for these mechanisms: dual-budget
+safety, exact/non-overlapping novel charge, no pre-settlement delivery, and
+task-family non-amplification; algebraic/rewrite tests, a finite TLA+ ledger
+model, and full-path PostgreSQL experiments through one million dependency
+facts.
 \end{enumerate}
 
 The implementation does \emph{not} claim arbitrary SQL equivalence, differential
@@ -162,6 +171,49 @@ behind a broad ``SQL support'' label.
 
 \section{Context and Related Work}
 \label{sec:related}
+
+\subsection{Closest Systems and Incremental Novelty}
+
+SessionBound is the immediate architectural predecessor
+\cite{wu2026sessionbound}. It already contributes the control-plane path from
+business task templates and approval to signed task tokens, and a PostgreSQL
+runtime enforcing safe views, row scope, denied fields, operation/query and
+disclosure budgets, plus receipts. Its disclosure units may be rows, bytes, or
+unique entity identifiers. TaskGate therefore does not present task approval,
+SQL mediation, cumulative disclosure budgets, or receipts as new. It changes
+the accounted object and settlement semantics: values and successful
+derivations become stable FactID sets; release and positive-output dependencies
+have separate ledgers; the answer and evidence are obtained in one snapshot;
+only exact set difference is charged; and all delegated descendants settle one
+root-family ledger.
+
+GAAP is the closest system at the agent data-flow layer
+\cite{stanley2026gaap}. It places private data and permissions outside the
+untrusted model, analyzes agent-generated code with information-flow control,
+uses trusted tool annotations, and records disclosures to external entities in
+a persistent log. That log propagates taint across calls and tasks, addressing
+indirect cross-service disclosure that TaskGate explicitly does not solve.
+Conversely, GAAP does not define a SQL value-level FactID algebra, distinguish
+delivered database values from positive-output dependencies, co-execute a
+PostgreSQL provenance companion, or settle an exact per-root novel FactSet.
+Table~\ref{tab:closest-systems} states the boundary without treating different
+threat models as an overall ranking.
+
+\begin{table*}[t]
+\centering
+\caption{Closest-system positioning. ``Boundary'' denotes scope, not weakness.}
+\label{tab:closest-systems}
+\footnotesize
+\begin{tabular}{L{0.10\textwidth}L{0.25\textwidth}L{0.25\textwidth}L{0.25\textwidth}}
+\toprule
+System & Existing contribution & Accounted history/effect & Boundary relative to the others \\
+\midrule
+SessionBound & Approved task $\rightarrow$ bounded PostgreSQL session; SQL/view/scope enforcement; query/disclosure budgets; receipts & One task session; attempts and configurable disclosure units such as rows, bytes, or unique entities & Direct predecessor; no versioned FactID dual sets, paired same-snapshot provenance, exact novel-set semantics, or shared root-family ledger \\
+GAAP & Agent execution environment with private/permission stores, code-level IFC, and tool-flow annotations & Persistent private-data disclosures to external entities, including indirect flows across tasks & Stronger cross-tool/cross-task confidentiality goal; not a database-query FactSet or transactional novel-set accounting design \\
+TaskGate & Typed release/dependency facts, paired PostgreSQL evidence, exact pre-release settlement, and monotonic shared-root delegation & Exact FactID sets accumulated by one approved root and its descendants & No general IFC, external-party flow policy, cross-root disclosure memory, or confidentiality guarantee \\
+\bottomrule
+\end{tabular}
+\end{table*}
 
 \subsection{History-Based Query Auditing and Inference Control}
 
@@ -275,13 +327,15 @@ cumulative, explicit database disclosure across retries, pagination, supported
 rewrites, and delegation.
 
 \textbf{Novelty boundary.} History, inference control, pricing, provenance,
-query mediation, delegation, and quotas are all established separately. The
-claim evaluated here is their enforcement composition: a typed,
-contract-defined release/dependency effect generated beside the answer in the
-same database snapshot, exact novel-set settlement against one root task-family
-ledger before delivery, and invariance over the supported rewrite and delegation
-closure. This boundary is narrower than general SQL noninterference and stronger
-than stateless authorization for the modeled positive-disclosure threat.
+query mediation, delegation, quotas, task-bound SQL sessions, receipts, and
+persistent agent disclosure logs are established by the literature above.
+Relative to SessionBound, the claim is precisely FactID dual-set semantics,
+same-snapshot provenance, exact novel-set settlement, shared root-family
+delegation, and the corresponding formal properties and experiments. Relative
+to GAAP, the contribution is database-specific semantic accounting rather than
+general cross-task IFC. This boundary is narrower than SQL noninterference or
+GAAP's confidentiality goal and stronger than stateless authorization for the
+modeled positive-disclosure threat.
 
 \section{Exposure Model}
 \label{sec:model}
