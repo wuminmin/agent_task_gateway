@@ -70,14 +70,21 @@ server-side accounting evidence rather than facts delivered to the agent.
 Signed delegation preserves the same ledger. We define compositional semantics for a positive relational fragment
 with grouping and four aggregates, implement an exact dual-budget representation
 planner, and check a finite ledger model. An independent RQ1 oracle validates
-14 queries on 16 source rows; PostgreSQL executes 1,024 unique normalized
-baseline/rewrite SQL pairs, and two ledger tests retain passing race logs.
-Across three local trials and 31,296 measured operations,
-a warm full-path history hit has 12.1-ms median and 14.2-ms p95 latency at one
-worker; at eight workers p95 rises to 70.5~ms as root-ledger lock p95 reaches
-40.5~ms. On 120 externally scored four-part agent-task traces, exact planning
-achieves 60\% task success versus 40\% for utility-greedy selection, with no
-budget violation.
+14 queries on 16 source rows. For rewrite invariance we report two independent
+streams: across \RQTwoExposureRewrites{} closed-language rewrites over
+\RQTwoExposureDatasets{} data instances, TaskGate's release and influence
+FactSets and incremental charge are invariant (\RQTwoExposureMismatches{}
+mismatches), and a separate PostgreSQL~16 campaign confirms result-row
+equivalence on \RQTwoUnique{} normalized baseline/rewrite SQL pairs. Across
+three local trials and \RQFourObservations{} operations, a warm full-path
+history hit has \RQFourFullOneMedian{}-ms median and \RQFourFullOneTail{}-ms p95
+latency at one worker, and in-process sweeps show accounting cost growing with
+source rows, candidate counts, and expression depth while a history replay
+charges zero. On \RQFiveAgentTasks{} non-isomorphic agent-task traces whose
+gold answers are decoupled from planner utility, exact overlap-aware planning
+wins \RQFiveExactSuccess{} traces versus \RQFiveGreedySuccess{} for
+utility-greedy and \RQFiveAdditiveSuccess{} for an additive scalar proxy, with
+no budget violation.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -442,10 +449,13 @@ deterministic collation name and actual version.  \code{json} lacks equality
 and cannot join, group, or distinct; \code{jsonb} has structural canonical
 equality.  Aggregate result types are exactly PostgreSQL's:
 \code{COUNT}$\to$\code{int8}, \code{SUM(int2/int4)}$\to$\code{int8},
-\code{SUM(int8)}$\to$\code{numeric}, \code{SUM(numeric/float)}$\to$its input
-family, and \code{MIN/MAX}$\to$the input type.  Any cast, arithmetic, aggregate,
-witness-multiplicity, or canonical-range overflow makes evaluation undefined
-and the gateway releases and settles nothing.
+\code{SUM(int8)}$\to$\code{numeric}, \code{SUM(numeric)}$\to$\code{numeric},
+and \code{MIN/MAX}$\to$the input type.  \code{SUM(real)} and
+\code{SUM(double precision)} are not admitted: IEEE-754 addition is
+non-associative, so a floating-point SUM depends on the physical aggregation
+order, which the typed bag and the normal form do not fix.  Any cast,
+arithmetic, aggregate, witness-multiplicity, or canonical-range overflow makes
+evaluation undefined and the gateway releases and settles nothing.
 
 \subsection{Annotated Bags and Complete Output Keys}
 
@@ -516,9 +526,15 @@ means that a failed premise yields no relation, effect, settlement, or release.
 For compactness, $\alpha_r(t)=(S_r,W_r)$,
 $\alpha_a(t)=(S_a,W_a)$, $\operatorname{aug}_F(t)$ replaces
 $\alpha_r(t)$ by $\alpha_r(t)\oplus\bigoplus_{a\in F}\alpha_a(t)$, and cell
-maps are otherwise copied.  A displayed row bag is paired with the statically
-derived schema and the bundle in Table~\ref{tab:rowkeys}; these relation fields
-are omitted only to keep the fractions legible.  The complete rules are:
+maps are otherwise copied.  In the derived rules a cell is written as the
+5-tuple $c_a=\langle v_a,\tau_a,\alpha_a,x_a,\rho_a\rangle$: value, type, the
+annotation pair $\alpha_a=(S_a,W_a)$ that expands to support and witness, the
+normalized lineage expression, and the optional materialized release fact.
+E-Scan alone displays the fully expanded base-cell 6-tuple; every other rule
+constructs each output cell explicitly, so representation closure does not rely
+on prose.  A displayed row bag is paired with the statically derived schema and
+the bundle in Table~\ref{tab:rowkeys}; these relation fields are omitted only
+to keep the fractions legible.  The complete rules are:
 
 \begin{figure*}[t]
 \small
@@ -551,16 +567,22 @@ are omitted only to keep the fractions legible.  The complete rules are:
 &\frac{\Pi;D\vdash e_j\Downarrow R_j\;(j=1,2)}
  {\Pi;D\vdash e_1\cup_\delta e_2\Downarrow
   \lbag U_Q\mid Q\in(R_1\uplus R_2)/{\equiv_\Gamma}\rbag},\\[-1mm]
-&\hspace{8mm}\alpha_r(U_Q)=\bigsqcup_{t\in Q}\alpha_r(t),\quad
-  \alpha_a(U_Q)=\bigsqcup_{t\in Q}\alpha_a(t),\quad
-  U_Q.k=k_{union}(\Gamma,\operatorname{tuple}(Q)).\\[1mm]
+&\hspace{8mm}U_Q.k=k_{union}(\Gamma,\operatorname{tuple}(Q)),\quad
+  \alpha_r(U_Q)=\bigsqcup_{t\in Q}\alpha_r(t),\\[-1mm]
+&\hspace{8mm}U_Q.\operatorname{cells}(a)=\langle v_a,\tau_a,\bigsqcup_{t\in Q}\alpha_a(t),
+  N(\code{union}(x_{t,a})),\rho_a\rangle\quad(a\in\Gamma),\\[-1mm]
+&\hspace{8mm}\rho_a=\begin{cases}\operatorname{mat}(U_Q,a),&\text{every }t\in Q\text{ materializes to one FactID},\\\bot,&\text{otherwise.}\end{cases}\\[1mm]
 [E\text{-Group}]\quad
 &\frac{\Pi;D\vdash e\Downarrow R}
  {\Pi;D\vdash\gamma_{G;\mathcal A}(e)\Downarrow
   \lbag G_Q\mid Q\in\operatorname{Part}_G(R)\rbag},\\[-1mm]
-&\hspace{8mm}\alpha_r(G_Q)=\bigoplus_{t\in Q}\alpha_r(t),\quad
-  G_Q.k=k_{group}(G,Q),\quad
-  G_Q.v=\operatorname{PgAgg}_{\Pi}(Q,G,\mathcal A).\\[1mm]
+&\hspace{8mm}G_Q.k=k_{group}(G,Q),\quad
+  \alpha_r(G_Q)=\bigoplus_{t\in Q}\alpha_r(t),\\[-1mm]
+&\hspace{8mm}G_Q.\operatorname{cells}(g)=\langle v_g,\tau_g,\bigoplus_{t\in Q}\alpha_g(t),
+  N(x_g),\operatorname{mat}(G_Q,g)\rangle\quad(g\in G),\\[-1mm]
+&\hspace{8mm}G_Q.\operatorname{cells}(a')=\langle \operatorname{PgAgg}_{\Pi}(Q,G,\mathcal A)_{a'},
+  \tau_{a'},\bigoplus_{t\in Q}\alpha_{\arg(a')}(t),N(x_{a'}),\operatorname{mat}(G_Q,a')\rangle
+  \quad((f,a')\in\mathcal A).\\[1mm]
 [E\text{-Page}]\quad
 &\frac{\Pi;D\vdash e\Downarrow R\quad L=\operatorname{sort}_{\prec_{O,K}}(R)}
  {\Pi;D\vdash\operatorname{Page}_{O,K,o,l}(e)\Downarrow
@@ -585,14 +607,20 @@ $R\cup_\delta R$ identities exact, including in a downstream operator.
 
 $\operatorname{Part}_G(R)$ uses $\equiv_\tau$ on group fields.  If
 $G\ne\varnothing$, empty input has no classes; if $G=\varnothing$, there is
-exactly one class even for empty input.  Group-key cell annotations are
-$\bigoplus_{t\in Q}\alpha_a(t)$; \code{COUNT(*)} uses row annotations; and
-\code{COUNT(a)}, \code{SUM(a)}, \code{MIN(a)}, and \code{MAX(a)} use all
-argument-cell annotations, including a NULL fact, while PostgreSQL ignores NULL
-when computing the scalar.  Hence an empty global aggregate returns
-\code{COUNT}=0 and \code{SUM/MIN/MAX}=NULL with empty witness.  A keyed group
-must correspond one-to-one with all positive input classes; the gateway accepts
-only a complete aggregate-result oracle from the same snapshot.
+exactly one class even for empty input.  The argument annotation of an
+aggregate cell $(f,a')$ is $\alpha_{\arg(a')}(t)=\alpha_r(t)$ for
+\code{COUNT(*)} and the argument-cell annotation $\alpha_a(t)$ for
+\code{COUNT(a)}, \code{SUM(a)}, \code{MIN(a)}, and \code{MAX(a)}, including a
+NULL fact, while PostgreSQL ignores NULL when computing the scalar.  Hence an
+empty global aggregate returns \code{COUNT}=0 and \code{SUM/MIN/MAX}=NULL with
+empty witness.  \code{SUM} is admitted only over the exact/integer fragment
+$\{\code{smallint},\code{integer},\code{bigint},\code{numeric}\}$: because
+IEEE-754 addition is non-associative, \code{SUM(real)} and
+\code{SUM(double precision)} are undefined in the closed language and fail
+closed, so the aggregate value is independent of any physical aggregation order
+the typed bag does not fix.  A keyed group must correspond one-to-one with all
+positive input classes; the gateway accepts only a complete aggregate-result
+oracle from the same snapshot.
 
 The page comparator is PostgreSQL lexicographic order under $\mathcal C$:
 ascending defaults to NULLS LAST, descending to NULLS FIRST.  The compiler
@@ -639,9 +667,13 @@ fixed by $\Pi$; Select, Project, and Page only take a deterministic subbag or
 copy annotations.  Join enumerates a uniquely determined bag of matching key
 pairs; disjoint schemas, Eq.~\eqref{eq:rid}, and the pair key make each output
 usable by another Join.  Union has unique typed-tuple equivalence classes and
-uses deterministic union/max folds.  Group has unique not-distinct classes,
-the explicitly defined empty class, deterministic sum folds, and one complete
-PostgreSQL result per class.  Set union with multiset sum or max preserves equal
+uses deterministic union/max folds, and E-Union constructs each output cell
+$\langle v_a,\tau_a,\bigsqcup\alpha_a,N(\code{union}(x)),\rho_a\rangle$ from
+those classes.  Group has unique not-distinct classes, the explicitly defined
+empty class, deterministic exact/numeric sum folds (floating-point SUM is
+excluded from the closed language, so no order-dependent fold arises), and one
+complete PostgreSQL result per class; E-Group constructs both the group-key and
+aggregate cells from that result.  Set union with multiset sum or max preserves equal
 support.  Total order makes Page's slice unique.  Each case constructs the
 claimed invariant, and the validator converts any range, collision, schema,
 oracle, or multiplicity violation into no derivation.
@@ -695,6 +727,26 @@ same keys and cells in $A$.  Equation~\eqref{eq:observe} over $V\subseteq A$
 therefore yields identical release and influence sets.  Field traversal order
 is absent from Fact payloads and removed by set normalization.
 \end{proof}
+
+\begin{definition}[Typed normal form $NF_\Pi$]
+\label{def:nf}
+$NF_\Pi$ is the total map from well-typed terms $e$ to canonical terms induced
+by the following structure-recursive rewrites, each of which either preserves
+$\effect_\Pi$ or is the identity: erase SQL aliases and derived-expression
+display names; sort conjunction literals in $p$, dependency fields $F$,
+projection lists, group keys $G$, and aggregate families $\mathcal A$ by their
+stable role-qualified field IDs and canonical expressions; sort join operands
+and equality predicates by their child digests; sort union operands by digest
+and collapse an identical duplicate branch, so $e\cup_\delta e\equiv e$; sort
+relation-level union operands before any enclosing operator; and map a stable
+page suffix to its catalog-canonical spelling (entity-key or all-group-key
+suffix).  $NF_\Pi(q_1)=NF_\Pi(q_2)$ iff the two canonical terms are syntactically
+identical.  The artifact realizing $NF_\Pi$ is
+\texttt{taskgate-query-normal-form-v3}, and it performs no outer-join,
+arithmetic, window, subquery, or general SQL equivalence reasoning.  This
+query-level normalizer is distinct from the Fact-set $\operatorname{normalize}$
+of Property~(Normalization), which acts on the final ledgers.
+\end{definition}
 
 \begin{theorem}[Typed normal-form soundness]
 For admissible $\Pi$, immutable snapshot map $D$, typed $q_1,q_2$, and the
@@ -892,6 +944,21 @@ cost is $|\{f\}|=1$ and both remain feasible; the additive proxy
 $|E_{c_1}|+|E_{c_2}|=2$ would incorrectly reject them. The public V1 scalar
 planning path has therefore been removed; non-V2 planning calls fail closed.
 
+\textbf{Budget calibration.} The two ceilings $B^r_T,B^i_T$ are authorizer
+declarations, not learned parameters: the human approving a root task sets them
+in the same distinct-fact-count units the ledgers record, derived from a
+disclosure policy (how many distinct released values, and how many distinct
+source rows, this task family may account for). The fixed utility weight
+$\tfrac12$ is a definitional default that balances required-output coverage
+against truncation; the caller cannot retune it, so selection is not an
+optimization over hidden weights. Fact counts are unit-weighted by construction:
+a highly sensitive cell and an ordinary cell both count one, because the model
+bounds disclosure \emph{volume} (the number of distinct accounted facts), not
+disclosure \emph{harm}. Per-fact sensitivity weighting and differential-privacy
+composition are therefore explicit non-goals (Sec.~\ref{sec:limits}); a
+deployment that needs harm-weighted limits must layer such a mechanism on the
+same fact boundary rather than reinterpret the count.
+
 The implementation subtracts root history, assigns remaining fact hashes dense
 integers, and represents each set as a release/influence bit vector. It expands
 one requirement at a time using bitwise OR and popcount. A state can dominate
@@ -973,17 +1040,19 @@ rather than claiming a proof that does not exist.
 \subsection{Questions and Reproducibility}
 
 The evaluation is organized around five questions: RQ1 ground-truth accuracy;
-RQ2 rewrite invariance; RQ3 resistance to split, page, retry, snapshot,
-delegation, and concurrency amplification, plus join amplification at the
-executable-algebra boundary; RQ4 runtime/storage overhead; and RQ5
-utility under a fixed dual budget. The report is rebuilt from a
-source-controlled V2 algebra corpus with digest prefix
-\ExposureCorpusHash{}. RQ2 additionally runs a real PostgreSQL~16
-differential/metamorphic campaign against an independent fixture evaluator.
-RQ5 includes 500 V2 exact-planner instances with seed \code{20260724} checked
-against an independent brute-force oracle, plus 120 agent-task traces scored
-against gold answer assertions. RQ4 contains \RQFourTrials{} fresh isolated
-PostgreSQL deployments and \RQFourObservations{} measured operations.
+RQ2 rewrite invariance of the accounting and of query results; RQ3 resistance to
+split, page, retry, snapshot, delegation, and concurrency amplification, plus
+join amplification at the executable-algebra boundary; RQ4 runtime/storage
+overhead and cost scaling; and RQ5 utility under a fixed dual budget. The report
+is rebuilt from a source-controlled V2 algebra corpus with digest prefix
+\ExposureCorpusHash{}. RQ2 pairs an in-process closed-language FactSet-invariance
+campaign with a real PostgreSQL~16 differential/metamorphic result-equivalence
+campaign. RQ5 includes \RQFiveCases{} V2 exact-planner instances with seed
+\code{20260724} checked against an independent brute-force oracle, plus
+\RQFiveAgentTasks{} non-isomorphic agent-task traces scored against gold answers
+that are decoupled from planner utility. RQ4 contains \RQFourTrials{} fresh
+isolated PostgreSQL deployments, \RQFourObservations{} measured operations, and
+\RQFourScalingDims{} deterministic in-process scaling sweeps.
 
 \begin{table}[t]
 \centering
@@ -995,10 +1064,10 @@ PostgreSQL deployments and \RQFourObservations{} measured operations.
 RQ & Current result \\
 \midrule
 RQ1 & \RQOnePassed{}/\RQOneCases{} independent-oracle cases on \RQOneRows{} source rows \\
-RQ2 & \RQTwoUnique{} unique normalized SQL pairs (\RQTwoTemplates{} templates); \RQTwoMismatches{} mismatches \\
+RQ2 & \RQTwoExposureRewrites{} closed-language rewrites over \RQTwoExposureDatasets{} datasets: FactSet/charge invariant, \RQTwoExposureMismatches{} mismatches; plus \RQTwoUnique{} SQL result-equivalence pairs \\
 RQ3 & \RQThreePassed{}/\RQThreeCases{} deterministic; \RQThreeIntegration{}/\RQThreeExecuted{} PostgreSQL race tests passed with raw logs \\
-RQ4 & \RQFourObservations{} operations/\RQFourTrials{} trials; full hit p50/p95 $=\RQFourFullOneMedian{}/\RQFourFullOneTail{}$ ms at $c=1$ \\
-RQ5 & \RQFiveAgentTasks{} traces: exact \RQFiveExactSuccess{}/\RQFiveAgentTasks{} vs. greedy \RQFiveGreedySuccess{}/\RQFiveAgentTasks{} successes \\
+RQ4 & \RQFourObservations{} operations/\RQFourTrials{} trials; full hit p50/p95 $=\RQFourFullOneMedian{}/\RQFourFullOneTail{}$ ms at $c=1$; \RQFourScalingDims{} in-process scaling sweeps \\
+RQ5 & \RQFiveAgentTasks{} non-isomorphic traces over \RQFiveKinds{} kinds: exact \RQFiveExactSuccess{} vs.\ greedy \RQFiveGreedySuccess{} vs.\ additive \RQFiveAdditiveSuccess{} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1010,16 +1079,27 @@ query-plan, gateway, or policy code; it independently constructs the complete
 semantic Fact objects, witness commitments, and hashes. The production output
 matches its \RQOneReleaseFacts{} release and \RQOneInfluenceFacts{} influence
 case-level fact memberships, with per-case set digests retained in the report.
-RQ2 generates \RQTwoPairs{} attempts from 128 predicate instantiations and
-\RQTwoTemplates{} structural templates. It defines a pair as the normalized
-PostgreSQL baseline plus the ordered rewritten statement sequence, collapses
-SQL whitespace, hashes every pair and the sorted pair set, rejects duplicates,
-and executes all \RQTwoUnique{} unique pairs on PostgreSQL~16. A second
-independent Go fixture evaluator supplies expected ordered bags; every pair is
-checked both against that oracle and its PostgreSQL baseline. The templates
-cover predicate reorder, derived projection, CTE pushdown, De Morgan,
-correlated \code{EXISTS}, a one-row \code{VALUES} join, and two complete page
-partitions. RQ3 deterministically checks join multiplicity in the in-memory
+RQ2 has two independent streams. The first measures rewrite invariance of the
+accounting itself, not merely of query results. We express each side of
+\RQTwoExposureRewrites{} closed-language rewrites (selection/projection
+reordering, conjunction reordering, projection and group-key field ordering,
+join operand and predicate reordering, union-distinct idempotence and duplicate
+branch collapse) as an algebra term over \RQTwoExposureDatasets{} data instances
+and snapshots, and require, for each pair, that the typed normal form agrees
+(where the rewrite is NF-canonical), that the release and influence FactSets are
+identical, and that the incremental charge is zero in both directions. The
+campaign reports \RQTwoExposureCases{} cases and \RQTwoExposureNFCases{}
+normal-form checks with \RQTwoExposureMismatches{} mismatches. The second
+stream is a bounded check that rewrites do not change query \emph{results}: it
+generates \RQTwoPairs{} attempts from 128 predicate instantiations and
+\RQTwoTemplates{} structural templates, collapses SQL whitespace, hashes every
+pair and the sorted pair set, rejects duplicates, and executes all
+\RQTwoUnique{} unique pairs on PostgreSQL~16 against an independent Go fixture
+evaluator. These templates---predicate reorder, derived projection, CTE
+pushdown, De Morgan, correlated \code{EXISTS}, a one-row \code{VALUES} join, and
+two page partitions---are PostgreSQL-SQL-equivalence probes and lie outside the
+closed algebra language, so they are evidence about result equivalence, not
+about exposure accounting. RQ3 deterministically checks join multiplicity in the in-memory
 annotated algebra and checks split/merge, overlapping pages, cache/retry, and
 snapshot update. It is not an end-to-end online Join experiment. Delegation and
 concurrent root-ledger settlement additionally run against PostgreSQL with the
@@ -1102,37 +1182,69 @@ influence) in every trial. All subsequent hit queries have 100\% fact- and
 query-history hit rates and zero ledger-row growth, confirming that replay cost
 is processing overhead rather than repeated exposure charge.
 
+Because the contention result fixes a single small fixture, we additionally run
+\RQFourScalingDims{} deterministic in-process sweeps that scale the dimensions
+the closed accounting actually depends on, without a deployment: effect
+derivation (\texttt{ObserveV2}) over source/provenance rows up to
+\RQFourScalingMaxRows{}, the exact representation planner over up to
+\RQFourScalingPlannerMax{} candidates, the typed normalizer over expression
+depth, and settlement dedup for a novel write versus a history replay. The first
+three grow roughly with size (e.g.\ effect derivation at \RQFourScalingMaxRows{}
+rows is \RQFourScalingObserveMicros{}~$\mu$s; the planner at
+\RQFourScalingPlannerMax{} candidates is \RQFourScalingPlannerMicros{}~$\mu$s),
+while the central replay guarantee is exact: at a ledger of
+\RQFourScalingNovelMax{} facts a fresh write charges all of them and a replay
+charges \RQFourScalingReplayCharge{}. The PostgreSQL-backed concurrency sweep
+above remains the source of end-to-end latency; these sweeps characterize the
+cost model that latency is built on.
+
 \subsection{RQ5: Externally Scored Agent Tasks}
 
-Planner correctness alone does not measure usefulness, so we replay a separate
-agent-task corpus with 24 database-analysis objectives crossed with five
-release/influence budget and history profiles (\RQFiveAgentTasks{} traces).
-Each trace has four answer requirements and eight candidate representations.
-The exact and utility-greedy policies receive the same candidate utility
-evidence and budgets. An external scorer then ignores those utility values and
-compares only the selected answer-token payloads with gold assertions; success
-requires at least two of three gold assertions for every requirement.
+Planner correctness alone does not measure usefulness, so we replay
+\RQFiveAgentTasks{} non-isomorphic agent-task traces spanning \RQFiveKinds{}
+objective kinds (aggregate summary, comparison, anomaly, coverage-constrained,
+and delegated). Each kind fixes a different requirement count, candidate menu,
+budget regime, and history profile, so traces are not structural duplicates of
+one another. The planner utility is deliberately \emph{decoupled} from the gold
+answer: each candidate carries a query-coverage score (what the planner
+maximizes) and a separate gold-token reveal (what the scorer measures); the
+``broad'' representation has full query coverage but reveals only two of three
+gold tokens, so maximizing utility is not the same act as maximizing gold
+recall. Candidates share a fact pool, so an overlap-aware selector can fit
+representation sets that an additive scalar proxy rejects.
 
-Exact planning succeeds on \RQFiveExactSuccess{}/\RQFiveAgentTasks{} traces
-(60\%) versus \RQFiveGreedySuccess{}/\RQFiveAgentTasks{} (40\%) for greedy,
-and mean answer completeness is \RQFiveExactCompleteness{} versus
-\RQFiveGreedyCompleteness{}. Removing root history from the exact policy reduces
-success to \RQFiveNoHistorySuccess{}/\RQFiveAgentTasks{}. All three policies
-have zero budget violations. The shared-fact budget-one counterexample and 500
-set-valued brute-force instances provide algorithmic correctness evidence; the
-trace campaign supplies the separate task-level utility measurement.
+We score six policies with one independent gold-token scorer that requires at
+least two of three gold tokens for every requirement. Exact overlap-aware
+planning wins \RQFiveExactSuccess{}/\RQFiveAgentTasks{} traces versus
+\RQFiveGreedySuccess{} for utility-greedy, \RQFiveAdditiveSuccess{} for the
+additive scalar proxy, \RQFiveRandomSuccess{} for random-first, and
+\RQFiveSingleSuccess{} for a degenerate single-candidate policy; exact planning
+has zero budget violations. Mean answer completeness is
+\RQFiveExactCompleteness{} (exact) versus \RQFiveGreedyCompleteness{} (greedy).
+The exact advantage appears on every objective kind where the budget is tight
+enough to matter, not on a single profile. Removing root history from the exact
+policy keeps success at \RQFiveNoHistorySuccess{}/\RQFiveAgentTasks{} but lowers
+mean completeness, confirming that history improves coverage without weakening
+the budget guarantee. The shared-fact budget-one counterexample and the
+\RQFiveCases{} set-valued brute-force instances remain the algorithmic
+correctness evidence.
 
 \subsection{Reproducibility Boundary}
 
-RQ1 and RQ2 remain auditable fixture tests: RQ1 has 16 source rows, while RQ2
-crosses eight rewrite templates with 128 predicates over 12 rows. Thus 1,024
-counts unique normalized SQL pairs, not independent schemas, datasets, or
-workloads. The performance result is a controlled single-host microbenchmark on
-the bundled ten-row travel fixture, not a TPC-H/TPC-DS or production-scale claim.
-The agent campaign is a deterministic tool-policy replay, not a comparison of
-live language models or prompts. Source-controlled reports bind the environment,
-corpus, code, raw-result and sample digests. These boundaries limit external
-validity but no longer leave RQ4 or RQ5 unmeasured within the stated scope.
+RQ1 and the RQ2 exposure-invariance stream remain auditable in-process tests:
+RQ1 has 16 source rows, while RQ2 invariance crosses \RQTwoExposureRewrites{}
+closed-language rewrites over \RQTwoExposureDatasets{} small data instances, and
+the separate SQL result-equivalence stream crosses eight templates with 128
+predicates over 12 rows. Thus the counts are rewrite/dataset pairs and
+normalized SQL pairs, not independent schemas, datasets, or workloads. The
+performance result is a controlled single-host microbenchmark on the bundled
+ten-row travel fixture, complemented by deterministic in-process scaling sweeps,
+not a TPC-H/TPC-DS or production-scale claim. The agent campaign is a
+deterministic tool-policy replay over \RQFiveAgentTasks{} non-isomorphic traces,
+not a comparison of live language models or prompts. Source-controlled reports
+bind the environment, corpus, code, raw-result and sample digests. These
+boundaries limit external validity but no longer leave RQ4 or RQ5 unmeasured
+within the stated scope.
 
 \section{Limitations and Threats to Validity}
 \label{sec:limits}
@@ -1188,15 +1300,21 @@ delegated workload. \system realizes that distinction with stable facts, separat
 release and source-influence sets, same-snapshot provenance, atomic novel-fact
 settlement, and an exact dual-budget representation planner. The current
 artifact establishes a coherent semantic and systems foundation, finds no
-violation in a finite ledger model, and observes zero mismatch across 1,024
-unique normalized PostgreSQL baseline/rewrite SQL pairs over 128 predicates.
-The full path has 12.1-ms p50 latency at one worker
-and exposes root-ledger serialization at higher concurrency. Exact planning
-improves externally scored trace success from 40\% to 60\% under matched
-budgets. These empirical results answer RQ4 and RQ5 for the declared local and
+violation in a finite ledger model, and observes zero mismatch both for
+\RQTwoExposureRewrites{} closed-language rewrites (FactSet and incremental
+charge invariant) and for \RQTwoUnique{} normalized PostgreSQL baseline/rewrite
+SQL pairs. The full path has \RQFourFullOneMedian{}-ms p50 latency at one worker,
+exposes root-ledger serialization at higher concurrency, and its in-process cost
+model scales with source rows, candidates, and expression depth while a replay
+charges nothing. Exact planning wins \RQFiveExactSuccess{} of
+\RQFiveAgentTasks{} non-isomorphic traces versus \RQFiveGreedySuccess{} for
+greedy and \RQFiveAdditiveSuccess{} for an additive proxy under matched budgets.
+These empirical results answer RQ4 and RQ5 for the declared local and
 deterministic scope; TPC-scale, multi-node, and live-LLM generalization remain
-outside the claims, as do online Join/Union coverage, cross-root accounting, and
-inference protection for denial or negative information.
+outside the claims, as do online Join/Union coverage---Join and Union remain
+algebra/oracle evidence rather than compiler-supported online provenance---along
+with cross-root accounting and inference protection for denial or negative
+information.
 
 \bibliographystyle{IEEEtran}
 \bibliography{references}

@@ -185,19 +185,49 @@ def validate_exposure() -> dict:
         agent.get("status") == "complete"
         and agent.get("corpus_sha256") == sha256(AGENT_CORPUS)
         and agent.get("seed") == 20260725
-        and agent.get("tasks") == 120
+        and agent.get("schema_version") == 2
+        and agent.get("tasks") == 24
         and agent.get("objectives") == 24
-        and agent.get("budget_profiles") == 5,
+        and agent.get("kinds") == 5
+        and agent.get("gold_tokens_per_requirement") == 3
+        and agent.get("success_threshold") == 2
+        and agent.get("utility_signal")
+        == "query-coverage-decoupled-from-gold-reveal",
         "RQ5 agent-task campaign is incomplete",
     )
     policies = {item.get("policy"): item for item in agent.get("policies", [])}
     require(
-        set(policies) == {"taskgate_exact", "utility_greedy", "taskgate_exact_no_history"}
-        and all(item.get("tasks") == 120 and item.get("budget_violations") == 0 for item in policies.values())
-        and policies["taskgate_exact"].get("task_successes", 0) > policies["utility_greedy"].get("task_successes", 0)
+        set(policies)
+        == {"taskgate_exact", "utility_greedy", "additive_cost",
+            "taskgate_exact_no_history", "random_first", "single_candidate"}
+        and policies["taskgate_exact"].get("budget_violations") == 0
+        and policies["taskgate_exact"].get("task_successes", 0)
+        > policies["utility_greedy"].get("task_successes", 0)
+        and policies["taskgate_exact"].get("task_successes", 0)
+        > policies["additive_cost"].get("task_successes", 0)
+        and policies["taskgate_exact"].get("task_successes", 0)
+        > policies["single_candidate"].get("task_successes", 0)
         and policies["taskgate_exact"].get("mean_answer_completeness", 0)
         > policies["utility_greedy"].get("mean_answer_completeness", 0),
         "RQ5 agent-task policy results are invalid",
+    )
+    exposure_invariance = report.get("rq2_exposure_invariance", {})
+    require(
+        exposure_invariance.get("status") == "complete"
+        and exposure_invariance.get("mismatches") == 0
+        and exposure_invariance.get("cases", 0) >= exposure_invariance.get("rewrites", 0)
+        and exposure_invariance.get("normal_form_checks", 0) > 0
+        and exposure_invariance.get("effect_checks", 0) > 0
+        and re.fullmatch(r"[0-9a-f]{64}", exposure_invariance.get("pair_set_sha256", "")) is not None,
+        "RQ2 exposure-invariance evidence is incomplete",
+    )
+    scaling = report.get("rq4_scaling", {})
+    require(
+        scaling.get("status") == "complete"
+        and {curve.get("dimension") for curve in scaling.get("curves", [])}
+        == {"observe_rows", "planner_candidates", "normalizer_depth", "novel_vs_replay"}
+        and all(len(curve.get("points", [])) >= 4 for curve in scaling.get("curves", [])),
+        "RQ4 scaling evidence is incomplete",
     )
     return report
 
@@ -274,6 +304,9 @@ def main() -> None:
     rq5 = report["rq5_budget_aware_planning"]
     agent = report["rq5_agent_tasks"]
     policies = {item["policy"]: item for item in agent["policies"]}
+    exposure_invariance = report["rq2_exposure_invariance"]
+    scaling = report["rq4_scaling"]
+    scaling_curves = {curve["dimension"]: curve for curve in scaling["curves"]}
     performance_cells = {(item["phase"], item["concurrency"]): item for item in performance["cells"]}
     direct_one = performance_cells[("business_sql", 1)]
     paired_one = performance_cells[("paired_snapshot", 1)]
@@ -322,10 +355,26 @@ def main() -> None:
         rf"\newcommand{{\RQFourFullEightQPS}}{{{decimal(full_eight['throughput_qps'])}}}",
         rf"\newcommand{{\RQFourLockEightTail}}{{{decimal(full_eight['component_ms']['exposure_ledger_lock']['p95'])}}}",
         rf"\newcommand{{\RQFourRampFacts}}{{{int(ramp['ledger_growth']['fact_rows'])}}}",
+        rf"\newcommand{{\RQFourScalingDims}}{{{len(scaling['curves'])}}}",
+        rf"\newcommand{{\RQFourScalingMaxRows}}{{{comma(scaling_curves['observe_rows']['points'][-1]['size'])}}}",
+        rf"\newcommand{{\RQFourScalingObserveMicros}}{{{decimal(scaling_curves['observe_rows']['points'][-1]['ns_per_op'] / 1000)}}}",
+        rf"\newcommand{{\RQFourScalingPlannerMax}}{{{scaling_curves['planner_candidates']['points'][-1]['size']}}}",
+        rf"\newcommand{{\RQFourScalingPlannerMicros}}{{{decimal(scaling_curves['planner_candidates']['points'][-1]['ns_per_op'] / 1000)}}}",
+        rf"\newcommand{{\RQFourScalingNovelMax}}{{{comma(scaling_curves['novel_vs_replay']['points'][-1]['size'])}}}",
+        rf"\newcommand{{\RQFourScalingReplayCharge}}{{{scaling_curves['novel_vs_replay']['points'][-1]['replay_charge']}}}",
+        rf"\newcommand{{\RQTwoExposureRewrites}}{{{exposure_invariance['rewrites']}}}",
+        rf"\newcommand{{\RQTwoExposureCases}}{{{exposure_invariance['cases']}}}",
+        rf"\newcommand{{\RQTwoExposureDatasets}}{{{exposure_invariance['datasets']}}}",
+        rf"\newcommand{{\RQTwoExposureNFCases}}{{{exposure_invariance['normal_form_checks']}}}",
+        rf"\newcommand{{\RQTwoExposureMismatches}}{{{exposure_invariance['mismatches']}}}",
         rf"\newcommand{{\RQFiveAgentTasks}}{{{agent['tasks']}}}",
+        rf"\newcommand{{\RQFiveKinds}}{{{agent['kinds']}}}",
         rf"\newcommand{{\RQFiveExactSuccess}}{{{policies['taskgate_exact']['task_successes']}}}",
         rf"\newcommand{{\RQFiveGreedySuccess}}{{{policies['utility_greedy']['task_successes']}}}",
+        rf"\newcommand{{\RQFiveAdditiveSuccess}}{{{policies['additive_cost']['task_successes']}}}",
         rf"\newcommand{{\RQFiveNoHistorySuccess}}{{{policies['taskgate_exact_no_history']['task_successes']}}}",
+        rf"\newcommand{{\RQFiveRandomSuccess}}{{{policies['random_first']['task_successes']}}}",
+        rf"\newcommand{{\RQFiveSingleSuccess}}{{{policies['single_candidate']['task_successes']}}}",
         rf"\newcommand{{\RQFiveExactCompleteness}}{{{decimal(100 * policies['taskgate_exact']['mean_answer_completeness'])}\%}}",
         rf"\newcommand{{\RQFiveGreedyCompleteness}}{{{decimal(100 * policies['utility_greedy']['mean_answer_completeness'])}\%}}",
         rf"\newcommand{{\BaseQueryCount}}{{{baseline['query_count']}}}",

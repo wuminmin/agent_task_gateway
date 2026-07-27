@@ -1,38 +1,21 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "seed": 20260725,
-  "requirements_per_task": 4,
-  "objectives": [
-    "Summarize monthly travel spend and identify the dominant category",
-    "Compare approved and pending reimbursement totals by department",
-    "Find unusually large receipts and report their aggregate impact",
-    "Prepare a quarterly travel-cost briefing for finance",
-    "Explain month-over-month changes in reimbursement volume",
-    "Identify departments with the highest average trip cost",
-    "Report the cities responsible for most travel expenditure",
-    "Compare airfare, lodging, and ground-transport spending",
-    "Prepare an audit sample while minimizing employee disclosure",
-    "Estimate the share of rejected claims by expense category",
-    "Summarize sales-team travel without exposing employee names",
-    "Find recurring destinations and their total reimbursement amount",
-    "Compare trip counts and total costs across three departments",
-    "Produce a compact management view of travel policy exceptions",
-    "Identify the months with the largest approved expense totals",
-    "Explain whether high spend comes from volume or large receipts",
-    "Prepare a delegated analyst task for department-level trends",
-    "Answer a four-part finance request under a disclosure ceiling",
-    "Contrast detailed and aggregate representations of the same costs",
-    "Select sufficient evidence for a reimbursement anomaly review",
-    "Report category trends while preserving the shared task budget",
-    "Build a concise answer from overlapping query representations",
-    "Complete a multi-part travel analysis after prior task-family reads",
-    "Choose database answers that maximize completeness under two budgets"
-  ],
-  "budget_profiles": [
-    "balanced",
-    "release_tight",
-    "influence_tight",
-    "ample",
-    "history_overlap"
+  "gold_tokens_per_requirement": 3,
+  "success_threshold": 2,
+  "shared_fact_pool": 4,
+  "per_requirement_facts": 4,
+  "candidate_classes": {
+    "full":    {"gold_reveal": 3, "query_coverage": 1.0,  "shared_facts": 4, "requirement_facts": 3},
+    "concise": {"gold_reveal": 2, "query_coverage": 0.67, "shared_facts": 1, "requirement_facts": 2},
+    "broad":   {"gold_reveal": 2, "query_coverage": 1.0,  "shared_facts": 4, "requirement_facts": 2},
+    "noisy":   {"gold_reveal": 1, "query_coverage": 0.5,  "shared_facts": 1, "requirement_facts": 1}
+  },
+  "kinds": [
+    {"kind": "aggregate_summary", "count": 5, "requirements": [3, 4], "classes": ["full", "concise"], "release_budget": [7, 9], "influence_budget": [9, 11]},
+    {"kind": "comparison", "count": 5, "requirements": [2, 3], "classes": ["full", "concise"], "release_budget": [5, 7], "influence_budget": [7, 9]},
+    {"kind": "anomaly", "count": 4, "requirements": [2, 3], "classes": ["full", "concise", "noisy"], "release_budget": [5, 7], "influence_budget": [7, 9]},
+    {"kind": "coverage_constrained", "count": 5, "requirements": [4, 5], "classes": ["full", "concise", "noisy"], "release_budget": [9, 11], "influence_budget": [11, 13]},
+    {"kind": "delegated", "count": 5, "requirements": [3, 4], "classes": ["full", "concise"], "release_budget": [7, 9], "influence_budget": [9, 11], "history": "overlap"}
   ]
 }

@@ -33,8 +33,8 @@ func TestExposureEvaluationCorpus(t *testing.T) {
 	if report.RQ4Status != "measured_controlled_local_postgresql_campaign" {
 		t.Fatalf("RQ4 status is stale: %q", report.RQ4Status)
 	}
-	if report.RQ5Agent.Status != "complete" || report.RQ5Agent.Tasks != 120 ||
-		len(report.RQ5Agent.Policies) != 3 {
+	if report.RQ5Agent.Status != "complete" || report.RQ5Agent.Tasks != 24 ||
+		len(report.RQ5Agent.Policies) != 6 || report.RQ5Agent.Kinds != 5 {
 		t.Fatalf("RQ5 agent-task report is incomplete: %+v", report.RQ5Agent)
 	}
 	if len(report.CorpusSHA256) != 64 {

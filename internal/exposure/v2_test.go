@@ -124,6 +124,45 @@ func TestV2CountStarAndCountColumnUseDifferentWitnessKinds(t *testing.T) {
 	}
 }
 
+func TestV2RejectsFloatingPointSumForDeterminism(t *testing.T) {
+	// IEEE-754 addition is non-associative, so PostgreSQL's SUM(real)/SUM(double
+	// precision) depends on physical aggregation order the typed normal form does
+	// not fix. The closed language admits SUM only over the exact/integer
+	// fragment; floating-point SUM must fail closed to preserve Effect determinism.
+	base, err := ScanV2(BaseRelationSpecV2{SourceNamespace: "travel.expense", Snapshot: "snapshot-1", StableRole: "expense",
+		Fields: []FieldV2{
+			{ID: "amount", SQLType: "numeric"},
+			{ID: "measure", SQLType: "double precision"},
+			{ID: "reading", SQLType: "real"},
+		}, Rows: []BaseRowV2{
+			{EntityKey: "r1", Values: map[string]any{"amount": "10", "measure": 1.5, "reading": 2.5}},
+			{EntityKey: "r2", Values: map[string]any{"amount": "20", "measure": 0.5, "reading": 0.5}},
+		}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		field string
+		typed string
+	}{
+		{"measure", "double precision"},
+		{"reading", "real"},
+	} {
+		_, err := AggregateFromResultsV2(base, nil, []AggregateSpecV2{
+			{Function: "sum", Field: tc.field, OutputID: "total", OutputType: tc.typed},
+		}, []map[string]any{{"total": 2.0}})
+		if err == nil {
+			t.Fatalf("SUM(%s) was admitted; expected rejection for determinism", tc.typed)
+		}
+	}
+	// Sanity: SUM over the exact/integer fragment remains admissible.
+	if _, err := AggregateFromResultsV2(base, nil, []AggregateSpecV2{
+		{Function: "sum", Field: "amount", OutputID: "total", OutputType: "numeric"},
+	}, []map[string]any{{"total": "30"}}); err != nil {
+		t.Fatalf("SUM(numeric) should still be admitted: %v", err)
+	}
+}
+
 func TestV2EmptyGlobalAggregateFactBindsProductAndSnapshotBundle(t *testing.T) {
 	observe := func(namespace, snapshot string) (RelationV2, map[string]string) {
 		t.Helper()

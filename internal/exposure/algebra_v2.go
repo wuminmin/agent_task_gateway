@@ -738,13 +738,19 @@ func expectedAggregateOutputTypeV2(function, input string) string {
 		return "bigint"
 	}
 	if function == "sum" {
+		// SUM is admitted only over the exact/integer fragment. IEEE-754 addition
+		// is non-associative, so PostgreSQL's float SUM depends on the physical
+		// aggregation order, which the relational bag and the typed normal form do
+		// not fix. Admitting SUM(real)/SUM(double precision) would break Effect
+		// determinism (Theorem~Effect determinism); they fall through to "" and
+		// are rejected by AggregateFromResultsV2.
 		switch input {
 		case "smallint", "integer":
 			return "bigint"
 		case "bigint":
 			return "numeric"
-		case "numeric", "real", "double precision":
-			return input
+		case "numeric":
+			return "numeric"
 		}
 	}
 	if function == "min" || function == "max" {

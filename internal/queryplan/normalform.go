@@ -207,13 +207,17 @@ func aggregateOutputType(function, input string) string {
 	case "count":
 		return "bigint"
 	case "sum":
+		// SUM is admitted only over the exact/integer fragment; float SUM is
+		// excluded because IEEE-754 addition is order-dependent and the typed
+		// normal form does not fix a physical aggregation order. This mirrors
+		// expectedAggregateOutputTypeV2 in the exposure algebra.
 		switch input {
 		case "smallint", "integer":
 			return "bigint"
 		case "bigint":
 			return "numeric"
-		case "numeric", "real", "double precision":
-			return input
+		case "numeric":
+			return "numeric"
 		}
 	case "min", "max":
 		switch input {

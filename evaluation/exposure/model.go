@@ -142,16 +142,18 @@ type PlannerSummary struct {
 }
 
 type Report struct {
-	SchemaVersion  int                `json:"schema_version"`
-	ProfileVersion string             `json:"profile_version"`
-	CorpusSHA256   string             `json:"corpus_sha256"`
-	RQ1            ValidationSummary  `json:"rq1_ground_truth"`
-	RQ2            RewriteSummary     `json:"rq2_rewrite_invariance"`
-	RQ3            AdversarialSummary `json:"rq3_anti_arbitrage"`
-	RQ4Status      string             `json:"rq4_runtime_overhead_status"`
-	Baselines      BaselineSummary    `json:"charge_baselines"`
-	RQ5            PlannerSummary     `json:"rq5_budget_aware_planning"`
-	RQ5Agent       agenttasks.Report  `json:"rq5_agent_tasks"`
+	SchemaVersion  int                    `json:"schema_version"`
+	ProfileVersion string                 `json:"profile_version"`
+	CorpusSHA256   string                 `json:"corpus_sha256"`
+	RQ1            ValidationSummary      `json:"rq1_ground_truth"`
+	RQ2            RewriteSummary         `json:"rq2_rewrite_invariance"`
+	RQ2Exposure    RewriteInvarianceSummary `json:"rq2_exposure_invariance"`
+	RQ3            AdversarialSummary     `json:"rq3_anti_arbitrage"`
+	RQ4Status      string                 `json:"rq4_runtime_overhead_status"`
+	RQ4Scaling     ScalingSummary         `json:"rq4_scaling"`
+	Baselines      BaselineSummary        `json:"charge_baselines"`
+	RQ5            PlannerSummary         `json:"rq5_budget_aware_planning"`
+	RQ5Agent       agenttasks.Report      `json:"rq5_agent_tasks"`
 }
 
 func Run() (Report, error) {
@@ -207,11 +209,19 @@ func Run() (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
+	report.RQ2Exposure, err = RunExposureRewriteInvariance()
+	if err != nil {
+		return Report{}, err
+	}
 	report.RQ3, err = runAdversarial(fixtures, relations)
 	if err != nil {
 		return Report{}, err
 	}
 	report.Baselines, err = baselineSummary(fixtures.ProfileVersion, relations)
+	if err != nil {
+		return Report{}, err
+	}
+	report.RQ4Scaling, err = RunScaling()
 	if err != nil {
 		return Report{}, err
 	}
