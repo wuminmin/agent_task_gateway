@@ -16,6 +16,8 @@ CORPUS = ROOT / "evaluation/exposure/corpus.json"
 RQ1_ORACLE = ROOT / "evaluation/exposureoracle/oracle.go"
 PERFORMANCE = ROOT / "evaluation/exposure-performance/results.json"
 PERFORMANCE_ENVIRONMENT = ROOT / "evaluation/exposure-performance/environment.json"
+PATH_ANALYSIS = ROOT / "evaluation/exposure-performance/path_analysis.json"
+STORAGE_SCALING = ROOT / "evaluation/exposure-storage/results.json"
 FORMAL = ROOT / "formal/results/exposure_ledger.json"
 OUTPUT = PAPER_DIR / "generated/evidence.tex"
 
@@ -51,6 +53,23 @@ def string_set_sha256(domain: str, values: list[str]) -> str:
     for value in sorted(values):
         digest.update(value.encode("utf-8"))
         digest.update(b"\x00")
+    return digest.hexdigest()
+
+
+def storage_source_sha256() -> str:
+    paths = [ROOT / "go.mod", ROOT / "go.sum"]
+    for directory in (
+        ROOT / "evaluation/cmd/exposure-storage",
+        ROOT / "internal/control",
+        ROOT / "internal/exposure",
+    ):
+        paths.extend(path for path in directory.rglob("*") if path.suffix in {".go", ".sql"})
+    digest = hashlib.sha256()
+    for path in sorted(paths):
+        digest.update(path.relative_to(ROOT).as_posix().encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
     return digest.hexdigest()
 
 
@@ -234,6 +253,102 @@ def validate_performance() -> dict:
     return result
 
 
+def validate_path_analysis(performance: dict) -> dict:
+    result = load_json(PATH_ANALYSIS)
+    require(
+        result.get("schema_version") == 1
+        and result.get("status") == "complete_posthoc_path_analysis"
+        and result.get("source_campaign_sha256") == sha256(PERFORMANCE)
+        and result.get("trials") == performance.get("trials"),
+        "RQ4 path analysis is stale",
+    )
+    paths = {item.get("path"): item for item in result.get("paths", [])}
+    require(
+        set(paths) == {"fresh_deployment_novel", "ramp_novel", "ramp_hit"}
+        and paths["fresh_deployment_novel"].get("samples") == 3
+        and paths["ramp_novel"].get("samples") == 12
+        and paths["ramp_hit"].get("samples") == 84,
+        "RQ4 novel/hit path partition is incomplete",
+    )
+    raw = {item.get("run_id"): item for item in result.get("raw_provenance", [])}
+    require(
+        len(raw) == 3
+        and all(
+            raw.get(item["run_id"], {}).get("samples_sha256") == item["samples_sha256"]
+            for item in performance.get("raw_provenance", [])
+        ),
+        "RQ4 path analysis does not bind the campaign samples",
+    )
+    ramp = next(
+        item for item in performance["cells"]
+        if item["phase"] == "full_history_ramp" and item["concurrency"] == 1
+    )
+    storage = result.get("ledger_storage", {})
+    require(
+        storage.get("fact_rows") == ramp["ledger_growth"]["fact_rows"] == 28
+        and storage.get("canonical_payload_bytes") == ramp["ledger_growth"]["fact_payload_bytes"]
+        and storage.get("table_bytes") == ramp["ledger_growth"]["table_bytes"]
+        and storage.get("index_bytes") == ramp["ledger_growth"]["indexes_bytes"]
+        and storage.get("allocated_bytes") == storage["table_bytes"] + storage["index_bytes"],
+        "RQ4 ledger storage analysis is inconsistent",
+    )
+    return result
+
+
+def validate_storage_scaling() -> dict:
+    result = load_json(STORAGE_SCALING)
+    require(
+        result.get("schema_version") == 1
+        and result.get("status") == "complete_control_postgresql_storage_scaling"
+        and result.get("trials") == 3
+        and result.get("facts_per_ledger_sizes") == [10, 100, 1000, 10000]
+        and "PostgreSQL 16.14" in result.get("postgres_version", "")
+        and result.get("source_sha256") == storage_source_sha256(),
+        "RQ4 Control PostgreSQL storage-scaling campaign is stale",
+    )
+    raw = {(item.get("trial"), item.get("facts_per_ledger"), item.get("operation")): item
+           for item in result.get("raw_points", [])}
+    require(len(raw) == 24, "RQ4 storage-scaling raw points are incomplete")
+    previous = 0
+    for size in result["facts_per_ledger_sizes"]:
+        for trial in range(1, 4):
+            novel = raw.get((trial, size, "novel"), {})
+            replay = raw.get((trial, size, "replay"), {})
+            require(
+                novel.get("actual_release_facts") == size
+                and novel.get("actual_dependency_facts") == size
+                and novel.get("charged_release_facts") == size - previous
+                and novel.get("charged_dependency_facts") == size - previous
+                and novel.get("storage", {}).get("fact_rows") == 2 * size
+                and replay.get("actual_release_facts") == size
+                and replay.get("actual_dependency_facts") == size
+                and replay.get("charged_release_facts") == 0
+                and replay.get("charged_dependency_facts") == 0
+                and replay.get("storage") == novel.get("storage"),
+                f"RQ4 storage/replay evidence is inconsistent at trial={trial}, size={size}",
+            )
+        previous = size
+    aggregates = {(item.get("facts_per_ledger"), item.get("operation")): item
+                  for item in result.get("aggregates", [])}
+    require(
+        len(aggregates) == 8
+        and all(item.get("trials") == 3 for item in aggregates.values()),
+        "RQ4 storage-scaling aggregates are incomplete",
+    )
+    require(
+        len(result.get("budget_boundaries", [])) == 3
+        and all(
+            item.get("budget_facts_per_ledger") == 10000
+            and item.get("attempted_facts_per_ledger") == 10001
+            and item.get("rejected") is True
+            and item.get("fact_rows_before") == item.get("fact_rows_after") == 20000
+            for item in result["budget_boundaries"]
+        ),
+        "RQ4 storage-scaling budget boundary is incomplete",
+    )
+    return result
+
+
 def validate_formal() -> dict:
     result = load_json(FORMAL)
     require(result.get("schema_version") == 1 and result.get("status") == "passed", "exposure TLC did not pass")
@@ -262,6 +377,8 @@ def validate_formal() -> dict:
 def main() -> None:
     report = validate_exposure()
     performance = validate_performance()
+    path_analysis = validate_path_analysis(performance)
+    storage_scaling = validate_storage_scaling()
     formal = validate_formal()
     rq1 = report["rq1_ground_truth"]
     rq2 = report["rq2_rewrite_invariance"]
@@ -277,6 +394,13 @@ def main() -> None:
     full_four = performance_cells[("full_history_hit", 4)]
     full_eight = performance_cells[("full_history_hit", 8)]
     ramp = performance_cells[("full_history_ramp", 1)]
+    performance_overhead = {item["concurrency"]: item for item in performance["full_vs_direct"]}
+    paths = {item["path"]: item for item in path_analysis["paths"]}
+    fresh_novel = paths["fresh_deployment_novel"]
+    ramp_novel = paths["ramp_novel"]
+    ramp_hit = paths["ramp_hit"]
+    storage = path_analysis["ledger_storage"]
+    storage_points = {(item["facts_per_ledger"], item["operation"]): item for item in storage_scaling["aggregates"]}
     baseline = report["charge_baselines"]
     first = baseline["full_first"]
     replay = baseline["full_replay"]
@@ -305,6 +429,11 @@ def main() -> None:
         rf"\newcommand{{\RQFourFullOneMedian}}{{{decimal(full_one['latency_ms']['p50'])}}}",
         rf"\newcommand{{\RQFourFullOneTail}}{{{decimal(full_one['latency_ms']['p95'])}}}",
         rf"\newcommand{{\RQFourFullOneQPS}}{{{decimal(full_one['throughput_qps'])}}}",
+        rf"\newcommand{{\RQFourFullOneRatio}}{{{decimal(performance_overhead[1]['p50_latency_ratio'])}}}",
+        rf"\newcommand{{\RQFourFullOneTailLow}}{{{decimal(full_one['p95_trial_range_ms'][0])}}}",
+        rf"\newcommand{{\RQFourFullOneTailHigh}}{{{decimal(full_one['p95_trial_range_ms'][1])}}}",
+        rf"\newcommand{{\RQFourDirectOneTailLow}}{{{decimal(direct_one['p95_trial_range_ms'][0], 2)}}}",
+        rf"\newcommand{{\RQFourDirectOneTailHigh}}{{{decimal(direct_one['p95_trial_range_ms'][1], 2)}}}",
         rf"\newcommand{{\RQFourLockOneTail}}{{{decimal(full_one['component_ms']['exposure_ledger_lock']['p95'])}}}",
         rf"\newcommand{{\RQFourFullFourMedian}}{{{decimal(full_four['latency_ms']['p50'])}}}",
         rf"\newcommand{{\RQFourFullFourTail}}{{{decimal(full_four['latency_ms']['p95'])}}}",
@@ -315,6 +444,48 @@ def main() -> None:
         rf"\newcommand{{\RQFourFullEightQPS}}{{{decimal(full_eight['throughput_qps'])}}}",
         rf"\newcommand{{\RQFourLockEightTail}}{{{decimal(full_eight['component_ms']['exposure_ledger_lock']['p95'])}}}",
         rf"\newcommand{{\RQFourRampFacts}}{{{int(ramp['ledger_growth']['fact_rows'])}}}",
+        rf"\newcommand{{\RQFourRampHitRate}}{{{decimal(100 * ramp['query_history_hit_rate'])}}}",
+        rf"\newcommand{{\RQFourFreshNovelSamples}}{{{fresh_novel['samples']}}}",
+        rf"\newcommand{{\RQFourFreshNovelMedian}}{{{decimal(fresh_novel['latency_ms']['p50'])}}}",
+        rf"\newcommand{{\RQFourFreshNovelLow}}{{{decimal(fresh_novel['latency_ms']['p50_trial_range'][0])}}}",
+        rf"\newcommand{{\RQFourFreshNovelHigh}}{{{decimal(fresh_novel['latency_ms']['p50_trial_range'][1])}}}",
+        rf"\newcommand{{\RQFourNovelSamples}}{{{ramp_novel['samples']}}}",
+        rf"\newcommand{{\RQFourNovelMedian}}{{{decimal(ramp_novel['latency_ms']['p50'])}}}",
+        rf"\newcommand{{\RQFourNovelLow}}{{{decimal(ramp_novel['latency_ms']['p50_trial_range'][0])}}}",
+        rf"\newcommand{{\RQFourNovelHigh}}{{{decimal(ramp_novel['latency_ms']['p50_trial_range'][1])}}}",
+        rf"\newcommand{{\RQFourRampHitSamples}}{{{ramp_hit['samples']}}}",
+        rf"\newcommand{{\RQFourRampHitMedian}}{{{decimal(ramp_hit['latency_ms']['p50'])}}}",
+        rf"\newcommand{{\RQFourRampHitLow}}{{{decimal(ramp_hit['latency_ms']['p50_trial_range'][0])}}}",
+        rf"\newcommand{{\RQFourRampHitHigh}}{{{decimal(ramp_hit['latency_ms']['p50_trial_range'][1])}}}",
+        rf"\newcommand{{\RQFourPayloadBytes}}{{{comma(storage['canonical_payload_bytes'])}}}",
+        rf"\newcommand{{\RQFourTableBytes}}{{{comma(storage['table_bytes'])}}}",
+        rf"\newcommand{{\RQFourIndexBytes}}{{{comma(storage['index_bytes'])}}}",
+        rf"\newcommand{{\RQFourAllocatedBytes}}{{{comma(storage['allocated_bytes'])}}}",
+        rf"\newcommand{{\RQFourPayloadPerFact}}{{{decimal(storage['canonical_payload_bytes_per_fact'])}}}",
+        rf"\newcommand{{\RQFourStorageTrials}}{{{storage_scaling['trials']}}}",
+        rf"\newcommand{{\RQFourStorageMaxFacts}}{{{comma(storage_scaling['facts_per_ledger_sizes'][-1])}}}",
+        rf"\newcommand{{\RQFourStorageMaxRows}}{{{comma(storage_points[(10000, 'novel')]['storage']['fact_rows']['median'])}}}",
+        rf"\newcommand{{\RQFourStorageTenPayload}}{{{decimal(storage_points[(10, 'novel')]['storage']['canonical_payload_bytes']['median'] / 1048576, 3)}}}",
+        rf"\newcommand{{\RQFourStorageTenAllocated}}{{{decimal(storage_points[(10, 'novel')]['storage']['allocated_bytes']['median'] / 1048576, 3)}}}",
+        rf"\newcommand{{\RQFourStorageTenNovel}}{{{decimal(storage_points[(10, 'novel')]['settlement_ms']['median'])}}}",
+        rf"\newcommand{{\RQFourStorageTenReplay}}{{{decimal(storage_points[(10, 'replay')]['settlement_ms']['median'])}}}",
+        rf"\newcommand{{\RQFourStorageHundredPayload}}{{{decimal(storage_points[(100, 'novel')]['storage']['canonical_payload_bytes']['median'] / 1048576, 2)}}}",
+        rf"\newcommand{{\RQFourStorageHundredAllocated}}{{{decimal(storage_points[(100, 'novel')]['storage']['allocated_bytes']['median'] / 1048576, 2)}}}",
+        rf"\newcommand{{\RQFourStorageHundredNovel}}{{{decimal(storage_points[(100, 'novel')]['settlement_ms']['median'])}}}",
+        rf"\newcommand{{\RQFourStorageHundredReplay}}{{{decimal(storage_points[(100, 'replay')]['settlement_ms']['median'])}}}",
+        rf"\newcommand{{\RQFourStorageThousandPayload}}{{{decimal(storage_points[(1000, 'novel')]['storage']['canonical_payload_bytes']['median'] / 1048576, 2)}}}",
+        rf"\newcommand{{\RQFourStorageThousandAllocated}}{{{decimal(storage_points[(1000, 'novel')]['storage']['allocated_bytes']['median'] / 1048576, 2)}}}",
+        rf"\newcommand{{\RQFourStorageThousandNovel}}{{{decimal(storage_points[(1000, 'novel')]['settlement_ms']['median'])}}}",
+        rf"\newcommand{{\RQFourStorageThousandReplay}}{{{decimal(storage_points[(1000, 'replay')]['settlement_ms']['median'])}}}",
+        rf"\newcommand{{\RQFourStorageTenThousandPayload}}{{{decimal(storage_points[(10000, 'novel')]['storage']['canonical_payload_bytes']['median'] / 1048576, 2)}}}",
+        rf"\newcommand{{\RQFourStorageTenThousandAllocated}}{{{decimal(storage_points[(10000, 'novel')]['storage']['allocated_bytes']['median'] / 1048576, 2)}}}",
+        rf"\newcommand{{\RQFourStorageTenThousandNovel}}{{{decimal(storage_points[(10000, 'novel')]['settlement_ms']['median'])}}}",
+        rf"\newcommand{{\RQFourStorageTenThousandNovelLow}}{{{decimal(storage_points[(10000, 'novel')]['settlement_ms']['trial_range'][0])}}}",
+        rf"\newcommand{{\RQFourStorageTenThousandNovelHigh}}{{{decimal(storage_points[(10000, 'novel')]['settlement_ms']['trial_range'][1])}}}",
+        rf"\newcommand{{\RQFourStorageTenThousandReplay}}{{{decimal(storage_points[(10000, 'replay')]['settlement_ms']['median'])}}}",
+        rf"\newcommand{{\RQFourStorageTenThousandReplayLow}}{{{decimal(storage_points[(10000, 'replay')]['settlement_ms']['trial_range'][0])}}}",
+        rf"\newcommand{{\RQFourStorageTenThousandReplayHigh}}{{{decimal(storage_points[(10000, 'replay')]['settlement_ms']['trial_range'][1])}}}",
+        rf"\newcommand{{\RQFourBudgetBoundaryPassed}}{{{sum(1 for item in storage_scaling['budget_boundaries'] if item['rejected'])}}}",
         rf"\newcommand{{\RQFourScalingDims}}{{{len(scaling['curves'])}}}",
         rf"\newcommand{{\RQFourScalingMaxRows}}{{{comma(scaling_curves['observe_rows']['points'][-1]['size'])}}}",
         rf"\newcommand{{\RQFourScalingObserveMicros}}{{{decimal(scaling_curves['observe_rows']['points'][-1]['ns_per_op'] / 1000)}}}",

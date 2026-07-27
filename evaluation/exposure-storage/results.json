@@ -1,0 +1,930 @@
+{
+  "schema_version": 1,
+  "status": "complete_control_postgresql_storage_scaling",
+  "generated_at": "2026-07-27T09:06:07.334774819Z",
+  "postgres_version": "PostgreSQL 16.14 (Debian 16.14-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit",
+  "trials": 3,
+  "facts_per_ledger_sizes": [
+    10,
+    100,
+    1000,
+    10000
+  ],
+  "semantics": {
+    "novel": "cumulative observation; charged facts are the suffix absent from the root ledger",
+    "replay": "new query and request identifiers with the identical cumulative observation; expected zero charge",
+    "storage": "pg_table_size and pg_indexes_size for the production exposure_facts relation in an isolated migrated schema",
+    "uncertainty": "median and min-max range across fresh-schema trials"
+  },
+  "source_sha256": "312c59a4f7193eeb660e8e929f995af3a3e2b48c472153af00ce0396dc6a9d8c",
+  "raw_points": [
+    {
+      "trial": 1,
+      "facts_per_ledger": 10,
+      "operation": "novel",
+      "actual_release_facts": 10,
+      "actual_dependency_facts": 10,
+      "charged_release_facts": 10,
+      "charged_dependency_facts": 10,
+      "settlement_ms": 9.770604,
+      "fact_store_ms": 3.536966,
+      "storage": {
+        "fact_rows": 20,
+        "canonical_payload_bytes": 7880,
+        "table_bytes": 49152,
+        "index_bytes": 32768,
+        "allocated_bytes": 81920
+      }
+    },
+    {
+      "trial": 1,
+      "facts_per_ledger": 10,
+      "operation": "replay",
+      "actual_release_facts": 10,
+      "actual_dependency_facts": 10,
+      "charged_release_facts": 0,
+      "charged_dependency_facts": 0,
+      "settlement_ms": 5.959482,
+      "fact_store_ms": 2.61578,
+      "storage": {
+        "fact_rows": 20,
+        "canonical_payload_bytes": 7880,
+        "table_bytes": 49152,
+        "index_bytes": 32768,
+        "allocated_bytes": 81920
+      }
+    },
+    {
+      "trial": 1,
+      "facts_per_ledger": 100,
+      "operation": "novel",
+      "actual_release_facts": 100,
+      "actual_dependency_facts": 100,
+      "charged_release_facts": 90,
+      "charged_dependency_facts": 90,
+      "settlement_ms": 26.188589,
+      "fact_store_ms": 20.852444,
+      "storage": {
+        "fact_rows": 200,
+        "canonical_payload_bytes": 78980,
+        "table_bytes": 155648,
+        "index_bytes": 114688,
+        "allocated_bytes": 270336
+      }
+    },
+    {
+      "trial": 1,
+      "facts_per_ledger": 100,
+      "operation": "replay",
+      "actual_release_facts": 100,
+      "actual_dependency_facts": 100,
+      "charged_release_facts": 0,
+      "charged_dependency_facts": 0,
+      "settlement_ms": 21.743684,
+      "fact_store_ms": 18.114091,
+      "storage": {
+        "fact_rows": 200,
+        "canonical_payload_bytes": 78980,
+        "table_bytes": 155648,
+        "index_bytes": 114688,
+        "allocated_bytes": 270336
+      }
+    },
+    {
+      "trial": 1,
+      "facts_per_ledger": 1000,
+      "operation": "novel",
+      "actual_release_facts": 1000,
+      "actual_dependency_facts": 1000,
+      "charged_release_facts": 900,
+      "charged_dependency_facts": 900,
+      "settlement_ms": 212.393012,
+      "fact_store_ms": 203.520435,
+      "storage": {
+        "fact_rows": 2000,
+        "canonical_payload_bytes": 791780,
+        "table_bytes": 1204224,
+        "index_bytes": 868352,
+        "allocated_bytes": 2072576
+      }
+    },
+    {
+      "trial": 1,
+      "facts_per_ledger": 1000,
+      "operation": "replay",
+      "actual_release_facts": 1000,
+      "actual_dependency_facts": 1000,
+      "charged_release_facts": 0,
+      "charged_dependency_facts": 0,
+      "settlement_ms": 185.556885,
+      "fact_store_ms": 179.27016,
+      "storage": {
+        "fact_rows": 2000,
+        "canonical_payload_bytes": 791780,
+        "table_bytes": 1204224,
+        "index_bytes": 868352,
+        "allocated_bytes": 2072576
+      }
+    },
+    {
+      "trial": 1,
+      "facts_per_ledger": 10000,
+      "operation": "novel",
+      "actual_release_facts": 10000,
+      "actual_dependency_facts": 10000,
+      "charged_release_facts": 9000,
+      "charged_dependency_facts": 9000,
+      "settlement_ms": 2178.821342,
+      "fact_store_ms": 2129.61505,
+      "storage": {
+        "fact_rows": 20000,
+        "canonical_payload_bytes": 7937780,
+        "table_bytes": 11739136,
+        "index_bytes": 8929280,
+        "allocated_bytes": 20668416
+      }
+    },
+    {
+      "trial": 1,
+      "facts_per_ledger": 10000,
+      "operation": "replay",
+      "actual_release_facts": 10000,
+      "actual_dependency_facts": 10000,
+      "charged_release_facts": 0,
+      "charged_dependency_facts": 0,
+      "settlement_ms": 1864.263882,
+      "fact_store_ms": 1828.48906,
+      "storage": {
+        "fact_rows": 20000,
+        "canonical_payload_bytes": 7937780,
+        "table_bytes": 11739136,
+        "index_bytes": 8929280,
+        "allocated_bytes": 20668416
+      }
+    },
+    {
+      "trial": 2,
+      "facts_per_ledger": 10,
+      "operation": "novel",
+      "actual_release_facts": 10,
+      "actual_dependency_facts": 10,
+      "charged_release_facts": 10,
+      "charged_dependency_facts": 10,
+      "settlement_ms": 8.426404,
+      "fact_store_ms": 3.208001,
+      "storage": {
+        "fact_rows": 20,
+        "canonical_payload_bytes": 7880,
+        "table_bytes": 49152,
+        "index_bytes": 32768,
+        "allocated_bytes": 81920
+      }
+    },
+    {
+      "trial": 2,
+      "facts_per_ledger": 10,
+      "operation": "replay",
+      "actual_release_facts": 10,
+      "actual_dependency_facts": 10,
+      "charged_release_facts": 0,
+      "charged_dependency_facts": 0,
+      "settlement_ms": 6.054826,
+      "fact_store_ms": 2.665583,
+      "storage": {
+        "fact_rows": 20,
+        "canonical_payload_bytes": 7880,
+        "table_bytes": 49152,
+        "index_bytes": 32768,
+        "allocated_bytes": 81920
+      }
+    },
+    {
+      "trial": 2,
+      "facts_per_ledger": 100,
+      "operation": "novel",
+      "actual_release_facts": 100,
+      "actual_dependency_facts": 100,
+      "charged_release_facts": 90,
+      "charged_dependency_facts": 90,
+      "settlement_ms": 24.928836,
+      "fact_store_ms": 20.536899,
+      "storage": {
+        "fact_rows": 200,
+        "canonical_payload_bytes": 78980,
+        "table_bytes": 155648,
+        "index_bytes": 114688,
+        "allocated_bytes": 270336
+      }
+    },
+    {
+      "trial": 2,
+      "facts_per_ledger": 100,
+      "operation": "replay",
+      "actual_release_facts": 100,
+      "actual_dependency_facts": 100,
+      "charged_release_facts": 0,
+      "charged_dependency_facts": 0,
+      "settlement_ms": 21.27917,
+      "fact_store_ms": 17.661061,
+      "storage": {
+        "fact_rows": 200,
+        "canonical_payload_bytes": 78980,
+        "table_bytes": 155648,
+        "index_bytes": 114688,
+        "allocated_bytes": 270336
+      }
+    },
+    {
+      "trial": 2,
+      "facts_per_ledger": 1000,
+      "operation": "novel",
+      "actual_release_facts": 1000,
+      "actual_dependency_facts": 1000,
+      "charged_release_facts": 900,
+      "charged_dependency_facts": 900,
+      "settlement_ms": 215.272942,
+      "fact_store_ms": 203.345487,
+      "storage": {
+        "fact_rows": 2000,
+        "canonical_payload_bytes": 791780,
+        "table_bytes": 1204224,
+        "index_bytes": 868352,
+        "allocated_bytes": 2072576
+      }
+    },
+    {
+      "trial": 2,
+      "facts_per_ledger": 1000,
+      "operation": "replay",
+      "actual_release_facts": 1000,
+      "actual_dependency_facts": 1000,
+      "charged_release_facts": 0,
+      "charged_dependency_facts": 0,
+      "settlement_ms": 194.472605,
+      "fact_store_ms": 188.77293,
+      "storage": {
+        "fact_rows": 2000,
+        "canonical_payload_bytes": 791780,
+        "table_bytes": 1204224,
+        "index_bytes": 868352,
+        "allocated_bytes": 2072576
+      }
+    },
+    {
+      "trial": 2,
+      "facts_per_ledger": 10000,
+      "operation": "novel",
+      "actual_release_facts": 10000,
+      "actual_dependency_facts": 10000,
+      "charged_release_facts": 9000,
+      "charged_dependency_facts": 9000,
+      "settlement_ms": 2154.512838,
+      "fact_store_ms": 2108.221133,
+      "storage": {
+        "fact_rows": 20000,
+        "canonical_payload_bytes": 7937780,
+        "table_bytes": 11739136,
+        "index_bytes": 8929280,
+        "allocated_bytes": 20668416
+      }
+    },
+    {
+      "trial": 2,
+      "facts_per_ledger": 10000,
+      "operation": "replay",
+      "actual_release_facts": 10000,
+      "actual_dependency_facts": 10000,
+      "charged_release_facts": 0,
+      "charged_dependency_facts": 0,
+      "settlement_ms": 1914.243403,
+      "fact_store_ms": 1876.13063,
+      "storage": {
+        "fact_rows": 20000,
+        "canonical_payload_bytes": 7937780,
+        "table_bytes": 11739136,
+        "index_bytes": 8929280,
+        "allocated_bytes": 20668416
+      }
+    },
+    {
+      "trial": 3,
+      "facts_per_ledger": 10,
+      "operation": "novel",
+      "actual_release_facts": 10,
+      "actual_dependency_facts": 10,
+      "charged_release_facts": 10,
+      "charged_dependency_facts": 10,
+      "settlement_ms": 8.248268,
+      "fact_store_ms": 3.404883,
+      "storage": {
+        "fact_rows": 20,
+        "canonical_payload_bytes": 7880,
+        "table_bytes": 49152,
+        "index_bytes": 32768,
+        "allocated_bytes": 81920
+      }
+    },
+    {
+      "trial": 3,
+      "facts_per_ledger": 10,
+      "operation": "replay",
+      "actual_release_facts": 10,
+      "actual_dependency_facts": 10,
+      "charged_release_facts": 0,
+      "charged_dependency_facts": 0,
+      "settlement_ms": 5.767481,
+      "fact_store_ms": 2.336822,
+      "storage": {
+        "fact_rows": 20,
+        "canonical_payload_bytes": 7880,
+        "table_bytes": 49152,
+        "index_bytes": 32768,
+        "allocated_bytes": 81920
+      }
+    },
+    {
+      "trial": 3,
+      "facts_per_ledger": 100,
+      "operation": "novel",
+      "actual_release_facts": 100,
+      "actual_dependency_facts": 100,
+      "charged_release_facts": 90,
+      "charged_dependency_facts": 90,
+      "settlement_ms": 23.730286,
+      "fact_store_ms": 20.04133,
+      "storage": {
+        "fact_rows": 200,
+        "canonical_payload_bytes": 78980,
+        "table_bytes": 155648,
+        "index_bytes": 114688,
+        "allocated_bytes": 270336
+      }
+    },
+    {
+      "trial": 3,
+      "facts_per_ledger": 100,
+      "operation": "replay",
+      "actual_release_facts": 100,
+      "actual_dependency_facts": 100,
+      "charged_release_facts": 0,
+      "charged_dependency_facts": 0,
+      "settlement_ms": 21.601408,
+      "fact_store_ms": 17.532943,
+      "storage": {
+        "fact_rows": 200,
+        "canonical_payload_bytes": 78980,
+        "table_bytes": 155648,
+        "index_bytes": 114688,
+        "allocated_bytes": 270336
+      }
+    },
+    {
+      "trial": 3,
+      "facts_per_ledger": 1000,
+      "operation": "novel",
+      "actual_release_facts": 1000,
+      "actual_dependency_facts": 1000,
+      "charged_release_facts": 900,
+      "charged_dependency_facts": 900,
+      "settlement_ms": 209.821718,
+      "fact_store_ms": 202.524376,
+      "storage": {
+        "fact_rows": 2000,
+        "canonical_payload_bytes": 791780,
+        "table_bytes": 1204224,
+        "index_bytes": 868352,
+        "allocated_bytes": 2072576
+      }
+    },
+    {
+      "trial": 3,
+      "facts_per_ledger": 1000,
+      "operation": "replay",
+      "actual_release_facts": 1000,
+      "actual_dependency_facts": 1000,
+      "charged_release_facts": 0,
+      "charged_dependency_facts": 0,
+      "settlement_ms": 181.08496,
+      "fact_store_ms": 174.729253,
+      "storage": {
+        "fact_rows": 2000,
+        "canonical_payload_bytes": 791780,
+        "table_bytes": 1204224,
+        "index_bytes": 868352,
+        "allocated_bytes": 2072576
+      }
+    },
+    {
+      "trial": 3,
+      "facts_per_ledger": 10000,
+      "operation": "novel",
+      "actual_release_facts": 10000,
+      "actual_dependency_facts": 10000,
+      "charged_release_facts": 9000,
+      "charged_dependency_facts": 9000,
+      "settlement_ms": 2143.76408,
+      "fact_store_ms": 2103.728502,
+      "storage": {
+        "fact_rows": 20000,
+        "canonical_payload_bytes": 7937780,
+        "table_bytes": 11739136,
+        "index_bytes": 8929280,
+        "allocated_bytes": 20668416
+      }
+    },
+    {
+      "trial": 3,
+      "facts_per_ledger": 10000,
+      "operation": "replay",
+      "actual_release_facts": 10000,
+      "actual_dependency_facts": 10000,
+      "charged_release_facts": 0,
+      "charged_dependency_facts": 0,
+      "settlement_ms": 1944.665513,
+      "fact_store_ms": 1908.296064,
+      "storage": {
+        "fact_rows": 20000,
+        "canonical_payload_bytes": 7937780,
+        "table_bytes": 11739136,
+        "index_bytes": 8929280,
+        "allocated_bytes": 20668416
+      }
+    }
+  ],
+  "aggregates": [
+    {
+      "facts_per_ledger": 10,
+      "operation": "novel",
+      "trials": 3,
+      "settlement_ms": {
+        "median": 8.426404,
+        "trial_range": [
+          8.248268,
+          9.770604
+        ]
+      },
+      "fact_store_ms": {
+        "median": 3.404883,
+        "trial_range": [
+          3.208001,
+          3.536966
+        ]
+      },
+      "storage": {
+        "fact_rows": {
+          "median": 20,
+          "trial_range": [
+            20,
+            20
+          ]
+        },
+        "canonical_payload_bytes": {
+          "median": 7880,
+          "trial_range": [
+            7880,
+            7880
+          ]
+        },
+        "table_bytes": {
+          "median": 49152,
+          "trial_range": [
+            49152,
+            49152
+          ]
+        },
+        "index_bytes": {
+          "median": 32768,
+          "trial_range": [
+            32768,
+            32768
+          ]
+        },
+        "allocated_bytes": {
+          "median": 81920,
+          "trial_range": [
+            81920,
+            81920
+          ]
+        }
+      }
+    },
+    {
+      "facts_per_ledger": 10,
+      "operation": "replay",
+      "trials": 3,
+      "settlement_ms": {
+        "median": 5.959482,
+        "trial_range": [
+          5.767481,
+          6.054826
+        ]
+      },
+      "fact_store_ms": {
+        "median": 2.61578,
+        "trial_range": [
+          2.336822,
+          2.665583
+        ]
+      },
+      "storage": {
+        "fact_rows": {
+          "median": 20,
+          "trial_range": [
+            20,
+            20
+          ]
+        },
+        "canonical_payload_bytes": {
+          "median": 7880,
+          "trial_range": [
+            7880,
+            7880
+          ]
+        },
+        "table_bytes": {
+          "median": 49152,
+          "trial_range": [
+            49152,
+            49152
+          ]
+        },
+        "index_bytes": {
+          "median": 32768,
+          "trial_range": [
+            32768,
+            32768
+          ]
+        },
+        "allocated_bytes": {
+          "median": 81920,
+          "trial_range": [
+            81920,
+            81920
+          ]
+        }
+      }
+    },
+    {
+      "facts_per_ledger": 100,
+      "operation": "novel",
+      "trials": 3,
+      "settlement_ms": {
+        "median": 24.928836,
+        "trial_range": [
+          23.730286,
+          26.188589
+        ]
+      },
+      "fact_store_ms": {
+        "median": 20.536899,
+        "trial_range": [
+          20.04133,
+          20.852444
+        ]
+      },
+      "storage": {
+        "fact_rows": {
+          "median": 200,
+          "trial_range": [
+            200,
+            200
+          ]
+        },
+        "canonical_payload_bytes": {
+          "median": 78980,
+          "trial_range": [
+            78980,
+            78980
+          ]
+        },
+        "table_bytes": {
+          "median": 155648,
+          "trial_range": [
+            155648,
+            155648
+          ]
+        },
+        "index_bytes": {
+          "median": 114688,
+          "trial_range": [
+            114688,
+            114688
+          ]
+        },
+        "allocated_bytes": {
+          "median": 270336,
+          "trial_range": [
+            270336,
+            270336
+          ]
+        }
+      }
+    },
+    {
+      "facts_per_ledger": 100,
+      "operation": "replay",
+      "trials": 3,
+      "settlement_ms": {
+        "median": 21.601408,
+        "trial_range": [
+          21.27917,
+          21.743684
+        ]
+      },
+      "fact_store_ms": {
+        "median": 17.661061,
+        "trial_range": [
+          17.532943,
+          18.114091
+        ]
+      },
+      "storage": {
+        "fact_rows": {
+          "median": 200,
+          "trial_range": [
+            200,
+            200
+          ]
+        },
+        "canonical_payload_bytes": {
+          "median": 78980,
+          "trial_range": [
+            78980,
+            78980
+          ]
+        },
+        "table_bytes": {
+          "median": 155648,
+          "trial_range": [
+            155648,
+            155648
+          ]
+        },
+        "index_bytes": {
+          "median": 114688,
+          "trial_range": [
+            114688,
+            114688
+          ]
+        },
+        "allocated_bytes": {
+          "median": 270336,
+          "trial_range": [
+            270336,
+            270336
+          ]
+        }
+      }
+    },
+    {
+      "facts_per_ledger": 1000,
+      "operation": "novel",
+      "trials": 3,
+      "settlement_ms": {
+        "median": 212.393012,
+        "trial_range": [
+          209.821718,
+          215.272942
+        ]
+      },
+      "fact_store_ms": {
+        "median": 203.345487,
+        "trial_range": [
+          202.524376,
+          203.520435
+        ]
+      },
+      "storage": {
+        "fact_rows": {
+          "median": 2000,
+          "trial_range": [
+            2000,
+            2000
+          ]
+        },
+        "canonical_payload_bytes": {
+          "median": 791780,
+          "trial_range": [
+            791780,
+            791780
+          ]
+        },
+        "table_bytes": {
+          "median": 1204224,
+          "trial_range": [
+            1204224,
+            1204224
+          ]
+        },
+        "index_bytes": {
+          "median": 868352,
+          "trial_range": [
+            868352,
+            868352
+          ]
+        },
+        "allocated_bytes": {
+          "median": 2072576,
+          "trial_range": [
+            2072576,
+            2072576
+          ]
+        }
+      }
+    },
+    {
+      "facts_per_ledger": 1000,
+      "operation": "replay",
+      "trials": 3,
+      "settlement_ms": {
+        "median": 185.556885,
+        "trial_range": [
+          181.08496,
+          194.472605
+        ]
+      },
+      "fact_store_ms": {
+        "median": 179.27016,
+        "trial_range": [
+          174.729253,
+          188.77293
+        ]
+      },
+      "storage": {
+        "fact_rows": {
+          "median": 2000,
+          "trial_range": [
+            2000,
+            2000
+          ]
+        },
+        "canonical_payload_bytes": {
+          "median": 791780,
+          "trial_range": [
+            791780,
+            791780
+          ]
+        },
+        "table_bytes": {
+          "median": 1204224,
+          "trial_range": [
+            1204224,
+            1204224
+          ]
+        },
+        "index_bytes": {
+          "median": 868352,
+          "trial_range": [
+            868352,
+            868352
+          ]
+        },
+        "allocated_bytes": {
+          "median": 2072576,
+          "trial_range": [
+            2072576,
+            2072576
+          ]
+        }
+      }
+    },
+    {
+      "facts_per_ledger": 10000,
+      "operation": "novel",
+      "trials": 3,
+      "settlement_ms": {
+        "median": 2154.512838,
+        "trial_range": [
+          2143.76408,
+          2178.821342
+        ]
+      },
+      "fact_store_ms": {
+        "median": 2108.221133,
+        "trial_range": [
+          2103.728502,
+          2129.61505
+        ]
+      },
+      "storage": {
+        "fact_rows": {
+          "median": 20000,
+          "trial_range": [
+            20000,
+            20000
+          ]
+        },
+        "canonical_payload_bytes": {
+          "median": 7937780,
+          "trial_range": [
+            7937780,
+            7937780
+          ]
+        },
+        "table_bytes": {
+          "median": 11739136,
+          "trial_range": [
+            11739136,
+            11739136
+          ]
+        },
+        "index_bytes": {
+          "median": 8929280,
+          "trial_range": [
+            8929280,
+            8929280
+          ]
+        },
+        "allocated_bytes": {
+          "median": 20668416,
+          "trial_range": [
+            20668416,
+            20668416
+          ]
+        }
+      }
+    },
+    {
+      "facts_per_ledger": 10000,
+      "operation": "replay",
+      "trials": 3,
+      "settlement_ms": {
+        "median": 1914.243403,
+        "trial_range": [
+          1864.263882,
+          1944.665513
+        ]
+      },
+      "fact_store_ms": {
+        "median": 1876.13063,
+        "trial_range": [
+          1828.48906,
+          1908.296064
+        ]
+      },
+      "storage": {
+        "fact_rows": {
+          "median": 20000,
+          "trial_range": [
+            20000,
+            20000
+          ]
+        },
+        "canonical_payload_bytes": {
+          "median": 7937780,
+          "trial_range": [
+            7937780,
+            7937780
+          ]
+        },
+        "table_bytes": {
+          "median": 11739136,
+          "trial_range": [
+            11739136,
+            11739136
+          ]
+        },
+        "index_bytes": {
+          "median": 8929280,
+          "trial_range": [
+            8929280,
+            8929280
+          ]
+        },
+        "allocated_bytes": {
+          "median": 20668416,
+          "trial_range": [
+            20668416,
+            20668416
+          ]
+        }
+      }
+    }
+  ],
+  "budget_boundaries": [
+    {
+      "trial": 1,
+      "budget_facts_per_ledger": 10000,
+      "attempted_facts_per_ledger": 10001,
+      "rejected": true,
+      "fact_rows_before": 20000,
+      "fact_rows_after": 20000
+    },
+    {
+      "trial": 2,
+      "budget_facts_per_ledger": 10000,
+      "attempted_facts_per_ledger": 10001,
+      "rejected": true,
+      "fact_rows_before": 20000,
+      "fact_rows_after": 20000
+    },
+    {
+      "trial": 3,
+      "budget_facts_per_ledger": 10000,
+      "attempted_facts_per_ledger": 10001,
+      "rejected": true,
+      "fact_rows_before": 20000,
+      "fact_rows_after": 20000
+    }
+  ]
+}

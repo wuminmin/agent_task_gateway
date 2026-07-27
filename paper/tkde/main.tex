@@ -74,8 +74,11 @@ PostgreSQL~16 paired-query tests cover join operand exchange, union member
 completeness and hidden distinct fields, and downstream grouping. In
 three local trials and \RQFourObservations{} operations, a warm full-path
 history hit has \RQFourFullOneMedian{}-ms median and
-\RQFourFullOneTail{}-ms p95 latency at one worker, while a replay adds zero
-facts.
+\RQFourFullOneTail{}-ms p95 latency at one worker---\RQFourFullOneRatio{}$\times$
+the direct-query median. The mixed ramp measures both novel and hit paths and
+records physical ledger bytes. A separate production-settlement campaign grows
+the ledger to \RQFourStorageMaxRows{} immutable PostgreSQL rows
+(\RQFourStorageTenThousandAllocated{}~MiB allocated); a replay adds zero facts.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -1098,7 +1101,12 @@ is rebuilt from a source-controlled V2 algebra corpus with digest prefix
 FactSet-invariance campaign; a separate broad SQL result-equivalence stress test
 is reported only in the supplement and is not exposure evidence. RQ4 contains \RQFourTrials{} fresh
 isolated PostgreSQL deployments, \RQFourObservations{} measured operations, and
-\RQFourScalingDims{} deterministic in-process scaling sweeps.
+\RQFourScalingDims{} deterministic in-process scaling sweeps, plus
+\RQFourStorageTrials{} fresh-schema production-ledger scaling trials.
+There is no representation-selection planner or agent-task-utility RQ: one
+agent-supplied plan is executed per call. Consequently greedy, random, and
+knapsack/ILP planner comparisons are neither claimed nor applicable to this
+artifact.
 
 \begin{table}[t]
 \centering
@@ -1112,7 +1120,7 @@ RQ & Current result \\
 RQ1 & \RQOnePassed{}/\RQOneCases{} independent-oracle cases on \RQOneRows{} source rows \\
 RQ2 & \RQTwoExposureRewrites{} closed-language rewrite families, \RQTwoExposureCases{} instances and \RQTwoExposureNFCases{} normal-form checks: FactSet/charge invariant, \RQTwoExposureMismatches{} mismatches \\
 RQ3 & \RQThreePassed{}/\RQThreeCases{} deterministic; \RQThreeIntegration{}/\RQThreeExecuted{} PostgreSQL race tests; paired PG Join/Union exchange and downstream-group tests \\
-RQ4 & \RQFourObservations{} operations/\RQFourTrials{} trials; full hit p50/p95 $=\RQFourFullOneMedian{}/\RQFourFullOneTail{}$ ms at $c=1$; \RQFourScalingDims{} in-process scaling sweeps \\
+RQ4 & \RQFourObservations{} full-path operations; mixed novel/hit path; physical ledger curve to \RQFourStorageMaxRows{} rows; full-hit p50 is \RQFourFullOneRatio{}$\times$ direct \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1205,7 +1213,13 @@ At concurrency one, median p50 latency rises from
 \RQFourDirectOneMedian{}~ms for Business PostgreSQL alone, through
 \RQFourPairedOneMedian{}~ms for the paired snapshot and
 \RQFourAlgebraOneMedian{}~ms with effect derivation, to
-\RQFourFullOneMedian{}~ms for the complete path. Table~\ref{tab:rq4} shows the
+\RQFourFullOneMedian{}~ms for the complete path, a
+\RQFourFullOneRatio{}$\times$ p50 multiplier over the direct query. Across the
+three fresh deployments, direct-query p95 ranges from
+\RQFourDirectOneTailLow{} to \RQFourDirectOneTailHigh{}~ms and full-path p95
+ranges from \RQFourFullOneTailLow{} to \RQFourFullOneTailHigh{}~ms; these
+trial ranges are the uncertainty bars, rather than treating operations within
+one deployment as independent replicates. Table~\ref{tab:rq4} shows the
 full-path scaling result. Throughput saturates near 170 queries/s: the shared
 root ledger intentionally serializes descendants, and its p95 lock component
 grows from \RQFourLockOneTail{} to \RQFourLockEightTail{}~ms. This identifies
@@ -1228,11 +1242,69 @@ $c$ & p50 ms & p95 ms & query/s & lock p95 ms \\
 \end{tabular}
 \end{table}
 
+The 32-request ramp is not a 100\%-hit workload: it contains
+\RQFourNovelSamples{} novel and \RQFourRampHitSamples{} hit observations across
+the trials (\RQFourRampHitRate{}\% query-history hit rate). The first full-path
+request against each fresh ledger has median \RQFourFreshNovelMedian{}~ms and
+range [\RQFourFreshNovelLow{},\RQFourFreshNovelHigh{}]~ms; all novel ramp
+requests have p50 \RQFourNovelMedian{}~ms with per-trial p50 range
+[\RQFourNovelLow{},\RQFourNovelHigh{}]~ms, versus
+\RQFourRampHitMedian{}~ms [\RQFourRampHitLow{},\RQFourRampHitHigh{}] for ramp
+hits. This is a fresh-ledger/novel comparison, not a PostgreSQL buffer-cache
+cold-start claim.
+
 The ramp inserts \RQFourRampFacts{} immutable facts (12 release and 16
-dependency facts, stored under the compatibility ledger label) in every trial.
-All subsequent hit queries have 100\% fact- and
-query-history hit rates and zero ledger-row growth, confirming that replay cost
-is processing overhead rather than repeated exposure charge.
+dependency facts) in every trial. Their canonical identity/payload occupies
+\RQFourPayloadBytes{} bytes (\RQFourPayloadPerFact{} bytes/fact); observed
+PostgreSQL allocation grows by \RQFourTableBytes{} table bytes and
+\RQFourIndexBytes{} index bytes, \RQFourAllocatedBytes{} bytes in total.
+Because PostgreSQL allocates pages, the allocated-per-fact quotient is not a
+marginal storage estimate. All subsequent dedicated hit queries have 100\%
+fact- and query-history hit rates and zero ledger-row growth, confirming that
+replay cost is processing overhead rather than repeated exposure charge.
+
+To measure ledger growth beyond the ten-row Business fixture, a separate
+campaign invokes the production Control PostgreSQL reservation and atomic
+settlement code in \RQFourStorageTrials{} fresh migrated schemas. In each trial,
+one root ledger grows cumulatively through 10, 100, 1,000, and
+\RQFourStorageMaxFacts{} release facts and the same number of dependency facts.
+Each novel cumulative observation is followed by a new-query replay with the
+identical FactSets. Table~\ref{tab:rq4-storage} reports medians and includes both
+canonical identity/payload bytes and page-granular PostgreSQL table-plus-index
+allocation.
+
+\begin{table}[t]
+\centering
+\caption{Production Control PostgreSQL ledger scaling; three fresh schemas.}
+\label{tab:rq4-storage}
+\small
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{rrrrrr}
+\toprule
+facts/ledger & rows & payload MiB & alloc. MiB & novel ms & replay ms \\
+\midrule
+10 & 20 & \RQFourStorageTenPayload{} & \RQFourStorageTenAllocated{} & \RQFourStorageTenNovel{} & \RQFourStorageTenReplay{} \\
+100 & 200 & \RQFourStorageHundredPayload{} & \RQFourStorageHundredAllocated{} & \RQFourStorageHundredNovel{} & \RQFourStorageHundredReplay{} \\
+1,000 & 2,000 & \RQFourStorageThousandPayload{} & \RQFourStorageThousandAllocated{} & \RQFourStorageThousandNovel{} & \RQFourStorageThousandReplay{} \\
+10,000 & 20,000 & \RQFourStorageTenThousandPayload{} & \RQFourStorageTenThousandAllocated{} & \RQFourStorageTenThousandNovel{} & \RQFourStorageTenThousandReplay{} \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+At the largest point, novel settlement is \RQFourStorageTenThousandNovel{}~ms
+with trial range [\RQFourStorageTenThousandNovelLow{},
+\RQFourStorageTenThousandNovelHigh{}] and 100\%-overlap replay is
+\RQFourStorageTenThousandReplay{}~ms
+[\RQFourStorageTenThousandReplayLow{},
+\RQFourStorageTenThousandReplayHigh{}]. Replay charges and grows by zero, but
+is not constant-time: the production collision guard verifies every submitted
+fact payload. This result exposes a real high-overlap bottleneck and motivates
+batched verification or a safe authenticated index; we do not hide it behind
+the one-row latency. Finally, all \RQFourBudgetBoundaryPassed{} trials submit
+10,001 facts per ledger against a 10,000-fact signed ceiling, are rejected, and
+remain at \RQFourStorageMaxRows{} rows, testing budget-boundary sensitivity and
+atomic rollback.
 
 Because the contention result fixes a single small fixture, we additionally run
 \RQFourScalingDims{} deterministic in-process sweeps that scale the dimensions
@@ -1259,7 +1331,12 @@ independent schemas or workloads.  The separate SQL result-equivalence stress
 test and its normalized-pair accounting appear only in the supplement. The
 performance result is a controlled single-host microbenchmark on the bundled
 ten-row travel fixture, complemented by deterministic in-process scaling sweeps,
-not a TPC-H/TPC-DS or production-scale claim. Source-controlled reports bind
+not a TPC-H/TPC-DS, controlled PostgreSQL cold-cache, cross-data-scale, or
+production-scale claim. The separate real Control PostgreSQL campaign scales
+the production ledger to \RQFourStorageMaxRows{} fact rows, but does not turn
+the ten-row Business query into a large end-to-end workload. It also does not evaluate a live model, agent task
+success, or utility: those claims and the former candidate-selection planner
+have been removed. Source-controlled reports bind
 the environment, corpus, code, raw-result and sample digests. These boundaries
 limit external validity; RQ4 is measured only within the stated local scope.
 
@@ -1307,7 +1384,8 @@ approximations would require new safety semantics.
 \textbf{Deployment.} The prototype has one gateway instance, static local
 tokens, an in-memory approval demo, and one PostgreSQL connector. It lacks a
 distributed execution lease and centralized key custody. The measured
-single-host fixture does not establish multi-node scaling or production SLOs.
+single-host fixture does not establish cross-data-scale or multi-node scaling,
+production SLOs, or live-agent task utility.
 
 \section{Conclusion}
 
@@ -1324,10 +1402,13 @@ violation in a finite ledger model, and observes zero mismatch for
 \RQTwoExposureRewrites{} closed-language rewrite families (FactSet and
 incremental charge invariant). Paired PostgreSQL tests additionally execute
 online Join/Union exchange and downstream aggregation while checking the
-derived observation. The full path has \RQFourFullOneMedian{}-ms p50 latency at one worker,
+derived observation. The full path has \RQFourFullOneMedian{}-ms p50 latency at one worker
+(\RQFourFullOneRatio{}$\times$ direct-query p50),
 exposes root-ledger serialization at higher concurrency, and its in-process cost
 model scales with source rows and expression depth while a replay charges
-nothing. These empirical results answer RQ4 for the declared local scope;
+nothing. The production ledger curve reaches \RQFourStorageMaxRows{} rows and
+also shows that exact high-overlap verification is currently a scaling
+bottleneck. These empirical results answer RQ4 for the declared local scope;
 TPC-scale, multi-node, nested multi-input plans, and live-LLM generalization
 remain outside the claims, along with cross-root accounting and inference
 protection for denial or negative information.

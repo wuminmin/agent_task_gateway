@@ -36,6 +36,20 @@ Repeat with `trial2` and `trial3`, then run
 requires exactly 10,432 samples per trial and writes the source-controlled
 31,296-observation `results.json`.
 
+The publication also derives the novel/hit path partition and actual ledger
+storage from those digest-bound samples:
+
+```sh
+python3 evaluation/exposure-performance/analyze_paths.py
+```
+
+`path_analysis.json` classifies a request as novel only when it charges at
+least one new fact, and as a history hit only when it has nonzero actual facts
+but charges none. It reports the first full-path request against each fresh
+ledger separately, plus min--max ranges of per-trial summaries. These ranges
+are uncertainty across the three fresh deployments; the first-request result
+is not labeled as a controlled PostgreSQL buffer-cache cold start.
+
 ## Ablations
 
 Each non-full cell uses the same ordered, one-row Sales expense workload:

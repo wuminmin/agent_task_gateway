@@ -1,0 +1,123 @@
+{
+  "schema_version": 1,
+  "status": "complete_posthoc_path_analysis",
+  "source_campaign_sha256": "c21c086ebe542e87e63b1c351e4742f57b94675cd7305ccb6b162189f370a5ad",
+  "trials": 3,
+  "classification": "charged facts > 0 is novel; nonzero actual facts and zero charged facts is a history hit",
+  "uncertainty": "median point estimate and min-max range of per-trial summaries across three fresh deployments",
+  "raw_provenance": [
+    {
+      "run_id": "rq4-20260725-trial1",
+      "samples_sha256": "f8b579523ec05bee361a25def447e639a0552a7ee68ecab7bb5d59f467cb8107",
+      "ramp_samples": 32,
+      "novel_samples": 4,
+      "hit_samples": 28
+    },
+    {
+      "run_id": "rq4-20260725-trial2",
+      "samples_sha256": "d677efa04218ae522b2d8bdb4e62be1921d3830658dc89ef10ceecdfcc3b0b8a",
+      "ramp_samples": 32,
+      "novel_samples": 4,
+      "hit_samples": 28
+    },
+    {
+      "run_id": "rq4-20260725-trial3",
+      "samples_sha256": "ce3073f660bcfca2623cba02f12bb8eae2ca2667d4f2f5e9259f761a440cec16",
+      "ramp_samples": 32,
+      "novel_samples": 4,
+      "hit_samples": 28
+    }
+  ],
+  "paths": [
+    {
+      "path": "fresh_deployment_novel",
+      "samples": 3,
+      "samples_per_trial": [
+        1,
+        1,
+        1
+      ],
+      "latency_ms": {
+        "p50": 25.183763,
+        "p50_trial_range": [
+          21.640549,
+          26.648468
+        ],
+        "p95": 25.183763,
+        "p95_trial_range": [
+          21.640549,
+          26.648468
+        ],
+        "mean": 25.183763,
+        "mean_trial_range": [
+          21.640549,
+          26.648468
+        ]
+      }
+    },
+    {
+      "path": "ramp_novel",
+      "samples": 12,
+      "samples_per_trial": [
+        4,
+        4,
+        4
+      ],
+      "latency_ms": {
+        "p50": 13.560077,
+        "p50_trial_range": [
+          13.2566095,
+          14.3501385
+        ],
+        "p95": 23.540319949999997,
+        "p95_trial_range": [
+          20.410284249999997,
+          24.831637399999998
+        ],
+        "mean": 16.10543475,
+        "mean_trial_range": [
+          15.193692500000001,
+          17.08171925
+        ]
+      }
+    },
+    {
+      "path": "ramp_hit",
+      "samples": 84,
+      "samples_per_trial": [
+        28,
+        28,
+        28
+      ],
+      "latency_ms": {
+        "p50": 11.938946,
+        "p50_trial_range": [
+          11.828509,
+          11.9492405
+        ],
+        "p95": 13.71098355,
+        "p95_trial_range": [
+          13.65352825,
+          14.78937055
+        ],
+        "mean": 12.192516178571429,
+        "mean_trial_range": [
+          12.130850857142857,
+          12.212193964285715
+        ]
+      }
+    }
+  ],
+  "ledger_storage": {
+    "fact_rows": 28,
+    "release_facts": 12,
+    "dependency_facts": 16,
+    "canonical_payload_bytes": 13960,
+    "table_bytes": 49152,
+    "index_bytes": 16384,
+    "allocated_bytes": 65536,
+    "canonical_payload_bytes_per_fact": 498.57142857142856,
+    "allocated_bytes_per_fact": 2340.5714285714284,
+    "physical_size_semantics": "after-minus-before PostgreSQL relation allocation; page-granular and not a marginal per-fact estimate"
+  }
+}
