@@ -9,8 +9,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"taskbound.local/agent-data-gateway/internal/exposure"
 )
 
 func resultAAD(taskID, queryID string) []byte {
@@ -77,7 +75,7 @@ func (s *Store) FinalizeQueryMeasuredWithReceipt(ctx context.Context, settlement
 	if s.cipher == nil {
 		return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, ErrCipherUnavailable, nil)
 	}
-	if settlement.QueryID == "" || settlement.Rows < 0 || settlement.ChargeRows < 0 || settlement.DBMS < 0 || settlement.ObservedDBMS < 0 {
+	if settlement.QueryID == "" || settlement.Rows < 0 || settlement.DBMS < 0 || settlement.ObservedDBMS < 0 {
 		return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, ErrInvalid, fmt.Errorf("invalid settlement"))
 	}
 	current, err := s.GetQuery(ctx, settlement.QueryID)
@@ -154,98 +152,6 @@ func (s *Store) FinalizeQueryMeasuredWithReceipt(ctx context.Context, settlement
 	}
 	metrics.SettlementStore = time.Since(settlementStarted)
 	return record, receipt, metrics, nil
-}
-
-// FinalizePlannedQueryWithReceipt performs V2 planning, dual-ledger settlement,
-// selected-result construction/encryption, resource settlement, terminal
-// audit, and V5 receipt persistence in one Control PG transaction.
-func (s *Store) FinalizePlannedQueryWithReceipt(ctx context.Context, settlement BudgetSettlement, planning RepresentationPlanningRequest, resultBuilder PlannedResultBuilder, receiptBuilder TerminalReceiptBuilder) (QueryRecord, PersistedQueryReceipt, exposure.ExactPlan, FinalizeQueryMetrics, error) {
-	const op = "finalize planned query"
-	var metrics FinalizeQueryMetrics
-	if err := s.checkOpen(op); err != nil {
-		return QueryRecord{}, PersistedQueryReceipt{}, exposure.ExactPlan{}, metrics, err
-	}
-	if s.cipher == nil {
-		return QueryRecord{}, PersistedQueryReceipt{}, exposure.ExactPlan{}, metrics, opErr(op, ErrCipherUnavailable, nil)
-	}
-	if settlement.QueryID == "" || settlement.Rows < 0 || settlement.ChargeRows < 0 || settlement.DBMS < 0 || settlement.ObservedDBMS < 0 || resultBuilder == nil {
-		return QueryRecord{}, PersistedQueryReceipt{}, exposure.ExactPlan{}, metrics, opErr(op, ErrInvalid, fmt.Errorf("invalid planned settlement"))
-	}
-	current, err := s.GetQuery(ctx, settlement.QueryID)
-	if err != nil {
-		return QueryRecord{}, PersistedQueryReceipt{}, exposure.ExactPlan{}, metrics, err
-	}
-	if current.Status != QueryReserved {
-		return QueryRecord{}, PersistedQueryReceipt{}, exposure.ExactPlan{}, metrics, opErr(op, ErrReservationNotFound, fmt.Errorf("query is %s", current.Status))
-	}
-	keyID, err := resultCipherKeyID(s.cipher)
-	if err != nil {
-		return QueryRecord{}, PersistedQueryReceipt{}, exposure.ExactPlan{}, metrics, opErr(op, ErrInvalid, err)
-	}
-	settlementStarted := time.Now()
-	now := s.now()
-	tx, err := beginTx(ctx, s.db)
-	if err != nil {
-		return QueryRecord{}, PersistedQueryReceipt{}, exposure.ExactPlan{}, metrics, opErr(op, ErrConflict, err)
-	}
-	defer rollback(tx)
-	plan, exposureCharge, err := planAndSettleExposureTx(ctx, tx, now, settlement.QueryID, planning)
-	if err != nil {
-		return QueryRecord{}, PersistedQueryReceipt{}, exposure.ExactPlan{}, metrics, opErr(op, settlementErrorKind(err), err)
-	}
-	plaintext, releasedRows, err := resultBuilder(plan)
-	if err != nil {
-		return QueryRecord{}, PersistedQueryReceipt{}, exposure.ExactPlan{}, metrics, opErr(op, ErrInvalid, fmt.Errorf("build selected result: %w", err))
-	}
-	if releasedRows < 0 {
-		return QueryRecord{}, PersistedQueryReceipt{}, exposure.ExactPlan{}, metrics, opErr(op, ErrInvalid, fmt.Errorf("build selected result: negative row count"))
-	}
-	settlement.Rows = releasedRows
-	hash := plaintextHash(plaintext)
-	encryptionStarted := time.Now()
-	nonce, ciphertext, err := s.cipher.Encrypt(plaintext, resultAAD(current.TaskID, current.ID))
-	metrics.Encryption = time.Since(encryptionStarted)
-	if err != nil {
-		return QueryRecord{}, PersistedQueryReceipt{}, exposure.ExactPlan{}, metrics, opErr(op, ErrCipherUnavailable, err)
-	}
-	record, audit, err := settleBudgetTx(ctx, tx, now, settlement, QueryCompleted, hash)
-	if err != nil {
-		return QueryRecord{}, PersistedQueryReceipt{}, exposure.ExactPlan{}, metrics, opErr(op, settlementErrorKind(err), err)
-	}
-	created, err := insertEncryptedResultTx(ctx, tx, EncryptedResult{QueryID: current.ID, TaskID: current.TaskID,
-		KeyID: keyID, Nonce: nonce, Ciphertext: ciphertext, SHA256: hash, CreatedAt: now})
-	if err != nil {
-		return QueryRecord{}, PersistedQueryReceipt{}, exposure.ExactPlan{}, metrics, err
-	}
-	if record.ResultSHA256 == "" {
-		if _, err := tx.ExecContext(ctx, `UPDATE query_records SET result_sha256=$1 WHERE id=$2`, hash, record.ID); err != nil {
-			return QueryRecord{}, PersistedQueryReceipt{}, exposure.ExactPlan{}, metrics, opErr(op, ErrConflict, err)
-		}
-		record.ResultSHA256 = hash
-	} else if record.ResultSHA256 != hash {
-		return QueryRecord{}, PersistedQueryReceipt{}, exposure.ExactPlan{}, metrics, opErr(op, ErrConflict, fmt.Errorf("query already finalized with a different result"))
-	}
-	if created {
-		if _, err := appendAuditTx(ctx, tx, AuditEvent{TaskID: record.TaskID, QueryID: record.ID, Actor: record.Actor,
-			EventType: "QUERY_RESULT_STORED", Payload: mustJSON(map[string]any{"result_sha256": hash,
-				"cipher": "AES-256-GCM", "key_id": keyID, "planner_version": plan.PlannerVersion}), OccurredAt: now}); err != nil {
-			return QueryRecord{}, PersistedQueryReceipt{}, exposure.ExactPlan{}, metrics, opErr(op, ErrConflict, err)
-		}
-	}
-	var receipt PersistedQueryReceipt
-	if receiptBuilder != nil {
-		signingStarted := time.Now()
-		receipt, err = persistTerminalReceiptTx(ctx, tx, now, QueryReceipt{Query: record, Audit: audit, Exposure: exposureCharge}, receiptBuilder)
-		metrics.ReceiptSigning = time.Since(signingStarted)
-		if err != nil {
-			return QueryRecord{}, PersistedQueryReceipt{}, exposure.ExactPlan{}, metrics, opErr(op, receiptErrorKind(err), err)
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return QueryRecord{}, PersistedQueryReceipt{}, exposure.ExactPlan{}, metrics, opErr(op, ErrConflict, err)
-	}
-	metrics.SettlementStore = time.Since(settlementStarted)
-	return record, receipt, plan, metrics, nil
 }
 
 // SaveEncryptedResult stores a result for an already completed query. Prefer

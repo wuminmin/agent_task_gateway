@@ -1,8 +1,8 @@
 # Reproducible evaluation harness
 
 This directory contains three evidence tracks. `exposure/` is the deterministic
-TKDE-oriented ground-truth, rewrite, anti-arbitrage, baseline-charge, and
-planner suite. `exposure-performance/` is the real public-MCP exposure path and
+TKDE-oriented ground-truth, rewrite, anti-arbitrage, and baseline-charge suite.
+`exposure-performance/` is the real public-MCP exposure path and
 ablation harness. The existing runner remains the four-path resource-only
 system-performance harness. No track substitutes mock timing data when a
 prerequisite is absent, and older measurements are not relabeled as exposure

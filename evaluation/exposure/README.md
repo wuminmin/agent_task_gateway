@@ -21,7 +21,7 @@ records the SHA-256 of `corpus.json`, both independent-oracle identities, the
 normalized rewrite-pair-set digest, exact PostgreSQL version, and campaign seeds
 where randomized or generated trials are used.
 A nonzero exit means a ground-truth set, rewrite comparison, integration pass,
-anti-arbitrage case, or planner oracle did not match.
+or anti-arbitrage case did not match.
 
 ## Research-question coverage
 
@@ -56,13 +56,7 @@ anti-arbitrage case, or planner oracle did not match.
   latency/throughput, component timing, ledger growth, memory, contention, and
   history-hit metrics. The result is explicitly a controlled local fixture
   campaign rather than a TPC or production-scale measurement.
-- **RQ5:** exact set-valued dual-budget optimization is checked on the
-  two-requirement/shared-fact/budget-one counterexample and 500 brute-force
-  instances. `../agenttasks/` separately replays
-  120 four-part database-agent traces and scores selected answer tokens against
-  gold assertions without consulting planner utility values.
-
-`corpus.json`, the PostgreSQL oracle fixture, and the agent-task generator are
+`corpus.json` and the PostgreSQL oracle fixture are
 intentionally small enough to audit. The 1,024 count denotes unique normalized
 SQL pairs, not independent datasets or workloads. TPC-scale, second-engine,
 multi-node, and live-LLM generalization remain outside the reported scope.

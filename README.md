@@ -20,7 +20,7 @@ delta(T, q) = (|F_release(q) - K_release(T)|,
 
 在线路径是 `reserve -> execute/buffer -> derive provenance -> settle -> release`。
 可见结果与 provenance companion 在同一个只读 `REPEATABLE READ` 事务执行；
-只有双账本结算、加密结果、审计和 V4/V5 签名回执原子提交后，结果才会释放。
+只有双账本结算、加密结果、审计和 V4 签名回执原子提交后，结果才会释放。
 超出任一 exposure 上限的结果不会交付或保存。
 
 实现范围和非目标见[任务级数据暴露记账](docs/exposure-accounting.md)。
@@ -79,7 +79,7 @@ Navicat 的用户名和密码对应关系见[本地启动与数据库调试](doc
 2. 调用 `request_data_task`，显式提交非空 `objective`、`data_products`、每个产品的非空 `columns` 及 `scopes`。资源预算与 release/influence 上限都只能缩小 Catalog Profile。
 3. 在 OA 提交并完成自动或人工审批。
 4. ACTIVE 后使用 `execute_plan(task_id, request_id, plan)`。默认 Catalog 已启用 exposure Profile，因此该路径会生成同快照 provenance 并进行双账本结算。
-5. `taskgate-exposure-v2` 的 `plan_exposure` 会在同一快照执行候选 QueryPlan，以服务端 FactSet 的真实重叠做 exact planning，并从 required-output 契约、实际输出 schema 与截断状态生成 utility；客户端不能提交成本、utility 或权重。V1 标量 planner 已删除。详见 [V2 Profile](docs/exposure-v2.md)。子 Agent 任务通过 `parent_task_id` 和 `delegate_principal_id` 创建，且共享根账本。
+5. 子 Agent 任务通过 `parent_task_id` 和 `delegate_principal_id` 创建，所有授权维度只能收缩，且共享根账本。每次查询仍提交一个确定的 QueryPlan。
 
 `request_id` 由客户端生成并在一个任务内保持唯一。相同 ID 和相同请求只返回首次持久化结果/状态；相同 ID 搭配不同请求会关闭式拒绝，重试不会产生第二次执行或预算消费。
 
@@ -131,8 +131,7 @@ docker compose down
 
 `make eval-exposure` 运行可审计的 ground truth、由独立 oracle 校验的
 1,024 个唯一 PostgreSQL 等价改写、
-anti-arbitrage cases、计费基线、双预算 planner oracle 和 120 条 gold-scored
-agent-task traces。`evaluation/exposure-performance/results.json` 保存三次独立
+anti-arbitrage cases 和计费基线。`evaluation/exposure-performance/results.json` 保存三次独立
 PostgreSQL 全路径 trial 的 31,296 个 RQ4 观测；该结果限定为本地十行 fixture，
 不冒充 TPC 或生产规模。`make paper` 构建新的 TKDE 工作稿；
 旧的安全网关稿仍可用 `make paper-tdsc` 构建。

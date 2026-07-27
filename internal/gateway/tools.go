@@ -62,18 +62,6 @@ var queryTools = []mcp.Tool{
 		"task_id": map[string]any{"type": "string"}, "query_id": map[string]any{"type": "string"},
 	}, "task_id", "query_id"), Annotations: map[string]any{"readOnlyHint": true}},
 	{Name: "get_budget", Description: "读取任务预算上限、已用和剩余值。", InputSchema: taskIDSchema(), Annotations: map[string]any{"readOnlyHint": true}},
-	{Name: "plan_exposure", Description: "在同一快照执行候选 QueryPlan、生成 V2 精确 Effect、原子规划结算并仅释放选中结果。", InputSchema: objectSchema(map[string]any{
-		"task_id": map[string]any{"type": "string"}, "request_id": requestIDSchema(),
-		"requirements": map[string]any{"type": "array", "minItems": 1, "maxItems": 16, "items": objectSchema(map[string]any{
-			"id": map[string]any{"type": "string", "minLength": 1},
-			"required_outputs": map[string]any{"type": "array", "minItems": 1, "maxItems": 64,
-				"items": map[string]any{"type": "string", "minLength": 1}},
-		}, "id", "required_outputs")},
-		"candidates": map[string]any{"type": "array", "minItems": 1, "maxItems": 16, "items": objectSchema(map[string]any{
-			"id": map[string]any{"type": "string", "minLength": 1}, "requirement": map[string]any{"type": "string", "minLength": 1},
-			"plan": queryPlanSchema(),
-		}, "id", "requirement", "plan")},
-	}, "task_id", "requirements", "candidates")},
 	{Name: "list_receipts", Description: "列出自己的查询审计凭证，不含物理表名或数据库凭据。", InputSchema: objectSchema(map[string]any{
 		"task_id": map[string]any{"type": "string"}, "cursor": map[string]any{"type": "string"},
 	}, "task_id"), Annotations: map[string]any{"readOnlyHint": true}},
@@ -165,8 +153,6 @@ func (s *Service) CallTool(ctx context.Context, principal mcp.Principal, name st
 			result, err = s.getQueryResult(ctx, principal, raw)
 		case "get_budget":
 			result, err = s.getBudget(ctx, principal, raw)
-		case "plan_exposure":
-			result, err = s.planExposure(ctx, principal, raw)
 		case "list_receipts":
 			result, err = s.listReceipts(ctx, principal, raw)
 		case "complete_task":

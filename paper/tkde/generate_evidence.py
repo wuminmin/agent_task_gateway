@@ -16,7 +16,6 @@ CORPUS = ROOT / "evaluation/exposure/corpus.json"
 RQ1_ORACLE = ROOT / "evaluation/exposureoracle/oracle.go"
 PERFORMANCE = ROOT / "evaluation/exposure-performance/results.json"
 PERFORMANCE_ENVIRONMENT = ROOT / "evaluation/exposure-performance/environment.json"
-AGENT_CORPUS = ROOT / "evaluation/agenttasks/corpus.json"
 FORMAL = ROOT / "formal/results/exposure_ledger.json"
 OUTPUT = PAPER_DIR / "generated/evidence.tex"
 
@@ -57,13 +56,11 @@ def string_set_sha256(domain: str, values: list[str]) -> str:
 
 def validate_exposure() -> dict:
     report = load_json(RESULT)
-    require(report.get("schema_version") == 3, "unsupported exposure report schema")
+    require(report.get("schema_version") == 4, "unsupported exposure report schema")
     require(report.get("corpus_sha256") == sha256(CORPUS), "exposure corpus digest is stale")
     rq1 = report.get("rq1_ground_truth", {})
     rq2 = report.get("rq2_rewrite_invariance", {})
     rq3 = report.get("rq3_anti_arbitrage", {})
-    rq5 = report.get("rq5_budget_aware_planning", {})
-    agent = report.get("rq5_agent_tasks", {})
     corpus = load_json(CORPUS)
     ground_truth = corpus.get("ground_truth", [])
     relation_rows = sum(len(relation.get("rows", [])) for relation in corpus.get("relations", []))
@@ -175,41 +172,10 @@ def validate_exposure() -> dict:
         and artifact_tests == expected_manifest,
         "RQ3 raw go-test events do not prove every declared test passed",
     )
-    require(rq5.get("scenarios", 0) > 0 and rq5.get("passed") == rq5.get("scenarios"), "RQ5 planner oracle is incomplete")
     require(
         report.get("rq4_runtime_overhead_status")
         == "measured_controlled_local_postgresql_campaign",
         "RQ4 status is stale",
-    )
-    require(
-        agent.get("status") == "complete"
-        and agent.get("corpus_sha256") == sha256(AGENT_CORPUS)
-        and agent.get("seed") == 20260725
-        and agent.get("schema_version") == 2
-        and agent.get("tasks") == 24
-        and agent.get("objectives") == 24
-        and agent.get("kinds") == 5
-        and agent.get("gold_tokens_per_requirement") == 3
-        and agent.get("success_threshold") == 2
-        and agent.get("utility_signal")
-        == "query-coverage-decoupled-from-gold-reveal",
-        "RQ5 agent-task campaign is incomplete",
-    )
-    policies = {item.get("policy"): item for item in agent.get("policies", [])}
-    require(
-        set(policies)
-        == {"taskgate_exact", "utility_greedy", "additive_cost",
-            "taskgate_exact_no_history", "random_first", "single_candidate"}
-        and policies["taskgate_exact"].get("budget_violations") == 0
-        and policies["taskgate_exact"].get("task_successes", 0)
-        > policies["utility_greedy"].get("task_successes", 0)
-        and policies["taskgate_exact"].get("task_successes", 0)
-        > policies["additive_cost"].get("task_successes", 0)
-        and policies["taskgate_exact"].get("task_successes", 0)
-        > policies["single_candidate"].get("task_successes", 0)
-        and policies["taskgate_exact"].get("mean_answer_completeness", 0)
-        > policies["utility_greedy"].get("mean_answer_completeness", 0),
-        "RQ5 agent-task policy results are invalid",
     )
     exposure_invariance = report.get("rq2_exposure_invariance", {})
     require(
@@ -225,7 +191,7 @@ def validate_exposure() -> dict:
     require(
         scaling.get("status") == "complete"
         and {curve.get("dimension") for curve in scaling.get("curves", [])}
-        == {"observe_rows", "planner_candidates", "normalizer_depth", "novel_vs_replay"}
+        == {"observe_rows", "normalizer_depth", "novel_vs_replay"}
         and all(len(curve.get("points", [])) >= 4 for curve in scaling.get("curves", [])),
         "RQ4 scaling evidence is incomplete",
     )
@@ -301,9 +267,6 @@ def main() -> None:
     rq1 = report["rq1_ground_truth"]
     rq2 = report["rq2_rewrite_invariance"]
     rq3 = report["rq3_anti_arbitrage"]
-    rq5 = report["rq5_budget_aware_planning"]
-    agent = report["rq5_agent_tasks"]
-    policies = {item["policy"]: item for item in agent["policies"]}
     exposure_invariance = report["rq2_exposure_invariance"]
     scaling = report["rq4_scaling"]
     scaling_curves = {curve["dimension"]: curve for curve in scaling["curves"]}
@@ -335,8 +298,6 @@ def main() -> None:
         rf"\newcommand{{\RQThreePassed}}{{{rq3['deterministic_passed']}}}",
         rf"\newcommand{{\RQThreeExecuted}}{{{rq3['postgres_integration']['executed']}}}",
         rf"\newcommand{{\RQThreeIntegration}}{{{rq3['postgres_integration']['passed']}}}",
-        rf"\newcommand{{\RQFiveCases}}{{{rq5['scenarios']}}}",
-        rf"\newcommand{{\RQFivePassed}}{{{rq5['passed']}}}",
         rf"\newcommand{{\RQFourTrials}}{{{performance['trials']}}}",
         rf"\newcommand{{\RQFourObservations}}{{{comma(performance['observations'])}}}",
         rf"\newcommand{{\RQFourDirectOneMedian}}{{{decimal(direct_one['latency_ms']['p50'], 2)}}}",
@@ -358,8 +319,6 @@ def main() -> None:
         rf"\newcommand{{\RQFourScalingDims}}{{{len(scaling['curves'])}}}",
         rf"\newcommand{{\RQFourScalingMaxRows}}{{{comma(scaling_curves['observe_rows']['points'][-1]['size'])}}}",
         rf"\newcommand{{\RQFourScalingObserveMicros}}{{{decimal(scaling_curves['observe_rows']['points'][-1]['ns_per_op'] / 1000)}}}",
-        rf"\newcommand{{\RQFourScalingPlannerMax}}{{{scaling_curves['planner_candidates']['points'][-1]['size']}}}",
-        rf"\newcommand{{\RQFourScalingPlannerMicros}}{{{decimal(scaling_curves['planner_candidates']['points'][-1]['ns_per_op'] / 1000)}}}",
         rf"\newcommand{{\RQFourScalingNovelMax}}{{{comma(scaling_curves['novel_vs_replay']['points'][-1]['size'])}}}",
         rf"\newcommand{{\RQFourScalingReplayCharge}}{{{scaling_curves['novel_vs_replay']['points'][-1]['replay_charge']}}}",
         rf"\newcommand{{\RQTwoExposureRewrites}}{{{exposure_invariance['rewrites']}}}",
@@ -367,16 +326,6 @@ def main() -> None:
         rf"\newcommand{{\RQTwoExposureDatasets}}{{{exposure_invariance['datasets']}}}",
         rf"\newcommand{{\RQTwoExposureNFCases}}{{{exposure_invariance['normal_form_checks']}}}",
         rf"\newcommand{{\RQTwoExposureMismatches}}{{{exposure_invariance['mismatches']}}}",
-        rf"\newcommand{{\RQFiveAgentTasks}}{{{agent['tasks']}}}",
-        rf"\newcommand{{\RQFiveKinds}}{{{agent['kinds']}}}",
-        rf"\newcommand{{\RQFiveExactSuccess}}{{{policies['taskgate_exact']['task_successes']}}}",
-        rf"\newcommand{{\RQFiveGreedySuccess}}{{{policies['utility_greedy']['task_successes']}}}",
-        rf"\newcommand{{\RQFiveAdditiveSuccess}}{{{policies['additive_cost']['task_successes']}}}",
-        rf"\newcommand{{\RQFiveNoHistorySuccess}}{{{policies['taskgate_exact_no_history']['task_successes']}}}",
-        rf"\newcommand{{\RQFiveRandomSuccess}}{{{policies['random_first']['task_successes']}}}",
-        rf"\newcommand{{\RQFiveSingleSuccess}}{{{policies['single_candidate']['task_successes']}}}",
-        rf"\newcommand{{\RQFiveExactCompleteness}}{{{decimal(100 * policies['taskgate_exact']['mean_answer_completeness'])}\%}}",
-        rf"\newcommand{{\RQFiveGreedyCompleteness}}{{{decimal(100 * policies['utility_greedy']['mean_answer_completeness'])}\%}}",
         rf"\newcommand{{\BaseQueryCount}}{{{baseline['query_count']}}}",
         rf"\newcommand{{\BaseRows}}{{{baseline['returned_rows']}}}",
         rf"\newcommand{{\BaseBytes}}{{{baseline['serialized_bytes']}}}",

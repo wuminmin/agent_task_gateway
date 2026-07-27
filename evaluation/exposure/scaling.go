@@ -2,11 +2,10 @@ package exposureeval
 
 // In-process scaling evidence for RQ4. The earlier RQ4 campaign measured only a
 // ten-row fixture with LIMIT 1, a 28-fact ramp, and 100% history hit, so it
-// never showed how provenance, settlement, or planning cost grows. This file
+// never showed how provenance or settlement cost grows. This file
 // runs deterministic, in-process sweeps over the dimensions the closed
 // accounting actually depends on:
 //   - observe_rows:     ObserveV2 over source/provenance rows from 10 to 1e5.
-//   - planner_candidates: OptimizeEffects over candidate counts and fact pools.
 //   - normalizer_depth: NormalizeAlgebraV2 over expression depth.
 //   - novel_vs_replay:  settlement dedup cost for a novel write vs a history hit.
 // The PostgreSQL-backed full-path and concurrency sweeps remain in the separate
@@ -15,7 +14,6 @@ package exposureeval
 
 import (
 	"fmt"
-	"math/rand"
 	"time"
 
 	"taskbound.local/agent-data-gateway/internal/exposure"
@@ -52,16 +50,12 @@ func RunScaling() (ScalingSummary, error) {
 	if err != nil {
 		return summary, err
 	}
-	planner, err := scalePlannerCandidates()
-	if err != nil {
-		return summary, err
-	}
 	normalizer, err := scaleNormalizerDepth()
 	if err != nil {
 		return summary, err
 	}
 	novelReplay := scaleNovelVsReplay()
-	summary.Curves = []ScalingCurve{observe, planner, normalizer, novelReplay}
+	summary.Curves = []ScalingCurve{observe, normalizer, novelReplay}
 	return summary, nil
 }
 
@@ -91,33 +85,6 @@ func scaleObserveRows() (ScalingCurve, error) {
 		})
 		curve.Points = append(curve.Points, ScalingPoint{Size: size, NsPerOp: ns,
 			ReleaseFacts: release, InfluenceFacts: influence})
-	}
-	return curve, nil
-}
-
-// scalePlannerCandidates measures OptimizeEffects as the candidate count and
-// underlying fact-pool grow, the dimension that controls the exponential
-// representation selector.
-func scalePlannerCandidates() (ScalingCurve, error) {
-	curve := ScalingCurve{Dimension: "planner_candidates", Unit: "candidates"}
-	random := rand.New(rand.NewSource(20260726))
-	for _, candidates := range []int{4, 6, 8, 10, 12} {
-		pool := make([]exposure.FactID, candidates*2)
-		for i := range pool {
-			fact, err := exposure.NewBaseCellFactV2("scaling.planner", "snapshot-v2",
-				fmt.Sprintf("row-%d", i), "value", "bigint", int64(i))
-			if err != nil {
-				return curve, err
-			}
-			pool[i] = fact
-		}
-		inputs := scalingCandidates(random, pool, candidates)
-		history := exposure.Observation{ProfileVersion: exposure.ProfileV2}
-		ns := timePerOp(scalingIterations, func() {
-			_, _ = exposure.OptimizeEffects(inputs, history, int64(candidates), int64(candidates),
-				exposure.UtilityWeights{AnswerCompleteness: 1})
-		})
-		curve.Points = append(curve.Points, ScalingPoint{Size: candidates, NsPerOp: ns})
 	}
 	return curve, nil
 }
@@ -182,25 +149,6 @@ func scalingFactSet(prefix string, size int) []exposure.FactID {
 		result[i] = fact
 	}
 	return result
-}
-
-func scalingCandidates(random *rand.Rand, pool []exposure.FactID, count int) []exposure.EffectCandidate {
-	requirements := (count + 1) / 2
-	inputs := make([]exposure.EffectCandidate, 0, count)
-	for i := 0; i < count; i++ {
-		release := make([]exposure.FactID, 0, 3)
-		influence := make([]exposure.FactID, 0, 3)
-		for j := 0; j < 3; j++ {
-			release = append(release, pool[random.Intn(len(pool))])
-			influence = append(influence, pool[random.Intn(len(pool))])
-		}
-		inputs = append(inputs, exposure.EffectCandidate{
-			ID: fmt.Sprintf("c-%d", i), Requirement: fmt.Sprintf("r-%d", i%requirements),
-			AnswerCompleteness: float64(random.Intn(5)+1) / 5,
-			Effect:             exposure.Observation{ProfileVersion: exposure.ProfileV2, Release: release, Influence: influence},
-		})
-	}
-	return inputs
 }
 
 func scalingExpenseSpec(rows int) exposure.BaseRelationSpecV2 {

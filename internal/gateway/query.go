@@ -495,20 +495,6 @@ func (s *Service) queryReplayResponse(ctx context.Context, record control.QueryR
 		// be encoded or atomically stored after execution.
 		return result, nil
 	}
-	if representationPlan, planErr := s.store.GetRepresentationPlan(ctx, record.ID); planErr == nil {
-		var stored storedRepresentationResult
-		if err := json.Unmarshal(plaintext, &stored); err != nil {
-			return nil, err
-		}
-		result["profile_version"] = representationPlan.ProfileVersion
-		result["planner_version"] = representationPlan.PlannerVersion
-		result["plan"] = representationPlan
-		result["results"] = stored.Results
-		result["database_ms"] = stored.DatabaseMS
-		return result, nil
-	} else if !errors.Is(planErr, control.ErrNotFound) {
-		return nil, planErr
-	}
 	var stored storedQueryResult
 	if err := json.Unmarshal(plaintext, &stored); err != nil {
 		return nil, err
@@ -984,14 +970,6 @@ func BuildQueryReceiptRequest(evidence control.QueryReceipt, signer *queryreceip
 			ActualReleaseFacts: evidence.Exposure.ActualReleaseFacts, ActualInfluenceFacts: evidence.Exposure.ActualInfluenceFacts,
 			ChargedReleaseFacts: evidence.Exposure.ChargedReleaseFacts, ChargedInfluenceFacts: evidence.Exposure.ChargedInfluenceFacts,
 			ObservationSHA256: evidence.Exposure.ObservationSHA256,
-		}
-		if evidence.Exposure.PlannerVersion != "" {
-			version = queryreceipt.VersionV5
-			exposureEvidence.PlannerVersion = evidence.Exposure.PlannerVersion
-			exposureEvidence.CandidatesSHA256 = evidence.Exposure.CandidatesSHA256
-			exposureEvidence.SelectedSHA256 = evidence.Exposure.SelectedSHA256
-			exposureEvidence.UnionEffectSHA256 = evidence.Exposure.UnionEffectSHA256
-			exposureEvidence.SnapshotBundleSHA256 = evidence.Exposure.SnapshotBundleSHA256
 		}
 	}
 	receipt := queryreceipt.QueryReceiptV1{

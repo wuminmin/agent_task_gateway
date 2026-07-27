@@ -93,7 +93,7 @@ reserve -> execute/buffer -> derive provenance -> settle -> release
 4. Gateway 从两份结果构造并规范化 release/influence FactID 集。
 5. Control PostgreSQL 锁定根账本，使用不可变事实表的唯一键只插入 novel
    facts，并分别检查两个上限。
-6. exposure 结算、资源结算、AES-GCM 结果、终态审计和 Ed25519 V4/V5 回执在
+6. exposure 结算、资源结算、AES-GCM 结果、终态审计和 Ed25519 V4 回执在
    同一事务提交后，Gateway 才向客户端释放结果。
 
 任一 exposure 维度超限时，整笔控制事务回滚：新事实、账本计数和结果密文
@@ -150,31 +150,13 @@ resource-only grant 保留直接 SQL 兼容行为。
 | `exposure_facts` | 按 root + ledger kind + FactID Hash 唯一且不可变的已知事实 |
 
 查询 V4 回执签名绑定 `root_task_id`、Profile、两类 actual facts、两类 charged
-facts 和规范化 observation SHA-256；V2 planner 的 V5 还绑定候选、选择、snapshot
-bundle、planner 和联合 Effect。回执不包含原始 FactID 或结果行；审计员
+facts 和规范化 observation SHA-256。回执不包含原始 FactID 或结果行；审计员
 可验证收费证据与终态审计位置，但不能据此恢复敏感值。
-
-## 预算规划
-
-`plan_exposure` 只接受 `taskgate-exposure-v2`；V1 标量规划路径已删除。
-客户端提交 required-output 契约和候选 QueryPlan，Gateway 执行候选并生成
-精确 Effect 与固定版本 utility。完整定义见 [exposure-v2.md](exposure-v2.md)。
-V2 从每个 requirement 至多选一个，并求解：
-
-```text
-maximize sum(server-derived required-output utility)
-subject to |union(candidate.release) - root_history.release| <= remaining_release
-           |union(candidate.influence) - root_history.influence| <= remaining_influence
-```
-
-V2 候选成本、FactID 和 utility 标量均由服务端生成。Planner 使用稠密双
-bitset、精确集合并、集合包含支配和稳定 tie-break。required-output 契约由调用
-请求声明并进入回执证据；它不是对语义答案真值的认证。
 
 ## 证据与限制
 
 - `make eval-exposure` 运行 ground truth、等价改写、确定性
-  anti-arbitrage cases、计费基线和 planner oracle；V2 单元/性质测试另覆盖 typed NULL、multi-key Join、Union commutativity/idempotence、Group NULL 与嵌套闭包。
+  anti-arbitrage cases 和计费基线；V2 单元/性质测试另覆盖 typed NULL、multi-key Join、Union commutativity/idempotence、Group NULL 与嵌套闭包。
 - `make verify` 运行真实 PostgreSQL race/integration suite，包括并发结算、
   委托共享账本、重放及超限结果不落库。
 - `make formal` 检查 `ExposureLedger.tla` 的双预算安全、exact novel charge、

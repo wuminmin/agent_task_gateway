@@ -107,18 +107,6 @@ func (connector *fakeConnector) QueryPair(ctx context.Context, request dataconne
 	return dataconnector.QueryPairResult{Visible: connector.result, Provenance: provenance}, nil
 }
 
-func (connector *fakeConnector) QueryBatch(ctx context.Context, request dataconnector.QueryBatchRequest) (dataconnector.QueryBatchResult, error) {
-	result := dataconnector.QueryBatchResult{Candidates: make([]dataconnector.QueryPairResult, 0, len(request.Candidates))}
-	for _, candidate := range request.Candidates {
-		pair, err := connector.QueryPair(ctx, candidate)
-		if err != nil {
-			return dataconnector.QueryBatchResult{}, err
-		}
-		result.Candidates = append(result.Candidates, pair)
-	}
-	return result, nil
-}
-
 func (connector *fakeConnector) Ping(context.Context) error { return connector.pingErr }
 
 func (connector *fakeConnector) Attestation(context.Context) (dataconnector.Attestation, error) {

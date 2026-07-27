@@ -442,6 +442,6 @@ K' = (Kr ∪ Er, Ki ∪ Ei)
 | Catalog collation/type/profile 条件 | `internal/catalog/validate.go` |
 | PostgreSQL name/version/determinism 证明 | `internal/dataconnector/postgres.go` |
 | 在线 paired execution/provenance | `internal/gateway/exposure.go` |
-| 原子 ledger 与 planner | `internal/control`, `internal/exposure/optimizer.go` |
+| 原子 ledger 结算 | `internal/control` |
 
 “完整 Exposure Algebra”指本文件语法内的可执行、闭合代数及其 Observation/FactID/NF 语义。当前公网 `execute_plan` 编译器只 lowering 单产品的 Scan/Select/Project/Group/Page 子集；Join 和 Union-Distinct 已在代数/NF 层完整实现和测试，但尚未开放为在线多产品 API。本文不声称：任意 SQL provenance、outer join、`AVG`、negative information、排序位置泄露、差分隐私、跨引擎等价，或 Go 对本文数学模型的 mechanized refinement proof。

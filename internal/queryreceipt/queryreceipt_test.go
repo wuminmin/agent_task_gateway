@@ -123,28 +123,6 @@ func TestQueryReceiptV4SignatureBindsExposureEvidence(t *testing.T) {
 	}
 }
 
-func TestQueryReceiptV5BindsCandidateSelectionAndUnionEffect(t *testing.T) {
-	signer := DemoSigner([]byte("unit-test-secret"))
-	verifier, err := NewVerifier(map[string]ed25519.PublicKey{signer.KeyID(): signer.PublicKey()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	receipt, err := signer.Sign(validV5Receipt())
-	if err != nil {
-		t.Fatalf("Sign V5: %v", err)
-	}
-	if err := verifier.Verify(receipt); err != nil {
-		t.Fatalf("Verify V5: %v", err)
-	}
-	tampered := receipt
-	exposureCopy := *receipt.Exposure
-	tampered.Exposure = &exposureCopy
-	tampered.Exposure.SelectedSHA256 = fmt.Sprintf("%064x", 99)
-	if err := verifier.Verify(tampered); !errors.Is(err, ErrInvalidSignature) {
-		t.Fatalf("selected digest tamper error = %v", err)
-	}
-}
-
 func TestQueryReceiptSemanticValidation(t *testing.T) {
 	signer := DemoSigner([]byte("unit-test-secret"))
 	verifier, err := NewVerifier(map[string]ed25519.PublicKey{signer.KeyID(): signer.PublicKey()})
@@ -154,7 +132,6 @@ func TestQueryReceiptSemanticValidation(t *testing.T) {
 	for _, receipt := range []QueryReceiptV1{
 		validReceipt(),
 		validV4Receipt(),
-		validV5Receipt(),
 		validReleasedReceipt(StatusReleased, "AUTHORIZATION_EXPIRED"),
 		validFailedReceipt(),
 		validIndeterminateReceipt(),
@@ -414,18 +391,6 @@ func validV4Receipt() QueryReceiptV1 {
 		ChargedReleaseFacts: 2, ChargedInfluenceFacts: 5,
 		ObservationSHA256: fmt.Sprintf("%x", digest),
 	}
-	return receipt
-}
-
-func validV5Receipt() QueryReceiptV1 {
-	receipt := validV4Receipt()
-	receipt.Version = VersionV5
-	receipt.Exposure.ProfileVersion = "taskgate-exposure-v2"
-	receipt.Exposure.PlannerVersion = "taskgate-overlap-exact-v2"
-	receipt.Exposure.CandidatesSHA256 = fmt.Sprintf("%064x", 11)
-	receipt.Exposure.SelectedSHA256 = fmt.Sprintf("%064x", 12)
-	receipt.Exposure.SnapshotBundleSHA256 = fmt.Sprintf("%064x", 13)
-	receipt.Exposure.UnionEffectSHA256 = receipt.Exposure.ObservationSHA256
 	return receipt
 }
 

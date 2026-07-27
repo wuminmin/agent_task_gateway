@@ -114,7 +114,7 @@ MCP `serverInfo.version` 为 `2.0.0`。Alice 可见 14 个任务/查询工具，
 
 | 身份 | 工具 |
 |---|---|
-| Alice | `list_data_products`、`request_data_task`、`list_my_tasks`、`get_task_status`、`wait_for_approval`、`get_task_context`、`execute_plan`、`query_sql`、`get_query_result`、`get_budget`、`plan_exposure`、`list_receipts`、`complete_task`、`revoke_task` |
+| Alice | `list_data_products`、`request_data_task`、`list_my_tasks`、`get_task_status`、`wait_for_approval`、`get_task_context`、`execute_plan`、`query_sql`、`get_query_result`、`get_budget`、`list_receipts`、`complete_task`、`revoke_task` |
 | Carol | `list_audit_events`、`get_audit_receipt` |
 
 ## 4. 结构化申请与人工审批
@@ -183,11 +183,6 @@ route 都是人工审批。Gateway 会在一个只读
 它只保留给旧的 resource-only 兼容 Grant。默认 Demo 应继续使用
 `execute_plan`，例如上面的聚合。
 
-`plan_exposure` 接受候选 QueryPlan；该调用会实际执行全部候选、
-在锁定后的最新 root ledger 上规划并原子结算，只返回选中结果。V2 示例和语义见
-[`exposure-v2.md`](exposure-v2.md)。客户端不提交 FactID 或候选成本；每个
-requirement 至多选择一个表示。
-
 `request_data_task` 还支持 `parent_task_id` 和 `delegate_principal_id`。子任务必须
 由父任务所有者发起，所有授权维度只能收缩，且父子共享同一 exposure 账本。
 默认 Compose 只注册 Alice 这个 query Principal，因此跨主体演示需要部署者先
@@ -198,7 +193,7 @@ requirement 至多选择一个表示。
 - `get_task_context`：获批产品、字段、Scope、凭证与期限。
 - `get_budget`：查询数、累计行数和累计 DB 毫秒的上限、已用、预留和剩余值，并在 exposure 启用时返回根任务双账本。
 - `get_query_result`：Alice 按 `task_id + query_id` 读取 AES-256-GCM 加密保存的结果。
-- `list_receipts`：单查询 exposure 结算使用 V4；V2 候选规划使用 V5，额外绑定全部候选、选中集合、snapshot bundle、planner 与联合 Effect；无 exposure evidence 的兼容终态使用 V3。
+- `list_receipts`：exposure 结算使用 V4；无 exposure evidence 的兼容终态使用 V3。
 - `complete_task`：主动归档任务。
 - `revoke_task`：阻止新查询；已在途查询不会被宣称立即取消，仍受原超时和 Grant 到期约束。
 

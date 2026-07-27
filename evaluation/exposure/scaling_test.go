@@ -3,7 +3,7 @@ package exposureeval
 import "testing"
 
 // TestScalingSweepsCoverCoreDimensions is the in-process RQ4 scaling check:
-// it confirms that observe, planner, normalizer, and settlement-dedup cost are
+// it confirms that observe, normalizer, and settlement-dedup cost are
 // all measured across growing sizes, and that the novel-vs-replay charge gap is
 // exactly as the history-aware accounting predicts (novel charges all, replay
 // charges none).
@@ -12,8 +12,8 @@ func TestScalingSweepsCoverCoreDimensions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("scaling sweep failed: %v", err)
 	}
-	if len(summary.Curves) != 4 {
-		t.Fatalf("expected 4 scaling curves, got %d", len(summary.Curves))
+	if len(summary.Curves) != 3 {
+		t.Fatalf("expected 3 scaling curves, got %d", len(summary.Curves))
 	}
 	for _, curve := range summary.Curves {
 		if len(curve.Points) < 4 {

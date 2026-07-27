@@ -2,7 +2,6 @@ package exposure
 
 import (
 	"math"
-	"math/rand"
 	"strings"
 	"testing"
 	"time"
@@ -804,65 +803,6 @@ func TestV2CanonicalSQLDomainIsTypedAndTotalOnAdmissibleValues(t *testing.T) {
 	}
 }
 
-func TestOptimizeEffectsCountsSharedFactOnce(t *testing.T) {
-	fact := v2Fact(t, "shared")
-	effect := Observation{ProfileVersion: ProfileV2, Release: []FactID{fact}, Influence: []FactID{fact}}
-	plan, err := OptimizeEffects([]EffectCandidate{
-		{ID: "a", Requirement: "r1", AnswerCompleteness: 1, Effect: effect},
-		{ID: "b", Requirement: "r2", AnswerCompleteness: 1, Effect: effect},
-	}, Observation{ProfileVersion: ProfileV2}, 1, 1, UtilityWeights{AnswerCompleteness: 1})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(plan.Selected) != 2 || plan.ReleaseCost != 1 || plan.InfluenceCost != 1 || plan.Utility != 2 {
-		t.Fatalf("overlap plan = %+v", plan)
-	}
-}
-
-func TestOptimizeEffectsTieBreakIsDeterministic(t *testing.T) {
-	fact := v2Fact(t, "tie")
-	effect := Observation{ProfileVersion: ProfileV2, Release: []FactID{fact}, Influence: []FactID{fact}}
-	plan, err := OptimizeEffects([]EffectCandidate{
-		{ID: "b", Requirement: "r", AnswerCompleteness: 1, Effect: effect},
-		{ID: "a", Requirement: "r", AnswerCompleteness: 1, Effect: effect},
-	}, Observation{ProfileVersion: ProfileV2}, 1, 1, UtilityWeights{AnswerCompleteness: 1})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(plan.Selected) != 1 || plan.Selected[0].ID != "a" {
-		t.Fatalf("tie-break plan = %+v, want a", plan)
-	}
-}
-
-func TestOptimizeEffectsMatchesBruteForceOracle(t *testing.T) {
-	random := rand.New(rand.NewSource(20260724))
-	pool := make([]FactID, 8)
-	for index := range pool {
-		pool[index] = v2Fact(t, string(rune('a'+index)))
-	}
-	for trial := 0; trial < 500; trial++ {
-		var candidates []EffectCandidate
-		for requirement := 0; requirement < 3; requirement++ {
-			for option := 0; option < 2; option++ {
-				release, influence := randomFactSlice(random, pool), randomFactSlice(random, pool)
-				candidates = append(candidates, EffectCandidate{ID: string(rune('a' + requirement*2 + option)),
-					Requirement: string(rune('x' + requirement)), AnswerCompleteness: float64(1+random.Intn(5)) / 5,
-					Effect: Observation{ProfileVersion: ProfileV2, Release: release, Influence: influence}})
-			}
-		}
-		history := Observation{ProfileVersion: ProfileV2, Release: randomFactSlice(random, pool), Influence: randomFactSlice(random, pool)}
-		budgetRelease, budgetInfluence := int64(random.Intn(7)), int64(random.Intn(7))
-		actual, err := OptimizeEffects(candidates, history, budgetRelease, budgetInfluence, UtilityWeights{AnswerCompleteness: 1})
-		if err != nil {
-			t.Fatal(err)
-		}
-		want := bruteForceUtility(t, candidates, history, budgetRelease, budgetInfluence)
-		if actual.Utility != want {
-			t.Fatalf("trial %d utility=%v want=%v plan=%+v", trial, actual.Utility, want, actual)
-		}
-	}
-}
-
 func v2Expenses(t *testing.T) RelationV2 {
 	t.Helper()
 	relation, err := ScanV2(BaseRelationSpecV2{SourceNamespace: "travel.expense", Snapshot: "snapshot-1", StableRole: "expense",
@@ -894,54 +834,4 @@ func assertFactSetContainsV2(t *testing.T, actual FactSet, expected FactSet) {
 			t.Fatalf("dependency FactSet is missing %s", hash)
 		}
 	}
-}
-
-func randomFactSlice(random *rand.Rand, pool []FactID) []FactID {
-	var result []FactID
-	for _, fact := range pool {
-		if random.Intn(3) == 0 {
-			result = append(result, fact)
-		}
-	}
-	return result
-}
-
-func bruteForceUtility(t *testing.T, candidates []EffectCandidate, history Observation, releaseBudget, influenceBudget int64) float64 {
-	t.Helper()
-	historyRelease, _ := NewFactSet(history.Release...)
-	historyInfluence, _ := NewFactSet(history.Influence...)
-	best := float64(0)
-	for mask := 0; mask < 1<<len(candidates); mask++ {
-		requirements := make(map[string]struct{})
-		release, influence := make(FactSet), make(FactSet)
-		utility, valid := float64(0), true
-		for index, candidate := range candidates {
-			if mask&(1<<index) == 0 {
-				continue
-			}
-			if _, duplicate := requirements[candidate.Requirement]; duplicate {
-				valid = false
-				break
-			}
-			requirements[candidate.Requirement] = struct{}{}
-			candidateRelease, _ := NewFactSet(candidate.Effect.Release...)
-			candidateInfluence, _ := NewFactSet(candidate.Effect.Influence...)
-			release.Merge(candidateRelease)
-			influence.Merge(candidateInfluence)
-			utility += candidate.AnswerCompleteness
-		}
-		if !valid {
-			continue
-		}
-		for hash := range historyRelease {
-			delete(release, hash)
-		}
-		for hash := range historyInfluence {
-			delete(influence, hash)
-		}
-		if int64(len(release)) <= releaseBudget && int64(len(influence)) <= influenceBudget && utility > best {
-			best = utility
-		}
-	}
-	return best
 }

@@ -5,10 +5,10 @@
 // The operator's run-exposure.sh pipeline regenerates the whole report from
 // scratch (including these in-process sections) when it next runs. This command
 // exists so the committed results.json stays coherent between operator runs:
-// it overwrites only the in-process sections (rq5_agent_tasks,
-// rq2_exposure_invariance, rq4_scaling) and leaves every PG-backed field
+// it overwrites only the in-process sections (rq2_exposure_invariance and
+// rq4_scaling) and leaves every PG-backed field
 // (rq1, the rq2 SQL campaign, rq3 integration, rq4 runtime status,
-// charge_baselines, rq5 planner oracle) untouched.
+// and charge_baselines) untouched.
 package main
 
 import (
@@ -25,7 +25,7 @@ func main() {
 		os.Exit(2)
 	}
 	path := os.Args[1]
-	existing := make(map[string]any)
+	var existing exposureeval.Report
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "read results:", err)
@@ -41,9 +41,9 @@ func main() {
 		fmt.Fprintln(os.Stderr, "in-process exposure evaluation failed:", err)
 		os.Exit(1)
 	}
-	existing["rq5_agent_tasks"] = report.RQ5Agent
-	existing["rq2_exposure_invariance"] = report.RQ2Exposure
-	existing["rq4_scaling"] = report.RQ4Scaling
+	existing.SchemaVersion = report.SchemaVersion
+	existing.RQ2Exposure = report.RQ2Exposure
+	existing.RQ4Scaling = report.RQ4Scaling
 
 	encoder := json.NewEncoder(os.Stdout)
 	encoder.SetIndent("", "  ")

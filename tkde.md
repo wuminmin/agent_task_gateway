@@ -4,7 +4,7 @@
 
 建议题目：
 
-> **TaskGate: Task-Bound Exposure Accounting and Budget-Constrained Query Processing for Autonomous Database Agents**
+> **TaskGate: Task-Bound Positive-Output Dependency Accounting for Autonomous Database Agents**
 
 核心问题改成：
 
@@ -78,18 +78,10 @@
    - task-family delegation non-amplification；
    - 并发结算下的预算安全。
 
-4. **预算约束查询规划**
+4. **可复现的系统证据**
 
-   这是最能提高 TKDE 命中率的一项：在原始明细、投影、聚合、概化等候选数据产品之间，求解
-
-   \[
-   \max_{\rho}\operatorname{Utility}(\rho,T)
-   \quad
-   \text{s.t.}\quad
-   \operatorname{Exposure}(\rho)\preceq B_T
-   \]
-
-   Utility 应采用可测量的答案完整度、查询覆盖率或任务正确率，不能只让 LLM 主观评分。
+   用独立 oracle、等价改写、反套利用例、有限状态模型，以及真实
+   PostgreSQL 全路径开销与并发实验验证前述语义和结算性质。
 
 ## 当前仓库的复用程度
 
@@ -105,13 +97,12 @@
 
 ## 实验门槛
 
-建议设置五个 RQ：
+建议设置四个 RQ：
 
 - RQ1：计量结果与独立的 positive-output dependency ground truth 是否一致？
 - RQ2：数百至上千组等价改写的 charge 是否一致？
 - RQ3：Join 放大、查询拆分、重叠分页、缓存、重试和子 Agent 是否可套利？
 - RQ4：lineage、历史去重和账本分别增加多少时间、空间和吞吐开销？
-- RQ5：相同预算下，预算感知规划是否提高 Agent 任务成功率？
 
 基线至少包括 query count、returned rows、serialized bytes、weighted cells、无历史去重的 provenance，以及完整方案。建议 PostgreSQL 加第二个引擎，并使用完整 TPC-H/TPC-DS 查询族、等价 SQL 变形集和多 Agent 任务轨迹。现有六条 TPC-derived 查询和未完成的性能结果不足以投稿。
 
@@ -148,4 +139,4 @@ TKDE 主文建议控制在 12 页：
 
 - **现在直接投：No-Go，desk reject 风险高。**
 - **完成 exposure algebra、受限 SQL 证明、在线结算、多 Agent 守恒和完整实验后：符合 TKDE 主航道。**
-- 最关键的策略是：把 Agent 当作新型数据库 workload，把 exposure accounting、query processing 和 optimization 当作论文主体；不要把“Gateway 产品”或“计费标准”当作主体。
+- 最关键的策略是：把 Agent 当作新型数据库 workload，把 exposure accounting、关系语义和原子结算当作论文主体；不要把“Gateway 产品”或“计费标准”当作主体。

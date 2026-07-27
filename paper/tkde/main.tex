@@ -40,56 +40,45 @@
 
 \input{generated/evidence.tex}
 
-\title{TaskGate: Task-Bound Exposure Accounting and\\
-Budget-Constrained Query Processing for Autonomous Database Agents}
+\title{TaskGate: Task-Bound Positive-Output Dependency\\
+Accounting for Autonomous Database Agents}
 
 \author{Anonymous Author(s)%
 \thanks{The artifact includes a controlled local PostgreSQL performance
-campaign and deterministic, externally scored agent-task trace replay. Results
-are scoped to the bundled fixture, one host, and non-LLM policies; they do not
-claim TPC-scale or live-model generality.}}
+campaign. Results are scoped to the bundled fixture and one host; they do not
+claim TPC-scale or production generality.}}
 \date{}
 
 \begin{document}
 \maketitle
 
 \begin{abstract}
-Autonomous database agents issue adaptive sequences of queries and may delegate
-subtasks to other agents. Conventional access control bounds each query but does
-not directly bound how many distinct metered facts a task ledger records across
-rewrites, pagination, retries, and delegation. We present TaskGate, a prototype
-for task-bound exposure accounting. A versioned fact identity binds a data
-product, snapshot, entity key, field, and value version. Each human-authorized
-root task maintains separate release and positive-output-dependency ledgers,
-preventing a small aggregate result from hiding a large conservative input
-footprint. The online path
-executes a visible query and provenance companion in one read-only snapshot,
-buffers the result, derives its fact sets, and atomically settles only facts
-novel to that root ledger before release. Dependency identities remain
-server-side accounting evidence rather than facts delivered to the agent.
-Signed delegation preserves the same ledger. We define compositional semantics for a positive relational fragment
-with grouping and four aggregates, implement an exact dual-budget representation
-planner, and check a finite ledger model. An independent RQ1 oracle validates
-\RQOneCases{} queries on 16 source rows. For rewrite invariance we report two independent
-streams: across \RQTwoExposureRewrites{} closed-language rewrites over
-\RQTwoExposureDatasets{} data instances, TaskGate's release and dependency
-FactSets and incremental charge are invariant (\RQTwoExposureMismatches{}
-mismatches), and a separate PostgreSQL~16 campaign confirms result-row
-equivalence on \RQTwoUnique{} normalized baseline/rewrite SQL pairs. Across
+Autonomous database agents issue adaptive query sequences and delegate
+subtasks. Per-query access control does not bound how many distinct metered
+facts a task accumulates across rewrites, pages, retries, and delegation. We
+present TaskGate, a prototype for task-bound exposure accounting. Versioned
+identities bind product, snapshot, entity, field, and value. Each approved root
+task maintains separate release and positive-output-dependency ledgers, so a
+small aggregate cannot hide a large conservative footprint.
+The online path executes one authorized visible query and its provenance
+companion in a shared read-only snapshot, buffers the result, derives both fact
+sets, and atomically charges only facts novel to the root ledger before release.
+Dependency identities remain server-side evidence; delegation shares the same
+ledger. We give compositional semantics for a positive relational fragment
+with grouping and four aggregates and check a finite ledger model. An
+independent oracle validates \RQOneCases{} cases. Across
+\RQTwoExposureRewrites{} closed-language rewrites, release and dependency sets
+and incremental charges have \RQTwoExposureMismatches{} mismatches; a separate
+PostgreSQL~16 campaign confirms \RQTwoUnique{} result-equivalent SQL pairs. In
 three local trials and \RQFourObservations{} operations, a warm full-path
-history hit has \RQFourFullOneMedian{}-ms median and \RQFourFullOneTail{}-ms p95
-latency at one worker, and in-process sweeps show accounting cost growing with
-source rows, candidate counts, and expression depth while a history replay
-charges zero. On \RQFiveAgentTasks{} non-isomorphic agent-task traces whose
-gold answers are decoupled from planner utility, exact overlap-aware planning
-wins \RQFiveExactSuccess{} traces versus \RQFiveGreedySuccess{} for
-utility-greedy and \RQFiveAdditiveSuccess{} for an additive scalar proxy, with
-no budget violation.
+history hit has \RQFourFullOneMedian{}-ms median and
+\RQFourFullOneTail{}-ms p95 latency at one worker, while a replay adds zero
+facts.
 \end{abstract}
 
 \begin{IEEEkeywords}
-data exposure, query processing, provenance, autonomous agents, cumulative
-budget, query planning
+data exposure, query auditing, provenance, autonomous agents, cumulative
+budget, positive-output dependency
 \end{IEEEkeywords}
 
 \section{Introduction}
@@ -146,12 +135,10 @@ algebra contribution, not a claim that every operator is online.
 projection/filter/order/limit/offset/group fragment, including \code{COUNT(*)},
 and a PostgreSQL root-family ledger whose settlement charges exactly novel
 facts and withholds over-budget results.
-\item Signed, monotonic multi-agent delegation that shares root accounting state, plus
-an overlap-aware exact selector for choosing server-executed representations
-under two set-valued budgets and a fixed measurable utility profile.
+\item Signed, monotonic multi-agent delegation that shares root accounting
+state and prevents task-tree fan-out from multiplying exposure capacity.
 \item Executable ground truth, rewrite and anti-arbitrage tests, a finite TLA+
-model, a repeated full-path PostgreSQL overhead campaign, and externally scored
-budget-constrained agent-task traces.
+model, and a repeated full-path PostgreSQL overhead and contention campaign.
 \end{enumerate}
 
 The implementation does \emph{not} claim arbitrary SQL equivalence, differential
@@ -891,36 +878,34 @@ provenance result is a hard error.
 
 \subsection{Atomic Settlement}
 
-For a successful V2 planning call, the gateway performs the following steps:
+For one successful exposure-enabled query, the gateway performs the following
+steps:
 
 \begin{enumerate}
-\item Authorize every candidate plan, then execute and buffer every visible and
-provenance pair in one Business PostgreSQL \code{REPEATABLE READ} snapshot.
-\item Derive candidate effects exact with respect to the declared
-positive-output dependency profile and output-contract utility from the
-executed schema and truncation state; no client cost, utility, or weight is accepted.
-\item In Control PostgreSQL, lock the query reservation and root ledger, reload
-the latest accounted sets, and run the overlap-aware exact planner.
-\item Insert the selected candidates' release and dependency union with a primary key on root, ledger
-kind, and fact hash; conflicts contribute zero novel facts.
+\item Authorize the fixed plan, reserve ordinary and exposure budgets, then
+execute and buffer its visible and provenance statements in one Business
+PostgreSQL \code{REPEATABLE READ} snapshot.
+\item Derive its release and positive-output-dependency observation and reject
+truncated or inconsistent evidence.
+\item In Control PostgreSQL, lock the query reservation and root ledger and
+insert the observation's facts under a primary key on root, ledger kind, and
+fact hash; conflicts contribute zero novel facts.
 \item Conditionally increment both used counters only if both limits remain
 valid.
 \item In the same transaction, settle query/row/database-time resources, store
-the encrypted result, append terminal audit evidence, and persist a signed
-receipt.
-\item Persist the candidate/effect digests, selected set, union-effect digest,
-encrypted selected results, terminal audit, and V5 receipt.
-\item Commit, discard unselected buffers, and only then return selected results.
+the encrypted buffered result, append terminal audit evidence, and persist a
+signed V4 receipt.
+\item Commit and only then return the buffered result.
 \end{enumerate}
 
-If the conditional budget update in Step 5 affects no row, the transaction
+If the conditional budget update in Step 4 affects no row, the transaction
 returns an exposure-budget error.
 Fact inserts and result storage roll back, and the caller never receives the
 buffer. PostgreSQL row locking serializes concurrent children at the shared
 root. Unique fact keys make charge equal to successful novel inserts, rather
 than a count computed before a race.
 
-Let $n$ be the number of unique candidate dependency and release facts in one
+Let $n$ be the number of unique dependency and release facts in one
 observation. Hashing is linear in encoded input size and normalization sorts at
 most $n$ hashes, giving $O(n\log n)$ in-memory work and $O(n)$ memory. Ledger
 inserts are chunked; index maintenance adds database-dependent
@@ -929,11 +914,10 @@ complexity bounds, not measured latency claims.
 
 \subsection{Receipts and Failure Semantics}
 
-A V5 Ed25519 receipt binds all candidate summaries, selected candidates,
-planner version, snapshot bundle, union effect, root task, profile, and actual and charged counts in
+A V4 Ed25519 receipt binds the root task, profile, actual and charged counts in
 both dimensions, and the SHA-256 of the normalized observation, in addition to
-authorization, datasource, resource budget, result, and audit evidence. It does
-not expose raw values or FactIDs.
+authorization, datasource, resource budget, result, and audit evidence. It
+does not expose raw values or FactIDs.
 
 Failures before connector invocation release both reservations. Ambiguous
 connector outcomes conservatively charge the ordinary resource reservation but
@@ -943,13 +927,13 @@ observational: it returns the first persisted status or result and never starts
 a second execution.
 
 Withholding the buffer does not hide the decision bit. Whether settlement
-accepts a candidate reveals whether its data-dependent novel Effect fits the
+accepts a query reveals whether its data-dependent novel Effect fits the
 remaining budgets, and a rejected Effect is not itself inserted into either
 ledger. Thus rejection can act as an uncharged threshold oracle. The current
 protocol is not a simulatable auditor and makes no denial-noninterference claim.
 
-\section{Delegation and Planning}
-\label{sec:planning}
+\section{Delegation}
+\label{sec:delegation}
 
 \subsection{Root-Family Conservation}
 
@@ -986,76 +970,18 @@ back. Induction over the resulting serial commit order establishes the union
 identity and both bounds.
 \end{proof}
 
-\subsection{Dual-Budget Representation Planning}
-
-For requirement $j$, let $C_j$ contain server-executed raw, projected,
-aggregate, or generalized candidates with effects exact under the declared
-dependency profile,
-$E_c=\langle E_c^r,E_c^i\rangle$. The request declares a nonempty required
-output-name set $A_j$. After execution, candidate $c$ has observed output schema
-$O_c$ and a server-observed truncation bit $\tau_c$. The fixed online utility
-profile is
-\begin{align*}
-q(c)&=|A_j\cap O_c|/|A_j|,\\
-a(c)&=q(c)(1-\tau_c),\\
-u(c)&=\tfrac12(a(c)+q(c)).
-\end{align*}
-The caller supplies plans and the output contract, but no cost, utility scalar,
-or weight. With root history $K_T$, the selector solves
-
-\begin{align}
-\max_{S}\quad &\sum_{c\in S} u(c) \\
-\text{s.t.}\quad &|\left(\bigcup_{c\in S}E_c^r\right)\setminus K_T^r|\leq B^r_{\mathrm{remaining}},\\
-&|\left(\bigcup_{c\in S}E_c^i\right)\setminus K_T^i|\leq B^i_{\mathrm{remaining}},\\
-&|S\cap C_j|\leq 1\quad\forall j.
-\end{align}
-
-Candidate cardinalities are deliberately not added. For example, if candidates
-for two requirements both add only fact $f$ and the budget is one, their joint
-cost is $|\{f\}|=1$ and both remain feasible; the additive proxy
-$|E_{c_1}|+|E_{c_2}|=2$ would incorrectly reject them. The public V1 scalar
-planning path has therefore been removed; non-V2 planning calls fail closed.
-
 \textbf{Budget calibration.} The two ceilings $B^r_T,B^i_T$ are authorizer
 declarations, not learned parameters: the human approving a root task sets them
 in the same distinct-fact-count units the ledgers record, derived from a
 disclosure policy (how many distinct released facts, and how many distinct
-dependency facts, this task family may account for). The fixed utility weight
-$\tfrac12$ is a definitional default that balances required-output coverage
-against truncation; the caller cannot retune it, so selection is not an
-optimization over hidden weights. Fact counts are unit-weighted by construction:
+dependency facts, this task family may account for). Fact counts are
+unit-weighted by construction:
 a highly sensitive cell and an ordinary cell both count one, because the model
 bounds disclosure \emph{volume} (the number of distinct accounted facts), not
 disclosure \emph{harm}. Per-fact sensitivity weighting and differential-privacy
 composition are therefore explicit non-goals (Sec.~\ref{sec:limits}); a
 deployment that needs harm-weighted limits must layer such a mechanism on the
 same fact boundary rather than reinterpret the count.
-
-The implementation subtracts root history, assigns remaining fact hashes dense
-integers, and represents each set as a release/dependency bit vector. It expands
-one requirement at a time using bitwise OR and popcount. A state can dominate
-another only by release-set inclusion, dependency-set inclusion, and no lower
-utility; comparing cardinalities alone is unsound because future candidates may
-overlap the larger set. If frontier size before group $j$ is
-$H_{j-1}$ and the group has $m_j$ candidates, the current pairwise dominance
-implementation takes
-$O(\sum_j(H_{j-1}(m_j+1))^2)$ time and $O(\max_j H_j)$ memory. Worst-case
-frontier size is exponential; V2 therefore limits calls to a small
-representation catalog.
-
-\begin{theorem}[Planner optimality]
-For fixed executed candidate effects and outputs, required-output contracts,
-root history, and budgets, the V2 selector returns maximum utility under the
-profile above among all feasible choices with at most one candidate per
-requirement.
-\end{theorem}
-\begin{proof}[Proof sketch]
-For each requirement the frontier enumerates skipping it or choosing each one
-of its candidates. Every state stores the exact two set unions. Inclusion-based
-pruning removes a state only when another uses subsets in both dimensions and
-has no lower utility, so every optimal continuation is retained or replaced by
-a no-worse continuation. Induction over requirements proves optimality.
-\end{proof}
 
 \section{System Realization}
 \label{sec:system}
@@ -1067,13 +993,12 @@ resource/exposure profiles. Startup and per-query attestation bind datasource
 identity, database, role, PostgreSQL major version, ordered view schema, and
 normalized view definitions.
 
-Agents use MCP tools to list products, request a task, execute a structured
-plan, inspect both budgets, invoke the representation planner, delegate a
-narrower task, and retrieve results or receipts. An external approval adapter
+Agents use MCP tools to list products, request a task, execute one structured
+plan, inspect both budgets, delegate a narrower task, and retrieve results or
+receipts. An external approval adapter
 signs the immutable grant. Arbitrary direct SQL remains available only for
 legacy resource-only grants; it fails closed when exposure evidence is
-required. \code{plan_exposure} accepts only V2 QueryPlans and required-output
-contracts; it executes candidates before deriving their FactSets and utility.
+required.
 The wire and storage label \code{influence} is retained for compatibility;
 under the V2 profile it denotes positive-output dependency, not causal
 influence.
@@ -1114,18 +1039,15 @@ rather than claiming a proof that does not exist.
 
 \subsection{Questions and Reproducibility}
 
-The evaluation is organized around five questions: RQ1 ground-truth accuracy;
+The evaluation is organized around four questions: RQ1 ground-truth accuracy;
 RQ2 rewrite invariance of the accounting and of query results; RQ3 resistance to
 split, page, retry, snapshot, delegation, and concurrency amplification, plus
 join amplification at the executable-algebra boundary; RQ4 runtime/storage
-overhead and cost scaling; and RQ5 utility under a fixed dual budget. The report
+overhead and cost scaling. The report
 is rebuilt from a source-controlled V2 algebra corpus with digest prefix
 \ExposureCorpusHash{}. RQ2 pairs an in-process closed-language FactSet-invariance
 campaign with a real PostgreSQL~16 differential/metamorphic result-equivalence
-campaign. RQ5 includes \RQFiveCases{} V2 exact-planner instances with seed
-\code{20260724} checked against an independent brute-force oracle, plus
-\RQFiveAgentTasks{} non-isomorphic agent-task traces scored against gold answers
-that are decoupled from planner utility. RQ4 contains \RQFourTrials{} fresh
+campaign. RQ4 contains \RQFourTrials{} fresh
 isolated PostgreSQL deployments, \RQFourObservations{} measured operations, and
 \RQFourScalingDims{} deterministic in-process scaling sweeps.
 
@@ -1142,7 +1064,6 @@ RQ1 & \RQOnePassed{}/\RQOneCases{} independent-oracle cases on \RQOneRows{} sour
 RQ2 & \RQTwoExposureRewrites{} closed-language rewrites over \RQTwoExposureDatasets{} datasets: FactSet/charge invariant, \RQTwoExposureMismatches{} mismatches; plus \RQTwoUnique{} SQL result-equivalence pairs \\
 RQ3 & \RQThreePassed{}/\RQThreeCases{} deterministic; \RQThreeIntegration{}/\RQThreeExecuted{} PostgreSQL race tests passed with raw logs \\
 RQ4 & \RQFourObservations{} operations/\RQFourTrials{} trials; full hit p50/p95 $=\RQFourFullOneMedian{}/\RQFourFullOneTail{}$ ms at $c=1$; \RQFourScalingDims{} in-process scaling sweeps \\
-RQ5 & \RQFiveAgentTasks{} non-isomorphic traces over \RQFiveKinds{} kinds: exact \RQFiveExactSuccess{} vs.\ greedy \RQFiveGreedySuccess{} vs.\ additive \RQFiveAdditiveSuccess{} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1265,48 +1186,15 @@ Because the contention result fixes a single small fixture, we additionally run
 \RQFourScalingDims{} deterministic in-process sweeps that scale the dimensions
 the closed accounting actually depends on, without a deployment: effect
 derivation (\texttt{ObserveV2}) over source/provenance rows up to
-\RQFourScalingMaxRows{}, the exact representation planner over up to
-\RQFourScalingPlannerMax{} candidates, the typed normalizer over expression
-depth, and settlement dedup for a novel write versus a history replay. The first
-three grow roughly with size (e.g.\ effect derivation at \RQFourScalingMaxRows{}
-rows is \RQFourScalingObserveMicros{}~$\mu$s; the planner at
-\RQFourScalingPlannerMax{} candidates is \RQFourScalingPlannerMicros{}~$\mu$s),
+\RQFourScalingMaxRows{}, the typed normalizer over expression depth, and
+settlement dedup for a novel write versus a history replay. The first two grow
+roughly with size (e.g.\ effect derivation at \RQFourScalingMaxRows{} rows is
+\RQFourScalingObserveMicros{}~$\mu$s),
 while the central replay guarantee is exact: at a ledger of
 \RQFourScalingNovelMax{} facts a fresh write charges all of them and a replay
 charges \RQFourScalingReplayCharge{}. The PostgreSQL-backed concurrency sweep
 above remains the source of end-to-end latency; these sweeps characterize the
 cost model that latency is built on.
-
-\subsection{RQ5: Externally Scored Agent Tasks}
-
-Planner correctness alone does not measure usefulness, so we replay
-\RQFiveAgentTasks{} non-isomorphic agent-task traces spanning \RQFiveKinds{}
-objective kinds (aggregate summary, comparison, anomaly, coverage-constrained,
-and delegated). Each kind fixes a different requirement count, candidate menu,
-budget regime, and history profile, so traces are not structural duplicates of
-one another. The planner utility is deliberately \emph{decoupled} from the gold
-answer: each candidate carries a query-coverage score (what the planner
-maximizes) and a separate gold-token reveal (what the scorer measures); the
-``broad'' representation has full query coverage but reveals only two of three
-gold tokens, so maximizing utility is not the same act as maximizing gold
-recall. Candidates share a fact pool, so an overlap-aware selector can fit
-representation sets that an additive scalar proxy rejects.
-
-We score six policies with one independent gold-token scorer that requires at
-least two of three gold tokens for every requirement. Exact overlap-aware
-planning wins \RQFiveExactSuccess{}/\RQFiveAgentTasks{} traces versus
-\RQFiveGreedySuccess{} for utility-greedy, \RQFiveAdditiveSuccess{} for the
-additive scalar proxy, \RQFiveRandomSuccess{} for random-first, and
-\RQFiveSingleSuccess{} for a degenerate single-candidate policy; exact planning
-has zero budget violations. Mean answer completeness is
-\RQFiveExactCompleteness{} (exact) versus \RQFiveGreedyCompleteness{} (greedy).
-The exact advantage appears on every objective kind where the budget is tight
-enough to matter, not on a single profile. Removing root history from the exact
-policy keeps success at \RQFiveNoHistorySuccess{}/\RQFiveAgentTasks{} but lowers
-mean completeness, confirming that history improves coverage without weakening
-the budget guarantee. The shared-fact budget-one counterexample and the
-\RQFiveCases{} set-valued brute-force instances remain the algorithmic
-correctness evidence.
 
 \subsection{Reproducibility Boundary}
 
@@ -1318,12 +1206,9 @@ predicates over 12 rows. Thus the counts are rewrite/dataset pairs and
 normalized SQL pairs, not independent schemas, datasets, or workloads. The
 performance result is a controlled single-host microbenchmark on the bundled
 ten-row travel fixture, complemented by deterministic in-process scaling sweeps,
-not a TPC-H/TPC-DS or production-scale claim. The agent campaign is a
-deterministic tool-policy replay over \RQFiveAgentTasks{} non-isomorphic traces,
-not a comparison of live language models or prompts. Source-controlled reports
-bind the environment, corpus, code, raw-result and sample digests. These
-boundaries limit external validity but no longer leave RQ4 or RQ5 unmeasured
-within the stated scope.
+not a TPC-H/TPC-DS or production-scale claim. Source-controlled reports bind
+the environment, corpus, code, raw-result and sample digests. These boundaries
+limit external validity; RQ4 is measured only within the stated local scope.
 
 \section{Limitations and Threats to Validity}
 \label{sec:limits}
@@ -1339,7 +1224,7 @@ differential privacy and should be combined with a privacy mechanism when those
 threats matter.
 
 \textbf{Decision and subject scope.} A budget refusal exposes one uncharged bit
-about whether the candidate's novel Effect crosses the remaining threshold; no
+about whether the query's novel Effect crosses the remaining threshold; no
 simulatability or denial-noninterference result is claimed. Ledgers are scoped to
 one root family, not to a principal. Repeated human approval of new roots gives
 the same subject independent ledgers unless an external policy imposes a
@@ -1363,14 +1248,6 @@ hot spot, and immutable history grows monotonically. Compression, sketches,
 partitioned settlement, retention, and audited deletion are open design points;
 approximations would require new safety semantics.
 
-\textbf{Planning evidence.} Candidate costs, effects, and scalar utility are
-server generated. The online utility profile measures required-output coverage
-and truncation, not semantic answer truth; its output contract is caller declared
-and receipt bound. The gold-answer trace scorer measures the consequence of
-selection independently, but does not test model-generated candidates.
-Production still needs an approved semantic task contract and live-agent
-evaluation.
-
 \textbf{Deployment.} The prototype has one gateway instance, static local
 tokens, an in-memory approval demo, and one PostgreSQL connector. It lacks a
 distributed execution lease and centralized key custody. The measured
@@ -1382,7 +1259,7 @@ Task-bound authorization answers what an agent may query; task-bound exposure
 accounting additionally constrains what one root ledger records for its
 delegated workload. \system realizes that distinction with stable facts, separate
 release and positive-output dependency sets, same-snapshot provenance, atomic novel-fact
-settlement, and an exact dual-budget representation planner. The current
+settlement, and root-family budget conservation. The current
 dependency set is a conservative footprint exact under the declared inductive
 profile; it makes no claim of causal minimality or complete physical reads. The
 current
@@ -1392,12 +1269,9 @@ violation in a finite ledger model, and observes zero mismatch both for
 charge invariant) and for \RQTwoUnique{} normalized PostgreSQL baseline/rewrite
 SQL pairs. The full path has \RQFourFullOneMedian{}-ms p50 latency at one worker,
 exposes root-ledger serialization at higher concurrency, and its in-process cost
-model scales with source rows, candidates, and expression depth while a replay
-charges nothing. Exact planning wins \RQFiveExactSuccess{} of
-\RQFiveAgentTasks{} non-isomorphic traces versus \RQFiveGreedySuccess{} for
-greedy and \RQFiveAdditiveSuccess{} for an additive proxy under matched budgets.
-These empirical results answer RQ4 and RQ5 for the declared local and
-deterministic scope; TPC-scale, multi-node, and live-LLM generalization remain
+model scales with source rows and expression depth while a replay charges
+nothing. These empirical results answer RQ4 for the declared local scope;
+TPC-scale, multi-node, and live-LLM generalization remain
 outside the claims, as do online Join/Union coverage---Join and Union remain
 algebra/oracle evidence rather than compiler-supported online provenance---along
 with cross-root accounting and inference protection for denial or negative

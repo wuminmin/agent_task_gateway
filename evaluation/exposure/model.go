@@ -10,10 +10,8 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
-	"math/rand"
 	"sort"
 
-	"taskbound.local/agent-data-gateway/evaluation/agenttasks"
 	"taskbound.local/agent-data-gateway/evaluation/exposureoracle"
 	"taskbound.local/agent-data-gateway/evaluation/postgresoracle"
 	"taskbound.local/agent-data-gateway/internal/exposure"
@@ -128,19 +126,6 @@ type BaselineSummary struct {
 	FullReplay          ChargeVector `json:"full_replay"`
 }
 
-type PlannerResult struct {
-	ID                   string   `json:"id"`
-	SelectedIDs          []string `json:"selected_ids"`
-	ExactUtility         float64  `json:"exact_utility"`
-	AdditiveProxyUtility float64  `json:"additive_proxy_utility"`
-}
-
-type PlannerSummary struct {
-	Scenarios int             `json:"scenarios"`
-	Passed    int             `json:"passed"`
-	Results   []PlannerResult `json:"results"`
-}
-
 type Report struct {
 	SchemaVersion  int                      `json:"schema_version"`
 	ProfileVersion string                   `json:"profile_version"`
@@ -152,8 +137,6 @@ type Report struct {
 	RQ4Status      string                   `json:"rq4_runtime_overhead_status"`
 	RQ4Scaling     ScalingSummary           `json:"rq4_scaling"`
 	Baselines      BaselineSummary          `json:"charge_baselines"`
-	RQ5            PlannerSummary           `json:"rq5_budget_aware_planning"`
-	RQ5Agent       agenttasks.Report        `json:"rq5_agent_tasks"`
 }
 
 func Run() (Report, error) {
@@ -169,7 +152,7 @@ func Run() (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
-	report := Report{SchemaVersion: 3, ProfileVersion: fixtures.ProfileVersion,
+	report := Report{SchemaVersion: 4, ProfileVersion: fixtures.ProfileVersion,
 		CorpusSHA256: fmt.Sprintf("%x", sha256.Sum256(corpusJSON)),
 		RQ4Status:    "measured_controlled_local_postgresql_campaign"}
 	report.RQ1 = ValidationSummary{DatasetRelations: relationsCount, DatasetRows: rowsCount,
@@ -222,17 +205,6 @@ func Run() (Report, error) {
 		return Report{}, err
 	}
 	report.RQ4Scaling, err = RunScaling()
-	if err != nil {
-		return Report{}, err
-	}
-	report.RQ5, err = runSharedFactPlannerRegression()
-	if err != nil {
-		return Report{}, err
-	}
-	if err := runRandomV2PlannerOracle(&report.RQ5, 500); err != nil {
-		return Report{}, err
-	}
-	report.RQ5Agent, err = agenttasks.Run()
 	if err != nil {
 		return Report{}, err
 	}
@@ -655,122 +627,6 @@ func baselineSummary(profile string, relations map[string]exposure.RelationV2) (
 		FullFirst:  ChargeVector{Release: len(observation.Release), Influence: len(observation.Influence)},
 		FullReplay: ChargeVector{},
 	}, nil
-}
-
-func runSharedFactPlannerRegression() (PlannerSummary, error) {
-	fact, err := exposure.NewBaseCellFactV2("evaluation.planner", "snapshot-v2", "shared", "value", "text", "shared")
-	if err != nil {
-		return PlannerSummary{}, err
-	}
-	effect := exposure.Observation{ProfileVersion: exposure.ProfileV2, Release: []exposure.FactID{fact}, Influence: []exposure.FactID{fact}}
-	plan, err := exposure.OptimizeEffects([]exposure.EffectCandidate{
-		{ID: "requirement-a", Requirement: "a", AnswerCompleteness: 1, Effect: effect},
-		{ID: "requirement-b", Requirement: "b", AnswerCompleteness: 1, Effect: effect},
-	}, exposure.Observation{ProfileVersion: exposure.ProfileV2}, 1, 1, exposure.UtilityWeights{AnswerCompleteness: 1})
-	if err != nil {
-		return PlannerSummary{}, err
-	}
-	ids := make([]string, 0, len(plan.Selected))
-	for _, selected := range plan.Selected {
-		ids = append(ids, selected.ID)
-	}
-	if len(ids) != 2 || plan.ReleaseCost != 1 || plan.InfluenceCost != 1 || plan.Utility != 2 {
-		return PlannerSummary{}, fmt.Errorf("shared-fact regression selected %v with (%d,%d,%v)",
-			ids, plan.ReleaseCost, plan.InfluenceCost, plan.Utility)
-	}
-	return PlannerSummary{Scenarios: 1, Passed: 1, Results: []PlannerResult{{
-		ID: "shared-fact-budget-one", SelectedIDs: ids, ExactUtility: plan.Utility, AdditiveProxyUtility: 1,
-	}}}, nil
-}
-
-func runRandomV2PlannerOracle(summary *PlannerSummary, trials int) error {
-	random := rand.New(rand.NewSource(20260724))
-	pool := make([]exposure.FactID, 8)
-	for index := range pool {
-		fact, err := exposure.NewBaseCellFactV2("evaluation.oracle", "snapshot-v2", fmt.Sprintf("row-%d", index), "value", "bigint", int64(index))
-		if err != nil {
-			return err
-		}
-		pool[index] = fact
-	}
-	for trial := 0; trial < trials; trial++ {
-		var candidates []exposure.EffectCandidate
-		for requirement := 0; requirement < 3; requirement++ {
-			for option := 0; option < 2; option++ {
-				candidates = append(candidates, exposure.EffectCandidate{
-					ID: fmt.Sprintf("c-%d-%d", requirement, option), Requirement: fmt.Sprintf("r-%d", requirement),
-					AnswerCompleteness: float64(1+random.Intn(5)) / 5,
-					Effect: exposure.Observation{ProfileVersion: exposure.ProfileV2,
-						Release: randomV2Facts(random, pool), Influence: randomV2Facts(random, pool)},
-				})
-			}
-		}
-		history := exposure.Observation{ProfileVersion: exposure.ProfileV2,
-			Release: randomV2Facts(random, pool), Influence: randomV2Facts(random, pool)}
-		releaseBudget, influenceBudget := int64(random.Intn(7)), int64(random.Intn(7))
-		plan, err := exposure.OptimizeEffects(candidates, history, releaseBudget, influenceBudget,
-			exposure.UtilityWeights{AnswerCompleteness: 1})
-		if err != nil {
-			return err
-		}
-		oracle := bruteForceV2Utility(candidates, history, releaseBudget, influenceBudget)
-		if plan.Utility != oracle {
-			return fmt.Errorf("V2 random planner trial %d utility %v, oracle %v", trial, plan.Utility, oracle)
-		}
-		summary.Scenarios++
-		summary.Passed++
-	}
-	summary.Results = append(summary.Results, PlannerResult{ID: fmt.Sprintf("v2-random-bruteforce-%d", trials)})
-	return nil
-}
-
-func randomV2Facts(random *rand.Rand, pool []exposure.FactID) []exposure.FactID {
-	var result []exposure.FactID
-	for _, fact := range pool {
-		if random.Intn(3) == 0 {
-			result = append(result, fact)
-		}
-	}
-	return result
-}
-
-func bruteForceV2Utility(candidates []exposure.EffectCandidate, history exposure.Observation, releaseBudget, influenceBudget int64) float64 {
-	historyRelease, _ := exposure.NewFactSet(history.Release...)
-	historyInfluence, _ := exposure.NewFactSet(history.Influence...)
-	best := float64(0)
-	for mask := 0; mask < 1<<len(candidates); mask++ {
-		requirements := make(map[string]struct{})
-		release, influence := make(exposure.FactSet), make(exposure.FactSet)
-		utility, valid := float64(0), true
-		for index, candidate := range candidates {
-			if mask&(1<<index) == 0 {
-				continue
-			}
-			if _, duplicate := requirements[candidate.Requirement]; duplicate {
-				valid = false
-				break
-			}
-			requirements[candidate.Requirement] = struct{}{}
-			candidateRelease, _ := exposure.NewFactSet(candidate.Effect.Release...)
-			candidateInfluence, _ := exposure.NewFactSet(candidate.Effect.Influence...)
-			release.Merge(candidateRelease)
-			influence.Merge(candidateInfluence)
-			utility += candidate.AnswerCompleteness
-		}
-		if !valid {
-			continue
-		}
-		for hash := range historyRelease {
-			delete(release, hash)
-		}
-		for hash := range historyInfluence {
-			delete(influence, hash)
-		}
-		if int64(len(release)) <= releaseBudget && int64(len(influence)) <= influenceBudget && utility > best {
-			best = utility
-		}
-	}
-	return best
 }
 
 func sameObservation(left, right exposure.Observation) bool {

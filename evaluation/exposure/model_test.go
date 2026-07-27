@@ -19,23 +19,14 @@ func TestExposureEvaluationCorpus(t *testing.T) {
 		report.RQ2.ExecutedUniquePairs != 16 || report.RQ2.DuplicateAttempts != 0 ||
 		report.RQ2.RewriteTemplates != 2 || report.RQ2.Mismatches != 0 ||
 		report.RQ3.DeterministicPassed != report.RQ3.DeterministicCases ||
-		report.RQ3.DeterministicCases+len(report.RQ3.IntegrationManifest) != report.RQ3.Cases ||
-		report.RQ5.Passed != report.RQ5.Scenarios || report.RQ5.Scenarios != 501 {
+		report.RQ3.DeterministicCases+len(report.RQ3.IntegrationManifest) != report.RQ3.Cases {
 		t.Fatalf("incomplete exposure report: %+v", report)
 	}
-	if report.SchemaVersion != 3 {
-		t.Fatalf("exposure report schema = %d, want 3", report.SchemaVersion)
-	}
-	if len(report.RQ5.Results) == 0 || report.RQ5.Results[0].ID != "shared-fact-budget-one" ||
-		report.RQ5.Results[0].ExactUtility != 2 || report.RQ5.Results[0].AdditiveProxyUtility != 1 {
-		t.Fatalf("shared-fact planner regression is missing: %+v", report.RQ5)
+	if report.SchemaVersion != 4 {
+		t.Fatalf("exposure report schema = %d, want 4", report.SchemaVersion)
 	}
 	if report.RQ4Status != "measured_controlled_local_postgresql_campaign" {
 		t.Fatalf("RQ4 status is stale: %q", report.RQ4Status)
-	}
-	if report.RQ5Agent.Status != "complete" || report.RQ5Agent.Tasks != 24 ||
-		len(report.RQ5Agent.Policies) != 6 || report.RQ5Agent.Kinds != 5 {
-		t.Fatalf("RQ5 agent-task report is incomplete: %+v", report.RQ5Agent)
 	}
 	if len(report.CorpusSHA256) != 64 {
 		t.Fatalf("report provenance = sha %q", report.CorpusSHA256)
