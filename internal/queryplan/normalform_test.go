@@ -145,18 +145,9 @@ func TestAlgebraNormalFormV2IsTypedAndFailClosed(t *testing.T) {
 		Predicates: []NormalizedFilter{{Column: "n.value", Op: "=", Value: json.RawMessage(`"not-a-number"`)}}}); err == nil {
 		t.Fatal("mistyped numeric literal entered the algebra normal form")
 	}
-	jsonLeft := AlgebraPlanV2{Op: "scan", SourceNamespace: "jl", Snapshot: "s1", StableRole: "jl",
-		Schema: []AlgebraFieldV2{{ID: "jl.value", SQLType: "json"}}}
-	jsonRight := AlgebraPlanV2{Op: "scan", SourceNamespace: "jr", Snapshot: "s1", StableRole: "jr",
-		Schema: []AlgebraFieldV2{{ID: "jr.value", SQLType: "json"}}}
-	if _, err := NormalizeAlgebraV2(AlgebraPlanV2{Op: "join", Left: &jsonLeft, Right: &jsonRight,
-		JoinPredicates: []AlgebraJoinPredicateV2{{LeftField: "jl.value", RightField: "jr.value"}}}); err == nil {
-		t.Fatal("PostgreSQL json equality entered the V2 join normal form")
-	}
-	if _, err := NormalizeAlgebraV2(AlgebraPlanV2{Op: "group", Input: &jsonLeft, GroupBy: []string{"jl.value"}}); err == nil {
-		t.Fatal("PostgreSQL json equality entered the V2 group normal form")
-	}
-	if _, err := NormalizeAlgebraV2(AlgebraPlanV2{Op: "union", Left: &jsonLeft, Right: &jsonLeft}); err == nil {
-		t.Fatal("PostgreSQL json equality entered the V2 union normal form")
+	jsonScan := AlgebraPlanV2{Op: "scan", SourceNamespace: "j", Snapshot: "s1", StableRole: "j",
+		Schema: []AlgebraFieldV2{{ID: "j.value", SQLType: "json"}}}
+	if _, err := NormalizeAlgebraV2(jsonScan); err == nil {
+		t.Fatal("PostgreSQL json entered the V2 algebra normal form")
 	}
 }

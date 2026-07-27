@@ -470,11 +470,6 @@ func normalizeAlgebraNodeV2(plan AlgebraPlanV2) (normalizedAlgebraNodeV2, error)
 		if !sameAlgebraSchemaV2(left.Schema, right.Schema) {
 			return normalizedAlgebraNodeV2{}, errors.New("V2 UNION DISTINCT inputs require the same typed schema")
 		}
-		for _, field := range left.Schema {
-			if field.SQLType == "json" {
-				return normalizedAlgebraNodeV2{}, errors.New("PostgreSQL json has no equality operator for V2 UNION DISTINCT")
-			}
-		}
 		if string(right.Canonical) < string(left.Canonical) {
 			left, right = right, left
 		}
@@ -501,9 +496,6 @@ func normalizeAlgebraNodeV2(plan AlgebraPlanV2) (normalizedAlgebraNodeV2, error)
 			definition, present := index[field]
 			if !present {
 				return normalizedAlgebraNodeV2{}, fmt.Errorf("V2 group references unknown field %q", field)
-			}
-			if definition.SQLType == "json" {
-				return normalizedAlgebraNodeV2{}, errors.New("PostgreSQL json has no equality operator for V2 group")
 			}
 			schema = append(schema, definition)
 		}
@@ -622,9 +614,6 @@ func normalizeAlgebraFilterV2(filter NormalizedFilter, schema []AlgebraFieldV2) 
 	if filter.Op == "!=" {
 		filter.Op = "<>"
 	}
-	if definition.SQLType == "json" {
-		return NormalizedFilter{}, errors.New("PostgreSQL json has no comparison operator in the V2 predicate grammar")
-	}
 	switch filter.Op {
 	case "=", "<>", "<", "<=", ">", ">=", "LIKE", "IN", "NOT IN":
 	default:
@@ -685,9 +674,6 @@ func normalizeJoinPredicatesV2(input []AlgebraJoinPredicateV2, left, right []Alg
 			leftDefinition.Collation != rightDefinition.Collation || leftDefinition.CollationVersion != rightDefinition.CollationVersion ||
 			leftDefinition.CollationDeterministic != rightDefinition.CollationDeterministic {
 			return nil, errors.New("V2 join equality must reference same-typed fields from opposite inputs")
-		}
-		if leftDefinition.SQLType == "json" {
-			return nil, errors.New("PostgreSQL json has no equality operator for V2 join")
 		}
 		fields := []string{leftField, rightField}
 		sort.Strings(fields)

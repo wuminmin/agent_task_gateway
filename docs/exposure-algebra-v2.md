@@ -16,7 +16,7 @@
 2. `timezone = UTC`。查询不含 volatile/stable-but-time-dependent 表达式、窗口、子查询、递归、`UNION ALL` 或未列入本规范的运算。
 3. 每个 Scan namespace 绑定一个不可变的 Catalog snapshot；同一 namespace 在一棵表达式中不得绑定两个 snapshot。
 4. 每个基础关系的 entity key 唯一；每个 self-join 输入有不同的稳定 Catalog role。字段 ID 在 Join 后全局唯一，不使用 SQL alias 充当语义 ID。
-5. 类型属于第 6 节的 V2 值域。`time with time zone` 不可接受；`json` 可扫描、选择和投影，但因 PostgreSQL 没有 `json` equality，不可进入 Join、Group 或 Union-Distinct 的相等关系。
+5. 类型属于第 6 节的 V2 值域。`time with time zone` 和文本保真但无 equality 的 `json` 均不可接受；结构化等价使用 `jsonb`。
 6. Group 的输出值来自同一 PostgreSQL snapshot 中实际执行的 `COUNT|SUM|MIN|MAX`；输出 oracle 不得遗漏、重复或虚构正向 group。
 7. Page 的输入已经按“用户 order key + Catalog stable entity/group key”构成的全序排列。没有可证明全序时关闭式失败。
 8. PostgreSQL cast、算术和 aggregate 必须正常完成；SQL overflow、typed range、witness `uint64` multiplicity 或 canonical encoding 失败都使求值无定义，不能生成、结算或释放 Effect。
@@ -334,7 +334,7 @@ Effect(R,V)     = normalize(Release, Dependency)
 | `uuid` | lowercase `8-4-4-4-12` |
 | `text/character varying` | 原 UTF-8 字符串；相等与排序使用被证明的确定性 collation |
 | `character` | 去除 PostgreSQL `bpchar` equality 忽略的尾部 ASCII space 后的字符串 |
-| `json/jsonb` | 类型化结构编码：对象键排序、数组保序、number exact；只有 `jsonb` 可参与 equality |
+| `jsonb` | 类型化结构编码：对象键排序、数组保序、number exact；会保留空白、键顺序、重复键和数值词法形式的 `json` 不在 V2 值域 |
 | SQL NULL | 独立 token `null`，不与字符串 `"null"` 混同 |
 
 `SQLValueEqualV2(τ,a,b)` 实现 SQL `=`：任一侧 NULL 得 `UNKNOWN`；否则比较 `Cτ`。`SQLValueNotDistinctV2` 实现 Group/Distinct 等价：两个 NULL 相等。字符串 equality 的这一步要求 collation 为 deterministic；Page 和有序 predicate 仍由固定名称及版本的 PostgreSQL collation 执行。Connector 每次证明都核对该名称、实际版本及 `collisdeterministic=true`。

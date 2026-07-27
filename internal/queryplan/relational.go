@@ -252,7 +252,7 @@ func compileJoin(join Join, plan QueryPlan, products map[string]Product) (compil
 			return compiledRelation{}, nil, "", "", errors.New("duplicate join predicate")
 		}
 		seen[key] = struct{}{}
-		if leftField.SQLType != rightField.SQLType || leftField.SQLType == "json" ||
+		if leftField.SQLType != rightField.SQLType ||
 			(leftField.Collation != rightField.Collation || leftField.CollationVersion != rightField.CollationVersion) {
 			return compiledRelation{}, nil, "", "", errors.New("join keys require identical types and deterministic collation profiles")
 		}

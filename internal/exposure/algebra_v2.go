@@ -351,9 +351,6 @@ func JoinOnV2(left, right RelationV2, predicates []JoinPredicateV2) (RelationV2,
 		if leftType != rightType {
 			return RelationV2{}, fmt.Errorf("%w: V2 join keys require the same canonical SQL type", ErrInvalid)
 		}
-		if leftType == "json" {
-			return RelationV2{}, fmt.Errorf("%w: PostgreSQL json has no equality operator for V2 join", ErrInvalid)
-		}
 		leftField := fieldDefinitionV2(left, predicate.LeftField)
 		rightField := fieldDefinitionV2(right, predicate.RightField)
 		if isCollatableTypeV2(leftType) && (leftField.Collation != rightField.Collation || leftField.CollationVersion != rightField.CollationVersion ||
@@ -462,15 +459,6 @@ func UnionDistinctV2(left, right RelationV2) (RelationV2, error) {
 	bundle, err := mergeSnapshotBundles(left.SnapshotBundle, right.SnapshotBundle)
 	if err != nil {
 		return RelationV2{}, err
-	}
-	for _, field := range left.Fields {
-		typeName, err := CanonicalSQLTypeV2(field.SQLType)
-		if err != nil {
-			return RelationV2{}, err
-		}
-		if typeName == "json" {
-			return RelationV2{}, fmt.Errorf("%w: PostgreSQL json has no equality for UNION DISTINCT", ErrInvalid)
-		}
 	}
 	// An identical branch is foldable only when its full typed tuples are already
 	// distinct. Otherwise SQL bag semantics still require duplicate elimination.
@@ -593,11 +581,6 @@ func AggregateFromResultsV2(input RelationV2, groupFields []string, specs []Aggr
 	}
 	if err := requireFieldsV2(input, groupFields); err != nil {
 		return RelationV2{}, err
-	}
-	for _, field := range groupFields {
-		if fieldTypeMapV2(input)[field] == "json" {
-			return RelationV2{}, fmt.Errorf("%w: PostgreSQL json has no equality operator for V2 group", ErrInvalid)
-		}
 	}
 	if len(groupFields)+len(specs) == 0 {
 		return RelationV2{}, fmt.Errorf("%w: V2 group requires a key or aggregate", ErrInvalid)
@@ -904,15 +887,11 @@ func matchingGroupRowsV2(input RelationV2, fields []string, output map[string]an
 }
 
 // SQLValueEqualV2 is PostgreSQL "=" over the deterministic V2 scalar domain.
-// NULL yields UNKNOWN. JSON is rejected because PostgreSQL json has no equality
-// operator; jsonb is canonicalized structurally.
+// NULL yields UNKNOWN; jsonb is canonicalized structurally.
 func SQLValueEqualV2(sqlType string, left, right any) (SQLTruth, error) {
 	typeName, err := CanonicalSQLTypeV2(sqlType)
 	if err != nil {
 		return SQLUnknown, err
-	}
-	if typeName == "json" {
-		return SQLUnknown, fmt.Errorf("%w: PostgreSQL json has no equality operator", ErrInvalid)
 	}
 	leftCanonical, err := CanonicalSQLValue(typeName, left)
 	if err != nil {
@@ -937,9 +916,6 @@ func SQLValueNotDistinctV2(sqlType string, left, right any) (bool, error) {
 	typeName, err := CanonicalSQLTypeV2(sqlType)
 	if err != nil {
 		return false, err
-	}
-	if typeName == "json" {
-		return false, fmt.Errorf("%w: PostgreSQL json has no DISTINCT equality", ErrInvalid)
 	}
 	leftCanonical, err := CanonicalSQLValue(typeName, left)
 	if err != nil {

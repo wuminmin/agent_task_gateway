@@ -254,9 +254,9 @@ func NewDerivedFactV2(snapshotBundle []SnapshotBinding, outputRowKey, normalized
 // float64 coercion. The SQL type is part of the fact payload, while this value
 // encoding normalizes equivalent representations inside that type.
 func CanonicalSQLValue(sqlType string, value any) (string, error) {
-	typeName := normalizeSQLType(sqlType)
-	if typeName == "" {
-		return "", fmt.Errorf("%w: SQL type is required", ErrInvalid)
+	typeName, err := CanonicalSQLTypeV2(sqlType)
+	if err != nil {
+		return "", err
 	}
 	if value == nil {
 		return "null", nil
@@ -316,8 +316,6 @@ func CanonicalSQLValue(sqlType string, value any) (string, error) {
 			return "null", nil
 		}
 		return "tm:" + parsed, nil
-	case "time with time zone":
-		return "", fmt.Errorf("%w: PostgreSQL time with time zone is outside %s", ErrInvalid, ProfileV2)
 	case "timestamp with time zone":
 		parsed, err := canonicalTimestamp(value, true)
 		if err != nil {
@@ -336,8 +334,8 @@ func CanonicalSQLValue(sqlType string, value any) (string, error) {
 			return "null", nil
 		}
 		return "ts:" + parsed, nil
-	case "json", "jsonb":
-		encoded, err := canonicalJSONValue(value)
+	case "jsonb":
+		encoded, err := canonicalJSONBValue(value)
 		if err != nil {
 			return "", err
 		}
@@ -409,7 +407,7 @@ func CanonicalSQLTypeV2(value string) (string, error) {
 	switch result {
 	case "smallint", "integer", "bigint", "numeric", "real", "double precision",
 		"boolean", "bytea", "date", "time without time zone",
-		"timestamp with time zone", "timestamp without time zone", "json", "jsonb",
+		"timestamp with time zone", "timestamp without time zone", "jsonb",
 		"uuid", "text", "character", "character varying":
 		return result, nil
 	case "time with time zone":
@@ -700,7 +698,7 @@ func canonicalTimestamp(value any, withTimezone bool) (string, error) {
 	return timestamp.Truncate(time.Microsecond).Format("2006-01-02T15:04:05.999999"), nil
 }
 
-func canonicalJSONValue(value any) ([]byte, error) {
+func canonicalJSONBValue(value any) ([]byte, error) {
 	var decoded any
 	switch typed := value.(type) {
 	case []byte:

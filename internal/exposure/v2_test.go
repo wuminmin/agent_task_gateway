@@ -340,22 +340,22 @@ func TestV2JoinRejectsCollationDrift(t *testing.T) {
 	}
 }
 
-func TestV2EmptyRelationsStillRejectJSONEqualityOperators(t *testing.T) {
-	left, err := ScanV2(BaseRelationSpecV2{SourceNamespace: "json.left", Snapshot: "s1", StableRole: "left",
-		Fields: []FieldV2{{ID: "left.value", SQLType: "json"}}})
-	if err != nil {
-		t.Fatal(err)
+func TestV2RejectsJSONAtTheTypeBoundary(t *testing.T) {
+	if _, err := CanonicalSQLTypeV2("json"); err == nil {
+		t.Fatal("PostgreSQL json entered the V2 type domain")
 	}
-	right, err := ScanV2(BaseRelationSpecV2{SourceNamespace: "json.right", Snapshot: "s1", StableRole: "right",
-		Fields: []FieldV2{{ID: "right.value", SQLType: "json"}}})
-	if err != nil {
-		t.Fatal(err)
+	if _, err := CanonicalSQLValue("json", []byte(`{"a":1,"a":2}`)); err == nil {
+		t.Fatal("PostgreSQL json entered the V2 value domain")
 	}
-	if _, err := JoinV2(left, right, "left.value", "right.value"); err == nil {
-		t.Fatal("empty json inputs bypassed the V2 join type rule")
+	if _, err := CanonicalSQLValue("json", nil); err == nil {
+		t.Fatal("NULL with PostgreSQL json type entered the V2 value domain")
 	}
-	if _, err := AggregateFromResultsV2(left, []string{"left.value"}, nil, nil); err == nil {
-		t.Fatal("empty json input bypassed the V2 group type rule")
+	if _, err := NewBaseCellFactV2("json.source", "s1", "row-1", "value", "json", []byte(`{"a":1}`)); err == nil {
+		t.Fatal("PostgreSQL json produced a V2 FactID")
+	}
+	if _, err := ScanV2(BaseRelationSpecV2{SourceNamespace: "json.source", Snapshot: "s1", StableRole: "source",
+		Fields: []FieldV2{{ID: "source.value", SQLType: "json"}}}); err == nil {
+		t.Fatal("PostgreSQL json entered a V2 relation")
 	}
 }
 

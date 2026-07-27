@@ -438,16 +438,18 @@ The closed scalar domain $\mathcal T$ contains exactly the canonical types
 \code{double precision}, \code{boolean}, \code{bytea}, \code{date},
 \code{time without time zone}, \code{timestamp without time zone},
 \code{timestamp with time zone}, \code{uuid}, \code{text}, \code{character},
-\code{character varying}, \code{json}, and \code{jsonb}, with PostgreSQL
+\code{character varying}, and \code{jsonb}, with PostgreSQL
 aliases mapped to these canonical names.  Integers retain their
 16/32/64-bit ranges; exact numerics are encoded as reduced rationals and never
 accepted through a binary-float conversion; floats use their IEEE width and
 canonicalize NaN, infinities, and negative zero.  Temporal values have
 PostgreSQL microsecond precision, \code{timestamptz} is UTC, and
 \code{time with time zone} is excluded.  Text equality/order binds exact
-deterministic collation name and actual version.  \code{json} lacks equality
-and cannot join, group, or distinct; \code{jsonb} has structural canonical
-equality.  Aggregate result types are exactly PostgreSQL's:
+deterministic collation name and actual version.  The text-preserving
+\code{json} type is excluded: PostgreSQL retains insignificant whitespace,
+object-key order, duplicate keys, and numeric lexical forms, while \code{jsonb}
+has structural canonical equality \cite{postgres16json}.  Aggregate result
+types are exactly PostgreSQL's:
 \code{COUNT}$\to$\code{int8}, \code{SUM(int2/int4)}$\to$\code{int8},
 \code{SUM(int8)}$\to$\code{numeric}, \code{SUM(numeric)}$\to$\code{numeric},
 and \code{MIN/MAX}$\to$the input type.  \code{SUM(real)} and
