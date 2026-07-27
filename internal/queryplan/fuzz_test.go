@@ -1,6 +1,9 @@
 package queryplan
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func FuzzCompileNeverPanicsOrEmitsUnapprovedIdentifiers(f *testing.F) {
 	f.Add("month", "=", "2026-01", "asc", int(10))
@@ -22,5 +25,21 @@ func FuzzCompileNeverPanicsOrEmitsUnapprovedIdentifiers(f *testing.F) {
 		if err == nil && compiled == "" {
 			t.Fatal("successful compilation emitted empty SQL")
 		}
+	})
+}
+
+func FuzzCompileRelationalNeverPanics(f *testing.F) {
+	f.Add([]byte(`{"from":{"join":{"left":{"product":"left","role":"left"},"right":{"product":"right","role":"right"},"on":[{"left":"left.k","right":"right.k"}]}},"columns":["left.value"]}`))
+	f.Add([]byte(`{"from":{"union_distinct":{"role":"left","columns":["k","value"],"left":{"product":"left","role":"a"},"right":{"product":"left","role":"b"}}},"columns":["left.value"]}`))
+	products := map[string]Product{
+		"left":  {Name: "left", StableRole: "left", SourceNamespace: "source.left", Snapshot: "s1", StableEntityKey: []string{"k"}, Columns: map[string]struct{}{"k": {}, "value": {}}, ColumnTypes: map[string]string{"k": "integer", "value": "text"}, ColumnCollations: map[string]string{"value": "C"}, CollationVersions: map[string]string{"value": "builtin"}, AllowedAggregates: map[string]struct{}{"count": {}}},
+		"right": {Name: "right", StableRole: "right", SourceNamespace: "source.right", Snapshot: "s1", StableEntityKey: []string{"k"}, Columns: map[string]struct{}{"k": {}, "value": {}}, ColumnTypes: map[string]string{"k": "integer", "value": "text"}, ColumnCollations: map[string]string{"value": "C"}, CollationVersions: map[string]string{"value": "builtin"}, AllowedAggregates: map[string]struct{}{"count": {}}},
+	}
+	f.Fuzz(func(t *testing.T, encoded []byte) {
+		var plan QueryPlan
+		if err := json.Unmarshal(encoded, &plan); err != nil {
+			return
+		}
+		_, _ = CompileRelational(plan, products)
 	})
 }

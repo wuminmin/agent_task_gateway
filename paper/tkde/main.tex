@@ -60,7 +60,8 @@ present TaskGate, a prototype for task-bound exposure accounting. Versioned
 identities bind product, snapshot, entity, field, and value. Each approved root
 task maintains separate release and positive-output-dependency ledgers, so a
 small aggregate cannot hide a large conservative footprint.
-The online path executes one authorized visible query and its provenance
+The online path compiles single-product plans and bounded two-input inner joins
+and union-distinct plans into one authorized visible query and a provenance
 companion in a shared read-only snapshot, buffers the result, derives both fact
 sets, and atomically charges only facts novel to the root ledger before release.
 Dependency identities remain server-side evidence; delegation shares the same
@@ -68,8 +69,9 @@ ledger. We give compositional semantics for a positive relational fragment
 with grouping and four aggregates and check a finite ledger model. An
 independent oracle validates \RQOneCases{} cases. Across
 \RQTwoExposureRewrites{} closed-language rewrites, release and dependency sets
-and incremental charges have \RQTwoExposureMismatches{} mismatches; a separate
-PostgreSQL~16 campaign confirms \RQTwoUnique{} result-equivalent SQL pairs. In
+and incremental charges have \RQTwoExposureMismatches{} mismatches.  Real
+PostgreSQL~16 paired-query tests cover join operand exchange, union member
+completeness and hidden distinct fields, and downstream grouping. In
 three local trials and \RQFourObservations{} operations, a warm full-path
 history hit has \RQFourFullOneMedian{}-ms median and
 \RQFourFullOneTail{}-ms p95 latency at one worker, while a replay adds zero
@@ -129,11 +131,10 @@ This paper makes four implementation-backed contributions:
 \begin{enumerate}
 \item Executable semantics and ground-truth tests for a restricted positive
 relational algebra, including projection, selection, join, union, pagination,
-grouping, and \code{COUNT}/\code{SUM}/\code{MIN}/\code{MAX}. This item is an
-algebra contribution, not a claim that every operator is online.
-\item An online paired-snapshot algorithm for the implemented one-product
-projection/filter/order/limit/offset/group fragment, including \code{COUNT(*)},
-and a PostgreSQL root-family ledger whose settlement charges exactly novel
+grouping, and \code{COUNT}/\code{SUM}/\code{MIN}/\code{MAX}.
+\item An online paired-snapshot compiler for the one-product fragment and
+bounded two-scan inner equijoins and union-distinct, including grouping and the
+four aggregates.  Its PostgreSQL root-family ledger charges exactly novel
 facts and withholds over-budget results.
 \item Signed, monotonic multi-agent delegation that shares root accounting
 state and prevents task-tree fan-out from multiplying exposure capacity.
@@ -143,10 +144,11 @@ model, and a repeated full-path PostgreSQL overhead and contention campaign.
 
 The implementation does \emph{not} claim arbitrary SQL equivalence, differential
 privacy, inference control, principal-wide accounting, or denial-oblivious
-auditing. The online compiler currently accepts one-product structured plans;
-join and union exist in the executable algebra but are not connected to online
-provenance. A newly approved root creates a distinct ledger. These boundaries
-are part of the result, rather than hidden behind a broad ``SQL support'' label.
+auditing. The online multi-input grammar is intentionally bounded: two scan
+leaves, an inner conjunctive equijoin or same-product union-distinct, and no
+nested set/join tree or multi-input pagination. A newly approved root creates a
+distinct ledger. These boundaries are part of the result, rather than hidden
+behind a broad ``SQL support'' label.
 
 \section{Context and Related Work}
 \label{sec:related}
@@ -215,8 +217,9 @@ neither a new provenance algebra nor a general provenance engine. It specializes
 provenance to two set-valued effects---facts explicitly released and a
 conservative operator-input footprint for their successful positive
 derivations---then requires answer/effect co-generation in
-one snapshot and atomic settlement before release. Join/union multiplicity,
-negation, and general recursive SQL remain outside the current online profile.
+one snapshot and atomic settlement before release.  The online profile includes
+bounded inner-equijoin and union-distinct multiplicity; outer joins, negation,
+and general recursive SQL remain outside it.
 
 \subsection{Usage Control, Delegation, and Quotas}
 
@@ -855,19 +858,66 @@ general SQL equivalence reasoning.
 \section{Online Accounting}
 \label{sec:online}
 
+Table~\ref{tab:operator-coverage} separates four kinds of support that were
+previously easy to conflate.  ``Online'' means that the public structured plan
+is lowered to visible/provenance SQL and settled through the production ledger;
+it does not mean that arbitrary SQL containing the operator is accepted.
+
+\begin{table*}[t]
+\centering
+\caption{Operator coverage.  PG E2E executes the paired statements on
+PostgreSQL~16 and derives the V2 observation, rather than checking result
+equality alone.}
+\label{tab:operator-coverage}
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{L{0.18\textwidth}L{0.16\textwidth}L{0.18\textwidth}L{0.24\textwidth}L{0.17\textwidth}}
+\toprule
+Operator & Formal semantics & Independent oracle & Online lowering & PG E2E exposure check \\
+\midrule
+Scan/Select/Project & yes & yes & one Catalog product & paired output/evidence and hidden keys \\
+Group + four aggregates & yes & yes & above either online input & hidden group key and aggregate membership \\
+Inner equijoin & yes & yes & two distinct Catalog roles; conjunctive equalities & operand exchange, fanout, downstream SUM \\
+Union-distinct & yes & yes & two filtered branches of one product; explicit full distinct schema & all members, hidden field, exchange, downstream COUNT \\
+Page & yes & yes & one-product plan with stable Catalog suffix & offset/tie-break and withholding \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
 \subsection{Compilation and Paired Execution}
 
-An exposure-enabled grant accepts a one-product structured plan. The compiler
-first validates visible fields, filters, grouping, ordering, limit/offset, and
-one of four aggregates; \code{COUNT(*)} and \code{COUNT(field)} have distinct
-normal forms. It then produces two SQL statements. For ungrouped output,
-both statements use the same hidden projection, entity-key tie-breaker, and row
-ceiling; the gateway also checks their key sets before settlement. For grouped
-output, the companion selects entity keys, mandatory scopes, visible and
-predicate fields, grouping fields (including keys hidden from final $V$), and
-aggregate inputs, and requests one row
-beyond its evidence ceiling to detect truncation. Both statements pass the same
-PostgreSQL AST authorization and scope-injection policy.
+An exposure-enabled grant accepts either a one-product structured plan or one
+closed two-input form.  The latter is (i) an inner join of two distinct
+Catalog-stable roles with one or more same-type, same-collation equalities, or
+(ii) union-distinct over two filtered aliases of one product, with the complete
+deduplication schema explicit even when final $V$ hides some of its fields.
+Nested join/set trees, self-join roles, union-all, and relational pagination
+fail closed.  Callers cannot supply SQL fragments, FactIDs, provenance, or
+semantic role identities.  Branch aliases are syntactic; join and union output
+roles must match Catalog identities.
+
+The compiler validates fields, predicates, grouping, and one of four
+aggregates; \code{COUNT(*)} and \code{COUNT(field)} have distinct normal forms.
+It produces two SQL statements from the same typed plan. A join companion
+returns each positive matched row pair, including both entity keys and every
+projected/join/filter/group/aggregate field. The visible and companion statements share
+a stable pair-key order when the ordinary row ceiling can cut the bag. A
+union-distinct visible statement eliminates duplicates over its complete
+declared schema, whereas its companion deliberately uses \code{UNION ALL} plus
+a branch marker and both source entity keys. Consequently every member of each
+delivered distinct class remains reconstructible; selecting one representative
+would be rejected as incomplete evidence. Grouped and membership-expanded
+companions request one row beyond their evidence ceiling to detect truncation.
+All generated statements pass the same PostgreSQL AST authorization and
+mandatory-scope injection policy.
+
+After execution, the gateway reconstructs Catalog-bound Scan annotations,
+retains only provenance-certified join pairs or delivered union classes, and
+invokes the same \code{JoinOnV2}, \code{UnionDistinctV2},
+\code{AggregateFromResultsV2}, and \code{ObserveV2} implementation tested by
+the algebra oracle. It does not maintain a second ad hoc online dependency
+rule. Hidden SQL output aliases are server-generated hashes and are mapped back
+to stable field IDs before effect derivation and external delivery.
 
 The connector executes both statements in one explicit read-only
 \code{REPEATABLE READ} transaction \cite{postgres16transaction}. This prevents
@@ -1040,14 +1090,13 @@ rather than claiming a proof that does not exist.
 \subsection{Questions and Reproducibility}
 
 The evaluation is organized around four questions: RQ1 ground-truth accuracy;
-RQ2 rewrite invariance of the accounting and of query results; RQ3 resistance to
-split, page, retry, snapshot, delegation, and concurrency amplification, plus
-join amplification at the executable-algebra boundary; RQ4 runtime/storage
+RQ2 rewrite invariance of exposure accounting; RQ3 resistance to split, page,
+retry, snapshot, join/union, delegation, and concurrency amplification; RQ4 runtime/storage
 overhead and cost scaling. The report
 is rebuilt from a source-controlled V2 algebra corpus with digest prefix
-\ExposureCorpusHash{}. RQ2 pairs an in-process closed-language FactSet-invariance
-campaign with a real PostgreSQL~16 differential/metamorphic result-equivalence
-campaign. RQ4 contains \RQFourTrials{} fresh
+\ExposureCorpusHash{}. The primary RQ2 evidence is a closed-language
+FactSet-invariance campaign; a separate broad SQL result-equivalence stress test
+is reported only in the supplement and is not exposure evidence. RQ4 contains \RQFourTrials{} fresh
 isolated PostgreSQL deployments, \RQFourObservations{} measured operations, and
 \RQFourScalingDims{} deterministic in-process scaling sweeps.
 
@@ -1061,8 +1110,8 @@ isolated PostgreSQL deployments, \RQFourObservations{} measured operations, and
 RQ & Current result \\
 \midrule
 RQ1 & \RQOnePassed{}/\RQOneCases{} independent-oracle cases on \RQOneRows{} source rows \\
-RQ2 & \RQTwoExposureRewrites{} closed-language rewrites over \RQTwoExposureDatasets{} datasets: FactSet/charge invariant, \RQTwoExposureMismatches{} mismatches; plus \RQTwoUnique{} SQL result-equivalence pairs \\
-RQ3 & \RQThreePassed{}/\RQThreeCases{} deterministic; \RQThreeIntegration{}/\RQThreeExecuted{} PostgreSQL race tests passed with raw logs \\
+RQ2 & \RQTwoExposureRewrites{} closed-language rewrite families, \RQTwoExposureCases{} instances and \RQTwoExposureNFCases{} normal-form checks: FactSet/charge invariant, \RQTwoExposureMismatches{} mismatches \\
+RQ3 & \RQThreePassed{}/\RQThreeCases{} deterministic; \RQThreeIntegration{}/\RQThreeExecuted{} PostgreSQL race tests; paired PG Join/Union exchange and downstream-group tests \\
 RQ4 & \RQFourObservations{} operations/\RQFourTrials{} trials; full hit p50/p95 $=\RQFourFullOneMedian{}/\RQFourFullOneTail{}$ ms at $c=1$; \RQFourScalingDims{} in-process scaling sweeps \\
 \bottomrule
 \end{tabular}
@@ -1077,8 +1126,8 @@ query-plan, gateway, or policy code; it independently constructs the complete
 semantic Fact objects, witness commitments, and hashes. The production output
 matches its \RQOneReleaseFacts{} release and \RQOneInfluenceFacts{} dependency
 case-level fact memberships, with per-case set digests retained in the report.
-RQ2 has two independent streams. The first measures rewrite invariance of the
-accounting itself, not merely of query results. We express each side of
+RQ2 measures rewrite invariance of the accounting itself, not merely of query
+results. We express each side of
 \RQTwoExposureRewrites{} closed-language rewrites (selection/projection
 reordering, conjunction reordering, projection and visible/hidden group-key
 field ordering, join operand and predicate reordering, union operand exchange,
@@ -1087,23 +1136,26 @@ over \RQTwoExposureDatasets{} data instances
 and snapshots, and require, for each pair, that the typed normal form agrees
 (where the rewrite is NF-canonical), that the release and dependency FactSets are
 identical, and that the incremental charge is zero in both directions. The
-campaign reports \RQTwoExposureCases{} cases and \RQTwoExposureNFCases{}
-normal-form checks with \RQTwoExposureMismatches{} mismatches. The second
-stream is a bounded check that rewrites do not change query \emph{results}: it
-generates \RQTwoPairs{} attempts from 128 predicate instantiations and
-\RQTwoTemplates{} structural templates, collapses SQL whitespace, hashes every
-pair and the sorted pair set, rejects duplicates, and executes all
-\RQTwoUnique{} unique pairs on PostgreSQL~16 against an independent Go fixture
-evaluator. These templates---predicate reorder, derived projection, CTE
-pushdown, De Morgan, correlated \code{EXISTS}, a one-row \code{VALUES} join, and
-two page partitions---are PostgreSQL-SQL-equivalence probes and lie outside the
-closed algebra language, so they are evidence about result equivalence, not
-about exposure accounting. RQ3 deterministically checks join multiplicity in the in-memory
-annotated algebra and checks split/merge, overlapping pages, cache/retry, and
-snapshot update. It is not an end-to-end online Join experiment. Delegation and
-concurrent root-ledger settlement additionally run against PostgreSQL with the
-Go race detector; the artifact binds both named test-pass events and the
-package-pass event to the SHA-256 of the raw \code{go test -json} log.
+campaign reports \RQTwoExposureCases{} instances, \RQTwoExposureNFCases{}
+normal-form checks and \RQTwoExposureEffectChecks{} bidirectional Effect checks with
+\RQTwoExposureMismatches{} mismatches. The ten families are not ten datasets:
+they cross five small, source-controlled data instances.  The supplementary
+SQL campaign is kept separate because most of its templates lie outside the
+closed algebra and it checks rows, not FactSets.
+
+RQ3 deterministically checks join multiplicity in the annotated algebra and
+checks split/merge, overlapping pages, cache/retry, and snapshot update. One
+online PostgreSQL test compiles and executes both paired statements for join
+and union operand exchange, verifies identical observation digests, and
+composes each operator with downstream grouping and aggregation. Its union
+companion must expose both branch members and the hidden full-tuple field; its
+join companion preserves actual fanout pairs. A second test enters through the
+public \code{execute_plan} API, executes against Business PostgreSQL, settles
+both ledgers in Control PostgreSQL, and verifies that internal fields are
+stripped before release. These two tests plus delegation and concurrent
+root-ledger settlement run with the Go race detector; one artifact binds all
+named test-pass and package-pass events to the SHA-256 of the raw
+\code{go test -json} log.
 
 \subsection{Descriptive Baseline Contrast}
 
@@ -1201,9 +1253,10 @@ cost model that latency is built on.
 RQ1 and the RQ2 exposure-invariance stream remain auditable in-process tests:
 RQ1 has 16 source rows, while RQ2 invariance crosses \RQTwoExposureRewrites{}
 closed-language rewrites over \RQTwoExposureDatasets{} small data instances, and
-the separate SQL result-equivalence stream crosses eight templates with 128
-predicates over 12 rows. Thus the counts are rewrite/dataset pairs and
-normalized SQL pairs, not independent schemas, datasets, or workloads. The
+the PostgreSQL online-coverage test uses the bundled ten-row travel fixture.
+Thus the counts are rewrite/data-instance pairs and operator scenarios, not
+independent schemas or workloads.  The separate SQL result-equivalence stress
+test and its normalized-pair accounting appear only in the supplement. The
 performance result is a controlled single-host microbenchmark on the bundled
 ten-row travel fixture, complemented by deterministic in-process scaling sweeps,
 not a TPC-H/TPC-DS or production-scale claim. Source-controlled reports bind
@@ -1230,12 +1283,15 @@ one root family, not to a principal. Repeated human approval of new roots gives
 the same subject independent ledgers unless an external policy imposes a
 principal- or tenant-wide budget.
 
-\textbf{Query scope.} The executable algebra includes join and union, but the
-online compiler supports one product with projection, filtering, ordering,
-limit/offset, grouping, and \code{COUNT(*)}/\code{COUNT(field)}/\code{SUM}/
-\code{MIN}/\code{MAX}. Join-amplification and union results in this paper are
-algebra/oracle evidence, not online system coverage. \code{AVG}, windows, negation,
-difference, recursion, arbitrary subqueries, and cross-source plans fail closed.
+\textbf{Query scope.} The online compiler supports one-product plans and two
+bounded multi-input forms: an inner conjunctive equijoin over two distinct
+Catalog roles, and union-distinct over two filtered branches of one product
+with an explicit complete deduplication schema. Both can feed grouping and
+\code{COUNT(*)}/\code{COUNT(field)}/\code{SUM}/\code{MIN}/\code{MAX}. Nested
+join/set trees, self-joins, union-all, relational pagination, outer joins,
+\code{AVG}, windows, negation, difference, recursion, arbitrary subqueries,
+and multi-datasource plans fail closed. These are prototype restrictions, not
+limitations of the algebraic rules.
 
 \textbf{Identity trust.} Stable entity keys and snapshot labels are
 administrator declarations. Schema attestation cannot prove uniqueness or that
@@ -1264,18 +1320,17 @@ dependency set is a conservative footprint exact under the declared inductive
 profile; it makes no claim of causal minimality or complete physical reads. The
 current
 artifact establishes a coherent semantic and systems foundation, finds no
-violation in a finite ledger model, and observes zero mismatch both for
-\RQTwoExposureRewrites{} closed-language rewrites (FactSet and incremental
-charge invariant) and for \RQTwoUnique{} normalized PostgreSQL baseline/rewrite
-SQL pairs. The full path has \RQFourFullOneMedian{}-ms p50 latency at one worker,
+violation in a finite ledger model, and observes zero mismatch for
+\RQTwoExposureRewrites{} closed-language rewrite families (FactSet and
+incremental charge invariant). Paired PostgreSQL tests additionally execute
+online Join/Union exchange and downstream aggregation while checking the
+derived observation. The full path has \RQFourFullOneMedian{}-ms p50 latency at one worker,
 exposes root-ledger serialization at higher concurrency, and its in-process cost
 model scales with source rows and expression depth while a replay charges
 nothing. These empirical results answer RQ4 for the declared local scope;
-TPC-scale, multi-node, and live-LLM generalization remain
-outside the claims, as do online Join/Union coverage---Join and Union remain
-algebra/oracle evidence rather than compiler-supported online provenance---along
-with cross-root accounting and inference protection for denial or negative
-information.
+TPC-scale, multi-node, nested multi-input plans, and live-LLM generalization
+remain outside the claims, along with cross-root accounting and inference
+protection for denial or negative information.
 
 \bibliographystyle{IEEEtran}
 \bibliography{references}

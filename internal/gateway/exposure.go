@@ -16,17 +16,22 @@ import (
 var errProvenanceTruncated = errors.New("provenance result exceeded the connector row ceiling")
 
 type planExposureContext struct {
-	product          catalog.Product
-	plan             queryplan.QueryPlan
-	mainSQL          string
-	provenanceSQL    string
-	visibleFields    []string
-	factFields       []string
-	provenanceFields []string
-	meteringColumns  []string
-	grouped          bool
-	normalForm       *queryplan.NormalForm
-	planDigest       string
+	product           catalog.Product
+	products          []catalog.Product
+	plan              queryplan.QueryPlan
+	mainSQL           string
+	provenanceSQL     string
+	visibleFields     []string
+	factFields        []string
+	provenanceFields  []string
+	meteringColumns   []string
+	grouped           bool
+	expandedEvidence  bool
+	meteringByProduct map[string][]string
+	relational        *relationalExposureContext
+	normalForm        *queryplan.NormalForm
+	algebraNormalForm *queryplan.AlgebraNormalFormV2
+	planDigest        string
 }
 
 func buildPlanExposureContext(plan queryplan.QueryPlan, product catalog.Product, approvedColumns map[string]struct{}, allowedAggregates map[string]struct{}) (*planExposureContext, error) {
@@ -182,6 +187,27 @@ func (context *planExposureContext) configureV2(approvedColumns map[string]struc
 
 func (context *planExposureContext) extendGrant(grant sqlpolicy.Grant) (sqlpolicy.Grant, error) {
 	result := sqlpolicy.Grant{Products: append([]sqlpolicy.ProductGrant(nil), grant.Products...)}
+	if context.relational != nil {
+		found := make(map[string]bool, len(context.meteringByProduct))
+		for index := range result.Products {
+			columns, required := context.meteringByProduct[result.Products[index].LogicalName]
+			if !required {
+				continue
+			}
+			found[result.Products[index].LogicalName] = true
+			set := stringSetFromSlice(result.Products[index].ApprovedColumns)
+			for _, column := range columns {
+				set[column] = struct{}{}
+			}
+			result.Products[index].ApprovedColumns = sortedStringSet(set)
+		}
+		for product := range context.meteringByProduct {
+			if !found[product] {
+				return sqlpolicy.Grant{}, fmt.Errorf("exposure product %q is absent from the task grant", product)
+			}
+		}
+		return result, nil
+	}
 	found := false
 	for index := range result.Products {
 		if result.Products[index].LogicalName != context.product.Name {
@@ -201,6 +227,12 @@ func (context *planExposureContext) extendGrant(grant sqlpolicy.Grant) (sqlpolic
 }
 
 func (context *planExposureContext) deriveObservation(visible, provenance dataconnector.Result, profile string) (exposure.Observation, error) {
+	if context.relational != nil {
+		if profile != exposure.ProfileV2 {
+			return exposure.Observation{}, fmt.Errorf("online Join/Union requires %s", exposure.ProfileV2)
+		}
+		return context.deriveRelationalObservationV2(visible, provenance)
+	}
 	if profile == exposure.ProfileV2 {
 		return context.deriveObservationV2(visible, provenance)
 	}
@@ -481,6 +513,10 @@ func (context *planExposureContext) deriveObservationV2(visible, provenance data
 	return exposure.ObserveV2(aggregated, context.visibleFields...)
 }
 
+func (context *planExposureContext) usesExpandedEvidence() bool {
+	return context.grouped || context.expandedEvidence
+}
+
 func catalogFieldByName(fields []catalog.Field, name string) (catalog.Field, bool) {
 	for _, field := range fields {
 		if field.Name == name {
@@ -571,6 +607,13 @@ func uniqueStrings(values []string) []string {
 }
 
 func (context *planExposureContext) visibleResult(result dataconnector.Result) (dataconnector.Result, error) {
+	if context.relational != nil {
+		var err error
+		result, err = context.relational.canonicalVisibleResult(result)
+		if err != nil {
+			return dataconnector.Result{}, err
+		}
+	}
 	if len(result.Columns) == len(context.visibleFields) {
 		return result, nil
 	}
@@ -670,6 +713,29 @@ func cloneQueryPlan(plan queryplan.QueryPlan) queryplan.QueryPlan {
 	plan.Filters = append([]queryplan.Filter(nil), plan.Filters...)
 	plan.GroupBy = append([]string(nil), plan.GroupBy...)
 	plan.OrderBy = append([]queryplan.Order(nil), plan.OrderBy...)
+	if plan.From != nil {
+		from := *plan.From
+		if from.Scan != nil {
+			scan := *from.Scan
+			scan.Filters = append([]queryplan.Filter(nil), scan.Filters...)
+			from.Scan = &scan
+		}
+		if from.Join != nil {
+			join := *from.Join
+			join.Left.Filters = append([]queryplan.Filter(nil), join.Left.Filters...)
+			join.Right.Filters = append([]queryplan.Filter(nil), join.Right.Filters...)
+			join.On = append([]queryplan.JoinPredicate(nil), join.On...)
+			from.Join = &join
+		}
+		if from.UnionDistinct != nil {
+			union := *from.UnionDistinct
+			union.Columns = append([]string(nil), union.Columns...)
+			union.Left.Filters = append([]queryplan.Filter(nil), union.Left.Filters...)
+			union.Right.Filters = append([]queryplan.Filter(nil), union.Right.Filters...)
+			from.UnionDistinct = &union
+		}
+		plan.From = &from
+	}
 	return plan
 }
 

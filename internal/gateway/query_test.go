@@ -272,6 +272,110 @@ func TestExposureV2GroupedHiddenKeyIsMeteredButNotReleased(t *testing.T) {
 	}
 }
 
+func TestExposureV2OnlineJoinOperandSwapUsesSameLedgerFacts(t *testing.T) {
+	harness := newGatewayHarness(t)
+	harness.createTaskWithGrantAndExposureProfile(t, "task-v2-join", nil,
+		control.ExposureLimits{ReleaseFacts: 50, InfluenceFacts: 50}, exposure.ProfileV2,
+		[]string{"expense_detail", "expense_summary"}, map[string][]string{
+			"expense_detail":  {"amount", "department", "receipt_no"},
+			"expense_summary": {"department", "month", "total_amount"},
+		}, domain.SensitivityHigh)
+	harness.connector.result = dataconnector.Result{
+		Columns: []dataconnector.Column{
+			{Name: "expense_detail.receipt_no", DataTypeOID: 25}, {Name: "expense_summary.total_amount", DataTypeOID: 1700},
+		},
+		Rows: [][]any{{"R-1", "30"}}, RowCount: 1,
+	}
+	harness.connector.provenanceResult = dataconnector.Result{
+		Columns: []dataconnector.Column{
+			{Name: "tg_expense_detail_department", DataTypeOID: 25}, {Name: "tg_expense_detail_receipt_no", DataTypeOID: 25},
+			{Name: "tg_expense_summary_department", DataTypeOID: 25}, {Name: "tg_expense_summary_expense_type", DataTypeOID: 25},
+			{Name: "tg_expense_summary_month", DataTypeOID: 25},
+			{Name: "tg_expense_summary_total_amount", DataTypeOID: 1700},
+		},
+		Rows: [][]any{{"销售部", "R-1", "销售部", "机票", "2026-01", "30"}}, RowCount: 1,
+	}
+	plan := map[string]any{
+		"from": map[string]any{"join": map[string]any{
+			"left":  map[string]any{"product": "expense_detail", "role": "expense_detail"},
+			"right": map[string]any{"product": "expense_summary", "role": "expense_summary"},
+			"on":    []map[string]any{{"left": "expense_detail.department", "right": "expense_summary.department"}},
+		}},
+		"columns": []string{"expense_detail.receipt_no", "expense_summary.total_amount"},
+	}
+	first := mustCallGatewayTool(t, harness.service, harness.alice, "execute_plan", map[string]any{
+		"task_id": "task-v2-join", "request_id": "join-left-right", "plan": plan,
+	})
+	firstCharge := first["exposure"].(control.ExposureCharge)
+	if firstCharge.ActualReleaseFacts != 2 || firstCharge.ActualInfluenceFacts != 6 {
+		t.Fatalf("online join charge = %+v, want release=2 dependency=6", firstCharge)
+	}
+	if columns := first["columns"].([]dataconnector.Column); len(columns) != 2 {
+		t.Fatalf("join metering fields leaked: %+v", columns)
+	}
+
+	swapped := map[string]any{
+		"from": map[string]any{"join": map[string]any{
+			"left":  map[string]any{"product": "expense_summary", "role": "expense_summary"},
+			"right": map[string]any{"product": "expense_detail", "role": "expense_detail"},
+			"on":    []map[string]any{{"left": "expense_summary.department", "right": "expense_detail.department"}},
+		}},
+		"columns": []string{"expense_detail.receipt_no", "expense_summary.total_amount"},
+	}
+	second := mustCallGatewayTool(t, harness.service, harness.alice, "execute_plan", map[string]any{
+		"task_id": "task-v2-join", "request_id": "join-right-left", "plan": swapped,
+	})
+	secondCharge := second["exposure"].(control.ExposureCharge)
+	if secondCharge.ChargedReleaseFacts != 0 || secondCharge.ChargedInfluenceFacts != 0 {
+		t.Fatalf("join operand swap changed ledger facts: %+v", secondCharge)
+	}
+}
+
+func TestExposureV2OnlineUnionDistinctMetersAllMembersAndHiddenField(t *testing.T) {
+	harness := newGatewayHarness(t)
+	harness.createTaskWithGrantAndExposureProfile(t, "task-v2-union", nil,
+		control.ExposureLimits{ReleaseFacts: 50, InfluenceFacts: 50}, exposure.ProfileV2,
+		[]string{"expense_summary"}, map[string][]string{
+			"expense_summary": {"department", "expense_type", "month"},
+		}, domain.SensitivityLow)
+	harness.connector.result = dataconnector.Result{
+		Columns: []dataconnector.Column{{Name: "expense_summary.department", DataTypeOID: 25}, {Name: "expense_summary.month", DataTypeOID: 25}},
+		Rows:    [][]any{{"销售部", "2026-01"}}, RowCount: 1,
+	}
+	harness.connector.provenanceResult = dataconnector.Result{
+		Columns: []dataconnector.Column{
+			{Name: "tg_branch", DataTypeOID: 23}, {Name: "tg_expense_summary_department", DataTypeOID: 25},
+			{Name: "tg_expense_summary_expense_type", DataTypeOID: 25}, {Name: "tg_expense_summary_month", DataTypeOID: 25},
+		},
+		Rows: [][]any{
+			{int64(0), "销售部", "机票", "2026-01"},
+			{int64(1), "销售部", "酒店", "2026-01"},
+		}, RowCount: 2,
+	}
+	result := mustCallGatewayTool(t, harness.service, harness.alice, "execute_plan", map[string]any{
+		"task_id": "task-v2-union", "request_id": "union-members", "plan": map[string]any{
+			"from": map[string]any{"union_distinct": map[string]any{
+				"role": "expense_summary", "columns": []string{"department", "month"},
+				"left":  map[string]any{"product": "expense_summary", "role": "left_branch", "filters": []map[string]any{{"column": "expense_type", "op": "=", "value": "机票"}}},
+				"right": map[string]any{"product": "expense_summary", "role": "right_branch", "filters": []map[string]any{{"column": "expense_type", "op": "=", "value": "酒店"}}},
+			}},
+			"columns": []string{"expense_summary.department"},
+		},
+	})
+	columns := result["columns"].([]dataconnector.Column)
+	if len(columns) != 1 || columns[0].Name != "expense_summary.department" {
+		t.Fatalf("hidden UNION dedup field leaked: %+v", columns)
+	}
+	if len(harness.connector.requests) != 2 || !strings.Contains(harness.connector.requests[0].SQL, " UNION ") ||
+		!strings.Contains(harness.connector.requests[1].SQL, "UNION ALL") || !strings.Contains(harness.connector.requests[1].SQL, "LIMIT 51") {
+		t.Fatalf("online UNION did not execute distinct/all paired statements: %+v", harness.connector.requests)
+	}
+	charge := result["exposure"].(control.ExposureCharge)
+	if charge.ActualReleaseFacts != 1 || charge.ActualInfluenceFacts != 8 {
+		t.Fatalf("online UNION charge = %+v, want release=1 dependency=8", charge)
+	}
+}
+
 func sameExposureFactIDs(t *testing.T, left, right []exposure.FactID) bool {
 	t.Helper()
 	leftSet, err := exposure.NewFactSet(left...)

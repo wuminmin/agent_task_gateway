@@ -234,7 +234,20 @@ func validateProductSQLProfileV2(product Product) error {
 	if len(product.Columns) == 0 || len(product.ColumnTypes) == 0 {
 		return errors.New("V2 normal form requires a typed product schema")
 	}
+	for column := range product.Columns {
+		if !safeIdentifier(column) || strings.TrimSpace(product.ColumnTypes[column]) == "" {
+			return fmt.Errorf("V2 approved column %q lacks a safe typed identity", column)
+		}
+	}
+	for _, column := range product.StableEntityKey {
+		if !safeIdentifier(column) || strings.TrimSpace(product.ColumnTypes[column]) == "" {
+			return fmt.Errorf("V2 entity-key column %q lacks a safe typed identity", column)
+		}
+	}
 	for column, declaredType := range product.ColumnTypes {
+		if !safeIdentifier(column) {
+			return fmt.Errorf("V2 column %q has an invalid identifier", column)
+		}
 		typeName, err := exposure.CanonicalSQLTypeV2(declaredType)
 		if err != nil {
 			return fmt.Errorf("V2 column %q: %w", column, err)
@@ -286,9 +299,9 @@ func canonicalJSON(value any) (json.RawMessage, error) {
 }
 
 // AlgebraPlanV2 is the profile-level operator grammar used by the semantics
-// and proofs. The production SQL compiler currently lowers its single-source
-// scan/select/project/group/page subset; Join and Union normalization is still
-// executable and independently testable at the annotated-algebra boundary.
+// and proofs. The production SQL compiler lowers its single-source subset and
+// a fail-closed two-scan Join/Union subset; the algebra itself remains closed
+// under nesting beyond that deliberately bounded public API.
 type AlgebraPlanV2 struct {
 	Op              string
 	SourceNamespace string

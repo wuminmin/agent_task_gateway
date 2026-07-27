@@ -10,7 +10,6 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-PACKAGE = "taskbound.local/agent-data-gateway/internal/control"
 
 
 def digest(path: Path) -> str:
@@ -35,35 +34,36 @@ def main() -> None:
     report = json.loads(args.report.read_text(encoding="utf-8"))
     rq3 = report["rq3_anti_arbitrage"]
     manifest = rq3["postgres_integration_manifest"]
-    expected = {item["test"]: item["id"] for item in manifest}
+    expected = {(item["package"], item["test"]): item["id"] for item in manifest}
     if len(expected) != len(manifest) or not expected:
         raise SystemExit("RQ3 integration manifest is empty or duplicated")
 
-    final_events: dict[str, dict] = {}
-    package_passed = False
+    final_events: dict[tuple[str, str], dict] = {}
+    package_passed: set[str] = set()
     timestamps: list[str] = []
     for line_number, raw in enumerate(args.log.read_text(encoding="utf-8", errors="strict").splitlines(), 1):
         try:
             event = json.loads(raw)
         except json.JSONDecodeError as exc:
             raise SystemExit(f"invalid go-test JSON at line {line_number}: {exc}") from exc
-        if event.get("Package") != PACKAGE:
-            continue
+        package = event.get("Package")
         if isinstance(event.get("Time"), str):
             timestamps.append(event["Time"])
         test = event.get("Test")
         action = event.get("Action")
-        if test in expected and action in {"pass", "fail", "skip"}:
-            final_events[test] = event
+        key = (package, test)
+        if key in expected and action in {"pass", "fail", "skip"}:
+            final_events[key] = event
         if not test and action == "pass":
-            package_passed = True
+            package_passed.add(package)
 
     tests = []
-    for test, case_id in sorted(expected.items(), key=lambda item: item[1]):
-        event = final_events.get(test, {})
+    for (package, test), case_id in sorted(expected.items(), key=lambda item: item[1]):
+        event = final_events.get((package, test), {})
         tests.append(
             {
                 "id": case_id,
+                "package": package,
                 "test": test,
                 "status": event.get("Action", "missing"),
                 "elapsed_seconds": event.get("Elapsed"),
@@ -71,14 +71,15 @@ def main() -> None:
         )
     passed = sum(item["status"] == "pass" for item in tests)
     failed = len(tests) - passed
-    complete = args.exit_code == 0 and package_passed and failed == 0
+    expected_packages = {package for package, _ in expected}
+    complete = args.exit_code == 0 and expected_packages.issubset(package_passed) and failed == 0
     artifact = {
-        "schema_version": 1,
+        "schema_version": 2,
         "status": "complete" if complete else "failed",
         "command": args.command,
         "command_exit_code": args.exit_code,
         "race_enabled": "-race" in args.command.split(),
-        "package": PACKAGE,
+        "packages": sorted(expected_packages),
         "go_version": args.go_version.strip(),
         "postgres_version": report["rq2_rewrite_invariance"]["postgres_version"],
         "raw_log": relative(args.log),

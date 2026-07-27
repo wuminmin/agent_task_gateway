@@ -100,9 +100,9 @@ Agent 自己写的内层 `LIMIT` 只能进一步缩小结果。外层限制按�
 
 ## QueryPlan 路径
 
-`execute_plan` 接受单产品声明式 `QueryPlan`：选择字段、聚合、过滤、分组、排序、Limit 和 Offset。确定性的 Go 编译器校验产品必须已获批、字段和聚合位于 Catalog/Grant 白名单、别名不重复、Filter 运算符与 literal 类型安全、排序引用有效且 Limit/Offset 非负，再把编译结果送入完整 AST 策略。`COUNT(*)` 与 `COUNT(column)` 是不同的规范表达式；只有 `COUNT` 可接受 `*`。
+`execute_plan` 接受声明式 `QueryPlan`：单产品计划支持选择、聚合、过滤、分组、排序、Limit 和 Offset；V2 还接受两个 Scan 叶子的受限 INNER equijoin 或同产品双分支 `union_distinct`。确定性的 Go 编译器校验产品必须已获批、角色来自 Catalog、字段和聚合位于 Catalog/Grant 白名单、Join 键类型/排序规则一致、Union 完整去重 schema、别名不重复、Filter 运算符与 literal 类型安全，再把编译结果送入完整 AST 策略。`COUNT(*)` 与 `COUNT(column)` 是不同的规范表达式；只有 `COUNT` 可接受 `*`。
 
-启用 exposure 时，第二个编译阶段只接受 projection、filter、order、limit/offset 和
+启用 exposure 时，第二个编译阶段接受上述单产品片段和受限 Join/Union，并允许
 `COUNT(*)/COUNT(column)/SUM/MIN/MAX`（可带 `GROUP BY`）。它加入 Catalog `entity_key`、Scope、
 谓词和聚合输入字段来生成 provenance companion。未获批的实体键仅在策略
 内部扩展 Grant，返回前会被删除；客户端不能借此查询 key。来源结果截断、
@@ -113,7 +113,7 @@ Gateway 不包含模型客户端、Prompt 或自然语言翻译器。需要从�
 ## 已知限制
 
 - SQL 是保守子集。合法但 AST 节点未列入白名单的 PostgreSQL 特性会被拒绝；这属于预期的关闭式行为。
-- `execute_plan` 的在线 exposure compiler 只支持一个产品。Join 和 Union 已在可执行 exposure algebra 中实现和测试，但尚未接入在线 compiler；不能通过 `query_sql` 绕过该限制。
+- 多输入在线片段刻意限制为两个 Scan 叶子：不同 Catalog 角色的 INNER equijoin，或同产品两个过滤分支的 Union-Distinct。嵌套关系树、self-join、`UNION ALL` 和多输入分页关闭式拒绝；不能通过 `query_sql` 绕过。
 - `AVG` 可出现在传统 SQL Catalog allowlist，但不属于 exposure V1 精确计量片段；窗口函数、递归、任意子查询 provenance 和负信息计量也不支持。
 - 直接 SQL 不支持客户端占位符。调用方必须提交完整 SQL；Gateway 不提供任意 Session 变量入口。
 - Connector 在启动、readiness 和每次新查询前对 Reporting View 的列顺序与 PostgreSQL 类型执行 Catalog-pinned Schema Attestation；任何漂移都会关闭式拒绝。

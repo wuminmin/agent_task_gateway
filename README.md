@@ -102,9 +102,43 @@ Navicat 的用户名和密码对应关系见[本地启动与数据库调试](doc
 `request_id` 只观察首次终态；新的 request ID 查询相同事实时，增量收费为零。
 
 `query_sql` 仍用于 resource-only 兼容 Grant；对启用 exposure 的任务，它会因
-无法构造完整 provenance 而关闭式拒绝。当前在线精确计量片段是单产品
-QueryPlan 的 projection/filter/order/limit/offset 与 `COUNT(*)/COUNT(column)/SUM/MIN/MAX` 聚合；Join
-和 Union 已在可执行代数中实现，但尚未接入在线 compiler。
+无法构造完整 provenance 而关闭式拒绝。在线精确计量片段除单产品
+projection/filter/order/limit/offset 和 `COUNT(*)/COUNT(column)/SUM/MIN/MAX`
+外，还支持两种受限 `from`：两个不同 Catalog 稳定角色之间的 INNER
+equijoin，以及同一产品两个过滤分支的 `union_distinct`。二者都能继续分组与
+聚合；嵌套 Join/Union、self-join、`UNION ALL` 和多输入分页关闭式拒绝。
+
+Join 字段使用 Catalog 稳定角色限定；`role` 不是任意 SQL alias：
+
+```json
+{
+  "from": {
+    "join": {
+      "left": {"product": "expense_detail", "role": "expense_detail"},
+      "right": {"product": "expense_summary", "role": "expense_summary"},
+      "on": [{"left": "expense_detail.department", "right": "expense_summary.department"}]
+    }
+  },
+  "columns": ["expense_detail.receipt_no", "expense_summary.total_amount"]
+}
+```
+
+`union_distinct.columns` 是完整去重 tuple；即使最终 `columns` 隐藏其中字段，
+这些字段仍参与 dependency：
+
+```json
+{
+  "from": {
+    "union_distinct": {
+      "role": "expense_summary",
+      "columns": ["department", "month"],
+      "left": {"product": "expense_summary", "role": "left_branch", "filters": [{"column": "expense_type", "op": "=", "value": "机票"}]},
+      "right": {"product": "expense_summary", "role": "right_branch", "filters": [{"column": "expense_type", "op": "=", "value": "酒店"}]}
+    }
+  },
+  "columns": ["expense_summary.department"]
+}
+```
 
 ## 身份
 
@@ -130,7 +164,7 @@ docker compose down
 `make verify` 会执行格式检查、`go vet`、真实 PostgreSQL `go test -race ./...`、镜像构建和隔离的 Compose 端到端验收。
 
 `make eval-exposure` 运行可审计的 ground truth、由独立 oracle 校验的
-1,024 个唯一 PostgreSQL 等价改写、
+1,024 个唯一 PostgreSQL 结果等价改写（补充性压力测试，不作为 exposure invariance 证据）、
 anti-arbitrage cases 和计费基线。`evaluation/exposure-performance/results.json` 保存三次独立
 PostgreSQL 全路径 trial 的 31,296 个 RQ4 观测；该结果限定为本地十行 fixture，
 不冒充 TPC 或生产规模。`make paper` 构建新的 TKDE 工作稿；

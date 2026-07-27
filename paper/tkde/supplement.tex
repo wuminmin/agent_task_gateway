@@ -1,0 +1,57 @@
+\documentclass[journal]{IEEEtran}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage[hidelinks]{hyperref}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\newcommand{\code}[1]{\texttt{#1}}
+\input{generated/evidence.tex}
+
+\title{Supplement to ``TaskGate: Task-Bound Positive-Output Dependency
+Accounting for Autonomous Database Agents''}
+\author{Anonymous Author(s)}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section{Broad SQL Result-Equivalence Stress Test}
+
+This supplement reports a campaign intentionally separated from the main
+paper's exposure-invariance evidence.  It asks only whether each generated
+PostgreSQL rewrite returns the same rows as its baseline.  Most templates lie
+outside TaskGate's closed structured-plan algebra; therefore the campaign does
+\emph{not} establish equal release FactSets, equal positive-output-dependency
+FactSets, equal incremental charges, or online compiler coverage.
+
+The generator instantiates \RQTwoTemplates{} structural templates over 128
+predicate scenarios and a 12-row fixture.  It emits \RQTwoPairs{} attempts,
+collapses SQL whitespace, hashes each ordered statement pair and the sorted
+pair set, rejects duplicate normalized pairs, and executes all
+\RQTwoUnique{} unique pairs on PostgreSQL~16. Expected rows come from an
+independent Go fixture evaluator.  The templates cover predicate reordering,
+derived projection, CTE pushdown, De Morgan rewriting, correlated
+\code{EXISTS}, a one-row \code{VALUES} join, and two page partitions.
+
+\begin{table}[h]
+\centering
+\caption{Supplementary result-equivalence campaign.}
+\small
+\begin{tabular}{L{0.58\columnwidth}r}
+\toprule
+Measure & Result \\
+\midrule
+Generated attempts & \RQTwoPairs{} \\
+Unique normalized pairs executed & \RQTwoUnique{} \\
+Structural templates & \RQTwoTemplates{} \\
+Result mismatches & \RQTwoMismatches{} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The source-controlled report retains every pair signature, the pair-set
+SHA-256, PostgreSQL version, oracle fixture digest, differential and
+metamorphic check counts, and statement count.  These controls make the stress
+test reproducible without enlarging its evidentiary meaning.  The main paper's
+RQ2 conclusion rests instead on the closed-language FactSet/charge checks.
+
+\end{document}

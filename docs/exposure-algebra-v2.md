@@ -439,9 +439,10 @@ K' = (Kr ∪ Er, Ki ∪ Ei)
 | Typed value、FactID、canonical payload | `internal/exposure/fact.go` |
 | 推导规则、validator、Observe | `internal/exposure/algebra_v2.go` |
 | Typed NF 与静态语法检查 | `internal/queryplan/normalform.go` |
+| 受限 Join/Union 双 SQL lowering | `internal/queryplan/relational.go` |
 | Catalog collation/type/profile 条件 | `internal/catalog/validate.go` |
 | PostgreSQL name/version/determinism 证明 | `internal/dataconnector/postgres.go` |
-| 在线 paired execution/provenance | `internal/gateway/exposure.go` |
+| 在线 paired execution/provenance | `internal/gateway/exposure.go`, `internal/gateway/relational_exposure.go` |
 | 原子 ledger 结算 | `internal/control` |
 
-“完整 Exposure Algebra”指本文件语法内的可执行、闭合代数及其 Observation/FactID/NF 语义。当前公网 `execute_plan` 编译器只 lowering 单产品的 Scan/Select/Project/Group/Page 子集；Join 和 Union-Distinct 已在代数/NF 层完整实现和测试，但尚未开放为在线多产品 API。本文不声称：任意 SQL provenance、outer join、`AVG`、negative information、排序位置泄露、差分隐私、跨引擎等价，或 Go 对本文数学模型的 mechanized refinement proof。
+“完整 Exposure Algebra”指本文件语法内的可执行、闭合代数及其 Observation/FactID/NF 语义。公网 `execute_plan` 除单产品 Scan/Select/Project/Group/Page 外，还 lowering 两个 Scan 叶子的不同 Catalog 角色 INNER equijoin，以及同产品双过滤分支 Union-Distinct；二者可继续 Group。该在线子集拒绝嵌套关系树、self-join、Union-All 和多输入 Page。本文不声称：任意 SQL provenance、outer join、`AVG`、negative information、排序位置泄露、差分隐私、跨引擎等价，或 Go 对本文数学模型的 mechanized refinement proof。

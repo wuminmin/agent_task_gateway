@@ -1,7 +1,7 @@
 {
   "schema_version": 4,
   "profile_version": "taskgate-exposure-v2",
-  "corpus_sha256": "160ebe97fd82bd33a98462d1f66e25025b05e3de42f07516ca53655ef06e98ec",
+  "corpus_sha256": "df7dfe2224fcf03aea6c25d36ab55cf34c61afb12c715474bb7de2dd7e80237c",
   "rq1_ground_truth": {
     "cases": 21,
     "passed": 21,
@@ -1430,25 +1430,37 @@
     ]
   },
   "rq3_anti_arbitrage": {
-    "cases": 7,
+    "cases": 9,
     "deterministic_cases": 5,
     "deterministic_passed": 5,
     "postgres_integration_manifest": [
       {
         "id": "concurrent_settlement",
-        "test": "TestConcurrentTaskFamilySettlementCannotOverspend"
+        "test": "TestConcurrentTaskFamilySettlementCannotOverspend",
+        "package": "taskbound.local/agent-data-gateway/internal/control"
+      },
+      {
+        "id": "online_relational_gateway_settlement",
+        "test": "TestRelationalGatewayEndToEndAgainstPostgreSQL",
+        "package": "taskbound.local/agent-data-gateway/internal/gateway"
+      },
+      {
+        "id": "online_relational_postgres",
+        "test": "TestRelationalOnlinePathAgainstPostgreSQL",
+        "package": "taskbound.local/agent-data-gateway/internal/gateway"
       },
       {
         "id": "task_family_delegation",
-        "test": "TestDelegatedTasksShareRootAccountingState"
+        "test": "TestDelegatedTasksShareRootAccountingState",
+        "package": "taskbound.local/agent-data-gateway/internal/control"
       }
     ],
     "postgres_integration": {
       "status": "complete",
       "artifact": "evaluation/exposure/rq3-integration.json",
-      "artifact_sha256": "915f36ed6678749c8a4488a87ad688df21fffdf4e00ddbc3aed2e9d1d4c7435b",
-      "executed": 2,
-      "passed": 2,
+      "artifact_sha256": "9324c03f0052873b47a8c108a30467cd9a3502264b545fad5dfd1675fd4d6315",
+      "executed": 4,
+      "passed": 4,
       "failed": 0
     }
   },
@@ -1463,7 +1475,7 @@
         "points": [
           {
             "size": 10,
-            "ns_per_op": 123260,
+            "ns_per_op": 129272,
             "release_facts": 20,
             "influence_facts": 30,
             "novel_charge": 0,
@@ -1471,7 +1483,7 @@
           },
           {
             "size": 100,
-            "ns_per_op": 1518615,
+            "ns_per_op": 1587394,
             "release_facts": 200,
             "influence_facts": 300,
             "novel_charge": 0,
@@ -1479,7 +1491,7 @@
           },
           {
             "size": 1000,
-            "ns_per_op": 16301015,
+            "ns_per_op": 17145668,
             "release_facts": 2000,
             "influence_facts": 3000,
             "novel_charge": 0,
@@ -1487,7 +1499,7 @@
           },
           {
             "size": 10000,
-            "ns_per_op": 180839567,
+            "ns_per_op": 192375123,
             "release_facts": 20000,
             "influence_facts": 30000,
             "novel_charge": 0,
@@ -1501,31 +1513,31 @@
         "points": [
           {
             "size": 1,
-            "ns_per_op": 4204,
+            "ns_per_op": 5062,
             "novel_charge": 0,
             "replay_charge": 0
           },
           {
             "size": 4,
-            "ns_per_op": 14537,
+            "ns_per_op": 20996,
             "novel_charge": 0,
             "replay_charge": 0
           },
           {
             "size": 8,
-            "ns_per_op": 33877,
+            "ns_per_op": 36477,
             "novel_charge": 0,
             "replay_charge": 0
           },
           {
             "size": 16,
-            "ns_per_op": 92773,
+            "ns_per_op": 88953,
             "novel_charge": 0,
             "replay_charge": 0
           },
           {
             "size": 32,
-            "ns_per_op": 267521,
+            "ns_per_op": 263427,
             "novel_charge": 0,
             "replay_charge": 0
           }
@@ -1537,25 +1549,25 @@
         "points": [
           {
             "size": 10,
-            "ns_per_op": 11235,
+            "ns_per_op": 10699,
             "novel_charge": 10,
             "replay_charge": 0
           },
           {
             "size": 100,
-            "ns_per_op": 100448,
+            "ns_per_op": 107793,
             "novel_charge": 100,
             "replay_charge": 0
           },
           {
             "size": 1000,
-            "ns_per_op": 1015301,
+            "ns_per_op": 1037957,
             "novel_charge": 1000,
             "replay_charge": 0
           },
           {
             "size": 10000,
-            "ns_per_op": 12457024,
+            "ns_per_op": 13519742,
             "novel_charge": 10000,
             "replay_charge": 0
           }

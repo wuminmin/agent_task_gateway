@@ -72,7 +72,9 @@
     {"id":"overlapping_pagination","execution":"deterministic"},
     {"id":"cache_retry","execution":"deterministic"},
     {"id":"snapshot_update","execution":"deterministic"},
-    {"id":"task_family_delegation","execution":"postgres_integration","test":"TestDelegatedTasksShareRootAccountingState"},
-    {"id":"concurrent_settlement","execution":"postgres_integration","test":"TestConcurrentTaskFamilySettlementCannotOverspend"}
+    {"id":"task_family_delegation","execution":"postgres_integration","package":"taskbound.local/agent-data-gateway/internal/control","test":"TestDelegatedTasksShareRootAccountingState"},
+    {"id":"concurrent_settlement","execution":"postgres_integration","package":"taskbound.local/agent-data-gateway/internal/control","test":"TestConcurrentTaskFamilySettlementCannotOverspend"},
+    {"id":"online_relational_postgres","execution":"postgres_integration","package":"taskbound.local/agent-data-gateway/internal/gateway","test":"TestRelationalOnlinePathAgainstPostgreSQL"},
+    {"id":"online_relational_gateway_settlement","execution":"postgres_integration","package":"taskbound.local/agent-data-gateway/internal/gateway","test":"TestRelationalGatewayEndToEndAgainstPostgreSQL"}
   ]
 }

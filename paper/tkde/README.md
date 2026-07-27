@@ -22,8 +22,10 @@ exposure report. `generate_evidence.py` then verifies:
 - the model, configuration, and raw-log hashes in
   `formal/results/exposure_ledger.json`.
 
-It then emits `generated/evidence.tex` and compiles `main.tex` with a pinned
-Docker TeX environment. A local TeX syntax build is available through
+It then emits `generated/evidence.tex` and compiles both `main.tex` and the
+separate `supplement.tex` with a pinned Docker TeX environment. The broad 1,024
+pair PostgreSQL result-equivalence stress test is confined to the supplement;
+the main paper's RQ2 evidence is closed-language FactSet/charge invariance. A local TeX syntax build is available through
 `paper/tkde/build.sh`, but it still uses Docker for the exposure evaluation.
 
 The draft reports a controlled single-host result rather than claiming

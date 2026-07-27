@@ -71,6 +71,7 @@ func FuzzQueryPlanCompileNeverPanics(f *testing.F) {
 		[]byte(`{"product":"expense_summary","columns":["month"],"aggregates":[{"function":"sum","column":"total_amount","alias":"amount"}],"group_by":["month"]}`),
 		[]byte(`{"product":"expense_summary","columns":["month"],"filters":[{"column":"department","op":"=","value":"sales' OR true --"}]}`),
 		[]byte(`{"product":"other","columns":["*"]}`),
+		[]byte(`{"from":{"join":{"left":{"product":"expense_summary","role":"expense_summary"},"right":{"product":"other","role":"other"},"on":[{"left":"expense_summary.month","right":"other.month"}]}},"columns":["expense_summary.month"]}`),
 	} {
 		f.Add(seed)
 	}
@@ -89,6 +90,10 @@ func FuzzQueryPlanCompileNeverPanics(f *testing.F) {
 		}()
 		var plan queryplan.QueryPlan
 		if err := json.Unmarshal(encoded, &plan); err != nil {
+			return
+		}
+		if plan.From != nil {
+			_, _ = queryplan.CompileRelational(plan, map[string]queryplan.Product{"expense_summary": product})
 			return
 		}
 		_, _ = queryplan.Compile(plan, product)

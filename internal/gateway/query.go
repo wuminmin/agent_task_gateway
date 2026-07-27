@@ -116,34 +116,64 @@ func (s *Service) executePlan(ctx context.Context, principal mcp.Principal, raw 
 	if err != nil {
 		return nil, err
 	}
-	product, ok := s.catalog.LookupProduct(args.Plan.Product)
-	if !ok || !contains(grant.ApprovedProducts, args.Plan.Product) {
-		return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "QueryPlan 请求了任务授权外的数据产品"}
-	}
-	columns := make(map[string]struct{}, len(grant.ApprovedColumns[args.Plan.Product]))
-	for _, column := range grant.ApprovedColumns[args.Plan.Product] {
-		columns[column] = struct{}{}
-	}
-	aggregates := make(map[string]struct{}, len(product.AllowedAggregates))
-	for _, aggregate := range product.AllowedAggregates {
-		aggregates[strings.ToLower(aggregate)] = struct{}{}
-	}
-	compiled, err := queryplan.Compile(args.Plan, queryplan.Product{
-		Name: args.Plan.Product, Columns: columns, AllowedAggregates: aggregates,
-	})
-	if err != nil {
-		return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "QueryPlan 无法在任务授权内编译"}
-	}
+	var compiled string
 	var exposureContext *planExposureContext
-	if grant.Exposure.Enabled() {
-		exposureContext, err = buildPlanExposureContext(args.Plan, product, columns, aggregates)
-		if err != nil {
-			return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "QueryPlan 不在可精确计量的数据暴露片段内"}
+	if args.Plan.From == nil {
+		product, ok := s.catalog.LookupProduct(args.Plan.Product)
+		if !ok || !contains(grant.ApprovedProducts, args.Plan.Product) {
+			return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "QueryPlan 请求了任务授权外的数据产品"}
 		}
-		if grant.Exposure.ProfileVersion == exposure.ProfileV2 {
-			if err := exposureContext.configureV2(columns, aggregates); err != nil {
-				return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "QueryPlan 缺少 V2 规范身份或无法归一化"}
+		columns := make(map[string]struct{}, len(grant.ApprovedColumns[args.Plan.Product]))
+		for _, column := range grant.ApprovedColumns[args.Plan.Product] {
+			columns[column] = struct{}{}
+		}
+		aggregates := make(map[string]struct{}, len(product.AllowedAggregates))
+		for _, aggregate := range product.AllowedAggregates {
+			aggregates[strings.ToLower(aggregate)] = struct{}{}
+		}
+		compiled, err = queryplan.Compile(args.Plan, queryplan.Product{Name: args.Plan.Product, Columns: columns, AllowedAggregates: aggregates})
+		if err != nil {
+			return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "QueryPlan 无法在任务授权内编译"}
+		}
+		if grant.Exposure.Enabled() {
+			exposureContext, err = buildPlanExposureContext(args.Plan, product, columns, aggregates)
+			if err != nil {
+				return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "QueryPlan 不在可精确计量的数据暴露片段内"}
 			}
+			if grant.Exposure.ProfileVersion == exposure.ProfileV2 {
+				if err := exposureContext.configureV2(columns, aggregates); err != nil {
+					return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "QueryPlan 缺少 V2 规范身份或无法归一化"}
+				}
+			}
+			compiled = exposureContext.mainSQL
+		}
+	} else {
+		if !grant.Exposure.Enabled() || grant.Exposure.ProfileVersion != exposure.ProfileV2 {
+			return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "在线 Join/Union 必须使用 taskgate-exposure-v2 双账本"}
+		}
+		productNames, namesErr := queryplan.RelationalProductNames(args.Plan)
+		if namesErr != nil {
+			return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "关系 QueryPlan 的 from 结构无效"}
+		}
+		queryProducts := make(map[string]queryplan.Product, len(productNames))
+		catalogProducts := make(map[string]catalog.Product, len(productNames))
+		for _, name := range productNames {
+			product, ok := s.catalog.LookupProduct(name)
+			if !ok || !contains(grant.ApprovedProducts, name) {
+				return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "关系 QueryPlan 请求了任务授权外的数据产品"}
+			}
+			approved := stringSetFromSlice(grant.ApprovedColumns[name])
+			queryProducts[name] = relationalQueryProduct(product, approved)
+			catalogProducts[name] = product
+		}
+		relational, compileErr := queryplan.CompileRelational(args.Plan, queryProducts)
+		if compileErr != nil {
+			return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "Join/Union QueryPlan 无法在受限关系片段内编译"}
+		}
+		compiled = relational.VisibleSQL
+		exposureContext, err = buildRelationalExposureContext(args.Plan, relational, catalogProducts, grant.ApprovedColumns)
+		if err != nil {
+			return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "Join/Union 缺少完整的正输出依赖证据"}
 		}
 		compiled = exposureContext.mainSQL
 	}
@@ -243,7 +273,7 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 	}
 	engine := sqlpolicy.New(sqlpolicy.Config{})
 	visibleRowLimit := remaining.Rows
-	if exposureContext != nil && !exposureContext.grouped {
+	if exposureContext != nil && !exposureContext.usesExpandedEvidence() {
 		visibleRowLimit = min64(visibleRowLimit, exposureLedger.Limits.InfluenceFacts)
 	}
 	decision, err := engine.Authorize(sqlpolicy.Request{SQL: agentSQL, Grant: policyGrant, RowLimit: visibleRowLimit})
@@ -255,7 +285,7 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 	if exposureContext != nil {
 		provenanceEvidenceRows = decision.RowLimit
 		provenancePolicyRows := provenanceEvidenceRows
-		if exposureContext.grouped {
+		if exposureContext.usesExpandedEvidence() {
 			provenanceEvidenceRows = exposureLedger.Limits.InfluenceFacts
 			provenancePolicyRows = provenanceEvidenceRows + 1
 		}

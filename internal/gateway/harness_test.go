@@ -262,6 +262,11 @@ func (harness *gatewayHarness) createExposureV2SummaryTask(t *testing.T, taskID 
 }
 
 func (harness *gatewayHarness) createSummaryTaskWithGrantAndExposureProfile(t *testing.T, taskID string, narrow func(*domain.TaskGrantCoreV1), exposureLimits control.ExposureLimits, profile string) {
+	harness.createTaskWithGrantAndExposureProfile(t, taskID, narrow, exposureLimits, profile,
+		[]string{"expense_summary"}, map[string][]string{"expense_summary": {"month", "total_amount"}}, domain.SensitivityLow)
+}
+
+func (harness *gatewayHarness) createTaskWithGrantAndExposureProfile(t *testing.T, taskID string, narrow func(*domain.TaskGrantCoreV1), exposureLimits control.ExposureLimits, profile string, products []string, columns map[string][]string, sensitivity domain.Sensitivity) {
 	t.Helper()
 	budget := domain.Budget{
 		MaxQueries: 10, MaxRows: 500, MaxDBTime: 30 * time.Second,
@@ -273,9 +278,9 @@ func (harness *gatewayHarness) createSummaryTaskWithGrantAndExposureProfile(t *t
 		budget.ExposureProfileVersion = profile
 	}
 	pendingValue := pendingContext{
-		Products:       []string{"expense_summary"},
-		Columns:        map[string][]string{"expense_summary": {"month", "total_amount"}},
-		MandatoryScope: map[string]any{"department": []any{"销售部"}}, Budget: budget, Sensitivity: domain.SensitivityLow,
+		Products:       append([]string(nil), products...),
+		Columns:        columns,
+		MandatoryScope: map[string]any{"department": []any{"销售部"}}, Budget: budget, Sensitivity: sensitivity,
 		DatasourceID: harness.connector.attestation.DatasourceID, SchemaDigest: harness.connector.attestation.SchemaDigest,
 		ApprovalMode: domain.ApprovalModeManual, Approver: "bob", CallbackContext: "seed-context-" + taskID,
 	}
@@ -309,7 +314,7 @@ func (harness *gatewayHarness) createSummaryTaskWithGrantAndExposureProfile(t *t
 	if err := harness.store.CreateTask(context.Background(), control.Task{
 		ID: taskID, PrincipalID: harness.alice.ID, Objective: "summarize travel expenses",
 		State: control.TaskAwaitingApproval, CatalogVersion: harness.catalog.CatalogVersion,
-		Sensitivity: string(domain.SensitivityLow), RequestedBudget: json.RawMessage(`{}`),
+		Sensitivity: string(sensitivity), RequestedBudget: json.RawMessage(`{}`),
 		RequestContext: pending, ApprovalRef: "seed-draft-" + taskID,
 		CreatedAt: harness.clock.value, UpdatedAt: harness.clock.value,
 	}); err != nil {
@@ -354,9 +359,9 @@ func (harness *gatewayHarness) createSummaryTaskWithGrantAndExposureProfile(t *t
 		ExpectedState: control.TaskAwaitingApproval, NewState: control.TaskActive,
 		Grant: &control.TaskGrant{
 			TaskID: taskID, Subject: harness.alice.Subject, Purpose: "summarize travel expenses",
-			ApprovedProducts: []string{"expense_summary"},
-			ApprovedColumns:  map[string][]string{"expense_summary": {"month", "total_amount"}},
-			MandatoryScope:   json.RawMessage(`{"department":["销售部"]}`), SensitivityCeiling: string(domain.SensitivityLow),
+			ApprovedProducts: append([]string(nil), products...),
+			ApprovedColumns:  columns,
+			MandatoryScope:   json.RawMessage(`{"department":["销售部"]}`), SensitivityCeiling: string(sensitivity),
 			Budget: control.BudgetLimits{
 				Queries: core.Budget.MaxQueries, Rows: core.Budget.MaxResultRows, DBMS: core.Budget.MaxDBMS,
 			},

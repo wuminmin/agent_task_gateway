@@ -104,13 +104,13 @@ reserve -> execute/buffer -> derive provenance -> settle -> release
 
 | 能力 | 可执行代数 V2 | 在线 Gateway V2 |
 |---|---:|---:|
-| Projection / filter / order / limit | 是 | 单产品 QueryPlan |
-| `GROUP BY`, `COUNT`, `SUM`, `MIN`, `MAX` | 是 | 单产品 QueryPlan |
-| Join | 是 | 尚未接入在线 compiler |
-| Union | 是 | 尚未接入在线 compiler |
+| Projection / filter / order / limit | 是 | 单产品 QueryPlan；多输入暂不分页 |
+| `GROUP BY`, `COUNT`, `SUM`, `MIN`, `MAX` | 是 | 单产品、Join 或 Union-Distinct 输入 |
+| Join | 是 | 两个不同 Catalog 稳定角色的 INNER equijoin |
+| Union | 是 | 同产品两个过滤分支；显式完整 DISTINCT schema |
 | 任意直接 SQL | 否 | exposure grant 下关闭式拒绝 |
 | `AVG`、窗口函数、子查询、递归 | 否 | exposure grant 下关闭式拒绝 |
-| 多数据源或跨引擎查询 | 否 | 否 |
+| 嵌套 Join/Union、自连接、多数据源或跨引擎查询 | 代数可嵌套（同快照条件） | 否 |
 
 Catalog 中的 SQL allowlist 仍可包含更宽的传统资源控制片段，但 exposure
 Profile 额外收窄到上表。默认 Demo Profile 已启用 exposure，因此

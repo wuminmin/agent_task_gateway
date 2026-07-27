@@ -13,6 +13,14 @@ V2 的执行边界是：客户端每次提交一个确定的 `QueryPlan`，不�
 Control PostgreSQL 随后锁定 root ledger，并在同一事务中完成 novel FactSet
 结算、资源扣费、结果加密、审计与 V4 receipt。事务提交前不会释放结果。
 
+在线编译器覆盖单产品片段，以及两个 Scan 叶子的受限 INNER equijoin 和
+union-distinct。Join companion 保留实际匹配行对；Union 的可见语句使用完整
+schema 做 DISTINCT，而 provenance companion 使用 `UNION ALL`、分支标记和
+源 entity key，因而同一 distinct class 的所有成员都会进入注释。两种输入都
+可以继续 grouping/aggregation，并直接调用下述 `JoinOnV2`、
+`UnionDistinctV2`、`AggregateFromResultsV2` 和 `ObserveV2`，没有第二套在线
+dependency 规则。
+
 这里的 `influence` 是兼容性的 API、数据库列和 wire identifier；在 V2 中它的
 规范含义是 **conservative positive-output dependency footprint**（保守正向输出
 依赖足迹），不是“实际因果影响”。对每个实际交付的输出行和单元格，它按本

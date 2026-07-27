@@ -117,12 +117,12 @@ def validate_exposure() -> dict:
     )
     manifest = rq3.get("postgres_integration_manifest", [])
     expected_manifest = {
-        item.get("test"): item.get("id")
+        (item.get("package"), item.get("test")): item.get("id")
         for item in corpus.get("adversarial_cases", [])
         if item.get("execution") == "postgres_integration"
     }
     require(
-        {item.get("test"): item.get("id") for item in manifest} == expected_manifest,
+        {(item.get("package"), item.get("test")): item.get("id") for item in manifest} == expected_manifest,
         "RQ3 integration-case manifest is inconsistent",
     )
     integration = rq3.get("postgres_integration", {})
@@ -142,11 +142,11 @@ def validate_exposure() -> dict:
     raw_relative = artifact.get("raw_log", "")
     raw_path = ROOT / raw_relative
     require(
-        artifact.get("schema_version") == 1
+        artifact.get("schema_version") == 2
         and artifact.get("status") == "complete"
         and artifact.get("command_exit_code") == 0
         and artifact.get("race_enabled") is True
-        and artifact.get("package") == "taskbound.local/agent-data-gateway/internal/control"
+        and set(artifact.get("packages", [])) == {package for package, _ in expected_manifest}
         and artifact.get("executed") == len(expected_manifest)
         and artifact.get("passed") == len(expected_manifest)
         and artifact.get("failed") == 0
@@ -155,20 +155,19 @@ def validate_exposure() -> dict:
         and artifact.get("raw_log_sha256") == sha256(raw_path),
         "RQ3 integration artifact or raw-log digest is invalid",
     )
-    terminal: dict[str, str] = {}
-    package_pass = False
+    terminal: dict[tuple[str, str], str] = {}
+    package_pass: set[str] = set()
     for line in raw_path.read_text(encoding="utf-8").splitlines():
         event = json.loads(line)
-        if event.get("Package") != artifact["package"]:
-            continue
-        if event.get("Test") in expected_manifest and event.get("Action") in {"pass", "fail", "skip"}:
-            terminal[event["Test"]] = event["Action"]
+        key = (event.get("Package"), event.get("Test"))
+        if key in expected_manifest and event.get("Action") in {"pass", "fail", "skip"}:
+            terminal[key] = event["Action"]
         if not event.get("Test") and event.get("Action") == "pass":
-            package_pass = True
-    artifact_tests = {item.get("test"): item.get("id") for item in artifact.get("tests", []) if item.get("status") == "pass"}
+            package_pass.add(event.get("Package"))
+    artifact_tests = {(item.get("package"), item.get("test")): item.get("id") for item in artifact.get("tests", []) if item.get("status") == "pass"}
     require(
-        package_pass
-        and terminal == {test: "pass" for test in expected_manifest}
+        package_pass == {package for package, _ in expected_manifest}
+        and terminal == {key: "pass" for key in expected_manifest}
         and artifact_tests == expected_manifest,
         "RQ3 raw go-test events do not prove every declared test passed",
     )
@@ -325,6 +324,7 @@ def main() -> None:
         rf"\newcommand{{\RQTwoExposureCases}}{{{exposure_invariance['cases']}}}",
         rf"\newcommand{{\RQTwoExposureDatasets}}{{{exposure_invariance['datasets']}}}",
         rf"\newcommand{{\RQTwoExposureNFCases}}{{{exposure_invariance['normal_form_checks']}}}",
+        rf"\newcommand{{\RQTwoExposureEffectChecks}}{{{exposure_invariance['effect_checks']}}}",
         rf"\newcommand{{\RQTwoExposureMismatches}}{{{exposure_invariance['mismatches']}}}",
         rf"\newcommand{{\BaseQueryCount}}{{{baseline['query_count']}}}",
         rf"\newcommand{{\BaseRows}}{{{baseline['returned_rows']}}}",

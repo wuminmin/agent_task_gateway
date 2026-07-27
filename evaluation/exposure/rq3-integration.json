@@ -1,29 +1,48 @@
 {
-  "command": "go test -race -json -count=1 -run ^(TestDelegatedTasksShareRootAccountingState|TestConcurrentTaskFamilySettlementCannotOverspend)$ ./internal/control",
+  "command": "go test -race -json -count=1 -run ^(TestDelegatedTasksShareRootAccountingState|TestConcurrentTaskFamilySettlementCannotOverspend|TestRelationalOnlinePathAgainstPostgreSQL|TestRelationalGatewayEndToEndAgainstPostgreSQL)$ ./internal/control ./internal/gateway",
   "command_exit_code": 0,
-  "executed": 2,
+  "executed": 4,
   "failed": 0,
-  "finished_at": "2026-07-25T16:24:27.76551056Z",
+  "finished_at": "2026-07-27T08:46:08.770939697Z",
   "go_version": "go version go1.25.12 linux/amd64",
-  "package": "taskbound.local/agent-data-gateway/internal/control",
-  "passed": 2,
+  "packages": [
+    "taskbound.local/agent-data-gateway/internal/control",
+    "taskbound.local/agent-data-gateway/internal/gateway"
+  ],
+  "passed": 4,
   "postgres_version": "16.14 (Debian 16.14-1.pgdg12+1)",
   "race_enabled": true,
   "raw_log": "evaluation/exposure/raw/rq3-postgres-go-test.jsonl",
-  "raw_log_sha256": "f2a2ae7bc507d9ae8c8de75fc8de8013e0ccca7e042fd565594122bedc7f16e9",
-  "schema_version": 1,
-  "started_at": "2026-07-25T16:24:26.44557607Z",
+  "raw_log_sha256": "7d73c187aa437c5be86799b8ffe97ef37b51704c9efbe522cabde501d144b0a6",
+  "schema_version": 2,
+  "started_at": "2026-07-27T08:45:47.076839124Z",
   "status": "complete",
   "tests": [
     {
-      "elapsed_seconds": 0.16,
+      "elapsed_seconds": 0.21,
       "id": "concurrent_settlement",
+      "package": "taskbound.local/agent-data-gateway/internal/control",
       "status": "pass",
       "test": "TestConcurrentTaskFamilySettlementCannotOverspend"
     },
     {
-      "elapsed_seconds": 0.15,
+      "elapsed_seconds": 0.35,
+      "id": "online_relational_gateway_settlement",
+      "package": "taskbound.local/agent-data-gateway/internal/gateway",
+      "status": "pass",
+      "test": "TestRelationalGatewayEndToEndAgainstPostgreSQL"
+    },
+    {
+      "elapsed_seconds": 0.25,
+      "id": "online_relational_postgres",
+      "package": "taskbound.local/agent-data-gateway/internal/gateway",
+      "status": "pass",
+      "test": "TestRelationalOnlinePathAgainstPostgreSQL"
+    },
+    {
+      "elapsed_seconds": 0.2,
       "id": "task_family_delegation",
+      "package": "taskbound.local/agent-data-gateway/internal/control",
       "status": "pass",
       "test": "TestDelegatedTasksShareRootAccountingState"
     }

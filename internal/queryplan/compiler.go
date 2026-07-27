@@ -20,12 +20,14 @@ type Product struct {
 	CollationVersions map[string]string
 	SourceNamespace   string
 	Snapshot          string
+	StableRole        string
 	StableEntityKey   []string
 	LineageDigest     string
 }
 
 type QueryPlan struct {
 	Product    string      `json:"product"`
+	From       *From       `json:"from,omitempty"`
 	Columns    []string    `json:"columns"`
 	Aggregates []Aggregate `json:"aggregates,omitempty"`
 	Filters    []Filter    `json:"filters,omitempty"`
@@ -33,6 +35,43 @@ type QueryPlan struct {
 	OrderBy    []Order     `json:"order_by,omitempty"`
 	Limit      int         `json:"limit,omitempty"`
 	Offset     int         `json:"offset,omitempty"`
+}
+
+// From is the closed multi-product input grammar. Exactly one member must be
+// present. Scan is useful as the explicit, role-qualified form of the legacy
+// Product input; Join and UnionDistinct are deliberately limited to two scan
+// leaves so arbitrary SQL trees never cross this public boundary.
+type From struct {
+	Scan          *Scan          `json:"scan,omitempty"`
+	Join          *Join          `json:"join,omitempty"`
+	UnionDistinct *UnionDistinct `json:"union_distinct,omitempty"`
+}
+
+type Scan struct {
+	Product string   `json:"product"`
+	Role    string   `json:"role"`
+	Filters []Filter `json:"filters,omitempty"`
+}
+
+type Join struct {
+	Left  Scan            `json:"left"`
+	Right Scan            `json:"right"`
+	On    []JoinPredicate `json:"on"`
+}
+
+type JoinPredicate struct {
+	Left  string `json:"left"`
+	Right string `json:"right"`
+}
+
+// UnionDistinct defines the complete tuple used by PostgreSQL duplicate
+// elimination. QueryPlan.Columns may expose only a subset, but every field in
+// Columns remains part of positive-output dependency accounting.
+type UnionDistinct struct {
+	Role    string   `json:"role"`
+	Columns []string `json:"columns"`
+	Left    Scan     `json:"left"`
+	Right   Scan     `json:"right"`
 }
 
 type Aggregate struct {
@@ -53,6 +92,9 @@ type Order struct {
 }
 
 func Compile(plan QueryPlan, product Product) (string, error) {
+	if plan.From != nil {
+		return "", errors.New("multi-product QueryPlan requires CompileRelational")
+	}
 	if plan.Product != product.Name {
 		return "", errors.New("query plan product is not approved")
 	}

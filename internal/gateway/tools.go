@@ -78,22 +78,48 @@ func requestIDSchema() map[string]any {
 }
 
 func queryPlanSchema() map[string]any {
-	return objectSchema(map[string]any{
+	filter := objectSchema(map[string]any{
+		"column": map[string]any{"type": "string"}, "op": map[string]any{"type": "string"}, "value": map[string]any{},
+	}, "column", "op", "value")
+	scan := objectSchema(map[string]any{
 		"product": map[string]any{"type": "string", "minLength": 1},
+		"role":    map[string]any{"type": "string", "minLength": 1},
+		"filters": map[string]any{"type": "array", "items": filter},
+	}, "product", "role")
+	from := objectSchema(map[string]any{
+		"scan": scan,
+		"join": objectSchema(map[string]any{
+			"left": scan, "right": scan,
+			"on": map[string]any{"type": "array", "minItems": 1, "uniqueItems": true, "items": objectSchema(map[string]any{
+				"left": map[string]any{"type": "string"}, "right": map[string]any{"type": "string"},
+			}, "left", "right")},
+		}, "left", "right", "on"),
+		"union_distinct": objectSchema(map[string]any{
+			"role":    map[string]any{"type": "string", "minLength": 1},
+			"columns": map[string]any{"type": "array", "minItems": 1, "uniqueItems": true, "items": map[string]any{"type": "string"}},
+			"left":    scan, "right": scan,
+		}, "role", "columns", "left", "right"),
+	})
+	schema := objectSchema(map[string]any{
+		"product": map[string]any{"type": "string", "minLength": 1},
+		"from":    from,
 		"columns": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "uniqueItems": true},
 		"aggregates": map[string]any{"type": "array", "items": objectSchema(map[string]any{
 			"function": map[string]any{"type": "string"}, "column": map[string]any{"type": "string"}, "alias": map[string]any{"type": "string"},
 		}, "function", "column", "alias")},
-		"filters": map[string]any{"type": "array", "items": objectSchema(map[string]any{
-			"column": map[string]any{"type": "string"}, "op": map[string]any{"type": "string"}, "value": map[string]any{},
-		}, "column", "op", "value")},
+		"filters":  map[string]any{"type": "array", "items": filter},
 		"group_by": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "uniqueItems": true},
 		"order_by": map[string]any{"type": "array", "items": objectSchema(map[string]any{
 			"column": map[string]any{"type": "string"}, "direction": map[string]any{"type": "string", "enum": []string{"", "asc", "desc"}},
 		}, "column")},
 		"limit":  map[string]any{"type": "integer", "minimum": 0},
 		"offset": map[string]any{"type": "integer", "minimum": 0},
-	}, "product", "columns")
+	}, "columns")
+	schema["oneOf"] = []any{
+		map[string]any{"required": []string{"product"}, "not": map[string]any{"required": []string{"from"}}},
+		map[string]any{"required": []string{"from"}, "not": map[string]any{"required": []string{"product"}}},
+	}
+	return schema
 }
 
 var auditTools = []mcp.Tool{

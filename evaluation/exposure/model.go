@@ -46,6 +46,7 @@ type adversarialCase struct {
 	ID        string `json:"id"`
 	Execution string `json:"execution"`
 	Test      string `json:"test,omitempty"`
+	Package   string `json:"package,omitempty"`
 }
 
 type ValidationSummary struct {
@@ -90,8 +91,9 @@ type RewriteSummary struct {
 }
 
 type IntegrationCase struct {
-	ID   string `json:"id"`
-	Test string `json:"test"`
+	ID      string `json:"id"`
+	Test    string `json:"test"`
+	Package string `json:"package"`
 }
 
 type IntegrationEvidence struct {
@@ -544,10 +546,10 @@ func runAdversarial(fixtures corpus, relations map[string]exposure.RelationV2) (
 	full, _ := exposure.ObserveV2(relations["expenses"])
 	for _, testCase := range fixtures.Adversarial {
 		if testCase.Execution == "postgres_integration" {
-			if testCase.ID == "" || testCase.Test == "" {
+			if testCase.ID == "" || testCase.Test == "" || testCase.Package == "" {
 				return result, fmt.Errorf("PostgreSQL integration case is incomplete")
 			}
-			result.IntegrationManifest = append(result.IntegrationManifest, IntegrationCase{ID: testCase.ID, Test: testCase.Test})
+			result.IntegrationManifest = append(result.IntegrationManifest, IntegrationCase{ID: testCase.ID, Test: testCase.Test, Package: testCase.Package})
 			continue
 		}
 		result.DeterministicCases++

@@ -167,6 +167,12 @@ MCP `serverInfo.version` 为 `2.0.0`。Alice 可见 14 个任务/查询工具，
 
 `execute_plan` 在本地严格校验产品、字段、聚合、过滤、排序和 Limit，确定性编译为 SQL，再进入与 `query_sql` 相同的 PostgreSQL AST 策略。Gateway 不调用外部模型。
 
+V2 任务也可提交受限的树形 `from`。当前只允许两个 Scan 叶子的 INNER
+equijoin，或同一产品两个过滤分支的 `union_distinct`；字段用 Catalog 稳定角色
+限定，Union 必须显式列出完整去重 schema。可在其上继续 `group_by` 和四种
+聚合。嵌套关系树、self-join、`UNION ALL`、关系计划的 order/limit/offset 会
+关闭式拒绝。详细 JSON 示例见仓库根目录 README。
+
 默认 Catalog 只定义 `taskgate-exposure-v2` budget profiles，且所有 approval
 route 都是人工审批。Gateway 会在一个只读
 `REPEATABLE READ` 事务中执行可见查询和 provenance companion，先在内存
