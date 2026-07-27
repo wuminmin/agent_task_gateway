@@ -4,7 +4,7 @@
 
 建议题目：
 
-> **TaskGate: Task-Bound Positive-Output Dependency Accounting for Autonomous Database Agents**
+> **TaskGate: Task-Scoped Exposure Accounting for Adaptive Database Workloads**
 
 核心问题改成：
 

@@ -1,13 +1,14 @@
 \documentclass[journal]{IEEEtran}
 \usepackage{booktabs}
 \usepackage{array}
+\usepackage{graphicx}
 \usepackage[hidelinks]{hyperref}
 \newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
 \newcommand{\code}[1]{\texttt{#1}}
 \input{generated/evidence.tex}
 
-\title{Supplement to ``TaskGate: Task-Bound Positive-Output Dependency
-Accounting for Autonomous Database Agents''}
+\title{Supplement to ``TaskGate: Task-Scoped Exposure Accounting
+for Adaptive Database Workloads''}
 \author{Anonymous Author(s)}
 \date{}
 
@@ -53,5 +54,30 @@ SHA-256, PostgreSQL version, oracle fixture digest, differential and
 metamorphic check counts, and statement count.  These controls make the stress
 test reproducible without enlarging its evidentiary meaning.  The main paper's
 RQ2 conclusion rests instead on the closed-language FactSet/charge checks.
+
+\section{Policy-Calibration Curves}
+
+Table~\ref{tab:rq5-policy-supplement} expands the main paper's three RQ5
+curves. Each cell is $(B^r,B^i)/U\%$; full budget admits all three declared
+goals. Classes are dependency row/ordinary/sensitive/aggregate-support facts,
+where aggregate support overlaps the preceding fact classes.
+
+\begin{table}[t]
+\centering
+\caption{Workflow-first dual-budget calibration.}
+\label{tab:rq5-policy-supplement}
+\small
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lrrrrr}
+\toprule
+Scenario & Full $(B^r,B^i)$ & Classes & 25\% & 50\% & 75\% \\
+\midrule
+Finance summary & \RQFiveFinanceFull{} & \RQFiveFinanceClasses{} & \RQFiveFinanceQuarter{} & \RQFiveFinanceHalf{} & \RQFiveFinanceThreeQuarter{} \\
+Scoped case review & \RQFiveReviewFull{} & \RQFiveReviewClasses{} & \RQFiveReviewQuarter{} & \RQFiveReviewHalf{} & \RQFiveReviewThreeQuarter{} \\
+Delegated escalation & \RQFiveDelegationFull{} & \RQFiveDelegationClasses{} & \RQFiveDelegationQuarter{} & \RQFiveDelegationHalf{} & \RQFiveDelegationThreeQuarter{} \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
 
 \end{document}

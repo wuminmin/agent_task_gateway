@@ -17,8 +17,11 @@ exposure report. `generate_evidence.py` then verifies:
 - RQ2's independent-oracle fixture digest, real PostgreSQL 16 version,
   generated/unique rewrite counts, check counts, and zero mismatches;
 - complete RQ1/RQ2/RQ3 oracle and integration results;
-- the three-trial, 31,296-observation RQ4 performance report and environment
-  and implementation digests;
+- all raw files for the three-trial RQ4 campaign, including 7,896 full-path and
+  23,400 ablation samples, reconstructed summaries, environment digest, and
+  the digest of the current gateway/benchmark source;
+- the three operational RQ5 policy scenarios, nine declared workflow goals,
+  fact-class calibration, and exact dual-budget/utility curves;
 - the three-scale PostgreSQL 16 Join--Group report, its 27 direct/novel/replay
   points, exact million-fact accounting, raw-artifact digest, implementation
   digest, and service memory peaks;

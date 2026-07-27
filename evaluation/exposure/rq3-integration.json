@@ -3,7 +3,7 @@
   "command_exit_code": 0,
   "executed": 4,
   "failed": 0,
-  "finished_at": "2026-07-27T11:19:12.517422951Z",
+  "finished_at": "2026-07-27T13:44:04.704150754Z",
   "go_version": "go version go1.25.12 linux/amd64",
   "packages": [
     "taskbound.local/agent-data-gateway/internal/control",
@@ -13,34 +13,34 @@
   "postgres_version": "16.14 (Debian 16.14-1.pgdg12+1)",
   "race_enabled": true,
   "raw_log": "evaluation/exposure/raw/rq3-postgres-go-test.jsonl",
-  "raw_log_sha256": "9fdda37d44503fc60ce3b46d26bc48041e2fd2ca74a3a7149e9c2705f8f35abb",
+  "raw_log_sha256": "c6484de48d8eb08d55bc2365525f80ba7e267003244e00f174c0c1d5e3d14891",
   "schema_version": 2,
-  "started_at": "2026-07-27T11:18:51.944348661Z",
+  "started_at": "2026-07-27T13:43:47.827081693Z",
   "status": "complete",
   "tests": [
     {
-      "elapsed_seconds": 0.18,
+      "elapsed_seconds": 0.15,
       "id": "concurrent_settlement",
       "package": "taskbound.local/agent-data-gateway/internal/control",
       "status": "pass",
       "test": "TestConcurrentTaskFamilySettlementCannotOverspend"
     },
     {
-      "elapsed_seconds": 0.31,
+      "elapsed_seconds": 0.24,
       "id": "online_relational_gateway_settlement",
       "package": "taskbound.local/agent-data-gateway/internal/gateway",
       "status": "pass",
       "test": "TestRelationalGatewayEndToEndAgainstPostgreSQL"
     },
     {
-      "elapsed_seconds": 0.22,
+      "elapsed_seconds": 0.19,
       "id": "online_relational_postgres",
       "package": "taskbound.local/agent-data-gateway/internal/gateway",
       "status": "pass",
       "test": "TestRelationalOnlinePathAgainstPostgreSQL"
     },
     {
-      "elapsed_seconds": 0.2,
+      "elapsed_seconds": 0.16,
       "id": "task_family_delegation",
       "package": "taskbound.local/agent-data-gateway/internal/control",
       "status": "pass",

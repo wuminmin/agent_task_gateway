@@ -1,5 +1,5 @@
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "profile_version": "taskgate-exposure-v2",
   "corpus_sha256": "df7dfe2224fcf03aea6c25d36ab55cf34c61afb12c715474bb7de2dd7e80237c",
   "rq1_ground_truth": {
@@ -1458,7 +1458,7 @@
     "postgres_integration": {
       "status": "complete",
       "artifact": "evaluation/exposure/rq3-integration.json",
-      "artifact_sha256": "72c51212113a84b0852c3318dd4724bc44c853bfe0c5dbab7a77a8c83dda3bbe",
+      "artifact_sha256": "a795545f7172026a42c7031595bbb09ae454ed493bad370240b256c6ebee0cc3",
       "executed": 4,
       "passed": 4,
       "failed": 0
@@ -1475,7 +1475,7 @@
         "points": [
           {
             "size": 10,
-            "ns_per_op": 122664,
+            "ns_per_op": 109815,
             "release_facts": 20,
             "influence_facts": 30,
             "novel_charge": 0,
@@ -1483,7 +1483,7 @@
           },
           {
             "size": 100,
-            "ns_per_op": 1432468,
+            "ns_per_op": 1369546,
             "release_facts": 200,
             "influence_facts": 300,
             "novel_charge": 0,
@@ -1491,7 +1491,7 @@
           },
           {
             "size": 1000,
-            "ns_per_op": 16995686,
+            "ns_per_op": 14294691,
             "release_facts": 2000,
             "influence_facts": 3000,
             "novel_charge": 0,
@@ -1499,7 +1499,7 @@
           },
           {
             "size": 10000,
-            "ns_per_op": 192546073,
+            "ns_per_op": 159862503,
             "release_facts": 20000,
             "influence_facts": 30000,
             "novel_charge": 0,
@@ -1513,31 +1513,31 @@
         "points": [
           {
             "size": 1,
-            "ns_per_op": 4630,
+            "ns_per_op": 3706,
             "novel_charge": 0,
             "replay_charge": 0
           },
           {
             "size": 4,
-            "ns_per_op": 15322,
+            "ns_per_op": 12491,
             "novel_charge": 0,
             "replay_charge": 0
           },
           {
             "size": 8,
-            "ns_per_op": 35354,
+            "ns_per_op": 31375,
             "novel_charge": 0,
             "replay_charge": 0
           },
           {
             "size": 16,
-            "ns_per_op": 88425,
+            "ns_per_op": 90209,
             "novel_charge": 0,
             "replay_charge": 0
           },
           {
             "size": 32,
-            "ns_per_op": 267022,
+            "ns_per_op": 237059,
             "novel_charge": 0,
             "replay_charge": 0
           }
@@ -1549,27 +1549,236 @@
         "points": [
           {
             "size": 10,
-            "ns_per_op": 9895,
+            "ns_per_op": 9138,
             "novel_charge": 10,
             "replay_charge": 0
           },
           {
             "size": 100,
-            "ns_per_op": 103390,
+            "ns_per_op": 90902,
             "novel_charge": 100,
             "replay_charge": 0
           },
           {
             "size": 1000,
-            "ns_per_op": 1185793,
+            "ns_per_op": 916282,
             "novel_charge": 1000,
             "replay_charge": 0
           },
           {
             "size": 10000,
-            "ns_per_op": 12462783,
+            "ns_per_op": 12275996,
             "novel_charge": 10000,
             "replay_charge": 0
+          }
+        ]
+      }
+    ]
+  },
+  "rq5_policy_calibration": {
+    "status": "complete_deterministic_policy_calibration",
+    "manifest_sha256": "720a3f6860c168f54f4779e60c945cea1e46df2506e155685cf5745130be6233",
+    "utility_metric": "fraction of predeclared workflow goals admitted",
+    "fixture_rows": 16,
+    "budget_percentages": [
+      25,
+      50,
+      75,
+      100
+    ],
+    "scenarios": [
+      {
+        "id": "finance_summary",
+        "label": "Finance reimbursement summary",
+        "policy_context": "A finance approver permits totals and departmental trends but no employee-level lookup.",
+        "goals": 3,
+        "full_release_facts": 17,
+        "full_dependency_facts": 36,
+        "release_breakdown": {
+          "row_facts": 0,
+          "ordinary_field_facts": 0,
+          "sensitive_field_facts": 0,
+          "derived_facts": 17
+        },
+        "dependency_breakdown": {
+          "row_facts": 12,
+          "ordinary_field_facts": 24,
+          "sensitive_field_facts": 0,
+          "derived_facts": 0
+        },
+        "aggregate_dependency_facts": 36,
+        "sensitivity_weighted_full_cost": 53,
+        "budget_utility_curve": [
+          {
+            "percent_of_full_dual_budget": 25,
+            "release_budget": 5,
+            "dependency_budget": 9,
+            "goals_completed": 0,
+            "utility_percent": 0,
+            "selected_goals": []
+          },
+          {
+            "percent_of_full_dual_budget": 50,
+            "release_budget": 9,
+            "dependency_budget": 18,
+            "goals_completed": 1,
+            "utility_percent": 33,
+            "selected_goals": [
+              "claim_count"
+            ]
+          },
+          {
+            "percent_of_full_dual_budget": 75,
+            "release_budget": 13,
+            "dependency_budget": 27,
+            "goals_completed": 2,
+            "utility_percent": 66,
+            "selected_goals": [
+              "amount_total",
+              "claim_count"
+            ]
+          },
+          {
+            "percent_of_full_dual_budget": 100,
+            "release_budget": 17,
+            "dependency_budget": 36,
+            "goals_completed": 3,
+            "utility_percent": 100,
+            "selected_goals": [
+              "amount_total",
+              "claim_count",
+              "department_breakdown"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "case_review",
+        "label": "Scoped reimbursement case review",
+        "policy_context": "An auditor pages through a bounded case list before requesting the complete department-and-amount view.",
+        "goals": 3,
+        "full_release_facts": 24,
+        "full_dependency_facts": 36,
+        "release_breakdown": {
+          "row_facts": 0,
+          "ordinary_field_facts": 12,
+          "sensitive_field_facts": 12,
+          "derived_facts": 0
+        },
+        "dependency_breakdown": {
+          "row_facts": 12,
+          "ordinary_field_facts": 12,
+          "sensitive_field_facts": 12,
+          "derived_facts": 0
+        },
+        "aggregate_dependency_facts": 0,
+        "sensitivity_weighted_full_cost": 156,
+        "budget_utility_curve": [
+          {
+            "percent_of_full_dual_budget": 25,
+            "release_budget": 6,
+            "dependency_budget": 9,
+            "goals_completed": 0,
+            "utility_percent": 0,
+            "selected_goals": []
+          },
+          {
+            "percent_of_full_dual_budget": 50,
+            "release_budget": 12,
+            "dependency_budget": 18,
+            "goals_completed": 1,
+            "utility_percent": 33,
+            "selected_goals": [
+              "first_page"
+            ]
+          },
+          {
+            "percent_of_full_dual_budget": 75,
+            "release_budget": 18,
+            "dependency_budget": 27,
+            "goals_completed": 2,
+            "utility_percent": 66,
+            "selected_goals": [
+              "first_page",
+              "overlap_page"
+            ]
+          },
+          {
+            "percent_of_full_dual_budget": 100,
+            "release_budget": 24,
+            "dependency_budget": 36,
+            "goals_completed": 3,
+            "utility_percent": 100,
+            "selected_goals": [
+              "complete_review",
+              "first_page",
+              "overlap_page"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "delegated_escalation",
+        "label": "Delegated exception escalation",
+        "policy_context": "A root reviewer delegates a sales drill-down and a manager lookup after an aggregate exception signal.",
+        "goals": 3,
+        "full_release_facts": 20,
+        "full_dependency_facts": 48,
+        "release_breakdown": {
+          "row_facts": 0,
+          "ordinary_field_facts": 0,
+          "sensitive_field_facts": 15,
+          "derived_facts": 5
+        },
+        "dependency_breakdown": {
+          "row_facts": 16,
+          "ordinary_field_facts": 16,
+          "sensitive_field_facts": 16,
+          "derived_facts": 0
+        },
+        "aggregate_dependency_facts": 36,
+        "sensitivity_weighted_full_cost": 192,
+        "budget_utility_curve": [
+          {
+            "percent_of_full_dual_budget": 25,
+            "release_budget": 5,
+            "dependency_budget": 12,
+            "goals_completed": 0,
+            "utility_percent": 0,
+            "selected_goals": []
+          },
+          {
+            "percent_of_full_dual_budget": 50,
+            "release_budget": 10,
+            "dependency_budget": 24,
+            "goals_completed": 1,
+            "utility_percent": 33,
+            "selected_goals": [
+              "sales_drilldown"
+            ]
+          },
+          {
+            "percent_of_full_dual_budget": 75,
+            "release_budget": 15,
+            "dependency_budget": 36,
+            "goals_completed": 2,
+            "utility_percent": 66,
+            "selected_goals": [
+              "exception_signal",
+              "sales_drilldown"
+            ]
+          },
+          {
+            "percent_of_full_dual_budget": 100,
+            "release_budget": 20,
+            "dependency_budget": 48,
+            "goals_completed": 3,
+            "utility_percent": 100,
+            "selected_goals": [
+              "exception_signal",
+              "manager_lookup",
+              "sales_drilldown"
+            ]
           }
         ]
       }

@@ -40,8 +40,8 @@
 
 \input{generated/evidence.tex}
 
-\title{TaskGate: Task-Bound Positive-Output Dependency\\
-Accounting for Autonomous Database Agents}
+\title{TaskGate: Task-Scoped Exposure Accounting\\
+for Adaptive Database Workloads}
 
 \author{Anonymous Author(s)%
 \thanks{The artifact includes a controlled local PostgreSQL performance
@@ -54,8 +54,8 @@ campaign claims production generality.}}
 \maketitle
 
 \begin{abstract}
-Autonomous database agents issue adaptive query sequences and delegate
-subtasks. Per-query access control does not bound how many distinct metered
+Adaptive database clients---including agentic applications---issue query
+sequences and delegate subtasks. Per-query access control does not bound how many distinct metered
 facts a task accumulates across rewrites, pages, retries, and delegation. We
 present TaskGate, a prototype for task-bound exposure accounting. Versioned
 identities bind product, snapshot, entity, field, and value. Each approved root
@@ -73,7 +73,8 @@ independent oracle validates \RQOneCases{} cases. Across
 and incremental charges have \RQTwoExposureMismatches{} mismatches.  Real
 PostgreSQL~16 paired-query tests cover join operand exchange, union member
 completeness and hidden distinct fields, and downstream grouping. In
-three local trials and \RQFourObservations{} operations, a warm full-path
+three local trials, \RQFourFullPathOperations{} full-path calls and
+\RQFourAblationOperations{} ablation measurements are recorded. A warm full-path
 history hit has \RQFourFullOneMedian{}-ms median and
 \RQFourFullOneTail{}-ms p95 latency at one worker---\RQFourFullOneRatio{}$\times$
 the direct-query median. The mixed ramp measures both novel and hit paths and
@@ -89,7 +90,7 @@ while exposing a severe latency and memory boundary.
 \end{abstract}
 
 \begin{IEEEkeywords}
-data exposure, query auditing, provenance, autonomous agents, cumulative
+data exposure, query auditing, provenance, adaptive workloads, cumulative
 budget, positive-output dependency
 \end{IEEEkeywords}
 
@@ -97,7 +98,7 @@ budget, positive-output dependency
 \label{sec:introduction}
 
 \IEEEPARstart{D}{atabase} authorization answers whether a principal may execute
-a particular operation. An autonomous agent creates a second problem: during a
+a particular operation. An adaptive client creates a second problem: during a
 single human-approved task it can adaptively issue many individually legal
 queries. It can split a projection, overlap pages, retry with a new request
 identifier, ask an equivalent query, or delegate a narrower subtask. Per-query
@@ -111,8 +112,9 @@ pricing has developed formal anti-arbitrage objectives
 \cite{koutris2012query,deep2017qirana,peng2025aria}, while provenance explains
 where results came from \cite{green2007provenance,amsterdamer2011aggregate}.
 Our question is narrower and operational: how can a human authorization create
-a stateful, explicit-disclosure budget that remains conserved while database
-agents query and delegate?
+a stateful, explicit-disclosure budget that remains conserved while adaptive
+clients query and delegate? The mechanism neither inspects an LLM nor depends
+on an agent-specific planning algorithm; agents are one important client class.
 
 \system treats the root task as the budget subject. A result has two effects.
 \emph{Release exposure} identifies values actually delivered.
@@ -221,17 +223,10 @@ Database auditing has long treated a query log, rather than an isolated query,
 as the security object. Hippocratic-database auditing reconstructs which logged
 queries accessed protected data \cite{agrawal2004hippocratic}, while batch SQL
 auditing asks whether a sequence of answers determines a forbidden view
-\cite{motwani2008auditing}. Online auditors decide whether to answer the next
-query: early work studies Boolean attributes \cite{kleinberg2003auditing},
-simulatable auditing prevents the accept/deny bit itself from leaking the secret
-\cite{kenthapadi2005simulatable}, and robust auditing analyzes partial versus
-full disclosure under aggregate queries \cite{nabar2006robustness}.
-
-The broader inference-control literature models integrity constraints,
-inference channels, and accumulated disclosures \cite{brodsky2000secure}, and
-surveys attacks that combine answers with external knowledge
-\cite{farkas2002inference}. Query--view disclosure analysis further formalizes
-collusion and partial information release \cite{miklau2004formal}. These results
+\cite{motwani2008auditing}. Simulatable auditing additionally prevents the
+accept/deny bit from leaking the protected value \cite{kenthapadi2005simulatable};
+inference-control surveys cover accumulated answers and external knowledge
+\cite{farkas2002inference}. These results
 rule out a broad ``history makes querying safe'' claim. \system is deliberately
 narrower: it neither models an adversary's prior knowledge nor protects against
 negative answers, denial leakage, or implicit logical inference. It meters a
@@ -270,11 +265,9 @@ provenance provides compositional annotations for positive relational queries
 \cite{green2007provenance}, and aggregation requires value-level treatment
 beyond tuple annotations \cite{amsterdamer2011aggregate}.
 
-Provenance is also an implemented database capability. Perm and GProM compile
-provenance questions through query rewriting \cite{glavic2009perm,arab2018gprom};
-ProvSQL adds provenance and probability to PostgreSQL
-\cite{senellart2018provsql}; and Smoke integrates fine-grained lineage into
-operators for interactive performance \cite{psallidas2018smoke}. \system claims
+Provenance is also an implemented database capability: GProM rewrites
+provenance questions \cite{arab2018gprom}, while ProvSQL adds provenance and
+probability to PostgreSQL \cite{senellart2018provsql}. \system claims
 neither a new provenance algebra nor a general provenance engine. It specializes
 provenance to two set-valued effects---facts explicitly released and a
 conservative operator-input footprint for their successful positive
@@ -285,17 +278,11 @@ and general recursive SQL remain outside it.
 
 \subsection{Usage Control, Delegation, and Quotas}
 
-Usage control extends authorization across an ongoing use and permits mutable
-attributes and obligations \cite{park2004ucon}; execution-history access
-control likewise makes past actions part of authorization
-\cite{abadi2003history}. Delegation has mature logical and role-based
-foundations \cite{li2003delegation,barka2000delegation}, while macaroons provide
-cryptographic attenuation through contextual caveats
-\cite{birgisson2014macaroons}. Consumable credentials encode bounded use in
-linear logic \cite{bowers2007consumable}; distributed storage quotas use
-reconcilable vouchers \cite{pollack2007quota}; and PERMIS combines delegated
-authorization with history-sensitive cumulative-resource decisions
-\cite{chadwick2008permis}.
+Usage control extends authorization across an ongoing use \cite{park2004ucon};
+execution-history access control makes past actions part of authorization
+\cite{abadi2003history}; and delegation has mature logical foundations
+\cite{li2003delegation}. PERMIS combines delegated authorization with
+history-sensitive cumulative-resource decisions \cite{chadwick2008permis}.
 
 Consequently, neither token attenuation, delegation depth, consumable authority,
 nor quota accounting is claimed independently. \system's narrower systems claim
@@ -307,21 +294,15 @@ vouchers and reconciliation would require an additional safety argument.
 \subsection{Database Policy Enforcement and Agents}
 
 Database-backed policy systems rewrite or validate queries against application
-policy \cite{mehta2017qapla,zhang2022blockaid}. Natural-language database work
-initially emphasized text-to-SQL accuracy on cross-domain schemas
-\cite{yu2018spider} and then larger realistic databases
-\cite{li2023bird}. AgentBench includes database operation among interactive
-agent environments \cite{liu2024agentbench}; D-Bot applies a multi-agent system
-to database diagnosis \cite{zhou2024dbot}; and Spider~2.0 evaluates enterprise
-workflows involving multiple queries, metadata, and dialects
-\cite{lei2025spider2}. Recent security work aligns natural-language interfaces
-with database access policy \cite{liu2026safenlidb}, measures indirect prompt
-injection against tool-using agents \cite{debenedetti2024agentdojo}, and applies
-runtime data-flow control to agents \cite{summers2026dataflow}.
+policy \cite{mehta2017qapla,zhang2022blockaid}. Recent work aligns
+natural-language interfaces with database policy \cite{liu2026safenlidb},
+measures indirect prompt injection against tool-using agents
+\cite{debenedetti2024agentdojo}, and applies runtime data-flow control
+\cite{summers2026dataflow}.
 
-These systems motivate treating generated SQL and agent tools as untrusted, but
-they pursue complementary targets: generation quality, operational assistance,
-per-request policy, prompt-injection resilience, or information-flow labels.
+These systems motivate treating generated SQL and client tools as untrusted,
+but pursue complementary targets: per-request policy, prompt-injection
+resilience, or information-flow labels.
 \system places the model outside the trusted computing base and focuses on
 cumulative, explicit database disclosure across retries, pagination, supported
 rewrites, and delegation.
@@ -1062,7 +1043,7 @@ parent grant and active ancestor chain.
 All descendants resolve to one root ledger. If a parent and child request the
 same fact, only the first successful settlement inserts it. Revoking the root
 blocks new descendant queries, while an already terminal request ID remains
-readable. Consequently, creating agents or task nodes cannot create fresh
+readable. Consequently, creating workers or task nodes cannot create fresh
 exposure capacity. A child that signs a lower exposure ceiling may add novel
 facts only while the shared family total remains within that ceiling; a
 zero-novelty replay remains admissible.
@@ -1086,18 +1067,21 @@ back. Induction over the resulting serial commit order establishes the union
 identity and both bounds.
 \end{proof}
 
-\textbf{Budget calibration.} The two ceilings $B^r_T,B^i_T$ are authorizer
-declarations, not learned parameters: the human approving a root task sets them
-in the same distinct-fact-count units the ledgers record, derived from a
-disclosure policy (how many distinct released facts, and how many distinct
-dependency facts, this task family may account for). Fact counts are
-unit-weighted by construction:
-a highly sensitive cell and an ordinary cell both count one, because the model
-bounds disclosure \emph{volume} (the number of distinct accounted facts), not
-disclosure \emph{harm}. Per-fact sensitivity weighting and differential-privacy
-composition are therefore explicit non-goals (Sec.~\ref{sec:limits}); a
-deployment that needs harm-weighted limits must layer such a mechanism on the
-same fact boundary rather than reinterpret the count.
+\textbf{Budget calibration.} The two ceilings $B^r_T,B^i_T$ are capacity
+declarations, not learned risk scores. In our workflow-first procedure the
+approver fixes fields, scope, sensitivity, and useful questions; a dry run on
+an approved representative snapshot (or conservative cardinality bound) unions
+the FactSets of alternatives, pages, and delegates. From the resulting
+$U(B^r,B^i)$ frontier, the approver selects the smallest dual ceiling meeting
+required workflow completion and records data-growth headroom. Hence 1,000
+means capacity for 1,000 distinct semantic facts, not ``risk 1,000.''
+Section~\ref{sec:rq5} instantiates this procedure.
+
+Unit weights provide representation-independent integers, exact replay/delegation
+set union, and stable audit thresholds. They do not equate harm: field and
+sensitivity policy remains the first boundary. A harm model may maintain a
+separate sensitivity-weighted ledger over the same FactIDs; neither that model
+nor differential-privacy composition is claimed here.
 
 \section{System Realization}
 \label{sec:system}
@@ -1109,7 +1093,7 @@ resource/exposure profiles. Startup and per-query attestation bind datasource
 identity, database, role, PostgreSQL major version, ordered view schema, and
 normalized view definitions.
 
-Agents use MCP tools to list products, request a task, execute one structured
+Clients use MCP tools to list products, request a task, execute one structured
 plan, inspect both budgets, delegate a narrower task, and retrieve results or
 receipts. An external approval adapter
 signs the immutable grant. Arbitrary direct SQL remains available only for
@@ -1155,23 +1139,25 @@ rather than claiming a proof that does not exist.
 
 \subsection{Questions and Reproducibility}
 
-The evaluation is organized around four questions: RQ1 ground-truth accuracy;
+The evaluation is organized around five questions: RQ1 ground-truth accuracy;
 RQ2 rewrite invariance of exposure accounting; RQ3 resistance to split, page,
 retry, snapshot, join/union, delegation, and concurrency amplification; RQ4 runtime/storage
-overhead and cost scaling. The report
+overhead and cost scaling; and RQ5 workflow-based policy calibration. The report
 is rebuilt from a source-controlled V2 algebra corpus with digest prefix
 \ExposureCorpusHash{}. The primary RQ2 evidence is a closed-language
 FactSet-invariance campaign; a separate broad SQL result-equivalence stress test
 is reported only in the supplement and is not exposure evidence. RQ4 contains \RQFourTrials{} fresh
-isolated PostgreSQL deployments, \RQFourObservations{} measured operations, and
+isolated PostgreSQL deployments, \RQFourFullPathOperations{} full-path calls and
+\RQFourAblationOperations{} direct/paired/algebra ablation measurements
+(\RQFourObservations{} total), and
 \RQFourScalingDims{} deterministic in-process scaling sweeps, plus
 \RQFourStorageTrials{} fresh-schema production-ledger scaling trials and a
 public-endpoint PostgreSQL Join--Group campaign with \RQFourScalePoints{}
 cardinalities and \RQFourScaleTrials{} fresh-ledger trials per cardinality.
-There is no representation-selection planner or agent-task-utility RQ: one
-agent-supplied plan is executed per call. Consequently greedy, random, and
-knapsack/ILP planner comparisons are neither claimed nor applicable to this
-artifact.
+There is no online representation-selection planner: one client-supplied plan
+is executed per call. RQ5 exhaustively enumerates only the eight subsets of
+each three-goal policy fixture to expose an approval frontier; it is not a
+runtime planner, a live-agent experiment, or a learned utility model.
 
 \begin{table}[t]
 \centering
@@ -1185,7 +1171,8 @@ RQ & Current result \\
 RQ1 & \RQOnePassed{}/\RQOneCases{} independent-oracle cases on \RQOneRows{} source rows \\
 RQ2 & \RQTwoExposureRewrites{} closed-language rewrite families, \RQTwoExposureCases{} instances and \RQTwoExposureNFCases{} normal-form checks: FactSet/charge invariant, \RQTwoExposureMismatches{} mismatches \\
 RQ3 & \RQThreePassed{}/\RQThreeCases{} deterministic; \RQThreeIntegration{}/\RQThreeExecuted{} PostgreSQL race tests; paired PG Join/Union exchange and downstream-group tests \\
-RQ4 & \RQFourObservations{} small-fixture operations; physical ledger curve to \RQFourStorageMaxRows{} rows; end-to-end Join--Group to \RQFourScaleMaxJoined{} members/\RQFourScaleMaxFacts{} dependencies \\
+RQ4 & \RQFourFullPathOperations{} small-fixture full-path calls plus \RQFourAblationOperations{} ablations; physical ledger curve to \RQFourStorageMaxRows{} rows; end-to-end Join--Group to \RQFourScaleMaxJoined{} members/\RQFourScaleMaxFacts{} dependencies \\
+RQ5 & \RQFiveScenarios{} operational policy scenarios and \RQFiveGoals{} declared workflow goals; exact dual-budget/utility frontiers and fact-class calibration \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1445,6 +1432,29 @@ charges \RQFourScalingReplayCharge{}. The PostgreSQL-backed concurrency sweep
 above remains the source of end-to-end latency; these sweeps characterize the
 cost model that latency is built on.
 
+\subsection{RQ5: Policy Calibration and Workflow Utility}
+\label{sec:rq5}
+
+RQ5 instantiates finance summary, overlapping-page case review, and delegated
+exception-escalation policies on the 16-row auditable fixture. Each declares
+three binary goals; $U$ is their admitted fraction, not human-rated, model, or
+agent success. We enumerate each scenario's eight subsets and report the best
+feasible $U$ at 25, 50, 75, and 100\% of its full dual ceiling. The digest-checked
+manifest identifies sensitive fields and aggregate steps.
+
+The full ceilings are \RQFiveFinanceFull{}, \RQFiveReviewFull{}, and
+\RQFiveDelegationFull{}; dependency row/ordinary/sensitive/aggregate-support
+counts are \RQFiveFinanceClasses{}, \RQFiveReviewClasses{}, and
+\RQFiveDelegationClasses{}. At 25/50/75/100\% of each full dual ceiling, best
+utility is 0/33/66/100\%; the supplement gives every $(B^r,B^i)/U$ point.
+Finance's $(5,9)$ quarter-budget admits nothing, demonstrating why an
+uncalibrated ``10'' has no governance meaning.
+
+As a non-admission sensitivity analysis, weighting tagged cells five changes
+the three total costs from 53/60/68 to 53/156/192. This illustrates the
+separate risk-ledger option; the small fixture demonstrates calibration, not
+transferable organizational thresholds.
+
 \subsection{Reproducibility Boundary}
 
 RQ1 and the RQ2 exposure-invariance stream remain auditable in-process tests:
@@ -1462,9 +1472,13 @@ Join--Group execution: three scales culminate in \RQFourScaleMaxJoined{} joined
 members and \RQFourScaleMaxFacts{} dependencies. It remains one deterministic,
 warm-service, TPC-H-derived query shape on one host with three repeats---not an
 official TPC-H/TPC-DS suite, controlled cold-cache study, multi-node deployment,
-or production SLO evaluation. It also does not evaluate a live model, agent
-task success, or utility. Source-controlled reports bind the environment,
-corpus, implementation, raw results, and sample digests. These boundaries
+or production SLO evaluation. RQ5 reports declared workflow completion on the
+16-row semantic fixture, not a live model, human utility judgment, or agent
+task success. All three RQ4 trial directories are published; the paper build
+parses every raw JSONL sample, reproduces trial summaries and the campaign
+aggregate, and recomputes the current benchmark/source digest. Source-controlled
+reports bind the environment, corpus, implementation, raw results, and sample
+digests. These boundaries
 especially limit RQ1/RQ2 external validity and RQ4 workload generality.
 
 \section{Limitations and Threats to Validity}
@@ -1515,11 +1529,11 @@ are open design points; approximations would require new safety semantics.
 tokens, an in-memory approval demo, and one PostgreSQL connector. It lacks a
 distributed execution lease and centralized key custody. The measured
 three-scale single-host workload does not establish multi-node scaling,
-production SLOs, diverse schema/query generality, or live-agent task utility.
+production SLOs, diverse schema/query generality, or live-agent task success.
 
 \section{Conclusion}
 
-Task-bound authorization answers what an agent may query; task-bound exposure
+Task-bound authorization answers what an adaptive client may query; task-bound exposure
 accounting additionally constrains what one root ledger records for its
 delegated workload. \system realizes that distinction with stable facts, separate
 release and positive-output dependency sets, same-snapshot provenance, atomic novel-fact

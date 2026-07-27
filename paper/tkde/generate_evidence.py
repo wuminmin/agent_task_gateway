@@ -6,6 +6,8 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 
@@ -14,13 +16,32 @@ ROOT = PAPER_DIR.parent.parent
 RESULT = ROOT / "evaluation/exposure/results.json"
 CORPUS = ROOT / "evaluation/exposure/corpus.json"
 RQ1_ORACLE = ROOT / "evaluation/exposureoracle/oracle.go"
+POLICY_MANIFEST = ROOT / "evaluation/exposure/policy_scenarios.json"
 PERFORMANCE = ROOT / "evaluation/exposure-performance/results.json"
 PERFORMANCE_ENVIRONMENT = ROOT / "evaluation/exposure-performance/environment.json"
+PERFORMANCE_SUMMARIZER = ROOT / "evaluation/exposure-performance/summarize_campaign.py"
 PATH_ANALYSIS = ROOT / "evaluation/exposure-performance/path_analysis.json"
 STORAGE_SCALING = ROOT / "evaluation/exposure-storage/results.json"
 SCALE = ROOT / "evaluation/exposure-scale/results.json"
 FORMAL = ROOT / "formal/results/exposure_ledger.json"
 OUTPUT = PAPER_DIR / "generated/evidence.tex"
+
+PERFORMANCE_SOURCE_DIRS = (
+    "internal",
+    "cmd/gateway",
+    "evaluation/cmd/exposure-bench",
+)
+PERFORMANCE_SOURCE_FILES = (
+    "go.mod",
+    "go.sum",
+    "compose.yaml",
+    "evaluation/Dockerfile",
+    "evaluation/run-exposure-performance.sh",
+    "evaluation/exposure-performance/compose.yaml",
+    "evaluation/exposure-performance/catalog.yaml",
+    "evaluation/exposure-performance/merge_memory.py",
+    "evaluation/exposure-performance/summarize_campaign.py",
+)
 
 SCALE_SOURCE_DIRS = (
     "evaluation/cmd/exposure-bench",
@@ -87,16 +108,9 @@ def path_set_sha256(paths: list[Path]) -> str:
 
 
 def performance_source_sha256() -> str:
-    paths: list[Path] = []
-    for path in (
-        ROOT / "internal",
-        ROOT / "cmd/gateway",
-        ROOT / "evaluation/cmd/exposure-bench",
-        ROOT / "compose.yaml",
-        ROOT / "evaluation/exposure-performance/compose.yaml",
-        ROOT / "evaluation/exposure-performance/catalog.yaml",
-    ):
-        paths.extend(path.rglob("*.go") if path.is_dir() else [path])
+    paths = [ROOT / relative for relative in PERFORMANCE_SOURCE_FILES]
+    for relative in PERFORMANCE_SOURCE_DIRS:
+        paths.extend((ROOT / relative).rglob("*.go"))
     return path_set_sha256(paths)
 
 
@@ -130,7 +144,7 @@ def storage_source_sha256() -> str:
 
 def validate_exposure() -> dict:
     report = load_json(RESULT)
-    require(report.get("schema_version") == 4, "unsupported exposure report schema")
+    require(report.get("schema_version") == 5, "unsupported exposure report schema")
     require(report.get("corpus_sha256") == sha256(CORPUS), "exposure corpus digest is stale")
     rq1 = report.get("rq1_ground_truth", {})
     rq2 = report.get("rq2_rewrite_invariance", {})
@@ -268,14 +282,63 @@ def validate_exposure() -> dict:
         and all(len(curve.get("points", [])) >= 4 for curve in scaling.get("curves", [])),
         "RQ4 scaling evidence is incomplete",
     )
+    policy = report.get("rq5_policy_calibration", {})
+    scenarios = policy.get("scenarios", [])
+    require(
+        policy.get("status") == "complete_deterministic_policy_calibration"
+        and policy.get("manifest_sha256") == sha256(POLICY_MANIFEST)
+        and policy.get("utility_metric") == "fraction of predeclared workflow goals admitted"
+        and policy.get("fixture_rows") == relation_rows == 16
+        and policy.get("budget_percentages") == [25, 50, 75, 100]
+        and len(scenarios) == 3,
+        "RQ5 policy-calibration evidence is incomplete",
+    )
+    scenario_ids = {item.get("id") for item in scenarios}
+    require(
+        scenario_ids == {"finance_summary", "case_review", "delegated_escalation"},
+        "RQ5 policy scenarios are unexpected",
+    )
+    for scenario in scenarios:
+        release = scenario.get("release_breakdown", {})
+        dependency = scenario.get("dependency_breakdown", {})
+        curve = scenario.get("budget_utility_curve", [])
+        require(
+            scenario.get("goals") == 3
+            and scenario.get("full_release_facts", 0) > 0
+            and scenario.get("full_dependency_facts", 0) > 0
+            and sum(release.get(key, 0) for key in ("row_facts", "ordinary_field_facts", "sensitive_field_facts", "derived_facts"))
+            == scenario.get("full_release_facts")
+            and sum(dependency.get(key, 0) for key in ("row_facts", "ordinary_field_facts", "sensitive_field_facts", "derived_facts"))
+            == scenario.get("full_dependency_facts")
+            and [point.get("percent_of_full_dual_budget") for point in curve] == [25, 50, 75, 100]
+            and [point.get("utility_percent") for point in curve] == sorted(point.get("utility_percent") for point in curve)
+            and curve[-1].get("goals_completed") == 3
+            and curve[-1].get("utility_percent") == 100,
+            f"RQ5 policy scenario {scenario.get('id')} is inconsistent",
+        )
     return report
 
 
 def validate_performance() -> dict:
+    reproduced = subprocess.run(
+        [sys.executable, str(PERFORMANCE_SUMMARIZER), "--check", "--output", str(PERFORMANCE)],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    require(
+        reproduced.returncode == 0,
+        "RQ4 raw campaign cannot reproduce the summary: " + reproduced.stderr.strip(),
+    )
     result = load_json(PERFORMANCE)
-    require(result.get("schema_version") == 1, "unsupported RQ4 report schema")
+    require(result.get("schema_version") == 2, "unsupported RQ4 report schema")
     require(result.get("status") == "complete_controlled_local_campaign", "RQ4 campaign is incomplete")
     require(result.get("trials") == 3 and result.get("observations") == 31296, "RQ4 trial/sample count is incomplete")
+    require(
+        result.get("operation_partition") == {"full_path": 7896, "ablations": 23400, "total": 31296},
+        "RQ4 full-path/ablation operation partition is incorrect",
+    )
     require(result.get("environment_sha256") == sha256(PERFORMANCE_ENVIRONMENT), "RQ4 environment digest is stale")
     require(
         result.get("gateway_benchmark_source_sha256") == performance_source_sha256(),
@@ -517,6 +580,14 @@ def main() -> None:
     rq1 = report["rq1_ground_truth"]
     rq2 = report["rq2_rewrite_invariance"]
     rq3 = report["rq3_anti_arbitrage"]
+    policy = report["rq5_policy_calibration"]
+    policy_scenarios = {item["id"]: item for item in policy["scenarios"]}
+    finance = policy_scenarios["finance_summary"]
+    review = policy_scenarios["case_review"]
+    delegation = policy_scenarios["delegated_escalation"]
+    finance_curve = {point["percent_of_full_dual_budget"]: point for point in finance["budget_utility_curve"]}
+    review_curve = {point["percent_of_full_dual_budget"]: point for point in review["budget_utility_curve"]}
+    delegation_curve = {point["percent_of_full_dual_budget"]: point for point in delegation["budget_utility_curve"]}
     exposure_invariance = report["rq2_exposure_invariance"]
     scaling = report["rq4_scaling"]
     scaling_curves = {curve["dimension"]: curve for curve in scaling["curves"]}
@@ -567,6 +638,8 @@ def main() -> None:
         rf"\newcommand{{\RQThreeIntegration}}{{{rq3['postgres_integration']['passed']}}}",
         rf"\newcommand{{\RQFourTrials}}{{{performance['trials']}}}",
         rf"\newcommand{{\RQFourObservations}}{{{comma(performance['observations'])}}}",
+        rf"\newcommand{{\RQFourFullPathOperations}}{{{comma(performance['operation_partition']['full_path'])}}}",
+        rf"\newcommand{{\RQFourAblationOperations}}{{{comma(performance['operation_partition']['ablations'])}}}",
         rf"\newcommand{{\RQFourDirectOneMedian}}{{{decimal(direct_one['latency_ms']['p50'], 2)}}}",
         rf"\newcommand{{\RQFourPairedOneMedian}}{{{decimal(paired_one['latency_ms']['p50'], 2)}}}",
         rf"\newcommand{{\RQFourAlgebraOneMedian}}{{{decimal(algebra_one['latency_ms']['p50'], 2)}}}",
@@ -666,6 +739,23 @@ def main() -> None:
         rf"\newcommand{{\RQTwoExposureNFCases}}{{{exposure_invariance['normal_form_checks']}}}",
         rf"\newcommand{{\RQTwoExposureEffectChecks}}{{{exposure_invariance['effect_checks']}}}",
         rf"\newcommand{{\RQTwoExposureMismatches}}{{{exposure_invariance['mismatches']}}}",
+        rf"\newcommand{{\RQFiveScenarios}}{{{len(policy['scenarios'])}}}",
+        rf"\newcommand{{\RQFiveGoals}}{{{sum(item['goals'] for item in policy['scenarios'])}}}",
+        rf"\newcommand{{\RQFiveFinanceFull}}{{({finance['full_release_facts']},{finance['full_dependency_facts']})}}",
+        rf"\newcommand{{\RQFiveReviewFull}}{{({review['full_release_facts']},{review['full_dependency_facts']})}}",
+        rf"\newcommand{{\RQFiveDelegationFull}}{{({delegation['full_release_facts']},{delegation['full_dependency_facts']})}}",
+        rf"\newcommand{{\RQFiveFinanceClasses}}{{{finance['dependency_breakdown']['row_facts']}/{finance['dependency_breakdown']['ordinary_field_facts']}/{finance['dependency_breakdown']['sensitive_field_facts']}/{finance['aggregate_dependency_facts']}}}",
+        rf"\newcommand{{\RQFiveReviewClasses}}{{{review['dependency_breakdown']['row_facts']}/{review['dependency_breakdown']['ordinary_field_facts']}/{review['dependency_breakdown']['sensitive_field_facts']}/{review['aggregate_dependency_facts']}}}",
+        rf"\newcommand{{\RQFiveDelegationClasses}}{{{delegation['dependency_breakdown']['row_facts']}/{delegation['dependency_breakdown']['ordinary_field_facts']}/{delegation['dependency_breakdown']['sensitive_field_facts']}/{delegation['aggregate_dependency_facts']}}}",
+        rf"\newcommand{{\RQFiveFinanceQuarter}}{{({finance_curve[25]['release_budget']},{finance_curve[25]['dependency_budget']})/{finance_curve[25]['utility_percent']}}}",
+        rf"\newcommand{{\RQFiveFinanceHalf}}{{({finance_curve[50]['release_budget']},{finance_curve[50]['dependency_budget']})/{finance_curve[50]['utility_percent']}}}",
+        rf"\newcommand{{\RQFiveFinanceThreeQuarter}}{{({finance_curve[75]['release_budget']},{finance_curve[75]['dependency_budget']})/{finance_curve[75]['utility_percent']}}}",
+        rf"\newcommand{{\RQFiveReviewQuarter}}{{({review_curve[25]['release_budget']},{review_curve[25]['dependency_budget']})/{review_curve[25]['utility_percent']}}}",
+        rf"\newcommand{{\RQFiveReviewHalf}}{{({review_curve[50]['release_budget']},{review_curve[50]['dependency_budget']})/{review_curve[50]['utility_percent']}}}",
+        rf"\newcommand{{\RQFiveReviewThreeQuarter}}{{({review_curve[75]['release_budget']},{review_curve[75]['dependency_budget']})/{review_curve[75]['utility_percent']}}}",
+        rf"\newcommand{{\RQFiveDelegationQuarter}}{{({delegation_curve[25]['release_budget']},{delegation_curve[25]['dependency_budget']})/{delegation_curve[25]['utility_percent']}}}",
+        rf"\newcommand{{\RQFiveDelegationHalf}}{{({delegation_curve[50]['release_budget']},{delegation_curve[50]['dependency_budget']})/{delegation_curve[50]['utility_percent']}}}",
+        rf"\newcommand{{\RQFiveDelegationThreeQuarter}}{{({delegation_curve[75]['release_budget']},{delegation_curve[75]['dependency_budget']})/{delegation_curve[75]['utility_percent']}}}",
         rf"\newcommand{{\BaseQueryCount}}{{{baseline['query_count']}}}",
         rf"\newcommand{{\BaseRows}}{{{baseline['returned_rows']}}}",
         rf"\newcommand{{\BaseBytes}}{{{baseline['serialized_bytes']}}}",

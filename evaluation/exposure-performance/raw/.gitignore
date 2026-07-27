@@ -1,2 +1,19 @@
+# Keep ad-hoc and smoke runs local, but publish every raw artifact needed to
+# audit and reproduce the three paper trials. Task credentials remain ignored.
 *
 !.gitignore
+!rq4-20260727-trial1/
+!rq4-20260727-trial1/report.json
+!rq4-20260727-trial1/results.json
+!rq4-20260727-trial1/samples.jsonl
+!rq4-20260727-trial1/docker-stats.jsonl
+!rq4-20260727-trial2/
+!rq4-20260727-trial2/report.json
+!rq4-20260727-trial2/results.json
+!rq4-20260727-trial2/samples.jsonl
+!rq4-20260727-trial2/docker-stats.jsonl
+!rq4-20260727-trial3/
+!rq4-20260727-trial3/report.json
+!rq4-20260727-trial3/results.json
+!rq4-20260727-trial3/samples.jsonl
+!rq4-20260727-trial3/docker-stats.jsonl

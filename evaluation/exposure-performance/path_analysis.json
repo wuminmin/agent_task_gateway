@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "status": "complete_posthoc_path_analysis",
-  "source_campaign_sha256": "7e80b501ac237b7f0a6b3e920b169a3571ff31e09063f0d0004c834206c35965",
+  "source_campaign_sha256": "e4b9a5c59324668e781217b4049542faeef2136668655deb5f173dfb48de17bd",
   "trials": 3,
   "classification": "charged facts > 0 is novel; nonzero actual facts and zero charged facts is a history hit",
   "uncertainty": "median point estimate and min-max range of per-trial summaries across three fresh deployments",

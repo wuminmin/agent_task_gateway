@@ -55,7 +55,7 @@ def aggregate(name: str, per_trial: list[dict]) -> dict:
 
 def main() -> None:
     campaign = json.loads(CAMPAIGN.read_text(encoding="utf-8"))
-    if campaign.get("schema_version") != 1 or campaign.get("trials") != 3:
+    if campaign.get("schema_version") != 2 or campaign.get("trials") != 3:
         raise SystemExit("the recorded RQ4 campaign is incomplete")
 
     raw_root = Path(__file__).with_name("raw")

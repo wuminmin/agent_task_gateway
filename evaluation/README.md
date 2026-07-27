@@ -12,8 +12,8 @@ Run the exposure suite with `make eval-exposure`. Its RQ1 track uses a separate
 reference package with no production exposure dependency. Its RQ2 track uses an
 independent fixture evaluator and a disposable real PostgreSQL 16 server; the
 RQ3 track retains digest-bound test- and package-pass events from
-`go test -race -json`. The source-controlled RQ4 result comes from three fresh,
-isolated runs of the dedicated public-`execute_plan` exposure harness; see
+`go test -race -json`. The source-controlled RQ4 result and raw samples come
+from three fresh, isolated runs of the dedicated public-`execute_plan` exposure harness; see
 `exposure/README.md` and `exposure-performance/README.md` for its exact local
 fixture boundary. `make eval-exposure-performance` runs the smaller default
 engineering smoke, which must not be substituted for that recorded campaign.

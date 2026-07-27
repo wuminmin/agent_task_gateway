@@ -1,9 +1,14 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "status": "complete_controlled_local_campaign",
   "campaign_id": "rq4-local-postgresql-20260727",
   "trials": 3,
   "observations": 31296,
+  "operation_partition": {
+    "full_path": 7896,
+    "ablations": 23400,
+    "total": 31296
+  },
   "aggregation": "median of three independent trial summaries; per-trial percentiles use Hyndman-Fan type 7",
   "configuration": {
     "cache_strategy": "warm",
@@ -39,30 +44,36 @@
     }
   },
   "environment_sha256": "7806d285a28a28c0c0d2490b7918770729f05e214f247263c1b0f128c1aa34c0",
-  "gateway_benchmark_source_sha256": "5dd21b7e9ed2fd964cc76e15ab06b77701b81b1973440917f316049fb89c3f49",
+  "gateway_benchmark_source_sha256": "6a0a4c5de975b3ab6b959dd5f05f2c51f017603753a8415bdf49f22706e7f165",
   "raw_provenance": [
     {
       "run_id": "rq4-20260727-trial1",
       "started_at": "2026-07-27T10:55:32.484567394Z",
       "finished_at": "2026-07-27T10:55:52.877447481Z",
+      "report_sha256": "dfab8c022806d606ec564d20536a6444d7e6aacf8025dafedf858f3c4c329777",
       "results_sha256": "be389f0215e7dae9d039a86e535c33c256488aa803bb1a51218179327ba1456d",
       "samples_sha256": "3435d5c4dacb980024da41f3889c53533f3de3b89fe88393f2512b894b1450ba",
+      "docker_stats_sha256": "08712cc2140ccee01fb1c70ec59778b8c5d2ed844f36b57bd989185267b1bd2a",
       "samples": 10432
     },
     {
       "run_id": "rq4-20260727-trial2",
       "started_at": "2026-07-27T10:58:27.71529844Z",
       "finished_at": "2026-07-27T10:58:46.962036723Z",
+      "report_sha256": "a86731daec57c71367da59a5695ce33f4961e3ca6f1b4e92f1a5749f162793e0",
       "results_sha256": "f1c9882d1effc0fb5d6e8506ccd12c2d3a2a4f67bdfabe6f02b2d33c73391fcd",
       "samples_sha256": "9f32cd0b42723fc8c40c292a68c8168c6656e5d86043da20fd159ae39a6eaf18",
+      "docker_stats_sha256": "648c8303e5e80faf1a3bbc32ccd8f7766080e2ff07f8d4dcfdedd8e21356671a",
       "samples": 10432
     },
     {
       "run_id": "rq4-20260727-trial3",
       "started_at": "2026-07-27T11:01:15.294854529Z",
       "finished_at": "2026-07-27T11:01:34.673238454Z",
+      "report_sha256": "1fca917dee061df2415254a2c6327846765d637fa807b3146c780b119dfb4a94",
       "results_sha256": "443ff87e63874a08e9055e4875a78bf01031dff82fb283b19b182fdfc2b0252a",
       "samples_sha256": "cf85f9c2eb91623e62e694847f166a6e5bcb97cdd7418a3fe9f7e76f6f49fc47",
+      "docker_stats_sha256": "55d528ce796338afbe9b70c3ad10594958213b226124a9497c40cf3196f662a7",
       "samples": 10432
     }
   ],

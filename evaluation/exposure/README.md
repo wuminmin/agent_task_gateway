@@ -52,10 +52,16 @@ or anti-arbitrage case did not match.
   publication result is accepted only if both test-level pass events and the
   package-level pass occur in a SHA-256-bound raw `go test -race -json` log.
 - **RQ4:** `../exposure-performance/results.json` records three fresh isolated
-  PostgreSQL deployments, 31,296 operations, five-stage ablation,
+  PostgreSQL deployments, 7,896 full-path operations and 23,400 ablation
+  operations (31,296 total), five-stage decomposition,
   latency/throughput, component timing, ledger growth, memory, contention, and
-  history-hit metrics. The result is explicitly a controlled local fixture
-  campaign rather than a TPC or production-scale measurement.
+  history-hit metrics. Its published raw JSONL is rebuilt and source-digest
+  checked during paper generation. The result is explicitly a controlled local
+  fixture campaign rather than a TPC or production-scale measurement.
+- **RQ5:** `policy_scenarios.json` declares three approval scenarios and nine
+  binary workflow goals. Production FactID/Effect code computes exact set
+  unions, fact-class calibration, and dual-budget/workflow-completion curves.
+  This is an authorizer calibration study, not live-agent task success.
 `corpus.json` and the PostgreSQL oracle fixture are
 intentionally small enough to audit. The 1,024 count denotes unique normalized
 SQL pairs, not independent datasets or workloads. TPC-scale, second-engine,

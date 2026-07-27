@@ -15,8 +15,10 @@ make eval-exposure-performance
 
 The command creates a dedicated Compose project and volumes, bootstraps one
 root task plus delegated worker tasks through the public MCP and OA flows,
-measures the campaign, and writes ignored raw evidence to
-`evaluation/exposure-performance/raw/<run-id>/`. Set
+measures the campaign, and writes raw evidence to
+`evaluation/exposure-performance/raw/<run-id>/`. Ad-hoc runs remain ignored;
+the three paper trial directories below are source controlled without their
+credential-bearing `tasks.json` files. Set
 `EXPOSURE_KEEP_STACK=1` to preserve the isolated deployment. Useful campaign
 controls are `EXPOSURE_RUNS`, `EXPOSURE_RAMP_RUNS`, `EXPOSURE_WORKERS`, and
 `EXPOSURE_CONCURRENCY` (for example `1,8,32`). The largest concurrency must not
@@ -34,7 +36,21 @@ EXPOSURE_RUN_ID=rq4-20260727-trial1 EXPOSURE_RUNS=200 \
 Repeat with `trial2` and `trial3`, then run
 `python3 evaluation/exposure-performance/summarize_campaign.py`. The validator
 requires exactly 10,432 samples per trial and writes the source-controlled
-31,296-observation `results.json`.
+`results.json`. The 31,296 total comprises 7,896 full-path operations
+(7,800 history hits plus 96 ramp requests) and 23,400 direct, paired-snapshot,
+and paired-plus-algebra ablation operations. It must not be described as 31,296
+full-path operations.
+
+The paper build runs the same validator in check mode:
+
+```sh
+python3 evaluation/exposure-performance/summarize_campaign.py --check
+```
+
+Check mode parses every JSONL record, recomputes the per-trial distributions
+and aggregate summary, verifies every raw file digest, and recomputes the
+current gateway/benchmark source digest. A clean checkout therefore cannot
+build the paper from summary JSON alone.
 
 The publication also derives the novel/hit path partition and actual ledger
 storage from those digest-bound samples:
@@ -94,7 +110,8 @@ ablations have the same security semantics as the full path.
 
 `samples.jsonl` contains per-operation evidence, `report.json` is the driver
 report, `docker-stats.jsonl` is the external memory stream, and `results.json`
-is their merged summary. Task IDs stay only in the ignored `tasks.json`; the
+is their merged summary. These four artifacts are published for each paper
+trial. Task IDs stay only in the ignored `tasks.json`; the
 summary contains a one-way root-task digest.
 
 The default `1,4` / ten-run settings remain an engineering smoke. The recorded
