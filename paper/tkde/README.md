@@ -1,8 +1,8 @@
 # TaskGate TKDE working draft
 
 This is a separate database-paper project derived from the implementation and
-the requirements in `tkde.md`. It is not a template conversion of the TDSC
-security-gateway draft.
+the requirements in [../../tkde.md](../../tkde.md). It is not a template
+conversion of the TDSC security-gateway draft.
 
 Build from the repository root:
 
@@ -32,7 +32,10 @@ exposure report. `generate_evidence.py` then verifies:
 It then emits `generated/evidence.tex` and compiles both `main.tex` and the
 separate `supplement.tex` with a pinned Docker TeX environment. The broad 1,024
 pair PostgreSQL result-equivalence stress test is confined to the supplement;
-the main paper's RQ2 evidence is closed-language FactSet/charge invariance. A local TeX syntax build is available through
+the main paper's RQ2 evidence is closed-language FactSet/charge invariance.
+Complete typing/big-step rules, output-key cases, and the detailed operator
+coverage matrix are also in the supplement; the main paper retains the effect
+summary and safety properties. A local TeX syntax build is available through
 `paper/tkde/build.sh`, but it still uses Docker for the exposure evaluation.
 
 The draft reports controlled single-host evidence, including a TPC-H-derived
@@ -42,3 +45,20 @@ or live-LLM generality. The old TDSC manuscript remains available through
 `make paper-tdsc`; its results are not relabeled as exposure evidence. The
 source-controlled semantic, performance, storage, and scale reports are all
 consumed by the paper build.
+
+## Submission-length check
+
+Checked 2026-07-27: the IEEE Computer Society's public author guidance defines
+12 formatted pages for a regular Transactions paper, including references and
+author biographies, and the [2026 IEEE charge
+list](https://magazines.ieeeauthorcenter.ieee.org/wp-content/uploads/sites/10/IEEE-Article-Processing-Charges-List.pdf)
+lists TKDE at 12 pages before mandatory overlength charges of USD 220 per page.
+The [Computer Society author
+guidance](https://www.computer.org/publications/author-resources) warns that a
+journal's submission-page limit can differ from its production overlength
+threshold. Therefore the corresponding author must still confirm the selected
+TKDE manuscript category, initial-submission limit, treatment of supplementary
+material, and current charge acknowledgement in ScholarOne/Author Portal
+immediately before submission. Do not infer acceptability from a successful
+local PDF build alone. The current pinned-template build is 12 main-paper pages
+plus a separate 3-page supplement.

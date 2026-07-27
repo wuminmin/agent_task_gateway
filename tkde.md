@@ -4,7 +4,7 @@
 
 建议题目：
 
-> **TaskGate: Task-Scoped Exposure Accounting for Adaptive Database Workloads**
+> **TaskGate: Task-Scoped Exposure Accounting**
 
 核心问题改成：
 
@@ -119,7 +119,7 @@ TKDE 主文建议控制在 12 页：
 - Limitations/Conclusion：0.5 页
 - References：约 0.5–1 页
 
-人工审批 UI、签名格式、密钥管理、六个分离的 TLA+ 模型和完整故障矩阵移到 supplement。现稿已经约 14 页，不能在原稿上继续加章节。
+人工审批 UI、签名格式、密钥管理、完整推导规则和扩展实验材料移到 supplement。当前构建为 12 页主文加 3 页独立补充材料；提交前仍需按 ScholarOne 所选类别复核 supplement 与页数口径。
 
 ## 实际投稿方式
 
@@ -128,7 +128,7 @@ TKDE 主文建议控制在 12 页：
 投稿注意：
 
 - 使用 IEEE 期刊双栏模板；摘要 100–200 words，不能含公式或引用。[IEEE CS Author Guidelines](https://www.computer.org/publications/author-resources)
-- Regular 按 12 个 formatted pages 准备，摘要和参考文献都计入；超出部分目前为 220 美元/页。[2026 IEEE 费用表](https://journals.ieeeauthorcenter.ieee.org/wp-content/uploads/sites/7/IEEE-Article-Processing-Charges-List.pdf)
+- Regular 按 12 个 formatted pages 准备，参考文献和作者简介计入；2026 年公开费用表列出的超页费为 220 美元/页，但 submission limit 可能不同，提交前仍须在 ScholarOne/Author Portal 确认所选稿件类别、初投稿页数和 supplement 规则。[IEEE CS Author Guidelines](https://www.computer.org/publications/author-resources)、[2026 IEEE 费用表](https://magazines.ieeeauthorcenter.ieee.org/wp-content/uploads/sites/10/IEEE-Article-Processing-Charges-List.pdf)
 - 通过 [IEEE Publishing Portal](https://journals.ieeeauthorcenter.ieee.org/submit-your-article-for-peer-review/ieee-publishing-portal/) 选择 TKDE 和 Regular Paper。
 - 默认单匿名；可以申请双匿名，但由 EIC 决定。
 - Traditional 模式不收 OA APC；可选 OA 当前为 2,800 美元。[IEEE OA 费用](https://open.ieee.org/for-authors/article-processing-charges/)

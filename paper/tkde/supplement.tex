@@ -1,19 +1,201 @@
-\documentclass[journal]{IEEEtran}
+\documentclass[journal,onecolumn]{IEEEtran}
+\usepackage{amsmath,amssymb}
 \usepackage{booktabs}
 \usepackage{array}
 \usepackage{graphicx}
+\usepackage{float}
 \usepackage[hidelinks]{hyperref}
 \newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
 \newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\lbag}{\{\!\{}
+\newcommand{\rbag}{\}\!\}}
+\newcommand{\llbracket}{[\![}
+\newcommand{\rrbracket}{]\!]}
 \input{generated/evidence.tex}
 
-\title{Supplement to ``TaskGate: Task-Scoped Exposure Accounting
-for Adaptive Database Workloads''}
+\title{Supplement to ``TaskGate: Task-Scoped Exposure Accounting''}
 \author{Anonymous Author(s)}
 \date{}
 
 \begin{document}
 \maketitle
+
+\section{Complete V2 Inference Rules}
+
+This section contains the full typing and big-step rules summarized in the
+main paper. Undefined premises reject the plan. Join fields are stable
+role-qualified IDs; equality requires the same canonical type and collation;
+union schemas are identical including type and collation.
+
+\subsection{Typing}
+
+\begingroup\small
+\begin{align*}
+\frac{D(\nu,s):\Gamma\quad \operatorname{canonical}_\Pi(\Gamma,r)}
+ {\Pi\vdash\operatorname{Scan}[\nu,s,r,\Gamma]:\Gamma}
+&\;(T\text{-Scan})\\[1mm]
+\frac{\Pi\vdash e:\Gamma\quad F\subseteq\operatorname{dom}\Gamma
+      \quad \Pi;\Gamma\vdash p:\mathbb B_3}
+ {\Pi\vdash\sigma_{p;F}(e):\Gamma}
+&\;(T\text{-Select})\\[1mm]
+\frac{\Pi\vdash e:\Gamma\quad \varnothing\ne A\subseteq\operatorname{dom}\Gamma}
+ {\Pi\vdash\pi_A(e):\Gamma|_A}
+&\;(T\text{-Project})\\[1mm]
+\frac{\Pi\vdash e_i:\Gamma_i\;(i=1,2)\quad
+      \operatorname{dom}\Gamma_1\cap\operatorname{dom}\Gamma_2=\varnothing
+      \quad\operatorname{eqtyped}_\Pi(\Theta)}
+ {\Pi\vdash e_1\bowtie_\Theta e_2:\Gamma_1\uplus\Gamma_2}
+&\;(T\text{-Join})\\[1mm]
+\frac{\Pi\vdash e_1:\Gamma\quad\Pi\vdash e_2:\Gamma
+      \quad\operatorname{distinctable}_\Pi(\Gamma)}
+ {\Pi\vdash e_1\cup_\delta e_2:\Gamma}
+&\;(T\text{-Union})\\[1mm]
+\frac{\Pi\vdash e:\Gamma\quad G\subseteq\operatorname{dom}\Gamma
+      \quad |G|+|\mathcal A|>0\quad
+      \operatorname{distinctable}_\Pi(G)\quad
+      \Pi;\Gamma\vdash\mathcal A:\Gamma_{\mathcal A}}
+ {\Pi\vdash\gamma_{G;\mathcal A}(e):\Gamma|_G\uplus\Gamma_{\mathcal A}}
+&\;(T\text{-Group})\\[1mm]
+\frac{\Pi\vdash e:\Gamma\quad o,l\in\mathbb N\quad
+      \Pi;\Gamma\vdash O{+}K:\operatorname{TotalOrder}}
+ {\Pi\vdash\operatorname{Page}_{O,K,o,l}(e):\Gamma}
+&\;(T\text{-Page}).
+\end{align*}
+\endgroup
+
+\subsection{Output Keys}
+
+For $\operatorname{RID}(R,t)=H(\code{relation-row},N(\Gamma),\mathcal B,t.k)$,
+Table~\ref{tab:rowkeys-supp} gives every output-key case used by derived FactID.
+$H$ is domain-separated, typed, and length delimited.
+
+\begin{table}[H]
+\centering
+\caption{Complete output-row identity. Every derived fact additionally binds
+the displayed source/snapshot bundle $\mathcal B$.}
+\label{tab:rowkeys-supp}
+\small
+\begin{tabular}{L{0.13\textwidth}L{0.19\textwidth}L{0.59\textwidth}}
+\toprule
+Result & Product/snapshot bundle & Canonical output entity key $k_o$ \\
+\midrule
+Scan & $[(\nu,s)]$ & Catalog entity key $e$; online lowering computes
+$H(\code{base-entity},\nu,(a,\tau,C_\tau(v))_{a\in K})$ \\
+Unary/Page & Child bundle & The retained child's $k_o$ \\
+Join pair $(t_1,t_2)$ & Sorted namespace-wise merge of both bundles & $H(\code{join-row},\operatorname{sort}[\operatorname{RID}(R_1,t_1),\operatorname{RID}(R_2,t_2)])$ \\
+Union-distinct class $Q$ & Sorted namespace-wise merge of both bundles & $H(\code{union-distinct-row},N(\Gamma),(a,\tau,C_\tau(v_a))_{a\in\operatorname{sort}\Gamma})$ \\
+Keyed group $Q$ & Child bundle & $H(\code{group-row},\operatorname{sort}(N(x_a),\tau_a,C_{\tau_a}(v_a))_{a\in G})$ \\
+Global aggregate & Child bundle & $H(\code{group-row},\code{global})$; the Fact also binds aggregate expression, value, bundle, and $CW(W)$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Big-Step Evaluation}
+
+Write $\alpha_r(t)=(S_r,W_r)$ and $\alpha_a(t)=(S_a,W_a)$.
+$\operatorname{aug}_F(t)$ replaces $\alpha_r(t)$ by
+$\alpha_r(t)\oplus\bigoplus_{a\in F}\alpha_a(t)$ and otherwise copies the
+cell map. A derived cell is
+$\langle v_a,\tau_a,\alpha_a,x_a,\rho_a\rangle$. Each displayed bag is paired
+with its statically derived schema and source/snapshot bundle. Every conclusion
+is followed by the representation validator; failure removes the derivation.
+
+\begingroup\small
+\begin{align*}
+[E\text{-Scan}]\quad
+&\frac{D(\nu,s)=[(e_i,v_i)]_i}
+ {\Pi;D\vdash\operatorname{Scan}[\nu,s,r,\Gamma]\Downarrow
+  \lbag\langle e_i,\{a\mapsto\langle v_i[a],\tau_a,\{BC_i^a\},[BC_i^a\mapsto1],\nu.a,BC_i^a\rangle\},
+  \{BR_i\},[BR_i\mapsto1],\{(r,\nu,e_i)\}\rangle\rbag_i},\\[-1mm]
+&\hspace{5mm}BR_i=f_{row}(\nu,s,e_i),\quad BC_i^a=f_{cell}(\nu,s,e_i,a,\tau_a,v_i[a]).\\[1mm]
+[E\text{-Select}]\quad
+&\frac{\Pi;D\vdash e\Downarrow R}
+ {\Pi;D\vdash\sigma_{p;F}(e)\Downarrow
+  R[\operatorname{rows}:=\lbag\operatorname{aug}_F(t)\mid t\in R,
+  \llbracket p\rrbracket_{\Pi,t}=\mathsf T\rbag]}.\\[1mm]
+[E\text{-Project}]\quad
+&\frac{\Pi;D\vdash e\Downarrow R}
+ {\Pi;D\vdash\pi_A(e)\Downarrow
+  R[\Gamma:=\Gamma|_A,\operatorname{cells}(t):=\operatorname{cells}(t)|_A]}.\\[1mm]
+[E\text{-Join}]\quad
+&\frac{\Pi;D\vdash e_j\Downarrow R_j\;(j=1,2)}
+ {\Pi;D\vdash e_1\bowtie_\Theta e_2\Downarrow
+  \lbag J(t_1,t_2)\mid t_j\in R_j,
+  \bigwedge_{(a=b)\in\Theta}\llbracket t_1.a=t_2.b\rrbracket_\Pi=\mathsf T\rbag},\\[-1mm]
+&\hspace{5mm}J.k=H(\code{join-row},\operatorname{sort}[RID_1,RID_2]),\\[-1mm]
+&\hspace{5mm}\alpha_r(J)=\alpha_r(t_1)\oplus\alpha_r(t_2)
+  \oplus\!\bigoplus_{(a=b)\in\Theta}(\alpha_a(t_1)\oplus\alpha_b(t_2)),\\[-1mm]
+&\hspace{5mm}J.\operatorname{cells}=t_1.\operatorname{cells}\uplus t_2.\operatorname{cells}.\\[1mm]
+[E\text{-Union}]\quad
+&\frac{\Pi;D\vdash e_j\Downarrow R_j\;(j=1,2)}
+ {\Pi;D\vdash e_1\cup_\delta e_2\Downarrow
+  \lbag U_Q\mid Q\in(R_1\uplus R_2)/{\equiv_\Gamma}\rbag},\\[-1mm]
+&\hspace{5mm}U_Q.k=k_{union}(\Gamma,\operatorname{tuple}(Q)),\quad
+  \beta_\Gamma(t)=\alpha_r(t)\oplus\!\bigoplus_{a\in\Gamma}\alpha_a(t),\\[-1mm]
+&\hspace{5mm}\alpha_r(U_Q)=\bigsqcup_{t\in Q}\beta_\Gamma(t),\\[-1mm]
+&\hspace{5mm}U_Q.\operatorname{cells}(a)=\langle v_a,\tau_a,
+  \bigsqcup_{t\in Q}\alpha_a(t),N(\code{union}(x_{t,a})),\rho_a\rangle,\\[-1mm]
+&\hspace{5mm}\rho_a=\begin{cases}
+\operatorname{mat}(U_Q,a),&\text{if every member materializes to one FactID},\\
+\bot,&\text{otherwise.}
+\end{cases}\\[1mm]
+[E\text{-Group}]\quad
+&\frac{\Pi;D\vdash e\Downarrow R}
+ {\Pi;D\vdash\gamma_{G;\mathcal A}(e)\Downarrow
+  \lbag G_Q\mid Q\in\operatorname{Part}_G(R)\rbag},\\[-1mm]
+&\hspace{5mm}G_Q.k=k_{group}(G,Q),\quad
+  \alpha_r(G_Q)=\bigoplus_{t\in Q}\left(
+  \alpha_r(t)\oplus\!\bigoplus_{g\in G}\alpha_g(t)\right),\\[-1mm]
+&\hspace{5mm}G_Q.\operatorname{cells}(g)=\langle v_g,\tau_g,
+  \bigoplus_{t\in Q}\alpha_g(t),N(x_g),\operatorname{mat}(G_Q,g)\rangle,\\[-1mm]
+&\hspace{5mm}G_Q.\operatorname{cells}(a')=\langle
+  \operatorname{PgAgg}_{\Pi}(Q,G,\mathcal A)_{a'},\tau_{a'},
+  \bigoplus_{t\in Q}\alpha_{\arg(a')}(t),N(x_{a'}),
+  \operatorname{mat}(G_Q,a')\rangle.\\[1mm]
+[E\text{-Page}]\quad
+&\frac{\Pi;D\vdash e\Downarrow R\quad L=\operatorname{sort}_{\prec_{O,K}}(R)}
+ {\Pi;D\vdash\operatorname{Page}_{O,K,o,l}(e)\Downarrow
+  R[\operatorname{rows}:=L[b:z]]},\\[-1mm]
+&\hspace{5mm}b=\min(o,n),\quad z=\min(n,o+l^*),\quad
+  l^*=\begin{cases}n,&l=0,\\l,&l>0.\end{cases}
+\end{align*}
+\endgroup
+
+Here $\equiv_\Gamma$ is componentwise \code{IS NOT DISTINCT FROM}. Union
+support includes every candidate and every distinctness field; pointwise
+maximum combines alternative witnesses. Grouping includes group-key inputs and
+the complete declared aggregate argument, including NULL and non-extreme
+\code{MIN/MAX} inputs. Exact/integer \code{SUM} is admitted; floating-point
+\code{SUM} is undefined. Pagination uses PostgreSQL ordering plus a Catalog
+key suffix that proves totality, and copies annotations only for the delivered
+slice. These are positive-output dependencies, not physical-read or minimal
+causal provenance.
+
+\subsection{Implementation Coverage}
+
+Table~\ref{tab:coverage-supp} distinguishes formal semantics, oracle coverage,
+online lowering, and PostgreSQL end-to-end exposure checks. ``Online'' is the
+public structured-plan path, not arbitrary SQL acceptance.
+
+\begin{table}[h]
+\centering
+\caption{Operator coverage. PG E2E executes the paired statements and derives
+the V2 observation rather than checking result equality alone.}
+\label{tab:coverage-supp}
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{L{0.18\textwidth}L{0.14\textwidth}L{0.16\textwidth}L{0.25\textwidth}L{0.20\textwidth}}
+\toprule
+Operator & Formal semantics & Independent oracle & Online lowering & PG E2E exposure check \\
+\midrule
+Scan/Select/Project & yes & yes & one Catalog product & paired output/evidence and hidden keys \\
+Group + four aggregates & yes & yes & above either online input & hidden group key and aggregate membership \\
+Inner equijoin & yes & yes & two distinct Catalog roles; conjunctive equalities & operand exchange, fanout, downstream SUM \\
+Union-distinct & yes & yes & two filtered branches of one product; explicit full distinct schema & all members, hidden field, exchange, downstream COUNT \\
+Page & yes & yes & one-product plan with stable Catalog suffix & offset/tie-break and withholding \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \section{Broad SQL Result-Equivalence Stress Test}
 
@@ -62,7 +244,7 @@ curves. Each cell is $(B^r,B^i)/U\%$; full budget admits all three declared
 goals. Classes are dependency row/ordinary/sensitive/aggregate-support facts,
 where aggregate support overlaps the preceding fact classes.
 
-\begin{table}[t]
+\begin{table}[H]
 \centering
 \caption{Workflow-first dual-budget calibration.}
 \label{tab:rq5-policy-supplement}

@@ -10,6 +10,10 @@
 \usepackage{booktabs}
 \usepackage{cite}
 \usepackage{graphicx}
+\usepackage{pgfplots}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,fit,positioning,shapes.geometric,shapes.symbols}
+\pgfplotsset{compat=1.18}
 \usepackage[expansion=false]{microtype}
 \usepackage{xcolor}
 \usepackage{xspace}
@@ -40,8 +44,7 @@
 
 \input{generated/evidence.tex}
 
-\title{TaskGate: Task-Scoped Exposure Accounting\\
-for Adaptive Database Workloads}
+\title{TaskGate: Task-Scoped Exposure Accounting}
 
 \author{Anonymous Author(s)%
 \thanks{The artifact includes a controlled local PostgreSQL performance
@@ -54,39 +57,26 @@ campaign claims production generality.}}
 \maketitle
 
 \begin{abstract}
-Adaptive database clients---including agentic applications---issue query
-sequences and delegate subtasks. Per-query access control does not bound how many distinct metered
-facts a task accumulates across rewrites, pages, retries, and delegation. We
-present TaskGate, a prototype for task-bound exposure accounting. Versioned
-identities bind product, snapshot, entity, field, and value. Each approved root
-task maintains separate release and positive-output-dependency ledgers, so a
-small aggregate cannot hide a large conservative footprint.
-The online path compiles single-product plans and bounded two-input inner joins
-and union-distinct plans into one authorized visible query and a provenance
-companion in a shared read-only snapshot, buffers the result, derives both fact
-sets, and atomically charges only facts novel to the root ledger before release.
-Dependency identities remain server-side evidence; delegation shares the same
-ledger. We give compositional semantics for a positive relational fragment
-with grouping and four aggregates and check a finite ledger model. An
-independent oracle validates \RQOneCases{} cases. Across
-\RQTwoExposureRewrites{} closed-language rewrites, release and dependency sets
-and incremental charges have \RQTwoExposureMismatches{} mismatches.  Real
-PostgreSQL~16 paired-query tests cover join operand exchange, union member
-completeness and hidden distinct fields, and downstream grouping. In
-three local trials, \RQFourFullPathOperations{} full-path calls and
-\RQFourAblationOperations{} ablation measurements are recorded. A warm full-path
-history hit has \RQFourFullOneMedian{}-ms median and
-\RQFourFullOneTail{}-ms p95 latency at one worker---\RQFourFullOneRatio{}$\times$
-the direct-query median. The mixed ramp measures both novel and hit paths and
-records physical ledger bytes. A separate production-settlement campaign grows
-the ledger to \RQFourStorageMaxRows{} immutable PostgreSQL rows
-(\RQFourStorageTenThousandAllocated{}~MiB allocated); a replay adds zero facts.
-A public-endpoint Join--Group campaign reaches \RQFourScaleMaxJoined{} joined
-rows and \RQFourScaleMaxFacts{} dependency facts. At that point, novel and
-replay requests take \RQFourScaleHighNovelS{} and
-\RQFourScaleHighReplayS{}~s median and gateway memory peaks at
-\RQFourScaleGatewayGiB{}~GiB, establishing completion at the target fact scale
-while exposing a severe latency and memory boundary.
+Adaptive clients can accumulate substantial disclosure through individually
+authorized rewrites, pages, retries, and delegated queries. We present
+TaskGate, which meters an approved root task with two sets of typed FactIDs:
+values released to the client and conservative positive-output dependencies.
+Before any result leaves the gateway, an authorized visible query and its
+provenance companion run in one PostgreSQL snapshot; TaskGate buffers the
+answer, derives both effects, and atomically inserts only facts novel to the
+root-family ledger. The central safety property is that every committed ledger
+equals the union of settled novel effects and never exceeds either signed
+limit, so replay and delegation cannot mint exposure capacity.
+
+We define compositional semantics for a positive relational fragment with
+joins, union-distinct, grouping, and four aggregates, and check the settlement
+protocol with a finite-state model. Independent-oracle, rewrite, concurrency,
+and PostgreSQL tests validate the modeled guarantees. A workflow study shows
+how three operational policies induce dual budget--utility frontiers. End-to-end
+experiments reach \RQFourScaleMaxFacts{} dependency facts, but novel/replay
+latencies of \RQFourScaleHighNovelS{}/\RQFourScaleHighReplayS{}~s and
+\RQFourScaleGatewayGiB{}~GiB gateway memory expose a severe boundary for the
+current exact materialization design.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -137,6 +127,69 @@ The gateway releases neither until a control-database transaction has inserted
 novel facts, checked both root limits, settled resource use, stored the encrypted
 result, and persisted audit and receipt evidence. A failed limit check rolls the
 transaction back while the business execution remains separately measurable.
+Figure~\ref{fig:architecture-settlement} shows the trust boundary and the two
+transactional phases.
+
+\begin{figure*}[t]
+\centering
+\resizebox{0.98\textwidth}{!}{%
+\begin{tikzpicture}[
+  font=\scriptsize,
+  box/.style={draw, rounded corners=1.5pt, align=center, minimum height=7mm,
+    inner xsep=4pt, fill=blue!5},
+  store/.style={draw, cylinder, shape border rotate=90, aspect=.25,
+    align=center, minimum height=9mm, minimum width=16mm, fill=green!7},
+  txnbox/.style={draw, rounded corners=1.5pt, align=center, minimum width=19mm,
+    minimum height=7mm, inner xsep=3pt, fill=blue!5},
+  decision/.style={draw, diamond, aspect=2.0, align=center, inner sep=1.5pt,
+    fill=yellow!12},
+  arrow/.style={-{Latex[length=2mm]}, semithick},
+  exchange/.style={{Latex[length=2mm]}-{Latex[length=2mm]}, semithick},
+  return/.style={-{Latex[length=2mm]}, semithick, dashed}
+]
+% (a) Architecture
+\node[font=\small\bfseries] at (3.25,4.0) {(a) Architecture and trust boundary};
+\node[box, fill=red!5] (client) at (0.55,2.55) {adaptive client\\root + delegates\\plan / result};
+\node[box] (approval) at (0.55,.55) {human approval\\signed grant};
+\node[box, minimum width=24mm, minimum height=12mm] (gateway) at (3.35,2.55)
+  {TaskGate gateway\\authorize $\rightarrow$ compile\\buffer $\rightarrow$ derive};
+\node[store] (business) at (6.25,2.55) {Business PG\\query pair\\one snapshot};
+\node[store] (control) at (4.95,.55) {Control PG\\budgets + ledgers\\receipt / reject};
+\draw[exchange] (client) -- (gateway);
+\draw[arrow] (approval) -- (gateway);
+\draw[exchange] (gateway) -- (business);
+\draw[exchange] (gateway) -- (control);
+\node[draw, dashed, rounded corners, inner sep=3mm,
+  fit=(gateway)(business)(control), label={[font=\scriptsize]below:trusted enforcement boundary}] {};
+
+% divider
+\draw[gray!55] (7.65,.05) -- (7.65,3.85);
+
+% (b) Settlement sequence
+\node[font=\small\bfseries] at (11.95,4.0) {(b) Withhold-before-settlement transaction};
+\node[txnbox] (reserve) at (8.7,2.65) {reserve};
+\node[txnbox] (execute) at (10.65,2.65) {Business tx\\execute + buffer};
+\node[txnbox] (derive) at (12.75,2.65) {derive\\$(\facts_r,\facts_i)$};
+\node[txnbox] (lock) at (14.85,2.65) {Control tx\\lock root};
+\node[decision] (fitbudget) at (14.85,1.35) {$K\cup\Delta$\\within both limits?};
+\node[txnbox, fill=green!10] (commit) at (12.55,.35) {commit facts, result,\\audit + receipt};
+\node[txnbox, fill=green!18] (releasebox) at (9.65,.35) {release buffer};
+\node[txnbox, fill=red!8] (rollback) at (16.55,.35) {rollback facts/result\\withhold buffer};
+\draw[arrow] (reserve) -- (execute);
+\draw[arrow] (execute) -- (derive);
+\draw[arrow] (derive) -- (lock);
+\draw[arrow] (lock) -- node[right]{insert novel FactIDs} (fitbudget);
+\draw[arrow] (fitbudget) -- node[above, sloped]{yes} (commit);
+\draw[arrow] (commit) -- (releasebox);
+\draw[arrow] (fitbudget) -- node[above, sloped]{no} (rollback);
+\end{tikzpicture}
+}
+\caption{TaskGate architecture and settlement. Business PostgreSQL produces
+the visible answer and positive evidence in one read-only snapshot. Control
+PostgreSQL serializes the root family and commits the exact novel FactSet before
+the gateway releases the buffered answer.}
+\label{fig:architecture-settlement}
+\end{figure*}
 
 TaskGate is a direct successor to SessionBound
 \cite{wu2026sessionbound}. SessionBound already turns task approval into a
@@ -203,18 +256,26 @@ threat models as an overall ranking.
 
 \begin{table*}[t]
 \centering
-\caption{Closest-system positioning. ``Boundary'' denotes scope, not weakness.}
+\caption{Capability and guarantee comparison. \checkmark{} is an explicit
+guarantee in the cited design; ``hist.'' denotes history-aware accounting with
+a different unit or scope; -- denotes not claimed. The table compares scopes,
+not overall system quality.}
 \label{tab:closest-systems}
-\footnotesize
-\begin{tabular}{L{0.10\textwidth}L{0.25\textwidth}L{0.25\textwidth}L{0.25\textwidth}}
+\scriptsize
+\setlength{\tabcolsep}{3.2pt}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lccccccc}
 \toprule
-System & Existing contribution & Accounted history/effect & Boundary relative to the others \\
+System family & Approved task/root & Typed DB FactIDs & Release/dependency split & Same-snapshot evidence & Exact novel-set pre-release & Shared-root delegation & Cross-tool IFC \\
 \midrule
-SessionBound & Approved task $\rightarrow$ bounded PostgreSQL session; SQL/view/scope enforcement; query/disclosure budgets; receipts & One task session; attempts and configurable disclosure units such as rows, bytes, or unique entities & Direct predecessor; no versioned FactID dual sets, paired same-snapshot provenance, exact novel-set semantics, or shared root-family ledger \\
-GAAP & Agent execution environment with private/permission stores, code-level IFC, and tool-flow annotations & Persistent private-data disclosures to external entities, including indirect flows across tasks & Stronger cross-tool/cross-task confidentiality goal; not a database-query FactSet or transactional novel-set accounting design \\
-TaskGate & Typed release/dependency facts, paired PostgreSQL evidence, exact pre-release settlement, and monotonic shared-root delegation & Exact FactID sets accumulated by one approved root and its descendants & No general IFC, external-party flow policy, cross-root disclosure memory, or confidentiality guarantee \\
+TaskGate & \checkmark & \checkmark & \checkmark & \checkmark & \checkmark & \checkmark & -- \\
+SessionBound~\cite{wu2026sessionbound} & \checkmark & -- & -- & -- & hist. units & -- & -- \\
+GAAP~\cite{stanley2026gaap} & persistent log & -- & -- & -- & hist. disclosure & -- & \checkmark \\
+UCON / history-based AC~\cite{park2004ucon,abadi2003history} & ongoing use & -- & -- & -- & hist. actions & policy-specific & -- \\
+Query pricing~\cite{koutris2012query,deep2017qirana,peng2025aria} & query/history & -- & -- & -- & hist. price & -- & -- \\
+Provenance systems~\cite{arab2018gprom,senellart2018provsql} & query & tuple/annotation & -- & rewrite/native & -- & -- & -- \\
 \bottomrule
-\end{tabular}
+\end{tabular}}
 \end{table*}
 
 \subsection{History-Based Query Auditing and Inference Control}
@@ -425,46 +486,13 @@ $\mathcal A\subseteq\{\code{COUNT(*)},\code{COUNT},\code{SUM},\code{MIN},
 difference, negation beyond the listed scalar predicates, windows, recursion,
 subqueries, volatile functions, and \code{UNION ALL} are not terms.
 
-The typing judgment $\Pi\vdash e:\Gamma$ is generated only by the following
-rules (undefined premises mean rejection):
-\begin{figure*}[t]
-\small
-\begin{gather*}
-\frac{D(\nu,s):\Gamma\quad \operatorname{canonical}_\Pi(\Gamma,r)}
- {\Pi\vdash\operatorname{Scan}[\nu,s,r,\Gamma]:\Gamma}
-\;(T\text{-Scan})\\[1mm]
-\frac{\Pi\vdash e:\Gamma\quad F\subseteq\operatorname{dom}\Gamma
-      \quad \Pi;\Gamma\vdash p:\mathbb B_3}
- {\Pi\vdash\sigma_{p;F}(e):\Gamma}
-\;(T\text{-Select})\\[1mm]
-\frac{\Pi\vdash e:\Gamma\quad \varnothing\ne A\subseteq\operatorname{dom}\Gamma}
- {\Pi\vdash\pi_A(e):\Gamma|_A}
-\;(T\text{-Project})\\[1mm]
-\frac{\Pi\vdash e_i:\Gamma_i\;(i=1,2)\quad
-      \operatorname{dom}\Gamma_1\cap\operatorname{dom}\Gamma_2=\varnothing
-      \quad\operatorname{eqtyped}_\Pi(\Theta)}
- {\Pi\vdash e_1\bowtie_\Theta e_2:\Gamma_1\uplus\Gamma_2}
-\;(T\text{-Join})\\[1mm]
-\frac{\Pi\vdash e_1:\Gamma\quad\Pi\vdash e_2:\Gamma
-      \quad\operatorname{distinctable}_\Pi(\Gamma)}
- {\Pi\vdash e_1\cup_\delta e_2:\Gamma}
-\;(T\text{-Union})\\[1mm]
-\frac{\Pi\vdash e:\Gamma\quad G\subseteq\operatorname{dom}\Gamma
-      \quad |G|+|\mathcal A|>0\quad
-      \operatorname{distinctable}_\Pi(G)\quad
-      \Pi;\Gamma\vdash\mathcal A:\Gamma_{\mathcal A}}
- {\Pi\vdash\gamma_{G;\mathcal A}(e):\Gamma|_G\uplus\Gamma_{\mathcal A}}
-\;(T\text{-Group})\\[1mm]
-\frac{\Pi\vdash e:\Gamma\quad o,l\in\mathbb N\quad
-      \Pi;\Gamma\vdash O{+}K:\operatorname{TotalOrder}}
- {\Pi\vdash\operatorname{Page}_{O,K,o,l}(e):\Gamma}
-\;(T\text{-Page}).
-\end{gather*}
-\caption{Complete V2 typing rules.  Join fields are stable role-qualified IDs;
-equalities require the same canonical type and collation.  Union schemas are
-identical including type and collation.}
-\label{fig:typing}
-\end{figure*}
+The typing judgment $\Pi\vdash e:\Gamma$ is partial: every operator requires a
+typed child; predicates and projections may name only child fields; join
+equalities require disjoint role-qualified schemas and identical canonical
+types/collations; union branches require one identical distinctable schema;
+grouping requires typed group keys and aggregates; and pagination requires a
+proven total order. Undefined premises reject the plan. The complete inference
+rules are provided in the supplementary material.
 
 Here $\mathbb B_3=\{\mathsf T,\mathsf F,\mathsf U\}$ is PostgreSQL
 three-valued logic.  Equality with either operand NULL is $\mathsf U$;
@@ -529,39 +557,15 @@ Let
  \operatorname{RID}(R,t)=H(\code{relation-row},N(\Gamma),\mathcal B,t.k).
  \label{eq:rid}
 \end{equation}
-Table~\ref{tab:rowkeys} closes the previously implicit product, snapshot, and
-entity-key cases.  $H$ is domain-separated, typed, and length delimited; an
-implementation hash collision that creates duplicate unequal row keys is a
-validation error, not a row merge.
-
-\begin{table*}[t]
-\centering
-\caption{Complete output-row identity used by derived FactID.  Every derived
-fact additionally contains the displayed bundle $\mathcal B$.}
-\label{tab:rowkeys}
-\small
-\begin{tabular}{L{0.13\textwidth}L{0.19\textwidth}L{0.59\textwidth}}
-\toprule
-Result & Product/snapshot bundle & Canonical output entity key $k_o$ \\
-\midrule
-Scan & $[(\nu,s)]$ & Catalog entity key $e$; online lowering computes
-$H(\code{base-entity},\nu,(a,\tau,C_\tau(v))_{a\in K})$ \\
-Unary/Page & Child bundle & The retained child's $k_o$ \\
-Join pair $(t_1,t_2)$ & Sorted namespace-wise merge of both bundles & $H(\code{join-row},\operatorname{sort}[\operatorname{RID}(R_1,t_1),\operatorname{RID}(R_2,t_2)])$ \\
-Union-distinct class $Q$ & Sorted namespace-wise merge of both bundles & $H(\code{union-distinct-row},N(\Gamma),(a,\tau,C_\tau(v_a))_{a\in\operatorname{sort}\Gamma})$ \\
-Keyed group $Q$ & Child bundle & $H(\code{group-row},\operatorname{sort}(N(x_a),\tau_a,C_{\tau_a}(v_a))_{a\in G})$ \\
-Global aggregate & Child bundle & $H(\code{group-row},\code{global})$; the Fact also binds aggregate expression, value, bundle, and $CW(W)$ \\
-\bottomrule
-\end{tabular}
-\end{table*}
-
-Consequently, equal global aggregates from different products or snapshots have
-different $\mathcal B$; equal group values from different sources differ in
-$\mathcal B$ and witness; a join key commits to the paired immediate child
-schema/bundle/entity identities; and a union key commits to the typed
-deduplicated tuple while its Fact commits to the merged bundle, lineage
-expression, and all alternative support.  No SQL alias or caller-provided
-``product'' string participates.
+$H$ is domain-separated, typed, and length delimited. Scan uses the Catalog
+entity key; unary operators preserve the child key; join hashes the sorted
+immediate-child RIDs; union-distinct hashes the complete typed tuple; and group
+hashes its canonical group key (or a distinct global token). Every derived Fact
+also binds the merged source/snapshot bundle, expression, value, and witness.
+Thus equal-looking results from different sources or derivations remain
+distinct, while SQL aliases and caller-provided product names do not
+participate. The complete output-key construction is in the supplement; a
+same-hash unequal key is a validation error, not a row merge.
 
 \subsection{Operator Evaluation and Effect Extraction}
 
@@ -576,119 +580,38 @@ annotation pair $\alpha_a=(S_a,W_a)$ that expands to support and witness, the
 normalized lineage expression, and the optional materialized release fact.
 E-Scan alone displays the fully expanded base-cell 6-tuple; every other rule
 constructs each output cell explicitly, so representation closure does not rely
-on prose.  A displayed row bag is paired with the statically derived schema and
-the bundle in Table~\ref{tab:rowkeys}; these relation fields are omitted only
-to keep the fractions legible.  The complete rules are:
+on prose. Table~\ref{tab:effect-summary} retains the review-relevant accounting
+choices; the complete inference rules, auxiliary functions, NULL/empty-input
+cases, and page bounds are in the supplementary material.
 
-\begin{figure*}[t]
+\begin{table*}[t]
+\centering
+\caption{Main-text summary of the V2 big-step effect. ``Row annotation'' is
+always included in the dependency set of a delivered row.}
+\label{tab:effect-summary}
 \small
-\begin{align*}
-[E\text{-Scan}]\quad
-&\frac{D(\nu,s)=[(e_i,v_i)]_i}
- {\Pi;D\vdash\operatorname{Scan}[\nu,s,r,\Gamma]\Downarrow
-  \lbag\langle e_i,\{a\mapsto\langle v_i[a],\tau_a,\{BC_i^a\},[BC_i^a\mapsto1],\nu.a,BC_i^a\rangle\},
-  \{BR_i\},[BR_i\mapsto1],\{(r,\nu,e_i)\}\rangle\rbag_i},\\[-1mm]
-&\hspace{8mm}BR_i=f_{row}(\nu,s,e_i),\qquad BC_i^a=f_{cell}(\nu,s,e_i,a,\tau_a,v_i[a]).\\[1mm]
-[E\text{-Select}]\quad
-&\frac{\Pi;D\vdash e\Downarrow R}
- {\Pi;D\vdash\sigma_{p;F}(e)\Downarrow
-  R[\operatorname{rows}:=\lbag\operatorname{aug}_F(t)\mid t\in R,
-  \llbracket p\rrbracket_{\Pi,t}=\mathsf T\rbag]}.\\[1mm]
-[E\text{-Project}]\quad
-&\frac{\Pi;D\vdash e\Downarrow R}
- {\Pi;D\vdash\pi_A(e)\Downarrow
-  R[\Gamma:=\Gamma|_A,\operatorname{cells}(t):=\operatorname{cells}(t)|_A]}.\\[1mm]
-[E\text{-Join}]\quad
-&\frac{\Pi;D\vdash e_j\Downarrow R_j\;(j=1,2)}
- {\Pi;D\vdash e_1\bowtie_\Theta e_2\Downarrow
-  \lbag J(t_1,t_2)\mid t_j\in R_j,
-  \bigwedge_{(a=b)\in\Theta}\llbracket t_1.a=t_2.b\rrbracket_\Pi=\mathsf T\rbag},\\[-1mm]
-&\hspace{8mm}J.k=H(\code{join-row},\operatorname{sort}[RID_1,RID_2]),\quad
-  \alpha_r(J)=\alpha_r(t_1)\oplus\alpha_r(t_2)
-  \oplus\!\bigoplus_{(a=b)\in\Theta}(\alpha_a(t_1)\oplus\alpha_b(t_2)),\\[-1mm]
-&\hspace{8mm}J.\operatorname{cells}=t_1.\operatorname{cells}\uplus t_2.\operatorname{cells}.\\[1mm]
-[E\text{-Union}]\quad
-&\frac{\Pi;D\vdash e_j\Downarrow R_j\;(j=1,2)}
- {\Pi;D\vdash e_1\cup_\delta e_2\Downarrow
-  \lbag U_Q\mid Q\in(R_1\uplus R_2)/{\equiv_\Gamma}\rbag},\\[-1mm]
-&\hspace{8mm}U_Q.k=k_{union}(\Gamma,\operatorname{tuple}(Q)),\quad
-  \beta_\Gamma(t)=\alpha_r(t)\oplus\!\bigoplus_{a\in\Gamma}\alpha_a(t),\quad
-  \alpha_r(U_Q)=\bigsqcup_{t\in Q}\beta_\Gamma(t),\\[-1mm]
-&\hspace{8mm}U_Q.\operatorname{cells}(a)=\langle v_a,\tau_a,\bigsqcup_{t\in Q}\alpha_a(t),
-  N(\code{union}(x_{t,a})),\rho_a\rangle\quad(a\in\Gamma),\\[-1mm]
-&\hspace{8mm}\rho_a=\begin{cases}\operatorname{mat}(U_Q,a),&\text{every }t\in Q\text{ materializes to one FactID},\\\bot,&\text{otherwise.}\end{cases}\\[1mm]
-[E\text{-Group}]\quad
-&\frac{\Pi;D\vdash e\Downarrow R}
- {\Pi;D\vdash\gamma_{G;\mathcal A}(e)\Downarrow
-  \lbag G_Q\mid Q\in\operatorname{Part}_G(R)\rbag},\\[-1mm]
-&\hspace{8mm}G_Q.k=k_{group}(G,Q),\quad
-  \alpha_r(G_Q)=\bigoplus_{t\in Q}\left(
-  \alpha_r(t)\oplus\!\bigoplus_{g\in G}\alpha_g(t)\right),\\[-1mm]
-&\hspace{8mm}G_Q.\operatorname{cells}(g)=\langle v_g,\tau_g,\bigoplus_{t\in Q}\alpha_g(t),
-  N(x_g),\operatorname{mat}(G_Q,g)\rangle\quad(g\in G),\\[-1mm]
-&\hspace{8mm}G_Q.\operatorname{cells}(a')=\langle \operatorname{PgAgg}_{\Pi}(Q,G,\mathcal A)_{a'},
-  \tau_{a'},\bigoplus_{t\in Q}\alpha_{\arg(a')}(t),N(x_{a'}),\operatorname{mat}(G_Q,a')\rangle
-  \quad((f,a')\in\mathcal A).\\[1mm]
-[E\text{-Page}]\quad
-&\frac{\Pi;D\vdash e\Downarrow R\quad L=\operatorname{sort}_{\prec_{O,K}}(R)}
- {\Pi;D\vdash\operatorname{Page}_{O,K,o,l}(e)\Downarrow
-  R[\operatorname{rows}:=L[b:z]]},\\[-1mm]
-&\hspace{8mm}b=\min(o,n),\quad z=\min(n,o+l^*),\quad
-  l^*=\begin{cases}n,&l=0,\\l,&l>0.\end{cases}
-\end{align*}
-\caption{Big-step V2 evaluation.  $\lbag\cdot\rbag$ denotes a bag.  Every
-conclusion is followed by the representation validator; failure removes the
-derivation.}
-\label{fig:evaluation}
-\end{figure*}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{L{0.12\textwidth}L{0.39\textwidth}L{0.42\textwidth}}
+\toprule
+Operator & Output construction & Positive-output dependency rule \\
+\midrule
+Scan & Keyed PostgreSQL bag; base cells retain typed values & Singleton base-row and base-cell FactIDs \\
+Select/Project & Keep only $\mathsf T$ rows; restrict visible cells & Add every predicate field to retained row annotations; projection preserves them \\
+Inner join & Every matching keyed pair under PostgreSQL equality & Union both row annotations and all join-key cell annotations; preserve fanout in witnesses \\
+Union-distinct & Classes under componentwise \code{IS NOT DISTINCT FROM} & Include every candidate and every distinctness field, including hidden fields; max-merge alternative witnesses \\
+\shortstack[l]{Group/\\aggregate} & One output per key class; global empty input yields one row & Include group-key inputs and every declared aggregate argument; \code{COUNT(*)} uses member rows, and NULL/non-extreme inputs remain dependencies \\
+Page & Stable total-order slice; annotations copied & Account delivered rows only; non-output rows, rank, and order-only fields are outside the profile \\
+\bottomrule
+\end{tabular}
+\end{table*}
 
-The auxiliary functions in Fig.~\ref{fig:evaluation} are total on typed
-premises.  $\equiv_\Gamma$ is componentwise \code{IS NOT DISTINCT FROM}.
-For a union class, its typed-tuple key is Table~\ref{tab:rowkeys}; support uses
-set union.  An identical annotated branch is collapsed only when its complete
-typed tuples are already known to be duplicate-free, so
-$R\cup_\delta R=R$ for such a set-valued $R$, also inside a downstream
-context.  A Scan is conservatively bag-valued: if it contains duplicate full
-tuples, duplicate elimination still runs.  For remaining operands, within one candidate member,
-$\beta_\Gamma$ uses same-proof
-composition over its row and every schema field used for typed-tuple
-equivalence; alternative members use pointwise maximum.  Thus hidden
-duplicate-elimination fields remain in the row dependency.  An existing cell
-release fact is retained iff every member materializes to that identical
-FactID.  Otherwise
-$\rho=\bot$ and the cell expression is the sorted, idempotent
-$N(\code{union}(x_1,x_2))$.  This makes both operand exchange and
-the admissible set-valued $R\cup_\delta R$ identity exact, including in a
-downstream operator.
-
-$\operatorname{Part}_G(R)$ uses $\equiv_\tau$ on group fields.  If
-$G\ne\varnothing$, empty input has no classes; if $G=\varnothing$, there is
-exactly one class even for empty input.  The argument annotation of an
-aggregate cell $(f,a')$ is $\alpha_{\arg(a')}(t)=\alpha_r(t)$ for
-\code{COUNT(*)} and the argument-cell annotation $\alpha_a(t)$ for
-\code{COUNT(a)}, \code{SUM(a)}, \code{MIN(a)}, and \code{MAX(a)}, including a
-NULL fact and every non-extreme \code{MIN/MAX} input, while PostgreSQL ignores
-NULL when computing the scalar.  These are conservative operator-input
-dependencies, not claims of causal influence.  Hence an
-empty global aggregate returns \code{COUNT}=0 and \code{SUM/MIN/MAX}=NULL with
-empty witness.  \code{SUM} is admitted only over the exact/integer fragment
-$\{\code{smallint},\code{integer},\code{bigint},\code{numeric}\}$: because
-IEEE-754 addition is non-associative, \code{SUM(real)} and
-\code{SUM(double precision)} are undefined in the closed language and fail
-closed, so the aggregate value is independent of any physical aggregation order
-the typed bag does not fix.  A keyed group must correspond one-to-one with all
-positive input classes; the gateway accepts only a complete aggregate-result
-oracle from the same snapshot.
-
-The page comparator is PostgreSQL lexicographic order under $\mathcal C$:
-ascending defaults to NULLS LAST, descending to NULLS FIRST.  The compiler
-appends Catalog entity keys (or every group key) ascending until $O{+}K$ is a
-proven total order; a global aggregate has at most one row.  SQL executes this
-same order before the algebra marks it canonical.  $l=0$ is the structured-plan
-sentinel for no limit.  Page copies annotations and intentionally does not
-charge non-output rows, ordering fields, or rank information.  It is therefore
-not a complete top-$k$ or physical-read dependency; the negative/order boundary
-is stated in Sec.~\ref{sec:limits}.
+Union is conservatively bag-aware and becomes idempotent only when its complete
+typed tuples are proven duplicate-free. Grouping/distinct equivalence is
+\code{IS NOT DISTINCT FROM}. Exact/integer \code{SUM} is admitted, but
+floating-point \code{SUM} is rejected because the typed bag does not fix a
+physical fold order. Pagination appends Catalog keys until the PostgreSQL order
+is total. These restrictions make the summarized relation a partial function,
+not a semantics for arbitrary SQL.
 
 Finally, define materialization and the effect---they are not an implementation
 afterthought:
@@ -905,31 +828,14 @@ general SQL equivalence reasoning.
 \section{Online Accounting}
 \label{sec:online}
 
-Table~\ref{tab:operator-coverage} separates four kinds of support that were
-previously easy to conflate.  ``Online'' means that the public structured plan
-is lowered to visible/provenance SQL and settled through the production ledger;
-it does not mean that arbitrary SQL containing the operator is accepted.
-
-\begin{table*}[t]
-\centering
-\caption{Operator coverage.  PG E2E executes the paired statements on
-PostgreSQL~16 and derives the V2 observation, rather than checking result
-equality alone.}
-\label{tab:operator-coverage}
-\small
-\setlength{\tabcolsep}{3pt}
-\begin{tabular}{L{0.18\textwidth}L{0.16\textwidth}L{0.18\textwidth}L{0.24\textwidth}L{0.17\textwidth}}
-\toprule
-Operator & Formal semantics & Independent oracle & Online lowering & PG E2E exposure check \\
-\midrule
-Scan/Select/Project & yes & yes & one Catalog product & paired output/evidence and hidden keys \\
-Group + four aggregates & yes & yes & above either online input & hidden group key and aggregate membership \\
-Inner equijoin & yes & yes & two distinct Catalog roles; conjunctive equalities & operand exchange, fanout, downstream SUM \\
-Union-distinct & yes & yes & two filtered branches of one product; explicit full distinct schema & all members, hidden field, exchange, downstream COUNT \\
-Page & yes & yes & one-product plan with stable Catalog suffix & offset/tie-break and withholding \\
-\bottomrule
-\end{tabular}
-\end{table*}
+Formal semantics and the independent oracle cover scan/select/project, group
+with four aggregates, inner equijoin, union-distinct, and page. Online lowering
+is narrower: one Catalog product, or the bounded two-input forms below, may feed
+grouping; pagination is one-product only. PostgreSQL end-to-end tests execute
+paired statements and derive V2 observations for hidden keys, join fanout,
+complete union members, downstream aggregates, and page withholding. The
+supplement gives the four-way coverage matrix. ``Online'' never means arbitrary
+SQL containing the operator is accepted.
 
 \subsection{Compilation and Paired Execution}
 
@@ -976,7 +882,7 @@ provenance result is a hard error.
 \subsection{Atomic Settlement}
 
 For one successful exposure-enabled query, the gateway performs the following
-steps:
+steps (Fig.~\ref{fig:architecture-settlement}b):
 
 \begin{enumerate}
 \item Authorize the fixed plan, reserve ordinary and exposure budgets, then
@@ -1382,25 +1288,51 @@ price, and line number), exactly $23N$. Each output has three groups and four
 visible fields, hence 12 release facts. Every novel observation in all nine
 tasks charges exactly those expected sets. Every replay has the same observation
 digest, charges zero facts, and leaves the ledger-row count unchanged.
-Table~\ref{tab:rq4-scale} reports medians over three independent fresh-ledger
+Figure~\ref{fig:rq4-scale} reports medians over three independent fresh-ledger
 trials; direct SQL is in milliseconds and full-path calls are in seconds.
 
-\begin{table}[t]
+\begin{figure}[t]
 \centering
-\caption{PostgreSQL Join--Group end-to-end scaling; three trials/point.}
-\label{tab:rq4-scale}
-\small
-\resizebox{\columnwidth}{!}{%
-\begin{tabular}{rrrrrr}
-\toprule
-orders & joined & dependencies & direct ms & novel s & replay s \\
-\midrule
-1,000 & 5,000 & 23,000 & \RQFourScaleLowDirectMS{} & \RQFourScaleLowNovelS{} & \RQFourScaleLowReplayS{} \\
-10,000 & 50,000 & 230,000 & \RQFourScaleMidDirectMS{} & \RQFourScaleMidNovelS{} & \RQFourScaleMidReplayS{} \\
-45,000 & 225,000 & 1,035,000 & \RQFourScaleHighDirectMS{} & \RQFourScaleHighNovelS{} & \RQFourScaleHighReplayS{} \\
-\bottomrule
-\end{tabular}}
-\end{table}
+\begin{tikzpicture}
+\begin{loglogaxis}[
+  width=\columnwidth,
+  height=5.0cm,
+  xmin=18000, xmax=1300000,
+  ymin=0.003, ymax=260,
+  xlabel={dependency facts},
+  ylabel={median latency (s)},
+  xtick={23000,230000,1035000},
+  xticklabels={23k,230k,1.035m},
+  grid=both,
+  minor grid style={gray!12},
+  major grid style={gray!28},
+  legend style={font=\scriptsize, at={(0.02,0.98)}, anchor=north west,
+    draw=none, fill=white, fill opacity=.85, text opacity=1},
+  tick label style={font=\scriptsize},
+  label style={font=\scriptsize}
+]
+\addplot+[black, dashed, mark=triangle*, mark size=1.8pt]
+  coordinates {(\RQFourScaleLowFactsPlot,\RQFourScaleLowDirectS)
+    (\RQFourScaleMidFactsPlot,\RQFourScaleMidDirectS)
+    (\RQFourScaleHighFactsPlot,\RQFourScaleHighDirectS)};
+\addlegendentry{direct SQL}
+\addplot+[blue!70!black, semithick, mark=*, mark size=2pt]
+  coordinates {(\RQFourScaleLowFactsPlot,\RQFourScaleLowNovelS)
+    (\RQFourScaleMidFactsPlot,\RQFourScaleMidNovelS)
+    (\RQFourScaleHighFactsPlot,\RQFourScaleHighNovelS)};
+\addlegendentry{novel}
+\addplot+[orange!85!black, semithick, mark=square*, mark size=2pt]
+  coordinates {(\RQFourScaleLowFactsPlot,\RQFourScaleLowReplayS)
+    (\RQFourScaleMidFactsPlot,\RQFourScaleMidReplayS)
+    (\RQFourScaleHighFactsPlot,\RQFourScaleHighReplayS)};
+\addlegendentry{replay}
+\end{loglogaxis}
+\end{tikzpicture}
+\caption{PostgreSQL Join--Group end-to-end scaling (median of three fresh
+trials). Exact materialization makes both novel and zero-charge replay grow
+sharply with dependency-set size.}
+\label{fig:rq4-scale}
+\end{figure}
 
 At the million-fact point, novel latency is \RQFourScaleHighNovelS{}~s
 [\RQFourScaleHighNovelLowS{}, \RQFourScaleHighNovelHighS{}] and replay latency
@@ -1418,19 +1350,12 @@ FactSets and repeated derivation dominate, and current latency/memory require
 streaming derivation, compact set representations, or incremental authenticated
 history before low-latency deployment.
 
-Because the contention result fixes a single small fixture, we additionally run
-\RQFourScalingDims{} deterministic in-process sweeps that scale the dimensions
-the closed accounting actually depends on, without a deployment: effect
-derivation (\texttt{ObserveV2}) over source/provenance rows up to
-\RQFourScalingMaxRows{}, the typed normalizer over expression depth, and
-settlement dedup for a novel write versus a history replay. The first two grow
-roughly with size (e.g.\ effect derivation at \RQFourScalingMaxRows{} rows is
-\RQFourScalingObserveMicros{}~$\mu$s),
-while the central replay guarantee is exact: at a ledger of
-\RQFourScalingNovelMax{} facts a fresh write charges all of them and a replay
-charges \RQFourScalingReplayCharge{}. The PostgreSQL-backed concurrency sweep
-above remains the source of end-to-end latency; these sweeps characterize the
-cost model that latency is built on.
+Three deterministic in-process sweeps separately scale effect derivation,
+normal-form depth, and novel-versus-replay deduplication. At
+\RQFourScalingMaxRows{} source/evidence rows, derivation takes
+\RQFourScalingObserveMicros{}~$\mu$s; at \RQFourScalingNovelMax{} ledger facts,
+replay charges \RQFourScalingReplayCharge{}. These isolate cost growth but are
+not substitutes for the PostgreSQL end-to-end result.
 
 \subsection{RQ5: Policy Calibration and Workflow Utility}
 \label{sec:rq5}
@@ -1457,108 +1382,55 @@ transferable organizational thresholds.
 
 \subsection{Reproducibility Boundary}
 
-RQ1 and the RQ2 exposure-invariance stream remain auditable in-process tests:
-RQ1 has 16 source rows, while RQ2 invariance crosses \RQTwoExposureRewrites{}
-closed-language rewrites over \RQTwoExposureDatasets{} small data instances, and
-the PostgreSQL online-coverage test uses the bundled ten-row travel fixture.
-Thus the counts are rewrite/data-instance pairs and operator scenarios, not
-independent schemas or workloads.  The separate SQL result-equivalence stress
-test and its normalized-pair accounting appear only in the supplement. The
-small-fixture performance result is a controlled single-host microbenchmark on
-the bundled ten-row travel fixture. The separate real Control PostgreSQL
-campaign scales durable storage to \RQFourStorageMaxRows{} fact rows. The new
-public-path campaign supplies the previously missing cross-cardinality
-Join--Group execution: three scales culminate in \RQFourScaleMaxJoined{} joined
-members and \RQFourScaleMaxFacts{} dependencies. It remains one deterministic,
-warm-service, TPC-H-derived query shape on one host with three repeats---not an
-official TPC-H/TPC-DS suite, controlled cold-cache study, multi-node deployment,
-or production SLO evaluation. RQ5 reports declared workflow completion on the
-16-row semantic fixture, not a live model, human utility judgment, or agent
-task success. All three RQ4 trial directories are published; the paper build
-parses every raw JSONL sample, reproduces trial summaries and the campaign
-aggregate, and recomputes the current benchmark/source digest. Source-controlled
-reports bind the environment, corpus, implementation, raw results, and sample
-digests. These boundaries
-especially limit RQ1/RQ2 external validity and RQ4 workload generality.
+RQ1/RQ2 use 16 source rows and \RQTwoExposureDatasets{} small data instances;
+online coverage uses a ten-row fixture. RQ4 adds real Control PostgreSQL storage
+to \RQFourStorageMaxRows{} fact rows and a three-scale, public-path Join--Group
+campaign ending at \RQFourScaleMaxJoined{} joined members and
+\RQFourScaleMaxFacts{} dependencies. It is still one warm, deterministic,
+TPC-H-derived shape on one host with three repeats, not an official suite,
+cold-cache, multi-node, or production-SLO study. RQ5 measures declared goal
+admission on the 16-row fixture, not human utility or agent success. The build
+parses every published RQ4 JSONL sample, reproduces summaries, and recomputes
+source digests; reproducibility does not remove these external-validity bounds.
 
 \section{Limitations and Threats to Validity}
 \label{sec:limits}
 
-\textbf{Semantic scope.} The model accounts positive explicit disclosure. It
-does not measure rows rejected by selection, negative information implied by
-empty answers, groups not returned, rows outside a delivered page, non-output
-rows or fields used only to determine order/rank, cardinality or timing side
-channels, correlations, or background knowledge.  Nor does it reproduce all
-tuples and pages physically read by PostgreSQL.  Thus it is neither a complete
-top-$k$/physical-read dependency nor a causal provenance semantics.  It is not
-differential privacy and should be combined with a privacy mechanism when those
-threats matter.
+\textbf{Semantic scope.} The model accounts positive explicit disclosure, not
+rejected rows, negative/empty-answer inference, non-output groups or pages,
+order/rank-only inputs, timing, correlations, background knowledge, or physical
+reads. It is neither minimal causal provenance nor differential privacy.
 
-\textbf{Decision and subject scope.} A budget refusal exposes one uncharged bit
-about whether the query's novel Effect crosses the remaining threshold; no
-simulatability or denial-noninterference result is claimed. Ledgers are scoped to
-one root family, not to a principal. Repeated human approval of new roots gives
-the same subject independent ledgers unless an external policy imposes a
-principal- or tenant-wide budget.
+\textbf{Decision and subject scope.} Refusal exposes an uncharged threshold bit;
+no denial noninterference is claimed. Ledgers cover one root family, so repeated
+approval creates fresh capacity unless an external principal/tenant policy
+prevents it.
 
-\textbf{Query scope.} The online compiler supports one-product plans and two
-bounded multi-input forms: an inner conjunctive equijoin over two distinct
-Catalog roles, and union-distinct over two filtered branches of one product
-with an explicit complete deduplication schema. Both can feed grouping and
-\code{COUNT(*)}/\code{COUNT(field)}/\code{SUM}/\code{MIN}/\code{MAX}. Nested
-join/set trees, self-joins, union-all, relational pagination, outer joins,
-\code{AVG}, windows, negation, difference, recursion, arbitrary subqueries,
-and multi-datasource plans fail closed. These are prototype restrictions, not
-limitations of the algebraic rules.
+\textbf{Query and identity scope.} Online support is one product or a bounded
+two-role inner equijoin/one-product union-distinct, optionally grouped; nested
+trees, self/outer joins, union-all, relational pagination, windows, negation,
+recursion, and arbitrary subqueries fail closed. Stable entity keys and snapshot
+labels are administrator declarations; production requires versioned
+publication/CDC and collision review.
 
-\textbf{Identity trust.} Stable entity keys and snapshot labels are
-administrator declarations. Schema attestation cannot prove uniqueness or that
-a snapshot was advanced after data changes. Production use requires a
-versioned publication or CDC pipeline and collision/security review for the
-chosen hash and serialization profile.
-
-\textbf{Cost.} Exact dependency FactSets can be large, root-ledger locking can
-become a hot spot, and immutable history grows monotonically. The million-fact
-campaign directly observes \RQFourScaleHighNovelS{}-s novel latency,
-\RQFourScaleHighReplayS{}-s replay latency, and
-\RQFourScaleGatewayGiB{}-GiB gateway peak memory. Streaming derivation,
-compression, sketches, partitioned settlement, retention, and audited deletion
-are open design points; approximations would require new safety semantics.
-
-\textbf{Deployment.} The prototype has one gateway instance, static local
-tokens, an in-memory approval demo, and one PostgreSQL connector. It lacks a
-distributed execution lease and centralized key custody. The measured
-three-scale single-host workload does not establish multi-node scaling,
-production SLOs, diverse schema/query generality, or live-agent task success.
+\textbf{Cost and deployment.} Exact FactSets, root locking, and immutable
+history are expensive: the million-fact result is
+\RQFourScaleHighNovelS{}/\RQFourScaleHighReplayS{}~s novel/replay and
+\RQFourScaleGatewayGiB{}~GiB gateway memory. Streaming, compression,
+partitioned settlement, retention, and safe approximation remain open. The
+single gateway, local tokens, demo approval service, and one connector do not
+establish distributed, production, multi-engine, or live-agent behavior.
 
 \section{Conclusion}
 
-Task-bound authorization answers what an adaptive client may query; task-bound exposure
-accounting additionally constrains what one root ledger records for its
-delegated workload. \system realizes that distinction with stable facts, separate
-release and positive-output dependency sets, same-snapshot provenance, atomic novel-fact
-settlement, and root-family budget conservation. The current
-dependency set is a conservative footprint exact under the declared inductive
-profile; it makes no claim of causal minimality or complete physical reads. The
-current
-artifact establishes a coherent semantic and systems foundation, finds no
-violation in a finite ledger model, and observes zero mismatch for
-\RQTwoExposureRewrites{} closed-language rewrite families (FactSet and
-incremental charge invariant). Paired PostgreSQL tests additionally execute
-online Join/Union exchange and downstream aggregation while checking the
-derived observation. The small-fixture full path has
-\RQFourFullOneMedian{}-ms p50 latency at one worker
-(\RQFourFullOneRatio{}$\times$ direct-query p50) and exposes root-ledger
-serialization at higher concurrency. More importantly, the multi-scale public
-path completes a Join--Group observation with \RQFourScaleMaxFacts{}
-dependencies: replay charges zero, but novel/replay medians are
-\RQFourScaleHighNovelS{}/\RQFourScaleHighReplayS{}~s and gateway memory peaks at
-\RQFourScaleGatewayGiB{}~GiB. This is feasibility evidence and a negative
-systems result, not an acceptable SLO. The production ledger curve also shows
-that exact high-overlap verification is a bottleneck. Official TPC suites,
-multi-node execution, nested multi-input plans, and live-LLM generalization
-remain outside the claims, along with cross-root accounting and inference
-protection for denial or negative information.
+\system adds a stateful exposure boundary to task-scoped authorization: typed
+release/dependency facts, same-snapshot evidence, exact pre-release novel-set
+settlement, and one conserved root-family ledger. The finite model and
+PostgreSQL campaigns support the declared safety properties and rewrite scope.
+They also expose the design's present systems limit: million-fact exact replay
+charges zero yet takes \RQFourScaleHighReplayS{}~s. Making that guarantee
+streaming and compact, without weakening atomic budget safety, is the central
+next step.
 
 \bibliographystyle{IEEEtran}
 \bibliography{references}
