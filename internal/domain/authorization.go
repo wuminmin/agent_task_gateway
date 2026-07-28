@@ -33,6 +33,7 @@ type AuthorizationBudgetV1 struct {
 	TaskTTLMS              int64  `json:"task_ttl_ms"`
 	MaxReleaseFacts        int64  `json:"max_release_facts,omitempty"`
 	MaxInfluenceFacts      int64  `json:"max_influence_facts,omitempty"`
+	MaxOutcomeFacts        int64  `json:"max_outcome_facts,omitempty"`
 	ExposureProfileVersion string `json:"exposure_profile_version,omitempty"`
 }
 
@@ -43,7 +44,7 @@ func (b AuthorizationBudgetV1) Validate() error {
 	if b.PerQueryTimeoutMS > b.MaxDBMS {
 		return errors.New("per_query_timeout_ms cannot exceed max_db_ms")
 	}
-	if b.MaxReleaseFacts < 0 || b.MaxInfluenceFacts < 0 || (b.MaxReleaseFacts == 0) != (b.MaxInfluenceFacts == 0) {
+	if b.MaxReleaseFacts < 0 || b.MaxInfluenceFacts < 0 || b.MaxOutcomeFacts < 0 || (b.MaxReleaseFacts == 0) != (b.MaxInfluenceFacts == 0) {
 		return errors.New("release and influence limits must both be positive or both be disabled")
 	}
 	if b.MaxReleaseFacts > 0 && strings.TrimSpace(b.ExposureProfileVersion) == "" {
@@ -52,10 +53,16 @@ func (b AuthorizationBudgetV1) Validate() error {
 	if b.MaxReleaseFacts == 0 && b.ExposureProfileVersion != "" {
 		return errors.New("exposure_profile_version requires exposure limits")
 	}
+	if b.ExposureProfileVersion == "taskgate-exposure-v3" && b.MaxOutcomeFacts <= 0 {
+		return errors.New("V3 requires a positive outcome limit")
+	}
+	if b.ExposureProfileVersion != "taskgate-exposure-v3" && b.MaxOutcomeFacts != 0 {
+		return errors.New("outcome limit requires V3")
+	}
 	const maxDurationMilliseconds = int64(^uint64(0)>>1) / int64(time.Millisecond)
 	const maxSafeJSONInteger = int64(1<<53 - 1)
 	if b.MaxQueries > maxSafeJSONInteger || b.MaxResultRows > maxSafeJSONInteger ||
-		b.MaxReleaseFacts > maxSafeJSONInteger || b.MaxInfluenceFacts > maxSafeJSONInteger ||
+		b.MaxReleaseFacts > maxSafeJSONInteger || b.MaxInfluenceFacts > maxSafeJSONInteger || b.MaxOutcomeFacts > maxSafeJSONInteger ||
 		b.MaxDBMS > maxDurationMilliseconds || b.PerQueryTimeoutMS > maxDurationMilliseconds ||
 		b.TaskTTLMS > maxDurationMilliseconds {
 		return errors.New("authorization budget exceeds the V1 interoperable integer or duration range")
@@ -73,7 +80,7 @@ func (b AuthorizationBudgetV1) EnsureWithin(parent AuthorizationBudgetV1) error 
 	if b.MaxQueries > parent.MaxQueries || b.MaxResultRows > parent.MaxResultRows ||
 		b.MaxDBMS > parent.MaxDBMS || b.PerQueryTimeoutMS > parent.PerQueryTimeoutMS ||
 		b.TaskTTLMS > parent.TaskTTLMS || b.MaxReleaseFacts > parent.MaxReleaseFacts ||
-		b.MaxInfluenceFacts > parent.MaxInfluenceFacts || b.ExposureProfileVersion != parent.ExposureProfileVersion {
+		b.MaxInfluenceFacts > parent.MaxInfluenceFacts || b.MaxOutcomeFacts > parent.MaxOutcomeFacts || b.ExposureProfileVersion != parent.ExposureProfileVersion {
 		return errors.New("authorization budget exceeds parent")
 	}
 	return nil

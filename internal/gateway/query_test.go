@@ -15,6 +15,7 @@ import (
 	"taskbound.local/agent-data-gateway/internal/domain"
 	"taskbound.local/agent-data-gateway/internal/exposure"
 	"taskbound.local/agent-data-gateway/internal/queryplan"
+	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 	"taskbound.local/agent-data-gateway/internal/sqlpolicy"
 )
 
@@ -235,6 +236,56 @@ func TestExposureV2OnlinePathSupportsCountStar(t *testing.T) {
 	charge := result["exposure"].(control.ExposureCharge)
 	if charge.ActualReleaseFacts != 1 || charge.ActualInfluenceFacts == 0 {
 		t.Fatalf("COUNT(*) exposure charge = %+v", charge)
+	}
+}
+
+func TestExposureV3ChargesDistinctZeroResultPredicates(t *testing.T) {
+	harness := newGatewayHarness(t)
+	harness.createExposureV3SummaryTask(t, "task-v3-zero-thresholds", control.ExposureLimits{
+		ReleaseFacts: 20, InfluenceFacts: 20, OutcomeFacts: 3,
+	})
+	harness.connector.result = dataconnector.Result{
+		Columns: []dataconnector.Column{{Name: "rows", DataTypeOID: 20}},
+		Rows:    [][]any{{int64(0)}}, RowCount: 1, DatabaseTime: time.Millisecond,
+	}
+	harness.connector.provenanceResult = dataconnector.Result{
+		Columns: []dataconnector.Column{{Name: "department", DataTypeOID: 25}, {Name: "expense_type", DataTypeOID: 25},
+			{Name: "month", DataTypeOID: 25}, {Name: "total_amount", DataTypeOID: 1700}},
+		Rows: nil, RowCount: 0, DatabaseTime: time.Millisecond,
+	}
+	call := func(requestID string, threshold int64) control.ExposureCharge {
+		result := mustCallGatewayTool(t, harness.service, harness.alice, "execute_plan", map[string]any{
+			"task_id": "task-v3-zero-thresholds", "request_id": requestID,
+			"plan": map[string]any{"product": "expense_summary", "columns": []string{},
+				"aggregates": []map[string]any{{"function": "count", "column": "*", "alias": "rows"}},
+				"filters":    []map[string]any{{"column": "total_amount", "op": ">", "value": threshold}}},
+		})
+		receipt := result["receipt"].(map[string]any)
+		if receipt["version"] != queryreceipt.VersionV5 {
+			t.Fatalf("V3 receipt version = %v, want %s", receipt["version"], queryreceipt.VersionV5)
+		}
+		return result["exposure"].(control.ExposureCharge)
+	}
+
+	first := call("v3-zero-100", 100)
+	second := call("v3-zero-200", 200)
+	replay := call("v3-zero-100-again", 100)
+	if first.ActualOutcomeFacts != 1 || first.ChargedOutcomeFacts != 1 ||
+		second.ActualOutcomeFacts != 1 || second.ChargedOutcomeFacts != 1 {
+		t.Fatalf("different zero-result predicates did not each charge an outcome: first=%+v second=%+v", first, second)
+	}
+	if second.ChargedReleaseFacts != 0 || second.ChargedInfluenceFacts != 0 {
+		t.Fatalf("same zero result unexpectedly recharged release/dependency facts: %+v", second)
+	}
+	if replay.ChargedReleaseFacts != 0 || replay.ChargedInfluenceFacts != 0 || replay.ChargedOutcomeFacts != 0 {
+		t.Fatalf("same proposition replay was not free: %+v", replay)
+	}
+	ledger, err := harness.store.GetExposureLedger(t.Context(), "task-v3-zero-thresholds")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ledger.Used.OutcomeFacts != 2 {
+		t.Fatalf("outcome usage = %d, want 2", ledger.Used.OutcomeFacts)
 	}
 }
 

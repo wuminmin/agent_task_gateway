@@ -75,6 +75,7 @@
     {"id":"task_family_delegation","execution":"postgres_integration","package":"taskbound.local/agent-data-gateway/internal/control","test":"TestDelegatedTasksShareRootAccountingState"},
     {"id":"concurrent_settlement","execution":"postgres_integration","package":"taskbound.local/agent-data-gateway/internal/control","test":"TestConcurrentTaskFamilySettlementCannotOverspend"},
     {"id":"online_relational_postgres","execution":"postgres_integration","package":"taskbound.local/agent-data-gateway/internal/gateway","test":"TestRelationalOnlinePathAgainstPostgreSQL"},
-    {"id":"online_relational_gateway_settlement","execution":"postgres_integration","package":"taskbound.local/agent-data-gateway/internal/gateway","test":"TestRelationalGatewayEndToEndAgainstPostgreSQL"}
+    {"id":"online_relational_gateway_settlement","execution":"postgres_integration","package":"taskbound.local/agent-data-gateway/internal/gateway","test":"TestRelationalGatewayEndToEndAgainstPostgreSQL"},
+    {"id":"distinct_zero_result_predicates","execution":"postgres_integration","package":"taskbound.local/agent-data-gateway/internal/gateway","test":"TestExposureV3ChargesDistinctZeroResultPredicates"}
   ]
 }

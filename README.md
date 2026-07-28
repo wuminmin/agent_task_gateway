@@ -1,4 +1,4 @@
-# TaskGate: Task-Bound Exposure Accounting for Database Agents
+# TaskGate: Task-Bound Query-Outcome and Exposure Accounting for Database Agents
 
 TaskGate 是一个数据库研究原型：它把累计数据暴露绑定到人类授权的根任务，使自适应查询、重试、分页和子 Agent 共享同一知识账本。Agent 必须先提交明确的数据产品、字段、Scope、预算和目的，经 OA 审批后，才能查询只读数据产品。Gateway 不包含模型层；授权、provenance、计量、结算和规划均由确定性代码完成。
 
@@ -7,20 +7,23 @@ TaskGate 是一个数据库研究原型：它把累计数据暴露绑定到人�
 ## 核心模型
 
 每个事实至少绑定 `(product, snapshot, entity key, field, value version)`。
-根任务维护两个集合账本：实际交付的 `release exposure`，以及保守的
+根任务维护三个集合账本：实际交付的 `release exposure`、保守的
 `positive-output dependency footprint`。后者在 API、数据库和回执中继续使用
 兼容标签 `influence`，但表示按 V2 规则参与已交付正向输出推导的 row/cell
-facts，不是最小 causal influence，也不是完整 physical read set。一次查询只
+facts，不是最小 causal influence，也不是完整 physical read set；第三个
+`query outcome` 把规范化 QueryPlan 命题绑定到发布结果摘要，因此两个不同
+阈值即使都回答空集或 `0`，仍会分别收费。一次查询只
 支付相对根任务已计量集合的新事实：
 
 ```text
 delta(T, q) = (|F_release(q) - K_release(T)|,
-               |F_influence(q) - K_influence(T)|)
+               |F_influence(q) - K_influence(T)|,
+               |F_outcome(q) - K_outcome(T)|)
 ```
 
 在线路径是 `reserve -> execute/buffer -> derive provenance -> settle -> release`。
 可见结果与 provenance companion 在同一个只读 `REPEATABLE READ` 事务执行；
-只有双账本结算、加密结果、审计和 V4 签名回执原子提交后，结果才会释放。
+只有三维账本结算、加密结果、审计和 V5 签名回执原子提交后，结果才会释放。
 超出任一 exposure 上限的结果不会交付或保存。
 
 实现范围和非目标见[任务级数据暴露记账](docs/exposure-accounting.md)。
@@ -34,7 +37,7 @@ delta(T, q) = (|F_release(q) - K_release(T)|,
  Gateway :8082 ─────────► OA Demo :8092（草稿、审批、HMAC 回调 + Ed25519 回执）
     │
     ├───────────────────► Control PostgreSQL :5432（宿主机 127.0.0.1:25433）
-    │                       任务族、双 Exposure 账本、资源预算、密文结果、审计链
+    │                       任务族、三维 Exposure 账本、资源预算、密文结果、审计链
     │
     └───────────────────► Business PostgreSQL :5432（仅内部网络，默认不发布宿主机端口）
                             同一快照的结果 + Provenance Companion
@@ -76,9 +79,9 @@ Navicat 的用户名和密码对应关系见[本地启动与数据库调试](doc
 ## MCP 2.0 工作流
 
 1. 调用 `list_data_products` 获取完整逻辑产品、字段和 Scope 的允许值/日期边界。
-2. 调用 `request_data_task`，显式提交非空 `objective`、`data_products`、每个产品的非空 `columns` 及 `scopes`。资源预算与 release/influence 上限都只能缩小 Catalog Profile。
+2. 调用 `request_data_task`，显式提交非空 `objective`、`data_products`、每个产品的非空 `columns` 及 `scopes`。资源预算与 release/influence/outcome 上限都只能缩小 Catalog Profile。
 3. 在 OA 提交并完成自动或人工审批。
-4. ACTIVE 后使用 `execute_plan(task_id, request_id, plan)`。默认 Catalog 已启用 exposure Profile，因此该路径会生成同快照 provenance 并进行双账本结算。
+4. ACTIVE 后使用 `execute_plan(task_id, request_id, plan)`。默认 Catalog 已启用 V3，因此该路径会生成同快照 provenance、构造 OutcomeFact 并进行三维结算。
 5. 子 Agent 任务通过 `parent_task_id` 和 `delegate_principal_id` 创建，所有授权维度只能收缩，且共享根账本。每次查询仍提交一个确定的 QueryPlan。
 
 `request_id` 由客户端生成并在一个任务内保持唯一。相同 ID 和相同请求只返回首次持久化结果/状态；相同 ID 搭配不同请求会关闭式拒绝，重试不会产生第二次执行或预算消费。
@@ -99,7 +102,8 @@ Navicat 的用户名和密码对应关系见[本地启动与数据库调试](doc
 
 成功响应包含 `exposure` 与 `exposure_budget`：前者区分本次 actual facts 和
 相对根任务的 charged facts，后者给出共享账本的上限、已用和剩余值。相同
-`request_id` 只观察首次终态；新的 request ID 查询相同事实时，增量收费为零。
+`request_id` 只观察首次终态；新的 request ID 重放同一规范化命题和结果时三维
+增量均为零，不同命题即使得到相同空/零结果也会新增 outcome 费用。
 
 `query_sql` 仍用于 resource-only 兼容 Grant；对启用 exposure 的任务，它会因
 无法构造完整 provenance 而关闭式拒绝。在线精确计量片段除单产品

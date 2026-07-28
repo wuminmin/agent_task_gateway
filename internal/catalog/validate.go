@@ -240,8 +240,8 @@ func validateBudgetProfile(path string, profile BudgetProfile) ValidationErrors 
 	if err := profile.Budget().Validate(); err != nil {
 		problems = append(problems, fieldError(path, err.Error(), ErrInvalidBudgetProfile))
 	}
-	if profile.ExposureProfileVersion != "" && profile.ExposureProfileVersion != "taskgate-exposure-v2" {
-		problems = append(problems, fieldError(path+".exposure_profile_version", "new catalog profiles must use taskgate-exposure-v2", ErrInvalidBudgetProfile))
+	if profile.ExposureProfileVersion != "" && profile.ExposureProfileVersion != "taskgate-exposure-v2" && profile.ExposureProfileVersion != "taskgate-exposure-v3" {
+		problems = append(problems, fieldError(path+".exposure_profile_version", "catalog profiles must use taskgate-exposure-v2 or taskgate-exposure-v3", ErrInvalidBudgetProfile))
 	}
 	return problems
 }

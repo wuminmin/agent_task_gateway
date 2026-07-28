@@ -147,7 +147,7 @@ approval_routes:
 
 ```yaml
 budget_profiles:
-  - name: summary-manual-v2
+  - name: summary-manual-v3
     max_queries: 10
     max_rows: 500
     max_db_time: 30s
@@ -155,7 +155,8 @@ budget_profiles:
     task_ttl: 30m
     max_release_facts: 1000
     max_influence_facts: 5000
-    exposure_profile_version: taskgate-exposure-v2
+    max_outcome_facts: 10
+    exposure_profile_version: taskgate-exposure-v3
 ```
 
 资源数值必须为正；可选 exposure 上限必须同时为零/省略或同时为正。
@@ -171,12 +172,13 @@ budget_profiles:
 | `task_ttl` | 从批准生成 Grant 起的可用时长 |
 | `max_release_facts` | 根任务族可新增的已交付结果 FactID 上限 |
 | `max_influence_facts` | 根任务族可新增的 positive-output dependency FactID 上限；字段名为兼容标签 |
+| `max_outcome_facts` | 根任务族可新增的规范化成功查询命题/结果 FactID 上限 |
 | `exposure_profile_version` | 固定 FactID、lineage 和收费语义的版本标识 |
 
-三个 exposure 字段必须同时启用或同时省略：两个上限都为正时 Profile 必须
-非空；两个上限都为零时 Profile 必须为空。默认 Catalog 启用 exposure。
+V3 的三个 exposure 上限必须同时为正；禁用时三者均为零且 Profile 为空。
+V2 兼容 Profile 的 outcome 上限保持为零。默认 Catalog 启用 V3。
 客户端 `requested_budget` 接受 `max_queries`、`max_rows`、
-`max_release_facts` 和 `max_influence_facts`，且都只能缩小 Profile 上限。
+`max_release_facts`、`max_influence_facts` 和 `max_outcome_facts`，且都只能缩小 Profile 上限。
 资源预算先预留再按实际量结算；exposure 则在结果产生后按相对根任务已知集合
 的 novel facts 结算。资源预算达到硬上限会归档任务，exposure 超限会拒绝且
 不释放当前结果；后续调用仍可选择更低成本或完全重复的已知事实。
@@ -241,7 +243,8 @@ budget_profiles:
     task_ttl: 15m
     max_release_facts: 200
     max_influence_facts: 1000
-    exposure_profile_version: taskgate-exposure-v2
+    max_outcome_facts: 5
+    exposure_profile_version: taskgate-exposure-v3
 ```
 
 ## 发布清单

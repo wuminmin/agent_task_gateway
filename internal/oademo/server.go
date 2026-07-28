@@ -613,6 +613,7 @@ func narrowedGrantFromForm(draft *Draft, r *http.Request, issuedAt time.Time) (a
 	candidate.Budget = approval.AuthorizationBudgetV1{
 		MaxReleaseFacts:        parent.Budget.MaxReleaseFacts,
 		MaxInfluenceFacts:      parent.Budget.MaxInfluenceFacts,
+		MaxOutcomeFacts:        parent.Budget.MaxOutcomeFacts,
 		ExposureProfileVersion: parent.Budget.ExposureProfileVersion,
 	}
 	budgetFields := []struct {

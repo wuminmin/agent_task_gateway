@@ -54,7 +54,7 @@ func (s *Store) ReserveBudget(ctx context.Context, request ReserveRequest) (Budg
 		return BudgetReservation{}, opErr(op, ErrInvalid, fmt.Errorf("query, task, request, policy, and datasource evidence are required"))
 	}
 	if request.RequestedRows < 0 || request.RequestedDBMS < 0 ||
-		(request.Exposure != nil && (request.Exposure.EstimatedReleaseFacts < 0 || request.Exposure.EstimatedInfluenceFacts < 0)) {
+		(request.Exposure != nil && (request.Exposure.EstimatedReleaseFacts < 0 || request.Exposure.EstimatedInfluenceFacts < 0 || request.Exposure.EstimatedOutcomeFacts < 0)) {
 		return BudgetReservation{}, opErr(op, ErrInvalid, fmt.Errorf("requested budget cannot be negative"))
 	}
 	tx, err := beginTx(ctx, s.db)

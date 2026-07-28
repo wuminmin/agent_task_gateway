@@ -19,11 +19,14 @@ func TestExposureEvaluationCorpus(t *testing.T) {
 		report.RQ2.ExecutedUniquePairs != 16 || report.RQ2.DuplicateAttempts != 0 ||
 		report.RQ2.RewriteTemplates != 2 || report.RQ2.Mismatches != 0 ||
 		report.RQ3.DeterministicPassed != report.RQ3.DeterministicCases ||
-		report.RQ3.DeterministicCases+len(report.RQ3.IntegrationManifest) != report.RQ3.Cases {
+		report.RQ3.DeterministicCases+len(report.RQ3.IntegrationManifest) != report.RQ3.Cases ||
+		!report.RQ3.OutcomeProbing.Passed || report.RQ3.OutcomeProbing.DistinctOutcomeFacts != 3 ||
+		report.RQ3.OutcomeProbing.NovelOutcomeCharges != 3 || report.RQ3.OutcomeProbing.ReplayOutcomeCharge != 0 ||
+		report.RQ3.OutcomeProbing.EquivalentRewriteCharge != 0 {
 		t.Fatalf("incomplete exposure report: %+v", report)
 	}
-	if report.SchemaVersion != 5 {
-		t.Fatalf("exposure report schema = %d, want 5", report.SchemaVersion)
+	if report.SchemaVersion != 6 || report.ProfileVersion != exposure.ProfileV3 {
+		t.Fatalf("exposure report schema/profile = %d/%s, want 6/%s", report.SchemaVersion, report.ProfileVersion, exposure.ProfileV3)
 	}
 	if report.RQ4Status != "measured_controlled_local_postgresql_campaign" {
 		t.Fatalf("RQ4 status is stale: %q", report.RQ4Status)

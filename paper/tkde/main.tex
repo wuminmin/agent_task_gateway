@@ -34,6 +34,7 @@
 \newcommand{\facts}{\mathcal{F}}
 \newcommand{\accounted}{\mathcal{K}}
 \newcommand{\effect}{\mathcal{E}}
+\newcommand{\rieffect}{\mathcal{E}^{ri}}
 \newcommand{\lbag}{\{\!\{}
 \newcommand{\rbag}{\}\!\}}
 \newcommand{\llbracket}{[\![}
@@ -44,7 +45,7 @@
 
 \input{generated/evidence.tex}
 
-\title{TaskGate: Task-Scoped Exposure Accounting}
+\title{TaskGate: Task-Scoped Query-Outcome and Exposure Accounting}
 
 \author{Anonymous Author(s)%
 \thanks{The artifact includes a controlled local PostgreSQL performance
@@ -59,20 +60,24 @@ campaign claims production generality.}}
 \begin{abstract}
 Adaptive clients can accumulate substantial disclosure through individually
 authorized rewrites, pages, retries, and delegated queries. We present
-TaskGate, which meters an approved root task with two sets of typed FactIDs:
-values released to the client and conservative positive-output dependencies.
+TaskGate, which meters an approved root task with three sets of typed FactIDs:
+values released to the client, conservative positive-output dependencies, and
+successful query outcomes.  An outcome fact binds the normalized query
+proposition to a digest of its released result, so distinct predicates that
+both return an empty relation or zero do not collapse to one free replay.
 Before any result leaves the gateway, an authorized visible query and its
 provenance companion run in one PostgreSQL snapshot; TaskGate buffers the
-answer, derives both effects, and atomically inserts only facts novel to the
+answer, derives all three effects, and atomically inserts only facts novel to the
 root-family ledger. The central safety property is that every committed ledger
-equals the union of settled novel effects and never exceeds either signed
+equals the union of settled novel effects and never exceeds any signed
 limit, so replay and delegation cannot mint exposure capacity.
 
 We define compositional semantics for a positive relational fragment with
 joins, union-distinct, grouping, and four aggregates, and check the settlement
 protocol with a finite-state model. Independent-oracle, rewrite, concurrency,
-and PostgreSQL tests validate the modeled guarantees. A workflow study shows
-how three operational policies induce dual budget--utility frontiers. End-to-end
+and PostgreSQL tests validate the modeled guarantees. A fixture-based policy
+calibration shows how three operational policies induce release/dependency
+budget--utility frontiers under a separate outcome ceiling. End-to-end
 experiments reach \RQFourScaleMaxFacts{} dependency facts, but novel/replay
 latencies of \RQFourScaleHighNovelS{}/\RQFourScaleHighReplayS{}~s and
 \RQFourScaleGatewayGiB{}~GiB gateway memory expose a severe boundary for the
@@ -81,7 +86,7 @@ current exact materialization design.
 
 \begin{IEEEkeywords}
 data exposure, query auditing, provenance, adaptive workloads, cumulative
-budget, positive-output dependency
+budget, positive-output dependency, query-outcome accounting
 \end{IEEEkeywords}
 
 \section{Introduction}
@@ -106,14 +111,19 @@ a stateful, explicit-disclosure budget that remains conserved while adaptive
 clients query and delegate? The mechanism neither inspects an LLM nor depends
 on an agent-specific planning algorithm; agents are one important client class.
 
-\system treats the root task as the budget subject. A result has two effects.
+\system treats the root task as the budget subject. A result has three effects.
 \emph{Release exposure} identifies values actually delivered.
 \emph{Positive-output dependency} is a contract-defined conservative footprint
 of base facts participating in the successful derivation of delivered output.
 It is neither minimal causal provenance nor the complete physical read set.
 This second dimension prevents a count from being accounted as one input fact
 merely because it returns one cell. Both effects are sets, so a fact already
-recorded in the root-family ledger has zero incremental charge.
+these first two effects are sets, so a fact already recorded in the root-family
+ledger has zero incremental charge.  The third,
+\emph{query outcome}, binds the normalized predicate and relational context to
+the released-result digest and visible cardinality. Thus ``no row satisfies
+$x>100$'' and ``no row satisfies $x>200$'' consume two outcome facts even when
+their release and dependency sets coincide; an exact replay remains free.
 
 The system follows a withhold-before-settlement discipline:
 
@@ -124,7 +134,7 @@ The system follows a withhold-before-settlement discipline:
 
 The visible query and its provenance companion observe one PostgreSQL snapshot.
 The gateway releases neither until a control-database transaction has inserted
-novel facts, checked both root limits, settled resource use, stored the encrypted
+novel facts, checked all three root limits, settled resource use, stored the encrypted
 result, and persisted audit and receipt evidence. A failed limit check rolls the
 transaction back while the business execution remains separately measurable.
 Figure~\ref{fig:architecture-settlement} shows the trust boundary and the two
@@ -169,9 +179,9 @@ transactional phases.
 \node[font=\small\bfseries] at (11.95,4.0) {(b) Withhold-before-settlement transaction};
 \node[txnbox] (reserve) at (8.7,2.65) {reserve};
 \node[txnbox] (execute) at (10.65,2.65) {Business tx\\execute + buffer};
-\node[txnbox] (derive) at (12.75,2.65) {derive\\$(\facts_r,\facts_i)$};
+\node[txnbox] (derive) at (12.75,2.65) {derive\\$(\facts_r,\facts_i,\facts_o)$};
 \node[txnbox] (lock) at (14.85,2.65) {Control tx\\lock root};
-\node[decision] (fitbudget) at (14.85,1.35) {$K\cup\Delta$\\within both limits?};
+\node[decision] (fitbudget) at (14.85,1.35) {$K\cup\Delta$\\within all limits?};
 \node[txnbox, fill=green!10] (commit) at (12.55,.35) {commit facts, result,\\audit + receipt};
 \node[txnbox, fill=green!18] (releasebox) at (9.65,.35) {release buffer};
 \node[txnbox, fill=red!8] (rollback) at (16.55,.35) {rollback facts/result\\withhold buffer};
@@ -199,17 +209,17 @@ as prior work and do not claim those mechanisms here. Relative to it, this
 paper makes five implementation-backed contributions:
 
 \begin{enumerate}
-\item A versioned, typed FactID and dual set semantics separating delivered
-release facts from positive-output dependencies in a restricted relational
-algebra.
+\item A versioned, typed FactID and three-set semantics separating delivered
+release facts, positive-output dependencies, and normalized query outcomes in
+a restricted relational algebra.
 \item A same-snapshot provenance companion for one-product plans and bounded
 two-scan inner equijoins/union-distinct, including grouping and four aggregates.
 \item Exact novel-set settlement: atomically charge
-$E_q\setminus\accounted_T$, withhold on either limit, and make semantic replay
+$E_q\setminus\accounted_T$, withhold on any limit, and make semantic replay
 zero-charge rather than merely incrementing a per-query counter.
 \item Signed, monotonic root-family delegation whose descendants share one
-dual ledger, preventing task-tree fan-out from multiplying exposure capacity.
-\item New formal properties and evidence for these mechanisms: dual-budget
+three-dimensional ledger, preventing task-tree fan-out from multiplying exposure capacity.
+\item New formal properties and evidence for these mechanisms: three-budget
 safety, exact/non-overlapping novel charge, no pre-settlement delivery, and
 task-family non-amplification; algebraic/rewrite tests, a finite TLA+ ledger
 model, and full-path PostgreSQL experiments through one million dependency
@@ -221,8 +231,21 @@ privacy, inference control, principal-wide accounting, or denial-oblivious
 auditing. The online multi-input grammar is intentionally bounded: two scan
 leaves, an inner conjunctive equijoin or same-product union-distinct, and no
 nested set/join tree or multi-input pagination. A newly approved root creates a
-distinct ledger. These boundaries are part of the result, rather than hidden
+distinct ledger. Outcome accounting bounds the number of distinct successful
+propositions admitted by this grammar; it is not an information-theoretic
+bound on the bits revealed by one proposition. These boundaries are part of the result, rather than hidden
 behind a broad ``SQL support'' label.
+
+The commercial fit is a governed analytics or operations copilot operating
+inside one approved case: finance agents testing reimbursement/credit
+thresholds, fraud or compliance investigators refining ``no matching case''
+queries, customer-support agents searching entitlement conditions, and
+delegated analysts splitting one investigation. Release limits cap repeated
+value extraction, dependency limits expose large-source aggregates, and the
+outcome limit makes adaptive yes/no or empty-result probing consume explicit
+case capacity. Organizations that need population-level privacy across many
+approved roots still require differential privacy or a tenant-wide policy;
+TaskGate supplies auditable workflow conservation, not that replacement.
 
 \section{Context and Related Work}
 \label{sec:related}
@@ -237,8 +260,8 @@ disclosure budgets, plus receipts. Its disclosure units may be rows, bytes, or
 unique entity identifiers. TaskGate therefore does not present task approval,
 SQL mediation, cumulative disclosure budgets, or receipts as new. It changes
 the accounted object and settlement semantics: values and successful
-derivations become stable FactID sets; release and positive-output dependencies
-have separate ledgers; the answer and evidence are obtained in one snapshot;
+derivations become stable FactID sets; release, positive-output dependency, and
+normalized query outcomes have separate ledgers; the answer and evidence are obtained in one snapshot;
 only exact set difference is charged; and all delegated descendants settle one
 root-family ledger.
 
@@ -290,8 +313,9 @@ inference-control surveys cover accumulated answers and external knowledge
 \cite{farkas2002inference}. These results
 rule out a broad ``history makes querying safe'' claim. \system is deliberately
 narrower: it neither models an adversary's prior knowledge nor protects against
-negative answers, denial leakage, or implicit logical inference. It meters a
-contract-declared set of positive facts, and its history is one signed root task
+denial leakage or implicit logical inference. It meters a successful empty or
+zero answer as one normalized proposition, but does not estimate the inference
+content of that proposition. Its history is one signed root task
 and all descendants rather than a global user history. Simulatable or
 knowledge-aware inference control is complementary and could sit outside the
 gateway.
@@ -330,7 +354,7 @@ Provenance is also an implemented database capability: GProM rewrites
 provenance questions \cite{arab2018gprom}, while ProvSQL adds provenance and
 probability to PostgreSQL \cite{senellart2018provsql}. \system claims
 neither a new provenance algebra nor a general provenance engine. It specializes
-provenance to two set-valued effects---facts explicitly released and a
+provenance to two base set-valued effects---facts explicitly released and a
 conservative operator-input footprint for their successful positive
 derivations---then requires answer/effect co-generation in
 one snapshot and atomic settlement before release.  The online profile includes
@@ -371,7 +395,7 @@ rewrites, and delegation.
 \textbf{Novelty boundary.} History, inference control, pricing, provenance,
 query mediation, delegation, quotas, task-bound SQL sessions, receipts, and
 persistent agent disclosure logs are established by the literature above.
-Relative to SessionBound, the claim is precisely FactID dual-set semantics,
+Relative to SessionBound, the claim is precisely FactID three-set semantics,
 same-snapshot provenance, exact novel-set settlement, shared root-family
 delegation, and the corresponding formal properties and experiments. Relative
 to GAAP, the contribution is database-specific semantic accounting rather than
@@ -384,7 +408,7 @@ modeled positive-disclosure threat.
 
 \subsection{Facts and Task State}
 
-V2 treats a FactID as a semantic object and its SHA-256 as only a database
+The V2 release/dependency algebra treats a FactID as a semantic object and its SHA-256 as only a database
 index.  Its semantic environment is
 $\Pi=\langle pg,\mathcal T,UTC,\mathcal C,D,h_C\rangle$: a PostgreSQL major
 version, admitted type domain, timezone, exact deterministic collation
@@ -416,7 +440,26 @@ token.  The durable key is
 $\mathrm{SHA256}(\texttt{TASKGATE-FACT-V2\textbackslash0}\|\operatorname{Canon}(f))$.
 Control PostgreSQL stores $\operatorname{Canon}(f)$ and compares it on every hash conflict;
 a same-hash, different-payload row aborts the transaction. V1 and V2 tagged
-payloads are disjoint and one root ledger fixes exactly one profile.
+payloads are disjoint. V3 preserves these V2 identities and adds an outcome
+kind under a disjoint hash domain.
+
+Let $N(q)$ be the accepted query normal form, $h_N$ its SHA-256, $m$ the
+visible row count, and
+$h_R=H(m,\operatorname{sort}\{\operatorname{Canon}(f):f\in\facts_r\})$.
+V3 creates exactly one successful-outcome identity
+\begin{equation}
+ f_o=\langle\pi_3,\operatorname{ver}(N),h_N,h_R,m\rangle,
+ \qquad
+ \operatorname{FactHash}(f_o)=
+ H(\texttt{TASKGATE-FACT-V3\textbackslash0}\|\operatorname{Canon}(f_o)).
+ \label{eq:outcome-fact}
+\end{equation}
+The normal form contains the Catalog namespace, snapshot/lineage binding,
+typed predicates, grouping, ordering, pagination, null/bag semantics,
+collations, timezone, and exact numeric mode. It erases only the explicitly
+supported aliases and reorderings. Therefore the proposition is server-bound,
+not caller-named; the result commitment is explicit even for $m=0$ or a
+one-row scalar zero.
 
 \begin{theorem}[Fact identity well-definedness]
 For every value in the V2 supported PostgreSQL type domain, canonical encoding
@@ -436,36 +479,57 @@ determinism follows from the unique representative and ordering functions.
 \end{proof}
 
 \begin{definition}[Exposure effect]
-For query $q$ over snapshot $D_s$, the effect
-$\effect(q,D_s)=\langle \facts_r,\facts_i\rangle$ contains release facts
+For query $q$ over snapshot $D_s$, the V3 effect
+$\effect(q,D_s)=\langle \facts_r,\facts_i,\facts_o\rangle$ contains release facts
 $\facts_r$ and positive-output dependency facts $\facts_i$ under a versioned
 profile $\pi$.  The latter are the conservative base facts selected by the
 inductive rules below for successfully derived delivered rows and cells; they
 are not claimed to be minimal causal provenance or all physical reads.
+$\facts_o=\{f_o\}$ contains the successful proposition/result identity from
+Eq.~\eqref{eq:outcome-fact}.
 \end{definition}
 
 Every root task $T$ stores previously accounted sets
-$\accounted_T=\langle\accounted_T^r,\accounted_T^i\rangle$ and limits
-$B_T=\langle B_T^r,B_T^i\rangle$. Settlement computes
+$\accounted_T=\langle\accounted_T^r,\accounted_T^i,\accounted_T^o\rangle$ and limits
+$B_T=\langle B_T^r,B_T^i,B_T^o\rangle$. Settlement computes
 
 \begin{align}
  \Delta_T^r(q) &= \facts_r(q,D_s)\setminus\accounted_T^r,\\
- \Delta_T^i(q) &= \facts_i(q,D_s)\setminus\accounted_T^i.
+ \Delta_T^i(q) &= \facts_i(q,D_s)\setminus\accounted_T^i,\\
+ \Delta_T^o(q) &= \facts_o(q,D_s)\setminus\accounted_T^o.
  \label{eq:delta}
 \end{align}
 
-V2 measures cardinality independently in each dimension. A query may settle
+V3 measures cardinality independently in each dimension. A query may settle
 only if
 $|\accounted_T^r|+|\Delta_T^r|\leq B_T^r$ and
-$|\accounted_T^i|+|\Delta_T^i|\leq B_T^i$.
+$|\accounted_T^i|+|\Delta_T^i|\leq B_T^i$ and
+$|\accounted_T^o|+|\Delta_T^o|\leq B_T^o$.
 
 The word ``accounted'' is intentional. Release facts describe delivered values,
 but dependency FactIDs remain internal to the gateway; the agent receives
 only result data, counts, and receipt digests. Hence $\accounted_T^i$ is not a
-set of facts known by the agent, and neither component is a complete epistemic
+set of facts known by the agent, and no component is a complete epistemic
 or privacy-loss state.  The wire and storage label \code{influence} is retained
-for compatibility; under the V2 profile it denotes positive-output dependency,
+for compatibility; under the V2/V3 profiles it denotes positive-output dependency,
 not causal influence.
+
+\begin{theorem}[Outcome separation and replay]
+For successful queries over the same snapshot, unequal normal-form digests
+produce unequal outcome FactIDs even when their released results are equal.
+Equal normal forms and equal released FactSets/cardinalities produce the same
+outcome FactID. Hence different zero/empty threshold propositions each incur
+one novel outcome charge, while exact replay and supported equivalent rewrites
+incur zero incremental outcome charge.
+\end{theorem}
+\begin{proof}
+The canonical payload in Eq.~\eqref{eq:outcome-fact} length-prefixes $h_N$,
+$h_R$, and $m$. Unequal $h_N$ therefore yields unequal semantic payloads;
+under the collision-detection assumption, it cannot reuse the same ledger
+identity. Equal normalized plans and normalized releases make every payload
+component equal. Novel-set settlement then gives charges one and zero,
+respectively.
+\end{proof}
 
 \subsection{Closed Typed Query Language}
 
@@ -626,18 +690,18 @@ afterthought:
 \facts_r(R,V)&=\{\operatorname{mat}(R,t,a)\mid t\in R,\ a\in V\},\\
 \facts_i(R,V)&=\bigcup_{t\in R}S_r(t)\ \cup
                 \bigcup_{t\in R,a\in V}S_a(t),\\
-\effect_\Pi(e,D,V)&=\operatorname{normalize}
+\rieffect_\Pi(e,D,V)&=\operatorname{normalize}
   \langle\facts_r(R,V),\facts_i(R,V)\rangle.       \label{eq:observe}
 \end{align}
 Here $\Pi;D\vdash e\Downarrow R$, and $\operatorname{valid}$ checks value,
 type and bundle, plus support for a base fact or expression/witness for a
 derived fact, against the pre-existing release fact.
 Thus query bags and witness multiplicity are retained during composition, while
-the two final ledgers are sets.  Equation~\eqref{eq:observe} is the declared
+the two base ledgers are sets.  Equation~\eqref{eq:observe} is the declared
 positive-output dependency profile: it is exact with respect to these
 inductive rules, not with respect to arbitrary causal provenance or physical
-source access.  Empty answers have the empty effect except for the single
-visible row of a global aggregate.
+source access.  Empty answers have an empty base effect except for the single
+visible row of a global aggregate; V3 nevertheless adds one outcome fact.
 
 \begin{theorem}[Representation closure and partial-function semantics]
 For every admissible $\Pi$, typed finite $e$, and immutable $D$, evaluation has
@@ -671,7 +735,7 @@ oracle, or multiplicity violation into no derivation.
 \begin{theorem}[Dependency determinism]
 Fixed admissible $\Pi$, typed $e$, snapshot map $D$, and visible field set $V$
 uniquely determine the positive-output dependency FactSet $\facts_i$, and hence
-$\effect_\Pi(e,D,V)$, whenever evaluation succeeds.
+$\rieffect_\Pi(e,D,V)$, whenever evaluation succeeds.
 \end{theorem}
 \begin{proof}
 The preceding theorem gives a unique $R$.  Equation~\eqref{eq:observe} ranges
@@ -737,8 +801,8 @@ the fixed serialization order gives the same bytes in each case.
 For $F\cup V\subseteq A$, selection followed by projection and projection
 followed by selection have the same visible effect:
 \[
- \effect_\Pi(\pi_A(\sigma_{p;F}e),D,V)=
- \effect_\Pi(\sigma_{p;F}(\pi_Ae),D,V).
+ \rieffect_\Pi(\pi_A(\sigma_{p;F}e),D,V)=
+ \rieffect_\Pi(\sigma_{p;F}(\pi_Ae),D,V).
 \]
 Reordering $A$ also preserves this normalized terminal effect.
 \end{theorem}
@@ -801,16 +865,18 @@ suffix represented by the normal form. Each atomic rewrite therefore preserves
 Effect; structural induction over well-typed contexts proves the result.
 \end{proof}
 
-\begin{theorem}[Split/page/join conservation]
-Merging observations for disjoint projections or a complete page partition
-equals observing the combined result. Overlapping pages and repeated terminal
-observations charge each FactID at most once; join fanout changes witness
-multiplicity but not the union of dependency support.
+\begin{theorem}[Base-ledger split/page/join conservation]
+Merging release/dependency observations for disjoint projections or a complete
+page partition equals observing the combined result. Overlapping pages and
+repeated terminal observations charge each release/dependency FactID at most
+once; join fanout changes witness multiplicity but not the union of dependency
+support. Outcome facts remain per normalized proposition and intentionally do
+not collapse a family of different page or threshold questions.
 \end{theorem}
 \begin{proof}
 For $V=V_1\cup V_2$, distribute both unions in
 Eq.~\eqref{eq:observe} over $V_1,V_2$; this gives
-$\effect(R,V)=\operatorname{merge}(\effect(R,V_1),\effect(R,V_2))$.
+$\rieffect(R,V)=\operatorname{merge}(\rieffect(R,V_1),\rieffect(R,V_2))$.
 E-Page copies each selected keyed row and cell, so a complete disjoint slice
 partition distributes the same two unions over the row index set.  Overlap and
 repetition disappear by set idempotence.  E-Join adds witness multiplicities
@@ -832,7 +898,7 @@ Formal semantics and the independent oracle cover scan/select/project, group
 with four aggregates, inner equijoin, union-distinct, and page. Online lowering
 is narrower: one Catalog product, or the bounded two-input forms below, may feed
 grouping; pagination is one-product only. PostgreSQL end-to-end tests execute
-paired statements and derive V2 observations for hidden keys, join fanout,
+paired statements and derive V2 release/dependency observations for hidden keys, join fanout,
 complete union members, downstream aggregates, and page withholding. The
 supplement gives the four-way coverage matrix. ``Online'' never means arbitrary
 SQL containing the operator is accepted.
@@ -868,7 +934,8 @@ After execution, the gateway reconstructs Catalog-bound Scan annotations,
 retains only provenance-certified join pairs or delivered union classes, and
 invokes the same \code{JoinOnV2}, \code{UnionDistinctV2},
 \code{AggregateFromResultsV2}, and \code{ObserveV2} implementation tested by
-the algebra oracle. It does not maintain a second ad hoc online dependency
+the algebra oracle. V3 then attaches the plan-normal-form and released-result
+commitment from Eq.~\eqref{eq:outcome-fact}. It does not maintain a second ad hoc online dependency
 rule. Hidden SQL output aliases are server-generated hashes and are mapped back
 to stable field IDs before effect derivation and external delivery.
 
@@ -888,16 +955,17 @@ steps (Fig.~\ref{fig:architecture-settlement}b):
 \item Authorize the fixed plan, reserve ordinary and exposure budgets, then
 execute and buffer its visible and provenance statements in one Business
 PostgreSQL \code{REPEATABLE READ} snapshot.
-\item Derive its release and positive-output-dependency observation and reject
+\item Derive its release and positive-output-dependency observation, attach one
+normalized outcome fact (including for empty/zero answers), and reject
 truncated or inconsistent evidence.
 \item In Control PostgreSQL, lock the query reservation and root ledger and
 insert the observation's facts under a primary key on root, ledger kind, and
 fact hash; conflicts contribute zero novel facts.
-\item Conditionally increment both used counters only if both limits remain
+\item Conditionally increment all three used counters only if all limits remain
 valid.
 \item In the same transaction, settle query/row/database-time resources, store
 the encrypted buffered result, append terminal audit evidence, and persist a
-signed V4 receipt.
+signed V5 receipt (V4 remains the backward-compatible two-ledger format).
 \item Commit and only then return the buffered result.
 \end{enumerate}
 
@@ -908,7 +976,7 @@ buffer. PostgreSQL row locking serializes concurrent children at the shared
 root. Unique fact keys make charge equal to successful novel inserts, rather
 than a count computed before a race.
 
-Let $n$ be the number of unique dependency and release facts in one
+Let $n$ be the total number of unique release, dependency, and outcome facts in one
 observation. Hashing is linear in encoded input size and normalization sorts at
 most $n$ hashes, giving $O(n\log n)$ in-memory work and $O(n)$ memory. Ledger
 inserts are chunked; index maintenance adds database-dependent
@@ -917,8 +985,8 @@ complexity bounds, not measured latency claims.
 
 \subsection{Receipts and Failure Semantics}
 
-A V4 Ed25519 receipt binds the root task, profile, actual and charged counts in
-both dimensions, and the SHA-256 of the normalized observation, in addition to
+A V5 Ed25519 receipt binds the root task, profile, actual and charged counts in
+all three dimensions, and the SHA-256 of the normalized observation, in addition to
 authorization, datasource, resource budget, result, and audit evidence. It
 does not expose raw values or FactIDs.
 
@@ -962,24 +1030,26 @@ prevents cross-root accumulation.
 
 \begin{theorem}[Atomic root-family budget safety]
 After any committed settlement sequence, each root ledger equals the union of
-the novel charges of its settled family queries, and neither cardinality
+the novel charges of its settled family queries, and no ledger cardinality
 exceeds its root limit.
 \end{theorem}
 \begin{proof}[Proof sketch]
 All family settlements lock the same root row. The unique fact key admits one
 first insert for each root/kind/hash tuple. A transaction adds exactly its
-successful inserts to the counters, checks both limits, and otherwise rolls
+successful inserts to the counters, checks all limits, and otherwise rolls
 back. Induction over the resulting serial commit order establishes the union
-identity and both bounds.
+identity and all three bounds.
 \end{proof}
 
-\textbf{Budget calibration.} The two ceilings $B^r_T,B^i_T$ are capacity
+\textbf{Budget calibration.} The three ceilings $B^r_T,B^i_T,B^o_T$ are capacity
 declarations, not learned risk scores. In our workflow-first procedure the
 approver fixes fields, scope, sensitivity, and useful questions; a dry run on
 an approved representative snapshot (or conservative cardinality bound) unions
 the FactSets of alternatives, pages, and delegates. From the resulting
-$U(B^r,B^i)$ frontier, the approver selects the smallest dual ceiling meeting
-required workflow completion and records data-growth headroom. Hence 1,000
+$U(B^r,B^i)$ frontier, the approver selects the smallest release/dependency
+ceiling meeting required workflow completion and records data-growth headroom;
+$B^o$ separately caps distinct successful propositions (often at the approved
+query count). Hence 1,000
 means capacity for 1,000 distinct semantic facts, not ``risk 1,000.''
 Section~\ref{sec:rq5} instantiates this procedure.
 
@@ -1006,10 +1076,10 @@ signs the immutable grant. Arbitrary direct SQL remains available only for
 legacy resource-only grants; it fails closed when exposure evidence is
 required.
 The wire and storage label \code{influence} is retained for compatibility;
-under the V2 profile it denotes positive-output dependency, not causal
+under the V2/V3 profiles it denotes positive-output dependency, not causal
 influence.
 
-The control schema stores one dual ledger per root, per-query reservations, and
+The control schema stores one three-dimensional ledger per root, per-query reservations, and
 immutable fact identities. The primary-key and check constraints are backed by
 application transactions and update/delete rejection triggers. Result rows are
 encrypted with AES-GCM; audit events form a hash chain. These mechanisms are
@@ -1020,10 +1090,10 @@ observable.
 \label{sec:formal}
 
 The split TLA+ model \code{ExposureLedger.tla} contains one root, one child, two
-requests, two facts in each ledger universe, both limits set to one, and one
+requests, two facts in each ledger universe, all three limits set to one, and one
 terminal replay. Its transitions are reserve, execute/buffer, derive,
 settle, over-budget reject, pre-execution release, replay, and root revocation.
-It checks dual-budget safety, exact novel charge, no delivery before settlement,
+It checks three-budget safety, exact novel charge, no delivery before settlement,
 no charge without settlement, buffered rejection, evidence/buffer agreement,
 non-overlapping novel charges, task-family non-amplification, and at-most-once
 physical execution for delivered requests.
@@ -1047,9 +1117,10 @@ rather than claiming a proof that does not exist.
 
 The evaluation is organized around five questions: RQ1 ground-truth accuracy;
 RQ2 rewrite invariance of exposure accounting; RQ3 resistance to split, page,
-retry, snapshot, join/union, delegation, and concurrency amplification; RQ4 runtime/storage
+retry, zero/empty threshold probing, snapshot, join/union, delegation, and concurrency amplification; RQ4 runtime/storage
 overhead and cost scaling; and RQ5 workflow-based policy calibration. The report
-is rebuilt from a source-controlled V2 algebra corpus with digest prefix
+is rebuilt for \ExposureProfile{} from a source-controlled V2 base-algebra corpus (V3 preserves
+those release/dependency FactIDs) with digest prefix
 \ExposureCorpusHash{}. The primary RQ2 evidence is a closed-language
 FactSet-invariance campaign; a separate broad SQL result-equivalence stress test
 is reported only in the supplement and is not exposure evidence. RQ4 contains \RQFourTrials{} fresh
@@ -1078,7 +1149,7 @@ RQ1 & \RQOnePassed{}/\RQOneCases{} independent-oracle cases on \RQOneRows{} sour
 RQ2 & \RQTwoExposureRewrites{} closed-language rewrite families, \RQTwoExposureCases{} instances and \RQTwoExposureNFCases{} normal-form checks: FactSet/charge invariant, \RQTwoExposureMismatches{} mismatches \\
 RQ3 & \RQThreePassed{}/\RQThreeCases{} deterministic; \RQThreeIntegration{}/\RQThreeExecuted{} PostgreSQL race tests; paired PG Join/Union exchange and downstream-group tests \\
 RQ4 & \RQFourFullPathOperations{} small-fixture full-path calls plus \RQFourAblationOperations{} ablations; physical ledger curve to \RQFourStorageMaxRows{} rows; end-to-end Join--Group to \RQFourScaleMaxJoined{} members/\RQFourScaleMaxFacts{} dependencies \\
-RQ5 & \RQFiveScenarios{} operational policy scenarios and \RQFiveGoals{} declared workflow goals; exact dual-budget/utility frontiers and fact-class calibration \\
+RQ5 & \RQFiveScenarios{} operational policy scenarios and \RQFiveGoals{} declared workflow goals; exact release/dependency budget--utility slices and fact-class calibration \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1117,11 +1188,21 @@ composes each operator with downstream grouping and aggregation. Its union
 companion must expose both branch members and the hidden full-tuple field; its
 join companion preserves actual fanout pairs. A second test enters through the
 public \code{execute_plan} API, executes against Business PostgreSQL, settles
-both ledgers in Control PostgreSQL, and verifies that internal fields are
+all ledgers in Control PostgreSQL, and verifies that internal fields are
 stripped before release. These two tests plus delegation and concurrent
 root-ledger settlement run with the Go race detector; one artifact binds all
 named test-pass and package-pass events to the SHA-256 of the raw
 \code{go test -json} log.
+
+The V3 outcome-probing case issues \RQThreeThresholdQuestions{} distinct
+global-count predicates whose answer is zero and whose release/dependency
+increments after the first are both zero. They produce
+\RQThreeDistinctOutcomes{} distinct outcome FactIDs and
+\RQThreeOutcomeCharges{} novel outcome charges. Repeating the first predicate
+charges \RQThreeReplayOutcomeCharge{}, and an alias/case/whitespace rewrite
+with the same normal form charges \RQThreeRewriteOutcomeCharge{}. This is an
+anti-collapse test, not a claim that unit outcome cost equals semantic
+information content.
 
 \subsection{Descriptive Baseline Contrast}
 
@@ -1156,6 +1237,13 @@ RQ4 uses the dedicated public-\code{execute_plan} exposure harness. The separate
 four-baseline TPC-derived runner calls legacy resource-only \code{query_sql}; it
 is labeled \code{resource_taskgate}, is not used below, and cannot substantiate
 an exposure/provenance overhead claim.
+
+The recorded scale/performance campaigns exercise the V2 release/dependency
+subledger, which is the dominant materialized set and is byte-for-byte retained
+inside V3. V3 functional and race tests additionally execute the outcome insert
+and V5 receipt, but this artifact does not isolate its one-fact latency at every
+scale. We therefore do not attribute the published RQ4 timings to a separately
+measured V3 outcome overhead.
 
 The controlled local campaign uses an i9-13900HX host with 32 logical CPUs and
 16.6~GB RAM under WSL2/Docker 29.1.3. Each of three trials creates fresh
@@ -1357,20 +1445,21 @@ normal-form depth, and novel-versus-replay deduplication. At
 replay charges \RQFourScalingReplayCharge{}. These isolate cost growth but are
 not substitutes for the PostgreSQL end-to-end result.
 
-\subsection{RQ5: Policy Calibration and Workflow Utility}
+\subsection{RQ5: Fixture-Based Policy Calibration}
 \label{sec:rq5}
 
 RQ5 instantiates finance summary, overlapping-page case review, and delegated
 exception-escalation policies on the 16-row auditable fixture. Each declares
 three binary goals; $U$ is their admitted fraction, not human-rated, model, or
 agent success. We enumerate each scenario's eight subsets and report the best
-feasible $U$ at 25, 50, 75, and 100\% of its full dual ceiling. The digest-checked
+feasible $U$ at 25, 50, 75, and 100\% of its full release/dependency ceiling,
+with the outcome ceiling fixed above the three goal propositions. The digest-checked
 manifest identifies sensitive fields and aggregate steps.
 
 The full ceilings are \RQFiveFinanceFull{}, \RQFiveReviewFull{}, and
 \RQFiveDelegationFull{}; dependency row/ordinary/sensitive/aggregate-support
 counts are \RQFiveFinanceClasses{}, \RQFiveReviewClasses{}, and
-\RQFiveDelegationClasses{}. At 25/50/75/100\% of each full dual ceiling, best
+\RQFiveDelegationClasses{}. At 25/50/75/100\% of each full release/dependency ceiling, best
 utility is 0/33/66/100\%; the supplement gives every $(B^r,B^i)/U$ point.
 Finance's $(5,9)$ quarter-budget admits nothing, demonstrating why an
 uncalibrated ``10'' has no governance meaning.
@@ -1396,10 +1485,13 @@ source digests; reproducibility does not remove these external-validity bounds.
 \section{Limitations and Threats to Validity}
 \label{sec:limits}
 
-\textbf{Semantic scope.} The model accounts positive explicit disclosure, not
-rejected rows, negative/empty-answer inference, non-output groups or pages,
-order/rank-only inputs, timing, correlations, background knowledge, or physical
-reads. It is neither minimal causal provenance nor differential privacy.
+\textbf{Semantic scope.} V3 accounts each successful normalized proposition,
+including an empty relation or zero scalar, but assigns one unit rather than
+estimating its information content. It does not enumerate rejected rows as
+dependencies or account non-output groups/pages, order/rank-only inputs,
+timing, correlations, background knowledge, or physical reads. A single rich
+proposition may reveal more than one bit. The mechanism is neither minimal
+causal provenance nor differential privacy.
 
 \textbf{Decision and subject scope.} Refusal exposes an uncharged threshold bit;
 no denial noninterference is claimed. Ledgers cover one root family, so repeated
@@ -1424,10 +1516,11 @@ establish distributed, production, multi-engine, or live-agent behavior.
 \section{Conclusion}
 
 \system adds a stateful exposure boundary to task-scoped authorization: typed
-release/dependency facts, same-snapshot evidence, exact pre-release novel-set
+release/dependency/outcome facts, same-snapshot evidence, exact pre-release novel-set
 settlement, and one conserved root-family ledger. The finite model and
 PostgreSQL campaigns support the declared safety properties and rewrite scope.
-They also expose the design's present systems limit: million-fact exact replay
+The outcome dimension closes the same-result threshold collapse while keeping
+same-proposition replay free. The experiments also expose the design's present systems limit: million-fact exact replay
 charges zero yet takes \RQFourScaleHighReplayS{}~s. Making that guarantee
 streaming and compact, without weakening atomic budget safety, is the central
 next step.

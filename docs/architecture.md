@@ -2,7 +2,7 @@
 
 Gateway 把数据访问绑定到不可扩权的 `TaskGrant`，并把累计数据暴露绑定到
 签名的根任务族：主体、目的、产品、字段、强制 Scope、敏感级别、资源预算、
-双 exposure 预算、期限、Catalog 版本和审批凭证缺一不可。Agent 提交的
+三维 exposure 预算、期限、Catalog 版本和审批凭证缺一不可。Agent 提交的
 结构化对象、QueryPlan 和 SQL 都是不可信输入；Gateway 内没有模型调用。
 
 ```mermaid
@@ -10,7 +10,7 @@ flowchart LR
     A[Codex / 第三方 Agent] -->|MCP 2.0 + Bearer Token| G[Gateway :8082]
     G -->|创建草稿| O[OA Demo :8092]
     O -->|HMAC 传输认证 + Ed25519 审批回执| G
-    G -->|任务族 / Grant / 双账本 / 密文结果 / 审计链| C[(Control PostgreSQL<br/>host :25433)]
+    G -->|任务族 / Grant / 三维账本 / 密文结果 / 审计链| C[(Control PostgreSQL<br/>host :25433)]
     G -->|同快照结果 + provenance 查询| B[(Business PostgreSQL<br/>internal network only)]
     B --> V[reporting.* Views]
     B -. 权限拒绝 .-> X[legacy.* / 写操作]
@@ -30,14 +30,14 @@ Docker 宿主机、Catalog 管理者及能读取 `.env`/Volume 的管理员属�
 
 1. Agent 调用 `list_data_products`，读取逻辑产品、字段和 Scope 的完整允许值/日期边界。
 2. Agent 调用 `request_data_task`，显式提交目的、非空产品列表、每个产品的非空字段列表、Scope 和可选缩小预算。委托任务还必须提交父任务和目标 Principal。Gateway 不推断缺失授权。
-3. Gateway 按 Catalog 校验并规范化申请，确定敏感级别、审批路由、资源预算、release/influence 上限和 TTL；客户端预算只能缩小 Profile 上限，子任务还必须收缩父 Grant。
+3. Gateway 按 Catalog 校验并规范化申请，确定敏感级别、审批路由、资源预算、release/influence/outcome 上限和 TTL；客户端预算只能缩小 Profile 上限，子任务还必须收缩父 Grant。
 4. Gateway 构造身份派生的 `AuthorizationManifestV1`，绑定 root/parent lineage，经 RFC 8785 规范化并使用 `TASKGATE-MANIFEST-V1\0` 域分隔计算 SHA-256；同时保存 pending 上下文并创建 OA 草稿。
 5. OA 可 `approve/reject/narrow`。回调处理校验 HMAC、双时间戳、Event ID、状态、actor、Catalog/context/Manifest 摘要、Grant 单调收缩和 OA Ed25519 `ApprovalReceiptV1`。在一个 PostgreSQL 事务中写审批事件、不可变最终 Grant、预算和状态。
 6. ACTIVE exposure 任务调用带必填 `request_id` 的 `execute_plan`。QueryPlan 由本地 Go 包严格验证，并确定性编译成可见查询和 provenance companion；两条 SQL 都经过 `pg_query_go/v6` PostgreSQL AST 白名单策略。Exposure grant 下的任意 `query_sql` 会关闭式拒绝。
 7. 策略把物理 Reporting View 封装为只暴露获批字段和强制 Scope 的 CTE，在最外层施加剩余行预算，并只为计量临时加入 Catalog 固定的实体键。
 8. 控制库以 `(task_id, request_id)` 唯一约束完成幂等检查，同时预留资源预算和 exposure evidence。业务库在同一个只读 `REPEATABLE READ` 事务中执行两条查询，结果先留在 Gateway 内。
-9. Gateway 推导 release 与 positive-output dependency FactID（兼容 ledger 标签仍为 `influence`）。控制库锁定 root ledger，只插入相对整个任务族的新事实；双上限检查、资源结算、AES-256-GCM 结果、终态审计和回执在同一事务提交。超限或证据不完整时不交付缓冲结果。
-10. 成功结果以结构化 JSON 返回任务主体。Gateway 的 Ed25519 V4 查询回执绑定 Manifest/Grant/Catalog、请求、资源预算、result hash、root task、Profile、actual/charged 双 exposure 和 observation digest；无 exposure evidence 的兼容终态继续使用 V3。公钥由 `/.well-known/taskgate/query-receipt-keyring.json` 发布。审计凭证返回终态事件、前驱事件、通向当前 checkpoint 的后继路径和 checkpoint，并在返回前重建 Hash Chain 校验。配置 `GATEWAY_AUDIT_ANCHOR_URL` 时，Gateway 会定期把当前 checkpoint 签名为 `taskgate-audit-checkpoint-anchor/v1` 并 POST 到外部日志/WORM 服务。未配置外部 Anchor 时，该链只提供 Gateway 日志修改检测，不声称 WORM 或外部不可篡改。
+9. Gateway 推导 release 与 positive-output dependency FactID（兼容 ledger 标签仍为 `influence`），并把规范化 QueryPlan/结果绑定为 OutcomeFact。控制库锁定 root ledger，只插入相对整个任务族的新事实；三维上限检查、资源结算、AES-256-GCM 结果、终态审计和回执在同一事务提交。超限或证据不完整时不交付缓冲结果。
+10. 成功结果以结构化 JSON 返回任务主体。Gateway 的 Ed25519 V5 查询回执绑定 Manifest/Grant/Catalog、请求、资源预算、result hash、root task、Profile、actual/charged 三维 exposure 和 observation digest；V4/V3 保留兼容。公钥由 `/.well-known/taskgate/query-receipt-keyring.json` 发布。审计凭证返回终态事件、前驱事件、通向当前 checkpoint 的后继路径和 checkpoint，并在返回前重建 Hash Chain 校验。配置 `GATEWAY_AUDIT_ANCHOR_URL` 时，Gateway 会定期把当前 checkpoint 签名为 `taskgate-audit-checkpoint-anchor/v1` 并 POST 到外部日志/WORM 服务。未配置外部 Anchor 时，该链只提供 Gateway 日志修改检测，不声称 WORM 或外部不可篡改。
 
 Exposure 语义、代数和在线支持矩阵见[任务级数据暴露记账](exposure-accounting.md)。
 

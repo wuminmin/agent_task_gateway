@@ -99,6 +99,7 @@ type BudgetProfile struct {
 	TaskTTL                Duration `yaml:"task_ttl" json:"task_ttl"`
 	MaxReleaseFacts        int64    `yaml:"max_release_facts,omitempty" json:"max_release_facts,omitempty"`
 	MaxInfluenceFacts      int64    `yaml:"max_influence_facts,omitempty" json:"max_influence_facts,omitempty"`
+	MaxOutcomeFacts        int64    `yaml:"max_outcome_facts,omitempty" json:"max_outcome_facts,omitempty"`
 	ExposureProfileVersion string   `yaml:"exposure_profile_version,omitempty" json:"exposure_profile_version,omitempty"`
 }
 
@@ -109,7 +110,7 @@ func (p BudgetProfile) Budget() domain.Budget {
 		MaxDBTime:       p.MaxDBTime.Duration,
 		PerQueryTimeout: p.QueryTimeout.Duration,
 		TaskTTL:         p.TaskTTL.Duration,
-		MaxReleaseFacts: p.MaxReleaseFacts, MaxInfluenceFacts: p.MaxInfluenceFacts,
+		MaxReleaseFacts: p.MaxReleaseFacts, MaxInfluenceFacts: p.MaxInfluenceFacts, MaxOutcomeFacts: p.MaxOutcomeFacts,
 		ExposureProfileVersion: p.ExposureProfileVersion,
 	}
 }

@@ -26,7 +26,9 @@ const (
 	RowExistenceField = "$row"
 	ProfileV1         = "taskgate-exposure-v1"
 	ProfileV2         = "taskgate-exposure-v2"
+	ProfileV3         = "taskgate-exposure-v3"
 	factDomainV2      = "TASKGATE-FACT-V2\x00"
+	factDomainV3      = "TASKGATE-FACT-V3\x00"
 )
 
 // FactKind identifies the semantic category of a V2 fact. The hash is only an
@@ -37,6 +39,7 @@ const (
 	FactBaseRow  FactKind = "base-row"
 	FactBaseCell FactKind = "base-cell"
 	FactDerived  FactKind = "derived"
+	FactOutcome  FactKind = "outcome"
 )
 
 // SnapshotBinding is one member of an immutable derived-query snapshot
@@ -68,13 +71,25 @@ type FactID struct {
 	OutputRowKey         string            `json:"output_row_key,omitempty"`
 	NormalizedExpression string            `json:"normalized_expression,omitempty"`
 	WitnessCommitment    string            `json:"witness_commitment,omitempty"`
+
+	// V3 query-outcome payload. Release and positive-output dependency facts
+	// intentionally retain their V2 identity; only proposition-bearing outcome
+	// facts use this representation.
+	QueryNormalFormVersion string `json:"query_normal_form_version,omitempty"`
+	QueryNormalFormSHA256  string `json:"query_normal_form_sha256,omitempty"`
+	OutcomeSHA256          string `json:"outcome_sha256,omitempty"`
+	OutcomeRows            int64  `json:"outcome_rows,omitempty"`
 }
 
-func (f FactID) IsV2() bool { return f.Profile != "" || f.Kind != "" }
+func (f FactID) IsV2() bool { return f.Profile == ProfileV2 }
+
+func (f FactID) IsV3() bool { return f.Profile == ProfileV3 }
+
+func (f FactID) isVersioned() bool { return f.Profile != "" || f.Kind != "" }
 
 func (f FactID) Validate() error {
-	if f.IsV2() {
-		return f.validateV2()
+	if f.isVersioned() {
+		return f.validateVersioned()
 	}
 	for name, value := range map[string]string{
 		"product": f.Product, "snapshot": f.Snapshot, "entity_key": f.EntityKey,
@@ -90,23 +105,26 @@ func (f FactID) Validate() error {
 	return nil
 }
 
-func (f FactID) validateV2() error {
-	if f.Profile != ProfileV2 {
-		return fmt.Errorf("%w: V2 fact requires profile %q", ErrInvalid, ProfileV2)
-	}
+func (f FactID) validateVersioned() error {
 	if f.Product != "" || f.ValueVersion != "" {
-		return fmt.Errorf("%w: V1 and V2 fact fields cannot be mixed", ErrInvalid)
+		return fmt.Errorf("%w: V1 and versioned fact fields cannot be mixed", ErrInvalid)
 	}
 	switch f.Kind {
 	case FactBaseRow:
+		if f.Profile != ProfileV2 {
+			return fmt.Errorf("%w: base-row fact requires profile %q", ErrInvalid, ProfileV2)
+		}
 		if invalidToken(f.SourceNamespace) || invalidToken(f.Snapshot) || invalidToken(f.EntityKey) {
 			return fmt.Errorf("%w: base row namespace, snapshot, and entity key are required", ErrInvalid)
 		}
 		if f.Field != "" || f.SQLType != "" || f.CanonicalValue != "" || len(f.SnapshotBundle) != 0 ||
-			f.OutputRowKey != "" || f.NormalizedExpression != "" || f.WitnessCommitment != "" {
+			f.OutputRowKey != "" || f.NormalizedExpression != "" || f.WitnessCommitment != "" || f.hasOutcomePayload() {
 			return fmt.Errorf("%w: base row carries cell or derived fields", ErrInvalid)
 		}
 	case FactBaseCell:
+		if f.Profile != ProfileV2 {
+			return fmt.Errorf("%w: base-cell fact requires profile %q", ErrInvalid, ProfileV2)
+		}
 		if invalidToken(f.SourceNamespace) || invalidToken(f.Snapshot) || invalidToken(f.EntityKey) ||
 			invalidToken(f.Field) || invalidToken(f.SQLType) || f.CanonicalValue == "" {
 			return fmt.Errorf("%w: base cell payload is incomplete", ErrInvalid)
@@ -115,13 +133,16 @@ func (f FactID) validateV2() error {
 		if err != nil || canonicalType != f.SQLType {
 			return fmt.Errorf("%w: base cell SQL type is not canonical", ErrInvalid)
 		}
-		if len(f.SnapshotBundle) != 0 || f.OutputRowKey != "" || f.NormalizedExpression != "" || f.WitnessCommitment != "" {
+		if len(f.SnapshotBundle) != 0 || f.OutputRowKey != "" || f.NormalizedExpression != "" || f.WitnessCommitment != "" || f.hasOutcomePayload() {
 			return fmt.Errorf("%w: base cell carries derived fields", ErrInvalid)
 		}
 	case FactDerived:
+		if f.Profile != ProfileV2 {
+			return fmt.Errorf("%w: derived fact requires profile %q", ErrInvalid, ProfileV2)
+		}
 		if f.SourceNamespace != "" || f.Snapshot != "" || f.EntityKey != "" || f.Field != "" ||
 			invalidToken(f.OutputRowKey) || invalidToken(f.NormalizedExpression) || invalidToken(f.SQLType) ||
-			f.CanonicalValue == "" || !isSHA256(f.WitnessCommitment) || len(f.SnapshotBundle) == 0 {
+			f.CanonicalValue == "" || !isSHA256(f.WitnessCommitment) || len(f.SnapshotBundle) == 0 || f.hasOutcomePayload() {
 			return fmt.Errorf("%w: derived fact payload is incomplete or mixed", ErrInvalid)
 		}
 		canonicalType, err := CanonicalSQLTypeV2(f.SQLType)
@@ -138,10 +159,27 @@ func (f FactID) validateV2() error {
 			}
 			seen[binding.SourceNamespace] = struct{}{}
 		}
+	case FactOutcome:
+		if f.Profile != ProfileV3 {
+			return fmt.Errorf("%w: outcome fact requires profile %q", ErrInvalid, ProfileV3)
+		}
+		if f.SourceNamespace != "" || f.Snapshot != "" || f.EntityKey != "" || f.Field != "" ||
+			f.SQLType != "" || f.CanonicalValue != "" || len(f.SnapshotBundle) != 0 || f.OutputRowKey != "" ||
+			f.NormalizedExpression != "" || f.WitnessCommitment != "" {
+			return fmt.Errorf("%w: outcome fact carries base or derived fields", ErrInvalid)
+		}
+		if invalidToken(f.QueryNormalFormVersion) || !isSHA256(f.QueryNormalFormSHA256) ||
+			!isSHA256(f.OutcomeSHA256) || f.OutcomeRows < 0 {
+			return fmt.Errorf("%w: outcome fact payload is incomplete", ErrInvalid)
+		}
 	default:
-		return fmt.Errorf("%w: unknown V2 fact kind %q", ErrInvalid, f.Kind)
+		return fmt.Errorf("%w: unknown versioned fact kind %q", ErrInvalid, f.Kind)
 	}
 	return nil
+}
+
+func (f FactID) hasOutcomePayload() bool {
+	return f.QueryNormalFormVersion != "" || f.QueryNormalFormSHA256 != "" || f.OutcomeSHA256 != "" || f.OutcomeRows != 0
 }
 
 func invalidToken(value string) bool {
@@ -162,7 +200,7 @@ func (f FactID) CanonicalPayload() ([]byte, error) {
 	if err := f.Validate(); err != nil {
 		return nil, err
 	}
-	if !f.IsV2() {
+	if !f.isVersioned() {
 		// Preserve the V1 hash byte-for-byte. The added fields use omitempty.
 		return json.Marshal(f)
 	}
@@ -199,6 +237,11 @@ func (f FactID) CanonicalPayload() ([]byte, error) {
 		writeCanonicalString(&payload, f.SQLType)
 		writeCanonicalString(&payload, f.CanonicalValue)
 		writeCanonicalString(&payload, f.WitnessCommitment)
+	case FactOutcome:
+		writeCanonicalString(&payload, f.QueryNormalFormVersion)
+		writeCanonicalString(&payload, f.QueryNormalFormSHA256)
+		writeCanonicalString(&payload, f.OutcomeSHA256)
+		writeCanonicalUint64(&payload, uint64(f.OutcomeRows))
 	}
 	return payload.Bytes(), nil
 }
@@ -211,6 +254,8 @@ func (f FactID) Hash() (string, error) {
 	}
 	if f.IsV2() {
 		payload = append([]byte(factDomainV2), payload...)
+	} else if f.IsV3() {
+		payload = append([]byte(factDomainV3), payload...)
 	}
 	digest := sha256.Sum256(payload)
 	return hex.EncodeToString(digest[:]), nil
@@ -247,6 +292,18 @@ func NewDerivedFactV2(snapshotBundle []SnapshotBinding, outputRowKey, normalized
 	fact := FactID{Profile: ProfileV2, Kind: FactDerived, SnapshotBundle: append([]SnapshotBinding(nil), snapshotBundle...),
 		OutputRowKey: outputRowKey, NormalizedExpression: normalizedExpression, SQLType: typeName,
 		CanonicalValue: canonical, WitnessCommitment: witnessCommitment}
+	return fact, fact.Validate()
+}
+
+func NewOutcomeFactV3(normalFormVersion, normalFormSHA256, outcomeSHA256 string, outcomeRows int64) (FactID, error) {
+	fact := FactID{
+		Profile:                ProfileV3,
+		Kind:                   FactOutcome,
+		QueryNormalFormVersion: normalFormVersion,
+		QueryNormalFormSHA256:  normalFormSHA256,
+		OutcomeSHA256:          outcomeSHA256,
+		OutcomeRows:            outcomeRows,
+	}
 	return fact, fact.Validate()
 }
 
@@ -982,13 +1039,16 @@ func (s FactSet) Values() []FactID {
 	return result
 }
 
-// Observation is the dual-ledger effect of a buffered result. Influence is the
-// compatibility wire/storage label for the V2 positive-output dependency
+// Observation is the ledger effect of a buffered result. Influence is the
+// compatibility wire/storage label for the positive-output dependency
 // footprint; it does not denote minimal causal influence or physical reads.
+// V3 adds Outcome facts that bind the normalized query proposition to the
+// released result, including empty and zero-valued answers.
 type Observation struct {
 	ProfileVersion string   `json:"profile_version"`
 	Release        []FactID `json:"release"`
 	Influence      []FactID `json:"influence"`
+	Outcome        []FactID `json:"outcome,omitempty"`
 }
 
 func (o Observation) Normalize() (Observation, error) {
@@ -1003,22 +1063,35 @@ func (o Observation) Normalize() (Observation, error) {
 	if err != nil {
 		return Observation{}, err
 	}
+	outcome, err := NewFactSet(o.Outcome...)
+	if err != nil {
+		return Observation{}, err
+	}
 	for _, set := range []FactSet{release, influence} {
 		for _, fact := range set {
-			if o.ProfileVersion == ProfileV2 && (!fact.IsV2() || fact.Profile != ProfileV2) {
-				return Observation{}, fmt.Errorf("%w: V2 observation contains a non-V2 fact", ErrInvalid)
+			if (o.ProfileVersion == ProfileV2 || o.ProfileVersion == ProfileV3) && !fact.IsV2() {
+				return Observation{}, fmt.Errorf("%w: V2/V3 release or influence set contains a non-V2 fact", ErrInvalid)
 			}
-			if o.ProfileVersion != ProfileV2 && fact.IsV2() {
+			if o.ProfileVersion != ProfileV2 && o.ProfileVersion != ProfileV3 && fact.isVersioned() {
 				return Observation{}, fmt.Errorf("%w: V2 fact cannot enter profile %q", ErrInvalid, o.ProfileVersion)
 			}
 		}
 	}
-	return Observation{ProfileVersion: o.ProfileVersion, Release: release.Values(), Influence: influence.Values()}, nil
+	for _, fact := range outcome {
+		if o.ProfileVersion != ProfileV3 || !fact.IsV3() || fact.Kind != FactOutcome {
+			return Observation{}, fmt.Errorf("%w: outcome facts require profile %q", ErrInvalid, ProfileV3)
+		}
+	}
+	if o.ProfileVersion != ProfileV3 && len(outcome) != 0 {
+		return Observation{}, fmt.Errorf("%w: profile %q cannot carry outcome facts", ErrInvalid, o.ProfileVersion)
+	}
+	return Observation{ProfileVersion: o.ProfileVersion, Release: release.Values(), Influence: influence.Values(), Outcome: outcome.Values()}, nil
 }
 
 func MergeObservations(profile string, observations ...Observation) (Observation, error) {
 	release := make(FactSet)
 	influence := make(FactSet)
+	outcome := make(FactSet)
 	for _, observation := range observations {
 		normalized, err := observation.Normalize()
 		if err != nil {
@@ -1035,6 +1108,10 @@ func MergeObservations(profile string, observations ...Observation) (Observation
 		if err := influence.MergeChecked(set); err != nil {
 			return Observation{}, err
 		}
+		set, _ = NewFactSet(normalized.Outcome...)
+		if err := outcome.MergeChecked(set); err != nil {
+			return Observation{}, err
+		}
 	}
-	return Observation{ProfileVersion: profile, Release: release.Values(), Influence: influence.Values()}, nil
+	return Observation{ProfileVersion: profile, Release: release.Values(), Influence: influence.Values(), Outcome: outcome.Values()}, nil
 }

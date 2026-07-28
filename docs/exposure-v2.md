@@ -4,8 +4,9 @@
 
 `taskgate-exposure-v2` 是与 V1 不可混用的 Exposure Profile。一个 root task family 的 Control PG ledger 在创建时固定 profile；委托任务不能改变它。
 
-默认 Catalog 只定义 V2 budget profiles；low、medium、high approval routes
-全部要求独立的人类审批，不存在自动批准路径。
+默认 Catalog 定义 V3 budget profiles；V3 原样复用本文的 V2
+release/dependency FactID，再增加 OutcomeFact。旧 V1/V2 仍用于历史账本、
+兼容部署和回归测试。所有 approval routes 都要求独立的人类审批。
 
 V2 的执行边界是：客户端每次提交一个确定的 `QueryPlan`，不提交 FactID 或
 计量成本。Gateway 在同一个 Business PostgreSQL `REPEATABLE READ` 快照内执行
@@ -28,9 +29,10 @@ Profile 的闭合关系代数规则，计入参与成功推导的基础 row/cell
 不要求是最小 causal provenance，也不等于 PostgreSQL 执行计划的完整 physical
 read set。
 
-V2 明确不计量 selection 为 FALSE/UNKNOWN 的行、空结果所隐含的负信息、未返
+V2 base algebra 明确不计量 selection 为 FALSE/UNKNOWN 的行、空结果所隐含的负信息、未返
 回的 group、page 外行、仅用于确定排序/排名的非输出行或排序信息，以及 timing、
 cardinality side channel、背景知识和数据库物理读取但未进入正向输出推导的数据。
+V3 会对成功的空/零命题收取一个 outcome 单位，但仍不估算该命题的信息量。
 因此文档中的 “exact” 只表示相对于下述 contract-defined dependency profile
 精确；它不表示完整 source access 或反事实因果关系。
 

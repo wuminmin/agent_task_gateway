@@ -24,7 +24,8 @@ const (
 func validateExposureGrant(grant ExposureGrant) error {
 	release := grant.Limits.ReleaseFacts
 	influence := grant.Limits.InfluenceFacts
-	if release < 0 || influence < 0 {
+	outcome := grant.Limits.OutcomeFacts
+	if release < 0 || influence < 0 || outcome < 0 {
 		return fmt.Errorf("exposure limits cannot be negative")
 	}
 	if (release == 0) != (influence == 0) {
@@ -33,8 +34,14 @@ func validateExposureGrant(grant ExposureGrant) error {
 	if release > 0 && strings.TrimSpace(grant.ProfileVersion) == "" {
 		return fmt.Errorf("exposure profile version is required")
 	}
-	if release > 0 && grant.ProfileVersion != exposure.ProfileV1 && grant.ProfileVersion != exposure.ProfileV2 {
+	if release > 0 && grant.ProfileVersion != exposure.ProfileV1 && grant.ProfileVersion != exposure.ProfileV2 && grant.ProfileVersion != exposure.ProfileV3 {
 		return fmt.Errorf("unsupported exposure profile version")
+	}
+	if grant.ProfileVersion == exposure.ProfileV3 && outcome <= 0 {
+		return fmt.Errorf("V3 requires a positive outcome limit")
+	}
+	if grant.ProfileVersion != exposure.ProfileV3 && outcome != 0 {
+		return fmt.Errorf("outcome limit requires V3")
 	}
 	if release == 0 && grant.ProfileVersion != "" {
 		return fmt.Errorf("exposure profile requires positive limits")
@@ -52,11 +59,11 @@ func ensureExposureLedgerTx(ctx context.Context, tx *sql.Tx, taskID string, gran
 	}
 	var existing ExposureLedgerSnapshot
 	err := tx.QueryRowContext(ctx, `
-SELECT root_task_id, profile_version, max_release_facts, max_influence_facts,
-       used_release_facts, used_influence_facts, updated_at
+SELECT root_task_id, profile_version, max_release_facts, max_influence_facts, max_outcome_facts,
+       used_release_facts, used_influence_facts, used_outcome_facts, updated_at
 FROM exposure_ledgers WHERE root_task_id=$1 FOR UPDATE`, rootTaskID).
 		Scan(&existing.RootTaskID, &existing.ProfileVersion, &existing.Limits.ReleaseFacts,
-			&existing.Limits.InfluenceFacts, &existing.Used.ReleaseFacts, &existing.Used.InfluenceFacts,
+			&existing.Limits.InfluenceFacts, &existing.Limits.OutcomeFacts, &existing.Used.ReleaseFacts, &existing.Used.InfluenceFacts, &existing.Used.OutcomeFacts,
 			&existing.UpdatedAt)
 	if !grant.Enabled() {
 		if err == nil {
@@ -69,7 +76,7 @@ FROM exposure_ledgers WHERE root_task_id=$1 FOR UPDATE`, rootTaskID).
 	}
 	if err == nil {
 		if existing.ProfileVersion != grant.ProfileVersion || grant.Limits.ReleaseFacts > existing.Limits.ReleaseFacts ||
-			grant.Limits.InfluenceFacts > existing.Limits.InfluenceFacts {
+			grant.Limits.InfluenceFacts > existing.Limits.InfluenceFacts || grant.Limits.OutcomeFacts > existing.Limits.OutcomeFacts {
 			return fmt.Errorf("delegated exposure grant expands or changes its root ledger")
 		}
 		return nil
@@ -81,9 +88,9 @@ FROM exposure_ledgers WHERE root_task_id=$1 FOR UPDATE`, rootTaskID).
 		return fmt.Errorf("delegated task has no root exposure ledger")
 	}
 	_, err = tx.ExecContext(ctx, `
-INSERT INTO exposure_ledgers(root_task_id, profile_version, max_release_facts, max_influence_facts, updated_at)
-VALUES ($1, $2, $3, $4, $5)`, rootTaskID, grant.ProfileVersion, grant.Limits.ReleaseFacts,
-		grant.Limits.InfluenceFacts, dbTime(now))
+INSERT INTO exposure_ledgers(root_task_id, profile_version, max_release_facts, max_influence_facts, max_outcome_facts, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6)`, rootTaskID, grant.ProfileVersion, grant.Limits.ReleaseFacts,
+		grant.Limits.InfluenceFacts, grant.Limits.OutcomeFacts, dbTime(now))
 	return err
 }
 
@@ -95,11 +102,11 @@ func (s *Store) GetExposureLedger(ctx context.Context, taskID string) (ExposureL
 	var result ExposureLedgerSnapshot
 	var updated time.Time
 	err := s.db.QueryRowContext(ctx, `
-SELECT l.root_task_id, l.profile_version, l.max_release_facts, l.max_influence_facts,
-       l.used_release_facts, l.used_influence_facts, l.updated_at
+SELECT l.root_task_id, l.profile_version, l.max_release_facts, l.max_influence_facts, l.max_outcome_facts,
+       l.used_release_facts, l.used_influence_facts, l.used_outcome_facts, l.updated_at
 FROM tasks t JOIN exposure_ledgers l ON l.root_task_id=t.root_task_id
-WHERE t.id=$1`, taskID).Scan(&result.RootTaskID, &result.ProfileVersion, &result.Limits.ReleaseFacts,
-		&result.Limits.InfluenceFacts, &result.Used.ReleaseFacts, &result.Used.InfluenceFacts, &updated)
+	WHERE t.id=$1`, taskID).Scan(&result.RootTaskID, &result.ProfileVersion, &result.Limits.ReleaseFacts,
+		&result.Limits.InfluenceFacts, &result.Limits.OutcomeFacts, &result.Used.ReleaseFacts, &result.Used.InfluenceFacts, &result.Used.OutcomeFacts, &updated)
 	if err != nil {
 		if isNoRows(err) {
 			return ExposureLedgerSnapshot{}, opErr(op, ErrNotFound, err)
@@ -130,20 +137,22 @@ func reserveExposureTx(ctx context.Context, tx *sql.Tx, queryID, taskID string, 
 		return nil, ErrExposureEvidenceRequired
 	}
 	if strings.TrimSpace(request.ProfileVersion) == "" || request.ProfileVersion != profile ||
-		request.EstimatedReleaseFacts < 0 || request.EstimatedInfluenceFacts < 0 {
+		request.EstimatedReleaseFacts < 0 || request.EstimatedInfluenceFacts < 0 || request.EstimatedOutcomeFacts < 0 ||
+		(profile == exposure.ProfileV3 && request.EstimatedOutcomeFacts == 0) ||
+		(profile != exposure.ProfileV3 && request.EstimatedOutcomeFacts != 0) {
 		return nil, fmt.Errorf("invalid exposure reservation")
 	}
 	_, err = tx.ExecContext(ctx, `
 INSERT INTO query_exposure_reservations(query_id, task_id, root_task_id, profile_version, status,
-       estimated_release_facts, estimated_influence_facts, created_at)
-VALUES ($1, $2, $3, $4, 'RESERVED', $5, $6, $7)`, queryID, taskID, rootTaskID, profile,
-		request.EstimatedReleaseFacts, request.EstimatedInfluenceFacts, dbTime(now))
+       estimated_release_facts, estimated_influence_facts, estimated_outcome_facts, created_at)
+VALUES ($1, $2, $3, $4, 'RESERVED', $5, $6, $7, $8)`, queryID, taskID, rootTaskID, profile,
+		request.EstimatedReleaseFacts, request.EstimatedInfluenceFacts, request.EstimatedOutcomeFacts, dbTime(now))
 	if err != nil {
 		return nil, err
 	}
 	return &ExposureReservation{QueryID: queryID, TaskID: taskID, RootTaskID: rootTaskID,
 		ProfileVersion: profile, EstimatedReleaseFacts: request.EstimatedReleaseFacts,
-		EstimatedInfluenceFacts: request.EstimatedInfluenceFacts}, nil
+		EstimatedInfluenceFacts: request.EstimatedInfluenceFacts, EstimatedOutcomeFacts: request.EstimatedOutcomeFacts}, nil
 }
 
 type exposureSettlementMetrics struct {
@@ -165,12 +174,12 @@ func settleExposureMeasuredTx(ctx context.Context, tx *sql.Tx, now time.Time, qu
 	reservationLockStarted := time.Now()
 	err := tx.QueryRowContext(ctx, `
 SELECT query_id, task_id, root_task_id, profile_version, estimated_release_facts,
-       estimated_influence_facts, status, actual_release_facts, actual_influence_facts,
-       charged_release_facts, charged_influence_facts, observation_sha256
+       estimated_influence_facts, estimated_outcome_facts, status, actual_release_facts, actual_influence_facts, actual_outcome_facts,
+       charged_release_facts, charged_influence_facts, charged_outcome_facts, observation_sha256
 FROM query_exposure_reservations WHERE query_id=$1 FOR UPDATE`, queryID).
 		Scan(&reservation.QueryID, &reservation.TaskID, &reservation.RootTaskID, &reservation.ProfileVersion,
-			&reservation.EstimatedReleaseFacts, &reservation.EstimatedInfluenceFacts, &status,
-			&actual.ReleaseFacts, &actual.InfluenceFacts, &charged.ReleaseFacts, &charged.InfluenceFacts,
+			&reservation.EstimatedReleaseFacts, &reservation.EstimatedInfluenceFacts, &reservation.EstimatedOutcomeFacts, &status,
+			&actual.ReleaseFacts, &actual.InfluenceFacts, &actual.OutcomeFacts, &charged.ReleaseFacts, &charged.InfluenceFacts, &charged.OutcomeFacts,
 			&storedDigest)
 	metrics.ReservationLock = time.Since(reservationLockStarted)
 	if isNoRows(err) {
@@ -192,6 +201,10 @@ FROM query_exposure_reservations WHERE query_id=$1 FOR UPDATE`, queryID).
 	if normalized.ProfileVersion != reservation.ProfileVersion {
 		return nil, metrics, fmt.Errorf("exposure observation uses a different profile")
 	}
+	if (reservation.ProfileVersion == exposure.ProfileV3 && len(normalized.Outcome) != 1) ||
+		(reservation.ProfileVersion != exposure.ProfileV3 && len(normalized.Outcome) != 0) {
+		return nil, metrics, fmt.Errorf("exposure observation has an invalid outcome fact count")
+	}
 	encoded, err := json.Marshal(normalized)
 	if err != nil {
 		return nil, metrics, err
@@ -204,8 +217,8 @@ FROM query_exposure_reservations WHERE query_id=$1 FOR UPDATE`, queryID).
 		}
 		return &ExposureCharge{QueryID: queryID, RootTaskID: reservation.RootTaskID,
 			ProfileVersion: reservation.ProfileVersion, ActualReleaseFacts: actual.ReleaseFacts,
-			ActualInfluenceFacts: actual.InfluenceFacts, ChargedReleaseFacts: charged.ReleaseFacts,
-			ChargedInfluenceFacts: charged.InfluenceFacts, ObservationSHA256: digest}, metrics, nil
+			ActualInfluenceFacts: actual.InfluenceFacts, ActualOutcomeFacts: actual.OutcomeFacts, ChargedReleaseFacts: charged.ReleaseFacts,
+			ChargedInfluenceFacts: charged.InfluenceFacts, ChargedOutcomeFacts: charged.OutcomeFacts, ObservationSHA256: digest}, metrics, nil
 	}
 	if status != exposureReserved {
 		return nil, metrics, fmt.Errorf("exposure reservation is %s", status)
@@ -214,11 +227,11 @@ FROM query_exposure_reservations WHERE query_id=$1 FOR UPDATE`, queryID).
 	var ledger ExposureLedgerSnapshot
 	ledgerLockStarted := time.Now()
 	err = tx.QueryRowContext(ctx, `
-SELECT root_task_id, profile_version, max_release_facts, max_influence_facts,
-       used_release_facts, used_influence_facts, updated_at
+SELECT root_task_id, profile_version, max_release_facts, max_influence_facts, max_outcome_facts,
+       used_release_facts, used_influence_facts, used_outcome_facts, updated_at
 FROM exposure_ledgers WHERE root_task_id=$1 FOR UPDATE`, reservation.RootTaskID).
 		Scan(&ledger.RootTaskID, &ledger.ProfileVersion, &ledger.Limits.ReleaseFacts,
-			&ledger.Limits.InfluenceFacts, &ledger.Used.ReleaseFacts, &ledger.Used.InfluenceFacts,
+			&ledger.Limits.InfluenceFacts, &ledger.Limits.OutcomeFacts, &ledger.Used.ReleaseFacts, &ledger.Used.InfluenceFacts, &ledger.Used.OutcomeFacts,
 			&ledger.UpdatedAt)
 	metrics.LedgerLock = time.Since(ledgerLockStarted)
 	if err != nil {
@@ -230,31 +243,38 @@ FROM exposure_ledgers WHERE root_task_id=$1 FOR UPDATE`, reservation.RootTaskID)
 		return nil, metrics, err
 	}
 	newInfluence, err := insertNovelFactsTx(ctx, tx, reservation.RootTaskID, "INFLUENCE", queryID, normalized.Influence, now)
+	if err != nil {
+		return nil, metrics, err
+	}
+	newOutcome, err := insertNovelFactsTx(ctx, tx, reservation.RootTaskID, "OUTCOME", queryID, normalized.Outcome, now)
 	metrics.FactStore = time.Since(factStoreStarted)
 	if err != nil {
 		return nil, metrics, err
 	}
 	var taskLimits ExposureLimits
 	if err := tx.QueryRowContext(ctx, `
-	SELECT max_release_facts, max_influence_facts FROM task_grants WHERE task_id=$1`, reservation.TaskID).
-		Scan(&taskLimits.ReleaseFacts, &taskLimits.InfluenceFacts); err != nil {
+	SELECT max_release_facts, max_influence_facts, max_outcome_facts FROM task_grants WHERE task_id=$1`, reservation.TaskID).
+		Scan(&taskLimits.ReleaseFacts, &taskLimits.InfluenceFacts, &taskLimits.OutcomeFacts); err != nil {
 		return nil, metrics, err
 	}
 	// A narrowed descendant may add facts only within its signed absolute
 	// family ceiling. Zero-novelty replay remains safe after an ancestor has
 	// already moved the shared root ledger beyond that lower ceiling.
 	if (newRelease > 0 && ledger.Used.ReleaseFacts+newRelease > taskLimits.ReleaseFacts) ||
-		(newInfluence > 0 && ledger.Used.InfluenceFacts+newInfluence > taskLimits.InfluenceFacts) {
+		(newInfluence > 0 && ledger.Used.InfluenceFacts+newInfluence > taskLimits.InfluenceFacts) ||
+		(newOutcome > 0 && ledger.Used.OutcomeFacts+newOutcome > taskLimits.OutcomeFacts) {
 		return nil, metrics, ErrExposureBudgetExhausted
 	}
 	result, err := tx.ExecContext(ctx, `
 UPDATE exposure_ledgers
 SET used_release_facts=used_release_facts+$1,
     used_influence_facts=used_influence_facts+$2,
-    updated_at=$3
-WHERE root_task_id=$4
+    used_outcome_facts=used_outcome_facts+$3,
+    updated_at=$4
+WHERE root_task_id=$5
   AND used_release_facts+$1 <= max_release_facts
-  AND used_influence_facts+$2 <= max_influence_facts`, newRelease, newInfluence, dbTime(now), reservation.RootTaskID)
+  AND used_influence_facts+$2 <= max_influence_facts
+  AND used_outcome_facts+$3 <= max_outcome_facts`, newRelease, newInfluence, newOutcome, dbTime(now), reservation.RootTaskID)
 	if err != nil {
 		return nil, metrics, err
 	}
@@ -264,18 +284,18 @@ WHERE root_task_id=$4
 	_, err = tx.ExecContext(ctx, `
 UPDATE query_exposure_reservations
 SET status='SETTLED', actual_release_facts=$1, actual_influence_facts=$2,
-    charged_release_facts=$3, charged_influence_facts=$4,
-    observation_sha256=$5, settled_at=$6
-WHERE query_id=$7 AND status='RESERVED'`, len(normalized.Release), len(normalized.Influence),
-		newRelease, newInfluence, digest, dbTime(now), queryID)
+    actual_outcome_facts=$3, charged_release_facts=$4, charged_influence_facts=$5,
+    charged_outcome_facts=$6, observation_sha256=$7, settled_at=$8
+WHERE query_id=$9 AND status='RESERVED'`, len(normalized.Release), len(normalized.Influence), len(normalized.Outcome),
+		newRelease, newInfluence, newOutcome, digest, dbTime(now), queryID)
 	if err != nil {
 		return nil, metrics, err
 	}
 	_, err = appendAuditTx(ctx, tx, AuditEvent{
 		TaskID: reservation.TaskID, QueryID: queryID, Actor: "system", EventType: "QUERY_EXPOSURE_SETTLED",
 		Payload: mustJSON(map[string]any{"root_task_id": reservation.RootTaskID, "profile_version": reservation.ProfileVersion,
-			"actual_release_facts": len(normalized.Release), "actual_influence_facts": len(normalized.Influence),
-			"charged_release_facts": newRelease, "charged_influence_facts": newInfluence,
+			"actual_release_facts": len(normalized.Release), "actual_influence_facts": len(normalized.Influence), "actual_outcome_facts": len(normalized.Outcome),
+			"charged_release_facts": newRelease, "charged_influence_facts": newInfluence, "charged_outcome_facts": newOutcome,
 			"observation_sha256": digest}), OccurredAt: now,
 	})
 	if err != nil {
@@ -283,8 +303,8 @@ WHERE query_id=$7 AND status='RESERVED'`, len(normalized.Release), len(normalize
 	}
 	return &ExposureCharge{QueryID: queryID, RootTaskID: reservation.RootTaskID,
 		ProfileVersion: reservation.ProfileVersion, ActualReleaseFacts: int64(len(normalized.Release)),
-		ActualInfluenceFacts: int64(len(normalized.Influence)), ChargedReleaseFacts: newRelease,
-		ChargedInfluenceFacts: newInfluence, ObservationSHA256: digest}, metrics, nil
+		ActualInfluenceFacts: int64(len(normalized.Influence)), ActualOutcomeFacts: int64(len(normalized.Outcome)), ChargedReleaseFacts: newRelease,
+		ChargedInfluenceFacts: newInfluence, ChargedOutcomeFacts: newOutcome, ObservationSHA256: digest}, metrics, nil
 }
 
 func insertNovelFactsTx(ctx context.Context, tx *sql.Tx, rootTaskID, kind, queryID string, facts []exposure.FactID, now time.Time) (int64, error) {
@@ -454,11 +474,11 @@ func (s *Store) GetExposureCharge(ctx context.Context, queryID string) (Exposure
 	var status string
 	err := s.db.QueryRowContext(ctx, `
 SELECT query_id, root_task_id, profile_version, status, actual_release_facts,
-       actual_influence_facts, charged_release_facts, charged_influence_facts, observation_sha256
+       actual_influence_facts, actual_outcome_facts, charged_release_facts, charged_influence_facts, charged_outcome_facts, observation_sha256
 FROM query_exposure_reservations WHERE query_id=$1`, queryID).
 		Scan(&charge.QueryID, &charge.RootTaskID, &charge.ProfileVersion, &status,
-			&charge.ActualReleaseFacts, &charge.ActualInfluenceFacts, &charge.ChargedReleaseFacts,
-			&charge.ChargedInfluenceFacts, &charge.ObservationSHA256)
+			&charge.ActualReleaseFacts, &charge.ActualInfluenceFacts, &charge.ActualOutcomeFacts, &charge.ChargedReleaseFacts,
+			&charge.ChargedInfluenceFacts, &charge.ChargedOutcomeFacts, &charge.ObservationSHA256)
 	if err != nil {
 		if isNoRows(err) {
 			return ExposureCharge{}, opErr(op, ErrNotFound, err)

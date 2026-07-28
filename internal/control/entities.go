@@ -418,12 +418,12 @@ func insertGrantAndBudget(ctx context.Context, tx *sql.Tx, grant TaskGrant, prod
 	INSERT INTO task_grants(task_id, subject, purpose, approved_products_json, approved_columns_json,
 	 mandatory_scope_json, sensitivity_ceiling, max_queries, max_rows, max_db_ms, expires_at,
 	 catalog_version, catalog_digest, datasource_id, schema_digest, approval_receipt, created_at,
-	 max_release_facts, max_influence_facts, exposure_profile_version)
-	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`, grant.TaskID, grant.Subject, grant.Purpose,
+	 max_release_facts, max_influence_facts, max_outcome_facts, exposure_profile_version)
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`, grant.TaskID, grant.Subject, grant.Purpose,
 		string(products), string(columns), string(scope), grant.SensitivityCeiling, grant.Budget.Queries, grant.Budget.Rows,
 		grant.Budget.DBMS, dbTime(grant.ExpiresAt), grant.CatalogVersion, grant.CatalogDigest,
 		grant.DatasourceID, grant.SchemaDigest, grant.ApprovalReceipt,
-		dbTime(grant.CreatedAt), grant.Exposure.Limits.ReleaseFacts, grant.Exposure.Limits.InfluenceFacts,
+		dbTime(grant.CreatedAt), grant.Exposure.Limits.ReleaseFacts, grant.Exposure.Limits.InfluenceFacts, grant.Exposure.Limits.OutcomeFacts,
 		grant.Exposure.ProfileVersion)
 	if err != nil {
 		return err
@@ -449,12 +449,12 @@ func (s *Store) GetGrant(ctx context.Context, taskID string) (TaskGrant, error) 
 	err := s.db.QueryRowContext(ctx, `
 	SELECT task_id, subject, purpose, approved_products_json, approved_columns_json, mandatory_scope_json,
 	 sensitivity_ceiling, max_queries, max_rows, max_db_ms, expires_at, catalog_version, catalog_digest,
-	 datasource_id, schema_digest, approval_receipt, created_at, max_release_facts, max_influence_facts,
+	 datasource_id, schema_digest, approval_receipt, created_at, max_release_facts, max_influence_facts, max_outcome_facts,
 	 exposure_profile_version
 	FROM task_grants WHERE task_id=$1`, taskID).Scan(&grant.TaskID, &grant.Subject, &grant.Purpose, &products,
 		&columns, &scope, &grant.SensitivityCeiling, &grant.Budget.Queries, &grant.Budget.Rows, &grant.Budget.DBMS,
 		&expires, &grant.CatalogVersion, &grant.CatalogDigest, &grant.DatasourceID, &grant.SchemaDigest,
-		&grant.ApprovalReceipt, &created, &grant.Exposure.Limits.ReleaseFacts, &grant.Exposure.Limits.InfluenceFacts,
+		&grant.ApprovalReceipt, &created, &grant.Exposure.Limits.ReleaseFacts, &grant.Exposure.Limits.InfluenceFacts, &grant.Exposure.Limits.OutcomeFacts,
 		&grant.Exposure.ProfileVersion)
 	if err != nil {
 		if isNoRows(err) {

@@ -15,6 +15,7 @@ import (
 	"taskbound.local/agent-data-gateway/evaluation/exposureoracle"
 	"taskbound.local/agent-data-gateway/evaluation/postgresoracle"
 	"taskbound.local/agent-data-gateway/internal/exposure"
+	"taskbound.local/agent-data-gateway/internal/queryplan"
 )
 
 //go:embed corpus.json
@@ -111,6 +112,21 @@ type AdversarialSummary struct {
 	DeterministicPassed int                 `json:"deterministic_passed"`
 	IntegrationManifest []IntegrationCase   `json:"postgres_integration_manifest"`
 	PostgresIntegration IntegrationEvidence `json:"postgres_integration"`
+	OutcomeProbing      OutcomeProbeSummary `json:"outcome_probing"`
+}
+
+type OutcomeProbeSummary struct {
+	ProfileVersion            string `json:"profile_version"`
+	ThresholdQuestions        int    `json:"threshold_questions"`
+	DistinctPlanDigests       int    `json:"distinct_plan_digests"`
+	IdenticalReleaseSets      bool   `json:"identical_release_sets"`
+	DistinctOutcomeFacts      int    `json:"distinct_outcome_facts"`
+	NovelOutcomeCharges       int    `json:"novel_outcome_charges"`
+	ReplayOutcomeCharge       int    `json:"replay_outcome_charge"`
+	EquivalentRewriteCharge   int    `json:"equivalent_rewrite_charge"`
+	ReleaseChargeAfterFirst   int    `json:"release_charge_after_first"`
+	InfluenceChargeAfterFirst int    `json:"influence_charge_after_first"`
+	Passed                    bool   `json:"passed"`
 }
 
 type ChargeVector struct {
@@ -155,7 +171,7 @@ func Run() (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
-	report := Report{SchemaVersion: 5, ProfileVersion: fixtures.ProfileVersion,
+	report := Report{SchemaVersion: 6, ProfileVersion: exposure.ProfileV3,
 		CorpusSHA256: fmt.Sprintf("%x", sha256.Sum256(corpusJSON)),
 		RQ4Status:    "measured_controlled_local_postgresql_campaign"}
 	report.RQ1 = ValidationSummary{DatasetRelations: relationsCount, DatasetRows: rowsCount,
@@ -593,7 +609,111 @@ func runAdversarial(fixtures corpus, relations map[string]exposure.RelationV2) (
 		result.DeterministicPassed++
 	}
 	sort.Slice(result.IntegrationManifest, func(i, j int) bool { return result.IntegrationManifest[i].ID < result.IntegrationManifest[j].ID })
+	var err error
+	result.OutcomeProbing, err = runOutcomeProbing()
+	if err != nil {
+		return result, err
+	}
 	return result, nil
+}
+
+func runOutcomeProbing() (OutcomeProbeSummary, error) {
+	product := queryplan.Product{
+		Name: "expenses", Columns: map[string]struct{}{"amount": {}},
+		AllowedAggregates: map[string]struct{}{"count": {}}, ColumnTypes: map[string]string{"amount": "numeric"},
+		SourceNamespace: "travel.expense", Snapshot: "snapshot-1", StableRole: "expense", StableEntityKey: []string{"amount"},
+	}
+	thresholds := []string{"10000", "20000", "30000"}
+	zeroWitness := sha256.Sum256([]byte("no-positive-witnesses"))
+	zeroFact, err := exposure.NewDerivedFactV2(
+		[]exposure.SnapshotBinding{{SourceNamespace: product.SourceNamespace, Snapshot: product.Snapshot}},
+		"$global", "count(*)", "bigint", int64(0), fmt.Sprintf("%x", zeroWitness),
+	)
+	if err != nil {
+		return OutcomeProbeSummary{}, err
+	}
+	base := exposure.Observation{ProfileVersion: exposure.ProfileV2, Release: []exposure.FactID{zeroFact}}
+	knownRelease := make(exposure.FactSet)
+	knownInfluence := make(exposure.FactSet)
+	knownOutcome := make(exposure.FactSet)
+	planDigests := make(map[string]struct{}, len(thresholds))
+	outcomeHashes := make(map[string]struct{}, len(thresholds))
+	summary := OutcomeProbeSummary{ProfileVersion: exposure.ProfileV3, ThresholdQuestions: len(thresholds), IdenticalReleaseSets: true}
+	var first exposure.Observation
+	for index, threshold := range thresholds {
+		plan := queryplan.QueryPlan{Product: product.Name,
+			Aggregates: []queryplan.Aggregate{{Function: "count", Column: "*", Alias: "n"}},
+			Filters:    []queryplan.Filter{{Column: "amount", Op: ">", Value: threshold}}}
+		normal, normalizeErr := queryplan.NormalizeV2(plan, product)
+		if normalizeErr != nil {
+			return summary, normalizeErr
+		}
+		planDigest, digestErr := normal.Digest()
+		if digestErr != nil {
+			return summary, digestErr
+		}
+		planDigests[planDigest] = struct{}{}
+		observation, attachErr := exposure.AttachOutcomeV3(base, queryplan.NormalFormVersion, planDigest, 1)
+		if attachErr != nil {
+			return summary, attachErr
+		}
+		if index == 0 {
+			first = observation
+		}
+		releaseNovel := addNovelFacts(knownRelease, observation.Release)
+		influenceNovel := addNovelFacts(knownInfluence, observation.Influence)
+		outcomeNovel := addNovelFacts(knownOutcome, observation.Outcome)
+		if index > 0 {
+			summary.ReleaseChargeAfterFirst += releaseNovel
+			summary.InfluenceChargeAfterFirst += influenceNovel
+		}
+		summary.NovelOutcomeCharges += outcomeNovel
+		hash, _ := observation.Outcome[0].Hash()
+		outcomeHashes[hash] = struct{}{}
+	}
+	summary.ReplayOutcomeCharge = addNovelFacts(knownOutcome, first.Outcome)
+
+	rewrite := queryplan.QueryPlan{Product: product.Name,
+		Aggregates: []queryplan.Aggregate{{Function: "COUNT", Column: "*", Alias: "renamed"}},
+		Filters:    []queryplan.Filter{{Column: "amount", Op: " > ", Value: "10000"}}}
+	rewriteNormal, err := queryplan.NormalizeV2(rewrite, product)
+	if err != nil {
+		return summary, err
+	}
+	rewriteDigest, err := rewriteNormal.Digest()
+	if err != nil {
+		return summary, err
+	}
+	rewriteObservation, err := exposure.AttachOutcomeV3(base, queryplan.NormalFormVersion, rewriteDigest, 1)
+	if err != nil {
+		return summary, err
+	}
+	summary.EquivalentRewriteCharge = addNovelFacts(knownOutcome, rewriteObservation.Outcome)
+	summary.DistinctPlanDigests = len(planDigests)
+	summary.DistinctOutcomeFacts = len(outcomeHashes)
+	summary.Passed = summary.DistinctPlanDigests == len(thresholds) && summary.DistinctOutcomeFacts == len(thresholds) &&
+		summary.NovelOutcomeCharges == len(thresholds) && summary.ReplayOutcomeCharge == 0 && summary.EquivalentRewriteCharge == 0 &&
+		summary.ReleaseChargeAfterFirst == 0 && summary.InfluenceChargeAfterFirst == 0
+	if !summary.Passed {
+		return summary, fmt.Errorf("outcome probing campaign failed: %+v", summary)
+	}
+	return summary, nil
+}
+
+func addNovelFacts(known exposure.FactSet, facts []exposure.FactID) int {
+	novel := 0
+	for _, fact := range facts {
+		hash, err := fact.Hash()
+		if err != nil {
+			continue
+		}
+		if _, present := known[hash]; present {
+			continue
+		}
+		_ = known.Add(fact)
+		novel++
+	}
+	return novel
 }
 
 func stringSetSHA256(domain string, set map[string]struct{}) string {

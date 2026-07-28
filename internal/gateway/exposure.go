@@ -228,13 +228,21 @@ func (context *planExposureContext) extendGrant(grant sqlpolicy.Grant) (sqlpolic
 
 func (context *planExposureContext) deriveObservation(visible, provenance dataconnector.Result, profile string) (exposure.Observation, error) {
 	if context.relational != nil {
-		if profile != exposure.ProfileV2 {
-			return exposure.Observation{}, fmt.Errorf("online Join/Union requires %s", exposure.ProfileV2)
+		if profile != exposure.ProfileV2 && profile != exposure.ProfileV3 {
+			return exposure.Observation{}, fmt.Errorf("online Join/Union requires %s or %s", exposure.ProfileV2, exposure.ProfileV3)
 		}
-		return context.deriveRelationalObservationV2(visible, provenance)
+		observation, err := context.deriveRelationalObservationV2(visible, provenance)
+		if err != nil || profile == exposure.ProfileV2 {
+			return observation, err
+		}
+		return exposure.AttachOutcomeV3(observation, queryplan.NormalFormVersion, context.planDigest, int64(len(visible.Rows)))
 	}
-	if profile == exposure.ProfileV2 {
-		return context.deriveObservationV2(visible, provenance)
+	if profile == exposure.ProfileV2 || profile == exposure.ProfileV3 {
+		observation, err := context.deriveObservationV2(visible, provenance)
+		if err != nil || profile == exposure.ProfileV2 {
+			return observation, err
+		}
+		return exposure.AttachOutcomeV3(observation, queryplan.NormalFormVersion, context.planDigest, int64(len(visible.Rows)))
 	}
 	if provenance.Truncated {
 		return exposure.Observation{}, errProvenanceTruncated

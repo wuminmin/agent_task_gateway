@@ -54,6 +54,27 @@ func TestQueryReceiptSignatureBindsEveryEvidenceField(t *testing.T) {
 	}
 }
 
+func TestQueryReceiptV5BindsOutcomeCharge(t *testing.T) {
+	signer := DemoSigner([]byte("unit-test-v5-secret"))
+	verifier, err := NewVerifier(map[string]ed25519.PublicKey{signer.KeyID(): signer.PublicKey()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := signer.Sign(validV5Receipt())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := verifier.Verify(receipt); err != nil {
+		t.Fatal(err)
+	}
+	tampered := receipt
+	tampered.Exposure = &(*receipt.Exposure)
+	tampered.Exposure.ChargedOutcomeFacts = 0
+	if err := verifier.Verify(tampered); !errors.Is(err, ErrInvalidSignature) {
+		t.Fatalf("outcome tamper error = %v, want invalid signature", err)
+	}
+}
+
 func TestQueryReceiptV1VerificationRemainsCompatible(t *testing.T) {
 	signer := DemoSigner([]byte("unit-test-secret"))
 	verifier, err := NewVerifier(map[string]ed25519.PublicKey{signer.KeyID(): signer.PublicKey()})
@@ -189,6 +210,10 @@ func TestQueryReceiptSemanticValidation(t *testing.T) {
 		{name: "exposure charge exceeds actual", mutate: func(receipt *QueryReceiptV1) {
 			*receipt = validV4Receipt()
 			receipt.Exposure.ChargedInfluenceFacts = receipt.Exposure.ActualInfluenceFacts + 1
+		}},
+		{name: "v5 missing outcome", mutate: func(receipt *QueryReceiptV1) {
+			*receipt = validV5Receipt()
+			receipt.Exposure.ActualOutcomeFacts = 0
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -391,6 +416,15 @@ func validV4Receipt() QueryReceiptV1 {
 		ChargedReleaseFacts: 2, ChargedInfluenceFacts: 5,
 		ObservationSHA256: fmt.Sprintf("%x", digest),
 	}
+	return receipt
+}
+
+func validV5Receipt() QueryReceiptV1 {
+	receipt := validV4Receipt()
+	receipt.Version = VersionV5
+	receipt.Exposure.ProfileVersion = "taskgate-exposure-v3"
+	receipt.Exposure.ActualOutcomeFacts = 1
+	receipt.Exposure.ChargedOutcomeFacts = 1
 	return receipt
 }
 

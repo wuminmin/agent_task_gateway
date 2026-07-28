@@ -161,7 +161,8 @@ func (s *Service) handleOACallback(w http.ResponseWriter, r *http.Request) {
 			Budget: control.BudgetLimits{Queries: finalGrant.Core.Budget.MaxQueries,
 				Rows: finalGrant.Core.Budget.MaxResultRows, DBMS: finalGrant.Core.Budget.MaxDBMS},
 			Exposure: control.ExposureGrant{
-				Limits:         control.ExposureLimits{ReleaseFacts: finalGrant.Core.Budget.MaxReleaseFacts, InfluenceFacts: finalGrant.Core.Budget.MaxInfluenceFacts},
+				Limits: control.ExposureLimits{ReleaseFacts: finalGrant.Core.Budget.MaxReleaseFacts,
+					InfluenceFacts: finalGrant.Core.Budget.MaxInfluenceFacts, OutcomeFacts: finalGrant.Core.Budget.MaxOutcomeFacts},
 				ProfileVersion: finalGrant.Core.Budget.ExposureProfileVersion,
 			},
 			ExpiresAt: finalGrant.Core.ExpiresAt, CatalogVersion: finalGrant.Core.CatalogVersion,

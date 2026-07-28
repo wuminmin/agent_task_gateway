@@ -84,6 +84,7 @@ type TaskGrant struct {
 type ExposureLimits struct {
 	ReleaseFacts   int64 `json:"release_facts"`
 	InfluenceFacts int64 `json:"influence_facts"`
+	OutcomeFacts   int64 `json:"outcome_facts"`
 }
 
 type ExposureGrant struct {
@@ -92,7 +93,7 @@ type ExposureGrant struct {
 }
 
 func (g ExposureGrant) Enabled() bool {
-	return g.Limits.ReleaseFacts > 0 || g.Limits.InfluenceFacts > 0 || g.ProfileVersion != ""
+	return g.Limits.ReleaseFacts > 0 || g.Limits.InfluenceFacts > 0 || g.Limits.OutcomeFacts > 0 || g.ProfileVersion != ""
 }
 
 type ExposureLedgerSnapshot struct {
@@ -107,6 +108,7 @@ func (s ExposureLedgerSnapshot) Remaining() ExposureLimits {
 	return ExposureLimits{
 		ReleaseFacts:   max64(0, s.Limits.ReleaseFacts-s.Used.ReleaseFacts),
 		InfluenceFacts: max64(0, s.Limits.InfluenceFacts-s.Used.InfluenceFacts),
+		OutcomeFacts:   max64(0, s.Limits.OutcomeFacts-s.Used.OutcomeFacts),
 	}
 }
 
@@ -114,6 +116,7 @@ type ExposureReservationRequest struct {
 	ProfileVersion          string
 	EstimatedReleaseFacts   int64
 	EstimatedInfluenceFacts int64
+	EstimatedOutcomeFacts   int64
 }
 
 type ExposureReservation struct {
@@ -123,6 +126,7 @@ type ExposureReservation struct {
 	ProfileVersion          string
 	EstimatedReleaseFacts   int64
 	EstimatedInfluenceFacts int64
+	EstimatedOutcomeFacts   int64
 }
 
 type ExposureCharge struct {
@@ -131,8 +135,10 @@ type ExposureCharge struct {
 	ProfileVersion        string `json:"profile_version"`
 	ActualReleaseFacts    int64  `json:"actual_release_facts"`
 	ActualInfluenceFacts  int64  `json:"actual_influence_facts"`
+	ActualOutcomeFacts    int64  `json:"actual_outcome_facts"`
 	ChargedReleaseFacts   int64  `json:"charged_release_facts"`
 	ChargedInfluenceFacts int64  `json:"charged_influence_facts"`
+	ChargedOutcomeFacts   int64  `json:"charged_outcome_facts"`
 	ObservationSHA256     string `json:"observation_sha256"`
 }
 

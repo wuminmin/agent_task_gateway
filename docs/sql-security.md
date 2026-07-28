@@ -14,7 +14,7 @@ Agent SQL / 编译后的 QueryPlan visible + provenance SQL
   → Control PostgreSQL 以 (task_id, request_id) 幂等检查并预留资源与 exposure evidence
   → 业务 PostgreSQL 显式只读事务 + statement_timeout
   → exposure 路径在一个 REPEATABLE READ 快照执行并缓冲两份结果
-  → 推导 FactID，原子结算根任务双账本、保存结果、写 Ed25519 回执和审计
+  → 推导 release/influence FactID 与 OutcomeFact，原子结算根任务三账本、保存结果、写 Ed25519 回执和审计
 ```
 
 安全判断不使用正则或注释剥离来猜测 SQL。解析失败或出现未识别 AST 节点时关闭式拒绝。

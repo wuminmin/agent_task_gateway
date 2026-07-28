@@ -1,7 +1,7 @@
 {
-  "schema_version": 5,
-  "profile_version": "taskgate-exposure-v2",
-  "corpus_sha256": "df7dfe2224fcf03aea6c25d36ab55cf34c61afb12c715474bb7de2dd7e80237c",
+  "schema_version": 6,
+  "profile_version": "taskgate-exposure-v3",
+  "corpus_sha256": "8b87db47e51db7db42c759155c8581f95af93e766e7731a0174087ce110f2967",
   "rq1_ground_truth": {
     "cases": 21,
     "passed": 21,
@@ -1430,7 +1430,7 @@
     ]
   },
   "rq3_anti_arbitrage": {
-    "cases": 9,
+    "cases": 10,
     "deterministic_cases": 5,
     "deterministic_passed": 5,
     "postgres_integration_manifest": [
@@ -1438,6 +1438,11 @@
         "id": "concurrent_settlement",
         "test": "TestConcurrentTaskFamilySettlementCannotOverspend",
         "package": "taskbound.local/agent-data-gateway/internal/control"
+      },
+      {
+        "id": "distinct_zero_result_predicates",
+        "test": "TestExposureV3ChargesDistinctZeroResultPredicates",
+        "package": "taskbound.local/agent-data-gateway/internal/gateway"
       },
       {
         "id": "online_relational_gateway_settlement",
@@ -1458,10 +1463,23 @@
     "postgres_integration": {
       "status": "complete",
       "artifact": "evaluation/exposure/rq3-integration.json",
-      "artifact_sha256": "a118b328e4bf1f6b663126b9cf57ca3c8eaafc0e893d886dc256d679c762a789",
-      "executed": 4,
-      "passed": 4,
+      "artifact_sha256": "b087a2c19770884cc5a3cd109b136da2585a8bd519dc2431120d2cac9ba9c7b0",
+      "executed": 5,
+      "passed": 5,
       "failed": 0
+    },
+    "outcome_probing": {
+      "profile_version": "taskgate-exposure-v3",
+      "threshold_questions": 3,
+      "distinct_plan_digests": 3,
+      "identical_release_sets": true,
+      "distinct_outcome_facts": 3,
+      "novel_outcome_charges": 3,
+      "replay_outcome_charge": 0,
+      "equivalent_rewrite_charge": 0,
+      "release_charge_after_first": 0,
+      "influence_charge_after_first": 0,
+      "passed": true
     }
   },
   "rq4_runtime_overhead_status": "measured_controlled_local_postgresql_campaign",
@@ -1475,7 +1493,7 @@
         "points": [
           {
             "size": 10,
-            "ns_per_op": 113814,
+            "ns_per_op": 113021,
             "release_facts": 20,
             "influence_facts": 30,
             "novel_charge": 0,
@@ -1483,7 +1501,7 @@
           },
           {
             "size": 100,
-            "ns_per_op": 1342425,
+            "ns_per_op": 1489206,
             "release_facts": 200,
             "influence_facts": 300,
             "novel_charge": 0,
@@ -1491,7 +1509,7 @@
           },
           {
             "size": 1000,
-            "ns_per_op": 14902820,
+            "ns_per_op": 15283475,
             "release_facts": 2000,
             "influence_facts": 3000,
             "novel_charge": 0,
@@ -1499,7 +1517,7 @@
           },
           {
             "size": 10000,
-            "ns_per_op": 164117939,
+            "ns_per_op": 161830667,
             "release_facts": 20000,
             "influence_facts": 30000,
             "novel_charge": 0,
@@ -1513,31 +1531,31 @@
         "points": [
           {
             "size": 1,
-            "ns_per_op": 5420,
+            "ns_per_op": 4152,
             "novel_charge": 0,
             "replay_charge": 0
           },
           {
             "size": 4,
-            "ns_per_op": 13566,
+            "ns_per_op": 12493,
             "novel_charge": 0,
             "replay_charge": 0
           },
           {
             "size": 8,
-            "ns_per_op": 30088,
+            "ns_per_op": 28841,
             "novel_charge": 0,
             "replay_charge": 0
           },
           {
             "size": 16,
-            "ns_per_op": 82880,
+            "ns_per_op": 79256,
             "novel_charge": 0,
             "replay_charge": 0
           },
           {
             "size": 32,
-            "ns_per_op": 247943,
+            "ns_per_op": 237102,
             "novel_charge": 0,
             "replay_charge": 0
           }
@@ -1549,25 +1567,25 @@
         "points": [
           {
             "size": 10,
-            "ns_per_op": 10383,
+            "ns_per_op": 8845,
             "novel_charge": 10,
             "replay_charge": 0
           },
           {
             "size": 100,
-            "ns_per_op": 95318,
+            "ns_per_op": 87955,
             "novel_charge": 100,
             "replay_charge": 0
           },
           {
             "size": 1000,
-            "ns_per_op": 924126,
+            "ns_per_op": 1081174,
             "novel_charge": 1000,
             "replay_charge": 0
           },
           {
             "size": 10000,
-            "ns_per_op": 11899488,
+            "ns_per_op": 11167745,
             "novel_charge": 10000,
             "replay_charge": 0
           }

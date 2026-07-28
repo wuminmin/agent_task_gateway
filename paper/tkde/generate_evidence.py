@@ -144,7 +144,11 @@ def storage_source_sha256() -> str:
 
 def validate_exposure() -> dict:
     report = load_json(RESULT)
-    require(report.get("schema_version") == 5, "unsupported exposure report schema")
+    require(
+        report.get("schema_version") == 6
+        and report.get("profile_version") == "taskgate-exposure-v3",
+        "unsupported exposure report schema/profile",
+    )
     require(report.get("corpus_sha256") == sha256(CORPUS), "exposure corpus digest is stale")
     rq1 = report.get("rq1_ground_truth", {})
     rq2 = report.get("rq2_rewrite_invariance", {})
@@ -202,6 +206,21 @@ def validate_exposure() -> dict:
         rq3.get("deterministic_cases", 0) > 0
         and rq3.get("deterministic_passed") == rq3.get("deterministic_cases"),
         "RQ3 deterministic cases are incomplete",
+    )
+    outcome = rq3.get("outcome_probing", {})
+    require(
+        outcome.get("profile_version") == "taskgate-exposure-v3"
+        and outcome.get("threshold_questions") == 3
+        and outcome.get("distinct_plan_digests") == 3
+        and outcome.get("identical_release_sets") is True
+        and outcome.get("distinct_outcome_facts") == 3
+        and outcome.get("novel_outcome_charges") == 3
+        and outcome.get("replay_outcome_charge") == 0
+        and outcome.get("equivalent_rewrite_charge") == 0
+        and outcome.get("release_charge_after_first") == 0
+        and outcome.get("influence_charge_after_first") == 0
+        and outcome.get("passed") is True,
+        "RQ3 outcome-probing evidence is incomplete",
     )
     manifest = rq3.get("postgres_integration_manifest", [])
     expected_manifest = {
@@ -580,6 +599,7 @@ def main() -> None:
     rq1 = report["rq1_ground_truth"]
     rq2 = report["rq2_rewrite_invariance"]
     rq3 = report["rq3_anti_arbitrage"]
+    outcome = rq3["outcome_probing"]
     policy = report["rq5_policy_calibration"]
     policy_scenarios = {item["id"]: item for item in policy["scenarios"]}
     finance = policy_scenarios["finance_summary"]
@@ -636,6 +656,11 @@ def main() -> None:
         rf"\newcommand{{\RQThreePassed}}{{{rq3['deterministic_passed']}}}",
         rf"\newcommand{{\RQThreeExecuted}}{{{rq3['postgres_integration']['executed']}}}",
         rf"\newcommand{{\RQThreeIntegration}}{{{rq3['postgres_integration']['passed']}}}",
+        rf"\newcommand{{\RQThreeThresholdQuestions}}{{{outcome['threshold_questions']}}}",
+        rf"\newcommand{{\RQThreeDistinctOutcomes}}{{{outcome['distinct_outcome_facts']}}}",
+        rf"\newcommand{{\RQThreeOutcomeCharges}}{{{outcome['novel_outcome_charges']}}}",
+        rf"\newcommand{{\RQThreeReplayOutcomeCharge}}{{{outcome['replay_outcome_charge']}}}",
+        rf"\newcommand{{\RQThreeRewriteOutcomeCharge}}{{{outcome['equivalent_rewrite_charge']}}}",
         rf"\newcommand{{\RQFourTrials}}{{{performance['trials']}}}",
         rf"\newcommand{{\RQFourObservations}}{{{comma(performance['observations'])}}}",
         rf"\newcommand{{\RQFourFullPathOperations}}{{{comma(performance['operation_partition']['full_path'])}}}",

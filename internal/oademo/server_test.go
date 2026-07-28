@@ -147,6 +147,7 @@ func TestNarrowedGrantFromFormContractsScopeColumnsAndBudgets(t *testing.T) {
 	if len(grant.ApprovedProducts) != 1 || grant.Budget.MaxQueries != 2 || grant.Budget.PerQueryTimeoutMS != 2000 ||
 		grant.Budget.MaxReleaseFacts != request.Manifest.Budget.MaxReleaseFacts ||
 		grant.Budget.MaxInfluenceFacts != request.Manifest.Budget.MaxInfluenceFacts ||
+		grant.Budget.MaxOutcomeFacts != request.Manifest.Budget.MaxOutcomeFacts ||
 		grant.Budget.ExposureProfileVersion != request.Manifest.Budget.ExposureProfileVersion ||
 		!grant.ExpiresAt.Equal(issuedAt.Add(10*time.Minute)) {
 		t.Fatalf("unexpected narrowed grant: %+v", grant)

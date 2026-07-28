@@ -13,7 +13,7 @@
 \newcommand{\rrbracket}{]\!]}
 \input{generated/evidence.tex}
 
-\title{Supplement to ``TaskGate: Task-Scoped Exposure Accounting''}
+\title{Supplement to ``TaskGate: Task-Scoped Query-Outcome and Exposure Accounting''}
 \author{Anonymous Author(s)}
 \date{}
 
@@ -171,6 +171,28 @@ key suffix that proves totality, and copies annotations only for the delivered
 slice. These are positive-output dependencies, not physical-read or minimal
 causal provenance.
 
+\section{V3 Outcome Wrapper}
+
+V3 leaves every V2 release/dependency FactID unchanged. After the V2
+observation is normalized, the gateway computes
+\[
+ h_R=H(\code{TASKGATE-OUTCOME-DIGEST-V1},m,
+       \operatorname{sort}\{\operatorname{Canon}(f):f\in F_r\})
+\]
+and creates one outcome payload
+$\langle\code{taskgate-exposure-v3},\code{outcome},
+\operatorname{ver}(NF),H(NF(q)),h_R,m\rangle$.
+Its hash uses the disjoint \code{TASKGATE-FACT-V3} domain. Thus V3 observations
+are triples $(F_r,F_i,F_o)$ with $|F_o|=1$ for every successfully released
+query. Failed/pre-execution queries produce no outcome fact. The Control
+PostgreSQL transaction inserts the three sets under distinct ledger kinds and
+checks all three root-family ceilings before release.
+
+The RQ3 threshold campaign uses three normalized predicates whose global
+\code{COUNT(*)} output is the same zero. Their V2 release/dependency increments
+after the first are zero, but the three normal-form digests yield three outcome
+facts. Exact replay and an alias/case/whitespace rewrite reuse the first fact.
+
 \subsection{Implementation Coverage}
 
 Table~\ref{tab:coverage-supp} distinguishes formal semantics, oracle coverage,
@@ -246,7 +268,7 @@ where aggregate support overlaps the preceding fact classes.
 
 \begin{table}[H]
 \centering
-\caption{Workflow-first dual-budget calibration.}
+\caption{Fixture release/dependency calibration with a fixed outcome ceiling.}
 \label{tab:rq5-policy-supplement}
 \small
 \resizebox{\columnwidth}{!}{%

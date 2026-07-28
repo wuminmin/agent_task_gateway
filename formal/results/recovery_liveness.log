@@ -1,5 +1,5 @@
 TLC2 Version 2.16 of 31 December 2020 (rev: cdddf55)
-Running breadth-first search Model-Checking with fp 42 and seed -5638657575385686682 with 32 workers on 32 cores with 3524MB heap and 64MB offheap memory [pid: 1] (Linux 6.18.33.2-microsoft-standard-WSL2 amd64, Eclipse Adoptium 21.0.11 x86_64, MSBDiskFPSet, DiskStateQueue).
+Running breadth-first search Model-Checking with fp 65 and seed 3853925441918650539 with 32 workers on 32 cores with 3524MB heap and 64MB offheap memory [pid: 1] (Linux 6.18.33.2-microsoft-standard-WSL2 amd64, Eclipse Adoptium 21.0.11 x86_64, MSBDiskFPSet, DiskStateQueue).
 Parsing file /model/RecoveryLiveness.tla
 Parsing file /tmp/Naturals.tla
 Parsing file /tmp/FiniteSets.tla
@@ -8,18 +8,18 @@ Semantic processing of module Naturals
 Semantic processing of module Sequences
 Semantic processing of module FiniteSets
 Semantic processing of module RecoveryLiveness
-Starting... (2026-07-25 03:38:43)
+Starting... (2026-07-27 15:26:01)
 Implied-temporal checking--satisfiability problem has 2 branches.
 Computing initial states...
-Finished computing initial states: 1 distinct state generated at 2026-07-25 03:38:43.
-Progress(7) at 2026-07-25 03:38:43: 221 states generated, 135 distinct states found, 0 states left on queue.
-Checking 2 branches of temporal properties for the complete state space with 270 total distinct states at (2026-07-25 03:38:43)
-Finished checking temporal properties in 00s at 2026-07-25 03:38:43
+Finished computing initial states: 1 distinct state generated at 2026-07-27 15:26:01.
+Progress(7) at 2026-07-27 15:26:01: 221 states generated, 135 distinct states found, 0 states left on queue.
+Checking 2 branches of temporal properties for the complete state space with 270 total distinct states at (2026-07-27 15:26:01)
+Finished checking temporal properties in 00s at 2026-07-27 15:26:01
 Model checking completed. No error has been found.
   Estimates of the probability that TLC did not check all reachable states
   because two distinct states had the same fingerprint:
   calculated (optimistic):  val = 6.3E-16
 221 states generated, 135 distinct states found, 0 states left on queue.
 The depth of the complete state graph search is 7.
-The average outdegree of the complete state graph is 1 (minimum is 0, the maximum 4 and the 95th percentile is 3).
-Finished in 00s at (2026-07-25 03:38:43)
+The average outdegree of the complete state graph is 1 (minimum is 0, the maximum 5 and the 95th percentile is 3).
+Finished in 00s at (2026-07-27 15:26:01)

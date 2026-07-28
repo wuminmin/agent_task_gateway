@@ -57,6 +57,7 @@ type requestedBudgetArgs struct {
 	MaxRows           *int64 `json:"max_rows,omitempty"`
 	MaxReleaseFacts   *int64 `json:"max_release_facts,omitempty"`
 	MaxInfluenceFacts *int64 `json:"max_influence_facts,omitempty"`
+	MaxOutcomeFacts   *int64 `json:"max_outcome_facts,omitempty"`
 }
 
 func (s *Service) requestDataTask(ctx context.Context, principal mcp.Principal, raw json.RawMessage) (any, error) {
@@ -236,6 +237,7 @@ func (s *Service) requestDataTask(ctx context.Context, principal mcp.Principal, 
 			"max_db_ms": policy.Budget.MaxDBTime.Milliseconds(), "query_timeout_ms": policy.Budget.PerQueryTimeout.Milliseconds(),
 			"task_ttl_seconds":  int64(policy.Budget.TaskTTL.Seconds()),
 			"max_release_facts": policy.Budget.MaxReleaseFacts, "max_influence_facts": policy.Budget.MaxInfluenceFacts,
+			"max_outcome_facts":        policy.Budget.MaxOutcomeFacts,
 			"exposure_profile_version": policy.Budget.ExposureProfileVersion},
 	}, nil
 }
@@ -257,6 +259,9 @@ func budgetRequest(explicit *requestedBudgetArgs) *domain.BudgetRequest {
 	if explicit.MaxInfluenceFacts != nil {
 		request.MaxInfluenceFacts = explicit.MaxInfluenceFacts
 	}
+	if explicit.MaxOutcomeFacts != nil {
+		request.MaxOutcomeFacts = explicit.MaxOutcomeFacts
+	}
 	return request
 }
 
@@ -268,7 +273,8 @@ func constrainDelegatedBudget(candidate domain.Budget, parent domain.TaskGrantCo
 		if (explicit.MaxQueries != nil && *explicit.MaxQueries > parent.Budget.MaxQueries) ||
 			(explicit.MaxRows != nil && *explicit.MaxRows > parent.Budget.MaxResultRows) ||
 			(explicit.MaxReleaseFacts != nil && *explicit.MaxReleaseFacts > parent.Budget.MaxReleaseFacts) ||
-			(explicit.MaxInfluenceFacts != nil && *explicit.MaxInfluenceFacts > parent.Budget.MaxInfluenceFacts) {
+			(explicit.MaxInfluenceFacts != nil && *explicit.MaxInfluenceFacts > parent.Budget.MaxInfluenceFacts) ||
+			(explicit.MaxOutcomeFacts != nil && *explicit.MaxOutcomeFacts > parent.Budget.MaxOutcomeFacts) {
 			return domain.Budget{}, domain.ErrBudgetExpansion
 		}
 	}
@@ -284,6 +290,7 @@ func constrainDelegatedBudget(candidate domain.Budget, parent domain.TaskGrantCo
 	if parent.Budget.MaxReleaseFacts == 0 {
 		candidate.MaxReleaseFacts = 0
 		candidate.MaxInfluenceFacts = 0
+		candidate.MaxOutcomeFacts = 0
 		candidate.ExposureProfileVersion = ""
 	} else {
 		if candidate.ExposureProfileVersion != parent.Budget.ExposureProfileVersion {
@@ -291,6 +298,7 @@ func constrainDelegatedBudget(candidate domain.Budget, parent domain.TaskGrantCo
 		}
 		candidate.MaxReleaseFacts = min64(candidate.MaxReleaseFacts, parent.Budget.MaxReleaseFacts)
 		candidate.MaxInfluenceFacts = min64(candidate.MaxInfluenceFacts, parent.Budget.MaxInfluenceFacts)
+		candidate.MaxOutcomeFacts = min64(candidate.MaxOutcomeFacts, parent.Budget.MaxOutcomeFacts)
 	}
 	if err := candidate.Validate(); err != nil {
 		return domain.Budget{}, err
@@ -717,7 +725,8 @@ func authorizationBudget(budget domain.Budget) approval.AuthorizationBudgetV1 {
 		MaxQueries: budget.MaxQueries, MaxResultRows: budget.MaxRows,
 		MaxDBMS: budget.MaxDBTime.Milliseconds(), PerQueryTimeoutMS: budget.PerQueryTimeout.Milliseconds(),
 		TaskTTLMS: budget.TaskTTL.Milliseconds(), MaxReleaseFacts: budget.MaxReleaseFacts,
-		MaxInfluenceFacts: budget.MaxInfluenceFacts, ExposureProfileVersion: budget.ExposureProfileVersion,
+		MaxInfluenceFacts: budget.MaxInfluenceFacts, MaxOutcomeFacts: budget.MaxOutcomeFacts,
+		ExposureProfileVersion: budget.ExposureProfileVersion,
 	}
 }
 

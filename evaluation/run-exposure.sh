@@ -53,13 +53,13 @@ until docker exec "$POSTGRES_CONTAINER" pg_isready --username postgres --dbname 
   sleep 1
 done
 
-integration_command="go test -race -json -count=1 -run ^(TestDelegatedTasksShareRootAccountingState|TestConcurrentTaskFamilySettlementCannotOverspend|TestRelationalOnlinePathAgainstPostgreSQL|TestRelationalGatewayEndToEndAgainstPostgreSQL)$ ./internal/control ./internal/gateway"
+integration_command="go test -race -json -count=1 -run ^(TestDelegatedTasksShareRootAccountingState|TestConcurrentTaskFamilySettlementCannotOverspend|TestRelationalOnlinePathAgainstPostgreSQL|TestRelationalGatewayEndToEndAgainstPostgreSQL|TestExposureV3ChargesDistinctZeroResultPredicates)$ ./internal/control ./internal/gateway"
 set +e
 docker run --rm --network "$POSTGRES_NETWORK" \
   --env "CONTROL_TEST_POSTGRES_DSN=postgres://postgres:${POSTGRES_PASSWORD}@${POSTGRES_CONTAINER}:5432/${POSTGRES_DATABASE}?sslmode=disable" \
   --env "BUSINESS_TEST_POSTGRES_DSN=postgres://gateway_reader:${POSTGRES_PASSWORD}@${POSTGRES_CONTAINER}:5432/${POSTGRES_DATABASE}?sslmode=disable" \
   "$BUILD_IMAGE" go test -race -json -count=1 \
-  -run '^(TestDelegatedTasksShareRootAccountingState|TestConcurrentTaskFamilySettlementCannotOverspend|TestRelationalOnlinePathAgainstPostgreSQL|TestRelationalGatewayEndToEndAgainstPostgreSQL)$' \
+  -run '^(TestDelegatedTasksShareRootAccountingState|TestConcurrentTaskFamilySettlementCannotOverspend|TestRelationalOnlinePathAgainstPostgreSQL|TestRelationalGatewayEndToEndAgainstPostgreSQL|TestExposureV3ChargesDistinctZeroResultPredicates)$' \
   ./internal/control ./internal/gateway >"$integration_tmp" 2>&1
 integration_status=$?
 set -e

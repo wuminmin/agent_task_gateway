@@ -140,7 +140,7 @@ func (s *Service) executePlan(ctx context.Context, principal mcp.Principal, raw 
 			if err != nil {
 				return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "QueryPlan 不在可精确计量的数据暴露片段内"}
 			}
-			if grant.Exposure.ProfileVersion == exposure.ProfileV2 {
+			if grant.Exposure.ProfileVersion == exposure.ProfileV2 || grant.Exposure.ProfileVersion == exposure.ProfileV3 {
 				if err := exposureContext.configureV2(columns, aggregates); err != nil {
 					return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "QueryPlan 缺少 V2 规范身份或无法归一化"}
 				}
@@ -148,8 +148,8 @@ func (s *Service) executePlan(ctx context.Context, principal mcp.Principal, raw 
 			compiled = exposureContext.mainSQL
 		}
 	} else {
-		if !grant.Exposure.Enabled() || grant.Exposure.ProfileVersion != exposure.ProfileV2 {
-			return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "在线 Join/Union 必须使用 taskgate-exposure-v2 双账本"}
+		if !grant.Exposure.Enabled() || (grant.Exposure.ProfileVersion != exposure.ProfileV2 && grant.Exposure.ProfileVersion != exposure.ProfileV3) {
+			return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "在线 Join/Union 必须使用 taskgate-exposure-v2 或 v3"}
 		}
 		productNames, namesErr := queryplan.RelationalProductNames(args.Plan)
 		if namesErr != nil {
@@ -334,6 +334,9 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 			ProfileVersion:          exposureLedger.ProfileVersion,
 			EstimatedReleaseFacts:   saturatedProduct(decision.RowLimit, int64(len(exposureContext.visibleFields))),
 			EstimatedInfluenceFacts: saturatedProduct(provenanceEvidenceRows, int64(len(exposureContext.provenanceFields)+1)),
+		}
+		if exposureLedger.ProfileVersion == exposure.ProfileV3 {
+			reserveRequest.Exposure.EstimatedOutcomeFacts = 1
 		}
 	}
 	reservation, err := s.store.ReserveBudget(ctx, reserveRequest)
@@ -995,11 +998,16 @@ func BuildQueryReceiptRequest(evidence control.QueryReceipt, signer *queryreceip
 	var exposureEvidence *queryreceipt.ExposureEvidenceV1
 	if evidence.Exposure != nil {
 		version = queryreceipt.VersionV4
+		if evidence.Exposure.ProfileVersion == exposure.ProfileV3 {
+			version = queryreceipt.VersionV5
+		}
 		exposureEvidence = &queryreceipt.ExposureEvidenceV1{
 			RootTaskID: evidence.Exposure.RootTaskID, ProfileVersion: evidence.Exposure.ProfileVersion,
 			ActualReleaseFacts: evidence.Exposure.ActualReleaseFacts, ActualInfluenceFacts: evidence.Exposure.ActualInfluenceFacts,
+			ActualOutcomeFacts:  evidence.Exposure.ActualOutcomeFacts,
 			ChargedReleaseFacts: evidence.Exposure.ChargedReleaseFacts, ChargedInfluenceFacts: evidence.Exposure.ChargedInfluenceFacts,
-			ObservationSHA256: evidence.Exposure.ObservationSHA256,
+			ChargedOutcomeFacts: evidence.Exposure.ChargedOutcomeFacts,
+			ObservationSHA256:   evidence.Exposure.ObservationSHA256,
 		}
 	}
 	receipt := queryreceipt.QueryReceiptV1{
@@ -1107,7 +1115,7 @@ func storedGrantMatchesProtocol(task control.Task, stored control.TaskGrant, pro
 		core.DatasourceID != stored.DatasourceID || core.SchemaDigest != stored.SchemaDigest ||
 		!stored.ExpiresAt.Equal(core.ExpiresAt.UTC().Truncate(time.Microsecond)) ||
 		stored.Budget != (control.BudgetLimits{Queries: core.Budget.MaxQueries, Rows: core.Budget.MaxResultRows, DBMS: core.Budget.MaxDBMS}) ||
-		stored.Exposure != (control.ExposureGrant{Limits: control.ExposureLimits{ReleaseFacts: core.Budget.MaxReleaseFacts, InfluenceFacts: core.Budget.MaxInfluenceFacts}, ProfileVersion: core.Budget.ExposureProfileVersion}) ||
+		stored.Exposure != (control.ExposureGrant{Limits: control.ExposureLimits{ReleaseFacts: core.Budget.MaxReleaseFacts, InfluenceFacts: core.Budget.MaxInfluenceFacts, OutcomeFacts: core.Budget.MaxOutcomeFacts}, ProfileVersion: core.Budget.ExposureProfileVersion}) ||
 		!sameStringSet(stored.ApprovedProducts, core.ApprovedProducts) ||
 		!sameColumnSets(stored.ApprovedColumns, core.ApprovedColumns) {
 		return false

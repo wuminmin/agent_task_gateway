@@ -18,6 +18,7 @@ import (
 	"taskbound.local/agent-data-gateway/internal/control"
 	"taskbound.local/agent-data-gateway/internal/dataconnector"
 	"taskbound.local/agent-data-gateway/internal/domain"
+	"taskbound.local/agent-data-gateway/internal/exposure"
 	"taskbound.local/agent-data-gateway/internal/mcp"
 	"taskbound.local/agent-data-gateway/internal/testpostgres"
 )
@@ -261,6 +262,10 @@ func (harness *gatewayHarness) createExposureV2SummaryTask(t *testing.T, taskID 
 	harness.createSummaryTaskWithGrantAndExposureProfile(t, taskID, nil, limits, "taskgate-exposure-v2")
 }
 
+func (harness *gatewayHarness) createExposureV3SummaryTask(t *testing.T, taskID string, limits control.ExposureLimits) {
+	harness.createSummaryTaskWithGrantAndExposureProfile(t, taskID, nil, limits, exposure.ProfileV3)
+}
+
 func (harness *gatewayHarness) createSummaryTaskWithGrantAndExposureProfile(t *testing.T, taskID string, narrow func(*domain.TaskGrantCoreV1), exposureLimits control.ExposureLimits, profile string) {
 	harness.createTaskWithGrantAndExposureProfile(t, taskID, narrow, exposureLimits, profile,
 		[]string{"expense_summary"}, map[string][]string{"expense_summary": {"month", "total_amount"}}, domain.SensitivityLow)
@@ -275,6 +280,7 @@ func (harness *gatewayHarness) createTaskWithGrantAndExposureProfile(t *testing.
 	if exposureLimits.ReleaseFacts > 0 || exposureLimits.InfluenceFacts > 0 {
 		budget.MaxReleaseFacts = exposureLimits.ReleaseFacts
 		budget.MaxInfluenceFacts = exposureLimits.InfluenceFacts
+		budget.MaxOutcomeFacts = exposureLimits.OutcomeFacts
 		budget.ExposureProfileVersion = profile
 	}
 	pendingValue := pendingContext{
@@ -294,6 +300,7 @@ func (harness *gatewayHarness) createTaskWithGrantAndExposureProfile(t *testing.
 			MaxQueries: budget.MaxQueries, MaxResultRows: budget.MaxRows, MaxDBMS: budget.MaxDBTime.Milliseconds(),
 			PerQueryTimeoutMS: budget.PerQueryTimeout.Milliseconds(), TaskTTLMS: budget.TaskTTL.Milliseconds(),
 			MaxReleaseFacts: budget.MaxReleaseFacts, MaxInfluenceFacts: budget.MaxInfluenceFacts,
+			MaxOutcomeFacts:        budget.MaxOutcomeFacts,
 			ExposureProfileVersion: budget.ExposureProfileVersion,
 		},
 		CatalogVersion: harness.catalog.CatalogVersion, CatalogSHA256: harness.catalog.SHA256,
@@ -366,7 +373,8 @@ func (harness *gatewayHarness) createTaskWithGrantAndExposureProfile(t *testing.
 				Queries: core.Budget.MaxQueries, Rows: core.Budget.MaxResultRows, DBMS: core.Budget.MaxDBMS,
 			},
 			Exposure: control.ExposureGrant{
-				Limits:         control.ExposureLimits{ReleaseFacts: core.Budget.MaxReleaseFacts, InfluenceFacts: core.Budget.MaxInfluenceFacts},
+				Limits: control.ExposureLimits{ReleaseFacts: core.Budget.MaxReleaseFacts,
+					InfluenceFacts: core.Budget.MaxInfluenceFacts, OutcomeFacts: core.Budget.MaxOutcomeFacts},
 				ProfileVersion: core.Budget.ExposureProfileVersion,
 			},
 			ExpiresAt: core.ExpiresAt, CatalogVersion: harness.catalog.CatalogVersion,

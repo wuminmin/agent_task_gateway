@@ -129,18 +129,18 @@ approval_routes:
   - sensitivity: low
     mode: manual
     approver: bob
-    budget_profile: summary-manual-v2
+    budget_profile: summary-manual-v3
   - sensitivity: medium
     mode: manual
     approver: bob
-    budget_profile: detail-manual-v2
+    budget_profile: detail-manual-v3
   - sensitivity: high
     mode: manual
     approver: bob
-    budget_profile: detail-manual-v2
+    budget_profile: detail-manual-v3
 
 budget_profiles:
-  - name: summary-manual-v2
+  - name: summary-manual-v3
     max_queries: 10
     max_rows: 500
     max_db_time: 30s
@@ -148,8 +148,9 @@ budget_profiles:
     task_ttl: 30m
     max_release_facts: 1000
     max_influence_facts: 5000
-    exposure_profile_version: taskgate-exposure-v2
-  - name: detail-manual-v2
+    max_outcome_facts: 10
+    exposure_profile_version: taskgate-exposure-v3
+  - name: detail-manual-v3
     max_queries: 5
     max_rows: 100
     max_db_time: 15s
@@ -157,4 +158,5 @@ budget_profiles:
     task_ttl: 15m
     max_release_facts: 500
     max_influence_facts: 2500
-    exposure_profile_version: taskgate-exposure-v2
+    max_outcome_facts: 5
+    exposure_profile_version: taskgate-exposure-v3

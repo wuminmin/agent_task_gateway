@@ -135,13 +135,14 @@ MCP `serverInfo.version` 为 `2.0.0`。Alice 可见 14 个任务/查询工具，
     "max_queries": 2,
     "max_rows": 50,
     "max_release_facts": 100,
-    "max_influence_facts": 500
+    "max_influence_facts": 500,
+    "max_outcome_facts": 2
   }
 }
 ```
 
 每个申请产品必须有非空字段列表；未知产品、字段、Scope 或越界值会被拒绝。
-`requested_budget` 只能缩小 Catalog Profile 的资源和双 exposure 上限。
+`requested_budget` 只能缩小 Catalog Profile 的资源和三维 exposure 上限。
 
 `request_data_task` 返回 `task_id`、`oa_url`、审批模式和 `AuthorizationManifestV1` 摘要。用 `.env` 的 `OA_ALICE_PASSWORD` 以 `alice` 登录 OA，打开草稿并提交。所有敏感级别（包括低敏 `expense_summary`）都会停在 `AWAITING_APPROVAL`；必须由 `bob` 登录 OA 明确批准或缩小后批准，任务才会进入 `ACTIVE`。
 
@@ -173,7 +174,7 @@ equijoin，或同一产品两个过滤分支的 `union_distinct`；字段用 Cat
 聚合。嵌套关系树、self-join、`UNION ALL`、关系计划的 order/limit/offset 会
 关闭式拒绝。详细 JSON 示例见仓库根目录 README。
 
-默认 Catalog 只定义 `taskgate-exposure-v2` budget profiles，且所有 approval
+默认 Catalog 定义 `taskgate-exposure-v3` budget profiles，且所有 approval
 route 都是人工审批。Gateway 会在一个只读
 `REPEATABLE READ` 事务中执行可见查询和 provenance companion，先在内存
 缓冲，再按根任务已知集合结算。响应中的 `exposure` 给出本次
@@ -197,9 +198,9 @@ route 都是人工审批。Gateway 会在一个只读
 ## 6. 预算、结果与审计
 
 - `get_task_context`：获批产品、字段、Scope、凭证与期限。
-- `get_budget`：查询数、累计行数和累计 DB 毫秒的上限、已用、预留和剩余值，并在 exposure 启用时返回根任务双账本。
+- `get_budget`：查询数、累计行数和累计 DB 毫秒的上限、已用、预留和剩余值，并在 exposure 启用时返回根任务三维账本。
 - `get_query_result`：Alice 按 `task_id + query_id` 读取 AES-256-GCM 加密保存的结果。
-- `list_receipts`：exposure 结算使用 V4；无 exposure evidence 的兼容终态使用 V3。
+- `list_receipts`：V3 exposure 结算使用 V5；V2/V1 兼容 exposure 使用 V4，无 exposure evidence 的兼容终态使用 V3。
 - `complete_task`：主动归档任务。
 - `revoke_task`：阻止新查询；已在途查询不会被宣称立即取消，仍受原超时和 Grant 到期约束。
 

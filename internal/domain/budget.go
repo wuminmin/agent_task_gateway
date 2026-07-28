@@ -21,6 +21,7 @@ type Budget struct {
 	TaskTTL                time.Duration `json:"task_ttl" yaml:"task_ttl"`
 	MaxReleaseFacts        int64         `json:"max_release_facts,omitempty" yaml:"max_release_facts,omitempty"`
 	MaxInfluenceFacts      int64         `json:"max_influence_facts,omitempty" yaml:"max_influence_facts,omitempty"`
+	MaxOutcomeFacts        int64         `json:"max_outcome_facts,omitempty" yaml:"max_outcome_facts,omitempty"`
 	ExposureProfileVersion string        `json:"exposure_profile_version,omitempty" yaml:"exposure_profile_version,omitempty"`
 }
 
@@ -38,7 +39,7 @@ func (b Budget) Validate() error {
 		return fmt.Errorf("%w: per_query_timeout exceeds max_db_time", ErrInvalidBudget)
 	case b.TaskTTL <= 0:
 		return fmt.Errorf("%w: task_ttl must be positive", ErrInvalidBudget)
-	case b.MaxReleaseFacts < 0 || b.MaxInfluenceFacts < 0:
+	case b.MaxReleaseFacts < 0 || b.MaxInfluenceFacts < 0 || b.MaxOutcomeFacts < 0:
 		return fmt.Errorf("%w: exposure limits cannot be negative", ErrInvalidBudget)
 	case (b.MaxReleaseFacts == 0) != (b.MaxInfluenceFacts == 0):
 		return fmt.Errorf("%w: release and influence limits must both be enabled or disabled", ErrInvalidBudget)
@@ -46,6 +47,10 @@ func (b Budget) Validate() error {
 		return fmt.Errorf("%w: exposure_profile_version is required", ErrInvalidBudget)
 	case b.MaxReleaseFacts == 0 && b.ExposureProfileVersion != "":
 		return fmt.Errorf("%w: exposure_profile_version requires exposure limits", ErrInvalidBudget)
+	case b.ExposureProfileVersion == "taskgate-exposure-v3" && b.MaxOutcomeFacts <= 0:
+		return fmt.Errorf("%w: V3 requires a positive outcome limit", ErrInvalidBudget)
+	case b.ExposureProfileVersion != "taskgate-exposure-v3" && b.MaxOutcomeFacts != 0:
+		return fmt.Errorf("%w: outcome limit requires V3", ErrInvalidBudget)
 	default:
 		return nil
 	}
@@ -60,6 +65,7 @@ func (b Budget) Within(parent Budget) bool {
 		b.TaskTTL <= parent.TaskTTL &&
 		b.MaxReleaseFacts <= parent.MaxReleaseFacts &&
 		b.MaxInfluenceFacts <= parent.MaxInfluenceFacts &&
+		b.MaxOutcomeFacts <= parent.MaxOutcomeFacts &&
 		b.ExposureProfileVersion == parent.ExposureProfileVersion
 }
 
@@ -88,6 +94,7 @@ type BudgetRequest struct {
 	TaskTTL           *time.Duration `json:"task_ttl,omitempty"`
 	MaxReleaseFacts   *int64         `json:"max_release_facts,omitempty"`
 	MaxInfluenceFacts *int64         `json:"max_influence_facts,omitempty"`
+	MaxOutcomeFacts   *int64         `json:"max_outcome_facts,omitempty"`
 }
 
 // Apply returns the requested budget after enforcing the profile ceiling.
@@ -117,6 +124,9 @@ func (r BudgetRequest) Apply(profile Budget) (Budget, error) {
 	}
 	if r.MaxInfluenceFacts != nil {
 		result.MaxInfluenceFacts = *r.MaxInfluenceFacts
+	}
+	if r.MaxOutcomeFacts != nil {
+		result.MaxOutcomeFacts = *r.MaxOutcomeFacts
 	}
 
 	if err := result.EnsureWithin(profile); err != nil {
