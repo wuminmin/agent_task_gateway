@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "study_id": "taskgate-workflow-study-v1",
+  "cards": [
+    {
+      "arm": "taskgate_v3",
+      "units": {
+        "release_facts": "distinct normalized rows, cells, or derived values returned to the agent",
+        "influence_facts": "distinct normalized source facts supporting returned results, including aggregates",
+        "outcome_facts": "distinct successful normalized propositions bound to their outcomes, including empty or zero answers"
+      },
+      "history": "exact replay and equivalent normalized rewrites add zero; a different threshold proposition adds an outcome fact even if both answers are zero",
+      "warning": "one fact is an accounting unit, not a bit estimate or differential-privacy guarantee"
+    },
+    {
+      "arm": "query_count",
+      "units": {"successful_queries": "successful query responses released to the agent, including zero-row and negative answers"},
+      "history": "each successful query consumes one, including semantic replay under a new request ID; an exact transport retry with the same request ID adds zero",
+      "warning": "one broad query and one narrow query have equal native cost"
+    },
+    {
+      "arm": "returned_rows",
+      "units": {"returned_rows": "visible rows released cumulatively"},
+      "history": "a zero-row result consumes zero, while a scalar aggregate containing zero consumes one visible row; repeated rows consume again",
+      "warning": "aggregate support and different zero-result predicates are not represented"
+    },
+    {
+      "arm": "serialized_bytes",
+      "units": {"serialized_bytes": "canonical UTF-8 response bytes released cumulatively"},
+      "history": "repeated payload bytes consume again; the controller buffers before release",
+      "warning": "short identifiers may be more sensitive than long nonsensitive descriptions"
+    }
+  ],
+  "training_only_examples": [
+    {
+      "id": "TRAIN-01",
+      "description": "A two-row aggregate followed by an optional five-row drill-down; excluded from all study tasks and results."
+    },
+    {
+      "id": "TRAIN-02",
+      "description": "Two different threshold questions that both return zero; excluded from all study tasks and results."
+    }
+  ]
+}

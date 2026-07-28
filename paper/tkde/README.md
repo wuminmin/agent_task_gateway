@@ -20,7 +20,7 @@ exposure report. `generate_evidence.py` then verifies:
 - all raw files for the three-trial RQ4 campaign, including 7,896 full-path and
   23,400 ablation samples, reconstructed summaries, environment digest, and
   the digest of the current gateway/benchmark source;
-- the three operational RQ5 policy scenarios, nine declared workflow goals,
+- the three illustrative RQ5 policy fixtures, nine author-declared binary goals,
   fact-class calibration, and exact dual-budget/utility curves;
 - the three-scale PostgreSQL 16 Join--Group report, its 27 direct/novel/replay
   points, exact million-fact accounting, raw-artifact digest, implementation

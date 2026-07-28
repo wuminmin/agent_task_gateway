@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "study_id": "taskgate-workflow-study-v1",
+  "expert_id": "replace-with-anonymous-id",
+  "panel": "approval",
+  "domain": "finance",
+  "is_paper_author": false,
+  "relevant_experience_years": 0,
+  "training_completed_at": "replace-with-rfc3339",
+  "decisions": [
+    {
+      "task_id": "FIN-01",
+      "arm": "taskgate_v3",
+      "rendered_at": "replace-with-rfc3339",
+      "decided_at": "replace-with-rfc3339",
+      "decision": "approve",
+      "requested_budget": {"release_facts": 0, "influence_facts": 0, "outcome_facts": 0},
+      "approved_budget": {"release_facts": 0, "influence_facts": 0, "outcome_facts": 0},
+      "confidence_1_to_5": 0,
+      "unit_comprehension_correct": false
+    }
+  ]
+}

@@ -1118,7 +1118,7 @@ rather than claiming a proof that does not exist.
 The evaluation is organized around five questions: RQ1 ground-truth accuracy;
 RQ2 rewrite invariance of exposure accounting; RQ3 resistance to split, page,
 retry, zero/empty threshold probing, snapshot, join/union, delegation, and concurrency amplification; RQ4 runtime/storage
-overhead and cost scaling; and RQ5 workflow-based policy calibration. The report
+overhead and cost scaling; and RQ5 policy-calibration worked examples. The report
 is rebuilt for \ExposureProfile{} from a source-controlled V2 base-algebra corpus (V3 preserves
 those release/dependency FactIDs) with digest prefix
 \ExposureCorpusHash{}. The primary RQ2 evidence is a closed-language
@@ -1149,7 +1149,7 @@ RQ1 & \RQOnePassed{}/\RQOneCases{} independent-oracle cases on \RQOneRows{} sour
 RQ2 & \RQTwoExposureRewrites{} closed-language rewrite families, \RQTwoExposureCases{} instances and \RQTwoExposureNFCases{} normal-form checks: FactSet/charge invariant, \RQTwoExposureMismatches{} mismatches \\
 RQ3 & \RQThreePassed{}/\RQThreeCases{} deterministic; \RQThreeIntegration{}/\RQThreeExecuted{} PostgreSQL race tests; paired PG Join/Union exchange and downstream-group tests \\
 RQ4 & \RQFourFullPathOperations{} small-fixture full-path calls plus \RQFourAblationOperations{} ablations; physical ledger curve to \RQFourStorageMaxRows{} rows; end-to-end Join--Group to \RQFourScaleMaxJoined{} members/\RQFourScaleMaxFacts{} dependencies \\
-RQ5 & \RQFiveScenarios{} operational policy scenarios and \RQFiveGoals{} declared workflow goals; exact release/dependency budget--utility slices and fact-class calibration \\
+RQ5 & \RQFiveScenarios{} illustrative policy fixtures and \RQFiveGoals{} author-declared binary goals; exact release/dependency budget--utility slices and fact-class calibration \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1445,7 +1445,7 @@ normal-form depth, and novel-versus-replay deduplication. At
 replay charges \RQFourScalingReplayCharge{}. These isolate cost growth but are
 not substitutes for the PostgreSQL end-to-end result.
 
-\subsection{RQ5: Fixture-Based Policy Calibration}
+\subsection{RQ5: Policy-Calibration Worked Examples}
 \label{sec:rq5}
 
 RQ5 instantiates finance summary, overlapping-page case review, and delegated

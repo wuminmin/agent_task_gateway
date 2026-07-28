@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "study_id": "taskgate-workflow-study-v1",
+  "run_id": "replace-with-random-run-id",
+  "task_id": "FIN-01",
+  "arm": "taskgate_v3",
+  "seed": 0,
+  "model": {"provider": "replace", "model": "replace", "version": "replace", "temperature": 0},
+  "database_snapshot": "workflow-study-2026-v1",
+  "root_task_id": "replace",
+  "started_at": "replace-with-rfc3339",
+  "finished_at": "replace-with-rfc3339",
+  "status": "completed",
+  "budget": {"release_facts": 2000, "influence_facts": 10000, "outcome_facts": 20},
+  "approval": {"decision": "approve", "expert_panel_digest": "replace-with-sha256"},
+  "queries": [],
+  "final_answer": {},
+  "final_answer_text": "",
+  "common_v3_risk": {
+    "release_facts": 0,
+    "influence_facts": 0,
+    "outcome_facts": 0,
+    "sensitivity_weighted_exposure": 0
+  },
+  "native_usage": {"successful_queries": 0, "returned_rows": 0, "serialized_bytes": 0},
+  "runtime_budget_rejections": 0
+}

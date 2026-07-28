@@ -1,0 +1,120 @@
+{
+  "schema_version": 1,
+  "study_id": "taskgate-workflow-study-v1",
+  "status": "designed_not_collected",
+  "decision": "Compare accounting policies by agent utility at independently expert-set budgets, using a common post-hoc V3 exposure risk scale.",
+  "arms": [
+    {
+      "id": "taskgate_v3",
+      "enforcement": "release, influence, and outcome fact ceilings at the shared root task",
+      "common_risk_audit": "native"
+    },
+    {
+      "id": "query_count",
+      "enforcement": "successful query-response count ceiling, including zero-row and negative answers; V3 facts computed audit-only",
+      "common_risk_audit": "post_hoc_v3"
+    },
+    {
+      "id": "returned_rows",
+      "enforcement": "cumulative visible-row ceiling; V3 facts computed audit-only",
+      "common_risk_audit": "post_hoc_v3"
+    },
+    {
+      "id": "serialized_bytes",
+      "enforcement": "cumulative response bytes buffered before release; V3 facts computed audit-only",
+      "common_risk_audit": "post_hoc_v3"
+    }
+  ],
+  "sampling": {
+    "domains": 3,
+    "tasks_per_domain": 4,
+    "independent_domain_experts": 18,
+    "budget_calibration_experts": 9,
+    "approval_review_experts": 9,
+    "blind_grading_experts": 6,
+    "minimum_experts_per_task": 3,
+    "minimum_blind_graders_per_completed_run": 2,
+    "agent_seeds_per_task_arm": 5,
+    "planned_agent_runs": 240,
+    "assignment": "within-task paired arms; arm order uses a balanced Latin square; each run receives a fresh database and root-task snapshot"
+  },
+  "budget_calibration": {
+    "independence": "calibration and approval use disjoint non-author panels with three practitioners per domain; neither sees ground truth, agent traces, or outcomes",
+    "training": "unit cards plus two training tasks excluded from analysis",
+    "locked_before_runs": true,
+    "aggregation": "per-task, per-arm median of independent calibration ceilings, then frozen for the disjoint approval panel",
+    "narrowing_allowed_in_approval_panel": true
+  },
+  "approval_adjudication": {
+    "rule": "per task/arm, majority reject prevents execution; ties reject conservatively",
+    "approved_ceiling": "otherwise freeze the component-wise median of non-reject approved or narrowed ceilings, capped by the requested ceiling",
+    "rejected_observation": "record every registered seed as approval_rejected with zero completion"
+  },
+  "blind_grading": {
+    "panel": "six additional non-author practitioners, two per domain, disjoint from calibration and approval",
+    "coverage": "every completed run receives two independent grades for every blind-expert and trace-guardrail rubric item",
+    "aggregation": "arithmetic mean by run and rubric item"
+  },
+  "primary_metrics": [
+    {
+      "id": "rubric_score_0_100",
+      "definition": "sum of predeclared weighted automated, blind-expert, and trace-guardrail item scores",
+      "decision_use": "answer quality under the approved policy budget"
+    },
+    {
+      "id": "critical_goal_task_completion",
+      "definition": "rubric score at least 80 and every task-specific critical item score at least 0.8",
+      "decision_use": "whether the workflow achieved the business decision rather than merely returning data"
+    }
+  ],
+  "human_usability_metrics": [
+    {
+      "id": "approval_decision_seconds",
+      "definition": "monotonic time from fully rendered request to approve, reject, or narrow"
+    },
+    {
+      "id": "initial_rejection_rate",
+      "definition": "rejected requests divided by all independently reviewed requests"
+    },
+    {
+      "id": "narrowing_rate",
+      "definition": "approved requests whose ceilings or scopes were reduced divided by approved requests"
+    }
+  ],
+  "common_risk_metrics": [
+    {
+      "id": "sensitivity_weighted_v3_exposure",
+      "definition": "post-hoc union of V3 release, influence, and outcome facts, weighted by the catalog sensitivity card fixed before study collection"
+    },
+    {
+      "id": "unauthorized_or_unnecessary_sensitive_fields",
+      "definition": "blind trace-review count of fields outside the task's declared decision need"
+    }
+  ],
+  "diagnostics": [
+    "successful_queries",
+    "returned_rows",
+    "serialized_bytes",
+    "release_facts",
+    "influence_facts",
+    "outcome_facts",
+    "runtime_budget_rejections",
+    "wall_clock_seconds"
+  ],
+  "analysis": {
+    "unit": "task-agent-seed run, paired by task and seed across arms",
+    "primary_inference": "within-task-and-seed paired TaskGate-minus-baseline rubric-score differences",
+    "binary_inference": "within-task-and-seed paired differences in critical-goal completion",
+    "approval_inference": "per-review decision time, rejection, and conditional-on-approval narrowing, clustered by task",
+    "uncertainty": "task-cluster bootstrap 95% confidence intervals and exact task-level sign-flip tests",
+    "multiple_comparisons": "Holm correction for the three TaskGate-versus-baseline rubric-score contrasts",
+    "missing_runs": "report and retain failures as zero completion; never silently drop budget exhaustion or tool errors"
+  },
+  "guardrails": [
+    "No paper claim may call this a workflow study while status is designed_not_collected.",
+    "Templates and synthetic records are not expert judgments or agent outcomes.",
+    "The same frozen model, prompt, tool surface, database snapshot, and seed schedule are used across arms.",
+    "Baseline arms are compared on post-hoc V3 risk, not on incomparable native budget units.",
+    "Human graders are blind to arm, budget, model trace identifiers, and paper hypothesis."
+  ]
+}

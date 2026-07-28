@@ -1,0 +1,31 @@
+services:
+  business-postgres:
+    ports: !override
+      - 127.0.0.1:${WORKFLOW_STUDY_BUSINESS_PORT:-30434}:5432
+    volumes: !override
+      - business-pg-data:/var/lib/postgresql/data
+      - ./db/init/00-schema.sql:/docker-entrypoint-initdb.d/00-schema.sql:ro
+      - ./evaluation/workflow-study/db/05-workflow-study.sql:/docker-entrypoint-initdb.d/05-workflow-study.sql:ro
+      - ./evaluation/workflow-study/db/10-ground-truth.sql:/docker-entrypoint-initdb.d/10-ground-truth.sql:ro
+      - ./db/init/10-reader.sh:/docker-entrypoint-initdb.d/20-reader.sh:ro
+      - ./evaluation/workflow-study/db/15-workflow-reader.sql:/docker-entrypoint-initdb.d/25-workflow-reader.sql:ro
+
+  control-postgres:
+    ports: !override
+      - 127.0.0.1:${WORKFLOW_STUDY_CONTROL_PORT:-30433}:5432
+
+  gateway:
+    ports: !override
+      - 127.0.0.1:${WORKFLOW_STUDY_GATEWAY_PORT:-30082}:8082
+    environment:
+      PUBLIC_OA_BASE_URL: http://oa-demo:8092
+      GATEWAY_CONNECTOR_MAX_ROWS: 5000
+      GATEWAY_CONNECTOR_STATEMENT_TIMEOUT: 15s
+    volumes: !override
+      - ./evaluation/workflow-study/catalog.yaml:/etc/taskbound/catalog.yaml:ro
+
+  oa-demo:
+    ports: !override
+      - 127.0.0.1:${WORKFLOW_STUDY_OA_PORT:-30092}:8092
+    environment:
+      PUBLIC_OA_BASE_URL: http://oa-demo:8092
