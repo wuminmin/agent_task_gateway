@@ -2002,10 +2002,5 @@
     "control-postgres": 4613868618,
     "business-postgres": 96028590,
     "gateway": 10769630495
-  },
-  "source_sha256": "9244ce7cfe7290d8d19a0a4c226402e43f77c83e681abc811a5ba260e26f816a",
-  "raw_provenance": {
-    "artifact": "evaluation/exposure-scale/raw/paper-20260728/report-with-memory.json",
-    "artifact_sha256": "c8f1104d97fb3a584fc6efc1eeeaabebd144d6827641ad968d1ac8d85070b6a8"
   }
 }

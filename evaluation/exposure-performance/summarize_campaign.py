@@ -13,7 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
-DEFAULT_RUNS = [f"rq4-20260727-trial{index}" for index in range(1, 4)]
+DEFAULT_RUNS = [f"rq4-20260728-trial{index}" for index in range(1, 4)]
 SOURCE_PATHS = [
     ROOT / "internal",
     ROOT / "cmd/gateway",
@@ -255,7 +255,7 @@ def build_summary(run_ids: list[str]) -> dict:
     return {
         "schema_version": 2,
         "status": "complete_controlled_local_campaign",
-        "campaign_id": "rq4-local-postgresql-20260727",
+        "campaign_id": "rq4-local-postgresql-20260728",
         "trials": len(trials),
         "observations": total,
         "operation_partition": {"full_path": full_path, "ablations": total - full_path, "total": total},

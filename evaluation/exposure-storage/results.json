@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "status": "complete_control_postgresql_storage_scaling",
-  "generated_at": "2026-07-27T15:44:54.610084344Z",
+  "generated_at": "2026-07-28T08:30:34.971735564Z",
   "postgres_version": "PostgreSQL 16.14 (Debian 16.14-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit",
   "trials": 3,
   "facts_per_ledger_sizes": [
@@ -16,7 +16,7 @@
     "storage": "pg_table_size and pg_indexes_size for the production exposure_facts relation in an isolated migrated schema",
     "uncertainty": "median and min-max range across fresh-schema trials"
   },
-  "source_sha256": "a58d1b4f2f45094554b3b15c6affb4c32f2cdb5c59f7df2e1bb81ce7585f19d3",
+  "source_sha256": "840ccf1f3b89febb9c559f9aae25b2ea1da510a09ee1cfa4612d5e15d19427e3",
   "raw_points": [
     {
       "trial": 1,
@@ -26,8 +26,8 @@
       "actual_dependency_facts": 10,
       "charged_release_facts": 10,
       "charged_dependency_facts": 10,
-      "settlement_ms": 6.053104,
-      "fact_store_ms": 1.391656,
+      "settlement_ms": 15.59204,
+      "fact_store_ms": 2.259766,
       "storage": {
         "fact_rows": 20,
         "canonical_payload_bytes": 7880,
@@ -44,8 +44,8 @@
       "actual_dependency_facts": 10,
       "charged_release_facts": 0,
       "charged_dependency_facts": 0,
-      "settlement_ms": 3.103572,
-      "fact_store_ms": 0.321634,
+      "settlement_ms": 8.233893,
+      "fact_store_ms": 0.616987,
       "storage": {
         "fact_rows": 20,
         "canonical_payload_bytes": 7880,
@@ -62,8 +62,8 @@
       "actual_dependency_facts": 100,
       "charged_release_facts": 90,
       "charged_dependency_facts": 90,
-      "settlement_ms": 9.433347,
-      "fact_store_ms": 4.277888,
+      "settlement_ms": 15.030188,
+      "fact_store_ms": 5.627792,
       "storage": {
         "fact_rows": 200,
         "canonical_payload_bytes": 78980,
@@ -80,8 +80,8 @@
       "actual_dependency_facts": 100,
       "charged_release_facts": 0,
       "charged_dependency_facts": 0,
-      "settlement_ms": 3.965293,
-      "fact_store_ms": 0.925178,
+      "settlement_ms": 10.420464,
+      "fact_store_ms": 1.015778,
       "storage": {
         "fact_rows": 200,
         "canonical_payload_bytes": 78980,
@@ -98,8 +98,8 @@
       "actual_dependency_facts": 1000,
       "charged_release_facts": 900,
       "charged_dependency_facts": 900,
-      "settlement_ms": 45.245584,
-      "fact_store_ms": 36.827616,
+      "settlement_ms": 96.089766,
+      "fact_store_ms": 45.958533,
       "storage": {
         "fact_rows": 2000,
         "canonical_payload_bytes": 791780,
@@ -116,8 +116,8 @@
       "actual_dependency_facts": 1000,
       "charged_release_facts": 0,
       "charged_dependency_facts": 0,
-      "settlement_ms": 22.277693,
-      "fact_store_ms": 17.052357,
+      "settlement_ms": 71.151272,
+      "fact_store_ms": 21.492434,
       "storage": {
         "fact_rows": 2000,
         "canonical_payload_bytes": 791780,
@@ -134,8 +134,8 @@
       "actual_dependency_facts": 10000,
       "charged_release_facts": 9000,
       "charged_dependency_facts": 9000,
-      "settlement_ms": 1084.64795,
-      "fact_store_ms": 1033.7535,
+      "settlement_ms": 1588.919329,
+      "fact_store_ms": 1152.918268,
       "storage": {
         "fact_rows": 20000,
         "canonical_payload_bytes": 7937780,
@@ -152,8 +152,8 @@
       "actual_dependency_facts": 10000,
       "charged_release_facts": 0,
       "charged_dependency_facts": 0,
-      "settlement_ms": 1810.941855,
-      "fact_store_ms": 1735.41756,
+      "settlement_ms": 2279.424644,
+      "fact_store_ms": 1816.027554,
       "storage": {
         "fact_rows": 20000,
         "canonical_payload_bytes": 7937780,
@@ -170,8 +170,8 @@
       "actual_dependency_facts": 10,
       "charged_release_facts": 10,
       "charged_dependency_facts": 10,
-      "settlement_ms": 5.706528,
-      "fact_store_ms": 1.413933,
+      "settlement_ms": 7.140542,
+      "fact_store_ms": 1.436148,
       "storage": {
         "fact_rows": 20,
         "canonical_payload_bytes": 7880,
@@ -188,8 +188,8 @@
       "actual_dependency_facts": 10,
       "charged_release_facts": 0,
       "charged_dependency_facts": 0,
-      "settlement_ms": 3.230739,
-      "fact_store_ms": 0.267305,
+      "settlement_ms": 4.135313,
+      "fact_store_ms": 0.299455,
       "storage": {
         "fact_rows": 20,
         "canonical_payload_bytes": 7880,
@@ -206,8 +206,8 @@
       "actual_dependency_facts": 100,
       "charged_release_facts": 90,
       "charged_dependency_facts": 90,
-      "settlement_ms": 6.896715,
-      "fact_store_ms": 3.612455,
+      "settlement_ms": 13.077126,
+      "fact_store_ms": 3.943793,
       "storage": {
         "fact_rows": 200,
         "canonical_payload_bytes": 78980,
@@ -224,8 +224,8 @@
       "actual_dependency_facts": 100,
       "charged_release_facts": 0,
       "charged_dependency_facts": 0,
-      "settlement_ms": 4.574247,
-      "fact_store_ms": 1.327545,
+      "settlement_ms": 8.481922,
+      "fact_store_ms": 1.184205,
       "storage": {
         "fact_rows": 200,
         "canonical_payload_bytes": 78980,
@@ -242,8 +242,8 @@
       "actual_dependency_facts": 1000,
       "charged_release_facts": 900,
       "charged_dependency_facts": 900,
-      "settlement_ms": 43.488718,
-      "fact_store_ms": 35.581785,
+      "settlement_ms": 100.565098,
+      "fact_store_ms": 40.672833,
       "storage": {
         "fact_rows": 2000,
         "canonical_payload_bytes": 791780,
@@ -260,8 +260,8 @@
       "actual_dependency_facts": 1000,
       "charged_release_facts": 0,
       "charged_dependency_facts": 0,
-      "settlement_ms": 23.040567,
-      "fact_store_ms": 17.310225,
+      "settlement_ms": 56.926292,
+      "fact_store_ms": 17.690386,
       "storage": {
         "fact_rows": 2000,
         "canonical_payload_bytes": 791780,
@@ -278,8 +278,8 @@
       "actual_dependency_facts": 10000,
       "charged_release_facts": 9000,
       "charged_dependency_facts": 9000,
-      "settlement_ms": 1064.465919,
-      "fact_store_ms": 1027.898518,
+      "settlement_ms": 1461.133151,
+      "fact_store_ms": 1053.009895,
       "storage": {
         "fact_rows": 20000,
         "canonical_payload_bytes": 7937780,
@@ -296,8 +296,8 @@
       "actual_dependency_facts": 10000,
       "charged_release_facts": 0,
       "charged_dependency_facts": 0,
-      "settlement_ms": 1751.002749,
-      "fact_store_ms": 1718.997583,
+      "settlement_ms": 2220.886898,
+      "fact_store_ms": 1825.881656,
       "storage": {
         "fact_rows": 20000,
         "canonical_payload_bytes": 7937780,
@@ -314,8 +314,8 @@
       "actual_dependency_facts": 10,
       "charged_release_facts": 10,
       "charged_dependency_facts": 10,
-      "settlement_ms": 6.592868,
-      "fact_store_ms": 1.578029,
+      "settlement_ms": 8.647884,
+      "fact_store_ms": 1.64344,
       "storage": {
         "fact_rows": 20,
         "canonical_payload_bytes": 7880,
@@ -332,8 +332,8 @@
       "actual_dependency_facts": 10,
       "charged_release_facts": 0,
       "charged_dependency_facts": 0,
-      "settlement_ms": 3.692349,
-      "fact_store_ms": 0.399492,
+      "settlement_ms": 4.784112,
+      "fact_store_ms": 0.292134,
       "storage": {
         "fact_rows": 20,
         "canonical_payload_bytes": 7880,
@@ -350,8 +350,8 @@
       "actual_dependency_facts": 100,
       "charged_release_facts": 90,
       "charged_dependency_facts": 90,
-      "settlement_ms": 8.271398,
-      "fact_store_ms": 4.233003,
+      "settlement_ms": 20.480718,
+      "fact_store_ms": 5.109147,
       "storage": {
         "fact_rows": 200,
         "canonical_payload_bytes": 78980,
@@ -368,8 +368,8 @@
       "actual_dependency_facts": 100,
       "charged_release_facts": 0,
       "charged_dependency_facts": 0,
-      "settlement_ms": 3.941564,
-      "fact_store_ms": 0.85976,
+      "settlement_ms": 8.418252,
+      "fact_store_ms": 0.934116,
       "storage": {
         "fact_rows": 200,
         "canonical_payload_bytes": 78980,
@@ -386,8 +386,8 @@
       "actual_dependency_facts": 1000,
       "charged_release_facts": 900,
       "charged_dependency_facts": 900,
-      "settlement_ms": 44.469884,
-      "fact_store_ms": 36.007109,
+      "settlement_ms": 79.084598,
+      "fact_store_ms": 38.50345,
       "storage": {
         "fact_rows": 2000,
         "canonical_payload_bytes": 791780,
@@ -404,8 +404,8 @@
       "actual_dependency_facts": 1000,
       "charged_release_facts": 0,
       "charged_dependency_facts": 0,
-      "settlement_ms": 22.552716,
-      "fact_store_ms": 17.540211,
+      "settlement_ms": 55.74976,
+      "fact_store_ms": 18.16813,
       "storage": {
         "fact_rows": 2000,
         "canonical_payload_bytes": 791780,
@@ -422,8 +422,8 @@
       "actual_dependency_facts": 10000,
       "charged_release_facts": 9000,
       "charged_dependency_facts": 9000,
-      "settlement_ms": 1067.914231,
-      "fact_store_ms": 1029.399972,
+      "settlement_ms": 1555.048376,
+      "fact_store_ms": 1145.153508,
       "storage": {
         "fact_rows": 20000,
         "canonical_payload_bytes": 7937780,
@@ -440,8 +440,8 @@
       "actual_dependency_facts": 10000,
       "charged_release_facts": 0,
       "charged_dependency_facts": 0,
-      "settlement_ms": 1724.446435,
-      "fact_store_ms": 1690.529284,
+      "settlement_ms": 2193.41851,
+      "fact_store_ms": 1805.650812,
       "storage": {
         "fact_rows": 20000,
         "canonical_payload_bytes": 7937780,
@@ -457,17 +457,17 @@
       "operation": "novel",
       "trials": 3,
       "settlement_ms": {
-        "median": 6.053104,
+        "median": 8.647884,
         "trial_range": [
-          5.706528,
-          6.592868
+          7.140542,
+          15.59204
         ]
       },
       "fact_store_ms": {
-        "median": 1.413933,
+        "median": 1.64344,
         "trial_range": [
-          1.391656,
-          1.578029
+          1.436148,
+          2.259766
         ]
       },
       "storage": {
@@ -513,17 +513,17 @@
       "operation": "replay",
       "trials": 3,
       "settlement_ms": {
-        "median": 3.230739,
+        "median": 4.784112,
         "trial_range": [
-          3.103572,
-          3.692349
+          4.135313,
+          8.233893
         ]
       },
       "fact_store_ms": {
-        "median": 0.321634,
+        "median": 0.299455,
         "trial_range": [
-          0.267305,
-          0.399492
+          0.292134,
+          0.616987
         ]
       },
       "storage": {
@@ -569,17 +569,17 @@
       "operation": "novel",
       "trials": 3,
       "settlement_ms": {
-        "median": 8.271398,
+        "median": 15.030188,
         "trial_range": [
-          6.896715,
-          9.433347
+          13.077126,
+          20.480718
         ]
       },
       "fact_store_ms": {
-        "median": 4.233003,
+        "median": 5.109147,
         "trial_range": [
-          3.612455,
-          4.277888
+          3.943793,
+          5.627792
         ]
       },
       "storage": {
@@ -625,17 +625,17 @@
       "operation": "replay",
       "trials": 3,
       "settlement_ms": {
-        "median": 3.965293,
+        "median": 8.481922,
         "trial_range": [
-          3.941564,
-          4.574247
+          8.418252,
+          10.420464
         ]
       },
       "fact_store_ms": {
-        "median": 0.925178,
+        "median": 1.015778,
         "trial_range": [
-          0.85976,
-          1.327545
+          0.934116,
+          1.184205
         ]
       },
       "storage": {
@@ -681,17 +681,17 @@
       "operation": "novel",
       "trials": 3,
       "settlement_ms": {
-        "median": 44.469884,
+        "median": 96.089766,
         "trial_range": [
-          43.488718,
-          45.245584
+          79.084598,
+          100.565098
         ]
       },
       "fact_store_ms": {
-        "median": 36.007109,
+        "median": 40.672833,
         "trial_range": [
-          35.581785,
-          36.827616
+          38.50345,
+          45.958533
         ]
       },
       "storage": {
@@ -737,17 +737,17 @@
       "operation": "replay",
       "trials": 3,
       "settlement_ms": {
-        "median": 22.552716,
+        "median": 56.926292,
         "trial_range": [
-          22.277693,
-          23.040567
+          55.74976,
+          71.151272
         ]
       },
       "fact_store_ms": {
-        "median": 17.310225,
+        "median": 18.16813,
         "trial_range": [
-          17.052357,
-          17.540211
+          17.690386,
+          21.492434
         ]
       },
       "storage": {
@@ -793,17 +793,17 @@
       "operation": "novel",
       "trials": 3,
       "settlement_ms": {
-        "median": 1067.914231,
+        "median": 1555.048376,
         "trial_range": [
-          1064.465919,
-          1084.64795
+          1461.133151,
+          1588.919329
         ]
       },
       "fact_store_ms": {
-        "median": 1029.399972,
+        "median": 1145.153508,
         "trial_range": [
-          1027.898518,
-          1033.7535
+          1053.009895,
+          1152.918268
         ]
       },
       "storage": {
@@ -849,17 +849,17 @@
       "operation": "replay",
       "trials": 3,
       "settlement_ms": {
-        "median": 1751.002749,
+        "median": 2220.886898,
         "trial_range": [
-          1724.446435,
-          1810.941855
+          2193.41851,
+          2279.424644
         ]
       },
       "fact_store_ms": {
-        "median": 1718.997583,
+        "median": 1816.027554,
         "trial_range": [
-          1690.529284,
-          1735.41756
+          1805.650812,
+          1825.881656
         ]
       },
       "storage": {

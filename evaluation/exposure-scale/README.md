@@ -22,7 +22,7 @@ This default writes an ignored engineering result under `raw/<run-id>/`.  The
 source-controlled paper campaign was promoted with:
 
 ```sh
-EXPOSURE_SCALE_RUN_ID=paper-20260727 EXPOSURE_SCALE_PROMOTE=1 \
+EXPOSURE_SCALE_RUN_ID=paper-20260728 EXPOSURE_SCALE_PROMOTE=1 \
   ./evaluation/run-exposure-scale.sh
 ```
 
