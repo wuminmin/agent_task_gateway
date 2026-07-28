@@ -4,6 +4,7 @@
   "cards": [
     {
       "arm": "taskgate_v3",
+      "allowed_range": {"release_facts": [1, 100000], "influence_facts": [1, 1000000], "outcome_facts": [1, 100]},
       "units": {
         "release_facts": "distinct normalized rows, cells, or derived values returned to the agent",
         "influence_facts": "distinct normalized source facts supporting returned results, including aggregates",
@@ -14,21 +15,30 @@
     },
     {
       "arm": "query_count",
+      "allowed_range": {"successful_queries": [0, 100]},
       "units": {"successful_queries": "successful query responses released to the agent, including zero-row and negative answers"},
       "history": "each successful query consumes one, including semantic replay under a new request ID; an exact transport retry with the same request ID adds zero",
       "warning": "one broad query and one narrow query have equal native cost"
     },
     {
       "arm": "returned_rows",
+      "allowed_range": {"returned_rows": [0, 5000]},
       "units": {"returned_rows": "visible rows released cumulatively"},
       "history": "a zero-row result consumes zero, while a scalar aggregate containing zero consumes one visible row; repeated rows consume again",
       "warning": "aggregate support and different zero-result predicates are not represented"
     },
     {
       "arm": "serialized_bytes",
+      "allowed_range": {"serialized_bytes": [0, 5000000]},
       "units": {"serialized_bytes": "canonical UTF-8 response bytes released cumulatively"},
       "history": "repeated payload bytes consume again; the controller buffers before release",
       "warning": "short identifiers may be more sensitive than long nonsensitive descriptions"
+    },
+    {
+      "arm": "unlimited",
+      "units": {},
+      "history": "no study exposure ceiling is enforced; ordinary authorization, scope, timeout, and safety controls remain",
+      "warning": "diagnostic quality upper bound only; this arm is not shown to budget experts or treated as a primary competitor"
     }
   ],
   "training_only_examples": [

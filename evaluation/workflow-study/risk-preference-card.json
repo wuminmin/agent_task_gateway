@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "study_id": "taskgate-workflow-study-v1",
+  "organization_profile": "balanced-enterprise-governance",
+  "decision_rule": "Approve the smallest budget that a competent analyst would reasonably need to answer the stated business question with verifiable evidence.",
+  "risk_preferences": [
+    "Do not approve names, free text, invoice numbers, merchants, or purposes unless the task explicitly needs them.",
+    "A legitimate empty or negative answer is useful, but probing additional predicates after that answer is unnecessary exposure.",
+    "Aggregate support can expose many sensitive records even when the visible answer is one row.",
+    "A budget should allow a reasonable correction attempt, but not unrestricted exploratory browsing outside the stated scope."
+  ],
+  "sensitivity_weights": {"low": 1, "medium": 3, "high": 5},
+  "unit_independence": "Budgets for each representation must be judged from its own unit card; experts must not convert units using observed agent behavior.",
+  "hidden_information": ["ground truth", "agent queries", "agent answers", "other experts' budgets", "paper hypothesis"]
+}

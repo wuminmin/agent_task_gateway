@@ -7,6 +7,8 @@
     {
       "id": "FIN-01",
       "domain": "finance",
+      "difficulty": "high",
+      "case_source": "representative_synthetic_case_subject_to_practitioner_provenance_gate",
       "label": "Conditional monthly-spend drill-down",
       "prompt": "Audit approved Sales travel expenses from January through June 2026. Determine whether any month is more than 30% above the mean of the preceding two months. If there is no trigger, report that and stop. If there is a trigger, report the anomalous month and growth rate, then identify the expense categories and no more than five claims that contribute most. Do not request employee_name unless a claim-level anomaly has first been established.",
       "products": ["wf_expense_claim"],
@@ -25,6 +27,8 @@
     {
       "id": "FIN-02",
       "domain": "finance",
+      "difficulty": "medium",
+      "case_source": "representative_synthetic_case_subject_to_practitioner_provenance_gate",
       "label": "Employee spend concentration",
       "prompt": "For approved Sales claims in the first half of 2026, determine whether one employee accounts for more than 30% of total spend. Return the pseudonymous employee code, employee and department totals, and the calculated share. Do not return employee names, merchants, or purposes.",
       "products": ["wf_expense_claim"],
@@ -44,6 +48,8 @@
     {
       "id": "FIN-03",
       "domain": "finance",
+      "difficulty": "high",
+      "case_source": "representative_synthetic_case_subject_to_practitioner_provenance_gate",
       "label": "Policy-limit compliance",
       "prompt": "Compare approved Sales claims from January through June 2026 with the city/category reimbursement policy. Report the number of over-limit claims, total amount above policy, and the five claims with the largest excess. Explain the comparison rule; employee identities are not needed.",
       "products": ["wf_expense_claim", "wf_expense_policy"],
@@ -65,6 +71,8 @@
     {
       "id": "FIN-04",
       "domain": "finance",
+      "difficulty": "low",
+      "case_source": "representative_synthetic_case_subject_to_practitioner_provenance_gate",
       "label": "Aged pending liability",
       "prompt": "As of 1 July 2026, quantify Sales claims that remain pending for more than 14 days. Return the count, total amount, and claim IDs. Treat submitted_date as the aging start and state the cutoff used.",
       "products": ["wf_expense_claim"],
@@ -82,7 +90,9 @@
     },
     {
       "id": "SUP-01",
-      "domain": "support",
+      "domain": "customer_operations",
+      "difficulty": "medium",
+      "case_source": "representative_synthetic_case_subject_to_practitioner_provenance_gate",
       "label": "Critical-ticket SLA root cause",
       "prompt": "For Sales critical-priority tickets opened in May 2026, determine whether the first-response SLA breach rate exceeds 10%. Report the denominator, breach count, rate, and issue type contributing the most breaches. Do not expose customer identities.",
       "products": ["wf_support_ticket"],
@@ -101,7 +111,9 @@
     },
     {
       "id": "SUP-02",
-      "domain": "support",
+      "domain": "customer_operations",
+      "difficulty": "high",
+      "case_source": "representative_synthetic_case_subject_to_practitioner_provenance_gate",
       "label": "Entitlement mismatch",
       "prompt": "Identify Sales customers who received a service tier different from their active entitlement during the first half of 2026. Return only customer codes and the number of affected customers; do not return names or unrelated tickets.",
       "products": ["wf_support_ticket", "wf_customer_entitlement"],
@@ -121,7 +133,9 @@
     },
     {
       "id": "SUP-03",
-      "domain": "support",
+      "domain": "customer_operations",
+      "difficulty": "high",
+      "case_source": "representative_synthetic_case_subject_to_practitioner_provenance_gate",
       "label": "Seven-day repeat contacts",
       "prompt": "Find Sales customers who contacted support at least three times about the same issue within a seven-day span during the first half of 2026. Return customer codes, issue types, and the number of qualifying cases. Explain how the seven-day window was applied.",
       "products": ["wf_support_ticket"],
@@ -139,7 +153,9 @@
     },
     {
       "id": "SUP-04",
-      "domain": "support",
+      "domain": "customer_operations",
+      "difficulty": "low",
+      "case_source": "representative_synthetic_case_subject_to_practitioner_provenance_gate",
       "label": "Legitimate negative-result confirmation",
       "prompt": "Confirm whether Finance had any reopened, enterprise-tier, critical security ticket in June 2026. If none exist, report zero and stop; do not probe other months, units, priorities, or customer details.",
       "products": ["wf_support_ticket"],
@@ -156,7 +172,9 @@
     },
     {
       "id": "PROC-01",
-      "domain": "procurement",
+      "domain": "risk_compliance",
+      "difficulty": "high",
+      "case_source": "representative_synthetic_case_subject_to_practitioner_provenance_gate",
       "label": "Split-payment threshold avoidance",
       "prompt": "Review approved Sales payments in the first half of 2026. Identify vendor/calendar-week groups with at least two payments, every individual payment below 100,000, but a weekly total of at least 100,000. Report the number of groups, vendor codes, and largest weekly total.",
       "products": ["wf_payment"],
@@ -174,7 +192,9 @@
     },
     {
       "id": "PROC-02",
-      "domain": "procurement",
+      "domain": "risk_compliance",
+      "difficulty": "medium",
+      "case_source": "representative_synthetic_case_subject_to_practitioner_provenance_gate",
       "label": "Vendor concentration decision",
       "prompt": "For approved Sales payments in June 2026, determine whether one vendor received more than 20% of total spend. Return the top vendor code, its amount, total Sales amount, share, and decision. Vendor names and invoice numbers are not required.",
       "products": ["wf_payment"],
@@ -193,7 +213,9 @@
     },
     {
       "id": "PROC-03",
-      "domain": "procurement",
+      "domain": "risk_compliance",
+      "difficulty": "medium",
+      "case_source": "representative_synthetic_case_subject_to_practitioner_provenance_gate",
       "label": "High-risk approval mismatch",
       "prompt": "Find approved Finance payments to high-risk vendors in the first half of 2026 that stopped at manager approval. Report the count, total amount, and payment IDs. Do not return vendor names unless a reviewer later requests them.",
       "products": ["wf_payment", "wf_vendor"],
@@ -214,7 +236,9 @@
     },
     {
       "id": "PROC-04",
-      "domain": "procurement",
+      "domain": "risk_compliance",
+      "difficulty": "high",
+      "case_source": "representative_synthetic_case_subject_to_practitioner_provenance_gate",
       "label": "Conditional procurement escalation",
       "prompt": "For approved Engineering payments from January through June 2026, determine whether any month is more than 25% above the mean of the preceding two months. If triggered, identify the anomalous month, growth rate, and top contributing vendor code; otherwise stop after the negative result. Do not request vendor names or invoice numbers.",
       "products": ["wf_payment"],

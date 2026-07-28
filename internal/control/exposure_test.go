@@ -50,6 +50,14 @@ func TestExposureSettlementIsNovelFactIdempotent(t *testing.T) {
 	if charge.ActualReleaseFacts != 1 || charge.ActualInfluenceFacts != 1 || charge.ChargedReleaseFacts != 0 || charge.ChargedInfluenceFacts != 0 {
 		t.Fatalf("duplicate charge = %+v", charge)
 	}
+	var observedLinks int
+	if err := store.db.QueryRowContext(context.Background(), `SELECT count(*) FROM query_exposure_facts
+		WHERE query_id IN ($1,$2)`, first.QueryID, second.QueryID).Scan(&observedLinks); err != nil {
+		t.Fatal(err)
+	}
+	if observedLinks != 4 {
+		t.Fatalf("per-query observed fact links = %d, want 4", observedLinks)
+	}
 }
 
 func TestExposureOverBudgetDoesNotStoreOrChargeResult(t *testing.T) {

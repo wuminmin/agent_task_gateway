@@ -1,0 +1,29 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "execute_plan",
+      "description": "Execute one authorized declarative query plan. The study harness supplies task and request identifiers.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["plan"],
+        "properties": {
+          "plan": {
+            "type": "object",
+            "description": "TaskGate QueryPlan with one of product or from, plus columns and optional aggregates, filters, group_by, order_by, limit, and offset."
+          },
+          "output_format": {"type": "string", "enum": ["json", "table"]}
+        }
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "get_budget",
+      "description": "Read remaining resource and exposure budget for the active task.",
+      "parameters": {"type": "object", "additionalProperties": false, "properties": {}}
+    }
+  }
+]

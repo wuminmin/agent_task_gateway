@@ -188,7 +188,7 @@ func TestOACallbackHMACSubmissionApprovalReplayAndBadSignature(t *testing.T) {
 
 func TestDelegatedTaskSharesRootExposureAndStopsWithParent(t *testing.T) {
 	harness := newGatewayHarness(t)
-	harness.createExposureV2SummaryTask(t, "task-family-root", control.ExposureLimits{ReleaseFacts: 20, InfluenceFacts: 20})
+	harness.createExposureV3SummaryTask(t, "task-family-root", control.ExposureLimits{ReleaseFacts: 20, InfluenceFacts: 20, OutcomeFacts: 5})
 	bob := mcp.Principal{ID: "principal-bob-agent", Subject: "bob-agent", Role: "query"}
 	if err := harness.store.CreatePrincipal(context.Background(), control.Principal{
 		ID: bob.ID, Subject: bob.Subject, Role: bob.Role, CreatedAt: harness.clock.value,

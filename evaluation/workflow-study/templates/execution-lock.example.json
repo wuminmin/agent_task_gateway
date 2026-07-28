@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "study_id": "taskgate-workflow-study-v1",
+  "provider": "replace",
+  "model": "replace",
+  "model_version": "replace",
+  "temperature": 0,
+  "system_prompt_sha256": "replace-with-sha256",
+  "tool_surface_sha256": "replace-with-sha256",
+  "agent_adapter_sha256": "replace-with-sha256",
+  "answer_schema_sha256": "replace-with-sha256"
+}

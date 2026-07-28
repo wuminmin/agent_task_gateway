@@ -371,7 +371,8 @@ summary_request=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
   '{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"request_data_task","arguments":{"objective":"按月份分析销售部差旅报销","data_products":["expense_summary"],"columns":{"expense_summary":["month","total_amount"]},"scopes":{"department":["销售部"]},"requested_budget":{"max_queries":2,"max_rows":50}}}}')
 assert_contains "$summary_request" '"isError":false' "summary task request"
 assert_contains "$summary_request" '"approval_mode":"manual"' "summary task approval route"
-assert_contains "$summary_request" '"exposure_profile_version":"taskgate-exposure-v2"' "summary V2 profile"
+assert_contains "$summary_request" '"exposure_profile_version":"taskgate-exposure-v3"' "summary V3 profile"
+assert_contains "$summary_request" '"max_outcome_facts":10' "summary V3 outcome ceiling"
 summary_task=$(json_string "$summary_request" task_id)
 summary_oa_url=$(json_string "$summary_request" oa_url)
 [ -n "$summary_task" ] && [ -n "$summary_oa_url" ] || fail "summary request omitted task_id or oa_url"

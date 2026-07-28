@@ -251,6 +251,18 @@ FROM exposure_ledgers WHERE root_task_id=$1 FOR UPDATE`, reservation.RootTaskID)
 	if err != nil {
 		return nil, metrics, err
 	}
+	for _, observed := range []struct {
+		kind  string
+		facts []exposure.FactID
+	}{
+		{kind: "RELEASE", facts: normalized.Release},
+		{kind: "INFLUENCE", facts: normalized.Influence},
+		{kind: "OUTCOME", facts: normalized.Outcome},
+	} {
+		if err := linkObservedFactsTx(ctx, tx, reservation.RootTaskID, queryID, observed.kind, observed.facts); err != nil {
+			return nil, metrics, err
+		}
+	}
 	var taskLimits ExposureLimits
 	if err := tx.QueryRowContext(ctx, `
 	SELECT max_release_facts, max_influence_facts, max_outcome_facts FROM task_grants WHERE task_id=$1`, reservation.TaskID).
@@ -305,6 +317,36 @@ WHERE query_id=$9 AND status='RESERVED'`, len(normalized.Release), len(normalize
 		ProfileVersion: reservation.ProfileVersion, ActualReleaseFacts: int64(len(normalized.Release)),
 		ActualInfluenceFacts: int64(len(normalized.Influence)), ActualOutcomeFacts: int64(len(normalized.Outcome)), ChargedReleaseFacts: newRelease,
 		ChargedInfluenceFacts: newInfluence, ChargedOutcomeFacts: newOutcome, ObservationSHA256: digest}, metrics, nil
+}
+
+func linkObservedFactsTx(ctx context.Context, tx *sql.Tx, rootTaskID, queryID, kind string, facts []exposure.FactID) error {
+	const chunkSize = 5000
+	for start := 0; start < len(facts); start += chunkSize {
+		end := start + chunkSize
+		if end > len(facts) {
+			end = len(facts)
+		}
+		var statement strings.Builder
+		statement.WriteString(`INSERT INTO query_exposure_facts(root_task_id, query_id, ledger_kind, fact_sha256) VALUES `)
+		args := make([]any, 0, (end-start)*4)
+		for index, fact := range facts[start:end] {
+			hash, err := fact.Hash()
+			if err != nil {
+				return err
+			}
+			if index != 0 {
+				statement.WriteString(",")
+			}
+			base := len(args) + 1
+			fmt.Fprintf(&statement, "($%d,$%d,$%d,$%d)", base, base+1, base+2, base+3)
+			args = append(args, rootTaskID, queryID, kind, hash)
+		}
+		statement.WriteString(` ON CONFLICT DO NOTHING`)
+		if _, err := tx.ExecContext(ctx, statement.String(), args...); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func insertNovelFactsTx(ctx context.Context, tx *sql.Tx, rootTaskID, kind, queryID string, facts []exposure.FactID, now time.Time) (int64, error) {

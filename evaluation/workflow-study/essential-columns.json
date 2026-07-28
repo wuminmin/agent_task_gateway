@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "study_id": "taskgate-workflow-study-v1",
+  "tasks": {
+    "FIN-01": {"wf_expense_claim": ["claim_id", "business_unit", "event_date", "category", "amount", "status"]},
+    "FIN-02": {"wf_expense_claim": ["employee_code", "business_unit", "event_date", "amount", "status"]},
+    "FIN-03": {"wf_expense_claim": ["claim_id", "business_unit", "event_date", "category", "amount", "city", "status"], "wf_expense_policy": ["business_unit", "city", "category", "max_amount"]},
+    "FIN-04": {"wf_expense_claim": ["claim_id", "business_unit", "event_date", "submitted_date", "amount", "status"]},
+    "SUP-01": {"wf_support_ticket": ["business_unit", "event_date", "priority", "issue_type", "first_response_minutes", "sla_minutes"]},
+    "SUP-02": {"wf_support_ticket": ["customer_code", "business_unit", "event_date", "service_tier"], "wf_customer_entitlement": ["customer_code", "business_unit", "entitlement_tier", "active_from", "active_to"]},
+    "SUP-03": {"wf_support_ticket": ["customer_code", "business_unit", "event_date", "issue_type"]},
+    "SUP-04": {"wf_support_ticket": ["ticket_id", "business_unit", "event_date", "priority", "issue_type", "service_tier", "reopened"]},
+    "PROC-01": {"wf_payment": ["vendor_code", "business_unit", "event_date", "amount", "status"]},
+    "PROC-02": {"wf_payment": ["vendor_code", "business_unit", "event_date", "amount", "status"]},
+    "PROC-03": {"wf_payment": ["payment_id", "vendor_code", "business_unit", "event_date", "amount", "approval_tier", "status"], "wf_vendor": ["business_unit", "vendor_code", "risk_tier"]},
+    "PROC-04": {"wf_payment": ["vendor_code", "business_unit", "event_date", "amount", "status"]}
+  }
+}

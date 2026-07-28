@@ -1,18 +1,24 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "study_id": "taskgate-workflow-study-v1",
   "run_id": "replace-with-random-run-id",
   "task_id": "FIN-01",
   "arm": "taskgate_v3",
   "seed": 0,
+  "phase": "primary",
+  "budget_multiplier": 1.0,
   "model": {"provider": "replace", "model": "replace", "version": "replace", "temperature": 0},
   "database_snapshot": "workflow-study-2026-v1",
+  "database_instance_id": "replace-with-unique-instance-id",
   "root_task_id": "replace",
+  "cache_namespace": "replace-with-unique-cache-namespace",
+  "budget_freeze_sha256": "replace-with-sha256",
+  "execution_lock_sha256": "replace-with-sha256",
+  "budget_rejection_envelope": "taskgate-study-budget-rejection-v1",
   "started_at": "replace-with-rfc3339",
   "finished_at": "replace-with-rfc3339",
   "status": "completed",
   "budget": {"release_facts": 2000, "influence_facts": 10000, "outcome_facts": 20},
-  "approval": {"decision": "approve", "expert_panel_digest": "replace-with-sha256"},
   "queries": [],
   "final_answer": {},
   "final_answer_text": "",
@@ -20,8 +26,17 @@
     "release_facts": 0,
     "influence_facts": 0,
     "outcome_facts": 0,
-    "sensitivity_weighted_exposure": 0
+    "sensitivity_weighted_exposure": 0,
+    "distinct_sensitive_records": 0,
+    "distinct_sensitive_fields": 0,
+    "unnecessary_sensitive_fields": 0
   },
   "native_usage": {"successful_queries": 0, "returned_rows": 0, "serialized_bytes": 0},
-  "runtime_budget_rejections": 0
+  "runtime_budget_rejections": 0,
+  "performance": {
+    "wall_clock_ms": 0,
+    "gateway_latency_ms": 0,
+    "accounting_latency_ms": 0,
+    "exposure_storage_bytes": 0
+  }
 }

@@ -38,6 +38,11 @@ coverage matrix are also in the supplement; the main paper retains the effect
 summary and safety properties. A local TeX syntax build is available through
 `paper/tkde/build.sh`, but it still uses Docker for the exposure evaluation.
 
+The manuscript also identifies `evaluation/workflow-study` as a designed but
+uncollected follow-on protocol. Its expert panels, 444 isolated Agent runs,
+DeepSeek adapter, baseline controllers, and paired/Pareto analysis are not
+consumed as RQ5 results and must not be described as collected evidence.
+
 The draft reports controlled single-host evidence, including a TPC-H-derived
 (not official TPC-H) workload up to 225,000 joined members and 1,035,000
 dependency facts. It does not claim second-engine, multi-node, production-SLO,

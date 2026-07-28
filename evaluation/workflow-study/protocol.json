@@ -1,118 +1,162 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "study_id": "taskgate-workflow-study-v1",
   "status": "designed_not_collected",
-  "decision": "Compare accounting policies by agent utility at independently expert-set budgets, using a common post-hoc V3 exposure risk scale.",
+  "decision": "Test whether TaskGate improves agent answer quality at a common exposure risk, independently from whether experts can understand and configure its budget units.",
+  "domains": ["finance", "risk_compliance", "customer_operations"],
+  "experiments": {
+    "agent_utility": {
+      "id": "experiment-a-agent-utility",
+      "causal_question": "At budgets frozen before any agent run, how do policies affect task quality, completion, and exposure?",
+      "inputs": "component-wise lower medians from the calibration panel, frozen with a SHA-256 artifact",
+      "independence": "approval-usability decisions never suppress, relabel, or zero-score an agent run",
+      "primary_metric": "rubric_score_0_100_at_frozen_expert_budget"
+    },
+    "expert_budget_usability": {
+      "id": "experiment-b-expert-budget-usability",
+      "causal_question": "Can independent practitioners understand, set, approve, reject, or narrow each budget representation?",
+      "inputs": "task objective, catalog, sensitivity labels, risk preference, and unit cards only",
+      "hidden": "agent queries, agent outputs, hidden truth, other experts' choices, and experiment-A outcomes",
+      "separate_outcome": "approve/reject/narrow is analyzed only as expert usability and is not an execution gate in experiment A"
+    }
+  },
   "arms": [
     {
       "id": "taskgate_v3",
+      "role": "primary",
       "enforcement": "release, influence, and outcome fact ceilings at the shared root task",
       "common_risk_audit": "native"
     },
     {
       "id": "query_count",
+      "role": "primary_baseline",
       "enforcement": "successful query-response count ceiling, including zero-row and negative answers; V3 facts computed audit-only",
       "common_risk_audit": "post_hoc_v3"
     },
     {
       "id": "returned_rows",
+      "role": "primary_baseline",
       "enforcement": "cumulative visible-row ceiling; V3 facts computed audit-only",
       "common_risk_audit": "post_hoc_v3"
     },
     {
       "id": "serialized_bytes",
-      "enforcement": "cumulative response bytes buffered before release; V3 facts computed audit-only",
+      "role": "primary_baseline",
+      "enforcement": "cumulative canonical-response bytes buffered before release; V3 facts computed audit-only",
+      "common_risk_audit": "post_hoc_v3"
+    },
+    {
+      "id": "unlimited",
+      "role": "diagnostic_upper_bound",
+      "enforcement": "no study exposure ceiling; ordinary safety, scope, timeout, and authorization controls remain active",
       "common_risk_audit": "post_hoc_v3"
     }
   ],
   "sampling": {
     "domains": 3,
     "tasks_per_domain": 4,
-    "independent_domain_experts": 18,
+    "tasks": 12,
     "budget_calibration_experts": 9,
-    "approval_review_experts": 9,
+    "budget_usability_experts": 9,
     "blind_grading_experts": 6,
     "minimum_experts_per_task": 3,
     "minimum_blind_graders_per_completed_run": 2,
-    "agent_seeds_per_task_arm": 5,
-    "planned_agent_runs": 240,
-    "assignment": "within-task paired arms; arm order uses a balanced Latin square; each run receives a fresh database and root-task snapshot"
+    "agent_seeds_per_primary_arm": 5,
+    "agent_seeds_unlimited": 5,
+    "primary_agent_runs": 240,
+    "unlimited_diagnostic_runs": 60,
+    "pareto_budget_multipliers": [0.5, 0.75, 1.25],
+    "pareto_sweep_seeds": [0],
+    "pareto_sensitivity_runs": 144,
+    "planned_agent_runs": 444,
+    "seed_semantics": "0--4 are paired replicate labels supplied in the task context; the DeepSeek API exposes no deterministic sampling-seed parameter",
+    "assignment": "within-task paired primary arms; five-arm order uses a task-randomized cyclic Latin square; every run receives a fresh database, root task, cache namespace, and conversation"
+  },
+  "task_provenance": {
+    "accepted_sources": ["deidentified historical request", "practitioner-authored representative case"],
+    "current_source": "deterministic representative synthetic cases",
+    "promotion_requirement": "at least one non-author domain practitioner must author or substantively adapt each task, and a second must independently accept it before collection",
+    "prohibited_claim": "representative synthetic cases may not be described as historical production tickets"
   },
   "budget_calibration": {
-    "independence": "calibration and approval use disjoint non-author panels with three practitioners per domain; neither sees ground truth, agent traces, or outcomes",
-    "training": "unit cards plus two training tasks excluded from analysis",
+    "applies_to_arms": ["taskgate_v3", "query_count", "returned_rows", "serialized_bytes"],
+    "training": "unit cards, organization risk-preference card, and two excluded training tasks",
     "locked_before_runs": true,
-    "aggregation": "per-task, per-arm median of independent calibration ceilings, then frozen for the disjoint approval panel",
-    "narrowing_allowed_in_approval_panel": true
+    "aggregation": "per-task and per-arm component-wise lower median of independent integer ceilings",
+    "agreement": "report per-item relative MAD and per-domain/arm/unit Kendall's W",
+    "freeze": "canonical JSON binds task manifest, protocol, source expert records, aggregated ceilings, model card, prompt digest, and tool-surface digest",
+    "unlimited": "not shown to budget experts and receives no budget ceiling"
   },
-  "approval_adjudication": {
-    "rule": "per task/arm, majority reject prevents execution; ties reject conservatively",
-    "approved_ceiling": "otherwise freeze the component-wise median of non-reject approved or narrowed ceilings, capped by the requested ceiling",
-    "rejected_observation": "record every registered seed as approval_rejected with zero completion"
+  "expert_budget_usability": {
+    "panel": "nine non-author practitioners, three per domain, disjoint from calibration and blind grading",
+    "outcomes": ["decision_seconds", "approve_rate", "initial_rejection_rate", "narrowing_rate", "budget_edit_count", "comprehension_score", "confidence_1_to_5"],
+    "narrowing": "approved ceilings and scopes may only become stricter",
+    "agent_independence": "these decisions are never passed to the agent runner"
   },
-  "blind_grading": {
-    "panel": "six additional non-author practitioners, two per domain, disjoint from calibration and approval",
-    "coverage": "every completed run receives two independent grades for every blind-expert and trace-guardrail rubric item",
-    "aggregation": "arithmetic mean by run and rubric item"
+  "agent_execution": {
+    "fixed_factors": ["model provider", "model identifier", "model version", "system prompt", "tool schema", "database snapshot", "answer schema"],
+    "isolation": ["fresh database instance", "fresh root task", "fresh cache namespace", "fresh conversation"],
+    "budget_rejection_envelope": "taskgate-study-budget-rejection-v1",
+    "failure_policy": "retain budget exhaustion, tool errors, and agent errors as zero completion; do not silently drop runs",
+    "baseline_v3_audit_only": true
   },
-  "primary_metrics": [
-    {
-      "id": "rubric_score_0_100",
-      "definition": "sum of predeclared weighted automated, blind-expert, and trace-guardrail item scores",
-      "decision_use": "answer quality under the approved policy budget"
+  "metrics": {
+    "primary": {
+      "id": "rubric_score_0_100_at_frozen_expert_budget",
+      "definition": "prelocked weighted rubric score for every primary-arm run at the frozen median expert budget"
     },
-    {
-      "id": "critical_goal_task_completion",
-      "definition": "rubric score at least 80 and every task-specific critical item score at least 0.8",
-      "decision_use": "whether the workflow achieved the business decision rather than merely returning data"
-    }
-  ],
-  "human_usability_metrics": [
-    {
-      "id": "approval_decision_seconds",
-      "definition": "monotonic time from fully rendered request to approve, reject, or narrow"
-    },
-    {
-      "id": "initial_rejection_rate",
-      "definition": "rejected requests divided by all independently reviewed requests"
-    },
-    {
-      "id": "narrowing_rate",
-      "definition": "approved requests whose ceilings or scopes were reduced divided by approved requests"
-    }
-  ],
-  "common_risk_metrics": [
-    {
-      "id": "sensitivity_weighted_v3_exposure",
-      "definition": "post-hoc union of V3 release, influence, and outcome facts, weighted by the catalog sensitivity card fixed before study collection"
-    },
-    {
-      "id": "unauthorized_or_unnecessary_sensitive_fields",
-      "definition": "blind trace-review count of fields outside the task's declared decision need"
-    }
-  ],
-  "diagnostics": [
-    "successful_queries",
-    "returned_rows",
-    "serialized_bytes",
-    "release_facts",
-    "influence_facts",
-    "outcome_facts",
-    "runtime_budget_rejections",
-    "wall_clock_seconds"
-  ],
+    "agent_secondary": [
+      "critical_goal_task_completion",
+      "numeric_absolute_error",
+      "numeric_relative_error",
+      "list_precision",
+      "list_recall",
+      "unsupported_claim_count",
+      "factual_error_count",
+      "runtime_budget_rejection_count",
+      "final_task_failure"
+    ],
+    "risk_and_cost": [
+      "release_facts",
+      "influence_facts",
+      "outcome_facts",
+      "sensitivity_weighted_exposure",
+      "distinct_sensitive_records",
+      "distinct_sensitive_fields",
+      "unnecessary_sensitive_fields",
+      "successful_queries",
+      "returned_rows",
+      "serialized_bytes",
+      "wall_clock_ms",
+      "gateway_latency_ms",
+      "accounting_latency_ms",
+      "exposure_storage_bytes"
+    ],
+    "guardrails": [
+      "no authorization-scope violation",
+      "no hidden-truth access",
+      "identical rejection envelope",
+      "complete registered run coverage",
+      "no post-outcome budget edits"
+    ]
+  },
   "analysis": {
-    "unit": "task-agent-seed run, paired by task and seed across arms",
-    "primary_inference": "within-task-and-seed paired TaskGate-minus-baseline rubric-score differences",
-    "binary_inference": "within-task-and-seed paired differences in critical-goal completion",
-    "approval_inference": "per-review decision time, rejection, and conditional-on-approval narrowing, clustered by task",
-    "uncertainty": "task-cluster bootstrap 95% confidence intervals and exact task-level sign-flip tests",
-    "multiple_comparisons": "Holm correction for the three TaskGate-versus-baseline rubric-score contrasts",
-    "missing_runs": "report and retain failures as zero completion; never silently drop budget exhaustion or tool errors"
+    "unit": "task-agent-seed run; queries are diagnostics, not independent samples",
+    "primary_inference": "within-task-and-seed paired TaskGate-minus-baseline rubric-score differences with task-cluster bootstrap confidence intervals and exact task-level sign-flip tests",
+    "secondary_mixed_models": {
+      "quality": "rubric_score ~ policy + domain + difficulty + (1|task) + (1|seed)",
+      "completion": "completed ~ policy + domain + difficulty + (1|task) + (1|seed), binomial link",
+      "approval_time": "log1p(decision_seconds) ~ policy + domain + (1|task) + (1|expert)",
+      "approval_rejection": "rejected ~ policy + domain + (1|task) + (1|expert), binomial link"
+    },
+    "multiple_comparisons": "Holm correction for the three TaskGate-versus-baseline primary contrasts",
+    "utility_risk": "construct per-policy Pareto frontiers from the registered 0.5, 0.75, 1.0, and 1.25 budget multipliers; bootstrap tasks, not queries",
+    "unlimited": "report as a task-quality upper-bound diagnostic, never as a primary budget competitor"
   },
   "guardrails": [
-    "No paper claim may call this a workflow study while status is designed_not_collected.",
+    "No paper claim may call this an expert-calibrated agent workflow study while status is designed_not_collected.",
     "Templates and synthetic records are not expert judgments or agent outcomes.",
+    "Experiment-B approval outcomes do not gate experiment-A runs.",
     "The same frozen model, prompt, tool surface, database snapshot, and seed schedule are used across arms.",
     "Baseline arms are compared on post-hoc V3 risk, not on incomparable native budget units.",
     "Human graders are blind to arm, budget, model trace identifiers, and paper hypothesis."

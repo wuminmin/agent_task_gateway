@@ -7,15 +7,16 @@
   "is_paper_author": false,
   "relevant_experience_years": 0,
   "training_completed_at": "replace-with-rfc3339",
+  "display_context_sha256": "replace-with-sha256",
   "calibrations": [
     {
       "task_id": "FIN-01",
       "arm": "taskgate_v3",
       "started_at": "replace-with-rfc3339",
       "finished_at": "replace-with-rfc3339",
-      "selected_budget": {"release_facts": 0, "influence_facts": 0, "outcome_facts": 0},
+      "selected_budget": {"release_facts": 1, "influence_facts": 1, "outcome_facts": 1},
       "confidence_1_to_5": 0,
-      "unit_comprehension_correct": false
+      "comprehension": {"correct": 0, "total": 3}
     }
   ]
 }

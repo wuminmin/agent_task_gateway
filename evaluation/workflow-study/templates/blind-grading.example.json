@@ -12,5 +12,7 @@
     "evidence": 0.0,
     "minimal_disclosure": 0.0
   },
+  "unsupported_claim_count": 0,
+  "factual_error_count": 0,
   "notes": ""
 }

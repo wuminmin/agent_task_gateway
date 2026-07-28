@@ -36,8 +36,8 @@ func TestRequestDataTaskUsesCatalogPolicyAndBudgetCeiling(t *testing.T) {
 	if !ok || budget["max_queries"] != int64(3) || budget["max_rows"] != int64(50) {
 		t.Fatalf("unexpected approved budget: %#v", result["budget"])
 	}
-	if budget["exposure_profile_version"] != "taskgate-exposure-v2" {
-		t.Fatalf("default approval route did not select V2: %#v", result["budget"])
+	if budget["exposure_profile_version"] != "taskgate-exposure-v3" || budget["max_outcome_facts"] != int64(5) {
+		t.Fatalf("default approval route did not select the V3 outcome profile: %#v", result["budget"])
 	}
 	if len(harness.approval.requests) != 1 {
 		t.Fatalf("OA draft calls = %d, want 1", len(harness.approval.requests))

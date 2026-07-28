@@ -176,12 +176,12 @@ approval_routes:
 
 budget_profiles:
   - name: workflow-study-v3
-    max_queries: 20
-    max_rows: 2000
+    max_queries: 100
+    max_rows: 5000
     max_db_time: 2m
     query_timeout: 15s
     task_ttl: 2h
-    max_release_facts: 20000
-    max_influence_facts: 100000
-    max_outcome_facts: 20
+    max_release_facts: 100000
+    max_influence_facts: 1000000
+    max_outcome_facts: 100
     exposure_profile_version: taskgate-exposure-v3
