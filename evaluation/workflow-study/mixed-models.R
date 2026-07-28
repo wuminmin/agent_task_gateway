@@ -1,37 +1,32 @@
 #!/usr/bin/env Rscript
-# Preregistered secondary models. The Python analysis remains authoritative for
-# paired primary contrasts and produces the scored CSV consumed here.
+# Preregistered secondary models for the participant-free benchmark. The Python
+# analysis remains authoritative for paired contrasts and Pareto summaries.
 
 suppressPackageStartupMessages(library(lme4))
 
 args <- commandArgs(trailingOnly = TRUE)
-if (length(args) != 2) {
-  stop("usage: mixed-models.R scored-runs.csv expert-decisions.csv")
+if (length(args) != 1) {
+  stop("usage: mixed-models.R scored-runs.csv")
 }
 
 runs <- read.csv(args[[1]], stringsAsFactors = TRUE)
-primary <- subset(runs, phase == "primary")
+budgeted <- subset(runs, phase == "budget_level")
+budgeted$budget_level_factor <- factor(budgeted$budget_level, levels = c(0.25, 0.5, 0.75, 1.0))
 
+# Replicate labels do not identify shared API randomness across arms. They are
+# independent conversations within a task-policy-level cell, so the task is the
+# inferential cluster and replicate variation remains in the observation-level
+# residual rather than a synthetic paired random effect.
 quality <- lmer(
-  rubric_score ~ arm + domain + difficulty + (1 | task_id) + (1 | seed),
-  data = primary
+  answer_score ~ arm * budget_level_factor + domain + difficulty +
+    (1 | task_id),
+  data = budgeted
 )
 completion <- glmer(
-  task_complete ~ arm + domain + difficulty + (1 | task_id) + (1 | seed),
-  family = binomial(link = "logit"), data = primary
-)
-
-decisions <- read.csv(args[[2]], stringsAsFactors = TRUE)
-approval_time <- lmer(
-  log1p(decision_seconds) ~ arm + domain + (1 | task_id) + (1 | expert_id),
-  data = decisions
-)
-approval_rejection <- glmer(
-  rejected ~ arm + domain + (1 | task_id) + (1 | expert_id),
-  family = binomial(link = "logit"), data = decisions
+  answer_task_complete ~ arm * budget_level_factor + domain + difficulty +
+    (1 | task_id),
+  family = binomial(link = "logit"), data = budgeted
 )
 
 print(summary(quality))
 print(summary(completion))
-print(summary(approval_time))
-print(summary(approval_rejection))

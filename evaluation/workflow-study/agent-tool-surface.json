@@ -22,7 +22,7 @@
     "type": "function",
     "function": {
       "name": "get_budget",
-      "description": "Read remaining resource and exposure budget for the active task.",
+      "description": "Read the active study policy's budget limits, usage, and remaining capacity without converting between policy units.",
       "parameters": {"type": "object", "additionalProperties": false, "properties": {}}
     }
   }

@@ -15,7 +15,7 @@ sources:
 scopes:
   - name: business_unit
     type: enum
-    description: Independent organizational scope for the workflow study
+    description: Isolated synthetic business scope for the controlled Agent benchmark
     allowed_values: [sales, engineering, finance]
   - name: event_date
     type: date_range
@@ -177,11 +177,11 @@ approval_routes:
 budget_profiles:
   - name: workflow-study-v3
     max_queries: 100
-    max_rows: 5000
+    max_rows: 100000
     max_db_time: 2m
     query_timeout: 15s
     task_ttl: 2h
-    max_release_facts: 100000
-    max_influence_facts: 1000000
-    max_outcome_facts: 100
+    max_release_facts: 1000000
+    max_influence_facts: 10000000
+    max_outcome_facts: 1000
     exposure_profile_version: taskgate-exposure-v3

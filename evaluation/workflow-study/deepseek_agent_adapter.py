@@ -21,10 +21,10 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-import uuid
 from pathlib import Path
 
 import controller
+import study_risk
 import validate
 
 
@@ -34,8 +34,8 @@ COMPOSE_FILES = (ROOT / "compose.yaml", HERE / "compose.yaml")
 COMMON_ERROR = {"error": {"code": "STUDY_BUDGET_EXHAUSTED", "envelope": "taskgate-study-budget-rejection-v1", "retryable": False}}
 CSRF = re.compile(rb'name="csrf" value="([^"]+)"')
 AUDIT_BUDGET = {
-    "max_queries": 100, "max_rows": 5000, "max_release_facts": 100000,
-    "max_influence_facts": 1000000, "max_outcome_facts": 100,
+    "max_queries": 100, "max_rows": 100000, "max_release_facts": 1000000,
+    "max_influence_facts": 10000000, "max_outcome_facts": 1000,
 }
 
 
@@ -155,14 +155,25 @@ def oa_action(opener: urllib.request.OpenerDirector, base_url: str, draft_id: st
         pass
 
 
-def answer_contract(tasks_doc: dict) -> dict:
-    return {
+def answer_contract(tasks_doc: dict, calibration_doc: dict | None = None) -> dict:
+    """Return the frozen, task-specific top-level answer fields.
+
+    Evaluation fields are induced by the deterministic rubric.  Held-out
+    calibration tasks are not scored, but still declare a strict answer shape
+    so that their unlimited traces exercise the same Agent protocol.
+    """
+
+    contract = {
         task["id"]: sorted({item["answer_path"].split(".")[0] for item in task["rubric"] if item.get("answer_path")})
         for task in tasks_doc["tasks"]
     }
+    if calibration_doc is not None:
+        for task in calibration_doc["tasks"]:
+            contract[task["id"]] = sorted(task["required_answer_fields"])
+    return contract
 
 
-def validate_lock(path: Path, invocation: dict, tasks_doc: dict) -> dict:
+def validate_lock(path: Path, invocation: dict, tasks_doc: dict, calibration_doc: dict) -> dict:
     lock = validate.validate_execution_lock(path, invocation["study_id"])
     if hashlib.sha256(path.read_bytes()).hexdigest() != invocation["execution_lock_sha256"]:
         raise ValueError("execution-lock file does not match the registered invocation")
@@ -172,7 +183,7 @@ def validate_lock(path: Path, invocation: dict, tasks_doc: dict) -> dict:
         "system_prompt_sha256": hashlib.sha256((HERE / "system-prompt.txt").read_bytes()).hexdigest(),
         "tool_surface_sha256": hashlib.sha256((HERE / "agent-tool-surface.json").read_bytes()).hexdigest(),
         "agent_adapter_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
-        "answer_schema_sha256": validate.canonical_sha256(answer_contract(tasks_doc)),
+        "answer_schema_sha256": validate.canonical_sha256(answer_contract(tasks_doc, calibration_doc)),
     }
     for field, digest in expected.items():
         if lock[field] != digest:
@@ -184,7 +195,7 @@ def requested_budget(invocation: dict) -> dict:
     if invocation["arm"] == "taskgate_v3":
         budget = invocation["budget"]
         return {
-            "max_queries": 100, "max_rows": 5000,
+            "max_queries": AUDIT_BUDGET["max_queries"], "max_rows": AUDIT_BUDGET["max_rows"],
             "max_release_facts": budget["release_facts"],
             "max_influence_facts": budget["influence_facts"],
             "max_outcome_facts": budget["outcome_facts"],
@@ -196,28 +207,37 @@ def visible_query_result(result: dict) -> dict:
     return {key: result.get(key) for key in ("columns", "rows", "row_count", "limited")}
 
 
-def parse_final(content: str) -> tuple[dict, str]:
+def parse_final(content: str, required_fields: list[str] | None = None) -> tuple[dict, str]:
     stripped = content.strip()
     if stripped.startswith("```"):
         stripped = re.sub(r"^```(?:json)?\s*|\s*```$", "", stripped, flags=re.IGNORECASE)
     value = json.loads(stripped)
     if set(value) != {"answer", "narrative"} or not isinstance(value["answer"], dict) or not isinstance(value["narrative"], str):
         raise ValueError("final model output violates the answer envelope")
+    if required_fields is not None and set(value["answer"]) != set(required_fields):
+        raise ValueError("final answer fields differ from the frozen task contract")
     return value["answer"], value["narrative"]
 
 
-def call_deepseek(messages: list[dict], tools: list[dict], lock: dict, api_key: str) -> dict:
-    base = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
+def call_deepseek(messages: list[dict], tools: list[dict], lock: dict, api_key: str) -> tuple[dict, str]:
+    base = lock["api_base_url"].rstrip("/")
     response = http_json(
         base + "/chat/completions",
-        {"model": lock["model"], "messages": messages, "tools": tools, "tool_choice": "auto", "temperature": lock["temperature"]},
+        {
+            "model": lock["model"], "messages": messages, "tools": tools,
+            "tool_choice": "auto", "temperature": lock["temperature"],
+            "top_p": lock["top_p"], "max_tokens": lock["max_tokens"],
+        },
         {"Authorization": "Bearer " + api_key},
-        timeout=int(os.getenv("DEEPSEEK_TIMEOUT_SECONDS", "300")),
+        timeout=lock["request_timeout_seconds"],
     )
     choices = response.get("choices", [])
     if not choices or not isinstance(choices[0].get("message"), dict):
         raise RuntimeError("DeepSeek response omitted an assistant message")
-    return choices[0]["message"]
+    response_model = response.get("model")
+    if response_model != lock["model"]:
+        raise RuntimeError("DeepSeek response model differs from the execution lock")
+    return choices[0]["message"], response_model
 
 
 def sql_literal(value: str) -> str:
@@ -229,10 +249,17 @@ def audit_facts(project: str, admitted_query_ids: list[str], env: dict[str, str]
         return []
     ids = ",".join(sql_literal(value) for value in admitted_query_ids)
     sql = f"""
+WITH observed AS (
+  SELECT DISTINCT root_task_id, query_id, ledger_kind, fact_sha256
+  FROM query_exposure_facts WHERE query_id IN ({ids})
+), linked AS (
+  SELECT root_task_id, ledger_kind, fact_sha256,
+         json_agg(query_id ORDER BY query_id) AS query_ids
+  FROM observed GROUP BY root_task_id, ledger_kind, fact_sha256
+)
 SELECT json_build_object('ledger_kind', linked.ledger_kind, 'fact_sha256', linked.fact_sha256,
-                         'identity', facts.identity_json)::text
-FROM (SELECT DISTINCT root_task_id, ledger_kind, fact_sha256 FROM query_exposure_facts
-      WHERE query_id IN ({ids})) linked
+                         'identity', facts.identity_json, 'query_ids', linked.query_ids)::text
+FROM linked
 JOIN exposure_facts facts USING (root_task_id, ledger_kind, fact_sha256)
 ORDER BY linked.ledger_kind, linked.fact_sha256;
 """
@@ -253,52 +280,37 @@ def exposure_storage_bytes(project: str, env: dict[str, str]) -> int:
 
 
 def risk_metrics(facts: list[dict], task: dict) -> dict:
-    sensitivity = validate.load(HERE / "sensitivity-map.json")
-    essentials = validate.load(HERE / "essential-columns.json")["tasks"][task["id"]]
-    weights = sensitivity["weights"]
-    namespaces = sensitivity["namespaces"]
-    sensitive_records: set[str] = set()
-    sensitive_fields: set[str] = set()
-    unnecessary: set[str] = set()
-    weighted = 0
-    for row in facts:
-        identity = row["identity"]
-        kind = identity.get("kind")
-        namespace = identity.get("source_namespace", "")
-        definition = namespaces.get(namespace, {})
-        product = definition.get("product", "")
-        level = definition.get("default", task["sensitivity"])
-        if kind == "base-cell":
-            level = definition.get("fields", {}).get(identity.get("field"), level)
-        elif kind == "derived":
-            levels = [namespaces.get(item.get("source_namespace", ""), {}).get("default", "low") for item in identity.get("snapshot_bundle", [])]
-            level = max(levels, key=lambda item: weights[item]) if levels else task["sensitivity"]
-        elif kind == "outcome":
-            level = task["sensitivity"]
-        weight = weights[level]
-        weighted += weight
-        if weight > 1 and identity.get("entity_key"):
-            sensitive_records.add(namespace + "\0" + identity["entity_key"])
-        if weight > 1 and identity.get("field"):
-            field_key = namespace + "\0" + identity["field"]
-            sensitive_fields.add(field_key)
-            if identity["field"] not in essentials.get(product, []):
-                unnecessary.add(field_key)
-    counts = {kind: sum(row["ledger_kind"] == kind for row in facts) for kind in ("RELEASE", "INFLUENCE", "OUTCOME")}
+    return study_risk.measure(facts, task)
+
+
+def empty_run_state() -> dict:
     return {
-        "release_facts": counts["RELEASE"], "influence_facts": counts["INFLUENCE"],
-        "outcome_facts": counts["OUTCOME"], "sensitivity_weighted_exposure": weighted,
-        "distinct_sensitive_records": len(sensitive_records), "distinct_sensitive_fields": len(sensitive_fields),
-        "unnecessary_sensitive_fields": len(unnecessary),
+        "queries": [],
+        "admitted_query_ids": [],
+        "native_usage": {"successful_queries": 0, "returned_rows": 0, "serialized_bytes": 0},
+        "runtime_budget_rejections": 0,
+        "gateway_latency_ms": 0,
+        "accounting_latency_ms": 0,
+        "provider_response_models": [],
     }
 
 
-def run_agent(invocation: dict, mcp: MCP, task: dict, lock: dict, api_key: str) -> tuple[dict, str, list[dict], list[str], dict, int, int]:
+def run_agent(
+    invocation: dict,
+    mcp: MCP,
+    task: dict,
+    lock: dict,
+    api_key: str,
+    state: dict,
+) -> tuple[dict, str]:
     tools = validate.load(HERE / "agent-tool-surface.json")
-    required_fields = answer_contract({"tasks": [task]})[task["id"]]
+    if "rubric" in task:
+        required_fields = answer_contract({"tasks": [task]})[task["id"]]
+    else:
+        required_fields = sorted(task["required_answer_fields"])
     system = (HERE / "system-prompt.txt").read_text(encoding="utf-8")
     user = {
-        "evaluation_replicate": invocation["seed"], "task_id": task["id"], "business_request": task["prompt"],
+        "evaluation_replicate": invocation["replicate"], "task_id": task["id"], "business_request": task["prompt"],
         "authorized_products": task["products"], "authorized_columns": task["approved_columns"],
         "mandatory_scope": task["scope"], "required_answer_fields": required_fields,
         "query_plan_guide": {
@@ -313,36 +325,61 @@ def run_agent(invocation: dict, mcp: MCP, task: dict, lock: dict, api_key: str) 
     if invocation["arm"] in controller.BASELINE_ARMS:
         unit = next(iter(invocation["budget"].values()))
         baseline = controller.BaselineController(invocation["arm"], unit)
-    queries: list[dict] = []
-    admitted_query_ids: list[str] = []
-    successful_queries = returned_rows = serialized_bytes = 0
-    gateway_ms = accounting_ms = 0
-    runtime_rejections = 0
+    queries = state["queries"]
+    admitted_query_ids = state["admitted_query_ids"]
+    usage = state["native_usage"]
     task_id = invocation["root_task_id"]
-    for turn in range(16):
-        message = call_deepseek(messages, tools, lock, api_key)
+    for turn in range(lock["max_tool_turns"]):
+        message, response_model = call_deepseek(messages, tools, lock, api_key)
+        if response_model not in state["provider_response_models"]:
+            state["provider_response_models"].append(response_model)
         messages.append(message)
         calls = message.get("tool_calls") or []
         if not calls:
-            answer, narrative = parse_final(message.get("content") or "")
-            return answer, narrative, queries, admitted_query_ids, {
-                "successful_queries": successful_queries, "returned_rows": returned_rows,
-                "serialized_bytes": serialized_bytes, "runtime_budget_rejections": runtime_rejections,
-            }, gateway_ms, accounting_ms
+            answer, narrative = parse_final(message.get("content") or "", required_fields)
+            return answer, narrative
         for call in calls:
             name = call.get("function", {}).get("name")
+            tool_content: str | None = None
             try:
                 arguments = json.loads(call.get("function", {}).get("arguments") or "{}")
             except json.JSONDecodeError:
                 result_for_model = {"error": {"code": "INVALID_TOOL_ARGUMENTS", "retryable": True}}
             else:
                 if name == "get_budget":
-                    try:
-                        raw, elapsed = mcp.call("get_budget", {"task_id": task_id})
-                        gateway_ms += elapsed
-                        result_for_model = raw
-                    except ToolFailure as error:
-                        result_for_model = {"error": {"code": "TOOL_ERROR", "message": str(error)}}
+                    if baseline is not None:
+                        unit = next(iter(invocation["budget"]))
+                        result_for_model = {
+                            "policy": invocation["arm"],
+                            "units": [unit],
+                            "limits": {unit: baseline.ceiling},
+                            "used": {unit: baseline.used},
+                            "remaining": {unit: baseline.ceiling - baseline.used},
+                        }
+                    elif invocation["arm"] == "unlimited":
+                        result_for_model = {
+                            "policy": "unlimited", "units": [],
+                            "limits": {}, "used": {}, "remaining": {},
+                        }
+                    else:
+                        try:
+                            raw, elapsed = mcp.call("get_budget", {"task_id": task_id})
+                            state["gateway_latency_ms"] += elapsed
+                            exposure = raw["exposure_budget"]
+                            limits = exposure["limits"]
+                            used = exposure["used"]
+                            result_for_model = {
+                                "policy": "taskgate_v3",
+                                "units": ["release_facts", "influence_facts", "outcome_facts"],
+                                "limits": limits,
+                                "used": used,
+                                "remaining": {
+                                    unit: max(0, int(limits[unit]) - int(used[unit]))
+                                    for unit in ("release_facts", "influence_facts", "outcome_facts")
+                                },
+                            }
+                        except ToolFailure as error:
+                            result_for_model = {"error": {"code": "TOOL_ERROR", "message": str(error)}}
                 elif name == "execute_plan":
                     request_id = f"study-{invocation['run_id']}-{len(queries) + 1}"
                     tool_arguments = {"task_id": task_id, "request_id": request_id, "plan": arguments.get("plan")}
@@ -351,33 +388,37 @@ def run_agent(invocation: dict, mcp: MCP, task: dict, lock: dict, api_key: str) 
                     entry = {"request_id": request_id, "plan": arguments.get("plan"), "admitted": False}
                     try:
                         raw, elapsed = mcp.call("execute_plan", tool_arguments)
-                        gateway_ms += elapsed
-                        successful_queries += 1
+                        state["gateway_latency_ms"] += elapsed
                         visible = visible_query_result(raw)
                         payload = controller.canonical_response_bytes(visible)
                         rows = int(raw.get("row_count", 0))
-                        returned_rows += rows
-                        serialized_bytes += len(payload)
                         component = raw.get("component_ms", {})
-                        accounting_ms += sum(int(component.get(key, 0)) for key in (
+                        state["accounting_latency_ms"] += sum(int(component.get(key, 0)) for key in (
                             "exposure_derivation", "exposure_reservation_lock", "exposure_ledger_lock", "exposure_fact_store",
                         ))
                         admitted = True
                         if baseline is not None:
                             admitted = baseline.admit(request_id, rows, payload).released
                         if admitted:
+                            usage["successful_queries"] += 1
+                            usage["returned_rows"] += rows
+                            usage["serialized_bytes"] += len(payload)
                             entry["admitted"] = True
                             entry["query_id"] = raw.get("query_id")
+                            entry["admitted_response_canonical"] = payload.decode("utf-8")
+                            entry["admitted_response_sha256"] = hashlib.sha256(payload).hexdigest()
                             admitted_query_ids.append(raw["query_id"])
                             result_for_model = visible
+                            tool_content = payload.decode("utf-8")
                         else:
-                            runtime_rejections += 1
+                            state["runtime_budget_rejections"] += 1
                             result_for_model = COMMON_ERROR
+                            entry["budget_rejected"] = True
                         entry.update({"row_count": rows, "serialized_bytes": len(payload)})
                     except ToolFailure as error:
                         message_text = str(error)
                         if "EXPOSURE_BUDGET_EXHAUSTED" in message_text or "暴露预算" in message_text or "预算" in message_text:
-                            runtime_rejections += 1
+                            state["runtime_budget_rejections"] += 1
                             result_for_model = COMMON_ERROR
                             entry["budget_rejected"] = True
                         else:
@@ -386,14 +427,25 @@ def run_agent(invocation: dict, mcp: MCP, task: dict, lock: dict, api_key: str) 
                     queries.append(entry)
                 else:
                     result_for_model = {"error": {"code": "UNKNOWN_TOOL", "retryable": False}}
-            messages.append({"role": "tool", "tool_call_id": call.get("id", ""), "content": json.dumps(result_for_model, ensure_ascii=False)})
-    raise RuntimeError("DeepSeek exceeded the 16-turn tool limit")
+            messages.append({
+                "role": "tool",
+                "tool_call_id": call.get("id", ""),
+                "content": tool_content if tool_content is not None else json.dumps(result_for_model, ensure_ascii=False),
+            })
+    raise RuntimeError(f"DeepSeek exceeded the {lock['max_tool_turns']}-turn tool limit")
+
+
+def metric_sections(facts: list[dict], task: dict) -> tuple[dict, dict]:
+    measured = risk_metrics(facts, task)
+    neutral_names = set(validate.NEUTRAL_DISCLOSURE_FIELDS)
+    neutral = {name: measured.pop(name) for name in sorted(neutral_names)}
+    return measured, neutral
 
 
 def main() -> None:
     invocation = json.load(sys.stdin)
-    tasks_doc, protocol = validate.validate_design()
-    tasks = {task["id"]: task for task in tasks_doc["tasks"]}
+    tasks_doc, calibration_doc, protocol = validate.validate_design()
+    tasks = {task["id"]: task for doc in (tasks_doc, calibration_doc) for task in doc["tasks"]}
     if invocation.get("study_id") != protocol["study_id"] or invocation.get("task_id") not in tasks:
         raise SystemExit("invalid workflow-study invocation")
     dotenv = read_dotenv(ROOT / ".env")
@@ -401,76 +453,125 @@ def main() -> None:
     lock_path = Path(os.getenv("WORKFLOW_EXECUTION_LOCK", ""))
     if not lock_path.is_file():
         raise SystemExit("WORKFLOW_EXECUTION_LOCK must name the frozen execution-lock JSON")
-    lock = validate_lock(lock_path, invocation, tasks_doc)
+    lock = validate_lock(lock_path, invocation, tasks_doc, calibration_doc)
     project = re.sub(r"[^a-z0-9-]", "-", invocation["run_id"].lower())[:55]
     ports = {name: free_port() for name in ("BUSINESS", "CONTROL", "GATEWAY", "OA")}
-    env = dict(os.environ)
-    env.update(dotenv)
+    # Match secret(): explicit process environment wins over the ignored .env.
+    env = {**dotenv, **os.environ}
     env.update({f"WORKFLOW_STUDY_{name}_PORT": str(port) for name, port in ports.items()})
     started_at = now()
     wall_started = time.monotonic()
-    queries: list[dict] = []
+    state = empty_run_state()
+    task = tasks[invocation["task_id"]]
+    mcp: MCP | None = None
+    created: dict | None = None
+    stack_started = False
+    agent_started = False
+    answer: dict = {}
+    narrative = ""
+    failure: dict | None = None
+    status = "completed"
     try:
-        run_command(compose_command(project, "up", "-d", "--wait"), env)
-        mcp = MCP(f"http://127.0.0.1:{ports['GATEWAY']}/mcp", secret("TASKBOUND_ALICE_TOKEN", dotenv))
-        created, _ = mcp.call("request_data_task", {
-            "objective": tasks[invocation["task_id"]]["prompt"],
-            "data_products": tasks[invocation["task_id"]]["products"],
-            "columns": tasks[invocation["task_id"]]["approved_columns"],
-            "scopes": tasks[invocation["task_id"]]["scope"],
-            "requested_budget": requested_budget(invocation),
-        })
-        invocation["root_task_id"] = created["task_id"]
-        draft_id = created["oa_url"].rstrip("/").split("/")[-1]
-        oa_url = f"http://127.0.0.1:{ports['OA']}"
-        alice = oa_client(oa_url, "alice", secret("OA_ALICE_PASSWORD", dotenv))
-        bob = oa_client(oa_url, "bob", secret("OA_BOB_PASSWORD", dotenv))
-        oa_action(alice, oa_url, draft_id, "submit")
-        for _ in range(40):
-            pending, _ = mcp.call("get_task_status", {"task_id": created["task_id"]})
-            if pending.get("state") == "AWAITING_APPROVAL":
-                break
-            time.sleep(0.25)
+        try:
+            run_command(compose_command(project, "up", "-d", "--wait"), env)
+            stack_started = True
+            mcp = MCP(f"http://127.0.0.1:{ports['GATEWAY']}/mcp", secret("TASKBOUND_ALICE_TOKEN", dotenv))
+            created, _ = mcp.call("request_data_task", {
+                "objective": task["prompt"],
+                "data_products": task["products"],
+                "columns": task["approved_columns"],
+                "scopes": task["scope"],
+                "requested_budget": requested_budget(invocation),
+            })
+            invocation["root_task_id"] = created["task_id"]
+            draft_id = created["oa_url"].rstrip("/").split("/")[-1]
+            oa_url = f"http://127.0.0.1:{ports['OA']}"
+            alice = oa_client(oa_url, "alice", secret("OA_ALICE_PASSWORD", dotenv))
+            bob = oa_client(oa_url, "bob", secret("OA_BOB_PASSWORD", dotenv))
+            oa_action(alice, oa_url, draft_id, "submit")
+            for _ in range(40):
+                pending, _ = mcp.call("get_task_status", {"task_id": created["task_id"]})
+                if pending.get("state") == "AWAITING_APPROVAL":
+                    break
+                time.sleep(0.25)
+            else:
+                raise RuntimeError("submitted task did not become AWAITING_APPROVAL")
+            oa_action(bob, oa_url, draft_id, "decision", "approved")
+            for _ in range(40):
+                task_status, _ = mcp.call("get_task_status", {"task_id": created["task_id"]})
+                if task_status.get("state") == "ACTIVE":
+                    break
+                time.sleep(0.25)
+            else:
+                raise RuntimeError("approved task did not become ACTIVE")
+            agent_started = True
+            answer, narrative = run_agent(invocation, mcp, task, lock, api_key, state)
+        except Exception as error:  # Preserve completed query evidence before teardown.
+            status = "agent_error" if agent_started else "tool_error"
+            failure = {
+                "category": type(error).__name__,
+                "stage": "agent" if agent_started else "setup",
+                "message_sha256": hashlib.sha256(str(error).encode("utf-8", "replace")).hexdigest(),
+            }
+
+        admitted = state["admitted_query_ids"]
+        facts = audit_facts(project, admitted, env) if admitted else []
+        if created is None:
+            gateway_audit = {"available": False, "reason": "task_not_created"}
         else:
-            raise RuntimeError("submitted task did not become AWAITING_APPROVAL")
-        oa_action(bob, oa_url, draft_id, "decision", "approved")
-        for _ in range(40):
-            status, _ = mcp.call("get_task_status", {"task_id": created["task_id"]})
-            if status.get("state") == "ACTIVE":
-                break
-            time.sleep(0.25)
-        else:
-            raise RuntimeError("approved task did not become ACTIVE")
-        answer, narrative, queries, admitted, usage, gateway_ms, accounting_ms = run_agent(
-            invocation, mcp, tasks[invocation["task_id"]], lock, api_key,
-        )
-        facts = audit_facts(project, admitted, env)
-        risk = risk_metrics(facts, tasks[invocation["task_id"]])
+            if mcp is None:
+                raise RuntimeError("created task has no MCP client for the post-run budget audit")
+            budget_snapshot, _ = mcp.call("get_budget", {"task_id": created["task_id"]})
+            gateway_audit = {"available": True, "snapshot": budget_snapshot}
+        storage_bytes = exposure_storage_bytes(project, env) if stack_started else 0
+        common_risk, neutral = metric_sections(facts, task)
         record = {
-            "schema_version": 2, "study_id": invocation["study_id"], "run_id": invocation["run_id"],
-            "task_id": invocation["task_id"], "arm": invocation["arm"], "seed": invocation["seed"],
-            "phase": invocation["phase"], "budget_multiplier": invocation["budget_multiplier"],
-            "model": {"provider": lock["provider"], "model": lock["model"], "version": lock["model_version"], "temperature": lock["temperature"]},
-            "database_snapshot": "workflow-study-2026-v1", "database_instance_id": project,
-            "root_task_id": created["task_id"], "cache_namespace": invocation["isolation_namespace"],
-            "budget_freeze_sha256": invocation["budget_freeze_sha256"],
+            "schema_version": 3, "study_id": invocation["study_id"], "run_id": invocation["run_id"],
+            "task_id": invocation["task_id"], "domain": task["domain"],
+            "arm": invocation["arm"], "replicate": invocation["replicate"],
+            "phase": invocation["phase"], "budget_level": invocation["budget_level"],
+            "model": {
+                "provider": lock["provider"], "model": lock["model"],
+                "version": lock["model_version"], "temperature": lock["temperature"],
+                "top_p": lock["top_p"], "max_tokens": lock["max_tokens"],
+                "api_base_url": lock["api_base_url"],
+            },
+            "provider_response_models": sorted(state["provider_response_models"]),
+            "database_snapshot": "workflow-study-2026-v1",
+            "database_instance_id": project if stack_started else f"not-created-{invocation['run_id']}",
+            "root_task_id": created["task_id"] if created is not None else f"not-created-{invocation['run_id']}",
+            "cache_namespace": invocation["isolation_namespace"],
+            "algorithmic_budget_freeze_sha256": invocation["algorithmic_budget_freeze_sha256"],
             "execution_lock_sha256": invocation["execution_lock_sha256"],
             "budget_rejection_envelope": invocation["budget_rejection_envelope"],
-            "started_at": started_at, "finished_at": now(), "status": "completed", "budget": invocation["budget"],
-            "queries": queries, "final_answer": answer, "final_answer_text": narrative,
-            "common_v3_risk": risk,
-            "native_usage": {key: usage[key] for key in ("successful_queries", "returned_rows", "serialized_bytes")},
-            "runtime_budget_rejections": usage["runtime_budget_rejections"],
+            "started_at": started_at, "finished_at": now(), "status": status, "budget": invocation["budget"],
+            "queries": state["queries"], "final_answer": answer if status == "completed" else {},
+            "final_answer_text": narrative if status == "completed" else "",
+            "fact_evidence": facts,
+            "fact_evidence_sha256": validate.canonical_sha256(facts),
+            "gateway_budget_audit": gateway_audit,
+            "gateway_budget_audit_sha256": validate.canonical_sha256(gateway_audit),
+            "common_v3_risk": common_risk,
+            "neutral_disclosure": neutral,
+            "native_usage": state["native_usage"],
+            "runtime_budget_rejections": state["runtime_budget_rejections"],
             "performance": {
-                "wall_clock_ms": round((time.monotonic() - wall_started) * 1000), "gateway_latency_ms": gateway_ms,
-                "accounting_latency_ms": accounting_ms, "exposure_storage_bytes": exposure_storage_bytes(project, env),
+                "wall_clock_ms": round((time.monotonic() - wall_started) * 1000),
+                "gateway_latency_ms": state["gateway_latency_ms"],
+                "accounting_latency_ms": state["accounting_latency_ms"],
+                "exposure_storage_bytes": storage_bytes,
             },
         }
+        if failure is not None:
+            record["failure"] = failure
         json.dump(record, sys.stdout, ensure_ascii=False, separators=(",", ":"))
         sys.stdout.write("\n")
     finally:
         if os.getenv("WORKFLOW_STUDY_KEEP_STACK") != "1":
-            subprocess.run(compose_command(project, "down", "-v", "--remove-orphans"), cwd=ROOT, env=env, capture_output=True, check=False)
+            subprocess.run(
+                compose_command(project, "down", "-v", "--remove-orphans", "--rmi", "local"),
+                cwd=ROOT, env=env, capture_output=True, check=False,
+            )
 
 
 if __name__ == "__main__":

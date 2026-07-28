@@ -24,11 +24,25 @@ WITH monthly AS (
            round(100 * (total - prior_two_average) / prior_two_average, 2) AS growth_pct
     FROM scored
     WHERE prior_months = 2 AND total > prior_two_average * 1.30
+), anomaly_claims AS (
+    SELECT claim_id, category, amount
+    FROM reporting.wf_expense_claim
+    WHERE business_unit = 'sales' AND status = 'approved'
+      AND date_trunc('month', event_date)::date IN (SELECT month FROM anomalies)
+), ranked_claims AS (
+    SELECT claim_id, amount,
+           row_number() OVER (ORDER BY amount DESC, claim_id) AS rank
+    FROM anomaly_claims
+), categories AS (
+    SELECT category, sum(amount) AS category_total
+    FROM anomaly_claims GROUP BY category
 )
 SELECT 'FIN-01', jsonb_build_object(
     'anomaly_detected', EXISTS(SELECT 1 FROM anomalies),
     'anomaly_months', COALESCE((SELECT jsonb_agg(to_char(month, 'YYYY-MM') ORDER BY month) FROM anomalies), '[]'::jsonb),
-    'largest_growth_pct', COALESCE((SELECT max(growth_pct) FROM anomalies), 0)
+    'largest_growth_pct', COALESCE((SELECT max(growth_pct) FROM anomalies), 0),
+    'contributing_categories', COALESCE((SELECT jsonb_agg(category ORDER BY category_total DESC, category) FROM categories), '[]'::jsonb),
+    'top_claim_ids', COALESCE((SELECT jsonb_agg(claim_id ORDER BY amount DESC, claim_id) FROM ranked_claims WHERE rank <= 5), '[]'::jsonb)
 );
 
 INSERT INTO study_hidden.task_ground_truth(task_id, answer)

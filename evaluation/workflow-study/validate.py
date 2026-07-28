@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the workflow-study design and, optionally, collected evidence."""
+"""Validate the participant-free controlled Agent workflow benchmark."""
 
 from __future__ import annotations
 
@@ -12,15 +12,31 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
+import study_risk
+
 
 HERE = Path(__file__).resolve().parent
 TASKS = HERE / "tasks.json"
+CALIBRATION_TASKS = HERE / "calibration-tasks.json"
 PROTOCOL = HERE / "protocol.json"
-TASK_ID = re.compile(r"^(FIN|SUP|PROC)-[0-9]{2}$")
 DOMAINS = {"finance", "risk_compliance", "customer_operations"}
 PRIMARY_ARMS = {"taskgate_v3", "query_count", "returned_rows", "serialized_bytes"}
-BASELINE_ARMS = PRIMARY_ARMS - {"taskgate_v3"}
 ARMS = PRIMARY_ARMS | {"unlimited"}
+BUDGET_LEVELS = (0.25, 0.5, 0.75, 1.0)
+ZERO_SHA256 = "0" * 64
+AUTOMATIC_METHODS = {
+    "exact",
+    "set_f1",
+    "numeric_absolute_0_01",
+    "numeric_absolute_0_1",
+    "numeric_relative_2pct",
+    "ordered_list_overlap",
+    "exact_literal",
+    "trace_forbidden_columns",
+    "trace_allowed_columns",
+    "trace_query_bound",
+    "query_trace_rule",
+}
 BUDGET_FIELDS = {
     "taskgate_v3": {"release_facts", "influence_facts", "outcome_facts"},
     "query_count": {"successful_queries"},
@@ -29,12 +45,76 @@ BUDGET_FIELDS = {
     "unlimited": set(),
 }
 BUDGET_MAX = {
-    "taskgate_v3": {"release_facts": 100000, "influence_facts": 1000000, "outcome_facts": 100},
+    "taskgate_v3": {"release_facts": 1000000, "influence_facts": 10000000, "outcome_facts": 1000},
     "query_count": {"successful_queries": 100},
-    "returned_rows": {"returned_rows": 5000},
-    "serialized_bytes": {"serialized_bytes": 5000000},
+    "returned_rows": {"returned_rows": 100000},
+    "serialized_bytes": {"serialized_bytes": 100000000},
     "unlimited": {},
 }
+GATEWAY_AUDIT_NATIVE_LIMITS = {"queries": 100, "rows": 100000, "db_ms": 120000}
+GATEWAY_AUDIT_EXPOSURE_LIMITS = {
+    "release_facts": 1000000,
+    "influence_facts": 10000000,
+    "outcome_facts": 1000,
+}
+USAGE_UNIT_MAPPING = {
+    "taskgate_v3": {
+        "release_facts": "common_v3_risk.release_facts",
+        "influence_facts": "common_v3_risk.influence_facts",
+        "outcome_facts": "common_v3_risk.outcome_facts",
+    },
+    "query_count": {"successful_queries": "native_usage.successful_queries"},
+    "returned_rows": {"returned_rows": "native_usage.returned_rows"},
+    "serialized_bytes": {"serialized_bytes": "native_usage.serialized_bytes"},
+}
+FROZEN_SOURCE_PATHS = (
+    "controller.py",
+    "deepseek_agent_adapter.py",
+    "run_study.py",
+    "freeze_budgets.py",
+    "analyze.py",
+    "study_risk.py",
+    "test_design.py",
+    "compose.yaml",
+    "db/05-workflow-study.sql",
+    "db/10-ground-truth.sql",
+    "db/15-workflow-reader.sql",
+    "raw/ground-truth.json",
+    "sensitivity-map.json",
+    "essential-columns.json",
+    "catalog.yaml",
+    "../../compose.yaml",
+    "../../Dockerfile",
+    "../../go.mod",
+    "../../go.sum",
+    "../../.dockerignore",
+    "../../db/init/00-schema.sql",
+    "../../db/init/10-reader.sh",
+)
+FROZEN_SOURCE_TREE_PATHS = (
+    "../../internal",
+    "../../cmd/gateway",
+    "../../db/control-init",
+)
+COMMON_RISK_FIELDS = (
+    "release_facts",
+    "influence_facts",
+    "outcome_facts",
+    "sensitivity_weighted_exposure",
+    "distinct_sensitive_records",
+    "distinct_sensitive_fields",
+    "unnecessary_sensitive_fields",
+)
+NEUTRAL_DISCLOSURE_FIELDS = (
+    "released_sensitive_records",
+    "released_sensitive_fields",
+    "released_sensitive_cells",
+    "released_sensitive_values",
+    "disclosed_outcome_propositions",
+    "disclosed_negative_propositions",
+)
+NATIVE_USAGE_FIELDS = ("successful_queries", "returned_rows", "serialized_bytes")
+PERFORMANCE_FIELDS = ("wall_clock_ms", "gateway_latency_ms", "accounting_latency_ms", "exposure_storage_bytes")
 
 
 def load(path: Path) -> dict:
@@ -49,6 +129,34 @@ def require(condition: bool, message: str) -> None:
         raise ValueError(message)
 
 
+def canonical_sha256(value: object) -> str:
+    encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def canonical_json_bytes(value: object) -> bytes:
+    return json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False,
+    ).encode("utf-8")
+
+
+def registered_run_id(
+    study_id: str,
+    schedule_kind: str,
+    task_id: str,
+    arm: str,
+    replicate: int,
+    level: float,
+) -> str:
+    """Return the source-registered identity for one schedule cell."""
+    material = f"{study_id}\0{schedule_kind}\0{task_id}\0{arm}\0{replicate}\0{level:.2f}".encode()
+    return "ws-" + hashlib.sha256(material).hexdigest()[:24]
+
+
+def file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
 def timestamp(value: object, label: str) -> dt.datetime:
     require(isinstance(value, str) and value.strip(), f"{label} must be an RFC3339 timestamp")
     try:
@@ -59,129 +167,88 @@ def timestamp(value: object, label: str) -> dt.datetime:
     return parsed
 
 
-def validate_budget(value: object, arm: str, label: str) -> None:
-    require(isinstance(value, dict), f"{label} must be an object")
-    require(set(value) == BUDGET_FIELDS[arm], f"{label} has the wrong units for {arm}")
-    require(
-        all(isinstance(amount, int) and not isinstance(amount, bool) and amount >= 0 for amount in value.values()),
-        f"{label} values must be non-negative integers",
-    )
-    if arm == "taskgate_v3":
-        require(all(amount > 0 for amount in value.values()), f"{label} TaskGate ceilings must be positive")
-    require(
-        all(amount <= BUDGET_MAX[arm][unit] for unit, amount in value.items()),
-        f"{label} exceeds the registered operational range for {arm}",
-    )
-
-
-def canonical_sha256(value: object) -> str:
-    encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
-
-
-def display_context() -> dict:
-    tasks_doc = load(TASKS)
-    cards = load(HERE / "unit-cards.json")
-    return {
-        "study_id": tasks_doc["task_set_id"],
-        "tasks": [
-            {
-                key: task[key]
-                for key in (
-                    "id", "domain", "difficulty", "label", "prompt", "products",
-                    "approved_columns", "scope", "sensitivity",
-                )
-            }
-            for task in tasks_doc["tasks"]
-        ],
-        "unit_cards": [card for card in cards["cards"] if card["arm"] in PRIMARY_ARMS],
-        "risk_preference": load(HERE / "risk-preference-card.json"),
-        # The collection UI renders catalog.yaml. Binding its bytes here prevents
-        # changing the visible schema after experts have selected ceilings.
-        "catalog_sha256": hashlib.sha256((HERE / "catalog.yaml").read_bytes()).hexdigest(),
-    }
-
-
-def display_context_sha256() -> str:
-    return canonical_sha256(display_context())
-
-
-def file_sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+def json_files(directory: Path) -> list[Path]:
+    require(directory.is_dir(), f"collection directory is missing: {directory}")
+    return sorted(path for path in directory.glob("*.json") if ".example." not in path.name)
 
 
 def record_digests(directory: Path) -> list[dict[str, str]]:
     return [{"name": path.name, "sha256": file_sha256(path)} for path in json_files(directory)]
 
 
-def validate_execution_lock(path: Path, study_id: str) -> dict:
-    lock = load(path)
-    require(lock.get("schema_version") == 1 and lock.get("study_id") == study_id, "invalid execution lock identity")
-    for field in ("provider", "model", "model_version"):
-        require(isinstance(lock.get(field), str) and lock[field] and "replace" not in lock[field], f"invalid execution lock {field}")
-    require(
-        isinstance(lock.get("temperature"), (int, float)) and not isinstance(lock.get("temperature"), bool),
-        "invalid execution lock temperature",
-    )
-    for field in ("system_prompt_sha256", "tool_surface_sha256", "agent_adapter_sha256", "answer_schema_sha256"):
-        require(re.fullmatch(r"[0-9a-f]{64}", lock.get(field, "")) is not None, f"invalid execution lock {field}")
-    return lock
+def source_file_digests(*, include_generated_truth: bool = True) -> dict[str, str]:
+    result = {}
+    for relative in FROZEN_SOURCE_PATHS:
+        if relative == "raw/ground-truth.json" and not include_generated_truth:
+            continue
+        path = HERE / relative
+        require(path.is_file(), f"frozen source is missing: {relative}")
+        result[relative] = file_sha256(path)
+    for relative in FROZEN_SOURCE_TREE_PATHS:
+        root = (HERE / relative).resolve()
+        require(root.is_dir(), f"frozen source tree is missing: {relative}")
+        digest = hashlib.sha256()
+        files = sorted(path for path in root.rglob("*") if path.is_file())
+        require(bool(files), f"frozen source tree is empty: {relative}")
+        for path in files:
+            digest.update(path.relative_to(root).as_posix().encode())
+            digest.update(b"\0")
+            digest.update(path.read_bytes())
+            digest.update(b"\0")
+        result[f"tree:{relative}"] = digest.hexdigest()
+    return result
 
 
-def validate_frozen(
-    path: Path,
-    protocol: dict,
-    execution_lock: Path,
-    task_reviews: Path | None = None,
-    budgets: Path | None = None,
-) -> dict:
-    frozen = load(path)
-    claimed = frozen.get("freeze_sha256", "")
-    payload = dict(frozen)
-    payload.pop("freeze_sha256", None)
-    require(claimed == canonical_sha256(payload), "budget freeze digest mismatch")
-    require(
-        frozen.get("status") == "frozen_before_agent_runs" and frozen.get("study_id") == protocol["study_id"],
-        "invalid budget freeze identity",
-    )
-    require(frozen.get("task_manifest_sha256") == file_sha256(TASKS), "task manifest differs from budget freeze")
-    require(frozen.get("protocol_sha256") == file_sha256(PROTOCOL), "protocol differs from budget freeze")
-    require(frozen.get("display_context_sha256") == display_context_sha256(), "expert context differs from budget freeze")
-    validate_execution_lock(execution_lock, protocol["study_id"])
-    require(frozen.get("execution_lock_sha256") == file_sha256(execution_lock), "execution lock differs from budget freeze")
-    if task_reviews is not None:
-        require(frozen.get("task_review_records") == record_digests(task_reviews), "task reviews differ from budget freeze")
-    if budgets is not None:
-        require(frozen.get("budget_records") == record_digests(budgets), "expert budgets differ from budget freeze")
-    return frozen
+def level_key(level: float) -> str:
+    return f"{float(level):.2f}"
 
 
-def validate_design() -> tuple[dict, dict]:
-    tasks_doc = load(TASKS)
-    protocol = load(PROTOCOL)
-    require(tasks_doc.get("schema_version") == 1, "unsupported task manifest")
-    require(protocol.get("schema_version") == 2, "unsupported study protocol")
-    require(tasks_doc.get("task_set_id") == protocol.get("study_id"), "study identifiers differ")
+def sampling_plan(protocol: dict) -> dict:
+    sampling = protocol.get("sampling", {})
+    expected = {
+        "calibration_tasks": 6,
+        "evaluation_tasks": 12,
+        "calibration_replicates": 3,
+        "calibration_runs": 18,
+        "budget_levels": list(BUDGET_LEVELS),
+        "evaluation_replicates_per_level": 3,
+        "budgeted_evaluation_runs": 576,
+        "unlimited_replicates": 5,
+        "unlimited_runs": 60,
+        "planned_evaluation_runs": 636,
+        "total_agent_runs": 654,
+    }
+    for field, value in expected.items():
+        require(sampling.get(field) == value, f"sampling.{field} differs from the registered design")
+    return expected
 
-    tasks = tasks_doc.get("tasks", [])
-    require(len(tasks) == 12, "the registered design requires exactly 12 tasks")
+
+def _manifest_identity(document: dict) -> str:
+    return str(document.get("task_set_id") or document.get("calibration_set_id") or document.get("study_id") or "")
+
+
+def _validate_task_manifest(document: dict, *, count: int, per_domain: int, label: str) -> set[str]:
+    require(document.get("schema_version") in {1, 2}, f"unsupported {label} manifest")
+    require(_manifest_identity(document), f"{label} manifest has no identity")
+    tasks = document.get("tasks", [])
+    require(len(tasks) == count, f"the registered design requires exactly {count} {label} tasks")
+    document_source = " ".join(
+        str(document.get(field, "")) for field in ("source_method", "purpose", "provenance")
+    ).lower()
     seen: set[str] = set()
     domains: dict[str, int] = defaultdict(int)
-    vectors: set[tuple[int, ...]] = set()
     for task in tasks:
         task_id = task.get("id", "")
-        require(TASK_ID.fullmatch(task_id) is not None, f"invalid task id {task_id!r}")
-        require(task_id not in seen, f"duplicate task {task_id}")
+        require(re.fullmatch(r"[A-Z][A-Z0-9-]{2,31}", task_id) is not None, f"invalid {label} task id {task_id!r}")
+        require(task_id not in seen, f"duplicate {label} task {task_id}")
         seen.add(task_id)
         domain = task.get("domain")
         require(domain in DOMAINS, f"invalid domain for {task_id}")
         domains[domain] += 1
         require(task.get("difficulty") in {"low", "medium", "high"}, f"task {task_id} lacks registered difficulty")
-        require(
-            task.get("case_source") == "representative_synthetic_case_subject_to_practitioner_provenance_gate",
-            f"task {task_id} overstates or omits its current provenance",
-        )
-        require(len(task.get("prompt", "").split()) >= 25, f"task {task_id} prompt is not a workflow request")
+        source = str(task.get("case_source") or document_source).lower()
+        require("synthetic" in source, f"task {task_id} is not identified as synthetic")
+        require(len(task.get("prompt", "").split()) >= 20, f"task {task_id} prompt is not a workflow request")
         products = task.get("products")
         columns = task.get("approved_columns")
         require(
@@ -189,101 +256,104 @@ def validate_design() -> tuple[dict, dict]:
             and all(isinstance(product, str) and product for product in products),
             f"task {task_id} has invalid products",
         )
-        require(isinstance(columns, dict) and set(columns) == set(products), f"task {task_id} columns do not match its products")
+        require(isinstance(columns, dict) and set(columns) == set(products), f"task {task_id} columns do not match products")
         require(
-            all(
-                isinstance(values, list) and values and len(values) == len(set(values))
-                and all(isinstance(column, str) and column for column in values)
-                for values in columns.values()
-            ),
+            all(isinstance(values, list) and values and len(values) == len(set(values)) for values in columns.values()),
             f"task {task_id} has invalid approved columns",
         )
         scope = task.get("scope")
-        require(
-            isinstance(scope, dict) and set(scope) == {"business_unit", "event_date"},
-            f"task {task_id} lacks the registered business-unit/date scope",
-        )
+        require(isinstance(scope, dict) and scope, f"task {task_id} lacks a registered scope")
+        if label == "calibration":
+            required = task.get("required_answer_fields")
+            require(
+                isinstance(required, list) and required and len(required) == len(set(required))
+                and all(isinstance(field, str) and field for field in required),
+                f"calibration task {task_id} has invalid required_answer_fields",
+            )
+            continue
         require(task.get("ground_truth_key") == task_id, f"task {task_id} ground-truth key differs")
+        evidence_columns = task.get("evidence_required_columns")
+        approved_union = {field for values in columns.values() for field in values}
+        require(
+            isinstance(evidence_columns, list) and evidence_columns
+            and len(evidence_columns) == len(set(evidence_columns))
+            and all(isinstance(field, str) and field in approved_union for field in evidence_columns),
+            f"task {task_id} has invalid evidence-required columns",
+        )
         rubric = task.get("rubric", [])
         require(4 <= len(rubric) <= 8, f"task {task_id} must have four to eight rubric goals")
         weights = [item.get("weight") for item in rubric]
         require(all(isinstance(weight, int) and weight > 0 for weight in weights), f"task {task_id} has invalid weights")
         require(sum(weights) == 100, f"task {task_id} rubric weights do not sum to 100")
         require(any(item.get("critical") is True for item in rubric), f"task {task_id} has no critical goal")
+        require(
+            any(item.get("critical") is True and item.get("answer_path") for item in rubric),
+            f"task {task_id} has no critical answer goal",
+        )
         item_ids = [item.get("id") for item in rubric]
         require(len(item_ids) == len(set(item_ids)) and all(item_ids), f"task {task_id} repeats a rubric item")
         for item in rubric:
-            method = item.get("method", "")
-            require(
-                method in {
-                    "exact", "set_f1", "ordered_list_overlap", "numeric_relative_2pct",
-                    "numeric_absolute_0_01", "numeric_absolute_0_1", "blind_expert", "trace_guardrail",
-                },
-                f"task {task_id} uses unknown scoring method {method!r}",
-            )
-            if method not in {"blind_expert", "trace_guardrail"}:
-                require(item.get("answer_path"), f"task {task_id} automated item lacks answer_path")
-        vectors.add(tuple(weights))
-    require(dict(domains) == {domain: 4 for domain in DOMAINS}, "domain balance differs from registration")
-    require(len(vectors) >= 8, "rubric weights are insufficiently differentiated")
+            method = item.get("method")
+            require(method in AUTOMATIC_METHODS, f"task {task_id} uses non-automatic scoring method {method!r}")
+            if method in {
+                "exact", "set_f1", "numeric_absolute_0_01", "numeric_absolute_0_1",
+                "numeric_relative_2pct", "ordered_list_overlap",
+            }:
+                require(item.get("answer_path"), f"task {task_id} automated answer item lacks answer_path")
+            if method == "exact_literal":
+                require(item.get("answer_path"), f"task {task_id} exact_literal item lacks answer_path")
+                require("expected" in item, f"task {task_id} exact_literal item lacks expected")
+            if method == "trace_query_bound":
+                minimum = item.get("min_query_attempts")
+                maximum = item.get("max_query_attempts")
+                require(
+                    isinstance(minimum, int) and not isinstance(minimum, bool) and minimum >= 0
+                    and isinstance(maximum, int) and not isinstance(maximum, bool) and maximum >= minimum,
+                    f"task {task_id} trace attempt bounds are invalid",
+                )
+                admitted_minimum = item.get("min_admitted_queries", 0)
+                admitted_maximum = item.get("max_admitted_queries", maximum)
+                require(
+                    isinstance(admitted_minimum, int) and not isinstance(admitted_minimum, bool)
+                    and admitted_minimum >= 0
+                    and isinstance(admitted_maximum, int) and not isinstance(admitted_maximum, bool)
+                    and admitted_maximum >= admitted_minimum and admitted_maximum <= maximum,
+                    f"task {task_id} admitted-query bounds are invalid",
+                )
+    require(dict(domains) == {domain: per_domain for domain in DOMAINS}, f"{label} domain balance differs")
+    return seen
 
+
+def validate_design() -> tuple[dict, dict, dict]:
+    tasks_doc = load(TASKS)
+    calibration_doc = load(CALIBRATION_TASKS)
+    protocol = load(PROTOCOL)
+    require(protocol.get("schema_version") == 3, "unsupported study protocol")
+    require(protocol.get("status") == "designed_not_collected", "protocol must not claim uncollected outcomes")
+    plan = sampling_plan(protocol)
+    evaluation_ids = _validate_task_manifest(
+        tasks_doc, count=plan["evaluation_tasks"], per_domain=4, label="evaluation",
+    )
+    calibration_ids = _validate_task_manifest(
+        calibration_doc, count=plan["calibration_tasks"], per_domain=2, label="calibration",
+    )
+    require(evaluation_ids.isdisjoint(calibration_ids), "calibration and evaluation task IDs overlap")
     protocol_arms = {arm.get("id") for arm in protocol.get("arms", [])}
     require(protocol_arms == ARMS, "registered policy arms differ")
-    sampling = protocol.get("sampling", {})
-    expected_primary = len(tasks) * len(PRIMARY_ARMS) * sampling.get("agent_seeds_per_primary_arm", 0)
-    expected_unlimited = len(tasks) * sampling.get("agent_seeds_unlimited", 0)
-    expected_pareto = (
-        len(tasks) * len(PRIMARY_ARMS) * len(sampling.get("pareto_budget_multipliers", []))
-        * len(sampling.get("pareto_sweep_seeds", []))
-    )
-    require(sampling.get("primary_agent_runs") == expected_primary, "primary run count is inconsistent")
-    require(sampling.get("unlimited_diagnostic_runs") == expected_unlimited, "unlimited run count is inconsistent")
-    require(sampling.get("pareto_sensitivity_runs") == expected_pareto, "Pareto run count is inconsistent")
-    require(sampling.get("planned_agent_runs") == expected_primary + expected_unlimited + expected_pareto, "planned run count is inconsistent")
-    require(sampling.get("budget_calibration_experts") == 9, "the design requires three calibrators per domain")
-    require(sampling.get("budget_usability_experts") == 9, "the design requires three usability experts per domain")
-    require(sampling.get("blind_grading_experts") == 6, "the design requires two blind graders per domain")
-    require(
-        sampling.get("seed_semantics")
-        == "0--4 are paired replicate labels supplied in the task context; the DeepSeek API exposes no deterministic sampling-seed parameter",
-        "replicate labels must not be overstated as provider-controlled random seeds",
-    )
-    require(
-        sampling.get("agent_seeds_per_primary_arm") == sampling.get("agent_seeds_unlimited"),
-        "the cyclic five-arm order requires equal primary and unlimited seed counts",
-    )
-    require(protocol.get("status") == "designed_not_collected", "design file must not claim uncollected evidence")
-    require(
-        protocol.get("experiments", {}).get("agent_utility", {}).get("independence")
-        == "approval-usability decisions never suppress, relabel, or zero-score an agent run",
-        "the two experiments are not causally separated",
-    )
-    ground_truth_sql = (HERE / "db/10-ground-truth.sql").read_text(encoding="utf-8")
-    registered_truth = set(re.findall(r"SELECT '((?:FIN|SUP|PROC)-[0-9]{2})'", ground_truth_sql))
-    require(registered_truth == seen, "ground-truth SQL and task manifest differ")
-    for template in (
-        "task-review.example.json", "expert-budget.example.json", "approval-review.example.json",
-        "agent-run.example.json", "blind-grading.example.json",
-    ):
-        require((HERE / "templates" / template).is_file(), f"missing collection template {template}")
-    require((HERE / "risk-preference-card.json").is_file(), "missing organization risk-preference card")
     require((HERE / "controller.py").is_file(), "missing baseline buffer-before-release controller")
     require((HERE / "system-prompt.txt").is_file(), "missing frozen Agent system prompt")
     require((HERE / "agent-tool-surface.json").is_file(), "missing frozen Agent tool surface")
-    essentials = load(HERE / "essential-columns.json")
-    require(essentials.get("study_id") == tasks_doc["task_set_id"], "essential-column study identity differs")
-    require(set(essentials.get("tasks", {})) == seen, "essential columns do not cover exactly the task set")
-    by_id = {task["id"]: task for task in tasks}
-    for task_id, products in essentials["tasks"].items():
-        require(set(products).issubset(by_id[task_id]["approved_columns"]), f"essential product exceeds grant for {task_id}")
-        for product, fields in products.items():
-            require(
-                set(fields).issubset(by_id[task_id]["approved_columns"][product]),
-                f"essential columns exceed grant for {task_id}/{product}",
-            )
-    unit_cards = load(HERE / "unit-cards.json")
-    require({card.get("arm") for card in unit_cards.get("cards", [])} == ARMS, "unit cards do not cover all arms")
-    return tasks_doc, protocol
+    for template in ("agent-run.example.json", "algorithmic-budget-freeze.example.json", "execution-lock.example.json"):
+        require((HERE / "templates" / template).is_file(), f"missing benchmark template {template}")
+    return tasks_doc, calibration_doc, protocol
+
+
+def load_tasks() -> tuple[dict[str, dict], dict[str, dict]]:
+    evaluation, calibration, _ = validate_design()
+    return (
+        {task["id"]: task for task in evaluation["tasks"]},
+        {task["id"]: task for task in calibration["tasks"]},
+    )
 
 
 def has_path(value: object, path: str) -> bool:
@@ -297,510 +367,646 @@ def has_path(value: object, path: str) -> bool:
 
 def validate_truth(path: Path, task_ids: set[str], tasks_doc: dict | None = None) -> None:
     truth = load(path)
-    require(set(truth) == task_ids, "exported ground truth does not cover exactly the registered tasks")
+    require(set(truth) == task_ids, "exported ground truth does not cover exactly the evaluation tasks")
     for task_id, answer in truth.items():
         require(isinstance(answer, dict) and answer, f"ground truth {task_id} is empty")
     if tasks_doc is not None:
         for task in tasks_doc["tasks"]:
             for item in task["rubric"]:
-                if item["method"] not in {"blind_expert", "trace_guardrail"}:
-                    require(
-                        has_path(truth[task["id"]], item["answer_path"]),
-                        f"ground truth {task['id']} lacks {item['answer_path']}",
-                    )
+                if item["method"] in {
+                    "exact", "set_f1", "numeric_absolute_0_01", "numeric_absolute_0_1",
+                    "numeric_relative_2pct", "ordered_list_overlap",
+                }:
+                    require(has_path(truth[task["id"]], item["answer_path"]), f"ground truth {task['id']} lacks {item['answer_path']}")
 
 
-def json_files(directory: Path) -> list[Path]:
-    require(directory.is_dir(), f"collection directory is missing: {directory}")
-    return sorted(path for path in directory.glob("*.json") if ".example." not in path.name)
-
-
-def validate_task_reviews(directory: Path, tasks_doc: dict, minimum_reviewers: int = 2) -> None:
-    tasks = {task["id"]: task for task in tasks_doc["tasks"]}
-    coverage: dict[str, set[str]] = defaultdict(set)
-    reviewer_domains: dict[str, str] = {}
-    contributions: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
-    seen_assignments: set[tuple[str, str]] = set()
-    files = json_files(directory)
-    require(files, "no independent practitioner task reviews were supplied")
-    for path in files:
-        record = load(path)
-        require(record.get("schema_version") == 1, f"unsupported task-review record {path.name}")
-        reviewer = record.get("reviewer_id", "")
-        require(reviewer and "replace" not in reviewer, f"placeholder task reviewer in {path.name}")
-        require(record.get("is_paper_author") is False, f"paper author cannot validate task realism in {path.name}")
-        require(record.get("relevant_experience_years", -1) >= 1, f"task reviewer experience is missing in {path.name}")
-        domain = record.get("domain")
-        require(domain in DOMAINS, f"invalid task-review domain in {path.name}")
-        require(reviewer_domains.get(reviewer, domain) == domain, f"task reviewer {reviewer} appears in multiple domains")
-        reviewer_domains[reviewer] = domain
-        for review in record.get("reviews", []):
-            task_id = review.get("task_id")
-            require(task_id in tasks and tasks[task_id]["domain"] == domain, f"out-of-domain task review in {path.name}")
-            assignment = (reviewer, task_id)
-            require(assignment not in seen_assignments, f"duplicate practitioner/task review in {path.name}")
-            seen_assignments.add(assignment)
-            contribution = review.get("contribution")
-            require(
-                contribution in {"authored_or_substantively_adapted", "independent_validation"},
-                f"invalid practitioner contribution in {path.name}",
-            )
-            require(review.get("decision") == "accept", f"task {task_id} still requires practitioner revision")
-            require(1 <= review.get("realism_1_to_5", 0) <= 5, f"invalid realism rating in {path.name}")
-            require(review.get("difficulty") in {"low", "medium", "high"}, f"invalid reviewed difficulty in {path.name}")
-            timestamp(review.get("reviewed_at"), f"{path.name}.reviewed_at")
-            coverage[task_id].add(reviewer)
-            contributions[task_id][contribution].add(reviewer)
-    missing = [task for task in sorted(tasks) if len(coverage[task]) < minimum_reviewers]
-    require(not missing, "tasks lack two independent practitioner acceptances: " + ", ".join(missing))
-    missing_origin = [
-        task for task in sorted(tasks)
-        if not contributions[task]["authored_or_substantively_adapted"]
-        or not contributions[task]["independent_validation"]
-        or contributions[task]["authored_or_substantively_adapted"] == contributions[task]["independent_validation"]
-    ]
+def validate_execution_lock(path: Path, study_id: str) -> dict:
+    lock = load(path)
+    require(lock.get("schema_version") == 2 and lock.get("study_id") == study_id, "invalid execution lock identity")
+    for field in ("provider", "model", "model_version"):
+        require(isinstance(lock.get(field), str) and lock[field] and "replace" not in lock[field], f"invalid execution lock {field}")
     require(
-        not missing_origin,
-        "tasks lack separate practitioner authorship/adaptation and independent validation: " + ", ".join(missing_origin),
+        isinstance(lock.get("campaign_id"), str)
+        and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", lock["campaign_id"]) is not None
+        and "replace" not in lock["campaign_id"],
+        "invalid execution lock campaign_id",
     )
-    for domain in DOMAINS:
+    timestamp(lock.get("locked_at"), "execution lock locked_at")
+    require(
+        isinstance(lock.get("temperature"), (int, float)) and not isinstance(lock.get("temperature"), bool)
+        and math.isfinite(float(lock["temperature"])) and 0 <= float(lock["temperature"]) <= 2,
+        "invalid execution lock temperature",
+    )
+    require(
+        isinstance(lock.get("top_p"), (int, float)) and not isinstance(lock.get("top_p"), bool)
+        and math.isfinite(float(lock["top_p"])) and 0 < float(lock["top_p"]) <= 1,
+        "invalid execution lock top_p",
+    )
+    require(
+        isinstance(lock.get("max_tokens"), int) and not isinstance(lock.get("max_tokens"), bool)
+        and 1 <= lock["max_tokens"] <= 8192,
+        "invalid execution lock max_tokens",
+    )
+    require(lock.get("api_base_url") == "https://api.deepseek.com", "execution lock must use the official HTTPS DeepSeek endpoint")
+    require(
+        isinstance(lock.get("request_timeout_seconds"), int)
+        and not isinstance(lock["request_timeout_seconds"], bool)
+        and 1 <= lock["request_timeout_seconds"] <= 1800,
+        "invalid execution lock request_timeout_seconds",
+    )
+    require(
+        isinstance(lock.get("max_tool_turns"), int)
+        and not isinstance(lock["max_tool_turns"], bool)
+        and 1 <= lock["max_tool_turns"] <= 64,
+        "invalid execution lock max_tool_turns",
+    )
+    for field in ("system_prompt_sha256", "tool_surface_sha256", "agent_adapter_sha256", "answer_schema_sha256"):
+        require(re.fullmatch(r"[0-9a-f]{64}", lock.get(field, "")) is not None, f"invalid execution lock {field}")
+    evaluation = load(TASKS)
+    calibration = load(CALIBRATION_TASKS)
+    answer_contract = {
+        task["id"]: sorted({item["answer_path"].split(".")[0] for item in task["rubric"] if item.get("answer_path")})
+        for task in evaluation["tasks"]
+    }
+    answer_contract.update(
+        {task["id"]: sorted(task["required_answer_fields"]) for task in calibration["tasks"]}
+    )
+    expected = {
+        "system_prompt_sha256": file_sha256(HERE / "system-prompt.txt"),
+        "tool_surface_sha256": file_sha256(HERE / "agent-tool-surface.json"),
+        "agent_adapter_sha256": file_sha256(HERE / "deepseek_agent_adapter.py"),
+        "answer_schema_sha256": canonical_sha256(answer_contract),
+    }
+    for field, digest in expected.items():
+        require(lock[field] == digest, f"execution lock {field} does not match source")
+    return lock
+
+
+def validate_budget(value: object, arm: str, label: str, *, allow_zero: bool = False) -> None:
+    require(isinstance(value, dict), f"{label} must be an object")
+    require(set(value) == BUDGET_FIELDS[arm], f"{label} has the wrong units for {arm}")
+    minimum = 0 if allow_zero else 1
+    require(
+        all(isinstance(amount, int) and not isinstance(amount, bool) and amount >= minimum for amount in value.values()),
+        f"{label} values must be integers >= {minimum}",
+    )
+    require(all(amount <= BUDGET_MAX[arm][unit] for unit, amount in value.items()), f"{label} exceeds the operational range")
+
+
+def validate_algorithmic_freeze(
+    path: Path,
+    protocol: dict,
+    execution_lock: Path,
+    calibration_runs: Path,
+) -> dict:
+    frozen = load(path)
+    claimed = frozen.get("freeze_sha256", "")
+    payload = dict(frozen)
+    payload.pop("freeze_sha256", None)
+    require(claimed == canonical_sha256(payload), "algorithmic budget freeze digest mismatch")
+    require(
+        frozen.get("schema_version") == 2
+        and frozen.get("status") == "frozen_from_held_out_calibration"
+        and frozen.get("study_id") == protocol["study_id"],
+        "invalid algorithmic budget freeze identity",
+    )
+    frozen_at = timestamp(frozen.get("frozen_at"), "frozen_at")
+    require(frozen.get("evaluation_task_manifest_sha256") == file_sha256(TASKS), "evaluation tasks differ from freeze")
+    require(frozen.get("calibration_task_manifest_sha256") == file_sha256(CALIBRATION_TASKS), "calibration tasks differ from freeze")
+    require(frozen.get("protocol_sha256") == file_sha256(PROTOCOL), "protocol differs from freeze")
+    lock = validate_execution_lock(execution_lock, protocol["study_id"])
+    require(frozen.get("execution_lock_sha256") == file_sha256(execution_lock), "execution lock differs from freeze")
+    require(frozen.get("source_file_sha256") == source_file_digests(), "database/oracle/risk sources differ from freeze")
+    require(frozen.get("usage_unit_mapping") == USAGE_UNIT_MAPPING, "usage-unit mapping differs from registration")
+    require(frozen.get("levels") == list(BUDGET_LEVELS), "freeze budget levels differ from registration")
+    require(
+        frozen.get("level_rule") == "max(1, floor(domain_lower_median_usage * level)) component-wise",
+        "freeze level rule differs from registration",
+    )
+    calibration_records = frozen.get("calibration_run_records")
+    require(
+        isinstance(calibration_records, list)
+        and len(calibration_records) == sampling_plan(protocol)["calibration_runs"]
+        and len({item.get("name") for item in calibration_records if isinstance(item, dict)}) == len(calibration_records)
+        and all(
+            isinstance(item, dict)
+            and isinstance(item.get("name"), str) and item["name"].endswith(".json")
+            and re.fullmatch(r"[0-9a-f]{64}", item.get("sha256", "")) is not None
+            for item in calibration_records
+        ),
+        "freeze does not bind exactly 18 unique calibration run records",
+    )
+    require(frozen.get("calibration_run_records") == record_digests(calibration_runs), "calibration runs differ from freeze")
+    calibration_doc = load(CALIBRATION_TASKS)
+    observed_calibration = validate_calibration_runs(
+        calibration_runs,
+        calibration_doc,
+        protocol,
+        file_sha256(execution_lock),
+        lock,
+    )
+    for record in observed_calibration:
         require(
-            sum(value == domain for value in reviewer_domains.values()) >= minimum_reviewers,
-            f"fewer than {minimum_reviewers} task reviewers for {domain}",
+            frozen_at > timestamp(record["finished_at"], f"{record['run_id']}.finished_at"),
+            "algorithmic freeze must be later than every calibration completion",
+        )
+    domains = frozen.get("domains")
+    require(isinstance(domains, dict) and set(domains) == DOMAINS, "freeze does not cover exactly three domains")
+    for domain, detail in domains.items():
+        require(detail.get("completed_calibration_runs") == 6, f"{domain} freeze must aggregate six traces")
+        base = detail.get("base")
+        levels = detail.get("levels")
+        require(isinstance(base, dict) and set(base) == PRIMARY_ARMS, f"{domain} base usage is incomplete")
+        require(isinstance(levels, dict) and set(levels) == {level_key(x) for x in BUDGET_LEVELS}, f"{domain} levels differ")
+        for arm in PRIMARY_ARMS:
+            validate_budget(base[arm], arm, f"{domain}.base.{arm}", allow_zero=True)
+        task_domains = {task["id"]: task["domain"] for task in load(CALIBRATION_TASKS)["tasks"]}
+        traces = [record for record in observed_calibration if task_domains[record["task_id"]] == domain]
+        expected_base = {}
+        for arm in PRIMARY_ARMS:
+            expected_base[arm] = {}
+            for unit, path_label in USAGE_UNIT_MAPPING[arm].items():
+                values = []
+                for record in traces:
+                    current: object = record
+                    for component in path_label.split("."):
+                        require(isinstance(current, dict) and component in current, f"calibration usage lacks {path_label}")
+                        current = current[component]
+                    require(isinstance(current, int) and not isinstance(current, bool) and current >= 0, f"invalid usage at {path_label}")
+                    values.append(current)
+                ordered = sorted(values)
+                expected_base[arm][unit] = ordered[(len(ordered) - 1) // 2]
+        require(base == expected_base, f"{domain} base is not the component-wise lower median of calibration traces")
+        for level in BUDGET_LEVELS:
+            cell = levels[level_key(level)]
+            require(isinstance(cell, dict) and set(cell) == PRIMARY_ARMS, f"{domain}/{level} arms differ")
+            for arm in PRIMARY_ARMS:
+                expected = {unit: max(1, math.floor(amount * level)) for unit, amount in base[arm].items()}
+                require(cell[arm] == expected, f"{domain}/{arm}/{level} is not the registered floor-and-clamp budget")
+                validate_budget(cell[arm], arm, f"{domain}.{level}.{arm}")
+    return frozen
+
+
+def _nonnegative_int_fields(value: object, fields: tuple[str, ...], label: str) -> None:
+    require(isinstance(value, dict), f"{label} must be an object")
+    require(set(value) >= set(fields), f"{label} is missing registered fields")
+    require(
+        all(isinstance(value[field], int) and not isinstance(value[field], bool) and value[field] >= 0 for field in fields),
+        f"{label} has invalid nonnegative counts",
+    )
+
+
+def _validate_admitted_responses(record: dict, label: str) -> tuple[dict[str, int], set[str], int]:
+    queries = record["queries"]
+    require(all(isinstance(entry, dict) for entry in queries), f"{label}.queries contains a non-object")
+    request_ids: set[str] = set()
+    admitted_query_ids: set[str] = set()
+    usage = {"successful_queries": 0, "returned_rows": 0, "serialized_bytes": 0}
+    rejection_count = 0
+    for index, entry in enumerate(queries):
+        query_label = f"{label}.queries[{index}]"
+        request_id = entry.get("request_id")
+        require(isinstance(request_id, str) and request_id, f"{query_label} lacks request_id")
+        require(request_id not in request_ids, f"{label} repeats a query request_id")
+        request_ids.add(request_id)
+        require(isinstance(entry.get("admitted"), bool), f"{query_label}.admitted is invalid")
+        if "budget_rejected" in entry:
+            require(isinstance(entry["budget_rejected"], bool), f"{query_label}.budget_rejected is invalid")
+        if entry.get("budget_rejected") is True:
+            require(not entry["admitted"], f"{query_label} cannot be admitted and budget-rejected")
+            rejection_count += 1
+        if not entry["admitted"]:
+            require(
+                "admitted_response_canonical" not in entry
+                and "admitted_response_sha256" not in entry
+                and "query_id" not in entry,
+                f"{query_label} exposes evidence for a response not admitted to the Agent",
+            )
+            continue
+        query_id = entry.get("query_id")
+        require(isinstance(query_id, str) and query_id, f"{query_label} lacks query_id")
+        require(query_id not in admitted_query_ids, f"{label} repeats an admitted query_id")
+        admitted_query_ids.add(query_id)
+        canonical = entry.get("admitted_response_canonical")
+        digest = entry.get("admitted_response_sha256")
+        require(isinstance(canonical, str), f"{query_label} lacks canonical admitted response")
+        payload = canonical.encode("utf-8")
+        require(hashlib.sha256(payload).hexdigest() == digest, f"{query_label} admitted response hash mismatch")
+        try:
+            visible = json.loads(canonical)
+        except json.JSONDecodeError as error:
+            raise ValueError(f"{query_label} admitted response is not JSON") from error
+        require(
+            isinstance(visible, dict) and set(visible) == {"columns", "rows", "row_count", "limited"},
+            f"{query_label} admitted response shape differs",
+        )
+        require(canonical_json_bytes(visible) == payload, f"{query_label} admitted response is not canonical JSON")
+        require(isinstance(visible["columns"], list), f"{query_label} columns are invalid")
+        require(isinstance(visible["rows"], list), f"{query_label} rows are invalid")
+        row_count = visible["row_count"]
+        require(
+            isinstance(row_count, int) and not isinstance(row_count, bool) and row_count >= 0,
+            f"{query_label} row_count is invalid",
+        )
+        require(row_count == len(visible["rows"]), f"{query_label} row_count differs from released rows")
+        require(isinstance(visible["limited"], bool), f"{query_label} limited flag is invalid")
+        require(entry.get("row_count") == row_count, f"{query_label} trace row_count differs")
+        require(entry.get("serialized_bytes") == len(payload), f"{query_label} trace byte count differs")
+        usage["successful_queries"] += 1
+        usage["returned_rows"] += row_count
+        usage["serialized_bytes"] += len(payload)
+    return usage, admitted_query_ids, rejection_count
+
+
+def _validate_fact_evidence(record: dict, task: dict, admitted_query_ids: set[str], label: str) -> None:
+    facts = record.get("fact_evidence")
+    require(isinstance(facts, list), f"{label}.fact_evidence must be a list")
+    require(
+        record.get("fact_evidence_sha256") == canonical_sha256(facts),
+        f"{label}.fact_evidence hash mismatch",
+    )
+    seen: set[tuple[str, str]] = set()
+    linked_queries: set[str] = set()
+    order: list[tuple[str, str]] = []
+    for index, fact in enumerate(facts):
+        fact_label = f"{label}.fact_evidence[{index}]"
+        require(isinstance(fact, dict), f"{fact_label} is not an object")
+        ledger_kind = fact.get("ledger_kind")
+        fact_sha = fact.get("fact_sha256")
+        require(ledger_kind in {"RELEASE", "INFLUENCE", "OUTCOME"}, f"{fact_label} ledger kind is invalid")
+        require(re.fullmatch(r"[0-9a-f]{64}", str(fact_sha)) is not None, f"{fact_label} fact hash is invalid")
+        require(isinstance(fact.get("identity"), dict), f"{fact_label} identity is invalid")
+        query_ids = fact.get("query_ids")
+        require(
+            isinstance(query_ids, list) and query_ids
+            and query_ids == sorted(set(query_ids))
+            and all(isinstance(query_id, str) and query_id in admitted_query_ids for query_id in query_ids),
+            f"{fact_label} query links are invalid",
+        )
+        key = (ledger_kind, fact_sha)
+        require(key not in seen, f"{label} repeats a Fact evidence item")
+        seen.add(key)
+        order.append(key)
+        linked_queries.update(query_ids)
+    require(order == sorted(order), f"{label}.fact_evidence is not in canonical order")
+    require(linked_queries == admitted_query_ids, f"{label}.fact_evidence does not cover exactly the admitted queries")
+    recomputed = study_risk.measure(facts, task)
+    expected_common = {field: recomputed[field] for field in COMMON_RISK_FIELDS}
+    expected_neutral = {field: recomputed[field] for field in NEUTRAL_DISCLOSURE_FIELDS}
+    require(record.get("common_v3_risk") == expected_common, f"{label}.common_v3_risk is not evidence-derived")
+    require(record.get("neutral_disclosure") == expected_neutral, f"{label}.neutral_disclosure is not evidence-derived")
+
+
+def _audit_nonnegative_map(value: object, fields: set[str], label: str) -> dict:
+    require(isinstance(value, dict) and set(value) >= fields, f"{label} is incomplete")
+    require(
+        all(isinstance(value[field], int) and not isinstance(value[field], bool) and value[field] >= 0 for field in fields),
+        f"{label} has invalid counts",
+    )
+    return value
+
+
+def _validate_gateway_budget_audit(record: dict, label: str) -> None:
+    audit = record.get("gateway_budget_audit")
+    require(isinstance(audit, dict), f"{label}.gateway_budget_audit must be an object")
+    require(
+        record.get("gateway_budget_audit_sha256") == canonical_sha256(audit),
+        f"{label}.gateway_budget_audit hash mismatch",
+    )
+    available = audit.get("available")
+    require(isinstance(available, bool), f"{label}.gateway_budget_audit availability is invalid")
+    if not available:
+        require(
+            record["status"] != "completed"
+            and record["root_task_id"].startswith("not-created-")
+            and record["queries"] == []
+            and record["fact_evidence"] == [],
+            f"{label} may omit a budget audit only when task creation failed before querying",
+        )
+        return
+    snapshot = audit.get("snapshot")
+    require(isinstance(snapshot, dict), f"{label}.gateway budget snapshot is missing")
+    require(snapshot.get("task_id") == record["root_task_id"], f"{label}.gateway audit task differs")
+    native = snapshot.get("budget")
+    require(isinstance(native, dict), f"{label}.gateway native budget is missing")
+    limits = _audit_nonnegative_map(native.get("limits"), {"queries", "rows", "db_ms"}, f"{label}.gateway limits")
+    used = _audit_nonnegative_map(native.get("used"), {"queries", "rows", "db_ms"}, f"{label}.gateway used")
+    reserved = _audit_nonnegative_map(native.get("reserved"), {"queries", "rows", "db_ms"}, f"{label}.gateway reserved")
+    require(all(used[field] <= limits[field] for field in ("queries", "rows", "db_ms")), f"{label}.gateway native budget exceeded")
+    require(
+        {field: limits[field] for field in GATEWAY_AUDIT_NATIVE_LIMITS} == GATEWAY_AUDIT_NATIVE_LIMITS,
+        f"{label}.gateway native limits differ from the registered audit ceiling",
+    )
+    require(all(reserved[field] == 0 for field in ("queries", "rows", "db_ms")), f"{label}.gateway budget retains reservations")
+    exposure = snapshot.get("exposure_budget")
+    require(isinstance(exposure, dict), f"{label}.gateway exposure audit is missing")
+    exposure_fields = {"release_facts", "influence_facts", "outcome_facts"}
+    exposure_limits = _audit_nonnegative_map(exposure.get("limits"), exposure_fields, f"{label}.exposure limits")
+    exposure_used = _audit_nonnegative_map(exposure.get("used"), exposure_fields, f"{label}.exposure used")
+    require(
+        all(exposure_used[field] <= exposure_limits[field] for field in exposure_fields),
+        f"{label}.gateway exposure budget exceeded",
+    )
+    observed_facts = record["common_v3_risk"]
+    observed_native = record["native_usage"]
+    if record["arm"] in {"taskgate_v3", "unlimited"}:
+        require(
+            all(observed_facts[field] == exposure_used[field] for field in exposure_fields),
+            f"{label}.gateway exposure usage differs from admitted Fact evidence",
+        )
+        require(
+            observed_native["successful_queries"] == used["queries"]
+            and observed_native["returned_rows"] == used["rows"],
+            f"{label}.gateway native usage differs from admitted responses",
+        )
+    else:
+        require(
+            all(observed_facts[field] <= exposure_used[field] for field in exposure_fields),
+            f"{label}.admitted Fact evidence exceeds gateway audit usage",
+        )
+        require(
+            observed_native["successful_queries"] <= used["queries"]
+            and observed_native["returned_rows"] <= used["rows"],
+            f"{label}.admitted native usage exceeds gateway audit usage",
+        )
+    if record["arm"] == "taskgate_v3":
+        expected_limits = record["budget"]
+        require(exposure_limits == expected_limits, f"{label}.TaskGate gateway limits differ from the study budget")
+    else:
+        require(
+            {field: exposure_limits[field] for field in GATEWAY_AUDIT_EXPOSURE_LIMITS}
+            == GATEWAY_AUDIT_EXPOSURE_LIMITS,
+            f"{label}.gateway exposure limits differ from the registered audit ceiling",
         )
 
 
-def validate_budgets(
-    directory: Path,
-    task_ids: set[str],
-    minimum_experts: int,
-    registered_experts: int = 6,
-    task_domains: dict[str, str] | None = None,
-) -> None:
-    coverage: dict[tuple[str, str], set[str]] = defaultdict(set)
-    seen_assignments: set[tuple[str, str, str]] = set()
-    experts: set[str] = set()
-    expert_domains: dict[str, str] = {}
-    files = json_files(directory)
-    require(files, "no independent expert budget records were supplied")
-    for path in files:
-        record = load(path)
-        require(record.get("schema_version") == 1, f"unsupported expert record {path.name}")
-        expert = record.get("expert_id", "")
-        require(expert and "replace" not in expert, f"placeholder expert id in {path.name}")
-        require(record.get("panel") == "calibration", f"wrong expert panel in {path.name}")
-        require(record.get("is_paper_author") is False, f"paper author cannot supply independent budget in {path.name}")
-        require(record.get("relevant_experience_years", -1) >= 1, f"expert experience is missing in {path.name}")
-        timestamp(record.get("training_completed_at"), f"{path.name}.training_completed_at")
-        require(record.get("display_context_sha256") == display_context_sha256(), f"display context drift in {path.name}")
-        domain = record.get("domain")
-        require(domain in DOMAINS, f"invalid expert domain in {path.name}")
-        require(expert_domains.get(expert, domain) == domain, f"expert {expert} appears in multiple domains")
-        expert_domains[expert] = domain
-        experts.add(expert)
-        for calibration in record.get("calibrations", []):
-            task_id, arm = calibration.get("task_id"), calibration.get("arm")
-            require(task_id in task_ids and arm in PRIMARY_ARMS, f"unknown or non-calibrated task/arm in {path.name}")
-            assignment = (expert, task_id, arm)
-            require(assignment not in seen_assignments, f"duplicate expert calibration in {path.name}")
-            seen_assignments.add(assignment)
-            if task_domains is not None:
-                require(task_domains[task_id] == domain, f"out-of-domain calibration in {path.name}")
-            started = timestamp(calibration.get("started_at"), f"{path.name}.started_at")
-            finished = timestamp(calibration.get("finished_at"), f"{path.name}.finished_at")
-            require(finished > started, f"non-positive calibration duration in {path.name}")
-            validate_budget(calibration.get("selected_budget"), arm, f"{path.name}.selected_budget")
-            require(1 <= calibration.get("confidence_1_to_5", 0) <= 5, f"invalid confidence in {path.name}")
-            comprehension = calibration.get("comprehension", {})
-            require(
-                isinstance(comprehension.get("correct"), int)
-                and isinstance(comprehension.get("total"), int)
-                and 0 <= comprehension["correct"] <= comprehension["total"]
-                and comprehension["total"] >= 2,
-                f"invalid comprehension result in {path.name}",
-            )
-            coverage[(task_id, arm)].add(expert)
-    require(len(experts) == registered_experts, f"expected exactly {registered_experts} independent calibration experts")
-    if task_domains is not None:
-        for domain in DOMAINS:
-            require(
-                sum(value == domain for value in expert_domains.values()) >= minimum_experts,
-                f"fewer than {minimum_experts} calibration experts for {domain}",
-            )
-    wrong = [f"{task}/{arm}" for task in sorted(task_ids) for arm in sorted(PRIMARY_ARMS) if len(coverage[(task, arm)]) != minimum_experts]
-    require(not wrong, "calibration coverage differs from registration for: " + ", ".join(wrong))
+def _validate_budget_compliance(record: dict, label: str) -> None:
+    arm = record["arm"]
+    if arm == "unlimited":
+        require(record["runtime_budget_rejections"] == 0, f"{label}.unlimited arm encountered a budget rejection")
+        return
+    for unit, path in USAGE_UNIT_MAPPING[arm].items():
+        section, field = path.split(".")
+        require(record[section][field] <= record["budget"][unit], f"{label}.{arm} exceeded its registered budget")
 
 
-def validate_approvals(
-    directory: Path,
-    task_ids: set[str],
-    minimum_experts: int,
-    calibration_directory: Path | None = None,
-    registered_experts: int = 6,
-    task_domains: dict[str, str] | None = None,
-    frozen: dict | None = None,
+def _answer_roots(task: dict) -> set[str]:
+    if "required_answer_fields" in task:
+        return set(task["required_answer_fields"])
+    return {
+        item["answer_path"].split(".")[0]
+        for item in task["rubric"]
+        if item.get("answer_path")
+    }
+
+
+def _validate_run_record(
+    record: dict,
+    path: Path,
+    task: dict,
+    protocol: dict,
+    lock_sha: str,
+    lock: dict,
+    schedule_kind: str,
 ) -> None:
-    coverage: dict[tuple[str, str], set[str]] = defaultdict(set)
-    seen_assignments: set[tuple[str, str, str]] = set()
-    experts: set[str] = set()
-    expert_domains: dict[str, str] = {}
-    calibration_experts: set[str] = set()
-    if calibration_directory is not None:
-        calibration_experts = {load(path).get("expert_id", "") for path in json_files(calibration_directory)}
-    files = json_files(directory)
-    require(files, "no independent approval-review records were supplied")
-    for path in files:
+    label = path.name
+    require(record.get("schema_version") == 3, f"unsupported run record {label}")
+    require(record.get("study_id") == protocol["study_id"], f"study identity mismatch in {label}")
+    require(record.get("task_id") == task["id"] and record.get("domain") == task["domain"], f"task/domain mismatch in {label}")
+    require(record.get("arm") in ARMS, f"unknown arm in {label}")
+    require(isinstance(record.get("replicate"), int) and not isinstance(record["replicate"], bool), f"invalid replicate in {label}")
+    require(record["replicate"] >= 0, f"negative replicate in {label}")
+    level = record.get("budget_level")
+    require(
+        isinstance(level, (int, float)) and not isinstance(level, bool) and math.isfinite(float(level)),
+        f"invalid budget level in {label}",
+    )
+    require("seed" not in record and "budget_multiplier" not in record, f"legacy seed/multiplier fields in {label}")
+    require(record.get("database_snapshot") == "workflow-study-2026-v1", f"wrong database snapshot in {label}")
+    require(record.get("status") in {"completed", "budget_exhausted", "tool_error", "agent_error"}, f"invalid status in {label}")
+    started = timestamp(record.get("started_at"), f"{label}.started_at")
+    finished = timestamp(record.get("finished_at"), f"{label}.finished_at")
+    require(finished > started, f"invalid run duration in {label}")
+    if schedule_kind == "calibration":
+        require(
+            started > timestamp(lock.get("locked_at"), "execution lock locked_at"),
+            f"calibration run predates its execution lock in {label}",
+        )
+    require(record.get("execution_lock_sha256") == lock_sha, f"execution lock differs in {label}")
+    expected_model = {
+        "provider": lock["provider"],
+        "model": lock["model"],
+        "version": lock["model_version"],
+        "temperature": lock["temperature"],
+        "top_p": lock["top_p"],
+        "max_tokens": lock["max_tokens"],
+        "api_base_url": lock["api_base_url"],
+    }
+    require(record.get("model") == expected_model, f"model configuration differs from execution lock in {label}")
+    provider_models = record.get("provider_response_models")
+    require(
+        isinstance(provider_models, list)
+        and all(isinstance(model, str) for model in provider_models)
+        and provider_models == sorted(set(provider_models))
+        and all(model == lock["model"] for model in provider_models),
+        f"provider response model differs from execution lock in {label}",
+    )
+    require(record.get("budget_rejection_envelope") == "taskgate-study-budget-rejection-v1", f"rejection envelope differs in {label}")
+    for field in ("run_id", "root_task_id", "database_instance_id", "cache_namespace"):
+        require(isinstance(record.get(field), str) and record[field] and "replace" not in record[field], f"invalid {field} in {label}")
+    expected_run_id = registered_run_id(
+        protocol["study_id"], schedule_kind, task["id"], record["arm"], record["replicate"], float(level),
+    )
+    require(record["run_id"] == expected_run_id, f"run identity is not the registered schedule cell in {label}")
+    require(record["cache_namespace"] == expected_run_id, f"cache namespace differs from registered run identity in {label}")
+    require(isinstance(record.get("queries"), list), f"queries are missing in {label}")
+    require(isinstance(record.get("final_answer"), dict), f"final answer is missing in {label}")
+    require(isinstance(record.get("final_answer_text"), str), f"final answer narrative is invalid in {label}")
+    if record["status"] == "completed":
+        require(
+            set(record["final_answer"]) == _answer_roots(task),
+            f"completed final answer violates the locked field contract in {label}",
+        )
+        require("failure" not in record, f"completed record contains failure metadata in {label}")
+    else:
+        require(record["final_answer"] == {}, f"failed run must have an empty structured answer in {label}")
+        if record["status"] in {"tool_error", "agent_error"}:
+            failure = record.get("failure")
+            require(
+                isinstance(failure, dict) and isinstance(failure.get("category"), str) and failure["category"],
+                f"terminal adapter failure lacks a category in {label}",
+            )
+    _nonnegative_int_fields(record.get("common_v3_risk"), COMMON_RISK_FIELDS, f"{label}.common_v3_risk")
+    _nonnegative_int_fields(record.get("neutral_disclosure"), NEUTRAL_DISCLOSURE_FIELDS, f"{label}.neutral_disclosure")
+    _nonnegative_int_fields(record.get("native_usage"), NATIVE_USAGE_FIELDS, f"{label}.native_usage")
+    _nonnegative_int_fields(record.get("performance"), PERFORMANCE_FIELDS, f"{label}.performance")
+    require(
+        isinstance(record.get("runtime_budget_rejections"), int)
+        and not isinstance(record["runtime_budget_rejections"], bool)
+        and record["runtime_budget_rejections"] >= 0,
+        f"invalid runtime rejection count in {label}",
+    )
+    recomputed_usage, admitted_query_ids, recomputed_rejections = _validate_admitted_responses(record, label)
+    require(record["native_usage"] == recomputed_usage, f"{label}.native_usage is not response-derived")
+    require(
+        record["runtime_budget_rejections"] == recomputed_rejections,
+        f"{label}.runtime rejection count is not trace-derived",
+    )
+    _validate_fact_evidence(record, task, admitted_query_ids, label)
+    _validate_gateway_budget_audit(record, label)
+    _validate_budget_compliance(record, label)
+    if record["status"] == "completed":
+        require(provider_models == [lock["model"]], f"completed run lacks a locked provider response model in {label}")
+
+
+def _require_fresh(records: list[tuple[Path, dict]]) -> None:
+    for field in ("run_id", "root_task_id", "database_instance_id", "cache_namespace"):
+        values = [record[field] for _, record in records]
+        require(len(values) == len(set(values)), f"run collection reuses {field}")
+
+
+def _complete_calibration_answer_value(value: object) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value)
+    # Zero, false, and empty collections can be legitimate aggregate or empty-result answers.
+    return True
+
+
+def validate_calibration_runs(
+    directory: Path,
+    calibration_doc: dict,
+    protocol: dict,
+    execution_lock_sha256: str,
+    execution_lock: dict,
+) -> list[dict]:
+    plan = sampling_plan(protocol)
+    tasks = {task["id"]: task for task in calibration_doc["tasks"]}
+    expected = {(task_id, replicate) for task_id in tasks for replicate in range(plan["calibration_replicates"])}
+    observed: set[tuple[str, int]] = set()
+    records: list[tuple[Path, dict]] = []
+    for path in json_files(directory):
         record = load(path)
-        require(record.get("schema_version") == 1, f"unsupported approval record {path.name}")
-        expert = record.get("expert_id", "")
-        require(expert and "replace" not in expert, f"placeholder approval expert id in {path.name}")
-        require(expert not in calibration_experts, f"expert panels overlap at {expert}")
-        require(record.get("panel") == "budget_usability", f"wrong budget-usability panel in {path.name}")
-        require(record.get("is_paper_author") is False, f"paper author cannot supply approval evidence in {path.name}")
-        require(record.get("relevant_experience_years", -1) >= 1, f"approval expert experience is missing in {path.name}")
-        timestamp(record.get("training_completed_at"), f"{path.name}.training_completed_at")
-        require(record.get("display_context_sha256") == display_context_sha256(), f"display context drift in {path.name}")
-        domain = record.get("domain")
-        require(domain in DOMAINS, f"invalid approval domain in {path.name}")
-        require(expert_domains.get(expert, domain) == domain, f"approval expert {expert} appears in multiple domains")
-        expert_domains[expert] = domain
-        experts.add(expert)
-        for decision in record.get("decisions", []):
-            task_id, arm = decision.get("task_id"), decision.get("arm")
-            require(task_id in task_ids and arm in PRIMARY_ARMS, f"unknown or non-reviewed task/arm in {path.name}")
-            assignment = (expert, task_id, arm)
-            require(assignment not in seen_assignments, f"duplicate expert usability decision in {path.name}")
-            seen_assignments.add(assignment)
-            if task_domains is not None:
-                require(task_domains[task_id] == domain, f"out-of-domain approval in {path.name}")
-            rendered = timestamp(decision.get("rendered_at"), f"{path.name}.rendered_at")
-            decided = timestamp(decision.get("decided_at"), f"{path.name}.decided_at")
-            require(decided > rendered, f"non-positive approval duration in {path.name}")
-            require(decision.get("decision") in {"approve", "reject", "narrow"}, f"invalid decision in {path.name}")
-            validate_budget(decision.get("requested_budget"), arm, f"{path.name}.requested_budget")
-            if frozen is not None:
-                require(
-                    decision["requested_budget"] == frozen["budgets"][task_id][arm],
-                    f"usability panel did not review the frozen request in {path.name}",
-                )
-            if decision.get("decision") != "reject":
-                validate_budget(decision.get("approved_budget"), arm, f"{path.name}.approved_budget")
-                require(
-                    all(decision["approved_budget"][unit] <= amount for unit, amount in decision["requested_budget"].items()),
-                    f"approved budget widens the request in {path.name}",
-                )
-                if decision.get("decision") == "approve":
-                    require(decision["approved_budget"] == decision["requested_budget"], f"approve changes the budget in {path.name}")
-                else:
-                    require(decision["approved_budget"] != decision["requested_budget"], f"narrow leaves the budget unchanged in {path.name}")
-            else:
-                require(decision.get("approved_budget") in (None, {}), f"rejected request has an approved budget in {path.name}")
-            require(1 <= decision.get("confidence_1_to_5", 0) <= 5, f"invalid approval confidence in {path.name}")
-            require(
-                isinstance(decision.get("budget_edit_count"), int)
-                and not isinstance(decision.get("budget_edit_count"), bool)
-                and decision["budget_edit_count"] >= 0,
-                f"invalid budget edit count in {path.name}",
-            )
-            comprehension = decision.get("comprehension", {})
-            require(
-                isinstance(comprehension.get("correct"), int)
-                and isinstance(comprehension.get("total"), int)
-                and 0 <= comprehension["correct"] <= comprehension["total"]
-                and comprehension["total"] >= 2,
-                f"invalid comprehension result in {path.name}",
-            )
-            coverage[(task_id, arm)].add(expert)
-    require(len(experts) == registered_experts, f"expected exactly {registered_experts} independent usability experts")
-    if task_domains is not None:
-        for domain in DOMAINS:
-            require(
-                sum(value == domain for value in expert_domains.values()) >= minimum_experts,
-                f"fewer than {minimum_experts} approval experts for {domain}",
-            )
-    wrong = [f"{task}/{arm}" for task in sorted(task_ids) for arm in sorted(PRIMARY_ARMS) if len(coverage[(task, arm)]) != minimum_experts]
-    require(not wrong, "usability coverage differs from registration for: " + ", ".join(wrong))
+        task_id = record.get("task_id")
+        require(task_id in tasks, f"unknown calibration task in {path.name}")
+        _validate_run_record(
+            record, path, tasks[task_id], protocol, execution_lock_sha256, execution_lock, "calibration",
+        )
+        require(record.get("arm") == "unlimited", f"calibration must be unlimited in {path.name}")
+        require(record.get("phase") == "algorithmic_calibration", f"wrong calibration phase in {path.name}")
+        require(record.get("budget_level") == 0, f"calibration budget level must be zero in {path.name}")
+        require(record.get("budget") == {}, f"calibration must have no study ceiling in {path.name}")
+        require(record.get("algorithmic_budget_freeze_sha256") == ZERO_SHA256, f"calibration cannot consume a freeze in {path.name}")
+        require(record.get("status") == "completed", f"calibration trace is not completed in {path.name}")
+        require(
+            record["native_usage"]["successful_queries"] >= 1,
+            f"calibration trace has no admitted query in {path.name}",
+        )
+        require(
+            all(_complete_calibration_answer_value(record["final_answer"][field]) for field in tasks[task_id]["required_answer_fields"]),
+            f"calibration trace has an incomplete answer in {path.name}",
+        )
+        cell = (task_id, record["replicate"])
+        require(cell not in observed, f"duplicate calibration cell in {path.name}")
+        observed.add(cell)
+        records.append((path, record))
+    require(observed == expected, f"calibration coverage differs: {len(expected - observed)} missing, {len(observed - expected)} extra")
+    _require_fresh(records)
+    return [record for _, record in records]
 
 
 def validate_runs(
     directory: Path,
-    task_ids: set[str],
-    sampling: dict,
-    frozen: dict | None = None,
-    execution_lock_sha256: str | None = None,
-) -> None:
-    observed: set[tuple[str, str, int, str, float]] = set()
-    run_ids: set[str] = set()
-    root_tasks: set[str] = set()
-    database_instances: set[str] = set()
-    cache_namespaces: set[str] = set()
-    files = json_files(directory)
-    require(files, "no agent run records were supplied")
-    for path in files:
-        record = load(path)
-        require(record.get("schema_version") == 2, f"unsupported run record {path.name}")
-        run_id = record.get("run_id", "")
-        require(run_id and "replace" not in run_id and run_id not in run_ids, f"invalid or duplicate run id in {path.name}")
-        run_ids.add(run_id)
-        task_id, arm, seed = record.get("task_id"), record.get("arm"), record.get("seed")
-        require(task_id in task_ids and arm in ARMS, f"unknown task/arm in {path.name}")
-        require(isinstance(seed, int) and not isinstance(seed, bool) and seed >= 0, f"invalid registered seed in {path.name}")
-        phase = record.get("phase")
-        multiplier = record.get("budget_multiplier")
-        require(phase in {"primary", "unlimited_upper_bound", "pareto_sweep"}, f"invalid phase in {path.name}")
-        require(
-            isinstance(multiplier, (int, float)) and not isinstance(multiplier, bool) and float(multiplier) > 0,
-            f"invalid budget multiplier in {path.name}",
-        )
-        key = (task_id, arm, seed, phase, float(multiplier))
-        require(key not in observed, f"duplicate registered run cell in {path.name}")
-        observed.add(key)
-        require(record.get("database_snapshot") == "workflow-study-2026-v1", f"wrong snapshot in {path.name}")
-        require(
-            record.get("status") in {"completed", "budget_exhausted", "tool_error", "agent_error"},
-            f"invalid status in {path.name}",
-        )
-        require(timestamp(record.get("finished_at"), f"{path.name}.finished_at") > timestamp(record.get("started_at"), f"{path.name}.started_at"), f"invalid run time in {path.name}")
-        validate_budget(record.get("budget"), arm, f"{path.name}.budget")
-        require(re.fullmatch(r"[0-9a-f]{64}", record.get("budget_freeze_sha256", "")) is not None, f"invalid budget freeze digest in {path.name}")
-        require(re.fullmatch(r"[0-9a-f]{64}", record.get("execution_lock_sha256", "")) is not None, f"invalid execution lock digest in {path.name}")
-        if frozen is not None:
-            require(
-                record.get("budget_freeze_sha256") == frozen.get("freeze_sha256"),
-                f"run uses a different budget freeze in {path.name}",
-            )
-            if arm == "unlimited":
-                expected_budget = {}
-            else:
-                base = frozen["budgets"][task_id][arm]
-                expected_budget = {
-                    unit: math.floor(amount * float(multiplier))
-                    for unit, amount in base.items()
-                }
-                if arm == "taskgate_v3":
-                    expected_budget = {unit: max(1, amount) for unit, amount in expected_budget.items()}
-            require(record.get("budget") == expected_budget, f"run budget differs from frozen cell in {path.name}")
-        if execution_lock_sha256 is not None:
-            require(
-                record.get("execution_lock_sha256") == execution_lock_sha256,
-                f"run uses a different execution lock in {path.name}",
-            )
-        for field, values in (
-            ("root_task_id", root_tasks),
-            ("database_instance_id", database_instances),
-            ("cache_namespace", cache_namespaces),
-        ):
-            value = record.get(field, "")
-            require(value and "replace" not in value and value not in values, f"non-fresh {field} in {path.name}")
-            values.add(value)
-        require(
-            record.get("budget_rejection_envelope") == "taskgate-study-budget-rejection-v1",
-            f"nonuniform budget rejection envelope in {path.name}",
-        )
-        require(isinstance(record.get("queries"), list), f"queries are missing in {path.name}")
-        require(isinstance(record.get("final_answer"), dict), f"final answer is missing in {path.name}")
-        risk = record.get("common_v3_risk", {})
-        require(
-            all(
-                isinstance(risk.get(metric), int) and not isinstance(risk.get(metric), bool) and risk[metric] >= 0
-                for metric in (
-                    "release_facts", "influence_facts", "outcome_facts", "sensitivity_weighted_exposure",
-                    "distinct_sensitive_records", "distinct_sensitive_fields", "unnecessary_sensitive_fields",
-                )
-            ),
-            f"invalid common risk in {path.name}",
-        )
-        native = record.get("native_usage", {})
-        require(
-            all(
-                isinstance(native.get(key), int) and not isinstance(native.get(key), bool) and native[key] >= 0
-                for key in ("successful_queries", "returned_rows", "serialized_bytes")
-            ),
-            f"invalid native usage in {path.name}",
-        )
-        require(
-            isinstance(record.get("runtime_budget_rejections"), int)
-            and not isinstance(record.get("runtime_budget_rejections"), bool)
-            and record["runtime_budget_rejections"] >= 0,
-            f"invalid runtime rejection count in {path.name}",
-        )
-        performance = record.get("performance", {})
-        require(
-            all(
-                isinstance(performance.get(metric), int)
-                and not isinstance(performance.get(metric), bool)
-                and performance[metric] >= 0
-                for metric in (
-                    "wall_clock_ms", "gateway_latency_ms", "accounting_latency_ms", "exposure_storage_bytes",
-                )
-            ),
-            f"invalid performance metrics in {path.name}",
-        )
-
+    tasks_doc: dict,
+    protocol: dict,
+    frozen: dict,
+    execution_lock_sha256: str,
+    execution_lock: dict,
+) -> list[dict]:
+    plan = sampling_plan(protocol)
+    frozen_at = timestamp(frozen.get("frozen_at"), "frozen_at")
+    tasks = {task["id"]: task for task in tasks_doc["tasks"]}
     expected = {
-        (task, arm, seed, "primary", 1.0)
-        for task in task_ids
+        (task_id, arm, replicate, "budget_level", level)
+        for task_id in tasks
         for arm in PRIMARY_ARMS
-        for seed in range(sampling["agent_seeds_per_primary_arm"])
+        for level in BUDGET_LEVELS
+        for replicate in range(plan["evaluation_replicates_per_level"])
     }
     expected.update(
-        (task, "unlimited", seed, "unlimited_upper_bound", 1.0)
-        for task in task_ids
-        for seed in range(sampling["agent_seeds_unlimited"])
+        (task_id, "unlimited", replicate, "unbudgeted_reference", 0.0)
+        for task_id in tasks
+        for replicate in range(plan["unlimited_replicates"])
     )
-    expected.update(
-        (task, arm, seed, "pareto_sweep", float(multiplier))
-        for task in task_ids
-        for arm in PRIMARY_ARMS
-        for seed in sampling["pareto_sweep_seeds"]
-        for multiplier in sampling["pareto_budget_multipliers"]
-    )
-    missing = sorted(expected - observed)
-    extra = sorted(observed - expected)
-    require(not missing, f"incomplete registered run coverage: {len(missing)} cells missing")
-    require(not extra, f"unregistered run cells supplied: {len(extra)}")
-
-
-def validate_gradings(
-    directory: Path,
-    runs_directory: Path,
-    tasks_doc: dict,
-    minimum_graders: int,
-    registered_graders: int,
-    calibration_directory: Path | None = None,
-    approval_directory: Path | None = None,
-) -> None:
-    tasks = {task["id"]: task for task in tasks_doc["tasks"]}
-    runs = {}
-    for path in json_files(runs_directory):
-        run = load(path)
-        runs[run["run_id"]] = run
-    covered: dict[str, set[str]] = defaultdict(set)
-    graders: set[str] = set()
-    grader_domains: dict[str, str] = {}
-    excluded: set[str] = set()
-    for panel_directory in (calibration_directory, approval_directory):
-        if panel_directory is not None:
-            excluded.update(load(path).get("expert_id", "") for path in json_files(panel_directory))
+    observed: set[tuple[str, str, int, str, float]] = set()
+    records: list[tuple[Path, dict]] = []
     for path in json_files(directory):
         record = load(path)
-        require(record.get("schema_version") == 1, f"unsupported grading record {path.name}")
-        run_id = record.get("run_id", "")
-        require(run_id in runs, f"unknown graded run in {path.name}")
-        grader = record.get("grader_id", "")
-        require(grader and "replace" not in grader, f"placeholder grader id in {path.name}")
-        require(grader not in excluded, f"grader panel overlaps another expert panel at {grader}")
-        require(record.get("panel") == "blind_grading", f"wrong grading panel in {path.name}")
-        require(record.get("is_paper_author") is False, f"paper author cannot grade runs in {path.name}")
-        require(record.get("relevant_experience_years", -1) >= 1, f"grader experience is missing in {path.name}")
-        require(record.get("arm_blinded") is True, f"grader was not arm-blinded in {path.name}")
-        domain = record.get("domain")
-        run = runs[run_id]
-        require(run.get("status") == "completed", f"non-completed run must not receive a blind grade in {path.name}")
-        require(domain == tasks[run["task_id"]]["domain"], f"out-of-domain grading in {path.name}")
-        require(grader_domains.get(grader, domain) == domain, f"grader {grader} appears in multiple domains")
-        grader_domains[grader] = domain
-        require(grader not in covered[run_id], f"duplicate grader/run pair in {path.name}")
-        manual_items = {
-            item["id"]
-            for item in tasks[run["task_id"]]["rubric"]
-            if item["method"] in {"blind_expert", "trace_guardrail"}
-        }
-        scores = record.get("scores")
-        require(isinstance(scores, dict) and set(scores) == manual_items, f"manual rubric coverage differs in {path.name}")
-        require(
-            all(
-                isinstance(value, (int, float)) and not isinstance(value, bool) and 0 <= float(value) <= 1
-                for value in scores.values()
-            ),
-            f"invalid manual score in {path.name}",
+        task_id = record.get("task_id")
+        require(task_id in tasks, f"unknown evaluation task in {path.name}")
+        _validate_run_record(
+            record, path, tasks[task_id], protocol, execution_lock_sha256, execution_lock, "evaluation",
         )
-        for count_field in ("unsupported_claim_count", "factual_error_count"):
-            count = record.get(count_field)
-            require(
-                isinstance(count, int) and not isinstance(count, bool) and count >= 0,
-                f"invalid {count_field} in {path.name}",
-            )
-        covered[run_id].add(grader)
-        graders.add(grader)
-    require(len(graders) == registered_graders, f"expected exactly {registered_graders} independent blind graders")
-    for domain in DOMAINS:
         require(
-            sum(value == domain for value in grader_domains.values()) >= minimum_graders,
-            f"fewer than {minimum_graders} blind graders for {domain}",
+            timestamp(record["started_at"], f"{path.name}.started_at") > frozen_at,
+            f"evaluation run does not postdate the algorithmic freeze in {path.name}",
         )
-    missing = [
-        run_id
-        for run_id, run in sorted(runs.items())
-        if run.get("status") == "completed" and len(covered[run_id]) != minimum_graders
-    ]
-    require(not missing, "completed runs do not have exactly the registered blind grades: " + ", ".join(missing))
+        arm = record["arm"]
+        level = float(record.get("budget_level", -1))
+        phase = record.get("phase")
+        if arm == "unlimited":
+            require(phase == "unbudgeted_reference" and level == 0 and record.get("budget") == {}, f"invalid unlimited cell in {path.name}")
+        else:
+            require(phase == "budget_level" and level in BUDGET_LEVELS, f"invalid budgeted cell in {path.name}")
+            expected_budget = frozen["domains"][tasks[task_id]["domain"]]["levels"][level_key(level)][arm]
+            require(record.get("budget") == expected_budget, f"run budget differs from frozen domain level in {path.name}")
+            validate_budget(record["budget"], arm, f"{path.name}.budget")
+        require(record.get("algorithmic_budget_freeze_sha256") == frozen["freeze_sha256"], f"freeze differs in {path.name}")
+        cell = (task_id, arm, record["replicate"], phase, level)
+        require(cell not in observed, f"duplicate evaluation cell in {path.name}")
+        observed.add(cell)
+        records.append((path, record))
+    require(observed == expected, f"evaluation coverage differs: {len(expected - observed)} missing, {len(observed - expected)} extra")
+    require(len(observed) == plan["planned_evaluation_runs"], "evaluation run count differs from registration")
+    _require_fresh(records)
+    return [record for _, record in records]
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--truth", type=Path)
-    parser.add_argument("--task-reviews", type=Path)
-    parser.add_argument("--budgets", type=Path)
+    parser.add_argument("--calibration-runs", type=Path)
     parser.add_argument("--freeze", type=Path)
     parser.add_argument("--execution-lock", type=Path)
-    parser.add_argument("--approvals", type=Path)
     parser.add_argument("--runs", type=Path)
-    parser.add_argument("--gradings", type=Path)
     args = parser.parse_args()
     try:
-        tasks_doc, protocol = validate_design()
-        task_ids = {task["id"] for task in tasks_doc["tasks"]}
-        task_domains = {task["id"]: task["domain"] for task in tasks_doc["tasks"]}
-        sampling = protocol["sampling"]
+        tasks_doc, calibration_doc, protocol = validate_design()
         if args.truth:
-            validate_truth(args.truth, task_ids, tasks_doc)
-        if args.task_reviews:
-            validate_task_reviews(args.task_reviews, tasks_doc)
-        if args.budgets:
-            validate_budgets(
-                args.budgets,
-                task_ids,
-                sampling["minimum_experts_per_task"],
-                sampling["budget_calibration_experts"],
-                task_domains,
-            )
-        frozen = None
+            validate_truth(args.truth, {task["id"] for task in tasks_doc["tasks"]}, tasks_doc)
         lock_sha = None
-        if args.freeze or args.execution_lock:
-            require(args.freeze is not None and args.execution_lock is not None, "--freeze and --execution-lock must be supplied together")
-            frozen = validate_frozen(args.freeze, protocol, args.execution_lock, args.task_reviews, args.budgets)
+        lock = None
+        if args.execution_lock:
+            lock = validate_execution_lock(args.execution_lock, protocol["study_id"])
             lock_sha = file_sha256(args.execution_lock)
-        if args.approvals:
-            require(frozen is not None, "budget-usability validation requires the frozen requests")
-            validate_approvals(
-                args.approvals,
-                task_ids,
-                sampling["minimum_experts_per_task"],
-                args.budgets,
-                sampling["budget_usability_experts"],
-                task_domains,
-                frozen,
-            )
+        if args.calibration_runs:
+            require(lock_sha is not None and lock is not None, "--calibration-runs requires --execution-lock")
+            validate_calibration_runs(args.calibration_runs, calibration_doc, protocol, lock_sha, lock)
+        frozen = None
+        if args.freeze:
+            require(args.execution_lock is not None and args.calibration_runs is not None, "--freeze requires --execution-lock and --calibration-runs")
+            frozen = validate_algorithmic_freeze(args.freeze, protocol, args.execution_lock, args.calibration_runs)
         if args.runs:
-            require(frozen is not None, "formal run validation requires --freeze and --execution-lock")
-            validate_runs(args.runs, task_ids, sampling, frozen, lock_sha)
-        if args.gradings:
-            require(args.runs is not None, "--gradings requires --runs")
-            validate_gradings(
-                args.gradings,
-                args.runs,
-                tasks_doc,
-                sampling["minimum_blind_graders_per_completed_run"],
-                sampling["blind_grading_experts"],
-                args.budgets,
-                args.approvals,
-            )
+            require(frozen is not None and lock_sha is not None and lock is not None, "--runs requires --freeze and --execution-lock")
+            validate_runs(args.runs, tasks_doc, protocol, frozen, lock_sha, lock)
     except ValueError as error:
         raise SystemExit(f"workflow-study validation failed: {error}") from error
+    plan = sampling_plan(protocol)
     print(
-        f"ok - workflow-study design: {len(tasks_doc['tasks'])} tasks, "
-        f"{len(protocol['arms'])} arms, {protocol['sampling']['planned_agent_runs']} planned runs"
+        "ok - controlled workflow benchmark: "
+        f"{plan['calibration_tasks']} calibration tasks/{plan['calibration_runs']} traces, "
+        f"{plan['evaluation_tasks']} evaluation tasks/{plan['planned_evaluation_runs']} runs"
     )
 
 

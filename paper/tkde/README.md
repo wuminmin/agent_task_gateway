@@ -39,9 +39,23 @@ summary and safety properties. A local TeX syntax build is available through
 `paper/tkde/build.sh`, but it still uses Docker for the exposure evaluation.
 
 The manuscript also identifies `evaluation/workflow-study` as a designed but
-uncollected follow-on protocol. Its expert panels, 444 isolated Agent runs,
-DeepSeek adapter, baseline controllers, and paired/Pareto analysis are not
-consumed as RQ5 results and must not be described as collected evidence.
+uncollected, participant-free controlled Agent benchmark. It registers 18
+unbudgeted workflows on six business-motivated synthetic calibration task
+specifications held out only by task identifier, objective, and scoring role on
+the exact frozen snapshot used for evaluation, freezes
+per-domain algorithmic budgets, and then schedules 576 budgeted plus 60
+unbudgeted-reference evaluation workflows on twelve separate synthetic task
+specifications. Its DeepSeek adapter, baseline controllers, deterministic
+answer/trace scoring, and answer-score--exposure
+frontier analysis are not consumed as RQ5 results and must not be described as
+collected evidence. Even after collection, they cannot support claims about
+human budget comprehension, approval usability, empirical task
+representativeness, organizational adoption, or production utility. The lock
+records a hosted model alias, provider release label, sampling/tool limits, and
+campaign identity; it cannot freeze provider-side weights behind that alias.
+Without an external append-only anchor, retained artifact hashes also cannot
+prove that no calibration output was deleted or replaced before budget
+freezing.
 
 The draft reports controlled single-host evidence, including a TPC-H-derived
 (not official TPC-H) workload up to 225,000 joined members and 1,035,000
@@ -65,5 +79,5 @@ threshold. Therefore the corresponding author must still confirm the selected
 TKDE manuscript category, initial-submission limit, treatment of supplementary
 material, and current charge acknowledgement in ScholarOne/Author Portal
 immediately before submission. Do not infer acceptability from a successful
-local PDF build alone. The current pinned-template build is 12 main-paper pages
+local PDF build alone. The current pinned-template build is 13 main-paper pages
 plus a separate 3-page supplement.

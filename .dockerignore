@@ -10,6 +10,7 @@ tmp
 *.db-shm
 *.db-wal
 evaluation/raw
+evaluation/workflow-study/raw
 evaluation/fuzz/results
 evaluation/security/raw
 evaluation/security/results*.json

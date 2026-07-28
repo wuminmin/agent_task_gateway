@@ -1,23 +1,44 @@
 {
-  "schema_version": 2,
-  "study_id": "taskgate-workflow-study-v1",
+  "schema_version": 3,
+  "study_id": "taskgate-controlled-workflow-benchmark-v1",
   "status": "designed_not_collected",
-  "decision": "Test whether TaskGate improves agent answer quality at a common exposure risk, independently from whether experts can understand and configure its budget units.",
+  "benchmark_type": "controlled_multi_domain_agent_workflow_benchmark",
+  "decision": "Test whether dependency-aware accounting improves automatically scored final-answer correctness at a given measured exposure on business-motivated synthetic Agent workflows, relative to query-, row-, and byte-count controls.",
+  "claim_boundary": {
+    "supported_if_collected": [
+      "answer-score--exposure trade-offs for the registered synthetic tasks, model alias, prompt, tools, and database snapshot",
+      "comparative behavior of TaskGate V3 and volume-based controls under the registered budget grid",
+      "reproducible behavior on threshold, empty-result, aggregate, temporal-window, join, and drill-down workflows"
+    ],
+    "not_supported": [
+      "human understanding or calibration of Fact budgets",
+      "approval usability, decision time, or organizational adoption",
+      "utility in a production organization",
+      "historical-ticket provenance, empirical task representativeness, or population-level business generality"
+    ],
+    "terminology": "Cases are deterministic, business-motivated synthetic tasks, not empirically representative or real organizational requests; no LLM is represented as a human expert."
+  },
   "domains": ["finance", "risk_compliance", "customer_operations"],
-  "experiments": {
-    "agent_utility": {
-      "id": "experiment-a-agent-utility",
-      "causal_question": "At budgets frozen before any agent run, how do policies affect task quality, completion, and exposure?",
-      "inputs": "component-wise lower medians from the calibration panel, frozen with a SHA-256 artifact",
-      "independence": "approval-usability decisions never suppress, relabel, or zero-score an agent run",
-      "primary_metric": "rubric_score_0_100_at_frozen_expert_budget"
+  "phases": {
+    "calibration": {
+      "id": "held_out_algorithmic_budget_calibration",
+      "purpose": "Estimate each domain and accounting unit's unbudgeted complete-envelope workflow usage before any evaluation task is run.",
+      "tasks": 6,
+      "tasks_per_domain": 2,
+      "arm": "unlimited",
+      "replicates_per_task": 3,
+      "runs": 18,
+      "separation": "Calibration task specifications, Agent outputs, and usage observations are excluded from every evaluation score and inferential comparison."
     },
-    "expert_budget_usability": {
-      "id": "experiment-b-expert-budget-usability",
-      "causal_question": "Can independent practitioners understand, set, approve, reject, or narrow each budget representation?",
-      "inputs": "task objective, catalog, sensitivity labels, risk preference, and unit cards only",
-      "hidden": "agent queries, agent outputs, hidden truth, other experts' choices, and experiment-A outcomes",
-      "separate_outcome": "approve/reject/narrow is analyzed only as expert usability and is not an execution gate in experiment A"
+    "evaluation": {
+      "id": "controlled_agent_answer_score_exposure_benchmark",
+      "causal_question": "Across the registered budget grid, how does accounting policy affect automatically scored final-answer correctness and actual exposure?",
+      "tasks": 12,
+      "tasks_per_domain": 4,
+      "budgeted_runs": 576,
+      "unlimited_runs": 60,
+      "runs": 636,
+      "separation": "Evaluation outcomes never influence the algorithmic budget base or multipliers; evaluation rubrics, risk weights, and the answer oracle are frozen before evaluation runs."
     }
   },
   "arms": [
@@ -47,118 +68,171 @@
     },
     {
       "id": "unlimited",
-      "role": "diagnostic_upper_bound",
-      "enforcement": "no study exposure ceiling; ordinary safety, scope, timeout, and authorization controls remain active",
+      "role": "calibration_and_unbudgeted_reference",
+      "enforcement": "no calibrated benchmark ceiling; ordinary safety, scope, timeout, authorization, and non-experimental operational sanity controls remain active",
       "common_risk_audit": "post_hoc_v3"
     }
   ],
   "sampling": {
     "domains": 3,
-    "tasks_per_domain": 4,
-    "tasks": 12,
-    "budget_calibration_experts": 9,
-    "budget_usability_experts": 9,
-    "blind_grading_experts": 6,
-    "minimum_experts_per_task": 3,
-    "minimum_blind_graders_per_completed_run": 2,
-    "agent_seeds_per_primary_arm": 5,
-    "agent_seeds_unlimited": 5,
-    "primary_agent_runs": 240,
-    "unlimited_diagnostic_runs": 60,
-    "pareto_budget_multipliers": [0.5, 0.75, 1.25],
-    "pareto_sweep_seeds": [0],
-    "pareto_sensitivity_runs": 144,
-    "planned_agent_runs": 444,
-    "seed_semantics": "0--4 are paired replicate labels supplied in the task context; the DeepSeek API exposes no deterministic sampling-seed parameter",
-    "assignment": "within-task paired primary arms; five-arm order uses a task-randomized cyclic Latin square; every run receives a fresh database, root task, cache namespace, and conversation"
+    "calibration_tasks_per_domain": 2,
+    "calibration_tasks": 6,
+    "calibration_replicates": 3,
+    "calibration_runs": 18,
+    "evaluation_tasks_per_domain": 4,
+    "evaluation_tasks": 12,
+    "primary_arms": 4,
+    "budget_levels": [0.25, 0.5, 0.75, 1.0],
+    "evaluation_replicates_per_level": 3,
+    "budgeted_evaluation_runs": 576,
+    "unlimited_replicates": 5,
+    "unlimited_runs": 60,
+    "planned_evaluation_runs": 636,
+    "total_agent_runs": 654,
+    "seed_semantics": "Replicate labels identify independent fresh stochastic conversations and generate a deterministic execution order; the DeepSeek API exposes no deterministic sampling-seed parameter, so equal labels across policies do not create shared randomness.",
+    "assignment": "Within each task, policy, budget level, and replicate form a registered cell; execution order is deterministic-hash randomized, and every workflow receives a fresh database, root task, cache namespace, and conversation. Replicates are first averaged within task-policy-level before task-level policy contrasts."
   },
   "task_provenance": {
-    "accepted_sources": ["deidentified historical request", "practitioner-authored representative case"],
-    "current_source": "deterministic representative synthetic cases",
-    "promotion_requirement": "at least one non-author domain practitioner must author or substantively adapt each task, and a second must independently accept it before collection",
-    "prohibited_claim": "representative synthetic cases may not be described as historical production tickets"
+    "source": "deterministic business-motivated synthetic cases",
+    "construction": "Both phases use the same source-controlled generator and frozen synthetic snapshot. Evaluation tasks additionally have hidden deterministic truth and prelocked machine-checkable rubrics; calibration tasks declare only a strict answer envelope.",
+    "required_separation": "Only task identifiers, objectives, and scoring roles are held out between the six calibration and twelve evaluation tasks. Both phases operate on the same frozen schema and exact synthetic snapshot; calibration outputs and usage never enter evaluation scores or inferential comparisons.",
+    "prohibited_claim": "Synthetic cases may not be described as historical production tickets, empirically representative workflows, real organizational workflows, or practitioner-validated requests."
   },
-  "budget_calibration": {
+  "algorithmic_budget_calibration": {
     "applies_to_arms": ["taskgate_v3", "query_count", "returned_rows", "serialized_bytes"],
-    "training": "unit cards, organization risk-preference card, and two excluded training tasks",
-    "locked_before_runs": true,
-    "aggregation": "per-task and per-arm component-wise lower median of independent integer ceilings",
-    "agreement": "report per-item relative MAD and per-domain/arm/unit Kendall's W",
-    "freeze": "canonical JSON binds task manifest, protocol, source expert records, aggregated ceilings, model card, prompt digest, and tool-surface digest",
-    "unlimited": "not shown to budget experts and receives no budget ceiling"
-  },
-  "expert_budget_usability": {
-    "panel": "nine non-author practitioners, three per domain, disjoint from calibration and blind grading",
-    "outcomes": ["decision_seconds", "approve_rate", "initial_rejection_rate", "narrowing_rate", "budget_edit_count", "comprehension_score", "confidence_1_to_5"],
-    "narrowing": "approved ceilings and scopes may only become stricter",
-    "agent_independence": "these decisions are never passed to the agent runner"
+    "observations": "For every unbudgeted calibration run, require completed status, the exact registered final-answer fields, at least one admitted query, and a complete value for every required field: no value may be null and no string may be empty, while zero, false, and empty collections remain valid because they can express legitimate negative or aggregate results. Then record release, influence, outcome, successful-query, returned-row, and canonical-byte usage. No calibration-answer correctness claim is made.",
+    "domain_base": "For each domain and each native arm component, sort the six observations from two tasks by three replicates and take the component-wise lower median.",
+    "lower_median_definition": "For n sorted observations, select index floor((n-1)/2); with six observations this is the third value.",
+    "levels": [0.25, 0.5, 0.75, 1.0],
+    "ceiling_rule": "For level lambda and native component b, use max(1, floor(lambda * b)).",
+    "operational_sanity_bounds": {
+      "role": "Non-experimental resource guards, not organizational risk preferences, calibrated study budgets, or additional comparison arms.",
+      "taskgate_v3": {"release_facts": 1000000, "influence_facts": 10000000, "outcome_facts": 1000},
+      "query_count": {"successful_queries": 100},
+      "returned_rows": {"returned_rows": 100000},
+      "serialized_bytes": {"serialized_bytes": 100000000},
+      "failure_rule": "If any component-wise domain lower median exceeds its corresponding sanity bound, the calibration campaign fails and no evaluation schedule may be created."
+    },
+    "freeze_before_evaluation": true,
+    "chronology": "The execution lock's automatically recorded UTC locked_at precedes every calibration start; the explicit frozen_at follows every calibration finish; every evaluation start follows frozen_at.",
+    "freeze": "Canonical JSON binds the calibration task manifest and run records, protocol, database/oracle/risk/scorer source digests, execution lock, component bases, and all derived ceilings.",
+    "leakage_guard": "The freeze artifact must exist and validate against all 18 calibration run records before the first evaluation workflow; evaluation observations can never alter a ceiling.",
+    "unbudgeted_evaluation": "The unbudgeted evaluation arm receives no benchmark ceiling and is analyzed only as a reference; stochastic Agent quality is not guaranteed to upper-bound budgeted quality."
   },
   "agent_execution": {
-    "fixed_factors": ["model provider", "model identifier", "model version", "system prompt", "tool schema", "database snapshot", "answer schema"],
+    "fixed_factors": ["campaign ID", "lock timestamp", "model provider", "model alias", "recorded provider release label", "temperature", "top_p", "max_tokens", "request timeout seconds", "maximum tool turns", "system prompt", "tool schema", "database snapshot", "answer schema"],
     "isolation": ["fresh database instance", "fresh root task", "fresh cache namespace", "fresh conversation"],
     "budget_rejection_envelope": "taskgate-study-budget-rejection-v1",
-    "failure_policy": "retain budget exhaustion, tool errors, and agent errors as zero completion; do not silently drop runs",
-    "baseline_v3_audit_only": true
+    "failure_policy": "Retain and deterministically score only terminal failures that the source-locked adapter converts into a schema-v3 record with verifiable Fact evidence and post-run budget audit. An external adapter-process timeout, nonzero exit, invalid stdout, or unverifiable record produces no fabricated zero-exposure observation and aborts the collection for operator investigation.",
+    "calibration_failure_policy": "A calibration record is eligible only when the adapter reports completed status, the exact registered answer-field envelope, at least one admitted query, and every required value is non-null with every required string nonempty; zero, false, and empty collections remain valid. Any other auditable calibration result aborts that campaign. Starting a new prelocked campaign rather than deleting or selectively replacing cells is a preregistered operating rule, not a property that artifact validation alone can prove.",
+    "collection_integrity_limitation": "The execution lock, schedule, and freeze detect drift or mixing among retained artifacts, but without an external append-only timestamp or registry they cannot prove that no calibration output was deleted or replaced before the freeze was created.",
+    "baseline_v3_audit_only": true,
+    "answer_contract": "Strict structured JSON contains the task's registered answer fields plus a narrative. Narrative does not affect answer correctness, but it is inspected by task-specific forbidden-disclosure trace guards.",
+    "provider_drift": "The lock records the campaign ID, lock timestamp, alias, provider release label, temperature, top_p, max_tokens, request timeout, and maximum tool turns and sends the applicable request parameters explicitly; it cannot guarantee immutable provider-side weights behind a hosted model alias."
+  },
+  "automatic_scoring": {
+    "policy_blind": true,
+    "locked_before_evaluation": true,
+    "rubric": "Each evaluation task has a differentiated four-to-six-component workflow rubric totaling 100 points with at least one critical goal. Answer and trace items are also normalized separately.",
+    "score_separation": {
+      "answer_score": "0--100 normalized score over answer-valued rubric items only, set to zero unless the admitted query trace covers every task-registered evidence-required column",
+      "trace_guard_score": "0--100 normalized score over registered query-attempt, allowed/forbidden-column, stopping, and forbidden-disclosure guards; narrative is inspected only for forbidden disclosure",
+      "workflow_rubric_score": "original 0--100 weighted combination of answer items and trace guards, reported as a secondary workflow measure"
+    },
+    "checks": [
+      "type-sensitive exact categorical and rule answers",
+      "numeric absolute, relative, tolerance-normalized error, and answer coverage",
+      "set/list-value precision, recall, and F1",
+      "unexpected list elements and imperfect answer components against the frozen oracle",
+      "registered evidence-column coverage in admitted query traces",
+      "task-specific forbidden sensitive value or field disclosure",
+      "registered query-attempt, allowed-column, and stopping guards",
+      "registered failure handling"
+    ],
+    "oracle_boundary": "Hidden truth and scoring code are inaccessible to the Agent-facing database role and conversation. Their source digests are bound before evaluation."
   },
   "metrics": {
     "primary": {
-      "id": "rubric_score_0_100_at_frozen_expert_budget",
-      "definition": "prelocked weighted rubric score for every primary-arm run at the frozen median expert budget"
+      "id": "automatic_answer_score_vs_actual_sensitivity_weighted_exposure",
+      "quality": "policy-blind deterministic answer_score (0--100), including the registered admitted-evidence-column eligibility gate",
+      "exposure": "actual sensitivity-weighted semantic exposure—the sum over distinct dimension-tagged release, influence, and outcome entries attributable to query responses admitted to the Agent; a FactID present in both release and influence contributes once in each registered accounting dimension, and influence facts are dependencies rather than necessarily displayed values",
+      "comparison": "task-level policy answer-score--exposure frontiers over the four frozen budget levels after averaging independent replicates within task-policy-level"
     },
-    "agent_secondary": [
-      "critical_goal_task_completion",
+    "frontier_summaries": [
+      "answer_score_exposure_auc_on_common_support",
+      "exposure_required_for_80_percent_of_unbudgeted_reference_answer_score",
+      "pairwise_pareto_dominance_rate",
+      "critical_goal_completion_auc_on_each_tasks_four_policy_common_exposure_support"
+    ],
+    "quality_secondary": [
+      "answer_score",
+      "answer_task_complete",
+      "trace_guard_score",
+      "workflow_rubric_score",
+      "workflow_task_complete",
+      "answer_evidence_column_coverage",
+      "answer_evidence_eligible",
       "numeric_absolute_error",
       "numeric_relative_error",
-      "list_precision",
-      "list_recall",
-      "unsupported_claim_count",
-      "factual_error_count",
-      "runtime_budget_rejection_count",
+      "numeric_tolerance_normalized_error",
+      "numeric_answer_coverage",
+      "list_value_precision",
+      "list_value_recall",
+      "list_value_f1",
+      "unexpected_answer_element_count",
+      "imperfect_answer_component_count",
+      "invalid_answer_schema",
+      "runtime_budget_rejections",
       "final_task_failure"
     ],
-    "risk_and_cost": [
-      "release_facts",
-      "influence_facts",
-      "outcome_facts",
-      "sensitivity_weighted_exposure",
-      "distinct_sensitive_records",
-      "distinct_sensitive_fields",
-      "unnecessary_sensitive_fields",
-      "successful_queries",
-      "returned_rows",
-      "serialized_bytes",
-      "wall_clock_ms",
-      "gateway_latency_ms",
-      "accounting_latency_ms",
-      "exposure_storage_bytes"
-    ],
+    "uniformly_computed_cross_policy_checks": {
+      "v3_semantic_views": [
+        "released_sensitive_records",
+        "released_sensitive_fields",
+        "released_sensitive_cells",
+        "released_sensitive_values",
+        "disclosed_outcome_propositions",
+        "disclosed_negative_propositions",
+        "unnecessary_sensitive_fields"
+      ],
+      "representation_independent_volume_counters": ["successful_queries", "returned_rows", "serialized_bytes"],
+      "definitions": {
+        "disclosed_outcome_propositions": "distinct V3 Outcome facts attributable to admitted query responses",
+        "disclosed_negative_propositions": "distinct admitted V3 Outcome facts whose outcome_rows value is zero"
+      },
+      "claim_boundary": "All checks are computed uniformly across policies, but semantic views derived from V3 Fact identities are not representation-neutral."
+    },
+    "taskgate_audit": ["release_facts", "influence_facts", "outcome_facts", "sensitivity_weighted_exposure"],
+    "system_cost": ["wall_clock_ms", "gateway_latency_ms", "accounting_latency_ms", "exposure_storage_bytes"],
     "guardrails": [
       "no authorization-scope violation",
       "no hidden-truth access",
       "identical rejection envelope",
-      "complete registered run coverage",
-      "no post-outcome budget edits"
+      "complete registered workflow coverage",
+      "no post-calibration budget edits"
     ]
   },
   "analysis": {
-    "unit": "task-agent-seed run; queries are diagnostics, not independent samples",
-    "primary_inference": "within-task-and-seed paired TaskGate-minus-baseline rubric-score differences with task-cluster bootstrap confidence intervals and exact task-level sign-flip tests",
-    "secondary_mixed_models": {
-      "quality": "rubric_score ~ policy + domain + difficulty + (1|task) + (1|seed)",
-      "completion": "completed ~ policy + domain + difficulty + (1|task) + (1|seed), binomial link",
-      "approval_time": "log1p(decision_seconds) ~ policy + domain + (1|task) + (1|expert)",
-      "approval_rejection": "rejected ~ policy + domain + (1|task) + (1|expert), binomial link"
-    },
-    "multiple_comparisons": "Holm correction for the three TaskGate-versus-baseline primary contrasts",
-    "utility_risk": "construct per-policy Pareto frontiers from the registered 0.5, 0.75, 1.0, and 1.25 budget multipliers; bootstrap tasks, not queries",
-    "unlimited": "report as a task-quality upper-bound diagnostic, never as a primary budget competitor"
+    "unit": "task-policy-level-replicate workflow; queries are diagnostics, not independent samples",
+    "primary_inference": "Average independent stochastic replicates within each task-policy-level, construct task-level answer-score--exposure summaries, and compare policies across tasks with domain-stratified task bootstrap intervals over the registered four-level grid.",
+    "matched_exposure": "Interpolate only on the common observed exposure support; do not extrapolate a policy beyond its measured frontier.",
+    "auc": "Normalize exposure only over common support and integrate the monotone nondominated answer-score frontier; report domain-stratified task-bootstrap confidence intervals and the number of valid bootstrap draws.",
+    "exposure_to_80": "For each task and policy, estimate the minimum measured exposure reaching 80% of that task's mean unbudgeted-reference answer score; report zero reference quality and failure to reach the target explicitly.",
+    "pareto": "Report pairwise policy dominance over registered points and retain all dominated points in the analysis artifact.",
+    "matched_exposure_completion": "For each task, form monotone answer-task-completion frontiers for all four policies, integrate each only over that task's four-policy common exposure support, and average task-level AUCs; report tasks without common support as unestimable.",
+    "paired_secondary": "At each level, first average independent replicates within task-policy-level, then form task-level TaskGate-minus-baseline answer-score and uniformly computed disclosure-check differences.",
+    "multiple_comparisons": "Holm correction is applied to the three TaskGate-versus-baseline answer-score contrasts in each explicitly reported family.",
+    "unbudgeted_reference": "Report the unbudgeted arm as a stochastic reference and as the denominator for the 80%-reference target, never as a guaranteed upper bound or primary policy competitor."
   },
   "guardrails": [
-    "No paper claim may call this an expert-calibrated agent workflow study while status is designed_not_collected.",
-    "Templates and synthetic records are not expert judgments or agent outcomes.",
-    "Experiment-B approval outcomes do not gate experiment-A runs.",
-    "The same frozen model, prompt, tool surface, database snapshot, and seed schedule are used across arms.",
-    "Baseline arms are compared on post-hoc V3 risk, not on incomparable native budget units.",
-    "Human graders are blind to arm, budget, model trace identifiers, and paper hypothesis."
+    "No paper claim may describe this benchmark as collected evidence while status is designed_not_collected.",
+    "Synthetic task specifications, generated truth, and automatic oracles are not human judgments or production evidence.",
+    "No LLM output is labeled an expert budget, approval, or human grade.",
+    "Only calibration task IDs, objectives, and scoring roles are held out; calibration and evaluation share the same frozen synthetic snapshot.",
+    "The frozen calibration artifact predates all evaluation runs and validates against every calibration record.",
+    "The same campaign lock, recorded model alias/release label, explicit temperature/top_p/max_tokens, request timeout, maximum tool turns, prompt, tool surface, database snapshot, answer contract, and replicate schedule are used across evaluation arms; hosted-provider drift remains possible.",
+    "Baseline arms are compared on actual post-hoc V3 exposure and uniformly computed cross-policy checks, not on incomparable native budget numbers alone.",
+    "Automatic scoring is policy-blind and its code, rubric, oracle, and digests are frozen before evaluation.",
+    "Absent an external append-only anchor, validation cannot detect a calibration run deleted or replaced before budget freezing; no stronger collection-integrity claim is made."
   ]
 }

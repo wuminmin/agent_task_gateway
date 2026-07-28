@@ -118,8 +118,7 @@ of base facts participating in the successful derivation of delivered output.
 It is neither minimal causal provenance nor the complete physical read set.
 This second dimension prevents a count from being accounted as one input fact
 merely because it returns one cell. Both effects are sets, so a fact already
-these first two effects are sets, so a fact already recorded in the root-family
-ledger has zero incremental charge.  The third,
+recorded in the root-family ledger has zero incremental charge.  The third,
 \emph{query outcome}, binds the normalized predicate and relational context to
 the released-result digest and visible cardinality. Thus ``no row satisfies
 $x>100$'' and ``no row satisfies $x>200$'' consume two outcome facts even when
@@ -1470,17 +1469,27 @@ separate risk-ledger option; the small fixture demonstrates calibration, not
 transferable organizational thresholds.
 
 To avoid relabeling that evidence, the artifact separately preregisters a
-\emph{designed, not collected} follow-on protocol. One experiment freezes
-independent experts' per-task budgets before 240 paired Agent runs and compares
-V3 with query-, row-, and byte-count policies on rubric score versus a common
-offline V3 exposure axis; an unlimited arm and registered multiplier sweep are
-diagnostics. A disjoint experiment measures budget decision time,
-approve/reject/narrow, edits, comprehension, and confidence. Its decisions
-never gate or zero-score Agent runs. The protocol additionally requires one
-non-author practitioner to author or substantively adapt each representative
-task and a second to validate it, disjoint
-calibration/usability/blind-grading panels, fresh execution state, and frozen
-model/prompt/tool hashes. We report no outcome from this uncollected protocol.
+\emph{designed, not collected}, participant-free controlled Agent benchmark on
+business-motivated synthetic tasks. Six calibration tasks run unbudgeted in
+three fresh conversations each (18 total); 12 separate tasks then register 576
+budgeted workflows (four policies, four levels, three replicates) and 60
+unbudgeted references. Only task identifiers, objectives, and scoring roles are
+held out; both phases use the exact frozen snapshot. Calibration admits only
+completed, complete-envelope runs with query evidence and claims no answer
+correctness. Per-domain, component-wise lower-median usage is scaled to
+25/50/75/100\%, floored at one, and digest-frozen before evaluation.
+Operational sanity caps---Facts $10^6/10^7/10^3$ and queries/rows/bytes
+$10^2/10^5/10^8$---invalidate over-bound calibration rather than define budgets.
+DeepSeek uses fresh database, root, cache, and conversation state. A
+source-locked, policy-blind oracle separates evidence-eligible answer score,
+trace guards, and combined workflow score. The primary comparison is answer
+score versus sensitivity-weighted semantic exposure of admitted queries;
+dependencies need not be displayed. Uniform cross-policy checks include
+V3-derived sensitive-record/field/cell/value/outcome views and query/row/byte
+volume counters, but the former are not representation-neutral. We report no
+outcome from the 18 calibration or 636 evaluation workflows. Even when
+collected, this cannot establish human budget comprehension, approval usability,
+empirical representativeness, organizational adoption, or production utility.
 
 \subsection{Reproducibility Boundary}
 
@@ -1492,9 +1501,16 @@ campaign ending at \RQFourScaleMaxJoined{} joined members and
 TPC-H-derived shape on one host with three repeats, not an official suite,
 cold-cache, multi-node, or production-SLO study. RQ5 measures declared goal
 admission on the 16-row fixture, not human utility or agent success; the
-follow-on protocol is infrastructure rather than evidence. The build
+participant-free controlled benchmark is infrastructure rather than evidence
+until its frozen 654-workflow collection is complete, and would remain bounded
+to business-motivated synthetic tasks, one frozen snapshot, and a recorded
+hosted-model alias whose provider-side weights may drift. The build
 parses every published RQ4 JSONL sample, reproduces summaries, and recomputes
-source digests; reproducibility does not remove these external-validity bounds.
+source digests. The controlled-benchmark lock can detect mixing or later drift
+among retained artifacts, but, absent an external append-only anchor, cannot
+prove that no calibration output was removed or replaced before budget
+freezing; reproducibility does not remove these external-validity and
+collection-integrity bounds.
 
 \section{Limitations and Threats to Validity}
 \label{sec:limits}

@@ -1,163 +1,144 @@
 #!/usr/bin/env python3
-"""Freeze pre-run expert budgets and agreement statistics into one digest."""
+"""Freeze deterministic domain budgets from held-out unlimited calibration runs."""
 
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
+import math
+import tempfile
 from collections import defaultdict
 from pathlib import Path
 
 import validate
 
 
-def file_sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def record_set(directory: Path) -> list[dict[str, str]]:
-    return [{"name": path.name, "sha256": file_sha256(path)} for path in validate.json_files(directory)]
-
-
 def lower_median(values: list[int]) -> int:
+    if not values:
+        raise ValueError("cannot take the lower median of an empty sample")
     ordered = sorted(values)
     return ordered[(len(ordered) - 1) // 2]
 
 
-def average_ranks(values: list[int]) -> list[float]:
-    ordered = sorted(range(len(values)), key=values.__getitem__)
-    result = [0.0] * len(values)
-    position = 0
-    while position < len(ordered):
-        end = position + 1
-        while end < len(ordered) and values[ordered[end]] == values[ordered[position]]:
-            end += 1
-        rank = ((position + 1) + end) / 2
-        for index in ordered[position:end]:
-            result[index] = rank
-        position = end
-    return result
+def nested_value(record: dict, path: str) -> int:
+    current: object = record
+    for component in path.split("."):
+        if not isinstance(current, dict) or component not in current:
+            raise ValueError(f"calibration record lacks registered usage path {path}")
+        current = current[component]
+    if not isinstance(current, int) or isinstance(current, bool) or current < 0:
+        raise ValueError(f"calibration usage at {path} is not a nonnegative integer")
+    return current
 
 
-def kendalls_w(matrix: list[list[int]]) -> float | None:
-    if len(matrix) < 2 or not matrix[0] or any(len(row) != len(matrix[0]) for row in matrix):
-        return None
-    raters, items = len(matrix), len(matrix[0])
-    ranks = [average_ranks(row) for row in matrix]
-    rank_sums = [sum(row[item] for row in ranks) for item in range(items)]
-    center = raters * (items + 1) / 2
-    numerator = 12 * sum((value - center) ** 2 for value in rank_sums)
-    tie_correction = 0
-    for row in matrix:
-        counts: dict[int, int] = defaultdict(int)
-        for value in row:
-            counts[value] += 1
-        tie_correction += sum(count**3 - count for count in counts.values())
-    denominator = raters**2 * (items**3 - items) - raters * tie_correction
-    return round(numerator / denominator, 6) if denominator else None
+def aggregate(records: list[dict], calibration_doc: dict) -> dict:
+    task_domains = {task["id"]: task["domain"] for task in calibration_doc["tasks"]}
+    by_domain: dict[str, list[dict]] = defaultdict(list)
+    for record in records:
+        by_domain[task_domains[record["task_id"]]].append(record)
 
-
-def collect(directory: Path, tasks: dict[str, dict]) -> tuple[dict, dict]:
-    values: dict[tuple[str, str, str], list[int]] = defaultdict(list)
-    by_expert: dict[tuple[str, str, str, str], int] = {}
-    for path in validate.json_files(directory):
-        record = validate.load(path)
-        expert = record["expert_id"]
-        for item in record["calibrations"]:
-            for unit, amount in item["selected_budget"].items():
-                values[(item["task_id"], item["arm"], unit)].append(amount)
-                by_expert[(expert, item["task_id"], item["arm"], unit)] = amount
-
-    frozen: dict[str, dict] = {}
-    cell_agreement = []
-    for task_id in sorted(tasks):
-        frozen[task_id] = {}
-        for arm in sorted(validate.PRIMARY_ARMS):
-            budget = {}
-            for unit in sorted(validate.BUDGET_FIELDS[arm]):
-                observed = values[(task_id, arm, unit)]
-                median = lower_median(observed)
-                deviations = [abs(value - median) for value in observed]
-                mad = lower_median(deviations)
-                budget[unit] = median
-                cell_agreement.append(
-                    {
-                        "task_id": task_id,
-                        "arm": arm,
-                        "unit": unit,
-                        "experts": len(observed),
-                        "lower_median": median,
-                        "mad": mad,
-                        "relative_mad": round(mad / max(median, 1), 6),
-                        "exact_agreement": len(set(observed)) == 1,
-                    }
-                )
-            frozen[task_id][arm] = budget
-
-    rank_agreement = []
+    domains = {}
     for domain in sorted(validate.DOMAINS):
-        domain_tasks = sorted(task_id for task_id, task in tasks.items() if task["domain"] == domain)
-        experts = sorted(
-            {
-                expert
-                for expert, task_id, _, _ in by_expert
-                if task_id in domain_tasks
-            }
-        )
+        traces = by_domain[domain]
+        if len(traces) != 6:
+            raise ValueError(f"{domain} must contribute exactly six completed calibration traces")
+        base = {}
         for arm in sorted(validate.PRIMARY_ARMS):
-            for unit in sorted(validate.BUDGET_FIELDS[arm]):
-                matrix = [[by_expert[(expert, task_id, arm, unit)] for task_id in domain_tasks] for expert in experts]
-                rank_agreement.append(
-                    {"domain": domain, "arm": arm, "unit": unit, "experts": len(experts), "kendalls_w": kendalls_w(matrix)}
-                )
-    return frozen, {"cells": cell_agreement, "rank_agreement": rank_agreement}
+            base[arm] = {
+                unit: lower_median([nested_value(record, path) for record in traces])
+                for unit, path in sorted(validate.USAGE_UNIT_MAPPING[arm].items())
+            }
+        levels = {
+            validate.level_key(level): {
+                arm: {
+                    unit: max(1, math.floor(amount * level))
+                    for unit, amount in base[arm].items()
+                }
+                for arm in sorted(validate.PRIMARY_ARMS)
+            }
+            for level in validate.BUDGET_LEVELS
+        }
+        domains[domain] = {
+            "completed_calibration_runs": len(traces),
+            "base_statistic": "component-wise lower median over two held-out tasks times three replicates",
+            "base": base,
+            "levels": levels,
+        }
+    return domains
+
+
+def build_freeze(
+    calibration_runs: Path,
+    execution_lock: Path,
+    frozen_at: str,
+) -> dict:
+    tasks_doc, calibration_doc, protocol = validate.validate_design()
+    del tasks_doc
+    frozen_time = validate.timestamp(frozen_at, "frozen_at")
+    lock = validate.validate_execution_lock(execution_lock, protocol["study_id"])
+    records = validate.validate_calibration_runs(
+        calibration_runs,
+        calibration_doc,
+        protocol,
+        validate.file_sha256(execution_lock),
+        lock,
+    )
+    latest_calibration_finish = max(
+        validate.timestamp(record["finished_at"], f"{record['run_id']}.finished_at")
+        for record in records
+    )
+    if frozen_time <= latest_calibration_finish:
+        raise ValueError("frozen_at must be later than every calibration run")
+    payload = {
+        "schema_version": 2,
+        "study_id": protocol["study_id"],
+        "status": "frozen_from_held_out_calibration",
+        "frozen_at": frozen_at,
+        "evaluation_task_manifest_sha256": validate.file_sha256(validate.TASKS),
+        "calibration_task_manifest_sha256": validate.file_sha256(validate.CALIBRATION_TASKS),
+        "protocol_sha256": validate.file_sha256(validate.PROTOCOL),
+        "execution_lock_sha256": validate.file_sha256(execution_lock),
+        "source_file_sha256": validate.source_file_digests(),
+        "calibration_run_records": validate.record_digests(calibration_runs),
+        "usage_unit_mapping": validate.USAGE_UNIT_MAPPING,
+        "levels": list(validate.BUDGET_LEVELS),
+        "level_rule": "max(1, floor(domain_lower_median_usage * level)) component-wise",
+        "domains": aggregate(records, calibration_doc),
+    }
+    payload["freeze_sha256"] = validate.canonical_sha256(payload)
+    return payload
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--task-reviews", required=True, type=Path)
-    parser.add_argument("--budgets", required=True, type=Path)
+    parser.add_argument("--calibration-runs", required=True, type=Path)
     parser.add_argument("--execution-lock", required=True, type=Path)
     parser.add_argument("--frozen-at", required=True)
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
 
-    tasks_doc, protocol = validate.validate_design()
-    tasks = {task["id"]: task for task in tasks_doc["tasks"]}
-    task_ids = set(tasks)
-    task_domains = {task_id: task["domain"] for task_id, task in tasks.items()}
-    sampling = protocol["sampling"]
-    validate.timestamp(args.frozen_at, "frozen_at")
-    validate.validate_task_reviews(args.task_reviews, tasks_doc)
-    validate.validate_budgets(
-        args.budgets,
-        task_ids,
-        sampling["minimum_experts_per_task"],
-        sampling["budget_calibration_experts"],
-        task_domains,
-    )
-    validate.validate_execution_lock(args.execution_lock, protocol["study_id"])
+    try:
+        payload = build_freeze(args.calibration_runs, args.execution_lock, args.frozen_at)
+        _write(args.output, payload)
+        validate.validate_algorithmic_freeze(
+            args.output,
+            validate.load(validate.PROTOCOL),
+            args.execution_lock,
+            args.calibration_runs,
+        )
+    except ValueError as error:
+        raise SystemExit(f"budget freeze failed: {error}") from error
+    print(f"wrote algorithmic budget freeze: {args.output} ({payload['freeze_sha256']})")
 
-    budgets, agreement = collect(args.budgets, tasks)
-    payload = {
-        "schema_version": 1,
-        "study_id": protocol["study_id"],
-        "status": "frozen_before_agent_runs",
-        "frozen_at": args.frozen_at,
-        "display_context_sha256": validate.display_context_sha256(),
-        "task_manifest_sha256": file_sha256(validate.TASKS),
-        "protocol_sha256": file_sha256(validate.PROTOCOL),
-        "task_review_records": record_set(args.task_reviews),
-        "budget_records": record_set(args.budgets),
-        "execution_lock_sha256": file_sha256(args.execution_lock),
-        "budgets": budgets,
-        "agreement": agreement,
-    }
-    payload["freeze_sha256"] = validate.canonical_sha256(payload)
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    print(f"wrote frozen budgets: {args.output} ({payload['freeze_sha256']})")
+
+def _write(path: Path, payload: dict) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, delete=False) as temporary:
+        json.dump(payload, temporary, ensure_ascii=False, indent=2, sort_keys=True)
+        temporary.write("\n")
+        temporary_path = Path(temporary.name)
+    temporary_path.replace(path)
+    return path
 
 
 if __name__ == "__main__":
