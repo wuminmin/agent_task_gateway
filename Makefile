@@ -1,4 +1,4 @@
-.PHONY: verify test build up down logs formal eval-validate eval-exposure eval-exposure-performance eval-exposure-scale eval-exposure-storage eval-workflow-design eval-smoke eval-full artifacts fuzz paper paper-tkde paper-tdsc
+.PHONY: verify test build up down logs formal eval-validate eval-exposure eval-exposure-performance eval-exposure-scale eval-exposure-storage eval-smoke eval-full artifacts fuzz paper paper-tkde paper-tdsc
 
 verify:
 	docker build --target verify -t taskbound-agent-data-gateway-verify .
@@ -36,10 +36,6 @@ eval-exposure-scale:
 
 eval-exposure-storage:
 	./evaluation/run-exposure-storage.sh
-
-eval-workflow-design:
-	PYTHONDONTWRITEBYTECODE=1 python3 evaluation/workflow-study/validate.py
-	cd evaluation/workflow-study && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest test_design.py
 
 eval-smoke:
 	./evaluation/run.sh smoke

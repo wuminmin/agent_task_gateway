@@ -275,7 +275,7 @@ func activateTask(ctx context.Context, store *control.Store, taskID string, maxF
 	expires := time.Now().UTC().Add(time.Hour)
 	if err := store.CreateTask(ctx, control.Task{ID: taskID, PrincipalID: principalID,
 		Objective: "measure immutable exposure storage", State: control.TaskAwaitingApproval,
-		CatalogVersion: "storage-eval-v1", RequestedBudget: json.RawMessage(`{"queries":20}`),
+		CatalogVersion: "storage-eval-v1",
 		RequestContext: json.RawMessage(`{"evaluation":"exposure-storage"}`), ExpiresAt: &expires}); err != nil {
 		return err
 	}

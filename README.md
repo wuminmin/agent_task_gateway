@@ -1,6 +1,6 @@
 # TaskGate: Task-Bound Query-Outcome and Exposure Accounting for Database Agents
 
-TaskGate 是一个数据库研究原型：它把累计数据暴露绑定到人类授权的根任务，使自适应查询、重试、分页和子 Agent 共享同一知识账本。Agent 必须先提交明确的数据产品、字段、Scope、预算和目的，经 OA 审批后，才能查询只读数据产品。Gateway 不包含模型层；授权、provenance、计量、结算和规划均由确定性代码完成。
+TaskGate 是一个数据库研究原型：它把累计数据暴露绑定到人类授权的根任务，使自适应查询、重试、分页和子 Agent 共享同一知识账本。Agent 必须先提交明确的数据产品、字段、Scope 和目的；Gateway 从 Catalog 绑定完整预算 Profile，经 OA 审批后才允许查询只读数据产品。Gateway 不包含模型层；授权、provenance、计量和结算均由确定性代码完成。
 
 > 当前仓库是单实例 Demo，不是可直接上线的生产网关。生产差距见[威胁模型与生产化差距](docs/threat-model.md)。
 
@@ -79,8 +79,8 @@ Navicat 的用户名和密码对应关系见[本地启动与数据库调试](doc
 ## MCP 2.0 工作流
 
 1. 调用 `list_data_products` 获取完整逻辑产品、字段和 Scope 的允许值/日期边界。
-2. 调用 `request_data_task`，显式提交非空 `objective`、`data_products`、每个产品的非空 `columns` 及 `scopes`。资源预算与 release/influence/outcome 上限都只能缩小 Catalog Profile。
-3. 在 OA 提交并完成自动或人工审批。
+2. 调用 `request_data_task`，显式提交非空 `objective`、`data_products`、每个产品的非空 `columns` 及 `scopes`。Gateway 按最高敏感级别选择 Catalog Profile，并把完整 Profile 写入审批 Manifest；Agent 不选择或优化预算。
+3. 在 OA 提交并完成人工审批。正常批准把整个签名额度交给 Agent；系统不奖励未使用额度，安全边界按额度全部耗尽计算。
 4. ACTIVE 后使用 `execute_plan(task_id, request_id, plan)`。默认 Catalog 已启用 V3，因此该路径会生成同快照 provenance、构造 OutcomeFact 并进行三维结算。
 5. 子 Agent 任务通过 `parent_task_id` 和 `delegate_principal_id` 创建，所有授权维度只能收缩，且共享根账本。每次查询仍提交一个确定的 QueryPlan。
 

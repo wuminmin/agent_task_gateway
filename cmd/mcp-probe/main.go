@@ -3,7 +3,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -116,7 +115,7 @@ func seedOtherPrincipalTask(ctx context.Context, catalogVersion string) {
 	err = store.CreateTask(ctx, control.Task{
 		ID: "task-owned-by-another-subject", PrincipalID: principal.ID,
 		Objective: "integration ownership isolation probe", State: control.TaskAwaitingSubmission,
-		CatalogVersion: catalogVersion, Sensitivity: "low", RequestedBudget: json.RawMessage(`{}`),
+		CatalogVersion: catalogVersion, Sensitivity: "low",
 		RequestContext: requestContext, ApprovalRef: "integration-seed", CreatedAt: now, UpdatedAt: now,
 	})
 	if err != nil && !errors.Is(err, control.ErrConflict) {
@@ -124,7 +123,7 @@ func seedOtherPrincipalTask(ctx context.Context, catalogVersion string) {
 	}
 	// Verify the seed exists before the client performs a non-enumerating read.
 	seeded, err := store.GetTask(ctx, "task-owned-by-another-subject")
-	if err != nil || seeded.PrincipalID != principal.ID || !bytes.Equal(seeded.RequestedBudget, []byte(`{}`)) {
+	if err != nil || seeded.PrincipalID != principal.ID {
 		fatal("verify another principal task", errors.New("ownership seed was not stored"))
 	}
 }

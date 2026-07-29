@@ -110,7 +110,7 @@ export TASKBOUND_GATEWAY_TOKEN='<Alice Token>'
 codex
 ```
 
-MCP `serverInfo.version` 为 `2.0.0`。Alice 可见 14 个任务/查询工具，Carol 只可见两个审计工具：
+MCP `serverInfo.version` 为 `2.1.0`。Alice 可见 14 个任务/查询工具，Carol 只可见两个审计工具：
 
 | 身份 | 工具 |
 |---|---|
@@ -130,19 +130,14 @@ MCP `serverInfo.version` 为 `2.0.0`。Alice 可见 14 个任务/查询工具，
   },
   "scopes": {
     "department": ["销售部"]
-  },
-  "requested_budget": {
-    "max_queries": 2,
-    "max_rows": 50,
-    "max_release_facts": 100,
-    "max_influence_facts": 500,
-    "max_outcome_facts": 2
   }
 }
 ```
 
 每个申请产品必须有非空字段列表；未知产品、字段、Scope 或越界值会被拒绝。
-`requested_budget` 只能缩小 Catalog Profile 的资源和三维 exposure 上限。
+Gateway 按产品的最高敏感级别选择 Catalog Profile，并把完整资源与三维
+exposure 上限写入审批 Manifest。Agent 不申请更小预算，也不因剩余额度获得收益；
+批准额度必须在被全部消耗时仍然满足企业安全政策。
 
 `request_data_task` 返回 `task_id`、`oa_url`、审批模式和 `AuthorizationManifestV1` 摘要。用 `.env` 的 `OA_ALICE_PASSWORD` 以 `alice` 登录 OA，打开草稿并提交。所有敏感级别（包括低敏 `expense_summary`）都会停在 `AWAITING_APPROVAL`；必须由 `bob` 登录 OA 明确批准或缩小后批准，任务才会进入 `ACTIVE`。
 

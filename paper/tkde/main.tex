@@ -75,9 +75,10 @@ limit, so replay and delegation cannot mint exposure capacity.
 We define compositional semantics for a positive relational fragment with
 joins, union-distinct, grouping, and four aggregates, and check the settlement
 protocol with a finite-state model. Independent-oracle, rewrite, concurrency,
-and PostgreSQL tests validate the modeled guarantees. A fixture-based policy
-calibration shows how three operational policies induce release/dependency
-budget--utility frontiers under a separate outcome ceiling. End-to-end
+and PostgreSQL tests validate the modeled guarantees. Catalog profiles are
+human-governed capacity envelopes: TaskGate neither learns nor minimizes them,
+and its safety claim assumes that an adaptive client may consume every approved
+unit. End-to-end
 experiments reach \RQFourScaleMaxFacts{} dependency facts, but novel/replay
 latencies of \RQFourScaleHighNovelS{}/\RQFourScaleHighReplayS{}~s and
 \RQFourScaleGatewayGiB{}~GiB gateway memory expose a severe boundary for the
@@ -1040,17 +1041,17 @@ back. Induction over the resulting serial commit order establishes the union
 identity and all three bounds.
 \end{proof}
 
-\textbf{Budget calibration.} The three ceilings $B^r_T,B^i_T,B^o_T$ are capacity
-declarations, not learned risk scores. In our workflow-first procedure the
-approver fixes fields, scope, sensitivity, and useful questions; a dry run on
-an approved representative snapshot (or conservative cardinality bound) unions
-the FactSets of alternatives, pages, and delegates. From the resulting
-$U(B^r,B^i)$ frontier, the approver selects the smallest release/dependency
-ceiling meeting required workflow completion and records data-growth headroom;
-$B^o$ separately caps distinct successful propositions (often at the approved
-query count). Hence 1,000
-means capacity for 1,000 distinct semantic facts, not ``risk 1,000.''
-Section~\ref{sec:rq5} instantiates this procedure.
+\textbf{Catalog-issued capacity.} The three ceilings $B^r_T,B^i_T,B^o_T$ are
+human-governed capacity declarations, not learned risk scores or optimization
+targets. An organization publishes a versioned profile with its data product
+and sensitivity policy; the approval manifest binds the complete profile to the
+root task. Normal issuance grants that full approved capacity. TaskGate assigns
+no value to unused capacity, does not infer a smaller allowance from Agent
+behavior, and does not optimize budget utilization. An explicitly narrower
+human grant remains an authorization decision, not an automatic calibration
+step. Hence 1,000 means capacity for 1,000 distinct semantic facts, not
+``risk 1,000,'' and the profile must remain acceptable when all 1,000 units are
+consumed. Query count, row, and DB-time limits are separate availability guards.
 
 Unit weights provide representation-independent integers, exact replay/delegation
 set union, and stable audit thresholds. They do not equate harm: field and
@@ -1114,10 +1115,10 @@ rather than claiming a proof that does not exist.
 
 \subsection{Questions and Reproducibility}
 
-The evaluation is organized around five questions: RQ1 ground-truth accuracy;
+The evaluation is organized around four questions: RQ1 ground-truth accuracy;
 RQ2 rewrite invariance of exposure accounting; RQ3 resistance to split, page,
 retry, zero/empty threshold probing, snapshot, join/union, delegation, and concurrency amplification; RQ4 runtime/storage
-overhead and cost scaling; and RQ5 policy-calibration worked examples. The report
+overhead and cost scaling. The report
 is rebuilt for \ExposureProfile{} from a source-controlled V2 base-algebra corpus (V3 preserves
 those release/dependency FactIDs) with digest prefix
 \ExposureCorpusHash{}. The primary RQ2 evidence is a closed-language
@@ -1130,10 +1131,8 @@ isolated PostgreSQL deployments, \RQFourFullPathOperations{} full-path calls and
 \RQFourStorageTrials{} fresh-schema production-ledger scaling trials and a
 public-endpoint PostgreSQL Join--Group campaign with \RQFourScalePoints{}
 cardinalities and \RQFourScaleTrials{} fresh-ledger trials per cardinality.
-There is no online representation-selection planner: one client-supplied plan
-is executed per call. RQ5 exhaustively enumerates only the eight subsets of
-each three-goal policy fixture to expose an approval frontier; it is not a
-runtime planner, a live-agent experiment, or a learned utility model.
+There is no online representation-selection or budget-selection planner: one
+client-supplied plan is executed per call against the complete signed profile.
 
 \begin{table}[t]
 \centering
@@ -1148,7 +1147,6 @@ RQ1 & \RQOnePassed{}/\RQOneCases{} independent-oracle cases on \RQOneRows{} sour
 RQ2 & \RQTwoExposureRewrites{} closed-language rewrite families, \RQTwoExposureCases{} instances and \RQTwoExposureNFCases{} normal-form checks: FactSet/charge invariant, \RQTwoExposureMismatches{} mismatches \\
 RQ3 & \RQThreePassed{}/\RQThreeCases{} deterministic; \RQThreeIntegration{}/\RQThreeExecuted{} PostgreSQL race tests; paired PG Join/Union exchange and downstream-group tests \\
 RQ4 & \RQFourFullPathOperations{} small-fixture full-path calls plus \RQFourAblationOperations{} ablations; physical ledger curve to \RQFourStorageMaxRows{} rows; end-to-end Join--Group to \RQFourScaleMaxJoined{} members/\RQFourScaleMaxFacts{} dependencies \\
-RQ5 & \RQFiveScenarios{} illustrative policy fixtures and \RQFiveGoals{} author-declared binary goals; exact release/dependency budget--utility slices and fact-class calibration \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1444,56 +1442,6 @@ normal-form depth, and novel-versus-replay deduplication. At
 replay charges \RQFourScalingReplayCharge{}. These isolate cost growth but are
 not substitutes for the PostgreSQL end-to-end result.
 
-\subsection{RQ5: Policy-Calibration Worked Examples}
-\label{sec:rq5}
-
-RQ5 instantiates finance summary, overlapping-page case review, and delegated
-exception-escalation policies on the 16-row auditable fixture. Each declares
-three binary goals; $U$ is their admitted fraction, not human-rated, model, or
-agent success. We enumerate each scenario's eight subsets and report the best
-feasible $U$ at 25, 50, 75, and 100\% of its full release/dependency ceiling,
-with the outcome ceiling fixed above the three goal propositions. The digest-checked
-manifest identifies sensitive fields and aggregate steps.
-
-The full ceilings are \RQFiveFinanceFull{}, \RQFiveReviewFull{}, and
-\RQFiveDelegationFull{}; dependency row/ordinary/sensitive/aggregate-support
-counts are \RQFiveFinanceClasses{}, \RQFiveReviewClasses{}, and
-\RQFiveDelegationClasses{}. At 25/50/75/100\% of each full release/dependency ceiling, best
-utility is 0/33/66/100\%; the supplement gives every $(B^r,B^i)/U$ point.
-Finance's $(5,9)$ quarter-budget admits nothing, demonstrating why an
-uncalibrated ``10'' has no governance meaning.
-
-As a non-admission sensitivity analysis, weighting tagged cells five changes
-the three total costs from 53/60/68 to 53/156/192. This illustrates the
-separate risk-ledger option; the small fixture demonstrates calibration, not
-transferable organizational thresholds.
-
-To avoid relabeling that evidence, the artifact separately preregisters a
-\emph{designed, not collected}, participant-free controlled Agent benchmark on
-business-motivated synthetic tasks. Six calibration tasks run unbudgeted in
-three fresh conversations each (18 total); 12 separate tasks then register 576
-budgeted workflows (four policies, four levels, three replicates) and 60
-unbudgeted references. Only task identifiers, objectives, and scoring roles are
-held out; both phases use the exact frozen snapshot. Calibration admits only
-completed, complete-envelope runs with query evidence and claims no answer
-correctness. Per-domain, component-wise lower-median usage is scaled to
-25/50/75/100\%, floored at one, and digest-frozen before evaluation.
-Operational sanity caps---Facts $10^6/10^7/10^3$ and queries/rows/bytes
-$10^2/10^5/10^8$---invalidate over-bound calibration rather than define budgets.
-DeepSeek uses fresh database, root, cache, and conversation state. A
-source-locked, policy-blind oracle separates evidence-eligible answer score,
-trace guards, and combined workflow score. The primary comparison is answer
-score versus sensitivity-weighted semantic exposure of admitted queries;
-dependencies need not be displayed. Uniform cross-policy checks include
-V3-derived sensitive-record/field/cell/value/outcome views and query/row/byte
-volume counters, but the former are not representation-neutral. Volume counters
-are reconstructed only from responses admitted to the Agent; the gateway's
-separate operational ledger can additionally include an executed buffered result
-that a baseline or semantic budget rejects before release. We report no
-outcome from the 18 calibration or 636 evaluation workflows. Even when
-collected, this cannot establish human budget comprehension, approval usability,
-empirical representativeness, organizational adoption, or production utility.
-
 \subsection{Reproducibility Boundary}
 
 RQ1/RQ2 use 16 source rows and \RQTwoExposureDatasets{} small data instances;
@@ -1502,18 +1450,10 @@ to \RQFourStorageMaxRows{} fact rows and a three-scale, public-path Join--Group
 campaign ending at \RQFourScaleMaxJoined{} joined members and
 \RQFourScaleMaxFacts{} dependencies. It is still one warm, deterministic,
 TPC-H-derived shape on one host with three repeats, not an official suite,
-cold-cache, multi-node, or production-SLO study. RQ5 measures declared goal
-admission on the 16-row fixture, not human utility or agent success; the
-participant-free controlled benchmark is infrastructure rather than evidence
-until its frozen 654-workflow collection is complete, and would remain bounded
-to business-motivated synthetic tasks, one frozen snapshot, and a recorded
-hosted-model alias whose provider-side weights may drift. The build
+cold-cache, multi-node, or production-SLO study. The build
 parses every published RQ4 JSONL sample, reproduces summaries, and recomputes
-source digests. The controlled-benchmark lock can detect mixing or later drift
-among retained artifacts, but, absent an external append-only anchor, cannot
-prove that no calibration output was removed or replaced before budget
-freezing; reproducibility does not remove these external-validity and
-collection-integrity bounds.
+source digests. Reproducibility does not remove the external-validity bounds of
+the small semantic fixtures or single-host campaigns.
 
 \section{Limitations and Threats to Validity}
 \label{sec:limits}

@@ -279,8 +279,6 @@ func bootstrap(ctx context.Context, opts options) error {
 			"data_products": []string{"expense_detail"},
 			"columns":       map[string][]string{"expense_detail": {"receipt_no", "department", "amount"}},
 			"scopes":        map[string]any{"department": []string{"销售部"}},
-			"requested_budget": map[string]int64{"max_queries": 1000, "max_rows": 1000,
-				"max_release_facts": 100000, "max_influence_facts": 500000},
 		}
 		if index > 0 {
 			arguments["parent_task_id"] = pool.RootTaskID

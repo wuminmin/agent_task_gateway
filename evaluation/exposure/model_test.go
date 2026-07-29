@@ -25,39 +25,14 @@ func TestExposureEvaluationCorpus(t *testing.T) {
 		report.RQ3.OutcomeProbing.EquivalentRewriteCharge != 0 {
 		t.Fatalf("incomplete exposure report: %+v", report)
 	}
-	if report.SchemaVersion != 6 || report.ProfileVersion != exposure.ProfileV3 {
-		t.Fatalf("exposure report schema/profile = %d/%s, want 6/%s", report.SchemaVersion, report.ProfileVersion, exposure.ProfileV3)
+	if report.SchemaVersion != 7 || report.ProfileVersion != exposure.ProfileV3 {
+		t.Fatalf("exposure report schema/profile = %d/%s, want 7/%s", report.SchemaVersion, report.ProfileVersion, exposure.ProfileV3)
 	}
 	if report.RQ4Status != "measured_controlled_local_postgresql_campaign" {
 		t.Fatalf("RQ4 status is stale: %q", report.RQ4Status)
 	}
 	if len(report.CorpusSHA256) != 64 {
 		t.Fatalf("report provenance = sha %q", report.CorpusSHA256)
-	}
-}
-
-func TestPolicyCalibrationUsesExactFactSetUnions(t *testing.T) {
-	report, err := Run()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if report.RQ5Policy.Status != "complete_deterministic_policy_calibration" ||
-		report.RQ5Policy.FixtureRows != 16 || len(report.RQ5Policy.Scenarios) != 3 {
-		t.Fatalf("incomplete policy calibration: %+v", report.RQ5Policy)
-	}
-	for _, scenario := range report.RQ5Policy.Scenarios {
-		if scenario.Goals != 3 || scenario.FullReleaseFacts == 0 || scenario.FullDependencyFacts == 0 ||
-			len(scenario.Curve) != 4 || scenario.Curve[len(scenario.Curve)-1].UtilityPercent != 100 {
-			t.Fatalf("incomplete policy scenario %s: %+v", scenario.ID, scenario)
-		}
-		if got := scenario.DependencyBreakdown.Rows + scenario.DependencyBreakdown.OrdinaryFields +
-			scenario.DependencyBreakdown.SensitiveFields + scenario.DependencyBreakdown.Derived; got != scenario.FullDependencyFacts {
-			t.Fatalf("dependency classification for %s sums to %d, want %d", scenario.ID, got, scenario.FullDependencyFacts)
-		}
-		if got := scenario.ReleaseBreakdown.Rows + scenario.ReleaseBreakdown.OrdinaryFields +
-			scenario.ReleaseBreakdown.SensitiveFields + scenario.ReleaseBreakdown.Derived; got != scenario.FullReleaseFacts {
-			t.Fatalf("release classification for %s sums to %d, want %d", scenario.ID, got, scenario.FullReleaseFacts)
-		}
 	}
 }
 

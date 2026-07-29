@@ -177,8 +177,9 @@ budget_profiles:
 
 V3 的三个 exposure 上限必须同时为正；禁用时三者均为零且 Profile 为空。
 V2 兼容 Profile 的 outcome 上限保持为零。默认 Catalog 启用 V3。
-客户端 `requested_budget` 接受 `max_queries`、`max_rows`、
-`max_release_facts`、`max_influence_facts` 和 `max_outcome_facts`，且都只能缩小 Profile 上限。
+Profile 是经治理、允许被完整消耗的容量边界。Agent 不能选择更小预算；Gateway
+按审批路由绑定整个 Profile。若完整额度并不安全，应由 Catalog 管理者降低并发布
+新版本，而不能依赖 Agent 节约。
 资源预算先预留再按实际量结算；exposure 则在结果产生后按相对根任务已知集合
 的 novel facts 结算。资源预算达到硬上限会归档任务，exposure 超限会拒绝且
 不释放当前结果；后续调用仍可选择更低成本或完全重复的已知事实。

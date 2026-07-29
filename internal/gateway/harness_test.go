@@ -321,7 +321,7 @@ func (harness *gatewayHarness) createTaskWithGrantAndExposureProfile(t *testing.
 	if err := harness.store.CreateTask(context.Background(), control.Task{
 		ID: taskID, PrincipalID: harness.alice.ID, Objective: "summarize travel expenses",
 		State: control.TaskAwaitingApproval, CatalogVersion: harness.catalog.CatalogVersion,
-		Sensitivity: string(sensitivity), RequestedBudget: json.RawMessage(`{}`),
+		Sensitivity:    string(sensitivity),
 		RequestContext: pending, ApprovalRef: "seed-draft-" + taskID,
 		CreatedAt: harness.clock.value, UpdatedAt: harness.clock.value,
 	}); err != nil {

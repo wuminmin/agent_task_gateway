@@ -16,7 +16,6 @@ ROOT = PAPER_DIR.parent.parent
 RESULT = ROOT / "evaluation/exposure/results.json"
 CORPUS = ROOT / "evaluation/exposure/corpus.json"
 RQ1_ORACLE = ROOT / "evaluation/exposureoracle/oracle.go"
-POLICY_MANIFEST = ROOT / "evaluation/exposure/policy_scenarios.json"
 PERFORMANCE = ROOT / "evaluation/exposure-performance/results.json"
 PERFORMANCE_ENVIRONMENT = ROOT / "evaluation/exposure-performance/environment.json"
 PERFORMANCE_SUMMARIZER = ROOT / "evaluation/exposure-performance/summarize_campaign.py"
@@ -145,7 +144,7 @@ def storage_source_sha256() -> str:
 def validate_exposure() -> dict:
     report = load_json(RESULT)
     require(
-        report.get("schema_version") == 6
+        report.get("schema_version") == 7
         and report.get("profile_version") == "taskgate-exposure-v3",
         "unsupported exposure report schema/profile",
     )
@@ -301,40 +300,6 @@ def validate_exposure() -> dict:
         and all(len(curve.get("points", [])) >= 4 for curve in scaling.get("curves", [])),
         "RQ4 scaling evidence is incomplete",
     )
-    policy = report.get("rq5_policy_calibration", {})
-    scenarios = policy.get("scenarios", [])
-    require(
-        policy.get("status") == "complete_deterministic_policy_calibration"
-        and policy.get("manifest_sha256") == sha256(POLICY_MANIFEST)
-        and policy.get("utility_metric") == "fraction of predeclared workflow goals admitted"
-        and policy.get("fixture_rows") == relation_rows == 16
-        and policy.get("budget_percentages") == [25, 50, 75, 100]
-        and len(scenarios) == 3,
-        "RQ5 policy-calibration evidence is incomplete",
-    )
-    scenario_ids = {item.get("id") for item in scenarios}
-    require(
-        scenario_ids == {"finance_summary", "case_review", "delegated_escalation"},
-        "RQ5 policy scenarios are unexpected",
-    )
-    for scenario in scenarios:
-        release = scenario.get("release_breakdown", {})
-        dependency = scenario.get("dependency_breakdown", {})
-        curve = scenario.get("budget_utility_curve", [])
-        require(
-            scenario.get("goals") == 3
-            and scenario.get("full_release_facts", 0) > 0
-            and scenario.get("full_dependency_facts", 0) > 0
-            and sum(release.get(key, 0) for key in ("row_facts", "ordinary_field_facts", "sensitive_field_facts", "derived_facts"))
-            == scenario.get("full_release_facts")
-            and sum(dependency.get(key, 0) for key in ("row_facts", "ordinary_field_facts", "sensitive_field_facts", "derived_facts"))
-            == scenario.get("full_dependency_facts")
-            and [point.get("percent_of_full_dual_budget") for point in curve] == [25, 50, 75, 100]
-            and [point.get("utility_percent") for point in curve] == sorted(point.get("utility_percent") for point in curve)
-            and curve[-1].get("goals_completed") == 3
-            and curve[-1].get("utility_percent") == 100,
-            f"RQ5 policy scenario {scenario.get('id')} is inconsistent",
-        )
     return report
 
 
@@ -600,14 +565,6 @@ def main() -> None:
     rq2 = report["rq2_rewrite_invariance"]
     rq3 = report["rq3_anti_arbitrage"]
     outcome = rq3["outcome_probing"]
-    policy = report["rq5_policy_calibration"]
-    policy_scenarios = {item["id"]: item for item in policy["scenarios"]}
-    finance = policy_scenarios["finance_summary"]
-    review = policy_scenarios["case_review"]
-    delegation = policy_scenarios["delegated_escalation"]
-    finance_curve = {point["percent_of_full_dual_budget"]: point for point in finance["budget_utility_curve"]}
-    review_curve = {point["percent_of_full_dual_budget"]: point for point in review["budget_utility_curve"]}
-    delegation_curve = {point["percent_of_full_dual_budget"]: point for point in delegation["budget_utility_curve"]}
     exposure_invariance = report["rq2_exposure_invariance"]
     scaling = report["rq4_scaling"]
     scaling_curves = {curve["dimension"]: curve for curve in scaling["curves"]}
@@ -770,23 +727,6 @@ def main() -> None:
         rf"\newcommand{{\RQTwoExposureNFCases}}{{{exposure_invariance['normal_form_checks']}}}",
         rf"\newcommand{{\RQTwoExposureEffectChecks}}{{{exposure_invariance['effect_checks']}}}",
         rf"\newcommand{{\RQTwoExposureMismatches}}{{{exposure_invariance['mismatches']}}}",
-        rf"\newcommand{{\RQFiveScenarios}}{{{len(policy['scenarios'])}}}",
-        rf"\newcommand{{\RQFiveGoals}}{{{sum(item['goals'] for item in policy['scenarios'])}}}",
-        rf"\newcommand{{\RQFiveFinanceFull}}{{({finance['full_release_facts']},{finance['full_dependency_facts']})}}",
-        rf"\newcommand{{\RQFiveReviewFull}}{{({review['full_release_facts']},{review['full_dependency_facts']})}}",
-        rf"\newcommand{{\RQFiveDelegationFull}}{{({delegation['full_release_facts']},{delegation['full_dependency_facts']})}}",
-        rf"\newcommand{{\RQFiveFinanceClasses}}{{{finance['dependency_breakdown']['row_facts']}/{finance['dependency_breakdown']['ordinary_field_facts']}/{finance['dependency_breakdown']['sensitive_field_facts']}/{finance['aggregate_dependency_facts']}}}",
-        rf"\newcommand{{\RQFiveReviewClasses}}{{{review['dependency_breakdown']['row_facts']}/{review['dependency_breakdown']['ordinary_field_facts']}/{review['dependency_breakdown']['sensitive_field_facts']}/{review['aggregate_dependency_facts']}}}",
-        rf"\newcommand{{\RQFiveDelegationClasses}}{{{delegation['dependency_breakdown']['row_facts']}/{delegation['dependency_breakdown']['ordinary_field_facts']}/{delegation['dependency_breakdown']['sensitive_field_facts']}/{delegation['aggregate_dependency_facts']}}}",
-        rf"\newcommand{{\RQFiveFinanceQuarter}}{{({finance_curve[25]['release_budget']},{finance_curve[25]['dependency_budget']})/{finance_curve[25]['utility_percent']}}}",
-        rf"\newcommand{{\RQFiveFinanceHalf}}{{({finance_curve[50]['release_budget']},{finance_curve[50]['dependency_budget']})/{finance_curve[50]['utility_percent']}}}",
-        rf"\newcommand{{\RQFiveFinanceThreeQuarter}}{{({finance_curve[75]['release_budget']},{finance_curve[75]['dependency_budget']})/{finance_curve[75]['utility_percent']}}}",
-        rf"\newcommand{{\RQFiveReviewQuarter}}{{({review_curve[25]['release_budget']},{review_curve[25]['dependency_budget']})/{review_curve[25]['utility_percent']}}}",
-        rf"\newcommand{{\RQFiveReviewHalf}}{{({review_curve[50]['release_budget']},{review_curve[50]['dependency_budget']})/{review_curve[50]['utility_percent']}}}",
-        rf"\newcommand{{\RQFiveReviewThreeQuarter}}{{({review_curve[75]['release_budget']},{review_curve[75]['dependency_budget']})/{review_curve[75]['utility_percent']}}}",
-        rf"\newcommand{{\RQFiveDelegationQuarter}}{{({delegation_curve[25]['release_budget']},{delegation_curve[25]['dependency_budget']})/{delegation_curve[25]['utility_percent']}}}",
-        rf"\newcommand{{\RQFiveDelegationHalf}}{{({delegation_curve[50]['release_budget']},{delegation_curve[50]['dependency_budget']})/{delegation_curve[50]['utility_percent']}}}",
-        rf"\newcommand{{\RQFiveDelegationThreeQuarter}}{{({delegation_curve[75]['release_budget']},{delegation_curve[75]['dependency_budget']})/{delegation_curve[75]['utility_percent']}}}",
         rf"\newcommand{{\BaseQueryCount}}{{{baseline['query_count']}}}",
         rf"\newcommand{{\BaseRows}}{{{baseline['returned_rows']}}}",
         rf"\newcommand{{\BaseBytes}}{{{baseline['serialized_bytes']}}}",

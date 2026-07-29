@@ -30,15 +30,14 @@ func TestParseValidCatalogAndResolvePolicy(t *testing.T) {
 	if len(parsed.SHA256) != 64 {
 		t.Fatalf("catalog SHA-256 = %q, want 64 lowercase hex characters", parsed.SHA256)
 	}
-	maxRows := int64(50)
-	policy, err := parsed.ResolveTaskPolicy([]string{"expense_summary", "expense_detail"}, &domain.BudgetRequest{MaxRows: &maxRows})
+	policy, err := parsed.ResolveTaskPolicy([]string{"expense_summary", "expense_detail"})
 	if err != nil {
 		t.Fatalf("ResolveTaskPolicy returned error: %v", err)
 	}
 	if policy.Sensitivity != domain.SensitivityHigh || policy.ApprovalRoute.Mode != domain.ApprovalModeManual {
 		t.Fatalf("unexpected policy routing: %#v", policy)
 	}
-	if policy.Budget.MaxRows != maxRows || policy.Budget.TaskTTL != 15*time.Minute {
+	if policy.Budget.MaxRows != 100 || policy.Budget.TaskTTL != 15*time.Minute {
 		t.Fatalf("unexpected policy budget: %#v", policy.Budget)
 	}
 }

@@ -183,7 +183,7 @@ func (s *Server) dispatch(ctx context.Context, principal Principal, rpcRequest r
 		return map[string]any{
 			"protocolVersion": negotiated,
 			"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
-			"serverInfo":      map[string]any{"name": "taskbound-agent-data-gateway", "version": "2.0.0"},
+			"serverInfo":      map[string]any{"name": "taskbound-agent-data-gateway", "version": "2.1.0"},
 			"instructions":    "Create an approved task before querying. Task grants can only narrow and all queries are audited.",
 		}, nil
 	case "ping":

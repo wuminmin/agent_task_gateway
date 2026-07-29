@@ -96,9 +96,6 @@ func bootstrapScale(ctx context.Context, opts options) error {
 					"scale_lineitem": {"l_orderkey", "l_linenumber", "l_extendedprice"},
 				},
 				"scopes": map[string]any{"dataset_partition": []string{"1"}},
-				"requested_budget": map[string]int64{
-					"max_queries": 4, "max_rows": 10, "max_release_facts": 100, "max_influence_facts": 1200000,
-				},
 			}
 			var created struct {
 				TaskID string `json:"task_id"`

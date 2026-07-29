@@ -59,7 +59,7 @@ func createAwaitingApprovalTask(t *testing.T, store *Store, taskID string, expir
 	}
 	if err := store.CreateTask(ctx, Task{
 		ID: taskID, PrincipalID: principalID, Objective: "analyze travel spend", State: TaskAwaitingApproval,
-		CatalogVersion: "catalog-v1", RequestedBudget: []byte(`{"queries":2}`),
+		CatalogVersion: "catalog-v1",
 		RequestContext: []byte(`{"products":["expense_summary"],"scope":{"department":"sales"}}`),
 		ExpiresAt:      &expires,
 	}); err != nil {

@@ -20,8 +20,6 @@ exposure report. `generate_evidence.py` then verifies:
 - all raw files for the three-trial RQ4 campaign, including 7,896 full-path and
   23,400 ablation samples, reconstructed summaries, environment digest, and
   the digest of the current gateway/benchmark source;
-- the three illustrative RQ5 policy fixtures, nine author-declared binary goals,
-  fact-class calibration, and exact dual-budget/utility curves;
 - the three-scale PostgreSQL 16 Join--Group report, its 27 direct/novel/replay
   points, exact million-fact accounting, raw-artifact digest, implementation
   digest, and service memory peaks;
@@ -37,25 +35,6 @@ Complete typing/big-step rules, output-key cases, and the detailed operator
 coverage matrix are also in the supplement; the main paper retains the effect
 summary and safety properties. A local TeX syntax build is available through
 `paper/tkde/build.sh`, but it still uses Docker for the exposure evaluation.
-
-The manuscript also identifies `evaluation/workflow-study` as a designed but
-uncollected, participant-free controlled Agent benchmark. It registers 18
-unbudgeted workflows on six business-motivated synthetic calibration task
-specifications held out only by task identifier, objective, and scoring role on
-the exact frozen snapshot used for evaluation, freezes
-per-domain algorithmic budgets, and then schedules 576 budgeted plus 60
-unbudgeted-reference evaluation workflows on twelve separate synthetic task
-specifications. Its DeepSeek adapter, baseline controllers, deterministic
-answer/trace scoring, and answer-score--exposure
-frontier analysis are not consumed as RQ5 results and must not be described as
-collected evidence. Even after collection, they cannot support claims about
-human budget comprehension, approval usability, empirical task
-representativeness, organizational adoption, or production utility. The lock
-records a hosted model alias, provider release label, sampling/tool limits, and
-campaign identity; it cannot freeze provider-side weights behind that alias.
-Without an external append-only anchor, retained artifact hashes also cannot
-prove that no calibration output was deleted or replaced before budget
-freezing.
 
 The draft reports controlled single-host evidence, including a TPC-H-derived
 (not official TPC-H) workload up to 225,000 joined members and 1,035,000

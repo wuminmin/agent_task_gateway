@@ -171,7 +171,7 @@ func TestRetentionAdminEndpointsRequireAuthAndManageHold(t *testing.T) {
 	}
 	if err := store.CreateTask(ctx, control.Task{
 		ID: "task-admin-retention", PrincipalID: "principal_admin_retention", Objective: "retention admin test",
-		State: control.TaskAwaitingApproval, CatalogVersion: "catalog-v1", RequestedBudget: []byte(`{"queries":1}`),
+		State: control.TaskAwaitingApproval, CatalogVersion: "catalog-v1",
 		RequestContext: []byte(`{}`), ExpiresAt: &expires, CreatedAt: expires.Add(-time.Hour), UpdatedAt: expires.Add(-time.Hour),
 	}); err != nil {
 		t.Fatalf("CreateTask: %v", err)

@@ -203,6 +203,13 @@ func TestDelegatedTaskSharesRootExposureAndStopsWithParent(t *testing.T) {
 		"columns":       map[string][]string{"expense_summary": {"month", "total_amount"}},
 		"scopes":        map[string]any{"department": []any{"销售部"}},
 	})
+	if request["budget_source"] != "catalog_profile_intersect_parent_grant" || request["budget_profile"] != "summary-manual-v3" {
+		t.Fatalf("delegated budget provenance = %#v", request)
+	}
+	delegatedBudget, ok := request["budget"].(map[string]any)
+	if !ok || delegatedBudget["max_release_facts"] != int64(20) || delegatedBudget["max_influence_facts"] != int64(20) || delegatedBudget["max_outcome_facts"] != int64(5) {
+		t.Fatalf("delegated budget was not intersected with the parent grant: %#v", request["budget"])
+	}
 	childID := request["task_id"].(string)
 	child, err := harness.store.GetTask(context.Background(), childID)
 	if err != nil {

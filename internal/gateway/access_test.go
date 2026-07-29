@@ -27,14 +27,14 @@ func TestAliceCannotObserveAnotherQueryPrincipalTask(t *testing.T) {
 		{
 			ID: "task-alice", PrincipalID: harness.alice.ID, Objective: "alice task",
 			State: control.TaskAwaitingSubmission, CatalogVersion: harness.catalog.CatalogVersion,
-			RequestedBudget: json.RawMessage(`{}`), RequestContext: json.RawMessage(`{}`),
-			CreatedAt: harness.clock.value, UpdatedAt: harness.clock.value,
+			RequestContext: json.RawMessage(`{}`),
+			CreatedAt:      harness.clock.value, UpdatedAt: harness.clock.value,
 		},
 		{
 			ID: "task-other", PrincipalID: other.ID, Objective: "other task",
 			State: control.TaskAwaitingSubmission, CatalogVersion: harness.catalog.CatalogVersion,
-			RequestedBudget: json.RawMessage(`{}`), RequestContext: json.RawMessage(`{}`),
-			CreatedAt: harness.clock.value, UpdatedAt: harness.clock.value,
+			RequestContext: json.RawMessage(`{}`),
+			CreatedAt:      harness.clock.value, UpdatedAt: harness.clock.value,
 		},
 	} {
 		if err := harness.store.CreateTask(ctx, task); err != nil {

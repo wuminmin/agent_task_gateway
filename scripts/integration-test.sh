@@ -317,7 +317,7 @@ initialize_response=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
   '{"jsonrpc":"2.0","id":2,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"integration-test","version":"1"}}}')
 assert_contains "$initialize_response" '"protocolVersion":"2025-06-18"' "MCP initialize"
 assert_contains "$initialize_response" '"name":"taskbound-agent-data-gateway"' "MCP initialize"
-assert_contains "$initialize_response" '"version":"2.0.0"' "MCP initialize"
+assert_contains "$initialize_response" '"version":"2.1.0"' "MCP initialize"
 assert_not_contains "$initialize_response" '"error"' "MCP initialize"
 pass "MCP initialize succeeds with Alice credentials"
 
@@ -368,11 +368,13 @@ pass "deterministic task listing works"
 # Alice submits an explicit low-sensitivity summary request. Low sensitivity
 # still requires a separate human approval by Bob.
 summary_request=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
-  '{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"request_data_task","arguments":{"objective":"按月份分析销售部差旅报销","data_products":["expense_summary"],"columns":{"expense_summary":["month","total_amount"]},"scopes":{"department":["销售部"]},"requested_budget":{"max_queries":2,"max_rows":50}}}}')
+  '{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"request_data_task","arguments":{"objective":"按月份分析销售部差旅报销","data_products":["expense_summary"],"columns":{"expense_summary":["month","total_amount"]},"scopes":{"department":["销售部"]}}}}')
 assert_contains "$summary_request" '"isError":false' "summary task request"
 assert_contains "$summary_request" '"approval_mode":"manual"' "summary task approval route"
 assert_contains "$summary_request" '"exposure_profile_version":"taskgate-exposure-v3"' "summary V3 profile"
 assert_contains "$summary_request" '"max_outcome_facts":10' "summary V3 outcome ceiling"
+assert_contains "$summary_request" '"budget_source":"catalog_profile"' "summary Catalog budget source"
+assert_contains "$summary_request" '"max_queries":10' "summary complete Catalog query budget"
 summary_task=$(json_string "$summary_request" task_id)
 summary_oa_url=$(json_string "$summary_request" oa_url)
 [ -n "$summary_task" ] && [ -n "$summary_oa_url" ] || fail "summary request omitted task_id or oa_url"
@@ -431,11 +433,16 @@ assert_contains "$carol_receipt" '"current_hash":' "persisted audit chain"
 assert_not_contains "$carol_receipt" '"columns":' "Carol audit receipt raw columns"
 pass "Gateway restart preserves task, budget, encrypted result, and audit evidence"
 
-# The second allowed query is returned and atomically exhausts max_queries,
-# after which the task is archived and cannot execute again.
-summary_last_query=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
-  "{\"jsonrpc\":\"2.0\",\"id\":14,\"method\":\"tools/call\",\"params\":{\"name\":\"execute_plan\",\"arguments\":{\"task_id\":\"$summary_task\",\"request_id\":\"integration-summary-plan-2\",\"plan\":{\"product\":\"expense_summary\",\"columns\":[\"month\",\"total_amount\"],\"order_by\":[{\"column\":\"month\",\"direction\":\"asc\"}]}}}}")
-assert_contains "$summary_last_query" '"isError":false' "budget-exhausting query"
+# The complete Catalog profile allows ten queries. The final allowed query is
+# returned and atomically exhausts max_queries; no smaller client-selected
+# budget is involved.
+summary_query_index=2
+while [ "$summary_query_index" -le 10 ]; do
+  summary_last_query=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
+    "{\"jsonrpc\":\"2.0\",\"id\":14,\"method\":\"tools/call\",\"params\":{\"name\":\"execute_plan\",\"arguments\":{\"task_id\":\"$summary_task\",\"request_id\":\"integration-summary-plan-$summary_query_index\",\"plan\":{\"product\":\"expense_summary\",\"columns\":[\"month\",\"total_amount\"],\"order_by\":[{\"column\":\"month\",\"direction\":\"asc\"}]}}}}")
+  assert_contains "$summary_last_query" '"isError":false' "Catalog-budget query $summary_query_index"
+  summary_query_index=$((summary_query_index + 1))
+done
 exhausted_status=$(wait_task_state "$summary_task" ARCHIVED)
 assert_contains "$exhausted_status" '"terminal_reason":"budget_exhausted"' "budget exhaustion archive"
 after_exhaustion=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \

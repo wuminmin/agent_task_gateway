@@ -35,13 +35,6 @@ var queryTools = []mcp.Tool{
 			map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "minItems": 1, "uniqueItems": true},
 			objectSchema(map[string]any{"from": map[string]any{"type": "string"}, "to": map[string]any{"type": "string"}}),
 		}}},
-		"requested_budget": objectSchema(map[string]any{
-			"max_queries":         map[string]any{"type": "integer", "minimum": 1},
-			"max_rows":            map[string]any{"type": "integer", "minimum": 1},
-			"max_release_facts":   map[string]any{"type": "integer", "minimum": 1},
-			"max_influence_facts": map[string]any{"type": "integer", "minimum": 1},
-			"max_outcome_facts":   map[string]any{"type": "integer", "minimum": 1},
-		}),
 	}, "objective", "data_products", "columns", "scopes")},
 	{Name: "list_my_tasks", Description: "列出当前 Alice 身份自己的任务。", InputSchema: objectSchema(map[string]any{
 		"state":  map[string]any{"type": "string", "enum": []string{"AWAITING_SUBMISSION", "AWAITING_APPROVAL", "ACTIVE", "ARCHIVED"}},

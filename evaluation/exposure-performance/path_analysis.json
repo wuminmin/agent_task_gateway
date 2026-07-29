@@ -1,28 +1,28 @@
 {
   "schema_version": 1,
   "status": "complete_posthoc_path_analysis",
-  "source_campaign_sha256": "67adae91efaf66e470fc82f8697f819913ca783388a34ad65a152217c2b452b9",
+  "source_campaign_sha256": "7c223c3520e5f059039af55435c4b29cd172145e79c44ac93da300a19a4191ad",
   "trials": 3,
   "classification": "charged facts > 0 is novel; nonzero actual facts and zero charged facts is a history hit",
   "uncertainty": "median point estimate and min-max range of per-trial summaries across three fresh deployments",
   "raw_provenance": [
     {
       "run_id": "rq4-20260728-trial1",
-      "samples_sha256": "82ffeb8a5e27fa105c617c8cf9fbcf1d7bc67e9b6f633f378d4371f42f5a3a8a",
+      "samples_sha256": "b3e10fc677b4c51067b909ce162fc97fa558c35bc5d2af03ece1ed597dfc8f42",
       "ramp_samples": 32,
       "novel_samples": 4,
       "hit_samples": 28
     },
     {
       "run_id": "rq4-20260728-trial2",
-      "samples_sha256": "4d336484a034aa996ee07e3171675d0b3681d0ddfa7e3f56aa79e7808a171de2",
+      "samples_sha256": "bd8ec689ae2e84c9720a94f32fb7ff09a0c987d50e960b9ec7c6714985515808",
       "ramp_samples": 32,
       "novel_samples": 4,
       "hit_samples": 28
     },
     {
       "run_id": "rq4-20260728-trial3",
-      "samples_sha256": "63738376113eb1ce45d7ac75d19852af0a5c63b79981043cf55912ecb153facc",
+      "samples_sha256": "839aa67af745061d028fcdf12a76cdf56de8b5a868496e868afc249a034a1d5f",
       "ramp_samples": 32,
       "novel_samples": 4,
       "hit_samples": 28
@@ -38,20 +38,20 @@
         1
       ],
       "latency_ms": {
-        "p50": 28.315448,
+        "p50": 27.125376,
         "p50_trial_range": [
-          28.293341,
-          28.734368
+          26.720204,
+          38.7706
         ],
-        "p95": 28.315448,
+        "p95": 27.125376,
         "p95_trial_range": [
-          28.293341,
-          28.734368
+          26.720204,
+          38.7706
         ],
-        "mean": 28.315448,
+        "mean": 27.125376,
         "mean_trial_range": [
-          28.293341,
-          28.734368
+          26.720204,
+          38.7706
         ]
       }
     },
@@ -64,20 +64,20 @@
         4
       ],
       "latency_ms": {
-        "p50": 15.021631500000002,
+        "p50": 17.23937,
         "p50_trial_range": [
-          14.6800025,
-          15.5809035
+          16.4587435,
+          18.286361499999998
         ],
-        "p95": 26.607606349999998,
+        "p95": 25.525845449999995,
         "p95_trial_range": [
-          26.282616649999994,
-          26.726821549999997
+          25.357051849999998,
+          35.72803119999999
         ],
-        "mean": 18.2429095,
+        "mean": 19.439788,
         "mean_trial_range": [
-          18.055484,
-          18.389452
+          18.6767245,
+          23.307346000000003
         ]
       }
     },
@@ -90,20 +90,20 @@
         28
       ],
       "latency_ms": {
-        "p50": 13.178441500000002,
+        "p50": 13.9551765,
         "p50_trial_range": [
-          13.047035999999999,
-          14.3410865
+          13.7694255,
+          14.261215499999999
         ],
-        "p95": 15.325907849999998,
+        "p95": 18.7743526,
         "p95_trial_range": [
-          14.49098385,
-          19.522384249999995
+          16.49477675,
+          19.604109449999996
         ],
-        "mean": 13.31385392857143,
+        "mean": 15.015499928571428,
         "mean_trial_range": [
-          13.103865964285713,
-          14.711198357142857
+          13.924795321428572,
+          15.148678178571428
         ]
       }
     }

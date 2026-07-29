@@ -5,6 +5,7 @@ __pycache__/
 *.pyc
 *.local
 evaluation/config/tasks.local.json
+/evaluation/workflow-study/raw/
 *.db
 *.db-shm
 *.db-wal

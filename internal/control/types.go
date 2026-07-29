@@ -38,21 +38,20 @@ type Principal struct {
 }
 
 type Task struct {
-	ID              string
-	PrincipalID     string
-	Objective       string
-	State           TaskState
-	TerminalReason  TerminalReason
-	CatalogVersion  string
-	Sensitivity     string
-	RequestedBudget json.RawMessage
-	RequestContext  json.RawMessage
-	ApprovalRef     string
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	ExpiresAt       *time.Time
-	RootTaskID      string
-	ParentTaskID    string
+	ID             string
+	PrincipalID    string
+	Objective      string
+	State          TaskState
+	TerminalReason TerminalReason
+	CatalogVersion string
+	Sensitivity    string
+	RequestContext json.RawMessage
+	ApprovalRef    string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	ExpiresAt      *time.Time
+	RootTaskID     string
+	ParentTaskID   string
 }
 
 type TaskFilter struct {

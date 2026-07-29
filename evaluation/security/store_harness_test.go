@@ -84,7 +84,7 @@ func createApprovedTask(t *testing.T, store *control.Store, taskID string, limit
 	expires := time.Now().Add(time.Hour)
 	if err := store.CreateTask(ctx, control.Task{
 		ID: taskID, PrincipalID: principalID, Objective: "security experiment", State: control.TaskAwaitingApproval,
-		CatalogVersion: "catalog-v1", RequestedBudget: []byte(`{"queries":64}`),
+		CatalogVersion: "catalog-v1",
 		RequestContext: []byte(`{"products":["expense_summary"],"scope":{"department":"sales"}}`),
 		ExpiresAt:      &expires,
 	}); err != nil {

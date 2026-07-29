@@ -235,7 +235,7 @@ func createDelegatedExposureTask(t *testing.T, store *Store, taskID, parentTaskI
 	}
 	if err := store.CreateTask(context.Background(), Task{ID: taskID, PrincipalID: parent.PrincipalID,
 		Objective: "delegated analysis", State: TaskAwaitingApproval, CatalogVersion: parent.CatalogVersion,
-		RequestedBudget: []byte(`{}`), RequestContext: []byte(`{}`), ParentTaskID: parentTaskID, ExpiresAt: &expires}); err != nil {
+		RequestContext: []byte(`{}`), ParentTaskID: parentTaskID, ExpiresAt: &expires}); err != nil {
 		t.Fatalf("create delegated task: %v", err)
 	}
 	approveExposureTask(t, store, taskID, expires, limits)

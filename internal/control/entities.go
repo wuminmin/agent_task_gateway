@@ -112,10 +112,6 @@ func (s *Store) CreateTask(ctx context.Context, task Task) error {
 	if !validTaskState(task.State) || (task.State != TaskArchived && task.TerminalReason != "") || (task.State == TaskArchived && task.TerminalReason == "") {
 		return opErr(op, ErrInvalid, fmt.Errorf("invalid state/terminal reason combination"))
 	}
-	requested, err := normalizeJSON(task.RequestedBudget, `{}`)
-	if err != nil {
-		return opErr(op, ErrInvalid, fmt.Errorf("requested budget: %w", err))
-	}
 	requestContext, err := normalizeJSON(task.RequestContext, `{}`)
 	if err != nil {
 		return opErr(op, ErrInvalid, fmt.Errorf("request context: %w", err))
@@ -163,10 +159,10 @@ func (s *Store) CreateTask(ctx context.Context, task Task) error {
 	task.RootTaskID = rootTaskID
 	_, err = tx.ExecContext(ctx, `
 	INSERT INTO tasks(id, principal_id, objective, state, terminal_reason, catalog_version, sensitivity,
-	                  requested_budget_json, request_context_json, approval_ref, created_at, updated_at, expires_at,
+	                  request_context_json, approval_ref, created_at, updated_at, expires_at,
 	                  root_task_id, parent_task_id)
-	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NULLIF($15, ''))`, task.ID, task.PrincipalID, task.Objective, task.State,
-		task.TerminalReason, task.CatalogVersion, task.Sensitivity, string(requested), string(requestContext), task.ApprovalRef,
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NULLIF($14, ''))`, task.ID, task.PrincipalID, task.Objective, task.State,
+		task.TerminalReason, task.CatalogVersion, task.Sensitivity, string(requestContext), task.ApprovalRef,
 		dbTime(task.CreatedAt), dbTime(task.UpdatedAt), nullableTime(task.ExpiresAt), task.RootTaskID, task.ParentTaskID)
 	if err != nil {
 		return opErr(op, ErrConflict, err)
@@ -195,23 +191,22 @@ func (s *Store) GetTask(ctx context.Context, id string) (Task, error) {
 }
 
 const taskSelect = `SELECT id, principal_id, objective, state, terminal_reason, catalog_version, sensitivity,
-	requested_budget_json, request_context_json, approval_ref, created_at, updated_at, expires_at,
+	request_context_json, approval_ref, created_at, updated_at, expires_at,
 	root_task_id, COALESCE(parent_task_id, '') FROM tasks`
 
 func scanTask(op string, row rowScanner) (Task, error) {
 	var task Task
-	var requested, requestContext []byte
+	var requestContext []byte
 	var created, updated time.Time
 	var expires sql.NullTime
 	if err := row.Scan(&task.ID, &task.PrincipalID, &task.Objective, &task.State, &task.TerminalReason,
-		&task.CatalogVersion, &task.Sensitivity, &requested, &requestContext, &task.ApprovalRef, &created, &updated, &expires,
+		&task.CatalogVersion, &task.Sensitivity, &requestContext, &task.ApprovalRef, &created, &updated, &expires,
 		&task.RootTaskID, &task.ParentTaskID); err != nil {
 		if isNoRows(err) {
 			return Task{}, opErr(op, ErrNotFound, err)
 		}
 		return Task{}, opErr(op, ErrConflict, err)
 	}
-	task.RequestedBudget = append(json.RawMessage(nil), requested...)
 	task.RequestContext = append(json.RawMessage(nil), requestContext...)
 	task.CreatedAt = dbTime(created)
 	task.UpdatedAt = dbTime(updated)

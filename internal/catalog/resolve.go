@@ -101,7 +101,7 @@ func (c *Catalog) ResolveProducts(names []string) ([]Product, domain.Sensitivity
 	return products, highest, nil
 }
 
-func (c *Catalog) ResolveTaskPolicy(names []string, request *domain.BudgetRequest) (TaskPolicy, error) {
+func (c *Catalog) ResolveTaskPolicy(names []string) (TaskPolicy, error) {
 	products, sensitivity, err := c.ResolveProducts(names)
 	if err != nil {
 		return TaskPolicy{}, err
@@ -115,12 +115,6 @@ func (c *Catalog) ResolveTaskPolicy(names []string, request *domain.BudgetReques
 		return TaskPolicy{}, fmt.Errorf("%w: route budget profile is missing", ErrInvalidBudgetProfile)
 	}
 	budget := profile.Budget()
-	if request != nil {
-		budget, err = request.Apply(budget)
-		if err != nil {
-			return TaskPolicy{}, fmt.Errorf("requested budget: %w", err)
-		}
-	}
 	return TaskPolicy{
 		Products:      products,
 		Sensitivity:   sensitivity,

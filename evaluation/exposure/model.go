@@ -154,7 +154,6 @@ type Report struct {
 	RQ3            AdversarialSummary       `json:"rq3_anti_arbitrage"`
 	RQ4Status      string                   `json:"rq4_runtime_overhead_status"`
 	RQ4Scaling     ScalingSummary           `json:"rq4_scaling"`
-	RQ5Policy      PolicyCalibrationSummary `json:"rq5_policy_calibration"`
 	Baselines      BaselineSummary          `json:"charge_baselines"`
 }
 
@@ -171,7 +170,7 @@ func Run() (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
-	report := Report{SchemaVersion: 6, ProfileVersion: exposure.ProfileV3,
+	report := Report{SchemaVersion: 7, ProfileVersion: exposure.ProfileV3,
 		CorpusSHA256: fmt.Sprintf("%x", sha256.Sum256(corpusJSON)),
 		RQ4Status:    "measured_controlled_local_postgresql_campaign"}
 	report.RQ1 = ValidationSummary{DatasetRelations: relationsCount, DatasetRows: rowsCount,
@@ -224,10 +223,6 @@ func Run() (Report, error) {
 		return Report{}, err
 	}
 	report.RQ4Scaling, err = RunScaling()
-	if err != nil {
-		return Report{}, err
-	}
-	report.RQ5Policy, err = runPolicyCalibration(fixtures.ProfileVersion, fixtures, relations)
 	if err != nil {
 		return Report{}, err
 	}

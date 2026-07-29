@@ -2,7 +2,7 @@
 
 ## 目标与边界
 
-本项目提供一个本地、单 Gateway 实例的数据访问 Demo。Agent 先显式申请目的、产品、字段、Scope、预算和期限，经 OA 审批后，才可提交声明式 QueryPlan 或 PostgreSQL `SELECT`。Gateway 内没有模型客户端、Prompt 或自然语言翻译器。
+本项目提供一个本地、单 Gateway 实例的数据访问 Demo。Agent 先显式申请目的、产品、字段和 Scope；Gateway 绑定 Catalog 预定义的完整预算与期限，经 OA 审批后，才可提交声明式 QueryPlan 或 PostgreSQL `SELECT`。Gateway 内没有模型客户端、Prompt 或自然语言翻译器。
 
 不建设新的 OA、BI 或数据仓库，不复制生产数据库，不安装 PostgreSQL 扩展，不管理 Agent Skill，也不负责图表渲染。
 
@@ -29,7 +29,7 @@ docker compose
 查询者工具：
 
 - `list_data_products()`
-- `request_data_task(objective, data_products, columns, scopes, requested_budget?)`
+- `request_data_task(objective, data_products, columns, scopes)`
 - `list_my_tasks(state?, cursor?)`
 - `get_task_status(task_id)`
 - `wait_for_approval(task_id, timeout_seconds?)`
@@ -47,13 +47,13 @@ docker compose
 - `list_audit_events(task_id?, actor?, event_type?, cursor?)`
 - `get_audit_receipt(receipt_id)`
 
-`serverInfo.version` 固定为 `2.0.0`。Alice 只能访问自己的任务与结果；Carol 只读审计凭证，不读取原始行。
+`serverInfo.version` 固定为 `2.1.0`。Alice 只能访问自己的任务与结果；Carol 只读审计凭证，不读取原始行。
 
 ### 任务申请
 
 `objective`、`data_products`、`columns`、`scopes` 都是必填。每个产品必须有非空字段列表；Gateway 不自动选择全字段，也不推断缺失 Scope。Agent 应先从 `list_data_products` 读取 Scope 定义、枚举值和日期边界。
 
-Catalog 决定敏感级别、审批路由、最大预算和 TTL。客户端 `requested_budget` 只能缩小 `max_queries` 与 `max_rows`，不能扩大 Profile 上限。
+Catalog 决定敏感级别、审批路由、完整预算和 TTL。Agent 不提交预算：Gateway 选择对应 Profile 并把全部额度绑定到审批 Manifest。OA 的显式人工收缩仍属于授权决定，不能由 Agent 或运行时校准逻辑触发。
 
 ### QueryPlan
 

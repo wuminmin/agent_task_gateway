@@ -68,7 +68,7 @@ Content-Type: application/json
 
 内置客户端超时 5 秒，响应体上限 64 KiB。创建失败时 Gateway 不创建本地任务；若 OA 已创建草稿而后续控制 PostgreSQL 写入失败，当前 Demo 没有补偿删除协议，生产适配器应提供幂等创建和补偿/对账机制。
 
-OA 展示 Gateway 已确定的目标、Agent/人类身份、产品、字段、强制范围、敏感级别、资源预算、release/influence/outcome 上限、有效期、目录版本与 Manifest Hash。创建、提交和决定前都会重验 Hash。人工审批可明确 `approve/reject/narrow`；Demo 表单可缩小产品、字段、枚举/日期范围、期限和预算。协议层也校验敏感级别只能降低、绝不能提高，但 Demo 表单不提供敏感级别编辑控件。任何扩权都会被 OA 与 Gateway 双重拒绝。
+OA 展示 Gateway 已确定的目标、Agent/人类身份、产品、字段、强制范围、敏感级别、Catalog 完整资源预算、release/influence/outcome 上限、有效期、目录版本与 Manifest Hash。创建、提交和决定前都会重验 Hash。人工审批可明确 `approve/reject/narrow`；Demo 表单可缩小产品、字段、枚举/日期范围、期限和预算。该动作是可信审批人的显式授权收缩，不是 Agent 自选预算或自动利用率校准。协议层也校验敏感级别只能降低、绝不能提高，但 Demo 表单不提供敏感级别编辑控件。任何扩权都会被 OA 与 Gateway 双重拒绝。
 
 委托任务的 Manifest 还包含 `root_task_id` 和 `parent_task_id`。OA 签发的
 `TaskGrantCoreV1` 必须原样绑定该 lineage；Gateway 会将 child Grant 与已验签

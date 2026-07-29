@@ -52,23 +52,14 @@ func (s *Service) listDataProducts(_ context.Context, _ mcp.Principal, raw json.
 	}, nil
 }
 
-type requestedBudgetArgs struct {
-	MaxQueries        *int64 `json:"max_queries,omitempty"`
-	MaxRows           *int64 `json:"max_rows,omitempty"`
-	MaxReleaseFacts   *int64 `json:"max_release_facts,omitempty"`
-	MaxInfluenceFacts *int64 `json:"max_influence_facts,omitempty"`
-	MaxOutcomeFacts   *int64 `json:"max_outcome_facts,omitempty"`
-}
-
 func (s *Service) requestDataTask(ctx context.Context, principal mcp.Principal, raw json.RawMessage) (any, error) {
 	var args struct {
-		Objective           string               `json:"objective"`
-		ParentTaskID        string               `json:"parent_task_id,omitempty"`
-		DelegatePrincipalID string               `json:"delegate_principal_id,omitempty"`
-		DataProducts        []string             `json:"data_products"`
-		Columns             map[string][]string  `json:"columns"`
-		Scopes              map[string]any       `json:"scopes"`
-		RequestedBudget     *requestedBudgetArgs `json:"requested_budget,omitempty"`
+		Objective           string              `json:"objective"`
+		ParentTaskID        string              `json:"parent_task_id,omitempty"`
+		DelegatePrincipalID string              `json:"delegate_principal_id,omitempty"`
+		DataProducts        []string            `json:"data_products"`
+		Columns             map[string][]string `json:"columns"`
+		Scopes              map[string]any      `json:"scopes"`
 	}
 	if err := decodeArgs(raw, &args); err != nil {
 		return nil, err
@@ -134,16 +125,17 @@ func (s *Service) requestDataTask(ctx context.Context, principal mcp.Principal, 
 		}
 		parentCore = &protocol.Core
 	}
-	requestedBudget := budgetRequest(args.RequestedBudget)
-	policy, err := s.catalog.ResolveTaskPolicy(args.DataProducts, requestedBudget)
+	policy, err := s.catalog.ResolveTaskPolicy(args.DataProducts)
 	if err != nil {
-		return nil, &mcp.ToolError{Code: apierr.CodeInvalidRequest, Message: "请求的数据产品或预算不符合目录策略"}
+		return nil, &mcp.ToolError{Code: apierr.CodeInvalidRequest, Message: "请求的数据产品不符合目录策略"}
 	}
+	budgetSource := "catalog_profile"
 	if parentCore != nil {
-		policy.Budget, err = constrainDelegatedBudget(policy.Budget, *parentCore, args.RequestedBudget, now)
+		policy.Budget, err = constrainDelegatedBudget(policy.Budget, *parentCore, now)
 		if err != nil {
-			return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "委托任务试图扩大父任务的授权预算"}
+			return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "委托任务无法继承父任务的授权预算"}
 		}
+		budgetSource = "catalog_profile_intersect_parent_grant"
 	}
 	columns, err := resolveColumns(policy.Products, args.Columns)
 	if err != nil {
@@ -213,14 +205,10 @@ func (s *Service) requestDataTask(ctx context.Context, principal mcp.Principal, 
 	if err != nil {
 		return nil, err
 	}
-	requestedJSON, _ := json.Marshal(args.RequestedBudget)
-	if string(requestedJSON) == "null" {
-		requestedJSON = []byte(`{}`)
-	}
 	if err := s.store.CreateTask(ctx, control.Task{
 		ID: taskID, PrincipalID: taskPrincipalID, Objective: args.Objective,
 		State: control.TaskAwaitingSubmission, CatalogVersion: s.catalog.CatalogVersion,
-		Sensitivity: string(policy.Sensitivity), RequestedBudget: requestedJSON,
+		Sensitivity:    string(policy.Sensitivity),
 		RequestContext: pendingJSON, ApprovalRef: draft.DraftID, CreatedAt: now, UpdatedAt: now,
 		RootTaskID: rootTaskID, ParentTaskID: args.ParentTaskID,
 	}); err != nil {
@@ -230,6 +218,7 @@ func (s *Service) requestDataTask(ctx context.Context, principal mcp.Principal, 
 		"task_id": taskID, "state": control.TaskAwaitingSubmission, "oa_url": draft.URL,
 		"approval_mode": string(policy.ApprovalRoute.Mode), "sensitivity": string(policy.Sensitivity),
 		"catalog_version": s.catalog.CatalogVersion, "datasource_id": evidence.DatasourceID,
+		"budget_source": budgetSource, "budget_profile": policy.BudgetProfile,
 		"schema_digest": evidence.SchemaDigest, "manifest_digest": snapshotSHA256,
 		"root_task_id": defaultString(rootTaskID, taskID), "parent_task_id": args.ParentTaskID,
 		"delegate_principal_id": taskPrincipalID,
@@ -242,41 +231,9 @@ func (s *Service) requestDataTask(ctx context.Context, principal mcp.Principal, 
 	}, nil
 }
 
-func budgetRequest(explicit *requestedBudgetArgs) *domain.BudgetRequest {
-	if explicit == nil {
-		return nil
-	}
-	request := &domain.BudgetRequest{}
-	if explicit.MaxQueries != nil {
-		request.MaxQueries = explicit.MaxQueries
-	}
-	if explicit.MaxRows != nil {
-		request.MaxRows = explicit.MaxRows
-	}
-	if explicit.MaxReleaseFacts != nil {
-		request.MaxReleaseFacts = explicit.MaxReleaseFacts
-	}
-	if explicit.MaxInfluenceFacts != nil {
-		request.MaxInfluenceFacts = explicit.MaxInfluenceFacts
-	}
-	if explicit.MaxOutcomeFacts != nil {
-		request.MaxOutcomeFacts = explicit.MaxOutcomeFacts
-	}
-	return request
-}
-
-func constrainDelegatedBudget(candidate domain.Budget, parent domain.TaskGrantCoreV1, explicit *requestedBudgetArgs, now time.Time) (domain.Budget, error) {
+func constrainDelegatedBudget(candidate domain.Budget, parent domain.TaskGrantCoreV1, now time.Time) (domain.Budget, error) {
 	if err := parent.ValidateAt(now); err != nil {
 		return domain.Budget{}, err
-	}
-	if explicit != nil {
-		if (explicit.MaxQueries != nil && *explicit.MaxQueries > parent.Budget.MaxQueries) ||
-			(explicit.MaxRows != nil && *explicit.MaxRows > parent.Budget.MaxResultRows) ||
-			(explicit.MaxReleaseFacts != nil && *explicit.MaxReleaseFacts > parent.Budget.MaxReleaseFacts) ||
-			(explicit.MaxInfluenceFacts != nil && *explicit.MaxInfluenceFacts > parent.Budget.MaxInfluenceFacts) ||
-			(explicit.MaxOutcomeFacts != nil && *explicit.MaxOutcomeFacts > parent.Budget.MaxOutcomeFacts) {
-			return domain.Budget{}, domain.ErrBudgetExpansion
-		}
 	}
 	remainingTTL := parent.ExpiresAt.Sub(now.UTC())
 	if remainingTTL < time.Millisecond {
