@@ -18,6 +18,7 @@ import math
 import random
 import re
 import statistics
+import tempfile
 from collections import defaultdict
 from pathlib import Path
 from typing import Callable
@@ -56,10 +57,13 @@ SUMMARY_FIELDS = (
     "list_value_precision", "list_value_recall", "list_value_f1",
     "unexpected_answer_element_count", "imperfect_answer_component_count",
     "answer_type_error_count", "invalid_answer_schema", "final_task_failure",
-    "runtime_budget_rejections",
+    "runtime_budget_rejections", "final_format_repair_attempts", "compose_start_attempts",
     "release_facts", "influence_facts", "outcome_facts", EXPOSURE_FIELD,
     *NEUTRAL_FIELDS, "wall_clock_ms", "gateway_latency_ms", "accounting_latency_ms",
-    "exposure_storage_bytes",
+    "exposure_storage_bytes", "provider_model_turns", "provider_request_attempts",
+    "provider_retry_attempts", "provider_prompt_cache_hit_tokens",
+    "provider_prompt_cache_miss_tokens", "provider_completion_tokens",
+    "provider_reasoning_tokens", "provider_estimated_cost_usd",
 )
 CATALOG_COLUMNS = {
     "claim_id", "employee_code", "employee_name", "business_unit", "event_date",
@@ -321,6 +325,22 @@ def metric_sources(run: dict) -> dict:
         value = run.get(section, {})
         if isinstance(value, dict):
             merged.update(value)
+    provider = run.get("provider_api", {})
+    usage = provider.get("token_usage", {}) if isinstance(provider, dict) else {}
+    if isinstance(provider, dict):
+        merged.update({
+            "provider_model_turns": provider.get("model_turns", 0),
+            "provider_request_attempts": provider.get("request_attempts", 0),
+            "provider_retry_attempts": provider.get("retry_attempts", 0),
+            "provider_estimated_cost_usd": provider.get("estimated_cost_usd", 0),
+        })
+    if isinstance(usage, dict):
+        merged.update({
+            "provider_prompt_cache_hit_tokens": usage.get("prompt_cache_hit_tokens", 0),
+            "provider_prompt_cache_miss_tokens": usage.get("prompt_cache_miss_tokens", 0),
+            "provider_completion_tokens": usage.get("completion_tokens", 0),
+            "provider_reasoning_tokens": usage.get("reasoning_tokens", 0),
+        })
     return merged
 
 
@@ -343,8 +363,10 @@ def score_run(run: dict, task: dict, truth: dict) -> dict:
         "phase": run["phase"], "budget_level": level, "status": run["status"],
         "final_task_failure": float(run.get("status") != "completed"),
         "runtime_budget_rejections": int(run.get("runtime_budget_rejections", 0)),
+        "final_format_repair_attempts": int(run.get("final_format_repair_attempts", 0)),
+        "compose_start_attempts": int(run.get("compose_start_attempts", 0)),
     }
-    for field in set(SUMMARY_FIELDS) - {
+    for field in sorted(set(SUMMARY_FIELDS) - {
         "answer_score", "answer_task_complete", "workflow_rubric_score", "workflow_task_complete",
         "trace_guard_score", "answer_evidence_column_coverage", "answer_evidence_eligible",
         "numeric_absolute_error", "numeric_relative_error",
@@ -352,8 +374,8 @@ def score_run(run: dict, task: dict, truth: dict) -> dict:
         "list_value_precision", "list_value_recall", "list_value_f1",
         "unexpected_answer_element_count", "imperfect_answer_component_count",
         "answer_type_error_count", "invalid_answer_schema", "final_task_failure",
-        "runtime_budget_rejections",
-    }:
+        "runtime_budget_rejections", "final_format_repair_attempts", "compose_start_attempts",
+    }):
         base[field] = measured.get(field, 0)
     completed = run.get("status") == "completed"
     answer = run.get("final_answer")
@@ -1052,10 +1074,14 @@ def write_scored_csv(path: Path, rows: list[dict]) -> None:
         return
     fields = [key for key in rows[0] if key != "item_scores"]
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="") as handle:
+    with tempfile.NamedTemporaryFile(
+        "w", encoding="utf-8", newline="", dir=path.parent, delete=False,
+    ) as handle:
         writer = csv.DictWriter(handle, fieldnames=fields, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(rows)
+        temporary = Path(handle.name)
+    temporary.replace(path)
 
 
 def validate_inputs(args: argparse.Namespace) -> tuple[dict, dict, dict, dict]:
@@ -1070,6 +1096,8 @@ def validate_inputs(args: argparse.Namespace) -> tuple[dict, dict, dict, dict]:
     if freeze_validator is None:
         raise ValueError("validate.py lacks validate_algorithmic_freeze")
     frozen = freeze_validator(args.freeze, protocol, args.execution_lock, args.calibration_runs)
+    if file_sha256(args.truth) != frozen["source_file_sha256"]["raw/ground-truth.json"]:
+        raise ValueError("scoring truth differs from the truth bound into the algorithmic freeze")
     run_validator = getattr(validate, "validate_runs", None)
     if run_validator is None:
         raise ValueError("validate.py lacks validate_runs")
@@ -1117,6 +1145,7 @@ def main() -> None:
                 "sha256": file_sha256(args.execution_lock),
                 "provider": lock["provider"], "model": lock["model"],
                 "model_version": lock["model_version"],
+                "thinking_mode": lock["thinking_mode"],
             },
             "algorithmic_budget_freeze_sha256": frozen["freeze_sha256"],
             "evaluation_runs": len(scored),
@@ -1138,7 +1167,11 @@ def main() -> None:
     except (ValueError, KeyError, TypeError, ZeroDivisionError, OSError, json.JSONDecodeError) as error:
         raise SystemExit(f"controlled-workflow analysis failed: {error}") from error
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False) + "\n", encoding="utf-8")
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=args.output.parent, delete=False) as handle:
+        json.dump(report, handle, ensure_ascii=False, indent=2, allow_nan=False)
+        handle.write("\n")
+        temporary = Path(handle.name)
+    temporary.replace(args.output)
     if args.scored_csv:
         write_scored_csv(args.scored_csv, scored)
     print(f"wrote {args.output}: {len(scored)} deterministically scored evaluation runs")

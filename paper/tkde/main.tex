@@ -1486,7 +1486,10 @@ trace guards, and combined workflow score. The primary comparison is answer
 score versus sensitivity-weighted semantic exposure of admitted queries;
 dependencies need not be displayed. Uniform cross-policy checks include
 V3-derived sensitive-record/field/cell/value/outcome views and query/row/byte
-volume counters, but the former are not representation-neutral. We report no
+volume counters, but the former are not representation-neutral. Volume counters
+are reconstructed only from responses admitted to the Agent; the gateway's
+separate operational ledger can additionally include an executed buffered result
+that a baseline or semantic budget rejects before release. We report no
 outcome from the 18 calibration or 636 evaluation workflows. Even when
 collected, this cannot establish human budget comprehension, approval usability,
 empirical representativeness, organizational adoption, or production utility.

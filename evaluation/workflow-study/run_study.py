@@ -272,7 +272,7 @@ def cleanup_project(run_id: str) -> None:
     command = [
         "docker", "compose", "-p", project,
         "-f", str(COMPOSE_FILES[0]), "-f", str(COMPOSE_FILES[1]),
-        "down", "-v", "--remove-orphans", "--rmi", "local",
+        "down", "-v", "--remove-orphans",
     ]
     try:
         completed = subprocess.run(
@@ -303,12 +303,46 @@ def _validate_external_record(record: object, cell: dict, schedule: dict) -> dic
     return record
 
 
-def execute(schedule: dict, command: str, output: Path, timeout_seconds: int, lock: dict) -> None:
+def _record_provider_cost(record: dict) -> float:
+    provider = record.get("provider_api")
+    if not isinstance(provider, dict):
+        raise ValueError("run record lacks provider API cost evidence")
+    cost = provider.get("estimated_cost_usd")
+    if not isinstance(cost, (int, float)) or isinstance(cost, bool) or cost < 0:
+        raise ValueError("run record has invalid provider API cost evidence")
+    return float(cost)
+
+
+def _sanitized_adapter_diagnostic(stderr: str) -> str:
+    lines = [line.strip() for line in stderr.splitlines() if line.strip()]
+    if not lines:
+        return "no-stderr"
+    value = lines[-1]
+    value = re.sub(r"(?i)bearer\s+\S+", "Bearer [REDACTED]", value)
+    value = re.sub(r"\bsk-[A-Za-z0-9_-]{8,}\b", "[REDACTED_API_KEY]", value)
+    return value[-500:]
+
+
+def execute(
+    schedule: dict,
+    command: str,
+    output: Path,
+    timeout_seconds: int,
+    lock: dict,
+    manifest: dict | None = None,
+    protocol: dict | None = None,
+) -> None:
     argv = shlex.split(command)
     if not argv:
         raise ValueError("agent adapter command is empty")
     if schedule.get("source_file_sha256") != validate.source_file_digests(include_generated_truth=False):
         raise ValueError("database/oracle/risk sources drifted before schedule execution")
+    kind = schedule.get("schedule_kind")
+    phase_limit = lock.get("phase_cost_limits_usd", {}).get(kind)
+    if not isinstance(phase_limit, (int, float)) or isinstance(phase_limit, bool) or phase_limit <= 0:
+        raise ValueError(f"execution lock lacks a positive {kind} cost limit")
+    phase_cost = 0.0
+    tasks = {task["id"]: task for task in manifest["tasks"]} if manifest is not None else {}
     for index, cell in enumerate(schedule["cells"], start=1):
         destination = output / f"{cell['run_id']}.json"
         if destination.exists():
@@ -320,6 +354,14 @@ def execute(schedule: dict, command: str, output: Path, timeout_seconds: int, lo
                 for field in ("algorithmic_budget_freeze_sha256", "execution_lock_sha256", "budget_rejection_envelope")
             ):
                 raise ValueError(f"existing run file uses different locked artifacts: {destination}")
+            if manifest is not None and protocol is not None:
+                validate._validate_run_record(
+                    existing, destination, tasks[cell["task_id"]], protocol,
+                    schedule["execution_lock_sha256"], lock, kind,
+                )
+            phase_cost += _record_provider_cost(existing)
+            if phase_cost > phase_limit:
+                raise ValueError(f"{kind} provider cost limit was already exceeded: {phase_cost:.6f} > {phase_limit:.6f} USD")
             continue
         invocation = {
             **cell,
@@ -352,8 +394,11 @@ def execute(schedule: dict, command: str, output: Path, timeout_seconds: int, lo
             )
         if completed.returncode != 0:
             cleanup_project(cell["run_id"])
+            stderr_sha256 = hashlib.sha256(completed.stderr.encode("utf-8", "replace")).hexdigest()
             raise ValueError(
-                f"adapter exited {completed.returncode} for {cell['run_id']}; no trustworthy run record exists"
+                f"adapter exited {completed.returncode} for {cell['run_id']}; "
+                f"diagnostic={_sanitized_adapter_diagnostic(completed.stderr)}; "
+                f"stderr_sha256={stderr_sha256}; no trustworthy run record exists"
             )
         try:
             parsed = json.loads(completed.stdout)
@@ -362,6 +407,11 @@ def execute(schedule: dict, command: str, output: Path, timeout_seconds: int, lo
             raise ValueError(f"adapter emitted invalid JSON for {cell['run_id']}; campaign must fail") from error
         try:
             record = _validate_external_record(parsed, cell, schedule)
+            if manifest is not None and protocol is not None:
+                validate._validate_run_record(
+                    record, destination, tasks[cell["task_id"]], protocol,
+                    schedule["execution_lock_sha256"], lock, kind,
+                )
         except ValueError:
             cleanup_project(cell["run_id"])
             raise
@@ -369,6 +419,12 @@ def execute(schedule: dict, command: str, output: Path, timeout_seconds: int, lo
             cleanup_project(cell["run_id"])
         write_atomic(destination, record)
         print(f"[{index}/{len(schedule['cells'])}] wrote {destination.name} ({record.get('status')})")
+        phase_cost += _record_provider_cost(record)
+        if phase_cost > phase_limit:
+            raise ValueError(
+                f"{kind} provider cost limit exceeded after retained cell {cell['run_id']}: "
+                f"{phase_cost:.6f} > {phase_limit:.6f} USD"
+            )
 
 
 def main() -> None:
@@ -388,7 +444,10 @@ def main() -> None:
     run_parser.add_argument("--calibration-runs", type=Path)
     run_parser.add_argument("--execution-lock", required=True, type=Path)
     run_parser.add_argument("--output", required=True, type=Path)
-    run_parser.add_argument("--timeout-seconds", type=int, default=1800)
+    run_parser.add_argument(
+        "--timeout-seconds", type=int,
+        help="must equal the adapter timeout frozen in the execution lock",
+    )
     args = parser.parse_args()
 
     try:
@@ -428,7 +487,10 @@ def main() -> None:
             raise ValueError("unknown schedule kind")
         validate_schedule(schedule, manifest, protocol, lock_sha, frozen)
         adapter_command = f"{shlex.quote(sys.executable)} {shlex.quote(str(validate.HERE / 'deepseek_agent_adapter.py'))}"
-        execute(schedule, adapter_command, args.output, args.timeout_seconds, lock)
+        timeout_seconds = lock["adapter_timeout_seconds"]
+        if args.timeout_seconds is not None and args.timeout_seconds != timeout_seconds:
+            raise ValueError("--timeout-seconds differs from the execution lock")
+        execute(schedule, adapter_command, args.output, timeout_seconds, lock, manifest, protocol)
     except ValueError as error:
         raise SystemExit(f"workflow runner failed: {error}") from error
 

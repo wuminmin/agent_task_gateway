@@ -68,13 +68,26 @@ USAGE_UNIT_MAPPING = {
     "serialized_bytes": {"serialized_bytes": "native_usage.serialized_bytes"},
 }
 FROZEN_SOURCE_PATHS = (
+    "validate.py",
     "controller.py",
     "deepseek_agent_adapter.py",
+    "lock_execution.py",
     "run_study.py",
     "freeze_budgets.py",
     "analyze.py",
+    "certify_collection.py",
     "study_risk.py",
     "test_design.py",
+    "test_deepseek_adapter.py",
+    "test_certify_collection.py",
+    "export-ground-truth.sh",
+    "system-prompt.txt",
+    "agent-tool-surface.json",
+    "tasks.json",
+    "calibration-tasks.json",
+    "protocol.json",
+    "risk-preference-card.json",
+    "unit-cards.json",
     "compose.yaml",
     "db/05-workflow-study.sql",
     "db/10-ground-truth.sql",
@@ -115,6 +128,10 @@ NEUTRAL_DISCLOSURE_FIELDS = (
 )
 NATIVE_USAGE_FIELDS = ("successful_queries", "returned_rows", "serialized_bytes")
 PERFORMANCE_FIELDS = ("wall_clock_ms", "gateway_latency_ms", "accounting_latency_ms", "exposure_storage_bytes")
+PROVIDER_TOKEN_USAGE_FIELDS = (
+    "prompt_tokens", "prompt_cache_hit_tokens", "prompt_cache_miss_tokens",
+    "completion_tokens", "reasoning_tokens", "total_tokens",
+)
 
 
 def load(path: Path) -> dict:
@@ -386,6 +403,19 @@ def validate_execution_lock(path: Path, study_id: str) -> dict:
     for field in ("provider", "model", "model_version"):
         require(isinstance(lock.get(field), str) and lock[field] and "replace" not in lock[field], f"invalid execution lock {field}")
     require(
+        lock.get("thinking_mode") == "disabled",
+        "execution lock must explicitly freeze DeepSeek non-thinking mode",
+    )
+    expected_versions = {
+        "deepseek-v4-flash": "DeepSeek-V4-Flash",
+        "deepseek-v4-pro": "DeepSeek-V4-Pro",
+    }
+    require(
+        lock.get("model") in expected_versions
+        and lock.get("model_version") == expected_versions[lock["model"]],
+        "execution lock model alias/release label is not a registered DeepSeek V4 pair",
+    )
+    require(
         isinstance(lock.get("campaign_id"), str)
         and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", lock["campaign_id"]) is not None
         and "replace" not in lock["campaign_id"],
@@ -415,10 +445,107 @@ def validate_execution_lock(path: Path, study_id: str) -> dict:
         "invalid execution lock request_timeout_seconds",
     )
     require(
+        isinstance(lock.get("adapter_timeout_seconds"), int)
+        and not isinstance(lock["adapter_timeout_seconds"], bool)
+        and lock["request_timeout_seconds"] <= lock["adapter_timeout_seconds"] <= 86400,
+        "invalid execution lock adapter_timeout_seconds",
+    )
+    require(
         isinstance(lock.get("max_tool_turns"), int)
         and not isinstance(lock["max_tool_turns"], bool)
         and 1 <= lock["max_tool_turns"] <= 64,
         "invalid execution lock max_tool_turns",
+    )
+    retry = lock.get("api_retry")
+    require(isinstance(retry, dict), "execution lock lacks API retry policy")
+    require(
+        set(retry) == {
+            "max_attempts", "initial_backoff_seconds", "max_backoff_seconds",
+            "retryable_http_statuses", "retry_insufficient_system_resource",
+        }
+        and isinstance(retry["max_attempts"], int) and not isinstance(retry["max_attempts"], bool)
+        and 1 <= retry["max_attempts"] <= 10
+        and isinstance(retry["initial_backoff_seconds"], (int, float))
+        and isinstance(retry["max_backoff_seconds"], (int, float))
+        and 0 < retry["initial_backoff_seconds"] <= retry["max_backoff_seconds"] <= 300
+        and retry["retryable_http_statuses"] == [429, 500, 502, 503, 504]
+        and retry["retry_insufficient_system_resource"] is True,
+        "invalid execution lock API retry policy",
+    )
+    infrastructure_retry = lock.get("infrastructure_retry")
+    require(
+        isinstance(infrastructure_retry, dict)
+        and set(infrastructure_retry) == {
+            "compose_start_max_attempts", "compose_start_backoff_seconds",
+        }
+        and isinstance(infrastructure_retry["compose_start_max_attempts"], int)
+        and not isinstance(infrastructure_retry["compose_start_max_attempts"], bool)
+        and 1 <= infrastructure_retry["compose_start_max_attempts"] <= 5
+        and isinstance(infrastructure_retry["compose_start_backoff_seconds"], (int, float))
+        and not isinstance(infrastructure_retry["compose_start_backoff_seconds"], bool)
+        and math.isfinite(float(infrastructure_retry["compose_start_backoff_seconds"]))
+        and 0 <= infrastructure_retry["compose_start_backoff_seconds"] <= 30,
+        "invalid execution lock infrastructure retry policy",
+    )
+    pricing = lock.get("pricing_usd_per_million_tokens")
+    expected_pricing = {
+        "deepseek-v4-flash": {"prompt_cache_hit": 0.0028, "prompt_cache_miss": 0.14, "completion": 0.28},
+        "deepseek-v4-pro": {"prompt_cache_hit": 0.003625, "prompt_cache_miss": 0.435, "completion": 0.87},
+    }
+    require(
+        isinstance(pricing, dict)
+        and set(pricing) == {"prompt_cache_hit", "prompt_cache_miss", "completion"}
+        and all(
+            isinstance(value, (int, float)) and not isinstance(value, bool)
+            and math.isfinite(float(value)) and value > 0
+            for value in pricing.values()
+        )
+        and pricing == expected_pricing[lock["model"]]
+        and lock.get("pricing_source") == "https://api-docs.deepseek.com/quick_start/pricing/",
+        "invalid execution lock pricing snapshot",
+    )
+    limits = lock.get("phase_cost_limits_usd")
+    require(
+        isinstance(limits, dict) and set(limits) == {"calibration", "evaluation"}
+        and all(
+            isinstance(value, (int, float)) and not isinstance(value, bool)
+            and math.isfinite(float(value)) and value > 0
+            for value in limits.values()
+        )
+        and limits["calibration"] < limits["evaluation"] <= 100,
+        "invalid execution lock phase cost limits",
+    )
+    images = lock.get("container_images")
+    require(
+        isinstance(images, dict) and set(images) == {"gateway", "oa_demo", "postgres"},
+        "execution lock lacks the exact container image set",
+    )
+    for name, image in images.items():
+        require(
+            isinstance(image, dict)
+            and set(image) == {"requested_reference", "image_id", "repo_digests"}
+            and isinstance(image["requested_reference"], str)
+            and bool(image["requested_reference"])
+            and not any(character.isspace() for character in image["requested_reference"])
+            and re.fullmatch(r"sha256:[0-9a-f]{64}", image["image_id"] or "") is not None
+            and isinstance(image["repo_digests"], list)
+            and image["repo_digests"] == sorted(set(image["repo_digests"]))
+            and all(
+                isinstance(digest, str)
+                and re.fullmatch(r"[^\s@]+@sha256:[0-9a-f]{64}", digest) is not None
+                for digest in image["repo_digests"]
+            ),
+            f"invalid execution lock container image {name}",
+        )
+    runtime = lock.get("container_runtime")
+    require(
+        isinstance(runtime, dict)
+        and set(runtime) == {"docker_server_version", "docker_compose_version"}
+        and all(
+            isinstance(value, str) and value and not any(character.isspace() for character in value)
+            for value in runtime.values()
+        ),
+        "invalid execution lock container runtime",
     )
     for field in ("system_prompt_sha256", "tool_surface_sha256", "agent_adapter_sha256", "answer_schema_sha256"):
         require(re.fullmatch(r"[0-9a-f]{64}", lock.get(field, "")) is not None, f"invalid execution lock {field}")
@@ -714,21 +841,27 @@ def _validate_gateway_budget_audit(record: dict, label: str) -> None:
             all(observed_facts[field] == exposure_used[field] for field in exposure_fields),
             f"{label}.gateway exposure usage differs from admitted Fact evidence",
         )
-        require(
-            observed_native["successful_queries"] == used["queries"]
-            and observed_native["returned_rows"] == used["rows"],
-            f"{label}.gateway native usage differs from admitted responses",
-        )
     else:
         require(
             all(observed_facts[field] <= exposure_used[field] for field in exposure_fields),
             f"{label}.admitted Fact evidence exceeds gateway audit usage",
         )
-        require(
-            observed_native["successful_queries"] <= used["queries"]
-            and observed_native["returned_rows"] <= used["rows"],
-            f"{label}.admitted native usage exceeds gateway audit usage",
-        )
+    # The gateway ledger is an operational charge ledger, whereas native_usage
+    # is reconstructed from responses actually admitted to the Agent.  A
+    # baseline controller may withhold a successfully completed gateway result.
+    # More subtly, TaskGate can execute a query and charge its query/row cost,
+    # then atomically reject the result when its novel exposure would exceed the
+    # semantic budget.  Consequently operational usage may exceed disclosed
+    # usage in every arm, but never the reverse.
+    require(
+        observed_native["successful_queries"] <= used["queries"]
+        and observed_native["returned_rows"] <= used["rows"],
+        f"{label}.admitted native usage exceeds gateway audit usage",
+    )
+    require(
+        used["queries"] <= len(record["queries"]),
+        f"{label}.gateway query usage exceeds the execute_plan trace",
+    )
     if record["arm"] == "taskgate_v3":
         expected_limits = record["budget"]
         require(exposure_limits == expected_limits, f"{label}.TaskGate gateway limits differ from the study budget")
@@ -758,6 +891,62 @@ def _answer_roots(task: dict) -> set[str]:
         for item in task["rubric"]
         if item.get("answer_path")
     }
+
+
+def _validate_provider_api(record: dict, lock: dict, label: str) -> None:
+    provider = record.get("provider_api")
+    require(isinstance(provider, dict), f"provider API audit is missing in {label}")
+    for field in ("model_turns", "request_attempts", "successful_responses", "retry_attempts"):
+        require(
+            isinstance(provider.get(field), int) and not isinstance(provider[field], bool)
+            and provider[field] >= 0,
+            f"invalid provider API {field} in {label}",
+        )
+    require(
+        provider["model_turns"] <= lock["max_tool_turns"]
+        and provider["request_attempts"] <= lock["max_tool_turns"] * lock["api_retry"]["max_attempts"]
+        and provider["model_turns"] <= provider["successful_responses"] <= provider["request_attempts"]
+        and provider["retry_attempts"] == provider["request_attempts"] - provider["model_turns"],
+        f"provider API attempt accounting is inconsistent in {label}",
+    )
+    usage = provider.get("token_usage")
+    _nonnegative_int_fields(usage, PROVIDER_TOKEN_USAGE_FIELDS, f"{label}.provider_api.token_usage")
+    require(
+        usage["prompt_tokens"] == usage["prompt_cache_hit_tokens"] + usage["prompt_cache_miss_tokens"]
+        and usage["total_tokens"] == usage["prompt_tokens"] + usage["completion_tokens"]
+        and usage["reasoning_tokens"] <= usage["completion_tokens"],
+        f"provider token accounting is inconsistent in {label}",
+    )
+    if lock["thinking_mode"] == "disabled":
+        require(usage["reasoning_tokens"] == 0, f"non-thinking run reported reasoning tokens in {label}")
+    fingerprints = provider.get("system_fingerprints")
+    reasons = provider.get("finish_reasons")
+    require(
+        isinstance(fingerprints, list)
+        and fingerprints == sorted(set(fingerprints))
+        and all(isinstance(value, str) and value for value in fingerprints)
+        and isinstance(reasons, list)
+        and len(reasons) == provider["successful_responses"]
+        and all(isinstance(value, str) and value for value in reasons),
+        f"provider response metadata is inconsistent in {label}",
+    )
+    require(
+        (provider["successful_responses"] == 0 and not fingerprints)
+        or (provider["successful_responses"] > 0 and bool(fingerprints)),
+        f"provider fingerprint coverage is inconsistent in {label}",
+    )
+    expected_cost = (
+        usage["prompt_cache_hit_tokens"] * lock["pricing_usd_per_million_tokens"]["prompt_cache_hit"]
+        + usage["prompt_cache_miss_tokens"] * lock["pricing_usd_per_million_tokens"]["prompt_cache_miss"]
+        + usage["completion_tokens"] * lock["pricing_usd_per_million_tokens"]["completion"]
+    ) / 1_000_000
+    cost = provider.get("estimated_cost_usd")
+    require(
+        isinstance(cost, (int, float)) and not isinstance(cost, bool)
+        and math.isfinite(float(cost)) and cost >= 0
+        and math.isclose(float(cost), expected_cost, rel_tol=0, abs_tol=1e-12),
+        f"provider cost estimate is inconsistent in {label}",
+    )
 
 
 def _validate_run_record(
@@ -797,6 +986,7 @@ def _validate_run_record(
         "provider": lock["provider"],
         "model": lock["model"],
         "version": lock["model_version"],
+        "thinking_mode": lock["thinking_mode"],
         "temperature": lock["temperature"],
         "top_p": lock["top_p"],
         "max_tokens": lock["max_tokens"],
@@ -811,6 +1001,7 @@ def _validate_run_record(
         and all(model == lock["model"] for model in provider_models),
         f"provider response model differs from execution lock in {label}",
     )
+    _validate_provider_api(record, lock, label)
     require(record.get("budget_rejection_envelope") == "taskgate-study-budget-rejection-v1", f"rejection envelope differs in {label}")
     for field in ("run_id", "root_task_id", "database_instance_id", "cache_namespace"):
         require(isinstance(record.get(field), str) and record[field] and "replace" not in record[field], f"invalid {field} in {label}")
@@ -846,6 +1037,19 @@ def _validate_run_record(
         and record["runtime_budget_rejections"] >= 0,
         f"invalid runtime rejection count in {label}",
     )
+    require(
+        isinstance(record.get("final_format_repair_attempts"), int)
+        and not isinstance(record["final_format_repair_attempts"], bool)
+        and 0 <= record["final_format_repair_attempts"] <= record["provider_api"]["model_turns"],
+        f"invalid final-format repair count in {label}",
+    )
+    require(
+        isinstance(record.get("compose_start_attempts"), int)
+        and not isinstance(record["compose_start_attempts"], bool)
+        and 1 <= record["compose_start_attempts"]
+        <= lock["infrastructure_retry"]["compose_start_max_attempts"],
+        f"invalid Compose-start attempt count in {label}",
+    )
     recomputed_usage, admitted_query_ids, recomputed_rejections = _validate_admitted_responses(record, label)
     require(record["native_usage"] == recomputed_usage, f"{label}.native_usage is not response-derived")
     require(
@@ -857,6 +1061,7 @@ def _validate_run_record(
     _validate_budget_compliance(record, label)
     if record["status"] == "completed":
         require(provider_models == [lock["model"]], f"completed run lacks a locked provider response model in {label}")
+        require(record["provider_api"]["model_turns"] >= 1, f"completed run lacks provider usage in {label}")
 
 
 def _require_fresh(records: list[tuple[Path, dict]]) -> None:

@@ -61,6 +61,8 @@
   },
   "native_usage": {"successful_queries": 0, "returned_rows": 0, "serialized_bytes": 0},
   "runtime_budget_rejections": 0,
+  "final_format_repair_attempts": 0,
+  "compose_start_attempts": 1,
   "performance": {
     "wall_clock_ms": 0,
     "gateway_latency_ms": 0,

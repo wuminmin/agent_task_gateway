@@ -15,6 +15,52 @@ import run_study
 import validate
 
 
+def provider_lock_fields() -> dict:
+    return {
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+        "model_version": "DeepSeek-V4-Flash",
+        "thinking_mode": "disabled",
+        "temperature": 0,
+        "top_p": 1.0,
+        "max_tokens": 4096,
+        "request_timeout_seconds": 300,
+        "adapter_timeout_seconds": 1800,
+        "max_tool_turns": 16,
+        "api_retry": {
+            "max_attempts": 5,
+            "initial_backoff_seconds": 2.0,
+            "max_backoff_seconds": 30.0,
+            "retryable_http_statuses": [429, 500, 502, 503, 504],
+            "retry_insufficient_system_resource": True,
+        },
+        "infrastructure_retry": {
+            "compose_start_max_attempts": 3,
+            "compose_start_backoff_seconds": 2.0,
+        },
+        "pricing_usd_per_million_tokens": {
+            "prompt_cache_hit": 0.0028,
+            "prompt_cache_miss": 0.14,
+            "completion": 0.28,
+        },
+        "pricing_source": "https://api-docs.deepseek.com/quick_start/pricing/",
+        "phase_cost_limits_usd": {"calibration": 2.0, "evaluation": 18.0},
+        "container_images": {
+            name: {
+                "requested_reference": f"workflow-test-{name}:v1",
+                "image_id": "sha256:" + character * 64,
+                "repo_digests": [],
+            }
+            for name, character in (("gateway", "1"), ("oa_demo", "2"), ("postgres", "3"))
+        },
+        "container_runtime": {
+            "docker_server_version": "29.1.3",
+            "docker_compose_version": "2.40.3",
+        },
+        "api_base_url": "https://api.deepseek.com",
+    }
+
+
 def scoring_run(task: dict, answer: dict, queries: list[dict], *, status: str = "completed") -> dict:
     run = {
         "run_id": f"score-{task['id']}",
@@ -29,6 +75,8 @@ def scoring_run(task: dict, answer: dict, queries: list[dict], *, status: str = 
         "final_answer": answer,
         "final_answer_text": "",
         "runtime_budget_rejections": 0,
+        "final_format_repair_attempts": 0,
+        "compose_start_attempts": 1,
         "neutral_disclosure": {
             **{field: 0 for field in validate.NEUTRAL_DISCLOSURE_FIELDS},
             "disclosed_negative_propositions": 1,
@@ -109,12 +157,30 @@ def valid_calibration_record(
             "provider": lock["provider"],
             "model": lock["model"],
             "version": lock["model_version"],
+            "thinking_mode": lock["thinking_mode"],
             "temperature": lock["temperature"],
             "top_p": lock["top_p"],
             "max_tokens": lock["max_tokens"],
             "api_base_url": lock["api_base_url"],
         },
         "provider_response_models": [lock["model"]],
+        "provider_api": {
+            "model_turns": 1,
+            "request_attempts": 1,
+            "successful_responses": 1,
+            "retry_attempts": 0,
+            "token_usage": {
+                "prompt_tokens": 2,
+                "prompt_cache_hit_tokens": 0,
+                "prompt_cache_miss_tokens": 2,
+                "completion_tokens": 1,
+                "reasoning_tokens": 0,
+                "total_tokens": 3,
+            },
+            "system_fingerprints": ["fp_unit_test"],
+            "finish_reasons": ["stop"],
+            "estimated_cost_usd": 0.00000056,
+        },
         "database_snapshot": "workflow-study-2026-v1",
         "database_instance_id": f"db-{run_id}",
         "root_task_id": root_task_id,
@@ -144,6 +210,8 @@ def valid_calibration_record(
         "neutral_disclosure": neutral,
         "native_usage": native_usage,
         "runtime_budget_rejections": 0,
+        "final_format_repair_attempts": 0,
+        "compose_start_attempts": 1,
         "performance": {field: 0 for field in validate.PERFORMANCE_FIELDS},
     }
 
@@ -312,15 +380,7 @@ class ParticipantFreeBenchmarkTest(unittest.TestCase):
             "study_id": protocol["study_id"],
             "campaign_id": "unit-test-campaign",
             "locked_at": "2026-07-27T23:59:00Z",
-            "provider": "deepseek",
-            "model": "deepseek-chat",
-            "model_version": "test-lock",
-            "temperature": 0,
-            "top_p": 1.0,
-            "max_tokens": 4096,
-            "request_timeout_seconds": 300,
-            "max_tool_turns": 16,
-            "api_base_url": "https://api.deepseek.com",
+            **provider_lock_fields(),
             "system_prompt_sha256": validate.file_sha256(validate.HERE / "system-prompt.txt"),
             "tool_surface_sha256": validate.file_sha256(validate.HERE / "agent-tool-surface.json"),
             "agent_adapter_sha256": validate.file_sha256(validate.HERE / "deepseek_agent_adapter.py"),
@@ -352,13 +412,7 @@ class ParticipantFreeBenchmarkTest(unittest.TestCase):
         task = calibration["tasks"][0]
         lock = {
             "locked_at": "2026-07-27T23:59:00Z",
-            "provider": "deepseek",
-            "model": "deepseek-chat",
-            "model_version": "test-lock",
-            "temperature": 0,
-            "top_p": 1.0,
-            "max_tokens": 4096,
-            "api_base_url": "https://api.deepseek.com",
+            **provider_lock_fields(),
         }
         lock_sha = "b" * 64
         record = valid_calibration_record(task, protocol, lock, lock_sha)
@@ -384,9 +438,7 @@ class ParticipantFreeBenchmarkTest(unittest.TestCase):
         _, calibration, protocol = validate.validate_design()
         task = calibration["tasks"][0]
         lock = {
-            "locked_at": "2026-07-27T23:59:00Z", "provider": "deepseek",
-            "model": "deepseek-chat", "model_version": "test-lock", "temperature": 0,
-            "top_p": 1.0, "max_tokens": 4096, "api_base_url": "https://api.deepseek.com",
+            "locked_at": "2026-07-27T23:59:00Z", **provider_lock_fields(),
         }
         lock_sha = "b" * 64
         record = valid_calibration_record(task, protocol, lock, lock_sha)
@@ -413,6 +465,33 @@ class ParticipantFreeBenchmarkTest(unittest.TestCase):
                 validate._validate_run_record(
                     tampered, Path("tampered-evidence.json"), task, protocol, lock_sha, lock, "calibration",
                 )
+
+    def test_gateway_audit_distinguishes_charged_taskgate_rejection_from_admitted_usage(self) -> None:
+        _, calibration, protocol = validate.validate_design()
+        task = calibration["tasks"][0]
+        lock = {"locked_at": "2026-07-27T23:59:00Z", **provider_lock_fields()}
+        record = valid_calibration_record(task, protocol, lock, "b" * 64)
+        record["arm"] = "taskgate_v3"
+        record["budget"] = dict(record["gateway_budget_audit"]["snapshot"]["exposure_budget"]["limits"])
+        # One admitted zero-row result plus one executed five-row result that
+        # TaskGate withheld after its exposure-budget check.
+        record["gateway_budget_audit"]["snapshot"]["budget"]["used"].update(
+            {"queries": 2, "rows": 5},
+        )
+        record["queries"].append({"admitted": False, "budget_rejected": True})
+        record["gateway_budget_audit_sha256"] = validate.canonical_sha256(record["gateway_budget_audit"])
+
+        validate._validate_gateway_budget_audit(record, "taskgate-rejection.json")
+
+        record["native_usage"].update({"successful_queries": 3, "returned_rows": 6})
+        with self.assertRaisesRegex(ValueError, "admitted native usage exceeds gateway audit usage"):
+            validate._validate_gateway_budget_audit(record, "impossible-disclosure.json")
+
+        record["native_usage"].update({"successful_queries": 1, "returned_rows": 0})
+        record["gateway_budget_audit"]["snapshot"]["budget"]["used"]["queries"] = 3
+        record["gateway_budget_audit_sha256"] = validate.canonical_sha256(record["gateway_budget_audit"])
+        with self.assertRaisesRegex(ValueError, "gateway query usage exceeds the execute_plan trace"):
+            validate._validate_gateway_budget_audit(record, "untraced-query.json")
 
     def test_calibration_answer_gate_accepts_zero_false_and_empty_list_only_as_present_values(self) -> None:
         for value in (0, False, []):
@@ -455,6 +534,14 @@ class ParticipantFreeBenchmarkTest(unittest.TestCase):
     def test_runner_has_no_factory_for_fabricated_zero_exposure_failures(self) -> None:
         self.assertFalse(hasattr(run_study, "failure_record"))
 
+    def test_runner_adapter_diagnostic_redacts_provider_credentials(self) -> None:
+        diagnostic = run_study._sanitized_adapter_diagnostic(
+            "trace\nCampaignAbort: Authorization Bearer secret-token sk-testcredential12345678"
+        )
+        self.assertNotIn("secret-token", diagnostic)
+        self.assertNotIn("sk-testcredential12345678", diagnostic)
+        self.assertIn("[REDACTED", diagnostic)
+
     def test_runner_aborts_nonzero_adapter_exit_without_persisting_a_fake_record(self) -> None:
         cell = {
             "run_id": "ws-test-runner-failure",
@@ -469,17 +556,14 @@ class ParticipantFreeBenchmarkTest(unittest.TestCase):
         }
         schedule = {
             "study_id": "taskgate-controlled-workflow-benchmark-v1",
+            "schedule_kind": "evaluation",
             "source_file_sha256": validate.source_file_digests(include_generated_truth=False),
             "algorithmic_budget_freeze_sha256": "a" * 64,
             "execution_lock_sha256": "b" * 64,
             "budget_rejection_envelope": "taskgate-study-budget-rejection-v1",
             "cells": [cell],
         }
-        lock = {
-            "provider": "deepseek", "model": "deepseek-chat", "model_version": "locked",
-            "temperature": 0, "top_p": 1.0, "max_tokens": 4096,
-            "api_base_url": "https://api.deepseek.com",
-        }
+        lock = provider_lock_fields()
         with tempfile.TemporaryDirectory() as temporary:
             destination = Path(temporary) / "ws-test-runner-failure.json"
             with mock.patch.object(run_study, "cleanup_project") as cleanup, self.assertRaisesRegex(
@@ -497,6 +581,7 @@ class ParticipantFreeBenchmarkTest(unittest.TestCase):
         }
         schedule = {
             "study_id": "taskgate-controlled-workflow-benchmark-v1",
+            "schedule_kind": "evaluation",
             "source_file_sha256": validate.source_file_digests(include_generated_truth=False),
             "algorithmic_budget_freeze_sha256": "a" * 64, "execution_lock_sha256": "b" * 64,
             "budget_rejection_envelope": "taskgate-study-budget-rejection-v1", "cells": [cell],
@@ -506,7 +591,7 @@ class ParticipantFreeBenchmarkTest(unittest.TestCase):
         ), mock.patch.object(run_study, "cleanup_project") as cleanup, self.assertRaisesRegex(
             ValueError, "timed out"
         ):
-            run_study.execute(schedule, "adapter", Path(temporary), 5, {})
+            run_study.execute(schedule, "adapter", Path(temporary), 5, provider_lock_fields())
         cleanup.assert_called_once_with(cell["run_id"])
         self.assertFalse((Path(temporary) / f"{cell['run_id']}.json").exists())
 

@@ -120,15 +120,17 @@
     "unbudgeted_evaluation": "The unbudgeted evaluation arm receives no benchmark ceiling and is analyzed only as a reference; stochastic Agent quality is not guaranteed to upper-bound budgeted quality."
   },
   "agent_execution": {
-    "fixed_factors": ["campaign ID", "lock timestamp", "model provider", "model alias", "recorded provider release label", "temperature", "top_p", "max_tokens", "request timeout seconds", "maximum tool turns", "system prompt", "tool schema", "database snapshot", "answer schema"],
+    "fixed_factors": ["campaign ID", "lock timestamp", "model provider", "model alias", "recorded provider release label", "thinking mode", "temperature", "top_p", "max_tokens", "request timeout seconds", "adapter timeout seconds", "maximum tool turns", "bounded provider retry policy", "bounded pre-Agent Compose-start retry policy", "provider pricing snapshot", "phase cost ceilings", "immutable container image IDs", "Docker server version", "Docker Compose version", "system prompt", "tool schema", "database snapshot", "answer schema"],
     "isolation": ["fresh database instance", "fresh root task", "fresh cache namespace", "fresh conversation"],
     "budget_rejection_envelope": "taskgate-study-budget-rejection-v1",
-    "failure_policy": "Retain and deterministically score only terminal failures that the source-locked adapter converts into a schema-v3 record with verifiable Fact evidence and post-run budget audit. An external adapter-process timeout, nonzero exit, invalid stdout, or unverifiable record produces no fabricated zero-exposure observation and aborts the collection for operator investigation.",
+    "failure_policy": "Retain and deterministically score only Agent-stage terminal failures that the source-locked adapter converts into a schema-v3 record with verifiable Fact evidence and post-run budget audit. Container, database, approval, task-creation, provider, or other pre-Agent infrastructure failures abort the collection without a run record so the same registered cell can be resumed after diagnosis. An external adapter-process timeout, nonzero exit, invalid stdout, or unverifiable record likewise produces no fabricated zero-exposure observation.",
     "calibration_failure_policy": "A calibration record is eligible only when the adapter reports completed status, the exact registered answer-field envelope, at least one admitted query, and every required value is non-null with every required string nonempty; zero, false, and empty collections remain valid. Any other auditable calibration result aborts that campaign. Starting a new prelocked campaign rather than deleting or selectively replacing cells is a preregistered operating rule, not a property that artifact validation alone can prove.",
     "collection_integrity_limitation": "The execution lock, schedule, and freeze detect drift or mixing among retained artifacts, but without an external append-only timestamp or registry they cannot prove that no calibration output was deleted or replaced before the freeze was created.",
     "baseline_v3_audit_only": true,
-    "answer_contract": "Strict structured JSON contains the task's registered answer fields plus a narrative. Narrative does not affect answer correctness, but it is inspected by task-specific forbidden-disclosure trace guards.",
-    "provider_drift": "The lock records the campaign ID, lock timestamp, alias, provider release label, temperature, top_p, max_tokens, request timeout, and maximum tool turns and sends the applicable request parameters explicitly; it cannot guarantee immutable provider-side weights behind a hosted model alias."
+    "answer_contract": "Strict structured JSON contains the task's registered answer fields plus a narrative. If a no-tool response violates only this envelope, the same conversation receives a fixed policy-blind repair instruction and the record audits the number of repair attempts. Narrative does not affect answer correctness, but it is inspected by task-specific forbidden-disclosure trace guards.",
+    "provider_drift": "The lock records the campaign ID, lock timestamp, alias, provider release label, thinking mode, temperature, top_p, max_tokens, request and adapter timeouts, maximum tool turns, bounded provider and pre-Agent Compose-start retry policies, pricing snapshot, phase cost ceilings, exact local container image IDs, and Docker/Compose versions and sends the applicable request parameters explicitly; it cannot guarantee immutable provider-side weights behind a hosted model alias.",
+    "provider_failure_policy": "HTTP 429/500/502/503/504, transport failures, and insufficient_system_resource receive the prelocked bounded exponential retry policy. Authentication, payment, invalid-request, model-drift, usage-audit, or exhausted retry failures abort collection without fabricating or retaining an Agent task outcome.",
+    "provider_cost_audit": "Every successful provider response records prompt cache-hit and cache-miss tokens, completion and reasoning tokens, total tokens, finish reason, backend fingerprint, attempts, and a cost estimate under the lock's pricing snapshot. Calibration and evaluation have separate prelocked cost ceilings; the first cell that crosses a ceiling is retained before collection aborts."
   },
   "automatic_scoring": {
     "policy_blind": true,
@@ -197,13 +199,15 @@
       ],
       "representation_independent_volume_counters": ["successful_queries", "returned_rows", "serialized_bytes"],
       "definitions": {
+        "representation_independent_volume_counters": "response-derived volume actually admitted to the Agent; this may be lower than the gateway operational charge ledger when a baseline controller withholds a completed response or TaskGate rejects release after query execution",
+        "gateway_operational_charge_ledger": "executed query and row usage charged by the gateway, retained as an audit upper bound on admitted native volume rather than treated as disclosed volume",
         "disclosed_outcome_propositions": "distinct V3 Outcome facts attributable to admitted query responses",
         "disclosed_negative_propositions": "distinct admitted V3 Outcome facts whose outcome_rows value is zero"
       },
       "claim_boundary": "All checks are computed uniformly across policies, but semantic views derived from V3 Fact identities are not representation-neutral."
     },
     "taskgate_audit": ["release_facts", "influence_facts", "outcome_facts", "sensitivity_weighted_exposure"],
-    "system_cost": ["wall_clock_ms", "gateway_latency_ms", "accounting_latency_ms", "exposure_storage_bytes"],
+    "system_cost": ["wall_clock_ms", "gateway_latency_ms", "accounting_latency_ms", "exposure_storage_bytes", "compose_start_attempts", "final_format_repair_attempts", "provider_request_attempts", "provider_prompt_cache_hit_tokens", "provider_prompt_cache_miss_tokens", "provider_completion_tokens", "provider_reasoning_tokens", "provider_estimated_cost_usd"],
     "guardrails": [
       "no authorization-scope violation",
       "no hidden-truth access",
@@ -230,7 +234,7 @@
     "No LLM output is labeled an expert budget, approval, or human grade.",
     "Only calibration task IDs, objectives, and scoring roles are held out; calibration and evaluation share the same frozen synthetic snapshot.",
     "The frozen calibration artifact predates all evaluation runs and validates against every calibration record.",
-    "The same campaign lock, recorded model alias/release label, explicit temperature/top_p/max_tokens, request timeout, maximum tool turns, prompt, tool surface, database snapshot, answer contract, and replicate schedule are used across evaluation arms; hosted-provider drift remains possible.",
+    "The same campaign lock, recorded model alias/release label, explicit non-thinking mode, temperature/top_p/max_tokens, request and adapter timeouts, maximum tool turns, bounded retry policy, provider pricing snapshot, phase cost ceilings, exact container image IDs, Docker/Compose versions, prompt, tool surface, database snapshot, answer contract, and replicate schedule are used across evaluation arms; hosted-provider drift remains possible.",
     "Baseline arms are compared on actual post-hoc V3 exposure and uniformly computed cross-policy checks, not on incomparable native budget numbers alone.",
     "Automatic scoring is policy-blind and its code, rubric, oracle, and digests are frozen before evaluation.",
     "Absent an external append-only anchor, validation cannot detect a calibration run deleted or replaced before budget freezing; no stronger collection-integrity claim is made."

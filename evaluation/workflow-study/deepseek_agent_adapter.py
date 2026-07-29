@@ -43,6 +43,21 @@ class ToolFailure(RuntimeError):
     pass
 
 
+class CampaignAbort(RuntimeError):
+    """Abort collection without converting provider infrastructure failure into task failure."""
+
+
+class HTTPResponseError(RuntimeError):
+    def __init__(self, status: int, host: str, body_sha256: str, retry_after: float | None) -> None:
+        super().__init__(f"HTTP {status} from {host}; body_sha256={body_sha256}")
+        self.status = status
+        self.retry_after = retry_after
+
+
+class HTTPTransportError(RuntimeError):
+    pass
+
+
 def now() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -70,10 +85,21 @@ def secret(name: str, dotenv: dict[str, str]) -> str:
     return value
 
 
-def free_port() -> int:
-    with socket.socket() as listener:
-        listener.bind(("127.0.0.1", 0))
-        return int(listener.getsockname()[1])
+def free_ports(names: tuple[str, ...]) -> dict[str, int]:
+    """Allocate distinct candidate host ports from simultaneously held sockets."""
+    listeners: list[socket.socket] = []
+    try:
+        for _ in names:
+            listener = socket.socket()
+            listener.bind(("127.0.0.1", 0))
+            listeners.append(listener)
+        return {
+            name: int(listener.getsockname()[1])
+            for name, listener in zip(names, listeners)
+        }
+    finally:
+        for listener in listeners:
+            listener.close()
 
 
 def compose_command(project: str, *arguments: str) -> list[str]:
@@ -88,6 +114,70 @@ def run_command(argv: list[str], env: dict[str, str], timeout: int = 900) -> sub
     return completed
 
 
+def command_output(argv: list[str], label: str, env: dict[str, str]) -> str:
+    completed = subprocess.run(
+        argv, cwd=ROOT, env=env, text=True, capture_output=True, timeout=60, check=False,
+    )
+    if completed.returncode != 0 or not completed.stdout.strip():
+        raise CampaignAbort(f"locked container environment check failed for {label}")
+    return completed.stdout.strip()
+
+
+def configure_locked_container_environment(lock: dict, env: dict[str, str]) -> None:
+    observed_runtime = {
+        "docker_server_version": command_output(
+            ["docker", "version", "--format", "{{.Server.Version}}"], "Docker server version", env,
+        ),
+        "docker_compose_version": command_output(
+            ["docker", "compose", "version", "--short"], "Docker Compose version", env,
+        ),
+    }
+    if observed_runtime != lock["container_runtime"]:
+        raise CampaignAbort("container runtime version differs from the execution lock")
+    environment_fields = {
+        "gateway": "WORKFLOW_STUDY_GATEWAY_IMAGE",
+        "oa_demo": "WORKFLOW_STUDY_OA_IMAGE",
+        "postgres": "WORKFLOW_STUDY_POSTGRES_IMAGE",
+    }
+    for name, variable in environment_fields.items():
+        image_id = lock["container_images"][name]["image_id"]
+        observed_id = command_output(
+            ["docker", "image", "inspect", "--format", "{{.Id}}", image_id],
+            f"{name} image", env,
+        )
+        if observed_id != image_id:
+            raise CampaignAbort(f"{name} image differs from the execution lock")
+        env[variable] = image_id
+
+
+def cleanup_compose_project(project: str, env: dict[str, str]) -> None:
+    try:
+        completed = subprocess.run(
+            compose_command(project, "down", "-v", "--remove-orphans"),
+            cwd=ROOT, env=env, text=True, capture_output=True, timeout=180, check=False,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError("Compose cleanup timed out after a failed start") from error
+    if completed.returncode != 0:
+        raise RuntimeError("Compose cleanup failed after a failed start")
+
+
+def start_compose_project(project: str, env: dict[str, str], lock: dict) -> tuple[dict[str, int], int]:
+    retry = lock["infrastructure_retry"]
+    for attempt in range(1, retry["compose_start_max_attempts"] + 1):
+        ports = free_ports(("GATEWAY", "OA"))
+        env.update({f"WORKFLOW_STUDY_{name}_PORT": str(port) for name, port in ports.items()})
+        try:
+            run_command(compose_command(project, "up", "-d", "--wait", "--no-build"), env)
+            return ports, attempt
+        except (RuntimeError, subprocess.TimeoutExpired):
+            cleanup_compose_project(project, env)
+            if attempt == retry["compose_start_max_attempts"]:
+                raise RuntimeError("Compose start exhausted its locked retry policy")
+            time.sleep(retry["compose_start_backoff_seconds"] * attempt)
+    raise RuntimeError("Compose start retry loop terminated unexpectedly")
+
+
 def http_json(url: str, payload: dict, headers: dict[str, str], timeout: int = 180) -> dict:
     request = urllib.request.Request(
         url, data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
@@ -98,7 +188,20 @@ def http_json(url: str, payload: dict, headers: dict[str, str], timeout: int = 1
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as error:
         body = error.read(4096).decode("utf-8", "replace")
-        raise RuntimeError(f"HTTP {error.code} from {urllib.parse.urlparse(url).netloc}: {body}") from error
+        raw_retry_after = error.headers.get("Retry-After") if error.headers is not None else None
+        try:
+            retry_after = float(raw_retry_after) if raw_retry_after is not None else None
+        except ValueError:
+            retry_after = None
+        raise HTTPResponseError(
+            error.code,
+            urllib.parse.urlparse(url).netloc,
+            hashlib.sha256(body.encode("utf-8", "replace")).hexdigest(),
+            retry_after,
+        ) from error
+    except (urllib.error.URLError, TimeoutError, socket.timeout) as error:
+        host = urllib.parse.urlparse(url).netloc
+        raise HTTPTransportError(f"transport failure from {host}: {type(error).__name__}") from error
 
 
 class MCP:
@@ -219,25 +322,117 @@ def parse_final(content: str, required_fields: list[str] | None = None) -> tuple
     return value["answer"], value["narrative"]
 
 
-def call_deepseek(messages: list[dict], tools: list[dict], lock: dict, api_key: str) -> tuple[dict, str]:
+def empty_provider_usage() -> dict[str, int]:
+    return {
+        "prompt_tokens": 0,
+        "prompt_cache_hit_tokens": 0,
+        "prompt_cache_miss_tokens": 0,
+        "completion_tokens": 0,
+        "reasoning_tokens": 0,
+        "total_tokens": 0,
+    }
+
+
+def normalize_provider_usage(response: dict) -> dict[str, int]:
+    raw = response.get("usage")
+    if not isinstance(raw, dict):
+        raise CampaignAbort("DeepSeek response omitted auditable token usage")
+    details = raw.get("completion_tokens_details") or {}
+    values = {
+        "prompt_tokens": raw.get("prompt_tokens"),
+        "prompt_cache_hit_tokens": raw.get("prompt_cache_hit_tokens", 0),
+        "prompt_cache_miss_tokens": raw.get("prompt_cache_miss_tokens", raw.get("prompt_tokens")),
+        "completion_tokens": raw.get("completion_tokens"),
+        "reasoning_tokens": details.get("reasoning_tokens", 0) if isinstance(details, dict) else 0,
+        "total_tokens": raw.get("total_tokens"),
+    }
+    if not all(isinstance(value, int) and not isinstance(value, bool) and value >= 0 for value in values.values()):
+        raise CampaignAbort("DeepSeek response contained invalid token usage")
+    if values["prompt_tokens"] != values["prompt_cache_hit_tokens"] + values["prompt_cache_miss_tokens"]:
+        raise CampaignAbort("DeepSeek prompt token accounting is inconsistent")
+    if values["total_tokens"] != values["prompt_tokens"] + values["completion_tokens"]:
+        raise CampaignAbort("DeepSeek total token accounting is inconsistent")
+    if values["reasoning_tokens"] > values["completion_tokens"]:
+        raise CampaignAbort("DeepSeek reasoning token accounting is inconsistent")
+    return values
+
+
+def merge_token_usage(target: dict[str, int], source: dict[str, int]) -> None:
+    for field in target:
+        target[field] += source[field]
+
+
+def call_deepseek(messages: list[dict], tools: list[dict], lock: dict, api_key: str) -> tuple[dict, str, dict]:
     base = lock["api_base_url"].rstrip("/")
-    response = http_json(
-        base + "/chat/completions",
-        {
-            "model": lock["model"], "messages": messages, "tools": tools,
-            "tool_choice": "auto", "temperature": lock["temperature"],
-            "top_p": lock["top_p"], "max_tokens": lock["max_tokens"],
-        },
-        {"Authorization": "Bearer " + api_key},
-        timeout=lock["request_timeout_seconds"],
-    )
-    choices = response.get("choices", [])
-    if not choices or not isinstance(choices[0].get("message"), dict):
-        raise RuntimeError("DeepSeek response omitted an assistant message")
-    response_model = response.get("model")
-    if response_model != lock["model"]:
-        raise RuntimeError("DeepSeek response model differs from the execution lock")
-    return choices[0]["message"], response_model
+    retry = lock["api_retry"]
+    usage = empty_provider_usage()
+    fingerprints: list[str] = []
+    finish_reasons: list[str] = []
+    for attempt in range(1, retry["max_attempts"] + 1):
+        try:
+            response = http_json(
+                base + "/chat/completions",
+                {
+                    "model": lock["model"], "messages": messages, "tools": tools,
+                    "tool_choice": "auto", "temperature": lock["temperature"],
+                    "top_p": lock["top_p"], "max_tokens": lock["max_tokens"],
+                    "thinking": {"type": lock["thinking_mode"]},
+                },
+                {"Authorization": "Bearer " + api_key},
+                timeout=lock["request_timeout_seconds"],
+            )
+        except HTTPResponseError as error:
+            retryable = error.status in retry["retryable_http_statuses"]
+            if not retryable or attempt == retry["max_attempts"]:
+                raise CampaignAbort(str(error)) from error
+            delay = min(
+                retry["max_backoff_seconds"],
+                retry["initial_backoff_seconds"] * (2 ** (attempt - 1)),
+            )
+            if error.retry_after is not None:
+                delay = min(retry["max_backoff_seconds"], max(delay, error.retry_after))
+            time.sleep(delay)
+            continue
+        except HTTPTransportError as error:
+            if attempt == retry["max_attempts"]:
+                raise CampaignAbort(str(error)) from error
+            time.sleep(min(
+                retry["max_backoff_seconds"],
+                retry["initial_backoff_seconds"] * (2 ** (attempt - 1)),
+            ))
+            continue
+        choices = response.get("choices", [])
+        if not choices or not isinstance(choices[0].get("message"), dict):
+            raise CampaignAbort("DeepSeek response omitted an assistant message")
+        response_model = response.get("model")
+        if response_model != lock["model"]:
+            raise CampaignAbort("DeepSeek response model differs from the execution lock")
+        fingerprint = response.get("system_fingerprint")
+        if not isinstance(fingerprint, str) or not fingerprint:
+            raise CampaignAbort("DeepSeek response omitted system_fingerprint")
+        finish_reason = choices[0].get("finish_reason")
+        if not isinstance(finish_reason, str) or not finish_reason:
+            raise CampaignAbort("DeepSeek response omitted finish_reason")
+        merge_token_usage(usage, normalize_provider_usage(response))
+        fingerprints.append(fingerprint)
+        finish_reasons.append(finish_reason)
+        if finish_reason == "insufficient_system_resource":
+            if not retry["retry_insufficient_system_resource"] or attempt == retry["max_attempts"]:
+                raise CampaignAbort("DeepSeek exhausted retries after insufficient_system_resource")
+            time.sleep(min(
+                retry["max_backoff_seconds"],
+                retry["initial_backoff_seconds"] * (2 ** (attempt - 1)),
+            ))
+            continue
+        return choices[0]["message"], response_model, {
+            "request_attempts": attempt,
+            "successful_responses": len(finish_reasons),
+            "retry_attempts": attempt - 1,
+            "token_usage": usage,
+            "system_fingerprints": fingerprints,
+            "finish_reasons": finish_reasons,
+        }
+    raise CampaignAbort("DeepSeek retry loop terminated without a response")
 
 
 def sql_literal(value: str) -> str:
@@ -292,7 +487,38 @@ def empty_run_state() -> dict:
         "gateway_latency_ms": 0,
         "accounting_latency_ms": 0,
         "provider_response_models": [],
+        "provider_api": {
+            "model_turns": 0,
+            "request_attempts": 0,
+            "successful_responses": 0,
+            "retry_attempts": 0,
+            "token_usage": empty_provider_usage(),
+            "system_fingerprints": [],
+            "finish_reasons": [],
+        },
+        "final_format_repair_attempts": 0,
     }
+
+
+def merge_provider_call(state: dict, observed: dict) -> None:
+    target = state["provider_api"]
+    target["model_turns"] += 1
+    for field in ("request_attempts", "successful_responses", "retry_attempts"):
+        target[field] += observed[field]
+    merge_token_usage(target["token_usage"], observed["token_usage"])
+    target["system_fingerprints"].extend(observed["system_fingerprints"])
+    target["finish_reasons"].extend(observed["finish_reasons"])
+
+
+def estimated_provider_cost_usd(provider_api: dict, lock: dict) -> float:
+    usage = provider_api["token_usage"]
+    prices = lock["pricing_usd_per_million_tokens"]
+    cost = (
+        usage["prompt_cache_hit_tokens"] * prices["prompt_cache_hit"]
+        + usage["prompt_cache_miss_tokens"] * prices["prompt_cache_miss"]
+        + usage["completion_tokens"] * prices["completion"]
+    ) / 1_000_000
+    return round(cost, 12)
 
 
 def run_agent(
@@ -330,13 +556,31 @@ def run_agent(
     usage = state["native_usage"]
     task_id = invocation["root_task_id"]
     for turn in range(lock["max_tool_turns"]):
-        message, response_model = call_deepseek(messages, tools, lock, api_key)
+        message, response_model, provider_call = call_deepseek(messages, tools, lock, api_key)
+        merge_provider_call(state, provider_call)
         if response_model not in state["provider_response_models"]:
             state["provider_response_models"].append(response_model)
         messages.append(message)
         calls = message.get("tool_calls") or []
         if not calls:
-            answer, narrative = parse_final(message.get("content") or "", required_fields)
+            try:
+                answer, narrative = parse_final(message.get("content") or "", required_fields)
+            except ValueError:
+                state["final_format_repair_attempts"] += 1
+                messages.append({
+                    "role": "user",
+                    "content": json.dumps({
+                        "error": "FINAL_RESPONSE_SCHEMA_INVALID",
+                        "instruction": (
+                            "Return only one valid JSON object with exactly the top-level keys "
+                            "answer and narrative. answer must be an object with exactly the "
+                            "required_answer_fields; narrative must be a string. Do not use a "
+                            "Markdown fence and do not call another tool solely to repair formatting."
+                        ),
+                        "required_answer_fields": required_fields,
+                    }, ensure_ascii=False),
+                })
+                continue
             return answer, narrative
         for call in calls:
             name = call.get("function", {}).get("name")
@@ -455,10 +699,12 @@ def main() -> None:
         raise SystemExit("WORKFLOW_EXECUTION_LOCK must name the frozen execution-lock JSON")
     lock = validate_lock(lock_path, invocation, tasks_doc, calibration_doc)
     project = re.sub(r"[^a-z0-9-]", "-", invocation["run_id"].lower())[:55]
-    ports = {name: free_port() for name in ("BUSINESS", "CONTROL", "GATEWAY", "OA")}
     # Match secret(): explicit process environment wins over the ignored .env.
     env = {**dotenv, **os.environ}
-    env.update({f"WORKFLOW_STUDY_{name}_PORT": str(port) for name, port in ports.items()})
+    # The provider credential is used only by this adapter process and must not
+    # be inherited by Docker/Compose children that never call the provider.
+    env.pop("DEEPSEEK_API_KEY", None)
+    configure_locked_container_environment(lock, env)
     started_at = now()
     wall_started = time.monotonic()
     state = empty_run_state()
@@ -466,6 +712,7 @@ def main() -> None:
     mcp: MCP | None = None
     created: dict | None = None
     stack_started = False
+    compose_start_attempts = 0
     agent_started = False
     answer: dict = {}
     narrative = ""
@@ -473,7 +720,7 @@ def main() -> None:
     status = "completed"
     try:
         try:
-            run_command(compose_command(project, "up", "-d", "--wait"), env)
+            ports, compose_start_attempts = start_compose_project(project, env, lock)
             stack_started = True
             mcp = MCP(f"http://127.0.0.1:{ports['GATEWAY']}/mcp", secret("TASKBOUND_ALICE_TOKEN", dotenv))
             created, _ = mcp.call("request_data_task", {
@@ -506,11 +753,18 @@ def main() -> None:
                 raise RuntimeError("approved task did not become ACTIVE")
             agent_started = True
             answer, narrative = run_agent(invocation, mcp, task, lock, api_key, state)
+        except CampaignAbort:
+            raise
         except Exception as error:  # Preserve completed query evidence before teardown.
-            status = "agent_error" if agent_started else "tool_error"
+            if not agent_started:
+                message_digest = hashlib.sha256(str(error).encode("utf-8", "replace")).hexdigest()
+                raise CampaignAbort(
+                    f"workflow setup failed ({type(error).__name__}); message_sha256={message_digest}"
+                ) from error
+            status = "agent_error"
             failure = {
                 "category": type(error).__name__,
-                "stage": "agent" if agent_started else "setup",
+                "stage": "agent",
                 "message_sha256": hashlib.sha256(str(error).encode("utf-8", "replace")).hexdigest(),
             }
 
@@ -525,6 +779,9 @@ def main() -> None:
             gateway_audit = {"available": True, "snapshot": budget_snapshot}
         storage_bytes = exposure_storage_bytes(project, env) if stack_started else 0
         common_risk, neutral = metric_sections(facts, task)
+        provider_api = state["provider_api"]
+        provider_api["system_fingerprints"] = sorted(set(provider_api["system_fingerprints"]))
+        provider_api["estimated_cost_usd"] = estimated_provider_cost_usd(provider_api, lock)
         record = {
             "schema_version": 3, "study_id": invocation["study_id"], "run_id": invocation["run_id"],
             "task_id": invocation["task_id"], "domain": task["domain"],
@@ -532,11 +789,13 @@ def main() -> None:
             "phase": invocation["phase"], "budget_level": invocation["budget_level"],
             "model": {
                 "provider": lock["provider"], "model": lock["model"],
-                "version": lock["model_version"], "temperature": lock["temperature"],
+                "version": lock["model_version"], "thinking_mode": lock["thinking_mode"],
+                "temperature": lock["temperature"],
                 "top_p": lock["top_p"], "max_tokens": lock["max_tokens"],
                 "api_base_url": lock["api_base_url"],
             },
             "provider_response_models": sorted(state["provider_response_models"]),
+            "provider_api": provider_api,
             "database_snapshot": "workflow-study-2026-v1",
             "database_instance_id": project if stack_started else f"not-created-{invocation['run_id']}",
             "root_task_id": created["task_id"] if created is not None else f"not-created-{invocation['run_id']}",
@@ -555,6 +814,8 @@ def main() -> None:
             "neutral_disclosure": neutral,
             "native_usage": state["native_usage"],
             "runtime_budget_rejections": state["runtime_budget_rejections"],
+            "final_format_repair_attempts": state["final_format_repair_attempts"],
+            "compose_start_attempts": compose_start_attempts,
             "performance": {
                 "wall_clock_ms": round((time.monotonic() - wall_started) * 1000),
                 "gateway_latency_ms": state["gateway_latency_ms"],
@@ -569,7 +830,7 @@ def main() -> None:
     finally:
         if os.getenv("WORKFLOW_STUDY_KEEP_STACK") != "1":
             subprocess.run(
-                compose_command(project, "down", "-v", "--remove-orphans", "--rmi", "local"),
+                compose_command(project, "down", "-v", "--remove-orphans"),
                 cwd=ROOT, env=env, capture_output=True, check=False,
             )
 

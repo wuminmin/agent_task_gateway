@@ -76,6 +76,15 @@ derived ceiling. Evaluation requires both the freeze and the original 18
 calibration records, so a copied freeze cannot hide source-run drift. Evaluation
 outcomes can never change a ceiling.
 
+The native volume counters above are reconstructed from query responses
+actually admitted to the Agent. They are distinct from the gateway's retained
+operational charge ledger. The latter can be larger: a baseline controller can
+withhold a result after gateway completion, and TaskGate can execute and charge
+a query before atomically refusing to release a result whose novel Facts exceed
+the semantic budget. Validation therefore requires admitted query/row usage to
+be no greater than the gateway ledger, while still requiring TaskGate's exposure
+ledger to equal the admitted Fact evidence exactly.
+
 This is a task-level calibration/evaluation split on one fixed synthetic
 snapshot, not an independently sampled data split. It is not evidence that a
 human could understand or approve the resulting units.
@@ -157,19 +166,25 @@ than independent samples.
 
 Every evaluation cell is digest-bound to one execution lock and source set.
 Together they preserve the campaign ID and lock timestamp, model provider and
-alias, provider release label, temperature, `top_p`, `max_tokens`, request
-timeout, maximum tool turns, system prompt, tool schema, data snapshot, answer
-schema, and rejection envelope. A hosted alias can still drift behind the
+alias, provider release label, explicit non-thinking mode, temperature, `top_p`,
+`max_tokens`, request and adapter timeouts, maximum tool turns, bounded retry policy,
+bounded pre-Agent Compose-start retries, provider pricing snapshot, phase cost ceilings, immutable local container image
+IDs, Docker/Compose versions, system prompt, tool schema,
+data snapshot, answer schema, and rejection envelope. A hosted alias can still drift behind the
 provider boundary; the release label is recorded metadata, not a guarantee of
 immutable model weights. Policy, level, and replicate execution order is
 deterministically hash-randomized. Each workflow receives a fresh Compose
 project, Business and Control database, root task, cache namespace, and model
 conversation. A failure remains in the registered evaluation denominator only
 when the source-locked adapter emits an auditable schema-v3 terminal record
-with Fact evidence and a post-run budget audit. If the adapter process times
-out, exits nonzero, emits invalid stdout, or emits an unverifiable record, the
-runner cleans up and aborts collection; it does not invent a zero-exposure
-observation.
+with Fact evidence and a post-run budget audit. Container, database, approval,
+or task-creation failures before the Agent starts abort without a record so the
+same registered cell can be resumed after diagnosis. If the adapter process
+times out, exits nonzero, emits invalid stdout, or emits an unverifiable record,
+the runner cleans up and aborts collection; it does not invent a zero-exposure
+observation. A no-tool model response that violates only the final JSON
+envelope receives a fixed, policy-blind repair instruction in the same
+conversation, and the retained record reports its repair count.
 
 For the three volume baselines, TaskGate V3 accounting runs audit-only in the
 background. The Control database retains an immutable relation from each
@@ -196,18 +211,58 @@ calibration records must begin later. `--campaign-id` distinguishes a complete
 collection, and the resulting lock SHA prevents records from different
 campaigns being combined:
 
+Build the two source images once before creating the lock. Per-cell Compose
+starts use the exact image IDs recorded by the lock with `--no-build`; cleanup
+removes containers and volumes but retains those immutable images. The
+PostgreSQL tag is likewise resolved to its current local image ID and repository
+digest at lock time:
+
+```sh
+docker build --build-arg TARGET=gateway \
+  --tag taskgate-workflow-gateway:workflow-study-v1 .
+docker build --build-arg TARGET=oa-demo \
+  --tag taskgate-workflow-oa-demo:workflow-study-v1 .
+docker image inspect postgres:16-bookworm >/dev/null
+```
+
 ```sh
 python3 evaluation/workflow-study/lock_execution.py \
-  --model deepseek-chat \
-  --model-version PROVIDER-RELEASE \
-  --campaign-id workflow-2026-08-01-a \
+  --model deepseek-v4-flash \
+  --model-version DeepSeek-V4-Flash \
+  --campaign-id workflow-2026-07-28-a \
+  --thinking-mode disabled \
   --temperature 0 \
   --top-p 1.0 \
   --max-tokens 4096 \
   --request-timeout-seconds 300 \
+  --adapter-timeout-seconds 1800 \
   --max-tool-turns 16 \
+  --api-max-attempts 5 \
+  --api-backoff-initial-seconds 2 \
+  --api-backoff-max-seconds 30 \
+  --compose-start-max-attempts 3 \
+  --compose-start-backoff-seconds 2 \
+  --calibration-cost-limit-usd 2 \
+  --evaluation-cost-limit-usd 18 \
+  --gateway-image taskgate-workflow-gateway:workflow-study-v1 \
+  --oa-image taskgate-workflow-oa-demo:workflow-study-v1 \
+  --postgres-image postgres:16-bookworm \
   --output evaluation/workflow-study/raw/execution-lock.json
 ```
+
+The V4 model name and explicit non-thinking toggle replace the retired
+`deepseek-chat` compatibility alias while preserving the registered
+temperature/`top_p` semantics. Every successful provider response records
+prompt cache-hit/cache-miss, completion, reasoning and total tokens, backend
+fingerprints, finish reasons, retries, and a price-snapshot cost estimate.
+Authentication, payment, request-contract, or exhausted transient-provider
+errors abort collection rather than becoming Agent failures. Each phase stops
+after retaining the cell that first exceeds its prelocked cost ceiling.
+Docker Compose startup alone receives its separate prelocked retry budget. Each
+failed start is torn down with fresh volumes before retry, and the retained
+record audits the observed start-attempt count. PostgreSQL is not published on
+host ports because the adapter reaches it only through the internal network or
+Compose exec.
 
 Supply credentials only through the process environment. Never place a key in
 the execution lock, schedule, shell scripts, logs, or checked-in files:
