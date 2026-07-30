@@ -18,6 +18,25 @@ See `v4-acceptance/README.md` before using its results in RQ4. The separate
 `v4-kernel/` record is engineering evidence and is not relabeled as a completed
 public-path campaign.
 
+RQ5 daily refresh has a separate reproducible driver under
+`daily-publication/`. Its default 2,000-row smoke builds Day0 plus exact
+1%/5%/10% changed publications three times each through the production offline
+builder, strict verifier, and receipt-bound activator. The companion
+`daily-publication-online/` runner uses four retained Catalog/Gateway/connector
+instances, four isolated production sidecar registries, real Control
+PostgreSQL, and public approval/query paths to measure switch, first-query, and
+replay behavior and derive all five task/ledger/cache/delegation checks. Its
+router is experiment-only. Combined results retain separate online/offline row
+counts and explicitly classify whether their fixture manifests match; offline
+timings are never substituted for online conditions. The checked-in formal
+campaign uses the same deterministic 345,000-row dataset in both halves,
+records three measured offline builds for each of four publications, and
+classifies their independently schema-attested artifacts as
+`same_dataset_distinct_attested_artifacts`. Compact descriptor packs under each
+runner's `evidence/` directory are the source-controlled validation inputs;
+the large HOT/COLD/sidecar payloads remain omitted under an explicit audit
+boundary.
+
 Run the exposure suite with `make eval-exposure`. Its RQ1 track uses a separate
 reference package with no production exposure dependency. Its RQ2 track uses an
 independent fixture evaluator and a disposable real PostgreSQL 16 server; the

@@ -13,6 +13,7 @@ from pathlib import Path
 
 from v4_evidence import validate_v4_evidence
 from v4_supplemental_evidence import validate_v4_supplemental_evidence
+from rq5_evidence import validate_rq5_evidence
 
 
 PAPER_DIR = Path(__file__).resolve().parent
@@ -667,6 +668,7 @@ def main() -> None:
     scale = validate_scale()
     v4 = validate_v4_evidence(ROOT)
     v4_supplemental = validate_v4_supplemental_evidence(ROOT)
+    rq5 = validate_rq5_evidence()
     formal = validate_formal(FORMAL, "exposure ledger")
     bitmap_formal = validate_formal(FORMAL_BITMAP, "bitmap refinement")
     rq1 = report["rq1_ground_truth"]
@@ -932,6 +934,59 @@ def main() -> None:
         rf"\newcommand{{\BitmapFormalDistinct}}{{{comma(bitmap_formal['distinct_states'])}}}",
         rf"\newcommand{{\BitmapFormalDepth}}{{{bitmap_formal['search_depth']}}}",
     ]
+    rq5_offline = rq5["offline"]
+    rq5_online = rq5["online"]
+    rq5_metrics = rq5_offline["metrics"]
+    rq5_days = rq5_offline["days"]
+    rq5_times = rq5_online["timing_ms"]
+    lines.extend([
+        rf"\newcommand{{\RQFiveRows}}{{{comma(rq5_offline['rows_per_publication'])}}}",
+        rf"\newcommand{{\RQFiveFacts}}{{{comma(rq5_offline['facts_per_publication'])}}}",
+        rf"\newcommand{{\RQFiveBuildRunsPerDay}}{{{rq5_offline['measured_builds_per_publication']}}}",
+        rf"\newcommand{{\RQFiveTotalBuildRuns}}{{{rq5_offline['publication_count'] * rq5_offline['measured_builds_per_publication']}}}",
+        rf"\newcommand{{\RQFiveMaxBuildS}}{{{decimal(rq5_metrics['maximum_build_ms'] / 1000, 3)}}}",
+        rf"\newcommand{{\RQFiveMaxVerifyS}}{{{decimal(rq5_metrics['maximum_strict_verify_ms'] / 1000, 3)}}}",
+        rf"\newcommand{{\RQFiveMaxActivateS}}{{{decimal(rq5_metrics['maximum_activation_ms'] / 1000, 3)}}}",
+        rf"\newcommand{{\RQFiveMaxCycleS}}{{{decimal(rq5_metrics['maximum_cycle_ms'] / 1000, 3)}}}",
+        rf"\newcommand{{\RQFiveBuilderPeakGiB}}{{{decimal(rq5_metrics['maximum_builder_peak_rss_bytes'] / 1073741824, 2)}}}",
+        rf"\newcommand{{\RQFiveArtifactGiB}}{{{decimal(max(rq5_metrics['artifact_bytes_by_day'].values()) / 1073741824, 2)}}}",
+        rf"\newcommand{{\RQFiveHotArtifactMiB}}{{{decimal(max(rq5_metrics['hot_artifact_bytes_by_day'].values()) / 1048576, 2)}}}",
+        rf"\newcommand{{\RQFiveTransitions}}{{{rq5_online['transition_count']}}}",
+        rf"\newcommand{{\RQFiveChecksPassed}}{{{sum(value['status'] == 'pass' for value in rq5_online['conditions'].values())}}}",
+        rf"\newcommand{{\RQFiveChecksTotal}}{{{len(rq5_online['conditions'])}}}",
+        rf"\newcommand{{\RQFiveSwitchMedianMS}}{{{decimal(rq5_times['switch']['p50'], 6)}}}",
+        rf"\newcommand{{\RQFiveSwitchTailMS}}{{{decimal(rq5_times['switch']['p95'], 6)}}}",
+        rf"\newcommand{{\RQFiveFirstQueryMedianMS}}{{{decimal(rq5_times['first_query']['p50'], 3)}}}",
+        rf"\newcommand{{\RQFiveFirstQueryTailMS}}{{{decimal(rq5_times['first_query']['p95'], 3)}}}",
+        rf"\newcommand{{\RQFiveReplayMedianMS}}{{{decimal(rq5_times['replay']['p50'], 3)}}}",
+        rf"\newcommand{{\RQFiveReplayTailMS}}{{{decimal(rq5_times['replay']['p95'], 3)}}}",
+    ])
+    for day, label in (
+        ("day0", "DayZero"),
+        ("day1", "DayOne"),
+        ("day2", "DayTwo"),
+        ("day3", "DayThree"),
+    ):
+        value = rq5_days[day]
+        lines.extend([
+            rf"\newcommand{{\RQFive{label}BuildMedianS}}{{{decimal(value['build_ms']['p50'] / 1000, 3)}}}",
+            rf"\newcommand{{\RQFive{label}BuildTailS}}{{{decimal(value['build_ms']['p95'] / 1000, 3)}}}",
+            rf"\newcommand{{\RQFive{label}VerifyMedianS}}{{{decimal(value['strict_verify_ms']['p50'] / 1000, 3)}}}",
+            rf"\newcommand{{\RQFive{label}ActivateMedianS}}{{{decimal(value['activation_ms']['p50'] / 1000, 3)}}}",
+            rf"\newcommand{{\RQFive{label}CycleMaxS}}{{{decimal(value['cycle_ms']['max'] / 1000, 3)}}}",
+            rf"\newcommand{{\RQFive{label}ArtifactGiB}}{{{decimal(value['artifact_bytes'] / 1073741824, 2)}}}",
+        ])
+    for value, label in zip(
+        rq5_online["transitions"],
+        ("DayZeroToOne", "DayOneToTwo", "DayTwoToThree"),
+        strict=True,
+    ):
+        timing = value["timing_ms"]
+        lines.extend([
+            rf"\newcommand{{\RQFive{label}SwitchMS}}{{{decimal(timing['switch_ms'], 6)}}}",
+            rf"\newcommand{{\RQFive{label}FirstQueryMS}}{{{decimal(timing['first_query_ms'], 3)}}}",
+            rf"\newcommand{{\RQFive{label}ReplayMS}}{{{decimal(timing['replay_ms'], 3)}}}",
+        ])
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     OUTPUT.write_text("\n".join(lines) + "\n", encoding="ascii")
     print(f"ok - generated {OUTPUT.relative_to(ROOT)}")

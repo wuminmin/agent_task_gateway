@@ -16,6 +16,8 @@ evaluation/fuzz/results
 evaluation/security/raw
 evaluation/security/results*.json
 evaluation/v4-acceptance/raw
+evaluation/daily-publication/raw
+evaluation/daily-publication-online/raw
 evaluation/generated
 formal/results
 paper/tdsc/generated

@@ -1,0 +1,54 @@
+{
+  "schema_version": "taskgate-daily-publication-config-v1",
+  "experiment_id": "rq5-daily-publication",
+  "runs_per_publication": 3,
+  "daily_cycle_gate_ms": 300000,
+  "dataset": {
+    "kind": "deterministic TPC-H-shaped orders/lineitem fixture",
+    "default_rows": 2000,
+    "publication_scale_rows": 345000,
+    "lineitems_per_order": 5,
+    "required_row_multiple": 500,
+    "maximum_rows": 345000
+  },
+  "days": [
+    {
+      "id": "day0",
+      "ordinal": 0,
+      "updated_percent_from_previous": 0,
+      "inserted_percent_from_previous": 0,
+      "deleted_percent_from_previous": 0
+    },
+    {
+      "id": "day1",
+      "ordinal": 1,
+      "updated_percent_from_previous": 1,
+      "inserted_percent_from_previous": 0,
+      "deleted_percent_from_previous": 0
+    },
+    {
+      "id": "day2",
+      "ordinal": 2,
+      "updated_percent_from_previous": 5,
+      "inserted_percent_from_previous": 0,
+      "deleted_percent_from_previous": 0
+    },
+    {
+      "id": "day3",
+      "ordinal": 3,
+      "updated_percent_from_previous": 10,
+      "inserted_percent_from_previous": 1,
+      "deleted_percent_from_previous": 1
+    }
+  ],
+  "offline_phases": ["build", "strict_verify", "activation"],
+  "correctness_conditions": [
+    "old_task_returns_old_data",
+    "new_task_sees_new_data",
+    "old_task_ledger_unchanged_by_switch",
+    "new_publication_misses_old_cache",
+    "delegated_child_uses_root_publication"
+  ],
+  "routing_model": "latest is resolved at approval time; retained version-routed gateway/catalog instances serve already-approved roots",
+  "claim_boundary": "No result is complete without measured online transition evidence for all three publication transitions."
+}

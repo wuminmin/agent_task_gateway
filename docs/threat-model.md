@@ -25,7 +25,8 @@ Agent 提交的结构化申请、QueryPlan、SQL、浏览器请求、网络回�
 | 子 Agent 通过委托重置预算 | 签名 root/parent lineage、逐维 Grant narrowing、每次执行验证祖先 ACTIVE；整个任务族共享 root ledger | 默认 Demo 只有一个 query Principal；更大委托 DAG 只有有限模型与实现测试，尚无大规模实验 |
 | 同一主体申请多个根任务重置账本 | 每个 root 都需要一次独立的人类审批并在其后代内守恒 | 系统没有 principal/tenant 级全局 exposure ledger；若审批策略允许多个 root，同一主体会获得多个独立预算，root-family 定理不阻止这种放大 |
 | 并发子任务同时花费最后额度 | 全家族共享一个三维 root head；epoch CAS 一次发布 R/I/O，冲突后重算；上限、结果和 receipt 同事务 | 单一 root head 仍是高并发热点；当前没有分布式 settlement 协议 |
-| 可见结果与 provenance 观察不同数据版本 | 两条策略 SQL 在一个只读 `REPEATABLE READ` 事务执行；Product 绑定 manifest-proven snapshot publication；证据缺失或截断时结果不释放 | 冻结/发布流程仍属于可信运维；错误源快照或构建前可变数据会破坏前提 |
+| 可见结果与 provenance 观察不同数据版本 | 两条策略 SQL 在一个只读 `REPEATABLE READ` 事务执行；Product 绑定 manifest-proven snapshot publication；证据缺失或截断时结果不释放 | 冻结/发布流程仍属于可信运维；错误源快照或构建前可变数据会破坏前提；系统不支持 mutable OLTP/CDC serving |
+| 活动任务在每日切换后误读新 publication | 签名 Grant 传递式绑定包含 Product→publication 与 artifact digests 的 Catalog SHA；查询再次校验 task/Grant/Service Catalog，root head 固定 dictionary set，错版本在连接器调用前关闭式拒绝 | 连续执行旧任务需要保留旧 Catalog/artifact/Gateway epoch 并按 task binding 路由；单个 Service 不支持安全 hot swap，路由器和 artifact 保留属于可信运维 |
 | 通过直接 SQL 绕开 exposure compiler | 启用 exposure 的 Grant 要求结构化 `execute_plan` 和完整 observation；`query_sql` 关闭式拒绝 | 在线 compiler 仅支持声明的单产品及 bounded Join/Union/Group/Page，不支持 AVG、窗口、任意 SQL provenance |
 | SQL 注入、注释绕过或写操作 | PostgreSQL AST 单语句白名单、逻辑产品/字段/函数/运算符限制、Scope CTE、外层行限制 | Parser/策略缺陷和依赖漏洞仍可能存在 |
 | 策略失误后修改业务库 | 非 owner、非 superuser、无 `BYPASSRLS` 的独立 `gateway_reader`；角色/连接/事务只读；仅 Datasource Attestation 表与 Reporting View `SELECT`；Schema Attestation | DBA 误授权、View 内容语义错误或数据库漏洞可绕过应用意图 |
@@ -60,7 +61,7 @@ dictionary 才保存可恢复 canonical payload。二者及 bitmap 仍是敏感�
 
 - Catalog 管理员必须保证字段的业务语义正确、`entity_key` 在 snapshot 内稳定唯一、数据更新时提升 snapshot，且 View 不包含未发布敏感列；自动 Attestation 只校验列顺序与 PostgreSQL 类型，不能证明这些语义。
 - `.env` 应保持 Git 忽略并收紧文件权限；数据密钥需与控制库备份一起安全管理。
-- Catalog 升级前应排空或重新申请 ACTIVE 任务，因为版本不一致会关闭式拒绝查询。
+- 每日 Catalog/publication 切换若要保留 ACTIVE 任务，必须保留旧 Catalog、只读 snapshot、artifact 和一个旧 epoch Gateway，并按 task 的 Catalog binding 严格路由；若部署做不到，应排空或重新申请任务，因为错版本会关闭式拒绝而不会自动切换。
 - 应监控回调重试、启动恢复、数据库 Timeout、预算耗尽、结算重试、readiness 和审计链验证。
 - 两个 PG Volume 必须分别备份和恢复演练，避免误把系统控制数据与业务数据混作同一生命周期。
 
@@ -87,7 +88,7 @@ dictionary 才保存可恢复 canonical payload。二者及 bitmap 仍是敏感�
 3. 将 Catalog、Reporting View、角色 Grant 和数据库迁移作为同一个受审发布单元，并做 Schema/类型校验。
 4. 对 QueryPlan 编译器、SQL Parser、Scope 注入和渲染器持续做 Fuzz、属性测试及 PostgreSQL 版本兼容测试。
 5. 增加管理员撤销/暂停、紧急 Kill Query、主体/产品级全局预算和速率限制。
-6. 将已实现的 snapshot compiler/artifact 校验接入企业冻结、CDC/版本流水线和双人发布门禁，为 dictionary/bitmap 建立保留、压缩和受审删除策略。
+6. 将已实现的 snapshot compiler/artifact 校验接入企业计划 ETL/同步、版本化 Reporting Snapshot 流水线和双人发布门禁，为仍有活动任务的旧 dictionary/bitmap/artifact 建立保留、压缩和受审删除策略；实时 CDC serving 不在当前范围内。
 7. 扩展并验证 Join、Union、窗口和多引擎 provenance；在此之前继续关闭式拒绝。
 8. 如需防止空结果、顺序、相关查询或外部知识产生的推断，应叠加差分隐私、查询审计或领域专用推断控制；当前 exposure ledger 不提供这些保证。
 

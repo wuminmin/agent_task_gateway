@@ -1,0 +1,45 @@
+{
+  "schema_version": "taskgate-daily-publication-online-preparation-v1",
+  "publications": [
+    {
+      "day": "day0",
+      "publication_name": "daily-lineitem-day0-r345000",
+      "rows": 345000,
+      "schema_digest": "6c3b6460b01ab4e39952efb44a81415cf927ba77441b456bf2bb14637f204570",
+      "manifest_digest": "c741873c799e3dc95fc94c1e5f06bf3f3cea6664a386a08b7c847e9506ae1f2b",
+      "dictionary_digest": "86a6ce253cdc6f86711f7fda0ebe167c5a245cd8463c542d5f4152c4784832b0",
+      "sidecar_digest": "cdcf202d2ba1c4ad8917f6e67f345a3911656b5763497d8b644b6159a52680a3",
+      "input_sha256": "26db2f29b88f78b8f90278be35839de3e34abcd719c4faef0d176e1ab7c1a104"
+    },
+    {
+      "day": "day1",
+      "publication_name": "daily-lineitem-day1-r345000",
+      "rows": 345000,
+      "schema_digest": "92a1b3e18cf4b27da16ce38ac0bf5fad75e2f77ca512ce2f2a12a910f1b7350d",
+      "manifest_digest": "630a90585efcc1bea242c9f0c5e5cff803b4c5def888adaf0ba3d3602fb9f7f1",
+      "dictionary_digest": "2137e7b28413ecb285141af4ae27a197dff069afab68997eae8c417c2a33f7a6",
+      "sidecar_digest": "cdcf202d2ba1c4ad8917f6e67f345a3911656b5763497d8b644b6159a52680a3",
+      "input_sha256": "e452fd3a9d1ac64165da006a551702e1c69dbaf290882427bea9c83d74ab3158"
+    },
+    {
+      "day": "day2",
+      "publication_name": "daily-lineitem-day2-r345000",
+      "rows": 345000,
+      "schema_digest": "0558a5c3efde25453a1ce98d49c1bc78ec8cc175eca48fcebb9aab6f3ac8b965",
+      "manifest_digest": "151b7e2cda73204d80c6c6824254abf8f9c16bebe8d9d40acc43ecb99559af70",
+      "dictionary_digest": "78e0861caa11602c603b2056bb17f6a237bab608f59276bae7e2c976b4adca2d",
+      "sidecar_digest": "cdcf202d2ba1c4ad8917f6e67f345a3911656b5763497d8b644b6159a52680a3",
+      "input_sha256": "43e672aba942397e51fa1b56a3d44ca5a1637e7d6e373c136a66d5f98b280c12"
+    },
+    {
+      "day": "day3",
+      "publication_name": "daily-lineitem-day3-r345000",
+      "rows": 345000,
+      "schema_digest": "1df495ecdc5578fbc2a3b7d19535e1c17a5355c0c163b21fcb089e3446dc6cdd",
+      "manifest_digest": "1d1cf878efe74b7bbd7cd0cf8dfdd8e6cad7faa808288cca96bb890a5acb42fe",
+      "dictionary_digest": "0db545f16d0523a9038d8d5106fe1268b286701ea6b80759a43317f3e485064a",
+      "sidecar_digest": "615f1f35350b1fcc2fed4d136e7d7031427c28a7caf3910341145853c67b7594",
+      "input_sha256": "0ab89316e25dfb49ebf00e3c95a721ff09688903a251c0400b121c5bbb317ce6"
+    }
+  ]
+}

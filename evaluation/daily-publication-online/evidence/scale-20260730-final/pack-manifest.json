@@ -1,0 +1,181 @@
+{
+  "binary_payload_policy": {
+    "artifacts": [
+      {
+        "artifact_path": "artifacts/daily-lineitem-day0-r345000/daily-lineitem-day0-r345000.cold.tgord",
+        "bundle_manifest_path": "artifacts/daily-lineitem-day0-r345000/daily-lineitem-day0-r345000.bundle.json",
+        "bytes": 1738478148,
+        "role": "cold",
+        "sha256": "c9a490d89f05fb37ff09eb033519e90f5bf9ea8458c50398b356318b4c3d286e"
+      },
+      {
+        "artifact_path": "artifacts/daily-lineitem-day0-r345000/daily-lineitem-day0-r345000.hot.tgord",
+        "bundle_manifest_path": "artifacts/daily-lineitem-day0-r345000/daily-lineitem-day0-r345000.bundle.json",
+        "bytes": 139384152,
+        "role": "hot",
+        "sha256": "d59333a9a4c9c69ab837c3c6430405870c6a5e77e8b1c478331ecf0a82ba246d"
+      },
+      {
+        "artifact_path": "artifacts/daily-lineitem-day0-r345000/daily-lineitem-day0-r345000.sidecar.ndjson",
+        "bundle_manifest_path": "artifacts/daily-lineitem-day0-r345000/daily-lineitem-day0-r345000.bundle.json",
+        "bytes": 47443990,
+        "role": "sidecar",
+        "sha256": "8bf8e60d7a5a73a12b86a3f711975a73cc17ae658881aaed042f2791fb5a03c7"
+      },
+      {
+        "artifact_path": "artifacts/daily-lineitem-day1-r345000/daily-lineitem-day1-r345000.cold.tgord",
+        "bundle_manifest_path": "artifacts/daily-lineitem-day1-r345000/daily-lineitem-day1-r345000.bundle.json",
+        "bytes": 1738478424,
+        "role": "cold",
+        "sha256": "da15fc61d021f7f149b040888c179eaaa18fb188e3ce987d7db06afc4adbc096"
+      },
+      {
+        "artifact_path": "artifacts/daily-lineitem-day1-r345000/daily-lineitem-day1-r345000.hot.tgord",
+        "bundle_manifest_path": "artifacts/daily-lineitem-day1-r345000/daily-lineitem-day1-r345000.bundle.json",
+        "bytes": 139384152,
+        "role": "hot",
+        "sha256": "ec8a1d3c76a9782a518a012b2951cf15c0daa1bcd7dc099f9a2426cee1b76304"
+      },
+      {
+        "artifact_path": "artifacts/daily-lineitem-day1-r345000/daily-lineitem-day1-r345000.sidecar.ndjson",
+        "bundle_manifest_path": "artifacts/daily-lineitem-day1-r345000/daily-lineitem-day1-r345000.bundle.json",
+        "bytes": 47443990,
+        "role": "sidecar",
+        "sha256": "59ff9230c2ded78c6f4ed8aa3356b331a22b79892ab687346ab93263bed322ca"
+      },
+      {
+        "artifact_path": "artifacts/daily-lineitem-day2-r345000/daily-lineitem-day2-r345000.cold.tgord",
+        "bundle_manifest_path": "artifacts/daily-lineitem-day2-r345000/daily-lineitem-day2-r345000.bundle.json",
+        "bytes": 1738478888,
+        "role": "cold",
+        "sha256": "4fea7f10778a337c28b2ad6ccace0263bdeadb1f833e05698d0709d7c71ae229"
+      },
+      {
+        "artifact_path": "artifacts/daily-lineitem-day2-r345000/daily-lineitem-day2-r345000.hot.tgord",
+        "bundle_manifest_path": "artifacts/daily-lineitem-day2-r345000/daily-lineitem-day2-r345000.bundle.json",
+        "bytes": 139384152,
+        "role": "hot",
+        "sha256": "080cecb5574d0df7295e1a61fa41305a1f1eee4f7c4b77fb45cadd5dc477b170"
+      },
+      {
+        "artifact_path": "artifacts/daily-lineitem-day2-r345000/daily-lineitem-day2-r345000.sidecar.ndjson",
+        "bundle_manifest_path": "artifacts/daily-lineitem-day2-r345000/daily-lineitem-day2-r345000.bundle.json",
+        "bytes": 47443990,
+        "role": "sidecar",
+        "sha256": "1c9ddc171906cccce24c98bb6998c668581cfabb9c2b9bcc2786511cffae68cc"
+      },
+      {
+        "artifact_path": "artifacts/daily-lineitem-day3-r345000/daily-lineitem-day3-r345000.cold.tgord",
+        "bundle_manifest_path": "artifacts/daily-lineitem-day3-r345000/daily-lineitem-day3-r345000.bundle.json",
+        "bytes": 1738466632,
+        "role": "cold",
+        "sha256": "e7c57689eab4b03a270b5cafe3cf558867b8350e09b9ca9a9a533d8f728d7c57"
+      },
+      {
+        "artifact_path": "artifacts/daily-lineitem-day3-r345000/daily-lineitem-day3-r345000.hot.tgord",
+        "bundle_manifest_path": "artifacts/daily-lineitem-day3-r345000/daily-lineitem-day3-r345000.bundle.json",
+        "bytes": 139384152,
+        "role": "hot",
+        "sha256": "be81c99492756210b09b7fa7a30d50f45b6fd42896ffd6d7f70649a18971c48e"
+      },
+      {
+        "artifact_path": "artifacts/daily-lineitem-day3-r345000/daily-lineitem-day3-r345000.sidecar.ndjson",
+        "bundle_manifest_path": "artifacts/daily-lineitem-day3-r345000/daily-lineitem-day3-r345000.bundle.json",
+        "bytes": 47443990,
+        "role": "sidecar",
+        "sha256": "cae5d64a82d2a5a51920ffca1ac277cd59bb8c4e1f315458a9965ae734e8d895"
+      }
+    ],
+    "audit_boundary": "A fresh clone re-hashes every retained descriptor and validates its digest chain, but cannot independently re-hash omitted HOT/COLD/sidecar payload bytes.",
+    "descriptors_retained": true,
+    "hot_cold_sidecar_bytes_retained": false,
+    "logical_bytes_omitted": 7701214660,
+    "omitted_artifact_count": 12
+  },
+  "content_tree_sha256": "98fc74d972d2e44f7bb8cdd72449bbe12df32c6ed61db20762b45b4501eb353c",
+  "files": {
+    "approved-inputs/day0.json": {
+      "bytes": 2214,
+      "role": "approved-input",
+      "sha256": "26db2f29b88f78b8f90278be35839de3e34abcd719c4faef0d176e1ab7c1a104"
+    },
+    "approved-inputs/day1.json": {
+      "bytes": 2214,
+      "role": "approved-input",
+      "sha256": "e452fd3a9d1ac64165da006a551702e1c69dbaf290882427bea9c83d74ab3158"
+    },
+    "approved-inputs/day2.json": {
+      "bytes": 2214,
+      "role": "approved-input",
+      "sha256": "43e672aba942397e51fa1b56a3d44ca5a1637e7d6e373c136a66d5f98b280c12"
+    },
+    "approved-inputs/day3.json": {
+      "bytes": 2214,
+      "role": "approved-input",
+      "sha256": "0ab89316e25dfb49ebf00e3c95a721ff09688903a251c0400b121c5bbb317ce6"
+    },
+    "artifacts/daily-lineitem-day0-r345000/daily-lineitem-day0-r345000.bundle.json": {
+      "bytes": 4837,
+      "role": "bundle-manifest",
+      "sha256": "49d937bf3ebbecdce9bf66d5bb93db9461830b36e3d7240f8eb4f486b441b489"
+    },
+    "artifacts/daily-lineitem-day1-r345000/daily-lineitem-day1-r345000.bundle.json": {
+      "bytes": 4837,
+      "role": "bundle-manifest",
+      "sha256": "c4c376f8236955dd0dab99c57595b9d314045e2955a36d68994997d75090bd5b"
+    },
+    "artifacts/daily-lineitem-day2-r345000/daily-lineitem-day2-r345000.bundle.json": {
+      "bytes": 4837,
+      "role": "bundle-manifest",
+      "sha256": "eafd0fcc79b4f748799ac160ac82475a0157c98168e998a56445ce2034da92d9"
+    },
+    "artifacts/daily-lineitem-day3-r345000/daily-lineitem-day3-r345000.bundle.json": {
+      "bytes": 4837,
+      "role": "bundle-manifest",
+      "sha256": "ea453fe70cfea4a9f7b1bd4bf394b2f2df26c150b41925ad1d281f425a9c0177"
+    },
+    "catalogs/day0.yaml": {
+      "bytes": 2574,
+      "role": "catalog",
+      "sha256": "4f0b1c3d7cb156d7aa107240df63f84f5d2a6cdf6a0986d2e1eaa2be0dcef54a"
+    },
+    "catalogs/day1.yaml": {
+      "bytes": 2574,
+      "role": "catalog",
+      "sha256": "892e5f1eea2b97063b4f5a5ef566b21f4541cd60a8954ac3a31f01f9e379de0c"
+    },
+    "catalogs/day2.yaml": {
+      "bytes": 2574,
+      "role": "catalog",
+      "sha256": "d0e86c0579e8172fdf66178d47fa0ece84098979f5b818c6a99d49f661180bce"
+    },
+    "catalogs/day3.yaml": {
+      "bytes": 2574,
+      "role": "catalog",
+      "sha256": "ccc11343bee3339c83ebf47b783c26284e67b1002f35f0b990e9a7fb0b8e4a2d"
+    },
+    "dataset-manifest.json": {
+      "bytes": 713,
+      "role": "dataset-manifest",
+      "sha256": "2ddf066a3aa1aa5fa40d6fd7ac086b9ee122eb8ce287e9c9ca9f1c01252197da"
+    },
+    "online-evidence.json": {
+      "bytes": 12649,
+      "role": "online-transition-evidence",
+      "sha256": "f180844c065cf68be86cef47b1500cdcc8e7a480170ec6130a49cb1902f4924b"
+    },
+    "preparation.json": {
+      "bytes": 2391,
+      "role": "preparation-manifest",
+      "sha256": "e4375d0ffc5a4110fb6add5e47546c2b7c7362ef49af897386d11dd20f3a02bd"
+    }
+  },
+  "online_evidence_sha256": "f180844c065cf68be86cef47b1500cdcc8e7a480170ec6130a49cb1902f4924b",
+  "retained_bytes": 54253,
+  "retained_file_count": 15,
+  "rows_per_publication": 345000,
+  "run_id": "scale-20260730-final",
+  "schema_version": "taskgate-daily-publication-online-pack-v1",
+  "source_run_relative": "evaluation/daily-publication-online/raw/scale-20260730-final",
+  "validation_contract": "paper/tkde/rq5_evidence.py:validate_rq5"
+}

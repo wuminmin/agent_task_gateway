@@ -1,0 +1,67 @@
+{
+  "version": "taskgate-snapshot-index-input-v1",
+  "publication_name": "daily-lineitem-day3-r345000",
+  "catalog_source": "daily_reporting",
+  "source_relation": "reporting.daily_lineitem_day3",
+  "ordinal_sidecar": "taskgate_ordinal.daily_lineitem_day3_r345000",
+  "entity_key_fields": [
+    "l_orderkey",
+    "l_linenumber"
+  ],
+  "snapshot": {
+    "source_id": "taskgate-eval-daily-publication",
+    "source_namespace": "evaluation.daily_lineitem",
+    "snapshot": "rq5-daily-lineitem-day3-rows-345000",
+    "schema_digest": "1df495ecdc5578fbc2a3b7d19535e1c17a5355c0c163b21fcb089e3446dc6cdd",
+    "fields": [
+      {
+        "name": "dataset_partition",
+        "canonical_field_id": "dataset_partition",
+        "sql_type": "smallint"
+      },
+      {
+        "name": "dataset_partition",
+        "canonical_field_id": "daily_lineitem.dataset_partition",
+        "sql_type": "smallint"
+      },
+      {
+        "name": "l_orderkey",
+        "canonical_field_id": "l_orderkey",
+        "sql_type": "bigint"
+      },
+      {
+        "name": "l_orderkey",
+        "canonical_field_id": "daily_lineitem.l_orderkey",
+        "sql_type": "bigint"
+      },
+      {
+        "name": "l_linenumber",
+        "canonical_field_id": "l_linenumber",
+        "sql_type": "integer"
+      },
+      {
+        "name": "l_linenumber",
+        "canonical_field_id": "daily_lineitem.l_linenumber",
+        "sql_type": "integer"
+      },
+      {
+        "name": "l_extendedprice",
+        "canonical_field_id": "l_extendedprice",
+        "sql_type": "numeric"
+      },
+      {
+        "name": "l_extendedprice",
+        "canonical_field_id": "daily_lineitem.l_extendedprice",
+        "sql_type": "numeric"
+      }
+    ],
+    "rows": []
+  },
+  "expected_digests": {
+    "sidecar_digest": "615f1f35350b1fcc2fed4d136e7d7031427c28a7caf3910341145853c67b7594",
+    "dictionary_digest": "0db545f16d0523a9038d8d5106fe1268b286701ea6b80759a43317f3e485064a",
+    "manifest_digest": "1d1cf878efe74b7bbd7cd0cf8dfdd8e6cad7faa808288cca96bb890a5acb42fe",
+    "cold_payload_digest": "0e361c4acf8a749fa13a9db5f72d830b864ef140833e2af12066dd28df9a8db5",
+    "hot_index_digest": "9dc4fc8d77b14188a5ae9c82620a32479709e7b5dbe9cdf970d362fe6e6fa1a7"
+  }
+}

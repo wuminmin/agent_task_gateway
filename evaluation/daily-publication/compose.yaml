@@ -1,0 +1,57 @@
+name: taskgate-daily-publication
+
+services:
+  business-postgres:
+    image: postgres:16-bookworm
+    environment:
+      POSTGRES_DB: taskgate_daily
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DAILY_POSTGRES_PASSWORD:-daily-postgres-local}
+      DAILY_SNAPSHOT_PASSWORD: ${DAILY_SNAPSHOT_PASSWORD:-daily-reader-local}
+      DAILY_PUBLICATION_ROWS: ${DAILY_PUBLICATION_ROWS:-2000}
+    volumes:
+      - daily-business-data:/var/lib/postgresql/data
+      - ../../db/init/00-schema.sql:/docker-entrypoint-initdb.d/00-schema.sql:ro
+      - ./sql/05-generate-daily-data.sh:/docker-entrypoint-initdb.d/05-generate-daily-data.sh:ro
+      - ./sql/10-reader.sh:/docker-entrypoint-initdb.d/10-reader.sh:ro
+      - ./sql/dataset-manifest.sql:/evaluation/dataset-manifest.sql:ro
+    healthcheck:
+      # pg_isready becomes true for the entrypoint's temporary server while a
+      # large fixture is still being generated.  Probe a relation created in
+      # the same transaction as all four publications so phase containers can
+      # start only after the immutable dataset has committed.
+      test: ["CMD-SHELL", "pg_isready -U postgres -d taskgate_daily && psql -U postgres -d taskgate_daily -v ON_ERROR_STOP=1 -Atqc 'SELECT 1 FROM reporting.daily_lineitem_day3 LIMIT 1' >/dev/null"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - daily-data
+
+  phase:
+    profiles: [tools]
+    build:
+      context: ../..
+      dockerfile: evaluation/daily-publication/Dockerfile
+      target: phase
+    environment:
+      SNAPSHOT_POSTGRES_DSN: postgres://daily_snapshot_reader:${DAILY_SNAPSHOT_PASSWORD:-daily-reader-local}@business-postgres:5432/taskgate_daily?sslmode=disable
+    depends_on:
+      business-postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    mem_limit: 6g
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - daily-data
+
+volumes:
+  daily-business-data:
+
+networks:
+  daily-data:
+    internal: true

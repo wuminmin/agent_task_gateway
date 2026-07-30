@@ -1,0 +1,77 @@
+catalog_version: rq5-online-day2-151b7e2cda73
+sources:
+    - name: daily_reporting
+      datasource_id: taskgate-eval-daily-publication
+      type: postgres
+      address: business-postgres
+      port: 5432
+      database: taskgate_daily_day2
+      user: gateway_reader
+      postgres_major_version: 16
+      schema_digest: 0558a5c3efde25453a1ce98d49c1bc78ec8cc175eca48fcebb9aab6f3ac8b965
+      secretRef: DAILY_GATEWAY_DB_PASSWORD
+snapshot_publications:
+    - name: daily-lineitem-day2-r345000
+      source: daily_reporting
+      source_namespace: evaluation.daily_lineitem
+      snapshot: rq5-daily-lineitem-day2-rows-345000
+      ordinal_sidecar: taskgate_ordinal.daily_lineitem_day2_r345000
+      sidecar_digest: cdcf202d2ba1c4ad8917f6e67f345a3911656b5763497d8b644b6159a52680a3
+      dictionary_digest: 78e0861caa11602c603b2056bb17f6a237bab608f59276bae7e2c976b4adca2d
+      manifest_digest: 151b7e2cda73204d80c6c6824254abf8f9c16bebe8d9d40acc43ecb99559af70
+products:
+    - name: daily_lineitem
+      source: daily_reporting
+      reporting_view: reporting.daily_lineitem_day2
+      description: Frozen deterministic RQ5 daily lineitem publication
+      sensitivity: low
+      fields:
+        - name: dataset_partition
+          type: smallint
+          description: Fixed fixture partition
+        - name: l_orderkey
+          type: bigint
+          description: Stable synthetic order key
+        - name: l_linenumber
+          type: integer
+          description: Stable line number
+        - name: l_extendedprice
+          type: numeric
+          description: Deterministic extended price
+      scopes:
+        - dataset_partition
+      allowed_operators:
+        - =
+        - <
+        - <=
+        - '>'
+        - '>='
+      snapshot: rq5-daily-lineitem-day2-rows-345000
+      snapshot_publication: daily-lineitem-day2-r345000
+      entity_key:
+        - l_orderkey
+        - l_linenumber
+      fact_namespace: evaluation.daily_lineitem
+      stable_relation_role: daily_lineitem
+scopes:
+    - name: dataset_partition
+      type: enum
+      description: Fixed deterministic online correctness fixture partition
+      allowed_values:
+        - "1"
+approval_routes:
+    - sensitivity: low
+      mode: manual
+      approver: bob
+      budget_profile: rq5-online-v4
+budget_profiles:
+    - name: rq5-online-v4
+      max_queries: 20
+      max_rows: 100
+      max_db_time: 1m0s
+      query_timeout: 15s
+      task_ttl: 1h0m0s
+      max_release_facts: 1000
+      max_influence_facts: 100000
+      max_outcome_facts: 20
+      exposure_profile_version: taskgate-exposure-v4

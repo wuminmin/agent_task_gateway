@@ -1,0 +1,100 @@
+name: taskgate-daily-publication-online
+
+services:
+  business-postgres:
+    image: postgres:16-bookworm@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55
+    environment:
+      POSTGRES_DB: taskgate_daily
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DAILY_POSTGRES_PASSWORD:-daily-postgres-local}
+      DAILY_PUBLICATION_ROWS: ${DAILY_PUBLICATION_ROWS:-2000}
+      DAILY_GATEWAY_DB_PASSWORD: ${DAILY_GATEWAY_DB_PASSWORD:-daily-gateway-local}
+    volumes:
+      - online-business-data:/var/lib/postgresql/data
+      - ../../db/init/00-schema.sql:/docker-entrypoint-initdb.d/00-schema.sql:ro
+      - ../daily-publication/sql/05-generate-daily-data.sh:/docker-entrypoint-initdb.d/05-generate-daily-data.sh:ro
+      - ./sql/10-online-runtime.sh:/docker-entrypoint-initdb.d/10-online-runtime.sh:ro
+      - ./sql/20-clone-retained-databases.sh:/docker-entrypoint-initdb.d/20-clone-retained-databases.sh:ro
+      - ../daily-publication/sql/dataset-manifest.sql:/evaluation/dataset-manifest.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d taskgate_daily && psql -U postgres -d taskgate_daily -v ON_ERROR_STOP=1 -Atqc 'SELECT 1 FROM reporting.daily_lineitem_day3 LIMIT 1' >/dev/null && psql -U postgres -d taskgate_daily -v ON_ERROR_STOP=1 -Atqc \"SELECT count(*) FROM pg_database WHERE datname IN ('taskgate_daily_day0','taskgate_daily_day1','taskgate_daily_day2','taskgate_daily_day3')\" | grep -qx 4"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - online-data
+
+  control-postgres:
+    image: postgres:16-bookworm@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55
+    environment:
+      POSTGRES_DB: taskgate_control
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DAILY_CONTROL_PASSWORD:-daily-control-local}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d taskgate_control"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - online-data
+
+  online:
+    profiles: [tools]
+    image: ${DAILY_PUBLICATION_ONLINE_IMAGE:-taskgate-daily-publication-online-tool}
+    build:
+      context: ../..
+      dockerfile: evaluation/daily-publication-online/Dockerfile
+      target: runtime
+    environment:
+      SNAPSHOT_POSTGRES_DSN: postgres://gateway_reader:${DAILY_GATEWAY_DB_PASSWORD:-daily-gateway-local}@business-postgres:5432/taskgate_daily?sslmode=disable
+      SNAPSHOT_POSTGRES_DSN_DAY0: postgres://gateway_reader:${DAILY_GATEWAY_DB_PASSWORD:-daily-gateway-local}@business-postgres:5432/taskgate_daily_day0?sslmode=disable
+      SNAPSHOT_POSTGRES_DSN_DAY1: postgres://gateway_reader:${DAILY_GATEWAY_DB_PASSWORD:-daily-gateway-local}@business-postgres:5432/taskgate_daily_day1?sslmode=disable
+      SNAPSHOT_POSTGRES_DSN_DAY2: postgres://gateway_reader:${DAILY_GATEWAY_DB_PASSWORD:-daily-gateway-local}@business-postgres:5432/taskgate_daily_day2?sslmode=disable
+      SNAPSHOT_POSTGRES_DSN_DAY3: postgres://gateway_reader:${DAILY_GATEWAY_DB_PASSWORD:-daily-gateway-local}@business-postgres:5432/taskgate_daily_day3?sslmode=disable
+      CONTROL_POSTGRES_DSN: postgres://postgres:${DAILY_CONTROL_PASSWORD:-daily-control-local}@control-postgres:5432/taskgate_control?sslmode=disable
+    depends_on:
+      business-postgres:
+        condition: service_healthy
+      control-postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    mem_limit: ${DAILY_PUBLICATION_ONLINE_MEMORY_LIMIT:-6g}
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - online-data
+
+  installer:
+    profiles: [tools]
+    image: ${DAILY_PUBLICATION_ONLINE_IMAGE:-taskgate-daily-publication-online-tool}
+    build:
+      context: ../..
+      dockerfile: evaluation/daily-publication-online/Dockerfile
+      target: runtime
+    entrypoint: ["/usr/local/bin/snapshot-sidecar-install"]
+    environment:
+      SNAPSHOT_INSTALL_POSTGRES_DSN: postgres://postgres:${DAILY_POSTGRES_PASSWORD:-daily-postgres-local}@business-postgres:5432/taskgate_daily?sslmode=disable
+    depends_on:
+      business-postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    mem_limit: ${DAILY_PUBLICATION_ONLINE_MEMORY_LIMIT:-6g}
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - online-data
+
+volumes:
+  online-business-data:
+
+networks:
+  online-data:
+    internal: true

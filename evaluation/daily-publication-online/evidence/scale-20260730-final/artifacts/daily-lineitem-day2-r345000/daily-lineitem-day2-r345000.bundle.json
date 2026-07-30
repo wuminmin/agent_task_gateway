@@ -1,0 +1,116 @@
+{
+  "version": "taskgate-snapshot-index-bundle-v1",
+  "publication_name": "daily-lineitem-day2-r345000",
+  "catalog_source": "daily_reporting",
+  "ordinal_sidecar": "taskgate_ordinal.daily_lineitem_day2_r345000",
+  "manifest_digest": "151b7e2cda73204d80c6c6824254abf8f9c16bebe8d9d40acc43ecb99559af70",
+  "dictionary_manifest": {
+    "version": "taskgate-ordinal-dictionary-v1",
+    "source_id": "taskgate-eval-daily-publication",
+    "source_namespace": "evaluation.daily_lineitem",
+    "snapshot": "rq5-daily-lineitem-day2-rows-345000",
+    "schema_digest": "0558a5c3efde25453a1ce98d49c1bc78ec8cc175eca48fcebb9aab6f3ac8b965",
+    "dictionary_digest": "78e0861caa11602c603b2056bb17f6a237bab608f59276bae7e2c976b4adca2d",
+    "sidecar_digest": "cdcf202d2ba1c4ad8917f6e67f345a3911656b5763497d8b644b6159a52680a3",
+    "cold_payload_digest": "5cf5cae76ff81b72412ea8b40dfc6046777251bfd2ccaf5f0eb27c01dadefc85",
+    "hot_index_digest": "e84e4b0c1836373b8c13cc4ca7865048638097936fea7dfe241d885a5a4ab3a3",
+    "segments": [
+      {
+        "id": "cell:daily_lineitem.dataset_partition",
+        "kind": "base-cell",
+        "field": "daily_lineitem.dataset_partition",
+        "shard": 0,
+        "fact_count": 345000,
+        "hashes_digest": "3f85f5995d83302961d68fdae62ab1d294e1a1b796c0dac40a99cfece5f2ee72",
+        "payloads_digest": "74e366c2d9dd434eb4416e47cf357dd345333a1710e38f99f195da972f71f50f"
+      },
+      {
+        "id": "cell:daily_lineitem.l_extendedprice",
+        "kind": "base-cell",
+        "field": "daily_lineitem.l_extendedprice",
+        "shard": 0,
+        "fact_count": 345000,
+        "hashes_digest": "80be0fd57d68351010868b76fa22f8db4c79c29f473d4d9a224a4115985c0fc2",
+        "payloads_digest": "7048ef7f467b3eb6920c192be5f8ebf3786119bbdd394ba579baefecce6ea7d4"
+      },
+      {
+        "id": "cell:daily_lineitem.l_linenumber",
+        "kind": "base-cell",
+        "field": "daily_lineitem.l_linenumber",
+        "shard": 0,
+        "fact_count": 345000,
+        "hashes_digest": "44f06ff1e6f01cda71a304f41649368c826e4b4b7397cb0f3fe7c31cf27a7cca",
+        "payloads_digest": "21d80fb1b20b399ceb8c0a9624ec1601d670a52cea19b51f43eb0b782aabbf29"
+      },
+      {
+        "id": "cell:daily_lineitem.l_orderkey",
+        "kind": "base-cell",
+        "field": "daily_lineitem.l_orderkey",
+        "shard": 0,
+        "fact_count": 345000,
+        "hashes_digest": "c864914dfb4a998984a281846e65a35b4b0f8820e9ee48f6a6dadc54edd81e54",
+        "payloads_digest": "eeb27d4cdfd51f33f73281022ae4a000b6d5e199760bb128c88f72adc3b5f122"
+      },
+      {
+        "id": "cell:dataset_partition",
+        "kind": "base-cell",
+        "field": "dataset_partition",
+        "shard": 0,
+        "fact_count": 345000,
+        "hashes_digest": "cfb44918af4e844d54c63d02799141522f85cafef8bc9b51d2261b1201f30117",
+        "payloads_digest": "9d813c35d657fcdb20bc3bed18536a76784d1bf8c31d388658f8ea47f7d78356"
+      },
+      {
+        "id": "cell:l_extendedprice",
+        "kind": "base-cell",
+        "field": "l_extendedprice",
+        "shard": 0,
+        "fact_count": 345000,
+        "hashes_digest": "342a46473832bc54dc0b11e6348c3246aeb3fc9ad8b26c448b96bb70b686f8ad",
+        "payloads_digest": "03bc6774d539ab132492c9c451ba9bb2d1478f19afb09cdc3f14bfc65110a509"
+      },
+      {
+        "id": "cell:l_linenumber",
+        "kind": "base-cell",
+        "field": "l_linenumber",
+        "shard": 0,
+        "fact_count": 345000,
+        "hashes_digest": "76c1c4d59dee450f255179c8cdc8c3a50307a5fed3be36a480160b0d6d3a6cdb",
+        "payloads_digest": "cce4f45fc5c898d5b9c3c9609d4906e38a1413ed5c73d531ccc34379dec98b4f"
+      },
+      {
+        "id": "cell:l_orderkey",
+        "kind": "base-cell",
+        "field": "l_orderkey",
+        "shard": 0,
+        "fact_count": 345000,
+        "hashes_digest": "bb926e3a72a3a84abb52fa8e97c9a7c421f00c63e5962110ca62fefc5811d722",
+        "payloads_digest": "c4008bf429a1ba273381b05ab96a9d760499f1cc8dc001735dcd24f8edb9eb89"
+      },
+      {
+        "id": "row",
+        "kind": "base-row",
+        "shard": 0,
+        "fact_count": 345000,
+        "hashes_digest": "5e45acdbcaf6d3c5d345ce6058d899c70472e783839a34a71ba7924813403cb0",
+        "payloads_digest": "d8344b350a15f06b6aaa218194fd5f1b03c6f5a4ededf16a4ed58bbdec77021c"
+      }
+    ]
+  },
+  "row_count": 345000,
+  "hot": {
+    "name": "daily-lineitem-day2-r345000.hot.tgord",
+    "sha256": "080cecb5574d0df7295e1a61fa41305a1f1eee4f7c4b77fb45cadd5dc477b170",
+    "bytes": 139384152
+  },
+  "cold": {
+    "name": "daily-lineitem-day2-r345000.cold.tgord",
+    "sha256": "4fea7f10778a337c28b2ad6ccace0263bdeadb1f833e05698d0709d7c71ae229",
+    "bytes": 1738478888
+  },
+  "sidecar": {
+    "name": "daily-lineitem-day2-r345000.sidecar.ndjson",
+    "sha256": "1c9ddc171906cccce24c98bb6998c668581cfabb9c2b9bcc2786511cffae68cc",
+    "bytes": 47443990
+  }
+}

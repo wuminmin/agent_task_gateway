@@ -55,6 +55,56 @@ Docker 宿主机、Catalog 管理者及能读取 `.env`/Volume 的管理员属�
 
 Exposure 语义、代数和在线支持矩阵见[任务级数据暴露记账](exposure-accounting.md)。
 
+## Publication epoch 与任务固定绑定
+
+TaskGate 的 V4 数据面只面向计划 ETL/同步后生成的冻结 Reporting Snapshot，
+不连接持续变化的 OLTP primary，也不把 CDC 流当作在线查询源。每次同步必须生成
+新的不可覆盖 publication 目录、snapshot ID 和经验证 Catalog artifact；原地刷新
+Reporting View、复用旧 publication 名称或在活动任务期间替换 artifact 都不属于该模型。
+论文中的 `P_e=<datasource,schema,cutoff,snapshot,catalog,dictionary>` 是完整的形式化
+epoch descriptor；当前 ordinal manifest 没有独立 `cutoff` 字段。实现通过签名 Catalog
+SHA 传递式绑定 datasource/schema、snapshot ID 与 manifest/dictionary/sidecar digests，
+并要求发布编排把同步 cutoff 与该 snapshot ID 共同版本化，而不是声称一个 manifest
+字段已经直接提交六元组。
+
+当前授权协议不接受一个可在查询时解释的字面量 `latest`。Gateway 创建 OA draft 时，
+把当时已激活 Catalog 的确切版本和 SHA-256 写入 `AuthorizationManifestV1`；批准回调
+只有在同一 retained epoch 实例上、Catalog digest 仍完全相同时才能激活任务。因此
+批准只能确认 draft 中的具体 publication epoch，不会自动改绑到更新版本，更不会在
+每次查询时重新解析别名。如果外围发布编排或 UI 提供 `latest`，它必须在生成/批准
+签名 Grant 时解析为具体 Catalog；跨切换仍未批准的 draft 必须留在旧 epoch 完成审批，
+或废弃后用新 epoch 重新申请。当前实现没有在回调时把旧 draft 动态重写为新 epoch。
+
+Publication 绑定是传递式而不是 Grant 中一个单独的 `publication_digest` 字段：
+
+- 签名 Manifest/Grant 绑定完整 `CatalogSHA256`；被散列的 Catalog 包含每个
+  Product 到 `snapshot_publication` 的映射，以及 publication 的 snapshot、manifest、
+  dictionary 和 sidecar digest。
+- canonical FactID 绑定 source namespace 与 immutable snapshot ID；publication manifest
+  再提交该版本全部 FactID hash/payload，dictionary set 提交 Catalog digest 与每个成员
+  publication manifest。换言之，FactID 本身不直接携带最终 manifest digest（这样会形成
+  自引用），其 publication 归属由 snapshot + manifest/dictionary 链证明。
+- semantic replay key 和持久 cache row 同时绑定 task、Grant、Catalog、schema 与
+  dictionary-set digest；V6 receipt 同时绑定 Catalog、Grant、dictionary set、三维 set
+  digest、root epoch 和 result digest。任一链路不一致都在连接器调用或结果释放前关闭式失败。
+
+Root task 的签名 Catalog binding 在其生命周期内不可修改。Delegated child 的
+`CheckDelegation` 要求 Catalog version/SHA、datasource/schema 与 root family 完全一致，
+并共享首次结算后固定 dictionary-set digest 的 root head；子任务不能借委托切换 publication。
+
+每日切换也不是对一个运行中 `Service.catalog` 做 hot swap。要让旧任务继续读取旧版本，
+运维必须保留旧 Catalog、只读 Reporting Snapshot、sidecar/HOT/COLD artifact 和一个旧
+Gateway epoch 实例，同时启动新 epoch 实例；路由器按任务绑定的 Catalog version/digest
+把旧 task ID 只发给旧实例，并把新申请/审批发给新实例。新实例会关闭式拒绝旧任务，
+旧实例也会拒绝新任务。旧任务结束后才可按保留策略回收旧实例和本地 artifact。
+默认 Compose 仍只启动一个实例；若没有这种 version-routed retained deployment，安全行为
+是拒绝旧任务，而不是悄悄切到新 publication，因而不能声称具备旧任务连续性。
+每个 epoch 最多保留一个执行实例；同一 epoch 的横向扩容仍需下述分布式执行租约。
+
+Ledger 作用域仍是一个批准的 root family。新 publication 上的新任务获得新的 root head；
+系统不会跨独立审批 epoch 去重同一业务事实。Principal/tenant 级跨 publication 知识记账
+属于当前保证之外。
+
 ## 生命周期
 
 ```text
@@ -81,7 +131,7 @@ Gateway 启动时执行嵌入式迁移，再完成中断恢复：
 - 过期任务被归档。
 - 运行期结算持久化失败会使 readiness 失败并由后台重试。
 
-当前仍只部署一个 Gateway 实例。PostgreSQL 行锁解决单实例内并发请求安全，但没有跨 Gateway 执行租约；在实现分布式租约或等价协调前不要横向扩容 Gateway。
+默认部署的每个 publication epoch 只有一个 Gateway 实例。PostgreSQL 行锁解决单实例内并发请求安全，但没有跨 Gateway 执行租约；在实现分布式租约或等价协调前不要为同一 epoch 横向扩容。上一节所述每日切换可以短期并存多个、Catalog digest 互斥且由外部路由严格分区的 epoch 实例；它不是同一任务可落到多个实例的通用横向扩容。
 
 ## 防御纵深
 

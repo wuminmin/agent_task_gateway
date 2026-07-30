@@ -4,6 +4,13 @@ This is a separate database-paper project derived from the implementation and
 the requirements in [../../tkde.md](../../tkde.md). It is not a template
 conversion of the TDSC security-gateway draft.
 
+The manuscript targets governed reporting replicas refreshed by scheduled
+daily ETL/synchronization, not mutable OLTP primaries or continuous CDC. Any
+deployment alias such as `latest` is resolved to a concrete Catalog/publication
+in the authorization snapshot presented for approval; approval confirms that
+binding rather than rewriting it. Active roots remain bound to their approved
+publication and are version-routed until completion.
+
 Build from the repository root:
 
 ```sh
@@ -42,6 +49,12 @@ exposure report. `generate_evidence.py` then verifies:
 - compact source snapshots for the legacy performance, storage, and scale
   campaigns, each uniquely bound to commit `38a35d7...` and re-hashed from
   exact archived bytes instead of being compared with the newer V4 tree;
+- the sealed RQ5 offline pack, reconstructing four 345,000-row publications,
+  twelve measured build/strict-verify/receipt-bound-activation cycles, phase
+  timings, direct-builder VmHWM, and artifact descriptors;
+- the compact RQ5 online descriptor pack and its three retained-version
+  transitions, independently re-hashing Catalogs, approved inputs, bundle
+  manifests, dataset bindings, timings, and all five correctness conditions;
 - the model, configuration, and raw-log hashes in
   `formal/results/exposure_ledger.json` and
   `formal/results/exposure_bitmap_refinement.json`.
@@ -52,19 +65,26 @@ pair PostgreSQL result-equivalence stress test is confined to the supplement;
 the main paper's RQ2 evidence is closed-language FactSet/charge invariance.
 Complete typing/big-step rules, output-key cases, and the detailed operator
 coverage matrix are also in the supplement; the main paper retains the effect
-summary and safety properties. A local TeX syntax build is available through
-`paper/tkde/build.sh`, but it still uses Docker for the exposure evaluation.
+summary and safety properties. Detailed legacy materialized-ledger timing,
+storage, and Join--Group diagnostics are likewise in the supplement; the main
+paper retains one scoped Legacy--V4 contrast. A local TeX syntax build is
+available through `paper/tkde/build.sh`, but it still uses Docker for the
+exposure evaluation.
 
 The draft reports controlled single-host evidence, including a TPC-H-derived
 (not official TPC-H) workload up to 225,000 joined members and 1,035,000
 dependency facts. The V4 bundle covers one fresh deployment with warm verified
-indexes; it does not claim the outstanding dense/clustered/random-sparse,
-same-root concurrent-CAS, or million-fact per-Fact independent-oracle
-campaigns, nor second-engine, multi-node, arbitrary-SQL, mutable-source,
-production-SLO, or live-LLM generality. The old TDSC manuscript remains available through
-`make paper-tdsc`; its results are not relabeled as exposure evidence. The
-source-controlled semantic, performance, storage, and scale reports are all
-consumed by the paper build.
+indexes plus separately scoped bitmap-layout, same-root contention, and
+million-fact offline-oracle studies. It does not claim second-engine,
+multi-node, arbitrary-SQL, mutable-source, production-SLO, or live-LLM
+generality. RQ5 executes a four-publication daily-refresh campaign with three
+measured builds per publication and a separate retained-route campaign over
+the same 345,000-row fixture. Its five cross-publication correctness conditions
+all pass, while the paper preserves the experiment-router, warm-cache,
+direct-child-memory, and omitted-payload boundaries. The old TDSC manuscript remains
+available through `make paper-tdsc`; its results are not relabeled as exposure
+evidence. The source-controlled semantic, performance, storage, and scale
+reports are all consumed by the paper build.
 
 ## Submission-length check
 
@@ -80,6 +100,7 @@ threshold. Therefore the corresponding author must still confirm the selected
 TKDE manuscript category, initial-submission limit, treatment of supplementary
 material, and current charge acknowledgement in ScholarOne/Author Portal
 immediately before submission. Do not infer acceptability from a successful
-local PDF build alone. The 2026-07-30 pinned-template syntax build is 14
-main-paper pages plus a separate 4-page supplement, so the draft requires
-editorial shortening or an explicitly confirmed overlength submission path.
+local PDF build alone. The 2026-07-30 pinned-template syntax build is 12
+main-paper pages plus a separate 9-page supplement. The main paper now matches
+the cited production threshold, but the initial-submission and supplement rules
+still require confirmation.

@@ -1,0 +1,123 @@
+{
+  "bindings": {
+    "git_commit_reported_by_results": "fede4798add8bb7bbf5793466efc9cf857c4bb8a",
+    "git_worktree_dirty_reported_by_results": true,
+    "results_sha256": "c4e6ffd76c758b97c2a07698274f520b037c52f205fef3942db8b43516bd7581",
+    "run_bound_source_archive_sha256": "f394e26f5f2e64b2e6a8f28d6dd6e42e2f41a749b7e13e444365613ff60bfa1e",
+    "run_bound_source_combined_sha256": "c1dbd14fa7c66495a43ae019d8ff668904eccb3fabfe05f3007e9222b67e371e"
+  },
+  "cache_policy": {
+    "calibration_precedes_measured_builds_for_each_day": true,
+    "filesystem_page_cache_dropped": false,
+    "interpretation": "sequential warm operational path; not a cold-cache measurement",
+    "postgres_buffers_reset_between_phases": false,
+    "strict_verify_immediately_follows_each_build": true
+  },
+  "capture_timing": "post-run; immediately after campaign completion",
+  "captured_at": "2026-07-30T13:29:38.707572569Z",
+  "container_runtime": {
+    "architecture": "x86_64",
+    "cgroup_driver": "cgroupfs",
+    "cgroup_version": "2",
+    "client_git_commit": "f52814d",
+    "client_version": "29.1.3",
+    "compose_version": "v2.40.3-desktop.1",
+    "cpus": 32,
+    "kernel": "6.18.33.2-microsoft-standard-WSL2",
+    "memory_bytes": 16625901568,
+    "server_git_commit": "fbf3ed2",
+    "server_platform": "Docker Desktop 4.55.0 (213807)",
+    "server_version": "29.1.3",
+    "storage_backing_filesystem": "extfs",
+    "storage_driver": "overlay2"
+  },
+  "host": {
+    "architecture": "x86_64",
+    "cpu_model": "13th Gen Intel(R) Core(TM) i9-13900HX",
+    "filesystem": {
+      "block_size_bytes": 4096,
+      "mount_options": "rw,relatime,discard,errors=remount-ro,data=ordered",
+      "mount_source": "/dev/sdd",
+      "mount_target": "/",
+      "type": "ext4"
+    },
+    "kernel": "6.18.33.2-microsoft-standard-WSL2",
+    "logical_cpus": 32,
+    "memory_total_bytes": 16625901568,
+    "operating_system": "Ubuntu 22.04.5 LTS",
+    "swap_total_bytes": 25769803776,
+    "virtualization": "Microsoft WSL2 / Docker Desktop"
+  },
+  "images": {
+    "capture_limitation": "Image IDs and tag resolutions were inspected immediately after completion. The run retained no container inspect record or BuildKit provenance attestation; the phase content ID is immutable, while base-image attribution is post-run evidence.",
+    "debian_runtime_base": {
+      "created": "2026-07-13T00:00:00Z",
+      "image_id": "sha256:cae69e86e0b024efa293e7ae0c5760d765422473437056e03d7d941fdf24dd8e",
+      "reference": "debian:bookworm-slim",
+      "repo_digest": "debian@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818"
+    },
+    "golang_build_base": {
+      "created": "2026-07-14T03:18:20.294866996Z",
+      "go_version": "1.25.12",
+      "image_id": "sha256:bd70579a624df39bce056a80ccda1b689b89a6e8393ceaef5878b1a087ac7b1b",
+      "reference": "golang:1.25-bookworm",
+      "repo_digest": "golang@sha256:ea341baa9bd5ba6784f6d7161ace70544349a6242d54d34a0fbfd2c4d51c9d58"
+    },
+    "phase": {
+      "created": "2026-07-30T12:47:44.481859936Z",
+      "image_id": "sha256:f8356b61119299ee44a158948aa48bb118f6c5c4856e30c702e00c31c7a5e03e",
+      "reference": "taskgate-daily-scale-20260730-final3-phase:latest",
+      "repo_digest": null,
+      "rootfs_layers": [
+        "sha256:81f823b9617547261c907396f63f770deaa554748ff739bedfa650e3bb74595a",
+        "sha256:658409cb8c66beb8709b6d201abbeae3f141ee88b8fd44ffe1382e51f39e74fb",
+        "sha256:333599b54b0dedd5225fbcf3296ed8f96add2266f0a0e06e4ead825fbaf16607",
+        "sha256:94308d06f16966f93a65245ae159c76f45a8edac186a6b6a0a0183b871a6e492",
+        "sha256:f8de93d1c9e3497deaf28d6a8adf9ca2426685a2aaf7d6d9a5d07e99e4913675"
+      ],
+      "size_bytes": 102123363
+    },
+    "postgres": {
+      "created": "2026-07-14T01:36:25.908336587Z",
+      "image_id": "sha256:67d1da22f4037b29cdd93e03d870a4a1c4d079358367d0cbc56459e52cde205e",
+      "postgres_version": "16.14-1.pgdg12+1",
+      "reference": "postgres:16-bookworm",
+      "repo_digest": "postgres@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55"
+    }
+  },
+  "measurement_boundary": {
+    "cycle_definition": "sum of three non-contiguous child-process wall times: build + strict_verify + activation",
+    "excluded": [
+      "Compose/container startup",
+      "campaign orchestration and inter-phase gaps",
+      "calibration",
+      "PostgreSQL process memory",
+      "container page cache and other cgroup memory",
+      "host/system peak memory"
+    ],
+    "full_end_to_end_rollout_elapsed": false,
+    "included": [
+      "direct v4-offline child execution"
+    ],
+    "phase_report_text": "child process wall clock and /proc/<pid>/status VmHWM; excludes container startup and orchestration",
+    "rss_sampling": "1 ms polling of /proc/<direct-child-pid>/status VmHWM and VmRSS",
+    "rss_scope": "root_process_vm_hwm_linux_procfs",
+    "timing_clock": "Go monotonic time.Since around direct child Start/Wait"
+  },
+  "resource_boundary": {
+    "builder_peak_rss_max_bytes": 5550759936,
+    "cgroup_memory_events_retained": false,
+    "cgroup_memory_max_retained": false,
+    "cgroup_memory_peak_retained": false,
+    "cgroup_swap_peak_retained": false,
+    "compose_declaration": "mem_limit: 6g",
+    "compose_sha256": "962fd77911f5335aaa7132d9596fea05e67a89fe3c7d588bec780ad1d4e253c3",
+    "interpretation": "The 6 GiB value is the run-bound Compose declaration. Actual cgroup peak/events were not retained; measured VmHWM is only the direct v4-offline process.",
+    "phase_container_memory_limit_bytes": 6442450944,
+    "prior_4_gib_builder_envelope_bytes": 4294967296,
+    "prior_4_gib_builder_envelope_satisfied": false,
+    "rss_is_cgroup_or_system_peak": false
+  },
+  "run_id": "scale-20260730-final3",
+  "schema_version": "taskgate-daily-publication-environment-v1"
+}

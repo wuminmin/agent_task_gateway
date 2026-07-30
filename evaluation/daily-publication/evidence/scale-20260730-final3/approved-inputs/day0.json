@@ -1,0 +1,67 @@
+{
+  "catalog_source": "daily_reporting",
+  "entity_key_fields": [
+    "l_orderkey",
+    "l_linenumber"
+  ],
+  "expected_digests": {
+    "cold_payload_digest": "fa33ff3aa8d0a4afb049b399ba6a5f6ed63e6b662c125a46c1c860eb40b4dfac",
+    "dictionary_digest": "86a6ce253cdc6f86711f7fda0ebe167c5a245cd8463c542d5f4152c4784832b0",
+    "hot_index_digest": "71b09b23272e59621591d6bb453667e4a4673410cab5b4cf4ff5dc854cf090b5",
+    "manifest_digest": "1f0b6f01c901ef96be17bf5006e89309a01525b01d681f60cef0eb277d35682d",
+    "sidecar_digest": "cdcf202d2ba1c4ad8917f6e67f345a3911656b5763497d8b644b6159a52680a3"
+  },
+  "ordinal_sidecar": "taskgate_ordinal.daily_lineitem_day0_r345000",
+  "publication_name": "daily-lineitem-day0-r345000",
+  "snapshot": {
+    "fields": [
+      {
+        "canonical_field_id": "dataset_partition",
+        "name": "dataset_partition",
+        "sql_type": "smallint"
+      },
+      {
+        "canonical_field_id": "daily_lineitem.dataset_partition",
+        "name": "dataset_partition",
+        "sql_type": "smallint"
+      },
+      {
+        "canonical_field_id": "l_orderkey",
+        "name": "l_orderkey",
+        "sql_type": "bigint"
+      },
+      {
+        "canonical_field_id": "daily_lineitem.l_orderkey",
+        "name": "l_orderkey",
+        "sql_type": "bigint"
+      },
+      {
+        "canonical_field_id": "l_linenumber",
+        "name": "l_linenumber",
+        "sql_type": "integer"
+      },
+      {
+        "canonical_field_id": "daily_lineitem.l_linenumber",
+        "name": "l_linenumber",
+        "sql_type": "integer"
+      },
+      {
+        "canonical_field_id": "l_extendedprice",
+        "name": "l_extendedprice",
+        "sql_type": "numeric"
+      },
+      {
+        "canonical_field_id": "daily_lineitem.l_extendedprice",
+        "name": "l_extendedprice",
+        "sql_type": "numeric"
+      }
+    ],
+    "rows": [],
+    "schema_digest": "5c6b95776160f705632b319920cfa97d0436e65a79f8fc30cf6aa7ea0db0286c",
+    "snapshot": "rq5-daily-lineitem-day0-rows-345000",
+    "source_id": "taskgate-eval-daily-publication",
+    "source_namespace": "evaluation.daily_lineitem"
+  },
+  "source_relation": "reporting.daily_lineitem_day0",
+  "version": "taskgate-snapshot-index-input-v1"
+}

@@ -116,9 +116,16 @@ func TestTaskGrantCoreV1DelegationPreservesFamilyAndNarrowsAuthority(t *testing.
 	}
 
 	for name, mutate := range map[string]func(*TaskGrantCoreV1){
-		"wrong root":        func(child *TaskGrantCoreV1) { child.RootTaskID = "another-root" },
-		"wrong parent":      func(child *TaskGrantCoreV1) { child.ParentTaskID = "another-parent" },
-		"different human":   func(child *TaskGrantCoreV1) { child.HumanSubject = "mallory" },
+		"wrong root":                func(child *TaskGrantCoreV1) { child.RootTaskID = "another-root" },
+		"wrong parent":              func(child *TaskGrantCoreV1) { child.ParentTaskID = "another-parent" },
+		"different human":           func(child *TaskGrantCoreV1) { child.HumanSubject = "mallory" },
+		"different catalog version": func(child *TaskGrantCoreV1) { child.CatalogVersion += "-next" },
+		// CatalogSHA256 transitively commits the Product -> publication mapping
+		// and publication manifest/dictionary/sidecar digests. A delegated child
+		// therefore cannot move to another publication epoch.
+		"different publication catalog digest": func(child *TaskGrantCoreV1) {
+			child.CatalogSHA256 = strings.Repeat("e", 64)
+		},
 		"release expansion": func(child *TaskGrantCoreV1) { child.Budget.MaxReleaseFacts = 101 },
 		"product expansion": func(child *TaskGrantCoreV1) {
 			child.ApprovedProducts = append(child.ApprovedProducts, "payroll")

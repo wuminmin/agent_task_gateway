@@ -1,0 +1,22 @@
+{
+  "inputs": {
+    "day0": {
+      "path": "day0.json",
+      "sha256": "c82d5b533a8e4cb0a0d74245dca999173316724fddb61a03d5318002dea8e84d"
+    },
+    "day1": {
+      "path": "day1.json",
+      "sha256": "e6f0ae6b108c6da7ca6040ab46a7363b7de58dc89b3728eb3415c2ee170e4991"
+    },
+    "day2": {
+      "path": "day2.json",
+      "sha256": "b14c3356d08acc28c376d6b6ee7a41a57731adb5c2c75127943a90229301e6f2"
+    },
+    "day3": {
+      "path": "day3.json",
+      "sha256": "d6239c7a395c13a9c28372caf5814a7e5b02b7c7d421ebb6c544ebccfc80824b"
+    }
+  },
+  "rows": 345000,
+  "schema_version": "taskgate-daily-publication-input-set-v1"
+}

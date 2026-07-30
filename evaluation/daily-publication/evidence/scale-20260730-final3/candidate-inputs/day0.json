@@ -1,0 +1,60 @@
+{
+  "catalog_source": "daily_reporting",
+  "entity_key_fields": [
+    "l_orderkey",
+    "l_linenumber"
+  ],
+  "ordinal_sidecar": "taskgate_ordinal.daily_lineitem_day0_r345000",
+  "publication_name": "daily-lineitem-day0-r345000",
+  "snapshot": {
+    "fields": [
+      {
+        "canonical_field_id": "dataset_partition",
+        "name": "dataset_partition",
+        "sql_type": "smallint"
+      },
+      {
+        "canonical_field_id": "daily_lineitem.dataset_partition",
+        "name": "dataset_partition",
+        "sql_type": "smallint"
+      },
+      {
+        "canonical_field_id": "l_orderkey",
+        "name": "l_orderkey",
+        "sql_type": "bigint"
+      },
+      {
+        "canonical_field_id": "daily_lineitem.l_orderkey",
+        "name": "l_orderkey",
+        "sql_type": "bigint"
+      },
+      {
+        "canonical_field_id": "l_linenumber",
+        "name": "l_linenumber",
+        "sql_type": "integer"
+      },
+      {
+        "canonical_field_id": "daily_lineitem.l_linenumber",
+        "name": "l_linenumber",
+        "sql_type": "integer"
+      },
+      {
+        "canonical_field_id": "l_extendedprice",
+        "name": "l_extendedprice",
+        "sql_type": "numeric"
+      },
+      {
+        "canonical_field_id": "daily_lineitem.l_extendedprice",
+        "name": "l_extendedprice",
+        "sql_type": "numeric"
+      }
+    ],
+    "rows": [],
+    "schema_digest": "5c6b95776160f705632b319920cfa97d0436e65a79f8fc30cf6aa7ea0db0286c",
+    "snapshot": "rq5-daily-lineitem-day0-rows-345000",
+    "source_id": "taskgate-eval-daily-publication",
+    "source_namespace": "evaluation.daily_lineitem"
+  },
+  "source_relation": "reporting.daily_lineitem_day0",
+  "version": "taskgate-snapshot-index-input-v1"
+}

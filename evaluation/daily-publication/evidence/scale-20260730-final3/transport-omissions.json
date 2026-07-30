@@ -1,0 +1,346 @@
+{
+  "artifact_count": 48,
+  "artifacts": [
+    {
+      "artifact_path": "calibration/day0/artifacts/daily-lineitem-day0-r345000/daily-lineitem-day0-r345000.cold.tgord",
+      "bundle_manifest_path": "calibration/day0/artifacts/daily-lineitem-day0-r345000/daily-lineitem-day0-r345000.bundle.json",
+      "bytes": 1738478148,
+      "role": "cold",
+      "sha256": "c213ec6d55b5f97e6945a14c0a04f9078865272deef97a75aaf1f63de1ebec6e"
+    },
+    {
+      "artifact_path": "calibration/day0/artifacts/daily-lineitem-day0-r345000/daily-lineitem-day0-r345000.hot.tgord",
+      "bundle_manifest_path": "calibration/day0/artifacts/daily-lineitem-day0-r345000/daily-lineitem-day0-r345000.bundle.json",
+      "bytes": 139384152,
+      "role": "hot",
+      "sha256": "d0ea867b68cee26c2855595bfb43e52aeb282fe8bc343d51209be32235cedc59"
+    },
+    {
+      "artifact_path": "calibration/day0/artifacts/daily-lineitem-day0-r345000/daily-lineitem-day0-r345000.sidecar.ndjson",
+      "bundle_manifest_path": "calibration/day0/artifacts/daily-lineitem-day0-r345000/daily-lineitem-day0-r345000.bundle.json",
+      "bytes": 47443990,
+      "role": "sidecar",
+      "sha256": "ea415a93ff3c8d44149401e57f2593bf870446e599234e3db6347bb15aba27c5"
+    },
+    {
+      "artifact_path": "calibration/day1/artifacts/daily-lineitem-day1-r345000/daily-lineitem-day1-r345000.cold.tgord",
+      "bundle_manifest_path": "calibration/day1/artifacts/daily-lineitem-day1-r345000/daily-lineitem-day1-r345000.bundle.json",
+      "bytes": 1738478424,
+      "role": "cold",
+      "sha256": "acdaa9bab2447b55bfa4e7c5b924d2a7c9f6d461c4861aec791f6499ec2c2e3c"
+    },
+    {
+      "artifact_path": "calibration/day1/artifacts/daily-lineitem-day1-r345000/daily-lineitem-day1-r345000.hot.tgord",
+      "bundle_manifest_path": "calibration/day1/artifacts/daily-lineitem-day1-r345000/daily-lineitem-day1-r345000.bundle.json",
+      "bytes": 139384152,
+      "role": "hot",
+      "sha256": "eaaf8118d8fad3ce1368c130465e42e1a55b3a96d03c85dcda7a2b612fbf6916"
+    },
+    {
+      "artifact_path": "calibration/day1/artifacts/daily-lineitem-day1-r345000/daily-lineitem-day1-r345000.sidecar.ndjson",
+      "bundle_manifest_path": "calibration/day1/artifacts/daily-lineitem-day1-r345000/daily-lineitem-day1-r345000.bundle.json",
+      "bytes": 47443990,
+      "role": "sidecar",
+      "sha256": "ada09436df9f18871dc1371b4443d66fe0691015c0dc3c89e305de781522fd72"
+    },
+    {
+      "artifact_path": "calibration/day2/artifacts/daily-lineitem-day2-r345000/daily-lineitem-day2-r345000.cold.tgord",
+      "bundle_manifest_path": "calibration/day2/artifacts/daily-lineitem-day2-r345000/daily-lineitem-day2-r345000.bundle.json",
+      "bytes": 1738478888,
+      "role": "cold",
+      "sha256": "46a74a9f345907db5d82da863f70f47dfca8fc997223f379c4aecc938c8fa7dc"
+    },
+    {
+      "artifact_path": "calibration/day2/artifacts/daily-lineitem-day2-r345000/daily-lineitem-day2-r345000.hot.tgord",
+      "bundle_manifest_path": "calibration/day2/artifacts/daily-lineitem-day2-r345000/daily-lineitem-day2-r345000.bundle.json",
+      "bytes": 139384152,
+      "role": "hot",
+      "sha256": "251bd7466595bfe67fc4e9ad51cece9fa6ef5b317473d3959d34ef712dddcbb9"
+    },
+    {
+      "artifact_path": "calibration/day2/artifacts/daily-lineitem-day2-r345000/daily-lineitem-day2-r345000.sidecar.ndjson",
+      "bundle_manifest_path": "calibration/day2/artifacts/daily-lineitem-day2-r345000/daily-lineitem-day2-r345000.bundle.json",
+      "bytes": 47443990,
+      "role": "sidecar",
+      "sha256": "8a9d495c927e975f9d3c40c6769e0e8356bef341e84d0c903452db389bc04489"
+    },
+    {
+      "artifact_path": "calibration/day3/artifacts/daily-lineitem-day3-r345000/daily-lineitem-day3-r345000.cold.tgord",
+      "bundle_manifest_path": "calibration/day3/artifacts/daily-lineitem-day3-r345000/daily-lineitem-day3-r345000.bundle.json",
+      "bytes": 1738466632,
+      "role": "cold",
+      "sha256": "5e4cc5809520b802ac66b48c8f16cb841b6e55aedf71eec88c8e8ee1e7c64ab7"
+    },
+    {
+      "artifact_path": "calibration/day3/artifacts/daily-lineitem-day3-r345000/daily-lineitem-day3-r345000.hot.tgord",
+      "bundle_manifest_path": "calibration/day3/artifacts/daily-lineitem-day3-r345000/daily-lineitem-day3-r345000.bundle.json",
+      "bytes": 139384152,
+      "role": "hot",
+      "sha256": "c5c86446a2158bd52fd82ecb057cec58dc97102cb10c56ff11024b086b3d5abd"
+    },
+    {
+      "artifact_path": "calibration/day3/artifacts/daily-lineitem-day3-r345000/daily-lineitem-day3-r345000.sidecar.ndjson",
+      "bundle_manifest_path": "calibration/day3/artifacts/daily-lineitem-day3-r345000/daily-lineitem-day3-r345000.bundle.json",
+      "bytes": 47443990,
+      "role": "sidecar",
+      "sha256": "0bf2fdcb857b1a90cb78b1e36570de5a00a6f1594173c93459bf7ccff3bdcacb"
+    },
+    {
+      "artifact_path": "raw/day0/sample-1/artifacts/daily-lineitem-day0-r345000/daily-lineitem-day0-r345000.cold.tgord",
+      "bundle_manifest_path": "raw/day0/sample-1/artifacts/daily-lineitem-day0-r345000/daily-lineitem-day0-r345000.bundle.json",
+      "bytes": 1738478148,
+      "role": "cold",
+      "sha256": "c213ec6d55b5f97e6945a14c0a04f9078865272deef97a75aaf1f63de1ebec6e"
+    },
+    {
+      "artifact_path": "raw/day0/sample-1/artifacts/daily-lineitem-day0-r345000/daily-lineitem-day0-r345000.hot.tgord",
+      "bundle_manifest_path": "raw/day0/sample-1/artifacts/daily-lineitem-day0-r345000/daily-lineitem-day0-r345000.bundle.json",
+      "bytes": 139384152,
+      "role": "hot",
+      "sha256": "d0ea867b68cee26c2855595bfb43e52aeb282fe8bc343d51209be32235cedc59"
+    },
+    {
+      "artifact_path": "raw/day0/sample-1/artifacts/daily-lineitem-day0-r345000/daily-lineitem-day0-r345000.sidecar.ndjson",
+      "bundle_manifest_path": "raw/day0/sample-1/artifacts/daily-lineitem-day0-r345000/daily-lineitem-day0-r345000.bundle.json",
+      "bytes": 47443990,
+      "role": "sidecar",
+      "sha256": "ea415a93ff3c8d44149401e57f2593bf870446e599234e3db6347bb15aba27c5"
+    },
+    {
+      "artifact_path": "raw/day0/sample-2/artifacts/daily-lineitem-day0-r345000/daily-lineitem-day0-r345000.cold.tgord",
+      "bundle_manifest_path": "raw/day0/sample-2/artifacts/daily-lineitem-day0-r345000/daily-lineitem-day0-r345000.bundle.json",
+      "bytes": 1738478148,
+      "role": "cold",
+      "sha256": "c213ec6d55b5f97e6945a14c0a04f9078865272deef97a75aaf1f63de1ebec6e"
+    },
+    {
+      "artifact_path": "raw/day0/sample-2/artifacts/daily-lineitem-day0-r345000/daily-lineitem-day0-r345000.hot.tgord",
+      "bundle_manifest_path": "raw/day0/sample-2/artifacts/daily-lineitem-day0-r345000/daily-lineitem-day0-r345000.bundle.json",
+      "bytes": 139384152,
+      "role": "hot",
+      "sha256": "d0ea867b68cee26c2855595bfb43e52aeb282fe8bc343d51209be32235cedc59"
+    },
+    {
+      "artifact_path": "raw/day0/sample-2/artifacts/daily-lineitem-day0-r345000/daily-lineitem-day0-r345000.sidecar.ndjson",
+      "bundle_manifest_path": "raw/day0/sample-2/artifacts/daily-lineitem-day0-r345000/daily-lineitem-day0-r345000.bundle.json",
+      "bytes": 47443990,
+      "role": "sidecar",
+      "sha256": "ea415a93ff3c8d44149401e57f2593bf870446e599234e3db6347bb15aba27c5"
+    },
+    {
+      "artifact_path": "raw/day0/sample-3/artifacts/daily-lineitem-day0-r345000/daily-lineitem-day0-r345000.cold.tgord",
+      "bundle_manifest_path": "raw/day0/sample-3/artifacts/daily-lineitem-day0-r345000/daily-lineitem-day0-r345000.bundle.json",
+      "bytes": 1738478148,
+      "role": "cold",
+      "sha256": "c213ec6d55b5f97e6945a14c0a04f9078865272deef97a75aaf1f63de1ebec6e"
+    },
+    {
+      "artifact_path": "raw/day0/sample-3/artifacts/daily-lineitem-day0-r345000/daily-lineitem-day0-r345000.hot.tgord",
+      "bundle_manifest_path": "raw/day0/sample-3/artifacts/daily-lineitem-day0-r345000/daily-lineitem-day0-r345000.bundle.json",
+      "bytes": 139384152,
+      "role": "hot",
+      "sha256": "d0ea867b68cee26c2855595bfb43e52aeb282fe8bc343d51209be32235cedc59"
+    },
+    {
+      "artifact_path": "raw/day0/sample-3/artifacts/daily-lineitem-day0-r345000/daily-lineitem-day0-r345000.sidecar.ndjson",
+      "bundle_manifest_path": "raw/day0/sample-3/artifacts/daily-lineitem-day0-r345000/daily-lineitem-day0-r345000.bundle.json",
+      "bytes": 47443990,
+      "role": "sidecar",
+      "sha256": "ea415a93ff3c8d44149401e57f2593bf870446e599234e3db6347bb15aba27c5"
+    },
+    {
+      "artifact_path": "raw/day1/sample-1/artifacts/daily-lineitem-day1-r345000/daily-lineitem-day1-r345000.cold.tgord",
+      "bundle_manifest_path": "raw/day1/sample-1/artifacts/daily-lineitem-day1-r345000/daily-lineitem-day1-r345000.bundle.json",
+      "bytes": 1738478424,
+      "role": "cold",
+      "sha256": "acdaa9bab2447b55bfa4e7c5b924d2a7c9f6d461c4861aec791f6499ec2c2e3c"
+    },
+    {
+      "artifact_path": "raw/day1/sample-1/artifacts/daily-lineitem-day1-r345000/daily-lineitem-day1-r345000.hot.tgord",
+      "bundle_manifest_path": "raw/day1/sample-1/artifacts/daily-lineitem-day1-r345000/daily-lineitem-day1-r345000.bundle.json",
+      "bytes": 139384152,
+      "role": "hot",
+      "sha256": "eaaf8118d8fad3ce1368c130465e42e1a55b3a96d03c85dcda7a2b612fbf6916"
+    },
+    {
+      "artifact_path": "raw/day1/sample-1/artifacts/daily-lineitem-day1-r345000/daily-lineitem-day1-r345000.sidecar.ndjson",
+      "bundle_manifest_path": "raw/day1/sample-1/artifacts/daily-lineitem-day1-r345000/daily-lineitem-day1-r345000.bundle.json",
+      "bytes": 47443990,
+      "role": "sidecar",
+      "sha256": "ada09436df9f18871dc1371b4443d66fe0691015c0dc3c89e305de781522fd72"
+    },
+    {
+      "artifact_path": "raw/day1/sample-2/artifacts/daily-lineitem-day1-r345000/daily-lineitem-day1-r345000.cold.tgord",
+      "bundle_manifest_path": "raw/day1/sample-2/artifacts/daily-lineitem-day1-r345000/daily-lineitem-day1-r345000.bundle.json",
+      "bytes": 1738478424,
+      "role": "cold",
+      "sha256": "acdaa9bab2447b55bfa4e7c5b924d2a7c9f6d461c4861aec791f6499ec2c2e3c"
+    },
+    {
+      "artifact_path": "raw/day1/sample-2/artifacts/daily-lineitem-day1-r345000/daily-lineitem-day1-r345000.hot.tgord",
+      "bundle_manifest_path": "raw/day1/sample-2/artifacts/daily-lineitem-day1-r345000/daily-lineitem-day1-r345000.bundle.json",
+      "bytes": 139384152,
+      "role": "hot",
+      "sha256": "eaaf8118d8fad3ce1368c130465e42e1a55b3a96d03c85dcda7a2b612fbf6916"
+    },
+    {
+      "artifact_path": "raw/day1/sample-2/artifacts/daily-lineitem-day1-r345000/daily-lineitem-day1-r345000.sidecar.ndjson",
+      "bundle_manifest_path": "raw/day1/sample-2/artifacts/daily-lineitem-day1-r345000/daily-lineitem-day1-r345000.bundle.json",
+      "bytes": 47443990,
+      "role": "sidecar",
+      "sha256": "ada09436df9f18871dc1371b4443d66fe0691015c0dc3c89e305de781522fd72"
+    },
+    {
+      "artifact_path": "raw/day1/sample-3/artifacts/daily-lineitem-day1-r345000/daily-lineitem-day1-r345000.cold.tgord",
+      "bundle_manifest_path": "raw/day1/sample-3/artifacts/daily-lineitem-day1-r345000/daily-lineitem-day1-r345000.bundle.json",
+      "bytes": 1738478424,
+      "role": "cold",
+      "sha256": "acdaa9bab2447b55bfa4e7c5b924d2a7c9f6d461c4861aec791f6499ec2c2e3c"
+    },
+    {
+      "artifact_path": "raw/day1/sample-3/artifacts/daily-lineitem-day1-r345000/daily-lineitem-day1-r345000.hot.tgord",
+      "bundle_manifest_path": "raw/day1/sample-3/artifacts/daily-lineitem-day1-r345000/daily-lineitem-day1-r345000.bundle.json",
+      "bytes": 139384152,
+      "role": "hot",
+      "sha256": "eaaf8118d8fad3ce1368c130465e42e1a55b3a96d03c85dcda7a2b612fbf6916"
+    },
+    {
+      "artifact_path": "raw/day1/sample-3/artifacts/daily-lineitem-day1-r345000/daily-lineitem-day1-r345000.sidecar.ndjson",
+      "bundle_manifest_path": "raw/day1/sample-3/artifacts/daily-lineitem-day1-r345000/daily-lineitem-day1-r345000.bundle.json",
+      "bytes": 47443990,
+      "role": "sidecar",
+      "sha256": "ada09436df9f18871dc1371b4443d66fe0691015c0dc3c89e305de781522fd72"
+    },
+    {
+      "artifact_path": "raw/day2/sample-1/artifacts/daily-lineitem-day2-r345000/daily-lineitem-day2-r345000.cold.tgord",
+      "bundle_manifest_path": "raw/day2/sample-1/artifacts/daily-lineitem-day2-r345000/daily-lineitem-day2-r345000.bundle.json",
+      "bytes": 1738478888,
+      "role": "cold",
+      "sha256": "46a74a9f345907db5d82da863f70f47dfca8fc997223f379c4aecc938c8fa7dc"
+    },
+    {
+      "artifact_path": "raw/day2/sample-1/artifacts/daily-lineitem-day2-r345000/daily-lineitem-day2-r345000.hot.tgord",
+      "bundle_manifest_path": "raw/day2/sample-1/artifacts/daily-lineitem-day2-r345000/daily-lineitem-day2-r345000.bundle.json",
+      "bytes": 139384152,
+      "role": "hot",
+      "sha256": "251bd7466595bfe67fc4e9ad51cece9fa6ef5b317473d3959d34ef712dddcbb9"
+    },
+    {
+      "artifact_path": "raw/day2/sample-1/artifacts/daily-lineitem-day2-r345000/daily-lineitem-day2-r345000.sidecar.ndjson",
+      "bundle_manifest_path": "raw/day2/sample-1/artifacts/daily-lineitem-day2-r345000/daily-lineitem-day2-r345000.bundle.json",
+      "bytes": 47443990,
+      "role": "sidecar",
+      "sha256": "8a9d495c927e975f9d3c40c6769e0e8356bef341e84d0c903452db389bc04489"
+    },
+    {
+      "artifact_path": "raw/day2/sample-2/artifacts/daily-lineitem-day2-r345000/daily-lineitem-day2-r345000.cold.tgord",
+      "bundle_manifest_path": "raw/day2/sample-2/artifacts/daily-lineitem-day2-r345000/daily-lineitem-day2-r345000.bundle.json",
+      "bytes": 1738478888,
+      "role": "cold",
+      "sha256": "46a74a9f345907db5d82da863f70f47dfca8fc997223f379c4aecc938c8fa7dc"
+    },
+    {
+      "artifact_path": "raw/day2/sample-2/artifacts/daily-lineitem-day2-r345000/daily-lineitem-day2-r345000.hot.tgord",
+      "bundle_manifest_path": "raw/day2/sample-2/artifacts/daily-lineitem-day2-r345000/daily-lineitem-day2-r345000.bundle.json",
+      "bytes": 139384152,
+      "role": "hot",
+      "sha256": "251bd7466595bfe67fc4e9ad51cece9fa6ef5b317473d3959d34ef712dddcbb9"
+    },
+    {
+      "artifact_path": "raw/day2/sample-2/artifacts/daily-lineitem-day2-r345000/daily-lineitem-day2-r345000.sidecar.ndjson",
+      "bundle_manifest_path": "raw/day2/sample-2/artifacts/daily-lineitem-day2-r345000/daily-lineitem-day2-r345000.bundle.json",
+      "bytes": 47443990,
+      "role": "sidecar",
+      "sha256": "8a9d495c927e975f9d3c40c6769e0e8356bef341e84d0c903452db389bc04489"
+    },
+    {
+      "artifact_path": "raw/day2/sample-3/artifacts/daily-lineitem-day2-r345000/daily-lineitem-day2-r345000.cold.tgord",
+      "bundle_manifest_path": "raw/day2/sample-3/artifacts/daily-lineitem-day2-r345000/daily-lineitem-day2-r345000.bundle.json",
+      "bytes": 1738478888,
+      "role": "cold",
+      "sha256": "46a74a9f345907db5d82da863f70f47dfca8fc997223f379c4aecc938c8fa7dc"
+    },
+    {
+      "artifact_path": "raw/day2/sample-3/artifacts/daily-lineitem-day2-r345000/daily-lineitem-day2-r345000.hot.tgord",
+      "bundle_manifest_path": "raw/day2/sample-3/artifacts/daily-lineitem-day2-r345000/daily-lineitem-day2-r345000.bundle.json",
+      "bytes": 139384152,
+      "role": "hot",
+      "sha256": "251bd7466595bfe67fc4e9ad51cece9fa6ef5b317473d3959d34ef712dddcbb9"
+    },
+    {
+      "artifact_path": "raw/day2/sample-3/artifacts/daily-lineitem-day2-r345000/daily-lineitem-day2-r345000.sidecar.ndjson",
+      "bundle_manifest_path": "raw/day2/sample-3/artifacts/daily-lineitem-day2-r345000/daily-lineitem-day2-r345000.bundle.json",
+      "bytes": 47443990,
+      "role": "sidecar",
+      "sha256": "8a9d495c927e975f9d3c40c6769e0e8356bef341e84d0c903452db389bc04489"
+    },
+    {
+      "artifact_path": "raw/day3/sample-1/artifacts/daily-lineitem-day3-r345000/daily-lineitem-day3-r345000.cold.tgord",
+      "bundle_manifest_path": "raw/day3/sample-1/artifacts/daily-lineitem-day3-r345000/daily-lineitem-day3-r345000.bundle.json",
+      "bytes": 1738466632,
+      "role": "cold",
+      "sha256": "5e4cc5809520b802ac66b48c8f16cb841b6e55aedf71eec88c8e8ee1e7c64ab7"
+    },
+    {
+      "artifact_path": "raw/day3/sample-1/artifacts/daily-lineitem-day3-r345000/daily-lineitem-day3-r345000.hot.tgord",
+      "bundle_manifest_path": "raw/day3/sample-1/artifacts/daily-lineitem-day3-r345000/daily-lineitem-day3-r345000.bundle.json",
+      "bytes": 139384152,
+      "role": "hot",
+      "sha256": "c5c86446a2158bd52fd82ecb057cec58dc97102cb10c56ff11024b086b3d5abd"
+    },
+    {
+      "artifact_path": "raw/day3/sample-1/artifacts/daily-lineitem-day3-r345000/daily-lineitem-day3-r345000.sidecar.ndjson",
+      "bundle_manifest_path": "raw/day3/sample-1/artifacts/daily-lineitem-day3-r345000/daily-lineitem-day3-r345000.bundle.json",
+      "bytes": 47443990,
+      "role": "sidecar",
+      "sha256": "0bf2fdcb857b1a90cb78b1e36570de5a00a6f1594173c93459bf7ccff3bdcacb"
+    },
+    {
+      "artifact_path": "raw/day3/sample-2/artifacts/daily-lineitem-day3-r345000/daily-lineitem-day3-r345000.cold.tgord",
+      "bundle_manifest_path": "raw/day3/sample-2/artifacts/daily-lineitem-day3-r345000/daily-lineitem-day3-r345000.bundle.json",
+      "bytes": 1738466632,
+      "role": "cold",
+      "sha256": "5e4cc5809520b802ac66b48c8f16cb841b6e55aedf71eec88c8e8ee1e7c64ab7"
+    },
+    {
+      "artifact_path": "raw/day3/sample-2/artifacts/daily-lineitem-day3-r345000/daily-lineitem-day3-r345000.hot.tgord",
+      "bundle_manifest_path": "raw/day3/sample-2/artifacts/daily-lineitem-day3-r345000/daily-lineitem-day3-r345000.bundle.json",
+      "bytes": 139384152,
+      "role": "hot",
+      "sha256": "c5c86446a2158bd52fd82ecb057cec58dc97102cb10c56ff11024b086b3d5abd"
+    },
+    {
+      "artifact_path": "raw/day3/sample-2/artifacts/daily-lineitem-day3-r345000/daily-lineitem-day3-r345000.sidecar.ndjson",
+      "bundle_manifest_path": "raw/day3/sample-2/artifacts/daily-lineitem-day3-r345000/daily-lineitem-day3-r345000.bundle.json",
+      "bytes": 47443990,
+      "role": "sidecar",
+      "sha256": "0bf2fdcb857b1a90cb78b1e36570de5a00a6f1594173c93459bf7ccff3bdcacb"
+    },
+    {
+      "artifact_path": "raw/day3/sample-3/artifacts/daily-lineitem-day3-r345000/daily-lineitem-day3-r345000.cold.tgord",
+      "bundle_manifest_path": "raw/day3/sample-3/artifacts/daily-lineitem-day3-r345000/daily-lineitem-day3-r345000.bundle.json",
+      "bytes": 1738466632,
+      "role": "cold",
+      "sha256": "5e4cc5809520b802ac66b48c8f16cb841b6e55aedf71eec88c8e8ee1e7c64ab7"
+    },
+    {
+      "artifact_path": "raw/day3/sample-3/artifacts/daily-lineitem-day3-r345000/daily-lineitem-day3-r345000.hot.tgord",
+      "bundle_manifest_path": "raw/day3/sample-3/artifacts/daily-lineitem-day3-r345000/daily-lineitem-day3-r345000.bundle.json",
+      "bytes": 139384152,
+      "role": "hot",
+      "sha256": "c5c86446a2158bd52fd82ecb057cec58dc97102cb10c56ff11024b086b3d5abd"
+    },
+    {
+      "artifact_path": "raw/day3/sample-3/artifacts/daily-lineitem-day3-r345000/daily-lineitem-day3-r345000.sidecar.ndjson",
+      "bundle_manifest_path": "raw/day3/sample-3/artifacts/daily-lineitem-day3-r345000/daily-lineitem-day3-r345000.bundle.json",
+      "bytes": 47443990,
+      "role": "sidecar",
+      "sha256": "0bf2fdcb857b1a90cb78b1e36570de5a00a6f1594173c93459bf7ccff3bdcacb"
+    }
+  ],
+  "audit_boundary": "The compact pack retains bundle and receipt descriptors but not HOT/COLD/sidecar payload bytes. A fresh clone cannot independently re-hash the omitted payloads.",
+  "logical_bytes_omitted": 30804858640,
+  "post_run_spot_check": "One sample-1 HOT/COLD/sidecar set per day was re-hashed after completion and matched, but that check was not durably recorded by the campaign and is not a pack gate.",
+  "run_id": "scale-20260730-final3",
+  "schema_version": "taskgate-daily-publication-transport-omissions-v1"
+}

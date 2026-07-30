@@ -1,0 +1,172 @@
+{
+  "post_run_supplemental_archive": {
+    "bytes": 30720,
+    "deterministic_mtime_unix": 0,
+    "format": "gnu-tar",
+    "numeric_owner": "0:0",
+    "path": "source/post-run-supplemental-source.tar",
+    "sha256": "b54fe18982ed81f5888ca6c15babf487bfa3e176f4abbc04db9096d06ca0a8d4"
+  },
+  "post_run_supplemental_captured_at": "2026-07-30T13:36:02.624404000Z",
+  "post_run_supplemental_is_run_bound": false,
+  "post_run_supplemental_members": {
+    "db/init/00-schema.sql": {
+      "bytes": 3677,
+      "sha256": "228d3bda45e6397e41eb6d3d0c24e05bf6fb3f19322e0ce51dce5922fc8b8378"
+    },
+    "evaluation/cmd/v4-offline/main_test.go": {
+      "bytes": 15356,
+      "sha256": "f0ca32aeb29ee2e5f0ff394913028b5db3e28257d6f8a39af294ff511ac52071"
+    },
+    "evaluation/daily-publication/cmd/phase/main_test.go": {
+      "bytes": 1326,
+      "sha256": "d66b6b503fa437d7980f9440ef1d9d76d6389388adb76f862fe9963fef76a533"
+    }
+  },
+  "provenance_limitation": "The original results map covered exactly 33 source files. db/init/00-schema.sql and the two Dockerfile-run *_test.go files were not covered by that run-bound hash; their bytes were captured only after completion and are supplemental.",
+  "run_bound_archive": {
+    "bytes": 460800,
+    "deterministic_mtime_unix": 0,
+    "format": "gnu-tar",
+    "numeric_owner": "0:0",
+    "path": "source/run-source.tar",
+    "sha256": "f394e26f5f2e64b2e6a8f28d6dd6e42e2f41a749b7e13e444365613ff60bfa1e"
+  },
+  "run_bound_combined_sha256": "c1dbd14fa7c66495a43ae019d8ff668904eccb3fabfe05f3007e9222b67e371e",
+  "run_bound_members": {
+    ".dockerignore": {
+      "bytes": 543,
+      "sha256": "b84c7869ff4b5b9ec455f33521b595f6bc11b53539d18b18b189e1b95dbea172"
+    },
+    "evaluation/cmd/v4-offline/artifact_identity_linux.go": {
+      "bytes": 955,
+      "sha256": "09fff44d10005015b18d5989d02ce247935e3698cb6160da5efb441b4a188299"
+    },
+    "evaluation/cmd/v4-offline/artifact_identity_other.go": {
+      "bytes": 360,
+      "sha256": "a3a97a88289bc75fc6bdc980ee81608f87fdf8d273f476e2791206df451435a1"
+    },
+    "evaluation/cmd/v4-offline/main.go": {
+      "bytes": 41060,
+      "sha256": "fbace102a5a052bbce76c5bd551ffbba1b5be24841f3bb2d637ba44f945f0987"
+    },
+    "evaluation/daily-publication/Dockerfile": {
+      "bytes": 1020,
+      "sha256": "05efd2d7b0568eb49dce0eaafab36c0e4f9b4a24fb0bbb6127a5ab9bd1dd53c3"
+    },
+    "evaluation/daily-publication/cmd/phase/main.go": {
+      "bytes": 6765,
+      "sha256": "44a820ba8834b2a132ce1b54a70a9b78cc418e2634a1994887b97a2dc2572e11"
+    },
+    "evaluation/daily-publication/compose.yaml": {
+      "bytes": 2063,
+      "sha256": "962fd77911f5335aaa7132d9596fea05e67a89fe3c7d588bec780ad1d4e253c3"
+    },
+    "evaluation/daily-publication/config.json": {
+      "bytes": 1696,
+      "sha256": "7dc91f15456b9b91ec90acc3d0f13eb828dffb423198eeb9330d55d88f9d4530"
+    },
+    "evaluation/daily-publication/harness.py": {
+      "bytes": 36969,
+      "sha256": "2cbf2cf1663b77d724155392f1cb8fe252914a00614185180a25937386f97ee2"
+    },
+    "evaluation/daily-publication/run.sh": {
+      "bytes": 5923,
+      "sha256": "bdb2b6b3adfc4bab53b34af8ddb8554e6047ed510108abcc8d2de7f9b2107ebc"
+    },
+    "evaluation/daily-publication/sql/05-generate-daily-data.sh": {
+      "bytes": 5383,
+      "sha256": "5d77a2fcb6cafc5197ec8a5951dbd7ff15e013aa2030a11d90c14b5deafa53b2"
+    },
+    "evaluation/daily-publication/sql/10-reader.sh": {
+      "bytes": 891,
+      "sha256": "640513ac7ef6fd931b075dfbadc686926294ea50e8c19b907682ab2127ce637f"
+    },
+    "evaluation/daily-publication/sql/dataset-manifest.sql": {
+      "bytes": 3079,
+      "sha256": "e0cb5dbaa63a73e99d180546dcecfa4d79508dca3de1d7f09e9601a04ef7dbe6"
+    },
+    "go.mod": {
+      "bytes": 1094,
+      "sha256": "e32e515a9e9341cf1766948777fe5edb91547c79d9da5d8b8f141115cad258b4"
+    },
+    "go.sum": {
+      "bytes": 6418,
+      "sha256": "de1648a8a8badef2043a72ea24aa836aa97d03429908f26bff4df77a2d80ff70"
+    },
+    "internal/exposure/algebra.go": {
+      "bytes": 16151,
+      "sha256": "da95344a911904cbf244c6cf964bf3d05dba3ded1c7a59fae9ec36e6a6e3ef93"
+    },
+    "internal/exposure/algebra_v2.go": {
+      "bytes": 45361,
+      "sha256": "ea71ca88d52ac35cc15933ec9b233729c5b1fcc25107d64cb99c493b2c390e6e"
+    },
+    "internal/exposure/fact.go": {
+      "bytes": 36205,
+      "sha256": "f5de57164c6366a8ef5c69a38ee846aa64c8c08c792e464a70ab7351cb54491b"
+    },
+    "internal/exposure/observation_digest.go": {
+      "bytes": 459,
+      "sha256": "e047faae85133e8f838096c17ff9ba617f6a8bdc9352072a4e4db7740ae03c6e"
+    },
+    "internal/exposure/outcome_v3.go": {
+      "bytes": 3492,
+      "sha256": "7be42a68c180da7342ca0139a356b51f7903df4cc36858cbdeaed553bfc1d211"
+    },
+    "internal/ordinal/artifact.go": {
+      "bytes": 16093,
+      "sha256": "b65ab60b4a5477061deaf2da73925f76c3fcc39d6c0597a16a7e2b02de5974f5"
+    },
+    "internal/ordinal/bitmap.go": {
+      "bytes": 17453,
+      "sha256": "b03c17e9f07e6c56973c7ea5c151b92503e6ed3241a39a807430727dbeb68230"
+    },
+    "internal/ordinal/dictionary.go": {
+      "bytes": 32907,
+      "sha256": "4ab844f4e9cabb96ae8122ade47666769f37e23065d2e19831b202b39bec959d"
+    },
+    "internal/ordinal/dictionary_set.go": {
+      "bytes": 3736,
+      "sha256": "d3a10b0c9344b92f11bf160cf0eaaf80cd353d2254111e33826dcfb18875aa24"
+    },
+    "internal/ordinal/errors.go": {
+      "bytes": 648,
+      "sha256": "52145c3fc84e5eaa5bd12e7f6423e0847e7c82750980b43514df789975ca9653"
+    },
+    "internal/ordinal/multi_index.go": {
+      "bytes": 3262,
+      "sha256": "22318b65a81c800935dfd0e1e52ad6a1d968bef5b6d5267a4bd68306a268cf97"
+    },
+    "internal/ordinal/persistence.go": {
+      "bytes": 34812,
+      "sha256": "4127132d09469bb5fab206389ed242692a07015f5514becbbc1b7ebaee05324b"
+    },
+    "internal/ordinal/snapshot.go": {
+      "bytes": 13657,
+      "sha256": "9afde83d73879fa2828c27c3adbd20a346e4173998809675785f3d7acdfb8d36"
+    },
+    "internal/ordinal/weighted.go": {
+      "bytes": 8146,
+      "sha256": "78176c4b6e79b07d5ebd5a4552637ab18de4f0333c84b0b93e9398ff2299253a"
+    },
+    "internal/snapshotbundle/bundle.go": {
+      "bytes": 55518,
+      "sha256": "f6d8a35960f8effa69a46bf1d71146f9408079273bc6c9ec60eef313e87b15cc"
+    },
+    "internal/snapshotbundle/postgres.go": {
+      "bytes": 14722,
+      "sha256": "aee1832fad98f274801360f49011ea724977ae9dd6e0d60d5b0dd60f897d13a4"
+    },
+    "internal/snapshotbundle/publish_linux.go": {
+      "bytes": 7051,
+      "sha256": "74a02cbf8ab16a5504c4d351e58a4135f5bde0798dd55b433236acb64d7380a1"
+    },
+    "internal/snapshotbundle/publish_other.go": {
+      "bytes": 1930,
+      "sha256": "3c80b28acf2e06ce44171e14925511d581f841e7d8c604bb251247b039ccfc42"
+    }
+  },
+  "run_id": "scale-20260730-final3",
+  "schema_version": "taskgate-daily-publication-source-snapshot-v1"
+}
