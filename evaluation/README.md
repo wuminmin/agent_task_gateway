@@ -8,6 +8,15 @@ system-performance harness. No track substitutes mock timing data when a
 prerequisite is absent, and older measurements are not relabeled as exposure
 overhead.
 
+`provenance-baseline/` is a fifth, independent external-baseline track. It runs
+vanilla PostgreSQL 16 and pinned ProvSQL over identical canonical business-tuple
+streams, checks every ordered visible result, and measures
+only result-plus-provenance-representation generation.
+It deliberately excludes TaskGate ledger/budget/replay semantics and ProvSQL
+semiring/probability evaluation. See `provenance-baseline/README.md`; its smoke
+output is not publication evidence and is never merged with an older V4 run by
+default.
+
 The V4 snapshot-index implementation has a separate acceptance driver under
 `v4-acceptance/`. It records direct SQL, public V4 novel/replay operations,
 exact overlap, WAL, storage, and optional external cgroup/network/index-build

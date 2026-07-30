@@ -1,0 +1,17 @@
+# syntax=docker/dockerfile:1.7
+FROM golang@sha256:ea341baa9bd5ba6784f6d7161ace70544349a6242d54d34a0fbfd2c4d51c9d58 AS build
+
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY evaluation/cmd/provenance-baseline ./evaluation/cmd/provenance-baseline
+RUN test -z "$(gofmt -l evaluation/cmd/provenance-baseline)" \
+    && go test ./evaluation/cmd/provenance-baseline \
+    && CGO_ENABLED=0 go build -trimpath -o /out/provenance-baseline ./evaluation/cmd/provenance-baseline
+
+FROM debian@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=build /out/provenance-baseline /usr/local/bin/provenance-baseline
+ENTRYPOINT ["/usr/local/bin/provenance-baseline"]

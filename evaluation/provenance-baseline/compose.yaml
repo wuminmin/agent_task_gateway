@@ -1,0 +1,75 @@
+name: taskgate-provenance-baseline
+
+services:
+  direct-postgres:
+    image: postgres@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55
+    environment:
+      POSTGRES_DB: provenance_eval
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${PROVENANCE_BASELINE_PASSWORD:-provenance-eval-local-only}
+    volumes:
+      - direct-data:/var/lib/postgresql/data
+      - ./sql/10-dataset.sql:/docker-entrypoint-initdb.d/10-dataset.sql:ro
+    healthcheck:
+      # The official image's temporary init server listens only on its Unix
+      # socket. Requiring TCP prevents a false-ready state before final start.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d provenance_eval"]
+      interval: 3s
+      timeout: 3s
+      retries: 60
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - evaluation
+
+  provsql-postgres:
+    build:
+      context: ../..
+      dockerfile: evaluation/provenance-baseline/Dockerfile.provsql
+      args:
+        PROVSQL_VERSION: "1.11.0"
+        PROVSQL_COMMIT: "6388fd06b79b7d247b4ff4dad4959374d0e92358"
+    environment:
+      POSTGRES_DB: provenance_eval
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${PROVENANCE_BASELINE_PASSWORD:-provenance-eval-local-only}
+    volumes:
+      - provsql-data:/var/lib/postgresql/data
+      - ./sql/10-dataset.sql:/docker-entrypoint-initdb.d/10-dataset.sql:ro
+      - ./sql/20-enable-provsql.sql:/docker-entrypoint-initdb.d/20-enable-provsql.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d provenance_eval && PGPASSWORD=$${POSTGRES_PASSWORD} psql -h 127.0.0.1 -U postgres -d provenance_eval -Atqc \"SELECT extversion FROM pg_extension WHERE extname='provsql'\" | grep -qx 1.11.0"]
+      interval: 3s
+      timeout: 5s
+      retries: 120
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - evaluation
+
+  provenance-baseline:
+    profiles: [tools]
+    build:
+      context: ../..
+      dockerfile: evaluation/provenance-baseline/Dockerfile.runner
+    environment:
+      PROVENANCE_BASELINE_DIRECT_DSN: postgres://postgres:${PROVENANCE_BASELINE_PASSWORD:-provenance-eval-local-only}@direct-postgres:5432/provenance_eval?sslmode=disable
+      PROVENANCE_BASELINE_PROVSQL_DSN: postgres://postgres:${PROVENANCE_BASELINE_PASSWORD:-provenance-eval-local-only}@provsql-postgres:5432/provenance_eval?sslmode=disable
+    volumes:
+      - ${PROVENANCE_BASELINE_CONFIG:?set PROVENANCE_BASELINE_CONFIG}:/config/config.json:ro
+      - ${PROVENANCE_BASELINE_RUN_DIR:?set PROVENANCE_BASELINE_RUN_DIR}:/results
+    depends_on:
+      direct-postgres:
+        condition: service_healthy
+      provsql-postgres:
+        condition: service_healthy
+    networks:
+      - evaluation
+
+volumes:
+  direct-data:
+  provsql-data:
+
+networks:
+  evaluation:
+    internal: true

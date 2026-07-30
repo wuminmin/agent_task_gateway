@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "campaign_id": "provsql-smoke-v1",
+  "data_cache_strategy": "warm",
+  "circuit_strategy": "novel_nonce",
+  "warmups": 1,
+  "runs": 3,
+  "order_seed": 20260730,
+  "statement_timeout_ms": 120000,
+  "direct_dsn_env": "PROVENANCE_BASELINE_DIRECT_DSN",
+  "provsql_dsn_env": "PROVENANCE_BASELINE_PROVSQL_DSN",
+  "expected_provsql_version": "1.11.0",
+  "expected_provsql_commit": "6388fd06b79b7d247b4ff4dad4959374d0e92358",
+  "dataset_fingerprint_sql": "SELECT row_json\nFROM (\n    SELECT 'orders:' || jsonb_build_array(o_orderkey, o_orderstatus)::text AS row_json\n    FROM benchmark.orders\n    UNION ALL\n    SELECT 'lineitem:' || jsonb_build_array(l_orderkey, l_linenumber, l_extendedprice::text)::text AS row_json\n    FROM benchmark.lineitem\n    UNION ALL\n    SELECT 'nonce:' || jsonb_build_array(nonce_id)::text AS row_json\n    FROM benchmark.provenance_nonce\n) AS canonical_dataset\nORDER BY row_json",
+  "workloads": [
+    {
+      "id": "join_group_1k",
+      "scale": 1000,
+      "expected_rows": 3,
+      "provenance_carrier_columns": 3,
+      "novelty_nonce_start": 1,
+      "expected_carrier_gate_type": "agg",
+      "expected_row_gate_type": "delta",
+      "sql": "SELECT jsonb_build_array(\n           grouped.o_orderstatus::text,\n           coalesce(grouped.price, NULL::numeric)::text,\n           coalesce(grouped.lines, NULL::bigint)::text,\n           coalesce(grouped.members, NULL::bigint)::text\n       )::text AS row_json,\n       grouped.price AS price_provenance,\n       grouped.lines AS line_provenance,\n       grouped.members AS count_provenance\nFROM (\n    SELECT o.o_orderstatus,\n           sum(l.l_extendedprice) AS price,\n           sum(l.l_linenumber) AS lines,\n           count(*) AS members\n    FROM benchmark.orders AS o\n    JOIN benchmark.lineitem AS l ON l.l_orderkey = o.o_orderkey\n    JOIN benchmark.provenance_nonce AS nonce ON nonce.nonce_id = $2\n    WHERE o.o_orderkey <= $1\n    GROUP BY o.o_orderstatus\n) AS grouped\nORDER BY grouped.o_orderstatus"
+    }
+  ]
+}

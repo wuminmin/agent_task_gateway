@@ -316,7 +316,7 @@ SessionBound~\cite{wu2026sessionbound} & \checkmark & -- & -- & -- & hist. units
 GAAP~\cite{stanley2026gaap} & persistent log & -- & -- & -- & hist. disclosure & -- & \checkmark \\
 UCON / history-based AC~\cite{park2004ucon,abadi2003history} & ongoing use & -- & -- & -- & hist. actions & policy-specific & -- \\
 Query pricing~\cite{koutris2012query,deep2017qirana,peng2025aria} & query/history & -- & -- & -- & hist. price & -- & -- \\
-Provenance systems~\cite{arab2018gprom,senellart2018provsql} & query & tuple/annotation & -- & rewrite/native & -- & -- & -- \\
+Provenance systems~\cite{arab2018gprom,senellart2018provsql,sen2026provsql} & query & tuple/annotation & -- & rewrite/native & -- & -- & -- \\
 \bottomrule
 \end{tabular}}
 \end{table*}
@@ -361,7 +361,9 @@ provenance provides compositional annotations for positive relational queries
 beyond tuple annotations \cite{amsterdamer2011aggregate}.
 
 GProM rewrites provenance questions \cite{arab2018gprom}, and ProvSQL adds
-provenance and probability to PostgreSQL \cite{senellart2018provsql}. TaskGate
+general circuit-based provenance and probability to PostgreSQL, including
+multiset relational algebra and terminal aggregation
+\cite{senellart2018provsql,sen2026provsql}. TaskGate
 claims neither a new algebra nor a general provenance engine. It specializes
 provenance to explicitly released facts and a conservative positive-derivation
 footprint, co-generates answer and effects in one snapshot, and settles before

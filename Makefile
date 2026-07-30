@@ -1,4 +1,4 @@
-.PHONY: verify test build up down logs formal eval-validate eval-exposure eval-exposure-performance eval-exposure-scale eval-exposure-storage eval-daily-publication eval-daily-publication-online eval-daily-publication-validate eval-smoke eval-full artifacts fuzz paper-evidence paper paper-tkde paper-tdsc
+.PHONY: verify test build up down logs formal eval-validate eval-exposure eval-exposure-performance eval-exposure-scale eval-exposure-storage eval-provenance-baseline eval-daily-publication eval-daily-publication-online eval-daily-publication-validate eval-smoke eval-full artifacts fuzz paper-evidence paper paper-tkde paper-tdsc
 
 verify:
 	docker build --target verify -t taskbound-agent-data-gateway-verify .
@@ -36,6 +36,9 @@ eval-exposure-scale:
 
 eval-exposure-storage:
 	./evaluation/run-exposure-storage.sh
+
+eval-provenance-baseline:
+	./evaluation/provenance-baseline/run.sh
 
 eval-daily-publication-validate:
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest evaluation/daily-publication/test_harness.py

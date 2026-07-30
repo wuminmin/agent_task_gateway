@@ -1,0 +1,39 @@
+# syntax=docker/dockerfile:1.7
+ARG POSTGRES_IMAGE=postgres@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55
+ARG PROVSQL_VERSION=1.11.0
+ARG PROVSQL_COMMIT=6388fd06b79b7d247b4ff4dad4959374d0e92358
+
+FROM ${POSTGRES_IMAGE} AS build
+ARG PROVSQL_COMMIT
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        build-essential ca-certificates git libboost-dev libboost-serialization-dev \
+        postgresql-server-dev-16=16.14-1.pgdg12+1 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN git init /tmp/provsql \
+    && git -C /tmp/provsql remote add origin https://github.com/PierreSenellart/provsql.git \
+    && git -C /tmp/provsql fetch --depth 1 origin "${PROVSQL_COMMIT}" \
+    && git -C /tmp/provsql checkout --detach FETCH_HEAD \
+    && test "$(git -C /tmp/provsql rev-parse HEAD)" = "${PROVSQL_COMMIT}" \
+    && make -C /tmp/provsql -j"$(nproc)" \
+    && make -C /tmp/provsql DESTDIR=/opt/provsql-root install \
+    && install -d /opt/provsql-root/usr/local/share/taskgate-evaluation \
+    && printf '%s\n' "${PROVSQL_COMMIT}" > /opt/provsql-root/usr/local/share/taskgate-evaluation/provsql-source-commit
+
+FROM ${POSTGRES_IMAGE}
+ARG PROVSQL_VERSION
+ARG PROVSQL_COMMIT
+
+LABEL org.opencontainers.image.title="TaskGate ProvSQL evaluation baseline" \
+      org.opencontainers.image.version="${PROVSQL_VERSION}" \
+      org.opencontainers.image.source="https://github.com/PierreSenellart/provsql" \
+      org.opencontainers.image.revision="${PROVSQL_COMMIT}"
+
+COPY --from=build /opt/provsql-root/ /
+COPY --from=build /usr/lib/x86_64-linux-gnu/libboost_serialization.so.1.74.0 /usr/lib/x86_64-linux-gnu/
+
+RUN ! ldd /usr/lib/postgresql/16/lib/provsql.so | grep -q 'not found'
+
+CMD ["postgres", "-c", "shared_preload_libraries=provsql"]
