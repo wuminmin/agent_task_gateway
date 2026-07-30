@@ -452,11 +452,17 @@ func (d *ordinalDeriver) buildMember(values []any) (ordinalMember, error) {
 				}
 			}
 		}
-		key, err := ordinalJoinRowKey(sources)
-		if err != nil {
-			return ordinalMember{}, err
+		// Ungrouped observations bind derived outputs to the canonical joined-row
+		// identity. Grouped observations bind them to member.groupKey in
+		// flushGroup, so materializing the joined-row identity here has no
+		// semantic consumer and is avoidable work on every provenance row.
+		if !d.grouped {
+			key, err := ordinalJoinRowKey(sources)
+			if err != nil {
+				return ordinalMember{}, err
+			}
+			member.key = key
 		}
-		member.key = key
 	} else {
 		member.key = sources[0].row.EntityKey
 	}

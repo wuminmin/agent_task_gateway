@@ -56,6 +56,39 @@ SELECT storage_format,chunk_count FROM encrypted_query_results WHERE query_id=$1
 	}
 }
 
+func TestCommittedResultReadPathsPreserveExactJSONNumbers(t *testing.T) {
+	harness := newGatewayHarness(t)
+	harness.createActiveSummaryTask(t, "task-exact-result-numbers")
+	harness.connector.result = dataconnector.Result{
+		Columns: []dataconnector.Column{{Name: "month", DataTypeOID: 25}, {Name: "total_amount", DataTypeOID: 1700}},
+		Rows: [][]any{
+			{"2026-01", json.Number("12.50")},
+			{"2026-02", json.Number("9007199254740993")},
+		},
+		RowCount: 2,
+	}
+	arguments := map[string]any{
+		"task_id": "task-exact-result-numbers", "request_id": "exact-result-numbers-request", "sql": testSummarySQL,
+	}
+	first := mustCallGatewayTool(t, harness.service, harness.alice, "query_sql", arguments)
+	wantRows := `[["2026-01",12.50],["2026-02",9007199254740993]]`
+	assertExactJSONRows(t, first["rows"], wantRows)
+
+	idempotent := mustCallGatewayTool(t, harness.service, harness.alice, "query_sql", arguments)
+	if idempotent["idempotent_replay"] != true {
+		t.Fatalf("same-request result was not an idempotent replay: %#v", idempotent)
+	}
+	assertExactJSONRows(t, idempotent["rows"], wantRows)
+
+	stored := mustCallGatewayTool(t, harness.service, harness.alice, "get_query_result", map[string]any{
+		"task_id": "task-exact-result-numbers", "query_id": first["query_id"],
+	})
+	assertExactJSONRows(t, stored["rows"], wantRows)
+	if len(harness.connector.requests) != 1 {
+		t.Fatalf("committed result reads executed connector %d times", len(harness.connector.requests))
+	}
+}
+
 func TestOrdinalSemanticReplayReadsChunkedMaterializationAndWritesFreshChunkedResult(t *testing.T) {
 	harness := newGatewayHarness(t)
 	harness.service.spoolDirectory = t.TempDir()
@@ -301,6 +334,31 @@ func TestWriteStoredQueryResultMatchesJSONMarshal(t *testing.T) {
 		if !bytes.Equal(actual.Bytes(), expected) {
 			t.Fatalf("case %d:\nactual   %s\nexpected %s", index, actual.Bytes(), expected)
 		}
+	}
+}
+
+func TestDecodeStoredQueryResultPreservesNumbersAndRejectsTrailingJSON(t *testing.T) {
+	encoded := []byte(`{"columns":[],"rows":[[12.50,9007199254740993]],"row_count":1,"database_ms":0,"limited":false}`)
+	decoded, err := decodeStoredQueryResult(append(append([]byte(nil), encoded...), '\n', ' ', '\t'))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertExactJSONRows(t, decoded.Rows, `[[12.50,9007199254740993]]`)
+	for _, trailing := range []string{`{}`, `null`, `garbage`} {
+		if _, err := decodeStoredQueryResult(append(append([]byte(nil), encoded...), []byte(trailing)...)); err == nil {
+			t.Fatalf("accepted trailing JSON %q", trailing)
+		}
+	}
+}
+
+func assertExactJSONRows(t *testing.T, rows any, want string) {
+	t.Helper()
+	encoded, err := json.Marshal(rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(encoded) != want {
+		t.Fatalf("row JSON = %s, want %s", encoded, want)
 	}
 }
 

@@ -82,5 +82,23 @@ func (client *mcpClient) call(ctx context.Context, tool string, arguments any, o
 	if len(result.StructuredContent) == 0 || string(result.StructuredContent) == "null" {
 		return errors.New("tool omitted structuredContent")
 	}
-	return json.Unmarshal(result.StructuredContent, output)
+	return decodeStructuredContent(result.StructuredContent, output)
+}
+
+// decodeStructuredContent preserves JSON number lexemes in interface-valued
+// result rows. The direct PostgreSQL path carries exact numeric values as
+// pgtype.Numeric, whose JSON form can contain significant trailing zeroes.
+// Decoding MCP rows through float64 would erase that representation (and can
+// lose precision for large integers), producing a false result-digest
+// mismatch even though PostgreSQL returned the same typed values.
+func decodeStructuredContent(raw json.RawMessage, output any) error {
+	decoder := json.NewDecoder(strings.NewReader(string(raw)))
+	decoder.UseNumber()
+	if err := decoder.Decode(output); err != nil {
+		return err
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return errors.New("tool structuredContent contains trailing JSON")
+	}
+	return nil
 }

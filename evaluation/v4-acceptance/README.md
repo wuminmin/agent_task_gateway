@@ -84,6 +84,43 @@ also keep `GATEWAY_CONNECTOR_MAX_ROWS` at or above the largest provenance row
 count (the repository deployment default is 1,200,000); connector truncation
 is a fail-closed query failure, never a measured maximum-point sample.
 
+## Narrow maximum-point provisioning
+
+The scale-narrow deployment has a deliberately small first gate: one
+Join--Group workload, 0% prior overlap, 20 independent root tasks, and a
+distinct-request semantic replay after every novel request. The fixed query
+joins 45,000 orders to five line items each and returns three groups with three
+aggregates. Its required observation is exactly 12 Release, 1,035,000
+Influence, and one Outcome fact.
+
+Task preparation uses the same public control flow as a user: every root is
+created with `request_data_task`, submitted by Alice, approved by Bob in the OA
+demo, and polled until `ACTIVE`. It does not insert tasks into Control
+PostgreSQL and does not execute the measured plan. Start the isolated narrow
+deployment first, then run:
+
+```sh
+export V4_NARROW_RUN_DIR="$PWD/evaluation/v4-acceptance/raw/narrow-$(date -u +%Y%m%dT%H%M%SZ)"
+docker compose \
+  --file compose.yaml \
+  --file evaluation/v4-acceptance/compose.scale-narrow.yaml \
+  --profile v4-narrow-tools run --rm v4-narrow-prepare
+```
+
+The command writes credential-private `tasks.json` and a ready-to-run
+`config.json` under `V4_NARROW_RUN_DIR`; it refuses to overwrite either file.
+The generated config is accepted only when the task pool contains exactly 20
+unique 45,000-order trials. The plan and direct SQL are pinned together by the
+preparation command, and the campaign itself additionally compares their
+canonical result multisets. Run the campaign promptly because task expiry is
+the human-approved Catalog TTL.
+
+For a non-Compose deployment, put `exposure-bench` and `v4-acceptance` on
+`PATH`, set the documented Gateway/OA credentials and URLs, and invoke
+`evaluation/v4-acceptance/provision-narrow.sh`. The script only provisions and
+generates configuration; the later `v4-acceptance -config ... -output ...`
+command remains an explicit separate action.
+
 Validate the JSON without credentials or services:
 
 ```sh
@@ -140,6 +177,42 @@ Business-query counter whose delta is zero for every replay.
 The observer must obtain that counter out of band (for example from an existing
 metrics collector); its own snapshot calls must not increment the counter it
 is supposed to observe.
+
+The checked-in `v4-compose-observer` implements this contract without entering
+the measured HTTP path. It uses the mounted Docker Engine socket to read the
+Gateway container's private cgroup-v2 `memory.peak` and network namespace
+counters. It fails closed unless `/proc/self/cgroup` proves that the cgroup
+namespace root is the Gateway container, so a host-wide peak cannot be
+misreported as Gateway memory. Linux cgroup-v2 accounts touched mmap-backed
+pages in the cgroup memory controller.
+
+For the SQL counter it opens a separate out-of-band connection using the
+Business evaluation DSN and sums that role's own `pg_stat_statements.calls`
+whose normalized text references `reporting.scale_*` or
+`taskgate_ordinal.*`. The acceptance driver's `pg_current_wal_lsn`,
+`pg_wal_lsn_diff`, and the observer query itself do not match the relation
+filter. Replay therefore passes only when no visible or ordinal companion SQL
+was issued.
+
+Include `compose.observer.yaml` from the first start of a fresh evidence stack;
+its init mount creates `pg_stat_statements`, while its PostgreSQL command
+enables the required preload library. Adding the overlay only after reusing an
+initialized Business volume is intentionally unsupported. A campaign can run
+the bundled observer and acceptance driver with:
+
+```sh
+export V4_ACCEPTANCE_CONFIG="$V4_NARROW_RUN_DIR/config.json"
+export V4_ACCEPTANCE_RUN_DIR="$V4_NARROW_RUN_DIR"
+docker compose \
+  --file compose.yaml \
+  --file evaluation/v4-acceptance/compose.scale-narrow.yaml \
+  --file evaluation/v4-acceptance/compose.observer.yaml \
+  --profile v4-acceptance run --rm v4-acceptance
+```
+
+The Docker socket grants the evidence runner infrastructure-level authority;
+this service is a trusted benchmark component and must not be exposed to an
+agent or an untrusted plan.
 
 Publication storage runs need an isolated Control PostgreSQL instance. The
 driver reports the actual number of settled roots in that instance; unrelated

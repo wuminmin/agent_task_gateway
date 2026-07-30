@@ -1,0 +1,28 @@
+{
+  "version": "taskgate-snapshot-index-input-v1",
+  "publication_name": "scale-lineitem-v4-narrow-1",
+  "catalog_source": "scale_demo",
+  "source_relation": "reporting.scale_lineitem",
+  "ordinal_sidecar": "taskgate_ordinal.scale_lineitem_v4_narrow_1",
+  "entity_key_fields": ["l_orderkey", "l_linenumber"],
+  "snapshot": {
+    "source_id": "taskgate-eval-exposure-scale",
+    "source_namespace": "evaluation.scale_lineitem",
+    "snapshot": "exposure-scale-2026-v4-narrow-1",
+    "schema_digest": "e93fa7bf76effb3d268cab94dd94e25d135ec8becc73989aeef0f1b9c927665d",
+    "fields": [
+      {"name": "dataset_partition", "canonical_field_id": "scale_lineitem.dataset_partition", "sql_type": "smallint"},
+      {"name": "l_orderkey", "canonical_field_id": "scale_lineitem.l_orderkey", "sql_type": "bigint"},
+      {"name": "l_linenumber", "canonical_field_id": "scale_lineitem.l_linenumber", "sql_type": "integer"},
+      {"name": "l_extendedprice", "canonical_field_id": "scale_lineitem.l_extendedprice", "sql_type": "numeric"}
+    ],
+    "rows": []
+  },
+  "expected_digests": {
+    "sidecar_digest": "911572c80b75642c5faa6d610092c7e369319725a4cd975784f328fd45dc0768",
+    "dictionary_digest": "60d3e6b864f66bc532ffda804c604f78ceda9d57e5574490dd59b7fa4128156d",
+    "manifest_digest": "e8a946ec9e298761d3dfe59e721ca04d7a3f15fe464c3901ed677b29ef0d1f7b",
+    "cold_payload_digest": "82e185540d8f9aeb24204151228656b31bc8a25cddf3c60a29e6de74a9e8b751",
+    "hot_index_digest": "999655556b95b520d54f91d8565d6d6a28bf9dcd6a4aa4aeeb0847aaab9c030d"
+  }
+}

@@ -13,7 +13,11 @@ RUN test -z "$(gofmt -l evaluation)" \
     && CGO_ENABLED=1 go build -trimpath -o /out/ast-gateway ./evaluation/cmd/ast-gateway \
     && CGO_ENABLED=1 go build -trimpath -o /out/exposure-eval ./evaluation/cmd/exposure-eval \
     && CGO_ENABLED=1 go build -trimpath -o /out/exposure-bench ./evaluation/cmd/exposure-bench \
-    && CGO_ENABLED=1 go build -trimpath -o /out/v4-acceptance ./evaluation/cmd/v4-acceptance
+    && CGO_ENABLED=1 go build -trimpath -o /out/v4-compose-observer ./evaluation/cmd/v4-compose-observer \
+    && V4_SOURCE_DIGEST="$(go run ./evaluation/cmd/v4-acceptance -print-source-digest)" \
+    && test "${#V4_SOURCE_DIGEST}" -eq 64 \
+    && CGO_ENABLED=1 go build -trimpath -ldflags="-X main.embeddedSourceDigest=${V4_SOURCE_DIGEST}" \
+        -o /out/v4-acceptance ./evaluation/cmd/v4-acceptance
 
 FROM debian:bookworm-slim AS runner
 RUN apt-get update \
@@ -51,6 +55,10 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /out/v4-acceptance /usr/local/bin/v4-acceptance
+COPY --from=build /out/v4-compose-observer /usr/local/bin/v4-compose-observer
+COPY --from=build /out/exposure-bench /usr/local/bin/exposure-bench
+COPY --from=build /src/evaluation/v4-acceptance/provision-narrow.sh /usr/local/bin/provision-v4-narrow
+COPY --from=build /src/evaluation/v4-acceptance/narrow-max-point.template.json /usr/local/share/taskgate/narrow-max-point.template.json
 WORKDIR /workspace
 ENTRYPOINT ["/usr/local/bin/v4-acceptance"]
 

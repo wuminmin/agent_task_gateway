@@ -1,0 +1,153 @@
+services:
+  business-postgres:
+    ports: !override
+      - 127.0.0.1:${V4_NARROW_BUSINESS_PORT:-29434}:5432
+    volumes: !override
+      - business-pg-data:/var/lib/postgresql/data
+      - ./db/init/00-schema.sql:/docker-entrypoint-initdb.d/00-schema.sql:ro
+      # Reuse the exact deterministic 50k/250k source generator from the V2
+      # scale campaign, then replace its ordinary views with frozen MVs.
+      - ./evaluation/exposure-scale/05-scale-data.sql:/docker-entrypoint-initdb.d/05-scale-data.sql:ro
+      - ./evaluation/v4-acceptance/scale-fixture/06-freeze-scale-publication.sql:/docker-entrypoint-initdb.d/06-freeze-scale-publication.sql:ro
+      - ./evaluation/v4-acceptance/scale-fixture/10-scale-reader.sh:/docker-entrypoint-initdb.d/10-scale-reader.sh:ro
+
+  control-postgres:
+    ports: !override
+      - 127.0.0.1:${V4_NARROW_CONTROL_PORT:-29433}:5432
+
+  # Keep the existing service names so the base deployment dependency graph
+  # remains explicit. Builds are serialized to stay inside the offline builder
+  # memory envelope.
+  snapshot-index-detail:
+    command: !override
+      - -input
+      - /input/scale-orders-v4-narrow-1.json
+      - -output-dir
+      - /data/snapshot-index
+      - -allow-existing-identical
+    environment:
+      SNAPSHOT_POSTGRES_DSN: postgres://gateway_reader:${GATEWAY_DB_PASSWORD:?set GATEWAY_DB_PASSWORD}@business-postgres:5432/${POSTGRES_DB:-travel_demo}?sslmode=disable
+    volumes: !override
+      - ./evaluation/v4-acceptance/scale-fixture/snapshots/scale-orders-v4-narrow-1.json:/input/scale-orders-v4-narrow-1.json:ro
+      - snapshot-index-artifacts:/data/snapshot-index
+    mem_limit: 4g
+
+  snapshot-index-summary:
+    command: !override
+      - -input
+      - /input/scale-lineitem-v4-narrow-1.json
+      - -output-dir
+      - /data/snapshot-index
+      - -allow-existing-identical
+    environment:
+      SNAPSHOT_POSTGRES_DSN: postgres://gateway_reader:${GATEWAY_DB_PASSWORD:?set GATEWAY_DB_PASSWORD}@business-postgres:5432/${POSTGRES_DB:-travel_demo}?sslmode=disable
+    depends_on: !override
+      business-postgres:
+        condition: service_healthy
+      snapshot-index-detail:
+        condition: service_completed_successfully
+    volumes: !override
+      - ./evaluation/v4-acceptance/scale-fixture/snapshots/scale-lineitem-v4-narrow-1.json:/input/scale-lineitem-v4-narrow-1.json:ro
+      - snapshot-index-artifacts:/data/snapshot-index
+    mem_limit: 4g
+
+  snapshot-sidecar-install:
+    build:
+      context: .
+      args:
+        TARGET: snapshot-sidecar-install
+    command:
+      - -artifact-dir
+      - /data/snapshot-index
+      - -input
+      - /input/scale-orders-v4-narrow-1.json
+      - -input
+      - /input/scale-lineitem-v4-narrow-1.json
+    environment:
+      SNAPSHOT_INSTALL_POSTGRES_DSN: postgres://postgres:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@business-postgres:5432/${POSTGRES_DB:-travel_demo}?sslmode=disable
+    depends_on:
+      business-postgres:
+        condition: service_healthy
+      snapshot-index-detail:
+        condition: service_completed_successfully
+      snapshot-index-summary:
+        condition: service_completed_successfully
+    volumes:
+      - ./evaluation/v4-acceptance/scale-fixture/snapshots/scale-orders-v4-narrow-1.json:/input/scale-orders-v4-narrow-1.json:ro
+      - ./evaluation/v4-acceptance/scale-fixture/snapshots/scale-lineitem-v4-narrow-1.json:/input/scale-lineitem-v4-narrow-1.json:ro
+      - snapshot-index-artifacts:/data/snapshot-index:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - business-data
+
+  gateway:
+    ports: !override
+      - 127.0.0.1:${V4_NARROW_GATEWAY_PORT:-29082}:8082
+    environment:
+      PUBLIC_OA_BASE_URL: http://oa-demo:8092
+      GATEWAY_CONNECTOR_MAX_ROWS: 1200000
+      GATEWAY_CONNECTOR_STATEMENT_TIMEOUT: 15m
+      GATEWAY_HTTP_REQUEST_TIMEOUT: 15m
+      GATEWAY_SETTLEMENT_TIMEOUT: 15m
+    depends_on: !override
+      control-postgres:
+        condition: service_healthy
+      business-postgres:
+        condition: service_healthy
+      snapshot-index-detail:
+        condition: service_completed_successfully
+      snapshot-index-summary:
+        condition: service_completed_successfully
+      snapshot-sidecar-install:
+        condition: service_completed_successfully
+      oa-demo:
+        condition: service_healthy
+    volumes: !override
+      - ./evaluation/v4-acceptance/scale-fixture/catalog.yaml:/etc/taskbound/catalog.yaml:ro
+      - snapshot-index-artifacts:/var/lib/taskgate/snapshot-index:ro
+      - gateway-encrypted-spool:/tmp
+
+  oa-demo:
+    ports: !override
+      - 127.0.0.1:${V4_NARROW_OA_PORT:-29092}:8092
+    environment:
+      PUBLIC_OA_BASE_URL: http://oa-demo:8092
+
+  v4-narrow-prepare:
+    profiles: [v4-narrow-tools]
+    build:
+      context: .
+      dockerfile: evaluation/Dockerfile
+      target: v4-acceptance
+    entrypoint:
+      - /usr/local/bin/provision-v4-narrow
+    environment:
+      V4_NARROW_RUN_DIR: /results
+      EXPOSURE_GATEWAY_URL: http://gateway:8082
+      EXPOSURE_OA_URL: http://oa-demo:8092
+      TASKBOUND_ALICE_TOKEN: ${TASKBOUND_ALICE_TOKEN:?set TASKBOUND_ALICE_TOKEN}
+      OA_ALICE_PASSWORD: ${OA_ALICE_PASSWORD:?set OA_ALICE_PASSWORD}
+      OA_BOB_PASSWORD: ${OA_BOB_PASSWORD:?set OA_BOB_PASSWORD}
+      V4_EVAL_BUSINESS_DSN: postgres://gateway_reader:${GATEWAY_DB_PASSWORD:?set GATEWAY_DB_PASSWORD}@business-postgres:5432/${POSTGRES_DB:-travel_demo}?sslmode=disable
+      V4_EVAL_CONTROL_DSN: postgres://gateway_control:${CONTROL_DB_PASSWORD:?set CONTROL_DB_PASSWORD}@control-postgres:5432/${CONTROL_POSTGRES_DB:-taskbound_gateway}?sslmode=disable
+    volumes:
+      - ${V4_NARROW_RUN_DIR:?set V4_NARROW_RUN_DIR}:/results
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    depends_on:
+      gateway:
+        condition: service_healthy
+      oa-demo:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - public-edge
+      - control-plane
+      - business-data

@@ -57,8 +57,12 @@ func newOrdinalReplayTestFixture(t *testing.T, taskID string, sourcePlaintext []
 	if err != nil {
 		t.Fatal(err)
 	}
+	sourceRows := int64(1)
+	if stored, decodeErr := decodeStoredQueryResult(sourcePlaintext); decodeErr == nil && stored.RowCount > 0 {
+		sourceRows = stored.RowCount
+	}
 	outcome, err := exposure.NewOutcomeFactV3(queryplan.NormalFormVersion,
-		strings.Repeat("1", 64), strings.Repeat("2", 64), 1)
+		strings.Repeat("1", 64), strings.Repeat("2", 64), sourceRows)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,10 +84,10 @@ func newOrdinalReplayTestFixture(t *testing.T, taskID string, sourcePlaintext []
 		harness: harness, grantDigest: strings.Repeat("3", 64), cacheKey: strings.Repeat("5", 64),
 		dictionarySetDigest: dictionarySetDigest,
 	}
-	source := fixture.reserve(t, taskID+"-source", taskID+"-source-request")
+	source := fixture.reserveRows(t, taskID+"-source", taskID+"-source-request", sourceRows)
 	expires := harness.clock.value.Add(time.Hour)
 	if _, _, _, err := harness.store.FinalizeOrdinalQueryMeasuredWithReceipt(context.Background(), control.BudgetSettlement{
-		QueryID: source.QueryID, Rows: 1, DBMS: 1, OrdinalExposure: &observation,
+		QueryID: source.QueryID, Rows: sourceRows, DBMS: 1, OrdinalExposure: &observation,
 	}, sourcePlaintext, &control.OrdinalMaterializationPublish{CacheKeySHA256: fixture.cacheKey, ExpiresAt: &expires}, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +110,29 @@ func validOrdinalReplaySource(t *testing.T) []byte {
 	return encoded
 }
 
+func exactNumberOrdinalReplaySource() []byte {
+	return []byte(`{"columns":[{"name":"scaled","data_type_oid":1700},{"name":"large","data_type_oid":20}],"rows":[[12.50,9007199254740993]],"row_count":1,"database_ms":7,"limited":false}`)
+}
+
+func twoRowOrdinalReplaySource(t *testing.T) []byte {
+	t.Helper()
+	encoded, err := json.Marshal(storedQueryResult{
+		Columns:  []dataconnector.Column{{Name: "amount", DataTypeOID: 20}},
+		Rows:     [][]any{{int64(10)}, {int64(20)}},
+		RowCount: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return encoded
+}
+
 func (fixture ordinalReplayTestFixture) reserve(t *testing.T, queryID, requestID string) control.BudgetReservation {
+	return fixture.reserveRows(t, queryID, requestID, 1)
+}
+
+func (fixture ordinalReplayTestFixture) reserveRows(t *testing.T, queryID, requestID string,
+	requestedRows int64) control.BudgetReservation {
 	t.Helper()
 	reservation, err := fixture.harness.store.ReserveBudget(context.Background(), control.ReserveRequest{
 		QueryID: queryID, TaskID: fixtureTaskID(fixture, queryID), RequestID: requestID,
@@ -116,7 +142,7 @@ func (fixture ordinalReplayTestFixture) reserve(t *testing.T, queryID, requestID
 		DatasourceID:   fixture.harness.connector.attestation.DatasourceID,
 		SchemaDigest:   fixture.harness.connector.attestation.SchemaDigest,
 		ManifestDigest: strings.Repeat("4", 64), GrantDigest: fixture.grantDigest, PolicyDecision: "ALLOW",
-		RequestedRows: 1, RequestedDBMS: 10,
+		RequestedRows: requestedRows, RequestedDBMS: 10,
 		Exposure: &control.ExposureReservationRequest{ProfileVersion: exposure.ProfileV4, EstimatedOutcomeFacts: 1},
 	})
 	if err != nil {
@@ -163,6 +189,55 @@ func TestOrdinalSemanticReplayNormalMissKeepsReservationForNovelPath(t *testing.
 		fixture.dictionarySetDigest, reservation, map[string]float64{})
 	if err != nil || outcome != ordinalReplayContinueNovel || result != nil {
 		t.Fatalf("normal miss result=%#v outcome=%v err=%v", result, outcome, err)
+	}
+	assertReplayReservationStatus(t, fixture, reservation.QueryID, control.QueryReserved)
+	if _, err := fixture.harness.store.ReleaseBudget(context.Background(), reservation.QueryID, "TEST_CLEANUP"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestOrdinalSemanticReplayPreservesExactJSONNumbers(t *testing.T) {
+	sourcePlaintext := exactNumberOrdinalReplaySource()
+	fixture := newOrdinalReplayTestFixture(t, "task-v4-replay-exact-numbers", sourcePlaintext)
+	reservation := fixture.reserve(t, "query-v4-replay-exact-numbers", "request-v4-replay-exact-numbers")
+
+	result, outcome, err := fixture.harness.service.tryOrdinalSemanticReplay(context.Background(), fixture.task,
+		reservation.RequestID, reservation.QueryID, fixture.grantDigest, fixture.cacheKey,
+		fixture.dictionarySetDigest, reservation, map[string]float64{})
+	if err != nil || outcome != ordinalReplayCompleted || result["semantic_replay"] != true {
+		t.Fatalf("exact-number replay outcome=%v result=%#v err=%v", outcome, result, err)
+	}
+	wantRows := `[[12.50,9007199254740993]]`
+	assertExactJSONRows(t, result["rows"], wantRows)
+
+	_, replayPlaintext, err := fixture.harness.store.GetEncryptedResult(context.Background(), fixture.task.ID,
+		reservation.QueryID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayed, err := decodeStoredQueryResult(replayPlaintext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertExactJSONRows(t, replayed.Rows, wantRows)
+	if !bytes.Contains(replayPlaintext, []byte(`"rows":[[12.50,9007199254740993]]`)) {
+		t.Fatalf("replayed plaintext changed exact numbers: %s", replayPlaintext)
+	}
+	assertReplayReservationStatus(t, fixture, reservation.QueryID, control.QueryCompleted)
+}
+
+func TestOrdinalSemanticReplayDoesNotReuseResultAboveFreshRowAllowance(t *testing.T) {
+	fixture := newOrdinalReplayTestFixture(t, "task-v4-replay-row-allowance", twoRowOrdinalReplaySource(t))
+	reservation := fixture.reserve(t, "query-v4-replay-row-allowance", "request-v4-replay-row-allowance")
+	if reservation.AllowedRows != 1 {
+		t.Fatalf("fresh replay allowance = %d, want 1", reservation.AllowedRows)
+	}
+
+	result, outcome, err := fixture.harness.service.tryOrdinalSemanticReplay(context.Background(), fixture.task,
+		reservation.RequestID, reservation.QueryID, fixture.grantDigest, fixture.cacheKey,
+		fixture.dictionarySetDigest, reservation, map[string]float64{})
+	if err != nil || outcome != ordinalReplayContinueNovel || result != nil {
+		t.Fatalf("over-allowance replay result=%#v outcome=%v err=%v", result, outcome, err)
 	}
 	assertReplayReservationStatus(t, fixture, reservation.QueryID, control.QueryReserved)
 	if _, err := fixture.harness.store.ReleaseBudget(context.Background(), reservation.QueryID, "TEST_CLEANUP"); err != nil {

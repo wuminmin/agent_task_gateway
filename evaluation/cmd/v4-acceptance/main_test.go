@@ -1,12 +1,123 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
 	"math"
+	"math/big"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
+
+func TestMCPRowDecodePreservesExactPostgreSQLNumberLexemes(t *testing.T) {
+	raw := json.RawMessage(`{"rows":[[0,36761375.00,225000,75000],[1,36758875.00,225000,75000],[2,36760625.00,225000,75000]],"row_count":3}`)
+	var response executeResponse
+	if err := decodeStructuredContent(raw, &response); err != nil {
+		t.Fatal(err)
+	}
+	for rowIndex, row := range response.Rows {
+		for columnIndex, value := range row {
+			if _, ok := value.(json.Number); !ok {
+				t.Fatalf("Gateway row %d value %d decoded as %T, want json.Number", rowIndex, columnIndex, value)
+			}
+		}
+	}
+	direct := [][]any{
+		{int16(0), pgtype.Numeric{Int: big.NewInt(3_676_137_500), Exp: -2, Valid: true}, int64(225_000), int64(75_000)},
+		{int16(1), pgtype.Numeric{Int: big.NewInt(3_675_887_500), Exp: -2, Valid: true}, int64(225_000), int64(75_000)},
+		{int16(2), pgtype.Numeric{Int: big.NewInt(3_676_062_500), Exp: -2, Valid: true}, int64(225_000), int64(75_000)},
+	}
+	directDigest, err := resultDigest(direct)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gatewayDigest, err := resultDigest(response.Rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if directDigest != gatewayDigest {
+		t.Fatalf("equivalent typed rows differ: direct=%s gateway=%s", directDigest, gatewayDigest)
+	}
+	if directDigest != "8caf12ba5fcc4035a484f705946e1e3317db0a47092b524d0304b0ca9c3f0ea5" {
+		t.Fatalf("diagnosed first-run direct digest changed: %s", directDigest)
+	}
+	var lossy executeResponse
+	if err := json.Unmarshal(raw, &lossy); err != nil {
+		t.Fatal(err)
+	}
+	lossyDigest, err := resultDigest(lossy.Rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lossyDigest != "3d4a2935d4610351e83705f46d60179abff25867501f41ceb3398c5f88655846" {
+		t.Fatalf("diagnosed first-run float64 digest changed: %s", lossyDigest)
+	}
+}
+
+func TestPrepareNarrowConfigBindsTwentyOrderedIndependentRoots(t *testing.T) {
+	cfg := validConfig()
+	rowCount, release, influence, outcome := int64(3), int64(12), int64(1_035_000), int64(1)
+	cfg.Cases[0] = workloadCase{
+		ID: "join-group-max-point-overlap-0", Shape: "join_group", TargetOverlapPercent: 0,
+		OverlapDimension: "influence", Plan: json.RawMessage(narrowPlanContract), DirectSQL: narrowDirectSQL,
+		Expected: expectedResult{RowCount: &rowCount, ReleaseFacts: &release, InfluenceFacts: &influence, OutcomeFacts: &outcome},
+	}
+	pool := narrowTaskPool{SchemaVersion: narrowTaskPoolSchema, Dataset: narrowTaskPoolDataset}
+	for trial := narrowTaskCount; trial >= 1; trial-- {
+		pool.Tasks = append(pool.Tasks, narrowTask{TaskID: "task-" + fmt.Sprint(trial), Trial: trial, Orders: narrowOrderCount})
+	}
+	raw, err := json.Marshal(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "tasks.json")
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := prepareNarrowConfig(cfg, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(prepared.Cases[0].TaskIDs) != narrowTaskCount || prepared.Cases[0].TaskIDs[0] != "task-1" ||
+		prepared.Cases[0].TaskIDs[narrowTaskCount-1] != "task-20" {
+		t.Fatalf("prepared task IDs = %#v", prepared.Cases[0].TaskIDs)
+	}
+	if err := validateConfig(prepared); err != nil {
+		t.Fatalf("prepared config is invalid: %v", err)
+	}
+}
+
+func TestPrepareNarrowConfigRejectsWrongCardinality(t *testing.T) {
+	pool := narrowTaskPool{SchemaVersion: narrowTaskPoolSchema, Dataset: narrowTaskPoolDataset,
+		Tasks: []narrowTask{{TaskID: "only-one", Trial: 1, Orders: narrowOrderCount}}}
+	raw, _ := json.Marshal(pool)
+	path := filepath.Join(t.TempDir(), "tasks.json")
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readNarrowTaskPool(path); err == nil {
+		t.Fatal("one-root pool was accepted")
+	}
+}
+
+func TestCheckedInNarrowTemplateMatchesPinnedPlanAndSQL(t *testing.T) {
+	path := filepath.Join(findRepositoryRoot(), "evaluation", "v4-acceptance", "narrow-max-point.template.json")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg config
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateNarrowTemplate(cfg); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func validConfig() config {
 	return config{
@@ -218,6 +329,45 @@ func TestLatencyGatesUseOnlyExactMaximumFactPoint(t *testing.T) {
 func TestSourceDigestFindsRepositoryFromPackageDirectory(t *testing.T) {
 	if got := sourceDigest(); len(got) != 64 {
 		t.Fatalf("source digest = %q", got)
+	}
+}
+
+func TestSourceDigestUsesEmbeddedValueWithoutRuntimeSourceTree(t *testing.T) {
+	originalDigest := embeddedSourceDigest
+	embeddedSourceDigest = strings.Repeat("ab", 32)
+	t.Cleanup(func() { embeddedSourceDigest = originalDigest })
+
+	originalWorkingDirectory, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(originalWorkingDirectory); err != nil {
+			t.Errorf("restore working directory: %v", err)
+		}
+	})
+
+	if got := sourceDigest(); got != embeddedSourceDigest {
+		t.Fatalf("source digest = %q, want embedded %q", got, embeddedSourceDigest)
+	}
+}
+
+func TestSourceDigestFromRootFailsClosedOnIncompleteTree(t *testing.T) {
+	repositoryRoot := t.TempDir()
+	for _, root := range sourceDigestRoots {
+		directory := filepath.Join(repositoryRoot, root)
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(directory, "placeholder.go"), []byte("package placeholder\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if digest, err := sourceDigestFromRoot(repositoryRoot); err == nil {
+		t.Fatalf("incomplete source tree produced digest %q", digest)
 	}
 }
 

@@ -1,0 +1,109 @@
+catalog_version: "2026-07-30.v4-narrow.1"
+
+sources:
+  - name: scale_demo
+    datasource_id: taskgate-eval-exposure-scale
+    type: postgres
+    address: business-postgres
+    port: 5432
+    database: travel_demo
+    user: gateway_reader
+    postgres_major_version: 16
+    schema_digest: e93fa7bf76effb3d268cab94dd94e25d135ec8becc73989aeef0f1b9c927665d
+    secretRef: GATEWAY_DB_PASSWORD
+
+snapshot_publications:
+  - name: scale-orders-v4-narrow-1
+    source: scale_demo
+    source_namespace: evaluation.scale_orders
+    snapshot: exposure-scale-2026-v4-narrow-1
+    ordinal_sidecar: taskgate_ordinal.scale_orders_v4_narrow_1
+    sidecar_digest: ae480874e97a165c67a6c174af7e427f7386d1d5e9fc44ec211af77fecfe54d4
+    dictionary_digest: 1240ca6a855a3b2f26ac9b3eb84c8cd7e5d8605d587da691db5d08452bb5a18d
+    manifest_digest: 155ab5dd45e09cd4b2c92c8872efa51aff3eb17efeefe36988d81d22bb1efa59
+  - name: scale-lineitem-v4-narrow-1
+    source: scale_demo
+    source_namespace: evaluation.scale_lineitem
+    snapshot: exposure-scale-2026-v4-narrow-1
+    ordinal_sidecar: taskgate_ordinal.scale_lineitem_v4_narrow_1
+    sidecar_digest: 911572c80b75642c5faa6d610092c7e369319725a4cd975784f328fd45dc0768
+    dictionary_digest: 60d3e6b864f66bc532ffda804c604f78ceda9d57e5574490dd59b7fa4128156d
+    manifest_digest: e8a946ec9e298761d3dfe59e721ca04d7a3f15fe464c3901ed677b29ef0d1f7b
+
+scopes:
+  - name: dataset_partition
+    type: enum
+    description: Fixed deterministic evaluation partition
+    allowed_values: ["1"]
+
+products:
+  - name: scale_orders
+    source: scale_demo
+    reporting_view: reporting.scale_orders
+    description: Frozen deterministic order relation for the V4 maximum point
+    sensitivity: low
+    snapshot: exposure-scale-2026-v4-narrow-1
+    snapshot_publication: scale-orders-v4-narrow-1
+    entity_key: [o_orderkey]
+    fact_namespace: evaluation.scale_orders
+    stable_relation_role: scale_orders
+    scopes: [dataset_partition]
+    allowed_functions: []
+    allowed_operators: ["=", "<", "<=", ">", ">="]
+    allowed_aggregates: [sum, count, min, max]
+    fields:
+      - name: dataset_partition
+        type: smallint
+        description: Fixed evaluation partition
+      - name: o_orderkey
+        type: bigint
+        description: Stable synthetic order key
+      - name: o_orderstatus
+        type: smallint
+        description: Three-valued synthetic order status
+
+  - name: scale_lineitem
+    source: scale_demo
+    reporting_view: reporting.scale_lineitem
+    description: Frozen five-lineitems-per-order relation for the V4 maximum point
+    sensitivity: low
+    snapshot: exposure-scale-2026-v4-narrow-1
+    snapshot_publication: scale-lineitem-v4-narrow-1
+    entity_key: [l_orderkey, l_linenumber]
+    fact_namespace: evaluation.scale_lineitem
+    stable_relation_role: scale_lineitem
+    scopes: [dataset_partition]
+    allowed_functions: []
+    allowed_operators: ["=", "<", "<=", ">", ">="]
+    allowed_aggregates: [sum, count, min, max]
+    fields:
+      - name: dataset_partition
+        type: smallint
+        description: Fixed evaluation partition
+      - name: l_orderkey
+        type: bigint
+        description: Stable synthetic parent order key
+      - name: l_linenumber
+        type: integer
+        description: Stable line number within an order
+      - name: l_extendedprice
+        type: numeric
+        description: Deterministic synthetic extended price
+
+approval_routes:
+  - sensitivity: low
+    mode: manual
+    approver: bob
+    budget_profile: v4-narrow-catalog-boundary
+
+budget_profiles:
+  - name: v4-narrow-catalog-boundary
+    max_queries: 10
+    max_rows: 100
+    max_db_time: 1h
+    query_timeout: 15m
+    task_ttl: 4h
+    max_release_facts: 100
+    max_influence_facts: 1200000
+    max_outcome_facts: 10
+    exposure_profile_version: taskgate-exposure-v4

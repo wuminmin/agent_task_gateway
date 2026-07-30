@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "gateway": {
+    "url": "http://gateway:8082",
+    "token_env": "TASKBOUND_ALICE_TOKEN"
+  },
+  "business_dsn_env": "V4_EVAL_BUSINESS_DSN",
+  "control_dsn_env": "V4_EVAL_CONTROL_DSN",
+  "request_timeout_ms": 30000,
+  "statement_timeout_ms": 15000,
+  "overlap_tolerance_percentage_points": 0.01,
+  "require_fresh_root": true,
+  "observer": {
+    "argv": [
+      "/usr/local/bin/v4-compose-observer"
+    ],
+    "timeout_ms": 5000,
+    "required": true,
+    "business_sql_counter": "business_sql_queries_total",
+    "network_rx_counter": "gateway_network_rx_bytes",
+    "network_tx_counter": "gateway_network_tx_bytes",
+    "required_memory_scope": "cgroup_v2_memory_peak_including_mmap",
+    "gateway_peak_memory_metric": "gateway_memory_peak_bytes"
+  },
+  "cases": [
+    {
+      "id": "join-group-max-point-overlap-0",
+      "shape": "join_group",
+      "target_overlap_percent": 0,
+      "overlap_dimension": "influence",
+      "task_ids": [],
+      "plan": {
+        "from": {
+          "join": {
+            "left": {
+              "product": "scale_orders",
+              "role": "scale_orders"
+            },
+            "right": {
+              "product": "scale_lineitem",
+              "role": "scale_lineitem"
+            },
+            "on": [
+              {
+                "left": "scale_orders.o_orderkey",
+                "right": "scale_lineitem.l_orderkey"
+              }
+            ]
+          }
+        },
+        "columns": [
+          "scale_orders.o_orderstatus"
+        ],
+        "aggregates": [
+          {
+            "function": "sum",
+            "column": "scale_lineitem.l_extendedprice",
+            "alias": "revenue"
+          },
+          {
+            "function": "sum",
+            "column": "scale_lineitem.l_linenumber",
+            "alias": "line_positions"
+          },
+          {
+            "function": "count",
+            "column": "*",
+            "alias": "items"
+          }
+        ],
+        "filters": [
+          {
+            "column": "scale_lineitem.l_orderkey",
+            "op": "<=",
+            "value": 45000
+          }
+        ],
+        "group_by": [
+          "scale_orders.o_orderstatus"
+        ]
+      },
+      "direct_sql": "SELECT o.o_orderstatus, sum(l.l_extendedprice) AS revenue, sum(l.l_linenumber) AS line_positions, count(*) AS items FROM reporting.scale_orders AS o JOIN reporting.scale_lineitem AS l ON l.l_orderkey = o.o_orderkey WHERE o.dataset_partition = 1 AND l.dataset_partition = 1 AND l.l_orderkey <= 45000 GROUP BY o.o_orderstatus ORDER BY o.o_orderstatus",
+      "expected": {
+        "row_count": 3,
+        "release_facts": 12,
+        "influence_facts": 1035000,
+        "outcome_facts": 1
+      }
+    }
+  ]
+}

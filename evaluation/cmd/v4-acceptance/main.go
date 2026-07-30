@@ -16,19 +16,34 @@ import (
 )
 
 type options struct {
-	configPath      string
-	outputPath      string
-	requireComplete bool
-	validateOnly    bool
+	configPath            string
+	outputPath            string
+	prepareNarrowTaskPool string
+	requireComplete       bool
+	validateOnly          bool
 }
 
 func main() {
 	var opts options
+	var printSourceDigest bool
 	flag.StringVar(&opts.configPath, "config", "", "V4 acceptance JSON configuration")
 	flag.StringVar(&opts.outputPath, "output", "", "new machine-readable result path")
+	flag.StringVar(&opts.prepareNarrowTaskPool, "prepare-narrow-task-pool", "",
+		"inject a 20-root maximum-point task pool into the narrow acceptance template")
 	flag.BoolVar(&opts.requireComplete, "require-complete", false, "fail when any gate is unmeasured")
 	flag.BoolVar(&opts.validateOnly, "validate-only", false, "validate configuration without contacting services")
+	flag.BoolVar(&printSourceDigest, "print-source-digest", false,
+		"print the deterministic source digest used for acceptance evidence")
 	flag.Parse()
+	if printSourceDigest {
+		digest := sourceDigest()
+		if !validSourceDigest(digest) {
+			fmt.Fprintln(os.Stderr, "cannot determine a complete V4 acceptance source digest")
+			os.Exit(1)
+		}
+		fmt.Println(digest)
+		return
+	}
 	if err := execute(opts); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -48,6 +63,27 @@ func execute(opts options) error {
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&cfg); err != nil {
 		return fmt.Errorf("decode config: %w", err)
+	}
+	if opts.prepareNarrowTaskPool != "" {
+		if opts.validateOnly || opts.requireComplete {
+			return errors.New("config preparation cannot be combined with -validate-only or -require-complete")
+		}
+		if opts.outputPath == "" {
+			return errors.New("-output is required when preparing a narrow config")
+		}
+		prepared, err := prepareNarrowConfig(cfg, opts.prepareNarrowTaskPool)
+		if err != nil {
+			return err
+		}
+		if err := validateConfig(prepared); err != nil {
+			return fmt.Errorf("prepared config: %w", err)
+		}
+		if err := writeJSONExclusive(opts.outputPath, prepared); err != nil {
+			return err
+		}
+		fmt.Printf("prepared V4 narrow acceptance config with %d fresh roots: %s\n",
+			len(prepared.Cases[0].TaskIDs), opts.outputPath)
+		return nil
 	}
 	if err := validateConfig(cfg); err != nil {
 		return err

@@ -16,6 +16,7 @@ import (
 	"taskbound.local/agent-data-gateway/internal/exposure"
 	"taskbound.local/agent-data-gateway/internal/queryplan"
 	"taskbound.local/agent-data-gateway/internal/queryreceipt"
+	"taskbound.local/agent-data-gateway/internal/semanticcache"
 	"taskbound.local/agent-data-gateway/internal/sqlpolicy"
 )
 
@@ -98,6 +99,161 @@ func TestExposurePlanHidesMeteringKeysAndDeduplicatesReplay(t *testing.T) {
 	secondCharge := second["exposure"].(control.ExposureCharge)
 	if secondCharge.ChargedReleaseFacts != 0 || secondCharge.ChargedInfluenceFacts != 0 {
 		t.Fatalf("same facts were charged twice: %+v", secondCharge)
+	}
+}
+
+func TestOrdinalSemanticAuthorizationDigestIgnoresVolatileResourceCeilings(t *testing.T) {
+	manifestDigest := strings.Repeat("a", 64)
+	firstVisible := sqlpolicy.Decision{Fingerprint: strings.Repeat("b", 64), RowLimit: 100}
+	firstProvenance := sqlpolicy.Decision{Fingerprint: strings.Repeat("c", 64), RowLimit: 5_001}
+	first := ordinalSemanticAuthorizationDigest(firstVisible, firstProvenance, manifestDigest)
+
+	// Both ceilings can change between distinct requests: the visible ceiling
+	// follows the remaining row budget, and a non-grouped V4 provenance query
+	// uses that same ceiling. Neither change may partition semantic replay.
+	secondVisible := firstVisible
+	secondVisible.RowLimit = 97
+	secondProvenance := firstProvenance
+	secondProvenance.RowLimit = 97
+	second := ordinalSemanticAuthorizationDigest(secondVisible, secondProvenance, manifestDigest)
+	if second != first {
+		t.Fatalf("resource ceiling change partitioned semantic identity: %s != %s", second, first)
+	}
+
+	changedSQL := secondVisible
+	changedSQL.Fingerprint = strings.Repeat("d", 64)
+	if got := ordinalSemanticAuthorizationDigest(changedSQL, secondProvenance, manifestDigest); got == first {
+		t.Fatal("visible SQL fingerprint change did not partition semantic identity")
+	}
+	changedProvenance := secondProvenance
+	changedProvenance.Fingerprint = strings.Repeat("e", 64)
+	if got := ordinalSemanticAuthorizationDigest(secondVisible, changedProvenance, manifestDigest); got == first {
+		t.Fatal("provenance SQL fingerprint change did not partition semantic identity")
+	}
+	if got := ordinalSemanticAuthorizationDigest(secondVisible, secondProvenance, strings.Repeat("f", 64)); got == first {
+		t.Fatal("authorization manifest change did not partition semantic identity")
+	}
+}
+
+func TestOrdinalSemanticReplayBindingPinsCompilerOrderingAndPaginationVersions(t *testing.T) {
+	binding := ordinalSemanticReplayBinding("task-versioned", strings.Repeat("1", 64), strings.Repeat("2", 64),
+		strings.Repeat("3", 64), strings.Repeat("4", 64), strings.Repeat("5", 64), strings.Repeat("6", 64))
+	if binding.CompilerVersion != queryplan.OrdinalProgramVersion ||
+		binding.OrderingVersion != semanticcache.OrderingV1 || binding.PaginationVersion != semanticcache.PaginationV1 {
+		t.Fatalf("semantic replay versions are not explicit: %#v", binding)
+	}
+	first, err := binding.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed := binding
+	changed.CompilerVersion = queryplan.OrdinalProgramVersion + "-changed"
+	second, err := changed.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second == first {
+		t.Fatal("ordinal compiler version change did not partition semantic replay")
+	}
+}
+
+func TestExecutePlanSemanticReplaySurvivesConsumedRowBudget(t *testing.T) {
+	harness := newGatewayHarness(t)
+	harness.installCatalogV4SnapshotRegistry(t)
+	taskID := "task-v4-replay-consumed-row-budget"
+	approvedColumns := []string{"month", "department", "expense_type", "total_amount"}
+	harness.createTaskWithGrantAndExposureProfile(t, taskID, func(core *domain.TaskGrantCoreV1) {
+		core.Budget.MaxResultRows = 100
+	}, control.ExposureLimits{ReleaseFacts: 100, InfluenceFacts: 100, OutcomeFacts: 10}, exposure.ProfileV4,
+		[]string{"expense_summary"}, map[string][]string{"expense_summary": approvedColumns}, domain.SensitivityLow)
+
+	plan := queryplan.QueryPlan{Product: "expense_summary", Columns: approvedColumns,
+		OrderBy: []queryplan.Order{{Column: "month", Direction: "asc"},
+			{Column: "department", Direction: "asc"}, {Column: "expense_type", Direction: "asc"}}}
+	product, found := harness.catalog.LookupProduct(plan.Product)
+	if !found {
+		t.Fatal("expense_summary product is unavailable")
+	}
+	approved := stringSetFromSlice(approvedColumns)
+	ordinalProduct, err := harness.service.ordinalQueryProduct(product, approved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compilation, err := queryplan.CompileOrdinal(plan, ordinalProduct)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bound, err := harness.service.bindOrdinalSidecars(compilation.ProvenanceSQL,
+		compilation.ProvenanceFields, compilation.OrdinalProgram)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := []map[string]any{
+		{"month": "2026-01", "department": "销售部", "expense_type": "机票", "total_amount": json.Number("1680.00")},
+		{"month": "2026-01", "department": "销售部", "expense_type": "酒店", "total_amount": json.Number("880.00")},
+		{"month": "2026-02", "department": "销售部", "expense_type": "高铁", "total_amount": json.Number("553.00")},
+	}
+	visible := scanVisibleResult(t, bound.Program, rows)
+	visible.DatabaseTime = 2 * time.Millisecond
+	provenanceColumns, positions := ordinalProvenanceColumns(bound.Program)
+	provenanceRows := make([][]any, 0, len(rows))
+	for _, row := range rows {
+		values := make([]any, len(provenanceColumns))
+		for _, source := range bound.Program.Sources {
+			entityKey := ordinalFixtureEntityKey(t, source, row)
+			handle, present := bound.Indexes[source.SourceAlias].LookupRowHandle(entityKey)
+			if !present {
+				t.Fatalf("snapshot index misses entity %q", entityKey)
+			}
+			values[positions[source.HandleAlias]] = uint64(handle)
+			for _, field := range source.EvidenceFields {
+				values[positions[field.ProvenanceAlias]] = row[field.Column]
+			}
+		}
+		provenanceRows = append(provenanceRows, values)
+	}
+	harness.connector.result = visible
+	harness.connector.provenanceResult = dataconnector.Result{Columns: provenanceColumns, Rows: provenanceRows,
+		RowCount: int64(len(provenanceRows)), DatabaseTime: time.Millisecond}
+
+	first := mustCallGatewayTool(t, harness.service, harness.alice, "execute_plan", map[string]any{
+		"task_id": taskID, "request_id": "v4-row-budget-novel", "plan": plan,
+	})
+	if first["semantic_replay"] == true || first["row_count"] != int64(3) {
+		t.Fatalf("first request was not the three-row novel path: %#v", first)
+	}
+	if len(harness.connector.requests) != 2 {
+		t.Fatalf("novel connector calls = %d, want visible and provenance", len(harness.connector.requests))
+	}
+	budget, err := harness.store.GetBudget(context.Background(), taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if remaining := budget.Remaining().Rows; remaining != 97 {
+		t.Fatalf("remaining rows after novel = %d, want 97", remaining)
+	}
+
+	second := mustCallGatewayTool(t, harness.service, harness.alice, "execute_plan", map[string]any{
+		"task_id": taskID, "request_id": "v4-row-budget-semantic-replay", "plan": plan,
+	})
+	if second["semantic_replay"] != true || second["row_count"] != int64(3) {
+		t.Fatalf("second request did not use semantic replay: %#v", second)
+	}
+	if len(harness.connector.requests) != 2 {
+		t.Fatalf("semantic replay executed connector: calls=%d", len(harness.connector.requests))
+	}
+	charge := second["exposure"].(control.ExposureCharge)
+	if charge.ChargedReleaseFacts != 0 || charge.ChargedInfluenceFacts != 0 || charge.ChargedOutcomeFacts != 0 {
+		t.Fatalf("semantic replay charged exposure novelty: %+v", charge)
+	}
+	var materializations, cacheKeys int
+	if err := harness.store.DB().QueryRowContext(context.Background(), `
+SELECT count(*),count(DISTINCT cache_key_sha256)
+FROM v4_committed_materializations WHERE task_id=$1`, taskID).Scan(&materializations, &cacheKeys); err != nil {
+		t.Fatal(err)
+	}
+	if materializations != 1 || cacheKeys != 1 {
+		t.Fatalf("semantic replay materializations=%d keys=%d, want 1/1", materializations, cacheKeys)
 	}
 }
 

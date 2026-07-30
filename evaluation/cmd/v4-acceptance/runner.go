@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +17,24 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+var embeddedSourceDigest string
+
+var sourceDigestRoots = []string{
+	"evaluation/cmd/v4-acceptance",
+	"internal/gateway",
+	"internal/control",
+	"internal/ordinal",
+	"internal/dataconnector",
+	"internal/queryplan",
+}
+
+var sourceDigestFiles = []string{
+	"go.mod",
+	"go.sum",
+	"evaluation/Dockerfile",
+	"evaluation/v4-acceptance/README.md",
+}
 
 type campaign struct {
 	cfg      config
@@ -552,20 +571,47 @@ func uniqueFloats(values []float64) []float64 {
 }
 
 func sourceDigest() string {
+	if embeddedSourceDigest != "" {
+		if validSourceDigest(embeddedSourceDigest) {
+			return embeddedSourceDigest
+		}
+		return ""
+	}
 	repositoryRoot := findRepositoryRoot()
 	if repositoryRoot == "" {
 		return ""
 	}
+	digest, err := sourceDigestFromRoot(repositoryRoot)
+	if err != nil {
+		return ""
+	}
+	return digest
+}
+
+func sourceDigestFromRoot(repositoryRoot string) (string, error) {
+	if repositoryRoot == "" {
+		return "", errors.New("repository root is empty")
+	}
 	paths := make([]string, 0)
-	for _, root := range []string{"evaluation/cmd/v4-acceptance", "internal/gateway", "internal/control", "internal/ordinal", "internal/dataconnector", "internal/queryplan"} {
-		_ = filepath.WalkDir(filepath.Join(repositoryRoot, root), func(path string, entry os.DirEntry, err error) error {
-			if err == nil && !entry.IsDir() && (strings.HasSuffix(path, ".go") || strings.HasSuffix(path, ".sql")) {
+	for _, root := range sourceDigestRoots {
+		fileCount := 0
+		if err := filepath.WalkDir(filepath.Join(repositoryRoot, root), func(path string, entry os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if !entry.IsDir() && (strings.HasSuffix(path, ".go") || strings.HasSuffix(path, ".sql")) {
 				paths = append(paths, path)
+				fileCount++
 			}
 			return nil
-		})
+		}); err != nil {
+			return "", fmt.Errorf("walk source root %s: %w", root, err)
+		}
+		if fileCount == 0 {
+			return "", fmt.Errorf("source root %s contains no Go or SQL files", root)
+		}
 	}
-	for _, relative := range []string{"go.mod", "go.sum", "evaluation/Dockerfile", "evaluation/v4-acceptance/README.md"} {
+	for _, relative := range sourceDigestFiles {
 		paths = append(paths, filepath.Join(repositoryRoot, relative))
 	}
 	sort.Strings(paths)
@@ -573,18 +619,26 @@ func sourceDigest() string {
 	for _, path := range paths {
 		raw, err := os.ReadFile(path)
 		if err != nil {
-			continue
+			return "", fmt.Errorf("read source artifact %s: %w", path, err)
 		}
 		relative, err := filepath.Rel(repositoryRoot, path)
 		if err != nil {
-			continue
+			return "", fmt.Errorf("make source path relative %s: %w", path, err)
 		}
 		joined.WriteString(filepath.ToSlash(relative))
 		joined.WriteByte(0)
 		joined.Write(raw)
 		joined.WriteByte(0)
 	}
-	return sha256Hex([]byte(joined.String()))
+	return sha256Hex([]byte(joined.String())), nil
+}
+
+func validSourceDigest(value string) bool {
+	if len(value) != 64 || value != strings.ToLower(value) {
+		return false
+	}
+	decoded, err := hex.DecodeString(value)
+	return err == nil && len(decoded) == 32
 }
 
 func findRepositoryRoot() string {

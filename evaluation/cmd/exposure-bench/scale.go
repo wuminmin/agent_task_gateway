@@ -72,8 +72,8 @@ type scaleReport struct {
 }
 
 func bootstrapScale(ctx context.Context, opts options) error {
-	if len(opts.scaleSizes) < 2 || opts.scaleTrials < 1 {
-		return errors.New("scale campaign requires at least two sizes and one trial")
+	if len(opts.scaleSizes) < 1 || opts.scaleTrials < 1 {
+		return errors.New("scale campaign requires at least one size and one trial")
 	}
 	alice, err := oaClient(opts.oaURL, "alice", opts.alicePassword, opts.requestTimeout)
 	if err != nil {

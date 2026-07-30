@@ -37,6 +37,55 @@ type storedQueryResult struct {
 	Limited     bool                   `json:"limited"`
 }
 
+// decodeStoredQueryResult preserves the exact JSON number lexeme written by
+// the connector (including NUMERIC scale and integers above 2^53). Decoding
+// interface-valued rows through float64 would silently change a committed
+// result before idempotent or semantic replay. Like json.Unmarshal, this
+// helper accepts trailing whitespace but rejects every other trailing byte.
+func decodeStoredQueryResult(encoded []byte) (storedQueryResult, error) {
+	var result storedQueryResult
+	decoder := json.NewDecoder(bytes.NewReader(encoded))
+	decoder.UseNumber()
+	if err := decoder.Decode(&result); err != nil {
+		return storedQueryResult{}, err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return storedQueryResult{}, errors.New("stored query result contains trailing JSON")
+		}
+		return storedQueryResult{}, fmt.Errorf("stored query result has invalid trailing JSON: %w", err)
+	}
+	return result, nil
+}
+
+// ordinalSemanticAuthorizationDigest binds the canonical authorized SQL, not
+// the per-request resource ceilings injected into its executable form. Those
+// ceilings shrink as a task consumes its row budget and therefore are not part
+// of semantic identity. A replay remains fail-closed because the committed
+// row count is checked against the fresh reservation's AllowedRows before the
+// result can be finalized or released.
+func ordinalSemanticAuthorizationDigest(visible, provenance sqlpolicy.Decision, manifestDigest string) string {
+	return digest(strings.Join([]string{
+		visible.Fingerprint,
+		provenance.Fingerprint,
+		manifestDigest,
+	}, "\x00"))
+}
+
+func ordinalSemanticReplayBinding(taskID, grantDigest, authorizationDigest, planDigest, catalogDigest,
+	schemaDigest, dictionarySetDigest string) semanticcache.Binding {
+	return semanticcache.Binding{
+		TaskID: taskID, GrantDigest: grantDigest, AuthorizationDigest: authorizationDigest,
+		TypedNormalForm: queryplan.NormalFormVersion + ":" + planDigest,
+		PlanDigest:      planDigest, CatalogDigest: catalogDigest,
+		SchemaDigest: schemaDigest, DictionarySetDigest: dictionarySetDigest,
+		ExposureProfile: exposure.ProfileV4, CompilerVersion: queryplan.OrdinalProgramVersion,
+		OrderingVersion: semanticcache.OrderingV1, PaginationVersion: semanticcache.PaginationV1,
+		ResultEncoding: "stored-query-result-v1",
+	}
+}
+
 const (
 	resultEncodingFailed     = "RESULT_ENCODING_FAILED"
 	resultFinalizationFailed = "RESULT_FINALIZATION_FAILED"
@@ -364,18 +413,11 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 	}
 	var ordinalCacheKey string
 	if exposureContext != nil && exposureContext.ordinal != nil {
-		authorizationDigest := digest(strings.Join([]string{
-			decision.Fingerprint, strconv.FormatInt(decision.RowLimit, 10),
-			provenanceDecision.Fingerprint, strconv.FormatInt(provenanceEvidenceRows, 10),
-			protocolGrant.Core.ManifestDigest,
-		}, "\x00"))
-		ordinalCacheKey, err = (semanticcache.Binding{
-			TaskID: task.ID, GrantDigest: grantDigest, AuthorizationDigest: authorizationDigest,
-			TypedNormalForm: queryplan.NormalFormVersion + ":" + exposureContext.planDigest,
-			PlanDigest:      exposureContext.planDigest, CatalogDigest: s.catalog.SHA256,
-			SchemaDigest: evidence.SchemaDigest, DictionarySetDigest: exposureContext.ordinal.DictionarySetDigest,
-			ExposureProfile: exposure.ProfileV4, ResultEncoding: "stored-query-result-v1",
-		}).Digest()
+		authorizationDigest := ordinalSemanticAuthorizationDigest(decision, provenanceDecision,
+			protocolGrant.Core.ManifestDigest)
+		ordinalCacheKey, err = ordinalSemanticReplayBinding(task.ID, grantDigest, authorizationDigest,
+			exposureContext.planDigest, s.catalog.SHA256, evidence.SchemaDigest,
+			exposureContext.ordinal.DictionarySetDigest).Digest()
 		if err != nil {
 			return nil, &mcp.ToolError{Code: apierr.CodeConflict, Message: "V4 semantic replay key 无法规范化"}
 		}
@@ -736,8 +778,8 @@ func (s *Service) queryReplayResponse(ctx context.Context, record control.QueryR
 		// be encoded or atomically stored after execution.
 		return result, nil
 	}
-	var stored storedQueryResult
-	if err := json.Unmarshal(plaintext, &stored); err != nil {
+	stored, err := decodeStoredQueryResult(plaintext)
+	if err != nil {
 		return nil, err
 	}
 	result["columns"] = stored.Columns
@@ -1009,8 +1051,8 @@ func (s *Service) getQueryResult(ctx context.Context, principal mcp.Principal, r
 	if err != nil {
 		return nil, err
 	}
-	var result storedQueryResult
-	if err := json.Unmarshal(plaintext, &result); err != nil {
+	result, err := decodeStoredQueryResult(plaintext)
+	if err != nil {
 		return nil, err
 	}
 	receipt, err := s.queryReceipt(ctx, record)

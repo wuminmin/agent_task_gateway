@@ -120,6 +120,14 @@ func TestOrdinalDerivationJoinGroupExactlyRefinesV2Oracle(t *testing.T) {
 	fixture := newOrdinalDerivationFixture(t, compiled.OrdinalProgram, rows)
 	visibleMaps := []map[string]any{groupedVisibleValues(fixture.program, "Sales", int64(10))}
 	visible := ordinalVisibleResult(fixture.program, visibleMaps)
+	deriver := fixture.newDeriver(t, visible, fixture.indexes())
+	member, err := deriver.buildMember(fixture.provenanceValues(t, ordinalProvenanceInput{row: 0, branch: -1}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if member.key != "" {
+		t.Fatalf("grouped join materialized unused member key %q", member.key)
+	}
 	effect := fixture.derive(t, visible, []ordinalProvenanceInput{{row: 0, branch: -1}})
 
 	left := fixture.oracleRelation(t, ordinalSourceForAlias(t, fixture.program, "left"), []int{0}, false)
@@ -138,6 +146,53 @@ func TestOrdinalDerivationJoinGroupExactlyRefinesV2Oracle(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertOrdinalEffectEqualsOracle(t, effect, fixture.artifact.Cold, oracle, visible, ordinalDerivationPlanDigest)
+}
+
+func TestOrdinalDerivationUngroupedJoinRetainsCanonicalRowKey(t *testing.T) {
+	leftProduct := compactOrdinalProduct()
+	leftProduct.Name = "left_product"
+	leftProduct.StableRole = "left"
+	rightProduct := compactOrdinalProduct()
+	rightProduct.Name = "right_product"
+	rightProduct.StableRole = "right"
+	plan := queryplan.QueryPlan{
+		From: &queryplan.From{Join: &queryplan.Join{
+			Left:  queryplan.Scan{Product: leftProduct.Name, Role: "left"},
+			Right: queryplan.Scan{Product: rightProduct.Name, Role: "right"},
+			On:    []queryplan.JoinPredicate{{Left: "left.department", Right: "right.department"}},
+		}},
+		Columns: []string{"left.department", "right.amount"},
+	}
+	compiled, err := queryplan.CompileRelational(plan, map[string]queryplan.Product{
+		leftProduct.Name: leftProduct, rightProduct.Name: rightProduct,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := []map[string]any{{"id": int64(1), "department": "Sales", "amount": int64(10)}}
+	fixture := newOrdinalDerivationFixture(t, compiled.OrdinalProgram, rows)
+	visible := scanVisibleResult(t, fixture.program, rows)
+	deriver := fixture.newDeriver(t, visible, fixture.indexes())
+	values := fixture.provenanceValues(t, ordinalProvenanceInput{row: 0, branch: -1})
+	member, err := deriver.buildMember(values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sources := make([]ordinalSourceMember, 0, len(fixture.program.Sources))
+	for _, source := range fixture.program.Sources {
+		sourceMember, sourceErr := deriver.buildSourceMember(source, values)
+		if sourceErr != nil {
+			t.Fatal(sourceErr)
+		}
+		sources = append(sources, sourceMember)
+	}
+	want, err := ordinalJoinRowKey(sources)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if member.key == "" || member.key != want {
+		t.Fatalf("ungrouped join member key = %q, want %q", member.key, want)
+	}
 }
 
 func TestOrdinalDerivationEmptyGlobalAggregateRefinesV2Oracle(t *testing.T) {

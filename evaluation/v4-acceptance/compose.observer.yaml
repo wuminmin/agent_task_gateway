@@ -1,0 +1,62 @@
+services:
+  business-postgres:
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - compute_query_id=on
+      - -c
+      - pg_stat_statements.track=all
+      - -c
+      - pg_stat_statements.max=10000
+    volumes:
+      - ./evaluation/v4-acceptance/observer/09-pg-stat-statements.sql:/docker-entrypoint-initdb.d/09-pg-stat-statements.sql:ro
+
+  gateway:
+    # The observer verifies /proc/self/cgroup is 0::/ before accepting
+    # memory.peak, so a host-scoped reading cannot be mislabeled as Gateway.
+    cgroup: private
+
+  v4-acceptance:
+    profiles: [v4-acceptance]
+    build:
+      context: .
+      dockerfile: evaluation/Dockerfile
+      target: v4-acceptance
+    command:
+      - -config
+      - /config/v4-acceptance.json
+      - -output
+      - /results/results.json
+    environment:
+      TASKBOUND_ALICE_TOKEN: ${TASKBOUND_ALICE_TOKEN:?set TASKBOUND_ALICE_TOKEN}
+      V4_EVAL_BUSINESS_DSN: postgres://gateway_reader:${GATEWAY_DB_PASSWORD:?set GATEWAY_DB_PASSWORD}@business-postgres:5432/${POSTGRES_DB:-travel_demo}?sslmode=disable
+      V4_EVAL_CONTROL_DSN: postgres://gateway_control:${CONTROL_DB_PASSWORD:?set CONTROL_DB_PASSWORD}@control-postgres:5432/${CONTROL_POSTGRES_DB:-taskbound_gateway}?sslmode=disable
+      V4_OBSERVER_BUSINESS_DSN: postgres://postgres:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@business-postgres:5432/${POSTGRES_DB:-travel_demo}?sslmode=disable
+      V4_OBSERVER_GATEWAY_DB_ROLE: gateway_reader
+      POSTGRES_DB: ${POSTGRES_DB:-travel_demo}
+      V4_OBSERVER_TIMEOUT_MS: 4000
+    volumes:
+      # Docker Engine access is deliberately confined to the trusted evidence
+      # runner. It is required for out-of-band cgroup/netns reads and psql exec.
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${V4_ACCEPTANCE_CONFIG:?set V4_ACCEPTANCE_CONFIG}:/config/v4-acceptance.json:ro
+      - ${V4_ACCEPTANCE_RUN_DIR:?set V4_ACCEPTANCE_RUN_DIR}:/results
+      - snapshot-index-artifacts:/var/lib/taskgate/snapshot-index:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    depends_on:
+      gateway:
+        condition: service_healthy
+      business-postgres:
+        condition: service_healthy
+      control-postgres:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - public-edge
+      - control-plane
+      - business-data

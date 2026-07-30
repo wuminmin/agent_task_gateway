@@ -2,7 +2,6 @@ package gateway
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"time"
@@ -117,8 +116,8 @@ func (s *Service) tryOrdinalSemanticReplayWithSpool(ctx context.Context, task co
 		componentMS["semantic_replay_lookup"] = durationMS(time.Since(started))
 		return continueNovel()
 	}
-	var stored storedQueryResult
-	if err := json.Unmarshal(plaintext, &stored); err != nil || stored.RowCount != materialization.RowCount ||
+	stored, decodeErr := decodeStoredQueryResult(plaintext)
+	if decodeErr != nil || stored.RowCount != materialization.RowCount ||
 		stored.RowCount < 0 || stored.RowCount > reservation.AllowedRows || stored.RowCount != int64(len(stored.Rows)) {
 		if evictErr := s.store.DeleteOrdinalMaterialization(ctx, task.ID, cacheKey); evictErr != nil &&
 			!errors.Is(evictErr, control.ErrNotFound) {
