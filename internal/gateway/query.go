@@ -711,6 +711,9 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 	finalizeCancel()
 	if err != nil {
 		settlement.ErrorCode = resultFinalizationFailed
+		if errors.Is(err, control.ErrExposureBudgetExhausted) {
+			settlement.ErrorCode = string(control.CodeExposureBudgetExhausted)
+		}
 		s.failQueryBudget(ctx, settlement)
 		return nil, err
 	}
@@ -847,8 +850,15 @@ func querySettlement(queryID string, data dataconnector.Result, started time.Tim
 }
 
 func (s *Service) failQueryBudget(ctx context.Context, settlement control.BudgetSettlement) {
+	// OrdinalMaterialization is a proposed success-path publication. A failed
+	// query must neither publish it nor let it poison the terminal failure
+	// settlement: FailBudgetWithReceipt deliberately uses the ordinary terminal
+	// path, which rejects success-only materialization requests. Keep the caller's
+	// value untouched and retain the sanitized copy for every background retry.
+	failure := settlement
+	failure.OrdinalMaterialization = nil
 	failCtx, cancel := s.detachedContext(ctx)
-	_, _, err := s.store.FailBudgetWithReceipt(failCtx, settlement, s.terminalReceiptBuilder())
+	_, _, err := s.store.FailBudgetWithReceipt(failCtx, failure, s.terminalReceiptBuilder())
 	cancel()
 	if err == nil {
 		return
@@ -858,7 +868,7 @@ func (s *Service) failQueryBudget(ctx context.Context, settlement control.Budget
 		return
 	}
 	s.pendingSettles.Add(1)
-	go s.retryFailedQuerySettlement(settlement)
+	go s.retryFailedQuerySettlement(failure)
 }
 
 func (s *Service) releaseQueryBudget(ctx context.Context, queryID, errorCode string) {

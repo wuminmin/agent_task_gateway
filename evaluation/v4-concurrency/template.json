@@ -1,0 +1,125 @@
+{
+  "schema_version": 1,
+  "gateway": {
+    "url": "http://127.0.0.1:8082",
+    "contender_urls": ["http://127.0.0.1:8082", "http://127.0.0.1:8083"],
+    "token_env": "TASKBOUND_ALICE_TOKEN"
+  },
+  "control_dsn_env": "V4_CONCURRENCY_CONTROL_DSN",
+  "request_timeout_ms": 30000,
+  "lock_wait_timeout_ms": 15000,
+  "provision": {
+    "oa_url": "http://127.0.0.1:8092",
+    "alice_password_env": "OA_ALICE_PASSWORD",
+    "bob_password_env": "OA_BOB_PASSWORD",
+    "data_products": ["expense_detail"],
+    "columns": {
+      "expense_detail": ["receipt_no", "amount", "city"]
+    },
+    "scopes": {
+      "department": ["销售部"]
+    }
+  },
+  "cases": [
+    {
+      "id": "same-root-release-c1",
+      "concurrency": 1,
+      "boundary_dimension": "release",
+      "prefix_plan": {
+        "product": "expense_detail",
+        "columns": ["receipt_no"],
+        "filters": [{"column": "receipt_no", "op": "=", "value": "TR-2026-0001"}],
+        "order_by": [{"column": "receipt_no", "direction": "asc"}]
+      },
+      "contender_plan": {
+        "product": "expense_detail",
+        "columns": ["receipt_no", "amount"],
+        "filters": [{"column": "receipt_no", "op": "=", "value": "TR-2026-0001"}],
+        "order_by": [{"column": "receipt_no", "direction": "asc"}]
+      },
+      "overflow_plan": {
+        "product": "expense_detail",
+        "columns": ["receipt_no", "amount", "city"],
+        "filters": [{"column": "receipt_no", "op": "=", "value": "TR-2026-0001"}],
+        "order_by": [{"column": "receipt_no", "direction": "asc"}]
+      },
+      "before_used": {"release": 1, "influence": 2, "outcome": 1},
+      "at_budget": {"release": 2, "influence": 3, "outcome": 2}
+    },
+    {
+      "id": "same-root-influence-c4",
+      "concurrency": 4,
+      "boundary_dimension": "influence",
+      "prefix_plan": {
+        "product": "expense_detail",
+        "columns": ["receipt_no"],
+        "filters": [{"column": "receipt_no", "op": "=", "value": "TR-2026-0001"}],
+        "order_by": [{"column": "receipt_no", "direction": "asc"}]
+      },
+      "contender_plan": {
+        "product": "expense_detail",
+        "columns": ["receipt_no", "amount"],
+        "filters": [{"column": "receipt_no", "op": "=", "value": "TR-2026-0001"}],
+        "order_by": [{"column": "receipt_no", "direction": "asc"}]
+      },
+      "overflow_plan": {
+        "product": "expense_detail",
+        "columns": ["receipt_no", "amount", "city"],
+        "filters": [{"column": "receipt_no", "op": "=", "value": "TR-2026-0001"}],
+        "order_by": [{"column": "receipt_no", "direction": "asc"}]
+      },
+      "before_used": {"release": 1, "influence": 2, "outcome": 1},
+      "at_budget": {"release": 2, "influence": 3, "outcome": 2}
+    },
+    {
+      "id": "same-root-outcome-c8",
+      "concurrency": 8,
+      "boundary_dimension": "outcome",
+      "prefix_plan": {
+        "product": "expense_detail",
+        "columns": ["receipt_no"],
+        "filters": [{"column": "receipt_no", "op": "=", "value": "TR-2026-0001"}],
+        "order_by": [{"column": "receipt_no", "direction": "asc"}]
+      },
+      "contender_plan": {
+        "product": "expense_detail",
+        "columns": ["receipt_no", "amount"],
+        "filters": [{"column": "receipt_no", "op": "=", "value": "TR-2026-0001"}],
+        "order_by": [{"column": "receipt_no", "direction": "asc"}]
+      },
+      "overflow_plan": {
+        "product": "expense_detail",
+        "columns": ["receipt_no", "amount", "city"],
+        "filters": [{"column": "receipt_no", "op": "=", "value": "TR-2026-0001"}],
+        "order_by": [{"column": "receipt_no", "direction": "asc"}]
+      },
+      "before_used": {"release": 1, "influence": 2, "outcome": 1},
+      "at_budget": {"release": 2, "influence": 3, "outcome": 2}
+    },
+    {
+      "id": "same-root-release-c16",
+      "concurrency": 16,
+      "boundary_dimension": "release",
+      "prefix_plan": {
+        "product": "expense_detail",
+        "columns": ["receipt_no"],
+        "filters": [{"column": "receipt_no", "op": "=", "value": "TR-2026-0001"}],
+        "order_by": [{"column": "receipt_no", "direction": "asc"}]
+      },
+      "contender_plan": {
+        "product": "expense_detail",
+        "columns": ["receipt_no", "amount"],
+        "filters": [{"column": "receipt_no", "op": "=", "value": "TR-2026-0001"}],
+        "order_by": [{"column": "receipt_no", "direction": "asc"}]
+      },
+      "overflow_plan": {
+        "product": "expense_detail",
+        "columns": ["receipt_no", "amount", "city"],
+        "filters": [{"column": "receipt_no", "op": "=", "value": "TR-2026-0001"}],
+        "order_by": [{"column": "receipt_no", "direction": "asc"}]
+      },
+      "before_used": {"release": 1, "influence": 2, "outcome": 1},
+      "at_budget": {"release": 2, "influence": 3, "outcome": 2}
+    }
+  ]
+}

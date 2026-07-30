@@ -93,6 +93,14 @@ and \RQFourVFourOutcomeFacts{} outcome facts, novel p50/p95 is
 \RQFourVFourNovelMedianS{}/\RQFourVFourNovelTailS{}~s, semantic replay is
 \RQFourVFourReplayMedianMS{}/\RQFourVFourReplayTailMS{}~ms, and the campaign-wide
 Gateway cgroup peak including mapped pages is \RQFourVFourGatewayPeakMiB{}~MiB.
+Three source-bound supplemental axes then exercise
+\RQFourVFourDistributionCells{} million-ordinal layout/overlap cells,
+same-root settlement through \RQFourVFourConcurrencyGateways{} Gateway replicas
+at widths \RQFourVFourConcurrencyWidths{}, and a derivation-independent offline
+oracle that matches all \RQFourVFourOracleFacts{} decoded facts. These results
+are respectively a bitmap-kernel study, a small-fixture contention study, and
+an offline audit; they do not enlarge the end-to-end SLO to arbitrary SQL,
+mutable sources, or high-cardinality concurrent execution.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -1250,6 +1258,10 @@ cardinalities and \RQFourScaleTrials{} fresh-ledger trials per cardinality.
 The V4 report adds \RQFourVFourSamples{} operations on
 \RQFourVFourRoots{} fresh roots in one fixed-host deployment, including
 \RQFourVFourMaxSamples{} exact maximum-point samples per measured phase.
+The supplemental V4 report adds \RQFourVFourDistributionCells{} physical-layout
+cells with \RQFourVFourDistributionRuns{} runs each,
+\RQFourVFourConcurrencyCases{} same-root contention cells, and one complete
+\RQFourVFourOracleFacts{}-Fact offline comparison.
 There is no online representation-selection or budget-selection planner: one
 client-supplied plan is executed per call against the complete signed profile.
 
@@ -1265,7 +1277,7 @@ RQ & Current result \\
 RQ1 & \RQOnePassed{}/\RQOneCases{} independent-oracle cases on \RQOneRows{} source rows \\
 RQ2 & \RQTwoExposureRewrites{} closed-language rewrite families, \RQTwoExposureCases{} instances and \RQTwoExposureNFCases{} normal-form checks: FactSet/charge invariant, \RQTwoExposureMismatches{} mismatches \\
 RQ3 & \RQThreePassed{}/\RQThreeCases{} deterministic; \RQThreeIntegration{}/\RQThreeExecuted{} PostgreSQL race tests; paired PG Join/Union exchange and downstream-group tests \\
-RQ4 & Legacy diagnosis to \RQFourScaleMaxFacts{} dependencies; V4: \RQFourVFourGatesPassed{}/\RQFourVFourGatesTotal{} implemented report gates pass, with \RQFourVFourNovelMedianS{}/\RQFourVFourNovelTailS{}~s novel and \RQFourVFourReplayMedianMS{}/\RQFourVFourReplayTailMS{}~ms replay p50/p95 at the maximum point \\
+RQ4 & Legacy diagnosis to \RQFourScaleMaxFacts{} dependencies; V4: \RQFourVFourGatesPassed{}/\RQFourVFourGatesTotal{} base gates pass at \RQFourVFourNovelMedianS{}/\RQFourVFourNovelTailS{}~s novel and \RQFourVFourReplayMedianMS{}/\RQFourVFourReplayTailMS{}~ms replay p50/p95; supplemental layout, same-root contention, and \RQFourVFourOracleFacts{}-Fact oracle gates pass within their stated scopes \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1608,12 +1620,61 @@ improves p50 latency and throughput by
 \RQFourVFourSmallThroughputImprovementPct{}\%, respectively, rather than
 exceeding the 10\% regression bound. The harness checks released-result
 multisets, exact R/I/O cardinalities, set and observation digests, and zero
-replay novelty. It does not complete the separately planned
-dense/clustered/random-sparse distribution matrix, same-root concurrent-CAS
-campaign, or an independent million-point expansion comparing every decoded
-FactHash, canonical payload, and witness multiplicity. Those remain explicit
-outstanding axes rather than being inferred from the
-\RQFourVFourGatesTotal{} implemented report gates.
+replay novelty. The base campaign alone does not imply behavior under different
+bitmap layouts, same-root contention, or independent per-Fact expansion; the
+following supplemental axes measure those obligations separately.
+
+\subsection{RQ4: Supplemental Scalability Axes}
+
+The source-bound supplemental report closes three previously unmeasured axes
+without relabeling them as one larger end-to-end benchmark. First, every one of
+the \RQFourVFourDistributionCells{} dense, clustered, and random-sparse
+bitmap cells contains exactly \RQFourVFourInfluenceFacts{} effect ordinals and
+one of 0/50/90/100\% exact prior overlap. Effect, prior, novelty, post-state,
+and replay are serialized, parsed, and checked for exact set/digest identity---
+\RQFourVFourDistributionRoundTrips{} exact complete-set round-trip checks at
+their actual cardinalities. Across
+\RQFourVFourDistributionRuns{} runs per cell, the worst ANDNOT--popcount--OR
+p95 is \RQFourVFourDistributionWorstTailMS{}~ms and the maximum sampled Go
+HeapAlloc is \RQFourVFourDistributionPeakHeapMiB{}~MiB. This isolates the
+bitmap kernel: it excludes Gateway, PostgreSQL, encryption, result persistence,
+networking, and CAS, and HeapAlloc is not cgroup RSS.
+
+Second, a dedicated frozen ten-row publication, queried through a one-row
+effect, fixes the Catalog ceiling at
+$2R/3I/2O$. Through the public OA approval and Gateway execution paths,
+\RQFourVFourConcurrencyGateways{} Gateway processes send same-root contender
+batches of widths \RQFourVFourConcurrencyWidths{} to one Control PostgreSQL
+ledger. Every cell first reaches $B-1$, then admits exactly one charged winner
+at $B$ while the other \RQFourVFourConcurrencyZeroNovelty{} requests in
+aggregate commit zero novelty. Before releasing the campaign-owned root-row
+blocker, all \RQFourVFourRootLockWaiters{} requests across the four cells are
+observed in its transitive PostgreSQL lock-wait chains. This proves exercised
+contention and the resulting single-epoch linearization; it does not reveal
+which statement each downstream request awaited and therefore makes no claim
+about stale reads, CAS conflicts, or internal retry counts. A separate
+store-level regression waits until two conditional head updates reach the CAS,
+then checks the exported retry counter and fresh three-dimensional recomputation;
+we do not relabel that deterministic test as public-path E2E evidence. Every
+$B+1$ request terminates failed with its reservation released, one failure audit and receipt, no result or cache,
+no observation, and unchanged root/content state. Client latency is descriptive
+only; this small-fixture campaign is not a high-cardinality concurrency SLO.
+
+Third, an offline oracle reconstructs the maximum-point query's 225,000
+participating joined rows from the frozen Business snapshot, independently
+streams the COLD dictionary, and external-merge-compares
+\RQFourVFourOracleFacts{} full FactHashes and canonical payloads:
+\RQFourVFourReleaseFacts{} Release, \RQFourVFourInfluenceFacts{} Influence, and
+\RQFourVFourOutcomeFacts{} Outcome, with \RQFourVFourOracleMismatches{}
+mismatches/missing/extra records. It also matches all
+\RQFourVFourOracleWitnesses{} witness commitments and total multiplicity
+\RQFourVFourOracleMultiplicity{}. The offline pass takes
+\RQFourVFourOracleDurationS{}~s, peaks at \RQFourVFourOraclePeakRSSMiB{}~MiB
+RSS, and writes \RQFourVFourOracleSpoolMiB{}~MiB of private sort spool. It is
+derivation-independent but deliberately shares the versioned canonical FactID
+specification/encoder, normal-form and observation-digest specifications, and
+portable bitmap decoder; it is not a second implementation of those standards
+and is not on the online path.
 
 \subsection{Reproducibility Boundary}
 
@@ -1631,6 +1692,16 @@ summaries and gates, and verifies configuration, environment, source, receipt,
 baseline, and candidate digests. Reproducibility does not remove the
 external-validity bounds of the small semantic fixtures or either single-host
 campaign.
+
+The 560-operation base V4 success-path campaign remains bound to an immutable
+archived source snapshot. The first supplemental $B+1$ diagnostic exposed a
+failure-finalization bug: rejection protected the ledger/result but left the
+query reservation pending. That diagnostic is excluded. The current source
+clears success-only materialization from failure settlement and preserves the
+budget-exhaustion terminal code; a targeted regression and the fresh final
+concurrency campaign bind and test the fixed tree. The success-path SLO was not
+re-measured after this failure-only patch, so the paper keeps the archived
+source identity explicit rather than implying byte-for-byte identity.
 
 \section{Limitations and Threats to Validity}
 \label{sec:limits}
@@ -1690,9 +1761,12 @@ streamed weighted bitmaps, sparse dynamic facts, and one three-dimensional CAS.
 The finite refinement model supports preservation of the boundary, while the
 source-controlled V4 campaign meets all \RQFourVFourGatesTotal{} implemented
 report gates under its frozen-snapshot, single-host scope. Exactness is
-the invariant and compactness is the mechanism; the outstanding distribution,
-concurrent-CAS, and million-point per-Fact oracle axes bound the empirical
-conclusion rather than being silently treated as passed.
+the invariant and compactness is the mechanism; the distribution,
+concurrent-CAS, and million-point per-Fact oracle axes are separately
+measured under kernel-only, small-fixture, and offline-audit scopes. These close
+the corresponding representation, atomicity, and expansion checks, while
+arbitrary SQL, mutable publications, multi-host deployment, and
+high-cardinality concurrent latency remain outside the empirical claim.
 
 \bibliographystyle{IEEEtran}
 \bibliography{references}

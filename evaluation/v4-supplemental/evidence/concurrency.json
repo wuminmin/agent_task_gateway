@@ -1,0 +1,1938 @@
+{
+  "schema_version": 2,
+  "status": "complete_measured_campaign",
+  "acceptance": "pass",
+  "started_at": "2026-07-30T11:09:53.85831423Z",
+  "finished_at": "2026-07-30T11:09:54.561914504Z",
+  "configuration": {
+    "gateway_url": "http://127.0.0.1:8082",
+    "contender_gateway_urls": [
+      "http://127.0.0.1:8082",
+      "http://127.0.0.1:8083"
+    ],
+    "contender_gateway_count": 2,
+    "per_gateway_control_pool": 10,
+    "request_timeout_ms": 30000,
+    "lock_wait_timeout_ms": 15000,
+    "case_count": 4,
+    "concurrency_levels": [
+      1,
+      4,
+      8,
+      16
+    ],
+    "boundary_dimensions": [
+      "influence",
+      "outcome",
+      "release"
+    ]
+  },
+  "provenance": {
+    "config_sha256": "820eaef3343da905893c1ae39e3e3cb0a9b3772697c8dba13e2ef893f48c77c8",
+    "source_sha256": "127538d36adc3de86000912a264c22f1383547fa0e4019222b21db619c3163a7"
+  },
+  "metric_notes": {
+    "client_latency_ms": "descriptive MCP request wall time; this supplemental axis defines no latency SLO",
+    "failure_audit": "a complete QUERY_FAILED audit/receipt is required within lock_wait_timeout_ms after B+1 returns; success settlement/result audits are forbidden",
+    "gateway_replicas": "contenders are distributed round-robin over two identical Gateway processes (eight requests per process at width 16), sharing one Catalog, Control PostgreSQL, root ledger, and production binary",
+    "inference_boundary": "the transitive lock chain establishes only that requests queued behind the held root row; it does not reveal which root epoch a contender read and does not prove a CAS conflict or retry",
+    "root_lock_waiters": "same-user Control PostgreSQL lock waiters transitively downstream of the acceptance-owned backend holding the target v4_exposure_root_heads row; that transaction holds no other conflicting lock"
+  },
+  "cells": [
+    {
+      "case_id": "same-root-release-c1",
+      "concurrency": 1,
+      "boundary_dimension": "release",
+      "root_task_sha256": "eb1b614e91e85e00f408f4d1a96299bdac39384a3b0135cefe3fe45973d205b9",
+      "family_task_sha256": [
+        "a5a1dedb315473ce2cfd2e6bc23f4cd3a7d6f2a47a80474089e2daab5f3ed15b",
+        "ad4a17d4af516ec1f5c58566eecc21a1280c7e8315056521bae26a47fd1a84d4",
+        "eb1b614e91e85e00f408f4d1a96299bdac39384a3b0135cefe3fe45973d205b9"
+      ],
+      "status": "measured",
+      "initial": {
+        "epoch": 0,
+        "limits": {
+          "release": 2,
+          "influence": 3,
+          "outcome": 2
+        },
+        "used": {
+          "release": 0,
+          "influence": 0,
+          "outcome": 0
+        }
+      },
+      "before_boundary": {
+        "epoch": 1,
+        "limits": {
+          "release": 2,
+          "influence": 3,
+          "outcome": 2
+        },
+        "used": {
+          "release": 1,
+          "influence": 2,
+          "outcome": 1
+        },
+        "release_set_sha256": "a11b5247f5ef122922d017eadafef87c2df9bf5e8061f09128cbeab5dc515601",
+        "influence_set_sha256": "5fe3ad184931083829a9ba3021ffcd97a41ced29bfdaffbb06aba19efd8d8327",
+        "outcome_set_sha256": "75c6f7cd02851f5e1d8b8ac6bf8cb573d3495bc5befa13a5a265d9f77880745f"
+      },
+      "at_boundary": {
+        "epoch": 2,
+        "limits": {
+          "release": 2,
+          "influence": 3,
+          "outcome": 2
+        },
+        "used": {
+          "release": 2,
+          "influence": 3,
+          "outcome": 2
+        },
+        "release_set_sha256": "df739c56f54f4e98368e0e61a36faa469f0eb87e051307698ecdd9721627ce1a",
+        "influence_set_sha256": "362496fea5b5224c42508470f92416e78b3d8e90f3bb12584cf43c2f18167abf",
+        "outcome_set_sha256": "a5ca5e3f7992525555b95555cc12fd5b7971f70444d50ebbd11d8e1dfea8c76a"
+      },
+      "after_rejected_overflow": {
+        "epoch": 2,
+        "limits": {
+          "release": 2,
+          "influence": 3,
+          "outcome": 2
+        },
+        "used": {
+          "release": 2,
+          "influence": 3,
+          "outcome": 2
+        },
+        "release_set_sha256": "df739c56f54f4e98368e0e61a36faa469f0eb87e051307698ecdd9721627ce1a",
+        "influence_set_sha256": "362496fea5b5224c42508470f92416e78b3d8e90f3bb12584cf43c2f18167abf",
+        "outcome_set_sha256": "a5ca5e3f7992525555b95555cc12fd5b7971f70444d50ebbd11d8e1dfea8c76a"
+      },
+      "prefix": {
+        "status": "measured",
+        "latency_ms": 61.419345,
+        "observation_sha256": "cf9f04f5cb0280ab5ae9600b66a48e73e32a0a3fca98e17d7fe79e97b12e0d79",
+        "actual": {
+          "release": 1,
+          "influence": 2,
+          "outcome": 1
+        },
+        "charged": {
+          "release": 1,
+          "influence": 2,
+          "outcome": 1
+        },
+        "root_epoch": 1,
+        "result_sha256": "538456e188ecea270a7dbc2ca366a2320d75bd1f80b0f9206f98df25675e01ba"
+      },
+      "contention": {
+        "status": "measured",
+        "root_lock_waiters_observed": 1,
+        "successful_requests": 1,
+        "failed_requests": 0,
+        "charged_winners": 1,
+        "zero_novelty_settlements": 0,
+        "total_charged": {
+          "release": 1,
+          "influence": 1,
+          "outcome": 1
+        },
+        "root_epochs": [
+          2
+        ],
+        "observation_sha256": [
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1"
+        ],
+        "result_sha256": [
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c"
+        ],
+        "client_latency_ms": [
+          36.208579
+        ]
+      },
+      "overflow": {
+        "status": "rejected",
+        "expected_error_code": "EXPOSURE_BUDGET_EXHAUSTED",
+        "observed_error_code": "EXPOSURE_BUDGET_EXHAUSTED",
+        "latency_ms": 29.639993,
+        "query_status": "FAILED",
+        "exposure_reservation_status": "RELEASED",
+        "encrypted_results": 0,
+        "encrypted_result_chunks": 0,
+        "materializations": 0,
+        "query_observations": 0,
+        "root_observations": 0,
+        "terminal_success_audits": 0,
+        "terminal_failure_audits": 1,
+        "receipts": 1,
+        "content_before": {
+          "containers": 3,
+          "sets": 7,
+          "dynamic_facts": 2,
+          "observations": 2
+        },
+        "content_after": {
+          "containers": 3,
+          "sets": 7,
+          "dynamic_facts": 2,
+          "observations": 2
+        }
+      },
+      "checks": {
+        "shared_root_family": true,
+        "fresh_root": true,
+        "b_minus_one_committed": true,
+        "b_committed": true,
+        "three_dimensional_atomic": true,
+        "root_lock_queue_observed": true,
+        "overflow_rejected": true,
+        "failure_left_no_partial_commit": true
+      }
+    },
+    {
+      "case_id": "same-root-influence-c4",
+      "concurrency": 4,
+      "boundary_dimension": "influence",
+      "root_task_sha256": "5daded187576c2521703fd992fdf35742d0328eaf300ace6adcf2c4808732892",
+      "family_task_sha256": [
+        "5828e4c65856b6001a47b478ab956e217e9c7c6dfb686fed863b9fdc99c9f353",
+        "5daded187576c2521703fd992fdf35742d0328eaf300ace6adcf2c4808732892",
+        "7fd93c71c555ddb0b9b4976f9347bc1ecf0422770a7ee0891424afddfed28c40",
+        "973fc214a9ce4bf4ae3a0e1efafbe7702c71021a485f6f7ddb5820ed6ac0eccc",
+        "a2d9cbc35653cf01d7c2a63e423a2602f93927679c3892870eeef54d86971ef5",
+        "ee8a2ee7fc9c47574e2385c3c8f5b893c17623f84d403c56e0ea1b8928c338ed"
+      ],
+      "status": "measured",
+      "initial": {
+        "epoch": 0,
+        "limits": {
+          "release": 2,
+          "influence": 3,
+          "outcome": 2
+        },
+        "used": {
+          "release": 0,
+          "influence": 0,
+          "outcome": 0
+        }
+      },
+      "before_boundary": {
+        "epoch": 1,
+        "limits": {
+          "release": 2,
+          "influence": 3,
+          "outcome": 2
+        },
+        "used": {
+          "release": 1,
+          "influence": 2,
+          "outcome": 1
+        },
+        "release_set_sha256": "a11b5247f5ef122922d017eadafef87c2df9bf5e8061f09128cbeab5dc515601",
+        "influence_set_sha256": "5fe3ad184931083829a9ba3021ffcd97a41ced29bfdaffbb06aba19efd8d8327",
+        "outcome_set_sha256": "75c6f7cd02851f5e1d8b8ac6bf8cb573d3495bc5befa13a5a265d9f77880745f"
+      },
+      "at_boundary": {
+        "epoch": 2,
+        "limits": {
+          "release": 2,
+          "influence": 3,
+          "outcome": 2
+        },
+        "used": {
+          "release": 2,
+          "influence": 3,
+          "outcome": 2
+        },
+        "release_set_sha256": "df739c56f54f4e98368e0e61a36faa469f0eb87e051307698ecdd9721627ce1a",
+        "influence_set_sha256": "362496fea5b5224c42508470f92416e78b3d8e90f3bb12584cf43c2f18167abf",
+        "outcome_set_sha256": "a5ca5e3f7992525555b95555cc12fd5b7971f70444d50ebbd11d8e1dfea8c76a"
+      },
+      "after_rejected_overflow": {
+        "epoch": 2,
+        "limits": {
+          "release": 2,
+          "influence": 3,
+          "outcome": 2
+        },
+        "used": {
+          "release": 2,
+          "influence": 3,
+          "outcome": 2
+        },
+        "release_set_sha256": "df739c56f54f4e98368e0e61a36faa469f0eb87e051307698ecdd9721627ce1a",
+        "influence_set_sha256": "362496fea5b5224c42508470f92416e78b3d8e90f3bb12584cf43c2f18167abf",
+        "outcome_set_sha256": "a5ca5e3f7992525555b95555cc12fd5b7971f70444d50ebbd11d8e1dfea8c76a"
+      },
+      "prefix": {
+        "status": "measured",
+        "latency_ms": 30.336965,
+        "observation_sha256": "cf9f04f5cb0280ab5ae9600b66a48e73e32a0a3fca98e17d7fe79e97b12e0d79",
+        "actual": {
+          "release": 1,
+          "influence": 2,
+          "outcome": 1
+        },
+        "charged": {
+          "release": 1,
+          "influence": 2,
+          "outcome": 1
+        },
+        "root_epoch": 1,
+        "result_sha256": "538456e188ecea270a7dbc2ca366a2320d75bd1f80b0f9206f98df25675e01ba"
+      },
+      "contention": {
+        "status": "measured",
+        "root_lock_waiters_observed": 4,
+        "successful_requests": 4,
+        "failed_requests": 0,
+        "charged_winners": 1,
+        "zero_novelty_settlements": 3,
+        "total_charged": {
+          "release": 1,
+          "influence": 1,
+          "outcome": 1
+        },
+        "root_epochs": [
+          2,
+          2,
+          2,
+          2
+        ],
+        "observation_sha256": [
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1"
+        ],
+        "result_sha256": [
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c"
+        ],
+        "client_latency_ms": [
+          47.184091,
+          61.032639,
+          68.833277,
+          76.149207
+        ]
+      },
+      "overflow": {
+        "status": "rejected",
+        "expected_error_code": "EXPOSURE_BUDGET_EXHAUSTED",
+        "observed_error_code": "EXPOSURE_BUDGET_EXHAUSTED",
+        "latency_ms": 30.213954,
+        "query_status": "FAILED",
+        "exposure_reservation_status": "RELEASED",
+        "encrypted_results": 0,
+        "encrypted_result_chunks": 0,
+        "materializations": 0,
+        "query_observations": 0,
+        "root_observations": 0,
+        "terminal_success_audits": 0,
+        "terminal_failure_audits": 1,
+        "receipts": 1,
+        "content_before": {
+          "containers": 3,
+          "sets": 7,
+          "dynamic_facts": 2,
+          "observations": 2
+        },
+        "content_after": {
+          "containers": 3,
+          "sets": 7,
+          "dynamic_facts": 2,
+          "observations": 2
+        }
+      },
+      "checks": {
+        "shared_root_family": true,
+        "fresh_root": true,
+        "b_minus_one_committed": true,
+        "b_committed": true,
+        "three_dimensional_atomic": true,
+        "root_lock_queue_observed": true,
+        "overflow_rejected": true,
+        "failure_left_no_partial_commit": true
+      }
+    },
+    {
+      "case_id": "same-root-outcome-c8",
+      "concurrency": 8,
+      "boundary_dimension": "outcome",
+      "root_task_sha256": "88a0a6b86bab7ca0069312cc34aedb56e2cbcc6cfdf92f278fc4e0a6e260386d",
+      "family_task_sha256": [
+        "2e4fb28cd66888edc5f13ecad3c0ecdad706020988df4981c7ee820702751914",
+        "30fe3041038a9f0d8af5bd5263d2b10b3ecf9f35253f72672b5657ba600fd6d1",
+        "374473f04f11afac44a32bff921ab0c4822f2d9a173d995a7afaaa22d3da2a26",
+        "7cc184524feb8698f42a03889b0b4016dfd50b5279f1cbabb0a47fd69c3d85ad",
+        "85d5646f2b01797ee6193fcead707d115d40ed4bdee680d2772716c72e9603cc",
+        "88a0a6b86bab7ca0069312cc34aedb56e2cbcc6cfdf92f278fc4e0a6e260386d",
+        "ddeddd65a3984437028502474fb41f51111292576138e13daa491c1164fef49e",
+        "ee54058644cb24a9ea2eaf01d3fb15690db800396e65ddd85be3c647f5210beb",
+        "eed96dbaf37dde9574dce25bbc0b65bbac5a919263d55b5d81c4b4f7b718af99",
+        "fa244a79053f504b6b35e984c712bd8d5f01dfe93ef62c4d0df88a5b6d11abf0"
+      ],
+      "status": "measured",
+      "initial": {
+        "epoch": 0,
+        "limits": {
+          "release": 2,
+          "influence": 3,
+          "outcome": 2
+        },
+        "used": {
+          "release": 0,
+          "influence": 0,
+          "outcome": 0
+        }
+      },
+      "before_boundary": {
+        "epoch": 1,
+        "limits": {
+          "release": 2,
+          "influence": 3,
+          "outcome": 2
+        },
+        "used": {
+          "release": 1,
+          "influence": 2,
+          "outcome": 1
+        },
+        "release_set_sha256": "a11b5247f5ef122922d017eadafef87c2df9bf5e8061f09128cbeab5dc515601",
+        "influence_set_sha256": "5fe3ad184931083829a9ba3021ffcd97a41ced29bfdaffbb06aba19efd8d8327",
+        "outcome_set_sha256": "75c6f7cd02851f5e1d8b8ac6bf8cb573d3495bc5befa13a5a265d9f77880745f"
+      },
+      "at_boundary": {
+        "epoch": 2,
+        "limits": {
+          "release": 2,
+          "influence": 3,
+          "outcome": 2
+        },
+        "used": {
+          "release": 2,
+          "influence": 3,
+          "outcome": 2
+        },
+        "release_set_sha256": "df739c56f54f4e98368e0e61a36faa469f0eb87e051307698ecdd9721627ce1a",
+        "influence_set_sha256": "362496fea5b5224c42508470f92416e78b3d8e90f3bb12584cf43c2f18167abf",
+        "outcome_set_sha256": "a5ca5e3f7992525555b95555cc12fd5b7971f70444d50ebbd11d8e1dfea8c76a"
+      },
+      "after_rejected_overflow": {
+        "epoch": 2,
+        "limits": {
+          "release": 2,
+          "influence": 3,
+          "outcome": 2
+        },
+        "used": {
+          "release": 2,
+          "influence": 3,
+          "outcome": 2
+        },
+        "release_set_sha256": "df739c56f54f4e98368e0e61a36faa469f0eb87e051307698ecdd9721627ce1a",
+        "influence_set_sha256": "362496fea5b5224c42508470f92416e78b3d8e90f3bb12584cf43c2f18167abf",
+        "outcome_set_sha256": "a5ca5e3f7992525555b95555cc12fd5b7971f70444d50ebbd11d8e1dfea8c76a"
+      },
+      "prefix": {
+        "status": "measured",
+        "latency_ms": 31.839463,
+        "observation_sha256": "cf9f04f5cb0280ab5ae9600b66a48e73e32a0a3fca98e17d7fe79e97b12e0d79",
+        "actual": {
+          "release": 1,
+          "influence": 2,
+          "outcome": 1
+        },
+        "charged": {
+          "release": 1,
+          "influence": 2,
+          "outcome": 1
+        },
+        "root_epoch": 1,
+        "result_sha256": "538456e188ecea270a7dbc2ca366a2320d75bd1f80b0f9206f98df25675e01ba"
+      },
+      "contention": {
+        "status": "measured",
+        "root_lock_waiters_observed": 8,
+        "successful_requests": 8,
+        "failed_requests": 0,
+        "charged_winners": 1,
+        "zero_novelty_settlements": 7,
+        "total_charged": {
+          "release": 1,
+          "influence": 1,
+          "outcome": 1
+        },
+        "root_epochs": [
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2
+        ],
+        "observation_sha256": [
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1"
+        ],
+        "result_sha256": [
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c"
+        ],
+        "client_latency_ms": [
+          50.704992,
+          66.722981,
+          75.463208,
+          80.378378,
+          85.851177,
+          95.342539,
+          103.412488,
+          113.256078
+        ]
+      },
+      "overflow": {
+        "status": "rejected",
+        "expected_error_code": "EXPOSURE_BUDGET_EXHAUSTED",
+        "observed_error_code": "EXPOSURE_BUDGET_EXHAUSTED",
+        "latency_ms": 30.593491,
+        "query_status": "FAILED",
+        "exposure_reservation_status": "RELEASED",
+        "encrypted_results": 0,
+        "encrypted_result_chunks": 0,
+        "materializations": 0,
+        "query_observations": 0,
+        "root_observations": 0,
+        "terminal_success_audits": 0,
+        "terminal_failure_audits": 1,
+        "receipts": 1,
+        "content_before": {
+          "containers": 3,
+          "sets": 7,
+          "dynamic_facts": 2,
+          "observations": 2
+        },
+        "content_after": {
+          "containers": 3,
+          "sets": 7,
+          "dynamic_facts": 2,
+          "observations": 2
+        }
+      },
+      "checks": {
+        "shared_root_family": true,
+        "fresh_root": true,
+        "b_minus_one_committed": true,
+        "b_committed": true,
+        "three_dimensional_atomic": true,
+        "root_lock_queue_observed": true,
+        "overflow_rejected": true,
+        "failure_left_no_partial_commit": true
+      }
+    },
+    {
+      "case_id": "same-root-release-c16",
+      "concurrency": 16,
+      "boundary_dimension": "release",
+      "root_task_sha256": "a4e07fb3558adad34615231cfea36b1d418b4cfa20c03b7d56e277cd8a1d1dba",
+      "family_task_sha256": [
+        "00ac089e5659f07a42ebace44866deb852242402aed2bf23d1b02a387acd5efc",
+        "072c389011f5c23dbd832e7c9d4eab502ff791ce3479ca58ef105be6c72c726c",
+        "11b817c40b7ba78a910d9e75b2b8969145a6b2997600df97abe3dbb24a96d76a",
+        "2303a01688958acdd9c99b6b18351afe855edc107bd17240a3407b78112d2e3d",
+        "2493b39bcbb6ef1967eb00eb7bc2912fcb420e44040fd6980a89772609ad5bd8",
+        "4498ad6f2d04e5cc33c1cf2b74e55bfb4b8ba1f2a972595d9d20edb9fd65b045",
+        "520e4accf96ebaea89bd6738f13f24251da218d30fc720c380c66c3d1a35e4a8",
+        "6472c4b171c4e8189273ec7b8e3b890204d7437cb69c8bdbad5d8402b2895137",
+        "6b34af7d5ce48712da0a0fd393d74c2927fbf0d21db275b98f1b398916d1befe",
+        "87ea79a65d4c77b15e004d75ed98b2fc3ee92b5d012d853ee04d23f906e5bbec",
+        "a4e07fb3558adad34615231cfea36b1d418b4cfa20c03b7d56e277cd8a1d1dba",
+        "b87bf4aa3900e4ad9401475d2afa289526ee3f3e6a6a585aeb1cef86de1b0a06",
+        "c1728f5128ac458dc8f58f874cd218360c68f146edda0ff00174b9359cc31eef",
+        "cab428a8a02966fc7ae409a93c75dc0fe5794d569f778685530adf8e02c44072",
+        "d1e00f03387685982baf1b73f972ce4692a7ac69c04cc60e4d303deff9008b06",
+        "df143c4539d2a19227ab3f2d55f283bd798b2ec4ff2458849652daec00f5069a",
+        "e08da8adc9ac96a291d49e122064b3e59da8d0834b67333406c71ed4a4b264c4",
+        "f6dff0cc7be924ef725776efda604f9cf28f0871ddcec917f08f9319daf34437"
+      ],
+      "status": "measured",
+      "initial": {
+        "epoch": 0,
+        "limits": {
+          "release": 2,
+          "influence": 3,
+          "outcome": 2
+        },
+        "used": {
+          "release": 0,
+          "influence": 0,
+          "outcome": 0
+        }
+      },
+      "before_boundary": {
+        "epoch": 1,
+        "limits": {
+          "release": 2,
+          "influence": 3,
+          "outcome": 2
+        },
+        "used": {
+          "release": 1,
+          "influence": 2,
+          "outcome": 1
+        },
+        "release_set_sha256": "a11b5247f5ef122922d017eadafef87c2df9bf5e8061f09128cbeab5dc515601",
+        "influence_set_sha256": "5fe3ad184931083829a9ba3021ffcd97a41ced29bfdaffbb06aba19efd8d8327",
+        "outcome_set_sha256": "75c6f7cd02851f5e1d8b8ac6bf8cb573d3495bc5befa13a5a265d9f77880745f"
+      },
+      "at_boundary": {
+        "epoch": 2,
+        "limits": {
+          "release": 2,
+          "influence": 3,
+          "outcome": 2
+        },
+        "used": {
+          "release": 2,
+          "influence": 3,
+          "outcome": 2
+        },
+        "release_set_sha256": "df739c56f54f4e98368e0e61a36faa469f0eb87e051307698ecdd9721627ce1a",
+        "influence_set_sha256": "362496fea5b5224c42508470f92416e78b3d8e90f3bb12584cf43c2f18167abf",
+        "outcome_set_sha256": "a5ca5e3f7992525555b95555cc12fd5b7971f70444d50ebbd11d8e1dfea8c76a"
+      },
+      "after_rejected_overflow": {
+        "epoch": 2,
+        "limits": {
+          "release": 2,
+          "influence": 3,
+          "outcome": 2
+        },
+        "used": {
+          "release": 2,
+          "influence": 3,
+          "outcome": 2
+        },
+        "release_set_sha256": "df739c56f54f4e98368e0e61a36faa469f0eb87e051307698ecdd9721627ce1a",
+        "influence_set_sha256": "362496fea5b5224c42508470f92416e78b3d8e90f3bb12584cf43c2f18167abf",
+        "outcome_set_sha256": "a5ca5e3f7992525555b95555cc12fd5b7971f70444d50ebbd11d8e1dfea8c76a"
+      },
+      "prefix": {
+        "status": "measured",
+        "latency_ms": 30.899083,
+        "observation_sha256": "cf9f04f5cb0280ab5ae9600b66a48e73e32a0a3fca98e17d7fe79e97b12e0d79",
+        "actual": {
+          "release": 1,
+          "influence": 2,
+          "outcome": 1
+        },
+        "charged": {
+          "release": 1,
+          "influence": 2,
+          "outcome": 1
+        },
+        "root_epoch": 1,
+        "result_sha256": "538456e188ecea270a7dbc2ca366a2320d75bd1f80b0f9206f98df25675e01ba"
+      },
+      "contention": {
+        "status": "measured",
+        "root_lock_waiters_observed": 16,
+        "successful_requests": 16,
+        "failed_requests": 0,
+        "charged_winners": 1,
+        "zero_novelty_settlements": 15,
+        "total_charged": {
+          "release": 1,
+          "influence": 1,
+          "outcome": 1
+        },
+        "root_epochs": [
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2
+        ],
+        "observation_sha256": [
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1"
+        ],
+        "result_sha256": [
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c"
+        ],
+        "client_latency_ms": [
+          72.557428,
+          88.742511,
+          96.829183,
+          102.659481,
+          108.088658,
+          115.710649,
+          123.286044,
+          129.039202,
+          133.904052,
+          141.049983,
+          149.665736,
+          156.992757,
+          164.03245,
+          172.989918,
+          182.845034,
+          189.664295
+        ]
+      },
+      "overflow": {
+        "status": "rejected",
+        "expected_error_code": "EXPOSURE_BUDGET_EXHAUSTED",
+        "observed_error_code": "EXPOSURE_BUDGET_EXHAUSTED",
+        "latency_ms": 21.494053,
+        "query_status": "FAILED",
+        "exposure_reservation_status": "RELEASED",
+        "encrypted_results": 0,
+        "encrypted_result_chunks": 0,
+        "materializations": 0,
+        "query_observations": 0,
+        "root_observations": 0,
+        "terminal_success_audits": 0,
+        "terminal_failure_audits": 1,
+        "receipts": 1,
+        "content_before": {
+          "containers": 3,
+          "sets": 7,
+          "dynamic_facts": 2,
+          "observations": 2
+        },
+        "content_after": {
+          "containers": 3,
+          "sets": 7,
+          "dynamic_facts": 2,
+          "observations": 2
+        }
+      },
+      "checks": {
+        "shared_root_family": true,
+        "fresh_root": true,
+        "b_minus_one_committed": true,
+        "b_committed": true,
+        "three_dimensional_atomic": true,
+        "root_lock_queue_observed": true,
+        "overflow_rejected": true,
+        "failure_left_no_partial_commit": true
+      }
+    }
+  ],
+  "gates": [
+    {
+      "id": "source_and_config_binding",
+      "requirement": "report binds the exact configuration and supplemental/production source with SHA-256",
+      "status": "pass"
+    },
+    {
+      "id": "case_same-root-release-c1_shared_root",
+      "requirement": "all prefix/contender/overflow tasks belong to one root family",
+      "status": "pass",
+      "evidence": {
+        "family_task_sha256": [
+          "a5a1dedb315473ce2cfd2e6bc23f4cd3a7d6f2a47a80474089e2daab5f3ed15b",
+          "ad4a17d4af516ec1f5c58566eecc21a1280c7e8315056521bae26a47fd1a84d4",
+          "eb1b614e91e85e00f408f4d1a96299bdac39384a3b0135cefe3fe45973d205b9"
+        ],
+        "root_task_sha256": "eb1b614e91e85e00f408f4d1a96299bdac39384a3b0135cefe3fe45973d205b9"
+      }
+    },
+    {
+      "id": "case_same-root-release-c1_fresh_root",
+      "requirement": "cell starts from epoch zero with the exact Catalog budget",
+      "status": "pass",
+      "evidence": {
+        "epoch": 0,
+        "limits": {
+          "release": 2,
+          "influence": 3,
+          "outcome": 2
+        },
+        "used": {
+          "release": 0,
+          "influence": 0,
+          "outcome": 0
+        }
+      }
+    },
+    {
+      "id": "case_same-root-release-c1_b_minus_one",
+      "requirement": "successful prefix commits exact B-1 in release",
+      "status": "pass",
+      "evidence": {
+        "head": {
+          "epoch": 1,
+          "limits": {
+            "release": 2,
+            "influence": 3,
+            "outcome": 2
+          },
+          "used": {
+            "release": 1,
+            "influence": 2,
+            "outcome": 1
+          },
+          "release_set_sha256": "a11b5247f5ef122922d017eadafef87c2df9bf5e8061f09128cbeab5dc515601",
+          "influence_set_sha256": "5fe3ad184931083829a9ba3021ffcd97a41ced29bfdaffbb06aba19efd8d8327",
+          "outcome_set_sha256": "75c6f7cd02851f5e1d8b8ac6bf8cb573d3495bc5befa13a5a265d9f77880745f"
+        },
+        "prefix": {
+          "status": "measured",
+          "latency_ms": 61.419345,
+          "observation_sha256": "cf9f04f5cb0280ab5ae9600b66a48e73e32a0a3fca98e17d7fe79e97b12e0d79",
+          "actual": {
+            "release": 1,
+            "influence": 2,
+            "outcome": 1
+          },
+          "charged": {
+            "release": 1,
+            "influence": 2,
+            "outcome": 1
+          },
+          "root_epoch": 1,
+          "result_sha256": "538456e188ecea270a7dbc2ca366a2320d75bd1f80b0f9206f98df25675e01ba"
+        }
+      }
+    },
+    {
+      "id": "case_same-root-release-c1_b",
+      "requirement": "concurrent batch succeeds and commits the exact three-dimensional B state",
+      "status": "pass",
+      "evidence": {
+        "contention": {
+          "status": "measured",
+          "root_lock_waiters_observed": 1,
+          "successful_requests": 1,
+          "failed_requests": 0,
+          "charged_winners": 1,
+          "zero_novelty_settlements": 0,
+          "total_charged": {
+            "release": 1,
+            "influence": 1,
+            "outcome": 1
+          },
+          "root_epochs": [
+            2
+          ],
+          "observation_sha256": [
+            "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1"
+          ],
+          "result_sha256": [
+            "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c"
+          ],
+          "client_latency_ms": [
+            36.208579
+          ]
+        },
+        "head": {
+          "epoch": 2,
+          "limits": {
+            "release": 2,
+            "influence": 3,
+            "outcome": 2
+          },
+          "used": {
+            "release": 2,
+            "influence": 3,
+            "outcome": 2
+          },
+          "release_set_sha256": "df739c56f54f4e98368e0e61a36faa469f0eb87e051307698ecdd9721627ce1a",
+          "influence_set_sha256": "362496fea5b5224c42508470f92416e78b3d8e90f3bb12584cf43c2f18167abf",
+          "outcome_set_sha256": "a5ca5e3f7992525555b95555cc12fd5b7971f70444d50ebbd11d8e1dfea8c76a"
+        }
+      }
+    },
+    {
+      "id": "case_same-root-release-c1_three_dimensional_atomicity",
+      "requirement": "one epoch transition commits all three novelty dimensions; other contenders settle zero novelty",
+      "status": "pass",
+      "evidence": {
+        "status": "measured",
+        "root_lock_waiters_observed": 1,
+        "successful_requests": 1,
+        "failed_requests": 0,
+        "charged_winners": 1,
+        "zero_novelty_settlements": 0,
+        "total_charged": {
+          "release": 1,
+          "influence": 1,
+          "outcome": 1
+        },
+        "root_epochs": [
+          2
+        ],
+        "observation_sha256": [
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1"
+        ],
+        "result_sha256": [
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c"
+        ],
+        "client_latency_ms": [
+          36.208579
+        ]
+      }
+    },
+    {
+      "id": "case_same-root-release-c1_root_lock_queue",
+      "requirement": "every contender is observed in the root-lock wait chain before the blocker is released",
+      "status": "pass",
+      "evidence": {
+        "concurrency": 1,
+        "root_lock_waiters_observed": 1
+      }
+    },
+    {
+      "id": "case_same-root-release-c1_b_plus_one",
+      "requirement": "a distinct B+1 observation is rejected before result release",
+      "status": "pass",
+      "evidence": {
+        "status": "rejected",
+        "expected_error_code": "EXPOSURE_BUDGET_EXHAUSTED",
+        "observed_error_code": "EXPOSURE_BUDGET_EXHAUSTED",
+        "latency_ms": 29.639993,
+        "query_status": "FAILED",
+        "exposure_reservation_status": "RELEASED",
+        "encrypted_results": 0,
+        "encrypted_result_chunks": 0,
+        "materializations": 0,
+        "query_observations": 0,
+        "root_observations": 0,
+        "terminal_success_audits": 0,
+        "terminal_failure_audits": 1,
+        "receipts": 1,
+        "content_before": {
+          "containers": 3,
+          "sets": 7,
+          "dynamic_facts": 2,
+          "observations": 2
+        },
+        "content_after": {
+          "containers": 3,
+          "sets": 7,
+          "dynamic_facts": 2,
+          "observations": 2
+        }
+      }
+    },
+    {
+      "id": "case_same-root-release-c1_failure_atomicity",
+      "requirement": "B+1 releases its ordinal reservation and leaves no result/chunk, materialization, observation reference/root-observation, terminal success audit, content, or head mutation",
+      "status": "pass",
+      "evidence": {
+        "status": "rejected",
+        "expected_error_code": "EXPOSURE_BUDGET_EXHAUSTED",
+        "observed_error_code": "EXPOSURE_BUDGET_EXHAUSTED",
+        "latency_ms": 29.639993,
+        "query_status": "FAILED",
+        "exposure_reservation_status": "RELEASED",
+        "encrypted_results": 0,
+        "encrypted_result_chunks": 0,
+        "materializations": 0,
+        "query_observations": 0,
+        "root_observations": 0,
+        "terminal_success_audits": 0,
+        "terminal_failure_audits": 1,
+        "receipts": 1,
+        "content_before": {
+          "containers": 3,
+          "sets": 7,
+          "dynamic_facts": 2,
+          "observations": 2
+        },
+        "content_after": {
+          "containers": 3,
+          "sets": 7,
+          "dynamic_facts": 2,
+          "observations": 2
+        }
+      }
+    },
+    {
+      "id": "case_same-root-influence-c4_shared_root",
+      "requirement": "all prefix/contender/overflow tasks belong to one root family",
+      "status": "pass",
+      "evidence": {
+        "family_task_sha256": [
+          "5828e4c65856b6001a47b478ab956e217e9c7c6dfb686fed863b9fdc99c9f353",
+          "5daded187576c2521703fd992fdf35742d0328eaf300ace6adcf2c4808732892",
+          "7fd93c71c555ddb0b9b4976f9347bc1ecf0422770a7ee0891424afddfed28c40",
+          "973fc214a9ce4bf4ae3a0e1efafbe7702c71021a485f6f7ddb5820ed6ac0eccc",
+          "a2d9cbc35653cf01d7c2a63e423a2602f93927679c3892870eeef54d86971ef5",
+          "ee8a2ee7fc9c47574e2385c3c8f5b893c17623f84d403c56e0ea1b8928c338ed"
+        ],
+        "root_task_sha256": "5daded187576c2521703fd992fdf35742d0328eaf300ace6adcf2c4808732892"
+      }
+    },
+    {
+      "id": "case_same-root-influence-c4_fresh_root",
+      "requirement": "cell starts from epoch zero with the exact Catalog budget",
+      "status": "pass",
+      "evidence": {
+        "epoch": 0,
+        "limits": {
+          "release": 2,
+          "influence": 3,
+          "outcome": 2
+        },
+        "used": {
+          "release": 0,
+          "influence": 0,
+          "outcome": 0
+        }
+      }
+    },
+    {
+      "id": "case_same-root-influence-c4_b_minus_one",
+      "requirement": "successful prefix commits exact B-1 in influence",
+      "status": "pass",
+      "evidence": {
+        "head": {
+          "epoch": 1,
+          "limits": {
+            "release": 2,
+            "influence": 3,
+            "outcome": 2
+          },
+          "used": {
+            "release": 1,
+            "influence": 2,
+            "outcome": 1
+          },
+          "release_set_sha256": "a11b5247f5ef122922d017eadafef87c2df9bf5e8061f09128cbeab5dc515601",
+          "influence_set_sha256": "5fe3ad184931083829a9ba3021ffcd97a41ced29bfdaffbb06aba19efd8d8327",
+          "outcome_set_sha256": "75c6f7cd02851f5e1d8b8ac6bf8cb573d3495bc5befa13a5a265d9f77880745f"
+        },
+        "prefix": {
+          "status": "measured",
+          "latency_ms": 30.336965,
+          "observation_sha256": "cf9f04f5cb0280ab5ae9600b66a48e73e32a0a3fca98e17d7fe79e97b12e0d79",
+          "actual": {
+            "release": 1,
+            "influence": 2,
+            "outcome": 1
+          },
+          "charged": {
+            "release": 1,
+            "influence": 2,
+            "outcome": 1
+          },
+          "root_epoch": 1,
+          "result_sha256": "538456e188ecea270a7dbc2ca366a2320d75bd1f80b0f9206f98df25675e01ba"
+        }
+      }
+    },
+    {
+      "id": "case_same-root-influence-c4_b",
+      "requirement": "concurrent batch succeeds and commits the exact three-dimensional B state",
+      "status": "pass",
+      "evidence": {
+        "contention": {
+          "status": "measured",
+          "root_lock_waiters_observed": 4,
+          "successful_requests": 4,
+          "failed_requests": 0,
+          "charged_winners": 1,
+          "zero_novelty_settlements": 3,
+          "total_charged": {
+            "release": 1,
+            "influence": 1,
+            "outcome": 1
+          },
+          "root_epochs": [
+            2,
+            2,
+            2,
+            2
+          ],
+          "observation_sha256": [
+            "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+            "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+            "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+            "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1"
+          ],
+          "result_sha256": [
+            "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+            "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+            "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+            "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c"
+          ],
+          "client_latency_ms": [
+            47.184091,
+            61.032639,
+            68.833277,
+            76.149207
+          ]
+        },
+        "head": {
+          "epoch": 2,
+          "limits": {
+            "release": 2,
+            "influence": 3,
+            "outcome": 2
+          },
+          "used": {
+            "release": 2,
+            "influence": 3,
+            "outcome": 2
+          },
+          "release_set_sha256": "df739c56f54f4e98368e0e61a36faa469f0eb87e051307698ecdd9721627ce1a",
+          "influence_set_sha256": "362496fea5b5224c42508470f92416e78b3d8e90f3bb12584cf43c2f18167abf",
+          "outcome_set_sha256": "a5ca5e3f7992525555b95555cc12fd5b7971f70444d50ebbd11d8e1dfea8c76a"
+        }
+      }
+    },
+    {
+      "id": "case_same-root-influence-c4_three_dimensional_atomicity",
+      "requirement": "one epoch transition commits all three novelty dimensions; other contenders settle zero novelty",
+      "status": "pass",
+      "evidence": {
+        "status": "measured",
+        "root_lock_waiters_observed": 4,
+        "successful_requests": 4,
+        "failed_requests": 0,
+        "charged_winners": 1,
+        "zero_novelty_settlements": 3,
+        "total_charged": {
+          "release": 1,
+          "influence": 1,
+          "outcome": 1
+        },
+        "root_epochs": [
+          2,
+          2,
+          2,
+          2
+        ],
+        "observation_sha256": [
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1"
+        ],
+        "result_sha256": [
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c"
+        ],
+        "client_latency_ms": [
+          47.184091,
+          61.032639,
+          68.833277,
+          76.149207
+        ]
+      }
+    },
+    {
+      "id": "case_same-root-influence-c4_root_lock_queue",
+      "requirement": "every contender is observed in the root-lock wait chain before the blocker is released",
+      "status": "pass",
+      "evidence": {
+        "concurrency": 4,
+        "root_lock_waiters_observed": 4
+      }
+    },
+    {
+      "id": "case_same-root-influence-c4_b_plus_one",
+      "requirement": "a distinct B+1 observation is rejected before result release",
+      "status": "pass",
+      "evidence": {
+        "status": "rejected",
+        "expected_error_code": "EXPOSURE_BUDGET_EXHAUSTED",
+        "observed_error_code": "EXPOSURE_BUDGET_EXHAUSTED",
+        "latency_ms": 30.213954,
+        "query_status": "FAILED",
+        "exposure_reservation_status": "RELEASED",
+        "encrypted_results": 0,
+        "encrypted_result_chunks": 0,
+        "materializations": 0,
+        "query_observations": 0,
+        "root_observations": 0,
+        "terminal_success_audits": 0,
+        "terminal_failure_audits": 1,
+        "receipts": 1,
+        "content_before": {
+          "containers": 3,
+          "sets": 7,
+          "dynamic_facts": 2,
+          "observations": 2
+        },
+        "content_after": {
+          "containers": 3,
+          "sets": 7,
+          "dynamic_facts": 2,
+          "observations": 2
+        }
+      }
+    },
+    {
+      "id": "case_same-root-influence-c4_failure_atomicity",
+      "requirement": "B+1 releases its ordinal reservation and leaves no result/chunk, materialization, observation reference/root-observation, terminal success audit, content, or head mutation",
+      "status": "pass",
+      "evidence": {
+        "status": "rejected",
+        "expected_error_code": "EXPOSURE_BUDGET_EXHAUSTED",
+        "observed_error_code": "EXPOSURE_BUDGET_EXHAUSTED",
+        "latency_ms": 30.213954,
+        "query_status": "FAILED",
+        "exposure_reservation_status": "RELEASED",
+        "encrypted_results": 0,
+        "encrypted_result_chunks": 0,
+        "materializations": 0,
+        "query_observations": 0,
+        "root_observations": 0,
+        "terminal_success_audits": 0,
+        "terminal_failure_audits": 1,
+        "receipts": 1,
+        "content_before": {
+          "containers": 3,
+          "sets": 7,
+          "dynamic_facts": 2,
+          "observations": 2
+        },
+        "content_after": {
+          "containers": 3,
+          "sets": 7,
+          "dynamic_facts": 2,
+          "observations": 2
+        }
+      }
+    },
+    {
+      "id": "case_same-root-outcome-c8_shared_root",
+      "requirement": "all prefix/contender/overflow tasks belong to one root family",
+      "status": "pass",
+      "evidence": {
+        "family_task_sha256": [
+          "2e4fb28cd66888edc5f13ecad3c0ecdad706020988df4981c7ee820702751914",
+          "30fe3041038a9f0d8af5bd5263d2b10b3ecf9f35253f72672b5657ba600fd6d1",
+          "374473f04f11afac44a32bff921ab0c4822f2d9a173d995a7afaaa22d3da2a26",
+          "7cc184524feb8698f42a03889b0b4016dfd50b5279f1cbabb0a47fd69c3d85ad",
+          "85d5646f2b01797ee6193fcead707d115d40ed4bdee680d2772716c72e9603cc",
+          "88a0a6b86bab7ca0069312cc34aedb56e2cbcc6cfdf92f278fc4e0a6e260386d",
+          "ddeddd65a3984437028502474fb41f51111292576138e13daa491c1164fef49e",
+          "ee54058644cb24a9ea2eaf01d3fb15690db800396e65ddd85be3c647f5210beb",
+          "eed96dbaf37dde9574dce25bbc0b65bbac5a919263d55b5d81c4b4f7b718af99",
+          "fa244a79053f504b6b35e984c712bd8d5f01dfe93ef62c4d0df88a5b6d11abf0"
+        ],
+        "root_task_sha256": "88a0a6b86bab7ca0069312cc34aedb56e2cbcc6cfdf92f278fc4e0a6e260386d"
+      }
+    },
+    {
+      "id": "case_same-root-outcome-c8_fresh_root",
+      "requirement": "cell starts from epoch zero with the exact Catalog budget",
+      "status": "pass",
+      "evidence": {
+        "epoch": 0,
+        "limits": {
+          "release": 2,
+          "influence": 3,
+          "outcome": 2
+        },
+        "used": {
+          "release": 0,
+          "influence": 0,
+          "outcome": 0
+        }
+      }
+    },
+    {
+      "id": "case_same-root-outcome-c8_b_minus_one",
+      "requirement": "successful prefix commits exact B-1 in outcome",
+      "status": "pass",
+      "evidence": {
+        "head": {
+          "epoch": 1,
+          "limits": {
+            "release": 2,
+            "influence": 3,
+            "outcome": 2
+          },
+          "used": {
+            "release": 1,
+            "influence": 2,
+            "outcome": 1
+          },
+          "release_set_sha256": "a11b5247f5ef122922d017eadafef87c2df9bf5e8061f09128cbeab5dc515601",
+          "influence_set_sha256": "5fe3ad184931083829a9ba3021ffcd97a41ced29bfdaffbb06aba19efd8d8327",
+          "outcome_set_sha256": "75c6f7cd02851f5e1d8b8ac6bf8cb573d3495bc5befa13a5a265d9f77880745f"
+        },
+        "prefix": {
+          "status": "measured",
+          "latency_ms": 31.839463,
+          "observation_sha256": "cf9f04f5cb0280ab5ae9600b66a48e73e32a0a3fca98e17d7fe79e97b12e0d79",
+          "actual": {
+            "release": 1,
+            "influence": 2,
+            "outcome": 1
+          },
+          "charged": {
+            "release": 1,
+            "influence": 2,
+            "outcome": 1
+          },
+          "root_epoch": 1,
+          "result_sha256": "538456e188ecea270a7dbc2ca366a2320d75bd1f80b0f9206f98df25675e01ba"
+        }
+      }
+    },
+    {
+      "id": "case_same-root-outcome-c8_b",
+      "requirement": "concurrent batch succeeds and commits the exact three-dimensional B state",
+      "status": "pass",
+      "evidence": {
+        "contention": {
+          "status": "measured",
+          "root_lock_waiters_observed": 8,
+          "successful_requests": 8,
+          "failed_requests": 0,
+          "charged_winners": 1,
+          "zero_novelty_settlements": 7,
+          "total_charged": {
+            "release": 1,
+            "influence": 1,
+            "outcome": 1
+          },
+          "root_epochs": [
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2
+          ],
+          "observation_sha256": [
+            "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+            "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+            "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+            "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+            "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+            "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+            "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+            "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1"
+          ],
+          "result_sha256": [
+            "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+            "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+            "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+            "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+            "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+            "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+            "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+            "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c"
+          ],
+          "client_latency_ms": [
+            50.704992,
+            66.722981,
+            75.463208,
+            80.378378,
+            85.851177,
+            95.342539,
+            103.412488,
+            113.256078
+          ]
+        },
+        "head": {
+          "epoch": 2,
+          "limits": {
+            "release": 2,
+            "influence": 3,
+            "outcome": 2
+          },
+          "used": {
+            "release": 2,
+            "influence": 3,
+            "outcome": 2
+          },
+          "release_set_sha256": "df739c56f54f4e98368e0e61a36faa469f0eb87e051307698ecdd9721627ce1a",
+          "influence_set_sha256": "362496fea5b5224c42508470f92416e78b3d8e90f3bb12584cf43c2f18167abf",
+          "outcome_set_sha256": "a5ca5e3f7992525555b95555cc12fd5b7971f70444d50ebbd11d8e1dfea8c76a"
+        }
+      }
+    },
+    {
+      "id": "case_same-root-outcome-c8_three_dimensional_atomicity",
+      "requirement": "one epoch transition commits all three novelty dimensions; other contenders settle zero novelty",
+      "status": "pass",
+      "evidence": {
+        "status": "measured",
+        "root_lock_waiters_observed": 8,
+        "successful_requests": 8,
+        "failed_requests": 0,
+        "charged_winners": 1,
+        "zero_novelty_settlements": 7,
+        "total_charged": {
+          "release": 1,
+          "influence": 1,
+          "outcome": 1
+        },
+        "root_epochs": [
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2
+        ],
+        "observation_sha256": [
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1"
+        ],
+        "result_sha256": [
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c"
+        ],
+        "client_latency_ms": [
+          50.704992,
+          66.722981,
+          75.463208,
+          80.378378,
+          85.851177,
+          95.342539,
+          103.412488,
+          113.256078
+        ]
+      }
+    },
+    {
+      "id": "case_same-root-outcome-c8_root_lock_queue",
+      "requirement": "every contender is observed in the root-lock wait chain before the blocker is released",
+      "status": "pass",
+      "evidence": {
+        "concurrency": 8,
+        "root_lock_waiters_observed": 8
+      }
+    },
+    {
+      "id": "case_same-root-outcome-c8_b_plus_one",
+      "requirement": "a distinct B+1 observation is rejected before result release",
+      "status": "pass",
+      "evidence": {
+        "status": "rejected",
+        "expected_error_code": "EXPOSURE_BUDGET_EXHAUSTED",
+        "observed_error_code": "EXPOSURE_BUDGET_EXHAUSTED",
+        "latency_ms": 30.593491,
+        "query_status": "FAILED",
+        "exposure_reservation_status": "RELEASED",
+        "encrypted_results": 0,
+        "encrypted_result_chunks": 0,
+        "materializations": 0,
+        "query_observations": 0,
+        "root_observations": 0,
+        "terminal_success_audits": 0,
+        "terminal_failure_audits": 1,
+        "receipts": 1,
+        "content_before": {
+          "containers": 3,
+          "sets": 7,
+          "dynamic_facts": 2,
+          "observations": 2
+        },
+        "content_after": {
+          "containers": 3,
+          "sets": 7,
+          "dynamic_facts": 2,
+          "observations": 2
+        }
+      }
+    },
+    {
+      "id": "case_same-root-outcome-c8_failure_atomicity",
+      "requirement": "B+1 releases its ordinal reservation and leaves no result/chunk, materialization, observation reference/root-observation, terminal success audit, content, or head mutation",
+      "status": "pass",
+      "evidence": {
+        "status": "rejected",
+        "expected_error_code": "EXPOSURE_BUDGET_EXHAUSTED",
+        "observed_error_code": "EXPOSURE_BUDGET_EXHAUSTED",
+        "latency_ms": 30.593491,
+        "query_status": "FAILED",
+        "exposure_reservation_status": "RELEASED",
+        "encrypted_results": 0,
+        "encrypted_result_chunks": 0,
+        "materializations": 0,
+        "query_observations": 0,
+        "root_observations": 0,
+        "terminal_success_audits": 0,
+        "terminal_failure_audits": 1,
+        "receipts": 1,
+        "content_before": {
+          "containers": 3,
+          "sets": 7,
+          "dynamic_facts": 2,
+          "observations": 2
+        },
+        "content_after": {
+          "containers": 3,
+          "sets": 7,
+          "dynamic_facts": 2,
+          "observations": 2
+        }
+      }
+    },
+    {
+      "id": "case_same-root-release-c16_shared_root",
+      "requirement": "all prefix/contender/overflow tasks belong to one root family",
+      "status": "pass",
+      "evidence": {
+        "family_task_sha256": [
+          "00ac089e5659f07a42ebace44866deb852242402aed2bf23d1b02a387acd5efc",
+          "072c389011f5c23dbd832e7c9d4eab502ff791ce3479ca58ef105be6c72c726c",
+          "11b817c40b7ba78a910d9e75b2b8969145a6b2997600df97abe3dbb24a96d76a",
+          "2303a01688958acdd9c99b6b18351afe855edc107bd17240a3407b78112d2e3d",
+          "2493b39bcbb6ef1967eb00eb7bc2912fcb420e44040fd6980a89772609ad5bd8",
+          "4498ad6f2d04e5cc33c1cf2b74e55bfb4b8ba1f2a972595d9d20edb9fd65b045",
+          "520e4accf96ebaea89bd6738f13f24251da218d30fc720c380c66c3d1a35e4a8",
+          "6472c4b171c4e8189273ec7b8e3b890204d7437cb69c8bdbad5d8402b2895137",
+          "6b34af7d5ce48712da0a0fd393d74c2927fbf0d21db275b98f1b398916d1befe",
+          "87ea79a65d4c77b15e004d75ed98b2fc3ee92b5d012d853ee04d23f906e5bbec",
+          "a4e07fb3558adad34615231cfea36b1d418b4cfa20c03b7d56e277cd8a1d1dba",
+          "b87bf4aa3900e4ad9401475d2afa289526ee3f3e6a6a585aeb1cef86de1b0a06",
+          "c1728f5128ac458dc8f58f874cd218360c68f146edda0ff00174b9359cc31eef",
+          "cab428a8a02966fc7ae409a93c75dc0fe5794d569f778685530adf8e02c44072",
+          "d1e00f03387685982baf1b73f972ce4692a7ac69c04cc60e4d303deff9008b06",
+          "df143c4539d2a19227ab3f2d55f283bd798b2ec4ff2458849652daec00f5069a",
+          "e08da8adc9ac96a291d49e122064b3e59da8d0834b67333406c71ed4a4b264c4",
+          "f6dff0cc7be924ef725776efda604f9cf28f0871ddcec917f08f9319daf34437"
+        ],
+        "root_task_sha256": "a4e07fb3558adad34615231cfea36b1d418b4cfa20c03b7d56e277cd8a1d1dba"
+      }
+    },
+    {
+      "id": "case_same-root-release-c16_fresh_root",
+      "requirement": "cell starts from epoch zero with the exact Catalog budget",
+      "status": "pass",
+      "evidence": {
+        "epoch": 0,
+        "limits": {
+          "release": 2,
+          "influence": 3,
+          "outcome": 2
+        },
+        "used": {
+          "release": 0,
+          "influence": 0,
+          "outcome": 0
+        }
+      }
+    },
+    {
+      "id": "case_same-root-release-c16_b_minus_one",
+      "requirement": "successful prefix commits exact B-1 in release",
+      "status": "pass",
+      "evidence": {
+        "head": {
+          "epoch": 1,
+          "limits": {
+            "release": 2,
+            "influence": 3,
+            "outcome": 2
+          },
+          "used": {
+            "release": 1,
+            "influence": 2,
+            "outcome": 1
+          },
+          "release_set_sha256": "a11b5247f5ef122922d017eadafef87c2df9bf5e8061f09128cbeab5dc515601",
+          "influence_set_sha256": "5fe3ad184931083829a9ba3021ffcd97a41ced29bfdaffbb06aba19efd8d8327",
+          "outcome_set_sha256": "75c6f7cd02851f5e1d8b8ac6bf8cb573d3495bc5befa13a5a265d9f77880745f"
+        },
+        "prefix": {
+          "status": "measured",
+          "latency_ms": 30.899083,
+          "observation_sha256": "cf9f04f5cb0280ab5ae9600b66a48e73e32a0a3fca98e17d7fe79e97b12e0d79",
+          "actual": {
+            "release": 1,
+            "influence": 2,
+            "outcome": 1
+          },
+          "charged": {
+            "release": 1,
+            "influence": 2,
+            "outcome": 1
+          },
+          "root_epoch": 1,
+          "result_sha256": "538456e188ecea270a7dbc2ca366a2320d75bd1f80b0f9206f98df25675e01ba"
+        }
+      }
+    },
+    {
+      "id": "case_same-root-release-c16_b",
+      "requirement": "concurrent batch succeeds and commits the exact three-dimensional B state",
+      "status": "pass",
+      "evidence": {
+        "contention": {
+          "status": "measured",
+          "root_lock_waiters_observed": 16,
+          "successful_requests": 16,
+          "failed_requests": 0,
+          "charged_winners": 1,
+          "zero_novelty_settlements": 15,
+          "total_charged": {
+            "release": 1,
+            "influence": 1,
+            "outcome": 1
+          },
+          "root_epochs": [
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2
+          ],
+          "observation_sha256": [
+            "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+            "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+            "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+            "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+            "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+            "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+            "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+            "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+            "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+            "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+            "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+            "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+            "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+            "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+            "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+            "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1"
+          ],
+          "result_sha256": [
+            "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+            "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+            "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+            "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+            "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+            "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+            "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+            "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+            "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+            "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+            "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+            "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+            "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+            "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+            "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+            "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c"
+          ],
+          "client_latency_ms": [
+            72.557428,
+            88.742511,
+            96.829183,
+            102.659481,
+            108.088658,
+            115.710649,
+            123.286044,
+            129.039202,
+            133.904052,
+            141.049983,
+            149.665736,
+            156.992757,
+            164.03245,
+            172.989918,
+            182.845034,
+            189.664295
+          ]
+        },
+        "head": {
+          "epoch": 2,
+          "limits": {
+            "release": 2,
+            "influence": 3,
+            "outcome": 2
+          },
+          "used": {
+            "release": 2,
+            "influence": 3,
+            "outcome": 2
+          },
+          "release_set_sha256": "df739c56f54f4e98368e0e61a36faa469f0eb87e051307698ecdd9721627ce1a",
+          "influence_set_sha256": "362496fea5b5224c42508470f92416e78b3d8e90f3bb12584cf43c2f18167abf",
+          "outcome_set_sha256": "a5ca5e3f7992525555b95555cc12fd5b7971f70444d50ebbd11d8e1dfea8c76a"
+        }
+      }
+    },
+    {
+      "id": "case_same-root-release-c16_three_dimensional_atomicity",
+      "requirement": "one epoch transition commits all three novelty dimensions; other contenders settle zero novelty",
+      "status": "pass",
+      "evidence": {
+        "status": "measured",
+        "root_lock_waiters_observed": 16,
+        "successful_requests": 16,
+        "failed_requests": 0,
+        "charged_winners": 1,
+        "zero_novelty_settlements": 15,
+        "total_charged": {
+          "release": 1,
+          "influence": 1,
+          "outcome": 1
+        },
+        "root_epochs": [
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2
+        ],
+        "observation_sha256": [
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1",
+          "482b7e9b81b848e5f05c20f14fd084a5cdbea9cb239ccb42b8de35e3a93b2ea1"
+        ],
+        "result_sha256": [
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c",
+          "0f7dfa80d18c288d65c27bfeb0a24af3d5b7e4f056a3db9bf92bd80824a0f70c"
+        ],
+        "client_latency_ms": [
+          72.557428,
+          88.742511,
+          96.829183,
+          102.659481,
+          108.088658,
+          115.710649,
+          123.286044,
+          129.039202,
+          133.904052,
+          141.049983,
+          149.665736,
+          156.992757,
+          164.03245,
+          172.989918,
+          182.845034,
+          189.664295
+        ]
+      }
+    },
+    {
+      "id": "case_same-root-release-c16_root_lock_queue",
+      "requirement": "every contender is observed in the root-lock wait chain before the blocker is released",
+      "status": "pass",
+      "evidence": {
+        "concurrency": 16,
+        "root_lock_waiters_observed": 16
+      }
+    },
+    {
+      "id": "case_same-root-release-c16_b_plus_one",
+      "requirement": "a distinct B+1 observation is rejected before result release",
+      "status": "pass",
+      "evidence": {
+        "status": "rejected",
+        "expected_error_code": "EXPOSURE_BUDGET_EXHAUSTED",
+        "observed_error_code": "EXPOSURE_BUDGET_EXHAUSTED",
+        "latency_ms": 21.494053,
+        "query_status": "FAILED",
+        "exposure_reservation_status": "RELEASED",
+        "encrypted_results": 0,
+        "encrypted_result_chunks": 0,
+        "materializations": 0,
+        "query_observations": 0,
+        "root_observations": 0,
+        "terminal_success_audits": 0,
+        "terminal_failure_audits": 1,
+        "receipts": 1,
+        "content_before": {
+          "containers": 3,
+          "sets": 7,
+          "dynamic_facts": 2,
+          "observations": 2
+        },
+        "content_after": {
+          "containers": 3,
+          "sets": 7,
+          "dynamic_facts": 2,
+          "observations": 2
+        }
+      }
+    },
+    {
+      "id": "case_same-root-release-c16_failure_atomicity",
+      "requirement": "B+1 releases its ordinal reservation and leaves no result/chunk, materialization, observation reference/root-observation, terminal success audit, content, or head mutation",
+      "status": "pass",
+      "evidence": {
+        "status": "rejected",
+        "expected_error_code": "EXPOSURE_BUDGET_EXHAUSTED",
+        "observed_error_code": "EXPOSURE_BUDGET_EXHAUSTED",
+        "latency_ms": 21.494053,
+        "query_status": "FAILED",
+        "exposure_reservation_status": "RELEASED",
+        "encrypted_results": 0,
+        "encrypted_result_chunks": 0,
+        "materializations": 0,
+        "query_observations": 0,
+        "root_observations": 0,
+        "terminal_success_audits": 0,
+        "terminal_failure_audits": 1,
+        "receipts": 1,
+        "content_before": {
+          "containers": 3,
+          "sets": 7,
+          "dynamic_facts": 2,
+          "observations": 2
+        },
+        "content_after": {
+          "containers": 3,
+          "sets": 7,
+          "dynamic_facts": 2,
+          "observations": 2
+        }
+      }
+    },
+    {
+      "id": "concurrency_widths",
+      "requirement": "measured shared-root widths are exactly 1/4/8/16",
+      "status": "pass",
+      "evidence": {
+        "1": true,
+        "16": true,
+        "4": true,
+        "8": true
+      }
+    },
+    {
+      "id": "boundary_dimensions",
+      "requirement": "B-1/B/B+1 coverage includes Release, Influence, and Outcome boundaries",
+      "status": "pass",
+      "evidence": {
+        "influence": true,
+        "outcome": true,
+        "release": true
+      }
+    },
+    {
+      "id": "all_root_lock_queues",
+      "requirement": "every measured cell observes all contenders in its root-lock wait chain before release",
+      "status": "pass",
+      "evidence": {
+        "observed_cells": 4,
+        "required_cells": 4
+      }
+    }
+  ]
+}

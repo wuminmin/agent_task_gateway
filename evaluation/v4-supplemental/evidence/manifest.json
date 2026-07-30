@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "status": "complete_supplemental_campaign",
+  "source_scope": {
+    "sha256": "27ac9c29d845b62616f968738559387bd9adbeb9b91f0017684156878a26f6e3",
+    "files": 138,
+    "algorithm": "sha256(path\\0bytes\\0) over sorted generalized supplemental source scope v1"
+  },
+  "artifacts": {
+    "evaluation/v4-acceptance/evidence/results.json": "865400844e39db8aae2c698dd1601b8ed3c1d24b814c9160ea271ff15bed926a",
+    "evaluation/v4-supplemental/evidence/README.md": "593926fae483b9c0be1b5890668efdf50201fdbda79eb45d2e226ec759d9147f",
+    "evaluation/v4-supplemental/evidence/concurrency-config.json": "820eaef3343da905893c1ae39e3e3cb0a9b3772697c8dba13e2ef893f48c77c8",
+    "evaluation/v4-supplemental/evidence/concurrency.json": "1314718af756ab640d9e71243a9b3effbac9b0e4fc6a637dcb4ed0e1d010974e",
+    "evaluation/v4-supplemental/evidence/distribution.json": "98311adc3a3ba2eeb208901eab5a94663b8accbb4d91541e7372c37f7f82cae4",
+    "evaluation/v4-supplemental/evidence/environment.json": "7c832cfc0a83aaa6eff738f16cf27e630fc5bbf3c800677179648da0e0805d4c",
+    "evaluation/v4-supplemental/evidence/million-oracle.json": "9c86499a7fd157f8ed73e1a1a9c786d564468adbd291d089258fffd6d3320582"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "campaign_id": "taskgate-v4-full-20260730t070232z",
+  "git_commit": "e8e751c666b85b436e7fa2960be23b18f3d2e515",
+  "git_tree": "49a0e587d2e8f429cc931fcf8046c7616a93d5dc",
+  "archive": "evaluation/v4-acceptance/evidence/historical-source-e8e751c.tar.gz",
+  "archive_sha256": "53bc8eb3e70ec9fedfdad1cc1f6d5c6f3a36e90e62a1b031fad303a7261b8466",
+  "archive_generation": "git -c tar.umask=0022 archive --format=tar <commit> -- <sorted source paths> | gzip -n -9",
+  "source_sha256": "20ae76efb71df276774becc066e084061bd181b408e75109668e4256f29c613c",
+  "source_file_count": 187,
+  "source_paths_sha256": "b70b5a716821f648e5061c3ea1d5964cc2d2c76615fe5d4a679cb4883f755ba7",
+  "source_digest_algorithm": "SHA-256 over sorted UTF-8 path, NUL, exact bytes, NUL frames",
+  "source_selection": "sourceDigestRoots/sourceDigestFiles parsed from archived evaluation/cmd/v4-acceptance/runner.go"
+}

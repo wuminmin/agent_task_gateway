@@ -1,0 +1,385 @@
+{
+  "schema_version": 1,
+  "gateway": {
+    "url": "http://127.0.0.1:8082",
+    "contender_urls": [
+      "http://127.0.0.1:8082",
+      "http://127.0.0.1:8083"
+    ],
+    "token_env": "TASKBOUND_ALICE_TOKEN"
+  },
+  "control_dsn_env": "V4_CONCURRENCY_CONTROL_DSN",
+  "request_timeout_ms": 30000,
+  "lock_wait_timeout_ms": 15000,
+  "provision": {
+    "oa_url": "http://127.0.0.1:8092",
+    "alice_password_env": "OA_ALICE_PASSWORD",
+    "bob_password_env": "OA_BOB_PASSWORD",
+    "data_products": [
+      "expense_detail"
+    ],
+    "columns": {
+      "expense_detail": [
+        "receipt_no",
+        "amount",
+        "city"
+      ]
+    },
+    "scopes": {
+      "department": [
+        "销售部"
+      ]
+    }
+  },
+  "cases": [
+    {
+      "id": "same-root-release-c1",
+      "concurrency": 1,
+      "boundary_dimension": "release",
+      "root_task_id": "task_e87fdd5702f2b3fef889d5460b97ca14",
+      "prefix_task_id": "task_e87fdd5702f2b3fef889d5460b97ca14",
+      "contender_task_ids": [
+        "task_1d861bfbdde5401aa601861e23e59631"
+      ],
+      "overflow_task_id": "task_43ae053037203961acfc3b2af3233cd9",
+      "prefix_plan": {
+        "product": "expense_detail",
+        "columns": [
+          "receipt_no"
+        ],
+        "filters": [
+          {
+            "column": "receipt_no",
+            "op": "=",
+            "value": "TR-2026-0001"
+          }
+        ],
+        "order_by": [
+          {
+            "column": "receipt_no",
+            "direction": "asc"
+          }
+        ]
+      },
+      "contender_plan": {
+        "product": "expense_detail",
+        "columns": [
+          "receipt_no",
+          "amount"
+        ],
+        "filters": [
+          {
+            "column": "receipt_no",
+            "op": "=",
+            "value": "TR-2026-0001"
+          }
+        ],
+        "order_by": [
+          {
+            "column": "receipt_no",
+            "direction": "asc"
+          }
+        ]
+      },
+      "overflow_plan": {
+        "product": "expense_detail",
+        "columns": [
+          "receipt_no",
+          "amount",
+          "city"
+        ],
+        "filters": [
+          {
+            "column": "receipt_no",
+            "op": "=",
+            "value": "TR-2026-0001"
+          }
+        ],
+        "order_by": [
+          {
+            "column": "receipt_no",
+            "direction": "asc"
+          }
+        ]
+      },
+      "before_used": {
+        "release": 1,
+        "influence": 2,
+        "outcome": 1
+      },
+      "at_budget": {
+        "release": 2,
+        "influence": 3,
+        "outcome": 2
+      }
+    },
+    {
+      "id": "same-root-influence-c4",
+      "concurrency": 4,
+      "boundary_dimension": "influence",
+      "root_task_id": "task_0e1644a7727b99352e1ce6619c984f3a",
+      "prefix_task_id": "task_0e1644a7727b99352e1ce6619c984f3a",
+      "contender_task_ids": [
+        "task_98447e1c09ee7e5c3ce58c88bc13e3d8",
+        "task_015e0c1b6250fddb3b1e0bf2f88546b4",
+        "task_7419b9e7a1f8ac8dd95a0fe0941a0f47",
+        "task_f16cbb1c21aa44d5fe905b0f425ed9ae"
+      ],
+      "overflow_task_id": "task_a1f2ca59f60b3aad7060d356862b79ec",
+      "prefix_plan": {
+        "product": "expense_detail",
+        "columns": [
+          "receipt_no"
+        ],
+        "filters": [
+          {
+            "column": "receipt_no",
+            "op": "=",
+            "value": "TR-2026-0001"
+          }
+        ],
+        "order_by": [
+          {
+            "column": "receipt_no",
+            "direction": "asc"
+          }
+        ]
+      },
+      "contender_plan": {
+        "product": "expense_detail",
+        "columns": [
+          "receipt_no",
+          "amount"
+        ],
+        "filters": [
+          {
+            "column": "receipt_no",
+            "op": "=",
+            "value": "TR-2026-0001"
+          }
+        ],
+        "order_by": [
+          {
+            "column": "receipt_no",
+            "direction": "asc"
+          }
+        ]
+      },
+      "overflow_plan": {
+        "product": "expense_detail",
+        "columns": [
+          "receipt_no",
+          "amount",
+          "city"
+        ],
+        "filters": [
+          {
+            "column": "receipt_no",
+            "op": "=",
+            "value": "TR-2026-0001"
+          }
+        ],
+        "order_by": [
+          {
+            "column": "receipt_no",
+            "direction": "asc"
+          }
+        ]
+      },
+      "before_used": {
+        "release": 1,
+        "influence": 2,
+        "outcome": 1
+      },
+      "at_budget": {
+        "release": 2,
+        "influence": 3,
+        "outcome": 2
+      }
+    },
+    {
+      "id": "same-root-outcome-c8",
+      "concurrency": 8,
+      "boundary_dimension": "outcome",
+      "root_task_id": "task_983516c778dfad62090e888a37e74c25",
+      "prefix_task_id": "task_983516c778dfad62090e888a37e74c25",
+      "contender_task_ids": [
+        "task_c8e933ddf212b6538b34370362d26424",
+        "task_37bb23512f22181b158e8e8b76876ed8",
+        "task_9b190e23333e1e0c2897d90463e8999c",
+        "task_3a99f6522964b610c8f2ee9cc48d7fad",
+        "task_c66940d1d880c7779ea790c44665a348",
+        "task_5c742cf8a25d9e17a3b5d23ffad73690",
+        "task_698f587e154cd719976217169765f2a2",
+        "task_e33fd7d565767baab317189d2a7d1310"
+      ],
+      "overflow_task_id": "task_34050b1e5fb5ddc619c90f15b52eb215",
+      "prefix_plan": {
+        "product": "expense_detail",
+        "columns": [
+          "receipt_no"
+        ],
+        "filters": [
+          {
+            "column": "receipt_no",
+            "op": "=",
+            "value": "TR-2026-0001"
+          }
+        ],
+        "order_by": [
+          {
+            "column": "receipt_no",
+            "direction": "asc"
+          }
+        ]
+      },
+      "contender_plan": {
+        "product": "expense_detail",
+        "columns": [
+          "receipt_no",
+          "amount"
+        ],
+        "filters": [
+          {
+            "column": "receipt_no",
+            "op": "=",
+            "value": "TR-2026-0001"
+          }
+        ],
+        "order_by": [
+          {
+            "column": "receipt_no",
+            "direction": "asc"
+          }
+        ]
+      },
+      "overflow_plan": {
+        "product": "expense_detail",
+        "columns": [
+          "receipt_no",
+          "amount",
+          "city"
+        ],
+        "filters": [
+          {
+            "column": "receipt_no",
+            "op": "=",
+            "value": "TR-2026-0001"
+          }
+        ],
+        "order_by": [
+          {
+            "column": "receipt_no",
+            "direction": "asc"
+          }
+        ]
+      },
+      "before_used": {
+        "release": 1,
+        "influence": 2,
+        "outcome": 1
+      },
+      "at_budget": {
+        "release": 2,
+        "influence": 3,
+        "outcome": 2
+      }
+    },
+    {
+      "id": "same-root-release-c16",
+      "concurrency": 16,
+      "boundary_dimension": "release",
+      "root_task_id": "task_522a899f6d93cde9bffd4f077aff87e0",
+      "prefix_task_id": "task_522a899f6d93cde9bffd4f077aff87e0",
+      "contender_task_ids": [
+        "task_4727d86e2e2955f1b56924cc34778e78",
+        "task_ae2e4b6677a6bac1a3b9b5d8619edbfe",
+        "task_841a970ab823cf82b57e40ee9b643ac5",
+        "task_381d2b5b83a3d6ebfe0249a16763d572",
+        "task_22add1781b1ba3dcf3961d2b96699134",
+        "task_3649fada6c0afd0441e385a297978887",
+        "task_538a5d1174dd39379bf5b6c33a781a8f",
+        "task_cc92629aeb329e1c37a949d08d914f9f",
+        "task_1c889185e080d4509cbe46f1e31efd59",
+        "task_e907235ea4c70c1ce3ea0de80cf56735",
+        "task_da4ff248548565778e0c51a8d6e74072",
+        "task_2a175af1716ad6244b8d41560aa0ab1d",
+        "task_dff5a8b4a35c84c1e5dcbb7983643517",
+        "task_9fc8dc53bf05ea2b5672e03faef9740f",
+        "task_1aba0288c0474c170ca503153c13ec42",
+        "task_5b09ddbcf52612dba7571bf4779228fe"
+      ],
+      "overflow_task_id": "task_7d1eb5df00cec02cfdbb6e4bd0cda6a8",
+      "prefix_plan": {
+        "product": "expense_detail",
+        "columns": [
+          "receipt_no"
+        ],
+        "filters": [
+          {
+            "column": "receipt_no",
+            "op": "=",
+            "value": "TR-2026-0001"
+          }
+        ],
+        "order_by": [
+          {
+            "column": "receipt_no",
+            "direction": "asc"
+          }
+        ]
+      },
+      "contender_plan": {
+        "product": "expense_detail",
+        "columns": [
+          "receipt_no",
+          "amount"
+        ],
+        "filters": [
+          {
+            "column": "receipt_no",
+            "op": "=",
+            "value": "TR-2026-0001"
+          }
+        ],
+        "order_by": [
+          {
+            "column": "receipt_no",
+            "direction": "asc"
+          }
+        ]
+      },
+      "overflow_plan": {
+        "product": "expense_detail",
+        "columns": [
+          "receipt_no",
+          "amount",
+          "city"
+        ],
+        "filters": [
+          {
+            "column": "receipt_no",
+            "op": "=",
+            "value": "TR-2026-0001"
+          }
+        ],
+        "order_by": [
+          {
+            "column": "receipt_no",
+            "direction": "asc"
+          }
+        ]
+      },
+      "before_used": {
+        "release": 1,
+        "influence": 2,
+        "outcome": 1
+      },
+      "at_budget": {
+        "release": 2,
+        "influence": 3,
+        "outcome": 2
+      }
+    }
+  ]
+}

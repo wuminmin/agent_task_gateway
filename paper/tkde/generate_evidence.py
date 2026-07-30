@@ -12,6 +12,7 @@ import tarfile
 from pathlib import Path
 
 from v4_evidence import validate_v4_evidence
+from v4_supplemental_evidence import validate_v4_supplemental_evidence
 
 
 PAPER_DIR = Path(__file__).resolve().parent
@@ -665,6 +666,7 @@ def main() -> None:
     storage_scaling = validate_storage_scaling()
     scale = validate_scale()
     v4 = validate_v4_evidence(ROOT)
+    v4_supplemental = validate_v4_supplemental_evidence(ROOT)
     formal = validate_formal(FORMAL, "exposure ledger")
     bitmap_formal = validate_formal(FORMAL_BITMAP, "bitmap refinement")
     rq1 = report["rq1_ground_truth"]
@@ -700,6 +702,9 @@ def main() -> None:
     scale_mid_direct = scale_points[(10000, "direct_sql")]
     scale_high_direct = scale_points[(45000, "direct_sql")]
     v4_stats = v4["stats"]
+    v4_distribution = v4_supplemental["distribution"]
+    v4_concurrency = v4_supplemental["concurrency"]
+    v4_oracle = v4_supplemental["oracle"]
     v4_activation_ms = v4_stats["activation_ms"]
     v4_storage = {
         item["roots"]: item for item in v4_stats["storage_amortized_1_10_100_roots"]
@@ -882,6 +887,26 @@ def main() -> None:
         rf"\newcommand{{\RQFourVFourStorageOneRootGiB}}{{{decimal(v4_storage[1]['estimated_bytes_per_root'] / 1073741824, 3)}}}",
         rf"\newcommand{{\RQFourVFourStorageTenRootsMiB}}{{{decimal(v4_storage[10]['estimated_bytes_per_root'] / 1048576, 2)}}}",
         rf"\newcommand{{\RQFourVFourStorageHundredRootsMiB}}{{{decimal(v4_storage[100]['estimated_bytes_per_root'] / 1048576, 2)}}}",
+        rf"\newcommand{{\RQFourVFourSupplementSourceHash}}{{\texttt{{{v4_supplemental['stats']['source_scope_sha256'][:12]}}}}}",
+        rf"\newcommand{{\RQFourVFourDistributionCells}}{{{v4_distribution['cell_count']}}}",
+        rf"\newcommand{{\RQFourVFourDistributionRuns}}{{{v4_distribution['runs_per_cell']}}}",
+        rf"\newcommand{{\RQFourVFourDistributionRoundTrips}}{{{v4_distribution['portable_round_trip_checks']}}}",
+        rf"\newcommand{{\RQFourVFourDistributionWorstTailMS}}{{{decimal(v4_distribution['worst_andnot_or_p95_ms'], 2)}}}",
+        rf"\newcommand{{\RQFourVFourDistributionPeakHeapMiB}}{{{decimal(v4_distribution['max_peak_heap_bytes'] / 1048576, 2)}}}",
+        rf"\newcommand{{\RQFourVFourConcurrencyCases}}{{{v4_concurrency['case_count']}}}",
+        rf"\newcommand{{\RQFourVFourConcurrencyGateways}}{{{v4_concurrency['gateway_count']}}}",
+        rf"\newcommand{{\RQFourVFourConcurrencyWidths}}{{{'/'.join(str(value) for value in v4_concurrency['concurrency_levels'])}}}",
+        rf"\newcommand{{\RQFourVFourConcurrencyZeroNovelty}}{{{v4_concurrency['total_zero_novelty_settlements']}}}",
+        rf"\newcommand{{\RQFourVFourRootLockWaiters}}{{{v4_concurrency['total_root_lock_waiters']}}}",
+        rf"\newcommand{{\RQFourVFourOracleFacts}}{{{comma(v4_oracle['total_compared'])}}}",
+        rf"\newcommand{{\RQFourVFourOracleMismatches}}{{{v4_oracle['total_mismatches']}}}",
+        rf"\newcommand{{\RQFourVFourOracleWitnesses}}{{{v4_oracle['witnesses']}}}",
+        rf"\newcommand{{\RQFourVFourOracleMultiplicity}}{{{comma(v4_oracle['witness_multiplicity'])}}}",
+        rf"\newcommand{{\RQFourVFourOracleDurationS}}{{{decimal(v4_oracle['duration_seconds'], 2)}}}",
+        rf"\newcommand{{\RQFourVFourOraclePeakRSSMiB}}{{{decimal(v4_oracle['peak_rss_bytes'] / 1048576, 2)}}}",
+        rf"\newcommand{{\RQFourVFourOracleSpoolMiB}}{{{decimal(v4_oracle['spool_bytes'] / 1048576, 2)}}}",
+        rf"\newcommand{{\RQFourVFourOracleColdFacts}}{{{comma(v4_oracle['cold_facts_scanned'])}}}",
+        rf"\newcommand{{\RQFourVFourOracleSortRuns}}{{{v4_oracle['sort_runs']}}}",
         rf"\newcommand{{\RQFourScalingDims}}{{{len(scaling['curves'])}}}",
         rf"\newcommand{{\RQFourScalingMaxRows}}{{{comma(scaling_curves['observe_rows']['points'][-1]['size'])}}}",
         rf"\newcommand{{\RQFourScalingObserveMicros}}{{{decimal(scaling_curves['observe_rows']['points'][-1]['ns_per_op'] / 1000)}}}",

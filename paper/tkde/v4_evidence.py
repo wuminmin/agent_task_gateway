@@ -9,20 +9,39 @@ returns only statistics recomputed from raw samples.
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import math
 import os
 import re
 import stat
-from pathlib import Path
+import tarfile
+from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
 
 
 EVIDENCE_REL = Path("evaluation/v4-acceptance/evidence")
 BASELINE_REL = Path("evaluation/exposure-performance/results.json")
 RUNNER_REL = Path("evaluation/cmd/v4-acceptance/runner.go")
+HISTORICAL_SOURCE_REL = EVIDENCE_REL / "historical-source.json"
+HISTORICAL_ARCHIVE_REL = EVIDENCE_REL / "historical-source-e8e751c.tar.gz"
 
 EXPECTED_CAMPAIGN = "taskgate-v4-full-20260730t070232z"
+EXPECTED_HISTORICAL_COMMIT = "e8e751c666b85b436e7fa2960be23b18f3d2e515"
+EXPECTED_HISTORICAL_TREE = "49a0e587d2e8f429cc931fcf8046c7616a93d5dc"
+EXPECTED_HISTORICAL_SOURCE_SHA256 = "20ae76efb71df276774becc066e084061bd181b408e75109668e4256f29c613c"
+EXPECTED_HISTORICAL_PATHS_SHA256 = "b70b5a716821f648e5061c3ea1d5964cc2d2c76615fe5d4a679cb4883f755ba7"
+EXPECTED_HISTORICAL_ARCHIVE_SHA256 = "53bc8eb3e70ec9fedfdad1cc1f6d5c6f3a36e90e62a1b031fad303a7261b8466"
+EXPECTED_HISTORICAL_SOURCE_FILES = 187
+EXPECTED_HISTORICAL_MTIME = 1_785_402_674
+SOURCE_DIGEST_ALGORITHM = "SHA-256 over sorted UTF-8 path, NUL, exact bytes, NUL frames"
+ARCHIVE_GENERATION = (
+    "git -c tar.umask=0022 archive --format=tar <commit> -- <sorted source paths> | gzip -n -9"
+)
+SOURCE_SELECTION = (
+    "sourceDigestRoots/sourceDigestFiles parsed from archived "
+    "evaluation/cmd/v4-acceptance/runner.go"
+)
 EXPECTED_LOCAL_FILES = {
     "README.md",
     "manifest.json",
@@ -35,6 +54,8 @@ EXPECTED_LOCAL_FILES = {
     "small-query-results.json",
     "small-query-samples.jsonl",
     "small-query-docker-stats.jsonl",
+    "historical-source.json",
+    "historical-source-e8e751c.tar.gz",
 }
 EXPECTED_ARTIFACTS = {
     "evaluation/v4-acceptance/evidence/results.json",
@@ -46,6 +67,8 @@ EXPECTED_ARTIFACTS = {
     "evaluation/v4-acceptance/evidence/small-query-results.json",
     "evaluation/v4-acceptance/evidence/small-query-samples.jsonl",
     "evaluation/v4-acceptance/evidence/small-query-docker-stats.jsonl",
+    "evaluation/v4-acceptance/evidence/historical-source.json",
+    "evaluation/v4-acceptance/evidence/historical-source-e8e751c.tar.gz",
     "evaluation/exposure-performance/results.json",
 }
 EXPECTED_GATES = {
@@ -103,15 +126,19 @@ def _read_regular(path: Path, maximum: int) -> bytes:
     _require(stat.S_ISREG(before.st_mode) and not stat.S_ISLNK(before.st_mode),
              f"{path} is not a regular non-symlink file")
     _require(0 < before.st_size <= maximum, f"{path} has an invalid size")
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
     try:
-        with path.open("rb") as handle:
+        descriptor = os.open(path, flags)
+        with os.fdopen(descriptor, "rb") as handle:
             opened = os.fstat(handle.fileno())
             raw = handle.read(maximum + 1)
             after = os.fstat(handle.fileno())
+        after_path = os.lstat(path)
     except OSError as error:
         raise ValueError(f"V4 evidence: cannot read {path}: {error}") from error
     identity = lambda one: (one.st_dev, one.st_ino, one.st_size, one.st_mtime_ns)
-    _require(identity(before) == identity(opened) == identity(after), f"{path} changed while read")
+    _require(identity(before) == identity(opened) == identity(after) == identity(after_path),
+             f"{path} changed while read")
     _require(len(raw) == before.st_size and len(raw) <= maximum, f"{path} changed size while read")
     return raw
 
@@ -179,12 +206,19 @@ def _validate_distribution(reported: Any, expected: dict[str, float | int], labe
 
 
 def _load_manifest(root: Path, evidence_dir: Path | None = None) -> tuple[dict[str, Any], dict[str, bytes]]:
-    directory = (root / EVIDENCE_REL) if evidence_dir is None else evidence_dir.resolve()
-    _require(directory.is_dir() and not directory.is_symlink(), "evidence directory is missing or a symlink")
+    directory = (root / EVIDENCE_REL) if evidence_dir is None else evidence_dir
+    try:
+        directory_info = os.lstat(directory)
+    except OSError as error:
+        raise ValueError(f"V4 evidence: cannot stat evidence directory: {error}") from error
+    _require(stat.S_ISDIR(directory_info.st_mode) and not stat.S_ISLNK(directory_info.st_mode),
+             "evidence directory is missing or a symlink")
     actual_names = set()
-    for entry in os.scandir(directory):
-        _require(entry.is_file(follow_symlinks=False), f"unexpected non-file evidence entry {entry.name}")
-        actual_names.add(entry.name)
+    with os.scandir(directory) as entries:
+        for entry in entries:
+            _require(entry.is_file(follow_symlinks=False),
+                     f"unexpected non-file evidence entry {entry.name}")
+            actual_names.add(entry.name)
     _require(actual_names == EXPECTED_LOCAL_FILES,
              f"evidence directory set differs: {sorted(actual_names ^ EXPECTED_LOCAL_FILES)}")
 
@@ -206,6 +240,7 @@ def _load_manifest(root: Path, evidence_dir: Path | None = None) -> tuple[dict[s
         "preflight-artifact-verification-receipt.json": 4 << 20,
         "small-query-candidate.json": 4 << 20, "small-query-results.json": 4 << 20,
         "small-query-samples.jsonl": 16 << 20, "small-query-docker-stats.jsonl": 4 << 20,
+        "historical-source.json": 1 << 20, "historical-source-e8e751c.tar.gz": 4 << 20,
         "evaluation/exposure-performance/results.json": 4 << 20,
     }
     retained: dict[str, bytes] = {}
@@ -235,7 +270,9 @@ def _parse_go_string_slice(source: str, name: str) -> list[str]:
             value = json.loads(match.group(1))
         except json.JSONDecodeError as error:
             raise ValueError(f"V4 evidence: invalid Go string in {name}: {error}") from error
-        _require(isinstance(value, str) and value and "\\" not in value and not value.startswith("/"),
+        parts = PurePosixPath(value).parts if isinstance(value, str) else ()
+        _require(isinstance(value, str) and value and "\\" not in value and "\0" not in value and
+                 not value.startswith("/") and all(part not in {"", ".", ".."} for part in parts),
                  f"unsafe path in {name}")
         result.append(value)
     _require(result and len(result) == len(set(result)), f"{name} is empty or repeats a path")
@@ -280,6 +317,187 @@ def _current_source_digest(root: Path) -> str:
         checksum.update(_read_regular(path, 32 << 20))
         checksum.update(b"\0")
     return checksum.hexdigest()
+
+
+def _historical_source_snapshot(provenance_raw: bytes, archive_raw: bytes,
+                                reported_source_sha256: str) -> dict[str, Any]:
+    """Validate the immutable source snapshot that produced the V4 campaign.
+
+    The archive is never extracted to disk.  It is read sequentially with
+    strict compressed/decompressed/member bounds, and every member path and
+    type is checked before its bytes are retained in the small in-memory source
+    map.  The archived runner defines the source selection; fixed path and
+    content digests prevent that definition from silently omitting a file.
+    """
+
+    provenance = _decode_json(provenance_raw, "historical source provenance")
+    expected_fields = {
+        "schema_version", "campaign_id", "git_commit", "git_tree", "archive",
+        "archive_sha256", "archive_generation", "source_sha256", "source_file_count",
+        "source_paths_sha256", "source_digest_algorithm", "source_selection",
+    }
+    _require(set(provenance) == expected_fields,
+             "historical source provenance fields are not exact")
+    _require(
+        _integer(provenance["schema_version"], "historical source schema") == 1 and
+        provenance["campaign_id"] == EXPECTED_CAMPAIGN and
+        provenance["git_commit"] == EXPECTED_HISTORICAL_COMMIT and
+        provenance["git_tree"] == EXPECTED_HISTORICAL_TREE and
+        provenance["archive"] == HISTORICAL_ARCHIVE_REL.as_posix() and
+        provenance["archive_generation"] == ARCHIVE_GENERATION and
+        provenance["source_digest_algorithm"] == SOURCE_DIGEST_ALGORITHM and
+        provenance["source_selection"] == SOURCE_SELECTION,
+        "historical source identity/commit/algorithm is invalid",
+    )
+    _require(0 < len(archive_raw) <= 4 << 20, "historical source archive exceeds its compressed bound")
+    _require(archive_raw[:10] == b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x02\x03",
+             "historical source archive lacks the deterministic gzip -n -9 header")
+    archive_sha = _sha(archive_raw)
+    _require(
+        archive_sha == _digest(provenance["archive_sha256"], "historical source archive") ==
+        EXPECTED_HISTORICAL_ARCHIVE_SHA256,
+        "historical source archive digest is stale",
+    )
+    _require(
+        _digest(provenance["source_sha256"], "historical source") ==
+        reported_source_sha256 == EXPECTED_HISTORICAL_SOURCE_SHA256 and
+        _integer(provenance["source_file_count"], "historical source file count", minimum=1) ==
+        EXPECTED_HISTORICAL_SOURCE_FILES and
+        _digest(provenance["source_paths_sha256"], "historical source paths") ==
+        EXPECTED_HISTORICAL_PATHS_SHA256,
+        "historical source provenance does not bind the measured source scope",
+    )
+
+    files: dict[str, bytes] = {}
+    directories: set[str] = set()
+    member_names: set[str] = set()
+    member_count = 0
+    total_bytes = 0
+    pax_headers: dict[str, str] = {}
+    try:
+        with tarfile.open(fileobj=io.BytesIO(archive_raw), mode="r|gz") as archive:
+            for member in archive:
+                member_count += 1
+                _require(member_count <= 512, "historical source archive has too many members")
+                name = member.name
+                path = PurePosixPath(name)
+                _require(
+                    isinstance(name, str) and name and name == path.as_posix() and
+                    not path.is_absolute() and "\\" not in name and "\0" not in name and
+                    all(part not in {"", ".", ".."} for part in path.parts) and
+                    name not in member_names,
+                    f"unsafe or duplicate historical source member {name!r}",
+                )
+                member_names.add(name)
+                _require(
+                    member.uid == 0 and member.gid == 0 and member.uname == "root" and
+                    member.gname == "root" and member.mtime == EXPECTED_HISTORICAL_MTIME and
+                    member.pax_headers == {"comment": EXPECTED_HISTORICAL_COMMIT} and
+                    not member.linkname,
+                    f"historical source member {name!r} metadata is not deterministic",
+                )
+                if member.isdir():
+                    _require(member.size == 0 and member.mode == 0o755,
+                             f"historical source directory {name!r} metadata is invalid")
+                    directories.add(name)
+                    continue
+                _require(member.isreg() and member.mode in {0o644, 0o755},
+                         f"historical source member {name!r} is not a normalized regular file")
+                _require(0 < member.size <= 32 << 20,
+                         f"historical source member {name!r} exceeds its bound")
+                total_bytes += member.size
+                _require(total_bytes <= 32 << 20,
+                         "historical source archive exceeds its decompressed bound")
+                extracted = archive.extractfile(member)
+                _require(extracted is not None, f"cannot read historical source member {name!r}")
+                raw = extracted.read(member.size + 1)
+                _require(len(raw) == member.size,
+                         f"historical source member {name!r} changed size while read")
+                files[name] = raw
+            pax_headers = dict(archive.pax_headers)
+    except (tarfile.TarError, OSError, EOFError) as error:
+        raise ValueError(f"V4 evidence: invalid historical source archive: {error}") from error
+    _require(pax_headers == {"comment": EXPECTED_HISTORICAL_COMMIT},
+             "historical source archive does not bind the exact Git commit")
+
+    expected_directories: set[str] = set()
+    for relative in files:
+        parent = PurePosixPath(relative).parent
+        while parent != PurePosixPath("."):
+            expected_directories.add(parent.as_posix())
+            parent = parent.parent
+    _require(directories == expected_directories and member_names == directories | set(files),
+             "historical source archive directory/member set is not exact")
+
+    runner_name = RUNNER_REL.as_posix()
+    _require(runner_name in files, "historical source archive omits its source-scope runner")
+    try:
+        runner = files[runner_name].decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ValueError("V4 evidence: archived acceptance runner is not UTF-8") from error
+    roots = _parse_go_string_slice(runner, "sourceDigestRoots")
+    explicit = _parse_go_string_slice(runner, "sourceDigestFiles")
+    resolved: list[str] = []
+    for root in roots:
+        prefix = root.rstrip("/") + "/"
+        selected = sorted(relative for relative in files if relative.startswith(prefix) and
+                          PurePosixPath(relative).suffix in {".go", ".sql"})
+        _require(bool(selected), f"archived source root {root} contains no Go or SQL files")
+        resolved.extend(selected)
+    resolved.extend(explicit)
+    _require(len(resolved) == len(set(resolved)),
+             "archived runner source scope resolves duplicate files")
+    _require(set(files) == set(resolved),
+             "historical source archive regular-file set differs from its archived runner")
+
+    path_digest = hashlib.sha256()
+    source_digest = hashlib.sha256()
+    for relative in sorted(files):
+        encoded = relative.encode("utf-8")
+        path_digest.update(encoded)
+        path_digest.update(b"\0")
+        source_digest.update(encoded)
+        source_digest.update(b"\0")
+        source_digest.update(files[relative])
+        source_digest.update(b"\0")
+    _require(
+        len(files) == EXPECTED_HISTORICAL_SOURCE_FILES and
+        path_digest.hexdigest() == provenance["source_paths_sha256"] ==
+        EXPECTED_HISTORICAL_PATHS_SHA256 and
+        source_digest.hexdigest() == provenance["source_sha256"] ==
+        reported_source_sha256 == EXPECTED_HISTORICAL_SOURCE_SHA256,
+        "historical source path/content digest is not reproducible",
+    )
+    return {
+        "mode": "historical_source_snapshot",
+        "campaign_id": EXPECTED_CAMPAIGN,
+        "git_commit": EXPECTED_HISTORICAL_COMMIT,
+        "git_tree": EXPECTED_HISTORICAL_TREE,
+        "archive_sha256": archive_sha,
+        "source_sha256": source_digest.hexdigest(),
+        "source_paths_sha256": path_digest.hexdigest(),
+        "source_file_count": len(files),
+        "archive_member_count": member_count,
+        "archive_uncompressed_source_bytes": total_bytes,
+    }
+
+
+def _current_source_relation(root: Path, historical_source_sha256: str) -> dict[str, Any]:
+    try:
+        current = _current_source_digest(root)
+    except ValueError as error:
+        return {
+            "status": "unavailable", "current_source_sha256": None,
+            "historical_source_sha256": historical_source_sha256,
+            "matches_historical": False, "reason": str(error),
+        }
+    matches = current == historical_source_sha256
+    return {
+        "status": "match" if matches else "diverged",
+        "current_source_sha256": current,
+        "historical_source_sha256": historical_source_sha256,
+        "matches_historical": matches,
+    }
 
 
 def _canonical_receipt(raw: bytes, label: str) -> dict[str, Any]:
@@ -522,6 +740,8 @@ def validate_v4_evidence(repository_root: Path | str,
     candidate_results_raw = raw[rel("small-query-results.json")]
     candidate_samples_raw = raw[rel("small-query-samples.jsonl")]
     candidate_stats_raw = raw[rel("small-query-docker-stats.jsonl")]
+    historical_provenance_raw = raw[rel("historical-source.json")]
+    historical_archive_raw = raw[rel("historical-source-e8e751c.tar.gz")]
     baseline_raw = raw[BASELINE_REL.as_posix()]
 
     result = _decode_json(result_raw, "V4 results")
@@ -533,11 +753,14 @@ def validate_v4_evidence(repository_root: Path | str,
     activation_receipt = _canonical_receipt(activation_raw, "activation verification receipt")
     preflight_receipt = _canonical_receipt(preflight_raw, "preflight verification receipt")
 
-    current_source = _current_source_digest(root)
     source = _digest(manifest["acceptance_source_sha256"], "manifest source")
-    _require(current_source == source == result.get("provenance", {}).get("source_sha256") ==
+    _require(source == EXPECTED_HISTORICAL_SOURCE_SHA256 ==
+             result.get("provenance", {}).get("source_sha256") ==
              environment.get("software", {}).get("acceptance_source_sha256"),
-             "current V4 source digest is not bound to results/environment/manifest")
+             "historical V4 source digest is not bound to results/environment/manifest")
+    historical_source = _historical_source_snapshot(
+        historical_provenance_raw, historical_archive_raw, source)
+    current_source_relation = _current_source_relation(root, source)
     _require(_sha(config_raw) == result.get("provenance", {}).get("config_sha256"),
              "full config is not bound to results")
     env_sha = _sha(environment_raw)
@@ -1025,9 +1248,19 @@ def validate_v4_evidence(repository_root: Path | str,
         "small_query_throughput_degradation_percent": throughput_degradation,
         "small_query_throughput_improvement_percent": -throughput_degradation,
         "small_query_gateway_peak_bytes": candidate_stats["peaks"]["gateway"],
+        "source_evidence_mode": historical_source["mode"],
+        "historical_git_commit": historical_source["git_commit"],
+        "historical_git_tree": historical_source["git_tree"],
+        "historical_source_file_count": historical_source["source_file_count"],
+        "historical_source_archive_sha256": historical_source["archive_sha256"],
+        "current_source_sha256": current_source_relation["current_source_sha256"],
+        "current_source_relation": current_source_relation["status"],
+        "current_source_matches_historical": current_source_relation["matches_historical"],
     }
     return {
         "manifest": manifest,
+        "historical_source": historical_source,
+        "current_source_relation": current_source_relation,
         "report": result,
         "config": config,
         "environment": environment,

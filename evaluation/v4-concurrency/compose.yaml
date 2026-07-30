@@ -1,0 +1,20 @@
+services:
+  gateway:
+    volumes: !override
+      - ./evaluation/v4-concurrency/catalog.yaml:/etc/taskbound/catalog.yaml:ro
+      - snapshot-index-artifacts:/var/lib/taskgate/snapshot-index:ro
+      - gateway-encrypted-spool:/tmp
+
+  gateway-peer:
+    extends:
+      file: ./compose.yaml
+      service: gateway
+    ports: !override
+      - 127.0.0.1:8083:8082
+    volumes: !override
+      - ./evaluation/v4-concurrency/catalog.yaml:/etc/taskbound/catalog.yaml:ro
+      - snapshot-index-artifacts:/var/lib/taskgate/snapshot-index:ro
+      - gateway-peer-encrypted-spool:/tmp
+
+volumes:
+  gateway-peer-encrypted-spool:

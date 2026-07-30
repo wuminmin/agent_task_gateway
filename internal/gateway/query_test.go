@@ -643,6 +643,120 @@ func TestExposureBudgetRejectsBufferedResultBeforeRelease(t *testing.T) {
 	}
 }
 
+func TestOrdinalExposureBudgetBPlusOneCommitsCompleteFailureOnly(t *testing.T) {
+	harness := newGatewayHarness(t)
+	harness.installCatalogV4SnapshotRegistry(t)
+	taskID := "task-v4-exposure-b-plus-one"
+	requestID := "v4-exposure-b-plus-one-request"
+	// This scan releases two visible base-cell facts. A release ceiling of one
+	// therefore makes the attempted observation exactly B+1 in that dimension.
+	harness.createExposureV4SummaryTask(t, taskID,
+		control.ExposureLimits{ReleaseFacts: 1, InfluenceFacts: 100, OutcomeFacts: 10})
+
+	plan := queryplan.QueryPlan{Product: "expense_summary", Columns: []string{"month", "total_amount"}}
+	product, found := harness.catalog.LookupProduct(plan.Product)
+	if !found {
+		t.Fatal("expense_summary product is unavailable")
+	}
+	ordinalProduct, err := harness.service.ordinalQueryProduct(product,
+		map[string]struct{}{"month": {}, "total_amount": {}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	compilation, err := queryplan.CompileOrdinal(plan, ordinalProduct)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bound, err := harness.service.bindOrdinalSidecars(compilation.ProvenanceSQL,
+		compilation.ProvenanceFields, compilation.OrdinalProgram)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := map[string]any{
+		"month": "2026-01", "department": "销售部", "expense_type": "机票",
+		"total_amount": json.Number("1680.00"),
+	}
+	visible := scanVisibleResult(t, bound.Program, []map[string]any{row})
+	visible.DatabaseTime = 2 * time.Millisecond
+	provenanceColumns, positions := ordinalProvenanceColumns(bound.Program)
+	provenanceRow := make([]any, len(provenanceColumns))
+	for _, source := range bound.Program.Sources {
+		entityKey := ordinalFixtureEntityKey(t, source, row)
+		handle, present := bound.Indexes[source.SourceAlias].LookupRowHandle(entityKey)
+		if !present {
+			t.Fatalf("snapshot index misses entity %q", entityKey)
+		}
+		provenanceRow[positions[source.HandleAlias]] = uint64(handle)
+		for _, field := range source.EvidenceFields {
+			provenanceRow[positions[field.ProvenanceAlias]] = row[field.Column]
+		}
+	}
+	harness.connector.result = visible
+	harness.connector.provenanceResult = dataconnector.Result{
+		Columns: provenanceColumns, Rows: [][]any{provenanceRow}, RowCount: 1, DatabaseTime: time.Millisecond,
+	}
+
+	headBefore, err := harness.store.GetOrdinalRootHead(context.Background(), taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if headBefore.Limits.ReleaseFacts != 1 || headBefore.Used.ReleaseFacts != 0 {
+		t.Fatalf("B+1 test root starts at unexpected boundary: %+v", headBefore)
+	}
+	contentBefore := gatewayOrdinalContentCounts(t, harness)
+
+	_, err = callGatewayTool(harness.service, harness.alice, "execute_plan", map[string]any{
+		"task_id": taskID, "request_id": requestID, "plan": plan,
+	})
+	requireToolCode(t, err, apierr.CodeExposureBudgetExhausted)
+	record, err := harness.store.GetQueryByRequestID(context.Background(), taskID, requestID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Status != control.QueryFailed || record.ErrorCode != string(control.CodeExposureBudgetExhausted) ||
+		record.ResultSHA256 != "" {
+		t.Fatalf("B+1 terminal query = %+v", record)
+	}
+
+	var reservationStatus string
+	var encryptedResults, encryptedChunks, materializations, queryObservations, rootObservations int
+	var failureAudits, receipts int
+	if err := harness.store.DB().QueryRowContext(context.Background(), `SELECT
+ (SELECT status FROM v4_query_exposure_reservations WHERE query_id=$1),
+ (SELECT count(*) FROM encrypted_query_results WHERE query_id=$1),
+ (SELECT count(*) FROM encrypted_query_result_chunks WHERE query_id=$1),
+ (SELECT count(*) FROM v4_committed_materializations WHERE source_query_id=$1),
+ (SELECT count(*) FROM v4_query_observations WHERE query_id=$1),
+ (SELECT count(*) FROM v4_root_observations WHERE first_query_id=$1),
+ (SELECT count(*) FROM audit_events WHERE query_id=$1 AND event_type='QUERY_FAILED'),
+ (SELECT count(*) FROM query_receipts WHERE query_id=$1)`, record.ID).Scan(
+		&reservationStatus, &encryptedResults, &encryptedChunks, &materializations,
+		&queryObservations, &rootObservations, &failureAudits, &receipts); err != nil {
+		t.Fatal(err)
+	}
+	if reservationStatus != "RELEASED" || encryptedResults != 0 || encryptedChunks != 0 ||
+		materializations != 0 || queryObservations != 0 || rootObservations != 0 ||
+		failureAudits != 1 || receipts != 1 {
+		t.Fatalf("B+1 atomic failure evidence: reservation=%s result=%d chunks=%d materialization=%d "+
+			"query_observation=%d root_observation=%d failure_audit=%d receipt=%d",
+			reservationStatus, encryptedResults, encryptedChunks, materializations, queryObservations,
+			rootObservations, failureAudits, receipts)
+	}
+	headAfter, err := harness.store.GetOrdinalRootHead(context.Background(), taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if headAfter != headBefore {
+		t.Fatalf("B+1 changed the root head: before=%+v after=%+v", headBefore, headAfter)
+	}
+	if contentAfter := gatewayOrdinalContentCounts(t, harness); contentAfter != contentBefore {
+		t.Fatalf("B+1 changed ordinal content: before=%v after=%v", contentBefore, contentAfter)
+	}
+	if err := harness.service.ReadyError(); err != nil {
+		t.Fatalf("B+1 left a pending settlement retry: %v", err)
+	}
+}
+
 func TestRequestIDIsRequiredAndRetriesNeverExecuteTwice(t *testing.T) {
 	harness := newGatewayHarness(t)
 	harness.createActiveSummaryTask(t, "task-idempotent")
@@ -1198,6 +1312,19 @@ func requireSingleSettledQuery(t *testing.T, harness *gatewayHarness, taskID str
 		t.Fatalf("query status = %s, want %s", record.Status, control.QueryCompleted)
 	}
 	return record
+}
+
+func gatewayOrdinalContentCounts(t *testing.T, harness *gatewayHarness) [4]int64 {
+	t.Helper()
+	var counts [4]int64
+	if err := harness.store.DB().QueryRowContext(context.Background(), `SELECT
+ (SELECT count(*) FROM v4_bitmap_containers),
+ (SELECT count(*) FROM v4_bitmap_sets),
+ (SELECT count(*) FROM v4_dynamic_facts),
+ (SELECT count(*) FROM v4_observations)`).Scan(&counts[0], &counts[1], &counts[2], &counts[3]); err != nil {
+		t.Fatal(err)
+	}
+	return counts
 }
 
 func requireSingleFailedQuery(t *testing.T, harness *gatewayHarness, taskID string) control.QueryRecord {

@@ -14,6 +14,8 @@
     "evaluation/v4-acceptance/evidence/small-query-results.json": "0442baeb9fac7474ab71dc047b1eb037bd7e20c1911be63976a9ce6ac5d54f97",
     "evaluation/v4-acceptance/evidence/small-query-samples.jsonl": "9832248df51f952d984d579ba1df04579de84d55345909aef5e57c0fe1415b2e",
     "evaluation/v4-acceptance/evidence/small-query-docker-stats.jsonl": "ba96bbff24c48455115a4f2891512e9e3e68c0278b30c6d69abd8f8d0cf262af",
+    "evaluation/v4-acceptance/evidence/historical-source.json": "1f0ac55595d3854b2f9881ed4312b99ff649dc13045822defbaf9b57b81dd955",
+    "evaluation/v4-acceptance/evidence/historical-source-e8e751c.tar.gz": "53bc8eb3e70ec9fedfdad1cc1f6d5c6f3a36e90e62a1b031fad303a7261b8466",
     "evaluation/exposure-performance/results.json": "7c223c3520e5f059039af55435c4b29cd172145e79c44ac93da300a19a4191ad"
   }
 }

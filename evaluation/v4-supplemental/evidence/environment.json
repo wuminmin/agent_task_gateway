@@ -1,0 +1,53 @@
+{
+  "schema_version": 2,
+  "captured_at": "2026-07-30T11:12:36Z",
+  "host": {
+    "kernel": "Linux 6.18.33.2-microsoft-standard-WSL2",
+    "architecture": "x86_64",
+    "cpu_model": "13th Gen Intel(R) Core(TM) i9-13900HX",
+    "logical_cpus": 32,
+    "memory_bytes": 16625901568
+  },
+  "software": {
+    "go_version": "go1.25.12",
+    "postgres_version": "PostgreSQL 16.14 (Debian 16.14-1.pgdg12+1) on x86_64-pc-linux-gnu",
+    "images": {
+      "go_build": "sha256:bd70579a624df39bce056a80ccda1b689b89a6e8393ceaef5878b1a087ac7b1b",
+      "postgres": "sha256:67d1da22f4037b29cdd93e03d870a4a1c4d079358367d0cbc56459e52cde205e",
+      "concurrency_gateway": "sha256:2b5c9c64a22e6bae06d98d30cfc72fedacfac4424714672108dc66f2a7e6e375",
+      "concurrency_gateway_peer": "sha256:b1e5c54a257f3d6dfb20ce8627190f3797ddbe3709c6dfffcfe29098c089f621",
+      "concurrency_oa": "sha256:b843130d079251228a1ed10886d0f24a311b4948a60b96bcc55f6df21c638e85"
+    },
+    "concurrency_gateway_binary_sha256": "ef1d7eef78a7839cdddf4a765b9e4ff25e0de9fa4b09117c0fec9377232461d7"
+  },
+  "base_v4": {
+    "campaign_id": "taskgate-v4-full-20260730t070232z",
+    "results_sha256": "865400844e39db8aae2c698dd1601b8ed3c1d24b814c9160ea271ff15bed926a"
+  },
+  "datasets": {
+    "business": {
+      "identity_sha256": "dbbbd89e4aecc95ec67d66302783fd63ea2422946f37ff80c48e7bc473b3e5e5",
+      "name": "deterministic-tpch-derived-orders-lineitem-v1",
+      "snapshot_id": "exposure-scale-2026-v4-narrow-1",
+      "scale_orders_rows": 50000,
+      "scale_lineitem_rows": 250000,
+      "frozen": true
+    },
+    "control": {
+      "identity_sha256": "5c18565000c256419e4204379c9a03377188f1cabb91e37d89dd81976ceb589a",
+      "name": "committed-maximum-point-v4-ledger",
+      "catalog_sha256": "ed78fd995514fb1671bc577b4256611328994db2e3b90db15fcbdfafe91cf037",
+      "dictionary_set_sha256": "a2a888add15d3823b71125f237beb87e65844b662ac843f630e39eb5d6d23e5e",
+      "exposure_profile": "taskgate-exposure-v4"
+    },
+    "concurrency": {
+      "project": "taskgate-v4-concurrency-final",
+      "snapshot_id": "travel-demo-2026-v1",
+      "expense_detail_rows": 10,
+      "catalog_sha256": "5b213f491ab84f3c10425c07f519b8f6a5a620719cde1aed87b2ae16a8c30c26",
+      "gateway_replicas": 2,
+      "per_gateway_control_pool": 10,
+      "frozen": true
+    }
+  }
+}

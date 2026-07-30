@@ -1,0 +1,179 @@
+catalog_version: "2026-07-30.v4-concurrency-1"
+
+sources:
+  - name: travel_demo
+    datasource_id: taskgate-demo-travel
+    type: postgres
+    address: business-postgres
+    port: 5432
+    database: travel_demo
+    user: gateway_reader
+    postgres_major_version: 16
+    schema_digest: 02b4a211cfbab7347fdce28e2dd76406b1118c5f18e1d2146cc2e85a38ccf1cc
+    secretRef: GATEWAY_DB_PASSWORD
+
+snapshot_publications:
+  # The base Compose stack compiles both demo publications into one immutable
+  # artifact directory. Declare summary as an unused but verified publication
+  # so activation remains fail-closed about every artifact present.
+  - name: expense-summary-v1
+    source: travel_demo
+    source_namespace: travel.expense_summary
+    snapshot: travel-demo-2026-v1
+    ordinal_sidecar: taskgate_ordinal.expense_summary_v1
+    sidecar_digest: 2cd4e5c835252ec3bcd04aee11c28c70c6329b35bf6770f06a570cd918c9ceff
+    dictionary_digest: ac0239021ec58514d62ac0c4c56191c2337fc943106b6df900221e620e809a1f
+    manifest_digest: 8d675bbf97adfbc03234a468055c223a9ea3d9ffc6ab2d5f6b8da38abeb70432
+  - name: expense-detail-v1
+    source: travel_demo
+    source_namespace: travel.expense_receipt
+    snapshot: travel-demo-2026-v1
+    ordinal_sidecar: taskgate_ordinal.expense_detail_v1
+    sidecar_digest: bbf33dd42179b80cd8cca631f579c4c6e49ef51eb1d3a4ce157090a797c5acf7
+    dictionary_digest: 315995feeaa332b0d0f50834867ed5701a491ddc547bb2d666338fc938057232
+    manifest_digest: 9bc393632756c13ed355181658a6358aa656e1a828f69da36fc951c5061d390c
+
+scopes:
+  - name: department
+    type: enum
+    description: concurrency acceptance uses one frozen sales-department row
+    allowed_values: [销售部, 研发部, 财务部]
+  - name: expense_date
+    type: date_range
+    description: schema-bound demo date range
+    min: "2026-01-01"
+    max: "2026-12-31"
+
+products:
+  # Retain the complete reporting schema contract even though this campaign
+  # requests only expense_detail. Connector attestation is source-wide.
+  - name: expense_summary
+    source: travel_demo
+    reporting_view: reporting.expense_summary
+    description: unused but source-schema-bound summary publication
+    sensitivity: low
+    snapshot: travel-demo-2026-v1
+    snapshot_publication: expense-summary-v1
+    entity_key: [month, department, expense_type]
+    fact_namespace: travel.expense_summary
+    stable_relation_role: expense_summary
+    scopes: [department]
+    allowed_functions: [date_trunc, to_char]
+    allowed_operators: ["=", "<>", "<", "<=", ">", ">=", "+", "-", "*", "/"]
+    allowed_aggregates: [sum, count, min, max]
+    fields:
+      - name: month
+        type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
+        description: summary month
+      - name: department
+        type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
+        description: summary department
+      - name: expense_type
+        type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
+        description: summary expense type
+      - name: total_amount
+        type: numeric
+        description: summary amount
+      - name: request_count
+        type: bigint
+        description: summary count
+
+  - name: expense_detail
+    source: travel_demo
+    reporting_view: reporting.expense_detail
+    description: frozen detail publication for root-family CAS acceptance
+    sensitivity: high
+    snapshot: travel-demo-2026-v1
+    snapshot_publication: expense-detail-v1
+    entity_key: [receipt_no]
+    fact_namespace: travel.expense_receipt
+    stable_relation_role: expense_detail
+    scopes: [department]
+    allowed_functions: [date_trunc, to_char]
+    allowed_operators: ["=", "<>", "<", "<=", ">", ">=", "+", "-", "*", "/"]
+    allowed_aggregates: [sum, count, min, max]
+    fields:
+      - name: receipt_no
+        type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
+        description: immutable receipt identity
+      - name: employee_no
+        type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
+        description: unused but schema-bound employee identity
+        sensitivity: high
+      - name: employee_name
+        type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
+        description: unused but schema-bound employee name
+        sensitivity: high
+      - name: department
+        type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
+        description: mandatory authorization scope
+      - name: expense_date
+        type: date
+        description: unused but schema-bound expense date
+      - name: expense_type
+        type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
+        description: unused but schema-bound expense type
+      - name: amount
+        type: numeric
+        description: second released cell at B
+      - name: city
+        type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
+        description: third cell used only by the rejected B+1 observation
+      - name: purpose
+        type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
+        description: unused but schema-bound purpose
+      - name: status
+        type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
+        description: unused but schema-bound status
+
+approval_routes:
+  - sensitivity: low
+    mode: manual
+    approver: bob
+    budget_profile: concurrency-boundary-v4
+  - sensitivity: medium
+    mode: manual
+    approver: bob
+    budget_profile: concurrency-boundary-v4
+  - sensitivity: high
+    mode: manual
+    approver: bob
+    budget_profile: concurrency-boundary-v4
+
+# This is a human-reviewed Catalog ceiling, not an online budget selection.
+# Prefix exposes {receipt_no}: 1R/2I/1O. The contender adds amount plus a new
+# outcome: +1R/+1I/+1O and reaches the exact 2R/3I/2O boundary. Adding city is
+# therefore B+1 in all three dimensions and must be rejected atomically.
+budget_profiles:
+  - name: concurrency-boundary-v4
+    max_queries: 5
+    max_rows: 10
+    max_db_time: 15s
+    query_timeout: 5s
+    task_ttl: 30m
+    max_release_facts: 2
+    max_influence_facts: 3
+    max_outcome_facts: 2
+    exposure_profile_version: taskgate-exposure-v4

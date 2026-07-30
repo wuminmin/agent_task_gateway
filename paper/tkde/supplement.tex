@@ -242,11 +242,44 @@ pass; at \RQFourVFourReleaseFacts{} Release,
 facts, novel p50/p95 is
 \RQFourVFourNovelMedianS{}/\RQFourVFourNovelTailS{}~s and replay p50/p95 is
 \RQFourVFourReplayMedianMS{}/\RQFourVFourReplayTailMS{}~ms. This end-to-end report
-checks exact cardinalities and set/observation digests, but it is not an
-independent per-Fact expansion oracle. Dense/clustered/random-sparse effects
-and a same-root concurrent-CAS campaign also remain outstanding; formal and
-unit-test coverage for CAS must not be relabeled as measured end-to-end
-contention evidence.
+checks exact cardinalities and set/observation digests. A distinct,
+source-bound supplement now covers the obligations that report did not imply:
+\RQFourVFourDistributionCells{} dense/clustered/random-sparse--overlap cells,
+public-path same-root batches of widths \RQFourVFourConcurrencyWidths{} through
+\RQFourVFourConcurrencyGateways{} Gateway replicas, and an offline
+derivation-independent comparison of all \RQFourVFourOracleFacts{} facts.
+
+The layout result is a bitmap-kernel measurement, not Gateway end-to-end
+latency: \RQFourVFourDistributionRoundTrips{} exact portable complete-set
+round-trip checks pass at their actual cardinalities, and the worst
+ANDNOT--popcount--OR p95 is
+\RQFourVFourDistributionWorstTailMS{}~ms. The contention result uses a frozen
+ten-row publication with a one-row query effect, not a high-cardinality load
+test: exactly one contender per
+cell advances $B-1$ to $B$, all \RQFourVFourConcurrencyZeroNovelty{} aggregate
+losers add zero novelty, and all four $B+1$ attempts fail with released
+reservations and no partial content/result/observation. All
+\RQFourVFourRootLockWaiters{} requests across the four cells enter transitive
+PostgreSQL lock-wait chains before blocker release. This demonstrates exercised
+contention and the subsequent single-epoch linearization, but does not identify
+the exact awaited statement and is not evidence of a stale read, CAS conflict,
+or retry count. A separate store-level regression deterministically queues two
+conditional head updates, observes the exported retry counter, and checks that
+all three dimensions are recomputed from the fresh head; it is test coverage,
+not a public-path measurement. The offline oracle reports
+\RQFourVFourOracleMismatches{} mismatches while checking every hash, payload,
+and witness multiplicity; it shares the canonical FactID specification and
+encoder and therefore supports a derivation-independent, not fully
+implementation-independent, claim.
+
+An excluded diagnostic run found that the original failure path carried a
+success-only ordinal materialization into failure settlement. The budget check
+still withheld result and ledger changes, but the reservation remained pending
+and readiness degraded. The fixed path sanitizes that settlement, preserves the
+budget-exhaustion terminal code, and is covered by both a targeted regression
+and the final fresh concurrency campaign. The earlier 560-operation
+success-path report remains reproducible from its archived source snapshot;
+the final concurrency report binds the fixed current source.
 
 \subsection{Implementation Coverage}
 
