@@ -27,6 +27,15 @@ curl -i http://127.0.0.1:8082/health/ready
 curl -i http://127.0.0.1:8092/health/ready
 ```
 
+Compose 会先运行两个一次性 `snapshot-index` compiler。它们只接入内部
+`business-data` 网络，以 `gateway_reader` 在只读 `REPEATABLE READ` 事务中扫描
+输入声明的冻结 Reporting materialized view，再把 `config/snapshots/*.json` 中的
+candidate rows 完全替换为数据库真实 rows。构建器逐列校验 PostgreSQL type、
+collation 及版本，并要求 relation 已 populated 且由不在 reader 角色继承链中的
+NOLOGIN 角色持有。输入中固定了人类审核过的五类 digest；已有 publication 只有在
+四个文件逐字节一致时才可复用，否则启动失败。artifact 写入只读挂给 Gateway 的
+named volume，构建器不能连接 public-edge 或 control-plane。
+
 三个请求应返回 `204 No Content`。Gateway readiness 同时检查系统控制 PostgreSQL、业务 PostgreSQL、Reporting View 列/类型与 Catalog 的 Schema Attestation，以及是否存在尚未成功持久化的预算结算。
 
 | 服务 | 地址 | 暴露范围 |
@@ -78,7 +87,9 @@ docker compose -f compose.yaml -f compose.debug.yaml up --build -d --wait
 | Gateway 只读用户名 | `gateway_reader` |
 | Gateway 只读密码 | `.env` 的 `GATEWAY_DB_PASSWORD` |
 
-`gateway_reader` 只能读取 `reporting.datasource_attestation` 以及已发布的 `reporting.expense_summary` 和 `reporting.expense_detail` View，不能访问 `legacy.*`，也不能执行写操作。
+`gateway_reader` 只能读取 `reporting.datasource_attestation`、已发布的 Reporting View
+以及两张只含 entity key/row handle 的 `taskgate_ordinal` companion；不能访问
+`legacy.*`，也不能执行写操作。
 
 也可以用容器内 `psql` 验证：
 
@@ -169,10 +180,9 @@ equijoin，或同一产品两个过滤分支的 `union_distinct`；字段用 Cat
 聚合。嵌套关系树、self-join、`UNION ALL`、关系计划的 order/limit/offset 会
 关闭式拒绝。详细 JSON 示例见仓库根目录 README。
 
-默认 Catalog 定义 `taskgate-exposure-v3` budget profiles，且所有 approval
-route 都是人工审批。Gateway 会在一个只读
-`REPEATABLE READ` 事务中执行可见查询和 provenance companion，先在内存
-缓冲，再按根任务已知集合结算。响应中的 `exposure` 给出本次
+默认 Catalog 定义 `taskgate-exposure-v4` budget profiles，且所有 approval
+route 都是人工审批。正常批准把完整 Catalog Profile 交给 Agent，不做最小预算选择。Gateway 会在一个只读
+`REPEATABLE READ` 事务中缓冲可见查询并流式读取 ordinal companion，再以 exact bitmap 对共享 root head 结算。响应中的 `exposure` 给出本次
 `actual_*_facts` 与真正新增的 `charged_*_facts`；`exposure_budget` 给出共享
 根账本。内部补取的 `entity_key` 不会出现在客户端结果中。
 
@@ -195,7 +205,7 @@ route 都是人工审批。Gateway 会在一个只读
 - `get_task_context`：获批产品、字段、Scope、凭证与期限。
 - `get_budget`：查询数、累计行数和累计 DB 毫秒的上限、已用、预留和剩余值，并在 exposure 启用时返回根任务三维账本。
 - `get_query_result`：Alice 按 `task_id + query_id` 读取 AES-256-GCM 加密保存的结果。
-- `list_receipts`：V3 exposure 结算使用 V5；V2/V1 兼容 exposure 使用 V4，无 exposure evidence 的兼容终态使用 V3。
+- `list_receipts`：V4 ordinal exposure 结算使用 V6；旧 V5/V4/V3 verifier 仅用于兼容历史回执。
 - `complete_task`：主动归档任务。
 - `revoke_task`：阻止新查询；已在途查询不会被宣称立即取消，仍受原超时和 Grant 到期约束。
 
@@ -215,7 +225,7 @@ docker compose down
 docker compose down --volumes --remove-orphans
 ```
 
-该命令删除当前 Compose 项目的 `control-pg-data` 和 `business-pg-data`。旧版本曾使用的 `gateway-data` Volume 不再被 Compose 引用，本次改造不会自动删除它；如需恢复或清理，请先用 `docker volume ls` 确认确切名称并手工处理。
+该命令删除当前 Compose 项目的 `control-pg-data`、`business-pg-data`、`snapshot-index-artifacts` 和仅保存认证密文临时文件的 `gateway-encrypted-spool`。旧版本曾使用的 `gateway-data` Volume 不再被 Compose 引用，本次改造不会自动删除它；如需恢复或清理，请先用 `docker volume ls` 确认确切名称并手工处理。
 
 ## 8. 常见问题
 

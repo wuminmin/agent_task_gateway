@@ -43,7 +43,7 @@ Content-Type: application/json
       "max_release_facts": 1000,
       "max_influence_facts": 5000,
       "max_outcome_facts": 10,
-      "exposure_profile_version": "taskgate-exposure-v3"
+      "exposure_profile_version": "taskgate-exposure-v4"
     },
     "catalog_version": "2026-07-25.2",
     "catalog_sha256": "<64 位小写十六进制 SHA-256>",
@@ -167,13 +167,13 @@ Exposure 在线路径另外要求 Connector 实现：
 
 ```go
 type PairedQueryConnector interface {
-    QueryPair(context.Context, dataconnector.QueryPairRequest) (dataconnector.QueryPairResult, error)
+    QueryPairStream(context.Context, dataconnector.QueryPairStreamRequest) (dataconnector.QueryPairStreamResult, error)
 }
 ```
 
-`QueryPair` 必须让可见查询和 provenance companion 观察同一个一致性快照。
-内置 PostgreSQL Connector 在一个显式只读 `REPEATABLE READ` 事务中顺序执行
-两者，并分别报告业务与 provenance 数据库耗时。Connector 不实现该接口时，
+`QueryPairStream` 必须缓冲可见结果、把 companion rows 逐个交给 `ProvenanceSink`，并让二者观察同一个一致性快照。Sink 即使已经看到前缀，也只能在整个调用成功后使用结果；任何错误都必须丢弃该前缀。
+内置 PostgreSQL Connector 在一个显式只读 `REPEATABLE READ` 事务中执行
+两者，并分别报告可见与 provenance 数据库耗时/行数而不保留 companion 全量 rows。Connector 不实现该接口时，
 exposure Grant 会在执行前关闭式拒绝。
 
 `QueryRequest` 只包含经过 SQL 策略生成的 SQL、单次 `StatementTimeout` 与 `MaxRows`，刻意不提供客户端参数、DSN 或任意 Session 设置入口。结果包含逻辑列名、PostgreSQL类型 OID、二维行、行数、数据库耗时和截断标记。
@@ -183,7 +183,7 @@ exposure Grant 会在执行前关闭式拒绝。
 1. 从 Catalog Source 和 `secretRef` 构造业务库 DSN，建立最多 4 个连接的 Pool，并在启动时 Ping。
 2. Connection Runtime Params 固定 `default_transaction_read_only=on`、`search_path=pg_catalog`、最大 `statement_timeout=5s`。
 3. 启动、readiness 和每次查询预算预留前校验 `datasource_id`、`current_database()`、`current_user`、PostgreSQL 主版本和 Reporting View Schema 摘要；该摘要覆盖列名、列顺序、PostgreSQL 通用类型和 `pg_get_viewdef` 规范化后的 View 定义。
-4. 普通 Query 开启显式 `READ ONLY` 事务；paired exposure 查询使用同一个 `READ ONLY, REPEATABLE READ` 事务，并用事务本地 `set_config` 缩小超时、重设 `search_path`。
+4. 普通 Query 开启显式 `READ ONLY` 事务；V4 streamed pair 使用同一个 `READ ONLY, REPEATABLE READ` 事务，并用事务本地 `set_config` 缩小超时、重设 `search_path`。
 5. Connector 将请求行数限制压到自身 10,000 行硬上限以内；Demo 的任务 Profile 上限更低。
 6. 错误对客户端只暴露稳定码，不回显 DSN、原始 SQL 或物理对象；内部 Cause 只供可信日志处理。
 

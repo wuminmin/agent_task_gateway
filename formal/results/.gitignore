@@ -15,3 +15,5 @@
 !recovery_liveness.log
 !exposure_ledger.json
 !exposure_ledger.log
+!exposure_bitmap_refinement.json
+!exposure_bitmap_refinement.log

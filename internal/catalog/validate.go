@@ -11,14 +11,15 @@ import (
 )
 
 var (
-	identifierPattern    = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
-	configNamePattern    = regexp.MustCompile(`^[a-z_][a-z0-9_-]*$`)
-	versionPattern       = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
-	secretRefPattern     = regexp.MustCompile(`^(?:env:)?[A-Z][A-Z0-9_]{1,127}$`)
-	databaseNamePattern  = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]*$`)
-	reportingViewPattern = regexp.MustCompile(`^reporting\.[a-z_][a-z0-9_]*$`)
-	functionPattern      = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
-	sha256HexPattern     = regexp.MustCompile(`^[a-f0-9]{64}$`)
+	identifierPattern     = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
+	configNamePattern     = regexp.MustCompile(`^[a-z_][a-z0-9_-]*$`)
+	versionPattern        = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+	secretRefPattern      = regexp.MustCompile(`^(?:env:)?[A-Z][A-Z0-9_]{1,127}$`)
+	databaseNamePattern   = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]*$`)
+	reportingViewPattern  = regexp.MustCompile(`^reporting\.[a-z_][a-z0-9_]*$`)
+	ordinalSidecarPattern = regexp.MustCompile(`^taskgate_ordinal\.[a-z_][a-z0-9_]*$`)
+	functionPattern       = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
+	sha256HexPattern      = regexp.MustCompile(`^[a-f0-9]{64}$`)
 )
 
 // Catalog V1 attests the generic PostgreSQL data_type reported by
@@ -45,6 +46,8 @@ var forbiddenFunctions = map[string]struct{}{
 	"pg_read_binary_file": {}, "pg_read_file": {}, "pg_sleep": {},
 	"pg_terminate_backend": {}, "set_config": {},
 }
+
+const exposureProfileV4 = "taskgate-exposure-v4"
 
 func (c *Catalog) Validate() error {
 	if c == nil {
@@ -90,6 +93,29 @@ func (c *Catalog) Validate() error {
 		}
 	}
 
+	publications := make(map[string]SnapshotPublication, len(c.SnapshotPublications))
+	publicationBindings := make(map[string]struct{}, len(c.SnapshotPublications))
+	sidecars := make(map[string]struct{}, len(c.SnapshotPublications))
+	for index, publication := range c.SnapshotPublications {
+		path := fmt.Sprintf("snapshot_publications[%d]", index)
+		problems = append(problems, validateSnapshotPublication(path, publication, sources)...)
+		if publication.Name != "" {
+			if _, duplicate := publications[publication.Name]; duplicate {
+				problems = append(problems, fieldError(path+".name", "snapshot publication name is duplicated", ErrInvalidSnapshotPublication))
+			}
+			publications[publication.Name] = publication
+		}
+		binding := publication.Source + "\x00" + publication.SourceNamespace + "\x00" + publication.Snapshot
+		if _, duplicate := publicationBindings[binding]; duplicate {
+			problems = append(problems, fieldError(path, "source/namespace/snapshot is published more than once", ErrInvalidSnapshotPublication))
+		}
+		publicationBindings[binding] = struct{}{}
+		if _, duplicate := sidecars[publication.OrdinalSidecar]; duplicate {
+			problems = append(problems, fieldError(path+".ordinal_sidecar", "ordinal sidecar is published more than once", ErrInvalidSnapshotPublication))
+		}
+		sidecars[publication.OrdinalSidecar] = struct{}{}
+	}
+
 	scopes := make(map[string]struct{}, len(c.Scopes))
 	for index, scope := range c.Scopes {
 		path := fmt.Sprintf("scopes[%d]", index)
@@ -125,12 +151,30 @@ func (c *Catalog) Validate() error {
 			routes[route.Sensitivity] = route
 		}
 	}
+	v4Deployment := len(c.SnapshotPublications) != 0
+	for _, route := range c.ApprovalRoutes {
+		if profile, found := profiles[route.BudgetProfile]; found && profile.ExposureProfileVersion == exposureProfileV4 {
+			v4Deployment = true
+		}
+	}
+	if v4Deployment {
+		if len(c.SnapshotPublications) == 0 {
+			problems = append(problems, fieldError("snapshot_publications",
+				"a V4 deployment requires at least one immutable snapshot publication", ErrInvalidSnapshotPublication))
+		}
+		for index, route := range c.ApprovalRoutes {
+			if profile, found := profiles[route.BudgetProfile]; found && profile.ExposureProfileVersion != exposureProfileV4 {
+				problems = append(problems, fieldError(fmt.Sprintf("approval_routes[%d].budget_profile", index),
+					"V4 and legacy/resource-only approval routes cannot coexist in one deployment", ErrInvalidApprovalRoute))
+			}
+		}
+	}
 
 	products := make(map[string]struct{}, len(c.Products))
 	views := make(map[string]struct{}, len(c.Products))
 	for index, product := range c.Products {
 		path := fmt.Sprintf("products[%d]", index)
-		problems = append(problems, validateProduct(path, product, sources, scopes)...)
+		problems = append(problems, validateProduct(path, product, sources, scopes, publications)...)
 		if product.Name != "" {
 			if _, exists := products[product.Name]; exists {
 				problems = append(problems, fieldError(path+".name", "product name is duplicated", ErrDuplicateProduct))
@@ -144,8 +188,11 @@ func (c *Catalog) Validate() error {
 			views[product.ReportingView] = struct{}{}
 		}
 		if sensitivity, err := product.EffectiveSensitivity(); err == nil {
-			if _, exists := routes[sensitivity]; !exists {
+			route, exists := routes[sensitivity]
+			if !exists {
 				problems = append(problems, fieldError(path+".sensitivity", "no approval route exists for the effective sensitivity", ErrInvalidApprovalRoute))
+			} else if profile, found := profiles[route.BudgetProfile]; found && profile.ExposureProfileVersion == exposureProfileV4 && product.SnapshotPublication == "" {
+				problems = append(problems, fieldError(path+".snapshot_publication", "V4 products require a snapshot publication", ErrInvalidSnapshotPublication))
 			}
 		}
 	}
@@ -154,6 +201,33 @@ func (c *Catalog) Validate() error {
 		return problems
 	}
 	return nil
+}
+
+func validateSnapshotPublication(path string, publication SnapshotPublication, sources map[string]struct{}) ValidationErrors {
+	var problems ValidationErrors
+	if !configNamePattern.MatchString(publication.Name) {
+		problems = append(problems, fieldError(path+".name", "a lowercase publication name is required", ErrInvalidSnapshotPublication))
+	}
+	if _, exists := sources[publication.Source]; !exists {
+		problems = append(problems, fieldError(path+".source", "referenced source does not exist", ErrInvalidSnapshotPublication))
+	}
+	if strings.TrimSpace(publication.SourceNamespace) == "" || publication.SourceNamespace != strings.TrimSpace(publication.SourceNamespace) ||
+		strings.ContainsAny(publication.SourceNamespace, "\x00\r\n\t") {
+		problems = append(problems, fieldError(path+".source_namespace", "a canonical source namespace is required", ErrInvalidSnapshotPublication))
+	}
+	if !versionPattern.MatchString(publication.Snapshot) {
+		problems = append(problems, fieldError(path+".snapshot", "a versioned immutable snapshot is required", ErrInvalidSnapshotPublication))
+	}
+	if !ordinalSidecarPattern.MatchString(publication.OrdinalSidecar) {
+		problems = append(problems, fieldError(path+".ordinal_sidecar", "sidecar must be an unquoted taskgate_ordinal.<name> identifier", ErrInvalidSnapshotPublication))
+	}
+	for field, digest := range map[string]string{"sidecar_digest": publication.SidecarDigest,
+		"dictionary_digest": publication.DictionaryDigest, "manifest_digest": publication.ManifestDigest} {
+		if !sha256HexPattern.MatchString(digest) {
+			problems = append(problems, fieldError(path+"."+field, field+" must be lowercase SHA-256", ErrInvalidSnapshotPublication))
+		}
+	}
+	return problems
 }
 
 func validateSource(path string, source Source) ValidationErrors {
@@ -240,8 +314,8 @@ func validateBudgetProfile(path string, profile BudgetProfile) ValidationErrors 
 	if err := profile.Budget().Validate(); err != nil {
 		problems = append(problems, fieldError(path, err.Error(), ErrInvalidBudgetProfile))
 	}
-	if profile.ExposureProfileVersion != "" && profile.ExposureProfileVersion != "taskgate-exposure-v2" && profile.ExposureProfileVersion != "taskgate-exposure-v3" {
-		problems = append(problems, fieldError(path+".exposure_profile_version", "catalog profiles must use taskgate-exposure-v2 or taskgate-exposure-v3", ErrInvalidBudgetProfile))
+	if profile.ExposureProfileVersion != "" && profile.ExposureProfileVersion != "taskgate-exposure-v2" && profile.ExposureProfileVersion != "taskgate-exposure-v3" && profile.ExposureProfileVersion != "taskgate-exposure-v4" {
+		problems = append(problems, fieldError(path+".exposure_profile_version", "catalog profiles must use taskgate-exposure-v2, taskgate-exposure-v3, or taskgate-exposure-v4", ErrInvalidBudgetProfile))
 	}
 	return problems
 }
@@ -265,7 +339,7 @@ func validateApprovalRoute(path string, route ApprovalRoute, profiles map[string
 	return problems
 }
 
-func validateProduct(path string, product Product, sources, scopes map[string]struct{}) ValidationErrors {
+func validateProduct(path string, product Product, sources, scopes map[string]struct{}, publications map[string]SnapshotPublication) ValidationErrors {
 	var problems ValidationErrors
 	v2Product := product.FactNamespace != "" || product.StableRelationRole != ""
 	if !identifierPattern.MatchString(product.Name) {
@@ -336,6 +410,14 @@ func validateProduct(path string, product Product, sources, scopes map[string]st
 	}
 	if product.LineageManifestDigest != "" && !sha256HexPattern.MatchString(product.LineageManifestDigest) {
 		problems = append(problems, fieldError(path+".lineage_manifest_digest", "lineage manifest digest must be lowercase SHA-256", ErrInvalidCatalog))
+	}
+	if product.SnapshotPublication != "" {
+		publication, exists := publications[product.SnapshotPublication]
+		if !exists {
+			problems = append(problems, fieldError(path+".snapshot_publication", "referenced snapshot publication does not exist", ErrInvalidSnapshotPublication))
+		} else if publication.Source != product.Source || publication.SourceNamespace != product.FactNamespace || publication.Snapshot != product.Snapshot {
+			problems = append(problems, fieldError(path+".snapshot_publication", "publication source, namespace, and snapshot must match the product", ErrInvalidSnapshotPublication))
+		}
 	}
 	if len(product.EntityKey) == 0 || duplicateOrEmpty(product.EntityKey) {
 		problems = append(problems, fieldError(path+".entity_key", "at least one unique entity key field is required", ErrMissingField))

@@ -1,4 +1,4 @@
-catalog_version: "2026-07-25.3"
+catalog_version: "2026-07-30.4"
 
 sources:
   - name: travel_demo
@@ -11,6 +11,24 @@ sources:
     postgres_major_version: 16
     schema_digest: 02b4a211cfbab7347fdce28e2dd76406b1118c5f18e1d2146cc2e85a38ccf1cc
     secretRef: GATEWAY_DB_PASSWORD
+
+snapshot_publications:
+  - name: expense-summary-v1
+    source: travel_demo
+    source_namespace: travel.expense_summary
+    snapshot: travel-demo-2026-v1
+    ordinal_sidecar: taskgate_ordinal.expense_summary_v1
+    sidecar_digest: 2cd4e5c835252ec3bcd04aee11c28c70c6329b35bf6770f06a570cd918c9ceff
+    dictionary_digest: ac0239021ec58514d62ac0c4c56191c2337fc943106b6df900221e620e809a1f
+    manifest_digest: 8d675bbf97adfbc03234a468055c223a9ea3d9ffc6ab2d5f6b8da38abeb70432
+  - name: expense-detail-v1
+    source: travel_demo
+    source_namespace: travel.expense_receipt
+    snapshot: travel-demo-2026-v1
+    ordinal_sidecar: taskgate_ordinal.expense_detail_v1
+    sidecar_digest: bbf33dd42179b80cd8cca631f579c4c6e49ef51eb1d3a4ce157090a797c5acf7
+    dictionary_digest: 315995feeaa332b0d0f50834867ed5701a491ddc547bb2d666338fc938057232
+    manifest_digest: 9bc393632756c13ed355181658a6358aa656e1a828f69da36fc951c5061d390c
 
 scopes:
   - name: department
@@ -31,6 +49,7 @@ products:
     sensitivity: low
     # Stable published-row identity for task-bound exposure accounting.
     snapshot: travel-demo-2026-v1
+    snapshot_publication: expense-summary-v1
     entity_key: [month, department, expense_type]
     # Canonical semantic identity is independent from the reporting view alias.
     fact_namespace: travel.expense_summary
@@ -68,6 +87,7 @@ products:
     description: 员工级差旅报销明细
     sensitivity: high
     snapshot: travel-demo-2026-v1
+    snapshot_publication: expense-detail-v1
     entity_key: [receipt_no]
     fact_namespace: travel.expense_receipt
     stable_relation_role: expense_detail
@@ -129,18 +149,18 @@ approval_routes:
   - sensitivity: low
     mode: manual
     approver: bob
-    budget_profile: summary-manual-v3
+    budget_profile: summary-manual-v4
   - sensitivity: medium
     mode: manual
     approver: bob
-    budget_profile: detail-manual-v3
+    budget_profile: detail-manual-v4
   - sensitivity: high
     mode: manual
     approver: bob
-    budget_profile: detail-manual-v3
+    budget_profile: detail-manual-v4
 
 budget_profiles:
-  - name: summary-manual-v3
+  - name: summary-manual-v4
     max_queries: 10
     max_rows: 500
     max_db_time: 30s
@@ -149,8 +169,8 @@ budget_profiles:
     max_release_facts: 1000
     max_influence_facts: 5000
     max_outcome_facts: 10
-    exposure_profile_version: taskgate-exposure-v3
-  - name: detail-manual-v3
+    exposure_profile_version: taskgate-exposure-v4
+  - name: detail-manual-v4
     max_queries: 5
     max_rows: 100
     max_db_time: 15s
@@ -159,4 +179,4 @@ budget_profiles:
     max_release_facts: 500
     max_influence_facts: 2500
     max_outcome_facts: 5
-    exposure_profile_version: taskgate-exposure-v3
+    exposure_profile_version: taskgate-exposure-v4

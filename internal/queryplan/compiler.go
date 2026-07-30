@@ -23,6 +23,14 @@ type Product struct {
 	StableRole        string
 	StableEntityKey   []string
 	LineageDigest     string
+	// RequiredEvidence contains Catalog-mandated dependency fields (for
+	// example scope columns) that are not necessarily selected by the plan.
+	RequiredEvidence []string
+	// SnapshotPublication and SidecarManifestDigest bind a future physical
+	// row-handle projection to an immutable Catalog publication. Queryplan does
+	// not invent a sidecar JOIN when these identifiers are absent.
+	SnapshotPublication   string
+	SidecarManifestDigest string
 }
 
 type QueryPlan struct {

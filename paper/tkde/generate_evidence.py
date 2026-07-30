@@ -23,6 +23,7 @@ PATH_ANALYSIS = ROOT / "evaluation/exposure-performance/path_analysis.json"
 STORAGE_SCALING = ROOT / "evaluation/exposure-storage/results.json"
 SCALE = ROOT / "evaluation/exposure-scale/results.json"
 FORMAL = ROOT / "formal/results/exposure_ledger.json"
+FORMAL_BITMAP = ROOT / "formal/results/exposure_bitmap_refinement.json"
 OUTPUT = PAPER_DIR / "generated/evidence.tex"
 
 PERFORMANCE_SOURCE_DIRS = (
@@ -529,18 +530,18 @@ def validate_scale() -> dict:
     return result
 
 
-def validate_formal() -> dict:
-    result = load_json(FORMAL)
-    require(result.get("schema_version") == 1 and result.get("status") == "passed", "exposure TLC did not pass")
+def validate_formal(path: Path, label: str) -> dict:
+    result = load_json(path)
+    require(result.get("schema_version") == 1 and result.get("status") == "passed", f"{label} TLC did not pass")
     for field, digest_field in (
         ("model", "model_sha256"),
         ("config", "config_sha256"),
         ("raw_log", "log_sha256"),
     ):
         relative = result.get(field, "")
-        path = ROOT / relative
-        require(relative and path.is_file(), f"missing formal artifact {relative!r}")
-        require(sha256(path) == result.get(digest_field), f"stale formal digest for {relative}")
+        artifact_path = ROOT / relative
+        require(relative and artifact_path.is_file(), f"missing {label} formal artifact {relative!r}")
+        require(sha256(artifact_path) == result.get(digest_field), f"stale {label} formal digest for {relative}")
     log = (ROOT / result["raw_log"]).read_text(encoding="utf-8", errors="replace")
     require(log.count("Model checking completed. No error has been found.") == 1, "ambiguous TLC completion marker")
     match = re.search(
@@ -560,7 +561,8 @@ def main() -> None:
     path_analysis = validate_path_analysis(performance)
     storage_scaling = validate_storage_scaling()
     scale = validate_scale()
-    formal = validate_formal()
+    formal = validate_formal(FORMAL, "exposure ledger")
+    bitmap_formal = validate_formal(FORMAL_BITMAP, "bitmap refinement")
     rq1 = report["rq1_ground_truth"]
     rq2 = report["rq2_rewrite_invariance"]
     rq3 = report["rq3_anti_arbitrage"]
@@ -737,6 +739,9 @@ def main() -> None:
         rf"\newcommand{{\ExposureFormalStates}}{{{comma(formal['states_generated'])}}}",
         rf"\newcommand{{\ExposureFormalDistinct}}{{{comma(formal['distinct_states'])}}}",
         rf"\newcommand{{\ExposureFormalDepth}}{{{formal['search_depth']}}}",
+        rf"\newcommand{{\BitmapFormalStates}}{{{comma(bitmap_formal['states_generated'])}}}",
+        rf"\newcommand{{\BitmapFormalDistinct}}{{{comma(bitmap_formal['distinct_states'])}}}",
+        rf"\newcommand{{\BitmapFormalDepth}}{{{bitmap_formal['search_depth']}}}",
     ]
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     OUTPUT.write_text("\n".join(lines) + "\n", encoding="ascii")

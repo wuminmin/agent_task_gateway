@@ -7,13 +7,26 @@ Gateway 把数据访问绑定到不可扩权的 `TaskGrant`，并把累计数据
 
 ```mermaid
 flowchart LR
-    A[Codex / 第三方 Agent] -->|MCP 2.0 + Bearer Token| G[Gateway :8082]
-    G -->|创建草稿| O[OA Demo :8092]
-    O -->|HMAC 传输认证 + Ed25519 审批回执| G
-    G -->|任务族 / Grant / 三维账本 / 密文结果 / 审计链| C[(Control PostgreSQL<br/>host :25433)]
-    G -->|同快照结果 + provenance 查询| B[(Business PostgreSQL<br/>internal network only)]
-    B --> V[reporting.* Views]
-    B -. 权限拒绝 .-> X[legacy.* / 写操作]
+    subgraph OFF[离线：冻结发布物]
+        P[Reporting Snapshot<br/>Candidate Catalog] --> IC[Snapshot Index Compiler]
+        IC --> S[Business PG sidecar<br/>entity → row_handle]
+        IC --> D[FactID ↔ ordinal<br/>HOT hash / COLD payload]
+        S --> M[publication manifest]
+        D --> M
+    end
+    subgraph ON[在线：commit 前不释放]
+        A[Codex / 第三方 Agent] -->|MCP 2.0| G[Gateway]
+        G --> H{授权 + semantic replay}
+        H -->|miss| Q[visible SQL + streamed ordinal companion]
+        H -->|hit| R[committed observation reference]
+        Q --> E[exact weighted bitmap effect]
+        R --> E
+        E --> C[(Control PG<br/>ANDNOT + popcount<br/>三维 root-head CAS)]
+        C --> X[result + audit + V6 receipt]
+        X --> A
+    end
+    M --> H
+    S --> Q
 ```
 
 ## 信任域
@@ -21,8 +34,8 @@ flowchart LR
 | 信任域 | 输入与职责 | 边界 |
 |---|---|---|
 | Agent / MCP 客户端 | 显式提交产品、字段、Scope、QueryPlan 或 SQL | Bearer Token 映射固定 Principal；Alice 只能访问自己的任务，Carol 只有审计工具 |
-| Gateway 控制面 | Catalog、任务族、OA 回调、Grant、资源预算、根任务 exposure 账本、结果与审计 | 独立控制 PG；根账本行锁串行化 family settlement；Grant、事实和审计 Trigger 禁止修改；审计链头加锁后连续追加 |
-| 业务数据面 | 执行通过策略的可见查询及 provenance companion | 独立业务 PG；`gateway_reader` 仅有 Datasource Attestation 表与 Reporting Views 的 `SELECT`；同一只读 `REPEATABLE READ` 事务、超时和行数上限 |
+| Gateway 控制面 | Catalog、任务族、OA 回调、Grant、资源预算、三维 root head、字典/bitmap、结果与审计 | 独立 Control PG；一次 epoch CAS 同时发布 R/I/O；容器和 set manifest 内容寻址且不可变；Grant 与审计 Trigger 禁止修改 |
+| 业务数据面 | 执行可见查询及 streamed ordinal companion | 独立 Business PG；`gateway_reader` 仅有 Attestation、Reporting Views 和 immutable sidecar 的 `SELECT`；同一只读 `REPEATABLE READ` 事务、超时和行数上限 |
 
 Docker 宿主机、Catalog 管理者及能读取 `.env`/Volume 的管理员属于可信运维域。默认只发布 Control PG 回环调试端口；Business PG 仅内部网络可达，只有非论文 `compose.debug.yaml` 覆盖会发布回环端口。两库账号、数据库和 Volume 相互独立。
 
@@ -33,11 +46,12 @@ Docker 宿主机、Catalog 管理者及能读取 `.env`/Volume 的管理员属�
 3. Gateway 按 Catalog 校验并规范化申请，确定敏感级别与审批路由，并把路由所指完整 Profile 的资源预算、release/influence/outcome 上限和 TTL 绑定到 Manifest。委托任务自动取 Catalog Profile 与父 Grant 的逐维交集；这防止扩权，不是预算利用率优化。
 4. Gateway 构造身份派生的 `AuthorizationManifestV1`，绑定 root/parent lineage，经 RFC 8785 规范化并使用 `TASKGATE-MANIFEST-V1\0` 域分隔计算 SHA-256；同时保存 pending 上下文并创建 OA 草稿。
 5. OA 可 `approve/reject/narrow`。回调处理校验 HMAC、双时间戳、Event ID、状态、actor、Catalog/context/Manifest 摘要、Grant 单调收缩和 OA Ed25519 `ApprovalReceiptV1`。在一个 PostgreSQL 事务中写审批事件、不可变最终 Grant、预算和状态。
-6. ACTIVE exposure 任务调用带必填 `request_id` 的 `execute_plan`。QueryPlan 由本地 Go 包严格验证，并确定性编译成可见查询和 provenance companion；两条 SQL 都经过 `pg_query_go/v6` PostgreSQL AST 白名单策略。Exposure grant 下的任意 `query_sql` 会关闭式拒绝。
-7. 策略把物理 Reporting View 封装为只暴露获批字段和强制 Scope 的 CTE，在最外层施加剩余行预算，并只为计量临时加入 Catalog 固定的实体键。
-8. 控制库以 `(task_id, request_id)` 唯一约束完成幂等检查，同时预留资源预算和 exposure evidence。业务库在同一个只读 `REPEATABLE READ` 事务中执行两条查询，结果先留在 Gateway 内。
-9. Gateway 推导 release 与 positive-output dependency FactID（兼容 ledger 标签仍为 `influence`），并把规范化 QueryPlan/结果绑定为 OutcomeFact。控制库锁定 root ledger，只插入相对整个任务族的新事实；三维上限检查、资源结算、AES-256-GCM 结果、终态审计和回执在同一事务提交。超限或证据不完整时不交付缓冲结果。
-10. 成功结果以结构化 JSON 返回任务主体。Gateway 的 Ed25519 V5 查询回执绑定 Manifest/Grant/Catalog、请求、资源预算、result hash、root task、Profile、actual/charged 三维 exposure 和 observation digest；V4/V3 保留兼容。公钥由 `/.well-known/taskgate/query-receipt-keyring.json` 发布。审计凭证返回终态事件、前驱事件、通向当前 checkpoint 的后继路径和 checkpoint，并在返回前重建 Hash Chain 校验。配置 `GATEWAY_AUDIT_ANCHOR_URL` 时，Gateway 会定期把当前 checkpoint 签名为 `taskgate-audit-checkpoint-anchor/v1` 并 POST 到外部日志/WORM 服务。未配置外部 Anchor 时，该链只提供 Gateway 日志修改检测，不声称 WORM 或外部不可篡改。
+6. V4 Product 必须引用一个经过完整 digest 校验的 `snapshot_publication`。发布前，Compiler 离线扫描冻结快照，用现有 canonical FactID 编码建立 row/cell segments、`row_handle` sidecar、HOT hash/ordinal 索引和 COLD payload 块；重复 entity key、越界 ordinal、hash/payload collision 或 manifest 不一致都阻止发布。
+7. ACTIVE exposure 任务调用带必填 `request_id` 的 `execute_plan`。QueryPlan 由本地 Go 包严格验证，并确定性编译成可见查询和 ordinal companion；两条 SQL 都经过 `pg_query_go/v6` PostgreSQL AST 白名单策略。Exposure grant 下的任意 `query_sql` 会关闭式拒绝。
+8. 策略把 Reporting View 封装为只暴露获批字段和强制 Scope 的 CTE。可见结果小规模缓冲；companion 在同一只读 `REPEATABLE READ` 事务中按 canonical group 流式返回 handle 和必要聚合值，不全量物化关系。
+9. Gateway 以 exact bitmap 表示 base release/dependency，以小型动态字典表示 derived release/outcome。Control PG 对三个维度执行 `ANDNOT + popcount`，在一次 root-head epoch CAS 中发布三份新 set manifest；任何越界、CAS/字典故障或证据截断都回滚整笔事务。
+10. distinct-request semantic replay 只复用已提交 observation 与密文结果；仍重新授权、扣普通查询/行资源、写审计和新 receipt，并为新 query AAD 重加密。命中不执行 Business/provenance SQL；跨 grant/dictionary、密钥擦除或结果清理一律 miss。
+11. 资源结算、AES-256-GCM 结果、终态审计、materialization cache 和 Ed25519 V6 receipt 与 root head 在同一事务提交，commit 后才释放 JSON。V6 绑定 dictionary set、三维 effect digest、actual/charged counts、root epoch 和 result digest；旧 verifier 保留但不复用 V6 digest 语义。
 
 Exposure 语义、代数和在线支持矩阵见[任务级数据暴露记账](exposure-accounting.md)。
 
@@ -73,8 +87,9 @@ Gateway 启动时执行嵌入式迁移，再完成中断恢复：
 
 - Catalog 启动时严格校验未知字段、重复对象、明文密码、非法物理 View、危险函数和不一致 Scope。
 - QueryPlan 只包含声明式字段；编译器验证产品、字段、聚合、过滤 literal、排序和 Limit，不接受 SQL 片段。
-- Exposure QueryPlan 同时生成可见查询与 provenance companion；Connector 将二者绑定到一个只读数据库快照，隐藏计量键在返回前移除。
-- 根任务 exposure ledger、不可变 FactID 唯一键和事务内条件更新共同阻止重试、分页重叠、委托及并发结算重复消费。
+- V4 QueryPlan 同时生成可见查询与 streamed ordinal companion；Connector 将二者绑定到一个只读数据库快照，隐藏 handle/计量键在返回前移除。
+- 每个 snapshot dictionary segment 都是 canonical FactID 与 ordinal 的不可变双射；精确 bitmap OR/ANDNOT/popcount 与 FactSet 并/差/基数等价。
+- 所有子 Agent 共享一个三维 root head；一次 epoch CAS 和事务内上限检查共同阻止重试、分页重叠、委托及并发结算重复消费。
 - SQL 决策基于 PostgreSQL AST，策略错误不返回物理对象名或解析器细节。
 - 业务数据库角色权限、只读连接/事务、服务端超时和行数上限独立于应用策略。
 - PostgreSQL Trigger 阻止 Grant 与审计事件的 UPDATE/DELETE；Hash Chain 提供有限的日志修改检测证据。

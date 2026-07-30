@@ -6,9 +6,15 @@ import (
 	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
+)
+
+const (
+	resultStorageSingle  = "single-aes-gcm-v1"
+	resultStorageChunked = "chunked-aes-gcm-v1"
 )
 
 func resultAAD(taskID, queryID string) []byte {
@@ -45,6 +51,33 @@ func (s *Store) FinalizeQuery(ctx context.Context, settlement BudgetSettlement, 
 	return record, err
 }
 
+// FinalizeOrdinalQueryWithReceipt is the V4 success path named by the public
+// storage contract. It atomically settles resource and ordinal exposure
+// budgets, stores a query-AAD encrypted result, optionally publishes the
+// committed semantic materialization, appends audit evidence, and stores the
+// terminal receipt.
+func (s *Store) FinalizeOrdinalQueryWithReceipt(ctx context.Context, settlement BudgetSettlement,
+	plaintext []byte, publish *OrdinalMaterializationPublish,
+	builder TerminalReceiptBuilder) (QueryRecord, PersistedQueryReceipt, error) {
+	record, receipt, _, err := s.FinalizeOrdinalQueryMeasuredWithReceipt(ctx, settlement, plaintext, publish, builder)
+	return record, receipt, err
+}
+
+// FinalizeOrdinalQueryMeasuredWithReceipt is the measured V4 success path.
+// It has identical validation, atomicity, cache-publication and receipt
+// semantics to FinalizeOrdinalQueryWithReceipt and exposes the existing timing
+// breakdown for RQ4 evaluation.
+func (s *Store) FinalizeOrdinalQueryMeasuredWithReceipt(ctx context.Context, settlement BudgetSettlement,
+	plaintext []byte, publish *OrdinalMaterializationPublish,
+	builder TerminalReceiptBuilder) (QueryRecord, PersistedQueryReceipt, FinalizeQueryMetrics, error) {
+	if (settlement.OrdinalExposure == nil) == (settlement.OrdinalObservationRef == nil) || settlement.Exposure != nil {
+		return QueryRecord{}, PersistedQueryReceipt{}, FinalizeQueryMetrics{}, opErr("finalize ordinal query", ErrInvalid,
+			fmt.Errorf("exactly one V4 observation or committed observation reference is required"))
+	}
+	settlement.OrdinalMaterialization = publish
+	return s.FinalizeQueryMeasuredWithReceipt(ctx, settlement, plaintext, builder)
+}
+
 // FinalizeQueryMetrics separates local authenticated encryption from the
 // Control PostgreSQL settlement-and-persistence transaction for evaluation.
 type FinalizeQueryMetrics struct {
@@ -54,6 +87,7 @@ type FinalizeQueryMetrics struct {
 	ExposureReservationLock time.Duration
 	ExposureLedgerLock      time.Duration
 	ExposureFactStore       time.Duration
+	OrdinalCASRetries       int
 }
 
 // FinalizeQueryMeasured is the measured form of FinalizeQuery. The returned
@@ -78,6 +112,10 @@ func (s *Store) FinalizeQueryMeasuredWithReceipt(ctx context.Context, settlement
 	if settlement.QueryID == "" || settlement.Rows < 0 || settlement.DBMS < 0 || settlement.ObservedDBMS < 0 {
 		return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, ErrInvalid, fmt.Errorf("invalid settlement"))
 	}
+	if settlement.OrdinalMaterialization != nil && settlement.OrdinalExposure == nil && settlement.OrdinalObservationRef == nil {
+		return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, ErrInvalid,
+			fmt.Errorf("ordinal materialization requires V4 exposure evidence"))
+	}
 	current, err := s.GetQuery(ctx, settlement.QueryID)
 	if err != nil {
 		return QueryRecord{}, PersistedQueryReceipt{}, metrics, err
@@ -96,46 +134,125 @@ func (s *Store) FinalizeQueryMeasuredWithReceipt(ctx context.Context, settlement
 	if err != nil {
 		return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, ErrCipherUnavailable, err)
 	}
+	prepared := preparedEncryptedResult{metadata: EncryptedResult{
+		QueryID: current.ID, TaskID: current.TaskID, KeyID: keyID, Nonce: nonce, Ciphertext: ciphertext,
+		SHA256: hash, StorageFormat: resultStorageSingle, CreatedAt: s.now(),
+	}}
+	size := int64(len(plaintext))
+	prepared.metadata.PlaintextSize = &size
+	return s.finalizePreparedQuery(ctx, settlement, current, prepared, builder, metrics)
+}
+
+type preparedEncryptedResult struct {
+	metadata EncryptedResult
+	chunks   func(context.Context, *sql.Tx) error
+}
+
+const ordinalCASMaxAttempts = 16
+
+func (s *Store) finalizePreparedQuery(ctx context.Context, settlement BudgetSettlement, current QueryRecord,
+	prepared preparedEncryptedResult, builder TerminalReceiptBuilder,
+	metrics FinalizeQueryMetrics) (QueryRecord, PersistedQueryReceipt, FinalizeQueryMetrics, error) {
 	settlementStarted := time.Now()
+	prepared.metadata.CreatedAt = s.now()
+	aggregate := metrics
+	for attempt := 0; attempt < ordinalCASMaxAttempts; attempt++ {
+		record, receipt, measured, err := s.finalizePreparedQueryAttempt(ctx, settlement, current, prepared, builder)
+		aggregate.ReceiptSigning += measured.ReceiptSigning
+		aggregate.ExposureReservationLock += measured.ExposureReservationLock
+		aggregate.ExposureLedgerLock += measured.ExposureLedgerLock
+		aggregate.ExposureFactStore += measured.ExposureFactStore
+		if err == nil {
+			aggregate.SettlementStore = time.Since(settlementStarted)
+			return record, receipt, aggregate, nil
+		}
+		if !errors.Is(err, ErrOrdinalCASConflict) || attempt+1 == ordinalCASMaxAttempts {
+			aggregate.SettlementStore = time.Since(settlementStarted)
+			return QueryRecord{}, PersistedQueryReceipt{}, aggregate, err
+		}
+		aggregate.OrdinalCASRetries++
+		// A failed CAS rolls back the complete result/exposure/audit transaction.
+		// Re-enter with a fresh READ COMMITTED transaction so all three dimensions
+		// are reloaded and recomputed from the newly committed root head.
+		backoff := time.Duration(attempt+1) * time.Millisecond
+		if backoff > 10*time.Millisecond {
+			backoff = 10 * time.Millisecond
+		}
+		timer := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			aggregate.SettlementStore = time.Since(settlementStarted)
+			return QueryRecord{}, PersistedQueryReceipt{}, aggregate, ctx.Err()
+		case <-timer.C:
+		}
+	}
+	panic("unreachable")
+}
+
+func (s *Store) finalizePreparedQueryAttempt(ctx context.Context, settlement BudgetSettlement, current QueryRecord,
+	prepared preparedEncryptedResult, builder TerminalReceiptBuilder,
+) (QueryRecord, PersistedQueryReceipt, FinalizeQueryMetrics, error) {
+	const op = "finalize query"
+	var metrics FinalizeQueryMetrics
 	now := s.now()
 	tx, err := beginTx(ctx, s.db)
 	if err != nil {
 		return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, ErrConflict, err)
 	}
 	defer rollback(tx)
-	exposureCharge, exposureMetrics, err := settleExposureMeasuredTx(ctx, tx, now, settlement.QueryID, settlement.Exposure)
+	// Persist ciphertext before taking the root-family exposure lock. The rows
+	// remain invisible and fully rollbackable until commit, while a large
+	// chunked result cannot extend the critical CAS/ledger lock interval.
+	created, err := insertEncryptedResultTx(ctx, tx, prepared.metadata)
+	if err != nil {
+		return QueryRecord{}, PersistedQueryReceipt{}, metrics, err
+	}
+	if created && prepared.chunks != nil {
+		if err := prepared.chunks(ctx, tx); err != nil {
+			return QueryRecord{}, PersistedQueryReceipt{}, metrics, err
+		}
+	}
+	exposureCharge, exposureMetrics, err := settleAnyExposureMeasuredTx(ctx, tx, now, settlement)
 	if err != nil {
 		return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, settlementErrorKind(err), err)
 	}
 	metrics.ExposureReservationLock = exposureMetrics.ReservationLock
 	metrics.ExposureLedgerLock = exposureMetrics.LedgerLock
 	metrics.ExposureFactStore = exposureMetrics.FactStore
-	record, audit, err := settleBudgetTx(ctx, tx, now, settlement, QueryCompleted, hash)
+	record, audit, err := settleBudgetTx(ctx, tx, now, settlement, QueryCompleted, prepared.metadata.SHA256)
 	if err != nil {
 		return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, settlementErrorKind(err), err)
 	}
-	created, err := insertEncryptedResultTx(ctx, tx, EncryptedResult{
-		QueryID: current.ID, TaskID: current.TaskID, KeyID: keyID, Nonce: nonce, Ciphertext: ciphertext, SHA256: hash, CreatedAt: now,
-	})
-	if err != nil {
-		return QueryRecord{}, PersistedQueryReceipt{}, metrics, err
-	}
-	if record.ResultSHA256 != "" && record.ResultSHA256 != hash {
+	if record.ResultSHA256 != "" && record.ResultSHA256 != prepared.metadata.SHA256 {
 		return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, ErrConflict, fmt.Errorf("query already finalized with a different result"))
 	}
 	if record.ResultSHA256 == "" {
-		if _, err := tx.ExecContext(ctx, `UPDATE query_records SET result_sha256=$1 WHERE id=$2`, hash, record.ID); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE query_records SET result_sha256=$1 WHERE id=$2`, prepared.metadata.SHA256, record.ID); err != nil {
 			return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, ErrConflict, err)
 		}
-		record.ResultSHA256 = hash
+		record.ResultSHA256 = prepared.metadata.SHA256
 	}
 	if created {
 		_, err = appendAuditTx(ctx, tx, AuditEvent{
 			TaskID: record.TaskID, QueryID: record.ID, Actor: record.Actor, EventType: "QUERY_RESULT_STORED",
-			Payload: mustJSON(map[string]any{"result_sha256": hash, "cipher": "AES-256-GCM", "key_id": keyID}), OccurredAt: now,
+			Payload: mustJSON(map[string]any{
+				"result_sha256": prepared.metadata.SHA256, "cipher": "AES-256-GCM", "key_id": prepared.metadata.KeyID,
+				"storage_format": prepared.metadata.StorageFormat, "chunk_count": prepared.metadata.ChunkCount,
+			}), OccurredAt: now,
 		})
 		if err != nil {
 			return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, ErrConflict, err)
+		}
+	}
+	if settlement.OrdinalMaterialization != nil {
+		if _, _, err := publishOrdinalMaterializationTx(ctx, tx, now, record.ID, *settlement.OrdinalMaterialization); err != nil {
+			return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, materializationErrorKind(err), err)
 		}
 	}
 	var receipt PersistedQueryReceipt
@@ -150,7 +267,6 @@ func (s *Store) FinalizeQueryMeasuredWithReceipt(ctx context.Context, settlement
 	if err := tx.Commit(); err != nil {
 		return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, ErrConflict, err)
 	}
-	metrics.SettlementStore = time.Since(settlementStarted)
 	return record, receipt, metrics, nil
 }
 
@@ -176,7 +292,9 @@ func (s *Store) SaveEncryptedResult(ctx context.Context, taskID, queryID string,
 		return EncryptedResult{}, opErr(op, ErrCipherUnavailable, err)
 	}
 	result := EncryptedResult{QueryID: queryID, TaskID: taskID, KeyID: keyID, Nonce: nonce, Ciphertext: ciphertext,
-		SHA256: plaintextHash(plaintext), CreatedAt: s.now()}
+		SHA256: plaintextHash(plaintext), StorageFormat: resultStorageSingle, CreatedAt: s.now()}
+	size := int64(len(plaintext))
+	result.PlaintextSize = &size
 	tx, err := beginTx(ctx, s.db)
 	if err != nil {
 		return EncryptedResult{}, opErr(op, ErrConflict, err)
@@ -232,6 +350,12 @@ func (s *Store) SaveEncryptedResult(ctx context.Context, taskID, queryID string,
 // insertEncryptedResultTx returns true when a row was inserted and false for
 // an idempotent replay of the same plaintext hash.
 func insertEncryptedResultTx(ctx context.Context, tx *sql.Tx, result EncryptedResult) (bool, error) {
+	if result.StorageFormat == "" {
+		result.StorageFormat = resultStorageSingle
+	}
+	if result.StorageFormat == resultStorageSingle {
+		result.ChunkCount = 0
+	}
 	var existingHash string
 	err := tx.QueryRowContext(ctx, `SELECT plaintext_sha256 FROM encrypted_query_results WHERE query_id=$1 FOR UPDATE`, result.QueryID).
 		Scan(&existingHash)
@@ -248,9 +372,10 @@ func insertEncryptedResultTx(ctx context.Context, tx *sql.Tx, result EncryptedRe
 		return false, err
 	}
 	_, err = tx.ExecContext(ctx, `
-INSERT INTO encrypted_query_results(query_id, task_id, key_id, nonce, ciphertext, plaintext_sha256, created_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7)`, result.QueryID, result.TaskID, result.KeyID, result.Nonce, result.Ciphertext, result.SHA256,
-		dbTime(result.CreatedAt))
+INSERT INTO encrypted_query_results(query_id, task_id, key_id, nonce, ciphertext, plaintext_sha256, created_at,
+ storage_format,plaintext_size,chunk_count)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`, result.QueryID, result.TaskID, result.KeyID, result.Nonce, result.Ciphertext, result.SHA256,
+		dbTime(result.CreatedAt), result.StorageFormat, result.PlaintextSize, result.ChunkCount)
 	if err != nil {
 		return false, opErr("save encrypted result", ErrConflict, err)
 	}
@@ -269,13 +394,16 @@ func (s *Store) GetEncryptedResult(ctx context.Context, taskID, queryID string) 
 	var result EncryptedResult
 	var created time.Time
 	var keyStatus sql.NullString
+	var plaintextSize sql.NullInt64
 	err := s.db.QueryRowContext(ctx, `
 SELECT result.query_id, result.task_id, result.key_id, result.nonce, result.ciphertext,
-       result.plaintext_sha256, result.created_at, key.status
+       result.plaintext_sha256, result.storage_format, result.plaintext_size, result.chunk_count,
+       result.created_at, key.status
 FROM encrypted_query_results result
 LEFT JOIN result_encryption_keys key ON key.key_id = result.key_id
 WHERE result.query_id=$1 AND result.task_id=$2`, queryID, taskID).
-		Scan(&result.QueryID, &result.TaskID, &result.KeyID, &result.Nonce, &result.Ciphertext, &result.SHA256, &created, &keyStatus)
+		Scan(&result.QueryID, &result.TaskID, &result.KeyID, &result.Nonce, &result.Ciphertext, &result.SHA256,
+			&result.StorageFormat, &plaintextSize, &result.ChunkCount, &created, &keyStatus)
 	if err != nil {
 		if isNoRows(err) {
 			return EncryptedResult{}, nil, opErr(op, ErrNotFound, err)
@@ -291,6 +419,20 @@ WHERE result.query_id=$1 AND result.task_id=$2`, queryID, taskID).
 	}
 	if ResultEncryptionKeyStatus(keyStatus.String) != ResultEncryptionKeyActive {
 		return EncryptedResult{}, nil, opErr(op, ErrCipherUnavailable, fmt.Errorf("result encryption key %q is %s", result.KeyID, keyStatus.String))
+	}
+	if plaintextSize.Valid {
+		value := plaintextSize.Int64
+		result.PlaintextSize = &value
+	}
+	if result.StorageFormat == resultStorageChunked {
+		plaintext, err := s.decryptChunkedResult(ctx, result)
+		if err != nil {
+			return EncryptedResult{}, nil, err
+		}
+		return result, plaintext, nil
+	}
+	if result.StorageFormat != resultStorageSingle || result.ChunkCount != 0 {
+		return EncryptedResult{}, nil, opErr(op, ErrCiphertextInvalid, fmt.Errorf("unsupported encrypted result storage format"))
 	}
 	plaintext, err := s.cipher.Decrypt(result.Nonce, result.Ciphertext, resultAAD(taskID, queryID))
 	if err != nil {
@@ -310,8 +452,12 @@ func ensureActiveResultEncryptionKeyTx(ctx context.Context, tx *sql.Tx, keyID st
 		return opErr(op, ErrInvalid, err)
 	}
 	var status string
+	// SHARE permits concurrent result settlements using the same active key while
+	// remaining mutually exclusive with EraseResultEncryptionKey's row UPDATE.
+	// FOR KEY SHARE is insufficient because erasure changes status, not key_id;
+	// FOR UPDATE would serialize every query globally before the root-head CAS.
 	err = tx.QueryRowContext(ctx, `
-SELECT status FROM result_encryption_keys WHERE key_id=$1 FOR UPDATE`, keyID).Scan(&status)
+SELECT status FROM result_encryption_keys WHERE key_id=$1 FOR SHARE`, keyID).Scan(&status)
 	if err == nil {
 		if ResultEncryptionKeyStatus(status) == ResultEncryptionKeyActive {
 			return nil
@@ -321,11 +467,33 @@ SELECT status FROM result_encryption_keys WHERE key_id=$1 FOR UPDATE`, keyID).Sc
 	if !isNoRows(err) {
 		return opErr(op, ErrConflict, err)
 	}
-	_, err = tx.ExecContext(ctx, `
+	result, err := tx.ExecContext(ctx, `
 INSERT INTO result_encryption_keys(key_id, status, created_at, erased_by, erased_at)
-VALUES ($1, $2, $3, '', NULL)`, keyID, ResultEncryptionKeyActive, dbTime(createdAt))
+VALUES ($1, $2, $3, '', NULL)
+ON CONFLICT (key_id) DO NOTHING`, keyID, ResultEncryptionKeyActive, dbTime(createdAt))
 	if err != nil {
 		return opErr(op, ErrConflict, err)
+	}
+	inserted, err := result.RowsAffected()
+	if err != nil {
+		return opErr(op, ErrConflict, err)
+	}
+	if inserted == 1 {
+		return nil
+	}
+	if inserted != 0 {
+		return opErr(op, ErrConflict, fmt.Errorf("unexpected result encryption key insert count %d", inserted))
+	}
+	// Another first user may have published this key after our initial no-row
+	// read. Re-lock and validate the durable state instead of treating the
+	// primary-key race as a query failure. SHARE still serializes with erasure.
+	err = tx.QueryRowContext(ctx, `
+SELECT status FROM result_encryption_keys WHERE key_id=$1 FOR SHARE`, keyID).Scan(&status)
+	if err != nil {
+		return opErr(op, ErrConflict, err)
+	}
+	if ResultEncryptionKeyStatus(status) != ResultEncryptionKeyActive {
+		return opErr(op, ErrCipherUnavailable, fmt.Errorf("result encryption key %q is %s", keyID, status))
 	}
 	return nil
 }

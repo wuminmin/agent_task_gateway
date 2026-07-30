@@ -23,6 +23,7 @@ fi
 : "${POSTGRES_PASSWORD:=postgres-demo-change-me}"
 : "${GATEWAY_DB_PASSWORD:=gateway-reader-demo-change-me}"
 : "${GATEWAY_DATA_KEY:=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}"
+: "${GATEWAY_CONNECTOR_MAX_ROWS:=1200000}"
 : "${GATEWAY_RECEIPT_KEY_ID:=gateway-integration-ed25519-v1}"
 : "${GATEWAY_RECEIPT_PRIVATE_KEY:=AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=}"
 : "${CONTROL_POSTGRES_DB:=taskbound_gateway}"
@@ -41,7 +42,7 @@ export TASKBOUND_ALICE_TOKEN TASKBOUND_CAROL_TOKEN
 export POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD GATEWAY_DB_PASSWORD
 export CONTROL_POSTGRES_DB CONTROL_POSTGRES_ADMIN_PASSWORD CONTROL_DB_PASSWORD
 export CONTROL_POSTGRES_PORT POSTGRES_PORT
-export GATEWAY_DATA_KEY GATEWAY_RECEIPT_KEY_ID GATEWAY_RECEIPT_PRIVATE_KEY
+export GATEWAY_DATA_KEY GATEWAY_CONNECTOR_MAX_ROWS GATEWAY_RECEIPT_KEY_ID GATEWAY_RECEIPT_PRIVATE_KEY
 export OA_SERVICE_TOKEN OA_CALLBACK_SECRET OA_RECEIPT_KEY_ID OA_RECEIPT_PRIVATE_KEY OA_RECEIPT_PUBLIC_KEY
 export OA_SESSION_SECRET
 export OA_ALICE_PASSWORD OA_BOB_PASSWORD
@@ -267,6 +268,24 @@ if ! compose down --volumes --remove-orphans >/dev/null 2>&1; then
   :
 fi
 compose up --build --detach --wait
+for builder_service in snapshot-index-detail snapshot-index-summary; do
+  builder_container=$(compose ps --all --quiet "$builder_service")
+  [ -n "$builder_container" ] || fail "Compose did not create $builder_service"
+  builder_environment=$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$builder_container")
+  case "$builder_environment" in
+    *"SNAPSHOT_POSTGRES_DSN=postgres://gateway_reader:"*"@business-postgres:5432/"*) ;;
+    *) fail "$builder_service does not use the gateway_reader snapshot DSN" ;;
+  esac
+  builder_network_mode=$(docker inspect --format '{{.HostConfig.NetworkMode}}' "$builder_container")
+  [ "$builder_network_mode" = "${PROJECT_NAME}_business-data" ] ||
+    fail "$builder_service network is $builder_network_mode, want only business-data"
+done
+pass "Snapshot builders scan Business PostgreSQL through the isolated read-only network"
+gateway_container=$(compose ps --quiet gateway)
+[ -n "$gateway_container" ] || fail "Compose did not create a Gateway container"
+gateway_environment=$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$gateway_container")
+assert_contains "$gateway_environment" "GATEWAY_CONNECTOR_MAX_ROWS=$GATEWAY_CONNECTOR_MAX_ROWS" "V4 connector row ceiling"
+pass "Gateway deployment admits the maximum-point provenance row count"
 compose --profile integration-tools run --rm --build test-runner
 pass "PostgreSQL-backed unit and race tests passed"
 
@@ -299,6 +318,8 @@ fi
 volume_names=$(docker volume ls --quiet --filter "label=com.docker.compose.project=$PROJECT_NAME")
 assert_contains "$volume_names" "${PROJECT_NAME}_control-pg-data" "control PostgreSQL volume"
 assert_contains "$volume_names" "${PROJECT_NAME}_business-pg-data" "business PostgreSQL volume"
+assert_contains "$volume_names" "${PROJECT_NAME}_snapshot-index-artifacts" "V4 snapshot-index volume"
+assert_contains "$volume_names" "${PROJECT_NAME}_gateway-encrypted-spool" "V4 encrypted spool volume"
 pass "host ports, application accounts, databases, and volumes are isolated"
 
 # MCP authentication is checked before JSON-RPC dispatch.
@@ -371,8 +392,8 @@ summary_request=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
   '{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"request_data_task","arguments":{"objective":"按月份分析销售部差旅报销","data_products":["expense_summary"],"columns":{"expense_summary":["month","total_amount"]},"scopes":{"department":["销售部"]}}}}')
 assert_contains "$summary_request" '"isError":false' "summary task request"
 assert_contains "$summary_request" '"approval_mode":"manual"' "summary task approval route"
-assert_contains "$summary_request" '"exposure_profile_version":"taskgate-exposure-v3"' "summary V3 profile"
-assert_contains "$summary_request" '"max_outcome_facts":10' "summary V3 outcome ceiling"
+assert_contains "$summary_request" '"exposure_profile_version":"taskgate-exposure-v4"' "summary V4 profile"
+assert_contains "$summary_request" '"max_outcome_facts":10' "summary V4 outcome ceiling"
 assert_contains "$summary_request" '"budget_source":"catalog_profile"' "summary Catalog budget source"
 assert_contains "$summary_request" '"max_queries":10' "summary complete Catalog query budget"
 summary_task=$(json_string "$summary_request" task_id)
@@ -425,6 +446,8 @@ stored_result=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
 assert_contains "$stored_result" '"isError":false' "persisted encrypted result"
 assert_contains "$stored_result" '"result_hash":' "persisted result receipt"
 assert_contains "$stored_result" '"gateway_key_id":"gateway-integration-ed25519-v1"' "signed query receipt key"
+assert_contains "$stored_result" '"version":"6"' "V4 query receipt version"
+assert_contains "$stored_result" '"dictionary_set_sha256":' "V4 dictionary-set receipt binding"
 assert_contains "$stored_result" '"signature":' "signed query receipt signature"
 carol_receipt=$(mcp_call "$TASKBOUND_CAROL_TOKEN" \
   "{\"jsonrpc\":\"2.0\",\"id\":13,\"method\":\"tools/call\",\"params\":{\"name\":\"get_audit_receipt\",\"arguments\":{\"receipt_id\":\"$summary_query_id\"}}}")
@@ -528,6 +551,29 @@ case "$reporting_count" in
 esac
 pass "gateway_reader can read a published reporting view"
 
+if ! reader_psql --tuples-only --no-align --command "
+  SELECT count(*)
+  FROM pg_catalog.pg_class AS cls
+  JOIN pg_catalog.pg_namespace AS ns ON ns.oid = cls.relnamespace
+  WHERE ns.nspname = 'reporting'
+    AND cls.relname IN ('expense_detail', 'expense_summary')
+    AND cls.relkind = 'm'
+    AND cls.relispopulated
+    AND pg_catalog.pg_get_userbyid(cls.relowner) = 'taskgate_snapshot_owner'" >"$TMP_FILE" 2>&1; then
+  fail "could not inspect frozen reporting publication metadata"
+fi
+frozen_publication_count=$(tr -d '[:space:]' <"$TMP_FILE")
+[ "$frozen_publication_count" = "2" ] || fail "frozen reporting publication count is $frozen_publication_count, want 2"
+pass "reporting products are populated materialized snapshots owned by a NOLOGIN role"
+
+if ! reader_psql --tuples-only --no-align \
+  --command 'SELECT count(*) FROM taskgate_ordinal.expense_summary_v1' >"$TMP_FILE" 2>&1; then
+  fail "gateway_reader could not read the immutable ordinal sidecar"
+fi
+ordinal_count=$(tr -d '[:space:]' <"$TMP_FILE")
+[ "$ordinal_count" = "10" ] || fail "ordinal sidecar row count is $ordinal_count, want 10"
+pass "gateway_reader can read the Catalog-pinned ordinal sidecar"
+
 if reader_psql --tuples-only --no-align \
   --command 'SELECT count(*) FROM legacy.employees' >"$TMP_FILE" 2>&1; then
   fail "gateway_reader unexpectedly read legacy.employees"
@@ -547,6 +593,12 @@ read_only_setting=$(tr -d '[:space:]' <"$TMP_FILE")
 if reader_psql --command "SET default_transaction_read_only=off; CREATE TABLE public.__taskbound_write_probe(id integer)" >"$TMP_FILE" 2>&1; then
   fail "gateway_reader unexpectedly executed a write/DDL statement"
 fi
-pass "gateway_reader cannot execute writes"
+if reader_psql --command "SET default_transaction_read_only=off; REFRESH MATERIALIZED VIEW reporting.expense_detail" >"$TMP_FILE" 2>&1; then
+  fail "gateway_reader unexpectedly refreshed a frozen reporting publication"
+fi
+if reader_psql --command "SET default_transaction_read_only=off; UPDATE taskgate_ordinal.expense_detail_v1 SET row_handle=row_handle WHERE false" >"$TMP_FILE" 2>&1; then
+  fail "gateway_reader unexpectedly mutated an immutable ordinal sidecar"
+fi
+pass "gateway_reader cannot write, refresh snapshots, or mutate ordinal sidecars"
 
 echo "all Compose end-to-end acceptance checks passed"

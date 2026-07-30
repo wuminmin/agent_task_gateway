@@ -57,6 +57,41 @@ func TestNormalFormV2DistinguishesCountStarAndCountExpression(t *testing.T) {
 	}
 }
 
+func TestOrdinalProgramNormalFormSortsConjunctionsWithoutFoldingLiteralCase(t *testing.T) {
+	product := ordinalTestProduct()
+	leftPlan := QueryPlan{Product: product.Name, Columns: []string{"department"}, Filters: []Filter{
+		{Column: "scope", Op: "=", Value: "Sales"},
+		{Column: "amount", Op: ">", Value: float64(0)},
+	}}
+	rightPlan := leftPlan
+	rightPlan.Filters = []Filter{leftPlan.Filters[1], leftPlan.Filters[0]}
+	left, err := CompileOrdinal(leftPlan, product)
+	if err != nil {
+		t.Fatal(err)
+	}
+	right, err := CompileOrdinal(rightPlan, product)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leftDigest, _ := left.OrdinalProgram.Digest()
+	rightDigest, _ := right.OrdinalProgram.Digest()
+	if leftDigest != rightDigest {
+		t.Fatalf("predicate conjunction order changed ordinal normal form: %s != %s", leftDigest, rightDigest)
+	}
+
+	lowerPlan := leftPlan
+	lowerPlan.Filters = append([]Filter(nil), leftPlan.Filters...)
+	lowerPlan.Filters[0].Value = "sales"
+	lower, err := CompileOrdinal(lowerPlan, product)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lowerDigest, _ := lower.OrdinalProgram.Digest()
+	if lowerDigest == leftDigest {
+		t.Fatal("case-sensitive predicate literals collapsed in ordinal normal form")
+	}
+}
+
 func TestCompileSupportsOffset(t *testing.T) {
 	product := Product{Name: "expenses", Columns: map[string]struct{}{"id": {}}, AllowedAggregates: map[string]struct{}{}}
 	sql, err := Compile(QueryPlan{Product: "expenses", Columns: []string{"id"}, OrderBy: []Order{{Column: "id"}}, Limit: 5, Offset: 10}, product)

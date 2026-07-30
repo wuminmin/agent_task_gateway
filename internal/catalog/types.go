@@ -12,12 +12,50 @@ type Catalog struct {
 	// SHA256 is the lowercase digest of the exact validated catalog artifact
 	// bytes. It is carried into manifests and receipts so formatting or policy
 	// edits necessarily create a new authorization binding.
-	SHA256         string          `yaml:"-" json:"catalog_sha256"`
-	Sources        []Source        `yaml:"sources" json:"sources"`
-	Products       []Product       `yaml:"products" json:"products"`
-	Scopes         []Scope         `yaml:"scopes" json:"scopes"`
-	ApprovalRoutes []ApprovalRoute `yaml:"approval_routes" json:"approval_routes"`
-	BudgetProfiles []BudgetProfile `yaml:"budget_profiles" json:"budget_profiles"`
+	SHA256               string                `yaml:"-" json:"catalog_sha256"`
+	Sources              []Source              `yaml:"sources" json:"sources"`
+	SnapshotPublications []SnapshotPublication `yaml:"snapshot_publications,omitempty" json:"snapshot_publications,omitempty"`
+	Products             []Product             `yaml:"products" json:"products"`
+	Scopes               []Scope               `yaml:"scopes" json:"scopes"`
+	ApprovalRoutes       []ApprovalRoute       `yaml:"approval_routes" json:"approval_routes"`
+	BudgetProfiles       []BudgetProfile       `yaml:"budget_profiles" json:"budget_profiles"`
+}
+
+// V4Enabled reports the deployment mode selected by the validated Catalog.
+// Validation guarantees that snapshot publications and every reachable
+// approval route agree on this mode; scanning both keeps the method
+// fail-closed for callers holding a manually constructed Catalog in tests.
+func (c *Catalog) V4Enabled() bool {
+	if c == nil {
+		return false
+	}
+	if len(c.SnapshotPublications) != 0 {
+		return true
+	}
+	profiles := make(map[string]string, len(c.BudgetProfiles))
+	for _, profile := range c.BudgetProfiles {
+		profiles[profile.Name] = profile.ExposureProfileVersion
+	}
+	for _, route := range c.ApprovalRoutes {
+		if profiles[route.BudgetProfile] == exposureProfileV4 {
+			return true
+		}
+	}
+	return false
+}
+
+// SnapshotPublication binds an immutable business snapshot to the exact V4
+// ordinal sidecar and content-addressed dictionary artifacts approved by the
+// Catalog. Digests are verified again when SnapshotRegistry resolves it.
+type SnapshotPublication struct {
+	Name             string `yaml:"name" json:"name"`
+	Source           string `yaml:"source" json:"source"`
+	SourceNamespace  string `yaml:"source_namespace" json:"source_namespace"`
+	Snapshot         string `yaml:"snapshot" json:"snapshot"`
+	OrdinalSidecar   string `yaml:"ordinal_sidecar" json:"ordinal_sidecar"`
+	SidecarDigest    string `yaml:"sidecar_digest" json:"sidecar_digest"`
+	DictionaryDigest string `yaml:"dictionary_digest" json:"dictionary_digest"`
+	ManifestDigest   string `yaml:"manifest_digest" json:"manifest_digest"`
 }
 
 type Source struct {
@@ -40,18 +78,19 @@ type Source struct {
 }
 
 type Product struct {
-	Name              string             `yaml:"name" json:"name"`
-	Source            string             `yaml:"source" json:"source"`
-	ReportingView     string             `yaml:"reporting_view" json:"reporting_view"`
-	Description       string             `yaml:"description" json:"description"`
-	Sensitivity       domain.Sensitivity `yaml:"sensitivity" json:"sensitivity"`
-	Fields            []Field            `yaml:"fields" json:"fields"`
-	Scopes            []string           `yaml:"scopes" json:"scopes"`
-	AllowedFunctions  []string           `yaml:"allowed_functions,omitempty" json:"allowed_functions,omitempty"`
-	AllowedOperators  []string           `yaml:"allowed_operators,omitempty" json:"allowed_operators,omitempty"`
-	AllowedAggregates []string           `yaml:"allowed_aggregates,omitempty" json:"allowed_aggregates,omitempty"`
-	Snapshot          string             `yaml:"snapshot" json:"snapshot"`
-	EntityKey         []string           `yaml:"entity_key" json:"entity_key"`
+	Name                string             `yaml:"name" json:"name"`
+	Source              string             `yaml:"source" json:"source"`
+	ReportingView       string             `yaml:"reporting_view" json:"reporting_view"`
+	Description         string             `yaml:"description" json:"description"`
+	Sensitivity         domain.Sensitivity `yaml:"sensitivity" json:"sensitivity"`
+	Fields              []Field            `yaml:"fields" json:"fields"`
+	Scopes              []string           `yaml:"scopes" json:"scopes"`
+	AllowedFunctions    []string           `yaml:"allowed_functions,omitempty" json:"allowed_functions,omitempty"`
+	AllowedOperators    []string           `yaml:"allowed_operators,omitempty" json:"allowed_operators,omitempty"`
+	AllowedAggregates   []string           `yaml:"allowed_aggregates,omitempty" json:"allowed_aggregates,omitempty"`
+	Snapshot            string             `yaml:"snapshot" json:"snapshot"`
+	SnapshotPublication string             `yaml:"snapshot_publication,omitempty" json:"snapshot_publication,omitempty"`
+	EntityKey           []string           `yaml:"entity_key" json:"entity_key"`
 	// FactNamespace is the Catalog-owned canonical semantic relation, not the
 	// logical reporting view name. StableRelationRole disambiguates self-joins.
 	FactNamespace      string `yaml:"fact_namespace,omitempty" json:"fact_namespace,omitempty"`

@@ -35,6 +35,8 @@ import (
 	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 )
 
+const defaultGatewayConnectorMaxRows int64 = 1_200_000
+
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -76,6 +78,27 @@ func main() {
 		os.Exit(1)
 	}
 	defer store.Close()
+	if !logicalCatalog.V4Enabled() {
+		// A V4 marker is permanent. Checking it even for a legacy Catalog makes
+		// replacing the Catalog or Gateway binary an unavailable downgrade, not
+		// a way around the ordinal exposure boundary.
+		if err := store.EnforceExposureDeploymentMode(ctx, logicalCatalog.SHA256, false); err != nil {
+			logger.Error("legacy Catalog refused by exposure deployment mode", "error", err)
+			os.Exit(1)
+		}
+	}
+	snapshotRegistry, err := snapshotRegistryFromEnv(ctx, logicalCatalog, store)
+	if err != nil {
+		logger.Error("activate snapshot index publications", "error", err)
+		os.Exit(1)
+	}
+	if snapshotRegistry == nil && len(logicalCatalog.SnapshotPublications) != 0 {
+		// A Catalog that publishes V4 snapshots is not serviceable without its
+		// verified HOT indexes. Do not advertise a healthy Gateway that will reject
+		// every otherwise-authorized request only after creating task/query state.
+		logger.Error("snapshot index artifact directory is required by the Catalog")
+		os.Exit(1)
+	}
 
 	aliceToken := requiredEnv("TASKBOUND_ALICE_TOKEN")
 	carolToken := requiredEnv("TASKBOUND_CAROL_TOKEN")
@@ -103,7 +126,7 @@ func main() {
 		os.Exit(1)
 	}
 	businessDSN := sourceDSN(source, requiredSecret(source.SecretRef))
-	connectorMaxRows, err := positiveInt64Env("GATEWAY_CONNECTOR_MAX_ROWS", 10000)
+	connectorMaxRows, err := positiveInt64Env("GATEWAY_CONNECTOR_MAX_ROWS", defaultGatewayConnectorMaxRows)
 	if err != nil {
 		logger.Error("invalid connector row ceiling", "error", err)
 		os.Exit(1)
@@ -136,7 +159,7 @@ func main() {
 		Catalog: logicalCatalog, Store: store, Approval: oaClient,
 		Connector: connector, CallbackSecret: requiredEnv("OA_CALLBACK_SECRET"), Logger: logger,
 		ReceiptVerifier: oaReceiptVerifier, QueryReceiptSigner: queryReceiptSigner, Background: ctx,
-		SettlementTimeout: settlementTimeout,
+		SettlementTimeout: settlementTimeout, SnapshotRegistry: snapshotRegistry,
 	})
 	if err != nil {
 		logger.Error("initialize gateway service", "error", err)

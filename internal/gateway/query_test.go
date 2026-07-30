@@ -576,6 +576,34 @@ func TestRequestIDIsRequiredAndRetriesNeverExecuteTwice(t *testing.T) {
 	requireToolCode(t, err, apierr.CodeTaskNotActive)
 }
 
+func TestOrdinalTimingComponentsExposeCoherentLeafTimers(t *testing.T) {
+	components := make(map[string]float64)
+	recordOrdinalTimingComponents(components, 17*time.Millisecond, 5*time.Millisecond,
+		3*time.Millisecond, 7*time.Millisecond)
+
+	want := map[string]float64{
+		"ordinal_stream":              17,
+		"ordinal_stream_consumer":     5,
+		"ordinal_visible_preparation": 3,
+		"ordinal_finish":              7,
+		"bitmap_derivation":           15,
+	}
+	for name, expected := range want {
+		if got := components[name]; got != expected {
+			t.Fatalf("component %s = %v, want %v", name, got, expected)
+		}
+	}
+}
+
+func TestConnectorOverheadExcludesSeparatelyReportedVisibleConsumer(t *testing.T) {
+	if got := connectorOverheadDuration(30*time.Millisecond, 20*time.Millisecond, 3*time.Millisecond); got != 7*time.Millisecond {
+		t.Fatalf("connector overhead = %s, want 7ms", got)
+	}
+	if got := connectorOverheadDuration(20*time.Millisecond, 20*time.Millisecond, 3*time.Millisecond); got != 0 {
+		t.Fatalf("negative connector overhead was not clamped: %s", got)
+	}
+}
+
 func TestSchemaDriftFailsQueryClosedBeforeReservation(t *testing.T) {
 	harness := newGatewayHarness(t)
 	harness.createActiveSummaryTask(t, "task-schema-drift")

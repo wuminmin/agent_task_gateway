@@ -43,6 +43,60 @@ services:
     networks:
       - business-data
 
+  snapshot-index-detail:
+    build:
+      context: .
+      args:
+        TARGET: snapshot-index
+    command:
+      - -input
+      - /input/expense-detail-v1.json
+      - -output-dir
+      - /data/snapshot-index
+      - -allow-existing-identical
+    environment:
+      SNAPSHOT_POSTGRES_DSN: postgres://gateway_reader:${GATEWAY_DB_PASSWORD:?set GATEWAY_DB_PASSWORD in .env}@business-postgres:5432/${POSTGRES_DB:-travel_demo}?sslmode=disable
+    depends_on:
+      business-postgres:
+        condition: service_healthy
+    volumes:
+      - ./config/snapshots/expense-detail-v1.json:/input/expense-detail-v1.json:ro
+      - snapshot-index-artifacts:/data/snapshot-index
+    read_only: true
+    mem_limit: 4g
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - business-data
+
+  snapshot-index-summary:
+    build:
+      context: .
+      args:
+        TARGET: snapshot-index
+    command:
+      - -input
+      - /input/expense-summary-v1.json
+      - -output-dir
+      - /data/snapshot-index
+      - -allow-existing-identical
+    environment:
+      SNAPSHOT_POSTGRES_DSN: postgres://gateway_reader:${GATEWAY_DB_PASSWORD:?set GATEWAY_DB_PASSWORD in .env}@business-postgres:5432/${POSTGRES_DB:-travel_demo}?sslmode=disable
+    depends_on:
+      business-postgres:
+        condition: service_healthy
+    volumes:
+      - ./config/snapshots/expense-summary-v1.json:/input/expense-summary-v1.json:ro
+      - snapshot-index-artifacts:/data/snapshot-index
+    read_only: true
+    mem_limit: 4g
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - business-data
+
   gateway:
     build:
       context: .
@@ -66,6 +120,8 @@ services:
       GATEWAY_AUDIT_ANCHOR_INTERVAL: ${GATEWAY_AUDIT_ANCHOR_INTERVAL:-5m}
       GATEWAY_AUDIT_ANCHOR_KEY_ID: ${GATEWAY_AUDIT_ANCHOR_KEY_ID:-}
       GATEWAY_AUDIT_ANCHOR_PRIVATE_KEY: ${GATEWAY_AUDIT_ANCHOR_PRIVATE_KEY:-}
+      GATEWAY_SNAPSHOT_ARTIFACT_DIR: /var/lib/taskgate/snapshot-index
+      GATEWAY_CONNECTOR_MAX_ROWS: ${GATEWAY_CONNECTOR_MAX_ROWS:-1200000}
       OA_SERVICE_TOKEN: ${OA_SERVICE_TOKEN:?set OA_SERVICE_TOKEN in .env}
       OA_CALLBACK_SECRET: ${OA_CALLBACK_SECRET:?set OA_CALLBACK_SECRET in .env}
       OA_RECEIPT_KEY_ID: ${OA_RECEIPT_KEY_ID:-}
@@ -79,15 +135,24 @@ services:
         condition: service_healthy
       business-postgres:
         condition: service_healthy
+      snapshot-index-detail:
+        condition: service_completed_successfully
+      snapshot-index-summary:
+        condition: service_completed_successfully
       oa-demo:
         condition: service_healthy
     ports:
       - 127.0.0.1:8082:8082
     volumes:
       - ./config/catalog.yaml:/etc/taskbound/catalog.yaml:ro
+      - snapshot-index-artifacts:/var/lib/taskgate/snapshot-index:ro
+      # Both adaptive query spools and chunked-result staging contain only
+      # authenticated ciphertext. Keep them on disk: a 16 MiB tmpfs makes the
+      # mandatory >128 MiB spill path impossible and would also count against
+      # the Gateway's 512 MiB cgroup memory ceiling.
+      - gateway-encrypted-spool:/tmp
     read_only: true
-    tmpfs:
-      - /tmp:size=16m,mode=1777
+    mem_limit: 512m
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8082/health/ready"]
       interval: 3s
@@ -134,6 +199,8 @@ services:
 volumes:
   control-pg-data:
   business-pg-data:
+  snapshot-index-artifacts:
+  gateway-encrypted-spool:
 
 networks:
   public-edge:

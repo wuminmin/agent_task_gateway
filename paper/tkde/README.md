@@ -25,7 +25,8 @@ exposure report. `generate_evidence.py` then verifies:
   digest, and service memory peaks;
 - the production Control PostgreSQL storage curve and budget-boundary trials;
 - the model, configuration, and raw-log hashes in
-  `formal/results/exposure_ledger.json`.
+  `formal/results/exposure_ledger.json` and
+  `formal/results/exposure_bitmap_refinement.json`.
 
 It then emits `generated/evidence.tex` and compiles both `main.tex` and the
 separate `supplement.tex` with a pinned Docker TeX environment. The broad 1,024
@@ -58,5 +59,6 @@ threshold. Therefore the corresponding author must still confirm the selected
 TKDE manuscript category, initial-submission limit, treatment of supplementary
 material, and current charge acknowledgement in ScholarOne/Author Portal
 immediately before submission. Do not infer acceptability from a successful
-local PDF build alone. The current pinned-template build is 13 main-paper pages
-plus a separate 3-page supplement.
+local PDF build alone. The 2026-07-30 pinned-template syntax build is 14
+main-paper pages plus a separate 4-page supplement, so the draft requires
+editorial shortening or an explicitly confirmed overlength submission path.

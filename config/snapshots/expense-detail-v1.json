@@ -1,0 +1,55 @@
+{
+  "version": "taskgate-snapshot-index-input-v1",
+  "publication_name": "expense-detail-v1",
+  "catalog_source": "travel_demo",
+  "source_relation": "reporting.expense_detail",
+  "ordinal_sidecar": "taskgate_ordinal.expense_detail_v1",
+  "entity_key_fields": ["receipt_no"],
+  "snapshot": {
+    "source_id": "taskgate-demo-travel",
+    "source_namespace": "travel.expense_receipt",
+    "snapshot": "travel-demo-2026-v1",
+    "schema_digest": "02b4a211cfbab7347fdce28e2dd76406b1118c5f18e1d2146cc2e85a38ccf1cc",
+    "fields": [
+      {"name": "receipt_no", "sql_type": "text", "collation": "en_US.utf8", "collation_version": "2.36"},
+      {"name": "receipt_no", "canonical_field_id": "expense_detail.receipt_no", "sql_type": "text", "collation": "en_US.utf8", "collation_version": "2.36"},
+      {"name": "employee_no", "sql_type": "text", "collation": "en_US.utf8", "collation_version": "2.36"},
+      {"name": "employee_no", "canonical_field_id": "expense_detail.employee_no", "sql_type": "text", "collation": "en_US.utf8", "collation_version": "2.36"},
+      {"name": "employee_name", "sql_type": "text", "collation": "en_US.utf8", "collation_version": "2.36"},
+      {"name": "employee_name", "canonical_field_id": "expense_detail.employee_name", "sql_type": "text", "collation": "en_US.utf8", "collation_version": "2.36"},
+      {"name": "department", "sql_type": "text", "collation": "en_US.utf8", "collation_version": "2.36"},
+      {"name": "department", "canonical_field_id": "expense_detail.department", "sql_type": "text", "collation": "en_US.utf8", "collation_version": "2.36"},
+      {"name": "expense_date", "sql_type": "date"},
+      {"name": "expense_date", "canonical_field_id": "expense_detail.expense_date", "sql_type": "date"},
+      {"name": "expense_type", "sql_type": "text", "collation": "en_US.utf8", "collation_version": "2.36"},
+      {"name": "expense_type", "canonical_field_id": "expense_detail.expense_type", "sql_type": "text", "collation": "en_US.utf8", "collation_version": "2.36"},
+      {"name": "amount", "sql_type": "numeric"},
+      {"name": "amount", "canonical_field_id": "expense_detail.amount", "sql_type": "numeric"},
+      {"name": "city", "sql_type": "text", "collation": "en_US.utf8", "collation_version": "2.36"},
+      {"name": "city", "canonical_field_id": "expense_detail.city", "sql_type": "text", "collation": "en_US.utf8", "collation_version": "2.36"},
+      {"name": "purpose", "sql_type": "text", "collation": "en_US.utf8", "collation_version": "2.36"},
+      {"name": "purpose", "canonical_field_id": "expense_detail.purpose", "sql_type": "text", "collation": "en_US.utf8", "collation_version": "2.36"},
+      {"name": "status", "sql_type": "text", "collation": "en_US.utf8", "collation_version": "2.36"},
+      {"name": "status", "canonical_field_id": "expense_detail.status", "sql_type": "text", "collation": "en_US.utf8", "collation_version": "2.36"}
+    ],
+    "rows": [
+      {"values": {"receipt_no": "TR-2026-0001", "employee_no": "E001", "employee_name": "张伟", "department": "销售部", "expense_date": "2026-01-08", "expense_type": "机票", "amount": 1680.00, "city": "北京", "purpose": "客户拜访", "status": "approved"}},
+      {"values": {"receipt_no": "TR-2026-0002", "employee_no": "E002", "employee_name": "李娜", "department": "销售部", "expense_date": "2026-01-19", "expense_type": "酒店", "amount": 880.00, "city": "上海", "purpose": "展会支持", "status": "approved"}},
+      {"values": {"receipt_no": "TR-2026-0003", "employee_no": "E001", "employee_name": "张伟", "department": "销售部", "expense_date": "2026-02-11", "expense_type": "高铁", "amount": 553.00, "city": "杭州", "purpose": "客户培训", "status": "approved"}},
+      {"values": {"receipt_no": "TR-2026-0004", "employee_no": "E002", "employee_name": "李娜", "department": "销售部", "expense_date": "2026-02-21", "expense_type": "餐饮", "amount": 320.00, "city": "深圳", "purpose": "商务洽谈", "status": "approved"}},
+      {"values": {"receipt_no": "TR-2026-0005", "employee_no": "E003", "employee_name": "王强", "department": "研发部", "expense_date": "2026-01-12", "expense_type": "机票", "amount": 1450.00, "city": "成都", "purpose": "技术交流", "status": "approved"}},
+      {"values": {"receipt_no": "TR-2026-0006", "employee_no": "E003", "employee_name": "王强", "department": "研发部", "expense_date": "2026-03-03", "expense_type": "酒店", "amount": 1260.00, "city": "武汉", "purpose": "项目交付", "status": "approved"}},
+      {"values": {"receipt_no": "TR-2026-0007", "employee_no": "E004", "employee_name": "赵敏", "department": "财务部", "expense_date": "2026-03-15", "expense_type": "高铁", "amount": 420.00, "city": "南京", "purpose": "财务培训", "status": "approved"}},
+      {"values": {"receipt_no": "TR-2026-0008", "employee_no": "E001", "employee_name": "张伟", "department": "销售部", "expense_date": "2026-03-18", "expense_type": "酒店", "amount": 960.00, "city": "广州", "purpose": "渠道会议", "status": "pending"}},
+      {"values": {"receipt_no": "TR-2026-0009", "employee_no": "E002", "employee_name": "李娜", "department": "销售部", "expense_date": "2026-03-20", "expense_type": "机票", "amount": 1910.00, "city": "北京", "purpose": "年度签约", "status": "approved"}},
+      {"values": {"receipt_no": "TR-2026-0010", "employee_no": "E003", "employee_name": "王强", "department": "研发部", "expense_date": "2026-04-02", "expense_type": "餐饮", "amount": 280.00, "city": "上海", "purpose": "项目复盘", "status": "rejected"}}
+    ]
+  },
+  "expected_digests": {
+    "sidecar_digest": "bbf33dd42179b80cd8cca631f579c4c6e49ef51eb1d3a4ce157090a797c5acf7",
+    "dictionary_digest": "315995feeaa332b0d0f50834867ed5701a491ddc547bb2d666338fc938057232",
+    "manifest_digest": "9bc393632756c13ed355181658a6358aa656e1a828f69da36fc951c5061d390c",
+    "cold_payload_digest": "6ae1f688f5bafac44723624a6df5e72cc636c68aca213e92d62a47d97fa88cd6",
+    "hot_index_digest": "ae29bfd905ac88b7b6c3d437373c9dcfa1e1f8471c3398c3e82867eb6f4d0675"
+  }
+}

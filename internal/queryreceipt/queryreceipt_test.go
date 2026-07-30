@@ -75,6 +75,36 @@ func TestQueryReceiptV5BindsOutcomeCharge(t *testing.T) {
 	}
 }
 
+func TestQueryReceiptV6BindsOrdinalLedgerEvidence(t *testing.T) {
+	signer := DemoSigner([]byte("unit-test-v6-secret"))
+	verifier, err := NewVerifier(map[string]ed25519.PublicKey{signer.KeyID(): signer.PublicKey()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := signer.Sign(validV6Receipt())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := verifier.Verify(receipt); err != nil {
+		t.Fatal(err)
+	}
+	for name, mutate := range map[string]func(*ExposureEvidenceV1){
+		"dictionary": func(value *ExposureEvidenceV1) { value.DictionarySetSHA256 = fmt.Sprintf("%064x", 2) },
+		"release":    func(value *ExposureEvidenceV1) { value.ReleaseSetSHA256 = fmt.Sprintf("%064x", 3) },
+		"epoch":      func(value *ExposureEvidenceV1) { value.RootEpoch++ },
+	} {
+		t.Run(name, func(t *testing.T) {
+			tampered := receipt
+			copyExposure := *receipt.Exposure
+			tampered.Exposure = &copyExposure
+			mutate(tampered.Exposure)
+			if err := verifier.Verify(tampered); !errors.Is(err, ErrInvalidSignature) {
+				t.Fatalf("tamper error = %v, want invalid signature", err)
+			}
+		})
+	}
+}
+
 func TestQueryReceiptV1VerificationRemainsCompatible(t *testing.T) {
 	signer := DemoSigner([]byte("unit-test-secret"))
 	verifier, err := NewVerifier(map[string]ed25519.PublicKey{signer.KeyID(): signer.PublicKey()})
@@ -425,6 +455,18 @@ func validV5Receipt() QueryReceiptV1 {
 	receipt.Exposure.ProfileVersion = "taskgate-exposure-v3"
 	receipt.Exposure.ActualOutcomeFacts = 1
 	receipt.Exposure.ChargedOutcomeFacts = 1
+	return receipt
+}
+
+func validV6Receipt() QueryReceiptV1 {
+	receipt := validV5Receipt()
+	receipt.Version = VersionV6
+	receipt.Exposure.ProfileVersion = "taskgate-exposure-v4"
+	receipt.Exposure.DictionarySetSHA256 = fmt.Sprintf("%064x", 10)
+	receipt.Exposure.ReleaseSetSHA256 = fmt.Sprintf("%064x", 11)
+	receipt.Exposure.InfluenceSetSHA256 = fmt.Sprintf("%064x", 12)
+	receipt.Exposure.OutcomeSetSHA256 = fmt.Sprintf("%064x", 13)
+	receipt.Exposure.RootEpoch = 7
 	return receipt
 }
 

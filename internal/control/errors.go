@@ -8,8 +8,15 @@ import (
 // Stable sentinel errors returned by the control store. Callers should use
 // errors.Is rather than matching database-driver error strings.
 var (
-	ErrNotFound                 = errors.New("control: not found")
-	ErrConflict                 = errors.New("control: conflict")
+	ErrNotFound = errors.New("control: not found")
+	ErrConflict = errors.New("control: conflict")
+	// ErrOrdinalCASConflict marks a retryable optimistic root-head epoch race.
+	// The enclosing transaction has not committed when this error is returned.
+	ErrOrdinalCASConflict = fmt.Errorf("%w: V4 root epoch changed", ErrConflict)
+	// ErrMaterializationConflict is both a specific convergence failure and a
+	// general conflict. It is returned only when one semantic cache key is
+	// already committed to non-equivalent authorization/effect/result evidence.
+	ErrMaterializationConflict  = fmt.Errorf("%w: semantic materialization evidence differs", ErrConflict)
 	ErrInvalid                  = errors.New("control: invalid argument")
 	ErrClosed                   = errors.New("control: store closed")
 	ErrTaskNotActive            = errors.New("control: task is not active")

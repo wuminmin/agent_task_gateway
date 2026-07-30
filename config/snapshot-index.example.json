@@ -1,0 +1,44 @@
+{
+  "version": "taskgate-snapshot-index-input-v1",
+  "publication_name": "expense-detail-candidate-v1",
+  "catalog_source": "travel_demo",
+  "source_relation": "reporting.expense_detail",
+  "ordinal_sidecar": "taskgate_ordinal.expense_detail_candidate_v1",
+  "entity_key_fields": [
+    "receipt_no"
+  ],
+  "snapshot": {
+    "source_id": "taskgate-demo-travel",
+    "source_namespace": "travel.expense_receipt",
+    "snapshot": "travel-demo-2026-candidate-v1",
+    "schema_digest": "02b4a211cfbab7347fdce28e2dd76406b1118c5f18e1d2146cc2e85a38ccf1cc",
+    "fields": [
+      {
+        "name": "receipt_no",
+        "sql_type": "text",
+        "collation": "en_US.utf8",
+        "collation_version": "2.36"
+      },
+      {
+        "name": "amount",
+        "canonical_field_id": "expense_detail.amount",
+        "sql_type": "numeric"
+      }
+    ],
+    "rows": [
+      {
+        "values": {
+          "receipt_no": "R-2026-0001",
+          "amount": 1280.50
+        }
+      },
+      {
+        "values": {
+          "receipt_no": "R-2026-0002",
+          "amount": 320.00
+        }
+      }
+    ]
+  },
+  "expected_digests": {}
+}

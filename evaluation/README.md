@@ -1,12 +1,22 @@
 # Reproducible evaluation harness
 
-This directory contains three evidence tracks. `exposure/` is the deterministic
+This directory contains four evidence tracks. `exposure/` is the deterministic
 TKDE-oriented ground-truth, rewrite, anti-arbitrage, and baseline-charge suite.
 `exposure-performance/` is the real public-MCP exposure path and
 ablation harness. The existing runner remains the four-path resource-only
 system-performance harness. No track substitutes mock timing data when a
 prerequisite is absent, and older measurements are not relabeled as exposure
 overhead.
+
+The V4 snapshot-index implementation has a separate acceptance driver under
+`v4-acceptance/`. It records direct SQL, public V4 novel/replay operations,
+exact overlap, WAL, storage, and optional external cgroup/network/index-build
+evidence. Gateway ordinal-stream and bitmap timers now carry independently
+checked leaf equations; absent external observers, maximum-point workloads,
+offline commands, or throughput cells still remain explicitly `unmeasured`.
+See `v4-acceptance/README.md` before using its results in RQ4. The separate
+`v4-kernel/` record is engineering evidence and is not relabeled as a completed
+public-path campaign.
 
 Run the exposure suite with `make eval-exposure`. Its RQ1 track uses a separate
 reference package with no production exposure dependency. Its RQ2 track uses an

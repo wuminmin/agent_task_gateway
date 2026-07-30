@@ -53,6 +53,13 @@ FROM query_records WHERE status='RESERVED' ORDER BY created_at, id FOR UPDATE`)
 		return RecoveryReport{}, opErr(op, ErrConflict, err)
 	}
 	for _, reservation := range interrupted {
+		// Match MarkIndeterminate: resource reservations are conservatively
+		// charged, while uncommitted exposure reservations are released. This
+		// also prevents a restarted V4 query from leaving a forever-RESERVED
+		// ordinal row that could later be settled against a terminal query.
+		if err := releaseAnyExposureReservationTx(ctx, tx, now, reservation.queryID); err != nil {
+			return RecoveryReport{}, opErr(op, ErrConflict, err)
+		}
 		before, err := scanBudget(tx.QueryRowContext(ctx, budgetSelect+` WHERE task_id=$1 FOR UPDATE`, reservation.taskID))
 		if err != nil {
 			return RecoveryReport{}, opErr(op, ErrConflict, err)

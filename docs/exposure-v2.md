@@ -4,9 +4,10 @@
 
 `taskgate-exposure-v2` 是与 V1 不可混用的 Exposure Profile。一个 root task family 的 Control PG ledger 在创建时固定 profile；委托任务不能改变它。
 
-默认 Catalog 定义 V3 budget profiles；V3 原样复用本文的 V2
-release/dependency FactID，再增加 OutcomeFact。旧 V1/V2 仍用于历史账本、
-兼容部署和回归测试。所有 approval routes 都要求独立的人类审批。
+默认 Catalog 定义 V4 budget profiles。V4 原样复用本文的 V2
+release/dependency FactID 和 V3 OutcomeFact，只把物理 FactSet 换成可逆 ordinal
+bitmap；旧 V1/V2/V3 仍用于历史账本、兼容部署和回归 oracle。所有 approval
+routes 都要求独立的人类审批。
 
 V2 的执行边界是：客户端每次提交一个确定的 `QueryPlan`，不提交 FactID 或
 计量成本。Gateway 在同一个 Business PostgreSQL `REPEATABLE READ` 快照内执行
@@ -49,7 +50,7 @@ Derived(profile, snapshot_bundle, output_row_key,
         witness_multiset_commitment)
 ```
 
-索引键为 `SHA256("TASKGATE-FACT-V2\0" || CanonicalEncode(payload))`。`exposure_facts.canonical_payload` 同时保存规范 payload；相同 hash 对应不同 payload 时事务关闭式失败。`source_namespace` 和 self-join role 来自 Catalog，不使用 SQL alias。预计算 summary/generalized product 若要展开到另一个 base namespace，必须提供受信 lineage manifest；未提供时不能声称跨产品 dependency overlap。
+索引键为 `SHA256("TASKGATE-FACT-V2\0" || CanonicalEncode(payload))`。Legacy `exposure_facts.canonical_payload` 保存规范 payload；V4 dictionary 保留同一可恢复 payload/hash collision guard，并把集合成员编码为 ordinal。相同 hash 对应不同 payload 时两条路径都关闭式失败。`source_namespace` 和 self-join role 来自 Catalog，不使用 SQL alias。预计算 summary/generalized product 若要展开到另一个 base namespace，必须提供受信 lineage manifest；未提供时不能声称跨产品 dependency overlap。
 
 支持值域保留 PostgreSQL 类型：整数、exact numeric、浮点、布尔、文本、bytea、date/timestamp、JSON/JSONB 与 UUID。NULL 有独立编码；numeric 用任意精度有理数规范化，不经 `float64`。字符串字段必须由 Catalog 固定确定性 PostgreSQL collation 的精确名称和版本，Connector 在启动和每次查询事务内重新证明；`time with time zone` 关闭式拒绝。
 

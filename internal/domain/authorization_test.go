@@ -28,6 +28,22 @@ func TestTaskGrantCoreV1CheckNarrowing(t *testing.T) {
 	}
 }
 
+func TestAuthorizationBudgetV4RequiresOutcomeLimit(t *testing.T) {
+	budget := AuthorizationBudgetV1{
+		MaxQueries: 1, MaxResultRows: 1, MaxDBMS: 1000,
+		PerQueryTimeoutMS: 1000, TaskTTLMS: 60000,
+		MaxReleaseFacts: 10, MaxInfluenceFacts: 20, MaxOutcomeFacts: 1,
+		ExposureProfileVersion: "taskgate-exposure-v4",
+	}
+	if err := budget.Validate(); err != nil {
+		t.Fatalf("valid V4 authorization budget: %v", err)
+	}
+	budget.MaxOutcomeFacts = 0
+	if err := budget.Validate(); err == nil {
+		t.Fatal("V4 authorization budget without outcome limit was accepted")
+	}
+}
+
 func TestTaskGrantCoreV1RejectsEveryExpansionDimension(t *testing.T) {
 	issuedAt := time.Date(2026, 7, 22, 9, 0, 0, 0, time.UTC)
 	tests := map[string]func(*TaskGrantCoreV1){

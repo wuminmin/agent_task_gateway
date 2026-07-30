@@ -53,11 +53,11 @@ func (b AuthorizationBudgetV1) Validate() error {
 	if b.MaxReleaseFacts == 0 && b.ExposureProfileVersion != "" {
 		return errors.New("exposure_profile_version requires exposure limits")
 	}
-	if b.ExposureProfileVersion == "taskgate-exposure-v3" && b.MaxOutcomeFacts <= 0 {
-		return errors.New("V3 requires a positive outcome limit")
+	if isOutcomeExposureProfile(b.ExposureProfileVersion) && b.MaxOutcomeFacts <= 0 {
+		return errors.New("V3/V4 requires a positive outcome limit")
 	}
-	if b.ExposureProfileVersion != "taskgate-exposure-v3" && b.MaxOutcomeFacts != 0 {
-		return errors.New("outcome limit requires V3")
+	if !isOutcomeExposureProfile(b.ExposureProfileVersion) && b.MaxOutcomeFacts != 0 {
+		return errors.New("outcome limit requires V3/V4")
 	}
 	const maxDurationMilliseconds = int64(^uint64(0)>>1) / int64(time.Millisecond)
 	const maxSafeJSONInteger = int64(1<<53 - 1)

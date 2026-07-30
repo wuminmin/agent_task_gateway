@@ -244,6 +244,11 @@ func validateProductSQLProfileV2(product Product) error {
 			return fmt.Errorf("V2 entity-key column %q lacks a safe typed identity", column)
 		}
 	}
+	for _, column := range product.RequiredEvidence {
+		if !safeIdentifier(column) || strings.TrimSpace(product.ColumnTypes[column]) == "" {
+			return fmt.Errorf("V2 required evidence column %q lacks a safe typed identity", column)
+		}
+	}
 	for column, declaredType := range product.ColumnTypes {
 		if !safeIdentifier(column) {
 			return fmt.Errorf("V2 column %q has an invalid identifier", column)

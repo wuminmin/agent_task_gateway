@@ -11,4 +11,6 @@ ALTER ROLE gateway_reader SET search_path = pg_catalog;
 GRANT CONNECT ON DATABASE :DBNAME TO gateway_reader;
 GRANT USAGE ON SCHEMA reporting TO gateway_reader;
 GRANT SELECT ON reporting.datasource_attestation, reporting.expense_summary, reporting.expense_detail TO gateway_reader;
+GRANT USAGE ON SCHEMA taskgate_ordinal TO gateway_reader;
+GRANT SELECT ON taskgate_ordinal.expense_summary_v1, taskgate_ordinal.expense_detail_v1 TO gateway_reader;
 SQL

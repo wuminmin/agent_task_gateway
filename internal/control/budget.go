@@ -270,6 +270,10 @@ func (s *Store) settleWithReceipt(ctx context.Context, settlement BudgetSettleme
 	if settlement.QueryID == "" || settlement.Rows < 0 || settlement.DBMS < 0 || settlement.ObservedDBMS < 0 {
 		return QueryRecord{}, PersistedQueryReceipt{}, opErr(op, ErrInvalid, fmt.Errorf("query is required and use cannot be negative"))
 	}
+	if settlement.OrdinalMaterialization != nil {
+		return QueryRecord{}, PersistedQueryReceipt{}, opErr(op, ErrInvalid,
+			fmt.Errorf("ordinal materialization requires FinalizeOrdinalQueryWithReceipt"))
+	}
 	tx, err := beginTx(ctx, s.db)
 	if err != nil {
 		return QueryRecord{}, PersistedQueryReceipt{}, opErr(op, ErrConflict, err)
@@ -278,11 +282,11 @@ func (s *Store) settleWithReceipt(ctx context.Context, settlement BudgetSettleme
 	now := s.now()
 	var exposureCharge *ExposureCharge
 	if status == QueryCompleted {
-		exposureCharge, err = settleExposureTx(ctx, tx, now, settlement.QueryID, settlement.Exposure)
+		exposureCharge, _, err = settleAnyExposureMeasuredTx(ctx, tx, now, settlement)
 		if err != nil {
 			return QueryRecord{}, PersistedQueryReceipt{}, opErr(op, settlementErrorKind(err), err)
 		}
-	} else if err := releaseExposureReservationTx(ctx, tx, now, settlement.QueryID); err != nil {
+	} else if err := releaseAnyExposureReservationTx(ctx, tx, now, settlement.QueryID); err != nil {
 		return QueryRecord{}, PersistedQueryReceipt{}, opErr(op, settlementErrorKind(err), err)
 	}
 	record, audit, err := settleBudgetTx(ctx, tx, now, settlement, status, resultHash)

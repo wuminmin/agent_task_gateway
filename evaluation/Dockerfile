@@ -12,7 +12,8 @@ RUN test -z "$(gofmt -l evaluation)" \
     && CGO_ENABLED=1 go build -trimpath -o /out/eval-runner ./evaluation/cmd/runner \
     && CGO_ENABLED=1 go build -trimpath -o /out/ast-gateway ./evaluation/cmd/ast-gateway \
     && CGO_ENABLED=1 go build -trimpath -o /out/exposure-eval ./evaluation/cmd/exposure-eval \
-    && CGO_ENABLED=1 go build -trimpath -o /out/exposure-bench ./evaluation/cmd/exposure-bench
+    && CGO_ENABLED=1 go build -trimpath -o /out/exposure-bench ./evaluation/cmd/exposure-bench \
+    && CGO_ENABLED=1 go build -trimpath -o /out/v4-acceptance ./evaluation/cmd/v4-acceptance
 
 FROM debian:bookworm-slim AS runner
 RUN apt-get update \
@@ -44,6 +45,14 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /out/exposure-bench /usr/local/bin/exposure-bench
 ENTRYPOINT ["/usr/local/bin/exposure-bench"]
+
+FROM debian:bookworm-slim AS v4-acceptance
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=build /out/v4-acceptance /usr/local/bin/v4-acceptance
+WORKDIR /workspace
+ENTRYPOINT ["/usr/local/bin/v4-acceptance"]
 
 FROM python:3.12.4-slim-bookworm AS artifacts
 WORKDIR /workspace

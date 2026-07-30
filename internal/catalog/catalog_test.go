@@ -27,6 +27,9 @@ func TestParseValidCatalogAndResolvePolicy(t *testing.T) {
 	if parsed.CatalogVersion != "2026.07.21" || len(parsed.Products) != 2 {
 		t.Fatalf("unexpected catalog: %#v", parsed)
 	}
+	if parsed.V4Enabled() {
+		t.Fatal("legacy catalog fixture unexpectedly selected V4 deployment mode")
+	}
 	if len(parsed.SHA256) != 64 {
 		t.Fatalf("catalog SHA-256 = %q, want 64 lowercase hex characters", parsed.SHA256)
 	}
@@ -49,6 +52,68 @@ func TestRepositoryCatalog(t *testing.T) {
 	}
 	if _, _, err := parsed.ResolveProducts([]string{"expense_summary", "expense_detail"}); err != nil {
 		t.Fatalf("repository products cannot be resolved: %v", err)
+	}
+	if len(parsed.SnapshotPublications) != 2 {
+		t.Fatalf("repository snapshot publications = %d, want 2", len(parsed.SnapshotPublications))
+	}
+	if !parsed.V4Enabled() {
+		t.Fatal("repository Catalog did not select V4 deployment mode")
+	}
+	publication, found := parsed.LookupSnapshotPublication("expense-detail-v1")
+	if !found || publication.SourceNamespace != "travel.expense_receipt" || len(publication.ManifestDigest) != 64 {
+		t.Fatalf("unexpected V4 publication: %#v, found=%v", publication, found)
+	}
+	policy, err := parsed.ResolveTaskPolicy([]string{"expense_detail"})
+	if err != nil || policy.Budget.ExposureProfileVersion != "taskgate-exposure-v4" {
+		t.Fatalf("repository V4 policy = %#v, err=%v", policy, err)
+	}
+}
+
+func TestV4CatalogRejectsMixedLegacyApprovalRoute(t *testing.T) {
+	data, err := os.ReadFile("../../config/catalog.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Keep the profile internally well-formed (V3 also requires Outcome), but
+	// make one reachable route legacy while the other routes remain V4.
+	mixed := strings.Replace(string(data),
+		"exposure_profile_version: taskgate-exposure-v4",
+		"exposure_profile_version: taskgate-exposure-v3", 1)
+	if _, err := Parse([]byte(mixed)); !errors.Is(err, ErrInvalidApprovalRoute) {
+		t.Fatalf("mixed V4/legacy Catalog error = %v, want ErrInvalidApprovalRoute", err)
+	}
+}
+
+func TestV4CatalogFailsClosedOnMissingOrMismatchedPublication(t *testing.T) {
+	data, err := os.ReadFile("../../config/catalog.yaml")
+	if err != nil {
+		t.Fatalf("read repository catalog: %v", err)
+	}
+	valid := string(data)
+	parsed, err := Parse(data)
+	if err != nil {
+		t.Fatalf("parse repository catalog fixture: %v", err)
+	}
+	detailPublication, found := parsed.LookupSnapshotPublication("expense-detail-v1")
+	if !found {
+		t.Fatal("repository catalog omits expense-detail-v1")
+	}
+	tests := []struct {
+		name string
+		yaml string
+	}{
+		{"missing product binding", strings.Replace(valid, "    snapshot_publication: expense-detail-v1\n", "", 1)},
+		{"mismatched namespace", strings.Replace(valid, "    source_namespace: travel.expense_receipt", "    source_namespace: travel.wrong", 1)},
+		{"invalid manifest digest", strings.Replace(valid, detailPublication.ManifestDigest, "not-a-digest", 1)},
+		{"unknown sidecar schema", strings.Replace(valid, "taskgate_ordinal.expense_detail_v1", "reporting.expense_detail_v1", 1)},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, parseErr := Parse([]byte(test.yaml))
+			if !errors.Is(parseErr, ErrInvalidSnapshotPublication) {
+				t.Fatalf("Parse error = %v, want ErrInvalidSnapshotPublication", parseErr)
+			}
+		})
 	}
 }
 

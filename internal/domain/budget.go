@@ -47,13 +47,17 @@ func (b Budget) Validate() error {
 		return fmt.Errorf("%w: exposure_profile_version is required", ErrInvalidBudget)
 	case b.MaxReleaseFacts == 0 && b.ExposureProfileVersion != "":
 		return fmt.Errorf("%w: exposure_profile_version requires exposure limits", ErrInvalidBudget)
-	case b.ExposureProfileVersion == "taskgate-exposure-v3" && b.MaxOutcomeFacts <= 0:
-		return fmt.Errorf("%w: V3 requires a positive outcome limit", ErrInvalidBudget)
-	case b.ExposureProfileVersion != "taskgate-exposure-v3" && b.MaxOutcomeFacts != 0:
-		return fmt.Errorf("%w: outcome limit requires V3", ErrInvalidBudget)
+	case isOutcomeExposureProfile(b.ExposureProfileVersion) && b.MaxOutcomeFacts <= 0:
+		return fmt.Errorf("%w: V3/V4 requires a positive outcome limit", ErrInvalidBudget)
+	case !isOutcomeExposureProfile(b.ExposureProfileVersion) && b.MaxOutcomeFacts != 0:
+		return fmt.Errorf("%w: outcome limit requires V3/V4", ErrInvalidBudget)
 	default:
 		return nil
 	}
+}
+
+func isOutcomeExposureProfile(profile string) bool {
+	return profile == "taskgate-exposure-v3" || profile == "taskgate-exposure-v4"
 }
 
 // Within reports whether every limit is no greater than its parent limit.

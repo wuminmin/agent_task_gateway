@@ -48,7 +48,11 @@ INSERT INTO legacy.expenses (receipt_no, employee_no, expense_date, expense_type
   ('TR-2026-0009', 'E002', DATE '2026-03-20', '机票', 1910.00, '北京', '年度签约', 'approved'),
   ('TR-2026-0010', 'E003', DATE '2026-04-02', '餐饮', 280.00, '上海', '项目复盘', 'rejected');
 
-CREATE VIEW reporting.expense_detail AS
+-- These are publication snapshots, not live projections. PostgreSQL exposes
+-- the same pg_get_viewdef text and column metadata for a materialized view, so
+-- the Catalog-pinned schema digest remains identical while later writes to
+-- the legacy seed relations cannot change an approved publication.
+CREATE MATERIALIZED VIEW reporting.expense_detail AS
 SELECT
     x.receipt_no,
     e.employee_no,
@@ -63,7 +67,7 @@ SELECT
 FROM legacy.expenses AS x
 JOIN legacy.employees AS e USING (employee_no);
 
-CREATE VIEW reporting.expense_summary AS
+CREATE MATERIALIZED VIEW reporting.expense_summary AS
 SELECT
     to_char(date_trunc('month', x.expense_date), 'YYYY-MM') AS month,
     e.department,

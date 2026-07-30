@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -20,6 +21,8 @@ import (
 	"taskbound.local/agent-data-gateway/internal/domain"
 	"taskbound.local/agent-data-gateway/internal/exposure"
 	"taskbound.local/agent-data-gateway/internal/mcp"
+	"taskbound.local/agent-data-gateway/internal/ordinal"
+	"taskbound.local/agent-data-gateway/internal/snapshotbundle"
 	"taskbound.local/agent-data-gateway/internal/testpostgres"
 )
 
@@ -106,6 +109,47 @@ func (connector *fakeConnector) QueryPair(ctx context.Context, request dataconne
 		provenance = connector.result
 	}
 	return dataconnector.QueryPairResult{Visible: connector.result, Provenance: provenance}, nil
+}
+
+func (connector *fakeConnector) QueryPairStream(ctx context.Context, request dataconnector.QueryPairStreamRequest) (dataconnector.QueryPairStreamResult, error) {
+	connector.requests = append(connector.requests, request.Visible, request.Provenance)
+	if deadline, ok := ctx.Deadline(); ok {
+		connector.deadlineRemaining = append(connector.deadlineRemaining, time.Until(deadline))
+	}
+	if connector.started != nil {
+		connector.startOnce.Do(func() { close(connector.started) })
+	}
+	if connector.release != nil {
+		select {
+		case <-connector.release:
+		case <-ctx.Done():
+			return dataconnector.QueryPairStreamResult{}, &dataconnector.Error{Code: dataconnector.CodeQueryTimeout}
+		}
+	}
+	if connector.queryErr != nil {
+		return dataconnector.QueryPairStreamResult{}, connector.queryErr
+	}
+	provenance := connector.provenanceResult
+	if provenance.Columns == nil {
+		provenance = connector.result
+	}
+	if sink, ok := request.ProvenanceSink.(dataconnector.VisibleResultSink); ok {
+		if err := sink.VisibleResult(ctx, connector.result); err != nil {
+			return dataconnector.QueryPairStreamResult{}, err
+		}
+	}
+	if err := request.ProvenanceSink.Begin(ctx, provenance.Columns); err != nil {
+		return dataconnector.QueryPairStreamResult{}, err
+	}
+	for _, row := range provenance.Rows {
+		if err := request.ProvenanceSink.Row(ctx, row); err != nil {
+			return dataconnector.QueryPairStreamResult{}, err
+		}
+	}
+	return dataconnector.QueryPairStreamResult{Visible: connector.result, Provenance: dataconnector.StreamResult{
+		Columns: provenance.Columns, RowCount: provenance.RowCount, DatabaseTime: provenance.DatabaseTime,
+		Truncated: provenance.Truncated,
+	}}, nil
 }
 
 func (connector *fakeConnector) Ping(context.Context) error { return connector.pingErr }
@@ -264,6 +308,57 @@ func (harness *gatewayHarness) createExposureV2SummaryTask(t *testing.T, taskID 
 
 func (harness *gatewayHarness) createExposureV3SummaryTask(t *testing.T, taskID string, limits control.ExposureLimits) {
 	harness.createSummaryTaskWithGrantAndExposureProfile(t, taskID, nil, limits, exposure.ProfileV3)
+}
+
+func (harness *gatewayHarness) createExposureV4SummaryTask(t *testing.T, taskID string, limits control.ExposureLimits) {
+	harness.createSummaryTaskWithGrantAndExposureProfile(t, taskID, nil, limits, exposure.ProfileV4)
+}
+
+func (harness *gatewayHarness) installCatalogV4SnapshotRegistry(t *testing.T) map[string]ordinal.SnapshotIndex {
+	t.Helper()
+	registry, err := ordinal.NewRegistry()
+	if err != nil {
+		t.Fatalf("create snapshot registry: %v", err)
+	}
+	indexes := make(map[string]ordinal.SnapshotIndex, len(harness.catalog.SnapshotPublications))
+	for _, publication := range harness.catalog.SnapshotPublications {
+		path := filepath.Join("..", "..", "config", "snapshots", publication.Name+".json")
+		file, openErr := os.Open(path)
+		if openErr != nil {
+			t.Fatalf("open snapshot compiler input %s: %v", publication.Name, openErr)
+		}
+		input, decodeErr := snapshotbundle.DecodeCompilerInput(file)
+		closeErr := file.Close()
+		if decodeErr != nil {
+			t.Fatalf("decode snapshot compiler input %s: %v", publication.Name, decodeErr)
+		}
+		if closeErr != nil {
+			t.Fatalf("close snapshot compiler input %s: %v", publication.Name, closeErr)
+		}
+		bundle, compileErr := snapshotbundle.Compile(input)
+		if compileErr != nil {
+			t.Fatalf("compile snapshot publication %s: %v", publication.Name, compileErr)
+		}
+		index, parseErr := ordinal.ParseHotDictionary(bundle.Hot, publication.ManifestDigest)
+		if parseErr != nil {
+			t.Fatalf("parse snapshot publication %s: %v", publication.Name, parseErr)
+		}
+		if index.DictionaryDigest() != publication.DictionaryDigest ||
+			index.Manifest().SidecarDigest != publication.SidecarDigest {
+			t.Fatalf("snapshot publication %s does not match Catalog", publication.Name)
+		}
+		if err := registry.RegisterPublication(ordinal.PublicationKey{
+			CatalogDigest: harness.catalog.SHA256, PublicationName: publication.Name,
+		}, publication.ManifestDigest, index); err != nil {
+			t.Fatalf("register snapshot publication %s: %v", publication.Name, err)
+		}
+		if err := harness.store.PutOrdinalSnapshotPublication(context.Background(), publication.ManifestDigest, index, nil); err != nil {
+			t.Fatalf("persist snapshot publication %s: %v", publication.Name, err)
+		}
+		indexes[publication.Name] = index
+	}
+	harness.service.snapshotRegistry = registry
+	return indexes
 }
 
 func (harness *gatewayHarness) createSummaryTaskWithGrantAndExposureProfile(t *testing.T, taskID string, narrow func(*domain.TaskGrantCoreV1), exposureLimits control.ExposureLimits, profile string) {

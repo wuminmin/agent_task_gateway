@@ -1,0 +1,222 @@
+{
+  "schema_version": 1,
+  "gateway": {
+    "url": "http://gateway:8082",
+    "token_env": "TASKBOUND_ALICE_TOKEN"
+  },
+  "business_dsn_env": "V4_EVAL_BUSINESS_DSN",
+  "control_dsn_env": "V4_EVAL_CONTROL_DSN",
+  "request_timeout_ms": 30000,
+  "statement_timeout_ms": 10000,
+  "overlap_tolerance_percentage_points": 0.01,
+  "require_fresh_root": true,
+  "artifacts": {
+    "total_paths": [
+      "/var/lib/taskgate/snapshot-index"
+    ],
+    "hot_paths": [
+      "/var/lib/taskgate/snapshot-index/expense-detail-v1/hot.bin",
+      "/var/lib/taskgate/snapshot-index/expense-summary-v1/hot.bin"
+    ]
+  },
+  "cases": [
+    {
+      "id": "scan-overlap-0",
+      "shape": "scan",
+      "target_overlap_percent": 0,
+      "overlap_dimension": "influence",
+      "task_ids": [
+        "replace-with-fresh-active-v4-task"
+      ],
+      "plan": {
+        "product": "expense_detail",
+        "columns": [
+          "receipt_no",
+          "department",
+          "amount"
+        ],
+        "filters": [
+          {
+            "column": "department",
+            "op": "=",
+            "value": "销售部"
+          }
+        ],
+        "order_by": [
+          {
+            "column": "receipt_no",
+            "direction": "asc"
+          }
+        ],
+        "limit": 2
+      },
+      "direct_sql": "SELECT receipt_no,department,amount FROM reporting.expense_detail WHERE department='销售部' ORDER BY receipt_no ASC LIMIT 2",
+      "expected": {
+        "row_count": 2,
+        "outcome_facts": 1
+      },
+      "small_query": true
+    },
+    {
+      "id": "page-overlap-50",
+      "shape": "page",
+      "target_overlap_percent": 50,
+      "overlap_dimension": "influence",
+      "task_ids": [
+        "replace-with-another-fresh-active-v4-task"
+      ],
+      "setup_plans": [
+        {
+          "product": "expense_detail",
+          "columns": [
+            "receipt_no",
+            "department",
+            "amount"
+          ],
+          "filters": [
+            {
+              "column": "department",
+              "op": "=",
+              "value": "销售部"
+            }
+          ],
+          "order_by": [
+            {
+              "column": "receipt_no",
+              "direction": "asc"
+            }
+          ],
+          "limit": 2,
+          "offset": 0
+        }
+      ],
+      "plan": {
+        "product": "expense_detail",
+        "columns": [
+          "receipt_no",
+          "department",
+          "amount"
+        ],
+        "filters": [
+          {
+            "column": "department",
+            "op": "=",
+            "value": "销售部"
+          }
+        ],
+        "order_by": [
+          {
+            "column": "receipt_no",
+            "direction": "asc"
+          }
+        ],
+        "limit": 2,
+        "offset": 1
+      },
+      "direct_sql": "SELECT receipt_no,department,amount FROM reporting.expense_detail WHERE department='销售部' ORDER BY receipt_no ASC LIMIT 2 OFFSET 1",
+      "expected": {
+        "row_count": 2,
+        "outcome_facts": 1
+      },
+      "small_query": true
+    },
+    {
+      "id": "replace-with-calibrated-join-group-overlap-90",
+      "shape": "join_group",
+      "target_overlap_percent": 90,
+      "overlap_dimension": "influence",
+      "task_ids": [
+        "replace-with-fresh-join-group-v4-task"
+      ],
+      "setup_plans": [],
+      "plan": {
+        "from": {
+          "join": {
+            "left": {
+              "product": "expense_detail",
+              "role": "detail"
+            },
+            "right": {
+              "product": "expense_summary",
+              "role": "summary"
+            },
+            "on": [
+              {
+                "left": "detail.department",
+                "right": "summary.department"
+              }
+            ]
+          }
+        },
+        "columns": [
+          "summary.department"
+        ],
+        "aggregates": [
+          {
+            "function": "sum",
+            "column": "detail.amount",
+            "alias": "total"
+          }
+        ],
+        "group_by": [
+          "summary.department"
+        ]
+      },
+      "direct_sql": "SELECT s.department,sum(d.amount) AS total FROM reporting.expense_detail d JOIN reporting.expense_summary s ON s.department=d.department GROUP BY s.department ORDER BY s.department ASC",
+      "expected": {
+        "outcome_facts": 1
+      }
+    },
+    {
+      "id": "replace-with-calibrated-union-overlap-100",
+      "shape": "union",
+      "target_overlap_percent": 100,
+      "overlap_dimension": "influence",
+      "task_ids": [
+        "replace-with-fresh-union-v4-task"
+      ],
+      "setup_plans": [],
+      "plan": {
+        "from": {
+          "union_distinct": {
+            "role": "summary",
+            "columns": [
+              "department",
+              "month"
+            ],
+            "left": {
+              "product": "expense_summary",
+              "role": "left_branch",
+              "filters": [
+                {
+                  "column": "month",
+                  "op": "=",
+                  "value": "2026-01"
+                }
+              ]
+            },
+            "right": {
+              "product": "expense_summary",
+              "role": "right_branch",
+              "filters": [
+                {
+                  "column": "month",
+                  "op": "=",
+                  "value": "2026-02"
+                }
+              ]
+            }
+          }
+        },
+        "columns": [
+          "summary.department",
+          "summary.month"
+        ]
+      },
+      "direct_sql": "SELECT department,month FROM reporting.expense_summary WHERE month='2026-01' UNION SELECT department,month FROM reporting.expense_summary WHERE month='2026-02' ORDER BY department ASC,month ASC",
+      "expected": {
+        "outcome_facts": 1
+      }
+    }
+  ]
+}

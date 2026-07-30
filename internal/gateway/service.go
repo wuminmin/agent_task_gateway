@@ -21,6 +21,7 @@ import (
 	"taskbound.local/agent-data-gateway/internal/dataconnector"
 	"taskbound.local/agent-data-gateway/internal/domain"
 	"taskbound.local/agent-data-gateway/internal/mcp"
+	"taskbound.local/agent-data-gateway/internal/ordinal"
 	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 	"taskbound.local/agent-data-gateway/internal/sqlpolicy"
 )
@@ -38,11 +39,20 @@ type Config struct {
 	ReceiptVerifier    approval.ReceiptVerifier
 	QueryReceiptSigner *queryreceipt.Signer
 	Connector          DataConnector
-	CallbackSecret     string
-	Logger             *slog.Logger
-	Clock              func() time.Time
-	Background         context.Context
-	SettlementTimeout  time.Duration
+	// SnapshotRegistry contains only verified V4 hot indexes. It may be nil for
+	// legacy V1--V3 catalogs; every V4 execution fails closed when it is absent.
+	SnapshotRegistry  *ordinal.Registry
+	CallbackSecret    string
+	Logger            *slog.Logger
+	Clock             func() time.Time
+	Background        context.Context
+	SettlementTimeout time.Duration
+	// SpoolDirectory is the parent for query-private encrypted temporary
+	// directories. Empty uses the operating-system temporary directory.
+	SpoolDirectory string
+	// SpoolThresholdBytes may lower the 128 MiB production boundary (for
+	// constrained deployments and tests) but cannot raise it.
+	SpoolThresholdBytes int64
 }
 
 type Service struct {
@@ -52,12 +62,19 @@ type Service struct {
 	receiptVerifier    approval.ReceiptVerifier
 	queryReceiptSigner *queryreceipt.Signer
 	connector          DataConnector
+	snapshotRegistry   *ordinal.Registry
 	callbackSecret     []byte
 	logger             *slog.Logger
 	clock              func() time.Time
 	background         context.Context
 	settlementTimeout  time.Duration
+	spoolDirectory     string
+	spoolThreshold     int64
 	pendingSettles     atomic.Int64
+	// highCardinalityDerivations isolates million-fact bitmap work from the
+	// small-query pool. Capacity one is intentional and queue time is outside
+	// the advertised execution SLO.
+	highCardinalityDerivations chan struct{}
 }
 
 type pendingContext struct {
@@ -89,6 +106,11 @@ func New(config Config) (*Service, error) {
 	if config.SettlementTimeout <= 0 {
 		config.SettlementTimeout = defaultSettlementTimeout
 	}
+	if config.SpoolThresholdBytes <= 0 {
+		config.SpoolThresholdBytes = querySpoolThreshold
+	} else if config.SpoolThresholdBytes > querySpoolThreshold {
+		config.SpoolThresholdBytes = querySpoolThreshold
+	}
 	if config.ReceiptVerifier == nil {
 		// The demo derives a stable Ed25519 key from its existing secret so old
 		// compose environments keep working. Deployments can supply a public-key
@@ -104,8 +126,12 @@ func New(config Config) (*Service, error) {
 		catalog: config.Catalog, store: config.Store, approval: config.Approval,
 		receiptVerifier:    config.ReceiptVerifier,
 		queryReceiptSigner: config.QueryReceiptSigner, connector: config.Connector,
-		callbackSecret: []byte(config.CallbackSecret), logger: config.Logger,
+		snapshotRegistry: config.SnapshotRegistry,
+		callbackSecret:   []byte(config.CallbackSecret), logger: config.Logger,
 		clock: config.Clock, background: config.Background, settlementTimeout: config.SettlementTimeout,
+		spoolDirectory:             config.SpoolDirectory,
+		spoolThreshold:             config.SpoolThresholdBytes,
+		highCardinalityDerivations: make(chan struct{}, 1),
 	}, nil
 }
 

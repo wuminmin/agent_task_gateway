@@ -1,0 +1,45 @@
+{
+  "version": "taskgate-snapshot-index-input-v1",
+  "publication_name": "expense-summary-v1",
+  "catalog_source": "travel_demo",
+  "source_relation": "reporting.expense_summary",
+  "ordinal_sidecar": "taskgate_ordinal.expense_summary_v1",
+  "entity_key_fields": ["month", "department", "expense_type"],
+  "snapshot": {
+    "source_id": "taskgate-demo-travel",
+    "source_namespace": "travel.expense_summary",
+    "snapshot": "travel-demo-2026-v1",
+    "schema_digest": "02b4a211cfbab7347fdce28e2dd76406b1118c5f18e1d2146cc2e85a38ccf1cc",
+    "fields": [
+      {"name": "month", "sql_type": "text", "collation": "en_US.utf8", "collation_version": "2.36"},
+      {"name": "month", "canonical_field_id": "expense_summary.month", "sql_type": "text", "collation": "en_US.utf8", "collation_version": "2.36"},
+      {"name": "department", "sql_type": "text", "collation": "en_US.utf8", "collation_version": "2.36"},
+      {"name": "department", "canonical_field_id": "expense_summary.department", "sql_type": "text", "collation": "en_US.utf8", "collation_version": "2.36"},
+      {"name": "expense_type", "sql_type": "text", "collation": "en_US.utf8", "collation_version": "2.36"},
+      {"name": "expense_type", "canonical_field_id": "expense_summary.expense_type", "sql_type": "text", "collation": "en_US.utf8", "collation_version": "2.36"},
+      {"name": "total_amount", "sql_type": "numeric"},
+      {"name": "total_amount", "canonical_field_id": "expense_summary.total_amount", "sql_type": "numeric"},
+      {"name": "request_count", "sql_type": "bigint"},
+      {"name": "request_count", "canonical_field_id": "expense_summary.request_count", "sql_type": "bigint"}
+    ],
+    "rows": [
+      {"values": {"month": "2026-01", "department": "销售部", "expense_type": "机票", "total_amount": 1680.00, "request_count": 1}},
+      {"values": {"month": "2026-01", "department": "销售部", "expense_type": "酒店", "total_amount": 880.00, "request_count": 1}},
+      {"values": {"month": "2026-01", "department": "研发部", "expense_type": "机票", "total_amount": 1450.00, "request_count": 1}},
+      {"values": {"month": "2026-02", "department": "销售部", "expense_type": "高铁", "total_amount": 553.00, "request_count": 1}},
+      {"values": {"month": "2026-02", "department": "销售部", "expense_type": "餐饮", "total_amount": 320.00, "request_count": 1}},
+      {"values": {"month": "2026-03", "department": "研发部", "expense_type": "酒店", "total_amount": 1260.00, "request_count": 1}},
+      {"values": {"month": "2026-03", "department": "财务部", "expense_type": "高铁", "total_amount": 420.00, "request_count": 1}},
+      {"values": {"month": "2026-03", "department": "销售部", "expense_type": "酒店", "total_amount": 960.00, "request_count": 1}},
+      {"values": {"month": "2026-03", "department": "销售部", "expense_type": "机票", "total_amount": 1910.00, "request_count": 1}},
+      {"values": {"month": "2026-04", "department": "研发部", "expense_type": "餐饮", "total_amount": 280.00, "request_count": 1}}
+    ]
+  },
+  "expected_digests": {
+    "sidecar_digest": "2cd4e5c835252ec3bcd04aee11c28c70c6329b35bf6770f06a570cd918c9ceff",
+    "dictionary_digest": "ac0239021ec58514d62ac0c4c56191c2337fc943106b6df900221e620e809a1f",
+    "manifest_digest": "8d675bbf97adfbc03234a468055c223a9ea3d9ffc6ab2d5f6b8da38abeb70432",
+    "cold_payload_digest": "5c829b553fabc808791d74240b8a43bba6f38e14950b9bd630aa016b8c5e590e",
+    "hot_index_digest": "d28b74a651b333db57fbb3a75dc00fef60ea5c9041a1f0b765c1380db27f2028"
+  }
+}

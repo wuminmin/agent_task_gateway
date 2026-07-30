@@ -1,5 +1,5 @@
 TLC2 Version 2.16 of 31 December 2020 (rev: cdddf55)
-Running breadth-first search Model-Checking with fp 120 and seed 2908671609467269619 with 32 workers on 32 cores with 3524MB heap and 64MB offheap memory [pid: 1] (Linux 6.18.33.2-microsoft-standard-WSL2 amd64, Eclipse Adoptium 21.0.11 x86_64, MSBDiskFPSet, DiskStateQueue).
+Running breadth-first search Model-Checking with fp 6 and seed 8690962316257542081 with 32 workers on 32 cores with 3524MB heap and 64MB offheap memory [pid: 1] (Linux 6.18.33.2-microsoft-standard-WSL2 amd64, Eclipse Adoptium 21.0.11 x86_64, MSBDiskFPSet, DiskStateQueue).
 Parsing file /model/TaskGate.tla
 Parsing file /tmp/Naturals.tla
 Parsing file /tmp/FiniteSets.tla
@@ -8,16 +8,16 @@ Semantic processing of module Naturals
 Semantic processing of module Sequences
 Semantic processing of module FiniteSets
 Semantic processing of module TaskGate
-Starting... (2026-07-27 15:25:36)
+Starting... (2026-07-29 19:45:29)
 Computing initial states...
-Finished computing initial states: 1 distinct state generated at 2026-07-27 15:25:36.
-Progress(12) at 2026-07-27 15:25:39: 3,749,870 states generated (3,749,870 s/min), 1,134,201 distinct states found (1,134,201 ds/min), 431,879 states left on queue.
+Finished computing initial states: 1 distinct state generated at 2026-07-29 19:45:29.
+Progress(11) at 2026-07-29 19:45:32: 3,271,833 states generated (3,271,833 s/min), 1,037,850 distinct states found (1,037,850 ds/min), 447,972 states left on queue.
 Model checking completed. No error has been found.
   Estimates of the probability that TLC did not check all reachable states
   because two distinct states had the same fingerprint:
   calculated (optimistic):  val = 2.0E-6
-  based on the actual fingerprints:  val = 6.2E-7
+  based on the actual fingerprints:  val = 1.8E-7
 14824257 states generated, 3255552 distinct states found, 0 states left on queue.
 The depth of the complete state graph search is 18.
 The average outdegree of the complete state graph is 1 (minimum is 0, the maximum 31 and the 95th percentile is 4).
-Finished in 10s at (2026-07-27 15:25:46)
+Finished in 12s at (2026-07-29 19:45:41)

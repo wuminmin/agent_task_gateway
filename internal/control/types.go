@@ -6,6 +6,7 @@ import (
 
 	"taskbound.local/agent-data-gateway/internal/auditchain"
 	"taskbound.local/agent-data-gateway/internal/exposure"
+	"taskbound.local/agent-data-gateway/internal/ordinal"
 )
 
 type TaskState string
@@ -139,6 +140,88 @@ type ExposureCharge struct {
 	ChargedInfluenceFacts int64  `json:"charged_influence_facts"`
 	ChargedOutcomeFacts   int64  `json:"charged_outcome_facts"`
 	ObservationSHA256     string `json:"observation_sha256"`
+	// V4 fields bind a charge to the immutable dictionary and the one atomic
+	// three-dimensional root-head transition. They are empty for V1--V3.
+	DictionarySetDigest string `json:"dictionary_set_digest,omitempty"`
+	ReleaseSetSHA256    string `json:"release_set_sha256,omitempty"`
+	InfluenceSetSHA256  string `json:"influence_set_sha256,omitempty"`
+	OutcomeSetSHA256    string `json:"outcome_set_sha256,omitempty"`
+	RootEpoch           int64  `json:"root_epoch,omitempty"`
+}
+
+// OrdinalDynamicFact is a sparse V4 fact that cannot be assigned by the
+// immutable base snapshot compiler (derived Release and Outcome facts). The
+// canonical payload is compared byte-for-byte whenever the hash already
+// exists, so a hash collision always fails closed.
+type OrdinalDynamicFact struct {
+	SHA256           string `json:"sha256"`
+	Kind             string `json:"kind"`
+	CanonicalPayload []byte `json:"canonical_payload"`
+}
+
+const (
+	OrdinalDynamicDerivedRelease = "DERIVED_RELEASE"
+	OrdinalDynamicOutcome        = "OUTCOME"
+)
+
+// OrdinalHybridSet combines exact snapshot ordinals with the intentionally
+// small sparse dynamic dictionary. BitmapSet is immutable.
+type OrdinalHybridSet struct {
+	Static       ordinal.BitmapSet    `json:"-"`
+	DynamicFacts []OrdinalDynamicFact `json:"dynamic_facts,omitempty"`
+}
+
+// OrdinalExposureObservation is the V4 settlement evidence. Digest may be
+// omitted; the store computes and persists the canonical digest. If supplied,
+// it must match exactly.
+type OrdinalExposureObservation struct {
+	ProfileVersion      string           `json:"profile_version"`
+	DictionarySetDigest string           `json:"dictionary_set_digest"`
+	Release             OrdinalHybridSet `json:"release"`
+	Influence           OrdinalHybridSet `json:"influence"`
+	Outcome             OrdinalHybridSet `json:"outcome"`
+	ObservationSHA256   string           `json:"observation_sha256,omitempty"`
+}
+
+// OrdinalObservationReference is the distinct-request replay evidence. It is
+// accepted only when the same root has already committed the observation; the
+// store obtains all counts and set digests from PostgreSQL and never asks the
+// caller to resend the bitmap.
+type OrdinalObservationReference struct {
+	ObservationSHA256   string `json:"observation_sha256"`
+	DictionarySetDigest string `json:"dictionary_set_digest"`
+}
+
+// OrdinalMaterializationPublish requests atomic publication of a semantic
+// replay entry with the successful source query. The remaining binding fields
+// are copied from durable query/observation evidence, never trusted from the
+// caller.
+type OrdinalMaterializationPublish struct {
+	CacheKeySHA256 string
+	ExpiresAt      *time.Time
+}
+
+type OrdinalMaterializationLookup struct {
+	CacheKeySHA256      string
+	TaskID              string
+	GrantDigest         string
+	CatalogDigest       string
+	DictionarySetDigest string
+}
+
+type OrdinalMaterialization struct {
+	CacheKeySHA256 string
+	TaskID         string
+	RootTaskID     string
+	SourceQueryID  string
+	Observation    OrdinalObservationReference
+	GrantDigest    string
+	CatalogDigest  string
+	ResultSHA256   string
+	ResultKeyID    string
+	RowCount       int64
+	CreatedAt      time.Time
+	ExpiresAt      *time.Time
 }
 
 type ApprovalEvent struct {
@@ -279,16 +362,24 @@ type BudgetSettlement struct {
 	ObservedDBMS int64
 	ErrorCode    string
 	Exposure     *exposure.Observation
+	// OrdinalExposure is mutually exclusive with Exposure and selects the V4
+	// bitmap settlement path.
+	OrdinalExposure        *OrdinalExposureObservation
+	OrdinalObservationRef  *OrdinalObservationReference
+	OrdinalMaterialization *OrdinalMaterializationPublish
 }
 
 type EncryptedResult struct {
-	QueryID    string
-	TaskID     string
-	KeyID      string
-	Nonce      []byte
-	Ciphertext []byte
-	SHA256     string
-	CreatedAt  time.Time
+	QueryID       string
+	TaskID        string
+	KeyID         string
+	Nonce         []byte
+	Ciphertext    []byte
+	SHA256        string
+	StorageFormat string
+	PlaintextSize *int64
+	ChunkCount    int64
+	CreatedAt     time.Time
 }
 
 type ResultEncryptionKeyStatus string

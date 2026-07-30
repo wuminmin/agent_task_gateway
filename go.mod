@@ -3,6 +3,7 @@ module taskbound.local/agent-data-gateway
 go 1.25.0
 
 require (
+	github.com/RoaringBitmap/roaring/v2 v2.19.0
 	github.com/go-chi/chi/v5 v5.2.2
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/modelcontextprotocol/go-sdk v1.6.1
@@ -12,11 +13,13 @@ require (
 )
 
 require (
+	github.com/bits-and-blooms/bitset v1.24.4 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/kr/text v0.2.0 // indirect
+	github.com/mschoch/smat v0.2.0 // indirect
 	github.com/rogpeppe/go-internal v1.15.0 // indirect
 	github.com/segmentio/asm v1.1.3 // indirect
 	github.com/segmentio/encoding v0.5.4 // indirect

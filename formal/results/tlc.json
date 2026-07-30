@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "status": "passed",
-  "checked_at": "2026-07-27T15:25:46Z",
+  "checked_at": "2026-07-29T19:45:42Z",
   "tool": "TLC",
   "tool_version": "1.7.1",
   "model": "formal/TaskGate.tla",
@@ -9,7 +9,7 @@
   "model_sha256": "bb9f4b3698d55646bcb4e1fa37d194a4947f82a7fc7e1704fc96fc663decf2ea",
   "config_sha256": "40e9058a0e786fb462b42daace65de014e605b5c6688d943e1703992eb1b4491",
   "raw_log": "formal/results/tlc.log",
-  "log_sha256": "be1d589f376afa165318b3c13c716e8e1855f0450c5e27f2ddb67b4b8ad28e1f",
+  "log_sha256": "3e4cfe474de36539f9ebedad25dea0c05d571dfd45196c5a2dcb4eac22932329",
   "states_generated": 14824257,
   "distinct_states": 3255552,
   "search_depth": 18,

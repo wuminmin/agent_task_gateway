@@ -40,6 +40,18 @@ func (c *Catalog) ListProducts() []Product {
 	return products
 }
 
+func (c *Catalog) LookupSnapshotPublication(name string) (SnapshotPublication, bool) {
+	if c == nil {
+		return SnapshotPublication{}, false
+	}
+	for _, publication := range c.SnapshotPublications {
+		if publication.Name == name {
+			return publication, true
+		}
+	}
+	return SnapshotPublication{}, false
+}
+
 func (c *Catalog) ApprovalRouteFor(sensitivity domain.Sensitivity) (ApprovalRoute, bool) {
 	if c == nil {
 		return ApprovalRoute{}, false

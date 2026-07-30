@@ -17,7 +17,9 @@ import (
 	"taskbound.local/agent-data-gateway/internal/control"
 	"taskbound.local/agent-data-gateway/internal/dataconnector"
 	"taskbound.local/agent-data-gateway/internal/domain"
+	"taskbound.local/agent-data-gateway/internal/exposure"
 	"taskbound.local/agent-data-gateway/internal/mcp"
+	"taskbound.local/agent-data-gateway/internal/queryplan"
 )
 
 // Exercise the public callback handler so signature checks happen before any
@@ -188,7 +190,7 @@ func TestOACallbackHMACSubmissionApprovalReplayAndBadSignature(t *testing.T) {
 
 func TestDelegatedTaskSharesRootExposureAndStopsWithParent(t *testing.T) {
 	harness := newGatewayHarness(t)
-	harness.createExposureV3SummaryTask(t, "task-family-root", control.ExposureLimits{ReleaseFacts: 20, InfluenceFacts: 20, OutcomeFacts: 5})
+	harness.createExposureV4SummaryTask(t, "task-family-root", control.ExposureLimits{ReleaseFacts: 20, InfluenceFacts: 20, OutcomeFacts: 5})
 	bob := mcp.Principal{ID: "principal-bob-agent", Subject: "bob-agent", Role: "query"}
 	if err := harness.store.CreatePrincipal(context.Background(), control.Principal{
 		ID: bob.ID, Subject: bob.Subject, Role: bob.Role, CreatedAt: harness.clock.value,
@@ -203,12 +205,15 @@ func TestDelegatedTaskSharesRootExposureAndStopsWithParent(t *testing.T) {
 		"columns":       map[string][]string{"expense_summary": {"month", "total_amount"}},
 		"scopes":        map[string]any{"department": []any{"销售部"}},
 	})
-	if request["budget_source"] != "catalog_profile_intersect_parent_grant" || request["budget_profile"] != "summary-manual-v3" {
+	if request["budget_source"] != "catalog_profile_intersect_parent_grant" || request["budget_profile"] != "summary-manual-v4" {
 		t.Fatalf("delegated budget provenance = %#v", request)
 	}
 	delegatedBudget, ok := request["budget"].(map[string]any)
 	if !ok || delegatedBudget["max_release_facts"] != int64(20) || delegatedBudget["max_influence_facts"] != int64(20) || delegatedBudget["max_outcome_facts"] != int64(5) {
 		t.Fatalf("delegated budget was not intersected with the parent grant: %#v", request["budget"])
+	}
+	if delegatedBudget["exposure_profile_version"] != exposure.ProfileV4 {
+		t.Fatalf("delegated task changed its parent root-ledger semantics: %#v", request["budget"])
 	}
 	childID := request["task_id"].(string)
 	child, err := harness.store.GetTask(context.Background(), childID)
@@ -259,13 +264,57 @@ func TestDelegatedTaskSharesRootExposureAndStopsWithParent(t *testing.T) {
 		t.Fatalf("delegated approval = %d %s", response.Code, response.Body.String())
 	}
 
+	indexes := harness.installCatalogV4SnapshotRegistry(t)
+	product, ok := harness.catalog.LookupProduct("expense_summary")
+	if !ok {
+		t.Fatal("expense_summary product is missing")
+	}
+	ordinalProduct, err := harness.service.ordinalQueryProduct(product, map[string]struct{}{"month": {}, "total_amount": {}})
+	if err != nil {
+		t.Fatalf("build V4 query product: %v", err)
+	}
+	ordinalPlan := queryplan.QueryPlan{Product: "expense_summary", Columns: []string{"month", "total_amount"}}
+	compiled, err := queryplan.CompileOrdinal(ordinalPlan, ordinalProduct)
+	if err != nil {
+		t.Fatalf("compile V4 query: %v", err)
+	}
+	bound, err := harness.service.bindOrdinalSidecars(compiled.ProvenanceSQL, compiled.ProvenanceFields, compiled.OrdinalProgram)
+	if err != nil {
+		t.Fatalf("bind V4 query: %v", err)
+	}
+	entityKey, err := exposure.ComposeCanonicalKeyV2("base-entity",
+		"travel.expense_summary",
+		"month", "text", "s:2026-01",
+		"department", "text", "s:销售部",
+		"expense_type", "text", "s:机票",
+	)
+	if err != nil {
+		t.Fatalf("compose V4 fixture entity key: %v", err)
+	}
+	handle, found := indexes["expense-summary-v1"].LookupRowHandle(entityKey)
+	if !found {
+		t.Fatalf("V4 fixture entity %q has no row handle", entityKey)
+	}
+	provenanceValues := map[string]any{
+		"month": "2026-01", "department": "销售部", "expense_type": "机票", "total_amount": "1680.00",
+		bound.Program.Sources[0].HandleAlias: uint64(handle),
+	}
+	provenanceColumns := make([]dataconnector.Column, 0, len(bound.ProvenanceFields))
+	provenanceRow := make([]any, 0, len(bound.ProvenanceFields))
+	for _, field := range bound.ProvenanceFields {
+		value, present := provenanceValues[field]
+		if !present {
+			t.Fatalf("V4 fixture has no provenance value for %q", field)
+		}
+		provenanceColumns = append(provenanceColumns, dataconnector.Column{Name: field})
+		provenanceRow = append(provenanceRow, value)
+	}
 	harness.connector.result = dataconnector.Result{
-		Columns: []dataconnector.Column{{Name: "month"}, {Name: "total_amount"}, {Name: "department"}, {Name: "expense_type"}},
-		Rows:    [][]any{{"2026-01", "123.45", "销售部", "机票"}}, RowCount: 1, DatabaseTime: 2 * time.Millisecond,
+		Columns: []dataconnector.Column{{Name: "month"}, {Name: "total_amount"}},
+		Rows:    [][]any{{"2026-01", "1680.00"}}, RowCount: 1, DatabaseTime: 2 * time.Millisecond,
 	}
 	harness.connector.provenanceResult = dataconnector.Result{
-		Columns: []dataconnector.Column{{Name: "department"}, {Name: "expense_type"}, {Name: "month"}, {Name: "total_amount"}},
-		Rows:    [][]any{{"销售部", "机票", "2026-01", "123.45"}}, RowCount: 1, DatabaseTime: time.Millisecond,
+		Columns: provenanceColumns, Rows: [][]any{provenanceRow}, RowCount: 1, DatabaseTime: time.Millisecond,
 	}
 	plan := map[string]any{"product": "expense_summary", "columns": []string{"month", "total_amount"}}
 	rootResult := mustCallGatewayTool(t, harness.service, harness.alice, "execute_plan", map[string]any{

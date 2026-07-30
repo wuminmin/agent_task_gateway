@@ -160,6 +160,25 @@ func TestRetentionConfigFromEnvParsesDurations(t *testing.T) {
 	}
 }
 
+func TestGatewayConnectorMaxRowsV4DefaultAndOverride(t *testing.T) {
+	t.Setenv("GATEWAY_CONNECTOR_MAX_ROWS", "")
+	value, err := positiveInt64Env("GATEWAY_CONNECTOR_MAX_ROWS", defaultGatewayConnectorMaxRows)
+	if err != nil || value != 1_200_000 {
+		t.Fatalf("V4 connector row default = %d, %v; want 1200000", value, err)
+	}
+
+	t.Setenv("GATEWAY_CONNECTOR_MAX_ROWS", "1500000")
+	value, err = positiveInt64Env("GATEWAY_CONNECTOR_MAX_ROWS", defaultGatewayConnectorMaxRows)
+	if err != nil || value != 1_500_000 {
+		t.Fatalf("connector row override = %d, %v; want 1500000", value, err)
+	}
+
+	t.Setenv("GATEWAY_CONNECTOR_MAX_ROWS", "0")
+	if _, err := positiveInt64Env("GATEWAY_CONNECTOR_MAX_ROWS", defaultGatewayConnectorMaxRows); err == nil {
+		t.Fatal("zero connector row ceiling unexpectedly accepted")
+	}
+}
+
 func TestRetentionAdminEndpointsRequireAuthAndManageHold(t *testing.T) {
 	store := openGatewayTestStore(t)
 	ctx := context.Background()

@@ -123,7 +123,7 @@ CW(W)    = ComposeCanonicalKeyV2("witness-multiset", pairs(W))
 FactHash = SHA256("TASKGATE-FACT-V2\0" || CanonicalPayload)
 ```
 
-空 witness 使用单个 token `empty`。`exposure_facts` 同时保存 hash 和完整 canonical payload；同一 hash 遇到不同 payload 时事务关闭式失败，因此安全性不以“不会发生 SHA-256 collision”为数据库一致性假设。
+空 witness 使用单个 token `empty`。Legacy V2/V3 的 `exposure_facts` 同时保存 hash 和完整 canonical payload；V4 将同样的 collision check 移到 immutable/dynamic dictionary，并用 ordinal bitmap 表示集合。两种表示都在同一 hash 遇到不同 payload 时关闭式失败，因此安全性不以“不会发生 SHA-256 collision”为数据库一致性假设。
 
 ### 3.1 产品、快照与逐算子输出实体键
 
@@ -430,7 +430,7 @@ K' = (Kr ∪ Er, Ki ∪ Ei)
 
 所以同一根任务族通过 retry、委托或等 Effect rewrite 重复观察时增量为零；若任一 `|K|+|Δ|` 超限，任何结果都不能释放。
 
-证明：Control PostgreSQL 在 root ledger row lock 下以 `(root,kind,fact_hash)` 唯一键插入，并在同一事务中比较 novel cardinality、更新双账本、持久化结果和终态。唯一键与 payload collision check 给出集合差；事务串行化同一 root 的并发 settlement；release 发生在 commit 后。TLC 的 `ExposureLedger.tla` 对该有限集合状态机另行检查 dual-budget safety、exact novel charge、settle-before-release 和 family non-amplification。证毕。
+证明与物理表示无关。Legacy Control PG 以 `(root,kind,fact_hash)` 唯一键实现集合差；V4 对 immutable FactID↔ordinal 双射执行 exact bitmap `ANDNOT/OR/popcount`，其 decode 分别等价于差/并/基数。V4 一次 root-head epoch CAS 原子发布所有维度，冲突后按新 head 重算；任一边界失败整笔回滚，release 只发生在 commit 后。因此两条实现都模拟上述集合转移。`ExposureLedger.tla` 给出抽象有限状态机，`ExposureBitmapRefinement.tla` 给出 bounded ordinal/CAS refinement obligation。证毕。
 
 ## 9. 实现对应与声明边界
 
@@ -438,6 +438,8 @@ K' = (Kr ∪ Er, Ki ∪ Ei)
 |---|---|
 | Typed value、FactID、canonical payload | `internal/exposure/fact.go` |
 | 推导规则、validator、Observe | `internal/exposure/algebra_v2.go` |
+| Snapshot dictionary、exact bitmap、weighted witness | `internal/ordinal` |
+| 三维 bitmap root-head settlement | `internal/control/ordinal_exposure.go` |
 | Typed NF 与静态语法检查 | `internal/queryplan/normalform.go` |
 | 受限 Join/Union 双 SQL lowering | `internal/queryplan/relational.go` |
 | Catalog collation/type/profile 条件 | `internal/catalog/validate.go` |

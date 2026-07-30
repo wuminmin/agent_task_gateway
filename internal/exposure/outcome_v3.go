@@ -14,8 +14,23 @@ const outcomeDigestDomainV1 = "TASKGATE-OUTCOME-DIGEST-V1\x00"
 // row order and provenance multiplicity because it is computed from the
 // normalized release fact set plus the visible row count.
 func AttachOutcomeV3(observation Observation, normalFormVersion, normalFormSHA256 string, visibleRows int64) (Observation, error) {
+	return attachOutcome(observation, ProfileV3, normalFormVersion, normalFormSHA256, visibleRows)
+}
+
+// AttachOutcomeV4 produces the same proposition-bearing V3 FactID while
+// marking the enclosing observation for the V4 ordinal/bitmap settlement
+// backend. Keeping the fact payload unchanged is what makes Decode(V4)
+// directly comparable with the V3 FactSet oracle.
+func AttachOutcomeV4(observation Observation, normalFormVersion, normalFormSHA256 string, visibleRows int64) (Observation, error) {
+	return attachOutcome(observation, ProfileV4, normalFormVersion, normalFormSHA256, visibleRows)
+}
+
+func attachOutcome(observation Observation, targetProfile, normalFormVersion, normalFormSHA256 string, visibleRows int64) (Observation, error) {
 	if observation.ProfileVersion != ProfileV2 {
 		return Observation{}, fmt.Errorf("%w: outcome attachment requires a V2 observation", ErrInvalid)
+	}
+	if targetProfile != ProfileV3 && targetProfile != ProfileV4 {
+		return Observation{}, fmt.Errorf("%w: unsupported outcome observation profile %q", ErrInvalid, targetProfile)
 	}
 	if visibleRows < 0 {
 		return Observation{}, fmt.Errorf("%w: visible row count cannot be negative", ErrInvalid)
@@ -33,7 +48,7 @@ func AttachOutcomeV3(observation Observation, normalFormVersion, normalFormSHA25
 		return Observation{}, err
 	}
 	return (Observation{
-		ProfileVersion: ProfileV3,
+		ProfileVersion: targetProfile,
 		Release:        normalized.Release,
 		Influence:      normalized.Influence,
 		Outcome:        []FactID{fact},

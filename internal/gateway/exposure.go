@@ -32,6 +32,7 @@ type planExposureContext struct {
 	normalForm        *queryplan.NormalForm
 	algebraNormalForm *queryplan.AlgebraNormalFormV2
 	planDigest        string
+	ordinal           *boundOrdinalExecution
 }
 
 func buildPlanExposureContext(plan queryplan.QueryPlan, product catalog.Product, approvedColumns map[string]struct{}, allowedAggregates map[string]struct{}) (*planExposureContext, error) {
@@ -228,19 +229,25 @@ func (context *planExposureContext) extendGrant(grant sqlpolicy.Grant) (sqlpolic
 
 func (context *planExposureContext) deriveObservation(visible, provenance dataconnector.Result, profile string) (exposure.Observation, error) {
 	if context.relational != nil {
-		if profile != exposure.ProfileV2 && profile != exposure.ProfileV3 {
-			return exposure.Observation{}, fmt.Errorf("online Join/Union requires %s or %s", exposure.ProfileV2, exposure.ProfileV3)
+		if profile != exposure.ProfileV2 && profile != exposure.ProfileV3 && profile != exposure.ProfileV4 {
+			return exposure.Observation{}, fmt.Errorf("online Join/Union requires %s, %s, or %s", exposure.ProfileV2, exposure.ProfileV3, exposure.ProfileV4)
 		}
 		observation, err := context.deriveRelationalObservationV2(visible, provenance)
 		if err != nil || profile == exposure.ProfileV2 {
 			return observation, err
 		}
+		if profile == exposure.ProfileV4 {
+			return exposure.AttachOutcomeV4(observation, queryplan.NormalFormVersion, context.planDigest, int64(len(visible.Rows)))
+		}
 		return exposure.AttachOutcomeV3(observation, queryplan.NormalFormVersion, context.planDigest, int64(len(visible.Rows)))
 	}
-	if profile == exposure.ProfileV2 || profile == exposure.ProfileV3 {
+	if profile == exposure.ProfileV2 || profile == exposure.ProfileV3 || profile == exposure.ProfileV4 {
 		observation, err := context.deriveObservationV2(visible, provenance)
 		if err != nil || profile == exposure.ProfileV2 {
 			return observation, err
+		}
+		if profile == exposure.ProfileV4 {
+			return exposure.AttachOutcomeV4(observation, queryplan.NormalFormVersion, context.planDigest, int64(len(visible.Rows)))
 		}
 		return exposure.AttachOutcomeV3(observation, queryplan.NormalFormVersion, context.planDigest, int64(len(visible.Rows)))
 	}

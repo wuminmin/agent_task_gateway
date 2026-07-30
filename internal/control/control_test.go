@@ -142,7 +142,7 @@ func TestMigrationsAndTaskRequestContext(t *testing.T) {
 	}
 	for _, relation := range []string{
 		"principals", "tasks", "task_grants", "grants", "approval_events", "budget_ledger",
-		"query_records", "result_encryption_keys", "encrypted_query_results", "encrypted_results", "result_retention_holds", "audit_events", "query_receipts", "callback_idempotency",
+		"query_records", "result_encryption_keys", "encrypted_query_results", "encrypted_query_result_chunks", "encrypted_results", "result_retention_holds", "audit_events", "query_receipts", "callback_idempotency",
 	} {
 		var exists bool
 		if err := store.DB().QueryRowContext(context.Background(), `
@@ -568,6 +568,150 @@ SELECT count(*) FROM encrypted_query_results WHERE query_id=$1 AND key_id=$2`, r
 	}
 	if again.ErasedAt == nil || !again.ErasedAt.Equal(*erased.ErasedAt) {
 		t.Fatalf("erasure replay changed timestamp: first=%+v again=%+v", erased, again)
+	}
+}
+
+func TestActiveResultEncryptionKeyUsesSharedSettlementLockAndBlocksErasure(t *testing.T) {
+	store := openTestStore(t, testpostgres.SchemaDSN(t), testCipher(t, 42))
+	ctx := context.Background()
+	first, err := beginTx(ctx, store.db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rollback(first)
+	if err := ensureActiveResultEncryptionKeyTx(ctx, first, DefaultResultEncryptionKeyID, store.now()); err != nil {
+		t.Fatal(err)
+	}
+	second, err := beginTx(ctx, store.db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rollback(second)
+	secondLock := make(chan error, 1)
+	go func() {
+		secondLock <- ensureActiveResultEncryptionKeyTx(ctx, second, DefaultResultEncryptionKeyID, store.now())
+	}()
+	select {
+	case err := <-secondLock:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("active result-key checks serialized concurrent settlements")
+	}
+
+	erasure := make(chan error, 1)
+	go func() {
+		_, err := store.EraseResultEncryptionKey(ctx, DefaultResultEncryptionKeyID, "privacy-admin")
+		erasure <- err
+	}()
+	select {
+	case err := <-erasure:
+		t.Fatalf("key erasure bypassed active settlement locks: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	if err := first.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-erasure:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("key erasure did not resume after settlements released shared locks")
+	}
+}
+
+func TestConcurrentFirstUseOfCustomResultEncryptionKeyIsIdempotent(t *testing.T) {
+	const keyID = "concurrent-first-use-key"
+	cipher, err := NewAES256GCMWithKeyID(keyID, bytes.Repeat([]byte{0x43}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := openTestStore(t, testpostgres.SchemaDSN(t), cipher)
+	ctx := context.Background()
+	expires := time.Now().UTC().Add(time.Hour)
+	tasks := []string{"task_concurrent_key_a", "task_concurrent_key_b"}
+	queries := []string{"query_concurrent_key_a", "query_concurrent_key_b"}
+	for index, queryID := range queries {
+		createAwaitingApprovalTask(t, store, tasks[index], expires)
+		approveTask(t, store, tasks[index], expires, BudgetLimits{Queries: 1, Rows: 10, DBMS: 100})
+		if _, err := store.ReserveBudget(ctx, testReserveRequest(ReserveRequest{
+			QueryID: queryID, TaskID: tasks[index], RequestID: fmt.Sprintf("request-concurrent-key-%d", index),
+			Actor: "alice", RequestDigest: fmt.Sprintf("request-digest-%d", index),
+			SQLFingerprint: fmt.Sprintf("sql-fingerprint-%d", index), CatalogVersion: "catalog-v1",
+			RequestedRows: 1, RequestedDBMS: 10,
+		})); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// SHARE permits both SELECT ... FOR SHARE no-row checks, but blocks their
+	// subsequent INSERTs. Waiting until both INSERTs arrive makes the first-use
+	// primary-key race deterministic rather than scheduler-dependent.
+	blocker, err := beginTx(ctx, store.db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := blocker.ExecContext(ctx, `LOCK TABLE result_encryption_keys IN SHARE MODE`); err != nil {
+		rollback(blocker)
+		t.Fatal(err)
+	}
+	errorsSeen := make([]error, len(queries))
+	var wait sync.WaitGroup
+	for index, queryID := range queries {
+		wait.Add(1)
+		go func(index int, queryID string) {
+			defer wait.Done()
+			_, errorsSeen[index] = store.FinalizeQuery(ctx, BudgetSettlement{
+				QueryID: queryID, Rows: 1, DBMS: 1,
+			}, []byte(fmt.Sprintf(`{"query":%d}`, index)))
+		}(index, queryID)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		var waiting int
+		if err := store.db.QueryRowContext(ctx, `SELECT count(*) FROM pg_stat_activity
+WHERE datname=current_database() AND wait_event_type='Lock'
+  AND query LIKE '%INSERT INTO result_encryption_keys%'`).Scan(&waiting); err != nil {
+			rollback(blocker)
+			wait.Wait()
+			t.Fatal(err)
+		}
+		if waiting >= len(queries) {
+			break
+		}
+		if time.Now().After(deadline) {
+			rollback(blocker)
+			wait.Wait()
+			t.Fatal("concurrent finalizers did not both reach custom-key publication")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err := blocker.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	wait.Wait()
+	for index, err := range errorsSeen {
+		if err != nil {
+			t.Fatalf("concurrent custom-key finalize %d: %v", index, err)
+		}
+	}
+	var keyRows, resultRows int
+	var status string
+	if err := store.db.QueryRowContext(ctx, `SELECT
+ (SELECT count(*) FROM result_encryption_keys WHERE key_id=$1),
+ (SELECT status FROM result_encryption_keys WHERE key_id=$1),
+ (SELECT count(*) FROM encrypted_query_results WHERE key_id=$1)`, keyID).
+		Scan(&keyRows, &status, &resultRows); err != nil {
+		t.Fatal(err)
+	}
+	if keyRows != 1 || ResultEncryptionKeyStatus(status) != ResultEncryptionKeyActive || resultRows != len(queries) {
+		t.Fatalf("custom-key publication rows=%d status=%s results=%d", keyRows, status, resultRows)
 	}
 }
 

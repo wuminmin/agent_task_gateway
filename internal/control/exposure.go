@@ -34,14 +34,14 @@ func validateExposureGrant(grant ExposureGrant) error {
 	if release > 0 && strings.TrimSpace(grant.ProfileVersion) == "" {
 		return fmt.Errorf("exposure profile version is required")
 	}
-	if release > 0 && grant.ProfileVersion != exposure.ProfileV1 && grant.ProfileVersion != exposure.ProfileV2 && grant.ProfileVersion != exposure.ProfileV3 {
+	if release > 0 && grant.ProfileVersion != exposure.ProfileV1 && grant.ProfileVersion != exposure.ProfileV2 && grant.ProfileVersion != exposure.ProfileV3 && grant.ProfileVersion != exposure.ProfileV4 {
 		return fmt.Errorf("unsupported exposure profile version")
 	}
-	if grant.ProfileVersion == exposure.ProfileV3 && outcome <= 0 {
-		return fmt.Errorf("V3 requires a positive outcome limit")
+	if (grant.ProfileVersion == exposure.ProfileV3 || grant.ProfileVersion == exposure.ProfileV4) && outcome <= 0 {
+		return fmt.Errorf("V3/V4 requires a positive outcome limit")
 	}
-	if grant.ProfileVersion != exposure.ProfileV3 && outcome != 0 {
-		return fmt.Errorf("outcome limit requires V3")
+	if grant.ProfileVersion != exposure.ProfileV3 && grant.ProfileVersion != exposure.ProfileV4 && outcome != 0 {
+		return fmt.Errorf("outcome limit requires V3/V4")
 	}
 	if release == 0 && grant.ProfileVersion != "" {
 		return fmt.Errorf("exposure profile requires positive limits")
@@ -52,6 +52,9 @@ func validateExposureGrant(grant ExposureGrant) error {
 func ensureExposureLedgerTx(ctx context.Context, tx *sql.Tx, taskID string, grant ExposureGrant, now time.Time) error {
 	if err := validateExposureGrant(grant); err != nil {
 		return err
+	}
+	if grant.ProfileVersion == exposure.ProfileV4 {
+		return ensureOrdinalExposureHeadTx(ctx, tx, taskID, grant, now)
 	}
 	var rootTaskID string
 	if err := tx.QueryRowContext(ctx, `SELECT root_task_id FROM tasks WHERE id=$1 FOR SHARE`, taskID).Scan(&rootTaskID); err != nil {
@@ -99,9 +102,16 @@ func (s *Store) GetExposureLedger(ctx context.Context, taskID string) (ExposureL
 	if err := s.checkOpen(op); err != nil {
 		return ExposureLedgerSnapshot{}, err
 	}
-	var result ExposureLedgerSnapshot
+	result, err := getOrdinalExposureLedger(ctx, s.db, taskID)
+	if err == nil {
+		return result, nil
+	}
+	if !isNoRows(err) {
+		return ExposureLedgerSnapshot{}, opErr(op, ErrConflict, err)
+	}
+	result = ExposureLedgerSnapshot{}
 	var updated time.Time
-	err := s.db.QueryRowContext(ctx, `
+	err = s.db.QueryRowContext(ctx, `
 SELECT l.root_task_id, l.profile_version, l.max_release_facts, l.max_influence_facts, l.max_outcome_facts,
        l.used_release_facts, l.used_influence_facts, l.used_outcome_facts, l.updated_at
 FROM tasks t JOIN exposure_ledgers l ON l.root_task_id=t.root_task_id
@@ -118,6 +128,13 @@ FROM tasks t JOIN exposure_ledgers l ON l.root_task_id=t.root_task_id
 }
 
 func reserveExposureTx(ctx context.Context, tx *sql.Tx, queryID, taskID string, request *ExposureReservationRequest, now time.Time) (*ExposureReservation, error) {
+	var taskProfile string
+	if err := tx.QueryRowContext(ctx, `SELECT exposure_profile_version FROM task_grants WHERE task_id=$1`, taskID).Scan(&taskProfile); err != nil {
+		return nil, err
+	}
+	if taskProfile == exposure.ProfileV4 {
+		return reserveOrdinalExposureTx(ctx, tx, queryID, taskID, request, now)
+	}
 	var rootTaskID string
 	if err := tx.QueryRowContext(ctx, `SELECT root_task_id FROM tasks WHERE id=$1`, taskID).Scan(&rootTaskID); err != nil {
 		return nil, err
@@ -512,9 +529,16 @@ func (s *Store) GetExposureCharge(ctx context.Context, queryID string) (Exposure
 	if err := s.checkOpen(op); err != nil {
 		return ExposureCharge{}, err
 	}
-	var charge ExposureCharge
+	charge, err := getOrdinalExposureCharge(ctx, s.db, queryID)
+	if err == nil {
+		return charge, nil
+	}
+	if !isNoRows(err) {
+		return ExposureCharge{}, opErr(op, ErrConflict, err)
+	}
+	charge = ExposureCharge{}
 	var status string
-	err := s.db.QueryRowContext(ctx, `
+	err = s.db.QueryRowContext(ctx, `
 SELECT query_id, root_task_id, profile_version, status, actual_release_facts,
        actual_influence_facts, actual_outcome_facts, charged_release_facts, charged_influence_facts, charged_outcome_facts, observation_sha256
 FROM query_exposure_reservations WHERE query_id=$1`, queryID).

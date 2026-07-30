@@ -1,4 +1,8 @@
-\documentclass[journal,onecolumn]{IEEEtran}
+\IfFileExists{IEEEtran.cls}{%
+  \documentclass[journal,onecolumn]{IEEEtran}
+}{%
+  \documentclass[10pt]{article}
+}
 \usepackage{amsmath,amssymb}
 \usepackage{booktabs}
 \usepackage{array}
@@ -184,14 +188,50 @@ $\langle\code{taskgate-exposure-v3},\code{outcome},
 \operatorname{ver}(NF),H(NF(q)),h_R,m\rangle$.
 Its hash uses the disjoint \code{TASKGATE-FACT-V3} domain. Thus V3 observations
 are triples $(F_r,F_i,F_o)$ with $|F_o|=1$ for every successfully released
-query. Failed/pre-execution queries produce no outcome fact. The Control
-PostgreSQL transaction inserts the three sets under distinct ledger kinds and
-checks all three root-family ceilings before release.
+query. Failed/pre-execution queries produce no outcome fact. The abstract
+settlement unions the three sets into distinct root-family ledgers and checks
+all three ceilings before release; V4 refines that transition with exact bitmap
+heads rather than per-Fact inserts.
 
 The RQ3 threshold campaign uses three normalized predicates whose global
 \code{COUNT(*)} output is the same zero. Their V2 release/dependency increments
 after the first are zero, but the three normal-form digests yield three outcome
 facts. Exact replay and an alias/case/whitespace rewrite reuse the first fact.
+
+\section{V4 Ordinal/Bitmap Refinement}
+
+For each immutable dictionary segment $j$, the publication compiler checks a
+bijection $D_j:F_j\leftrightarrow[0,n_j)$ between canonical FactIDs and 32-bit
+ordinals. Let
+\[
+ \operatorname{Decode}_j(A)=\{D_j^{-1}(x)\mid x\in A\}.
+\]
+The concrete OR and ANDNOT operators are ordinary exact set operations on
+canonical Roaring bitmaps, so decoding commutes with union and difference and
+popcount equals decoded cardinality. Dynamic release/outcome dictionaries obey
+the same invariant after exact hash/payload collision checks. Segments are
+disjointly tagged by dictionary and segment identity; cross-segment decoding is
+their disjoint union.
+
+The streamed companion replaces each singleton Scan annotation with its
+publication ordinal. For one canonical output group the engine preserves the
+support bitmap and stores only multiplicities above one. Same-proof
+composition adds multiplicities, alternative-proof composition takes maximum,
+and a hash-ordered k-way merge emits the identical witness sequence used by the
+V2 canonical commitment. Consequently decoding the three bitmap components
+recovers $(F_r,F_i,F_o)$ exactly; no approximation or probabilistic membership
+test appears in the safety path.
+
+The root state is one tuple $(H_r,H_i,H_o,e)$ of three immutable set-manifest
+digests and an epoch. A transaction based on epoch $e$ computes exact novelty
+with ANDNOT, checks all decoded cardinalities, and can publish the three
+candidate heads only together at epoch $e+1$. A stale candidate refreshes all
+three dimensions. This simulates the abstract V3 transition
+$K'_d=K_d\cup F_d$ for every $d\in\{r,i,o\}$ and preserves the root-family
+theorem. The finite model \code{ExposureBitmapRefinement.tla} specifies this
+commuting relation and configured invariants for bounded dictionaries,
+requests, replay, and CAS conflicts; it is not a mechanized proof of the Go
+implementation or a reported V4 performance result.
 
 \subsection{Implementation Coverage}
 

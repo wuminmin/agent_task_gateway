@@ -12,3 +12,4 @@ evaluation/config/tasks.local.json
 coverage.out
 dist/
 tmp/
+/artifacts/snapshot-index/

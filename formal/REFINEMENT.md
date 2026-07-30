@@ -21,6 +21,8 @@ Current formal status:
 - Recovery liveness config: `formal/RecoveryLiveness.cfg`
 - Root-family exposure model: `formal/ExposureLedger.tla`
 - Root-family exposure config: `formal/ExposureLedger.cfg`
+- V4 ordinal/bitmap refinement model: `formal/ExposureBitmapRefinement.tla`
+- V4 ordinal/bitmap refinement config: `formal/ExposureBitmapRefinement.cfg`
 - Primary result: `formal/results/tlc.json`
 - Vector-budget result: `formal/results/vector_budget.json`
 - SQL authorization result: `formal/results/sql_authorization.json`
@@ -28,6 +30,7 @@ Current formal status:
 - Receipt/audit result: `formal/results/receipt_audit.json`
 - Recovery liveness result: `formal/results/recovery_liveness.json`
 - Root-family exposure result: `formal/results/exposure_ledger.json`
+- V4 ordinal/bitmap result: pending regeneration; no V4 TLC number is claimed
 - Archived tool: TLC 1.7.1
 - Latest core TLC result: passed at 2026-07-25T03:38:31Z with 14,824,257
   states generated, 3,255,552 distinct states, and depth 18.
@@ -50,7 +53,9 @@ Current formal status:
   interleavings, finite terminal receipt/audit consistency, and finite
   recovery liveness under weak fairness. The exposure split adds two requests,
   one root and one child task, finite release/influence/outcome fact universes, and
-  bounded terminal replay.
+  bounded terminal replay. The V4 refinement model separately supplies a finite
+  FactID--ordinal bijection, segmented exact bitmaps, one root epoch, CAS refresh,
+  and committed-observation replay.
 
 The model intentionally abstracts away SQL parser byte-level syntax, full AST
 coverage, cryptographic signatures, PostgreSQL row contents, network I/O,
@@ -91,6 +96,10 @@ at the named abstraction boundaries.
 | `ExposureLedger.requestState = "SETTLED"` | Novel facts were atomically accepted and the encrypted result became releasable | Exposure reservation and root ledger updated in the same transaction as terminal query evidence and encrypted result |
 | `ExposureLedger.requestState = "REJECTED"` | Actual novel exposure exceeded either root limit | Transaction rolls back fact inserts and result persistence; Gateway returns `exposure_budget_exhausted` without the buffered result |
 | `ExposureLedger.delivered` | Successful MCP response or later authorized result read | Result is returned only after the atomic finalization transaction commits |
+| `ExposureBitmapRefinement.FactOf` | Immutable publication dictionary (`internal/ordinal`) | `ordinal_dictionary_segments/chunks` plus publication digest binding |
+| `ExposureBitmapRefinement.head` and `rootEpoch` | `control.OrdinalRootHead` | Three set-manifest digests and one epoch in the ordinal root-head row |
+| `ExposureBitmapRefinement.bitmapEffect` | `ordinal.BitmapSet` / `control.OrdinalHybridSet` | Immutable content-addressed containers plus sparse dynamic facts |
+| `ExposureBitmapRefinement.knownFacts` | Decoded abstract root-family exposure state | Exact decode of the three current set manifests; not a second writable ledger |
 
 ## Action Mapping
 
@@ -139,6 +148,18 @@ at the named abstraction boundaries.
 | `ExposureLedger.ReleaseBeforeExecution` | `releaseExposureReservationTx` inside resource reservation release | Marks the exposure reservation `RELEASED` and appends audit evidence without adding facts | definite pre-execution failure tests | This action excludes failures after visible data has been produced. |
 | `ExposureLedger.Replay` | `queryReplayResponse` and immutable query result/receipt lookup | Unique `(task_id, request_id)` returns the terminal observation; no connector or settlement transaction is rerun | `TestRequestIDIsRequiredAndRetriesNeverExecuteTwice`, `TestExposurePlanHidesMeteringKeysAndDeduplicatesReplay` | Replay count is bounded only to keep the TLC state space finite. |
 | `ExposureLedger.RevokeRoot` | `revokeTask`, ancestor checks in execution | Root archival blocks new descendant requests; already terminal request IDs remain observationally replayable | `TestDelegatedTaskSharesRootExposureAndStopsWithParent` | The split model tracks root activity but abstracts the full signed delegation chain. |
+
+## V4 Ordinal Refinement Mapping
+
+| Refinement action/invariant | Implementation boundary | Persistence/atomicity boundary | Evidence |
+|---|---|---|---|
+| Dictionary bijection / exact decode | `internal/ordinal` compiler, `Dictionary.Expand`, HOT/COLD parsers | Immutable publication, segment bounds, full hash/payload collision checks | `internal/ordinal` dictionary, artifact, persistence, and bitmap tests |
+| Bitmap OR / ANDNOT / popcount | `ordinal.BitmapSet` | Canonical portable container bytes; non-canonical encodings rejected | `internal/ordinal/bitmap_test.go` |
+| Streamed exact effect | `dataconnector.QueryPairStream`, Gateway ordinal derivation sink | No streamed prefix is publishable unless the Business transaction succeeds | Connector stream live tests and Gateway ordinal derivation tests |
+| Prepare candidate at epoch | `settleOrdinalExposureMeasuredTx` | Read root head and build immutable candidate set manifests in one Control transaction | `TestOrdinalSettlementAndReferenceReplayAvoidsBitmapWork` |
+| CAS all three dimensions | ordinal root-head conditional update | One epoch controls Release/Influence/Outcome; conflict recomputes, failure rolls back | `TestOrdinalRootSettlementSerializesConcurrentFamilyUpdates` |
+| Exact committed-observation replay | ordinal observation reference settlement | Reference must be committed for the same root and dictionary set | `TestOrdinalReferenceMustAlreadyBeCommittedForSameRoot` |
+| Fail-closed corruption/boundary | ordinal normalization and dictionary-set validation | No head/result/audit/receipt partial commit | out-of-bounds, cross-Catalog, collision, and over-budget ordinal tests |
 
 ## Database Invariants Used By The Mapping
 

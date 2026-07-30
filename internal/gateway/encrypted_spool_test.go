@@ -1,0 +1,327 @@
+package gateway
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"taskbound.local/agent-data-gateway/internal/control"
+	"taskbound.local/agent-data-gateway/internal/dataconnector"
+	"taskbound.local/agent-data-gateway/internal/exposure"
+	"taskbound.local/agent-data-gateway/internal/ordinal"
+	"taskbound.local/agent-data-gateway/internal/queryplan"
+)
+
+func TestGatewaySpilledResultCommitsBeforeReleaseAndReplays(t *testing.T) {
+	harness := newGatewayHarness(t)
+	spoolDirectory := t.TempDir()
+	harness.service.spoolDirectory = spoolDirectory
+	harness.service.spoolThreshold = 64
+	harness.createActiveSummaryTask(t, "task-spilled-result")
+	harness.connector.result = dataconnector.Result{
+		Columns:  []dataconnector.Column{{Name: "month", DataTypeOID: 25}, {Name: "total_amount", DataTypeOID: 1700}},
+		Rows:     [][]any{{"2026-01-" + string(bytes.Repeat([]byte("x"), 256)), 123.45}},
+		RowCount: 1,
+	}
+	arguments := map[string]any{
+		"task_id": "task-spilled-result", "request_id": "spilled-result-request", "sql": testSummarySQL,
+	}
+	first := mustCallGatewayTool(t, harness.service, harness.alice, "query_sql", arguments)
+	queryID := first["query_id"].(string)
+	var format string
+	var chunks int64
+	if err := harness.store.DB().QueryRowContext(context.Background(), `
+SELECT storage_format,chunk_count FROM encrypted_query_results WHERE query_id=$1`, queryID).Scan(&format, &chunks); err != nil {
+		t.Fatal(err)
+	}
+	if format != "chunked-aes-gcm-v1" || chunks <= 0 {
+		t.Fatalf("spilled result storage format=%q chunks=%d", format, chunks)
+	}
+	replay := mustCallGatewayTool(t, harness.service, harness.alice, "query_sql", arguments)
+	if replay["idempotent_replay"] != true || replay["query_id"] != queryID {
+		t.Fatalf("spilled result replay = %#v", replay)
+	}
+	if len(harness.connector.requests) != 1 {
+		t.Fatalf("spilled idempotent replay executed connector %d times", len(harness.connector.requests))
+	}
+	entries, err := os.ReadDir(spoolDirectory)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("gateway retained query-private spool entries: %v, %v", entries, err)
+	}
+}
+
+func TestOrdinalSemanticReplayReadsChunkedMaterializationAndWritesFreshChunkedResult(t *testing.T) {
+	harness := newGatewayHarness(t)
+	harness.service.spoolDirectory = t.TempDir()
+	harness.service.spoolThreshold = 64
+	harness.createSummaryTaskWithGrantAndExposureProfile(t, "task-v4-chunked-replay", nil,
+		control.ExposureLimits{ReleaseFacts: 10, InfluenceFacts: 10, OutcomeFacts: 10}, exposure.ProfileV4)
+
+	product := compactOrdinalProduct()
+	compilation, err := queryplan.CompileOrdinal(queryplan.QueryPlan{Product: product.Name, Columns: []string{"amount"}}, product)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := newOrdinalDerivationFixture(t, compilation.OrdinalProgram,
+		[]map[string]any{{"id": int64(1), "amount": int64(10)}})
+	manifestDigest := fixture.artifact.Hot.ManifestDigest()
+	if err := harness.store.PutOrdinalSnapshotPublication(context.Background(), manifestDigest, fixture.artifact.Hot, nil); err != nil {
+		t.Fatal(err)
+	}
+	dictionarySet, err := ordinal.NewDictionarySetManifest(harness.catalog.SHA256, ordinal.DictionarySetMember{
+		PublicationName: "chunked-replay-publication", DictionaryDigest: fixture.artifact.Hot.DictionaryDigest(),
+		ManifestDigest: manifestDigest,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := harness.store.PutOrdinalDictionarySet(context.Background(), dictionarySet); err != nil {
+		t.Fatal(err)
+	}
+	dictionarySetDigest, err := dictionarySet.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	outcome, err := exposure.NewOutcomeFactV3(queryplan.NormalFormVersion, strings.Repeat("1", 64), strings.Repeat("2", 64), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outcomeHash, err := outcome.Hash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	outcomePayload, err := outcome.CanonicalPayload()
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation := control.OrdinalExposureObservation{
+		ProfileVersion: exposure.ProfileV4, DictionarySetDigest: dictionarySetDigest,
+		Outcome: control.OrdinalHybridSet{DynamicFacts: []control.OrdinalDynamicFact{{
+			SHA256: outcomeHash, Kind: control.OrdinalDynamicOutcome, CanonicalPayload: outcomePayload,
+		}}},
+	}
+	grantDigest := strings.Repeat("3", 64)
+	manifest := strings.Repeat("4", 64)
+	cacheKey := strings.Repeat("5", 64)
+	reserve := func(queryID, requestID string) control.BudgetReservation {
+		t.Helper()
+		reservation, err := harness.store.ReserveBudget(context.Background(), control.ReserveRequest{
+			QueryID: queryID, TaskID: "task-v4-chunked-replay", RequestID: requestID, Actor: harness.alice.Subject,
+			RequestDigest: strings.Repeat("6", 64), SQLFingerprint: strings.Repeat("7", 64),
+			CatalogVersion: harness.catalog.CatalogVersion, CatalogDigest: harness.catalog.SHA256,
+			DatasourceID: harness.connector.attestation.DatasourceID, SchemaDigest: harness.connector.attestation.SchemaDigest,
+			ManifestDigest: manifest, GrantDigest: grantDigest, PolicyDecision: "ALLOW",
+			RequestedRows: 1, RequestedDBMS: 10,
+			Exposure: &control.ExposureReservationRequest{ProfileVersion: exposure.ProfileV4,
+				EstimatedOutcomeFacts: 1},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return reservation
+	}
+
+	sourceReservation := reserve("query-v4-chunked-source", "request-v4-chunked-source")
+	source := storedQueryResult{
+		Columns: []dataconnector.Column{{Name: "amount", DataTypeOID: 20}},
+		Rows:    [][]any{{strings.Repeat("materialized", 128)}}, RowCount: 1,
+	}
+	encoded, err := json.Marshal(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expires := harness.clock.value.Add(time.Hour)
+	if _, _, _, err := harness.store.FinalizeOrdinalQueryStreamMeasuredWithReceipt(context.Background(), control.BudgetSettlement{
+		QueryID: sourceReservation.QueryID, Rows: 1, DBMS: 1, OrdinalExposure: &observation,
+	}, bytes.NewReader(encoded), &control.OrdinalMaterializationPublish{CacheKeySHA256: cacheKey, ExpiresAt: &expires}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	replayReservation := reserve("query-v4-chunked-replay", "request-v4-chunked-replay")
+	task, err := harness.store.GetTask(context.Background(), "task-v4-chunked-replay")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, replayOutcome, err := harness.service.tryOrdinalSemanticReplay(context.Background(), task,
+		"request-v4-chunked-replay", replayReservation.QueryID, grantDigest, cacheKey,
+		dictionarySetDigest, replayReservation, map[string]float64{})
+	if err != nil || replayOutcome != ordinalReplayCompleted || result["semantic_replay"] != true {
+		t.Fatalf("chunked semantic replay outcome=%v result=%#v err=%v", replayOutcome, result, err)
+	}
+	var sourceFormat, replayFormat string
+	if err := harness.store.DB().QueryRowContext(context.Background(), `SELECT
+ (SELECT storage_format FROM encrypted_query_results WHERE query_id=$1),
+ (SELECT storage_format FROM encrypted_query_results WHERE query_id=$2)`, sourceReservation.QueryID,
+		replayReservation.QueryID).Scan(&sourceFormat, &replayFormat); err != nil {
+		t.Fatal(err)
+	}
+	if sourceFormat != "chunked-aes-gcm-v1" || replayFormat != "chunked-aes-gcm-v1" {
+		t.Fatalf("semantic replay formats source=%q replay=%q", sourceFormat, replayFormat)
+	}
+	if len(harness.connector.requests) != 0 {
+		t.Fatalf("semantic replay executed Business connector %d times", len(harness.connector.requests))
+	}
+}
+
+func TestEncryptedQuerySpoolStaysInMemoryAtThreshold(t *testing.T) {
+	base := t.TempDir()
+	spool, err := newEncryptedQuerySpool(base, "task", "query", 16)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer spool.Close()
+	payload := []byte("0123456789abcdef")
+	if _, err := spool.Write(payload); err != nil {
+		t.Fatal(err)
+	}
+	if spool.Spilled() {
+		t.Fatal("payload at threshold unexpectedly spilled")
+	}
+	actual, err := spool.Bytes()
+	if err != nil || !bytes.Equal(actual, payload) {
+		t.Fatalf("Bytes = %q, %v", actual, err)
+	}
+	entries, err := os.ReadDir(base)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("in-memory spool left filesystem entries: %v, %v", entries, err)
+	}
+}
+
+func TestEncryptedQuerySpoolCrossingThresholdAuthenticatesAndCleans(t *testing.T) {
+	base := t.TempDir()
+	spool, err := newEncryptedQuerySpool(base, "task", "query", 15)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := bytes.Repeat([]byte("0123456789abcdef"), querySpoolChunkSize/16+3)
+	for offset := 0; offset < len(payload); {
+		end := offset + 7919
+		if end > len(payload) {
+			end = len(payload)
+		}
+		if _, err := spool.Write(payload[offset:end]); err != nil {
+			t.Fatal(err)
+		}
+		offset = end
+	}
+	if !spool.Spilled() || spool.chunks != 1 {
+		t.Fatalf("spilled=%v chunks=%d before seal", spool.Spilled(), spool.chunks)
+	}
+	reader, err := spool.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	actual, err := io.ReadAll(reader)
+	if closeErr := reader.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil || !bytes.Equal(actual, payload) {
+		t.Fatalf("spool round trip length=%d err=%v", len(actual), err)
+	}
+	path, directory := spool.path, spool.dir
+	if err := spool.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("ciphertext file remains after cleanup: %v", err)
+	}
+	if _, err := os.Stat(directory); !os.IsNotExist(err) {
+		t.Fatalf("private directory remains after cleanup: %v", err)
+	}
+}
+
+func TestEncryptedQuerySpoolRejectsTampering(t *testing.T) {
+	spool, err := newEncryptedQuerySpool(t.TempDir(), "task", "query", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer spool.Close()
+	if _, err := spool.Write([]byte("sensitive result")); err != nil {
+		t.Fatal(err)
+	}
+	if err := spool.Seal(); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.OpenFile(spool.path, os.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := file.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	position := info.Size() - 1
+	last := []byte{0}
+	if _, err := file.ReadAt(last, position); err != nil {
+		t.Fatal(err)
+	}
+	last[0] ^= 0xff
+	if _, err := file.WriteAt(last, position); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := spool.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.ReadAll(reader); err == nil {
+		t.Fatal("tampered spool was accepted")
+	}
+	_ = reader.Close()
+}
+
+func TestWriteStoredQueryResultMatchesJSONMarshal(t *testing.T) {
+	tests := []storedQueryResult{
+		{},
+		{
+			Columns:  []dataconnector.Column{{Name: "amount", DataTypeOID: 1700}},
+			Rows:     [][]any{{json.Number("12.50"), "酒店", nil}, {true, []byte{0, 1}, "line\nbreak"}},
+			RowCount: 2, DatabaseMS: 7,
+			ComponentMS: map[string]float64{"z": 3.5, "a": 1}, Limited: true,
+		},
+		{Columns: []dataconnector.Column{}, Rows: [][]any{}, ComponentMS: map[string]float64{}},
+	}
+	for index, test := range tests {
+		var actual bytes.Buffer
+		if err := writeStoredQueryResult(&actual, test); err != nil {
+			t.Fatalf("case %d: %v", index, err)
+		}
+		expected, err := json.Marshal(test)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(actual.Bytes(), expected) {
+			t.Fatalf("case %d:\nactual   %s\nexpected %s", index, actual.Bytes(), expected)
+		}
+	}
+}
+
+func TestEncryptedQuerySpoolUsesPrivateModes(t *testing.T) {
+	spool, err := newEncryptedQuerySpool(t.TempDir(), "task", "query", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer spool.Close()
+	if _, err := spool.Write([]byte("spill")); err != nil {
+		t.Fatal(err)
+	}
+	directory, err := os.Stat(spool.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Stat(filepath.Join(spool.dir, "payload.spool"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if directory.Mode().Perm() != 0o700 || file.Mode().Perm() != 0o600 {
+		t.Fatalf("spool modes directory=%o file=%o", directory.Mode().Perm(), file.Mode().Perm())
+	}
+}

@@ -15,6 +15,8 @@ TaskGate 的核心预算主体是人类授权的根任务，而不是单条 SQL�
 要求是最小 causal provenance，也不声称等于数据库执行期间的完整 physical
 read set。
 
+V4 不改变下面任何 FactID 或收费语义，只改变物理实现：冻结 snapshot 中的 base facts 在发布时映射到 immutable ordinals，在线用精确压缩 bitmap 结算；少量 derived release/outcome 使用动态字典。V2/V3 通用代数继续作为解码 oracle，而不再是百万事实生产热路径。详见 [TaskGate V4](exposure-v4.md)。
+
 ## 事实身份
 
 V1 Profile 中，一个事实由下列五元组标识：
@@ -31,7 +33,7 @@ V1 Profile 中，一个事实由下列五元组标识：
 - `field` 是基础字段、`__row_exists__`，或规范化派生字段名；
 - `value version` 是类型化 JSON 值的 SHA-256。
 
-完整 FactID 再经 JSON 编码和 SHA-256，成为控制库的去重键。Snapshot 是
+完整 FactID 再经 canonical 编码和 SHA-256，成为稳定语义身份。V4 的 Snapshot Compiler 按完整 hash 排序并在独立 segment 内分配 `uint32` ordinal；dictionary 保留可逆映射，bitmap 不是 probabilistic summary。Snapshot 是
 发布契约，不是 PostgreSQL MVCC transaction ID；基础数据发生语义更新时，
 Catalog 管理流程必须提升 snapshot。即使 snapshot 未变，字段值变化也会因
 `value version` 不同而成为新事实，但这不能替代正确的数据版本管理。
@@ -97,25 +99,20 @@ page、NULL/bag、collation、UTC 和 exact numeric mode。支持的 alias、大
 
 ## 在线执行
 
-启用 exposure Profile 的任务只能通过受支持的结构化 `execute_plan` 路径
+启用 V4 exposure Profile 的任务只能通过受支持的结构化 `execute_plan` 路径
 释放数据。Gateway 为一个 QueryPlan 生成可见查询和 provenance companion，
 然后执行：
 
 ```text
-reserve -> execute/buffer -> derive provenance -> settle -> release
+reserve -> semantic replay lookup / execute+stream -> derive bitmap -> settle -> release
 ```
 
 1. 在 Control PostgreSQL 中同时创建资源预算和 exposure reservation。
-2. 在 Business PostgreSQL 的同一个只读 `REPEATABLE READ` 事务中执行可见
-   查询及 provenance companion，保证两份结果看到同一数据库快照。非聚合
-   计划让两条语句使用相同隐藏投影、实体键排序和行上限，并核对实体键集合；
-   聚合 companion 对来源上限多请求一行，以可靠识别截断。
-3. 结果留在 Gateway 内存中；稳定实体键只用于计量，不返回给未获批客户端。
-4. Gateway 从两份结果构造并规范化 release/influence FactID 集，并附加一个 OutcomeFact。
-5. Control PostgreSQL 锁定根账本，使用不可变事实表的唯一键只插入 novel
-   facts，并分别检查三个上限。
-6. exposure 结算、资源结算、AES-GCM 结果、终态审计和 Ed25519 V5 回执在
-   同一事务提交后，Gateway 才向客户端释放结果。
+2. 先用绑定 task/grant/scope、typed normal form、Catalog/schema/publication/dictionary 和编译版本的 key 查询 committed semantic replay。命中只复用已提交 observation/result，不执行 Business/provenance SQL。
+3. miss 时，在 Business PostgreSQL 的同一个只读 `REPEATABLE READ` 事务中缓冲可见结果并流式读取 ordinal companion；Gateway 同时只保留当前 canonical group 的 support bitmap、稀疏 witness multiplicity 和查询级 dependency bitmap。
+4. Gateway 生成 base release/dependency bitmap 及动态 derived release/outcome。未知 handle、越界 ordinal、manifest 不匹配、非规范 bitmap、overflow 或截断都 fail closed。
+5. Control PostgreSQL 对三个维度分别执行精确 `ANDNOT + popcount` 和 `OR`，并通过一次 root-head epoch CAS 原子发布。CAS 冲突重读 head 并重算全部 R/I/O。
+6. exposure/资源结算、AES-GCM 结果、semantic materialization、终态审计和 Ed25519 V6 回执在同一事务提交后，Gateway 才向客户端释放结果。semantic replay 命中仍重新授权、扣普通资源、写审计/新回执并用新 query AAD 重加密。
 
 任一 exposure 维度超限时，整笔控制事务回滚：新事实、账本计数和结果密文
 都不落库，缓冲结果也不返回。Business PostgreSQL 已经完成的物理工作仍在
@@ -149,9 +146,9 @@ resource-only grant 保留直接 SQL 兼容行为。
 - Catalog、Datasource、Schema 证据及 exposure Profile 保持一致；
 - 每次执行都重新验证完整祖先链仍为 ACTIVE。
 
-所有后代通过 `root_task_id` 写入同一组 release/influence/outcome 事实和同一根账本。
+所有后代通过 `root_task_id` 写入同一个三维 root head。
 因此父子 Agent 查询相同事实时，第二次增量费用为零；并发子任务由根账本
-`FOR UPDATE` 锁串行结算，不能分别花掉同一剩余额度。撤销根任务会阻止新的
+epoch CAS 原子结算，不能分别花掉同一剩余额度。撤销根任务会阻止新的
 后代查询。已终态的相同 `request_id` 重放只读取首次结果，不再次执行或收费。
 若子 Grant 进一步缩小 exposure 上限，子任务只能在该签名的绝对任务族上限内
 增加新事实；已有事实的零增量读取仍可重放。
@@ -166,13 +163,13 @@ resource-only grant 保留直接 SQL 兼容行为。
 | 表 | 作用 |
 |---|---|
 | `tasks` | 保存 root/parent lineage |
-| `exposure_ledgers` | 每个根任务的 Profile、三维上限和三维已用计数 |
-| `query_exposure_reservations` | 查询的估计、实际、增量费用和观察摘要 |
-| `exposure_facts` | 按 root + ledger kind + FactID Hash 唯一且不可变的已知事实 |
+| dictionary manifest/chunks | 冻结 base FactID↔ordinal 双射、segment bounds 和审计用 cold payload |
+| dynamic dictionaries | 少量 derived release/outcome 的精确 hash/payload 身份 |
+| bitmap containers/set manifests | `(dictionary, segment, ordinal>>16)` 的不可变内容寻址容器及集合根 |
+| root exposure head | 每个根任务的 Profile、三维 set manifest、已用计数和单一 epoch |
+| committed observations/materializations | observation digest、O(1) query reference 和 semantic replay 密文 |
 
-查询 V5 回执签名绑定 `root_task_id`、Profile、三类 actual facts、三类 charged
-facts 和规范化 observation SHA-256。回执不包含原始 FactID 或结果行；审计员
-可验证收费证据与终态审计位置，但不能据此恢复敏感值。
+查询 V6 回执签名绑定 `root_task_id`、Profile、dictionary set、三类 effect digest、actual/charged counts、root epoch、result digest 和 observation SHA-256。回执不包含原始 FactID 或结果行；有权审计方可从 cold dictionary + bitmap 无损恢复 canonical FactID。旧回执 verifier 保留，但不复用 V6 digest domain。
 
 ## 证据与限制
 
@@ -183,7 +180,4 @@ facts 和规范化 observation SHA-256。回执不包含原始 FactID 或结果�
 - `make formal` 检查 `ExposureLedger.tla` 的三预算安全、exact novel charge、
   settle-before-release、retry idempotence 和 task-family non-amplification。
 
-当前 corpus 是可审计的开发证据，不是论文规模的性能结论。尚未完成的外部
-实验包括完整 TPC-H/TPC-DS 查询族、第二数据库引擎、多 Agent 任务正确率、
-长期账本空间增长及 lineage/去重吞吐开销。系统也不提供差分隐私、推断控制、
-自动 snapshot/CDC、任意 SQL provenance 或跨 Gateway 执行租约。
+现有 169.3 s novel、154.1 s replay 和 9.8 GiB Gateway 峰值属于 legacy 全量 FactSet/逐事实存储诊断，不是 V4 结果。V4 的 ≤4 s novel P95、≤150 ms semantic replay P95、≤512 MiB Gateway peak 等数字目前是硬验收门槛；完成固定环境重跑前不能写成已实现 SLO。系统也不提供差分隐私、推断控制、可变源/任意 SQL provenance 或跨 Gateway 执行租约。

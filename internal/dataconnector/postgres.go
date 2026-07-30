@@ -114,9 +114,11 @@ type Attestation struct {
 	SchemaDigest           string `json:"schema_digest"`
 }
 
-// ViewSchema is the catalog-pinned shape of one PostgreSQL reporting view.
-// Column order is significant because SELECT * is forbidden and result
-// metadata must remain stable across an approved task's lifetime.
+// ViewSchema is the catalog-pinned shape of one PostgreSQL reporting relation.
+// Both ordinary views and frozen materialized-view publications expose a
+// pg_get_viewdef definition. Column order is significant because SELECT * is
+// forbidden and result metadata must remain stable across an approved task's
+// lifetime.
 type ViewSchema struct {
 	Schema     string
 	View       string
@@ -166,6 +168,57 @@ type QueryPairRequest struct {
 type QueryPairResult struct {
 	Visible    Result
 	Provenance Result
+}
+
+// ProvenanceSink consumes provenance rows as PostgreSQL produces them. Begin
+// is called exactly once, including for an empty result, before any Row call.
+// Row values must be treated as read-only and should be copied by sinks that
+// need to retain them after the call returns.
+//
+// A sink can have observed a prefix when QueryPairStream returns an error. It
+// must not publish or durably commit any derived state until QueryPairStream
+// succeeds; an error means the transaction was not committed and the prefix
+// must be discarded.
+type ProvenanceSink interface {
+	Begin(context.Context, []Column) error
+	Row(context.Context, []any) error
+}
+
+// VisibleResultSink is an optional extension for provenance consumers whose
+// streaming state depends on the already-buffered visible rows (for example,
+// paged group effects). QueryPairStream invokes it inside the same transaction
+// after the visible statement and before the provenance statement.
+type VisibleResultSink interface {
+	VisibleResult(context.Context, Result) error
+}
+
+// QueryPairStreamRequest binds the buffered visible query and streamed
+// provenance companion to one repeatable-read database snapshot.
+type QueryPairStreamRequest struct {
+	Visible        QueryRequest
+	Provenance     QueryRequest
+	ProvenanceSink ProvenanceSink
+}
+
+// StreamResult describes a streamed query without retaining its rows.
+type StreamResult struct {
+	Columns      []Column      `json:"columns"`
+	RowCount     int64         `json:"row_count"`
+	DatabaseTime time.Duration `json:"database_time"`
+	// ConsumerTime is the measured subset of DatabaseTime spent synchronously
+	// inside Begin/Row callbacks and is therefore never additive with
+	// DatabaseTime. DatabaseTime retains its historical query-to-drain meaning
+	// for resource charging.
+	ConsumerTime time.Duration `json:"consumer_time"`
+	Truncated    bool          `json:"truncated"`
+}
+
+type QueryPairStreamResult struct {
+	Visible    Result       `json:"visible"`
+	Provenance StreamResult `json:"provenance"`
+	// VisibleSinkTime is inside the QueryPairStream call's wall time, but
+	// outside both statement DatabaseTime values.
+	VisibleSinkTime time.Duration `json:"visible_sink_time"`
 }
 
 // Connector owns a pgx connection pool. Its fields are immutable after New.
@@ -317,19 +370,37 @@ func (c *Connector) attestSchemaDigest(ctx context.Context, querier attestationQ
 	actualSchemas := make([]ViewSchema, 0, len(c.expectedSchema))
 	for _, expected := range c.expectedSchema {
 		rows, err := querier.Query(ctx, `
-SELECT cols.column_name,
-       cols.data_type,
+SELECT attr.attname,
+       CASE
+           WHEN typ.typtype = 'd' THEN
+               CASE
+                   WHEN base_typ.typelem <> 0 AND base_typ.typlen = -1 THEN 'ARRAY'
+                   WHEN base_typ_ns.nspname = 'pg_catalog' THEN format_type(typ.typbasetype, NULL)
+                   ELSE 'USER-DEFINED'
+               END
+           ELSE
+               CASE
+                   WHEN typ.typelem <> 0 AND typ.typlen = -1 THEN 'ARRAY'
+                   WHEN typ_ns.nspname = 'pg_catalog' THEN format_type(attr.atttypid, NULL)
+                   ELSE 'USER-DEFINED'
+               END
+       END,
        CASE WHEN coll.oid IS NULL THEN '' WHEN coll.collname = 'default' THEN db.datcollate ELSE coll.collname END,
        COALESCE(CASE WHEN coll.oid IS NULL THEN '' WHEN coll.collname = 'default' THEN db.datcollversion ELSE pg_collation_actual_version(coll.oid) END, ''),
        COALESCE(coll.collisdeterministic, TRUE)
-FROM information_schema.columns AS cols
-JOIN pg_namespace AS ns ON ns.nspname = cols.table_schema
-JOIN pg_class AS cls ON cls.relnamespace = ns.oid AND cls.relname = cols.table_name
-JOIN pg_attribute AS attr ON attr.attrelid = cls.oid AND attr.attname = cols.column_name AND attr.attnum > 0 AND NOT attr.attisdropped
+FROM pg_namespace AS ns
+JOIN pg_class AS cls ON cls.relnamespace = ns.oid
+JOIN pg_attribute AS attr ON attr.attrelid = cls.oid AND attr.attnum > 0 AND NOT attr.attisdropped
+JOIN pg_type AS typ ON typ.oid = attr.atttypid
+JOIN pg_namespace AS typ_ns ON typ_ns.oid = typ.typnamespace
+LEFT JOIN pg_type AS base_typ ON typ.typtype = 'd' AND base_typ.oid = typ.typbasetype
+LEFT JOIN pg_namespace AS base_typ_ns ON base_typ_ns.oid = base_typ.typnamespace
 LEFT JOIN pg_collation AS coll ON coll.oid = attr.attcollation
 JOIN pg_database AS db ON db.datname = current_database()
-WHERE cols.table_schema=$1 AND cols.table_name=$2
-ORDER BY cols.ordinal_position`, expected.Schema, expected.View)
+WHERE ns.nspname=$1 AND cls.relname=$2
+  AND cls.relkind IN ('r', 'v', 'm', 'f', 'p')
+  AND (pg_has_role(cls.relowner, 'USAGE') OR has_column_privilege(cls.oid, attr.attnum, 'SELECT, INSERT, UPDATE, REFERENCES'))
+ORDER BY attr.attnum`, expected.Schema, expected.View)
 		if err != nil {
 			return "", connectorError(CodeConnection, err)
 		}
@@ -485,18 +556,51 @@ func (c *Connector) Query(ctx context.Context, request QueryRequest) (result Res
 // QueryPair executes a visible query and its provenance companion in one
 // read-only repeatable-read transaction. Neither result is returned unless
 // both statements and the transaction commit succeed.
-func (c *Connector) QueryPair(ctx context.Context, request QueryPairRequest) (result QueryPairResult, err error) {
+func (c *Connector) QueryPair(ctx context.Context, request QueryPairRequest) (QueryPairResult, error) {
+	collector := &provenanceCollector{}
+	streamed, err := c.QueryPairStream(ctx, QueryPairStreamRequest{
+		Visible:        request.Visible,
+		Provenance:     request.Provenance,
+		ProvenanceSink: collector,
+	})
+	if err != nil {
+		return QueryPairResult{}, err
+	}
+	return QueryPairResult{
+		Visible: streamed.Visible,
+		Provenance: Result{
+			Columns:      streamed.Provenance.Columns,
+			Rows:         collector.rows,
+			RowCount:     streamed.Provenance.RowCount,
+			DatabaseTime: streamed.Provenance.DatabaseTime,
+			Truncated:    streamed.Provenance.Truncated,
+		},
+	}, nil
+}
+
+// QueryPairStream executes a visible query and its provenance companion in one
+// read-only repeatable-read transaction. The visible result remains bounded
+// and buffered for release after settlement, while provenance rows are handed
+// to the sink without being accumulated in a [][]any result.
+//
+// Neither the returned metadata nor a successful stream is authoritative until
+// the transaction commits and this method returns nil. Sink failures and
+// context cancellation abort the stream and roll the transaction back.
+func (c *Connector) QueryPairStream(ctx context.Context, request QueryPairStreamRequest) (result QueryPairStreamResult, err error) {
 	if c == nil || c.pool == nil {
-		return QueryPairResult{}, connectorError(CodeConnection, errors.New("connector is closed"))
+		return QueryPairStreamResult{}, connectorError(CodeConnection, errors.New("connector is closed"))
 	}
 	for _, query := range []QueryRequest{request.Visible, request.Provenance} {
 		if strings.TrimSpace(query.SQL) == "" || query.MaxRows < 0 || query.StatementTimeout < 0 {
-			return QueryPairResult{}, connectorError(CodeInvalidQuery, errors.New("empty query or negative limit"))
+			return QueryPairStreamResult{}, connectorError(CodeInvalidQuery, errors.New("empty query or negative limit"))
 		}
+	}
+	if request.ProvenanceSink == nil {
+		return QueryPairStreamResult{}, connectorError(CodeInvalidQuery, errors.New("provenance sink is required"))
 	}
 	tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
-		return QueryPairResult{}, connectorError(CodeConnection, err)
+		return QueryPairStreamResult{}, connectorError(CodeConnection, err)
 	}
 	committed := false
 	defer func() {
@@ -505,29 +609,50 @@ func (c *Connector) QueryPair(ctx context.Context, request QueryPairRequest) (re
 		}
 	}()
 	if _, err := tx.Exec(ctx, `SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)`); err != nil {
-		return QueryPairResult{}, classifyQueryError(err)
+		return QueryPairStreamResult{}, classifyQueryError(err)
 	}
 	if _, err := tx.Exec(ctx, `SELECT pg_catalog.set_config('TimeZone', 'UTC', true), pg_catalog.set_config('extra_float_digits', '3', true)`); err != nil {
-		return QueryPairResult{}, classifyQueryError(err)
+		return QueryPairStreamResult{}, classifyQueryError(err)
 	}
 	attestation, err := c.attestDatasource(ctx, tx)
 	if err != nil {
-		return QueryPairResult{}, err
+		return QueryPairStreamResult{}, err
 	}
 	c.rememberAttestation(attestation)
 	result.Visible, err = c.queryInTx(ctx, tx, request.Visible)
 	if err != nil {
-		return QueryPairResult{}, err
+		return QueryPairStreamResult{}, err
 	}
-	result.Provenance, err = c.queryInTx(ctx, tx, request.Provenance)
+	if sink, ok := request.ProvenanceSink.(VisibleResultSink); ok {
+		started := time.Now()
+		if err := sink.VisibleResult(ctx, result.Visible); err != nil {
+			return QueryPairStreamResult{}, classifyQueryError(err)
+		}
+		result.VisibleSinkTime = time.Since(started)
+	}
+	result.Provenance, err = c.streamQueryInTx(ctx, tx, request.Provenance, request.ProvenanceSink)
 	if err != nil {
-		return QueryPairResult{}, err
+		return QueryPairStreamResult{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return QueryPairResult{}, classifyQueryError(err)
+		return QueryPairStreamResult{}, classifyQueryError(err)
 	}
 	committed = true
 	return result, nil
+}
+
+type provenanceCollector struct {
+	rows [][]any
+}
+
+func (collector *provenanceCollector) Begin(_ context.Context, _ []Column) error {
+	collector.rows = make([][]any, 0)
+	return nil
+}
+
+func (collector *provenanceCollector) Row(_ context.Context, values []any) error {
+	collector.rows = append(collector.rows, append([]any(nil), values...))
+	return nil
 }
 
 func (c *Connector) queryInTx(ctx context.Context, tx pgx.Tx, request QueryRequest) (Result, error) {
@@ -572,6 +697,55 @@ func (c *Connector) queryInTx(ctx context.Context, tx pgx.Tx, request QueryReque
 		return Result{}, classifyQueryError(err)
 	}
 	result.RowCount = int64(len(result.Rows))
+	return result, nil
+}
+
+func (c *Connector) streamQueryInTx(ctx context.Context, tx pgx.Tx, request QueryRequest, sink ProvenanceSink) (StreamResult, error) {
+	maxRows := clampRows(request.MaxRows, c.maxRows)
+	if maxRows <= 0 {
+		return StreamResult{}, connectorError(CodeInvalidQuery, errors.New("row limit is zero"))
+	}
+	timeout := clampTimeout(request.StatementTimeout, c.statementTimeout)
+	if _, err := tx.Exec(ctx, `SELECT pg_catalog.set_config('statement_timeout', $1, true)`, timeoutSetting(timeout)); err != nil {
+		return StreamResult{}, classifyQueryError(err)
+	}
+	startedAt := time.Now()
+	rows, err := tx.Query(ctx, request.SQL)
+	if err != nil {
+		return StreamResult{}, classifyQueryError(err)
+	}
+	defer rows.Close()
+	fields := rows.FieldDescriptions()
+	result := StreamResult{Columns: make([]Column, 0, len(fields))}
+	for _, field := range fields {
+		result.Columns = append(result.Columns, Column{Name: field.Name, DataTypeOID: field.DataTypeOID})
+	}
+	consumerStarted := time.Now()
+	if err := sink.Begin(ctx, append([]Column(nil), result.Columns...)); err != nil {
+		return StreamResult{}, classifyQueryError(err)
+	}
+	result.ConsumerTime += time.Since(consumerStarted)
+	for rows.Next() {
+		if result.RowCount == maxRows {
+			result.Truncated = true
+			break
+		}
+		values, err := rows.Values()
+		if err != nil {
+			return StreamResult{}, classifyQueryError(err)
+		}
+		consumerStarted = time.Now()
+		if err := sink.Row(ctx, values); err != nil {
+			return StreamResult{}, classifyQueryError(err)
+		}
+		result.ConsumerTime += time.Since(consumerStarted)
+		result.RowCount++
+	}
+	rows.Close()
+	result.DatabaseTime = time.Since(startedAt)
+	if err := rows.Err(); err != nil {
+		return StreamResult{}, classifyQueryError(err)
+	}
 	return result, nil
 }
 

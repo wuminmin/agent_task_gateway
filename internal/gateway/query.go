@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"reflect"
 	"sort"
 	"strconv"
@@ -23,6 +24,7 @@ import (
 	"taskbound.local/agent-data-gateway/internal/mcp"
 	"taskbound.local/agent-data-gateway/internal/queryplan"
 	"taskbound.local/agent-data-gateway/internal/queryreceipt"
+	"taskbound.local/agent-data-gateway/internal/semanticcache"
 	"taskbound.local/agent-data-gateway/internal/sqlpolicy"
 )
 
@@ -140,16 +142,39 @@ func (s *Service) executePlan(ctx context.Context, principal mcp.Principal, raw 
 			if err != nil {
 				return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "QueryPlan 不在可精确计量的数据暴露片段内"}
 			}
-			if grant.Exposure.ProfileVersion == exposure.ProfileV2 || grant.Exposure.ProfileVersion == exposure.ProfileV3 {
+			if grant.Exposure.ProfileVersion == exposure.ProfileV2 || grant.Exposure.ProfileVersion == exposure.ProfileV3 || grant.Exposure.ProfileVersion == exposure.ProfileV4 {
 				if err := exposureContext.configureV2(columns, aggregates); err != nil {
 					return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "QueryPlan 缺少 V2 规范身份或无法归一化"}
 				}
 			}
 			compiled = exposureContext.mainSQL
+			if grant.Exposure.ProfileVersion == exposure.ProfileV4 {
+				ordinalProduct, ordinalProductErr := s.ordinalQueryProduct(product, columns)
+				if ordinalProductErr != nil {
+					return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "V4 Product 未绑定可信快照发布物"}
+				}
+				ordinalCompilation, ordinalCompileErr := queryplan.CompileOrdinal(args.Plan, ordinalProduct)
+				if ordinalCompileErr != nil {
+					return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "QueryPlan 无法编译为 V4 ordinal 程序"}
+				}
+				bound, bindErr := s.bindOrdinalSidecars(ordinalCompilation.ProvenanceSQL,
+					ordinalCompilation.ProvenanceFields, ordinalCompilation.OrdinalProgram)
+				if bindErr != nil {
+					return nil, &mcp.ToolError{Code: apierr.CodeConflict, Message: "V4 快照索引或 sidecar 与 Catalog 不一致"}
+				}
+				exposureContext.mainSQL = ordinalCompilation.VisibleSQL
+				exposureContext.provenanceSQL = bound.ProvenanceSQL
+				exposureContext.provenanceFields = append([]string(nil), bound.ProvenanceFields...)
+				if args.Plan.Limit > 0 {
+					bound.EstimatedBaseFacts = estimateOrdinalBaseFacts(bound, uint64(args.Plan.Limit))
+				}
+				exposureContext.ordinal = &bound
+				compiled = ordinalCompilation.VisibleSQL
+			}
 		}
 	} else {
-		if !grant.Exposure.Enabled() || (grant.Exposure.ProfileVersion != exposure.ProfileV2 && grant.Exposure.ProfileVersion != exposure.ProfileV3) {
-			return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "在线 Join/Union 必须使用 taskgate-exposure-v2 或 v3"}
+		if !grant.Exposure.Enabled() || (grant.Exposure.ProfileVersion != exposure.ProfileV2 && grant.Exposure.ProfileVersion != exposure.ProfileV3 && grant.Exposure.ProfileVersion != exposure.ProfileV4) {
+			return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "在线 Join/Union 必须使用 taskgate-exposure-v2、v3 或 v4"}
 		}
 		productNames, namesErr := queryplan.RelationalProductNames(args.Plan)
 		if namesErr != nil {
@@ -163,7 +188,14 @@ func (s *Service) executePlan(ctx context.Context, principal mcp.Principal, raw 
 				return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "关系 QueryPlan 请求了任务授权外的数据产品"}
 			}
 			approved := stringSetFromSlice(grant.ApprovedColumns[name])
-			queryProducts[name] = relationalQueryProduct(product, approved)
+			queryProduct := relationalQueryProduct(product, approved)
+			if grant.Exposure.ProfileVersion == exposure.ProfileV4 {
+				queryProduct, err = s.ordinalQueryProduct(product, approved)
+				if err != nil {
+					return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "V4 Product 未绑定可信快照发布物"}
+				}
+			}
+			queryProducts[name] = queryProduct
 			catalogProducts[name] = product
 		}
 		relational, compileErr := queryplan.CompileRelational(args.Plan, queryProducts)
@@ -176,6 +208,15 @@ func (s *Service) executePlan(ctx context.Context, principal mcp.Principal, raw 
 			return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "Join/Union 缺少完整的正输出依赖证据"}
 		}
 		compiled = exposureContext.mainSQL
+		if grant.Exposure.ProfileVersion == exposure.ProfileV4 {
+			bound, bindErr := s.bindOrdinalSidecars(relational.ProvenanceSQL, relational.ProvenanceFields, relational.OrdinalProgram)
+			if bindErr != nil {
+				return nil, &mcp.ToolError{Code: apierr.CodeConflict, Message: "V4 快照索引或 sidecar 与 Catalog 不一致"}
+			}
+			exposureContext.provenanceSQL = bound.ProvenanceSQL
+			exposureContext.provenanceFields = append([]string(nil), bound.ProvenanceFields...)
+			exposureContext.ordinal = &bound
+		}
 	}
 	result, err := s.executeSQL(ctx, principal, task, args.RequestID, compiled, requestSummary, exposureContext)
 	if err != nil {
@@ -270,6 +311,12 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 		if err != nil || exposureLedger.ProfileVersion != grant.Exposure.ProfileVersion {
 			return nil, toolError(control.ErrExposureEvidenceRequired)
 		}
+		if exposureContext.ordinal != nil {
+			policyGrant, err = extendOrdinalPolicyGrant(policyGrant, exposureContext.ordinal.SidecarGrants)
+			if err != nil {
+				return nil, toolError(control.ErrExposureEvidenceRequired)
+			}
+		}
 	}
 	engine := sqlpolicy.New(sqlpolicy.Config{})
 	visibleRowLimit := remaining.Rows
@@ -310,6 +357,29 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 		grant.DatasourceID != evidence.DatasourceID || grant.SchemaDigest != evidence.SchemaDigest {
 		return nil, &mcp.ToolError{Code: apierr.CodeConflict, Message: "授权数据源与当前实例不一致；查询已关闭式拒绝"}
 	}
+	if exposureContext != nil && exposureContext.ordinal != nil {
+		if err := s.store.PutOrdinalDictionarySet(ctx, exposureContext.ordinal.DictionarySet); err != nil {
+			return nil, &mcp.ToolError{Code: apierr.CodeConflict, Message: "V4 dictionary set 无法按 Catalog 证据发布"}
+		}
+	}
+	var ordinalCacheKey string
+	if exposureContext != nil && exposureContext.ordinal != nil {
+		authorizationDigest := digest(strings.Join([]string{
+			decision.Fingerprint, strconv.FormatInt(decision.RowLimit, 10),
+			provenanceDecision.Fingerprint, strconv.FormatInt(provenanceEvidenceRows, 10),
+			protocolGrant.Core.ManifestDigest,
+		}, "\x00"))
+		ordinalCacheKey, err = (semanticcache.Binding{
+			TaskID: task.ID, GrantDigest: grantDigest, AuthorizationDigest: authorizationDigest,
+			TypedNormalForm: queryplan.NormalFormVersion + ":" + exposureContext.planDigest,
+			PlanDigest:      exposureContext.planDigest, CatalogDigest: s.catalog.SHA256,
+			SchemaDigest: evidence.SchemaDigest, DictionarySetDigest: exposureContext.ordinal.DictionarySetDigest,
+			ExposureProfile: exposure.ProfileV4, ResultEncoding: "stored-query-result-v1",
+		}).Digest()
+		if err != nil {
+			return nil, &mcp.ToolError{Code: apierr.CodeConflict, Message: "V4 semantic replay key 无法规范化"}
+		}
+	}
 	queryID := randomID("query")
 	approvedPerQueryTimeout := time.Duration(protocolGrant.Core.Budget.PerQueryTimeoutMS) * time.Millisecond
 	requestedTimeout := approvedPerQueryTimeout
@@ -335,7 +405,7 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 			EstimatedReleaseFacts:   saturatedProduct(decision.RowLimit, int64(len(exposureContext.visibleFields))),
 			EstimatedInfluenceFacts: saturatedProduct(provenanceEvidenceRows, int64(len(exposureContext.provenanceFields)+1)),
 		}
-		if exposureLedger.ProfileVersion == exposure.ProfileV3 {
+		if exposureLedger.ProfileVersion == exposure.ProfileV3 || exposureLedger.ProfileVersion == exposure.ProfileV4 {
 			reserveRequest.Exposure.EstimatedOutcomeFacts = 1
 		}
 	}
@@ -346,6 +416,39 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 	componentMS["reserve"] = durationMS(time.Since(reserveStarted))
 	if reservation.Replay && reservation.Record != nil {
 		return s.queryReplayResponse(ctx, *reservation.Record)
+	}
+	if ordinalCacheKey != "" {
+		replayed, replayOutcome, replayErr := s.tryOrdinalSemanticReplay(ctx, task, requestID, queryID, grantDigest,
+			ordinalCacheKey, exposureContext.ordinal.DictionarySetDigest, reservation, componentMS)
+		if replayErr != nil {
+			return nil, replayErr
+		}
+		switch replayOutcome {
+		case ordinalReplayCompleted:
+			return replayed, nil
+		case ordinalReplayContinueNovel:
+			// tryOrdinalSemanticReplay explicitly returned ownership of the
+			// still-live reservation. The novel path below must settle it.
+		default:
+			return nil, &mcp.ToolError{Code: apierr.CodeConflict, Message: "V4 replay 返回了非规范终态"}
+		}
+	}
+	var releaseDerivationSlot func()
+	if exposureContext != nil && exposureContext.ordinal != nil &&
+		exposureContext.ordinal.EstimatedBaseFacts >= 1_000_000 && s.highCardinalityDerivations != nil {
+		queueCtx, queueCancel := context.WithDeadline(ctx, grant.ExpiresAt)
+		select {
+		case s.highCardinalityDerivations <- struct{}{}:
+			releaseDerivationSlot = func() { <-s.highCardinalityDerivations }
+		case <-queueCtx.Done():
+			queueCancel()
+			s.releaseQueryBudget(ctx, queryID, "ORDINAL_DERIVATION_QUEUE_EXPIRED")
+			return nil, toolError(control.ErrTaskExpired)
+		}
+		queueCancel()
+	}
+	if releaseDerivationSlot != nil {
+		defer releaseDerivationSlot()
 	}
 	timeout := time.Duration(reservation.AllowedDBMS) * time.Millisecond
 	if timeout > approvedPerQueryTimeout {
@@ -370,11 +473,37 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 	connectorStarted := time.Now()
 	var data dataconnector.Result
 	var provenanceData dataconnector.Result
+	var ordinalSink *ordinalDerivationSink
+	var ordinalStreamDuration time.Duration
+	var ordinalConsumerDuration time.Duration
+	var ordinalPreparationDuration time.Duration
 	var queryErr error
 	if exposureContext == nil {
 		data, queryErr = s.connector.Query(queryCtx, dataconnector.QueryRequest{
 			SQL: decision.SQL, StatementTimeout: timeout, MaxRows: reservation.AllowedRows,
 		})
+	} else if exposureContext.ordinal != nil {
+		streaming, ok := s.connector.(interface {
+			QueryPairStream(context.Context, dataconnector.QueryPairStreamRequest) (dataconnector.QueryPairStreamResult, error)
+		})
+		if !ok {
+			s.releaseQueryBudget(ctx, queryID, "EXPOSURE_SNAPSHOT_UNAVAILABLE")
+			return nil, toolError(control.ErrExposureEvidenceRequired)
+		}
+		ordinalSink = &ordinalDerivationSink{program: exposureContext.ordinal.Program,
+			indexes: exposureContext.ordinal.Indexes, planDigest: exposureContext.planDigest}
+		pair, pairErr := streaming.QueryPairStream(queryCtx, dataconnector.QueryPairStreamRequest{
+			Visible: dataconnector.QueryRequest{SQL: decision.SQL, StatementTimeout: timeout, MaxRows: reservation.AllowedRows},
+			Provenance: dataconnector.QueryRequest{SQL: provenanceDecision.SQL, StatementTimeout: timeout,
+				MaxRows: provenanceEvidenceRows},
+			ProvenanceSink: ordinalSink,
+		})
+		data, queryErr = pair.Visible, pairErr
+		provenanceData = dataconnector.Result{Columns: pair.Provenance.Columns, RowCount: pair.Provenance.RowCount,
+			DatabaseTime: pair.Provenance.DatabaseTime, Truncated: pair.Provenance.Truncated}
+		ordinalStreamDuration = pair.Provenance.DatabaseTime
+		ordinalConsumerDuration = pair.Provenance.ConsumerTime
+		ordinalPreparationDuration = pair.VisibleSinkTime
 	} else {
 		paired, ok := s.connector.(interface {
 			QueryPair(context.Context, dataconnector.QueryPairRequest) (dataconnector.QueryPairResult, error)
@@ -412,14 +541,39 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 	}
 	if exposureContext != nil {
 		derivationStarted := time.Now()
-		observation, deriveErr := exposureContext.deriveObservation(data, provenanceData, exposureLedger.ProfileVersion)
-		componentMS["exposure_derivation"] = durationMS(time.Since(derivationStarted))
+		var deriveErr error
+		if exposureContext.ordinal != nil {
+			if provenanceData.Truncated || ordinalSink == nil {
+				deriveErr = errProvenanceTruncated
+			} else {
+				var effect ordinalEffect
+				effect, deriveErr = ordinalSink.Finish()
+				if deriveErr == nil {
+					var observation control.OrdinalExposureObservation
+					observation, deriveErr = ordinalControlObservation(effect, exposureContext.ordinal.DictionarySetDigest)
+					if deriveErr == nil {
+						settlement.OrdinalExposure = &observation
+					}
+				}
+			}
+		} else {
+			var observation exposure.Observation
+			observation, deriveErr = exposureContext.deriveObservation(data, provenanceData, exposureLedger.ProfileVersion)
+			if deriveErr == nil {
+				settlement.Exposure = &observation
+			}
+		}
+		finishDuration := time.Since(derivationStarted)
+		componentMS["exposure_derivation"] = durationMS(finishDuration)
+		if exposureContext.ordinal != nil {
+			recordOrdinalTimingComponents(componentMS, ordinalStreamDuration, ordinalConsumerDuration,
+				ordinalPreparationDuration, finishDuration)
+		}
 		if deriveErr != nil {
 			settlement.ErrorCode = "EXPOSURE_PROVENANCE_INVALID"
 			s.failQueryBudget(ctx, settlement)
 			return nil, &mcp.ToolError{Code: apierr.CodeExposureEvidenceRequired, Message: "查询的来源证据不完整，因此结果未释放"}
 		}
-		settlement.Exposure = &observation
 		data, err = exposureContext.visibleResult(data)
 		if err != nil {
 			settlement.ErrorCode = "EXPOSURE_RESULT_INVALID"
@@ -434,13 +588,26 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 	if exposureContext == nil && businessDatabaseDuration <= 0 {
 		businessDatabaseDuration = totalDatabaseDuration
 	}
-	connectorOverhead := connectorFinished.Sub(connectorStarted) - totalDatabaseDuration
-	if connectorOverhead < 0 {
-		connectorOverhead = 0
+	ordinalConnectorConsumer := time.Duration(0)
+	if exposureContext != nil && exposureContext.ordinal != nil {
+		ordinalConnectorConsumer = ordinalPreparationDuration
 	}
+	// VisibleResult is invoked between the two statements, so it is inside the
+	// connector wall clock but outside both query-to-drain database timers. V4
+	// reports it as bitmap work; remove it here to keep the leaf components
+	// disjoint. ordinal_stream remains an explicitly overlapping aggregate.
+	connectorOverhead := connectorOverheadDuration(connectorFinished.Sub(connectorStarted), totalDatabaseDuration,
+		ordinalConnectorConsumer)
 	componentMS["business_postgresql"] = durationMS(businessDatabaseDuration)
 	if exposureContext != nil {
-		componentMS["provenance_postgresql"] = durationMS(provenanceDatabaseDuration)
+		measuredProvenance := provenanceDatabaseDuration
+		if exposureContext.ordinal != nil {
+			measuredProvenance -= ordinalConsumerDuration
+			if measuredProvenance < 0 {
+				measuredProvenance = 0
+			}
+		}
+		componentMS["provenance_postgresql"] = durationMS(measuredProvenance)
 	}
 	componentMS["connector_overhead"] = durationMS(connectorOverhead)
 	stored := storedQueryResult{
@@ -448,16 +615,57 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 		DatabaseMS: settlement.DBMS, ComponentMS: componentMS,
 		Limited: data.Truncated || data.RowCount == reservation.AllowedRows,
 	}
+	if ordinalCacheKey != "" {
+		expires := grant.ExpiresAt.UTC()
+		settlement.OrdinalMaterialization = &control.OrdinalMaterializationPublish{CacheKeySHA256: ordinalCacheKey, ExpiresAt: &expires}
+	}
 	encodingStarted := time.Now()
-	plaintext, err := json.Marshal(stored)
+	resultSpool, err := newEncryptedQuerySpool(s.spoolDirectory, task.ID, queryID, s.spoolThreshold)
+	if err == nil {
+		err = writeStoredQueryResult(resultSpool, stored)
+	}
+	if err == nil {
+		err = resultSpool.Seal()
+	}
 	componentMS["result_encoding"] = durationMS(time.Since(encodingStarted))
 	if err != nil {
+		if resultSpool != nil {
+			_ = resultSpool.Close()
+		}
 		settlement.ErrorCode = resultEncodingFailed
 		s.failQueryBudget(ctx, settlement)
 		return nil, err
 	}
+	defer resultSpool.Close()
 	finalizeCtx, finalizeCancel := s.detachedContext(ctx)
-	record, persistedReceipt, finalizeMetrics, err := s.store.FinalizeQueryMeasuredWithReceipt(finalizeCtx, settlement, plaintext, s.terminalReceiptBuilder())
+	var record control.QueryRecord
+	var persistedReceipt control.PersistedQueryReceipt
+	var finalizeMetrics control.FinalizeQueryMetrics
+	if resultSpool.Spilled() {
+		var plaintextReader io.ReadCloser
+		plaintextReader, err = resultSpool.Open()
+		if err == nil {
+			if settlement.OrdinalExposure != nil || settlement.OrdinalObservationRef != nil {
+				record, persistedReceipt, finalizeMetrics, err = s.store.FinalizeOrdinalQueryStreamMeasuredWithReceipt(finalizeCtx,
+					settlement, plaintextReader, settlement.OrdinalMaterialization, s.terminalReceiptBuilder())
+			} else {
+				record, persistedReceipt, finalizeMetrics, err = s.store.FinalizeQueryStreamMeasuredWithReceipt(finalizeCtx,
+					settlement, plaintextReader, s.terminalReceiptBuilder())
+			}
+			_ = plaintextReader.Close()
+		}
+	} else {
+		var plaintext []byte
+		plaintext, err = resultSpool.Bytes()
+		if err == nil {
+			if settlement.OrdinalExposure != nil || settlement.OrdinalObservationRef != nil {
+				record, persistedReceipt, finalizeMetrics, err = s.store.FinalizeOrdinalQueryMeasuredWithReceipt(finalizeCtx, settlement, plaintext,
+					settlement.OrdinalMaterialization, s.terminalReceiptBuilder())
+			} else {
+				record, persistedReceipt, finalizeMetrics, err = s.store.FinalizeQueryMeasuredWithReceipt(finalizeCtx, settlement, plaintext, s.terminalReceiptBuilder())
+			}
+		}
+	}
 	finalizeCancel()
 	if err != nil {
 		settlement.ErrorCode = resultFinalizationFailed
@@ -546,6 +754,31 @@ func durationMS(value time.Duration) float64 {
 		return 0
 	}
 	return float64(value.Nanoseconds()) / float64(time.Millisecond)
+}
+
+// recordOrdinalTimingComponents records both the independently measured leaf
+// timers and the two useful aggregates. The leaf equations are intentionally
+// exposed so an evaluation consumer can reject placeholder or double-counted
+// component evidence:
+//
+//	ordinal_stream = provenance_postgresql + ordinal_stream_consumer
+//	bitmap_derivation = ordinal_visible_preparation + ordinal_stream_consumer + ordinal_finish
+//
+// provenance_postgresql is populated separately after connector execution.
+func recordOrdinalTimingComponents(componentMS map[string]float64, stream, consumer, preparation, finish time.Duration) {
+	componentMS["ordinal_stream"] = durationMS(stream)
+	componentMS["ordinal_stream_consumer"] = durationMS(consumer)
+	componentMS["ordinal_visible_preparation"] = durationMS(preparation)
+	componentMS["ordinal_finish"] = durationMS(finish)
+	componentMS["bitmap_derivation"] = durationMS(preparation + consumer + finish)
+}
+
+func connectorOverheadDuration(elapsed, database, separatelyReportedConsumer time.Duration) time.Duration {
+	result := elapsed - database - separatelyReportedConsumer
+	if result < 0 {
+		return 0
+	}
+	return result
 }
 
 func querySettlement(queryID string, data dataconnector.Result, started time.Time, reservation control.BudgetReservation) control.BudgetSettlement {
@@ -960,7 +1193,7 @@ func (s *Service) queryReceipt(ctx context.Context, record control.QueryRecord) 
 	if record.BudgetAfter == nil || record.CompletedAt == nil {
 		return nil, fmt.Errorf("terminal query is missing durable budget or timestamp evidence")
 	}
-	request, err := s.buildQueryReceiptRequest(control.QueryReceipt{Query: record, Audit: evidence.Audit}, s.clock().UTC())
+	request, err := s.buildQueryReceiptRequest(control.QueryReceipt{Query: record, Audit: evidence.Audit, Exposure: evidence.Exposure}, s.clock().UTC())
 	if err != nil {
 		return nil, err
 	}
@@ -1000,6 +1233,8 @@ func BuildQueryReceiptRequest(evidence control.QueryReceipt, signer *queryreceip
 		version = queryreceipt.VersionV4
 		if evidence.Exposure.ProfileVersion == exposure.ProfileV3 {
 			version = queryreceipt.VersionV5
+		} else if evidence.Exposure.ProfileVersion == exposure.ProfileV4 {
+			version = queryreceipt.VersionV6
 		}
 		exposureEvidence = &queryreceipt.ExposureEvidenceV1{
 			RootTaskID: evidence.Exposure.RootTaskID, ProfileVersion: evidence.Exposure.ProfileVersion,
@@ -1008,6 +1243,11 @@ func BuildQueryReceiptRequest(evidence control.QueryReceipt, signer *queryreceip
 			ChargedReleaseFacts: evidence.Exposure.ChargedReleaseFacts, ChargedInfluenceFacts: evidence.Exposure.ChargedInfluenceFacts,
 			ChargedOutcomeFacts: evidence.Exposure.ChargedOutcomeFacts,
 			ObservationSHA256:   evidence.Exposure.ObservationSHA256,
+			DictionarySetSHA256: evidence.Exposure.DictionarySetDigest,
+			ReleaseSetSHA256:    evidence.Exposure.ReleaseSetSHA256,
+			InfluenceSetSHA256:  evidence.Exposure.InfluenceSetSHA256,
+			OutcomeSetSHA256:    evidence.Exposure.OutcomeSetSHA256,
+			RootEpoch:           evidence.Exposure.RootEpoch,
 		}
 	}
 	receipt := queryreceipt.QueryReceiptV1{

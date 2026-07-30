@@ -5,7 +5,7 @@
 无论 SQL 来自 `query_sql` 还是 `execute_plan` 的确定性编译，都会经过同一条本地链路：
 
 ```text
-Agent SQL / 编译后的 QueryPlan visible + provenance SQL
+Agent SQL / 编译后的 QueryPlan visible + ordinal companion SQL
   → 所有权、任务状态、签名 Grant、TTL、Catalog 摘要与 Schema Attestation
   → pg_query_go/v6 PostgreSQL AST 解析
   → 语句/对象/字段/函数/运算符/特性白名单
@@ -13,8 +13,9 @@ Agent SQL / 编译后的 QueryPlan visible + provenance SQL
   → 外层 LIMIT = 剩余累计行预算
   → Control PostgreSQL 以 (task_id, request_id) 幂等检查并预留资源与 exposure evidence
   → 业务 PostgreSQL 显式只读事务 + statement_timeout
-  → exposure 路径在一个 REPEATABLE READ 快照执行并缓冲两份结果
-  → 推导 release/influence FactID 与 OutcomeFact，原子结算根任务三账本、保存结果、写 Ed25519 回执和审计
+  → exposure miss 在一个 REPEATABLE READ 快照缓冲 visible、流式读取 companion
+  → 推导 exact bitmap effect，ANDNOT + popcount 后一次 CAS 三维 root head
+  → 同事务保存结果/materialization、V6 Ed25519 回执和审计，commit 后释放
 ```
 
 安全判断不使用正则或注释剥离来猜测 SQL。解析失败或出现未识别 AST 节点时关闭式拒绝。
@@ -93,7 +94,7 @@ Agent 自己写的内层 `LIMIT` 只能进一步缩小结果。外层限制按�
 
 - 非 owner、`NOSUPERUSER`、`NOBYPASSRLS` 的 `gateway_reader` 只对 `reporting.datasource_attestation` 和两个 `reporting.*` View 有 `SELECT`，对 `legacy.*` 无权限。
 - 角色级和连接级 `default_transaction_read_only=on`。
-- 每次执行显式 `READ ONLY` 事务；exposure 路径把可见查询和 provenance companion 放进同一个 `REPEATABLE READ` 事务。
+- 每次执行显式 `READ ONLY` 事务；V4 miss 把可见查询和 streamed ordinal companion 放进同一个 `REPEATABLE READ` 事务；verified semantic replay hit 不执行 Business SQL。
 - 角色、连接及事务本地 `statement_timeout`，最终取任务剩余 DB 预算、Profile 单次上限、Grant 剩余有效期和 Connector 5 秒上限中的更小值；在途查询不能越过授权截止点继续返回结果。
 - `search_path=pg_catalog`，生成 SQL 对物理 View 使用安全引用标识符。
 - Context Deadline 与 PostgreSQL 取消错误统一映射为安全错误码。
@@ -104,7 +105,7 @@ Agent 自己写的内层 `LIMIT` 只能进一步缩小结果。外层限制按�
 
 启用 exposure 时，第二个编译阶段接受上述单产品片段和受限 Join/Union，并允许
 `COUNT(*)/COUNT(column)/SUM/MIN/MAX`（可带 `GROUP BY`）。它加入 Catalog `entity_key`、Scope、
-谓词和聚合输入字段来生成 provenance companion。未获批的实体键仅在策略
+谓词和聚合输入字段来生成 ordinal provenance companion。未获批的实体键仅在策略
 内部扩展 Grant，返回前会被删除；客户端不能借此查询 key。来源结果截断、
 列缺失、值不可规范化或两份结果不一致都会阻止结果释放。
 
@@ -117,7 +118,7 @@ Gateway 不包含模型客户端、Prompt 或自然语言翻译器。需要从�
 - `AVG` 可出现在传统 SQL Catalog allowlist，但不属于 exposure V1 精确计量片段；窗口函数、递归、任意子查询 provenance 和负信息计量也不支持。
 - 直接 SQL 不支持客户端占位符。调用方必须提交完整 SQL；Gateway 不提供任意 Session 变量入口。
 - Connector 在启动、readiness 和每次新查询前对 Reporting View 的列顺序与 PostgreSQL 类型执行 Catalog-pinned Schema Attestation；任何漂移都会关闭式拒绝。
-- 结果在 Gateway 内存中物化后整体 JSON 编码并加密；没有流式结果，Connector 全局硬上限为 10,000 行，Demo Profile 更低。
+- 可见结果仍在 Gateway 内存中整体 JSON 编码并加密；provenance companion 已流式消费。Connector 的可见结果仍受全局 10,000 行硬上限约束，Demo Profile 更低。
 - `output_format=table` 目前只作为结构化响应元数据返回，Gateway 不负责表格或图表渲染。
 - SQL 指纹是规范化 Agent SQL 的 SHA-256；它证明请求文本，不是数据库执行计划 Hash。
 - 结果确定时，预算 DB 时间按 Gateway 观测的实际有界用量结算；执行结果无法确定时标记 `INDETERMINATE` 并按完整预留保守计费。它不等同于 PostgreSQL `EXPLAIN ANALYZE` 的精确执行指标。

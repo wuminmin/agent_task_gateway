@@ -27,8 +27,13 @@ const (
 	ProfileV1         = "taskgate-exposure-v1"
 	ProfileV2         = "taskgate-exposure-v2"
 	ProfileV3         = "taskgate-exposure-v3"
-	factDomainV2      = "TASKGATE-FACT-V2\x00"
-	factDomainV3      = "TASKGATE-FACT-V3\x00"
+	// ProfileV4 changes the physical representation of an observation, not the
+	// semantic identity of its facts. Release and influence facts retain their
+	// V2 payloads and outcome facts retain their V3 payloads so a V4 bitmap can
+	// be decoded and compared with the existing exact FactSet model.
+	ProfileV4    = "taskgate-exposure-v4"
+	factDomainV2 = "TASKGATE-FACT-V2\x00"
+	factDomainV3 = "TASKGATE-FACT-V3\x00"
 )
 
 // FactKind identifies the semantic category of a V2 fact. The hash is only an
@@ -1069,20 +1074,20 @@ func (o Observation) Normalize() (Observation, error) {
 	}
 	for _, set := range []FactSet{release, influence} {
 		for _, fact := range set {
-			if (o.ProfileVersion == ProfileV2 || o.ProfileVersion == ProfileV3) && !fact.IsV2() {
-				return Observation{}, fmt.Errorf("%w: V2/V3 release or influence set contains a non-V2 fact", ErrInvalid)
+			if (o.ProfileVersion == ProfileV2 || o.ProfileVersion == ProfileV3 || o.ProfileVersion == ProfileV4) && !fact.IsV2() {
+				return Observation{}, fmt.Errorf("%w: V2/V3/V4 release or influence set contains a non-V2 fact", ErrInvalid)
 			}
-			if o.ProfileVersion != ProfileV2 && o.ProfileVersion != ProfileV3 && fact.isVersioned() {
+			if o.ProfileVersion != ProfileV2 && o.ProfileVersion != ProfileV3 && o.ProfileVersion != ProfileV4 && fact.isVersioned() {
 				return Observation{}, fmt.Errorf("%w: V2 fact cannot enter profile %q", ErrInvalid, o.ProfileVersion)
 			}
 		}
 	}
 	for _, fact := range outcome {
-		if o.ProfileVersion != ProfileV3 || !fact.IsV3() || fact.Kind != FactOutcome {
-			return Observation{}, fmt.Errorf("%w: outcome facts require profile %q", ErrInvalid, ProfileV3)
+		if (o.ProfileVersion != ProfileV3 && o.ProfileVersion != ProfileV4) || !fact.IsV3() || fact.Kind != FactOutcome {
+			return Observation{}, fmt.Errorf("%w: outcome facts require profile %q or %q", ErrInvalid, ProfileV3, ProfileV4)
 		}
 	}
-	if o.ProfileVersion != ProfileV3 && len(outcome) != 0 {
+	if o.ProfileVersion != ProfileV3 && o.ProfileVersion != ProfileV4 && len(outcome) != 0 {
 		return Observation{}, fmt.Errorf("%w: profile %q cannot carry outcome facts", ErrInvalid, o.ProfileVersion)
 	}
 	return Observation{ProfileVersion: o.ProfileVersion, Release: release.Values(), Influence: influence.Values(), Outcome: outcome.Values()}, nil

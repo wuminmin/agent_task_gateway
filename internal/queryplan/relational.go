@@ -28,6 +28,7 @@ type RelationalCompilation struct {
 	JoinPredicates   []JoinPredicate
 	UnionColumns     []string
 	OutputAliases    map[string]string
+	OrdinalProgram   OrdinalProgram
 }
 
 type RelationalSource struct {
@@ -137,12 +138,16 @@ func CompileRelational(plan QueryPlan, products map[string]Product) (RelationalC
 			result.ProvenanceFields = append(result.ProvenanceFields, alias)
 		}
 	}
-	if len(plan.GroupBy) == 0 && len(plan.Aggregates) == 0 && (result.Kind == "scan" || result.Kind == "join") {
+	grouped := len(plan.GroupBy) > 0 || len(plan.Aggregates) > 0
+	var provenanceOrder []OrdinalOrderSpec
+	if !grouped && (result.Kind == "scan" || result.Kind == "join") {
 		orders := make([]string, 0)
 		for _, source := range result.Sources {
 			product := products[source.Product]
 			for _, key := range product.StableEntityKey {
 				orders = append(orders, qualified(source.Role, key)+" ASC")
+				provenanceOrder = append(provenanceOrder, OrdinalOrderSpec{Kind: "entity", FieldID: source.Role + "." + key,
+					SourceAlias: source.Role, ProvenanceAlias: source.EvidenceAlias[key], Direction: "ASC"})
 			}
 		}
 		if len(orders) == 0 {
@@ -152,7 +157,30 @@ func CompileRelational(plan QueryPlan, products map[string]Product) (RelationalC
 		result.VisibleSQL += orderSQL
 		result.ProvenanceSQL += orderSQL
 	}
+	if grouped {
+		orderSQL, order, orderErr := relationalGroupedProvenanceOrder(plan, result, products)
+		if orderErr != nil {
+			return RelationalCompilation{}, orderErr
+		}
+		result.ProvenanceSQL += orderSQL
+		provenanceOrder = order
+	} else if result.Kind == "union_distinct" {
+		// Alternative proofs for one DISTINCT tuple must be contiguous so the
+		// online engine can apply exact max semantics with O(1) tuple state.
+		// Visible SQL remains unordered; only the provenance companion receives
+		// this canonical full-tuple/entity/branch order.
+		orderSQL, order, orderErr := relationalGroupedProvenanceOrder(plan, result, products)
+		if orderErr != nil {
+			return RelationalCompilation{}, orderErr
+		}
+		result.ProvenanceSQL += orderSQL
+		provenanceOrder = order
+	}
 	result.Products = relationalProducts(result.Sources)
+	result.OrdinalProgram, err = buildRelationalOrdinalProgram(plan, products, result, provenanceOrder)
+	if err != nil {
+		return RelationalCompilation{}, err
+	}
 	return result, nil
 }
 
@@ -204,11 +232,14 @@ func compileExplicitScan(scan Scan, products map[string]Product) (compiledScan, 
 		where, _ := compileLeafFilters(scan, product)
 		// A subquery keeps a leaf predicate local when this scan later becomes a
 		// grammar building block; explicit top-level scan uses the same form.
-		selected := make(map[string]struct{}, len(product.Columns)+len(product.StableEntityKey))
+		selected := make(map[string]struct{}, len(product.Columns)+len(product.StableEntityKey)+len(product.RequiredEvidence))
 		for column := range product.Columns {
 			selected[column] = struct{}{}
 		}
 		for _, column := range product.StableEntityKey {
+			selected[column] = struct{}{}
+		}
+		for _, column := range product.RequiredEvidence {
 			selected[column] = struct{}{}
 		}
 		selects := make([]string, 0, len(selected))
@@ -308,6 +339,12 @@ func compileUnion(union UnionDistinct, outerFilters []Filter, products map[strin
 		evidenceSet[column] = struct{}{}
 	}
 	for _, column := range product.StableEntityKey {
+		evidenceSet[column] = struct{}{}
+	}
+	for _, column := range product.RequiredEvidence {
+		if err := ordinalProductField(column, product); err != nil {
+			return compiledRelation{}, nil, "", "", err
+		}
 		evidenceSet[column] = struct{}{}
 	}
 	for _, scan := range []Scan{union.Left, union.Right} {
@@ -587,6 +624,9 @@ func compileFilterExpression(column string, filter Filter) (string, error) {
 func evidenceFields(scan Scan, product Product, schema map[string]relationalField, plan QueryPlan, joins []JoinPredicate, union []string) []string {
 	set := make(map[string]struct{})
 	for _, field := range product.StableEntityKey {
+		set[field] = struct{}{}
+	}
+	for _, field := range product.RequiredEvidence {
 		set[field] = struct{}{}
 	}
 	for _, filter := range scan.Filters {
