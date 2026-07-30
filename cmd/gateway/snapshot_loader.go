@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime/debug"
 	"strings"
 
 	"taskbound.local/agent-data-gateway/internal/catalog"
@@ -25,6 +26,10 @@ const (
 	// threshold. COLD envelopes and sidecar semantics are streamed through
 	// bounded verifiers and are never retained in the Gateway heap.
 	maxGatewayHotArtifactsBytes = 160 << 20
+	// Streaming COLD verification must not turn the complete audit artifact
+	// into charged cgroup page cache.  Drop already-consumed pages in bounded
+	// windows; the verifier retains only its fixed-size userspace buffer.
+	snapshotCacheDropWindowBytes = 8 << 20
 )
 
 type snapshotPublicationStore interface {
@@ -173,6 +178,7 @@ func loadSnapshotPublication(baseDirectory string, logicalCatalog *catalog.Catal
 	if err := matchHotIndexToCatalog(logicalCatalog, publication, bundleManifest, hot); err != nil {
 		return loadedSnapshotPublication{}, 0, err
 	}
+	hotArtifactBytes := int64(len(hotBytes))
 	// MarshalBinaryWithoutEntityKeys is valid for a connector that has a
 	// separately attested sidecar, but this startup path promises to verify the
 	// Catalog sidecar digest itself. Require the entity-key-bearing HOT variant;
@@ -182,6 +188,13 @@ func loadSnapshotPublication(baseDirectory string, logicalCatalog *catalog.Catal
 	if !found || first.EntityKey == "" || !reverseFound || firstHandle != 1 {
 		return loadedSnapshotPublication{}, 0, errors.New("HOT artifact omits the manifest-bound entity sidecar")
 	}
+	// Parsing owns independent hash/row arrays. Release the transport buffer
+	// before streaming the much larger COLD/sidecar artifacts and before the
+	// next publication is loaded, otherwise multiple raw HOT files can overlap
+	// their resident decoded indexes at startup. This changes no verified bytes
+	// or index lifetime; it only enforces the intended HOT working-set bound.
+	hotBytes = nil
+	debug.FreeOSMemory()
 	// The compiler already verified every COLD FactID and semantic root before
 	// atomically publishing this directory. Startup preserves the warm HOT-index
 	// activation SLO: on the production read-only artifact mount it streams only
@@ -199,7 +212,7 @@ func loadSnapshotPublication(baseDirectory string, logicalCatalog *catalog.Catal
 		hot, sidecarExpectation); err != nil {
 		return loadedSnapshotPublication{}, 0, fmt.Errorf("sidecar export verification: %w", err)
 	}
-	return loadedSnapshotPublication{publication: publication, index: hot}, int64(len(hotBytes)), nil
+	return loadedSnapshotPublication{publication: publication, index: hot}, hotArtifactBytes, nil
 }
 
 func verifyPublicationDirectoryShape(directory, publicationName string) error {
@@ -287,6 +300,9 @@ func readVerifiedRegularFile(path string, maximum int64) ([]byte, error) {
 	if err != nil || int64(len(payload)) != size {
 		return nil, fmt.Errorf("read artifact %q: size changed", filepath.Base(path))
 	}
+	// The returned userspace copy is the authoritative input.  Retaining the
+	// same bytes in the cgroup page cache only double-counts activation memory.
+	dropFileCache(file, 0, size)
 	return payload, nil
 }
 
@@ -299,7 +315,9 @@ func verifyColdArtifact(path string, descriptor snapshotbundle.FileDescriptor, e
 	if size != descriptor.Bytes {
 		return errors.New("COLD artifact size differs from its bundle descriptor")
 	}
-	digest, err := ordinal.VerifyColdDictionaryEnvelopeReader(file, size, expectedManifestDigest)
+	reader := newCacheDroppingReader(file)
+	digest, err := ordinal.VerifyColdDictionaryEnvelopeReader(reader, size, expectedManifestDigest)
+	reader.dropConsumed()
 	if err != nil {
 		return err
 	}
@@ -320,13 +338,54 @@ func verifySidecarArtifact(path string, descriptor snapshotbundle.FileDescriptor
 		return errors.New("sidecar artifact size differs from its bundle descriptor")
 	}
 	hash := sha256.New()
-	if err := snapshotbundle.VerifySidecarNDJSON(io.TeeReader(file, hash), index, expected); err != nil {
+	reader := newCacheDroppingReader(file)
+	// Verification can fail after consuming an arbitrary prefix. Drop that
+	// prefix on every return path so a corrupt deployment cannot leave its
+	// scanned sidecar charged to the Gateway cgroup until process exit.
+	defer reader.dropConsumed()
+	if err := snapshotbundle.VerifySidecarNDJSON(io.TeeReader(reader, hash), index, expected); err != nil {
 		return err
 	}
 	if descriptor.SHA256 != hex.EncodeToString(hash.Sum(nil)) {
 		return errors.New("sidecar artifact SHA-256 differs from its bundle descriptor")
 	}
 	return nil
+}
+
+// cacheDroppingReader bounds file-backed cgroup memory while preserving the
+// exact streaming verifier. FADV_DONTNEED is only a cache hint: correctness
+// continues to come from the hashes and canonical parsers above.
+type cacheDroppingReader struct {
+	file       *os.File
+	offset     int64
+	dropOffset int64
+}
+
+func newCacheDroppingReader(file *os.File) *cacheDroppingReader {
+	if file != nil {
+		adviseSequentialFile(file)
+	}
+	return &cacheDroppingReader{file: file}
+}
+
+func (r *cacheDroppingReader) Read(payload []byte) (int, error) {
+	if r == nil || r.file == nil {
+		return 0, io.EOF
+	}
+	count, err := r.file.Read(payload)
+	r.offset += int64(count)
+	if r.offset-r.dropOffset >= snapshotCacheDropWindowBytes {
+		r.dropConsumed()
+	}
+	return count, err
+}
+
+func (r *cacheDroppingReader) dropConsumed() {
+	if r == nil || r.file == nil || r.offset <= r.dropOffset {
+		return
+	}
+	dropFileCache(r.file, r.dropOffset, r.offset-r.dropOffset)
+	r.dropOffset = r.offset
 }
 
 func openRegularFile(path string) (*os.File, int64, error) {

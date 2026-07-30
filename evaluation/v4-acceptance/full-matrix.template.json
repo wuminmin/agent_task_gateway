@@ -1,0 +1,460 @@
+{
+  "schema_version": 1,
+  "gateway": {
+    "url": "http://gateway:8082",
+    "token_env": "TASKBOUND_ALICE_TOKEN"
+  },
+  "business_dsn_env": "V4_EVAL_BUSINESS_DSN",
+  "control_dsn_env": "V4_EVAL_CONTROL_DSN",
+  "request_timeout_ms": 30000,
+  "statement_timeout_ms": 15000,
+  "overlap_tolerance_percentage_points": 0.01,
+  "require_fresh_root": true,
+  "observer": {
+    "argv": [
+      "/usr/local/bin/v4-compose-observer"
+    ],
+    "timeout_ms": 5000,
+    "required": true,
+    "business_sql_counter": "business_sql_queries_total",
+    "network_rx_counter": "gateway_network_rx_bytes",
+    "network_tx_counter": "gateway_network_tx_bytes",
+    "required_memory_scope": "cgroup_v2_memory_peak_including_mmap",
+    "gateway_peak_memory_metric": "gateway_memory_peak_bytes"
+  },
+  "index_build": {
+    "argv": [
+      "/usr/local/bin/v4-offline",
+      "build",
+      "-input",
+      "/usr/local/share/taskgate/snapshots/scale-orders-v4-narrow-1.json",
+      "-input",
+      "/usr/local/share/taskgate/snapshots/scale-lineitem-v4-narrow-1.json",
+      "-output-dir",
+      "{{run_dir}}"
+    ],
+    "runs": 1,
+    "timeout_ms": 600000,
+    "single_process": true,
+    "artifact_paths": [
+      "{{run_dir}}"
+    ],
+    "hot_paths": [
+      "{{run_dir}}/scale-orders-v4-narrow-1/scale-orders-v4-narrow-1.hot.tgord",
+      "{{run_dir}}/scale-lineitem-v4-narrow-1/scale-lineitem-v4-narrow-1.hot.tgord"
+    ]
+  },
+  "activation_verification": {
+    "argv": [
+      "/usr/local/bin/v4-offline",
+      "verify",
+      "-input",
+      "/usr/local/share/taskgate/snapshots/scale-orders-v4-narrow-1.json",
+      "-input",
+      "/usr/local/share/taskgate/snapshots/scale-lineitem-v4-narrow-1.json",
+      "-artifact-dir",
+      "/var/lib/taskgate/snapshot-index",
+      "-receipt",
+      "{{verification_receipt}}"
+    ],
+    "runs": 1,
+    "timeout_ms": 30000,
+    "single_process": true
+  },
+  "activation": {
+    "argv": [
+      "/usr/local/bin/v4-offline",
+      "activate",
+      "-input",
+      "/usr/local/share/taskgate/snapshots/scale-orders-v4-narrow-1.json",
+      "-input",
+      "/usr/local/share/taskgate/snapshots/scale-lineitem-v4-narrow-1.json",
+      "-artifact-dir",
+      "/var/lib/taskgate/snapshot-index",
+      "-receipt",
+      "{{verification_receipt}}",
+      "-receipt-sha256",
+      "{{verification_receipt_sha256}}"
+    ],
+    "runs": 1,
+    "timeout_ms": 15000,
+    "single_process": true,
+    "warm_verified": true
+  },
+  "artifacts": {
+    "total_paths": [
+      "/var/lib/taskgate/snapshot-index"
+    ],
+    "hot_paths": [
+      "/var/lib/taskgate/snapshot-index/scale-orders-v4-narrow-1/scale-orders-v4-narrow-1.hot.tgord",
+      "/var/lib/taskgate/snapshot-index/scale-lineitem-v4-narrow-1/scale-lineitem-v4-narrow-1.hot.tgord"
+    ]
+  },
+  "cases": [
+    {
+      "id": "join-group-max-point-overlap-0",
+      "shape": "join_group",
+      "target_overlap_percent": 0,
+      "overlap_dimension": "influence",
+      "task_ids": [],
+      "plan": {
+        "from": {
+          "join": {
+            "left": {"product": "scale_orders", "role": "scale_orders"},
+            "right": {"product": "scale_lineitem", "role": "scale_lineitem"},
+            "on": [
+              {"left": "scale_orders.o_orderkey", "right": "scale_lineitem.l_orderkey"}
+            ]
+          }
+        },
+        "columns": ["scale_orders.o_orderstatus"],
+        "aggregates": [
+          {"function": "sum", "column": "scale_lineitem.l_extendedprice", "alias": "revenue"},
+          {"function": "sum", "column": "scale_lineitem.l_linenumber", "alias": "line_positions"},
+          {"function": "count", "column": "*", "alias": "items"}
+        ],
+        "filters": [
+          {"column": "scale_lineitem.l_orderkey", "op": "<=", "value": 45000}
+        ],
+        "group_by": ["scale_orders.o_orderstatus"]
+      },
+      "direct_sql": "SELECT o.o_orderstatus, sum(l.l_extendedprice) AS revenue, sum(l.l_linenumber) AS line_positions, count(*) AS items FROM reporting.scale_orders AS o JOIN reporting.scale_lineitem AS l ON l.l_orderkey = o.o_orderkey WHERE o.dataset_partition = 1 AND l.dataset_partition = 1 AND l.l_orderkey <= 45000 GROUP BY o.o_orderstatus ORDER BY o.o_orderstatus",
+      "expected": {
+        "row_count": 3,
+        "release_facts": 12,
+        "influence_facts": 1035000,
+        "outcome_facts": 1
+      }
+    },
+    {
+      "id": "join-group-max-point-overlap-50",
+      "shape": "join_group",
+      "target_overlap_percent": 50,
+      "overlap_dimension": "influence",
+      "task_ids": [],
+      "setup_plans": [
+        {
+          "from": {
+            "join": {
+              "left": {"product": "scale_orders", "role": "scale_orders"},
+              "right": {"product": "scale_lineitem", "role": "scale_lineitem"},
+              "on": [
+                {"left": "scale_orders.o_orderkey", "right": "scale_lineitem.l_orderkey"}
+              ]
+            }
+          },
+          "columns": ["scale_orders.o_orderstatus"],
+          "aggregates": [
+            {"function": "sum", "column": "scale_lineitem.l_extendedprice", "alias": "revenue"},
+            {"function": "sum", "column": "scale_lineitem.l_linenumber", "alias": "line_positions"},
+            {"function": "count", "column": "*", "alias": "items"}
+          ],
+          "filters": [
+            {"column": "scale_lineitem.l_orderkey", "op": "<=", "value": 22500}
+          ],
+          "group_by": ["scale_orders.o_orderstatus"]
+        }
+      ],
+      "plan": {
+        "from": {
+          "join": {
+            "left": {"product": "scale_orders", "role": "scale_orders"},
+            "right": {"product": "scale_lineitem", "role": "scale_lineitem"},
+            "on": [
+              {"left": "scale_orders.o_orderkey", "right": "scale_lineitem.l_orderkey"}
+            ]
+          }
+        },
+        "columns": ["scale_orders.o_orderstatus"],
+        "aggregates": [
+          {"function": "sum", "column": "scale_lineitem.l_extendedprice", "alias": "revenue"},
+          {"function": "sum", "column": "scale_lineitem.l_linenumber", "alias": "line_positions"},
+          {"function": "count", "column": "*", "alias": "items"}
+        ],
+        "filters": [
+          {"column": "scale_lineitem.l_orderkey", "op": "<=", "value": 45000}
+        ],
+        "group_by": ["scale_orders.o_orderstatus"]
+      },
+      "direct_sql": "SELECT o.o_orderstatus, sum(l.l_extendedprice) AS revenue, sum(l.l_linenumber) AS line_positions, count(*) AS items FROM reporting.scale_orders AS o JOIN reporting.scale_lineitem AS l ON l.l_orderkey = o.o_orderkey WHERE o.dataset_partition = 1 AND l.dataset_partition = 1 AND l.l_orderkey <= 45000 GROUP BY o.o_orderstatus ORDER BY o.o_orderstatus",
+      "expected": {
+        "row_count": 3,
+        "release_facts": 12,
+        "influence_facts": 1035000,
+        "outcome_facts": 1
+      }
+    },
+    {
+      "id": "join-group-max-point-overlap-90",
+      "shape": "join_group",
+      "target_overlap_percent": 90,
+      "overlap_dimension": "influence",
+      "task_ids": [],
+      "setup_plans": [
+        {
+          "from": {
+            "join": {
+              "left": {"product": "scale_orders", "role": "scale_orders"},
+              "right": {"product": "scale_lineitem", "role": "scale_lineitem"},
+              "on": [{"left": "scale_orders.o_orderkey", "right": "scale_lineitem.l_orderkey"}]
+            }
+          },
+          "columns": ["scale_orders.o_orderstatus"],
+          "aggregates": [
+            {"function": "sum", "column": "scale_lineitem.l_extendedprice", "alias": "revenue"},
+            {"function": "sum", "column": "scale_lineitem.l_linenumber", "alias": "line_positions"},
+            {"function": "count", "column": "*", "alias": "items"}
+          ],
+          "filters": [
+            {"column": "scale_lineitem.l_orderkey", "op": ">=", "value": 1},
+            {"column": "scale_lineitem.l_orderkey", "op": "<=", "value": 8100}
+          ],
+          "group_by": ["scale_orders.o_orderstatus"]
+        },
+        {
+          "from": {
+            "join": {
+              "left": {"product": "scale_orders", "role": "scale_orders"},
+              "right": {"product": "scale_lineitem", "role": "scale_lineitem"},
+              "on": [{"left": "scale_orders.o_orderkey", "right": "scale_lineitem.l_orderkey"}]
+            }
+          },
+          "columns": ["scale_orders.o_orderstatus"],
+          "aggregates": [
+            {"function": "sum", "column": "scale_lineitem.l_extendedprice", "alias": "revenue"},
+            {"function": "sum", "column": "scale_lineitem.l_linenumber", "alias": "line_positions"},
+            {"function": "count", "column": "*", "alias": "items"}
+          ],
+          "filters": [
+            {"column": "scale_lineitem.l_orderkey", "op": ">=", "value": 9001},
+            {"column": "scale_lineitem.l_orderkey", "op": "<=", "value": 17100}
+          ],
+          "group_by": ["scale_orders.o_orderstatus"]
+        },
+        {
+          "from": {
+            "join": {
+              "left": {"product": "scale_orders", "role": "scale_orders"},
+              "right": {"product": "scale_lineitem", "role": "scale_lineitem"},
+              "on": [{"left": "scale_orders.o_orderkey", "right": "scale_lineitem.l_orderkey"}]
+            }
+          },
+          "columns": ["scale_orders.o_orderstatus"],
+          "aggregates": [
+            {"function": "sum", "column": "scale_lineitem.l_extendedprice", "alias": "revenue"},
+            {"function": "sum", "column": "scale_lineitem.l_linenumber", "alias": "line_positions"},
+            {"function": "count", "column": "*", "alias": "items"}
+          ],
+          "filters": [
+            {"column": "scale_lineitem.l_orderkey", "op": ">=", "value": 18001},
+            {"column": "scale_lineitem.l_orderkey", "op": "<=", "value": 26100}
+          ],
+          "group_by": ["scale_orders.o_orderstatus"]
+        },
+        {
+          "from": {
+            "join": {
+              "left": {"product": "scale_orders", "role": "scale_orders"},
+              "right": {"product": "scale_lineitem", "role": "scale_lineitem"},
+              "on": [{"left": "scale_orders.o_orderkey", "right": "scale_lineitem.l_orderkey"}]
+            }
+          },
+          "columns": ["scale_orders.o_orderstatus"],
+          "aggregates": [
+            {"function": "sum", "column": "scale_lineitem.l_extendedprice", "alias": "revenue"},
+            {"function": "sum", "column": "scale_lineitem.l_linenumber", "alias": "line_positions"},
+            {"function": "count", "column": "*", "alias": "items"}
+          ],
+          "filters": [
+            {"column": "scale_lineitem.l_orderkey", "op": ">=", "value": 27001},
+            {"column": "scale_lineitem.l_orderkey", "op": "<=", "value": 35100}
+          ],
+          "group_by": ["scale_orders.o_orderstatus"]
+        },
+        {
+          "from": {
+            "join": {
+              "left": {"product": "scale_orders", "role": "scale_orders"},
+              "right": {"product": "scale_lineitem", "role": "scale_lineitem"},
+              "on": [{"left": "scale_orders.o_orderkey", "right": "scale_lineitem.l_orderkey"}]
+            }
+          },
+          "columns": ["scale_orders.o_orderstatus"],
+          "aggregates": [
+            {"function": "sum", "column": "scale_lineitem.l_extendedprice", "alias": "revenue"},
+            {"function": "sum", "column": "scale_lineitem.l_linenumber", "alias": "line_positions"},
+            {"function": "count", "column": "*", "alias": "items"}
+          ],
+          "filters": [
+            {"column": "scale_lineitem.l_orderkey", "op": ">=", "value": 36001},
+            {"column": "scale_lineitem.l_orderkey", "op": "<=", "value": 44100}
+          ],
+          "group_by": ["scale_orders.o_orderstatus"]
+        }
+      ],
+      "plan": {
+        "from": {
+          "join": {
+            "left": {"product": "scale_orders", "role": "scale_orders"},
+            "right": {"product": "scale_lineitem", "role": "scale_lineitem"},
+            "on": [{"left": "scale_orders.o_orderkey", "right": "scale_lineitem.l_orderkey"}]
+          }
+        },
+        "columns": ["scale_orders.o_orderstatus"],
+        "aggregates": [
+          {"function": "sum", "column": "scale_lineitem.l_extendedprice", "alias": "revenue"},
+          {"function": "sum", "column": "scale_lineitem.l_linenumber", "alias": "line_positions"},
+          {"function": "count", "column": "*", "alias": "items"}
+        ],
+        "filters": [{"column": "scale_lineitem.l_orderkey", "op": "<=", "value": 45000}],
+        "group_by": ["scale_orders.o_orderstatus"]
+      },
+      "direct_sql": "SELECT o.o_orderstatus, sum(l.l_extendedprice) AS revenue, sum(l.l_linenumber) AS line_positions, count(*) AS items FROM reporting.scale_orders AS o JOIN reporting.scale_lineitem AS l ON l.l_orderkey = o.o_orderkey WHERE o.dataset_partition = 1 AND l.dataset_partition = 1 AND l.l_orderkey <= 45000 GROUP BY o.o_orderstatus ORDER BY o.o_orderstatus",
+      "expected": {
+        "row_count": 3,
+        "release_facts": 12,
+        "influence_facts": 1035000,
+        "outcome_facts": 1
+      }
+    },
+    {
+      "id": "join-group-max-point-overlap-100",
+      "shape": "join_group",
+      "target_overlap_percent": 100,
+      "overlap_dimension": "influence",
+      "task_ids": [],
+      "setup_plans": [
+        {
+          "from": {
+            "join": {
+              "left": {"product": "scale_orders", "role": "scale_orders"},
+              "right": {"product": "scale_lineitem", "role": "scale_lineitem"},
+              "on": [{"left": "scale_orders.o_orderkey", "right": "scale_lineitem.l_orderkey"}]
+            }
+          },
+          "columns": ["scale_orders.o_orderstatus"],
+          "aggregates": [
+            {"function": "sum", "column": "scale_lineitem.l_extendedprice", "alias": "revenue"},
+            {"function": "sum", "column": "scale_lineitem.l_linenumber", "alias": "line_positions"},
+            {"function": "count", "column": "*", "alias": "items"}
+          ],
+          "filters": [
+            {"column": "scale_lineitem.l_orderkey", "op": ">=", "value": 1},
+            {"column": "scale_lineitem.l_orderkey", "op": "<=", "value": 45000}
+          ],
+          "group_by": ["scale_orders.o_orderstatus"]
+        }
+      ],
+      "plan": {
+        "from": {
+          "join": {
+            "left": {"product": "scale_orders", "role": "scale_orders"},
+            "right": {"product": "scale_lineitem", "role": "scale_lineitem"},
+            "on": [{"left": "scale_orders.o_orderkey", "right": "scale_lineitem.l_orderkey"}]
+          }
+        },
+        "columns": ["scale_orders.o_orderstatus"],
+        "aggregates": [
+          {"function": "sum", "column": "scale_lineitem.l_extendedprice", "alias": "revenue"},
+          {"function": "sum", "column": "scale_lineitem.l_linenumber", "alias": "line_positions"},
+          {"function": "count", "column": "*", "alias": "items"}
+        ],
+        "filters": [{"column": "scale_lineitem.l_orderkey", "op": "<=", "value": 45000}],
+        "group_by": ["scale_orders.o_orderstatus"]
+      },
+      "direct_sql": "SELECT o.o_orderstatus, sum(l.l_extendedprice) AS revenue, sum(l.l_linenumber) AS line_positions, count(*) AS items FROM reporting.scale_orders AS o JOIN reporting.scale_lineitem AS l ON l.l_orderkey = o.o_orderkey WHERE o.dataset_partition = 1 AND l.dataset_partition = 1 AND l.l_orderkey <= 45000 GROUP BY o.o_orderstatus ORDER BY o.o_orderstatus",
+      "expected": {
+        "row_count": 3,
+        "release_facts": 12,
+        "influence_facts": 1035000,
+        "outcome_facts": 1
+      }
+    },
+    {
+      "id": "scan-scale-overlap-0",
+      "shape": "scan",
+      "target_overlap_percent": 0,
+      "overlap_dimension": "influence",
+      "task_ids": [],
+      "plan": {
+        "product": "scale_orders",
+        "columns": ["o_orderkey", "o_orderstatus"],
+        "filters": [
+          {"column": "o_orderkey", "op": "=", "value": 1}
+        ],
+        "order_by": [
+          {"column": "o_orderkey", "direction": "asc"}
+        ]
+      },
+      "direct_sql": "SELECT o_orderkey, o_orderstatus FROM reporting.scale_orders WHERE dataset_partition = 1 AND o_orderkey = 1 ORDER BY o_orderkey",
+      "expected": {
+        "row_count": 1,
+        "outcome_facts": 1
+      },
+      "small_query": true
+    },
+    {
+      "id": "page-scale-overlap-0",
+      "shape": "page",
+      "target_overlap_percent": 0,
+      "overlap_dimension": "influence",
+      "task_ids": [],
+      "plan": {
+        "product": "scale_lineitem",
+        "columns": ["l_orderkey", "l_linenumber", "l_extendedprice"],
+        "filters": [
+          {"column": "l_orderkey", "op": "<=", "value": 20}
+        ],
+        "order_by": [
+          {"column": "l_orderkey", "direction": "asc"},
+          {"column": "l_linenumber", "direction": "asc"}
+        ],
+        "limit": 20,
+        "offset": 20
+      },
+      "direct_sql": "SELECT l_orderkey, l_linenumber, l_extendedprice FROM reporting.scale_lineitem WHERE dataset_partition = 1 AND l_orderkey <= 20 ORDER BY l_orderkey, l_linenumber LIMIT 20 OFFSET 20",
+      "expected": {
+        "row_count": 20,
+        "outcome_facts": 1
+      },
+      "small_query": true
+    },
+    {
+      "id": "union-scale-overlap-0",
+      "shape": "union",
+      "target_overlap_percent": 0,
+      "overlap_dimension": "influence",
+      "task_ids": [],
+      "plan": {
+        "from": {
+          "union_distinct": {
+            "role": "scale_orders",
+            "columns": ["o_orderkey", "o_orderstatus"],
+            "left": {
+              "product": "scale_orders",
+              "role": "scale_orders_left",
+              "filters": [
+                {"column": "o_orderkey", "op": "<=", "value": 20}
+              ]
+            },
+            "right": {
+              "product": "scale_orders",
+              "role": "scale_orders_right",
+              "filters": [
+                {"column": "o_orderkey", "op": ">", "value": 20},
+                {"column": "o_orderkey", "op": "<=", "value": 40}
+              ]
+            }
+          }
+        },
+        "columns": ["scale_orders.o_orderkey", "scale_orders.o_orderstatus"]
+      },
+      "direct_sql": "SELECT o_orderkey, o_orderstatus FROM reporting.scale_orders WHERE dataset_partition = 1 AND o_orderkey <= 20 UNION SELECT o_orderkey, o_orderstatus FROM reporting.scale_orders WHERE dataset_partition = 1 AND o_orderkey > 20 AND o_orderkey <= 40 ORDER BY o_orderkey, o_orderstatus",
+      "expected": {
+        "row_count": 40,
+        "outcome_facts": 1
+      },
+      "small_query": true
+    }
+  ]
+}

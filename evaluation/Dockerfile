@@ -14,6 +14,7 @@ RUN test -z "$(gofmt -l evaluation)" \
     && CGO_ENABLED=1 go build -trimpath -o /out/exposure-eval ./evaluation/cmd/exposure-eval \
     && CGO_ENABLED=1 go build -trimpath -o /out/exposure-bench ./evaluation/cmd/exposure-bench \
     && CGO_ENABLED=1 go build -trimpath -o /out/v4-compose-observer ./evaluation/cmd/v4-compose-observer \
+    && CGO_ENABLED=1 go build -trimpath -o /out/v4-offline ./evaluation/cmd/v4-offline \
     && V4_SOURCE_DIGEST="$(go run ./evaluation/cmd/v4-acceptance -print-source-digest)" \
     && test "${#V4_SOURCE_DIGEST}" -eq 64 \
     && CGO_ENABLED=1 go build -trimpath -ldflags="-X main.embeddedSourceDigest=${V4_SOURCE_DIGEST}" \
@@ -56,9 +57,14 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /out/v4-acceptance /usr/local/bin/v4-acceptance
 COPY --from=build /out/v4-compose-observer /usr/local/bin/v4-compose-observer
+COPY --from=build /out/v4-offline /usr/local/bin/v4-offline
 COPY --from=build /out/exposure-bench /usr/local/bin/exposure-bench
 COPY --from=build /src/evaluation/v4-acceptance/provision-narrow.sh /usr/local/bin/provision-v4-narrow
+COPY --from=build /src/evaluation/v4-acceptance/provision-full.sh /usr/local/bin/provision-v4-full
 COPY --from=build /src/evaluation/v4-acceptance/narrow-max-point.template.json /usr/local/share/taskgate/narrow-max-point.template.json
+COPY --from=build /src/evaluation/v4-acceptance/full-matrix.template.json /usr/local/share/taskgate/full-matrix.template.json
+COPY --from=build /src/evaluation/v4-acceptance/scale-fixture/snapshots/scale-orders-v4-narrow-1.json /usr/local/share/taskgate/snapshots/scale-orders-v4-narrow-1.json
+COPY --from=build /src/evaluation/v4-acceptance/scale-fixture/snapshots/scale-lineitem-v4-narrow-1.json /usr/local/share/taskgate/snapshots/scale-lineitem-v4-narrow-1.json
 WORKDIR /workspace
 ENTRYPOINT ["/usr/local/bin/v4-acceptance"]
 

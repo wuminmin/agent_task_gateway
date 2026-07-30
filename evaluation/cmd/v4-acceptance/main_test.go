@@ -150,6 +150,28 @@ func TestValidateConfigRejectsNullPlan(t *testing.T) {
 	}
 }
 
+func TestValidateWarmActivationRequiresStrictReceiptBinding(t *testing.T) {
+	cfg := validConfig()
+	cfg.Activation = &commandMetric{Argv: []string{"activate"}, WarmVerified: true}
+	if err := validateConfig(cfg); err == nil || !strings.Contains(err.Error(), "bound receipt") {
+		t.Fatalf("unbound warm activation err = %v", err)
+	}
+	cfg.ActivationVerification = &commandMetric{Argv: []string{"verify", "{{verification_receipt}}"}}
+	cfg.Activation.Argv = []string{"activate", "{{verification_receipt}}", "{{verification_receipt_sha256}}"}
+	if err := validateConfig(cfg); err != nil {
+		t.Fatalf("strict receipt-bound activation was rejected: %v", err)
+	}
+}
+
+func TestReplaceCommandMetricTokenDoesNotMutateConfig(t *testing.T) {
+	original := &commandMetric{Argv: []string{"verify", "{{verification_receipt}}"}, Runs: 1}
+	replaced := replaceCommandMetricToken(original, "{{verification_receipt}}", "/evidence/receipt.json")
+	if replaced == original || replaced.Argv[1] != "/evidence/receipt.json" ||
+		original.Argv[1] != "{{verification_receipt}}" {
+		t.Fatalf("replacement original=%#v replaced=%#v", original, replaced)
+	}
+}
+
 func TestOverlapPercentUsesExactChargedVsActualDimension(t *testing.T) {
 	value := exposureResult{ActualInfluenceFacts: 100, ChargedInfluenceFacts: 10,
 		ActualReleaseFacts: 20, ChargedReleaseFacts: 20, ActualOutcomeFacts: 1, ChargedOutcomeFacts: 1}

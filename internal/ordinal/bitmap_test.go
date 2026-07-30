@@ -113,4 +113,10 @@ func TestPortableSegmentRejectsNonCanonicalRoaringHistory(t *testing.T) {
 	if _, err := ParsePortableSegments([]PortableSegment{item}); !errors.Is(err, ErrNonCanonical) {
 		t.Fatalf("non-canonical portable error = %v, want ErrNonCanonical", err)
 	}
+	container := PortableContainer{Key: ContainerKey{DictionaryDigest: segment.DictionaryDigest,
+		SegmentID: segment.SegmentID, High16: 0}, Bitmap: encoded, Cardinality: 100}
+	container.Digest = containerDigest(container.Key, container.Cardinality, container.Bitmap)
+	if _, err := ParsePortableContainers([]PortableContainer{container}); !errors.Is(err, ErrNonCanonical) {
+		t.Fatalf("non-canonical durable container error = %v, want ErrNonCanonical", err)
+	}
 }

@@ -3,8 +3,11 @@ package snapshotbundle
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -211,13 +214,328 @@ func TestCompilerByteaLazyCopyDoesNotMutateCallerRows(t *testing.T) {
 		if !ok || !bytes.Equal(decoded, []byte{1, 2}) {
 			t.Fatalf("prepared bytea = %#v", row.Values["attachment"])
 		}
-		byEntity, ok := rowsByEntity[row.EntityKey].Values["attachment"].([]byte)
-		if !ok || !bytes.Equal(byEntity, decoded) {
-			t.Fatalf("sidecar row bytea = %#v", rowsByEntity[row.EntityKey].Values["attachment"])
+		keyValues, ok := rowsByEntity[row.EntityKey]
+		if !ok || len(keyValues) != 1 {
+			t.Fatalf("compact sidecar key row = %#v", keyValues)
 		}
 	}
 	if _, err := Compile(input); err != nil {
 		t.Fatalf("compile bytea snapshot: %v", err)
+	}
+}
+
+func TestCompileOwnedMatchesCompileAndReleasesInputRows(t *testing.T) {
+	baselineInput := testCompilerInput()
+	baseline, err := Compile(baselineInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownedInput := testCompilerInput()
+	owned, err := CompileOwned(&ownedInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ownedInput.Snapshot.Rows != nil {
+		t.Fatal("CompileOwned retained caller snapshot rows")
+	}
+	if !reflect.DeepEqual(owned.Manifest, baseline.Manifest) || !bytes.Equal(owned.Hot, baseline.Hot) ||
+		!bytes.Equal(owned.Cold, baseline.Cold) || !bytes.Equal(owned.Sidecar, baseline.Sidecar) {
+		t.Fatal("owned compilation changed canonical publication bytes")
+	}
+}
+
+func TestCompileOwnedToDirectoryMatchesInMemoryOracle(t *testing.T) {
+	oracle, err := Compile(testCompilerInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := testCompilerInput()
+	base := t.TempDir()
+	written, err := CompileOwnedToDirectory(&input, base, PublicationLimits{
+		MaxBytes: int64(maxPublishedBytes), MaxHotBytes: int64(maxHotPublishedBytes),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if input.Snapshot.Rows != nil {
+		t.Fatal("streaming compiler retained caller snapshot rows")
+	}
+	if !reflect.DeepEqual(written.Manifest, oracle.Manifest) || written.Directory != filepath.Join(base, oracle.Manifest.PublicationName) {
+		t.Fatalf("written publication differs: %#v", written)
+	}
+	manifestJSON, err := oracle.ManifestJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantFiles := map[string][]byte{
+		oracle.Manifest.Hot.Name: oracle.Hot, oracle.Manifest.Cold.Name: oracle.Cold,
+		oracle.Manifest.Sidecar.Name:                     oracle.Sidecar,
+		oracle.Manifest.PublicationName + ".bundle.json": manifestJSON,
+	}
+	var total int64
+	for name, want := range wantFiles {
+		got, err := os.ReadFile(filepath.Join(written.Directory, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(got, want) {
+			t.Fatalf("streamed file %q differs from in-memory oracle", name)
+		}
+		total += int64(len(got))
+	}
+	if written.Bytes != total {
+		t.Fatalf("written bytes = %d, want %d", written.Bytes, total)
+	}
+}
+
+func TestCompileOwnedToDirectoryCleansStagingAfterFailure(t *testing.T) {
+	for _, failedStage := range []string{"hot", "cold", "sidecar", "manifest"} {
+		t.Run(failedStage, func(t *testing.T) {
+			input := testCompilerInput()
+			base := t.TempDir()
+			_, err := compileOwnedToDirectory(input, base, PublicationLimits{
+				MaxBytes: int64(maxPublishedBytes), MaxHotBytes: int64(maxHotPublishedBytes),
+			}, func(stage string) error {
+				if stage == failedStage {
+					return errors.New("fault")
+				}
+				return nil
+			})
+			if err == nil || !strings.Contains(err.Error(), "after "+failedStage) {
+				t.Fatalf("injected failure = %v", err)
+			}
+			entries, readErr := os.ReadDir(base)
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			if len(entries) != 0 {
+				t.Fatalf("failed publication left staging or activation files: %#v", entries)
+			}
+		})
+	}
+}
+
+func TestCompileOwnedToDirectoryRenameNeverReplacesConcurrentFinal(t *testing.T) {
+	input := testCompilerInput()
+	base := t.TempDir()
+	final := filepath.Join(base, input.PublicationName)
+	_, err := compileOwnedToDirectory(input, base, PublicationLimits{
+		MaxBytes: int64(maxPublishedBytes), MaxHotBytes: int64(maxHotPublishedBytes),
+	}, func(stage string) error {
+		if stage != "manifest" {
+			return nil
+		}
+		if err := os.Mkdir(final, 0o700); err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(final, "owner"), []byte("concurrent"), 0o600)
+	})
+	if err == nil || !strings.Contains(err.Error(), "without replacement") {
+		t.Fatalf("no-replace publication error = %v", err)
+	}
+	owner, readErr := os.ReadFile(filepath.Join(final, "owner"))
+	if readErr != nil || string(owner) != "concurrent" {
+		t.Fatalf("concurrent final was replaced: %q, %v", owner, readErr)
+	}
+	entries, readErr := os.ReadDir(base)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if len(entries) != 1 || entries[0].Name() != input.PublicationName {
+		t.Fatalf("staging cleanup after no-replace failure = %#v", entries)
+	}
+}
+
+func TestCompileOwnedToDirectoryExistingIdenticalIsStrict(t *testing.T) {
+	base := t.TempDir()
+	input := testCompilerInput()
+	limits := DefaultPublicationLimits()
+	first, err := CompileOwnedToDirectory(&input, base, limits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	limits.AllowExistingIdentical = true
+	input = testCompilerInput()
+	second, err := CompileOwnedToDirectory(&input, base, limits)
+	if err != nil || !reflect.DeepEqual(second.Manifest, first.Manifest) || second.Directory != first.Directory {
+		t.Fatalf("identical publication = %#v, %v", second, err)
+	}
+	entries, err := os.ReadDir(base)
+	if err != nil || len(entries) != 1 || entries[0].Name() != first.Manifest.PublicationName {
+		t.Fatalf("idempotent publication left staging: %#v, %v", entries, err)
+	}
+	if err := os.Chmod(first.Directory, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	input = testCompilerInput()
+	if _, err := CompileOwnedToDirectory(&input, base, limits); err == nil ||
+		!strings.Contains(err.Error(), "unsafe existing publication") {
+		t.Fatalf("writable existing publication accepted: %v", err)
+	}
+	if err := os.Chmod(first.Directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	hotPath := filepath.Join(first.Directory, first.Manifest.Hot.Name)
+	if err := os.Chmod(hotPath, 0o666); err != nil {
+		t.Fatal(err)
+	}
+	input = testCompilerInput()
+	if _, err := CompileOwnedToDirectory(&input, base, limits); err == nil ||
+		!strings.Contains(err.Error(), "unsafe artifact permissions") {
+		t.Fatalf("writable existing artifact accepted: %v", err)
+	}
+	if err := os.Chmod(hotPath, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(hotPath, []byte("tampered"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	input = testCompilerInput()
+	if _, err := CompileOwnedToDirectory(&input, base, limits); err == nil ||
+		!strings.Contains(err.Error(), "not identical") {
+		t.Fatalf("tampered existing publication accepted: %v", err)
+	}
+	tampered, err := os.ReadFile(hotPath)
+	if err != nil || string(tampered) != "tampered" {
+		t.Fatalf("tampered existing publication was overwritten: %q, %v", tampered, err)
+	}
+	entries, err = os.ReadDir(base)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("failed identical check left staging: %#v, %v", entries, err)
+	}
+}
+
+func TestCompileOwnedToDirectoryEnforcesExactHotAndTotalBounds(t *testing.T) {
+	oracle, err := Compile(testCompilerInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestJSON, err := oracle.ManifestJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	total := int64(len(oracle.Hot) + len(oracle.Cold) + len(oracle.Sidecar) + len(manifestJSON))
+	hot := int64(len(oracle.Hot))
+	for name, limits := range map[string]PublicationLimits{
+		"hot-b-minus-1":   {MaxBytes: total + 1, MaxHotBytes: hot - 1},
+		"total-b-minus-1": {MaxBytes: total - 1, MaxHotBytes: hot},
+	} {
+		t.Run(name, func(t *testing.T) {
+			input := testCompilerInput()
+			base := t.TempDir()
+			if _, err := CompileOwnedToDirectory(&input, base, limits); !errors.Is(err, errPublishedSizeLimit) {
+				t.Fatalf("boundary failure = %v, want size limit", err)
+			}
+			entries, readErr := os.ReadDir(base)
+			if readErr != nil || len(entries) != 0 {
+				t.Fatalf("bounded failure left publication: %#v, %v", entries, readErr)
+			}
+		})
+	}
+	for name, limits := range map[string]PublicationLimits{
+		"exact-b":  {MaxBytes: total, MaxHotBytes: hot},
+		"b-plus-1": {MaxBytes: total + 1, MaxHotBytes: hot + 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			input := testCompilerInput()
+			written, err := CompileOwnedToDirectory(&input, t.TempDir(), limits)
+			if err != nil || written.Bytes != total {
+				t.Fatalf("boundary success = %#v, %v; want bytes=%d", written, err, total)
+			}
+		})
+	}
+	input := testCompilerInput()
+	if _, err := CompileOwnedToDirectory(&input, t.TempDir(), PublicationLimits{
+		MaxBytes: int64(maxPublishedBytes), MaxHotBytes: int64(maxHotPublishedBytes) + 1,
+	}); err == nil || !strings.Contains(err.Error(), "limits are invalid") {
+		t.Fatalf("core accepted HOT cap above 160 MiB: %v", err)
+	}
+}
+
+func TestCompileOwnedToDirectoryRejectsSymlinkedBaseAndStagedArtifact(t *testing.T) {
+	realBase := t.TempDir()
+	symlink := filepath.Join(t.TempDir(), "artifacts")
+	if err := os.Symlink(realBase, symlink); err != nil {
+		t.Fatal(err)
+	}
+	input := testCompilerInput()
+	if _, err := CompileOwnedToDirectory(&input, symlink, PublicationLimits{
+		MaxBytes: int64(maxPublishedBytes), MaxHotBytes: int64(maxHotPublishedBytes),
+	}); err == nil || !strings.Contains(err.Error(), "not a regular directory") {
+		t.Fatalf("symlinked base accepted: %v", err)
+	}
+
+	input = testCompilerInput()
+	base := t.TempDir()
+	_, err := compileOwnedToDirectory(input, base, PublicationLimits{
+		MaxBytes: int64(maxPublishedBytes), MaxHotBytes: int64(maxHotPublishedBytes),
+	}, func(stage string) error {
+		if stage != "hot" {
+			return nil
+		}
+		entries, err := os.ReadDir(base)
+		if err != nil || len(entries) != 1 {
+			return errors.New("staging directory not found")
+		}
+		hotPath := filepath.Join(base, entries[0].Name(), input.PublicationName+".hot.tgord")
+		if err := os.Remove(hotPath); err != nil {
+			return err
+		}
+		return os.Symlink("/dev/null", hotPath)
+	})
+	if err == nil || !strings.Contains(err.Error(), "expected regular file") {
+		t.Fatalf("symlinked staged HOT accepted: %v", err)
+	}
+	entries, readErr := os.ReadDir(base)
+	if readErr != nil || len(entries) != 0 {
+		t.Fatalf("symlink failure left staging: %#v, %v", entries, readErr)
+	}
+}
+
+func TestCompileOwnedToDirectoryRejectsWritablePublicationBase(t *testing.T) {
+	base := t.TempDir()
+	if err := os.Chmod(base, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	input := testCompilerInput()
+	if _, err := CompileOwnedToDirectory(&input, base, DefaultPublicationLimits()); err == nil ||
+		!strings.Contains(err.Error(), "group- or world-writable") {
+		t.Fatalf("writable publication base accepted: %v", err)
+	}
+}
+
+func TestStreamedFileStopsBeforeWriteBudget(t *testing.T) {
+	directory := t.TempDir()
+	opened, err := openRegularDirectory(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer opened.Close()
+	descriptor, err := writeStreamedFile(opened, "bounded", 3, func(writer io.Writer) error {
+		_, writeErr := writer.Write([]byte("four"))
+		return writeErr
+	})
+	if !errors.Is(err, errPublishedSizeLimit) || descriptor != (FileDescriptor{}) {
+		t.Fatalf("bounded writer = %#v, %v", descriptor, err)
+	}
+	info, statErr := os.Stat(filepath.Join(directory, "bounded"))
+	if statErr != nil || info.Size() != 0 {
+		t.Fatalf("bounded writer crossed limit: size=%v, err=%v", info, statErr)
+	}
+}
+
+func TestVerifyOpenDirectoryIdentityClosedDescriptorFailsWithoutPanic(t *testing.T) {
+	directory := t.TempDir()
+	opened, err := openRegularDirectory(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := opened.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyOpenDirectoryIdentity(directory, opened); err == nil {
+		t.Fatal("closed directory descriptor passed identity verification")
 	}
 }
 

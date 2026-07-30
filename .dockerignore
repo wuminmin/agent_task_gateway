@@ -15,6 +15,7 @@ evaluation/workflow-study/raw
 evaluation/fuzz/results
 evaluation/security/raw
 evaluation/security/results*.json
+evaluation/v4-acceptance/raw
 evaluation/generated
 formal/results
 paper/tdsc/generated

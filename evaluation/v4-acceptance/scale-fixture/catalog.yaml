@@ -1,4 +1,4 @@
-catalog_version: "2026-07-30.v4-narrow.1"
+catalog_version: "2026-07-30.v4-narrow.2"
 
 sources:
   - name: scale_demo
@@ -19,16 +19,16 @@ snapshot_publications:
     snapshot: exposure-scale-2026-v4-narrow-1
     ordinal_sidecar: taskgate_ordinal.scale_orders_v4_narrow_1
     sidecar_digest: ae480874e97a165c67a6c174af7e427f7386d1d5e9fc44ec211af77fecfe54d4
-    dictionary_digest: 1240ca6a855a3b2f26ac9b3eb84c8cd7e5d8605d587da691db5d08452bb5a18d
-    manifest_digest: 155ab5dd45e09cd4b2c92c8872efa51aff3eb17efeefe36988d81d22bb1efa59
+    dictionary_digest: 89729d5455e158e1547ddaa9f2a98a50d99dabd5b0da5852209e256d3ecd22e7
+    manifest_digest: be32bcfe3d0545dfe69e434c131ce6abf642cf14d4f898204a7dee120e2c6967
   - name: scale-lineitem-v4-narrow-1
     source: scale_demo
     source_namespace: evaluation.scale_lineitem
     snapshot: exposure-scale-2026-v4-narrow-1
     ordinal_sidecar: taskgate_ordinal.scale_lineitem_v4_narrow_1
     sidecar_digest: 911572c80b75642c5faa6d610092c7e369319725a4cd975784f328fd45dc0768
-    dictionary_digest: 60d3e6b864f66bc532ffda804c604f78ceda9d57e5574490dd59b7fa4128156d
-    manifest_digest: e8a946ec9e298761d3dfe59e721ca04d7a3f15fe464c3901ed677b29ef0d1f7b
+    dictionary_digest: 9d4a425da232edb40e67ea77e61b224b816805cb52a2a63f63aa1590652c769c
+    manifest_digest: f3608b9c4c35107b77d12fd7d60e928025f29cb2409182dc199a9fba3a4e1227
 
 scopes:
   - name: dataset_partition

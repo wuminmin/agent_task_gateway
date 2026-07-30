@@ -25,6 +25,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"taskbound.local/agent-data-gateway/internal/dataconnector"
@@ -81,6 +82,7 @@ type sample struct {
 	ChargedReleaseFacts   int64              `json:"charged_release_facts"`
 	ChargedInfluenceFacts int64              `json:"charged_influence_facts"`
 	ObservationSHA256     string             `json:"observation_sha256,omitempty"`
+	SemanticReplay        bool               `json:"semantic_replay,omitempty"`
 	Rows                  int64              `json:"rows"`
 	RequestID             string             `json:"request_id,omitempty"`
 }
@@ -137,6 +139,7 @@ type cell struct {
 	LockContention      *lockStats              `json:"lock_contention,omitempty"`
 	FactHistoryHitRate  *float64                `json:"fact_history_hit_rate,omitempty"`
 	QueryHistoryHitRate *float64                `json:"query_history_hit_rate,omitempty"`
+	SemanticReplayRate  *float64                `json:"semantic_replay_hit_rate,omitempty"`
 	ActualFacts         int64                   `json:"actual_facts"`
 	ChargedFacts        int64                   `json:"charged_facts"`
 }
@@ -170,10 +173,11 @@ type toolResult struct {
 }
 
 type executeResponse struct {
-	RowCount    int64              `json:"row_count"`
-	DatabaseMS  float64            `json:"database_ms"`
-	ComponentMS map[string]float64 `json:"component_ms"`
-	Exposure    struct {
+	RowCount       int64              `json:"row_count"`
+	DatabaseMS     float64            `json:"database_ms"`
+	ComponentMS    map[string]float64 `json:"component_ms"`
+	SemanticReplay bool               `json:"semantic_replay"`
+	Exposure       struct {
 		ActualReleaseFacts    int64  `json:"actual_release_facts"`
 		ActualInfluenceFacts  int64  `json:"actual_influence_facts"`
 		ChargedReleaseFacts   int64  `json:"charged_release_facts"`
@@ -534,6 +538,7 @@ func executeSample(ctx context.Context, opts options, phase string, worker, iter
 		result.ChargedReleaseFacts = response.Exposure.ChargedReleaseFacts
 		result.ChargedInfluenceFacts = response.Exposure.ChargedInfluenceFacts
 		result.ObservationSHA256 = response.Exposure.ObservationSHA256
+		result.SemanticReplay = response.SemanticReplay
 	default:
 		return result, fmt.Errorf("unknown phase %q", phase)
 	}
@@ -592,7 +597,7 @@ func summarizeCell(phase string, concurrency int, elapsed time.Duration, peak ui
 	database := make([]float64, 0, len(samples))
 	components := make(map[string][]float64)
 	var actual, charged int64
-	var queryHits int
+	var queryHits, semanticReplayHits int
 	for index := range samples {
 		samples[index].Concurrency = concurrency
 		latencies = append(latencies, samples[index].LatencyMS)
@@ -608,6 +613,9 @@ func summarizeCell(phase string, concurrency int, elapsed time.Duration, peak ui
 		charged += oneCharged
 		if oneActual > 0 && oneCharged == 0 {
 			queryHits++
+		}
+		if samples[index].SemanticReplay {
+			semanticReplayHits++
 		}
 	}
 	result := cell{Phase: phase, Concurrency: concurrency, Samples: len(samples), ElapsedMS: durationMS(elapsed),
@@ -635,6 +643,8 @@ func summarizeCell(phase string, concurrency int, elapsed time.Duration, peak ui
 		queryRate := float64(queryHits) / float64(len(samples))
 		result.FactHistoryHitRate = &factRate
 		result.QueryHistoryHitRate = &queryRate
+		semanticReplayRate := float64(semanticReplayHits) / float64(len(samples))
+		result.SemanticReplayRate = &semanticReplayRate
 	}
 	return result
 }
@@ -668,6 +678,25 @@ func percentile(sorted []float64, p float64) float64 {
 
 func readLedger(ctx context.Context, pool *pgxpool.Pool, root string) (ledgerSnapshot, error) {
 	var result ledgerSnapshot
+	// V4 replaces the row-per-Fact ledger with bitmap roots. Keep this legacy
+	// benchmark usable as a like-for-like small-query regression driver by
+	// reading the active representation instead of silently reporting the empty
+	// compatibility tables.
+	err := pool.QueryRow(ctx, `SELECT used_release_facts, used_influence_facts
+FROM v4_exposure_root_heads WHERE root_task_id=$1`, root).
+		Scan(&result.ReleaseUsed, &result.InfluenceUsed)
+	if err == nil {
+		if err := pool.QueryRow(ctx, `SELECT COALESCE(sum(pg_table_size(c.oid)),0), COALESCE(sum(pg_indexes_size(c.oid)),0)
+FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+WHERE n.nspname='public' AND c.relkind='r' AND left(c.relname,3)='v4_'`).
+			Scan(&result.TableBytes, &result.IndexesBytes); err != nil {
+			return result, fmt.Errorf("read V4 exposure relation sizes: %w", err)
+		}
+		return result, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return result, fmt.Errorf("read V4 exposure ledger: %w", err)
+	}
 	if err := pool.QueryRow(ctx, `SELECT used_release_facts, used_influence_facts FROM exposure_ledgers WHERE root_task_id=$1`, root).
 		Scan(&result.ReleaseUsed, &result.InfluenceUsed); err != nil {
 		return result, fmt.Errorf("read exposure ledger: %w", err)
@@ -938,11 +967,12 @@ func metricSemantics() map[string]string {
 		"throughput_qps":            "completed measured operations divided by cell wall-clock seconds",
 		"client_peak_heap_bytes":    "maximum Go HeapAlloc sampled every 5 ms during the cell",
 		"service_peak_memory_bytes": "peak container memory usage from Docker stats; injected by the Compose wrapper",
-		"ledger_growth":             "after-minus-before root-ledger counters, root fact payload, and global exposure_facts physical sizes",
+		"ledger_growth":             "after-minus-before root counters; V2 includes root fact rows/payload and global exposure_facts sizes, while V4 uses global v4_* relation sizes and leaves row/payload fields zero because facts are bitmap/dictionary encoded",
 		"lock_contention":           "10 ms pg_stat_activity sampling; waiting_session_ms is a sampling approximation",
 		"exposure_ledger_lock":      "client-side duration of SELECT ... FOR UPDATE on the root ledger, including driver/server round-trip",
 		"fact_history_hit_rate":     "(actual release+influence facts - newly charged facts) / actual facts",
 		"query_history_hit_rate":    "fraction of exposure queries with nonzero actual facts and zero newly charged facts",
+		"semantic_replay_hit_rate":  "fraction of full-path operations served from the committed semantic replay cache",
 		"percentiles":               "Hyndman-Fan type 7 over per-operation samples",
 	}
 }

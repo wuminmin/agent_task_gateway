@@ -52,12 +52,29 @@ whose committed observation reports exactly 12 Release and 1,035,000 Influence
 facts (and one Outcome). Faster small queries cannot dilute that distribution;
 without an exact maximum-point workload both latency gates are unmeasured.
 
-The driver still records digest-bound small-query latency evidence but is
-sequential and has no like-for-like throughput cell, so the combined
-small-query regression gate remains unmeasured. With the current production
-driver concurrency, `acceptance` remains incomplete until the throughput cell
-and every configured external/offline gate are measured; threshold violations
-still make it `fail`.
+The small-query regression gate consumes two independent benchmark artifacts:
+a baseline and a V4 candidate. The configuration binds each artifact by exact
+lowercase SHA-256 and records its positive finite P50 latency and throughput.
+The gate passes only when candidate latency degradation and candidate
+throughput degradation are both at most 10%; a missing artifact is unmeasured,
+while malformed evidence or a digest mismatch is a failure. The full
+provisioning command injects both references into the generated configuration.
+
+Regenerate the V4 candidate from the same fixed warm workload by adding the
+small-regression Catalog overlay to the exposure-performance runner:
+
+```sh
+EXPOSURE_PROJECT_NAME="taskgate-v4-small-$(date -u +%Y%m%dT%H%M%SZ)" \
+EXPOSURE_RUN_ID="v4-small-$(date -u +%Y%m%dT%H%M%SZ)" \
+EXPOSURE_RUNS=200 EXPOSURE_RAMP_RUNS=32 EXPOSURE_WORKERS=8 \
+EXPOSURE_CONCURRENCY=1 \
+EXPOSURE_COMPOSE_OVERRIDE="$PWD/evaluation/v4-acceptance/compose.small-regression.yaml" \
+./evaluation/run-exposure-performance.sh
+```
+
+Use that run's `report.json` as the candidate artifact. The full provisioner
+requires its complete-history hit cell to have 100% query/fact-history and
+semantic-replay hit rates before accepting the reference.
 
 ## Workload contract
 
@@ -121,6 +138,102 @@ For a non-Compose deployment, put `exposure-bench` and `v4-acceptance` on
 generates configuration; the later `v4-acceptance -config ... -output ...`
 command remains an explicit separate action.
 
+## Full acceptance campaign
+
+The full matrix uses 140 fresh roots: 20 trials for each of four exact
+Influence-overlap points (0/50/90/100%) and 20 trials for each additional
+Scan, Page, and Union shape. The 0% Join--Group case is the maximum point used
+for the novel and replay SLOs. Provisioning creates and approves the roots but
+does not execute a measured query.
+
+Use a new Compose project so both PostgreSQL volumes are isolated. Include the
+observer overlay on the first startup: adding `pg_stat_statements` after a
+Business volume has already been initialized is unsupported. The environment
+manifest must contain nonempty `host`, `software`, `database`, and `datasets`
+objects. Baseline and candidate files must be independently produced,
+like-for-like small-query benchmark artifacts; their P50 and throughput values
+are read and digest-bound during provisioning.
+
+The environment manifest is run-specific evidence, not a reusable template.
+Build every service/profile image first, start the fresh stack with
+`--no-build`, then capture the actual image IDs, source/Catalog/artifact
+digests, database settings, and dataset counts before provisioning roots. Keep
+that manifest outside `V4_FULL_RUN_DIR`: the runner mounts the evidence
+read-only while `/results` is writable, so the two mounts must not reference
+the same inode. A manifest from an earlier Catalog or image build is invalid
+even though its JSON shape would still pass schema validation.
+
+```sh
+export V4_FULL_PROJECT="taskgate-v4-full-$(date -u +%Y%m%dT%H%M%SZ)"
+export V4_FULL_RUN_DIR="$PWD/evaluation/v4-acceptance/raw/$V4_FULL_PROJECT"
+# compose.scale-narrow.yaml contains an inactive narrow-only service whose
+# bind variable is interpolated before profile filtering.
+export V4_NARROW_RUN_DIR="$V4_FULL_RUN_DIR"
+mkdir -m 700 -p "$V4_FULL_RUN_DIR"
+
+export V4_FULL_ENVIRONMENT_MANIFEST=/absolute/path/to/environment.json
+export V4_FULL_BASELINE_ARTIFACT=/absolute/path/to/small-query-baseline.json
+export V4_FULL_CANDIDATE_ARTIFACT=/absolute/path/to/small-query-candidate.json
+export V4_FULL_ENVIRONMENT_SHA256="$(sha256sum "$V4_FULL_ENVIRONMENT_MANIFEST" | awk '{print $1}')"
+export V4_FULL_BASELINE_SHA256="$(sha256sum "$V4_FULL_BASELINE_ARTIFACT" | awk '{print $1}')"
+export V4_FULL_CANDIDATE_SHA256="$(sha256sum "$V4_FULL_CANDIDATE_ARTIFACT" | awk '{print $1}')"
+
+export V4_ACCEPTANCE_CONFIG="$V4_FULL_RUN_DIR/config.json"
+export V4_ACCEPTANCE_RUN_DIR="$V4_FULL_RUN_DIR"
+
+docker compose --project-name "$V4_FULL_PROJECT" \
+  --file compose.yaml \
+  --file evaluation/v4-acceptance/compose.scale-narrow.yaml \
+  --file evaluation/v4-acceptance/compose.observer.yaml \
+  --file evaluation/v4-acceptance/compose.full.yaml \
+  up --detach --build --wait gateway
+
+docker compose --project-name "$V4_FULL_PROJECT" \
+  --file compose.yaml \
+  --file evaluation/v4-acceptance/compose.scale-narrow.yaml \
+  --file evaluation/v4-acceptance/compose.observer.yaml \
+  --file evaluation/v4-acceptance/compose.full.yaml \
+  --profile v4-full-tools run --rm v4-full-prepare
+
+docker compose --project-name "$V4_FULL_PROJECT" \
+  --file compose.yaml \
+  --file evaluation/v4-acceptance/compose.scale-narrow.yaml \
+  --file evaluation/v4-acceptance/compose.observer.yaml \
+  --file evaluation/v4-acceptance/compose.full.yaml \
+  --profile v4-acceptance run --rm v4-acceptance \
+  -config /config/v4-acceptance.json \
+  -output /results/results.json \
+  -require-complete
+
+docker compose --project-name "$V4_FULL_PROJECT" \
+  --file compose.yaml \
+  --file evaluation/v4-acceptance/compose.scale-narrow.yaml \
+  --file evaluation/v4-acceptance/compose.observer.yaml \
+  --file evaluation/v4-acceptance/compose.full.yaml \
+  stop
+```
+
+`compose.full.yaml` gives Gateway a 2 GiB memory limit and sets the total
+memory-plus-swap limit to the same value, which disables swap. This is not the
+acceptance threshold: the gate still requires the observed cgroup-v2
+`memory.peak`, including touched mmap pages, to be at most 512 MiB. The larger
+container ceiling lets a passing run report its natural peak instead of being
+clipped at the threshold. Current/maximum memory, current/peak/maximum swap,
+and the cgroup `max`, `oom`, and `oom_kill` event counters are retained in raw
+observer evidence. Reaching the 2 GiB ceiling or suffering an OOM is a failed
+run, not a passing memory observation.
+
+With a required observer, `-require-complete` evaluates 30 gates: provenance,
+fixed environment, execution integrity, and observer completeness; four
+overlap points and four query shapes; maximum-point novel and replay SLOs; two
+independent replay-no-SQL checks; cgroup memory, network, and WAL evidence;
+index-build time and RSS; total and hot artifact size; warm activation and
+amortized storage; bitmap derivation, ordinal streaming, and settlement
+timers; and the dual-artifact small-query regression. A failed or unmeasured
+gate makes the command nonzero. `stop` deliberately retains the evidence
+directory and Compose volumes for diagnosis; remove them only after the run
+has been reviewed.
+
 Validate the JSON without credentials or services:
 
 ```sh
@@ -161,7 +274,15 @@ It must emit exactly one JSON object:
   "schema_version": 1,
   "memory_scope": "cgroup_v2_memory_peak_including_mmap",
   "metrics": {
+    "gateway_memory_current_bytes": 201326592,
     "gateway_memory_peak_bytes": 268435456,
+    "gateway_memory_max_bytes": 2147483648,
+    "gateway_memory_swap_current_bytes": 0,
+    "gateway_memory_swap_peak_bytes": 0,
+    "gateway_memory_swap_max_bytes": 0,
+    "gateway_memory_events_max_total": 0,
+    "gateway_memory_events_oom_total": 0,
+    "gateway_memory_events_oom_kill_total": 0,
     "gateway_network_rx_bytes": 1000000,
     "gateway_network_tx_bytes": 2000000,
     "business_sql_queries_total": 42
@@ -169,11 +290,14 @@ It must emit exactly one JSON object:
 }
 ```
 
-All metrics are nonnegative monotonic counters except that the cgroup peak is
-read as the after-snapshot value. Configure the corresponding metric names and
-required memory scope. The replay zero-SQL gate remains `unmeasured` when only
-Gateway component labels are available; it passes only with an external
-Business-query counter whose delta is zero for every replay.
+Memory current and configured maximum values are gauges; memory/swap peaks and
+the `memory.events` values are cumulative within one Gateway cgroup. Network
+bytes and Business SQL calls are monotonic counters. The acceptance gate reads
+the cgroup memory peak from the after-snapshot rather than subtracting it.
+Configure the corresponding metric names and required memory scope. The replay
+zero-SQL gate remains `unmeasured` when only Gateway component labels are
+available; it passes only with an external Business-query counter whose delta
+is zero for every replay.
 The observer must obtain that counter out of band (for example from an existing
 metrics collector); its own snapshot calls must not increment the counter it
 is supposed to observe.
@@ -228,3 +352,27 @@ the root process's `/proc/<pid>/status`; the 4 GiB gate is usable only when
 `single_process: true`. Otherwise child-process memory is unknown and the gate
 is correctly marked unmeasured. Activation additionally requires
 `warm_verified: true` before its two-second gate can be evaluated.
+
+The full template runs the bundled single-process compiler against the same
+frozen Business snapshot used online:
+
+```text
+/usr/local/bin/v4-offline build
+  -input /usr/local/share/taskgate/snapshots/scale-orders-v4-narrow-1.json
+  -input /usr/local/share/taskgate/snapshots/scale-lineitem-v4-narrow-1.json
+  -output-dir {{run_dir}}
+```
+
+Warm activation is split into two evidence-bearing commands over the Gateway's
+retained, read-only `/var/lib/taskgate/snapshot-index` volume. First,
+`v4-offline verify` streams and strictly verifies the manifest, HOT, COLD, and
+sidecar, then writes a canonical receipt containing the approved semantic and
+transport digests plus stable read-only inode identities. Its wall time,
+command-output digest, and receipt are retained as raw evidence but are not
+charged to the two-second online activation SLO. The runner hashes that exact
+receipt and injects the measured SHA-256 into each `v4-offline activate` run.
+Activation rejects a different receipt, mount, inode, manifest, or HOT digest;
+only then does it load the HOT dictionaries without rereading COLD/sidecar.
+The offline build receives `SNAPSHOT_POSTGRES_DSN`; its output stays under the
+campaign directory and is separately counted, while online artifacts are
+never overwritten.

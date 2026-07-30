@@ -56,6 +56,112 @@ SELECT storage_format,chunk_count FROM encrypted_query_results WHERE query_id=$1
 	}
 }
 
+func TestGatewayResultIsNotReleasedUntilCommitCompletes(t *testing.T) {
+	fixture := newOrdinalReplayTestFixture(t, "task-v4-commit-before-release", validOrdinalReplaySource(t))
+	harness := fixture.harness
+	reservation := fixture.reserve(t, "query-v4-commit-before-release", "request-v4-commit-before-release")
+	database := harness.store.DB()
+	var advisoryKey int64
+	if err := database.QueryRowContext(context.Background(), `
+SELECT oid::bigint FROM pg_namespace WHERE nspname=current_schema()`).Scan(&advisoryKey); err != nil {
+		t.Fatal(err)
+	}
+	locker, err := database.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := locker.ExecContext(context.Background(), `SELECT pg_advisory_lock($1)`, advisoryKey); err != nil {
+		_ = locker.Close()
+		t.Fatal(err)
+	}
+	unlocked := false
+	unlock := func() {
+		if unlocked {
+			return
+		}
+		unlocked = true
+		if _, unlockErr := locker.ExecContext(context.Background(), `SELECT pg_advisory_unlock($1)`, advisoryKey); unlockErr != nil {
+			t.Errorf("unlock deferred commit: %v", unlockErr)
+		}
+		if closeErr := locker.Close(); closeErr != nil {
+			t.Errorf("close commit locker: %v", closeErr)
+		}
+	}
+	defer unlock()
+	if _, err := database.ExecContext(context.Background(), `
+CREATE FUNCTION block_result_commit_until_test_unlock() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  PERFORM pg_advisory_xact_lock((SELECT oid::bigint FROM pg_namespace WHERE nspname=current_schema()));
+  RETURN NEW;
+END;
+$$;
+CREATE CONSTRAINT TRIGGER block_result_commit_until_test_unlock
+AFTER INSERT ON encrypted_query_results
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION block_result_commit_until_test_unlock()`); err != nil {
+		t.Fatal(err)
+	}
+
+	type toolOutcome struct {
+		result  map[string]any
+		outcome ordinalReplayOutcome
+		err     error
+	}
+	completed := make(chan toolOutcome, 1)
+	go func() {
+		result, replayOutcome, callErr := harness.service.tryOrdinalSemanticReplay(context.Background(), fixture.task,
+			reservation.RequestID, reservation.QueryID, fixture.grantDigest, fixture.cacheKey,
+			fixture.dictionarySetDigest, reservation, map[string]float64{})
+		completed <- toolOutcome{result: result, outcome: replayOutcome, err: callErr}
+	}()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		select {
+		case outcome := <-completed:
+			t.Fatalf("Gateway returned before its V4 result transaction could commit: result=%#v outcome=%v err=%v",
+				outcome.result, outcome.outcome, outcome.err)
+		default:
+		}
+		var waiting int
+		if err := database.QueryRowContext(context.Background(), `
+SELECT count(*) FROM pg_stat_activity
+WHERE datname=current_database() AND wait_event_type='Lock' AND wait_event='advisory'
+  AND upper(trim(query))='COMMIT'`).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("Gateway finalizer did not reach the deferred COMMIT barrier")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	select {
+	case outcome := <-completed:
+		t.Fatalf("Gateway released a V4 result while COMMIT was blocked: result=%#v outcome=%v err=%v",
+			outcome.result, outcome.outcome, outcome.err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	unlock()
+	select {
+	case outcome := <-completed:
+		if outcome.err != nil || outcome.outcome != ordinalReplayCompleted ||
+			outcome.result["status"] != control.QueryCompleted || outcome.result["semantic_replay"] != true {
+			t.Fatalf("Gateway V4 result after COMMIT = %#v, outcome=%v err=%v",
+				outcome.result, outcome.outcome, outcome.err)
+		}
+		if _, _, err := harness.store.GetEncryptedResult(context.Background(), fixture.task.ID,
+			reservation.QueryID); err != nil {
+			t.Fatalf("released result is not committed: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Gateway did not release the result after COMMIT completed")
+	}
+}
+
 func TestCommittedResultReadPathsPreserveExactJSONNumbers(t *testing.T) {
 	harness := newGatewayHarness(t)
 	harness.createActiveSummaryTask(t, "task-exact-result-numbers")

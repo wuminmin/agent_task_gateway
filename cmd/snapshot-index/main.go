@@ -47,22 +47,15 @@ func main() {
 	if err != nil {
 		fatal("scan source relation", err)
 	}
-	bundle, err := snapshotbundle.Compile(input)
+	limits := snapshotbundle.DefaultPublicationLimits()
+	limits.AllowExistingIdentical = *allowExistingIdentical
+	written, err := snapshotbundle.CompileOwnedToDirectory(&input, *outputDirectory, limits)
 	if err != nil {
-		fatal("compile snapshot index", err)
+		fatal("compile and publish snapshot index", err)
 	}
-	var publicationDirectory string
-	if *allowExistingIdentical {
-		publicationDirectory, err = bundle.WriteIdempotent(*outputDirectory)
-	} else {
-		publicationDirectory, err = bundle.Write(*outputDirectory)
-	}
-	if err != nil {
-		fatal("publish snapshot index", err)
-	}
-	manifest := bundle.Manifest.DictionaryManifest
+	manifest := written.Manifest.DictionaryManifest
 	fmt.Printf("publication_dir=%s\nmanifest_digest=%s\ndictionary_digest=%s\nsidecar_digest=%s\ncold_payload_digest=%s\nhot_index_digest=%s\n",
-		publicationDirectory, bundle.Manifest.ManifestDigest, manifest.DictionaryDigest, manifest.SidecarDigest,
+		written.Directory, written.Manifest.ManifestDigest, manifest.DictionaryDigest, manifest.SidecarDigest,
 		manifest.ColdPayloadDigest, manifest.HotIndexDigest)
 }
 

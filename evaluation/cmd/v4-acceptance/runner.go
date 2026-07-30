@@ -21,19 +21,55 @@ import (
 var embeddedSourceDigest string
 
 var sourceDigestRoots = []string{
+	"cmd/gateway",
+	"cmd/oa-demo",
+	"cmd/snapshot-index",
+	"cmd/snapshot-sidecar-install",
+	"db/init",
 	"evaluation/cmd/v4-acceptance",
+	"evaluation/cmd/v4-compose-observer",
+	"evaluation/cmd/v4-offline",
+	"evaluation/cmd/exposure-bench",
 	"internal/gateway",
 	"internal/control",
+	"internal/catalog",
 	"internal/ordinal",
 	"internal/dataconnector",
+	"internal/exposure",
 	"internal/queryplan",
+	"internal/queryreceipt",
+	"internal/semanticcache",
+	"internal/snapshotbundle",
+	"internal/sqlpolicy",
 }
 
 var sourceDigestFiles = []string{
+	".dockerignore",
+	"Dockerfile",
+	"compose.yaml",
+	"config/snapshots/expense-detail-v1.json",
+	"config/snapshots/expense-summary-v1.json",
+	"db/control-init/10-control-role.sh",
 	"go.mod",
 	"go.sum",
 	"evaluation/Dockerfile",
+	"evaluation/exposure-performance/compose.yaml",
+	"evaluation/run-exposure-performance.sh",
 	"evaluation/v4-acceptance/README.md",
+	"evaluation/v4-acceptance/compose.full.yaml",
+	"evaluation/v4-acceptance/compose.observer.yaml",
+	"evaluation/v4-acceptance/compose.scale-narrow.yaml",
+	"evaluation/v4-acceptance/compose.small-regression.yaml",
+	"evaluation/exposure-scale/05-scale-data.sql",
+	"evaluation/v4-acceptance/full-matrix.template.json",
+	"evaluation/v4-acceptance/observer/09-pg-stat-statements.sql",
+	"evaluation/v4-acceptance/provision-full.sh",
+	"evaluation/v4-acceptance/scale-fixture/06-freeze-scale-publication.sql",
+	"evaluation/v4-acceptance/scale-fixture/10-scale-reader.sh",
+	"evaluation/v4-acceptance/scale-fixture/catalog-full.yaml",
+	"evaluation/v4-acceptance/scale-fixture/snapshots/scale-lineitem-v4-narrow-1.json",
+	"evaluation/v4-acceptance/scale-fixture/snapshots/scale-orders-v4-narrow-1.json",
+	"evaluation/v4-acceptance/small-regression/catalog.yaml",
 }
 
 type campaign struct {
@@ -89,7 +125,29 @@ func runCampaign(ctx context.Context, cfg config, configRaw []byte, outputDir st
 
 	// Offline measurements are intentionally independent from service startup.
 	result.IndexBuild = measureCommandPhase(ctx, "index_build", cfg.IndexBuild, filepath.Join(outputDir, "index-build"))
-	result.Activation = measureCommandPhase(ctx, "activation", cfg.Activation, filepath.Join(outputDir, "activation"))
+	receiptPath := filepath.Join(outputDir, "activation-verification-receipt.json")
+	verificationMetric := replaceCommandMetricToken(cfg.ActivationVerification, "{{verification_receipt}}", receiptPath)
+	result.ActivationVerification = measureCommandPhase(ctx, "activation_verification", verificationMetric,
+		filepath.Join(outputDir, "activation-verification"))
+	receiptSHA256 := ""
+	if cfg.ActivationVerification != nil && result.ActivationVerification.Status == "measured" {
+		receiptRaw, receiptErr := readBoundedEvidenceFile(receiptPath, 4<<20)
+		if receiptErr != nil {
+			result.ActivationVerification.Status = "failed"
+			result.ActivationVerification.Reason = "strict verification did not produce a bounded receipt: " + receiptErr.Error()
+		} else {
+			receiptSHA256 = sha256Hex(receiptRaw)
+			result.Provenance.ActivationVerificationReceiptSHA256 = receiptSHA256
+		}
+	}
+	activationMetric := replaceCommandMetricToken(cfg.Activation, "{{verification_receipt}}", receiptPath)
+	activationMetric = replaceCommandMetricToken(activationMetric, "{{verification_receipt_sha256}}", receiptSHA256)
+	if cfg.Activation != nil && cfg.Activation.WarmVerified && result.ActivationVerification.Status != "measured" {
+		result.Activation = phaseMeasurement{Status: "failed",
+			Reason: "warm activation was not run because strict publication verification failed"}
+	} else {
+		result.Activation = measureCommandPhase(ctx, "activation", activationMetric, filepath.Join(outputDir, "activation"))
+	}
 	result.Artifacts = measureArtifacts(cfg.Artifacts.TotalPaths, cfg.Artifacts.HotPaths)
 	if result.IndexBuild.Status == "measured" {
 		for _, run := range result.IndexBuild.Runs {
@@ -181,6 +239,26 @@ func runCampaign(ctx context.Context, cfg config, configRaw []byte, outputDir st
 		c.report.Status = "complete_measured_campaign"
 	}
 	return c.report, nil
+}
+
+func replaceCommandMetricToken(metric *commandMetric, token, value string) *commandMetric {
+	if metric == nil {
+		return nil
+	}
+	result := *metric
+	result.Argv = append([]string(nil), metric.Argv...)
+	for index := range result.Argv {
+		result.Argv[index] = strings.ReplaceAll(result.Argv[index], token, value)
+	}
+	return &result
+}
+
+func readBoundedEvidenceFile(path string, maximum int64) ([]byte, error) {
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() <= 0 || info.Size() > maximum {
+		return nil, errors.New("evidence path is not a bounded regular file")
+	}
+	return os.ReadFile(path)
 }
 
 func failedPreflight(result report, cfg config, message string) (report, error) {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"sort"
 	"testing"
@@ -247,6 +248,19 @@ func TestHotAndColdArtifactsRoundTripAndRejectTampering(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Marshal cold: %v", err)
 	}
+	var streamedCold bytes.Buffer
+	streamedBytes, err := artifact.Cold.WriteBinary(&streamedCold)
+	if err != nil {
+		t.Fatalf("stream cold: %v", err)
+	}
+	if streamedBytes != int64(len(coldBytes)) || !bytes.Equal(streamedCold.Bytes(), coldBytes) {
+		t.Fatalf("streamed COLD differs: bytes=%d want=%d equal=%t",
+			streamedBytes, len(coldBytes), bytes.Equal(streamedCold.Bytes(), coldBytes))
+	}
+	legacyCold := legacyColdArtifactBytes(t, artifact.Cold)
+	if !bytes.Equal(streamedCold.Bytes(), legacyCold) {
+		t.Fatal("streamed COLD differs from the independent legacy field-order encoder")
+	}
 	secondColdBytes, _ := artifact.Cold.MarshalBinary()
 	if !bytes.Equal(coldBytes, secondColdBytes) {
 		t.Fatal("cold artifact serialization is nondeterministic")
@@ -279,6 +293,76 @@ func TestHotAndColdArtifactsRoundTripAndRejectTampering(t *testing.T) {
 				t.Fatalf("tamper error = %v, want ErrDigestMismatch", parseErr)
 			}
 		})
+	}
+}
+
+func legacyColdArtifactBytes(t *testing.T, dictionary *ColdDictionary) []byte {
+	t.Helper()
+	manifestJSON, err := json.Marshal(dictionary.manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body bytes.Buffer
+	body.WriteString(coldArtifactMagic)
+	writeBytes(&body, manifestJSON)
+	writeString(&body, dictionary.manifestDigest)
+	writeUint64(&body, uint64(len(dictionary.manifest.Segments)))
+	for _, segment := range dictionary.manifest.Segments {
+		writeString(&body, segment.ID)
+		entries := dictionary.segments[segment.ID]
+		writeUint64(&body, uint64(len(entries)))
+		for _, entry := range entries {
+			writeBytes(&body, entry.payload)
+			writeBytes(&body, entry.factJSON)
+		}
+	}
+	return sealArtifact(coldArtifactDomain, body.Bytes())
+}
+
+type invalidCountWriter struct{ count int }
+
+func (w invalidCountWriter) Write(payload []byte) (int, error) { return w.count, nil }
+
+func TestWriteFullRejectsInvalidWriterCounts(t *testing.T) {
+	for _, count := range []int{-1, 4} {
+		if _, err := writeFull(invalidCountWriter{count: count}, []byte("abc")); err == nil {
+			t.Fatalf("writeFull accepted invalid count %d", count)
+		}
+	}
+}
+
+func TestDictionaryColdJSONPreservesLegacyCanonicalSnapshotBundleOrder(t *testing.T) {
+	fact, err := exposure.NewDerivedFactV2([]exposure.SnapshotBinding{
+		{SourceNamespace: "travel.z", Snapshot: "snapshot-z"},
+		{SourceNamespace: "travel.a", Snapshot: "snapshot-a"},
+	}, "group-1", "sum(expense.amount)", "numeric", "10", testDigest("a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dictionary, err := Compile(DictionarySpec{SourceID: "business", SourceNamespace: "travel.output",
+		Snapshot: "snapshot-output", SchemaDigest: testDigest("1"), Segments: []SegmentSpec{{
+			ID: "derived", Kind: SegmentDerived, Facts: []exposure.FactID{fact},
+		}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref, found, err := dictionary.Lookup(fact)
+	if err != nil || !found {
+		t.Fatalf("Lookup = %#v, %t, %v", ref, found, err)
+	}
+	expanded, err := dictionary.Expand(ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := expanded.SnapshotBundle; len(got) != 2 || got[0].SourceNamespace != "travel.a" || got[1].SourceNamespace != "travel.z" {
+		t.Fatalf("expanded snapshot bundle is not legacy-canonical: %#v", got)
+	}
+	legacyJSON, err := json.Marshal(cloneFact(fact))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := dictionary.segments[ref.SegmentID][ref.Ordinal].factJSON; !bytes.Equal(got, legacyJSON) {
+		t.Fatalf("stored cold FactID JSON differs from legacy cloneFact encoding: %s != %s", got, legacyJSON)
 	}
 }
 
@@ -541,5 +625,40 @@ func TestMultiIndexStreamsJoinWitnessAcrossDictionaries(t *testing.T) {
 		return nil
 	}); err != nil || count != 4 {
 		t.Fatalf("multi-index stream count=%d err=%v", count, err)
+	}
+}
+
+type failingHashSnapshotIndex struct {
+	*HotDictionary
+	err error
+}
+
+func (i *failingHashSnapshotIndex) Hash(FactRef) ([sha256.Size]byte, error) {
+	return [sha256.Size]byte{}, i.err
+}
+
+func TestMultiIndexHashStreamPropagatesSnapshotHashFailure(t *testing.T) {
+	artifact, err := CompileSnapshotArtifact(snapshotTestSpec("amount", false))
+	if err != nil {
+		t.Fatalf("compile snapshot: %v", err)
+	}
+	row, found := artifact.Hot.LookupEntity("row-a")
+	if !found {
+		t.Fatal("compiled HOT index omitted row-a")
+	}
+	set, err := NewBitmapSet(row.Row)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sentinel := errors.New("injected hash read failure")
+	multi, err := NewMultiIndex(&failingHashSnapshotIndex{HotDictionary: artifact.Hot, err: sentinel})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := multi.StreamHashesByFactHash(set, func(FactRef, [sha256.Size]byte) error {
+		t.Fatal("hash callback ran after the snapshot index failed")
+		return nil
+	}); !errors.Is(err, sentinel) {
+		t.Fatalf("hash stream error = %v, want %v", err, sentinel)
 	}
 }

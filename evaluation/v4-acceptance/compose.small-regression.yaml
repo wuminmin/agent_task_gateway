@@ -1,0 +1,6 @@
+services:
+  gateway:
+    volumes: !override
+      - ./evaluation/v4-acceptance/small-regression/catalog.yaml:/etc/taskbound/catalog.yaml:ro
+      - snapshot-index-artifacts:/var/lib/taskgate/snapshot-index:ro
+      - gateway-encrypted-spool:/tmp

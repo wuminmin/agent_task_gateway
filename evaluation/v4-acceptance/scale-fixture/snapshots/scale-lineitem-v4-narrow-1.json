@@ -11,18 +11,22 @@
     "snapshot": "exposure-scale-2026-v4-narrow-1",
     "schema_digest": "e93fa7bf76effb3d268cab94dd94e25d135ec8becc73989aeef0f1b9c927665d",
     "fields": [
+      {"name": "dataset_partition", "canonical_field_id": "dataset_partition", "sql_type": "smallint"},
       {"name": "dataset_partition", "canonical_field_id": "scale_lineitem.dataset_partition", "sql_type": "smallint"},
+      {"name": "l_orderkey", "canonical_field_id": "l_orderkey", "sql_type": "bigint"},
       {"name": "l_orderkey", "canonical_field_id": "scale_lineitem.l_orderkey", "sql_type": "bigint"},
+      {"name": "l_linenumber", "canonical_field_id": "l_linenumber", "sql_type": "integer"},
       {"name": "l_linenumber", "canonical_field_id": "scale_lineitem.l_linenumber", "sql_type": "integer"},
+      {"name": "l_extendedprice", "canonical_field_id": "l_extendedprice", "sql_type": "numeric"},
       {"name": "l_extendedprice", "canonical_field_id": "scale_lineitem.l_extendedprice", "sql_type": "numeric"}
     ],
     "rows": []
   },
   "expected_digests": {
     "sidecar_digest": "911572c80b75642c5faa6d610092c7e369319725a4cd975784f328fd45dc0768",
-    "dictionary_digest": "60d3e6b864f66bc532ffda804c604f78ceda9d57e5574490dd59b7fa4128156d",
-    "manifest_digest": "e8a946ec9e298761d3dfe59e721ca04d7a3f15fe464c3901ed677b29ef0d1f7b",
-    "cold_payload_digest": "82e185540d8f9aeb24204151228656b31bc8a25cddf3c60a29e6de74a9e8b751",
-    "hot_index_digest": "999655556b95b520d54f91d8565d6d6a28bf9dcd6a4aa4aeeb0847aaab9c030d"
+    "dictionary_digest": "9d4a425da232edb40e67ea77e61b224b816805cb52a2a63f63aa1590652c769c",
+    "manifest_digest": "f3608b9c4c35107b77d12fd7d60e928025f29cb2409182dc199a9fba3a4e1227",
+    "cold_payload_digest": "11bacd274735643f15c32105189f172ebdd676ab73ab4075ba9f1f7bbac097c1",
+    "hot_index_digest": "fc91395836ba858b95381eb579ff4139ed6580ac2e71541fa7d5838aa722e78d"
   }
 }

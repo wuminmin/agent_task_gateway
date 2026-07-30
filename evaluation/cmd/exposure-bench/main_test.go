@@ -29,14 +29,15 @@ func TestPairedAblationDerivesV2Facts(t *testing.T) {
 }
 
 func TestHistoryRatesOnlyApplyToFullPath(t *testing.T) {
-	samples := []sample{{ActualReleaseFacts: 3, ActualInfluenceFacts: 4}}
+	samples := []sample{{ActualReleaseFacts: 3, ActualInfluenceFacts: 4, SemanticReplay: true}}
 	ablation := summarizeCell("paired_plus_algebra", 1, 1, 1, nil, nil, nil, samples)
-	if ablation.FactHistoryHitRate != nil || ablation.QueryHistoryHitRate != nil {
+	if ablation.FactHistoryHitRate != nil || ablation.QueryHistoryHitRate != nil || ablation.SemanticReplayRate != nil {
 		t.Fatalf("non-ledger ablation was labeled as a history hit: %+v", ablation)
 	}
 	full := summarizeCell("full_history_hit", 1, 1, 1, nil, nil, nil, samples)
 	if full.FactHistoryHitRate == nil || *full.FactHistoryHitRate != 1 ||
-		full.QueryHistoryHitRate == nil || *full.QueryHistoryHitRate != 1 {
+		full.QueryHistoryHitRate == nil || *full.QueryHistoryHitRate != 1 ||
+		full.SemanticReplayRate == nil || *full.SemanticReplayRate != 1 {
 		t.Fatalf("full zero-charge observation did not register as a hit: %+v", full)
 	}
 }

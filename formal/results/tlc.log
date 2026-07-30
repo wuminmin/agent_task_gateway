@@ -1,5 +1,5 @@
 TLC2 Version 2.16 of 31 December 2020 (rev: cdddf55)
-Running breadth-first search Model-Checking with fp 6 and seed 8690962316257542081 with 32 workers on 32 cores with 3524MB heap and 64MB offheap memory [pid: 1] (Linux 6.18.33.2-microsoft-standard-WSL2 amd64, Eclipse Adoptium 21.0.11 x86_64, MSBDiskFPSet, DiskStateQueue).
+Running breadth-first search Model-Checking with fp 57 and seed -3336680746186396982 with 32 workers on 32 cores with 3524MB heap and 64MB offheap memory [pid: 1] (Linux 6.18.33.2-microsoft-standard-WSL2 amd64, Eclipse Adoptium 21.0.11 x86_64, MSBDiskFPSet, DiskStateQueue).
 Parsing file /model/TaskGate.tla
 Parsing file /tmp/Naturals.tla
 Parsing file /tmp/FiniteSets.tla
@@ -8,10 +8,10 @@ Semantic processing of module Naturals
 Semantic processing of module Sequences
 Semantic processing of module FiniteSets
 Semantic processing of module TaskGate
-Starting... (2026-07-29 19:45:29)
+Starting... (2026-07-30 06:25:03)
 Computing initial states...
-Finished computing initial states: 1 distinct state generated at 2026-07-29 19:45:29.
-Progress(11) at 2026-07-29 19:45:32: 3,271,833 states generated (3,271,833 s/min), 1,037,850 distinct states found (1,037,850 ds/min), 447,972 states left on queue.
+Finished computing initial states: 1 distinct state generated at 2026-07-30 06:25:03.
+Progress(11) at 2026-07-30 06:25:06: 1,950,429 states generated (1,950,429 s/min), 675,838 distinct states found (675,838 ds/min), 327,891 states left on queue.
 Model checking completed. No error has been found.
   Estimates of the probability that TLC did not check all reachable states
   because two distinct states had the same fingerprint:
@@ -20,4 +20,4 @@ Model checking completed. No error has been found.
 14824257 states generated, 3255552 distinct states found, 0 states left on queue.
 The depth of the complete state graph search is 18.
 The average outdegree of the complete state graph is 1 (minimum is 0, the maximum 31 and the 95th percentile is 4).
-Finished in 12s at (2026-07-29 19:45:41)
+Finished in 17s at (2026-07-30 06:25:20)

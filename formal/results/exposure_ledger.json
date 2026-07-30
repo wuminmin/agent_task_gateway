@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "status": "passed",
-  "checked_at": "2026-07-29T19:45:58Z",
+  "checked_at": "2026-07-30T06:25:45Z",
   "tool": "TLC",
   "tool_version": "1.7.1",
   "model": "formal/ExposureLedger.tla",
@@ -9,7 +9,7 @@
   "model_sha256": "6a8ce795e5c14be422586ae1b6b3f2944e3b7f5acf0275633395bc142ee70779",
   "config_sha256": "4776930f6f3bef2df93aad949e34b93c8b69f5045934ac89887795ef5d6b19de",
   "raw_log": "formal/results/exposure_ledger.log",
-  "log_sha256": "a94b2801a77b9387c2db12416403e1fc3d2126453f2097fbee674cbbcb00d7d2",
+  "log_sha256": "6d5f5712e0811f9989cb8c039347a36bbfd0b117f65f42bc6d40ea9e756a5a31",
   "states_generated": 416846,
   "distinct_states": 148706,
   "search_depth": 12,

@@ -16,7 +16,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
+	"runtime"
 	"strings"
 
 	"taskbound.local/agent-data-gateway/internal/exposure"
@@ -30,6 +32,7 @@ const (
 	maxJSONDocumentBytes = 4 << 20
 	maxSidecarLineBytes  = 64 << 20
 	maxPublishedBytes    = uint64(2 << 30)
+	maxHotPublishedBytes = uint64(160 << 20)
 )
 
 var (
@@ -39,6 +42,7 @@ var (
 	sourceRelationPattern = regexp.MustCompile(`^reporting\.[a-z_][a-z0-9_]*$`)
 	sidecarNamePattern    = regexp.MustCompile(`^taskgate_ordinal\.[a-z_][a-z0-9_]*$`)
 	digestPattern         = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	errPublishedSizeLimit = errors.New("snapshot publication size limit exceeded")
 )
 
 // CompilerInput is deliberately independent of Catalog YAML so a candidate
@@ -115,6 +119,25 @@ type CompiledBundle struct {
 	Sidecar  []byte
 }
 
+// WrittenBundle describes one compiler-verified immutable publication. The
+// production builder uses this result instead of retaining all artifact byte
+// slices until publication.
+type WrittenBundle struct {
+	Manifest  BundleManifest
+	Directory string
+	Bytes     int64
+}
+
+type PublicationLimits struct {
+	MaxBytes               int64
+	MaxHotBytes            int64
+	AllowExistingIdentical bool
+}
+
+func DefaultPublicationLimits() PublicationLimits {
+	return PublicationLimits{MaxBytes: int64(maxPublishedBytes), MaxHotBytes: int64(maxHotPublishedBytes)}
+}
+
 type SidecarKeyField struct {
 	Name    string `json:"name"`
 	SQLType string `json:"sql_type"`
@@ -176,6 +199,282 @@ func DecodeBundleManifest(reader io.Reader) (BundleManifest, error) {
 // through the same canonical and digest checks without building a duplicate
 // audit dictionary. This makes the CLI a verifier, not merely a serializer.
 func Compile(input CompilerInput) (CompiledBundle, error) {
+	return compile(input)
+}
+
+// CompileOwned is the publication-builder entrypoint. It transfers ownership
+// of the million-scale row slice from input and clears the caller's reference
+// before artifact encoding, so scanned row maps cannot overlap the complete
+// HOT/COLD byte buffers. Compile remains non-destructive for tests and callers
+// that need to retain their input.
+func CompileOwned(input *CompilerInput) (CompiledBundle, error) {
+	if input == nil {
+		return CompiledBundle{}, errors.New("snapshot compiler input is required")
+	}
+	owned := *input
+	input.Snapshot.Rows = nil
+	return compile(owned)
+}
+
+// CompileOwnedToDirectory is the bounded-memory production publication path.
+// It transfers ownership of input rows, streams COLD and sidecar bytes into a
+// private staging directory, reopens every artifact for independent
+// verification, writes the activation manifest last, and publishes with an
+// atomic no-replace directory rename. The artifact root must be owned by the
+// dedicated builder euid and not group/world writable. A process running as
+// that same uid is inside the builder-integrity trust boundary; protecting a
+// compromised peer with identical filesystem authority is out of scope.
+func CompileOwnedToDirectory(input *CompilerInput, baseDirectory string, limits PublicationLimits) (WrittenBundle, error) {
+	if input == nil {
+		return WrittenBundle{}, errors.New("snapshot compiler input is required")
+	}
+	owned := *input
+	input.Snapshot.Rows = nil
+	return compileOwnedToDirectory(owned, baseDirectory, limits, nil)
+}
+
+type publishFault func(stage string) error
+
+func compileOwnedToDirectory(input CompilerInput, baseDirectory string, limits PublicationLimits,
+	inject publishFault) (result WrittenBundle, resultErr error) {
+	if strings.TrimSpace(baseDirectory) == "" {
+		return WrittenBundle{}, errors.New("snapshot artifact base directory is required")
+	}
+	if limits.MaxBytes <= 0 || uint64(limits.MaxBytes) > maxPublishedBytes || limits.MaxHotBytes <= 0 ||
+		uint64(limits.MaxHotBytes) > maxHotPublishedBytes {
+		return WrittenBundle{}, errors.New("snapshot publication limits are invalid")
+	}
+	spec, keyFields, rowsByEntity, err := prepareCompilerInput(input)
+	if err != nil {
+		return WrittenBundle{}, err
+	}
+	if err := os.MkdirAll(baseDirectory, 0o750); err != nil {
+		return WrittenBundle{}, fmt.Errorf("create snapshot artifact base directory: %w", err)
+	}
+	base, err := openRegularDirectory(baseDirectory)
+	if err != nil {
+		return WrittenBundle{}, fmt.Errorf("open snapshot artifact base directory: %w", err)
+	}
+	defer base.Close()
+	finalDirectory := filepath.Join(baseDirectory, input.PublicationName)
+	if _, err := os.Lstat(finalDirectory); err == nil {
+		if !limits.AllowExistingIdentical {
+			return WrittenBundle{}, fmt.Errorf("snapshot publication directory already exists: %s", finalDirectory)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return WrittenBundle{}, err
+	}
+
+	artifact, err := ordinal.CompileSnapshotArtifact(spec)
+	if err != nil {
+		return WrittenBundle{}, fmt.Errorf("compile ordinal snapshot: %w", err)
+	}
+	// rowsByEntity contains only sidecar key values. Release all other scanned
+	// values before writing or reparsing any complete artifact.
+	spec.Rows = nil
+	input.Snapshot.Rows = nil
+	runtime.GC()
+	manifest := artifact.Hot.Manifest()
+	manifestDigest := artifact.Hot.ManifestDigest()
+	if err := validateExpectedDigests(input.ExpectedDigests, manifest, manifestDigest); err != nil {
+		return WrittenBundle{}, err
+	}
+
+	temporary, err := os.MkdirTemp(baseDirectory, "."+input.PublicationName+".tmp-")
+	if err != nil {
+		return WrittenBundle{}, err
+	}
+	cleanupTemporary := true
+	defer func() {
+		if cleanupTemporary {
+			if cleanupErr := os.RemoveAll(temporary); cleanupErr != nil {
+				result = WrittenBundle{}
+				resultErr = errors.Join(resultErr, fmt.Errorf("clean staged publication: %w", cleanupErr))
+			}
+		}
+	}()
+	staging, err := openRegularDirectory(temporary)
+	if err != nil {
+		return WrittenBundle{}, fmt.Errorf("open staged publication directory: %w", err)
+	}
+	defer staging.Close()
+	if err := verifyDirectoryEntry(base, staging, filepath.Base(temporary)); err != nil {
+		return WrittenBundle{}, fmt.Errorf("bind staged publication to base directory: %w", err)
+	}
+
+	hotName := input.PublicationName + ".hot.tgord"
+	coldName := input.PublicationName + ".cold.tgord"
+	sidecarName := input.PublicationName + ".sidecar.ndjson"
+	hotBytes, err := artifact.Hot.MarshalBinary()
+	if err != nil {
+		return WrittenBundle{}, fmt.Errorf("encode HOT artifact: %w", err)
+	}
+	hotLimit := limits.MaxHotBytes
+	if limits.MaxBytes < hotLimit {
+		hotLimit = limits.MaxBytes
+	}
+	hotDescriptor, err := writeStreamedFile(staging, hotName, hotLimit, func(writer io.Writer) error {
+		_, writeErr := writeFull(writer, hotBytes)
+		return writeErr
+	})
+	if err != nil {
+		return WrittenBundle{}, fmt.Errorf("write HOT artifact: %w", err)
+	}
+	if err := runPublishFault(inject, "hot"); err != nil {
+		return WrittenBundle{}, err
+	}
+	// The encoded file is now durable in staging. Drop the compiler HOT graph,
+	// then reopen and parse the file so verification covers the actual bytes.
+	artifact.Hot = nil
+	hotBytes = nil
+	runtime.GC()
+	verifiedHotBytes, err := readVerifiedArtifact(staging, hotName, hotDescriptor)
+	if err != nil {
+		return WrittenBundle{}, fmt.Errorf("reopen HOT artifact: %w", err)
+	}
+	verifiedHot, err := ordinal.ParseHotDictionary(verifiedHotBytes, manifestDigest)
+	if err != nil {
+		return WrittenBundle{}, fmt.Errorf("verify encoded HOT artifact: %w", err)
+	}
+	verifiedHotBytes = nil
+	runtime.GC()
+
+	coldLimit, err := remainingPublishedBytes(limits.MaxBytes, hotDescriptor.Bytes)
+	if err != nil {
+		return WrittenBundle{}, err
+	}
+	coldDescriptor, err := writeStreamedFile(staging, coldName, coldLimit, func(writer io.Writer) error {
+		_, writeErr := artifact.Cold.WriteBinary(writer)
+		return writeErr
+	})
+	if err != nil {
+		return WrittenBundle{}, fmt.Errorf("write COLD artifact: %w", err)
+	}
+	if err := runPublishFault(inject, "cold"); err != nil {
+		return WrittenBundle{}, err
+	}
+	// Verification streams from a separately opened file after the compiler
+	// graph is released; no artifact-sized byte slice is retained.
+	artifact.Cold = nil
+	runtime.GC()
+	if err := verifyColdArtifactFile(staging, coldName, coldDescriptor, manifestDigest); err != nil {
+		return WrittenBundle{}, fmt.Errorf("verify encoded COLD artifact: %w", err)
+	}
+
+	sidecarLimit, err := remainingPublishedBytes(limits.MaxBytes, hotDescriptor.Bytes, coldDescriptor.Bytes)
+	if err != nil {
+		return WrittenBundle{}, err
+	}
+	sidecarDescriptor, err := writeStreamedFile(staging, sidecarName, sidecarLimit, func(writer io.Writer) error {
+		return writeSidecar(writer, input, keyFields, rowsByEntity, verifiedHot)
+	})
+	if err != nil {
+		return WrittenBundle{}, fmt.Errorf("write sidecar export: %w", err)
+	}
+	if err := runPublishFault(inject, "sidecar"); err != nil {
+		return WrittenBundle{}, err
+	}
+	rowsByEntity = nil
+	runtime.GC()
+	expectation := SidecarExpectation{PublicationName: input.PublicationName, OrdinalSidecar: input.OrdinalSidecar,
+		SourceNamespace: spec.SourceNamespace, ManifestDigest: manifestDigest, SidecarDigest: manifest.SidecarDigest}
+	if err := verifySidecarArtifactFile(staging, sidecarName, sidecarDescriptor, verifiedHot, expectation); err != nil {
+		return WrittenBundle{}, fmt.Errorf("verify sidecar export: %w", err)
+	}
+
+	bundleManifest := BundleManifest{Version: BundleVersion, PublicationName: input.PublicationName,
+		CatalogSource: input.CatalogSource, OrdinalSidecar: input.OrdinalSidecar, ManifestDigest: manifestDigest,
+		DictionaryManifest: manifest, RowCount: verifiedHot.RowCount(), Hot: hotDescriptor,
+		Cold: coldDescriptor, Sidecar: sidecarDescriptor}
+	if err := bundleManifest.Validate(); err != nil {
+		return WrittenBundle{}, err
+	}
+	manifestJSON, err := manifestJSON(bundleManifest)
+	if err != nil {
+		return WrittenBundle{}, err
+	}
+	totalBytes, err := sumPublishedBytes(limits.MaxBytes, hotDescriptor.Bytes, coldDescriptor.Bytes,
+		sidecarDescriptor.Bytes, int64(len(manifestJSON)))
+	if err != nil {
+		return WrittenBundle{}, err
+	}
+	manifestName := input.PublicationName + ".bundle.json"
+	manifestLimit, err := remainingPublishedBytes(limits.MaxBytes, hotDescriptor.Bytes, coldDescriptor.Bytes,
+		sidecarDescriptor.Bytes)
+	if err != nil {
+		return WrittenBundle{}, err
+	}
+	manifestDescriptor, err := writeStreamedFile(staging, manifestName, manifestLimit, func(writer io.Writer) error {
+		_, writeErr := writeFull(writer, manifestJSON)
+		return writeErr
+	})
+	if err != nil {
+		return WrittenBundle{}, fmt.Errorf("write bundle activation manifest: %w", err)
+	}
+	if err := runPublishFault(inject, "manifest"); err != nil {
+		return WrittenBundle{}, err
+	}
+	verifiedManifestJSON, err := readVerifiedArtifact(staging, manifestName, manifestDescriptor)
+	if err != nil {
+		return WrittenBundle{}, fmt.Errorf("reopen bundle activation manifest: %w", err)
+	}
+	verifiedManifest, err := DecodeBundleManifest(bytes.NewReader(verifiedManifestJSON))
+	if err != nil || !reflect.DeepEqual(verifiedManifest, bundleManifest) {
+		return WrittenBundle{}, fmt.Errorf("verify bundle activation manifest: %w", errors.Join(err, errors.New("manifest differs from compiled bundle")))
+	}
+	expectedFiles := map[string]FileDescriptor{
+		hotName: hotDescriptor, coldName: coldDescriptor, sidecarName: sidecarDescriptor,
+		manifestName: manifestDescriptor,
+	}
+	if err := verifyStagedPublication(staging, expectedFiles); err != nil {
+		return WrittenBundle{}, fmt.Errorf("verify staged publication directory: %w", err)
+	}
+	if err := staging.Sync(); err != nil {
+		return WrittenBundle{}, fmt.Errorf("sync staged publication directory: %w", err)
+	}
+	if err := verifyOpenDirectoryIdentity(baseDirectory, base); err != nil {
+		return WrittenBundle{}, fmt.Errorf("publication base identity before commit: %w", err)
+	}
+	if err := verifyDirectoryEntry(base, staging, filepath.Base(temporary)); err != nil {
+		return WrittenBundle{}, fmt.Errorf("staged publication identity before commit: %w", err)
+	}
+	if err := renameDirectoryNoReplace(base, filepath.Base(temporary), input.PublicationName); err != nil {
+		if !limits.AllowExistingIdentical || !errors.Is(err, os.ErrExist) {
+			return WrittenBundle{}, fmt.Errorf("publish snapshot artifact directory: %w", err)
+		}
+		if err := verifyExistingStreamedPublication(base, input.PublicationName, expectedFiles,
+			bundleManifest, manifestDescriptor); err != nil {
+			return WrittenBundle{}, fmt.Errorf("existing snapshot publication is not identical: %w", err)
+		}
+		if err := verifyOpenDirectoryIdentity(baseDirectory, base); err != nil {
+			return WrittenBundle{}, fmt.Errorf("publication base identity after identical verification: %w", err)
+		}
+		return WrittenBundle{Manifest: bundleManifest, Directory: finalDirectory, Bytes: totalBytes}, nil
+	}
+	cleanupTemporary = false
+	rollbackCommit := func(cause error) (WrittenBundle, error) {
+		rollbackErr := renameDirectoryNoReplace(base, input.PublicationName, filepath.Base(temporary))
+		if rollbackErr == nil {
+			cleanupTemporary = true
+			return WrittenBundle{}, errors.Join(cause, base.Sync())
+		}
+		disableErr := disablePublishedDirectory(base, staging, input.PublicationName, manifestName)
+		return WrittenBundle{}, errors.Join(cause,
+			fmt.Errorf("rollback committed publication: %w", rollbackErr), disableErr)
+	}
+	if err := verifyPublishedDirectory(base, staging, input.PublicationName); err != nil {
+		return rollbackCommit(fmt.Errorf("published directory identity: %w", err))
+	}
+	if err := base.Sync(); err != nil {
+		return rollbackCommit(fmt.Errorf("sync published snapshot directory: %w", err))
+	}
+	if err := verifyOpenDirectoryIdentity(baseDirectory, base); err != nil {
+		return rollbackCommit(fmt.Errorf("publication base identity after commit: %w", err))
+	}
+	return WrittenBundle{Manifest: bundleManifest, Directory: finalDirectory, Bytes: totalBytes}, nil
+}
+
+func compile(input CompilerInput) (CompiledBundle, error) {
 	spec, keyFields, rowsByEntity, err := prepareCompilerInput(input)
 	if err != nil {
 		return CompiledBundle{}, err
@@ -184,6 +483,12 @@ func Compile(input CompilerInput) (CompiledBundle, error) {
 	if err != nil {
 		return CompiledBundle{}, fmt.Errorf("compile ordinal snapshot: %w", err)
 	}
+	// rowsByEntity retains only the entity-key values needed by the sidecar.
+	// Everything else from the PostgreSQL scan can be reclaimed before the
+	// roughly gigabyte-scale artifact buffers are allocated.
+	spec.Rows = nil
+	input.Snapshot.Rows = nil
+	runtime.GC()
 	manifest := artifact.Hot.Manifest()
 	manifestDigest := artifact.Hot.ManifestDigest()
 	if err := validateExpectedDigests(input.ExpectedDigests, manifest, manifestDigest); err != nil {
@@ -493,8 +798,8 @@ func VerifySidecarNDJSON(reader io.Reader, index ordinal.SnapshotIndex, expected
 				components = append(components, field.Name, field.SQLType, canonical)
 			}
 			entityKey, err := exposure.ComposeCanonicalKeyV2("base-entity", components...)
-			indexed, found := index.LookupRow(ordinal.RowHandle(rows))
-			if err != nil || !found || row.EntityKey != entityKey || indexed.EntityKey != entityKey || indexed.Handle != ordinal.RowHandle(rows) {
+			indexedEntity, found := sidecarRowIdentity(index, ordinal.RowHandle(rows))
+			if err != nil || !found || row.EntityKey != entityKey || indexedEntity != entityKey {
 				return fmt.Errorf("sidecar row %d does not match the HOT index", rows)
 			}
 		case "footer":
@@ -517,7 +822,7 @@ func VerifySidecarNDJSON(reader io.Reader, index ordinal.SnapshotIndex, expected
 	return nil
 }
 
-func prepareCompilerInput(input CompilerInput) (ordinal.SnapshotSpec, []SidecarKeyField, map[string]SnapshotRow, error) {
+func prepareCompilerInput(input CompilerInput) (ordinal.SnapshotSpec, []SidecarKeyField, map[string][]any, error) {
 	if input.Version != CompilerInputVersion || !configNamePattern.MatchString(input.PublicationName) ||
 		!identifierPattern.MatchString(input.CatalogSource) || !sidecarNamePattern.MatchString(input.OrdinalSidecar) ||
 		(input.SourceRelation != "" && !sourceRelationPattern.MatchString(input.SourceRelation)) ||
@@ -536,7 +841,7 @@ func prepareCompilerInput(input CompilerInput) (ordinal.SnapshotSpec, []SidecarK
 		return ordinal.SnapshotSpec{}, nil, nil, err
 	}
 	rows := make([]ordinal.SnapshotRow, 0, len(input.Snapshot.Rows))
-	rowsByEntity := make(map[string]SnapshotRow, len(input.Snapshot.Rows))
+	rowsByEntity := make(map[string][]any, len(input.Snapshot.Rows))
 	for rowIndex, source := range input.Snapshot.Rows {
 		if len(source.Values) != len(fieldTypes) {
 			return ordinal.SnapshotSpec{}, nil, nil, fmt.Errorf("snapshot row %d field set differs from schema", rowIndex)
@@ -581,8 +886,11 @@ func prepareCompilerInput(input CompilerInput) (ordinal.SnapshotSpec, []SidecarK
 		if _, duplicate := rowsByEntity[entityKey]; duplicate {
 			return ordinal.SnapshotSpec{}, nil, nil, fmt.Errorf("duplicate canonical entity key in row %d", rowIndex)
 		}
-		prepared := SnapshotRow{EntityKey: entityKey, Values: values}
-		rowsByEntity[entityKey] = prepared
+		keyValues := make([]any, len(keyFields))
+		for index, field := range keyFields {
+			keyValues[index] = exportJSONValue(field.SQLType, values[field.Name])
+		}
+		rowsByEntity[entityKey] = keyValues
 		rows = append(rows, ordinal.SnapshotRow{EntityKey: entityKey, Values: values})
 	}
 	return ordinal.SnapshotSpec{SourceID: input.Snapshot.SourceID, SourceNamespace: input.Snapshot.SourceNamespace,
@@ -671,33 +979,59 @@ func validateExpectedDigests(expected ExpectedDigests, manifest ordinal.Dictiona
 	return nil
 }
 
-func marshalSidecar(input CompilerInput, keyFields []SidecarKeyField, rows map[string]SnapshotRow, index ordinal.SnapshotIndex) ([]byte, error) {
+func marshalSidecar(input CompilerInput, keyFields []SidecarKeyField, rows map[string][]any, index ordinal.SnapshotIndex) ([]byte, error) {
+	var output bytes.Buffer
+	if err := writeSidecar(&output, input, keyFields, rows, index); err != nil {
+		return nil, err
+	}
+	return output.Bytes(), nil
+}
+
+func writeSidecar(writer io.Writer, input CompilerInput, keyFields []SidecarKeyField,
+	rows map[string][]any, index ordinal.SnapshotIndex) error {
 	header := SidecarHeader{Type: "header", Version: SidecarVersion, PublicationName: input.PublicationName,
 		OrdinalSidecar: input.OrdinalSidecar, SourceNamespace: input.Snapshot.SourceNamespace,
 		ManifestDigest: index.ManifestDigest(), SidecarDigest: index.Manifest().SidecarDigest,
 		EntityKeyFields: append([]SidecarKeyField(nil), keyFields...)}
-	var output bytes.Buffer
-	if err := writeJSONLine(&output, header); err != nil {
-		return nil, err
+	if err := writeJSONLine(writer, header); err != nil {
+		return err
 	}
 	for handle := uint64(1); handle <= index.RowCount(); handle++ {
-		indexed, found := index.LookupRow(ordinal.RowHandle(handle))
-		row, inputFound := rows[indexed.EntityKey]
-		if !found || !inputFound || indexed.Handle != ordinal.RowHandle(handle) {
-			return nil, fmt.Errorf("compiled HOT index misses dense row handle %d", handle)
+		entityKey, found := sidecarRowIdentity(index, ordinal.RowHandle(handle))
+		keyValues, inputFound := rows[entityKey]
+		if !found || !inputFound {
+			return fmt.Errorf("compiled HOT index misses dense row handle %d", handle)
 		}
-		values := make([]any, len(keyFields))
-		for fieldIndex, field := range keyFields {
-			values[fieldIndex] = exportJSONValue(field.SQLType, row.Values[field.Name])
+		if len(keyValues) != len(keyFields) {
+			return fmt.Errorf("compiled sidecar key width differs at row handle %d", handle)
 		}
-		if err := writeJSONLine(&output, SidecarRow{Type: "row", RowHandle: handle, EntityKey: indexed.EntityKey, KeyValues: values}); err != nil {
-			return nil, err
+		if err := writeJSONLine(writer, SidecarRow{Type: "row", RowHandle: handle, EntityKey: entityKey, KeyValues: keyValues}); err != nil {
+			return err
 		}
 	}
-	if err := writeJSONLine(&output, SidecarFooter{Type: "footer", RowCount: index.RowCount(), SidecarDigest: index.Manifest().SidecarDigest}); err != nil {
-		return nil, err
+	if err := writeJSONLine(writer, SidecarFooter{Type: "footer", RowCount: index.RowCount(), SidecarDigest: index.Manifest().SidecarDigest}); err != nil {
+		return err
 	}
-	return output.Bytes(), nil
+	return nil
+}
+
+func sidecarRowIdentity(index ordinal.SnapshotIndex, handle ordinal.RowHandle) (string, bool) {
+	// Use an exact concrete-type allowlist. A decorator may acquire projected
+	// methods through Go method promotion while overriding LookupRow for fault
+	// injection or validation; a bare interface assertion would bypass it.
+	switch projected := index.(type) {
+	case *ordinal.HotDictionary:
+		entityKey, _, found := projected.LookupRowIdentity(handle)
+		return entityKey, found
+	case *ordinal.Dictionary:
+		entityKey, _, found := projected.LookupRowIdentity(handle)
+		return entityKey, found
+	}
+	indexed, found := index.LookupRow(handle)
+	if !found || indexed.Handle != handle {
+		return "", false
+	}
+	return indexed.EntityKey, true
 }
 
 func normalizeJSONValue(sqlType string, value any) (any, error) {
@@ -793,4 +1127,288 @@ func writeNewFile(path string, payload []byte) error {
 		return err
 	}
 	return file.Close()
+}
+
+func manifestJSON(manifest BundleManifest) ([]byte, error) {
+	return (CompiledBundle{Manifest: manifest}).ManifestJSON()
+}
+
+func runPublishFault(inject publishFault, stage string) error {
+	if inject == nil {
+		return nil
+	}
+	if err := inject(stage); err != nil {
+		return fmt.Errorf("injected publication failure after %s: %w", stage, err)
+	}
+	return nil
+}
+
+type countingWriter struct {
+	writer  io.Writer
+	written int64
+	limit   int64
+}
+
+func (w *countingWriter) Write(payload []byte) (int, error) {
+	if w.limit <= 0 || int64(len(payload)) > w.limit-w.written {
+		return 0, errPublishedSizeLimit
+	}
+	written, err := w.writer.Write(payload)
+	if written < 0 || written > len(payload) {
+		return 0, io.ErrShortWrite
+	}
+	w.written += int64(written)
+	return written, err
+}
+
+func writeFull(writer io.Writer, payload []byte) (int, error) {
+	written := 0
+	for written < len(payload) {
+		count, err := writer.Write(payload[written:])
+		if count < 0 || count > len(payload)-written {
+			return written, io.ErrShortWrite
+		}
+		written += count
+		if err != nil {
+			return written, err
+		}
+		if count == 0 {
+			return written, io.ErrShortWrite
+		}
+	}
+	return written, nil
+}
+
+func writeStreamedFile(directory *os.File, name string, maximumBytes int64,
+	emit func(io.Writer) error) (FileDescriptor, error) {
+	if emit == nil || filepath.Base(name) != name || maximumBytes <= 0 {
+		return FileDescriptor{}, errors.New("invalid streamed artifact writer")
+	}
+	file, err := createArtifactFile(directory, name)
+	if err != nil {
+		return FileDescriptor{}, err
+	}
+	digest := sha256.New()
+	counter := &countingWriter{writer: io.MultiWriter(file, digest), limit: maximumBytes}
+	emitErr := emit(counter)
+	var syncErr error
+	if emitErr == nil {
+		syncErr = file.Sync()
+	}
+	closeErr := file.Close()
+	if err := errors.Join(emitErr, syncErr, closeErr); err != nil {
+		return FileDescriptor{}, err
+	}
+	if counter.written <= 0 {
+		return FileDescriptor{}, errors.New("streamed artifact is empty")
+	}
+	return FileDescriptor{Name: name, SHA256: hex.EncodeToString(digest.Sum(nil)), Bytes: counter.written}, nil
+}
+
+func openRegularDirectory(path string) (*os.File, error) {
+	directory, err := openDirectoryNoFollow(path)
+	if err != nil {
+		return nil, errors.New("publication base is not a regular directory")
+	}
+	info, err := directory.Stat()
+	if err != nil || !info.IsDir() {
+		_ = directory.Close()
+		return nil, errors.New("publication base is not a regular directory")
+	}
+	if err := validateDirectorySecurity(directory); err != nil {
+		_ = directory.Close()
+		return nil, fmt.Errorf("unsafe publication directory: %w", err)
+	}
+	return directory, nil
+}
+
+func verifyOpenDirectoryIdentity(path string, directory *os.File) error {
+	if directory == nil {
+		return errors.New("open directory is required")
+	}
+	actual, err := openDirectoryNoFollow(path)
+	if err != nil {
+		return errors.New("directory path is no longer a regular directory")
+	}
+	defer actual.Close()
+	pathInfo, pathErr := actual.Stat()
+	openInfo, openErr := directory.Stat()
+	if pathErr != nil || openErr != nil || !pathInfo.IsDir() || !openInfo.IsDir() || !os.SameFile(pathInfo, openInfo) {
+		return errors.New("directory path identity changed")
+	}
+	return nil
+}
+
+func validRelativeName(value string) bool {
+	return value != "" && value != "." && value != ".." && !strings.ContainsAny(value, "/\x00")
+}
+
+func openVerifiedArtifact(directory *os.File, name string, descriptor FileDescriptor) (*os.File, error) {
+	if descriptor.Name != name || !validRelativeName(name) {
+		return nil, errors.New("artifact descriptor name mismatch")
+	}
+	file, err := openArtifactFile(directory, name)
+	if err != nil {
+		return nil, errors.New("artifact is not the expected regular file")
+	}
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() != descriptor.Bytes {
+		_ = file.Close()
+		return nil, errors.New("artifact is not the expected regular file")
+	}
+	if err := validateArtifactSecurity(file); err != nil {
+		_ = file.Close()
+		return nil, fmt.Errorf("unsafe artifact permissions: %w", err)
+	}
+	return file, nil
+}
+
+func readVerifiedArtifact(directory *os.File, name string, descriptor FileDescriptor) ([]byte, error) {
+	if descriptor.Bytes <= 0 || uint64(descriptor.Bytes) > uint64(maxPublishedBytes) || uint64(descriptor.Bytes) > uint64(^uint(0)>>1) {
+		return nil, errors.New("artifact size is outside the publication bound")
+	}
+	file, err := openVerifiedArtifact(directory, name, descriptor)
+	if err != nil {
+		return nil, err
+	}
+	payload := make([]byte, int(descriptor.Bytes))
+	_, readErr := io.ReadFull(file, payload)
+	var extra [1]byte
+	read, trailingErr := file.Read(extra[:])
+	closeErr := file.Close()
+	if readErr != nil || read != 0 || trailingErr != io.EOF || closeErr != nil {
+		return nil, fmt.Errorf("read complete artifact: %v", errors.Join(readErr, trailingErr, closeErr))
+	}
+	if actual := fileDescriptor(descriptor.Name, payload); actual != descriptor {
+		return nil, errors.New("artifact transport digest mismatch")
+	}
+	return payload, nil
+}
+
+func verifyColdArtifactFile(directory *os.File, name string, descriptor FileDescriptor, manifestDigest string) error {
+	file, err := openVerifiedArtifact(directory, name, descriptor)
+	if err != nil {
+		return err
+	}
+	digest := sha256.New()
+	verifyErr := ordinal.VerifyColdDictionaryReader(io.TeeReader(file, digest), descriptor.Bytes, manifestDigest)
+	closeErr := file.Close()
+	if err := errors.Join(verifyErr, closeErr); err != nil {
+		return err
+	}
+	if hex.EncodeToString(digest.Sum(nil)) != descriptor.SHA256 {
+		return errors.New("COLD artifact transport digest mismatch")
+	}
+	return nil
+}
+
+func verifySidecarArtifactFile(directory *os.File, name string, descriptor FileDescriptor, index ordinal.SnapshotIndex,
+	expectation SidecarExpectation) error {
+	file, err := openVerifiedArtifact(directory, name, descriptor)
+	if err != nil {
+		return err
+	}
+	digest := sha256.New()
+	verifyErr := VerifySidecarNDJSON(io.TeeReader(file, digest), index, expectation)
+	closeErr := file.Close()
+	if err := errors.Join(verifyErr, closeErr); err != nil {
+		return err
+	}
+	if hex.EncodeToString(digest.Sum(nil)) != descriptor.SHA256 {
+		return errors.New("sidecar artifact transport digest mismatch")
+	}
+	return nil
+}
+
+func verifyStagedPublication(directory *os.File, expected map[string]FileDescriptor) error {
+	entries, err := readDirectoryEntries(directory)
+	if err != nil {
+		return err
+	}
+	if len(entries) != len(expected) {
+		return fmt.Errorf("staged publication contains %d files; expected %d", len(entries), len(expected))
+	}
+	for _, entry := range entries {
+		descriptor, found := expected[entry.Name()]
+		if !found || entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("unexpected or non-regular staged artifact %q", entry.Name())
+		}
+		if err := verifyArtifactTransport(directory, entry.Name(), descriptor); err != nil {
+			return fmt.Errorf("staged artifact %q: %w", entry.Name(), err)
+		}
+	}
+	return nil
+}
+
+func verifyExistingStreamedPublication(base *os.File, publicationName string,
+	expectedFiles map[string]FileDescriptor, expectedManifest BundleManifest,
+	manifestDescriptor FileDescriptor) error {
+	existing, err := openDirectoryAt(base, publicationName)
+	if err != nil {
+		return err
+	}
+	defer existing.Close()
+	if err := validateDirectorySecurity(existing); err != nil {
+		return fmt.Errorf("unsafe existing publication directory: %w", err)
+	}
+	if err := verifyStagedPublication(existing, expectedFiles); err != nil {
+		return err
+	}
+	encoded, err := readVerifiedArtifact(existing, manifestDescriptor.Name, manifestDescriptor)
+	if err != nil {
+		return err
+	}
+	manifest, err := DecodeBundleManifest(bytes.NewReader(encoded))
+	if err != nil || !reflect.DeepEqual(manifest, expectedManifest) {
+		return errors.Join(err, errors.New("existing activation manifest differs"))
+	}
+	return nil
+}
+
+func verifyArtifactTransport(directory *os.File, name string, descriptor FileDescriptor) error {
+	file, err := openVerifiedArtifact(directory, name, descriptor)
+	if err != nil {
+		return err
+	}
+	digest := sha256.New()
+	buffer := make([]byte, 64<<10)
+	written, copyErr := io.CopyBuffer(digest, file, buffer)
+	closeErr := file.Close()
+	if err := errors.Join(copyErr, closeErr); err != nil {
+		return err
+	}
+	if written != descriptor.Bytes || hex.EncodeToString(digest.Sum(nil)) != descriptor.SHA256 {
+		return errors.New("artifact transport descriptor mismatch")
+	}
+	return nil
+}
+
+func sumPublishedBytes(limit int64, values ...int64) (int64, error) {
+	if limit <= 0 || uint64(limit) > maxPublishedBytes {
+		return 0, errors.New("snapshot publication limit is invalid")
+	}
+	var total uint64
+	for _, value := range values {
+		if value < 0 || uint64(value) > ^uint64(0)-total {
+			return 0, errors.New("snapshot publication size overflow")
+		}
+		total += uint64(value)
+	}
+	if total > uint64(limit) {
+		return 0, fmt.Errorf("%w: publication uses %d bytes; remaining limit is %d",
+			errPublishedSizeLimit, total, limit)
+	}
+	return int64(total), nil
+}
+
+func remainingPublishedBytes(limit int64, used ...int64) (int64, error) {
+	total, err := sumPublishedBytes(limit, used...)
+	if err != nil {
+		return 0, err
+	}
+	remaining := limit - total
+	if remaining <= 0 {
+		return 0, errPublishedSizeLimit
+	}
+	return remaining, nil
 }

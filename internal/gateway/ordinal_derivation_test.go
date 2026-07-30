@@ -56,6 +56,67 @@ func TestOrdinalDerivationScanExactlyRefinesV2Oracle(t *testing.T) {
 	assertOrdinalEffectEqualsOracle(t, effect, fixture.artifact.Cold, oracle, visible, ordinalDerivationPlanDigest)
 }
 
+func TestOrdinalDerivationSingleProductAliasesRefineLegacyScanAndPage(t *testing.T) {
+	product := compactOrdinalProduct()
+	rows := []map[string]any{
+		{"id": int64(1), "department": "Engineering", "amount": int64(7)},
+		{"id": int64(2), "department": "Sales", "amount": int64(20)},
+		{"id": int64(3), "department": "Sales", "amount": int64(30)},
+		{"id": int64(4), "department": "Finance", "amount": int64(40)},
+	}
+	tests := []struct {
+		name     string
+		plan     queryplan.QueryPlan
+		selected []int
+	}{
+		{name: "scan", plan: queryplan.QueryPlan{Product: product.Name,
+			Columns: []string{"id", "department", "amount"}, OrderBy: []queryplan.Order{{Column: "id", Direction: "asc"}}},
+			selected: []int{0, 1, 2, 3}},
+		{name: "page", plan: queryplan.QueryPlan{Product: product.Name,
+			Columns: []string{"id", "department", "amount"}, OrderBy: []queryplan.Order{{Column: "id", Direction: "asc"}},
+			Limit: 2, Offset: 1}, selected: []int{1, 2}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			compiled, err := queryplan.CompileOrdinal(test.plan, product)
+			if err != nil {
+				t.Fatal(err)
+			}
+			fixture := newOrdinalDerivationFixtureWithRoleAliases(t, compiled.OrdinalProgram, rows)
+			selectedRows := make([]map[string]any, len(test.selected))
+			inputs := make([]ordinalProvenanceInput, len(test.selected))
+			for index, rowIndex := range test.selected {
+				selectedRows[index] = rows[rowIndex]
+				inputs[index] = ordinalProvenanceInput{row: rowIndex, branch: -1}
+			}
+			visible := scanVisibleResult(t, fixture.program, selectedRows)
+			effect := fixture.derive(t, visible, inputs)
+
+			source := fixture.program.Sources[0]
+			oracleRelation := fixture.oracleRelation(t, source, test.selected, false)
+			oracle, err := exposure.ObserveV2(oracleRelation, ordinalOracleVisibleFields(fixture.program)...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertOrdinalEffectEqualsOracle(t, effect, fixture.artifact.Cold, oracle, visible, ordinalDerivationPlanDigest)
+
+			publishedRow, found := fixture.artifact.Hot.LookupRow(1)
+			if !found {
+				t.Fatal("hybrid publication omits its first row")
+			}
+			for _, binding := range source.EvidenceFields {
+				roleQualified := source.Role + "." + binding.Column
+				if _, legacyFound := publishedRow.Cells[binding.FieldID]; !legacyFound {
+					t.Fatalf("publication omits legacy field alias %q", binding.FieldID)
+				}
+				if _, relationalFound := publishedRow.Cells[roleQualified]; !relationalFound {
+					t.Fatalf("publication omits relational field alias %q", roleQualified)
+				}
+			}
+		})
+	}
+}
+
 func TestOrdinalDerivationGroupedExactlyRefinesV2Oracle(t *testing.T) {
 	product := compactOrdinalProduct()
 	compiled, err := queryplan.CompileOrdinal(queryplan.QueryPlan{
@@ -348,6 +409,20 @@ func TestOrdinalDerivationFailsClosedOnHandleBoundsAndManifest(t *testing.T) {
 		}
 	})
 
+	t.Run("concrete decorator cannot promote past defensive lookup", func(t *testing.T) {
+		source := fixture.program.Sources[0]
+		corrupt := &promotedOutOfBoundsRowIndex{HotDictionary: fixture.artifact.Hot}
+		deriver := fixture.newDeriver(t, visible, fixture.indexes())
+		deriver.indexes[source.SourceAlias] = corrupt
+		if err := deriver.Row(context.Background(), fixture.provenanceValues(t,
+			ordinalProvenanceInput{row: 0, branch: -1})); err != nil {
+			t.Fatalf("Row failed before final bounds check: %v", err)
+		}
+		if _, err := deriver.Finish(); !errors.Is(err, ordinal.ErrUnknownFact) {
+			t.Fatalf("promoted decorator bypassed LookupRow: %v, want ErrUnknownFact", err)
+		}
+	})
+
 	t.Run("publication manifest mismatch", func(t *testing.T) {
 		otherRows := []map[string]any{{"id": int64(1), "amount": int64(999)}}
 		other := compileOrdinalArtifact(t, fixture.program, otherRows)
@@ -370,6 +445,21 @@ func (i *outOfBoundsRowIndex) LookupRow(handle ordinal.RowHandle) (ordinal.RowRe
 		return ordinal.RowRefs{}, false
 	}
 	count, found := i.SnapshotIndex.SegmentFactCount(row.Row.SegmentID)
+	if !found || count > uint64(^uint32(0)) {
+		return ordinal.RowRefs{}, false
+	}
+	row.Row.Ordinal = uint32(count)
+	return row, true
+}
+
+type promotedOutOfBoundsRowIndex struct{ *ordinal.HotDictionary }
+
+func (i *promotedOutOfBoundsRowIndex) LookupRow(handle ordinal.RowHandle) (ordinal.RowRefs, bool) {
+	row, found := i.HotDictionary.LookupRow(handle)
+	if !found {
+		return ordinal.RowRefs{}, false
+	}
+	count, found := i.HotDictionary.SegmentFactCount(row.Row.SegmentID)
 	if !found || count > uint64(^uint32(0)) {
 		return ordinal.RowRefs{}, false
 	}
@@ -403,7 +493,35 @@ func newOrdinalDerivationFixture(t *testing.T, program queryplan.OrdinalProgram,
 	return fixture
 }
 
+func newOrdinalDerivationFixtureWithRoleAliases(t *testing.T, program queryplan.OrdinalProgram,
+	rows []map[string]any) ordinalDerivationFixture {
+	t.Helper()
+	if len(program.Sources) != 1 {
+		t.Fatal("single-product alias fixture requires exactly one source")
+	}
+	source := program.Sources[0]
+	extra := make([]ordinal.SnapshotField, 0, len(source.EvidenceFields))
+	for _, binding := range source.EvidenceFields {
+		extra = append(extra, ordinal.SnapshotField{Name: binding.Column,
+			CanonicalFieldID: source.Role + "." + binding.Column, SQLType: binding.SQLType})
+	}
+	fixture := newOrdinalDerivationFixture(t, program, rows)
+	fixture.artifact = compileOrdinalArtifactWithExtraFields(t, fixture.program, rows, extra)
+	for index := range fixture.program.Sources {
+		fixture.program.Sources[index].SidecarBinding.ManifestDigest = fixture.artifact.Hot.ManifestDigest()
+	}
+	for index := range fixture.program.SnapshotBundle {
+		fixture.program.SnapshotBundle[index].SidecarManifestDigest = fixture.artifact.Hot.ManifestDigest()
+	}
+	return fixture
+}
+
 func compileOrdinalArtifact(t *testing.T, program queryplan.OrdinalProgram, rows []map[string]any) ordinal.CompiledArtifact {
+	return compileOrdinalArtifactWithExtraFields(t, program, rows, nil)
+}
+
+func compileOrdinalArtifactWithExtraFields(t *testing.T, program queryplan.OrdinalProgram, rows []map[string]any,
+	extra []ordinal.SnapshotField) ordinal.CompiledArtifact {
 	t.Helper()
 	if len(program.Sources) == 0 {
 		t.Fatal("program has no sources")
@@ -423,6 +541,16 @@ func compileOrdinalArtifact(t *testing.T, program queryplan.OrdinalProgram, rows
 			}
 			inputTypes[binding.Column] = binding.SQLType
 		}
+	}
+	for _, field := range extra {
+		if previous, exists := fieldByID[field.CanonicalFieldID]; exists && previous != field {
+			t.Fatalf("conflicting extra canonical field %q", field.CanonicalFieldID)
+		}
+		if previous, exists := inputTypes[field.Name]; exists && previous != field.SQLType {
+			t.Fatalf("conflicting extra physical field %q", field.Name)
+		}
+		fieldByID[field.CanonicalFieldID] = field
+		inputTypes[field.Name] = field.SQLType
 	}
 	fieldIDs := make([]string, 0, len(fieldByID))
 	for fieldID := range fieldByID {

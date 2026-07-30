@@ -44,14 +44,18 @@ func TestCollectEmitsAcceptanceContractMetrics(t *testing.T) {
 	fake := &fakeEngine{project: "narrow", queries: 42, services: map[string]string{
 		"narrow/gateway": "gateway-id",
 	}, outputs: map[string][]byte{
-		"gateway-id\x00sh\x00-c\x00" + gatewaySnapshotScript(): []byte("TASKGATE_CGROUP\n0::/\nTASKGATE_CONTROLLERS\ncpu io memory pids\nTASKGATE_PEAK\n268435456\nTASKGATE_NETWORK\n" + network),
+		"gateway-id\x00sh\x00-c\x00" + gatewaySnapshotScript(): []byte("TASKGATE_CGROUP\n0::/\nTASKGATE_CONTROLLERS\ncpu io memory pids\nTASKGATE_MEMORY_CURRENT\n134217728\nTASKGATE_MEMORY_PEAK\n268435456\nTASKGATE_MEMORY_MAX\n1073741824\nTASKGATE_SWAP_CURRENT\n4096\nTASKGATE_SWAP_PEAK\n8192\nTASKGATE_SWAP_MAX\nmax\nTASKGATE_MEMORY_EVENTS\nlow 0\nhigh 0\nmax 7\noom 2\noom_kill 1\noom_group_kill 0\nTASKGATE_NETWORK\n" + network),
 	}}
 	got, err := collect(context.Background(), fake, mapEnvironment(map[string]string{"POSTGRES_DB": "scale"}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := map[string]int64{
-		"gateway_memory_peak_bytes": 268435456, "gateway_network_rx_bytes": 404,
+		"gateway_memory_peak_bytes": 268435456, "gateway_memory_current_bytes": 134217728,
+		"gateway_memory_max_bytes": 1073741824, "gateway_memory_swap_current_bytes": 4096,
+		"gateway_memory_swap_peak_bytes": 8192, "gateway_memory_swap_max_bytes": unlimitedCgroupValue,
+		"gateway_memory_events_max_total": 7, "gateway_memory_events_oom_total": 2,
+		"gateway_memory_events_oom_kill_total": 1, "gateway_network_rx_bytes": 404,
 		"gateway_network_tx_bytes": 606, "business_sql_queries_total": 42,
 	}
 	if got.SchemaVersion != 1 || got.MemoryScope != memoryScope || !reflect.DeepEqual(got.Metrics, want) {
@@ -70,7 +74,7 @@ func TestCollectRejectsHostCgroupNamespace(t *testing.T) {
 	fake := &fakeEngine{project: "narrow", services: map[string]string{
 		"narrow/gateway": "gateway-id",
 	}, outputs: map[string][]byte{
-		"gateway-id\x00sh\x00-c\x00" + gatewaySnapshotScript(): []byte("TASKGATE_CGROUP\n0::/system.slice/docker.scope\nTASKGATE_CONTROLLERS\nmemory\nTASKGATE_PEAK\n1\nTASKGATE_NETWORK\neth0: 1 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0\n"),
+		"gateway-id\x00sh\x00-c\x00" + gatewaySnapshotScript(): []byte("TASKGATE_CGROUP\n0::/system.slice/docker.scope\nTASKGATE_CONTROLLERS\nmemory\nTASKGATE_MEMORY_CURRENT\n1\nTASKGATE_MEMORY_PEAK\n1\nTASKGATE_MEMORY_MAX\n1\nTASKGATE_SWAP_CURRENT\n0\nTASKGATE_SWAP_PEAK\n0\nTASKGATE_SWAP_MAX\n0\nTASKGATE_MEMORY_EVENTS\nmax 0\noom 0\noom_kill 0\nTASKGATE_NETWORK\neth0: 1 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0\n"),
 	}}
 	_, err := collect(context.Background(), fake, mapEnvironment(nil))
 	if err == nil || !strings.Contains(err.Error(), "private unified cgroup") {
@@ -107,16 +111,7 @@ func TestValidDockerAPIVersion(t *testing.T) {
 }
 
 func gatewaySnapshotScript() string {
-	const script = `set -eu
-printf 'TASKGATE_CGROUP\n'
-cat /proc/self/cgroup
-printf 'TASKGATE_CONTROLLERS\n'
-cat /sys/fs/cgroup/cgroup.controllers
-printf 'TASKGATE_PEAK\n'
-cat /sys/fs/cgroup/memory.peak
-printf 'TASKGATE_NETWORK\n'
-cat /proc/net/dev`
-	return script
+	return gatewaySnapshotShellScript
 }
 
 func mapEnvironment(values map[string]string) func(string) string {

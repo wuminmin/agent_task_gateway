@@ -11,17 +11,20 @@
     "snapshot": "exposure-scale-2026-v4-narrow-1",
     "schema_digest": "e93fa7bf76effb3d268cab94dd94e25d135ec8becc73989aeef0f1b9c927665d",
     "fields": [
+      {"name": "dataset_partition", "canonical_field_id": "dataset_partition", "sql_type": "smallint"},
       {"name": "dataset_partition", "canonical_field_id": "scale_orders.dataset_partition", "sql_type": "smallint"},
+      {"name": "o_orderkey", "canonical_field_id": "o_orderkey", "sql_type": "bigint"},
       {"name": "o_orderkey", "canonical_field_id": "scale_orders.o_orderkey", "sql_type": "bigint"},
+      {"name": "o_orderstatus", "canonical_field_id": "o_orderstatus", "sql_type": "smallint"},
       {"name": "o_orderstatus", "canonical_field_id": "scale_orders.o_orderstatus", "sql_type": "smallint"}
     ],
     "rows": []
   },
   "expected_digests": {
     "sidecar_digest": "ae480874e97a165c67a6c174af7e427f7386d1d5e9fc44ec211af77fecfe54d4",
-    "dictionary_digest": "1240ca6a855a3b2f26ac9b3eb84c8cd7e5d8605d587da691db5d08452bb5a18d",
-    "manifest_digest": "155ab5dd45e09cd4b2c92c8872efa51aff3eb17efeefe36988d81d22bb1efa59",
-    "cold_payload_digest": "d384464ad84d9f569b371a7e55b94c04c1bc0781b9539c928536b599c371b82c",
-    "hot_index_digest": "43e4a00f37f20730a42dd3e87934e39b6bd003e3721a3e2621a683bd51d1eac4"
+    "dictionary_digest": "89729d5455e158e1547ddaa9f2a98a50d99dabd5b0da5852209e256d3ecd22e7",
+    "manifest_digest": "be32bcfe3d0545dfe69e434c131ce6abf642cf14d4f898204a7dee120e2c6967",
+    "cold_payload_digest": "f08abf095238515fc27d425fd7325c2e2f4b19c38b700900a22a041c16abca16",
+    "hot_index_digest": "45e175c044260ca0f69c06a0260b68bd075d392319371b0879a315466deba22c"
   }
 }

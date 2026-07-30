@@ -75,18 +75,23 @@ func (s *ordinalDerivationSink) Finish() (ordinalEffect, error) {
 // deliberately query-private: no prefix may escape if QueryPairStream rolls
 // back or reports an error.
 type ordinalDeriver struct {
-	program     queryplan.OrdinalProgram
-	indexes     map[string]ordinal.SnapshotIndex
-	multi       *ordinal.MultiIndex
-	visible     dataconnector.Result
-	visiblePos  map[string]int
-	provenance  map[string]int
-	planDigest  string
-	bundle      []exposure.SnapshotBinding
-	grouped     bool
-	visibleRows map[string]ordinalVisibleRow
-	seenGroups  map[string]struct{}
-	current     *ordinalGroupAccumulator
+	program            queryplan.OrdinalProgram
+	indexes            map[string]ordinal.SnapshotIndex
+	multi              *ordinal.MultiIndex
+	visible            dataconnector.Result
+	visiblePos         map[string]int
+	provenance         map[string]int
+	planDigest         string
+	bundle             []exposure.SnapshotBinding
+	grouped            bool
+	leafFields         map[string][]string
+	outerFields        []string
+	visibleRows        map[string]ordinalVisibleRow
+	groupKeys          map[string]string
+	lastGroupSignature string
+	lastGroupKey       string
+	seenGroups         map[string]struct{}
+	current            *ordinalGroupAccumulator
 
 	currentUnion *ordinalUnionAccumulator
 	closedGroup  map[string]struct{}
@@ -113,7 +118,8 @@ type ordinalCellState struct {
 	namespace string
 	snapshot  string
 	witness   ordinalWitness
-	baseRef   *ordinal.FactRef
+	baseRef   ordinal.FactRef
+	hasBase   bool
 }
 
 type ordinalMember struct {
@@ -128,20 +134,45 @@ type ordinalMember struct {
 // output-group boundary. This avoids constructing and cloning several tiny
 // bitmap maps for every provenance row while retaining exact multiplicity.
 type ordinalWitness struct {
-	direct       []ordinal.WeightedItem
+	first        ordinal.WeightedItem
+	rest         []ordinal.WeightedItem
+	hasFirst     bool
 	weighted     ordinal.WeightedSet
 	materialized bool
 }
 
 func directOrdinalWitness(ref ordinal.FactRef) ordinalWitness {
-	return ordinalWitness{direct: []ordinal.WeightedItem{{Ref: ref, Multiplicity: 1}}}
+	return ordinalWitness{first: ordinal.WeightedItem{Ref: ref, Multiplicity: 1}, hasFirst: true}
 }
 
 func (w *ordinalWitness) addRef(ref ordinal.FactRef, multiplicity uint64) error {
 	if w == nil || w.materialized || multiplicity == 0 {
 		return fmt.Errorf("invalid direct ordinal witness")
 	}
-	w.direct = append(w.direct, ordinal.WeightedItem{Ref: ref, Multiplicity: multiplicity})
+	item := ordinal.WeightedItem{Ref: ref, Multiplicity: multiplicity}
+	if !w.hasFirst {
+		w.first = item
+		w.hasFirst = true
+		return nil
+	}
+	w.rest = append(w.rest, item)
+	return nil
+}
+
+func (w *ordinalWitness) appendDirect(other ordinalWitness) error {
+	if w == nil || w.materialized || other.materialized {
+		return fmt.Errorf("invalid direct ordinal witness append")
+	}
+	if other.hasFirst {
+		if err := w.addRef(other.first.Ref, other.first.Multiplicity); err != nil {
+			return err
+		}
+	}
+	for _, item := range other.rest {
+		if err := w.addRef(item.Ref, item.Multiplicity); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -152,7 +183,15 @@ func (w ordinalWitness) addTo(builder *ordinal.WeightedBuilder, scale uint64) er
 	if w.materialized {
 		return builder.AddWeighted(w.weighted, scale)
 	}
-	for _, item := range w.direct {
+	if w.hasFirst {
+		if w.first.Multiplicity > ^uint64(0)/scale {
+			return ordinal.ErrMultiplicityOverflow
+		}
+		if err := builder.AddRef(w.first.Ref, w.first.Multiplicity*scale); err != nil {
+			return err
+		}
+	}
+	for _, item := range w.rest {
 		if item.Multiplicity > ^uint64(0)/scale {
 			return ordinal.ErrMultiplicityOverflow
 		}
@@ -175,7 +214,12 @@ func (w ordinalWitness) addSupport(builder *ordinal.Builder) error {
 		})
 		return result
 	}
-	for _, item := range w.direct {
+	if w.hasFirst {
+		if err := builder.Add(w.first.Ref); err != nil {
+			return err
+		}
+	}
+	for _, item := range w.rest {
 		if err := builder.Add(item.Ref); err != nil {
 			return err
 		}
@@ -196,10 +240,14 @@ func (w ordinalWitness) freeze() (ordinal.WeightedSet, error) {
 
 func addOrdinalWitness(left, right ordinalWitness) (ordinalWitness, error) {
 	if !left.materialized && !right.materialized {
-		direct := make([]ordinal.WeightedItem, 0, len(left.direct)+len(right.direct))
-		direct = append(direct, left.direct...)
-		direct = append(direct, right.direct...)
-		return ordinalWitness{direct: direct}, nil
+		var direct ordinalWitness
+		if err := direct.appendDirect(left); err != nil {
+			return ordinalWitness{}, err
+		}
+		if err := direct.appendDirect(right); err != nil {
+			return ordinalWitness{}, err
+		}
+		return direct, nil
 	}
 	builder := ordinal.NewWeightedBuilder()
 	if err := left.addTo(builder, 1); err != nil {
@@ -276,9 +324,15 @@ func newOrdinalDeriver(program queryplan.OrdinalProgram, indexes map[string]ordi
 	result := &ordinalDeriver{
 		program: program, indexes: indexes, multi: multi, visible: visible, visiblePos: visiblePos,
 		planDigest: planDigest, bundle: bundle,
-		grouped: len(program.Groups) != 0 || len(program.Aggregates) != 0,
-		release: ordinal.NewBuilder(), influence: ordinal.NewBuilder(), facts: make(exposure.FactSet),
-		visibleRows: make(map[string]ordinalVisibleRow), seenGroups: make(map[string]struct{}), closedGroup: make(map[string]struct{}),
+		grouped:     len(program.Groups) != 0 || len(program.Aggregates) != 0,
+		leafFields:  make(map[string][]string, len(program.Sources)),
+		outerFields: uniqueOrdinalPredicateFields(program.OuterPredicates),
+		release:     ordinal.NewBuilder(), influence: ordinal.NewBuilder(), facts: make(exposure.FactSet),
+		visibleRows: make(map[string]ordinalVisibleRow), groupKeys: make(map[string]string),
+		seenGroups: make(map[string]struct{}), closedGroup: make(map[string]struct{}),
+	}
+	for _, source := range program.Sources {
+		result.leafFields[source.SourceAlias] = uniqueOrdinalPredicateFields(source.LeafPredicates)
 	}
 	if err := result.prepareVisibleRows(); err != nil {
 		return nil, err
@@ -348,8 +402,7 @@ func (d *ordinalDeriver) visibleGroupKey(row []any) (string, error) {
 	if len(components) == 0 {
 		components = []string{"global"}
 	}
-	sort.Strings(components)
-	return exposure.ComposeCanonicalKeyV2("group-row", components...)
+	return d.canonicalGroupKey(components, true)
 }
 
 // Begin implements dataconnector.ProvenanceSink.
@@ -393,7 +446,7 @@ func (d *ordinalDeriver) Row(_ context.Context, values []any) error {
 }
 
 func (d *ordinalDeriver) buildMember(values []any) (ordinalMember, error) {
-	active := make([]queryplan.OrdinalSource, 0, len(d.program.Sources))
+	active := d.program.Sources
 	branch := -1
 	if d.program.Kind == "union_distinct" {
 		position, present := d.provenance["tg_branch"]
@@ -405,10 +458,11 @@ func (d *ordinalDeriver) buildMember(values []any) (ordinalMember, error) {
 			return ordinalMember{}, err
 		}
 		branch = value
-	}
-	for _, source := range d.program.Sources {
-		if source.Branch < 0 || source.Branch == branch {
-			active = append(active, source)
+		active = make([]queryplan.OrdinalSource, 0, len(d.program.Sources))
+		for _, source := range d.program.Sources {
+			if source.Branch < 0 || source.Branch == branch {
+				active = append(active, source)
+			}
 		}
 	}
 	if len(active) == 0 || (d.program.Kind != "union_distinct" && len(active) != len(d.program.Sources)) {
@@ -433,9 +487,18 @@ func (d *ordinalDeriver) buildMember(values []any) (ordinalMember, error) {
 		sources = append(sources, state)
 	}
 
-	member := ordinalMember{cells: make(map[string]ordinalCellState)}
+	cellCapacity := 0
 	for _, source := range sources {
-		member.row.direct = append(member.row.direct, source.state.row.direct...)
+		cellCapacity += len(source.state.cells)
+	}
+	// Keep every source map isolated. Besides making ownership explicit, this
+	// preserves fail-closed source-local witness lookup even if a malformed
+	// program somehow crosses the normalization boundary.
+	member := ordinalMember{cells: make(map[string]ordinalCellState, cellCapacity)}
+	for _, source := range sources {
+		if err := member.row.appendDirect(source.state.row); err != nil {
+			return ordinalMember{}, err
+		}
 		for field, cell := range source.state.cells {
 			if previous, duplicate := member.cells[field]; duplicate && previous.ref != cell.ref {
 				return ordinalMember{}, fmt.Errorf("field %q has ambiguous source facts", field)
@@ -494,9 +557,32 @@ func (d *ordinalDeriver) buildSourceMember(source queryplan.OrdinalSource, value
 		return ordinalSourceMember{}, fmt.Errorf("source %q has an invalid row handle", source.SourceAlias)
 	}
 	index := d.indexes[source.SourceAlias]
-	row, found := index.LookupRow(handle)
-	if !found || row.Handle != handle || row.EntityKey == "" {
-		return ordinalSourceMember{}, fmt.Errorf("source %q references an unknown row handle", source.SourceAlias)
+	row := ordinal.RowRefs{Handle: handle}
+	// Only the two audited concrete dictionary implementations may bypass the
+	// defensive full-row lookup. A decorator embedding *HotDictionary inherits
+	// its projection methods through Go method promotion even when it overrides
+	// LookupRow for validation/fault injection; accepting the interface by
+	// assertion would silently bypass that override.
+	var projected ordinal.ProjectedSnapshotIndex
+	switch trusted := index.(type) {
+	case *ordinal.HotDictionary:
+		projected = trusted
+	case *ordinal.Dictionary:
+		projected = trusted
+	}
+	projectedLookup := projected != nil
+	if projectedLookup {
+		var found bool
+		row.EntityKey, row.Row, found = projected.LookupRowIdentity(handle)
+		if !found || row.EntityKey == "" {
+			return ordinalSourceMember{}, fmt.Errorf("source %q references an unknown row handle", source.SourceAlias)
+		}
+	} else {
+		var found bool
+		row, found = index.LookupRow(handle)
+		if !found || row.Handle != handle || row.EntityKey == "" {
+			return ordinalSourceMember{}, fmt.Errorf("source %q references an unknown row handle", source.SourceAlias)
+		}
 	}
 	entityKey, err := d.sourceEntityKey(source, values)
 	if err != nil {
@@ -508,25 +594,25 @@ func (d *ordinalDeriver) buildSourceMember(source queryplan.OrdinalSource, value
 	state := ordinalMember{key: row.EntityKey, row: directOrdinalWitness(row.Row),
 		cells: make(map[string]ordinalCellState, len(source.EvidenceFields))}
 	for _, binding := range source.EvidenceFields {
-		ref, found := row.Cells[binding.FieldID]
+		var ref ordinal.FactRef
+		var found bool
+		if projectedLookup {
+			ref, found = projected.LookupCellRef(handle, binding.FieldID)
+		} else {
+			ref, found = row.Cells[binding.FieldID]
+		}
 		fieldPosition, positioned := d.provenance[binding.ProvenanceAlias]
 		if !found || !positioned || fieldPosition >= len(values) {
 			return ordinalSourceMember{}, fmt.Errorf("source %q has no ordinal/value for %q", source.SourceAlias, binding.FieldID)
 		}
-		refCopy := ref
 		state.cells[binding.FieldID] = ordinalCellState{ref: ref, value: values[fieldPosition], binding: binding,
 			entityKey: row.EntityKey, namespace: source.SourceNamespace, snapshot: source.Snapshot,
-			witness: directOrdinalWitness(ref), baseRef: &refCopy}
+			witness: directOrdinalWitness(ref), baseRef: ref, hasBase: true}
 	}
-	seenLeaf := make(map[string]struct{})
-	for _, predicate := range source.LeafPredicates {
-		if _, duplicate := seenLeaf[predicate.Field.FieldID]; duplicate {
-			continue
-		}
-		seenLeaf[predicate.Field.FieldID] = struct{}{}
-		cell, found := state.cells[predicate.Field.FieldID]
+	for _, fieldID := range d.leafFields[source.SourceAlias] {
+		cell, found := state.cells[fieldID]
 		if !found || state.row.addRef(cell.ref, 1) != nil {
-			return ordinalSourceMember{}, fmt.Errorf("leaf dependency field %q is unavailable", predicate.Field.FieldID)
+			return ordinalSourceMember{}, fmt.Errorf("leaf dependency field %q is unavailable", fieldID)
 		}
 	}
 	return ordinalSourceMember{source: source, row: row, state: state}, nil
@@ -572,8 +658,42 @@ func (d *ordinalDeriver) memberGroupKey(member ordinalMember) (string, error) {
 	if len(components) == 0 {
 		components = []string{"global"}
 	}
+	return d.canonicalGroupKey(components, false)
+}
+
+// canonicalGroupKey memoizes visible output groups plus one most-recent
+// provenance group. Large aggregate companions commonly contain hundreds of
+// thousands of members but only a bounded visible result page. Retaining only
+// visible signatures prevents a high-cardinality page from rebuilding a
+// million-entry heap map, while the one-entry cache still makes a canonically
+// ordered group's repeated members O(1). The signature is length-prefixed, so
+// lookup cannot introduce delimiter ambiguity; the returned identity remains
+// the exact ComposeCanonicalKeyV2 value used by the reference algorithm.
+func (d *ordinalDeriver) canonicalGroupKey(components []string, retainVisible bool) (string, error) {
 	sort.Strings(components)
-	return exposure.ComposeCanonicalKeyV2("group-row", components...)
+	var signature strings.Builder
+	for _, component := range components {
+		signature.WriteString(strconv.Itoa(len(component)))
+		signature.WriteByte(':')
+		signature.WriteString(component)
+	}
+	cacheKey := signature.String()
+	if key, present := d.groupKeys[cacheKey]; present {
+		return key, nil
+	}
+	if cacheKey == d.lastGroupSignature {
+		return d.lastGroupKey, nil
+	}
+	key, err := exposure.ComposeCanonicalKeyV2("group-row", components...)
+	if err == nil {
+		if retainVisible {
+			d.groupKeys[cacheKey] = key
+		} else {
+			d.lastGroupSignature = cacheKey
+			d.lastGroupKey = key
+		}
+	}
+	return key, err
 }
 
 func (d *ordinalDeriver) acceptUnionCandidate(candidate ordinalMember) error {
@@ -609,8 +729,8 @@ func (d *ordinalDeriver) acceptUnionCandidate(candidate ordinalMember) error {
 			return err
 		}
 		previous := d.currentUnion.cellState[field]
-		if previous.baseRef != nil && *previous.baseRef != cell.ref {
-			previous.baseRef = nil
+		if previous.hasBase && previous.baseRef != cell.ref {
+			previous.hasBase = false
 			d.currentUnion.cellState[field] = previous
 		}
 	}
@@ -644,15 +764,10 @@ func (d *ordinalDeriver) flushUnion() error {
 
 func (d *ordinalDeriver) acceptMember(member ordinalMember) error {
 	row := member.row
-	seenOuter := make(map[string]struct{})
-	for _, predicate := range d.program.OuterPredicates {
-		if _, duplicate := seenOuter[predicate.Field.FieldID]; duplicate {
-			continue
-		}
-		seenOuter[predicate.Field.FieldID] = struct{}{}
-		cell, present := member.cells[predicate.Field.FieldID]
+	for _, fieldID := range d.outerFields {
+		cell, present := member.cells[fieldID]
 		if !present {
-			return fmt.Errorf("outer dependency field %q is unavailable", predicate.Field.FieldID)
+			return fmt.Errorf("outer dependency field %q is unavailable", fieldID)
 		}
 		combined, err := addOrdinalWitness(row, cell.witness)
 		if err != nil {
@@ -666,6 +781,20 @@ func (d *ordinalDeriver) acceptMember(member ordinalMember) error {
 		return d.acceptUngrouped(member)
 	}
 	return d.acceptGrouped(member)
+}
+
+func uniqueOrdinalPredicateFields(predicates []queryplan.OrdinalPredicateSpec) []string {
+	seen := make(map[string]struct{}, len(predicates))
+	result := make([]string, 0, len(predicates))
+	for _, predicate := range predicates {
+		fieldID := predicate.Field.FieldID
+		if _, present := seen[fieldID]; present {
+			continue
+		}
+		seen[fieldID] = struct{}{}
+		result = append(result, fieldID)
+	}
+	return result
 }
 
 func (d *ordinalDeriver) acceptUngrouped(member ordinalMember) error {
@@ -707,15 +836,15 @@ func (d *ordinalDeriver) observeUngrouped(member ordinalMember, visible ordinalV
 		if err := cell.witness.addSupport(d.influence); err != nil {
 			return err
 		}
-		if cell.baseRef != nil {
+		if cell.hasBase {
 			fact, err := cell.baseFact()
 			if err != nil {
 				return err
 			}
-			if err := d.verifyBaseFact(*cell.baseRef, fact); err != nil {
+			if err := d.verifyBaseFact(cell.baseRef, fact); err != nil {
 				return err
 			}
-			if err := d.release.Add(*cell.baseRef); err != nil {
+			if err := d.release.Add(cell.baseRef); err != nil {
 				return err
 			}
 			if err := d.facts.Add(fact); err != nil {

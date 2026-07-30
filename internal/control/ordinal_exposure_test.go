@@ -514,10 +514,211 @@ WHERE query_id=$1`, third.QueryID).Scan(&observationRefs); err != nil || observa
 	}
 }
 
+func TestOrdinalPersistedDynamicHashCollisionRollsBackEverything(t *testing.T) {
+	store := openTestStore(t, testpostgres.SchemaDSN(t), testCipher(t, 41))
+	publishOrdinalTestDictionary(t, store)
+	expires := time.Now().UTC().Add(time.Hour)
+	createAwaitingApprovalTask(t, store, "task_v4_persisted_collision", expires)
+	approveOrdinalTask(t, store, "task_v4_persisted_collision", expires,
+		ExposureLimits{ReleaseFacts: 10, InfluenceFacts: 10, OutcomeFacts: 10})
+
+	reservation := reserveOrdinalQuery(t, store, "task_v4_persisted_collision",
+		"query_v4_persisted_collision", "request-v4-persisted-collision")
+	canonicalPayload := []byte("persisted-collision-canonical")
+	hash := digestDynamic(OrdinalDynamicDerivedRelease, canonicalPayload)
+	// Model an already-present content-address collision. The incoming fact is
+	// internally valid, so this reaches the durable collision check rather than
+	// being rejected only as a forged hash/payload pair.
+	if _, err := store.db.ExecContext(context.Background(), `
+INSERT INTO v4_dynamic_facts(fact_sha256,fact_kind,canonical_payload,
+ first_dictionary_set_digest,first_query_id,first_seen_at)
+VALUES ($1,$2,$3,$4,$5,$6)`, hash, OrdinalDynamicDerivedRelease,
+		[]byte("different-persisted-payload"), testOrdinalSet, reservation.QueryID, dbTime(time.Now().UTC())); err != nil {
+		t.Fatal(err)
+	}
+	observation := testOrdinalObservation(t, 0, 0, "persisted-collision-outcome")
+	observation.Release.DynamicFacts = []OrdinalDynamicFact{{SHA256: hash,
+		Kind: OrdinalDynamicDerivedRelease, CanonicalPayload: canonicalPayload}}
+	headBefore, err := store.GetOrdinalRootHead(context.Background(), "task_v4_persisted_collision")
+	if err != nil {
+		t.Fatal(err)
+	}
+	contentBefore := ordinalContentCounts(t, store)
+	var auditsBefore, cacheBefore int
+	if err := store.db.QueryRowContext(context.Background(), `SELECT
+ (SELECT count(*) FROM audit_events WHERE query_id=$1),
+ (SELECT count(*) FROM v4_committed_materializations)`, reservation.QueryID).
+		Scan(&auditsBefore, &cacheBefore); err != nil {
+		t.Fatal(err)
+	}
+	cacheKey := strings.Repeat("d", 64)
+	_, _, err = store.FinalizeOrdinalQueryWithReceipt(context.Background(), BudgetSettlement{
+		QueryID: reservation.QueryID, Rows: 1, DBMS: 1, OrdinalExposure: &observation,
+	}, []byte(`{"collision":true}`), &OrdinalMaterializationPublish{CacheKeySHA256: cacheKey}, nil)
+	if err == nil || !strings.Contains(err.Error(), "dynamic fact hash collision") {
+		t.Fatalf("persisted collision finalize = %v", err)
+	}
+	headAfter, headErr := store.GetOrdinalRootHead(context.Background(), "task_v4_persisted_collision")
+	if headErr != nil || headAfter != headBefore {
+		t.Fatalf("persisted collision changed root head: before=%+v after=%+v err=%v", headBefore, headAfter, headErr)
+	}
+	if contentAfter := ordinalContentCounts(t, store); contentAfter != contentBefore {
+		t.Fatalf("persisted collision left content: before=%+v after=%+v", contentBefore, contentAfter)
+	}
+	query, err := store.GetQuery(context.Background(), reservation.QueryID)
+	if err != nil || query.Status != QueryReserved || query.ResultSHA256 != "" {
+		t.Fatalf("persisted collision query = %+v, %v", query, err)
+	}
+	if _, _, err := store.GetEncryptedResult(context.Background(), "task_v4_persisted_collision",
+		reservation.QueryID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("persisted collision result = %v, want not found", err)
+	}
+	var refs, auditsAfter, cacheAfter int
+	if err := store.db.QueryRowContext(context.Background(), `SELECT
+ (SELECT count(*) FROM v4_query_observations WHERE query_id=$1),
+ (SELECT count(*) FROM audit_events WHERE query_id=$1),
+ (SELECT count(*) FROM v4_committed_materializations)`, reservation.QueryID).
+		Scan(&refs, &auditsAfter, &cacheAfter); err != nil {
+		t.Fatal(err)
+	}
+	if refs != 0 || auditsAfter != auditsBefore || cacheAfter != cacheBefore {
+		t.Fatalf("persisted collision left refs=%d audits=%d->%d cache=%d->%d",
+			refs, auditsBefore, auditsAfter, cacheBefore, cacheAfter)
+	}
+}
+
+func TestOrdinalThreeDimensionalBudgetBoundariesAreExactAndAtomic(t *testing.T) {
+	store := openTestStore(t, testpostgres.SchemaDSN(t), testCipher(t, 40))
+	publishOrdinalTestDictionary(t, store)
+	expires := time.Now().UTC().Add(time.Hour)
+
+	tests := []struct {
+		name        string
+		limits      ExposureLimits
+		observation func(uint32) OrdinalExposureObservation
+		used        func(ExposureLimits) int64
+	}{
+		{
+			name: "release", limits: ExposureLimits{ReleaseFacts: 2, InfluenceFacts: 10, OutcomeFacts: 10},
+			observation: func(step uint32) OrdinalExposureObservation {
+				return testOrdinalObservation(t, step, 0, "boundary-shared-release")
+			},
+			used: func(value ExposureLimits) int64 { return value.ReleaseFacts },
+		},
+		{
+			name: "influence", limits: ExposureLimits{ReleaseFacts: 10, InfluenceFacts: 2, OutcomeFacts: 10},
+			observation: func(step uint32) OrdinalExposureObservation {
+				observation := testOrdinalObservation(t, 0, 0, "boundary-shared-influence")
+				influence, err := ordinal.NewBitmapSet(ordinal.FactRef{DictionaryDigest: testOrdinalDictionary,
+					SegmentID: testRowSegment, Ordinal: step})
+				if err != nil {
+					t.Fatal(err)
+				}
+				observation.Influence.Static = influence
+				return observation
+			},
+			used: func(value ExposureLimits) int64 { return value.InfluenceFacts },
+		},
+		{
+			name: "outcome", limits: ExposureLimits{ReleaseFacts: 10, InfluenceFacts: 10, OutcomeFacts: 2},
+			observation: func(step uint32) OrdinalExposureObservation {
+				return testOrdinalObservation(t, 0, 0, "boundary-outcome-"+string(rune('a'+step)))
+			},
+			used: func(value ExposureLimits) int64 { return value.OutcomeFacts },
+		},
+	}
+
+	for index, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			taskID := "task_v4_boundary_" + test.name
+			createAwaitingApprovalTask(t, store, taskID, expires)
+			approveOrdinalTask(t, store, taskID, expires, test.limits)
+
+			for step := uint32(0); step < 2; step++ {
+				queryID := "query_v4_boundary_" + test.name + "_" + string(rune('a'+step))
+				reservation := reserveOrdinalQuery(t, store, taskID, queryID, "request-"+queryID)
+				observation := test.observation(step)
+				if _, err := store.FinalizeQuery(context.Background(), BudgetSettlement{QueryID: reservation.QueryID,
+					Rows: 1, DBMS: 1, OrdinalExposure: &observation}, []byte(`{"ok":true}`)); err != nil {
+					t.Fatalf("settle boundary step %d: %v", step+1, err)
+				}
+				head, err := store.GetOrdinalRootHead(context.Background(), taskID)
+				if err != nil || test.used(head.Used) != int64(step+1) {
+					t.Fatalf("used at boundary step %d = %+v, %v", step+1, head.Used, err)
+				}
+			}
+
+			// The first two commits establish B-1 and exactly B. The third
+			// observation would reach B+1 only on the selected dimension.
+			queryID := "query_v4_boundary_" + test.name + "_overflow"
+			reservation := reserveOrdinalQuery(t, store, taskID, queryID, "request-"+queryID)
+			observation := test.observation(2)
+			headBefore, err := store.GetOrdinalRootHead(context.Background(), taskID)
+			if err != nil || test.used(headBefore.Used) != 2 {
+				t.Fatalf("head before B+1 = %+v, %v", headBefore, err)
+			}
+			contentBefore := ordinalContentCounts(t, store)
+			var auditsBefore, cacheBefore int
+			if err := store.db.QueryRowContext(context.Background(), `SELECT
+ (SELECT count(*) FROM audit_events WHERE query_id=$1),
+ (SELECT count(*) FROM v4_committed_materializations)`, queryID).Scan(&auditsBefore, &cacheBefore); err != nil {
+				t.Fatal(err)
+			}
+			cacheKey := strings.Repeat(string(rune('a'+index)), 64)
+			if _, _, err := store.FinalizeOrdinalQueryWithReceipt(context.Background(), BudgetSettlement{
+				QueryID: reservation.QueryID, Rows: 1, DBMS: 1, OrdinalExposure: &observation,
+			}, []byte(`{"overflow":true}`), &OrdinalMaterializationPublish{CacheKeySHA256: cacheKey}, nil); !errors.Is(err, ErrExposureBudgetExhausted) {
+				t.Fatalf("B+1 finalize = %v, want ErrExposureBudgetExhausted", err)
+			}
+
+			headAfter, err := store.GetOrdinalRootHead(context.Background(), taskID)
+			if err != nil || headAfter != headBefore {
+				t.Fatalf("B+1 changed root head: before=%+v after=%+v err=%v", headBefore, headAfter, err)
+			}
+			if contentAfter := ordinalContentCounts(t, store); contentAfter != contentBefore {
+				t.Fatalf("B+1 left content: before=%+v after=%+v", contentBefore, contentAfter)
+			}
+			record, err := store.GetQuery(context.Background(), queryID)
+			if err != nil || record.Status != QueryReserved || record.ResultSHA256 != "" {
+				t.Fatalf("B+1 query = %+v, %v", record, err)
+			}
+			if _, _, err := store.GetEncryptedResult(context.Background(), taskID, queryID); !errors.Is(err, ErrNotFound) {
+				t.Fatalf("B+1 result = %v, want not found", err)
+			}
+			var refs, auditsAfter, cacheAfter int
+			if err := store.db.QueryRowContext(context.Background(), `SELECT
+ (SELECT count(*) FROM v4_query_observations WHERE query_id=$1),
+ (SELECT count(*) FROM audit_events WHERE query_id=$1),
+ (SELECT count(*) FROM v4_committed_materializations)`, queryID).
+				Scan(&refs, &auditsAfter, &cacheAfter); err != nil {
+				t.Fatal(err)
+			}
+			if refs != 0 || auditsAfter != auditsBefore || cacheAfter != cacheBefore {
+				t.Fatalf("B+1 left refs=%d audits=%d->%d cache=%d->%d",
+					refs, auditsBefore, auditsAfter, cacheBefore, cacheAfter)
+			}
+		})
+	}
+}
+
 func TestOrdinalRootSettlementRetriesOptimisticCASAndRecomputesAllDimensions(t *testing.T) {
 	store := openTestStore(t, testpostgres.SchemaDSN(t), testCipher(t, 34))
 	publishOrdinalTestDictionary(t, store)
 	expires := time.Now().UTC().Add(time.Hour)
+	// Prepublish the shared Release/Outcome content under another root. This
+	// keeps the two contenders from serializing on content-addressed inserts
+	// before they reach the target root-head CAS, while the target ledger itself
+	// remains empty and must still recompute the overlap after losing the CAS.
+	createAwaitingApprovalTask(t, store, "task_v4_cas_content_seed", expires)
+	approveOrdinalTask(t, store, "task_v4_cas_content_seed", expires,
+		ExposureLimits{ReleaseFacts: 4, InfluenceFacts: 8, OutcomeFacts: 4})
+	seed := reserveOrdinalQuery(t, store, "task_v4_cas_content_seed",
+		"query_v4_cas_content_seed", "request-v4-cas-content-seed")
+	seedObservation := testOrdinalObservation(t, 0, 2, "outcome-shared")
+	if _, err := store.FinalizeQuery(context.Background(), BudgetSettlement{QueryID: seed.QueryID,
+		Rows: 1, DBMS: 1, OrdinalExposure: &seedObservation}, []byte(`{"seed":true}`)); err != nil {
+		t.Fatal(err)
+	}
 	createAwaitingApprovalTask(t, store, "task_v4_root", expires)
 	approveOrdinalTask(t, store, "task_v4_root", expires,
 		ExposureLimits{ReleaseFacts: 4, InfluenceFacts: 8, OutcomeFacts: 4})
@@ -530,8 +731,8 @@ func TestOrdinalRootSettlementRetriesOptimisticCASAndRecomputesAllDimensions(t *
 		reserveOrdinalQuery(t, store, "task_v4_child_b", "query_v4_child_b", "request-v4-child-b"),
 	}
 	observations := []OrdinalExposureObservation{
-		testOrdinalObservation(t, 0, 0, "outcome-a"),
-		testOrdinalObservation(t, 1, 1, "outcome-b"),
+		testOrdinalObservation(t, 0, 0, "outcome-shared"),
+		testOrdinalObservation(t, 0, 1, "outcome-shared"),
 	}
 	// Hold the head row only long enough to force both optimistic transactions
 	// to read epoch zero and queue at their conditional UPDATE. This makes the
@@ -589,8 +790,25 @@ WHERE datname=current_database() AND wait_event_type='Lock'
 	if retries < 1 {
 		t.Fatalf("concurrent V4 settlements reported no CAS retry: %+v", metricsSeen)
 	}
+	var totalCharged ExposureLimits
+	zeroOverlapCharges := 0
+	for _, query := range queries {
+		charge, err := store.GetExposureCharge(context.Background(), query.QueryID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		totalCharged.ReleaseFacts += charge.ChargedReleaseFacts
+		totalCharged.InfluenceFacts += charge.ChargedInfluenceFacts
+		totalCharged.OutcomeFacts += charge.ChargedOutcomeFacts
+		if charge.ChargedReleaseFacts == 0 && charge.ChargedInfluenceFacts == 2 && charge.ChargedOutcomeFacts == 0 {
+			zeroOverlapCharges++
+		}
+	}
+	if totalCharged != (ExposureLimits{ReleaseFacts: 1, InfluenceFacts: 4, OutcomeFacts: 1}) || zeroOverlapCharges != 1 {
+		t.Fatalf("CAS retry reused stale three-dimensional novelty: total=%+v zero-overlap=%d", totalCharged, zeroOverlapCharges)
+	}
 	head, err := store.GetOrdinalRootHead(context.Background(), "task_v4_root")
-	if err != nil || head.Epoch != 2 || head.Used.ReleaseFacts != 2 || head.Used.InfluenceFacts != 4 || head.Used.OutcomeFacts != 2 {
+	if err != nil || head.Epoch != 2 || head.Used.ReleaseFacts != 1 || head.Used.InfluenceFacts != 4 || head.Used.OutcomeFacts != 1 {
 		t.Fatalf("CAS root head = %+v, %v", head, err)
 	}
 }

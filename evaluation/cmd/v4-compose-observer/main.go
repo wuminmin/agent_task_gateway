@@ -23,8 +23,30 @@ import (
 )
 
 const (
-	memoryScope     = "cgroup_v2_memory_peak_including_mmap"
-	maxResponseSize = 1 << 20
+	memoryScope                = "cgroup_v2_memory_peak_including_mmap"
+	maxResponseSize            = 1 << 20
+	unlimitedCgroupValue       = int64(1<<63 - 1)
+	gatewaySnapshotShellScript = `set -eu
+printf 'TASKGATE_CGROUP\n'
+cat /proc/self/cgroup
+printf 'TASKGATE_CONTROLLERS\n'
+cat /sys/fs/cgroup/cgroup.controllers
+printf 'TASKGATE_MEMORY_CURRENT\n'
+cat /sys/fs/cgroup/memory.current
+printf 'TASKGATE_MEMORY_PEAK\n'
+cat /sys/fs/cgroup/memory.peak
+printf 'TASKGATE_MEMORY_MAX\n'
+cat /sys/fs/cgroup/memory.max
+printf 'TASKGATE_SWAP_CURRENT\n'
+cat /sys/fs/cgroup/memory.swap.current
+printf 'TASKGATE_SWAP_PEAK\n'
+cat /sys/fs/cgroup/memory.swap.peak
+printf 'TASKGATE_SWAP_MAX\n'
+cat /sys/fs/cgroup/memory.swap.max
+printf 'TASKGATE_MEMORY_EVENTS\n'
+cat /sys/fs/cgroup/memory.events
+printf 'TASKGATE_NETWORK\n'
+cat /proc/net/dev`
 )
 
 type output struct {
@@ -66,6 +88,19 @@ type engine interface {
 type dockerEngine struct {
 	client  *http.Client
 	baseURL string
+}
+
+type gatewayResourceSnapshot struct {
+	cgroup          []byte
+	controllers     []byte
+	memoryCurrent   []byte
+	memoryPeak      []byte
+	memoryMax       []byte
+	swapCurrent     []byte
+	swapPeak        []byte
+	swapMax         []byte
+	memoryEvents    []byte
+	networkCounters []byte
 }
 
 func main() {
@@ -141,21 +176,57 @@ func collect(ctx context.Context, docker engine, getenv func(string) string) (ou
 	if err != nil {
 		return output{}, fmt.Errorf("resolve Gateway container: %w", err)
 	}
-	cgroup, controllers, peakRaw, networkRaw, err := gatewaySnapshot(ctx, docker, gatewayID)
+	snapshot, err := gatewaySnapshot(ctx, docker, gatewayID)
 	if err != nil {
 		return output{}, err
 	}
-	if !privateUnifiedCgroup(cgroup) {
+	if !privateUnifiedCgroup(snapshot.cgroup) {
 		return output{}, errors.New("Gateway is not in a private unified cgroup v2 namespace")
 	}
-	if !containsField(controllers, "memory") {
+	if !containsField(snapshot.controllers, "memory") {
 		return output{}, errors.New("Gateway cgroup v2 memory controller is unavailable")
 	}
-	peak, err := parseNonnegativeInt(peakRaw, "Gateway memory.peak")
+	memoryCurrent, err := parseNonnegativeInt(snapshot.memoryCurrent, "Gateway memory.current")
 	if err != nil {
 		return output{}, err
 	}
-	rx, tx, err := parseNetworkCounters(networkRaw)
+	memoryPeak, err := parseNonnegativeInt(snapshot.memoryPeak, "Gateway memory.peak")
+	if err != nil {
+		return output{}, err
+	}
+	memoryMax, err := parseCgroupLimit(snapshot.memoryMax, "Gateway memory.max")
+	if err != nil {
+		return output{}, err
+	}
+	swapCurrent, err := parseNonnegativeInt(snapshot.swapCurrent, "Gateway memory.swap.current")
+	if err != nil {
+		return output{}, err
+	}
+	swapPeak, err := parseNonnegativeInt(snapshot.swapPeak, "Gateway memory.swap.peak")
+	if err != nil {
+		return output{}, err
+	}
+	swapMax, err := parseCgroupLimit(snapshot.swapMax, "Gateway memory.swap.max")
+	if err != nil {
+		return output{}, err
+	}
+	if memoryCurrent > memoryPeak {
+		return output{}, errors.New("Gateway memory.current exceeds memory.peak")
+	}
+	if memoryMax != unlimitedCgroupValue && memoryCurrent > memoryMax {
+		return output{}, errors.New("Gateway memory.current exceeds memory.max")
+	}
+	if swapCurrent > swapPeak {
+		return output{}, errors.New("Gateway memory.swap.current exceeds memory.swap.peak")
+	}
+	if swapMax != unlimitedCgroupValue && swapCurrent > swapMax {
+		return output{}, errors.New("Gateway memory.swap.current exceeds memory.swap.max")
+	}
+	memoryEvents, err := parseMemoryEvents(snapshot.memoryEvents)
+	if err != nil {
+		return output{}, err
+	}
+	rx, tx, err := parseNetworkCounters(snapshot.networkCounters)
 	if err != nil {
 		return output{}, err
 	}
@@ -164,34 +235,46 @@ func collect(ctx context.Context, docker engine, getenv func(string) string) (ou
 		return output{}, err
 	}
 	return output{SchemaVersion: 1, MemoryScope: memoryScope, Metrics: map[string]int64{
-		"gateway_memory_peak_bytes":  peak,
-		"gateway_network_rx_bytes":   rx,
-		"gateway_network_tx_bytes":   tx,
-		"business_sql_queries_total": queries,
+		"gateway_memory_peak_bytes":            memoryPeak,
+		"gateway_memory_current_bytes":         memoryCurrent,
+		"gateway_memory_max_bytes":             memoryMax,
+		"gateway_memory_swap_current_bytes":    swapCurrent,
+		"gateway_memory_swap_peak_bytes":       swapPeak,
+		"gateway_memory_swap_max_bytes":        swapMax,
+		"gateway_memory_events_max_total":      memoryEvents["max"],
+		"gateway_memory_events_oom_total":      memoryEvents["oom"],
+		"gateway_memory_events_oom_kill_total": memoryEvents["oom_kill"],
+		"gateway_network_rx_bytes":             rx,
+		"gateway_network_tx_bytes":             tx,
+		"business_sql_queries_total":           queries,
 	}}, nil
 }
 
-func gatewaySnapshot(ctx context.Context, docker engine, containerID string) ([]byte, []byte, []byte, []byte, error) {
-	const script = `set -eu
-printf 'TASKGATE_CGROUP\n'
-cat /proc/self/cgroup
-printf 'TASKGATE_CONTROLLERS\n'
-cat /sys/fs/cgroup/cgroup.controllers
-printf 'TASKGATE_PEAK\n'
-cat /sys/fs/cgroup/memory.peak
-printf 'TASKGATE_NETWORK\n'
-cat /proc/net/dev`
-	raw, err := docker.exec(ctx, containerID, []string{"sh", "-c", script})
+func gatewaySnapshot(ctx context.Context, docker engine, containerID string) (gatewayResourceSnapshot, error) {
+	raw, err := docker.exec(ctx, containerID, []string{"sh", "-c", gatewaySnapshotShellScript})
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("read Gateway cgroup and network counters: %w", err)
+		return gatewayResourceSnapshot{}, fmt.Errorf("read Gateway cgroup and network counters: %w", err)
 	}
 	sections, err := parseSections(raw, []string{
-		"TASKGATE_CGROUP", "TASKGATE_CONTROLLERS", "TASKGATE_PEAK", "TASKGATE_NETWORK",
+		"TASKGATE_CGROUP",
+		"TASKGATE_CONTROLLERS",
+		"TASKGATE_MEMORY_CURRENT",
+		"TASKGATE_MEMORY_PEAK",
+		"TASKGATE_MEMORY_MAX",
+		"TASKGATE_SWAP_CURRENT",
+		"TASKGATE_SWAP_PEAK",
+		"TASKGATE_SWAP_MAX",
+		"TASKGATE_MEMORY_EVENTS",
+		"TASKGATE_NETWORK",
 	})
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return gatewayResourceSnapshot{}, err
 	}
-	return sections[0], sections[1], sections[2], sections[3], nil
+	return gatewayResourceSnapshot{
+		cgroup: sections[0], controllers: sections[1], memoryCurrent: sections[2], memoryPeak: sections[3],
+		memoryMax: sections[4], swapCurrent: sections[5], swapPeak: sections[6], swapMax: sections[7],
+		memoryEvents: sections[8], networkCounters: sections[9],
+	}, nil
 }
 
 func parseSections(raw []byte, markers []string) ([][]byte, error) {
@@ -270,6 +353,41 @@ func parseNonnegativeInt(raw []byte, label string) (int64, error) {
 		return 0, fmt.Errorf("%s is not a nonnegative int64", label)
 	}
 	return value, nil
+}
+
+func parseCgroupLimit(raw []byte, label string) (int64, error) {
+	if strings.TrimSpace(string(raw)) == "max" {
+		return unlimitedCgroupValue, nil
+	}
+	return parseNonnegativeInt(raw, label)
+}
+
+func parseMemoryEvents(raw []byte) (map[string]int64, error) {
+	values := make(map[string]int64)
+	scanner := bufio.NewScanner(bytes.NewReader(raw))
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) != 2 || fields[0] == "" {
+			return nil, errors.New("Gateway memory.events contains a malformed row")
+		}
+		if _, duplicate := values[fields[0]]; duplicate {
+			return nil, fmt.Errorf("Gateway memory.events repeats %q", fields[0])
+		}
+		value, err := strconv.ParseInt(fields[1], 10, 64)
+		if err != nil || value < 0 {
+			return nil, fmt.Errorf("Gateway memory.events %q is not a nonnegative int64", fields[0])
+		}
+		values[fields[0]] = value
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("read Gateway memory.events: %w", err)
+	}
+	for _, required := range []string{"max", "oom", "oom_kill"} {
+		if _, present := values[required]; !present {
+			return nil, fmt.Errorf("Gateway memory.events omitted %q", required)
+		}
+	}
+	return values, nil
 }
 
 func parseNetworkCounters(raw []byte) (int64, int64, error) {

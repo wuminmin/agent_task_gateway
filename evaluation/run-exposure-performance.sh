@@ -4,8 +4,14 @@ set -eu
 PROJECT_NAME=${EXPOSURE_PROJECT_NAME:-taskgate-exposure-performance}
 KEEP_STACK=${EXPOSURE_KEEP_STACK:-0}
 RUN_ID=${EXPOSURE_RUN_ID:-smoke-$(date -u +%Y%m%dT%H%M%SZ)}
+COMPOSE_OVERRIDE=${EXPOSURE_COMPOSE_OVERRIDE:-}
 REPOSITORY_ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 EXPOSURE_RUN_DIR=$REPOSITORY_ROOT/evaluation/exposure-performance/raw/$RUN_ID
+
+if [ -n "$COMPOSE_OVERRIDE" ] && [ ! -f "$COMPOSE_OVERRIDE" ]; then
+  echo "EXPOSURE_COMPOSE_OVERRIDE is not a readable Compose file: $COMPOSE_OVERRIDE" >&2
+  exit 2
+fi
 
 : "${TASKBOUND_ALICE_TOKEN:=alice-demo-token-change-me}"
 : "${TASKBOUND_CAROL_TOKEN:=carol-demo-token-change-me}"
@@ -38,9 +44,16 @@ export OA_SESSION_SECRET OA_ALICE_PASSWORD OA_BOB_PASSWORD
 mkdir -p "$EXPOSURE_RUN_DIR"
 
 compose() {
-  docker compose --project-name "$PROJECT_NAME" \
-    --file "$REPOSITORY_ROOT/compose.yaml" \
-    --file "$REPOSITORY_ROOT/evaluation/exposure-performance/compose.yaml" "$@"
+  if [ -n "$COMPOSE_OVERRIDE" ]; then
+    docker compose --project-name "$PROJECT_NAME" \
+      --file "$REPOSITORY_ROOT/compose.yaml" \
+      --file "$REPOSITORY_ROOT/evaluation/exposure-performance/compose.yaml" \
+      --file "$COMPOSE_OVERRIDE" "$@"
+  else
+    docker compose --project-name "$PROJECT_NAME" \
+      --file "$REPOSITORY_ROOT/compose.yaml" \
+      --file "$REPOSITORY_ROOT/evaluation/exposure-performance/compose.yaml" "$@"
+  fi
 }
 
 cleanup() {

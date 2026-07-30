@@ -2,8 +2,10 @@ package ordinal
 
 import (
 	"bytes"
+	"container/heap"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"math"
 	"sort"
@@ -168,9 +170,9 @@ type SegmentSpec struct {
 }
 
 type dictionaryEntry struct {
-	hash    [sha256.Size]byte
-	payload []byte
-	fact    exposure.FactID
+	hash     [sha256.Size]byte
+	payload  []byte
+	factJSON []byte
 }
 
 // Dictionary is immutable after Compile. Facts are retained here to provide a
@@ -205,6 +207,20 @@ type SnapshotIndex interface {
 	LookupEntity(string) (RowRefs, bool)
 }
 
+// ProjectedSnapshotIndex is the allocation-bounded HOT-path extension used by
+// streaming derivation.  LookupRow constructs a defensive map containing
+// every cell in a row; doing that for each source of a large join needlessly
+// allocates millions of maps when the ordinal program needs only a fixed
+// projection. Implementations expose the same immutable refs one at a time.
+// Security-sensitive callers must use an exact concrete-type allowlist rather
+// than a bare interface assertion: Go method promotion can otherwise make a
+// decorator inherit these methods while overriding LookupRow for validation
+// or fault injection.
+type ProjectedSnapshotIndex interface {
+	LookupRowIdentity(RowHandle) (string, FactRef, bool)
+	LookupCellRef(RowHandle, string) (FactRef, bool)
+}
+
 // Compile builds a deterministic hash-sorted ordinal dictionary while using
 // exposure.FactID.Hash and CanonicalPayload as the sole semantic authority.
 func Compile(spec DictionarySpec) (*Dictionary, error) {
@@ -226,6 +242,40 @@ type hashPrefixShard struct {
 // path to package tests. Production always uses the complete uint32 ordinal
 // space; the helper may only lower that limit, never enlarge it.
 func compileWithSegmentCapacity(spec DictionarySpec, segmentCapacity uint64) (*Dictionary, error) {
+	if len(spec.Segments) == 0 {
+		return nil, fmt.Errorf("%w: dictionary has no segments", ErrInvalid)
+	}
+	segmentSpecs := append([]SegmentSpec(nil), spec.Segments...)
+	spec.Segments = nil
+	state, err := newDictionaryCompileState(spec, segmentCapacity, len(segmentSpecs))
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(segmentSpecs, func(i, j int) bool { return segmentSpecs[i].ID < segmentSpecs[j].ID })
+	for index := range segmentSpecs {
+		segmentSpec := segmentSpecs[index]
+		facts := segmentSpec.Facts
+		segmentSpec.Facts = nil
+		if err := state.addSegment(segmentSpec, len(facts), func(factIndex int) (exposure.FactID, error) {
+			return facts[factIndex], nil
+		}); err != nil {
+			return nil, err
+		}
+		segmentSpecs[index].Facts = nil
+		facts = nil
+	}
+	return state.finish()
+}
+
+type dictionaryCompileState struct {
+	spec             DictionarySpec
+	segmentCapacity  uint64
+	compiledSegments []compiledSegment
+	seenSegments     map[string]struct{}
+}
+
+func newDictionaryCompileState(spec DictionarySpec, segmentCapacity uint64,
+	segmentCount int) (*dictionaryCompileState, error) {
 	if !validID(spec.SourceID) || !validID(spec.SourceNamespace) || !validID(spec.Snapshot) {
 		return nil, fmt.Errorf("%w: source, namespace, and snapshot are required", ErrInvalid)
 	}
@@ -237,66 +287,83 @@ func compileWithSegmentCapacity(spec DictionarySpec, segmentCapacity uint64) (*D
 			return nil, fmt.Errorf("%w: expected %s digest", ErrInvalid, name)
 		}
 	}
-	if len(spec.Segments) == 0 {
-		return nil, fmt.Errorf("%w: dictionary has no segments", ErrInvalid)
-	}
 	if err := validateSegmentCapacity(segmentCapacity); err != nil {
 		return nil, err
 	}
-
-	segmentSpecs := append([]SegmentSpec(nil), spec.Segments...)
-	sort.Slice(segmentSpecs, func(i, j int) bool { return segmentSpecs[i].ID < segmentSpecs[j].ID })
-	compiledSegments := make([]compiledSegment, 0, len(segmentSpecs))
-	allHashes := make(map[[sha256.Size]byte][]byte)
-	seenLogicalSegments := make(map[string]struct{}, len(segmentSpecs))
-
-	for _, segmentSpec := range segmentSpecs {
-		if _, duplicate := seenLogicalSegments[segmentSpec.ID]; duplicate {
-			return nil, fmt.Errorf("%w: duplicate segment id", ErrInvalid)
-		}
-		if !validID(segmentSpec.ID) {
-			return nil, fmt.Errorf("%w: invalid segment id", ErrInvalid)
-		}
-		seenLogicalSegments[segmentSpec.ID] = struct{}{}
-		entries := make([]dictionaryEntry, 0, len(segmentSpec.Facts))
-		for _, fact := range segmentSpec.Facts {
-			if err := validateSegmentFact(spec, segmentSpec, fact); err != nil {
-				return nil, err
-			}
-			hashText, err := fact.Hash()
-			if err != nil {
-				return nil, fmt.Errorf("%w: hash fact: %v", ErrInvalid, err)
-			}
-			hashBytes, _ := hex.DecodeString(hashText)
-			var factHash [sha256.Size]byte
-			copy(factHash[:], hashBytes)
-			payload, err := fact.CanonicalPayload()
-			if err != nil {
-				return nil, fmt.Errorf("%w: canonical fact payload: %v", ErrInvalid, err)
-			}
-			if existing, present := allHashes[factHash]; present {
-				if !bytes.Equal(existing, payload) {
-					return nil, fmt.Errorf("%w: %s", ErrFactCollision, hashText)
-				}
-				return nil, fmt.Errorf("%w: fact appears in multiple dictionary positions", ErrInvalid)
-			}
-			// CanonicalPayload returns a newly owned byte slice. Share that
-			// immutable slice between collision detection and the dictionary
-			// entry instead of retaining two million-scale payload copies.
-			allHashes[factHash] = payload
-			entries = append(entries, dictionaryEntry{hash: factHash, payload: payload, fact: cloneFact(fact)})
-		}
-		sort.Slice(entries, func(i, j int) bool { return bytes.Compare(entries[i].hash[:], entries[j].hash[:]) < 0 })
-		shards, err := shardSortedSegment(segmentSpec, entries, segmentCapacity)
-		if err != nil {
-			return nil, err
-		}
-		compiledSegments = append(compiledSegments, shards...)
+	if segmentCount <= 0 {
+		return nil, fmt.Errorf("%w: dictionary has no segments", ErrInvalid)
 	}
+	spec.Segments = nil
+	return &dictionaryCompileState{spec: spec, segmentCapacity: segmentCapacity,
+		compiledSegments: make([]compiledSegment, 0, segmentCount),
+		seenSegments:     make(map[string]struct{}, segmentCount)}, nil
+}
+
+func (s *dictionaryCompileState) addSegment(segmentSpec SegmentSpec, factCount int,
+	factAt func(int) (exposure.FactID, error)) error {
+	if s == nil || factCount < 0 || factAt == nil {
+		return fmt.Errorf("%w: invalid generated segment", ErrInvalid)
+	}
+	if _, duplicate := s.seenSegments[segmentSpec.ID]; duplicate {
+		return fmt.Errorf("%w: duplicate segment id", ErrInvalid)
+	}
+	if !validID(segmentSpec.ID) {
+		return fmt.Errorf("%w: invalid segment id", ErrInvalid)
+	}
+	s.seenSegments[segmentSpec.ID] = struct{}{}
+	segmentSpec.Facts = nil
+	entries := make([]dictionaryEntry, 0, factCount)
+	for index := 0; index < factCount; index++ {
+		fact, err := factAt(index)
+		if err != nil {
+			return err
+		}
+		if err := validateSegmentFact(s.spec, segmentSpec, fact); err != nil {
+			return err
+		}
+		hashText, err := fact.Hash()
+		if err != nil {
+			return fmt.Errorf("%w: hash fact: %v", ErrInvalid, err)
+		}
+		hashBytes, _ := hex.DecodeString(hashText)
+		var factHash [sha256.Size]byte
+		copy(factHash[:], hashBytes)
+		payload, err := fact.CanonicalPayload()
+		if err != nil {
+			return fmt.Errorf("%w: canonical fact payload: %v", ErrInvalid, err)
+		}
+		factJSON, err := json.Marshal(cloneFact(fact))
+		if err != nil {
+			return fmt.Errorf("%w: encode canonical fact: %v", ErrInvalid, err)
+		}
+		entries = append(entries, dictionaryEntry{hash: factHash, payload: payload, factJSON: factJSON})
+	}
+	sort.Slice(entries, func(i, j int) bool { return bytes.Compare(entries[i].hash[:], entries[j].hash[:]) < 0 })
+	shards, err := shardSortedSegment(segmentSpec, entries, s.segmentCapacity)
+	if err != nil {
+		return err
+	}
+	s.compiledSegments = append(s.compiledSegments, shards...)
+	return nil
+}
+
+func (s *dictionaryCompileState) finish() (*Dictionary, error) {
+	return s.finishWithLookup(true)
+}
+
+func (s *dictionaryCompileState) finishWithLookup(buildLookup bool) (*Dictionary, error) {
+	if s == nil || len(s.compiledSegments) == 0 {
+		return nil, fmt.Errorf("%w: dictionary has no compiled segments", ErrInvalid)
+	}
+	if err := validateUniqueCompiledEntries(s.compiledSegments); err != nil {
+		return nil, err
+	}
+	compiledSegments := s.compiledSegments
 
 	sort.Slice(compiledSegments, func(i, j int) bool { return compiledSegments[i].spec.ID < compiledSegments[j].spec.ID })
 	segments := make(map[string][]dictionaryEntry, len(compiledSegments))
 	manifests := make([]SegmentManifest, 0, len(compiledSegments))
+	totalFacts := 0
 	for _, compiled := range compiledSegments {
 		segmentSpec, entries := compiled.spec, compiled.entries
 		if _, duplicate := segments[segmentSpec.ID]; duplicate {
@@ -310,27 +377,34 @@ func compileWithSegmentCapacity(spec DictionarySpec, segmentCapacity uint64) (*D
 		}
 		segments[segmentSpec.ID] = entries
 		manifests = append(manifests, manifest)
+		if len(entries) > math.MaxInt-totalFacts {
+			return nil, fmt.Errorf("%w: dictionary fact count overflow", ErrInvalid)
+		}
+		totalFacts += len(entries)
 	}
 
 	dictionaryDigest := digestDictionary(manifests, segments)
 	coldPayloadDigest := digestColdEntries(manifests, segments)
-	if spec.ColdPayloadDigest != "" && spec.ColdPayloadDigest != coldPayloadDigest {
+	if s.spec.ColdPayloadDigest != "" && s.spec.ColdPayloadDigest != coldPayloadDigest {
 		return nil, fmt.Errorf("%w: compiled cold payload digest", ErrDigestMismatch)
 	}
 	sidecarDigest := digestSidecarRows(nil)
-	if spec.SidecarDigest != "" {
-		sidecarDigest = spec.SidecarDigest
+	if s.spec.SidecarDigest != "" {
+		sidecarDigest = s.spec.SidecarDigest
 	}
 	hotIndexDigest := digestHotDictionary(dictionaryDigest, manifests, segments, nil)
-	manifest := DictionaryManifest{Version: DictionaryVersion, SourceID: spec.SourceID, SourceNamespace: spec.SourceNamespace,
-		Snapshot: spec.Snapshot, SchemaDigest: spec.SchemaDigest, DictionaryDigest: dictionaryDigest,
+	manifest := DictionaryManifest{Version: DictionaryVersion, SourceID: s.spec.SourceID, SourceNamespace: s.spec.SourceNamespace,
+		Snapshot: s.spec.Snapshot, SchemaDigest: s.spec.SchemaDigest, DictionaryDigest: dictionaryDigest,
 		SidecarDigest: sidecarDigest, ColdPayloadDigest: coldPayloadDigest, HotIndexDigest: hotIndexDigest, Segments: manifests}
 	manifestDigest, err := manifest.Digest()
 	if err != nil {
 		return nil, err
 	}
-	dictionary := &Dictionary{manifest: manifest, digest: manifestDigest, segments: segments,
-		byHash: make(map[[sha256.Size]byte]FactRef, len(allHashes))}
+	dictionary := &Dictionary{manifest: manifest, digest: manifestDigest, segments: segments}
+	if !buildLookup {
+		return dictionary, nil
+	}
+	dictionary.byHash = make(map[[sha256.Size]byte]FactRef, totalFacts)
 	for _, segment := range manifests {
 		for ordinal, entry := range segments[segment.ID] {
 			if uint64(ordinal) > uint64(math.MaxUint32) {
@@ -340,6 +414,75 @@ func compileWithSegmentCapacity(spec DictionarySpec, segmentCapacity uint64) (*D
 		}
 	}
 	return dictionary, nil
+}
+
+type dictionaryEntryCursor struct {
+	segment int
+	entry   int
+}
+
+type dictionaryEntryHeap struct {
+	segments []compiledSegment
+	cursors  []dictionaryEntryCursor
+}
+
+func (h dictionaryEntryHeap) Len() int { return len(h.cursors) }
+func (h dictionaryEntryHeap) Less(left, right int) bool {
+	leftEntry := h.segments[h.cursors[left].segment].entries[h.cursors[left].entry]
+	rightEntry := h.segments[h.cursors[right].segment].entries[h.cursors[right].entry]
+	comparison := bytes.Compare(leftEntry.hash[:], rightEntry.hash[:])
+	if comparison != 0 {
+		return comparison < 0
+	}
+	if h.cursors[left].segment != h.cursors[right].segment {
+		return h.cursors[left].segment < h.cursors[right].segment
+	}
+	return h.cursors[left].entry < h.cursors[right].entry
+}
+func (h dictionaryEntryHeap) Swap(left, right int) {
+	h.cursors[left], h.cursors[right] = h.cursors[right], h.cursors[left]
+}
+func (h *dictionaryEntryHeap) Push(value any) {
+	h.cursors = append(h.cursors, value.(dictionaryEntryCursor))
+}
+func (h *dictionaryEntryHeap) Pop() any {
+	last := len(h.cursors) - 1
+	value := h.cursors[last]
+	h.cursors = h.cursors[:last]
+	return value
+}
+
+// validateUniqueCompiledEntries replaces the million-entry global collision
+// map with a k-way merge over per-segment hash-sorted entries. It preserves
+// exact duplicate/collision rejection while using O(segment count) memory.
+func validateUniqueCompiledEntries(segments []compiledSegment) error {
+	queue := &dictionaryEntryHeap{segments: segments, cursors: make([]dictionaryEntryCursor, 0, len(segments))}
+	for segment := range segments {
+		if len(segments[segment].entries) != 0 {
+			heap.Push(queue, dictionaryEntryCursor{segment: segment})
+		}
+	}
+	var previousHash [sha256.Size]byte
+	var previousPayload []byte
+	havePrevious := false
+	for queue.Len() != 0 {
+		cursor := heap.Pop(queue).(dictionaryEntryCursor)
+		entry := segments[cursor.segment].entries[cursor.entry]
+		if havePrevious && entry.hash == previousHash {
+			if !bytes.Equal(entry.payload, previousPayload) {
+				return fmt.Errorf("%w: %s", ErrFactCollision, hex.EncodeToString(entry.hash[:]))
+			}
+			return fmt.Errorf("%w: fact appears in multiple dictionary positions", ErrInvalid)
+		}
+		previousHash = entry.hash
+		previousPayload = entry.payload
+		havePrevious = true
+		cursor.entry++
+		if cursor.entry < len(segments[cursor.segment].entries) {
+			heap.Push(queue, cursor)
+		}
+	}
+	return nil
 }
 
 func validateSegmentCapacity(capacity uint64) error {
@@ -485,7 +628,11 @@ func (d *Dictionary) Expand(ref FactRef) (exposure.FactID, error) {
 	if uint64(ref.Ordinal) >= uint64(len(entries)) {
 		return exposure.FactID{}, ErrUnknownFact
 	}
-	return cloneFact(entries[ref.Ordinal].fact), nil
+	fact, err := decodeFact(entries[ref.Ordinal].factJSON)
+	if err != nil {
+		return exposure.FactID{}, fmt.Errorf("%w: stored fact JSON", ErrInvalid)
+	}
+	return fact, nil
 }
 
 func (d *Dictionary) Hash(ref FactRef) ([sha256.Size]byte, error) {
@@ -586,6 +733,46 @@ func (d *Dictionary) Lookup(fact exposure.FactID) (FactRef, bool, error) {
 		return FactRef{}, false, ErrFactCollision
 	}
 	return ref, true, nil
+}
+
+// lookupSegmentFact is the bounded-memory compiler lookup used when the
+// production snapshot builder deliberately omits the global hash-to-ref map.
+// Segment entry arrays are already hash-sorted, so one binary search per
+// matching deterministic shard preserves exact collision checks.
+func (d *Dictionary) lookupSegmentFact(fact exposure.FactID, kind SegmentKind,
+	field string) (FactRef, bool, error) {
+	if d == nil {
+		return FactRef{}, false, ErrUnknownFact
+	}
+	hashText, err := fact.Hash()
+	if err != nil {
+		return FactRef{}, false, err
+	}
+	decoded, _ := hex.DecodeString(hashText)
+	var factHash [sha256.Size]byte
+	copy(factHash[:], decoded)
+	for _, segment := range d.manifest.Segments {
+		if segment.Kind != kind || segment.Field != field {
+			continue
+		}
+		entries := d.segments[segment.ID]
+		ordinal := sort.Search(len(entries), func(index int) bool {
+			return bytes.Compare(entries[index].hash[:], factHash[:]) >= 0
+		})
+		if ordinal == len(entries) || entries[ordinal].hash != factHash {
+			continue
+		}
+		payload, err := fact.CanonicalPayload()
+		if err != nil {
+			return FactRef{}, false, err
+		}
+		if !bytes.Equal(entries[ordinal].payload, payload) {
+			return FactRef{}, false, ErrFactCollision
+		}
+		return FactRef{DictionaryDigest: d.DictionaryDigest(), SegmentID: segment.ID,
+			Ordinal: uint32(ordinal)}, true, nil
+	}
+	return FactRef{}, false, nil
 }
 
 // Decode proves the representation refinement at the executable boundary. It

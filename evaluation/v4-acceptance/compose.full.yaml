@@ -1,0 +1,72 @@
+services:
+  gateway:
+    # Keep the enforcement threshold in the acceptance gate, not in Docker.
+    # Equal memory/swap limits disable swap so memory.peak is an unconcealed
+    # measurement rather than a value clipped at 512 MiB.
+    mem_limit: 2g
+    memswap_limit: 2g
+    mem_swappiness: 0
+    volumes: !override
+      - ./evaluation/v4-acceptance/scale-fixture/catalog-full.yaml:/etc/taskbound/catalog.yaml:ro
+      - snapshot-index-artifacts:/var/lib/taskgate/snapshot-index:ro
+      - gateway-encrypted-spool:/tmp
+
+  v4-acceptance:
+    environment:
+      # v4-offline build is executed by the acceptance runner before online
+      # samples and scans the same frozen Business publication.
+      SNAPSHOT_POSTGRES_DSN: postgres://gateway_reader:${GATEWAY_DB_PASSWORD:?set GATEWAY_DB_PASSWORD}@business-postgres:5432/${POSTGRES_DB:-travel_demo}?sslmode=disable
+    volumes:
+      - ${V4_FULL_BASELINE_ARTIFACT:?set V4_FULL_BASELINE_ARTIFACT}:/evidence/baseline.json:ro
+      - ${V4_FULL_CANDIDATE_ARTIFACT:?set V4_FULL_CANDIDATE_ARTIFACT}:/evidence/candidate.json:ro
+      - ${V4_FULL_ENVIRONMENT_MANIFEST:?set V4_FULL_ENVIRONMENT_MANIFEST}:/evidence/environment.json:ro
+
+  # The scale fixture overlay also declares the inactive narrow provisioner.
+  # Rebind its result mount so Compose interpolation does not require a second,
+  # unrelated V4_NARROW_RUN_DIR during a full-only campaign.
+  v4-narrow-prepare:
+    volumes: !override
+      - ${V4_FULL_RUN_DIR:?set V4_FULL_RUN_DIR}:/results
+
+  v4-full-prepare:
+    profiles: [v4-full-tools]
+    build:
+      context: .
+      dockerfile: evaluation/Dockerfile
+      target: v4-acceptance
+    entrypoint:
+      - /usr/local/bin/provision-v4-full
+    environment:
+      V4_FULL_RUN_DIR: /results
+      V4_FULL_BASELINE_ARTIFACT: /evidence/baseline.json
+      V4_FULL_BASELINE_SHA256: ${V4_FULL_BASELINE_SHA256:?set V4_FULL_BASELINE_SHA256}
+      V4_FULL_CANDIDATE_ARTIFACT: /evidence/candidate.json
+      V4_FULL_CANDIDATE_SHA256: ${V4_FULL_CANDIDATE_SHA256:?set V4_FULL_CANDIDATE_SHA256}
+      V4_FULL_ENVIRONMENT_MANIFEST: /evidence/environment.json
+      V4_FULL_ENVIRONMENT_SHA256: ${V4_FULL_ENVIRONMENT_SHA256:?set V4_FULL_ENVIRONMENT_SHA256}
+      EXPOSURE_GATEWAY_URL: http://gateway:8082
+      EXPOSURE_OA_URL: http://oa-demo:8092
+      TASKBOUND_ALICE_TOKEN: ${TASKBOUND_ALICE_TOKEN:?set TASKBOUND_ALICE_TOKEN}
+      OA_ALICE_PASSWORD: ${OA_ALICE_PASSWORD:?set OA_ALICE_PASSWORD}
+      OA_BOB_PASSWORD: ${OA_BOB_PASSWORD:?set OA_BOB_PASSWORD}
+      V4_EVAL_BUSINESS_DSN: postgres://gateway_reader:${GATEWAY_DB_PASSWORD:?set GATEWAY_DB_PASSWORD}@business-postgres:5432/${POSTGRES_DB:-travel_demo}?sslmode=disable
+      V4_EVAL_CONTROL_DSN: postgres://gateway_control:${CONTROL_DB_PASSWORD:?set CONTROL_DB_PASSWORD}@control-postgres:5432/${CONTROL_POSTGRES_DB:-taskbound_gateway}?sslmode=disable
+    volumes:
+      - ${V4_FULL_RUN_DIR:?set V4_FULL_RUN_DIR}:/results
+      - ${V4_FULL_BASELINE_ARTIFACT:?set V4_FULL_BASELINE_ARTIFACT}:/evidence/baseline.json:ro
+      - ${V4_FULL_CANDIDATE_ARTIFACT:?set V4_FULL_CANDIDATE_ARTIFACT}:/evidence/candidate.json:ro
+      - ${V4_FULL_ENVIRONMENT_MANIFEST:?set V4_FULL_ENVIRONMENT_MANIFEST}:/evidence/environment.json:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    depends_on:
+      gateway:
+        condition: service_healthy
+      oa-demo:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - public-edge
+      - control-plane
+      - business-data

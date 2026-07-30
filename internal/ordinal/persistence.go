@@ -250,30 +250,144 @@ func (d *ColdDictionary) MarshalBinary() ([]byte, error) {
 	if d == nil {
 		return nil, fmt.Errorf("%w: nil cold dictionary", ErrInvalid)
 	}
+	manifestJSON, err := json.Marshal(d.manifest)
+	if err != nil {
+		return nil, fmt.Errorf("%w: marshal cold manifest", ErrInvalid)
+	}
+	capacity, err := coldArtifactCapacity(d, manifestJSON)
+	if err != nil {
+		return nil, err
+	}
+	var output bytes.Buffer
+	output.Grow(capacity)
+	if _, err := d.WriteBinary(&output); err != nil {
+		return nil, err
+	}
+	return output.Bytes(), nil
+}
+
+// WriteBinary emits the same sealed, portable COLD artifact as MarshalBinary
+// without allocating a byte slice proportional to the dictionary. The caller
+// owns the destination and may hash, fsync, close, and reopen it before
+// publication. The returned count includes the domain-separated seal.
+func (d *ColdDictionary) WriteBinary(writer io.Writer) (int64, error) {
+	if d == nil {
+		return 0, fmt.Errorf("%w: nil cold dictionary", ErrInvalid)
+	}
+	if writer == nil {
+		return 0, fmt.Errorf("%w: nil cold artifact writer", ErrInvalid)
+	}
 	actualManifestDigest, err := d.manifest.Digest()
 	if err != nil || actualManifestDigest != d.manifestDigest || d.dictionaryDigest != d.manifest.DictionaryDigest {
-		return nil, fmt.Errorf("%w: cold manifest", ErrDigestMismatch)
+		return 0, fmt.Errorf("%w: cold manifest", ErrDigestMismatch)
 	}
-	manifestJSON, _ := json.Marshal(d.manifest)
-	var body bytes.Buffer
-	body.WriteString(coldArtifactMagic)
-	writeBytes(&body, manifestJSON)
-	writeString(&body, d.manifestDigest)
-	writeUint64(&body, uint64(len(d.manifest.Segments)))
+	manifestJSON, err := json.Marshal(d.manifest)
+	if err != nil {
+		return 0, fmt.Errorf("%w: marshal cold manifest", ErrInvalid)
+	}
+	// Validate the complete encoded size before emitting the first byte. This
+	// keeps integer-overflow and oversized-artifact failures pre-publication.
+	if _, err := coldArtifactCapacity(d, manifestJSON); err != nil {
+		return 0, err
+	}
+	bodyHash := sha256.New()
+	_, _ = bodyHash.Write([]byte(coldArtifactDomain))
+	body := &checkedArtifactWriter{writer: io.MultiWriter(writer, bodyHash)}
+	body.write([]byte(coldArtifactMagic))
+	body.writeBytes(manifestJSON)
+	body.writeString(d.manifestDigest)
+	body.writeUint64(uint64(len(d.manifest.Segments)))
 	for _, segment := range d.manifest.Segments {
 		entries := d.segments[segment.ID]
-		writeString(&body, segment.ID)
-		writeUint64(&body, uint64(len(entries)))
+		body.writeString(segment.ID)
+		body.writeUint64(uint64(len(entries)))
 		for _, entry := range entries {
-			writeBytes(&body, entry.payload)
-			encodedFact, marshalErr := json.Marshal(entry.fact)
-			if marshalErr != nil {
-				return nil, marshalErr
-			}
-			writeBytes(&body, encodedFact)
+			body.writeBytes(entry.payload)
+			body.writeBytes(entry.factJSON)
 		}
 	}
-	return sealArtifact(coldArtifactDomain, body.Bytes()), nil
+	if body.err != nil {
+		return body.written, fmt.Errorf("write COLD artifact body: %w", body.err)
+	}
+	seal := bodyHash.Sum(nil)
+	sealBytes, err := writeFull(writer, seal)
+	total := body.written + int64(sealBytes)
+	if err != nil {
+		return total, fmt.Errorf("write COLD artifact seal: %w", err)
+	}
+	return total, nil
+}
+
+type checkedArtifactWriter struct {
+	writer  io.Writer
+	written int64
+	err     error
+}
+
+func (w *checkedArtifactWriter) write(value []byte) {
+	if w.err != nil {
+		return
+	}
+	written, err := writeFull(w.writer, value)
+	w.written += int64(written)
+	w.err = err
+}
+
+func (w *checkedArtifactWriter) writeBytes(value []byte) {
+	w.writeUint64(uint64(len(value)))
+	w.write(value)
+}
+
+func (w *checkedArtifactWriter) writeString(value string) { w.writeBytes([]byte(value)) }
+
+func (w *checkedArtifactWriter) writeUint64(value uint64) {
+	var encoded [8]byte
+	binary.BigEndian.PutUint64(encoded[:], value)
+	w.write(encoded[:])
+}
+
+func writeFull(writer io.Writer, value []byte) (int, error) {
+	written := 0
+	for written < len(value) {
+		count, err := writer.Write(value[written:])
+		if count < 0 || count > len(value)-written {
+			return written, io.ErrShortWrite
+		}
+		written += count
+		if err != nil {
+			return written, err
+		}
+		if count == 0 {
+			return written, io.ErrShortWrite
+		}
+	}
+	return written, nil
+}
+
+func coldArtifactCapacity(d *ColdDictionary, manifestJSON []byte) (int, error) {
+	// Every variable-width field has an eight-byte length prefix. Reserve the
+	// complete body plus seal once so bytes.Buffer does not retain a geometric
+	// growth allocation alongside the final ~GiB COLD artifact.
+	size := uint64(len(coldArtifactMagic)) + 8 + uint64(len(manifestJSON)) + 8 + uint64(len(d.manifestDigest)) + 8
+	for _, segment := range d.manifest.Segments {
+		entries := d.segments[segment.ID]
+		additions := uint64(8+len(segment.ID)) + 8
+		if size > ^uint64(0)-additions {
+			return 0, fmt.Errorf("%w: cold artifact size overflow", ErrInvalid)
+		}
+		size += additions
+		for _, entry := range entries {
+			additions = 8 + uint64(len(entry.payload)) + 8 + uint64(len(entry.factJSON))
+			if size > ^uint64(0)-additions {
+				return 0, fmt.Errorf("%w: cold artifact size overflow", ErrInvalid)
+			}
+			size += additions
+		}
+	}
+	if size > uint64(maxInt())-sha256.Size {
+		return 0, fmt.Errorf("%w: cold artifact is too large", ErrInvalid)
+	}
+	return int(size) + sha256.Size, nil
 }
 
 func ParseColdDictionary(encoded []byte, expectedManifestDigest string) (*ColdDictionary, error) {
@@ -551,7 +665,7 @@ func parseColdDictionary(encoded []byte, expectedManifestDigest string, retain b
 			writeBytes(dictionaryHash, payload)
 			writeBytes(coldHash, payload)
 			if retain {
-				coldEntries[index] = coldEntry{payload: payload, fact: fact}
+				coldEntries[index] = coldEntry{payload: payload, factJSON: factJSON}
 			}
 		}
 		hashesDigest := hex.EncodeToString(segmentHashes.Sum(nil))

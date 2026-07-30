@@ -48,25 +48,12 @@ func TestSnapshotPublicationScaleEvaluation(t *testing.T) {
 		Status: "engineering_measurement_only", Rows: rows, Facts: rows * 3, GoVersion: runtime.Version()}
 
 	fixtureStarted := time.Now()
-	input := CompilerInput{Version: CompilerInputVersion, PublicationName: "ordinal_scale_v1",
-		CatalogSource: "ordinal_scale", OrdinalSidecar: "taskgate_ordinal.ordinal_scale_v1",
-		EntityKeyFields: []string{"amount"}, Snapshot: SnapshotInput{
-			SourceID: "ordinal_scale", SourceNamespace: "evaluation.ordinal-scale", Snapshot: "snapshot-v1",
-			SchemaDigest: strings.Repeat("1", 64), Fields: []SnapshotField{
-				{Name: "amount", SQLType: "numeric"},
-				{Name: "group_key", SQLType: "text", Collation: "C", CollationVersion: "builtin"},
-			}, Rows: make([]SnapshotRow, rows),
-		}}
-	for index := 0; index < rows; index++ {
-		input.Snapshot.Rows[index] = SnapshotRow{Values: map[string]any{
-			"amount": int64(index + 1), "group_key": "g" + strconv.Itoa(index%12),
-		}}
-	}
+	input := snapshotScaleInput(rows)
 	report.FixtureMS = float64(time.Since(fixtureStarted)) / float64(time.Millisecond)
 	runtime.GC()
 
 	compileStarted := time.Now()
-	bundle, err := Compile(input)
+	bundle, err := CompileOwned(&input)
 	report.CompileMS = float64(time.Since(compileStarted)) / float64(time.Millisecond)
 	if err != nil {
 		t.Fatal(err)
@@ -91,6 +78,43 @@ func TestSnapshotPublicationScaleEvaluation(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("TASKGATE_SNAPSHOT_PUBLICATION_REPORT=%s", encoded)
+}
+
+func BenchmarkCompileOwnedPublication(b *testing.B) {
+	const rows = 10_000
+	b.ReportAllocs()
+	b.SetBytes(rows * 3)
+	for iteration := 0; iteration < b.N; iteration++ {
+		b.StopTimer()
+		input := snapshotScaleInput(rows)
+		runtime.GC()
+		b.StartTimer()
+		bundle, err := CompileOwned(&input)
+		if err != nil {
+			b.Fatal(err)
+		}
+		b.StopTimer()
+		b.ReportMetric(float64(len(bundle.Hot)+len(bundle.Cold)+len(bundle.Sidecar)), "artifact-B")
+		runtime.KeepAlive(bundle)
+	}
+}
+
+func snapshotScaleInput(rows int) CompilerInput {
+	input := CompilerInput{Version: CompilerInputVersion, PublicationName: "ordinal_scale_v1",
+		CatalogSource: "ordinal_scale", OrdinalSidecar: "taskgate_ordinal.ordinal_scale_v1",
+		EntityKeyFields: []string{"amount"}, Snapshot: SnapshotInput{
+			SourceID: "ordinal_scale", SourceNamespace: "evaluation.ordinal-scale", Snapshot: "snapshot-v1",
+			SchemaDigest: strings.Repeat("1", 64), Fields: []SnapshotField{
+				{Name: "amount", SQLType: "numeric"},
+				{Name: "group_key", SQLType: "text", Collation: "C", CollationVersion: "builtin"},
+			}, Rows: make([]SnapshotRow, rows),
+		}}
+	for index := 0; index < rows; index++ {
+		input.Snapshot.Rows[index] = SnapshotRow{Values: map[string]any{
+			"amount": int64(index + 1), "group_key": "g" + strconv.Itoa(index%12),
+		}}
+	}
+	return input
 }
 
 func snapshotScaleProcMemory() (rss uint64, hwm uint64) {

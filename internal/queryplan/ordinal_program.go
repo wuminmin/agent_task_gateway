@@ -1054,13 +1054,40 @@ func normalizeOrdinalProgram(program OrdinalProgram) (OrdinalProgram, error) {
 	if len(program.Sources) == 0 || len(program.Visible) == 0 || len(program.SnapshotBundle) == 0 || len(program.WitnessRules) == 0 {
 		return OrdinalProgram{}, errors.New("ordinal program is incomplete")
 	}
+	expectedSources := 2
+	if program.Kind == "scan" {
+		expectedSources = 1
+	}
+	if len(program.Sources) != expectedSources {
+		return OrdinalProgram{}, errors.New("ordinal program source count disagrees with its kind")
+	}
 	result := program
 	result.Sources = append([]OrdinalSource(nil), program.Sources...)
+	unionBranches := [2]bool{}
+	seenSourceAliases := make(map[string]struct{}, len(result.Sources))
+	seenProvenanceAliases := make(map[string]struct{})
+	sharedUnionEvidence := make(map[string]OrdinalFieldBinding)
 	for index := range result.Sources {
 		source := &result.Sources[index]
 		if source.Product == "" || source.SourceAlias == "" || source.SourceNamespace == "" || source.Snapshot == "" || source.Role == "" ||
 			source.HandleAlias == "" || !source.HandleRequired || !source.SidecarBinding.Required || len(source.EntityKey) == 0 || len(source.EvidenceFields) == 0 {
 			return OrdinalProgram{}, errors.New("ordinal source is incomplete")
+		}
+		if _, duplicate := seenSourceAliases[source.SourceAlias]; duplicate {
+			return OrdinalProgram{}, errors.New("ordinal source aliases must be globally unique")
+		}
+		seenSourceAliases[source.SourceAlias] = struct{}{}
+		if _, duplicate := seenProvenanceAliases[source.HandleAlias]; duplicate {
+			return OrdinalProgram{}, errors.New("ordinal provenance aliases must be globally unique")
+		}
+		seenProvenanceAliases[source.HandleAlias] = struct{}{}
+		if program.Kind == "union_distinct" {
+			if source.Branch < 0 || source.Branch >= len(unionBranches) || unionBranches[source.Branch] {
+				return OrdinalProgram{}, errors.New("UNION DISTINCT source branches must be the exact disjoint pair 0/1")
+			}
+			unionBranches[source.Branch] = true
+		} else if source.Branch != -1 {
+			return OrdinalProgram{}, errors.New("non-UNION ordinal source has a branch identity")
 		}
 		source.EntityKey = append([]OrdinalFieldBinding(nil), source.EntityKey...)
 		source.EvidenceFields = append([]OrdinalFieldBinding(nil), source.EvidenceFields...)
@@ -1074,6 +1101,15 @@ func normalizeOrdinalProgram(program OrdinalProgram) (OrdinalProgram, error) {
 			if _, duplicate := seenAliases[field.ProvenanceAlias]; duplicate {
 				return OrdinalProgram{}, errors.New("ordinal source aliases collide")
 			}
+			if _, duplicate := seenProvenanceAliases[field.ProvenanceAlias]; duplicate {
+				previous, sharedEvidence := sharedUnionEvidence[field.ProvenanceAlias]
+				if program.Kind != "union_distinct" || !sharedEvidence || !sameOrdinalUnionProjection(previous, field) {
+					return OrdinalProgram{}, errors.New("ordinal provenance aliases must be globally unique outside an equivalent UNION projection")
+				}
+			} else {
+				seenProvenanceAliases[field.ProvenanceAlias] = struct{}{}
+				sharedUnionEvidence[field.ProvenanceAlias] = field
+			}
 			seenAliases[field.ProvenanceAlias] = struct{}{}
 			evidenceByAlias[field.ProvenanceAlias] = field
 		}
@@ -1081,6 +1117,23 @@ func normalizeOrdinalProgram(program OrdinalProgram) (OrdinalProgram, error) {
 			evidence, present := evidenceByAlias[field.ProvenanceAlias]
 			if !present || !field.IsEntityKey || field.EntityKeyPosition != position || !sameOrdinalSemanticBinding(field, evidence) {
 				return OrdinalProgram{}, errors.New("ordinal entity key does not match its evidence binding")
+			}
+		}
+		for _, uses := range [][]OrdinalFieldUse{source.OuterPredicateFields, source.JoinKeyFields,
+			source.UnionKeyFields, source.GroupKeyFields, source.AggregateFields} {
+			for _, use := range uses {
+				evidence, present := evidenceByAlias[use.ProvenanceAlias]
+				if !present || use.Multiplicity == 0 || use.FieldID != evidence.FieldID ||
+					use.CanonicalExpression != evidence.CanonicalExpression {
+					return OrdinalProgram{}, errors.New("ordinal source field use escapes its evidence binding")
+				}
+			}
+		}
+		for _, predicate := range source.LeafPredicates {
+			evidence, present := evidenceByAlias[predicate.Field.ProvenanceAlias]
+			if !present || predicate.Field.Multiplicity == 0 || predicate.Field.FieldID != evidence.FieldID ||
+				predicate.Field.CanonicalExpression != evidence.CanonicalExpression {
+				return OrdinalProgram{}, errors.New("ordinal source predicate escapes its evidence binding")
 			}
 		}
 		sort.Slice(source.EvidenceFields, func(i, j int) bool {
@@ -1094,6 +1147,9 @@ func normalizeOrdinalProgram(program OrdinalProgram) (OrdinalProgram, error) {
 			*uses = append([]OrdinalFieldUse(nil), (*uses)...)
 			sortOrdinalFieldUses(*uses)
 		}
+	}
+	if program.Kind == "union_distinct" && (!unionBranches[0] || !unionBranches[1]) {
+		return OrdinalProgram{}, errors.New("UNION DISTINCT source branches must be the exact disjoint pair 0/1")
 	}
 	sort.Slice(result.Sources, func(i, j int) bool { return ordinalSourceKey(result.Sources[i]) < ordinalSourceKey(result.Sources[j]) })
 	result.Visible = append([]OrdinalVisibleSpec(nil), program.Visible...)
@@ -1141,6 +1197,12 @@ func normalizeOrdinalProgram(program OrdinalProgram) (OrdinalProgram, error) {
 
 func sameOrdinalSemanticBinding(left, right OrdinalFieldBinding) bool {
 	return left.FieldID == right.FieldID && left.SQLType == right.SQLType && left.CanonicalExpression == right.CanonicalExpression
+}
+
+func sameOrdinalUnionProjection(left, right OrdinalFieldBinding) bool {
+	return sameOrdinalSemanticBinding(left, right) && left.Column == right.Column && left.Collation == right.Collation &&
+		left.CollationVersion == right.CollationVersion && left.IsEntityKey == right.IsEntityKey &&
+		left.EntityKeyPosition == right.EntityKeyPosition
 }
 
 func cloneOrdinalQueryPlan(plan QueryPlan) QueryPlan {

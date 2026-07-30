@@ -177,6 +177,87 @@ func TestOrdinalProgramDigestNormalizesSetLikeMetadata(t *testing.T) {
 	}
 }
 
+func TestOrdinalProgramRejectsBranchAndSourceLocalBindingMutations(t *testing.T) {
+	scan, err := CompileOrdinal(QueryPlan{Product: "expenses", Columns: []string{"department"}}, ordinalTestProduct())
+	if err != nil {
+		t.Fatal(err)
+	}
+	badScan := scan.OrdinalProgram
+	badScan.Sources = append([]OrdinalSource(nil), badScan.Sources...)
+	badScan.Sources[0].Branch = 0
+	if err := badScan.ValidateBoundSidecars(); err == nil {
+		t.Fatal("scan program accepted a UNION branch identity")
+	}
+
+	products := relationalTestProducts()
+	for name, product := range products {
+		product.SnapshotPublication = "publication-" + name
+		product.SidecarManifestDigest = strings.Repeat(name[:1], 64)
+		products[name] = product
+	}
+	join, err := CompileRelational(QueryPlan{From: &From{Join: &Join{
+		Left: Scan{Product: "detail", Role: "detail"}, Right: Scan{Product: "summary", Role: "summary"},
+		On: []JoinPredicate{{Left: "detail.department", Right: "summary.department"}},
+	}}, Columns: []string{"detail.amount"}}, products)
+	if err != nil {
+		t.Fatal(err)
+	}
+	badJoin := join.OrdinalProgram
+	badJoin.Sources = append([]OrdinalSource(nil), badJoin.Sources...)
+	if len(badJoin.Sources) != 2 || len(badJoin.Sources[1].EvidenceFields) == 0 {
+		t.Fatalf("unexpected join sources: %#v", badJoin.Sources)
+	}
+	badJoin.Sources[0].JoinKeyFields = []OrdinalFieldUse{fieldUse(badJoin.Sources[1].EvidenceFields[0], 1)}
+	if err := badJoin.ValidateBoundSidecars(); err == nil {
+		t.Fatal("join source accepted another source's evidence binding")
+	}
+
+	duplicateSourceAlias := join.OrdinalProgram
+	duplicateSourceAlias.Sources = append([]OrdinalSource(nil), duplicateSourceAlias.Sources...)
+	duplicateSourceAlias.Sources[1].SourceAlias = duplicateSourceAlias.Sources[0].SourceAlias
+	if err := duplicateSourceAlias.ValidateBoundSidecars(); err == nil {
+		t.Fatal("join program accepted duplicate global source aliases")
+	}
+
+	duplicateHandleAlias := join.OrdinalProgram
+	duplicateHandleAlias.Sources = append([]OrdinalSource(nil), duplicateHandleAlias.Sources...)
+	duplicateHandleAlias.Sources[1].HandleAlias = duplicateHandleAlias.Sources[0].HandleAlias
+	if err := duplicateHandleAlias.ValidateBoundSidecars(); err == nil {
+		t.Fatal("join program accepted duplicate global provenance aliases")
+	}
+
+	duplicateEvidenceAlias := join.OrdinalProgram
+	duplicateEvidenceAlias.Sources = append([]OrdinalSource(nil), duplicateEvidenceAlias.Sources...)
+	duplicateEvidenceAlias.Sources[1].EvidenceFields = append([]OrdinalFieldBinding(nil), duplicateEvidenceAlias.Sources[1].EvidenceFields...)
+	duplicateEvidenceAlias.Sources[1].EvidenceFields[0].ProvenanceAlias = duplicateEvidenceAlias.Sources[0].EvidenceFields[0].ProvenanceAlias
+	if err := duplicateEvidenceAlias.ValidateBoundSidecars(); err == nil {
+		t.Fatal("join program accepted duplicate global evidence aliases")
+	}
+
+	unionPlan := QueryPlan{From: &From{UnionDistinct: &UnionDistinct{
+		Role: "summary", Columns: []string{"department", "month"},
+		Left: Scan{Product: "summary", Role: "left_branch"}, Right: Scan{Product: "summary", Role: "right_branch"},
+	}}, Columns: []string{"summary.department"}}
+	union, err := CompileRelational(unionPlan, products)
+	if err != nil {
+		t.Fatal(err)
+	}
+	badUnion := union.OrdinalProgram
+	badUnion.Sources = append([]OrdinalSource(nil), badUnion.Sources...)
+	badUnion.Sources[1].Branch = badUnion.Sources[0].Branch
+	if err := badUnion.ValidateBoundSidecars(); err == nil {
+		t.Fatal("UNION DISTINCT accepted duplicate branch identities")
+	}
+
+	badSharedUnionAlias := union.OrdinalProgram
+	badSharedUnionAlias.Sources = append([]OrdinalSource(nil), badSharedUnionAlias.Sources...)
+	badSharedUnionAlias.Sources[1].EvidenceFields = append([]OrdinalFieldBinding(nil), badSharedUnionAlias.Sources[1].EvidenceFields...)
+	badSharedUnionAlias.Sources[1].EvidenceFields[0].CanonicalExpression += ".mutated"
+	if err := badSharedUnionAlias.ValidateBoundSidecars(); err == nil {
+		t.Fatal("UNION DISTINCT accepted a shared alias with conflicting semantic bindings")
+	}
+}
+
 func ordinalTestProduct() Product {
 	return Product{
 		Name: "expenses", Columns: map[string]struct{}{"department": {}, "amount": {}, "scope": {}},

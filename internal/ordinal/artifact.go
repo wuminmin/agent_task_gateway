@@ -53,8 +53,8 @@ type hotRow struct {
 }
 
 type coldEntry struct {
-	payload []byte
-	fact    exposure.FactID
+	payload  []byte
+	factJSON []byte
 }
 
 func digestColdEntries(manifests []SegmentManifest, segments map[string][]dictionaryEntry) string {
@@ -154,9 +154,10 @@ func (d *Dictionary) split(transferOwnership bool) (CompiledArtifact, error) {
 		for index, entry := range entries {
 			hashes[index] = entry.hash
 			if transferOwnership {
-				coldEntries[index] = coldEntry{payload: entry.payload, fact: entry.fact}
+				coldEntries[index] = coldEntry{payload: entry.payload, factJSON: entry.factJSON}
 			} else {
-				coldEntries[index] = coldEntry{payload: append([]byte(nil), entry.payload...), fact: cloneFact(entry.fact)}
+				coldEntries[index] = coldEntry{payload: append([]byte(nil), entry.payload...),
+					factJSON: append([]byte(nil), entry.factJSON...)}
 			}
 		}
 		hot.hashes[segmentID] = hashes
@@ -320,6 +321,40 @@ func (d *HotDictionary) LookupRow(handle RowHandle) (RowRefs, bool) {
 	return row, true
 }
 
+// LookupRowIdentity returns the immutable row identity without materializing
+// the complete field-to-ref map.  It is equivalent to the identity portion of
+// LookupRow.
+func (d *HotDictionary) LookupRowIdentity(handle RowHandle) (string, FactRef, bool) {
+	if d == nil || handle == 0 || uint64(handle) > uint64(len(d.rows)) {
+		return "", FactRef{}, false
+	}
+	compact := d.rows[handle-1]
+	segmentID := d.rowSegment
+	if segmentID == "" {
+		segmentID = compact.rowSegmentID
+	}
+	return compact.entityKey, FactRef{DictionaryDigest: d.DictionaryDigest(), SegmentID: segmentID, Ordinal: compact.rowOrdinal}, true
+}
+
+// LookupCellRef returns one immutable cell ref without allocating a map.  HOT
+// fields are manifest-validated in strict lexical order, so binary search is
+// deterministic and bounded by the (normally tiny) publication schema.
+func (d *HotDictionary) LookupCellRef(handle RowHandle, fieldID string) (FactRef, bool) {
+	if d == nil || handle == 0 || uint64(handle) > uint64(len(d.rows)) {
+		return FactRef{}, false
+	}
+	fieldIndex := sort.Search(len(d.fields), func(index int) bool { return d.fields[index].name >= fieldID })
+	if fieldIndex == len(d.fields) || d.fields[fieldIndex].name != fieldID {
+		return FactRef{}, false
+	}
+	compact := d.rows[handle-1]
+	segmentID := d.fields[fieldIndex].segmentID
+	if segmentID == "" {
+		segmentID = compact.cellSegmentIDs[fieldIndex]
+	}
+	return FactRef{DictionaryDigest: d.DictionaryDigest(), SegmentID: segmentID, Ordinal: compact.cellOrdinals[fieldIndex]}, true
+}
+
 func (d *HotDictionary) LookupEntity(entityKey string) (RowRefs, bool) {
 	handle, found := d.LookupRowHandle(entityKey)
 	if !found {
@@ -339,7 +374,11 @@ func (d *HotDictionary) StreamHashes(set BitmapSet, yield func(FactRef, [sha256.
 	}
 	var streamErr error
 	set.Refs(func(ref FactRef) bool {
-		hash, _ := d.Hash(ref)
+		hash, err := d.Hash(ref)
+		if err != nil {
+			streamErr = err
+			return false
+		}
 		streamErr = yield(ref, hash)
 		return streamErr == nil
 	})
@@ -417,7 +456,11 @@ func (d *ColdDictionary) Expand(ref FactRef) (exposure.FactID, error) {
 	if uint64(ref.Ordinal) >= uint64(len(entries)) {
 		return exposure.FactID{}, ErrUnknownFact
 	}
-	return cloneFact(entries[ref.Ordinal].fact), nil
+	fact, err := decodeFact(entries[ref.Ordinal].factJSON)
+	if err != nil {
+		return exposure.FactID{}, fmt.Errorf("%w: stored cold fact JSON", ErrInvalid)
+	}
+	return fact, nil
 }
 
 func (d *ColdDictionary) CanonicalPayload(ref FactRef) ([]byte, error) {

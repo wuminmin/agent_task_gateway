@@ -66,7 +66,10 @@ func (m *MultiIndex) StreamHashesByFactHash(set BitmapSet, yield func(FactRef, [
 		if iterator.HasNext() {
 			ordinal := iterator.Next()
 			ref := FactRef{DictionaryDigest: segment.DictionaryDigest, SegmentID: segment.SegmentID, Ordinal: ordinal}
-			hash, _ := m.Hash(ref)
+			hash, err := m.Hash(ref)
+			if err != nil {
+				return err
+			}
 			heap.Push(&queue, hashCursor{segment: segment, iterator: iterator, ordinal: ordinal, hash: hash})
 		}
 	}
@@ -86,7 +89,11 @@ func (m *MultiIndex) StreamHashesByFactHash(set BitmapSet, yield func(FactRef, [
 		if cursor.iterator.HasNext() {
 			cursor.ordinal = cursor.iterator.Next()
 			ref.Ordinal = cursor.ordinal
-			cursor.hash, _ = m.Hash(ref)
+			var err error
+			cursor.hash, err = m.Hash(ref)
+			if err != nil {
+				return err
+			}
 			heap.Push(&queue, cursor)
 		}
 	}

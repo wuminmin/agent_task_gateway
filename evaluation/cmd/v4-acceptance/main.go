@@ -19,6 +19,13 @@ type options struct {
 	configPath            string
 	outputPath            string
 	prepareNarrowTaskPool string
+	prepareFullTaskPool   string
+	fullEnvironmentPath   string
+	fullEnvironmentSHA256 string
+	fullBaselinePath      string
+	fullBaselineSHA256    string
+	fullCandidatePath     string
+	fullCandidateSHA256   string
 	requireComplete       bool
 	validateOnly          bool
 }
@@ -30,6 +37,20 @@ func main() {
 	flag.StringVar(&opts.outputPath, "output", "", "new machine-readable result path")
 	flag.StringVar(&opts.prepareNarrowTaskPool, "prepare-narrow-task-pool", "",
 		"inject a 20-root maximum-point task pool into the narrow acceptance template")
+	flag.StringVar(&opts.prepareFullTaskPool, "prepare-full-task-pool", "",
+		"inject a 140-root task pool into the seven-case full-matrix acceptance template")
+	flag.StringVar(&opts.fullEnvironmentPath, "full-environment-path", "",
+		"fixed-environment JSON evidence used by full-matrix preparation")
+	flag.StringVar(&opts.fullEnvironmentSHA256, "full-environment-sha256", "",
+		"expected lowercase SHA-256 of full-environment-path")
+	flag.StringVar(&opts.fullBaselinePath, "full-baseline-path", "",
+		"V2 small-query benchmark results JSON used by full-matrix preparation")
+	flag.StringVar(&opts.fullBaselineSHA256, "full-baseline-sha256", "",
+		"expected lowercase SHA-256 of full-baseline-path")
+	flag.StringVar(&opts.fullCandidatePath, "full-candidate-path", "",
+		"V4 small-query benchmark results JSON used by full-matrix preparation")
+	flag.StringVar(&opts.fullCandidateSHA256, "full-candidate-sha256", "",
+		"expected lowercase SHA-256 of full-candidate-path")
 	flag.BoolVar(&opts.requireComplete, "require-complete", false, "fail when any gate is unmeasured")
 	flag.BoolVar(&opts.validateOnly, "validate-only", false, "validate configuration without contacting services")
 	flag.BoolVar(&printSourceDigest, "print-source-digest", false,
@@ -51,6 +72,12 @@ func main() {
 }
 
 func execute(opts options) error {
+	fullEvidenceConfigured := opts.fullEnvironmentPath != "" || opts.fullEnvironmentSHA256 != "" ||
+		opts.fullBaselinePath != "" || opts.fullBaselineSHA256 != "" ||
+		opts.fullCandidatePath != "" || opts.fullCandidateSHA256 != ""
+	if opts.prepareFullTaskPool == "" && fullEvidenceConfigured {
+		return errors.New("full evidence flags require -prepare-full-task-pool")
+	}
 	if opts.configPath == "" {
 		return errors.New("-config is required")
 	}
@@ -64,14 +91,26 @@ func execute(opts options) error {
 	if err := decoder.Decode(&cfg); err != nil {
 		return fmt.Errorf("decode config: %w", err)
 	}
-	if opts.prepareNarrowTaskPool != "" {
+	if opts.prepareNarrowTaskPool != "" && opts.prepareFullTaskPool != "" {
+		return errors.New("only one task-pool preparation mode may be selected")
+	}
+	if opts.prepareNarrowTaskPool != "" || opts.prepareFullTaskPool != "" {
 		if opts.validateOnly || opts.requireComplete {
 			return errors.New("config preparation cannot be combined with -validate-only or -require-complete")
 		}
 		if opts.outputPath == "" {
-			return errors.New("-output is required when preparing a narrow config")
+			return errors.New("-output is required when preparing a config")
 		}
-		prepared, err := prepareNarrowConfig(cfg, opts.prepareNarrowTaskPool)
+		prepared := config{}
+		if opts.prepareNarrowTaskPool != "" {
+			prepared, err = prepareNarrowConfig(cfg, opts.prepareNarrowTaskPool)
+		} else {
+			prepared, err = prepareFullConfig(cfg, opts.prepareFullTaskPool, fullPreparationEvidence{
+				Environment: fullBoundArtifact{Path: opts.fullEnvironmentPath, SHA256: opts.fullEnvironmentSHA256},
+				Baseline:    fullBoundArtifact{Path: opts.fullBaselinePath, SHA256: opts.fullBaselineSHA256},
+				Candidate:   fullBoundArtifact{Path: opts.fullCandidatePath, SHA256: opts.fullCandidateSHA256},
+			})
+		}
 		if err != nil {
 			return err
 		}
@@ -81,8 +120,12 @@ func execute(opts options) error {
 		if err := writeJSONExclusive(opts.outputPath, prepared); err != nil {
 			return err
 		}
-		fmt.Printf("prepared V4 narrow acceptance config with %d fresh roots: %s\n",
-			len(prepared.Cases[0].TaskIDs), opts.outputPath)
+		mode := "narrow"
+		if opts.prepareFullTaskPool != "" {
+			mode = "full-matrix"
+		}
+		fmt.Printf("prepared V4 %s acceptance config with %d fresh roots: %s\n",
+			mode, trialCount(prepared.Cases), opts.outputPath)
 		return nil
 	}
 	if err := validateConfig(cfg); err != nil {
@@ -184,12 +227,21 @@ func validateConfig(cfg config) error {
 			usedTasks[taskID] = one.ID
 		}
 	}
-	for name, metric := range map[string]*commandMetric{"index_build": cfg.IndexBuild, "activation": cfg.Activation} {
+	for name, metric := range map[string]*commandMetric{"index_build": cfg.IndexBuild,
+		"activation_verification": cfg.ActivationVerification, "activation": cfg.Activation} {
 		if metric == nil {
 			continue
 		}
 		if len(metric.Argv) == 0 || metric.Runs < 0 || metric.TimeoutMS < 0 {
 			return fmt.Errorf("%s has an invalid command contract", name)
+		}
+	}
+	if cfg.Activation != nil && cfg.Activation.WarmVerified {
+		if cfg.ActivationVerification == nil ||
+			!commandContainsToken(cfg.ActivationVerification.Argv, "{{verification_receipt}}") ||
+			!commandContainsToken(cfg.Activation.Argv, "{{verification_receipt}}") ||
+			!commandContainsToken(cfg.Activation.Argv, "{{verification_receipt_sha256}}") {
+			return errors.New("warm verified activation requires a strict verification command and bound receipt placeholders")
 		}
 	}
 	if cfg.Observer != nil && (len(cfg.Observer.Argv) == 0 || cfg.Observer.TimeoutMS < 0) {
@@ -205,6 +257,15 @@ func validateConfig(cfg config) error {
 		}
 	}
 	return nil
+}
+
+func commandContainsToken(argv []string, token string) bool {
+	for _, value := range argv {
+		if strings.Contains(value, token) {
+			return true
+		}
+	}
+	return false
 }
 
 func validJSONObject(raw json.RawMessage) bool {

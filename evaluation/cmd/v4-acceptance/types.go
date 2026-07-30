@@ -11,21 +11,23 @@ const (
 )
 
 type config struct {
-	SchemaVersion         int                 `json:"schema_version"`
-	Gateway               gatewayConfig       `json:"gateway"`
-	BusinessDSNEnv        string              `json:"business_dsn_env"`
-	ControlDSNEnv         string              `json:"control_dsn_env"`
-	RequestTimeoutMS      int                 `json:"request_timeout_ms"`
-	StatementTimeoutMS    int                 `json:"statement_timeout_ms"`
-	OverlapTolerancePoint float64             `json:"overlap_tolerance_percentage_points"`
-	RequireFreshRoot      *bool               `json:"require_fresh_root,omitempty"`
-	Cases                 []workloadCase      `json:"cases"`
-	Observer              *observerConfig     `json:"observer,omitempty"`
-	IndexBuild            *commandMetric      `json:"index_build,omitempty"`
-	Activation            *commandMetric      `json:"activation,omitempty"`
-	Artifacts             artifactConfig      `json:"artifacts,omitempty"`
-	EnvironmentManifest   *artifactReference  `json:"environment_manifest,omitempty"`
-	SmallQueryBaseline    *smallQueryBaseline `json:"small_query_baseline,omitempty"`
+	SchemaVersion          int                 `json:"schema_version"`
+	Gateway                gatewayConfig       `json:"gateway"`
+	BusinessDSNEnv         string              `json:"business_dsn_env"`
+	ControlDSNEnv          string              `json:"control_dsn_env"`
+	RequestTimeoutMS       int                 `json:"request_timeout_ms"`
+	StatementTimeoutMS     int                 `json:"statement_timeout_ms"`
+	OverlapTolerancePoint  float64             `json:"overlap_tolerance_percentage_points"`
+	RequireFreshRoot       *bool               `json:"require_fresh_root,omitempty"`
+	Cases                  []workloadCase      `json:"cases"`
+	Observer               *observerConfig     `json:"observer,omitempty"`
+	IndexBuild             *commandMetric      `json:"index_build,omitempty"`
+	ActivationVerification *commandMetric      `json:"activation_verification,omitempty"`
+	Activation             *commandMetric      `json:"activation,omitempty"`
+	Artifacts              artifactConfig      `json:"artifacts,omitempty"`
+	EnvironmentManifest    *artifactReference  `json:"environment_manifest,omitempty"`
+	SmallQueryBaseline     *smallQueryBaseline `json:"small_query_baseline,omitempty"`
+	SmallQueryCandidate    *smallQueryBaseline `json:"small_query_candidate,omitempty"`
 }
 
 type gatewayConfig struct {
@@ -93,25 +95,26 @@ type artifactReference struct {
 }
 
 type report struct {
-	SchemaVersion   int                 `json:"schema_version"`
-	Status          string              `json:"status"`
-	Acceptance      string              `json:"acceptance"`
-	StartedAt       time.Time           `json:"started_at"`
-	FinishedAt      time.Time           `json:"finished_at"`
-	Configuration   reportConfig        `json:"configuration"`
-	Provenance      provenance          `json:"provenance"`
-	MetricSemantics map[string]string   `json:"metric_semantics"`
-	IndexBuild      phaseMeasurement    `json:"index_build"`
-	Activation      phaseMeasurement    `json:"activation"`
-	Artifacts       artifactMeasurement `json:"artifacts"`
-	Environment     evidenceArtifact    `json:"environment"`
-	Storage         storageMeasurement  `json:"storage"`
-	Samples         []sample            `json:"samples"`
-	Summaries       []summary           `json:"summaries"`
-	Coverage        coverage            `json:"coverage"`
-	Gates           []gate              `json:"gates"`
-	Errors          []string            `json:"errors,omitempty"`
-	Warnings        []string            `json:"warnings,omitempty"`
+	SchemaVersion          int                 `json:"schema_version"`
+	Status                 string              `json:"status"`
+	Acceptance             string              `json:"acceptance"`
+	StartedAt              time.Time           `json:"started_at"`
+	FinishedAt             time.Time           `json:"finished_at"`
+	Configuration          reportConfig        `json:"configuration"`
+	Provenance             provenance          `json:"provenance"`
+	MetricSemantics        map[string]string   `json:"metric_semantics"`
+	IndexBuild             phaseMeasurement    `json:"index_build"`
+	ActivationVerification phaseMeasurement    `json:"activation_verification"`
+	Activation             phaseMeasurement    `json:"activation"`
+	Artifacts              artifactMeasurement `json:"artifacts"`
+	Environment            evidenceArtifact    `json:"environment"`
+	Storage                storageMeasurement  `json:"storage"`
+	Samples                []sample            `json:"samples"`
+	Summaries              []summary           `json:"summaries"`
+	Coverage               coverage            `json:"coverage"`
+	Gates                  []gate              `json:"gates"`
+	Errors                 []string            `json:"errors,omitempty"`
+	Warnings               []string            `json:"warnings,omitempty"`
 }
 
 type reportConfig struct {
@@ -127,10 +130,11 @@ type reportConfig struct {
 }
 
 type provenance struct {
-	ConfigSHA256             string `json:"config_sha256"`
-	SourceSHA256             string `json:"source_sha256"`
-	ObserverExecutableSHA256 string `json:"observer_executable_sha256,omitempty"`
-	EnvironmentSHA256        string `json:"environment_sha256,omitempty"`
+	ConfigSHA256                        string `json:"config_sha256"`
+	SourceSHA256                        string `json:"source_sha256"`
+	ObserverExecutableSHA256            string `json:"observer_executable_sha256,omitempty"`
+	EnvironmentSHA256                   string `json:"environment_sha256,omitempty"`
+	ActivationVerificationReceiptSHA256 string `json:"activation_verification_receipt_sha256,omitempty"`
 }
 
 type evidenceArtifact struct {

@@ -266,11 +266,40 @@ func evaluateGates(cfg config, result report) []gate {
 	gates = append(gates, builderRSS)
 	gates = append(gates, artifactGate("artifact_total", "total snapshot artifact <= 2 GiB", result.Artifacts.TotalBytes, 2<<30, result.Artifacts.Reason))
 	gates = append(gates, artifactGate("artifact_hot", "Gateway hot artifact <= 160 MiB", result.Artifacts.HotBytes, 160<<20, result.Artifacts.Reason))
+	verificationGate := gate{ID: "activation_strict_verification",
+		Requirement: "warm activation receipt is produced by a successful full HOT/COLD/sidecar verification phase"}
+	if cfg.ActivationVerification == nil || result.ActivationVerification.Status == "unmeasured" {
+		verificationGate.Status, verificationGate.Reason = "unmeasured", "strict activation verification was not configured"
+	} else {
+		verificationGate.Status = "pass"
+		var walls []float64
+		var outputs []string
+		for _, run := range result.ActivationVerification.Runs {
+			walls = append(walls, run.WallMS)
+			outputs = append(outputs, run.OutputSHA256)
+			if run.Status != "measured" || !validSourceDigest(run.OutputSHA256) {
+				verificationGate.Status = "fail"
+			}
+		}
+		if !validSourceDigest(result.Provenance.ActivationVerificationReceiptSHA256) ||
+			len(result.ActivationVerification.Runs) == 0 {
+			verificationGate.Status = "fail"
+		}
+		verificationGate.Evidence = map[string]any{"wall_ms": walls, "command_output_sha256": outputs,
+			"receipt_sha256": result.Provenance.ActivationVerificationReceiptSHA256}
+		if result.ActivationVerification.Status != "measured" {
+			verificationGate.Status = "fail"
+			verificationGate.Reason = result.ActivationVerification.Reason
+		}
+	}
+	gates = append(gates, verificationGate)
 	activationGate := gate{ID: "activation_time", Requirement: "warm verified index activation <= 2000 ms"}
 	if cfg.Activation == nil || result.Activation.Status == "unmeasured" {
 		activationGate.Status, activationGate.Reason = "unmeasured", "activation command was not configured"
 	} else if !cfg.Activation.WarmVerified {
 		activationGate.Status, activationGate.Reason = "unmeasured", "command was not declared to activate a warm verified index"
+	} else if verificationGate.Status != "pass" {
+		activationGate.Status, activationGate.Reason = "fail", "strict publication verification did not produce the receipt bound to activation"
 	} else {
 		var walls []float64
 		activationGate.Status = "pass"
@@ -322,7 +351,7 @@ func evaluateGates(cfg config, result report) []gate {
 	gates = append(gates, gate{ID: "settlement_measurement", Requirement: "atomic settlement duration is reported",
 		Status: settleStatus, Evidence: settle})
 
-	gates = append(gates, smallQueryGate(cfg.SmallQueryBaseline, result))
+	gates = append(gates, smallQueryGate(cfg.SmallQueryBaseline, cfg.SmallQueryCandidate))
 	return gates
 }
 
@@ -541,43 +570,77 @@ func maxPointLatency(samples []sample, phase string) (distribution, bool) {
 	return summarize(values), true
 }
 
-func smallQueryGate(baseline *smallQueryBaseline, result report) gate {
+func smallQueryGate(baseline, candidate *smallQueryBaseline) gate {
 	gateResult := gate{ID: "small_query_regression", Requirement: "small-query latency and throughput degradation <= 10%"}
-	if baseline == nil {
-		gateResult.Status, gateResult.Reason = "unmeasured", "digest-bound baseline artifact was not configured"
+	if baseline == nil || candidate == nil {
+		gateResult.Status = "unmeasured"
+		switch {
+		case baseline == nil && candidate == nil:
+			gateResult.Reason = "digest-bound baseline and candidate artifacts were not configured"
+		case baseline == nil:
+			gateResult.Reason = "digest-bound baseline artifact was not configured"
+		default:
+			gateResult.Reason = "digest-bound candidate artifact was not configured"
+		}
 		return gateResult
 	}
-	raw, err := os.ReadFile(baseline.ArtifactPath)
+	baselineDigest, err := validateSmallQueryEvidence("baseline", *baseline)
 	if err != nil {
-		gateResult.Status, gateResult.Reason = "unmeasured", err.Error()
+		gateResult.Status, gateResult.Reason = "fail", err.Error()
 		return gateResult
+	}
+	candidateDigest, err := validateSmallQueryEvidence("candidate", *candidate)
+	if err != nil {
+		gateResult.Status, gateResult.Reason = "fail", err.Error()
+		return gateResult
+	}
+	latencyDegradation := (candidate.P50MS/baseline.P50MS - 1) * 100
+	throughputDegradation := (1 - candidate.ThroughputQPS/baseline.ThroughputQPS) * 100
+	const threshold = 10.0
+	const floatingPointTolerance = 1e-9
+	gateResult.Status = passFail(latencyDegradation <= threshold+floatingPointTolerance &&
+		throughputDegradation <= threshold+floatingPointTolerance)
+	gateResult.Evidence = map[string]any{
+		"baseline_artifact_sha256":       baselineDigest,
+		"candidate_artifact_sha256":      candidateDigest,
+		"baseline_p50_ms":                baseline.P50MS,
+		"candidate_p50_ms":               candidate.P50MS,
+		"latency_degradation_percent":    latencyDegradation,
+		"baseline_throughput_qps":        baseline.ThroughputQPS,
+		"candidate_throughput_qps":       candidate.ThroughputQPS,
+		"throughput_degradation_percent": throughputDegradation,
+		"limit_percent":                  threshold,
+	}
+	return gateResult
+}
+
+func validateSmallQueryEvidence(label string, evidence smallQueryBaseline) (string, error) {
+	if strings.TrimSpace(evidence.ArtifactPath) == "" {
+		return "", fmt.Errorf("%s artifact path is empty", label)
+	}
+	if len(evidence.ArtifactSHA256) != sha256.Size*2 ||
+		evidence.ArtifactSHA256 != strings.ToLower(evidence.ArtifactSHA256) {
+		return "", fmt.Errorf("%s artifact SHA-256 is invalid", label)
+	}
+	if decoded, err := hex.DecodeString(evidence.ArtifactSHA256); err != nil || len(decoded) != sha256.Size {
+		return "", fmt.Errorf("%s artifact SHA-256 is invalid", label)
+	}
+	if evidence.P50MS <= 0 || math.IsNaN(evidence.P50MS) || math.IsInf(evidence.P50MS, 0) {
+		return "", fmt.Errorf("%s p50_ms must be a positive finite number", label)
+	}
+	if evidence.ThroughputQPS <= 0 || math.IsNaN(evidence.ThroughputQPS) || math.IsInf(evidence.ThroughputQPS, 0) {
+		return "", fmt.Errorf("%s throughput_qps must be a positive finite number", label)
+	}
+	raw, err := os.ReadFile(evidence.ArtifactPath)
+	if err != nil {
+		return "", fmt.Errorf("read %s artifact: %w", label, err)
 	}
 	digest := sha256.Sum256(raw)
-	if hex.EncodeToString(digest[:]) != baseline.ArtifactSHA256 || baseline.P50MS <= 0 {
-		gateResult.Status, gateResult.Reason = "unmeasured", "baseline artifact digest or declared P50 is invalid"
-		return gateResult
+	actual := hex.EncodeToString(digest[:])
+	if actual != evidence.ArtifactSHA256 {
+		return actual, fmt.Errorf("%s artifact SHA-256 mismatch", label)
 	}
-	var latencies []float64
-	for _, one := range result.Samples {
-		if one.SmallQuery && one.Phase == "novel" && one.Status == "measured" {
-			latencies = append(latencies, one.ClientLatencyMS)
-		}
-	}
-	if len(latencies) == 0 {
-		gateResult.Status, gateResult.Reason = "unmeasured", "no successful small-query novel sample"
-		return gateResult
-	}
-	current := summarize(latencies)
-	degradation := (current.P50/baseline.P50MS - 1) * 100
-	gateResult.Status = passFail(degradation <= 10)
-	gateResult.Evidence = map[string]any{"baseline_artifact_sha256": baseline.ArtifactSHA256,
-		"baseline_p50_ms": baseline.P50MS, "current_p50_ms": current.P50, "latency_degradation_percent": degradation,
-		"throughput": "unmeasured; sequential harness has no comparable throughput cell"}
-	// Do not pass the combined latency+throughput requirement when throughput
-	// was not measured against a like-for-like campaign.
-	gateResult.Status = "unmeasured"
-	gateResult.Reason = "latency comparison is available, but like-for-like throughput is not measured by this sequential harness"
-	return gateResult
+	return actual, nil
 }
 
 func acceptanceStatus(gates []gate) string {
