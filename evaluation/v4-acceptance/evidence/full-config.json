@@ -1,0 +1,1028 @@
+{
+  "schema_version": 1,
+  "gateway": {
+    "url": "http://gateway:8082",
+    "token_env": "TASKBOUND_ALICE_TOKEN"
+  },
+  "business_dsn_env": "V4_EVAL_BUSINESS_DSN",
+  "control_dsn_env": "V4_EVAL_CONTROL_DSN",
+  "request_timeout_ms": 30000,
+  "statement_timeout_ms": 15000,
+  "overlap_tolerance_percentage_points": 0.01,
+  "require_fresh_root": true,
+  "cases": [
+    {
+      "id": "join-group-max-point-overlap-0",
+      "shape": "join_group",
+      "target_overlap_percent": 0,
+      "overlap_dimension": "influence",
+      "task_ids": [
+        "task_fe12ee53bbef50d3d2bcc31c69b6cb3d",
+        "task_d1e787a7b6c3e11242c7b3599ddbffb7",
+        "task_587ecdd8263d6035b91465fd77669009",
+        "task_e532d917fb714639c835fb124987ad44",
+        "task_0e637225147fbebd316b1111f3a9d847",
+        "task_3f2db3b99fefcb2bef727fa3ba8c5e7f",
+        "task_4022782cc74fdc6a4a6491d154b37112",
+        "task_901111e067fb12c0b8a870ec754a59f7",
+        "task_6a4f59e8780dec266fffb85d2a0bd19b",
+        "task_922bfe472747c6270f23d0cf13814712",
+        "task_29dce9ba01111486de1dc6469e8e0846",
+        "task_551064c787efa49fcfa32cbef65a919f",
+        "task_17142a2e4c7e260641e57f23754c751e",
+        "task_2c4aa78925702f33589d3eb222684270",
+        "task_1aeb0099bfea761468fe8157e89292b1",
+        "task_e35d653e103dbba21b6d3b156d7cd1cc",
+        "task_6ab0ea5a9438fac43e193b8a6c02fafc",
+        "task_a29def56a1652a6718b4ba8433d9d8a2",
+        "task_f89cd55ae99fcc80435cbe0d0c0353c2",
+        "task_debb520a551e3c760a5da2fcceea5cb5"
+      ],
+      "plan": {
+        "from": {
+          "join": {
+            "left": {
+              "product": "scale_orders",
+              "role": "scale_orders"
+            },
+            "right": {
+              "product": "scale_lineitem",
+              "role": "scale_lineitem"
+            },
+            "on": [
+              {
+                "left": "scale_orders.o_orderkey",
+                "right": "scale_lineitem.l_orderkey"
+              }
+            ]
+          }
+        },
+        "columns": [
+          "scale_orders.o_orderstatus"
+        ],
+        "aggregates": [
+          {
+            "function": "sum",
+            "column": "scale_lineitem.l_extendedprice",
+            "alias": "revenue"
+          },
+          {
+            "function": "sum",
+            "column": "scale_lineitem.l_linenumber",
+            "alias": "line_positions"
+          },
+          {
+            "function": "count",
+            "column": "*",
+            "alias": "items"
+          }
+        ],
+        "filters": [
+          {
+            "column": "scale_lineitem.l_orderkey",
+            "op": "<=",
+            "value": 45000
+          }
+        ],
+        "group_by": [
+          "scale_orders.o_orderstatus"
+        ]
+      },
+      "direct_sql": "SELECT o.o_orderstatus, sum(l.l_extendedprice) AS revenue, sum(l.l_linenumber) AS line_positions, count(*) AS items FROM reporting.scale_orders AS o JOIN reporting.scale_lineitem AS l ON l.l_orderkey = o.o_orderkey WHERE o.dataset_partition = 1 AND l.dataset_partition = 1 AND l.l_orderkey <= 45000 GROUP BY o.o_orderstatus ORDER BY o.o_orderstatus",
+      "expected": {
+        "row_count": 3,
+        "release_facts": 12,
+        "influence_facts": 1035000,
+        "outcome_facts": 1
+      }
+    },
+    {
+      "id": "join-group-max-point-overlap-50",
+      "shape": "join_group",
+      "target_overlap_percent": 50,
+      "overlap_dimension": "influence",
+      "task_ids": [
+        "task_8695c1291c9be98b78f54e5c8b1641b0",
+        "task_6d1c2c3d3904aa59135390e4cd9a5e65",
+        "task_1397839c5d301ea7311bf528c48249b7",
+        "task_a741b2e20e8dd896d5dd3f9bf9142877",
+        "task_3c3240e431bc12e3a9124dfa529a4e23",
+        "task_d1e114b7e110e3f4c87ff0a92417c1c6",
+        "task_d5d967d4aac0cb55c61287b367501a2d",
+        "task_39974792250b948a53397079ad045055",
+        "task_70980af5f388ad2e74f856b0e904ab39",
+        "task_864b2bdaa71302343cfc4b05de56be83",
+        "task_9037c0b3be50c9ac92da2724b0db4e46",
+        "task_a3a9413bb1642f1938db229ae5bd5117",
+        "task_b91803e02ce48e708aa6ec2b4d30a0a4",
+        "task_5b47a77b1904c859abeb5c4a51763823",
+        "task_78f9f1f60fb8debdc1f5fcec820a1e8f",
+        "task_63749dac2fc2d7320b968277587b0cc3",
+        "task_9d8cf99400ca8afe69973b03d7f71524",
+        "task_0fdd59e14dc970b08706b6ecb17b25e6",
+        "task_c1f292414c5c7975d79f7f7f4196d09c",
+        "task_e370f2d6a2dc82a2d751d3d0870d3b25"
+      ],
+      "setup_plans": [
+        {
+          "from": {
+            "join": {
+              "left": {
+                "product": "scale_orders",
+                "role": "scale_orders"
+              },
+              "right": {
+                "product": "scale_lineitem",
+                "role": "scale_lineitem"
+              },
+              "on": [
+                {
+                  "left": "scale_orders.o_orderkey",
+                  "right": "scale_lineitem.l_orderkey"
+                }
+              ]
+            }
+          },
+          "columns": [
+            "scale_orders.o_orderstatus"
+          ],
+          "aggregates": [
+            {
+              "function": "sum",
+              "column": "scale_lineitem.l_extendedprice",
+              "alias": "revenue"
+            },
+            {
+              "function": "sum",
+              "column": "scale_lineitem.l_linenumber",
+              "alias": "line_positions"
+            },
+            {
+              "function": "count",
+              "column": "*",
+              "alias": "items"
+            }
+          ],
+          "filters": [
+            {
+              "column": "scale_lineitem.l_orderkey",
+              "op": "<=",
+              "value": 22500
+            }
+          ],
+          "group_by": [
+            "scale_orders.o_orderstatus"
+          ]
+        }
+      ],
+      "plan": {
+        "from": {
+          "join": {
+            "left": {
+              "product": "scale_orders",
+              "role": "scale_orders"
+            },
+            "right": {
+              "product": "scale_lineitem",
+              "role": "scale_lineitem"
+            },
+            "on": [
+              {
+                "left": "scale_orders.o_orderkey",
+                "right": "scale_lineitem.l_orderkey"
+              }
+            ]
+          }
+        },
+        "columns": [
+          "scale_orders.o_orderstatus"
+        ],
+        "aggregates": [
+          {
+            "function": "sum",
+            "column": "scale_lineitem.l_extendedprice",
+            "alias": "revenue"
+          },
+          {
+            "function": "sum",
+            "column": "scale_lineitem.l_linenumber",
+            "alias": "line_positions"
+          },
+          {
+            "function": "count",
+            "column": "*",
+            "alias": "items"
+          }
+        ],
+        "filters": [
+          {
+            "column": "scale_lineitem.l_orderkey",
+            "op": "<=",
+            "value": 45000
+          }
+        ],
+        "group_by": [
+          "scale_orders.o_orderstatus"
+        ]
+      },
+      "direct_sql": "SELECT o.o_orderstatus, sum(l.l_extendedprice) AS revenue, sum(l.l_linenumber) AS line_positions, count(*) AS items FROM reporting.scale_orders AS o JOIN reporting.scale_lineitem AS l ON l.l_orderkey = o.o_orderkey WHERE o.dataset_partition = 1 AND l.dataset_partition = 1 AND l.l_orderkey <= 45000 GROUP BY o.o_orderstatus ORDER BY o.o_orderstatus",
+      "expected": {
+        "row_count": 3,
+        "release_facts": 12,
+        "influence_facts": 1035000,
+        "outcome_facts": 1
+      }
+    },
+    {
+      "id": "join-group-max-point-overlap-90",
+      "shape": "join_group",
+      "target_overlap_percent": 90,
+      "overlap_dimension": "influence",
+      "task_ids": [
+        "task_232447e861f9fba150e937d871e9e45c",
+        "task_4fb8d81b21308f572c6d1e9fdd896c2b",
+        "task_a15339f1b218208bd937d8428550ec77",
+        "task_23fd21b5312aad354a0a79a44d12edd9",
+        "task_eddc07ae88fc84b160cdedf0d6662be2",
+        "task_6817b3b52283da47feaccb60d6630696",
+        "task_9b21b99c3002b67ff3b05a7a82fc57b7",
+        "task_d9d3b50f51609534028ec8b76a392cda",
+        "task_1c770b72967821b95223acd11a2abfbc",
+        "task_fac2b49cfbf1b8562218e0bd51006ce8",
+        "task_4477afbdc32483bfbf8cbfd228457919",
+        "task_448500c688105db633d43a3685bafddc",
+        "task_80e30abdf3c93ab3c46d9b05ee45feeb",
+        "task_28f06dff28b1278ee23ad03af9a899c5",
+        "task_ebeab5ac4f69b3936ea26de983fc586a",
+        "task_bad3204389fe220e15e8b5825a45f5f7",
+        "task_6313b93de1cbcecf4d55687a6641d31f",
+        "task_cf0bf6a10ff1a0a5c827849c9a853ecd",
+        "task_7f95346e1e6f3a3f706e3093cb67f675",
+        "task_912a4fb180ee59071ff16a742db1abdb"
+      ],
+      "setup_plans": [
+        {
+          "from": {
+            "join": {
+              "left": {
+                "product": "scale_orders",
+                "role": "scale_orders"
+              },
+              "right": {
+                "product": "scale_lineitem",
+                "role": "scale_lineitem"
+              },
+              "on": [
+                {
+                  "left": "scale_orders.o_orderkey",
+                  "right": "scale_lineitem.l_orderkey"
+                }
+              ]
+            }
+          },
+          "columns": [
+            "scale_orders.o_orderstatus"
+          ],
+          "aggregates": [
+            {
+              "function": "sum",
+              "column": "scale_lineitem.l_extendedprice",
+              "alias": "revenue"
+            },
+            {
+              "function": "sum",
+              "column": "scale_lineitem.l_linenumber",
+              "alias": "line_positions"
+            },
+            {
+              "function": "count",
+              "column": "*",
+              "alias": "items"
+            }
+          ],
+          "filters": [
+            {
+              "column": "scale_lineitem.l_orderkey",
+              "op": ">=",
+              "value": 1
+            },
+            {
+              "column": "scale_lineitem.l_orderkey",
+              "op": "<=",
+              "value": 8100
+            }
+          ],
+          "group_by": [
+            "scale_orders.o_orderstatus"
+          ]
+        },
+        {
+          "from": {
+            "join": {
+              "left": {
+                "product": "scale_orders",
+                "role": "scale_orders"
+              },
+              "right": {
+                "product": "scale_lineitem",
+                "role": "scale_lineitem"
+              },
+              "on": [
+                {
+                  "left": "scale_orders.o_orderkey",
+                  "right": "scale_lineitem.l_orderkey"
+                }
+              ]
+            }
+          },
+          "columns": [
+            "scale_orders.o_orderstatus"
+          ],
+          "aggregates": [
+            {
+              "function": "sum",
+              "column": "scale_lineitem.l_extendedprice",
+              "alias": "revenue"
+            },
+            {
+              "function": "sum",
+              "column": "scale_lineitem.l_linenumber",
+              "alias": "line_positions"
+            },
+            {
+              "function": "count",
+              "column": "*",
+              "alias": "items"
+            }
+          ],
+          "filters": [
+            {
+              "column": "scale_lineitem.l_orderkey",
+              "op": ">=",
+              "value": 9001
+            },
+            {
+              "column": "scale_lineitem.l_orderkey",
+              "op": "<=",
+              "value": 17100
+            }
+          ],
+          "group_by": [
+            "scale_orders.o_orderstatus"
+          ]
+        },
+        {
+          "from": {
+            "join": {
+              "left": {
+                "product": "scale_orders",
+                "role": "scale_orders"
+              },
+              "right": {
+                "product": "scale_lineitem",
+                "role": "scale_lineitem"
+              },
+              "on": [
+                {
+                  "left": "scale_orders.o_orderkey",
+                  "right": "scale_lineitem.l_orderkey"
+                }
+              ]
+            }
+          },
+          "columns": [
+            "scale_orders.o_orderstatus"
+          ],
+          "aggregates": [
+            {
+              "function": "sum",
+              "column": "scale_lineitem.l_extendedprice",
+              "alias": "revenue"
+            },
+            {
+              "function": "sum",
+              "column": "scale_lineitem.l_linenumber",
+              "alias": "line_positions"
+            },
+            {
+              "function": "count",
+              "column": "*",
+              "alias": "items"
+            }
+          ],
+          "filters": [
+            {
+              "column": "scale_lineitem.l_orderkey",
+              "op": ">=",
+              "value": 18001
+            },
+            {
+              "column": "scale_lineitem.l_orderkey",
+              "op": "<=",
+              "value": 26100
+            }
+          ],
+          "group_by": [
+            "scale_orders.o_orderstatus"
+          ]
+        },
+        {
+          "from": {
+            "join": {
+              "left": {
+                "product": "scale_orders",
+                "role": "scale_orders"
+              },
+              "right": {
+                "product": "scale_lineitem",
+                "role": "scale_lineitem"
+              },
+              "on": [
+                {
+                  "left": "scale_orders.o_orderkey",
+                  "right": "scale_lineitem.l_orderkey"
+                }
+              ]
+            }
+          },
+          "columns": [
+            "scale_orders.o_orderstatus"
+          ],
+          "aggregates": [
+            {
+              "function": "sum",
+              "column": "scale_lineitem.l_extendedprice",
+              "alias": "revenue"
+            },
+            {
+              "function": "sum",
+              "column": "scale_lineitem.l_linenumber",
+              "alias": "line_positions"
+            },
+            {
+              "function": "count",
+              "column": "*",
+              "alias": "items"
+            }
+          ],
+          "filters": [
+            {
+              "column": "scale_lineitem.l_orderkey",
+              "op": ">=",
+              "value": 27001
+            },
+            {
+              "column": "scale_lineitem.l_orderkey",
+              "op": "<=",
+              "value": 35100
+            }
+          ],
+          "group_by": [
+            "scale_orders.o_orderstatus"
+          ]
+        },
+        {
+          "from": {
+            "join": {
+              "left": {
+                "product": "scale_orders",
+                "role": "scale_orders"
+              },
+              "right": {
+                "product": "scale_lineitem",
+                "role": "scale_lineitem"
+              },
+              "on": [
+                {
+                  "left": "scale_orders.o_orderkey",
+                  "right": "scale_lineitem.l_orderkey"
+                }
+              ]
+            }
+          },
+          "columns": [
+            "scale_orders.o_orderstatus"
+          ],
+          "aggregates": [
+            {
+              "function": "sum",
+              "column": "scale_lineitem.l_extendedprice",
+              "alias": "revenue"
+            },
+            {
+              "function": "sum",
+              "column": "scale_lineitem.l_linenumber",
+              "alias": "line_positions"
+            },
+            {
+              "function": "count",
+              "column": "*",
+              "alias": "items"
+            }
+          ],
+          "filters": [
+            {
+              "column": "scale_lineitem.l_orderkey",
+              "op": ">=",
+              "value": 36001
+            },
+            {
+              "column": "scale_lineitem.l_orderkey",
+              "op": "<=",
+              "value": 44100
+            }
+          ],
+          "group_by": [
+            "scale_orders.o_orderstatus"
+          ]
+        }
+      ],
+      "plan": {
+        "from": {
+          "join": {
+            "left": {
+              "product": "scale_orders",
+              "role": "scale_orders"
+            },
+            "right": {
+              "product": "scale_lineitem",
+              "role": "scale_lineitem"
+            },
+            "on": [
+              {
+                "left": "scale_orders.o_orderkey",
+                "right": "scale_lineitem.l_orderkey"
+              }
+            ]
+          }
+        },
+        "columns": [
+          "scale_orders.o_orderstatus"
+        ],
+        "aggregates": [
+          {
+            "function": "sum",
+            "column": "scale_lineitem.l_extendedprice",
+            "alias": "revenue"
+          },
+          {
+            "function": "sum",
+            "column": "scale_lineitem.l_linenumber",
+            "alias": "line_positions"
+          },
+          {
+            "function": "count",
+            "column": "*",
+            "alias": "items"
+          }
+        ],
+        "filters": [
+          {
+            "column": "scale_lineitem.l_orderkey",
+            "op": "<=",
+            "value": 45000
+          }
+        ],
+        "group_by": [
+          "scale_orders.o_orderstatus"
+        ]
+      },
+      "direct_sql": "SELECT o.o_orderstatus, sum(l.l_extendedprice) AS revenue, sum(l.l_linenumber) AS line_positions, count(*) AS items FROM reporting.scale_orders AS o JOIN reporting.scale_lineitem AS l ON l.l_orderkey = o.o_orderkey WHERE o.dataset_partition = 1 AND l.dataset_partition = 1 AND l.l_orderkey <= 45000 GROUP BY o.o_orderstatus ORDER BY o.o_orderstatus",
+      "expected": {
+        "row_count": 3,
+        "release_facts": 12,
+        "influence_facts": 1035000,
+        "outcome_facts": 1
+      }
+    },
+    {
+      "id": "join-group-max-point-overlap-100",
+      "shape": "join_group",
+      "target_overlap_percent": 100,
+      "overlap_dimension": "influence",
+      "task_ids": [
+        "task_f4e0ccb41253a136c677235bfa63272a",
+        "task_0704a06eff2403dbd8805c8fde0c7d6b",
+        "task_5deddc240538022993caa2015e9a4457",
+        "task_006b8971ca234d0f84b4c0e7ec702608",
+        "task_f7fc876a2a78d24fea40c9f0a0f2265f",
+        "task_f5582e8f3dd11f62dd32667ffdc8f106",
+        "task_2098dfea11b3e77be5d00f64cb149bb8",
+        "task_35f13e41924a4c266e7cccbf509b8bb9",
+        "task_49b658d2d64d23505d5dc95b7599d096",
+        "task_f2ec64bd040c065403a8ef912742db2d",
+        "task_a4fbb83ced9c759451f347dfa1483b7b",
+        "task_212f7be851beb03c3a5db4558977fed4",
+        "task_dbdefe0ba455666764c4f8167239a378",
+        "task_dcb2db9e781d85ca0943f2e2f98c99ca",
+        "task_b093e7b852a61a7b4e11765b39038005",
+        "task_e834317b29f80c31eed74ce71bc82f22",
+        "task_38c6c4f800e6a2f636545a408a9e4c92",
+        "task_d37d2dc4641acb0d42b7b465ec3b447e",
+        "task_c0d47c3d5e793daabe6980fa00f5f301",
+        "task_de6b2f171ce7058ae929c490af0dc538"
+      ],
+      "setup_plans": [
+        {
+          "from": {
+            "join": {
+              "left": {
+                "product": "scale_orders",
+                "role": "scale_orders"
+              },
+              "right": {
+                "product": "scale_lineitem",
+                "role": "scale_lineitem"
+              },
+              "on": [
+                {
+                  "left": "scale_orders.o_orderkey",
+                  "right": "scale_lineitem.l_orderkey"
+                }
+              ]
+            }
+          },
+          "columns": [
+            "scale_orders.o_orderstatus"
+          ],
+          "aggregates": [
+            {
+              "function": "sum",
+              "column": "scale_lineitem.l_extendedprice",
+              "alias": "revenue"
+            },
+            {
+              "function": "sum",
+              "column": "scale_lineitem.l_linenumber",
+              "alias": "line_positions"
+            },
+            {
+              "function": "count",
+              "column": "*",
+              "alias": "items"
+            }
+          ],
+          "filters": [
+            {
+              "column": "scale_lineitem.l_orderkey",
+              "op": ">=",
+              "value": 1
+            },
+            {
+              "column": "scale_lineitem.l_orderkey",
+              "op": "<=",
+              "value": 45000
+            }
+          ],
+          "group_by": [
+            "scale_orders.o_orderstatus"
+          ]
+        }
+      ],
+      "plan": {
+        "from": {
+          "join": {
+            "left": {
+              "product": "scale_orders",
+              "role": "scale_orders"
+            },
+            "right": {
+              "product": "scale_lineitem",
+              "role": "scale_lineitem"
+            },
+            "on": [
+              {
+                "left": "scale_orders.o_orderkey",
+                "right": "scale_lineitem.l_orderkey"
+              }
+            ]
+          }
+        },
+        "columns": [
+          "scale_orders.o_orderstatus"
+        ],
+        "aggregates": [
+          {
+            "function": "sum",
+            "column": "scale_lineitem.l_extendedprice",
+            "alias": "revenue"
+          },
+          {
+            "function": "sum",
+            "column": "scale_lineitem.l_linenumber",
+            "alias": "line_positions"
+          },
+          {
+            "function": "count",
+            "column": "*",
+            "alias": "items"
+          }
+        ],
+        "filters": [
+          {
+            "column": "scale_lineitem.l_orderkey",
+            "op": "<=",
+            "value": 45000
+          }
+        ],
+        "group_by": [
+          "scale_orders.o_orderstatus"
+        ]
+      },
+      "direct_sql": "SELECT o.o_orderstatus, sum(l.l_extendedprice) AS revenue, sum(l.l_linenumber) AS line_positions, count(*) AS items FROM reporting.scale_orders AS o JOIN reporting.scale_lineitem AS l ON l.l_orderkey = o.o_orderkey WHERE o.dataset_partition = 1 AND l.dataset_partition = 1 AND l.l_orderkey <= 45000 GROUP BY o.o_orderstatus ORDER BY o.o_orderstatus",
+      "expected": {
+        "row_count": 3,
+        "release_facts": 12,
+        "influence_facts": 1035000,
+        "outcome_facts": 1
+      }
+    },
+    {
+      "id": "scan-scale-overlap-0",
+      "shape": "scan",
+      "target_overlap_percent": 0,
+      "overlap_dimension": "influence",
+      "task_ids": [
+        "task_610ead4533d606f3a0dee6b41a51adff",
+        "task_2ad0449ccb107cbfdb81bbf6b929f094",
+        "task_34d5e909d48c6ab20b1e06824a9c80b8",
+        "task_e81090140755b0e7d985afb9429bbec6",
+        "task_338f3e0426cd10a62620dadbddb28932",
+        "task_3ae22d77eec84386dae984baaaefd39a",
+        "task_34d3b138e1eabf5262051d7ecea3d887",
+        "task_2f1ae6bc518bbc86e68af465456a7283",
+        "task_ecbdea65a0564b62f7e7a89c31777bf7",
+        "task_832dc4a532ff8865c6ca13e91ebbe4fa",
+        "task_b6b0bfd51e73bbcf91196ff4fe0f393b",
+        "task_d11e69d4953925a1bfb194345d7a9e1d",
+        "task_ae5c88a00afdedc59a9b3804635a96b3",
+        "task_d3122d981ea685bb4b3a7df56c453029",
+        "task_e1f11d98229f8dbc3bba2711063d28b1",
+        "task_154edce44559129156bcc2d6a29c6ebe",
+        "task_ef0c240b9e5da0efa97f61ca8dfacfb1",
+        "task_fc9778c9f583097cd1df11f4697f2863",
+        "task_c49bd1ee35be8a2e49ed4a833d6a0ad2",
+        "task_f64b0454a70c75f356e6767e5cc4d5e3"
+      ],
+      "plan": {
+        "product": "scale_orders",
+        "columns": [
+          "o_orderkey",
+          "o_orderstatus"
+        ],
+        "filters": [
+          {
+            "column": "o_orderkey",
+            "op": "=",
+            "value": 1
+          }
+        ],
+        "order_by": [
+          {
+            "column": "o_orderkey",
+            "direction": "asc"
+          }
+        ]
+      },
+      "direct_sql": "SELECT o_orderkey, o_orderstatus FROM reporting.scale_orders WHERE dataset_partition = 1 AND o_orderkey = 1 ORDER BY o_orderkey",
+      "expected": {
+        "row_count": 1,
+        "outcome_facts": 1
+      },
+      "small_query": true
+    },
+    {
+      "id": "page-scale-overlap-0",
+      "shape": "page",
+      "target_overlap_percent": 0,
+      "overlap_dimension": "influence",
+      "task_ids": [
+        "task_752046bce9b0f1c81191cea25577613f",
+        "task_beea414b8709b6b297fee61f20d3e5c4",
+        "task_4a227d877e5cf19cf17e901e979758b3",
+        "task_e6859c22d9450fd7c8c15615609250d0",
+        "task_2be54f22eb3c5e78449cf2aa2e1e2863",
+        "task_475fab8b1c2fd249d44f37aa94493813",
+        "task_5b0a790a8035afdc91dfa1776b077ddd",
+        "task_ea6bb8e70898f3c6138e39656f8e4ea4",
+        "task_16269f6c9f09ee30280c6b913d29d44d",
+        "task_e9e5384fbaef4be567a97174b138c755",
+        "task_defa29e9af514d325b16696ec4ab0b3e",
+        "task_f010de81aec85098334126836c796e2d",
+        "task_0c3a5b2969c583aacce5b14f3b607ce2",
+        "task_3008adcff39f90f9b283704fe701c937",
+        "task_f4b0840292dc2246780f816770543226",
+        "task_2f4f6cf47260ef15dd78d156e7594b9c",
+        "task_7de27148f6704e67fb8e937873d808b8",
+        "task_fcadfc6fe2cfaa9c1e12647c6c6c99ed",
+        "task_f69435a92e051a2ff0ba6a6be67249d5",
+        "task_2f4149cfde0355af89e5ec18db327d29"
+      ],
+      "plan": {
+        "product": "scale_lineitem",
+        "columns": [
+          "l_orderkey",
+          "l_linenumber",
+          "l_extendedprice"
+        ],
+        "filters": [
+          {
+            "column": "l_orderkey",
+            "op": "<=",
+            "value": 20
+          }
+        ],
+        "order_by": [
+          {
+            "column": "l_orderkey",
+            "direction": "asc"
+          },
+          {
+            "column": "l_linenumber",
+            "direction": "asc"
+          }
+        ],
+        "limit": 20,
+        "offset": 20
+      },
+      "direct_sql": "SELECT l_orderkey, l_linenumber, l_extendedprice FROM reporting.scale_lineitem WHERE dataset_partition = 1 AND l_orderkey <= 20 ORDER BY l_orderkey, l_linenumber LIMIT 20 OFFSET 20",
+      "expected": {
+        "row_count": 20,
+        "outcome_facts": 1
+      },
+      "small_query": true
+    },
+    {
+      "id": "union-scale-overlap-0",
+      "shape": "union",
+      "target_overlap_percent": 0,
+      "overlap_dimension": "influence",
+      "task_ids": [
+        "task_aa2fac4764658408dd656a253cc3d781",
+        "task_10315334be3d06184d4d9de5884b0b6c",
+        "task_6eb40ffdf589212ca035fc3b4e4eb139",
+        "task_d78a4c45fb8465b0a593ec0230fd4806",
+        "task_fe35e8f02395939c9cef383fdb344b95",
+        "task_22de189fdd4c9d835cca12f3b8d14968",
+        "task_3fe6134baac7d03d8ef51bc6008b8cfe",
+        "task_1fe0d7d84d16db240102ff979ad60ca4",
+        "task_57afe5798b2d25a10936782c74d7e1ae",
+        "task_8f1f637415edcf0bd3cc1fecaab657bb",
+        "task_72ef5aec69dc7083664ffb8b688cc91f",
+        "task_6261da644d8fadf64b941372178bdd62",
+        "task_4e8482e4c75c0e3d80ee08b3628da993",
+        "task_bc5ef4631eee515f3b6c4ff6a392c27a",
+        "task_d4a1d42eef5c1cd8a637eeaab4d301f5",
+        "task_5dc527ce00a45c6b63452c93374e706a",
+        "task_dc7526ea321e91fc3a0ac6c6b64e051f",
+        "task_9b269de86bd6194848a970413bf3fec7",
+        "task_c7fafee62a13d2fbfa66e53d2edc1eab",
+        "task_962aae7a1e6391519b921d583ce0fd22"
+      ],
+      "plan": {
+        "from": {
+          "union_distinct": {
+            "role": "scale_orders",
+            "columns": [
+              "o_orderkey",
+              "o_orderstatus"
+            ],
+            "left": {
+              "product": "scale_orders",
+              "role": "scale_orders_left",
+              "filters": [
+                {
+                  "column": "o_orderkey",
+                  "op": "<=",
+                  "value": 20
+                }
+              ]
+            },
+            "right": {
+              "product": "scale_orders",
+              "role": "scale_orders_right",
+              "filters": [
+                {
+                  "column": "o_orderkey",
+                  "op": ">",
+                  "value": 20
+                },
+                {
+                  "column": "o_orderkey",
+                  "op": "<=",
+                  "value": 40
+                }
+              ]
+            }
+          }
+        },
+        "columns": [
+          "scale_orders.o_orderkey",
+          "scale_orders.o_orderstatus"
+        ]
+      },
+      "direct_sql": "SELECT o_orderkey, o_orderstatus FROM reporting.scale_orders WHERE dataset_partition = 1 AND o_orderkey <= 20 UNION SELECT o_orderkey, o_orderstatus FROM reporting.scale_orders WHERE dataset_partition = 1 AND o_orderkey > 20 AND o_orderkey <= 40 ORDER BY o_orderkey, o_orderstatus",
+      "expected": {
+        "row_count": 40,
+        "outcome_facts": 1
+      },
+      "small_query": true
+    }
+  ],
+  "observer": {
+    "argv": [
+      "/usr/local/bin/v4-compose-observer"
+    ],
+    "timeout_ms": 5000,
+    "required": true,
+    "business_sql_counter": "business_sql_queries_total",
+    "network_rx_counter": "gateway_network_rx_bytes",
+    "network_tx_counter": "gateway_network_tx_bytes",
+    "required_memory_scope": "cgroup_v2_memory_peak_including_mmap",
+    "gateway_peak_memory_metric": "gateway_memory_peak_bytes"
+  },
+  "index_build": {
+    "argv": [
+      "/usr/local/bin/v4-offline",
+      "build",
+      "-input",
+      "/usr/local/share/taskgate/snapshots/scale-orders-v4-narrow-1.json",
+      "-input",
+      "/usr/local/share/taskgate/snapshots/scale-lineitem-v4-narrow-1.json",
+      "-output-dir",
+      "{{run_dir}}"
+    ],
+    "runs": 1,
+    "timeout_ms": 600000,
+    "single_process": true,
+    "artifact_paths": [
+      "{{run_dir}}"
+    ],
+    "hot_paths": [
+      "{{run_dir}}/scale-orders-v4-narrow-1/scale-orders-v4-narrow-1.hot.tgord",
+      "{{run_dir}}/scale-lineitem-v4-narrow-1/scale-lineitem-v4-narrow-1.hot.tgord"
+    ]
+  },
+  "activation_verification": {
+    "argv": [
+      "/usr/local/bin/v4-offline",
+      "verify",
+      "-input",
+      "/usr/local/share/taskgate/snapshots/scale-orders-v4-narrow-1.json",
+      "-input",
+      "/usr/local/share/taskgate/snapshots/scale-lineitem-v4-narrow-1.json",
+      "-artifact-dir",
+      "/var/lib/taskgate/snapshot-index",
+      "-receipt",
+      "{{verification_receipt}}"
+    ],
+    "runs": 1,
+    "timeout_ms": 30000,
+    "single_process": true
+  },
+  "activation": {
+    "argv": [
+      "/usr/local/bin/v4-offline",
+      "activate",
+      "-input",
+      "/usr/local/share/taskgate/snapshots/scale-orders-v4-narrow-1.json",
+      "-input",
+      "/usr/local/share/taskgate/snapshots/scale-lineitem-v4-narrow-1.json",
+      "-artifact-dir",
+      "/var/lib/taskgate/snapshot-index",
+      "-receipt",
+      "{{verification_receipt}}",
+      "-receipt-sha256",
+      "{{verification_receipt_sha256}}"
+    ],
+    "runs": 3,
+    "timeout_ms": 30000,
+    "single_process": true,
+    "warm_verified": true
+  },
+  "artifacts": {
+    "total_paths": [
+      "/var/lib/taskgate/snapshot-index"
+    ],
+    "hot_paths": [
+      "/var/lib/taskgate/snapshot-index/scale-orders-v4-narrow-1/scale-orders-v4-narrow-1.hot.tgord",
+      "/var/lib/taskgate/snapshot-index/scale-lineitem-v4-narrow-1/scale-lineitem-v4-narrow-1.hot.tgord"
+    ]
+  },
+  "environment_manifest": {
+    "path": "/evidence/environment.json",
+    "sha256": "0d7641bed3ba53ff0f3bb44beb0a8deb4851c0bef133fc6d7c63b49f9edddd62"
+  },
+  "small_query_baseline": {
+    "artifact_path": "/evidence/baseline.json",
+    "artifact_sha256": "7c223c3520e5f059039af55435c4b29cd172145e79c44ac93da300a19a4191ad",
+    "p50_ms": 13.45263,
+    "throughput_qps": 72.86209951172135
+  },
+  "small_query_candidate": {
+    "artifact_path": "/evidence/candidate.json",
+    "artifact_sha256": "49ce8c5486c01a62da6b7a997340c74d0cfaf2571a1fc1e0b75accd909795f76",
+    "p50_ms": 10.938447,
+    "throughput_qps": 89.09257637586285
+  }
+}

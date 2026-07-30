@@ -1,0 +1,215 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-07-30T07:15:37Z",
+  "project": "taskgate-v4-full-20260730t070232z",
+  "host": {
+    "cpu_model": "13th Gen Intel(R) Core(TM) i9-13900HX",
+    "logical_cpus": 32,
+    "memory_bytes": 16625901568,
+    "architecture": "x86_64",
+    "kernel": "Linux 6.18.33.2-microsoft-standard-WSL2",
+    "virtualization": "Docker Desktop on WSL2",
+    "timezone_for_campaign": "UTC"
+  },
+  "software": {
+    "repository_commit": "ab2bf34ef7c076e431ac2e13b4eaf42d99864b1d",
+    "repository_tree_state": "dirty-intended-v4-working-tree",
+    "repository_changed_path_count": 70,
+    "acceptance_source_sha256": "20ae76efb71df276774becc066e084061bd181b408e75109668e4256f29c613c",
+    "docker_engine": "29.1.3",
+    "docker_api": "1.52",
+    "docker_os_arch": "linux/amd64",
+    "cgroup_version": 2,
+    "images": {
+      "postgres_16_bookworm": "sha256:67d1da22f4037b29cdd93e03d870a4a1c4d079358367d0cbc56459e52cde205e",
+      "gateway": "sha256:88314025c0c6eaa9f885892e56677e552b31ad020047a19489da5d14085b75b2",
+      "oa_demo": "sha256:72ecf6aab01fb95e31e9d7994acd1170df7b2ace01158f54d200034e6bba85aa",
+      "snapshot_index_orders": "sha256:90a4ffc8c0cef420ade9e04d39f1a306df6d3fb6de64d1e80461e16e9fe9439e",
+      "snapshot_index_lineitem": "sha256:b2a190219e028469c0701fd6c4204f24365ef8f9a6296ea65f0376799625b0b1",
+      "snapshot_sidecar_install": "sha256:5bc199a3703e544d2e072f116ed7c02544b7d961caceb32839ff32c3e9198852",
+      "v4_acceptance": "sha256:f6980d6d7353bfff578609bdaf1e01ef97621cd9c234b7c55ee5550b82b1afab",
+      "v4_full_prepare": "sha256:8fb56caf7ca1248f1f895d95f877b5ad2bc0db668b33f3580a56d8bb3d126e53",
+      "candidate_gateway": "sha256:40f18b45d8aec1d3ea3c25ab6cf223c8fc26d4947caa91ed6c4a226f7f07243e"
+    },
+    "binary_sha256": {
+      "gateway": "393106d299ab2f84f81e09a086b73f425371c93d69b5e5cd99ac2b286b9937f5",
+      "candidate_gateway": "393106d299ab2f84f81e09a086b73f425371c93d69b5e5cd99ac2b286b9937f5",
+      "v4_acceptance": "4021a258b637dcd1d147ff56c1022c5d26e3933272240a4a766c583a6b1a5732",
+      "v4_offline": "ce169a552d93802becf99ace9f8e4dc463e58aca71bb29dc53e934bfc26ccf62",
+      "v4_compose_observer": "0952f8e8546105f77f481ad77c8042f6c87ff10a265a122111ef9dd500f8e459"
+    },
+    "catalog": {
+      "version": "2026-07-30.v4-full.2",
+      "host_sha256": "ed78fd995514fb1671bc577b4256611328994db2e3b90db15fcbdfafe91cf037",
+      "gateway_mount_sha256": "ed78fd995514fb1671bc577b4256611328994db2e3b90db15fcbdfafe91cf037",
+      "control_cutover_digest": "ed78fd995514fb1671bc577b4256611328994db2e3b90db15fcbdfafe91cf037"
+    },
+    "orchestration_sha256": {
+      "compose": "cc76d61a8425367b26487e6a4630a83df16cae234e379e864a4d5ad0622522a9",
+      "scale_overlay": "828f9316dfd6532c48ea3f4180a1a2a6d81aea5d5fb82716784dc6707d67d4da",
+      "observer_overlay": "0628a3cc887950433709ece4e14897d204b74c3fe513c1a17d666f16380e375f",
+      "full_overlay": "4d2d453e28b09c69cbbab303a6486928982e79cdbc74f9207834687ffbbb092d",
+      "full_template": "372293891f16bcabf4188d77f795588e61b68b304411a2b1e48c535445d8c2ee",
+      "provisioner": "b156206c77faaf640f22aadb99b4323262d6fc661f5f304142a78dc92bd29935",
+      "dockerfile": "2a547c9f4bdc388e6caf6c63fe39ce993c7d4b9bc05624f19d5eca517c656f43",
+      "evaluation_dockerfile": "72f57ac31bcf3300be3cf76b6b1dc4ce03f6c6bbf03bac9b98c5109ee05536f9"
+    },
+    "startup_containers": {
+      "snapshot_index_orders": {
+        "exit_code": 0,
+        "oom_killed": false,
+        "memory_limit_bytes": 4294967296,
+        "started_at": "2026-07-30T07:10:08.468409344Z",
+        "finished_at": "2026-07-30T07:10:14.583730944Z"
+      },
+      "snapshot_index_lineitem": {
+        "exit_code": 0,
+        "oom_killed": false,
+        "memory_limit_bytes": 4294967296,
+        "started_at": "2026-07-30T07:10:15.115527122Z",
+        "finished_at": "2026-07-30T07:11:05.180854759Z"
+      },
+      "snapshot_sidecar_install": {
+        "exit_code": 0,
+        "oom_killed": false,
+        "started_at": "2026-07-30T07:11:05.394634354Z",
+        "finished_at": "2026-07-30T07:11:12.635238842Z"
+      },
+      "gateway_startup_cgroup": {
+        "scope": "private-cgroup-v2-including-mmap",
+        "memory_current_bytes": 255066112,
+        "memory_peak_bytes": 504336384,
+        "memory_max_bytes": 2147483648,
+        "memory_swap_max_bytes": 0,
+        "memory_events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0
+        }
+      }
+    }
+  },
+  "database": {
+    "business": {
+      "engine": "PostgreSQL 16.14 (Debian 16.14-1.pgdg12+1)",
+      "database": "travel_demo",
+      "server_version_num": "160014",
+      "shared_buffers": "128MB",
+      "work_mem": "4MB",
+      "max_connections": "100",
+      "shared_preload_libraries": "pg_stat_statements",
+      "compute_query_id": "on",
+      "jit": "on",
+      "pg_stat_statements": "1.10",
+      "gateway_reader": {
+        "superuser": false,
+        "create_role": false,
+        "create_db": false,
+        "bypass_rls": false,
+        "settings": [
+          "default_transaction_read_only=on",
+          "statement_timeout=15min",
+          "search_path=pg_catalog"
+        ]
+      }
+    },
+    "control": {
+      "engine": "PostgreSQL 16.14 (Debian 16.14-1.pgdg12+1)",
+      "database": "taskbound_gateway",
+      "shared_buffers": "128MB",
+      "work_mem": "4MB",
+      "max_connections": "100",
+      "jit": "on",
+      "cutover_activated_at": "2026-07-30T07:11:17.227718Z",
+      "initial_counts": {
+        "tasks": 0,
+        "query_records": 0,
+        "legacy_exposure_ledgers": 0,
+        "v4_root_heads": 0,
+        "v4_reservations": 0,
+        "v4_observations": 0,
+        "v4_root_observations": 0,
+        "v4_materializations": 0,
+        "v4_dictionary_sets": 0,
+        "v4_dictionary_manifests": 2
+      }
+    }
+  },
+  "datasets": {
+    "name": "deterministic-tpch-derived-orders-lineitem-v1",
+    "counts": {
+      "scale_orders_rows": 50000,
+      "scale_lineitem_rows": 250000,
+      "scale_orders_sidecar_rows": 50000,
+      "scale_lineitem_sidecar_rows": 250000,
+      "installed_publications": 2
+    },
+    "relations": [
+      {"name": "reporting.scale_orders", "kind": "materialized_view", "owner": "taskgate_snapshot_owner", "gateway_select": true, "gateway_write": false},
+      {"name": "reporting.scale_lineitem", "kind": "materialized_view", "owner": "taskgate_snapshot_owner", "gateway_select": true, "gateway_write": false},
+      {"name": "taskgate_ordinal.scale_orders_v4_narrow_1", "kind": "table", "owner": "taskgate_snapshot_owner", "gateway_select": true, "gateway_write": false},
+      {"name": "taskgate_ordinal.scale_lineitem_v4_narrow_1", "kind": "table", "owner": "taskgate_snapshot_owner", "gateway_select": true, "gateway_write": false}
+    ],
+    "compiler_inputs": {
+      "scale_orders_v4_narrow_1_sha256": "fd116cc3183c5d0bcd11cc211227dd5a3f8ff400817ef3086e51af3f06c48417",
+      "scale_lineitem_v4_narrow_1_sha256": "d87123f310627c4b19fbc55621aaf22db62b6f7bfaff14a6c92cdd8d655dc2f4"
+    },
+    "artifact_verification": {
+      "receipt_path": "preflight-20260730T070232Z/artifact-verification-receipt.json",
+      "receipt_sha256": "dd65656b99d9b79df5c9e08fa007b2124388a52aca7622969f03198f9dbcfb2d",
+      "receipt_body_sha256": "dbbbd89e4aecc95ec67d66302783fd63ea2422946f37ff80c48e7bc473b3e5e5",
+      "verified_at": "2026-07-30T07:13:14.80838581Z",
+      "total_artifact_bytes": 1589225856,
+      "hot_artifact_bytes": 117607466,
+      "receipt_bound_activation_runs": 3,
+      "receipt_bound_activation_total_external_wall_seconds": 4.2,
+      "publications": [
+        {
+          "name": "scale-orders-v4-narrow-1",
+          "row_count": 50000,
+          "fact_count": 350000,
+          "segment_count": 7,
+          "manifest_digest": "be32bcfe3d0545dfe69e434c131ce6abf642cf14d4f898204a7dee120e2c6967",
+          "dictionary_digest": "89729d5455e158e1547ddaa9f2a98a50d99dabd5b0da5852209e256d3ecd22e7",
+          "sidecar_digest": "ae480874e97a165c67a6c174af7e427f7386d1d5e9fc44ec211af77fecfe54d4",
+          "cold_payload_digest": "f08abf095238515fc27d425fd7325c2e2f4b19c38b700900a22a041c16abca16",
+          "hot_index_digest": "45e175c044260ca0f69c06a0260b68bd075d392319371b0879a315466deba22c",
+          "bundle_sha256": "f59573b5270f97543de01af5ebe1d9d746dbad410e8d7c9f1631eea21e7c4fc7",
+          "artifact_bytes": 212194230,
+          "hot_artifact_bytes": 16603321
+        },
+        {
+          "name": "scale-lineitem-v4-narrow-1",
+          "row_count": 250000,
+          "fact_count": 2250000,
+          "segment_count": 9,
+          "manifest_digest": "f3608b9c4c35107b77d12fd7d60e928025f29cb2409182dc199a9fba3a4e1227",
+          "dictionary_digest": "9d4a425da232edb40e67ea77e61b224b816805cb52a2a63f63aa1590652c769c",
+          "sidecar_digest": "911572c80b75642c5faa6d610092c7e369319725a4cd975784f328fd45dc0768",
+          "cold_payload_digest": "11bacd274735643f15c32105189f172ebdd676ab73ab4075ba9f1f7bbac097c1",
+          "hot_index_digest": "fc91395836ba858b95381eb579ff4139ed6580ac2e71541fa7d5838aa722e78d",
+          "bundle_sha256": "552dd9a639e85a58d95385ea38e6d0f3ff06eedd7c561e53e1699d8b32bf64e3",
+          "artifact_bytes": 1377031626,
+          "hot_artifact_bytes": 101004145
+        }
+      ]
+    },
+    "small_query_comparison": {
+      "baseline_sha256": "7c223c3520e5f059039af55435c4b29cd172145e79c44ac93da300a19a4191ad",
+      "candidate_sha256": "49ce8c5486c01a62da6b7a997340c74d0cfaf2571a1fc1e0b75accd909795f76",
+      "candidate_samples": 200,
+      "baseline_p50_ms": 13.45263,
+      "candidate_p50_ms": 10.938447,
+      "baseline_throughput_qps": 72.86209951172135,
+      "candidate_throughput_qps": 89.09257637586285,
+      "query_history_hit_rate": 1,
+      "fact_history_hit_rate": 1,
+      "semantic_replay_hit_rate": 1,
+      "actual_facts": 1400,
+      "charged_facts": 0
+    }
+  }
+}

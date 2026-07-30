@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "campaign_id": "taskgate-v4-full-20260730t070232z",
+  "status": "complete_measured_campaign",
+  "acceptance": "pass",
+  "acceptance_source_sha256": "20ae76efb71df276774becc066e084061bd181b408e75109668e4256f29c613c",
+  "artifacts": {
+    "evaluation/v4-acceptance/evidence/results.json": "865400844e39db8aae2c698dd1601b8ed3c1d24b814c9160ea271ff15bed926a",
+    "evaluation/v4-acceptance/evidence/full-config.json": "67999fa93ce4800adfd22c75d10f724619ef970c49add0e390505aaf27f16c7a",
+    "evaluation/v4-acceptance/evidence/environment.json": "0d7641bed3ba53ff0f3bb44beb0a8deb4851c0bef133fc6d7c63b49f9edddd62",
+    "evaluation/v4-acceptance/evidence/activation-verification-receipt.json": "28f7912b048d409c19015d77b5b77b1eabebb079e4650499defc1f400f11c2fb",
+    "evaluation/v4-acceptance/evidence/preflight-artifact-verification-receipt.json": "dd65656b99d9b79df5c9e08fa007b2124388a52aca7622969f03198f9dbcfb2d",
+    "evaluation/v4-acceptance/evidence/small-query-candidate.json": "49ce8c5486c01a62da6b7a997340c74d0cfaf2571a1fc1e0b75accd909795f76",
+    "evaluation/v4-acceptance/evidence/small-query-results.json": "0442baeb9fac7474ab71dc047b1eb037bd7e20c1911be63976a9ce6ac5d54f97",
+    "evaluation/v4-acceptance/evidence/small-query-samples.jsonl": "9832248df51f952d984d579ba1df04579de84d55345909aef5e57c0fe1415b2e",
+    "evaluation/v4-acceptance/evidence/small-query-docker-stats.jsonl": "ba96bbff24c48455115a4f2891512e9e3e68c0278b30c6d69abd8f8d0cf262af",
+    "evaluation/exposure-performance/results.json": "7c223c3520e5f059039af55435c4b29cd172145e79c44ac93da300a19a4191ad"
+  }
+}

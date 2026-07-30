@@ -10,6 +10,13 @@ Build from the repository root:
 make paper
 ```
 
+Validate all source-controlled evidence and deterministically regenerate only
+the LaTeX evidence macros with:
+
+```sh
+make paper-evidence
+```
+
 The build first runs `make eval-exposure`, which refreshes the deterministic
 exposure report. `generate_evidence.py` then verifies:
 
@@ -19,11 +26,22 @@ exposure report. `generate_evidence.py` then verifies:
 - complete RQ1/RQ2/RQ3 oracle and integration results;
 - all raw files for the three-trial RQ4 campaign, including 7,896 full-path and
   23,400 ablation samples, reconstructed summaries, environment digest, and
-  the digest of the current gateway/benchmark source;
+  the digest of the archived, historically tested gateway/benchmark source;
 - the three-scale PostgreSQL 16 Join--Group report, its 27 direct/novel/replay
   points, exact million-fact accounting, raw-artifact digest, implementation
   digest, and service memory peaks;
+- the source-controlled V4 acceptance manifest, current tested-source digest,
+  fixed environment and verification receipts, all 30 implemented gates and
+  all 560 measured operations, including exact overlap, replay identity,
+  latency, cgroup-memory, network, WAL, offline-build, artifact, activation,
+  storage, and small-query-regression checks;
+- the V4 small-query candidate's 832 raw operation samples and Docker-memory
+  observations, from which its five benchmark cells are reconstructed before
+  comparison with the digest-bound legacy baseline;
 - the production Control PostgreSQL storage curve and budget-boundary trials;
+- compact source snapshots for the legacy performance, storage, and scale
+  campaigns, each uniquely bound to commit `38a35d7...` and re-hashed from
+  exact archived bytes instead of being compared with the newer V4 tree;
 - the model, configuration, and raw-log hashes in
   `formal/results/exposure_ledger.json` and
   `formal/results/exposure_bitmap_refinement.json`.
@@ -39,8 +57,11 @@ summary and safety properties. A local TeX syntax build is available through
 
 The draft reports controlled single-host evidence, including a TPC-H-derived
 (not official TPC-H) workload up to 225,000 joined members and 1,035,000
-dependency facts. It does not claim second-engine, multi-node, production-SLO,
-or live-LLM generality. The old TDSC manuscript remains available through
+dependency facts. The V4 bundle covers one fresh deployment with warm verified
+indexes; it does not claim the outstanding dense/clustered/random-sparse,
+same-root concurrent-CAS, or million-fact per-Fact independent-oracle
+campaigns, nor second-engine, multi-node, arbitrary-SQL, mutable-source,
+production-SLO, or live-LLM generality. The old TDSC manuscript remains available through
 `make paper-tdsc`; its results are not relabeled as exposure evidence. The
 source-controlled semantic, performance, storage, and scale reports are all
 consumed by the paper build.

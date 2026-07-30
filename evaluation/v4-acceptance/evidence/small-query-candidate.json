@@ -1,0 +1,556 @@
+{
+  "schema_version": 1,
+  "status": "smoke",
+  "started_at": "2026-07-30T07:02:01.765586934Z",
+  "finished_at": "2026-07-30T07:02:04.781245794Z",
+  "configuration": {
+    "cache_strategy": "warm",
+    "concurrency": [
+      1
+    ],
+    "lock_sample_interval_ms": 10,
+    "ramp_runs": 32,
+    "runs_per_worker": 200,
+    "task_concurrency_mode": "delegated_tasks_shared_root",
+    "workload": "expense_detail/sales/ordered/limit-1"
+  },
+  "task_family": {
+    "root_task_sha256": "b7b9cc1dd84e61074b312b69d785ac50a41d808ca0fdfa132330c1ff5f913b66",
+    "worker_count": 8
+  },
+  "metric_semantics": {
+    "client_peak_heap_bytes": "maximum Go HeapAlloc sampled every 5 ms during the cell",
+    "exposure_ledger_lock": "client-side duration of SELECT ... FOR UPDATE on the root ledger, including driver/server round-trip",
+    "fact_history_hit_rate": "(actual release+influence facts - newly charged facts) / actual facts",
+    "latency_ms": "client wall-clock latency per completed operation",
+    "ledger_growth": "after-minus-before root counters; V2 includes root fact rows/payload and global exposure_facts sizes, while V4 uses global v4_* relation sizes and leaves row/payload fields zero because facts are bitmap/dictionary encoded",
+    "lock_contention": "10 ms pg_stat_activity sampling; waiting_session_ms is a sampling approximation",
+    "percentiles": "Hyndman-Fan type 7 over per-operation samples",
+    "query_history_hit_rate": "fraction of exposure queries with nonzero actual facts and zero newly charged facts",
+    "semantic_replay_hit_rate": "fraction of full-path operations served from the committed semantic replay cache",
+    "service_peak_memory_bytes": "peak container memory usage from Docker stats; injected by the Compose wrapper",
+    "throughput_qps": "completed measured operations divided by cell wall-clock seconds"
+  },
+  "cells": [
+    {
+      "phase": "business_sql",
+      "concurrency": 1,
+      "samples": 200,
+      "elapsed_ms": 63.506703,
+      "throughput_qps": 3149.273864839118,
+      "latency_ms": {
+        "count": 200,
+        "min": 0.19145,
+        "p50": 0.2829125,
+        "p95": 0.46652154999999995,
+        "p99": 0.8339703499999996,
+        "max": 1.693821,
+        "mean": 0.3160126849999999
+      },
+      "database_ms": {
+        "count": 200,
+        "min": 0.041408,
+        "p50": 0.061695,
+        "p95": 0.12155349999999968,
+        "p99": 0.34376977999999725,
+        "max": 0.666424,
+        "mean": 0.07861051000000005
+      },
+      "client_peak_heap_bytes": 1255336,
+      "actual_facts": 0,
+      "charged_facts": 0
+    },
+    {
+      "phase": "paired_snapshot",
+      "concurrency": 1,
+      "samples": 200,
+      "elapsed_ms": 114.935558,
+      "throughput_qps": 1740.1055293958725,
+      "latency_ms": {
+        "count": 200,
+        "min": 0.331891,
+        "p50": 0.5324545,
+        "p95": 0.8915180999999995,
+        "p99": 1.1294475399999995,
+        "max": 1.76782,
+        "mean": 0.5729416000000002
+      },
+      "database_ms": {
+        "count": 200,
+        "min": 0.088091,
+        "p50": 0.1412225,
+        "p95": 0.26222179999999995,
+        "p99": 0.32480040999999843,
+        "max": 0.589332,
+        "mean": 0.15411566000000002
+      },
+      "client_peak_heap_bytes": 1818072,
+      "actual_facts": 0,
+      "charged_facts": 0
+    },
+    {
+      "phase": "paired_plus_algebra",
+      "concurrency": 1,
+      "samples": 200,
+      "elapsed_ms": 143.100221,
+      "throughput_qps": 1397.6218806817915,
+      "latency_ms": {
+        "count": 200,
+        "min": 0.405657,
+        "p50": 0.6596175,
+        "p95": 1.1161117999999999,
+        "p99": 1.624729069999998,
+        "max": 2.260827,
+        "mean": 0.7134565449999997
+      },
+      "database_ms": {
+        "count": 200,
+        "min": 0.090896,
+        "p50": 0.141321,
+        "p95": 0.2813204499999997,
+        "p99": 0.39448178999999955,
+        "max": 0.920818,
+        "mean": 0.16422158500000003
+      },
+      "component_ms": {
+        "exposure_derivation": {
+          "count": 200,
+          "min": 0.063593,
+          "p50": 0.0867925,
+          "p95": 0.18400914999999995,
+          "p99": 0.35311093999999965,
+          "max": 0.420447,
+          "mean": 0.10209788999999998
+        }
+      },
+      "client_peak_heap_bytes": 3628808,
+      "actual_facts": 1400,
+      "charged_facts": 0
+    },
+    {
+      "phase": "full_history_ramp",
+      "concurrency": 1,
+      "samples": 32,
+      "elapsed_ms": 434.70129,
+      "throughput_qps": 73.61376820390848,
+      "latency_ms": {
+        "count": 32,
+        "min": 9.922588,
+        "p50": 11.10841,
+        "p95": 27.39752055,
+        "p99": 37.83459453000002,
+        "max": 42.327126,
+        "mean": 13.5773130625
+      },
+      "database_ms": {
+        "count": 32,
+        "min": 1,
+        "p50": 1,
+        "p95": 1,
+        "p99": 1,
+        "max": 1,
+        "mean": 1
+      },
+      "component_ms": {
+        "authorization": {
+          "count": 32,
+          "min": 0.591376,
+          "p50": 0.701139,
+          "p95": 1.2861033,
+          "p99": 1.39215575,
+          "max": 1.393171,
+          "mean": 0.78238490625
+        },
+        "bitmap_derivation": {
+          "count": 4,
+          "min": 0.07186,
+          "p50": 0.0975385,
+          "p95": 0.10480885,
+          "p99": 0.10562977,
+          "max": 0.105835,
+          "mean": 0.093193
+        },
+        "business_postgresql": {
+          "count": 4,
+          "min": 0.27331,
+          "p50": 0.290921,
+          "p95": 0.4209299999999999,
+          "p99": 0.4390092,
+          "max": 0.443529,
+          "mean": 0.32467025
+        },
+        "connector_overhead": {
+          "count": 4,
+          "min": 1.141516,
+          "p50": 1.4099255,
+          "p95": 1.6979317999999999,
+          "p99": 1.71702476,
+          "max": 1.721798,
+          "mean": 1.42079125
+        },
+        "encryption": {
+          "count": 32,
+          "min": 0.001897,
+          "p50": 0.0026705,
+          "p95": 0.005625799999999998,
+          "p99": 0.011425720000000007,
+          "max": 0.01322,
+          "mean": 0.0032270625000000003
+        },
+        "exposure_derivation": {
+          "count": 4,
+          "min": 0.017789,
+          "p50": 0.021651499999999997,
+          "p95": 0.03144469999999999,
+          "p99": 0.03250334,
+          "max": 0.032768,
+          "mean": 0.023465
+        },
+        "exposure_fact_store": {
+          "count": 32,
+          "min": 0,
+          "p50": 0,
+          "p95": 3.4767055499999993,
+          "p99": 5.395741990000003,
+          "max": 6.007456,
+          "mean": 0.48980659375
+        },
+        "exposure_ledger_lock": {
+          "count": 32,
+          "min": 0,
+          "p50": 0,
+          "p95": 0.15490624999999997,
+          "p99": 0.2387131200000001,
+          "max": 0.265047,
+          "mean": 0.0211960625
+        },
+        "exposure_reservation_lock": {
+          "count": 32,
+          "min": 0.064387,
+          "p50": 0.101894,
+          "p95": 0.26339524999999997,
+          "p99": 0.3442179000000001,
+          "max": 0.362139,
+          "mean": 0.11793309375000001
+        },
+        "ordinal_finish": {
+          "count": 4,
+          "min": 0.017789,
+          "p50": 0.021651499999999997,
+          "p95": 0.03144469999999999,
+          "p99": 0.03250334,
+          "max": 0.032768,
+          "mean": 0.023465
+        },
+        "ordinal_stream": {
+          "count": 4,
+          "min": 0.306525,
+          "p50": 0.3616025,
+          "p95": 0.4856066,
+          "p99": 0.50016212,
+          "max": 0.503801,
+          "mean": 0.38338275
+        },
+        "ordinal_stream_consumer": {
+          "count": 4,
+          "min": 0.037968,
+          "p50": 0.049999,
+          "p95": 0.05553505,
+          "p99": 0.055863010000000005,
+          "max": 0.055945,
+          "mean": 0.04847775
+        },
+        "ordinal_visible_preparation": {
+          "count": 4,
+          "min": 0.016103,
+          "p50": 0.0201105,
+          "p95": 0.0274926,
+          "p99": 0.02844012,
+          "max": 0.028677,
+          "mean": 0.02125025
+        },
+        "parse_policy": {
+          "count": 32,
+          "min": 0.371838,
+          "p50": 0.4581555,
+          "p95": 0.8302420999999996,
+          "p99": 2.008882990000002,
+          "max": 2.399784,
+          "mean": 0.54815809375
+        },
+        "provenance_postgresql": {
+          "count": 4,
+          "min": 0.268557,
+          "p50": 0.310237,
+          "p95": 0.4333585,
+          "p99": 0.4471429,
+          "max": 0.450589,
+          "mean": 0.334905
+        },
+        "receipt_signing": {
+          "count": 32,
+          "min": 0.753937,
+          "p50": 0.8778995,
+          "p95": 1.5406441499999999,
+          "p99": 1.8479472200000002,
+          "max": 1.917058,
+          "mean": 0.96749075
+        },
+        "reserve": {
+          "count": 32,
+          "min": 1.639281,
+          "p50": 1.8915725,
+          "p95": 2.86315075,
+          "p99": 3.407271810000001,
+          "max": 3.585599,
+          "mean": 2.05108053125
+        },
+        "result_encoding": {
+          "count": 32,
+          "min": 0.007698,
+          "p50": 0.009391,
+          "p95": 0.028078749999999986,
+          "p99": 0.042429890000000005,
+          "max": 0.042548,
+          "mean": 0.01226759375
+        },
+        "semantic_replay": {
+          "count": 28,
+          "min": 0.224906,
+          "p50": 0.29191849999999997,
+          "p95": 0.5635318499999997,
+          "p99": 0.7632967900000001,
+          "max": 0.810742,
+          "mean": 0.33204610714285715
+        },
+        "semantic_replay_lookup": {
+          "count": 32,
+          "min": 0.224906,
+          "p50": 0.29652,
+          "p95": 0.8783360499999999,
+          "p99": 1.3496921800000008,
+          "max": 1.546766,
+          "mean": 0.41800703125
+        },
+        "settle_persist": {
+          "count": 32,
+          "min": 3.599031,
+          "p50": 4.08788,
+          "p95": 15.990635650000002,
+          "p99": 20.32703973000001,
+          "max": 22.267862,
+          "mean": 5.800140656249999
+        }
+      },
+      "client_peak_heap_bytes": 3630240,
+      "ledger_before": {
+        "release_used": 0,
+        "influence_used": 0,
+        "fact_rows": 0,
+        "fact_payload_bytes": 0,
+        "table_bytes": 204800,
+        "indexes_bytes": 286720
+      },
+      "ledger_after": {
+        "release_used": 12,
+        "influence_used": 16,
+        "fact_rows": 0,
+        "fact_payload_bytes": 0,
+        "table_bytes": 368640,
+        "indexes_bytes": 425984
+      },
+      "ledger_growth": {
+        "release_used": 12,
+        "influence_used": 16,
+        "fact_rows": 0,
+        "fact_payload_bytes": 0,
+        "table_bytes": 163840,
+        "indexes_bytes": 139264
+      },
+      "lock_contention": {
+        "samples": 43,
+        "samples_with_waiters": 0,
+        "max_waiting_sessions": 0,
+        "waiting_session_ms_approx": 0,
+        "sampler_errors": 0
+      },
+      "fact_history_hit_rate": 0.875,
+      "query_history_hit_rate": 0.875,
+      "semantic_replay_hit_rate": 0.875,
+      "actual_facts": 224,
+      "charged_facts": 28
+    },
+    {
+      "phase": "full_history_hit",
+      "concurrency": 1,
+      "samples": 200,
+      "elapsed_ms": 2244.855948,
+      "throughput_qps": 89.09257637586285,
+      "latency_ms": {
+        "count": 200,
+        "min": 9.439055,
+        "p50": 10.938447,
+        "p95": 13.47985595,
+        "p99": 16.82102903,
+        "max": 19.584999,
+        "mean": 11.220020569999996
+      },
+      "database_ms": {
+        "count": 200,
+        "min": 1,
+        "p50": 1,
+        "p95": 1,
+        "p99": 1,
+        "max": 1,
+        "mean": 1
+      },
+      "component_ms": {
+        "authorization": {
+          "count": 200,
+          "min": 0.529508,
+          "p50": 0.7187060000000001,
+          "p95": 1.1814077999999997,
+          "p99": 1.6615472999999978,
+          "max": 1.934716,
+          "mean": 0.773324425
+        },
+        "encryption": {
+          "count": 200,
+          "min": 0.001518,
+          "p50": 0.0024215,
+          "p95": 0.0042144999999999995,
+          "p99": 0.008988249999999993,
+          "max": 0.106534,
+          "mean": 0.003141340000000001
+        },
+        "exposure_fact_store": {
+          "count": 200,
+          "min": 0,
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "mean": 0
+        },
+        "exposure_ledger_lock": {
+          "count": 200,
+          "min": 0,
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "mean": 0
+        },
+        "exposure_reservation_lock": {
+          "count": 200,
+          "min": 0.053562,
+          "p50": 0.0913825,
+          "p95": 0.14083114999999982,
+          "p99": 0.2170244399999998,
+          "max": 0.24538,
+          "mean": 0.09701236000000005
+        },
+        "parse_policy": {
+          "count": 200,
+          "min": 0.368981,
+          "p50": 0.442367,
+          "p95": 0.8159526499999993,
+          "p99": 1.0387340599999997,
+          "max": 1.145326,
+          "mean": 0.4777074700000004
+        },
+        "receipt_signing": {
+          "count": 200,
+          "min": 0.693607,
+          "p50": 0.8783574999999999,
+          "p95": 1.4407672999999999,
+          "p99": 1.90870934,
+          "max": 2.014433,
+          "mean": 0.9423408699999999
+        },
+        "reserve": {
+          "count": 200,
+          "min": 1.55171,
+          "p50": 1.920373,
+          "p95": 2.8942357999999992,
+          "p99": 3.432967159999998,
+          "max": 3.651385,
+          "mean": 2.0574024349999998
+        },
+        "result_encoding": {
+          "count": 200,
+          "min": 0.006789,
+          "p50": 0.0090335,
+          "p95": 0.014029649999999998,
+          "p99": 0.019359999999999985,
+          "max": 0.024211,
+          "mean": 0.009656000000000005
+        },
+        "semantic_replay": {
+          "count": 200,
+          "min": 0.225903,
+          "p50": 0.2851445,
+          "p95": 0.4874817999999989,
+          "p99": 0.7200031299999999,
+          "max": 1.131777,
+          "mean": 0.31701045999999994
+        },
+        "semantic_replay_lookup": {
+          "count": 200,
+          "min": 0.225903,
+          "p50": 0.2851445,
+          "p95": 0.4874817999999989,
+          "p99": 0.7200031299999999,
+          "max": 1.131777,
+          "mean": 0.31701045999999994
+        },
+        "settle_persist": {
+          "count": 200,
+          "min": 3.192418,
+          "p50": 3.9354335000000003,
+          "p95": 5.14487485,
+          "p99": 6.558437119999998,
+          "max": 7.378898,
+          "mean": 4.099842030000001
+        }
+      },
+      "client_peak_heap_bytes": 3585224,
+      "ledger_before": {
+        "release_used": 12,
+        "influence_used": 16,
+        "fact_rows": 0,
+        "fact_payload_bytes": 0,
+        "table_bytes": 368640,
+        "indexes_bytes": 425984
+      },
+      "ledger_after": {
+        "release_used": 12,
+        "influence_used": 16,
+        "fact_rows": 0,
+        "fact_payload_bytes": 0,
+        "table_bytes": 516096,
+        "indexes_bytes": 573440
+      },
+      "ledger_growth": {
+        "release_used": 0,
+        "influence_used": 0,
+        "fact_rows": 0,
+        "fact_payload_bytes": 0,
+        "table_bytes": 147456,
+        "indexes_bytes": 147456
+      },
+      "lock_contention": {
+        "samples": 224,
+        "samples_with_waiters": 0,
+        "max_waiting_sessions": 0,
+        "waiting_session_ms_approx": 0,
+        "sampler_errors": 0
+      },
+      "fact_history_hit_rate": 1,
+      "query_history_hit_rate": 1,
+      "semantic_replay_hit_rate": 1,
+      "actual_facts": 1400,
+      "charged_facts": 0
+    }
+  ]
+}

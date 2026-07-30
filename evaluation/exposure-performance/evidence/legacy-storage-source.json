@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "campaign_id": "rq4-control-postgresql-storage-scaling",
+  "git_commit": "38a35d7bb3baff5a6f731b40a42dd4a26f28e29d",
+  "archive": "evaluation/exposure-performance/evidence/legacy-storage-source-38a35d7.tar.gz",
+  "archive_sha256": "6e36e627d23301a6c98b569c31948f8fe02d2cd98c21b5338c3dd50adf05f946",
+  "source_sha256": "b4b5b79fbe18964425ab2432c6e0d39573198a9f4a9a33c0a7cf65b19776cc10",
+  "source_file_count": 41,
+  "source_paths_sha256": "72e6aee1dd4c324c2867e600a7304d31fd6d8c2a1c9d971770c6bcd2a098cb06",
+  "source_digest_algorithm": "SHA-256 over sorted UTF-8 path, NUL, exact bytes, NUL frames"
+}

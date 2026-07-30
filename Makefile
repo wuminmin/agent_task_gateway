@@ -1,4 +1,4 @@
-.PHONY: verify test build up down logs formal eval-validate eval-exposure eval-exposure-performance eval-exposure-scale eval-exposure-storage eval-smoke eval-full artifacts fuzz paper paper-tkde paper-tdsc
+.PHONY: verify test build up down logs formal eval-validate eval-exposure eval-exposure-performance eval-exposure-scale eval-exposure-storage eval-smoke eval-full artifacts fuzz paper-evidence paper paper-tkde paper-tdsc
 
 verify:
 	docker build --target verify -t taskbound-agent-data-gateway-verify .
@@ -49,6 +49,9 @@ artifacts:
 
 fuzz:
 	./evaluation/fuzz/campaign.sh
+
+paper-evidence:
+	python3 paper/tkde/generate_evidence.py
 
 paper:
 	./paper/tkde/build-container.sh

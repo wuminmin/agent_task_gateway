@@ -4,11 +4,14 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import re
-import subprocess
-import sys
+import runpy
+import tarfile
 from pathlib import Path
+
+from v4_evidence import validate_v4_evidence
 
 
 PAPER_DIR = Path(__file__).resolve().parent
@@ -19,9 +22,12 @@ RQ1_ORACLE = ROOT / "evaluation/exposureoracle/oracle.go"
 PERFORMANCE = ROOT / "evaluation/exposure-performance/results.json"
 PERFORMANCE_ENVIRONMENT = ROOT / "evaluation/exposure-performance/environment.json"
 PERFORMANCE_SUMMARIZER = ROOT / "evaluation/exposure-performance/summarize_campaign.py"
+PERFORMANCE_SOURCE_PROVENANCE = ROOT / "evaluation/exposure-performance/evidence/legacy-rq4-source.json"
 PATH_ANALYSIS = ROOT / "evaluation/exposure-performance/path_analysis.json"
 STORAGE_SCALING = ROOT / "evaluation/exposure-storage/results.json"
+STORAGE_SOURCE_PROVENANCE = ROOT / "evaluation/exposure-performance/evidence/legacy-storage-source.json"
 SCALE = ROOT / "evaluation/exposure-scale/results.json"
+SCALE_SOURCE_PROVENANCE = ROOT / "evaluation/exposure-performance/evidence/legacy-scale-source.json"
 FORMAL = ROOT / "formal/results/exposure_ledger.json"
 FORMAL_BITMAP = ROOT / "formal/results/exposure_bitmap_refinement.json"
 OUTPUT = PAPER_DIR / "generated/evidence.tex"
@@ -61,6 +67,13 @@ SCALE_SOURCE_FILES = (
     "evaluation/exposure-scale/finalize.py",
     "evaluation/run-exposure-scale.sh",
 )
+
+STORAGE_SOURCE_DIRS = (
+    "evaluation/cmd/exposure-storage",
+    "internal/control",
+    "internal/exposure",
+)
+STORAGE_SOURCE_FILES = ("go.mod", "go.sum")
 
 
 def sha256(path: Path) -> str:
@@ -114,32 +127,105 @@ def performance_source_sha256() -> str:
     return path_set_sha256(paths)
 
 
-def scale_source_sha256() -> str:
-    paths = [ROOT / relative for relative in SCALE_SOURCE_FILES]
-    for relative in SCALE_SOURCE_DIRS:
-        paths.extend(
-            path
-            for path in (ROOT / relative).rglob("*")
-            if path.suffix in {".go", ".sql"}
-        )
-    return path_set_sha256(paths)
+def validate_historical_source(
+    provenance_path: Path,
+    expected_campaign: str,
+    reported_source_sha256: str,
+    source_dirs: tuple[str, ...],
+    source_files: tuple[str, ...],
+    source_suffixes: tuple[str, ...],
+) -> None:
+    provenance = load_json(provenance_path)
+    expected_archives = {
+        "rq4-local-postgresql-20260728":
+            "evaluation/exposure-performance/evidence/legacy-rq4-source-38a35d7.tar.gz",
+        "rq4-control-postgresql-storage-scaling":
+            "evaluation/exposure-performance/evidence/legacy-storage-source-38a35d7.tar.gz",
+        "rq4-postgresql16-multiscale-join-group":
+            "evaluation/exposure-performance/evidence/legacy-scale-source-38a35d7.tar.gz",
+    }
+    require(
+        set(provenance) == {
+            "schema_version", "campaign_id", "git_commit", "archive",
+            "archive_sha256", "source_sha256", "source_file_count",
+            "source_paths_sha256", "source_digest_algorithm",
+        }
+        and provenance.get("schema_version") == 1
+        and provenance.get("campaign_id") == expected_campaign
+        and provenance.get("git_commit") == "38a35d7bb3baff5a6f731b40a42dd4a26f28e29d"
+        and provenance.get("source_digest_algorithm")
+        == "SHA-256 over sorted UTF-8 path, NUL, exact bytes, NUL frames",
+        f"legacy {expected_campaign} source-snapshot manifest is invalid",
+    )
+    archive_relative = provenance.get("archive", "")
+    archive = ROOT / archive_relative
+    require(
+        archive_relative == expected_archives.get(expected_campaign)
+        and archive.is_file()
+        and not archive.is_symlink()
+        and 0 < archive.stat().st_size <= 4 * 1024 * 1024
+        and sha256(archive) == provenance.get("archive_sha256"),
+        "legacy RQ4 source archive is missing or stale",
+    )
+    files: dict[str, bytes] = {}
+    archive_raw = archive.read_bytes()
+    try:
+        with tarfile.open(fileobj=io.BytesIO(archive_raw), mode="r:gz") as handle:
+            members = handle.getmembers()
+            require(len({member.name for member in members}) == len(members),
+                    "legacy RQ4 source archive repeats a member")
+            for member in members:
+                path = Path(member.name)
+                require(
+                    member.name == path.as_posix()
+                    and not path.is_absolute()
+                    and ".." not in path.parts
+                    and not member.issym()
+                    and not member.islnk()
+                    and (member.isdir() or member.isreg()),
+                    f"unsafe legacy RQ4 source member {member.name!r}",
+                )
+                if member.isdir():
+                    continue
+                require(0 < member.size <= 32 * 1024 * 1024,
+                        f"invalid legacy RQ4 source member size for {member.name}")
+                extracted = handle.extractfile(member)
+                require(extracted is not None, f"cannot read legacy RQ4 source member {member.name}")
+                raw = extracted.read(member.size + 1)
+                require(len(raw) == member.size,
+                        f"legacy RQ4 source member {member.name} changed size")
+                files[member.name] = raw
+    except (tarfile.TarError, OSError) as error:
+        raise ValueError(f"invalid legacy RQ4 source archive: {error}") from error
 
-
-def storage_source_sha256() -> str:
-    paths = [ROOT / "go.mod", ROOT / "go.sum"]
-    for directory in (
-        ROOT / "evaluation/cmd/exposure-storage",
-        ROOT / "internal/control",
-        ROOT / "internal/exposure",
-    ):
-        paths.extend(path for path in directory.rglob("*") if path.suffix in {".go", ".sql"})
-    digest = hashlib.sha256()
-    for path in sorted(paths):
-        digest.update(path.relative_to(ROOT).as_posix().encode("utf-8"))
-        digest.update(b"\0")
-        digest.update(path.read_bytes())
-        digest.update(b"\0")
-    return digest.hexdigest()
+    require(
+        len(files) == provenance.get("source_file_count")
+        and all(
+            relative in source_files
+            or (
+                Path(relative).suffix in source_suffixes
+                and any(relative.startswith(directory + "/") for directory in source_dirs)
+            )
+            for relative in files
+        ),
+        "legacy RQ4 source archive file set is invalid",
+    )
+    path_digest = hashlib.sha256()
+    source_digest = hashlib.sha256()
+    for relative in sorted(files):
+        encoded = relative.encode("utf-8")
+        path_digest.update(encoded)
+        path_digest.update(b"\0")
+        source_digest.update(encoded)
+        source_digest.update(b"\0")
+        source_digest.update(files[relative])
+        source_digest.update(b"\0")
+    require(
+        path_digest.hexdigest() == provenance.get("source_paths_sha256")
+        and source_digest.hexdigest() == provenance.get("source_sha256")
+        == reported_source_sha256,
+        "legacy RQ4 historical source digest is not reproducible",
+    )
 
 
 def validate_exposure() -> dict:
@@ -305,18 +391,25 @@ def validate_exposure() -> dict:
 
 
 def validate_performance() -> dict:
-    reproduced = subprocess.run(
-        [sys.executable, str(PERFORMANCE_SUMMARIZER), "--check", "--output", str(PERFORMANCE)],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    require(
-        reproduced.returncode == 0,
-        "RQ4 raw campaign cannot reproduce the summary: " + reproduced.stderr.strip(),
-    )
     result = load_json(PERFORMANCE)
+    namespace = runpy.run_path(str(PERFORMANCE_SUMMARIZER))
+    reproduced = namespace["build_summary"](namespace["DEFAULT_RUNS"])
+    reproduced_source = reproduced.pop("gateway_benchmark_source_sha256", None)
+    published_without_source = dict(result)
+    published_without_source.pop("gateway_benchmark_source_sha256", None)
+    require(
+        reproduced_source == performance_source_sha256()
+        and reproduced == published_without_source,
+        "RQ4 raw campaign cannot reproduce the published non-source summary",
+    )
+    validate_historical_source(
+        PERFORMANCE_SOURCE_PROVENANCE,
+        result.get("campaign_id", ""),
+        result.get("gateway_benchmark_source_sha256", ""),
+        PERFORMANCE_SOURCE_DIRS,
+        PERFORMANCE_SOURCE_FILES,
+        (".go",),
+    )
     require(result.get("schema_version") == 2, "unsupported RQ4 report schema")
     require(result.get("status") == "complete_controlled_local_campaign", "RQ4 campaign is incomplete")
     require(result.get("trials") == 3 and result.get("observations") == 31296, "RQ4 trial/sample count is incomplete")
@@ -325,10 +418,6 @@ def validate_performance() -> dict:
         "RQ4 full-path/ablation operation partition is incorrect",
     )
     require(result.get("environment_sha256") == sha256(PERFORMANCE_ENVIRONMENT), "RQ4 environment digest is stale")
-    require(
-        result.get("gateway_benchmark_source_sha256") == performance_source_sha256(),
-        "RQ4 performance campaign source digest is stale",
-    )
     configuration = result.get("configuration", {})
     require(
         configuration.get("concurrency") == [1, 4, 8]
@@ -409,9 +498,16 @@ def validate_storage_scaling() -> dict:
         and result.get("status") == "complete_control_postgresql_storage_scaling"
         and result.get("trials") == 3
         and result.get("facts_per_ledger_sizes") == [10, 100, 1000, 10000]
-        and "PostgreSQL 16.14" in result.get("postgres_version", "")
-        and result.get("source_sha256") == storage_source_sha256(),
+        and "PostgreSQL 16.14" in result.get("postgres_version", ""),
         "RQ4 Control PostgreSQL storage-scaling campaign is stale",
+    )
+    validate_historical_source(
+        STORAGE_SOURCE_PROVENANCE,
+        "rq4-control-postgresql-storage-scaling",
+        result.get("source_sha256", ""),
+        STORAGE_SOURCE_DIRS,
+        STORAGE_SOURCE_FILES,
+        (".go", ".sql"),
     )
     raw = {(item.get("trial"), item.get("facts_per_ledger"), item.get("operation")): item
            for item in result.get("raw_points", [])}
@@ -461,9 +557,16 @@ def validate_scale() -> dict:
     require(
         result.get("schema_version") == 1
         and result.get("status") == "complete_postgresql16_multiscale_join_group_campaign"
-        and re.match(r"^16\.", result.get("postgres_version", "")) is not None
-        and result.get("source_sha256") == scale_source_sha256(),
+        and re.match(r"^16\.", result.get("postgres_version", "")) is not None,
         "RQ4 multi-scale PostgreSQL campaign is stale",
+    )
+    validate_historical_source(
+        SCALE_SOURCE_PROVENANCE,
+        "rq4-postgresql16-multiscale-join-group",
+        result.get("source_sha256", ""),
+        SCALE_SOURCE_DIRS,
+        SCALE_SOURCE_FILES,
+        (".go", ".sql"),
     )
     config = result.get("configuration", {})
     sizes = config.get("orders_per_scale")
@@ -561,6 +664,7 @@ def main() -> None:
     path_analysis = validate_path_analysis(performance)
     storage_scaling = validate_storage_scaling()
     scale = validate_scale()
+    v4 = validate_v4_evidence(ROOT)
     formal = validate_formal(FORMAL, "exposure ledger")
     bitmap_formal = validate_formal(FORMAL_BITMAP, "bitmap refinement")
     rq1 = report["rq1_ground_truth"]
@@ -595,6 +699,11 @@ def main() -> None:
     scale_low_direct = scale_points[(1000, "direct_sql")]
     scale_mid_direct = scale_points[(10000, "direct_sql")]
     scale_high_direct = scale_points[(45000, "direct_sql")]
+    v4_stats = v4["stats"]
+    v4_activation_ms = v4_stats["activation_ms"]
+    v4_storage = {
+        item["roots"]: item for item in v4_stats["storage_amortized_1_10_100_roots"]
+    }
     baseline = report["charge_baselines"]
     first = baseline["full_first"]
     replay = baseline["full_replay"]
@@ -718,6 +827,61 @@ def main() -> None:
         rf"\newcommand{{\RQFourScaleHighReplayDeriveS}}{{{decimal(scale_high_replay['component_ms']['exposure_derivation']['p50'] / 1000)}}}",
         rf"\newcommand{{\RQFourScaleHighNovelStoreS}}{{{decimal(scale_high['component_ms']['exposure_fact_store']['p50'] / 1000)}}}",
         rf"\newcommand{{\RQFourScaleHighReplayStoreS}}{{{decimal(scale_high_replay['component_ms']['exposure_fact_store']['p50'] / 1000)}}}",
+        rf"\newcommand{{\RQFourVFourProfile}}{{\texttt{{{v4_stats['profile_version']}}}}}",
+        rf"\newcommand{{\RQFourVFourSourceHash}}{{\texttt{{{v4_stats['source_sha256'][:12]}}}}}",
+        rf"\newcommand{{\RQFourVFourResultHash}}{{\texttt{{{v4_stats['results_sha256'][:12]}}}}}",
+        rf"\newcommand{{\RQFourVFourEnvironmentHash}}{{\texttt{{{v4_stats['environment_sha256'][:12]}}}}}",
+        rf"\newcommand{{\RQFourVFourGatesPassed}}{{{v4_stats['gate_count']}}}",
+        rf"\newcommand{{\RQFourVFourGatesTotal}}{{{v4_stats['gate_count']}}}",
+        rf"\newcommand{{\RQFourVFourSamples}}{{{v4_stats['sample_count']}}}",
+        rf"\newcommand{{\RQFourVFourCases}}{{{v4_stats['case_count']}}}",
+        rf"\newcommand{{\RQFourVFourRoots}}{{{v4_stats['root_count']}}}",
+        rf"\newcommand{{\RQFourVFourShapes}}{{{v4_stats['shape_count']}}}",
+        rf"\newcommand{{\RQFourVFourOverlaps}}{{{v4_stats['overlap_count']}}}",
+        rf"\newcommand{{\RQFourVFourMaxSamples}}{{{v4_stats['max_point_samples']}}}",
+        rf"\newcommand{{\RQFourVFourReleaseFacts}}{{{v4_stats['max_release_facts']}}}",
+        rf"\newcommand{{\RQFourVFourInfluenceFacts}}{{{comma(v4_stats['max_influence_facts'])}}}",
+        rf"\newcommand{{\RQFourVFourOutcomeFacts}}{{{v4_stats['max_outcome_facts']}}}",
+        rf"\newcommand{{\RQFourVFourDirectMedianMS}}{{{decimal(v4_stats['direct_p50_ms'], 2)}}}",
+        rf"\newcommand{{\RQFourVFourDirectTailMS}}{{{decimal(v4_stats['direct_p95_ms'], 2)}}}",
+        rf"\newcommand{{\RQFourVFourNovelMedianS}}{{{decimal(v4_stats['novel_p50_ms'] / 1000, 3)}}}",
+        rf"\newcommand{{\RQFourVFourNovelTailS}}{{{decimal(v4_stats['novel_p95_ms'] / 1000, 3)}}}",
+        rf"\newcommand{{\RQFourVFourReplayMedianMS}}{{{decimal(v4_stats['replay_p50_ms'], 2)}}}",
+        rf"\newcommand{{\RQFourVFourReplayTailMS}}{{{decimal(v4_stats['replay_p95_ms'], 2)}}}",
+        rf"\newcommand{{\RQFourVFourLegacyNovelSpeedup}}{{{decimal(scale_high['latency_ms']['p50'] / v4_stats['novel_p50_ms'], 2)}}}",
+        rf"\newcommand{{\RQFourVFourLegacyReplaySpeedup}}{{{decimal(scale_high_replay['latency_ms']['p50'] / v4_stats['replay_p50_ms'], 1)}}}",
+        rf"\newcommand{{\RQFourVFourNovelReductionPct}}{{{decimal(100 * (1 - v4_stats['novel_p50_ms'] / scale_high['latency_ms']['p50']), 2)}}}",
+        rf"\newcommand{{\RQFourVFourNovelDirectRatio}}{{{decimal(v4_stats['novel_over_direct_ratio'], 2)}}}",
+        rf"\newcommand{{\RQFourVFourReplayNoSQLSamples}}{{{v4_stats['replay_no_business_sql_samples']}}}",
+        rf"\newcommand{{\RQFourVFourGatewayPeakMiB}}{{{decimal(v4_stats['gateway_peak_bytes'] / 1048576, 2)}}}",
+        rf"\newcommand{{\RQFourVFourBuildRuns}}{{{len(v4['report']['index_build']['runs'])}}}",
+        rf"\newcommand{{\RQFourVFourIndexBuildS}}{{{decimal(v4_stats['index_build_ms'] / 1000, 3)}}}",
+        rf"\newcommand{{\RQFourVFourBuilderPeakGiB}}{{{decimal(v4_stats['index_builder_peak_rss_bytes'] / 1073741824, 2)}}}",
+        rf"\newcommand{{\RQFourVFourArtifactGiB}}{{{decimal(v4_stats['artifact_total_bytes'] / 1073741824, 2)}}}",
+        rf"\newcommand{{\RQFourVFourHotArtifactMiB}}{{{decimal(v4_stats['artifact_hot_bytes'] / 1048576, 2)}}}",
+        rf"\newcommand{{\RQFourVFourStrictVerifyS}}{{{decimal(v4_stats['activation_verification_ms'] / 1000, 3)}}}",
+        rf"\newcommand{{\RQFourVFourActivationRuns}}{{{len(v4_activation_ms)}}}",
+        rf"\newcommand{{\RQFourVFourActivationMinS}}{{{decimal(min(v4_activation_ms) / 1000, 3)}}}",
+        rf"\newcommand{{\RQFourVFourActivationMaxS}}{{{decimal(max(v4_activation_ms) / 1000, 3)}}}",
+        rf"\newcommand{{\RQFourVFourOrdinalStreamMedianMS}}{{{decimal(v4_stats['ordinal_stream_p50_ms'], 2)}}}",
+        rf"\newcommand{{\RQFourVFourProvenancePGMedianMS}}{{{decimal(v4_stats['provenance_postgresql_p50_ms'], 2)}}}",
+        rf"\newcommand{{\RQFourVFourBitmapDeriveMedianMS}}{{{decimal(v4_stats['bitmap_derivation_p50_ms'], 2)}}}",
+        rf"\newcommand{{\RQFourVFourSettleMedianMS}}{{{decimal(v4_stats['settlement_p50_ms'], 2)}}}",
+        rf"\newcommand{{\RQFourVFourSmallRawSamples}}{{{v4_stats['small_query_raw_samples']}}}",
+        rf"\newcommand{{\RQFourVFourSmallHitSamples}}{{{v4_stats['small_query_hit_samples']}}}",
+        rf"\newcommand{{\RQFourVFourSmallLatencyImprovementPct}}{{{decimal(v4_stats['small_query_latency_improvement_percent'], 1)}}}",
+        rf"\newcommand{{\RQFourVFourSmallThroughputImprovementPct}}{{{decimal(v4_stats['small_query_throughput_improvement_percent'], 1)}}}",
+        rf"\newcommand{{\RQFourVFourNetworkSamples}}{{{v4_stats['sample_count']}}}",
+        rf"\newcommand{{\RQFourVFourNetworkRXGiB}}{{{decimal(v4_stats['network_rx_bytes'] / 1073741824, 2)}}}",
+        rf"\newcommand{{\RQFourVFourNetworkTXMiB}}{{{decimal(v4_stats['network_tx_bytes'] / 1048576, 2)}}}",
+        rf"\newcommand{{\RQFourVFourWALSamples}}{{{v4_stats['sample_count']}}}",
+        rf"\newcommand{{\RQFourVFourBusinessWALKiB}}{{{decimal(v4_stats['wal_business_bytes'] / 1024, 2)}}}",
+        rf"\newcommand{{\RQFourVFourControlWALMiB}}{{{decimal(v4_stats['wal_control_bytes'] / 1048576, 2)}}}",
+        rf"\newcommand{{\RQFourVFourFixedControlKiB}}{{{decimal(v4_stats['storage_fixed_control_bytes'] / 1024, 0)}}}",
+        rf"\newcommand{{\RQFourVFourRuntimeControlMiB}}{{{decimal(v4_stats['storage_runtime_control_bytes'] / 1048576, 2)}}}",
+        rf"\newcommand{{\RQFourVFourStorageOneRootGiB}}{{{decimal(v4_storage[1]['estimated_bytes_per_root'] / 1073741824, 3)}}}",
+        rf"\newcommand{{\RQFourVFourStorageTenRootsMiB}}{{{decimal(v4_storage[10]['estimated_bytes_per_root'] / 1048576, 2)}}}",
+        rf"\newcommand{{\RQFourVFourStorageHundredRootsMiB}}{{{decimal(v4_storage[100]['estimated_bytes_per_root'] / 1048576, 2)}}}",
         rf"\newcommand{{\RQFourScalingDims}}{{{len(scaling['curves'])}}}",
         rf"\newcommand{{\RQFourScalingMaxRows}}{{{comma(scaling_curves['observe_rows']['points'][-1]['size'])}}}",
         rf"\newcommand{{\RQFourScalingObserveMicros}}{{{decimal(scaling_curves['observe_rows']['points'][-1]['ns_per_op'] / 1000)}}}",

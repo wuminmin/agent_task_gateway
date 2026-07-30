@@ -231,7 +231,22 @@ $K'_d=K_d\cup F_d$ for every $d\in\{r,i,o\}$ and preserves the root-family
 theorem. The finite model \code{ExposureBitmapRefinement.tla} specifies this
 commuting relation and configured invariants for bounded dictionaries,
 requests, replay, and CAS conflicts; it is not a mechanized proof of the Go
-implementation or a reported V4 performance result.
+implementation and is not itself performance evidence.
+
+The separate source-controlled V4 campaign measures
+\RQFourVFourSamples{} operations on \RQFourVFourRoots{} fresh roots in one
+fixed-host deployment. All
+\RQFourVFourGatesPassed{}/\RQFourVFourGatesTotal{} implemented report gates
+pass; at \RQFourVFourReleaseFacts{} Release,
+\RQFourVFourInfluenceFacts{} dependency, and \RQFourVFourOutcomeFacts{} Outcome
+facts, novel p50/p95 is
+\RQFourVFourNovelMedianS{}/\RQFourVFourNovelTailS{}~s and replay p50/p95 is
+\RQFourVFourReplayMedianMS{}/\RQFourVFourReplayTailMS{}~ms. This end-to-end report
+checks exact cardinalities and set/observation digests, but it is not an
+independent per-Fact expansion oracle. Dense/clustered/random-sparse effects
+and a same-root concurrent-CAS campaign also remain outstanding; formal and
+unit-test coverage for CAS must not be relabeled as measured end-to-end
+contention evidence.
 
 \subsection{Implementation Coverage}
 

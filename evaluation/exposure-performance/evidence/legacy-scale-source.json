@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "campaign_id": "rq4-postgresql16-multiscale-join-group",
+  "git_commit": "38a35d7bb3baff5a6f731b40a42dd4a26f28e29d",
+  "archive": "evaluation/exposure-performance/evidence/legacy-scale-source-38a35d7.tar.gz",
+  "archive_sha256": "1ec93d53c572d041a65457e5e131fd0d7935916671399dc3780ce104f13a3a0f",
+  "source_sha256": "4f72941cc190116272a13ffe2c888f777a2cb688332e42b8e0d8d3d9458408c2",
+  "source_file_count": 72,
+  "source_paths_sha256": "9162ef851caa72eb8957c2ee794350669899453958086940ddbaa081e810fa08",
+  "source_digest_algorithm": "SHA-256 over sorted UTF-8 path, NUL, exact bytes, NUL frames"
+}

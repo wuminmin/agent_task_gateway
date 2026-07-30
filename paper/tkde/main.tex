@@ -86,9 +86,13 @@ unit. A legacy materialized-FactSet experiment reaches
 non-interactive. We therefore develop a snapshot-indexed hybrid bitmap ledger:
 base FactIDs receive immutable publication-time ordinals, online provenance is
 streamed into exact compressed bitmaps, and sparse derived facts use dynamic
-dictionaries. The reported legacy measurements diagnose the bottleneck; V4
-latency and memory targets remain explicit acceptance gates, not measured
-claims in this artifact.
+dictionaries. In one fixed-host V4 campaign, all
+\RQFourVFourGatesPassed{}/\RQFourVFourGatesTotal{} implemented report gates pass: at
+\RQFourVFourReleaseFacts{} release, \RQFourVFourInfluenceFacts{} dependency,
+and \RQFourVFourOutcomeFacts{} outcome facts, novel p50/p95 is
+\RQFourVFourNovelMedianS{}/\RQFourVFourNovelTailS{}~s, semantic replay is
+\RQFourVFourReplayMedianMS{}/\RQFourVFourReplayTailMS{}~ms, and the campaign-wide
+Gateway cgroup peak including mapped pages is \RQFourVFourGatewayPeakMiB{}~MiB.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -1229,8 +1233,8 @@ The evaluation is organized around four questions: RQ1 ground-truth accuracy;
 RQ2 rewrite invariance of exposure accounting; RQ3 resistance to split, page,
 retry, zero/empty threshold probing, snapshot, join/union, delegation, and
 concurrency amplification; RQ4 which stage prevents the legacy materialized
-implementation from serving interactive workloads, and what falsifiable
-online/offline gates the V4 physical refinement must meet. The report
+implementation from serving interactive workloads, and whether the V4
+physical refinement meets falsifiable online/offline gates. The report
 is rebuilt for \ExposureProfile{} from a source-controlled V2 base-algebra corpus (V3 preserves
 those release/dependency FactIDs) with digest prefix
 \ExposureCorpusHash{}. The primary RQ2 evidence is a closed-language
@@ -1243,6 +1247,9 @@ isolated PostgreSQL deployments, \RQFourFullPathOperations{} full-path calls and
 \RQFourStorageTrials{} fresh-schema production-ledger scaling trials and a
 public-endpoint PostgreSQL Join--Group campaign with \RQFourScalePoints{}
 cardinalities and \RQFourScaleTrials{} fresh-ledger trials per cardinality.
+The V4 report adds \RQFourVFourSamples{} operations on
+\RQFourVFourRoots{} fresh roots in one fixed-host deployment, including
+\RQFourVFourMaxSamples{} exact maximum-point samples per measured phase.
 There is no online representation-selection or budget-selection planner: one
 client-supplied plan is executed per call against the complete signed profile.
 
@@ -1258,7 +1265,7 @@ RQ & Current result \\
 RQ1 & \RQOnePassed{}/\RQOneCases{} independent-oracle cases on \RQOneRows{} source rows \\
 RQ2 & \RQTwoExposureRewrites{} closed-language rewrite families, \RQTwoExposureCases{} instances and \RQTwoExposureNFCases{} normal-form checks: FactSet/charge invariant, \RQTwoExposureMismatches{} mismatches \\
 RQ3 & \RQThreePassed{}/\RQThreeCases{} deterministic; \RQThreeIntegration{}/\RQThreeExecuted{} PostgreSQL race tests; paired PG Join/Union exchange and downstream-group tests \\
-RQ4 & Legacy materialized baseline: \RQFourFullPathOperations{} small-fixture calls plus \RQFourAblationOperations{} ablations; ledger curve to \RQFourStorageMaxRows{} rows; Join--Group to \RQFourScaleMaxJoined{} members/\RQFourScaleMaxFacts{} dependencies; V4 gates pending \\
+RQ4 & Legacy diagnosis to \RQFourScaleMaxFacts{} dependencies; V4: \RQFourVFourGatesPassed{}/\RQFourVFourGatesTotal{} implemented report gates pass, with \RQFourVFourNovelMedianS{}/\RQFourVFourNovelTailS{}~s novel and \RQFourVFourReplayMedianMS{}/\RQFourVFourReplayTailMS{}~ms replay p50/p95 at the maximum point \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1557,32 +1564,56 @@ normal-form depth, and novel-versus-replay deduplication. At
 replay charges \RQFourScalingReplayCharge{}. These isolate cost growth but are
 not substitutes for the PostgreSQL end-to-end result.
 
-\subsection{RQ4: V4 Acceptance Protocol (Pending)}
+\subsection{RQ4: Measured V4 Acceptance}
 
-The V4 campaign is deliberately specified before its measurements. In a fixed
-environment with a warm, verified index and high-cardinality concurrency one,
-novel p50/p95 must be at most 3/4~s; distinct-request semantic replay p50/p95
-must be at most 100/150~ms and execute no Business or provenance SQL; and peak
-Gateway cgroup memory, including touched memory-mapped pages, must be at most
-512~MiB. These are hard acceptance thresholds, not values observed in the
-current evidence bundle.
+The source-controlled V4 campaign executes \RQFourVFourSamples{} measured
+operations on \RQFourVFourRoots{} freshly approved roots in one fixed-host,
+fresh deployment at high-cardinality concurrency one; all
+\RQFourVFourGatesPassed{}/\RQFourVFourGatesTotal{}
+implemented report gates pass. For \RQFourVFourMaxSamples{} maximum-point
+samples per direct/novel/replay phase, with \RQFourVFourReleaseFacts{} Release,
+\RQFourVFourInfluenceFacts{} dependency, and \RQFourVFourOutcomeFacts{} Outcome
+facts, direct SQL p50/p95 is
+\RQFourVFourDirectMedianMS{}/\RQFourVFourDirectTailMS{}~ms, novel p50/p95 is
+\RQFourVFourNovelMedianS{}/\RQFourVFourNovelTailS{}~s, and distinct-request
+semantic replay p50/p95 is
+\RQFourVFourReplayMedianMS{}/\RQFourVFourReplayTailMS{}~ms. All
+\RQFourVFourReplayNoSQLSamples{} replays execute no Business/provenance SQL.
+The campaign-wide Gateway cgroup peak, including touched memory-mapped pages,
+is \RQFourVFourGatewayPeakMiB{}~MiB; this is a cgroup measurement, not process
+RSS. Thus the measured, scoped campaign meets the 3/4~s, 100/150~ms, and
+512~MiB online gates.
 
-Offline publication must complete within 10 minutes with builder RSS at most
-4~GiB, total artifacts at most 2~GiB, hot Gateway artifacts at most 160~MiB,
-and activation at most 2~s. Because offline work is shared, storage is reported
-both in total and amortized over 1, 10, and 100 roots; it is never folded into
-online latency. The rerun must separately report direct SQL, ordinal-stream
-SQL, bitmap derivation, atomic settlement, semantic replay, RSS, network bytes,
-WAL, index build, and hot/cold artifact size.
+At the maximum point, p50 ordinal-stream, provenance-PostgreSQL,
+bitmap-derivation, and atomic-settlement diagnostics are
+\RQFourVFourOrdinalStreamMedianMS{}, \RQFourVFourProvenancePGMedianMS{},
+\RQFourVFourBitmapDeriveMedianMS{}, and \RQFourVFourSettleMedianMS{}~ms. These timers
+are not additive: the ordinal stream includes synchronous bitmap-consumer
+work. The single offline build takes \RQFourVFourIndexBuildS{}~s with a
+root-process peak (\code{/proc} VmHWM or VmRSS) of
+\RQFourVFourBuilderPeakGiB{}~GiB; total/hot
+artifacts are \RQFourVFourArtifactGiB{}~GiB/\RQFourVFourHotArtifactMiB{}~MiB.
+Strict verification takes \RQFourVFourStrictVerifyS{}~s, after which
+\RQFourVFourActivationRuns{} warm activations span
+\RQFourVFourActivationMinS{}--\RQFourVFourActivationMaxS{}~s. Offline cost is
+not folded into online latency. The report also binds network, WAL, Control-PG
+storage, and 1/10/100-root storage estimates. Relative to the legacy median,
+maximum-point novel execution is \RQFourVFourLegacyNovelSpeedup{}$\times$
+faster.
 
-The completed workload matrix must contain 0/50/90/100\% overlap; dense, clustered, and random
-sparse effects; Scan, Join--Group, Union, and Page; same-root CAS conflicts; and
-small-query regression. The million-fact semantic oracle remains 12 Release and
-1,035,000 dependency facts, and decoded hashes, canonical payloads, witness
-multiplicities, and novel/replay observations must match V2/V3 exactly. Small
-queries may regress by no more than 10\% in latency or throughput. Until these
-measurements and checks are published, the paper claims the representation
-refinement and its safety argument, not achievement of an interactive SLO.
+Measured coverage includes exact 0/50/90/100\% \emph{dependency} overlap and
+Scan, Join--Group, Union, and Page. The like-for-like small-query candidate
+improves p50 latency and throughput by
+\RQFourVFourSmallLatencyImprovementPct{}\% and
+\RQFourVFourSmallThroughputImprovementPct{}\%, respectively, rather than
+exceeding the 10\% regression bound. The harness checks released-result
+multisets, exact R/I/O cardinalities, set and observation digests, and zero
+replay novelty. It does not complete the separately planned
+dense/clustered/random-sparse distribution matrix, same-root concurrent-CAS
+campaign, or an independent million-point expansion comparing every decoded
+FactHash, canonical payload, and witness multiplicity. Those remain explicit
+outstanding axes rather than being inferred from the
+\RQFourVFourGatesTotal{} implemented report gates.
 
 \subsection{Reproducibility Boundary}
 
@@ -1592,11 +1623,14 @@ to \RQFourStorageMaxRows{} fact rows and a three-scale, public-path Join--Group
 campaign ending at \RQFourScaleMaxJoined{} joined members and
 \RQFourScaleMaxFacts{} dependencies. It is still one warm, deterministic,
 TPC-H-derived shape on one host with three repeats, not an official suite,
-cold-cache, multi-node, or production-SLO study. The build
-parses every published RQ4 JSONL sample, reproduces summaries, and recomputes
-source digests. The bundle contains no completed V4 performance campaign.
-Reproducibility does not remove the external-validity bounds of the small
-semantic fixtures or single-host legacy campaigns.
+cold-cache, multi-node, or production-SLO study. V4 adds one warm fixed-host
+deployment---not \RQFourVFourRoots{} independent deployments---with one index
+build, \RQFourVFourRoots{} fresh roots, and \RQFourVFourActivationRuns{}
+activation repetitions. The build parses the retained raw reports, reproduces
+summaries and gates, and verifies configuration, environment, source, receipt,
+baseline, and candidate digests. Reproducibility does not remove the
+external-validity bounds of the small semantic fixtures or either single-host
+campaign.
 
 \section{Limitations and Threats to Validity}
 \label{sec:limits}
@@ -1629,10 +1663,12 @@ mutable sources, and queueing delay.
 the million-fact result is
 \RQFourScaleHighNovelS{}/\RQFourScaleHighReplayS{}~s novel/replay and
 \RQFourScaleGatewayGiB{}~GiB gateway memory. V4 removes that hot-path
-representation, but its stated latency, memory, build, activation, and storage
-gates remain unmeasured in this artifact. Immutable indexes shift rather than
-erase cost, and dynamic dictionaries, CAS contention, retention, encrypted
-spooling, and audit expansion require production evaluation. The single
+representation; in the measured campaign its maximum-point novel/replay
+p50 is \RQFourVFourNovelMedianS{}~s/\RQFourVFourReplayMedianMS{}~ms and its cgroup
+peak is \RQFourVFourGatewayPeakMiB{}~MiB. Immutable indexes shift rather than
+erase cost: only \RQFourVFourBuildRuns{} build and one deployment were measured,
+and dynamic dictionaries, same-root CAS contention, retention, encrypted
+spooling, and audit expansion still require production evaluation. The single
 gateway, local tokens, demo approval service, and one connector do not establish
 distributed, production, multi-engine, or live-agent behavior.
 
@@ -1651,10 +1687,12 @@ charges zero yet still takes \RQFourScaleHighReplayS{}~s because it rebuilds and
 stores the representation. V4 makes the safety property representation
 independent and refines semantic FactSets to immutable snapshot ordinals,
 streamed weighted bitmaps, sparse dynamic facts, and one three-dimensional CAS.
-The finite refinement model supports preservation of the boundary; the pending
-V4 campaign must still demonstrate the declared interactive gates. Exactness is
-the invariant, compactness is the mechanism, and measured scalability remains
-a falsifiable requirement rather than a conclusion.
+The finite refinement model supports preservation of the boundary, while the
+source-controlled V4 campaign meets all \RQFourVFourGatesTotal{} implemented
+report gates under its frozen-snapshot, single-host scope. Exactness is
+the invariant and compactness is the mechanism; the outstanding distribution,
+concurrent-CAS, and million-point per-Fact oracle axes bound the empirical
+conclusion rather than being silently treated as passed.
 
 \bibliographystyle{IEEEtran}
 \bibliography{references}

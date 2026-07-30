@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "campaign_id": "rq4-local-postgresql-20260728",
+  "git_commit": "38a35d7bb3baff5a6f731b40a42dd4a26f28e29d",
+  "archive": "evaluation/exposure-performance/evidence/legacy-rq4-source-38a35d7.tar.gz",
+  "archive_sha256": "54ef1d0003017dde8291400508ef7fa34e4656af02c7be809213fd989888a471",
+  "source_sha256": "8a98d05003f1bee1ce12b2b5b200d01f18935d5344d0df8a543543e666b87937",
+  "source_file_count": 106,
+  "source_paths_sha256": "e8b2be002acdf32e922f6da55d563c32107ff7203fc8bbb9b4c3cbe21c629b3f",
+  "source_digest_algorithm": "SHA-256 over sorted UTF-8 path, NUL, exact bytes, NUL frames"
+}
