@@ -1,12 +1,16 @@
-# TaskGate: Task-Bound Query-Outcome and Exposure Accounting for Database Agents
+# TaskGate: A Task-Scoped Data Exposure Accounting Framework for Autonomous Database Agents
 
-TaskGate 是一个数据库研究原型：它把累计数据暴露绑定到人类授权的根任务，使自适应查询、重试、分页和子 Agent 共享同一知识账本。Agent 必须先提交明确的数据产品、字段、Scope 和目的；Gateway 从 Catalog 绑定完整预算 Profile，经 OA 审批后才允许查询只读数据产品。Gateway 不包含模型层；授权、provenance、计量和结算均由确定性代码完成。
+TaskGate 是一个面向自主数据库 Agent 的研究原型：它把累计数据暴露绑定到人类授权的根任务，使自适应查询、重试、分页和子 Agent 共享同一知识账本。Agent 必须先提交明确的数据产品、字段、Scope 和目的；Gateway 从 Catalog 绑定完整预算 Profile，经 OA 审批后才允许查询只读数据产品。Gateway 不包含模型层；授权、provenance、计量和结算均由确定性代码完成。
+
+传统数据库授权主要回答“这条查询能否执行”；TaskGate 补充回答“这个任务累计获得了多少信息”。因此它与 PostgreSQL RLS、VPD、ABAC/XACML 及 MCP 工具授权互补，而不取代这些访问决策机制。
 
 人类审批的是 Catalog 预定义的完整三维容量，正常批准后全部交给 Agent。系统不自动校准“最小预算”，也不把未使用额度视为优化目标；唯一的 exposure admission 条件是提交后的共享 root-family ledger 不超过人类签名边界。
 
 > 当前仓库是单实例 Demo，不是可直接上线的生产网关。生产差距见[威胁模型与生产化差距](docs/threat-model.md)。
 
 ## 核心模型
+
+人工审批任务表示为 `T=(P,S,B,C)`：`P` 是绑定 principal、数据产品、字段和 Scope 的获批策略/Grant，`S` 是绑定的冻结报表快照，`B` 是三维 exposure 预算，`C` 是签名的语义和执行约束。对任务的已接受查询序列 `Q`，`E(T,Q)` 是 release、positive-output dependency footprint 和 query-outcome 三个事实集合的累计大小。
 
 每个事实至少绑定 `(product, snapshot, entity key, field, value version)`。
 根任务维护三个集合账本：实际交付的 `release exposure`、保守的
@@ -19,9 +23,11 @@ facts，不是最小 causal influence，也不是完整 physical read set；第�
 
 ```text
 delta(T, q) = (|F_release(q) - K_release(T)|,
-               |F_influence(q) - K_influence(T)|,
+               |F_dependency(q) - K_dependency(T)|,
                |F_outcome(q) - K_outcome(T)|)
 ```
+
+完整定义、前提和安全性质见[TaskGate 形式模型](docs/formal-model.md)。
 
 V4 把 canonical FactID 语义精确编码为冻结 snapshot 的 ordinal bitmap；少量派生 release/outcome 使用动态字典。在线路径是 `reserve -> replay lookup / execute+stream -> derive bitmap -> stage encrypted Parquet -> three-head CAS -> canonical promotion`。
 可见结果与 ordinal provenance companion 在同一个只读 `REPEATABLE READ` 事务执行。Gateway 在对象存储客户端侧加密 Parquet；Control PostgreSQL 只提交账本、artifact 元数据、审计和 V6 签名回执，不保存 Parquet 或结果行。确定性的 canonical 对象创建成功即记为 `consumed/AVAILABLE`，随后普通查询只向 Agent 返回 `result_id` 与摘要。超出任一 exposure 上限的结果不会产生 canonical 对象。
@@ -258,7 +264,7 @@ PostgreSQL 全路径 trial 的 31,296 个 RQ4 观测；该结果限定为本地�
 
 `evaluation/v4-acceptance/config.example.json` 同样只演示本仓库十行冻结
 Catalog 的 case schema 与四种 plan shape，不包含 12 Release / 1,035,000
-Influence maximum point。用它运行时相应 SLO gate 必须保持 `unmeasured`；论文
+positive-output dependency footprint maximum point。用它运行时相应 SLO gate 必须保持 `unmeasured`；论文
 验收必须换成独立冻结的大规模 publication、真实 ACTIVE task IDs 与校准后的
 0/50/90/100% overlap cases。
 
@@ -277,6 +283,9 @@ Influence maximum point。用它运行时相应 SLO gate 必须保持 `unmeasure
 
 ## 文档
 
+- [TaskGate 形式模型](docs/formal-model.md)
+- [TaskGate 与数据库 provenance 系统的边界](docs/provenance-comparison.md)
+- [TKDE 实验执行指南（结果表待作者本地填写）](docs/experiment-guide.md)
 - [TaskGate V4：Snapshot-Indexed Hybrid Bitmap Ledger](docs/exposure-v4.md)
 - [架构与安全边界](docs/architecture.md)
 - [任务级 Exposure 语义、在线算法与支持边界](docs/exposure-accounting.md)

@@ -54,5 +54,6 @@ The following experiments should be completed locally:
 3. Agent adaptive attack benchmark
 4. Provenance comparison with ProvSQL
 5. Nested View DAG scalability
+6. Shared-root concurrency isolation
 
 Benchmark result tables are intentionally left empty in this revision branch.

@@ -44,9 +44,11 @@
 \newtheorem{theorem}{Theorem}
 
 \input{generated/evidence.tex}
+% The evidence generator retains this legacy identifier for artifact compatibility.
+\newcommand{\RQFourVFourDependencyFacts}{\RQFourVFourInfluenceFacts}
 
-\title{TaskGate: Task-Scoped Query-Outcome and Exposure Accounting over
-Versioned Reporting Snapshots}
+\title{TaskGate: A Task-Scoped Data Exposure Accounting Framework for
+Autonomous Database Agents}
 
 \author{Anonymous Author(s)%
 \thanks{The artifact includes a controlled local PostgreSQL performance
@@ -66,7 +68,7 @@ approved root and delegated child remains bound to one publication for life.
 Within that epoch, adaptive rewrites, pages,
 retries, and delegation can accumulate disclosure. TaskGate meters this
 accumulation with typed FactID sets for released values, conservative
-positive-output dependencies, and successful query outcomes. Before release,
+positive-output dependency footprints, and successful query outcomes. Before release,
 the visible query and provenance companion observe one PostgreSQL snapshot;
 TaskGate derives exact effects and atomically charges only facts novel to the
 root-family ledger. Semantic replay is free of new exposure only within the
@@ -88,19 +90,22 @@ are outside scope.
 
 \begin{IEEEkeywords}
 data exposure, query auditing, provenance, adaptive workloads, cumulative
-budget, positive-output dependency, query-outcome accounting
+budget, positive-output dependency footprint, query-outcome accounting
 \end{IEEEkeywords}
 
 \section{Introduction}
 \label{sec:introduction}
 
-\IEEEPARstart{D}{atabase} authorization answers whether a principal may execute
-a particular operation. An adaptive client creates a second problem: during a
-single human-approved task it can adaptively issue many individually legal
+\IEEEPARstart{D}{atabase} authorization asks, ``Can this query execute?''
+An adaptive database agent creates a second, cumulative question: ``How much
+policy-defined exposure has this task acquired?'' During a single
+human-approved task, the agent can issue many individually legal
 queries. It can split a projection, overlap pages, retry with a new request
 identifier, ask an equivalent query, or delegate a narrower subtask. Per-query
-authorization and row limits do not state how much distinct data the resulting
-root ledger has already accounted. This is not a model of the agent's knowledge.
+authorization and row limits do not state how much distinct exposure the
+resulting root family has accumulated. TaskGate addresses this task-scoped
+accounting question; its contract-defined exposure is not a model of the
+agent's knowledge.
 
 Counting queries is insensitive to answer size. Counting returned rows makes a
 one-row aggregate appear cheap even when it depends on millions of source rows.
@@ -127,8 +132,8 @@ epoch, not freshness or consistency over a continuously changing database.
 
 \system treats the root task as the budget subject. A result has three effects.
 \emph{Release exposure} identifies values actually delivered.
-\emph{Positive-output dependency} is a contract-defined conservative footprint
-of base facts participating in the successful derivation of delivered output.
+\emph{Positive-output dependency footprint} is a contract-defined conservative
+set of base facts participating in the successful derivation of delivered output.
 It is neither minimal causal provenance nor the complete physical read set.
 This second dimension prevents a count from being accounted as one input fact
 merely because it returns one cell. Both effects are sets, so a fact already
@@ -229,17 +234,18 @@ audit, receipt, and commit-before-release still execute.}
 \label{fig:architecture-settlement}
 \end{figure*}
 
-A preliminary preprint version introduced the task-scoped authorization
-substrate \cite{wu2026sessionbound}: approval-bound short-lived database
-sessions, signed task tokens, SQL/view/scope enforcement, resource budgets,
-and audit receipts.\footnote{Preliminary version: arXiv:2607.00751v1.} The
-present, substantially revised article develops the database-specific
-accounting semantics, implementation, formal analysis, and evaluation. Its
-five implementation-backed contributions are:
+The preliminary preprint of this work, \emph{SessionBound: Turning Enterprise
+Task Approval into Budgeted Database Sessions} (arXiv:2607.00751v1), introduced
+the task-scoped authorization substrate: approval-bound short-lived database
+sessions, signed task tokens, SQL/View/scope enforcement, resource budgets,
+and audit receipts \cite{wu2026sessionbound}. The present, substantially
+revised article develops the database-specific accounting semantics,
+implementation, formal analysis, and evaluation. Its five
+implementation-backed contributions are:
 
 \begin{enumerate}
 \item A versioned, typed FactID and three-set semantics separating delivered
-release facts, positive-output dependencies, and normalized query outcomes in
+release facts, positive-output dependency footprints, and normalized query outcomes in
 a restricted relational algebra.
 \item A same-snapshot streamed ordinal companion for one-product plans and
 connected inner-equijoin graphs over two to 16 distinct Catalog roles, plus
@@ -301,7 +307,7 @@ GAAP is the closest system at the agent data-flow layer
 untrusted model, applies information-flow control and trusted tool annotations,
 and logs cross-call and cross-task disclosure. That propagation covers indirect
 cross-service flow outside TaskGate's scope. GAAP does not define SQL
-value-level FactIDs, split release from positive-output dependency, co-execute
+value-level FactIDs, split release from positive-output dependency footprint, co-execute
 a PostgreSQL provenance companion, or settle an exact per-root novel set.
 
 \begin{table*}[t]
@@ -356,26 +362,30 @@ randomized mechanisms \cite{dwork2014foundations}. TaskGate releases exact
 answers, offers no $\epsilon$-DP guarantee, and bounds only facts recognized by
 its active profile.
 
-\subsection{Provenance Foundations and Systems}
+\subsection{Database Provenance}
 
-Why- and where-provenance identify contributing data and output locations
-\cite{buneman2001why}, while lineage traces warehouse outputs back through
-transformations \cite{cui2001lineage}; Cheney et al. survey the resulting
-database-provenance design space \cite{cheney2009provenance}. Semiring
-provenance provides compositional annotations for positive relational queries
-\cite{green2007provenance}, and aggregation requires value-level treatment
-beyond tuple annotations \cite{amsterdamer2011aggregate}.
+Why-provenance identifies witness input tuples and where-provenance identifies
+source locations for output values \cite{buneman2001why}; lineage traces
+warehouse outputs through transformations \cite{cui2001lineage}.  How-provenance,
+including semiring annotations, records how input tokens combine under positive
+relational operators \cite{green2007provenance}. Cheney et al. survey this
+database-provenance design space \cite{cheney2009provenance}, and aggregation
+requires value-level treatment beyond tuple annotations
+\cite{amsterdamer2011aggregate}.
 
 GProM rewrites provenance questions \cite{arab2018gprom}, and ProvSQL adds
 general circuit-based provenance and probability to PostgreSQL, including
 multiset relational algebra and terminal aggregation
 \cite{senellart2018provsql,sen2026provsql}. TaskGate
 claims neither a new algebra nor a general provenance engine. It specializes
-provenance to explicitly released facts and a conservative positive-derivation
-footprint, co-generates answer and effects in one snapshot, and settles before
-release. Its profile admits finite connected inner-equijoin graphs under an
-operational source guard and a two-branch union-distinct form; outer joins,
-negation, and recursion remain outside it.
+provenance to explicitly released facts and a conservative positive-output
+dependency footprint, co-generates answer and effects in one snapshot, and
+settles before release. ProvSQL explains the origin (and, where configured,
+probability) of data for a query; TaskGate instead uses a restricted provenance
+profile to manage cumulative exposure across an adaptive multi-query task. Its
+profile admits finite connected inner-equijoin graphs under an operational
+source guard and a two-branch union-distinct form; outer joins, negation, and
+recursion remain outside it.
 
 \subsection{Usage Control, Delegation, and Quotas}
 
@@ -391,23 +401,54 @@ effect against one root ledger, so delegation cannot mint disclosure capacity.
 The prototype is centralized; distributed vouchers would need another safety
 argument.
 
-\subsection{Database Policy Enforcement and Agents}
+\subsection{Database Access Control}
 
-Database-backed policy systems rewrite or validate queries against application
-policy \cite{mehta2017qapla,zhang2022blockaid}. Recent work aligns
-natural-language interfaces with database policy \cite{liu2026safenlidb},
-measures indirect prompt injection against tool-using agents
-\cite{debenedetti2024agentdojo}, and applies runtime data-flow control
+PostgreSQL row-level security (RLS) attaches role- and command-specific Boolean
+policies that determine which rows a query may see or modify
+\cite{postgres16rls}. Oracle Virtual Private Database (VPD) associates policy
+functions with protected objects and transparently adds their predicates to
+SQL statements \cite{oracle26vpd}. At a system-policy level, attribute-based
+access control (ABAC) decides requested operations from subject, object,
+action, and environment attributes \cite{hu2014abac}; XACML standardizes a
+policy and request/response language for such decisions \cite{xacml2013}.
+Database-backed systems such as Qapla and Blockaid similarly rewrite or validate
+queries against application policy \cite{mehta2017qapla,zhang2022blockaid}, and
+SafeNLIDB aligns natural-language database access with policy
+\cite{liu2026safenlidb}.
+
+These mechanisms answer whether an operation is authorized and may restrict
+the rows or columns it can access. They are complementary prerequisites to
+TaskGate, not baselines that it replaces. Their documented access-decision
+primitives do not define typed release/dependency/outcome FactIDs, the union of
+facts accumulated by one task over many legal queries, or atomic
+budget-before-release settlement. TaskGate therefore assumes an approved
+policy boundary and asks the additional question: how much policy-defined
+exposure has the task accumulated so far?
+
+\subsection{Agent Identity, Tool Authorization, and Security}
+
+The Model Context Protocol (MCP) separates HTTP transport authorization from
+tool discovery and invocation: its authorization profile binds OAuth access
+tokens to an MCP resource, while servers advertise tools and clients issue
+named tool calls \cite{mcp2025auth,mcp2025tools}. Work on authenticated agent
+delegation argues for identities and scoped credentials that preserve the
+user--agent authority chain \cite{south2025delegation}. Complementary agent
+security work measures indirect prompt injection against tool-using agents
+\cite{debenedetti2024agentdojo} and enforces runtime data-flow controls
 \cite{summers2026dataflow}.
 
-These systems target per-request policy, prompt-injection resilience, or
-information-flow labels. TaskGate likewise treats generated SQL and client
-tools as untrusted, but focuses on cumulative explicit database disclosure
-across retries, pages, supported rewrites, and delegation.
+Agent identity and tool permissions answer which subject may invoke which
+capability under whose authority. They do not, by themselves, provide
+database fact-level accounting of what a sequence of successful tool calls has
+released, depended upon, or established as query outcomes. TaskGate treats the
+agent and its generated SQL as untrusted clients behind those controls, then
+meters cumulative exposure across retries, pages, supported rewrites, and
+delegation.
 
 \textbf{Novelty boundary.} The literature establishes history, inference
-control, pricing, provenance, mediation, delegation, quotas, task-bound SQL,
-receipts, and persistent disclosure logs. Within this boundary, the present
+control, pricing, provenance, database access control, agent identity and tool
+authorization, mediation, delegation, quotas, task-bound SQL, receipts, and
+persistent disclosure logs. Within this boundary, the present
 article develops three-set FactID semantics, same-snapshot provenance, exact
 novel-set settlement, and shared-root delegation, together with formal and
 empirical checks. Relative to GAAP, it is database-specific semantic accounting
@@ -468,6 +509,24 @@ approvals.
 
 \subsection{Facts and Task State}
 
+\begin{definition}[Approved task]
+\label{def:task}
+An approved root task is the immutable authorization boundary
+\begin{equation}
+ T=(P,S,B,C), \qquad B=(B_R,B_D,B_O),
+ \label{eq:task-tuple}
+\end{equation}
+where $P$ is the signed policy grant over the principal, data products,
+fields, and scopes; $S$ is the immutable publication/snapshot binding from
+Eq.~\eqref{eq:publication-binding}; $B$ gives the release, positive-output
+dependency-footprint, and query-outcome ceilings; and $C$ is the signed set of
+semantic and execution constraints.  In particular, $C$ binds the effect
+profile and closed QueryPlan language, type/collation versions, semantic-View
+contracts, delegation rules, replay identity, and result handling.  The
+monotone accounted ledger $K(T)$ is mutable protocol state and is deliberately
+\emph{not} a component of the approved tuple.
+\end{definition}
+
 The V2 release/dependency algebra treats a FactID as a semantic object and its SHA-256 as only a database
 index.  Its semantic environment is
 $\Pi=\langle pg,\mathcal T,UTC,\mathcal C,D,h_C\rangle$: a PostgreSQL major
@@ -505,7 +564,7 @@ kind under a disjoint hash domain.
 
 Let $N(q)$ be the accepted query normal form, $h_N$ its SHA-256, $m$ the
 visible row count, and
-$h_R=H(m,\operatorname{sort}\{\operatorname{Canon}(f):f\in\facts_r\})$. Let
+$h_R=H(m,\operatorname{sort}\{\operatorname{Canon}(f):f\in\facts_R\})$. Let
 $d_3=\texttt{TASKGATE-FACT-V3\textbackslash0}$ be the outcome hash domain.
 V3 creates exactly one successful-outcome identity
 \begin{equation}
@@ -532,39 +591,63 @@ PostgreSQL semantic-value equivalence, not raw float NaN bit patterns).
 
 \begin{definition}[Exposure effect]
 For query $q$ over snapshot $D_s$, the V3 effect
-$\effect(q,D_s)=\langle \facts_r,\facts_i,\facts_o\rangle$ contains release facts
-$\facts_r$ and positive-output dependency facts $\facts_i$ under a versioned
-profile $\pi$.  The latter are the conservative base facts selected by the
-inductive rules below for successfully derived delivered rows and cells; they
-are not claimed to be minimal causal provenance or all physical reads.
-$\facts_o=\{f_o\}$ contains the successful proposition/result identity from
+$\effect(q,D_s)=\langle \facts_R,\facts_D,\facts_O\rangle$ contains release facts
+$\facts_R$ and positive-output dependency-footprint facts $\facts_D$ under a
+versioned profile $\pi$.  The latter are the conservative base facts selected
+by the inductive rules below for successfully derived delivered rows and
+cells; they are not claimed to be minimal causal provenance or all physical reads.
+$\facts_O=\{f_o\}$ contains the successful proposition/result identity from
 Eq.~\eqref{eq:outcome-fact}.
 \end{definition}
 
-Every root task $T$ stores previously accounted sets
-$\accounted_T=\langle\accounted_T^r,\accounted_T^i,\accounted_T^o\rangle$ and limits
-$B_T=\langle B_T^r,B_T^i,B_T^o\rangle$. Settlement computes
+\begin{definition}[Task-scoped cumulative exposure]
+\label{def:task-exposure}
+Let $Q=\langle q_1,\ldots,q_n\rangle$ be a finite query-attempt history for a
+root and its descendants, and let $Q^+\subseteq Q$ contain exactly the queries
+that successfully settle under $T$. For $X\in\{R,D,O\}$,
+$\facts_X(q,S)$ denotes the component obtained on the dataset and profile
+transitively bound by $S$ and $C$. The task exposure is
+\begin{equation}
+ \begin{aligned}
+ E(T,Q)&=\langle E_R(T,Q),E_D(T,Q),E_O(T,Q)\rangle,\\
+ E_R(T,Q)&=\bigcup_{q\in Q^+}\facts_R(q,S),\\
+ E_D(T,Q)&=\bigcup_{q\in Q^+}\facts_D(q,S),\\
+ E_O(T,Q)&=\bigcup_{q\in Q^+}\facts_O(q,S).
+ \end{aligned}
+ \label{eq:task-exposure}
+\end{equation}
+The components are respectively release exposure, positive-output dependency
+footprint, and query-outcome exposure. Failed or rejected attempts contribute
+no set because TaskGate releases and commits none of their effects; this model
+does not account the rejection bit. We abbreviate the singleton history by
+$E(T,q)$.
+\end{definition}
+
+For every root task, the ledger service separately stores previously accounted
+sets $K(T)=\accounted_T=\langle\accounted_T^R,\accounted_T^D,
+\accounted_T^O\rangle$ and the approved limits
+$B=\langle B_R,B_D,B_O\rangle$. Settlement computes
 
 \begin{align}
- \Delta_T^r(q) &= \facts_r(q,D_s)\setminus\accounted_T^r,\\
- \Delta_T^i(q) &= \facts_i(q,D_s)\setminus\accounted_T^i,\\
- \Delta_T^o(q) &= \facts_o(q,D_s)\setminus\accounted_T^o.
+ \Delta_T^R(q) &= \facts_R(q,D_s)\setminus\accounted_T^R,\\
+ \Delta_T^D(q) &= \facts_D(q,D_s)\setminus\accounted_T^D,\\
+ \Delta_T^O(q) &= \facts_O(q,D_s)\setminus\accounted_T^O.
  \label{eq:delta}
 \end{align}
 
 V3 measures cardinality independently in each dimension. A query may settle
 only if
-$|\accounted_T^r|+|\Delta_T^r|\leq B_T^r$ and
-$|\accounted_T^i|+|\Delta_T^i|\leq B_T^i$ and
-$|\accounted_T^o|+|\Delta_T^o|\leq B_T^o$.
+$|\accounted_T^R|+|\Delta_T^R|\leq B_R$ and
+$|\accounted_T^D|+|\Delta_T^D|\leq B_D$ and
+$|\accounted_T^O|+|\Delta_T^O|\leq B_O$.
 
 The word ``accounted'' is intentional. Release facts describe delivered values,
 but dependency FactIDs remain internal to the gateway; the agent receives
-only result data, counts, and receipt digests. Hence $\accounted_T^i$ is not a
+only result data, counts, and receipt digests. Hence $\accounted_T^D$ is not a
 set of facts known by the agent, and no component is a complete epistemic
 or privacy-loss state.  The wire and storage label \code{influence} is retained
-for compatibility; under the V2/V3 profiles it denotes positive-output dependency,
-not causal influence.
+for compatibility; under the V2/V3 profiles it denotes the positive-output
+dependency footprint, not causal influence.
 
 \begin{theorem}[Outcome separation and replay]
 \label{thm:outcome-separation}
@@ -728,7 +811,7 @@ always included in the dependency set of a delivered row.}
 \setlength{\tabcolsep}{4pt}
 \begin{tabular}{L{0.12\textwidth}L{0.39\textwidth}L{0.42\textwidth}}
 \toprule
-Operator & Output construction & Positive-output dependency rule \\
+Operator & Output construction & Positive-output dependency-footprint rule \\
 \midrule
 Scan & Keyed PostgreSQL bag; base cells retain typed values & Singleton base-row and base-cell FactIDs \\
 Select/Project & Keep only $\mathsf T$ rows; restrict visible cells & Add every predicate field to retained row annotations; projection preserves them \\
@@ -758,18 +841,18 @@ afterthought:
 \rho_a,&\operatorname{valid}(\rho_a,R,t,a),\\
 \operatorname{new}(R,t,a),&\text{otherwise},
 \end{cases}\\
-\facts_r(R,V)&=\{\operatorname{mat}(R,t,a)\mid t\in R,\ a\in V\},\\
-\facts_i(R,V)&=\bigcup_{t\in R}S_r(t)\ \cup
+\facts_R(R,V)&=\{\operatorname{mat}(R,t,a)\mid t\in R,\ a\in V\},\\
+\facts_D(R,V)&=\bigcup_{t\in R}S_r(t)\ \cup
                 \bigcup_{t\in R,a\in V}S_a(t),\\
 \rieffect_\Pi(e,D,V)&=\operatorname{normalize}
-  \langle\facts_r(R,V),\facts_i(R,V)\rangle.       \label{eq:observe}
+  \langle\facts_R(R,V),\facts_D(R,V)\rangle.       \label{eq:observe}
 \end{align}
 Here $\Pi;D\vdash e\Downarrow R$, and $\operatorname{valid}$ checks value,
 type and bundle, plus support for a base fact or expression/witness for a
 derived fact, against the pre-existing release fact.
 Thus query bags and witness multiplicity are retained during composition, while
 the two base ledgers are sets.  Equation~\eqref{eq:observe} is the declared
-positive-output dependency profile: it is exact with respect to these
+positive-output dependency-footprint profile: it is exact with respect to these
 inductive rules, not with respect to arbitrary causal provenance or physical
 source access.  Empty answers have an empty base effect except for the single
 visible row of a global aggregate; V3 nevertheless adds one outcome fact.
@@ -786,7 +869,7 @@ valid input to every well-typed parent rule.
 \begin{theorem}[Dependency determinism]
 \label{thm:dependency-determinism}
 Fixed admissible $\Pi$, typed $e$, snapshot map $D$, and visible field set $V$
-uniquely determine the positive-output dependency FactSet $\facts_i$, and hence
+uniquely determine the positive-output dependency-footprint FactSet $\facts_D$, and hence
 $\rieffect_\Pi(e,D,V)$, whenever evaluation succeeds.
 \end{theorem}
 \emph{Proof in the supplement.}
@@ -794,14 +877,14 @@ $\rieffect_\Pi(e,D,V)$, whenever evaluation succeeds.
 \begin{property}[Group-key completeness]
 \label{prop:group-key-completeness}
 For every delivered group $Q$, member $t\in Q$, and group field $g\in G$,
-$S_g(t)\subseteq\facts_i$, including when $g\notin V$.
+$S_g(t)\subseteq\facts_D$, including when $g\notin V$.
 \end{property}
 \emph{Proof in the supplement.}
 
 \begin{property}[Distinct-dependency completeness]
 \label{prop:distinct-completeness}
 For every delivered union-distinct class $Q$, candidate $t\in Q$, and schema
-field $a\in\Gamma$, $S_a(t)\subseteq\facts_i$, including when $a\notin V$.
+field $a\in\Gamma$, $S_a(t)\subseteq\facts_D$, including when $a\notin V$.
 \end{property}
 \emph{Proof in the supplement.}
 
@@ -871,6 +954,65 @@ This is not completeness for arbitrary equivalent SQL: normalization neither
 invents nor removes transitive/redundant equalities.
 \end{theorem}
 \emph{Proof in the supplement.}
+
+For a fixed approved task, define the canonical replay descriptor
+\begin{equation}
+ \operatorname{RK}_T(q)=\langle P,S,C,NF_\Pi(q),
+     \operatorname{params}_\Pi(q),\operatorname{encver}\rangle,
+ \label{eq:replay-descriptor}
+\end{equation}
+where every component uses the typed, length-delimited encoding already bound
+by the Grant and Catalog. The implementation indexes a digest of this
+descriptor but verifies the bound metadata before accepting a hit.
+
+\begin{theorem}[Canonical replay consistency]
+\label{thm:canonical-replay}
+For a fixed $T=(P,S,B,C)$ and two accepted queries $q_1,q_2$,
+\[
+ \operatorname{RK}_T(q_1)=\operatorname{RK}_T(q_2)
+ \quad\Longrightarrow\quad E(T,q_1)=E(T,q_2).
+\]
+If $q_1$ has already committed to $K(T)$, settling $q_2$ has
+$\Delta_T^X(q_2)=\varnothing$ for every $X\in\{R,D,O\}$.
+\end{theorem}
+\emph{Proof sketch.} Descriptor equality fixes the approved policy, immutable
+publication, effect/View contracts, typed parameters, and normal form.
+Theorem~\ref{thm:nf-soundness} therefore gives identical release and
+dependency-footprint FactSets; Eq.~\eqref{eq:outcome-fact} gives the same
+result commitment and outcome FactID. The first settlement placed all three
+sets in $K(T)$, so each subsequent set difference is empty. The converse is
+not claimed: equivalent SQL outside the stated normalization rules can have
+different descriptors and incur a new outcome.
+
+Let $\operatorname{Expand}_C(v)=(e,\mu)$ denote successful compilation of a
+semantic-View root $v$ into a closed core term $e$, with $\mu$ mapping its
+ordered public fields to stable terminal FieldIDs. Compilation defines the
+View query normal form from $e$ while retaining the signed View-contract digest
+in $C$.
+
+\begin{theorem}[View expansion preservation]
+\label{thm:view-expansion}
+If $\operatorname{Expand}_C(v)=(e,\mu)$ succeeds for task $T$, snapshot $S$,
+and an admitted View query $q_v$ requests public fields $V$, let $q_e$ be its
+lowered core query over $e$ and $\mu(V)$. Then $q_v$ and $q_e$ have the same
+typed visible bag and
+\[
+ E(T,q_v)=E(T,q_e)
+\]
+componentwise in release exposure, positive-output dependency footprint, and
+query-outcome exposure. No preservation claim is made when expansion rejects
+or for PostgreSQL constructs outside the admitted View grammar.
+\end{theorem}
+\emph{Proof sketch.} Induct over the acyclic View DAG. A terminal View maps to
+the Catalog-bound Scan over the same publication. Each transparent
+projection/rename, literal selection, and inner equijoin compiles to its
+corresponding core operator; stable FieldIDs erase aliases while preserving
+types, collations, row keys, and annotations. The only aggregate barrier maps
+once to the matching group operator, and the compiler permits only projection
+above it. Hence induction preserves the visible bag and the release/dependency
+extraction of Eq.~\eqref{eq:observe}. Because the View query's outcome normal
+form is defined from the same expanded term under the same $C$, its result
+digest, cardinality, and outcome FactID also agree.
 
 \begin{theorem}[Base-ledger split/page/join conservation]
 \label{thm:base-conservation}
@@ -1028,8 +1170,8 @@ ordinal companion in the same Business-PG snapshot, then derive the exact
 three-dimensional bitmap observation. On a hit, load only an already committed
 observation reference and encrypted materialization.
 \item In one Control-PG transaction, read the root head and epoch. For each
-dimension compute $E_d\mathbin{\mathrm{ANDNOT}}K_d$ and its popcount, reject if
-$|K_d\mathbin{\mathrm{OR}}E_d|>B_d^{Catalog}$, and create immutable copy-on-write
+$X\in\{R,D,O\}$ compute $E_X\mathbin{\mathrm{ANDNOT}}K_X$ and its popcount,
+reject if $|K_X\mathbin{\mathrm{OR}}E_X|>B_X^{Catalog}$, and create immutable copy-on-write
 containers keyed by dictionary, segment, and high 16 ordinal bits.
 \item Publish the Release, dependency, and Outcome set manifests through one
 root-head epoch compare-and-swap. On conflict, reread the head and recompute all
@@ -1145,20 +1287,26 @@ the task-scoped guarantee.
 
 \begin{theorem}[Atomic root-family budget safety]
 \label{thm:root-family-safety}
-For each $d\in\{r,i,o\}$, after any committed settlement sequence the decoded
-root head satisfies
+For an approved task $T=(P,S,B,C)$ and any committed query history $Q$, each
+$X\in\{R,D,O\}$ in the decoded root head satisfies
 \[
- K_d=\bigcup_{q\in\mathrm{settled}(T)}E_d(q),\qquad |K_d|\le B_d^{Catalog}.
+ K_X(T)=E_X(T,Q),\qquad |K_X(T)|\le B_X.
 \]
-This statement is independent of whether $K_d$ is materialized as FactID rows
+This statement is independent of whether $K_X$ is materialized as FactID rows
 or represented by immutable dictionary bitmaps.
 \end{theorem}
-\emph{Intuition.} Every descendant shares one root head; exact difference and
-one three-dimensional CAS linearize $K_d\cup E_d$, while every bound is checked
-before publication and conflicts recompute from the fresh head. The full proof
-is in the supplement.
+\emph{Proof sketch.} Induct on committed settlements. The initial head and
+$E(T,\langle\rangle)$ are empty. For the next successful query, exact set
+difference computes novelty against the inductive head; one transaction checks
+all three cardinalities and one CAS publishes
+$K_X(T)\leftarrow K_X(T)\cup E_X(T,q)$. A conflicting transaction retries from
+the newly published head, and a rejected or failed attempt changes no head.
+Every descendant resolves to this same head. Thus the committed head equals the
+componentwise union in Eq.~\eqref{eq:task-exposure}, and the pre-commit checks
+preserve every component bound. The representation-refinement details are in
+the supplement.
 
-\textbf{Catalog-issued capacity.} The three ceilings $B^r_T,B^i_T,B^o_T$ are
+\textbf{Catalog-issued capacity.} The three ceilings $B_R,B_D,B_O$ are
 human-governed capacity declarations, not learned risk scores or optimization
 targets. An organization publishes a versioned profile with its data product
 and sensitivity policy; the approval manifest binds the complete profile to the
@@ -1201,10 +1349,6 @@ View task into a new approval draft, and retrieve results or receipts. An extern
 signs the immutable grant. Arbitrary direct SQL remains available only for
 legacy resource-only grants; it fails closed when exposure evidence is
 required.
-The wire and storage label \code{influence} is retained for compatibility;
-under the V2/V3 profiles it denotes positive-output dependency, not causal
-influence.
-
 The Control schema stores immutable dictionary manifests and chunks, sparse
 dynamic release/outcome dictionaries, content-addressed bitmap containers and
 set manifests, one three-dimensional head/epoch per root, committed
@@ -1356,7 +1500,7 @@ Path & dependencies & novel & replay & Gateway peak \\
 Legacy materialized & \RQFourScaleMaxFacts{} &
 \RQFourScaleHighNovelS{}~s & \RQFourScaleHighReplayS{}~s &
 \RQFourScaleGatewayGiB{}~GiB \\
-V4 bitmap & \RQFourVFourInfluenceFacts{} &
+V4 bitmap & \RQFourVFourDependencyFacts{} &
 \RQFourVFourNovelMedianS{}~s & \RQFourVFourReplayMedianMS{}~ms &
 \RQFourVFourGatewayPeakMiB{}~MiB \\
 \bottomrule
@@ -1368,7 +1512,7 @@ V4 bitmap & \RQFourVFourInfluenceFacts{} &
 
 In one fixed-host deployment, all
 \RQFourVFourGatesPassed{}/\RQFourVFourGatesTotal{} V4 gates pass. At
-\RQFourVFourReleaseFacts{} release, \RQFourVFourInfluenceFacts{} dependency,
+\RQFourVFourReleaseFacts{} release, \RQFourVFourDependencyFacts{} dependency,
 and \RQFourVFourOutcomeFacts{} outcome facts, novel p50/p95 is
 \RQFourVFourNovelMedianS{}/\RQFourVFourNovelTailS{}~s, replay p50/p95 is
 \RQFourVFourReplayMedianMS{}/\RQFourVFourReplayTailMS{}~ms with no Business SQL,
