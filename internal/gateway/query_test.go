@@ -49,12 +49,12 @@ func TestExposurePlanHidesMeteringKeysAndDeduplicatesReplay(t *testing.T) {
 	harness := newGatewayHarness(t)
 	harness.createExposureSummaryTask(t, "task-exposure-plan", control.ExposureLimits{ReleaseFacts: 20, InfluenceFacts: 20})
 	harness.connector.result = dataconnector.Result{
-		Columns: []dataconnector.Column{{Name: "month"}, {Name: "total_amount"}, {Name: "department"}, {Name: "expense_type"}},
-		Rows:    [][]any{{"2026-01", 123.45, "销售部", "机票"}}, RowCount: 1, DatabaseTime: 2 * time.Millisecond,
+		Columns: []dataconnector.Column{{Name: "month", DataTypeOID: 25}, {Name: "total_amount", DataTypeOID: 1700}, {Name: "department", DataTypeOID: 25}, {Name: "expense_type", DataTypeOID: 25}},
+		Rows:    [][]any{{"2026-01", json.Number("123.45"), "销售部", "机票"}}, RowCount: 1, DatabaseTime: 2 * time.Millisecond,
 	}
 	harness.connector.provenanceResult = dataconnector.Result{
-		Columns: []dataconnector.Column{{Name: "department"}, {Name: "expense_type"}, {Name: "month"}, {Name: "total_amount"}},
-		Rows:    [][]any{{"销售部", "机票", "2026-01", 123.45}}, RowCount: 1, DatabaseTime: time.Millisecond,
+		Columns: []dataconnector.Column{{Name: "department", DataTypeOID: 25}, {Name: "expense_type", DataTypeOID: 25}, {Name: "month", DataTypeOID: 25}, {Name: "total_amount", DataTypeOID: 1700}},
+		Rows:    [][]any{{"销售部", "机票", "2026-01", json.Number("123.45")}}, RowCount: 1, DatabaseTime: time.Millisecond,
 	}
 	arguments := map[string]any{
 		"task_id": "task-exposure-plan", "request_id": "exposure-request-1",
@@ -157,7 +157,7 @@ func TestOrdinalSemanticReplayBindingPinsCompilerOrderingAndPaginationVersions(t
 	}
 }
 
-func TestExecutePlanSemanticReplaySurvivesConsumedRowBudget(t *testing.T) {
+func TestSQLAndExecutePlanShareV4SemanticReplayAfterConsumedRowBudget(t *testing.T) {
 	harness := newGatewayHarness(t)
 	harness.installCatalogV4SnapshotRegistry(t)
 	taskID := "task-v4-replay-consumed-row-budget"
@@ -233,14 +233,27 @@ func TestExecutePlanSemanticReplaySurvivesConsumedRowBudget(t *testing.T) {
 		t.Fatalf("remaining rows after novel = %d, want 97", remaining)
 	}
 
-	second := mustCallGatewayTool(t, harness.service, harness.alice, "execute_plan", map[string]any{
-		"task_id": taskID, "request_id": "v4-row-budget-semantic-replay", "plan": plan,
-	})
+	secondArguments := map[string]any{
+		"task_id": taskID, "request_id": "v4-row-budget-semantic-replay",
+		"sql": `SELECT month, department, expense_type, total_amount
+	FROM expense_summary
+	ORDER BY month ASC, department ASC, expense_type ASC`,
+	}
+	second := mustCallGatewayTool(t, harness.service, harness.alice, "query_sql", secondArguments)
 	if second["semantic_replay"] != true || second["row_count"] != int64(3) {
-		t.Fatalf("second request did not use semantic replay: %#v", second)
+		t.Fatalf("cross-entry request did not use semantic replay: %#v", second)
+	}
+	if second["plan_digest"] != first["plan_digest"] || second["sql_profile"] != catalogReportingSQLProfile {
+		t.Fatalf("cross-entry semantic identity differs: execute_plan=%v query_sql=%v profile=%v",
+			first["plan_digest"], second["plan_digest"], second["sql_profile"])
 	}
 	if len(harness.connector.requests) != 2 {
 		t.Fatalf("semantic replay executed connector: calls=%d", len(harness.connector.requests))
+	}
+	secondReplay := mustCallGatewayTool(t, harness.service, harness.alice, "query_sql", secondArguments)
+	if secondReplay["idempotent_replay"] != true || secondReplay["plan_digest"] != second["plan_digest"] ||
+		secondReplay["sql_profile"] != catalogReportingSQLProfile {
+		t.Fatalf("semantic then idempotent replay lost SQL metadata: %#v", secondReplay)
 	}
 	charge := second["exposure"].(control.ExposureCharge)
 	if charge.ChargedReleaseFacts != 0 || charge.ChargedInfluenceFacts != 0 || charge.ChargedOutcomeFacts != 0 {
@@ -512,15 +525,19 @@ func TestExposureV2OnlineJoinOperandSwapUsesSameLedgerFacts(t *testing.T) {
 		}},
 		"columns": []string{"expense_detail.receipt_no", "expense_summary.total_amount"},
 	}
-	first := mustCallGatewayTool(t, harness.service, harness.alice, "execute_plan", map[string]any{
-		"task_id": "task-v2-join", "request_id": "join-left-right", "plan": plan,
-	})
+	firstArguments := map[string]any{"task_id": "task-v2-join", "request_id": "join-left-right", "plan": plan}
+	first := mustCallGatewayTool(t, harness.service, harness.alice, "execute_plan", firstArguments)
 	firstCharge := first["exposure"].(control.ExposureCharge)
 	if firstCharge.ActualReleaseFacts != 2 || firstCharge.ActualInfluenceFacts != 6 {
 		t.Fatalf("online join charge = %+v, want release=2 dependency=6", firstCharge)
 	}
 	if columns := first["columns"].([]dataconnector.Column); len(columns) != 2 {
 		t.Fatalf("join metering fields leaked: %+v", columns)
+	}
+	firstReplay := mustCallGatewayTool(t, harness.service, harness.alice, "execute_plan", firstArguments)
+	if firstReplay["idempotent_replay"] != true || firstReplay["plan_digest"] != first["plan_digest"] ||
+		firstReplay["output_format"] != "json" {
+		t.Fatalf("execute_plan replay lost response metadata: %#v", firstReplay)
 	}
 
 	swapped := map[string]any{
@@ -537,6 +554,63 @@ func TestExposureV2OnlineJoinOperandSwapUsesSameLedgerFacts(t *testing.T) {
 	secondCharge := second["exposure"].(control.ExposureCharge)
 	if secondCharge.ChargedReleaseFacts != 0 || secondCharge.ChargedInfluenceFacts != 0 {
 		t.Fatalf("join operand swap changed ledger facts: %+v", secondCharge)
+	}
+
+	// SQL aliases and FROM operand order are presentation syntax. Lowering must
+	// erase both and reach the same canonical plan and ledger proposition as the
+	// advanced structured entry point.
+	sqlArguments := map[string]any{
+		"task_id": "task-v2-join", "request_id": "join-sql-entrypoint",
+		"sql": `SELECT detail_input.receipt_no, summary_input.total_amount
+	FROM expense_summary AS summary_input
+	JOIN expense_detail AS detail_input ON summary_input.department = detail_input.department`,
+	}
+	third := mustCallGatewayTool(t, harness.service, harness.alice, "query_sql", sqlArguments)
+	thirdCharge := third["exposure"].(control.ExposureCharge)
+	if thirdCharge.ChargedReleaseFacts != 0 || thirdCharge.ChargedInfluenceFacts != 0 {
+		t.Fatalf("SQL lowering changed cross-entry ledger facts: %+v", thirdCharge)
+	}
+	if third["plan_digest"] == "" || third["plan_digest"] != first["plan_digest"] {
+		t.Fatalf("cross-entry plan digest differs: execute_plan=%v query_sql=%v", first["plan_digest"], third["plan_digest"])
+	}
+	if third["sql_profile"] != catalogReportingSQLProfile {
+		t.Fatalf("SQL profile = %v, want %s", third["sql_profile"], catalogReportingSQLProfile)
+	}
+	thirdColumns := third["columns"].([]dataconnector.Column)
+	if len(thirdColumns) != 2 || thirdColumns[0].Name != "receipt_no" || thirdColumns[1].Name != "total_amount" {
+		t.Fatalf("SQL display columns leaked canonical roles: %+v", thirdColumns)
+	}
+	for _, request := range harness.connector.requests[len(harness.connector.requests)-2:] {
+		if strings.Contains(request.SQL, "summary_input") || strings.Contains(request.SQL, "detail_input") {
+			t.Fatalf("raw SQL aliases reached the connector instead of regenerated SQL: %s", request.SQL)
+		}
+	}
+	requestCount := len(harness.connector.requests)
+	replayed := mustCallGatewayTool(t, harness.service, harness.alice, "query_sql", sqlArguments)
+	if replayed["idempotent_replay"] != true || replayed["sql_profile"] != catalogReportingSQLProfile ||
+		replayed["plan_digest"] != third["plan_digest"] {
+		t.Fatalf("idempotent SQL replay lost canonical metadata: %#v", replayed)
+	}
+	if _, ok := replayed["query_plan"].(queryplan.QueryPlan); !ok {
+		t.Fatalf("idempotent SQL replay lost query plan: %#v", replayed["query_plan"])
+	}
+	replayedColumns := replayed["columns"].([]dataconnector.Column)
+	if len(replayedColumns) != 2 || replayedColumns[0].Name != "receipt_no" || replayedColumns[1].Name != "total_amount" {
+		t.Fatalf("idempotent SQL replay lost display columns: %+v", replayedColumns)
+	}
+	if len(harness.connector.requests) != requestCount {
+		t.Fatalf("idempotent SQL replay reached connector: %d -> %d", requestCount, len(harness.connector.requests))
+	}
+	fetched := mustCallGatewayTool(t, harness.service, harness.alice, "get_query_result", map[string]any{
+		"task_id": "task-v2-join", "query_id": third["query_id"],
+	})
+	fetchedColumns := fetched["columns"].([]dataconnector.Column)
+	if len(fetchedColumns) != 2 || fetchedColumns[0].Name != "receipt_no" || fetchedColumns[1].Name != "total_amount" ||
+		fetched["sql_profile"] != catalogReportingSQLProfile || fetched["plan_digest"] != third["plan_digest"] {
+		t.Fatalf("get_query_result lost SQL response metadata: %#v", fetched)
+	}
+	if _, ok := fetched["query_plan"].(queryplan.QueryPlan); !ok {
+		t.Fatalf("get_query_result lost canonical plan: %#v", fetched["query_plan"])
 	}
 }
 
@@ -606,15 +680,88 @@ func sameExposureFactIDs(t *testing.T, left, right []exposure.FactID) bool {
 	return true
 }
 
-func TestExposureTaskRejectsDirectSQLWithoutProvenance(t *testing.T) {
+func TestExposureTaskLowersSQLIntoPairedQueryPlanExecution(t *testing.T) {
 	harness := newGatewayHarness(t)
-	harness.createExposureSummaryTask(t, "task-exposure-direct", control.ExposureLimits{ReleaseFacts: 20, InfluenceFacts: 20})
-	_, err := callGatewayTool(harness.service, harness.alice, "query_sql", map[string]any{
+	harness.createExposureV2SummaryTask(t, "task-exposure-direct", control.ExposureLimits{ReleaseFacts: 20, InfluenceFacts: 20})
+	harness.connector.result = dataconnector.Result{
+		Columns: []dataconnector.Column{{Name: "month", DataTypeOID: 25}, {Name: "total_amount", DataTypeOID: 1700}, {Name: "department", DataTypeOID: 25}, {Name: "expense_type", DataTypeOID: 25}},
+		Rows:    [][]any{{"2026-01", json.Number("123.45"), "销售部", "机票"}}, RowCount: 1, DatabaseTime: 2 * time.Millisecond,
+	}
+	harness.connector.provenanceResult = dataconnector.Result{
+		Columns: []dataconnector.Column{{Name: "department", DataTypeOID: 25}, {Name: "expense_type", DataTypeOID: 25}, {Name: "month", DataTypeOID: 25}, {Name: "total_amount", DataTypeOID: 1700}},
+		Rows:    [][]any{{"销售部", "机票", "2026-01", json.Number("123.45")}}, RowCount: 1, DatabaseTime: time.Millisecond,
+	}
+	grant, err := harness.store.GetGrant(context.Background(), "task-exposure-direct")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := harness.service.preparePlan(grant, queryplan.QueryPlan{Product: "expense_summary", Columns: []string{"month", "total_amount"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := prepared.Exposure.deriveObservation(harness.connector.result, harness.connector.provenanceResult, exposure.ProfileV2); err != nil {
+		t.Fatalf("fixture does not satisfy V2 paired evidence: %v", err)
+	}
+	result := mustCallGatewayTool(t, harness.service, harness.alice, "query_sql", map[string]any{
 		"task_id": "task-exposure-direct", "request_id": "direct-request", "sql": testSummarySQL,
 	})
-	requireToolCode(t, err, apierr.CodeExposureEvidenceRequired)
+	plan, ok := result["query_plan"].(queryplan.QueryPlan)
+	if !ok || plan.Product != "expense_summary" || len(plan.Columns) != 2 {
+		t.Fatalf("lowered query plan = %#v", result["query_plan"])
+	}
+	if result["plan_digest"] == "" || result["sql_profile"] != catalogReportingSQLProfile {
+		t.Fatalf("lowered response omitted canonical identity: %#v", result)
+	}
+	if len(harness.connector.requests) != 2 {
+		t.Fatalf("exposure SQL connector calls = %d, want visible and provenance", len(harness.connector.requests))
+	}
+}
+
+func TestSQLLoweringFailureDoesNotReserveOrChargeBudget(t *testing.T) {
+	harness := newGatewayHarness(t)
+	harness.createTaskWithGrantAndExposureProfile(t, "task-v2-lowering-reject", nil,
+		control.ExposureLimits{ReleaseFacts: 50, InfluenceFacts: 50}, exposure.ProfileV2,
+		[]string{"expense_detail", "expense_summary"}, map[string][]string{
+			"expense_detail":  {"amount", "department", "receipt_no"},
+			"expense_summary": {"department", "month", "total_amount"},
+		}, domain.SensitivityHigh)
+	budgetBefore, err := harness.store.GetBudget(context.Background(), "task-v2-lowering-reject")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledgerBefore, err := harness.store.GetExposureLedger(context.Background(), "task-v2-lowering-reject")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = callGatewayTool(harness.service, harness.alice, "query_sql", map[string]any{
+		"task_id": "task-v2-lowering-reject", "request_id": "left-join-reject",
+		"sql": `SELECT d.receipt_no, s.total_amount
+FROM expense_detail AS d
+LEFT JOIN expense_summary AS s ON d.department = s.department`,
+	})
+	requireToolCode(t, err, apierr.CodeJoinTypeUnsupported)
 	if len(harness.connector.requests) != 0 {
-		t.Fatalf("direct SQL reached connector %d times", len(harness.connector.requests))
+		t.Fatalf("rejected SQL reached connector %d times", len(harness.connector.requests))
+	}
+	records, err := harness.store.ListQueries(context.Background(), "task-v2-lowering-reject", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 0 {
+		t.Fatalf("lowering rejection created query reservations: %#v", records)
+	}
+	budgetAfter, err := harness.store.GetBudget(context.Background(), "task-v2-lowering-reject")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledgerAfter, err := harness.store.GetExposureLedger(context.Background(), "task-v2-lowering-reject")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if budgetAfter != budgetBefore || ledgerAfter != ledgerBefore {
+		t.Fatalf("lowering rejection changed budget: resource before=%+v after=%+v exposure before=%+v after=%+v",
+			budgetBefore, budgetAfter, ledgerBefore, ledgerAfter)
 	}
 }
 

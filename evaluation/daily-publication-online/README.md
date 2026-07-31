@@ -1,9 +1,11 @@
 # RQ5 retained-publication online transition experiment
 
 This isolated experiment measures the online half of RQ5. It uses the real
-TaskGate Control store, PostgreSQL connector, Gateway services, public
-`request_data_task` and `execute_plan` tools, and signed OA submitted plus
-approved/narrowed callbacks. It does not add or modify a production `latest`
+TaskGate Control store, PostgreSQL connector, Gateway services, the public
+`request_data_task` tool and directly callable advanced `execute_plan` method,
+and signed OA submitted plus approved/narrowed callbacks. `execute_plan` is
+retained for deterministic harnesses but hidden from an ordinary Agent's
+`tools/list`. The experiment does not add or modify a production `latest`
 router.
 
 The experiment-only router owns four already-constructed, Catalog-bound

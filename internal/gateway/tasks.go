@@ -24,29 +24,15 @@ func (s *Service) listDataProducts(_ context.Context, _ mcp.Principal, raw json.
 	}
 	products := make([]map[string]any, 0, len(s.catalog.Products))
 	for _, product := range s.catalog.ListProducts() {
-		sensitivity, err := product.EffectiveSensitivity()
+		publicProduct, err := publicDataProduct(product, false)
 		if err != nil {
 			return nil, err
 		}
-		fields := make([]map[string]any, 0, len(product.Fields))
-		for _, field := range product.Fields {
-			fieldSensitivity := field.Sensitivity
-			if fieldSensitivity == "" {
-				fieldSensitivity = product.Sensitivity
-			}
-			fields = append(fields, map[string]any{
-				"name": field.Name, "type": field.Type, "description": field.Description,
-				"sensitivity": fieldSensitivity,
-			})
-		}
-		products = append(products, map[string]any{
-			"name": product.Name, "description": product.Description, "sensitivity": sensitivity,
-			"fields": fields, "scopes": product.Scopes, "snapshot": product.Snapshot,
-			"entity_key": append([]string(nil), product.EntityKey...),
-		})
+		products = append(products, publicProduct)
 	}
 	return map[string]any{
 		"catalog_version": s.catalog.CatalogVersion,
+		"sql_profile":     catalogReportingSQLProfile,
 		"products":        products,
 		"scopes":          append([]catalog.Scope(nil), s.catalog.Scopes...),
 	}, nil

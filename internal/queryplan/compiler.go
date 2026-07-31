@@ -47,11 +47,13 @@ type QueryPlan struct {
 
 // From is the closed multi-product input grammar. Exactly one member must be
 // present. Scan is useful as the explicit, role-qualified form of the legacy
-// Product input; Join and UnionDistinct are deliberately limited to two scan
-// leaves so arbitrary SQL trees never cross this public boundary.
+// Product input. Join is the legacy two-source spelling, JoinMany is a bounded
+// flat connected INNER-equijoin graph, and UnionDistinct remains a two-branch
+// operator; arbitrary SQL trees never cross this public boundary.
 type From struct {
 	Scan          *Scan          `json:"scan,omitempty"`
 	Join          *Join          `json:"join,omitempty"`
+	JoinMany      *JoinMany      `json:"join_many,omitempty"`
 	UnionDistinct *UnionDistinct `json:"union_distinct,omitempty"`
 }
 
@@ -65,6 +67,14 @@ type Join struct {
 	Left  Scan            `json:"left"`
 	Right Scan            `json:"right"`
 	On    []JoinPredicate `json:"on"`
+}
+
+// JoinMany is the closed, flat multi-product INNER-equijoin grammar. Sources
+// and predicates are canonicalized before compilation; the public limit keeps
+// provenance width and join planning bounded.
+type JoinMany struct {
+	Sources []Scan          `json:"sources"`
+	On      []JoinPredicate `json:"on"`
 }
 
 type JoinPredicate struct {
@@ -284,7 +294,9 @@ func sqlLiteral(value any) (string, error) {
 		if len(typed) > 4096 || strings.IndexByte(typed, 0) >= 0 {
 			return "", errors.New("string literal is invalid")
 		}
-		return "'" + strings.ReplaceAll(typed, "'", "''") + "'", nil
+		escaped := strings.ReplaceAll(typed, `\`, `\\`)
+		escaped = strings.ReplaceAll(escaped, "'", "''")
+		return "E'" + escaped + "'", nil
 	case bool:
 		if typed {
 			return "TRUE", nil

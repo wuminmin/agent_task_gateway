@@ -70,6 +70,37 @@ func (sink *recordingProvenanceSink) Row(ctx context.Context, values []any) erro
 	return nil
 }
 
+func TestConnectorPinsStandardConformingStringsInsideEveryExecutionTransaction(t *testing.T) {
+	connector := newStreamTestConnector(t, 2)
+	ctx := context.Background()
+	if _, err := connector.pool.Exec(ctx, `SET standard_conforming_strings=off`); err != nil {
+		t.Fatal(err)
+	}
+	single, err := connector.Query(ctx, QueryRequest{SQL: `SELECT current_setting('standard_conforming_strings')`, StatementTimeout: time.Second, MaxRows: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(single.Rows, [][]any{{"on"}}) {
+		t.Fatalf("single-query setting = %#v", single.Rows)
+	}
+
+	if _, err := connector.pool.Exec(ctx, `SET standard_conforming_strings=off`); err != nil {
+		t.Fatal(err)
+	}
+	sink := &recordingProvenanceSink{}
+	paired, err := connector.QueryPairStream(ctx, QueryPairStreamRequest{
+		Visible:        QueryRequest{SQL: `SELECT current_setting('standard_conforming_strings')`, StatementTimeout: time.Second, MaxRows: 1},
+		Provenance:     QueryRequest{SQL: `SELECT current_setting('standard_conforming_strings')`, StatementTimeout: time.Second, MaxRows: 1},
+		ProvenanceSink: sink,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(paired.Visible.Rows, [][]any{{"on"}}) || !reflect.DeepEqual(sink.rows, [][]any{{"on"}}) {
+		t.Fatalf("paired settings = visible %#v provenance %#v", paired.Visible.Rows, sink.rows)
+	}
+}
+
 func TestQueryPairStreamBoundsRowsAndPreservesMetadata(t *testing.T) {
 	connector := newStreamTestConnector(t, 2)
 	sink := &recordingProvenanceSink{}

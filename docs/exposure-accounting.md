@@ -99,9 +99,12 @@ page、NULL/bag、collation、UTC 和 exact numeric mode。支持的 alias、大
 
 ## 在线执行
 
-启用 V4 exposure Profile 的任务只能通过受支持的结构化 `execute_plan` 路径
-释放数据。Gateway 为一个 QueryPlan 生成可见查询和 provenance companion，
-然后执行：
+启用 V4 exposure Profile 的任务默认通过 `query_sql` 提交
+`taskgate-reporting-sql-v1`。Gateway 先把受支持 SQL 无损 lowering 为 canonical
+QueryPlan，再为该计划重新生成可见查询和 provenance companion；原始
+SQL 不进入数据库执行。SDK、内部测试和确定性工作流可继续直接调用不在
+普通 `tools/list` 中列出的 `execute_plan`，但两个入口共用同一 QueryPlan
+编译、provenance、FactID 和结算链路：
 
 ```text
 reserve -> semantic replay lookup / execute+stream -> derive bitmap -> settle -> release
@@ -114,6 +117,11 @@ reserve -> semantic replay lookup / execute+stream -> derive bitmap -> settle ->
 5. Control PostgreSQL 对三个维度分别执行精确 `ANDNOT + popcount` 和 `OR`，并通过一次 root-head epoch CAS 原子发布。CAS 冲突重读 head 并重算全部 R/I/O。
 6. exposure/资源结算、AES-GCM 结果、semantic materialization、终态审计和 Ed25519 V6 回执在同一事务提交后，Gateway 才向客户端释放结果。semantic replay 命中仍重新授权、扣普通资源、写审计/新回执并用新 query AAD 重加密。
 
+SQL 语法、授权或 lowering 失败在第 1 步的正式 reservation 和 Business
+PostgreSQL 执行之前返回结构化、可修复错误，不扣 queries/rows/DBMS，也不扣
+release/dependency/outcome。数据库已开始执行后的 timeout 或故障继续遵守
+现有 failure-settlement 规则。
+
 任一 exposure 维度超限时，整笔控制事务回滚：新事实、账本计数和结果密文
 都不落库，缓冲结果也不返回。Business PostgreSQL 已经完成的物理工作仍在
 资源遥测中独立处理。dependency 证据缺失、截断或无法规范化时同样 fail closed。
@@ -122,18 +130,20 @@ reserve -> semantic replay lookup / execute+stream -> derive bitmap -> settle ->
 
 | 能力 | 可执行代数 V2 | 在线 Gateway V2 |
 |---|---:|---:|
-| Projection / filter / order / limit | 是 | 单产品 QueryPlan；多输入暂不分页 |
+| Projection / filter / order / limit | 是 | 单产品 SQL/QueryPlan；多输入不分页 |
 | `GROUP BY`, `COUNT`, `SUM`, `MIN`, `MAX` | 是 | 单产品、Join 或 Union-Distinct 输入 |
-| Join | 是 | 两个不同 Catalog 稳定角色的 INNER equijoin |
-| Union | 是 | 同产品两个过滤分支；显式完整 DISTINCT schema |
-| 任意直接 SQL | 否 | exposure grant 下关闭式拒绝 |
-| `AVG`、窗口函数、子查询、递归 | 否 | exposure grant 下关闭式拒绝 |
-| 嵌套 Join/Union、自连接、多数据源或跨引擎查询 | 代数可嵌套（同快照条件） | 否 |
+| Join | 是 | SQL 及 QueryPlan `join_many`：2–8 个不同 Catalog 稳定角色的 connected INNER equijoin |
+| Union | 是 | 仅高级 QueryPlan：同产品两个过滤分支；显式完整 DISTINCT schema |
+| 任意直接 SQL | 否 | 只有能无损 lowering 的 `taskgate-reporting-sql-v1` 可进入 exposure 链路 |
+| `AVG`、窗口函数、子查询、CTE、set operation、递归 | 否 | exposure SQL 下关闭式拒绝 |
+| self/outer/cross/non-equality Join、断开的 Join graph、多数据源或跨引擎查询 | 代数可嵌套（同快照条件） | 否 |
 
 Catalog 中的 SQL allowlist 仍可包含更宽的传统资源控制片段，但 exposure
 Profile 额外收窄到上表。默认 Demo Profile 已启用 exposure，因此
-`query_sql` 不会绕开 provenance 路径；仅迁移前或明确禁用 exposure 的
-resource-only grant 保留直接 SQL 兼容行为。
+`query_sql` 必须先 lowering，不会绕开 provenance 路径；仅迁移前或明确禁用 exposure 的
+resource-only grant 保留直接 SQL 兼容行为。原始 SQL 派生的 request digest 只用于
+审计和幂等；FactID、OutcomeFact 和 semantic replay 始终绑定 canonical
+QueryPlan/`plan_digest`，不绑定 SQL 文本哈希。
 
 ## 根任务与委托
 

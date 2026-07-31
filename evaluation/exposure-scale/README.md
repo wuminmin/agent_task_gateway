@@ -1,7 +1,8 @@
 # PostgreSQL 16 multi-scale Join--Group evaluation
 
-This campaign executes the public `execute_plan` path, not an internal
-microbenchmark.  It joins deterministic Orders and Lineitem relations, groups
+This campaign directly executes the advanced `execute_plan` path, not an
+internal microbenchmark. The method is retained for deterministic harnesses but
+hidden from an ordinary Agent's `tools/list`. It joins deterministic Orders and Lineitem relations, groups
 by a three-valued order status, and computes `sum(extendedprice)`,
 `sum(linenumber)`, and `count(*)`.  The default three scales contain 1,000,
 10,000, and 45,000 orders

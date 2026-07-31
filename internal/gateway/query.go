@@ -25,16 +25,235 @@ import (
 	"taskbound.local/agent-data-gateway/internal/queryplan"
 	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 	"taskbound.local/agent-data-gateway/internal/semanticcache"
+	"taskbound.local/agent-data-gateway/internal/sqllowering"
 	"taskbound.local/agent-data-gateway/internal/sqlpolicy"
 )
 
 type storedQueryResult struct {
-	Columns     []dataconnector.Column `json:"columns"`
-	Rows        [][]any                `json:"rows"`
-	RowCount    int64                  `json:"row_count"`
-	DatabaseMS  int64                  `json:"database_ms"`
-	ComponentMS map[string]float64     `json:"component_ms,omitempty"`
-	Limited     bool                   `json:"limited"`
+	Columns         []dataconnector.Column `json:"columns"`
+	Rows            [][]any                `json:"rows"`
+	RowCount        int64                  `json:"row_count"`
+	DatabaseMS      int64                  `json:"database_ms"`
+	ComponentMS     map[string]float64     `json:"component_ms,omitempty"`
+	Limited         bool                   `json:"limited"`
+	QueryPlan       *queryplan.QueryPlan   `json:"query_plan,omitempty"`
+	SQLProfile      string                 `json:"sql_profile,omitempty"`
+	PlanDigest      string                 `json:"plan_digest,omitempty"`
+	OutputFormat    string                 `json:"output_format,omitempty"`
+	DisplayColumns  []string               `json:"display_columns,omitempty"`
+	ResultOrder     []int                  `json:"result_order,omitempty"`
+	SemanticColumns []string               `json:"semantic_columns,omitempty"`
+}
+
+// queryResponseMetadata is request-syntax metadata, not exposure identity.
+// Canonical connector columns remain encrypted in storage so accounting and
+// semantic replay operate on stable field IDs; display labels are applied only
+// when a result is released to the caller.
+type queryResponseMetadata struct {
+	Plan            queryplan.QueryPlan
+	SQLProfile      string
+	PlanDigest      string
+	OutputFormat    string
+	DisplayColumns  []string
+	ResultOrder     []int
+	SemanticColumns []string
+}
+
+func applyQueryResponseMetadata(stored *storedQueryResult, metadata *queryResponseMetadata) error {
+	stored.QueryPlan = nil
+	stored.SQLProfile = ""
+	stored.PlanDigest = ""
+	stored.OutputFormat = ""
+	stored.DisplayColumns = nil
+	stored.ResultOrder = nil
+	stored.SemanticColumns = nil
+	if metadata == nil {
+		return nil
+	}
+	if len(metadata.DisplayColumns) > 0 && len(metadata.DisplayColumns) != len(stored.Columns) {
+		return errors.New("display-column metadata disagrees with canonical result")
+	}
+	if err := validateResultOrder(metadata.ResultOrder, len(stored.Columns)); err != nil {
+		return err
+	}
+	if err := validateSemanticColumns(metadata.SemanticColumns, len(stored.Columns)); err != nil {
+		return err
+	}
+	plan := cloneQueryPlan(metadata.Plan)
+	stored.QueryPlan = &plan
+	stored.SQLProfile = metadata.SQLProfile
+	stored.PlanDigest = metadata.PlanDigest
+	stored.OutputFormat = metadata.OutputFormat
+	stored.DisplayColumns = append([]string(nil), metadata.DisplayColumns...)
+	stored.ResultOrder = append([]int(nil), metadata.ResultOrder...)
+	stored.SemanticColumns = append([]string(nil), metadata.SemanticColumns...)
+	return nil
+}
+
+func validateSemanticColumns(columns []string, width int) error {
+	if len(columns) == 0 {
+		return nil
+	}
+	if len(columns) != width {
+		return errors.New("semantic-column metadata disagrees with canonical result")
+	}
+	seen := make(map[string]struct{}, len(columns))
+	for _, column := range columns {
+		if column == "" {
+			return errors.New("semantic-column metadata contains an empty identity")
+		}
+		if _, duplicate := seen[column]; duplicate {
+			return errors.New("semantic-column metadata repeats an identity")
+		}
+		seen[column] = struct{}{}
+	}
+	return nil
+}
+
+func alignStoredSemanticColumns(stored *storedQueryResult, desired []string) error {
+	if len(desired) == 0 {
+		return nil
+	}
+	if err := validateSemanticColumns(desired, len(stored.Columns)); err != nil {
+		return err
+	}
+	if err := validateSemanticColumns(stored.SemanticColumns, len(stored.Columns)); err != nil || len(stored.SemanticColumns) == 0 {
+		return errors.New("stored semantic-column metadata is unavailable")
+	}
+	positions := make(map[string]int, len(stored.SemanticColumns))
+	for index, column := range stored.SemanticColumns {
+		positions[column] = index
+	}
+	order := make([]int, len(desired))
+	for index, column := range desired {
+		position, present := positions[column]
+		if !present {
+			return errors.New("stored result has a different semantic projection")
+		}
+		order[index] = position
+	}
+	columns := make([]dataconnector.Column, len(order))
+	for index, position := range order {
+		columns[index] = stored.Columns[position]
+	}
+	rows := make([][]any, len(stored.Rows))
+	for rowIndex, row := range stored.Rows {
+		if len(row) < len(stored.Columns) {
+			return errors.New("stored result row is shorter than its metadata")
+		}
+		rows[rowIndex] = make([]any, len(order))
+		for index, position := range order {
+			rows[rowIndex][index] = row[position]
+		}
+	}
+	stored.Columns = columns
+	stored.Rows = rows
+	stored.SemanticColumns = append([]string(nil), desired...)
+	return nil
+}
+
+func queryPlanSemanticColumns(plan queryplan.QueryPlan) []string {
+	columns := make([]string, 0, len(plan.Columns)+len(plan.Aggregates))
+	for _, column := range plan.Columns {
+		columns = append(columns, "column:"+column)
+	}
+	occurrences := make(map[string]int, len(plan.Aggregates))
+	for _, aggregate := range plan.Aggregates {
+		expression := strings.ToLower(strings.TrimSpace(aggregate.Function)) + "(" + aggregate.Column + ")"
+		occurrence := occurrences[expression]
+		occurrences[expression] = occurrence + 1
+		columns = append(columns, "aggregate:"+expression+"#"+strconv.Itoa(occurrence))
+	}
+	return columns
+}
+
+func queryPlanResultNames(plan queryplan.QueryPlan) []string {
+	columns := append([]string(nil), plan.Columns...)
+	for _, aggregate := range plan.Aggregates {
+		columns = append(columns, aggregate.Alias)
+	}
+	return columns
+}
+
+func identityResultOrder(width int) []int {
+	order := make([]int, width)
+	for index := range order {
+		order[index] = index
+	}
+	return order
+}
+
+func validateResultOrder(order []int, width int) error {
+	if len(order) == 0 {
+		return nil
+	}
+	if len(order) != width {
+		return errors.New("result-order metadata disagrees with canonical result")
+	}
+	seen := make([]bool, width)
+	for _, position := range order {
+		if position < 0 || position >= width || seen[position] {
+			return errors.New("result-order metadata is not a permutation")
+		}
+		seen[position] = true
+	}
+	return nil
+}
+
+func publicStoredResult(stored storedQueryResult) ([]dataconnector.Column, [][]any, error) {
+	if len(stored.DisplayColumns) > 0 && len(stored.DisplayColumns) != len(stored.Columns) {
+		return nil, nil, errors.New("stored display-column metadata is invalid")
+	}
+	if err := validateResultOrder(stored.ResultOrder, len(stored.Columns)); err != nil {
+		return nil, nil, err
+	}
+	order := stored.ResultOrder
+	if len(order) == 0 {
+		order = make([]int, len(stored.Columns))
+		for index := range order {
+			order[index] = index
+		}
+	}
+	columns := make([]dataconnector.Column, len(order))
+	for publicIndex, canonicalIndex := range order {
+		columns[publicIndex] = stored.Columns[canonicalIndex]
+		if len(stored.DisplayColumns) > 0 {
+			columns[publicIndex].Name = stored.DisplayColumns[publicIndex]
+		}
+	}
+	rows := make([][]any, len(stored.Rows))
+	for rowIndex, row := range stored.Rows {
+		if len(row) < len(stored.Columns) {
+			return nil, nil, errors.New("stored result row is shorter than its metadata")
+		}
+		rows[rowIndex] = make([]any, len(order))
+		for publicIndex, canonicalIndex := range order {
+			rows[rowIndex][publicIndex] = row[canonicalIndex]
+		}
+	}
+	return columns, rows, nil
+}
+
+func addStoredResponseMetadata(result map[string]any, stored storedQueryResult) error {
+	columns, rows, err := publicStoredResult(stored)
+	if err != nil {
+		return err
+	}
+	result["columns"] = columns
+	result["rows"] = rows
+	if stored.QueryPlan != nil {
+		result["query_plan"] = cloneQueryPlan(*stored.QueryPlan)
+	}
+	if stored.SQLProfile != "" {
+		result["sql_profile"] = stored.SQLProfile
+	}
+	if stored.PlanDigest != "" {
+		result["plan_digest"] = stored.PlanDigest
+	}
+	if stored.OutputFormat != "" {
+		result["output_format"] = stored.OutputFormat
+	}
+	return nil
 }
 
 // decodeStoredQueryResult preserves the exact JSON number lexeme written by
@@ -113,7 +332,106 @@ func (s *Service) querySQL(ctx context.Context, principal mcp.Principal, raw jso
 		return nil, err
 	}
 	requestSummary := "query_sql\x00" + task.ID + "\x00" + args.SQL
-	return s.executeSQL(ctx, principal, task, args.RequestID, args.SQL, requestSummary, nil)
+	// Preserve the original request-id contract before parsing or lowering. An
+	// exact retry observes its first durable outcome even if the task, Catalog,
+	// or SQL profile has changed since that execution.
+	existing, lookupErr := s.store.GetQueryByRequestID(ctx, task.ID, args.RequestID)
+	if lookupErr == nil {
+		if existing.RequestDigest != digest(requestSummary) {
+			return nil, toolError(control.ErrIdempotencyConflict)
+		}
+		return s.queryReplayResponse(ctx, existing)
+	}
+	if !errors.Is(lookupErr, control.ErrNotFound) {
+		return nil, lookupErr
+	}
+	if task.State != control.TaskActive {
+		return nil, &mcp.ToolError{Code: apierr.CodeTaskNotActive, Message: "任务尚未批准或已经归档"}
+	}
+	if err := s.ensureActiveTaskFamily(ctx, task); err != nil {
+		return nil, toolError(err)
+	}
+	if task.CatalogVersion != s.catalog.CatalogVersion {
+		return nil, &mcp.ToolError{Code: apierr.CodeConflict, Message: "任务目录版本与当前实例不一致；为避免扩权已拒绝查询"}
+	}
+	grant, err := s.store.GetGrant(ctx, task.ID)
+	if err != nil {
+		return nil, err
+	}
+	if !grant.Exposure.Enabled() {
+		return s.executeSQL(ctx, principal, task, args.RequestID, args.SQL, requestSummary, nil, nil)
+	}
+
+	products := make(map[string]queryplan.Product, len(grant.ApprovedProducts))
+	for _, name := range grant.ApprovedProducts {
+		product, found := s.catalog.LookupProduct(name)
+		if !found {
+			return nil, &mcp.ToolError{Code: apierr.CodeConflict, Message: "任务授权引用的数据产品不在当前 Catalog 中"}
+		}
+		products[name] = relationalQueryProduct(product, stringSetFromSlice(grant.ApprovedColumns[name]))
+	}
+	lowered, err := sqllowering.Lower(args.SQL, products)
+	if err != nil {
+		return nil, sqlLoweringToolError(err)
+	}
+	if lowered.Plan.From != nil && grant.Exposure.ProfileVersion != exposure.ProfileV2 &&
+		grant.Exposure.ProfileVersion != exposure.ProfileV3 && grant.Exposure.ProfileVersion != exposure.ProfileV4 {
+		return nil, &mcp.ToolError{Code: apierr.CodeSQLNotLowerable, Message: "当前 exposure profile 不支持在线多产品计划", Details: map[string]any{
+			"reason": "RELATIONAL_EXPOSURE_PROFILE_UNSUPPORTED", "location": map[string]any{"clause": "FROM"},
+			"supported_alternative":   "Query an approved prejoined reporting product or use a task with taskgate-exposure-v2, v3, or v4.",
+			"retryable_after_rewrite": true, "sql_profile": sqllowering.Profile,
+		}}
+	}
+	prepared, err := s.preparePlan(grant, lowered.Plan)
+	if err != nil {
+		return nil, err
+	}
+	metadata := &queryResponseMetadata{Plan: lowered.Plan, SQLProfile: lowered.Profile,
+		DisplayColumns: append([]string(nil), lowered.DisplayColumns...), ResultOrder: append([]int(nil), lowered.ResultOrder...),
+		SemanticColumns: queryPlanSemanticColumns(lowered.Plan)}
+	if prepared.Exposure != nil {
+		metadata.PlanDigest = prepared.Exposure.planDigest
+	}
+	return s.executeSQL(ctx, principal, task, args.RequestID, prepared.SQL, requestSummary, prepared.Exposure, metadata)
+}
+
+func sqlLoweringToolError(err error) error {
+	var rejected *sqllowering.Error
+	if !errors.As(err, &rejected) {
+		return &mcp.ToolError{Code: apierr.CodeSQLNotLowerable, Message: "SQL 无法无损转换为 TaskGate 规范计划", Details: map[string]any{
+			"reason": "LOWERING_FAILED", "retryable_after_rewrite": true, "sql_profile": sqllowering.Profile,
+		}}
+	}
+	details := map[string]any{
+		"reason":                  rejected.Reason,
+		"retryable_after_rewrite": rejected.Retryable,
+		"sql_profile":             sqllowering.Profile,
+	}
+	location := map[string]any{}
+	if rejected.Location.Clause != "" {
+		location["clause"] = rejected.Location.Clause
+	}
+	if rejected.Location.Relation != "" {
+		location["relation"] = rejected.Location.Relation
+	}
+	if rejected.Location.Offset >= 0 {
+		location["offset"] = rejected.Location.Offset
+	}
+	if len(location) > 0 {
+		details["location"] = location
+	}
+	if rejected.Alternative != "" {
+		details["supported_alternative"] = rejected.Alternative
+	}
+	code := rejected.Code
+	if code == "" {
+		code = apierr.CodeSQLNotLowerable
+	}
+	message := rejected.Message
+	if message == "" {
+		message = "SQL 无法无损转换为 TaskGate 规范计划"
+	}
+	return &mcp.ToolError{Code: code, Message: message, Details: details}
 }
 
 func (s *Service) executePlan(ctx context.Context, principal mcp.Principal, raw json.RawMessage) (any, error) {
@@ -167,116 +485,135 @@ func (s *Service) executePlan(ctx context.Context, principal mcp.Principal, raw 
 	if err != nil {
 		return nil, err
 	}
-	var compiled string
-	var exposureContext *planExposureContext
-	if args.Plan.From == nil {
-		product, ok := s.catalog.LookupProduct(args.Plan.Product)
-		if !ok || !contains(grant.ApprovedProducts, args.Plan.Product) {
-			return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "QueryPlan 请求了任务授权外的数据产品"}
+	prepared, err := s.preparePlan(grant, args.Plan)
+	if err != nil {
+		return nil, err
+	}
+	resultNames := queryPlanResultNames(args.Plan)
+	metadata := &queryResponseMetadata{Plan: args.Plan, OutputFormat: defaultString(args.OutputFormat, "json"),
+		DisplayColumns: resultNames, ResultOrder: identityResultOrder(len(resultNames)),
+		SemanticColumns: queryPlanSemanticColumns(args.Plan)}
+	if prepared.Exposure != nil {
+		metadata.PlanDigest = prepared.Exposure.planDigest
+	}
+	return s.executeSQL(ctx, principal, task, args.RequestID, prepared.SQL, requestSummary, prepared.Exposure, metadata)
+}
+
+type preparedQueryPlan struct {
+	SQL      string
+	Exposure *planExposureContext
+}
+
+// preparePlan is the only QueryPlan-to-execution boundary. Both the advanced
+// structured entrypoint and exposure-enabled reporting SQL use it so visible
+// SQL, provenance, FactIDs, ordinal programs, and semantic replay cannot drift
+// between public input syntaxes. It performs no reservation or database I/O.
+func (s *Service) preparePlan(grant control.TaskGrant, plan queryplan.QueryPlan) (preparedQueryPlan, error) {
+	var prepared preparedQueryPlan
+	var err error
+	if plan.From == nil {
+		product, ok := s.catalog.LookupProduct(plan.Product)
+		if !ok || !contains(grant.ApprovedProducts, plan.Product) {
+			return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "QueryPlan 请求了任务授权外的数据产品"}
 		}
-		columns := make(map[string]struct{}, len(grant.ApprovedColumns[args.Plan.Product]))
-		for _, column := range grant.ApprovedColumns[args.Plan.Product] {
+		columns := make(map[string]struct{}, len(grant.ApprovedColumns[plan.Product]))
+		for _, column := range grant.ApprovedColumns[plan.Product] {
 			columns[column] = struct{}{}
 		}
 		aggregates := make(map[string]struct{}, len(product.AllowedAggregates))
 		for _, aggregate := range product.AllowedAggregates {
 			aggregates[strings.ToLower(aggregate)] = struct{}{}
 		}
-		compiled, err = queryplan.Compile(args.Plan, queryplan.Product{Name: args.Plan.Product, Columns: columns, AllowedAggregates: aggregates})
+		prepared.SQL, err = queryplan.Compile(plan, queryplan.Product{Name: plan.Product, Columns: columns, AllowedAggregates: aggregates})
 		if err != nil {
-			return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "QueryPlan 无法在任务授权内编译"}
+			return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "QueryPlan 无法在任务授权内编译"}
 		}
 		if grant.Exposure.Enabled() {
-			exposureContext, err = buildPlanExposureContext(args.Plan, product, columns, aggregates)
+			prepared.Exposure, err = buildPlanExposureContext(plan, product, columns, aggregates)
 			if err != nil {
-				return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "QueryPlan 不在可精确计量的数据暴露片段内"}
+				return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "QueryPlan 不在可精确计量的数据暴露片段内"}
 			}
 			if grant.Exposure.ProfileVersion == exposure.ProfileV2 || grant.Exposure.ProfileVersion == exposure.ProfileV3 || grant.Exposure.ProfileVersion == exposure.ProfileV4 {
-				if err := exposureContext.configureV2(columns, aggregates); err != nil {
-					return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "QueryPlan 缺少 V2 规范身份或无法归一化"}
+				if err := prepared.Exposure.configureV2(columns, aggregates); err != nil {
+					return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "QueryPlan 缺少 V2 规范身份或无法归一化"}
 				}
 			}
-			compiled = exposureContext.mainSQL
+			prepared.SQL = prepared.Exposure.mainSQL
 			if grant.Exposure.ProfileVersion == exposure.ProfileV4 {
 				ordinalProduct, ordinalProductErr := s.ordinalQueryProduct(product, columns)
 				if ordinalProductErr != nil {
-					return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "V4 Product 未绑定可信快照发布物"}
+					return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "V4 Product 未绑定可信快照发布物"}
 				}
-				ordinalCompilation, ordinalCompileErr := queryplan.CompileOrdinal(args.Plan, ordinalProduct)
+				ordinalCompilation, ordinalCompileErr := queryplan.CompileOrdinal(plan, ordinalProduct)
 				if ordinalCompileErr != nil {
-					return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "QueryPlan 无法编译为 V4 ordinal 程序"}
+					return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "QueryPlan 无法编译为 V4 ordinal 程序"}
 				}
 				bound, bindErr := s.bindOrdinalSidecars(ordinalCompilation.ProvenanceSQL,
 					ordinalCompilation.ProvenanceFields, ordinalCompilation.OrdinalProgram)
 				if bindErr != nil {
-					return nil, &mcp.ToolError{Code: apierr.CodeConflict, Message: "V4 快照索引或 sidecar 与 Catalog 不一致"}
+					return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodeConflict, Message: "V4 快照索引或 sidecar 与 Catalog 不一致"}
 				}
-				exposureContext.mainSQL = ordinalCompilation.VisibleSQL
-				exposureContext.provenanceSQL = bound.ProvenanceSQL
-				exposureContext.provenanceFields = append([]string(nil), bound.ProvenanceFields...)
-				if args.Plan.Limit > 0 {
-					bound.EstimatedBaseFacts = estimateOrdinalBaseFacts(bound, uint64(args.Plan.Limit))
+				prepared.Exposure.mainSQL = ordinalCompilation.VisibleSQL
+				prepared.Exposure.provenanceSQL = bound.ProvenanceSQL
+				prepared.Exposure.provenanceFields = append([]string(nil), bound.ProvenanceFields...)
+				if plan.Limit > 0 {
+					bound.EstimatedBaseFacts = estimateOrdinalBaseFacts(bound, uint64(plan.Limit))
 				}
-				exposureContext.ordinal = &bound
-				compiled = ordinalCompilation.VisibleSQL
+				prepared.Exposure.ordinal = &bound
+				prepared.SQL = ordinalCompilation.VisibleSQL
 			}
 		}
 	} else {
 		if !grant.Exposure.Enabled() || (grant.Exposure.ProfileVersion != exposure.ProfileV2 && grant.Exposure.ProfileVersion != exposure.ProfileV3 && grant.Exposure.ProfileVersion != exposure.ProfileV4) {
-			return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "在线 Join/Union 必须使用 taskgate-exposure-v2、v3 或 v4"}
+			return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "在线 Join/Union 必须使用 taskgate-exposure-v2、v3 或 v4"}
 		}
-		productNames, namesErr := queryplan.RelationalProductNames(args.Plan)
+		productNames, namesErr := queryplan.RelationalProductNames(plan)
 		if namesErr != nil {
-			return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "关系 QueryPlan 的 from 结构无效"}
+			return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "关系 QueryPlan 的 from 结构无效"}
 		}
 		queryProducts := make(map[string]queryplan.Product, len(productNames))
 		catalogProducts := make(map[string]catalog.Product, len(productNames))
 		for _, name := range productNames {
 			product, ok := s.catalog.LookupProduct(name)
 			if !ok || !contains(grant.ApprovedProducts, name) {
-				return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "关系 QueryPlan 请求了任务授权外的数据产品"}
+				return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "关系 QueryPlan 请求了任务授权外的数据产品"}
 			}
 			approved := stringSetFromSlice(grant.ApprovedColumns[name])
 			queryProduct := relationalQueryProduct(product, approved)
 			if grant.Exposure.ProfileVersion == exposure.ProfileV4 {
 				queryProduct, err = s.ordinalQueryProduct(product, approved)
 				if err != nil {
-					return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "V4 Product 未绑定可信快照发布物"}
+					return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "V4 Product 未绑定可信快照发布物"}
 				}
 			}
 			queryProducts[name] = queryProduct
 			catalogProducts[name] = product
 		}
-		relational, compileErr := queryplan.CompileRelational(args.Plan, queryProducts)
+		relational, compileErr := queryplan.CompileRelational(plan, queryProducts)
 		if compileErr != nil {
-			return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "Join/Union QueryPlan 无法在受限关系片段内编译"}
+			return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "Join/Union QueryPlan 无法在受限关系片段内编译"}
 		}
-		compiled = relational.VisibleSQL
-		exposureContext, err = buildRelationalExposureContext(args.Plan, relational, catalogProducts, grant.ApprovedColumns)
+		prepared.SQL = relational.VisibleSQL
+		prepared.Exposure, err = buildRelationalExposureContext(plan, relational, catalogProducts, grant.ApprovedColumns)
 		if err != nil {
-			return nil, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "Join/Union 缺少完整的正输出依赖证据"}
+			return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "Join/Union 缺少完整的正输出依赖证据"}
 		}
-		compiled = exposureContext.mainSQL
+		prepared.SQL = prepared.Exposure.mainSQL
 		if grant.Exposure.ProfileVersion == exposure.ProfileV4 {
 			bound, bindErr := s.bindOrdinalSidecars(relational.ProvenanceSQL, relational.ProvenanceFields, relational.OrdinalProgram)
 			if bindErr != nil {
-				return nil, &mcp.ToolError{Code: apierr.CodeConflict, Message: "V4 快照索引或 sidecar 与 Catalog 不一致"}
+				return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodeConflict, Message: "V4 快照索引或 sidecar 与 Catalog 不一致"}
 			}
-			exposureContext.provenanceSQL = bound.ProvenanceSQL
-			exposureContext.provenanceFields = append([]string(nil), bound.ProvenanceFields...)
-			exposureContext.ordinal = &bound
+			prepared.Exposure.provenanceSQL = bound.ProvenanceSQL
+			prepared.Exposure.provenanceFields = append([]string(nil), bound.ProvenanceFields...)
+			prepared.Exposure.ordinal = &bound
 		}
 	}
-	result, err := s.executeSQL(ctx, principal, task, args.RequestID, compiled, requestSummary, exposureContext)
-	if err != nil {
-		return nil, err
-	}
-	result.(map[string]any)["query_plan"] = args.Plan
-	result.(map[string]any)["output_format"] = defaultString(args.OutputFormat, "json")
-	return result, nil
+	return prepared, nil
 }
 
-func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task control.Task, requestID, agentSQL, requestSummary string, exposureContext *planExposureContext) (any, error) {
+func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task control.Task, requestID, agentSQL, requestSummary string,
+	exposureContext *planExposureContext, responseMetadata *queryResponseMetadata) (any, error) {
 	pipelineStarted := time.Now()
 	requestDigest := digest(requestSummary)
 	// An idempotent retry observes the first durable result/status even if the
@@ -460,8 +797,8 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 		return s.queryReplayResponse(ctx, *reservation.Record)
 	}
 	if ordinalCacheKey != "" {
-		replayed, replayOutcome, replayErr := s.tryOrdinalSemanticReplay(ctx, task, requestID, queryID, grantDigest,
-			ordinalCacheKey, exposureContext.ordinal.DictionarySetDigest, reservation, componentMS)
+		replayed, replayOutcome, replayErr := s.tryOrdinalSemanticReplayForQuery(ctx, task, requestID, queryID, grantDigest,
+			ordinalCacheKey, exposureContext.ordinal.DictionarySetDigest, reservation, componentMS, responseMetadata)
 		if replayErr != nil {
 			return nil, replayErr
 		}
@@ -657,6 +994,11 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 		DatabaseMS: settlement.DBMS, ComponentMS: componentMS,
 		Limited: data.Truncated || data.RowCount == reservation.AllowedRows,
 	}
+	if err := applyQueryResponseMetadata(&stored, responseMetadata); err != nil {
+		settlement.ErrorCode = resultEncodingFailed
+		s.failQueryBudget(ctx, settlement)
+		return nil, err
+	}
 	if ordinalCacheKey != "" {
 		expires := grant.ExpiresAt.UTC()
 		settlement.OrdinalMaterialization = &control.OrdinalMaterializationPublish{CacheKeySHA256: ordinalCacheKey, ExpiresAt: &expires}
@@ -730,9 +1072,12 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 		return nil, err
 	}
 	result := map[string]any{
-		"task_id": task.ID, "query_id": queryID, "request_id": requestID, "status": record.Status, "columns": stored.Columns,
+		"task_id": task.ID, "query_id": queryID, "request_id": requestID, "status": record.Status,
 		"rows": stored.Rows, "row_count": stored.RowCount, "database_ms": stored.DatabaseMS,
 		"component_ms": componentMS, "limited": stored.Limited, "receipt": receipt,
+	}
+	if err := addStoredResponseMetadata(result, stored); err != nil {
+		return nil, err
 	}
 	if charge, exposureErr := s.store.GetExposureCharge(ctx, record.ID); exposureErr == nil {
 		result["exposure"] = charge
@@ -785,12 +1130,14 @@ func (s *Service) queryReplayResponse(ctx context.Context, record control.QueryR
 	if err != nil {
 		return nil, err
 	}
-	result["columns"] = stored.Columns
 	result["rows"] = stored.Rows
 	result["row_count"] = stored.RowCount
 	result["database_ms"] = stored.DatabaseMS
 	result["component_ms"] = stored.ComponentMS
 	result["limited"] = stored.Limited
+	if err := addStoredResponseMetadata(result, stored); err != nil {
+		return nil, err
+	}
 	return result, nil
 }
 
@@ -1069,11 +1416,15 @@ func (s *Service) getQueryResult(ctx context.Context, principal mcp.Principal, r
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{
-		"task_id": args.TaskID, "query_id": args.QueryID, "columns": result.Columns,
-		"rows": result.Rows, "row_count": result.RowCount, "database_ms": result.DatabaseMS,
+	response := map[string]any{
+		"task_id": args.TaskID, "query_id": args.QueryID,
+		"row_count": result.RowCount, "database_ms": result.DatabaseMS,
 		"limited": result.Limited, "receipt": receipt,
-	}, nil
+	}
+	if err := addStoredResponseMetadata(response, result); err != nil {
+		return nil, err
+	}
+	return response, nil
 }
 
 func (s *Service) listReceipts(ctx context.Context, principal mcp.Principal, raw json.RawMessage) (any, error) {

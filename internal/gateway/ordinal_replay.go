@@ -48,13 +48,28 @@ func newOrdinalReplaySpool(baseDir, taskID, queryID string, threshold int64) (or
 func (s *Service) tryOrdinalSemanticReplay(ctx context.Context, task control.Task, requestID, queryID,
 	grantDigest, cacheKey, dictionarySetDigest string, reservation control.BudgetReservation,
 	componentMS map[string]float64) (map[string]any, ordinalReplayOutcome, error) {
-	return s.tryOrdinalSemanticReplayWithSpool(ctx, task, requestID, queryID, grantDigest, cacheKey,
-		dictionarySetDigest, reservation, componentMS, newOrdinalReplaySpool)
+	return s.tryOrdinalSemanticReplayWithSpoolAndMetadata(ctx, task, requestID, queryID, grantDigest, cacheKey,
+		dictionarySetDigest, reservation, componentMS, nil, newOrdinalReplaySpool)
+}
+
+func (s *Service) tryOrdinalSemanticReplayForQuery(ctx context.Context, task control.Task, requestID, queryID,
+	grantDigest, cacheKey, dictionarySetDigest string, reservation control.BudgetReservation,
+	componentMS map[string]float64, metadata *queryResponseMetadata) (map[string]any, ordinalReplayOutcome, error) {
+	return s.tryOrdinalSemanticReplayWithSpoolAndMetadata(ctx, task, requestID, queryID, grantDigest, cacheKey,
+		dictionarySetDigest, reservation, componentMS, metadata, newOrdinalReplaySpool)
 }
 
 func (s *Service) tryOrdinalSemanticReplayWithSpool(ctx context.Context, task control.Task, requestID, queryID,
 	grantDigest, cacheKey, dictionarySetDigest string, reservation control.BudgetReservation,
 	componentMS map[string]float64, spoolFactory ordinalReplaySpoolFactory) (
+	response map[string]any, outcome ordinalReplayOutcome, replayErr error) {
+	return s.tryOrdinalSemanticReplayWithSpoolAndMetadata(ctx, task, requestID, queryID, grantDigest, cacheKey,
+		dictionarySetDigest, reservation, componentMS, nil, spoolFactory)
+}
+
+func (s *Service) tryOrdinalSemanticReplayWithSpoolAndMetadata(ctx context.Context, task control.Task, requestID, queryID,
+	grantDigest, cacheKey, dictionarySetDigest string, reservation control.BudgetReservation,
+	componentMS map[string]float64, metadata *queryResponseMetadata, spoolFactory ordinalReplaySpoolFactory) (
 	response map[string]any, outcome ordinalReplayOutcome, replayErr error) {
 	// Until either a normal miss transfers ownership back to executeSQL or the
 	// atomic finalizer commits, every error must terminally settle this fresh
@@ -125,6 +140,19 @@ func (s *Service) tryOrdinalSemanticReplayWithSpool(ctx context.Context, task co
 		}
 		componentMS["semantic_replay_lookup"] = durationMS(time.Since(started))
 		return continueNovel()
+	}
+	if metadata != nil && len(metadata.SemanticColumns) > 0 {
+		if alignErr := alignStoredSemanticColumns(&stored, metadata.SemanticColumns); alignErr != nil {
+			if evictErr := s.store.DeleteOrdinalMaterialization(ctx, task.ID, cacheKey); evictErr != nil &&
+				!errors.Is(evictErr, control.ErrNotFound) {
+				return nil, ordinalReplayTerminated, evictErr
+			}
+			componentMS["semantic_replay_lookup"] = durationMS(time.Since(started))
+			return continueNovel()
+		}
+	}
+	if err := applyQueryResponseMetadata(&stored, metadata); err != nil {
+		return nil, ordinalReplayTerminated, err
 	}
 	// From this point onward replay has consumed a committed, authenticated
 	// source result. A local encoding/finalization failure is charged as FAILED
@@ -206,9 +234,12 @@ func (s *Service) tryOrdinalSemanticReplayWithSpool(ctx context.Context, task co
 	}
 	result := map[string]any{
 		"task_id": task.ID, "query_id": queryID, "request_id": requestID, "status": record.Status,
-		"columns": stored.Columns, "rows": stored.Rows, "row_count": stored.RowCount,
+		"rows": stored.Rows, "row_count": stored.RowCount,
 		"database_ms": stored.DatabaseMS, "component_ms": componentMS, "limited": stored.Limited,
 		"receipt": receipt, "semantic_replay": true,
+	}
+	if err := addStoredResponseMetadata(result, stored); err != nil {
+		return nil, ordinalReplayCompleted, err
 	}
 	charge, chargeErr := s.store.GetExposureCharge(ctx, record.ID)
 	if chargeErr != nil {

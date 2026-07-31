@@ -2,12 +2,14 @@
 
 ## 决策链
 
-无论 SQL 来自 `query_sql` 还是 `execute_plan` 的确定性编译，都会经过同一条本地链路：
+普通 Agent 默认使用 `query_sql`。Resource-only Grant 保留现有安全 SQL policy；exposure-enabled Grant 先按 `taskgate-reporting-sql-v1` 无损 lowering 为 canonical QueryPlan。高级 `execute_plan` 不在普通 `tools/list` 中列出，但与 SQL lowering 共用后半段信任边界：
 
 ```text
-Agent SQL / 编译后的 QueryPlan visible + ordinal companion SQL
+Agent SQL
   → 所有权、任务状态、签名 Grant、TTL、Catalog 摘要与 Schema Attestation
-  → pg_query_go/v6 PostgreSQL AST 解析
+  → resource-only: pg_query_go/v6 安全 SQL policy
+  → exposure: PostgreSQL AST 解析 → canonical QueryPlan
+  → 重新生成 visible + ordinal companion SQL
   → 语句/对象/字段/函数/运算符/特性白名单
   → 为每个逻辑产品生成 TaskGrant 约束 CTE
   → 外层 LIMIT = 剩余累计行预算
@@ -18,11 +20,11 @@ Agent SQL / 编译后的 QueryPlan visible + ordinal companion SQL
   → 同事务保存结果/materialization、V6 Ed25519 回执和审计，commit 后释放
 ```
 
-安全判断不使用正则或注释剥离来猜测 SQL。解析失败或出现未识别 AST 节点时关闭式拒绝。
+安全判断不使用正则或注释剥离来猜测 SQL。解析失败或出现未识别 AST 节点时关闭式拒绝。Exposure 路径不直接执行 Agent 原始 SQL；lowering 成功后只执行 QueryPlan 重新生成并再经 policy 的 SQL。
 
 `query_sql` 和 `execute_plan` 都要求客户端提供任务内唯一的 `request_id`。相同 ID/相同请求摘要只观察首次持久化结果或状态；相同 ID/不同摘要返回冲突，绝不再次执行或消费预算。
 
-## 允许的 SQL
+## Resource-only SQL 兼容片段
 
 - 恰好一条 PostgreSQL `SELECT`。
 - 非递归 `WITH ... SELECT`、子查询、Join、`UNION ALL`、分组、排序及策略白名单支持的表达式。
@@ -42,9 +44,41 @@ GROUP BY department, expense_type
 ORDER BY amount DESC
 ```
 
-默认 Catalog 的 Grant 启用了 exposure Profile，因此 `query_sql` 即使语法合法
-也会在执行前返回 `EXPOSURE_EVIDENCE_REQUIRED`。这是在线 provenance 支持
-边界，不是 AST 拒绝；默认路径应使用结构化 `execute_plan`。
+这个兼容片段不定义 exposure FactID，也不会扩大下面的 reporting SQL profile。
+
+## Exposure reporting SQL profile
+
+`taskgate-reporting-sql-v1` 是可无损转换为 canonical QueryPlan 的闭合子集：
+
+- 恰好一条 `SELECT`，只引用 Grant 中的未限定逻辑产品名和获批字段；
+- 单产品 projection、literal filter 合取、`GROUP BY`、`ORDER BY`、`LIMIT/OFFSET` 和 `COUNT/SUM/MIN/MAX`；
+- 2–8 个不同 Catalog 稳定角色组成的 connected INNER equijoin，内部规范为 `join_many`；
+- SQL table alias 映射为 Catalog stable role，source、join predicate 和 filter 合取会按语义规范化；展示列顺序仍保持用户可见语义。
+
+内部计划和 FactID 始终使用稳定字段 ID；响应层单独保存并恢复原 SQL 的输出 alias 与 target-list 顺序（包括列/聚合交错）。这些展示元数据随加密结果持久化，因此 `get_query_result`、幂等 replay 和 V4 semantic replay 返回与首次调用一致的列名、列值顺序、`query_plan`、`sql_profile` 和 `plan_digest`。Semantic replay 在复用结果前按稳定语义列身份重排；旧结果缺少该身份时按 cache miss 重新执行，不猜测映射。
+
+Self-join、outer/cross/non-equality join、断开的 join graph、子查询、CTE、set operation、窗口函数、`HAVING`、`SELECT DISTINCT`、位置式 group/order 引用和多输入分页不可 lowering。Gateway 不会删除 predicate、忽略不可表达的输出语义，也不会把 `LEFT JOIN` 改为 `INNER JOIN`。
+
+lowering 错误是 MCP `isError=true` 的结构化结果。例如：
+
+```json
+{
+  "trace_id": "...",
+  "error": {
+    "code": "JOIN_TYPE_UNSUPPORTED",
+    "reason": "LEFT_JOIN_UNSUPPORTED",
+    "message": "Exposure accounting currently supports connected INNER equijoins only.",
+    "location": {"clause": "FROM", "relation": "customer"},
+    "supported_alternative": "Use an INNER JOIN or an approved prejoined reporting product.",
+    "retryable_after_rewrite": true,
+    "sql_profile": "taskgate-reporting-sql-v1"
+  }
+}
+```
+
+稳定 lowering/授权错误包括 `SQL_SYNTAX_ERROR`、`PRODUCT_NOT_APPROVED`、`COLUMN_NOT_APPROVED`、`SQL_NOT_LOWERABLE`、`JOIN_TYPE_UNSUPPORTED`、`JOIN_GRAPH_DISCONNECTED`、`JOIN_KEY_TYPE_MISMATCH`、`COLLATION_MISMATCH` 和 `SUBQUERY_UNSUPPORTED`。返回字段只使用客户可见的逻辑名和安全诊断，不暴露物理 View、DSN 或底层 parser 详情。
+
+语法、授权或 lowering 失败发生在 Business PostgreSQL 执行和正式 reservation 之前：不扣 queries/rows/DBMS，也不扣 release/dependency/outcome。数据库已开始执行后的 timeout、连接不确定或 provenance 故障继续使用现有 failure-settlement 规则。
 
 ## 一律拒绝
 
@@ -96,12 +130,12 @@ Agent 自己写的内层 `LIMIT` 只能进一步缩小结果。外层限制按�
 - 角色级和连接级 `default_transaction_read_only=on`。
 - 每次执行显式 `READ ONLY` 事务；V4 miss 把可见查询和 streamed ordinal companion 放进同一个 `REPEATABLE READ` 事务；verified semantic replay hit 不执行 Business SQL。
 - 角色、连接及事务本地 `statement_timeout`，最终取任务剩余 DB 预算、Profile 单次上限、Grant 剩余有效期和 Connector 5 秒上限中的更小值；在途查询不能越过授权截止点继续返回结果。
-- `search_path=pg_catalog`，生成 SQL 对物理 View 使用安全引用标识符。
+- `search_path=pg_catalog`、`standard_conforming_strings=on`；QueryPlan 字符串固定使用 PostgreSQL `E'...'` 转义，生成 SQL 对物理 View 使用安全引用标识符。
 - Context Deadline 与 PostgreSQL 取消错误统一映射为安全错误码。
 
 ## QueryPlan 路径
 
-`execute_plan` 接受声明式 `QueryPlan`：单产品计划支持选择、聚合、过滤、分组、排序、Limit 和 Offset；V2 还接受两个 Scan 叶子的受限 INNER equijoin 或同产品双分支 `union_distinct`。确定性的 Go 编译器校验产品必须已获批、角色来自 Catalog、字段和聚合位于 Catalog/Grant 白名单、Join 键类型/排序规则一致、Union 完整去重 schema、别名不重复、Filter 运算符与 literal 类型安全，再把编译结果送入完整 AST 策略。`COUNT(*)` 与 `COUNT(column)` 是不同的规范表达式；只有 `COUNT` 可接受 `*`。
+`execute_plan` 接受声明式 `QueryPlan`：单产品计划支持选择、聚合、过滤、分组、排序、Limit 和 Offset；V2 还接受 2–8 源 connected INNER equijoin 的 `join_many`，或同产品双分支 `union_distinct`。确定性的 Go 编译器校验产品必须已获批、角色来自 Catalog、字段和聚合位于 Catalog/Grant 白名单、Join graph 连通、Join 键类型/排序规则一致、Union 完整去重 schema、别名不重复、Filter 运算符与 literal 类型安全，再把编译结果送入完整 AST 策略。`COUNT(*)` 与 `COUNT(column)` 是不同的规范表达式；只有 `COUNT` 可接受 `*`。
 
 启用 exposure 时，第二个编译阶段接受上述单产品片段和受限 Join/Union，并允许
 `COUNT(*)/COUNT(column)/SUM/MIN/MAX`（可带 `GROUP BY`）。它加入 Catalog `entity_key`、Scope、
@@ -109,18 +143,18 @@ Agent 自己写的内层 `LIMIT` 只能进一步缩小结果。外层限制按�
 内部扩展 Grant，返回前会被删除；客户端不能借此查询 key。来源结果截断、
 列缺失、值不可规范化或两份结果不一致都会阻止结果释放。
 
-Gateway 不包含模型客户端、Prompt 或自然语言翻译器。需要从自然语言构造 QueryPlan 时，由 Gateway 外部的 Agent 完成；Gateway 只信任经过本地验证后的结构化字段。
+Gateway 不包含模型客户端、Prompt 或自然语言翻译器。Gateway 外部的 Agent 负责从自然语言生成 SQL；Gateway 只信任本地 AST lowering 和 QueryPlan 验证后的结构。
 
 ## 已知限制
 
 - SQL 是保守子集。合法但 AST 节点未列入白名单的 PostgreSQL 特性会被拒绝；这属于预期的关闭式行为。
-- 多输入在线片段刻意限制为两个 Scan 叶子：不同 Catalog 角色的 INNER equijoin，或同产品两个过滤分支的 Union-Distinct。嵌套关系树、self-join、`UNION ALL` 和多输入分页关闭式拒绝；不能通过 `query_sql` 绕过。
+- 多输入在线 SQL 片段刻意限制为 2–8 源 connected INNER equijoin；self-join、outer/cross/non-equality join、断开的 join graph 和多输入分页关闭式拒绝。高级 QueryPlan 另保留双分支 Union-Distinct，但 SQL profile 不接受 set operation。
 - `AVG` 可出现在传统 SQL Catalog allowlist，但不属于 exposure V1 精确计量片段；窗口函数、递归、任意子查询 provenance 和负信息计量也不支持。
 - 直接 SQL 不支持客户端占位符。调用方必须提交完整 SQL；Gateway 不提供任意 Session 变量入口。
 - Connector 在启动、readiness 和每次新查询前对 Reporting View 的列顺序与 PostgreSQL 类型执行 Catalog-pinned Schema Attestation；任何漂移都会关闭式拒绝。
 - 可见结果仍在 Gateway 内存中整体 JSON 编码并加密；provenance companion 已流式消费。Connector 的可见结果仍受全局 10,000 行硬上限约束，Demo Profile 更低。
 - `output_format=table` 目前只作为结构化响应元数据返回，Gateway 不负责表格或图表渲染。
-- SQL 指纹是规范化 Agent SQL 的 SHA-256；它证明请求文本，不是数据库执行计划 Hash。
+- 原始 SQL 派生的 request digest 只证明请求并服务于审计/幂等；它既不是数据库执行计划 Hash，也不是 FactID 或 exposure 命题身份。语义身份由 canonical QueryPlan/`plan_digest` 决定。
 - 结果确定时，预算 DB 时间按 Gateway 观测的实际有界用量结算；执行结果无法确定时标记 `INDETERMINATE` 并按完整预留保守计费。它不等同于 PostgreSQL `EXPLAIN ANALYZE` 的精确执行指标。
 - Reporting View 与只读角色仍是关键安全边界；SQL AST 策略不能修复一个错误暴露敏感列的 View。
 - Audit Hash Chain 只能检测 Gateway 日志的事后修改；它不是 WORM 存储或外部不可篡改账本。

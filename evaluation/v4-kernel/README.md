@@ -8,6 +8,7 @@ cgroups respectively.
 This directory is deliberately not an RQ4 acceptance result. It excludes the
 Business PostgreSQL ordinal stream, authorization, Control PostgreSQL atomic
 settlement, receipt persistence, replay and queueing. Use
-`evaluation/v4-acceptance` for the public `execute_plan` campaign; missing
+`evaluation/v4-acceptance` for the direct advanced-`execute_plan` campaign;
+this method is retained for deterministic harnesses but hidden from an
+ordinary Agent's `tools/list`. Missing
 maximum-point cases or observers remain `unmeasured` there.
-

@@ -126,7 +126,7 @@ V4 是清库切换，不双写、不静默删除历史账本。迁移和首次 V
 
 为保留历史 receipt verifier 和 V2/V3 测试 oracle，本实现没有物理 `DROP` legacy 表；这些表只可保存切换前证据，V4 激活后被数据库门禁逻辑封存。也就是说，用户方案中“删除运行时逐事实逻辑”已经满足，但“物理删表”刻意没有执行；若合规要求真正移除表，必须另做显式、可审计的离线归档/重建，而不能放进自动迁移。旧 receipt verifier 保留，V6 使用独立 digest domain，绑定 dictionary set、三维 effect digest、actual/charged counts、root epoch 和 result digest。
 
-SLO 仅适用于：已验证并 warm 的冻结 snapshot index、受支持的闭合 QueryPlan、单路高基数 derivation，且不含离线构建和排队。它不适用于任意 SQL、可变数据源或未发布快照。高基数使用单路 semaphore，小查询走独立池；工作集超过配置阈值时进入查询私有、先加密后落盘的 spool。默认 Compose 为该密文 spool 使用独立磁盘 volume，而不是 16 MiB `/tmp` tmpfs；Gateway 的 512 MiB cgroup 上限保持不变。
+SLO 仅适用于：已验证并 warm 的冻结 snapshot index、受支持的闭合 canonical QueryPlan（来自无损 SQL lowering 或高级计划入口）、单路高基数 derivation，且不含离线构建和排队。它不适用于任意 SQL、可变数据源或未发布快照。高基数使用单路 semaphore，小查询走独立池；工作集超过配置阈值时进入查询私有、先加密后落盘的 spool。默认 Compose 为该密文 spool 使用独立磁盘 volume，而不是 16 MiB `/tmp` tmpfs；Gateway 的 512 MiB cgroup 上限保持不变。
 
 ## 实验状态与硬门槛
 
@@ -169,7 +169,7 @@ docker run --rm --memory=4g --memory-swap=4g \
     -run '^TestSnapshotPublicationScaleEvaluation$' -count=1 -timeout=15m -v
 ```
 
-2026-07-30 的受限工程复测见 [`evaluation/v4-kernel/results.json`](../evaluation/v4-kernel/results.json)：离线 production compile+verify 为 16.684 s，process HWM 3,616,878,592 bytes，完整 artifact 587,211,769 bytes，HOT 64,861,634 bytes。五个全新 512 MiB cgroup 进程加载另一份同规模 HOT 并派生精确的 1,035,000 Influence + 12 Release，bitmap kernel 的 type-7 P50/P95 为 1.272/1.497 s，HOT activation 为 0.441/0.587 s，最大 cgroup `memory.peak` 为 291,278,848 bytes。该记录通过离线门槛和 warm-HOT 内核门槛，但不包含公开 `execute_plan` 的 SQL、结算和 replay，完整 V4 acceptance 仍是 pending。
+2026-07-30 的受限工程复测见 [`evaluation/v4-kernel/results.json`](../evaluation/v4-kernel/results.json)：离线 production compile+verify 为 16.684 s，process HWM 3,616,878,592 bytes，完整 artifact 587,211,769 bytes，HOT 64,861,634 bytes。五个全新 512 MiB cgroup 进程加载另一份同规模 HOT 并派生精确的 1,035,000 Influence + 12 Release，bitmap kernel 的 type-7 P50/P95 为 1.272/1.497 s，HOT activation 为 0.441/0.587 s，最大 cgroup `memory.peak` 为 291,278,848 bytes。该记录通过离线门槛和 warm-HOT 内核门槛，但不包含公开 `query_sql` lowering（或高级 `execute_plan`）的 SQL、结算和 replay，完整 V4 acceptance 仍是 pending。
 
 ## 正确性接口
 

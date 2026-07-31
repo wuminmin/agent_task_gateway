@@ -305,7 +305,7 @@ func canonicalJSON(value any) (json.RawMessage, error) {
 
 // AlgebraPlanV2 is the profile-level operator grammar used by the semantics
 // and proofs. The production SQL compiler lowers its single-source subset and
-// a fail-closed two-scan Join/Union subset; the algebra itself remains closed
+// a fail-closed bounded JoinMany/two-branch Union subset; the algebra itself remains closed
 // under nesting beyond that deliberately bounded public API.
 type AlgebraPlanV2 struct {
 	Op              string

@@ -12,6 +12,8 @@ import (
 	"taskbound.local/agent-data-gateway/internal/exposure"
 )
 
+const MaxJoinSources = 8
+
 // RelationalCompilation is the paired SQL and trusted metadata consumed by
 // the online positive-output dependency path. ProvenanceSQL returns positive
 // source members, never a representative chosen after UNION DISTINCT.
@@ -48,6 +50,11 @@ func CompileRelational(plan QueryPlan, products map[string]Product) (RelationalC
 	if plan.From == nil || plan.Product != "" {
 		return RelationalCompilation{}, errors.New("relational QueryPlan requires from and forbids legacy product")
 	}
+	canonical, err := CanonicalizeRelational(plan, products)
+	if err != nil {
+		return RelationalCompilation{}, err
+	}
+	plan = canonical
 	if plan.Limit != 0 || plan.Offset != 0 || len(plan.OrderBy) != 0 {
 		return RelationalCompilation{}, errors.New("pagination is outside the online Join/Union fragment")
 	}
@@ -72,12 +79,12 @@ func CompileRelational(plan QueryPlan, products map[string]Product) (RelationalC
 		compiled.source.EvidenceAlias = evidenceAliases(plan.From.Scan.Role, compiled.source.EvidenceFields)
 		result.Kind, result.Sources = "scan", []RelationalSource{compiled.source}
 		fields, fromSQL, provenanceFrom = schema, compiled.sql, compiled.sql
-	case plan.From.Join != nil:
-		joinResult, schema, visibleFrom, provenanceSQL, err := compileJoin(*plan.From.Join, plan, products)
+	case plan.From.JoinMany != nil:
+		joinResult, schema, visibleFrom, provenanceSQL, err := compileJoinMany(*plan.From.JoinMany, plan, products)
 		if err != nil {
 			return result, err
 		}
-		result.Kind, result.Sources, result.JoinPredicates = "join", joinResult.sources, append([]JoinPredicate(nil), plan.From.Join.On...)
+		result.Kind, result.Sources, result.JoinPredicates = "join", joinResult.sources, append([]JoinPredicate(nil), plan.From.JoinMany.On...)
 		fields, fromSQL, provenanceFrom = schema, visibleFrom, provenanceSQL
 	case plan.From.UnionDistinct != nil:
 		unionResult, schema, visibleFrom, provenanceSQL, err := compileUnion(*plan.From.UnionDistinct, plan.Filters, products)
@@ -202,6 +209,128 @@ type compiledScan struct {
 
 type compiledRelation struct{ sources []RelationalSource }
 
+// CanonicalizeRelational erases the legacy binary-join shape and orders the
+// flat join graph by Catalog semantic source identity. It deliberately leaves
+// projection order intact because that order is part of the delivered result,
+// while predicate conjunction order is not.
+func CanonicalizeRelational(plan QueryPlan, products map[string]Product) (QueryPlan, error) {
+	if plan.From == nil || plan.Product != "" || countFromMembers(*plan.From) != 1 {
+		return QueryPlan{}, errors.New("relational QueryPlan requires exactly one from operator")
+	}
+	result := plan
+	result.Columns = append([]string(nil), plan.Columns...)
+	result.Aggregates = append([]Aggregate(nil), plan.Aggregates...)
+	result.GroupBy = append([]string(nil), plan.GroupBy...)
+	result.OrderBy = append([]Order(nil), plan.OrderBy...)
+	var err error
+	result.Filters, err = canonicalizeFilters(plan.Filters)
+	if err != nil {
+		return QueryPlan{}, err
+	}
+	from := &From{}
+	switch {
+	case plan.From.Scan != nil:
+		scan, scanErr := canonicalizeScan(*plan.From.Scan)
+		if scanErr != nil {
+			return QueryPlan{}, scanErr
+		}
+		from.Scan = &scan
+	case plan.From.Join != nil:
+		from.JoinMany = &JoinMany{Sources: []Scan{plan.From.Join.Left, plan.From.Join.Right}, On: append([]JoinPredicate(nil), plan.From.Join.On...)}
+	case plan.From.JoinMany != nil:
+		join := *plan.From.JoinMany
+		join.Sources = append([]Scan(nil), join.Sources...)
+		join.On = append([]JoinPredicate(nil), join.On...)
+		from.JoinMany = &join
+	case plan.From.UnionDistinct != nil:
+		union := *plan.From.UnionDistinct
+		union.Columns = append([]string(nil), union.Columns...)
+		var scanErr error
+		union.Left, scanErr = canonicalizeScan(union.Left)
+		if scanErr != nil {
+			return QueryPlan{}, scanErr
+		}
+		union.Right, scanErr = canonicalizeScan(union.Right)
+		if scanErr != nil {
+			return QueryPlan{}, scanErr
+		}
+		from.UnionDistinct = &union
+	}
+	if from.JoinMany != nil {
+		for index := range from.JoinMany.Sources {
+			from.JoinMany.Sources[index], err = canonicalizeScan(from.JoinMany.Sources[index])
+			if err != nil {
+				return QueryPlan{}, err
+			}
+			if _, present := products[from.JoinMany.Sources[index].Product]; !present {
+				return QueryPlan{}, fmt.Errorf("join source product %q is not approved", from.JoinMany.Sources[index].Product)
+			}
+		}
+		sort.Slice(from.JoinMany.Sources, func(i, j int) bool {
+			return relationalScanSemanticKey(from.JoinMany.Sources[i], products) < relationalScanSemanticKey(from.JoinMany.Sources[j], products)
+		})
+		for index, predicate := range from.JoinMany.On {
+			if _, _, ok := splitFieldID(predicate.Left); !ok {
+				return QueryPlan{}, fmt.Errorf("join predicate field %q is invalid", predicate.Left)
+			}
+			if _, _, ok := splitFieldID(predicate.Right); !ok {
+				return QueryPlan{}, fmt.Errorf("join predicate field %q is invalid", predicate.Right)
+			}
+			if predicate.Right < predicate.Left {
+				predicate.Left, predicate.Right = predicate.Right, predicate.Left
+			}
+			from.JoinMany.On[index] = predicate
+		}
+		sort.Slice(from.JoinMany.On, func(i, j int) bool {
+			left := from.JoinMany.On[i].Left + "\x00" + from.JoinMany.On[i].Right
+			right := from.JoinMany.On[j].Left + "\x00" + from.JoinMany.On[j].Right
+			return left < right
+		})
+	}
+	result.From = from
+	return result, nil
+}
+
+func canonicalizeScan(scan Scan) (Scan, error) {
+	filters, err := canonicalizeFilters(scan.Filters)
+	if err != nil {
+		return Scan{}, err
+	}
+	scan.Filters = filters
+	return scan, nil
+}
+
+func canonicalizeFilters(filters []Filter) ([]Filter, error) {
+	result := append([]Filter(nil), filters...)
+	keys := make([]string, len(result))
+	for index := range result {
+		result[index].Op = strings.ToUpper(strings.TrimSpace(result[index].Op))
+		if result[index].Op == "!=" {
+			result[index].Op = "<>"
+		}
+		encoded, err := canonicalJSON(result[index].Value)
+		if err != nil {
+			return nil, fmt.Errorf("canonicalize filter %q: %w", result[index].Column, err)
+		}
+		keys[index] = result[index].Column + "\x00" + result[index].Op + "\x00" + string(encoded)
+	}
+	indices := make([]int, len(result))
+	for index := range indices {
+		indices[index] = index
+	}
+	sort.SliceStable(indices, func(i, j int) bool { return keys[indices[i]] < keys[indices[j]] })
+	canonical := make([]Filter, len(result))
+	for index, source := range indices {
+		canonical[index] = result[source]
+	}
+	return canonical, nil
+}
+
+func relationalScanSemanticKey(scan Scan, products map[string]Product) string {
+	product := products[scan.Product]
+	return product.SourceNamespace + "\x00" + product.Snapshot + "\x00" + product.StableRole + "\x00" + product.Name
+}
+
 func compileExplicitScan(scan Scan, products map[string]Product) (compiledScan, map[string]relationalField, error) {
 	product, present := products[scan.Product]
 	if !present || product.Name != scan.Product {
@@ -251,53 +380,161 @@ func compileExplicitScan(scan Scan, products map[string]Product) (compiledScan, 
 	return compiledScan{sql: sql, source: RelationalSource{Product: scan.Product, Role: scan.Role, Filters: cloneFilters(scan.Filters)}}, schema, nil
 }
 
-func compileJoin(join Join, plan QueryPlan, products map[string]Product) (compiledRelation, map[string]relationalField, string, string, error) {
-	left, leftSchema, err := compileExplicitScan(join.Left, products)
-	if err != nil {
-		return compiledRelation{}, nil, "", "", err
+func compileJoinMany(join JoinMany, plan QueryPlan, products map[string]Product) (compiledRelation, map[string]relationalField, string, string, error) {
+	if len(join.Sources) < 2 || len(join.Sources) > MaxJoinSources {
+		return compiledRelation{}, nil, "", "", fmt.Errorf("join_many requires between 2 and %d sources", MaxJoinSources)
 	}
-	right, rightSchema, err := compileExplicitScan(join.Right, products)
-	if err != nil {
-		return compiledRelation{}, nil, "", "", err
+	if len(join.On) == 0 {
+		return compiledRelation{}, nil, "", "", errors.New("join_many requires at least one equality")
 	}
-	if join.Left.Role == join.Right.Role || len(join.On) == 0 {
-		return compiledRelation{}, nil, "", "", errors.New("join requires distinct roles and at least one equality")
+
+	type joinSource struct {
+		scan     Scan
+		compiled compiledScan
+		schema   map[string]relationalField
 	}
-	schema := make(map[string]relationalField, len(leftSchema)+len(rightSchema))
-	for id, field := range leftSchema {
-		schema[id] = field
+	sources := make([]joinSource, 0, len(join.Sources))
+	byRole := make(map[string]int, len(join.Sources))
+	seenProducts := make(map[string]struct{}, len(join.Sources))
+	schema := make(map[string]relationalField)
+	for _, scan := range join.Sources {
+		if _, duplicate := seenProducts[scan.Product]; duplicate {
+			return compiledRelation{}, nil, "", "", errors.New("join_many does not support repeated products or self-joins")
+		}
+		seenProducts[scan.Product] = struct{}{}
+		if _, duplicate := byRole[scan.Role]; duplicate {
+			return compiledRelation{}, nil, "", "", errors.New("join_many source roles must be unique")
+		}
+		compiled, sourceSchema, err := compileExplicitScan(scan, products)
+		if err != nil {
+			return compiledRelation{}, nil, "", "", err
+		}
+		byRole[scan.Role] = len(sources)
+		for id, field := range sourceSchema {
+			if _, duplicate := schema[id]; duplicate {
+				return compiledRelation{}, nil, "", "", fmt.Errorf("join_many field %q is ambiguous", id)
+			}
+			schema[id] = field
+		}
+		sources = append(sources, joinSource{scan: scan, compiled: compiled, schema: sourceSchema})
 	}
-	for id, field := range rightSchema {
-		schema[id] = field
+
+	type joinEdge struct {
+		predicate JoinPredicate
+		leftRole  string
+		rightRole string
+		sql       string
 	}
-	seen := make(map[string]struct{}, len(join.On))
-	predicates := make([]string, 0, len(join.On))
+	edges := make([]joinEdge, 0, len(join.On))
+	seenPredicates := make(map[string]struct{}, len(join.On))
+	parents := make([]int, len(sources))
+	for index := range parents {
+		parents[index] = index
+	}
+	var find func(int) int
+	find = func(value int) int {
+		if parents[value] != value {
+			parents[value] = find(parents[value])
+		}
+		return parents[value]
+	}
+	union := func(left, right int) {
+		left, right = find(left), find(right)
+		if left != right {
+			parents[right] = left
+		}
+	}
 	for _, predicate := range join.On {
-		leftField, leftOK := leftSchema[predicate.Left]
-		rightField, rightOK := rightSchema[predicate.Right]
-		if !leftOK || !rightOK {
-			return compiledRelation{}, nil, "", "", fmt.Errorf("join predicate must reference left then right role")
+		leftRole, _, leftValid := splitFieldID(predicate.Left)
+		rightRole, _, rightValid := splitFieldID(predicate.Right)
+		leftIndex, leftRolePresent := byRole[leftRole]
+		rightIndex, rightRolePresent := byRole[rightRole]
+		leftField, leftFieldPresent := schema[predicate.Left]
+		rightField, rightFieldPresent := schema[predicate.Right]
+		if !leftValid || !rightValid || !leftRolePresent || !rightRolePresent || !leftFieldPresent || !rightFieldPresent || leftRole == rightRole {
+			return compiledRelation{}, nil, "", "", errors.New("join predicate must reference fields from two distinct sources")
 		}
 		key := predicate.Left + "\x00" + predicate.Right
-		if _, duplicate := seen[key]; duplicate {
+		if _, duplicate := seenPredicates[key]; duplicate {
 			return compiledRelation{}, nil, "", "", errors.New("duplicate join predicate")
 		}
-		seen[key] = struct{}{}
-		if leftField.SQLType != rightField.SQLType ||
-			(leftField.Collation != rightField.Collation || leftField.CollationVersion != rightField.CollationVersion) {
+		seenPredicates[key] = struct{}{}
+		if leftField.SQLType != rightField.SQLType || leftField.Collation != rightField.Collation ||
+			leftField.CollationVersion != rightField.CollationVersion {
 			return compiledRelation{}, nil, "", "", errors.New("join keys require identical types and deterministic collation profiles")
 		}
-		predicates = append(predicates, fieldSQL(leftField)+" = "+fieldSQL(rightField))
+		edges = append(edges, joinEdge{predicate: predicate, leftRole: leftRole, rightRole: rightRole,
+			sql: fieldSQL(leftField) + " = " + fieldSQL(rightField)})
+		union(leftIndex, rightIndex)
+	}
+	root := find(0)
+	for index := 1; index < len(sources); index++ {
+		if find(index) != root {
+			return compiledRelation{}, nil, "", "", errors.New("join_many graph must be connected")
+		}
 	}
 	if _, err := compileQualifiedFilters(plan.Filters, schema); err != nil {
 		return compiledRelation{}, nil, "", "", err
 	}
-	left.source.EvidenceFields = evidenceFields(join.Left, products[join.Left.Product], schema, plan, join.On, nil)
-	right.source.EvidenceFields = evidenceFields(join.Right, products[join.Right.Product], schema, plan, join.On, nil)
-	left.source.EvidenceAlias = evidenceAliases(join.Left.Role, left.source.EvidenceFields)
-	right.source.EvidenceAlias = evidenceAliases(join.Right.Role, right.source.EvidenceFields)
-	from := left.sql + " INNER JOIN " + right.sql + " ON " + strings.Join(predicates, " AND ")
-	return compiledRelation{sources: []RelationalSource{left.source, right.source}}, schema, from, from, nil
+
+	joined := map[string]struct{}{sources[0].scan.Role: {}}
+	joinOrder := []int{0}
+	from := sources[0].compiled.sql
+	for len(joinOrder) < len(sources) {
+		next := -1
+		for index, source := range sources {
+			if _, present := joined[source.scan.Role]; present {
+				continue
+			}
+			connected := false
+			for _, edge := range edges {
+				if edge.leftRole == source.scan.Role {
+					_, connected = joined[edge.rightRole]
+				} else if edge.rightRole == source.scan.Role {
+					_, connected = joined[edge.leftRole]
+				}
+				if connected {
+					break
+				}
+			}
+			if connected {
+				next = index
+				break
+			}
+		}
+		if next < 0 {
+			return compiledRelation{}, nil, "", "", errors.New("join_many graph cannot be compiled in canonical order")
+		}
+		role := sources[next].scan.Role
+		conditions := make([]string, 0)
+		for _, edge := range edges {
+			other := ""
+			if edge.leftRole == role {
+				other = edge.rightRole
+			} else if edge.rightRole == role {
+				other = edge.leftRole
+			}
+			if _, present := joined[other]; other != "" && present {
+				conditions = append(conditions, edge.sql)
+			}
+		}
+		sort.Strings(conditions)
+		if len(conditions) == 0 {
+			return compiledRelation{}, nil, "", "", errors.New("join_many source has no edge to the compiled component")
+		}
+		from += " INNER JOIN " + sources[next].compiled.sql + " ON " + strings.Join(conditions, " AND ")
+		joined[role] = struct{}{}
+		joinOrder = append(joinOrder, next)
+	}
+
+	resultSources := make([]RelationalSource, 0, len(sources))
+	for _, index := range joinOrder {
+		source := sources[index]
+		source.compiled.source.EvidenceFields = evidenceFields(source.scan, products[source.scan.Product], schema, plan, join.On, nil)
+		source.compiled.source.EvidenceAlias = evidenceAliases(source.scan.Role, source.compiled.source.EvidenceFields)
+		resultSources = append(resultSources, source.compiled.source)
+	}
+	return compiledRelation{sources: resultSources}, schema, from, from, nil
 }
 
 func compileUnion(union UnionDistinct, outerFilters []Filter, products map[string]Product) (compiledRelation, map[string]relationalField, string, string, error) {
@@ -533,6 +770,9 @@ func countFromMembers(from From) int {
 	if from.Join != nil {
 		n++
 	}
+	if from.JoinMany != nil {
+		n++
+	}
 	if from.UnionDistinct != nil {
 		n++
 	}
@@ -723,6 +963,10 @@ func RelationalProductNames(plan QueryPlan) ([]string, error) {
 		names = []string{plan.From.Scan.Product}
 	case plan.From.Join != nil:
 		names = []string{plan.From.Join.Left.Product, plan.From.Join.Right.Product}
+	case plan.From.JoinMany != nil:
+		for _, source := range plan.From.JoinMany.Sources {
+			names = append(names, source.Product)
+		}
 	case plan.From.UnionDistinct != nil:
 		names = []string{plan.From.UnionDistinct.Left.Product, plan.From.UnionDistinct.Right.Product}
 	}

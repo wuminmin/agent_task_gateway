@@ -495,5 +495,36 @@ func writeStoredQueryResult(writer io.Writer, result storedQueryResult) error {
 			return err
 		}
 	}
-	return writeAll(writer, []byte(`,"limited":`+strconv.FormatBool(result.Limited)+`}`))
+	if err := writeAll(writer, []byte(`,"limited":`+strconv.FormatBool(result.Limited))); err != nil {
+		return err
+	}
+	optional := []struct {
+		name    string
+		value   any
+		present bool
+	}{
+		{name: "query_plan", value: result.QueryPlan, present: result.QueryPlan != nil},
+		{name: "sql_profile", value: result.SQLProfile, present: result.SQLProfile != ""},
+		{name: "plan_digest", value: result.PlanDigest, present: result.PlanDigest != ""},
+		{name: "output_format", value: result.OutputFormat, present: result.OutputFormat != ""},
+		{name: "display_columns", value: result.DisplayColumns, present: len(result.DisplayColumns) != 0},
+		{name: "result_order", value: result.ResultOrder, present: len(result.ResultOrder) != 0},
+		{name: "semantic_columns", value: result.SemanticColumns, present: len(result.SemanticColumns) != 0},
+	}
+	for _, field := range optional {
+		if !field.present {
+			continue
+		}
+		encoded, err := json.Marshal(field.value)
+		if err != nil {
+			return err
+		}
+		if err := writeAll(writer, []byte(`,"`+field.name+`":`)); err != nil {
+			return err
+		}
+		if err := writeAll(writer, encoded); err != nil {
+			return err
+		}
+	}
+	return writeAll(writer, []byte(`}`))
 }

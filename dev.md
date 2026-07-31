@@ -2,7 +2,7 @@
 
 ## 目标与边界
 
-本项目提供一个本地、单 Gateway 实例的数据访问 Demo。Agent 先显式申请目的、产品、字段和 Scope；Gateway 绑定 Catalog 预定义的完整预算与期限，经 OA 审批后，才可提交声明式 QueryPlan 或 PostgreSQL `SELECT`。Gateway 内没有模型客户端、Prompt 或自然语言翻译器。
+本项目提供一个本地、单 Gateway 实例的数据访问 Demo。Agent 先显式申请目的、产品、字段和 Scope；Gateway 绑定 Catalog 预定义的完整预算与期限，经 OA 审批后，普通 Agent 使用 PostgreSQL 报表 `SELECT`。启用 exposure 时，Gateway 先将 SQL 无损 lowering 为 canonical QueryPlan，再进入唯一可信执行与记账链路。Gateway 内没有模型客户端、Prompt 或自然语言翻译器。
 
 不建设新的 OA、BI 或数据仓库，不复制生产数据库，不安装 PostgreSQL 扩展，不管理 Agent Skill，也不负责图表渲染。
 
@@ -29,18 +29,21 @@ docker compose
 查询者工具：
 
 - `list_data_products()`
+- `describe_data_product(name)`
+- `get_sql_capabilities()`
 - `request_data_task(objective, data_products, columns, scopes)`
 - `list_my_tasks(state?, cursor?)`
 - `get_task_status(task_id)`
 - `wait_for_approval(task_id, timeout_seconds?)`
 - `get_task_context(task_id)`
-- `execute_plan(task_id, request_id, plan, output_format?)`
 - `query_sql(task_id, request_id, sql)`
 - `get_query_result(task_id, query_id)`
 - `get_budget(task_id)`
 - `list_receipts(task_id, cursor?)`
 - `complete_task(task_id, summary?)`
 - `revoke_task(task_id, reason)`
+
+`execute_plan(task_id, request_id, plan, output_format?)` 保留为 SDK、内部测试、基准、调试和确定性工作流的高级入口，不在普通 query Principal 的 `tools/list` 中默认列出。它仍进入与 `query_sql` lowering 相同的 QueryPlan 编译、SQL policy、provenance 和结算链路。
 
 审计员工具：
 
@@ -51,7 +54,7 @@ docker compose
 
 ### 任务申请
 
-`objective`、`data_products`、`columns`、`scopes` 都是必填。每个产品必须有非空字段列表；Gateway 不自动选择全字段，也不推断缺失 Scope。Agent 应先从 `list_data_products` 读取 Scope 定义、枚举值和日期边界。
+`objective`、`data_products`、`columns`、`scopes` 都是必填。每个产品必须有非空字段列表；Gateway 不自动选择全字段，也不推断缺失 Scope。Agent 应先从 `list_data_products` 读取 Scope 定义、枚举值和日期边界，必要时用 `describe_data_product` 读取字段 collation、Catalog stable role 和允许函数/聚合/运算符，并用 `get_sql_capabilities` 读取 `taskgate-reporting-sql-v1` 边界。
 
 Catalog 决定敏感级别、审批路由、完整预算和 TTL。Agent 不提交预算：Gateway 选择对应 Profile 并把全部额度绑定到审批 Manifest。OA 的显式人工收缩仍属于授权决定，不能由 Agent 或运行时校准逻辑触发。
 
@@ -62,6 +65,7 @@ Catalog 决定敏感级别、审批路由、完整预算和 TTL。Agent 不提�
 ```text
 QueryPlan
 ├── product
+├── from.scan | from.join_many[sources<=8] | from.union_distinct
 ├── columns[]
 ├── aggregates[{function,column,alias}]
 ├── filters[{column,op,value}]
@@ -70,7 +74,7 @@ QueryPlan
 └── limit
 ```
 
-编译器验证产品、字段、聚合、别名、过滤运算符/literal、排序引用和 Limit。编译后的 SQL 仍必须通过完整 PostgreSQL AST 策略；`execute_plan` 不是策略旁路。
+编译器验证产品、字段、聚合、别名、过滤运算符/literal、排序引用和 Limit。`join_many` 只接受 2–8 个不同产品/稳定角色形成的 connected INNER equijoin，并验证 join key 类型、collation 和版本。编译后的 SQL 仍必须通过完整 PostgreSQL AST 策略；`execute_plan` 不是策略旁路。
 
 ## 任务、审批与 Grant
 
@@ -115,19 +119,25 @@ Gateway 当前仍只允许单实例部署。行锁保证请求并发安全，但
 
 ## SQL 与数据面
 
-`query_sql` 和 QueryPlan 编译结果共用以下链路：
+`query_sql` 的入口分流和统一执行链路如下：
 
 ```text
 所有权 / ACTIVE / Grant / TTL / Catalog 与实时 Schema Attestation
-  -> pg_query_go/v6 AST 白名单
+  -> resource-only Grant: 现有 pg_query_go/v6 AST 安全 SQL policy
+  -> exposure Grant: taskgate-reporting-sql-v1 AST -> canonical QueryPlan
+  -> 从 QueryPlan 重新生成 visible SQL + provenance companion
+  -> 生成 SQL 再经 pg_query_go/v6 AST 白名单
   -> 获批字段与 Scope CTE
   -> 外层剩余行数 LIMIT
   -> 控制 PG 按 (task_id, request_id) 幂等预留
-  -> 业务 PG READ ONLY + statement_timeout
-  -> 控制 PG 结算、密文结果、Ed25519 QueryReceiptV1、审计事件
+  -> exposure miss: 业务 PG 同快照 READ ONLY + statement_timeout
+  -> provenance / V4 ordinal / 三维根账本结算
+  -> 控制 PG 结算、密文结果、Ed25519 V6 Query Receipt、审计事件
 ```
 
-Agent SQL 只能引用未限定的逻辑产品名。物理 `reporting.*`、`legacy.*`、系统对象、多语句、写操作、递归 CTE、锁、通配符、危险函数、参数和未知 AST 特性均关闭式拒绝。
+Agent SQL 只能引用未限定的逻辑产品名。物理 `reporting.*`、`legacy.*`、系统对象、多语句、写操作、递归 CTE、锁、通配符、危险函数、参数和未知 AST 特性均关闭式拒绝。Exposure SQL 还必须能无损 lowering；Gateway 不会通过删除 predicate、忽略 alias 或把 outer join 改为 inner join 来“修复”查询。
+
+SQL 解析、授权或 QueryPlan lowering 失败在 connector 和 `ReserveBudget` 之前返回结构化、可修复的错误；它们不扣 queries/rows/DBMS，也不扣 release/dependency/outcome。原始 SQL 派生的 request digest 只用于审计和幂等，FactID 与 semantic replay 使用 canonical QueryPlan/`plan_digest`。数据库已开始执行后的 timeout 或故障继续使用现有 failure-settlement 规则。
 
 业务数据库还有独立防线：
 

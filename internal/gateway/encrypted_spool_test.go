@@ -425,6 +425,9 @@ func TestWriteStoredQueryResultMatchesJSONMarshal(t *testing.T) {
 			Rows:     [][]any{{json.Number("12.50"), "酒店", nil}, {true, []byte{0, 1}, "line\nbreak"}},
 			RowCount: 2, DatabaseMS: 7,
 			ComponentMS: map[string]float64{"z": 3.5, "a": 1}, Limited: true,
+			QueryPlan:  &queryplan.QueryPlan{Product: "expense_summary", Columns: []string{"amount"}},
+			SQLProfile: "taskgate-reporting-sql-v1", PlanDigest: strings.Repeat("d", 64), OutputFormat: "json",
+			DisplayColumns: []string{"revenue"}, ResultOrder: []int{0}, SemanticColumns: []string{"sum(amount)"},
 		},
 		{Columns: []dataconnector.Column{}, Rows: [][]any{}, ComponentMS: map[string]float64{}},
 	}

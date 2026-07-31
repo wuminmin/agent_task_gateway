@@ -87,48 +87,46 @@ Navicat 的用户名和密码对应关系见[本地启动与数据库调试](doc
 
 ## MCP 2.0 工作流
 
-1. 调用 `list_data_products` 获取完整逻辑产品、字段和 Scope 的允许值/日期边界。
+1. 调用 `list_data_products`、`describe_data_product` 和 `get_sql_capabilities`，获取逻辑产品、字段、稳定角色、Scope 以及 `taskgate-reporting-sql-v1` 能力边界。
 2. 调用 `request_data_task`，显式提交非空 `objective`、`data_products`、每个产品的非空 `columns` 及 `scopes`。Gateway 按最高敏感级别选择 Catalog Profile，并把完整 Profile 写入审批 Manifest；Agent 不选择或优化预算。
 3. 在 OA 提交并完成人工审批。正常批准把整个签名额度交给 Agent；系统不奖励未使用额度，安全边界按额度全部耗尽计算。
-4. ACTIVE 后使用 `execute_plan(task_id, request_id, plan)`。默认 Catalog 已启用 V4：Product 绑定已验证的 `snapshot_publication`，路径生成同快照 ordinal provenance、构造 OutcomeFact 并进行精确 bitmap 三维结算。
-5. 子 Agent 任务通过 `parent_task_id` 和 `delegate_principal_id` 创建，所有授权维度只能收缩，且共享根账本。每次查询仍提交一个确定的 QueryPlan。
+4. ACTIVE 后使用 `query_sql(task_id, request_id, sql)`。对启用 exposure 的 Grant，Gateway 只接受能无损转换为 canonical QueryPlan 的报表 SQL；成功后只执行从该计划重新生成的 visible SQL 和 provenance companion。
+5. 生成计划继续使用同快照 ordinal provenance、V4 FactID/三维 bitmap 结算、结果 withholding、semantic replay 和 V6 receipt 链路。子 Agent 任务通过 `parent_task_id` 和 `delegate_principal_id` 创建，所有授权维度只能收缩，且共享根账本。
 
 `request_id` 由客户端生成并在一个任务内保持唯一。相同 ID 和相同请求只返回首次持久化结果/状态；相同 ID 搭配不同请求会关闭式拒绝，重试不会产生第二次执行或预算消费。
 
-`execute_plan` 的最小示例：
+`query_sql` 的最小 SQL：
 
-```json
-{
-  "task_id": "task_...",
-  "request_id": "analysis-step-001",
-  "plan": {
-    "product": "expense_summary",
-    "columns": ["month", "total_amount"],
-    "order_by": [{"column": "month", "direction": "asc"}]
-  }
-}
+```sql
+SELECT month, SUM(total_amount) AS amount
+FROM expense_summary
+GROUP BY month
+ORDER BY month ASC
+LIMIT 20;
 ```
+
+普通 Agent 的 `tools/list` 不默认列出 `execute_plan`。该入口仍保留给 SDK、内部测试、基准、调试和确定性工作流；它与 SQL lowering 共用唯一 QueryPlan 编译/记账边界，不是策略旁路。
 
 成功响应包含 `exposure` 与 `exposure_budget`：前者区分本次 actual facts 和
 相对根任务的 charged facts，后者给出共享账本的上限、已用和剩余值。相同
 `request_id` 只观察首次终态；新的 request ID 重放同一规范化命题和结果时三维
 增量均为零，不同命题即使得到相同空/零结果也会新增 outcome 费用。
 
-`query_sql` 仍用于 resource-only 兼容 Grant；对启用 exposure 的任务，它会因
-无法构造完整 provenance 而关闭式拒绝。在线精确计量片段除单产品
-projection/filter/order/limit/offset 和 `COUNT(*)/COUNT(column)/SUM/MIN/MAX`
-外，还支持两种受限 `from`：两个不同 Catalog 稳定角色之间的 INNER
-equijoin，以及同一产品两个过滤分支的 `union_distinct`。二者都能继续分组与
-聚合；嵌套 Join/Union、self-join、`UNION ALL` 和多输入分页关闭式拒绝。
+`taskgate-reporting-sql-v1` 支持单产品
+projection/filter/order/limit/offset 和 `COUNT(*)/COUNT(column)/SUM/MIN/MAX`，以及 2–8 个不同 Catalog 稳定角色组成的 connected INNER equijoin；多表计划内部表示为 `join_many`。Self-join、outer/cross/non-equality join、断开的 join graph、子查询、CTE、set operation、窗口、`HAVING` 和多输入分页都在 SQL profile 外，Gateway 不会把 `LEFT JOIN` 静默改成 `INNER JOIN`。Resource-only Grant 继续使用现有安全 SQL policy，但不会因此扩大 exposure SQL profile。
 
-Join 字段使用 Catalog 稳定角色限定；`role` 不是任意 SQL alias：
+SQL 语法、授权或 lowering 失败在业务数据库执行和正式 reservation 之前返回结构化、可修复的错误，不扣查询、DBMS、release、dependency 或 outcome 预算。原始 SQL 派生的摘要只用于审计和 `(task_id, request_id)` 幂等；FactID、OutcomeFact 和 semantic replay 始终使用 canonical QueryPlan/`plan_digest`，不使用原始 SQL 文本哈希。
+
+SQL alias 只是输入语法；lowering 会把它映射到 Catalog 稳定角色。高级 `execute_plan` 的 Join 字段直接使用该稳定角色：
 
 ```json
 {
   "from": {
-    "join": {
-      "left": {"product": "expense_detail", "role": "expense_detail"},
-      "right": {"product": "expense_summary", "role": "expense_summary"},
+    "join_many": {
+      "sources": [
+        {"product": "expense_detail", "role": "expense_detail"},
+        {"product": "expense_summary", "role": "expense_summary"}
+      ],
       "on": [{"left": "expense_detail.department", "right": "expense_summary.department"}]
     }
   },
@@ -136,8 +134,7 @@ Join 字段使用 Catalog 稳定角色限定；`role` 不是任意 SQL alias：
 }
 ```
 
-`union_distinct.columns` 是完整去重 tuple；即使最终 `columns` 隐藏其中字段，
-这些字段仍参与 dependency：
+`union_distinct` 仅是高级 QueryPlan 入口的现有能力，不属于 `taskgate-reporting-sql-v1` lowering。其 `columns` 是完整去重 tuple；即使最终 `columns` 隐藏其中字段，这些字段仍参与 dependency：
 
 ```json
 {

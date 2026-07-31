@@ -19,6 +19,15 @@ const (
 	CodeApprovalUnavailable      = "APPROVAL_UNAVAILABLE"
 	CodeDataSourceUnavailable    = "DATA_SOURCE_UNAVAILABLE"
 	CodeInternal                 = "INTERNAL_ERROR"
+	CodeSQLSyntaxError           = "SQL_SYNTAX_ERROR"
+	CodeProductNotApproved       = "PRODUCT_NOT_APPROVED"
+	CodeColumnNotApproved        = "COLUMN_NOT_APPROVED"
+	CodeSQLNotLowerable          = "SQL_NOT_LOWERABLE"
+	CodeJoinTypeUnsupported      = "JOIN_TYPE_UNSUPPORTED"
+	CodeJoinGraphDisconnected    = "JOIN_GRAPH_DISCONNECTED"
+	CodeJoinKeyTypeMismatch      = "JOIN_KEY_TYPE_MISMATCH"
+	CodeCollationMismatch        = "COLLATION_MISMATCH"
+	CodeSubqueryUnsupported      = "SUBQUERY_UNSUPPORTED"
 )
 
 // Error contains a stable machine-readable code and a client-safe explanation.

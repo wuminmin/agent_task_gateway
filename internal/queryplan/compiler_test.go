@@ -24,13 +24,24 @@ func TestCompileEscapesLiteralsAndRestrictsColumns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `SELECT "month", sum("total_amount") AS "amount" FROM "expense_summary" WHERE "department" = '销售''部' GROUP BY "month" ORDER BY "month" ASC LIMIT 10`
+	want := `SELECT "month", sum("total_amount") AS "amount" FROM "expense_summary" WHERE "department" = E'销售''部' GROUP BY "month" ORDER BY "month" ASC LIMIT 10`
 	if got != want {
 		t.Fatalf("got %s\nwant %s", got, want)
 	}
 	plan.Columns = append(plan.Columns, "salary")
 	if _, err := Compile(plan, product); err == nil {
 		t.Fatal("expected unapproved column rejection")
+	}
+}
+
+func TestSQLLiteralPinsEscapeStringSemantics(t *testing.T) {
+	t.Parallel()
+	got, err := sqlLiteral(`\' OR true --`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `E'\\'' OR true --'`; got != want {
+		t.Fatalf("escaped literal = %q, want %q", got, want)
 	}
 }
 

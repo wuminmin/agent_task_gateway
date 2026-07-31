@@ -64,8 +64,9 @@ type ToolResult struct {
 }
 
 type ToolError struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
+	Code    string         `json:"code"`
+	Message string         `json:"message"`
+	Details map[string]any `json:"-"`
 }
 
 func (e *ToolError) Error() string { return e.Code + ": " + e.Message }
@@ -211,7 +212,16 @@ func (s *Server) dispatch(ctx context.Context, principal Principal, rpcRequest r
 				code, message = toolErr.Code, toolErr.Message
 			}
 			s.logger.Warn("MCP tool failed", "trace_id", traceID, "tool", params.Name, "subject", principal.Subject, "code", code, "error", err)
-			structured := map[string]any{"trace_id": traceID, "error": map[string]any{"code": code, "message": message}}
+			errorBody := map[string]any{"code": code, "message": message}
+			if toolErr != nil {
+				for key, value := range toolErr.Details {
+					if key == "code" || key == "message" || key == "trace_id" {
+						continue
+					}
+					errorBody[key] = value
+				}
+			}
+			structured := map[string]any{"trace_id": traceID, "error": errorBody}
 			encoded, _ := json.Marshal(structured)
 			return map[string]any{
 				"content":           []any{map[string]any{"type": "text", "text": string(encoded)}},

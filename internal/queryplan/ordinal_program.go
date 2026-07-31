@@ -1054,12 +1054,19 @@ func normalizeOrdinalProgram(program OrdinalProgram) (OrdinalProgram, error) {
 	if len(program.Sources) == 0 || len(program.Visible) == 0 || len(program.SnapshotBundle) == 0 || len(program.WitnessRules) == 0 {
 		return OrdinalProgram{}, errors.New("ordinal program is incomplete")
 	}
-	expectedSources := 2
-	if program.Kind == "scan" {
-		expectedSources = 1
-	}
-	if len(program.Sources) != expectedSources {
-		return OrdinalProgram{}, errors.New("ordinal program source count disagrees with its kind")
+	switch program.Kind {
+	case "scan":
+		if len(program.Sources) != 1 {
+			return OrdinalProgram{}, errors.New("ordinal program source count disagrees with its kind")
+		}
+	case "join":
+		if len(program.Sources) < 2 || len(program.Sources) > MaxJoinSources {
+			return OrdinalProgram{}, errors.New("ordinal join source count is outside the bounded profile")
+		}
+	case "union_distinct":
+		if len(program.Sources) != 2 {
+			return OrdinalProgram{}, errors.New("ordinal program source count disagrees with its kind")
+		}
 	}
 	result := program
 	result.Sources = append([]OrdinalSource(nil), program.Sources...)

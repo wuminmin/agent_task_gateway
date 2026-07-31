@@ -27,7 +27,7 @@ Agent 提交的结构化申请、QueryPlan、SQL、浏览器请求、网络回�
 | 并发子任务同时花费最后额度 | 全家族共享一个三维 root head；epoch CAS 一次发布 R/I/O，冲突后重算；上限、结果和 receipt 同事务 | 单一 root head 仍是高并发热点；当前没有分布式 settlement 协议 |
 | 可见结果与 provenance 观察不同数据版本 | 两条策略 SQL 在一个只读 `REPEATABLE READ` 事务执行；Product 绑定 manifest-proven snapshot publication；证据缺失或截断时结果不释放 | 冻结/发布流程仍属于可信运维；错误源快照或构建前可变数据会破坏前提；系统不支持 mutable OLTP/CDC serving |
 | 活动任务在每日切换后误读新 publication | 签名 Grant 传递式绑定包含 Product→publication 与 artifact digests 的 Catalog SHA；查询再次校验 task/Grant/Service Catalog，root head 固定 dictionary set，错版本在连接器调用前关闭式拒绝 | 连续执行旧任务需要保留旧 Catalog/artifact/Gateway epoch 并按 task binding 路由；单个 Service 不支持安全 hot swap，路由器和 artifact 保留属于可信运维 |
-| 通过直接 SQL 绕开 exposure compiler | 启用 exposure 的 Grant 要求结构化 `execute_plan` 和完整 observation；`query_sql` 关闭式拒绝 | 在线 compiler 仅支持声明的单产品及 bounded Join/Union/Group/Page，不支持 AVG、窗口、任意 SQL provenance |
+| 通过直接 SQL 绕开 exposure compiler | 启用 exposure 的 `query_sql` 必须按 `taskgate-reporting-sql-v1` 无损 lowering 为 canonical QueryPlan；Gateway 丢弃原始 SQL 作为执行来源，只执行重新生成并再次过策略的 visible SQL 与 provenance companion；不能 lowering 时在执行和结算前结构化拒绝 | 在线 SQL profile 仅支持声明的单产品片段和 2–8 源 connected INNER equijoin，不支持 AVG、窗口、Union SQL 或任意 SQL provenance；lowering 入口仍需持续 fuzz |
 | SQL 注入、注释绕过或写操作 | PostgreSQL AST 单语句白名单、逻辑产品/字段/函数/运算符限制、Scope CTE、外层行限制 | Parser/策略缺陷和依赖漏洞仍可能存在 |
 | 策略失误后修改业务库 | 非 owner、非 superuser、无 `BYPASSRLS` 的独立 `gateway_reader`；角色/连接/事务只读；仅 Datasource Attestation 表与 Reporting View `SELECT`；Schema Attestation | DBA 误授权、View 内容语义错误或数据库漏洞可绕过应用意图 |
 | OA 回调伪造、重放或乱序 | HMAC-SHA256 认证原始 Body；Event ID/状态/context/actor 校验；独立 OA Ed25519 回执绑定 Manifest 与最终 Grant；Gateway 可配置多把 OA 验签公钥及有效/退役窗口；事务幂等 | Demo OA Outbox 不持久；KMS、密钥分发和吊销发布仍需外部运维 |
@@ -44,7 +44,7 @@ Agent 提交的结构化申请、QueryPlan、SQL、浏览器请求、网络回�
 
 ## 数据最小化与边界
 
-Gateway 不向外部模型或翻译服务发送目标、Catalog、SQL 或结果。所有任务申请和 QueryPlan 校验均在本地确定性代码中完成。
+Gateway 不向外部模型或翻译服务发送目标、Catalog、SQL 或结果。所有任务申请、SQL AST lowering 和 QueryPlan 校验均在本地确定性代码中完成。
 
 查询结果会以明文返回给获批 Alice 的 MCP 客户端；数据库加密只保护控制库中的静态结果，不是端到端显示控制。终端历史、截图、Agent 工具或用户后续复制均在 Gateway 边界之外。
 
@@ -86,10 +86,10 @@ dictionary 才保存可恢复 canonical payload。二者及 bitmap 仍是敏感�
 1. 将签名 Audit Head Anchor 接入企业级 WORM/透明日志、可信时间戳和告警流程，并监控 Anchor 失败。
 2. 启动及周期性验证 Hash Chain，失败时停止敏感查询并告警。
 3. 将 Catalog、Reporting View、角色 Grant 和数据库迁移作为同一个受审发布单元，并做 Schema/类型校验。
-4. 对 QueryPlan 编译器、SQL Parser、Scope 注入和渲染器持续做 Fuzz、属性测试及 PostgreSQL 版本兼容测试。
+4. 对 SQL-to-QueryPlan lowering、QueryPlan 编译器、SQL Parser、Scope 注入和渲染器持续做 Fuzz、属性测试及 PostgreSQL 版本兼容测试。
 5. 增加管理员撤销/暂停、紧急 Kill Query、主体/产品级全局预算和速率限制。
 6. 将已实现的 snapshot compiler/artifact 校验接入企业计划 ETL/同步、版本化 Reporting Snapshot 流水线和双人发布门禁，为仍有活动任务的旧 dictionary/bitmap/artifact 建立保留、压缩和受审删除策略；实时 CDC serving 不在当前范围内。
-7. 扩展并验证 Join、Union、窗口和多引擎 provenance；在此之前继续关闭式拒绝。
+7. 继续验证 2–8 源 JoinMany，并按需要扩展 self/outer/non-equality Join、SQL Union、窗口和多引擎 provenance；未进入已声明 profile 的能力继续关闭式拒绝。
 8. 如需防止空结果、顺序、相关查询或外部知识产生的推断，应叠加差分隐私、查询审计或领域专用推断控制；当前 exposure ledger 不提供这些保证。
 
 ### 平台加固与可观测性

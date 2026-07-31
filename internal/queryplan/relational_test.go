@@ -75,11 +75,57 @@ func TestCompileRelationalRejectsAliasDefinedSemanticRoleAndUnionAllShape(t *tes
 	}
 }
 
+func TestCompileRelationalJoinManyCanonicalizesSourceAndPredicateOrder(t *testing.T) {
+	products := relationalTestProducts()
+	first := QueryPlan{From: &From{JoinMany: &JoinMany{
+		Sources: []Scan{{Product: "region", Role: "region"}, {Product: "detail", Role: "detail"}, {Product: "summary", Role: "summary"}},
+		On: []JoinPredicate{
+			{Left: "region.department", Right: "summary.department"},
+			{Left: "summary.department", Right: "detail.department"},
+		},
+	}}, Columns: []string{"detail.receipt_no", "region.region_code"}}
+	second := QueryPlan{From: &From{JoinMany: &JoinMany{
+		Sources: []Scan{{Product: "summary", Role: "summary"}, {Product: "detail", Role: "detail"}, {Product: "region", Role: "region"}},
+		On: []JoinPredicate{
+			{Left: "detail.department", Right: "summary.department"},
+			{Left: "summary.department", Right: "region.department"},
+		},
+	}}, Columns: append([]string(nil), first.Columns...)}
+
+	left, err := CompileRelational(first, products)
+	if err != nil {
+		t.Fatal(err)
+	}
+	right, err := CompileRelational(second, products)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if left.VisibleSQL != right.VisibleSQL || left.ProvenanceSQL != right.ProvenanceSQL {
+		t.Fatalf("equivalent join_many plans compiled differently:\nleft visible=%s\nright visible=%s\nleft provenance=%s\nright provenance=%s",
+			left.VisibleSQL, right.VisibleSQL, left.ProvenanceSQL, right.ProvenanceSQL)
+	}
+	if len(left.Sources) != 3 || len(left.OrdinalProgram.Sources) != 3 {
+		t.Fatalf("join_many source counts: compilation=%d ordinal=%d", len(left.Sources), len(left.OrdinalProgram.Sources))
+	}
+}
+
+func TestCompileRelationalJoinManyRejectsDisconnectedGraph(t *testing.T) {
+	products := relationalTestProducts()
+	_, err := CompileRelational(QueryPlan{From: &From{JoinMany: &JoinMany{
+		Sources: []Scan{{Product: "detail", Role: "detail"}, {Product: "summary", Role: "summary"}, {Product: "region", Role: "region"}},
+		On:      []JoinPredicate{{Left: "detail.department", Right: "summary.department"}},
+	}}, Columns: []string{"detail.receipt_no"}}, products)
+	if err == nil || !strings.Contains(err.Error(), "connected") {
+		t.Fatalf("disconnected join_many error = %v", err)
+	}
+}
+
 func relationalTestProducts() map[string]Product {
-	textCollation := map[string]string{"department": "C", "month": "C", "receipt_no": "C"}
-	versions := map[string]string{"department": "builtin", "month": "builtin", "receipt_no": "builtin"}
+	textCollation := map[string]string{"department": "C", "month": "C", "receipt_no": "C", "region_code": "C"}
+	versions := map[string]string{"department": "builtin", "month": "builtin", "receipt_no": "builtin", "region_code": "builtin"}
 	return map[string]Product{
 		"detail":  {Name: "detail", StableRole: "detail", SourceNamespace: "travel.detail", Snapshot: "s1", StableEntityKey: []string{"receipt_no"}, Columns: map[string]struct{}{"receipt_no": {}, "department": {}, "amount": {}}, ColumnTypes: map[string]string{"receipt_no": "text", "department": "text", "amount": "numeric"}, ColumnCollations: textCollation, CollationVersions: versions, AllowedAggregates: map[string]struct{}{"sum": {}, "count": {}}},
 		"summary": {Name: "summary", StableRole: "summary", SourceNamespace: "travel.summary", Snapshot: "s1", StableEntityKey: []string{"month", "department"}, Columns: map[string]struct{}{"month": {}, "department": {}, "total": {}}, ColumnTypes: map[string]string{"month": "text", "department": "text", "total": "numeric"}, ColumnCollations: textCollation, CollationVersions: versions, AllowedAggregates: map[string]struct{}{"sum": {}, "count": {}}},
+		"region":  {Name: "region", StableRole: "region", SourceNamespace: "travel.region", Snapshot: "s1", StableEntityKey: []string{"region_code"}, Columns: map[string]struct{}{"region_code": {}, "department": {}}, ColumnTypes: map[string]string{"region_code": "text", "department": "text"}, ColumnCollations: textCollation, CollationVersions: versions, AllowedAggregates: map[string]struct{}{"count": {}}},
 	}
 }

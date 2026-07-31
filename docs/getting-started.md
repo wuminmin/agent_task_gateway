@@ -121,16 +121,18 @@ export TASKBOUND_GATEWAY_TOKEN='<Alice Token>'
 codex
 ```
 
-MCP `serverInfo.version` 为 `2.1.0`。Alice 可见 14 个任务/查询工具，Carol 只可见两个审计工具：
+MCP `serverInfo.version` 为 `2.1.0`。Alice 可见 14 个普通任务/查询工具，Carol 只可见两个审计工具：
 
 | 身份 | 工具 |
 |---|---|
-| Alice | `list_data_products`、`request_data_task`、`list_my_tasks`、`get_task_status`、`wait_for_approval`、`get_task_context`、`execute_plan`、`query_sql`、`get_query_result`、`get_budget`、`list_receipts`、`complete_task`、`revoke_task` |
+| Alice | `list_data_products`、`describe_data_product`、`get_sql_capabilities`、`request_data_task`、`list_my_tasks`、`get_task_status`、`wait_for_approval`、`get_task_context`、`query_sql`、`get_query_result`、`get_budget`、`list_receipts`、`complete_task`、`revoke_task` |
 | Carol | `list_audit_events`、`get_audit_receipt` |
+
+`execute_plan` 保留给 SDK、内部测试、基准、调试和确定性工作流，不在普通 Alice `tools/list` 中默认列出。
 
 ## 4. 结构化申请与人工审批
 
-先调用 `list_data_products`。响应会给出逻辑产品字段，以及全部 Scope 的类型、允许值或日期边界。申请不得省略产品、字段或 Scope：
+先调用 `list_data_products`。响应会给出逻辑产品字段，以及全部 Scope 的类型、允许值或日期边界。可用 `describe_data_product(name)` 读取字段 collation、Catalog 稳定角色和 SQL 白名单，用 `get_sql_capabilities()` 读取 `taskgate-reporting-sql-v1` 的受支持特性和 2–8 源 Join 边界。申请不得省略产品、字段或 Scope：
 
 ```json
 {
@@ -152,33 +154,19 @@ exposure 上限写入审批 Manifest。Agent 不申请更小预算，也不因�
 
 `request_data_task` 返回 `task_id`、`oa_url`、审批模式和 `AuthorizationManifestV1` 摘要。用 `.env` 的 `OA_ALICE_PASSWORD` 以 `alice` 登录 OA，打开草稿并提交。所有敏感级别（包括低敏 `expense_summary`）都会停在 `AWAITING_APPROVAL`；必须由 `bob` 登录 OA 明确批准或缩小后批准，任务才会进入 `ACTIVE`。
 
-任务 ACTIVE 后可提交 QueryPlan：
+任务 ACTIVE 后，普通 Agent 提交 SQL：
 
 ```json
 {
   "task_id": "task_...",
-  "request_id": "summary-plan-001",
-  "plan": {
-    "product": "expense_summary",
-    "columns": ["month"],
-    "aggregates": [
-      {"function": "sum", "column": "total_amount", "alias": "amount"}
-    ],
-    "group_by": ["month"],
-    "order_by": [{"column": "month", "direction": "asc"}],
-    "limit": 20
-  },
-  "output_format": "json"
+  "request_id": "summary-sql-001",
+  "sql": "SELECT month, SUM(total_amount) AS amount FROM expense_summary GROUP BY month ORDER BY month ASC LIMIT 20"
 }
 ```
 
-`execute_plan` 在本地严格校验产品、字段、聚合、过滤、排序和 Limit，确定性编译为 SQL，再进入与 `query_sql` 相同的 PostgreSQL AST 策略。Gateway 不调用外部模型。
+Exposure-enabled `query_sql` 使用 PostgreSQL AST 解析 `taskgate-reporting-sql-v1`，将 SQL alias 映射为 Catalog 稳定角色，并无损 lowering 为 canonical QueryPlan。单产品支持 projection/filter/group/order/limit/offset 与 `COUNT/SUM/MIN/MAX`；多产品支持 2–8 源、connected INNER equijoin，内部使用 `join_many`。Self-join、outer/cross/non-equality join、断开的 join graph、子查询、CTE、set operation、窗口、`HAVING` 和多输入分页关闭式拒绝；Gateway 不会静默修改查询语义。
 
-V2 任务也可提交受限的树形 `from`。当前只允许两个 Scan 叶子的 INNER
-equijoin，或同一产品两个过滤分支的 `union_distinct`；字段用 Catalog 稳定角色
-限定，Union 必须显式列出完整去重 schema。可在其上继续 `group_by` 和四种
-聚合。嵌套关系树、self-join、`UNION ALL`、关系计划的 order/limit/offset 会
-关闭式拒绝。详细 JSON 示例见仓库根目录 README。
+lowering 成功后，Gateway 丢弃原始 SQL 作为执行来源，只执行 QueryPlan 重新生成的 visible SQL 和 ordinal provenance companion，两者还会再经完整 SQL policy。高级 `execute_plan` 也共用这一编译/记账边界，并且仍可表示同产品双分支 `union_distinct`；该 set operation 不属于 SQL profile。Gateway 不调用外部模型。
 
 默认 Catalog 定义 `taskgate-exposure-v4` budget profiles，且所有 approval
 route 都是人工审批。正常批准把完整 Catalog Profile 交给 Agent，不做最小预算选择。Gateway 会在一个只读
@@ -190,10 +178,9 @@ route 都是人工审批。正常批准把完整 Catalog Profile 交给 Agent，
 
 申请高敏 `expense_detail` 时，Alice 提交草稿后任务停留在 `AWAITING_APPROVAL`。以 `bob` 和 `OA_BOB_PASSWORD` 登录 OA 批准或拒绝。批准前查询返回 `TASK_NOT_ACTIVE`；拒绝后任务归档为 `ARCHIVED(rejected)`。
 
-启用 exposure 的 Grant 不接受直接 SQL，因为任意 SQL 尚不能生成完整、可证明
-的 provenance companion；`query_sql` 会返回 `EXPOSURE_EVIDENCE_REQUIRED`。
-它只保留给旧的 resource-only 兼容 Grant。默认 Demo 应继续使用
-`execute_plan`，例如上面的聚合。
+启用 exposure 的 Grant 默认使用 `query_sql`。语法、授权或 lowering 失败会在数据库执行和正式预留之前返回结构化错误，其中包含稳定 `code`、安全的 `reason/location`、支持的替代方案、`retryable_after_rewrite` 和 SQL profile；这类失败不扣查询、行、DBMS、release、dependency 或 outcome 预算。执行已开始后的 timeout 或故障继续遵守现有 failure-settlement 规则。
+
+原始 SQL 派生的 request digest 仅用于审计和 `(task_id, request_id)` 幂等；语义等价的 alias 或 Join 交换必须得到同一 canonical QueryPlan、`plan_digest`、FactID 和 semantic replay key。原始 SQL 文本哈希不是 exposure 命题身份。
 
 `request_data_task` 还支持 `parent_task_id` 和 `delegate_principal_id`。子任务必须
 由父任务所有者发起，所有授权维度只能收缩，且父子共享同一 exposure 账本。

@@ -349,7 +349,9 @@ pass "official Go MCP client completed a protocol-level call against the Compose
 alice_tools=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
   '{"jsonrpc":"2.0","id":3,"method":"tools/list","params":{}}')
 assert_contains "$alice_tools" '"name":"list_data_products"' "Alice tools/list"
-assert_contains "$alice_tools" '"name":"execute_plan"' "Alice tools/list"
+assert_contains "$alice_tools" '"name":"describe_data_product"' "Alice tools/list"
+assert_contains "$alice_tools" '"name":"get_sql_capabilities"' "Alice tools/list"
+assert_not_contains "$alice_tools" '"name":"execute_plan"' "Alice tools/list"
 assert_not_contains "$alice_tools" '"name":"query_data"' "Alice tools/list"
 assert_contains "$alice_tools" '"name":"query_sql"' "Alice tools/list"
 assert_not_contains "$alice_tools" '"name":"list_audit_events"' "Alice tools/list"
@@ -527,18 +529,22 @@ alice_unknown=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
 assert_contains "$alice_unknown" '"code":"NOT_FOUND"' "Alice non-owned task enumeration"
 pass "Alice cannot read another principal's real task and Carol remains receipt-only"
 
-# Incomplete authorization input fails before OA. Exposure-enabled grants also
-# require structured plans so exact paired-snapshot provenance is available.
+# Incomplete authorization input fails before OA. Exposure-enabled SQL is
+# lowered to the same exact paired-snapshot plan path used by the advanced
+# structured entry point.
 invalid_request=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
   '{"jsonrpc":"2.0","id":23,"method":"tools/call","params":{"name":"request_data_task","arguments":{"objective":"缺少字段和范围","data_products":["expense_summary"]}}}')
 assert_contains "$invalid_request" '"code":"INVALID_REQUEST"' "explicit authorization input"
 direct_response=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
   "{\"jsonrpc\":\"2.0\",\"id\":24,\"method\":\"tools/call\",\"params\":{\"name\":\"query_sql\",\"arguments\":{\"task_id\":\"$detail_task\",\"request_id\":\"integration-detail-sql-2\",\"sql\":\"SELECT receipt_no, amount FROM expense_detail ORDER BY receipt_no\"}}}")
-assert_contains "$direct_response" '"code":"EXPOSURE_EVIDENCE_REQUIRED"' "direct SQL exposure evidence"
+assert_contains "$direct_response" '"isError":false' "exposure SQL lowering"
+assert_contains "$direct_response" '"sql_profile":"taskgate-reporting-sql-v1"' "exposure SQL profile"
+assert_contains "$direct_response" '"query_plan":' "exposure SQL canonical plan"
+assert_contains "$direct_response" '"plan_digest":' "exposure SQL canonical identity"
 detail_second_plan=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
   "{\"jsonrpc\":\"2.0\",\"id\":25,\"method\":\"tools/call\",\"params\":{\"name\":\"execute_plan\",\"arguments\":{\"task_id\":\"$detail_task\",\"request_id\":\"integration-detail-plan-2\",\"plan\":{\"product\":\"expense_detail\",\"columns\":[\"receipt_no\",\"amount\"],\"order_by\":[{\"column\":\"receipt_no\",\"direction\":\"asc\"}]}}}}")
 assert_contains "$detail_second_plan" '"isError":false' "second structured detail plan"
-pass "incomplete authorization and provenance-free direct SQL fail closed"
+pass "incomplete authorization fails closed and exposure SQL uses the canonical plan path"
 
 # PostgreSQL's gateway role can read only published reporting views.
 if ! reader_psql --tuples-only --no-align \

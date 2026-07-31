@@ -37,7 +37,7 @@ func relationalQueryProduct(product catalog.Product, approved map[string]struct{
 		ColumnTypes: types, ColumnCollations: collations, CollationVersions: versions,
 		SourceNamespace: product.FactNamespace, Snapshot: product.Snapshot,
 		StableRole: product.StableRelationRole, StableEntityKey: append([]string(nil), product.EntityKey...),
-		LineageDigest: product.LineageManifestDigest,
+		LineageDigest: product.LineageManifestDigest, RequiredEvidence: append([]string(nil), product.Scopes...),
 	}
 }
 
@@ -124,19 +124,51 @@ func relationalAlgebraPlan(plan queryplan.QueryPlan, compilation queryplan.Relat
 			return node, err
 		}
 	case "join":
+		if len(compilation.Sources) < 2 {
+			return node, errors.New("join compilation requires at least two sources")
+		}
 		left, err := makeScan(compilation.Sources[0], compilation.Sources[0].Role)
 		if err != nil {
 			return node, err
 		}
-		right, err := makeScan(compilation.Sources[1], compilation.Sources[1].Role)
-		if err != nil {
-			return node, err
+		node = left
+		joinedRoles := map[string]struct{}{compilation.Sources[0].Role: {}}
+		usedPredicates := 0
+		for _, source := range compilation.Sources[1:] {
+			right, scanErr := makeScan(source, source.Role)
+			if scanErr != nil {
+				return node, scanErr
+			}
+			predicates := make([]queryplan.AlgebraJoinPredicateV2, 0)
+			for _, predicate := range compilation.JoinPredicates {
+				leftRole, _, leftOK := splitRelationalField(predicate.Left)
+				rightRole, _, rightOK := splitRelationalField(predicate.Right)
+				if !leftOK || !rightOK {
+					return node, errors.New("join predicate contains an invalid field")
+				}
+				switch {
+				case rightRole == source.Role:
+					if _, present := joinedRoles[leftRole]; present {
+						predicates = append(predicates, queryplan.AlgebraJoinPredicateV2{LeftField: predicate.Left, RightField: predicate.Right})
+						usedPredicates++
+					}
+				case leftRole == source.Role:
+					if _, present := joinedRoles[rightRole]; present {
+						predicates = append(predicates, queryplan.AlgebraJoinPredicateV2{LeftField: predicate.Right, RightField: predicate.Left})
+						usedPredicates++
+					}
+				}
+			}
+			if len(predicates) == 0 {
+				return node, errors.New("join source is disconnected from the compiled component")
+			}
+			leftInput := node
+			node = queryplan.AlgebraPlanV2{Op: "join", Left: &leftInput, Right: &right, JoinPredicates: predicates}
+			joinedRoles[source.Role] = struct{}{}
 		}
-		predicates := make([]queryplan.AlgebraJoinPredicateV2, 0, len(compilation.JoinPredicates))
-		for _, predicate := range compilation.JoinPredicates {
-			predicates = append(predicates, queryplan.AlgebraJoinPredicateV2{LeftField: predicate.Left, RightField: predicate.Right})
+		if usedPredicates != len(compilation.JoinPredicates) {
+			return node, errors.New("join graph contains an unbound equality")
 		}
-		node = queryplan.AlgebraPlanV2{Op: "join", Left: &left, Right: &right, JoinPredicates: predicates}
 	case "union_distinct":
 		role := plan.From.UnionDistinct.Role
 		left, err := makeScan(compilation.Sources[0], role)
@@ -302,13 +334,45 @@ func (context *planExposureContext) deriveRelationalObservationV2(visible, prove
 	case "scan":
 		relation = relations[0]
 	case "join":
-		predicates := make([]exposure.JoinPredicateV2, 0, len(compilation.JoinPredicates))
-		for _, predicate := range compilation.JoinPredicates {
-			predicates = append(predicates, exposure.JoinPredicateV2{LeftField: predicate.Left, RightField: predicate.Right})
+		if len(relations) < 2 {
+			return exposure.Observation{}, errors.New("join observation requires at least two source relations")
 		}
-		relation, err = exposure.JoinOnV2(relations[0], relations[1], predicates)
-		if err != nil {
-			return exposure.Observation{}, err
+		relation = relations[0]
+		joinedRoles := map[string]struct{}{compilation.Sources[0].Role: {}}
+		usedPredicates := 0
+		for sourceIndex := 1; sourceIndex < len(compilation.Sources); sourceIndex++ {
+			source := compilation.Sources[sourceIndex]
+			predicates := make([]exposure.JoinPredicateV2, 0)
+			for _, predicate := range compilation.JoinPredicates {
+				leftRole, _, leftOK := splitRelationalField(predicate.Left)
+				rightRole, _, rightOK := splitRelationalField(predicate.Right)
+				if !leftOK || !rightOK {
+					return exposure.Observation{}, errors.New("join predicate contains an invalid field")
+				}
+				switch {
+				case rightRole == source.Role:
+					if _, present := joinedRoles[leftRole]; present {
+						predicates = append(predicates, exposure.JoinPredicateV2{LeftField: predicate.Left, RightField: predicate.Right})
+						usedPredicates++
+					}
+				case leftRole == source.Role:
+					if _, present := joinedRoles[rightRole]; present {
+						predicates = append(predicates, exposure.JoinPredicateV2{LeftField: predicate.Right, RightField: predicate.Left})
+						usedPredicates++
+					}
+				}
+			}
+			if len(predicates) == 0 {
+				return exposure.Observation{}, errors.New("join source is disconnected from the observed component")
+			}
+			relation, err = exposure.JoinOnV2(relation, relations[sourceIndex], predicates)
+			if err != nil {
+				return exposure.Observation{}, err
+			}
+			joinedRoles[source.Role] = struct{}{}
+		}
+		if usedPredicates != len(compilation.JoinPredicates) {
+			return exposure.Observation{}, errors.New("join graph contains an unbound equality")
 		}
 		allowedPairs, allowedErr := context.provenanceJoinPairs(provenance, positions)
 		if allowedErr != nil {

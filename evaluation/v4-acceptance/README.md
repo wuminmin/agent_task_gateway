@@ -1,8 +1,10 @@
 # TaskGate V4 acceptance harness
 
 `evaluation/cmd/v4-acceptance` is the executable evidence driver for the
-Snapshot-Indexed Hybrid Bitmap Ledger. It calls the public `execute_plan` MCP
-tool and a direct read-only PostgreSQL baseline. Every trial uses a distinct
+Snapshot-Indexed Hybrid Bitmap Ledger. It directly calls the advanced
+`execute_plan` MCP method, which is retained for deterministic harnesses but is
+not advertised in an ordinary Agent's `tools/list`, and a direct read-only
+PostgreSQL baseline. Every trial uses a distinct
 ACTIVE V4 task and, by default, refuses a root whose V4 epoch is already
 nonzero.
 

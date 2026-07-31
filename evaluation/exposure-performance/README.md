@@ -2,7 +2,8 @@
 
 This harness measures the real V2 exposure path instead of relabeling the
 resource-only `query_sql` benchmark. Full-path observations enter through the
-public MCP `execute_plan` tool and execute authorization, reservation, a
+directly callable advanced MCP `execute_plan` method, which is retained for
+deterministic harnesses but hidden from an ordinary Agent's `tools/list`, and execute authorization, reservation, a
 repeatable-read visible/provenance pair, V2 derivation, immutable FactID
 deduplication, shared-root dual-ledger settlement, result encryption, terminal
 audit, and receipt signing.
@@ -75,7 +76,7 @@ Each non-full cell uses the same ordered, one-row Sales expense workload:
    repeatable-read transaction, without algebra or Control PostgreSQL.
 3. `paired_plus_algebra`: the same pair plus V2 `Scan`, predicate support, and
    `Observe` derivation, without persistence.
-4. `full_history_ramp`: sequential public `execute_plan` requests cycling over
+4. `full_history_ramp`: sequential advanced `execute_plan` requests cycling over
    four stable entity keys, exposing novel-to-hit history behavior.
 5. `full_history_hit`: fixed-plan public requests after the ramp. Concurrent
    workers use distinct delegated tasks sharing the same root exposure ledger,

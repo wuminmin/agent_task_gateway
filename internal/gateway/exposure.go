@@ -742,6 +742,15 @@ func cloneQueryPlan(plan queryplan.QueryPlan) queryplan.QueryPlan {
 			join.On = append([]queryplan.JoinPredicate(nil), join.On...)
 			from.Join = &join
 		}
+		if from.JoinMany != nil {
+			join := *from.JoinMany
+			join.Sources = append([]queryplan.Scan(nil), join.Sources...)
+			for index := range join.Sources {
+				join.Sources[index].Filters = append([]queryplan.Filter(nil), join.Sources[index].Filters...)
+			}
+			join.On = append([]queryplan.JoinPredicate(nil), join.On...)
+			from.JoinMany = &join
+		}
 		if from.UnionDistinct != nil {
 			union := *from.UnionDistinct
 			union.Columns = append([]string(nil), union.Columns...)

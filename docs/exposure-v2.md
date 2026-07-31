@@ -9,19 +9,32 @@ release/dependency FactID 和 V3 OutcomeFact，只把物理 FactSet 换成可逆
 bitmap；旧 V1/V2/V3 仍用于历史账本、兼容部署和回归 oracle。所有 approval
 routes 都要求独立的人类审批。
 
-V2 的执行边界是：客户端每次提交一个确定的 `QueryPlan`，不提交 FactID 或
-计量成本。Gateway 在同一个 Business PostgreSQL `REPEATABLE READ` 快照内执行
-可见查询及 provenance companion，生成精确的 `(release, influence)` FactSet。
-Control PostgreSQL 随后锁定 root ledger，并在同一事务中完成 novel FactSet
-结算、资源扣费、结果加密、审计与 V4 receipt。事务提交前不会释放结果。
+V2 的可信执行边界是 canonical `QueryPlan`，客户端不提交 FactID 或计量成本。
+普通 Agent 默认向 `query_sql` 提交报表 SQL；启用 exposure 时，Gateway 只接受
+能够按 `taskgate-reporting-sql-v1` 无损 lowering 的 SQL，并丢弃原始 SQL 作为
+执行来源。SDK、内部测试、基准、调试和确定性工作流仍可直接调用不在普通
+`tools/list` 中列出的高级 `execute_plan`。两个入口都在同一个 Business
+PostgreSQL `REPEATABLE READ` 快照内执行由 canonical QueryPlan 生成的可见查询及
+provenance companion，生成精确的 `(release, influence)` FactSet。Control
+PostgreSQL 随后锁定 root ledger，并在同一事务中完成 novel FactSet 结算、资源
+扣费、结果加密、审计与 V6 receipt。事务提交前不会释放结果。
 
-在线编译器覆盖单产品片段，以及两个 Scan 叶子的受限 INNER equijoin 和
-union-distinct。Join companion 保留实际匹配行对；Union 的可见语句使用完整
-schema 做 DISTINCT，而 provenance companion 使用 `UNION ALL`、分支标记和
-源 entity key，因而同一 distinct class 的所有成员都会进入注释。两种输入都
-可以继续 grouping/aggregation，并直接调用下述 `JoinOnV2`、
-`UnionDistinctV2`、`AggregateFromResultsV2` 和 `ObserveV2`，没有第二套在线
-dependency 规则。
+在线编译器覆盖单产品片段、2–8 个不同 Catalog 稳定角色组成的 connected INNER
+equijoin `join_many`，以及高级 QueryPlan 入口的同产品双分支 union-distinct。
+`taskgate-reporting-sql-v1` 不接受 set operation。Join companion 保留实际匹配
+行组合；Union 的可见语句使用完整 schema 做 DISTINCT，而 provenance companion
+使用 `UNION ALL`、分支标记和源 entity key，因而同一 distinct class 的所有成员
+都会进入注释。这些输入都可以继续 grouping/aggregation，并直接调用下述
+`JoinOnV2`、`UnionDistinctV2`、`AggregateFromResultsV2` 和 `ObserveV2`，没有
+第二套在线 dependency 规则。SQL alias 只在输入层存在；规范计划使用 Catalog
+稳定角色。原始 SQL 摘要只用于审计和 request 幂等，FactID、OutcomeFact 和
+semantic replay 绑定 canonical QueryPlan/`plan_digest`。
+
+语法、产品/字段授权或 lowering 失败在 Business PostgreSQL 执行和正式预算
+reservation 之前返回稳定、可修复的结构化错误，不扣查询、DBMS、release、
+dependency 或 outcome 预算；可另记安全审计并施加独立速率限制。数据库执行
+开始后的 timeout 或故障仍遵循 failure-settlement 规则。Gateway 不会把不支持的
+LEFT JOIN 等语法静默改写成另一种语义。
 
 这里的 `influence` 是兼容性的 API、数据库列和 wire identifier；在 V2 中它的
 规范含义是 **conservative positive-output dependency footprint**（保守正向输出

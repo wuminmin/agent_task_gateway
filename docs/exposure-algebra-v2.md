@@ -441,10 +441,10 @@ K' = (Kr ∪ Er, Ki ∪ Ei)
 | Snapshot dictionary、exact bitmap、weighted witness | `internal/ordinal` |
 | 三维 bitmap root-head settlement | `internal/control/ordinal_exposure.go` |
 | Typed NF 与静态语法检查 | `internal/queryplan/normalform.go` |
-| 受限 Join/Union 双 SQL lowering | `internal/queryplan/relational.go` |
+| 受限 JoinMany/Union QueryPlan lowering | `internal/queryplan/relational.go` |
 | Catalog collation/type/profile 条件 | `internal/catalog/validate.go` |
 | PostgreSQL name/version/determinism 证明 | `internal/dataconnector/postgres.go` |
 | 在线 paired execution/provenance | `internal/gateway/exposure.go`, `internal/gateway/relational_exposure.go` |
 | 原子 ledger 结算 | `internal/control` |
 
-“完整 Exposure Algebra”指本文件语法内的可执行、闭合代数及其 Observation/FactID/NF 语义。公网 `execute_plan` 除单产品 Scan/Select/Project/Group/Page 外，还 lowering 两个 Scan 叶子的不同 Catalog 角色 INNER equijoin，以及同产品双过滤分支 Union-Distinct；二者可继续 Group。该在线子集拒绝嵌套关系树、self-join、Union-All 和多输入 Page。本文不声称：任意 SQL provenance、outer join、`AVG`、negative information、排序位置泄露、差分隐私、跨引擎等价，或 Go 对本文数学模型的 mechanized refinement proof。
+“完整 Exposure Algebra”指本文件语法内的可执行、闭合代数及其 Observation/FactID/NF 语义。普通 Agent 默认通过 `query_sql` 提交 `taskgate-reporting-sql-v1`；该 SQL 必须无损 lowering 为 canonical QueryPlan，随后只执行从计划重新生成的 SQL。高级 `execute_plan` 不在普通 `tools/list` 中列出，但保留给 SDK、内部测试、基准、调试和确定性工作流。在线 QueryPlan 子集除单产品 Scan/Select/Project/Group/Page 外，还支持 2–8 个不同 Catalog 稳定角色的 connected INNER equijoin `join_many`，以及仅限高级入口的同产品双过滤分支 Union-Distinct；两者可继续 Group。该子集拒绝 self-join、outer/cross/non-equality join、断开的 join graph、Union-All 和多输入 Page，且不静默改变语义。本文不声称：任意 SQL provenance、`AVG`、negative information、排序位置泄露、差分隐私、跨引擎等价，或 Go 对本文数学模型的 mechanized refinement proof。

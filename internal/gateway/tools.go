@@ -7,6 +7,7 @@ import (
 
 	"taskbound.local/agent-data-gateway/internal/control"
 	"taskbound.local/agent-data-gateway/internal/mcp"
+	"taskbound.local/agent-data-gateway/internal/queryplan"
 )
 
 func objectSchema(properties map[string]any, required ...string) map[string]any {
@@ -22,6 +23,10 @@ func objectSchema(properties map[string]any, required ...string) map[string]any 
 
 var queryTools = []mcp.Tool{
 	{Name: "list_data_products", Description: "列出可申请的逻辑数据产品、字段、说明和敏感等级。", InputSchema: objectSchema(nil), Annotations: map[string]any{"readOnlyHint": true}},
+	{Name: "describe_data_product", Description: "读取一个逻辑数据产品的字段类型、排序规则、稳定角色和 SQL 白名单。", InputSchema: objectSchema(map[string]any{
+		"name": map[string]any{"type": "string", "minLength": 1},
+	}, "name"), Annotations: map[string]any{"readOnlyHint": true}},
+	{Name: "get_sql_capabilities", Description: "读取 TaskGate 报表 SQL profile 及可无损转换为规范 QueryPlan 的受限语法能力。", InputSchema: objectSchema(nil), Annotations: map[string]any{"readOnlyHint": true}},
 	{Name: "request_data_task", Description: "使用显式产品、字段和范围创建根任务或受父 Grant 约束的委托任务及 OA 草稿。", InputSchema: objectSchema(map[string]any{
 		"objective":             map[string]any{"type": "string", "minLength": 1, "maxLength": 4000},
 		"parent_task_id":        map[string]any{"type": "string", "minLength": 1},
@@ -45,11 +50,7 @@ var queryTools = []mcp.Tool{
 		"task_id": map[string]any{"type": "string"}, "timeout_seconds": map[string]any{"type": "integer", "minimum": 0, "maximum": 45},
 	}, "task_id"), Annotations: map[string]any{"readOnlyHint": true}},
 	{Name: "get_task_context", Description: "读取 ACTIVE 任务的批准范围、预算和期限。", InputSchema: taskIDSchema(), Annotations: map[string]any{"readOnlyHint": true}},
-	{Name: "execute_plan", Description: "执行声明式 QueryPlan，经确定性编译和 SQL 策略验证后查询。", InputSchema: objectSchema(map[string]any{
-		"task_id": map[string]any{"type": "string"}, "request_id": requestIDSchema(), "plan": queryPlanSchema(),
-		"output_format": map[string]any{"type": "string", "enum": []string{"json", "table"}},
-	}, "task_id", "request_id", "plan")},
-	{Name: "query_sql", Description: "在任务授权内执行单条 PostgreSQL SELECT；只能引用逻辑数据产品。", InputSchema: objectSchema(map[string]any{
+	{Name: "query_sql", Description: "执行任务授权范围内的报表 SQL。启用精确暴露记账时，SQL 必须能够无损转换为 TaskGate 规范计划；不支持的语法会在数据库执行和预算结算前返回可修复错误。", InputSchema: objectSchema(map[string]any{
 		"task_id": map[string]any{"type": "string"}, "request_id": requestIDSchema(), "sql": map[string]any{"type": "string", "minLength": 1, "maxLength": 100000},
 	}, "task_id", "request_id", "sql")},
 	{Name: "get_query_result", Description: "读取自己的加密保存查询结果。", InputSchema: objectSchema(map[string]any{
@@ -66,6 +67,15 @@ var queryTools = []mcp.Tool{
 		"task_id": map[string]any{"type": "string"}, "reason": map[string]any{"type": "string", "maxLength": 1000},
 	}, "task_id")},
 }
+
+// executePlanTool is intentionally absent from queryTools: ordinary Agents
+// should discover the SQL entry point only. CallTool continues to route
+// execute_plan for SDK integrations, deterministic workflows, and tests that
+// already submit the canonical internal representation.
+var executePlanTool = mcp.Tool{Name: "execute_plan", Description: "执行声明式 QueryPlan，经确定性编译和 SQL 策略验证后查询。", InputSchema: objectSchema(map[string]any{
+	"task_id": map[string]any{"type": "string"}, "request_id": requestIDSchema(), "plan": queryPlanSchema(),
+	"output_format": map[string]any{"type": "string", "enum": []string{"json", "table"}},
+}, "task_id", "request_id", "plan")}
 
 func requestIDSchema() map[string]any {
 	return map[string]any{"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9._:-]+$"}
@@ -88,6 +98,12 @@ func queryPlanSchema() map[string]any {
 				"left": map[string]any{"type": "string"}, "right": map[string]any{"type": "string"},
 			}, "left", "right")},
 		}, "left", "right", "on"),
+		"join_many": objectSchema(map[string]any{
+			"sources": map[string]any{"type": "array", "minItems": 2, "maxItems": queryplan.MaxJoinSources, "items": scan},
+			"on": map[string]any{"type": "array", "minItems": 1, "uniqueItems": true, "items": objectSchema(map[string]any{
+				"left": map[string]any{"type": "string"}, "right": map[string]any{"type": "string"},
+			}, "left", "right")},
+		}, "sources", "on"),
 		"union_distinct": objectSchema(map[string]any{
 			"role":    map[string]any{"type": "string", "minLength": 1},
 			"columns": map[string]any{"type": "array", "minItems": 1, "uniqueItems": true, "items": map[string]any{"type": "string"}},
@@ -155,6 +171,10 @@ func (s *Service) CallTool(ctx context.Context, principal mcp.Principal, name st
 		switch name {
 		case "list_data_products":
 			result, err = s.listDataProducts(ctx, principal, raw)
+		case "describe_data_product":
+			result, err = s.describeDataProduct(ctx, principal, raw)
+		case "get_sql_capabilities":
+			result, err = s.getSQLCapabilities(ctx, principal, raw)
 		case "request_data_task":
 			result, err = s.requestDataTask(ctx, principal, raw)
 		case "list_my_tasks":
@@ -165,7 +185,7 @@ func (s *Service) CallTool(ctx context.Context, principal mcp.Principal, name st
 			result, err = s.waitForApproval(ctx, principal, raw)
 		case "get_task_context":
 			result, err = s.getTaskContext(ctx, principal, raw)
-		case "execute_plan":
+		case executePlanTool.Name:
 			result, err = s.executePlan(ctx, principal, raw)
 		case "query_sql":
 			result, err = s.querySQL(ctx, principal, raw)

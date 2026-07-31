@@ -16,10 +16,44 @@ func (testTools) ListTools(Principal) []Tool {
 }
 
 func (testTools) CallTool(_ context.Context, principal Principal, name string, _ json.RawMessage) (ToolResult, error) {
+	if name == "detailed_error" {
+		return ToolResult{}, &ToolError{Code: "SQL_NOT_LOWERABLE", Message: "rewrite the query", Details: map[string]any{
+			"reason": "LEFT_JOIN_UNSUPPORTED", "retryable_after_rewrite": true,
+		}}
+	}
 	if name != "hello" {
 		return ToolResult{}, &ToolError{Code: "NOT_FOUND", Message: "unknown tool"}
 	}
 	return ToolResult{Structured: map[string]any{"subject": principal.Subject}}, nil
+}
+
+func TestToolErrorDetailsAreReturnedAsStructuredFields(t *testing.T) {
+	t.Parallel()
+	auth := NewStaticAuthenticator([]TokenIdentity{{Token: "alice-token", Principal: Principal{ID: "alice", Subject: "alice", Role: "query"}}})
+	server, err := NewServer(auth, testTools{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{
+		"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"detailed_error","arguments":{}}
+	}`))
+	request.Header.Set("Authorization", "Bearer alice-token")
+	result := httptest.NewRecorder()
+	server.ServeHTTP(result, request)
+	var response struct {
+		Result struct {
+			StructuredContent struct {
+				Error map[string]any `json:"error"`
+			} `json:"structuredContent"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(result.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	got := response.Result.StructuredContent.Error
+	if got["reason"] != "LEFT_JOIN_UNSUPPORTED" || got["retryable_after_rewrite"] != true {
+		t.Fatalf("structured error details = %#v", got)
+	}
 }
 
 func TestAuthenticatedMCPInitializeAndCall(t *testing.T) {
