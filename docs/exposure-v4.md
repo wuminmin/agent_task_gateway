@@ -115,7 +115,7 @@ Witness 的同一证明使用加法，`UNION DISTINCT` alternative proof 使用�
 
 ## 原子结算和 replay
 
-Control PG 将 bitmap 按 `(dictionary, segment, ordinal>>16)` 分成不可变、content-addressed containers。Novelty 是精确 `ANDNOT + popcount`，root 更新是 `OR`。一个 root head 同时指向 Release、Influence、Outcome 三个 set manifest 和单一 epoch；所有子 Agent 都解析到同一个 root head。
+Control PG 持久化按 `(dictionary, segment, ordinal>>16)` 分割的不可变、content-addressed bitmap containers。Go control path 读取它们，执行精确 `ANDNOT + popcount` 和 `OR`；同一 Control PG 事务随后发布 root head。一个 root head 同时指向 Release、Influence、Outcome 三个 set manifest 和单一 epoch；所有子 Agent 都解析到同一个 root head。
 
 结算事务读取并校验 root epoch，计算三个维度，再以带 epoch 条件的一次乐观 CAS 发布三个新 head；它不依赖一把覆盖整个派生期的 root 行锁。CAS 冲突会回滚本次事务、重新读取 head 并重算三维 novelty，最多重试 16 次，绝不会分别提交 R/I/O。任何维度超预算、重试耗尽或持久化错误都回滚 bitmap、artifact intent、observation、audit、materialization 和 receipt，并且不会创建 canonical 结果对象。
 
