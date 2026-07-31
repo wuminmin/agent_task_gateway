@@ -226,12 +226,13 @@ audit, receipt, and commit-before-release still execute.}
 \label{fig:architecture-settlement}
 \end{figure*}
 
-TaskGate is a direct successor to SessionBound
-\cite{wu2026sessionbound}. SessionBound already turns task approval into a
-short-lived database session with signed tokens, SQL/view/scope boundaries,
-query and disclosure budgets, and allow/deny receipts. We treat that substrate
-as prior work and do not claim those mechanisms here. Relative to it, this
-paper makes five implementation-backed contributions:
+A preliminary preprint version introduced the task-scoped authorization
+substrate \cite{wu2026sessionbound}: approval-bound short-lived database
+sessions, signed task tokens, SQL/view/scope enforcement, resource budgets,
+and audit receipts.\footnote{Preliminary version: arXiv:2607.00751v1.} The
+present, substantially revised article develops the database-specific
+accounting semantics, implementation, formal analysis, and evaluation. Its
+five implementation-backed contributions are:
 
 \begin{enumerate}
 \item A versioned, typed FactID and three-set semantics separating delivered
@@ -278,16 +279,7 @@ TaskGate supplies auditable workflow conservation, not that replacement.
 \section{Context and Related Work}
 \label{sec:related}
 
-\subsection{Closest Systems and Incremental Novelty}
-
-SessionBound supplies the reused business-task approval, signed tokens, and
-PostgreSQL enforcement of views, scopes, fields, query/operation limits,
-disclosure budgets, and receipts in row, byte, or entity units
-\cite{wu2026sessionbound}. TaskGate instead
-accounts stable FactID sets in separate release, positive-output-dependency,
-and normalized-outcome ledgers, obtains answer and evidence in one snapshot,
-charges exact set difference, and settles every descendant against one root
-ledger.
+\subsection{Closest System Families}
 
 GAAP is the closest system at the agent data-flow layer
 \cite{stanley2026gaap}. It keeps private data and permissions outside the
@@ -312,7 +304,6 @@ not overall system quality.}
 System family & Approved task/root & Typed DB FactIDs & Release/dependency split & Same-snapshot evidence & Exact novel-set pre-release & Shared-root delegation & Cross-tool IFC \\
 \midrule
 TaskGate & \checkmark & \checkmark & \checkmark & \checkmark & \checkmark & \checkmark & -- \\
-SessionBound~\cite{wu2026sessionbound} & \checkmark & -- & -- & -- & hist. units & -- & -- \\
 GAAP~\cite{stanley2026gaap} & persistent log & -- & -- & -- & hist. disclosure & -- & \checkmark \\
 UCON / history-based AC~\cite{park2004ucon,abadi2003history} & ongoing use & -- & -- & -- & hist. actions & policy-specific & -- \\
 Query pricing~\cite{koutris2012query,deep2017qirana,peng2025aria} & query/history & -- & -- & -- & hist. price & -- & -- \\
@@ -400,12 +391,12 @@ across retries, pages, supported rewrites, and delegation.
 
 \textbf{Novelty boundary.} The literature establishes history, inference
 control, pricing, provenance, mediation, delegation, quotas, task-bound SQL,
-receipts, and persistent disclosure logs. Relative to SessionBound, TaskGate's
-claim is three-set FactID semantics, same-snapshot provenance, exact novel-set
-settlement, and shared-root delegation with formal and empirical checks.
-Relative to GAAP, it is database-specific semantic accounting rather than
-cross-task IFC: narrower than noninterference, but stronger than stateless
-authorization for the modeled threat.
+receipts, and persistent disclosure logs. Within this boundary, the present
+article develops three-set FactID semantics, same-snapshot provenance, exact
+novel-set settlement, and shared-root delegation, together with formal and
+empirical checks. Relative to GAAP, it is database-specific semantic accounting
+rather than cross-task IFC: narrower than noninterference, but stronger than
+stateless authorization for the modeled threat.
 
 \section{Exposure Model}
 \label{sec:model}

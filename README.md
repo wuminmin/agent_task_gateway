@@ -181,7 +181,7 @@ docker compose down
 anti-arbitrage cases 和计费基线。`evaluation/exposure-performance/results.json` 保存三次独立
 PostgreSQL 全路径 trial 的 31,296 个 RQ4 观测；该结果限定为本地十行 fixture，
 不冒充 TPC 或生产规模。`make paper` 构建新的 TKDE 工作稿；
-旧的安全网关稿仍可用 `make paper-tdsc` 构建。
+未投稿的旧安全网关工作稿仍可用 `make paper-tdsc` 构建。
 
 `evaluation/v4-acceptance/config.example.json` 同样只演示本仓库十行冻结
 Catalog 的 case schema 与四种 plan shape，不包含 12 Release / 1,035,000

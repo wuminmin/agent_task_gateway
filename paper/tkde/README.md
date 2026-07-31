@@ -4,6 +4,22 @@ This is a separate database-paper project derived from the implementation and
 the requirements in [../../tkde.md](../../tkde.md). It is not a template
 conversion of the TDSC security-gateway draft.
 
+## Versioning and submission status
+
+SessionBound, arXiv:2607.00751v1, is a preliminary preprint version that
+introduced the task-scoped authorization substrate. The associated TDSC
+working draft was never submitted to a journal or conference and is not under
+review. The present TKDE manuscript is the substantially revised article; it
+develops the database-specific accounting semantics, implementation, formal
+analysis, and evaluation.
+
+The manuscript cites and identifies the preliminary preprint once in the
+Introduction. It does not treat SessionBound as an independently published
+system or repeatedly compare TaskGate against it in Related Work. At submission
+time, the version relationship and material differences must be disclosed in
+the cover letter and in the arXiv comments. A later arXiv upload will be a new
+version and will not remove v1 from the version history.
+
 The manuscript targets governed reporting replicas refreshed by scheduled
 daily ETL/synchronization, not mutable OLTP primaries or continuous CDC. Any
 deployment alias such as `latest` is resolved to a concrete Catalog/publication
@@ -81,10 +97,10 @@ generality. RQ5 executes a four-publication daily-refresh campaign with three
 measured builds per publication and a separate retained-route campaign over
 the same 345,000-row fixture. Its five cross-publication correctness conditions
 all pass, while the paper preserves the experiment-router, warm-cache,
-direct-child-memory, and omitted-payload boundaries. The old TDSC manuscript remains
-available through `make paper-tdsc`; its results are not relabeled as exposure
-evidence. The source-controlled semantic, performance, storage, and scale
-reports are all consumed by the paper build.
+direct-child-memory, and omitted-payload boundaries. The unsubmitted TDSC
+working draft remains available through `make paper-tdsc`; its results are not
+relabeled as exposure evidence. The source-controlled semantic, performance,
+storage, and scale reports are all consumed by the paper build.
 
 ## Submission-length check
 
