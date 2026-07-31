@@ -53,7 +53,7 @@ Docker 宿主机、Catalog 管理者及能读取 `.env`/Volume 的管理员属�
 4. Gateway 构造身份派生的 `AuthorizationManifestV1`，绑定 root/parent lineage，经 RFC 8785 规范化并使用 `TASKGATE-MANIFEST-V1\0` 域分隔计算 SHA-256；同时保存 pending 上下文并创建 OA 草稿。
 5. OA 可 `approve/reject/narrow`。回调处理校验 HMAC、双时间戳、Event ID、状态、actor、Catalog/context/Manifest 摘要、Grant 单调收缩和 OA Ed25519 `ApprovalReceiptV1`。在一个 PostgreSQL 事务中写审批事件、不可变最终 Grant、预算和状态。
 6. V4 Product 必须引用一个经过完整 digest 校验的 `snapshot_publication`。发布前，Compiler 离线扫描冻结快照，用现有 canonical FactID 编码建立 row/cell segments、`row_handle` sidecar、HOT hash/ordinal 索引和 COLD payload 块；重复 entity key、越界 ordinal、hash/payload collision 或 manifest 不一致都阻止发布。
-7. ACTIVE exposure 任务调用带必填 `request_id` 的 `query_sql`。Gateway 用 PostgreSQL AST 将受支持 SQL 无损 lowering 为 canonical QueryPlan，把 SQL alias 映射为 Catalog 稳定角色，并只执行 QueryPlan 重新生成的可见查询和 ordinal companion；两条 SQL 都再经 `pg_query_go/v6` PostgreSQL AST 白名单策略。普通 `tools/list` 不列出 `execute_plan`，但 SDK/内部测试/确定性工作流仍可调用该高级入口，并共用同一 QueryPlan 编译与记账边界。
+7. ACTIVE exposure 任务调用带必填 `request_id` 的 `query_sql`。Gateway 用 PostgreSQL AST 将受支持 SQL 无损 lowering 为 canonical QueryPlan：SQL alias 先映射为 Catalog 稳定角色，2–16 源内任意 connected INNER equi-join graph 形状的 nodes/edges/predicates 规范排序后转换为现有 `join_many`，再 deterministic binary fold 为现有二元代数。每条 edge 可包含多个 column-to-column equality predicate；16-source 上限是 operational complexity/DoS ceiling，并允许 10 表 Join。Gateway 只执行 QueryPlan 重新生成的可见查询和 ordinal companion；两条 SQL 都再经 `pg_query_go/v6` PostgreSQL AST 白名单策略，整个入口还受 1 MiB MCP 请求体和获批资源边界约束。普通 `tools/list` 不列出 `execute_plan`，但 SDK/内部测试/确定性工作流仍可调用该高级入口，并共用同一 QueryPlan 编译与记账边界。
 8. 策略把 Reporting View 封装为只暴露获批字段和强制 Scope 的 CTE。可见结果小规模缓冲；companion 在同一只读 `REPEATABLE READ` 事务中按 canonical group 流式返回 handle 和必要聚合值，不全量物化关系。Gateway 把最终可见投影编码为 Parquet，并在写入对象存储前以结果 key 和 AAD 进行客户端侧分块加密；private staging 对象不会交给 Agent。
 9. Gateway 以 exact bitmap 表示 base release/dependency，以小型动态字典表示 derived release/outcome。Control PG 对三个维度执行 `ANDNOT + popcount`，在一次 root-head epoch CAS 中发布三份新 set manifest；任何越界、CAS/字典故障或证据截断都回滚整笔事务。
 10. distinct-request semantic replay 只复用已提交 observation 与 `AVAILABLE` artifact；仍重新授权、扣普通查询/行资源、写审计和新 receipt，并为新 query 创建自己的加密 Parquet artifact。materialization 可在结算事务中引用 `PENDING/AVAILABLE` source，但查询命中只接受 `AVAILABLE + ACTIVE key`。命中不执行 Business/provenance SQL；跨 grant/dictionary、密钥擦除、TTL 或对象清理一律 miss。
@@ -147,7 +147,7 @@ Gateway 启动时执行嵌入式迁移，再完成中断恢复：
 ## 防御纵深
 
 - Catalog 启动时严格校验未知字段、重复对象、明文密码、非法物理 View、危险函数和不一致 Scope。
-- QueryPlan 只包含声明式字段；编译器验证产品、字段、聚合、过滤 literal、排序和 Limit，不接受 SQL 片段。`join_many` 限于 2–8 个不同 Catalog 角色形成的 connected INNER equijoin。
+- QueryPlan 只包含声明式字段；编译器验证产品、字段、聚合、过滤 literal、排序和 Limit，不接受 SQL 片段。`join_many` 表示 2–16 个不同 Catalog 稳定角色形成的 connected INNER equi-join graph，16-source operational complexity/DoS ceiling 内不限 graph 形状；每条 edge 有一个或多个 column-to-column equality predicate，规范 graph deterministic binary fold 为现有二元代数。Self-join、outer/cross/non-equality join 和断开 graph 仍关闭式拒绝。
 - V4 QueryPlan 同时生成可见查询与 streamed ordinal companion；Connector 将二者绑定到一个只读数据库快照，隐藏 handle/计量键在返回前移除。
 - 每个 snapshot dictionary segment 都是 canonical FactID 与 ordinal 的不可变双射；精确 bitmap OR/ANDNOT/popcount 与 FactSet 并/差/基数等价。
 - 所有子 Agent 共享一个三维 root head；一次 epoch CAS 和事务内上限检查共同阻止重试、分页重叠、委托及并发结算重复消费。

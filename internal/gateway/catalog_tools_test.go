@@ -54,7 +54,7 @@ func TestCatalogDiscoveryToolsExposeSQLContract(t *testing.T) {
 		t.Fatalf("unexpected SQL profile envelope: %#v", capabilities)
 	}
 	join, ok := capabilities["join"].(map[string]any)
-	if !ok || join["predicate"] != "equality" || join["graph"] != "connected" || join["max_sources"] != queryplan.MaxJoinSources || join["self_join"] != false {
+	if !ok || join["predicate"] != "equality" || join["graph"] != "connected" || join["max_sources"] != queryplan.MaxJoinSources || join["limit_kind"] != "operational_complexity_guard" || join["arbitrary_topology"] != true || join["self_join"] != false {
 		t.Fatalf("unexpected join capabilities: %#v", capabilities["join"])
 	}
 	joinTypes, ok := join["types"].([]string)
@@ -62,7 +62,9 @@ func TestCatalogDiscoveryToolsExposeSQLContract(t *testing.T) {
 		t.Fatalf("join types = %#v", join["types"])
 	}
 	features, ok := capabilities["features"].(map[string]any)
-	if !ok || features["inner_equijoins"] != true || features["outer_joins"] != false || features["subqueries"] != false || features["window_functions"] != false {
+	if !ok || features["inner_equijoins"] != true || features["multi_relation_join_graphs"] != true ||
+		features["multiple_equality_predicates_per_edge"] != true || features["outer_joins"] != false ||
+		features["subqueries"] != false || features["window_functions"] != false {
 		t.Fatalf("unexpected restricted features: %#v", capabilities["features"])
 	}
 }

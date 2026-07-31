@@ -27,6 +27,19 @@ in the authorization snapshot presented for approval; approval confirms that
 binding rather than rewriting it. Active roots remain bound to their approved
 publication and are version-routed until completion.
 
+The online join boundary is
+`SQL AST -> canonical equi-join graph -> JoinMany -> deterministic binary algebra/effect fold`.
+It accepts connected graphs of
+2–16 distinct Catalog stable roles, arbitrary graph topology and INNER JOIN
+parenthesization that lower to the same graph, and multiple typed equality
+predicates per edge. The 16-source ceiling is an operational complexity guard.
+Disconnected graphs, self-joins, outer joins, cross joins, and non-equality
+join predicates remain fail-closed. A graph-only structural digest is for
+tests and diagnostics. The complete typed-algebra normal-form digest
+remains the query-semantic component of replay and outcome identity;
+authorization and settlement additionally bind the existing canonical plan,
+grant/policy, and derived-effect context.
+
 Build from the repository root:
 
 ```sh
@@ -50,9 +63,9 @@ exposure report. `generate_evidence.py` then verifies:
 - all raw files for the three-trial RQ4 campaign, including 7,896 full-path and
   23,400 ablation samples, reconstructed summaries, environment digest, and
   the digest of the archived, historically tested gateway/benchmark source;
-- the three-scale PostgreSQL 16 Join--Group report, its 27 direct/novel/replay
-  points, exact million-fact accounting, raw-artifact digest, implementation
-  digest, and service memory peaks;
+- the three-scale representative two-source PostgreSQL 16 Join--Group report,
+  its 27 direct/novel/replay points, exact million-fact accounting,
+  raw-artifact digest, implementation digest, and service memory peaks;
 - the source-controlled V4 acceptance manifest, current tested-source digest,
   fixed environment and verification receipts, all 30 implemented gates and
   all 560 measured operations, including exact overlap, replay identity,

@@ -70,7 +70,7 @@ Catalog 决定敏感级别、审批路由、完整预算和 TTL。Agent 不提�
 ```text
 QueryPlan
 ├── product
-├── from.scan | from.join_many[sources<=8] | from.union_distinct
+├── from.scan | from.join_many[sources<=16] | from.union_distinct
 ├── columns[]
 ├── aggregates[{function,column,alias}]
 ├── filters[{column,op,value}]
@@ -79,7 +79,7 @@ QueryPlan
 └── limit
 ```
 
-编译器验证产品、字段、聚合、别名、过滤运算符/literal、排序引用和 Limit。`join_many` 只接受 2–8 个不同产品/稳定角色形成的 connected INNER equijoin，并验证 join key 类型、collation 和版本。编译后的 SQL 仍必须通过完整 PostgreSQL AST 策略；`execute_plan` 不是策略旁路。
+编译器验证产品、字段、聚合、别名、过滤运算符/literal、排序引用和 Limit。SQL lowering 先将 alias 映射为 Catalog 稳定角色，再构造 2–16 源的 connected INNER equi-join graph；graph 可为任意形状，每条 edge 包含一个或多个 column-to-column equality predicate。Nodes、edges 和 predicates 规范排序后转换为现有 `join_many`，再 deterministic binary fold 为现有二元代数，并验证 join key 类型、collation 和版本。`MaxJoinSources=16` 是限制生成 SQL、provenance 和 PostgreSQL planning work 的 operational complexity/DoS ceiling，因此 10 表 Join 在受支持范围内；请求仍受 1 MiB MCP 请求体、AST 白名单校验和现有资源预算/超时/行数上限约束。编译后的 SQL 仍必须通过完整 PostgreSQL AST 策略；`execute_plan` 不是策略旁路。
 
 ## 任务、审批与 Grant
 

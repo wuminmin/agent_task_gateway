@@ -19,8 +19,8 @@ provenance companion，生成精确的 `(release, influence)` FactSet。Control
 PostgreSQL 随后锁定 root ledger，并在同一事务中完成 novel FactSet 结算、资源
 扣费、结果加密、审计与 V6 receipt。事务提交前不会释放结果。
 
-在线编译器覆盖单产品片段、2–8 个不同 Catalog 稳定角色组成的 connected INNER
-equijoin `join_many`，以及高级 QueryPlan 入口的同产品双分支 union-distinct。
+在线编译器覆盖单产品片段、2–16 个不同 Catalog 稳定角色组成的任意 connected INNER
+equi-join graph `join_many`，以及高级 QueryPlan 入口的同产品双分支 union-distinct。每条 Join edge 支持一个或多个 column-to-column equality predicate。SQL alias 先解析为 Catalog 稳定角色；nodes、edges、predicates 和 equality 两端规范排序后，graph deterministic binary fold 为现有二元 Join 代数。16-source 上限是用于约束生成 SQL、provenance 和 PostgreSQL planning work 的 operational complexity/DoS ceiling，并支持 10 表 Join；请求仍受 1 MiB MCP 请求体、AST 校验和现有资源预算/超时/行数上限约束。
 `taskgate-reporting-sql-v1` 不接受 set operation。Join companion 保留实际匹配
 行组合；Union 的可见语句使用完整 schema 做 DISTINCT，而 provenance companion
 使用 `UNION ALL`、分支标记和源 entity key，因而同一 distinct class 的所有成员
@@ -96,4 +96,4 @@ Union alternative 使用幂等 max composition；同一 candidate member 内的 
 不变性。普通 Scan 是 bag；其 tuple 若有重复，仍必须执行 duplicate
 elimination，不能被该规则静态折叠。
 
-`taskgate-query-normal-form-v3` 是 typed normal form：除 alias 删除、字段限定、AND/projection/group 归一化、aggregate 名称与类型归一化及稳定分页 tie-break 外，还静态检查 Scan schema、Join predicate、Union schema 和 collation profile。它不声称解决任意 SQL 等价。
+`taskgate-query-normal-form-v3` 是 typed normal form：除 alias 删除、字段限定、AND/projection/group 归一化、aggregate 名称与类型归一化及稳定分页 tie-break 外，还静态检查 Scan schema、Join predicate、Union schema 和 collation profile。对在线 INNER equijoin，它编码规范排序的 nodes/edges/predicates 及确定性二元 fold，因而 alias、Join 遍历/括号、edge/predicate 顺序和 equality 操作数方向不进入语义 digest。它不声称解决任意 SQL 等价。

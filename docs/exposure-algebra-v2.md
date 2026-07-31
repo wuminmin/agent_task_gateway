@@ -54,6 +54,10 @@ O ::= f ASC | f DESC | O, f ASC | O, f DESC
 
 `deps` 是谓词实际读取的字段集合，不包括常量。在线 QueryPlan 的多个 filter 是一个纯、无副作用的合取。
 
+在线 `taskgate-reporting-sql-v1` 的多关系输入先规范为 JoinGraph `G=(V,E)`。`V` 是 2–16 个不同的 Catalog 稳定 relation role；SQL alias 在建图前已解析为该 role。每个无向 edge 连接两个 role，并含有一个或多个两端分别来自这两个 role 的 column-to-column typed equality；`G` 必须 connected，但在 16-source 上限内可为任意 chain/star/cycle 等 graph 形状。Nodes 按 Catalog semantic source key（namespace、snapshot、stable role、product）排序，edge endpoints、edges、edge 内 predicates 和 equality operands 按稳定字段 ID 排序，然后将 `G` deterministic binary fold 为上述 `Join[Θ](e,e)`。该 fold 是在线编译表示，不增加第二套 Join 语义。Self-join、outer/cross/non-equality Join 和断开 graph 不是该在线 JoinGraph。
+
+16-source 上限是限制生成 SQL 宽度、provenance 行和 PostgreSQL planning work 的 operational complexity/DoS ceiling，不是代数只能表示特定 Join tree 形状的语义限制，并允许 10 表 Join。接受性还受 1 MiB MCP 请求体、PostgreSQL parser/AST 白名单与结构校验、获批资源预算、statement timeout 和行数上限约束。
+
 类型判断写作 `Π; Γ ⊢ e : Γ'`：
 
 ```text
@@ -350,7 +354,7 @@ Effect(R,V)     = normalize(Release, Dependency)
 - 删除输出 alias，规范 aggregate 名称和 PostgreSQL 输出类型；
 - 字段使用 namespace/role-qualified ID；
 - 对 conjunction、projection、group key、aggregate 集排序；
-- 对 Join predicate 内的两个字段及 Join operands 排序；
+- 对一般二元 Join predicate 内的两个字段及 Join operands 排序；对在线 INNER equijoin 区域，先按第 2 节建立并规范排序 JoinGraph，再 deterministic binary fold，因而 alias、Join 交换/括号/遍历顺序、edge/predicate 顺序和 equality operand 方向不进入规范身份；
 - 对 Union operands 排序，并将相同分支的 Union-Distinct 约为该分支；
 - 保留用户 `ORDER BY` 的顺序，并按 Catalog 顺序追加 stable entity key；Group key suffix 使用字段 ID 的规范顺序；
 - 拒绝不能静态证明 well-typed 的节点。
@@ -400,7 +404,7 @@ provenance。
 NFΠ(e1) = NFΠ(e2)  ⇒  EffectΠ(e1,D) = EffectΠ(e2,D).
 ```
 
-证明：Normalizer 可能消除的差异只有 alias、集合型字段/合取顺序、Join operand/predicate 顺序、Union operand 顺序、已证明完整 tuple 无重复的同一 Union 分支，以及固定 stable suffix 的拼写。Scan 不携带该证明；Union-distinct 与 Group 的结果携带，Select/Page 可保留，Project 仅在 schema 不变时保留。Alias 不进入 `DV.expression`；集合规范化消除遍历顺序；Join 使用排序后的 immediate row identities 且 `∪/⊕` 可交换；Union class、relation-level expression、`∪/⊔max` 均按规范顺序构造，且 `W⊔maxW=W` 并保留相同 materialized Fact，故合法的 Union commutativity/idempotence 在包括下游 Group 的上下文中成立；Group key 和 witness 构造先排序；Page 的实际 SQL 和 NF 使用同一 canonical suffix。各原子 rewrite 在任意 well-typed context 下保持 Effect，由 context 结构归纳得到 closure。证毕。
+证明：Normalizer 可能消除的差异只有 alias、集合型字段/合取顺序、Join operand/predicate 顺序、在线 INNER equijoin graph 的交换/括号/遍历与 edge 排列、Union operand 顺序、已证明完整 tuple 无重复的同一 Union 分支，以及固定 stable suffix 的拼写。Scan 不携带该证明；Union-distinct 与 Group 的结果携带，Select/Page 可保留，Project 仅在 schema 不变时保留。Alias 不进入 `DV.expression`；集合规范化消除遍历顺序。在线 graph builder 只展平 INNER Join 并保留每个 typed equality；等价 graph 检查同一 PostgreSQL bag 上的同一合取，因而保持匹配 tuple 及 multiplicity，规范 graph 产生唯一二元 term。每个二元 Join 使用排序后的 immediate row identities 且 `∪/⊕` 可交换；Union class、relation-level expression、`∪/⊔max` 均按规范顺序构造，且 `W⊔maxW=W` 并保留相同 materialized Fact，故合法的 Union commutativity/idempotence 在包括下游 Group 的上下文中成立；Group key 和 witness 构造先排序；Page 的实际 SQL 和 NF 使用同一 canonical suffix。各原子 rewrite 在任意 well-typed context 下保持 Effect，由 context 结构归纳得到 closure。证毕。
 
 逆命题不成立：两个 NF 不同的计划仍可能在某个特定数据集上产生同一 Effect。该定理也不覆盖任意 SQL optimizer rewrite。
 
@@ -441,10 +445,10 @@ K' = (Kr ∪ Er, Ki ∪ Ei)
 | Snapshot dictionary、exact bitmap、weighted witness | `internal/ordinal` |
 | 三维 bitmap root-head settlement | `internal/control/ordinal_exposure.go` |
 | Typed NF 与静态语法检查 | `internal/queryplan/normalform.go` |
-| 受限 JoinMany/Union QueryPlan lowering | `internal/queryplan/relational.go` |
+| SQL AST→canonical JoinGraph、JoinMany/Union QueryPlan lowering | `internal/sqllowering/join_graph.go`, `internal/queryplan/relational.go` |
 | Catalog collation/type/profile 条件 | `internal/catalog/validate.go` |
 | PostgreSQL name/version/determinism 证明 | `internal/dataconnector/postgres.go` |
 | 在线 paired execution/provenance | `internal/gateway/exposure.go`, `internal/gateway/relational_exposure.go` |
 | 原子 ledger 结算 | `internal/control` |
 
-“完整 Exposure Algebra”指本文件语法内的可执行、闭合代数及其 Observation/FactID/NF 语义。普通 Agent 默认通过 `query_sql` 提交 `taskgate-reporting-sql-v1`；该 SQL 必须无损 lowering 为 canonical QueryPlan，随后只执行从计划重新生成的 SQL。高级 `execute_plan` 不在普通 `tools/list` 中列出，但保留给 SDK、内部测试、基准、调试和确定性工作流。在线 QueryPlan 子集除单产品 Scan/Select/Project/Group/Page 外，还支持 2–8 个不同 Catalog 稳定角色的 connected INNER equijoin `join_many`，以及仅限高级入口的同产品双过滤分支 Union-Distinct；两者可继续 Group。该子集拒绝 self-join、outer/cross/non-equality join、断开的 join graph、Union-All 和多输入 Page，且不静默改变语义。本文不声称：任意 SQL provenance、`AVG`、negative information、排序位置泄露、差分隐私、跨引擎等价，或 Go 对本文数学模型的 mechanized refinement proof。
+“完整 Exposure Algebra”指本文件语法内的可执行、闭合代数及其 Observation/FactID/NF 语义。普通 Agent 默认通过 `query_sql` 提交 `taskgate-reporting-sql-v1`；该 SQL 必须无损 lowering 为 canonical QueryPlan，随后只执行从计划重新生成的 SQL。高级 `execute_plan` 不在普通 `tools/list` 中列出，但保留给 SDK、内部测试、基准、调试和确定性工作流。在线 QueryPlan 子集除单产品 Scan/Select/Project/Group/Page 外，还支持 2–16 个不同 Catalog 稳定角色的 connected INNER equi-join graph `join_many`，在 16-source operational complexity/DoS ceiling 内不限 graph 形状，每条 edge 含一个或多个 column-to-column typed equality；高级入口另支持同产品双过滤分支 Union-Distinct，两者可继续 Group。整个入口仍受 1 MiB MCP 请求体、AST 结构校验和资源预算/超时/行数边界约束。该子集拒绝 self-join、outer/cross/non-equality join、断开的 join graph、Union-All 和多输入 Page，且不静默改变语义。本文不声称：任意 SQL provenance、`AVG`、negative information、排序位置泄露、差分隐私、跨引擎等价，或 Go 对本文数学模型的 mechanized refinement proof。

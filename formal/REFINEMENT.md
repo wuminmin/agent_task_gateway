@@ -218,11 +218,18 @@ These gaps are intentionally not hidden by the mapping:
    ledger, and one terminal replay in the checked configuration. It establishes
    the invariants only for that finite scope; larger delegation DAGs and
    workloads are implementation/evaluation evidence.
-10. The online compiler supports one-product structured plans plus bounded
-    two-scan inner equijoins and same-product union-distinct, optionally grouped
-    with `COUNT`/`SUM`/`MIN`/`MAX`. Arbitrary SQL, nested multi-input trees,
-    outer/self joins, union-all, and multi-input pagination remain unsupported
-    and fail closed.
+10. The online compiler supports one-product structured plans plus connected
+    inner-equi-join graphs over 2--16 distinct Catalog-stable roles, with one or
+    more column-to-column equalities per edge, and same-product union-distinct;
+    either multi-input form may be grouped with `COUNT`/`SUM`/`MIN`/`MAX`. SQL aliases
+    resolve to stable roles, and sorted graph nodes, edges, and predicates
+    deterministically fold into the existing binary Join algebra. Within the
+    16-source operational complexity/DoS ceiling the graph shape is otherwise
+    unrestricted, including ten-source chains; the 1 MiB MCP request-body
+    bound, AST validation, resource budgets, statement timeout, and row limits
+    also apply. Arbitrary SQL, disconnected graphs, outer/cross/self/non-equality
+    joins, union-all, and multi-input pagination remain unsupported and fail
+    closed.
 
 ## Stage 4 Acceptance Impact
 

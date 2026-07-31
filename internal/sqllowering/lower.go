@@ -59,8 +59,8 @@ type lowerer struct {
 	multi           bool
 }
 
-// Lower parses one SELECT statement and losslessly lowers the bounded
-// reporting fragment to QueryPlan. Every returned Error is a pre-execution,
+// Lower parses one SELECT statement and losslessly lowers the closed reporting
+// fragment to QueryPlan. Every returned Error is a pre-execution,
 // pre-settlement rejection suitable for an Agent rewrite loop.
 func Lower(sql string, products map[string]queryplan.Product) (Result, error) {
 	parsed, err := pg_query.Parse(sql)
@@ -104,31 +104,27 @@ func (l *lowerer) lowerSelect(statement *pg_query.SelectStmt) (queryplan.QueryPl
 	if len(l.sources) == 0 {
 		return queryplan.QueryPlan{}, reject(CodeNotLowerable, "FROM_REQUIRED", "A reporting query requires an approved data product.", "FROM", -1, "", "Add one approved product to FROM.")
 	}
-	if len(l.sources) > queryplan.MaxJoinSources {
-		return queryplan.QueryPlan{}, reject(CodeNotLowerable, "JOIN_SOURCE_LIMIT_EXCEEDED", fmt.Sprintf("The reporting SQL profile supports at most %d joined products.", queryplan.MaxJoinSources), "FROM", -1, "", "Use an approved reporting product that prejoins part of the graph.")
-	}
 	l.multi = len(l.sources) > 1
 	if l.multi && (len(statement.GetSortClause()) != 0 || statement.GetLimitCount() != nil || statement.GetLimitOffset() != nil) {
 		return queryplan.QueryPlan{}, reject(CodeNotLowerable, "PAGINATION_UNSUPPORTED", "ORDER BY, LIMIT, and OFFSET are outside the multi-product exposure-accounted SQL profile.", "ORDER BY", -1, "", "Remove pagination or query an approved bounded reporting product.")
 	}
 
-	joinPredicates, err := l.lowerJoinPredicates()
-	if err != nil {
-		return queryplan.QueryPlan{}, err
-	}
+	var graph JoinGraph
 	if l.multi {
-		if err := l.validateConnected(joinPredicates); err != nil {
-			return queryplan.QueryPlan{}, err
+		var graphErr *Error
+		graph, graphErr = l.buildJoinGraph()
+		if graphErr != nil {
+			return queryplan.QueryPlan{}, graphErr
 		}
 	}
 
 	plan := queryplan.QueryPlan{}
 	if l.multi {
-		scans := make([]queryplan.Scan, 0, len(l.sources))
-		for _, item := range l.sources {
-			scans = append(scans, item.Scan)
+		join, joinErr := graph.JoinMany(l.products)
+		if joinErr != nil {
+			return queryplan.QueryPlan{}, l.classifyCompilerError(joinErr, "FROM")
 		}
-		plan.From = &queryplan.From{JoinMany: &queryplan.JoinMany{Sources: scans, On: joinPredicates}}
+		plan.From = &queryplan.From{JoinMany: &join}
 	} else {
 		plan.Product = l.sources[0].Product.Name
 	}
@@ -233,10 +229,17 @@ func validateSelectShape(statement *pg_query.SelectStmt) *Error {
 }
 
 func (l *lowerer) collectFrom(node *pg_query.Node) *Error {
+	return l.collectFromAtDepth(node, 0)
+}
+
+func (l *lowerer) collectFromAtDepth(node *pg_query.Node, depth int) *Error {
 	if node == nil {
 		return reject(CodeNotLowerable, "FROM_SHAPE_UNSUPPORTED", "The FROM item is missing.", "FROM", -1, "", "Use an approved product name.")
 	}
 	if relation := node.GetRangeVar(); relation != nil {
+		if len(l.sources) >= queryplan.MaxJoinSources {
+			return reject(CodeNotLowerable, "JOIN_SOURCE_LIMIT_EXCEEDED", fmt.Sprintf("The reporting SQL profile accepts at most %d joined products per request.", queryplan.MaxJoinSources), "FROM", relation.GetLocation(), relation.GetRelname(), "Split the request or use an approved reporting product that prejoins part of the graph.")
+		}
 		if relation.GetCatalogname() != "" || relation.GetSchemaname() != "" {
 			return reject(CodeNotLowerable, "QUALIFIED_PRODUCT_UNSUPPORTED", "Catalog- or schema-qualified product names are outside this profile.", "FROM", relation.GetLocation(), relation.GetRelname(), "Use the approved Catalog product name returned by describe_data_product.")
 		}
@@ -274,6 +277,9 @@ func (l *lowerer) collectFrom(node *pg_query.Node) *Error {
 		return nil
 	}
 	if join := node.GetJoinExpr(); join != nil {
+		if depth >= queryplan.MaxJoinSources {
+			return reject(CodeNotLowerable, "JOIN_SOURCE_LIMIT_EXCEEDED", fmt.Sprintf("The reporting SQL profile accepts at most %d joined products per request.", queryplan.MaxJoinSources), "FROM", nodeLocation(join.GetQuals()), "", "Split the request or use an approved reporting product that prejoins part of the graph.")
+		}
 		if join.GetJointype() != pg_query.JoinType_JOIN_INNER {
 			reason := strings.TrimPrefix(join.GetJointype().String(), "JOIN_") + "_JOIN_UNSUPPORTED"
 			return reject(CodeJoinTypeUnsupported, reason, "Exposure accounting currently supports connected INNER equijoins only.", "FROM", nodeLocation(join.GetQuals()), "", "Use an INNER JOIN or query an approved prejoined reporting product.")
@@ -288,12 +294,12 @@ func (l *lowerer) collectFrom(node *pg_query.Node) *Error {
 			return reject(CodeNotLowerable, "JOIN_ALIAS_UNSUPPORTED", "Aliases on a complete JOIN expression are outside this profile.", "FROM", -1, "", "Alias each approved product separately.")
 		}
 		leftStart := len(l.sources)
-		if err := l.collectFrom(join.GetLarg()); err != nil {
+		if err := l.collectFromAtDepth(join.GetLarg(), depth+1); err != nil {
 			return err
 		}
 		leftEnd := len(l.sources)
 		rightStart := leftEnd
-		if err := l.collectFrom(join.GetRarg()); err != nil {
+		if err := l.collectFromAtDepth(join.GetRarg(), depth+1); err != nil {
 			return err
 		}
 		rightEnd := len(l.sources)
@@ -311,93 +317,81 @@ func (l *lowerer) collectFrom(node *pg_query.Node) *Error {
 	return reject(CodeNotLowerable, "FROM_ITEM_UNSUPPORTED", "This FROM item cannot be represented by the canonical reporting plan.", "FROM", -1, "", "Use approved products connected with INNER JOIN ... ON equality predicates.")
 }
 
-func (l *lowerer) lowerJoinPredicates() ([]queryplan.JoinPredicate, *Error) {
-	if len(l.sources) == 1 {
-		if len(l.joinQuals) != 0 {
-			return nil, reject(CodeNotLowerable, "JOIN_SHAPE_INVALID", "JOIN predicates were found without multiple products.", "FROM", -1, "", "Use a direct approved product scan.")
-		}
-		return nil, nil
+func (l *lowerer) buildJoinGraph() (JoinGraph, *Error) {
+	if len(l.sources) < 2 {
+		return JoinGraph{}, reject(CodeNotLowerable, "JOIN_SHAPE_INVALID", "A JOIN graph requires multiple approved products.", "FROM", -1, "", "Use a direct approved product scan.")
 	}
-	result := make([]queryplan.JoinPredicate, 0)
+	graph := JoinGraph{Nodes: make([]RelationNode, 0, len(l.sources))}
+	for _, item := range l.sources {
+		graph.Nodes = append(graph.Nodes, RelationNode{Relation: item.Scan.Role, Product: item.Scan.Product})
+	}
+	edges := make(map[string]int)
 	for _, qualification := range l.joinQuals {
 		terms, err := conjunctionTerms(qualification.Node, "FROM")
 		if err != nil {
-			return nil, err
+			return JoinGraph{}, err
 		}
 		for _, term := range terms {
 			expression := term.GetAExpr()
 			if expression == nil || expression.GetKind() != pg_query.A_Expr_Kind_AEXPR_OP || operatorName(expression.GetName()) != "=" {
-				return nil, reject(CodeNotLowerable, "JOIN_PREDICATE_UNSUPPORTED", "JOIN conditions must be conjunctions of column-to-column equality predicates.", "FROM", nodeLocation(term), "", "Use ON left.approved_key = right.approved_key joined with AND.")
+				return JoinGraph{}, reject(CodeNotLowerable, "JOIN_PREDICATE_UNSUPPORTED", "JOIN conditions must be conjunctions of column-to-column equality predicates.", "FROM", nodeLocation(term), "", "Use ON left.approved_key = right.approved_key joined with AND.")
 			}
 			leftRef, rightRef := expression.GetLexpr().GetColumnRef(), expression.GetRexpr().GetColumnRef()
 			if leftRef == nil || rightRef == nil {
-				return nil, reject(CodeNotLowerable, "JOIN_PREDICATE_UNSUPPORTED", "JOIN conditions must compare two approved columns.", "FROM", expression.GetLocation(), "", "Use ON left.approved_key = right.approved_key.")
+				return JoinGraph{}, reject(CodeNotLowerable, "JOIN_PREDICATE_UNSUPPORTED", "JOIN conditions must compare two approved columns.", "FROM", expression.GetLocation(), "", "Use ON left.approved_key = right.approved_key.")
 			}
 			left, leftErr := l.resolveColumn(leftRef, "FROM")
 			if leftErr != nil {
-				return nil, leftErr
+				return JoinGraph{}, leftErr
 			}
 			right, rightErr := l.resolveColumn(rightRef, "FROM")
 			if rightErr != nil {
-				return nil, rightErr
+				return JoinGraph{}, rightErr
 			}
 			if left.Source == right.Source {
-				return nil, reject(CodeNotLowerable, "JOIN_PREDICATE_SCOPE_INVALID", "A JOIN equality must connect one source from each operand of that JOIN.", "FROM", expression.GetLocation(), l.sources[left.Source].Product.Name, "Compare an approved key from the left operand with an approved key from the right operand.")
+				return JoinGraph{}, reject(CodeNotLowerable, "JOIN_PREDICATE_SCOPE_INVALID", "A JOIN equality must connect two distinct relations.", "FROM", expression.GetLocation(), l.sources[left.Source].Product.Name, "Compare approved keys from two distinct relations in the current JOIN scope.")
 			}
-			leftToRight := sourceInRange(left.Source, qualification.LeftStart, qualification.LeftEnd) && sourceInRange(right.Source, qualification.RightStart, qualification.RightEnd)
-			rightToLeft := sourceInRange(right.Source, qualification.LeftStart, qualification.LeftEnd) && sourceInRange(left.Source, qualification.RightStart, qualification.RightEnd)
-			if !leftToRight && !rightToLeft {
-				return nil, reject(CodeNotLowerable, "JOIN_PREDICATE_SCOPE_INVALID", "A JOIN equality must connect one source from each operand visible at that JOIN node.", "FROM", expression.GetLocation(), "", "Move the equality to the JOIN where both operands are in scope, or compare one key from each current operand.")
+			leftVisible := sourceInRange(left.Source, qualification.LeftStart, qualification.RightEnd)
+			rightVisible := sourceInRange(right.Source, qualification.LeftStart, qualification.RightEnd)
+			if !leftVisible || !rightVisible {
+				return JoinGraph{}, reject(CodeNotLowerable, "JOIN_PREDICATE_SCOPE_INVALID", "A JOIN equality references a relation outside the current JOIN scope.", "FROM", expression.GetLocation(), "", "Move the equality to a JOIN where both relations are visible.")
 			}
 			leftType, leftTypeErr := exposure.CanonicalSQLTypeV2(l.sources[left.Source].Product.ColumnTypes[left.Column])
 			rightType, rightTypeErr := exposure.CanonicalSQLTypeV2(l.sources[right.Source].Product.ColumnTypes[right.Column])
 			if leftTypeErr != nil || rightTypeErr != nil || leftType != rightType {
-				return nil, reject(CodeJoinKeyTypeMismatch, CodeJoinKeyTypeMismatch, fmt.Sprintf("JOIN keys %q and %q do not have the same canonical SQL type.", left.ID, right.ID), "FROM", expression.GetLocation(), "", "Join approved keys with identical Catalog SQL types.")
+				return JoinGraph{}, reject(CodeJoinKeyTypeMismatch, CodeJoinKeyTypeMismatch, fmt.Sprintf("JOIN keys %q and %q do not have the same canonical SQL type.", left.ID, right.ID), "FROM", expression.GetLocation(), "", "Join approved keys with identical Catalog SQL types.")
 			}
 			leftCollation, rightCollation := l.sources[left.Source].Product.ColumnCollations[left.Column], l.sources[right.Source].Product.ColumnCollations[right.Column]
 			leftVersion, rightVersion := l.sources[left.Source].Product.CollationVersions[left.Column], l.sources[right.Source].Product.CollationVersions[right.Column]
 			if leftCollation != rightCollation || leftVersion != rightVersion {
-				return nil, reject(CodeCollationMismatch, CodeCollationMismatch, fmt.Sprintf("JOIN keys %q and %q do not share an identical deterministic collation profile.", left.ID, right.ID), "FROM", expression.GetLocation(), "", "Join keys with the same Catalog collation name and version.")
+				return JoinGraph{}, reject(CodeCollationMismatch, CodeCollationMismatch, fmt.Sprintf("JOIN keys %q and %q do not share an identical deterministic collation profile.", left.ID, right.ID), "FROM", expression.GetLocation(), "", "Join keys with the same Catalog collation name and version.")
 			}
-			result = append(result, queryplan.JoinPredicate{Left: left.ID, Right: right.ID})
+
+			leftRelation, rightRelation := l.sources[left.Source].Scan.Role, l.sources[right.Source].Scan.Role
+			leftColumn, rightColumn := left.Column, right.Column
+			if rightRelation < leftRelation {
+				leftRelation, rightRelation = rightRelation, leftRelation
+				leftColumn, rightColumn = rightColumn, leftColumn
+			}
+			key := leftRelation + "\x00" + rightRelation
+			index, present := edges[key]
+			if !present {
+				index = len(graph.Edges)
+				edges[key] = index
+				graph.Edges = append(graph.Edges, JoinEdge{LeftRelation: leftRelation, RightRelation: rightRelation})
+			}
+			graph.Edges[index].Predicates = append(graph.Edges[index].Predicates, EqualityPredicate{LeftColumn: leftColumn, RightColumn: rightColumn})
 		}
 	}
-	return result, nil
+	canonical, err := graph.Canonical(l.products)
+	if err != nil {
+		return JoinGraph{}, l.classifyCompilerError(err, "FROM")
+	}
+	return canonical, nil
 }
 
 func sourceInRange(source, start, end int) bool {
 	return source >= start && source < end
-}
-
-func (l *lowerer) validateConnected(predicates []queryplan.JoinPredicate) *Error {
-	parents := make([]int, len(l.sources))
-	byRole := make(map[string]int, len(l.sources))
-	for index, item := range l.sources {
-		parents[index] = index
-		byRole[item.Scan.Role] = index
-	}
-	var find func(int) int
-	find = func(value int) int {
-		if parents[value] != value {
-			parents[value] = find(parents[value])
-		}
-		return parents[value]
-	}
-	for _, predicate := range predicates {
-		leftRole := strings.SplitN(predicate.Left, ".", 2)[0]
-		rightRole := strings.SplitN(predicate.Right, ".", 2)[0]
-		left, right := find(byRole[leftRole]), find(byRole[rightRole])
-		if left != right {
-			parents[right] = left
-		}
-	}
-	root := find(0)
-	for index := 1; index < len(parents); index++ {
-		if find(index) != root {
-			return reject(CodeJoinGraphDisconnected, CodeJoinGraphDisconnected, "The INNER JOIN equality graph is disconnected.", "FROM", -1, l.sources[index].Product.Name, "Connect every product with approved column equality predicates.")
-		}
-	}
-	return nil
 }
 
 func (l *lowerer) lowerAggregate(function *pg_query.FuncCall, target *pg_query.ResTarget) (queryplan.Aggregate, *Error) {
@@ -733,7 +727,7 @@ func (l *lowerer) classifyCompilerError(err error, clause string) *Error {
 		return reject(CodeJoinGraphDisconnected, CodeJoinGraphDisconnected, message, "FROM", -1, "", "Connect every product with approved equality predicates.")
 	case strings.Contains(lower, "collation"):
 		return reject(CodeCollationMismatch, CodeCollationMismatch, message, "FROM", -1, "", "Use keys with identical deterministic Catalog collation profiles.")
-	case strings.Contains(lower, "join keys require identical types"):
+	case strings.Contains(lower, "join keys require identical types") || strings.Contains(lower, "join graph keys") && strings.Contains(lower, "require identical types"):
 		return reject(CodeJoinKeyTypeMismatch, CodeJoinKeyTypeMismatch, message, "FROM", -1, "", "Use join keys with identical Catalog SQL types.")
 	case strings.Contains(lower, "product") && strings.Contains(lower, "not approved"):
 		return reject(CodeProductNotApproved, CodeProductNotApproved, message, clause, -1, "", "Use a product approved for this task.")

@@ -95,8 +95,7 @@ V2 observation 后增加一个 `FactOutcome`，其规范 payload 包含：
 ```
 
 normal form 绑定 Catalog namespace、snapshot/lineage、typed predicate、group/order/
-page、NULL/bag、collation、UTC 和 exact numeric mode。支持的 alias、大小写和
-遍历顺序改写会归一到同一个 digest；不同阈值或关系上下文会产生不同 digest。
+page、NULL/bag、collation、UTC 和 exact numeric mode。对在线 INNER equijoin，SQL alias 先解析为 Catalog 稳定角色，JoinGraph 的 nodes、edges、edge 内 predicates 及 equality 两端规范排序后 deterministic binary fold 为现有二元代数。因此支持的 alias、大小写、Join 交换/括号/遍历顺序和 edge/predicate 顺序改写会归一到同一 digest；不同阈值或关系上下文会产生不同 digest。
 因此同命题同结果重放为零增量，不同命题同结果各增加一个 outcome fact。
 
 ## 在线执行
@@ -138,7 +137,7 @@ release/dependency/outcome。数据库已开始执行后的 timeout 或故障继
 |---|---:|---:|
 | Projection / filter / order / limit | 是 | 单产品 SQL/QueryPlan；多输入不分页 |
 | `GROUP BY`, `COUNT`, `SUM`, `MIN`, `MAX` | 是 | 单产品、Join 或 Union-Distinct 输入 |
-| Join | 是 | SQL 及 QueryPlan `join_many`：2–8 个不同 Catalog 稳定角色的 connected INNER equijoin |
+| Join | 是 | SQL 及 QueryPlan `join_many`：2–16 个不同 Catalog 稳定角色的 connected INNER equi-join graph，operational complexity/DoS ceiling 内不限 graph 形状；每 edge 一个或多个 column-to-column equality；支持 10 表 Join，仍受 1 MiB 请求体、AST 和资源边界 |
 | Union | 是 | 仅高级 QueryPlan：同产品两个过滤分支；显式完整 DISTINCT schema |
 | 任意直接 SQL | 否 | 只有能无损 lowering 的 `taskgate-reporting-sql-v1` 可进入 exposure 链路 |
 | `AVG`、窗口函数、子查询、CTE、set operation、递归 | 否 | exposure SQL 下关闭式拒绝 |
@@ -193,7 +192,7 @@ epoch CAS 原子结算，不能分别花掉同一剩余额度。撤销根任务�
 ## 证据与限制
 
 - `make eval-exposure` 运行 ground truth、等价改写、确定性
-  anti-arbitrage cases 和计费基线；V2 单元/性质测试另覆盖 typed NULL、multi-key Join、Union commutativity/idempotence、Group NULL 与嵌套闭包。
+  anti-arbitrage cases 和计费基线；V2 单元/性质测试另覆盖 typed NULL、multi-key Join、五表 tree-shape 归一、十表链、star/cycle graph、alias/edge/predicate/equality-direction 置换、JoinGraph digest、Union commutativity/idempotence、Group NULL 与嵌套闭包。
 - `make verify` 运行真实 PostgreSQL race/integration suite，包括并发结算、
   委托共享账本、重放及超限不产生 canonical artifact。
 - `make formal` 检查 `ExposureLedger.tla` 的三预算安全、exact novel charge、

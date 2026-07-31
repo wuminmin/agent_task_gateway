@@ -1061,7 +1061,7 @@ func normalizeOrdinalProgram(program OrdinalProgram) (OrdinalProgram, error) {
 		}
 	case "join":
 		if len(program.Sources) < 2 || len(program.Sources) > MaxJoinSources {
-			return OrdinalProgram{}, errors.New("ordinal join source count is outside the bounded profile")
+			return OrdinalProgram{}, errors.New("ordinal join source count is outside the operational complexity limit")
 		}
 	case "union_distinct":
 		if len(program.Sources) != 2 {

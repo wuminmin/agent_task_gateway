@@ -34,9 +34,12 @@ Accounting over Versioned Reporting Snapshots''}
 \section{Complete V2 Inference Rules}
 
 This section contains the full typing and big-step rules summarized in the
-main paper. Undefined premises reject the plan. Join fields are stable
-role-qualified IDs; equality requires the same canonical type and collation;
-union schemas are identical including type and collation.
+main paper. Undefined premises reject the plan. Operational SQL join trees are
+first resolved through the canonical equi-join graph and deterministic binary
+fold defined in the main paper, so the existing binary T-Join/E-Join rules
+apply at every fold step. Join fields are stable role-qualified IDs; equality
+requires the same canonical type and collation; union schemas are identical
+including type and collation.
 
 \subsection{Typing}
 
@@ -78,7 +81,10 @@ union schemas are identical including type and collation.
 
 For $\operatorname{RID}(R,t)=H(\code{relation-row},N(\Gamma),\mathcal B,t.k)$,
 Table~\ref{tab:rowkeys-supp} gives every output-key case used by derived FactID.
-$H$ is domain-separated, typed, and length delimited.
+$H$ is domain-separated, typed, and length delimited.  For a multi-source
+operational join, $\operatorname{Fold}_\Pi(G_J)$ fixes the sequence of these
+binary key constructions independently of SQL alias, join order, and AST
+parenthesization.
 
 \begin{table}[H]
 \centering
@@ -93,7 +99,7 @@ Result & Product/snapshot bundle & Canonical output entity key $k_o$ \\
 Scan & $[(\nu,s)]$ & Catalog entity key $e$; online lowering computes
 $H(\code{base-entity},\nu,(a,\tau,C_\tau(v))_{a\in K})$ \\
 Unary/Page & Child bundle & The retained child's $k_o$ \\
-Join pair $(t_1,t_2)$ & Sorted namespace-wise merge of both bundles & $H(\code{join-row},\operatorname{sort}[\operatorname{RID}(R_1,t_1),\operatorname{RID}(R_2,t_2)])$ \\
+Binary Join fold step $(t_1,t_2)$ & Sorted namespace-wise merge of the two child bundles & $H(\code{join-row},\operatorname{sort}[\operatorname{RID}(R_1,t_1),\operatorname{RID}(R_2,t_2)])$ \\
 Union-distinct class $Q$ & Sorted namespace-wise merge of both bundles & $H(\code{union-distinct-row},N(\Gamma),(a,\tau,C_\tau(v_a))_{a\in\operatorname{sort}\Gamma})$ \\
 Keyed group $Q$ & Child bundle & $H(\code{group-row},\operatorname{sort}(N(x_a),\tau_a,C_{\tau_a}(v_a))_{a\in G})$ \\
 Global aggregate & Child bundle & $H(\code{group-row},\code{global})$; the Fact also binds aggregate expression, value, bundle, and $CW(W)$ \\
@@ -172,6 +178,12 @@ is followed by the representation validator; failure removes the derivation.
 \end{align*}
 \endgroup
 
+At graph-fold step $i$, $e_1$ denotes the accumulated component and $e_2$ the
+next canonical node.  The step predicate $\Theta_i$ is the union of every
+per-edge predicate set connecting that node to a node already in $e_1$.
+Connectivity makes $\Theta_i$ nonempty, and adding each edge when its later
+endpoint enters the component consumes every graph edge exactly once.
+
 Here $\equiv_\Gamma$ is componentwise \code{IS NOT DISTINCT FROM}. Union
 support includes every candidate and every distinctness field; pointwise
 maximum combines alternative witnesses. Grouping includes group-key inputs and
@@ -211,12 +223,16 @@ settlement then gives charges one and zero, respectively.
 \end{proof}
 
 \begin{proof}[Proof of Representation closure and partial-function semantics]
-By structural induction on $e$. Scan is fixed by $D$ and constructs singleton
+For an operational join graph, first use induction over the deterministic fold:
+connectedness gives the next node at each step, and its nonempty $\Theta_i$
+contains all predicates on edges from that node to the accumulated component,
+so every edge is consumed exactly once. Then proceed by structural induction
+on the resulting $e$. Scan is fixed by $D$ and constructs singleton
 support/witness pairs. Select's three-valued predicate and dependency set are
 fixed by $\Pi$; Select, Project, and Page only take a deterministic subbag or
-copy annotations. Join enumerates a uniquely determined bag of matching key
-pairs; disjoint schemas and the canonical pair key make each output usable by
-another Join. Union first collapses an identical annotated branch only under
+copy annotations. Each binary Join enumerates a uniquely determined bag of
+matching child-row pairs; disjoint schemas and the canonical pair key make its
+output usable by the next fold step. Union first collapses an identical annotated branch only under
 the duplicate-free full-tuple premise, then has unique typed-tuple equivalence
 classes and uses deterministic same-proof union/addition within a candidate and
 alternative union/max across candidates; E-Union constructs each output cell
@@ -278,20 +294,34 @@ from Fact payloads and removed by set normalization.
 \end{proof}
 
 \begin{proof}[Proof of Typed normal-form soundness]
-The typed normalizer can erase only aliases, conjunction/set traversal order,
-join operand and predicate order, union operand order, an identical duplicate
-union branch whose child is proven full-tuple distinct, and alternate spelling
-of the same stable page suffix. A Scan carries no such proof; Union and Group
-produce it, Select/Page preserve it, and Project preserves it only for an
-unchanged schema. Alias is absent from derived expressions. Set normalization
-removes traversal order. Join hashes sorted child identities and uses
-commutative $\cup/\oplus$. Union classes are operand independent; same-proof
+The SQL front end first resolves relation aliases to Catalog stable roles, so
+caller-chosen aliases are absent from graph nodes, fields, and derived
+expressions.  Canonical graph construction sorts nodes by Catalog semantic key,
+orients each endpoint pair by node rank, coalesces predicates for that pair,
+and sorts edges and their stable field-pair predicates.  The deterministic fold
+then chooses the first not-yet-joined node adjacent to the accumulated component
+and attaches every equality from that node to the component.  Consequently any
+accepted INNER JOIN AST with the same connected graph produces the identical
+binary term, regardless of source order, equality direction/order, or
+parenthesization.  This is not a reassociation rule for arbitrary SQL: it
+applies only after the AST has passed the equi-join graph boundary.
+
+The remaining typed normalizer can erase only derived display names,
+conjunction/set traversal order, binary join operand and predicate order, union
+operand order, an identical duplicate union branch whose child is proven
+full-tuple distinct, and alternate spelling of the same stable page suffix. A
+Scan carries no such distinctness proof; Union and Group produce it,
+Select/Page preserve it, and Project preserves it only for an unchanged schema.
+Set normalization removes traversal order. Each folded Join enumerates the same
+matching bag, hashes sorted child identities, and uses commutative and
+associative $\cup/\oplus$. Union classes are operand independent; same-proof
 member composition includes all equivalence fields, while alternative
 max-merge is commutative and idempotent. An identical materialized fact is
 retained, and relation-level union expressions are sorted before downstream
 composition. Group keys and witness commitments are sorted. The SQL compiler
 emits the same Catalog-canonical page suffix represented by the normal form.
-Each atomic rewrite therefore preserves Effect; structural induction over
+Every accepted graph spelling therefore denotes the same folded term; each
+remaining recursive rewrite preserves its effect. Structural induction over
 well-typed contexts proves the result.
 \end{proof}
 
@@ -304,7 +334,9 @@ partition distributes the same two unions over the row index set. Overlap and
 repetition disappear by set idempotence. E-Join adds witness multiplicities
 with $\oplus$, but effect extraction takes their support sets; repeated support
 membership consequently has dependency cardinality one. A changed derived
-witness may still change its release Fact, as required.
+witness may still change its release Fact, as required. Induction over the
+canonical fold length applies the same support-union argument to every node in
+an admitted join graph.
 \end{proof}
 
 \begin{proof}[Proof of Exact bitmap refinement]
@@ -314,7 +346,10 @@ the same Scan, Select, Project, Join, Union, Group, and Page cases as effect
 extraction. Handles substitute singleton base FactIDs; bitmap union substitutes
 support-set union; sparse maps preserve witness addition/max; and hash-ordered
 merging preserves the canonical witness commitment. Every case therefore
-decodes to the oracle FactSet, while any missing premise aborts.
+decodes to the oracle FactSet, while any missing premise aborts. For JoinMany,
+induction over the deterministic fold replaces a two-source handle pair by one
+handle per source in the companion tuple without changing these pointwise
+arguments.
 \end{proof}
 
 \begin{proof}[Proof of Atomic root-family budget safety]
@@ -453,12 +488,25 @@ Operator & Formal semantics & Independent oracle & Online lowering & PG E2E expo
 \midrule
 Scan/Select/Project & yes & yes & one Catalog product & paired output/evidence and hidden keys \\
 Group + four aggregates & yes & yes & above either online input & hidden group key and aggregate membership \\
-Inner equijoin & yes & yes & two distinct Catalog roles; conjunctive equalities & operand exchange, fanout, downstream SUM \\
+Inner equijoin & yes & yes & connected graph of 2--16 distinct Catalog roles; one or more typed equalities per edge; canonical fold & representative two-source operand exchange, fanout, downstream SUM \\
 Union-distinct & yes & yes & two filtered branches of one product; explicit full distinct schema & all members, hidden field, exchange, downstream COUNT \\
 Page & yes & yes & one-product plan with stable Catalog suffix & offset/tie-break and withholding \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+The online-lowering column states the accepted capability, whereas the PG E2E
+column states the measured coverage.  The latter's two-source graph is a
+representative exercise of the binary join/effect step generated by the fold,
+not a limit on admitted graph width or topology.  We do not report a
+source-count or topology performance campaign.
+
+Separate source-level tests, outside the digest-bound PG campaign, exercise
+five-source left-/right-deep AST equivalence, a ten-source chain with two
+equalities per edge, star and cyclic graphs, shuffled node/edge/predicate order
+and direction, acceptance at the 16-source boundary, and rejection at 17
+sources.  They are implementation tests, not
+multi-source PG E2E evidence, performance measurements, or a mechanized proof.
 
 \section{Descriptive Baseline Contrast}
 
@@ -629,6 +677,10 @@ scale boundary, groups by a three-valued order status, and returns
 \code{SUM(extendedprice)}, \code{SUM(linenumber)}, and \code{COUNT(*)}. A direct
 SQL call immediately precedes the novel call and its distinct-request replay;
 services are warm, while ledger state is fresh per scale/trial.
+
+This is deliberately a two-source, one-edge graph. It is a representative
+Join--Group correctness and bottleneck fixture, not evidence about the
+2--16-source capability ceiling, graph topology, or PostgreSQL planning growth.
 
 The five-to-one fanout yields five joined members per order. Under the declared
 semantics, set deduplication leaves three dependency facts per order (row,

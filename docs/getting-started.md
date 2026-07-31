@@ -138,7 +138,7 @@ MCP `serverInfo.version` 为 `2.1.0`。Alice 可见 16 个普通任务/查询工
 
 ## 4. 结构化申请与人工审批
 
-先调用 `list_data_products`。响应会给出逻辑产品字段，以及全部 Scope 的类型、允许值或日期边界。可用 `describe_data_product(name)` 读取字段 collation、Catalog 稳定角色和 SQL 白名单，用 `get_sql_capabilities()` 读取 `taskgate-reporting-sql-v1` 的受支持特性和 2–8 源 Join 边界。申请不得省略产品、字段或 Scope：
+先调用 `list_data_products`。响应会给出逻辑产品字段，以及全部 Scope 的类型、允许值或日期边界。可用 `describe_data_product(name)` 读取字段 collation、Catalog 稳定角色和 SQL 白名单，用 `get_sql_capabilities()` 读取 `taskgate-reporting-sql-v1` 的受支持特性、2–16 源 connected INNER equi-join graph 边界和通用请求/资源上限。申请不得省略产品、字段或 Scope：
 
 ```json
 {
@@ -170,7 +170,7 @@ exposure 上限写入审批 Manifest。Agent 不申请更小预算，也不因�
 }
 ```
 
-Exposure-enabled `query_sql` 使用 PostgreSQL AST 解析 `taskgate-reporting-sql-v1`，将 SQL alias 映射为 Catalog 稳定角色，并无损 lowering 为 canonical QueryPlan。单产品支持 projection/filter/group/order/limit/offset 与 `COUNT/SUM/MIN/MAX`；多产品支持 2–8 源、connected INNER equijoin，内部使用 `join_many`。Self-join、outer/cross/non-equality join、断开的 join graph、子查询、CTE、set operation、窗口、`HAVING` 和多输入分页关闭式拒绝；Gateway 不会静默修改查询语义。
+Exposure-enabled `query_sql` 使用 PostgreSQL AST 解析 `taskgate-reporting-sql-v1`，将 SQL alias 映射为 Catalog 稳定角色，并无损 lowering 为 canonical QueryPlan。单产品支持 projection/filter/group/order/limit/offset 与 `COUNT/SUM/MIN/MAX`；多产品支持 2–16 源内的任意 connected INNER equi-join graph 形状，每条 edge 可包含多个 column-to-column equality predicate。Lowering 对 nodes、edges、predicates 及 equality 两端规范排序并转换为现有 `join_many`，再 deterministic binary fold 为现有二元代数。16-source 上限是 operational complexity/DoS ceiling，所以 10 表 Join 在支持范围内；请求还受 1 MiB MCP 请求体、AST 白名单校验和现有资源预算/超时/行数上限约束。Self-join、outer/cross/non-equality join、断开的 join graph、子查询、CTE、set operation、窗口、`HAVING` 和多输入分页关闭式拒绝；Gateway 不会静默修改查询语义。
 
 lowering 成功后，Gateway 丢弃原始 SQL 作为执行来源，只执行 QueryPlan 重新生成的 visible SQL 和 ordinal provenance companion，两者还会再经完整 SQL policy。高级 `execute_plan` 也共用这一编译/记账边界，并且仍可表示同产品双分支 `union_distinct`；该 set operation 不属于 SQL profile。Gateway 不调用外部模型。
 
@@ -203,7 +203,7 @@ route 都是人工审批。正常批准把完整 Catalog Profile 交给 Agent，
 
 启用 exposure 的 Grant 默认使用 `query_sql`。语法、授权或 lowering 失败会在数据库执行和正式预留之前返回结构化错误，其中包含稳定 `code`、安全的 `reason/location`、支持的替代方案、`retryable_after_rewrite` 和 SQL profile；这类失败不扣查询、行、DBMS、release、dependency 或 outcome 预算。执行已开始后的 timeout 或故障继续遵守现有 failure-settlement 规则。
 
-原始 SQL 派生的 request digest 仅用于审计和 `(task_id, request_id)` 幂等；语义等价的 alias 或 Join 交换必须得到同一 canonical QueryPlan、`plan_digest`、FactID 和 semantic replay key。原始 SQL 文本哈希不是 exposure 命题身份。
+原始 SQL 派生的 request digest 仅用于审计和 `(task_id, request_id)` 幂等；对同一 equi-join graph 的 alias 改名、Join 交换/括号/遍历顺序、edge 顺序、predicate 顺序和 equality 操作数交换必须得到同一 canonical QueryPlan、`plan_digest`、FactID 和 semantic replay key。原始 SQL 文本哈希不是 exposure 命题身份。
 
 `request_data_task` 还支持 `parent_task_id` 和 `delegate_principal_id`。子任务必须
 由父任务所有者发起，所有授权维度只能收缩，且父子共享同一 exposure 账本。

@@ -3,7 +3,9 @@ package sqllowering
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 
 	"taskbound.local/agent-data-gateway/internal/queryplan"
@@ -47,6 +49,110 @@ func TestLowerThreeTableJoinErasesAliasesAndJoinOrder(t *testing.T) {
 	if !reflect.DeepEqual(first.DisplayColumns, []string{"status", "revenue"}) ||
 		!reflect.DeepEqual(second.DisplayColumns, []string{"status", "revenue"}) {
 		t.Fatalf("display columns = %v, %v", first.DisplayColumns, second.DisplayColumns)
+	}
+}
+
+func TestLowerTenTableJoinWithMultiplePredicatesPerEdge(t *testing.T) {
+	products := graphTestProducts(10)
+	var sql strings.Builder
+	sql.WriteString("SELECT a00.value FROM product_00 AS a00")
+	for index := 1; index < 10; index++ {
+		previousAlias := fmt.Sprintf("a%02d", index-1)
+		alias := fmt.Sprintf("a%02d", index)
+		product := fmt.Sprintf("product_%02d", index)
+		fmt.Fprintf(&sql, " INNER JOIN %s AS %s ON %s.id = %s.id AND %s.tenant_id = %s.tenant_id", product, alias, previousAlias, alias, previousAlias, alias)
+	}
+	result, err := Lower(sql.String(), products)
+	if err != nil {
+		t.Fatal(err)
+	}
+	join := result.Plan.From.JoinMany
+	if join == nil || len(join.Sources) != 10 || len(join.On) != 18 {
+		t.Fatalf("ten-source join_many = %#v", join)
+	}
+	for index, source := range join.Sources {
+		if source.Role != fmt.Sprintf("relation_%02d", index) {
+			t.Fatalf("source %d role = %q", index, source.Role)
+		}
+	}
+}
+
+func TestLowerRejectsJoinBeyondOperationalSourceGuard(t *testing.T) {
+	chainSQL := func(count int) string {
+		var sql strings.Builder
+		sql.WriteString("SELECT a00.value FROM product_00 AS a00")
+		for index := 1; index < count; index++ {
+			previousAlias := fmt.Sprintf("a%02d", index-1)
+			alias := fmt.Sprintf("a%02d", index)
+			product := fmt.Sprintf("product_%02d", index)
+			fmt.Fprintf(&sql, " INNER JOIN %s AS %s ON %s.id = %s.id", product, alias, previousAlias, alias)
+		}
+		return sql.String()
+	}
+	if _, err := Lower(chainSQL(queryplan.MaxJoinSources), graphTestProducts(queryplan.MaxJoinSources)); err != nil {
+		t.Fatalf("join at operational source guard: %v", err)
+	}
+	count := queryplan.MaxJoinSources + 1
+	_, err := Lower(chainSQL(count), graphTestProducts(count))
+	if err == nil {
+		t.Fatal("join beyond operational source guard was accepted")
+	}
+	var typed *Error
+	if !errors.As(err, &typed) || typed.Code != CodeNotLowerable || typed.Reason != "JOIN_SOURCE_LIMIT_EXCEEDED" {
+		t.Fatalf("source guard error = %#v", err)
+	}
+}
+
+func TestLowerCanonicalGraphIgnoresEqualityPlacementWithinInnerJoinTree(t *testing.T) {
+	products := graphTestProducts(3)
+	first, err := Lower(`
+		SELECT a.value
+		FROM product_00 a
+		JOIN product_01 b ON a.id = b.id AND a.tenant_id = b.tenant_id
+		JOIN product_02 c ON b.id = c.id`, products)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := Lower(`
+		SELECT left_node.value
+		FROM product_00 left_node
+		JOIN product_01 middle_node ON left_node.id = middle_node.id
+		JOIN product_02 right_node ON middle_node.id = right_node.id
+			AND middle_node.tenant_id = left_node.tenant_id`, products)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(first.Plan, second.Plan) {
+		t.Fatalf("equivalent equality placement changed canonical plan:\nfirst=%#v\nsecond=%#v", first.Plan, second.Plan)
+	}
+}
+
+func TestLowerAcceptsStarAndCyclicConnectedEquiJoinGraphs(t *testing.T) {
+	result, err := Lower(`
+		SELECT a.value
+		FROM product_00 a
+		JOIN product_01 b ON a.id = b.id
+		JOIN product_02 c ON b.id = c.id AND c.tenant_id = a.tenant_id`, graphTestProducts(3))
+	if err != nil {
+		t.Fatal(err)
+	}
+	join := result.Plan.From.JoinMany
+	if join == nil || len(join.Sources) != 3 || len(join.On) != 3 {
+		t.Fatalf("cyclic join graph = %#v", join)
+	}
+	star, err := Lower(`
+		SELECT hub.value
+		FROM product_00 hub
+		JOIN product_01 spoke_1 ON hub.id = spoke_1.id
+		JOIN product_02 spoke_2 ON hub.id = spoke_2.id
+		JOIN product_03 spoke_3 ON hub.id = spoke_3.id
+		JOIN product_04 spoke_4 ON hub.id = spoke_4.id`, graphTestProducts(5))
+	if err != nil {
+		t.Fatal(err)
+	}
+	starJoin := star.Plan.From.JoinMany
+	if starJoin == nil || len(starJoin.Sources) != 5 || len(starJoin.On) != 4 {
+		t.Fatalf("star join graph = %#v", starJoin)
 	}
 }
 
@@ -177,5 +283,108 @@ func loweringTestProducts() map[string]queryplan.Product {
 			ColumnCollations: map[string]string{"name": "en_US"}, CollationVersions: map[string]string{"name": "v1"},
 			AllowedAggregates: map[string]struct{}{"count": {}, "min": {}, "max": {}},
 		},
+	}
+}
+
+func TestLowerFiveTableJoinTreeShapesCanonicalizeToSamePlan(t *testing.T) {
+	products := graphTestProducts(5)
+	leftDeep, err := Lower(`
+		SELECT a.value
+		FROM product_00 AS a
+		JOIN product_01 AS b ON a.id = b.id
+		JOIN product_02 AS c ON b.id = c.id
+		JOIN product_03 AS d ON c.id = d.id
+		JOIN product_04 AS e ON d.id = e.id`, products)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rightDeep, err := Lower(`
+		SELECT root_node.value
+		FROM product_00 AS root_node
+		JOIN (
+			product_01 AS first_node
+			JOIN (
+				product_02 AS second_node
+				JOIN (
+					product_03 AS third_node
+					JOIN product_04 AS fourth_node
+						ON fourth_node.id = third_node.id
+				) ON third_node.id = second_node.id
+			) ON second_node.id = first_node.id
+		) ON first_node.id = root_node.id`, products)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(leftDeep.Plan, rightDeep.Plan) {
+		t.Fatalf("left- and right-deep join trees lowered differently:\nleft=%#v\nright=%#v", leftDeep.Plan, rightDeep.Plan)
+	}
+	join := leftDeep.Plan.From.JoinMany
+	if join == nil || len(join.Sources) != 5 || len(join.On) != 4 {
+		t.Fatalf("five-table canonical join = %#v", join)
+	}
+}
+
+func TestLowerCompositeJoinKeyCanonicalizesAliasesConjunctionAndEqualityDirection(t *testing.T) {
+	products := graphTestProducts(2)
+	first, err := Lower(`
+		SELECT left_input.value
+		FROM product_00 AS left_input
+		JOIN product_01 AS right_input
+			ON left_input.id = right_input.id
+			AND left_input.tenant_id = right_input.tenant_id`, products)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := Lower(`
+		SELECT "Fact Side".value
+		FROM product_01 AS "Dimension Side"
+		JOIN product_00 AS "Fact Side"
+			ON "Dimension Side".tenant_id = "Fact Side".tenant_id
+			AND "Dimension Side".id = "Fact Side".id`, products)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(first.Plan, second.Plan) {
+		t.Fatalf("composite join key spelling changed canonical plan:\nfirst=%#v\nsecond=%#v", first.Plan, second.Plan)
+	}
+	want := []queryplan.JoinPredicate{
+		{Left: "relation_00.id", Right: "relation_01.id"},
+		{Left: "relation_00.tenant_id", Right: "relation_01.tenant_id"},
+	}
+	if got := first.Plan.From.JoinMany.On; !reflect.DeepEqual(got, want) {
+		t.Fatalf("canonical composite predicates = %#v, want %#v", got, want)
+	}
+}
+
+func TestLowerRejectsJoinsOutsideCanonicalEquiJoinGraph(t *testing.T) {
+	products := loweringTestProducts()
+	tests := []struct {
+		name, sql, code, reason string
+	}{
+		{name: "right join", sql: `SELECT o.status FROM orders o RIGHT JOIN lineitem l ON o.order_id = l.order_id`, code: CodeJoinTypeUnsupported, reason: "RIGHT_JOIN_UNSUPPORTED"},
+		{name: "full join", sql: `SELECT o.status FROM orders o FULL JOIN lineitem l ON o.order_id = l.order_id`, code: CodeJoinTypeUnsupported, reason: "FULL_JOIN_UNSUPPORTED"},
+		{name: "natural join", sql: `SELECT o.status FROM orders o NATURAL JOIN lineitem l`, code: CodeJoinTypeUnsupported, reason: "NATURAL_JOIN_UNSUPPORTED"},
+		{name: "using join", sql: `SELECT o.status FROM orders o JOIN lineitem l USING (order_id)`, code: CodeJoinTypeUnsupported, reason: "JOIN_USING_UNSUPPORTED"},
+		{name: "non equality", sql: `SELECT o.status FROM orders o JOIN lineitem l ON o.order_id < l.order_id`, code: CodeNotLowerable, reason: "JOIN_PREDICATE_UNSUPPORTED"},
+		{name: "column literal", sql: `SELECT o.status FROM orders o JOIN lineitem l ON o.order_id = 1`, code: CodeNotLowerable, reason: "JOIN_PREDICATE_UNSUPPORTED"},
+		{name: "same relation", sql: `SELECT o.status FROM orders o JOIN lineitem l ON o.order_id = o.order_id`, code: CodeNotLowerable, reason: "JOIN_PREDICATE_SCOPE_INVALID"},
+		{name: "or predicate", sql: `SELECT o.status FROM orders o JOIN lineitem l ON o.order_id = l.order_id OR o.order_id = l.line_id`, code: CodeNotLowerable, reason: "BOOLEAN_OPERATOR_UNSUPPORTED"},
+		{name: "duplicate equality", sql: `SELECT o.status FROM orders o JOIN lineitem l ON o.order_id = l.order_id AND l.order_id = o.order_id`, code: CodeNotLowerable},
+		{name: "self join", sql: `SELECT o.status FROM orders o JOIN orders other ON o.order_id = other.order_id`, code: CodeNotLowerable, reason: "SELF_JOIN_UNSUPPORTED"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := Lower(test.sql, products)
+			if err == nil {
+				t.Fatal("join outside the canonical equijoin graph was accepted")
+			}
+			var typed *Error
+			if !errors.As(err, &typed) {
+				t.Fatalf("error type = %T (%v)", err, err)
+			}
+			if typed.Code != test.code || test.reason != "" && typed.Reason != test.reason {
+				t.Fatalf("error = %q/%q, want %q/%q", typed.Code, typed.Reason, test.code, test.reason)
+			}
+		})
 	}
 }

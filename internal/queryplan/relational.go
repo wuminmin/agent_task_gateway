@@ -12,7 +12,10 @@ import (
 	"taskbound.local/agent-data-gateway/internal/exposure"
 )
 
-const MaxJoinSources = 8
+// MaxJoinSources is an operational complexity guard, not a restriction on
+// graph shape. It bounds generated SQL width, provenance rows, and downstream
+// PostgreSQL planning work while admitting practical multi-hop join graphs.
+const MaxJoinSources = 16
 
 // RelationalCompilation is the paired SQL and trusted metadata consumed by
 // the online positive-output dependency path. ProvenanceSQL returns positive

@@ -50,9 +50,9 @@ Versioned Reporting Snapshots}
 
 \author{Anonymous Author(s)%
 \thanks{The artifact includes a controlled local PostgreSQL performance
-campaign and a three-scale TPC-H-derived Join--Group campaign. Results remain
-single-host evidence; the latter is not an official TPC-H run and neither
-campaign claims production generality.}}
+campaign and a three-scale, representative two-source TPC-H-derived
+Join--Group campaign. Results remain single-host evidence; the latter is not
+an official TPC-H run and neither campaign claims production generality.}}
 \date{}
 
 \begin{document}
@@ -239,8 +239,8 @@ five implementation-backed contributions are:
 release facts, positive-output dependencies, and normalized query outcomes in
 a restricted relational algebra.
 \item A same-snapshot streamed ordinal companion for one-product plans and
-bounded two-scan inner equijoins/union-distinct, including grouping and four
-aggregates.
+connected inner-equijoin graphs over two to 16 distinct Catalog roles, plus
+two-branch union-distinct, including grouping and four aggregates.
 \item A representation-independent exact settlement rule, physically refined
 by immutable snapshot dictionaries, segmented compressed bitmaps, and sparse
 dynamic dictionaries: atomically charge $E_q\setminus\accounted_T$, withhold on
@@ -257,13 +257,16 @@ facts.
 
 The implementation does \emph{not} claim arbitrary SQL equivalence, differential
 privacy, inference control, principal-wide accounting, or denial-oblivious
-auditing. The online multi-input grammar is intentionally bounded: two scan
-leaves, an inner conjunctive equijoin or same-product union-distinct, and no
-nested set/join tree or multi-input pagination. A newly approved root creates a
+auditing. The join grammar canonicalizes aliases and INNER JOIN
+parenthesization into any connected 2--16-role equi-join graph, with multiple
+equalities per edge; 16 is an operational, not topological, guard.
+Disconnected, self, outer, cross, and non-equality joins reject. Union-distinct
+remains two-branch/same-product, and nested set trees and multi-input pagination
+remain outside the grammar. A newly approved root creates a
 distinct ledger. Outcome accounting bounds the number of distinct successful
 propositions admitted by this grammar; it is not an information-theoretic
-bound on the bits revealed by one proposition. These boundaries are part of the result, rather than hidden
-behind a broad ``SQL support'' label.
+bound on the bits revealed by one proposition. These boundaries are part of
+the result, rather than hidden behind a broad ``SQL support'' label.
 
 The commercial fit is a governed analytics or operations copilot operating
 inside one approved case: finance agents testing reimbursement/credit
@@ -358,8 +361,9 @@ multiset relational algebra and terminal aggregation
 claims neither a new algebra nor a general provenance engine. It specializes
 provenance to explicitly released facts and a conservative positive-derivation
 footprint, co-generates answer and effects in one snapshot, and settles before
-release. Its profile bounds inner equijoin and union-distinct multiplicity;
-outer joins, negation, and recursion remain outside it.
+release. Its profile admits finite connected inner-equijoin graphs under an
+operational source guard and a two-branch union-distinct form; outer joins,
+negation, and recursion remain outside it.
 
 \subsection{Usage Control, Delegation, and Quotas}
 
@@ -563,6 +567,20 @@ incur zero incremental outcome charge.
 
 \subsection{Closed Typed Query Language}
 
+Operational multi-source SQL first lowers to
+$G_J=\langle V_J,E_J,\Theta_J\rangle$: $2$--$16$ distinct Catalog stable-role
+nodes and connected undirected edges carrying nonempty sets of type- and
+collation-compatible column equalities. Aliases and AST parenthesization are
+absent. Canonicalization orders nodes by $(\nu,s,r,\text{product})$, orients and
+sorts edges by node rank, and groups/sorts each edge's stable field pairs. A
+deterministic fold repeatedly adds the first remaining node adjacent to the
+current component with all connecting predicates, yielding one left-deep term
+$\operatorname{Fold}_\Pi(G_J)$ for the existing binary algebra. Thus any
+connected topology (including cycles) and accepted parenthesization of the same
+graph share one term. The source ceiling is an operational guard, not a planner
+or algebraic limit; repeated products/roles, self edges, and duplicate
+equalities reject.
+
 The complete core syntax is
 \begin{align*}
 e ::= {}& \operatorname{Scan}[\nu,s,r,\Gamma]
@@ -653,8 +671,9 @@ Let
 \end{equation}
 $H$ is domain-separated, typed, and length delimited. Scan uses the Catalog
 entity key; unary operators preserve the child key; join hashes the sorted
-immediate-child RIDs; union-distinct hashes the complete typed tuple; and group
-hashes its canonical group key (or a distinct global token). Every derived Fact
+immediate-child RIDs (with operational graph joins using the canonical fold
+above); union-distinct hashes the complete typed tuple; and group hashes its
+canonical group key (or a distinct global token). Every derived Fact
 also binds the merged source/snapshot bundle, expression, value, and witness.
 Thus equal-looking results from different sources or derivations remain
 distinct, while SQL aliases and caller-provided product names do not
@@ -691,7 +710,7 @@ Operator & Output construction & Positive-output dependency rule \\
 \midrule
 Scan & Keyed PostgreSQL bag; base cells retain typed values & Singleton base-row and base-cell FactIDs \\
 Select/Project & Keep only $\mathsf T$ rows; restrict visible cells & Add every predicate field to retained row annotations; projection preserves them \\
-Inner join & Every matching keyed pair under PostgreSQL equality & Union both row annotations and all join-key cell annotations; preserve fanout in witnesses \\
+Inner join & Every matching child-row pair at one binary fold step under PostgreSQL equality & Union both row annotations and all join-key cell annotations; preserve fanout in witnesses \\
 Union-distinct & Classes under componentwise \code{IS NOT DISTINCT FROM} & Include every candidate and every distinctness field, including hidden fields; max-merge alternative witnesses \\
 \shortstack[l]{Group/\\aggregate} & One output per key class; global empty input yields one row & Include group-key inputs and every declared aggregate argument; \code{COUNT(*)} uses member rows, and NULL/non-extreme inputs remain dependencies \\
 Page & Stable total-order slice; annotations copied & Account delivered rows only; non-output rows, rank, and order-only fields are outside the profile \\
@@ -799,35 +818,35 @@ Reordering $A$ also preserves this normalized terminal effect.
 
 \begin{definition}[Typed normal form $NF_\Pi$]
 \label{def:nf}
-$NF_\Pi$ is the total map from well-typed terms $e$ to canonical terms induced
-by the following structure-recursive rewrites, each of which either preserves
-$\effect_\Pi$ or is the identity: erase SQL aliases and derived-expression
-display names; sort conjunction literals in $p$, dependency fields $F$,
-projection lists, group keys $G$, and aggregate families $\mathcal A$ by their
-stable role-qualified field IDs and canonical expressions; sort join operands
-and equality predicates by their child digests; sort union operands by digest
-and collapse an identical duplicate branch only when the child normal form
-proves full-tuple distinctness, so $e\cup_\delta e\equiv e$ for that
-set-valued $e$; sort
-relation-level union operands before any enclosing operator; and map a stable
-page suffix to its catalog-canonical spelling (entity-key or all-group-key
-suffix).  $NF_\Pi(q_1)=NF_\Pi(q_2)$ iff the two canonical terms are syntactically
-identical.  The artifact realizing $NF_\Pi$ is
-\texttt{taskgate-query-normal-form-v3}, and it performs no outer-join,
-arithmetic, window, subquery, or general SQL equivalence reasoning.  This
-query-level normalizer is distinct from the Fact-set $\operatorname{normalize}$
-of Property~(Normalization), which acts on the final ledgers.
+$NF_\Pi$ maps accepted, well-typed inputs to canonical terms. Multi-source SQL
+first replaces aliases by Catalog stable roles, orders graph nodes, endpoint
+pairs, edges, and per-edge predicates as above, then applies
+$\operatorname{Fold}_\Pi$. Structure-recursive normalization erases display
+names; sorts conjunctions, dependency/projection fields, group keys,
+aggregates, binary join children/equalities, and union children by stable field,
+expression, or digest; collapses an identical union branch only when
+full-tuple distinctness is proven; and canonicalizes a stable page suffix.
+Equality of normal forms is syntactic. The unchanged artifact
+\texttt{taskgate-query-normal-form-v3} performs no outer-join, arithmetic,
+window, subquery, or general SQL equivalence reasoning. Its complete typed
+digest remains the query-semantic component of replay/outcome identity;
+authorization and settlement also bind grant/policy/effect context. The
+graph-only digest is diagnostic, and previously admitted encodings are
+unchanged. Query normalization is distinct from final-ledger Fact-set
+$\operatorname{normalize}$.
 \end{definition}
 
 \begin{theorem}[Typed normal-form soundness]
 \label{thm:nf-soundness}
-For admissible $\Pi$, immutable snapshot map $D$, typed $q_1,q_2$, and the
-same visible field set $V$,
+For admissible $\Pi$, immutable snapshot map $D$, $q_1,q_2$ in the closed
+algebra or accepted graph-lowerable SQL fragment, and the same visible field
+set $V$,
 \[
  NF_\Pi(q_1)=NF_\Pi(q_2)\Longrightarrow
  \effect_\Pi(q_1,D,V)=\effect_\Pi(q_2,D,V).
 \]
-This implication is not a completeness claim for arbitrary equivalent SQL.
+This is not completeness for arbitrary equivalent SQL: normalization neither
+invents nor removes transitive/redundant equalities.
 \end{theorem}
 \emph{Proof in the supplement.}
 
@@ -853,24 +872,24 @@ general SQL equivalence reasoning.
 
 Formal semantics and the independent oracle cover scan/select/project, group
 with four aggregates, inner equijoin, union-distinct, and page. Online lowering
-is narrower: one Catalog product, or the bounded two-input forms below, may feed
-grouping; pagination is one-product only. PostgreSQL end-to-end tests execute
-paired statements and derive V2 release/dependency observations for hidden keys, join fanout,
-complete union members, downstream aggregates, and page withholding. The
-supplement gives the four-way coverage matrix. ``Online'' never means arbitrary
-SQL containing the operator is accepted.
+admits one product, a connected 2--16-source equi-join graph, or two-branch
+union-distinct, optionally grouped. The SQL-AST path covers the first two;
+union is structured-plan only and pagination is one-product only. Paired
+PostgreSQL tests derive effects for hidden keys, join fanout, union members,
+aggregates, and page withholding; ``online'' does not mean arbitrary SQL.
 
-\subsection{Snapshot Publication and Streamed Derivation}
+\subsection{Snapshot Publication and Canonical Join Lowering}
 
-An exposure-enabled grant accepts either a one-product structured plan or one
-closed two-input form.  The latter is (i) an inner join of two distinct
-Catalog-stable roles with one or more same-type, same-collation equalities, or
-(ii) union-distinct over two filtered aliases of one product, with the complete
-deduplication schema explicit even when final $V$ hides some of its fields.
-Nested join/set trees, self-join roles, union-all, and relational pagination
-fail closed.  Callers cannot supply SQL fragments, FactIDs, provenance, or
-semantic role identities.  Branch aliases are syntactic; join and union output
-roles must match Catalog identities.
+For joins, the PostgreSQL AST and Catalog types feed the canonical $G_J$
+builder, which emits existing \code{JoinMany} and the deterministic binary
+SQL/effect fold. Edges may carry multiple compatible equalities; topology and
+accepted parenthesization are otherwise unrestricted. The 16-source guard
+bounds SQL/evidence width and PostgreSQL planning work. Disconnected, self-,
+outer, cross, non-equality, natural, and \code{USING} joins fail closed, as do
+union-all, nested set trees, and multi-input pagination. Union-distinct retains
+two filtered branches of one product and an explicit complete deduplication
+schema. Callers cannot choose semantic roles or supply SQL fragments, FactIDs,
+or provenance; aliases are syntactic and roles are Catalog identities.
 
 V4 first compiles each frozen Reporting Snapshot as an immutable publication.
 The compiler calls the existing canonical FactID encoder, creates a separate
@@ -890,7 +909,7 @@ publication.
 The online compiler still validates fields, predicates, grouping, and one of
 four aggregates; \code{COUNT(*)} and \code{COUNT(field)} retain distinct normal
 forms. It emits a visible statement and an ordinal companion. A join companion
-streams each matched handle pair and the fields needed by projection, join,
+streams each matched source-handle tuple and the fields needed by projection, join,
 filter, group, and aggregate rules. A union-distinct companion uses
 \code{UNION ALL} plus a branch marker so that every member of a delivered class
 remains reconstructible. Both statements pass the PostgreSQL AST policy and run
@@ -1204,7 +1223,7 @@ RQ & Current result \\
 \midrule
 RQ1 & \RQOnePassed{}/\RQOneCases{} independent-oracle cases on \RQOneRows{} source rows \\
 RQ2 & \RQTwoExposureRewrites{} closed-language rewrite families, \RQTwoExposureCases{} instances and \RQTwoExposureNFCases{} normal-form checks: FactSet/charge invariant, \RQTwoExposureMismatches{} mismatches \\
-RQ3 & \RQThreePassed{}/\RQThreeCases{} deterministic; \RQThreeIntegration{}/\RQThreeExecuted{} PostgreSQL race tests; paired PG Join/Union exchange and downstream-group tests \\
+RQ3 & \RQThreePassed{}/\RQThreeCases{} deterministic; \RQThreeIntegration{}/\RQThreeExecuted{} PostgreSQL race tests; representative two-source PG Join/Union exchange and downstream-group tests \\
 RQ4 & Legacy diagnosis to \RQFourScaleMaxFacts{} dependencies; V4: \RQFourVFourGatesPassed{}/\RQFourVFourGatesTotal{} base gates pass at \RQFourVFourNovelMedianS{}/\RQFourVFourNovelTailS{}~s novel and \RQFourVFourReplayMedianMS{}/\RQFourVFourReplayTailMS{}~ms replay p50/p95; supplemental layout, same-root contention, and \RQFourVFourOracleFacts{}-Fact oracle gates pass within their stated scopes \\
 RQ5 & Four \RQFiveRows{}-row epochs, \RQFiveTotalBuildRuns{} builds: max cycle \RQFiveMaxCycleS{}~s; \RQFiveChecksPassed{}/\RQFiveChecksTotal{} rollover conditions pass across \RQFiveTransitions{} transitions \\
 \bottomrule
@@ -1222,6 +1241,9 @@ public-path settlement, delegation, and races. Its
 \RQThreeDistinctOutcomes{} outcome FactIDs; replay and a normalized rewrite
 charge \RQThreeReplayOutcomeCharge{}/\RQThreeRewriteOutcomeCharge{}. Digest-bound
 raw test logs retain the complete case-level evidence.
+
+The PostgreSQL Join/Join--Group experiments use representative two-source
+graphs, not a capability ceiling; source-count/topology performance is unmeasured.
 
 \subsection{RQ4: Legacy Diagnosis and V4 Contrast}
 
@@ -1263,7 +1285,8 @@ and \RQFourVFourOutcomeFacts{} outcome facts, novel p50/p95 is
 \RQFourVFourNovelMedianS{}/\RQFourVFourNovelTailS{}~s, replay p50/p95 is
 \RQFourVFourReplayMedianMS{}/\RQFourVFourReplayTailMS{}~ms with no Business SQL,
 and Gateway cgroup peak is \RQFourVFourGatewayPeakMiB{}~MiB. Exact result/effect
-digests cover Scan, Join--Group, Union, Page, and 0/50/90/100\% dependency
+digests cover Scan, the representative two-source Join--Group fixture, Union,
+Page, and 0/50/90/100\% dependency
 overlap. Build, verification, activation, stage, storage, and small-query
 diagnostics are reported in the supplement and provide RQ5's baseline below.
 
@@ -1351,11 +1374,13 @@ synchronization. It does not query mutable OLTP primaries, serve continuously
 changing CDC streams, or migrate an active root between publication epochs.
 Minute- or second-level freshness would require an incremental-publication
 design and a separate cross-epoch accounting argument.
-Online support is one product or a bounded
-two-role inner equijoin/one-product union-distinct, optionally grouped; nested
-trees, self/outer joins, union-all, relational pagination, windows, negation,
-recursion, and arbitrary subqueries fail closed. Stable entity keys and snapshot
-publications are administrator declarations backed by compiler checks;
+Online support is one product, a connected inner-equijoin graph over two to 16
+distinct Catalog roles, or a two-branch one-product union-distinct, optionally
+grouped. Graph topology/parenthesization and multiple equalities per edge are
+supported within the operational 16-source guard. Disconnected, self, outer,
+cross, and non-equality joins, union-all, nested set trees, multi-input
+pagination, windows, negation, recursion, and arbitrary subqueries fail closed. Stable
+entity keys and snapshot publications are administrator declarations backed by compiler checks;
 production still requires a trustworthy versioned publication pipeline and
 collision review. The online gates exclude offline index build, arbitrary SQL,
 mutable sources, and queueing delay.

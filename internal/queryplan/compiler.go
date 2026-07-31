@@ -47,8 +47,8 @@ type QueryPlan struct {
 
 // From is the closed multi-product input grammar. Exactly one member must be
 // present. Scan is useful as the explicit, role-qualified form of the legacy
-// Product input. Join is the legacy two-source spelling, JoinMany is a bounded
-// flat connected INNER-equijoin graph, and UnionDistinct remains a two-branch
+// Product input. Join is the legacy two-source spelling, JoinMany is a flat
+// connected INNER-equijoin graph, and UnionDistinct remains a two-branch
 // operator; arbitrary SQL trees never cross this public boundary.
 type From struct {
 	Scan          *Scan          `json:"scan,omitempty"`
@@ -70,8 +70,8 @@ type Join struct {
 }
 
 // JoinMany is the closed, flat multi-product INNER-equijoin grammar. Sources
-// and predicates are canonicalized before compilation; the public limit keeps
-// provenance width and join planning bounded.
+// and predicates are canonicalized before compilation. MaxJoinSources is an
+// operational complexity guard; it does not otherwise restrict graph shape.
 type JoinMany struct {
 	Sources []Scan          `json:"sources"`
 	On      []JoinPredicate `json:"on"`
