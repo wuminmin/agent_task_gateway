@@ -2,11 +2,14 @@
 
 Title:
 
-TaskGate: A Task-Scoped Data Exposure Accounting Framework for Autonomous Database Agents
+TaskGate: Accounting and Controlling Cumulative Data Exposure in Agentic Database Systems
 
 ## Positioning
 
-TaskGate is positioned as a database execution semantics framework for autonomous agents, not an API gateway or authorization proxy.
+TaskGate is positioned as a cumulative data-exposure accounting and control
+framework for agentic database systems, not an API gateway or authorization
+proxy. Its enforcement layer supplies the deterministic database execution
+semantics needed to make that accounting auditable.
 
 Core contribution:
 

@@ -1,9 +1,11 @@
 # 架构与安全边界
 
-Gateway 把数据访问绑定到不可扩权的 `TaskGrant`，并把累计数据暴露绑定到
+TaskGate Enforcement Layer 把数据访问绑定到不可扩权的 `TaskGrant`，并把累计数据暴露绑定到
 签名的根任务族：主体、目的、产品、字段、强制 Scope、敏感级别、资源预算、
 三维 exposure 预算、期限、Catalog 版本、task-scoped View binding 和审批凭证缺一不可。Agent 提交的
-结构化对象、QueryPlan 和 SQL 都是不可信输入；Gateway 内没有模型调用。
+结构化对象、QueryPlan 和 SQL 都是不可信输入；该确定性执行边界内没有模型调用。
+本文用 **TaskGate Enforcement Layer** 指研究架构中的执行边界；现有二进制路径、
+环境变量、数据库角色和兼容 API 标识中的 `gateway`/`GATEWAY_*` 保持不变。
 
 ```mermaid
 flowchart LR
@@ -15,14 +17,15 @@ flowchart LR
         D --> M
     end
     subgraph ON[在线：canonical 对象创建前不向 Agent 释放]
-        A[Codex / 第三方 Agent] -->|MCP 2.0| G[Gateway]
+        A[Codex / 第三方 Agent] -->|MCP 2.0| G[TaskGate Enforcement Layer]
         G --> H{授权 + semantic replay}
         H -->|miss| Q[visible SQL + streamed ordinal companion]
         H -->|hit| R[committed observation reference]
         Q --> E[exact weighted bitmap effect]
         R --> E
-        Q --> O[Gateway 客户端侧加密<br/>private Parquet staging]
-        E --> C[(Control PG：仅元数据<br/>ANDNOT + popcount<br/>三维 root-head CAS)]
+        Q --> O[enforcement-layer 客户端侧加密<br/>private Parquet staging]
+        E --> B[Go exact set algebra<br/>ANDNOT + popcount + union]
+        B --> C[(Control PG：持久化集合/元数据<br/>三维 root-head CAS)]
         O --> C
         C --> CP[canonical object creation<br/>consumed / AVAILABLE]
         O --> CP
@@ -39,7 +42,7 @@ flowchart LR
 | 信任域 | 输入与职责 | 边界 |
 |---|---|---|
 | Agent / MCP 客户端 | 显式提交产品、字段、Scope 和报表 SQL；高级客户端可提交 QueryPlan | Bearer Token 映射固定 Principal；Alice 只能访问自己的任务，Carol 只有审计工具 |
-| Gateway 控制面 | Catalog、任务族、OA 回调、Grant、资源预算、三维 root head、字典/bitmap、result artifact 元数据与审计 | 独立 Control PG；不保存新结果的 Parquet 或结果行；一次 epoch CAS 同时发布 R/I/O；容器和 set manifest 内容寻址且不可变；Grant 与审计 Trigger 禁止修改 |
+| TaskGate Enforcement Layer | Catalog、任务族、OA 回调、Grant、资源预算、三维 root head、字典/bitmap、result artifact 元数据与审计 | 独立 Control PG；不保存新结果的 Parquet 或结果行；一次 epoch CAS 同时发布 R/I/O；容器和 set manifest 内容寻址且不可变；Grant 与审计 Trigger 禁止修改 |
 | 业务数据面 | 执行可见查询及 streamed ordinal companion | 独立 Business PG；`gateway_reader` 仅有 Attestation、Reporting Views 和 immutable sidecar 的 `SELECT`；同一只读 `REPEATABLE READ` 事务、超时和行数上限 |
 | 结果对象存储 | 保存 Gateway 客户端侧分块 AES-GCM 加密的 Parquet staging/canonical 对象 | S3 兼容私有 bucket，且必须禁用 versioning，以保证 TTL/purge 真正删除 bytes；默认 Compose 使用 MinIO、独立 `result-storage` 内部网络及 bucket-scoped Gateway 凭据；Agent 不能直接列举对象键 |
 
@@ -55,7 +58,7 @@ Docker 宿主机、Catalog 管理者及能读取 `.env`/Volume 的管理员属�
 6. V4 Product 必须引用一个经过完整 digest 校验的 `snapshot_publication`。发布前，Compiler 离线扫描冻结快照，用现有 canonical FactID 编码建立 row/cell segments、`row_handle` sidecar、HOT hash/ordinal 索引和 COLD payload 块；重复 entity key、越界 ordinal、hash/payload collision 或 manifest 不一致都阻止发布。
 7. ACTIVE exposure 任务调用带必填 `request_id` 的 `query_sql`。Gateway 用 PostgreSQL AST 将受支持 SQL 无损 lowering 为 canonical QueryPlan：SQL alias 先映射为 Catalog 稳定角色，2–16 源内任意 connected INNER equi-join graph 形状的 nodes/edges/predicates 规范排序后转换为现有 `join_many`，再 deterministic binary fold 为现有二元代数。每条 edge 可包含多个 column-to-column equality predicate；16-source 上限是 operational complexity/DoS ceiling，并允许 10 表 Join。若单产品计划指向 semantic root，Gateway 将 public output 经 `Artifact.Output.FieldID` 合成到已展开计划，然后同样进入 `CompileRelational`/`join_many`；不会直接把 root View 当作计量源。Gateway 只执行 QueryPlan 重新生成的可见查询和 ordinal companion；两条 SQL 都再经 `pg_query_go/v6` PostgreSQL AST 白名单策略，整个入口还受 1 MiB MCP 请求体和获批资源边界约束。普通 `tools/list` 不列出 `execute_plan`，但 SDK/内部测试/确定性工作流仍可调用该高级入口，并共用同一 QueryPlan 编译与记账边界。
 8. 策略把 Reporting View 封装为只暴露获批字段和强制 Scope 的 CTE。对 semantic task，Gateway 在 reservation 前先重算 task binding，保持签名/public Grant 仅包含 root，再从已绑定 Artifact 每查询派生最小 terminal internal grants。Root scope output 通过 `Artifact.Output.FieldID` 映射到 terminal 字段，且每个 terminal mandatory scope 都必须被同一任务范围覆盖；无法完整映射则在预留前拒绝。V4 对展开计划的每个 terminal 绑定它自身的 frozen publication ordinal 和 sidecar。Connector 随后在执行 SQL 的同一个只读 `REPEATABLE READ` 事务内重新发现已绑定 closure 并比对 revision digest，再缓冲可见结果、按 canonical group 流式返回 handle 和必要聚合值。该二次验证与 SQL 共享数据库快照，避免 `CREATE OR REPLACE VIEW` 插入检查—执行窗口。Gateway 把最终可见投影编码为 Parquet，并在写入对象存储前以结果 key 和 AAD 进行客户端侧分块加密；private staging 对象不会交给 Agent。
-9. Gateway 以 exact bitmap 表示 base release/dependency，以小型动态字典表示 derived release/outcome。Control PG 对三个维度执行 `ANDNOT + popcount`，在一次 root-head epoch CAS 中发布三份新 set manifest；任何越界、CAS/字典故障或证据截断都回滚整笔事务。
+9. TaskGate Enforcement Layer 以 exact bitmap 表示 base release/dependency，以小型动态字典表示 derived release/outcome；Go control path 从 Control PG 加载已提交集合，执行三个维度的 `ANDNOT + popcount` 和 exact union。随后同一个 Control PG 事务持久化集合内容，并以一次 root-head epoch CAS 发布三份新 set manifest；任何越界、CAS/字典故障或证据截断都回滚整笔事务。
 10. distinct-request semantic replay 只复用已提交 observation 与 `AVAILABLE` artifact；replay key 绑定 task/Grant、Catalog/schema、task View binding、dictionary set 与 typed plan。它仍重新授权、扣普通查询/行资源、写审计和新 receipt，并为新 query 创建自己的加密 Parquet artifact。materialization 可在结算事务中引用 `PENDING/AVAILABLE` source，但查询命中只接受 `AVAILABLE + ACTIVE key`。命中不执行 Business/provenance SQL；跨 grant/binding/dictionary、密钥擦除、TTL 或对象清理一律 miss。
 11. Control PostgreSQL 在同一事务提交资源/exposure 结算、`PENDING` artifact 元数据、终态审计、materialization cache 和 Ed25519 V6 receipt；它不保存 Parquet bytes。事务提交后，Gateway 把 staging 对象幂等提升到确定性的 canonical key。canonical 对象创建成功就是消费事件，随后元数据变为 `AVAILABLE`，`query_sql`/`execute_plan`/`get_query_result` 只返回 `result_id`、行列数、期限和摘要，不返回 `rows` 或对象键。promotion 中断时保留 PENDING intent，由启动与后台只在 staging/已提交证据一致时恢复继续，不重执行 SQL或重复计费；不可恢复的证据问题会使 readiness fail closed。V6 绑定 dictionary set、三维 effect digest、actual/charged counts、root epoch 和 result digest；旧 verifier 保留但不复用 V6 digest 语义。
 

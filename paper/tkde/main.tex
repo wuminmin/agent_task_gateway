@@ -47,8 +47,8 @@
 % The evidence generator retains this legacy identifier for artifact compatibility.
 \newcommand{\RQFourVFourDependencyFacts}{\RQFourVFourInfluenceFacts}
 
-\title{TaskGate: A Task-Scoped Data Exposure Accounting Framework for
-Autonomous Database Agents}
+\title{TaskGate: Accounting and Controlling Cumulative Data Exposure in
+Agentic Database Systems}
 
 \author{Anonymous Author(s)%
 \thanks{The artifact includes a controlled local PostgreSQL performance
@@ -151,7 +151,7 @@ The system follows a withhold-before-settlement discipline:
 \end{center}
 
 The visible query and its ordinal provenance companion observe one frozen
-publication in a PostgreSQL snapshot. The gateway releases neither until a
+publication in a PostgreSQL snapshot. The TaskGate enforcement layer releases neither until a
 control-database transaction has computed exact bitmap differences, advanced
 one three-dimensional root head, checked all Catalog limits, settled resource
 use, stored the encrypted result, and persisted audit and receipt evidence. A
@@ -642,7 +642,7 @@ $|\accounted_T^D|+|\Delta_T^D|\leq B_D$ and
 $|\accounted_T^O|+|\Delta_T^O|\leq B_O$.
 
 The word ``accounted'' is intentional. Release facts describe delivered values,
-but dependency FactIDs remain internal to the gateway; the agent receives
+but dependency FactIDs remain internal to the enforcement layer; the agent receives
 only result data, counts, and receipt digests. Hence $\accounted_T^D$ is not a
 set of facts known by the agent, and no component is a complete epistemic
 or privacy-loss state.  The wire and storage label \code{influence} is retained
@@ -744,7 +744,7 @@ and \code{MIN/MAX}$\to$the input type.  \code{SUM(real)} and
 non-associative, so a floating-point SUM depends on the physical aggregation
 order, which the typed bag and the normal form do not fix.  Any cast,
 arithmetic, aggregate, witness-multiplicity, or canonical-range overflow makes
-evaluation undefined and the gateway releases and settles nothing.
+evaluation undefined and the enforcement layer releases and settles nothing.
 
 \subsection{Annotated Bags and Complete Output Keys}
 
@@ -1085,7 +1085,7 @@ only projection/reordering of already computed outputs is accepted above it.
 The current composer admits one outer semantic root and rejects a query-time
 join to another Product and \code{ORDER BY}/\code{LIMIT}/\code{OFFSET} above
 the root. The signed public Grant continues to name only that root. For each
-query the Gateway deterministically derives least-privilege internal grants for
+query the TaskGate enforcement layer deterministically derives least-privilege internal grants for
 the artifact's terminal Products; root scopes are translated through
 \code{Artifact.Output.FieldID}, and every terminal mandatory scope must be
 covered or execution rejects before reservation. These internal grants are
@@ -1158,7 +1158,7 @@ proof is in the supplement.
 
 \subsection{Atomic Settlement}
 
-For one successful V4 query, the gateway performs the following steps
+For one successful V4 query, the enforcement layer performs the following steps
 (Fig.~\ref{fig:architecture-settlement}b):
 
 \begin{enumerate}
@@ -1196,7 +1196,7 @@ result-encoding versions. A hit skips Business and provenance SQL but still
 reauthorizes, charges ordinary query/row resources, writes audit and a new
 receipt, and re-encrypts under the new query's AAD. Cross-grant mismatch, cache
 miss, erased key, removed result, or failed digest verification returns to the
-novel path; the gateway never guesses a hit.
+novel path; the enforcement layer never guesses a hit.
 
 Activating $P_{e+1}$ changes the Catalog, publication, and dictionary-set
 digests, so its semantic replay identity cannot equal a $P_e$ identity. New
@@ -1355,7 +1355,7 @@ set manifests, one three-dimensional head/epoch per root, committed
 observations, and constant-size query references. It also stores
 content-addressed canonical View-binding sets, a task-to-dependency reverse
 index, and the monotonic \code{ACTIVE}/\code{REQUIRE\_REBIND} status. Canonical payload blocks are
-cold and expanded only for audit; they do not occupy the Gateway's resident hot
+cold and expanded only for audit; they do not occupy the enforcement layer's resident hot
 heap. Result rows are encrypted with AES-GCM and audit events form a hash chain.
 A single high-cardinality semaphore isolates million-fact derivation from the
 small-query pool; a query-private encrypted spool is used once the configured
@@ -1423,10 +1423,10 @@ implementation.
 \subsection{Questions and Reproducibility}
 
 The evaluation is organized around five questions: RQ1 ground-truth accuracy;
-RQ2 rewrite invariance of exposure accounting; RQ3 resistance to split, page,
-retry, zero/empty threshold probing, snapshot-identity substitution,
-join/union, delegation, and concurrency amplification; RQ4 legacy bottlenecks
-and V4 gates; and RQ5 safe daily refresh. Results are regenerated for
+RQ2 rewrite invariance of exposure accounting; RQ3 accounting conservation
+under deterministic scripted split, page, retry, zero/empty threshold probing,
+snapshot-identity substitution, join/union, delegation, and concurrency
+patterns; RQ4 legacy bottlenecks and V4 gates; and RQ5 safe daily refresh. Results are regenerated for
 \ExposureProfile{} from the digest-bound corpus \ExposureCorpusHash{}. RQ2's
 primary evidence is closed-language FactSet/charge invariance; broad SQL
 result-equivalence and detailed RQ4 protocols remain in the supplement. Each
@@ -1495,7 +1495,7 @@ not a controlled speedup experiment.}
 \resizebox{\columnwidth}{!}{%
 \begin{tabular}{lrrrr}
 \toprule
-Path & dependencies & novel & replay & Gateway peak \\
+Path & dependencies & novel & replay & Enforcement-layer peak \\
 \midrule
 Legacy materialized & \RQFourScaleMaxFacts{} &
 \RQFourScaleHighNovelS{}~s & \RQFourScaleHighReplayS{}~s &
@@ -1516,7 +1516,7 @@ In one fixed-host deployment, all
 and \RQFourVFourOutcomeFacts{} outcome facts, novel p50/p95 is
 \RQFourVFourNovelMedianS{}/\RQFourVFourNovelTailS{}~s, replay p50/p95 is
 \RQFourVFourReplayMedianMS{}/\RQFourVFourReplayTailMS{}~ms with no Business SQL,
-and Gateway cgroup peak is \RQFourVFourGatewayPeakMiB{}~MiB. Exact result/effect
+and enforcement-layer cgroup peak is \RQFourVFourGatewayPeakMiB{}~MiB. Exact result/effect
 digests cover Scan, the representative two-source Join--Group fixture, Union,
 Page, and 0/50/90/100\% dependency
 overlap. Build, verification, activation, stage, storage, and small-query
@@ -1639,14 +1639,14 @@ semantic preservation or View-DAG discovery/performance at enterprise scale.
 \textbf{Cost and deployment.} The measured legacy per-Fact path is expensive:
 the million-fact result is
 \RQFourScaleHighNovelS{}/\RQFourScaleHighReplayS{}~s novel/replay and
-\RQFourScaleGatewayGiB{}~GiB gateway memory. V4 removes that hot-path
+\RQFourScaleGatewayGiB{}~GiB enforcement-layer memory. V4 removes that hot-path
 representation; in the measured campaign its maximum-point novel/replay
 p50 is \RQFourVFourNovelMedianS{}~s/\RQFourVFourReplayMedianMS{}~ms and its cgroup
 peak is \RQFourVFourGatewayPeakMiB{}~MiB. Immutable indexes shift rather than
 erase cost: only \RQFourVFourBuildRuns{} build and one deployment were measured,
 and dynamic dictionaries, same-root CAS contention, retention automation, encrypted
 spooling, and audit expansion still require production evaluation. The single
-gateway, local tokens, demo approval service, and one connector do not establish
+enforcement-layer instance, local tokens, demo approval service, and one connector do not establish
 distributed, production, multi-engine, or live-agent behavior.
 
 \section{Conclusion}

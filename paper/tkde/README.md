@@ -1,7 +1,9 @@
 # TaskGate TKDE working draft
 
 This is a separate database-paper project derived from the implementation and
-the requirements in [../../tkde.md](../../tkde.md). It is not a template
+the historical gap analysis in [../../tkde.md](../../tkde.md). Its current
+title is *TaskGate: Accounting and Controlling Cumulative Data Exposure in
+Agentic Database Systems*. It is not a template
 conversion of the TDSC security-gateway draft.
 
 ## Versioning and submission status

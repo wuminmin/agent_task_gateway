@@ -23,8 +23,8 @@
 \newcommand{\rieffect}{\mathcal E^{ri}}
 \input{generated/evidence.tex}
 
-\title{Supplement to ``TaskGate: Task-Scoped Query-Outcome and Exposure
-Accounting over Versioned Reporting Snapshots''}
+\title{Supplement to ``TaskGate: Accounting and Controlling Cumulative Data
+Exposure in Agentic Database Systems''}
 \author{Anonymous Author(s)}
 \date{}
 
@@ -309,7 +309,7 @@ index from each task/Product to every reachable schema-qualified dependency.
 Task binding begins \code{ACTIVE}. Any current compile failure or mismatch of
 the persisted set makes \code{REQUIRE\_REBIND} durable; database constraints
 prevent a transition back to \code{ACTIVE}. Exact terminal replay is looked up
-before this new-work gate. Otherwise the Gateway re-resolves the current set,
+before this new-work gate. Otherwise the enforcement layer re-resolves the current set,
 reserves ordinary resources, and the connector rechecks the registry revision
 inside the same Business-PG snapshot used by visible and companion SQL. A
 connector mismatch releases the reservation and settles no exposure. Rebind
@@ -317,7 +317,7 @@ creates a new root request and external approval from the old Grant's final narr
 scope; no Grant, historical query, result, or receipt is rewritten.
 
 The signed Grant remains at the semantic-root interface; expanded terminal
-Products are not silently added to its approved set. For each query the Gateway
+Products are not silently added to its approved set. For each query the enforcement layer
 derives an ephemeral least-privilege policy grant for every terminal named by
 the bound artifact. Public scope outputs are resolved through
 \code{Artifact.Output.FieldID} to stable terminal role/column pairs, and every
@@ -523,7 +523,7 @@ the physical representation does not alter the safety argument.
 \section{V3 Outcome Wrapper}
 
 V3 leaves every V2 release/dependency FactID unchanged. After the V2
-observation is normalized, the gateway computes
+observation is normalized, the enforcement layer computes
 \[
  h_R=H(\code{TASKGATE-OUTCOME-DIGEST-V1},m,
        \operatorname{sort}\{\operatorname{Canon}(f):f\in F_r\})
@@ -591,10 +591,10 @@ checks exact cardinalities and set/observation digests. A distinct,
 source-bound supplement now covers the obligations that report did not imply:
 \RQFourVFourDistributionCells{} dense/clustered/random-sparse--overlap cells,
 public-path same-root batches of widths \RQFourVFourConcurrencyWidths{} through
-\RQFourVFourConcurrencyGateways{} Gateway replicas, and an offline
+\RQFourVFourConcurrencyGateways{} enforcement-layer replicas, and an offline
 derivation-independent comparison of all \RQFourVFourOracleFacts{} facts.
 
-The layout result is a bitmap-kernel measurement, not Gateway end-to-end
+The layout result is a bitmap-kernel measurement, not TaskGate end-to-end
 latency: \RQFourVFourDistributionRoundTrips{} exact portable complete-set
 round-trip checks pass at their actual cardinalities, and the worst
 ANDNOT--popcount--OR p95 is
@@ -706,7 +706,7 @@ an exposure/provenance overhead claim.
 All recorded timings in this subsection predate the V4 ordinal path. They
 exercise the V2 release/dependency subledger, the dominant materialized set
 retained inside V3: millions of canonical payload/string/map objects are
-derived in the Gateway and inserted as individual FactID rows. V3 functional
+derived in the enforcement layer and inserted as individual FactID rows. V3 functional
 and race tests additionally execute the outcome insert and V5 receipt, but the
 artifact does not isolate its one-fact latency at every scale. These results are
 a reproducible diagnosis and regression baseline, not evidence that V4 meets
@@ -714,7 +714,7 @@ its performance gates.
 
 The controlled local campaign uses an i9-13900HX host with 32 logical CPUs and
 16.6~GB RAM under WSL2/Docker 29.1.3. Each of three trials creates fresh
-Business and Control PostgreSQL~16.14 databases, a gateway, one root task, and
+Business and Control PostgreSQL~16.14 databases, one enforcement-layer instance, one root task, and
 eight delegated workers. After a 32-query history ramp, each worker issues 200
 measured warm-cache queries at concurrency 1, 4, and 8. Every full-path request
 enters through public MCP and includes authorization, reservation, paired
@@ -901,7 +901,7 @@ is \RQFourScaleHighReplayS{}~s [\RQFourScaleHighReplayLowS{},
 \RQFourScaleHighReplayDeriveS{}~s replay; fact-store work consumes
 \RQFourScaleHighNovelStoreS{} and \RQFourScaleHighReplayStoreS{}~s,
 respectively, versus \RQFourScaleHighDirectMS{}~ms for direct SQL. Campaign-wide
-peaks are \RQFourScaleGatewayGiB{}~GiB for the gateway and
+peaks are \RQFourScaleGatewayGiB{}~GiB for the enforcement layer and
 \RQFourScaleControlGiB{}~GiB for Control PostgreSQL. Thus ordinary SQL is not
 the bottleneck: legacy full relation-to-FactSet derivation and per-fact storage
 dominate both paths, while replay still repeats derivation and membership work.
@@ -991,7 +991,7 @@ the retained chain but cannot independently re-hash those omitted payloads.
 
 \textbf{Online transition campaign.}
 This is a separate \RQFiveRows-row campaign over four retained,
-Catalog-bound Gateway services and frozen PostgreSQL snapshots, sharing an
+Catalog-bound enforcement-layer services and frozen PostgreSQL snapshots, sharing an
 isolated Control database. An experiment-only approval-time router changes
 which concrete service new root approvals select; it neither adds a query-time
 \code{latest} alias nor measures a production router. Table~\ref{tab:rq5-online-supp}
