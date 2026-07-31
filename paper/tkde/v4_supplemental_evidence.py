@@ -15,14 +15,16 @@ location.  It never creates, rewrites, or repairs evidence.
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import math
 import os
 import re
 import stat
 import struct
+import tarfile
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
 
 
@@ -31,6 +33,10 @@ V4_RESULTS_REL = Path("evaluation/v4-acceptance/evidence/results.json")
 CONCURRENCY_SOURCE_REL = Path("evaluation/cmd/v4-concurrency/source.go")
 ORACLE_SOURCE_REL = Path("evaluation/v4oracle/source.go")
 VALIDATOR_REL = Path("paper/tkde/v4_supplemental_evidence.py")
+HISTORICAL_SOURCE_REL = Path(
+    "evaluation/v4-supplemental/history/historical-source-fede479.json")
+HISTORICAL_ARCHIVE_REL = Path(
+    "evaluation/v4-supplemental/history/historical-source-fede479.tar.gz")
 
 LOCAL_ARTIFACTS = {
     "README.md",
@@ -57,6 +63,34 @@ MAXIMUMS = {
 }
 
 MANIFEST_SOURCE_ALGORITHM = "sha256(path\\0bytes\\0) over sorted generalized supplemental source scope v1"
+HISTORICAL_ARCHIVE_GENERATION = (
+    "git -c tar.umask=0022 archive --format=tar <commit> -- "
+    "<sorted generalized source paths> | gzip -n -9"
+)
+HISTORICAL_SOURCE_SELECTION = (
+    "generalized supplemental source scope reconstructed from archived "
+    "concurrency/oracle declarations and fixed validator inputs"
+)
+EXPECTED_HISTORICAL_CAMPAIGN = "taskgate-v4-supplemental-fede479"
+EXPECTED_HISTORICAL_COMMIT = "fede4798add8bb7bbf5793466efc9cf857c4bb8a"
+EXPECTED_HISTORICAL_TREE = "24a3f56ed5d5f53b6fe6595c70563ae4bfff5701"
+EXPECTED_HISTORICAL_ARCHIVE_SHA256 = (
+    "6f09478f6b7a8f7e75790574425d84f14511bde725af8273d0ba1f207932c329")
+EXPECTED_HISTORICAL_SCOPE_SHA256 = (
+    "27ac9c29d845b62616f968738559387bd9adbeb9b91f0017684156878a26f6e3")
+EXPECTED_HISTORICAL_PATHS_SHA256 = (
+    "773e4181046db2fc7f71ca4edaa0e5120534a863ee5044e2216336e528f30808")
+EXPECTED_HISTORICAL_CONCURRENCY_SHA256 = (
+    "127538d36adc3de86000912a264c22f1383547fa0e4019222b21db619c3163a7")
+EXPECTED_HISTORICAL_ORACLE_REPOSITORY_SHA256 = (
+    "7940e52f97d3c181f2faf3110dd66b152bab2bb57b075dde2eab533d71a0b190")
+EXPECTED_HISTORICAL_ORACLE_PACKAGE_SHA256 = (
+    "9d08afa983fd48ae6a98187e79666fdbf76b0be7cf1791591b355b1ce9c488ed")
+EXPECTED_HISTORICAL_SCOPE_FILES = 138
+EXPECTED_HISTORICAL_CONCURRENCY_FILES = 113
+EXPECTED_HISTORICAL_ORACLE_REPOSITORY_FILES = 52
+EXPECTED_HISTORICAL_ARCHIVE_MEMBERS = 157
+EXPECTED_HISTORICAL_MTIME = 1_785_410_678
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 MAX_POINT = (12, 1_035_000, 1)
 TOTAL_MAX_POINT = sum(MAX_POINT)
@@ -378,7 +412,259 @@ def _generalized_source_scope(root: Path) -> tuple[str, int, list[Path]]:
     return _path_zero_digest(root, paths), len(paths), paths
 
 
-def _load_manifest(root: Path, evidence_dir: Path | str | None) -> tuple[dict[str, Any], dict[str, bytes]]:
+def _memory_source_declarations(files: dict[str, bytes], relative: Path,
+                                roots_name: str, files_name: str) -> tuple[list[str], list[str]]:
+    name = relative.as_posix()
+    _require(name in files, f"historical source archive omits {name}")
+    try:
+        source = files[name].decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ValueError(f"V4 supplemental evidence: archived {name} is not UTF-8") from error
+    return _parse_go_string_slice(source, roots_name), _parse_go_string_slice(source, files_name)
+
+
+def _memory_walk_source_names(files: dict[str, bytes], roots: Iterable[str],
+                              explicit: Iterable[str], suffixes: tuple[str, ...]) -> list[str]:
+    result: list[str] = []
+    for relative in roots:
+        parts = PurePosixPath(relative).parts
+        _require(parts and all(part not in {"", ".", ".."} for part in parts),
+                 f"unsafe archived source root {relative!r}")
+        prefix = relative.rstrip("/") + "/"
+        selected = sorted(
+            name for name in files
+            if name.startswith(prefix) and PurePosixPath(name).suffix in suffixes
+        )
+        _require(bool(selected), f"archived source root {relative} contains no selected source")
+        result.extend(selected)
+    for relative in explicit:
+        parts = PurePosixPath(relative).parts
+        _require(parts and all(part not in {"", ".", ".."} for part in parts) and relative in files,
+                 f"archived explicit source {relative!r} is invalid")
+        result.append(relative)
+    normalized = sorted(result)
+    _require(len(normalized) == len(set(normalized)), "archived source scope repeats a path")
+    return normalized
+
+
+def _memory_path_zero_digest(files: dict[str, bytes], names: Iterable[str]) -> str:
+    digest = hashlib.sha256()
+    for name in names:
+        digest.update(name.encode())
+        digest.update(b"\0")
+        digest.update(files[name])
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _historical_source_snapshot(provenance_raw: bytes, archive_raw: bytes) -> dict[str, Any]:
+    """Safely reconstruct every source binding recorded by the July campaign."""
+
+    provenance = _decode_json(provenance_raw, "supplemental historical source provenance")
+    _fields(provenance, {
+        "schema_version", "campaign_id", "git_commit", "git_tree", "archive",
+        "archive_sha256", "archive_generation", "source_scope_sha256",
+        "source_scope_files", "source_paths_sha256", "source_scope_algorithm",
+        "source_selection",
+    }, "supplemental historical source provenance")
+    _require(
+        _integer(provenance["schema_version"], "historical source schema") == 1 and
+        provenance["campaign_id"] == EXPECTED_HISTORICAL_CAMPAIGN and
+        provenance["git_commit"] == EXPECTED_HISTORICAL_COMMIT and
+        provenance["git_tree"] == EXPECTED_HISTORICAL_TREE and
+        provenance["archive"] == HISTORICAL_ARCHIVE_REL.as_posix() and
+        provenance["archive_generation"] == HISTORICAL_ARCHIVE_GENERATION and
+        provenance["source_scope_algorithm"] == MANIFEST_SOURCE_ALGORITHM and
+        provenance["source_selection"] == HISTORICAL_SOURCE_SELECTION,
+        "supplemental historical source identity/commit/algorithm is invalid",
+    )
+    _require(0 < len(archive_raw) <= 4 << 20,
+             "supplemental historical source archive exceeds its compressed bound")
+    _require(archive_raw[:10] == b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x02\x03",
+             "supplemental historical source archive lacks the deterministic gzip header")
+    archive_sha = _sha(archive_raw)
+    _require(
+        archive_sha == _digest(provenance["archive_sha256"], "historical archive") ==
+        EXPECTED_HISTORICAL_ARCHIVE_SHA256,
+        "supplemental historical source archive digest is stale",
+    )
+    _require(
+        _digest(provenance["source_scope_sha256"], "historical generalized source") ==
+        EXPECTED_HISTORICAL_SCOPE_SHA256 and
+        _integer(provenance["source_scope_files"], "historical source files", minimum=1) ==
+        EXPECTED_HISTORICAL_SCOPE_FILES and
+        _digest(provenance["source_paths_sha256"], "historical source paths") ==
+        EXPECTED_HISTORICAL_PATHS_SHA256,
+        "supplemental historical source provenance differs",
+    )
+
+    files: dict[str, bytes] = {}
+    directories: set[str] = set()
+    members: set[str] = set()
+    member_count = 0
+    total_bytes = 0
+    pax_headers: dict[str, str] = {}
+    try:
+        with tarfile.open(fileobj=io.BytesIO(archive_raw), mode="r|gz") as archive:
+            for member in archive:
+                member_count += 1
+                _require(member_count <= 256, "supplemental historical archive has too many members")
+                name = member.name
+                path = PurePosixPath(name)
+                _require(
+                    isinstance(name, str) and name and name == path.as_posix() and
+                    not path.is_absolute() and "\\" not in name and "\0" not in name and
+                    all(part not in {"", ".", ".."} for part in path.parts) and
+                    name not in members,
+                    f"unsafe or duplicate supplemental historical source member {name!r}",
+                )
+                members.add(name)
+                _require(
+                    member.uid == 0 and member.gid == 0 and member.uname == "root" and
+                    member.gname == "root" and member.mtime == EXPECTED_HISTORICAL_MTIME and
+                    member.pax_headers == {"comment": EXPECTED_HISTORICAL_COMMIT} and
+                    not member.linkname,
+                    f"supplemental historical source member {name!r} metadata is not deterministic",
+                )
+                if member.isdir():
+                    _require(member.size == 0 and member.mode == 0o755,
+                             f"supplemental historical directory {name!r} metadata is invalid")
+                    directories.add(name)
+                    continue
+                _require(member.isreg() and member.mode in {0o644, 0o755},
+                         f"supplemental historical member {name!r} is not a regular file")
+                _require(0 < member.size <= 16 << 20,
+                         f"supplemental historical member {name!r} exceeds its bound")
+                total_bytes += member.size
+                _require(total_bytes <= 16 << 20,
+                         "supplemental historical archive exceeds its decompressed bound")
+                extracted = archive.extractfile(member)
+                _require(extracted is not None,
+                         f"cannot read supplemental historical source member {name!r}")
+                raw = extracted.read(member.size + 1)
+                _require(len(raw) == member.size,
+                         f"supplemental historical source member {name!r} changed size")
+                files[name] = raw
+            pax_headers = dict(archive.pax_headers)
+    except (tarfile.TarError, OSError, EOFError) as error:
+        raise ValueError(f"V4 supplemental evidence: invalid historical source archive: {error}") from error
+    _require(pax_headers == {"comment": EXPECTED_HISTORICAL_COMMIT},
+             "supplemental historical archive does not bind the exact Git commit")
+
+    expected_directories: set[str] = set()
+    for name in files:
+        parent = PurePosixPath(name).parent
+        while parent != PurePosixPath("."):
+            expected_directories.add(parent.as_posix())
+            parent = parent.parent
+    _require(
+        member_count == EXPECTED_HISTORICAL_ARCHIVE_MEMBERS and
+        directories == expected_directories and members == directories | set(files),
+        "supplemental historical archive directory/member set is not exact",
+    )
+
+    concurrency_roots, concurrency_explicit = _memory_source_declarations(
+        files, CONCURRENCY_SOURCE_REL, "boundSourceRoots", "boundSourceFiles")
+    concurrency_names = _memory_walk_source_names(
+        files, concurrency_roots, concurrency_explicit, (".go", ".sql"))
+    oracle_roots, oracle_explicit = _memory_source_declarations(
+        files, ORACLE_SOURCE_REL, "repositorySourceRoots", "repositorySourceFiles")
+    oracle_names = _memory_walk_source_names(files, oracle_roots, oracle_explicit, (".go",))
+    distribution_names = _memory_walk_source_names(
+        files, ["evaluation/cmd/v4-distribution", "evaluation/v4distribution"], [], (".go",))
+
+    generalized = {name: None for name in concurrency_names + oracle_names + distribution_names}
+    for name in (
+        VALIDATOR_REL.as_posix(),
+        "evaluation/v4-concurrency/README.md",
+        "evaluation/v4-concurrency/catalog.yaml",
+        "evaluation/v4-concurrency/compose.yaml",
+        "evaluation/v4-concurrency/template.json",
+        "paper/tkde/test_v4_supplemental_evidence.py",
+    ):
+        _require(name in files, f"supplemental historical archive omits fixed source {name}")
+        generalized[name] = None
+    generalized_names = sorted(generalized)
+    _require(set(generalized_names) == set(files),
+             "supplemental historical archive differs from its reconstructed source scope")
+
+    path_digest = hashlib.sha256()
+    for name in generalized_names:
+        path_digest.update(name.encode())
+        path_digest.update(b"\0")
+    generalized_sha = _memory_path_zero_digest(files, generalized_names)
+    concurrency_sha = _memory_path_zero_digest(files, concurrency_names)
+
+    oracle_digest = hashlib.sha256()
+    for name in oracle_names:
+        encoded = name.encode()
+        oracle_digest.update(struct.pack(">Q", len(encoded)))
+        oracle_digest.update(encoded)
+        oracle_digest.update(struct.pack(">Q", len(files[name])))
+        oracle_digest.update(files[name])
+    package_digest = hashlib.sha256()
+    for basename in ("cold.go", "oracle.go", "sorter.go", "source.go", "types.go"):
+        name = "evaluation/v4oracle/" + basename
+        raw = files[name]
+        encoded = basename.encode()
+        package_digest.update(struct.pack(">Q", len(encoded)))
+        package_digest.update(encoded)
+        package_digest.update(struct.pack(">Q", len(raw)))
+        package_digest.update(raw)
+
+    _require(
+        len(generalized_names) == EXPECTED_HISTORICAL_SCOPE_FILES and
+        generalized_sha == provenance["source_scope_sha256"] == EXPECTED_HISTORICAL_SCOPE_SHA256 and
+        path_digest.hexdigest() == provenance["source_paths_sha256"] ==
+        EXPECTED_HISTORICAL_PATHS_SHA256 and
+        len(concurrency_names) == EXPECTED_HISTORICAL_CONCURRENCY_FILES and
+        concurrency_sha == EXPECTED_HISTORICAL_CONCURRENCY_SHA256 and
+        len(oracle_names) == EXPECTED_HISTORICAL_ORACLE_REPOSITORY_FILES and
+        oracle_digest.hexdigest() == EXPECTED_HISTORICAL_ORACLE_REPOSITORY_SHA256 and
+        package_digest.hexdigest() == EXPECTED_HISTORICAL_ORACLE_PACKAGE_SHA256,
+        "supplemental historical source bindings are not reproducible",
+    )
+    return {
+        "mode": "historical_source_snapshot",
+        "git_commit": EXPECTED_HISTORICAL_COMMIT,
+        "git_tree": EXPECTED_HISTORICAL_TREE,
+        "archive_sha256": archive_sha,
+        "source_scope_sha256": generalized_sha,
+        "source_scope_files": len(generalized_names),
+        "source_scope_paths": generalized_names,
+        "source_paths_sha256": path_digest.hexdigest(),
+        "concurrency_source_sha256": concurrency_sha,
+        "concurrency_source_files": len(concurrency_names),
+        "oracle_repository_sha256": oracle_digest.hexdigest(),
+        "oracle_repository_files": len(oracle_names),
+        "oracle_package_sha256": package_digest.hexdigest(),
+        "archive_member_count": member_count,
+        "archive_uncompressed_source_bytes": total_bytes,
+    }
+
+
+def _current_source_relation(root: Path, historical_sha256: str) -> dict[str, Any]:
+    try:
+        current_sha, current_files, _ = _generalized_source_scope(root)
+    except ValueError as error:
+        return {
+            "status": "unavailable", "current_source_sha256": None,
+            "current_source_files": None, "historical_source_sha256": historical_sha256,
+            "matches_historical": False, "reason": str(error),
+        }
+    matches = current_sha == historical_sha256
+    return {
+        "status": "match" if matches else "diverged",
+        "current_source_sha256": current_sha,
+        "current_source_files": current_files,
+        "historical_source_sha256": historical_sha256,
+        "matches_historical": matches,
+    }
+
+
+def _load_manifest(root: Path, evidence_dir: Path | str | None,
+                   historical_source: dict[str, Any] | None = None
+                   ) -> tuple[dict[str, Any], dict[str, bytes]]:
     directory = root / EVIDENCE_REL if evidence_dir is None else Path(evidence_dir)
     try:
         info = os.lstat(directory)
@@ -421,8 +707,12 @@ def _load_manifest(root: Path, evidence_dir: Path | str | None) -> tuple[dict[st
         _require(_sha(raw) == _digest(artifacts[relative], f"artifact digest {relative}"),
                  f"artifact SHA-256 differs for {relative}")
         retained[relative] = raw
-    current_sha, current_files, _ = _generalized_source_scope(root)
-    _require(scope["sha256"] == current_sha and scope["files"] == current_files,
+    if historical_source is None:
+        expected_sha, expected_files, _ = _generalized_source_scope(root)
+    else:
+        expected_sha = historical_source["source_scope_sha256"]
+        expected_files = historical_source["source_scope_files"]
+    _require(scope["sha256"] == expected_sha and scope["files"] == expected_files,
              "generalized source scope is stale")
     return manifest, retained
 
@@ -856,7 +1146,9 @@ def _content_counts(value: Any, label: str) -> dict[str, int]:
 
 
 def _validate_concurrency_report(value: dict[str, Any], config: dict[str, Any],
-                                 config_raw: bytes, root: Path) -> dict[str, Any]:
+                                 config_raw: bytes, root: Path,
+                                 historical_source_sha256: str | None = None
+                                 ) -> dict[str, Any]:
     report = _fields(value, {
         "schema_version", "status", "acceptance", "started_at", "finished_at", "configuration",
         "provenance", "metric_notes", "cells", "gates",
@@ -899,9 +1191,13 @@ def _validate_concurrency_report(value: dict[str, Any], config: dict[str, Any],
              "concurrency report summary differs from bound config")
     provenance = _fields(report["provenance"], {"config_sha256", "source_sha256"},
                          "concurrency.provenance")
-    current_source, _ = _concurrency_source_scope(root)
+    if historical_source_sha256 is None:
+        expected_source, _ = _concurrency_source_scope(root)
+    else:
+        expected_source = _digest(
+            historical_source_sha256, "historical concurrency source")
     _require(provenance["config_sha256"] == _sha(config_raw) and
-             provenance["source_sha256"] == current_source,
+             provenance["source_sha256"] == expected_source,
              "concurrency config/source binding is stale")
     notes = _fields(report["metric_notes"], {
         "client_latency_ms", "root_lock_waiters", "inference_boundary", "failure_audit",
@@ -1100,7 +1396,9 @@ def _maximum_point_identity(results: dict[str, Any]) -> dict[str, str]:
 
 
 def _validate_oracle_report(value: dict[str, Any], results: dict[str, Any],
-                            results_sha256: str, root: Path) -> dict[str, Any]:
+                            results_sha256: str, root: Path,
+                            historical_source: dict[str, Any] | None = None
+                            ) -> dict[str, Any]:
     report = _fields(value, {
         "schema_version", "oracle_id", "status", "started_at", "finished_at", "provenance",
         "independence_boundary", "observation", "fact_checks", "witness_checks", "resources", "gates",
@@ -1115,12 +1413,25 @@ def _validate_oracle_report(value: dict[str, Any], results: dict[str, Any],
         "results_sha256", "oracle_package_sha256", "repository_source_scope_sha256",
         "repository_source_scope_files", "executable_sha256", "cold_artifacts",
     }, "oracle.provenance")
-    repository_sha, repository_paths = _oracle_repository_source_scope(root)
+    if historical_source is None:
+        repository_sha, repository_paths = _oracle_repository_source_scope(root)
+        repository_files = len(repository_paths)
+        package_sha = _oracle_package_digest(root)
+    else:
+        repository_sha = _digest(
+            historical_source["oracle_repository_sha256"],
+            "historical oracle repository source")
+        repository_files = _integer(
+            historical_source["oracle_repository_files"],
+            "historical oracle repository source files", minimum=1)
+        package_sha = _digest(
+            historical_source["oracle_package_sha256"],
+            "historical oracle package source")
     _require(provenance["results_sha256"] == results_sha256 and
-             provenance["oracle_package_sha256"] == _oracle_package_digest(root) and
+             provenance["oracle_package_sha256"] == package_sha and
              provenance["repository_source_scope_sha256"] == repository_sha and
              _integer(provenance["repository_source_scope_files"],
-                      "oracle repository source file count", minimum=1) == len(repository_paths) and
+                      "oracle repository source file count", minimum=1) == repository_files and
              isinstance(provenance["executable_sha256"], str) and
              HEX64.fullmatch(provenance["executable_sha256"]) is not None,
              "oracle evidence/source/executable binding is stale")
@@ -1260,8 +1571,10 @@ def validate_v4_supplemental_evidence(repository_root: Path | str,
 
     ``evidence_dir`` changes only where the six local evidence files are read;
     manifest artifact names remain canonical repository-relative names.  The
-    retained base V4 results and every source binding are always resolved from
-    ``repository_root``.
+    retained base V4 results are always resolved from ``repository_root``.
+    The canonical source-controlled pack is bound to its immutable historical
+    source archive; an alternate candidate directory remains bound to the
+    current repository source so it can be checked before archival.
     """
     root = Path(repository_root)
     try:
@@ -1270,7 +1583,12 @@ def validate_v4_supplemental_evidence(repository_root: Path | str,
         raise ValueError(f"V4 supplemental evidence: cannot stat repository root: {error}") from error
     _require(stat.S_ISDIR(root_info.st_mode) and not stat.S_ISLNK(root_info.st_mode),
              "repository root is missing or a symlink")
-    manifest, retained = _load_manifest(root, evidence_dir)
+    historical_source = None
+    if evidence_dir is None:
+        provenance_raw = _read_regular(root / HISTORICAL_SOURCE_REL, 1 << 20)
+        archive_raw = _read_regular(root / HISTORICAL_ARCHIVE_REL, 4 << 20)
+        historical_source = _historical_source_snapshot(provenance_raw, archive_raw)
+    manifest, retained = _load_manifest(root, evidence_dir, historical_source)
     local_prefix = EVIDENCE_REL.as_posix() + "/"
     artifact = lambda name: retained[local_prefix + name]
 
@@ -1286,13 +1604,28 @@ def validate_v4_supplemental_evidence(repository_root: Path | str,
         _decode_json(concurrency_config_raw, "concurrency config"))
     concurrency = _validate_concurrency_report(
         _decode_json(artifact("concurrency.json"), "concurrency report"),
-        concurrency_config, concurrency_config_raw, root)
+        concurrency_config, concurrency_config_raw, root,
+        None if historical_source is None else historical_source["concurrency_source_sha256"])
     oracle = _validate_oracle_report(
         _decode_json(artifact("million-oracle.json"), "million-Fact oracle report"),
-        results, results_sha, root)
-    source_sha, source_files, source_paths = _generalized_source_scope(root)
+        results, results_sha, root, historical_source)
+    if historical_source is None:
+        source_sha, source_files, current_paths = _generalized_source_scope(root)
+        source_paths = [path.relative_to(root).as_posix() for path in current_paths]
+        current_relation = {
+            "status": "match", "current_source_sha256": source_sha,
+            "current_source_files": source_files, "historical_source_sha256": None,
+            "matches_historical": True,
+        }
+    else:
+        source_sha = historical_source["source_scope_sha256"]
+        source_files = historical_source["source_scope_files"]
+        source_paths = historical_source["source_scope_paths"]
+        current_relation = _current_source_relation(root, source_sha)
     return {
         "manifest": manifest,
+        "historical_source": historical_source,
+        "current_source_relation": current_relation,
         "environment": environment,
         "distribution": distribution,
         "concurrency": concurrency,
@@ -1300,7 +1633,9 @@ def validate_v4_supplemental_evidence(repository_root: Path | str,
         "stats": {
             "source_scope_sha256": source_sha,
             "source_scope_files": source_files,
-            "source_scope_paths": [path.relative_to(root).as_posix() for path in source_paths],
+            "source_scope_paths": source_paths,
+            "current_source_relation": current_relation["status"],
+            "current_source_matches_historical": current_relation["matches_historical"],
             "distribution_cells": 12,
             "distribution_runs_per_cell": distribution["runs_per_cell"],
             "distribution_peak_heap_bytes": distribution["max_peak_heap_bytes"],

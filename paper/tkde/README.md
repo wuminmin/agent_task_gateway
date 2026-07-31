@@ -68,14 +68,18 @@ exposure report. `generate_evidence.py` then verifies:
 - the three-scale representative two-source PostgreSQL 16 Join--Group report,
   its 27 direct/novel/replay points, exact million-fact accounting,
   raw-artifact digest, implementation digest, and service memory peaks;
-- the source-controlled V4 acceptance manifest, current tested-source digest,
-  fixed environment and verification receipts, all 30 implemented gates and
-  all 560 measured operations, including exact overlap, replay identity,
+- the source-controlled V4 acceptance manifest, archived tested-source digest,
+  current-tree divergence metadata, fixed environment and verification
+  receipts, all 30 implemented gates and all 560 measured operations,
+  including exact overlap, replay identity,
   latency, cgroup-memory, network, WAL, offline-build, artifact, activation,
   storage, and small-query-regression checks;
 - the V4 small-query candidate's 832 raw operation samples and Docker-memory
   observations, from which its five benchmark cells are reconstructed before
   comparison with the digest-bound legacy baseline;
+- the V4 supplemental layout, same-root concurrency, and million-Fact oracle
+  pack, whose four source bindings are reconstructed from the retained
+  `fede479...` archive while later source changes remain disclosure metadata;
 - the production Control PostgreSQL storage curve and budget-boundary trials;
 - compact source snapshots for the legacy performance, storage, and scale
   campaigns, each uniquely bound to commit `38a35d7...` and re-hashed from

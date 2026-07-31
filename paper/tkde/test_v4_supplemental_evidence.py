@@ -8,9 +8,12 @@ validator fixtures, not source-controlled empirical evidence.
 from __future__ import annotations
 
 import copy
+import gzip
 import hashlib
+import io
 import json
 import os
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
@@ -20,6 +23,8 @@ from paper.tkde import v4_supplemental_evidence as evidence
 
 
 ROOT = Path(__file__).resolve().parents[2]
+HISTORICAL_PROVENANCE_RAW = (ROOT / evidence.HISTORICAL_SOURCE_REL).read_bytes()
+HISTORICAL_ARCHIVE_RAW = (ROOT / evidence.HISTORICAL_ARCHIVE_REL).read_bytes()
 
 
 def _hex(label: str) -> str:
@@ -28,6 +33,64 @@ def _hex(label: str) -> str:
 
 def _json(value: object) -> bytes:
     return (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
+
+
+def _deterministic_gzip(raw: bytes) -> bytes:
+    compressed = bytearray(gzip.compress(raw, compresslevel=9, mtime=0))
+    compressed[9] = 3
+    return bytes(compressed)
+
+
+def _rewritten_historical_archive(*, replace: dict[str, bytes] | None = None,
+                                  remove: set[str] | None = None,
+                                  extra: list[tuple[tarfile.TarInfo, bytes | None]] | None = None
+                                  ) -> bytes:
+    replace, remove, extra = replace or {}, remove or set(), extra or []
+    entries: list[tuple[tarfile.TarInfo, bytes | None]] = []
+    with tarfile.open(fileobj=io.BytesIO(HISTORICAL_ARCHIVE_RAW), mode="r:gz") as source:
+        for member in source:
+            if member.name in remove:
+                continue
+            raw = source.extractfile(member).read() if member.isfile() else None
+            cloned = copy.copy(member)
+            if member.name in replace:
+                raw = replace[member.name]
+                cloned.size = len(raw)
+            entries.append((cloned, raw))
+    output = io.BytesIO()
+    with tarfile.open(
+        fileobj=output, mode="w", format=tarfile.PAX_FORMAT,
+        pax_headers={"comment": evidence.EXPECTED_HISTORICAL_COMMIT},
+    ) as target:
+        for member, raw in [*entries, *extra]:
+            target.addfile(member, io.BytesIO(raw) if raw is not None else None)
+    return _deterministic_gzip(output.getvalue())
+
+
+def _validate_rebound_historical_archive(archive_raw: bytes) -> dict[str, object]:
+    provenance = evidence._decode_json(
+        HISTORICAL_PROVENANCE_RAW, "test historical provenance")
+    archive_sha = hashlib.sha256(archive_raw).hexdigest()
+    provenance["archive_sha256"] = archive_sha
+    with mock.patch.object(evidence, "EXPECTED_HISTORICAL_ARCHIVE_SHA256", archive_sha):
+        return evidence._historical_source_snapshot(_json(provenance), archive_raw)
+
+
+def _historical_member(name: str, raw: bytes = b"x", *,
+                       member_type: bytes = tarfile.REGTYPE,
+                       linkname: str = "") -> tuple[tarfile.TarInfo, bytes | None]:
+    member = tarfile.TarInfo(name)
+    member.type = member_type
+    member.uid = member.gid = 0
+    member.uname = member.gname = "root"
+    member.mtime = evidence.EXPECTED_HISTORICAL_MTIME
+    member.mode = 0o755 if member_type == tarfile.DIRTYPE else 0o644
+    member.linkname = linkname
+    if member_type == tarfile.REGTYPE:
+        member.size = len(raw)
+        return member, raw
+    member.size = 0
+    return member, None
 
 
 def _bitmap(cardinality: int, label: str, *, containers: int = 1,
@@ -343,6 +406,57 @@ class StrictJSONTests(unittest.TestCase):
                          ["go.mod", "go.sum"])
 
 
+class HistoricalSourceSnapshotTests(unittest.TestCase):
+    def test_canonical_archive_reproduces_all_reported_source_bindings(self) -> None:
+        snapshot = evidence._historical_source_snapshot(
+            HISTORICAL_PROVENANCE_RAW, HISTORICAL_ARCHIVE_RAW)
+        self.assertEqual(snapshot["source_scope_sha256"],
+                         evidence.EXPECTED_HISTORICAL_SCOPE_SHA256)
+        self.assertEqual(snapshot["source_scope_files"], 138)
+        self.assertEqual(snapshot["concurrency_source_sha256"],
+                         evidence.EXPECTED_HISTORICAL_CONCURRENCY_SHA256)
+        self.assertEqual(snapshot["concurrency_source_files"], 113)
+        self.assertEqual(snapshot["oracle_repository_sha256"],
+                         evidence.EXPECTED_HISTORICAL_ORACLE_REPOSITORY_SHA256)
+        self.assertEqual(snapshot["oracle_repository_files"], 52)
+        self.assertEqual(snapshot["oracle_package_sha256"],
+                         evidence.EXPECTED_HISTORICAL_ORACLE_PACKAGE_SHA256)
+        self.assertEqual(snapshot["archive_member_count"], 157)
+
+    def test_outer_archive_digest_tamper_is_rejected(self) -> None:
+        changed = bytearray(HISTORICAL_ARCHIVE_RAW)
+        changed[len(changed) // 2] ^= 1
+        with self.assertRaisesRegex(ValueError, "archive digest is stale"):
+            evidence._historical_source_snapshot(
+                HISTORICAL_PROVENANCE_RAW, bytes(changed))
+
+    def test_inner_source_tamper_is_rejected_after_outer_digest_rebind(self) -> None:
+        name = "internal/gateway/query.go"
+        with tarfile.open(fileobj=io.BytesIO(HISTORICAL_ARCHIVE_RAW), mode="r:gz") as archive:
+            original = archive.extractfile(name).read()
+        changed = _rewritten_historical_archive(
+            replace={name: original + b"\n// tampered\n"})
+        with self.assertRaisesRegex(ValueError, "bindings are not reproducible"):
+            _validate_rebound_historical_archive(changed)
+
+    def test_missing_extra_unsafe_link_and_duplicate_members_are_rejected(self) -> None:
+        cases = [
+            _rewritten_historical_archive(remove={"internal/gateway/query.go"}),
+            _rewritten_historical_archive(extra=[
+                _historical_member("internal/gateway/not-in-scope.go", b"package gateway\n")]),
+            _rewritten_historical_archive(extra=[_historical_member("../escape.go")]),
+            _rewritten_historical_archive(extra=[
+                _historical_member("unsafe-link.go", member_type=tarfile.SYMTYPE,
+                                   linkname="internal/gateway/query.go")]),
+            _rewritten_historical_archive(extra=[
+                _historical_member("internal/gateway/query.go", b"package gateway\n")]),
+        ]
+        for archive_raw in cases:
+            with self.subTest(sha256=hashlib.sha256(archive_raw).hexdigest()), \
+                    self.assertRaises(ValueError):
+                _validate_rebound_historical_archive(archive_raw)
+
+
 class ManifestTests(unittest.TestCase):
     def _directory(self, parent: Path) -> tuple[Path, dict[str, object]]:
         directory = parent / "candidate-evidence"
@@ -432,6 +546,11 @@ class SemanticReportTests(unittest.TestCase):
         report["cells"][1]["contention"]["root_lock_waiters_observed"] = 0  # type: ignore[index]
         with self.assertRaises(ValueError):
             evidence._validate_concurrency_report(report, validated, config_raw, ROOT)
+        source_tamper = _concurrency_report(config, config_raw)
+        source_tamper["provenance"]["source_sha256"] = "0" * 64  # type: ignore[index]
+        with self.assertRaisesRegex(ValueError, "source binding is stale"):
+            evidence._validate_concurrency_report(
+                source_tamper, validated, config_raw, ROOT)
 
     def test_oracle_report_passes_then_detects_tamper(self) -> None:
         report = _oracle_report(self.results, evidence._sha(self.results_raw))
@@ -441,6 +560,11 @@ class SemanticReportTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             evidence._validate_oracle_report(report, self.results,
                                              evidence._sha(self.results_raw), ROOT)
+        source_tamper = _oracle_report(self.results, evidence._sha(self.results_raw))
+        source_tamper["provenance"]["repository_source_scope_sha256"] = "0" * 64  # type: ignore[index]
+        with self.assertRaisesRegex(ValueError, "source/executable binding is stale"):
+            evidence._validate_oracle_report(
+                source_tamper, self.results, evidence._sha(self.results_raw), ROOT)
 
     def test_environment_rejects_secret_text(self) -> None:
         result_sha = evidence._sha(self.results_raw)
@@ -488,6 +612,8 @@ class SourceControlledEvidenceTests(unittest.TestCase):
         self.assertEqual(validated["stats"]["distribution_cells"], 12)
         self.assertEqual(validated["stats"]["concurrency_cells"], 4)
         self.assertEqual(validated["stats"]["oracle_total_compared"], evidence.TOTAL_MAX_POINT)
+        self.assertEqual(validated["current_source_relation"]["status"], "diverged")
+        self.assertFalse(validated["current_source_relation"]["matches_historical"])
 
 
 if __name__ == "__main__":
