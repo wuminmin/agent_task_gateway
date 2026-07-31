@@ -26,6 +26,12 @@ fi
 : "${GATEWAY_CONNECTOR_MAX_ROWS:=1200000}"
 : "${GATEWAY_RECEIPT_KEY_ID:=gateway-integration-ed25519-v1}"
 : "${GATEWAY_RECEIPT_PRIVATE_KEY:=AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=}"
+: "${MINIO_ROOT_USER:=taskgate-integration-admin}"
+: "${MINIO_ROOT_PASSWORD:=taskgate-integration-minio-root-9ad4f6c2e8b1}"
+: "${GATEWAY_OBJECT_STORE_ACCESS_KEY:=taskgate-integration-gateway}"
+: "${GATEWAY_OBJECT_STORE_SECRET_KEY:=taskgate-integration-object-store-7c1e5a9d3f8b}"
+: "${GATEWAY_DELIVERY_SIGNING_KEY:=taskgate-integration-delivery-hmac-6b2d8f4a1c9e}"
+GATEWAY_PUBLIC_BASE_URL=http://127.0.0.1:$GATEWAY_PORT
 : "${CONTROL_POSTGRES_DB:=taskbound_gateway}"
 : "${CONTROL_POSTGRES_ADMIN_PASSWORD:=control-admin-demo-change-me}"
 : "${CONTROL_DB_PASSWORD:=control-app-demo-change-me}"
@@ -43,6 +49,9 @@ export POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD GATEWAY_DB_PASSWORD
 export CONTROL_POSTGRES_DB CONTROL_POSTGRES_ADMIN_PASSWORD CONTROL_DB_PASSWORD
 export CONTROL_POSTGRES_PORT POSTGRES_PORT
 export GATEWAY_DATA_KEY GATEWAY_CONNECTOR_MAX_ROWS GATEWAY_RECEIPT_KEY_ID GATEWAY_RECEIPT_PRIVATE_KEY
+export MINIO_ROOT_USER MINIO_ROOT_PASSWORD
+export GATEWAY_OBJECT_STORE_ACCESS_KEY GATEWAY_OBJECT_STORE_SECRET_KEY
+export GATEWAY_DELIVERY_SIGNING_KEY GATEWAY_PUBLIC_BASE_URL
 export OA_SERVICE_TOKEN OA_CALLBACK_SECRET OA_RECEIPT_KEY_ID OA_RECEIPT_PRIVATE_KEY OA_RECEIPT_PUBLIC_KEY
 export OA_SESSION_SECRET
 export OA_ALICE_PASSWORD OA_BOB_PASSWORD
@@ -51,6 +60,8 @@ TMP_FILE=$(mktemp /tmp/taskbound-integration.XXXXXX)
 ALICE_COOKIE=$(mktemp /tmp/taskbound-alice-cookie.XXXXXX)
 BOB_COOKIE=$(mktemp /tmp/taskbound-bob-cookie.XXXXXX)
 OA_PAGE=$(mktemp /tmp/taskbound-oa-page.XXXXXX)
+DOWNLOAD_FILE=$(mktemp /tmp/taskbound-result-download.XXXXXX)
+DOWNLOAD_HEADERS=$(mktemp /tmp/taskbound-result-headers.XXXXXX)
 
 COMPOSE_PORT_OVERRIDE="services:
   control-postgres:
@@ -131,6 +142,12 @@ cleanup() {
   case "$OA_PAGE" in
     /tmp/taskbound-oa-page.*) rm -f "$OA_PAGE" ;;
   esac
+  case "$DOWNLOAD_FILE" in
+    /tmp/taskbound-result-download.*) rm -f "$DOWNLOAD_FILE" ;;
+  esac
+  case "$DOWNLOAD_HEADERS" in
+    /tmp/taskbound-result-headers.*) rm -f "$DOWNLOAD_HEADERS" ;;
+  esac
   if [ "$KEEP_STACK" != "1" ]; then
     if ! compose down --volumes --remove-orphans >/dev/null 2>&1; then
       echo "warning: failed to remove integration Compose project $PROJECT_NAME" >&2
@@ -173,10 +190,47 @@ assert_not_contains() {
   esac
 }
 
+assert_structured_field_absent() {
+  value=$1
+  field=$2
+  label=$3
+  if printf '%s\n' "$value" | python3 -c '
+import json
+import sys
+
+field = sys.argv[1]
+try:
+    structured = json.load(sys.stdin)["result"]["structuredContent"]
+except (KeyError, TypeError, ValueError):
+    raise SystemExit(2)
+if not isinstance(structured, dict):
+    raise SystemExit(2)
+raise SystemExit(1 if field in structured else 0)
+' "$field"; then
+    return 0
+  else
+    status=$?
+  fi
+  if [ "$status" -eq 1 ]; then
+    fail "$label: structured response unexpectedly contained $field"
+  fi
+  fail "$label: response was not a valid MCP structured result"
+}
+
 json_string() {
   value=$1
   field=$2
   printf '%s\n' "$value" | sed -n "s/.*\"$field\":\"\\([^\"]*\\)\".*/\\1/p" | tail -n 1
+}
+
+# Go's JSON encoder escapes ampersands in structuredContent. Decode only the
+# URL characters emitted by url.Values; do not print the resulting capability.
+json_url() {
+  json_string "$1" "$2" | sed 's/\\u0026/\&/g; s/\\u003d/=/g'
+}
+
+json_single_row() {
+  printf '%s\n' "$1" | sed -n 's/.*"rows":\(\[\[[^]]*]\]\).*/\1/p' | tail -n 1
 }
 
 csrf_from_page() {
@@ -320,7 +374,8 @@ assert_contains "$volume_names" "${PROJECT_NAME}_control-pg-data" "control Postg
 assert_contains "$volume_names" "${PROJECT_NAME}_business-pg-data" "business PostgreSQL volume"
 assert_contains "$volume_names" "${PROJECT_NAME}_snapshot-index-artifacts" "V4 snapshot-index volume"
 assert_contains "$volume_names" "${PROJECT_NAME}_gateway-encrypted-spool" "V4 encrypted spool volume"
-pass "host ports, application accounts, databases, and volumes are isolated"
+assert_contains "$volume_names" "${PROJECT_NAME}_result-object-data" "canonical Parquet object-store volume"
+pass "host ports, application accounts, databases, and PostgreSQL/object-store volumes are isolated"
 
 # MCP authentication is checked before JSON-RPC dispatch.
 unauthorized_status=$(curl_safe --silent --show-error \
@@ -420,15 +475,59 @@ pass "Bob approval gates low-sensitivity summary task"
 summary_query=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
   "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\",\"params\":{\"name\":\"execute_plan\",\"arguments\":{\"task_id\":\"$summary_task\",\"request_id\":\"integration-summary-plan-1\",\"plan\":{\"product\":\"expense_summary\",\"columns\":[\"month\",\"total_amount\"],\"order_by\":[{\"column\":\"month\",\"direction\":\"asc\"}]}}}}")
 assert_contains "$summary_query" '"isError":false' "summary structured plan"
+assert_contains "$summary_query" '"result_id":"' "summary object-backed result"
+assert_contains "$summary_query" '"artifact_status":"AVAILABLE"' "summary object-backed result"
 assert_contains "$summary_query" '"row_count":' "summary structured plan"
 assert_contains "$summary_query" '"exposure":' "summary exposure settlement"
 assert_contains "$summary_query" '"charged_release_facts":' "summary exposure settlement"
+assert_structured_field_absent "$summary_query" rows "summary metadata-only response"
+assert_not_contains "$summary_query" '"object_key":' "summary object-key redaction"
 summary_query_id=$(json_string "$summary_query" query_id)
 [ -n "$summary_query_id" ] || fail "summary query omitted query_id"
-pass "approved summary task executes a structured QueryPlan"
+summary_result_id=$(json_string "$summary_query" result_id)
+[ -n "$summary_result_id" ] || fail "summary query omitted result_id"
 
-# Restart only Gateway; OA and PostgreSQL stay up. The task, budget, encrypted
-# result and audit receipt must remain available from the control PostgreSQL volume.
+summary_preview_first=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
+  "{\"jsonrpc\":\"2.0\",\"id\":91,\"method\":\"tools/call\",\"params\":{\"name\":\"preview_result\",\"arguments\":{\"result_id\":\"$summary_result_id\",\"offset\":0,\"limit\":1}}}")
+assert_contains "$summary_preview_first" '"isError":false' "first Parquet preview page"
+assert_contains "$summary_preview_first" '"offset":0' "first Parquet preview page"
+assert_contains "$summary_preview_first" '"limit":1' "first Parquet preview page"
+assert_contains "$summary_preview_first" '"rows":[[' "first Parquet preview page"
+summary_preview_second=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
+  "{\"jsonrpc\":\"2.0\",\"id\":92,\"method\":\"tools/call\",\"params\":{\"name\":\"preview_result\",\"arguments\":{\"result_id\":\"$summary_result_id\",\"offset\":1,\"limit\":1}}}")
+assert_contains "$summary_preview_second" '"isError":false' "second Parquet preview page"
+assert_contains "$summary_preview_second" '"offset":1' "second Parquet preview page"
+assert_contains "$summary_preview_second" '"limit":1' "second Parquet preview page"
+first_preview_row=$(json_single_row "$summary_preview_first")
+second_preview_row=$(json_single_row "$summary_preview_second")
+[ -n "$first_preview_row" ] && [ -n "$second_preview_row" ] || fail "Parquet preview pages omitted their single row"
+[ "$first_preview_row" != "$second_preview_row" ] || fail "Parquet preview pagination returned the same row for offsets 0 and 1"
+
+summary_delivery=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
+  "{\"jsonrpc\":\"2.0\",\"id\":93,\"method\":\"tools/call\",\"params\":{\"name\":\"deliver_result\",\"arguments\":{\"result_id\":\"$summary_result_id\",\"format\":\"parquet\"}}}")
+assert_contains "$summary_delivery" '"isError":false' "Parquet delivery capability"
+assert_contains "$summary_delivery" '"format":"parquet"' "Parquet delivery capability"
+summary_download_url=$(json_url "$summary_delivery" download_url)
+[ -n "$summary_download_url" ] || fail "deliver_result omitted download_url"
+curl_safe --fail --silent --show-error --dump-header "$DOWNLOAD_HEADERS" \
+  --output "$DOWNLOAD_FILE" "$summary_download_url"
+download_size=$(wc -c <"$DOWNLOAD_FILE" | tr -d '[:space:]')
+download_content_length=$(awk '
+  tolower($1) == "content-length:" { gsub("\r", "", $2); length_value = $2 }
+  END { print length_value }
+' "$DOWNLOAD_HEADERS")
+[ -n "$download_content_length" ] || fail "Parquet delivery omitted Content-Length"
+[ "$download_content_length" = "$download_size" ] ||
+  fail "Parquet Content-Length $download_content_length did not match downloaded size $download_size"
+parquet_prefix=$(dd if="$DOWNLOAD_FILE" bs=1 count=4 2>/dev/null)
+parquet_suffix=$(tail -c 4 "$DOWNLOAD_FILE")
+[ "$parquet_prefix" = "PAR1" ] && [ "$parquet_suffix" = "PAR1" ] ||
+  fail "delivered file did not have Parquet PAR1 boundary magic"
+pass "approved query creates an AVAILABLE canonical Parquet; preview paginates and delivery streams a complete file"
+
+# Restart only Gateway; OA, PostgreSQL, and MinIO stay up. Control PostgreSQL
+# retains metadata/audit state while the encrypted canonical Parquet remains in
+# the independent object-store volume.
 compose restart gateway >/dev/null
 attempt=0
 until curl_safe --fail --silent --show-error "$GATEWAY_URL/health/ready" >/dev/null 2>&1; do
@@ -445,7 +544,12 @@ assert_contains "$budget_after_restart" '"used":{"db_ms":' "persisted budget"
 assert_contains "$budget_after_restart" '"queries":1' "persisted budget usage"
 stored_result=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
   "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"tools/call\",\"params\":{\"name\":\"get_query_result\",\"arguments\":{\"task_id\":\"$summary_task\",\"query_id\":\"$summary_query_id\"}}}")
-assert_contains "$stored_result" '"isError":false' "persisted encrypted result"
+assert_contains "$stored_result" '"isError":false' "persisted object-backed result"
+assert_contains "$stored_result" "\"result_id\":\"$summary_result_id\"" "persisted object-backed result"
+assert_contains "$stored_result" '"artifact_status":"AVAILABLE"' "persisted object-backed result"
+assert_contains "$stored_result" '"row_count":' "persisted object-backed result"
+assert_structured_field_absent "$stored_result" rows "persisted metadata-only response"
+assert_not_contains "$stored_result" '"object_key":' "persisted object-key redaction"
 assert_contains "$stored_result" '"result_hash":' "persisted result receipt"
 assert_contains "$stored_result" '"gateway_key_id":"gateway-integration-ed25519-v1"' "signed query receipt key"
 assert_contains "$stored_result" '"version":"6"' "V4 query receipt version"
@@ -456,7 +560,12 @@ carol_receipt=$(mcp_call "$TASKBOUND_CAROL_TOKEN" \
 assert_contains "$carol_receipt" '"isError":false' "persisted Carol audit receipt"
 assert_contains "$carol_receipt" '"current_hash":' "persisted audit chain"
 assert_not_contains "$carol_receipt" '"columns":' "Carol audit receipt raw columns"
-pass "Gateway restart preserves task, budget, encrypted result, and audit evidence"
+summary_preview_after_restart=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
+  "{\"jsonrpc\":\"2.0\",\"id\":94,\"method\":\"tools/call\",\"params\":{\"name\":\"preview_result\",\"arguments\":{\"result_id\":\"$summary_result_id\",\"offset\":0,\"limit\":1}}}")
+assert_contains "$summary_preview_after_restart" '"isError":false' "Parquet preview after Gateway restart"
+assert_contains "$summary_preview_after_restart" '"rows":[[' "Parquet preview after Gateway restart"
+assert_contains "$summary_preview_after_restart" '"offset":0' "Parquet preview after Gateway restart"
+pass "Gateway restart preserves Control metadata/audit state and reads the canonical Parquet from object storage"
 
 # The complete Catalog profile allows ten queries. The final allowed query is
 # returned and atomically exhausts max_queries; no smaller client-selected
@@ -607,4 +716,4 @@ if reader_psql --command "SET default_transaction_read_only=off; UPDATE taskgate
 fi
 pass "gateway_reader cannot write, refresh snapshots, or mutate ordinal sidecars"
 
-echo "all Compose end-to-end acceptance checks passed"
+echo "all Compose end-to-end checks passed, including canonical object-store Parquet persistence and delivery"

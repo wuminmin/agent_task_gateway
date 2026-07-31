@@ -1003,6 +1003,9 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 		expires := grant.ExpiresAt.UTC()
 		settlement.OrdinalMaterialization = &control.OrdinalMaterializationPublish{CacheKeySHA256: ordinalCacheKey, ExpiresAt: &expires}
 	}
+	if s.resultArtifacts != nil {
+		return s.finalizeArtifactQuery(ctx, task, requestID, settlement, stored, componentMS)
+	}
 	encodingStarted := time.Now()
 	resultSpool, err := newEncryptedQuerySpool(s.spoolDirectory, task.ID, queryID, s.spoolThreshold)
 	if err == nil {
@@ -1120,6 +1123,44 @@ func (s *Service) queryReplayResponse(ctx context.Context, record control.QueryR
 	if record.Status != control.QueryCompleted || record.ResultSHA256 == "" {
 		return result, nil
 	}
+	if s.resultArtifacts != nil {
+		artifact, artifactErr := s.store.GetResultArtifactByQuery(ctx, record.ID)
+		if artifactErr == nil {
+			if artifact.ExpiresAt != nil && !s.clock().UTC().Before(*artifact.ExpiresAt) {
+				return result, nil
+			}
+			if artifact.Status == control.ResultArtifactPending {
+				promoteCtx, cancel := s.artifactOperationContext(ctx)
+				artifact, artifactErr = s.promoteResultArtifact(promoteCtx, artifact, "gateway-replay")
+				cancel()
+			}
+			if artifactErr != nil {
+				return nil, &mcp.ToolError{Code: apierr.CodeConflict, Message: "结果已结算，规范 Parquet 正在恢复；请稍后重试"}
+			}
+			if artifact.Status != control.ResultArtifactAvailable && artifact.Status != control.ResultArtifactDeleting &&
+				artifact.Status != control.ResultArtifactDeleted {
+				return nil, &mcp.ToolError{Code: apierr.CodeConflict, Message: "结果已结算，规范 Parquet 正在恢复；请稍后重试"}
+			}
+			stored, _, decodeErr := decodeArtifactMetadata(artifact)
+			if decodeErr != nil {
+				return nil, decodeErr
+			}
+			for key, value := range publicArtifact(artifact, stored) {
+				result[key] = value
+			}
+			return result, nil
+		}
+		if !errors.Is(artifactErr, control.ErrNotFound) {
+			return nil, artifactErr
+		}
+		// Historical PostgreSQL-ciphertext rows predate object artifacts. Once
+		// object-backed mode is enabled they remain auditable, but ordinary Agent
+		// replay returns metadata only instead of re-releasing the full row set.
+		result["row_count"] = record.ResultRows
+		result["database_ms"] = record.ResultObservedDBMS
+		result["legacy_result"] = true
+		return result, nil
+	}
 	_, plaintext, err := s.store.GetEncryptedResult(ctx, record.TaskID, record.ID)
 	if err != nil {
 		// The query status remains the durable answer for a result that could not
@@ -1210,6 +1251,15 @@ func (s *Service) failQueryBudget(ctx context.Context, settlement control.Budget
 	if err == nil {
 		return
 	}
+	// The finalize transaction may have committed even when COMMIT returned a
+	// transport error. A durable terminal record wins and must not create an
+	// infinite FAILED-settlement retry that holds readiness down forever.
+	stateCtx, stateCancel := s.detachedContext(ctx)
+	durable, stateErr := s.store.GetQuery(stateCtx, settlement.QueryID)
+	stateCancel()
+	if stateErr == nil && durable.Status != control.QueryReserved {
+		return
+	}
 	s.logger.Error("fail query budget", "trace_id", mcp.TraceID(ctx), "query_id", settlement.QueryID, "error", err)
 	if errors.Is(err, control.ErrClosed) || s.background.Err() != nil {
 		return
@@ -1292,6 +1342,11 @@ func (s *Service) retryFailedQuerySettlement(settlement control.BudgetSettlement
 		}
 
 		attemptCtx, cancel := context.WithTimeout(s.background, s.settlementTimeout)
+		durable, stateErr := s.store.GetQuery(attemptCtx, settlement.QueryID)
+		if stateErr == nil && durable.Status != control.QueryReserved {
+			cancel()
+			return
+		}
 		_, _, err := s.store.FailBudgetWithReceipt(attemptCtx, settlement, s.terminalReceiptBuilder())
 		cancel()
 		if err == nil || errors.Is(err, control.ErrClosed) {
@@ -1403,6 +1458,50 @@ func (s *Service) getQueryResult(ctx context.Context, principal mcp.Principal, r
 	record, err := s.store.GetQuery(ctx, args.QueryID)
 	if err != nil || record.TaskID != args.TaskID || record.Actor != principal.Subject {
 		return nil, notFound()
+	}
+	if s.resultArtifacts != nil {
+		artifact, artifactErr := s.store.GetResultArtifactByQuery(ctx, args.QueryID)
+		if artifactErr == nil {
+			if artifact.ExpiresAt != nil && !s.clock().UTC().Before(*artifact.ExpiresAt) {
+				return nil, notFound()
+			}
+			if artifact.Status == control.ResultArtifactPending {
+				promoteCtx, cancel := s.artifactOperationContext(ctx)
+				artifact, artifactErr = s.promoteResultArtifact(promoteCtx, artifact, "gateway-result-read")
+				cancel()
+			}
+			if artifactErr != nil {
+				return nil, &mcp.ToolError{Code: apierr.CodeConflict, Message: "规范 Parquet 正在恢复；请稍后重试"}
+			}
+			if artifact.Status != control.ResultArtifactAvailable && artifact.Status != control.ResultArtifactDeleting &&
+				artifact.Status != control.ResultArtifactDeleted {
+				return nil, &mcp.ToolError{Code: apierr.CodeConflict, Message: "规范 Parquet 正在恢复；请稍后重试"}
+			}
+			stored, _, decodeErr := decodeArtifactMetadata(artifact)
+			if decodeErr != nil {
+				return nil, decodeErr
+			}
+			receipt, receiptErr := s.queryReceipt(ctx, record)
+			if receiptErr != nil {
+				return nil, receiptErr
+			}
+			response := publicArtifact(artifact, stored)
+			response["status"] = record.Status
+			response["receipt"] = receipt
+			return response, nil
+		}
+		if !errors.Is(artifactErr, control.ErrNotFound) {
+			return nil, artifactErr
+		}
+		receipt, receiptErr := s.queryReceipt(ctx, record)
+		if receiptErr != nil {
+			return nil, receiptErr
+		}
+		return map[string]any{
+			"task_id": args.TaskID, "query_id": args.QueryID, "status": record.Status,
+			"row_count": record.ResultRows, "database_ms": record.ResultObservedDBMS,
+			"legacy_result": true, "receipt": receipt,
+		}, nil
 	}
 	_, plaintext, err := s.store.GetEncryptedResult(ctx, args.TaskID, args.QueryID)
 	if err != nil {
@@ -1864,4 +1963,8 @@ func saturatedProduct(left, right int64) int64 {
 
 func (s *Service) detachedContext(parent context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(parent), s.settlementTimeout)
+}
+
+func (s *Service) artifactOperationContext(parent context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(parent), s.artifactOperationTimeout)
 }

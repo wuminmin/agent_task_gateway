@@ -1,13 +1,22 @@
 # NON-PAPER DEBUG OVERRIDE.
-# This file deliberately publishes database ports to the host loopback
+# This file deliberately publishes data-service ports to the host loopback
 # interface for local inspection. Reproducible paper deployments use only
-# compose.yaml, where Business PostgreSQL has no host-published port.
+# compose.yaml, where neither Business PostgreSQL nor object storage has a
+# host-published port.
 services:
   business-postgres:
     ports:
       - 127.0.0.1:${POSTGRES_PORT:-25434}:5432
     networks:
       - business-data
+      - debug-host
+
+  result-object-store:
+    ports:
+      - 127.0.0.1:${MINIO_API_PORT:-29000}:9000
+      - 127.0.0.1:${MINIO_CONSOLE_PORT:-29001}:9001
+    networks:
+      - result-storage
       - debug-host
 
 networks:

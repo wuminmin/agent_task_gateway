@@ -16,6 +16,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -257,6 +258,16 @@ func New(ctx context.Context, config Config) (*Connector, error) {
 	poolConfig.ConnConfig.RuntimeParams["search_path"] = "pg_catalog"
 	poolConfig.ConnConfig.RuntimeParams["statement_timeout"] = timeoutSetting(normalized.StatementTimeout)
 	poolConfig.ConnConfig.RuntimeParams["application_name"] = normalized.ApplicationName
+	previousAfterConnect := poolConfig.AfterConnect
+	poolConfig.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		if previousAfterConnect != nil {
+			if err := previousAfterConnect(ctx, conn); err != nil {
+				return err
+			}
+		}
+		registerConnectorDataTypes(conn.TypeMap())
+		return nil
+	}
 
 	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
@@ -281,6 +292,20 @@ func New(ctx context.Context, config Config) (*Connector, error) {
 		return nil, err
 	}
 	return connector, nil
+}
+
+func registerConnectorDataTypes(typeMap *pgtype.Map) {
+	// pgx intentionally has no typed time-with-time-zone codec. Catalog V1 can
+	// nevertheless attest this legacy PostgreSQL type, so pin it to the text
+	// wire format. Rows.Values then returns the server's lossless microsecond
+	// time and numeric UTC offset as a string for strict Parquet normalization.
+	typeMap.RegisterType(&pgtype.Type{
+		Name: "timetz",
+		OID:  pgtype.TimetzOID,
+		Codec: &pgtype.TextFormatOnlyCodec{
+			Codec: pgtype.TextCodec{},
+		},
+	})
 }
 
 // Close releases all PostgreSQL connections.

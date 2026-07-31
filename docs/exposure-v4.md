@@ -23,8 +23,11 @@ flowchart LR
     E --> X[R/I/O ANDNOT + popcount]
     O --> X
     X --> CAS[one root-head epoch CAS<br/>publish all 3 dimensions]
-    CAS --> T[result + audit + V6 receipt<br/>same Control PG transaction]
-    T --> R[commit, then release]
+    Q --> P[Parquet + chunked AES-GCM<br/>private staging object]
+    CAS --> T[PENDING artifact metadata + audit + V6 receipt<br/>same Control PG transaction]
+    P --> T
+    T --> K[commit, then idempotent<br/>canonical object creation]
+    K --> R[consumed / AVAILABLE<br/>result_id + summary]
 ```
 
 可以把 V3 想成：每次过收费站，都把一百万张货物清单打印成纸，逐张拿去档案室查重并归档；即使是同一车货重放，也重新打印一遍。V4 是给冻结仓库中的每件货物预先贴不可变编号。在线只携带精确的“编号打孔卡”（Roaring bitmap），收费站用集合差和计数判断有没有越过人类批准的仓库边界。少数查询临时生成的聚合结果和 outcome 没有预编号，放进一个小型动态字典。打孔卡是压缩表示，不是 Bloom filter，因此没有假阳性，也不会少收费。
@@ -94,7 +97,7 @@ COLD 的逐 Fact canonical payload、FactHash、segment roots、dictionary diges
 
 ## 在线派生
 
-`QueryPairStream` 在同一个只读 `REPEATABLE READ` 事务中缓冲小型 visible result，同时逐行发送 provenance companion。companion 必须带 Catalog publication 对应的 `row_handle`，并按 canonical output group 和稳定 entity key 排序。
+`QueryPairStream` 在同一个只读 `REPEATABLE READ` 事务中缓冲 visible result，同时逐行发送 provenance companion。companion 必须带 Catalog publication 对应的 `row_handle`，并按 canonical output group 和稳定 entity key 排序。当前 Connector/可见结果到 Parquet 的部分路径仍会在内存中持有完整结果，不应把 companion 的流式派生误读为全链路有界内存。生产级百万行结果还需要有界流式 Parquet writer/reader 与容量验收。
 
 `OrdinalEngine` 不再执行 `scanRelationV2 → JoinOnV2 → GroupV2 → Observation.Normalize` 的全量关系物化。它同时只保留当前 group 的：
 
@@ -114,7 +117,13 @@ Witness 的同一证明使用加法，`UNION DISTINCT` alternative proof 使用�
 
 Control PG 将 bitmap 按 `(dictionary, segment, ordinal>>16)` 分成不可变、content-addressed containers。Novelty 是精确 `ANDNOT + popcount`，root 更新是 `OR`。一个 root head 同时指向 Release、Influence、Outcome 三个 set manifest 和单一 epoch；所有子 Agent 都解析到同一个 root head。
 
-结算事务读取并校验 root epoch，计算三个维度，再以带 epoch 条件的一次乐观 CAS 发布三个新 head；它不依赖一把覆盖整个派生期的 root 行锁。CAS 冲突会回滚本次事务、重新读取 head 并重算三维 novelty，最多重试 16 次，绝不会分别提交 R/I/O。任何维度超预算、重试耗尽或持久化错误都回滚 bitmap、result、observation、audit、materialization 和 receipt。Gateway 只在事务 commit 后释放结果。
+结算事务读取并校验 root epoch，计算三个维度，再以带 epoch 条件的一次乐观 CAS 发布三个新 head；它不依赖一把覆盖整个派生期的 root 行锁。CAS 冲突会回滚本次事务、重新读取 head 并重算三维 novelty，最多重试 16 次，绝不会分别提交 R/I/O。任何维度超预算、重试耗尽或持久化错误都回滚 bitmap、artifact intent、observation、audit、materialization 和 receipt，并且不会创建 canonical 结果对象。
+
+可见结果在结算前编码为 Parquet，并由 Gateway 以分块 AES-256-GCM 客户端侧加密为 TaskGate 私有 S3/MinIO bucket 中的 staging 对象。Control PG 事务只提交 `PENDING` artifact 元数据（`result_id`、对象位置、schema、行列数、ACL、TTL、双哈希、ETag、key ID 和状态），不保存 Parquet bytes 或结果行。commit 后 Gateway 将 staging 幂等提升为确定性 canonical key；canonical 对象成功创建就是完整结果的消费/释放边界，随后状态记为 `AVAILABLE/consumed`。
+
+普通 `query_sql`/`execute_plan`/`get_query_result` 响应只包含 `result_id`、schema、行列数、`expires_at` 和计费摘要，不包含全量 `rows` 或对象键。`preview_result` 每次最多返回 100 行，且默认受 64 MiB artifact 读取上限保护；`deliver_result` 返回绑定 result/task/expiry 的 Gateway 签名短 TTL capability URL。preview、URL 生成、实际下载、未下载或重复下载都不改写预算、exposure、`consumed_at` 或 Receipt。
+
+promotion 中断时，启动与后台 sweep 只在 staging 与已提交哈希/ETag 证据一致时恢复 `PENDING`；不重执行 Business SQL、不退款、不写第二份 Receipt。staging 丢失或 canonical 证据冲突会让 readiness fail closed，直到对象证据被恢复或受审修复；当前没有自动放弃/退款。artifact 到达自身 `expires_at` 后 metadata/preview/delivery 关闭；TTL 或管理员 purge 先删 canonical bytes 再 tombstone 元数据，active legal hold 阻止 retention 清理但不延长 `expires_at`。bucket 必须私有且禁用 versioning；非 loopback 交付基址必须为 HTTPS，日志/APM 必须脱敏 URL 中的 `token`。
 
 成功结算会保存 `(root_task_id, observation_digest)`。同一 root 再次引用完全相同、已提交的 observation 时，Control 可直接确认 zero novelty，无需读取其百万位 bitmap。
 

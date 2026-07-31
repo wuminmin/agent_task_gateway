@@ -10,6 +10,9 @@ import (
 var (
 	ErrNotFound = errors.New("control: not found")
 	ErrConflict = errors.New("control: conflict")
+	// ErrCommitOutcomeUnknown is returned only after a transaction Commit call
+	// itself fails. Callers must re-read durable state before compensating.
+	ErrCommitOutcomeUnknown = fmt.Errorf("%w: transaction commit outcome unknown", ErrConflict)
 	// ErrOrdinalCASConflict marks a retryable optimistic root-head epoch race.
 	// The enclosing transaction has not committed when this error is returned.
 	ErrOrdinalCASConflict = fmt.Errorf("%w: V4 root epoch changed", ErrConflict)

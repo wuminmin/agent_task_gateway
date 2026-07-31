@@ -14,15 +14,20 @@ flowchart LR
         S --> M[publication manifest]
         D --> M
     end
-    subgraph ON[在线：commit 前不释放]
+    subgraph ON[在线：canonical 对象创建前不向 Agent 释放]
         A[Codex / 第三方 Agent] -->|MCP 2.0| G[Gateway]
         G --> H{授权 + semantic replay}
         H -->|miss| Q[visible SQL + streamed ordinal companion]
         H -->|hit| R[committed observation reference]
         Q --> E[exact weighted bitmap effect]
         R --> E
-        E --> C[(Control PG<br/>ANDNOT + popcount<br/>三维 root-head CAS)]
-        C --> X[result + audit + V6 receipt]
+        Q --> O[Gateway 客户端侧加密<br/>private Parquet staging]
+        E --> C[(Control PG：仅元数据<br/>ANDNOT + popcount<br/>三维 root-head CAS)]
+        O --> C
+        C --> CP[canonical object creation<br/>consumed / AVAILABLE]
+        O --> CP
+        CP --> OS[(S3 / MinIO<br/>encrypted Parquet)]
+        CP --> X[result_id + summary<br/>audit + V6 receipt]
         X --> A
     end
     M --> H
@@ -34,8 +39,9 @@ flowchart LR
 | 信任域 | 输入与职责 | 边界 |
 |---|---|---|
 | Agent / MCP 客户端 | 显式提交产品、字段、Scope 和报表 SQL；高级客户端可提交 QueryPlan | Bearer Token 映射固定 Principal；Alice 只能访问自己的任务，Carol 只有审计工具 |
-| Gateway 控制面 | Catalog、任务族、OA 回调、Grant、资源预算、三维 root head、字典/bitmap、结果与审计 | 独立 Control PG；一次 epoch CAS 同时发布 R/I/O；容器和 set manifest 内容寻址且不可变；Grant 与审计 Trigger 禁止修改 |
+| Gateway 控制面 | Catalog、任务族、OA 回调、Grant、资源预算、三维 root head、字典/bitmap、result artifact 元数据与审计 | 独立 Control PG；不保存新结果的 Parquet 或结果行；一次 epoch CAS 同时发布 R/I/O；容器和 set manifest 内容寻址且不可变；Grant 与审计 Trigger 禁止修改 |
 | 业务数据面 | 执行可见查询及 streamed ordinal companion | 独立 Business PG；`gateway_reader` 仅有 Attestation、Reporting Views 和 immutable sidecar 的 `SELECT`；同一只读 `REPEATABLE READ` 事务、超时和行数上限 |
+| 结果对象存储 | 保存 Gateway 客户端侧分块 AES-GCM 加密的 Parquet staging/canonical 对象 | S3 兼容私有 bucket，且必须禁用 versioning，以保证 TTL/purge 真正删除 bytes；默认 Compose 使用 MinIO、独立 `result-storage` 内部网络及 bucket-scoped Gateway 凭据；Agent 不能直接列举对象键 |
 
 Docker 宿主机、Catalog 管理者及能读取 `.env`/Volume 的管理员属于可信运维域。默认只发布 Control PG 回环调试端口；Business PG 仅内部网络可达，只有非论文 `compose.debug.yaml` 覆盖会发布回环端口。两库账号、数据库和 Volume 相互独立。
 
@@ -48,10 +54,12 @@ Docker 宿主机、Catalog 管理者及能读取 `.env`/Volume 的管理员属�
 5. OA 可 `approve/reject/narrow`。回调处理校验 HMAC、双时间戳、Event ID、状态、actor、Catalog/context/Manifest 摘要、Grant 单调收缩和 OA Ed25519 `ApprovalReceiptV1`。在一个 PostgreSQL 事务中写审批事件、不可变最终 Grant、预算和状态。
 6. V4 Product 必须引用一个经过完整 digest 校验的 `snapshot_publication`。发布前，Compiler 离线扫描冻结快照，用现有 canonical FactID 编码建立 row/cell segments、`row_handle` sidecar、HOT hash/ordinal 索引和 COLD payload 块；重复 entity key、越界 ordinal、hash/payload collision 或 manifest 不一致都阻止发布。
 7. ACTIVE exposure 任务调用带必填 `request_id` 的 `query_sql`。Gateway 用 PostgreSQL AST 将受支持 SQL 无损 lowering 为 canonical QueryPlan，把 SQL alias 映射为 Catalog 稳定角色，并只执行 QueryPlan 重新生成的可见查询和 ordinal companion；两条 SQL 都再经 `pg_query_go/v6` PostgreSQL AST 白名单策略。普通 `tools/list` 不列出 `execute_plan`，但 SDK/内部测试/确定性工作流仍可调用该高级入口，并共用同一 QueryPlan 编译与记账边界。
-8. 策略把 Reporting View 封装为只暴露获批字段和强制 Scope 的 CTE。可见结果小规模缓冲；companion 在同一只读 `REPEATABLE READ` 事务中按 canonical group 流式返回 handle 和必要聚合值，不全量物化关系。
+8. 策略把 Reporting View 封装为只暴露获批字段和强制 Scope 的 CTE。可见结果小规模缓冲；companion 在同一只读 `REPEATABLE READ` 事务中按 canonical group 流式返回 handle 和必要聚合值，不全量物化关系。Gateway 把最终可见投影编码为 Parquet，并在写入对象存储前以结果 key 和 AAD 进行客户端侧分块加密；private staging 对象不会交给 Agent。
 9. Gateway 以 exact bitmap 表示 base release/dependency，以小型动态字典表示 derived release/outcome。Control PG 对三个维度执行 `ANDNOT + popcount`，在一次 root-head epoch CAS 中发布三份新 set manifest；任何越界、CAS/字典故障或证据截断都回滚整笔事务。
-10. distinct-request semantic replay 只复用已提交 observation 与密文结果；仍重新授权、扣普通查询/行资源、写审计和新 receipt，并为新 query AAD 重加密。命中不执行 Business/provenance SQL；跨 grant/dictionary、密钥擦除或结果清理一律 miss。
-11. 资源结算、AES-256-GCM 结果、终态审计、materialization cache 和 Ed25519 V6 receipt 与 root head 在同一事务提交，commit 后才释放 JSON。V6 绑定 dictionary set、三维 effect digest、actual/charged counts、root epoch 和 result digest；旧 verifier 保留但不复用 V6 digest 语义。
+10. distinct-request semantic replay 只复用已提交 observation 与 `AVAILABLE` artifact；仍重新授权、扣普通查询/行资源、写审计和新 receipt，并为新 query 创建自己的加密 Parquet artifact。materialization 可在结算事务中引用 `PENDING/AVAILABLE` source，但查询命中只接受 `AVAILABLE + ACTIVE key`。命中不执行 Business/provenance SQL；跨 grant/dictionary、密钥擦除、TTL 或对象清理一律 miss。
+11. Control PostgreSQL 在同一事务提交资源/exposure 结算、`PENDING` artifact 元数据、终态审计、materialization cache 和 Ed25519 V6 receipt；它不保存 Parquet bytes。事务提交后，Gateway 把 staging 对象幂等提升到确定性的 canonical key。canonical 对象创建成功就是消费事件，随后元数据变为 `AVAILABLE`，`query_sql`/`execute_plan`/`get_query_result` 只返回 `result_id`、行列数、期限和摘要，不返回 `rows` 或对象键。promotion 中断时保留 PENDING intent，由启动与后台只在 staging/已提交证据一致时恢复继续，不重执行 SQL或重复计费；不可恢复的证据问题会使 readiness fail closed。V6 绑定 dictionary set、三维 effect digest、actual/charged counts、root epoch 和 result digest；旧 verifier 保留但不复用 V6 digest 语义。
+
+完整数据查看是独立于消费记账的交付动作：`preview_result` 每次最多返回 100 行；`deliver_result` 返回受签名保护的短 TTL Parquet URL。URL 获取、实际下载和重复下载都不改变预算、exposure、`consumed_at` 或 Receipt。非 loopback 下载基址必须使用 HTTPS；反向代理、访问日志和 APM 必须对 URL 查询参数中的 `token` 脱敏。
 
 SQL 语法、授权或 lowering 失败在步骤 8 和正式预留之前返回结构化、可修复错误，不扣查询、行、DBMS 或三维 exposure 预算。数据库已开始执行后的故障继续遵守现有 failure-settlement 规则。原始 SQL 派生的 request digest 只用于审计/幂等；FactID 和 semantic replay 使用 canonical QueryPlan/`plan_digest`。Gateway 不会静默改写不受支持的查询语义。
 
@@ -120,15 +128,16 @@ ACTIVE              --complete-->  ARCHIVED(completed)
 ACTIVE 达到任一资源预算硬上限       ARCHIVED(budget_exhausted)
 ```
 
-任务归档后不再接受新的查询，但已有查询结果、查询记录、回执和审计证据仍按保留策略存在。`get_query_result` 允许任务所有者读取已保存的旧结果，直到结果保留清理删除 `encrypted_query_results` 密文，或管理员擦除该密文绑定的 `result_encryption_keys.key_id`；清理后原始行不可再读，Key 被标记 `ERASED` 后密文行仍保留但读取会 fail closed，查询记录、回执和审计链均仍保留。清理可由 `GATEWAY_RESULT_RETENTION_TTL` 调度，也可由带 `GATEWAY_ADMIN_TOKEN` 的管理员接口按截止时间触发；任务处于 active legal hold 时，其结果密文不会被保留清理删除。禁用 Principal 后，即使旧 Bearer Token 仍被客户端持有，Gateway 也不再列出或执行任何工具。
+任务归档后不再接受新的查询，但已有 result metadata、加密 Parquet、查询记录、回执和审计证据仍按保留策略存在。`get_query_result` 只允许任务所有者读取旧结果的 `result_id` 与摘要；`preview_result`/`deliver_result` 仅在 artifact 为 `AVAILABLE`、未过期且 key 仍为 `ACTIVE` 时开放。`GATEWAY_RESULT_RETENTION_TTL` 或管理员 purge 会先删除 canonical 对象，再把 `result_artifacts` 置为删除终态；管理员擦除 `result_encryption_keys.key_id` 后，即使对象仍存在也会 fail closed。查询记录、回执和审计链始终保留。active legal hold 会阻止该任务对象进入 TTL/手动 retention 清理，但不会延长 `expires_at` 或继续开放读取，也不会隐式替代独立的 key-erasure 审批。禁用 Principal 后，即使旧 Bearer Token 仍被客户端持有，Gateway 也不再列出或执行任何工具。
 
 ## 控制 PostgreSQL
 
-控制 Schema 使用 PostgreSQL 原生类型：时间为 `TIMESTAMPTZ`，JSON 为 `JSONB`，密文/Nonce/回调响应为 `BYTEA`，预算和审计序号为 `BIGINT`。应用写入时间统一为 UTC 微秒精度。
+控制 Schema 使用 PostgreSQL 原生类型：时间为 `TIMESTAMPTZ`，artifact schema/ACL/结果摘要为 `JSONB`，预算、行数、对象大小和审计序号为 `BIGINT`。新结果只在 `result_artifacts` 保存 `result_id`、query/task、对象位置、双哈希、key ID、行列数、TTL 和生命周期；Parquet 与结果行不作为 PostgreSQL BLOB 保存。`BYTEA` 继续用于回调证据和迁移期 legacy 密文兼容。应用写入时间统一为 UTC 微秒精度。
 
 Gateway 启动时执行嵌入式迁移，再完成中断恢复：
 
 - RESERVED 查询按完整资源预留量保守计费并标记 `INDETERMINATE`，释放尚未结算的 exposure reservation，同时在配置查询回执签名密钥时于同一恢复事务中写入 V3 回执；由于结果从未在提交前释放，这不会增加已知事实。同一 `request_id` 禁止自动重执行。
+- `PENDING` result artifact 表示结算已提交但 canonical promotion 尚未完成；Gateway 启动时及后台 sweep 只在 staging 与已提交哈希/ETag 证据一致时，通过确定性 object key 幂等恢复为 `AVAILABLE/consumed`，不退款、不重执行 SQL，也不生成第二份 Receipt。staging 丢失或 canonical 证据冲突时 readiness fail closed，直到对象证据被恢复或受审修复；当前不自动放弃/退款。
 - PROCESSING 回调恢复为可重试。
 - 过期任务被归档。
 - 运行期结算持久化失败会使 readiness 失败并由后台重试。
@@ -144,6 +153,7 @@ Gateway 启动时执行嵌入式迁移，再完成中断恢复：
 - 所有子 Agent 共享一个三维 root head；一次 epoch CAS 和事务内上限检查共同阻止重试、分页重叠、委托及并发结算重复消费。
 - SQL 决策基于 PostgreSQL AST，策略错误不返回物理对象名或解析器细节。
 - 业务数据库角色权限、只读连接/事务、服务端超时和行数上限独立于应用策略。
+- S3/MinIO bucket 默认私有、禁用 versioning 且只接入内部 `result-storage` 网络；对象在 Gateway 客户端侧加密，Control PG 的对象键和哈希不会作为普通查询响应暴露。
 - PostgreSQL Trigger 阻止 Grant 与审计事件的 UPDATE/DELETE；Hash Chain 提供有限的日志修改检测证据。
 - Gateway 与 OA 容器以非 root、只读根文件系统和 `no-new-privileges` 运行；HTTP 与 Control PG 只开放在宿主机回环地址，Business PG 默认不发布。
 

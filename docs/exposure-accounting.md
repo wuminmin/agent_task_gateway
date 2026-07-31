@@ -10,6 +10,8 @@ TaskGate 的核心预算主体是人类授权的根任务，而不是单条 SQL�
 - **query outcome**：一个成功查询对应一个 FactID，绑定服务端规范化 QueryPlan、
   发布 FactSet 摘要和可见行数；不同命题即使都返回空集或 `0` 也不会合并。
 
+这里的“交付”由 TaskGate 控制的 canonical result artifact 定义：Gateway 在对象存储中成功创建客户端侧加密的规范 Parquet 对象时，该结果即视为任务族已经消费。Agent 是否调用 preview、是否生成下载 URL、是否真的下载以及下载次数，都不会增加或撤销 release/dependency/outcome 费用。
+
 这不是差分隐私预算，也不估算互信息或推断风险。它是一个版本化契约下的
 确定性显式披露与命题计量模型。dependency 是保守 operator-input footprint：既不
 要求是最小 causal provenance，也不声称等于数据库执行期间的完整 physical
@@ -107,23 +109,27 @@ SQL 不进入数据库执行。SDK、内部测试和确定性工作流可继续�
 编译、provenance、FactID 和结算链路：
 
 ```text
-reserve -> semantic replay lookup / execute+stream -> derive bitmap -> settle -> release
+reserve -> semantic replay lookup / execute+stream -> derive bitmap
+        -> stage encrypted Parquet -> settle + PENDING metadata/receipt
+        -> canonical promote -> consumed/AVAILABLE -> result_id + summary
 ```
 
 1. 在 Control PostgreSQL 中同时创建资源预算和 exposure reservation。
-2. 先用绑定 task/grant/scope、typed normal form、Catalog/schema/publication/dictionary 和编译版本的 key 查询 committed semantic replay。命中只复用已提交 observation/result，不执行 Business/provenance SQL。
-3. miss 时，在 Business PostgreSQL 的同一个只读 `REPEATABLE READ` 事务中缓冲可见结果并流式读取 ordinal companion；Gateway 同时只保留当前 canonical group 的 support bitmap、稀疏 witness multiplicity 和查询级 dependency bitmap。
+2. 先用绑定 task/grant/scope、typed normal form、Catalog/schema/publication/dictionary 和编译版本的 key 查询 committed semantic replay。命中只复用已提交 observation 和 `AVAILABLE` artifact，不执行 Business/provenance SQL；`PENDING`、过期、已清理或 key 非 `ACTIVE` 的 source 不可复用。
+3. miss 时，在 Business PostgreSQL 的同一个只读 `REPEATABLE READ` 事务中缓冲可见结果并流式读取 ordinal companion；Gateway 同时只保留当前 canonical group 的 support bitmap、稀疏 witness multiplicity 和查询级 dependency bitmap。最终可见投影编码为 Parquet，并在上传对象存储前用 `chunked-aes-gcm-v1` 客户端侧加密为 private staging 对象。
 4. Gateway 生成 base release/dependency bitmap 及动态 derived release/outcome。未知 handle、越界 ordinal、manifest 不匹配、非规范 bitmap、overflow 或截断都 fail closed。
 5. Control PostgreSQL 对三个维度分别执行精确 `ANDNOT + popcount` 和 `OR`，并通过一次 root-head epoch CAS 原子发布。CAS 冲突重读 head 并重算全部 R/I/O。
-6. exposure/资源结算、AES-GCM 结果、semantic materialization、终态审计和 Ed25519 V6 回执在同一事务提交后，Gateway 才向客户端释放结果。semantic replay 命中仍重新授权、扣普通资源、写审计/新回执并用新 query AAD 重加密。
+6. 同一 Control PostgreSQL 事务提交 exposure/资源结算、`PENDING` artifact 元数据、semantic materialization、终态审计和 Ed25519 V6 回执；Control PG 不保存 Parquet bytes 或结果行。commit 后 Gateway 把 staging 对象幂等提升到确定性的 canonical key。canonical 对象创建成功即 `consumed`，随后 artifact 标记为 `AVAILABLE`，普通 query/get 只返回 `result_id`、行列数、期限和摘要。semantic replay 命中仍重新授权、扣普通资源、写审计/新回执，并为新 query 创建自己的 artifact。
+
+promotion 在 Control commit 后中断时，持久的 `PENDING` intent 由启动和后台恢复继续；只有 staging 与已提交哈希/ETag 证据一致时才能幂等 promotion。恢复不重执行 SQL、不退款、不创建第二个 Receipt；staging 丢失或 canonical 证据冲突时 readiness fail closed，需先恢复正确对象证据或受审修复，当前不自动放弃/退款。`preview_result` 默认 20 行且单次最多 100 行，默认对大于 64 MiB 的 artifact 关闭；`deliver_result` 返回默认 5 分钟且不超过 artifact TTL 的 Gateway capability URL。两者以及实际下载都不是新的计费事件。
 
 SQL 语法、授权或 lowering 失败在第 1 步的正式 reservation 和 Business
 PostgreSQL 执行之前返回结构化、可修复错误，不扣 queries/rows/DBMS，也不扣
 release/dependency/outcome。数据库已开始执行后的 timeout 或故障继续遵守
 现有 failure-settlement 规则。
 
-任一 exposure 维度超限时，整笔控制事务回滚：新事实、账本计数和结果密文
-都不落库，缓冲结果也不返回。Business PostgreSQL 已经完成的物理工作仍在
+任一 exposure 维度超限时，整笔控制事务回滚：新事实、账本计数、artifact 元数据和 Receipt
+都不落库，private staging 被清理，不创建 canonical 对象，也不向 Agent 返回 `result_id`、preview 或 delivery 能力。Business PostgreSQL 已经完成的物理工作仍在
 资源遥测中独立处理。dependency 证据缺失、截断或无法规范化时同样 fail closed。
 
 ## 在线支持边界
@@ -159,7 +165,7 @@ QueryPlan/`plan_digest`，不绑定 SQL 文本哈希。
 所有后代通过 `root_task_id` 写入同一个三维 root head。
 因此父子 Agent 查询相同事实时，第二次增量费用为零；并发子任务由根账本
 epoch CAS 原子结算，不能分别花掉同一剩余额度。撤销根任务会阻止新的
-后代查询。已终态的相同 `request_id` 重放只读取首次结果，不再次执行或收费。
+后代查询。已终态的相同 `request_id` 重放只返回首次的 `result_id` 和元数据，不再次执行、不创建第二个对象或收费。
 若子 Grant 进一步缩小 exposure 上限，子任务只能在该签名的绝对任务族上限内
 增加新事实；已有事实的零增量读取仍可重放。
 
@@ -177,17 +183,20 @@ epoch CAS 原子结算，不能分别花掉同一剩余额度。撤销根任务�
 | dynamic dictionaries | 少量 derived release/outcome 的精确 hash/payload 身份 |
 | bitmap containers/set manifests | `(dictionary, segment, ordinal>>16)` 的不可变内容寻址容器及集合根 |
 | root exposure head | 每个根任务的 Profile、三维 set manifest、已用计数和单一 epoch |
-| committed observations/materializations | observation digest、O(1) query reference 和 semantic replay 密文 |
+| committed observations/materializations | observation digest、O(1) query reference 和 semantic replay artifact 引用；复用只接受 `AVAILABLE` source |
+| `result_artifacts` | `result_id`、对象位置、schema/ACL、行列数、TTL、key ID、明文 Parquet hash、密文 object hash 和生命周期；不含 Parquet bytes |
 
-查询 V6 回执签名绑定 `root_task_id`、Profile、dictionary set、三类 effect digest、actual/charged counts、root epoch、result digest 和 observation SHA-256。回执不包含原始 FactID 或结果行；有权审计方可从 cold dictionary + bitmap 无损恢复 canonical FactID。旧回执 verifier 保留，但不复用 V6 digest domain。
+客户端侧加密 Parquet 对象保存在 TaskGate 管辖的 S3/MinIO 私有 bucket；Control PG 只保存上述元数据。bucket 必须禁用 versioning，以保证 TTL/purge 删除实际 bytes；非 loopback 的交付基址必须为 HTTPS，日志/APM 必须脱敏 capability URL 的 `token`。查询 V6 回执签名绑定 `root_task_id`、Profile、dictionary set、三类 effect digest、actual/charged counts、root epoch、明文 Parquet result digest 和 observation SHA-256；密文 object SHA-256 作为独立的存储完整性元数据。回执不包含原始 FactID 或结果行；有权审计方可从 cold dictionary + bitmap 无损恢复 canonical FactID。旧回执 verifier 与 legacy PostgreSQL ciphertext 读取路径仅为迁移兼容，生产 main 对新查询强制使用 artifact，普通 query/get 不返回 legacy `rows`。
+
+到达 artifact `expires_at` 后，metadata lookup、preview 和 delivery 均关闭。TTL 或管理员 purge 先删除 canonical 对象，再把 Control 元数据 tombstone；active legal hold 阻止对象进入 retention 清理，但不延长 `expires_at`，也不自动阻止独立的 key-erasure 流程。查询记录、Receipt 和审计证据继续保留。
 
 ## 证据与限制
 
 - `make eval-exposure` 运行 ground truth、等价改写、确定性
   anti-arbitrage cases 和计费基线；V2 单元/性质测试另覆盖 typed NULL、multi-key Join、Union commutativity/idempotence、Group NULL 与嵌套闭包。
 - `make verify` 运行真实 PostgreSQL race/integration suite，包括并发结算、
-  委托共享账本、重放及超限结果不落库。
+  委托共享账本、重放及超限不产生 canonical artifact。
 - `make formal` 检查 `ExposureLedger.tla` 的三预算安全、exact novel charge、
-  settle-before-release、retry idempotence 和 task-family non-amplification。
+  settle-before-release、retry idempotence 和 task-family non-amplification；这里的 release 对应 settle 后的 canonical promotion，不对应下载。
 
 现有 169.3 s novel、154.1 s replay 和 9.8 GiB Gateway 峰值属于 legacy 全量 FactSet/逐事实存储诊断，不是 V4 结果。V4 的 ≤4 s novel P95、≤150 ms semantic replay P95、≤512 MiB Gateway peak 等数字目前是硬验收门槛；完成固定环境重跑前不能写成已实现 SLO。系统也不提供差分隐私、推断控制、可变源/任意 SQL provenance 或跨 Gateway 执行租约。

@@ -382,6 +382,43 @@ type EncryptedResult struct {
 	CreatedAt     time.Time
 }
 
+type ResultArtifactStatus string
+
+const (
+	ResultArtifactPending   ResultArtifactStatus = "PENDING"
+	ResultArtifactAvailable ResultArtifactStatus = "AVAILABLE"
+	ResultArtifactDeleting  ResultArtifactStatus = "DELETING"
+	ResultArtifactDeleted   ResultArtifactStatus = "DELETED"
+)
+
+// ResultArtifact is the Control PostgreSQL record for an encrypted Parquet
+// object. It contains no result rows or Parquet bytes.
+type ResultArtifact struct {
+	ResultID           string
+	QueryID            string
+	TaskID             string
+	KeyID              string
+	Format             string
+	Encryption         string
+	StagingKey         string
+	ObjectKey          string
+	ObjectETag         string
+	ParquetSHA256      string
+	ObjectSHA256       string
+	ParquetSize        int64
+	ObjectSize         int64
+	RowCount           int64
+	ColumnCount        int
+	SchemaJSON         json.RawMessage
+	ResultMetadataJSON json.RawMessage
+	ACLJSON            json.RawMessage
+	Status             ResultArtifactStatus
+	CreatedAt          time.Time
+	ExpiresAt          *time.Time
+	ConsumedAt         *time.Time
+	DeletedAt          *time.Time
+}
+
 type ResultEncryptionKeyStatus string
 
 const (

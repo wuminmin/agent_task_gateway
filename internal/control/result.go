@@ -146,6 +146,51 @@ func (s *Store) FinalizeQueryMeasuredWithReceipt(ctx context.Context, settlement
 type preparedEncryptedResult struct {
 	metadata EncryptedResult
 	chunks   func(context.Context, *sql.Tx) error
+	artifact *ResultArtifact
+}
+
+// FinalizeQueryArtifactMeasuredWithReceipt commits resource/exposure
+// settlement, Parquet object metadata, terminal audit evidence and the signed
+// Receipt. The referenced object is still private staging data at this point;
+// Gateway promotes it to the canonical key only after this transaction commits.
+func (s *Store) FinalizeQueryArtifactMeasuredWithReceipt(ctx context.Context, settlement BudgetSettlement,
+	artifact ResultArtifact, builder TerminalReceiptBuilder) (QueryRecord, PersistedQueryReceipt, FinalizeQueryMetrics, error) {
+	const op = "finalize query artifact"
+	var metrics FinalizeQueryMetrics
+	if err := s.checkOpen(op); err != nil {
+		return QueryRecord{}, PersistedQueryReceipt{}, metrics, err
+	}
+	if settlement.QueryID == "" || settlement.Rows < 0 || settlement.DBMS < 0 || settlement.ObservedDBMS < 0 ||
+		artifact.QueryID != settlement.QueryID {
+		return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, ErrInvalid, fmt.Errorf("invalid artifact settlement"))
+	}
+	if settlement.OrdinalMaterialization != nil && settlement.OrdinalExposure == nil && settlement.OrdinalObservationRef == nil {
+		return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, ErrInvalid,
+			fmt.Errorf("ordinal materialization requires V4 exposure evidence"))
+	}
+	current, err := s.GetQuery(ctx, settlement.QueryID)
+	if err != nil {
+		return QueryRecord{}, PersistedQueryReceipt{}, metrics, err
+	}
+	if current.Status == QueryReleased || current.Status == QueryInterrupted {
+		return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, ErrReservationNotFound, fmt.Errorf("query is %s", current.Status))
+	}
+	if artifact.TaskID != current.TaskID || artifact.RowCount != settlement.Rows {
+		return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, ErrInvalid, fmt.Errorf("artifact does not match query settlement"))
+	}
+	artifactCopy := artifact
+	return s.finalizePreparedQuery(ctx, settlement, current, preparedEncryptedResult{artifact: &artifactCopy}, builder, metrics)
+}
+
+func (s *Store) FinalizeOrdinalQueryArtifactMeasuredWithReceipt(ctx context.Context, settlement BudgetSettlement,
+	artifact ResultArtifact, publish *OrdinalMaterializationPublish,
+	builder TerminalReceiptBuilder) (QueryRecord, PersistedQueryReceipt, FinalizeQueryMetrics, error) {
+	if (settlement.OrdinalExposure == nil) == (settlement.OrdinalObservationRef == nil) || settlement.Exposure != nil {
+		return QueryRecord{}, PersistedQueryReceipt{}, FinalizeQueryMetrics{}, opErr("finalize ordinal query artifact", ErrInvalid,
+			fmt.Errorf("exactly one V4 observation or committed observation reference is required"))
+	}
+	settlement.OrdinalMaterialization = publish
+	return s.FinalizeQueryArtifactMeasuredWithReceipt(ctx, settlement, artifact, builder)
 }
 
 const ordinalCASMaxAttempts = 16
@@ -154,7 +199,13 @@ func (s *Store) finalizePreparedQuery(ctx context.Context, settlement BudgetSett
 	prepared preparedEncryptedResult, builder TerminalReceiptBuilder,
 	metrics FinalizeQueryMetrics) (QueryRecord, PersistedQueryReceipt, FinalizeQueryMetrics, error) {
 	settlementStarted := time.Now()
-	prepared.metadata.CreatedAt = s.now()
+	if prepared.artifact != nil {
+		if prepared.artifact.CreatedAt.IsZero() {
+			prepared.artifact.CreatedAt = s.now()
+		}
+	} else {
+		prepared.metadata.CreatedAt = s.now()
+	}
 	aggregate := metrics
 	for attempt := 0; attempt < ordinalCASMaxAttempts; attempt++ {
 		record, receipt, measured, err := s.finalizePreparedQueryAttempt(ctx, settlement, current, prepared, builder)
@@ -206,14 +257,18 @@ func (s *Store) finalizePreparedQueryAttempt(ctx context.Context, settlement Bud
 		return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, ErrConflict, err)
 	}
 	defer rollback(tx)
-	// Persist ciphertext before taking the root-family exposure lock. The rows
-	// remain invisible and fully rollbackable until commit, while a large
-	// chunked result cannot extend the critical CAS/ledger lock interval.
-	created, err := insertEncryptedResultTx(ctx, tx, prepared.metadata)
+	// Persist result metadata before taking the root-family exposure lock. Legacy
+	// ciphertext rows remain supported; new Parquet results insert metadata only.
+	var created bool
+	if prepared.artifact != nil {
+		created, err = insertResultArtifactTx(ctx, tx, *prepared.artifact)
+	} else {
+		created, err = insertEncryptedResultTx(ctx, tx, prepared.metadata)
+	}
 	if err != nil {
 		return QueryRecord{}, PersistedQueryReceipt{}, metrics, err
 	}
-	if created && prepared.chunks != nil {
+	if prepared.artifact == nil && created && prepared.chunks != nil {
 		if err := prepared.chunks(ctx, tx); err != nil {
 			return QueryRecord{}, PersistedQueryReceipt{}, metrics, err
 		}
@@ -225,26 +280,39 @@ func (s *Store) finalizePreparedQueryAttempt(ctx context.Context, settlement Bud
 	metrics.ExposureReservationLock = exposureMetrics.ReservationLock
 	metrics.ExposureLedgerLock = exposureMetrics.LedgerLock
 	metrics.ExposureFactStore = exposureMetrics.FactStore
-	record, audit, err := settleBudgetTx(ctx, tx, now, settlement, QueryCompleted, prepared.metadata.SHA256)
+	resultHash := preparedResultHash(prepared)
+	record, audit, err := settleBudgetTx(ctx, tx, now, settlement, QueryCompleted, resultHash)
 	if err != nil {
 		return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, settlementErrorKind(err), err)
 	}
-	if record.ResultSHA256 != "" && record.ResultSHA256 != prepared.metadata.SHA256 {
+	if record.ResultSHA256 != "" && record.ResultSHA256 != resultHash {
 		return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, ErrConflict, fmt.Errorf("query already finalized with a different result"))
 	}
 	if record.ResultSHA256 == "" {
-		if _, err := tx.ExecContext(ctx, `UPDATE query_records SET result_sha256=$1 WHERE id=$2`, prepared.metadata.SHA256, record.ID); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE query_records SET result_sha256=$1 WHERE id=$2`, resultHash, record.ID); err != nil {
 			return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, ErrConflict, err)
 		}
-		record.ResultSHA256 = prepared.metadata.SHA256
+		record.ResultSHA256 = resultHash
 	}
 	if created {
+		eventType := "QUERY_RESULT_STORED"
+		payload := map[string]any{
+			"result_sha256": prepared.metadata.SHA256, "cipher": "AES-256-GCM", "key_id": prepared.metadata.KeyID,
+			"storage_format": prepared.metadata.StorageFormat, "chunk_count": prepared.metadata.ChunkCount,
+		}
+		if prepared.artifact != nil {
+			eventType = "QUERY_RESULT_OBJECT_REGISTERED"
+			payload = map[string]any{
+				"result_id": prepared.artifact.ResultID, "result_sha256": prepared.artifact.ParquetSHA256,
+				"object_sha256": prepared.artifact.ObjectSHA256, "format": prepared.artifact.Format,
+				"encryption": prepared.artifact.Encryption, "key_id": prepared.artifact.KeyID,
+				"row_count": prepared.artifact.RowCount, "column_count": prepared.artifact.ColumnCount,
+				"status": ResultArtifactPending,
+			}
+		}
 		_, err = appendAuditTx(ctx, tx, AuditEvent{
-			TaskID: record.TaskID, QueryID: record.ID, Actor: record.Actor, EventType: "QUERY_RESULT_STORED",
-			Payload: mustJSON(map[string]any{
-				"result_sha256": prepared.metadata.SHA256, "cipher": "AES-256-GCM", "key_id": prepared.metadata.KeyID,
-				"storage_format": prepared.metadata.StorageFormat, "chunk_count": prepared.metadata.ChunkCount,
-			}), OccurredAt: now,
+			TaskID: record.TaskID, QueryID: record.ID, Actor: record.Actor, EventType: eventType,
+			Payload: mustJSON(payload), OccurredAt: now,
 		})
 		if err != nil {
 			return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, ErrConflict, err)
@@ -265,9 +333,16 @@ func (s *Store) finalizePreparedQueryAttempt(ctx context.Context, settlement Bud
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, ErrConflict, err)
+		return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, ErrCommitOutcomeUnknown, err)
 	}
 	return record, receipt, metrics, nil
+}
+
+func preparedResultHash(prepared preparedEncryptedResult) string {
+	if prepared.artifact != nil {
+		return prepared.artifact.ParquetSHA256
+	}
+	return prepared.metadata.SHA256
 }
 
 // SaveEncryptedResult stores a result for an already completed query. Prefer
@@ -555,9 +630,23 @@ WHERE key_id=$1 FOR UPDATE`, keyID))
 		}
 		return key, nil
 	}
-	var affected int64
+	var pendingArtifacts int64
 	if err := tx.QueryRowContext(ctx, `
-SELECT count(*) FROM encrypted_query_results WHERE key_id=$1`, keyID).Scan(&affected); err != nil {
+SELECT count(*) FROM result_artifacts WHERE key_id=$1 AND status='PENDING'`, keyID).Scan(&pendingArtifacts); err != nil {
+		return ResultEncryptionKey{}, opErr(op, ErrConflict, err)
+	}
+	if pendingArtifacts != 0 {
+		return ResultEncryptionKey{}, opErr(op, ErrConflict,
+			fmt.Errorf("result encryption key has %d pending artifact(s)", pendingArtifacts))
+	}
+	var affectedLegacy, affectedArtifacts int64
+	if err := tx.QueryRowContext(ctx, `
+	SELECT count(*) FROM encrypted_query_results WHERE key_id=$1`, keyID).Scan(&affectedLegacy); err != nil {
+		return ResultEncryptionKey{}, opErr(op, ErrConflict, err)
+	}
+	if err := tx.QueryRowContext(ctx, `
+SELECT count(*) FROM result_artifacts WHERE key_id=$1 AND status IN ('AVAILABLE','DELETING','DELETED')`, keyID).
+		Scan(&affectedArtifacts); err != nil {
 		return ResultEncryptionKey{}, opErr(op, ErrConflict, err)
 	}
 	key, err = scanResultEncryptionKey(tx.QueryRowContext(ctx, `
@@ -571,7 +660,8 @@ RETURNING key_id, status, created_at, erased_at, erased_by`,
 	}
 	_, err = appendAuditTx(ctx, tx, AuditEvent{
 		Actor: actor, EventType: "RESULT_ENCRYPTION_KEY_ERASED",
-		Payload: mustJSON(map[string]any{"key_id": keyID, "affected_results": affected}), OccurredAt: now,
+		Payload: mustJSON(map[string]any{"key_id": keyID, "affected_results": affectedLegacy + affectedArtifacts,
+			"affected_legacy_results": affectedLegacy, "affected_artifacts": affectedArtifacts}), OccurredAt: now,
 	})
 	if err != nil {
 		return ResultEncryptionKey{}, opErr(op, ErrConflict, err)
@@ -665,6 +755,15 @@ func (s *Store) SetResultRetentionHold(ctx context.Context, taskID, reason, acto
 	defer rollback(tx)
 	if err := lockTaskForRetentionTx(ctx, tx, taskID); err != nil {
 		return ResultRetentionHold{}, opErr(op, retentionTaskLookupErrorKind(err), err)
+	}
+	var deletingArtifacts int64
+	if err := tx.QueryRowContext(ctx, `
+SELECT count(*) FROM result_artifacts WHERE task_id=$1 AND status='DELETING'`, taskID).Scan(&deletingArtifacts); err != nil {
+		return ResultRetentionHold{}, opErr(op, ErrConflict, err)
+	}
+	if deletingArtifacts != 0 {
+		return ResultRetentionHold{}, opErr(op, ErrConflict,
+			fmt.Errorf("%d result artifact deletion(s) already in progress", deletingArtifacts))
 	}
 	hold, err := scanResultRetentionHold(tx.QueryRowContext(ctx, `
 INSERT INTO result_retention_holds(task_id, reason, created_by, created_at, released_by, released_at)

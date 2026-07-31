@@ -9,6 +9,7 @@ import (
 	"taskbound.local/agent-data-gateway/internal/apierr"
 	"taskbound.local/agent-data-gateway/internal/control"
 	"taskbound.local/agent-data-gateway/internal/mcp"
+	"taskbound.local/agent-data-gateway/internal/resultartifact"
 )
 
 const ordinalReplayPreparationFailed = "ORDINAL_REPLAY_PREPARATION_FAILED"
@@ -116,10 +117,28 @@ func (s *Service) tryOrdinalSemanticReplayWithSpoolAndMetadata(ctx context.Conte
 	if err != nil {
 		return nil, ordinalReplayTerminated, err
 	}
-	_, plaintext, err := s.store.GetEncryptedResult(ctx, task.ID, materialization.SourceQueryID)
-	if err != nil {
-		if !errors.Is(err, control.ErrNotFound) && !errors.Is(err, control.ErrCipherUnavailable) {
-			return nil, ordinalReplayTerminated, err
+	var stored storedQueryResult
+	var sourceErr error
+	var legacyDecodeErr error
+	if s.resultArtifacts != nil {
+		var artifact control.ResultArtifact
+		artifact, sourceErr = s.store.GetResultArtifactByQuery(ctx, materialization.SourceQueryID)
+		if sourceErr == nil {
+			stored, sourceErr = s.loadArtifactResult(ctx, artifact, artifact.ParquetSize)
+		}
+	}
+	if s.resultArtifacts == nil || errors.Is(sourceErr, control.ErrNotFound) {
+		var plaintext []byte
+		_, plaintext, sourceErr = s.store.GetEncryptedResult(ctx, task.ID, materialization.SourceQueryID)
+		if sourceErr == nil {
+			stored, legacyDecodeErr = decodeStoredQueryResult(plaintext)
+		}
+	}
+	if sourceErr != nil {
+		if !errors.Is(sourceErr, control.ErrNotFound) && !errors.Is(sourceErr, control.ErrCipherUnavailable) &&
+			!errors.Is(sourceErr, control.ErrCiphertextInvalid) && !errors.Is(sourceErr, resultartifact.ErrObjectNotFound) &&
+			!errors.Is(sourceErr, resultartifact.ErrArtifactIntegrity) {
+			return nil, ordinalReplayTerminated, sourceErr
 		}
 		// Result cleanup or key erasure racing the lookup is a deterministic
 		// miss only after eviction succeeds. Never ignore an eviction failure:
@@ -131,8 +150,7 @@ func (s *Service) tryOrdinalSemanticReplayWithSpoolAndMetadata(ctx context.Conte
 		componentMS["semantic_replay_lookup"] = durationMS(time.Since(started))
 		return continueNovel()
 	}
-	stored, decodeErr := decodeStoredQueryResult(plaintext)
-	if decodeErr != nil || stored.RowCount != materialization.RowCount ||
+	if legacyDecodeErr != nil || stored.RowCount != materialization.RowCount ||
 		stored.RowCount < 0 || stored.RowCount > reservation.AllowedRows || stored.RowCount != int64(len(stored.Rows)) {
 		if evictErr := s.store.DeleteOrdinalMaterialization(ctx, task.ID, cacheKey); evictErr != nil &&
 			!errors.Is(evictErr, control.ErrNotFound) {
@@ -168,6 +186,27 @@ func (s *Service) tryOrdinalSemanticReplayWithSpoolAndMetadata(ctx context.Conte
 	componentMS["semantic_replay"] = componentMS["semantic_replay_lookup"]
 	stored.ComponentMS = componentMS
 	stored.DatabaseMS = 1
+	if s.resultArtifacts != nil {
+		settlement := control.BudgetSettlement{
+			QueryID: queryID, Rows: stored.RowCount, DBMS: 1, ObservedDBMS: 0,
+			OrdinalObservationRef: &control.OrdinalObservationReference{
+				ObservationSHA256:   materialization.Observation.ObservationSHA256,
+				DictionarySetDigest: materialization.Observation.DictionarySetDigest,
+			},
+		}
+		// finalizeArtifactQuery owns every terminal settlement from here.
+		ownsReservation = false
+		result, finalizeErr := s.finalizeArtifactQuery(ctx, task, requestID, settlement, stored, componentMS)
+		if finalizeErr != nil {
+			record, recordErr := s.store.GetQuery(context.WithoutCancel(ctx), queryID)
+			if recordErr == nil && record.Status == control.QueryCompleted {
+				return nil, ordinalReplayCompleted, finalizeErr
+			}
+			return nil, ordinalReplayTerminated, finalizeErr
+		}
+		result["semantic_replay"] = true
+		return result, ordinalReplayCompleted, nil
+	}
 	encodingStarted := time.Now()
 	resultSpool, err := spoolFactory(s.spoolDirectory, task.ID, queryID, s.spoolThreshold)
 	if err == nil {

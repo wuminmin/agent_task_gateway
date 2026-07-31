@@ -33,6 +33,7 @@ import (
 	gatewayapp "taskbound.local/agent-data-gateway/internal/gateway"
 	"taskbound.local/agent-data-gateway/internal/mcp"
 	"taskbound.local/agent-data-gateway/internal/queryreceipt"
+	"taskbound.local/agent-data-gateway/internal/resultartifact"
 )
 
 const defaultGatewayConnectorMaxRows int64 = 1_200_000
@@ -55,6 +56,36 @@ func main() {
 	cipher, err := control.NewAES256GCMWithKeyID(env("GATEWAY_DATA_KEY_ID", control.DefaultResultEncryptionKeyID), key)
 	if err != nil {
 		logger.Error("initialize result cipher", "error", err)
+		os.Exit(1)
+	}
+	pathStyle, err := boolEnv("GATEWAY_OBJECT_STORE_PATH_STYLE", true)
+	if err != nil {
+		logger.Error("invalid object-store addressing mode", "error", err)
+		os.Exit(1)
+	}
+	objectBackend, err := resultartifact.NewS3Backend(resultartifact.S3Config{
+		Endpoint:       requiredEnv("GATEWAY_OBJECT_STORE_ENDPOINT"),
+		Region:         env("GATEWAY_OBJECT_STORE_REGION", "us-east-1"),
+		Bucket:         requiredEnv("GATEWAY_OBJECT_STORE_BUCKET"),
+		AccessKey:      requiredEnv("GATEWAY_OBJECT_STORE_ACCESS_KEY"),
+		SecretKey:      requiredEnv("GATEWAY_OBJECT_STORE_SECRET_KEY"),
+		ForcePathStyle: pathStyle,
+	})
+	if err != nil {
+		logger.Error("initialize result object store", "error", err)
+		os.Exit(1)
+	}
+	resultArtifacts, err := resultartifact.NewManager(objectBackend, cipher,
+		env("GATEWAY_RESULT_TEMP_DIR", "/tmp/taskgate-result-artifacts"))
+	if err != nil {
+		logger.Error("initialize Parquet result artifacts", "error", err)
+		os.Exit(1)
+	}
+	objectReadyCtx, objectReadyCancel := context.WithTimeout(ctx, 10*time.Second)
+	objectReadyErr := resultArtifacts.Ready(objectReadyCtx)
+	objectReadyCancel()
+	if objectReadyErr != nil {
+		logger.Error("result object store is unavailable", "error", objectReadyErr)
 		os.Exit(1)
 	}
 	queryReceiptSigner, err := queryreceipt.NewSignerFromBase64(
@@ -141,6 +172,55 @@ func main() {
 		logger.Error("invalid settlement timeout", "error", err)
 		os.Exit(1)
 	}
+	artifactOperationTimeout, err := positiveDurationEnv("GATEWAY_RESULT_PROMOTION_TIMEOUT", 30*time.Minute)
+	if err != nil {
+		logger.Error("invalid result promotion timeout", "error", err)
+		os.Exit(1)
+	}
+	stagingOrphanTTL, err := positiveDurationEnv("GATEWAY_RESULT_STAGING_ORPHAN_TTL", 24*time.Hour)
+	if err != nil {
+		logger.Error("invalid result staging orphan TTL", "error", err)
+		os.Exit(1)
+	}
+	if stagingOrphanTTL < time.Hour {
+		logger.Error("invalid result staging orphan TTL", "error", "must be at least 1h")
+		os.Exit(1)
+	}
+	if purged, purgeErr := resultArtifacts.PurgeLocalStagingBefore(time.Now().UTC().Add(-stagingOrphanTTL)); purgeErr != nil {
+		logger.Warn("local encrypted Parquet staging cleanup failed", "error", purgeErr)
+	} else if purged > 0 {
+		logger.Info("local encrypted Parquet staging cleanup completed", "purged", purged)
+	}
+	retention, err := retentionConfigFromEnv()
+	if err != nil {
+		logger.Error("initialize retention policy", "error", err)
+		os.Exit(1)
+	}
+	deliveryTTL, err := positiveDurationEnv("GATEWAY_RESULT_DELIVERY_TTL", 5*time.Minute)
+	if err != nil {
+		logger.Error("invalid result delivery TTL", "error", err)
+		os.Exit(1)
+	}
+	downloadTimeout, err := positiveDurationEnv("GATEWAY_RESULT_DOWNLOAD_TIMEOUT", 30*time.Minute)
+	if err != nil {
+		logger.Error("invalid result download timeout", "error", err)
+		os.Exit(1)
+	}
+	downloadConcurrency64, err := positiveInt64Env("GATEWAY_RESULT_DOWNLOAD_CONCURRENCY", 4)
+	if err != nil || downloadConcurrency64 > 1024 {
+		logger.Error("invalid result download concurrency", "error", "must be between 1 and 1024")
+		os.Exit(1)
+	}
+	previewMaxBytes, err := positiveInt64Env("GATEWAY_RESULT_PREVIEW_MAX_BYTES", 64<<20)
+	if err != nil {
+		logger.Error("invalid result preview byte limit", "error", err)
+		os.Exit(1)
+	}
+	deliveryBaseURL, deliverySigningKey, err := deliveryConfigFromEnv()
+	if err != nil {
+		logger.Error("initialize result delivery", "error", err)
+		os.Exit(1)
+	}
 	connector, err := dataconnector.New(ctx, dataconnector.Config{
 		DSN: businessDSN, StatementTimeout: connectorStatementTimeout,
 		ConnectTimeout: 10 * time.Second, MaxRows: connectorMaxRows, MaxConnections: 4,
@@ -160,14 +240,14 @@ func main() {
 		Connector: connector, CallbackSecret: requiredEnv("OA_CALLBACK_SECRET"), Logger: logger,
 		ReceiptVerifier: oaReceiptVerifier, QueryReceiptSigner: queryReceiptSigner, Background: ctx,
 		SettlementTimeout: settlementTimeout, SnapshotRegistry: snapshotRegistry,
+		ResultArtifacts: resultArtifacts, ResultTTL: retention.ResultTTL,
+		ArtifactOperationTimeout: artifactOperationTimeout,
+		PreviewMaxBytes:          previewMaxBytes, DeliveryBaseURL: deliveryBaseURL,
+		DeliverySigningKey: deliverySigningKey, DeliveryTTL: deliveryTTL,
+		DownloadTimeout: downloadTimeout, DownloadConcurrency: int(downloadConcurrency64),
 	})
 	if err != nil {
 		logger.Error("initialize gateway service", "error", err)
-		os.Exit(1)
-	}
-	retention, err := retentionConfigFromEnv()
-	if err != nil {
-		logger.Error("initialize retention policy", "error", err)
 		os.Exit(1)
 	}
 	auditAnchor, err := auditAnchorConfigFromEnv()
@@ -191,12 +271,13 @@ func main() {
 	router.Get("/.well-known/taskgate/query-receipt-keyring.json", queryReceiptKeyringHandler(queryReceiptKeyBundle))
 	router.Handle("/mcp", mcpServer)
 	router.Handle("/api/v1/oa/callback", service.OACallbackHandler())
-	mountRetentionAdmin(router, store, retention, logger)
+	router.Handle("/api/v1/results/{result_id}/download", service.ResultDownloadHandler())
+	mountRetentionAdmin(router, store, retention, logger, service)
 
 	go sweepExpired(ctx, store, logger)
-	if retention.ResultTTL > 0 {
-		go sweepRetention(ctx, store, retention, logger)
-	}
+	go sweepPendingResultArtifacts(ctx, service, logger)
+	go sweepOrphanResultStaging(ctx, service, stagingOrphanTTL, logger)
+	go sweepRetention(ctx, store, retention, logger, service)
 	if auditAnchor.enabled() {
 		go sweepAuditAnchors(ctx, store, auditAnchor, logger)
 	}
@@ -221,6 +302,50 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = server.Shutdown(shutdownCtx)
+}
+
+func sweepPendingResultArtifacts(ctx context.Context, service *gatewayapp.Service, logger *slog.Logger) {
+	reconcile := func() {
+		count, err := service.ReconcilePendingArtifacts(ctx)
+		if err != nil {
+			logger.Warn("pending Parquet result recovery failed", "recovered", count, "error", err)
+		} else if count > 0 {
+			logger.Info("pending Parquet results recovered", "count", count)
+		}
+	}
+	reconcile()
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			reconcile()
+		}
+	}
+}
+
+func sweepOrphanResultStaging(ctx context.Context, service *gatewayapp.Service, ttl time.Duration, logger *slog.Logger) {
+	cleanup := func() {
+		count, err := service.PurgeOrphanStagingBefore(ctx, time.Now().UTC().Add(-ttl))
+		if err != nil {
+			logger.Warn("orphan Parquet staging cleanup failed", "purged", count, "error", err)
+		} else if count > 0 {
+			logger.Info("orphan Parquet staging cleanup completed", "purged", count)
+		}
+	}
+	cleanup()
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			cleanup()
+		}
+	}
 }
 
 func expectedDatasource(logicalCatalog *catalog.Catalog) (catalog.Source, []dataconnector.ViewSchema, error) {
@@ -495,13 +620,14 @@ func optionalDurationEnv(key string) (time.Duration, error) {
 	return time.Duration(seconds) * time.Second, nil
 }
 
-func mountRetentionAdmin(router chi.Router, store *control.Store, config retentionConfig, logger *slog.Logger) {
+func mountRetentionAdmin(router chi.Router, store *control.Store, config retentionConfig, logger *slog.Logger,
+	services ...*gatewayapp.Service) {
 	if strings.TrimSpace(config.AdminToken) == "" {
 		return
 	}
 	router.Group(func(r chi.Router) {
 		r.Use(adminTokenAuth(config.AdminToken))
-		r.Post("/admin/v1/retention/purge", purgeRetentionHandler(store, config, logger))
+		r.Post("/admin/v1/retention/purge", purgeRetentionHandler(store, config, logger, services...))
 		r.Put("/admin/v1/retention/legal-holds/{task_id}", setRetentionHoldHandler(store))
 		r.Delete("/admin/v1/retention/legal-holds/{task_id}", clearRetentionHoldHandler(store))
 		r.Post("/admin/v1/result-encryption-keys/{key_id}/erase", eraseResultEncryptionKeyHandler(store))
@@ -528,7 +654,8 @@ func adminTokenAuth(token string) func(http.Handler) http.Handler {
 	}
 }
 
-func purgeRetentionHandler(store *control.Store, config retentionConfig, logger *slog.Logger) http.HandlerFunc {
+func purgeRetentionHandler(store *control.Store, config retentionConfig, logger *slog.Logger,
+	services ...*gatewayapp.Service) http.HandlerFunc {
 	type requestBody struct {
 		Cutoff string `json:"cutoff"`
 	}
@@ -553,7 +680,17 @@ func purgeRetentionHandler(store *control.Store, config retentionConfig, logger 
 			http.Error(w, "retention purge failed", http.StatusConflict)
 			return
 		}
-		writeMainJSON(w, http.StatusOK, map[string]any{"cutoff": jsonTime(cutoff), "purged_results": purged})
+		var objectPurged int64
+		if len(services) > 0 && services[0] != nil {
+			objectPurged, err = services[0].PurgeResultArtifactsBefore(r.Context(), cutoff)
+			if err != nil {
+				logger.Warn("manual object retention purge failed", "error", err)
+				http.Error(w, "retention purge failed", http.StatusConflict)
+				return
+			}
+		}
+		writeMainJSON(w, http.StatusOK, map[string]any{"cutoff": jsonTime(cutoff),
+			"purged_results": purged + objectPurged, "purged_object_results": objectPurged})
 	}
 }
 
@@ -663,7 +800,8 @@ func jsonTime(value time.Time) string {
 	return value.UTC().Truncate(time.Microsecond).Format(time.RFC3339Nano)
 }
 
-func sweepRetention(ctx context.Context, store *control.Store, config retentionConfig, logger *slog.Logger) {
+func sweepRetention(ctx context.Context, store *control.Store, config retentionConfig, logger *slog.Logger,
+	services ...*gatewayapp.Service) {
 	ticker := time.NewTicker(config.SweepInterval)
 	defer ticker.Stop()
 	for {
@@ -671,14 +809,27 @@ func sweepRetention(ctx context.Context, store *control.Store, config retentionC
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			cutoff := time.Now().UTC().Add(-config.ResultTTL)
-			purged, err := store.PurgeEncryptedResultsBefore(ctx, cutoff)
-			if err != nil {
-				logger.Warn("retention purge sweep failed", "error", err)
-				continue
+			now := time.Now().UTC()
+			var purged int64
+			if config.ResultTTL > 0 {
+				cutoff := now.Add(-config.ResultTTL)
+				var err error
+				purged, err = store.PurgeEncryptedResultsBefore(ctx, cutoff)
+				if err != nil {
+					logger.Warn("retention purge sweep failed", "error", err)
+					continue
+				}
+			}
+			if len(services) > 0 && services[0] != nil {
+				objectPurged, objectErr := services[0].PurgeExpiredResultArtifacts(ctx, now)
+				if objectErr != nil {
+					logger.Warn("object retention purge sweep failed", "error", objectErr)
+					continue
+				}
+				purged += objectPurged
 			}
 			if purged > 0 {
-				logger.Info("retention purge sweep completed", "purged_results", purged, "cutoff", cutoff)
+				logger.Info("retention purge sweep completed", "purged_results", purged, "swept_at", now)
 			}
 		}
 	}
@@ -835,6 +986,48 @@ func env(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func boolEnv(key string, fallback bool) (bool, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback, nil
+	}
+	value, err := strconv.ParseBool(raw)
+	if err != nil {
+		return false, fmt.Errorf("%s must be a boolean", key)
+	}
+	return value, nil
+}
+
+func deliveryConfigFromEnv() (string, []byte, error) {
+	base := strings.TrimRight(env("GATEWAY_PUBLIC_BASE_URL", "http://127.0.0.1:8082"), "/")
+	parsed, err := url.Parse(base)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" ||
+		(parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", nil, errors.New("GATEWAY_PUBLIC_BASE_URL must be an absolute http(s) URL without query or fragment")
+	}
+	if parsed.Scheme == "http" && !isLoopbackHost(parsed.Hostname()) {
+		return "", nil, errors.New("GATEWAY_PUBLIC_BASE_URL requires https except for loopback development addresses")
+	}
+	key := strings.TrimSpace(os.Getenv("GATEWAY_DELIVERY_SIGNING_KEY"))
+	if key == "" {
+		// The demo keeps backward-compatible configuration. Production should
+		// supply an independent random capability-signing secret.
+		key = requiredEnv("OA_CALLBACK_SECRET")
+	}
+	if len(key) < 32 {
+		return "", nil, errors.New("GATEWAY_DELIVERY_SIGNING_KEY must contain at least 32 bytes")
+	}
+	return base, []byte(key), nil
+}
+
+func isLoopbackHost(host string) bool {
+	if strings.EqualFold(strings.TrimSpace(host), "localhost") {
+		return true
+	}
+	ip := net.ParseIP(strings.TrimSpace(host))
+	return ip != nil && ip.IsLoopback()
 }
 
 func positiveInt64Env(key string, fallback int64) (int64, error) {

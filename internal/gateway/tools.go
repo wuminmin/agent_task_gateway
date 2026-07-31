@@ -50,12 +50,21 @@ var queryTools = []mcp.Tool{
 		"task_id": map[string]any{"type": "string"}, "timeout_seconds": map[string]any{"type": "integer", "minimum": 0, "maximum": 45},
 	}, "task_id"), Annotations: map[string]any{"readOnlyHint": true}},
 	{Name: "get_task_context", Description: "读取 ACTIVE 任务的批准范围、预算和期限。", InputSchema: taskIDSchema(), Annotations: map[string]any{"readOnlyHint": true}},
-	{Name: "query_sql", Description: "执行任务授权范围内的报表 SQL。启用精确暴露记账时，SQL 必须能够无损转换为 TaskGate 规范计划；不支持的语法会在数据库执行和预算结算前返回可修复错误。", InputSchema: objectSchema(map[string]any{
+	{Name: "query_sql", Description: "执行任务授权范围内的报表 SQL，把加密 Parquet 规范原件保存在 TaskGate 对象存储，并仅返回摘要与 result_id。启用精确暴露记账时，SQL 必须能够无损转换为 TaskGate 规范计划。", InputSchema: objectSchema(map[string]any{
 		"task_id": map[string]any{"type": "string"}, "request_id": requestIDSchema(), "sql": map[string]any{"type": "string", "minLength": 1, "maxLength": 100000},
 	}, "task_id", "request_id", "sql")},
-	{Name: "get_query_result", Description: "读取自己的加密保存查询结果。", InputSchema: objectSchema(map[string]any{
+	{Name: "get_query_result", Description: "读取自己的查询结果元数据和 result_id；完整数据仍保留在 TaskGate 对象存储。", InputSchema: objectSchema(map[string]any{
 		"task_id": map[string]any{"type": "string"}, "query_id": map[string]any{"type": "string"},
 	}, "task_id", "query_id"), Annotations: map[string]any{"readOnlyHint": true}},
+	{Name: "preview_result", Description: "按 result_id 读取最多 100 行的有界预览；不交付完整 Parquet。", InputSchema: objectSchema(map[string]any{
+		"result_id": map[string]any{"type": "string", "minLength": 1},
+		"offset":    map[string]any{"type": "integer", "minimum": 0},
+		"limit":     map[string]any{"type": "integer", "minimum": 1, "maximum": 100},
+	}, "result_id"), Annotations: map[string]any{"readOnlyHint": true}},
+	{Name: "deliver_result", Description: "为已消费的规范结果生成短期 Parquet 交付地址；下载次数不会改变预算、消费状态或 Receipt。", InputSchema: objectSchema(map[string]any{
+		"result_id": map[string]any{"type": "string", "minLength": 1},
+		"format":    map[string]any{"type": "string", "enum": []string{"parquet"}},
+	}, "result_id")},
 	{Name: "get_budget", Description: "读取任务预算上限、已用和剩余值。", InputSchema: taskIDSchema(), Annotations: map[string]any{"readOnlyHint": true}},
 	{Name: "list_receipts", Description: "列出自己的查询审计凭证，不含物理表名或数据库凭据。", InputSchema: objectSchema(map[string]any{
 		"task_id": map[string]any{"type": "string"}, "cursor": map[string]any{"type": "string"},
@@ -191,6 +200,10 @@ func (s *Service) CallTool(ctx context.Context, principal mcp.Principal, name st
 			result, err = s.querySQL(ctx, principal, raw)
 		case "get_query_result":
 			result, err = s.getQueryResult(ctx, principal, raw)
+		case "preview_result":
+			result, err = s.previewResult(ctx, principal, raw)
+		case "deliver_result":
+			result, err = s.deliverResult(ctx, principal, raw)
 		case "get_budget":
 			result, err = s.getBudget(ctx, principal, raw)
 		case "list_receipts":

@@ -7,8 +7,29 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 )
+
+func TestConnectorRegistersTimeTZAsLosslessText(t *testing.T) {
+	typeMap := pgtype.NewMap()
+	if _, exists := typeMap.TypeForOID(pgtype.TimetzOID); exists {
+		t.Fatal("pgx unexpectedly registered a native timetz codec")
+	}
+	registerConnectorDataTypes(typeMap)
+	dataType, exists := typeMap.TypeForOID(pgtype.TimetzOID)
+	if !exists || dataType.Name != "timetz" || dataType.Codec.PreferredFormat() != pgx.TextFormatCode {
+		t.Fatalf("registered timetz type = %#v, exists=%v", dataType, exists)
+	}
+	decoded, err := dataType.Codec.DecodeValue(typeMap, pgtype.TimetzOID, pgx.TextFormatCode, []byte("04:05:06.789123-08:30:15"))
+	if err != nil {
+		t.Fatalf("DecodeValue: %v", err)
+	}
+	if decoded != "04:05:06.789123-08:30:15" {
+		t.Fatalf("decoded timetz = %#v", decoded)
+	}
+}
 
 func TestNormalizeConfigDefaultsAndRejectsSecretsInErrors(t *testing.T) {
 	config, err := normalizeConfig(Config{DSN: "postgres://reader:super-secret@postgres/demo"})

@@ -55,7 +55,7 @@ ORDER BY amount DESC
 - 2–8 个不同 Catalog 稳定角色组成的 connected INNER equijoin，内部规范为 `join_many`；
 - SQL table alias 映射为 Catalog stable role，source、join predicate 和 filter 合取会按语义规范化；展示列顺序仍保持用户可见语义。
 
-内部计划和 FactID 始终使用稳定字段 ID；响应层单独保存并恢复原 SQL 的输出 alias 与 target-list 顺序（包括列/聚合交错）。这些展示元数据随加密结果持久化，因此 `get_query_result`、幂等 replay 和 V4 semantic replay 返回与首次调用一致的列名、列值顺序、`query_plan`、`sql_profile` 和 `plan_digest`。Semantic replay 在复用结果前按稳定语义列身份重排；旧结果缺少该身份时按 cache miss 重新执行，不猜测映射。
+内部计划和 FactID 始终使用稳定字段 ID；响应层单独保存并恢复原 SQL 的输出 alias 与 target-list 顺序（包括列/聚合交错）。这些展示元数据保存在 Control PG 的 artifact schema/查询元数据中，加密 Parquet bytes 保存在 TaskGate 对象存储中；因此 `get_query_result`、幂等 replay 和 V4 semantic replay 返回与首次调用一致的列名、列值顺序、`query_plan`、`sql_profile` 和 `plan_digest`。Semantic replay 在复用结果前按稳定语义列身份重排；旧结果缺少该身份时按 cache miss 重新执行，不猜测映射。普通 query/get 仅返回 `result_id` 和摘要，不因这些展示元数据而返回完整行。
 
 Self-join、outer/cross/non-equality join、断开的 join graph、子查询、CTE、set operation、窗口函数、`HAVING`、`SELECT DISTINCT`、位置式 group/order 引用和多输入分页不可 lowering。Gateway 不会删除 predicate、忽略不可表达的输出语义，也不会把 `LEFT JOIN` 改为 `INNER JOIN`。
 

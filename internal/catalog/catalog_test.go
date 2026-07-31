@@ -45,6 +45,23 @@ func TestParseValidCatalogAndResolvePolicy(t *testing.T) {
 	}
 }
 
+func TestCatalogTimeTZBoundaryMatchesExposureProfile(t *testing.T) {
+	legacy := strings.Replace(validCatalogYAML(t), "        type: date\n", "        type: time with time zone\n", 1)
+	if _, err := Parse([]byte(legacy)); err != nil {
+		t.Fatalf("legacy Catalog rejected supported timetz result field: %v", err)
+	}
+
+	v4Data, err := os.ReadFile("../../config/catalog.yaml")
+	if err != nil {
+		t.Fatalf("read V4 Catalog: %v", err)
+	}
+	v4 := strings.Replace(string(v4Data), "        type: date\n", "        type: time with time zone\n", 1)
+	if _, err := Parse([]byte(v4)); !errors.Is(err, ErrInvalidCatalog) ||
+		!strings.Contains(err.Error(), "time with time zone is outside taskgate-exposure-v2") {
+		t.Fatalf("V4 Catalog timetz error = %v, want exposure-domain rejection", err)
+	}
+}
+
 func TestRepositoryCatalog(t *testing.T) {
 	parsed, err := Load("../../config/catalog.yaml")
 	if err != nil {

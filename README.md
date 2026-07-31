@@ -23,9 +23,8 @@ delta(T, q) = (|F_release(q) - K_release(T)|,
                |F_outcome(q) - K_outcome(T)|)
 ```
 
-V4 把 canonical FactID 语义精确编码为冻结 snapshot 的 ordinal bitmap；少量派生 release/outcome 使用动态字典。在线路径是 `reserve -> replay lookup / execute+stream -> derive bitmap -> three-head CAS -> release`。
-可见结果与 ordinal provenance companion 在同一个只读 `REPEATABLE READ` 事务执行；只有三维账本、加密结果、审计和 V6 签名回执原子提交后，结果才会释放。
-超出任一 exposure 上限的结果不会交付或保存。
+V4 把 canonical FactID 语义精确编码为冻结 snapshot 的 ordinal bitmap；少量派生 release/outcome 使用动态字典。在线路径是 `reserve -> replay lookup / execute+stream -> derive bitmap -> stage encrypted Parquet -> three-head CAS -> canonical promotion`。
+可见结果与 ordinal provenance companion 在同一个只读 `REPEATABLE READ` 事务执行。Gateway 在对象存储客户端侧加密 Parquet；Control PostgreSQL 只提交账本、artifact 元数据、审计和 V6 签名回执，不保存 Parquet 或结果行。确定性的 canonical 对象创建成功即记为 `consumed/AVAILABLE`，随后普通查询只向 Agent 返回 `result_id` 与摘要。超出任一 exposure 上限的结果不会产生 canonical 对象。
 
 实现范围和非目标见[任务级数据暴露记账](docs/exposure-accounting.md)。
 
@@ -44,10 +43,14 @@ Agent ──► Gateway ── authorize / semantic replay ───────
              ▼
 Control PG: ANDNOT + popcount + one R/I/O root-head CAS
              ▼
-       commit result/audit/V6 receipt, then release
+ commit PENDING artifact metadata/audit/V6 receipt
+             ▼
+ S3/MinIO: promote encrypted Parquet canonical object
+             ▼
+       consumed/AVAILABLE → result_id + summary
 ```
 
-两个 PostgreSQL 使用独立容器、账号和 Volume。所有子 Agent 解析到同一个 root head；CAS 冲突会重读并重新计算三个维度，不能分维提交。Gateway 仍按单实例部署，本版本不提供多 Gateway 执行租约协议。
+两个 PostgreSQL 使用独立容器、账号和 Volume；S3 兼容对象存储使用独立的内部网络、bucket-scoped Gateway 凭据和持久 Volume。result bucket 必须私有且禁用 versioning，以保证 TTL/purge 删除的是实际 bytes，而不只是 delete marker。所有子 Agent 解析到同一个 root head；CAS 冲突会重读并重新计算三个维度，不能分维提交。Gateway 仍按单实例部署，本版本不提供多 Gateway 执行租约协议。
 
 ## 快速启动
 
@@ -56,7 +59,7 @@ Control PG: ANDNOT + popcount + one R/I/O root-head CAS
 ```bash
 cp .env.example .env
 # 按 docs/getting-started.md 生成加密密钥和两个独立 Ed25519 密钥
-# 同时替换 .env 中的全部 Token、共享密钥和数据库密码
+# 同时替换 .env 中的全部 Token、共享密钥、对象存储和数据库密码
 docker compose up --build -d --wait
 docker compose ps
 curl -i http://127.0.0.1:8082/health/ready
@@ -76,6 +79,7 @@ connector ceiling 截断。降低这个值是显式的部署取舍；超限时�
 | OA Demo | `http://127.0.0.1:8092/login` |
 | 系统控制库 | `127.0.0.1:25433` / `taskbound_gateway` |
 | 业务数据源库 | 仅 Gateway 内部网络 / `travel_demo` |
+| Parquet 对象存储 | 仅 `result-storage` 内部网络 / `taskgate-results` |
 
 如需本机数据库客户端调试，可显式启用非论文部署覆盖：
 
@@ -83,7 +87,7 @@ connector ceiling 截断。降低这个值是显式的部署取舍；超限时�
 docker compose -f compose.yaml -f compose.debug.yaml up --build -d --wait
 ```
 
-Navicat 的用户名和密码对应关系见[本地启动与数据库调试](docs/getting-started.md#navicat-连接参数)。Business PostgreSQL 仅在显式启用调试覆盖时绑定宿主机回环地址。
+Navicat 的用户名和密码对应关系见[本地启动与数据库调试](docs/getting-started.md#navicat-连接参数)。Business PostgreSQL 与 MinIO API/Console 仅在显式启用调试覆盖时绑定宿主机回环地址。
 
 ## MCP 2.0 工作流
 
@@ -111,6 +115,8 @@ LIMIT 20;
 相对根任务的 charged facts，后者给出共享账本的上限、已用和剩余值。相同
 `request_id` 只观察首次终态；新的 request ID 重放同一规范化命题和结果时三维
 增量均为零，不同命题即使得到相同空/零结果也会新增 outcome 费用。
+
+`query_sql`、`execute_plan` 和 `get_query_result` 的普通响应不包含 `rows` 或对象键，而是返回 `result_id`、列定义、`row_count`、`column_count`、`expires_at` 与计费摘要。需要检查少量数据时调用 `preview_result(result_id, offset, limit)`，其中 `limit` 最大为 100；需要完整文件时调用 `deliver_result(result_id, format="parquet")` 获取默认 5 分钟的短期下载 URL。下载是否发生、下载次数和 Agent Host 的临时副本都不会改变预算、`consumed` 状态或 Receipt；消费边界已经是 canonical Parquet 对象创建成功。非 loopback 的 `GATEWAY_PUBLIC_BASE_URL` 必须使用 HTTPS，日志/APM 必须脱敏 capability URL 中的 `token`。
 
 `taskgate-reporting-sql-v1` 支持单产品
 projection/filter/order/limit/offset 和 `COUNT(*)/COUNT(column)/SUM/MIN/MAX`，以及 2–8 个不同 Catalog 稳定角色组成的 connected INNER equijoin；多表计划内部表示为 `join_many`。Self-join、outer/cross/non-equality join、断开的 join graph、子查询、CTE、set operation、窗口、`HAVING` 和多输入分页都在 SQL profile 外，Gateway 不会把 `LEFT JOIN` 静默改成 `INNER JOIN`。Resource-only Grant 继续使用现有安全 SQL policy，但不会因此扩大 exposure SQL profile。
@@ -154,7 +160,7 @@ SQL alias 只是输入语法；lowering 会把它映射到 Catalog 稳定角色�
 
 | 身份 | 入口 | 权限 | 凭据来源 |
 |---|---|---|---|
-| Alice | MCP | 申请任务、查询自己的 ACTIVE 任务、读取自己的结果与凭证 | `TASKBOUND_ALICE_TOKEN` |
+| Alice | MCP | 申请任务、查询自己的 ACTIVE 任务、读取结果元数据、有界预览、短期交付与凭证 | `TASKBOUND_ALICE_TOKEN` |
 | Carol | MCP | 读取审计事件和查询凭证，不能读取原始结果 | `TASKBOUND_CAROL_TOKEN` |
 | Alice | OA | 提交自己的 OA 草稿 | `alice` / `OA_ALICE_PASSWORD` |
 | Bob | OA | 审批人工任务 | `bob` / `OA_BOB_PASSWORD` |
@@ -186,14 +192,18 @@ Influence maximum point。用它运行时相应 SLO gate 必须保持 `unmeasure
 验收必须换成独立冻结的大规模 publication、真实 ACTIVE task IDs 与校准后的
 0/50/90/100% overlap cases。
 
-设置 `GATEWAY_RESULT_RETENTION_TTL` 会让 Gateway 定期删除超过保留期的结果密文，同时保留查询记录、回执和审计证据。每个结果密文还绑定 `GATEWAY_DATA_KEY_ID` 并登记在 `result_encryption_keys`；带 `GATEWAY_ADMIN_TOKEN` 的管理员可以擦除 key ID，使对应密文保留但后续读取 fail closed。该 Demo 不销毁外部 KMS 中的真实 key material，生产环境需要把 key ID 擦除接入 KMS/HSM/Secret Manager。设置 `GATEWAY_ADMIN_TOKEN` 也会启用本机管理员接口，用于手动 purge 以及设置/释放 legal hold；active hold 会阻止对应任务的结果密文被清理。
+新查询的 `result_artifacts` 行只保存 `result_id`、对象键、schema、行列数、ACL、TTL、明文/密文哈希、key ID 和生命周期状态；客户端侧加密的 Parquet 原件保存在 S3/MinIO。Control 事务先登记 `PENDING`，Gateway 再把 staging 对象幂等提升为 deterministic canonical 对象并标记 `AVAILABLE/consumed`；启动和后台恢复只在 staging 与已提交证据一致时继续 PENDING promotion，不重执行 SQL 或重复收费。staging 丢失或 canonical 证据冲突时 readiness fail closed，需先恢复对象证据或受审修复；当前不会自动放弃/退款。
+
+当前研究原型的 Connector/可见结果到 Parquet 部分路径仍会在内存持有完整结果，`preview_result` 默认又对大于 64 MiB 的 artifact 关闭。百万行生产使用前仍需要有界流式 Parquet writer/reader 与容量基准；`GATEWAY_CONNECTOR_MAX_ROWS` 的高上限本身不是有界内存的证明。
+
+设置 `GATEWAY_RESULT_RETENTION_TTL` 会让 Gateway 定期先删除超过保留期的 canonical 对象，再把 Control 元数据置为删除终态，同时保留查询记录、回执和审计证据。每个 artifact 绑定 `GATEWAY_DATA_KEY_ID` 并登记在 `result_encryption_keys`；带 `GATEWAY_ADMIN_TOKEN` 的管理员可以擦除 key ID，使保留对象后续读取 fail closed。该 Demo 不销毁外部 KMS 中的真实 key material，生产环境需要把 key ID 擦除接入 KMS/HSM/Secret Manager。管理员接口也支持手动 purge 以及设置/释放 legal hold；active hold 会阻止对应任务的对象被 TTL 或手动 retention 清理，但不会延长 artifact `expires_at` 或继续开放读取，也不会自动阻止独立的 key-erasure 审批流程。
 
 查询回执验证方可读取 `/.well-known/taskgate/query-receipt-keyring.json`，获得 `taskgate-query-receipt-keyring/v1` 公钥 Bundle。Bundle 包含 active Gateway Key ID、历史验签公钥以及 `valid_from`/`retired_at` 窗口，不包含私钥材料。
 
 设置 `GATEWAY_AUDIT_ANCHOR_URL` 会让 Gateway 定期把当前审计 Hash Chain checkpoint 签名为 `taskgate-audit-checkpoint-anchor/v1` 并 POST 到外部日志或 WORM 服务。该外部服务的保留和不可篡改性由部署环境保证。
 
-`docker compose down` 保留 `control-pg-data`、`business-pg-data` 与不可变
-`snapshot-index-artifacts` 和仅保存认证密文临时文件的 `gateway-encrypted-spool`；`docker compose down --volumes` 会删除当前 Compose 项目的这四个 Volume。旧版本的 `gateway-data` Volume 已不再挂载，也不会被本次改造自动删除，可按需手工备份或清理。
+`docker compose down` 保留 `control-pg-data`、`business-pg-data`、不可变
+`snapshot-index-artifacts`、仅保存认证密文临时文件的 `gateway-encrypted-spool` 和保存规范加密 Parquet 的 `result-object-data`；`docker compose down --volumes` 会删除当前 Compose 项目的这五个 Volume。旧版本的 `gateway-data` Volume 已不再挂载，也不会被本次改造自动删除，可按需手工备份或清理。
 
 ## 文档
 

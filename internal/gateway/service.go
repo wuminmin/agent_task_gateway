@@ -11,6 +11,7 @@ import (
 	"io"
 	"log/slog"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 	"taskbound.local/agent-data-gateway/internal/mcp"
 	"taskbound.local/agent-data-gateway/internal/ordinal"
 	"taskbound.local/agent-data-gateway/internal/queryreceipt"
+	"taskbound.local/agent-data-gateway/internal/resultartifact"
 	"taskbound.local/agent-data-gateway/internal/sqlpolicy"
 )
 
@@ -53,24 +55,52 @@ type Config struct {
 	// SpoolThresholdBytes may lower the 128 MiB production boundary (for
 	// constrained deployments and tests) but cannot raise it.
 	SpoolThresholdBytes int64
+	// ResultArtifacts switches successful query results from legacy PostgreSQL
+	// ciphertext rows to TaskGate-managed encrypted Parquet objects.
+	ResultArtifacts *resultartifact.Manager
+	ResultTTL       time.Duration
+	// ArtifactOperationTimeout bounds canonical object promotion independently
+	// from the short Control PostgreSQL settlement timeout.
+	ArtifactOperationTimeout time.Duration
+	PreviewMaxBytes          int64
+	DeliveryBaseURL          string
+	DeliverySigningKey       []byte
+	DeliveryTTL              time.Duration
+	// DownloadTimeout bounds a complete plaintext delivery independently of the
+	// ordinary MCP response timeout. DownloadConcurrency caps simultaneous
+	// object-store readers so slow clients cannot exhaust Gateway resources.
+	DownloadTimeout     time.Duration
+	DownloadConcurrency int
 }
 
 type Service struct {
-	catalog            *catalog.Catalog
-	store              *control.Store
-	approval           approval.ApprovalAdapter
-	receiptVerifier    approval.ReceiptVerifier
-	queryReceiptSigner *queryreceipt.Signer
-	connector          DataConnector
-	snapshotRegistry   *ordinal.Registry
-	callbackSecret     []byte
-	logger             *slog.Logger
-	clock              func() time.Time
-	background         context.Context
-	settlementTimeout  time.Duration
-	spoolDirectory     string
-	spoolThreshold     int64
-	pendingSettles     atomic.Int64
+	catalog                  *catalog.Catalog
+	store                    *control.Store
+	approval                 approval.ApprovalAdapter
+	receiptVerifier          approval.ReceiptVerifier
+	queryReceiptSigner       *queryreceipt.Signer
+	connector                DataConnector
+	snapshotRegistry         *ordinal.Registry
+	callbackSecret           []byte
+	logger                   *slog.Logger
+	clock                    func() time.Time
+	background               context.Context
+	settlementTimeout        time.Duration
+	spoolDirectory           string
+	spoolThreshold           int64
+	resultArtifacts          *resultartifact.Manager
+	resultTTL                time.Duration
+	artifactOperationTimeout time.Duration
+	previewMaxBytes          int64
+	deliveryBaseURL          string
+	deliverySigningKey       []byte
+	deliveryTTL              time.Duration
+	downloadTimeout          time.Duration
+	downloadSlots            chan struct{}
+	pendingSettles           atomic.Int64
+	artifactRecoveryFailures atomic.Int64
+	artifactRecoveryRunning  atomic.Bool
+	artifactRecoveryMu       sync.Mutex
 	// highCardinalityDerivations isolates million-fact bitmap work from the
 	// small-query pool. Capacity one is intentional and queue time is outside
 	// the advertised execution SLO.
@@ -111,6 +141,32 @@ func New(config Config) (*Service, error) {
 	} else if config.SpoolThresholdBytes > querySpoolThreshold {
 		config.SpoolThresholdBytes = querySpoolThreshold
 	}
+	if config.ResultTTL < 0 {
+		return nil, errors.New("result TTL cannot be negative")
+	}
+	if config.ArtifactOperationTimeout <= 0 {
+		config.ArtifactOperationTimeout = 30 * time.Minute
+	}
+	if config.PreviewMaxBytes <= 0 {
+		config.PreviewMaxBytes = 64 << 20
+	}
+	if config.DeliveryTTL <= 0 {
+		config.DeliveryTTL = 5 * time.Minute
+	}
+	if config.DownloadTimeout <= 0 {
+		config.DownloadTimeout = 30 * time.Minute
+	}
+	if config.DownloadConcurrency <= 0 {
+		config.DownloadConcurrency = 4
+	}
+	if config.ResultArtifacts != nil {
+		if strings.TrimSpace(config.DeliveryBaseURL) == "" {
+			config.DeliveryBaseURL = "http://127.0.0.1:8082"
+		}
+		if len(config.DeliverySigningKey) == 0 {
+			config.DeliverySigningKey = []byte(config.CallbackSecret)
+		}
+	}
 	if config.ReceiptVerifier == nil {
 		// The demo derives a stable Ed25519 key from its existing secret so old
 		// compose environments keep working. Deployments can supply a public-key
@@ -122,7 +178,7 @@ func New(config Config) (*Service, error) {
 		// production entry point supplies an independently configured key.
 		config.QueryReceiptSigner = queryreceipt.DemoSigner([]byte(config.CallbackSecret))
 	}
-	return &Service{
+	service := &Service{
 		catalog: config.Catalog, store: config.Store, approval: config.Approval,
 		receiptVerifier:    config.ReceiptVerifier,
 		queryReceiptSigner: config.QueryReceiptSigner, connector: config.Connector,
@@ -131,8 +187,23 @@ func New(config Config) (*Service, error) {
 		clock: config.Clock, background: config.Background, settlementTimeout: config.SettlementTimeout,
 		spoolDirectory:             config.SpoolDirectory,
 		spoolThreshold:             config.SpoolThresholdBytes,
+		resultArtifacts:            config.ResultArtifacts,
+		resultTTL:                  config.ResultTTL,
+		artifactOperationTimeout:   config.ArtifactOperationTimeout,
+		previewMaxBytes:            config.PreviewMaxBytes,
+		deliveryBaseURL:            strings.TrimRight(config.DeliveryBaseURL, "/"),
+		deliverySigningKey:         append([]byte(nil), config.DeliverySigningKey...),
+		deliveryTTL:                config.DeliveryTTL,
+		downloadTimeout:            config.DownloadTimeout,
+		downloadSlots:              make(chan struct{}, config.DownloadConcurrency),
 		highCardinalityDerivations: make(chan struct{}, 1),
-	}, nil
+	}
+	// The first background reconciliation clears this gate. Liveness can start
+	// immediately, but readiness must not race ahead of durable PENDING intents.
+	if config.ResultArtifacts != nil {
+		service.artifactRecoveryRunning.Store(true)
+	}
+	return service, nil
 }
 
 // ReadyError reports durable query-budget settlements that have not yet been
@@ -144,6 +215,19 @@ func (s *Service) ReadyError() error {
 	}
 	if pending := s.pendingSettles.Load(); pending > 0 {
 		return fmt.Errorf("%d query budget settlement(s) pending", pending)
+	}
+	if failed := s.artifactRecoveryFailures.Load(); failed > 0 {
+		return fmt.Errorf("%d pending result artifact recovery failure(s)", failed)
+	}
+	if s.artifactRecoveryRunning.Load() {
+		return errors.New("pending result artifact recovery is in progress")
+	}
+	if s.resultArtifacts != nil {
+		ctx, cancel := context.WithTimeout(s.background, 2*time.Second)
+		defer cancel()
+		if err := s.resultArtifacts.Ready(ctx); err != nil {
+			return fmt.Errorf("result object store unavailable: %w", err)
+		}
 	}
 	return nil
 }

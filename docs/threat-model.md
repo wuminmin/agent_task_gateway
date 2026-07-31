@@ -7,7 +7,7 @@
 - `legacy.*` 业务数据及 Reporting View 返回的明细和汇总结果。
 - Alice/Carol MCP Token、OA 服务 Token、回调/会话密钥和两个 PostgreSQL 的密码。
 - TaskGrant、审批凭证、资源预算、根任务三维 exposure head、immutable FactID/ordinal dictionary、bitmap containers、查询凭证与审计 Hash Chain。
-- AES-256-GCM 数据密钥及控制 PostgreSQL 中的加密查询结果。
+- AES-256-GCM 数据密钥、TaskGate 私有对象存储中的加密 Parquet 规范原件，以及 Control PostgreSQL 中的 artifact 元数据。
 
 Agent 提交的结构化申请、QueryPlan、SQL、浏览器请求、网络回调和业务数据都视为不可信。Catalog、Gateway 二进制、Docker 宿主机以及可读取 `.env`/Volume 的管理员属于可信运维域；该域失陷后，本 Demo 无法保证机密性或不可否认性。
 
@@ -16,7 +16,7 @@ Agent 提交的结构化申请、QueryPlan、SQL、浏览器请求、网络回�
 | 威胁 | 当前控制 | 残余风险 |
 |---|---|---|
 | Agent 越权读取其他主体任务/结果 | Bearer Token 映射固定 Principal；任务和结果同时校验 principal、task、query 与 actor；越权按不存在返回；Principal 禁用后 Gateway 不再列出或执行工具 | 长期静态 Token 没有设备绑定、短期会话、组织级权限或外部会话吊销发布 |
-| Carol 读取敏感原始结果 | Carol 只注册两个审计工具，凭证不含结果行 | 拥有控制库和数据密钥的管理员可以解密；审计元数据可能包含目标和 OA 信息 |
+| Carol 读取敏感原始结果 | Carol 只注册两个审计工具，凭证不含结果行；Control PG 不保存 Parquet bytes | 同时拥有对象存储、数据密钥和元数据权限的管理员可以解密；审计元数据可能包含目标和 OA 信息 |
 | 客户端伪造授权字段 | 身份字段由 Gateway 生成；产品、字段和 Scope 必须显式且非空；OA 展示并绑定 RFC 8785 `AuthorizationManifestV1` 摘要 | 不验证自然语言目标与查询语义；审批人仍须核对结构化 Manifest |
 | 恶意 QueryPlan | 本地编译器验证产品、字段、聚合、过滤、排序、literal、Limit 与 Offset，随后进入完整 SQL AST 策略 | 编译器或策略实现缺陷仍需模糊测试和攻击语料覆盖 |
 | 通过拆分查询、重叠分页、新 request ID 或不同阈值重复提取数据 | release/influence/outcome 按 decoded FactID 集合结算；exact bitmap ANDNOT 只计 novel facts；OutcomeFact 绑定规范化命题与结果；终态 request replay 不重执行 | outcome 是每个成功命题一个单位，不估算信息量；不限制输出顺序、背景知识或跨 root 推断 |
@@ -32,21 +32,22 @@ Agent 提交的结构化申请、QueryPlan、SQL、浏览器请求、网络回�
 | 策略失误后修改业务库 | 非 owner、非 superuser、无 `BYPASSRLS` 的独立 `gateway_reader`；角色/连接/事务只读；仅 Datasource Attestation 表与 Reporting View `SELECT`；Schema Attestation | DBA 误授权、View 内容语义错误或数据库漏洞可绕过应用意图 |
 | OA 回调伪造、重放或乱序 | HMAC-SHA256 认证原始 Body；Event ID/状态/context/actor 校验；独立 OA Ed25519 回执绑定 Manifest 与最终 Grant；Gateway 可配置多把 OA 验签公钥及有效/退役窗口；事务幂等 | Demo OA Outbox 不持久；KMS、密钥分发和吊销发布仍需外部运维 |
 | 并发/重试查询超资源预算 | 控制 PG 对任务和资源预算加行锁；`(task_id, request_id)` 唯一；预留与结算在事务中；同一任务一个在途查询 | 单 Gateway 没有跨实例执行租约，不能安全横向扩容 |
-| Gateway 崩溃遗留预算/回调 | 启动恢复将 RESERVED 查询按资源预留保守计费并标记 `INDETERMINATE`，释放未结算 exposure reservation，写入查询回执，并禁止同 request ID 重执行；结果只在结算提交后释放 | 资源计费可能高于实际消耗；不声称立即取消已在途查询；瞬态缓冲不具备跨进程恢复 |
+| Gateway 崩溃遗留预算/回调/artifact | 启动恢复将 RESERVED 查询按资源预留保守计费并标记 `INDETERMINATE`，释放未结算 exposure reservation，写入查询回执，并禁止同 request ID 重执行；结算已提交的 `PENDING` artifact 只在 staging/committed 证据一致时由确定性 key 幂等 promotion，启动和后台 sweep 继续恢复 | 资源计费可能高于实际消耗；staging 丢失或 canonical 证据冲突时 readiness fail closed，必须恢复正确对象证据或执行受审修复；当前没有自动放弃/退款；staging 和控制元数据必须共同纳入恢复、对账和告警 |
 | 查询回执伪造或历史密钥混淆 | V6 成功回执绑定 dictionary set、三维 effect/charge、root epoch、result digest、`signed_at`、Gateway Key ID 和终态审计位置；旧 verifier 保留；Gateway 发布带有效/退役窗口的公钥 Bundle | Keyring 发布仍依赖 Gateway 配置和部署重启；没有集中 KMS/HSM、透明日志或外部撤销服务 |
 | 并发审计链分叉或序列空洞 | 单行 `audit_chain_head` 通过 `SELECT ... FOR UPDATE` 串行化；连续序号、事件和链头在同一事务提交；可配置 `taskgate-audit-checkpoint-anchor/v1` 签名 checkpoint POST 到外部日志/WORM 服务 | 外部 Anchor 服务本身的保留、不可篡改性和时间戳可信度依赖部署；高写入量时链头是串行瓶颈 |
 | Grant/审计记录被应用修改 | PostgreSQL Trigger 禁止 UPDATE/DELETE，逐事件 SHA-256 链可验证 | 超级用户可禁用 Trigger 并重建整条链 |
-| 磁盘结果泄露或篡改 | AES-256-GCM 随机 Nonce，AAD 绑定 task/query，读取时校验明文 SHA-256；每个结果行保存 `key_id` 并登记在 `result_encryption_keys`；结果保留清理可按 TTL 调度或管理员截止时间删除密文并保留查询/回执/审计证据；管理员 key ID 擦除会把 key 标记为 `ERASED`、追加审计事件，并让随后开始的密文读取 fail closed；active legal hold 阻止密文清理 | 任务、Scope、Grant、预算与审计元数据未加密；本 Demo 的 AES key 仍位于环境变量和进程内存；已经开始并完成 ACTIVE 检查的并发读取可能在擦除提交后结束，擦除不是跨 HTTP 释放阶段的租约屏障；实际 key material 销毁、轮换、集中 KMS/HSM custody 和撤销透明性仍需外部平台 |
-| 本机网络窃听 | Gateway、OA 和 Control PG 绑定 `127.0.0.1`；Business PG 默认仅内部网络 | 本地仍使用明文 HTTP/PG；同机恶意进程可尝试连接或截获凭据 |
+| 对象结果泄露或篡改 | Gateway 在对象存储客户端侧使用分块 AES-256-GCM，AAD 绑定 task/result/frame ordinal，并校验明文 Parquet 与密文对象双 SHA-256；private bucket、bucket-scoped 凭据和内部网络阻止 Agent 直接列举；每个 artifact 绑定 `key_id`；TTL/purge 删除 canonical bytes 后 tombstone 元数据，active legal hold 阻止 retention 清理 | bucket 必须私有且禁用 versioning；否则删除可能只写 delete marker 而保留旧 bytes。任务、Scope、Grant、对象键、预算与审计元数据未加密；Demo AES key 仍位于环境和进程内存；已开始的并发读取可能在 key ID 擦除后结束；真实 key material 销毁、轮换和 KMS/HSM custody 仍需外部平台 |
+| 交付 capability 泄露 | `deliver_result` 产生绑定 result/task/expiry 的 HMAC 短 TTL URL，Gateway 流式解密而不暴露 S3 对象键；非 loopback 基址必须为 HTTPS | URL 在过期前是 bearer capability；反向代理、APM、浏览器/客户端历史和聊天附件层可能记录它，必须对 `token` 查询参数脱敏；离开 TaskGate 边界的副本无法再撤回 |
+| 本机网络窃听 | Gateway、OA 和 Control PG 绑定 `127.0.0.1`；Business PG 和结果对象存储默认仅内部网络 | 本地仍使用明文 HTTP/PG/S3；同机恶意进程可尝试连接或截获凭据 |
 | 浏览器会话伪造与 CSRF | 签名 Cookie、bcrypt、`HttpOnly`、`SameSite=Lax`、CSRF Token、CSP | 本地 HTTP Cookie 无 `Secure`；无 MFA、锁定、SSO 与登录审计 |
-| DoS 与成本滥用 | HTTP Body/Timeout、连接池、数据库 Timeout、任务预算和结果行上限 | 目录和任务申请缺少租户配额、速率限制和异常检测 |
+| DoS 与成本滥用 | HTTP Body/Timeout、连接池、数据库 Timeout、任务预算、结果行上限和 preview byte cap | 目录和任务申请缺少租户配额、速率限制和异常检测；Connector/可见结果到 Parquet 的部分路径仍会完整内存物化，而 preview 默认对大于 64 MiB 的 artifact 关闭，尚非生产级有界百万行流式实现 |
 | 容器逃逸或供应链攻击 | 非 root、只读根文件系统、`no-new-privileges` | 未固定所有镜像 Digest，缺少定制 seccomp/AppArmor、签名和 SBOM 门禁 |
 
 ## 数据最小化与边界
 
 Gateway 不向外部模型或翻译服务发送目标、Catalog、SQL 或结果。所有任务申请、SQL AST lowering 和 QueryPlan 校验均在本地确定性代码中完成。
 
-查询结果会以明文返回给获批 Alice 的 MCP 客户端；数据库加密只保护控制库中的静态结果，不是端到端显示控制。终端历史、截图、Agent 工具或用户后续复制均在 Gateway 边界之外。
+普通 `query_sql`/`execute_plan`/`get_query_result` 响应只给获批 Alice 的 MCP 客户端返回摘要和 `result_id`，不返回全量行或对象键。`preview_result` 只释放有界行；`deliver_result` 在明确交付时通过 Gateway 给出短期下载能力。但 exposure 记账边界更早：规范加密 Parquet 对象创建成功时已视为完整结果被消费，不依赖 Agent 是否下载。交付后的 Agent Host 临时副本、用户设备、终端历史、截图或后续复制都在 TaskGate 删除控制之外。
 
 Source-influence FactID 是 Gateway 内部的计量证据，响应和收据只交付计数与摘要，不把这些 FactID 当作 Agent 已知事实返回。因此 exposure ledger 表示“此前已计量的正向事实与成功命题集合”，不是主体知识状态，也不是总体隐私损失。空/零答案会进入 outcome 集合，但排序、背景知识、timing 以及预算接受/拒绝产生的推断不进入；一个 outcome 单位也不等于一个信息 bit。
 
@@ -55,15 +56,15 @@ dictionary 才保存可恢复 canonical payload。二者及 bitmap 仍是敏感�
 必须受 Control/artifact 权限和保留策略保护。当前原型尚未把 dictionary/bitmap
 生命周期完整接入用户删除请求或跨 snapshot 受审压缩。
 
-默认论文部署不向宿主机发布 Business PostgreSQL 端口；只有 Gateway 所在内部网络可达。`compose.debug.yaml` 是明确标记的非论文调试覆盖，可将业务库绑定到宿主机回环地址。控制库与业务库使用不同数据库、角色、密码和 Volume，业务只读账号无法访问控制库。
+默认部署不向宿主机发布 Business PostgreSQL 或 MinIO；只有 Gateway 所在隔离内部网络可达。`compose.debug.yaml` 是明确标记的非论文调试覆盖，只将业务库和 MinIO 绑定到宿主机回环地址。控制库、业务库与结果对象存储使用独立的数据、凭据和 Volume，业务只读账号无法访问控制库或结果 bucket。
 
 ## 需要运营配合的边界
 
 - Catalog 管理员必须保证字段的业务语义正确、`entity_key` 在 snapshot 内稳定唯一、数据更新时提升 snapshot，且 View 不包含未发布敏感列；自动 Attestation 只校验列顺序与 PostgreSQL 类型，不能证明这些语义。
-- `.env` 应保持 Git 忽略并收紧文件权限；数据密钥需与控制库备份一起安全管理。
+- `.env` 应保持 Git 忽略并收紧文件权限；数据密钥、Control 元数据和对象存储备份必须按同一 artifact 恢复点安全管理。
 - 每日 Catalog/publication 切换若要保留 ACTIVE 任务，必须保留旧 Catalog、只读 snapshot、artifact 和一个旧 epoch Gateway，并按 task 的 Catalog binding 严格路由；若部署做不到，应排空或重新申请任务，因为错版本会关闭式拒绝而不会自动切换。
-- 应监控回调重试、启动恢复、数据库 Timeout、预算耗尽、结算重试、readiness 和审计链验证。
-- 两个 PG Volume 必须分别备份和恢复演练，避免误把系统控制数据与业务数据混作同一生命周期。
+- 应监控回调重试、启动/后台 `PENDING` 恢复、孤儿 staging 对账、数据库和对象存储 Timeout、预算耗尽、结算重试、readiness 和审计链验证。
+- 两个 PG Volume 与结果对象存储必须分别备份并联合恢复演练，避免误把系统控制数据、业务数据和 artifact bytes 混作同一生命周期。
 
 ## 生产化差距
 
@@ -73,13 +74,14 @@ dictionary 才保存可恢复 canonical payload。二者及 bitmap 仍是敏感�
 2. Gateway、OA 与数据库全部启用 TLS/mTLS，并置于受控网络与反向代理后。
 3. 使用 KMS/HSM 或 Secret Manager 做 Envelope Encryption，保存 Key ID，支持轮换，并把 key ID 擦除操作绑定到真实 key material 销毁与透明撤销日志。
 4. 使用工作负载身份或编排平台 Secret，避免秘密长期存在于 `.env` 和进程环境。
+5. 对象存储 bucket 保持私有、禁用 versioning，只给 Gateway bucket-scoped 最小权限；非 loopback 交付使用 HTTPS，并在负载均衡、日志与 APM 层脱敏 capability query token。
 
 ### 持久化与高可用
 
 1. 持久化 OA 草稿、用户、Outbox 和审批历史，提供双向对账与死信队列。
 2. 在横向扩容 Gateway 前实现跨实例、可续租且可恢复的每任务执行租约；只有数据库行锁不足以覆盖业务查询执行窗口。
 3. 将结果保留清理的 TTL、管理员操作和 legal hold 接入组织级工单、审批和告警流程。
-4. 对控制库和业务库分别建立最小权限、备份、时间点恢复和一致性演练。
+4. 对控制库、业务库和对象存储分别建立最小权限、备份、时间点恢复和跨系统一致性演练。
 
 ### 审计与策略
 

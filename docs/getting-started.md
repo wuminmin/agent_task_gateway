@@ -10,12 +10,13 @@ openssl rand -base64 32
 ./scripts/generate-ed25519-env.sh
 ```
 
-将第一条随机输出填入 `GATEWAY_DATA_KEY`，并为该数据密钥设置稳定的 `GATEWAY_DATA_KEY_ID`；同一批已保存结果必须继续使用原 key 和 key ID，直到对应 key ID 被擦除。把密钥脚本输出的七个非注释变量填入 `.env`。OA 只持有审批回执私钥，Gateway 只持有对应公钥；Gateway 查询回执使用另一把独立私钥。生产网关也可用 `OA_RECEIPT_KEYRING_JSON` 提供多把 OA 验签公钥及 `valid_from`/`retired_at` 窗口，旧的单公钥变量仍可用于本地演示。Gateway 查询回执验证公钥由 `/.well-known/taskgate/query-receipt-keyring.json` 发布；`GATEWAY_RECEIPT_KEYRING_JSON` 可加入历史公钥和 active key 的有效/退役窗口。配置 `GATEWAY_AUDIT_ANCHOR_URL` 后，Gateway 会用独立 audit-anchor Ed25519 key 定期向外部日志/WORM 服务 POST 当前审计 checkpoint。随后替换 `.env` 中全部空密码、Token 和共享密钥。系统控制库与业务库使用不同的管理员密码和应用密码：
+将第一条随机输出填入 `GATEWAY_DATA_KEY`，并为该数据密钥设置稳定的 `GATEWAY_DATA_KEY_ID`；Gateway 用它在对象存储客户端侧加密 Parquet，同一批已保存结果必须继续使用原 key 和 key ID，直到对应 key ID 被擦除。把密钥脚本输出的七个非注释变量填入 `.env`。OA 只持有审批回执私钥，Gateway 只持有对应公钥；Gateway 查询回执使用另一把独立私钥。生产网关也可用 `OA_RECEIPT_KEYRING_JSON` 提供多把 OA 验签公钥及 `valid_from`/`retired_at` 窗口，旧的单公钥变量仍可用于本地演示。Gateway 查询回执验证公钥由 `/.well-known/taskgate/query-receipt-keyring.json` 发布；`GATEWAY_RECEIPT_KEYRING_JSON` 可加入历史公钥和 active key 的有效/退役窗口。配置 `GATEWAY_AUDIT_ANCHOR_URL` 后，Gateway 会用独立 audit-anchor Ed25519 key 定期向外部日志/WORM 服务 POST 当前审计 checkpoint。随后替换 `.env` 中全部空密码、Token 和共享密钥。系统控制库、业务库和结果对象存储使用不同的管理员/应用凭据：
 
 - 控制库：`CONTROL_POSTGRES_ADMIN_PASSWORD`、`CONTROL_DB_PASSWORD`
 - 业务库：`POSTGRES_PASSWORD`、`GATEWAY_DB_PASSWORD`
+- 对象存储：`MINIO_ROOT_USER`/`MINIO_ROOT_PASSWORD` 仅供 MinIO 与一次性初始化器使用；Gateway 使用 bucket-scoped 的 `GATEWAY_OBJECT_STORE_ACCESS_KEY`/`GATEWAY_OBJECT_STORE_SECRET_KEY`
 
-`.env` 已被 Git 忽略。不要把真实值复制到提交、提示词、日志或截图中。同一批加密查询结果必须继续使用原 `GATEWAY_DATA_KEY` 和 `GATEWAY_DATA_KEY_ID`，否则无法解密；管理员擦除 key ID 后，即使密文仍在控制库中，Gateway 也会拒绝读取。
+`.env` 已被 Git 忽略。不要把真实值复制到提交、提示词、日志或截图中。同一批加密查询结果必须继续使用原 `GATEWAY_DATA_KEY` 和 `GATEWAY_DATA_KEY_ID`，否则对象存储中的 Parquet 无法解密；管理员擦除 key ID 后，即使对象仍存在，Gateway 也会拒绝读取。生产部署还应独立设置 `GATEWAY_DELIVERY_SIGNING_KEY`；`GATEWAY_RESULT_DELIVERY_TTL` 默认 `5m`。
 
 ## 2. 启动与健康检查
 
@@ -36,7 +37,9 @@ NOLOGIN 角色持有。输入中固定了人类审核过的五类 digest；已�
 四个文件逐字节一致时才可复用，否则启动失败。artifact 写入只读挂给 Gateway 的
 named volume，构建器不能连接 public-edge 或 control-plane。
 
-三个请求应返回 `204 No Content`。Gateway readiness 同时检查系统控制 PostgreSQL、业务 PostgreSQL、Reporting View 列/类型与 Catalog 的 Schema Attestation，以及是否存在尚未成功持久化的预算结算。
+Compose 还会启动只接入内部 `result-storage` 网络的 MinIO，并运行一次性 `result-object-store-init` 创建私有 bucket 和 bucket-scoped Gateway 用户。MinIO root 凭据不会注入 Gateway；Gateway 把 Parquet 客户端侧分块加密后写入 `result-object-data`，Control PostgreSQL 只保存 artifact 元数据。result bucket 必须保持私有并禁用 versioning；Gateway readiness 会拒绝 versioning 为 Enabled 或 Suspended 的 bucket，因为 delete marker 不等于 TTL/purge 要求的实体删除。
+
+三个请求应返回 `204 No Content`。Gateway readiness 同时检查系统控制 PostgreSQL、业务 PostgreSQL、对象存储 bucket、Reporting View 列/类型与 Catalog 的 Schema Attestation，以及是否存在尚未成功持久化的预算结算。启动时 Gateway 会先恢复已提交但尚未完成 canonical promotion 的 `PENDING` artifacts；恢复失败会阻止 readiness。
 
 | 服务 | 地址 | 暴露范围 |
 |---|---|---|
@@ -46,11 +49,12 @@ named volume，构建器不能连接 public-edge 或 control-plane。
 | OA 登录 | `http://127.0.0.1:8092/login` | 回环地址 |
 | 系统控制 PostgreSQL | `127.0.0.1:25433` | 回环地址 |
 | 业务 PostgreSQL | 默认无宿主机地址 | 仅 Compose 内部网络 |
+| MinIO S3 API | `http://result-object-store:9000` | 仅 `result-storage` 内部网络，不发布宿主机端口 |
 
 查看日志：
 
 ```bash
-docker compose logs -f gateway control-postgres business-postgres oa-demo
+docker compose logs -f gateway control-postgres business-postgres result-object-store result-object-store-init oa-demo
 ```
 
 ## Navicat 连接参数
@@ -76,6 +80,8 @@ docker compose logs -f gateway control-postgres business-postgres oa-demo
 ```bash
 docker compose -f compose.yaml -f compose.debug.yaml up --build -d --wait
 ```
+
+同一 debug override 还会把 MinIO S3 API 发布到 `127.0.0.1:${MINIO_API_PORT:-29000}`、Console 发布到 `127.0.0.1:${MINIO_CONSOLE_PORT:-29001}`；普通运行不需要也不应发布这两个端口。
 
 | Navicat 字段 | 值 |
 |---|---|
@@ -121,11 +127,11 @@ export TASKBOUND_GATEWAY_TOKEN='<Alice Token>'
 codex
 ```
 
-MCP `serverInfo.version` 为 `2.1.0`。Alice 可见 14 个普通任务/查询工具，Carol 只可见两个审计工具：
+MCP `serverInfo.version` 为 `2.1.0`。Alice 可见 16 个普通任务/查询工具，Carol 只可见两个审计工具：
 
 | 身份 | 工具 |
 |---|---|
-| Alice | `list_data_products`、`describe_data_product`、`get_sql_capabilities`、`request_data_task`、`list_my_tasks`、`get_task_status`、`wait_for_approval`、`get_task_context`、`query_sql`、`get_query_result`、`get_budget`、`list_receipts`、`complete_task`、`revoke_task` |
+| Alice | `list_data_products`、`describe_data_product`、`get_sql_capabilities`、`request_data_task`、`list_my_tasks`、`get_task_status`、`wait_for_approval`、`get_task_context`、`query_sql`、`get_query_result`、`preview_result`、`deliver_result`、`get_budget`、`list_receipts`、`complete_task`、`revoke_task` |
 | Carol | `list_audit_events`、`get_audit_receipt` |
 
 `execute_plan` 保留给 SDK、内部测试、基准、调试和确定性工作流，不在普通 Alice `tools/list` 中默认列出。
@@ -174,6 +180,23 @@ route 都是人工审批。正常批准把完整 Catalog Profile 交给 Agent，
 `actual_*_facts` 与真正新增的 `charged_*_facts`；`exposure_budget` 给出共享
 根账本。内部补取的 `entity_key` 不会出现在客户端结果中。
 
+成功的 `query_sql`/`execute_plan` 以及后续 `get_query_result(task_id, query_id)` 都只返回 `result_id`、列定义、行列数、`expires_at`、计时和计费摘要，不返回完整 `rows`、对象键或永久下载地址。例如：
+
+```json
+{
+  "result_id": "res_123",
+  "row_count": 1254307,
+  "column_count": 8,
+  "expires_at": "2026-08-01T12:00:00Z"
+}
+```
+
+需要抽查数据时调用 `preview_result`；`limit` 默认为 20，最大为 100，并支持非负 `offset`，同时受 `GATEWAY_RESULT_PREVIEW_MAX_BYTES` 的解密读取上限保护（默认 64 MiB）。需要完整文件时调用 `deliver_result(result_id, format="parquet")`，返回默认 5 分钟、且不会超过 artifact TTL 的 Gateway 签名 capability URL；它由 Gateway 鉴权并流式解密，不是 S3 直链。交付流另受 `GATEWAY_RESULT_DOWNLOAD_TIMEOUT`（默认 30 分钟）和 `GATEWAY_RESULT_DOWNLOAD_CONCURRENCY`（默认 4）约束，容量占满时返回可重试的 `503`。canonical Parquet 对象创建成功时结果已经计为 `consumed`；生成 URL、实际下载、未下载或有效期内重复下载都不会再次扣预算，也不会改变 Receipt。
+
+`GATEWAY_PUBLIC_BASE_URL` 使用 HTTP 时只允许 loopback 开发地址；生产的非 loopback 基址必须使用 HTTPS。capability URL 在到期前是 bearer secret；反向代理、访问日志、APM 和客户端遥测不得记录完整查询串，至少必须对 `token` 脱敏。
+
+当前实现的 Connector/可见结果到 Parquet 的部分路径仍会在内存中持有完整结果，并且 preview 默认无法读取大于 64 MiB 的 artifact。因此 `GATEWAY_CONNECTOR_MAX_ROWS=1200000` 是关闭式行上限，不是百万行路径已具备有界内存的证明；生产部署应先完成有界流式 Parquet writer/reader 和容量基准。
+
 ## 5. 人工审批、规划与委托
 
 申请高敏 `expense_detail` 时，Alice 提交草稿后任务停留在 `AWAITING_APPROVAL`。以 `bob` 和 `OA_BOB_PASSWORD` 登录 OA 批准或拒绝。批准前查询返回 `TASK_NOT_ACTIVE`；拒绝后任务归档为 `ARCHIVED(rejected)`。
@@ -191,12 +214,14 @@ route 都是人工审批。正常批准把完整 Catalog Profile 交给 Agent，
 
 - `get_task_context`：获批产品、字段、Scope、凭证与期限。
 - `get_budget`：查询数、累计行数和累计 DB 毫秒的上限、已用、预留和剩余值，并在 exposure 启用时返回根任务三维账本。
-- `get_query_result`：Alice 按 `task_id + query_id` 读取 AES-256-GCM 加密保存的结果。
+- `get_query_result`：Alice 按 `task_id + query_id` 读取自己的 `result_id` 与结果摘要，不返回完整行。
+- `preview_result`：Alice 按 `result_id` 读取最多 100 行的有界预览。
+- `deliver_result`：Alice 按 `result_id` 获取由 Gateway 流式解密 Parquet 的短 TTL 下载 URL；URL/下载不参与计费。
 - `list_receipts`：V4 ordinal exposure 结算使用 V6；旧 V5/V4/V3 verifier 仅用于兼容历史回执。
 - `complete_task`：主动归档任务。
 - `revoke_task`：阻止新查询；已在途查询不会被宣称立即取消，仍受原超时和 Grant 到期约束。
 
-任务被撤销、过期或完成归档后，旧查询结果仍可由任务所有者读取，直到结果保留清理删除对应密文，或管理员擦除对应结果密钥 ID；查询回执和审计证据不会随密文清理或 key ID 擦除删除。设置 `GATEWAY_RESULT_RETENTION_TTL` 会启动定期密文清理；设置 `GATEWAY_ADMIN_TOKEN` 会启用 `/admin/v1/retention/purge`、`/admin/v1/retention/legal-holds/{task_id}` 以及 `/admin/v1/result-encryption-keys/{key_id}/erase` 的本机管理员接口。active legal hold 会阻止该任务密文被清理，但不会自动阻止单独的 key ID 擦除流程；生产环境应把该接口接入组织级审批/KMS 流程。禁用 Principal 会阻止该身份继续列出或调用任何 MCP 工具，即使客户端仍持有旧 Bearer Token。达到任一资源预算硬上限时，当前合法查询会在允许范围内返回，随后任务归档为 `budget_exhausted`；exposure 超限则不返回当前结果。Carol 只能读取审计事件和凭证，不能读取原始行。
+任务被撤销、过期或完成归档后，旧 artifact 仍可由任务所有者读取摘要、预览或交付，直到 artifact 到期、TTL/purge 删除 canonical 对象，或管理员擦除对应结果 key ID；查询回执和审计证据不会随对象清理或 key ID 擦除删除。设置 `GATEWAY_RESULT_RETENTION_TTL` 会启动定期对象清理；设置 `GATEWAY_ADMIN_TOKEN` 会启用 `/admin/v1/retention/purge`、`/admin/v1/retention/legal-holds/{task_id}` 以及 `/admin/v1/result-encryption-keys/{key_id}/erase` 的本机管理员接口。active legal hold 会阻止该任务的对象进入 TTL/手动 retention 清理，但不会延长 `expires_at` 或继续开放 metadata/preview/delivery，也不会自动阻止单独的 key ID 擦除流程；生产环境应把该接口接入组织级审批/KMS 流程。禁用 Principal 会阻止该身份继续列出或调用任何 MCP 工具，即使客户端仍持有旧 Bearer Token。达到任一资源预算硬上限时，当前合法查询会在允许范围内生成 canonical Parquet 并返回摘要，随后任务归档为 `budget_exhausted`；exposure 超限则不会产生 canonical 对象。Carol 只能读取审计事件和凭证，不能读取原始行。
 
 ## 7. 停止、恢复与重置
 
@@ -204,7 +229,9 @@ route 都是人工审批。正常批准把完整 Catalog Profile 交给 Agent，
 docker compose down
 ```
 
-再次启动时，Gateway 从 `control-pg-data` 恢复任务、Grant、预算、加密结果与审计链；业务数据保存在独立的 `business-pg-data`。不确定是否完成的 RESERVED 查询按完整资源预留量保守计费并标记 `INDETERMINATE`，释放未结算的 exposure reservation，并在同一恢复事务中写入查询回执；结果从不在结算提交前释放，同一 `request_id` 也禁止自动重执行。PROCESSING 回调变为可重试。OA Demo 草稿仍在内存中，OA 容器重启后会丢失。
+再次启动时，Gateway 从 `control-pg-data` 恢复任务、Grant、预算、artifact 元数据与审计链，并从独立的 `result-object-data` 继续访问客户端侧加密 Parquet；业务数据保存在 `business-pg-data`。不确定是否完成的 RESERVED 查询按完整资源预留量保守计费并标记 `INDETERMINATE`，释放未结算的 exposure reservation，并在同一恢复事务中写入查询回执；同一 `request_id` 禁止自动重执行。对于结算已提交的 `PENDING` artifact，Gateway 只在 staging 与已提交哈希/ETag 证据一致时，使用确定性 canonical key 幂等完成 promotion 并标记 `AVAILABLE/consumed`，不退款、不重跑 SQL、不重复写 Receipt。staging 丢失或 canonical 证据冲突会使 readiness fail closed，必须先恢复正确对象证据或执行受审修复；系统不会自动放弃或退款。PROCESSING 回调变为可重试。OA Demo 草稿仍在内存中，OA 容器重启后会丢失。
+
+不要为 `staging/` 配置仅按对象年龄的 S3 lifecycle；这可能删掉 `PENDING` 恢复仍需要的证据。Gateway orphan sweeper 等待 `GATEWAY_RESULT_STAGING_ORPHAN_TTL`（默认 24h），并在查询 Control 引用后只清理真正孤儿 staging；它也会对超期的 S3 multipart fragments 按确切 upload ID 执行 abort。
 
 彻底重置当前版本数据：
 
@@ -212,15 +239,15 @@ docker compose down
 docker compose down --volumes --remove-orphans
 ```
 
-该命令删除当前 Compose 项目的 `control-pg-data`、`business-pg-data`、`snapshot-index-artifacts` 和仅保存认证密文临时文件的 `gateway-encrypted-spool`。旧版本曾使用的 `gateway-data` Volume 不再被 Compose 引用，本次改造不会自动删除它；如需恢复或清理，请先用 `docker volume ls` 确认确切名称并手工处理。
+该命令删除当前 Compose 项目的 `control-pg-data`、`business-pg-data`、`snapshot-index-artifacts`、仅保存认证密文临时文件的 `gateway-encrypted-spool` 和保存规范加密 Parquet 的 `result-object-data`。旧版本曾使用的 `gateway-data` Volume 不再被 Compose 引用，本次改造不会自动删除它；如需恢复或清理，请先用 `docker volume ls` 确认确切名称并手工处理。
 
 ## 8. 常见问题
 
 | 现象 | 原因与处理 |
 |---|---|
-| Gateway 启动即退出 | 检查必填环境变量、32 字节数据密钥、Catalog、控制库和业务库连通性 |
+| Gateway 启动即退出 | 检查必填环境变量、32 字节数据密钥、Catalog、控制库、业务库、MinIO bucket 和 bucket-scoped 凭据 |
 | 修改 Alice/Carol Token 后 Gateway 拒绝启动 | 控制 PostgreSQL 已保存原 Principal 摘要；恢复旧 Token，或明确接受丢失 Demo 历史后重置 `control-pg-data` |
-| 旧结果无法解密 | `GATEWAY_DATA_KEY` 或 `GATEWAY_DATA_KEY_ID` 与写入时不同；恢复原密钥和 key ID；若 key ID 已被管理员擦除，则只能读取查询记录、回执和审计证据 |
+| 旧结果无法解密 | `GATEWAY_DATA_KEY` 或 `GATEWAY_DATA_KEY_ID` 与对象写入时不同；恢复原密钥和 key ID；若 key ID 已被管理员擦除，则只能读取查询记录、回执和审计证据 |
 | ACTIVE 任务目录版本冲突 | Catalog 版本已变化；重新申请新版本任务 |
 | OA 页面没有旧草稿 | OA Demo 为内存实现，重启不持久化草稿 |
 | Navicat 无法连接业务库 | 默认部署不发布该端口；仅调试时显式叠加 `compose.debug.yaml`，再使用 `127.0.0.1:25434` |

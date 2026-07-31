@@ -8,8 +8,38 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
+
 	"taskbound.local/agent-data-gateway/internal/testpostgres"
 )
+
+func TestQueryReturnsTimeTZAsLosslessText(t *testing.T) {
+	dsn := testpostgres.SchemaDSN(t)
+	ctx := context.Background()
+	connector, err := New(ctx, Config{
+		DSN: dsn, StatementTimeout: time.Second, ConnectTimeout: time.Second,
+		MaxRows: 10, MaxConnections: 1,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer connector.Close()
+
+	result, err := connector.Query(ctx, QueryRequest{
+		SQL:              `SELECT '04:05:06.789123-08:30:15'::pg_catalog.timetz AS legacy_time`,
+		StatementTimeout: time.Second,
+		MaxRows:          1,
+	})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if len(result.Columns) != 1 || result.Columns[0].DataTypeOID != pgtype.TimetzOID {
+		t.Fatalf("timetz columns = %+v", result.Columns)
+	}
+	if len(result.Rows) != 1 || len(result.Rows[0]) != 1 || result.Rows[0][0] != "04:05:06.789123-08:30:15" {
+		t.Fatalf("timetz rows = %#v", result.Rows)
+	}
+}
 
 func TestLiveSchemaDigestDetectsViewDefinitionDrift(t *testing.T) {
 	dsn := testpostgres.SchemaDSN(t)

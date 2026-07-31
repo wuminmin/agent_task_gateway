@@ -59,6 +59,24 @@ func TestApprovalReceiptVerifierFromEnvLoadsKeyring(t *testing.T) {
 	}
 }
 
+func TestDeliveryConfigRequiresTLSOutsideLoopback(t *testing.T) {
+	t.Setenv("GATEWAY_DELIVERY_SIGNING_KEY", strings.Repeat("k", 32))
+	for _, accepted := range []string{
+		"http://127.0.0.1:8082", "http://[::1]:8082", "http://localhost:8082", "https://downloads.example.test",
+	} {
+		t.Setenv("GATEWAY_PUBLIC_BASE_URL", accepted)
+		if _, _, err := deliveryConfigFromEnv(); err != nil {
+			t.Fatalf("deliveryConfigFromEnv(%q): %v", accepted, err)
+		}
+	}
+	for _, rejected := range []string{"http://downloads.example.test", "http://10.0.0.8:8082"} {
+		t.Setenv("GATEWAY_PUBLIC_BASE_URL", rejected)
+		if _, _, err := deliveryConfigFromEnv(); err == nil {
+			t.Fatalf("deliveryConfigFromEnv(%q) unexpectedly accepted plaintext non-loopback URL", rejected)
+		}
+	}
+}
+
 func TestQueryReceiptPublicKeyBundleFromEnvPublishesActiveAndHistoricalKeys(t *testing.T) {
 	oldSigner := testQueryReceiptSigner(t, "gateway-2026-q2", 0x21)
 	activeSigner := testQueryReceiptSigner(t, "gateway-2026-q3", 0x22)
