@@ -142,5 +142,9 @@ func cloneProduct(product Product) Product {
 	product.AllowedFunctions = append([]string(nil), product.AllowedFunctions...)
 	product.AllowedOperators = append([]string(nil), product.AllowedOperators...)
 	product.AllowedAggregates = append([]string(nil), product.AllowedAggregates...)
+	if product.ViewContract != nil {
+		contract := *product.ViewContract
+		product.ViewContract = &contract
+	}
 	return product
 }

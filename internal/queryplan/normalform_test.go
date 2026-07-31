@@ -2,6 +2,7 @@ package queryplan
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -139,6 +140,23 @@ func TestAlgebraNormalFormV2CanonicalizesJoinAndUnionOperands(t *testing.T) {
 	}
 	if _, err := NormalizeAlgebraV2(AlgebraPlanV2{Op: "union", Left: &left, Right: &right, UnionAll: true}); err == nil {
 		t.Fatal("UNION ALL unexpectedly entered the V2 normal form")
+	}
+}
+
+func TestAlgebraNormalFormV2BindsScanLineageDigest(t *testing.T) {
+	schema := []AlgebraFieldV2{{ID: "orders.id", SQLType: "bigint"}}
+	left, err := NormalizeAlgebraV2(AlgebraPlanV2{Op: "scan", SourceNamespace: "sales.orders", Snapshot: "v1",
+		StableRole: "orders", LineageDigest: strings.Repeat("a", 64), Schema: schema})
+	if err != nil {
+		t.Fatal(err)
+	}
+	right, err := NormalizeAlgebraV2(AlgebraPlanV2{Op: "scan", SourceNamespace: "sales.orders", Snapshot: "v1",
+		StableRole: "orders", LineageDigest: strings.Repeat("b", 64), Schema: schema})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if left.SHA256 == right.SHA256 {
+		t.Fatal("typed algebra identity ignored base lineage drift")
 	}
 }
 

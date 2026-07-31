@@ -28,6 +28,8 @@ const (
 	CodeJoinKeyTypeMismatch      = "JOIN_KEY_TYPE_MISMATCH"
 	CodeCollationMismatch        = "COLLATION_MISMATCH"
 	CodeSubqueryUnsupported      = "SUBQUERY_UNSUPPORTED"
+	CodeViewSemanticChanged      = "VIEW_SEMANTIC_CHANGED"
+	CodeViewQueryUnsupported     = "VIEW_QUERY_UNSUPPORTED"
 )
 
 // Error contains a stable machine-readable code and a client-safe explanation.

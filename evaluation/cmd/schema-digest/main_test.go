@@ -12,6 +12,8 @@ func TestExpectedSchemasBuildsSingleSourceContract(t *testing.T) {
 		Products: []catalog.Product{
 			{Name: "expense", Source: "approved", ReportingView: "reporting.expense", Fields: []catalog.Field{{Name: "id", Type: "bigint"}}},
 			{Name: "summary", Source: "approved", ReportingView: "reporting.summary", Fields: []catalog.Field{{Name: "month", Type: "date"}}},
+			{Name: "semantic", Source: "approved", ReportingView: "reporting.semantic", Fields: []catalog.Field{{Name: "id", Type: "bigint"}},
+				ViewContract: &catalog.ViewContract{ProfileVersion: catalog.ViewContractV1}},
 		},
 	}
 	source, schemas, err := expectedSchemas(logical)
@@ -22,7 +24,7 @@ func TestExpectedSchemasBuildsSingleSourceContract(t *testing.T) {
 		t.Fatalf("unexpected source: %+v", source)
 	}
 	if len(schemas) != 2 {
-		t.Fatalf("schema count = %d, want 2", len(schemas))
+		t.Fatalf("legacy schema count = %d, want 2; semantic roots are task-scoped", len(schemas))
 	}
 	if schemas[0].Schema != "reporting" || schemas[0].View != "expense" {
 		t.Fatalf("unexpected first view: %+v", schemas[0])

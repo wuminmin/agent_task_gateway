@@ -14,6 +14,7 @@ var (
 	ErrInvalidSnapshotPublication = errors.New("invalid snapshot publication")
 	ErrDuplicateField             = errors.New("duplicate product field")
 	ErrInvalidReportingView       = errors.New("invalid reporting view")
+	ErrInvalidViewContract        = errors.New("invalid semantic view contract")
 	ErrPlaintextPassword          = errors.New("plaintext password is forbidden")
 	ErrMissingSecretRef           = errors.New("source secretRef is required")
 	ErrInvalidSecretRef           = errors.New("invalid source secretRef")

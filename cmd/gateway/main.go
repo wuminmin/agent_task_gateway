@@ -368,6 +368,13 @@ func expectedDatasource(logicalCatalog *catalog.Catalog) (catalog.Source, []data
 		} else if selected.Name != source.Name {
 			return catalog.Source{}, nil, errors.New("multiple catalog sources require connector routing")
 		}
+		// Phase-B semantic Views are attested by a task-scoped transitive
+		// registry binding inside each query transaction. Keeping them out of
+		// the legacy source-wide digest prevents an unrelated View replacement
+		// from disabling every task and readiness probe.
+		if product.ViewContract != nil {
+			continue
+		}
 		schema, view, ok := strings.Cut(product.ReportingView, ".")
 		if !ok || schema == "" || view == "" {
 			return catalog.Source{}, nil, errors.New("validated catalog contains an invalid reporting view")
@@ -381,6 +388,9 @@ func expectedDatasource(logicalCatalog *catalog.Catalog) (catalog.Source, []data
 	}
 	if selected.Name == "" {
 		return catalog.Source{}, nil, errors.New("validated catalog contains no source")
+	}
+	if len(result) == 0 {
+		return catalog.Source{}, nil, errors.New("semantic View catalogs require at least one governed terminal product")
 	}
 	if selected.SchemaDigest == "" {
 		return catalog.Source{}, nil, errors.New("selected catalog source is missing schema_digest")

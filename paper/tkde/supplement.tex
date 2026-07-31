@@ -194,6 +194,163 @@ key suffix that proves totality, and copies annotations only for the delivered
 slice. These are positive-output dependencies, not physical-read or minimal
 causal provenance.
 
+\section{Restricted Semantic-View Front End}
+\label{sec:supp-view-front-end}
+
+\subsection{Registry and Expansion Boundary}
+
+Let $\mathcal R$ be a finite registry keyed by canonical schema-qualified
+relation names. A record contains a kind, ordered column contract, and either
+(i) an ordinary-View definition and sorted direct dependencies, or (ii) the
+Catalog Product identity of an opaque terminal publication. Discovery reads
+\code{pg\_class}, \code{pg\_rewrite}, \code{pg\_depend},
+\code{pg\_attribute}, type/collation metadata, and exact
+\code{pg\_get\_viewdef} output in one read-only \code{REPEATABLE READ}
+transaction. It also parses the definition independently; the parsed relation
+set must equal the catalog-derived dependency set. This second path exposes,
+and then rejects, recursive self references and unsupported built-in/object
+dependencies that a relation-only dependency walk could otherwise miss.
+
+DFS colors each ordinary View white/gray/black, so a gray back-edge rejects as
+a cycle. Ordinary Views recurse; a populated materialized View is a leaf only
+when mapped to an authorized Product. Raw/partitioned/foreign/system relations,
+temporary or nonpersistent relations, row-security/options, unpopulated
+materializations, and volatile, user-defined, or otherwise unsupported object
+dependencies reject. Stable names, exact definitions, ordered columns,
+dependency edges, and PostgreSQL major version form the registry revision;
+transaction-local OIDs are not serialized.
+
+For a successfully parsed View $v$, expansion computes a fragment
+\[
+ X(v)=\langle S,\Theta,F,G,A,O,b\rangle ,
+\]
+where $S$ is the occurrence-preserving sequence of governed base scans,
+$\Theta$ the typed equality predicates, $F$ the typed literal filters, $G$
+the group fields, $A$ the aggregate bindings, $O$ the ordered public outputs,
+and $b$ records whether an aggregate barrier has been crossed. A relation
+reference recursively obtains and clones its child fragment; alias-qualified
+columns are substituted by the child's stable field bindings. INNER JOIN
+concatenates child occurrences and equalities, selection appends conjuncts,
+and direct projection substitutes output bindings. A grouped definition sets
+$b$ and binds only direct group fields plus approved
+\code{COUNT(*)}/\code{COUNT(field)}/\code{SUM}/\code{MIN}/\code{MAX}
+expressions. If any child already has $b=1$, the parent must have exactly that
+one input and be only a direct projection/rename; a join, filter, group, or new
+aggregate is undefined.
+
+The source grammar additionally excludes \code{DISTINCT}, all set operations,
+CTEs/subqueries, \code{HAVING}, windows, row locking, ordering/paging,
+projection expressions and casts, non-AND conditions, and non-equality join
+conditions. Literal casts emitted by PostgreSQL's deparser are allowed only
+when the cast's canonical type equals the resolved field type. The expanded
+fragment must contain a connected equi-join graph and at most 16 distinct
+Product/stable-role scans; a shared DAG child is not silently deduplicated, so
+two occurrences that resolve to the same stable role reject. The implementation
+also caps View depth at 16, reachable nodes at 64, dependency edges at 128,
+expanded predicates at 128, and reachable definition text at 1~MiB.
+
+After these checks, the compiler constructs the same canonical $G_J$ used for
+direct SQL, emits existing \code{JoinMany}, attaches $F,G,A,O$, and invokes the
+shared typed normalizer. Hence transparent nesting is eliminated before the
+accounting semantics. This is a constructive mapping for the accepted AST
+fragment. It is neither a theorem about PostgreSQL's full rewrite system nor a
+semantic-equivalence decision procedure for rejected SQL.
+
+At query time the composer accepts an outer plan naming one semantic root and
+uses the artifact's ordered output bindings to replace public names by stable
+FieldIDs. For an ungrouped artifact it composes supported projection, literal
+filtering, grouping, and aggregation with the expanded input. For an artifact
+that has crossed the aggregate barrier, only projection/reordering of its
+already computed outputs is defined. A query-time join between the semantic
+root and another Product, and \code{ORDER BY}, \code{LIMIT}, or \code{OFFSET}
+above the root, are undefined in the current profile. These restrictions are
+above the root: they do not reduce the arbitrary connected topology or
+multi-equality edges accepted inside a closure of at most 16 sources/depth 16.
+The resulting plan is passed to the existing \code{CompileRelational} path, so
+its visible statement, provenance program, normal form, and V4 terminal
+ordinal bindings share the non-View implementation.
+
+\subsection{Four Digests and Task Binding}
+
+Table~\ref{tab:view-digests-supp} separates exact change evidence from the
+expanded semantic identity. Every hash is SHA-256 over canonical,
+domain-separated input.
+
+\begin{table}[h]
+\centering
+\caption{Semantic-View contract digests.}
+\label{tab:view-digests-supp}
+\small
+\begin{tabular}{L{0.18\textwidth}L{0.70\textwidth}}
+\toprule
+Digest & Committed payload \\
+\midrule
+Definition & Exact root \code{pg\_get\_viewdef} bytes; no whitespace normalization \\
+Dependency & Sorted reachable nodes/edges, exact per-node definitions, compiled interfaces, kinds/Product leaves, and PostgreSQL major version \\
+Canonical plan & Shared typed query normal form of the fully expanded base-relation plan; syntactic View layers, relation aliases, and accepted join order are absent \\
+Interface & Ordered public output name, canonical SQL type, collation name, and collation version \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The Catalog stores and compares all four. A task-set binding then sorts every
+originally requested Product contract of the form
+\[
+  (product,h_{plan},h_{dep},h_{iface})
+\]
+and hashes the canonical array under a separate domain. An ordinary non-View Product in the same request receives an
+opaque contract over its stable Product/publication/interface metadata, so
+authorization narrowing cannot introduce an unbound Product. The root exact
+definition remains separately checked and the dependency digest already
+commits every exact closure definition. Control stores the canonical bytes
+content-addressed, the binding digest on Grant and query record, and a reverse
+index from each task/Product to every reachable schema-qualified dependency.
+
+Task binding begins \code{ACTIVE}. Any current compile failure or mismatch of
+the persisted set makes \code{REQUIRE\_REBIND} durable; database constraints
+prevent a transition back to \code{ACTIVE}. Exact terminal replay is looked up
+before this new-work gate. Otherwise the Gateway re-resolves the current set,
+reserves ordinary resources, and the connector rechecks the registry revision
+inside the same Business-PG snapshot used by visible and companion SQL. A
+connector mismatch releases the reservation and settles no exposure. Rebind
+creates a new root request and external approval from the old Grant's final narrowed
+scope; no Grant, historical query, result, or receipt is rewritten.
+
+The signed Grant remains at the semantic-root interface; expanded terminal
+Products are not silently added to its approved set. For each query the Gateway
+derives an ephemeral least-privilege policy grant for every terminal named by
+the bound artifact. Public scope outputs are resolved through
+\code{Artifact.Output.FieldID} to stable terminal role/column pairs, and every
+mandatory scope declared by every terminal Product must be covered by the
+approved root predicate. Missing, ambiguous, or conflicting mappings reject
+before reservation. The same terminal Products supply their immutable V4
+publication/sidecar bindings. The derived grants are neither signed as new
+authority nor persisted or returned to the client.
+
+\subsection{Compiler and Drift Test Evidence}
+
+Five independent, fixed-seed \code{testing/quick} properties each execute 64
+generated cases in the restricted grammar. Each generator constructs a
+connected graph of two to five governed relations, forces at least one
+two-equality edge, varies traversal priorities and aliases, and chooses one to
+three transparent wrappers for nested cases. The properties separately check:
+(i) complete-artifact determinism across repeated calls and registry/Product
+insertion orders; (ii) alias invariance; (iii) connected join-order invariance;
+(iv) direct-versus-nested equivalence; and (v) digest sensitivity that
+distinguishes semantic, public-interface, and transitive-dependency drift.
+Boundary tests additionally cover cycles, parsed/catalog dependency mismatch,
+schema mismatch, safe literal casts, forbidden projection casts, occurrence-
+preserving shared DAG expansion, depth 16/17, and source count 16/17.
+
+Separate PostgreSQL integration tests discover a three-level View chain ending
+at a materialized publication, verify transitive child replacement changes the
+registry revision while the root definition remains equal, reject unsafe and
+recursive definitions, and observe \code{repeatable read} on the query path.
+These tests support deterministic implementation behavior and fail-closed
+change detection. They are not a generated proof for every grammar term, a
+formal refinement of PostgreSQL parsing, a multi-source View-DAG performance
+study, or part of the digest-bound RQ counts in the main paper.
+
 \section{Proofs of Main-Text Results}
 \label{sec:supp-proofs}
 
@@ -491,6 +648,7 @@ Group + four aggregates & yes & yes & above either online input & hidden group k
 Inner equijoin & yes & yes & connected graph of 2--16 distinct Catalog roles; one or more typed equalities per edge; canonical fold & representative two-source operand exchange, fanout, downstream SUM \\
 Union-distinct & yes & yes & two filtered branches of one product; explicit full distinct schema & all members, hidden field, exchange, downstream COUNT \\
 Page & yes & yes & one-product plan with stable Catalog suffix & offset/tie-break and withholding \\
+Semantic View DAG & only after expansion to a typed core term & inherited from that expanded term & one-root composition into \code{CompileRelational}; depth/source 16; multi-equality INNER equijoin; one aggregate barrier & three-level discovery, drift, and transaction regressions; no separate View-DAG performance campaign \\
 \bottomrule
 \end{tabular}
 \end{table}

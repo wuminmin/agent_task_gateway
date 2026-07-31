@@ -13,6 +13,7 @@ import (
 	"taskbound.local/agent-data-gateway/internal/approval"
 	"taskbound.local/agent-data-gateway/internal/catalog"
 	"taskbound.local/agent-data-gateway/internal/control"
+	"taskbound.local/agent-data-gateway/internal/dataconnector"
 	"taskbound.local/agent-data-gateway/internal/domain"
 	"taskbound.local/agent-data-gateway/internal/mcp"
 )
@@ -74,6 +75,7 @@ func (s *Service) requestDataTask(ctx context.Context, principal mcp.Principal, 
 	humanSubject := principal.Subject
 	rootTaskID := ""
 	var parentCore *domain.TaskGrantCoreV1
+	var inheritedViewBinding *pendingViewBinding
 	if args.ParentTaskID == "" {
 		if args.DelegatePrincipalID != "" {
 			return nil, &mcp.ToolError{Code: apierr.CodeInvalidRequest, Message: "delegate_principal_id 只能与 parent_task_id 一起使用"}
@@ -94,6 +96,18 @@ func (s *Service) requestDataTask(ctx context.Context, principal mcp.Principal, 
 		if err != nil || approval.VerifyTaskGrantV1(s.receiptVerifier, protocol) != nil ||
 			!storedGrantMatchesProtocol(parentTask, parentGrant, protocol) || protocol.Core.ValidateAt(now) != nil {
 			return nil, &mcp.ToolError{Code: apierr.CodeConflict, Message: "父任务的持久授权证明无效或已经过期"}
+		}
+		if protocol.Core.ViewBindingDigest != "" {
+			status, statusErr := s.store.GetTaskViewBindingStatus(ctx, parentTask.ID)
+			parentPending, pendingErr := decodePersistedPending(parentTask)
+			if statusErr != nil || status.Status != control.TaskViewBindingActive || pendingErr != nil ||
+				parentPending.ViewBinding == nil ||
+				!sameSnapshotSHA256(parentPending.ViewBinding.Digest, protocol.Core.ViewBindingDigest) {
+				return nil, &mcp.ToolError{Code: string(dataconnector.CodeViewSemanticChanged), Message: "父任务的语义 View 已变化；必须创建新的根任务并重新审批"}
+			}
+			inheritedViewBinding = clonePendingViewBinding(parentPending.ViewBinding)
+		} else if parentGrant.ViewBindingDigest != "" {
+			return nil, &mcp.ToolError{Code: apierr.CodeConflict, Message: "父任务的 View binding 证据不一致"}
 		}
 		delegateID := strings.TrimSpace(args.DelegatePrincipalID)
 		if delegateID == "" {
@@ -143,6 +157,31 @@ func (s *Service) requestDataTask(ctx context.Context, principal mcp.Principal, 
 		sort.Strings(columns[product])
 	}
 	normalizeScopeSets(scope)
+	var viewBinding *pendingViewBinding
+	if parentCore != nil && inheritedViewBinding != nil {
+		boundProducts, bindingErr := boundViewProducts(inheritedViewBinding)
+		if bindingErr != nil {
+			return nil, &mcp.ToolError{Code: apierr.CodeConflict, Message: "父任务的 View binding 证据无效"}
+		}
+		current, bindingErr := s.resolveViewBinding(ctx, boundProducts)
+		if bindingErr != nil || !viewBindingMatchesCurrent(inheritedViewBinding, current) {
+			observed := viewSemanticObservationDigest(inheritedViewBinding.Digest, bindingErr)
+			if current != nil {
+				observed = current.Digest
+			}
+			_, _ = s.store.MarkTaskViewSemanticChanged(ctx, args.ParentTaskID, observed)
+			return nil, &mcp.ToolError{Code: string(dataconnector.CodeViewSemanticChanged), Message: "父任务的语义 View 已变化；必须创建新的根任务并重新审批"}
+		}
+		viewBinding = clonePendingViewBinding(inheritedViewBinding)
+	} else if parentCore == nil {
+		current, bindingErr := s.resolveViewBinding(ctx, args.DataProducts)
+		if bindingErr != nil {
+			return nil, bindingErr
+		}
+		if current != nil {
+			viewBinding = clonePendingViewBinding(&current.pendingViewBinding)
+		}
+	}
 
 	taskID := randomID("task")
 	correlation := randomID("callback")
@@ -156,6 +195,9 @@ func (s *Service) requestDataTask(ctx context.Context, principal mcp.Principal, 
 		CatalogSHA256: s.catalog.SHA256, DatasourceID: evidence.DatasourceID,
 		SchemaDigest: evidence.SchemaDigest, CallbackContext: correlation,
 		Nonce: strings.TrimPrefix(randomID(""), "_"),
+	}
+	if viewBinding != nil {
+		manifest.ViewBindingDigest = viewBinding.Digest
 	}
 	draftRequest := approval.DraftRequest{
 		Manifest:     manifest,
@@ -180,6 +222,7 @@ func (s *Service) requestDataTask(ctx context.Context, principal mcp.Principal, 
 		Sensitivity: policy.Sensitivity, DatasourceID: evidence.DatasourceID, SchemaDigest: evidence.SchemaDigest,
 		ApprovalMode: policy.ApprovalRoute.Mode,
 		Approver:     policy.ApprovalRoute.Approver, CallbackContext: correlation,
+		ViewBinding: clonePendingViewBinding(viewBinding),
 	}
 	pendingJSON, err := json.Marshal(persistedPendingContext{
 		pendingContext: pending, Manifest: manifest, ManifestDigest: snapshotSHA256,
@@ -200,7 +243,7 @@ func (s *Service) requestDataTask(ctx context.Context, principal mcp.Principal, 
 	}); err != nil {
 		return nil, err
 	}
-	return map[string]any{
+	result := map[string]any{
 		"task_id": taskID, "state": control.TaskAwaitingSubmission, "oa_url": draft.URL,
 		"approval_mode": string(policy.ApprovalRoute.Mode), "sensitivity": string(policy.Sensitivity),
 		"catalog_version": s.catalog.CatalogVersion, "datasource_id": evidence.DatasourceID,
@@ -214,7 +257,11 @@ func (s *Service) requestDataTask(ctx context.Context, principal mcp.Principal, 
 			"max_release_facts": policy.Budget.MaxReleaseFacts, "max_influence_facts": policy.Budget.MaxInfluenceFacts,
 			"max_outcome_facts":        policy.Budget.MaxOutcomeFacts,
 			"exposure_profile_version": policy.Budget.ExposureProfileVersion},
-	}, nil
+	}
+	if viewBinding != nil {
+		result["view_binding_digest"] = viewBinding.Digest
+	}
+	return result, nil
 }
 
 func constrainDelegatedBudget(candidate domain.Budget, parent domain.TaskGrantCoreV1, now time.Time) (domain.Budget, error) {
@@ -486,7 +533,13 @@ func (s *Service) getTaskStatus(ctx context.Context, principal mcp.Principal, ra
 	if err != nil {
 		return nil, err
 	}
-	return publicTask(task), nil
+	result := publicTask(task)
+	if status, statusErr := s.store.GetTaskViewBindingStatus(ctx, task.ID); statusErr == nil {
+		result["view_binding_status"] = publicViewBindingStatus(status)
+	} else if !errors.Is(statusErr, control.ErrNotFound) {
+		return nil, statusErr
+	}
+	return result, nil
 }
 
 func (s *Service) waitForApproval(ctx context.Context, principal mcp.Principal, raw json.RawMessage) (any, error) {
@@ -559,16 +612,37 @@ func (s *Service) getTaskContext(ctx context.Context, principal mcp.Principal, r
 	if err != nil {
 		return nil, fmt.Errorf("decode persisted task grant: %w", err)
 	}
-	return map[string]any{
+	result := map[string]any{
 		"task": publicTask(task), "subject": grant.Subject, "purpose": grant.Purpose,
 		"approved_products": grant.ApprovedProducts, "approved_columns": grant.ApprovedColumns,
 		"mandatory_scope": mandatoryScope, "sensitivity_ceiling": grant.SensitivityCeiling,
 		"expires_at": grant.ExpiresAt, "catalog_version": grant.CatalogVersion,
 		"catalog_digest": grant.CatalogDigest, "datasource_id": grant.DatasourceID,
-		"schema_digest":   grant.SchemaDigest,
+		"schema_digest": grant.SchemaDigest, "view_binding_digest": grant.ViewBindingDigest,
 		"manifest_digest": finalGrant.Core.ManifestDigest, "task_grant": finalGrant,
 		"approval_receipt": finalGrant.ApprovalReceipt, "budget": publicBudget(budget),
-	}, nil
+	}
+	if grant.ViewBindingDigest != "" {
+		status, statusErr := s.store.GetTaskViewBindingStatus(ctx, task.ID)
+		if statusErr != nil {
+			return nil, statusErr
+		}
+		result["view_binding_status"] = publicViewBindingStatus(status)
+	}
+	return result, nil
+}
+
+func publicViewBindingStatus(status control.TaskViewBindingStatus) map[string]any {
+	result := map[string]any{
+		"status": status.Status, "bound_digest": status.BoundDigest,
+	}
+	if status.ObservedDigest != "" {
+		result["observed_digest"] = status.ObservedDigest
+	}
+	if status.DetectedAt != nil {
+		result["detected_at"] = *status.DetectedAt
+	}
+	return result
 }
 
 func (s *Service) getBudget(ctx context.Context, principal mcp.Principal, raw json.RawMessage) (any, error) {
@@ -591,6 +665,57 @@ func (s *Service) getBudget(ctx context.Context, principal mcp.Principal, raw js
 	} else if !errors.Is(exposureErr, control.ErrNotFound) {
 		return nil, exposureErr
 	}
+	return result, nil
+}
+
+func (s *Service) rebindDataTask(ctx context.Context, principal mcp.Principal, raw json.RawMessage) (any, error) {
+	var args struct {
+		TaskID string `json:"task_id"`
+	}
+	if err := decodeArgs(raw, &args); err != nil {
+		return nil, err
+	}
+	oldTask, err := s.ownedTask(ctx, principal, args.TaskID)
+	if err != nil {
+		return nil, err
+	}
+	grant, err := s.store.GetGrant(ctx, oldTask.ID)
+	if err != nil {
+		return nil, err
+	}
+	if grant.ViewBindingDigest == "" {
+		return nil, &mcp.ToolError{Code: apierr.CodeInvalidRequest, Message: "该任务没有语义 View binding，无需执行 rebind"}
+	}
+	status, statusErr := s.store.GetTaskViewBindingStatus(ctx, oldTask.ID)
+	if statusErr != nil && !errors.Is(statusErr, control.ErrNotFound) {
+		return nil, statusErr
+	}
+	if oldTask.CatalogVersion == s.catalog.CatalogVersion &&
+		(statusErr != nil || status.Status != control.TaskViewBindingRequireRebind) {
+		return nil, &mcp.ToolError{Code: apierr.CodeInvalidRequest, Message: "该任务尚未检测到 View 语义变化"}
+	}
+	var scope map[string]any
+	if err := json.Unmarshal(grant.MandatoryScope, &scope); err != nil {
+		return nil, err
+	}
+	request, err := json.Marshal(map[string]any{
+		"objective": oldTask.Objective, "data_products": grant.ApprovedProducts,
+		"columns": grant.ApprovedColumns, "scopes": scope,
+	})
+	if err != nil {
+		return nil, err
+	}
+	created, err := s.requestDataTask(ctx, principal, request)
+	if err != nil {
+		return nil, err
+	}
+	result, ok := created.(map[string]any)
+	if !ok {
+		return nil, errors.New("rebind task response has an unexpected shape")
+	}
+	result["rebinds_task_id"] = oldTask.ID
+	result["in_place"] = false
+	result["historical_queries_preserved"] = true
 	return result, nil
 }
 
@@ -687,6 +812,19 @@ func decodePersistedPending(task control.Task) (persistedPendingContext, error) 
 	}
 	if err := persisted.Manifest.Validate(); err != nil {
 		return persisted, fmt.Errorf("invalid pending authorization manifest: %w", err)
+	}
+	if persisted.Manifest.ViewBindingDigest == "" {
+		if pending.ViewBinding != nil {
+			return persisted, fmt.Errorf("legacy pending task unexpectedly carries View binding evidence")
+		}
+	} else {
+		if pending.ViewBinding == nil {
+			return persisted, fmt.Errorf("pending task is missing View binding evidence")
+		}
+		if _, err := pending.ViewBinding.validate(); err != nil ||
+			!sameSnapshotSHA256(pending.ViewBinding.Digest, persisted.Manifest.ViewBindingDigest) {
+			return persisted, fmt.Errorf("invalid pending View binding evidence")
+		}
 	}
 	digest, err := approval.ManifestDigest(persisted.Manifest)
 	if err != nil || !sameSnapshotSHA256(digest, persisted.ManifestDigest) {

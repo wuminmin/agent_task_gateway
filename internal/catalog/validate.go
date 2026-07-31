@@ -50,6 +50,28 @@ var forbiddenFunctions = map[string]struct{}{
 const exposureProfileV4 = "taskgate-exposure-v4"
 
 func (c *Catalog) Validate() error {
+	return c.validate(nil)
+}
+
+// ValidateViewContractCandidates applies the complete Catalog validation
+// policy while allowing explicitly named, first-time semantic View candidates
+// to omit both snapshot_publication and view_contract. It exists only for the
+// read-only contract generator: runtime Catalog loading always calls Validate.
+func (c *Catalog) ValidateViewContractCandidates(names []string) error {
+	candidates := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		if !identifierPattern.MatchString(name) {
+			return fieldError("view_contract_candidates", "candidate names must be lowercase product identifiers", ErrInvalidViewContract)
+		}
+		if _, duplicate := candidates[name]; duplicate {
+			return fieldError("view_contract_candidates", "candidate names must be unique", ErrInvalidViewContract)
+		}
+		candidates[name] = struct{}{}
+	}
+	return c.validate(candidates)
+}
+
+func (c *Catalog) validate(viewContractCandidates map[string]struct{}) error {
 	if c == nil {
 		return fieldError("catalog", "catalog is nil", ErrMissingField)
 	}
@@ -191,8 +213,12 @@ func (c *Catalog) Validate() error {
 			route, exists := routes[sensitivity]
 			if !exists {
 				problems = append(problems, fieldError(path+".sensitivity", "no approval route exists for the effective sensitivity", ErrInvalidApprovalRoute))
-			} else if profile, found := profiles[route.BudgetProfile]; found && profile.ExposureProfileVersion == exposureProfileV4 && product.SnapshotPublication == "" {
-				problems = append(problems, fieldError(path+".snapshot_publication", "V4 products require a snapshot publication", ErrInvalidSnapshotPublication))
+			} else if profile, found := profiles[route.BudgetProfile]; found && profile.ExposureProfileVersion == exposureProfileV4 &&
+				product.SnapshotPublication == "" && product.ViewContract == nil {
+				if _, candidate := viewContractCandidates[product.Name]; !candidate {
+					problems = append(problems, fieldError(path+".snapshot_publication",
+						"V4 products require either a snapshot publication or a semantic View contract", ErrInvalidSnapshotPublication))
+				}
 			}
 		}
 	}
@@ -410,6 +436,29 @@ func validateProduct(path string, product Product, sources, scopes map[string]st
 	}
 	if product.LineageManifestDigest != "" && !sha256HexPattern.MatchString(product.LineageManifestDigest) {
 		problems = append(problems, fieldError(path+".lineage_manifest_digest", "lineage manifest digest must be lowercase SHA-256", ErrInvalidCatalog))
+	}
+	if product.ViewContract != nil {
+		contract := *product.ViewContract
+		contractPath := path + ".view_contract"
+		if contract.ProfileVersion != ViewContractV1 {
+			problems = append(problems, fieldError(contractPath+".profile_version", "profile_version must be "+ViewContractV1, ErrInvalidViewContract))
+		}
+		for field, digest := range map[string]string{
+			"definition_digest":     contract.DefinitionDigest,
+			"dependency_digest":     contract.DependencyDigest,
+			"canonical_plan_digest": contract.CanonicalPlanDigest,
+			"interface_digest":      contract.InterfaceDigest,
+		} {
+			if !sha256HexPattern.MatchString(digest) {
+				problems = append(problems, fieldError(contractPath+"."+field, field+" must be lowercase SHA-256", ErrInvalidViewContract))
+			}
+		}
+		if product.FactNamespace == "" || product.StableRelationRole == "" {
+			problems = append(problems, fieldError(contractPath, "semantic View products require stable fact_namespace and stable_relation_role", ErrInvalidViewContract))
+		}
+		if product.SnapshotPublication != "" {
+			problems = append(problems, fieldError(contractPath, "expandable semantic Views cannot also be opaque snapshot publications", ErrInvalidViewContract))
+		}
 	}
 	if product.SnapshotPublication != "" {
 		publication, exists := publications[product.SnapshotPublication]

@@ -118,6 +118,11 @@ type pendingContext struct {
 	ApprovalMode    domain.ApprovalMode `json:"approval_mode"`
 	Approver        string              `json:"approver,omitempty"`
 	CallbackContext string              `json:"callback_context"`
+	// ViewBinding is the immutable evidence behind the digest carried by the
+	// signed manifest. It remains in the private pending context so callback
+	// activation can persist the exact content-addressed set without exposing
+	// physical dependency names to an agent or OA receipt.
+	ViewBinding *pendingViewBinding `json:"view_binding,omitempty"`
 }
 
 func New(config Config) (*Service, error) {
@@ -293,6 +298,8 @@ func toolError(err error) error {
 		return &mcp.ToolError{Code: apierr.CodeExposureBudgetExhausted, Message: "查询结果会超过根任务的数据暴露预算，因此未释放"}
 	case control.CodeExposureEvidenceRequired:
 		return &mcp.ToolError{Code: apierr.CodeExposureEvidenceRequired, Message: "该任务要求使用可生成精确暴露证据的结构化查询计划"}
+	case control.CodeViewSemanticChanged:
+		return &mcp.ToolError{Code: string(dataconnector.CodeViewSemanticChanged), Message: "语义 View 已变化；历史结果仍可重放，但新查询必须创建新任务并重新审批"}
 	case control.CodeQueryInProgress:
 		return &mcp.ToolError{Code: apierr.CodeConflict, Message: "同一任务已有查询正在执行"}
 	case control.CodeInvalid, control.CodeInvalidStateChange:

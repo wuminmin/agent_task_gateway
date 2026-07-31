@@ -77,8 +77,43 @@ type TaskGrant struct {
 	CatalogDigest      string
 	DatasourceID       string
 	SchemaDigest       string
+	ViewBindingDigest  string
+	ViewBindingSet     *ViewBindingSet
 	ApprovalReceipt    string
 	CreatedAt          time.Time
+}
+
+const (
+	TaskViewBindingActive        = "ACTIVE"
+	TaskViewBindingRequireRebind = "REQUIRE_REBIND"
+)
+
+// ViewBindingSet is the immutable, content-addressed canonical evidence from
+// which a task-scoped view binding digest was derived. CanonicalJSON is kept
+// internal to Control; receipts and public audit records carry only its digest.
+type ViewBindingSet struct {
+	Digest         string
+	ProfileVersion string
+	CanonicalJSON  json.RawMessage
+	Dependencies   []TaskViewDependency
+	CreatedAt      time.Time
+}
+
+// TaskViewDependency supports reverse lookup from one canonical dependency to
+// every approved task whose view semantics include it.
+type TaskViewDependency struct {
+	Product       string
+	DependencyKey string
+}
+
+// TaskViewBindingStatus is orthogonal to the task lifecycle. A task remains
+// historically ACTIVE while new reservations fail closed after semantic drift.
+type TaskViewBindingStatus struct {
+	TaskID         string
+	Status         string
+	BoundDigest    string
+	ObservedDigest string
+	DetectedAt     *time.Time
 }
 
 type ExposureLimits struct {
@@ -280,24 +315,25 @@ const (
 )
 
 type QueryRecord struct {
-	ID             string
-	TaskID         string
-	RequestID      string
-	Actor          string
-	RequestDigest  string
-	SQLFingerprint string
-	CatalogVersion string
-	CatalogDigest  string
-	DatasourceID   string
-	SchemaDigest   string
-	ManifestDigest string
-	GrantDigest    string
-	PolicyDecision string
-	Status         QueryStatus
-	ReservedRows   int64
-	ReservedDBMS   int64
-	ResultRows     int64
-	ResultDBMS     int64
+	ID                string
+	TaskID            string
+	RequestID         string
+	Actor             string
+	RequestDigest     string
+	SQLFingerprint    string
+	CatalogVersion    string
+	CatalogDigest     string
+	DatasourceID      string
+	SchemaDigest      string
+	ViewBindingDigest string
+	ManifestDigest    string
+	GrantDigest       string
+	PolicyDecision    string
+	Status            QueryStatus
+	ReservedRows      int64
+	ReservedDBMS      int64
+	ResultRows        int64
+	ResultDBMS        int64
 	// ResultObservedDBMS is the raw database time reported by the connector for
 	// this query, before clamping to the reservation. It may exceed ChargedDBMS,
 	// which is the value that was actually debited from the budget ledger.
@@ -329,22 +365,23 @@ type BudgetReservation struct {
 }
 
 type ReserveRequest struct {
-	QueryID        string
-	TaskID         string
-	RequestID      string
-	Actor          string
-	RequestDigest  string
-	SQLFingerprint string
-	CatalogVersion string
-	CatalogDigest  string
-	DatasourceID   string
-	SchemaDigest   string
-	ManifestDigest string
-	GrantDigest    string
-	PolicyDecision string
-	RequestedRows  int64
-	RequestedDBMS  int64
-	Exposure       *ExposureReservationRequest
+	QueryID           string
+	TaskID            string
+	RequestID         string
+	Actor             string
+	RequestDigest     string
+	SQLFingerprint    string
+	CatalogVersion    string
+	CatalogDigest     string
+	DatasourceID      string
+	SchemaDigest      string
+	ViewBindingDigest string
+	ManifestDigest    string
+	GrantDigest       string
+	PolicyDecision    string
+	RequestedRows     int64
+	RequestedDBMS     int64
+	Exposure          *ExposureReservationRequest
 }
 
 // BudgetSettlement commits actual resource use. Every completed settlement

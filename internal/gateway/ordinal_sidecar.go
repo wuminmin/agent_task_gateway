@@ -167,8 +167,16 @@ func (s *Service) bindOrdinalSidecars(baseSQL string, fields []string, program q
 		}
 		selected = append(selected, qualifiedGenerated(joins[joinIndex].alias, "row_handle")+" AS "+quoteGenerated(source.HandleAlias))
 		result.ProvenanceFields = append(result.ProvenanceFields, source.HandleAlias)
-		grantsByLogical[logical] = sqlpolicy.ProductGrant{LogicalName: logical, PhysicalSchema: schema,
-			PhysicalView: view, ApprovedColumns: uniqueSortedStrings(approvedColumns), AllowedOperators: []string{"="}}
+		if existing, present := grantsByLogical[logical]; present {
+			if existing.PhysicalSchema != schema || existing.PhysicalView != view {
+				return boundOrdinalExecution{}, errors.New("one ordinal sidecar logical name resolves to conflicting physical bindings")
+			}
+			existing.ApprovedColumns = uniqueSortedStrings(append(existing.ApprovedColumns, approvedColumns...))
+			grantsByLogical[logical] = existing
+		} else {
+			grantsByLogical[logical] = sqlpolicy.ProductGrant{LogicalName: logical, PhysicalSchema: schema,
+				PhysicalView: view, ApprovedColumns: uniqueSortedStrings(approvedColumns), AllowedOperators: []string{"="}}
+		}
 		_ = sourceIndex
 	}
 	// Root-family ledgers may execute different approved products over time.

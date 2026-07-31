@@ -7,11 +7,12 @@ import (
 )
 
 type interruptedReservation struct {
-	queryID      string
-	taskID       string
-	actor        string
-	reservedRows int64
-	reservedDBMS int64
+	queryID           string
+	taskID            string
+	actor             string
+	viewBindingDigest string
+	reservedRows      int64
+	reservedDBMS      int64
 }
 
 // Recover deterministically charges the full reservation for indeterminate
@@ -34,7 +35,7 @@ func (s *Store) recover(ctx context.Context, receiptBuilder TerminalReceiptBuild
 	now := s.now()
 
 	rows, err := tx.QueryContext(ctx, `
-SELECT id, task_id, actor, reserved_rows, reserved_db_ms
+SELECT id, task_id, actor, view_binding_digest, reserved_rows, reserved_db_ms
 FROM query_records WHERE status='RESERVED' ORDER BY created_at, id FOR UPDATE`)
 	if err != nil {
 		return RecoveryReport{}, opErr(op, ErrConflict, err)
@@ -42,7 +43,7 @@ FROM query_records WHERE status='RESERVED' ORDER BY created_at, id FOR UPDATE`)
 	var interrupted []interruptedReservation
 	for rows.Next() {
 		var reservation interruptedReservation
-		if err := rows.Scan(&reservation.queryID, &reservation.taskID, &reservation.actor,
+		if err := rows.Scan(&reservation.queryID, &reservation.taskID, &reservation.actor, &reservation.viewBindingDigest,
 			&reservation.reservedRows, &reservation.reservedDBMS); err != nil {
 			_ = rows.Close()
 			return RecoveryReport{}, opErr(op, ErrConflict, err)
@@ -109,6 +110,7 @@ UPDATE query_records
 				"reason": "gateway_restart", "status": QueryIndeterminate, "charged_queries": int64(1),
 				"charged_rows": reservation.reservedRows, "charged_db_ms": reservation.reservedDBMS,
 				"result_db_ms_observed": reservation.reservedDBMS,
+				"view_binding_digest":   reservation.viewBindingDigest,
 			}), OccurredAt: now,
 		})
 		if err != nil {

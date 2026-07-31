@@ -71,7 +71,10 @@ the visible query and provenance companion observe one PostgreSQL snapshot;
 TaskGate derives exact effects and atomically charges only facts novel to the
 root-family ledger. Semantic replay is free of new exposure only within the
 same publication-bound identity. We give semantics for a positive relational
-fragment, conservation properties, and finite-state checks. A legacy
+fragment, conservation properties, and finite-state checks. A restricted
+semantic-View front end recursively discovers nested PostgreSQL View DAGs and
+accepts a closure only when it flattens to the same typed SPJG/JoinMany core;
+task-scoped dependency binding closes new work after View drift. A legacy
 materialized ledger exposes million-fact cost, motivating V4: immutable
 publication-time ordinals, streamed compressed bitmaps, and sparse dynamic
 dictionaries. Independent-oracle, rewrite, concurrency, PostgreSQL, and
@@ -240,7 +243,9 @@ release facts, positive-output dependencies, and normalized query outcomes in
 a restricted relational algebra.
 \item A same-snapshot streamed ordinal companion for one-product plans and
 connected inner-equijoin graphs over two to 16 distinct Catalog roles, plus
-two-branch union-distinct, including grouping and four aggregates.
+two-branch union-distinct, including grouping and four aggregates; a bounded
+nested-View compiler eliminates transparent View layers into this existing
+core rather than introducing an unaccounted SQL path.
 \item A representation-independent exact settlement rule, physically refined
 by immutable snapshot dictionaries, segmented compressed bitmaps, and sparse
 dynamic dictionaries: atomically charge $E_q\setminus\accounted_T$, withhold on
@@ -262,7 +267,14 @@ parenthesization into any connected 2--16-role equi-join graph, with multiple
 equalities per edge; 16 is an operational, not topological, guard.
 Disconnected, self, outer, cross, and non-equality joins reject. Union-distinct
 remains two-branch/same-product, and nested set trees and multi-input pagination
-remain outside the grammar. A newly approved root creates a
+remain outside the grammar. Nested ordinary Views may have any acyclic layering
+within explicit depth/size guards, but are admitted only if recursive expansion
+erases that layering into one such SPJG plan with at most one aggregate
+barrier; this is not general PostgreSQL View equivalence. At query time one
+semantic-View root may be composed with projection/filter/grouping over an
+ungrouped closure, or with pure projection over an aggregate barrier; joining
+that root to another product and ordering/paging above it are not admitted.
+A newly approved root creates a
 distinct ledger. Outcome accounting bounds the number of distinct successful
 propositions admitted by this grammar; it is not an information-theoretic
 bound on the bits revealed by one proposition. These boundaries are part of
@@ -606,6 +618,16 @@ grouping requires typed group keys and aggregates; and pagination requires a
 proven total order. Undefined premises reject the plan. The complete inference
 rules are provided in the supplementary material.
 
+The nested-View front end is only a source language for this core: direct
+projection/rename, INNER equality joins, AND-combined literal filters, optional
+grouping, and the four aggregates. Expansion admits one aggregate barrier;
+above it only pure projection/rename is legal. DISTINCT/set/CTE/subquery/window
+forms, volatile dependencies, and repeated expanded stable roles reject. The
+closure may have any acyclic layering up to depth 16 and any connected topology
+up to 16 expanded sources, with multiple equalities per edge. The complete
+grammar and resource guards are supplemental; no general PostgreSQL
+View-equivalence result is claimed.
+
 Here $\mathbb B_3=\{\mathsf T,\mathsf F,\mathsf U\}$ is PostgreSQL
 three-valued logic.  Equality with either operand NULL is $\mathsf U$;
 $\mathsf F\wedge x=\mathsf F$, $\mathsf T\wedge x=x$, and
@@ -874,11 +896,12 @@ Formal semantics and the independent oracle cover scan/select/project, group
 with four aggregates, inner equijoin, union-distinct, and page. Online lowering
 admits one product, a connected 2--16-source equi-join graph, or two-branch
 union-distinct, optionally grouped. The SQL-AST path covers the first two;
-union is structured-plan only and pagination is one-product only. Paired
+the semantic-View path first eliminates a bounded nested DAG into the same
+first-two forms. Union is structured-plan only and pagination is one-product only. Paired
 PostgreSQL tests derive effects for hidden keys, join fanout, union members,
 aggregates, and page withholding; ``online'' does not mean arbitrary SQL.
 
-\subsection{Snapshot Publication and Canonical Join Lowering}
+\subsection{Canonical Join and Semantic-View Lowering}
 
 For joins, the PostgreSQL AST and Catalog types feed the canonical $G_J$
 builder, which emits existing \code{JoinMany} and the deterministic binary
@@ -890,6 +913,45 @@ union-all, nested set trees, and multi-input pagination. Union-distinct retains
 two filtered branches of one product and an explicit complete deduplication
 schema. Callers cannot choose semantic roles or supply SQL fragments, FactIDs,
 or provenance; aliases are syntactic and roles are Catalog identities.
+
+For a semantic-View product, one catalog snapshot combines exact
+\code{pg\_get\_viewdef} bytes, ordered type/collation interfaces, and
+\code{pg\_rewrite}/\code{pg\_depend} edges; parsed references must agree.
+DFS recursively expands ordinary Views, rejects cycles/unsafe dependencies,
+and stops only at Catalog-mapped populated materialized Views. The pure
+compiler resolves aliases to stable roles and emits the existing $G_J$,
+\code{JoinMany}, filters, projection, and optional group. Guards are 16
+expanded sources/depth, 64 nodes, 128 dependency edges/predicates, and 1~MiB
+of definitions; details are supplemental.
+
+The Catalog contract separates four digests: exact root definition,
+transitive dependency closure, alias-free canonical plan, and ordered public
+interface. A domain-separated task digest binds the sorted product contracts
+in the approval Manifest/Grant and query record. Request, approval callback,
+and each new query recompile it; the connector makes the final registry check
+immediately before visible/evidence SQL in their same read-only
+\code{REPEATABLE READ} transaction. Mismatch irreversibly records
+\code{REQUIRE\_REBIND} and rejects new execution/delegation. Exact terminal
+replay/history remains available; rebind creates a new root and approval rather
+than mutating the old Grant.
+
+For execution, the validated artifact is not merely drift evidence. The
+composer replaces public root outputs by their bound stable FieldIDs and feeds
+the expanded Scan/\code{JoinMany} plan through the existing
+\code{CompileRelational} exposure path. An aggregate artifact is a hard barrier:
+only projection/reordering of already computed outputs is accepted above it.
+The current composer admits one outer semantic root and rejects a query-time
+join to another Product and \code{ORDER BY}/\code{LIMIT}/\code{OFFSET} above
+the root. The signed public Grant continues to name only that root. For each
+query the Gateway deterministically derives least-privilege internal grants for
+the artifact's terminal Products; root scopes are translated through
+\code{Artifact.Output.FieldID}, and every terminal mandatory scope must be
+covered or execution rejects before reservation. These internal grants are
+neither persisted nor exposed as approved Products. Consequently V4 compiles
+the relational plan against each terminal's actual publication ordinals and
+sidecar rather than assigning a fictitious publication to the semantic root.
+
+\subsection{Snapshot Publication and Ordinal Compilation}
 
 V4 first compiles each frozen Reporting Snapshot as an immutable publication.
 The compiler calls the existing canonical FactID encoder, creates a separate
@@ -1023,7 +1085,10 @@ three effect digests, actual and charged counts, committed root epoch, result
 digest, and SHA-256 of the normalized observation, in addition to authorization,
 datasource, resource budget, and audit evidence. The dictionary set commits the
 publication manifests. The receipt does not expose raw values or FactIDs.
-Legacy receipt verifiers remain available, but V6 uses a disjoint digest domain.
+For a View-bound task, the signed Grant transitively commits the task View
+binding digest and the query record stores the same digest; exact replay cannot
+cross that identity. Legacy receipt verifiers remain available, but V6 uses a
+disjoint digest domain.
 
 Failures before connector invocation release both reservations. Ambiguous
 connector outcomes conservatively charge the ordinary resource reservation but
@@ -1048,6 +1113,10 @@ A child authorization signs both \code{root_task_id} and
 profile remain fixed, while products, columns, scopes, sensitivity, expiry, and
 all budget dimensions may only narrow. Every execution revalidates the signed
 parent grant and active ancestor chain.
+
+View-bound descendants inherit the parent's complete original contract set;
+their approved subset cannot add or replace a contract, so narrowing is not an
+implicit semantic rebind.
 
 All descendants resolve to one root ledger. If a parent and child request the
 same fact, only the first successful settlement accounts it. Revoking the root
@@ -1113,9 +1182,12 @@ nor differential-privacy composition is claimed here.
 The prototype is implemented in Go with separate Control and Business
 PostgreSQL 16 databases. A V4 Catalog declares reporting views, mandatory
 scopes, immutable snapshot publications, entity keys, allowed operations,
-approval routes, and resource/exposure profiles. Each Product references a
-publication that binds its source, namespace, schema, snapshot, ordinal
-sidecar, dictionaries, and manifest digest. Startup verifies the entire hot
+approval routes, and resource/exposure profiles. An opaque terminal Product
+references a publication that binds its source, namespace, schema, snapshot,
+ordinal sidecar, dictionaries, and manifest digest. A semantic-View Product
+instead carries the four-digest contract above; its
+recursive closure must terminate only at Catalog-mapped, populated materialized
+View Products with those publication identities. Startup verifies the entire hot
 artifact before activation; per-query attestation rebinds datasource identity,
 database, role, PostgreSQL version, ordered view schema, and publication.
 One service instance is Catalog-bound and rejects a task/Catalog mismatch.
@@ -1124,8 +1196,8 @@ to retained $P_e$ instances while a $P_{e+1}$ instance accepts new
 approvals; rollover never changes an active task in place.
 
 Clients use MCP tools to list products, request a task, execute one structured
-plan, inspect both budgets, delegate a narrower task, and retrieve results or
-receipts. An external approval adapter
+plan, inspect both budgets, delegate a narrower task, rebind a stale semantic
+View task into a new approval draft, and retrieve results or receipts. An external approval adapter
 signs the immutable grant. Arbitrary direct SQL remains available only for
 legacy resource-only grants; it fails closed when exposure evidence is
 required.
@@ -1136,7 +1208,9 @@ influence.
 The Control schema stores immutable dictionary manifests and chunks, sparse
 dynamic release/outcome dictionaries, content-addressed bitmap containers and
 set manifests, one three-dimensional head/epoch per root, committed
-observations, and constant-size query references. Canonical payload blocks are
+observations, and constant-size query references. It also stores
+content-addressed canonical View-binding sets, a task-to-dependency reverse
+index, and the monotonic \code{ACTIVE}/\code{REQUIRE\_REBIND} status. Canonical payload blocks are
 cold and expanded only for audit; they do not occupy the Gateway's resident hot
 heap. Result rows are encrypted with AES-GCM and audit events form a hash chain.
 A single high-cardinality semaphore isolates million-fact derivation from the
@@ -1184,6 +1258,9 @@ assumes exact fact derivation, abstracts SQL bytes and cryptographic hashes, and
 does not mechanically prove that Go/PostgreSQL refines TLA+. The repository
 therefore includes an action-to-method-to-transaction-to-test refinement map
 rather than claiming a proof that does not exist.
+
+View compilation/rebinding is not modeled in TLA+; the ledger results start
+after a View has produced a well-typed core plan and do not prove expansion.
 
 The finite \code{ExposureBitmapRefinement.tla} model separately represents an
 immutable ordinal--FactID bijection, exact OR/ANDNOT/popcount, stale-epoch
@@ -1244,6 +1321,17 @@ raw test logs retain the complete case-level evidence.
 
 The PostgreSQL Join/Join--Group experiments use representative two-source
 graphs, not a capability ceiling; source-count/topology performance is unmeasured.
+
+Outside these RQ counts, five fixed-seed \code{testing/quick} properties each
+run 64 generated cases over connected two--five-source graphs, with at least
+one multi-predicate edge and one--three transparent wrappers where applicable.
+They separately check deterministic recompilation/registry insertion order,
+alias invariance, join-order invariance, direct-versus-nested equivalence, and
+semantic/interface/dependency drift. Boundary tests cover one aggregate
+barrier, cycles, and resource guards. PostgreSQL regressions cover a
+three-level DAG, materialized leaves, transitive replacement, unsafe recursion,
+and same-transaction attestation. This is restricted compiler/integration
+evidence, not a proof or performance campaign.
 
 \subsection{RQ4: Legacy Diagnosis and V4 Contrast}
 
@@ -1376,14 +1464,33 @@ Minute- or second-level freshness would require an incremental-publication
 design and a separate cross-epoch accounting argument.
 Online support is one product, a connected inner-equijoin graph over two to 16
 distinct Catalog roles, or a two-branch one-product union-distinct, optionally
-grouped. Graph topology/parenthesization and multiple equalities per edge are
-supported within the operational 16-source guard. Disconnected, self, outer,
-cross, and non-equality joins, union-all, nested set trees, multi-input
-pagination, windows, negation, recursion, and arbitrary subqueries fail closed. Stable
+grouped. A semantic-View root may recursively traverse an acyclic ordinary-View
+DAG, but only when the closure flattens to the one-product/SPJG part of that
+same core with one aggregate barrier; the prototype guards depth at 16,
+reachable nodes at 64, dependency edges at 128, expanded sources at 16, and
+definition bytes at 1~MiB. Graph topology/parenthesization and multiple
+equalities per edge are supported within the operational source guard.
+The expanded artifact enters the same relational exposure and terminal-ordinal
+path, but the current query-time composer admits only one outer semantic root:
+it rejects joining the root to another Product and ordering/paging above it;
+above an aggregate barrier it admits pure projection only.
+Disconnected, repeated-role/self, outer, cross, and non-equality joins,
+aggregate-consuming joins/filters/reaggregation, union-all, nested set trees,
+multi-input pagination, windows, negation, recursion, and arbitrary subqueries
+fail closed. Materialized Views are opaque governed leaves, not recursively
+expanded definitions. Stable
 entity keys and snapshot publications are administrator declarations backed by compiler checks;
 production still requires a trustworthy versioned publication pipeline and
 collision review. The online gates exclude offline index build, arbitrary SQL,
 mutable sources, and queueing delay.
+
+\textbf{View-change scope.} The reverse dependency index makes affected tasks
+addressable, but the prototype's safety path rechecks at request, approval, and
+execution boundaries; it does not claim a continuously running DDL event
+listener. Exact dependency revision changes are conservatively rebind-worthy
+even if $h_{plan}$ remains equal. The current tests establish canonicalization
+and fail-closed drift behavior for the restricted grammar, not general SQL
+semantic preservation or View-DAG discovery/performance at enterprise scale.
 
 \textbf{Cost and deployment.} The measured legacy per-Fact path is expensive:
 the million-fact result is
@@ -1403,8 +1510,10 @@ distributed, production, multi-engine, or live-agent behavior.
 \system conserves typed release, dependency, and outcome exposure within one
 approved root family and immutable Reporting Snapshot. Approval-time
 publication binding stabilizes FactIDs, replay, delegation, and exact
-withhold-before-settlement accounting; a later daily publication is reserved
-for new roots. V4 replaces the legacy million-object hot path with immutable
+withhold-before-settlement accounting; dependency-aware semantic-View binding
+additionally freezes each accepted nested View closure and requires a new root
+and approval after drift. A later daily publication is reserved for new roots.
+V4 replaces the legacy million-object hot path with immutable
 ordinals, streamed bitmaps, sparse dynamic facts, and one three-dimensional
 CAS. The formal models and scoped campaigns support exactness, atomicity, and
 compact representation on one fixed host; RQ5 additionally supports daily

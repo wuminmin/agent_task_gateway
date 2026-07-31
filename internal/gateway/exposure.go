@@ -28,11 +28,17 @@ type planExposureContext struct {
 	grouped           bool
 	expandedEvidence  bool
 	meteringByProduct map[string][]string
-	relational        *relationalExposureContext
-	normalForm        *queryplan.NormalForm
-	algebraNormalForm *queryplan.AlgebraNormalFormV2
-	planDigest        string
-	ordinal           *boundOrdinalExecution
+	// internalPolicyProducts is the least-privilege terminal-product closure
+	// for one gateway-compiled semantic View. It is derived from the signed
+	// View artifact and task scope, and is never copied into the public Grant.
+	internalPolicyProducts map[string]sqlpolicy.ProductGrant
+	viewBindingDigest      string
+	viewRegistryRevision   string
+	relational             *relationalExposureContext
+	normalForm             *queryplan.NormalForm
+	algebraNormalForm      *queryplan.AlgebraNormalFormV2
+	planDigest             string
+	ordinal                *boundOrdinalExecution
 }
 
 func buildPlanExposureContext(plan queryplan.QueryPlan, product catalog.Product, approvedColumns map[string]struct{}, allowedAggregates map[string]struct{}) (*planExposureContext, error) {
@@ -187,7 +193,44 @@ func (context *planExposureContext) configureV2(approvedColumns map[string]struc
 }
 
 func (context *planExposureContext) extendGrant(grant sqlpolicy.Grant) (sqlpolicy.Grant, error) {
-	result := sqlpolicy.Grant{Products: append([]sqlpolicy.ProductGrant(nil), grant.Products...)}
+	result := clonePolicyGrant(grant)
+	if len(context.internalPolicyProducts) != 0 {
+		names := make([]string, 0, len(context.internalPolicyProducts))
+		for name := range context.internalPolicyProducts {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			internal := clonePolicyProductGrant(context.internalPolicyProducts[name])
+			found := false
+			for index := range result.Products {
+				if result.Products[index].LogicalName != name {
+					continue
+				}
+				found = true
+				if result.Products[index].PhysicalSchema != internal.PhysicalSchema ||
+					result.Products[index].PhysicalView != internal.PhysicalView {
+					return sqlpolicy.Grant{}, fmt.Errorf("semantic View terminal product %q conflicts with the task grant", name)
+				}
+				columns := stringSetFromSlice(result.Products[index].ApprovedColumns)
+				for _, column := range internal.ApprovedColumns {
+					columns[column] = struct{}{}
+				}
+				result.Products[index].ApprovedColumns = sortedStringSet(columns)
+				for _, predicate := range internal.MandatoryScope {
+					if !containsScopePredicate(result.Products[index].MandatoryScope, predicate) {
+						cloned := predicate
+						cloned.Values = append([]string(nil), predicate.Values...)
+						result.Products[index].MandatoryScope = append(result.Products[index].MandatoryScope, cloned)
+					}
+				}
+				break
+			}
+			if !found {
+				result.Products = append(result.Products, internal)
+			}
+		}
+	}
 	if context.relational != nil {
 		found := make(map[string]bool, len(context.meteringByProduct))
 		for index := range result.Products {
@@ -225,6 +268,47 @@ func (context *planExposureContext) extendGrant(grant sqlpolicy.Grant) (sqlpolic
 		return sqlpolicy.Grant{}, fmt.Errorf("exposure product is absent from the task grant")
 	}
 	return result, nil
+}
+
+func containsScopePredicate(predicates []sqlpolicy.ScopePredicate, target sqlpolicy.ScopePredicate) bool {
+	for _, predicate := range predicates {
+		if predicate.Column != target.Column || predicate.Operator != target.Operator || len(predicate.Values) != len(target.Values) {
+			continue
+		}
+		equal := true
+		for index := range predicate.Values {
+			if predicate.Values[index] != target.Values[index] {
+				equal = false
+				break
+			}
+		}
+		if equal {
+			return true
+		}
+	}
+	return false
+}
+
+func clonePolicyGrant(input sqlpolicy.Grant) sqlpolicy.Grant {
+	result := sqlpolicy.Grant{Products: make([]sqlpolicy.ProductGrant, len(input.Products))}
+	for index, product := range input.Products {
+		result.Products[index] = clonePolicyProductGrant(product)
+	}
+	return result
+}
+
+func clonePolicyProductGrant(input sqlpolicy.ProductGrant) sqlpolicy.ProductGrant {
+	result := input
+	result.ApprovedColumns = append([]string(nil), input.ApprovedColumns...)
+	result.AllowedFunctions = append([]string(nil), input.AllowedFunctions...)
+	result.AllowedAggregates = append([]string(nil), input.AllowedAggregates...)
+	result.AllowedOperators = append([]string(nil), input.AllowedOperators...)
+	result.MandatoryScope = make([]sqlpolicy.ScopePredicate, len(input.MandatoryScope))
+	for index, predicate := range input.MandatoryScope {
+		result.MandatoryScope[index] = predicate
+		result.MandatoryScope[index].Values = append([]string(nil), predicate.Values...)
+	}
+	return result
 }
 
 func (context *planExposureContext) deriveObservation(visible, provenance dataconnector.Result, profile string) (exposure.Observation, error) {
@@ -630,7 +714,16 @@ func (context *planExposureContext) visibleResult(result dataconnector.Result) (
 		}
 	}
 	if len(result.Columns) == len(context.visibleFields) {
-		return result, nil
+		ordered := true
+		for index, field := range context.visibleFields {
+			if result.Columns[index].Name != field {
+				ordered = false
+				break
+			}
+		}
+		if ordered {
+			return result, nil
+		}
 	}
 	positions, err := columnPositions(result.Columns)
 	if err != nil {

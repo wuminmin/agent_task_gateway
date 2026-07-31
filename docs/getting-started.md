@@ -174,6 +174,15 @@ Exposure-enabled `query_sql` 使用 PostgreSQL AST 解析 `taskgate-reporting-sq
 
 lowering 成功后，Gateway 丢弃原始 SQL 作为执行来源，只执行 QueryPlan 重新生成的 visible SQL 和 ordinal provenance companion，两者还会再经完整 SQL policy。高级 `execute_plan` 也共用这一编译/记账边界，并且仍可表示同产品双分支 `union_distinct`；该 set operation 不属于 SQL profile。Gateway 不调用外部模型。
 
+对声明 `view_contract` 的 semantic root，Gateway 还会把 public outputs 按已绑定
+`Artifact.Output.FieldID` 合成到递归展开的 Scan/`join_many` 计划，再进入
+同一 `CompileRelational`/V4 ordinal 路径。对外 Grant 仍只含 root；每次查询派生
+最小 terminal internal grants，并把 root Scope 映射到每个 terminal mandatory
+scope。当前 semantic root 必须是外层唯一 Product，不接受它与其他
+query-time Product 的 Join，也不接受 root 上的 `ORDER BY`/`LIMIT`/`OFFSET`；
+这不限制 View closure 内部在 16-source/16-depth ceilings 下的任意 connected
+INNER equi-join 或每 edge 多 equality predicates。已聚合 closure 之上只允许纯投影。
+
 默认 Catalog 定义 `taskgate-exposure-v4` budget profiles，且所有 approval
 route 都是人工审批。正常批准把完整 Catalog Profile 交给 Agent，不做最小预算选择。Gateway 会在一个只读
 `REPEATABLE READ` 事务中缓冲可见查询并流式读取 ordinal companion，再以 exact bitmap 对共享 root head 结算。响应中的 `exposure` 给出本次

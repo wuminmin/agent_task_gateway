@@ -6,7 +6,7 @@
 
 - `legacy.*` 业务数据及 Reporting View 返回的明细和汇总结果。
 - Alice/Carol MCP Token、OA 服务 Token、回调/会话密钥和两个 PostgreSQL 的密码。
-- TaskGrant、审批凭证、资源预算、根任务三维 exposure head、immutable FactID/ordinal dictionary、bitmap containers、查询凭证与审计 Hash Chain。
+- TaskGrant、审批凭证、task-scoped View binding/dependency/status、资源预算、根任务三维 exposure head、immutable FactID/ordinal dictionary、bitmap containers、查询凭证与审计 Hash Chain。
 - AES-256-GCM 数据密钥、TaskGate 私有对象存储中的加密 Parquet 规范原件，以及 Control PostgreSQL 中的 artifact 元数据。
 
 Agent 提交的结构化申请、QueryPlan、SQL、浏览器请求、网络回调和业务数据都视为不可信。Catalog、Gateway 二进制、Docker 宿主机以及可读取 `.env`/Volume 的管理员属于可信运维域；该域失陷后，本 Demo 无法保证机密性或不可否认性。
@@ -27,9 +27,13 @@ Agent 提交的结构化申请、QueryPlan、SQL、浏览器请求、网络回�
 | 并发子任务同时花费最后额度 | 全家族共享一个三维 root head；epoch CAS 一次发布 R/I/O，冲突后重算；上限、结果和 receipt 同事务 | 单一 root head 仍是高并发热点；当前没有分布式 settlement 协议 |
 | 可见结果与 provenance 观察不同数据版本 | 两条策略 SQL 在一个只读 `REPEATABLE READ` 事务执行；Product 绑定 manifest-proven snapshot publication；证据缺失或截断时结果不释放 | 冻结/发布流程仍属于可信运维；错误源快照或构建前可变数据会破坏前提；系统不支持 mutable OLTP/CDC serving |
 | 活动任务在每日切换后误读新 publication | 签名 Grant 传递式绑定包含 Product→publication 与 artifact digests 的 Catalog SHA；查询再次校验 task/Grant/Service Catalog，root head 固定 dictionary set，错版本在连接器调用前关闭式拒绝 | 连续执行旧任务需要保留旧 Catalog/artifact/Gateway epoch 并按 task binding 路由；单个 Service 不支持安全 hot swap，路由器和 artifact 保留属于可信运维 |
+| Nested View 的 root 或任一 child 在审批后被替换 | Catalog 分开固定 exact definition、transitive dependency、typed canonical plan 和 ordered interface 四摘要；只发现本任务 roots；规范 binding digest 进入签名 Manifest/Grant、immutable Control rows 和 query record；反向 dependency rows 保留影响证据 | 漂移在申请、OA 激活或新查询时惰性发现，不是数据库 DDL event listener；Catalog/DBA 与 terminal publication 发布仍是可信运维；受支持范围仅是 bounded restricted fragment |
+| View 检查后、业务 SQL 前发生 `CREATE OR REPLACE VIEW` | reservation 前重算 binding；Connector 在 visible/provenance SQL 的同一个只读 `REPEATABLE READ` 事务中再次发现 closure 并核预期 revision digest，检查和执行观察同一 PostgreSQL snapshot | PostgreSQL/connector 缺陷或 DBA 绕过事务快照仍超出应用保证；semantic replay hit 不执行业务 SQL，只依赖其执行前的 task binding 校验和 immutable committed evidence |
+| Semantic root 藉展开绕过 public Grant 或 Scope | 展开后 public fields 只能经已绑定 `Artifact.Output.FieldID` 进入 `CompileRelational`；签名 Grant 仍只包含 root；Gateway 每查询派生最小 terminal internal grants，并要求 root scope 映射覆盖每个 terminal mandatory scope；V4 只绑定 terminal publication ordinal/sidecar | Catalog 对 root output、terminal scope 或 publication 的错误声明仍属可信发布风险；当前不支持 query-time semantic-root-plus-product Join 或 root 上 order/page，已聚合 root 之上只纯投影 |
+| 无关 View 变化造成全局拒绝服务 | Semantic roots 排除在 legacy source-level `schema_digest` 外，task binding 只含获批 products 的 reachable closure；无关 root replacement 不改变该 task binding 或 readiness | 没有 `view_contract` 的 legacy/terminal products 仍共享 source-level attestation；该兼容路径上的漂移会按设计关闭该 source 的 readiness |
 | 通过直接 SQL 绕开 exposure compiler | 启用 exposure 的 `query_sql` 必须按 `taskgate-reporting-sql-v1` 无损 lowering 为 canonical QueryPlan；Gateway 丢弃原始 SQL 作为执行来源，只执行重新生成并再次过策略的 visible SQL 与 provenance companion；不能 lowering 时在执行和结算前结构化拒绝 | 在线 SQL profile 仅支持声明的单产品片段和 2–16 源内任意形状的 connected INNER equi-join graph；每条 edge 只含一个或多个 column-to-column equality，self/outer/cross/non-equality 和断开 graph 仍拒绝。16-source 上限是 operational complexity/DoS ceiling，1 MiB 请求体、AST/资源通用边界仍适用；不支持 AVG、窗口、Union SQL 或任意 SQL provenance，lowering 入口仍需持续 fuzz |
 | SQL 注入、注释绕过或写操作 | PostgreSQL AST 单语句白名单、逻辑产品/字段/函数/运算符限制、Scope CTE、外层行限制 | Parser/策略缺陷和依赖漏洞仍可能存在 |
-| 策略失误后修改业务库 | 非 owner、非 superuser、无 `BYPASSRLS` 的独立 `gateway_reader`；角色/连接/事务只读；仅 Datasource Attestation 表与 Reporting View `SELECT`；Schema Attestation | DBA 误授权、View 内容语义错误或数据库漏洞可绕过应用意图 |
+| 策略失误后修改业务库 | 非 owner、非 superuser、无 `BYPASSRLS` 的独立 `gateway_reader`；角色/连接/事务只读；仅 Datasource Attestation、Reporting Views 和 ordinal sidecar `SELECT`；legacy Schema Attestation 与 semantic View binding | DBA 误授权、Catalog/contract 本身批准了错误语义或数据库漏洞仍可绕过应用意图；摘要只能证明版本一致，不能证明业务语义正确 |
 | OA 回调伪造、重放或乱序 | HMAC-SHA256 认证原始 Body；Event ID/状态/context/actor 校验；独立 OA Ed25519 回执绑定 Manifest 与最终 Grant；Gateway 可配置多把 OA 验签公钥及有效/退役窗口；事务幂等 | Demo OA Outbox 不持久；KMS、密钥分发和吊销发布仍需外部运维 |
 | 并发/重试查询超资源预算 | 控制 PG 对任务和资源预算加行锁；`(task_id, request_id)` 唯一；预留与结算在事务中；同一任务一个在途查询 | 单 Gateway 没有跨实例执行租约，不能安全横向扩容 |
 | Gateway 崩溃遗留预算/回调/artifact | 启动恢复将 RESERVED 查询按资源预留保守计费并标记 `INDETERMINATE`，释放未结算 exposure reservation，写入查询回执，并禁止同 request ID 重执行；结算已提交的 `PENDING` artifact 只在 staging/committed 证据一致时由确定性 key 幂等 promotion，启动和后台 sweep 继续恢复 | 资源计费可能高于实际消耗；staging 丢失或 canonical 证据冲突时 readiness fail closed，必须恢复正确对象证据或执行受审修复；当前没有自动放弃/退款；staging 和控制元数据必须共同纳入恢复、对账和告警 |
@@ -60,10 +64,11 @@ dictionary 才保存可恢复 canonical payload。二者及 bitmap 仍是敏感�
 
 ## 需要运营配合的边界
 
-- Catalog 管理员必须保证字段的业务语义正确、`entity_key` 在 snapshot 内稳定唯一、数据更新时提升 snapshot，且 View 不包含未发布敏感列；自动 Attestation 只校验列顺序与 PostgreSQL 类型，不能证明这些语义。
+- Catalog 管理员必须保证字段的业务语义正确、`entity_key` 在 snapshot 内稳定唯一、数据更新时提升 snapshot，且 View 不包含未发布敏感列；legacy Attestation 和 semantic View 四摘要只能证明被检查的结构/定义/计划/interface 与已发布 contract 一致，不能证明这些语义本身正确。
+- Semantic View 发布必须让普通 View closure 落入 restricted fragment，并把已治理 materialized View 作为 terminal；root 或 child 变更后应发布新 Catalog 并创建新 task/OA approval。不要尝试把旧 task 的 `REQUIRE_REBIND` 改回 `ACTIVE`。
 - `.env` 应保持 Git 忽略并收紧文件权限；数据密钥、Control 元数据和对象存储备份必须按同一 artifact 恢复点安全管理。
 - 每日 Catalog/publication 切换若要保留 ACTIVE 任务，必须保留旧 Catalog、只读 snapshot、artifact 和一个旧 epoch Gateway，并按 task 的 Catalog binding 严格路由；若部署做不到，应排空或重新申请任务，因为错版本会关闭式拒绝而不会自动切换。
-- 应监控回调重试、启动/后台 `PENDING` 恢复、孤儿 staging 对账、数据库和对象存储 Timeout、预算耗尽、结算重试、readiness 和审计链验证。
+- 应监控回调重试、`VIEW_SEMANTIC_CHANGED`/`REQUIRE_REBIND`、启动/后台 `PENDING` 恢复、孤儿 staging 对账、数据库和对象存储 Timeout、预算耗尽、结算重试、readiness 和审计链验证。当前反向 dependency index 是持久证据与定位辅助，不替代外部 DDL 监控。
 - 两个 PG Volume 与结果对象存储必须分别备份并联合恢复演练，避免误把系统控制数据、业务数据和 artifact bytes 混作同一生命周期。
 
 ## 生产化差距
@@ -88,7 +93,7 @@ dictionary 才保存可恢复 canonical payload。二者及 bitmap 仍是敏感�
 1. 将签名 Audit Head Anchor 接入企业级 WORM/透明日志、可信时间戳和告警流程，并监控 Anchor 失败。
 2. 启动及周期性验证 Hash Chain，失败时停止敏感查询并告警。
 3. 将 Catalog、Reporting View、角色 Grant 和数据库迁移作为同一个受审发布单元，并做 Schema/类型校验。
-4. 对 SQL-to-QueryPlan lowering、QueryPlan 编译器、SQL Parser、Scope 注入和渲染器持续做 Fuzz、属性测试及 PostgreSQL 版本兼容测试。
+4. 对 SQL-to-QueryPlan lowering、QueryPlan 编译器、Nested View discovery/compiler、SQL Parser、Scope 注入和渲染器持续做 Fuzz、属性测试及 PostgreSQL 版本兼容测试；已有五类固定 seed、各 64-case `testing/quick` properties 覆盖 determinism、alias invariance、join-order invariance、nested/direct equivalence 和 semantic/interface/dependency drift，并另覆盖 cycle/limit/aggregate barrier 和并发 View replacement。属性测试是 bounded grammar 的实现证据，不应表述为任意 SQL 语义保持的形式化证明。
 5. 增加管理员撤销/暂停、紧急 Kill Query、主体/产品级全局预算和速率限制。
 6. 将已实现的 snapshot compiler/artifact 校验接入企业计划 ETL/同步、版本化 Reporting Snapshot 流水线和双人发布门禁，为仍有活动任务的旧 dictionary/bitmap/artifact 建立保留、压缩和受审删除策略；实时 CDC serving 不在当前范围内。
 7. 持续对 2–16 源 JoinGraph 的 chain/star/cycle、10 表链、多 predicate edge、alias 改名、node/edge/predicate 置换和 deterministic binary fold 做属性测试与 Fuzz；self/outer/cross/non-equality Join、断开 graph、SQL Union、窗口和多引擎 provenance 未进入已声明 profile，继续关闭式拒绝。

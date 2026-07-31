@@ -49,6 +49,7 @@ func (s *Store) ReserveBudget(ctx context.Context, request ReserveRequest) (Budg
 	if request.QueryID == "" || request.TaskID == "" || request.RequestID == "" || request.Actor == "" ||
 		request.RequestDigest == "" || request.SQLFingerprint == "" || request.DatasourceID == "" ||
 		!validSHA256Hex(request.CatalogDigest) || !validSHA256Hex(request.SchemaDigest) ||
+		(request.ViewBindingDigest != "" && !validSHA256Hex(request.ViewBindingDigest)) ||
 		!validSHA256Hex(request.ManifestDigest) || !validSHA256Hex(request.GrantDigest) ||
 		request.PolicyDecision == "" {
 		return BudgetReservation{}, opErr(op, ErrInvalid, fmt.Errorf("query, task, request, policy, and datasource evidence are required"))
@@ -80,7 +81,8 @@ func (s *Store) ReserveBudget(ctx context.Context, request ReserveRequest) (Budg
 	// and remains observable after revocation, expiry, or budget exhaustion.
 	existing, err := scanQuery(tx.QueryRowContext(ctx, querySelect+` WHERE task_id=$1 AND request_id=$2 FOR UPDATE`, request.TaskID, request.RequestID))
 	if err == nil {
-		if existing.RequestDigest != request.RequestDigest || existing.Actor != request.Actor {
+		if existing.RequestDigest != request.RequestDigest || existing.Actor != request.Actor ||
+			existing.ViewBindingDigest != request.ViewBindingDigest {
 			return BudgetReservation{}, opErr(op, ErrIdempotencyConflict, fmt.Errorf("request id is bound to another digest"))
 		}
 		return BudgetReservation{
@@ -112,6 +114,27 @@ func (s *Store) ReserveBudget(ctx context.Context, request ReserveRequest) (Budg
 	}
 	if request.CatalogVersion == "" {
 		request.CatalogVersion = catalogVersion
+	}
+	var boundViewDigest, viewStatus, statusBoundDigest string
+	err = tx.QueryRowContext(ctx, `
+SELECT task_grant.view_binding_digest, COALESCE(binding.status, ''), COALESCE(binding.bound_digest, '')
+FROM task_grants AS task_grant
+LEFT JOIN task_view_binding_status AS binding ON binding.task_id=task_grant.task_id
+WHERE task_grant.task_id=$1
+FOR SHARE OF task_grant`, request.TaskID).Scan(&boundViewDigest, &viewStatus, &statusBoundDigest)
+	if err != nil {
+		if isNoRows(err) {
+			return BudgetReservation{}, opErr(op, ErrNotFound, fmt.Errorf("grant view binding: %w", err))
+		}
+		return BudgetReservation{}, opErr(op, ErrConflict, err)
+	}
+	if boundViewDigest == "" {
+		if request.ViewBindingDigest != "" || viewStatus != "" || statusBoundDigest != "" {
+			return BudgetReservation{}, opErr(op, ErrViewSemanticChanged, fmt.Errorf("legacy grant has inconsistent view binding evidence"))
+		}
+	} else if request.ViewBindingDigest != boundViewDigest || statusBoundDigest != boundViewDigest ||
+		viewStatus != TaskViewBindingActive {
+		return BudgetReservation{}, opErr(op, ErrViewSemanticChanged, fmt.Errorf("task view binding requires rebind"))
 	}
 
 	before, err := scanBudget(tx.QueryRowContext(ctx, budgetSelect+` WHERE task_id=$1 FOR UPDATE`, request.TaskID))
@@ -161,12 +184,12 @@ WHERE task_id=$4 AND reserved_queries=0`, allowedRows, allowedDBMS, dbTime(now),
 	}
 	_, err = tx.ExecContext(ctx, `
 	INSERT INTO query_records(id, task_id, request_id, actor, request_digest, sql_fingerprint, catalog_version,
-	 catalog_digest, datasource_id, schema_digest, manifest_digest, grant_digest, policy_decision, status, reserved_rows, reserved_db_ms,
+	 catalog_digest, datasource_id, schema_digest, view_binding_digest, manifest_digest, grant_digest, policy_decision, status, reserved_rows, reserved_db_ms,
 	 budget_before_json, created_at)
-	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'RESERVED', $14, $15, $16, $17)`,
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'RESERVED', $15, $16, $17, $18)`,
 		request.QueryID, request.TaskID, request.RequestID, request.Actor, request.RequestDigest,
 		request.SQLFingerprint, request.CatalogVersion, request.CatalogDigest, request.DatasourceID,
-		request.SchemaDigest, request.ManifestDigest, request.GrantDigest, request.PolicyDecision,
+		request.SchemaDigest, request.ViewBindingDigest, request.ManifestDigest, request.GrantDigest, request.PolicyDecision,
 		allowedRows, allowedDBMS, string(beforeJSON), dbTime(now))
 	if err != nil {
 		return BudgetReservation{}, opErr(op, ErrConflict, err)
@@ -184,8 +207,9 @@ WHERE task_id=$4 AND reserved_queries=0`, allowedRows, allowedDBMS, dbTime(now),
 		Payload: mustJSON(map[string]any{
 			"request_id": request.RequestID, "rows": allowedRows, "db_ms": allowedDBMS,
 			"catalog_digest": request.CatalogDigest, "datasource_id": request.DatasourceID,
-			"schema_digest": request.SchemaDigest, "manifest_digest": request.ManifestDigest,
-			"grant_digest": request.GrantDigest,
+			"schema_digest": request.SchemaDigest, "view_binding_digest": request.ViewBindingDigest,
+			"manifest_digest": request.ManifestDigest,
+			"grant_digest":    request.GrantDigest,
 		}), OccurredAt: now,
 	})
 	if err != nil {
@@ -416,7 +440,7 @@ WHERE id=$12 AND status='RESERVED'`, status, settlement.Rows, settlement.DBMS, o
 			"charged_queries": chargedQueries, "charged_rows": chargedRows, "charged_db_ms": chargedDBMS,
 			"result_sha256": resultHash, "error_code": settlement.ErrorCode,
 			"catalog_digest": record.CatalogDigest, "datasource_id": record.DatasourceID,
-			"schema_digest": record.SchemaDigest,
+			"schema_digest": record.SchemaDigest, "view_binding_digest": record.ViewBindingDigest,
 		}),
 	})
 	if err != nil {
@@ -505,7 +529,7 @@ func (s *Store) GetQueryByRequestID(ctx context.Context, taskID, requestID strin
 }
 
 const querySelect = `SELECT id, task_id, request_id, actor, request_digest, sql_fingerprint, catalog_version,
-catalog_digest, datasource_id, schema_digest, manifest_digest, grant_digest, policy_decision, status, reserved_rows, reserved_db_ms, result_rows, result_db_ms, result_db_ms_observed, charged_queries,
+catalog_digest, datasource_id, schema_digest, view_binding_digest, manifest_digest, grant_digest, policy_decision, status, reserved_rows, reserved_db_ms, result_rows, result_db_ms, result_db_ms_observed, charged_queries,
 charged_rows, charged_db_ms, budget_before_json, budget_after_json, result_sha256, error_code,
 created_at, completed_at FROM query_records`
 
@@ -517,7 +541,7 @@ func scanQuery(row rowScanner) (QueryRecord, error) {
 	var completed sql.NullTime
 	err := row.Scan(&record.ID, &record.TaskID, &record.RequestID, &record.Actor, &record.RequestDigest, &record.SQLFingerprint,
 		&record.CatalogVersion, &record.CatalogDigest, &record.DatasourceID, &record.SchemaDigest,
-		&record.ManifestDigest, &record.GrantDigest,
+		&record.ViewBindingDigest, &record.ManifestDigest, &record.GrantDigest,
 		&record.PolicyDecision, &record.Status, &record.ReservedRows, &record.ReservedDBMS,
 		&record.ResultRows, &record.ResultDBMS, &record.ResultObservedDBMS, &record.ChargedQueries, &record.ChargedRows, &record.ChargedDBMS,
 		&before, &after, &record.ResultSHA256, &record.ErrorCode, &created, &completed)

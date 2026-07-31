@@ -70,6 +70,30 @@ func TestAuthorizationManifestDigestStableAndTamperEvident(t *testing.T) {
 	}
 }
 
+func TestAuthorizationManifestDigestBindsOptionalViewBinding(t *testing.T) {
+	legacy := testManifest()
+	legacyDigest, err := ManifestDigest(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bound := testManifest()
+	bound.ViewBindingDigest = strings.Repeat("f", 64)
+	boundDigest, err := ManifestDigest(bound)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if boundDigest == legacyDigest {
+		t.Fatal("view binding digest did not partition manifest identity")
+	}
+	core, err := domain.CoreFromManifest(bound, boundDigest, time.Date(2026, 7, 22, 9, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if core.ViewBindingDigest != bound.ViewBindingDigest {
+		t.Fatalf("core view binding digest = %q, want %q", core.ViewBindingDigest, bound.ViewBindingDigest)
+	}
+}
+
 func TestCanonicalJSONUsesUTF16OrderingAndMinimalEscapes(t *testing.T) {
 	value := map[string]any{
 		"\ue000": "<>&\u2028", // BMP private use sorts after the surrogate pair.

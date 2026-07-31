@@ -123,6 +123,76 @@ projection/filter/order/limit/offset 和 `COUNT(*)/COUNT(column)/SUM/MIN/MAX`，
 
 SQL 语法、授权或 lowering 失败在业务数据库执行和正式 reservation 之前返回结构化、可修复的错误，不扣查询、DBMS、release、dependency 或 outcome 预算。原始 SQL 派生的摘要只用于审计和 `(task_id, request_id)` 幂等；FactID、OutcomeFact 和 semantic replay 始终使用 canonical QueryPlan/`plan_digest`，不使用原始 SQL 文本哈希。
 
+### Task-scoped Nested View DAG（Phase B）
+
+Product 可选声明 `taskgate-view-contract-v1`。这类 semantic root 不再被当作一个
+孤立 Reporting View：Gateway 只为本次任务请求的 roots 在 PostgreSQL
+`REPEATABLE READ` 快照中发现传递依赖。普通 View 递归展开；已治理、已填充的
+materialized view 是 opaque terminal publication，必须映射到现有 Catalog Product，
+不会继续追入其 seed tables。Raw/foreign/system relation、递归或循环依赖都关闭式拒绝。
+
+可接受的 View closure 必须能 flatten 为现有 canonical SPJG/`join_many` QueryPlan：
+direct projection/rename、column-to-literal 的 `AND` filter、任意形状的 connected
+INNER equi-join（每条 edge 可有多个 equality predicate）、`GROUP BY` 以及
+`COUNT/SUM/MIN/MAX`。一个 closure 最多有一道 aggregate barrier；barrier 之上的
+View 只能做单输入纯投影/重命名，不能再 filter、join 或 aggregate。Expanded base
+sources 最多 16 个，同时限制 View depth 16、reachable nodes 64、dependency edges
+128、closure definition bytes 1 MiB。这里的“Nested View”不是任意 SQL View 支持。
+在这些上限内，ordinary View 可有任意递归层数和 connected JoinGraph 形状，
+不是只支持固定两层或两表；每条 Join edge 的 equality conjunction 也不限为一个 predicate。
+
+查询 semantic root 时，Gateway 不会把它仍当作一个 opaque Product 计量。它将外层
+单-root QueryPlan 的 public output 通过 `Artifact.Output.FieldID` 替换为展开后的稳定字段，
+再把计划交给现有 `CompileRelational`/`join_many` exposure 路径。V4 因此从每个
+terminal publication 的 ordinal/sidecar 构造 provenance，而不是为 semantic root 伪造
+`snapshot_publication`。对外签名 Grant 仍只批准 root；Gateway 每次查询从已绑定
+Artifact 派生最小 terminal internal grants，用同一 FieldID 映射注入 root Scope，
+并要求覆盖每个 terminal 的 mandatory scope。这些内部产品/字段不写回、不扩大
+签名 Grant；任一 scope 无法唯一映射时在 reservation 前关闭式拒绝。
+
+当前查询时组合边界是：semantic root 必须是唯一外层数据产品，不能再与
+另一个 query-time Product Join，且其上方的 `ORDER BY`/`LIMIT`/`OFFSET` 暂不接受。
+这不限制 View closure 内部的最多 16 源 Join。若 closure 已跨过 aggregate barrier，
+外层还只能纯投影已计算的 public outputs；外层 filter、Join、group 或再聚合均拒绝。
+这些 semantic-root 专属覆盖项以及 rewrite/rebind 错误分类由
+`get_sql_capabilities.semantic_views`、`rewrite_error_codes` 和
+`rebind_error_codes` 明确返回，不应套用普通单 Product 的分页能力。旧客户端仍可读取
+`repairable_error_codes`，它只是 `rewrite_error_codes` 的兼容别名，不包含必须新建任务的
+semantic drift。
+
+Catalog 对每个 semantic root 固定四个独立摘要：exact root definition、transitive
+dependency closure、typed canonical plan 和 ordered output interface。申请任务时，
+Gateway 校验四者并把按产品规范排序的 task View binding digest 写入签名
+Manifest/Grant；OA 回调激活前再校验一次。每个新查询还会先比对当前 binding，随后
+Connector 在执行 visible/provenance SQL 的同一个只读 `REPEATABLE READ` 事务内
+重新发现相同 closure 并核 revision digest，封闭检查到执行之间的 View replacement
+窗口。Legacy source-level `schema_digest` 继续覆盖没有 `view_contract` 的 products，
+明确排除 semantic roots，因此无关 View 的替换不会使所有任务或 readiness 一起失效。
+
+漂移返回 `VIEW_SEMANTIC_CHANGED`，并把该任务的正交 binding 状态单向置为
+`REQUIRE_REBIND`；旧 Grant 不会原地改绑，也不再接受新 query。恢复访问必须基于
+更新后的 Catalog 创建新 task 并重新 OA 审批。旧 task 的 exact `request_id` 终态重放、
+已有 result metadata/artifact 和 receipt 仍按原保留策略可验证。Phase B 规范采用
+request/approval/delegation/execution 边界的惰性重算，不运行 DDL listener、也没有
+`STALE` 中间状态；持久 reverse dependency index 只提供受影响任务的定位与审计证据，
+首次发现不一致时直接执行不可逆的 `ACTIVE -> REQUIRE_REBIND`。五类独立、固定 seed 的
+`testing/quick` properties 各生成 64 个 2–5 表 connected graph case，覆盖重复编译确定性、
+alias invariance、join-order invariance、direct/nested equivalence 和 semantic/interface/dependency
+drift 摘要敏感性；生成图至少含一条 multi-predicate edge，nested case 含 1–3 层
+transparent wrappers。另有 cycle/limit/aggregate-barrier 负例及真实 PostgreSQL 传递漂移回归；这些是限定语法下的实现证据，不是对
+任意 SQL 的形式化语义证明或生产规模实验。
+
+四摘要由只读生成命令产生，命令不会原地修改 Catalog：
+
+```bash
+go run ./evaluation/cmd/view-contract \
+  -catalog ./config/catalog.candidate.yaml \
+  -dsn "$TASKGATE_VIEW_CONTRACT_DSN" \
+  -products customer_value
+```
+
+将输出审入新的 candidate Catalog 后再走发布与 OA rebind；运行期不要自动接受新摘要。
+
 SQL alias 只是输入语法；lowering 会把它映射到 Catalog 稳定角色。高级 `execute_plan` 的 Join 字段直接使用该稳定角色：
 
 ```json

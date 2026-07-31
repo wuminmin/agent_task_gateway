@@ -315,6 +315,9 @@ VALUES ($1, $2, $3, $4, $5, $6)`, callback.Event.EventID, callback.Event.TaskID,
 			grant.DatasourceID == "" || !validSHA256Hex(grant.SchemaDigest) || grant.ApprovalReceipt == "" {
 			return CallbackClaim{}, opErr(op, ErrInvalid, fmt.Errorf("invalid grant provenance"))
 		}
+		if err := validateGrantViewBinding(grant); err != nil {
+			return CallbackClaim{}, opErr(op, ErrInvalid, err)
+		}
 		products, err := json.Marshal(grant.ApprovedProducts)
 		if err != nil {
 			return CallbackClaim{}, opErr(op, ErrInvalid, err)
@@ -366,6 +369,7 @@ func approvalCallbackAuditPayload(callback ApprovalCallback, from TaskState) jso
 		payload["catalog_digest"] = callback.Grant.CatalogDigest
 		payload["datasource_id"] = callback.Grant.DatasourceID
 		payload["schema_digest"] = callback.Grant.SchemaDigest
+		payload["view_binding_digest"] = callback.Grant.ViewBindingDigest
 		payload["exposure"] = callback.Grant.Exposure
 	}
 	return mustJSON(payload)

@@ -6,16 +6,17 @@
 
 ```text
 Agent SQL
-  → 所有权、任务状态、签名 Grant、TTL、Catalog 摘要与 Schema Attestation
+  → 所有权、任务状态、签名 Grant、TTL、Catalog/Schema 与 task View binding
   → resource-only: pg_query_go/v6 安全 SQL policy
   → exposure: PostgreSQL AST 解析 → canonical QueryPlan
   → 重新生成 visible + ordinal companion SQL
   → 语句/对象/字段/函数/运算符/特性白名单
-  → 为每个逻辑产品生成 TaskGrant 约束 CTE
+  → 为每个执行产品生成 TaskGrant 约束 CTE（semantic root 为每查询派生的 terminal internal grants）
   → 外层 LIMIT = 剩余累计行预算
+  → exact request replay / task-scoped View binding precheck
   → Control PostgreSQL 以 (task_id, request_id) 幂等检查并预留资源与 exposure evidence
-  → 业务 PostgreSQL 显式只读事务 + statement_timeout
-  → exposure miss 在一个 REPEATABLE READ 快照缓冲 visible、流式读取 companion
+  → 业务 PostgreSQL 显式只读 REPEATABLE READ 事务 + statement_timeout
+  → 同事务重发现已绑定 View closure 并核 revision，再执行 visible/companion
   → 推导 exact bitmap effect，ANDNOT + popcount 后一次 CAS 三维 root head
   → 同事务保存结果/materialization、V6 Ed25519 回执和审计，commit 后释放
 ```
@@ -61,6 +62,64 @@ ORDER BY amount DESC
 
 Self-join、outer/cross/non-equality join、断开的 join graph、子查询、CTE、set operation、窗口函数、`HAVING`、`SELECT DISTINCT`、位置式 group/order 引用和多输入分页不可 lowering。Gateway 不会删除 predicate、忽略不可表达的输出语义，也不会把 `LEFT JOIN` 改为 `INNER JOIN`。
 
+## Nested View definition profile
+
+Phase B 还会编译 Catalog semantic root 的 PostgreSQL View definition。这个 profile
+与 Agent-facing `taskgate-reporting-sql-v1` 分开，并且更窄：它的目标只是判断整个
+dependency closure 能否无损 flatten 为现有 typed SPJG/`join_many` QueryPlan，不会
+把任意 PostgreSQL View 交给 exposure compiler。
+
+支持的 View definition 仅包括：
+
+- 一个 `SELECT`，direct column projection/rename；
+- direct column 与 typed literal 的 filter，复合 predicate 只允许 `AND`；
+- 任意形状的 connected `INNER JOIN ... ON` graph，`ON` 只能是一个或多个 direct column equality；
+- direct-column `GROUP BY` 与 `COUNT(*)`/`COUNT(column)`/`SUM`/`MIN`/`MAX`；
+- 多层 ordinary View 递归展开；已治理、已填充的 materialized view 作为 Catalog Product terminal，不展开 seed tables。
+
+一个 closure 最多有一道 aggregate barrier。任何消费 aggregate output 的 filter、
+join 或 re-aggregation 都拒绝；barrier 上方只可做单输入 direct projection/rename。
+View 中的 CTE/subquery、set operation、`DISTINCT`、outer/cross/natural/`USING` Join、
+non-equality Join、scalar function、projection cast、window、`HAVING`、`ORDER BY`、
+`LIMIT/OFFSET`、relation function、raw/foreign/system relation 和 recursion/cycle 都拒绝。
+Literal deparser cast 只有在能证明 exact supported type 时才接受，它不扩大 projection
+expression 能力。
+
+编译器同时实施 expanded sources 16、View depth 16、reachable nodes 64、dependency
+edges 128 和累计 definition bytes 1 MiB 上限。DAG discovery 可以 memoize shared
+child；semantic expansion 仍按 occurrence 保留 bag semantics，重复 governed
+product/stable role 因属于 self-join 而拒绝。
+
+View Artifact 还是执行输入，不只用于比对 digest。对一个 semantic root 的
+outer single-product QueryPlan，组合器把 public 字段按 `Artifact.Output.FieldID`
+替换为已展开的 stable-role fields，保留 View filters/JoinGraph/group/aggregate，
+然后调用现有 `CompileRelational`。V4 从各 terminal Product 的 ordinal publication
+和 sidecar 编译 companion，不把 root View 当作 opaque V4 Product。
+
+这一内部展开不会扩大签名 Grant：public Grant 仍只包含 root 及获批
+outputs/Scope。Gateway 从已绑定 Artifact 每查询派生最小 terminal ProductGrants，
+只向它们加入已编译计划/证据需要的字段。Root scope output 也用
+`Artifact.Output.FieldID` 映射到 terminal role/column；每个 terminal Catalog 声明的
+mandatory scope 都必须被相同任务谓词覆盖。缺失、歧义或物理映射冲突在
+reservation 前拒绝，internal grants 不持久化、不回传 Agent。
+
+查询时组合的当前边界比 View definition fragment 更窄：semantic root 必须是
+外层唯一 source，不能再与另一 Product Join；root 上的 `ORDER BY`、`LIMIT`、
+`OFFSET` 拒绝。这不限制 View 内的 2–16 源任意 connected equi-join 或每 edge
+多 equality predicates。若 Artifact 已跨过 aggregate barrier，外层只可纯投影/
+重排既有 outputs；filter、Join、group 或 re-aggregation 都返回稳定组合拒绝。
+
+每个 root 的 Catalog contract 分别绑定 exact definition、transitive dependency、typed
+canonical plan 和 ordered interface 四个摘要。通过四项检查后，任务才生成规范
+`taskgate-task-view-binding-v1` 并写入签名 Manifest/Grant。Alias、registry map order、
+Join traversal/order 等不改变 typed algebra 的改写应保持 `canonical_plan_digest`；
+filter/join/group/aggregate 语义、dependency 或 public name/type/collation 的变化必须在
+对应摘要中可见。五类固定 seed 的 `testing/quick` properties 各运行 64 个
+2–5 源 generated cases，检查 determinism、alias invariance、join-order invariance、
+direct/nested equivalence 和 semantic/interface/dependency drift。生成图至少包含一条
+multi-predicate edge，nested case 包含 1–3 层 transparent wrappers。它们与其他拒绝边界
+tests 都不构成对任意 SQL 的形式化等价证明。
+
 lowering 错误是 MCP `isError=true` 的结构化结果。例如：
 
 ```json
@@ -78,7 +137,13 @@ lowering 错误是 MCP `isError=true` 的结构化结果。例如：
 }
 ```
 
-稳定 lowering/授权错误包括 `SQL_SYNTAX_ERROR`、`PRODUCT_NOT_APPROVED`、`COLUMN_NOT_APPROVED`、`SQL_NOT_LOWERABLE`、`JOIN_TYPE_UNSUPPORTED`、`JOIN_GRAPH_DISCONNECTED`、`JOIN_KEY_TYPE_MISMATCH`、`COLLATION_MISMATCH` 和 `SUBQUERY_UNSUPPORTED`。返回字段只使用客户可见的逻辑名和安全诊断，不暴露物理 View、DSN 或底层 parser 详情。
+稳定 lowering/授权错误包括 `SQL_SYNTAX_ERROR`、`PRODUCT_NOT_APPROVED`、`COLUMN_NOT_APPROVED`、`SQL_NOT_LOWERABLE`、`JOIN_TYPE_UNSUPPORTED`、`JOIN_GRAPH_DISCONNECTED`、`JOIN_KEY_TYPE_MISMATCH`、`COLLATION_MISMATCH`、`SUBQUERY_UNSUPPORTED`、`VIEW_QUERY_UNSUPPORTED` 和 `VIEW_SEMANTIC_CHANGED`。`VIEW_QUERY_UNSUPPORTED` 表示当前 View contract 有效，但请求在 root 上方使用了 graph graft、排序/分页或跨 aggregate barrier 操作，可按返回的 `reason` 改写；`VIEW_SEMANTIC_CHANGED` 则覆盖 View closure 不再匹配 contract、当前定义落到不支持 fragment 或 registry revision 在执行前变化。公共错误不回显物理 View、definition、DSN 或底层 parser 详情。
+
+`VIEW_SEMANTIC_CHANGED` 会把 task 的正交 View 状态从 `ACTIVE` 单向置为
+`REQUIRE_REBIND`。新 query/reservation 和新 delegated child 都被拒绝；不能修改旧
+Grant 让它指向新摘要。恢复方式是用更新后的 Catalog 创建新 task 并重新人工 OA
+审批。检查顺序仍允许旧 task 的相同 `(task_id, request_id, request_digest)` 精确终态
+重放；已有 result artifact、query record 和 receipt 不因漂移而删除。
 
 语法、授权或 lowering 失败发生在 Business PostgreSQL 执行和正式 reservation 之前：不扣 queries/rows/DBMS，也不扣 release/dependency/outcome。数据库已开始执行后的 timeout、连接不确定或 provenance 故障继续使用现有 failure-settlement 规则。
 
@@ -131,6 +196,7 @@ Agent 自己写的内层 `LIMIT` 只能进一步缩小结果。外层限制按�
 - 非 owner、`NOSUPERUSER`、`NOBYPASSRLS` 的 `gateway_reader` 只对 `reporting.datasource_attestation` 和两个 `reporting.*` View 有 `SELECT`，对 `legacy.*` 无权限。
 - 角色级和连接级 `default_transaction_read_only=on`。
 - 每次执行显式 `READ ONLY` 事务；V4 miss 把可见查询和 streamed ordinal companion 放进同一个 `REPEATABLE READ` 事务；verified semantic replay hit 不执行 Business SQL。
+- Semantic task 在 reservation 前先重算 requested roots 的 binding；miss 执行时又在上述同一个 `REPEATABLE READ` 事务中重新发现 closure、核对预期 registry revision，然后才发出 visible/companion SQL。两次验证解决 approval/query 间漂移与检查—执行 TOCTOU；无关 roots 不参与该 task 的检查。
 - 角色、连接及事务本地 `statement_timeout`，最终取任务剩余 DB 预算、Profile 单次上限、Grant 剩余有效期和 Connector 5 秒上限中的更小值；在途查询不能越过授权截止点继续返回结果。
 - `search_path=pg_catalog`、`standard_conforming_strings=on`；QueryPlan 字符串固定使用 PostgreSQL `E'...'` 转义，生成 SQL 对物理 View 使用安全引用标识符。
 - Context Deadline 与 PostgreSQL 取消错误统一映射为安全错误码。
@@ -153,7 +219,7 @@ Gateway 不包含模型客户端、Prompt 或自然语言翻译器。Gateway 外
 - 多输入在线 SQL 片段限于 2–16 源的 connected INNER equi-join graph，在该 operational complexity/DoS ceiling 内不限 graph 形状；每条 edge 是一个或多个 column-to-column equality predicate。Self-join、outer/cross/non-equality join、`NATURAL JOIN`、`JOIN ... USING`、断开的 join graph 和多输入分页关闭式拒绝。高级 QueryPlan 另保留双分支 Union-Distinct，但 SQL profile 不接受 set operation。
 - `AVG` 可出现在传统 SQL Catalog allowlist，但不属于 exposure V1 精确计量片段；窗口函数、递归、任意子查询 provenance 和负信息计量也不支持。
 - 直接 SQL 不支持客户端占位符。调用方必须提交完整 SQL；Gateway 不提供任意 Session 变量入口。
-- Connector 在启动、readiness 和每次新查询前对 Reporting View 的列顺序与 PostgreSQL 类型执行 Catalog-pinned Schema Attestation；任何漂移都会关闭式拒绝。
+- Connector 在启动、readiness 和每次新查询前，对没有 `view_contract` 的 legacy/terminal products 执行 source-level Catalog-pinned Schema Attestation；semantic roots 排除在该全局 digest 外，改用 task-scoped transitive binding 和同事务 registry revision 检查。任一路径的相关漂移都会关闭式拒绝，但无关 semantic View 不会全局关闭 readiness。
 - 可见结果仍在 Gateway 内存中整体 JSON 编码并加密；provenance companion 已流式消费。Connector 的可见结果仍受全局 10,000 行硬上限约束，Demo Profile 更低。
 - `output_format=table` 目前只作为结构化响应元数据返回，Gateway 不负责表格或图表渲染。
 - 原始 SQL 派生的 request digest 只证明请求并服务于审计/幂等；它既不是数据库执行计划 Hash，也不是 FactID 或 exposure 命题身份。语义身份由 canonical QueryPlan/`plan_digest` 决定。

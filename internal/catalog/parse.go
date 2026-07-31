@@ -15,19 +15,40 @@ import (
 )
 
 func Load(path string) (*Catalog, error) {
+	return load(path, nil)
+}
+
+// LoadViewContractCandidates is the CLI-only first-contract loader. It keeps
+// strict YAML, secret, and Catalog validation and relaxes exactly one rule for
+// the named candidates: the generated view_contract is not present yet.
+func LoadViewContractCandidates(path string, candidates []string) (*Catalog, error) {
+	return load(path, candidates)
+}
+
+func load(path string, viewContractCandidates []string) (*Catalog, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open catalog: %w", err)
 	}
 	defer file.Close()
-	return ParseReader(file)
+	return parseReader(file, viewContractCandidates)
 }
 
 func Parse(data []byte) (*Catalog, error) {
 	return ParseReader(bytes.NewReader(data))
 }
 
+// ParseViewContractCandidates is the in-memory counterpart of
+// LoadViewContractCandidates and is intended for generator tests and tooling.
+func ParseViewContractCandidates(data []byte, candidates []string) (*Catalog, error) {
+	return parseReader(bytes.NewReader(data), candidates)
+}
+
 func ParseReader(reader io.Reader) (*Catalog, error) {
+	return parseReader(reader, nil)
+}
+
+func parseReader(reader io.Reader, viewContractCandidates []string) (*Catalog, error) {
 	data, err := io.ReadAll(reader)
 	if err != nil {
 		return nil, fmt.Errorf("read catalog: %w", err)
@@ -59,8 +80,14 @@ func ParseReader(reader io.Reader) (*Catalog, error) {
 		}
 		return nil, fmt.Errorf("%w: malformed trailing YAML", ErrInvalidCatalog)
 	}
-	if err := result.Validate(); err != nil {
-		return nil, err
+	var validationErr error
+	if viewContractCandidates == nil {
+		validationErr = result.Validate()
+	} else {
+		validationErr = result.ValidateViewContractCandidates(viewContractCandidates)
+	}
+	if validationErr != nil {
+		return nil, validationErr
 	}
 	digest := sha256.Sum256(data)
 	result.SHA256 = hex.EncodeToString(digest[:])

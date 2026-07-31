@@ -160,6 +160,35 @@ func TestSchemaDigestIsDeterministicAndColumnOrderSensitive(t *testing.T) {
 	}
 }
 
+func TestSchemaDigestPreservesWhitespaceInsideSQLLiteralsAndIdentifiers(t *testing.T) {
+	contract := []SchemaColumn{{Name: "value", PostgreSQLType: "text"}}
+	digest := func(definition string) string {
+		t.Helper()
+		value, err := SchemaDigest([]ViewSchema{{
+			Schema: "reporting", View: "literal_view", Definition: definition, Columns: contract,
+		}})
+		if err != nil {
+			t.Fatalf("SchemaDigest(%q): %v", definition, err)
+		}
+		return value
+	}
+	if digest(`SELECT 'a  b'::text AS value`) == digest(`SELECT 'a b'::text AS value`) {
+		t.Fatal("schema digest collapsed semantically significant string-literal whitespace")
+	}
+	if digest(`SELECT "a  b" AS value`) == digest(`SELECT "a b" AS value`) {
+		t.Fatal("schema digest collapsed quoted-identifier whitespace")
+	}
+	if digest("SELECT $$a  b$$::text AS value") == digest("SELECT $$a b$$::text AS value") {
+		t.Fatal("schema digest collapsed dollar-quoted literal whitespace")
+	}
+	if digest(" SELECT\n  'a  b'::text   AS value ") != digest("SELECT 'a  b'::text AS value") {
+		t.Fatal("schema digest stopped normalizing insignificant outer whitespace")
+	}
+	if digest(`SELECT 'abc\'::text   AS value`) != digest(`SELECT 'abc\'::text AS value`) {
+		t.Fatal("standard-conforming string backslash caused outer whitespace to be treated as literal content")
+	}
+}
+
 func TestPostgreSQLMajorVersionParsing(t *testing.T) {
 	for input, want := range map[string]int{"160002": 16, "150007": 15, "90624": 9} {
 		got, err := postgresMajorVersion(input)

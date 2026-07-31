@@ -106,6 +106,7 @@ type AuthorizationManifestV1 struct {
 	CatalogSHA256     string                `json:"catalog_sha256"`
 	DatasourceID      string                `json:"datasource_id"`
 	SchemaDigest      string                `json:"schema_digest"`
+	ViewBindingDigest string                `json:"view_binding_digest,omitempty"`
 	CallbackContext   string                `json:"callback_context"`
 	Nonce             string                `json:"nonce"`
 }
@@ -133,6 +134,7 @@ func (m AuthorizationManifestV1) Validate() error {
 	}
 	if strings.TrimSpace(m.CatalogVersion) == "" || !isSHA256Hex(m.CatalogSHA256) ||
 		strings.TrimSpace(m.DatasourceID) == "" || !isSHA256Hex(m.SchemaDigest) ||
+		(m.ViewBindingDigest != "" && !isSHA256Hex(m.ViewBindingDigest)) ||
 		strings.TrimSpace(m.CallbackContext) == "" || len(m.Nonce) != 32 || !isLowerHex(m.Nonce) {
 		return fmt.Errorf("%w: catalog, datasource, callback_context, and nonce are required", ErrInvalidAuthorizationManifest)
 	}
@@ -159,6 +161,7 @@ type TaskGrantCoreV1 struct {
 	CatalogSHA256      string                `json:"catalog_sha256"`
 	DatasourceID       string                `json:"datasource_id"`
 	SchemaDigest       string                `json:"schema_digest"`
+	ViewBindingDigest  string                `json:"view_binding_digest,omitempty"`
 	ManifestDigest     string                `json:"manifest_digest"`
 }
 
@@ -185,7 +188,8 @@ func (g TaskGrantCoreV1) Validate() error {
 	}
 	if g.ExpiresAt.IsZero() || strings.TrimSpace(g.CatalogVersion) == "" ||
 		!isSHA256Hex(g.CatalogSHA256) || strings.TrimSpace(g.DatasourceID) == "" ||
-		!isSHA256Hex(g.SchemaDigest) || !isSHA256Hex(g.ManifestDigest) {
+		!isSHA256Hex(g.SchemaDigest) || (g.ViewBindingDigest != "" && !isSHA256Hex(g.ViewBindingDigest)) ||
+		!isSHA256Hex(g.ManifestDigest) {
 		return fmt.Errorf("%w: expiry, catalog, datasource, and manifest digests are required", ErrInvalidTaskGrantCore)
 	}
 	return nil
@@ -219,6 +223,7 @@ func (g TaskGrantCoreV1) CheckNarrowing(candidate TaskGrantCoreV1) error {
 		candidate.AgentID != g.AgentID || candidate.DeclaredObjective != g.DeclaredObjective ||
 		candidate.CatalogVersion != g.CatalogVersion || candidate.CatalogSHA256 != g.CatalogSHA256 ||
 		candidate.DatasourceID != g.DatasourceID || candidate.SchemaDigest != g.SchemaDigest ||
+		candidate.ViewBindingDigest != g.ViewBindingDigest ||
 		candidate.ManifestDigest != g.ManifestDigest {
 		return grantExpansion("identity or authorization provenance changed")
 	}
@@ -265,7 +270,7 @@ func (g TaskGrantCoreV1) CheckDelegation(candidate TaskGrantCoreV1) error {
 	if candidate.TaskID == g.TaskID || candidate.ParentTaskID != g.TaskID || candidate.RootTaskID != expectedRoot ||
 		candidate.HumanSubject != g.HumanSubject || candidate.CatalogVersion != g.CatalogVersion ||
 		candidate.CatalogSHA256 != g.CatalogSHA256 || candidate.DatasourceID != g.DatasourceID ||
-		candidate.SchemaDigest != g.SchemaDigest {
+		candidate.SchemaDigest != g.SchemaDigest || candidate.ViewBindingDigest != g.ViewBindingDigest {
 		return grantExpansion("task family, human, catalog, or datasource changed")
 	}
 	if !candidate.SensitivityCeiling.AtMost(g.SensitivityCeiling) {
@@ -313,7 +318,8 @@ func CoreFromManifest(manifest AuthorizationManifestV1, manifestDigest string, i
 		ExpiresAt:      issuedAt.Add(time.Duration(manifest.Budget.TaskTTLMS) * time.Millisecond),
 		CatalogVersion: manifest.CatalogVersion, CatalogSHA256: manifest.CatalogSHA256,
 		DatasourceID: manifest.DatasourceID, SchemaDigest: manifest.SchemaDigest,
-		ManifestDigest: manifestDigest,
+		ViewBindingDigest: manifest.ViewBindingDigest,
+		ManifestDigest:    manifestDigest,
 	}, nil
 }
 

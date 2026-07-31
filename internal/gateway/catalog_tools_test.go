@@ -61,6 +61,26 @@ func TestCatalogDiscoveryToolsExposeSQLContract(t *testing.T) {
 	if !ok || !equalStrings(joinTypes, []string{"INNER"}) {
 		t.Fatalf("join types = %#v", join["types"])
 	}
+	semanticViews, ok := capabilities["semantic_views"].(map[string]any)
+	if !ok || semanticViews["query_time_join_with_other_product"] != false ||
+		semanticViews["order_by"] != false || semanticViews["limit"] != false ||
+		semanticViews["offset"] != false || semanticViews["aggregate_barrier_above"] != "projection_only" ||
+		semanticViews["exposure_required"] != true || semanticViews["shared_child_self_join"] != false {
+		t.Fatalf("unexpected semantic View query capabilities: %#v", capabilities["semantic_views"])
+	}
+	rewriteCodes, ok := capabilities["rewrite_error_codes"].([]string)
+	if !ok || !contains(rewriteCodes, apierr.CodeViewQueryUnsupported) {
+		t.Fatalf("rewrite error codes = %#v, want %s", capabilities["rewrite_error_codes"], apierr.CodeViewQueryUnsupported)
+	}
+	rebindCodes, ok := capabilities["rebind_error_codes"].([]string)
+	if !ok || !equalStrings(rebindCodes, []string{apierr.CodeViewSemanticChanged}) {
+		t.Fatalf("rebind error codes = %#v, want %s", capabilities["rebind_error_codes"], apierr.CodeViewSemanticChanged)
+	}
+	legacyCodes, ok := capabilities["repairable_error_codes"].([]string)
+	if !ok || !equalStrings(legacyCodes, rewriteCodes) {
+		t.Fatalf("legacy repairable error codes = %#v, want rewrite alias %v",
+			capabilities["repairable_error_codes"], rewriteCodes)
+	}
 	features, ok := capabilities["features"].(map[string]any)
 	if !ok || features["inner_equijoins"] != true || features["multi_relation_join_graphs"] != true ||
 		features["multiple_equality_predicates_per_edge"] != true || features["outer_joins"] != false ||

@@ -97,6 +97,24 @@ type Product struct {
 	StableRelationRole string `yaml:"stable_relation_role,omitempty" json:"stable_relation_role,omitempty"`
 	// A derived/generalized product must pin its trusted base-lineage manifest.
 	LineageManifestDigest string `yaml:"lineage_manifest_digest,omitempty" json:"lineage_manifest_digest,omitempty"`
+	// ViewContract enables dependency-aware semantic View governance. It is
+	// optional so existing immutable publication products retain their exact
+	// Catalog and authorization encodings. When present, all four digests are
+	// generated from one PostgreSQL registry snapshot and validated together.
+	ViewContract *ViewContract `yaml:"view_contract,omitempty" json:"view_contract,omitempty"`
+}
+
+const ViewContractV1 = "taskgate-view-contract-v1"
+
+// ViewContract pins one governed semantic View to its exact source revision,
+// transitive dependency closure, expanded typed plan, and ordered output
+// interface. PostgreSQL OIDs and SQL aliases are deliberately absent.
+type ViewContract struct {
+	ProfileVersion      string `yaml:"profile_version" json:"profile_version"`
+	DefinitionDigest    string `yaml:"definition_digest" json:"definition_digest"`
+	DependencyDigest    string `yaml:"dependency_digest" json:"dependency_digest"`
+	CanonicalPlanDigest string `yaml:"canonical_plan_digest" json:"canonical_plan_digest"`
+	InterfaceDigest     string `yaml:"interface_digest" json:"interface_digest"`
 }
 
 type Field struct {

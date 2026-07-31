@@ -138,6 +138,17 @@ func (s *Service) handleOACallback(w http.ResponseWriter, r *http.Request) {
 			writeCallbackError(w, http.StatusConflict, "approval grant or receipt is invalid")
 			return
 		}
+		if pending.ViewBinding != nil {
+			boundProducts, bindingErr := boundViewProducts(pending.ViewBinding)
+			var current *resolvedViewBinding
+			if bindingErr == nil {
+				current, bindingErr = s.resolveViewBinding(r.Context(), boundProducts)
+			}
+			if bindingErr != nil || !viewBindingMatchesCurrent(pending.ViewBinding, current) {
+				writeCallbackError(w, http.StatusConflict, "governed View semantics changed; create and approve a new task")
+				return
+			}
+		}
 		if err := s.validateDelegatedGrant(r.Context(), task, finalGrant.Core, event.OccurredAt.UTC()); err != nil {
 			writeCallbackError(w, http.StatusConflict, "delegated grant exceeds or outlives its parent")
 			return
@@ -167,7 +178,8 @@ func (s *Service) handleOACallback(w http.ResponseWriter, r *http.Request) {
 			},
 			ExpiresAt: finalGrant.Core.ExpiresAt, CatalogVersion: finalGrant.Core.CatalogVersion,
 			CatalogDigest: finalGrant.Core.CatalogSHA256, DatasourceID: finalGrant.Core.DatasourceID,
-			SchemaDigest:    finalGrant.Core.SchemaDigest,
+			SchemaDigest: finalGrant.Core.SchemaDigest, ViewBindingDigest: finalGrant.Core.ViewBindingDigest,
+			ViewBindingSet:  pending.ViewBinding.controlSet(finalGrant.ApprovalReceipt.IssuedAt),
 			ApprovalReceipt: encodedGrant, CreatedAt: finalGrant.ApprovalReceipt.IssuedAt,
 		}
 	case "rejected":
@@ -227,7 +239,8 @@ func manifestMatchesTask(persisted persistedPendingContext, task control.Task, p
 		manifest.DeclaredObjective != task.Objective || manifest.CatalogVersion != task.CatalogVersion ||
 		manifest.CatalogSHA256 != catalogSHA256 || manifest.CallbackContext != pending.CallbackContext ||
 		manifest.Sensitivity != pending.Sensitivity || manifest.DatasourceID != pending.DatasourceID ||
-		manifest.SchemaDigest != pending.SchemaDigest {
+		manifest.SchemaDigest != pending.SchemaDigest ||
+		manifest.ViewBindingDigest != pendingViewBindingDigest(pending.ViewBinding) {
 		return false
 	}
 	if manifest.Budget != authorizationBudget(pending.Budget) || !sameCanonicalJSON(manifest.Products, pending.Products) ||

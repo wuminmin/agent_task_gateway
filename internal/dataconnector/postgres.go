@@ -37,6 +37,11 @@ const (
 	CodeQueryFailed   ErrorCode = "DATA_CONNECTOR_QUERY_FAILED"
 	CodeQueryTimeout  ErrorCode = "DATA_CONNECTOR_QUERY_TIMEOUT"
 	CodeSchemaDrift   ErrorCode = "DATA_CONNECTOR_SCHEMA_DRIFT"
+	// CodeViewSemanticChanged reports that a governed PostgreSQL view closure
+	// cannot be represented by, or no longer matches, the restricted TaskGate
+	// view contract. The public message deliberately omits physical object names
+	// and definitions.
+	CodeViewSemanticChanged ErrorCode = "VIEW_SEMANTIC_CHANGED"
 )
 
 // Error wraps an internal cause for logs while keeping Error() safe for an API
@@ -61,6 +66,8 @@ func (e *Error) Error() string {
 		return string(e.Code) + ": the database statement timed out"
 	case CodeSchemaDrift:
 		return string(e.Code) + ": reporting schema does not match the approved catalog"
+	case CodeViewSemanticChanged:
+		return string(e.Code) + ": governed view semantics changed or are unsupported"
 	default:
 		return string(e.Code) + ": the read-only query failed"
 	}
@@ -141,6 +148,11 @@ type QueryRequest struct {
 	SQL              string
 	StatementTimeout time.Duration
 	MaxRows          int64
+	// ViewRegistry is task-scoped semantic evidence. When present, it is
+	// rediscovered and compared inside the same transaction immediately before
+	// SQL execution; unrelated view changes therefore cannot affect readiness
+	// or tasks that did not authorize the changed view closure.
+	ViewRegistry *ViewRegistryExpectation
 }
 
 // Column contains result metadata that does not reveal a physical table OID.
@@ -495,7 +507,8 @@ func (c *Connector) rememberAttestation(attestation Attestation) {
 	c.attestationMu.Unlock()
 }
 
-// Query runs one bounded query in an explicit PostgreSQL read-only transaction.
+// Query runs one bounded query in an explicit PostgreSQL read-only,
+// repeatable-read transaction.
 func (c *Connector) Query(ctx context.Context, request QueryRequest) (result Result, err error) {
 	if c == nil || c.pool == nil {
 		return Result{}, connectorError(CodeConnection, errors.New("connector is closed"))
@@ -510,7 +523,10 @@ func (c *Connector) Query(ctx context.Context, request QueryRequest) (result Res
 	timeout := clampTimeout(request.StatementTimeout, c.statementTimeout)
 
 	tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{
-		IsoLevel:   pgx.ReadCommitted,
+		// The task-scoped view-registry check and the authorized query must
+		// observe one stable catalog snapshot. Read committed would allow a
+		// concurrent CREATE OR REPLACE VIEW between those two statements.
+		IsoLevel:   pgx.RepeatableRead,
 		AccessMode: pgx.ReadOnly,
 	})
 	if err != nil {
@@ -536,6 +552,9 @@ func (c *Connector) Query(ctx context.Context, request QueryRequest) (result Res
 		return Result{}, err
 	}
 	c.rememberAttestation(attestation)
+	if _, err := verifyViewRegistry(ctx, tx, request.ViewRegistry); err != nil {
+		return Result{}, err
+	}
 
 	startedAt := time.Now()
 	rows, err := tx.Query(ctx, request.SQL)
@@ -644,6 +663,13 @@ func (c *Connector) QueryPairStream(ctx context.Context, request QueryPairStream
 		return QueryPairStreamResult{}, err
 	}
 	c.rememberAttestation(attestation)
+	viewExpectation, err := matchingViewRegistryExpectations(request.Visible.ViewRegistry, request.Provenance.ViewRegistry)
+	if err != nil {
+		return QueryPairStreamResult{}, err
+	}
+	if _, err := verifyViewRegistry(ctx, tx, viewExpectation); err != nil {
+		return QueryPairStreamResult{}, err
+	}
 	result.Visible, err = c.queryInTx(ctx, tx, request.Visible)
 	if err != nil {
 		return QueryPairStreamResult{}, err
@@ -844,7 +870,118 @@ func SchemaDigest(schemas []ViewSchema) (string, error) {
 }
 
 func normalizeViewDefinition(definition string) string {
-	return strings.Join(strings.Fields(definition), " ")
+	// pg_get_viewdef already emits a stable PostgreSQL deparse. Retain the V2
+	// digest's historical normalization of insignificant whitespace, but never
+	// collapse bytes inside quoted literals or identifiers: `SELECT 'a  b'` and
+	// `SELECT 'a b'` are different definitions. Dollar-quoted strings are not
+	// normally emitted for a view expression, but preserving them here keeps the
+	// helper safe for every PostgreSQL deparse accepted by this package.
+	var normalized strings.Builder
+	pendingSpace := false
+	for index := 0; index < len(definition); {
+		if definition[index] == '\'' || definition[index] == '"' {
+			if pendingSpace && normalized.Len() > 0 {
+				normalized.WriteByte(' ')
+			}
+			pendingSpace = false
+			quoteIndex := index
+			quote := definition[index]
+			escapeBackslash := quote == '\'' && isEscapeStringPrefix(definition, quoteIndex)
+			normalized.WriteByte(quote)
+			index++
+			for index < len(definition) {
+				value := definition[index]
+				normalized.WriteByte(value)
+				index++
+				// standard_conforming_strings is forced on by every connector
+				// transaction, but an explicit E'...' literal can still contain
+				// backslash-escaped quotes. Keep the escaped byte in the quoted
+				// region so its whitespace is never normalized as SQL layout.
+				if escapeBackslash && value == '\\' && index < len(definition) {
+					normalized.WriteByte(definition[index])
+					index++
+					continue
+				}
+				if value == quote {
+					if index < len(definition) && definition[index] == quote {
+						normalized.WriteByte(definition[index])
+						index++
+						continue
+					}
+					break
+				}
+			}
+			continue
+		}
+		if definition[index] == '$' {
+			if delimiter, ok := dollarQuoteDelimiter(definition[index:]); ok {
+				if pendingSpace && normalized.Len() > 0 {
+					normalized.WriteByte(' ')
+				}
+				pendingSpace = false
+				end := strings.Index(definition[index+len(delimiter):], delimiter)
+				if end < 0 {
+					// A malformed delimiter will subsequently be rejected by the SQL
+					// parser. Preserve the rest rather than risk a digest collision.
+					normalized.WriteString(definition[index:])
+					break
+				}
+				end += index + 2*len(delimiter)
+				normalized.WriteString(definition[index:end])
+				index = end
+				continue
+			}
+		}
+		if isSQLSpace(definition[index]) {
+			pendingSpace = normalized.Len() > 0
+			index++
+			continue
+		}
+		if pendingSpace && normalized.Len() > 0 {
+			normalized.WriteByte(' ')
+		}
+		pendingSpace = false
+		normalized.WriteByte(definition[index])
+		index++
+	}
+	return normalized.String()
+}
+
+func isEscapeStringPrefix(definition string, quoteIndex int) bool {
+	if quoteIndex < 1 || definition[quoteIndex-1] != 'e' && definition[quoteIndex-1] != 'E' {
+		return false
+	}
+	if quoteIndex == 1 {
+		return true
+	}
+	previous := definition[quoteIndex-2]
+	return !(previous == '_' || previous >= 'a' && previous <= 'z' || previous >= 'A' && previous <= 'Z' || previous >= '0' && previous <= '9' || previous == '$')
+}
+
+func dollarQuoteDelimiter(value string) (string, bool) {
+	if len(value) < 2 || value[0] != '$' {
+		return "", false
+	}
+	for index := 1; index < len(value); index++ {
+		switch current := value[index]; {
+		case current == '$':
+			return value[:index+1], true
+		case current == '_' || current >= 'a' && current <= 'z' || current >= 'A' && current <= 'Z':
+		case index > 1 && current >= '0' && current <= '9':
+		default:
+			return "", false
+		}
+	}
+	return "", false
+}
+
+func isSQLSpace(value byte) bool {
+	switch value {
+	case ' ', '\t', '\n', '\r', '\f', '\v':
+		return true
+	default:
+		return false
+	}
 }
 
 func postgresMajorVersion(serverVersionNum string) (int, error) {

@@ -24,6 +24,7 @@ var (
 	ErrClosed                   = errors.New("control: store closed")
 	ErrTaskNotActive            = errors.New("control: task is not active")
 	ErrTaskExpired              = errors.New("control: task expired")
+	ErrViewSemanticChanged      = errors.New("control: view semantic changed")
 	ErrBudgetExhausted          = errors.New("control: budget exhausted")
 	ErrExposureBudgetExhausted  = errors.New("control: exposure budget exhausted")
 	ErrExposureEvidenceRequired = errors.New("control: exposure evidence required")
@@ -48,6 +49,7 @@ const (
 	CodeClosed                   ErrorCode = "STORE_CLOSED"
 	CodeTaskNotActive            ErrorCode = "TASK_NOT_ACTIVE"
 	CodeTaskExpired              ErrorCode = "TASK_EXPIRED"
+	CodeViewSemanticChanged      ErrorCode = "VIEW_SEMANTIC_CHANGED"
 	CodeBudgetExhausted          ErrorCode = "BUDGET_EXHAUSTED"
 	CodeExposureBudgetExhausted  ErrorCode = "EXPOSURE_BUDGET_EXHAUSTED"
 	CodeExposureEvidenceRequired ErrorCode = "EXPOSURE_EVIDENCE_REQUIRED"
@@ -107,6 +109,8 @@ func CodeOf(err error) ErrorCode {
 		return CodeTaskNotActive
 	case errors.Is(err, ErrTaskExpired):
 		return CodeTaskExpired
+	case errors.Is(err, ErrViewSemanticChanged):
+		return CodeViewSemanticChanged
 	case errors.Is(err, ErrBudgetExhausted):
 		return CodeBudgetExhausted
 	case errors.Is(err, ErrExposureBudgetExhausted):

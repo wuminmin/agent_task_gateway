@@ -311,6 +311,7 @@ type AlgebraPlanV2 struct {
 	Op              string
 	SourceNamespace string
 	Snapshot        string
+	LineageDigest   string
 	StableRole      string
 	Schema          []AlgebraFieldV2
 	Input           *AlgebraPlanV2
@@ -384,7 +385,17 @@ func normalizeAlgebraNodeV2(plan AlgebraPlanV2) (normalizedAlgebraNodeV2, error)
 		if err != nil {
 			return normalizedAlgebraNodeV2{}, err
 		}
-		canonical, err := json.Marshal(map[string]any{"op": "scan", "namespace": plan.SourceNamespace, "snapshot": plan.Snapshot, "role": plan.StableRole, "schema": schema})
+		scan := map[string]any{"op": "scan", "namespace": plan.SourceNamespace, "snapshot": plan.Snapshot, "role": plan.StableRole, "schema": schema}
+		if plan.LineageDigest != "" {
+			if len(plan.LineageDigest) != sha256.Size*2 {
+				return normalizedAlgebraNodeV2{}, errors.New("V2 scan lineage digest must be lowercase SHA-256")
+			}
+			if _, decodeErr := hex.DecodeString(plan.LineageDigest); decodeErr != nil || plan.LineageDigest != strings.ToLower(plan.LineageDigest) {
+				return normalizedAlgebraNodeV2{}, errors.New("V2 scan lineage digest must be lowercase SHA-256")
+			}
+			scan["lineage_digest"] = plan.LineageDigest
+		}
+		canonical, err := json.Marshal(scan)
 		return normalizedAlgebraNodeV2{Canonical: canonical, Schema: schema}, err
 	case "select":
 		input, err := requiredAlgebraInputV2(plan.Input)

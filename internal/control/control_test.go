@@ -143,6 +143,7 @@ func TestMigrationsAndTaskRequestContext(t *testing.T) {
 	for _, relation := range []string{
 		"principals", "tasks", "task_grants", "grants", "approval_events", "budget_ledger",
 		"query_records", "result_encryption_keys", "encrypted_query_results", "encrypted_query_result_chunks", "encrypted_results", "result_retention_holds", "audit_events", "query_receipts", "callback_idempotency",
+		"view_binding_sets", "task_view_dependencies", "task_view_binding_status",
 	} {
 		var exists bool
 		if err := store.DB().QueryRowContext(context.Background(), `

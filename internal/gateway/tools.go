@@ -50,6 +50,7 @@ var queryTools = []mcp.Tool{
 		"task_id": map[string]any{"type": "string"}, "timeout_seconds": map[string]any{"type": "integer", "minimum": 0, "maximum": 45},
 	}, "task_id"), Annotations: map[string]any{"readOnlyHint": true}},
 	{Name: "get_task_context", Description: "读取 ACTIVE 任务的批准范围、预算和期限。", InputSchema: taskIDSchema(), Annotations: map[string]any{"readOnlyHint": true}},
+	{Name: "rebind_data_task", Description: "为语义 View 已变化的旧任务创建一个全新的根任务和 OA 草稿；旧 Grant、查询、结果与 Receipt 不会被修改。", InputSchema: taskIDSchema()},
 	{Name: "query_sql", Description: "执行任务授权范围内的报表 SQL，把加密 Parquet 规范原件保存在 TaskGate 对象存储，并仅返回摘要与 result_id。启用精确暴露记账时，SQL 必须能够无损转换为 TaskGate 规范计划。", InputSchema: objectSchema(map[string]any{
 		"task_id": map[string]any{"type": "string"}, "request_id": requestIDSchema(), "sql": map[string]any{"type": "string", "minLength": 1, "maxLength": 100000},
 	}, "task_id", "request_id", "sql")},
@@ -194,6 +195,8 @@ func (s *Service) CallTool(ctx context.Context, principal mcp.Principal, name st
 			result, err = s.waitForApproval(ctx, principal, raw)
 		case "get_task_context":
 			result, err = s.getTaskContext(ctx, principal, raw)
+		case "rebind_data_task":
+			result, err = s.rebindDataTask(ctx, principal, raw)
 		case executePlanTool.Name:
 			result, err = s.executePlan(ctx, principal, raw)
 		case "query_sql":

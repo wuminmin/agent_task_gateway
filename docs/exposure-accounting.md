@@ -98,6 +98,53 @@ normal form 绑定 Catalog namespace、snapshot/lineage、typed predicate、grou
 page、NULL/bag、collation、UTC 和 exact numeric mode。对在线 INNER equijoin，SQL alias 先解析为 Catalog 稳定角色，JoinGraph 的 nodes、edges、edge 内 predicates 及 equality 两端规范排序后 deterministic binary fold 为现有二元代数。因此支持的 alias、大小写、Join 交换/括号/遍历顺序和 edge/predicate 顺序改写会归一到同一 digest；不同阈值或关系上下文会产生不同 digest。
 因此同命题同结果重放为零增量，不同命题同结果各增加一个 outcome fact。
 
+## Nested View 与授权语义
+
+Phase B 不为 exposure ledger 新增一种关系运算。它把 Catalog semantic root 的
+ordinary View dependency DAG 在授权时递归展开，并且只有 closure 能 flatten 为现有
+typed SPJG/`join_many` QueryPlan 时才接受。Governed materialized View 是 opaque
+terminal Product；不会追入 seed tables。于是 View 层级最终仍落到本页已经定义的
+Projection、Selection、INNER equi-Join、Group 和 `COUNT/SUM/MIN/MAX` 规则，而不是
+另建一套 provenance 语义。
+
+View definition 允许 direct projection/rename、column-to-literal `AND` filters、
+connected INNER equality JoinGraph（每 edge 可有多个 predicates）和上述聚合。一个
+closure 最多一道 aggregate barrier，barrier 上方只能有纯单输入 projection/rename。
+Expanded governed sources 最多 16；View depth 16、reachable nodes 64、dependency
+edges 128、reachable definition bytes 1 MiB。递归/cycle、raw/foreign/system relation、
+self/outer/cross/non-equality Join、CTE/subquery/set operation、scalar expression、window、
+`HAVING`、aggregate-output filter/join/re-aggregation 等都 fail closed。
+在 depth 16 的 operational ceiling 内，这是任意层数的 ordinary-View 递归展开，
+不是固定的两层 rewrite。
+
+已编译 Artifact 在查询时真正取代 semantic root scan：外层 public outputs 按
+`Artifact.Output.FieldID` 合成到 expanded Scan/`join_many` 计划，然后进入现有
+`CompileRelational` 和 exposure derivation。V4 将每个 terminal Product 绑到其真实
+publication ordinals/sidecar，所以解码后的 base release/dependency 仍使用 terminal
+FactID namespace/snapshot，而不是一个虚构的 root FactID。
+
+签名 Grant 仍只批准 root Product；Gateway 每查询从已绑定 Artifact 派生
+最小 terminal internal grants，并不修改持久授权。Root Scope 经同一 Output
+FieldID 映射到 terminal，且必须覆盖每个 terminal mandatory scope；映射不全时
+不执行、不预留、不计费。当前仅合成一个外层 semantic root，拒绝它与
+其他 query-time Product 的 Join 以及 root 上的 order/page。已聚合 View 之上仅纯投影；
+这些组合限制不改变 View 内部任意 connected equi-join/多 predicate edge 的支持。
+
+Catalog 为每个 root 分开绑定 exact definition、transitive dependency、typed canonical
+plan 和 ordered interface 四摘要。任务申请校验四者后，把每个 product 的
+plan/dependency/interface 摘要组成规范 `taskgate-task-view-binding-v1`；该 digest 进入
+签名 Manifest/Grant，并通过 Grant digest 传递式进入 semantic replay/receipt 的授权
+上下文。它不会代替 `plan_digest`：前者回答“当前批准的是哪个 View closure”，后者
+回答“本次查询命题是什么”。因此同一个 Agent QueryPlan 在不同已批准 closure 上不能
+错误命中同一 semantic observation。
+
+Legacy source-level `schema_digest` 只覆盖没有 `view_contract` 的 products，semantic
+roots 使用 task-scoped closure；这避免无关 View 变更全局失效。相关漂移会产生
+`VIEW_SEMANTIC_CHANGED`，并使 task 的正交 binding 状态不可逆地进入
+`REQUIRE_REBIND`。旧 Grant 不能原地换语义；必须用更新 Catalog 创建新 task 并重新
+OA 审批。旧 task 的 exact request 终态重放、既有 result artifact 和 receipt 仍按原
+保留规则存在，因此 drift detection 不重写历史 exposure ledger。
+
 ## 在线执行
 
 启用 V4 exposure Profile 的任务默认通过 `query_sql` 提交
@@ -108,14 +155,15 @@ SQL 不进入数据库执行。SDK、内部测试和确定性工作流可继续�
 编译、provenance、FactID 和结算链路：
 
 ```text
-reserve -> semantic replay lookup / execute+stream -> derive bitmap
+exact replay / View-binding check -> reserve
+        -> semantic replay lookup / execute+stream -> derive bitmap
         -> stage encrypted Parquet -> settle + PENDING metadata/receipt
         -> canonical promote -> consumed/AVAILABLE -> result_id + summary
 ```
 
-1. 在 Control PostgreSQL 中同时创建资源预算和 exposure reservation。
-2. 先用绑定 task/grant/scope、typed normal form、Catalog/schema/publication/dictionary 和编译版本的 key 查询 committed semantic replay。命中只复用已提交 observation 和 `AVAILABLE` artifact，不执行 Business/provenance SQL；`PENDING`、过期、已清理或 key 非 `ACTIVE` 的 source 不可复用。
-3. miss 时，在 Business PostgreSQL 的同一个只读 `REPEATABLE READ` 事务中缓冲可见结果并流式读取 ordinal companion；Gateway 同时只保留当前 canonical group 的 support bitmap、稀疏 witness multiplicity 和查询级 dependency bitmap。最终可见投影编码为 Parquet，并在上传对象存储前用 `chunked-aes-gcm-v1` 客户端侧加密为 private staging 对象。
+1. Gateway 先处理相同 `(task_id, request_id, request_digest)` 的 exact terminal replay。对新的 semantic request，它读取持久 binding status、重发现本任务 roots 并比对签名 binding；只有 `ACTIVE` 且摘要一致才在 Control PostgreSQL 中同时创建资源预算和 exposure reservation。
+2. 先用绑定 task/grant/scope、typed normal form、Catalog/schema/View binding/publication/dictionary 和编译版本的 key 查询 committed semantic replay。命中只复用已提交 observation 和 `AVAILABLE` artifact，不执行 Business/provenance SQL；`PENDING`、过期、已清理或 key 非 `ACTIVE` 的 source 不可复用。
+3. miss 时，Connector 在 Business PostgreSQL 的同一个只读 `REPEATABLE READ` 事务中先重新发现已绑定 View closure、核对预期 registry revision，再缓冲可见结果并流式读取 ordinal companion；Gateway 同时只保留当前 canonical group 的 support bitmap、稀疏 witness multiplicity 和查询级 dependency bitmap。检查与查询共享同一数据库快照，封闭 View replacement TOCTOU。最终可见投影编码为 Parquet，并在上传对象存储前用 `chunked-aes-gcm-v1` 客户端侧加密为 private staging 对象。
 4. Gateway 生成 base release/dependency bitmap 及动态 derived release/outcome。未知 handle、越界 ordinal、manifest 不匹配、非规范 bitmap、overflow 或截断都 fail closed。
 5. Control PostgreSQL 对三个维度分别执行精确 `ANDNOT + popcount` 和 `OR`，并通过一次 root-head epoch CAS 原子发布。CAS 冲突重读 head 并重算全部 R/I/O。
 6. 同一 Control PostgreSQL 事务提交 exposure/资源结算、`PENDING` artifact 元数据、semantic materialization、终态审计和 Ed25519 V6 回执；Control PG 不保存 Parquet bytes 或结果行。commit 后 Gateway 把 staging 对象幂等提升到确定性的 canonical key。canonical 对象创建成功即 `consumed`，随后 artifact 标记为 `AVAILABLE`，普通 query/get 只返回 `result_id`、行列数、期限和摘要。semantic replay 命中仍重新授权、扣普通资源、写审计/新回执，并为新 query 创建自己的 artifact。
@@ -126,6 +174,12 @@ SQL 语法、授权或 lowering 失败在第 1 步的正式 reservation 和 Busi
 PostgreSQL 执行之前返回结构化、可修复错误，不扣 queries/rows/DBMS，也不扣
 release/dependency/outcome。数据库已开始执行后的 timeout 或故障继续遵守
 现有 failure-settlement 规则。
+
+View drift 若在 reservation 前发现，同样不产生 reservation；若同事务二次检查才
+发现，Gateway 以 `VIEW_SEMANTIC_CHANGED` 释放这笔资源/exposure reservation、把 task
+binding 单向标记为 `REQUIRE_REBIND`，且不执行 visible/provenance SQL、不创建 artifact
+或消费 exposure；该已预留请求仍以 released error record、审计和终态 Receipt 留证。
+已经存在的 exact terminal request replay 不走新执行路径，因此仍返回首次持久化终态。
 
 任一 exposure 维度超限时，整笔控制事务回滚：新事实、账本计数、artifact 元数据和 Receipt
 都不落库，private staging 被清理，不创建 canonical 对象，也不向 Agent 返回 `result_id`、preview 或 delivery 能力。Business PostgreSQL 已经完成的物理工作仍在
@@ -138,6 +192,7 @@ release/dependency/outcome。数据库已开始执行后的 timeout 或故障继
 | Projection / filter / order / limit | 是 | 单产品 SQL/QueryPlan；多输入不分页 |
 | `GROUP BY`, `COUNT`, `SUM`, `MIN`, `MAX` | 是 | 单产品、Join 或 Union-Distinct 输入 |
 | Join | 是 | SQL 及 QueryPlan `join_many`：2–16 个不同 Catalog 稳定角色的 connected INNER equi-join graph，operational complexity/DoS ceiling 内不限 graph 形状；每 edge 一个或多个 column-to-column equality；支持 10 表 Join，仍受 1 MiB 请求体、AST 和资源边界 |
+| Nested View DAG | 不新增运算 | task-scoped ordinary View recursive expansion；governed materialized Product terminal；仅接受可 flatten 到本表 Projection/Selection/Join/Group/Aggregate 的 closure，最多一道 aggregate barrier，受 16/16/64/128/1 MiB sources/depth/nodes/edges/definition ceilings；展开计划实际进入 relational/V4 terminal ordinal 路径，query-time root Join/order/page 暂拒绝 |
 | Union | 是 | 仅高级 QueryPlan：同产品两个过滤分支；显式完整 DISTINCT schema |
 | 任意直接 SQL | 否 | 只有能无损 lowering 的 `taskgate-reporting-sql-v1` 可进入 exposure 链路 |
 | `AVG`、窗口函数、子查询、CTE、set operation、递归 | 否 | exposure SQL 下关闭式拒绝 |
@@ -158,7 +213,7 @@ QueryPlan/`plan_digest`，不绑定 SQL 文本哈希。
 - 委托发起者拥有且仍可使用父任务；
 - 目标是已启用的 query Principal；
 - 产品、字段、Scope、敏感级别、期限和全部预算只能收缩；
-- Catalog、Datasource、Schema 证据及 exposure Profile 保持一致；
+- Catalog、Datasource、Schema、task View binding 证据及 exposure Profile 保持一致；
 - 每次执行都重新验证完整祖先链仍为 ACTIVE。
 
 所有后代通过 `root_task_id` 写入同一个三维 root head。
@@ -178,6 +233,9 @@ epoch CAS 原子结算，不能分别花掉同一剩余额度。撤销根任务�
 | 表 | 作用 |
 |---|---|
 | `tasks` | 保存 root/parent lineage |
+| `view_binding_sets` | 内容寻址保存 task-scoped canonical product contracts；exact canonical JSON 不由 JSONB 重写 |
+| `task_view_dependencies` | immutable task→reachable dependency 反向索引证据 |
+| `task_view_binding_status` | 与 task lifecycle 正交的 `ACTIVE -> REQUIRE_REBIND` 单向状态和首次 observed digest |
 | dictionary manifest/chunks | 冻结 base FactID↔ordinal 双射、segment bounds 和审计用 cold payload |
 | dynamic dictionaries | 少量 derived release/outcome 的精确 hash/payload 身份 |
 | bitmap containers/set manifests | `(dictionary, segment, ordinal>>16)` 的不可变内容寻址容器及集合根 |
@@ -194,8 +252,12 @@ epoch CAS 原子结算，不能分别花掉同一剩余额度。撤销根任务�
 - `make eval-exposure` 运行 ground truth、等价改写、确定性
   anti-arbitrage cases 和计费基线；V2 单元/性质测试另覆盖 typed NULL、multi-key Join、五表 tree-shape 归一、十表链、star/cycle graph、alias/edge/predicate/equality-direction 置换、JoinGraph digest、Union commutativity/idempotence、Group NULL 与嵌套闭包。
 - `make verify` 运行真实 PostgreSQL race/integration suite，包括并发结算、
-  委托共享账本、重放及超限不产生 canonical artifact。
+  委托共享账本、重放及超限不产生 canonical artifact；View suite 另覆盖
+  五类固定 seed、各 64-case `testing/quick` properties：determinism、alias invariance、
+  join-order invariance、nested/direct equivalence 和 semantic/interface/dependency drift；以及
+  cycle/limit/aggregate barrier、materialized terminal 和 transitive
+  `CREATE OR REPLACE VIEW` detection。
 - `make formal` 检查 `ExposureLedger.tla` 的三预算安全、exact novel charge、
   settle-before-release、retry idempotence 和 task-family non-amplification；这里的 release 对应 settle 后的 canonical promotion，不对应下载。
 
-现有 169.3 s novel、154.1 s replay 和 9.8 GiB Gateway 峰值属于 legacy 全量 FactSet/逐事实存储诊断，不是 V4 结果。V4 的 ≤4 s novel P95、≤150 ms semantic replay P95、≤512 MiB Gateway peak 等数字目前是硬验收门槛；完成固定环境重跑前不能写成已实现 SLO。系统也不提供差分隐私、推断控制、可变源/任意 SQL provenance 或跨 Gateway 执行租约。
+现有 169.3 s novel、154.1 s replay 和 9.8 GiB Gateway 峰值属于 legacy 全量 FactSet/逐事实存储诊断，不是 V4 结果。V4 的 ≤4 s novel P95、≤150 ms semantic replay P95、≤512 MiB Gateway peak 等数字目前是硬验收门槛；完成固定环境重跑前不能写成已实现 SLO。View property tests 也是 bounded grammar 的实现证据，不是任意 SQL 的形式化语义证明或企业规模性能实验。系统也不提供差分隐私、推断控制、可变源/任意 SQL provenance 或跨 Gateway 执行租约。

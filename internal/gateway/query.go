@@ -27,6 +27,7 @@ import (
 	"taskbound.local/agent-data-gateway/internal/semanticcache"
 	"taskbound.local/agent-data-gateway/internal/sqllowering"
 	"taskbound.local/agent-data-gateway/internal/sqlpolicy"
+	"taskbound.local/agent-data-gateway/internal/viewcompiler"
 )
 
 type storedQueryResult struct {
@@ -359,6 +360,12 @@ func (s *Service) querySQL(ctx context.Context, principal mcp.Principal, raw jso
 		return nil, err
 	}
 	if !grant.Exposure.Enabled() {
+		for _, name := range grant.ApprovedProducts {
+			if product, present := s.catalog.LookupProduct(name); present && product.ViewContract != nil {
+				return s.replayPreparationFailure(ctx, task.ID, args.RequestID, digest(requestSummary),
+					viewQueryUnsupported("SEMANTIC_VIEW_EXPOSURE_PROFILE"))
+			}
+		}
 		return s.executeSQL(ctx, principal, task, args.RequestID, args.SQL, requestSummary, nil, nil)
 	}
 
@@ -382,9 +389,9 @@ func (s *Service) querySQL(ctx context.Context, principal mcp.Principal, raw jso
 			"retryable_after_rewrite": true, "sql_profile": sqllowering.Profile,
 		}}
 	}
-	prepared, err := s.preparePlan(grant, lowered.Plan)
+	prepared, err := s.prepareTaskPlan(ctx, task, grant, lowered.Plan)
 	if err != nil {
-		return nil, err
+		return s.replayPreparationFailure(ctx, task.ID, args.RequestID, digest(requestSummary), err)
 	}
 	metadata := &queryResponseMetadata{Plan: lowered.Plan, SQLProfile: lowered.Profile,
 		DisplayColumns: append([]string(nil), lowered.DisplayColumns...), ResultOrder: append([]int(nil), lowered.ResultOrder...),
@@ -485,9 +492,19 @@ func (s *Service) executePlan(ctx context.Context, principal mcp.Principal, raw 
 	if err != nil {
 		return nil, err
 	}
-	prepared, err := s.preparePlan(grant, args.Plan)
+	prepared, err := s.prepareTaskPlan(ctx, task, grant, args.Plan)
 	if err != nil {
-		return nil, err
+		replayed, replayErr := s.replayPreparationFailure(ctx, task.ID, args.RequestID, digest(requestSummary), err)
+		if replayErr != nil {
+			return nil, replayErr
+		}
+		response, ok := replayed.(map[string]any)
+		if !ok {
+			return nil, &mcp.ToolError{Code: apierr.CodeConflict, Message: "持久查询重放结果格式无效"}
+		}
+		response["query_plan"] = args.Plan
+		response["output_format"] = defaultString(args.OutputFormat, "json")
+		return response, nil
 	}
 	resultNames := queryPlanResultNames(args.Plan)
 	metadata := &queryResponseMetadata{Plan: args.Plan, OutputFormat: defaultString(args.OutputFormat, "json"),
@@ -673,6 +690,56 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 		parentCore.CheckNarrowing(protocolGrant.Core) != nil {
 		return nil, &mcp.ToolError{Code: apierr.CodeConflict, Message: "任务上下文与已签名 Grant 不一致；查询已关闭式拒绝"}
 	}
+	var viewExpectation *dataconnector.ViewRegistryExpectation
+	if protocolGrant.Core.ViewBindingDigest != "" {
+		status, statusErr := s.store.GetTaskViewBindingStatus(ctx, task.ID)
+		if statusErr != nil || status.Status != control.TaskViewBindingActive ||
+			persistedPending.ViewBinding == nil ||
+			!sameSnapshotSHA256(persistedPending.ViewBinding.Digest, protocolGrant.Core.ViewBindingDigest) {
+			if replayed, found, replayErr := s.replayQueryIfPresent(ctx, task.ID, requestID, requestDigest); found || replayErr != nil {
+				return replayed, replayErr
+			}
+			return nil, &mcp.ToolError{Code: string(dataconnector.CodeViewSemanticChanged), Message: "语义 View 已变化；历史结果仍可重放，但新查询必须创建新任务并重新审批"}
+		}
+		boundProducts, bindingErr := boundViewProducts(persistedPending.ViewBinding)
+		var current *resolvedViewBinding
+		if bindingErr == nil {
+			current, bindingErr = s.resolveViewBinding(ctx, boundProducts)
+		}
+		if bindingErr != nil || !viewBindingMatchesCurrent(persistedPending.ViewBinding, current) {
+			if bindingErr != nil && !dataconnector.IsCode(bindingErr, dataconnector.CodeViewSemanticChanged) {
+				return nil, bindingErr
+			}
+			observed := viewSemanticObservationDigest(protocolGrant.Core.ViewBindingDigest, bindingErr)
+			if current != nil {
+				observed = current.Digest
+			}
+			if replayed, found, replayErr := s.replayQueryIfPresent(ctx, task.ID, requestID, requestDigest); found || replayErr != nil {
+				return replayed, replayErr
+			}
+			_, _ = s.store.MarkTaskViewSemanticChanged(ctx, task.ID, observed)
+			return nil, &mcp.ToolError{Code: string(dataconnector.CodeViewSemanticChanged), Message: "语义 View 已变化；历史结果仍可重放，但新查询必须创建新任务并重新审批"}
+		}
+		if exposureContext != nil && exposureContext.viewBindingDigest != "" &&
+			(!sameSnapshotSHA256(exposureContext.viewBindingDigest, current.Digest) ||
+				exposureContext.viewRegistryRevision != current.Expectation.ExpectedRevisionDigest) {
+			observed := current.Digest
+			if observed == "" {
+				observed = viewSemanticObservationDigest(protocolGrant.Core.ViewBindingDigest, viewSemanticChangedError())
+			}
+			_, _ = s.store.MarkTaskViewSemanticChanged(ctx, task.ID, observed)
+			if replayed, found, replayErr := s.replayQueryIfPresent(ctx, task.ID, requestID, requestDigest); found || replayErr != nil {
+				return replayed, replayErr
+			}
+			return nil, &mcp.ToolError{Code: string(dataconnector.CodeViewSemanticChanged), Message: "语义 View 已变化；历史结果仍可重放，但新查询必须创建新任务并重新审批"}
+		}
+		expectation := current.Expectation
+		expectation.Roots = append([]viewcompiler.RelationName(nil), current.Expectation.Roots...)
+		expectation.BaseProducts = cloneStringMap(current.Expectation.BaseProducts)
+		viewExpectation = &expectation
+	} else if persistedPending.ViewBinding != nil || grant.ViewBindingDigest != "" {
+		return nil, &mcp.ToolError{Code: apierr.CodeConflict, Message: "任务携带不一致的 View binding 证据"}
+	}
 	budget, err := s.store.GetBudget(ctx, task.ID)
 	if err != nil {
 		return nil, err
@@ -775,7 +842,8 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 		RequestDigest: requestDigest, SQLFingerprint: decision.Fingerprint,
 		CatalogVersion: task.CatalogVersion, CatalogDigest: protocolGrant.Core.CatalogSHA256,
 		DatasourceID: evidence.DatasourceID, SchemaDigest: evidence.SchemaDigest,
-		ManifestDigest: protocolGrant.Core.ManifestDigest, GrantDigest: grantDigest, PolicyDecision: "ALLOW",
+		ViewBindingDigest: protocolGrant.Core.ViewBindingDigest,
+		ManifestDigest:    protocolGrant.Core.ManifestDigest, GrantDigest: grantDigest, PolicyDecision: "ALLOW",
 		RequestedRows: decision.RowLimit, RequestedDBMS: requestedDBMS,
 	}
 	if exposureContext != nil {
@@ -859,7 +927,7 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 	var queryErr error
 	if exposureContext == nil {
 		data, queryErr = s.connector.Query(queryCtx, dataconnector.QueryRequest{
-			SQL: decision.SQL, StatementTimeout: timeout, MaxRows: reservation.AllowedRows,
+			SQL: decision.SQL, StatementTimeout: timeout, MaxRows: reservation.AllowedRows, ViewRegistry: viewExpectation,
 		})
 	} else if exposureContext.ordinal != nil {
 		streaming, ok := s.connector.(interface {
@@ -872,9 +940,9 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 		ordinalSink = &ordinalDerivationSink{program: exposureContext.ordinal.Program,
 			indexes: exposureContext.ordinal.Indexes, planDigest: exposureContext.planDigest}
 		pair, pairErr := streaming.QueryPairStream(queryCtx, dataconnector.QueryPairStreamRequest{
-			Visible: dataconnector.QueryRequest{SQL: decision.SQL, StatementTimeout: timeout, MaxRows: reservation.AllowedRows},
+			Visible: dataconnector.QueryRequest{SQL: decision.SQL, StatementTimeout: timeout, MaxRows: reservation.AllowedRows, ViewRegistry: viewExpectation},
 			Provenance: dataconnector.QueryRequest{SQL: provenanceDecision.SQL, StatementTimeout: timeout,
-				MaxRows: provenanceEvidenceRows},
+				MaxRows: provenanceEvidenceRows, ViewRegistry: viewExpectation},
 			ProvenanceSink: ordinalSink,
 		})
 		data, queryErr = pair.Visible, pairErr
@@ -892,8 +960,8 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 			return nil, toolError(control.ErrExposureEvidenceRequired)
 		}
 		pair, pairErr := paired.QueryPair(queryCtx, dataconnector.QueryPairRequest{
-			Visible:    dataconnector.QueryRequest{SQL: decision.SQL, StatementTimeout: timeout, MaxRows: reservation.AllowedRows},
-			Provenance: dataconnector.QueryRequest{SQL: provenanceDecision.SQL, StatementTimeout: timeout, MaxRows: provenanceEvidenceRows},
+			Visible:    dataconnector.QueryRequest{SQL: decision.SQL, StatementTimeout: timeout, MaxRows: reservation.AllowedRows, ViewRegistry: viewExpectation},
+			Provenance: dataconnector.QueryRequest{SQL: provenanceDecision.SQL, StatementTimeout: timeout, MaxRows: provenanceEvidenceRows, ViewRegistry: viewExpectation},
 		})
 		data, provenanceData, queryErr = pair.Visible, pair.Provenance, pairErr
 	}
@@ -911,7 +979,13 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 			code = string(connectorErr.Code)
 		}
 		settlement.ErrorCode = code
-		if code == string(dataconnector.CodeConnection) || code == string(dataconnector.CodeInvalidQuery) {
+		if code == string(dataconnector.CodeViewSemanticChanged) {
+			s.releaseQueryBudget(ctx, queryID, code)
+			if protocolGrant.Core.ViewBindingDigest != "" {
+				observed := viewSemanticObservationDigest(protocolGrant.Core.ViewBindingDigest, queryErr)
+				_, _ = s.store.MarkTaskViewSemanticChanged(ctx, task.ID, observed)
+			}
+		} else if code == string(dataconnector.CodeConnection) || code == string(dataconnector.CodeInvalidQuery) {
 			s.releaseQueryBudget(ctx, queryID, code)
 		} else {
 			s.markQueryIndeterminate(ctx, queryID, code)
@@ -1089,6 +1163,34 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 		}
 	}
 	return result, nil
+}
+
+func (s *Service) replayQueryIfPresent(ctx context.Context, taskID, requestID, requestDigest string) (any, bool, error) {
+	existing, err := s.store.GetQueryByRequestID(ctx, taskID, requestID)
+	if errors.Is(err, control.ErrNotFound) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	if existing.RequestDigest != requestDigest {
+		return nil, true, toolError(control.ErrIdempotencyConflict)
+	}
+	replayed, err := s.queryReplayResponse(ctx, existing)
+	return replayed, true, err
+}
+
+// replayPreparationFailure closes the idempotency window between the public
+// entrypoint's first request-id lookup and semantic View preparation. A
+// concurrent exact request may have committed a durable terminal outcome just
+// before preparation observes REQUIRE_REBIND or a new registry revision; that
+// outcome takes precedence over the newly observed preparation failure.
+func (s *Service) replayPreparationFailure(ctx context.Context, taskID, requestID, requestDigest string, preparationErr error) (any, error) {
+	replayed, found, err := s.replayQueryIfPresent(ctx, taskID, requestID, requestDigest)
+	if found || err != nil {
+		return replayed, err
+	}
+	return nil, preparationErr
 }
 
 func validateRequestID(requestID string) error {
@@ -1373,29 +1475,37 @@ func (s *Service) policyGrant(grant control.TaskGrant) (sqlpolicy.Grant, error) 
 		if !ok {
 			return sqlpolicy.Grant{}, &mcp.ToolError{Code: apierr.CodeConflict, Message: "任务引用了当前目录中不存在的数据产品"}
 		}
-		parts := strings.Split(product.ReportingView, ".")
-		if len(parts) != 2 {
-			return sqlpolicy.Grant{}, errors.New("validated catalog has invalid reporting view")
-		}
-		for _, scopeName := range product.Scopes {
-			if _, present := scope[scopeName]; !present {
-				return sqlpolicy.Grant{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "任务授权缺少目录要求的强制数据范围"}
-			}
-		}
-		predicates, err := scopePredicates(product, scope)
+		policyProduct, err := catalogPolicyProductGrant(product, grant.ApprovedColumns[name], scope)
 		if err != nil {
 			return sqlpolicy.Grant{}, err
 		}
-		result.Products = append(result.Products, sqlpolicy.ProductGrant{
-			LogicalName: name, PhysicalSchema: parts[0], PhysicalView: parts[1],
-			ApprovedColumns:   append([]string(nil), grant.ApprovedColumns[name]...),
-			AllowedFunctions:  append([]string(nil), product.AllowedFunctions...),
-			AllowedAggregates: append([]string(nil), product.AllowedAggregates...),
-			AllowedOperators:  append([]string(nil), product.AllowedOperators...),
-			MandatoryScope:    predicates,
-		})
+		result.Products = append(result.Products, policyProduct)
 	}
 	return result, nil
+}
+
+func catalogPolicyProductGrant(product catalog.Product, approvedColumns []string, scope map[string]any) (sqlpolicy.ProductGrant, error) {
+	parts := strings.Split(product.ReportingView, ".")
+	if len(parts) != 2 {
+		return sqlpolicy.ProductGrant{}, errors.New("validated catalog has invalid reporting view")
+	}
+	for _, scopeName := range product.Scopes {
+		if _, present := scope[scopeName]; !present {
+			return sqlpolicy.ProductGrant{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "任务授权缺少目录要求的强制数据范围"}
+		}
+	}
+	predicates, err := scopePredicates(product, scope)
+	if err != nil {
+		return sqlpolicy.ProductGrant{}, err
+	}
+	return sqlpolicy.ProductGrant{
+		LogicalName: product.Name, PhysicalSchema: parts[0], PhysicalView: parts[1],
+		ApprovedColumns:   append([]string(nil), approvedColumns...),
+		AllowedFunctions:  append([]string(nil), product.AllowedFunctions...),
+		AllowedAggregates: append([]string(nil), product.AllowedAggregates...),
+		AllowedOperators:  append([]string(nil), product.AllowedOperators...),
+		MandatoryScope:    predicates,
+	}, nil
 }
 
 func scopePredicates(product catalog.Product, scope map[string]any) ([]sqlpolicy.ScopePredicate, error) {
@@ -1840,6 +1950,9 @@ func unsignedPublicReceipt(record control.QueryRecord) map[string]any {
 		"error_code": record.ErrorCode, "created_at": record.CreatedAt, "completed_at": record.CompletedAt,
 		"budget_before": publicBudget(record.BudgetBefore),
 	}
+	if record.ViewBindingDigest != "" {
+		result["view_binding_digest"] = record.ViewBindingDigest
+	}
 	if record.BudgetAfter != nil {
 		result["budget_after"] = publicBudget(*record.BudgetAfter)
 	}
@@ -1855,6 +1968,7 @@ func storedGrantMatchesProtocol(task control.Task, stored control.TaskGrant, pro
 		core.CatalogVersion != task.CatalogVersion || core.CatalogVersion != stored.CatalogVersion ||
 		core.CatalogSHA256 != stored.CatalogDigest ||
 		core.DatasourceID != stored.DatasourceID || core.SchemaDigest != stored.SchemaDigest ||
+		core.ViewBindingDigest != stored.ViewBindingDigest ||
 		!stored.ExpiresAt.Equal(core.ExpiresAt.UTC().Truncate(time.Microsecond)) ||
 		stored.Budget != (control.BudgetLimits{Queries: core.Budget.MaxQueries, Rows: core.Budget.MaxResultRows, DBMS: core.Budget.MaxDBMS}) ||
 		stored.Exposure != (control.ExposureGrant{Limits: control.ExposureLimits{ReleaseFacts: core.Budget.MaxReleaseFacts, InfluenceFacts: core.Budget.MaxInfluenceFacts, OutcomeFacts: core.Budget.MaxOutcomeFacts}, ProfileVersion: core.Budget.ExposureProfileVersion}) ||

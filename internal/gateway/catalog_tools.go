@@ -10,6 +10,7 @@ import (
 	"taskbound.local/agent-data-gateway/internal/mcp"
 	"taskbound.local/agent-data-gateway/internal/queryplan"
 	"taskbound.local/agent-data-gateway/internal/sqllowering"
+	"taskbound.local/agent-data-gateway/internal/viewcompiler"
 )
 
 const catalogReportingSQLProfile = sqllowering.Profile
@@ -42,6 +43,18 @@ func (s *Service) getSQLCapabilities(_ context.Context, _ mcp.Principal, raw jso
 	if err := decodeArgs(raw, &args); err != nil {
 		return nil, err
 	}
+	rewriteErrorCodes := []string{
+		apierr.CodeSQLSyntaxError,
+		apierr.CodeProductNotApproved,
+		apierr.CodeColumnNotApproved,
+		apierr.CodeSQLNotLowerable,
+		apierr.CodeJoinTypeUnsupported,
+		apierr.CodeJoinGraphDisconnected,
+		apierr.CodeJoinKeyTypeMismatch,
+		apierr.CodeCollationMismatch,
+		apierr.CodeSubqueryUnsupported,
+		apierr.CodeViewQueryUnsupported,
+	}
 	return map[string]any{
 		"catalog_version":            s.catalog.CatalogVersion,
 		"sql_profile":                catalogReportingSQLProfile,
@@ -63,23 +76,41 @@ func (s *Service) getSQLCapabilities(_ context.Context, _ mcp.Principal, raw jso
 			"single_product": true,
 			"joined_query":   false,
 		},
+		"semantic_views": map[string]any{
+			"profile_version":                    catalog.ViewContractV1,
+			"nested_dag":                         true,
+			"max_expanded_sources":               queryplan.MaxJoinSources,
+			"max_depth":                          viewcompiler.MaxViewDepth,
+			"max_nodes":                          viewcompiler.MaxViewNodes,
+			"max_dependency_edges":               viewcompiler.MaxDependencyEdges,
+			"max_predicates":                     viewcompiler.MaxPredicates,
+			"max_definition_bytes":               viewcompiler.MaxDefinitionBytes,
+			"terminal_relations":                 []string{"governed_materialized_view"},
+			"join_types":                         []string{"INNER"},
+			"join_predicate":                     "equality",
+			"aggregate_functions":                []string{"count", "sum", "min", "max"},
+			"aggregate_barriers_max":             1,
+			"aggregate_barrier_above":            "projection_only",
+			"query_time_join_with_other_product": false,
+			"order_by":                           false,
+			"limit":                              false,
+			"offset":                             false,
+			"exposure_required":                  true,
+			"shared_child_self_join":             false,
+			"rebind_on_drift":                    true,
+		},
 		"catalog_controls": map[string]any{
 			"columns":    "per_product",
 			"aggregates": "per_product",
 			"operators":  "per_product",
 			"functions":  "per_product",
 		},
-		"repairable_error_codes": []string{
-			apierr.CodeSQLSyntaxError,
-			apierr.CodeProductNotApproved,
-			apierr.CodeColumnNotApproved,
-			apierr.CodeSQLNotLowerable,
-			apierr.CodeJoinTypeUnsupported,
-			apierr.CodeJoinGraphDisconnected,
-			apierr.CodeJoinKeyTypeMismatch,
-			apierr.CodeCollationMismatch,
-			apierr.CodeSubqueryUnsupported,
-		},
+		"rewrite_error_codes": rewriteErrorCodes,
+		"rebind_error_codes":  []string{apierr.CodeViewSemanticChanged},
+		// Backward-compatible alias for clients predating the split between
+		// query rewrites and task rebinds. New clients should use the two
+		// explicit fields above; semantic drift is intentionally not included.
+		"repairable_error_codes": append([]string(nil), rewriteErrorCodes...),
 		"features": map[string]any{
 			"projection":                            true,
 			"filters":                               true,
@@ -141,6 +172,16 @@ func publicDataProduct(product catalog.Product, detailed bool) (map[string]any, 
 		"stable_relation_role": product.StableRelationRole,
 		"allowed_aggregates":   append([]string{}, product.AllowedAggregates...),
 		"sql_profile":          catalogReportingSQLProfile,
+	}
+	if product.ViewContract != nil {
+		result["semantic_view"] = map[string]any{
+			"profile_version": product.ViewContract.ProfileVersion,
+			"nested_dag":      true,
+			"inner_equijoin":  true,
+		}
+		if detailed {
+			result["view_contract"] = *product.ViewContract
+		}
 	}
 	if detailed {
 		result["allowed_operators"] = append([]string{}, product.AllowedOperators...)

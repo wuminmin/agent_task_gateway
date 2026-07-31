@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"strings"
@@ -83,6 +84,75 @@ func TestRepositoryCatalog(t *testing.T) {
 	policy, err := parsed.ResolveTaskPolicy([]string{"expense_detail"})
 	if err != nil || policy.Budget.ExposureProfileVersion != "taskgate-exposure-v4" {
 		t.Fatalf("repository V4 policy = %#v, err=%v", policy, err)
+	}
+}
+
+func TestParseViewContractCandidatesRelaxesOnlyMissingGeneratedContract(t *testing.T) {
+	data, err := os.ReadFile("../../config/catalog.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate := bytes.Replace(data, []byte("    snapshot_publication: expense-summary-v1\n"), nil, 1)
+	if bytes.Equal(candidate, data) {
+		t.Fatal("fixture did not remove the candidate publication")
+	}
+	if _, err := Parse(candidate); !errors.Is(err, ErrInvalidSnapshotPublication) {
+		t.Fatalf("strict Parse error = %v, want %v", err, ErrInvalidSnapshotPublication)
+	}
+	parsed, err := ParseViewContractCandidates(candidate, []string{"expense_summary"})
+	if err != nil {
+		t.Fatalf("candidate parse: %v", err)
+	}
+	if parsed.SHA256 == "" {
+		t.Fatal("candidate parse omitted exact artifact digest")
+	}
+	if _, err := ParseViewContractCandidates(candidate, []string{"expense_detail"}); !errors.Is(err, ErrInvalidSnapshotPublication) {
+		t.Fatalf("unselected missing contract error = %v, want %v", err, ErrInvalidSnapshotPublication)
+	}
+	if _, err := ParseViewContractCandidates(candidate, []string{"Expense Summary"}); !errors.Is(err, ErrInvalidViewContract) {
+		t.Fatalf("invalid candidate name error = %v, want %v", err, ErrInvalidViewContract)
+	}
+}
+
+func TestCatalogViewContractIsAllOrNothingAndCloned(t *testing.T) {
+	data, err := os.ReadFile("../../config/catalog.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	contract := "    view_contract:\n" +
+		"      profile_version: taskgate-view-contract-v1\n" +
+		"      definition_digest: " + digest + "\n" +
+		"      dependency_digest: " + digest + "\n" +
+		"      canonical_plan_digest: " + digest + "\n" +
+		"      interface_digest: " + digest + "\n"
+	withoutOpaquePublication := strings.Replace(string(data), "    snapshot_publication: expense-summary-v1\n", "", 1)
+	withContract := strings.Replace(withoutOpaquePublication, "    stable_relation_role: expense_summary\n",
+		"    stable_relation_role: expense_summary\n"+contract, 1)
+	parsed, err := Parse([]byte(withContract))
+	if err != nil {
+		t.Fatalf("parse View contract: %v", err)
+	}
+	product, found := parsed.LookupProduct("expense_summary")
+	if !found || product.ViewContract == nil || product.ViewContract.ProfileVersion != ViewContractV1 {
+		t.Fatalf("missing parsed View contract: %#v", product.ViewContract)
+	}
+	product.ViewContract.DependencyDigest = strings.Repeat("b", 64)
+	again, _ := parsed.LookupProduct("expense_summary")
+	if again.ViewContract.DependencyDigest != digest {
+		t.Fatal("LookupProduct returned an aliased View contract")
+	}
+
+	invalid := strings.Replace(withContract, "      interface_digest: "+digest,
+		"      interface_digest: not-a-digest", 1)
+	if _, err := Parse([]byte(invalid)); !errors.Is(err, ErrInvalidViewContract) {
+		t.Fatalf("invalid View contract error = %v, want ErrInvalidViewContract", err)
+	}
+
+	withBoth := strings.Replace(withContract, "    stable_relation_role: expense_summary\n",
+		"    stable_relation_role: expense_summary\n    snapshot_publication: expense-summary-v1\n", 1)
+	if _, err := Parse([]byte(withBoth)); !errors.Is(err, ErrInvalidViewContract) {
+		t.Fatalf("View contract plus opaque publication error = %v, want ErrInvalidViewContract", err)
 	}
 }
 

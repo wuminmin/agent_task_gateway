@@ -68,6 +68,9 @@ func expectedSchemas(logical *catalog.Catalog) (catalog.Source, []dataconnector.
 		} else if selected.Name != source.Name {
 			return catalog.Source{}, nil, fmt.Errorf("multiple sources are not supported")
 		}
+		if product.ViewContract != nil {
+			continue
+		}
 		schema, view, ok := strings.Cut(product.ReportingView, ".")
 		if !ok || schema == "" || view == "" {
 			return catalog.Source{}, nil, fmt.Errorf("invalid reporting view %q", product.ReportingView)

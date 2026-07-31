@@ -70,11 +70,11 @@ func buildRelationalExposureContext(plan queryplan.QueryPlan, compilation queryp
 		metering[name] = sortedStringSet(set)
 		productList = append(productList, product)
 	}
-	algebra, err := relationalAlgebraPlan(plan, compilation, products)
-	if err != nil {
-		return nil, err
+	semanticProducts := make(map[string]queryplan.Product, len(products))
+	for name, product := range products {
+		semanticProducts[name] = relationalQueryProduct(product, stringSetFromSlice(product.FieldNames()))
 	}
-	normal, err := queryplan.NormalizeAlgebraV2(algebra)
+	normal, err := queryplan.SemanticNormalForm(plan, compilation, semanticProducts)
 	if err != nil {
 		return nil, err
 	}

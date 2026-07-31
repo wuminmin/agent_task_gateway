@@ -50,6 +50,9 @@ func TestTaskGrantCoreV1RejectsEveryExpansionDimension(t *testing.T) {
 		"agent identity": func(candidate *TaskGrantCoreV1) { candidate.AgentID = "agent:other" },
 		"datasource id":  func(candidate *TaskGrantCoreV1) { candidate.DatasourceID = "taskgate-other" },
 		"schema digest":  func(candidate *TaskGrantCoreV1) { candidate.SchemaDigest = strings.Repeat("d", 64) },
+		"view binding digest": func(candidate *TaskGrantCoreV1) {
+			candidate.ViewBindingDigest = strings.Repeat("e", 64)
+		},
 		"product": func(candidate *TaskGrantCoreV1) {
 			candidate.ApprovedProducts = append(candidate.ApprovedProducts, "payroll")
 			candidate.ApprovedColumns["payroll"] = []string{"salary"}
@@ -126,6 +129,9 @@ func TestTaskGrantCoreV1DelegationPreservesFamilyAndNarrowsAuthority(t *testing.
 		"different publication catalog digest": func(child *TaskGrantCoreV1) {
 			child.CatalogSHA256 = strings.Repeat("e", 64)
 		},
+		"different view binding digest": func(child *TaskGrantCoreV1) {
+			child.ViewBindingDigest = strings.Repeat("f", 64)
+		},
 		"release expansion": func(child *TaskGrantCoreV1) { child.Budget.MaxReleaseFacts = 101 },
 		"product expansion": func(child *TaskGrantCoreV1) {
 			child.ApprovedProducts = append(child.ApprovedProducts, "payroll")
@@ -141,6 +147,41 @@ func TestTaskGrantCoreV1DelegationPreservesFamilyAndNarrowsAuthority(t *testing.
 				t.Fatalf("CheckDelegation error = %v, want ErrGrantExpansion", err)
 			}
 		})
+	}
+}
+
+func TestAuthorizationViewBindingDigestIsOptionalValidatedAndPreserved(t *testing.T) {
+	issuedAt := time.Date(2026, 7, 22, 9, 0, 0, 0, time.UTC)
+	manifest := AuthorizationManifestV1{
+		Version: AuthorizationManifestV1Version, TaskID: "task-view-binding",
+		HumanSubject: "alice", AgentID: "agent-1", DeclaredObjective: "analyze governed view",
+		Products:        []string{"expense_summary"},
+		ApprovedColumns: map[string][]string{"expense_summary": {"month"}},
+		MandatoryScope:  map[string]any{"department": "sales"}, Sensitivity: SensitivityLow,
+		Budget: AuthorizationBudgetV1{MaxQueries: 1, MaxResultRows: 10, MaxDBMS: 1000,
+			PerQueryTimeoutMS: 1000, TaskTTLMS: 60_000},
+		CatalogVersion: "catalog-v1", CatalogSHA256: strings.Repeat("a", 64),
+		DatasourceID: "taskgate-test-expenses", SchemaDigest: strings.Repeat("b", 64),
+		CallbackContext: "callback-view-binding", Nonce: strings.Repeat("0", 32),
+	}
+	if err := manifest.Validate(); err != nil {
+		t.Fatalf("legacy manifest without view binding: %v", err)
+	}
+	manifest.ViewBindingDigest = "not-a-digest"
+	if err := manifest.Validate(); err == nil {
+		t.Fatal("malformed view binding digest was accepted")
+	}
+	manifest.ViewBindingDigest = strings.Repeat("c", 64)
+	core, err := CoreFromManifest(manifest, strings.Repeat("d", 64), issuedAt)
+	if err != nil {
+		t.Fatalf("CoreFromManifest: %v", err)
+	}
+	if core.ViewBindingDigest != manifest.ViewBindingDigest {
+		t.Fatalf("core view binding digest = %q, want %q", core.ViewBindingDigest, manifest.ViewBindingDigest)
+	}
+	core.ViewBindingDigest = "invalid"
+	if err := core.Validate(); err == nil {
+		t.Fatal("malformed core view binding digest was accepted")
 	}
 }
 

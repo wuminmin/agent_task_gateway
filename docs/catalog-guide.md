@@ -1,6 +1,13 @@
 # Catalog 编写指南
 
-`config/catalog.yaml` 是 Gateway 的可信、版本化逻辑数据契约。Gateway 校验 YAML 后，会在启动、readiness 检查和每个新查询前，把其中声明的 Reporting View 列顺序与 PostgreSQL 通用类型同实时 Schema 做 Attestation；任何漂移都会关闭式拒绝。目录仍不是数据库元数据缓存，Reporting View 和只读角色权限必须由管理员共同维护。
+`config/catalog.yaml` 是 Gateway 的可信、版本化逻辑数据契约。没有
+`view_contract` 的 Product 沿用 source-level Schema Attestation：Gateway 在启动、
+readiness 和每个新查询前核对其 Reporting View 的定义、列顺序、类型与 collation。
+声明 `view_contract` 的 semantic root 明确排除在该全局 digest 之外，改由任务申请、
+OA 激活和每个新查询的 task-scoped transitive View binding 校验；这样一个无关
+semantic View 的替换不会使全部任务一起失效。两条路径都关闭式拒绝漂移。目录仍
+不是数据库元数据缓存，Reporting View、terminal publication 和只读角色权限必须由
+管理员作为一个受审发布单元维护。
 
 ## 顶层结构
 
@@ -43,7 +50,7 @@ sources:
 - `address` 只写主机，不得包含空白、路径、`@` 或凭据。
 - `port` 必须为 1–65535；数据库名和用户名必须是简单标识符。
 - `postgres_major_version` 必须匹配运行时业务 PostgreSQL 主版本。
-- `schema_digest` 是 Gateway 启动时要求的 Reporting View attestation 摘要，包含列顺序、通用 PostgreSQL 类型和 PostgreSQL 规范化后的 View 定义。
+- `schema_digest` 是 Gateway 启动时要求的 legacy/terminal Reporting View attestation 摘要，包含列顺序、通用 PostgreSQL 类型、collation evidence 和 PostgreSQL View 定义。带 `view_contract` 的 semantic roots 不进入这个 source-wide 摘要，而由下文的四摘要 contract 与 task binding 管理；不要把两者混成一个全库失效开关。
 - `secretRef` 必须引用大写环境变量，可写 `GATEWAY_DB_PASSWORD` 或 `env:GATEWAY_DB_PASSWORD`。
 - `password`、`passwd`、`pwd`、`dsn`、带 `user:password@host` 的地址等明文秘密会被语法树预检拒绝，错误不会回显秘密。
 
@@ -133,7 +140,7 @@ products:
 - `name`、字段名必须为小写逻辑标识符，且不得重复。
 - `source` 必须存在。`reporting_view` 必须严格匹配未加引号的 `reporting.<lowercase_name>`，同一 View 不能发布两次。
 - 必须提供描述、至少一个字段和至少一个强制 Scope；每个 Scope 必须对应发布字段。
-- `snapshot` 是稳定、非空的数据发布版本。V4 还必须用 `snapshot_publication` 引用实际冻结、manifest-proven 的发布物；它不是自动采集的 MVCC transaction ID。
+- `snapshot` 是稳定、非空的数据发布版本。V4 terminal Product 必须用 `snapshot_publication` 引用实际冻结、manifest-proven 的发布物；可展开 semantic root 改用 `view_contract`，且二者互斥。它不是自动采集的 MVCC transaction ID。
 - V2 产品必须同时提供 `fact_namespace` 与 `stable_relation_role`。所有 `text`/`character`/`character varying` 字段还必须固定数据库实际报告的 deterministic collation 名称及版本；Gateway 会在每次 schema 证明中核对名称、版本和 `collisdeterministic`。数据库 libc/ICU 升级后应先提升 Catalog 版本并重新审批，而不是静默接受排序语义漂移。
 - `entity_key` 必须是非空、不重复的已发布字段列表，并在该 snapshot 内唯一、稳定。Gateway 会在 exposure 路径内部读取这些字段用于 FactID，但不会把未获批的 key 字段返回客户端。
 - 支持的敏感级别从低到高为 `public`、`low`、`medium`、`high`、`restricted`。
@@ -143,6 +150,103 @@ products:
 - 函数和聚合必须是未限定的小写名，且不能是文件、网络、管理、睡眠等禁止函数；运行时还会经过 SQL AST 的危险函数硬拒绝表。
 - Exposure V2 只允许 `count`、`sum`、`min`、`max`；`avg` 即使在传统 SQL allowlist 中存在，也不能进入 V2 计划。
 - 运算符必须来自安全词汇表。允许列表是上限，不会使 AST 原本不支持的 SQL 特性变为可用。
+
+## Semantic View Contract（Phase B）
+
+普通 Product 可以作为 governed terminal publication；若一个 Product 的
+`reporting_view` 是需要递归展开的 semantic root，则增加：
+
+```yaml
+    view_contract:
+      profile_version: taskgate-view-contract-v1
+      definition_digest: <64-lowercase-hex>
+      dependency_digest: <64-lowercase-hex>
+      canonical_plan_digest: <64-lowercase-hex>
+      interface_digest: <64-lowercase-hex>
+```
+
+四个摘要必须由同一个只读 `REPEATABLE READ` PostgreSQL registry snapshot 和同一
+版 compiler 共同生成，不能从 SQL 文本手工拼装：
+
+| 字段 | 内容 |
+|---|---|
+| `definition_digest` | semantic root 的 exact `pg_get_viewdef` bytes；保留 SQL literal 内空白等有意义差异 |
+| `dependency_digest` | schema-qualified transitive closure、依赖拓扑、各节点 definition 与 ordered interface |
+| `canonical_plan_digest` | 展开后 typed canonical SPJG/JoinMany algebra；不包含 PostgreSQL OID、输入 alias 或中间 View 名 |
+| `interface_digest` | root 的有序 output name、canonical type、collation 及 version |
+
+Catalog 加载会检查 profile 和摘要形状；任务申请时才从实时 PostgreSQL 重新发现
+本次请求的 roots、编译 closure，并要求四者和 Product `fields` 同时相等。即使一次
+无关格式改动没有改变 `canonical_plan_digest`，exact definition/dependency evidence
+仍可能变化并要求重新发布、重新审批；这是保守的 revision governance，而不是把
+SQL 文本哈希冒充 relational semantic digest。
+
+候选 Catalog 写好 root Product（首次生成时尚可没有 `view_contract`）后，用只读业务
+库凭据生成待审核证据：
+
+```bash
+go run ./evaluation/cmd/view-contract \
+  -catalog ./config/catalog.candidate.yaml \
+  -dsn "$TASKGATE_VIEW_CONTRACT_DSN" \
+  -products customer_value
+```
+
+空 `-products` 会重新生成已有 `view_contract` 的 products；显式列表用于首次生成。
+命令只向 stdout 输出 registry revision、四摘要和依赖闭包，不修改 Catalog。管理员应
+把输出审入新的版本化 candidate artifact，并在同一发布流程中验证后再激活；不要把
+DSN 或输出中的物理依赖名交给 Agent。
+
+### 可展开边界
+
+- 只有 schema-qualified、未加引号的小写普通 View 会递归展开。已治理、已填充的 materialized view 必须对应一个没有 `view_contract` 的 Catalog Product，并作为 opaque terminal；其 seed tables 不进入在线 DAG。
+- 所有 terminal 必须来自同一 Source 的 governed Product。裸表、partitioned/foreign/system relation、临时或 unlogged relation、递归/循环依赖以及 relation function 都拒绝。
+- 每个 View 只允许 direct projection/rename、column-to-literal `AND` filters、显式 `INNER JOIN ... ON` 的 column equality conjunction、`GROUP BY` 和 `COUNT/SUM/MIN/MAX`。多 equality predicates 和任意 connected JoinGraph 形状都可转换为现有 `join_many`；递归层数不限制为两层，但必须位于下述 depth ceiling 内。
+- 一个 closure 最多一道 aggregate barrier；聚合输出之上的 View 只能继续做单输入 direct projection/rename，不能 filter、join 或再次 aggregate。CTE/subquery、set operation、`DISTINCT`、outer/cross/natural/`USING`/non-equality Join、scalar function/cast、window、`HAVING`、`ORDER BY`/pagination 均不在 profile 内。
+- Expanded governed sources 最多 16 个；View depth 最多 16、reachable relation nodes 最多 64、dependency edges 最多 128、reachable definition bytes 合计最多 1 MiB。这些是独立的复杂度/DoS ceilings，不是“支持任意深度或任意 SQL”的声明。
+- Shared child 在 discovery DAG 中只记录一次，但编译按每次 occurrence 展开以保持 bag semantics；若因此重复同一 Product 或 stable role，则作为 unsupported self-join 关闭式拒绝。
+
+### 查询时展开与 Scope
+
+`view_contract` 不只是漂移摘要。查询一个 semantic root 时，Gateway 用已验证
+Artifact 将 public output 通过 `Artifact.Output.FieldID` 合成到 terminal 稳定字段，
+然后将展开的 Scan/`join_many` 计划交给现有 `CompileRelational` exposure
+和 V4 ordinal compiler。因此 semantic root 不需要、也不得同时声明伪造的
+`snapshot_publication`；每个 governed terminal 使用它自己的 publication/sidecar。
+
+签名 Manifest/Grant 对外始终只批准 semantic root 及其 public fields/Scope。
+Gateway 每次查询从已绑定 Artifact 派生最小 terminal internal ProductGrants，
+它们只是策略编译输入，不写回 Control PG，不加入签名 Grant，也不暴露给
+Agent。每个 root scope output 必须映射到确定的 terminal FieldID，并且展开计划
+中每个 terminal Product 的 mandatory scope 都必须被已批准谓词覆盖。任一 scope
+缺失、映射到错误 stable role/字段或与 terminal Catalog 冲突，都在 reservation 前
+fail closed。
+
+当前 runtime composition 只接受一个 semantic root 作为外层 source。查询时将它再与
+其他 Product Join，或在 root 上方使用 `ORDER BY`/`LIMIT`/`OFFSET`，均关闭式
+拒绝；这不影响 root closure 内部最多 16 源的 connected equi-join。已有
+aggregate barrier 的 Artifact 之上仅可投影/重排已计算的 public outputs。
+
+### Task binding 与变更发布
+
+四摘要校验通过后，Gateway 为任务中每个 product 生成
+`canonical_plan_digest + dependency_digest + interface_digest` contract，按逻辑
+product name 排序并计算 `taskgate-task-view-binding-v1`。这个 digest 进入
+`AuthorizationManifestV1`、OA 签名 Grant、Control PG immutable binding set 和后续
+query record；反向 dependency rows 只用于定位受影响 task，不向 Agent 暴露物理名。
+OA 回调在激活前重新校验，查询执行前再重算；Connector 还会在实际 SQL 的同一个
+只读 `REPEATABLE READ` 事务中核 registry revision。
+
+任何 root/child definition、dependency、expanded plan 或 public interface 漂移都会
+返回 `VIEW_SEMANTIC_CHANGED`，使旧任务的正交状态单向进入 `REQUIRE_REBIND`。
+Catalog/Grant 不允许原地换摘要；管理员应发布更新后的 Catalog，然后由调用者创建
+新 task 并重新完成人工 OA 审批。旧 task 已完成的 exact request replay、result artifact
+和 receipt 保持原有保留/验证语义。Delegated child 必须继承相同 binding，不能借委托
+切换 View revision。
+
+`evaluation/cmd/schema-digest` 只计算 source-level legacy/terminal digest，并自动跳过
+semantic roots；它不能替代上述四摘要编译。发布工具必须把四摘要和 Catalog 修改放在
+同一个 candidate artifact 中，并在切换前运行 compiler/property/真实 PostgreSQL
+regression suite。
 
 ## Approval Route
 
@@ -207,6 +311,10 @@ Profile 是经治理、允许被完整消耗的容量边界。Agent 不能选择
 不释放当前结果；后续调用仍可选择更低成本或完全重复的已知事实。
 
 ## 最小完整示例
+
+下面示例是一个没有 semantic root 的 terminal/legacy Product，因此只使用
+source-level `schema_digest`。如需把另一个普通 View 作为 Nested View root，应按上节
+增加 `view_contract`，而不是把它加入同一个全局 schema digest。
 
 ```yaml
 catalog_version: "2026-07-21.2"
@@ -289,13 +397,13 @@ budget_profiles:
 
 ## 发布清单
 
-1. 在 PostgreSQL 创建或更新 `reporting.*` View，只选择允许发布的列。
+1. 在 PostgreSQL 创建或更新 `reporting.*` View，只选择允许发布的列；semantic root 及全部 ordinary child 必须落在上节 restricted fragment。
 2. 只向专用只读角色授予目标 View 的 `SELECT`，确保对底层业务 Schema 无权限。
 3. 冻结 snapshot，运行 `cmd/snapshot-index`，完整验证 bundle 后把计算出的 publication digests 写入 Candidate Catalog。
-4. 更新 Catalog，确认 Product 与 publication 的 source/namespace/snapshot、逻辑字段、类型、Scope 和稳定 `entity_key` 一致。
+4. 更新 Catalog，确认 Product 与 publication 的 source/namespace/snapshot、逻辑字段、类型、Scope 和稳定 `entity_key` 一致。对 semantic root，在同一个 registry snapshot 中生成并核对 definition/dependency/canonical-plan/interface 四摘要；不要手填或复用旧摘要。
 5. 为产品最高有效敏感级别配置审批路由和允许完整消耗的预算 Profile；不要依赖 Agent “节约”来补救过大的 Profile。
 6. 提升 `catalog_version`。版本切换会使旧 ACTIVE 任务拒绝查询，应先规划任务排空或重新申请。
-7. 运行 `make verify`，再用 `docker compose up --build -d --wait` 启动；Catalog/artifact 非法时 Gateway 不会进入 Ready。
-8. 分别用允许、越权字段、缺 Scope、未知 handle/ordinal、损坏 dictionary、物理表名和危险函数做负向验证。
+7. 运行 `make verify`，确认 nested/direct equivalence、determinism、alias/join-order invariance、drift、cycle/limit/aggregate-barrier 和真实 PostgreSQL replacement tests，再用 `docker compose up --build -d --wait` 启动；这些测试是 bounded profile 的实现证据，不是任意 SQL 的形式化证明。
+8. 分别用允许、越权字段、缺 Scope、未知 handle/ordinal、损坏 dictionary、物理表名、危险函数、child View replacement 和不支持的 aggregate wrapper 做负向验证。
 
 不要在 Catalog 中写密码、DSN、OA Token、模型 Key 或任何真实查询结果。
