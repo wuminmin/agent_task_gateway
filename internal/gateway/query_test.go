@@ -135,6 +135,61 @@ func TestOrdinalSemanticAuthorizationDigestIgnoresVolatileResourceCeilings(t *te
 	}
 }
 
+func TestOrdinalSemanticAuthorizationDigestV5UsesCanonicalIdentity(t *testing.T) {
+	planDigest := strings.Repeat("1", 64)
+	manifestDigest := strings.Repeat("2", 64)
+	footprint := &queryplan.PredicateFootprint{
+		Version:         "taskgate-predicate-footprint-v1",
+		ContextSHA256:   strings.Repeat("3", 64),
+		AtomSetSHA256:   strings.Repeat("4", 64),
+		UniqueAtomCount: 3,
+		RawLiteralCount: 4,
+		DuplicateCount:  1,
+	}
+	first := ordinalSemanticAuthorizationDigestV5(planDigest, manifestDigest, footprint)
+
+	// Raw literal multiplicity is request metadata. Canonical plan and atom-set
+	// identity remain unchanged after reordering or deduplicating IN members.
+	equivalent := *footprint
+	equivalent.RawLiteralCount = 3
+	equivalent.DuplicateCount = 0
+	if got := ordinalSemanticAuthorizationDigestV5(planDigest, manifestDigest, &equivalent); got != first {
+		t.Fatalf("equivalent V5 predicate syntax partitioned semantic identity: %s != %s", got, first)
+	}
+
+	cases := []struct {
+		name      string
+		plan      string
+		manifest  string
+		footprint queryplan.PredicateFootprint
+	}{
+		{name: "plan", plan: strings.Repeat("5", 64), manifest: manifestDigest, footprint: *footprint},
+		{name: "manifest", plan: planDigest, manifest: strings.Repeat("6", 64), footprint: *footprint},
+		{name: "context", plan: planDigest, manifest: manifestDigest, footprint: func() queryplan.PredicateFootprint {
+			changed := *footprint
+			changed.ContextSHA256 = strings.Repeat("7", 64)
+			return changed
+		}()},
+		{name: "atom set", plan: planDigest, manifest: manifestDigest, footprint: func() queryplan.PredicateFootprint {
+			changed := *footprint
+			changed.AtomSetSHA256 = strings.Repeat("8", 64)
+			return changed
+		}()},
+		{name: "atom count", plan: planDigest, manifest: manifestDigest, footprint: func() queryplan.PredicateFootprint {
+			changed := *footprint
+			changed.UniqueAtomCount++
+			return changed
+		}()},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ordinalSemanticAuthorizationDigestV5(tc.plan, tc.manifest, &tc.footprint); got == first {
+				t.Fatal("semantic identity change did not partition V5 authorization digest")
+			}
+		})
+	}
+}
+
 func TestOrdinalSemanticReplayBindingPinsCompilerOrderingAndPaginationVersions(t *testing.T) {
 	binding := ordinalSemanticReplayBinding("task-versioned", strings.Repeat("1", 64), strings.Repeat("2", 64),
 		strings.Repeat("3", 64), strings.Repeat("4", 64), strings.Repeat("5", 64), strings.Repeat("6", 64))

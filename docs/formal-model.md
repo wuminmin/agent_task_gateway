@@ -130,6 +130,9 @@ where `A` is the exact set of normalized caller-controlled predicate atoms and
 and cardinality, so \(|E_O|=|A|+1\). Atoms mean “tested”, not a per-condition
 truth value. The signed constraint set \(C\) includes the atomizer version and
 raw-literal, unique-atom, per-atom payload, and total-payload limits.
+Both `A` and `c` are semantic Fact objects. The physical Merkle membership is
+\(\{\operatorname{FactHash}(f):f\in E_O\}\); Control PostgreSQL retains each
+canonical payload and rejects same-hash/different-payload collisions.
 
 ### 3.4 A query sequence
 
@@ -188,10 +191,13 @@ head and recomputes all three differences. The legacy representation uses a
 root-scoped database lock and unique FactID rows. In either representation,
 an over-budget or persistence failure leaves all three \(K_j\) unchanged.
 
-The visible result is buffered before this transition. It is not returned to
-the agent until settlement has committed and the canonical encrypted result
-artifact is available. Artifact promotion recovery does not rerun the business
-query or refund an already committed settlement.
+The visible result is staged privately before this transition. Settlement
+atomically commits the three ledgers, terminal evidence, V7 settlement receipt,
+and a PENDING artifact intent. Canonical promotion and AVAILABLE/consumption
+audit are subsequent and recoverable. The legal ordering is
+`Observed ⊆ Available ⊆ Accounted`; downloads (`Observed`) are intentionally
+not tracked. Artifact promotion recovery does not rerun the business query or
+refund an already committed settlement.
 
 ## 5. Properties
 
@@ -273,13 +279,15 @@ Let \(G_S\) be the schema-qualified, attested relation registry fixed by \(S\).
 For an accepted semantic View root \(v\), the partial compiler
 
 \[
-\operatorname{Expand}_{G_S,C}(v)=e
+\operatorname{Expand}_{G_S,C}(v)=(e,\mu,\beta_v)
 \]
 
 recursively replaces ordinary View nodes with the corresponding operators in
 the closed core algebra. Governed materialized Views remain opaque terminal
-Products. The public root interface is mapped to stable terminal field IDs
-before the caller's allowed outer projection is composed.
+Products. The map \(\mu\) binds the public root interface to stable terminal
+field IDs. The binding \(\beta_v\) retains root Product/field identity,
+resolved expressions, the signed View contract, and predicate context before
+the caller's allowed outer projection is composed.
 
 **Theorem (view expansion preservation).** If expansion is defined, then for
 the same public projection and immutable input instance:
@@ -290,14 +298,16 @@ the same public projection and immutable input instance:
   &=\operatorname{Values}_{core}(e,I_S),\\
 \operatorname{Annotations}_{view}(v,I_S)
   &=\operatorname{Annotations}_{core}(e,I_S),\\
-E(T,q[v])&=E(T,q[e]).
+E(T,q[v])&=E(T,q[e]^{\beta_v}).
 \end{aligned}
 \]
 
 The first equality is PostgreSQL bag/result preservation, the second preserves
 stable row/cell identity and positive-output annotations, and the third
-preserves all three exposure dimensions. Equal expanded normal forms and
-release cardinalities also make the outcome facts equal.
+preserves all three exposure dimensions only for the internal lowered query
+that retains \(\beta_v\). An ordinary public query directly against a terminal
+Product can have equal Release/dependency effects but different V5 Outcome
+FactIDs because it represents a different public-product contract.
 
 **Proof sketch.** Induct over the acyclic View dependency DAG. A terminal is
 the same governed Scan. Direct projection/rename, conjunctive literal filter,
@@ -306,7 +316,7 @@ typed core rule; the induction hypothesis supplies equal child bags and
 annotations. Stable Catalog semantic identifiers rather than SQL aliases
 determine the normalized fields and annotations from which FactIDs are
 materialized. Canonical composition therefore yields the same annotated core
-plan. Exact definition, transitive-dependency, canonical-plan, and
+plan, while \(\beta_v\) preserves the V5 predicate bindings. Exact definition, transitive-dependency, canonical-plan, and
 ordered-interface digests bind the induction inputs, and query-time
 rediscovery detects drift before execution.
 
@@ -331,6 +341,7 @@ closed. It is not a theorem about arbitrary PostgreSQL View rewriting.
   Bloom filter or silent hash-collision assumption.
 - The proof sketches are mathematical arguments for the specified abstraction.
   [ExposureLedger.tla](../formal/ExposureLedger.tla),
+  [ArtifactPublication.tla](../formal/ArtifactPublication.tla),
   [ExposureBitmapRefinement.tla](../formal/ExposureBitmapRefinement.tla), and
   [OutcomeHashSetRefinement.tla](../formal/OutcomeHashSetRefinement.tla) add
   finite-state model checks, while [REFINEMENT.md](../formal/REFINEMENT.md)

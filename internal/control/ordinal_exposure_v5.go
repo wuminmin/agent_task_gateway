@@ -1342,7 +1342,7 @@ WHERE seen.root_task_id=$1 AND seen.observation_sha256=$2`, reservation.RootTask
 	}
 	if profile != exposure.ProfileV5 || reservation.ProfileVersion != exposure.ProfileV5 ||
 		dictionarySet != reference.DictionarySetDigest || setCatalog != queryCatalog ||
-		outcomeCount != atomCount+1 || firstEpoch > rootEpoch {
+		outcomeCount != atomCount+1 || reservation.EstimatedOutcomeFacts != outcomeCount || firstEpoch > rootEpoch {
 		return nil, metrics, errors.New("V5 observation reference dictionary/profile mismatch")
 	}
 	if status == exposureSettled {

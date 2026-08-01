@@ -32,6 +32,9 @@ SCALE = ROOT / "evaluation/exposure-scale/results.json"
 SCALE_SOURCE_PROVENANCE = ROOT / "evaluation/exposure-performance/evidence/legacy-scale-source.json"
 FORMAL = ROOT / "formal/results/exposure_ledger.json"
 FORMAL_BITMAP = ROOT / "formal/results/exposure_bitmap_refinement.json"
+FORMAL_OUTCOME = ROOT / "formal/results/outcome_hash_set_refinement.json"
+FORMAL_ARTIFACT = ROOT / "formal/results/artifact_publication.json"
+V5_OUTCOME = ROOT / "evaluation/v5-outcome/evidence.json"
 OUTPUT = PAPER_DIR / "generated/evidence.tex"
 
 PERFORMANCE_SOURCE_DIRS = (
@@ -660,6 +663,49 @@ def validate_formal(path: Path, label: str) -> dict:
     return result
 
 
+def validate_v5_outcome_evidence() -> dict:
+    result = load_json(V5_OUTCOME)
+    require(
+        set(result) == {
+            "schema_version", "submission_commit", "test_source", "test_source_sha256",
+            "deterministic_set", "postgres_committed_graph", "same_prefix_multichunk",
+        }
+        and result.get("schema_version") == 1,
+        "V5 outcome evidence schema is invalid",
+    )
+    source_relative = result.get("test_source", "")
+    source = ROOT / source_relative
+    require(
+        source_relative == "internal/control/outcome_hashset_v5_test.go"
+        and source.is_file()
+        and re.fullmatch(r"[0-9a-f]{40}", result.get("submission_commit", "")) is not None
+        and result.get("test_source_sha256") == sha256(source),
+        "V5 outcome evidence source binding is stale",
+    )
+    require(
+        result.get("deterministic_set") == {
+            "members": 10000, "permutation_deterministic": True,
+            "duplicate_idempotent": True, "tamper_rejected": True,
+        }
+        and result.get("postgres_committed_graph") == {
+            "root_cardinality": 100000, "root_block_count": 256,
+            "candidate_cardinality": 1, "blocks_loaded": 1,
+            "leaves_loaded": 1, "hashes_loaded": 2,
+            "blocks_reused": 255, "leaves_changed": 1,
+            "replay_changed_objects": 0,
+            "transaction_boundary": "commit_then_independent_merge",
+        }
+        and result.get("same_prefix_multichunk") == {
+            "members": 8193, "prefix16": "4224", "chunk_size": 4096,
+            "chunks_before": 3, "insert_positions": ["first", "middle", "last"],
+            "exact_oracle_match": True, "contiguous_rechunking": True,
+            "missing_chunk_rejected": True, "replay_changed_objects": 0,
+        },
+        "V5 outcome evidence counters or asserted properties are invalid",
+    )
+    return result
+
+
 def main() -> None:
     report = validate_exposure()
     performance = validate_performance()
@@ -671,6 +717,9 @@ def main() -> None:
     rq5 = validate_rq5_evidence()
     formal = validate_formal(FORMAL, "exposure ledger")
     bitmap_formal = validate_formal(FORMAL_BITMAP, "bitmap refinement")
+    outcome_formal = validate_formal(FORMAL_OUTCOME, "outcome hash-set refinement")
+    artifact_formal = validate_formal(FORMAL_ARTIFACT, "artifact publication")
+    v5_outcome = validate_v5_outcome_evidence()
     rq1 = report["rq1_ground_truth"]
     rq2 = report["rq2_rewrite_invariance"]
     rq3 = report["rq3_anti_arbitrage"]
@@ -933,6 +982,22 @@ def main() -> None:
         rf"\newcommand{{\BitmapFormalStates}}{{{comma(bitmap_formal['states_generated'])}}}",
         rf"\newcommand{{\BitmapFormalDistinct}}{{{comma(bitmap_formal['distinct_states'])}}}",
         rf"\newcommand{{\BitmapFormalDepth}}{{{bitmap_formal['search_depth']}}}",
+        rf"\newcommand{{\OutcomeFormalStates}}{{{comma(outcome_formal['states_generated'])}}}",
+        rf"\newcommand{{\OutcomeFormalDistinct}}{{{comma(outcome_formal['distinct_states'])}}}",
+        rf"\newcommand{{\OutcomeFormalDepth}}{{{outcome_formal['search_depth']}}}",
+        rf"\newcommand{{\ArtifactFormalStates}}{{{comma(artifact_formal['states_generated'])}}}",
+        rf"\newcommand{{\ArtifactFormalDistinct}}{{{comma(artifact_formal['distinct_states'])}}}",
+        rf"\newcommand{{\ArtifactFormalDepth}}{{{artifact_formal['search_depth']}}}",
+        rf"\newcommand{{\VFiveDeterministicMembers}}{{{comma(v5_outcome['deterministic_set']['members'])}}}",
+        rf"\newcommand{{\VFiveRootCardinality}}{{{comma(v5_outcome['postgres_committed_graph']['root_cardinality'])}}}",
+        rf"\newcommand{{\VFiveRootBlocks}}{{{v5_outcome['postgres_committed_graph']['root_block_count']}}}",
+        rf"\newcommand{{\VFiveBlocksLoaded}}{{{v5_outcome['postgres_committed_graph']['blocks_loaded']}}}",
+        rf"\newcommand{{\VFiveLeavesLoaded}}{{{v5_outcome['postgres_committed_graph']['leaves_loaded']}}}",
+        rf"\newcommand{{\VFiveHashesLoaded}}{{{v5_outcome['postgres_committed_graph']['hashes_loaded']}}}",
+        rf"\newcommand{{\VFiveBlocksReused}}{{{v5_outcome['postgres_committed_graph']['blocks_reused']}}}",
+        rf"\newcommand{{\VFiveLeavesChanged}}{{{v5_outcome['postgres_committed_graph']['leaves_changed']}}}",
+        rf"\newcommand{{\VFiveReplayChangedObjects}}{{{v5_outcome['postgres_committed_graph']['replay_changed_objects']}}}",
+        rf"\newcommand{{\VFiveSamePrefixMembers}}{{{comma(v5_outcome['same_prefix_multichunk']['members'])}}}",
     ]
     rq5_offline = rq5["offline"]
     rq5_online = rq5["online"]

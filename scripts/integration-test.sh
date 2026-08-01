@@ -611,6 +611,42 @@ assert_contains "$detail_query" '"isError":false' "detail query after Bob approv
 assert_contains "$detail_query" '"receipt_no"' "detail query after Bob approval"
 pass "Bob approval gates and then enables a high-sensitivity detail query"
 
+# Exercise the complete V5 caller-predicate path, including duplicate removal
+# and NULL preservation. A reordered/deduplicated IN list must reuse the
+# committed observation without another Business PostgreSQL execution. Keep
+# this evidence task separate so its novel atoms do not consume the budget of
+# the detail-task scenarios below.
+predicate_request=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
+  '{"jsonrpc":"2.0","id":180,"method":"tools/call","params":{"name":"request_data_task","arguments":{"objective":"验证销售部报销谓词足迹与语义重放","data_products":["expense_detail"],"columns":{"expense_detail":["receipt_no","amount"]},"scopes":{"department":["销售部"]}}}}')
+assert_contains "$predicate_request" '"approval_mode":"manual"' "V5 caller predicate approval route"
+predicate_task=$(json_string "$predicate_request" task_id)
+predicate_oa_url=$(json_string "$predicate_request" oa_url)
+[ -n "$predicate_task" ] && [ -n "$predicate_oa_url" ] || fail "predicate request omitted task_id or oa_url"
+predicate_draft=${predicate_oa_url##*/}
+oa_action "$ALICE_COOKIE" "$predicate_draft" submit
+wait_task_state "$predicate_task" AWAITING_APPROVAL >/dev/null
+oa_action "$BOB_COOKIE" "$predicate_draft" decision approved
+wait_task_state "$predicate_task" ACTIVE >/dev/null
+predicate_query=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
+  "{\"jsonrpc\":\"2.0\",\"id\":181,\"method\":\"tools/call\",\"params\":{\"name\":\"query_sql\",\"arguments\":{\"task_id\":\"$predicate_task\",\"request_id\":\"integration-detail-predicate-1\",\"sql\":\"SELECT receipt_no, amount FROM expense_detail WHERE amount IN (100, NULL, 100, 200) ORDER BY receipt_no\"}}}")
+assert_contains "$predicate_query" '"isError":false' "V5 caller predicate query"
+assert_contains "$predicate_query" '"artifact_status":"AVAILABLE"' "V5 caller predicate Parquet"
+assert_contains "$predicate_query" '"raw_literal_count":4' "V5 caller predicate raw literals"
+assert_contains "$predicate_query" '"unique_atom_count":3' "V5 caller predicate unique atoms"
+assert_contains "$predicate_query" '"actual_predicate_atom_count":3' "V5 caller predicate actual atoms"
+assert_contains "$predicate_query" '"actual_outcome_facts":4' "V5 caller predicate outcome facts"
+assert_contains "$predicate_query" '"actual_composite_count":1' "V5 caller predicate composite"
+
+predicate_replay=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
+  "{\"jsonrpc\":\"2.0\",\"id\":182,\"method\":\"tools/call\",\"params\":{\"name\":\"query_sql\",\"arguments\":{\"task_id\":\"$predicate_task\",\"request_id\":\"integration-detail-predicate-2\",\"sql\":\"SELECT receipt_no, amount FROM expense_detail WHERE amount IN (200, 100, NULL) ORDER BY receipt_no\"}}}")
+assert_contains "$predicate_replay" '"isError":false' "V5 caller predicate semantic replay"
+assert_contains "$predicate_replay" '"semantic_replay":true' "V5 caller predicate semantic replay"
+assert_contains "$predicate_replay" '"charged_predicate_atom_count":0' "V5 caller predicate replay atom charge"
+assert_contains "$predicate_replay" '"charged_outcome_facts":0' "V5 caller predicate replay outcome charge"
+assert_not_contains "$predicate_replay" '"business_postgresql"' "V5 caller predicate replay Business PG calls"
+assert_not_contains "$predicate_replay" '"provenance_postgresql"' "V5 caller predicate replay provenance PG calls"
+pass "caller SQL lowers through V5 atomization, Parquet publication, and zero-execution semantic replay"
+
 # A separate Bob rejection is terminal. Repeated query attempts remain denied.
 reject_request=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
   '{"jsonrpc":"2.0","id":19,"method":"tools/call","params":{"name":"request_data_task","arguments":{"objective":"拒绝此销售部员工报销明细申请","data_products":["expense_detail"],"columns":{"expense_detail":["receipt_no"]},"scopes":{"department":["销售部"]}}}}')

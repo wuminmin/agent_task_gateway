@@ -15,6 +15,8 @@
 !recovery_liveness.log
 !exposure_ledger.json
 !exposure_ledger.log
+!artifact_publication.json
+!artifact_publication.log
 !exposure_bitmap_refinement.json
 !exposure_bitmap_refinement.log
 !outcome_hash_set_refinement.json

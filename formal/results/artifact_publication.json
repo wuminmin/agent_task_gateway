@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "status": "passed",
+  "checked_at": "2026-08-01T06:27:35Z",
+  "tool": "TLC",
+  "tool_version": "1.7.1",
+  "model": "formal/ArtifactPublication.tla",
+  "config": "formal/ArtifactPublication.cfg",
+  "model_sha256": "cb8aa3319c2baaa307cb48a16ab09867a4962cc454065e841749699570b760ed",
+  "config_sha256": "6dff2e3678e1ce7a118f13936f478ce68cfa1e2d380326efe420e30f4bb7f9c1",
+  "raw_log": "formal/results/artifact_publication.log",
+  "log_sha256": "1a6ec02f8a2227021a354fbc7bede72283e7c4b448518b3f01a9056cb6211003",
+  "states_generated": 97,
+  "distinct_states": 36,
+  "search_depth": 7,
+  "exit_code": 0
+}

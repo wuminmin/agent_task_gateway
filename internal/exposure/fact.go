@@ -260,6 +260,9 @@ func (f FactID) validateVersioned() error {
 		if err != nil || canonicalType != f.SQLType {
 			return fmt.Errorf("%w: predicate atom SQL type is not canonical", ErrInvalid)
 		}
+		if err := ValidateCanonicalSQLValueEncoding(f.SQLType, f.CanonicalLiteral); err != nil {
+			return fmt.Errorf("%w: predicate atom literal is not canonical: %v", ErrInvalid, err)
+		}
 		if f.ResolvedExpressionSHA256 != "" && !isSHA256(f.ResolvedExpressionSHA256) {
 			return fmt.Errorf("%w: resolved expression must be lowercase SHA-256", ErrInvalid)
 		}
@@ -682,6 +685,92 @@ func CanonicalSQLValue(sqlType string, value any) (string, error) {
 	default:
 		return "", fmt.Errorf("%w: PostgreSQL type %q is outside %s", ErrInvalid, sqlType, ProfileV2)
 	}
+}
+
+// ValidateCanonicalSQLValueEncoding independently checks an already encoded
+// literal at the Control trust boundary. It decodes the type-tagged text and
+// requires CanonicalSQLValue to reproduce it byte-for-byte.
+func ValidateCanonicalSQLValueEncoding(sqlType, encoded string) error {
+	typeName, err := CanonicalSQLTypeV2(sqlType)
+	if err != nil {
+		return err
+	}
+	if encoded == "null" {
+		return nil
+	}
+	var value any
+	requirePrefix := func(prefix string) (string, error) {
+		if !strings.HasPrefix(encoded, prefix) {
+			return "", fmt.Errorf("%w: canonical %s literal requires %q prefix", ErrInvalid, typeName, prefix)
+		}
+		return strings.TrimPrefix(encoded, prefix), nil
+	}
+	switch typeName {
+	case "smallint", "integer", "bigint":
+		value, err = requirePrefix("i:")
+	case "numeric":
+		value, err = requirePrefix("n:")
+	case "real", "double precision":
+		var text string
+		text, err = requirePrefix("f:")
+		if err == nil {
+			switch text {
+			case "nan":
+				value = math.NaN()
+			case "+infinity":
+				value = math.Inf(1)
+			case "-infinity":
+				value = math.Inf(-1)
+			default:
+				bitSize := 64
+				if typeName == "real" {
+					bitSize = 32
+				}
+				value, err = strconv.ParseFloat(text, bitSize)
+			}
+		}
+	case "boolean":
+		var text string
+		text, err = requirePrefix("b:")
+		if err == nil {
+			value, err = strconv.ParseBool(text)
+		}
+	case "bytea":
+		var text string
+		text, err = requirePrefix("x:")
+		if err == nil {
+			value, err = hex.DecodeString(text)
+		}
+	case "date":
+		value, err = requirePrefix("d:")
+	case "time without time zone":
+		value, err = requirePrefix("tm:")
+	case "timestamp with time zone":
+		value, err = requirePrefix("tz:")
+	case "timestamp without time zone":
+		value, err = requirePrefix("ts:")
+	case "jsonb":
+		var text string
+		text, err = requirePrefix("j:")
+		value = []byte(text)
+	case "uuid":
+		value, err = requirePrefix("u:")
+	case "text", "character", "character varying":
+		value, err = requirePrefix("s:")
+	default:
+		err = fmt.Errorf("%w: unsupported canonical literal type %q", ErrInvalid, typeName)
+	}
+	if err != nil {
+		return err
+	}
+	reencoded, err := CanonicalSQLValue(typeName, value)
+	if err != nil {
+		return err
+	}
+	if reencoded != encoded {
+		return fmt.Errorf("%w: non-canonical literal encoding", ErrInvalid)
+	}
+	return nil
 }
 
 func normalizeSQLType(value string) string {

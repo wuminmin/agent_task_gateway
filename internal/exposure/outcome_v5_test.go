@@ -49,6 +49,24 @@ func TestPredicateAtomRequiresCollationForText(t *testing.T) {
 	}
 }
 
+func TestPredicateAtomRejectsNonCanonicalLiteralEncoding(t *testing.T) {
+	base := PredicateAtomFactV5{
+		PredicateContextSHA256: strings.Repeat("1", 64), SemanticProductID: "orders",
+		StableRole: "orders", PublicFieldID: "id", SQLType: "bigint", Operator: "EQ",
+		CanonicalLiteral: "i:1",
+	}
+	if _, err := NewPredicateAtomFactV5(base); err != nil {
+		t.Fatalf("canonical atom: %v", err)
+	}
+	for _, literal := range []string{"i:01", "i:+1", "n:1", "i:not-an-integer"} {
+		invalid := base
+		invalid.CanonicalLiteral = literal
+		if _, err := NewPredicateAtomFactV5(invalid); err == nil {
+			t.Fatalf("accepted non-canonical bigint literal %q", literal)
+		}
+	}
+}
+
 func TestObservationV5ValidatesCompositeAtomBinding(t *testing.T) {
 	contextDigest := strings.Repeat("1", 64)
 	atom, err := NewPredicateAtomFactV5(PredicateAtomFactV5{PredicateContextSHA256: contextDigest,

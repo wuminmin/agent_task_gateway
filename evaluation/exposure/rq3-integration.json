@@ -3,7 +3,7 @@
   "command_exit_code": 0,
   "executed": 5,
   "failed": 0,
-  "finished_at": "2026-08-01T05:07:24.075866781Z",
+  "finished_at": "2026-08-01T06:54:58.130226232Z",
   "go_version": "go version go1.25.12 linux/amd64",
   "packages": [
     "taskbound.local/agent-data-gateway/internal/control",
@@ -13,41 +13,41 @@
   "postgres_version": "16.14 (Debian 16.14-1.pgdg12+1)",
   "race_enabled": true,
   "raw_log": "evaluation/exposure/raw/rq3-postgres-go-test.jsonl",
-  "raw_log_sha256": "2c8d5797fb89edd1cb0d16c830aeecaa722da251d56b11abec104a9a72d3ce79",
+  "raw_log_sha256": "72b0adc0e2ae3785974346b685b998f88ad1699e06f9a2ada094cf6e19188b61",
   "schema_version": 2,
-  "started_at": "2026-08-01T05:07:03.477069329Z",
+  "started_at": "2026-08-01T06:54:38.214591357Z",
   "status": "complete",
   "tests": [
     {
-      "elapsed_seconds": 0.37,
+      "elapsed_seconds": 0.41,
       "id": "concurrent_settlement",
       "package": "taskbound.local/agent-data-gateway/internal/control",
       "status": "pass",
       "test": "TestConcurrentTaskFamilySettlementCannotOverspend"
     },
     {
-      "elapsed_seconds": 0.42,
+      "elapsed_seconds": 0.43,
       "id": "distinct_zero_result_predicates",
       "package": "taskbound.local/agent-data-gateway/internal/gateway",
       "status": "pass",
       "test": "TestExposureV3ChargesDistinctZeroResultPredicates"
     },
     {
-      "elapsed_seconds": 0.47,
+      "elapsed_seconds": 0.74,
       "id": "online_relational_gateway_settlement",
       "package": "taskbound.local/agent-data-gateway/internal/gateway",
       "status": "pass",
       "test": "TestRelationalGatewayEndToEndAgainstPostgreSQL"
     },
     {
-      "elapsed_seconds": 0.22,
+      "elapsed_seconds": 0.21,
       "id": "online_relational_postgres",
       "package": "taskbound.local/agent-data-gateway/internal/gateway",
       "status": "pass",
       "test": "TestRelationalOnlinePathAgainstPostgreSQL"
     },
     {
-      "elapsed_seconds": 0.4,
+      "elapsed_seconds": 0.42,
       "id": "task_family_delegation",
       "package": "taskbound.local/agent-data-gateway/internal/control",
       "status": "pass",

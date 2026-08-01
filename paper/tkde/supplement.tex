@@ -549,8 +549,8 @@ after the first are zero, but the three normal-form digests yield three outcome
 facts. Exact replay and an alias/case/whitespace rewrite reuse the first fact.
 
 V5 retains that archived campaign as a compatibility baseline but changes the
-current Outcome effect to $A(q)\cup\{c(q)\}$. The atomizer expands code{IN} to
-typed equality atoms and code{NOT IN} to typed inequality atoms, removes exact
+current Outcome effect to $A(q)\cup\{c_q\}$. The atomizer expands \code{IN} to
+typed equality atoms and \code{NOT IN} to typed inequality atoms, removes exact
 duplicates, and binds every atom to the predicate context. The composite binds
 normal form V4, canonical result observation, row count, context, sorted atom
 set digest, and atom count. Signed limits bound raw literals, unique atoms, one
@@ -564,9 +564,13 @@ compares full hashes, rebuilds only affected leaf families/blocks, and reuses
 all other digests. Hence the physical work is
 $O(k\log k+h+\ell+b)$ for candidate cardinality $k$, hashes loaded $h$, leaf
 chunks $\ell$, and blocks $b$, plus a root manifest bounded by 256 references;
-it is not linear in total root membership. The source-controlled PostgreSQL
-regression uses a 100K-member root plus one candidate and asserts the physical
-counters and zero-object replay described in the main paper.
+the algorithm never scans untouched radix partitions. Its worst-case cost is
+linear in the membership and manifest references of candidate-touched
+partitions, which may approach total root size under adversarially concentrated
+prefixes. The source-controlled PostgreSQL regression commits a
+\VFiveRootCardinality{}-member object graph before an independent merge
+transaction; the \VFiveSamePrefixMembers{}-member same-prefix regression covers
+multi-chunk boundary shifts and missing-chunk failure.
 
 \section{V4 Ordinal/Bitmap Refinement}
 

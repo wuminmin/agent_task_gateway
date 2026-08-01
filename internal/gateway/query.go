@@ -31,19 +31,25 @@ import (
 )
 
 type storedQueryResult struct {
-	Columns         []dataconnector.Column `json:"columns"`
-	Rows            [][]any                `json:"rows"`
-	RowCount        int64                  `json:"row_count"`
-	DatabaseMS      int64                  `json:"database_ms"`
-	ComponentMS     map[string]float64     `json:"component_ms,omitempty"`
-	Limited         bool                   `json:"limited"`
-	QueryPlan       *queryplan.QueryPlan   `json:"query_plan,omitempty"`
-	SQLProfile      string                 `json:"sql_profile,omitempty"`
-	PlanDigest      string                 `json:"plan_digest,omitempty"`
-	OutputFormat    string                 `json:"output_format,omitempty"`
-	DisplayColumns  []string               `json:"display_columns,omitempty"`
-	ResultOrder     []int                  `json:"result_order,omitempty"`
-	SemanticColumns []string               `json:"semantic_columns,omitempty"`
+	Columns            []dataconnector.Column      `json:"columns"`
+	Rows               [][]any                     `json:"rows"`
+	RowCount           int64                       `json:"row_count"`
+	DatabaseMS         int64                       `json:"database_ms"`
+	ComponentMS        map[string]float64          `json:"component_ms,omitempty"`
+	Limited            bool                        `json:"limited"`
+	QueryPlan          *queryplan.QueryPlan        `json:"query_plan,omitempty"`
+	SQLProfile         string                      `json:"sql_profile,omitempty"`
+	PlanDigest         string                      `json:"plan_digest,omitempty"`
+	OutputFormat       string                      `json:"output_format,omitempty"`
+	DisplayColumns     []string                    `json:"display_columns,omitempty"`
+	ResultOrder        []int                       `json:"result_order,omitempty"`
+	SemanticColumns    []string                    `json:"semantic_columns,omitempty"`
+	PredicateFootprint *predicateFootprintResponse `json:"predicate_footprint,omitempty"`
+}
+
+type predicateFootprintResponse struct {
+	RawLiteralCount int `json:"raw_literal_count"`
+	UniqueAtomCount int `json:"unique_atom_count"`
 }
 
 // queryResponseMetadata is request-syntax metadata, not exposure identity.
@@ -51,13 +57,14 @@ type storedQueryResult struct {
 // semantic replay operate on stable field IDs; display labels are applied only
 // when a result is released to the caller.
 type queryResponseMetadata struct {
-	Plan            queryplan.QueryPlan
-	SQLProfile      string
-	PlanDigest      string
-	OutputFormat    string
-	DisplayColumns  []string
-	ResultOrder     []int
-	SemanticColumns []string
+	Plan               queryplan.QueryPlan
+	SQLProfile         string
+	PlanDigest         string
+	OutputFormat       string
+	DisplayColumns     []string
+	ResultOrder        []int
+	SemanticColumns    []string
+	PredicateFootprint *predicateFootprintResponse
 }
 
 func applyQueryResponseMetadata(stored *storedQueryResult, metadata *queryResponseMetadata) error {
@@ -68,6 +75,7 @@ func applyQueryResponseMetadata(stored *storedQueryResult, metadata *queryRespon
 	stored.DisplayColumns = nil
 	stored.ResultOrder = nil
 	stored.SemanticColumns = nil
+	stored.PredicateFootprint = nil
 	if metadata == nil {
 		return nil
 	}
@@ -88,6 +96,10 @@ func applyQueryResponseMetadata(stored *storedQueryResult, metadata *queryRespon
 	stored.DisplayColumns = append([]string(nil), metadata.DisplayColumns...)
 	stored.ResultOrder = append([]int(nil), metadata.ResultOrder...)
 	stored.SemanticColumns = append([]string(nil), metadata.SemanticColumns...)
+	if metadata.PredicateFootprint != nil {
+		value := *metadata.PredicateFootprint
+		stored.PredicateFootprint = &value
+	}
 	return nil
 }
 
@@ -254,6 +266,9 @@ func addStoredResponseMetadata(result map[string]any, stored storedQueryResult) 
 	if stored.OutputFormat != "" {
 		result["output_format"] = stored.OutputFormat
 	}
+	if stored.PredicateFootprint != nil {
+		result["predicate_footprint"] = *stored.PredicateFootprint
+	}
 	return nil
 }
 
@@ -291,6 +306,26 @@ func ordinalSemanticAuthorizationDigest(visible, provenance sqlpolicy.Decision, 
 		provenance.Fingerprint,
 		manifestDigest,
 	}, "\x00"))
+}
+
+// ordinalSemanticAuthorizationDigestV5 binds authorization to the canonical
+// V5 query and predicate identities. Policy fingerprints retain harmless SQL
+// syntax such as IN-member order and duplicates, so using them here would
+// partition semantic replay for queries that NormalizeV4 proves equivalent.
+// The enclosing replay binding separately pins the grant, Catalog, schema,
+// dictionary set, compiler, ordering, pagination, and result encoding.
+func ordinalSemanticAuthorizationDigestV5(planDigest, manifestDigest string,
+	footprint *queryplan.PredicateFootprint) string {
+	parts := []string{queryplan.NormalFormVersionV4, planDigest, manifestDigest}
+	if footprint != nil {
+		parts = append(parts,
+			footprint.Version,
+			footprint.ContextSHA256,
+			footprint.AtomSetSHA256,
+			strconv.Itoa(footprint.UniqueAtomCount),
+		)
+	}
+	return digest(strings.Join(parts, "\x00"))
 }
 
 func ordinalSemanticReplayBinding(taskID, grantDigest, authorizationDigest, planDigest, catalogDigest,
@@ -416,6 +451,7 @@ func (s *Service) querySQL(ctx context.Context, principal mcp.Principal, raw jso
 		SemanticColumns: queryPlanSemanticColumns(lowered.Plan)}
 	if prepared.Exposure != nil {
 		metadata.PlanDigest = prepared.Exposure.planDigest
+		metadata.PredicateFootprint = predicateFootprintResponseFor(prepared.Exposure)
 	}
 	return s.executeSQL(ctx, principal, task, args.RequestID, prepared.SQL, requestSummary, prepared.Exposure, metadata)
 }
@@ -530,8 +566,17 @@ func (s *Service) executePlan(ctx context.Context, principal mcp.Principal, raw 
 		SemanticColumns: queryPlanSemanticColumns(args.Plan)}
 	if prepared.Exposure != nil {
 		metadata.PlanDigest = prepared.Exposure.planDigest
+		metadata.PredicateFootprint = predicateFootprintResponseFor(prepared.Exposure)
 	}
 	return s.executeSQL(ctx, principal, task, args.RequestID, prepared.SQL, requestSummary, prepared.Exposure, metadata)
+}
+
+func predicateFootprintResponseFor(context *planExposureContext) *predicateFootprintResponse {
+	if context == nil || context.predicateFootprint == nil {
+		return nil
+	}
+	return &predicateFootprintResponse{RawLiteralCount: context.predicateFootprint.RawLiteralCount,
+		UniqueAtomCount: context.predicateFootprint.UniqueAtomCount}
 }
 
 type preparedQueryPlan struct {
@@ -859,6 +904,10 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 		(exposureLedger.ProfileVersion == exposure.ProfileV4 || exposureLedger.ProfileVersion == exposure.ProfileV5) {
 		authorizationDigest := ordinalSemanticAuthorizationDigest(decision, provenanceDecision,
 			protocolGrant.Core.ManifestDigest)
+		if exposureLedger.ProfileVersion == exposure.ProfileV5 {
+			authorizationDigest = ordinalSemanticAuthorizationDigestV5(exposureContext.planDigest,
+				protocolGrant.Core.ManifestDigest, exposureContext.predicateFootprint)
+		}
 		binding := ordinalSemanticReplayBinding(task.ID, grantDigest, authorizationDigest,
 			exposureContext.planDigest, s.catalog.SHA256, evidence.SchemaDigest, exposureContext.ordinal.DictionarySetDigest)
 		if exposureLedger.ProfileVersion == exposure.ProfileV5 {

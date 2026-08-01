@@ -79,8 +79,8 @@ type ExposureEvidenceV1 struct {
 	PredicateProfileVersion   string `json:"predicate_profile_version,omitempty"`
 	PredicateContextSHA256    string `json:"predicate_context_sha256,omitempty"`
 	PredicateSetSHA256        string `json:"predicate_set_sha256,omitempty"`
-	ActualPredicateAtomCount  int64  `json:"actual_predicate_atom_count,omitempty"`
-	ChargedPredicateAtomCount int64  `json:"charged_predicate_atom_count,omitempty"`
+	ActualPredicateAtomCount  int64  `json:"actual_predicate_atom_count"`
+	ChargedPredicateAtomCount int64  `json:"charged_predicate_atom_count"`
 	CompositeOutcomeSHA256    string `json:"composite_outcome_sha256,omitempty"`
 	ActualCompositeCount      int64  `json:"actual_composite_count,omitempty"`
 	ChargedCompositeCount     int64  `json:"charged_composite_count,omitempty"`

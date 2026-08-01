@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -267,6 +268,86 @@ func TestArtifactRecoveryGatesReadinessUntilFullPassCompletes(t *testing.T) {
 	}
 }
 
+func TestArtifactPromotionFailurePreservesSettlementAndRecoversWithoutReexecution(t *testing.T) {
+	harness := newGatewayHarness(t)
+	harness.connector.result.Rows = [][]any{{"sensitive-row", json.Number("123.45")}}
+	backend := newGatewayArtifactMemoryBackend()
+	backend.copyFailures = 1
+	cipher, err := control.NewAES256GCM(bytes.Repeat([]byte{0x31}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tempDir := t.TempDir()
+	if err := os.Chmod(tempDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := resultartifact.NewManager(backend, cipher, tempDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	harness.service.resultArtifacts = manager
+	const taskID = "task-artifact-promotion-recovery"
+	const requestID = "artifact-promotion-recovery-1"
+	harness.createActiveSummaryTask(t, taskID)
+	if _, err := callGatewayTool(harness.service, harness.alice, "query_sql", map[string]any{
+		"task_id": taskID, "request_id": requestID, "sql": testSummarySQL,
+	}); err == nil {
+		t.Fatal("promotion failure returned an available result")
+	}
+	record, err := harness.store.GetQueryByRequestID(t.Context(), taskID, requestID)
+	if err != nil || record.Status != control.QueryCompleted {
+		t.Fatalf("durable query after promotion failure = %+v, %v", record, err)
+	}
+	artifact, err := harness.store.GetResultArtifactByQuery(t.Context(), record.ID)
+	if err != nil || artifact.Status != control.ResultArtifactPending || artifact.ConsumedAt != nil {
+		t.Fatalf("artifact after promotion failure = %+v, %v", artifact, err)
+	}
+	budgetBefore, err := harness.store.GetBudget(t.Context(), taskID)
+	if err != nil || budgetBefore.Usage.UsedQueries != 1 {
+		t.Fatalf("settled budget after promotion failure = %+v, %v", budgetBefore, err)
+	}
+	receiptBefore, err := harness.store.GetQueryReceipt(t.Context(), record.ID)
+	if err != nil {
+		t.Fatalf("settlement receipt after promotion failure: %v", err)
+	}
+	consumedBefore, err := harness.store.ListAuditEvents(t.Context(), control.AuditFilter{
+		QueryID: record.ID, EventType: "QUERY_RESULT_CONSUMED",
+	})
+	if err != nil || len(consumedBefore) != 0 {
+		t.Fatalf("consumption audit before availability = %+v, %v", consumedBefore, err)
+	}
+	if err := harness.service.ReadyError(); err == nil {
+		t.Fatal("readiness stayed open with a failed PENDING promotion")
+	}
+	connectorCalls := len(harness.connector.requests)
+	completed, err := harness.service.ReconcilePendingArtifacts(t.Context())
+	if err != nil || completed != 1 {
+		t.Fatalf("artifact recovery = %d, %v", completed, err)
+	}
+	artifact, err = harness.store.GetResultArtifactByQuery(t.Context(), record.ID)
+	if err != nil || artifact.Status != control.ResultArtifactAvailable || artifact.ConsumedAt == nil {
+		t.Fatalf("artifact after recovery = %+v, %v", artifact, err)
+	}
+	budgetAfter, _ := harness.store.GetBudget(t.Context(), taskID)
+	receiptAfter, _ := harness.store.GetQueryReceipt(t.Context(), record.ID)
+	if !reflect.DeepEqual(budgetAfter, budgetBefore) || !reflect.DeepEqual(receiptAfter, receiptBefore) {
+		t.Fatalf("recovery changed settlement evidence\nbudget: %+v -> %+v\nreceipt: %+v -> %+v",
+			budgetBefore, budgetAfter, receiptBefore, receiptAfter)
+	}
+	if len(harness.connector.requests) != connectorCalls {
+		t.Fatalf("recovery re-executed Business PostgreSQL: calls %d -> %d", connectorCalls, len(harness.connector.requests))
+	}
+	consumedAfter, err := harness.store.ListAuditEvents(t.Context(), control.AuditFilter{
+		QueryID: record.ID, EventType: "QUERY_RESULT_CONSUMED",
+	})
+	if err != nil || len(consumedAfter) != 1 {
+		t.Fatalf("consumption audit after availability = %+v, %v", consumedAfter, err)
+	}
+	if err := harness.service.ReadyError(); err != nil {
+		t.Fatalf("readiness after recovery: %v", err)
+	}
+}
+
 func TestFailedSettlementRetryStopsAtDurableCompletedQuery(t *testing.T) {
 	harness := newGatewayHarness(t)
 	const taskID = "task-completed-settlement-race"
@@ -328,9 +409,10 @@ type gatewayArtifactMemoryObject struct {
 }
 
 type gatewayArtifactMemoryBackend struct {
-	mu      sync.Mutex
-	objects map[string]gatewayArtifactMemoryObject
-	gets    int
+	mu           sync.Mutex
+	objects      map[string]gatewayArtifactMemoryObject
+	gets         int
+	copyFailures int
 }
 
 func newGatewayArtifactMemoryBackend() *gatewayArtifactMemoryBackend {
@@ -380,6 +462,10 @@ func (backend *gatewayArtifactMemoryBackend) Stat(_ context.Context, key string)
 func (backend *gatewayArtifactMemoryBackend) Copy(_ context.Context, source, destination, expectedSHA256 string) (resultartifact.ObjectInfo, error) {
 	backend.mu.Lock()
 	defer backend.mu.Unlock()
+	if backend.copyFailures > 0 {
+		backend.copyFailures--
+		return resultartifact.ObjectInfo{}, errors.New("injected artifact promotion failure")
+	}
 	object, ok := backend.objects[source]
 	if !ok {
 		return resultartifact.ObjectInfo{}, resultartifact.ErrObjectNotFound

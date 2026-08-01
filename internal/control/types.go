@@ -183,8 +183,8 @@ type ExposureCharge struct {
 	ChargedReleaseFacts       int64  `json:"charged_release_facts"`
 	ChargedInfluenceFacts     int64  `json:"charged_influence_facts"`
 	ChargedOutcomeFacts       int64  `json:"charged_outcome_facts"`
-	ActualPredicateAtomCount  int64  `json:"actual_predicate_atom_count,omitempty"`
-	ChargedPredicateAtomCount int64  `json:"charged_predicate_atom_count,omitempty"`
+	ActualPredicateAtomCount  int64  `json:"actual_predicate_atom_count"`
+	ChargedPredicateAtomCount int64  `json:"charged_predicate_atom_count"`
 	CompositeOutcomeSHA256    string `json:"composite_outcome_sha256,omitempty"`
 	PredicateContextSHA256    string `json:"predicate_context_sha256,omitempty"`
 	PredicateSetSHA256        string `json:"predicate_set_sha256,omitempty"`

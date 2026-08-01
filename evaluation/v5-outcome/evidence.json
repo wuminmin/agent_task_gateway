@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "submission_commit": "109bb0796724abb9dbc7d23ef1c71137475f1239",
+  "test_source": "internal/control/outcome_hashset_v5_test.go",
+  "test_source_sha256": "fd7a5da63dc033f371b11c5f0deae507e1cb500c58b8a1bd711226e3ba9b2d1b",
+  "deterministic_set": {
+    "members": 10000,
+    "permutation_deterministic": true,
+    "duplicate_idempotent": true,
+    "tamper_rejected": true
+  },
+  "postgres_committed_graph": {
+    "root_cardinality": 100000,
+    "root_block_count": 256,
+    "candidate_cardinality": 1,
+    "blocks_loaded": 1,
+    "leaves_loaded": 1,
+    "hashes_loaded": 2,
+    "blocks_reused": 255,
+    "leaves_changed": 1,
+    "replay_changed_objects": 0,
+    "transaction_boundary": "commit_then_independent_merge"
+  },
+  "same_prefix_multichunk": {
+    "members": 8193,
+    "prefix16": "4224",
+    "chunk_size": 4096,
+    "chunks_before": 3,
+    "insert_positions": ["first", "middle", "last"],
+    "exact_oracle_match": true,
+    "contiguous_rechunking": true,
+    "missing_chunk_rejected": true,
+    "replay_changed_objects": 0
+  }
+}

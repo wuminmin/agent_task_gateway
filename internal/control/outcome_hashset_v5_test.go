@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -198,10 +199,17 @@ func TestOutcomeHashSetV5PostgresLoadsOnlyTouchedBranches(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rollback(tx)
 	if err := persistV5SetObjectsTx(ctx, tx, root, time.Now()); err != nil {
 		t.Fatal(err)
 	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit 100K root object graph: %v", err)
+	}
+	tx, err = beginTx(ctx, store.db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rollback(tx)
 	newHash := outcomeTestHash(rootSize + 1)
 	candidate := candidateFromHashesV5(t, []string{newHash})
 	merged, novel, metrics, err := differenceAndUnionV5Tx(ctx, tx, root.Set.SetSHA256, candidate)
@@ -209,9 +217,9 @@ func TestOutcomeHashSetV5PostgresLoadsOnlyTouchedBranches(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(novel) != 1 || merged.Set.Cardinality != rootSize+1 || metrics.RootCardinality != rootSize ||
-		metrics.CandidateCardinality != 1 || metrics.BlocksLoaded != 1 || metrics.LeavesLoaded > 2 ||
-		metrics.HashesLoaded > outcomeLeafChunkSize*2 || metrics.BlocksReused < int64(root.Set.BlockCount-1) ||
-		metrics.LeavesChanged == 0 || len(merged.Blocks) != 1 {
+		root.Set.BlockCount != 256 || metrics.CandidateCardinality != 1 || metrics.BlocksLoaded != 1 ||
+		metrics.LeavesLoaded != 1 || metrics.HashesLoaded != 2 || metrics.BlocksReused != 255 ||
+		metrics.LeavesChanged != 1 || len(merged.Blocks) != 1 {
 		t.Fatalf("incremental V5 merge loaded too much or rebuilt the wrong graph: metrics=%+v leaves=%d blocks=%d root_blocks=%d",
 			metrics, len(merged.Leaves), len(merged.Blocks), root.Set.BlockCount)
 	}
@@ -228,6 +236,144 @@ func TestOutcomeHashSetV5PostgresLoadsOnlyTouchedBranches(t *testing.T) {
 		t.Fatalf("incremental V5 replay rebuilt immutable objects: novelty=%d metrics=%+v leaves=%d blocks=%d",
 			len(replayNovel), replayMetrics, len(replay.Leaves), len(replay.Blocks))
 	}
+}
+
+func TestOutcomeHashSetV5SamePrefixMultiChunkBoundaries(t *testing.T) {
+	store := openTestStore(t, testpostgres.SchemaDSN(t), testCipher(t, 63))
+	const rootSize = 8193
+	hashTexts := make([]string, rootSize)
+	for index := range hashTexts {
+		hash := samePrefixOutcomeHash(uint64((index + 1) * 2))
+		hashTexts[index] = hex.EncodeToString(hash[:])
+	}
+	root, err := BuildOutcomeHashSetV5(hashTexts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	persistTx, err := beginTx(ctx, store.db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := persistV5SetObjectsTx(ctx, persistTx, root, time.Now()); err != nil {
+		rollback(persistTx)
+		t.Fatal(err)
+	}
+	if err := persistTx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, test := range []struct {
+		name          string
+		value         uint64
+		changedLeaves int64
+	}{
+		{name: "insert-first", value: 1, changedLeaves: 3},
+		{name: "insert-middle", value: 8193, changedLeaves: 2},
+		{name: "insert-last", value: 16387, changedLeaves: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			tx, err := beginTx(ctx, store.db)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer rollback(tx)
+			candidateHash := samePrefixOutcomeHash(test.value)
+			candidate := candidateFromHashesV5(t, []string{hex.EncodeToString(candidateHash[:])})
+			want, wantNovel, err := DifferenceAndUnion(root, candidate)
+			if err != nil {
+				t.Fatal(err)
+			}
+			merged, novel, metrics, err := differenceAndUnionV5Tx(ctx, tx, root.Set.SetSHA256, candidate)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(wantNovel) != 1 || len(novel) != 1 || novel[0] != candidateHash ||
+				merged.Set.SetSHA256 != want.Set.SetSHA256 || merged.Set.Cardinality != rootSize+1 ||
+				metrics.LeavesLoaded != 3 || metrics.HashesLoaded != rootSize ||
+				metrics.LeavesChanged != test.changedLeaves || len(merged.Blocks) != 1 {
+				t.Fatalf("same-prefix merge mismatch: metrics=%+v novel=%d want=%d leaves=%d blocks=%d",
+					metrics, len(novel), len(wantNovel), len(merged.Leaves), len(merged.Blocks))
+			}
+			for _, block := range merged.Blocks {
+				refs, err := parseV5BlockManifestReferences(block.Manifest, block.Prefix8, block.Cardinality)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(refs) != 3 {
+					t.Fatalf("leaf reference count = %d, want 3", len(refs))
+				}
+				for index, ref := range refs {
+					if ref.prefix16 != 0x4224 || ref.chunk != uint32(index) {
+						t.Fatalf("leaf reference %d = prefix %04x chunk %d", index, ref.prefix16, ref.chunk)
+					}
+				}
+			}
+			if err := persistV5SetObjectsTx(ctx, tx, merged, time.Now()); err != nil {
+				t.Fatal(err)
+			}
+			replay, replayNovel, replayMetrics, err := differenceAndUnionV5Tx(ctx, tx, merged.Set.SetSHA256, candidate)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(replayNovel) != 0 || replay.Set.SetSHA256 != merged.Set.SetSHA256 ||
+				len(replay.Leaves) != 0 || len(replay.Blocks) != 0 || replayMetrics.LeavesChanged != 0 {
+				t.Fatalf("same-prefix replay changed objects: novelty=%d metrics=%+v", len(replayNovel), replayMetrics)
+			}
+		})
+	}
+
+	t.Run("missing-chunk-fails-closed", func(t *testing.T) {
+		tx, err := beginTx(ctx, store.db)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rollback(tx)
+		var originalBlock OutcomeHashBlockV5
+		for _, block := range root.Blocks {
+			originalBlock = block
+		}
+		refs, err := parseV5BlockManifestReferences(originalBlock.Manifest, originalBlock.Prefix8,
+			originalBlock.Cardinality)
+		if err != nil || len(refs) != 3 {
+			t.Fatalf("parse original multi-chunk block: refs=%d err=%v", len(refs), err)
+		}
+		refs[1].digest = strings.Repeat("f", 64)
+		corruptManifest, corruptCardinality, err := canonicalOutcomeBlockV5(originalBlock.Prefix8, refs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		corruptBlockDigest := sha256HexV5(corruptManifest)
+		if _, err := tx.ExecContext(ctx, `INSERT INTO v5_outcome_hash_blocks(
+block_sha256,prefix8,cardinality,manifest,created_at) VALUES ($1,$2,$3,$4,$5)`,
+			corruptBlockDigest, int(originalBlock.Prefix8), corruptCardinality, corruptManifest, dbTime(time.Now())); err != nil {
+			t.Fatal(err)
+		}
+		corruptRootManifest, err := canonicalOutcomeRootV5(root.Set.Cardinality, []outcomeBlockReferenceV5{{
+			prefix: originalBlock.Prefix8, digest: corruptBlockDigest, cardinality: corruptCardinality,
+		}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		corruptRootDigest := sha256HexV5(corruptRootManifest)
+		if _, err := tx.ExecContext(ctx, `INSERT INTO v5_outcome_hash_sets(
+set_sha256,cardinality,block_count,root_manifest,created_at) VALUES ($1,$2,1,$3,$4)`,
+			corruptRootDigest, root.Set.Cardinality, corruptRootManifest, dbTime(time.Now())); err != nil {
+			t.Fatal(err)
+		}
+		candidateHash := samePrefixOutcomeHash(1)
+		candidate := candidateFromHashesV5(t, []string{hex.EncodeToString(candidateHash[:])})
+		if _, _, _, err := differenceAndUnionV5Tx(ctx, tx, corruptRootDigest, candidate); err == nil {
+			t.Fatal("missing touched chunk was accepted")
+		}
+	})
+}
+
+func samePrefixOutcomeHash(value uint64) [sha256.Size]byte {
+	var result [sha256.Size]byte
+	result[0], result[1] = 0x42, 0x24
+	binary.BigEndian.PutUint64(result[sha256.Size-8:], value)
+	return result
 }
 
 func outcomeTestHash(index int) string {

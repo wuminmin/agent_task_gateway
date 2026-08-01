@@ -541,6 +541,9 @@ func publicArtifact(artifact control.ResultArtifact, stored storedQueryResult) m
 	if stored.OutputFormat != "" {
 		result["output_format"] = stored.OutputFormat
 	}
+	if stored.PredicateFootprint != nil {
+		result["predicate_footprint"] = *stored.PredicateFootprint
+	}
 	return result
 }
 
