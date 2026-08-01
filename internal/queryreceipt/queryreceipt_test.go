@@ -162,6 +162,26 @@ func TestQueryReceiptV8BindsCompleteArtifactIntent(t *testing.T) {
 		t.Fatalf("re-sealed artifact tamper error = %v, want invalid signature", err)
 	}
 
+	tampered = signed
+	changed = *signed.ArtifactIntent
+	changed.ResultMetadataSHA256 = fmt.Sprintf("%064x", 98)
+	changed, err = BuildArtifactIntent(changed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tampered.ArtifactIntent = &changed
+	if err := verifier.Verify(tampered); !errors.Is(err, ErrInvalidSignature) {
+		t.Fatalf("re-sealed result metadata tamper error = %v, want invalid signature", err)
+	}
+
+	missingMetadata := receipt
+	missingIntent := *receipt.ArtifactIntent
+	missingIntent.ResultMetadataSHA256 = ""
+	missingMetadata.ArtifactIntent = &missingIntent
+	if _, err := signer.Sign(missingMetadata); !errors.Is(err, ErrInvalidReceipt) {
+		t.Fatalf("missing result metadata digest error = %v, want invalid receipt", err)
+	}
+
 	legacy := validV7Receipt()
 	legacy.ArtifactIntent = receipt.ArtifactIntent
 	if _, err := signer.Sign(legacy); !errors.Is(err, ErrInvalidReceipt) {
@@ -642,11 +662,12 @@ func validV8Receipt(t *testing.T) QueryReceiptV1 {
 		Encryption: "chunked-aes-gcm-v1", KeyID: "result-key-1",
 		ParquetSHA256: receipt.ResultHash, ObjectSHA256: fmt.Sprintf("%064x", 22),
 		ParquetSize: 128, ObjectSize: 160, RowCount: receipt.RowCount, ColumnCount: 2,
-		SchemaSHA256: fmt.Sprintf("%064x", 23), ACLSHA256: fmt.Sprintf("%064x", 24),
-		ObjectKeySHA256: fmt.Sprintf("%064x", 25), StagingKeySHA256: fmt.Sprintf("%064x", 26),
+		SchemaSHA256: fmt.Sprintf("%064x", 23), ResultMetadataSHA256: fmt.Sprintf("%064x", 24),
+		ACLSHA256:       fmt.Sprintf("%064x", 25),
+		ObjectKeySHA256: fmt.Sprintf("%064x", 26), StagingKeySHA256: fmt.Sprintf("%064x", 27),
 		ExpiresAt: &expires, Status: ArtifactStatusPending,
 		RegistrationAuditSequence:     receipt.AuditSequence + 1,
-		RegistrationPreviousAuditHash: receipt.AuditHash, RegistrationAuditHash: fmt.Sprintf("%064x", 27),
+		RegistrationPreviousAuditHash: receipt.AuditHash, RegistrationAuditHash: fmt.Sprintf("%064x", 28),
 	})
 	if err != nil {
 		t.Fatal(err)

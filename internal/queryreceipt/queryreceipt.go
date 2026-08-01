@@ -94,7 +94,8 @@ type ExposureEvidenceV1 struct {
 
 // ArtifactIntentEvidenceV1 is the immutable, privacy-preserving description
 // of the PENDING result object registered immediately after query completion.
-// Physical object keys are represented only by their SHA-256 digests.
+// Physical object keys and display/query metadata are represented only by
+// their SHA-256 digests.
 type ArtifactIntentEvidenceV1 struct {
 	Version                       string     `json:"version"`
 	ResultID                      string     `json:"result_id"`
@@ -108,6 +109,7 @@ type ArtifactIntentEvidenceV1 struct {
 	RowCount                      int64      `json:"row_count"`
 	ColumnCount                   int64      `json:"column_count"`
 	SchemaSHA256                  string     `json:"schema_sha256"`
+	ResultMetadataSHA256          string     `json:"result_metadata_sha256"`
 	ACLSHA256                     string     `json:"acl_sha256"`
 	ObjectKeySHA256               string     `json:"object_key_sha256"`
 	StagingKeySHA256              string     `json:"staging_key_sha256"`
@@ -205,7 +207,8 @@ func validateArtifactIntentEvidence(intent ArtifactIntentEvidenceV1, requireInte
 	}
 	for name, value := range map[string]string{
 		"parquet_sha256": intent.ParquetSHA256, "object_sha256": intent.ObjectSHA256,
-		"schema_sha256": intent.SchemaSHA256, "acl_sha256": intent.ACLSHA256,
+		"schema_sha256": intent.SchemaSHA256, "result_metadata_sha256": intent.ResultMetadataSHA256,
+		"acl_sha256":        intent.ACLSHA256,
 		"object_key_sha256": intent.ObjectKeySHA256, "staging_key_sha256": intent.StagingKeySHA256,
 		"registration_previous_audit_hash": intent.RegistrationPreviousAuditHash,
 		"registration_audit_hash":          intent.RegistrationAuditHash,
@@ -230,7 +233,8 @@ func artifactIntentSHA256(intent ArtifactIntentEvidenceV1) (string, error) {
 		"parquet_sha256": intent.ParquetSHA256, "object_sha256": intent.ObjectSHA256,
 		"parquet_size": intent.ParquetSize, "object_size": intent.ObjectSize,
 		"row_count": intent.RowCount, "column_count": intent.ColumnCount,
-		"schema_sha256": intent.SchemaSHA256, "acl_sha256": intent.ACLSHA256,
+		"schema_sha256": intent.SchemaSHA256, "result_metadata_sha256": intent.ResultMetadataSHA256,
+		"acl_sha256":        intent.ACLSHA256,
 		"object_key_sha256": intent.ObjectKeySHA256, "staging_key_sha256": intent.StagingKeySHA256,
 		"status": intent.Status, "registration_audit_sequence": intent.RegistrationAuditSequence,
 		"registration_previous_audit_hash": intent.RegistrationPreviousAuditHash,
@@ -574,7 +578,8 @@ func artifactRegistrationPayload(intent ArtifactIntentEvidenceV1) map[string]any
 		"parquet_sha256": intent.ParquetSHA256, "object_sha256": intent.ObjectSHA256,
 		"parquet_size": intent.ParquetSize, "object_size": intent.ObjectSize,
 		"row_count": intent.RowCount, "column_count": intent.ColumnCount,
-		"schema_sha256": intent.SchemaSHA256, "acl_sha256": intent.ACLSHA256,
+		"schema_sha256": intent.SchemaSHA256, "result_metadata_sha256": intent.ResultMetadataSHA256,
+		"acl_sha256":        intent.ACLSHA256,
 		"object_key_sha256": intent.ObjectKeySHA256, "staging_key_sha256": intent.StagingKeySHA256,
 		"status": intent.Status,
 	}

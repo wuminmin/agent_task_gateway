@@ -574,6 +574,7 @@ assert_contains "$stored_result" '"result_hash":' "persisted result receipt"
 assert_contains "$stored_result" '"gateway_key_id":"gateway-integration-ed25519-v1"' "signed query receipt key"
 assert_contains "$stored_result" '"version":"8"' "V5 artifact query receipt version"
 assert_contains "$stored_result" '"artifact_intent":' "V5 artifact intent receipt binding"
+assert_contains "$stored_result" '"result_metadata_sha256":' "V5 result metadata receipt binding"
 assert_contains "$stored_result" '"dictionary_set_sha256":' "V4 dictionary-set receipt binding"
 assert_contains "$stored_result" '"signature":' "signed query receipt signature"
 carol_receipt=$(mcp_call "$TASKBOUND_CAROL_TOKEN" \

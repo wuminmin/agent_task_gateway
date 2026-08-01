@@ -176,6 +176,7 @@ func TestArtifactFinalizationReusesOriginalRegistrationAuditWhenReceiptIsRecover
 	payload := string(events[0].Payload)
 	if strings.Contains(payload, artifact.ObjectKey) || strings.Contains(payload, artifact.StagingKey) ||
 		!strings.Contains(payload, `"object_key_sha256"`) || !strings.Contains(payload, `"schema_sha256"`) ||
+		!strings.Contains(payload, `"result_metadata_sha256":"`+plaintextHash(normalizedArtifact.ResultMetadataJSON)+`"`) ||
 		!strings.Contains(payload, `"parquet_size"`) {
 		t.Fatalf("registration payload leaks keys or omits complete intent projection: %s", payload)
 	}

@@ -38,7 +38,11 @@
       },
       {
         "path": "internal/control/result.go",
-        "sha256": "59a6ae066aafcffec1c8f983f14f0c58d41e17480a224711443547eaed189059"
+        "sha256": "f6cbc16b5699442e8b0e9ef81ecaed609ada84877126408561db913f4ac900aa"
+      },
+      {
+        "path": "internal/control/result_artifact_test.go",
+        "sha256": "d91c33bce5db1dbbd5022048c2f6118bd7c9938c4377a16d28bcf5bcf8fa43c7"
       },
       {
         "path": "internal/exposure/canonical_validation_test.go",
@@ -55,6 +59,14 @@
       {
         "path": "internal/gateway/exposure.go",
         "sha256": "f36aa63baf1c964f274ade601d7746836e874b33759f0daf0f934816ffc80425"
+      },
+      {
+        "path": "internal/gateway/query.go",
+        "sha256": "c9fa7f7f6cb95a87161615d3ee84733eced0d915b2ffdb2ec08ccd36443e6156"
+      },
+      {
+        "path": "internal/gateway/query_test.go",
+        "sha256": "baf38b527075bda18c7bcda637fe6080094c1c0cdf63da4320106748f2308f8f"
       },
       {
         "path": "internal/gateway/result_artifact.go",
@@ -78,18 +90,22 @@
       },
       {
         "path": "internal/queryreceipt/queryreceipt.go",
-        "sha256": "9afc4f36cf74a57fa48f9d4009e00f4d3197009c20e4f2fdb13d921d199a4c47"
+        "sha256": "1f3567087256cf3ede5e541e8d513e6b67152d41d49890b264319a26b964c358"
+      },
+      {
+        "path": "internal/queryreceipt/queryreceipt_test.go",
+        "sha256": "7c0618c585f2acd795b52a358c804fde3ab1da8da244a088a1e3e6ece1ff4e1e"
       },
       {
         "path": "scripts/integration-test.sh",
-        "sha256": "35d4bafd488411e4826252d913c45961d27499ce6cacfabd8bf4197ebb4fef53"
+        "sha256": "c22dff2aa80a4b0199d073af10868ee1c19d0f45882ba921d8e9de03a0b24fdb"
       },
       {
         "path": "scripts/record-compose-e2e.sh",
         "sha256": "9743e3d2132e140f1ac94337f5fe90246fa4f189f494ed6014f180d51ea2b992"
       }
     ],
-    "sha256": "cbb90417f6d7c22b034b1cf51af5a02c26d19754a870e5aaf0727a0c27d9c466"
+    "sha256": "3c7f578e9feb6508e873b652b6669a2c25438da3f361c0b871bcd9dd509b21bf"
   },
   "raw_execution": {
     "raw_log": "evaluation/v5-outcome/raw/go-test.jsonl",

@@ -378,10 +378,12 @@ func resultArtifactRegistrationPayload(artifact ResultArtifact) map[string]any {
 		"parquet_sha256": artifact.ParquetSHA256, "object_sha256": artifact.ObjectSHA256,
 		"parquet_size": artifact.ParquetSize, "object_size": artifact.ObjectSize,
 		"row_count": artifact.RowCount, "column_count": int64(artifact.ColumnCount),
-		"schema_sha256": plaintextHash(artifact.SchemaJSON), "acl_sha256": plaintextHash(artifact.ACLJSON),
-		"object_key_sha256":  plaintextHash([]byte(artifact.ObjectKey)),
-		"staging_key_sha256": plaintextHash([]byte(artifact.StagingKey)),
-		"status":             ResultArtifactPending,
+		"schema_sha256":          plaintextHash(artifact.SchemaJSON),
+		"result_metadata_sha256": plaintextHash(artifact.ResultMetadataJSON),
+		"acl_sha256":             plaintextHash(artifact.ACLJSON),
+		"object_key_sha256":      plaintextHash([]byte(artifact.ObjectKey)),
+		"staging_key_sha256":     plaintextHash([]byte(artifact.StagingKey)),
+		"status":                 ResultArtifactPending,
 	}
 	if artifact.ExpiresAt != nil {
 		payload["expires_at"] = artifact.ExpiresAt

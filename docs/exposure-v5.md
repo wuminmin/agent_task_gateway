@@ -97,8 +97,8 @@ query candidate set digest used by the observation, charge, and V7 receipt;
 
 Artifact-backed V5 completions use Receipt V8. V8 retains all V7 exposure
 evidence and additionally signs a `taskgate-artifact-intent-v1` PENDING intent:
-Parquet/object hashes and sizes, row/column counts, schema and ACL hashes,
-hashed staging/canonical object keys, expiry, and the immediately following
+Parquet/object hashes and sizes, row/column counts, schema, result-metadata and
+ACL hashes, hashed staging/canonical object keys, expiry, and the immediately following
 `QUERY_RESULT_OBJECT_REGISTERED` audit sequence/hash. The intent carries its
 own canonical SHA-256. V1--V7 reject `artifact_intent`, preventing unsigned
 extension fields from being mistaken for authenticated evidence. The audit

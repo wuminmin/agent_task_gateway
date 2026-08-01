@@ -1161,7 +1161,7 @@ bounds, not V5 latency measurements.
 
 A V8 Ed25519 \emph{settlement} receipt retains the V7 accounting evidence and
 adds a versioned nested artifact intent: result identity, Parquet/object hashes
-and sizes, row/column and schema/ACL evidence, hashed canonical/staging keys,
+and sizes, row/column, schema, result-metadata, and ACL evidence, hashed canonical/staging keys,
 expiry, expected PENDING state, and the registration-audit link. It proves
 accounting and intended publication, not availability. Availability is proved
 separately by inclusion of the single hash-chained

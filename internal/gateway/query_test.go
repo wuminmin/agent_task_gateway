@@ -77,7 +77,8 @@ func TestBuildQueryReceiptRequestEmitsV8ArtifactIntent(t *testing.T) {
 		ParquetSHA256: digest64, ObjectSHA256: fmt.Sprintf("%064x", 3),
 		ParquetSize: 128, ObjectSize: 160, RowCount: 1, ColumnCount: 1,
 		SchemaJSON: []byte(`[{"name":"amount"}]`), ACLJSON: []byte(`{"subject":"alice"}`),
-		Status: control.ResultArtifactAvailable, ExpiresAt: &expires,
+		ResultMetadataJSON: []byte(`{"display_columns":["amount"],"limited":false}`),
+		Status:             control.ResultArtifactAvailable, ExpiresAt: &expires,
 	}
 	exposureCharge := control.ExposureCharge{
 		QueryID: record.ID, RootTaskID: record.TaskID, ProfileVersion: exposure.ProfileV5,
@@ -103,6 +104,9 @@ func TestBuildQueryReceiptRequestEmitsV8ArtifactIntent(t *testing.T) {
 	if signed.Version != queryreceipt.VersionV8 || signed.ArtifactIntent == nil ||
 		signed.ArtifactIntent.Status != queryreceipt.ArtifactStatusPending {
 		t.Fatalf("V8 artifact receipt = %+v", signed)
+	}
+	if signed.ArtifactIntent.ResultMetadataSHA256 != digest(string(artifact.ResultMetadataJSON)) {
+		t.Fatalf("result metadata digest = %q, want complete metadata binding", signed.ArtifactIntent.ResultMetadataSHA256)
 	}
 	if strings.Contains(string(request.ReceiptJSON), artifact.ObjectKey) ||
 		strings.Contains(string(request.ReceiptJSON), artifact.StagingKey) {
