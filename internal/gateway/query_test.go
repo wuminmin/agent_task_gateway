@@ -2,7 +2,9 @@ package gateway
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -42,6 +44,76 @@ func TestReceiptSigningClampsRegressedWallClock(t *testing.T) {
 	}
 	if evidence.Query.CompletedAt == nil || request.SignedAt.Before(*evidence.Query.CompletedAt) {
 		t.Fatalf("signed_at %s precedes completed_at %v", request.SignedAt, evidence.Query.CompletedAt)
+	}
+}
+
+func TestBuildQueryReceiptRequestEmitsV8ArtifactIntent(t *testing.T) {
+	digest64 := fmt.Sprintf("%064x", 1)
+	created := time.Date(2026, 8, 1, 1, 0, 0, 0, time.UTC)
+	completed := created.Add(time.Millisecond)
+	after := control.BudgetSnapshot{
+		TaskID: "task-v8", Limits: control.BudgetLimits{Queries: 10, Rows: 100, DBMS: 1000},
+		Usage: control.BudgetUsage{UsedQueries: 1, UsedRows: 1, UsedDBMS: 2}, UpdatedAt: completed,
+	}
+	record := control.QueryRecord{
+		ID: "query-v8", TaskID: "task-v8", RequestID: "request-v8", Actor: "alice",
+		RequestDigest: digest64, SQLFingerprint: "fingerprint-v8", CatalogVersion: "catalog-v8",
+		CatalogDigest: digest64, DatasourceID: "datasource-v8", SchemaDigest: digest64,
+		ManifestDigest: digest64, GrantDigest: digest64, PolicyDecision: "ALLOW",
+		Status: control.QueryCompleted, ReservedRows: 5, ReservedDBMS: 50,
+		ResultRows: 1, ResultDBMS: 2, ChargedQueries: 1, ChargedRows: 1, ChargedDBMS: 2,
+		BudgetBefore: control.BudgetSnapshot{
+			TaskID: "task-v8", Limits: control.BudgetLimits{Queries: 10, Rows: 100, DBMS: 1000}, UpdatedAt: created,
+		},
+		BudgetAfter: &after, ResultSHA256: digest64, CreatedAt: created, CompletedAt: &completed,
+	}
+	terminal := control.AuditEvent{Sequence: 7, PreviousHash: digest64, CurrentHash: digest64}
+	registration := control.AuditEvent{Sequence: 8, PreviousHash: digest64, CurrentHash: fmt.Sprintf("%064x", 2)}
+	expires := completed.Add(time.Hour)
+	artifact := control.ResultArtifact{
+		ResultID: "result-v8", QueryID: record.ID, TaskID: record.TaskID, KeyID: "artifact-key-v8",
+		Format: "parquet", Encryption: "chunked-aes-gcm-v1",
+		StagingKey: "private/staging/result-v8", ObjectKey: "private/results/result-v8",
+		ParquetSHA256: digest64, ObjectSHA256: fmt.Sprintf("%064x", 3),
+		ParquetSize: 128, ObjectSize: 160, RowCount: 1, ColumnCount: 1,
+		SchemaJSON: []byte(`[{"name":"amount"}]`), ACLJSON: []byte(`{"subject":"alice"}`),
+		Status: control.ResultArtifactAvailable, ExpiresAt: &expires,
+	}
+	exposureCharge := control.ExposureCharge{
+		QueryID: record.ID, RootTaskID: record.TaskID, ProfileVersion: exposure.ProfileV5,
+		ActualOutcomeFacts: 2, ChargedOutcomeFacts: 2,
+		ActualPredicateAtomCount: 1, ChargedPredicateAtomCount: 1,
+		CompositeOutcomeSHA256: fmt.Sprintf("%064x", 4), PredicateContextSHA256: fmt.Sprintf("%064x", 5),
+		PredicateSetSHA256: fmt.Sprintf("%064x", 6), ObservationSHA256: fmt.Sprintf("%064x", 7),
+		DictionarySetDigest: fmt.Sprintf("%064x", 8), ReleaseSetSHA256: fmt.Sprintf("%064x", 9),
+		InfluenceSetSHA256: fmt.Sprintf("%064x", 10), OutcomeSetSHA256: fmt.Sprintf("%064x", 11), RootEpoch: 1,
+	}
+	signer := queryreceipt.DemoSigner([]byte("gateway-v8-builder-test"))
+	request, err := BuildQueryReceiptRequest(control.QueryReceipt{
+		Query: record, Audit: terminal, Exposure: &exposureCharge,
+		Artifact: &artifact, ArtifactRegistrationAudit: &registration,
+	}, signer, completed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var signed queryreceipt.QueryReceiptV1
+	if err := json.Unmarshal(request.ReceiptJSON, &signed); err != nil {
+		t.Fatal(err)
+	}
+	if signed.Version != queryreceipt.VersionV8 || signed.ArtifactIntent == nil ||
+		signed.ArtifactIntent.Status != queryreceipt.ArtifactStatusPending {
+		t.Fatalf("V8 artifact receipt = %+v", signed)
+	}
+	if strings.Contains(string(request.ReceiptJSON), artifact.ObjectKey) ||
+		strings.Contains(string(request.ReceiptJSON), artifact.StagingKey) {
+		t.Fatalf("V8 receipt leaked physical object key: %s", request.ReceiptJSON)
+	}
+	verifier, err := queryreceipt.NewVerifier(map[string]ed25519.PublicKey{signer.KeyID(): signer.PublicKey()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := verifier.Verify(signed); err != nil {
+		t.Fatalf("verify V8 builder output: %v", err)
 	}
 }
 

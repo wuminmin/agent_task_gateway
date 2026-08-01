@@ -518,10 +518,12 @@ type QueryRecordPage struct {
 }
 
 type QueryReceipt struct {
-	Query    QueryRecord
-	Audit    AuditEvent
-	Receipt  *PersistedQueryReceipt
-	Exposure *ExposureCharge
+	Query                     QueryRecord
+	Audit                     AuditEvent
+	Receipt                   *PersistedQueryReceipt
+	Exposure                  *ExposureCharge
+	Artifact                  *ResultArtifact
+	ArtifactRegistrationAudit *AuditEvent
 }
 
 type PersistedQueryReceipt struct {

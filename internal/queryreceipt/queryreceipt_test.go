@@ -135,6 +135,48 @@ func TestQueryReceiptV7BindsPredicateAndCompositeEvidence(t *testing.T) {
 	}
 }
 
+func TestQueryReceiptV8BindsCompleteArtifactIntent(t *testing.T) {
+	signer := DemoSigner([]byte("unit-test-v8-secret"))
+	verifier, err := NewVerifier(map[string]ed25519.PublicKey{signer.KeyID(): signer.PublicKey()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt := validV8Receipt(t)
+	signed, err := signer.Sign(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := verifier.Verify(signed); err != nil {
+		t.Fatal(err)
+	}
+
+	tampered := signed
+	changed := *signed.ArtifactIntent
+	changed.ResultID = "result-another"
+	changed, err = BuildArtifactIntent(changed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tampered.ArtifactIntent = &changed
+	if err := verifier.Verify(tampered); !errors.Is(err, ErrInvalidSignature) {
+		t.Fatalf("re-sealed artifact tamper error = %v, want invalid signature", err)
+	}
+
+	legacy := validV7Receipt()
+	legacy.ArtifactIntent = receipt.ArtifactIntent
+	if _, err := signer.Sign(legacy); !errors.Is(err, ErrInvalidReceipt) {
+		t.Fatalf("V7 artifact intent error = %v, want invalid receipt", err)
+	}
+
+	broken := receipt
+	copyIntent := *receipt.ArtifactIntent
+	copyIntent.ObjectSHA256 = fmt.Sprintf("%064x", 99)
+	broken.ArtifactIntent = &copyIntent
+	if _, err := signer.Sign(broken); !errors.Is(err, ErrInvalidReceipt) {
+		t.Fatalf("stale intent digest error = %v, want invalid receipt", err)
+	}
+}
+
 func TestQueryReceiptV1VerificationRemainsCompatible(t *testing.T) {
 	signer := DemoSigner([]byte("unit-test-secret"))
 	verifier, err := NewVerifier(map[string]ed25519.PublicKey{signer.KeyID(): signer.PublicKey()})
@@ -433,6 +475,79 @@ func TestQueryReceiptVerifiesAuditInclusionProof(t *testing.T) {
 	}
 }
 
+func TestQueryReceiptV8VerifiesTerminalAndArtifactInclusion(t *testing.T) {
+	signer := DemoSigner([]byte("unit-test-v8-inclusion"))
+	receipt := validV8Receipt(t)
+	baseIntent := *receipt.ArtifactIntent
+
+	terminal := auditchain.Event{
+		Sequence: 1, EventID: "audit-terminal", TaskID: receipt.TaskID, QueryID: receipt.QueryID,
+		Actor: "alice", EventType: "QUERY_COMPLETED", Payload: []byte(`{"status":"COMPLETED"}`),
+		OccurredAt: time.Date(2026, 7, 22, 1, 0, 0, 0, time.UTC), PreviousHash: auditchain.GenesisHash,
+	}
+	terminal.CurrentHash = mustAuditHash(t, terminal.PreviousHash, terminal)
+	registration := auditchain.Event{
+		Sequence: 2, EventID: "audit-registration", TaskID: receipt.TaskID, QueryID: receipt.QueryID,
+		Actor: "alice", EventType: "QUERY_RESULT_OBJECT_REGISTERED",
+		Payload:    mustJSONForTest(t, artifactRegistrationPayload(baseIntent)),
+		OccurredAt: terminal.OccurredAt.Add(time.Millisecond), PreviousHash: terminal.CurrentHash,
+	}
+	registration.CurrentHash = mustAuditHash(t, registration.PreviousHash, registration)
+	receipt.AuditSequence = terminal.Sequence
+	receipt.PreviousAuditHash = terminal.PreviousHash
+	receipt.AuditHash = terminal.CurrentHash
+	baseIntent.RegistrationAuditSequence = registration.Sequence
+	baseIntent.RegistrationPreviousAuditHash = registration.PreviousHash
+	baseIntent.RegistrationAuditHash = registration.CurrentHash
+	baseIntent, err := BuildArtifactIntent(baseIntent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt.ArtifactIntent = &baseIntent
+	signed, err := signer.Sign(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	terminalProof := auditchain.InclusionProof{
+		TerminalEvent: terminal, SuccessorEvents: []auditchain.Event{registration},
+		Checkpoint: auditchain.Checkpoint{Sequence: registration.Sequence, Hash: registration.CurrentHash},
+	}
+	registrationProof := auditchain.InclusionProof{
+		TerminalEvent: registration, PredecessorEvent: &terminal,
+		Checkpoint: auditchain.Checkpoint{Sequence: registration.Sequence, Hash: registration.CurrentHash},
+	}
+	if err := VerifyArtifactIntentInclusion(signed, terminalProof, registrationProof); err != nil {
+		t.Fatalf("VerifyArtifactIntentInclusion: %v", err)
+	}
+
+	wrongPayload := registration
+	wrongPayload.Payload = []byte(`{"status":"PENDING"}`)
+	wrongPayload.CurrentHash = mustAuditHash(t, wrongPayload.PreviousHash, wrongPayload)
+	wrongIntent := baseIntent
+	wrongIntent.RegistrationAuditHash = wrongPayload.CurrentHash
+	wrongIntent, err = BuildArtifactIntent(wrongIntent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrongReceipt := receipt
+	wrongReceipt.ArtifactIntent = &wrongIntent
+	wrongSigned, err := signer.Sign(wrongReceipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrongRegistrationProof := auditchain.InclusionProof{
+		TerminalEvent: wrongPayload, PredecessorEvent: &terminal,
+		Checkpoint: auditchain.Checkpoint{Sequence: wrongPayload.Sequence, Hash: wrongPayload.CurrentHash},
+	}
+	terminalOnlyProof := auditchain.InclusionProof{
+		TerminalEvent: terminal,
+		Checkpoint:    auditchain.Checkpoint{Sequence: terminal.Sequence, Hash: terminal.CurrentHash},
+	}
+	if err := VerifyArtifactIntentInclusion(wrongSigned, terminalOnlyProof, wrongRegistrationProof); !errors.Is(err, ErrInvalidReceipt) {
+		t.Fatalf("registration payload mismatch error = %v, want invalid receipt", err)
+	}
+}
+
 func validReceipt() QueryReceiptV1 {
 	digest := sha256.Sum256([]byte("evidence"))
 	hexDigest := fmt.Sprintf("%x", digest)
@@ -515,6 +630,47 @@ func validV7Receipt() QueryReceiptV1 {
 	receipt.Exposure.ActualOutcomeFacts = 2
 	receipt.Exposure.ChargedOutcomeFacts = 2
 	return receipt
+}
+
+func validV8Receipt(t *testing.T) QueryReceiptV1 {
+	t.Helper()
+	receipt := validV7Receipt()
+	receipt.Version = VersionV8
+	expires := receipt.CompletedAt.Add(time.Hour)
+	intent, err := BuildArtifactIntent(ArtifactIntentEvidenceV1{
+		Version: ArtifactIntentVersionV1, ResultID: "result-query-1", Format: "parquet",
+		Encryption: "chunked-aes-gcm-v1", KeyID: "result-key-1",
+		ParquetSHA256: receipt.ResultHash, ObjectSHA256: fmt.Sprintf("%064x", 22),
+		ParquetSize: 128, ObjectSize: 160, RowCount: receipt.RowCount, ColumnCount: 2,
+		SchemaSHA256: fmt.Sprintf("%064x", 23), ACLSHA256: fmt.Sprintf("%064x", 24),
+		ObjectKeySHA256: fmt.Sprintf("%064x", 25), StagingKeySHA256: fmt.Sprintf("%064x", 26),
+		ExpiresAt: &expires, Status: ArtifactStatusPending,
+		RegistrationAuditSequence:     receipt.AuditSequence + 1,
+		RegistrationPreviousAuditHash: receipt.AuditHash, RegistrationAuditHash: fmt.Sprintf("%064x", 27),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt.ArtifactIntent = &intent
+	return receipt
+}
+
+func mustAuditHash(t *testing.T, previous string, event auditchain.Event) string {
+	t.Helper()
+	value, err := auditchain.Hash(previous, event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return value
+}
+
+func mustJSONForTest(t *testing.T, value any) []byte {
+	t.Helper()
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return encoded
 }
 
 func testSigner(t *testing.T, keyID string, seedByte byte) *Signer {

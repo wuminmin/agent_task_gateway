@@ -1837,7 +1837,23 @@ func (s *Service) getAuditReceipt(ctx context.Context, _ mcp.Principal, raw json
 	if err := queryreceipt.VerifyAuditInclusion(signed, typedProof); err != nil {
 		return nil, err
 	}
-	return map[string]any{"receipt": receipt, "audit_chain_events": chain, "audit_inclusion": publicProof}, nil
+	result := map[string]any{"receipt": receipt, "audit_chain_events": chain, "audit_inclusion": publicProof}
+	if signed.Version == queryreceipt.VersionV8 {
+		if evidence.ArtifactRegistrationAudit == nil {
+			return nil, fmt.Errorf("V8 receipt is missing artifact registration audit evidence")
+		}
+		registrationPublicProof, registrationTypedProof, err := s.auditInclusionProof(ctx, *evidence.ArtifactRegistrationAudit)
+		if err != nil {
+			return nil, err
+		}
+		if err := queryreceipt.VerifyArtifactIntentInclusion(signed, typedProof, registrationTypedProof); err != nil {
+			return nil, err
+		}
+		result["artifact_intent_inclusion"] = map[string]any{
+			"terminal": publicProof, "registration": registrationPublicProof,
+		}
+	}
+	return result, nil
 }
 
 func publicAuditEvent(event control.AuditEvent, includePayload bool) map[string]any {
@@ -1909,7 +1925,10 @@ func (s *Service) queryReceipt(ctx context.Context, record control.QueryRecord) 
 	if record.BudgetAfter == nil || record.CompletedAt == nil {
 		return nil, fmt.Errorf("terminal query is missing durable budget or timestamp evidence")
 	}
-	request, err := s.buildQueryReceiptRequest(control.QueryReceipt{Query: record, Audit: evidence.Audit, Exposure: evidence.Exposure}, s.clock().UTC())
+	request, err := s.buildQueryReceiptRequest(control.QueryReceipt{
+		Query: record, Audit: evidence.Audit, Exposure: evidence.Exposure,
+		Artifact: evidence.Artifact, ArtifactRegistrationAudit: evidence.ArtifactRegistrationAudit,
+	}, s.clock().UTC())
 	if err != nil {
 		return nil, err
 	}
@@ -1945,6 +1964,7 @@ func BuildQueryReceiptRequest(evidence control.QueryReceipt, signer *queryreceip
 	}
 	version := queryreceipt.VersionV3
 	var exposureEvidence *queryreceipt.ExposureEvidenceV1
+	var artifactIntent *queryreceipt.ArtifactIntentEvidenceV1
 	if evidence.Exposure != nil {
 		version = queryreceipt.VersionV4
 		if evidence.Exposure.ProfileVersion == exposure.ProfileV3 {
@@ -1978,6 +1998,31 @@ func BuildQueryReceiptRequest(evidence control.QueryReceipt, signer *queryreceip
 			exposureEvidence.ChargedCompositeCount = evidence.Exposure.ChargedOutcomeFacts - evidence.Exposure.ChargedPredicateAtomCount
 		}
 	}
+	if (evidence.Artifact == nil) != (evidence.ArtifactRegistrationAudit == nil) {
+		return control.SaveQueryReceiptRequest{}, fmt.Errorf("artifact and registration audit evidence must be provided together")
+	}
+	if evidence.Artifact != nil && evidence.Exposure != nil && evidence.Exposure.ProfileVersion == exposure.ProfileV5 {
+		artifact := evidence.Artifact
+		registration := evidence.ArtifactRegistrationAudit
+		intent, err := queryreceipt.BuildArtifactIntent(queryreceipt.ArtifactIntentEvidenceV1{
+			Version: queryreceipt.ArtifactIntentVersionV1, ResultID: artifact.ResultID,
+			Format: artifact.Format, Encryption: artifact.Encryption, KeyID: artifact.KeyID,
+			ParquetSHA256: artifact.ParquetSHA256, ObjectSHA256: artifact.ObjectSHA256,
+			ParquetSize: artifact.ParquetSize, ObjectSize: artifact.ObjectSize,
+			RowCount: artifact.RowCount, ColumnCount: int64(artifact.ColumnCount),
+			SchemaSHA256: digest(string(artifact.SchemaJSON)), ACLSHA256: digest(string(artifact.ACLJSON)),
+			ObjectKeySHA256: digest(artifact.ObjectKey), StagingKeySHA256: digest(artifact.StagingKey),
+			ExpiresAt: artifact.ExpiresAt, Status: queryreceipt.ArtifactStatusPending,
+			RegistrationAuditSequence:     registration.Sequence,
+			RegistrationPreviousAuditHash: registration.PreviousHash,
+			RegistrationAuditHash:         registration.CurrentHash,
+		})
+		if err != nil {
+			return control.SaveQueryReceiptRequest{}, err
+		}
+		artifactIntent = &intent
+		version = queryreceipt.VersionV8
+	}
 	receipt := queryreceipt.QueryReceiptV1{
 		Version: version, ReceiptID: record.ID,
 		TaskID: record.TaskID, QueryID: record.ID, RequestID: record.RequestID,
@@ -1996,7 +2041,7 @@ func BuildQueryReceiptRequest(evidence control.QueryReceipt, signer *queryreceip
 		CreatedAt: record.CreatedAt, CompletedAt: *record.CompletedAt,
 		AuditSequence: evidence.Audit.Sequence, PreviousAuditHash: evidence.Audit.PreviousHash,
 		AuditHash: evidence.Audit.CurrentHash, SignedAt: &signedAt,
-		Exposure: exposureEvidence,
+		Exposure: exposureEvidence, ArtifactIntent: artifactIntent,
 	}
 	signed, err := signer.Sign(receipt)
 	if err != nil {

@@ -667,6 +667,10 @@ func (s *Store) GetQueryReceipt(ctx context.Context, queryID string) (QueryRecei
 		return QueryReceipt{}, opErr(op, ErrConflict, err)
 	}
 	evidence := QueryReceipt{Query: query, Audit: audit}
+	persisted, persistedErr := scanPersistedQueryReceipt(s.db.QueryRowContext(ctx, receiptSelect+` WHERE query_id=$1`, queryID))
+	if persistedErr != nil && !isNoRows(persistedErr) {
+		return QueryReceipt{}, opErr(op, ErrConflict, persistedErr)
+	}
 	if query.Status == QueryCompleted {
 		charge, chargeErr := s.GetExposureCharge(ctx, queryID)
 		if chargeErr == nil {
@@ -674,14 +678,36 @@ func (s *Store) GetQueryReceipt(ctx context.Context, queryID string) (QueryRecei
 		} else if !errors.Is(chargeErr, ErrNotFound) {
 			return QueryReceipt{}, chargeErr
 		}
+		// Existing V1-V7 receipts deliberately do not bind artifact evidence.
+		// Only load the complete registration projection for V8 or when a
+		// missing receipt may need to be rebuilt as V8.
+		if persistedErr != nil || persisted.Version == "8" {
+			artifact, artifactErr := s.GetResultArtifactByQuery(ctx, queryID)
+			if artifactErr == nil {
+				events, listErr := s.ListAuditEventsForQuery(ctx, queryID)
+				if listErr != nil {
+					return QueryReceipt{}, listErr
+				}
+				registrations := make([]AuditEvent, 0, 1)
+				for _, event := range events {
+					if event.EventType == "QUERY_RESULT_OBJECT_REGISTERED" {
+						registrations = append(registrations, event)
+					}
+				}
+				registration, validationErr := validateResultArtifactRegistrationAudit(query, artifact, registrations)
+				if validationErr != nil {
+					return QueryReceipt{}, opErr(op, ErrConflict, validationErr)
+				}
+				evidence.Artifact = &artifact
+				evidence.ArtifactRegistrationAudit = &registration
+			} else if !errors.Is(artifactErr, ErrNotFound) {
+				return QueryReceipt{}, artifactErr
+			}
+		}
 	}
-	receipt, err := scanPersistedQueryReceipt(s.db.QueryRowContext(ctx, receiptSelect+` WHERE query_id=$1`, queryID))
-	if err == nil {
-		evidence.Receipt = &receipt
+	if persistedErr == nil {
+		evidence.Receipt = &persisted
 		return evidence, nil
-	}
-	if !isNoRows(err) {
-		return QueryReceipt{}, opErr(op, ErrConflict, err)
 	}
 	return evidence, nil
 }
