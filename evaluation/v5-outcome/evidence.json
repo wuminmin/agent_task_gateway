@@ -1,4 +1,8 @@
 {
+  "compose_execution": {
+    "receipt": "evaluation/v5-outcome/compose-receipt.json",
+    "receipt_sha256": "149ab37bb4b56e393202a81412fada497a1b3f8e515697f752733f1e1f50e91e"
+  },
   "deterministic_set": {
     "duplicate_idempotent": true,
     "members": 10000,
@@ -54,7 +58,7 @@
     "prefix16": "4224",
     "replay_changed_objects": 0
   },
-  "schema_version": 2,
+  "schema_version": 3,
   "source_manifest": {
     "algorithm": "sha256(canonical-json(sorted-path-sha256-list))",
     "files": [
@@ -188,5 +192,6 @@
       }
     ],
     "sha256": "8570d99c330f056a9e8e2135d2ba92e98c3120e9feb89d9d1c8e1b6c3b25cefa"
-  }
+  },
+  "submission_commit": "85885a542cf5aa0968b1d22c71ea3562a5b07406"
 }
