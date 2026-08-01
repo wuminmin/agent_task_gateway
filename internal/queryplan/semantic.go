@@ -34,6 +34,17 @@ func SemanticNormalForm(plan QueryPlan, compilation RelationalCompilation, produ
 	return NormalizeAlgebraV2(algebra)
 }
 
+// SemanticNormalFormV4 is the V5 typed-literal variant. The supported
+// relational algebra is unchanged; only its versioned literal identity and
+// hash domain differ.
+func SemanticNormalFormV4(plan QueryPlan, compilation RelationalCompilation, products map[string]Product) (AlgebraNormalFormV2, error) {
+	algebra, err := semanticAlgebraPlan(plan, compilation, products)
+	if err != nil {
+		return AlgebraNormalFormV2{}, err
+	}
+	return NormalizeAlgebraV4(algebra)
+}
+
 func semanticAlgebraPlan(plan QueryPlan, compilation RelationalCompilation, products map[string]Product) (AlgebraPlanV2, error) {
 	makeScan := func(source RelationalSource, semanticRole string) (AlgebraPlanV2, error) {
 		product, present := products[source.Product]

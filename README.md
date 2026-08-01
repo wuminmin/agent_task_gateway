@@ -269,6 +269,7 @@ Receipt verifier 可读取 `/.well-known/taskgate/query-receipt-keyring.json`。
 - [TaskGate 与数据库 provenance 系统的边界](docs/provenance-comparison.md)
 - [TKDE 实验执行指南](docs/experiment-guide.md)
 - [TaskGate V4: Snapshot-Indexed Hybrid Bitmap Ledger](docs/exposure-v4.md)
+- [TaskGate V5: Predicate Atom Footprint 与 Composite Outcome](docs/exposure-v5.md)
 - [架构与安全边界](docs/architecture.md)
 - [任务级 Exposure 语义、在线算法与支持边界](docs/exposure-accounting.md)
 - [Compose 启动、Navicat 与 Agent API 演示](docs/getting-started.md)

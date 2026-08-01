@@ -40,6 +40,10 @@ func publishOrdinalMaterializationTx(ctx context.Context, tx *sql.Tx, now time.T
 	if !validSHA256Hex(request.CacheKeySHA256) {
 		return OrdinalMaterialization{}, false, fmt.Errorf("invalid materialization cache key")
 	}
+	profile, cacheTable, queryObservationTable, observationTable, err := ordinalMaterializationTables(request.ProfileVersion)
+	if err != nil {
+		return OrdinalMaterialization{}, false, err
+	}
 	now = dbTime(now)
 	var expiresAt *time.Time
 	if request.ExpiresAt != nil {
@@ -49,16 +53,16 @@ func publishOrdinalMaterializationTx(ctx context.Context, tx *sql.Tx, now time.T
 		}
 		expiresAt = &expires
 	}
-	var materialization OrdinalMaterialization
+	materialization := OrdinalMaterialization{ProfileVersion: profile}
 	var status QueryStatus
-	err := tx.QueryRowContext(ctx, `
+	err = tx.QueryRowContext(ctx, fmt.Sprintf(`
 SELECT query.task_id,query.status,query.grant_digest,query.catalog_digest,query.result_sha256,
  query.result_rows,reference.root_task_id,reference.observation_sha256,observation.dictionary_set_digest,
  query.id
 FROM query_records query
-JOIN v4_query_observations reference ON reference.query_id=query.id
-JOIN v4_observations observation ON observation.observation_sha256=reference.observation_sha256
-WHERE query.id=$1 FOR SHARE OF query,reference,observation`, sourceQueryID).
+JOIN %s reference ON reference.query_id=query.id
+JOIN %s observation ON observation.observation_sha256=reference.observation_sha256
+WHERE query.id=$1 FOR SHARE OF query,reference,observation`, queryObservationTable, observationTable), sourceQueryID).
 		Scan(&materialization.TaskID, &status, &materialization.GrantDigest, &materialization.CatalogDigest,
 			&materialization.ResultSHA256, &materialization.RowCount, &materialization.RootTaskID,
 			&materialization.Observation.ObservationSHA256, &materialization.Observation.DictionarySetDigest,
@@ -67,7 +71,7 @@ WHERE query.id=$1 FOR SHARE OF query,reference,observation`, sourceQueryID).
 		return OrdinalMaterialization{}, false, err
 	}
 	if status != QueryCompleted || materialization.ResultSHA256 == "" {
-		return OrdinalMaterialization{}, false, fmt.Errorf("source query is not a committed V4 result")
+		return OrdinalMaterialization{}, false, fmt.Errorf("source query is not a committed %s result", profile)
 	}
 	materialization.ResultKeyID, err = ordinalMaterializationSourceKeyTx(ctx, tx,
 		materialization.SourceQueryID, materialization.TaskID, materialization.ResultSHA256, false, now)
@@ -77,11 +81,11 @@ WHERE query.id=$1 FOR SHARE OF query,reference,observation`, sourceQueryID).
 	materialization.CacheKeySHA256 = request.CacheKeySHA256
 	materialization.CreatedAt = now
 	materialization.ExpiresAt = expiresAt
-	result, err := tx.ExecContext(ctx, `
-INSERT INTO v4_committed_materializations(cache_key_sha256,task_id,root_task_id,source_query_id,
+	result, err := tx.ExecContext(ctx, fmt.Sprintf(`
+INSERT INTO %s(cache_key_sha256,task_id,root_task_id,source_query_id,
  observation_sha256,dictionary_set_digest,grant_digest,catalog_digest,result_sha256,row_count,created_at,expires_at)
 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-ON CONFLICT (cache_key_sha256) DO NOTHING`, materialization.CacheKeySHA256, materialization.TaskID,
+ON CONFLICT (cache_key_sha256) DO NOTHING`, cacheTable), materialization.CacheKeySHA256, materialization.TaskID,
 		materialization.RootTaskID, materialization.SourceQueryID, materialization.Observation.ObservationSHA256,
 		materialization.Observation.DictionarySetDigest, materialization.GrantDigest, materialization.CatalogDigest,
 		materialization.ResultSHA256, materialization.RowCount, materialization.CreatedAt,
@@ -91,7 +95,7 @@ ON CONFLICT (cache_key_sha256) DO NOTHING`, materialization.CacheKeySHA256, mate
 	}
 	inserted, _ := result.RowsAffected()
 	if inserted == 0 {
-		existing, err := getOrdinalMaterializationTx(ctx, tx, materialization.CacheKeySHA256, false, now)
+		existing, err := getOrdinalMaterializationTx(ctx, tx, materialization.CacheKeySHA256, profile, false, now)
 		if err != nil {
 			return OrdinalMaterialization{}, false, err
 		}
@@ -152,25 +156,29 @@ func (s *Store) LookupOrdinalMaterialization(ctx context.Context,
 		!validSHA256Hex(lookup.DictionarySetDigest) {
 		return OrdinalMaterialization{}, opErr(op, ErrInvalid, fmt.Errorf("complete cache and authorization binding is required"))
 	}
+	profile, cacheTable, _, _, profileErr := ordinalMaterializationTables(lookup.ProfileVersion)
+	if profileErr != nil {
+		return OrdinalMaterialization{}, opErr(op, ErrInvalid, profileErr)
+	}
 	tx, err := beginTx(ctx, s.db)
 	if err != nil {
 		return OrdinalMaterialization{}, opErr(op, ErrConflict, err)
 	}
 	defer rollback(tx)
 	now := s.now()
-	var result OrdinalMaterialization
+	result := OrdinalMaterialization{ProfileVersion: profile}
 	var created time.Time
 	var expires sql.NullTime
-	err = tx.QueryRowContext(ctx, `
+	err = tx.QueryRowContext(ctx, fmt.Sprintf(`
 SELECT cache.cache_key_sha256,cache.task_id,cache.root_task_id,cache.source_query_id,
  cache.observation_sha256,cache.dictionary_set_digest,cache.grant_digest,cache.catalog_digest,
  cache.result_sha256,cache.row_count,cache.created_at,cache.expires_at
-FROM v4_committed_materializations cache
+FROM %s cache
 JOIN query_records source_query ON source_query.id=cache.source_query_id AND source_query.status='COMPLETED'
 WHERE cache.cache_key_sha256=$1 AND cache.task_id=$2 AND cache.grant_digest=$3
   AND cache.catalog_digest=$4 AND cache.dictionary_set_digest=$5
   AND (cache.expires_at IS NULL OR cache.expires_at>$6)
-FOR SHARE OF cache,source_query`, lookup.CacheKeySHA256, lookup.TaskID, lookup.GrantDigest,
+FOR SHARE OF cache,source_query`, cacheTable), lookup.CacheKeySHA256, lookup.TaskID, lookup.GrantDigest,
 		lookup.CatalogDigest, lookup.DictionarySetDigest, dbTime(now)).
 		Scan(&result.CacheKeySHA256, &result.TaskID, &result.RootTaskID, &result.SourceQueryID,
 			&result.Observation.ObservationSHA256, &result.Observation.DictionarySetDigest,
@@ -216,13 +224,17 @@ func (s *Store) DeleteUnusableOrdinalMaterialization(ctx context.Context,
 		!validSHA256Hex(lookup.DictionarySetDigest) {
 		return false, opErr(op, ErrInvalid, fmt.Errorf("complete cache and authorization binding is required"))
 	}
+	_, cacheTable, _, _, profileErr := ordinalMaterializationTables(lookup.ProfileVersion)
+	if profileErr != nil {
+		return false, opErr(op, ErrInvalid, profileErr)
+	}
 	tx, err := beginTx(ctx, s.db)
 	if err != nil {
 		return false, opErr(op, ErrConflict, err)
 	}
 	defer rollback(tx)
-	result, err := tx.ExecContext(ctx, `
-DELETE FROM v4_committed_materializations cache
+	result, err := tx.ExecContext(ctx, fmt.Sprintf(`
+DELETE FROM %s cache
 WHERE cache.cache_key_sha256=$1 AND cache.task_id=$2 AND cache.grant_digest=$3
   AND cache.catalog_digest=$4 AND cache.dictionary_set_digest=$5
   AND (
@@ -249,7 +261,7 @@ WHERE cache.cache_key_sha256=$1 AND cache.task_id=$2 AND cache.grant_digest=$3
           )
       )
     )
-  )`, lookup.CacheKeySHA256, lookup.TaskID, lookup.GrantDigest, lookup.CatalogDigest,
+	  )`, cacheTable), lookup.CacheKeySHA256, lookup.TaskID, lookup.GrantDigest, lookup.CatalogDigest,
 		lookup.DictionarySetDigest, dbTime(s.now()))
 	if err != nil {
 		return false, opErr(op, ErrConflict, err)
@@ -279,15 +291,19 @@ WHERE cache.cache_key_sha256=$1 AND cache.task_id=$2 AND cache.grant_digest=$3
 	return true, nil
 }
 
-func getOrdinalMaterializationTx(ctx context.Context, tx *sql.Tx, cacheKey string, requireUsable bool,
+func getOrdinalMaterializationTx(ctx context.Context, tx *sql.Tx, cacheKey, profileVersion string, requireUsable bool,
 	now time.Time) (OrdinalMaterialization, error) {
-	query := `
+	profile, cacheTable, _, _, err := ordinalMaterializationTables(profileVersion)
+	if err != nil {
+		return OrdinalMaterialization{}, err
+	}
+	query := fmt.Sprintf(`
 SELECT cache.cache_key_sha256,cache.task_id,cache.root_task_id,cache.source_query_id,
  cache.observation_sha256,cache.dictionary_set_digest,cache.grant_digest,cache.catalog_digest,
  cache.result_sha256,cache.row_count,cache.created_at,cache.expires_at
-FROM v4_committed_materializations cache
+FROM %s cache
 JOIN query_records source_query ON source_query.id=cache.source_query_id AND source_query.status='COMPLETED'
-WHERE cache.cache_key_sha256=$1`
+WHERE cache.cache_key_sha256=$1`, cacheTable)
 	if requireUsable {
 		query += ` AND (cache.expires_at IS NULL OR cache.expires_at>$2)`
 	}
@@ -298,7 +314,7 @@ WHERE cache.cache_key_sha256=$1`
 	} else {
 		row = tx.QueryRowContext(ctx, query, cacheKey)
 	}
-	var result OrdinalMaterialization
+	result := OrdinalMaterialization{ProfileVersion: profile}
 	var created time.Time
 	var expires sql.NullTime
 	if err := row.Scan(&result.CacheKeySHA256, &result.TaskID, &result.RootTaskID, &result.SourceQueryID,
@@ -393,8 +409,25 @@ func (s *Store) DeleteOrdinalMaterialization(ctx context.Context, taskID, cacheK
 		return opErr(op, ErrConflict, err)
 	}
 	defer rollback(tx)
-	result, err := tx.ExecContext(ctx, `DELETE FROM v4_committed_materializations
-WHERE task_id=$1 AND cache_key_sha256=$2`, taskID, cacheKey)
+	var v4Exists, v5Exists bool
+	if err := tx.QueryRowContext(ctx, `SELECT
+ EXISTS(SELECT 1 FROM v4_committed_materializations WHERE task_id=$1 AND cache_key_sha256=$2),
+ EXISTS(SELECT 1 FROM v5_committed_materializations WHERE task_id=$1 AND cache_key_sha256=$2)`,
+		taskID, cacheKey).Scan(&v4Exists, &v5Exists); err != nil {
+		return opErr(op, ErrConflict, err)
+	}
+	if v4Exists == v5Exists {
+		if !v4Exists {
+			return opErr(op, ErrNotFound, sql.ErrNoRows)
+		}
+		return opErr(op, ErrMaterializationConflict, errors.New("cache key exists in both V4 and V5"))
+	}
+	table := "v4_committed_materializations"
+	if v5Exists {
+		table = "v5_committed_materializations"
+	}
+	result, err := tx.ExecContext(ctx, fmt.Sprintf(`DELETE FROM %s
+WHERE task_id=$1 AND cache_key_sha256=$2`, table), taskID, cacheKey)
 	if err != nil {
 		return opErr(op, ErrConflict, err)
 	}
@@ -415,9 +448,23 @@ WHERE task_id=$1 AND cache_key_sha256=$2`, taskID, cacheKey)
 
 func equivalentOrdinalMaterializationEvidence(left, right OrdinalMaterialization) bool {
 	return left.CacheKeySHA256 == right.CacheKeySHA256 && left.TaskID == right.TaskID &&
-		left.RootTaskID == right.RootTaskID &&
+		left.ProfileVersion == right.ProfileVersion && left.RootTaskID == right.RootTaskID &&
 		left.Observation == right.Observation && left.GrantDigest == right.GrantDigest &&
 		left.CatalogDigest == right.CatalogDigest && left.RowCount == right.RowCount
+}
+
+func ordinalMaterializationTables(profile string) (normalized, cache, queryObservation, observation string, err error) {
+	if profile == "" {
+		profile = "taskgate-exposure-v4"
+	}
+	switch profile {
+	case "taskgate-exposure-v4":
+		return profile, "v4_committed_materializations", "v4_query_observations", "v4_observations", nil
+	case "taskgate-exposure-v5":
+		return profile, "v5_committed_materializations", "v5_query_observations", "v5_observations", nil
+	default:
+		return "", "", "", "", fmt.Errorf("unsupported ordinal materialization profile %q", profile)
+	}
 }
 
 func materializationErrorKind(err error) error {

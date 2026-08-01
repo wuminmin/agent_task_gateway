@@ -306,6 +306,23 @@ func ordinalSemanticReplayBinding(taskID, grantDigest, authorizationDigest, plan
 	}
 }
 
+func ordinalSemanticReplayBindingV5(taskID, grantDigest, authorizationDigest, planDigest, catalogDigest,
+	schemaDigest, dictionarySetDigest string, footprint *queryplan.PredicateFootprint) semanticcache.Binding {
+	binding := semanticcache.Binding{TaskID: taskID, GrantDigest: grantDigest, AuthorizationDigest: authorizationDigest,
+		TypedNormalForm: queryplan.NormalFormVersionV4 + ":" + planDigest, PlanDigest: planDigest,
+		CatalogDigest: catalogDigest, SchemaDigest: schemaDigest, DictionarySetDigest: dictionarySetDigest,
+		ExposureProfile: exposure.ProfileV5, CompilerVersion: queryplan.OrdinalProgramVersion,
+		OrderingVersion: semanticcache.OrderingV1, PaginationVersion: semanticcache.PaginationV1,
+		ResultEncoding: "stored-query-result-v1"}
+	if footprint != nil {
+		binding.PredicateProfile = footprint.Version
+		binding.PredicateContext = footprint.ContextSHA256
+		binding.PredicateSet = footprint.AtomSetSHA256
+		binding.PredicateAtomCount = int64(footprint.UniqueAtomCount)
+	}
+	return binding
+}
+
 const (
 	resultEncodingFailed     = "RESULT_ENCODING_FAILED"
 	resultFinalizationFailed = "RESULT_FINALIZATION_FAILED"
@@ -382,10 +399,11 @@ func (s *Service) querySQL(ctx context.Context, principal mcp.Principal, raw jso
 		return nil, sqlLoweringToolError(err)
 	}
 	if lowered.Plan.From != nil && grant.Exposure.ProfileVersion != exposure.ProfileV2 &&
-		grant.Exposure.ProfileVersion != exposure.ProfileV3 && grant.Exposure.ProfileVersion != exposure.ProfileV4 {
+		grant.Exposure.ProfileVersion != exposure.ProfileV3 && grant.Exposure.ProfileVersion != exposure.ProfileV4 &&
+		grant.Exposure.ProfileVersion != exposure.ProfileV5 {
 		return nil, &mcp.ToolError{Code: apierr.CodeSQLNotLowerable, Message: "当前 exposure profile 不支持在线多产品计划", Details: map[string]any{
 			"reason": "RELATIONAL_EXPOSURE_PROFILE_UNSUPPORTED", "location": map[string]any{"clause": "FROM"},
-			"supported_alternative":   "Query an approved prejoined reporting product or use a task with taskgate-exposure-v2, v3, or v4.",
+			"supported_alternative":   "Query an approved prejoined reporting product or use a task with taskgate-exposure-v2, v3, v4, or v5.",
 			"retryable_after_rewrite": true, "sql_profile": sqllowering.Profile,
 		}}
 	}
@@ -550,13 +568,13 @@ func (s *Service) preparePlan(grant control.TaskGrant, plan queryplan.QueryPlan)
 			if err != nil {
 				return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "QueryPlan 不在可精确计量的数据暴露片段内"}
 			}
-			if grant.Exposure.ProfileVersion == exposure.ProfileV2 || grant.Exposure.ProfileVersion == exposure.ProfileV3 || grant.Exposure.ProfileVersion == exposure.ProfileV4 {
+			if grant.Exposure.ProfileVersion == exposure.ProfileV2 || grant.Exposure.ProfileVersion == exposure.ProfileV3 || grant.Exposure.ProfileVersion == exposure.ProfileV4 || grant.Exposure.ProfileVersion == exposure.ProfileV5 {
 				if err := prepared.Exposure.configureV2(columns, aggregates); err != nil {
 					return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "QueryPlan 缺少 V2 规范身份或无法归一化"}
 				}
 			}
 			prepared.SQL = prepared.Exposure.mainSQL
-			if grant.Exposure.ProfileVersion == exposure.ProfileV4 {
+			if grant.Exposure.ProfileVersion == exposure.ProfileV4 || grant.Exposure.ProfileVersion == exposure.ProfileV5 {
 				ordinalProduct, ordinalProductErr := s.ordinalQueryProduct(product, columns)
 				if ordinalProductErr != nil {
 					return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "V4 Product 未绑定可信快照发布物"}
@@ -578,11 +596,17 @@ func (s *Service) preparePlan(grant control.TaskGrant, plan queryplan.QueryPlan)
 				}
 				prepared.Exposure.ordinal = &bound
 				prepared.SQL = ordinalCompilation.VisibleSQL
+				if grant.Exposure.ProfileVersion == exposure.ProfileV5 {
+					if footprintErr := prepared.Exposure.configurePredicateFootprintV5(s.catalog.SHA256, grant.MandatoryScope,
+						map[string]queryplan.Product{plan.Product: ordinalProduct}, nil, nil, "", predicateLimitsForGrant(grant.Exposure)); footprintErr != nil {
+						return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "QueryPlan 无法生成 V5 谓词足迹"}
+					}
+				}
 			}
 		}
 	} else {
-		if !grant.Exposure.Enabled() || (grant.Exposure.ProfileVersion != exposure.ProfileV2 && grant.Exposure.ProfileVersion != exposure.ProfileV3 && grant.Exposure.ProfileVersion != exposure.ProfileV4) {
-			return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "在线 Join/Union 必须使用 taskgate-exposure-v2、v3 或 v4"}
+		if !grant.Exposure.Enabled() || (grant.Exposure.ProfileVersion != exposure.ProfileV2 && grant.Exposure.ProfileVersion != exposure.ProfileV3 && grant.Exposure.ProfileVersion != exposure.ProfileV4 && grant.Exposure.ProfileVersion != exposure.ProfileV5) {
+			return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "在线 Join/Union 必须使用 taskgate-exposure-v2、v3、v4 或 v5"}
 		}
 		productNames, namesErr := queryplan.RelationalProductNames(plan)
 		if namesErr != nil {
@@ -597,7 +621,7 @@ func (s *Service) preparePlan(grant control.TaskGrant, plan queryplan.QueryPlan)
 			}
 			approved := stringSetFromSlice(grant.ApprovedColumns[name])
 			queryProduct := relationalQueryProduct(product, approved)
-			if grant.Exposure.ProfileVersion == exposure.ProfileV4 {
+			if grant.Exposure.ProfileVersion == exposure.ProfileV4 || grant.Exposure.ProfileVersion == exposure.ProfileV5 {
 				queryProduct, err = s.ordinalQueryProduct(product, approved)
 				if err != nil {
 					return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "V4 Product 未绑定可信快照发布物"}
@@ -616,7 +640,7 @@ func (s *Service) preparePlan(grant control.TaskGrant, plan queryplan.QueryPlan)
 			return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "Join/Union 缺少完整的正输出依赖证据"}
 		}
 		prepared.SQL = prepared.Exposure.mainSQL
-		if grant.Exposure.ProfileVersion == exposure.ProfileV4 {
+		if grant.Exposure.ProfileVersion == exposure.ProfileV4 || grant.Exposure.ProfileVersion == exposure.ProfileV5 {
 			bound, bindErr := s.bindOrdinalSidecars(relational.ProvenanceSQL, relational.ProvenanceFields, relational.OrdinalProgram)
 			if bindErr != nil {
 				return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodeConflict, Message: "V4 快照索引或 sidecar 与 Catalog 不一致"}
@@ -624,9 +648,24 @@ func (s *Service) preparePlan(grant control.TaskGrant, plan queryplan.QueryPlan)
 			prepared.Exposure.provenanceSQL = bound.ProvenanceSQL
 			prepared.Exposure.provenanceFields = append([]string(nil), bound.ProvenanceFields...)
 			prepared.Exposure.ordinal = &bound
+			if grant.Exposure.ProfileVersion == exposure.ProfileV5 {
+				if footprintErr := prepared.Exposure.configurePredicateFootprintV5(s.catalog.SHA256, grant.MandatoryScope, queryProducts, nil, nil, "", predicateLimitsForGrant(grant.Exposure)); footprintErr != nil {
+					return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "Join/Union 无法生成 V5 谓词足迹"}
+				}
+			}
 		}
 	}
 	return prepared, nil
+}
+
+func predicateLimitsForGrant(grant control.ExposureGrant) queryplan.PredicateLimits {
+	if grant.PredicateFootprint == nil {
+		return queryplan.PredicateLimits{}
+	}
+	return queryplan.PredicateLimits{MaxRawLiteralsPerQuery: int(grant.PredicateFootprint.MaxRawLiteralsPerQuery),
+		MaxUniqueAtomsPerQuery:   int(grant.PredicateFootprint.MaxUniqueAtomsPerQuery),
+		MaxAtomPayloadBytes:      int(grant.PredicateFootprint.MaxAtomPayloadBytes),
+		MaxTotalAtomPayloadBytes: int(grant.PredicateFootprint.MaxTotalAtomPayloadBytes)}
 }
 
 func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task control.Task, requestID, agentSQL, requestSummary string,
@@ -816,14 +855,20 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 		}
 	}
 	var ordinalCacheKey string
-	if exposureContext != nil && exposureContext.ordinal != nil {
+	if exposureContext != nil && exposureContext.ordinal != nil &&
+		(exposureLedger.ProfileVersion == exposure.ProfileV4 || exposureLedger.ProfileVersion == exposure.ProfileV5) {
 		authorizationDigest := ordinalSemanticAuthorizationDigest(decision, provenanceDecision,
 			protocolGrant.Core.ManifestDigest)
-		ordinalCacheKey, err = ordinalSemanticReplayBinding(task.ID, grantDigest, authorizationDigest,
-			exposureContext.planDigest, s.catalog.SHA256, evidence.SchemaDigest,
-			exposureContext.ordinal.DictionarySetDigest).Digest()
+		binding := ordinalSemanticReplayBinding(task.ID, grantDigest, authorizationDigest,
+			exposureContext.planDigest, s.catalog.SHA256, evidence.SchemaDigest, exposureContext.ordinal.DictionarySetDigest)
+		if exposureLedger.ProfileVersion == exposure.ProfileV5 {
+			binding = ordinalSemanticReplayBindingV5(task.ID, grantDigest, authorizationDigest,
+				exposureContext.planDigest, s.catalog.SHA256, evidence.SchemaDigest,
+				exposureContext.ordinal.DictionarySetDigest, exposureContext.predicateFootprint)
+		}
+		ordinalCacheKey, err = binding.Digest()
 		if err != nil {
-			return nil, &mcp.ToolError{Code: apierr.CodeConflict, Message: "V4 semantic replay key 无法规范化"}
+			return nil, &mcp.ToolError{Code: apierr.CodeConflict, Message: "ordinal semantic replay key 无法规范化"}
 		}
 	}
 	queryID := randomID("query")
@@ -854,6 +899,11 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 		}
 		if exposureLedger.ProfileVersion == exposure.ProfileV3 || exposureLedger.ProfileVersion == exposure.ProfileV4 {
 			reserveRequest.Exposure.EstimatedOutcomeFacts = 1
+		} else if exposureLedger.ProfileVersion == exposure.ProfileV5 {
+			if exposureContext.predicateFootprint == nil {
+				return nil, &mcp.ToolError{Code: apierr.CodeExposureEvidenceRequired, Message: "V5 查询缺少执行前谓词足迹"}
+			}
+			reserveRequest.Exposure.EstimatedOutcomeFacts = int64(exposureContext.predicateFootprint.UniqueAtomCount) + 1
 		}
 	}
 	reservation, err := s.store.ReserveBudget(ctx, reserveRequest)
@@ -877,7 +927,7 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 			// tryOrdinalSemanticReplay explicitly returned ownership of the
 			// still-live reservation. The novel path below must settle it.
 		default:
-			return nil, &mcp.ToolError{Code: apierr.CodeConflict, Message: "V4 replay 返回了非规范终态"}
+			return nil, &mcp.ToolError{Code: apierr.CodeConflict, Message: "ordinal replay 返回了非规范终态"}
 		}
 	}
 	var releaseDerivationSlot func()
@@ -938,7 +988,8 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 			return nil, toolError(control.ErrExposureEvidenceRequired)
 		}
 		ordinalSink = &ordinalDerivationSink{program: exposureContext.ordinal.Program,
-			indexes: exposureContext.ordinal.Indexes, planDigest: exposureContext.planDigest}
+			indexes: exposureContext.ordinal.Indexes, planDigest: exposureContext.planDigest,
+			predicateFootprint: exposureContext.predicateFootprint}
 		pair, pairErr := streaming.QueryPairStream(queryCtx, dataconnector.QueryPairStreamRequest{
 			Visible: dataconnector.QueryRequest{SQL: decision.SQL, StatementTimeout: timeout, MaxRows: reservation.AllowedRows, ViewRegistry: viewExpectation},
 			Provenance: dataconnector.QueryRequest{SQL: provenanceDecision.SQL, StatementTimeout: timeout,
@@ -1075,7 +1126,8 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 	}
 	if ordinalCacheKey != "" {
 		expires := grant.ExpiresAt.UTC()
-		settlement.OrdinalMaterialization = &control.OrdinalMaterializationPublish{CacheKeySHA256: ordinalCacheKey, ExpiresAt: &expires}
+		settlement.OrdinalMaterialization = &control.OrdinalMaterializationPublish{CacheKeySHA256: ordinalCacheKey,
+			ExpiresAt: &expires, ProfileVersion: exposureLedger.ProfileVersion}
 	}
 	if s.resultArtifacts != nil {
 		return s.finalizeArtifactQuery(ctx, task, requestID, settlement, stored, componentMS)
@@ -1847,6 +1899,8 @@ func BuildQueryReceiptRequest(evidence control.QueryReceipt, signer *queryreceip
 			version = queryreceipt.VersionV5
 		} else if evidence.Exposure.ProfileVersion == exposure.ProfileV4 {
 			version = queryreceipt.VersionV6
+		} else if evidence.Exposure.ProfileVersion == exposure.ProfileV5 {
+			version = queryreceipt.VersionV7
 		}
 		exposureEvidence = &queryreceipt.ExposureEvidenceV1{
 			RootTaskID: evidence.Exposure.RootTaskID, ProfileVersion: evidence.Exposure.ProfileVersion,
@@ -1860,6 +1914,16 @@ func BuildQueryReceiptRequest(evidence control.QueryReceipt, signer *queryreceip
 			InfluenceSetSHA256:  evidence.Exposure.InfluenceSetSHA256,
 			OutcomeSetSHA256:    evidence.Exposure.OutcomeSetSHA256,
 			RootEpoch:           evidence.Exposure.RootEpoch,
+		}
+		if evidence.Exposure.ProfileVersion == exposure.ProfileV5 {
+			exposureEvidence.PredicateProfileVersion = exposure.PredicateFootprintVersion
+			exposureEvidence.PredicateContextSHA256 = evidence.Exposure.PredicateContextSHA256
+			exposureEvidence.PredicateSetSHA256 = evidence.Exposure.PredicateSetSHA256
+			exposureEvidence.ActualPredicateAtomCount = evidence.Exposure.ActualPredicateAtomCount
+			exposureEvidence.ChargedPredicateAtomCount = evidence.Exposure.ChargedPredicateAtomCount
+			exposureEvidence.CompositeOutcomeSHA256 = evidence.Exposure.CompositeOutcomeSHA256
+			exposureEvidence.ActualCompositeCount = 1
+			exposureEvidence.ChargedCompositeCount = evidence.Exposure.ChargedOutcomeFacts - evidence.Exposure.ChargedPredicateAtomCount
 		}
 	}
 	receipt := queryreceipt.QueryReceiptV1{
@@ -1971,7 +2035,7 @@ func storedGrantMatchesProtocol(task control.Task, stored control.TaskGrant, pro
 		core.ViewBindingDigest != stored.ViewBindingDigest ||
 		!stored.ExpiresAt.Equal(core.ExpiresAt.UTC().Truncate(time.Microsecond)) ||
 		stored.Budget != (control.BudgetLimits{Queries: core.Budget.MaxQueries, Rows: core.Budget.MaxResultRows, DBMS: core.Budget.MaxDBMS}) ||
-		stored.Exposure != (control.ExposureGrant{Limits: control.ExposureLimits{ReleaseFacts: core.Budget.MaxReleaseFacts, InfluenceFacts: core.Budget.MaxInfluenceFacts, OutcomeFacts: core.Budget.MaxOutcomeFacts}, ProfileVersion: core.Budget.ExposureProfileVersion}) ||
+		!reflect.DeepEqual(stored.Exposure, control.ExposureGrant{Limits: control.ExposureLimits{ReleaseFacts: core.Budget.MaxReleaseFacts, InfluenceFacts: core.Budget.MaxInfluenceFacts, OutcomeFacts: core.Budget.MaxOutcomeFacts}, ProfileVersion: core.Budget.ExposureProfileVersion, PredicateFootprint: controlPredicateFootprint(core.Budget.PredicateFootprint)}) ||
 		!sameStringSet(stored.ApprovedProducts, core.ApprovedProducts) ||
 		!sameColumnSets(stored.ApprovedColumns, core.ApprovedColumns) {
 		return false

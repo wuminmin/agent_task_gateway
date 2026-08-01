@@ -96,12 +96,15 @@ func (s *Service) tryOrdinalSemanticReplayWithSpoolAndMetadata(ctx context.Conte
 		return nil, ordinalReplayContinueNovel, nil
 	}
 	if spoolFactory == nil {
-		return nil, ordinalReplayTerminated, errors.New("V4 replay spool factory is unavailable")
+		return nil, ordinalReplayTerminated, errors.New("ordinal replay spool factory is unavailable")
 	}
 	started := time.Now()
 	lookup := control.OrdinalMaterializationLookup{
 		CacheKeySHA256: cacheKey, TaskID: task.ID, GrantDigest: grantDigest,
 		CatalogDigest: s.catalog.SHA256, DictionarySetDigest: dictionarySetDigest,
+	}
+	if reservation.Exposure != nil {
+		lookup.ProfileVersion = reservation.Exposure.ProfileVersion
 	}
 	materialization, err := s.store.LookupOrdinalMaterialization(ctx, lookup)
 	if errors.Is(err, control.ErrNotFound) {
@@ -282,7 +285,7 @@ func (s *Service) tryOrdinalSemanticReplayWithSpoolAndMetadata(ctx context.Conte
 	}
 	charge, chargeErr := s.store.GetExposureCharge(ctx, record.ID)
 	if chargeErr != nil {
-		return nil, ordinalReplayCompleted, &mcp.ToolError{Code: apierr.CodeConflict, Message: "V4 replay 已提交但暴露证据不可读取"}
+		return nil, ordinalReplayCompleted, &mcp.ToolError{Code: apierr.CodeConflict, Message: "ordinal replay 已提交但暴露证据不可读取"}
 	}
 	result["exposure"] = charge
 	if ledger, ledgerErr := s.store.GetExposureLedger(ctx, record.TaskID); ledgerErr == nil {

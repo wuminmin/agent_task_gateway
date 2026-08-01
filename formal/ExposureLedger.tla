@@ -10,6 +10,7 @@ adds only novel facts and permits delivery or rejects without disclosure.
 ***************************************************************************)
 
 CONSTANTS RootTask, ChildTask, Requests, ReleaseFacts, InfluenceFacts, OutcomeFacts,
+          PredicateAtoms, CompositeOutcomes,
           MaxRelease, MaxInfluence, MaxOutcome, MaxReplays
 
 ASSUME /\ RootTask # ChildTask
@@ -17,6 +18,10 @@ ASSUME /\ RootTask # ChildTask
        /\ ReleaseFacts # {}
        /\ InfluenceFacts # {}
        /\ OutcomeFacts # {}
+       /\ PredicateAtoms \subseteq OutcomeFacts
+       /\ CompositeOutcomes \subseteq OutcomeFacts
+       /\ PredicateAtoms \cap CompositeOutcomes = {}
+       /\ PredicateAtoms \cup CompositeOutcomes = OutcomeFacts
        /\ MaxRelease \in Nat \ {0}
        /\ MaxInfluence \in Nat \ {0}
        /\ MaxOutcome \in Nat \ {0}
@@ -99,7 +104,9 @@ ExecuteAndBuffer(request) ==
        influence \in SUBSET InfluenceFacts,
        outcome \in SUBSET OutcomeFacts :
         /\ requestState[request] = "RESERVED"
-        /\ Cardinality(outcome) = 1
+        /\ outcome # {}
+        /\ Cardinality(outcome \cap CompositeOutcomes) = 1
+        /\ outcome \ PredicateAtoms \subseteq CompositeOutcomes
         /\ requestState' = [requestState EXCEPT ![request] = "BUFFERED"]
         /\ bufferedRelease' = [bufferedRelease EXCEPT ![request] = release]
         /\ bufferedInfluence' = [bufferedInfluence EXCEPT ![request] = influence]

@@ -26,15 +26,16 @@ var (
 // budget exchanged between Gateway and OA. Milliseconds avoid implementation-
 // specific duration encodings in the signed protocol objects.
 type AuthorizationBudgetV1 struct {
-	MaxQueries             int64  `json:"max_queries"`
-	MaxResultRows          int64  `json:"max_result_rows"`
-	MaxDBMS                int64  `json:"max_db_ms"`
-	PerQueryTimeoutMS      int64  `json:"per_query_timeout_ms"`
-	TaskTTLMS              int64  `json:"task_ttl_ms"`
-	MaxReleaseFacts        int64  `json:"max_release_facts,omitempty"`
-	MaxInfluenceFacts      int64  `json:"max_influence_facts,omitempty"`
-	MaxOutcomeFacts        int64  `json:"max_outcome_facts,omitempty"`
-	ExposureProfileVersion string `json:"exposure_profile_version,omitempty"`
+	MaxQueries             int64                       `json:"max_queries"`
+	MaxResultRows          int64                       `json:"max_result_rows"`
+	MaxDBMS                int64                       `json:"max_db_ms"`
+	PerQueryTimeoutMS      int64                       `json:"per_query_timeout_ms"`
+	TaskTTLMS              int64                       `json:"task_ttl_ms"`
+	MaxReleaseFacts        int64                       `json:"max_release_facts,omitempty"`
+	MaxInfluenceFacts      int64                       `json:"max_influence_facts,omitempty"`
+	MaxOutcomeFacts        int64                       `json:"max_outcome_facts,omitempty"`
+	ExposureProfileVersion string                      `json:"exposure_profile_version,omitempty"`
+	PredicateFootprint     *PredicateFootprintLimitsV1 `json:"predicate_footprint,omitempty"`
 }
 
 func (b AuthorizationBudgetV1) Validate() error {
@@ -54,10 +55,21 @@ func (b AuthorizationBudgetV1) Validate() error {
 		return errors.New("exposure_profile_version requires exposure limits")
 	}
 	if isOutcomeExposureProfile(b.ExposureProfileVersion) && b.MaxOutcomeFacts <= 0 {
-		return errors.New("V3/V4 requires a positive outcome limit")
+		return errors.New("V3/V4/V5 requires a positive outcome limit")
 	}
 	if !isOutcomeExposureProfile(b.ExposureProfileVersion) && b.MaxOutcomeFacts != 0 {
-		return errors.New("outcome limit requires V3/V4")
+		return errors.New("outcome limit requires V3/V4/V5")
+	}
+	if b.ExposureProfileVersion == "taskgate-exposure-v5" && b.PredicateFootprint == nil {
+		return errors.New("V5 requires predicate_footprint limits")
+	}
+	if b.ExposureProfileVersion != "taskgate-exposure-v5" && b.PredicateFootprint != nil {
+		return errors.New("predicate_footprint limits require V5")
+	}
+	if b.PredicateFootprint != nil {
+		if err := b.PredicateFootprint.Validate(); err != nil {
+			return err
+		}
 	}
 	const maxDurationMilliseconds = int64(^uint64(0)>>1) / int64(time.Millisecond)
 	const maxSafeJSONInteger = int64(1<<53 - 1)
@@ -80,7 +92,8 @@ func (b AuthorizationBudgetV1) EnsureWithin(parent AuthorizationBudgetV1) error 
 	if b.MaxQueries > parent.MaxQueries || b.MaxResultRows > parent.MaxResultRows ||
 		b.MaxDBMS > parent.MaxDBMS || b.PerQueryTimeoutMS > parent.PerQueryTimeoutMS ||
 		b.TaskTTLMS > parent.TaskTTLMS || b.MaxReleaseFacts > parent.MaxReleaseFacts ||
-		b.MaxInfluenceFacts > parent.MaxInfluenceFacts || b.MaxOutcomeFacts > parent.MaxOutcomeFacts || b.ExposureProfileVersion != parent.ExposureProfileVersion {
+		b.MaxInfluenceFacts > parent.MaxInfluenceFacts || b.MaxOutcomeFacts > parent.MaxOutcomeFacts ||
+		b.ExposureProfileVersion != parent.ExposureProfileVersion || !predicateFootprintWithin(b.PredicateFootprint, parent.PredicateFootprint) {
 		return errors.New("authorization budget exceeds parent")
 	}
 	return nil

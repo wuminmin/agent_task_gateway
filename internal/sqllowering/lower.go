@@ -537,8 +537,8 @@ func (l *lowerer) lowerFilter(node *pg_query.Node) (queryplan.Filter, *Error) {
 			return queryplan.Filter{}, reject(CodeNotLowerable, "IN_PREDICATE_UNSUPPORTED", "IN requires an approved column and a literal list.", "WHERE", expression.GetLocation(), "", "Use column IN (literal, ...), or column NOT IN (literal, ...).")
 		}
 		list := expression.GetRexpr().GetList()
-		if list == nil || len(list.GetItems()) == 0 || len(list.GetItems()) > 100 {
-			return queryplan.Filter{}, reject(CodeNotLowerable, "IN_LIST_INVALID", "IN requires between 1 and 100 scalar literals.", "WHERE", expression.GetLocation(), "", "Use a non-empty literal list containing at most 100 values.")
+		if list == nil || len(list.GetItems()) == 0 || len(list.GetItems()) > queryplan.MaxRawPredicateLiterals {
+			return queryplan.Filter{}, reject(CodeNotLowerable, "IN_LIST_INVALID", fmt.Sprintf("IN requires between 1 and %d scalar literals.", queryplan.MaxRawPredicateLiterals), "WHERE", expression.GetLocation(), "", fmt.Sprintf("Use a non-empty literal list containing at most %d values.", queryplan.MaxRawPredicateLiterals))
 		}
 		values := make([]any, 0, len(list.GetItems()))
 		for _, item := range list.GetItems() {
@@ -763,7 +763,7 @@ func literalValue(node *pg_query.Node) (any, error) {
 	constant := node.GetAConst()
 	if constant != nil {
 		if constant.GetIsnull() {
-			return nil, fmt.Errorf("NULL literals are outside this predicate profile")
+			return nil, nil
 		}
 		switch {
 		case constant.GetSval() != nil:

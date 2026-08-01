@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 	"time"
 
@@ -174,7 +175,8 @@ func (s *Service) handleOACallback(w http.ResponseWriter, r *http.Request) {
 			Exposure: control.ExposureGrant{
 				Limits: control.ExposureLimits{ReleaseFacts: finalGrant.Core.Budget.MaxReleaseFacts,
 					InfluenceFacts: finalGrant.Core.Budget.MaxInfluenceFacts, OutcomeFacts: finalGrant.Core.Budget.MaxOutcomeFacts},
-				ProfileVersion: finalGrant.Core.Budget.ExposureProfileVersion,
+				ProfileVersion:     finalGrant.Core.Budget.ExposureProfileVersion,
+				PredicateFootprint: controlPredicateFootprint(finalGrant.Core.Budget.PredicateFootprint),
 			},
 			ExpiresAt: finalGrant.Core.ExpiresAt, CatalogVersion: finalGrant.Core.CatalogVersion,
 			CatalogDigest: finalGrant.Core.CatalogSHA256, DatasourceID: finalGrant.Core.DatasourceID,
@@ -243,7 +245,7 @@ func manifestMatchesTask(persisted persistedPendingContext, task control.Task, p
 		manifest.ViewBindingDigest != pendingViewBindingDigest(pending.ViewBinding) {
 		return false
 	}
-	if manifest.Budget != authorizationBudget(pending.Budget) || !sameCanonicalJSON(manifest.Products, pending.Products) ||
+	if !reflect.DeepEqual(manifest.Budget, authorizationBudget(pending.Budget)) || !sameCanonicalJSON(manifest.Products, pending.Products) ||
 		!sameCanonicalJSON(manifest.ApprovedColumns, pending.Columns) || !sameCanonicalJSON(manifest.MandatoryScope, pending.MandatoryScope) {
 		return false
 	}

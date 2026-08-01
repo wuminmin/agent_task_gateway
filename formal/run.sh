@@ -92,3 +92,4 @@ run_model ReceiptAudit.tla ReceiptAudit.cfg receipt_audit.json receipt_audit.log
 run_model RecoveryLiveness.tla RecoveryLiveness.cfg recovery_liveness.json recovery_liveness.log
 run_model ExposureLedger.tla ExposureLedger.cfg exposure_ledger.json exposure_ledger.log
 run_model ExposureBitmapRefinement.tla ExposureBitmapRefinement.cfg exposure_bitmap_refinement.json exposure_bitmap_refinement.log
+run_model OutcomeHashSetRefinement.tla OutcomeHashSetRefinement.cfg outcome_hash_set_refinement.json outcome_hash_set_refinement.log

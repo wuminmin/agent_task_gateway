@@ -47,7 +47,10 @@ var forbiddenFunctions = map[string]struct{}{
 	"pg_terminate_backend": {}, "set_config": {},
 }
 
-const exposureProfileV4 = "taskgate-exposure-v4"
+const (
+	exposureProfileV4 = "taskgate-exposure-v4"
+	exposureProfileV5 = "taskgate-exposure-v5"
+)
 
 func (c *Catalog) Validate() error {
 	return c.validate(nil)
@@ -173,21 +176,31 @@ func (c *Catalog) validate(viewContractCandidates map[string]struct{}) error {
 			routes[route.Sensitivity] = route
 		}
 	}
-	v4Deployment := len(c.SnapshotPublications) != 0
+	ordinalDeployment := len(c.SnapshotPublications) != 0
+	ordinalProfile := ""
 	for _, route := range c.ApprovalRoutes {
-		if profile, found := profiles[route.BudgetProfile]; found && profile.ExposureProfileVersion == exposureProfileV4 {
-			v4Deployment = true
+		if profile, found := profiles[route.BudgetProfile]; found &&
+			(profile.ExposureProfileVersion == exposureProfileV4 || profile.ExposureProfileVersion == exposureProfileV5) {
+			ordinalDeployment = true
+			if ordinalProfile == "" {
+				ordinalProfile = profile.ExposureProfileVersion
+			} else if ordinalProfile != profile.ExposureProfileVersion {
+				problems = append(problems, fieldError("approval_routes",
+					"V4 and V5 approval routes cannot coexist in one deployment", ErrInvalidApprovalRoute))
+			}
 		}
 	}
-	if v4Deployment {
+	if ordinalDeployment {
 		if len(c.SnapshotPublications) == 0 {
 			problems = append(problems, fieldError("snapshot_publications",
-				"a V4 deployment requires at least one immutable snapshot publication", ErrInvalidSnapshotPublication))
+				"an ordinal V4/V5 deployment requires at least one immutable snapshot publication", ErrInvalidSnapshotPublication))
 		}
 		for index, route := range c.ApprovalRoutes {
-			if profile, found := profiles[route.BudgetProfile]; found && profile.ExposureProfileVersion != exposureProfileV4 {
+			if profile, found := profiles[route.BudgetProfile]; found &&
+				(profile.ExposureProfileVersion != exposureProfileV4 && profile.ExposureProfileVersion != exposureProfileV5 ||
+					ordinalProfile != "" && profile.ExposureProfileVersion != ordinalProfile) {
 				problems = append(problems, fieldError(fmt.Sprintf("approval_routes[%d].budget_profile", index),
-					"V4 and legacy/resource-only approval routes cannot coexist in one deployment", ErrInvalidApprovalRoute))
+					"one ordinal profile and legacy/resource-only approval routes cannot coexist in one deployment", ErrInvalidApprovalRoute))
 			}
 		}
 	}
@@ -213,7 +226,8 @@ func (c *Catalog) validate(viewContractCandidates map[string]struct{}) error {
 			route, exists := routes[sensitivity]
 			if !exists {
 				problems = append(problems, fieldError(path+".sensitivity", "no approval route exists for the effective sensitivity", ErrInvalidApprovalRoute))
-			} else if profile, found := profiles[route.BudgetProfile]; found && profile.ExposureProfileVersion == exposureProfileV4 &&
+			} else if profile, found := profiles[route.BudgetProfile]; found &&
+				(profile.ExposureProfileVersion == exposureProfileV4 || profile.ExposureProfileVersion == exposureProfileV5) &&
 				product.SnapshotPublication == "" && product.ViewContract == nil {
 				if _, candidate := viewContractCandidates[product.Name]; !candidate {
 					problems = append(problems, fieldError(path+".snapshot_publication",
@@ -340,8 +354,8 @@ func validateBudgetProfile(path string, profile BudgetProfile) ValidationErrors 
 	if err := profile.Budget().Validate(); err != nil {
 		problems = append(problems, fieldError(path, err.Error(), ErrInvalidBudgetProfile))
 	}
-	if profile.ExposureProfileVersion != "" && profile.ExposureProfileVersion != "taskgate-exposure-v2" && profile.ExposureProfileVersion != "taskgate-exposure-v3" && profile.ExposureProfileVersion != "taskgate-exposure-v4" {
-		problems = append(problems, fieldError(path+".exposure_profile_version", "catalog profiles must use taskgate-exposure-v2, taskgate-exposure-v3, or taskgate-exposure-v4", ErrInvalidBudgetProfile))
+	if profile.ExposureProfileVersion != "" && profile.ExposureProfileVersion != "taskgate-exposure-v2" && profile.ExposureProfileVersion != "taskgate-exposure-v3" && profile.ExposureProfileVersion != "taskgate-exposure-v4" && profile.ExposureProfileVersion != "taskgate-exposure-v5" {
+		problems = append(problems, fieldError(path+".exposure_profile_version", "catalog profiles must use taskgate-exposure-v2, taskgate-exposure-v3, taskgate-exposure-v4, or taskgate-exposure-v5", ErrInvalidBudgetProfile))
 	}
 	return problems
 }

@@ -1,6 +1,8 @@
 package gateway
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"sort"
@@ -39,6 +41,7 @@ type planExposureContext struct {
 	algebraNormalForm      *queryplan.AlgebraNormalFormV2
 	planDigest             string
 	ordinal                *boundOrdinalExecution
+	predicateFootprint     *queryplan.PredicateFootprint
 }
 
 func buildPlanExposureContext(plan queryplan.QueryPlan, product catalog.Product, approvedColumns map[string]struct{}, allowedAggregates map[string]struct{}) (*planExposureContext, error) {
@@ -189,6 +192,44 @@ func (context *planExposureContext) configureV2(approvedColumns map[string]struc
 	}
 	context.normalForm = &normal
 	context.planDigest = digest
+	return nil
+}
+
+func (context *planExposureContext) configurePredicateFootprintV5(catalogDigest string, mandatoryScope []byte,
+	products map[string]queryplan.Product, callerFilters []queryplan.PredicateFilterBinding,
+	fields map[string]queryplan.PredicateFieldBinding, semanticProductID string, limits queryplan.PredicateLimits) error {
+	if context == nil || len(products) == 0 {
+		return errors.New("V5 predicate footprint lacks product bindings")
+	}
+	scopeHash := sha256.Sum256(append([]byte("TASKGATE-EFFECTIVE-MANDATORY-SCOPE-V1\x00"), mandatoryScope...))
+	bindings := queryplan.PredicateBindings{CatalogSHA256: catalogDigest, Products: products,
+		ViewBindingSHA256: context.viewBindingDigest, CallerFilters: callerFilters, Fields: fields,
+		SemanticProductID: semanticProductID}
+	footprint, err := queryplan.BuildPredicateFootprint(context.plan, bindings, hex.EncodeToString(scopeHash[:]), limits)
+	if err != nil {
+		return err
+	}
+	if context.relational == nil {
+		product := products[context.plan.Product]
+		normal, normalizeErr := queryplan.NormalizeV4(context.plan, product)
+		if normalizeErr != nil {
+			return normalizeErr
+		}
+		digest, digestErr := normal.Digest()
+		if digestErr != nil {
+			return digestErr
+		}
+		context.normalForm = &normal
+		context.planDigest = digest
+	} else {
+		normal, normalizeErr := queryplan.SemanticNormalFormV4(context.plan, context.relational.compilation, products)
+		if normalizeErr != nil {
+			return normalizeErr
+		}
+		context.algebraNormalForm = &normal
+		context.planDigest = normal.SHA256
+	}
+	context.predicateFootprint = &footprint
 	return nil
 }
 

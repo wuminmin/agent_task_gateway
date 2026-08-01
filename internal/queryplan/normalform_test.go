@@ -40,6 +40,29 @@ func TestNormalFormV2ErasesAliasesAndSortsRestrictedRewrites(t *testing.T) {
 	}
 }
 
+func TestNormalFormV4CanonicalizesTypedINMembersAndNull(t *testing.T) {
+	product := Product{Name: "customer", Columns: map[string]struct{}{"id": {}}, ColumnTypes: map[string]string{"id": "numeric"},
+		SourceNamespace: "crm.customer", Snapshot: "s1", StableEntityKey: []string{"id"}}
+	left, err := NormalizeV4(QueryPlan{Product: product.Name, Columns: []string{"id"},
+		Filters: []Filter{{Column: "id", Op: "IN", Value: []any{json.Number("1.00"), nil, json.Number("2"), json.Number("1.0")}}}}, product)
+	if err != nil {
+		t.Fatal(err)
+	}
+	right, err := NormalizeV4(QueryPlan{Product: product.Name, Columns: []string{"id"},
+		Filters: []Filter{{Column: "id", Op: "IN", Value: []any{json.Number("2.0"), json.Number("1"), nil}}}}, product)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leftDigest, _ := left.Digest()
+	rightDigest, _ := right.Digest()
+	if leftDigest != rightDigest || left.Version != NormalFormVersionV4 || left.Profile != "taskgate-exposure-v5" {
+		t.Fatalf("V4 typed member rewrites differ: %s != %s", leftDigest, rightDigest)
+	}
+	if string(left.Filters[0].Value) != `["n:1","n:2","null"]` {
+		t.Fatalf("typed IN members = %s", left.Filters[0].Value)
+	}
+}
+
 func TestNormalFormV2DistinguishesCountStarAndCountExpression(t *testing.T) {
 	product := Product{Name: "expenses", Columns: map[string]struct{}{"amount": {}}, AllowedAggregates: map[string]struct{}{"count": {}},
 		ColumnTypes: map[string]string{"amount": "numeric"}, SourceNamespace: "travel.expense", Snapshot: "s1"}

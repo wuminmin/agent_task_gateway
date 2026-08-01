@@ -1,5 +1,5 @@
 TLC2 Version 2.16 of 31 December 2020 (rev: cdddf55)
-Running breadth-first search Model-Checking with fp 128 and seed -5993091118134495761 with 32 workers on 32 cores with 3524MB heap and 64MB offheap memory [pid: 1] (Linux 6.18.33.2-microsoft-standard-WSL2 amd64, Eclipse Adoptium 21.0.11 x86_64, MSBDiskFPSet, DiskStateQueue).
+Running breadth-first search Model-Checking with fp 118 and seed 6517808620458990472 with 32 workers on 32 cores with 3524MB heap and 64MB offheap memory [pid: 1] (Linux 6.18.33.2-microsoft-standard-WSL2 amd64, Eclipse Adoptium 21.0.11 x86_64, MSBDiskFPSet, DiskStateQueue).
 Parsing file /model/ExposureBitmapRefinement.tla
 Parsing file /tmp/Naturals.tla
 Parsing file /tmp/FiniteSets.tla
@@ -8,15 +8,15 @@ Semantic processing of module Naturals
 Semantic processing of module Sequences
 Semantic processing of module FiniteSets
 Semantic processing of module ExposureBitmapRefinement
-Starting... (2026-07-30 06:25:45)
+Starting... (2026-08-01 03:53:26)
 Computing initial states...
-Finished computing initial states: 1 distinct state generated at 2026-07-30 06:25:46.
+Finished computing initial states: 1 distinct state generated at 2026-08-01 03:53:26.
 Model checking completed. No error has been found.
   Estimates of the probability that TLC did not check all reachable states
   because two distinct states had the same fingerprint:
   calculated (optimistic):  val = 2.0E-10
-  based on the actual fingerprints:  val = 3.3E-10
+  based on the actual fingerprints:  val = 8.6E-11
 122976 states generated, 60680 distinct states found, 0 states left on queue.
 The depth of the complete state graph search is 9.
 The average outdegree of the complete state graph is 1 (minimum is 0, the maximum 31 and the 95th percentile is 2).
-Finished in 01s at (2026-07-30 06:25:46)
+Finished in 01s at (2026-08-01 03:53:27)

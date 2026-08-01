@@ -26,12 +26,14 @@ const (
 	VersionV4         = "4"
 	VersionV5         = "5"
 	VersionV6         = "6"
+	VersionV7         = "7"
 	signatureDomainV1 = "TASKGATE-QUERY-RECEIPT-V1\x00"
 	signatureDomainV2 = "TASKGATE-QUERY-RECEIPT-V2\x00"
 	signatureDomainV3 = "TASKGATE-QUERY-RECEIPT-V3\x00"
 	signatureDomainV4 = "TASKGATE-QUERY-RECEIPT-V4\x00"
 	signatureDomainV5 = "TASKGATE-QUERY-RECEIPT-V5\x00"
 	signatureDomainV6 = "TASKGATE-QUERY-RECEIPT-V6\x00"
+	signatureDomainV7 = "TASKGATE-QUERY-RECEIPT-V7\x00"
 
 	StatusCompleted     = "COMPLETED"
 	StatusReleased      = "RELEASED"
@@ -60,20 +62,28 @@ type BudgetStateV1 struct {
 }
 
 type ExposureEvidenceV1 struct {
-	RootTaskID            string `json:"root_task_id"`
-	ProfileVersion        string `json:"profile_version"`
-	ActualReleaseFacts    int64  `json:"actual_release_facts"`
-	ActualInfluenceFacts  int64  `json:"actual_influence_facts"`
-	ActualOutcomeFacts    int64  `json:"actual_outcome_facts,omitempty"`
-	ChargedReleaseFacts   int64  `json:"charged_release_facts"`
-	ChargedInfluenceFacts int64  `json:"charged_influence_facts"`
-	ChargedOutcomeFacts   int64  `json:"charged_outcome_facts,omitempty"`
-	ObservationSHA256     string `json:"observation_sha256"`
-	DictionarySetSHA256   string `json:"dictionary_set_sha256,omitempty"`
-	ReleaseSetSHA256      string `json:"release_set_sha256,omitempty"`
-	InfluenceSetSHA256    string `json:"influence_set_sha256,omitempty"`
-	OutcomeSetSHA256      string `json:"outcome_set_sha256,omitempty"`
-	RootEpoch             int64  `json:"root_epoch,omitempty"`
+	RootTaskID                string `json:"root_task_id"`
+	ProfileVersion            string `json:"profile_version"`
+	ActualReleaseFacts        int64  `json:"actual_release_facts"`
+	ActualInfluenceFacts      int64  `json:"actual_influence_facts"`
+	ActualOutcomeFacts        int64  `json:"actual_outcome_facts,omitempty"`
+	ChargedReleaseFacts       int64  `json:"charged_release_facts"`
+	ChargedInfluenceFacts     int64  `json:"charged_influence_facts"`
+	ChargedOutcomeFacts       int64  `json:"charged_outcome_facts,omitempty"`
+	ObservationSHA256         string `json:"observation_sha256"`
+	DictionarySetSHA256       string `json:"dictionary_set_sha256,omitempty"`
+	ReleaseSetSHA256          string `json:"release_set_sha256,omitempty"`
+	InfluenceSetSHA256        string `json:"influence_set_sha256,omitempty"`
+	OutcomeSetSHA256          string `json:"outcome_set_sha256,omitempty"`
+	RootEpoch                 int64  `json:"root_epoch,omitempty"`
+	PredicateProfileVersion   string `json:"predicate_profile_version,omitempty"`
+	PredicateContextSHA256    string `json:"predicate_context_sha256,omitempty"`
+	PredicateSetSHA256        string `json:"predicate_set_sha256,omitempty"`
+	ActualPredicateAtomCount  int64  `json:"actual_predicate_atom_count,omitempty"`
+	ChargedPredicateAtomCount int64  `json:"charged_predicate_atom_count,omitempty"`
+	CompositeOutcomeSHA256    string `json:"composite_outcome_sha256,omitempty"`
+	ActualCompositeCount      int64  `json:"actual_composite_count,omitempty"`
+	ChargedCompositeCount     int64  `json:"charged_composite_count,omitempty"`
 }
 
 // QueryReceiptV1 contains no raw rows, SQL text, credentials, or physical
@@ -114,7 +124,7 @@ type QueryReceiptV1 struct {
 }
 
 func (r QueryReceiptV1) ValidateUnsigned() error {
-	if r.Version != VersionV1 && r.Version != VersionV2 && r.Version != VersionV3 && r.Version != VersionV4 && r.Version != VersionV5 && r.Version != VersionV6 {
+	if r.Version != VersionV1 && r.Version != VersionV2 && r.Version != VersionV3 && r.Version != VersionV4 && r.Version != VersionV5 && r.Version != VersionV6 && r.Version != VersionV7 {
 		return fmt.Errorf("%w: unsupported version %q", ErrInvalidReceipt, r.Version)
 	}
 	if strings.TrimSpace(r.ReceiptID) == "" || strings.TrimSpace(r.TaskID) == "" ||
@@ -127,7 +137,7 @@ func (r QueryReceiptV1) ValidateUnsigned() error {
 		"request_digest":      r.RequestDigest,
 		"previous_audit_hash": r.PreviousAuditHash, "audit_hash": r.AuditHash,
 	}
-	if r.Version == VersionV2 || r.Version == VersionV3 || r.Version == VersionV4 || r.Version == VersionV5 || r.Version == VersionV6 {
+	if r.Version == VersionV2 || r.Version == VersionV3 || r.Version == VersionV4 || r.Version == VersionV5 || r.Version == VersionV6 || r.Version == VersionV7 {
 		digests["schema_digest"] = r.SchemaDigest
 	}
 	for name, value := range digests {
@@ -135,7 +145,7 @@ func (r QueryReceiptV1) ValidateUnsigned() error {
 			return fmt.Errorf("%w: %s is not lowercase SHA-256", ErrInvalidReceipt, name)
 		}
 	}
-	if (r.Version == VersionV2 || r.Version == VersionV3 || r.Version == VersionV4 || r.Version == VersionV5 || r.Version == VersionV6) && strings.TrimSpace(r.DatasourceID) == "" {
+	if (r.Version == VersionV2 || r.Version == VersionV3 || r.Version == VersionV4 || r.Version == VersionV5 || r.Version == VersionV6 || r.Version == VersionV7) && strings.TrimSpace(r.DatasourceID) == "" {
 		return fmt.Errorf("%w: datasource_id is required", ErrInvalidReceipt)
 	}
 	if strings.TrimSpace(r.CatalogVersion) == "" || strings.TrimSpace(r.SQLFingerprint) == "" ||
@@ -147,7 +157,7 @@ func (r QueryReceiptV1) ValidateUnsigned() error {
 	if r.CompletedAt.Before(r.CreatedAt) {
 		return fmt.Errorf("%w: completion precedes creation", ErrInvalidReceipt)
 	}
-	if r.Version == VersionV3 || r.Version == VersionV4 || r.Version == VersionV5 || r.Version == VersionV6 {
+	if r.Version == VersionV3 || r.Version == VersionV4 || r.Version == VersionV5 || r.Version == VersionV6 || r.Version == VersionV7 {
 		if r.SignedAt == nil || r.SignedAt.IsZero() {
 			return fmt.Errorf("%w: signed_at is required", ErrInvalidReceipt)
 		}
@@ -169,7 +179,7 @@ func (r QueryReceiptV1) ValidateUnsigned() error {
 	}
 	if r.Exposure != nil {
 		exposure := r.Exposure
-		if (r.Version != VersionV4 && r.Version != VersionV5 && r.Version != VersionV6) || strings.TrimSpace(exposure.RootTaskID) == "" ||
+		if (r.Version != VersionV4 && r.Version != VersionV5 && r.Version != VersionV6 && r.Version != VersionV7) || strings.TrimSpace(exposure.RootTaskID) == "" ||
 			strings.TrimSpace(exposure.ProfileVersion) == "" || !isSHA256(exposure.ObservationSHA256) ||
 			exposure.ActualReleaseFacts < 0 || exposure.ActualInfluenceFacts < 0 || exposure.ActualOutcomeFacts < 0 ||
 			exposure.ChargedReleaseFacts < 0 || exposure.ChargedInfluenceFacts < 0 || exposure.ChargedOutcomeFacts < 0 ||
@@ -181,11 +191,22 @@ func (r QueryReceiptV1) ValidateUnsigned() error {
 			(r.Version == VersionV5 && (exposure.ProfileVersion != "taskgate-exposure-v3" || exposure.ActualOutcomeFacts != 1)) ||
 			(r.Version == VersionV6 && (exposure.ProfileVersion != "taskgate-exposure-v4" || exposure.ActualOutcomeFacts != 1 ||
 				exposure.RootEpoch <= 0 || !isSHA256(exposure.DictionarySetSHA256) || !isSHA256(exposure.ReleaseSetSHA256) ||
-				!isSHA256(exposure.InfluenceSetSHA256) || !isSHA256(exposure.OutcomeSetSHA256))) {
+				!isSHA256(exposure.InfluenceSetSHA256) || !isSHA256(exposure.OutcomeSetSHA256)) ||
+				(r.Version == VersionV7 && (exposure.ProfileVersion != "taskgate-exposure-v5" ||
+					exposure.PredicateProfileVersion != "taskgate-predicate-footprint-v1" ||
+					exposure.ActualCompositeCount != 1 || exposure.ChargedCompositeCount < 0 || exposure.ChargedCompositeCount > 1 ||
+					exposure.ActualPredicateAtomCount < 0 || exposure.ChargedPredicateAtomCount < 0 ||
+					exposure.ChargedPredicateAtomCount > exposure.ActualPredicateAtomCount ||
+					exposure.ActualOutcomeFacts != exposure.ActualPredicateAtomCount+1 ||
+					exposure.ChargedOutcomeFacts != exposure.ChargedPredicateAtomCount+exposure.ChargedCompositeCount ||
+					exposure.RootEpoch <= 0 || !isSHA256(exposure.DictionarySetSHA256) || !isSHA256(exposure.ReleaseSetSHA256) ||
+					!isSHA256(exposure.InfluenceSetSHA256) || !isSHA256(exposure.OutcomeSetSHA256) ||
+					!isSHA256(exposure.PredicateContextSHA256) || !isSHA256(exposure.PredicateSetSHA256) ||
+					!isSHA256(exposure.CompositeOutcomeSHA256)))) {
 			return fmt.Errorf("%w: receipt version and outcome evidence disagree", ErrInvalidReceipt)
 		}
-	} else if r.Version == VersionV4 || r.Version == VersionV5 || r.Version == VersionV6 {
-		return fmt.Errorf("%w: V4/V5/V6 requires exposure evidence", ErrInvalidReceipt)
+	} else if r.Version == VersionV4 || r.Version == VersionV5 || r.Version == VersionV6 || r.Version == VersionV7 {
+		return fmt.Errorf("%w: V4/V5/V6/V7 requires exposure evidence", ErrInvalidReceipt)
 	}
 	if err := r.validateBudgetSemantics(); err != nil {
 		return err
@@ -569,7 +590,7 @@ func signingPayload(receipt QueryReceiptV1) ([]byte, error) {
 		"audit_hash": receipt.AuditHash, "gateway_key_id": receipt.GatewayKeyID,
 	}
 	domain := signatureDomainV1
-	if receipt.Version == VersionV2 || receipt.Version == VersionV3 || receipt.Version == VersionV4 || receipt.Version == VersionV5 || receipt.Version == VersionV6 {
+	if receipt.Version == VersionV2 || receipt.Version == VersionV3 || receipt.Version == VersionV4 || receipt.Version == VersionV5 || receipt.Version == VersionV6 || receipt.Version == VersionV7 {
 		domain = signatureDomainV2
 		unsigned["datasource_id"] = receipt.DatasourceID
 		unsigned["schema_digest"] = receipt.SchemaDigest
@@ -590,6 +611,11 @@ func signingPayload(receipt QueryReceiptV1) ([]byte, error) {
 	}
 	if receipt.Version == VersionV6 {
 		domain = signatureDomainV6
+		unsigned["signed_at"] = receipt.SignedAt
+		unsigned["exposure"] = receipt.Exposure
+	}
+	if receipt.Version == VersionV7 {
+		domain = signatureDomainV7
 		unsigned["signed_at"] = receipt.SignedAt
 		unsigned["exposure"] = receipt.Exposure
 	}

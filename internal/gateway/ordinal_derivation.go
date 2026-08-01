@@ -26,16 +26,17 @@ type ordinalEffect struct {
 	Release        ordinal.BitmapSet
 	Influence      ordinal.BitmapSet
 	DerivedRelease []exposure.FactID
-	Outcome        exposure.FactID
+	Outcome        []exposure.FactID
 }
 
 // ordinalDerivationSink delays construction until QueryPairStream has
 // buffered the visible statement inside its repeatable-read transaction.
 type ordinalDerivationSink struct {
-	program    queryplan.OrdinalProgram
-	indexes    map[string]ordinal.SnapshotIndex
-	planDigest string
-	deriver    *ordinalDeriver
+	program            queryplan.OrdinalProgram
+	indexes            map[string]ordinal.SnapshotIndex
+	planDigest         string
+	predicateFootprint *queryplan.PredicateFootprint
+	deriver            *ordinalDeriver
 }
 
 func (s *ordinalDerivationSink) VisibleResult(_ context.Context, visible dataconnector.Result) error {
@@ -46,6 +47,7 @@ func (s *ordinalDerivationSink) VisibleResult(_ context.Context, visible datacon
 	if err != nil {
 		return err
 	}
+	deriver.predicateFootprint = s.predicateFootprint
 	s.deriver = deriver
 	return nil
 }
@@ -82,6 +84,7 @@ type ordinalDeriver struct {
 	visiblePos         map[string]int
 	provenance         map[string]int
 	planDigest         string
+	predicateFootprint *queryplan.PredicateFootprint
 	bundle             []exposure.SnapshotBinding
 	grouped            bool
 	leafFields         map[string][]string
@@ -1072,9 +1075,33 @@ func (d *ordinalDeriver) Finish() (ordinalEffect, error) {
 	if err != nil {
 		return ordinalEffect{}, err
 	}
-	outcome, err := exposure.NewOutcomeFactV3(queryplan.NormalFormVersion, d.planDigest, outcomeDigest, d.visible.RowCount)
-	if err != nil {
-		return ordinalEffect{}, err
+	var outcomes []exposure.FactID
+	if d.predicateFootprint == nil {
+		outcome, outcomeErr := exposure.NewOutcomeFactV3(queryplan.NormalFormVersion, d.planDigest, outcomeDigest, d.visible.RowCount)
+		if outcomeErr != nil {
+			return ordinalEffect{}, outcomeErr
+		}
+		outcomes = []exposure.FactID{outcome}
+	} else {
+		if d.predicateFootprint.UniqueAtomCount != len(d.predicateFootprint.Atoms) {
+			return ordinalEffect{}, errors.New("V5 predicate footprint cardinality is inconsistent")
+		}
+		composite, outcomeErr := exposure.NewCompositeOutcomeFactV5(exposure.CompositeOutcomeFactV5{
+			QueryNormalFormVersion: queryplan.NormalFormVersionV4, QueryNormalFormSHA256: d.planDigest,
+			ResultObservationSHA256: outcomeDigest, VisibleRows: d.visible.RowCount,
+			PredicateContextSHA256: d.predicateFootprint.ContextSHA256,
+			PredicateSetSHA256:     d.predicateFootprint.AtomSetSHA256,
+			PredicateAtomCount:     int64(d.predicateFootprint.UniqueAtomCount),
+		})
+		if outcomeErr != nil {
+			return ordinalEffect{}, outcomeErr
+		}
+		candidate := append(append([]exposure.FactID(nil), d.predicateFootprint.Atoms...), composite)
+		set, setErr := exposure.NewFactSet(candidate...)
+		if setErr != nil {
+			return ordinalEffect{}, setErr
+		}
+		outcomes = set.Values()
 	}
 	dynamic := make([]exposure.FactID, 0)
 	for _, fact := range releaseFacts {
@@ -1082,7 +1109,7 @@ func (d *ordinalDeriver) Finish() (ordinalEffect, error) {
 			dynamic = append(dynamic, fact)
 		}
 	}
-	d.effect = ordinalEffect{Release: release, Influence: influence, DerivedRelease: dynamic, Outcome: outcome}
+	d.effect = ordinalEffect{Release: release, Influence: influence, DerivedRelease: dynamic, Outcome: outcomes}
 	d.finished = true
 	return d.effect, nil
 }
@@ -1291,15 +1318,30 @@ func ordinalControlObservation(effect ordinalEffect, dictionarySetDigest string)
 		}
 		derived = append(derived, dynamic)
 	}
-	outcome, err := ordinalControlDynamicFact(effect.Outcome, control.OrdinalDynamicOutcome)
-	if err != nil {
-		return control.OrdinalExposureObservation{}, err
+	profile := exposure.ProfileV4
+	outcomes := make([]control.OrdinalDynamicFact, 0, len(effect.Outcome))
+	for _, fact := range effect.Outcome {
+		kind := control.OrdinalDynamicOutcome
+		if fact.Profile == exposure.ProfileV5 {
+			profile = exposure.ProfileV5
+			switch fact.Kind {
+			case exposure.FactPredicateAtom:
+				kind = control.OrdinalDynamicPredicateAtom
+			case exposure.FactCompositeOutcome:
+				kind = control.OrdinalDynamicCompositeOutcome
+			}
+		}
+		outcome, err := ordinalControlDynamicFact(fact, kind)
+		if err != nil {
+			return control.OrdinalExposureObservation{}, err
+		}
+		outcomes = append(outcomes, outcome)
 	}
 	return control.OrdinalExposureObservation{
-		ProfileVersion: exposure.ProfileV4, DictionarySetDigest: dictionarySetDigest,
+		ProfileVersion: profile, DictionarySetDigest: dictionarySetDigest,
 		Release:   control.OrdinalHybridSet{Static: effect.Release, DynamicFacts: derived},
 		Influence: control.OrdinalHybridSet{Static: effect.Influence},
-		Outcome:   control.OrdinalHybridSet{DynamicFacts: []control.OrdinalDynamicFact{outcome}},
+		Outcome:   control.OrdinalHybridSet{DynamicFacts: outcomes},
 	}, nil
 }
 

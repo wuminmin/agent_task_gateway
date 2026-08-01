@@ -256,7 +256,8 @@ func (s *Service) requestDataTask(ctx context.Context, principal mcp.Principal, 
 			"task_ttl_seconds":  int64(policy.Budget.TaskTTL.Seconds()),
 			"max_release_facts": policy.Budget.MaxReleaseFacts, "max_influence_facts": policy.Budget.MaxInfluenceFacts,
 			"max_outcome_facts":        policy.Budget.MaxOutcomeFacts,
-			"exposure_profile_version": policy.Budget.ExposureProfileVersion},
+			"exposure_profile_version": policy.Budget.ExposureProfileVersion,
+			"predicate_footprint":      policy.Budget.PredicateFootprint},
 	}
 	if viewBinding != nil {
 		result["view_binding_digest"] = viewBinding.Digest
@@ -282,6 +283,7 @@ func constrainDelegatedBudget(candidate domain.Budget, parent domain.TaskGrantCo
 		candidate.MaxInfluenceFacts = 0
 		candidate.MaxOutcomeFacts = 0
 		candidate.ExposureProfileVersion = ""
+		candidate.PredicateFootprint = nil
 	} else {
 		if candidate.ExposureProfileVersion != parent.Budget.ExposureProfileVersion {
 			return domain.Budget{}, domain.ErrBudgetExpansion
@@ -289,6 +291,9 @@ func constrainDelegatedBudget(candidate domain.Budget, parent domain.TaskGrantCo
 		candidate.MaxReleaseFacts = min64(candidate.MaxReleaseFacts, parent.Budget.MaxReleaseFacts)
 		candidate.MaxInfluenceFacts = min64(candidate.MaxInfluenceFacts, parent.Budget.MaxInfluenceFacts)
 		candidate.MaxOutcomeFacts = min64(candidate.MaxOutcomeFacts, parent.Budget.MaxOutcomeFacts)
+		if !predicateFootprintWithinAuthorization(candidate.PredicateFootprint, parent.Budget.PredicateFootprint) {
+			return domain.Budget{}, domain.ErrBudgetExpansion
+		}
 	}
 	if err := candidate.Validate(); err != nil {
 		return domain.Budget{}, err
@@ -795,7 +800,35 @@ func authorizationBudget(budget domain.Budget) approval.AuthorizationBudgetV1 {
 		TaskTTLMS: budget.TaskTTL.Milliseconds(), MaxReleaseFacts: budget.MaxReleaseFacts,
 		MaxInfluenceFacts: budget.MaxInfluenceFacts, MaxOutcomeFacts: budget.MaxOutcomeFacts,
 		ExposureProfileVersion: budget.ExposureProfileVersion,
+		PredicateFootprint:     cloneDomainPredicateFootprint(budget.PredicateFootprint),
 	}
+}
+
+func cloneDomainPredicateFootprint(input *domain.PredicateFootprintLimitsV1) *domain.PredicateFootprintLimitsV1 {
+	if input == nil {
+		return nil
+	}
+	copy := *input
+	return &copy
+}
+
+func predicateFootprintWithinAuthorization(child, parent *domain.PredicateFootprintLimitsV1) bool {
+	if child == nil || parent == nil {
+		return child == nil && parent == nil
+	}
+	return child.Version == parent.Version && child.MaxRawLiteralsPerQuery <= parent.MaxRawLiteralsPerQuery &&
+		child.MaxUniqueAtomsPerQuery <= parent.MaxUniqueAtomsPerQuery &&
+		child.MaxAtomPayloadBytes <= parent.MaxAtomPayloadBytes &&
+		child.MaxTotalAtomPayloadBytes <= parent.MaxTotalAtomPayloadBytes
+}
+
+func controlPredicateFootprint(input *domain.PredicateFootprintLimitsV1) *control.PredicateFootprintLimitsV1 {
+	if input == nil {
+		return nil
+	}
+	return &control.PredicateFootprintLimitsV1{Version: input.Version,
+		MaxRawLiteralsPerQuery: input.MaxRawLiteralsPerQuery, MaxUniqueAtomsPerQuery: input.MaxUniqueAtomsPerQuery,
+		MaxAtomPayloadBytes: input.MaxAtomPayloadBytes, MaxTotalAtomPayloadBytes: input.MaxTotalAtomPayloadBytes}
 }
 
 func decodePersistedPending(task control.Task) (persistedPendingContext, error) {

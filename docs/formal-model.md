@@ -119,6 +119,18 @@ empty result or zero aggregate still has an outcome fact. Different normalized
 propositions do not collapse merely because they return the same value; a
 replay with the same proposition and release result does collapse.
 
+For V5, the outcome candidate is instead
+
+\[
+E_O(T,q)=A_{ctx}(q)\cup\{c_q\},
+\]
+
+where `A` is the exact set of normalized caller-controlled predicate atoms and
+`c` is the unique composite outcome. The composite commits the atom-set digest
+and cardinality, so \(|E_O|=|A|+1\). Atoms mean “tested”, not a per-condition
+truth value. The signed constraint set \(C\) includes the atomizer version and
+raw-literal, unique-atom, per-atom payload, and total-payload limits.
+
 ### 3.4 A query sequence
 
 For a sequence of successfully settled queries
@@ -318,8 +330,9 @@ closed. It is not a theorem about arbitrary PostgreSQL View rewriting.
   or incomplete provenance evidence fails closed; safety does not rely on a
   Bloom filter or silent hash-collision assumption.
 - The proof sketches are mathematical arguments for the specified abstraction.
-  [ExposureLedger.tla](../formal/ExposureLedger.tla) and
-  [ExposureBitmapRefinement.tla](../formal/ExposureBitmapRefinement.tla) add
+  [ExposureLedger.tla](../formal/ExposureLedger.tla),
+  [ExposureBitmapRefinement.tla](../formal/ExposureBitmapRefinement.tla), and
+  [OutcomeHashSetRefinement.tla](../formal/OutcomeHashSetRefinement.tla) add
   finite-state model checks, while [REFINEMENT.md](../formal/REFINEMENT.md)
   maps abstract actions to code and tests. They are not a mechanized proof of
   the Go implementation or of arbitrary SQL semantics.

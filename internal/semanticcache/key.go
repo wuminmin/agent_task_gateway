@@ -41,6 +41,10 @@ type Binding struct {
 	OrderingVersion     string
 	PaginationVersion   string
 	ResultEncoding      string
+	PredicateProfile    string
+	PredicateContext    string
+	PredicateSet        string
+	PredicateAtomCount  int64
 }
 
 func (b Binding) Normalize() Binding {
@@ -84,6 +88,14 @@ func (b Binding) Validate() error {
 			return fmt.Errorf("%w: %s digest", ErrInvalid, name)
 		}
 	}
+	if b.ExposureProfile == "taskgate-exposure-v5" {
+		if b.PredicateProfile != "taskgate-predicate-footprint-v1" ||
+			!validDigest(b.PredicateContext) || !validDigest(b.PredicateSet) || b.PredicateAtomCount < 0 {
+			return fmt.Errorf("%w: incomplete V5 predicate binding", ErrInvalid)
+		}
+	} else if b.PredicateProfile != "" || b.PredicateContext != "" || b.PredicateSet != "" || b.PredicateAtomCount != 0 {
+		return fmt.Errorf("%w: predicate binding requires V5", ErrInvalid)
+	}
 	return nil
 }
 
@@ -106,6 +118,15 @@ func (b Binding) Digest() (string, error) {
 		binary.BigEndian.PutUint64(size[:], uint64(len(value)))
 		_, _ = hash.Write(size[:])
 		_, _ = hash.Write([]byte(value))
+	}
+	if b.ExposureProfile == "taskgate-exposure-v5" {
+		for _, value := range []string{b.PredicateProfile, b.PredicateContext, b.PredicateSet,
+			fmt.Sprintf("%d", b.PredicateAtomCount)} {
+			var size [8]byte
+			binary.BigEndian.PutUint64(size[:], uint64(len(value)))
+			_, _ = hash.Write(size[:])
+			_, _ = hash.Write([]byte(value))
+		}
 	}
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }

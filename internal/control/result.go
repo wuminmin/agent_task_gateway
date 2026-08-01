@@ -72,7 +72,7 @@ func (s *Store) FinalizeOrdinalQueryMeasuredWithReceipt(ctx context.Context, set
 	builder TerminalReceiptBuilder) (QueryRecord, PersistedQueryReceipt, FinalizeQueryMetrics, error) {
 	if (settlement.OrdinalExposure == nil) == (settlement.OrdinalObservationRef == nil) || settlement.Exposure != nil {
 		return QueryRecord{}, PersistedQueryReceipt{}, FinalizeQueryMetrics{}, opErr("finalize ordinal query", ErrInvalid,
-			fmt.Errorf("exactly one V4 observation or committed observation reference is required"))
+			fmt.Errorf("exactly one ordinal observation or committed observation reference is required"))
 	}
 	settlement.OrdinalMaterialization = publish
 	return s.FinalizeQueryMeasuredWithReceipt(ctx, settlement, plaintext, builder)
@@ -187,7 +187,7 @@ func (s *Store) FinalizeOrdinalQueryArtifactMeasuredWithReceipt(ctx context.Cont
 	builder TerminalReceiptBuilder) (QueryRecord, PersistedQueryReceipt, FinalizeQueryMetrics, error) {
 	if (settlement.OrdinalExposure == nil) == (settlement.OrdinalObservationRef == nil) || settlement.Exposure != nil {
 		return QueryRecord{}, PersistedQueryReceipt{}, FinalizeQueryMetrics{}, opErr("finalize ordinal query artifact", ErrInvalid,
-			fmt.Errorf("exactly one V4 observation or committed observation reference is required"))
+			fmt.Errorf("exactly one ordinal observation or committed observation reference is required"))
 	}
 	settlement.OrdinalMaterialization = publish
 	return s.FinalizeQueryArtifactMeasuredWithReceipt(ctx, settlement, artifact, builder)

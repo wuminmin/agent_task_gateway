@@ -54,6 +54,30 @@ func TestBindingRejectsMissingSnapshotOrAuthorityDigests(t *testing.T) {
 	}
 }
 
+func TestV5BindingExplicitlyPartitionsPredicateFootprint(t *testing.T) {
+	binding := validBinding()
+	binding.ExposureProfile = "taskgate-exposure-v5"
+	binding.PredicateProfile = "taskgate-predicate-footprint-v1"
+	binding.PredicateContext = strings.Repeat("7", 64)
+	binding.PredicateSet = strings.Repeat("8", 64)
+	binding.PredicateAtomCount = 10
+	first, err := binding.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed := binding
+	changed.PredicateAtomCount++
+	second, err := changed.Digest()
+	if err != nil || first == second {
+		t.Fatalf("V5 atom count did not partition replay: %q %q %v", first, second, err)
+	}
+	missing := binding
+	missing.PredicateSet = ""
+	if _, err := missing.Digest(); err == nil {
+		t.Fatal("incomplete V5 predicate binding was accepted")
+	}
+}
+
 func validBinding() Binding {
 	return Binding{
 		TaskID: "task-root", GrantDigest: strings.Repeat("1", 64),

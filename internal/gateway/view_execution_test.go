@@ -1006,6 +1006,9 @@ func requestAndApproveSemanticRuntimeTask(t *testing.T, harness *gatewayHarness)
 	if err != nil {
 		t.Fatalf("load requested semantic task: %v", err)
 	}
+	if _, err := decodePersistedPending(task); err != nil {
+		t.Fatalf("decode semantic pending task: %v", err)
+	}
 	draft := harness.approval.requests[len(harness.approval.requests)-1]
 	submitted := oaCallbackEvent{
 		EventID: "semantic-view-submit", TaskID: taskID, DraftID: task.ApprovalRef,

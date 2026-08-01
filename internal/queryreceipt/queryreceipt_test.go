@@ -105,6 +105,36 @@ func TestQueryReceiptV6BindsOrdinalLedgerEvidence(t *testing.T) {
 	}
 }
 
+func TestQueryReceiptV7BindsPredicateAndCompositeEvidence(t *testing.T) {
+	signer := DemoSigner([]byte("unit-test-v7-secret"))
+	verifier, err := NewVerifier(map[string]ed25519.PublicKey{signer.KeyID(): signer.PublicKey()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := signer.Sign(validV7Receipt())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := verifier.Verify(receipt); err != nil {
+		t.Fatal(err)
+	}
+	for name, mutate := range map[string]func(*ExposureEvidenceV1){
+		"predicate set": func(value *ExposureEvidenceV1) { value.PredicateSetSHA256 = fmt.Sprintf("%064x", 20) },
+		"atom count":    func(value *ExposureEvidenceV1) { value.ActualPredicateAtomCount++ },
+		"composite":     func(value *ExposureEvidenceV1) { value.CompositeOutcomeSHA256 = fmt.Sprintf("%064x", 21) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			tampered := receipt
+			copyExposure := *receipt.Exposure
+			tampered.Exposure = &copyExposure
+			mutate(tampered.Exposure)
+			if err := verifier.Verify(tampered); err == nil {
+				t.Fatal("tampered V7 receipt was accepted")
+			}
+		})
+	}
+}
+
 func TestQueryReceiptV1VerificationRemainsCompatible(t *testing.T) {
 	signer := DemoSigner([]byte("unit-test-secret"))
 	verifier, err := NewVerifier(map[string]ed25519.PublicKey{signer.KeyID(): signer.PublicKey()})
@@ -467,6 +497,23 @@ func validV6Receipt() QueryReceiptV1 {
 	receipt.Exposure.InfluenceSetSHA256 = fmt.Sprintf("%064x", 12)
 	receipt.Exposure.OutcomeSetSHA256 = fmt.Sprintf("%064x", 13)
 	receipt.Exposure.RootEpoch = 7
+	return receipt
+}
+
+func validV7Receipt() QueryReceiptV1 {
+	receipt := validV6Receipt()
+	receipt.Version = VersionV7
+	receipt.Exposure.ProfileVersion = "taskgate-exposure-v5"
+	receipt.Exposure.PredicateProfileVersion = "taskgate-predicate-footprint-v1"
+	receipt.Exposure.PredicateContextSHA256 = fmt.Sprintf("%064x", 14)
+	receipt.Exposure.PredicateSetSHA256 = fmt.Sprintf("%064x", 15)
+	receipt.Exposure.ActualPredicateAtomCount = 1
+	receipt.Exposure.ChargedPredicateAtomCount = 1
+	receipt.Exposure.CompositeOutcomeSHA256 = fmt.Sprintf("%064x", 16)
+	receipt.Exposure.ActualCompositeCount = 1
+	receipt.Exposure.ChargedCompositeCount = 1
+	receipt.Exposure.ActualOutcomeFacts = 2
+	receipt.Exposure.ChargedOutcomeFacts = 2
 	return receipt
 }
 

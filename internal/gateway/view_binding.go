@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -305,10 +306,17 @@ func (binding *pendingViewBinding) validate() (viewbinding.Set, error) {
 	if err != nil || set.Version != viewbinding.Version {
 		return viewbinding.Set{}, errors.New("pending View binding is not canonical")
 	}
-	encoded, err := json.Marshal(canonical)
-	if err != nil || !bytes.Equal(encoded, binding.CanonicalJSON) {
+	if !reflect.DeepEqual(set, canonical) {
 		return viewbinding.Set{}, errors.New("pending View binding encoding is not canonical")
 	}
+	encoded, err := json.Marshal(canonical)
+	if err != nil {
+		return viewbinding.Set{}, errors.New("pending View binding cannot be canonically encoded")
+	}
+	// request_context_json is PostgreSQL JSONB, which normalizes whitespace and
+	// object-key order inside RawMessage values. Restore the protocol encoding
+	// after semantic validation before persisting the immutable control set.
+	binding.CanonicalJSON = encoded
 	digest, err := canonical.Digest()
 	if err != nil || !sameSnapshotSHA256(digest, binding.Digest) {
 		return viewbinding.Set{}, errors.New("pending View binding digest mismatch")
@@ -367,8 +375,7 @@ func viewBindingMatchesCurrent(pending *pendingViewBinding, current *resolvedVie
 	if _, err := pending.validate(); err != nil {
 		return false
 	}
-	return sameSnapshotSHA256(pending.Digest, current.Digest) &&
-		bytes.Equal(pending.CanonicalJSON, current.CanonicalJSON)
+	return sameSnapshotSHA256(pending.Digest, current.Digest)
 }
 
 func cloneStringMap(input map[string]string) map[string]string {

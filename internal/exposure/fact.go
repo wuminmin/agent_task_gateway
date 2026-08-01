@@ -31,9 +31,15 @@ const (
 	// semantic identity of its facts. Release and influence facts retain their
 	// V2 payloads and outcome facts retain their V3 payloads so a V4 bitmap can
 	// be decoded and compared with the existing exact FactSet model.
-	ProfileV4    = "taskgate-exposure-v4"
-	factDomainV2 = "TASKGATE-FACT-V2\x00"
-	factDomainV3 = "TASKGATE-FACT-V3\x00"
+	ProfileV4 = "taskgate-exposure-v4"
+	// ProfileV5 accounts a successful query as the exact set of canonical
+	// caller-controlled predicate atoms plus one composite outcome.  V5 has a
+	// new hash domain; V1--V4 payloads and hashes remain byte-for-byte stable.
+	ProfileV5            = "taskgate-exposure-v5"
+	factDomainV2         = "TASKGATE-FACT-V2\x00"
+	factDomainV3         = "TASKGATE-FACT-V3\x00"
+	factDomainV5         = "TASKGATE-FACT-V5\x00"
+	predicateSetDomainV1 = "TASKGATE-PREDICATE-SET-V1\x00"
 )
 
 // FactKind identifies the semantic category of a V2 fact. The hash is only an
@@ -41,11 +47,48 @@ const (
 type FactKind string
 
 const (
-	FactBaseRow  FactKind = "base-row"
-	FactBaseCell FactKind = "base-cell"
-	FactDerived  FactKind = "derived"
-	FactOutcome  FactKind = "outcome"
+	FactBaseRow          FactKind = "base-row"
+	FactBaseCell         FactKind = "base-cell"
+	FactDerived          FactKind = "derived"
+	FactOutcome          FactKind = "outcome"
+	FactPredicateAtom    FactKind = "predicate-atom"
+	FactCompositeOutcome FactKind = "composite-outcome"
 )
+
+const PredicateFootprintVersion = "taskgate-predicate-footprint-v1"
+
+// PredicateAtomFactV5 is the public construction payload for one tested
+// caller-controlled literal predicate.  It deliberately contains no truth
+// value: an atom records that a condition was tested, not whether it was true,
+// false, or unknown for any individual row.
+type PredicateAtomFactV5 struct {
+	ProfileVersion           string
+	AtomizerVersion          string
+	PredicateContextSHA256   string
+	SemanticProductID        string
+	StableRole               string
+	PublicFieldID            string
+	ResolvedExpressionSHA256 string
+	SQLType                  string
+	CollationName            string
+	CollationVersion         string
+	Operator                 string
+	CanonicalLiteral         string
+}
+
+// CompositeOutcomeFactV5 binds a complete normalized query and committed
+// result observation to the exact predicate footprint settled with it.
+type CompositeOutcomeFactV5 struct {
+	ProfileVersion          string
+	QueryNormalFormVersion  string
+	QueryNormalFormSHA256   string
+	ResultObservationSHA256 string
+	VisibleRows             int64
+	PredicateProfileVersion string
+	PredicateContextSHA256  string
+	PredicateSetSHA256      string
+	PredicateAtomCount      int64
+}
 
 // SnapshotBinding is one member of an immutable derived-query snapshot
 // bundle. Bindings are sorted by SourceNamespace before canonical encoding.
@@ -84,11 +127,32 @@ type FactID struct {
 	QueryNormalFormSHA256  string `json:"query_normal_form_sha256,omitempty"`
 	OutcomeSHA256          string `json:"outcome_sha256,omitempty"`
 	OutcomeRows            int64  `json:"outcome_rows,omitempty"`
+
+	// V5 predicate-atom payload.
+	AtomizerVersion          string `json:"atomizer_version,omitempty"`
+	PredicateContextSHA256   string `json:"predicate_context_sha256,omitempty"`
+	SemanticProductID        string `json:"semantic_product_id,omitempty"`
+	StableRole               string `json:"stable_role,omitempty"`
+	PublicFieldID            string `json:"public_field_id,omitempty"`
+	ResolvedExpressionSHA256 string `json:"resolved_expression_sha256,omitempty"`
+	CollationName            string `json:"collation_name,omitempty"`
+	CollationVersion         string `json:"collation_version,omitempty"`
+	Operator                 string `json:"operator,omitempty"`
+	CanonicalLiteral         string `json:"canonical_literal,omitempty"`
+
+	// V5 composite-outcome payload.
+	ResultObservationSHA256 string `json:"result_observation_sha256,omitempty"`
+	VisibleRows             int64  `json:"visible_rows,omitempty"`
+	PredicateProfileVersion string `json:"predicate_profile_version,omitempty"`
+	PredicateSetSHA256      string `json:"predicate_set_sha256,omitempty"`
+	PredicateAtomCount      int64  `json:"predicate_atom_count,omitempty"`
 }
 
 func (f FactID) IsV2() bool { return f.Profile == ProfileV2 }
 
 func (f FactID) IsV3() bool { return f.Profile == ProfileV3 }
+
+func (f FactID) IsV5() bool { return f.Profile == ProfileV5 }
 
 func (f FactID) isVersioned() bool { return f.Profile != "" || f.Kind != "" }
 
@@ -123,7 +187,7 @@ func (f FactID) validateVersioned() error {
 			return fmt.Errorf("%w: base row namespace, snapshot, and entity key are required", ErrInvalid)
 		}
 		if f.Field != "" || f.SQLType != "" || f.CanonicalValue != "" || len(f.SnapshotBundle) != 0 ||
-			f.OutputRowKey != "" || f.NormalizedExpression != "" || f.WitnessCommitment != "" || f.hasOutcomePayload() {
+			f.OutputRowKey != "" || f.NormalizedExpression != "" || f.WitnessCommitment != "" || f.hasOutcomePayload() || f.hasV5OnlyPayload() {
 			return fmt.Errorf("%w: base row carries cell or derived fields", ErrInvalid)
 		}
 	case FactBaseCell:
@@ -138,7 +202,7 @@ func (f FactID) validateVersioned() error {
 		if err != nil || canonicalType != f.SQLType {
 			return fmt.Errorf("%w: base cell SQL type is not canonical", ErrInvalid)
 		}
-		if len(f.SnapshotBundle) != 0 || f.OutputRowKey != "" || f.NormalizedExpression != "" || f.WitnessCommitment != "" || f.hasOutcomePayload() {
+		if len(f.SnapshotBundle) != 0 || f.OutputRowKey != "" || f.NormalizedExpression != "" || f.WitnessCommitment != "" || f.hasOutcomePayload() || f.hasV5OnlyPayload() {
 			return fmt.Errorf("%w: base cell carries derived fields", ErrInvalid)
 		}
 	case FactDerived:
@@ -147,7 +211,7 @@ func (f FactID) validateVersioned() error {
 		}
 		if f.SourceNamespace != "" || f.Snapshot != "" || f.EntityKey != "" || f.Field != "" ||
 			invalidToken(f.OutputRowKey) || invalidToken(f.NormalizedExpression) || invalidToken(f.SQLType) ||
-			f.CanonicalValue == "" || !isSHA256(f.WitnessCommitment) || len(f.SnapshotBundle) == 0 || f.hasOutcomePayload() {
+			f.CanonicalValue == "" || !isSHA256(f.WitnessCommitment) || len(f.SnapshotBundle) == 0 || f.hasOutcomePayload() || f.hasV5OnlyPayload() {
 			return fmt.Errorf("%w: derived fact payload is incomplete or mixed", ErrInvalid)
 		}
 		canonicalType, err := CanonicalSQLTypeV2(f.SQLType)
@@ -177,10 +241,95 @@ func (f FactID) validateVersioned() error {
 			!isSHA256(f.OutcomeSHA256) || f.OutcomeRows < 0 {
 			return fmt.Errorf("%w: outcome fact payload is incomplete", ErrInvalid)
 		}
+		if f.hasV5Payload() {
+			return fmt.Errorf("%w: V3 outcome fact carries V5 fields", ErrInvalid)
+		}
+	case FactPredicateAtom:
+		if f.Profile != ProfileV5 {
+			return fmt.Errorf("%w: predicate atom requires profile %q", ErrInvalid, ProfileV5)
+		}
+		if f.hasLegacyVersionedPayload() || f.hasOutcomePayload() || f.hasCompositePayload() {
+			return fmt.Errorf("%w: predicate atom carries fields from another fact kind", ErrInvalid)
+		}
+		if f.AtomizerVersion != PredicateFootprintVersion || !isSHA256(f.PredicateContextSHA256) ||
+			invalidToken(f.SemanticProductID) || invalidToken(f.StableRole) || invalidToken(f.PublicFieldID) ||
+			invalidToken(f.SQLType) || invalidToken(f.Operator) || f.CanonicalLiteral == "" {
+			return fmt.Errorf("%w: predicate atom payload is incomplete", ErrInvalid)
+		}
+		canonicalType, err := CanonicalSQLTypeV2(f.SQLType)
+		if err != nil || canonicalType != f.SQLType {
+			return fmt.Errorf("%w: predicate atom SQL type is not canonical", ErrInvalid)
+		}
+		if f.ResolvedExpressionSHA256 != "" && !isSHA256(f.ResolvedExpressionSHA256) {
+			return fmt.Errorf("%w: resolved expression must be lowercase SHA-256", ErrInvalid)
+		}
+		if isCollatableTypeV5(f.SQLType) {
+			if invalidToken(f.CollationName) || invalidToken(f.CollationVersion) {
+				return fmt.Errorf("%w: collatable predicate atom requires a collation binding", ErrInvalid)
+			}
+		} else if f.CollationName != "" || f.CollationVersion != "" {
+			return fmt.Errorf("%w: non-collatable predicate atom carries a collation", ErrInvalid)
+		}
+		switch f.Operator {
+		case "EQ", "NE", "LT", "LE", "GT", "GE", "LIKE":
+		default:
+			return fmt.Errorf("%w: unsupported predicate atom operator %q", ErrInvalid, f.Operator)
+		}
+	case FactCompositeOutcome:
+		if f.Profile != ProfileV5 {
+			return fmt.Errorf("%w: composite outcome requires profile %q", ErrInvalid, ProfileV5)
+		}
+		if f.hasLegacyVersionedPayload() || f.OutcomeSHA256 != "" || f.OutcomeRows != 0 || f.hasAtomPayload() {
+			return fmt.Errorf("%w: composite outcome carries fields from another fact kind", ErrInvalid)
+		}
+		if invalidToken(f.QueryNormalFormVersion) || !isSHA256(f.QueryNormalFormSHA256) ||
+			!isSHA256(f.ResultObservationSHA256) || f.VisibleRows < 0 ||
+			f.PredicateProfileVersion != PredicateFootprintVersion || !isSHA256(f.PredicateContextSHA256) ||
+			!isSHA256(f.PredicateSetSHA256) || f.PredicateAtomCount < 0 {
+			return fmt.Errorf("%w: composite outcome payload is incomplete", ErrInvalid)
+		}
 	default:
 		return fmt.Errorf("%w: unknown versioned fact kind %q", ErrInvalid, f.Kind)
 	}
 	return nil
+}
+
+func isCollatableTypeV5(sqlType string) bool {
+	switch sqlType {
+	case "text", "character", "character varying":
+		return true
+	default:
+		return false
+	}
+}
+
+func (f FactID) hasLegacyVersionedPayload() bool {
+	return f.SourceNamespace != "" || f.Snapshot != "" || f.EntityKey != "" || f.Field != "" ||
+		f.CanonicalValue != "" || len(f.SnapshotBundle) != 0 || f.OutputRowKey != "" ||
+		f.NormalizedExpression != "" || f.WitnessCommitment != ""
+}
+
+func (f FactID) hasAtomPayload() bool {
+	return f.AtomizerVersion != "" || f.SemanticProductID != "" || f.StableRole != "" ||
+		f.PublicFieldID != "" || f.ResolvedExpressionSHA256 != "" || f.SQLType != "" ||
+		f.CollationName != "" || f.CollationVersion != "" || f.Operator != "" || f.CanonicalLiteral != ""
+}
+
+func (f FactID) hasCompositePayload() bool {
+	return f.ResultObservationSHA256 != "" || f.VisibleRows != 0 || f.PredicateProfileVersion != "" ||
+		f.PredicateSetSHA256 != "" || f.PredicateAtomCount != 0
+}
+
+func (f FactID) hasV5Payload() bool {
+	return f.PredicateContextSHA256 != "" || f.hasAtomPayload() || f.hasCompositePayload()
+}
+
+func (f FactID) hasV5OnlyPayload() bool {
+	return f.AtomizerVersion != "" || f.PredicateContextSHA256 != "" || f.SemanticProductID != "" ||
+		f.StableRole != "" || f.PublicFieldID != "" || f.ResolvedExpressionSHA256 != "" ||
+		f.CollationName != "" || f.CollationVersion != "" || f.Operator != "" || f.CanonicalLiteral != "" ||
+		f.ResultObservationSHA256 != "" || f.VisibleRows != 0 || f.PredicateProfileVersion != "" ||
+		f.PredicateSetSHA256 != "" || f.PredicateAtomCount != 0
 }
 
 func (f FactID) hasOutcomePayload() bool {
@@ -247,6 +396,27 @@ func (f FactID) CanonicalPayload() ([]byte, error) {
 		writeCanonicalString(&payload, f.QueryNormalFormSHA256)
 		writeCanonicalString(&payload, f.OutcomeSHA256)
 		writeCanonicalUint64(&payload, uint64(f.OutcomeRows))
+	case FactPredicateAtom:
+		writeCanonicalString(&payload, f.AtomizerVersion)
+		writeCanonicalString(&payload, f.PredicateContextSHA256)
+		writeCanonicalString(&payload, f.SemanticProductID)
+		writeCanonicalString(&payload, f.StableRole)
+		writeCanonicalString(&payload, f.PublicFieldID)
+		writeCanonicalString(&payload, f.ResolvedExpressionSHA256)
+		writeCanonicalString(&payload, f.SQLType)
+		writeCanonicalString(&payload, f.CollationName)
+		writeCanonicalString(&payload, f.CollationVersion)
+		writeCanonicalString(&payload, f.Operator)
+		writeCanonicalString(&payload, f.CanonicalLiteral)
+	case FactCompositeOutcome:
+		writeCanonicalString(&payload, f.QueryNormalFormVersion)
+		writeCanonicalString(&payload, f.QueryNormalFormSHA256)
+		writeCanonicalString(&payload, f.ResultObservationSHA256)
+		writeCanonicalUint64(&payload, uint64(f.VisibleRows))
+		writeCanonicalString(&payload, f.PredicateProfileVersion)
+		writeCanonicalString(&payload, f.PredicateContextSHA256)
+		writeCanonicalString(&payload, f.PredicateSetSHA256)
+		writeCanonicalUint64(&payload, uint64(f.PredicateAtomCount))
 	}
 	return payload.Bytes(), nil
 }
@@ -261,9 +431,96 @@ func (f FactID) Hash() (string, error) {
 		payload = append([]byte(factDomainV2), payload...)
 	} else if f.IsV3() {
 		payload = append([]byte(factDomainV3), payload...)
+	} else if f.IsV5() {
+		payload = append([]byte(factDomainV5), payload...)
 	}
 	digest := sha256.Sum256(payload)
 	return hex.EncodeToString(digest[:]), nil
+}
+
+func NewPredicateAtomFactV5(input PredicateAtomFactV5) (FactID, error) {
+	profile := input.ProfileVersion
+	if profile == "" {
+		profile = ProfileV5
+	}
+	atomizer := input.AtomizerVersion
+	if atomizer == "" {
+		atomizer = PredicateFootprintVersion
+	}
+	fact := FactID{
+		Profile: profile, Kind: FactPredicateAtom, AtomizerVersion: atomizer,
+		PredicateContextSHA256: input.PredicateContextSHA256, SemanticProductID: input.SemanticProductID,
+		StableRole: input.StableRole, PublicFieldID: input.PublicFieldID,
+		ResolvedExpressionSHA256: input.ResolvedExpressionSHA256, SQLType: input.SQLType,
+		CollationName: input.CollationName, CollationVersion: input.CollationVersion,
+		Operator: input.Operator, CanonicalLiteral: input.CanonicalLiteral,
+	}
+	return fact, fact.Validate()
+}
+
+func NewCompositeOutcomeFactV5(input CompositeOutcomeFactV5) (FactID, error) {
+	profile := input.ProfileVersion
+	if profile == "" {
+		profile = ProfileV5
+	}
+	predicateProfile := input.PredicateProfileVersion
+	if predicateProfile == "" {
+		predicateProfile = PredicateFootprintVersion
+	}
+	fact := FactID{
+		Profile: profile, Kind: FactCompositeOutcome,
+		QueryNormalFormVersion:  input.QueryNormalFormVersion,
+		QueryNormalFormSHA256:   input.QueryNormalFormSHA256,
+		ResultObservationSHA256: input.ResultObservationSHA256, VisibleRows: input.VisibleRows,
+		PredicateProfileVersion: predicateProfile, PredicateContextSHA256: input.PredicateContextSHA256,
+		PredicateSetSHA256: input.PredicateSetSHA256, PredicateAtomCount: input.PredicateAtomCount,
+	}
+	return fact, fact.Validate()
+}
+
+// PredicateSetHashV1 commits the sorted, duplicate-free full hashes of V5
+// predicate atoms. Both QueryPlan construction and settlement validation use
+// this exact encoding.
+func PredicateSetHashV1(atoms []FactID) (string, error) {
+	type member struct {
+		hash    [sha256.Size]byte
+		payload []byte
+	}
+	members := make(map[[sha256.Size]byte][]byte, len(atoms))
+	for _, atom := range atoms {
+		if atom.Profile != ProfileV5 || atom.Kind != FactPredicateAtom {
+			return "", fmt.Errorf("%w: predicate set contains a non-atom fact", ErrInvalid)
+		}
+		hashText, err := atom.Hash()
+		if err != nil {
+			return "", err
+		}
+		hashBytes, _ := hex.DecodeString(hashText)
+		var hash [sha256.Size]byte
+		copy(hash[:], hashBytes)
+		payload, err := atom.CanonicalPayload()
+		if err != nil {
+			return "", err
+		}
+		if existing, present := members[hash]; present && !bytes.Equal(existing, payload) {
+			return "", fmt.Errorf("%w: predicate atom SHA-256 collision", ErrInvalid)
+		}
+		members[hash] = payload
+	}
+	ordered := make([]member, 0, len(members))
+	for hash, payload := range members {
+		ordered = append(ordered, member{hash: hash, payload: payload})
+	}
+	sort.Slice(ordered, func(i, j int) bool { return bytes.Compare(ordered[i].hash[:], ordered[j].hash[:]) < 0 })
+	h := sha256.New()
+	_, _ = h.Write([]byte(predicateSetDomainV1))
+	var count [8]byte
+	binary.BigEndian.PutUint64(count[:], uint64(len(ordered)))
+	_, _ = h.Write(count[:])
+	for _, member := range ordered {
+		_, _ = h.Write(member.hash[:])
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func NewBaseRowFactV2(sourceNamespace, snapshot, entityKey string) (FactID, error) {
@@ -1074,20 +1331,48 @@ func (o Observation) Normalize() (Observation, error) {
 	}
 	for _, set := range []FactSet{release, influence} {
 		for _, fact := range set {
-			if (o.ProfileVersion == ProfileV2 || o.ProfileVersion == ProfileV3 || o.ProfileVersion == ProfileV4) && !fact.IsV2() {
-				return Observation{}, fmt.Errorf("%w: V2/V3/V4 release or influence set contains a non-V2 fact", ErrInvalid)
+			if (o.ProfileVersion == ProfileV2 || o.ProfileVersion == ProfileV3 || o.ProfileVersion == ProfileV4 || o.ProfileVersion == ProfileV5) && !fact.IsV2() {
+				return Observation{}, fmt.Errorf("%w: V2/V3/V4/V5 release or influence set contains a non-V2 fact", ErrInvalid)
 			}
-			if o.ProfileVersion != ProfileV2 && o.ProfileVersion != ProfileV3 && o.ProfileVersion != ProfileV4 && fact.isVersioned() {
+			if o.ProfileVersion != ProfileV2 && o.ProfileVersion != ProfileV3 && o.ProfileVersion != ProfileV4 && o.ProfileVersion != ProfileV5 && fact.isVersioned() {
 				return Observation{}, fmt.Errorf("%w: V2 fact cannot enter profile %q", ErrInvalid, o.ProfileVersion)
 			}
 		}
 	}
-	for _, fact := range outcome {
-		if (o.ProfileVersion != ProfileV3 && o.ProfileVersion != ProfileV4) || !fact.IsV3() || fact.Kind != FactOutcome {
-			return Observation{}, fmt.Errorf("%w: outcome facts require profile %q or %q", ErrInvalid, ProfileV3, ProfileV4)
+	if o.ProfileVersion == ProfileV5 {
+		atoms := make([]FactID, 0, len(outcome))
+		var composite *FactID
+		for _, fact := range outcome {
+			switch {
+			case fact.IsV5() && fact.Kind == FactPredicateAtom:
+				atoms = append(atoms, fact)
+			case fact.IsV5() && fact.Kind == FactCompositeOutcome && composite == nil:
+				copy := fact
+				composite = &copy
+			default:
+				return Observation{}, fmt.Errorf("%w: V5 outcome requires predicate atoms and exactly one composite", ErrInvalid)
+			}
+		}
+		if composite == nil || len(outcome) != len(atoms)+1 || composite.PredicateAtomCount != int64(len(atoms)) {
+			return Observation{}, fmt.Errorf("%w: V5 outcome cardinality is not atoms plus one composite", ErrInvalid)
+		}
+		setDigest, err := PredicateSetHashV1(atoms)
+		if err != nil || setDigest != composite.PredicateSetSHA256 {
+			return Observation{}, fmt.Errorf("%w: V5 composite predicate set binding mismatch", ErrInvalid)
+		}
+		for _, atom := range atoms {
+			if atom.PredicateContextSHA256 != composite.PredicateContextSHA256 {
+				return Observation{}, fmt.Errorf("%w: V5 atom/composite context mismatch", ErrInvalid)
+			}
+		}
+	} else {
+		for _, fact := range outcome {
+			if (o.ProfileVersion != ProfileV3 && o.ProfileVersion != ProfileV4) || !fact.IsV3() || fact.Kind != FactOutcome {
+				return Observation{}, fmt.Errorf("%w: outcome facts require profile %q or %q", ErrInvalid, ProfileV3, ProfileV4)
+			}
 		}
 	}
-	if o.ProfileVersion != ProfileV3 && o.ProfileVersion != ProfileV4 && len(outcome) != 0 {
+	if o.ProfileVersion != ProfileV3 && o.ProfileVersion != ProfileV4 && o.ProfileVersion != ProfileV5 && len(outcome) != 0 {
 		return Observation{}, fmt.Errorf("%w: profile %q cannot carry outcome facts", ErrInvalid, o.ProfileVersion)
 	}
 	return Observation{ProfileVersion: o.ProfileVersion, Release: release.Values(), Influence: influence.Values(), Outcome: outcome.Values()}, nil

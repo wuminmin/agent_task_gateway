@@ -847,8 +847,8 @@ func compileFilterExpression(column string, filter Filter) (string, error) {
 		return column + " " + op + " " + literal, nil
 	case "IN", "NOT IN":
 		values, ok := filter.Value.([]any)
-		if !ok || len(values) == 0 || len(values) > 100 {
-			return "", errors.New("IN requires a non-empty JSON array of at most 100 values")
+		if !ok || len(values) == 0 || len(values) > MaxRawPredicateLiterals {
+			return "", fmt.Errorf("IN requires a non-empty JSON array of at most %d values", MaxRawPredicateLiterals)
 		}
 		literals := make([]string, 0, len(values))
 		for _, value := range values {
