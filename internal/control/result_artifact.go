@@ -18,8 +18,9 @@ consumed_at,deleted_at FROM result_artifacts`
 
 // insertResultArtifactTx registers private staging-object evidence in the same
 // transaction that settles the query. The row deliberately remains PENDING:
-// only successful promotion to the canonical object key is a consumption event.
-// An exact retry of the same immutable evidence is idempotent.
+// canonical-object creation alone is not availability or consumption. The
+// later atomic AVAILABLE transition records that boundary. An exact retry of
+// the same immutable evidence is idempotent.
 func insertResultArtifactTx(ctx context.Context, tx *sql.Tx, artifact ResultArtifact) (bool, error) {
 	const op = "save result artifact"
 	normalized, err := normalizeResultArtifact(artifact)
@@ -255,9 +256,10 @@ func (s *Store) ListExpiredResultArtifacts(ctx context.Context, now time.Time, l
 	return artifacts, nil
 }
 
-// MarkResultArtifactAvailable records canonical object promotion. This is the
-// consumption boundary: budget settlement was already committed with PENDING
-// metadata, while no Agent needs to prove a subsequent byte download.
+// MarkResultArtifactAvailable records the logical availability/consumption
+// boundary after canonical-object creation: budget settlement was already
+// committed with PENDING metadata, while no Agent needs to prove a subsequent
+// byte download.
 func (s *Store) MarkResultArtifactAvailable(ctx context.Context, resultID, canonicalETag, actor string) (ResultArtifact, error) {
 	const op = "mark result artifact available"
 	if err := s.checkOpen(op); err != nil {
@@ -291,9 +293,9 @@ func (s *Store) MarkResultArtifactAvailable(ctx context.Context, resultID, canon
 	if artifact.Status != ResultArtifactPending {
 		return ResultArtifact{}, invalidResultArtifactTransition(op, artifact.Status, ResultArtifactAvailable)
 	}
-	// Serialize canonical consumption with administrative key erasure. Key
-	// erasure refuses outstanding PENDING artifacts, and this shared lock keeps
-	// the key active through the AVAILABLE commit.
+	// Serialize the AVAILABLE/consumption transition with administrative key
+	// erasure. Key erasure refuses outstanding PENDING artifacts, and this
+	// shared lock keeps the key active through the AVAILABLE commit.
 	if err := ensureActiveResultEncryptionKeyTx(ctx, tx, artifact.KeyID, artifact.CreatedAt); err != nil {
 		return ResultArtifact{}, err
 	}

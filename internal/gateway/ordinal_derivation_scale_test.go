@@ -1,3 +1,5 @@
+//go:build taskgate_scale
+
 package gateway
 
 import (
@@ -64,9 +66,6 @@ type ordinalScaleReport struct {
 // has been met. The default fixture has 345,000 rows and exactly three
 // Influence facts per row: base-row, group cell, and aggregate-input cell.
 func TestOrdinalDerivationMillionInfluenceEvaluation(t *testing.T) {
-	if os.Getenv("TASKGATE_RUN_ORDINAL_SCALE") != "1" {
-		t.Skip("set TASKGATE_RUN_ORDINAL_SCALE=1 to run the 1,035,000-Influence evaluation")
-	}
 	rowCount := ordinalScaleEnvInt(t, "TASKGATE_ORDINAL_SCALE_ROWS", ordinalScaleDefaultRows)
 	groupCount := ordinalScaleEnvInt(t, "TASKGATE_ORDINAL_SCALE_GROUPS", ordinalScaleDefaultGroups)
 	if rowCount%groupCount != 0 {

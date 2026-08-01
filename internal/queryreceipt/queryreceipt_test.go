@@ -568,6 +568,43 @@ func TestQueryReceiptV8VerifiesTerminalAndArtifactInclusion(t *testing.T) {
 	}
 }
 
+func TestQueryReceiptV8VerifiesAvailabilityInclusion(t *testing.T) {
+	receipt := validV8Receipt(t)
+	intent := receipt.ArtifactIntent
+	event := auditchain.Event{
+		Sequence: 1, EventID: "audit-available", TaskID: receipt.TaskID, QueryID: receipt.QueryID,
+		Actor: "gateway", EventType: "QUERY_RESULT_CONSUMED",
+		Payload: mustJSONForTest(t, map[string]any{
+			"result_id": intent.ResultID, "result_sha256": intent.ParquetSHA256,
+			"object_sha256": intent.ObjectSHA256, "format": intent.Format,
+			"status": "AVAILABLE", "consumed_at": "2026-07-22T01:00:00Z",
+		}),
+		OccurredAt: time.Date(2026, 7, 22, 1, 0, 0, 0, time.UTC), PreviousHash: auditchain.GenesisHash,
+	}
+	event.CurrentHash = mustAuditHash(t, event.PreviousHash, event)
+	proof := auditchain.InclusionProof{
+		TerminalEvent: event,
+		Checkpoint:    auditchain.Checkpoint{Sequence: event.Sequence, Hash: event.CurrentHash},
+	}
+	if err := VerifyArtifactAvailabilityInclusion(receipt, proof); err != nil {
+		t.Fatalf("VerifyArtifactAvailabilityInclusion: %v", err)
+	}
+	tampered := event
+	tampered.Payload = mustJSONForTest(t, map[string]any{
+		"result_id": intent.ResultID, "result_sha256": intent.ParquetSHA256,
+		"object_sha256": fmt.Sprintf("%064x", 99), "format": intent.Format,
+		"status": "AVAILABLE", "consumed_at": "2026-07-22T01:00:00Z",
+	})
+	tampered.CurrentHash = mustAuditHash(t, tampered.PreviousHash, tampered)
+	tamperedProof := auditchain.InclusionProof{
+		TerminalEvent: tampered,
+		Checkpoint:    auditchain.Checkpoint{Sequence: tampered.Sequence, Hash: tampered.CurrentHash},
+	}
+	if err := VerifyArtifactAvailabilityInclusion(receipt, tamperedProof); !errors.Is(err, ErrInvalidReceipt) {
+		t.Fatalf("tampered availability payload error = %v, want invalid receipt", err)
+	}
+}
+
 func validReceipt() QueryReceiptV1 {
 	digest := sha256.Sum256([]byte("evidence"))
 	hexDigest := fmt.Sprintf("%x", digest)

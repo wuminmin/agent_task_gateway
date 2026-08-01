@@ -141,7 +141,7 @@ func TestResultDeliveryCapabilityExpiresAndDownloadsDoNotMutateState(t *testing.
 
 	before := captureGatewayDeliveryState(t, harness, taskID, queryID, resultID)
 	if before.artifact.Status != control.ResultArtifactAvailable || before.artifact.ConsumedAt == nil {
-		t.Fatalf("canonical object creation did not establish consumption: %+v", before.artifact)
+		t.Fatalf("AVAILABLE transition did not establish logical consumption: %+v", before.artifact)
 	}
 
 	delivery := mustCallGatewayTool(t, harness.service, harness.alice, "deliver_result", map[string]any{
@@ -483,6 +483,12 @@ func TestCanonicalCopySurvivesAvailableTransactionFailureAndRecoversExactlyOnce(
 			t.Fatalf("%s exposed a PENDING canonical object", tool)
 		}
 	}
+	pendingAuditReceipt := mustCallGatewayTool(t, harness.service, harness.carol, "get_audit_receipt", map[string]any{
+		"receipt_id": record.ID,
+	})
+	if _, exists := pendingAuditReceipt["availability_event_inclusion"]; exists {
+		t.Fatalf("PENDING artifact exposed an availability event proof: %#v", pendingAuditReceipt)
+	}
 	router := chi.NewRouter()
 	router.Handle("/api/v1/results/{result_id}/download", harness.service.ResultDownloadHandler())
 	expires := harness.clock.value.Add(time.Minute).Unix()
@@ -542,6 +548,13 @@ func TestCanonicalCopySurvivesAvailableTransactionFailureAndRecoversExactlyOnce(
 	})
 	if err != nil || len(consumed) != 1 {
 		t.Fatalf("consumption events after recovery = %+v, %v", consumed, err)
+	}
+	auditReceipt := mustCallGatewayTool(t, harness.service, harness.carol, "get_audit_receipt", map[string]any{
+		"receipt_id": record.ID,
+	})
+	availability, ok := auditReceipt["availability_event_inclusion"].(map[string]any)
+	if !ok || availability["terminal_event"] == nil || availability["checkpoint"] == nil {
+		t.Fatalf("availability event inclusion helper = %#v", auditReceipt["availability_event_inclusion"])
 	}
 	// Exercise the same post-restart semantic-replay budget boundary as the
 	// Compose acceptance path: the tenth and final allowed query must still

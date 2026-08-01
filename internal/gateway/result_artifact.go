@@ -280,9 +280,10 @@ func (s *Service) ensureArtifactKeyActive(ctx context.Context, artifact control.
 	return nil
 }
 
-// promoteResultArtifact performs the only operation that counts as result
-// consumption: creation of the deterministic canonical object. Marking the PG
-// row AVAILABLE records that boundary; downloads are intentionally untracked.
+// promoteResultArtifact first creates or verifies the canonical object, then
+// crosses the logical availability/consumption boundary by atomically marking
+// the Control PG row AVAILABLE and appending QUERY_RESULT_CONSUMED. Downloads
+// are intentionally untracked.
 func (s *Service) promoteResultArtifact(ctx context.Context, artifact control.ResultArtifact, actor string) (control.ResultArtifact, error) {
 	if artifact.Status == control.ResultArtifactAvailable {
 		return artifact, nil
@@ -653,8 +654,8 @@ func (s *Service) deliverResult(ctx context.Context, principal mcp.Principal, ra
 }
 
 // ResultDownloadHandler streams a temporary delivery copy. It neither marks a
-// result consumed nor changes budget/Receipt state: canonical object creation
-// already established consumption.
+// result consumed nor changes budget/Receipt state: the earlier atomic Control
+// PG transition to AVAILABLE already established logical consumption.
 func (s *Service) ResultDownloadHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resultID := chi.URLParam(r, "result_id")

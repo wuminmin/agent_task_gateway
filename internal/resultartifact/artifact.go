@@ -213,9 +213,10 @@ func (manager *Manager) PurgeLocalStagingBefore(cutoff time.Time) (int, error) {
 	return removed, errors.Join(failures...)
 }
 
-// Promote creates the canonical object. This is TaskGate's result-consumption
-// boundary: staging uploads are never exposed as a result and do not count as
-// consumption. Copy is deterministic and safe to retry after a crash.
+// Promote creates or verifies the deterministic canonical object. This is the
+// physical publication step, not the logical availability/consumption
+// boundary: Control PG may still durably report PENDING after this returns.
+// Copy is deterministic and safe to retry after a crash.
 func (manager *Manager) Promote(ctx context.Context, staged StagedArtifact) (ObjectInfo, error) {
 	if err := validateStaged(staged); err != nil {
 		return ObjectInfo{}, err

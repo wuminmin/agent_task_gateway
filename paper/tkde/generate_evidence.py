@@ -50,11 +50,14 @@ V5_SOURCE_PATHS = (
     "internal/control/outcome_hashset_v5.go",
     "internal/control/outcome_hashset_v5_test.go",
     "internal/control/result.go",
+    "internal/control/result_artifact.go",
     "internal/control/result_artifact_test.go",
     "internal/exposure/canonical_validation_test.go",
     "internal/exposure/fact.go",
     "internal/exposure/outcome_v5_test.go",
     "internal/gateway/exposure.go",
+    "internal/gateway/ordinal_derivation_scale_test.go",
+    "internal/gateway/ordinal_single_product_postgres_test.go",
     "internal/gateway/query.go",
     "internal/gateway/query_test.go",
     "internal/gateway/result_artifact.go",
@@ -64,6 +67,9 @@ V5_SOURCE_PATHS = (
     "internal/queryplan/predicate_footprint.go",
     "internal/queryreceipt/queryreceipt.go",
     "internal/queryreceipt/queryreceipt_test.go",
+    "internal/resultartifact/artifact.go",
+    "internal/resultartifact/s3_live_test.go",
+    "internal/snapshotbundle/scale_test.go",
     "scripts/integration-test.sh",
     "scripts/record-compose-e2e.sh",
 )
@@ -71,6 +77,13 @@ V5_SOURCE_PATHS = (
 V5_MEASURED_PATHS = (
     "Dockerfile", "compose.yaml", "go.mod", "go.sum", "cmd", "internal",
     "config", "db", "scripts/compose-test.sh", "scripts/integration-test.sh",
+    "scripts/record-compose-e2e.sh", "paper/tkde/generate_evidence.py",
+)
+
+V5_EVIDENCE_TOOLING_PATHS = (
+    "paper/tkde/generate_evidence.py",
+    "scripts/integration-test.sh",
+    "scripts/record-compose-e2e.sh",
 )
 
 V5_RAW_TEST_COMMAND = [
@@ -179,6 +192,18 @@ def string_set_sha256(domain: str, values: list[str]) -> str:
         digest.update(value.encode("utf-8"))
         digest.update(b"\x00")
     return digest.hexdigest()
+
+
+def v5_evidence_tooling() -> dict:
+    files = [{"path": path, "sha256": sha256(ROOT / path)} for path in V5_EVIDENCE_TOOLING_PATHS]
+    payload = json.dumps(
+        files, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8")
+    return {
+        "algorithm": "sha256-canonical-json-v1",
+        "files": files,
+        "sha256": hashlib.sha256(payload).hexdigest(),
+    }
 
 
 def path_set_sha256(paths: list[Path]) -> str:
@@ -807,20 +832,24 @@ def validate_v5_compose_execution(binding: dict, submission_commit: str) -> None
     require(
         set(receipt) == {
             "schema_version", "submission_commit", "executed_at", "command",
-            "compose_images", "catalog_sha256", "exit_code", "assertions",
-            "raw_log", "raw_log_sha256",
+            "compose_images", "catalog_file_sha256", "catalog_runtime_digest",
+            "evidence_tooling", "exit_code", "assertions", "raw_log", "raw_log_sha256",
         }
-        and receipt.get("schema_version") == 1
+        and receipt.get("schema_version") == 2
         and receipt.get("submission_commit") == submission_commit
         and re.fullmatch(
             r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z",
             receipt.get("executed_at", ""),
         ) is not None
         and receipt.get("command") == ["./scripts/integration-test.sh"]
-        and receipt.get("catalog_sha256") == sha256(ROOT / "config/catalog.yaml")
+        and receipt.get("catalog_file_sha256") == sha256(ROOT / "config/catalog.yaml")
+        and re.fullmatch(r"[0-9a-f]{64}", receipt.get("catalog_runtime_digest", "")) is not None
+        and receipt.get("catalog_runtime_digest") == receipt.get("catalog_file_sha256")
+        and receipt.get("evidence_tooling") == v5_evidence_tooling()
         and receipt.get("exit_code") == 0
         and receipt.get("assertions") == {
             "caller_predicate": True,
+            "go_test_no_skips": True,
             "parquet_available": True,
             "promotion_recovery": True,
             "semantic_replay": True,
@@ -831,7 +860,7 @@ def validate_v5_compose_execution(binding: dict, submission_commit: str) -> None
     expected_services = sorted({
         "control-postgres", "business-postgres", "snapshot-index-detail",
         "snapshot-index-summary", "result-object-store",
-        "result-object-store-init", "gateway", "oa-demo",
+        "result-object-store-init", "gateway", "oa-demo", "mcp-probe", "test-runner",
     })
     require(
         isinstance(images, list)
@@ -859,6 +888,7 @@ def validate_v5_compose_execution(binding: dict, submission_commit: str) -> None
         "ok - V5 semantic replay avoided Business PostgreSQL and repeated exposure charge",
         "ok - caller SQL lowers through V5 atomization",
         "ok - canonical-copy/AVAILABLE-commit crash-window recovery passed",
+        "ok - complete PostgreSQL-backed unit and race tests passed with zero skips",
         "all Compose end-to-end checks passed",
     ):
         require(marker in log, f"V5 Compose raw log omitted {marker!r}")

@@ -11,8 +11,16 @@ tree: the source manifest binds all listed working-tree changes.
 Before final submission, run `scripts/record-compose-e2e.sh` from a clean,
 frozen submission commit. It refuses measured-path drift, runs the complete
 Compose acceptance suite, retains `raw/compose-e2e.log`, and writes
-`compose-receipt.json` with the submission SHA, immutable Compose image IDs,
-Catalog digest, exit status, four required E2E assertions, and raw-log digest.
+`compose-receipt.json` with the submission SHA, all immutable Compose image IDs
+(including `test-runner` and `mcp-probe`), distinct Catalog file/runtime
+digests, evidence-tooling file/digest bindings, exit status, five required E2E
+assertions, and raw-log digest.
+The complete `go test -json -race -count=1 -tags=taskgate_integration ./...`
+gate rejects every named test skip and every unexplained package skip. Go's
+package-level `[no test files]` lifecycle event is the sole explicit exception,
+so packages without tests remain in the complete `./...` traversal without
+being misreported as a skipped test. Costly scale experiments use the separate
+`taskgate_scale` build tag and are not part of this acceptance run.
 On success the wrapper automatically promotes `evidence.json` to schema version
 3, adds `submission_commit` and the receipt-hash binding, and runs the paper
 generator as an independent final check. The receipt and evidence may live in a

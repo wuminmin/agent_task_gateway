@@ -1,3 +1,5 @@
+//go:build taskgate_scale
+
 package snapshotbundle
 
 import (
@@ -33,9 +35,6 @@ type snapshotBundleScaleReport struct {
 // path. It is opt-in because the canonical cold dictionary is intentionally an
 // offline, multi-gigabyte-RSS workload at the million-fact point.
 func TestSnapshotPublicationScaleEvaluation(t *testing.T) {
-	if os.Getenv("TASKGATE_RUN_SNAPSHOT_SCALE") != "1" {
-		t.Skip("set TASKGATE_RUN_SNAPSHOT_SCALE=1 to run the complete publication build evaluation")
-	}
 	rows := snapshotBundleScaleRows
 	if raw := strings.TrimSpace(os.Getenv("TASKGATE_SNAPSHOT_SCALE_ROWS")); raw != "" {
 		parsed, err := strconv.Atoi(raw)

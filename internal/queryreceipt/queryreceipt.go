@@ -568,6 +568,41 @@ func VerifyArtifactIntentInclusion(receipt QueryReceiptV1, terminalProof, regist
 	return nil
 }
 
+// VerifyArtifactAvailabilityInclusion verifies the dedicated proof for the
+// QUERY_RESULT_CONSUMED event that crosses the logical AVAILABLE boundary.
+// The event is deliberately not part of the immutable V8 receipt because it
+// occurs after settlement; its payload must nevertheless match that receipt's
+// signed artifact intent exactly.
+func VerifyArtifactAvailabilityInclusion(receipt QueryReceiptV1, availabilityProof auditchain.InclusionProof) error {
+	if receipt.Version != VersionV8 || receipt.ArtifactIntent == nil {
+		return fmt.Errorf("%w: artifact availability inclusion requires a V8 receipt", ErrInvalidReceipt)
+	}
+	event := availabilityProof.TerminalEvent
+	intent := receipt.ArtifactIntent
+	if event.EventType != "QUERY_RESULT_CONSUMED" || event.TaskID != receipt.TaskID ||
+		event.QueryID != receipt.QueryID {
+		return fmt.Errorf("%w: artifact availability event does not match receipt", ErrInvalidReceipt)
+	}
+	if err := auditchain.VerifyInclusion(availabilityProof); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidReceipt, err)
+	}
+	var payload struct {
+		ResultID     string `json:"result_id"`
+		ResultSHA256 string `json:"result_sha256"`
+		ObjectSHA256 string `json:"object_sha256"`
+		Format       string `json:"format"`
+		Status       string `json:"status"`
+		ConsumedAt   string `json:"consumed_at"`
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil ||
+		payload.ResultID != intent.ResultID || payload.ResultSHA256 != intent.ParquetSHA256 ||
+		payload.ObjectSHA256 != intent.ObjectSHA256 || payload.Format != intent.Format ||
+		payload.Status != "AVAILABLE" || strings.TrimSpace(payload.ConsumedAt) == "" {
+		return fmt.Errorf("%w: artifact availability payload does not match intent", ErrInvalidReceipt)
+	}
+	return nil
+}
+
 func artifactRegistrationPayload(intent ArtifactIntentEvidenceV1) map[string]any {
 	// The event payload is the artifact projection of the intent. The audit
 	// sequence/hash and intent_sha256 are intentionally excluded because they

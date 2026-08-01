@@ -1,8 +1,4 @@
 {
-  "compose_execution": {
-    "receipt": "evaluation/v5-outcome/compose-receipt.json",
-    "receipt_sha256": "68d45e218f9b38ff26926b8156473faf212dbc573d62bd31f8a1844df27c564c"
-  },
   "deterministic_set": {
     "duplicate_idempotent": true,
     "members": 10000,
@@ -58,7 +54,7 @@
     "prefix16": "4224",
     "replay_changed_objects": 0
   },
-  "schema_version": 3,
+  "schema_version": 2,
   "source_manifest": {
     "algorithm": "sha256(canonical-json(sorted-path-sha256-list))",
     "files": [
@@ -103,6 +99,10 @@
         "sha256": "06425b5bb459e6f1147f7796d240e5721fa2d2646ff77027e2efa588c87b5204"
       },
       {
+        "path": "internal/control/result_artifact.go",
+        "sha256": "a49e750989138a780df1d61726a14ffa688c2c0b3e8d76e0d41044020d6aad7d"
+      },
+      {
         "path": "internal/control/result_artifact_test.go",
         "sha256": "aa50ad24aa89d07c1a96680d40bcae07471725c10c7854b33f29b9dc58148739"
       },
@@ -123,8 +123,16 @@
         "sha256": "f36aa63baf1c964f274ade601d7746836e874b33759f0daf0f934816ffc80425"
       },
       {
+        "path": "internal/gateway/ordinal_derivation_scale_test.go",
+        "sha256": "2ff8c2d823a664d5af00f445eda8d29d3f5e3e5ce5f54919c4f06a81165dbbb4"
+      },
+      {
+        "path": "internal/gateway/ordinal_single_product_postgres_test.go",
+        "sha256": "2b7bf46eeb7416c60104cdceb56b7d8b826fa611d713950a2269f967e860bdd5"
+      },
+      {
         "path": "internal/gateway/query.go",
-        "sha256": "c9fa7f7f6cb95a87161615d3ee84733eced0d915b2ffdb2ec08ccd36443e6156"
+        "sha256": "34f16642fde9b18124cac9d9fdb62d463144736cde88727968718449401d3955"
       },
       {
         "path": "internal/gateway/query_test.go",
@@ -132,11 +140,11 @@
       },
       {
         "path": "internal/gateway/result_artifact.go",
-        "sha256": "e4b4030f50b8db4c47d9e20165ff42c94d178a4c38ca5e13f5b3faf9a2a56a78"
+        "sha256": "728e511fd432787ff39930f7ffcde28c8202921b15bda289a5da0ad99174d8ad"
       },
       {
         "path": "internal/gateway/result_artifact_test.go",
-        "sha256": "a5248c63bd7e9ee2ba9ba85905e5db68702b81ab1bb43a887ebbaa7a225f0430"
+        "sha256": "f9fd2ad720b2e3b63b4a5d307a1881795b544e0304d591cb85a83de3ee762cd6"
       },
       {
         "path": "internal/gateway/service.go",
@@ -152,22 +160,33 @@
       },
       {
         "path": "internal/queryreceipt/queryreceipt.go",
-        "sha256": "1f3567087256cf3ede5e541e8d513e6b67152d41d49890b264319a26b964c358"
+        "sha256": "d24ec47eea12b631d1000f53321244bd7cf42c98267b5e75391800c895e7d9dd"
       },
       {
         "path": "internal/queryreceipt/queryreceipt_test.go",
-        "sha256": "7c0618c585f2acd795b52a358c804fde3ab1da8da244a088a1e3e6ece1ff4e1e"
+        "sha256": "f11aa8eda043eb8e35727c4021c4690a6741c83dbf558c5ab7c2985382f73639"
+      },
+      {
+        "path": "internal/resultartifact/artifact.go",
+        "sha256": "33aa19723c58c5dbe27b8af927748799a44875bf9f681c8d6a2e8fa26a91f70a"
+      },
+      {
+        "path": "internal/resultartifact/s3_live_test.go",
+        "sha256": "70c57e37f3cd02b996a9ae30fd5d062dbb331893cc0a318aadc396cd333667d1"
+      },
+      {
+        "path": "internal/snapshotbundle/scale_test.go",
+        "sha256": "522c5449c8e5cd69970cac90be148745e13e137247220b784dddf3dfbfcb5e92"
       },
       {
         "path": "scripts/integration-test.sh",
-        "sha256": "c22dff2aa80a4b0199d073af10868ee1c19d0f45882ba921d8e9de03a0b24fdb"
+        "sha256": "96c82419293ae3043bb38757cc68c12e7c7f6a097e8ae8770962ad1af6609481"
       },
       {
         "path": "scripts/record-compose-e2e.sh",
-        "sha256": "9743e3d2132e140f1ac94337f5fe90246fa4f189f494ed6014f180d51ea2b992"
+        "sha256": "6a56101863e0066d992fb3e186c0c5dad4d34e52c36a8f005c66c63f881ac25b"
       }
     ],
-    "sha256": "890ba5b90d46a4f90563b225c935f4ab1285a5cbc48de3054b68c1fc5ca3fe96"
-  },
-  "submission_commit": "d2b16ab5c9f3d29b318335c41fc18bf23fbff3a6"
+    "sha256": "8570d99c330f056a9e8e2135d2ba92e98c3120e9feb89d9d1c8e1b6c3b25cefa"
+  }
 }

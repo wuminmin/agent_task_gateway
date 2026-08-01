@@ -1852,8 +1852,43 @@ func (s *Service) getAuditReceipt(ctx context.Context, _ mcp.Principal, raw json
 		result["artifact_intent_inclusion"] = map[string]any{
 			"terminal": publicProof, "registration": registrationPublicProof,
 		}
+		availabilityProof, err := s.artifactAvailabilityInclusion(ctx, signed, events)
+		if err != nil {
+			return nil, err
+		}
+		if availabilityProof != nil {
+			result["availability_event_inclusion"] = availabilityProof
+		}
 	}
 	return result, nil
+}
+
+// artifactAvailabilityInclusion gives auditors a direct, verified inclusion
+// proof for the post-settlement event that makes a V8 artifact logically
+// AVAILABLE. PENDING crash-window receipts correctly have no such proof yet.
+func (s *Service) artifactAvailabilityInclusion(ctx context.Context, receipt queryreceipt.QueryReceiptV1,
+	events []control.AuditEvent) (map[string]any, error) {
+	var availability *control.AuditEvent
+	for index := range events {
+		if events[index].EventType != "QUERY_RESULT_CONSUMED" {
+			continue
+		}
+		if availability != nil {
+			return nil, fmt.Errorf("query %s has multiple artifact availability events", receipt.QueryID)
+		}
+		availability = &events[index]
+	}
+	if availability == nil {
+		return nil, nil
+	}
+	publicProof, typedProof, err := s.auditInclusionProof(ctx, *availability)
+	if err != nil {
+		return nil, err
+	}
+	if err := queryreceipt.VerifyArtifactAvailabilityInclusion(receipt, typedProof); err != nil {
+		return nil, err
+	}
+	return publicProof, nil
 }
 
 func publicAuditEvent(event control.AuditEvent, includePayload bool) map[string]any {

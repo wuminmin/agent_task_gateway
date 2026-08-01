@@ -158,9 +158,8 @@ V4 重跑前固定以下在线验收门槛，不能提前写成已实现 SLO：
 
 ```bash
 docker run --rm \
-  -e TASKGATE_RUN_ORDINAL_SCALE=1 \
   -v "$PWD:/src" -w /src golang:1.25-bookworm \
-  go test -count=1 -timeout=30m \
+  go test -tags=taskgate_scale -count=1 -timeout=30m \
     -run '^TestOrdinalDerivationMillionInfluenceEvaluation$' -v ./internal/gateway
 ```
 
@@ -172,9 +171,9 @@ docker run --rm \
 
 ```bash
 docker run --rm --memory=4g --memory-swap=4g \
-  -e TASKGATE_RUN_SNAPSHOT_SCALE=1 -e GOMAXPROCS=4 \
+  -e GOMAXPROCS=4 \
   -v "$PWD:/src" -w /src golang:1.25-bookworm \
-  go test ./internal/snapshotbundle \
+  go test -tags=taskgate_scale ./internal/snapshotbundle \
     -run '^TestSnapshotPublicationScaleEvaluation$' -count=1 -timeout=15m -v
 ```
 
