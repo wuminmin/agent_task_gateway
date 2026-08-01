@@ -348,6 +348,137 @@ func TestArtifactPromotionFailurePreservesSettlementAndRecoversWithoutReexecutio
 	}
 }
 
+func TestCanonicalCopySurvivesAvailableTransactionFailureAndRecoversExactlyOnce(t *testing.T) {
+	harness := newGatewayHarness(t)
+	harness.connector.result = dataconnector.Result{
+		Columns: []dataconnector.Column{{Name: "month", DataTypeOID: 25}, {Name: "total_amount", DataTypeOID: 1700}, {Name: "department", DataTypeOID: 25}, {Name: "expense_type", DataTypeOID: 25}},
+		Rows:    [][]any{{"2026-01", json.Number("123.45"), "销售部", "机票"}}, RowCount: 1, DatabaseTime: 2 * time.Millisecond,
+	}
+	harness.connector.provenanceResult = dataconnector.Result{
+		Columns: []dataconnector.Column{{Name: "department", DataTypeOID: 25}, {Name: "expense_type", DataTypeOID: 25}, {Name: "month", DataTypeOID: 25}, {Name: "total_amount", DataTypeOID: 1700}},
+		Rows:    [][]any{{"销售部", "机票", "2026-01", json.Number("123.45")}}, RowCount: 1, DatabaseTime: time.Millisecond,
+	}
+	backend := newGatewayArtifactMemoryBackend()
+	cipher, err := control.NewAES256GCM(bytes.Repeat([]byte{0x32}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager, err := resultartifact.NewManager(backend, cipher, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	harness.service.resultArtifacts = manager
+	harness.service.deliverySigningKey = []byte("copy-before-available-test")
+	availabilityBlocked := true
+	harness.service.markArtifactAvailable = func(ctx context.Context, resultID, etag, actor string) (control.ResultArtifact, error) {
+		if availabilityBlocked {
+			return control.ResultArtifact{}, errors.New("injected AVAILABLE transaction failure")
+		}
+		return harness.store.MarkResultArtifactAvailable(ctx, resultID, etag, actor)
+	}
+
+	const taskID = "task-copy-before-available"
+	const requestID = "copy-before-available-1"
+	harness.createExposureSummaryTask(t, taskID, control.ExposureLimits{ReleaseFacts: 20, InfluenceFacts: 20})
+	arguments := map[string]any{
+		"task_id": taskID, "request_id": requestID,
+		"plan": map[string]any{"product": "expense_summary", "columns": []string{"month", "total_amount"}},
+	}
+	if _, err := callGatewayTool(harness.service, harness.alice, "execute_plan", arguments); err == nil {
+		t.Fatal("AVAILABLE transaction failure returned an available result")
+	}
+	record, err := harness.store.GetQueryByRequestID(t.Context(), taskID, requestID)
+	if err != nil || record.Status != control.QueryCompleted {
+		t.Fatalf("durable query after AVAILABLE failure = %+v, %v", record, err)
+	}
+	artifact, err := harness.store.GetResultArtifactByQuery(t.Context(), record.ID)
+	if err != nil || artifact.Status != control.ResultArtifactPending || artifact.ConsumedAt != nil {
+		t.Fatalf("logical artifact after AVAILABLE failure = %+v, %v", artifact, err)
+	}
+	if _, err := backend.Stat(t.Context(), artifact.ObjectKey); err != nil {
+		t.Fatalf("canonical object was not created before AVAILABLE failure: %v", err)
+	}
+	getsBeforeRecovery, copiesBeforeRecovery := backend.operationCounts()
+	if copiesBeforeRecovery != 1 {
+		t.Fatalf("canonical copy calls before recovery = %d, want 1", copiesBeforeRecovery)
+	}
+	budgetBefore, err := harness.store.GetBudget(t.Context(), taskID)
+	if err != nil || budgetBefore.Usage.UsedQueries != 1 {
+		t.Fatalf("budget after AVAILABLE failure = %+v, %v", budgetBefore, err)
+	}
+	chargeBefore, err := harness.store.GetExposureCharge(t.Context(), record.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receiptBefore, err := harness.store.GetQueryReceipt(t.Context(), record.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	connectorCalls := len(harness.connector.requests)
+
+	for tool, args := range map[string]map[string]any{
+		"preview_result":   {"result_id": artifact.ResultID},
+		"deliver_result":   {"result_id": artifact.ResultID, "format": "parquet"},
+		"get_query_result": {"task_id": taskID, "query_id": record.ID},
+	} {
+		if _, err := callGatewayTool(harness.service, harness.alice, tool, args); err == nil {
+			t.Fatalf("%s exposed a PENDING canonical object", tool)
+		}
+	}
+	router := chi.NewRouter()
+	router.Handle("/api/v1/results/{result_id}/download", harness.service.ResultDownloadHandler())
+	expires := harness.clock.value.Add(time.Minute).Unix()
+	token := harness.service.deliverySignature(artifact.ResultID, taskID, expires)
+	request := httptest.NewRequest(http.MethodGet, fmt.Sprintf(
+		"/api/v1/results/%s/download?task_id=%s&expires=%d&token=%s", artifact.ResultID, taskID, expires, token), nil)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("download status for PENDING canonical object = %d, want 404", response.Code)
+	}
+
+	availabilityBlocked = false
+	completed, err := harness.service.ReconcilePendingArtifacts(t.Context())
+	if err != nil || completed != 1 {
+		t.Fatalf("recover existing canonical object = %d, %v", completed, err)
+	}
+	getsAfterRecovery, copiesAfterRecovery := backend.operationCounts()
+	if copiesAfterRecovery != copiesBeforeRecovery || getsAfterRecovery != getsBeforeRecovery+1 {
+		t.Fatalf("recovery operations: gets %d -> %d, copies %d -> %d; want one exact-digest read and no recopy",
+			getsBeforeRecovery, getsAfterRecovery, copiesBeforeRecovery, copiesAfterRecovery)
+	}
+	after, err := harness.store.GetResultArtifactByQuery(t.Context(), record.ID)
+	if err != nil || after.Status != control.ResultArtifactAvailable || after.ConsumedAt == nil {
+		t.Fatalf("artifact after recovery = %+v, %v", after, err)
+	}
+	budgetAfter, _ := harness.store.GetBudget(t.Context(), taskID)
+	chargeAfter, _ := harness.store.GetExposureCharge(t.Context(), record.ID)
+	receiptAfter, _ := harness.store.GetQueryReceipt(t.Context(), record.ID)
+	if !reflect.DeepEqual(budgetAfter, budgetBefore) || !reflect.DeepEqual(chargeAfter, chargeBefore) ||
+		!reflect.DeepEqual(receiptAfter, receiptBefore) {
+		t.Fatalf("recovery changed settlement evidence")
+	}
+	if len(harness.connector.requests) != connectorCalls {
+		t.Fatalf("recovery re-executed Business PostgreSQL: %d -> %d", connectorCalls, len(harness.connector.requests))
+	}
+	completed, err = harness.service.ReconcilePendingArtifacts(t.Context())
+	if err != nil || completed != 0 {
+		t.Fatalf("idempotent recovery pass = %d, %v; want no pending work", completed, err)
+	}
+	settlements, err := harness.store.ListAuditEvents(t.Context(), control.AuditFilter{
+		QueryID: record.ID, EventType: "QUERY_EXPOSURE_SETTLED", Limit: 10,
+	})
+	if err != nil || len(settlements) != 1 {
+		t.Fatalf("exposure settlement events = %+v, %v", settlements, err)
+	}
+	consumed, err := harness.store.ListAuditEvents(t.Context(), control.AuditFilter{
+		QueryID: record.ID, EventType: "QUERY_RESULT_CONSUMED", Limit: 10,
+	})
+	if err != nil || len(consumed) != 1 {
+		t.Fatalf("consumption events after recovery = %+v, %v", consumed, err)
+	}
+}
+
 func TestFailedSettlementRetryStopsAtDurableCompletedQuery(t *testing.T) {
 	harness := newGatewayHarness(t)
 	const taskID = "task-completed-settlement-race"
@@ -412,6 +543,7 @@ type gatewayArtifactMemoryBackend struct {
 	mu           sync.Mutex
 	objects      map[string]gatewayArtifactMemoryObject
 	gets         int
+	copies       int
 	copyFailures int
 }
 
@@ -462,6 +594,7 @@ func (backend *gatewayArtifactMemoryBackend) Stat(_ context.Context, key string)
 func (backend *gatewayArtifactMemoryBackend) Copy(_ context.Context, source, destination, expectedSHA256 string) (resultartifact.ObjectInfo, error) {
 	backend.mu.Lock()
 	defer backend.mu.Unlock()
+	backend.copies++
 	if backend.copyFailures > 0 {
 		backend.copyFailures--
 		return resultartifact.ObjectInfo{}, errors.New("injected artifact promotion failure")
@@ -482,6 +615,12 @@ func (backend *gatewayArtifactMemoryBackend) Copy(_ context.Context, source, des
 	object.info.Key = destination
 	backend.objects[destination] = object
 	return cloneGatewayArtifactInfo(object.info), nil
+}
+
+func (backend *gatewayArtifactMemoryBackend) operationCounts() (gets, copies int) {
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	return backend.gets, backend.copies
 }
 
 func (backend *gatewayArtifactMemoryBackend) List(_ context.Context, prefix, startAfter string, limit int) ([]resultartifact.ObjectInfo, error) {

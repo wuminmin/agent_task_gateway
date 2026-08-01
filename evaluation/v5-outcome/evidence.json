@@ -38,7 +38,7 @@
       },
       {
         "path": "internal/control/result.go",
-        "sha256": "f19bdf3f4e46d559c0c1176799d3e41428f2536db3949aa370ef79867b844868"
+        "sha256": "59a6ae066aafcffec1c8f983f14f0c58d41e17480a224711443547eaed189059"
       },
       {
         "path": "internal/exposure/canonical_validation_test.go",
@@ -58,11 +58,15 @@
       },
       {
         "path": "internal/gateway/result_artifact.go",
-        "sha256": "c67c660434e0bf1ccb5d790265a22e52004de8ab16ead150cac4dc5599acab4f"
+        "sha256": "e4b4030f50b8db4c47d9e20165ff42c94d178a4c38ca5e13f5b3faf9a2a56a78"
       },
       {
         "path": "internal/gateway/result_artifact_test.go",
-        "sha256": "dd36f55c9112a964121f6c225b39e964887efafdfb875d20ed0f50a49e2292c8"
+        "sha256": "54dcbfb66f882e9a4e5c3594274f0b71157c038849369b87ee189995967178e3"
+      },
+      {
+        "path": "internal/gateway/service.go",
+        "sha256": "0d66212581feedd982b918362c136e99b4758131cd56a672a1fc5dfbe9cd9f02"
       },
       {
         "path": "internal/queryplan/normalform.go",
@@ -74,14 +78,18 @@
       },
       {
         "path": "internal/queryreceipt/queryreceipt.go",
-        "sha256": "2986581e41ab180341f304a0446bb0daa80e5d2c088ef96056ecf45924fa5472"
+        "sha256": "9afc4f36cf74a57fa48f9d4009e00f4d3197009c20e4f2fdb13d921d199a4c47"
       },
       {
         "path": "scripts/integration-test.sh",
-        "sha256": "bd196406f63ed0a5490e12a1c27815aeedd1a3a622df55f6e193b74c3b6c9da7"
+        "sha256": "35d4bafd488411e4826252d913c45961d27499ce6cacfabd8bf4197ebb4fef53"
+      },
+      {
+        "path": "scripts/record-compose-e2e.sh",
+        "sha256": "9743e3d2132e140f1ac94337f5fe90246fa4f189f494ed6014f180d51ea2b992"
       }
     ],
-    "sha256": "6c459816b30a60cda1e9757ecf87d8c3d8072eeaa06a9f2a9a27003db0f98409"
+    "sha256": "cbb90417f6d7c22b034b1cf51af5a02c26d19754a870e5aaf0727a0c27d9c466"
   },
   "raw_execution": {
     "raw_log": "evaluation/v5-outcome/raw/go-test.jsonl",

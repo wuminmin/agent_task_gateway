@@ -294,6 +294,9 @@ func (s *Service) promoteResultArtifact(ctx context.Context, artifact control.Re
 	if err != nil {
 		return control.ResultArtifact{}, err
 	}
+	if s.markArtifactAvailable != nil {
+		return s.markArtifactAvailable(ctx, artifact.ResultID, info.ETag, actor)
+	}
 	return s.store.MarkResultArtifactAvailable(ctx, artifact.ResultID, info.ETag, actor)
 }
 

@@ -41,6 +41,22 @@ apply at every fold step. Join fields are stable role-qualified IDs; equality
 requires the same canonical type and collation; union schemas are identical
 including type and collation.
 
+\subsection{Canonical Scalar Domain}
+
+The closed domain contains \code{smallint}, \code{integer}, \code{bigint},
+\code{numeric}, \code{real}, \code{double precision}, \code{boolean},
+\code{bytea}, \code{date}, \code{time without time zone}, both timestamp forms,
+\code{uuid}, \code{text}, \code{character}, \code{character varying}, and
+\code{jsonb}, with PostgreSQL aliases mapped to these names. Integers retain
+their widths; exact numerics are reduced rationals; floats retain IEEE width
+with canonical NaN, infinities, and negative zero. Temporal values use
+PostgreSQL microseconds and \code{timestamptz} uses UTC. Text binds deterministic
+collation name and actual version. Text-preserving \code{json},
+\code{time with time zone}, and floating-point SUM are excluded. Aggregate
+results follow PostgreSQL: COUNT returns \code{int8}; SUM of int2/int4 returns
+\code{int8}, int8/numeric returns \code{numeric}; MIN/MAX retain input type.
+Unsupported casts, arithmetic, or overflow make evaluation undefined.
+
 \subsection{Typing}
 
 \begingroup\small
@@ -970,6 +986,14 @@ not substitutes for the PostgreSQL end-to-end result.
 
 \section{RQ5: Daily Publication and Retained-Version Routing}
 \label{sec:rq5-supp}
+
+Publication retention follows live root references. The current epoch and any
+older epoch with a live root retain complete HOT, COLD, sidecar, and dictionary
+artifacts locally. After the last bound root terminates, COLD payloads may move
+to audit object storage, while manifests, digests, receipts, and audit-chain
+evidence remain for the policy audit period. Local artifacts and replay entries
+may be reclaimed only after both the last reference and retention deadline.
+The prototype does not evaluate archival bandwidth or automated collection.
 
 \textbf{Offline publication campaign.}
 The source-controlled campaign builds four \RQFiveRows-row,

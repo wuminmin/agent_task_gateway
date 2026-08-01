@@ -1,4 +1,4 @@
---------------------- MODULE OutcomeHashSetRefinement ---------------------
+-------------------- MODULE OutcomeSetAbstractRefinement ------------------
 EXTENDS Naturals, FiniteSets
 
 (***************************************************************************)

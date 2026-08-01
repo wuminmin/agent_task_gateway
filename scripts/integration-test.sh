@@ -342,6 +342,23 @@ assert_contains "$gateway_environment" "GATEWAY_CONNECTOR_MAX_ROWS=$GATEWAY_CONN
 pass "Gateway deployment admits the maximum-point provenance row count"
 compose --profile integration-tools run --rm --build test-runner
 pass "PostgreSQL-backed unit and race tests passed"
+promotion_recovery_output=$(compose --profile integration-tools run --rm test-runner \
+  go test -json -count=1 -run '^TestCanonicalCopySurvivesAvailableTransactionFailureAndRecoversExactlyOnce$' \
+  ./internal/gateway)
+printf '%s\n' "$promotion_recovery_output"
+if ! printf '%s\n' "$promotion_recovery_output" | python3 -c '
+import json
+import sys
+
+name = "TestCanonicalCopySurvivesAvailableTransactionFailureAndRecoversExactlyOnce"
+events = [json.loads(line) for line in sys.stdin if line.strip().startswith("{")]
+passed = any(event.get("Test") == name and event.get("Action") == "pass" for event in events)
+skipped = any(event.get("Test") == name and event.get("Action") == "skip" for event in events)
+raise SystemExit(0 if passed and not skipped else 1)
+'; then
+  fail "canonical-copy/AVAILABLE-commit crash-window test did not execute and pass"
+fi
+pass "canonical-copy/AVAILABLE-commit crash-window recovery passed"
 
 attempt=0
 until curl_safe --fail --silent --show-error "$GATEWAY_URL/health/ready" >/dev/null 2>&1; do
@@ -555,13 +572,15 @@ assert_structured_field_absent "$stored_result" rows "persisted metadata-only re
 assert_not_contains "$stored_result" '"object_key":' "persisted object-key redaction"
 assert_contains "$stored_result" '"result_hash":' "persisted result receipt"
 assert_contains "$stored_result" '"gateway_key_id":"gateway-integration-ed25519-v1"' "signed query receipt key"
-assert_contains "$stored_result" '"version":"7"' "V5 query receipt version"
+assert_contains "$stored_result" '"version":"8"' "V5 artifact query receipt version"
+assert_contains "$stored_result" '"artifact_intent":' "V5 artifact intent receipt binding"
 assert_contains "$stored_result" '"dictionary_set_sha256":' "V4 dictionary-set receipt binding"
 assert_contains "$stored_result" '"signature":' "signed query receipt signature"
 carol_receipt=$(mcp_call "$TASKBOUND_CAROL_TOKEN" \
   "{\"jsonrpc\":\"2.0\",\"id\":13,\"method\":\"tools/call\",\"params\":{\"name\":\"get_audit_receipt\",\"arguments\":{\"receipt_id\":\"$summary_query_id\"}}}")
 assert_contains "$carol_receipt" '"isError":false' "persisted Carol audit receipt"
 assert_contains "$carol_receipt" '"current_hash":' "persisted audit chain"
+assert_contains "$carol_receipt" '"artifact_intent_inclusion":' "artifact registration inclusion proofs"
 assert_not_contains "$carol_receipt" '"columns":' "Carol audit receipt raw columns"
 summary_preview_after_restart=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
   "{\"jsonrpc\":\"2.0\",\"id\":94,\"method\":\"tools/call\",\"params\":{\"name\":\"preview_result\",\"arguments\":{\"result_id\":\"$summary_result_id\",\"offset\":0,\"limit\":1}}}")
@@ -645,6 +664,7 @@ assert_contains "$predicate_replay" '"charged_predicate_atom_count":0' "V5 calle
 assert_contains "$predicate_replay" '"charged_outcome_facts":0' "V5 caller predicate replay outcome charge"
 assert_not_contains "$predicate_replay" '"business_postgresql"' "V5 caller predicate replay Business PG calls"
 assert_not_contains "$predicate_replay" '"provenance_postgresql"' "V5 caller predicate replay provenance PG calls"
+pass "V5 semantic replay avoided Business PostgreSQL and repeated exposure charge"
 pass "caller SQL lowers through V5 atomization, Parquet publication, and zero-execution semantic replay"
 
 # A separate Bob rejection is terminal. Repeated query attempts remain denied.
@@ -754,5 +774,20 @@ if reader_psql --command "SET default_transaction_read_only=off; UPDATE taskgate
   fail "gateway_reader unexpectedly mutated an immutable ordinal sidecar"
 fi
 pass "gateway_reader cannot write, refresh snapshots, or mutate ordinal sidecars"
+
+# A recording wrapper may request immutable image IDs before cleanup removes
+# this run's containers. The file is temporary input to the signed-off Compose
+# receipt and is never itself treated as evidence.
+if [ -n "${TASKGATE_COMPOSE_EVIDENCE_IMAGES:-}" ]; then
+  : >"$TASKGATE_COMPOSE_EVIDENCE_IMAGES"
+  for evidence_service in control-postgres business-postgres snapshot-index-detail snapshot-index-summary \
+    result-object-store result-object-store-init gateway oa-demo; do
+    evidence_container=$(compose ps --all --quiet "$evidence_service")
+    [ -n "$evidence_container" ] || fail "evidence container missing for $evidence_service"
+    evidence_image_id=$(docker inspect --format '{{.Image}}' "$evidence_container")
+    evidence_image_ref=$(docker inspect --format '{{.Config.Image}}' "$evidence_container")
+    printf '%s\t%s\t%s\n' "$evidence_service" "$evidence_image_ref" "$evidence_image_id" >>"$TASKGATE_COMPOSE_EVIDENCE_IMAGES"
+  done
+fi
 
 echo "all Compose end-to-end checks passed, including canonical object-store Parquet persistence and delivery"

@@ -195,7 +195,7 @@ root-scoped database lock and unique FactID rows. In either representation,
 an over-budget or persistence failure leaves all three \(K_j\) unchanged.
 
 The visible result is staged privately before this transition. Settlement
-atomically commits the three ledgers, terminal evidence, V7 settlement receipt,
+atomically commits the three ledgers, terminal evidence, V8 settlement receipt,
 and a PENDING artifact intent. Canonical promotion and AVAILABLE/consumption
 audit are subsequent and recoverable. The legal ordering is
 `Observed ⊆ Available ⊆ Accounted`; downloads (`Observed`) are intentionally
@@ -346,7 +346,7 @@ closed. It is not a theorem about arbitrary PostgreSQL View rewriting.
   [ExposureLedger.tla](../formal/ExposureLedger.tla),
   [ArtifactPublication.tla](../formal/ArtifactPublication.tla),
   [ExposureBitmapRefinement.tla](../formal/ExposureBitmapRefinement.tla), and
-  [OutcomeHashSetRefinement.tla](../formal/OutcomeHashSetRefinement.tla) add
+  [OutcomeSetAbstractRefinement.tla](../formal/OutcomeSetAbstractRefinement.tla) add
   finite-state model checks, while [REFINEMENT.md](../formal/REFINEMENT.md)
   maps abstract actions to code and tests. They are not a mechanized proof of
   the Go implementation or of arbitrary SQL semantics.

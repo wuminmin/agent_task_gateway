@@ -140,7 +140,8 @@ threshold. Therefore the corresponding author must still confirm the selected
 TKDE manuscript category, initial-submission limit, treatment of supplementary
 material, and current charge acknowledgement in ScholarOne/Author Portal
 immediately before submission. Do not infer acceptability from a successful
-local PDF build alone. The 2026-07-30 pinned-template syntax build is 12
-main-paper pages plus a separate 9-page supplement. The main paper now matches
-the cited production threshold, but the initial-submission and supplement rules
-still require confirmation.
+local PDF build alone. The 2026-08-01 pinned-template syntax build is 14
+main-paper pages plus a separate 12-page supplement. This is inside the working
+12--14-page reduction target but remains two pages above the cited production
+threshold; the initial-submission and supplement rules still require
+confirmation before freezing the submission.

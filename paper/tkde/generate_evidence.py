@@ -33,9 +33,10 @@ SCALE = ROOT / "evaluation/exposure-scale/results.json"
 SCALE_SOURCE_PROVENANCE = ROOT / "evaluation/exposure-performance/evidence/legacy-scale-source.json"
 FORMAL = ROOT / "formal/results/exposure_ledger.json"
 FORMAL_BITMAP = ROOT / "formal/results/exposure_bitmap_refinement.json"
-FORMAL_OUTCOME = ROOT / "formal/results/outcome_hash_set_refinement.json"
+FORMAL_OUTCOME = ROOT / "formal/results/outcome_set_abstract_refinement.json"
 FORMAL_ARTIFACT = ROOT / "formal/results/artifact_publication.json"
 V5_OUTCOME = ROOT / "evaluation/v5-outcome/evidence.json"
+V5_COMPOSE_RECEIPT = ROOT / "evaluation/v5-outcome/compose-receipt.json"
 OUTPUT = PAPER_DIR / "generated/evidence.tex"
 
 V5_SOURCE_PATHS = (
@@ -54,10 +55,17 @@ V5_SOURCE_PATHS = (
     "internal/gateway/exposure.go",
     "internal/gateway/result_artifact.go",
     "internal/gateway/result_artifact_test.go",
+    "internal/gateway/service.go",
     "internal/queryplan/normalform.go",
     "internal/queryplan/predicate_footprint.go",
     "internal/queryreceipt/queryreceipt.go",
     "scripts/integration-test.sh",
+    "scripts/record-compose-e2e.sh",
+)
+
+V5_MEASURED_PATHS = (
+    "Dockerfile", "compose.yaml", "go.mod", "go.sum", "cmd", "internal",
+    "config", "db", "scripts/compose-test.sh", "scripts/integration-test.sh",
 )
 
 V5_RAW_TEST_COMMAND = [
@@ -782,15 +790,87 @@ def validate_v5_raw_execution(receipt: dict) -> None:
     )
 
 
+def validate_v5_compose_execution(binding: dict, submission_commit: str) -> None:
+    require(
+        set(binding) == {"receipt", "receipt_sha256"}
+        and binding.get("receipt") == "evaluation/v5-outcome/compose-receipt.json"
+        and V5_COMPOSE_RECEIPT.is_file()
+        and binding.get("receipt_sha256") == sha256(V5_COMPOSE_RECEIPT),
+        "V5 Compose execution receipt binding is missing or stale",
+    )
+    receipt = load_json(V5_COMPOSE_RECEIPT)
+    require(
+        set(receipt) == {
+            "schema_version", "submission_commit", "executed_at", "command",
+            "compose_images", "catalog_sha256", "exit_code", "assertions",
+            "raw_log", "raw_log_sha256",
+        }
+        and receipt.get("schema_version") == 1
+        and receipt.get("submission_commit") == submission_commit
+        and re.fullmatch(
+            r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z",
+            receipt.get("executed_at", ""),
+        ) is not None
+        and receipt.get("command") == ["./scripts/integration-test.sh"]
+        and receipt.get("catalog_sha256") == sha256(ROOT / "config/catalog.yaml")
+        and receipt.get("exit_code") == 0
+        and receipt.get("assertions") == {
+            "caller_predicate": True,
+            "parquet_available": True,
+            "promotion_recovery": True,
+            "semantic_replay": True,
+        },
+        "V5 Compose execution identity or required assertions are invalid",
+    )
+    images = receipt.get("compose_images")
+    expected_services = sorted({
+        "control-postgres", "business-postgres", "snapshot-index-detail",
+        "snapshot-index-summary", "result-object-store",
+        "result-object-store-init", "gateway", "oa-demo",
+    })
+    require(
+        isinstance(images, list)
+        and [item.get("service") for item in images] == expected_services
+        and all(
+            isinstance(item, dict) and set(item) == {"service", "reference", "image_id"}
+            and isinstance(item["service"], str) and item["service"]
+            and isinstance(item["reference"], str) and item["reference"]
+            and re.fullmatch(r"sha256:[0-9a-f]{64}", item["image_id"]) is not None
+            for item in images
+        ),
+        "V5 Compose image identities are incomplete or malformed",
+    )
+    raw_relative = receipt.get("raw_log", "")
+    raw_path = ROOT / raw_relative
+    require(
+        raw_relative == "evaluation/v5-outcome/raw/compose-e2e.log"
+        and raw_path.is_file()
+        and receipt.get("raw_log_sha256") == sha256(raw_path),
+        "V5 Compose raw log is missing or stale",
+    )
+    log = raw_path.read_text(encoding="utf-8", errors="replace")
+    for marker in (
+        "ok - approved query creates an AVAILABLE canonical Parquet",
+        "ok - V5 semantic replay avoided Business PostgreSQL and repeated exposure charge",
+        "ok - caller SQL lowers through V5 atomization",
+        "ok - canonical-copy/AVAILABLE-commit crash-window recovery passed",
+        "all Compose end-to-end checks passed",
+    ):
+        require(marker in log, f"V5 Compose raw log omitted {marker!r}")
+
+
 def validate_v5_outcome_evidence() -> dict:
     result = load_json(V5_OUTCOME)
+    schema_version = result.get("schema_version")
+    expected_fields = {
+        "schema_version", "implementation_base_commit", "source_manifest",
+        "raw_execution", "deterministic_set", "postgres_committed_graph",
+        "same_prefix_multichunk",
+    }
+    if schema_version == 3:
+        expected_fields |= {"submission_commit", "compose_execution"}
     require(
-        set(result) == {
-            "schema_version", "implementation_base_commit", "source_manifest",
-            "raw_execution",
-            "deterministic_set", "postgres_committed_graph", "same_prefix_multichunk",
-        }
-        and result.get("schema_version") == 2,
+        set(result) == expected_fields and schema_version in {2, 3},
         "V5 outcome evidence schema is invalid",
     )
     base_commit = result.get("implementation_base_commit", "")
@@ -808,6 +888,37 @@ def validate_v5_outcome_evidence() -> dict:
         and ancestry_check.returncode == 0,
         "V5 implementation base commit is missing or is not an ancestor of HEAD",
     )
+    if schema_version == 3:
+        submission_commit = result.get("submission_commit", "")
+        submission_check = subprocess.run(
+            ["git", "cat-file", "-e", f"{submission_commit}^{{commit}}"],
+            cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        submission_ancestry = subprocess.run(
+            ["git", "merge-base", "--is-ancestor", submission_commit, "HEAD"],
+            cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        require(
+            re.fullmatch(r"[0-9a-f]{40}", submission_commit) is not None
+            and submission_check.returncode == 0
+            and submission_ancestry.returncode == 0,
+            "V5 submission commit is missing or is not an ancestor of HEAD",
+        )
+        measured_diff = subprocess.run(
+            ["git", "diff", "--quiet", submission_commit, "--", *V5_MEASURED_PATHS],
+            cwd=ROOT, check=False,
+        )
+        measured_status = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=all", "--", *V5_MEASURED_PATHS],
+            cwd=ROOT, capture_output=True, text=True, check=False,
+        )
+        require(
+            measured_diff.returncode == 0 and not measured_status.stdout.strip(),
+            "V5 measured paths differ from the frozen submission commit",
+        )
+        validate_v5_compose_execution(result.get("compose_execution", {}), submission_commit)
     manifest = result.get("source_manifest", {})
     require(
         set(manifest) == {"algorithm", "files", "sha256"}
@@ -868,7 +979,7 @@ def main() -> None:
     rq5 = validate_rq5_evidence()
     formal = validate_formal(FORMAL, "exposure ledger")
     bitmap_formal = validate_formal(FORMAL_BITMAP, "bitmap refinement")
-    outcome_formal = validate_formal(FORMAL_OUTCOME, "outcome hash-set refinement")
+    outcome_formal = validate_formal(FORMAL_OUTCOME, "abstract outcome-set settlement")
     artifact_formal = validate_formal(FORMAL_ARTIFACT, "artifact publication")
     v5_outcome = validate_v5_outcome_evidence()
     rq1 = report["rq1_ground_truth"]
@@ -916,7 +1027,7 @@ def main() -> None:
     replay = baseline["full_replay"]
     lines = [
         "% Generated by paper/tkde/generate_evidence.py. Do not edit.",
-        rf"\newcommand{{\ExposureProfile}}{{\texttt{{{report['profile_version']}}}}}",
+        rf"\newcommand{{\ArchivedExposureProfile}}{{\texttt{{{report['profile_version']}}}}}",
         rf"\newcommand{{\ExposureCorpusHash}}{{\texttt{{{report['corpus_sha256'][:12]}}}}}",
         rf"\newcommand{{\RQOneCases}}{{{rq1['cases']}}}",
         rf"\newcommand{{\RQOnePassed}}{{{rq1['passed']}}}",

@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "status": "passed",
+  "checked_at": "2026-08-01T10:42:51Z",
+  "tool": "TLC",
+  "tool_version": "1.7.1",
+  "model": "formal/OutcomeSetAbstractRefinement.tla",
+  "config": "formal/OutcomeSetAbstractRefinement.cfg",
+  "model_sha256": "9e7307111fde745171e2928fc51dd25dbfa7122b10de307071a981b3c0a8bb63",
+  "config_sha256": "7134617fb339a9076965451f6caef70603ed1a5e0b9ebd8e6c9092ba6b6aba3c",
+  "raw_log": "formal/results/outcome_set_abstract_refinement.log",
+  "log_sha256": "437d767482c0aa9918022e37ca0a3970e54528d2f4d28a0c9712d312e509981d",
+  "states_generated": 20,
+  "distinct_states": 10,
+  "search_depth": 4,
+  "exit_code": 0
+}
