@@ -1,0 +1,11 @@
+schema_version: 1
+percentile: Hyndman-Fan Type 7
+reported: [p50, p95, raw_n]
+forbidden: [p99, outlier_deletion]
+deployment_reporting:
+  per_deployment: [p50, p95]
+  cross_deployment: [median, range]
+paired_ratio_scope: same deployment, workload, scale, cache policy, and drain boundary
+bootstrap: {deterministic: true, seed: 20260801, interval: 0.95}
+failed_and_invalid_samples: retained and counted separately
+finalizer_source: raw JSONL only

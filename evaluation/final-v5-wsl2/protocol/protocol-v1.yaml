@@ -1,0 +1,34 @@
+schema_version: 1
+protocol_id: taskgate-final-v5-wsl2-v1
+status: preregistered-framework-only
+claim_boundary: WSL2 Ubuntu 22.04, one Gateway instance, PostgreSQL 16, immutable reporting publications
+campaign:
+  publication_deployments: 3
+  fresh_wsl_restart_between_deployments: true
+  warmups: 5
+  measured_samples_per_cell: 30
+  randomized_arm_order: seeded
+  overwrite_raw: forbidden
+  adapter_protocol: adapter-operation-v1-jsonl
+  adapter_stderr: forbidden
+  adapter_sha256_frozen_across_deployments: true
+  unique_deployment_volume_digest: required
+  outlier_deletion: forbidden
+  publication_requires_full_commit: true
+exposure:
+  profile: taskgate-exposure-v5
+  result_format: parquet
+  receipt_version: "8"
+  availability_boundary: QUERY_RESULT_CONSUMED
+  headline_entrypoint: query_sql
+rls_budget_rule:
+  release: floor(0.70 * U_R)
+  dependency: floor(0.70 * U_D)
+  outcome: floor(0.70 * U_O)
+  nonzero_dimension_minimum: 1
+prohibitions:
+  - publication campaign execution during framework development
+  - historical V4 number relabeling
+  - ProvSQL smoke promotion
+  - paper numeric macro generation from pilot or incomplete evidence
+  - product-limit increases or silent scale reduction after failure

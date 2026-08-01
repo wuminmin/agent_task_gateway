@@ -1,0 +1,29 @@
+schema_version: 1
+baseline:
+  S1: projection/filter with deterministic ordering
+  S2: two-source connected inner equijoin
+  S3: join and group by at 1k/5k, 10k/50k, and 45k/225k
+  S4: semantic View depth 4
+  S5: deterministic pagination with overlap
+  S6: result-heavy 4- and 16-column Parquet at 100, 10k, and 100k rows
+dependency_scale:
+  cardinalities: [10000, 100000, 1035000]
+  overlap_percent: [0, 50, 90, 100]
+outcome_radix:
+  root_cardinality: [10000, 100000, 1000000]
+  candidate_atoms: [1, 100, 10000]
+  overlap_percent: [0, 50, 90, 100]
+  boundary: Merkle/Control microbenchmark, not SQL E2E
+rls: {queries: 100, adaptive_policy: deterministic-v1}
+attacks: [A-pagination, B-equivalent-sql, C-request-id, D-split-union, E-threshold]
+provsql: {scales: [1000, 10000, 45000], nonce_join: connected-column-equality-v1}
+compiler: {depth: [1,2,4,8,16], sources: [2,4,8,16], negative: [depth-17,sources-17]}
+concurrency: {widths: [10,50,100,500], modes: [forced_queue_safety,natural_contention]}
+rq5:
+  rows: 345000
+  publications: 4
+  deltas: [base, update-1-percent, update-10-percent, update-10-insert-1-delete-1-percent]
+extreme:
+  opt_in_build_tag: taskgate_scale_extreme
+  cardinalities: [10000000, 100000000]
+  kernel_only: true

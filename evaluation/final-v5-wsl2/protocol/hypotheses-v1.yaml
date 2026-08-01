@@ -1,0 +1,9 @@
+schema_version: 1
+hypotheses:
+  H1: Full TaskGate has additional latency relative to matched direct PostgreSQL; all canonical result hashes match.
+  H2: Real RLS completes the individually legal trace; bounded TaskGate stops at the preregistered cumulative exposure budget without overspend.
+  H3: Decomposition, supported equivalent syntax, and request identity changes do not reduce charge for the same exact effect union.
+  H4: ProvSQL and TaskGate add different provenance representations; no global winner is hypothesized.
+  H5: compiler cost grows with supported depth/source count while canonical artifacts and results remain invariant under admitted rewrites.
+  H6: shared-root settlement never exceeds any approved dimension; CAS conflicts are counted only from explicit failed root-head CAS operations.
+  H7: retained version routing preserves old/new publication isolation and same-publication replay across four fixed epochs.

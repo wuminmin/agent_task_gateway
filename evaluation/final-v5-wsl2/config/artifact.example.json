@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "campaign_class": "publication",
+  "campaign_id": "replace-with-unique-campaign-id",
+  "experiment_id": "artifact",
+  "submission_commit": "0000000000000000000000000000000000000000",
+  "deployments": 3,
+  "warmups": 5,
+  "samples": 30,
+  "random_seed": 20260801,
+  "fresh_root_per_sample": true,
+  "workloads": [
+    {"id":"result-heavy","scales":["100x4","10k-x4","100k-x4","100x16","10k-x16","100k-x16"],"modes":["novel"]}
+  ]
+}

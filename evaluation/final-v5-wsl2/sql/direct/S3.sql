@@ -1,0 +1,1 @@
+SELECT o.status, SUM(l.extendedprice), SUM(l.linenumber), COUNT(*) FROM reporting.orders o JOIN reporting.lineitem l ON l.orderkey=o.orderkey WHERE o.orderkey <= $1 GROUP BY o.status ORDER BY o.status;
