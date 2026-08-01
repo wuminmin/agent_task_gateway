@@ -42,7 +42,7 @@
       },
       {
         "path": "internal/control/result_artifact_test.go",
-        "sha256": "d91c33bce5db1dbbd5022048c2f6118bd7c9938c4377a16d28bcf5bcf8fa43c7"
+        "sha256": "aa50ad24aa89d07c1a96680d40bcae07471725c10c7854b33f29b9dc58148739"
       },
       {
         "path": "internal/exposure/canonical_validation_test.go",
@@ -74,7 +74,7 @@
       },
       {
         "path": "internal/gateway/result_artifact_test.go",
-        "sha256": "e503ed2b173087fa8af097f1efbbfe6d91b4f6a444b43c09907e8895905efd79"
+        "sha256": "42bb12e74274b66c728c388b4d6478107bee484fd57cf7906d69a4615c0c36ce"
       },
       {
         "path": "internal/gateway/service.go",
@@ -105,7 +105,7 @@
         "sha256": "9743e3d2132e140f1ac94337f5fe90246fa4f189f494ed6014f180d51ea2b992"
       }
     ],
-    "sha256": "37be37d22012644380805da52288e8e7b5e98590f8daf3876f61a7690aafc7b4"
+    "sha256": "2905d43819fc15941909fd58f281b2635a4ce8b83875b54a36a88dd44867b168"
   },
   "raw_execution": {
     "raw_log": "evaluation/v5-outcome/raw/go-test.jsonl",

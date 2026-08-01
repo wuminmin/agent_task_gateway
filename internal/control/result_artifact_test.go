@@ -2,6 +2,7 @@ package control
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -174,10 +175,15 @@ func TestArtifactFinalizationReusesOriginalRegistrationAuditWhenReceiptIsRecover
 		t.Fatalf("registration audits after recovery = %+v, %v", events, err)
 	}
 	payload := string(events[0].Payload)
+	var projection map[string]any
+	if err := json.Unmarshal(events[0].Payload, &projection); err != nil {
+		t.Fatalf("decode registration payload: %v", err)
+	}
 	if strings.Contains(payload, artifact.ObjectKey) || strings.Contains(payload, artifact.StagingKey) ||
-		!strings.Contains(payload, `"object_key_sha256"`) || !strings.Contains(payload, `"schema_sha256"`) ||
-		!strings.Contains(payload, `"result_metadata_sha256":"`+plaintextHash(normalizedArtifact.ResultMetadataJSON)+`"`) ||
-		!strings.Contains(payload, `"parquet_size"`) {
+		projection["object_key_sha256"] != plaintextHash([]byte(artifact.ObjectKey)) ||
+		projection["schema_sha256"] != plaintextHash(normalizedArtifact.SchemaJSON) ||
+		projection["result_metadata_sha256"] != plaintextHash(normalizedArtifact.ResultMetadataJSON) ||
+		projection["parquet_size"] != float64(normalizedArtifact.ParquetSize) {
 		t.Fatalf("registration payload leaks keys or omits complete intent projection: %s", payload)
 	}
 }

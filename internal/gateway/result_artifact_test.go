@@ -27,6 +27,7 @@ import (
 	"taskbound.local/agent-data-gateway/internal/control"
 	"taskbound.local/agent-data-gateway/internal/dataconnector"
 	"taskbound.local/agent-data-gateway/internal/exposure"
+	"taskbound.local/agent-data-gateway/internal/queryplan"
 	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 	"taskbound.local/agent-data-gateway/internal/resultartifact"
 )
@@ -352,20 +353,60 @@ func TestArtifactPromotionFailurePreservesSettlementAndRecoversWithoutReexecutio
 
 func TestCanonicalCopySurvivesAvailableTransactionFailureAndRecoversExactlyOnce(t *testing.T) {
 	harness := newGatewayHarness(t)
+	harness.installCatalogV4SnapshotRegistry(t)
+	plan := queryplan.QueryPlan{Product: "expense_summary", Columns: []string{"month", "total_amount"}}
+	product, found := harness.catalog.LookupProduct(plan.Product)
+	if !found {
+		t.Fatal("expense_summary product is unavailable")
+	}
+	ordinalProduct, err := harness.service.ordinalQueryProduct(product,
+		map[string]struct{}{"month": {}, "total_amount": {}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	compilation, err := queryplan.CompileOrdinal(plan, ordinalProduct)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bound, err := harness.service.bindOrdinalSidecars(compilation.ProvenanceSQL,
+		compilation.ProvenanceFields, compilation.OrdinalProgram)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := map[string]any{
+		"month": "2026-01", "department": "销售部", "expense_type": "机票",
+		"total_amount": json.Number("1680.00"),
+	}
 	harness.connector.result = dataconnector.Result{
-		Columns: []dataconnector.Column{{Name: "month", DataTypeOID: 25}, {Name: "total_amount", DataTypeOID: 1700}, {Name: "department", DataTypeOID: 25}, {Name: "expense_type", DataTypeOID: 25}},
-		Rows:    [][]any{{"2026-01", json.Number("123.45"), "销售部", "机票"}}, RowCount: 1, DatabaseTime: 2 * time.Millisecond,
+		Columns: []dataconnector.Column{{Name: "month", DataTypeOID: 25}, {Name: "total_amount", DataTypeOID: 1700}},
+		Rows:    [][]any{{row["month"], row["total_amount"]}}, RowCount: 1, DatabaseTime: 2 * time.Millisecond,
+	}
+	provenanceColumns, positions := ordinalProvenanceColumns(bound.Program)
+	provenanceRow := make([]any, len(provenanceColumns))
+	for _, source := range bound.Program.Sources {
+		entityKey := ordinalFixtureEntityKey(t, source, row)
+		handle, present := bound.Indexes[source.SourceAlias].LookupRowHandle(entityKey)
+		if !present {
+			t.Fatalf("snapshot index misses entity %q", entityKey)
+		}
+		provenanceRow[positions[source.HandleAlias]] = uint64(handle)
+		for _, field := range source.EvidenceFields {
+			provenanceRow[positions[field.ProvenanceAlias]] = row[field.Column]
+		}
 	}
 	harness.connector.provenanceResult = dataconnector.Result{
-		Columns: []dataconnector.Column{{Name: "department", DataTypeOID: 25}, {Name: "expense_type", DataTypeOID: 25}, {Name: "month", DataTypeOID: 25}, {Name: "total_amount", DataTypeOID: 1700}},
-		Rows:    [][]any{{"销售部", "机票", "2026-01", json.Number("123.45")}}, RowCount: 1, DatabaseTime: time.Millisecond,
+		Columns: provenanceColumns, Rows: [][]any{provenanceRow}, RowCount: 1, DatabaseTime: time.Millisecond,
 	}
 	backend := newGatewayArtifactMemoryBackend()
 	cipher, err := control.NewAES256GCM(bytes.Repeat([]byte{0x32}, 32))
 	if err != nil {
 		t.Fatal(err)
 	}
-	manager, err := resultartifact.NewManager(backend, cipher, t.TempDir())
+	tempDir := t.TempDir()
+	if err := os.Chmod(tempDir, 0o700); err != nil {
+		t.Fatalf("restrict temp directory: %v", err)
+	}
+	manager, err := resultartifact.NewManager(backend, cipher, tempDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -388,12 +429,13 @@ func TestCanonicalCopySurvivesAvailableTransactionFailureAndRecoversExactlyOnce(
 		"task_id": taskID, "request_id": requestID,
 		"plan": map[string]any{"product": "expense_summary", "columns": []string{"month", "total_amount"}},
 	}
-	if _, err := callGatewayTool(harness.service, harness.alice, "execute_plan", arguments); err == nil {
+	_, executeErr := callGatewayTool(harness.service, harness.alice, "execute_plan", arguments)
+	if executeErr == nil {
 		t.Fatal("AVAILABLE transaction failure returned an available result")
 	}
 	record, err := harness.store.GetQueryByRequestID(t.Context(), taskID, requestID)
 	if err != nil || record.Status != control.QueryCompleted {
-		t.Fatalf("durable query after AVAILABLE failure = %+v, %v", record, err)
+		t.Fatalf("durable query after AVAILABLE failure = %+v, lookup=%v, execute=%v", record, err, executeErr)
 	}
 	artifact, err := harness.store.GetResultArtifactByQuery(t.Context(), record.ID)
 	if err != nil || artifact.Status != control.ResultArtifactPending || artifact.ConsumedAt != nil {
@@ -402,9 +444,9 @@ func TestCanonicalCopySurvivesAvailableTransactionFailureAndRecoversExactlyOnce(
 	if _, err := backend.Stat(t.Context(), artifact.ObjectKey); err != nil {
 		t.Fatalf("canonical object was not created before AVAILABLE failure: %v", err)
 	}
-	getsBeforeRecovery, copiesBeforeRecovery := backend.operationCounts()
-	if copiesBeforeRecovery != 1 {
-		t.Fatalf("canonical copy calls before recovery = %d, want 1", copiesBeforeRecovery)
+	_, copiesAfterFailure := backend.operationCounts()
+	if copiesAfterFailure != 1 {
+		t.Fatalf("canonical copy calls before recovery = %d, want 1", copiesAfterFailure)
 	}
 	budgetBefore, err := harness.store.GetBudget(t.Context(), taskID)
 	if err != nil || budgetBefore.Usage.UsedQueries != 1 {
@@ -452,6 +494,7 @@ func TestCanonicalCopySurvivesAvailableTransactionFailureAndRecoversExactlyOnce(
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("download status for PENDING canonical object = %d, want 404", response.Code)
 	}
+	getsBeforeRecovery, copiesBeforeRecovery := backend.operationCounts()
 
 	availabilityBlocked = false
 	completed, err := harness.service.ReconcilePendingArtifacts(t.Context())
@@ -471,13 +514,10 @@ func TestCanonicalCopySurvivesAvailableTransactionFailureAndRecoversExactlyOnce(
 	chargeAfter, _ := harness.store.GetExposureCharge(t.Context(), record.ID)
 	receiptAfter, _ := harness.store.GetQueryReceipt(t.Context(), record.ID)
 	if !reflect.DeepEqual(budgetAfter, budgetBefore) || !reflect.DeepEqual(chargeAfter, chargeBefore) ||
-		!reflect.DeepEqual(receiptAfter, receiptBefore) {
+		receiptAfter.Receipt == nil || !reflect.DeepEqual(receiptAfter.Receipt, receiptBefore.Receipt) {
 		t.Fatalf("recovery changed settlement evidence")
 	}
 	var signedAfter queryreceipt.QueryReceiptV1
-	if receiptAfter.Receipt == nil {
-		t.Fatal("V8 receipt disappeared after artifact recovery")
-	}
 	if err := json.Unmarshal(receiptAfter.Receipt.ReceiptJSON, &signedAfter); err != nil {
 		t.Fatal(err)
 	}
@@ -492,7 +532,7 @@ func TestCanonicalCopySurvivesAvailableTransactionFailureAndRecoversExactlyOnce(
 		t.Fatalf("idempotent recovery pass = %d, %v; want no pending work", completed, err)
 	}
 	settlements, err := harness.store.ListAuditEvents(t.Context(), control.AuditFilter{
-		QueryID: record.ID, EventType: "QUERY_EXPOSURE_SETTLED", Limit: 10,
+		QueryID: record.ID, EventType: "QUERY_V5_EXPOSURE_SETTLED", Limit: 10,
 	})
 	if err != nil || len(settlements) != 1 {
 		t.Fatalf("exposure settlement events = %+v, %v", settlements, err)
