@@ -313,7 +313,7 @@ func (s *Store) settleWithReceipt(ctx context.Context, settlement BudgetSettleme
 	} else if err := releaseAnyExposureReservationTx(ctx, tx, now, settlement.QueryID); err != nil {
 		return QueryRecord{}, PersistedQueryReceipt{}, opErr(op, settlementErrorKind(err), err)
 	}
-	record, audit, err := settleBudgetTx(ctx, tx, now, settlement, status, resultHash)
+	record, audit, err := settleBudgetTx(ctx, tx, now, settlement, status, resultHash, false)
 	if err != nil {
 		return QueryRecord{}, PersistedQueryReceipt{}, opErr(op, settlementErrorKind(err), err)
 	}
@@ -346,7 +346,8 @@ func settlementErrorKind(err error) error {
 	return ErrConflict
 }
 
-func settleBudgetTx(ctx context.Context, tx *sql.Tx, now time.Time, settlement BudgetSettlement, status QueryStatus, resultHash string) (QueryRecord, AuditEvent, error) {
+func settleBudgetTx(ctx context.Context, tx *sql.Tx, now time.Time, settlement BudgetSettlement, status QueryStatus,
+	resultHash string, deferBudgetArchive bool) (QueryRecord, AuditEvent, error) {
 	record, err := scanQuery(tx.QueryRowContext(ctx, querySelect+` WHERE id=$1 FOR UPDATE`, settlement.QueryID))
 	if err != nil {
 		if isNoRows(err) {
@@ -446,7 +447,7 @@ WHERE id=$12 AND status='RESERVED'`, status, settlement.Rows, settlement.DBMS, o
 	if err != nil {
 		return QueryRecord{}, AuditEvent{}, err
 	}
-	if (status == QueryCompleted || status == QueryFailed || status == QueryIndeterminate) && (after.Usage.UsedQueries >= after.Limits.Queries || after.Usage.UsedRows >= after.Limits.Rows || after.Usage.UsedDBMS >= after.Limits.DBMS) {
+	if !deferBudgetArchive && budgetSettlementReachesHardLimit(status, after) {
 		if err := archiveTaskTx(ctx, tx, record.TaskID, TerminalBudgetExhausted, "system", now); err != nil {
 			return QueryRecord{}, AuditEvent{}, err
 		}
@@ -464,6 +465,12 @@ WHERE id=$12 AND status='RESERVED'`, status, settlement.Rows, settlement.DBMS, o
 	completedAt := dbTime(now)
 	record.CompletedAt = &completedAt
 	return record, audit, nil
+}
+
+func budgetSettlementReachesHardLimit(status QueryStatus, after BudgetSnapshot) bool {
+	return (status == QueryCompleted || status == QueryFailed || status == QueryIndeterminate) &&
+		(after.Usage.UsedQueries >= after.Limits.Queries || after.Usage.UsedRows >= after.Limits.Rows ||
+			after.Usage.UsedDBMS >= after.Limits.DBMS)
 }
 
 func notBefore(value, lowerBound time.Time) time.Time {

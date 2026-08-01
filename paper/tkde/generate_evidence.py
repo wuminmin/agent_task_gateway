@@ -43,6 +43,7 @@ V5_SOURCE_PATHS = (
     "config/catalog.yaml",
     "go.mod",
     "go.sum",
+    "internal/control/budget.go",
     "internal/control/migrations/018_predicate_footprint_v5.sql",
     "internal/control/ordinal_exposure_v5.go",
     "internal/control/ordinal_materialization_artifact_test.go",

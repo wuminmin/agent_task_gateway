@@ -17,6 +17,10 @@
         "sha256": "74fab9bab7eb3804d3c845cd07e7b76d1606e423964aee9330f16af928ff7389"
       },
       {
+        "path": "internal/control/budget.go",
+        "sha256": "3c20b4a46b3978d518135d65f50781860436592c01c4cf2e8744c25b82a9ecbd"
+      },
+      {
         "path": "internal/control/migrations/018_predicate_footprint_v5.sql",
         "sha256": "3e15bc1891b20be86ae9bbdd3fe38d5c4b86c70c1d5b2e605935e355c04012f8"
       },
@@ -38,7 +42,7 @@
       },
       {
         "path": "internal/control/result.go",
-        "sha256": "f6cbc16b5699442e8b0e9ef81ecaed609ada84877126408561db913f4ac900aa"
+        "sha256": "06425b5bb459e6f1147f7796d240e5721fa2d2646ff77027e2efa588c87b5204"
       },
       {
         "path": "internal/control/result_artifact_test.go",
@@ -74,7 +78,7 @@
       },
       {
         "path": "internal/gateway/result_artifact_test.go",
-        "sha256": "42bb12e74274b66c728c388b4d6478107bee484fd57cf7906d69a4615c0c36ce"
+        "sha256": "a5248c63bd7e9ee2ba9ba85905e5db68702b81ab1bb43a887ebbaa7a225f0430"
       },
       {
         "path": "internal/gateway/service.go",
@@ -105,7 +109,7 @@
         "sha256": "9743e3d2132e140f1ac94337f5fe90246fa4f189f494ed6014f180d51ea2b992"
       }
     ],
-    "sha256": "2905d43819fc15941909fd58f281b2635a4ce8b83875b54a36a88dd44867b168"
+    "sha256": "890ba5b90d46a4f90563b225c935f4ab1285a5cbc48de3054b68c1fc5ca3fe96"
   },
   "raw_execution": {
     "raw_log": "evaluation/v5-outcome/raw/go-test.jsonl",

@@ -543,6 +543,31 @@ func TestCanonicalCopySurvivesAvailableTransactionFailureAndRecoversExactlyOnce(
 	if err != nil || len(consumed) != 1 {
 		t.Fatalf("consumption events after recovery = %+v, %v", consumed, err)
 	}
+	// Exercise the same post-restart semantic-replay budget boundary as the
+	// Compose acceptance path: the tenth and final allowed query must still
+	// return its committed result even though settlement archives the task.
+	for queryIndex := 2; queryIndex <= 10; queryIndex++ {
+		replayArguments := map[string]any{
+			"task_id": taskID, "request_id": fmt.Sprintf("copy-before-available-%d", queryIndex),
+			"plan": map[string]any{"product": "expense_summary", "columns": []string{"month", "total_amount"}},
+		}
+		if _, err := callGatewayTool(harness.service, harness.alice, "execute_plan", replayArguments); err != nil {
+			replayRecord, recordErr := harness.store.GetQueryByRequestID(t.Context(), taskID,
+				replayArguments["request_id"].(string))
+			replayArtifact, artifactErr := harness.store.GetResultArtifactByQuery(t.Context(), replayRecord.ID)
+			replayTask, taskErr := harness.store.GetTask(t.Context(), taskID)
+			t.Fatalf("final allowed semantic replay %d: %v; record=%+v/%v artifact=%+v/%v task=%+v/%v",
+				queryIndex, err, replayRecord, recordErr, replayArtifact, artifactErr, replayTask, taskErr)
+		}
+	}
+	if len(harness.connector.requests) != connectorCalls {
+		t.Fatalf("semantic replay budget boundary re-executed Business PostgreSQL: %d -> %d",
+			connectorCalls, len(harness.connector.requests))
+	}
+	archived, err := harness.store.GetTask(t.Context(), taskID)
+	if err != nil || archived.State != control.TaskArchived || archived.TerminalReason != control.TerminalBudgetExhausted {
+		t.Fatalf("task after final allowed query = %+v, %v", archived, err)
+	}
 }
 
 func TestFailedSettlementRetryStopsAtDurableCompletedQuery(t *testing.T) {

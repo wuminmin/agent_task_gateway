@@ -300,7 +300,7 @@ func (s *Store) finalizePreparedQueryAttempt(ctx context.Context, settlement Bud
 	metrics.ExposureFactStore = exposureMetrics.FactStore
 	metrics.OutcomeRadix = exposureMetrics.OutcomeRadix
 	resultHash := preparedResultHash(prepared)
-	record, audit, err := settleBudgetTx(ctx, tx, now, settlement, QueryCompleted, resultHash)
+	record, audit, err := settleBudgetTx(ctx, tx, now, settlement, QueryCompleted, resultHash, true)
 	if err != nil {
 		return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, settlementErrorKind(err), err)
 	}
@@ -344,6 +344,15 @@ func (s *Store) finalizePreparedQueryAttempt(ctx context.Context, settlement Bud
 	if registrationAudit != nil && (registrationAudit.Sequence != audit.Sequence+1 || registrationAudit.PreviousHash != audit.CurrentHash) {
 		return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, ErrConflict,
 			fmt.Errorf("artifact registration audit does not immediately follow terminal audit"))
+	}
+	// Result registration and its V8 inclusion coordinates must immediately
+	// follow the terminal query audit. If this settlement reaches a hard
+	// resource limit, archive the task only after that pair; all three writes
+	// still commit atomically in this transaction.
+	if record.BudgetAfter != nil && budgetSettlementReachesHardLimit(record.Status, *record.BudgetAfter) {
+		if err := archiveTaskTx(ctx, tx, record.TaskID, TerminalBudgetExhausted, "system", now); err != nil {
+			return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, ErrConflict, err)
+		}
 	}
 	if settlement.OrdinalMaterialization != nil {
 		if _, _, err := publishOrdinalMaterializationTx(ctx, tx, now, record.ID, *settlement.OrdinalMaterialization); err != nil {
