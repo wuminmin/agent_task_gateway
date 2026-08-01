@@ -687,7 +687,9 @@ func (s *Store) GetQueryReceipt(ctx context.Context, queryID string) (QueryRecei
 		}
 		// Existing V1-V7 receipts deliberately do not bind artifact evidence.
 		// Only load the complete registration projection for V8 or when a
-		// missing receipt may need to be rebuilt as V8.
+		// missing receipt may need a recovered V8 attestation. That recovery
+		// signs immutable historical audit evidence after settlement; it is not
+		// the ordinary co-committed receipt path.
 		if persistedErr != nil || persisted.Version == "8" {
 			artifact, artifactErr := s.GetResultArtifactByQuery(ctx, queryID)
 			if artifactErr == nil {

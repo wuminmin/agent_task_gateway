@@ -118,8 +118,15 @@ Schema 类型约定：
 - 状态转换锁定任务行。
 - 回调 Claim/完成锁定回调行，审批处理同时锁定任务行。
 - 预算预留和结算锁定任务、预算及查询记录。
-- 资源/exposure 结算、`PENDING` artifact 元数据、回执和审计在同一控制事务中完成；规范对象在 commit 后幂等提升。
+- 正常 Gateway 生产路径把资源/exposure 结算、`PENDING` artifact 元数据、V8 回执和审计放在同一控制事务中；规范对象在 commit 后幂等提升。
 - 审计追加先 `SELECT ... FOR UPDATE` 锁定单行 `audit_chain_head`，在同一事务生成连续序号、写事件和更新链头。
+
+V8 有两种持久化时序语义。正常路径产生 **co-committed V8**，即回执与上述
+settlement evidence 同事务提交。兼容恢复路径只在 query/artifact/registration
+audit 已存在而 receipt 行缺失时产生 **recovered V8 attestation**：Gateway 先验证
+原始 registration event，再对不可变的历史证据补签，因此它的 `signed_at` 可以晚于
+原 settlement，不能表述为“该 Receipt 本身与 settlement 同时提交”。两者验证同一
+PENDING intent，均不证明 AVAILABLE；正常 Compose 路径只走前一种。
 
 Gateway 当前仍只允许单实例部署。行锁保证请求并发安全，但业务 SQL 执行跨越控制库事务边界；多实例必须先实现分布式任务租约。
 

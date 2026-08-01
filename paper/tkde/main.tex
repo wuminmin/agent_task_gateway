@@ -1008,7 +1008,8 @@ because a successfully committed root ledger grows monotonically, a repeated
 committed observation has zero novelty without rescanning its effect payload.
 
 Three boundaries must therefore remain distinct. \emph{Accounted} means the
-ledger settlement and V8 receipt committed. \emph{Available} means canonical
+ledger settlement committed; the normal Gateway path co-commits its V8 receipt.
+\emph{Available} means canonical
 object promotion and the consumption audit committed; it is the logical
 release boundary. \emph{Observed} would mean a caller actually downloaded
 bytes, which the prototype intentionally does not track. Thus
@@ -1053,6 +1054,13 @@ accounting and intended publication, not availability. Availability is proved
 separately by inclusion of the single hash-chained
 \code{QUERY\_RESULT\_CONSUMED} event naming the verified canonical object. The
 receipt exposes neither raw values nor FactIDs.
+The normal production path creates a \emph{co-committed V8} in the settlement
+transaction.  A compatibility path can instead validate an already immutable
+terminal/registration history and create a missing \emph{recovered V8
+attestation}; its \code{signed\_at} may be later than settlement, so the receipt
+itself is not claimed to have co-committed.  Both forms authenticate the same
+historical PENDING intent and neither proves availability; the supplement
+states this persistence-time distinction explicitly.
 For a View-bound task, the signed Grant transitively commits the task View
 binding digest and the query record stores the same digest; exact replay cannot
 cross that identity. Legacy receipt verifiers remain available, but V8 uses a

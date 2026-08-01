@@ -1960,6 +1960,9 @@ func (s *Service) queryReceipt(ctx context.Context, record control.QueryRecord) 
 	if record.BudgetAfter == nil || record.CompletedAt == nil {
 		return nil, fmt.Errorf("terminal query is missing durable budget or timestamp evidence")
 	}
+	// This is a recovery attestation, not the ordinary co-committed receipt
+	// path. It signs already immutable terminal and registration audit evidence;
+	// consequently its signed_at may be later than the original settlement.
 	request, err := s.buildQueryReceiptRequest(control.QueryReceipt{
 		Query: record, Audit: evidence.Audit, Exposure: evidence.Exposure,
 		Artifact: evidence.Artifact, ArtifactRegistrationAudit: evidence.ArtifactRegistrationAudit,
@@ -1984,8 +1987,10 @@ func (s *Service) buildQueryReceiptRequest(evidence control.QueryReceipt, signed
 	return BuildQueryReceiptRequest(evidence, s.queryReceiptSigner, signedAt)
 }
 
-// BuildQueryReceiptRequest signs terminal query evidence and returns the
-// immutable Control PG receipt row that should be saved with that evidence.
+// BuildQueryReceiptRequest signs terminal query evidence and returns an
+// immutable Control PG receipt row. Normal settlement callers persist it in
+// the evidence transaction; queryReceipt also uses it later to recover a
+// missing attestation over already immutable audit evidence.
 func BuildQueryReceiptRequest(evidence control.QueryReceipt, signer *queryreceipt.Signer, signedAt time.Time) (control.SaveQueryReceiptRequest, error) {
 	record := evidence.Query
 	if record.BudgetAfter == nil || record.CompletedAt == nil {

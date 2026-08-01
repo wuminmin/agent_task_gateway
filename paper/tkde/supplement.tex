@@ -732,6 +732,22 @@ and direction, acceptance at the 16-source boundary, and rejection at 17
 sources.  They are implementation tests, not
 multi-source PG E2E evidence, performance measurements, or a mechanized proof.
 
+\subsection{V8 Persistence-Time Semantics}
+
+The normal Gateway production path creates a \emph{co-committed V8}: receipt
+signing and insertion occur in the same Control-PG transaction as resource and
+exposure settlement, terminal and artifact-registration audit evidence, and
+the PENDING artifact row.  The implementation also retains a compatibility
+recovery path for a terminal query, artifact row, and registration event that
+already exist while the receipt row is absent.  This path first validates the
+original registration event against the immutable audit chain and then emits a
+\emph{recovered V8 attestation}.  Such an attestation authenticates the same
+historical PENDING intent, but its \code{signed\_at} can postdate the original
+settlement and the receipt itself was not co-committed with that settlement.
+Both forms prove intent rather than availability; the normal Compose path
+produces the co-committed form.  They share one V8 wire format and verification
+rule rather than carrying a recovery-mode flag.
+
 \section{Descriptive Baseline Contrast}
 
 For one grouped sum/count fixture, Table~\ref{tab:baselines} reports six

@@ -583,6 +583,9 @@ func VerifyArtifactAvailabilityInclusion(receipt QueryReceiptV1, availabilityPro
 		event.QueryID != receipt.QueryID {
 		return fmt.Errorf("%w: artifact availability event does not match receipt", ErrInvalidReceipt)
 	}
+	if event.Sequence <= intent.RegistrationAuditSequence {
+		return fmt.Errorf("%w: artifact availability event does not follow registration audit", ErrInvalidReceipt)
+	}
 	if err := auditchain.VerifyInclusion(availabilityProof); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidReceipt, err)
 	}
@@ -597,8 +600,12 @@ func VerifyArtifactAvailabilityInclusion(receipt QueryReceiptV1, availabilityPro
 	if err := json.Unmarshal(event.Payload, &payload); err != nil ||
 		payload.ResultID != intent.ResultID || payload.ResultSHA256 != intent.ParquetSHA256 ||
 		payload.ObjectSHA256 != intent.ObjectSHA256 || payload.Format != intent.Format ||
-		payload.Status != "AVAILABLE" || strings.TrimSpace(payload.ConsumedAt) == "" {
+		payload.Status != "AVAILABLE" {
 		return fmt.Errorf("%w: artifact availability payload does not match intent", ErrInvalidReceipt)
+	}
+	consumedAt, err := time.Parse(time.RFC3339Nano, payload.ConsumedAt)
+	if err != nil || consumedAt.IsZero() {
+		return fmt.Errorf("%w: artifact availability consumed_at is invalid", ErrInvalidReceipt)
 	}
 	return nil
 }

@@ -103,3 +103,21 @@ ACL hashes, hashed staging/canonical object keys, expiry, and the immediately fo
 own canonical SHA-256. V1--V7 reject `artifact_intent`, preventing unsigned
 extension fields from being mistaken for authenticated evidence. The audit
 receipt API returns inclusion proofs for both completion and registration.
+
+There are two persistence-time meanings for the same verifiable V8 format:
+
+- **Co-committed V8** is the normal Gateway production path. The receipt is
+  signed and inserted in the same Control transaction as settlement, terminal
+  audit evidence, registration audit evidence, and the PENDING artifact row.
+- **Recovered V8 attestation** is the compatibility/recovery path used only
+  when the terminal query, artifact, and registration audit already exist but
+  the receipt row is absent. It validates the original registration event and
+  then signs that immutable historical evidence. Its `signed_at` can therefore
+  be later than the original settlement; the receipt itself was not committed
+  with that settlement.
+
+Both forms authenticate the same settled PENDING intent and neither claims
+availability. The normal Compose path produces the co-committed form. The V8
+wire format does not carry a separate recovery-mode flag, so documentation and
+the persistence path, rather than a different verification rule, distinguish
+the two operational cases.

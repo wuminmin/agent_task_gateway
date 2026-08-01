@@ -570,21 +570,34 @@ func TestQueryReceiptV8VerifiesTerminalAndArtifactInclusion(t *testing.T) {
 
 func TestQueryReceiptV8VerifiesAvailabilityInclusion(t *testing.T) {
 	receipt := validV8Receipt(t)
-	intent := receipt.ArtifactIntent
+	intent := *receipt.ArtifactIntent
+	registration := auditchain.Event{
+		Sequence: intent.RegistrationAuditSequence, EventID: "audit-registration",
+		TaskID: receipt.TaskID, QueryID: receipt.QueryID, Actor: "gateway",
+		EventType: "QUERY_RESULT_OBJECT_REGISTERED", Payload: []byte(`{"status":"PENDING"}`),
+		OccurredAt: receipt.CompletedAt.Add(time.Millisecond), PreviousHash: receipt.AuditHash,
+	}
+	registration.CurrentHash = mustAuditHash(t, registration.PreviousHash, registration)
+	intent.RegistrationAuditHash = registration.CurrentHash
+	intent, err := BuildArtifactIntent(intent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt.ArtifactIntent = &intent
 	event := auditchain.Event{
-		Sequence: 1, EventID: "audit-available", TaskID: receipt.TaskID, QueryID: receipt.QueryID,
+		Sequence: registration.Sequence + 1, EventID: "audit-available", TaskID: receipt.TaskID, QueryID: receipt.QueryID,
 		Actor: "gateway", EventType: "QUERY_RESULT_CONSUMED",
 		Payload: mustJSONForTest(t, map[string]any{
 			"result_id": intent.ResultID, "result_sha256": intent.ParquetSHA256,
 			"object_sha256": intent.ObjectSHA256, "format": intent.Format,
 			"status": "AVAILABLE", "consumed_at": "2026-07-22T01:00:00Z",
 		}),
-		OccurredAt: time.Date(2026, 7, 22, 1, 0, 0, 0, time.UTC), PreviousHash: auditchain.GenesisHash,
+		OccurredAt: registration.OccurredAt.Add(time.Millisecond), PreviousHash: registration.CurrentHash,
 	}
 	event.CurrentHash = mustAuditHash(t, event.PreviousHash, event)
 	proof := auditchain.InclusionProof{
-		TerminalEvent: event,
-		Checkpoint:    auditchain.Checkpoint{Sequence: event.Sequence, Hash: event.CurrentHash},
+		TerminalEvent: event, PredecessorEvent: &registration,
+		Checkpoint: auditchain.Checkpoint{Sequence: event.Sequence, Hash: event.CurrentHash},
 	}
 	if err := VerifyArtifactAvailabilityInclusion(receipt, proof); err != nil {
 		t.Fatalf("VerifyArtifactAvailabilityInclusion: %v", err)
@@ -597,11 +610,41 @@ func TestQueryReceiptV8VerifiesAvailabilityInclusion(t *testing.T) {
 	})
 	tampered.CurrentHash = mustAuditHash(t, tampered.PreviousHash, tampered)
 	tamperedProof := auditchain.InclusionProof{
-		TerminalEvent: tampered,
-		Checkpoint:    auditchain.Checkpoint{Sequence: tampered.Sequence, Hash: tampered.CurrentHash},
+		TerminalEvent: tampered, PredecessorEvent: &registration,
+		Checkpoint: auditchain.Checkpoint{Sequence: tampered.Sequence, Hash: tampered.CurrentHash},
 	}
 	if err := VerifyArtifactAvailabilityInclusion(receipt, tamperedProof); !errors.Is(err, ErrInvalidReceipt) {
 		t.Fatalf("tampered availability payload error = %v, want invalid receipt", err)
+	}
+
+	malformedTime := event
+	malformedTime.Payload = mustJSONForTest(t, map[string]any{
+		"result_id": intent.ResultID, "result_sha256": intent.ParquetSHA256,
+		"object_sha256": intent.ObjectSHA256, "format": intent.Format,
+		"status": "AVAILABLE", "consumed_at": "not-a-timestamp",
+	})
+	malformedTime.CurrentHash = mustAuditHash(t, malformedTime.PreviousHash, malformedTime)
+	malformedTimeProof := auditchain.InclusionProof{
+		TerminalEvent: malformedTime, PredecessorEvent: &registration,
+		Checkpoint: auditchain.Checkpoint{Sequence: malformedTime.Sequence, Hash: malformedTime.CurrentHash},
+	}
+	if err := VerifyArtifactAvailabilityInclusion(receipt, malformedTimeProof); !errors.Is(err, ErrInvalidReceipt) {
+		t.Fatalf("malformed consumed_at error = %v, want invalid receipt", err)
+	}
+
+	for _, registrationSequence := range []int64{event.Sequence, event.Sequence + 1} {
+		outOfOrderReceipt := receipt
+		outOfOrderIntent := intent
+		outOfOrderIntent.RegistrationAuditSequence = registrationSequence
+		outOfOrderIntent, err = BuildArtifactIntent(outOfOrderIntent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		outOfOrderReceipt.ArtifactIntent = &outOfOrderIntent
+		if err := VerifyArtifactAvailabilityInclusion(outOfOrderReceipt, proof); !errors.Is(err, ErrInvalidReceipt) {
+			t.Fatalf("availability sequence %d after registration %d error = %v, want invalid receipt",
+				event.Sequence, registrationSequence, err)
+		}
 	}
 }
 
