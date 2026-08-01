@@ -26,6 +26,8 @@ import (
 
 	"taskbound.local/agent-data-gateway/internal/control"
 	"taskbound.local/agent-data-gateway/internal/dataconnector"
+	"taskbound.local/agent-data-gateway/internal/exposure"
+	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 	"taskbound.local/agent-data-gateway/internal/resultartifact"
 )
 
@@ -379,7 +381,9 @@ func TestCanonicalCopySurvivesAvailableTransactionFailureAndRecoversExactlyOnce(
 
 	const taskID = "task-copy-before-available"
 	const requestID = "copy-before-available-1"
-	harness.createExposureSummaryTask(t, taskID, control.ExposureLimits{ReleaseFacts: 20, InfluenceFacts: 20})
+	harness.createExposureV5SummaryTask(t, taskID, control.ExposureLimits{
+		ReleaseFacts: 20, InfluenceFacts: 20, OutcomeFacts: 20,
+	})
 	arguments := map[string]any{
 		"task_id": taskID, "request_id": requestID,
 		"plan": map[string]any{"product": "expense_summary", "columns": []string{"month", "total_amount"}},
@@ -414,6 +418,18 @@ func TestCanonicalCopySurvivesAvailableTransactionFailureAndRecoversExactlyOnce(
 	if err != nil {
 		t.Fatal(err)
 	}
+	if receiptBefore.Receipt == nil {
+		t.Fatal("V8 receipt was not persisted before artifact recovery")
+	}
+	var signedBefore queryreceipt.QueryReceiptV1
+	if err := json.Unmarshal(receiptBefore.Receipt.ReceiptJSON, &signedBefore); err != nil {
+		t.Fatal(err)
+	}
+	if signedBefore.Version != queryreceipt.VersionV8 || signedBefore.Exposure == nil ||
+		signedBefore.Exposure.ProfileVersion != exposure.ProfileV5 || signedBefore.ArtifactIntent == nil {
+		t.Fatalf("crash-window receipt is not explicit V5 + V8 evidence: %+v", signedBefore)
+	}
+	intentBefore := *signedBefore.ArtifactIntent
 	connectorCalls := len(harness.connector.requests)
 
 	for tool, args := range map[string]map[string]any{
@@ -457,6 +473,16 @@ func TestCanonicalCopySurvivesAvailableTransactionFailureAndRecoversExactlyOnce(
 	if !reflect.DeepEqual(budgetAfter, budgetBefore) || !reflect.DeepEqual(chargeAfter, chargeBefore) ||
 		!reflect.DeepEqual(receiptAfter, receiptBefore) {
 		t.Fatalf("recovery changed settlement evidence")
+	}
+	var signedAfter queryreceipt.QueryReceiptV1
+	if receiptAfter.Receipt == nil {
+		t.Fatal("V8 receipt disappeared after artifact recovery")
+	}
+	if err := json.Unmarshal(receiptAfter.Receipt.ReceiptJSON, &signedAfter); err != nil {
+		t.Fatal(err)
+	}
+	if signedAfter.ArtifactIntent == nil || !reflect.DeepEqual(*signedAfter.ArtifactIntent, intentBefore) {
+		t.Fatalf("recovery changed V8 ArtifactIntent: before=%+v after=%+v", intentBefore, signedAfter.ArtifactIntent)
 	}
 	if len(harness.connector.requests) != connectorCalls {
 		t.Fatalf("recovery re-executed Business PostgreSQL: %d -> %d", connectorCalls, len(harness.connector.requests))

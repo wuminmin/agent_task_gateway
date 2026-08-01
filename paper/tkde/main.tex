@@ -319,35 +319,9 @@ TaskGate supplies auditable workflow conservation, not that replacement.
 \subsection{Closest System Families}
 
 GAAP is the closest system at the agent data-flow layer
-\cite{stanley2026gaap}. It keeps private data and permissions outside the
-untrusted model, applies information-flow control and trusted tool annotations,
-and logs cross-call and cross-task disclosure. That propagation covers indirect
-cross-service flow outside TaskGate's scope. GAAP does not define SQL
-value-level FactIDs, split release from positive-output dependency footprint, co-execute
-a PostgreSQL provenance companion, or settle an exact per-root novel set.
-
-\begin{table*}[t]
-\centering
-\caption{Capability and guarantee comparison. \checkmark{} is an explicit
-guarantee in the cited design; ``hist.'' denotes history-aware accounting with
-a different unit or scope; -- denotes not claimed. The table compares scopes,
-not overall system quality.}
-\label{tab:closest-systems}
-\scriptsize
-\setlength{\tabcolsep}{3.2pt}
-\resizebox{\textwidth}{!}{%
-\begin{tabular}{lccccccc}
-\toprule
-System family & Approved task/root & Typed DB FactIDs & Release/dependency split & Same-snapshot evidence & Exact novel-set pre-release & Shared-root delegation & Cross-tool IFC \\
-\midrule
-TaskGate & \checkmark & \checkmark & \checkmark & \checkmark & \checkmark & \checkmark & -- \\
-GAAP~\cite{stanley2026gaap} & persistent log & -- & -- & -- & hist. disclosure & -- & \checkmark \\
-UCON / history-based AC~\cite{park2004ucon,abadi2003history} & ongoing use & -- & -- & -- & hist. actions & policy-specific & -- \\
-Query pricing~\cite{koutris2012query,deep2017qirana,peng2025aria} & query/history & -- & -- & -- & hist. price & -- & -- \\
-Provenance systems~\cite{arab2018gprom,senellart2018provsql,sen2026provsql} & query & tuple/annotation & -- & rewrite/native & -- & -- & -- \\
-\bottomrule
-\end{tabular}}
-\end{table*}
+\cite{stanley2026gaap}: its cross-call information-flow control covers indirect
+cross-service propagation outside TaskGate's scope, whereas TaskGate specializes
+in typed SQL facts, same-snapshot evidence, and exact per-root settlement.
 
 \textbf{History and pricing.} Auditing reconstructs access or asks whether a
 history determines forbidden data; simulatable auditing also protects denial
@@ -375,7 +349,7 @@ establish ongoing decisions, attenuation, and quotas
 \cite{park2004ucon,abadi2003history,li2003delegation,chadwick2008permis}.
 RLS/VPD, ABAC/XACML, and query-policy systems decide which operation and rows
 are authorized
-\cite{postgres16rls,oracle26vpd,hu2014abac,xacml2013,mehta2017qapla,zhang2022blockaid,liu2026safenlidb}.
+\cite{postgres16rls,hu2014abac,mehta2017qapla,zhang2022blockaid,liu2026safenlidb}.
 TaskGate assumes that boundary, then makes every descendant settle against one
 root ledger; distributed vouchers remain outside its centralized prototype.
 
@@ -386,15 +360,11 @@ prompt-injection and runtime-flow defenses address complementary threats
 database facts accumulated across successful calls. TaskGate treats the agent
 and generated SQL as untrusted clients behind these controls.
 
-\textbf{Novelty boundary.} The literature establishes history, inference
-control, pricing, provenance, database access control, agent identity and tool
-authorization, mediation, delegation, quotas, task-bound SQL, receipts, and
-persistent disclosure logs. Within this boundary, the present
-article develops three-set FactID semantics, same-snapshot provenance, exact
-novel-set settlement, and shared-root delegation, together with formal and
-empirical checks. Relative to GAAP, it is database-specific semantic accounting
-rather than cross-task IFC: narrower than noninterference, but stronger than
-stateless authorization for the modeled threat.
+\textbf{Novelty boundary.} Relative to these systems, TaskGate contributes
+database-specific three-set FactID semantics, same-snapshot provenance, exact
+novel-set settlement, and shared-root conservation. It is narrower than
+cross-tool noninterference and stronger than stateless authorization only for
+the modeled task-scoped threat.
 
 \section{Exposure Model}
 \label{sec:model}
@@ -679,7 +649,7 @@ Predicates use PostgreSQL three-valued logic and retain only true rows, whereas
 grouping/distinct use typed \code{IS NOT DISTINCT FROM}. The closed canonical
 domain fixes integer/float widths, exact numeric and temporal encodings,
 deterministic collation name/version, \code{jsonb} structural equality, and
-PostgreSQL aggregate result types \cite{postgres16json}. Non-associative
+PostgreSQL aggregate result types. Non-associative
 floating SUM, unsupported casts, and overflow are undefined and settle
 nothing; the complete type domain and encoders are supplemental.
 
@@ -798,66 +768,27 @@ $\rieffect_\Pi(e,D,V)$, whenever evaluation succeeds.
 \end{theorem}
 \emph{Proof in the supplement.}
 
-\begin{property}[Group-key completeness]
-\label{prop:group-key-completeness}
-For every committed output group $Q$, member $t\in Q$, and group field $g\in G$,
-$S_g(t)\subseteq\facts_D$, including when $g\notin V$.
-\end{property}
-\emph{Proof in the supplement.}
-
-\begin{property}[Distinct-dependency completeness]
-\label{prop:distinct-completeness}
-For every selected union-distinct output class $Q$, candidate $t\in Q$, and schema
-field $a\in\Gamma$, $S_a(t)\subseteq\facts_D$, including when $a\notin V$.
-\end{property}
-\emph{Proof in the supplement.}
-
-\begin{property}[Conservative aggregate input]
-\label{prop:aggregate-input}
-Every result aggregate cell selected for publication includes its complete declared logical input:
-all member row annotations for \code{COUNT(*)}, and every member argument cell
-for \code{COUNT(a)}, \code{SUM(a)}, \code{MIN(a)}, and \code{MAX(a)}.  NULL and
-non-extreme \code{MIN/MAX} inputs are not omitted.
-\end{property}
-\emph{Proof in the supplement.}
+Group-key, union-distinct, and aggregate-input completeness statements and
+proofs are given in the supplement; Table~\ref{tab:effect-summary} states
+their main effect on selected output rows.
 
 \subsection{Conservation Properties}
 
 The following properties apply only to the operators and rewrites stated here.
 They are not claims about all semantically equivalent SQL.
 
-\begin{property}[Normalization]
-\label{prop:normalization}
-Fact-set normalization is deterministic, idempotent, and commutative under
-merge.
-\end{property}
-\emph{Proof in the supplement.}
-
-\begin{theorem}[Restricted projection/selection invariance]
-\label{thm:projection-selection}
-For $F\cup V\subseteq A$, selection followed by projection and projection
-followed by selection have the same visible effect:
-\[
- \rieffect_\Pi(\pi_A(\sigma_{p;F}e),D,V)=
- \rieffect_\Pi(\sigma_{p;F}(\pi_Ae),D,V).
-\]
-Reordering $A$ also preserves this normalized terminal effect.
-\end{theorem}
-\emph{Proof in the supplement.}
+The supplement proves deterministic/idempotent Fact-set normalization and the
+restricted selection--projection invariance used by the rewrite tests.
 
 \begin{definition}[Profile-indexed typed normal form $NF_{\Pi,\pi}$]
 \label{def:nf}
 $NF_{\Pi,\pi}$ maps accepted, well-typed inputs to canonical terms under the
 normal-form profile fixed by the task contract. Multi-source SQL
-first replaces aliases by Catalog stable roles, orders graph nodes, endpoint
-pairs, edges, and per-edge predicates as above, then applies
-$\operatorname{Fold}_\Pi$. Structure-recursive normalization erases display
-names; sorts conjunctions, dependency/projection fields, group keys,
-aggregates, binary join children/equalities, and union children by stable field,
-expression, or digest; collapses an identical union branch only when
-full-tuple distinctness is proven; and canonicalizes a stable page suffix.
-Equality of normal forms is syntactic. Let $\pi_3$ denote the legacy V2--V4
-Outcome path and $\pi_5$ the V5 predicate/composite path. Their version bindings are
+replaces aliases by Catalog stable roles, canonicalizes the accepted join
+graph, and recursively orders all commutative components by typed stable
+identity. Equality is syntactic; the complete ordering, scalar domains, and
+rejected constructs are supplemental. Let $\pi_3$ denote the legacy V2--V4
+Outcome path and $\pi_5$ the V5 predicate/composite path. Their bindings are
 \[
 \begin{aligned}
  \operatorname{ver}(NF_{\Pi,\pi_3})
@@ -866,12 +797,9 @@ Outcome path and $\pi_5$ the V5 predicate/composite path. Their version bindings
    &= \text{\code{taskgate-query-normal-form-v4}}.
 \end{aligned}
 \]
-Neither version performs outer-join, arithmetic, window, subquery, or general
-SQL equivalence reasoning. The complete typed digest for the profile bound by
-the task remains the query-semantic component of replay/outcome identity;
-authorization and settlement also bind grant/policy/effect context. The
-graph-only digest is diagnostic, and previously admitted encodings are
-unchanged. Query normalization is distinct from final-ledger Fact-set
+The complete typed digest is the query-semantic component of replay/outcome
+identity; authorization and settlement additionally bind grant, policy, and
+effect context. Query normalization is distinct from final-ledger Fact-set
 $\operatorname{normalize}$.
 \end{definition}
 
@@ -900,26 +828,10 @@ where every component uses the typed, length-delimited encoding already bound
 by the Grant and Catalog. The implementation indexes a digest of this
 descriptor but verifies the bound metadata before accepting a hit.
 
-\begin{theorem}[Canonical replay consistency]
-\label{thm:canonical-replay}
-For a fixed $T=(P,S,B,C)$ and two accepted queries $q_1,q_2$,
-\[
- \operatorname{RK}_T(q_1)=\operatorname{RK}_T(q_2)
- \quad\Longrightarrow\quad E(T,q_1)=E(T,q_2).
-\]
-If $q_1$ has already committed to $K(T)$, settling $q_2$ has
-$\Delta_T^X(q_2)=\varnothing$ for every $X\in\{R,D,O\}$.
-\end{theorem}
-\emph{Proof sketch.} Descriptor equality fixes the approved policy, immutable
-publication, effect/View contracts, typed parameters, and normal form.
-Theorem~\ref{thm:nf-soundness} therefore gives identical accounted-result and
-dependency-footprint FactSets. For $\pi_T=\pi_5$,
-Eqs.~\eqref{eq:predicate-atoms}--\eqref{eq:outcome-fact} give the same atom set
-and composite identity; for $\pi_T=\pi_3$, the legacy single-Outcome
-construction uses its bound V3 normal form. The first settlement placed all three
-sets in $K(T)$, so each subsequent set difference is empty. The converse is
-not claimed: equivalent SQL outside the stated normalization rules can have
-different descriptors and incur a new outcome.
+Descriptor equality fixes the approved policy, publication, effect/View
+contracts, typed parameters, and normal form; hence it fixes all three effect
+sets and exact replay has zero novelty. The converse is not claimed outside the
+stated normalization rules.
 
 Let $\operatorname{Expand}_C(v)=(e,\mu,\beta_v)$ denote successful compilation
 of a semantic-View root $v$ into a closed core term $e$, with $\mu$ mapping its
@@ -928,36 +840,10 @@ commits the root Product/public-field identity, resolved expressions, signed
 View contract, and V5 predicate context. Compilation defines the View query
 normal form from $e$ while retaining $\beta_v$ in $C$.
 
-\begin{theorem}[View expansion preservation]
-\label{thm:view-expansion}
-If $\operatorname{Expand}_C(v)=(e,\mu,\beta_v)$ succeeds for task $T$, snapshot $S$,
-and an admitted View query $q_v$ requests public fields $V$, let
-$q_e^{\beta_v}$ be its internal lowered core query over $e$ and $\mu(V)$ while
-preserving that binding. Then $q_v$ and $q_e^{\beta_v}$ have the same
-typed visible bag and
-\[
- E(T,q_v)=E(T,q_e^{\beta_v})
-\]
-componentwise in accounted result exposure (wire label \code{release}),
-positive-output dependency footprint, and
-query-outcome exposure. No preservation claim is made when expansion rejects
-or for PostgreSQL constructs outside the admitted View grammar. An ordinary
-public query directly against a terminal Product need not have the same V5
-Outcome FactIDs: it carries a different public-product contract. Release and
-dependency effects remain equal when their lowered core term and terminal
-bindings are equal, but Outcome equality additionally requires $\beta_v$.
-\end{theorem}
-\emph{Proof sketch.} Induct over the acyclic View DAG. A terminal View maps to
-the Catalog-bound Scan over the same publication. Each transparent
-projection/rename, literal selection, and inner equijoin compiles to its
-corresponding core operator; stable FieldIDs erase aliases while preserving
-types, collations, row keys, and annotations. The only aggregate barrier maps
-once to the matching group operator, and the compiler permits only projection
-above it. Hence induction preserves the visible bag and the release/dependency
-extraction of Eq.~\eqref{eq:observe}. Because the internal query preserves
-$\beta_v$, its atoms retain the same root public-field identities, resolved
-expressions, View binding, and predicate context; the result digest,
-cardinality, atom set, and composite FactID therefore agree.
+For successful $\operatorname{Expand}_C(v)=(e,\mu,\beta_v)$, induction over the
+accepted acyclic View DAG preserves the typed visible bag and all three effect
+sets when the internal query retains $\beta_v$. Exact guards and the proof are
+supplemental; a direct terminal query can carry different V5 Outcome FactIDs.
 
 \begin{theorem}[Base-ledger split/page/join conservation]
 \label{thm:base-conservation}
@@ -1019,7 +905,7 @@ snapshot, schemas, sidecar, dictionaries, versions, type/collation contracts,
 and digests; any collision or count/canonicality mismatch blocks publication.
 
 The online compiler emits visible SQL and an ordinal companion in one read-only
-\code{REPEATABLE READ} transaction \cite{postgres16transaction}. The visible
+\code{REPEATABLE READ} transaction. The visible
 result is buffered; the ordered companion retains every dependency required by
 join, union, group, and aggregate rules.
 
@@ -1305,16 +1191,8 @@ A single high-cardinality semaphore isolates million-fact derivation from the
 small-query pool; a query-private encrypted spool is used once the configured
 working-set threshold is crossed.
 
-Publication retention is reference-safe: every live root retains its complete
-epoch, while unreferenced cold payloads may move to audit storage. Archival and
-reclamation rules are supplemental and their bandwidth is not evaluated.
-
-The ordinal foundation is a clean-cut V4 migration, and V5 adds a disjoint
-head/profile rather than reinterpreting an existing root. The process refuses activation when a legacy
-per-Fact ledger is non-empty and requires an explicit offline rebuild; it does
-not silently delete history, dual-write, or infer ordinal membership from an
-incomplete ledger. The old materialized algebra and receipt verifiers remain
-test/compatibility paths, not V5 production storage.
+Reference-safe retention, reclamation, and the clean-cut V4-to-V5 migration are
+specified in the supplement; no legacy ledger is silently reinterpreted.
 
 \section{Finite-State Analysis}
 \label{sec:formal}
@@ -1322,16 +1200,16 @@ test/compatibility paths, not V5 production storage.
 Four bounded TLA+ models are checked with pinned TLC 1.7.1 and digest-validated
 logs \cite{lamport2002specifying}. \code{ExposureLedger.tla} checks atomic
 three-budget novelty, rejection, replay, concurrency, delegation conservation,
-and at-most-once execution (\ExposureFormalDistinct{} distinct states).
+and at-most-once execution.
 \code{ExposureBitmapRefinement.tla} checks that ordinal
-OR/ANDNOT/popcount decodes to exact Fact sets (\BitmapFormalDistinct{} states).
+OR/ANDNOT/popcount decodes to exact Fact sets.
 \code{OutcomeSetAbstractRefinement.tla} checks abstract exact-set settlement,
-replay, budget, and corruption safety (\OutcomeFormalDistinct{} states); it
+replay, budget, and corruption safety; it
 does not model radix layout.
 
 \code{ArtifactPublication.tla} separates \emph{CreateCanonical} from
-\emph{MarkAvailable}, explicitly admitting PENDING with a canonical object
-(\ArtifactFormalDistinct{} states). Its invariants require AVAILABLE
+\emph{MarkAvailable}, explicitly admitting PENDING with a canonical object.
+Its invariants require AVAILABLE
 $\Rightarrow$ settled $\wedge$ canonical-exists $\wedge$ exact-hash-match,
 rejection never AVAILABLE, zero additional ledger charge, and one Business
 execution through retry/recovery. It is a safety model without an eventual
@@ -1403,51 +1281,15 @@ regressions, not a V5 latency campaign; detailed radix counters are supplemental
 The PostgreSQL Join/Join--Group experiments use representative two-source
 graphs, not a capability ceiling; source-count/topology performance is unmeasured.
 
-Outside these RQ counts, five fixed-seed \code{testing/quick} properties each
-run 64 generated cases over connected two--five-source graphs, with at least
-one multi-predicate edge and one--three transparent wrappers where applicable.
-They separately check deterministic recompilation/registry insertion order,
-alias invariance, join-order invariance, direct-versus-nested equivalence, and
-semantic/interface/dependency drift. Boundary tests cover one aggregate
-barrier, cycles, and resource guards. PostgreSQL regressions cover a
-three-level DAG, materialized leaves, transitive replacement, unsafe recursion,
-and same-transaction attestation. This is restricted compiler/integration
-evidence, not a proof or performance campaign.
-
-\subsection{RQ4: Legacy Diagnosis and V4 Ordinal Contrast}
-
-Detailed legacy protocols, storage, and scaling are supplemental. At
-\RQFourScaleMaxFacts{} dependencies, materialization takes
-\RQFourScaleHighNovelS{}/\RQFourScaleHighReplayS{}~s novel/replay and peaks at
-\RQFourScaleGatewayGiB{}~GiB, versus \RQFourScaleHighDirectMS{}~ms direct SQL;
-this diagnostic contrast locates the bottleneck in FactSet derivation/storage.
-
-\begin{table}[t]
-\centering
-\caption{Legacy diagnostic versus measured V4 maximum point. Times are medians;
-memory definitions and campaign sources differ, so this is a scoped contrast,
-not a controlled speedup experiment.}
-\label{tab:rq4-contrast}
-\small
-\resizebox{\columnwidth}{!}{%
-\begin{tabular}{lrrrr}
-\toprule
-Path & dependencies & novel & replay & Enforcement-layer peak \\
-\midrule
-Legacy materialized & \RQFourScaleMaxFacts{} &
-\RQFourScaleHighNovelS{}~s & \RQFourScaleHighReplayS{}~s &
-\RQFourScaleGatewayGiB{}~GiB \\
-V4 bitmap & \RQFourVFourDependencyFacts{} &
-\RQFourVFourNovelMedianS{}~s & \RQFourVFourReplayMedianMS{}~ms &
-\RQFourVFourGatewayPeakMiB{}~MiB \\
-\bottomrule
-\end{tabular}
-}
-\end{table}
+Supplemental fixed-seed properties and PostgreSQL regressions exercise
+deterministic compilation, alias/join-order invariance, nested View drift,
+grammar boundaries, and same-transaction attestation; they are not a proof or
+performance campaign.
 
 \subsection{RQ4: Measured V4 Ordinal Acceptance}
 
-In one fixed-host deployment, all
+The complete legacy materialization diagnosis is supplemental. In one
+fixed-host V4 deployment, all
 \RQFourVFourGatesPassed{}/\RQFourVFourGatesTotal{} V4 gates pass. At
 \RQFourVFourReleaseFacts{} release, \RQFourVFourDependencyFacts{} dependency,
 and \RQFourVFourOutcomeFacts{} outcome facts, novel p50/p95 is

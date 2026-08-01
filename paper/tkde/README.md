@@ -107,7 +107,7 @@ Complete typing/big-step rules, output-key cases, and the detailed operator
 coverage matrix are also in the supplement; the main paper retains the effect
 summary and safety properties. Detailed legacy materialized-ledger timing,
 storage, and Join--Group diagnostics are likewise in the supplement; the main
-paper retains one scoped Legacy--V4 contrast. A local TeX syntax build is
+paper retains the measured V4 acceptance result. A local TeX syntax build is
 available through `paper/tkde/build.sh`, but it still uses Docker for the
 exposure evaluation.
 
@@ -131,7 +131,7 @@ storage, and scale reports are all consumed by the paper build.
 Checked 2026-07-27: the IEEE Computer Society's public author guidance defines
 12 formatted pages for a regular Transactions paper, including references and
 author biographies, and the [2026 IEEE charge
-list](https://magazines.ieeeauthorcenter.ieee.org/wp-content/uploads/sites/10/IEEE-Article-Processing-Charges-List.pdf)
+list](https://journals.ieeeauthorcenter.ieee.org/wp-content/uploads/sites/7/IEEE-Article-Processing-Charges-List.pdf)
 lists TKDE at 12 pages before mandatory overlength charges of USD 220 per page.
 The [Computer Society author
 guidance](https://www.computer.org/publications/author-resources) warns that a
@@ -140,8 +140,8 @@ threshold. Therefore the corresponding author must still confirm the selected
 TKDE manuscript category, initial-submission limit, treatment of supplementary
 material, and current charge acknowledgement in ScholarOne/Author Portal
 immediately before submission. Do not infer acceptability from a successful
-local PDF build alone. The 2026-08-01 pinned-template syntax build is 14
-main-paper pages plus a separate 12-page supplement. This is inside the working
-12--14-page reduction target but remains two pages above the cited production
-threshold; the initial-submission and supplement rules still require
-confirmation before freezing the submission.
+local PDF build alone. The 2026-08-01 pinned-template syntax build is 12
+main-paper pages plus a separate 12-page supplement. The main paper therefore
+meets the cited regular-paper production threshold without relying on an
+unverified 14-page initial-submission allowance; the initial-submission and
+supplement rules still require confirmation immediately before upload.
