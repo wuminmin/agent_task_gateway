@@ -1,6 +1,64 @@
 {
-  "schema_version": 2,
+  "compose_execution": {
+    "receipt": "evaluation/v5-outcome/compose-receipt.json",
+    "receipt_sha256": "68d45e218f9b38ff26926b8156473faf212dbc573d62bd31f8a1844df27c564c"
+  },
+  "deterministic_set": {
+    "duplicate_idempotent": true,
+    "members": 10000,
+    "permutation_deterministic": true,
+    "tamper_rejected": true
+  },
   "implementation_base_commit": "030c1f6c42abf67dac3fb512ca7206bf694827ec",
+  "postgres_committed_graph": {
+    "blocks_loaded": 1,
+    "blocks_reused": 255,
+    "candidate_cardinality": 1,
+    "hashes_loaded": 2,
+    "leaves_changed": 1,
+    "leaves_loaded": 1,
+    "replay_changed_objects": 0,
+    "root_block_count": 256,
+    "root_cardinality": 100000,
+    "transaction_boundary": "commit_then_independent_merge"
+  },
+  "raw_execution": {
+    "command": [
+      "go",
+      "test",
+      "-json",
+      "-count=1",
+      "./internal/exposure",
+      "./internal/control",
+      "-run",
+      "Test(ValidateCanonicalSQLValueEncodingCoversAdmissibleDomain|ValidateCanonicalSQLValueEncodingSpecialValues|ValidateCanonicalJSONBEncodingRejectsMalformedTrees|PredicateAtomsAcceptCanonicalTimeAndJSONB|CanonicalTimeValidatorMatchesEncoderAtMicrosecondBoundaries|V5SettlementAndSemanticReplayPostgres|OutcomeHashSetV5PostgresLoadsOnlyTouchedBranches|OutcomeHashSetV5SamePrefixMultiChunkBoundaries|NormalizeV5OutcomeFactsValidatesAtomCompositeBinding|OutcomeHashSetV5ExactDifferenceUnionAndReplay|OutcomeHashSetV5DeterministicAndTamperEvident)$"
+    ],
+    "exit_code": 0,
+    "go_version": "go version go1.25.12 linux/amd64",
+    "packages_passed": 2,
+    "postgres_version": "PostgreSQL 16.14 (Debian 16.14-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit",
+    "raw_log": "evaluation/v5-outcome/raw/go-test.jsonl",
+    "raw_log_sha256": "c5281414953cb4871f50303cbd11dc305e6acd4017ce37af63b010958468e706",
+    "tests_failed": 0,
+    "tests_passed": 11,
+    "tests_skipped": 0
+  },
+  "same_prefix_multichunk": {
+    "chunk_size": 4096,
+    "chunks_before": 3,
+    "contiguous_rechunking": true,
+    "full_rebuild_reference_match": true,
+    "insert_positions": [
+      "first",
+      "middle",
+      "last"
+    ],
+    "members": 8193,
+    "missing_chunk_rejected": true,
+    "prefix16": "4224",
+    "replay_changed_objects": 0
+  },
+  "schema_version": 3,
   "source_manifest": {
     "algorithm": "sha256(canonical-json(sorted-path-sha256-list))",
     "files": [
@@ -111,58 +169,5 @@
     ],
     "sha256": "890ba5b90d46a4f90563b225c935f4ab1285a5cbc48de3054b68c1fc5ca3fe96"
   },
-  "raw_execution": {
-    "raw_log": "evaluation/v5-outcome/raw/go-test.jsonl",
-    "raw_log_sha256": "c5281414953cb4871f50303cbd11dc305e6acd4017ce37af63b010958468e706",
-    "command": [
-      "go",
-      "test",
-      "-json",
-      "-count=1",
-      "./internal/exposure",
-      "./internal/control",
-      "-run",
-      "Test(ValidateCanonicalSQLValueEncodingCoversAdmissibleDomain|ValidateCanonicalSQLValueEncodingSpecialValues|ValidateCanonicalJSONBEncodingRejectsMalformedTrees|PredicateAtomsAcceptCanonicalTimeAndJSONB|CanonicalTimeValidatorMatchesEncoderAtMicrosecondBoundaries|V5SettlementAndSemanticReplayPostgres|OutcomeHashSetV5PostgresLoadsOnlyTouchedBranches|OutcomeHashSetV5SamePrefixMultiChunkBoundaries|NormalizeV5OutcomeFactsValidatesAtomCompositeBinding|OutcomeHashSetV5ExactDifferenceUnionAndReplay|OutcomeHashSetV5DeterministicAndTamperEvident)$"
-    ],
-    "go_version": "go version go1.25.12 linux/amd64",
-    "postgres_version": "PostgreSQL 16.14 (Debian 16.14-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit",
-    "exit_code": 0,
-    "tests_passed": 11,
-    "tests_skipped": 0,
-    "tests_failed": 0,
-    "packages_passed": 2
-  },
-  "deterministic_set": {
-    "members": 10000,
-    "permutation_deterministic": true,
-    "duplicate_idempotent": true,
-    "tamper_rejected": true
-  },
-  "postgres_committed_graph": {
-    "root_cardinality": 100000,
-    "root_block_count": 256,
-    "candidate_cardinality": 1,
-    "blocks_loaded": 1,
-    "leaves_loaded": 1,
-    "hashes_loaded": 2,
-    "blocks_reused": 255,
-    "leaves_changed": 1,
-    "replay_changed_objects": 0,
-    "transaction_boundary": "commit_then_independent_merge"
-  },
-  "same_prefix_multichunk": {
-    "members": 8193,
-    "prefix16": "4224",
-    "chunk_size": 4096,
-    "chunks_before": 3,
-    "insert_positions": [
-      "first",
-      "middle",
-      "last"
-    ],
-    "full_rebuild_reference_match": true,
-    "contiguous_rechunking": true,
-    "missing_chunk_rejected": true,
-    "replay_changed_objects": 0
-  }
+  "submission_commit": "d2b16ab5c9f3d29b318335c41fc18bf23fbff3a6"
 }

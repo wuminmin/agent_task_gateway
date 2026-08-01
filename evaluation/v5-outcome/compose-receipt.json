@@ -1,0 +1,60 @@
+{
+  "assertions": {
+    "caller_predicate": true,
+    "parquet_available": true,
+    "promotion_recovery": true,
+    "semantic_replay": true
+  },
+  "catalog_sha256": "b14248c07d6b85346508d40dcf1d36c84160355bd2b952007a3d90e17c65b226",
+  "command": [
+    "./scripts/integration-test.sh"
+  ],
+  "compose_images": [
+    {
+      "image_id": "sha256:67d1da22f4037b29cdd93e03d870a4a1c4d079358367d0cbc56459e52cde205e",
+      "reference": "postgres:16-bookworm",
+      "service": "business-postgres"
+    },
+    {
+      "image_id": "sha256:67d1da22f4037b29cdd93e03d870a4a1c4d079358367d0cbc56459e52cde205e",
+      "reference": "postgres:16-bookworm",
+      "service": "control-postgres"
+    },
+    {
+      "image_id": "sha256:31d28ac7d69c61e41dedf453a1ca1d03d0175edb53e836af3b2114365486f860",
+      "reference": "taskbound-gateway-integration-gateway",
+      "service": "gateway"
+    },
+    {
+      "image_id": "sha256:4154c19c2ed14b05507376b6eccb68a9c4356ad52a54d0d8b1cc7adb47e6cecc",
+      "reference": "taskbound-gateway-integration-oa-demo",
+      "service": "oa-demo"
+    },
+    {
+      "image_id": "sha256:9d668e47f1fc60ea49af4203deee87a657eb1aa0e2761fee2c7c2d1df282c880",
+      "reference": "minio/minio:RELEASE.2025-04-22T22-12-26Z",
+      "service": "result-object-store"
+    },
+    {
+      "image_id": "sha256:721f526e0990874970624a8b17e5ddc9344467ce40e9112e1bf1dd55ceecb0a6",
+      "reference": "minio/mc:RELEASE.2025-04-16T18-13-26Z",
+      "service": "result-object-store-init"
+    },
+    {
+      "image_id": "sha256:3b7413b1cbabb035229e23c5b1d505eb5a79d2da922264a35de3b706659cbb6d",
+      "reference": "taskbound-gateway-integration-snapshot-index-detail",
+      "service": "snapshot-index-detail"
+    },
+    {
+      "image_id": "sha256:f3a52412f04bbb39c13e23e67f665ec9aaaff237254c5f55af365fa5bd3f824f",
+      "reference": "taskbound-gateway-integration-snapshot-index-summary",
+      "service": "snapshot-index-summary"
+    }
+  ],
+  "executed_at": "2026-08-01T12:32:39Z",
+  "exit_code": 0,
+  "raw_log": "evaluation/v5-outcome/raw/compose-e2e.log",
+  "raw_log_sha256": "7ac63873787b881045e22b330321608322c40980c1e0ed5a2046c428392e4566",
+  "schema_version": 1,
+  "submission_commit": "d2b16ab5c9f3d29b318335c41fc18bf23fbff3a6"
+}

@@ -1,0 +1,492 @@
+#1 [internal] load local bake definitions
+#1 reading from stdin 2.36kB done
+#1 DONE 0.0s
+
+#2 [oa-demo internal] load build definition from Dockerfile
+#2 DONE 0.0s
+
+#2 [gateway internal] load build definition from Dockerfile
+#2 transferring dockerfile: 1.02kB done
+#2 DONE 0.0s
+
+#3 [snapshot-index-summary] resolve image config for docker-image://docker.io/docker/dockerfile:1.7
+#3 DONE 2.9s
+
+#4 [oa-demo] docker-image://docker.io/docker/dockerfile:1.7@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
+#4 CACHED
+
+#5 [snapshot-index-detail internal] load build definition from Dockerfile
+#5 transferring dockerfile: 1.02kB done
+#5 DONE 0.0s
+
+#6 [oa-demo internal] load build definition from Dockerfile
+#6 transferring dockerfile: 1.02kB done
+#6 DONE 0.0s
+
+#7 [gateway internal] load build definition from Dockerfile
+#7 transferring dockerfile: 1.02kB done
+#7 DONE 0.0s
+
+#8 [snapshot-index-summary internal] load build definition from Dockerfile
+#8 transferring dockerfile: 1.02kB done
+#8 DONE 0.0s
+
+#9 [gateway internal] load metadata for docker.io/library/debian:bookworm-slim
+#9 DONE 2.0s
+
+#10 [gateway internal] load metadata for docker.io/library/golang:1.25-bookworm
+#10 DONE 2.7s
+
+#11 [gateway internal] load .dockerignore
+#11 transferring context: 625B done
+#11 DONE 0.0s
+
+#12 [snapshot-index-summary internal] load .dockerignore
+#12 transferring context: 625B done
+#12 DONE 0.0s
+
+#13 [oa-demo internal] load .dockerignore
+#13 transferring context: 625B done
+#13 DONE 0.0s
+
+#14 [snapshot-index-detail internal] load .dockerignore
+#14 transferring context: 625B done
+#14 DONE 0.0s
+
+#15 [snapshot-index-detail runtime 1/3] FROM docker.io/library/debian:bookworm-slim@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818
+#15 DONE 0.0s
+
+#16 [snapshot-index-detail base 1/6] FROM docker.io/library/golang:1.25-bookworm@sha256:ea341baa9bd5ba6784f6d7161ace70544349a6242d54d34a0fbfd2c4d51c9d58
+#16 DONE 0.0s
+
+#17 [snapshot-index-detail internal] load build context
+#17 transferring context: 1.27MB 0.0s done
+#17 DONE 0.1s
+
+#18 [gateway internal] load build context
+#18 transferring context: 1.27MB 0.0s done
+#18 DONE 0.1s
+
+#19 [snapshot-index-summary internal] load build context
+#19 transferring context: 1.27MB 0.0s done
+#19 DONE 0.1s
+
+#20 [oa-demo internal] load build context
+#20 transferring context: 1.27MB 0.0s done
+#20 DONE 0.1s
+
+#21 [gateway base 3/6] WORKDIR /src
+#21 CACHED
+
+#22 [gateway base 2/6] RUN apt-get update     && apt-get install -y --no-install-recommends build-essential ca-certificates     && rm -rf /var/lib/apt/lists/*
+#22 CACHED
+
+#23 [gateway base 4/6] COPY go.mod go.sum ./
+#23 CACHED
+
+#24 [oa-demo base 5/6] RUN go mod download
+#24 CACHED
+
+#25 [oa-demo base 6/6] COPY . .
+#25 DONE 0.1s
+
+#26 [snapshot-index-detail base 4/6] COPY go.mod go.sum ./
+#26 CACHED
+
+#27 [snapshot-index-detail base 5/6] RUN go mod download
+#27 CACHED
+
+#28 [snapshot-index-detail base 6/6] COPY . .
+#28 CACHED
+
+#29 [oa-demo base 4/6] COPY go.mod go.sum ./
+#29 CACHED
+
+#22 [snapshot-index-detail base 2/6] RUN apt-get update     && apt-get install -y --no-install-recommends build-essential ca-certificates     && rm -rf /var/lib/apt/lists/*
+#22 CACHED
+
+#21 [snapshot-index-detail base 3/6] WORKDIR /src
+#21 CACHED
+
+#30 [oa-demo base 5/6] RUN go mod download
+#30 CACHED
+
+#31 [oa-demo base 6/6] COPY . .
+#31 CACHED
+
+#32 [snapshot-index-detail build 1/1] RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /out/app ./cmd/snapshot-index
+#32 ...
+
+#33 [oa-demo build 1/1] RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /out/app ./cmd/oa-demo
+#33 DONE 9.2s
+
+#34 [gateway build 1/1] RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /out/app ./cmd/gateway
+#34 ...
+
+#35 [oa-demo runtime 2/3] RUN apt-get update     && apt-get install -y --no-install-recommends ca-certificates curl     && rm -rf /var/lib/apt/lists/*     && groupadd --system --gid 10001 taskbound     && useradd --system --uid 10001 --gid taskbound --home-dir /nonexistent --shell /usr/sbin/nologin taskbound     && mkdir -p /data/snapshot-index     && chown -R 10001:10001 /data
+#35 CACHED
+
+#36 [oa-demo runtime 3/3] COPY --from=build /out/app /usr/local/bin/app
+#36 CACHED
+
+#37 [oa-demo] exporting to image
+#37 exporting layers done
+#37 writing image sha256:4154c19c2ed14b05507376b6eccb68a9c4356ad52a54d0d8b1cc7adb47e6cecc done
+#37 naming to docker.io/library/taskbound-gateway-integration-oa-demo done
+#37 DONE 0.0s
+
+#38 [oa-demo] resolving provenance for metadata file
+#38 DONE 0.0s
+
+#32 [snapshot-index-summary build 1/1] RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /out/app ./cmd/snapshot-index
+#32 DONE 9.4s
+
+#35 [snapshot-index-detail runtime 2/3] RUN apt-get update     && apt-get install -y --no-install-recommends ca-certificates curl     && rm -rf /var/lib/apt/lists/*     && groupadd --system --gid 10001 taskbound     && useradd --system --uid 10001 --gid taskbound --home-dir /nonexistent --shell /usr/sbin/nologin taskbound     && mkdir -p /data/snapshot-index     && chown -R 10001:10001 /data
+#35 CACHED
+
+#39 [snapshot-index-detail runtime 3/3] COPY --from=build /out/app /usr/local/bin/app
+#39 CACHED
+
+#35 [snapshot-index-summary runtime 2/3] RUN apt-get update     && apt-get install -y --no-install-recommends ca-certificates curl     && rm -rf /var/lib/apt/lists/*     && groupadd --system --gid 10001 taskbound     && useradd --system --uid 10001 --gid taskbound --home-dir /nonexistent --shell /usr/sbin/nologin taskbound     && mkdir -p /data/snapshot-index     && chown -R 10001:10001 /data
+#35 CACHED
+
+#40 [snapshot-index-summary] exporting to image
+#40 exporting layers done
+#40 writing image sha256:f3a52412f04bbb39c13e23e67f665ec9aaaff237254c5f55af365fa5bd3f824f done
+#40 naming to docker.io/library/taskbound-gateway-integration-snapshot-index-summary done
+#40 DONE 0.0s
+
+#41 [snapshot-index-detail] exporting to image
+#41 exporting layers done
+#41 writing image sha256:3b7413b1cbabb035229e23c5b1d505eb5a79d2da922264a35de3b706659cbb6d done
+#41 naming to docker.io/library/taskbound-gateway-integration-snapshot-index-detail done
+#41 DONE 0.0s
+
+#42 [snapshot-index-summary] resolving provenance for metadata file
+#42 DONE 0.0s
+
+#43 [snapshot-index-detail] resolving provenance for metadata file
+#43 DONE 0.0s
+
+#34 [gateway build 1/1] RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /out/app ./cmd/gateway
+#34 DONE 30.1s
+
+#35 [gateway runtime 2/3] RUN apt-get update     && apt-get install -y --no-install-recommends ca-certificates curl     && rm -rf /var/lib/apt/lists/*     && groupadd --system --gid 10001 taskbound     && useradd --system --uid 10001 --gid taskbound --home-dir /nonexistent --shell /usr/sbin/nologin taskbound     && mkdir -p /data/snapshot-index     && chown -R 10001:10001 /data
+#35 CACHED
+
+#44 [gateway runtime 3/3] COPY --from=build /out/app /usr/local/bin/app
+#44 DONE 0.0s
+
+#45 [gateway] exporting to image
+#45 exporting layers 0.0s done
+#45 writing image sha256:31d28ac7d69c61e41dedf453a1ca1d03d0175edb53e836af3b2114365486f860 done
+#45 naming to docker.io/library/taskbound-gateway-integration-gateway done
+#45 DONE 0.1s
+
+#46 [gateway] resolving provenance for metadata file
+#46 DONE 0.0s
+ taskbound-gateway-integration-oa-demo  Built
+ taskbound-gateway-integration-snapshot-index-detail  Built
+ taskbound-gateway-integration-snapshot-index-summary  Built
+ taskbound-gateway-integration-gateway  Built
+ Network taskbound-gateway-integration_business-data  Creating
+ Network taskbound-gateway-integration_business-data  Created
+ Network taskbound-gateway-integration_control-plane  Creating
+ Network taskbound-gateway-integration_control-plane  Created
+ Network taskbound-gateway-integration_result-storage  Creating
+ Network taskbound-gateway-integration_result-storage  Created
+ Network taskbound-gateway-integration_integration-host  Creating
+ Network taskbound-gateway-integration_integration-host  Created
+ Network taskbound-gateway-integration_public-edge  Creating
+ Network taskbound-gateway-integration_public-edge  Created
+ Volume taskbound-gateway-integration_snapshot-index-artifacts  Creating
+ Volume taskbound-gateway-integration_snapshot-index-artifacts  Created
+ Volume taskbound-gateway-integration_gateway-encrypted-spool  Creating
+ Volume taskbound-gateway-integration_gateway-encrypted-spool  Created
+ Volume taskbound-gateway-integration_result-object-data  Creating
+ Volume taskbound-gateway-integration_result-object-data  Created
+ Volume taskbound-gateway-integration_business-pg-data  Creating
+ Volume taskbound-gateway-integration_business-pg-data  Created
+ Volume taskbound-gateway-integration_control-pg-data  Creating
+ Volume taskbound-gateway-integration_control-pg-data  Created
+ Container taskbound-gateway-integration-oa-demo-1  Creating
+ Container taskbound-gateway-integration-result-object-store-1  Creating
+ Container taskbound-gateway-integration-business-postgres-1  Creating
+ Container taskbound-gateway-integration-control-postgres-1  Creating
+ Container taskbound-gateway-integration-business-postgres-1  Created
+ Container taskbound-gateway-integration-snapshot-index-detail-1  Creating
+ Container taskbound-gateway-integration-snapshot-index-summary-1  Creating
+ Container taskbound-gateway-integration-result-object-store-1  Created
+ Container taskbound-gateway-integration-result-object-store-init-1  Creating
+ Container taskbound-gateway-integration-oa-demo-1  Created
+ Container taskbound-gateway-integration-control-postgres-1  Created
+ Container taskbound-gateway-integration-snapshot-index-detail-1  Created
+ Container taskbound-gateway-integration-snapshot-index-summary-1  Created
+ Container taskbound-gateway-integration-result-object-store-init-1  Created
+ Container taskbound-gateway-integration-gateway-1  Creating
+ Container taskbound-gateway-integration-gateway-1  Created
+ Container taskbound-gateway-integration-oa-demo-1  Starting
+ Container taskbound-gateway-integration-control-postgres-1  Starting
+ Container taskbound-gateway-integration-result-object-store-1  Starting
+ Container taskbound-gateway-integration-business-postgres-1  Starting
+ Container taskbound-gateway-integration-result-object-store-1  Started
+ Container taskbound-gateway-integration-result-object-store-1  Waiting
+ Container taskbound-gateway-integration-oa-demo-1  Started
+ Container taskbound-gateway-integration-control-postgres-1  Started
+ Container taskbound-gateway-integration-business-postgres-1  Started
+ Container taskbound-gateway-integration-business-postgres-1  Waiting
+ Container taskbound-gateway-integration-business-postgres-1  Waiting
+ Container taskbound-gateway-integration-result-object-store-1  Healthy
+ Container taskbound-gateway-integration-result-object-store-init-1  Starting
+ Container taskbound-gateway-integration-business-postgres-1  Healthy
+ Container taskbound-gateway-integration-snapshot-index-detail-1  Starting
+ Container taskbound-gateway-integration-business-postgres-1  Healthy
+ Container taskbound-gateway-integration-snapshot-index-summary-1  Starting
+ Container taskbound-gateway-integration-result-object-store-init-1  Started
+ Container taskbound-gateway-integration-snapshot-index-detail-1  Started
+ Container taskbound-gateway-integration-snapshot-index-summary-1  Started
+ Container taskbound-gateway-integration-result-object-store-init-1  Waiting
+ Container taskbound-gateway-integration-oa-demo-1  Waiting
+ Container taskbound-gateway-integration-control-postgres-1  Waiting
+ Container taskbound-gateway-integration-business-postgres-1  Waiting
+ Container taskbound-gateway-integration-snapshot-index-detail-1  Waiting
+ Container taskbound-gateway-integration-snapshot-index-summary-1  Waiting
+ Container taskbound-gateway-integration-snapshot-index-summary-1  Exited
+ Container taskbound-gateway-integration-snapshot-index-detail-1  Exited
+ Container taskbound-gateway-integration-control-postgres-1  Healthy
+ Container taskbound-gateway-integration-oa-demo-1  Healthy
+ Container taskbound-gateway-integration-result-object-store-init-1  Exited
+ Container taskbound-gateway-integration-business-postgres-1  Healthy
+ Container taskbound-gateway-integration-gateway-1  Starting
+ Container taskbound-gateway-integration-gateway-1  Started
+ Container taskbound-gateway-integration-snapshot-index-detail-1  Waiting
+ Container taskbound-gateway-integration-gateway-1  Waiting
+ Container taskbound-gateway-integration-control-postgres-1  Waiting
+ Container taskbound-gateway-integration-result-object-store-init-1  Waiting
+ Container taskbound-gateway-integration-result-object-store-1  Waiting
+ Container taskbound-gateway-integration-business-postgres-1  Waiting
+ Container taskbound-gateway-integration-oa-demo-1  Waiting
+ Container taskbound-gateway-integration-snapshot-index-summary-1  Waiting
+ Container taskbound-gateway-integration-control-postgres-1  Healthy
+ Container taskbound-gateway-integration-oa-demo-1  Healthy
+ Container taskbound-gateway-integration-result-object-store-1  Healthy
+ Container taskbound-gateway-integration-snapshot-index-detail-1  Exited
+ Container taskbound-gateway-integration-snapshot-index-summary-1  Exited
+ Container taskbound-gateway-integration-result-object-store-init-1  Exited
+ Container taskbound-gateway-integration-business-postgres-1  Healthy
+ Container taskbound-gateway-integration-gateway-1  Healthy
+ok - Snapshot builders scan Business PostgreSQL through the isolated read-only network
+ok - Gateway deployment admits the maximum-point provenance row count
+ Container taskbound-gateway-integration-business-postgres-1  Running
+ Container taskbound-gateway-integration-control-postgres-1  Running
+#1 [internal] load local bake definitions
+#1 reading from stdin 609B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 1.02kB done
+#2 DONE 0.0s
+
+#3 resolve image config for docker-image://docker.io/docker/dockerfile:1.7
+#3 DONE 1.9s
+
+#4 docker-image://docker.io/docker/dockerfile:1.7@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
+#4 CACHED
+
+#5 [internal] load metadata for docker.io/library/golang:1.25-bookworm
+#5 DONE 2.0s
+
+#6 [internal] load .dockerignore
+#6 transferring context: 625B done
+#6 DONE 0.0s
+
+#7 [base 1/6] FROM docker.io/library/golang:1.25-bookworm@sha256:ea341baa9bd5ba6784f6d7161ace70544349a6242d54d34a0fbfd2c4d51c9d58
+#7 DONE 0.0s
+
+#8 [internal] load build context
+#8 transferring context: 67.59kB 0.0s done
+#8 DONE 0.0s
+
+#9 [base 5/6] RUN go mod download
+#9 CACHED
+
+#10 [base 2/6] RUN apt-get update     && apt-get install -y --no-install-recommends build-essential ca-certificates     && rm -rf /var/lib/apt/lists/*
+#10 CACHED
+
+#11 [base 3/6] WORKDIR /src
+#11 CACHED
+
+#12 [base 4/6] COPY go.mod go.sum ./
+#12 CACHED
+
+#13 [base 6/6] COPY . .
+#13 CACHED
+
+#14 exporting to image
+#14 exporting layers 0.1s done
+#14 writing image sha256:718c5473349099671ed4993deac6268c9141e2ab6d4047682c1e639e39d709be done
+#14 naming to docker.io/library/taskbound-gateway-integration-test-runner done
+#14 DONE 0.1s
+
+#15 resolving provenance for metadata file
+#15 DONE 0.0s
+ok  	taskbound.local/agent-data-gateway/cmd/gateway	1.601s
+?   	taskbound.local/agent-data-gateway/cmd/mcp-probe	[no test files]
+?   	taskbound.local/agent-data-gateway/cmd/oa-demo	[no test files]
+?   	taskbound.local/agent-data-gateway/cmd/snapshot-index	[no test files]
+?   	taskbound.local/agent-data-gateway/cmd/snapshot-sidecar-install	[no test files]
+?   	taskbound.local/agent-data-gateway/evaluation/cmd/ast-gateway	[no test files]
+ok  	taskbound.local/agent-data-gateway/evaluation/cmd/exposure-bench	1.017s
+?   	taskbound.local/agent-data-gateway/evaluation/cmd/exposure-eval	[no test files]
+?   	taskbound.local/agent-data-gateway/evaluation/cmd/exposure-storage	[no test files]
+?   	taskbound.local/agent-data-gateway/evaluation/cmd/merge-evidence	[no test files]
+ok  	taskbound.local/agent-data-gateway/evaluation/cmd/provenance-baseline	1.019s
+ok  	taskbound.local/agent-data-gateway/evaluation/cmd/rq5-online-transition	1.025s
+ok  	taskbound.local/agent-data-gateway/evaluation/cmd/runner	1.025s
+ok  	taskbound.local/agent-data-gateway/evaluation/cmd/schema-digest	1.020s
+ok  	taskbound.local/agent-data-gateway/evaluation/cmd/v4-acceptance	1.169s
+ok  	taskbound.local/agent-data-gateway/evaluation/cmd/v4-compose-observer	1.017s
+ok  	taskbound.local/agent-data-gateway/evaluation/cmd/v4-concurrency	1.033s
+ok  	taskbound.local/agent-data-gateway/evaluation/cmd/v4-distribution	3.541s
+ok  	taskbound.local/agent-data-gateway/evaluation/cmd/v4-million-oracle	1.019s
+ok  	taskbound.local/agent-data-gateway/evaluation/cmd/v4-offline	1.247s
+ok  	taskbound.local/agent-data-gateway/evaluation/cmd/view-contract	1.036s
+ok  	taskbound.local/agent-data-gateway/evaluation/daily-publication/cmd/phase	1.015s
+ok  	taskbound.local/agent-data-gateway/evaluation/exposure	69.104s
+?   	taskbound.local/agent-data-gateway/evaluation/exposureoracle	[no test files]
+ok  	taskbound.local/agent-data-gateway/evaluation/fuzz	1.033s
+ok  	taskbound.local/agent-data-gateway/evaluation/postgresoracle	1.054s
+ok  	taskbound.local/agent-data-gateway/evaluation/security	14.242s
+ok  	taskbound.local/agent-data-gateway/evaluation/v4distribution	5.299s
+ok  	taskbound.local/agent-data-gateway/evaluation/v4oracle	1.067s
+?   	taskbound.local/agent-data-gateway/internal/apierr	[no test files]
+ok  	taskbound.local/agent-data-gateway/internal/approval	1.042s
+ok  	taskbound.local/agent-data-gateway/internal/auditchain	1.082s
+ok  	taskbound.local/agent-data-gateway/internal/catalog	1.228s
+ok  	taskbound.local/agent-data-gateway/internal/control	47.151s
+ok  	taskbound.local/agent-data-gateway/internal/dataconnector	2.101s
+ok  	taskbound.local/agent-data-gateway/internal/domain	1.023s
+ok  	taskbound.local/agent-data-gateway/internal/exposure	1.140s
+ok  	taskbound.local/agent-data-gateway/internal/gateway	43.433s
+ok  	taskbound.local/agent-data-gateway/internal/mcp	1.029s
+ok  	taskbound.local/agent-data-gateway/internal/oademo	2.386s
+ok  	taskbound.local/agent-data-gateway/internal/ordinal	2.427s
+ok  	taskbound.local/agent-data-gateway/internal/queryplan	1.036s
+ok  	taskbound.local/agent-data-gateway/internal/queryreceipt	1.111s
+ok  	taskbound.local/agent-data-gateway/internal/resultartifact	1.055s
+ok  	taskbound.local/agent-data-gateway/internal/semanticcache	1.013s
+ok  	taskbound.local/agent-data-gateway/internal/snapshotbundle	1.465s
+ok  	taskbound.local/agent-data-gateway/internal/sqllowering	1.086s
+ok  	taskbound.local/agent-data-gateway/internal/sqlpolicy	1.094s
+?   	taskbound.local/agent-data-gateway/internal/testpostgres	[no test files]
+ok  	taskbound.local/agent-data-gateway/internal/viewbinding	1.016s
+ok  	taskbound.local/agent-data-gateway/internal/viewcompiler	3.836s
+ok - PostgreSQL-backed unit and race tests passed
+ Container taskbound-gateway-integration-business-postgres-1  Running
+ Container taskbound-gateway-integration-control-postgres-1  Running
+{"Time":"2026-08-01T12:32:09.96135848Z","Action":"start","Package":"taskbound.local/agent-data-gateway/internal/gateway"}
+{"Time":"2026-08-01T12:32:09.965552683Z","Action":"run","Package":"taskbound.local/agent-data-gateway/internal/gateway","Test":"TestCanonicalCopySurvivesAvailableTransactionFailureAndRecoversExactlyOnce"}
+{"Time":"2026-08-01T12:32:09.965600097Z","Action":"output","Package":"taskbound.local/agent-data-gateway/internal/gateway","Test":"TestCanonicalCopySurvivesAvailableTransactionFailureAndRecoversExactlyOnce","Output":"=== RUN   TestCanonicalCopySurvivesAvailableTransactionFailureAndRecoversExactlyOnce\n"}
+{"Time":"2026-08-01T12:32:10.506008181Z","Action":"output","Package":"taskbound.local/agent-data-gateway/internal/gateway","Test":"TestCanonicalCopySurvivesAvailableTransactionFailureAndRecoversExactlyOnce","Output":"--- PASS: TestCanonicalCopySurvivesAvailableTransactionFailureAndRecoversExactlyOnce (0.54s)\n"}
+{"Time":"2026-08-01T12:32:10.506041196Z","Action":"pass","Package":"taskbound.local/agent-data-gateway/internal/gateway","Test":"TestCanonicalCopySurvivesAvailableTransactionFailureAndRecoversExactlyOnce","Elapsed":0.54}
+{"Time":"2026-08-01T12:32:10.506049044Z","Action":"output","Package":"taskbound.local/agent-data-gateway/internal/gateway","Output":"PASS\n"}
+{"Time":"2026-08-01T12:32:10.507357675Z","Action":"output","Package":"taskbound.local/agent-data-gateway/internal/gateway","Output":"ok  \ttaskbound.local/agent-data-gateway/internal/gateway\t0.546s\n"}
+{"Time":"2026-08-01T12:32:10.507382802Z","Action":"pass","Package":"taskbound.local/agent-data-gateway/internal/gateway","Elapsed":0.546}
+ok - canonical-copy/AVAILABLE-commit crash-window recovery passed
+ok - host ports, application accounts, databases, and PostgreSQL/object-store volumes are isolated
+ok - MCP initialize rejects an invalid bearer token
+ok - MCP initialize succeeds with Alice credentials
+#1 [internal] load local bake definitions
+#1 reading from stdin 632B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 1.02kB done
+#2 DONE 0.0s
+
+#3 resolve image config for docker-image://docker.io/docker/dockerfile:1.7
+#3 DONE 1.9s
+
+#4 docker-image://docker.io/docker/dockerfile:1.7@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
+#4 CACHED
+
+#5 [internal] load metadata for docker.io/library/golang:1.25-bookworm
+#5 DONE 1.8s
+
+#6 [internal] load metadata for docker.io/library/debian:bookworm-slim
+#6 DONE 1.9s
+
+#7 [internal] load .dockerignore
+#7 transferring context: 625B done
+#7 DONE 0.0s
+
+#8 [base 1/6] FROM docker.io/library/golang:1.25-bookworm@sha256:ea341baa9bd5ba6784f6d7161ace70544349a6242d54d34a0fbfd2c4d51c9d58
+#8 DONE 0.0s
+
+#9 [runtime 1/3] FROM docker.io/library/debian:bookworm-slim@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818
+#9 DONE 0.0s
+
+#10 [internal] load build context
+#10 transferring context: 67.59kB 0.0s done
+#10 DONE 0.0s
+
+#11 [base 4/6] COPY go.mod go.sum ./
+#11 CACHED
+
+#12 [base 2/6] RUN apt-get update     && apt-get install -y --no-install-recommends build-essential ca-certificates     && rm -rf /var/lib/apt/lists/*
+#12 CACHED
+
+#13 [base 3/6] WORKDIR /src
+#13 CACHED
+
+#14 [base 5/6] RUN go mod download
+#14 CACHED
+
+#15 [base 6/6] COPY . .
+#15 CACHED
+
+#16 [build 1/1] RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /out/app ./cmd/mcp-probe
+#16 DONE 5.9s
+
+#17 [runtime 2/3] RUN apt-get update     && apt-get install -y --no-install-recommends ca-certificates curl     && rm -rf /var/lib/apt/lists/*     && groupadd --system --gid 10001 taskbound     && useradd --system --uid 10001 --gid taskbound --home-dir /nonexistent --shell /usr/sbin/nologin taskbound     && mkdir -p /data/snapshot-index     && chown -R 10001:10001 /data
+#17 CACHED
+
+#18 [runtime 3/3] COPY --from=build /out/app /usr/local/bin/app
+#18 DONE 0.0s
+
+#19 exporting to image
+#19 exporting layers 0.0s done
+#19 writing image sha256:d1f718c55e45cca5b9252942f4093f1a6e4aa77667d937c42e4552d7fea7ec8a done
+#19 naming to docker.io/library/taskbound-gateway-integration-mcp-probe done
+#19 DONE 0.0s
+
+#20 resolving provenance for metadata file
+#20 DONE 0.0s
+ok - official Go MCP client initialized, listed tools, and called /mcp
+ok - official Go MCP client completed a protocol-level call against the Compose Gateway
+ok - Alice sees query tools and no auditor tools
+ok - Carol sees auditor tools and no query tools
+ok - Carol cannot invoke a hidden Alice tool
+ok - list_data_products hides physical view names
+ok - deterministic task listing works
+ok - Bob approval gates low-sensitivity summary task
+ok - approved query creates an AVAILABLE canonical Parquet; preview paginates and delivery streams a complete file
+ Container taskbound-gateway-integration-gateway-1  Restarting
+ Container taskbound-gateway-integration-gateway-1  Started
+ok - Gateway restart preserves Control metadata/audit state and reads the canonical Parquet from object storage
+ok - hard query budget archives the task and blocks later access
+ok - Bob approval gates and then enables a high-sensitivity detail query
+ok - V5 semantic replay avoided Business PostgreSQL and repeated exposure charge
+ok - caller SQL lowers through V5 atomization, Parquet publication, and zero-execution semantic replay
+ok - Bob rejection archives the task permanently
+ok - Alice cannot read another principal's real task and Carol remains receipt-only
+ok - incomplete authorization fails closed and exposure SQL uses the canonical plan path
+ok - gateway_reader can read a published reporting view
+ok - reporting products are populated materialized snapshots owned by a NOLOGIN role
+ok - gateway_reader can read the Catalog-pinned ordinal sidecar
+ok - gateway_reader has no access to legacy schema objects
+ok - gateway_reader cannot write, refresh snapshots, or mutate ordinal sidecars
+all Compose end-to-end checks passed, including canonical object-store Parquet persistence and delivery
