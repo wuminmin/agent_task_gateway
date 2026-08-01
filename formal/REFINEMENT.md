@@ -25,8 +25,8 @@ Current formal status:
 - Artifact publication config: `formal/ArtifactPublication.cfg`
 - V4 ordinal/bitmap refinement model: `formal/ExposureBitmapRefinement.tla`
 - V4 ordinal/bitmap refinement config: `formal/ExposureBitmapRefinement.cfg`
-- V5 Outcome hash-set refinement model: `formal/OutcomeHashSetRefinement.tla`
-- V5 Outcome hash-set refinement config: `formal/OutcomeHashSetRefinement.cfg`
+- Abstract V5 Outcome-set settlement model: `formal/OutcomeHashSetRefinement.tla`
+- Abstract V5 Outcome-set settlement config: `formal/OutcomeHashSetRefinement.cfg`
 - Primary result: `formal/results/tlc.json`
 - Vector-budget result: `formal/results/vector_budget.json`
 - SQL authorization result: `formal/results/sql_authorization.json`
@@ -36,7 +36,7 @@ Current formal status:
 - Root-family exposure result: `formal/results/exposure_ledger.json`
 - Artifact publication result: `formal/results/artifact_publication.json`
 - V4 ordinal/bitmap result: `formal/results/exposure_bitmap_refinement.json`
-- V5 Outcome hash-set result: `formal/results/outcome_hash_set_refinement.json`
+- Abstract V5 Outcome-set settlement result: `formal/results/outcome_hash_set_refinement.json`
 - Archived tool: TLC 1.7.1
 - Latest core TLC result: passed at 2026-07-25T03:38:31Z with 14,824,257
   states generated, 3,255,552 distinct states, and depth 18.
@@ -52,13 +52,13 @@ Current formal status:
   221 states generated, 135 distinct states, and depth 7.
 - Latest root-family exposure result: passed at 2026-08-01T06:27:34Z with
   410,766 states generated, 148,706 distinct states, and depth 12.
-- Latest artifact-publication result: passed at 2026-08-01T06:27:35Z with
-  97 states generated, 36 distinct states, and depth 7.
+- Latest artifact-publication result: passed at 2026-08-01T08:01:51Z with
+  1,497 states generated, 484 distinct states, and depth 15.
 - Latest V4 ordinal/bitmap refinement result: passed at
   2026-08-01T06:27:37Z with 122,976 states generated, 60,680 distinct states,
   and depth 9.
-- Latest V5 Outcome hash-set refinement result: passed at
-  2026-08-01T06:27:38Z with 20 states generated, 10 distinct states, and
+- Latest abstract V5 Outcome-set settlement result: passed at
+  2026-08-01T08:01:54Z with 20 states generated, 10 distinct states, and
   depth 4.
 - Scope: one core task, finite request/receipt sets, abstract
   relation/column/scope sets, explicit crash transitions, a separate finite
@@ -69,9 +69,12 @@ Current formal status:
   one root and one child task, finite release/influence/outcome fact universes, and
   bounded terminal replay. The V4 refinement model separately supplies a finite
   FactID--ordinal bijection, segmented exact bitmaps, one root epoch, CAS refresh,
-  and committed-observation replay. The V5 refinement checks exact hash-set
-  difference/union, while the artifact model separates accounted settlement
-  from later verified availability and recovery without re-execution.
+  and committed-observation replay. The abstract V5 Outcome model checks exact
+  hash-set difference/union, no double charge, budget/replay safety, and
+  fail-closed collision/corruption states; it does not represent physical
+  radix partitions or object reuse. The artifact model separates accounted
+  settlement from later verified availability, exercises failure/mismatch/retry,
+  and permits recovery without re-execution.
 
 The model intentionally abstracts away SQL parser byte-level syntax, full AST
 coverage, cryptographic signatures, PostgreSQL row contents, network I/O,
@@ -170,6 +173,8 @@ at the named abstraction boundaries.
 | `ArtifactPublication.Stage` | `gateway.Service.stageResultArtifact` | Encode/encrypt and upload to a randomized private staging key before Control settlement | result-artifact manager tests | STAGED bytes confer no logical availability. |
 | `ArtifactPublication.Settle` | `FinalizeOrdinalQueryArtifactMeasuredWithReceipt` | One Control transaction commits ledgers, terminal query/audit, V7 receipt, expected object hash, and PENDING row | `TestArtifactPromotionFailurePreservesSettlementAndRecoversWithoutReexecution` | V7 is a settlement receipt, not an availability receipt. |
 | `ArtifactPublication.Promote` | `gateway.Service.promoteResultArtifact`, `Store.MarkResultArtifactAvailable` | Copy to canonical key, verify digest, then atomically set AVAILABLE/`consumed_at` and append `QUERY_RESULT_CONSUMED` | `TestResultDeliveryCapabilityExpiresAndDownloadsDoNotMutateState`, Control artifact tests | The audit event proves logical availability; later downloads do not mutate state. |
+| `ArtifactPublication.PromotionFail` / `PromotionHashMismatch` | failed copy or digest verification in `gateway.Service.promoteResultArtifact` | PENDING intent and settlement remain durable; no AVAILABLE transition occurs | `TestArtifactPromotionFailurePreservesSettlementAndRecoversWithoutReexecution`, artifact manager digest tests | Failure is explored as state, not erased by assigning the expected hash. |
+| `ArtifactPublication.RetryPending` | promotion retry / reconciliation scheduling | Clears only transient failed-attempt state; the artifact remains PENDING | artifact recovery tests | No fairness is assumed, so the model makes no eventual-availability claim. |
 | `ArtifactPublication.Recover` | `Service.ReconcilePendingArtifacts` and same-request replay | Reuses committed PENDING intent; no budget/exposure settlement and no connector invocation | `TestArtifactPromotionFailurePreservesSettlementAndRecoversWithoutReexecution`, `TestArtifactRecoveryGatesReadinessUntilFullPassCompletes` | Readiness remains closed until a full recovery pass succeeds. |
 
 ## V4 Ordinal Refinement Mapping

@@ -160,9 +160,11 @@ apply to that retry.
 
 ## What each dimension means
 
-Release exposure measures explicit values delivered in the canonical result.
-Equal display values derived from different snapshot bundles, expressions, or
-witnesses need not have the same FactID.
+Accounted result exposure (wire label `release`) measures result values selected
+for publication and charged by successful settlement. It upper-bounds the
+facts in an `AVAILABLE` canonical artifact and does not claim the artifact was
+downloaded or observed. Equal display values derived from different snapshot
+bundles, expressions, or witnesses need not have the same FactID.
 
 The dependency footprint is derived by the closed relational algebra. It
 includes, as applicable, retained-row existence, projected cells, predicates

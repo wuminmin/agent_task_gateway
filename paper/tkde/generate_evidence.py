@@ -8,6 +8,7 @@ import io
 import json
 import re
 import runpy
+import subprocess
 import tarfile
 from pathlib import Path
 
@@ -36,6 +37,58 @@ FORMAL_OUTCOME = ROOT / "formal/results/outcome_hash_set_refinement.json"
 FORMAL_ARTIFACT = ROOT / "formal/results/artifact_publication.json"
 V5_OUTCOME = ROOT / "evaluation/v5-outcome/evidence.json"
 OUTPUT = PAPER_DIR / "generated/evidence.tex"
+
+V5_SOURCE_PATHS = (
+    "config/catalog.yaml",
+    "go.mod",
+    "go.sum",
+    "internal/control/migrations/018_predicate_footprint_v5.sql",
+    "internal/control/ordinal_exposure_v5.go",
+    "internal/control/ordinal_materialization_artifact_test.go",
+    "internal/control/outcome_hashset_v5.go",
+    "internal/control/outcome_hashset_v5_test.go",
+    "internal/control/result.go",
+    "internal/exposure/canonical_validation_test.go",
+    "internal/exposure/fact.go",
+    "internal/exposure/outcome_v5_test.go",
+    "internal/gateway/exposure.go",
+    "internal/gateway/result_artifact.go",
+    "internal/gateway/result_artifact_test.go",
+    "internal/queryplan/normalform.go",
+    "internal/queryplan/predicate_footprint.go",
+    "internal/queryreceipt/queryreceipt.go",
+    "scripts/integration-test.sh",
+)
+
+V5_RAW_TEST_COMMAND = [
+    "go", "test", "-json", "-count=1", "./internal/exposure", "./internal/control",
+    "-run",
+    "Test(ValidateCanonicalSQLValueEncodingCoversAdmissibleDomain|"
+    "ValidateCanonicalSQLValueEncodingSpecialValues|"
+    "ValidateCanonicalJSONBEncodingRejectsMalformedTrees|"
+    "PredicateAtomsAcceptCanonicalTimeAndJSONB|"
+    "CanonicalTimeValidatorMatchesEncoderAtMicrosecondBoundaries|"
+    "V5SettlementAndSemanticReplayPostgres|"
+    "OutcomeHashSetV5PostgresLoadsOnlyTouchedBranches|"
+    "OutcomeHashSetV5SamePrefixMultiChunkBoundaries|"
+    "NormalizeV5OutcomeFactsValidatesAtomCompositeBinding|"
+    "OutcomeHashSetV5ExactDifferenceUnionAndReplay|"
+    "OutcomeHashSetV5DeterministicAndTamperEvident)$",
+]
+
+V5_EXPECTED_TESTS = {
+    "TestValidateCanonicalSQLValueEncodingCoversAdmissibleDomain",
+    "TestValidateCanonicalSQLValueEncodingSpecialValues",
+    "TestValidateCanonicalJSONBEncodingRejectsMalformedTrees",
+    "TestPredicateAtomsAcceptCanonicalTimeAndJSONB",
+    "TestCanonicalTimeValidatorMatchesEncoderAtMicrosecondBoundaries",
+    "TestV5SettlementAndSemanticReplayPostgres",
+    "TestOutcomeHashSetV5PostgresLoadsOnlyTouchedBranches",
+    "TestOutcomeHashSetV5SamePrefixMultiChunkBoundaries",
+    "TestNormalizeV5OutcomeFactsValidatesAtomCompositeBinding",
+    "TestOutcomeHashSetV5ExactDifferenceUnionAndReplay",
+    "TestOutcomeHashSetV5DeterministicAndTamperEvident",
+}
 
 PERFORMANCE_SOURCE_DIRS = (
     "internal",
@@ -663,25 +716,123 @@ def validate_formal(path: Path, label: str) -> dict:
     return result
 
 
+def v5_source_manifest_digest(files: list[dict[str, str]]) -> str:
+    canonical = json.dumps(files, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def validate_v5_raw_execution(receipt: dict) -> None:
+    require(
+        set(receipt) == {
+            "raw_log", "raw_log_sha256", "command", "go_version",
+            "postgres_version", "exit_code", "tests_passed", "tests_skipped",
+            "tests_failed", "packages_passed",
+        },
+        "V5 raw execution receipt schema is invalid",
+    )
+    raw_relative = receipt.get("raw_log", "")
+    raw_path = ROOT / raw_relative
+    require(
+        raw_relative == "evaluation/v5-outcome/raw/go-test.jsonl"
+        and raw_path.is_file()
+        and receipt.get("raw_log_sha256") == sha256(raw_path)
+        and receipt.get("command") == V5_RAW_TEST_COMMAND
+        and re.fullmatch(r"go version go1\.[0-9]+(?:\.[0-9]+)? linux/amd64", receipt.get("go_version", "")) is not None
+        and re.fullmatch(r"PostgreSQL 16\.[0-9]+ .*", receipt.get("postgres_version", "")) is not None
+        and receipt.get("exit_code") == 0,
+        "V5 raw execution identity, command, runtime, or digest is invalid",
+    )
+    events = []
+    for line_number, line in enumerate(raw_path.read_text(encoding="utf-8").splitlines(), 1):
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"V5 raw go-test log line {line_number} is not JSON") from exc
+        require(isinstance(event, dict) and "Action" in event and "Package" in event,
+                f"V5 raw go-test event {line_number} is malformed")
+        events.append(event)
+    passed = {
+        event["Test"] for event in events
+        if event.get("Action") == "pass" and event.get("Test") and "/" not in event["Test"]
+    }
+    skipped = {event["Test"] for event in events if event.get("Action") == "skip" and event.get("Test")}
+    failed = {event["Test"] for event in events if event.get("Action") == "fail" and event.get("Test")}
+    package_passes = {
+        event["Package"] for event in events
+        if event.get("Action") == "pass" and not event.get("Test")
+    }
+    package_failures = {
+        event["Package"] for event in events
+        if event.get("Action") == "fail" and not event.get("Test")
+    }
+    require(
+        passed == V5_EXPECTED_TESTS
+        and not skipped
+        and not failed
+        and package_passes == {
+            "taskbound.local/agent-data-gateway/internal/exposure",
+            "taskbound.local/agent-data-gateway/internal/control",
+        }
+        and not package_failures
+        and receipt.get("tests_passed") == len(passed)
+        and receipt.get("tests_skipped") == len(skipped)
+        and receipt.get("tests_failed") == len(failed)
+        and receipt.get("packages_passed") == len(package_passes),
+        "V5 raw go-test receipt does not prove the exact required passing test set",
+    )
+
+
 def validate_v5_outcome_evidence() -> dict:
     result = load_json(V5_OUTCOME)
     require(
         set(result) == {
-            "schema_version", "submission_commit", "test_source", "test_source_sha256",
+            "schema_version", "implementation_base_commit", "source_manifest",
+            "raw_execution",
             "deterministic_set", "postgres_committed_graph", "same_prefix_multichunk",
         }
-        and result.get("schema_version") == 1,
+        and result.get("schema_version") == 2,
         "V5 outcome evidence schema is invalid",
     )
-    source_relative = result.get("test_source", "")
-    source = ROOT / source_relative
-    require(
-        source_relative == "internal/control/outcome_hashset_v5_test.go"
-        and source.is_file()
-        and re.fullmatch(r"[0-9a-f]{40}", result.get("submission_commit", "")) is not None
-        and result.get("test_source_sha256") == sha256(source),
-        "V5 outcome evidence source binding is stale",
+    base_commit = result.get("implementation_base_commit", "")
+    commit_check = subprocess.run(
+        ["git", "cat-file", "-e", f"{base_commit}^{{commit}}"],
+        cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
     )
+    ancestry_check = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", base_commit, "HEAD"], cwd=ROOT,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
+    )
+    require(
+        re.fullmatch(r"[0-9a-f]{40}", base_commit) is not None
+        and commit_check.returncode == 0
+        and ancestry_check.returncode == 0,
+        "V5 implementation base commit is missing or is not an ancestor of HEAD",
+    )
+    manifest = result.get("source_manifest", {})
+    require(
+        set(manifest) == {"algorithm", "files", "sha256"}
+        and manifest.get("algorithm") == "sha256(canonical-json(sorted-path-sha256-list))"
+        and isinstance(manifest.get("files"), list),
+        "V5 implementation source manifest schema is invalid",
+    )
+    files = manifest["files"]
+    require(
+        [item.get("path") for item in files if isinstance(item, dict)] == list(V5_SOURCE_PATHS)
+        and all(set(item) == {"path", "sha256"} for item in files),
+        "V5 implementation source manifest paths are incomplete or unordered",
+    )
+    for item in files:
+        source = ROOT / item["path"]
+        require(
+            source.is_file() and re.fullmatch(r"[0-9a-f]{64}", item["sha256"]) is not None
+            and sha256(source) == item["sha256"],
+            f"V5 implementation source binding is stale for {item['path']}",
+        )
+    require(
+        manifest.get("sha256") == v5_source_manifest_digest(files),
+        "V5 implementation source-set digest is stale",
+    )
+    validate_v5_raw_execution(result.get("raw_execution", {}))
     require(
         result.get("deterministic_set") == {
             "members": 10000, "permutation_deterministic": True,
@@ -698,7 +849,7 @@ def validate_v5_outcome_evidence() -> dict:
         and result.get("same_prefix_multichunk") == {
             "members": 8193, "prefix16": "4224", "chunk_size": 4096,
             "chunks_before": 3, "insert_positions": ["first", "middle", "last"],
-            "exact_oracle_match": True, "contiguous_rechunking": True,
+            "full_rebuild_reference_match": True, "contiguous_rechunking": True,
             "missing_chunk_rejected": True, "replay_changed_objects": 0,
         },
         "V5 outcome evidence counters or asserted properties are invalid",
@@ -988,6 +1139,10 @@ def main() -> None:
         rf"\newcommand{{\ArtifactFormalStates}}{{{comma(artifact_formal['states_generated'])}}}",
         rf"\newcommand{{\ArtifactFormalDistinct}}{{{comma(artifact_formal['distinct_states'])}}}",
         rf"\newcommand{{\ArtifactFormalDepth}}{{{artifact_formal['search_depth']}}}",
+        rf"\newcommand{{\VFiveImplementationCommit}}{{\texttt{{{v5_outcome['implementation_base_commit']}}}}}",
+        rf"\newcommand{{\VFiveImplementationSourceHash}}{{\nolinkurl{{{v5_outcome['source_manifest']['sha256']}}}}}",
+        rf"\newcommand{{\VFiveRawLogHash}}{{\nolinkurl{{{v5_outcome['raw_execution']['raw_log_sha256']}}}}}",
+        rf"\newcommand{{\VFiveRawTestsPassed}}{{{v5_outcome['raw_execution']['tests_passed']}}}",
         rf"\newcommand{{\VFiveDeterministicMembers}}{{{comma(v5_outcome['deterministic_set']['members'])}}}",
         rf"\newcommand{{\VFiveRootCardinality}}{{{comma(v5_outcome['postgres_committed_graph']['root_cardinality'])}}}",
         rf"\newcommand{{\VFiveRootBlocks}}{{{v5_outcome['postgres_committed_graph']['root_block_count']}}}",

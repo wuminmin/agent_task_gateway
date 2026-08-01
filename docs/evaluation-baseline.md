@@ -202,7 +202,9 @@ authorization, visible/provenance execution, deterministic fact derivation,
 root-history set difference, budget check, atomic three-dimensional settlement,
 receipt, and result release. The measured dimensions are:
 
-- **Release exposure:** facts represented in the released result;
+- **Accounted result exposure** (wire label `release`): result facts selected
+  for publication and charged at settlement, whether or not promotion later
+  reaches `AVAILABLE`;
 - **Dependency exposure:** the contract-defined positive-output dependency
   footprint (`influence` in compatibility fields); and
 - **Outcome exposure:** canonical query-outcome facts.

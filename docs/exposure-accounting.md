@@ -4,13 +4,19 @@ TaskGate 的核心预算主体是人类授权的根任务，而不是单条 SQL�
 进程或一次数据库连接。系统在传统查询数、返回行数和数据库时间之外，维护
 三个互相独立的事实账本：
 
-- **release exposure**：已经交付给任务族的原始或派生结果事实；
+- **accounted result exposure**（API/数据库兼容标签 `release`）：查询成功结算时，
+  为准备逻辑发布而计费的原始或派生结果事实；它不证明 artifact 已可用或已被观察；
 - **positive-output dependency**：按 V2 闭合代数规则参与已交付正向输出成功推导
   的基础 row/cell facts；API/数据库仍以 `influence` 作为兼容标签。
 - **query outcome**：一个成功查询对应一个 FactID，绑定服务端规范化 QueryPlan、
   发布 FactSet 摘要和可见行数；不同命题即使都返回空集或 `0` 也不会合并。
 
-这里的“交付”由 TaskGate 控制的 canonical result artifact 定义：Gateway 在对象存储中成功创建客户端侧加密的规范 Parquet 对象时，该结果即视为任务族已经消费。Agent 是否调用 preview、是否生成下载 URL、是否真的下载以及下载次数，都不会增加或撤销 release/dependency/outcome 费用。
+令 `F_release_candidate(q)` 为 withheld execution 内派生的候选结果事实，
+`F_release_accounted(q)` 为 settlement 已计费事实，`F_release_available(q)`
+为 canonical artifact 达到 `AVAILABLE` 后可逻辑发布的事实。成功结算时前两者相等，且
+`F_release_available(q) ⊆ F_release_accounted(q)`。promotion 永久失败时，已计费事实
+可以从未变成可用事实。系统不跟踪 preview、下载或 Agent/人的实际观察；这些行为既不
+增加也不撤销 release/dependency/outcome 费用。
 
 这不是差分隐私预算，也不估算互信息或推断风险。它是一个版本化契约下的
 确定性显式披露与命题计量模型。dependency 是保守 operator-input footprint：既不

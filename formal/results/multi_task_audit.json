@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "status": "passed",
-  "checked_at": "2026-08-01T06:27:28Z",
+  "checked_at": "2026-08-01T08:01:43Z",
   "tool": "TLC",
   "tool_version": "1.7.1",
   "model": "formal/MultiTaskAudit.tla",
@@ -9,7 +9,7 @@
   "model_sha256": "a6bfc67ad5b45247f5527cf096889c5f32b2a3dd1c86865c8aed5a4e0270c115",
   "config_sha256": "c5178b5241f7478ab8b35a5a0a9d01a6197548de2d86647282793a76ee96f0f6",
   "raw_log": "formal/results/multi_task_audit.log",
-  "log_sha256": "8c5161c6638b2c6a15aff8e7ebec060308208b4b5939c099ac35fbc3ee8fd916",
+  "log_sha256": "a71d1ceb478892c87a309f522fb8547913aa2504314908f77f0a42a7cfe03761",
   "states_generated": 129103,
   "distinct_states": 129103,
   "search_depth": 7,

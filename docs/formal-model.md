@@ -15,7 +15,7 @@ Let the three exposure dimensions be
 \mathcal J=\{R,D,O\},
 \]
 
-where `R` is release exposure, `D` is the positive-output dependency
+where `R` is accounted result exposure (wire label `release`), `D` is the positive-output dependency
 footprint, and `O` is query-outcome exposure. The implementation retains the
 field name `influence` for compatibility; throughout this model that field
 means `D`, not causal influence.
@@ -84,10 +84,13 @@ E(T,q)=\bigl(E_R(T,q),E_D(T,q),E_O(T,q)\bigr).
 The three components are different semantic objects and are never collapsed
 into one weighted score.
 
-### 3.1 Release exposure
+### 3.1 Accounted result exposure (wire label `release`)
 
-\(E_R(T,q)\) contains the base or derived cell FactIDs that would appear in
-the visible result artifact. A derived value identity binds its source/snapshot
+\(E_R(T,q)\) contains the base or derived cell FactIDs selected for publication
+and charged at successful settlement. If \(F_R^{available}(q)\) denotes facts
+in a canonical artifact after `AVAILABLE`, then
+\(F_R^{available}(q)\subseteq E_R(T,q)\); download and observation are not
+tracked. A derived value identity binds its source/snapshot
 bundle, canonical output key and expression, typed value, and witness
 commitment. Consequently, equal display values from different semantic
 derivations need not be the same release fact.

@@ -1,8 +1,109 @@
 {
-  "schema_version": 1,
-  "submission_commit": "109bb0796724abb9dbc7d23ef1c71137475f1239",
-  "test_source": "internal/control/outcome_hashset_v5_test.go",
-  "test_source_sha256": "fd7a5da63dc033f371b11c5f0deae507e1cb500c58b8a1bd711226e3ba9b2d1b",
+  "schema_version": 2,
+  "implementation_base_commit": "030c1f6c42abf67dac3fb512ca7206bf694827ec",
+  "source_manifest": {
+    "algorithm": "sha256(canonical-json(sorted-path-sha256-list))",
+    "files": [
+      {
+        "path": "config/catalog.yaml",
+        "sha256": "b14248c07d6b85346508d40dcf1d36c84160355bd2b952007a3d90e17c65b226"
+      },
+      {
+        "path": "go.mod",
+        "sha256": "b694a98fd2197fbb830306c8fd72976aa7a9e9a5f69c3e5c3683fdfa5efde7ec"
+      },
+      {
+        "path": "go.sum",
+        "sha256": "74fab9bab7eb3804d3c845cd07e7b76d1606e423964aee9330f16af928ff7389"
+      },
+      {
+        "path": "internal/control/migrations/018_predicate_footprint_v5.sql",
+        "sha256": "3e15bc1891b20be86ae9bbdd3fe38d5c4b86c70c1d5b2e605935e355c04012f8"
+      },
+      {
+        "path": "internal/control/ordinal_exposure_v5.go",
+        "sha256": "b4f1e1e741af4db0f001cf5333a8cbcaa6c857de6eb6dd5c499d8d624cac9db5"
+      },
+      {
+        "path": "internal/control/ordinal_materialization_artifact_test.go",
+        "sha256": "802bf7f3babbee2b4f0087888ecfbf810ef68580d1ff3b2f3815bf02fe954a73"
+      },
+      {
+        "path": "internal/control/outcome_hashset_v5.go",
+        "sha256": "7a29d8fd285db12e6cd1d0f95d490fb2ea4e40ad60084a786e6ace432d51c6cc"
+      },
+      {
+        "path": "internal/control/outcome_hashset_v5_test.go",
+        "sha256": "fd7a5da63dc033f371b11c5f0deae507e1cb500c58b8a1bd711226e3ba9b2d1b"
+      },
+      {
+        "path": "internal/control/result.go",
+        "sha256": "f19bdf3f4e46d559c0c1176799d3e41428f2536db3949aa370ef79867b844868"
+      },
+      {
+        "path": "internal/exposure/canonical_validation_test.go",
+        "sha256": "25d390d15df3c59f97e28336e1cf76f75a9e407c25cce0608f79f43e31dfb27a"
+      },
+      {
+        "path": "internal/exposure/fact.go",
+        "sha256": "0597a7835dc73cfd155b42152a4a3de869c08805ed2a4dfcbb4bbb0aba74e60a"
+      },
+      {
+        "path": "internal/exposure/outcome_v5_test.go",
+        "sha256": "d69d36c6cf0aab5b6eb2b6c79124ce4810d514bace6e9c4b36bb0a96399b2ec9"
+      },
+      {
+        "path": "internal/gateway/exposure.go",
+        "sha256": "f36aa63baf1c964f274ade601d7746836e874b33759f0daf0f934816ffc80425"
+      },
+      {
+        "path": "internal/gateway/result_artifact.go",
+        "sha256": "c67c660434e0bf1ccb5d790265a22e52004de8ab16ead150cac4dc5599acab4f"
+      },
+      {
+        "path": "internal/gateway/result_artifact_test.go",
+        "sha256": "dd36f55c9112a964121f6c225b39e964887efafdfb875d20ed0f50a49e2292c8"
+      },
+      {
+        "path": "internal/queryplan/normalform.go",
+        "sha256": "946a40b229b5f34c9614d1b1e6a158c755554ed34bc962f31e7594125c9346cf"
+      },
+      {
+        "path": "internal/queryplan/predicate_footprint.go",
+        "sha256": "df00d072b6f99f57f71410ba1689e9965b4c5f7c9b18b0f48b97d5eabf361ace"
+      },
+      {
+        "path": "internal/queryreceipt/queryreceipt.go",
+        "sha256": "2986581e41ab180341f304a0446bb0daa80e5d2c088ef96056ecf45924fa5472"
+      },
+      {
+        "path": "scripts/integration-test.sh",
+        "sha256": "bd196406f63ed0a5490e12a1c27815aeedd1a3a622df55f6e193b74c3b6c9da7"
+      }
+    ],
+    "sha256": "6c459816b30a60cda1e9757ecf87d8c3d8072eeaa06a9f2a9a27003db0f98409"
+  },
+  "raw_execution": {
+    "raw_log": "evaluation/v5-outcome/raw/go-test.jsonl",
+    "raw_log_sha256": "c5281414953cb4871f50303cbd11dc305e6acd4017ce37af63b010958468e706",
+    "command": [
+      "go",
+      "test",
+      "-json",
+      "-count=1",
+      "./internal/exposure",
+      "./internal/control",
+      "-run",
+      "Test(ValidateCanonicalSQLValueEncodingCoversAdmissibleDomain|ValidateCanonicalSQLValueEncodingSpecialValues|ValidateCanonicalJSONBEncodingRejectsMalformedTrees|PredicateAtomsAcceptCanonicalTimeAndJSONB|CanonicalTimeValidatorMatchesEncoderAtMicrosecondBoundaries|V5SettlementAndSemanticReplayPostgres|OutcomeHashSetV5PostgresLoadsOnlyTouchedBranches|OutcomeHashSetV5SamePrefixMultiChunkBoundaries|NormalizeV5OutcomeFactsValidatesAtomCompositeBinding|OutcomeHashSetV5ExactDifferenceUnionAndReplay|OutcomeHashSetV5DeterministicAndTamperEvident)$"
+    ],
+    "go_version": "go version go1.25.12 linux/amd64",
+    "postgres_version": "PostgreSQL 16.14 (Debian 16.14-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit",
+    "exit_code": 0,
+    "tests_passed": 11,
+    "tests_skipped": 0,
+    "tests_failed": 0,
+    "packages_passed": 2
+  },
   "deterministic_set": {
     "members": 10000,
     "permutation_deterministic": true,
@@ -26,8 +127,12 @@
     "prefix16": "4224",
     "chunk_size": 4096,
     "chunks_before": 3,
-    "insert_positions": ["first", "middle", "last"],
-    "exact_oracle_match": true,
+    "insert_positions": [
+      "first",
+      "middle",
+      "last"
+    ],
+    "full_rebuild_reference_match": true,
     "contiguous_rechunking": true,
     "missing_chunk_rejected": true,
     "replay_changed_objects": 0

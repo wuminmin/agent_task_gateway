@@ -23,8 +23,8 @@
 \newcommand{\rieffect}{\mathcal E^{ri}}
 \input{generated/evidence.tex}
 
-\title{Supplement to ``TaskGate: Accounting and Controlling Cumulative Data
-Exposure in Agentic Database Systems''}
+\title{Supplement to ``TaskGate: Task-Scoped Accounting of Cumulative Query
+Exposure over Versioned Reporting Snapshots''}
 \author{Anonymous Author(s)}
 \date{}
 
@@ -190,7 +190,7 @@ maximum combines alternative witnesses. Grouping includes group-key inputs and
 the complete declared aggregate argument, including NULL and non-extreme
 \code{MIN/MAX} inputs. Exact/integer \code{SUM} is admitted; floating-point
 \code{SUM} is undefined. Pagination uses PostgreSQL ordering plus a Catalog
-key suffix that proves totality, and copies annotations only for the delivered
+key suffix that proves totality, and copies annotations only for the selected output
 slice. These are positive-output dependencies, not physical-read or minimal
 causal provenance.
 
@@ -420,7 +420,7 @@ sets, and hence their ordered canonical encodings, are unique.
 \begin{proof}[Proof of Group-key completeness]
 E-Group includes $\bigoplus_{g\in G}\alpha_g(t)$ in the output row annotation.
 Projection preserves that annotation, and effect extraction includes every
-delivered row's $S_r$ independently of $V$.
+selected output row's $S_r$ independently of $V$.
 \end{proof}
 
 \begin{proof}[Proof of Distinct-dependency completeness]
@@ -571,6 +571,25 @@ prefixes. The source-controlled PostgreSQL regression commits a
 \VFiveRootCardinality{}-member object graph before an independent merge
 transaction; the \VFiveSamePrefixMembers{}-member same-prefix regression covers
 multi-chunk boundary shifts and missing-chunk failure.
+
+\begin{table}[h]
+\centering
+\caption{V5 reproducibility bindings. The Git identity is the existing base
+commit; the complete bounded source manifest binds the tested working tree,
+including production and test files.}
+\label{tab:v5-reproducibility}
+\small
+\begin{tabular}{L{0.29\columnwidth}L{0.64\columnwidth}}
+\toprule
+Binding & Identity \\
+\midrule
+Implementation base commit & \VFiveImplementationCommit \\
+Implementation source-set SHA-256 & \VFiveImplementationSourceHash \\
+Raw \code{go test -json} SHA-256 & \VFiveRawLogHash \\
+Required tests passing & \VFiveRawTestsPassed{}; zero skipped and zero failed \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \section{V4 Ordinal/Bitmap Refinement}
 

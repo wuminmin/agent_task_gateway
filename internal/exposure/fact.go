@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -688,8 +689,10 @@ func CanonicalSQLValue(sqlType string, value any) (string, error) {
 }
 
 // ValidateCanonicalSQLValueEncoding independently checks an already encoded
-// literal at the Control trust boundary. It decodes the type-tagged text and
-// requires CanonicalSQLValue to reproduce it byte-for-byte.
+// literal at the Control trust boundary. Most scalar encodings can be decoded
+// to their public Go representation and passed through CanonicalSQLValue.
+// TIME and JSONB use internal representations, so they are validated directly
+// without changing their durable FactID bytes.
 func ValidateCanonicalSQLValueEncoding(sqlType, encoded string) error {
 	typeName, err := CanonicalSQLTypeV2(sqlType)
 	if err != nil {
@@ -744,7 +747,21 @@ func ValidateCanonicalSQLValueEncoding(sqlType, encoded string) error {
 	case "date":
 		value, err = requirePrefix("d:")
 	case "time without time zone":
-		value, err = requirePrefix("tm:")
+		var text string
+		text, err = requirePrefix("tm:")
+		if err == nil {
+			var microseconds int64
+			microseconds, err = strconv.ParseInt(text, 10, 64)
+			const microsecondsPerDay = int64(24 * time.Hour / time.Microsecond)
+			if err == nil && (microseconds < 0 || microseconds > microsecondsPerDay ||
+				strconv.FormatInt(microseconds, 10) != text) {
+				err = fmt.Errorf("%w: non-canonical time without time zone encoding", ErrInvalid)
+			}
+		}
+		if err != nil {
+			return err
+		}
+		return nil
 	case "timestamp with time zone":
 		value, err = requirePrefix("tz:")
 	case "timestamp without time zone":
@@ -752,7 +769,13 @@ func ValidateCanonicalSQLValueEncoding(sqlType, encoded string) error {
 	case "jsonb":
 		var text string
 		text, err = requirePrefix("j:")
-		value = []byte(text)
+		if err == nil {
+			err = validateCanonicalJSONBEncoding([]byte(text))
+		}
+		if err != nil {
+			return err
+		}
+		return nil
 	case "uuid":
 		value, err = requirePrefix("u:")
 	case "text", "character", "character varying":
@@ -1224,6 +1247,186 @@ func writeCanonicalJSONValue(buffer *bytes.Buffer, value any) error {
 		return writeCanonicalJSONValue(buffer, normalized)
 	}
 	return nil
+}
+
+type canonicalJSONBNode struct {
+	tag      byte
+	text     string
+	boolean  bool
+	children []canonicalJSONBNode
+	members  []canonicalJSONBMember
+}
+
+type canonicalJSONBMember struct {
+	key   string
+	value canonicalJSONBNode
+}
+
+type canonicalJSONBDecoder struct {
+	data   []byte
+	offset int
+}
+
+// validateCanonicalJSONBEncoding recognizes the durable tagged representation
+// emitted by writeCanonicalJSONValue. It is deliberately independent of the
+// standard JSON decoder: this byte stream is canonical JSONB identity, not JSON
+// source text.
+func validateCanonicalJSONBEncoding(encoded []byte) error {
+	decoder := canonicalJSONBDecoder{data: encoded}
+	node, err := decoder.value()
+	if err != nil {
+		return err
+	}
+	if decoder.offset != len(encoded) {
+		return fmt.Errorf("%w: canonical JSONB has trailing bytes", ErrInvalid)
+	}
+	var reproduced bytes.Buffer
+	writeCanonicalJSONBNode(&reproduced, node)
+	if !bytes.Equal(reproduced.Bytes(), encoded) {
+		return fmt.Errorf("%w: non-canonical JSONB encoding", ErrInvalid)
+	}
+	return nil
+}
+
+func (decoder *canonicalJSONBDecoder) value() (canonicalJSONBNode, error) {
+	if decoder.offset >= len(decoder.data) {
+		return canonicalJSONBNode{}, fmt.Errorf("%w: truncated canonical JSONB value", ErrInvalid)
+	}
+	tag := decoder.data[decoder.offset]
+	decoder.offset++
+	node := canonicalJSONBNode{tag: tag}
+	switch tag {
+	case 'z':
+		return node, nil
+	case 'b':
+		if decoder.offset >= len(decoder.data) ||
+			(decoder.data[decoder.offset] != '0' && decoder.data[decoder.offset] != '1') {
+			return canonicalJSONBNode{}, fmt.Errorf("%w: malformed canonical JSONB boolean", ErrInvalid)
+		}
+		node.boolean = decoder.data[decoder.offset] == '1'
+		decoder.offset++
+		return node, nil
+	case 's':
+		text, err := decoder.text()
+		if err != nil {
+			return canonicalJSONBNode{}, err
+		}
+		node.text = text
+		return node, nil
+	case 'n':
+		text, err := decoder.text()
+		if err != nil {
+			return canonicalJSONBNode{}, err
+		}
+		rational, ok := new(big.Rat).SetString(text)
+		if !ok || rational.RatString() != text {
+			return canonicalJSONBNode{}, fmt.Errorf("%w: non-canonical JSONB rational", ErrInvalid)
+		}
+		node.text = text
+		return node, nil
+	case 'a':
+		count, err := decoder.count(1)
+		if err != nil {
+			return canonicalJSONBNode{}, err
+		}
+		node.children = make([]canonicalJSONBNode, 0, count)
+		for index := 0; index < count; index++ {
+			child, childErr := decoder.value()
+			if childErr != nil {
+				return canonicalJSONBNode{}, childErr
+			}
+			node.children = append(node.children, child)
+		}
+		return node, nil
+	case 'o':
+		count, err := decoder.count(9)
+		if err != nil {
+			return canonicalJSONBNode{}, err
+		}
+		node.members = make([]canonicalJSONBMember, 0, count)
+		previous := ""
+		for index := 0; index < count; index++ {
+			key, keyErr := decoder.text()
+			if keyErr != nil {
+				return canonicalJSONBNode{}, keyErr
+			}
+			if index > 0 && key <= previous {
+				return canonicalJSONBNode{}, fmt.Errorf("%w: canonical JSONB object keys are not strictly sorted", ErrInvalid)
+			}
+			child, childErr := decoder.value()
+			if childErr != nil {
+				return canonicalJSONBNode{}, childErr
+			}
+			node.members = append(node.members, canonicalJSONBMember{key: key, value: child})
+			previous = key
+		}
+		return node, nil
+	default:
+		return canonicalJSONBNode{}, fmt.Errorf("%w: unknown canonical JSONB tag %q", ErrInvalid, tag)
+	}
+}
+
+func (decoder *canonicalJSONBDecoder) count(minimumBytes uint64) (int, error) {
+	value, err := decoder.uint64()
+	if err != nil {
+		return 0, err
+	}
+	remaining := uint64(len(decoder.data) - decoder.offset)
+	if value > remaining/minimumBytes || value > uint64(^uint(0)>>1) {
+		return 0, fmt.Errorf("%w: canonical JSONB count exceeds remaining input", ErrInvalid)
+	}
+	return int(value), nil
+}
+
+func (decoder *canonicalJSONBDecoder) text() (string, error) {
+	length, err := decoder.uint64()
+	if err != nil {
+		return "", err
+	}
+	remaining := uint64(len(decoder.data) - decoder.offset)
+	if length > remaining {
+		return "", fmt.Errorf("%w: truncated canonical JSONB string", ErrInvalid)
+	}
+	value := string(decoder.data[decoder.offset : decoder.offset+int(length)])
+	decoder.offset += int(length)
+	if !utf8.ValidString(value) {
+		return "", fmt.Errorf("%w: canonical JSONB string is not UTF-8", ErrInvalid)
+	}
+	return value, nil
+}
+
+func (decoder *canonicalJSONBDecoder) uint64() (uint64, error) {
+	if len(decoder.data)-decoder.offset < 8 {
+		return 0, fmt.Errorf("%w: truncated canonical JSONB length", ErrInvalid)
+	}
+	value := binary.BigEndian.Uint64(decoder.data[decoder.offset : decoder.offset+8])
+	decoder.offset += 8
+	return value, nil
+}
+
+func writeCanonicalJSONBNode(buffer *bytes.Buffer, node canonicalJSONBNode) {
+	buffer.WriteByte(node.tag)
+	switch node.tag {
+	case 'b':
+		if node.boolean {
+			buffer.WriteByte('1')
+		} else {
+			buffer.WriteByte('0')
+		}
+	case 's', 'n':
+		writeCanonicalString(buffer, node.text)
+	case 'a':
+		writeCanonicalUint64(buffer, uint64(len(node.children)))
+		for _, child := range node.children {
+			writeCanonicalJSONBNode(buffer, child)
+		}
+	case 'o':
+		writeCanonicalUint64(buffer, uint64(len(node.members)))
+		for _, member := range node.members {
+			writeCanonicalString(buffer, member.key)
+			writeCanonicalJSONBNode(buffer, member.value)
+		}
+	}
 }
 
 func canonicalUUID(value any) (string, error) {

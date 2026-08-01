@@ -21,7 +21,14 @@ over-budget rejection, terminal replay, and root revocation. It ends at
 accounting and does not equate settlement with delivery.
 `ArtifactPublication.tla` separately models private STAGED data, atomically
 settled PENDING intent, recoverable AVAILABLE publication, committed-object
-hash agreement, and recovery without a second execution or ledger delta.
+hash agreement, failed promotion, hash mismatch, retry while PENDING, and
+recovery without a second execution or ledger delta. It is a safety model:
+without weak fairness it makes no eventual-availability claim.
+`OutcomeHashSetRefinement.tla` is an abstract exact-set settlement model for
+difference/union, no double charge, budget safety, replay, and fail-closed
+collision/corruption states. It does not model prefix16 routing, chunks,
+blocks, radix manifests, or object reuse; executable regressions cover those
+physical obligations.
 `REFINEMENT.md` maps each modeled action to the current Go method,
 PostgreSQL transaction or invariant, and test/fault-injection evidence. That
 mapping is an audit artifact, not a mechanized refinement proof.
@@ -67,6 +74,7 @@ implementation refines these models.
 | Ledger accounting occurs exactly at successful settlement | `AccountedIffSettled`, `RejectedResultsStayBuffered` |
 | Availability requires settlement and the canonical object hash | `AvailableImpliesSettled`, `AvailableHashMatches` in `ArtifactPublication.tla` |
 | Rejection never becomes available | `RejectedNotAvailable` in `ArtifactPublication.tla` |
+| Failed or hash-mismatched promotion remains unavailable pending retry/recovery | `PromotionFail`, `PromotionHashMismatch`, `RetryPending`, and `RetryRequiredStaysPending` in `ArtifactPublication.tla` |
 | Publication recovery has zero exposure delta and one execution | `RecoveryHasZeroLedgerDelta`, `RecoveryDoesNotReexecute` in `ArtifactPublication.tla` |
 | Provenance evidence corresponds to the buffered execution | `DerivedEvidenceMatchesBuffer` |
 | Root and delegated tasks cannot multiply exposure by repeating facts | shared `knownRelease`/`knownInfluence`, `TaskFamilyNonAmplification` |

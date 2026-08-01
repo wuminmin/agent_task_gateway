@@ -2,8 +2,8 @@
 
 This is a separate database-paper project derived from the implementation and
 the historical gap analysis in [../../tkde.md](../../tkde.md). Its current
-title is *TaskGate: Accounting and Controlling Cumulative Data Exposure in
-Agentic Database Systems*. It is not a template
+title is *Task-Scoped Accounting of Cumulative Query Exposure over Versioned
+Reporting Snapshots*. It is not a template
 conversion of the TDSC security-gateway draft.
 
 ## Versioning and submission status
@@ -92,7 +92,12 @@ exposure report. `generate_evidence.py` then verifies:
   manifests, dataset bindings, timings, and all five correctness conditions;
 - the model, configuration, and raw-log hashes in
   `formal/results/exposure_ledger.json` and
-  `formal/results/exposure_bitmap_refinement.json`.
+  `formal/results/exposure_bitmap_refinement.json`;
+- the V5 Outcome bounded production/test source manifest, source-set digest,
+  base implementation commit, raw `go test -json` execution receipt, exact
+  radix counters, and full-rebuild-reference match;
+- the model, configuration, and raw-log hashes for the abstract V5 Outcome-set
+  settlement and recoverable Artifact Publication safety models.
 
 It then emits `generated/evidence.tex` and compiles both `main.tex` and the
 separate `supplement.tex` with a pinned Docker TeX environment. The broad 1,024

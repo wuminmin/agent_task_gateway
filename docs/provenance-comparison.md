@@ -73,7 +73,8 @@ For TaskGate, a query has
 E(T,q)=(E_R,E_D,E_O),
 \]
 
-where \(E_R\) records candidate released values, \(E_D\) records the
+where \(E_R\) records candidate result values selected for publication (wire
+label `release`), \(E_D\) records the
 positive-output dependency footprint, and \(E_O\) records the normalized
 successful proposition/result. Given the task ledger
 \(K=(K_R,K_D,K_O)\), only
