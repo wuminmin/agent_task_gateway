@@ -520,8 +520,23 @@ FROM v5_observations WHERE observation_sha256=$1`, value.digest).Scan(&profile, 
 }
 
 func persistV5SetObjectsTx(ctx context.Context, tx *sql.Tx, objects OutcomeHashSetObjectsV5, now time.Time) error {
-	if err := VerifySetDigest(objects); err != nil {
+	if err := verifyOutcomeRootV5(objects.Set); err != nil {
 		return err
+	}
+	for _, leaf := range objects.Leaves {
+		decoded, prefix, chunk, err := decodeOutcomeLeafV5(leaf.Payload)
+		if err != nil || sha256HexV5(leaf.Payload) != leaf.LeafSHA256 || prefix != leaf.Prefix16 ||
+			chunk != leaf.ChunkIndex || len(decoded) != leaf.Cardinality {
+			return errors.New("invalid V5 leaf submitted for persistence")
+		}
+	}
+	for _, block := range objects.Blocks {
+		if sha256HexV5(block.Manifest) != block.BlockSHA256 {
+			return errors.New("invalid V5 block submitted for persistence")
+		}
+		if _, err := parseV5BlockManifestReferences(block.Manifest, block.Prefix8, block.Cardinality); err != nil {
+			return err
+		}
 	}
 	if len(objects.Leaves) != 0 {
 		digests := make([]string, 0, len(objects.Leaves))
@@ -628,7 +643,7 @@ FROM v5_outcome_hash_blocks WHERE block_sha256=ANY($1::text[])`, digests)
 	}
 	result, err := tx.ExecContext(ctx, `INSERT INTO v5_outcome_hash_sets(set_sha256,cardinality,block_count,root_manifest,created_at)
 VALUES ($1,$2,$3,$4,$5) ON CONFLICT (set_sha256) DO NOTHING`, objects.Set.SetSHA256,
-		objects.Set.Cardinality, len(objects.Blocks), objects.Set.RootManifest, dbTime(now))
+		objects.Set.Cardinality, objects.Set.BlockCount, objects.Set.RootManifest, dbTime(now))
 	if err != nil {
 		return err
 	}
@@ -640,99 +655,284 @@ VALUES ($1,$2,$3,$4,$5) ON CONFLICT (set_sha256) DO NOTHING`, objects.Set.SetSHA
 			objects.Set.SetSHA256).Scan(&cardinality, &blockCount, &manifest); err != nil {
 			return err
 		}
-		if cardinality != objects.Set.Cardinality || blockCount != len(objects.Blocks) || !bytes.Equal(manifest, objects.Set.RootManifest) {
+		if cardinality != objects.Set.Cardinality || blockCount != objects.Set.BlockCount || !bytes.Equal(manifest, objects.Set.RootManifest) {
 			return errors.New("V5 outcome set SHA-256 collision")
 		}
 	}
 	return nil
 }
 
-func loadV5OutcomeSetTx(ctx context.Context, tx *sql.Tx, digest string) (OutcomeHashSetObjectsV5, error) {
-	var result OutcomeHashSetObjectsV5
-	var blockCount int
+// differenceAndUnionV5Tx performs an exact union while reading only radix
+// branches addressed by candidate prefixes. The returned object maps contain
+// only new leaves and changed blocks; unchanged references remain committed by
+// the returned root manifest and are not re-submitted to PostgreSQL.
+func differenceAndUnionV5Tx(ctx context.Context, tx *sql.Tx, rootDigest string,
+	candidate OutcomeCandidateV5) (OutcomeHashSetObjectsV5, [][sha256.Size]byte, OutcomeRadixTelemetryV5, error) {
+	candidates := uniqueOutcomeHashesV5(candidate.Hashes)
+	telemetry := OutcomeRadixTelemetryV5{CandidateCardinality: int64(len(candidates))}
+	if rootDigest == "" {
+		built, err := buildOutcomeHashSetFromBinaryV5(candidates)
+		if err != nil {
+			return OutcomeHashSetObjectsV5{}, nil, telemetry, err
+		}
+		telemetry.LeavesChanged = int64(len(built.Leaves))
+		return built, candidates, telemetry, nil
+	}
+
+	var root OutcomeSetV5
 	if err := tx.QueryRowContext(ctx, `SELECT set_sha256,cardinality,block_count,root_manifest
-FROM v5_outcome_hash_sets WHERE set_sha256=$1`, digest).Scan(&result.Set.SetSHA256,
-		&result.Set.Cardinality, &blockCount, &result.Set.RootManifest); err != nil {
-		return result, err
+FROM v5_outcome_hash_sets WHERE set_sha256=$1`, rootDigest).Scan(&root.SetSHA256, &root.Cardinality,
+		&root.BlockCount, &root.RootManifest); err != nil {
+		return OutcomeHashSetObjectsV5{}, nil, telemetry, err
 	}
-	blockDigests, err := parseV5RootManifest(result.Set.RootManifest, result.Set.Cardinality, blockCount)
+	if err := verifyOutcomeRootV5(root); err != nil {
+		return OutcomeHashSetObjectsV5{}, nil, telemetry, err
+	}
+	rootRefs, err := parseV5RootManifestReferences(root.RootManifest, root.Cardinality, root.BlockCount)
 	if err != nil {
-		return OutcomeHashSetObjectsV5{}, err
+		return OutcomeHashSetObjectsV5{}, nil, telemetry, err
 	}
-	result.Blocks = make(map[string]OutcomeHashBlockV5, len(blockDigests))
-	result.Leaves = make(map[string]OutcomeHashLeafV5)
-	if len(blockDigests) == 0 {
-		if err := VerifySetDigest(result); err != nil {
-			return OutcomeHashSetObjectsV5{}, err
+	telemetry.RootCardinality = root.Cardinality
+
+	byPrefix := make(map[uint16][][sha256.Size]byte)
+	touchedBlocks := make(map[byte]bool)
+	for _, hash := range candidates {
+		prefix := binary.BigEndian.Uint16(hash[:2])
+		byPrefix[prefix] = append(byPrefix[prefix], hash)
+		touchedBlocks[byte(prefix>>8)] = true
+	}
+	rootByPrefix := make(map[byte]outcomeBlockReferenceV5, len(rootRefs))
+	for _, ref := range rootRefs {
+		rootByPrefix[ref.prefix] = ref
+	}
+
+	requestedBlocks := make([]string, 0, len(touchedBlocks))
+	for prefix := range touchedBlocks {
+		if ref, present := rootByPrefix[prefix]; present {
+			requestedBlocks = append(requestedBlocks, ref.digest)
 		}
-		return result, nil
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT block_sha256,prefix8,cardinality,manifest
-FROM v5_outcome_hash_blocks WHERE block_sha256=ANY($1::text[])`, blockDigests)
+	loadedBlocks := make(map[byte]OutcomeHashBlockV5, len(requestedBlocks))
+	blockLeafRefs := make(map[byte][]outcomeLeafReferenceV5, len(requestedBlocks))
+	if len(requestedBlocks) != 0 {
+		rows, queryErr := tx.QueryContext(ctx, `SELECT block_sha256,prefix8,cardinality,manifest
+FROM v5_outcome_hash_blocks WHERE block_sha256=ANY($1::text[])`, requestedBlocks)
+		if queryErr != nil {
+			return OutcomeHashSetObjectsV5{}, nil, telemetry, queryErr
+		}
+		for rows.Next() {
+			var block OutcomeHashBlockV5
+			var prefix int
+			if scanErr := rows.Scan(&block.BlockSHA256, &prefix, &block.Cardinality, &block.Manifest); scanErr != nil {
+				rows.Close()
+				return OutcomeHashSetObjectsV5{}, nil, telemetry, scanErr
+			}
+			block.Prefix8 = byte(prefix)
+			ref, present := rootByPrefix[block.Prefix8]
+			if !present || ref.digest != block.BlockSHA256 || ref.cardinality != block.Cardinality ||
+				sha256HexV5(block.Manifest) != block.BlockSHA256 {
+				rows.Close()
+				return OutcomeHashSetObjectsV5{}, nil, telemetry, errors.New("V5 touched block disagrees with root manifest")
+			}
+			refs, parseErr := parseV5BlockManifestReferences(block.Manifest, block.Prefix8, block.Cardinality)
+			if parseErr != nil {
+				rows.Close()
+				return OutcomeHashSetObjectsV5{}, nil, telemetry, parseErr
+			}
+			loadedBlocks[block.Prefix8], blockLeafRefs[block.Prefix8] = block, refs
+		}
+		if closeErr := rows.Close(); closeErr != nil {
+			return OutcomeHashSetObjectsV5{}, nil, telemetry, closeErr
+		}
+		if len(loadedBlocks) != len(requestedBlocks) {
+			return OutcomeHashSetObjectsV5{}, nil, telemetry, errors.New("V5 outcome set is missing a touched block")
+		}
+	}
+	telemetry.BlocksLoaded = int64(len(loadedBlocks))
+
+	requestedLeaves := make(map[string]outcomeLeafReferenceV5)
+	for prefix := range byPrefix {
+		for _, ref := range blockLeafRefs[byte(prefix>>8)] {
+			if ref.prefix16 == prefix {
+				requestedLeaves[ref.digest] = ref
+			}
+		}
+	}
+	loadedLeaves := make(map[string]OutcomeHashLeafV5, len(requestedLeaves))
+	if len(requestedLeaves) != 0 {
+		digests := make([]string, 0, len(requestedLeaves))
+		for digest := range requestedLeaves {
+			digests = append(digests, digest)
+		}
+		rows, queryErr := tx.QueryContext(ctx, `SELECT leaf_sha256,prefix16,chunk_index,cardinality,codec,payload,uncompressed_size
+FROM v5_outcome_hash_leaves WHERE leaf_sha256=ANY($1::text[])`, digests)
+		if queryErr != nil {
+			return OutcomeHashSetObjectsV5{}, nil, telemetry, queryErr
+		}
+		for rows.Next() {
+			var leaf OutcomeHashLeafV5
+			var prefix, chunk, size int
+			var codec string
+			if scanErr := rows.Scan(&leaf.LeafSHA256, &prefix, &chunk, &leaf.Cardinality, &codec, &leaf.Payload, &size); scanErr != nil {
+				rows.Close()
+				return OutcomeHashSetObjectsV5{}, nil, telemetry, scanErr
+			}
+			leaf.Prefix16, leaf.ChunkIndex = uint16(prefix), uint32(chunk)
+			ref, present := requestedLeaves[leaf.LeafSHA256]
+			decoded, decodedPrefix, decodedChunk, decodeErr := decodeOutcomeLeafV5(leaf.Payload)
+			if !present || codec != "RAW" || size != len(leaf.Payload) || sha256HexV5(leaf.Payload) != leaf.LeafSHA256 ||
+				ref.prefix16 != leaf.Prefix16 || ref.chunk != leaf.ChunkIndex || ref.cardinality != leaf.Cardinality ||
+				decodeErr != nil || decodedPrefix != leaf.Prefix16 || decodedChunk != leaf.ChunkIndex || len(decoded) != leaf.Cardinality {
+				rows.Close()
+				return OutcomeHashSetObjectsV5{}, nil, telemetry, errors.New("V5 touched leaf disagrees with block manifest")
+			}
+			telemetry.HashesLoaded += int64(len(decoded))
+			loadedLeaves[leaf.LeafSHA256] = leaf
+		}
+		if closeErr := rows.Close(); closeErr != nil {
+			return OutcomeHashSetObjectsV5{}, nil, telemetry, closeErr
+		}
+		if len(loadedLeaves) != len(requestedLeaves) {
+			return OutcomeHashSetObjectsV5{}, nil, telemetry, errors.New("V5 outcome set is missing a touched leaf")
+		}
+	}
+	telemetry.LeavesLoaded = int64(len(loadedLeaves))
+
+	changedLeaves := make(map[string]OutcomeHashLeafV5)
+	novel := make([][sha256.Size]byte, 0, len(candidates))
+	replacementRefs := make(map[uint16][]outcomeLeafReferenceV5, len(byPrefix))
+	for prefix, additions := range byPrefix {
+		oldMembers := make([][sha256.Size]byte, 0)
+		oldDigests := make(map[string]bool)
+		for _, ref := range blockLeafRefs[byte(prefix>>8)] {
+			if ref.prefix16 != prefix {
+				continue
+			}
+			oldDigests[ref.digest] = true
+			decoded, _, _, _ := decodeOutcomeLeafV5(loadedLeaves[ref.digest].Payload)
+			oldMembers = append(oldMembers, decoded...)
+		}
+		merged, prefixNovel := mergeOutcomeHashesV5(oldMembers, additions)
+		novel = append(novel, prefixNovel...)
+		refs := make([]outcomeLeafReferenceV5, 0, (len(merged)+outcomeLeafChunkSize-1)/outcomeLeafChunkSize)
+		for start, chunk := 0, uint32(0); start < len(merged); start, chunk = start+outcomeLeafChunkSize, chunk+1 {
+			end := start + outcomeLeafChunkSize
+			if end > len(merged) {
+				end = len(merged)
+			}
+			payload := canonicalOutcomeLeafV5(prefix, chunk, merged[start:end])
+			digest := sha256HexV5(payload)
+			leaf := OutcomeHashLeafV5{LeafSHA256: digest, Prefix16: prefix, ChunkIndex: chunk,
+				Cardinality: end - start, Payload: payload}
+			refs = append(refs, outcomeLeafReferenceV5{prefix16: prefix, chunk: chunk, digest: digest, cardinality: end - start})
+			if !oldDigests[digest] {
+				changedLeaves[digest] = leaf
+			}
+		}
+		replacementRefs[prefix] = refs
+	}
+	sortOutcomeHashesV5(novel)
+	telemetry.LeavesChanged = int64(len(changedLeaves))
+
+	changedBlocks := make(map[string]OutcomeHashBlockV5)
+	replacements := make(map[byte]outcomeBlockReferenceV5, len(touchedBlocks))
+	for prefix := range touchedBlocks {
+		refs := make([]outcomeLeafReferenceV5, 0)
+		seenPrefix := make(map[uint16]bool)
+		for _, ref := range blockLeafRefs[prefix] {
+			if replacement, touched := replacementRefs[ref.prefix16]; touched {
+				if !seenPrefix[ref.prefix16] {
+					refs = append(refs, replacement...)
+					seenPrefix[ref.prefix16] = true
+				}
+				continue
+			}
+			refs = append(refs, ref)
+		}
+		for prefix16, replacement := range replacementRefs {
+			if byte(prefix16>>8) == prefix && !seenPrefix[prefix16] {
+				refs = append(refs, replacement...)
+			}
+		}
+		sort.Slice(refs, func(i, j int) bool {
+			if refs[i].prefix16 != refs[j].prefix16 {
+				return refs[i].prefix16 < refs[j].prefix16
+			}
+			return refs[i].chunk < refs[j].chunk
+		})
+		manifest, cardinality, buildErr := canonicalOutcomeBlockV5(prefix, refs)
+		if buildErr != nil {
+			return OutcomeHashSetObjectsV5{}, nil, telemetry, buildErr
+		}
+		digest := sha256HexV5(manifest)
+		ref := outcomeBlockReferenceV5{prefix: prefix, digest: digest, cardinality: cardinality}
+		replacements[prefix] = ref
+		if old, present := rootByPrefix[prefix]; !present || old.digest != digest {
+			changedBlocks[digest] = OutcomeHashBlockV5{BlockSHA256: digest, Prefix8: prefix,
+				Cardinality: cardinality, Manifest: manifest}
+		}
+	}
+
+	newRootRefs := make([]outcomeBlockReferenceV5, 0, len(rootRefs)+len(touchedBlocks))
+	seenBlock := make(map[byte]bool)
+	for _, ref := range rootRefs {
+		if replacement, touched := replacements[ref.prefix]; touched {
+			newRootRefs = append(newRootRefs, replacement)
+			seenBlock[ref.prefix] = true
+			if replacement.digest == ref.digest {
+				telemetry.BlocksReused++
+			}
+		} else {
+			newRootRefs = append(newRootRefs, ref)
+			telemetry.BlocksReused++
+		}
+	}
+	for prefix, replacement := range replacements {
+		if !seenBlock[prefix] {
+			newRootRefs = append(newRootRefs, replacement)
+		}
+	}
+	sort.Slice(newRootRefs, func(i, j int) bool { return newRootRefs[i].prefix < newRootRefs[j].prefix })
+	newCardinality := root.Cardinality + int64(len(novel))
+	rootManifest, err := canonicalOutcomeRootV5(newCardinality, newRootRefs)
 	if err != nil {
-		return result, err
+		return OutcomeHashSetObjectsV5{}, nil, telemetry, err
 	}
-	var leafDigests []string
-	for rows.Next() {
-		var block OutcomeHashBlockV5
-		var prefix int
-		if err := rows.Scan(&block.BlockSHA256, &prefix, &block.Cardinality, &block.Manifest); err != nil {
-			rows.Close()
-			return result, err
-		}
-		block.Prefix8 = byte(prefix)
-		if sha256HexV5(block.Manifest) != block.BlockSHA256 {
-			rows.Close()
-			return result, errors.New("V5 block digest mismatch")
-		}
-		leaves, parseErr := parseV5BlockManifest(block.Manifest, block.Prefix8, block.Cardinality)
-		if parseErr != nil {
-			rows.Close()
-			return result, parseErr
-		}
-		leafDigests = append(leafDigests, leaves...)
-		result.Blocks[block.BlockSHA256] = block
-	}
-	if err := rows.Close(); err != nil {
-		return result, err
-	}
-	if len(result.Blocks) != len(blockDigests) {
-		return result, errors.New("V5 outcome set is missing a block")
-	}
-	leafRows, err := tx.QueryContext(ctx, `SELECT leaf_sha256,prefix16,chunk_index,cardinality,codec,payload,uncompressed_size
-FROM v5_outcome_hash_leaves WHERE leaf_sha256=ANY($1::text[])`, leafDigests)
-	if err != nil {
-		return result, err
-	}
-	for leafRows.Next() {
-		var leaf OutcomeHashLeafV5
-		var prefix, chunk, size int
-		var codec string
-		if err := leafRows.Scan(&leaf.LeafSHA256, &prefix, &chunk, &leaf.Cardinality, &codec,
-			&leaf.Payload, &size); err != nil {
-			leafRows.Close()
-			return result, err
-		}
-		if codec != "RAW" || size != len(leaf.Payload) {
-			leafRows.Close()
-			return result, errors.New("unsupported or corrupt V5 leaf codec")
-		}
-		leaf.Prefix16, leaf.ChunkIndex = uint16(prefix), uint32(chunk)
-		result.Leaves[leaf.LeafSHA256] = leaf
-	}
-	if err := leafRows.Close(); err != nil {
-		return result, err
-	}
-	if len(result.Leaves) != len(uniqueStringsV5(leafDigests)) {
-		return result, errors.New("V5 outcome set is missing a leaf")
-	}
-	if err := VerifySetDigest(result); err != nil {
-		return OutcomeHashSetObjectsV5{}, err
-	}
-	return result, nil
+	result := OutcomeHashSetObjectsV5{Set: OutcomeSetV5{SetSHA256: sha256HexV5(rootManifest),
+		Cardinality: newCardinality, BlockCount: len(newRootRefs), RootManifest: rootManifest},
+		Leaves: changedLeaves, Blocks: changedBlocks}
+	return result, novel, telemetry, nil
 }
 
-func parseV5RootManifest(payload []byte, cardinality int64, blockCount int) ([]string, error) {
+func mergeOutcomeHashesV5(existing, additions [][sha256.Size]byte) ([][sha256.Size]byte, [][sha256.Size]byte) {
+	existing = uniqueOutcomeHashesV5(existing)
+	additions = uniqueOutcomeHashesV5(additions)
+	merged := make([][sha256.Size]byte, 0, len(existing)+len(additions))
+	novel := make([][sha256.Size]byte, 0, len(additions))
+	left, right := 0, 0
+	for left < len(existing) || right < len(additions) {
+		switch {
+		case left == len(existing):
+			merged, novel = append(merged, additions[right]), append(novel, additions[right])
+			right++
+		case right == len(additions):
+			merged = append(merged, existing[left])
+			left++
+		default:
+			comparison := bytes.Compare(existing[left][:], additions[right][:])
+			if comparison < 0 {
+				merged, left = append(merged, existing[left]), left+1
+			} else if comparison > 0 {
+				merged, novel, right = append(merged, additions[right]), append(novel, additions[right]), right+1
+			} else {
+				merged, left, right = append(merged, existing[left]), left+1, right+1
+			}
+		}
+	}
+	return merged, novel
+}
+
+func parseV5RootManifestReferences(payload []byte, cardinality int64, blockCount int) ([]outcomeBlockReferenceV5, error) {
 	reader := bytes.NewReader(payload)
 	domain := make([]byte, len(outcomeSetDomainV5))
 	if _, err := io.ReadFull(reader, domain); err != nil || string(domain) != outcomeSetDomainV5 {
@@ -743,15 +943,16 @@ func parseV5RootManifest(payload []byte, cardinality int64, blockCount int) ([]s
 		return nil, errors.New("invalid V5 root manifest profile")
 	}
 	storedCardinality, err := readV5Uint64(reader)
-	if err != nil || int64(storedCardinality) != cardinality {
+	if err != nil || storedCardinality > math.MaxInt64 || int64(storedCardinality) != cardinality {
 		return nil, errors.New("invalid V5 root manifest cardinality")
 	}
 	count, err := readV5Uint32(reader)
 	if err != nil || int(count) != blockCount || count > 256 {
 		return nil, errors.New("invalid V5 root manifest block count")
 	}
-	result := make([]string, 0, count)
+	result := make([]outcomeBlockReferenceV5, 0, count)
 	lastPrefix := -1
+	var total int64
 	for index := uint32(0); index < count; index++ {
 		prefix, err := reader.ReadByte()
 		if err != nil || int(prefix) <= lastPrefix {
@@ -762,18 +963,27 @@ func parseV5RootManifest(payload []byte, cardinality int64, blockCount int) ([]s
 		if _, err := io.ReadFull(reader, digest); err != nil {
 			return nil, err
 		}
-		if _, err := readV5Uint64(reader); err != nil {
-			return nil, err
+		storedCount, err := readV5Uint64(reader)
+		if err != nil || storedCount == 0 || storedCount > math.MaxInt64 {
+			return nil, errors.New("invalid V5 root block cardinality")
 		}
-		result = append(result, hex.EncodeToString(digest))
+		ref := outcomeBlockReferenceV5{prefix: prefix, digest: hex.EncodeToString(digest), cardinality: int64(storedCount)}
+		result = append(result, ref)
+		if ref.cardinality > math.MaxInt64-total {
+			return nil, errors.New("V5 root cardinality overflow")
+		}
+		total += ref.cardinality
 	}
 	if reader.Len() != 0 {
 		return nil, errors.New("V5 root manifest has trailing bytes")
 	}
+	if total != cardinality {
+		return nil, errors.New("V5 root block cardinality disagrees with set")
+	}
 	return result, nil
 }
 
-func parseV5BlockManifest(payload []byte, prefix byte, cardinality int64) ([]string, error) {
+func parseV5BlockManifestReferences(payload []byte, prefix byte, cardinality int64) ([]outcomeLeafReferenceV5, error) {
 	reader := bytes.NewReader(payload)
 	domain := make([]byte, len(outcomeBlockDomainV5))
 	if _, err := io.ReadFull(reader, domain); err != nil || string(domain) != outcomeBlockDomainV5 {
@@ -784,18 +994,29 @@ func parseV5BlockManifest(payload []byte, prefix byte, cardinality int64) ([]str
 		return nil, errors.New("invalid V5 block prefix")
 	}
 	count, err := readV5Uint32(reader)
-	if err != nil || count == 0 {
+	const encodedLeafReferenceSize = 1 + 4 + sha256.Size + 4
+	if err != nil || count == 0 || uint64(count) > uint64(reader.Len()/encodedLeafReferenceSize) {
 		return nil, errors.New("invalid V5 block leaf count")
 	}
-	result := make([]string, 0, count)
+	result := make([]outcomeLeafReferenceV5, 0, count)
 	var total int64
+	var lastPrefix int = -1
+	var lastChunk uint32
 	for index := uint32(0); index < count; index++ {
-		if _, err := reader.ReadByte(); err != nil {
+		low, err := reader.ReadByte()
+		if err != nil {
 			return nil, err
 		}
-		if _, err := readV5Uint32(reader); err != nil {
+		chunk, err := readV5Uint32(reader)
+		if err != nil {
 			return nil, err
 		}
+		prefix16 := uint16(prefix)<<8 | uint16(low)
+		if int(prefix16) < lastPrefix || (int(prefix16) == lastPrefix && chunk != lastChunk+1) ||
+			(int(prefix16) > lastPrefix && chunk != 0) {
+			return nil, errors.New("invalid V5 block leaf order")
+		}
+		lastPrefix, lastChunk = int(prefix16), chunk
 		digest := make([]byte, sha256.Size)
 		if _, err := io.ReadFull(reader, digest); err != nil {
 			return nil, err
@@ -805,7 +1026,8 @@ func parseV5BlockManifest(payload []byte, prefix byte, cardinality int64) ([]str
 			return nil, errors.New("invalid V5 block leaf cardinality")
 		}
 		total += int64(leafCount)
-		result = append(result, hex.EncodeToString(digest))
+		result = append(result, outcomeLeafReferenceV5{prefix16: prefix16, chunk: chunk,
+			digest: hex.EncodeToString(digest), cardinality: int(leafCount)})
 	}
 	if reader.Len() != 0 || total != cardinality {
 		return nil, errors.New("invalid V5 block manifest cardinality")
@@ -899,10 +1121,6 @@ FROM v5_exposure_root_heads WHERE root_task_id=$1`, reservation.RootTaskID).
 		return nil, metrics, errors.New("V5 root head dictionary/profile mismatch")
 	}
 	rootRelease, rootInfluence := emptyOrdinalSetV5(), emptyOrdinalSetV5()
-	rootOutcome, err := emptyV5OutcomeSet()
-	if err != nil {
-		return nil, metrics, err
-	}
 	if head.ReleaseSetSHA256 != "" {
 		var dictionary string
 		rootRelease, dictionary, err = loadOrdinalSetTx(ctx, tx, head.ReleaseSetSHA256)
@@ -912,10 +1130,6 @@ FROM v5_exposure_root_heads WHERE root_task_id=$1`, reservation.RootTaskID).
 		rootInfluence, dictionary, err = loadOrdinalSetTx(ctx, tx, head.InfluenceSetSHA256)
 		if err != nil || dictionary != normalized.dictionarySet {
 			return nil, metrics, errors.New("V5 influence root set dictionary mismatch")
-		}
-		rootOutcome, err = loadV5OutcomeSetTx(ctx, tx, head.OutcomeSetSHA256)
-		if err != nil {
-			return nil, metrics, err
 		}
 	}
 	deltaRelease, err := differenceOrdinalSet(normalized.dictionarySet, normalized.release, rootRelease)
@@ -933,10 +1147,12 @@ FROM v5_exposure_root_heads WHERE root_task_id=$1`, reservation.RootTaskID).
 		candidateHashes = append(candidateHashes, hash)
 		factKind[fact.SHA256] = fact.Kind
 	}
-	mergedOutcome, novelHashes, err := DifferenceAndUnion(rootOutcome, OutcomeCandidateV5{Hashes: candidateHashes})
+	mergedOutcome, novelHashes, radixMetrics, err := differenceAndUnionV5Tx(ctx, tx, head.OutcomeSetSHA256,
+		OutcomeCandidateV5{Hashes: candidateHashes})
 	if err != nil {
 		return nil, metrics, err
 	}
+	metrics.OutcomeRadix = radixMetrics
 	newRelease, newInfluence, newOutcome := deltaRelease.cardinality(), deltaInfluence.cardinality(), int64(len(novelHashes))
 	var chargedAtoms, chargedComposite int64
 	for _, hash := range novelHashes {
@@ -1033,7 +1249,9 @@ VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, queryID, reservation.RootTaskID, norma
 			"predicate_set_sha256": normalized.predicateSet, "actual_predicate_atom_count": normalized.atomCount,
 			"charged_predicate_atom_count": chargedAtoms, "charged_composite_count": chargedComposite,
 			"actual_outcome_facts": normalized.outcome.Set.Cardinality, "charged_outcome_facts": newOutcome,
-			"outcome_set_sha256": mergedOutcome.Set.SetSHA256, "root_epoch": rootEpoch})})
+			"outcome_set_sha256":      normalized.outcome.Set.SetSHA256,
+			"root_outcome_set_sha256": mergedOutcome.Set.SetSHA256, "root_epoch": rootEpoch,
+			"outcome_radix": radixMetrics})})
 	if err != nil {
 		return nil, metrics, err
 	}

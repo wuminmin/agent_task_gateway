@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -81,11 +82,14 @@ func TestV5SettlementAndSemanticReplayPostgres(t *testing.T) {
 	}
 	first := reserve("query_v5_first", "request-v5-first")
 	cacheKey := strings.Repeat("9", 64)
-	if _, _, err := store.FinalizeOrdinalQueryWithReceipt(context.Background(), BudgetSettlement{
+	if _, _, firstMetrics, err := store.FinalizeOrdinalQueryMeasuredWithReceipt(context.Background(), BudgetSettlement{
 		QueryID: first.QueryID, Rows: 1, DBMS: 1, OrdinalExposure: &observation,
 	}, []byte(`{"rows":[[10]]}`), &OrdinalMaterializationPublish{CacheKeySHA256: cacheKey,
 		ProfileVersion: exposure.ProfileV5}, nil); err != nil {
 		t.Fatalf("settle V5 query: %v", err)
+	} else if firstMetrics.OutcomeRadix.RootCardinality != 0 || firstMetrics.OutcomeRadix.CandidateCardinality != 2 ||
+		firstMetrics.OutcomeRadix.BlocksLoaded != 0 || firstMetrics.OutcomeRadix.LeavesChanged == 0 {
+		t.Fatalf("initial V5 radix telemetry = %+v", firstMetrics.OutcomeRadix)
 	}
 	firstCharge, err := store.GetExposureCharge(context.Background(), first.QueryID)
 	if err != nil {
@@ -96,11 +100,68 @@ func TestV5SettlementAndSemanticReplayPostgres(t *testing.T) {
 		firstCharge.CompositeOutcomeSHA256 == "" {
 		t.Fatalf("V5 first charge = %+v", firstCharge)
 	}
+	events, err := store.ListAuditEvents(context.Background(), AuditFilter{QueryID: first.QueryID,
+		EventType: "QUERY_V5_EXPOSURE_SETTLED"})
+	if err != nil || len(events) != 1 {
+		t.Fatalf("V5 settlement audit = %+v, %v", events, err)
+	}
+	var auditPayload map[string]any
+	if err := json.Unmarshal(events[0].Payload, &auditPayload); err != nil {
+		t.Fatal(err)
+	}
+	if auditPayload["outcome_set_sha256"] != firstCharge.OutcomeSetSHA256 ||
+		auditPayload["root_outcome_set_sha256"] == "" {
+		t.Fatalf("V5 audit outcome identities = %#v; candidate=%s", auditPayload, firstCharge.OutcomeSetSHA256)
+	}
 	materialization, err := store.LookupOrdinalMaterialization(context.Background(), OrdinalMaterializationLookup{
 		CacheKeySHA256: cacheKey, TaskID: task.ID, GrantDigest: controlTestDigest,
 		CatalogDigest: controlTestDigest, DictionarySetDigest: testOrdinalSet, ProfileVersion: exposure.ProfileV5})
 	if err != nil || materialization.ProfileVersion != exposure.ProfileV5 {
 		t.Fatalf("lookup V5 materialization: %+v, %v", materialization, err)
+	}
+	secondAtom, err := exposure.NewPredicateAtomFactV5(exposure.PredicateAtomFactV5{PredicateContextSHA256: contextDigest,
+		SemanticProductID: "expense_summary", StableRole: "expense_summary", PublicFieldID: "month",
+		SQLType: "integer", Operator: "EQ", CanonicalLiteral: "i:2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondSetDigest, err := exposure.PredicateSetHashV1([]exposure.FactID{secondAtom})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondComposite, err := exposure.NewCompositeOutcomeFactV5(exposure.CompositeOutcomeFactV5{
+		QueryNormalFormVersion: "taskgate-query-normal-form-v4", QueryNormalFormSHA256: strings.Repeat("4", 64),
+		ResultObservationSHA256: strings.Repeat("5", 64), VisibleRows: 1, PredicateContextSHA256: contextDigest,
+		PredicateSetSHA256: secondSetDigest, PredicateAtomCount: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondObservation := observation
+	secondObservation.Outcome.DynamicFacts = []OrdinalDynamicFact{
+		dynamicV5FactForTest(t, secondAtom, OrdinalDynamicPredicateAtom),
+		dynamicV5FactForTest(t, secondComposite, OrdinalDynamicCompositeOutcome),
+	}
+	novelSecond := reserve("query_v5_second", "request-v5-second")
+	if _, _, _, err := store.FinalizeOrdinalQueryMeasuredWithReceipt(context.Background(), BudgetSettlement{
+		QueryID: novelSecond.QueryID, Rows: 1, DBMS: 1, OrdinalExposure: &secondObservation,
+	}, []byte(`{"rows":[[20]]}`), nil, nil); err != nil {
+		t.Fatalf("settle second V5 query: %v", err)
+	}
+	secondCharge, err := store.GetExposureCharge(context.Background(), novelSecond.QueryID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondEvents, err := store.ListAuditEvents(context.Background(), AuditFilter{QueryID: novelSecond.QueryID,
+		EventType: "QUERY_V5_EXPOSURE_SETTLED"})
+	if err != nil || len(secondEvents) != 1 {
+		t.Fatalf("second V5 settlement audit = %+v, %v", secondEvents, err)
+	}
+	if err := json.Unmarshal(secondEvents[0].Payload, &auditPayload); err != nil {
+		t.Fatal(err)
+	}
+	if auditPayload["outcome_set_sha256"] != secondCharge.OutcomeSetSHA256 ||
+		auditPayload["root_outcome_set_sha256"] == secondCharge.OutcomeSetSHA256 {
+		t.Fatalf("second V5 audit conflated candidate and root identities: %#v", auditPayload)
 	}
 	second := reserve("query_v5_replay", "request-v5-replay")
 	reference := OrdinalObservationReference{ObservationSHA256: firstCharge.ObservationSHA256,
@@ -118,6 +179,54 @@ func TestV5SettlementAndSemanticReplayPostgres(t *testing.T) {
 		replayCharge.ChargedPredicateAtomCount != 0 || replayCharge.ChargedOutcomeFacts != 0 ||
 		replayCharge.ObservationSHA256 != firstCharge.ObservationSHA256 {
 		t.Fatalf("V5 replay charge = %+v", replayCharge)
+	}
+}
+
+func TestOutcomeHashSetV5PostgresLoadsOnlyTouchedBranches(t *testing.T) {
+	store := openTestStore(t, testpostgres.SchemaDSN(t), testCipher(t, 62))
+	const rootSize = 100000
+	hashes := make([]string, rootSize)
+	for index := range hashes {
+		hashes[index] = outcomeTestHash(index)
+	}
+	root, err := BuildOutcomeHashSetV5(hashes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	tx, err := beginTx(ctx, store.db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rollback(tx)
+	if err := persistV5SetObjectsTx(ctx, tx, root, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	newHash := outcomeTestHash(rootSize + 1)
+	candidate := candidateFromHashesV5(t, []string{newHash})
+	merged, novel, metrics, err := differenceAndUnionV5Tx(ctx, tx, root.Set.SetSHA256, candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(novel) != 1 || merged.Set.Cardinality != rootSize+1 || metrics.RootCardinality != rootSize ||
+		metrics.CandidateCardinality != 1 || metrics.BlocksLoaded != 1 || metrics.LeavesLoaded > 2 ||
+		metrics.HashesLoaded > outcomeLeafChunkSize*2 || metrics.BlocksReused < int64(root.Set.BlockCount-1) ||
+		metrics.LeavesChanged == 0 || len(merged.Blocks) != 1 {
+		t.Fatalf("incremental V5 merge loaded too much or rebuilt the wrong graph: metrics=%+v leaves=%d blocks=%d root_blocks=%d",
+			metrics, len(merged.Leaves), len(merged.Blocks), root.Set.BlockCount)
+	}
+	if err := persistV5SetObjectsTx(ctx, tx, merged, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	replay, replayNovel, replayMetrics, err := differenceAndUnionV5Tx(ctx, tx, merged.Set.SetSHA256, candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(replayNovel) != 0 || replay.Set.SetSHA256 != merged.Set.SetSHA256 || len(replay.Leaves) != 0 ||
+		len(replay.Blocks) != 0 || replayMetrics.HashesLoaded > outcomeLeafChunkSize*2 ||
+		replayMetrics.BlocksReused != int64(merged.Set.BlockCount) {
+		t.Fatalf("incremental V5 replay rebuilt immutable objects: novelty=%d metrics=%+v leaves=%d blocks=%d",
+			len(replayNovel), replayMetrics, len(replay.Leaves), len(replay.Blocks))
 	}
 }
 

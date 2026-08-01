@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "status": "passed",
-  "checked_at": "2026-08-01T03:53:19Z",
+  "checked_at": "2026-08-01T05:23:34Z",
   "tool": "TLC",
   "tool_version": "1.7.1",
   "model": "formal/SQLAuthorization.tla",
@@ -9,7 +9,7 @@
   "model_sha256": "2ecc2f8b11f4db5ec10314a0c188b04f8b324893c3e3c222943791986232fa16",
   "config_sha256": "0249f031dca7aa70fd3a5201160d1a7b0c09d67c3e2e62292e9fdcd1468b97a2",
   "raw_log": "formal/results/sql_authorization.log",
-  "log_sha256": "66267d4d7e994708ae6b826071df71e788876e40b762eb76535a715bcc38e44c",
+  "log_sha256": "471bc08e6e77ef459b014b408c0e19f3518c077d218db1fe26b3d426ebbab8ff",
   "states_generated": 3073,
   "distinct_states": 2561,
   "search_depth": 2,

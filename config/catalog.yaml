@@ -1,4 +1,4 @@
-catalog_version: "2026-07-30.4"
+catalog_version: "2026-08-01.1"
 
 sources:
   - name: travel_demo
@@ -149,18 +149,18 @@ approval_routes:
   - sensitivity: low
     mode: manual
     approver: bob
-    budget_profile: summary-manual-v4
+    budget_profile: summary-manual-v5
   - sensitivity: medium
     mode: manual
     approver: bob
-    budget_profile: detail-manual-v4
+    budget_profile: detail-manual-v5
   - sensitivity: high
     mode: manual
     approver: bob
-    budget_profile: detail-manual-v4
+    budget_profile: detail-manual-v5
 
 budget_profiles:
-  - name: summary-manual-v4
+  - name: summary-manual-v5
     max_queries: 10
     max_rows: 500
     max_db_time: 30s
@@ -169,8 +169,14 @@ budget_profiles:
     max_release_facts: 1000
     max_influence_facts: 5000
     max_outcome_facts: 10
-    exposure_profile_version: taskgate-exposure-v4
-  - name: detail-manual-v4
+    exposure_profile_version: taskgate-exposure-v5
+    predicate_footprint:
+      version: taskgate-predicate-footprint-v1
+      max_raw_literals_per_query: 1000
+      max_unique_atoms_per_query: 9
+      max_atom_payload_bytes: 4096
+      max_total_atom_payload_bytes: 36864
+  - name: detail-manual-v5
     max_queries: 5
     max_rows: 100
     max_db_time: 15s
@@ -179,4 +185,10 @@ budget_profiles:
     max_release_facts: 500
     max_influence_facts: 2500
     max_outcome_facts: 5
-    exposure_profile_version: taskgate-exposure-v4
+    exposure_profile_version: taskgate-exposure-v5
+    predicate_footprint:
+      version: taskgate-predicate-footprint-v1
+      max_raw_literals_per_query: 500
+      max_unique_atoms_per_query: 4
+      max_atom_payload_bytes: 4096
+      max_total_atom_payload_bytes: 16384

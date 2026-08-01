@@ -200,6 +200,7 @@ type exposureSettlementMetrics struct {
 	ReservationLock time.Duration
 	LedgerLock      time.Duration
 	FactStore       time.Duration
+	OutcomeRadix    OutcomeRadixTelemetryV5
 }
 
 func settleExposureTx(ctx context.Context, tx *sql.Tx, now time.Time, queryID string, observation *exposure.Observation) (*ExposureCharge, error) {

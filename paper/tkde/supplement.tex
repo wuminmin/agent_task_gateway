@@ -372,11 +372,15 @@ determinism follows from the unique representative and ordering functions.
 \end{proof}
 
 \begin{proof}[Proof of Outcome separation and replay]
-The outcome-identity payload length-prefixes $h_N$, $h_R$, and $m$. Unequal
-$h_N$ therefore yields unequal semantic payloads; under the collision-detection
-assumption, it cannot reuse the same ledger identity. Equal normalized plans
-and normalized releases make every payload component equal. Novel-set
-settlement then gives charges one and zero, respectively.
+Every V5 atom payload length-prefixes the predicate context, stable role and
+FieldID, resolved expression, type/collation, operator, and canonical literal.
+Changing any component changes the payload and, under the collision assumption,
+its FactID. The composite length-prefixes the normal-form and result-observation
+digests, row count, context, complete atom-set digest, and atom cardinality.
+Exact replay or a supported rewrite makes all these components equal; changing
+the normal form, result observation, or complete atom set changes the composite
+payload. Exact set difference therefore charges each novel atom/composite once
+and charges replay zero.
 \end{proof}
 
 \begin{proof}[Proof of Representation closure and partial-function semantics]
@@ -510,8 +514,9 @@ arguments.
 \end{proof}
 
 \begin{proof}[Proof of Atomic root-family budget safety]
-Every descendant resolves to the same root head. Exact bitmap refinement makes
-the concrete candidate decode to $K_d\cup E_d$ and its charged count to
+Every descendant resolves to the same root head. Exact bitmap refinement for
+Release/dependency and exact Merkle-radix refinement for Outcome make each
+concrete candidate decode to $K_d\cup E_d$ and its charged count to
 $|E_d\setminus K_d|$. A successful epoch CAS linearizes all three candidate
 heads at one point; a conflicting transaction recomputes rather than publishing
 a stale difference. The precondition checks every Catalog bound and failure
@@ -520,7 +525,7 @@ identity and all three bounds. This is the abstract FactSet TLA+ transition, so
 the physical representation does not alter the safety argument.
 \end{proof}
 
-\section{V3 Outcome Wrapper}
+\section{Legacy V3 Outcome Wrapper and V5 Upgrade}
 
 V3 leaves every V2 release/dependency FactID unchanged. After the V2
 observation is normalized, the enforcement layer computes
@@ -542,6 +547,26 @@ The RQ3 threshold campaign uses three normalized predicates whose global
 \code{COUNT(*)} output is the same zero. Their V2 release/dependency increments
 after the first are zero, but the three normal-form digests yield three outcome
 facts. Exact replay and an alias/case/whitespace rewrite reuse the first fact.
+
+V5 retains that archived campaign as a compatibility baseline but changes the
+current Outcome effect to $A(q)\cup\{c(q)\}$. The atomizer expands code{IN} to
+typed equality atoms and code{NOT IN} to typed inequality atoms, removes exact
+duplicates, and binds every atom to the predicate context. The composite binds
+normal form V4, canonical result observation, row count, context, sorted atom
+set digest, and atom count. Signed limits bound raw literals, unique atoms, one
+payload, and total payload before Business SQL.
+
+The exact SHA-256 set partitions members by prefix16 into deterministic
+4096-member chunks. A prefix8 block commits ordered leaf references, and the
+root commits at most 256 block references and total cardinality. For a
+candidate, settlement reads only its prefix8 blocks and prefix16 leaf families,
+compares full hashes, rebuilds only affected leaf families/blocks, and reuses
+all other digests. Hence the physical work is
+$O(k\log k+h+\ell+b)$ for candidate cardinality $k$, hashes loaded $h$, leaf
+chunks $\ell$, and blocks $b$, plus a root manifest bounded by 256 references;
+it is not linear in total root membership. The source-controlled PostgreSQL
+regression uses a 100K-member root plus one candidate and asserts the physical
+counters and zero-object replay described in the main paper.
 
 \section{V4 Ordinal/Bitmap Refinement}
 

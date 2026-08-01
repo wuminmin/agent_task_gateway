@@ -88,6 +88,7 @@ type FinalizeQueryMetrics struct {
 	ExposureLedgerLock      time.Duration
 	ExposureFactStore       time.Duration
 	OrdinalCASRetries       int
+	OutcomeRadix            OutcomeRadixTelemetryV5 `json:"outcome_radix"`
 }
 
 // FinalizeQueryMeasured is the measured form of FinalizeQuery. The returned
@@ -213,6 +214,13 @@ func (s *Store) finalizePreparedQuery(ctx context.Context, settlement BudgetSett
 		aggregate.ExposureReservationLock += measured.ExposureReservationLock
 		aggregate.ExposureLedgerLock += measured.ExposureLedgerLock
 		aggregate.ExposureFactStore += measured.ExposureFactStore
+		aggregate.OutcomeRadix.RootCardinality = measured.OutcomeRadix.RootCardinality
+		aggregate.OutcomeRadix.CandidateCardinality = measured.OutcomeRadix.CandidateCardinality
+		aggregate.OutcomeRadix.BlocksLoaded += measured.OutcomeRadix.BlocksLoaded
+		aggregate.OutcomeRadix.LeavesLoaded += measured.OutcomeRadix.LeavesLoaded
+		aggregate.OutcomeRadix.HashesLoaded += measured.OutcomeRadix.HashesLoaded
+		aggregate.OutcomeRadix.BlocksReused = measured.OutcomeRadix.BlocksReused
+		aggregate.OutcomeRadix.LeavesChanged += measured.OutcomeRadix.LeavesChanged
 		if err == nil {
 			aggregate.SettlementStore = time.Since(settlementStarted)
 			return record, receipt, aggregate, nil
@@ -280,6 +288,7 @@ func (s *Store) finalizePreparedQueryAttempt(ctx context.Context, settlement Bud
 	metrics.ExposureReservationLock = exposureMetrics.ReservationLock
 	metrics.ExposureLedgerLock = exposureMetrics.LedgerLock
 	metrics.ExposureFactStore = exposureMetrics.FactStore
+	metrics.OutcomeRadix = exposureMetrics.OutcomeRadix
 	resultHash := preparedResultHash(prepared)
 	record, audit, err := settleBudgetTx(ctx, tx, now, settlement, QueryCompleted, resultHash)
 	if err != nil {

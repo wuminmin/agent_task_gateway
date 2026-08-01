@@ -22,6 +22,7 @@ const (
 type OutcomeSetV5 struct {
 	SetSHA256    string
 	Cardinality  int64
+	BlockCount   int
 	RootManifest []byte
 }
 
@@ -56,11 +57,29 @@ type OutcomeCandidateV5 struct {
 	Hashes [][sha256.Size]byte
 }
 
+// OutcomeRadixTelemetryV5 reports the physical work performed by one exact
+// novelty merge. Loaded counters exclude the small root manifest itself.
+type OutcomeRadixTelemetryV5 struct {
+	RootCardinality      int64 `json:"root_cardinality"`
+	CandidateCardinality int64 `json:"candidate_cardinality"`
+	BlocksLoaded         int64 `json:"blocks_loaded"`
+	LeavesLoaded         int64 `json:"leaves_loaded"`
+	HashesLoaded         int64 `json:"hashes_loaded"`
+	BlocksReused         int64 `json:"blocks_reused"`
+	LeavesChanged        int64 `json:"leaves_changed"`
+}
+
 type outcomeLeafReferenceV5 struct {
 	prefix16    uint16
 	chunk       uint32
 	digest      string
 	cardinality int
+}
+
+type outcomeBlockReferenceV5 struct {
+	prefix      byte
+	digest      string
+	cardinality int64
 }
 
 // BuildCandidateSet converts V5 predicate/composite facts into a sorted exact
@@ -160,12 +179,7 @@ func buildOutcomeHashSetFromBinaryV5(hashes [][sha256.Size]byte) (OutcomeHashSet
 				digest: digest, cardinality: leaf.Cardinality})
 		}
 	}
-	type blockReference struct {
-		prefix      byte
-		digest      string
-		cardinality int64
-	}
-	blockRefs := make([]blockReference, 0, len(byBlock))
+	blockRefs := make([]outcomeBlockReferenceV5, 0, len(byBlock))
 	for prefix := 0; prefix <= 255; prefix++ {
 		refs := byBlock[byte(prefix)]
 		if len(refs) == 0 {
@@ -187,21 +201,14 @@ func buildOutcomeHashSetFromBinaryV5(hashes [][sha256.Size]byte) (OutcomeHashSet
 			return OutcomeHashSetObjectsV5{}, errors.New("V5 block SHA-256 collision")
 		}
 		result.Blocks[digest] = block
-		blockRefs = append(blockRefs, blockReference{prefix: byte(prefix), digest: digest, cardinality: cardinality})
+		blockRefs = append(blockRefs, outcomeBlockReferenceV5{prefix: byte(prefix), digest: digest, cardinality: cardinality})
 	}
-	root := new(bytes.Buffer)
-	root.WriteString(outcomeSetDomainV5)
-	writeOutcomeStringV5(root, exposure.ProfileV5)
-	writeOutcomeUint64V5(root, uint64(len(hashes)))
-	writeOutcomeUint32V5(root, uint32(len(blockRefs)))
-	for _, ref := range blockRefs {
-		root.WriteByte(ref.prefix)
-		digest, _ := hex.DecodeString(ref.digest)
-		root.Write(digest)
-		writeOutcomeUint64V5(root, uint64(ref.cardinality))
+	root, err := canonicalOutcomeRootV5(int64(len(hashes)), blockRefs)
+	if err != nil {
+		return OutcomeHashSetObjectsV5{}, err
 	}
-	result.Set = OutcomeSetV5{SetSHA256: sha256HexV5(root.Bytes()), Cardinality: int64(len(hashes)),
-		RootManifest: append([]byte(nil), root.Bytes()...)}
+	result.Set = OutcomeSetV5{SetSHA256: sha256HexV5(root), Cardinality: int64(len(hashes)), BlockCount: len(blockRefs),
+		RootManifest: root}
 	return result, nil
 }
 
@@ -255,6 +262,12 @@ func DifferenceAndUnion(root OutcomeHashSetObjectsV5, candidate OutcomeCandidate
 }
 
 func VerifySetDigest(objects OutcomeHashSetObjectsV5) error {
+	if err := verifyOutcomeRootV5(objects.Set); err != nil {
+		return err
+	}
+	if objects.Set.BlockCount != len(objects.Blocks) {
+		return errors.New("V5 outcome set verification requires the complete block graph")
+	}
 	if objects.Set.Cardinality < 0 || len(objects.Set.RootManifest) == 0 || sha256HexV5(objects.Set.RootManifest) != objects.Set.SetSHA256 {
 		return errors.New("invalid V5 outcome set digest or cardinality")
 	}
@@ -277,6 +290,59 @@ func VerifySetDigest(objects OutcomeHashSetObjectsV5) error {
 		}
 	}
 	return nil
+}
+
+func verifyOutcomeRootV5(set OutcomeSetV5) error {
+	if set.Cardinality < 0 || set.BlockCount < 0 || set.BlockCount > 256 || len(set.RootManifest) == 0 ||
+		sha256HexV5(set.RootManifest) != set.SetSHA256 {
+		return errors.New("invalid V5 outcome set digest or cardinality")
+	}
+	refs, err := parseV5RootManifestReferences(set.RootManifest, set.Cardinality, set.BlockCount)
+	if err != nil {
+		return err
+	}
+	var total int64
+	for _, ref := range refs {
+		total += ref.cardinality
+	}
+	if total != set.Cardinality {
+		return errors.New("V5 root block cardinality disagrees with set")
+	}
+	return nil
+}
+
+func canonicalOutcomeRootV5(cardinality int64, refs []outcomeBlockReferenceV5) ([]byte, error) {
+	if cardinality < 0 || len(refs) > 256 {
+		return nil, errors.New("invalid V5 root cardinality")
+	}
+	root := new(bytes.Buffer)
+	root.WriteString(outcomeSetDomainV5)
+	writeOutcomeStringV5(root, exposure.ProfileV5)
+	writeOutcomeUint64V5(root, uint64(cardinality))
+	writeOutcomeUint32V5(root, uint32(len(refs)))
+	var total int64
+	lastPrefix := -1
+	for _, ref := range refs {
+		if int(ref.prefix) <= lastPrefix || ref.cardinality < 1 {
+			return nil, errors.New("invalid V5 root block reference")
+		}
+		lastPrefix = int(ref.prefix)
+		digest, err := hex.DecodeString(ref.digest)
+		if err != nil || len(digest) != sha256.Size {
+			return nil, errors.New("invalid V5 root block digest")
+		}
+		root.WriteByte(ref.prefix)
+		root.Write(digest)
+		writeOutcomeUint64V5(root, uint64(ref.cardinality))
+		if ref.cardinality > int64(^uint64(0)>>1)-total {
+			return nil, errors.New("V5 root cardinality overflow")
+		}
+		total += ref.cardinality
+	}
+	if total != cardinality {
+		return nil, errors.New("V5 root block cardinality disagrees with set")
+	}
+	return root.Bytes(), nil
 }
 
 func canonicalOutcomeLeafV5(prefix uint16, chunk uint32, hashes [][sha256.Size]byte) []byte {

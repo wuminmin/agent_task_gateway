@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "status": "passed",
-  "checked_at": "2026-08-01T03:53:30Z",
+  "checked_at": "2026-08-01T05:23:43Z",
   "tool": "TLC",
   "tool_version": "1.7.1",
   "model": "formal/OutcomeHashSetRefinement.tla",
@@ -9,7 +9,7 @@
   "model_sha256": "22877ae558875ee46d2b2ce87179e95a6c78c02251543149aa733037734e91a4",
   "config_sha256": "1712c6acef8376703be84c84e33d1eff560054be8165489a2579c0ba920a329a",
   "raw_log": "formal/results/outcome_hash_set_refinement.log",
-  "log_sha256": "f4e1da4563762e5166e153a2c66329adfceee46f4c89aa4535ef65d9810c4fec",
+  "log_sha256": "3d891d1ac2f1a420019f718d84ded9c008ee86f148bfaaf61b845e602148475a",
   "states_generated": 20,
   "distinct_states": 10,
   "search_depth": 4,

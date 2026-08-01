@@ -74,7 +74,7 @@ Publication 是实际冻结的数据发布物，不是给可变表添加的标�
 
 Catalog 声明 publication 时，Gateway 必须配置 `GATEWAY_SNAPSHOT_ARTIFACT_DIR` 并严格激活全部 publication：目录/文件不可为 symlink，bundle 必须唯一，Catalog 与 artifact 的 schema/snapshot/dictionary/manifest/sidecar digest 必须一致，HOT 总量不得超过配置上限；sidecar 会逐行对照 HOT，COLD 会在只读 publication mount 上全文件流式核 manifest envelope、seal、长度和 SHA-256。COLD 的逐 Fact semantic roots 由发布前 builder/audit verifier 建立，bundle descriptor 自身不是信任根。任一失败都会阻止 Gateway 启动；详情见 [TaskGate V4](exposure-v4.md)。
 
-只要 Catalog 声明 V4 publication 或任一可达 approval route 使用 V4，全部可达 route 都必须使用 `taskgate-exposure-v4`；V2/V3 和未启用 exposure 的 route 不能与它混合。成功激活会在 Control PG 留下单向 deployment marker。之后可以发布新的 V4 Catalog，但不能通过删除 publication、改回 legacy Profile 或换旧 Gateway binary 降级；这类启动或数据库写入会关闭式失败。
+只要 Catalog 声明 ordinal publication，全部可达 route 必须使用同一个 ordinal Profile；默认是 `taskgate-exposure-v5`，不能与 V2/V3、V4 或未启用 exposure 的 route 混合。成功激活会在 Control PG 留下单向 deployment marker。之后可以发布新的 V5 Catalog，但不能通过删除 publication、改回 legacy Profile 或换旧 Gateway binary 降级；这类启动或数据库写入会关闭式失败。
 
 ## Scope
 
@@ -257,11 +257,11 @@ approval_routes:
   - sensitivity: low
     mode: manual
     approver: bob
-    budget_profile: summary-manual-v4
+    budget_profile: summary-manual-v5
   - sensitivity: high
     mode: manual
     approver: bob
-    budget_profile: detail-manual-v4
+    budget_profile: detail-manual-v5
 ```
 
 - 只允许 `mode: manual`；自动任务审批已关闭。
@@ -273,7 +273,7 @@ approval_routes:
 
 ```yaml
 budget_profiles:
-  - name: summary-manual-v4
+  - name: summary-manual-v5
     max_queries: 10
     max_rows: 500
     max_db_time: 30s
@@ -282,7 +282,13 @@ budget_profiles:
     max_release_facts: 1000
     max_influence_facts: 5000
     max_outcome_facts: 10
-    exposure_profile_version: taskgate-exposure-v4
+    exposure_profile_version: taskgate-exposure-v5
+    predicate_footprint:
+      version: taskgate-predicate-footprint-v1
+      max_raw_literals_per_query: 1000
+      max_unique_atoms_per_query: 9
+      max_atom_payload_bytes: 4096
+      max_total_atom_payload_bytes: 36864
 ```
 
 资源数值必须为正；可选 exposure 上限必须同时为零/省略或同时为正。
@@ -298,11 +304,12 @@ budget_profiles:
 | `task_ttl` | 从批准生成 Grant 起的可用时长 |
 | `max_release_facts` | 根任务族可新增的已交付结果 FactID 上限 |
 | `max_influence_facts` | 根任务族可新增的 positive-output dependency FactID 上限；字段名为兼容标签 |
-| `max_outcome_facts` | 根任务族可新增的规范化成功查询命题/结果 FactID 上限 |
+| `max_outcome_facts` | 根任务族可新增的 V5 predicate atom 与 composite outcome FactID 总上限 |
 | `exposure_profile_version` | 固定 FactID、lineage 和收费语义的版本标识 |
+| `predicate_footprint` | V5 签名的 raw literal、unique atom 与 payload 大小上限 |
 
-V4 的三个 exposure 上限必须同时为正；禁用时三者均为零且 Profile 为空。
-V2 兼容 Profile 的 outcome 上限保持为零。默认 Catalog 启用 V4。
+V5 的三个 exposure 上限必须同时为正且必须声明 `predicate_footprint`；禁用时三者均为零且 Profile 为空。
+V2 兼容 Profile 的 outcome 上限保持为零。默认 Catalog 启用 V5。
 Profile 是经治理、允许被完整消耗的容量边界。Agent 不能选择更小预算；Gateway
 按审批路由绑定整个 Profile。若完整额度并不安全，应由 Catalog 管理者降低并发布
 新版本，而不能依赖 Agent 节约。
@@ -392,7 +399,13 @@ budget_profiles:
     max_release_facts: 200
     max_influence_facts: 1000
     max_outcome_facts: 5
-    exposure_profile_version: taskgate-exposure-v4
+    exposure_profile_version: taskgate-exposure-v5
+    predicate_footprint:
+      version: taskgate-predicate-footprint-v1
+      max_raw_literals_per_query: 100
+      max_unique_atoms_per_query: 4
+      max_atom_payload_bytes: 4096
+      max_total_atom_payload_bytes: 16384
 ```
 
 ## 发布清单

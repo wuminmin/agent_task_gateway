@@ -55,8 +55,19 @@ Outcome uses an immutable exact SHA-256 Merkle radix set:
 - full hashes grouped by 16-bit prefix;
 - deterministic 4,096-member leaf chunks;
 - content-addressed leaves, first-byte blocks, and root manifests;
-- exact difference and union with collision verification;
-- bulk fact/object persistence, without one membership row per fact.
+- candidate hashes grouped by prefix16 and only their prefix8 blocks and leaf
+  chunks loaded;
+- exact full-hash difference/union inside touched leaf families, with collision
+  and manifest verification;
+- untouched leaf/block digests reused directly, with only new leaves, changed
+  blocks, and the new small root manifest persisted;
+- no membership row per fact and no full-root rebuild on a small candidate.
+
+The merge reports `root_cardinality`, `candidate_cardinality`,
+`blocks_loaded`, `leaves_loaded`, `hashes_loaded`, `blocks_reused`, and
+`leaves_changed`. Therefore the novelty path depends on candidate-touched radix
+branches rather than total root membership (apart from occupancy inside those
+touched prefix16 families).
 
 Atoms and the composite settle in the same R/D/O transaction and root-head
 CAS. A CAS loser reloads root state and recomputes all novelty. V4 roots and
@@ -80,5 +91,6 @@ charged_outcome = charged_atoms + charged_composite
 ```
 
 Receipts and public audit events contain only counts and digests, never raw
-predicate literals.
-
+predicate literals. In `QUERY_V5_EXPOSURE_SETTLED`, `outcome_set_sha256` is the
+query candidate set digest used by the observation, charge, and V7 receipt;
+`root_outcome_set_sha256` is the merged cumulative root digest.

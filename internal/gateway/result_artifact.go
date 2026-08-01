@@ -228,7 +228,11 @@ func (s *Service) finalizeArtifactQuery(ctx context.Context, task control.Task, 
 	if err != nil {
 		return nil, err
 	}
-	return s.artifactQueryResponse(ctx, artifact, publicStored, record, requestID, receipt), nil
+	response := s.artifactQueryResponse(ctx, artifact, publicStored, record, requestID, receipt)
+	if metrics.OutcomeRadix.CandidateCardinality > 0 {
+		response["outcome_radix"] = metrics.OutcomeRadix
+	}
+	return response, nil
 }
 
 func (s *Service) artifactQueryResponse(ctx context.Context, artifact control.ResultArtifact,

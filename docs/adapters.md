@@ -43,7 +43,14 @@ Content-Type: application/json
       "max_release_facts": 1000,
       "max_influence_facts": 5000,
       "max_outcome_facts": 10,
-      "exposure_profile_version": "taskgate-exposure-v4"
+      "exposure_profile_version": "taskgate-exposure-v5",
+      "predicate_footprint": {
+        "version": "taskgate-predicate-footprint-v1",
+        "max_raw_literals_per_query": 1000,
+        "max_unique_atoms_per_query": 9,
+        "max_atom_payload_bytes": 4096,
+        "max_total_atom_payload_bytes": 36864
+      }
     },
     "catalog_version": "2026-07-25.2",
     "catalog_sha256": "<64 位小写十六进制 SHA-256>",

@@ -314,6 +314,10 @@ func (harness *gatewayHarness) createExposureV4SummaryTask(t *testing.T, taskID 
 	harness.createSummaryTaskWithGrantAndExposureProfile(t, taskID, nil, limits, exposure.ProfileV4)
 }
 
+func (harness *gatewayHarness) createExposureV5SummaryTask(t *testing.T, taskID string, limits control.ExposureLimits) {
+	harness.createSummaryTaskWithGrantAndExposureProfile(t, taskID, nil, limits, exposure.ProfileV5)
+}
+
 func (harness *gatewayHarness) installCatalogV4SnapshotRegistry(t *testing.T) map[string]ordinal.SnapshotIndex {
 	t.Helper()
 	registry, err := ordinal.NewRegistry()
@@ -377,6 +381,11 @@ func (harness *gatewayHarness) createTaskWithGrantAndExposureProfile(t *testing.
 		budget.MaxInfluenceFacts = exposureLimits.InfluenceFacts
 		budget.MaxOutcomeFacts = exposureLimits.OutcomeFacts
 		budget.ExposureProfileVersion = profile
+		if profile == exposure.ProfileV5 {
+			budget.PredicateFootprint = &domain.PredicateFootprintLimitsV1{Version: domain.PredicateFootprintV1,
+				MaxRawLiteralsPerQuery: 1000, MaxUniqueAtomsPerQuery: 9, MaxAtomPayloadBytes: 4096,
+				MaxTotalAtomPayloadBytes: 36864}
+		}
 	}
 	pendingValue := pendingContext{
 		Products:       append([]string(nil), products...),
@@ -397,6 +406,7 @@ func (harness *gatewayHarness) createTaskWithGrantAndExposureProfile(t *testing.
 			MaxReleaseFacts: budget.MaxReleaseFacts, MaxInfluenceFacts: budget.MaxInfluenceFacts,
 			MaxOutcomeFacts:        budget.MaxOutcomeFacts,
 			ExposureProfileVersion: budget.ExposureProfileVersion,
+			PredicateFootprint:     cloneDomainPredicateFootprint(budget.PredicateFootprint),
 		},
 		CatalogVersion: harness.catalog.CatalogVersion, CatalogSHA256: harness.catalog.SHA256,
 		DatasourceID:    harness.connector.attestation.DatasourceID,
@@ -470,7 +480,8 @@ func (harness *gatewayHarness) createTaskWithGrantAndExposureProfile(t *testing.
 			Exposure: control.ExposureGrant{
 				Limits: control.ExposureLimits{ReleaseFacts: core.Budget.MaxReleaseFacts,
 					InfluenceFacts: core.Budget.MaxInfluenceFacts, OutcomeFacts: core.Budget.MaxOutcomeFacts},
-				ProfileVersion: core.Budget.ExposureProfileVersion,
+				ProfileVersion:     core.Budget.ExposureProfileVersion,
+				PredicateFootprint: controlPredicateFootprint(core.Budget.PredicateFootprint),
 			},
 			ExpiresAt: core.ExpiresAt, CatalogVersion: harness.catalog.CatalogVersion,
 			CatalogDigest: core.CatalogSHA256, DatasourceID: core.DatasourceID, SchemaDigest: core.SchemaDigest,

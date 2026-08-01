@@ -1205,6 +1205,9 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 		"rows": stored.Rows, "row_count": stored.RowCount, "database_ms": stored.DatabaseMS,
 		"component_ms": componentMS, "limited": stored.Limited, "receipt": receipt,
 	}
+	if finalizeMetrics.OutcomeRadix.CandidateCardinality > 0 {
+		result["outcome_radix"] = finalizeMetrics.OutcomeRadix
+	}
 	if err := addStoredResponseMetadata(result, stored); err != nil {
 		return nil, err
 	}

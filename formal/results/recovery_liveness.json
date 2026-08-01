@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "status": "passed",
-  "checked_at": "2026-08-01T03:53:23Z",
+  "checked_at": "2026-08-01T05:23:38Z",
   "tool": "TLC",
   "tool_version": "1.7.1",
   "model": "formal/RecoveryLiveness.tla",
@@ -9,9 +9,9 @@
   "model_sha256": "399f98b630e77f2ae8e6cb8311d36e36d12a7fec0794b0d592e3b7d1844d3536",
   "config_sha256": "d912f683839f265736540945cf08303e6830f1c780446b43217c4e68e27d754d",
   "raw_log": "formal/results/recovery_liveness.log",
-  "log_sha256": "bb1e96883dbf33c64ccbb16cd4c24338aee245ecca4f1c29e0daa9547e9ce7dd",
+  "log_sha256": "4c3d95372c3a944e6ddcdb15a1c9181a9228d800aaaec84ad958efae6802ba91",
   "states_generated": 221,
   "distinct_states": 135,
-  "search_depth": 8,
+  "search_depth": 7,
   "exit_code": 0
 }

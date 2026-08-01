@@ -449,8 +449,9 @@ summary_request=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
   '{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"request_data_task","arguments":{"objective":"按月份分析销售部差旅报销","data_products":["expense_summary"],"columns":{"expense_summary":["month","total_amount"]},"scopes":{"department":["销售部"]}}}}')
 assert_contains "$summary_request" '"isError":false' "summary task request"
 assert_contains "$summary_request" '"approval_mode":"manual"' "summary task approval route"
-assert_contains "$summary_request" '"exposure_profile_version":"taskgate-exposure-v4"' "summary V4 profile"
-assert_contains "$summary_request" '"max_outcome_facts":10' "summary V4 outcome ceiling"
+assert_contains "$summary_request" '"exposure_profile_version":"taskgate-exposure-v5"' "summary V5 profile"
+assert_contains "$summary_request" '"max_outcome_facts":10' "summary V5 outcome ceiling"
+assert_contains "$summary_request" '"predicate_footprint":' "summary V5 predicate limits"
 assert_contains "$summary_request" '"budget_source":"catalog_profile"' "summary Catalog budget source"
 assert_contains "$summary_request" '"max_queries":10' "summary complete Catalog query budget"
 summary_task=$(json_string "$summary_request" task_id)
@@ -480,6 +481,8 @@ assert_contains "$summary_query" '"artifact_status":"AVAILABLE"' "summary object
 assert_contains "$summary_query" '"row_count":' "summary structured plan"
 assert_contains "$summary_query" '"exposure":' "summary exposure settlement"
 assert_contains "$summary_query" '"charged_release_facts":' "summary exposure settlement"
+assert_contains "$summary_query" '"outcome_radix":' "summary V5 radix telemetry"
+assert_contains "$summary_query" '"blocks_loaded":' "summary V5 radix telemetry counters"
 assert_structured_field_absent "$summary_query" rows "summary metadata-only response"
 assert_not_contains "$summary_query" '"object_key":' "summary object-key redaction"
 summary_query_id=$(json_string "$summary_query" query_id)
@@ -552,7 +555,7 @@ assert_structured_field_absent "$stored_result" rows "persisted metadata-only re
 assert_not_contains "$stored_result" '"object_key":' "persisted object-key redaction"
 assert_contains "$stored_result" '"result_hash":' "persisted result receipt"
 assert_contains "$stored_result" '"gateway_key_id":"gateway-integration-ed25519-v1"' "signed query receipt key"
-assert_contains "$stored_result" '"version":"6"' "V4 query receipt version"
+assert_contains "$stored_result" '"version":"7"' "V5 query receipt version"
 assert_contains "$stored_result" '"dictionary_set_sha256":' "V4 dictionary-set receipt binding"
 assert_contains "$stored_result" '"signature":' "signed query receipt signature"
 carol_receipt=$(mcp_call "$TASKBOUND_CAROL_TOKEN" \
