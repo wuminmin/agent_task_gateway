@@ -89,6 +89,8 @@ type FinalizeQueryMetrics struct {
 	ExposureLedgerLock      time.Duration
 	ExposureFactStore       time.Duration
 	OrdinalCASRetries       int
+	CASAttempts             int64
+	CASConflicts            int64
 	OutcomeRadix            OutcomeRadixTelemetryV5 `json:"outcome_radix"`
 }
 
@@ -220,8 +222,16 @@ func (s *Store) finalizePreparedQuery(ctx context.Context, settlement BudgetSett
 		aggregate.OutcomeRadix.BlocksLoaded += measured.OutcomeRadix.BlocksLoaded
 		aggregate.OutcomeRadix.LeavesLoaded += measured.OutcomeRadix.LeavesLoaded
 		aggregate.OutcomeRadix.HashesLoaded += measured.OutcomeRadix.HashesLoaded
-		aggregate.OutcomeRadix.BlocksReused = measured.OutcomeRadix.BlocksReused
+		aggregate.OutcomeRadix.BlocksReused += measured.OutcomeRadix.BlocksReused
 		aggregate.OutcomeRadix.LeavesChanged += measured.OutcomeRadix.LeavesChanged
+		aggregate.OutcomeRadix.CASAttempts += measured.OutcomeRadix.CASAttempts
+		aggregate.OutcomeRadix.CASConflicts += measured.OutcomeRadix.CASConflicts
+		aggregate.OutcomeRadix.CASRetries += measured.OutcomeRadix.CASRetries
+		aggregate.OutcomeRadix.LoadDuration += measured.OutcomeRadix.LoadDuration
+		aggregate.OutcomeRadix.DifferenceUnionDuration += measured.OutcomeRadix.DifferenceUnionDuration
+		aggregate.OutcomeRadix.PersistDuration += measured.OutcomeRadix.PersistDuration
+		aggregate.CASAttempts += measured.OutcomeRadix.CASAttempts
+		aggregate.CASConflicts += measured.OutcomeRadix.CASConflicts
 		if err == nil {
 			aggregate.SettlementStore = time.Since(settlementStarted)
 			return record, receipt, aggregate, nil
@@ -231,6 +241,7 @@ func (s *Store) finalizePreparedQuery(ctx context.Context, settlement BudgetSett
 			return QueryRecord{}, PersistedQueryReceipt{}, aggregate, err
 		}
 		aggregate.OrdinalCASRetries++
+		aggregate.OutcomeRadix.CASRetries++
 		// A failed CAS rolls back the complete result/exposure/audit transaction.
 		// Re-enter with a fresh READ COMMITTED transaction so all three dimensions
 		// are reloaded and recomputed from the newly committed root head.
@@ -292,13 +303,13 @@ func (s *Store) finalizePreparedQueryAttempt(ctx context.Context, settlement Bud
 		}
 	}
 	exposureCharge, exposureMetrics, err := settleAnyExposureMeasuredTx(ctx, tx, now, settlement)
-	if err != nil {
-		return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, settlementErrorKind(err), err)
-	}
 	metrics.ExposureReservationLock = exposureMetrics.ReservationLock
 	metrics.ExposureLedgerLock = exposureMetrics.LedgerLock
 	metrics.ExposureFactStore = exposureMetrics.FactStore
 	metrics.OutcomeRadix = exposureMetrics.OutcomeRadix
+	if err != nil {
+		return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, settlementErrorKind(err), err)
+	}
 	resultHash := preparedResultHash(prepared)
 	record, audit, err := settleBudgetTx(ctx, tx, now, settlement, QueryCompleted, resultHash, true)
 	if err != nil {

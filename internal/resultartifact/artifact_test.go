@@ -70,6 +70,40 @@ func TestParquetRoundTripPreservesNullUnicodeAndExactNumbers(t *testing.T) {
 	}
 }
 
+func TestMeasuredArtifactAPIsSharePathAndReportNonnegativeDurations(t *testing.T) {
+	backend := newMemoryBackend()
+	tempDir := filepath.Join(t.TempDir(), "private")
+	if err := os.Mkdir(tempDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := NewManager(backend, newArtifactTestCipher(t), tempDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := StageRequest{ResultID: "res_measured", TaskID: "task_measured", StagingKey: "staging/measured", ObjectKey: "results/measured", Columns: []Column{{Name: "value", DataTypeOID: 23}}, Rows: [][]any{{int64(7)}}}
+	staged, stageMetrics, err := manager.StageMeasured(t.Context(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stageMetrics.Total < stageMetrics.EncodeEncrypt+stageMetrics.Sync+stageMetrics.Put || stageMetrics.EncodeEncrypt < 0 || stageMetrics.Sync < 0 || stageMetrics.Put < 0 {
+		t.Fatalf("stage metrics=%+v", stageMetrics)
+	}
+	info, promoteMetrics, err := manager.PromoteMeasured(t.Context(), staged)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Key != request.ObjectKey || promoteMetrics.HashVerify <= 0 || promoteMetrics.Total < promoteMetrics.Stat+promoteMetrics.Copy+promoteMetrics.Verify+promoteMetrics.DeleteStaging {
+		t.Fatalf("promote=%+v metrics=%+v", info, promoteMetrics)
+	}
+	_, replayMetrics, err := manager.PromoteMeasured(t.Context(), staged)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !replayMetrics.ReusedExistingCanonical {
+		t.Fatalf("retry did not report canonical reuse: %+v", replayMetrics)
+	}
+}
+
 func TestParquetRoundTripSupportedPGXCatalogTypes(t *testing.T) {
 	columns := []Column{
 		{Name: "numeric", DataTypeOID: 1700},

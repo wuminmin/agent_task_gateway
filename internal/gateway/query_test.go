@@ -47,6 +47,25 @@ func TestReceiptSigningClampsRegressedWallClock(t *testing.T) {
 	}
 }
 
+func TestFinalizePipelineResponseHasNonOverlappingTopLevelPhases(t *testing.T) {
+	start := time.Now().Add(-10 * time.Millisecond)
+	measurement := &queryPipelineMeasurement{requestStarted: start, prepareFinished: start.Add(time.Millisecond), executeFinished: start.Add(3 * time.Millisecond)}
+	response := map[string]any{}
+	finalizePipelineResponse(response, storedQueryResult{}, measurement, start.Add(4*time.Millisecond), start.Add(5*time.Millisecond), start.Add(6*time.Millisecond))
+	pipeline := response["pipeline_ms"].(map[string]float64)
+	sum := 0.0
+	for _, name := range []string{"prepare", "execute_and_derive", "artifact_stage", "control_settlement", "artifact_publication", "response_finalize"} {
+		value, present := pipeline[name]
+		if !present || value < 0 {
+			t.Fatalf("%s=%v present=%v", name, value, present)
+		}
+		sum += value
+	}
+	if pipeline["server_total"]+0.001 < sum {
+		t.Fatalf("server total %.3f < phases %.3f", pipeline["server_total"], sum)
+	}
+}
+
 func TestBuildQueryReceiptRequestEmitsV8ArtifactIntent(t *testing.T) {
 	digest64 := fmt.Sprintf("%064x", 1)
 	created := time.Date(2026, 8, 1, 1, 0, 0, 0, time.UTC)
@@ -168,6 +187,12 @@ func TestExposurePlanHidesMeteringKeysAndDeduplicatesReplay(t *testing.T) {
 	replay := mustCallGatewayTool(t, harness.service, harness.alice, "execute_plan", arguments)
 	if replay["idempotent_replay"] != true || len(harness.connector.requests) != 2 {
 		t.Fatalf("replay executed again: replay=%+v calls=%d", replay, len(harness.connector.requests))
+	}
+	replayPipeline := replay["pipeline_ms"].(map[string]float64)
+	if replayPipeline["execute_and_derive"] != 0 || replayPipeline["artifact_stage"] != 0 ||
+		replayPipeline["control_settlement"] != 0 || replayPipeline["artifact_publication"] != 0 ||
+		replayPipeline["server_total"]+0.001 < replayPipeline["prepare"]+replayPipeline["response_finalize"] {
+		t.Fatalf("idempotent replay pipeline = %+v", replayPipeline)
 	}
 
 	arguments["request_id"] = "exposure-request-2"

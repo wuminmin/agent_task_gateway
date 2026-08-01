@@ -7,8 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
+	"time"
 
 	pg_query "github.com/pganalyze/pg_query_go/v6"
 
@@ -84,55 +86,106 @@ type compileState struct {
 	dependencyEdge int
 }
 
+// CompileMetrics contains non-overlapping observational stages for one
+// compiler call. Allocation counters are process-wide runtime deltas and are
+// therefore most meaningful in the runner's single-compile, fixed-process
+// measurement mode.
+type CompileMetrics struct {
+	Total                     time.Duration
+	RecursiveExpansion        time.Duration
+	ParseValidation           time.Duration
+	JoinGraphCanonicalization time.Duration
+	PlanMaterialization       time.Duration
+	DigestGeneration          time.Duration
+	AllocBytes                uint64
+	AllocObjects              uint64
+}
+
 func (compiler *Compiler) Compile(root RelationName) (Artifact, error) {
+	artifact, _, err := compiler.CompileMeasured(root)
+	return artifact, err
+}
+
+// CompileMeasured is Compile with observational timing/allocation counters.
+// Compile delegates here so callers cannot select a semantically different
+// measured implementation.
+func (compiler *Compiler) CompileMeasured(root RelationName) (artifact Artifact, metrics CompileMetrics, err error) {
+	started := time.Now()
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	defer func() {
+		metrics.Total = time.Since(started)
+		runtime.ReadMemStats(&after)
+		if after.TotalAlloc >= before.TotalAlloc {
+			metrics.AllocBytes = after.TotalAlloc - before.TotalAlloc
+		}
+		if after.Mallocs >= before.Mallocs {
+			metrics.AllocObjects = after.Mallocs - before.Mallocs
+		}
+	}()
 	if compiler == nil {
-		return Artifact{}, reject(CodeInvalidRegistry, root, "compiler is nil")
+		return artifact, metrics, reject(CodeInvalidRegistry, root, "compiler is nil")
 	}
 	state := &compileState{
 		compiler: compiler, root: root, parsed: make(map[RelationName]*pg_query.SelectStmt),
 		memo: make(map[RelationName]fragment), reachable: make(map[RelationName]Relation),
 		visiting: make(map[RelationName]bool), visited: make(map[RelationName]bool),
 	}
+	stageStarted := time.Now()
 	if err := state.preflight(root, 1); err != nil {
-		return Artifact{}, err
+		metrics.ParseValidation = time.Since(stageStarted)
+		return artifact, metrics, err
 	}
+	metrics.ParseValidation = time.Since(stageStarted)
+	stageStarted = time.Now()
 	expanded, err := state.compileRelation(root)
+	metrics.RecursiveExpansion = time.Since(stageStarted)
 	if err != nil {
-		return Artifact{}, err
+		return artifact, metrics, err
 	}
+	stageStarted = time.Now()
 	plan, err := state.materializePlan(root, expanded)
+	metrics.PlanMaterialization = time.Since(stageStarted)
 	if err != nil {
-		return Artifact{}, err
+		return artifact, metrics, err
 	}
+	stageStarted = time.Now()
 	_, normal, semanticErr := queryplan.CompileSemantic(plan, compiler.products)
+	metrics.JoinGraphCanonicalization = time.Since(stageStarted)
 	if semanticErr != nil {
-		return Artifact{}, reject(CodePlanInvalid, root, "expanded semantic plan: %v", semanticErr)
+		return artifact, metrics, reject(CodePlanInvalid, root, "expanded semantic plan: %v", semanticErr)
 	}
 
+	stageStarted = time.Now()
 	outputs := make([]Output, len(expanded.outputs))
 	for index, binding := range expanded.outputs {
 		outputs[index] = binding.Output
 	}
 	interfaceDigest, err := digestInterface(outputs)
 	if err != nil {
-		return Artifact{}, reject(CodePlanInvalid, root, "interface digest: %v", err)
+		metrics.DigestGeneration = time.Since(stageStarted)
+		return artifact, metrics, reject(CodePlanInvalid, root, "interface digest: %v", err)
 	}
 	closure := state.dependencyClosure()
 	baseProducts := baseProductNames(expanded.sources)
 	dependencyDigest, err := state.digestDependencies(closure)
 	if err != nil {
-		return Artifact{}, reject(CodePlanInvalid, root, "dependency digest: %v", err)
+		metrics.DigestGeneration = time.Since(stageStarted)
+		return artifact, metrics, reject(CodePlanInvalid, root, "dependency digest: %v", err)
 	}
 	bindingDigest, err := state.digestBinding(normal.SHA256, interfaceDigest, dependencyDigest, closure, baseProducts)
 	if err != nil {
-		return Artifact{}, reject(CodePlanInvalid, root, "binding digest: %v", err)
+		metrics.DigestGeneration = time.Since(stageStarted)
+		return artifact, metrics, reject(CodePlanInvalid, root, "binding digest: %v", err)
 	}
-	return Artifact{
+	metrics.DigestGeneration = time.Since(stageStarted)
+	artifact = Artifact{
 		Root: root, Plan: plan, Outputs: outputs, BaseProducts: baseProducts,
 		DependencyClosure: closure, DefinitionDigest: state.reachable[root].DefinitionDigest,
 		DependencyDigest: dependencyDigest, InterfaceDigest: interfaceDigest,
 		CanonicalPlanDigest: normal.SHA256, BindingDigest: bindingDigest,
-	}, nil
+	}
+	return artifact, metrics, nil
 }
 
 func (state *compileState) preflight(name RelationName, depth int) error {

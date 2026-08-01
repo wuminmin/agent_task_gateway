@@ -67,6 +67,32 @@ type StagedArtifact struct {
 	ETag          string
 }
 
+// StageMetrics reports non-overlapping intervals from the existing Stage
+// path. EncodeEncrypt intentionally combines Parquet encoding and inline
+// encryption because the streaming implementation cannot separate them
+// without changing the execution path.
+type StageMetrics struct {
+	EncodeEncrypt time.Duration
+	Sync          time.Duration
+	Put           time.Duration
+	Total         time.Duration
+}
+
+// PromoteMetrics reports intervals from the existing idempotent promotion
+// path. Stat covers canonical-object metadata lookup, Verify covers metadata
+// checks, HashVerify covers the authenticated ciphertext read (overlapping
+// Copy on a new canonical object), and DeleteStaging covers best-effort
+// removal of the private staging object.
+type PromoteMetrics struct {
+	Stat                    time.Duration
+	Copy                    time.Duration
+	Verify                  time.Duration
+	HashVerify              time.Duration
+	DeleteStaging           time.Duration
+	Total                   time.Duration
+	ReusedExistingCanonical bool
+}
+
 type ArtifactRef struct {
 	ResultID      string
 	TaskID        string
@@ -110,17 +136,26 @@ func (manager *Manager) Ready(ctx context.Context) error {
 // then uploads that ciphertext under a non-canonical staging key. No plaintext
 // Parquet file is ever written to local storage.
 func (manager *Manager) Stage(ctx context.Context, request StageRequest) (StagedArtifact, error) {
+	staged, _, err := manager.StageMeasured(ctx, request)
+	return staged, err
+}
+
+// StageMeasured is Stage with observational timings. Stage delegates here so
+// measured and unmeasured callers always execute identical artifact logic.
+func (manager *Manager) StageMeasured(ctx context.Context, request StageRequest) (staged StagedArtifact, metrics StageMetrics, err error) {
+	totalStarted := time.Now()
+	defer func() { metrics.Total = time.Since(totalStarted) }()
 	if manager == nil || manager.backend == nil || manager.cipher == nil {
-		return StagedArtifact{}, errors.New("result artifact manager is unavailable")
+		return staged, metrics, errors.New("result artifact manager is unavailable")
 	}
 	if strings.TrimSpace(request.ResultID) == "" || strings.TrimSpace(request.TaskID) == "" ||
 		strings.TrimSpace(request.StagingKey) == "" || strings.TrimSpace(request.ObjectKey) == "" ||
 		request.StagingKey == request.ObjectKey {
-		return StagedArtifact{}, errors.New("result, task, staging key, and canonical object key are required")
+		return staged, metrics, errors.New("result, task, staging key, and canonical object key are required")
 	}
 	file, err := os.CreateTemp(manager.tempDir, localStagingPrefix+"*"+localStagingSuffix)
 	if err != nil {
-		return StagedArtifact{}, fmt.Errorf("create encrypted Parquet staging file: %w", err)
+		return staged, metrics, fmt.Errorf("create encrypted Parquet staging file: %w", err)
 	}
 	path := file.Name()
 	defer func() {
@@ -128,26 +163,32 @@ func (manager *Manager) Stage(ctx context.Context, request StageRequest) (Staged
 		_ = os.Remove(path)
 	}()
 	if err := file.Chmod(0o600); err != nil {
-		return StagedArtifact{}, fmt.Errorf("restrict encrypted Parquet staging file: %w", err)
+		return staged, metrics, fmt.Errorf("restrict encrypted Parquet staging file: %w", err)
 	}
 	objectDigest := sha256.New()
 	counted := &countingWriter{writer: io.MultiWriter(file, objectDigest)}
 	encrypted, err := newArtifactEncryptWriter(counted, manager.cipher, request.TaskID, request.ResultID)
 	if err != nil {
-		return StagedArtifact{}, err
+		return staged, metrics, err
 	}
+	encodeStarted := time.Now()
 	schema, err := WriteParquet(encrypted, request.ResultID, request.Columns, request.Rows)
 	if err == nil {
 		err = encrypted.Close()
 	}
 	if err != nil {
-		return StagedArtifact{}, fmt.Errorf("encode encrypted Parquet artifact: %w", err)
+		metrics.EncodeEncrypt = time.Since(encodeStarted)
+		return staged, metrics, fmt.Errorf("encode encrypted Parquet artifact: %w", err)
 	}
+	metrics.EncodeEncrypt = time.Since(encodeStarted)
+	syncStarted := time.Now()
 	if err := file.Sync(); err != nil {
-		return StagedArtifact{}, fmt.Errorf("sync encrypted Parquet staging file: %w", err)
+		metrics.Sync = time.Since(syncStarted)
+		return staged, metrics, fmt.Errorf("sync encrypted Parquet staging file: %w", err)
 	}
+	metrics.Sync = time.Since(syncStarted)
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		return StagedArtifact{}, fmt.Errorf("rewind encrypted Parquet staging file: %w", err)
+		return staged, metrics, fmt.Errorf("rewind encrypted Parquet staging file: %w", err)
 	}
 	parquetHash := encrypted.PlaintextSHA256()
 	objectHash := hex.EncodeToString(objectDigest.Sum(nil))
@@ -159,23 +200,26 @@ func (manager *Manager) Stage(ctx context.Context, request StageRequest) (Staged
 		"taskgate-parquet-sha256": parquetHash,
 		"taskgate-object-sha256":  objectHash,
 	}
+	putStarted := time.Now()
 	info, err := manager.backend.Put(ctx, request.StagingKey, file, counted.count, PutOptions{
 		ContentType: objectContentType, Metadata: metadata,
 	})
+	metrics.Put = time.Since(putStarted)
 	if err != nil {
-		return StagedArtifact{}, err
+		return staged, metrics, err
 	}
 	if info.Size != 0 && info.Size != counted.count {
 		_ = manager.backend.Delete(context.WithoutCancel(ctx), request.StagingKey)
-		return StagedArtifact{}, errors.New("object store reported an unexpected artifact size")
+		return staged, metrics, errors.New("object store reported an unexpected artifact size")
 	}
-	return StagedArtifact{
+	staged = StagedArtifact{
 		ResultID: request.ResultID, TaskID: request.TaskID, StagingKey: request.StagingKey,
 		ObjectKey: request.ObjectKey, KeyID: manager.cipher.KeyID(), Format: FormatParquet,
 		Encryption: EncryptionChunkedAESGCMV1, ParquetSHA256: parquetHash, ObjectSHA256: objectHash,
 		ParquetSize: encrypted.PlaintextSize(), ObjectSize: counted.count,
 		RowCount: int64(len(request.Rows)), ColumnCount: len(request.Columns), Schema: schema, ETag: info.ETag,
-	}, nil
+	}
+	return staged, metrics, nil
 }
 
 // PurgeLocalStagingBefore removes only TaskGate's encrypted local scratch
@@ -218,55 +262,96 @@ func (manager *Manager) PurgeLocalStagingBefore(cutoff time.Time) (int, error) {
 // boundary: Control PG may still durably report PENDING after this returns.
 // Copy is deterministic and safe to retry after a crash.
 func (manager *Manager) Promote(ctx context.Context, staged StagedArtifact) (ObjectInfo, error) {
+	info, _, err := manager.PromoteMeasured(ctx, staged)
+	return info, err
+}
+
+// PromoteMeasured is Promote with observational timings. Promote delegates
+// here so compatibility callers retain the exact idempotent behavior.
+func (manager *Manager) PromoteMeasured(ctx context.Context, staged StagedArtifact) (info ObjectInfo, metrics PromoteMetrics, err error) {
+	totalStarted := time.Now()
+	defer func() { metrics.Total = time.Since(totalStarted) }()
 	if err := validateStaged(staged); err != nil {
-		return ObjectInfo{}, err
+		return info, metrics, err
 	}
-	if existing, err := manager.backend.Stat(ctx, staged.ObjectKey); err == nil {
+	statStarted := time.Now()
+	existing, statErr := manager.backend.Stat(ctx, staged.ObjectKey)
+	metrics.Stat += time.Since(statStarted)
+	if statErr == nil {
 		if objectMatches(existing, staged) {
+			verifyStarted := time.Now()
 			if verifyErr := manager.verifyObjectDigest(ctx, existing, staged.ObjectSHA256); verifyErr != nil {
-				return ObjectInfo{}, verifyErr
+				metrics.HashVerify += time.Since(verifyStarted)
+				return info, metrics, verifyErr
 			}
+			metrics.HashVerify += time.Since(verifyStarted)
+			deleteStarted := time.Now()
 			_ = manager.backend.Delete(context.WithoutCancel(ctx), staged.StagingKey)
-			return existing, nil
+			metrics.DeleteStaging += time.Since(deleteStarted)
+			metrics.ReusedExistingCanonical = true
+			return existing, metrics, nil
 		}
-		return ObjectInfo{}, errors.New("canonical result object already exists with different evidence")
-	} else if !errors.Is(err, ErrObjectNotFound) {
-		return ObjectInfo{}, fmt.Errorf("check canonical result object: %w", err)
+		return info, metrics, errors.New("canonical result object already exists with different evidence")
+	} else if !errors.Is(statErr, ErrObjectNotFound) {
+		return info, metrics, fmt.Errorf("check canonical result object: %w", statErr)
 	}
 	stagingInfo, err := manager.backend.Stat(ctx, staged.StagingKey)
 	if err != nil {
-		return ObjectInfo{}, fmt.Errorf("check staging result object: %w", err)
+		return info, metrics, fmt.Errorf("check staging result object: %w", err)
 	}
+	verifyStarted := time.Now()
 	if stagingInfo.ETag != staged.ETag || !objectMatches(stagingInfo, staged) {
-		return ObjectInfo{}, errors.New("staging result object differs from committed evidence")
+		metrics.Verify += time.Since(verifyStarted)
+		return info, metrics, errors.New("staging result object differs from committed evidence")
 	}
-	info, err := manager.backend.Copy(ctx, staged.StagingKey, staged.ObjectKey, staged.ObjectSHA256)
+	metrics.Verify += time.Since(verifyStarted)
+	copyStarted := time.Now()
+	info, err = manager.backend.Copy(ctx, staged.StagingKey, staged.ObjectKey, staged.ObjectSHA256)
+	metrics.Copy += time.Since(copyStarted)
+	// Copy authenticates the complete ciphertext stream before the conditional
+	// canonical commit, so hash verification is intentionally an overlapping
+	// diagnostic for this path.
+	metrics.HashVerify += metrics.Copy
 	if err != nil {
 		if errors.Is(err, ErrObjectAlreadyExists) {
+			statStarted = time.Now()
 			existing, statErr := manager.backend.Stat(ctx, staged.ObjectKey)
+			metrics.Stat += time.Since(statStarted)
 			if statErr == nil && objectMatches(existing, staged) {
+				verifyStarted = time.Now()
 				if verifyErr := manager.verifyObjectDigest(ctx, existing, staged.ObjectSHA256); verifyErr != nil {
-					return ObjectInfo{}, verifyErr
+					metrics.HashVerify += time.Since(verifyStarted)
+					return info, metrics, verifyErr
 				}
+				metrics.HashVerify += time.Since(verifyStarted)
+				deleteStarted := time.Now()
 				_ = manager.backend.Delete(context.WithoutCancel(ctx), staged.StagingKey)
-				return existing, nil
+				metrics.DeleteStaging += time.Since(deleteStarted)
+				metrics.ReusedExistingCanonical = true
+				return existing, metrics, nil
 			}
 			if statErr != nil {
-				return ObjectInfo{}, fmt.Errorf("verify concurrently created canonical result object: %w", statErr)
+				return info, metrics, fmt.Errorf("verify concurrently created canonical result object: %w", statErr)
 			}
-			return ObjectInfo{}, errors.New("canonical result object already exists with different evidence")
+			return info, metrics, errors.New("canonical result object already exists with different evidence")
 		}
-		return ObjectInfo{}, err
+		return info, metrics, err
 	}
+	verifyStarted = time.Now()
 	if !objectMatches(info, staged) {
-		return ObjectInfo{}, errors.New("promoted result object failed integrity metadata checks")
+		metrics.Verify += time.Since(verifyStarted)
+		return info, metrics, errors.New("promoted result object failed integrity metadata checks")
 	}
+	metrics.Verify += time.Since(verifyStarted)
+	deleteStarted := time.Now()
 	if err := manager.backend.Delete(context.WithoutCancel(ctx), staged.StagingKey); err != nil {
+		metrics.DeleteStaging += time.Since(deleteStarted)
 		// The canonical object is authoritative. A stale private staging object is
 		// harmless and is eligible for the deployment's orphan cleanup policy.
-		return info, nil
+		return info, metrics, nil
 	}
-	return info, nil
+	metrics.DeleteStaging += time.Since(deleteStarted)
+	return info, metrics, nil
 }
 
 func (manager *Manager) verifyObjectDigest(ctx context.Context, info ObjectInfo, expectedSHA256 string) error {

@@ -668,10 +668,14 @@ VALUES ($1,$2,$3,$4,$5) ON CONFLICT (set_sha256) DO NOTHING`, objects.Set.SetSHA
 // the returned root manifest and are not re-submitted to PostgreSQL.
 func differenceAndUnionV5Tx(ctx context.Context, tx *sql.Tx, rootDigest string,
 	candidate OutcomeCandidateV5) (OutcomeHashSetObjectsV5, [][sha256.Size]byte, OutcomeRadixTelemetryV5, error) {
+	loadStarted := time.Now()
 	candidates := uniqueOutcomeHashesV5(candidate.Hashes)
 	telemetry := OutcomeRadixTelemetryV5{CandidateCardinality: int64(len(candidates))}
 	if rootDigest == "" {
+		telemetry.LoadDuration = time.Since(loadStarted)
+		differenceStarted := time.Now()
 		built, err := buildOutcomeHashSetFromBinaryV5(candidates)
+		telemetry.DifferenceUnionDuration = time.Since(differenceStarted)
 		if err != nil {
 			return OutcomeHashSetObjectsV5{}, nil, telemetry, err
 		}
@@ -797,6 +801,8 @@ FROM v5_outcome_hash_leaves WHERE leaf_sha256=ANY($1::text[])`, digests)
 		}
 	}
 	telemetry.LeavesLoaded = int64(len(loadedLeaves))
+	telemetry.LoadDuration = time.Since(loadStarted)
+	differenceStarted := time.Now()
 
 	changedLeaves := make(map[string]OutcomeHashLeafV5)
 	novel := make([][sha256.Size]byte, 0, len(candidates))
@@ -901,6 +907,7 @@ FROM v5_outcome_hash_leaves WHERE leaf_sha256=ANY($1::text[])`, digests)
 	result := OutcomeHashSetObjectsV5{Set: OutcomeSetV5{SetSHA256: sha256HexV5(rootManifest),
 		Cardinality: newCardinality, BlockCount: len(newRootRefs), RootManifest: rootManifest},
 		Leaves: changedLeaves, Blocks: changedBlocks}
+	telemetry.DifferenceUnionDuration = time.Since(differenceStarted)
 	return result, novel, telemetry, nil
 }
 
@@ -1188,12 +1195,16 @@ FROM task_grants WHERE task_id=$1`, reservation.TaskID).
 			return nil, metrics, err
 		}
 	}
+	persistStarted := time.Now()
 	if err := persistV5SetObjectsTx(ctx, tx, mergedOutcome, now); err != nil {
+		metrics.OutcomeRadix.PersistDuration = time.Since(persistStarted)
 		return nil, metrics, err
 	}
+	metrics.OutcomeRadix.PersistDuration = time.Since(persistStarted)
 	rootEpoch := head.Epoch
 	var result sql.Result
 	if newRelease != 0 || newInfluence != 0 || newOutcome != 0 {
+		metrics.OutcomeRadix.CASAttempts++
 		result, err = tx.ExecContext(ctx, `UPDATE v5_exposure_root_heads SET dictionary_set_digest=$1,epoch=epoch+1,
  used_release_facts=used_release_facts+$2,used_influence_facts=used_influence_facts+$3,
  used_outcome_facts=used_outcome_facts+$4,release_set_sha256=$5,influence_set_sha256=$6,
@@ -1208,6 +1219,7 @@ WHERE root_task_id=$9 AND epoch=$10
 			return nil, metrics, err
 		}
 		if affected, _ := result.RowsAffected(); affected != 1 {
+			metrics.OutcomeRadix.CASConflicts++
 			return nil, metrics, ErrOrdinalCASConflict
 		}
 		rootEpoch = head.Epoch + 1

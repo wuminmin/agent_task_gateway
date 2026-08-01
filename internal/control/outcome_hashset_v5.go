@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"time"
 
 	"taskbound.local/agent-data-gateway/internal/exposure"
 )
@@ -60,13 +61,19 @@ type OutcomeCandidateV5 struct {
 // OutcomeRadixTelemetryV5 reports the physical work performed by one exact
 // novelty merge. Loaded counters exclude the small root manifest itself.
 type OutcomeRadixTelemetryV5 struct {
-	RootCardinality      int64 `json:"root_cardinality"`
-	CandidateCardinality int64 `json:"candidate_cardinality"`
-	BlocksLoaded         int64 `json:"blocks_loaded"`
-	LeavesLoaded         int64 `json:"leaves_loaded"`
-	HashesLoaded         int64 `json:"hashes_loaded"`
-	BlocksReused         int64 `json:"blocks_reused"`
-	LeavesChanged        int64 `json:"leaves_changed"`
+	RootCardinality         int64         `json:"root_cardinality"`
+	CandidateCardinality    int64         `json:"candidate_cardinality"`
+	BlocksLoaded            int64         `json:"blocks_loaded"`
+	LeavesLoaded            int64         `json:"leaves_loaded"`
+	HashesLoaded            int64         `json:"hashes_loaded"`
+	BlocksReused            int64         `json:"blocks_reused"`
+	LeavesChanged           int64         `json:"leaves_changed"`
+	CASAttempts             int64         `json:"cas_attempts"`
+	CASConflicts            int64         `json:"cas_conflicts"`
+	CASRetries              int64         `json:"cas_retries"`
+	LoadDuration            time.Duration `json:"-"`
+	DifferenceUnionDuration time.Duration `json:"-"`
+	PersistDuration         time.Duration `json:"-"`
 }
 
 type outcomeLeafReferenceV5 struct {

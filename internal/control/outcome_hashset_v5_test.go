@@ -89,7 +89,8 @@ func TestV5SettlementAndSemanticReplayPostgres(t *testing.T) {
 		ProfileVersion: exposure.ProfileV5}, nil); err != nil {
 		t.Fatalf("settle V5 query: %v", err)
 	} else if firstMetrics.OutcomeRadix.RootCardinality != 0 || firstMetrics.OutcomeRadix.CandidateCardinality != 2 ||
-		firstMetrics.OutcomeRadix.BlocksLoaded != 0 || firstMetrics.OutcomeRadix.LeavesChanged == 0 {
+		firstMetrics.OutcomeRadix.BlocksLoaded != 0 || firstMetrics.OutcomeRadix.LeavesChanged == 0 ||
+		firstMetrics.OutcomeRadix.CASAttempts != 1 || firstMetrics.OutcomeRadix.CASConflicts != 0 || firstMetrics.OutcomeRadix.CASRetries != 0 {
 		t.Fatalf("initial V5 radix telemetry = %+v", firstMetrics.OutcomeRadix)
 	}
 	firstCharge, err := store.GetExposureCharge(context.Background(), first.QueryID)

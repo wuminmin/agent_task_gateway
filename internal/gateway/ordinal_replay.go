@@ -50,14 +50,14 @@ func (s *Service) tryOrdinalSemanticReplay(ctx context.Context, task control.Tas
 	grantDigest, cacheKey, dictionarySetDigest string, reservation control.BudgetReservation,
 	componentMS map[string]float64) (map[string]any, ordinalReplayOutcome, error) {
 	return s.tryOrdinalSemanticReplayWithSpoolAndMetadata(ctx, task, requestID, queryID, grantDigest, cacheKey,
-		dictionarySetDigest, reservation, componentMS, nil, newOrdinalReplaySpool)
+		dictionarySetDigest, reservation, componentMS, nil, newOrdinalReplaySpool, nil)
 }
 
 func (s *Service) tryOrdinalSemanticReplayForQuery(ctx context.Context, task control.Task, requestID, queryID,
 	grantDigest, cacheKey, dictionarySetDigest string, reservation control.BudgetReservation,
-	componentMS map[string]float64, metadata *queryResponseMetadata) (map[string]any, ordinalReplayOutcome, error) {
+	componentMS map[string]float64, metadata *queryResponseMetadata, pipeline *queryPipelineMeasurement) (map[string]any, ordinalReplayOutcome, error) {
 	return s.tryOrdinalSemanticReplayWithSpoolAndMetadata(ctx, task, requestID, queryID, grantDigest, cacheKey,
-		dictionarySetDigest, reservation, componentMS, metadata, newOrdinalReplaySpool)
+		dictionarySetDigest, reservation, componentMS, metadata, newOrdinalReplaySpool, pipeline)
 }
 
 func (s *Service) tryOrdinalSemanticReplayWithSpool(ctx context.Context, task control.Task, requestID, queryID,
@@ -65,12 +65,13 @@ func (s *Service) tryOrdinalSemanticReplayWithSpool(ctx context.Context, task co
 	componentMS map[string]float64, spoolFactory ordinalReplaySpoolFactory) (
 	response map[string]any, outcome ordinalReplayOutcome, replayErr error) {
 	return s.tryOrdinalSemanticReplayWithSpoolAndMetadata(ctx, task, requestID, queryID, grantDigest, cacheKey,
-		dictionarySetDigest, reservation, componentMS, nil, spoolFactory)
+		dictionarySetDigest, reservation, componentMS, nil, spoolFactory, nil)
 }
 
 func (s *Service) tryOrdinalSemanticReplayWithSpoolAndMetadata(ctx context.Context, task control.Task, requestID, queryID,
 	grantDigest, cacheKey, dictionarySetDigest string, reservation control.BudgetReservation,
-	componentMS map[string]float64, metadata *queryResponseMetadata, spoolFactory ordinalReplaySpoolFactory) (
+	componentMS map[string]float64, metadata *queryResponseMetadata, spoolFactory ordinalReplaySpoolFactory,
+	pipeline *queryPipelineMeasurement) (
 	response map[string]any, outcome ordinalReplayOutcome, replayErr error) {
 	// Until either a normal miss transfers ownership back to executeSQL or the
 	// atomic finalizer commits, every error must terminally settle this fresh
@@ -119,6 +120,9 @@ func (s *Service) tryOrdinalSemanticReplayWithSpoolAndMetadata(ctx context.Conte
 	}
 	if err != nil {
 		return nil, ordinalReplayTerminated, err
+	}
+	if pipeline != nil {
+		pipeline.prepareFinished = time.Now()
 	}
 	var stored storedQueryResult
 	var sourceErr error
@@ -190,6 +194,9 @@ func (s *Service) tryOrdinalSemanticReplayWithSpoolAndMetadata(ctx context.Conte
 	stored.ComponentMS = componentMS
 	stored.DatabaseMS = 1
 	if s.resultArtifacts != nil {
+		if pipeline != nil {
+			pipeline.executeFinished = time.Now()
+		}
 		settlement := control.BudgetSettlement{
 			QueryID: queryID, Rows: stored.RowCount, DBMS: 1, ObservedDBMS: 0,
 			OrdinalObservationRef: &control.OrdinalObservationReference{
@@ -199,7 +206,7 @@ func (s *Service) tryOrdinalSemanticReplayWithSpoolAndMetadata(ctx context.Conte
 		}
 		// finalizeArtifactQuery owns every terminal settlement from here.
 		ownsReservation = false
-		result, finalizeErr := s.finalizeArtifactQuery(ctx, task, requestID, settlement, stored, componentMS)
+		result, finalizeErr := s.finalizeArtifactQuery(ctx, task, requestID, settlement, stored, componentMS, pipeline)
 		if finalizeErr != nil {
 			record, recordErr := s.store.GetQuery(context.WithoutCancel(ctx), queryID)
 			if recordErr == nil && record.Status == control.QueryCompleted {
