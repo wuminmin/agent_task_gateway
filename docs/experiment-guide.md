@@ -50,16 +50,18 @@ physical-read set.
 
 | Experiment | Reusable repository support | Missing work before the requested table is publishable |
 |---|---|---|
-| 1. PostgreSQL baseline | The four-path runner, validation, raw-sample schema, and artifact generator | The current workloads are aggregation-only, and `resource_taskgate` is the legacy resource path rather than full exposure enforcement. Add SELECT, JOIN, GROUP BY, and nested-View workloads and a full TaskGate exposure baseline. |
-| 2. PostgreSQL RLS | Exposure semantic/oracle checks | No real RLS policy, fixed 100-query adaptive trace, paired RLS/TaskGate runner, or RLS-side exposure oracle exists. `native_view` must not be relabeled as RLS. |
-| 3. Adaptive attacks | `make eval-exposure` covers deterministic split/merge, overlapping pagination, retry, rewrite invariance, UNION invariance, and outcome probing | No live, end-to-end A--E adaptive campaign currently drives all attacks through fresh TaskGate roots and an authorization-only baseline. |
-| 4. ProvSQL | The direct-PostgreSQL/ProvSQL external baseline is runnable | A like-for-like TaskGate run on the same nonce-bound fixture and measurement boundary is absent. Existing TaskGate performance numbers must not be joined to the ProvSQL table. |
-| 5. View DAG scalability | View compiler, join lowering, deterministic/property tests, and hard limits are implemented | No harness emits depth/join-size samples or separates total compilation, rewrite/expansion, and digest time. |
-| 6. Concurrency | The real V4 same-root acceptance runner supports widths 1/4/8/16 | The requested widths 10/50/100/500 are rejected by the current validator, and lock-wait evidence explicitly does not measure CAS conflicts/retries. |
+| 1. PostgreSQL baseline | `evaluation/cmd/v5-full`, final-V5 strict orchestration/sample framework, S1--S6 matrix, and public-path pipeline/artifact timers are implemented | The author must bind the site adapter and private frozen inputs, then run the three-deployment WSL2 campaign; every numeric cell remains blank. |
+| 2. PostgreSQL RLS | `evaluation/cmd/rls-adaptive`, real RLS DDL/introspection, independent trace-union oracle, preregistered budget rule, and raw schema are implemented | The site adapter, private frozen task/role inputs, and three-deployment campaign remain for the author; `native_view` is still not RLS. |
+| 3. Adaptive attacks | `evaluation/cmd/adaptive-attacks` and the A--E/reverse-direction protocol are implemented alongside existing semantic/oracle checks | No publication A--E sample has been executed. |
+| 4. ProvSQL | The historical external baseline is preserved; `evaluation/cmd/taskgate-provsql-pair` orchestration and the connected nonce-join fixture are implemented | The site adapter and fair paired three-system campaign remain, so no TaskGate value may be joined to the old smoke. |
+| 5. View DAG scalability | `CompileMeasured` and `evaluation/cmd/view-scale` expose the preregistered depth/source matrix and non-overlapping stages | The five-process, 4,500-compiles-per-deployment campaign (13,500 across three deployments) has not run. |
+| 6. Concurrency | `evaluation/cmd/v5-concurrency`, widths 10/50/100/500, forced/natural modes, and explicit production CAS attempt/conflict counters are implemented | The 30-fresh-root cells have not run; width 500 remains invalid without offered-concurrency evidence. |
 
-The missing items above are requirements, not suggested shell commands. Until
-the corresponding harness exists and binds its evidence, leave that
-experiment's numeric cells blank.
+The final-V5 framework is under `evaluation/final-v5-wsl2/`. Its tiny smoke is
+not evidence. Until a frozen, digest-bound, three-deployment publication
+campaign passes its finalizer, leave every numeric cell below blank. Current
+V5 publication-scale performance remains pending the final frozen WSL2
+campaign.
 
 ### 0.3 Common repository preflight
 
