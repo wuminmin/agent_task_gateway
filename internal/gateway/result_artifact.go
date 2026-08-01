@@ -77,39 +77,39 @@ func artifactColumns(columns []dataconnector.Column) []resultartifact.Column {
 }
 
 func (s *Service) stageResultArtifact(ctx context.Context, task control.Task, queryID string,
-	stored storedQueryResult) (resultartifact.StagedArtifact, control.ResultArtifact, storedQueryResult, error) {
+	stored storedQueryResult) (resultartifact.StagedArtifact, control.ResultArtifact, storedQueryResult, resultartifact.StageMetrics, error) {
 	if s.resultArtifacts == nil {
-		return resultartifact.StagedArtifact{}, control.ResultArtifact{}, storedQueryResult{}, errors.New("result artifact manager is unavailable")
+		return resultartifact.StagedArtifact{}, control.ResultArtifact{}, storedQueryResult{}, resultartifact.StageMetrics{}, errors.New("result artifact manager is unavailable")
 	}
 	publicStored, err := artifactStoredResult(stored)
 	if err != nil {
-		return resultartifact.StagedArtifact{}, control.ResultArtifact{}, storedQueryResult{}, err
+		return resultartifact.StagedArtifact{}, control.ResultArtifact{}, storedQueryResult{}, resultartifact.StageMetrics{}, err
 	}
 	resultID := resultIDForQuery(queryID)
 	stagingKey, objectKey := artifactObjectKeys(task.ID, resultID)
-	staged, err := s.resultArtifacts.Stage(ctx, resultartifact.StageRequest{
+	staged, stageMetrics, err := s.resultArtifacts.StageMeasured(ctx, resultartifact.StageRequest{
 		ResultID: resultID, TaskID: task.ID, StagingKey: stagingKey, ObjectKey: objectKey,
 		Columns: artifactColumns(publicStored.Columns), Rows: publicStored.Rows,
 	})
 	if err != nil {
-		return resultartifact.StagedArtifact{}, control.ResultArtifact{}, storedQueryResult{}, err
+		return resultartifact.StagedArtifact{}, control.ResultArtifact{}, storedQueryResult{}, stageMetrics, err
 	}
 	metadata := publicStored
 	metadata.Rows = nil
 	metadataJSON, err := json.Marshal(metadata)
 	if err != nil {
 		_ = s.resultArtifacts.DeleteStaging(context.WithoutCancel(ctx), staged.StagingKey)
-		return resultartifact.StagedArtifact{}, control.ResultArtifact{}, storedQueryResult{}, err
+		return resultartifact.StagedArtifact{}, control.ResultArtifact{}, storedQueryResult{}, stageMetrics, err
 	}
 	schemaJSON, err := json.Marshal(staged.Schema)
 	if err != nil {
 		_ = s.resultArtifacts.DeleteStaging(context.WithoutCancel(ctx), staged.StagingKey)
-		return resultartifact.StagedArtifact{}, control.ResultArtifact{}, storedQueryResult{}, err
+		return resultartifact.StagedArtifact{}, control.ResultArtifact{}, storedQueryResult{}, stageMetrics, err
 	}
 	aclJSON, err := json.Marshal(map[string]any{"principal_id": task.PrincipalID, "task_id": task.ID})
 	if err != nil {
 		_ = s.resultArtifacts.DeleteStaging(context.WithoutCancel(ctx), staged.StagingKey)
-		return resultartifact.StagedArtifact{}, control.ResultArtifact{}, storedQueryResult{}, err
+		return resultartifact.StagedArtifact{}, control.ResultArtifact{}, storedQueryResult{}, stageMetrics, err
 	}
 	now := s.clock().UTC()
 	var expiresAt *time.Time
@@ -126,14 +126,25 @@ func (s *Service) stageResultArtifact(ctx context.Context, task control.Task, qu
 		ResultMetadataJSON: metadataJSON, ACLJSON: aclJSON, Status: control.ResultArtifactPending,
 		CreatedAt: now, ExpiresAt: expiresAt,
 	}
-	return staged, artifact, publicStored, nil
+	return staged, artifact, publicStored, stageMetrics, nil
 }
 
 func (s *Service) finalizeArtifactQuery(ctx context.Context, task control.Task, requestID string,
-	settlement control.BudgetSettlement, stored storedQueryResult, componentMS map[string]float64) (map[string]any, error) {
+	settlement control.BudgetSettlement, stored storedQueryResult, componentMS map[string]float64,
+	pipeline *queryPipelineMeasurement) (map[string]any, error) {
 	encodingStarted := time.Now()
-	staged, artifact, publicStored, err := s.stageResultArtifact(ctx, task, settlement.QueryID, stored)
+	if pipeline == nil {
+		pipeline = &queryPipelineMeasurement{requestStarted: encodingStarted, prepareFinished: encodingStarted, executeFinished: encodingStarted}
+	}
+	staged, artifact, publicStored, stageMetrics, err := s.stageResultArtifact(ctx, task, settlement.QueryID, stored)
 	componentMS["result_encoding"] = durationMS(time.Since(encodingStarted))
+	if publicStored.DiagnosticMS == nil {
+		publicStored.DiagnosticMS = make(map[string]float64)
+	}
+	publicStored.DiagnosticMS["parquet_encode_encrypt"] = durationMS(stageMetrics.EncodeEncrypt)
+	publicStored.DiagnosticMS["local_staging_sync"] = durationMS(stageMetrics.Sync)
+	publicStored.DiagnosticMS["staging_object_put"] = durationMS(stageMetrics.Put)
+	artifactStageFinished := time.Now()
 	if err != nil {
 		settlement.ErrorCode = resultEncodingFailed
 		s.failQueryBudget(ctx, settlement)
@@ -212,11 +223,21 @@ func (s *Service) finalizeArtifactQuery(ctx context.Context, task control.Task, 
 		componentMS["exposure_ledger_lock"] = durationMS(metrics.ExposureLedgerLock)
 		componentMS["exposure_fact_store"] = durationMS(metrics.ExposureFactStore)
 	}
+	publicStored.DiagnosticMS["receipt_signing"] = durationMS(metrics.ReceiptSigning)
+	publicStored.DiagnosticMS["exposure_reservation_lock"] = durationMS(metrics.ExposureReservationLock)
+	publicStored.DiagnosticMS["exposure_ledger_lock"] = durationMS(metrics.ExposureLedgerLock)
+	publicStored.DiagnosticMS["exposure_fact_store"] = durationMS(metrics.ExposureFactStore)
+	publicStored.DiagnosticMS["outcome_radix_load"] = durationMS(metrics.OutcomeRadix.LoadDuration)
+	publicStored.DiagnosticMS["outcome_radix_difference_union"] = durationMS(metrics.OutcomeRadix.DifferenceUnionDuration)
+	publicStored.DiagnosticMS["outcome_radix_persist"] = durationMS(metrics.OutcomeRadix.PersistDuration)
+	settlementFinished := time.Now()
 	// The Control transaction is now terminal. A promotion error must never
 	// attempt to settle or refund the query a second time; startup/idempotent
 	// replay will resume this deterministic copy.
 	promoteCtx, promoteCancel := s.artifactOperationContext(ctx)
-	artifact, err = s.promoteResultArtifact(promoteCtx, artifact, record.Actor)
+	var promoteMetrics resultartifact.PromoteMetrics
+	var markAvailableDuration time.Duration
+	artifact, promoteMetrics, markAvailableDuration, err = s.promoteResultArtifactMeasured(promoteCtx, artifact, record.Actor)
 	promoteCancel()
 	if err != nil {
 		// Accounting is already terminal and the PENDING intent is durable. Keep
@@ -224,11 +245,23 @@ func (s *Service) finalizeArtifactQuery(ctx context.Context, task control.Task, 
 		s.artifactRecoveryFailures.Store(1)
 		return nil, &mcp.ToolError{Code: apierr.CodeConflict, Message: "结果已结算，规范 Parquet 正在恢复；请使用相同 request_id 重试"}
 	}
+	publicStored.DiagnosticMS["canonical_object_stat"] = durationMS(promoteMetrics.Stat)
+	publicStored.DiagnosticMS["canonical_object_copy"] = durationMS(promoteMetrics.Copy)
+	publicStored.DiagnosticMS["canonical_object_verify"] = durationMS(promoteMetrics.Verify)
+	publicStored.DiagnosticMS["canonical_object_hash_verify"] = durationMS(promoteMetrics.HashVerify)
+	publicStored.DiagnosticMS["staging_object_delete"] = durationMS(promoteMetrics.DeleteStaging)
+	publicStored.DiagnosticMS["mark_available"] = durationMS(markAvailableDuration)
+	publicationFinished := time.Now()
 	receipt, err := decodeReceiptJSON(persistedReceipt.ReceiptJSON)
 	if err != nil {
 		return nil, err
 	}
-	return s.artifactQueryResponse(ctx, artifact, publicStored, record, requestID, receipt), nil
+	response := s.artifactQueryResponse(ctx, artifact, publicStored, record, requestID, receipt)
+	if metrics.OutcomeRadix.CandidateCardinality > 0 {
+		response["outcome_radix"] = metrics.OutcomeRadix
+	}
+	finalizePipelineResponse(response, publicStored, pipeline, artifactStageFinished, settlementFinished, publicationFinished)
+	return response, nil
 }
 
 func (s *Service) artifactQueryResponse(ctx context.Context, artifact control.ResultArtifact,
@@ -276,21 +309,33 @@ func (s *Service) ensureArtifactKeyActive(ctx context.Context, artifact control.
 	return nil
 }
 
-// promoteResultArtifact performs the only operation that counts as result
-// consumption: creation of the deterministic canonical object. Marking the PG
-// row AVAILABLE records that boundary; downloads are intentionally untracked.
+// promoteResultArtifact first creates or verifies the canonical object, then
+// crosses the logical availability/consumption boundary by atomically marking
+// the Control PG row AVAILABLE and appending QUERY_RESULT_CONSUMED. Downloads
+// are intentionally untracked.
 func (s *Service) promoteResultArtifact(ctx context.Context, artifact control.ResultArtifact, actor string) (control.ResultArtifact, error) {
+	promoted, _, _, err := s.promoteResultArtifactMeasured(ctx, artifact, actor)
+	return promoted, err
+}
+
+func (s *Service) promoteResultArtifactMeasured(ctx context.Context, artifact control.ResultArtifact, actor string) (control.ResultArtifact, resultartifact.PromoteMetrics, time.Duration, error) {
 	if artifact.Status == control.ResultArtifactAvailable {
-		return artifact, nil
+		return artifact, resultartifact.PromoteMetrics{ReusedExistingCanonical: true}, 0, nil
 	}
 	if artifact.Status != control.ResultArtifactPending {
-		return control.ResultArtifact{}, fmt.Errorf("result artifact %s cannot be promoted from %s", artifact.ResultID, artifact.Status)
+		return control.ResultArtifact{}, resultartifact.PromoteMetrics{}, 0, fmt.Errorf("result artifact %s cannot be promoted from %s", artifact.ResultID, artifact.Status)
 	}
-	info, err := s.resultArtifacts.Promote(ctx, stagedFromControl(artifact))
+	info, metrics, err := s.resultArtifacts.PromoteMeasured(ctx, stagedFromControl(artifact))
 	if err != nil {
-		return control.ResultArtifact{}, err
+		return control.ResultArtifact{}, metrics, 0, err
 	}
-	return s.store.MarkResultArtifactAvailable(ctx, artifact.ResultID, info.ETag, actor)
+	markStarted := time.Now()
+	if s.markArtifactAvailable != nil {
+		available, markErr := s.markArtifactAvailable(ctx, artifact.ResultID, info.ETag, actor)
+		return available, metrics, time.Since(markStarted), markErr
+	}
+	available, markErr := s.store.MarkResultArtifactAvailable(ctx, artifact.ResultID, info.ETag, actor)
+	return available, metrics, time.Since(markStarted), markErr
 }
 
 // ReconcilePendingArtifacts completes promotions interrupted after the Control
@@ -525,6 +570,12 @@ func publicArtifact(artifact control.ResultArtifact, stored storedQueryResult) m
 		"column_count": artifact.ColumnCount, "columns": stored.Columns, "database_ms": stored.DatabaseMS,
 		"component_ms": stored.ComponentMS, "limited": stored.Limited, "expires_at": artifact.ExpiresAt,
 	}
+	if stored.PipelineMS != nil {
+		result["pipeline_ms"] = stored.PipelineMS
+	}
+	if stored.DiagnosticMS != nil {
+		result["diagnostic_ms"] = stored.DiagnosticMS
+	}
 	if stored.QueryPlan != nil {
 		result["query_plan"] = cloneQueryPlan(*stored.QueryPlan)
 	}
@@ -536,6 +587,9 @@ func publicArtifact(artifact control.ResultArtifact, stored storedQueryResult) m
 	}
 	if stored.OutputFormat != "" {
 		result["output_format"] = stored.OutputFormat
+	}
+	if stored.PredicateFootprint != nil {
+		result["predicate_footprint"] = *stored.PredicateFootprint
 	}
 	return result
 }
@@ -643,8 +697,8 @@ func (s *Service) deliverResult(ctx context.Context, principal mcp.Principal, ra
 }
 
 // ResultDownloadHandler streams a temporary delivery copy. It neither marks a
-// result consumed nor changes budget/Receipt state: canonical object creation
-// already established consumption.
+// result consumed nor changes budget/Receipt state: the earlier atomic Control
+// PG transition to AVAILABLE already established logical consumption.
 func (s *Service) ResultDownloadHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resultID := chi.URLParam(r, "result_id")

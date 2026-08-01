@@ -176,16 +176,16 @@ lowering 成功后，Gateway 丢弃原始 SQL 作为执行来源，只执行 Que
 
 对声明 `view_contract` 的 semantic root，Gateway 还会把 public outputs 按已绑定
 `Artifact.Output.FieldID` 合成到递归展开的 Scan/`join_many` 计划，再进入
-同一 `CompileRelational`/V4 ordinal 路径。对外 Grant 仍只含 root；每次查询派生
+同一 `CompileRelational`/V5 exposure 路径（Release/Influence 仍使用 V4 ordinal）。对外 Grant 仍只含 root；每次查询派生
 最小 terminal internal grants，并把 root Scope 映射到每个 terminal mandatory
 scope。当前 semantic root 必须是外层唯一 Product，不接受它与其他
 query-time Product 的 Join，也不接受 root 上的 `ORDER BY`/`LIMIT`/`OFFSET`；
 这不限制 View closure 内部在 16-source/16-depth ceilings 下的任意 connected
 INNER equi-join 或每 edge 多 equality predicates。已聚合 closure 之上只允许纯投影。
 
-默认 Catalog 定义 `taskgate-exposure-v4` budget profiles，且所有 approval
+默认 Catalog 定义 `taskgate-exposure-v5` budget profiles，且所有 approval
 route 都是人工审批。正常批准把完整 Catalog Profile 交给 Agent，不做最小预算选择。Gateway 会在一个只读
-`REPEATABLE READ` 事务中缓冲可见查询并流式读取 ordinal companion，再以 exact bitmap 对共享 root head 结算。响应中的 `exposure` 给出本次
+`REPEATABLE READ` 事务中缓冲可见查询并流式读取 ordinal companion，再以 exact bitmap 与 Outcome Merkle radix set 对共享 root head 结算。响应中的 `exposure` 给出本次
 `actual_*_facts` 与真正新增的 `charged_*_facts`；`exposure_budget` 给出共享
 根账本。内部补取的 `entity_key` 不会出现在客户端结果中。
 

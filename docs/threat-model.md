@@ -47,6 +47,42 @@ Agent 提交的结构化申请、QueryPlan、SQL、浏览器请求、网络回�
 | DoS 与成本滥用 | HTTP Body/Timeout、连接池、数据库 Timeout、任务预算、结果行上限和 preview byte cap | 目录和任务申请缺少租户配额、速率限制和异常检测；Connector/可见结果到 Parquet 的部分路径仍会完整内存物化，而 preview 默认对大于 64 MiB 的 artifact 关闭，尚非生产级有界百万行流式实现 |
 | 容器逃逸或供应链攻击 | 非 root、只读根文件系统、`no-new-privileges` | 未固定所有镜像 Digest，缺少定制 seccomp/AppArmor、签名和 SBOM 门禁 |
 
+## 累计查询与多 Agent 攻击
+
+### 威胁：Query accumulation attack
+
+攻击者不必提交一条明显越权的 SQL；它可以连续提交许多单独合法的筛选、
+分页或聚合查询，并依据前一个答案自适应选择下一个谓词，尝试重建工资等敏感
+数据。TaskGate 的防御不是限制查询条数，而是让同一根任务族的每次 Agent Task
+Execution 都针对 `L_release`、`L_dependency` 和 `L_outcome` 计算正集合差。
+已计量事实不重复收费，新事实必须原子加入累计 Exposure Ledger；任一维超过签名
+预算时，候选结果在交付前被拒绝。
+
+这个控制只覆盖已声明 FactID 与 controlled analytical SQL profile 中的显式暴露和
+正向依赖。拒绝位、排序、背景知识、跨根任务串联以及 profile 外的推断渠道仍是
+残余风险；因此“被预算阻断”不能表述为“攻击者没有获得任何信息”。
+
+### 威胁：Retry amplification
+
+网络重试或恶意客户端可能反复提交同一个调用。`request_id` 在任务内唯一：相同
+`(task_id, request_id)` 与相同请求摘要只观察首次持久化终态，相同 ID 搭配不同请求
+则关闭式冲突，不会产生第二次业务执行或第二次预算消费。攻击者换用新的 ID 重放
+同一 canonical QueryPlan 时，semantic replay 仍重新授权并计普通资源，但已在根账本
+中的 release/dependency/outcome facts 不产生新的 exposure delta；真正不同的命题会
+形成新的 outcome，并可能耗尽预算。
+
+### 威胁：Multi-agent budget sharing
+
+根任务把预算委托给 Agent A、Agent B 或更深后代时，委托可以把执行 Principal
+改为获准的目标 Agent，但产品、字段、Scope、期限与容量等权限维度只能逐维收缩，
+不能借主体变化创建更大的权限。所有后代解析到同一个
+root-family Exposure Ledger；并发结算以一次三维 epoch CAS 发布，冲突方重读最新
+head 后重新计算 delta，因此不能各自在旧余额上成功花费同一份剩余额度。
+
+该性质不覆盖两个分别获批的根任务，也不等同于主体级或租户级全局预算。当前
+单实例原型也没有跨多个 Enforcement Layer 实例的执行租约；在补齐该协议前，同一
+publication epoch 不应横向扩容。
+
 ## 数据最小化与边界
 
 Gateway 不向外部模型或翻译服务发送目标、Catalog、SQL 或结果。所有任务申请、SQL AST lowering 和 QueryPlan 校验均在本地确定性代码中完成。

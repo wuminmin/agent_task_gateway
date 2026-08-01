@@ -11,6 +11,10 @@ import (
 
 var identifier = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
+// MaxRawPredicateLiterals bounds parser/compiler work before V5 atom
+// deduplication applies the (possibly lower) signed Catalog limit.
+const MaxRawPredicateLiterals = 20000
+
 type Product struct {
 	Name              string
 	Columns           map[string]struct{}
@@ -196,8 +200,8 @@ func Compile(plan QueryPlan, product Product) (string, error) {
 				filters = append(filters, quoteIdentifier(filter.Column)+" "+op+" "+literal)
 			case "IN", "NOT IN":
 				values, ok := filter.Value.([]any)
-				if !ok || len(values) == 0 || len(values) > 100 {
-					return "", errors.New("IN requires a non-empty JSON array of at most 100 values")
+				if !ok || len(values) == 0 || len(values) > MaxRawPredicateLiterals {
+					return "", fmt.Errorf("IN requires a non-empty JSON array of at most %d values", MaxRawPredicateLiterals)
 				}
 				literals := make([]string, 0, len(values))
 				for _, value := range values {

@@ -91,4 +91,6 @@ run_model MultiTaskAudit.tla MultiTaskAudit.cfg multi_task_audit.json multi_task
 run_model ReceiptAudit.tla ReceiptAudit.cfg receipt_audit.json receipt_audit.log
 run_model RecoveryLiveness.tla RecoveryLiveness.cfg recovery_liveness.json recovery_liveness.log
 run_model ExposureLedger.tla ExposureLedger.cfg exposure_ledger.json exposure_ledger.log
+run_model ArtifactPublication.tla ArtifactPublication.cfg artifact_publication.json artifact_publication.log
 run_model ExposureBitmapRefinement.tla ExposureBitmapRefinement.cfg exposure_bitmap_refinement.json exposure_bitmap_refinement.log
+run_model OutcomeSetAbstractRefinement.tla OutcomeSetAbstractRefinement.cfg outcome_set_abstract_refinement.json outcome_set_abstract_refinement.log

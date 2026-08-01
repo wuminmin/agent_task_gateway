@@ -31,19 +31,33 @@ import (
 )
 
 type storedQueryResult struct {
-	Columns         []dataconnector.Column `json:"columns"`
-	Rows            [][]any                `json:"rows"`
-	RowCount        int64                  `json:"row_count"`
-	DatabaseMS      int64                  `json:"database_ms"`
-	ComponentMS     map[string]float64     `json:"component_ms,omitempty"`
-	Limited         bool                   `json:"limited"`
-	QueryPlan       *queryplan.QueryPlan   `json:"query_plan,omitempty"`
-	SQLProfile      string                 `json:"sql_profile,omitempty"`
-	PlanDigest      string                 `json:"plan_digest,omitempty"`
-	OutputFormat    string                 `json:"output_format,omitempty"`
-	DisplayColumns  []string               `json:"display_columns,omitempty"`
-	ResultOrder     []int                  `json:"result_order,omitempty"`
-	SemanticColumns []string               `json:"semantic_columns,omitempty"`
+	Columns            []dataconnector.Column      `json:"columns"`
+	Rows               [][]any                     `json:"rows"`
+	RowCount           int64                       `json:"row_count"`
+	DatabaseMS         int64                       `json:"database_ms"`
+	ComponentMS        map[string]float64          `json:"component_ms,omitempty"`
+	PipelineMS         map[string]float64          `json:"pipeline_ms,omitempty"`
+	DiagnosticMS       map[string]float64          `json:"diagnostic_ms,omitempty"`
+	Limited            bool                        `json:"limited"`
+	QueryPlan          *queryplan.QueryPlan        `json:"query_plan,omitempty"`
+	SQLProfile         string                      `json:"sql_profile,omitempty"`
+	PlanDigest         string                      `json:"plan_digest,omitempty"`
+	OutputFormat       string                      `json:"output_format,omitempty"`
+	DisplayColumns     []string                    `json:"display_columns,omitempty"`
+	ResultOrder        []int                       `json:"result_order,omitempty"`
+	SemanticColumns    []string                    `json:"semantic_columns,omitempty"`
+	PredicateFootprint *predicateFootprintResponse `json:"predicate_footprint,omitempty"`
+}
+
+type queryPipelineMeasurement struct {
+	requestStarted  time.Time
+	prepareFinished time.Time
+	executeFinished time.Time
+}
+
+type predicateFootprintResponse struct {
+	RawLiteralCount int `json:"raw_literal_count"`
+	UniqueAtomCount int `json:"unique_atom_count"`
 }
 
 // queryResponseMetadata is request-syntax metadata, not exposure identity.
@@ -51,13 +65,14 @@ type storedQueryResult struct {
 // semantic replay operate on stable field IDs; display labels are applied only
 // when a result is released to the caller.
 type queryResponseMetadata struct {
-	Plan            queryplan.QueryPlan
-	SQLProfile      string
-	PlanDigest      string
-	OutputFormat    string
-	DisplayColumns  []string
-	ResultOrder     []int
-	SemanticColumns []string
+	Plan               queryplan.QueryPlan
+	SQLProfile         string
+	PlanDigest         string
+	OutputFormat       string
+	DisplayColumns     []string
+	ResultOrder        []int
+	SemanticColumns    []string
+	PredicateFootprint *predicateFootprintResponse
 }
 
 func applyQueryResponseMetadata(stored *storedQueryResult, metadata *queryResponseMetadata) error {
@@ -68,6 +83,7 @@ func applyQueryResponseMetadata(stored *storedQueryResult, metadata *queryRespon
 	stored.DisplayColumns = nil
 	stored.ResultOrder = nil
 	stored.SemanticColumns = nil
+	stored.PredicateFootprint = nil
 	if metadata == nil {
 		return nil
 	}
@@ -88,6 +104,10 @@ func applyQueryResponseMetadata(stored *storedQueryResult, metadata *queryRespon
 	stored.DisplayColumns = append([]string(nil), metadata.DisplayColumns...)
 	stored.ResultOrder = append([]int(nil), metadata.ResultOrder...)
 	stored.SemanticColumns = append([]string(nil), metadata.SemanticColumns...)
+	if metadata.PredicateFootprint != nil {
+		value := *metadata.PredicateFootprint
+		stored.PredicateFootprint = &value
+	}
 	return nil
 }
 
@@ -254,6 +274,9 @@ func addStoredResponseMetadata(result map[string]any, stored storedQueryResult) 
 	if stored.OutputFormat != "" {
 		result["output_format"] = stored.OutputFormat
 	}
+	if stored.PredicateFootprint != nil {
+		result["predicate_footprint"] = *stored.PredicateFootprint
+	}
 	return nil
 }
 
@@ -293,6 +316,26 @@ func ordinalSemanticAuthorizationDigest(visible, provenance sqlpolicy.Decision, 
 	}, "\x00"))
 }
 
+// ordinalSemanticAuthorizationDigestV5 binds authorization to the canonical
+// V5 query and predicate identities. Policy fingerprints retain harmless SQL
+// syntax such as IN-member order and duplicates, so using them here would
+// partition semantic replay for queries that NormalizeV4 proves equivalent.
+// The enclosing replay binding separately pins the grant, Catalog, schema,
+// dictionary set, compiler, ordering, pagination, and result encoding.
+func ordinalSemanticAuthorizationDigestV5(planDigest, manifestDigest string,
+	footprint *queryplan.PredicateFootprint) string {
+	parts := []string{queryplan.NormalFormVersionV4, planDigest, manifestDigest}
+	if footprint != nil {
+		parts = append(parts,
+			footprint.Version,
+			footprint.ContextSHA256,
+			footprint.AtomSetSHA256,
+			strconv.Itoa(footprint.UniqueAtomCount),
+		)
+	}
+	return digest(strings.Join(parts, "\x00"))
+}
+
 func ordinalSemanticReplayBinding(taskID, grantDigest, authorizationDigest, planDigest, catalogDigest,
 	schemaDigest, dictionarySetDigest string) semanticcache.Binding {
 	return semanticcache.Binding{
@@ -306,6 +349,23 @@ func ordinalSemanticReplayBinding(taskID, grantDigest, authorizationDigest, plan
 	}
 }
 
+func ordinalSemanticReplayBindingV5(taskID, grantDigest, authorizationDigest, planDigest, catalogDigest,
+	schemaDigest, dictionarySetDigest string, footprint *queryplan.PredicateFootprint) semanticcache.Binding {
+	binding := semanticcache.Binding{TaskID: taskID, GrantDigest: grantDigest, AuthorizationDigest: authorizationDigest,
+		TypedNormalForm: queryplan.NormalFormVersionV4 + ":" + planDigest, PlanDigest: planDigest,
+		CatalogDigest: catalogDigest, SchemaDigest: schemaDigest, DictionarySetDigest: dictionarySetDigest,
+		ExposureProfile: exposure.ProfileV5, CompilerVersion: queryplan.OrdinalProgramVersion,
+		OrderingVersion: semanticcache.OrderingV1, PaginationVersion: semanticcache.PaginationV1,
+		ResultEncoding: "stored-query-result-v1"}
+	if footprint != nil {
+		binding.PredicateProfile = footprint.Version
+		binding.PredicateContext = footprint.ContextSHA256
+		binding.PredicateSet = footprint.AtomSetSHA256
+		binding.PredicateAtomCount = int64(footprint.UniqueAtomCount)
+	}
+	return binding
+}
+
 const (
 	resultEncodingFailed     = "RESULT_ENCODING_FAILED"
 	resultFinalizationFailed = "RESULT_FINALIZATION_FAILED"
@@ -314,6 +374,7 @@ const (
 )
 
 func (s *Service) querySQL(ctx context.Context, principal mcp.Principal, raw json.RawMessage) (any, error) {
+	requestStarted := time.Now()
 	var args struct {
 		TaskID    string `json:"task_id"`
 		RequestID string `json:"request_id"`
@@ -341,7 +402,7 @@ func (s *Service) querySQL(ctx context.Context, principal mcp.Principal, raw jso
 		if existing.RequestDigest != digest(requestSummary) {
 			return nil, toolError(control.ErrIdempotencyConflict)
 		}
-		return s.queryReplayResponse(ctx, existing)
+		return s.queryReplayResponseAt(ctx, existing, requestStarted, time.Now())
 	}
 	if !errors.Is(lookupErr, control.ErrNotFound) {
 		return nil, lookupErr
@@ -362,11 +423,12 @@ func (s *Service) querySQL(ctx context.Context, principal mcp.Principal, raw jso
 	if !grant.Exposure.Enabled() {
 		for _, name := range grant.ApprovedProducts {
 			if product, present := s.catalog.LookupProduct(name); present && product.ViewContract != nil {
-				return s.replayPreparationFailure(ctx, task.ID, args.RequestID, digest(requestSummary),
+				return s.replayPreparationFailureAt(ctx, task.ID, args.RequestID, digest(requestSummary),
+					requestStarted,
 					viewQueryUnsupported("SEMANTIC_VIEW_EXPOSURE_PROFILE"))
 			}
 		}
-		return s.executeSQL(ctx, principal, task, args.RequestID, args.SQL, requestSummary, nil, nil)
+		return s.executeSQL(ctx, principal, task, args.RequestID, args.SQL, requestSummary, nil, nil, requestStarted)
 	}
 
 	products := make(map[string]queryplan.Product, len(grant.ApprovedProducts))
@@ -382,24 +444,26 @@ func (s *Service) querySQL(ctx context.Context, principal mcp.Principal, raw jso
 		return nil, sqlLoweringToolError(err)
 	}
 	if lowered.Plan.From != nil && grant.Exposure.ProfileVersion != exposure.ProfileV2 &&
-		grant.Exposure.ProfileVersion != exposure.ProfileV3 && grant.Exposure.ProfileVersion != exposure.ProfileV4 {
+		grant.Exposure.ProfileVersion != exposure.ProfileV3 && grant.Exposure.ProfileVersion != exposure.ProfileV4 &&
+		grant.Exposure.ProfileVersion != exposure.ProfileV5 {
 		return nil, &mcp.ToolError{Code: apierr.CodeSQLNotLowerable, Message: "当前 exposure profile 不支持在线多产品计划", Details: map[string]any{
 			"reason": "RELATIONAL_EXPOSURE_PROFILE_UNSUPPORTED", "location": map[string]any{"clause": "FROM"},
-			"supported_alternative":   "Query an approved prejoined reporting product or use a task with taskgate-exposure-v2, v3, or v4.",
+			"supported_alternative":   "Query an approved prejoined reporting product or use a task with taskgate-exposure-v2, v3, v4, or v5.",
 			"retryable_after_rewrite": true, "sql_profile": sqllowering.Profile,
 		}}
 	}
 	prepared, err := s.prepareTaskPlan(ctx, task, grant, lowered.Plan)
 	if err != nil {
-		return s.replayPreparationFailure(ctx, task.ID, args.RequestID, digest(requestSummary), err)
+		return s.replayPreparationFailureAt(ctx, task.ID, args.RequestID, digest(requestSummary), requestStarted, err)
 	}
 	metadata := &queryResponseMetadata{Plan: lowered.Plan, SQLProfile: lowered.Profile,
 		DisplayColumns: append([]string(nil), lowered.DisplayColumns...), ResultOrder: append([]int(nil), lowered.ResultOrder...),
 		SemanticColumns: queryPlanSemanticColumns(lowered.Plan)}
 	if prepared.Exposure != nil {
 		metadata.PlanDigest = prepared.Exposure.planDigest
+		metadata.PredicateFootprint = predicateFootprintResponseFor(prepared.Exposure)
 	}
-	return s.executeSQL(ctx, principal, task, args.RequestID, prepared.SQL, requestSummary, prepared.Exposure, metadata)
+	return s.executeSQL(ctx, principal, task, args.RequestID, prepared.SQL, requestSummary, prepared.Exposure, metadata, requestStarted)
 }
 
 func sqlLoweringToolError(err error) error {
@@ -442,6 +506,7 @@ func sqlLoweringToolError(err error) error {
 }
 
 func (s *Service) executePlan(ctx context.Context, principal mcp.Principal, raw json.RawMessage) (any, error) {
+	requestStarted := time.Now()
 	var args struct {
 		TaskID       string              `json:"task_id"`
 		RequestID    string              `json:"request_id"`
@@ -471,7 +536,7 @@ func (s *Service) executePlan(ctx context.Context, principal mcp.Principal, raw 
 		if existing.RequestDigest != digest(requestSummary) {
 			return nil, toolError(control.ErrIdempotencyConflict)
 		}
-		replayed, err := s.queryReplayResponse(ctx, existing)
+		replayed, err := s.queryReplayResponseAt(ctx, existing, requestStarted, time.Now())
 		if err != nil {
 			return nil, err
 		}
@@ -494,7 +559,7 @@ func (s *Service) executePlan(ctx context.Context, principal mcp.Principal, raw 
 	}
 	prepared, err := s.prepareTaskPlan(ctx, task, grant, args.Plan)
 	if err != nil {
-		replayed, replayErr := s.replayPreparationFailure(ctx, task.ID, args.RequestID, digest(requestSummary), err)
+		replayed, replayErr := s.replayPreparationFailureAt(ctx, task.ID, args.RequestID, digest(requestSummary), requestStarted, err)
 		if replayErr != nil {
 			return nil, replayErr
 		}
@@ -512,8 +577,17 @@ func (s *Service) executePlan(ctx context.Context, principal mcp.Principal, raw 
 		SemanticColumns: queryPlanSemanticColumns(args.Plan)}
 	if prepared.Exposure != nil {
 		metadata.PlanDigest = prepared.Exposure.planDigest
+		metadata.PredicateFootprint = predicateFootprintResponseFor(prepared.Exposure)
 	}
-	return s.executeSQL(ctx, principal, task, args.RequestID, prepared.SQL, requestSummary, prepared.Exposure, metadata)
+	return s.executeSQL(ctx, principal, task, args.RequestID, prepared.SQL, requestSummary, prepared.Exposure, metadata, requestStarted)
+}
+
+func predicateFootprintResponseFor(context *planExposureContext) *predicateFootprintResponse {
+	if context == nil || context.predicateFootprint == nil {
+		return nil
+	}
+	return &predicateFootprintResponse{RawLiteralCount: context.predicateFootprint.RawLiteralCount,
+		UniqueAtomCount: context.predicateFootprint.UniqueAtomCount}
 }
 
 type preparedQueryPlan struct {
@@ -550,13 +624,13 @@ func (s *Service) preparePlan(grant control.TaskGrant, plan queryplan.QueryPlan)
 			if err != nil {
 				return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "QueryPlan 不在可精确计量的数据暴露片段内"}
 			}
-			if grant.Exposure.ProfileVersion == exposure.ProfileV2 || grant.Exposure.ProfileVersion == exposure.ProfileV3 || grant.Exposure.ProfileVersion == exposure.ProfileV4 {
+			if grant.Exposure.ProfileVersion == exposure.ProfileV2 || grant.Exposure.ProfileVersion == exposure.ProfileV3 || grant.Exposure.ProfileVersion == exposure.ProfileV4 || grant.Exposure.ProfileVersion == exposure.ProfileV5 {
 				if err := prepared.Exposure.configureV2(columns, aggregates); err != nil {
 					return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "QueryPlan 缺少 V2 规范身份或无法归一化"}
 				}
 			}
 			prepared.SQL = prepared.Exposure.mainSQL
-			if grant.Exposure.ProfileVersion == exposure.ProfileV4 {
+			if grant.Exposure.ProfileVersion == exposure.ProfileV4 || grant.Exposure.ProfileVersion == exposure.ProfileV5 {
 				ordinalProduct, ordinalProductErr := s.ordinalQueryProduct(product, columns)
 				if ordinalProductErr != nil {
 					return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "V4 Product 未绑定可信快照发布物"}
@@ -578,11 +652,17 @@ func (s *Service) preparePlan(grant control.TaskGrant, plan queryplan.QueryPlan)
 				}
 				prepared.Exposure.ordinal = &bound
 				prepared.SQL = ordinalCompilation.VisibleSQL
+				if grant.Exposure.ProfileVersion == exposure.ProfileV5 {
+					if footprintErr := prepared.Exposure.configurePredicateFootprintV5(s.catalog.SHA256, grant.MandatoryScope,
+						map[string]queryplan.Product{plan.Product: ordinalProduct}, nil, nil, "", predicateLimitsForGrant(grant.Exposure)); footprintErr != nil {
+						return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "QueryPlan 无法生成 V5 谓词足迹"}
+					}
+				}
 			}
 		}
 	} else {
-		if !grant.Exposure.Enabled() || (grant.Exposure.ProfileVersion != exposure.ProfileV2 && grant.Exposure.ProfileVersion != exposure.ProfileV3 && grant.Exposure.ProfileVersion != exposure.ProfileV4) {
-			return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "在线 Join/Union 必须使用 taskgate-exposure-v2、v3 或 v4"}
+		if !grant.Exposure.Enabled() || (grant.Exposure.ProfileVersion != exposure.ProfileV2 && grant.Exposure.ProfileVersion != exposure.ProfileV3 && grant.Exposure.ProfileVersion != exposure.ProfileV4 && grant.Exposure.ProfileVersion != exposure.ProfileV5) {
+			return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "在线 Join/Union 必须使用 taskgate-exposure-v2、v3、v4 或 v5"}
 		}
 		productNames, namesErr := queryplan.RelationalProductNames(plan)
 		if namesErr != nil {
@@ -597,7 +677,7 @@ func (s *Service) preparePlan(grant control.TaskGrant, plan queryplan.QueryPlan)
 			}
 			approved := stringSetFromSlice(grant.ApprovedColumns[name])
 			queryProduct := relationalQueryProduct(product, approved)
-			if grant.Exposure.ProfileVersion == exposure.ProfileV4 {
+			if grant.Exposure.ProfileVersion == exposure.ProfileV4 || grant.Exposure.ProfileVersion == exposure.ProfileV5 {
 				queryProduct, err = s.ordinalQueryProduct(product, approved)
 				if err != nil {
 					return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "V4 Product 未绑定可信快照发布物"}
@@ -616,7 +696,7 @@ func (s *Service) preparePlan(grant control.TaskGrant, plan queryplan.QueryPlan)
 			return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "Join/Union 缺少完整的正输出依赖证据"}
 		}
 		prepared.SQL = prepared.Exposure.mainSQL
-		if grant.Exposure.ProfileVersion == exposure.ProfileV4 {
+		if grant.Exposure.ProfileVersion == exposure.ProfileV4 || grant.Exposure.ProfileVersion == exposure.ProfileV5 {
 			bound, bindErr := s.bindOrdinalSidecars(relational.ProvenanceSQL, relational.ProvenanceFields, relational.OrdinalProgram)
 			if bindErr != nil {
 				return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodeConflict, Message: "V4 快照索引或 sidecar 与 Catalog 不一致"}
@@ -624,14 +704,33 @@ func (s *Service) preparePlan(grant control.TaskGrant, plan queryplan.QueryPlan)
 			prepared.Exposure.provenanceSQL = bound.ProvenanceSQL
 			prepared.Exposure.provenanceFields = append([]string(nil), bound.ProvenanceFields...)
 			prepared.Exposure.ordinal = &bound
+			if grant.Exposure.ProfileVersion == exposure.ProfileV5 {
+				if footprintErr := prepared.Exposure.configurePredicateFootprintV5(s.catalog.SHA256, grant.MandatoryScope, queryProducts, nil, nil, "", predicateLimitsForGrant(grant.Exposure)); footprintErr != nil {
+					return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "Join/Union 无法生成 V5 谓词足迹"}
+				}
+			}
 		}
 	}
 	return prepared, nil
 }
 
+func predicateLimitsForGrant(grant control.ExposureGrant) queryplan.PredicateLimits {
+	if grant.PredicateFootprint == nil {
+		return queryplan.PredicateLimits{}
+	}
+	return queryplan.PredicateLimits{MaxRawLiteralsPerQuery: int(grant.PredicateFootprint.MaxRawLiteralsPerQuery),
+		MaxUniqueAtomsPerQuery:   int(grant.PredicateFootprint.MaxUniqueAtomsPerQuery),
+		MaxAtomPayloadBytes:      int(grant.PredicateFootprint.MaxAtomPayloadBytes),
+		MaxTotalAtomPayloadBytes: int(grant.PredicateFootprint.MaxTotalAtomPayloadBytes)}
+}
+
 func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task control.Task, requestID, agentSQL, requestSummary string,
-	exposureContext *planExposureContext, responseMetadata *queryResponseMetadata) (any, error) {
-	pipelineStarted := time.Now()
+	exposureContext *planExposureContext, responseMetadata *queryResponseMetadata, requestStarted time.Time) (any, error) {
+	if requestStarted.IsZero() {
+		requestStarted = time.Now()
+	}
+	pipelineStarted := requestStarted
+	pipeline := &queryPipelineMeasurement{requestStarted: requestStarted}
 	requestDigest := digest(requestSummary)
 	// An idempotent retry observes the first durable result/status even if the
 	// task has since expired, been revoked, or exhausted its budget.
@@ -640,7 +739,7 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 		if existing.RequestDigest != requestDigest {
 			return nil, toolError(control.ErrIdempotencyConflict)
 		}
-		return s.queryReplayResponse(ctx, existing)
+		return s.queryReplayResponseAt(ctx, existing, pipelineStarted, time.Now())
 	}
 	if !errors.Is(lookupErr, control.ErrNotFound) {
 		return nil, lookupErr
@@ -696,7 +795,7 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 		if statusErr != nil || status.Status != control.TaskViewBindingActive ||
 			persistedPending.ViewBinding == nil ||
 			!sameSnapshotSHA256(persistedPending.ViewBinding.Digest, protocolGrant.Core.ViewBindingDigest) {
-			if replayed, found, replayErr := s.replayQueryIfPresent(ctx, task.ID, requestID, requestDigest); found || replayErr != nil {
+			if replayed, found, replayErr := s.replayQueryIfPresentAt(ctx, task.ID, requestID, requestDigest, pipelineStarted); found || replayErr != nil {
 				return replayed, replayErr
 			}
 			return nil, &mcp.ToolError{Code: string(dataconnector.CodeViewSemanticChanged), Message: "语义 View 已变化；历史结果仍可重放，但新查询必须创建新任务并重新审批"}
@@ -714,7 +813,7 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 			if current != nil {
 				observed = current.Digest
 			}
-			if replayed, found, replayErr := s.replayQueryIfPresent(ctx, task.ID, requestID, requestDigest); found || replayErr != nil {
+			if replayed, found, replayErr := s.replayQueryIfPresentAt(ctx, task.ID, requestID, requestDigest, pipelineStarted); found || replayErr != nil {
 				return replayed, replayErr
 			}
 			_, _ = s.store.MarkTaskViewSemanticChanged(ctx, task.ID, observed)
@@ -728,7 +827,7 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 				observed = viewSemanticObservationDigest(protocolGrant.Core.ViewBindingDigest, viewSemanticChangedError())
 			}
 			_, _ = s.store.MarkTaskViewSemanticChanged(ctx, task.ID, observed)
-			if replayed, found, replayErr := s.replayQueryIfPresent(ctx, task.ID, requestID, requestDigest); found || replayErr != nil {
+			if replayed, found, replayErr := s.replayQueryIfPresentAt(ctx, task.ID, requestID, requestDigest, pipelineStarted); found || replayErr != nil {
 				return replayed, replayErr
 			}
 			return nil, &mcp.ToolError{Code: string(dataconnector.CodeViewSemanticChanged), Message: "语义 View 已变化；历史结果仍可重放，但新查询必须创建新任务并重新审批"}
@@ -816,14 +915,24 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 		}
 	}
 	var ordinalCacheKey string
-	if exposureContext != nil && exposureContext.ordinal != nil {
+	if exposureContext != nil && exposureContext.ordinal != nil &&
+		(exposureLedger.ProfileVersion == exposure.ProfileV4 || exposureLedger.ProfileVersion == exposure.ProfileV5) {
 		authorizationDigest := ordinalSemanticAuthorizationDigest(decision, provenanceDecision,
 			protocolGrant.Core.ManifestDigest)
-		ordinalCacheKey, err = ordinalSemanticReplayBinding(task.ID, grantDigest, authorizationDigest,
-			exposureContext.planDigest, s.catalog.SHA256, evidence.SchemaDigest,
-			exposureContext.ordinal.DictionarySetDigest).Digest()
+		if exposureLedger.ProfileVersion == exposure.ProfileV5 {
+			authorizationDigest = ordinalSemanticAuthorizationDigestV5(exposureContext.planDigest,
+				protocolGrant.Core.ManifestDigest, exposureContext.predicateFootprint)
+		}
+		binding := ordinalSemanticReplayBinding(task.ID, grantDigest, authorizationDigest,
+			exposureContext.planDigest, s.catalog.SHA256, evidence.SchemaDigest, exposureContext.ordinal.DictionarySetDigest)
+		if exposureLedger.ProfileVersion == exposure.ProfileV5 {
+			binding = ordinalSemanticReplayBindingV5(task.ID, grantDigest, authorizationDigest,
+				exposureContext.planDigest, s.catalog.SHA256, evidence.SchemaDigest,
+				exposureContext.ordinal.DictionarySetDigest, exposureContext.predicateFootprint)
+		}
+		ordinalCacheKey, err = binding.Digest()
 		if err != nil {
-			return nil, &mcp.ToolError{Code: apierr.CodeConflict, Message: "V4 semantic replay key 无法规范化"}
+			return nil, &mcp.ToolError{Code: apierr.CodeConflict, Message: "ordinal semantic replay key 无法规范化"}
 		}
 	}
 	queryID := randomID("query")
@@ -854,6 +963,11 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 		}
 		if exposureLedger.ProfileVersion == exposure.ProfileV3 || exposureLedger.ProfileVersion == exposure.ProfileV4 {
 			reserveRequest.Exposure.EstimatedOutcomeFacts = 1
+		} else if exposureLedger.ProfileVersion == exposure.ProfileV5 {
+			if exposureContext.predicateFootprint == nil {
+				return nil, &mcp.ToolError{Code: apierr.CodeExposureEvidenceRequired, Message: "V5 查询缺少执行前谓词足迹"}
+			}
+			reserveRequest.Exposure.EstimatedOutcomeFacts = int64(exposureContext.predicateFootprint.UniqueAtomCount) + 1
 		}
 	}
 	reservation, err := s.store.ReserveBudget(ctx, reserveRequest)
@@ -862,11 +976,11 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 	}
 	componentMS["reserve"] = durationMS(time.Since(reserveStarted))
 	if reservation.Replay && reservation.Record != nil {
-		return s.queryReplayResponse(ctx, *reservation.Record)
+		return s.queryReplayResponseAt(ctx, *reservation.Record, pipelineStarted, time.Now())
 	}
 	if ordinalCacheKey != "" {
 		replayed, replayOutcome, replayErr := s.tryOrdinalSemanticReplayForQuery(ctx, task, requestID, queryID, grantDigest,
-			ordinalCacheKey, exposureContext.ordinal.DictionarySetDigest, reservation, componentMS, responseMetadata)
+			ordinalCacheKey, exposureContext.ordinal.DictionarySetDigest, reservation, componentMS, responseMetadata, pipeline)
 		if replayErr != nil {
 			return nil, replayErr
 		}
@@ -877,9 +991,10 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 			// tryOrdinalSemanticReplay explicitly returned ownership of the
 			// still-live reservation. The novel path below must settle it.
 		default:
-			return nil, &mcp.ToolError{Code: apierr.CodeConflict, Message: "V4 replay 返回了非规范终态"}
+			return nil, &mcp.ToolError{Code: apierr.CodeConflict, Message: "ordinal replay 返回了非规范终态"}
 		}
 	}
+	pipeline.prepareFinished = time.Now()
 	var releaseDerivationSlot func()
 	if exposureContext != nil && exposureContext.ordinal != nil &&
 		exposureContext.ordinal.EstimatedBaseFacts >= 1_000_000 && s.highCardinalityDerivations != nil {
@@ -938,7 +1053,8 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 			return nil, toolError(control.ErrExposureEvidenceRequired)
 		}
 		ordinalSink = &ordinalDerivationSink{program: exposureContext.ordinal.Program,
-			indexes: exposureContext.ordinal.Indexes, planDigest: exposureContext.planDigest}
+			indexes: exposureContext.ordinal.Indexes, planDigest: exposureContext.planDigest,
+			predicateFootprint: exposureContext.predicateFootprint}
 		pair, pairErr := streaming.QueryPairStream(queryCtx, dataconnector.QueryPairStreamRequest{
 			Visible: dataconnector.QueryRequest{SQL: decision.SQL, StatementTimeout: timeout, MaxRows: reservation.AllowedRows, ViewRegistry: viewExpectation},
 			Provenance: dataconnector.QueryRequest{SQL: provenanceDecision.SQL, StatementTimeout: timeout,
@@ -1075,10 +1191,12 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 	}
 	if ordinalCacheKey != "" {
 		expires := grant.ExpiresAt.UTC()
-		settlement.OrdinalMaterialization = &control.OrdinalMaterializationPublish{CacheKeySHA256: ordinalCacheKey, ExpiresAt: &expires}
+		settlement.OrdinalMaterialization = &control.OrdinalMaterializationPublish{CacheKeySHA256: ordinalCacheKey,
+			ExpiresAt: &expires, ProfileVersion: exposureLedger.ProfileVersion}
 	}
 	if s.resultArtifacts != nil {
-		return s.finalizeArtifactQuery(ctx, task, requestID, settlement, stored, componentMS)
+		pipeline.executeFinished = time.Now()
+		return s.finalizeArtifactQuery(ctx, task, requestID, settlement, stored, componentMS, pipeline)
 	}
 	encodingStarted := time.Now()
 	resultSpool, err := newEncryptedQuerySpool(s.spoolDirectory, task.ID, queryID, s.spoolThreshold)
@@ -1153,6 +1271,10 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 		"rows": stored.Rows, "row_count": stored.RowCount, "database_ms": stored.DatabaseMS,
 		"component_ms": componentMS, "limited": stored.Limited, "receipt": receipt,
 	}
+	finalizePipelineResponse(result, stored, pipeline, time.Now(), time.Now(), time.Now())
+	if finalizeMetrics.OutcomeRadix.CandidateCardinality > 0 {
+		result["outcome_radix"] = finalizeMetrics.OutcomeRadix
+	}
 	if err := addStoredResponseMetadata(result, stored); err != nil {
 		return nil, err
 	}
@@ -1166,6 +1288,10 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 }
 
 func (s *Service) replayQueryIfPresent(ctx context.Context, taskID, requestID, requestDigest string) (any, bool, error) {
+	return s.replayQueryIfPresentAt(ctx, taskID, requestID, requestDigest, time.Now())
+}
+
+func (s *Service) replayQueryIfPresentAt(ctx context.Context, taskID, requestID, requestDigest string, requestStarted time.Time) (any, bool, error) {
 	existing, err := s.store.GetQueryByRequestID(ctx, taskID, requestID)
 	if errors.Is(err, control.ErrNotFound) {
 		return nil, false, nil
@@ -1176,7 +1302,7 @@ func (s *Service) replayQueryIfPresent(ctx context.Context, taskID, requestID, r
 	if existing.RequestDigest != requestDigest {
 		return nil, true, toolError(control.ErrIdempotencyConflict)
 	}
-	replayed, err := s.queryReplayResponse(ctx, existing)
+	replayed, err := s.queryReplayResponseAt(ctx, existing, requestStarted, time.Now())
 	return replayed, true, err
 }
 
@@ -1186,7 +1312,11 @@ func (s *Service) replayQueryIfPresent(ctx context.Context, taskID, requestID, r
 // before preparation observes REQUIRE_REBIND or a new registry revision; that
 // outcome takes precedence over the newly observed preparation failure.
 func (s *Service) replayPreparationFailure(ctx context.Context, taskID, requestID, requestDigest string, preparationErr error) (any, error) {
-	replayed, found, err := s.replayQueryIfPresent(ctx, taskID, requestID, requestDigest)
+	return s.replayPreparationFailureAt(ctx, taskID, requestID, requestDigest, time.Now(), preparationErr)
+}
+
+func (s *Service) replayPreparationFailureAt(ctx context.Context, taskID, requestID, requestDigest string, requestStarted time.Time, preparationErr error) (any, error) {
+	replayed, found, err := s.replayQueryIfPresentAt(ctx, taskID, requestID, requestDigest, requestStarted)
 	if found || err != nil {
 		return replayed, err
 	}
@@ -1208,6 +1338,17 @@ func validateRequestID(requestID string) error {
 }
 
 func (s *Service) queryReplayResponse(ctx context.Context, record control.QueryRecord) (map[string]any, error) {
+	now := time.Now()
+	return s.queryReplayResponseAt(ctx, record, now, now)
+}
+
+func (s *Service) queryReplayResponseAt(ctx context.Context, record control.QueryRecord, requestStarted, prepareFinished time.Time) (map[string]any, error) {
+	if requestStarted.IsZero() {
+		requestStarted = time.Now()
+	}
+	if prepareFinished.Before(requestStarted) {
+		prepareFinished = requestStarted
+	}
 	receipt, err := s.queryReceipt(ctx, record)
 	if err != nil {
 		return nil, err
@@ -1216,6 +1357,11 @@ func (s *Service) queryReplayResponse(ctx context.Context, record control.QueryR
 		"task_id": record.TaskID, "query_id": record.ID, "request_id": record.RequestID,
 		"status": record.Status, "receipt": receipt, "idempotent_replay": true,
 	}
+	defer func() {
+		responseFinished := time.Now()
+		result["pipeline_ms"] = map[string]float64{"prepare": durationMS(prepareFinished.Sub(requestStarted)), "execute_and_derive": 0, "artifact_stage": 0,
+			"control_settlement": 0, "artifact_publication": 0, "response_finalize": durationMS(responseFinished.Sub(prepareFinished)), "server_total": durationMS(responseFinished.Sub(requestStarted))}
+	}()
 	if charge, exposureErr := s.store.GetExposureCharge(ctx, record.ID); exposureErr == nil {
 		result["exposure"] = charge
 		if ledger, ledgerErr := s.store.GetExposureLedger(ctx, record.TaskID); ledgerErr == nil {
@@ -1277,6 +1423,9 @@ func (s *Service) queryReplayResponse(ctx context.Context, record control.QueryR
 	result["row_count"] = stored.RowCount
 	result["database_ms"] = stored.DatabaseMS
 	result["component_ms"] = stored.ComponentMS
+	if stored.DiagnosticMS != nil {
+		result["diagnostic_ms"] = stored.DiagnosticMS
+	}
 	result["limited"] = stored.Limited
 	if err := addStoredResponseMetadata(result, stored); err != nil {
 		return nil, err
@@ -1289,6 +1438,42 @@ func durationMS(value time.Duration) float64 {
 		return 0
 	}
 	return float64(value.Nanoseconds()) / float64(time.Millisecond)
+}
+
+func finalizePipelineResponse(response map[string]any, stored storedQueryResult, measurement *queryPipelineMeasurement,
+	artifactStageFinished, settlementFinished, publicationFinished time.Time) {
+	if response == nil || measurement == nil || measurement.requestStarted.IsZero() {
+		return
+	}
+	if measurement.prepareFinished.IsZero() {
+		measurement.prepareFinished = measurement.requestStarted
+	}
+	if measurement.executeFinished.IsZero() {
+		measurement.executeFinished = measurement.prepareFinished
+	}
+	if artifactStageFinished.Before(measurement.executeFinished) {
+		artifactStageFinished = measurement.executeFinished
+	}
+	if settlementFinished.Before(artifactStageFinished) {
+		settlementFinished = artifactStageFinished
+	}
+	if publicationFinished.Before(settlementFinished) {
+		publicationFinished = settlementFinished
+	}
+	responseFinished := time.Now()
+	pipeline := map[string]float64{
+		"prepare":              durationMS(measurement.prepareFinished.Sub(measurement.requestStarted)),
+		"execute_and_derive":   durationMS(measurement.executeFinished.Sub(measurement.prepareFinished)),
+		"artifact_stage":       durationMS(artifactStageFinished.Sub(measurement.executeFinished)),
+		"control_settlement":   durationMS(settlementFinished.Sub(artifactStageFinished)),
+		"artifact_publication": durationMS(publicationFinished.Sub(settlementFinished)),
+		"response_finalize":    durationMS(responseFinished.Sub(publicationFinished)),
+		"server_total":         durationMS(responseFinished.Sub(measurement.requestStarted)),
+	}
+	response["pipeline_ms"] = pipeline
+	if stored.DiagnosticMS != nil {
+		response["diagnostic_ms"] = stored.DiagnosticMS
+	}
 }
 
 // recordOrdinalTimingComponents records both the independently measured leaf
@@ -1733,7 +1918,58 @@ func (s *Service) getAuditReceipt(ctx context.Context, _ mcp.Principal, raw json
 	if err := queryreceipt.VerifyAuditInclusion(signed, typedProof); err != nil {
 		return nil, err
 	}
-	return map[string]any{"receipt": receipt, "audit_chain_events": chain, "audit_inclusion": publicProof}, nil
+	result := map[string]any{"receipt": receipt, "audit_chain_events": chain, "audit_inclusion": publicProof}
+	if signed.Version == queryreceipt.VersionV8 {
+		if evidence.ArtifactRegistrationAudit == nil {
+			return nil, fmt.Errorf("V8 receipt is missing artifact registration audit evidence")
+		}
+		registrationPublicProof, registrationTypedProof, err := s.auditInclusionProof(ctx, *evidence.ArtifactRegistrationAudit)
+		if err != nil {
+			return nil, err
+		}
+		if err := queryreceipt.VerifyArtifactIntentInclusion(signed, typedProof, registrationTypedProof); err != nil {
+			return nil, err
+		}
+		result["artifact_intent_inclusion"] = map[string]any{
+			"terminal": publicProof, "registration": registrationPublicProof,
+		}
+		availabilityProof, err := s.artifactAvailabilityInclusion(ctx, signed, events)
+		if err != nil {
+			return nil, err
+		}
+		if availabilityProof != nil {
+			result["availability_event_inclusion"] = availabilityProof
+		}
+	}
+	return result, nil
+}
+
+// artifactAvailabilityInclusion gives auditors a direct, verified inclusion
+// proof for the post-settlement event that makes a V8 artifact logically
+// AVAILABLE. PENDING crash-window receipts correctly have no such proof yet.
+func (s *Service) artifactAvailabilityInclusion(ctx context.Context, receipt queryreceipt.QueryReceiptV1,
+	events []control.AuditEvent) (map[string]any, error) {
+	var availability *control.AuditEvent
+	for index := range events {
+		if events[index].EventType != "QUERY_RESULT_CONSUMED" {
+			continue
+		}
+		if availability != nil {
+			return nil, fmt.Errorf("query %s has multiple artifact availability events", receipt.QueryID)
+		}
+		availability = &events[index]
+	}
+	if availability == nil {
+		return nil, nil
+	}
+	publicProof, typedProof, err := s.auditInclusionProof(ctx, *availability)
+	if err != nil {
+		return nil, err
+	}
+	if err := queryreceipt.VerifyArtifactAvailabilityInclusion(receipt, typedProof); err != nil {
+		return nil, err
+	}
+	return publicProof, nil
 }
 
 func publicAuditEvent(event control.AuditEvent, includePayload bool) map[string]any {
@@ -1805,7 +2041,13 @@ func (s *Service) queryReceipt(ctx context.Context, record control.QueryRecord) 
 	if record.BudgetAfter == nil || record.CompletedAt == nil {
 		return nil, fmt.Errorf("terminal query is missing durable budget or timestamp evidence")
 	}
-	request, err := s.buildQueryReceiptRequest(control.QueryReceipt{Query: record, Audit: evidence.Audit, Exposure: evidence.Exposure}, s.clock().UTC())
+	// This is a recovery attestation, not the ordinary co-committed receipt
+	// path. It signs already immutable terminal and registration audit evidence;
+	// consequently its signed_at may be later than the original settlement.
+	request, err := s.buildQueryReceiptRequest(control.QueryReceipt{
+		Query: record, Audit: evidence.Audit, Exposure: evidence.Exposure,
+		Artifact: evidence.Artifact, ArtifactRegistrationAudit: evidence.ArtifactRegistrationAudit,
+	}, s.clock().UTC())
 	if err != nil {
 		return nil, err
 	}
@@ -1826,8 +2068,10 @@ func (s *Service) buildQueryReceiptRequest(evidence control.QueryReceipt, signed
 	return BuildQueryReceiptRequest(evidence, s.queryReceiptSigner, signedAt)
 }
 
-// BuildQueryReceiptRequest signs terminal query evidence and returns the
-// immutable Control PG receipt row that should be saved with that evidence.
+// BuildQueryReceiptRequest signs terminal query evidence and returns an
+// immutable Control PG receipt row. Normal settlement callers persist it in
+// the evidence transaction; queryReceipt also uses it later to recover a
+// missing attestation over already immutable audit evidence.
 func BuildQueryReceiptRequest(evidence control.QueryReceipt, signer *queryreceipt.Signer, signedAt time.Time) (control.SaveQueryReceiptRequest, error) {
 	record := evidence.Query
 	if record.BudgetAfter == nil || record.CompletedAt == nil {
@@ -1841,12 +2085,15 @@ func BuildQueryReceiptRequest(evidence control.QueryReceipt, signer *queryreceip
 	}
 	version := queryreceipt.VersionV3
 	var exposureEvidence *queryreceipt.ExposureEvidenceV1
+	var artifactIntent *queryreceipt.ArtifactIntentEvidenceV1
 	if evidence.Exposure != nil {
 		version = queryreceipt.VersionV4
 		if evidence.Exposure.ProfileVersion == exposure.ProfileV3 {
 			version = queryreceipt.VersionV5
 		} else if evidence.Exposure.ProfileVersion == exposure.ProfileV4 {
 			version = queryreceipt.VersionV6
+		} else if evidence.Exposure.ProfileVersion == exposure.ProfileV5 {
+			version = queryreceipt.VersionV7
 		}
 		exposureEvidence = &queryreceipt.ExposureEvidenceV1{
 			RootTaskID: evidence.Exposure.RootTaskID, ProfileVersion: evidence.Exposure.ProfileVersion,
@@ -1861,6 +2108,43 @@ func BuildQueryReceiptRequest(evidence control.QueryReceipt, signer *queryreceip
 			OutcomeSetSHA256:    evidence.Exposure.OutcomeSetSHA256,
 			RootEpoch:           evidence.Exposure.RootEpoch,
 		}
+		if evidence.Exposure.ProfileVersion == exposure.ProfileV5 {
+			exposureEvidence.PredicateProfileVersion = exposure.PredicateFootprintVersion
+			exposureEvidence.PredicateContextSHA256 = evidence.Exposure.PredicateContextSHA256
+			exposureEvidence.PredicateSetSHA256 = evidence.Exposure.PredicateSetSHA256
+			exposureEvidence.ActualPredicateAtomCount = evidence.Exposure.ActualPredicateAtomCount
+			exposureEvidence.ChargedPredicateAtomCount = evidence.Exposure.ChargedPredicateAtomCount
+			exposureEvidence.CompositeOutcomeSHA256 = evidence.Exposure.CompositeOutcomeSHA256
+			exposureEvidence.ActualCompositeCount = 1
+			exposureEvidence.ChargedCompositeCount = evidence.Exposure.ChargedOutcomeFacts - evidence.Exposure.ChargedPredicateAtomCount
+		}
+	}
+	if (evidence.Artifact == nil) != (evidence.ArtifactRegistrationAudit == nil) {
+		return control.SaveQueryReceiptRequest{}, fmt.Errorf("artifact and registration audit evidence must be provided together")
+	}
+	if evidence.Artifact != nil && evidence.Exposure != nil && evidence.Exposure.ProfileVersion == exposure.ProfileV5 {
+		artifact := evidence.Artifact
+		registration := evidence.ArtifactRegistrationAudit
+		intent, err := queryreceipt.BuildArtifactIntent(queryreceipt.ArtifactIntentEvidenceV1{
+			Version: queryreceipt.ArtifactIntentVersionV1, ResultID: artifact.ResultID,
+			Format: artifact.Format, Encryption: artifact.Encryption, KeyID: artifact.KeyID,
+			ParquetSHA256: artifact.ParquetSHA256, ObjectSHA256: artifact.ObjectSHA256,
+			ParquetSize: artifact.ParquetSize, ObjectSize: artifact.ObjectSize,
+			RowCount: artifact.RowCount, ColumnCount: int64(artifact.ColumnCount),
+			SchemaSHA256:         digest(string(artifact.SchemaJSON)),
+			ResultMetadataSHA256: digest(string(artifact.ResultMetadataJSON)),
+			ACLSHA256:            digest(string(artifact.ACLJSON)),
+			ObjectKeySHA256:      digest(artifact.ObjectKey), StagingKeySHA256: digest(artifact.StagingKey),
+			ExpiresAt: artifact.ExpiresAt, Status: queryreceipt.ArtifactStatusPending,
+			RegistrationAuditSequence:     registration.Sequence,
+			RegistrationPreviousAuditHash: registration.PreviousHash,
+			RegistrationAuditHash:         registration.CurrentHash,
+		})
+		if err != nil {
+			return control.SaveQueryReceiptRequest{}, err
+		}
+		artifactIntent = &intent
+		version = queryreceipt.VersionV8
 	}
 	receipt := queryreceipt.QueryReceiptV1{
 		Version: version, ReceiptID: record.ID,
@@ -1880,7 +2164,7 @@ func BuildQueryReceiptRequest(evidence control.QueryReceipt, signer *queryreceip
 		CreatedAt: record.CreatedAt, CompletedAt: *record.CompletedAt,
 		AuditSequence: evidence.Audit.Sequence, PreviousAuditHash: evidence.Audit.PreviousHash,
 		AuditHash: evidence.Audit.CurrentHash, SignedAt: &signedAt,
-		Exposure: exposureEvidence,
+		Exposure: exposureEvidence, ArtifactIntent: artifactIntent,
 	}
 	signed, err := signer.Sign(receipt)
 	if err != nil {
@@ -1971,7 +2255,7 @@ func storedGrantMatchesProtocol(task control.Task, stored control.TaskGrant, pro
 		core.ViewBindingDigest != stored.ViewBindingDigest ||
 		!stored.ExpiresAt.Equal(core.ExpiresAt.UTC().Truncate(time.Microsecond)) ||
 		stored.Budget != (control.BudgetLimits{Queries: core.Budget.MaxQueries, Rows: core.Budget.MaxResultRows, DBMS: core.Budget.MaxDBMS}) ||
-		stored.Exposure != (control.ExposureGrant{Limits: control.ExposureLimits{ReleaseFacts: core.Budget.MaxReleaseFacts, InfluenceFacts: core.Budget.MaxInfluenceFacts, OutcomeFacts: core.Budget.MaxOutcomeFacts}, ProfileVersion: core.Budget.ExposureProfileVersion}) ||
+		!reflect.DeepEqual(stored.Exposure, control.ExposureGrant{Limits: control.ExposureLimits{ReleaseFacts: core.Budget.MaxReleaseFacts, InfluenceFacts: core.Budget.MaxInfluenceFacts, OutcomeFacts: core.Budget.MaxOutcomeFacts}, ProfileVersion: core.Budget.ExposureProfileVersion, PredicateFootprint: controlPredicateFootprint(core.Budget.PredicateFootprint)}) ||
 		!sameStringSet(stored.ApprovedProducts, core.ApprovedProducts) ||
 		!sameColumnSets(stored.ApprovedColumns, core.ApprovedColumns) {
 		return false

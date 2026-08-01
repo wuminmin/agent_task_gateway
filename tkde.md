@@ -1,10 +1,19 @@
-结论：可以投 TKDE，但应把它当成一篇基于 TaskGate 重新立项的数据库论文，而不是把现有 TDSC 稿换模板。当前版本直接投稿属于 No-Go，主要风险不是工程缺陷，而是主贡献仍是授权网关集成，缺少 TKDE 期待的数据语义、算法、复杂度/性质证明和完整实验。
+# TKDE 历史差距分析
+
+> **归档说明（2026-07-31）：** 本文记录 TaskGate TKDE 改造开始前的差距分析，
+> 其中“当前缺失”“No-Go”和复用比例均是当时判断，不代表现在的工作树。
+> 当前论文身份、已实现范围与仍待作者执行的实验分别见
+> [TKDE revision plan](docs/codex_taskgate_tkde_revision_plan.md)、
+> [revision status](docs/tkde_revision_status.md) 和
+> [experiment guide](docs/experiment-guide.md)。本备忘录不应用作当前投稿状态说明。
+
+原始结论：可以投 TKDE，但应把它当成一篇基于 TaskGate 重新立项的数据库论文，而不是把现有 TDSC 稿换模板。改造前版本直接投稿属于 No-Go，主要风险不是工程缺陷，而是主贡献仍是授权网关集成，缺少 TKDE 期待的数据语义、算法、复杂度/性质证明和完整实验。
 
 ## 推荐定位
 
-建议题目：
+当前采用的题目（替代下述初始短标题）：
 
-> **TaskGate: Task-Scoped Exposure Accounting**
+> **TaskGate: Accounting and Controlling Cumulative Data Exposure in Agentic Database Systems**
 
 核心问题改成：
 
@@ -83,9 +92,9 @@
    用独立 oracle、等价改写、反套利用例、有限状态模型，以及真实
    PostgreSQL 全路径开销与并发实验验证前述语义和结算性质。
 
-## 当前仓库的复用程度
+## 改造开始时的仓库复用程度
 
-系统骨架有价值，但语义核心尚不存在：
+以下内容是改造开始时的历史快照；系统骨架有价值，但当时语义核心尚不存在：
 
 - 当前预算仍只有查询数、行数和 DB 时间：[budget.go](/home/wmm/agent-scope/task_gateway/internal/domain/budget.go:14)。
 - 论文也明确承认它不是隐私或信息预算：[main.tex](/home/wmm/agent-scope/task_gateway/paper/tdsc/main.tex:1142)。
@@ -135,7 +144,7 @@ TKDE 主文建议控制在 12 页：
 - 不得并投；本项目的 TDSC 工作稿从未投稿。TKDE 投稿只需披露早期预印本 arXiv:2607.00751v1，并在正文、Cover Letter 和 arXiv Comments 中说明实质差异。
 - 代码和数据公开不是强制，但 TKDE 明确鼓励 DataPort 和 Code Ocean；这篇论文最好提供查询变形集、Agent traces、原始结果和复现实验脚本。
 
-最终 Go/No-Go 判断：
+改造开始时的 Go/No-Go 判断：
 
 - **现在直接投：No-Go，desk reject 风险高。**
 - **完成 exposure algebra、受限 SQL 证明、在线结算、多 Agent 守恒和完整实验后：符合 TKDE 主航道。**

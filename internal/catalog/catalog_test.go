@@ -82,8 +82,8 @@ func TestRepositoryCatalog(t *testing.T) {
 		t.Fatalf("unexpected V4 publication: %#v, found=%v", publication, found)
 	}
 	policy, err := parsed.ResolveTaskPolicy([]string{"expense_detail"})
-	if err != nil || policy.Budget.ExposureProfileVersion != "taskgate-exposure-v4" {
-		t.Fatalf("repository V4 policy = %#v, err=%v", policy, err)
+	if err != nil || policy.Budget.ExposureProfileVersion != "taskgate-exposure-v5" || policy.Budget.PredicateFootprint == nil {
+		t.Fatalf("repository V5 policy = %#v, err=%v", policy, err)
 	}
 }
 
@@ -156,18 +156,18 @@ func TestCatalogViewContractIsAllOrNothingAndCloned(t *testing.T) {
 	}
 }
 
-func TestV4CatalogRejectsMixedLegacyApprovalRoute(t *testing.T) {
+func TestV5CatalogRejectsMixedLegacyApprovalRoute(t *testing.T) {
 	data, err := os.ReadFile("../../config/catalog.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Keep the profile internally well-formed (V3 also requires Outcome), but
-	// make one reachable route legacy while the other routes remain V4.
+	// make one reachable route legacy while the other routes remain V5.
 	mixed := strings.Replace(string(data),
-		"exposure_profile_version: taskgate-exposure-v4",
+		"exposure_profile_version: taskgate-exposure-v5",
 		"exposure_profile_version: taskgate-exposure-v3", 1)
 	if _, err := Parse([]byte(mixed)); !errors.Is(err, ErrInvalidApprovalRoute) {
-		t.Fatalf("mixed V4/legacy Catalog error = %v, want ErrInvalidApprovalRoute", err)
+		t.Fatalf("mixed V5/legacy Catalog error = %v, want ErrInvalidApprovalRoute", err)
 	}
 }
 

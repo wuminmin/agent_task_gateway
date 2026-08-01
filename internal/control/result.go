@@ -1,6 +1,7 @@
 package control
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -72,7 +73,7 @@ func (s *Store) FinalizeOrdinalQueryMeasuredWithReceipt(ctx context.Context, set
 	builder TerminalReceiptBuilder) (QueryRecord, PersistedQueryReceipt, FinalizeQueryMetrics, error) {
 	if (settlement.OrdinalExposure == nil) == (settlement.OrdinalObservationRef == nil) || settlement.Exposure != nil {
 		return QueryRecord{}, PersistedQueryReceipt{}, FinalizeQueryMetrics{}, opErr("finalize ordinal query", ErrInvalid,
-			fmt.Errorf("exactly one V4 observation or committed observation reference is required"))
+			fmt.Errorf("exactly one ordinal observation or committed observation reference is required"))
 	}
 	settlement.OrdinalMaterialization = publish
 	return s.FinalizeQueryMeasuredWithReceipt(ctx, settlement, plaintext, builder)
@@ -88,6 +89,9 @@ type FinalizeQueryMetrics struct {
 	ExposureLedgerLock      time.Duration
 	ExposureFactStore       time.Duration
 	OrdinalCASRetries       int
+	CASAttempts             int64
+	CASConflicts            int64
+	OutcomeRadix            OutcomeRadixTelemetryV5 `json:"outcome_radix"`
 }
 
 // FinalizeQueryMeasured is the measured form of FinalizeQuery. The returned
@@ -187,7 +191,7 @@ func (s *Store) FinalizeOrdinalQueryArtifactMeasuredWithReceipt(ctx context.Cont
 	builder TerminalReceiptBuilder) (QueryRecord, PersistedQueryReceipt, FinalizeQueryMetrics, error) {
 	if (settlement.OrdinalExposure == nil) == (settlement.OrdinalObservationRef == nil) || settlement.Exposure != nil {
 		return QueryRecord{}, PersistedQueryReceipt{}, FinalizeQueryMetrics{}, opErr("finalize ordinal query artifact", ErrInvalid,
-			fmt.Errorf("exactly one V4 observation or committed observation reference is required"))
+			fmt.Errorf("exactly one ordinal observation or committed observation reference is required"))
 	}
 	settlement.OrdinalMaterialization = publish
 	return s.FinalizeQueryArtifactMeasuredWithReceipt(ctx, settlement, artifact, builder)
@@ -213,6 +217,21 @@ func (s *Store) finalizePreparedQuery(ctx context.Context, settlement BudgetSett
 		aggregate.ExposureReservationLock += measured.ExposureReservationLock
 		aggregate.ExposureLedgerLock += measured.ExposureLedgerLock
 		aggregate.ExposureFactStore += measured.ExposureFactStore
+		aggregate.OutcomeRadix.RootCardinality = measured.OutcomeRadix.RootCardinality
+		aggregate.OutcomeRadix.CandidateCardinality = measured.OutcomeRadix.CandidateCardinality
+		aggregate.OutcomeRadix.BlocksLoaded += measured.OutcomeRadix.BlocksLoaded
+		aggregate.OutcomeRadix.LeavesLoaded += measured.OutcomeRadix.LeavesLoaded
+		aggregate.OutcomeRadix.HashesLoaded += measured.OutcomeRadix.HashesLoaded
+		aggregate.OutcomeRadix.BlocksReused += measured.OutcomeRadix.BlocksReused
+		aggregate.OutcomeRadix.LeavesChanged += measured.OutcomeRadix.LeavesChanged
+		aggregate.OutcomeRadix.CASAttempts += measured.OutcomeRadix.CASAttempts
+		aggregate.OutcomeRadix.CASConflicts += measured.OutcomeRadix.CASConflicts
+		aggregate.OutcomeRadix.CASRetries += measured.OutcomeRadix.CASRetries
+		aggregate.OutcomeRadix.LoadDuration += measured.OutcomeRadix.LoadDuration
+		aggregate.OutcomeRadix.DifferenceUnionDuration += measured.OutcomeRadix.DifferenceUnionDuration
+		aggregate.OutcomeRadix.PersistDuration += measured.OutcomeRadix.PersistDuration
+		aggregate.CASAttempts += measured.OutcomeRadix.CASAttempts
+		aggregate.CASConflicts += measured.OutcomeRadix.CASConflicts
 		if err == nil {
 			aggregate.SettlementStore = time.Since(settlementStarted)
 			return record, receipt, aggregate, nil
@@ -222,6 +241,7 @@ func (s *Store) finalizePreparedQuery(ctx context.Context, settlement BudgetSett
 			return QueryRecord{}, PersistedQueryReceipt{}, aggregate, err
 		}
 		aggregate.OrdinalCASRetries++
+		aggregate.OutcomeRadix.CASRetries++
 		// A failed CAS rolls back the complete result/exposure/audit transaction.
 		// Re-enter with a fresh READ COMMITTED transaction so all three dimensions
 		// are reloaded and recomputed from the newly committed root head.
@@ -262,6 +282,15 @@ func (s *Store) finalizePreparedQueryAttempt(ctx context.Context, settlement Bud
 	var created bool
 	if prepared.artifact != nil {
 		created, err = insertResultArtifactTx(ctx, tx, *prepared.artifact)
+		if err == nil {
+			artifact, loadErr := scanResultArtifact(tx.QueryRowContext(ctx,
+				resultArtifactSelect+` WHERE query_id=$1 FOR UPDATE`, prepared.artifact.QueryID))
+			if loadErr != nil {
+				err = loadErr
+			} else {
+				prepared.artifact = &artifact
+			}
+		}
 	} else {
 		created, err = insertEncryptedResultTx(ctx, tx, prepared.metadata)
 	}
@@ -274,14 +303,15 @@ func (s *Store) finalizePreparedQueryAttempt(ctx context.Context, settlement Bud
 		}
 	}
 	exposureCharge, exposureMetrics, err := settleAnyExposureMeasuredTx(ctx, tx, now, settlement)
-	if err != nil {
-		return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, settlementErrorKind(err), err)
-	}
 	metrics.ExposureReservationLock = exposureMetrics.ReservationLock
 	metrics.ExposureLedgerLock = exposureMetrics.LedgerLock
 	metrics.ExposureFactStore = exposureMetrics.FactStore
+	metrics.OutcomeRadix = exposureMetrics.OutcomeRadix
+	if err != nil {
+		return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, settlementErrorKind(err), err)
+	}
 	resultHash := preparedResultHash(prepared)
-	record, audit, err := settleBudgetTx(ctx, tx, now, settlement, QueryCompleted, resultHash)
+	record, audit, err := settleBudgetTx(ctx, tx, now, settlement, QueryCompleted, resultHash, true)
 	if err != nil {
 		return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, settlementErrorKind(err), err)
 	}
@@ -294,6 +324,7 @@ func (s *Store) finalizePreparedQueryAttempt(ctx context.Context, settlement Bud
 		}
 		record.ResultSHA256 = resultHash
 	}
+	var registrationAudit *AuditEvent
 	if created {
 		eventType := "QUERY_RESULT_STORED"
 		payload := map[string]any{
@@ -302,19 +333,35 @@ func (s *Store) finalizePreparedQueryAttempt(ctx context.Context, settlement Bud
 		}
 		if prepared.artifact != nil {
 			eventType = "QUERY_RESULT_OBJECT_REGISTERED"
-			payload = map[string]any{
-				"result_id": prepared.artifact.ResultID, "result_sha256": prepared.artifact.ParquetSHA256,
-				"object_sha256": prepared.artifact.ObjectSHA256, "format": prepared.artifact.Format,
-				"encryption": prepared.artifact.Encryption, "key_id": prepared.artifact.KeyID,
-				"row_count": prepared.artifact.RowCount, "column_count": prepared.artifact.ColumnCount,
-				"status": ResultArtifactPending,
-			}
+			payload = resultArtifactRegistrationPayload(*prepared.artifact)
 		}
-		_, err = appendAuditTx(ctx, tx, AuditEvent{
+		createdAudit, appendErr := appendAuditTx(ctx, tx, AuditEvent{
 			TaskID: record.TaskID, QueryID: record.ID, Actor: record.Actor, EventType: eventType,
 			Payload: mustJSON(payload), OccurredAt: now,
 		})
-		if err != nil {
+		if appendErr != nil {
+			return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, ErrConflict, appendErr)
+		}
+		if prepared.artifact != nil {
+			registrationAudit = &createdAudit
+		}
+	} else if prepared.artifact != nil {
+		existingAudit, lookupErr := resultArtifactRegistrationAuditTx(ctx, tx, record, *prepared.artifact)
+		if lookupErr != nil {
+			return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, ErrConflict, lookupErr)
+		}
+		registrationAudit = &existingAudit
+	}
+	if registrationAudit != nil && (registrationAudit.Sequence != audit.Sequence+1 || registrationAudit.PreviousHash != audit.CurrentHash) {
+		return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, ErrConflict,
+			fmt.Errorf("artifact registration audit does not immediately follow terminal audit"))
+	}
+	// Result registration and its V8 inclusion coordinates must immediately
+	// follow the terminal query audit. If this settlement reaches a hard
+	// resource limit, archive the task only after that pair; all three writes
+	// still commit atomically in this transaction.
+	if record.BudgetAfter != nil && budgetSettlementReachesHardLimit(record.Status, *record.BudgetAfter) {
+		if err := archiveTaskTx(ctx, tx, record.TaskID, TerminalBudgetExhausted, "system", now); err != nil {
 			return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, ErrConflict, err)
 		}
 	}
@@ -326,7 +373,10 @@ func (s *Store) finalizePreparedQueryAttempt(ctx context.Context, settlement Bud
 	var receipt PersistedQueryReceipt
 	if builder != nil {
 		signingStarted := time.Now()
-		receipt, err = persistTerminalReceiptTx(ctx, tx, now, QueryReceipt{Query: record, Audit: audit, Exposure: exposureCharge}, builder)
+		receipt, err = persistTerminalReceiptTx(ctx, tx, now, QueryReceipt{
+			Query: record, Audit: audit, Exposure: exposureCharge, Artifact: prepared.artifact,
+			ArtifactRegistrationAudit: registrationAudit,
+		}, builder)
 		metrics.ReceiptSigning = time.Since(signingStarted)
 		if err != nil {
 			return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, receiptErrorKind(err), err)
@@ -336,6 +386,73 @@ func (s *Store) finalizePreparedQueryAttempt(ctx context.Context, settlement Bud
 		return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, ErrCommitOutcomeUnknown, err)
 	}
 	return record, receipt, metrics, nil
+}
+
+func resultArtifactRegistrationPayload(artifact ResultArtifact) map[string]any {
+	// Registration audit coordinates cannot be embedded in the event that
+	// creates them. Receipt V8 adds those coordinates and seals the resulting
+	// complete intent after appendAuditTx returns.
+	payload := map[string]any{
+		"version": "taskgate-artifact-intent-v1", "result_id": artifact.ResultID,
+		"format": artifact.Format, "encryption": artifact.Encryption, "key_id": artifact.KeyID,
+		"parquet_sha256": artifact.ParquetSHA256, "object_sha256": artifact.ObjectSHA256,
+		"parquet_size": artifact.ParquetSize, "object_size": artifact.ObjectSize,
+		"row_count": artifact.RowCount, "column_count": int64(artifact.ColumnCount),
+		"schema_sha256":          plaintextHash(artifact.SchemaJSON),
+		"result_metadata_sha256": plaintextHash(artifact.ResultMetadataJSON),
+		"acl_sha256":             plaintextHash(artifact.ACLJSON),
+		"object_key_sha256":      plaintextHash([]byte(artifact.ObjectKey)),
+		"staging_key_sha256":     plaintextHash([]byte(artifact.StagingKey)),
+		"status":                 ResultArtifactPending,
+	}
+	if artifact.ExpiresAt != nil {
+		payload["expires_at"] = artifact.ExpiresAt
+	}
+	return payload
+}
+
+func resultArtifactRegistrationAuditTx(ctx context.Context, tx *sql.Tx, record QueryRecord, artifact ResultArtifact) (AuditEvent, error) {
+	rows, err := tx.QueryContext(ctx, `
+SELECT sequence, event_id, COALESCE(task_id,''), COALESCE(query_id,''), actor, event_type,
+       payload_json, occurred_at, previous_hash, current_hash
+FROM audit_events
+WHERE query_id=$1 AND event_type='QUERY_RESULT_OBJECT_REGISTERED'
+ORDER BY sequence`, record.ID)
+	if err != nil {
+		return AuditEvent{}, err
+	}
+	defer rows.Close()
+	var events []AuditEvent
+	for rows.Next() {
+		event, scanErr := scanAudit(rows)
+		if scanErr != nil {
+			return AuditEvent{}, scanErr
+		}
+		events = append(events, event)
+	}
+	if err := rows.Err(); err != nil {
+		return AuditEvent{}, err
+	}
+	return validateResultArtifactRegistrationAudit(record, artifact, events)
+}
+
+func validateResultArtifactRegistrationAudit(record QueryRecord, artifact ResultArtifact, events []AuditEvent) (AuditEvent, error) {
+	if len(events) != 1 {
+		return AuditEvent{}, fmt.Errorf("expected exactly one artifact registration audit, found %d", len(events))
+	}
+	event := events[0]
+	if event.TaskID != record.TaskID || event.Actor != record.Actor {
+		return AuditEvent{}, fmt.Errorf("artifact registration audit identity does not match query")
+	}
+	expected, err := normalizeJSON(mustJSON(resultArtifactRegistrationPayload(artifact)), `{}`)
+	if err != nil {
+		return AuditEvent{}, err
+	}
+	actual, err := normalizeJSON(event.Payload, `{}`)
+	if err != nil || !bytes.Equal(actual, expected) {
+		return AuditEvent{}, fmt.Errorf("artifact registration audit payload does not match artifact evidence")
+	}
+	return event, nil
 }
 
 func preparedResultHash(prepared preparedEncryptedResult) string {

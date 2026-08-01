@@ -22,6 +22,7 @@ from paper.tkde import v4_evidence as evidence
 ROOT = Path(__file__).resolve().parents[2]
 PROVENANCE_RAW = (ROOT / evidence.HISTORICAL_SOURCE_REL).read_bytes()
 ARCHIVE_RAW = (ROOT / evidence.HISTORICAL_ARCHIVE_REL).read_bytes()
+ENVIRONMENT_RAW = (ROOT / evidence.EVIDENCE_REL / "environment.json").read_bytes()
 
 
 def _encoded(value: dict[str, object]) -> bytes:
@@ -103,6 +104,28 @@ class HistoricalSourceSnapshotTests(unittest.TestCase):
         self.assertEqual(validated["source_paths_sha256"], evidence.EXPECTED_HISTORICAL_PATHS_SHA256)
         self.assertEqual(validated["source_file_count"], 187)
         self.assertEqual(validated["archive_member_count"], 223)
+        self.assertEqual(
+            validated["environment_input_sha256"]["compose.yaml"],
+            "cc76d61a8425367b26487e6a4630a83df16cae234e379e864a4d5ad0622522a9",
+        )
+
+    def test_environment_inputs_are_bound_to_historical_archive(self) -> None:
+        validated = evidence._historical_source_snapshot(
+            PROVENANCE_RAW, ARCHIVE_RAW, evidence.EXPECTED_HISTORICAL_SOURCE_SHA256)
+        environment = evidence._decode_json(ENVIRONMENT_RAW, "test environment")
+        evidence._validate_historical_environment_inputs(
+            environment, validated["environment_input_sha256"])
+
+        current_compose_sha = hashlib.sha256((ROOT / "compose.yaml").read_bytes()).hexdigest()
+        self.assertNotEqual(
+            current_compose_sha,
+            validated["environment_input_sha256"]["compose.yaml"],
+        )
+        changed = copy.deepcopy(environment)
+        changed["software"]["orchestration_sha256"]["compose"] = current_compose_sha
+        with self.assertRaisesRegex(ValueError, "compose.*historical source snapshot"):
+            evidence._validate_historical_environment_inputs(
+                changed, validated["environment_input_sha256"])
 
     def test_wrong_commit_is_rejected(self) -> None:
         provenance = evidence._decode_json(PROVENANCE_RAW, "test provenance")

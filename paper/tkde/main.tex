@@ -44,8 +44,10 @@
 \newtheorem{theorem}{Theorem}
 
 \input{generated/evidence.tex}
+% The evidence generator retains this legacy identifier for artifact compatibility.
+\newcommand{\RQFourVFourDependencyFacts}{\RQFourVFourInfluenceFacts}
 
-\title{TaskGate: Task-Scoped Query-Outcome and Exposure Accounting over
+\title{TaskGate: Task-Scoped Accounting of Cumulative Query Exposure over
 Versioned Reporting Snapshots}
 
 \author{Anonymous Author(s)%
@@ -65,8 +67,8 @@ primaries. Each cut becomes an immutable, versioned Reporting Snapshot; every
 approved root and delegated child remains bound to one publication for life.
 Within that epoch, adaptive rewrites, pages,
 retries, and delegation can accumulate disclosure. TaskGate meters this
-accumulation with typed FactID sets for released values, conservative
-positive-output dependencies, and successful query outcomes. Before release,
+accumulation with typed FactID sets for accounted result values, conservative
+positive-output dependency footprints, and successful query outcomes. Before release,
 the visible query and provenance companion observe one PostgreSQL snapshot;
 TaskGate derives exact effects and atomically charges only facts novel to the
 root-family ledger. Semantic replay is free of new exposure only within the
@@ -74,11 +76,13 @@ same publication-bound identity. We give semantics for a positive relational
 fragment, conservation properties, and finite-state checks. A restricted
 semantic-View front end recursively discovers nested PostgreSQL View DAGs and
 accepts a closure only when it flattens to the same typed SPJG/JoinMany core;
-task-scoped dependency binding closes new work after View drift. A legacy
-materialized ledger exposes million-fact cost, motivating V4: immutable
-publication-time ordinals, streamed compressed bitmaps, and sparse dynamic
-dictionaries. Independent-oracle, rewrite, concurrency, PostgreSQL, and
-fixed-host V4 experiments validate the scoped mechanisms. Four \RQFiveRows{}-row daily
+task-scoped dependency binding closes new work after View drift. The current
+V5 outcome profile charges canonical predicate atoms plus one composite result
+identity and stores the cumulative SHA-256 membership in an incrementally
+updated Merkle radix set; release and dependency retain V4's immutable
+publication-time ordinals and streamed compressed bitmaps. Independent-oracle,
+rewrite, concurrency, PostgreSQL, and fixed-host experiments validate the
+scoped mechanisms. Four \RQFiveRows{}-row daily
 publications finish every measured cycle within
 \RQFiveMaxCycleS{}~s, and a retained-route campaign passes all five rollover conditions.
 TaskGate targets periodic reporting publications; mutable OLTP, continuous
@@ -88,19 +92,22 @@ are outside scope.
 
 \begin{IEEEkeywords}
 data exposure, query auditing, provenance, adaptive workloads, cumulative
-budget, positive-output dependency, query-outcome accounting
+budget, positive-output dependency footprint, query-outcome accounting
 \end{IEEEkeywords}
 
 \section{Introduction}
 \label{sec:introduction}
 
-\IEEEPARstart{D}{atabase} authorization answers whether a principal may execute
-a particular operation. An adaptive client creates a second problem: during a
-single human-approved task it can adaptively issue many individually legal
+\IEEEPARstart{D}{atabase} authorization asks, ``Can this query execute?''
+An adaptive database agent creates a second, cumulative question: ``How much
+policy-defined exposure has this task acquired?'' During a single
+human-approved task, the agent can issue many individually legal
 queries. It can split a projection, overlap pages, retry with a new request
 identifier, ask an equivalent query, or delegate a narrower subtask. Per-query
-authorization and row limits do not state how much distinct data the resulting
-root ledger has already accounted. This is not a model of the agent's knowledge.
+authorization and row limits do not state how much distinct exposure the
+resulting root family has accumulated. TaskGate addresses this task-scoped
+accounting question; its contract-defined exposure is not a model of the
+agent's knowledge.
 
 Counting queries is insensitive to answer size. Counting returned rows makes a
 one-row aggregate appear cheap even when it depends on millions of source rows.
@@ -126,32 +133,39 @@ Thus TaskGate addresses adaptive disclosure within one approved reporting
 epoch, not freshness or consistency over a continuously changing database.
 
 \system treats the root task as the budget subject. A result has three effects.
-\emph{Release exposure} identifies values actually delivered.
-\emph{Positive-output dependency} is a contract-defined conservative footprint
-of base facts participating in the successful derivation of delivered output.
+\emph{Accounted result exposure} identifies result values selected for logical
+publication when a query successfully settles. The wire label \emph{release}
+is retained for compatibility; an accounted value can remain unavailable if
+artifact promotion fails.
+\emph{Positive-output dependency footprint} is a contract-defined conservative
+set of base facts participating in the successful derivation of selected output.
 It is neither minimal causal provenance nor the complete physical read set.
 This second dimension prevents a count from being accounted as one input fact
 merely because it returns one cell. Both effects are sets, so a fact already
 recorded in the root-family ledger has zero incremental charge.  The third,
-\emph{query outcome}, binds the normalized predicate and relational context to
-the released-result digest and visible cardinality. Thus ``no row satisfies
-$x>100$'' and ``no row satisfies $x>200$'' consume two outcome facts even when
-their release and dependency sets coincide; an exact replay remains free.
+\emph{query outcome}, is V5's union of canonical predicate atoms and one
+composite binding the full normalized query/atom set to the result observation
+and visible cardinality. Thus ``no row satisfies $x>100$'' and ``no row
+satisfies $x>200$'' reuse any shared atoms but charge their different literal
+atoms and composites even when release and dependency coincide; exact replay
+remains free.
 
 The system follows a withhold-before-settlement discipline:
 
 \begin{center}
 \small
-\code{reserve -> replay lookup / execute+stream -> derive -> settle -> release}.
+\code{reserve -> replay lookup / execute+stream -> derive -> settle -> publish}.
 \end{center}
 
 The visible query and its ordinal provenance companion observe one frozen
-publication in a PostgreSQL snapshot. The gateway releases neither until a
-control-database transaction has computed exact bitmap differences, advanced
-one three-dimensional root head, checked all Catalog limits, settled resource
-use, stored the encrypted result, and persisted audit and receipt evidence. A
-failed limit check rolls the transaction back while the business execution
-remains separately measurable. Figure~\ref{fig:architecture-settlement} separates
+publication in a PostgreSQL snapshot. The TaskGate enforcement layer releases neither while a
+control-database transaction computes exact bitmap/radix-set differences, advances
+one three-dimensional root head, checks all Catalog limits, settles resource
+use, and persists terminal audit, a V8 settlement receipt with a PENDING result
+intent. After that atomic settlement commits, a recoverable object-store step
+promotes the private staging object and a second Control transaction records
+AVAILABLE/CONSUMED. A failed limit check rolls back the settlement while the
+business execution remains separately measurable. Figure~\ref{fig:architecture-settlement} separates
 the offline publication index from the online withhold-before-settlement path.
 
 \begin{figure*}[t]
@@ -192,21 +206,23 @@ the offline publication index from the online withhold-before-settlement path.
 \draw[gray!55] (7.05,.05) -- (7.05,3.85);
 
 % (b) Online path
-\node[font=\scriptsize\bfseries] at (12.45,4.05) {(b) Online exact bitmap settlement};
+\node[font=\scriptsize\bfseries] at (12.45,4.05) {(b) Online exact set settlement};
 \node[box, fill=red!5, minimum width=14mm] (client) at (7.85,3.0) {Agent\\plan / result};
 \node[decision] (cache) at (10.0,3.0) {authorize +\\semantic cache};
 \node[txnbox, minimum width=26mm] (execute) at (13.0,3.0)
   {visible SQL + streamed\\ordinal companion};
 \node[txnbox, minimum width=23mm] (derive) at (16.0,3.0)
-  {weighted bitmap\\effect};
+  {bitmap + V5 atom/\\composite effect};
 \node[txnbox, minimum width=25mm] (cached) at (13.0,1.75)
   {committed observation\\reference};
 \node[txnbox, minimum width=21mm] (novelty) at (16.0,1.55)
-  {exact ANDNOT\\+ popcount};
+  {exact novelty\\+ union};
 \node[txnbox, minimum width=21mm] (cas) at (13.0,.45)
   {three-ledger\\root-head CAS};
-\node[txnbox, fill=green!10, minimum width=26mm] (commit) at (9.65,.45)
-  {commit result/audit/V6\\then release};
+\node[txnbox, fill=green!10, minimum width=26mm] (commit) at (10.15,.45)
+  {commit ledgers/audit/V8\\+ PENDING intent};
+\node[box, fill=blue!7, minimum width=25mm] (promote) at (7.65,.45)
+  {promote + verify\\AVAILABLE/CONSUMED};
 \draw[exchange] (client) -- (cache);
 \draw[arrow] (cache) -- node[above, pos=.25]{miss} (execute);
 \draw[arrow] (cache) |- node[near start,left]{hit} (cached);
@@ -215,40 +231,46 @@ the offline publication index from the online withhold-before-settlement path.
 \draw[arrow] (cached) -- (novelty);
 \draw[arrow] (novelty.south) |- (cas.east);
 \draw[arrow] (cas) -- (commit);
-\draw[return] (commit.west) -| (client.south);
+\draw[arrow] (commit) -- (promote);
+\draw[return] (promote.north) -- (client.south);
 \node[draw, dashed, rounded corners, inner sep=2mm,
-  fit=(cache)(execute)(cached)(derive)(novelty)(cas)(commit),
+  fit=(cache)(execute)(cached)(derive)(novelty)(cas)(commit)(promote),
   label={[font=\scriptsize]below:trusted enforcement boundary}] {};
 \end{tikzpicture}
 }
-\caption{V4 separates publication-time indexing from the online path. Frozen
-base facts receive immutable ordinals; online derivation and three-dimensional
-root-family settlement use exact bitmaps. A cache hit reuses only a committed
+\caption{V5 retains publication-time ordinals for frozen Release/dependency
+facts and uses an exact Merkle radix set for Outcome atom/composite hashes.
+Root-family accounting is atomic; Parquet publication is recoverable and
+fail-closed between PENDING and AVAILABLE.
+A cache hit reuses only a committed
 observation and encrypted materialization; authorization, resource metering,
 audit, receipt, and commit-before-release still execute.}
 \label{fig:architecture-settlement}
 \end{figure*}
 
-A preliminary preprint version introduced the task-scoped authorization
-substrate \cite{wu2026sessionbound}: approval-bound short-lived database
-sessions, signed task tokens, SQL/view/scope enforcement, resource budgets,
-and audit receipts.\footnote{Preliminary version: arXiv:2607.00751v1.} The
-present, substantially revised article develops the database-specific
-accounting semantics, implementation, formal analysis, and evaluation. Its
-five implementation-backed contributions are:
+The preliminary preprint of this work, \emph{SessionBound: Turning Enterprise
+Task Approval into Budgeted Database Sessions} (arXiv:2607.00751v1), introduced
+the task-scoped authorization substrate: approval-bound short-lived database
+sessions, signed task tokens, SQL/View/scope enforcement, resource budgets,
+and audit receipts \cite{wu2026sessionbound}. The present, substantially
+revised article develops the database-specific accounting semantics,
+implementation, formal analysis, and evaluation. Its five
+implementation-backed contributions are:
 
 \begin{enumerate}
-\item A versioned, typed FactID and three-set semantics separating delivered
-release facts, positive-output dependencies, and normalized query outcomes in
-a restricted relational algebra.
+\item A versioned, typed FactID and three-set semantics separating accounted
+result facts (wire label \code{release}), positive-output dependency footprints, and V5 outcomes composed
+of reusable canonical predicate atoms and one query/result composite in a
+restricted relational algebra.
 \item A same-snapshot streamed ordinal companion for one-product plans and
 connected inner-equijoin graphs over two to 16 distinct Catalog roles, plus
 two-branch union-distinct, including grouping and four aggregates; a bounded
 nested-View compiler eliminates transparent View layers into this existing
 core rather than introducing an unaccounted SQL path.
 \item A representation-independent exact settlement rule, physically refined
-by immutable snapshot dictionaries, segmented compressed bitmaps, and sparse
-dynamic dictionaries: atomically charge $E_q\setminus\accounted_T$, withhold on
+by immutable snapshot dictionaries, segmented compressed bitmaps, and an exact
+incremental Merkle radix set for outcome hashes: atomically charge
+$E_q\setminus\accounted_T$, withhold on
 any limit, and make semantic replay zero-novelty for exposure (ordinary
 query/row resource accounting still applies).
 \item Signed, monotonic root-family delegation whose descendants share one
@@ -256,8 +278,9 @@ three-dimensional ledger, preventing task-tree fan-out from multiplying exposure
 \item New formal properties and evidence for these mechanisms: three-budget
 safety, exact/non-overlapping novel charge, no pre-settlement delivery, and
 task-family non-amplification; algebraic/rewrite tests, a finite TLA+ ledger
-model, and full-path PostgreSQL experiments through one million dependency
-facts.
+model, and archived V4 full-path PostgreSQL experiments through one million
+dependency facts, together with current V5 functional and scaling-shape
+regressions.
 \end{enumerate}
 
 The implementation does \emph{not} claim arbitrary SQL equivalence, differential
@@ -274,11 +297,11 @@ barrier; this is not general PostgreSQL View equivalence. At query time one
 semantic-View root may be composed with projection/filter/grouping over an
 ungrouped closure, or with pure projection over an aggregate barrier; joining
 that root to another product and ordering/paging above it are not admitted.
-A newly approved root creates a
-distinct ledger. Outcome accounting bounds the number of distinct successful
-propositions admitted by this grammar; it is not an information-theoretic
-bound on the bits revealed by one proposition. These boundaries are part of
-the result, rather than hidden behind a broad ``SQL support'' label.
+A newly approved root creates a distinct ledger. V5 Outcome accounting bounds
+the number of distinct predicate atoms and composite successful outcomes
+admitted by this grammar; it is not an information-theoretic bound on the bits
+revealed by either unit. These boundaries are part of the result, rather than
+hidden behind a broad ``SQL support'' label.
 
 The commercial fit is a governed analytics or operations copilot operating
 inside one approved case: finance agents testing reimbursement/credit
@@ -297,122 +320,52 @@ TaskGate supplies auditable workflow conservation, not that replacement.
 \subsection{Closest System Families}
 
 GAAP is the closest system at the agent data-flow layer
-\cite{stanley2026gaap}. It keeps private data and permissions outside the
-untrusted model, applies information-flow control and trusted tool annotations,
-and logs cross-call and cross-task disclosure. That propagation covers indirect
-cross-service flow outside TaskGate's scope. GAAP does not define SQL
-value-level FactIDs, split release from positive-output dependency, co-execute
-a PostgreSQL provenance companion, or settle an exact per-root novel set.
+\cite{stanley2026gaap}: its cross-call information-flow control covers indirect
+cross-service propagation outside TaskGate's scope, whereas TaskGate specializes
+in typed SQL facts, same-snapshot evidence, and exact per-root settlement.
 
-\begin{table*}[t]
-\centering
-\caption{Capability and guarantee comparison. \checkmark{} is an explicit
-guarantee in the cited design; ``hist.'' denotes history-aware accounting with
-a different unit or scope; -- denotes not claimed. The table compares scopes,
-not overall system quality.}
-\label{tab:closest-systems}
-\scriptsize
-\setlength{\tabcolsep}{3.2pt}
-\resizebox{\textwidth}{!}{%
-\begin{tabular}{lccccccc}
-\toprule
-System family & Approved task/root & Typed DB FactIDs & Release/dependency split & Same-snapshot evidence & Exact novel-set pre-release & Shared-root delegation & Cross-tool IFC \\
-\midrule
-TaskGate & \checkmark & \checkmark & \checkmark & \checkmark & \checkmark & \checkmark & -- \\
-GAAP~\cite{stanley2026gaap} & persistent log & -- & -- & -- & hist. disclosure & -- & \checkmark \\
-UCON / history-based AC~\cite{park2004ucon,abadi2003history} & ongoing use & -- & -- & -- & hist. actions & policy-specific & -- \\
-Query pricing~\cite{koutris2012query,deep2017qirana,peng2025aria} & query/history & -- & -- & -- & hist. price & -- & -- \\
-Provenance systems~\cite{arab2018gprom,senellart2018provsql,sen2026provsql} & query & tuple/annotation & -- & rewrite/native & -- & -- & -- \\
-\bottomrule
-\end{tabular}}
-\end{table*}
+\textbf{History and pricing.} Auditing reconstructs access or asks whether a
+history determines forbidden data; simulatable auditing also protects denial
+\cite{agrawal2004hippocratic,motwani2008auditing,kenthapadi2005simulatable}.
+Query-pricing systems study determinacy, history, aggregation, and information
+gain \cite{koutris2012query,deep2017qirana,peng2025aria}. TaskGate neither
+models prior knowledge nor denial leakage: it charges declared facts and
+normalized successful outcomes inside one signed root and withholds delivery
+when atomic settlement fails. Unlike DP accounting and answer reuse
+\cite{dwork2014foundations,mazmudar2022cachedp,zhang2023dprovdb}, it releases
+exact answers and claims no $\epsilon$ guarantee.
 
-\subsection{History-Based Query Auditing and Inference Control}
+\textbf{Provenance.} Why/where/how provenance and lineage identify witnesses,
+source locations, and algebraic derivations
+\cite{buneman2001why,cui2001lineage,green2007provenance,cheney2009provenance};
+aggregation needs value-level treatment \cite{amsterdamer2011aggregate}.
+GProM and ProvSQL provide broader rewrite/circuit mechanisms
+\cite{arab2018gprom,senellart2018provsql,sen2026provsql}. TaskGate claims no new
+general provenance algebra: it specializes a positive fragment to co-generate
+typed release/dependency effects with the answer and settle their cumulative
+novelty before release.
 
-History-based auditing treats a query log, not one query, as the security
-object. Hippocratic auditing reconstructs access \cite{agrawal2004hippocratic};
-batch auditing asks whether answers determine a forbidden view
-\cite{motwani2008auditing}; simulatable auditing protects the accept/deny bit
-\cite{kenthapadi2005simulatable}; and inference-control surveys include prior
-knowledge \cite{farkas2002inference}. TaskGate neither models such knowledge nor
-protects denial leakage or implicit inference. It charges a successful empty or
-zero answer as one normalized proposition, not an estimate of its information,
-and scopes history to one signed root family. Stronger history controls remain
-complementary.
+\textbf{Authorization and delegation.} Usage/history control and delegation
+establish ongoing decisions, attenuation, and quotas
+\cite{park2004ucon,abadi2003history,li2003delegation,chadwick2008permis}.
+RLS/VPD, ABAC/XACML, and query-policy systems decide which operation and rows
+are authorized
+\cite{postgres16rls,hu2014abac,mehta2017qapla,zhang2022blockaid,liu2026safenlidb}.
+TaskGate assumes that boundary, then makes every descendant settle against one
+root ledger; distributed vouchers remain outside its centralized prototype.
 
-\subsection{Query Pricing and Privacy Accounting}
+\textbf{Agent controls.} MCP authorization/tools and authenticated delegation
+scope who may invoke a capability \cite{mcp2025auth,mcp2025tools,south2025delegation};
+prompt-injection and runtime-flow defenses address complementary threats
+\cite{debenedetti2024agentdojo,summers2026dataflow}. They do not alone account
+database facts accumulated across successful calls. TaskGate treats the agent
+and generated SQL as untrusted clients behind these controls.
 
-Query pricing studies determinacy and arbitrage \cite{koutris2012query}; QIRANA
-extends history-aware pricing to broad SQL with aggregation
-\cite{deep2017qirana}, and ARIA uses tuple information gain for SPJA and simple
-aggregates \cite{peng2025aria}. Weighting, historical charging, and rewrite
-resistance are therefore established. TaskGate instead admits against explicit
-contract facts, scopes state to a root family, and withholds delivery when
-atomic settlement fails.
-
-CacheDP reuses noisy answers \cite{mazmudar2022cachedp}, while DProvDB tracks
-privacy loss by analyst provenance \cite{zhang2023dprovdb}; both compose
-randomized mechanisms \cite{dwork2014foundations}. TaskGate releases exact
-answers, offers no $\epsilon$-DP guarantee, and bounds only facts recognized by
-its active profile.
-
-\subsection{Provenance Foundations and Systems}
-
-Why- and where-provenance identify contributing data and output locations
-\cite{buneman2001why}, while lineage traces warehouse outputs back through
-transformations \cite{cui2001lineage}; Cheney et al. survey the resulting
-database-provenance design space \cite{cheney2009provenance}. Semiring
-provenance provides compositional annotations for positive relational queries
-\cite{green2007provenance}, and aggregation requires value-level treatment
-beyond tuple annotations \cite{amsterdamer2011aggregate}.
-
-GProM rewrites provenance questions \cite{arab2018gprom}, and ProvSQL adds
-general circuit-based provenance and probability to PostgreSQL, including
-multiset relational algebra and terminal aggregation
-\cite{senellart2018provsql,sen2026provsql}. TaskGate
-claims neither a new algebra nor a general provenance engine. It specializes
-provenance to explicitly released facts and a conservative positive-derivation
-footprint, co-generates answer and effects in one snapshot, and settles before
-release. Its profile admits finite connected inner-equijoin graphs under an
-operational source guard and a two-branch union-distinct form; outer joins,
-negation, and recursion remain outside it.
-
-\subsection{Usage Control, Delegation, and Quotas}
-
-Usage control extends authorization across an ongoing use \cite{park2004ucon};
-execution-history access control makes past actions part of authorization
-\cite{abadi2003history}; and delegation has mature logical foundations
-\cite{li2003delegation}. PERMIS combines delegated authorization with
-history-sensitive cumulative-resource decisions \cite{chadwick2008permis}.
-
-These works establish attenuation, delegation depth, consumable authority, and
-quotas. TaskGate's narrower claim is that every descendant settles its semantic
-effect against one root ledger, so delegation cannot mint disclosure capacity.
-The prototype is centralized; distributed vouchers would need another safety
-argument.
-
-\subsection{Database Policy Enforcement and Agents}
-
-Database-backed policy systems rewrite or validate queries against application
-policy \cite{mehta2017qapla,zhang2022blockaid}. Recent work aligns
-natural-language interfaces with database policy \cite{liu2026safenlidb},
-measures indirect prompt injection against tool-using agents
-\cite{debenedetti2024agentdojo}, and applies runtime data-flow control
-\cite{summers2026dataflow}.
-
-These systems target per-request policy, prompt-injection resilience, or
-information-flow labels. TaskGate likewise treats generated SQL and client
-tools as untrusted, but focuses on cumulative explicit database disclosure
-across retries, pages, supported rewrites, and delegation.
-
-\textbf{Novelty boundary.} The literature establishes history, inference
-control, pricing, provenance, mediation, delegation, quotas, task-bound SQL,
-receipts, and persistent disclosure logs. Within this boundary, the present
-article develops three-set FactID semantics, same-snapshot provenance, exact
-novel-set settlement, and shared-root delegation, together with formal and
-empirical checks. Relative to GAAP, it is database-specific semantic accounting
-rather than cross-task IFC: narrower than noninterference, but stronger than
-stateless authorization for the modeled threat.
+\textbf{Novelty boundary.} Relative to these systems, TaskGate contributes
+database-specific three-set FactID semantics, same-snapshot provenance, exact
+novel-set settlement, and shared-root conservation. It is narrower than
+cross-tool noninterference and stronger than stateless authorization only for
+the modeled task-scoped threat.
 
 \section{Exposure Model}
 \label{sec:model}
@@ -426,19 +379,19 @@ mutable transactional database. We model its compiled output as follows.
 A publication epoch is
 \begin{equation}
  \begin{aligned}
- P_e=\langle& datasource,schema,cutoff,\\
-             & snapshot,catalog,dictionary\rangle,
+ P_e=\langle& datasource,schema,snapshot\_bundle,\\
+             & catalog,dictionary\rangle,
  \end{aligned}
  \label{eq:publication-epoch}
 \end{equation}
-where \emph{cutoff} is the completed synchronization watermark,
-\emph{snapshot} is the immutable reporting dataset, \emph{catalog} binds its
-schema, policy, and lineage, and \emph{dictionary} is the set of V4 ordinal
-dictionaries. We write $h_e$ for the digest of a canonical descriptor of all
-six components. This is a model-level epoch identity: in the prototype the
+where \emph{snapshot\_bundle} maps every stable role to its immutable reporting
+publication, \emph{catalog} binds the bundle's schema, policy, and lineage,
+and \emph{dictionary} is the set of V4 ordinal dictionaries. We write $h_e$
+for the digest of a canonical descriptor of these five components. In the prototype the
 signed Catalog SHA transitively commits the datasource/schema, snapshot ID,
-and manifest/dictionary/sidecar digests, while the synchronization cutoff is
-co-versioned deployment metadata rather than a field in the ordinal manifest.
+and manifest/dictionary/sidecar digests. The upstream synchronization cutoff
+is a trusted ETL premise and co-versioned routing metadata; TaskGate does not
+cryptographically enforce it as a separate manifest field.
 A new synchronization creates a new $P_{e+1}$; it never mutates $P_e$.
 \end{definition}
 
@@ -460,13 +413,31 @@ $T$ or any delegated descendant. Then
  \label{eq:publication-binding}
 \end{equation}
 The Catalog transitively binds the grant and FactID environment to that epoch;
-ledger state, replay metadata, result evidence, audit events, and V6 receipts
+ledger state, replay metadata, result evidence, audit events, and V8 receipts
 carry the corresponding publication and dictionary bindings. Execution,
 settlement, and replay fail closed if they differ. Consequently an active root
 cannot switch publications, even after the next cut becomes active for new
 approvals.
 
 \subsection{Facts and Task State}
+
+\begin{definition}[Approved task]
+\label{def:task}
+An approved root task is the immutable authorization boundary
+\begin{equation}
+ T=(P,S,B,C), \qquad B=(B_R,B_D,B_O),
+ \label{eq:task-tuple}
+\end{equation}
+where $P$ is the signed policy grant over the principal, data products,
+fields, and scopes; $S$ is the immutable publication/snapshot binding from
+Eq.~\eqref{eq:publication-binding}; $B$ gives the release, positive-output
+dependency-footprint, and query-outcome ceilings; and $C$ is the signed set of
+semantic and execution constraints.  In particular, $C$ binds the effect
+profile and closed QueryPlan language, type/collation versions, semantic-View
+contracts, delegation rules, replay identity, and result handling.  The
+monotone accounted ledger $K(T)$ is mutable protocol state and is deliberately
+\emph{not} a component of the approved tuple.
+\end{definition}
 
 The V2 release/dependency algebra treats a FactID as a semantic object and its SHA-256 as only a database
 index.  Its semantic environment is
@@ -498,29 +469,48 @@ commitment $CW(W)$ length-prefixes the lexically sorted
 $(\operatorname{FactHash}(f),W(f))$ pairs; the empty multiset has a separate
 token.  The durable key is
 $\mathrm{SHA256}(\texttt{TASKGATE-FACT-V2\textbackslash0}\|\operatorname{Canon}(f))$.
-Control PostgreSQL stores $\operatorname{Canon}(f)$ and compares it on every hash conflict;
-a same-hash, different-payload row aborts the transaction. V1 and V2 tagged
-payloads are disjoint. V3 preserves these V2 identities and adds an outcome
-kind under a disjoint hash domain.
+Control PostgreSQL stores $\operatorname{Canon}(f)$ and compares it on every
+hash conflict; a same-hash, different-payload row aborts the transaction. V5
+retains V2 release/dependency identities but gives predicate atoms and
+composite outcomes disjoint tagged kinds under
+$d_5=\texttt{TASKGATE-FACT-V5\textbackslash0}$.
 
-Let $N(q)$ be the accepted query normal form, $h_N$ its SHA-256, $m$ the
-visible row count, and
-$h_R=H(m,\operatorname{sort}\{\operatorname{Canon}(f):f\in\facts_r\})$. Let
-$d_3=\texttt{TASKGATE-FACT-V3\textbackslash0}$ be the outcome hash domain.
-V3 creates exactly one successful-outcome identity
+Let $N(q)$ be the accepted V4 query normal form, $h_N$ its SHA-256, $m$ the
+visible row count, $h_y$ the canonical result-observation commitment, and
+$h_c$ the predicate-context commitment to the approved Catalog, immutable
+publication/lineage, stable roles, and resolved expressions. Atomization
+normalizes each accepted literal occurrence by PostgreSQL type, collation
+name/version, operator, and canonical literal value. After exact
+deduplication, let $k_a=\code{PREDICATE\_ATOM}$ and define semantic atom
+objects before their physical keys:
 \begin{equation}
  \begin{aligned}
- f_o&=\langle\pi_3,\operatorname{ver}(N),h_N,h_R,m\rangle,\\
- \operatorname{FactHash}(f_o)&=H(d_3\|\operatorname{Canon}(f_o)).
+ a_i&=\langle k_a,\pi_5,h_c,p,r,f,e,\tau,\kappa,op,v\rangle,\\
+ A(q)&=\{a_i\mid a_i\in\operatorname{Atomize}(q)\}.
+ \end{aligned}
+ \label{eq:predicate-atoms}
+\end{equation}
+Here $p,r,f,e$ are the semantic Product, stable role, public FieldID, and resolved-expression
+digest; $\tau,\kappa,op,v$ are type, collation, operator, and canonical
+literal. For any V5 semantic Fact $f$, its physical key is
+$\operatorname{FactHash}_5(f)=H(d_5\|\operatorname{Canon}(f))$.
+Let $h_A$ commit the sorted $\operatorname{FactHash}_5$ values of $A(q)$ and
+$k_c=\code{COMPOSITE\_OUTCOME}$. V5 creates one semantic composite object
+\begin{equation}
+ \begin{aligned}
+ c_q&=\langle k_c,\pi_5,\operatorname{ver}(N),h_N,h_y,m,h_c,h_A,|A(q)|\rangle,\\
+ \facts_O(q)&=A(q)\cup\{c_q\},\\
+ M_O(q)&=\{\operatorname{FactHash}_5(f)\mid f\in\facts_O(q)\}.
  \end{aligned}
  \label{eq:outcome-fact}
 \end{equation}
-The normal form contains the Catalog namespace, snapshot/lineage binding,
-typed predicates, grouping, ordering, pagination, null/bag semantics,
-collations, timezone, and exact numeric mode. It erases only the explicitly
-supported aliases and reorderings. Therefore the proposition is server-bound,
-not caller-named; the result commitment is explicit even for $m=0$ or a
-one-row scalar zero.
+Thus repeated literals and supported rewrites reuse atom identities, while the
+composite commits to the complete normalized query, exact result observation,
+and the complete atom set. The Merkle radix set stores $M_O(q)$; Control
+PostgreSQL stores each canonical Fact payload and fails closed on a same-hash,
+different-payload collision. Empty results and scalar zero remain explicit.
+The signed grant bounds raw literal occurrences, unique atoms, one atom
+payload, and total atom payload before settlement.
 
 \begin{theorem}[Fact identity well-definedness]
 \label{thm:fact-identity}
@@ -531,49 +521,91 @@ PostgreSQL semantic-value equivalence, not raw float NaN bit patterns).
 \emph{Proof in the supplement.}
 
 \begin{definition}[Exposure effect]
-For query $q$ over snapshot $D_s$, the V3 effect
-$\effect(q,D_s)=\langle \facts_r,\facts_i,\facts_o\rangle$ contains release facts
-$\facts_r$ and positive-output dependency facts $\facts_i$ under a versioned
-profile $\pi$.  The latter are the conservative base facts selected by the
-inductive rules below for successfully derived delivered rows and cells; they
-are not claimed to be minimal causal provenance or all physical reads.
-$\facts_o=\{f_o\}$ contains the successful proposition/result identity from
-Eq.~\eqref{eq:outcome-fact}.
+For query $q$ over snapshot $D_s$, the V5 effect
+$\effect(q,D_s)=\langle \facts_R,\facts_D,\facts_O\rangle$ contains accounted
+result facts (retaining the wire label \code{release})
+$\facts_R$ and positive-output dependency-footprint facts $\facts_D$ under a
+versioned profile $\pi$.  The latter are the conservative base facts selected
+by the inductive rules below for successfully derived selected output rows and
+cells; they are not claimed to be minimal causal provenance or all physical reads.
+$\facts_O=A(q)\cup\{c_q\}$ contains the predicate footprint and composite
+query/result identity from Eqs.~\eqref{eq:predicate-atoms}--\eqref{eq:outcome-fact}.
 \end{definition}
 
-Every root task $T$ stores previously accounted sets
-$\accounted_T=\langle\accounted_T^r,\accounted_T^i,\accounted_T^o\rangle$ and limits
-$B_T=\langle B_T^r,B_T^i,B_T^o\rangle$. Settlement computes
+For a successfully evaluated query $q$, let
+$F_R^{\mathrm{candidate}}(q)$ be the result facts derived inside the withheld
+execution, $F_R^{\mathrm{accounted}}(q)$ the subset committed by settlement,
+and $F_R^{\mathrm{available}}(q)$ the facts whose canonical artifact has reached
+\code{AVAILABLE}. Successful settlement commits the complete candidate set, so
+$F_R^{\mathrm{accounted}}(q)=F_R^{\mathrm{candidate}}(q)$, whereas publication
+is a later recoverable step and only
+\[
+ F_R^{\mathrm{available}}(q)\subseteq F_R^{\mathrm{accounted}}(q)
+\]
+is guaranteed. Download and human/agent observation are not tracked. Thus the
+ledger conservatively upper-bounds both logically available and actually
+observed result facts; it does not assert either event occurred.
+
+\begin{definition}[Task-scoped cumulative exposure]
+\label{def:task-exposure}
+Let $Q=\langle q_1,\ldots,q_n\rangle$ be a finite query-attempt history for a
+root and its descendants, and let $Q^+\subseteq Q$ contain exactly the queries
+that successfully settle under $T$. For $X\in\{R,D,O\}$,
+$\facts_X(q,S)$ denotes the component obtained on the dataset and profile
+transitively bound by $S$ and $C$. The task exposure is
+\begin{equation}
+ \begin{aligned}
+ E(T,Q)&=\langle E_R(T,Q),E_D(T,Q),E_O(T,Q)\rangle,\\
+ E_R(T,Q)&=\bigcup_{q\in Q^+}\facts_R(q,S),\\
+ E_D(T,Q)&=\bigcup_{q\in Q^+}\facts_D(q,S),\\
+ E_O(T,Q)&=\bigcup_{q\in Q^+}\facts_O(q,S).
+ \end{aligned}
+ \label{eq:task-exposure}
+\end{equation}
+The components are respectively accounted result exposure (wire label
+\code{release}), positive-output dependency
+footprint, and query-outcome exposure. Failed or rejected attempts contribute
+no set because TaskGate releases and commits none of their effects; this model
+does not account the rejection bit. We abbreviate the singleton history by
+$E(T,q)$.
+\end{definition}
+
+For every root task, the ledger service separately stores previously accounted
+sets $K(T)=\accounted_T=\langle\accounted_T^R,\accounted_T^D,
+\accounted_T^O\rangle$ and the approved limits
+$B=\langle B_R,B_D,B_O\rangle$. Settlement computes
 
 \begin{align}
- \Delta_T^r(q) &= \facts_r(q,D_s)\setminus\accounted_T^r,\\
- \Delta_T^i(q) &= \facts_i(q,D_s)\setminus\accounted_T^i,\\
- \Delta_T^o(q) &= \facts_o(q,D_s)\setminus\accounted_T^o.
+ \Delta_T^R(q) &= \facts_R(q,D_s)\setminus\accounted_T^R,\\
+ \Delta_T^D(q) &= \facts_D(q,D_s)\setminus\accounted_T^D,\\
+ \Delta_T^O(q) &= \facts_O(q,D_s)\setminus\accounted_T^O.
  \label{eq:delta}
 \end{align}
 
-V3 measures cardinality independently in each dimension. A query may settle
+V5 measures cardinality independently in each dimension. A query may settle
 only if
-$|\accounted_T^r|+|\Delta_T^r|\leq B_T^r$ and
-$|\accounted_T^i|+|\Delta_T^i|\leq B_T^i$ and
-$|\accounted_T^o|+|\Delta_T^o|\leq B_T^o$.
+$|\accounted_T^R|+|\Delta_T^R|\leq B_R$ and
+$|\accounted_T^D|+|\Delta_T^D|\leq B_D$ and
+$|\accounted_T^O|+|\Delta_T^O|\leq B_O$.
 
-The word ``accounted'' is intentional. Release facts describe delivered values,
-but dependency FactIDs remain internal to the gateway; the agent receives
-only result data, counts, and receipt digests. Hence $\accounted_T^i$ is not a
+The word ``accounted'' is intentional. Result facts describe values selected
+for publication and charged at settlement, not proof of availability or
+observation. Dependency FactIDs remain internal to the enforcement layer; the agent receives
+only result data, counts, and receipt digests. Hence $\accounted_T^D$ is not a
 set of facts known by the agent, and no component is a complete epistemic
 or privacy-loss state.  The wire and storage label \code{influence} is retained
-for compatibility; under the V2/V3 profiles it denotes positive-output dependency,
-not causal influence.
+for compatibility; under the V2--V5 profiles it denotes the positive-output
+dependency footprint, not causal influence.
 
 \begin{theorem}[Outcome separation and replay]
 \label{thm:outcome-separation}
-For successful queries over the same snapshot, unequal normal-form digests
-produce unequal outcome FactIDs even when their released results are equal.
-Equal normal forms and equal released FactSets/cardinalities produce the same
-outcome FactID. Hence different zero/empty threshold propositions each incur
-one novel outcome charge, while exact replay and supported equivalent rewrites
-incur zero incremental outcome charge.
+For successful queries in one V5 predicate context, exact replay and supported
+equivalent rewrites produce the same atom set and composite identity and hence
+zero incremental Outcome charge. Changing one canonical predicate component
+changes that atom except with a SHA-256 collision; changing the complete normal
+form or result observation changes the composite except with a collision.
+Consequently related probes reuse unchanged atoms but charge each novel atom
+and novel composite exactly once, including for zero/empty answers.
 \end{theorem}
 \emph{Proof in the supplement.}
 
@@ -581,17 +613,11 @@ incur zero incremental outcome charge.
 
 Operational multi-source SQL first lowers to
 $G_J=\langle V_J,E_J,\Theta_J\rangle$: $2$--$16$ distinct Catalog stable-role
-nodes and connected undirected edges carrying nonempty sets of type- and
-collation-compatible column equalities. Aliases and AST parenthesization are
-absent. Canonicalization orders nodes by $(\nu,s,r,\text{product})$, orients and
-sorts edges by node rank, and groups/sorts each edge's stable field pairs. A
-deterministic fold repeatedly adds the first remaining node adjacent to the
-current component with all connecting predicates, yielding one left-deep term
-$\operatorname{Fold}_\Pi(G_J)$ for the existing binary algebra. Thus any
-connected topology (including cycles) and accepted parenthesization of the same
-graph share one term. The source ceiling is an operational guard, not a planner
-or algebraic limit; repeated products/roles, self edges, and duplicate
-equalities reject.
+nodes and connected equality edges. Stable-role ordering and a deterministic
+fold erase aliases and accepted parenthesization, so the same connected graph
+has one core term. Repeated roles, self edges, duplicate equalities, and type or
+collation disagreement reject; the operational bounds and construction are
+supplemental.
 
 The complete core syntax is
 \begin{align*}
@@ -610,97 +636,48 @@ $\mathcal A\subseteq\{\code{COUNT(*)},\code{COUNT},\code{SUM},\code{MIN},
 difference, negation beyond the listed scalar predicates, windows, recursion,
 subqueries, volatile functions, and \code{UNION ALL} are not terms.
 
-The typing judgment $\Pi\vdash e:\Gamma$ is partial: every operator requires a
-typed child; predicates and projections may name only child fields; join
-equalities require disjoint role-qualified schemas and identical canonical
-types/collations; union branches require one identical distinctable schema;
-grouping requires typed group keys and aggregates; and pagination requires a
-proven total order. Undefined premises reject the plan. The complete inference
-rules are provided in the supplementary material.
+The partial judgment $\Pi\vdash e:\Gamma$ enforces child-local fields,
+role-disjoint typed joins, identical distinctable union schemas, typed grouping,
+and a proven total page order. Undefined premises reject. Complete syntax,
+typing, and resource guards are supplemental.
 
-The nested-View front end is only a source language for this core: direct
-projection/rename, INNER equality joins, AND-combined literal filters, optional
-grouping, and the four aggregates. Expansion admits one aggregate barrier;
-above it only pure projection/rename is legal. DISTINCT/set/CTE/subquery/window
-forms, volatile dependencies, and repeated expanded stable roles reject. The
-closure may have any acyclic layering up to depth 16 and any connected topology
-up to 16 expanded sources, with multiple equalities per edge. The complete
-grammar and resource guards are supplemental; no general PostgreSQL
-View-equivalence result is claimed.
+The nested-View front end lowers a bounded acyclic DAG of projection/rename,
+inner equijoins, literal conjunctions, and optional grouping into this core. It
+admits one aggregate barrier and rejects richer SQL or unsafe dependencies; no
+general PostgreSQL View-equivalence result is claimed.
 
-Here $\mathbb B_3=\{\mathsf T,\mathsf F,\mathsf U\}$ is PostgreSQL
-three-valued logic.  Equality with either operand NULL is $\mathsf U$;
-$\mathsf F\wedge x=\mathsf F$, $\mathsf T\wedge x=x$, and
-$\mathsf U\wedge\mathsf U=\mathsf U$.  Selection retains only $\mathsf T$.
-By contrast, grouping and distinct use the typed equivalence
-$v\equiv_\tau w$ defined by \code{IS NOT DISTINCT FROM}, so NULL is equivalent
-to NULL.  Predicate evaluation and ordering are PostgreSQL functions fixed by
-$pg$ and $\mathcal C$, not Go approximations.
-
-The closed scalar domain $\mathcal T$ contains exactly the canonical types
-\code{smallint}, \code{integer}, \code{bigint}, \code{numeric}, \code{real},
-\code{double precision}, \code{boolean}, \code{bytea}, \code{date},
-\code{time without time zone}, \code{timestamp without time zone},
-\code{timestamp with time zone}, \code{uuid}, \code{text}, \code{character},
-\code{character varying}, and \code{jsonb}, with PostgreSQL
-aliases mapped to these canonical names.  Integers retain their
-16/32/64-bit ranges; exact numerics are encoded as reduced rationals and never
-accepted through a binary-float conversion; floats use their IEEE width and
-canonicalize NaN, infinities, and negative zero.  Temporal values have
-PostgreSQL microsecond precision, \code{timestamptz} is UTC, and
-\code{time with time zone} is excluded.  Text equality/order binds exact
-deterministic collation name and actual version.  The text-preserving
-\code{json} type is excluded: PostgreSQL retains insignificant whitespace,
-object-key order, duplicate keys, and numeric lexical forms, while \code{jsonb}
-has structural canonical equality \cite{postgres16json}.  Aggregate result
-types are exactly PostgreSQL's:
-\code{COUNT}$\to$\code{int8}, \code{SUM(int2/int4)}$\to$\code{int8},
-\code{SUM(int8)}$\to$\code{numeric}, \code{SUM(numeric)}$\to$\code{numeric},
-and \code{MIN/MAX}$\to$the input type.  \code{SUM(real)} and
-\code{SUM(double precision)} are not admitted: IEEE-754 addition is
-non-associative, so a floating-point SUM depends on the physical aggregation
-order, which the typed bag and the normal form do not fix.  Any cast,
-arithmetic, aggregate, witness-multiplicity, or canonical-range overflow makes
-evaluation undefined and the gateway releases and settles nothing.
+Predicates use PostgreSQL three-valued logic and retain only true rows, whereas
+grouping/distinct use typed \code{IS NOT DISTINCT FROM}. The closed canonical
+domain fixes integer/float widths, exact numeric and temporal encodings,
+deterministic collation name/version, \code{jsonb} structural equality, and
+PostgreSQL aggregate result types. Non-associative
+floating SUM, unsupported casts, and overflow are undefined and settle
+nothing; the complete type domain and encoders are supplemental.
 
 \subsection{Annotated Bags and Complete Output Keys}
 
-A relation is $R=\langle\Gamma,\mathcal B,M,\prec?\rangle$, where $M$ is a
-finite PostgreSQL bag implemented by unique row keys.  Equal value tuples remain
-distinct bag occurrences when their keys differ; only union-distinct and group
-quotient occurrences into classes.  An optional $\prec$ records a proven total
-order.  A row is
-$t=\langle k,\{a\mapsto c_a\},S_r,W_r,O_r\rangle$ and a cell is
-$c_a=\langle v,\tau,S_a,W_a,x_a,\rho_a?\rangle$.  $S$ is a finite set of
-snapshot-covered base facts, $W$ a finite multiset with positive stored
-multiplicities (possibly empty), $x$ a canonical
-data-independent lineage expression, and $\rho$ an optional already
-materialized release fact.  Every operator preserves
+A relation is a typed PostgreSQL bag with unique occurrence keys and optional
+proven total order. Rows and cells carry support $S$, positive witness
+multiset $W$, canonical lineage, and optional materialized release identity.
+Every operator preserves
 \begin{equation}
  \operatorname{support}(W_r)=S_r,\qquad
  \operatorname{support}(W_a)=S_a.                 \label{eq:anninv}
 \end{equation}
-For annotations define same-proof composition
-$\bigoplus_i(S_i,W_i)=(\bigcup_iS_i,\sum_iW_i)$ and alternative-proof
-composition
-$\bigsqcup_i(S_i,W_i)=(\bigcup_iS_i,\max_iW_i)$, with pointwise multiset
-sum/max.  Thus $A\bigsqcup A=A$, while join fanout remains in $\bigoplus$.
+Same-proof composition unions support and adds multiplicities; alternative
+proofs union support and take pointwise maximum. Thus alternatives are
+idempotent while join fanout remains visible.
 
 Let
 \begin{equation}
  \operatorname{RID}(R,t)=H(\code{relation-row},N(\Gamma),\mathcal B,t.k).
  \label{eq:rid}
 \end{equation}
-$H$ is domain-separated, typed, and length delimited. Scan uses the Catalog
-entity key; unary operators preserve the child key; join hashes the sorted
-immediate-child RIDs (with operational graph joins using the canonical fold
-above); union-distinct hashes the complete typed tuple; and group hashes its
-canonical group key (or a distinct global token). Every derived Fact
-also binds the merged source/snapshot bundle, expression, value, and witness.
-Thus equal-looking results from different sources or derivations remain
-distinct, while SQL aliases and caller-provided product names do not
-participate. The complete output-key construction is in the supplement; a
-same-hash unequal key is a validation error, not a row merge.
+$H$ is typed, length-delimited, and domain-separated. Scan uses the Catalog
+entity key; unary operators preserve keys; join, union-distinct, and group bind
+their complete canonical child/class/group identities. Derived Facts also bind
+source/snapshot, expression, value, and witness. Complete key construction and
+collision checks are supplemental.
 
 \subsection{Operator Evaluation and Effect Extraction}
 
@@ -722,20 +699,20 @@ cases, and page bounds are in the supplementary material.
 \begin{table*}[t]
 \centering
 \caption{Main-text summary of the V2 big-step effect. ``Row annotation'' is
-always included in the dependency set of a delivered row.}
+always included in the dependency set of a selected output row.}
 \label{tab:effect-summary}
 \small
 \setlength{\tabcolsep}{4pt}
 \begin{tabular}{L{0.12\textwidth}L{0.39\textwidth}L{0.42\textwidth}}
 \toprule
-Operator & Output construction & Positive-output dependency rule \\
+Operator & Output construction & Positive-output dependency-footprint rule \\
 \midrule
 Scan & Keyed PostgreSQL bag; base cells retain typed values & Singleton base-row and base-cell FactIDs \\
 Select/Project & Keep only $\mathsf T$ rows; restrict visible cells & Add every predicate field to retained row annotations; projection preserves them \\
 Inner join & Every matching child-row pair at one binary fold step under PostgreSQL equality & Union both row annotations and all join-key cell annotations; preserve fanout in witnesses \\
 Union-distinct & Classes under componentwise \code{IS NOT DISTINCT FROM} & Include every candidate and every distinctness field, including hidden fields; max-merge alternative witnesses \\
 \shortstack[l]{Group/\\aggregate} & One output per key class; global empty input yields one row & Include group-key inputs and every declared aggregate argument; \code{COUNT(*)} uses member rows, and NULL/non-extreme inputs remain dependencies \\
-Page & Stable total-order slice; annotations copied & Account delivered rows only; non-output rows, rank, and order-only fields are outside the profile \\
+Page & Stable total-order slice; annotations copied & Account selected output rows only; non-output rows, rank, and order-only fields are outside the profile \\
 \bottomrule
 \end{tabular}
 \end{table*}
@@ -758,21 +735,22 @@ afterthought:
 \rho_a,&\operatorname{valid}(\rho_a,R,t,a),\\
 \operatorname{new}(R,t,a),&\text{otherwise},
 \end{cases}\\
-\facts_r(R,V)&=\{\operatorname{mat}(R,t,a)\mid t\in R,\ a\in V\},\\
-\facts_i(R,V)&=\bigcup_{t\in R}S_r(t)\ \cup
+\facts_R(R,V)&=\{\operatorname{mat}(R,t,a)\mid t\in R,\ a\in V\},\\
+\facts_D(R,V)&=\bigcup_{t\in R}S_r(t)\ \cup
                 \bigcup_{t\in R,a\in V}S_a(t),\\
 \rieffect_\Pi(e,D,V)&=\operatorname{normalize}
-  \langle\facts_r(R,V),\facts_i(R,V)\rangle.       \label{eq:observe}
+  \langle\facts_R(R,V),\facts_D(R,V)\rangle.       \label{eq:observe}
 \end{align}
 Here $\Pi;D\vdash e\Downarrow R$, and $\operatorname{valid}$ checks value,
 type and bundle, plus support for a base fact or expression/witness for a
 derived fact, against the pre-existing release fact.
 Thus query bags and witness multiplicity are retained during composition, while
 the two base ledgers are sets.  Equation~\eqref{eq:observe} is the declared
-positive-output dependency profile: it is exact with respect to these
+positive-output dependency-footprint profile: it is exact with respect to these
 inductive rules, not with respect to arbitrary causal provenance or physical
 source access.  Empty answers have an empty base effect except for the single
-visible row of a global aggregate; V3 nevertheless adds one outcome fact.
+visible row of a global aggregate; V5 nevertheless adds the tested predicate
+atoms and one composite outcome.
 
 \begin{theorem}[Representation closure and partial-function semantics]
 \label{thm:representation-closure}
@@ -786,85 +764,53 @@ valid input to every well-typed parent rule.
 \begin{theorem}[Dependency determinism]
 \label{thm:dependency-determinism}
 Fixed admissible $\Pi$, typed $e$, snapshot map $D$, and visible field set $V$
-uniquely determine the positive-output dependency FactSet $\facts_i$, and hence
+uniquely determine the positive-output dependency-footprint FactSet $\facts_D$, and hence
 $\rieffect_\Pi(e,D,V)$, whenever evaluation succeeds.
 \end{theorem}
 \emph{Proof in the supplement.}
 
-\begin{property}[Group-key completeness]
-\label{prop:group-key-completeness}
-For every delivered group $Q$, member $t\in Q$, and group field $g\in G$,
-$S_g(t)\subseteq\facts_i$, including when $g\notin V$.
-\end{property}
-\emph{Proof in the supplement.}
-
-\begin{property}[Distinct-dependency completeness]
-\label{prop:distinct-completeness}
-For every delivered union-distinct class $Q$, candidate $t\in Q$, and schema
-field $a\in\Gamma$, $S_a(t)\subseteq\facts_i$, including when $a\notin V$.
-\end{property}
-\emph{Proof in the supplement.}
-
-\begin{property}[Conservative aggregate input]
-\label{prop:aggregate-input}
-Every delivered aggregate cell includes its complete declared logical input:
-all member row annotations for \code{COUNT(*)}, and every member argument cell
-for \code{COUNT(a)}, \code{SUM(a)}, \code{MIN(a)}, and \code{MAX(a)}.  NULL and
-non-extreme \code{MIN/MAX} inputs are not omitted.
-\end{property}
-\emph{Proof in the supplement.}
+Group-key, union-distinct, and aggregate-input completeness statements and
+proofs are given in the supplement; Table~\ref{tab:effect-summary} states
+their main effect on selected output rows.
 
 \subsection{Conservation Properties}
 
 The following properties apply only to the operators and rewrites stated here.
 They are not claims about all semantically equivalent SQL.
 
-\begin{property}[Normalization]
-\label{prop:normalization}
-Fact-set normalization is deterministic, idempotent, and commutative under
-merge.
-\end{property}
-\emph{Proof in the supplement.}
+The supplement proves deterministic/idempotent Fact-set normalization and the
+restricted selection--projection invariance used by the rewrite tests.
 
-\begin{theorem}[Restricted projection/selection invariance]
-\label{thm:projection-selection}
-For $F\cup V\subseteq A$, selection followed by projection and projection
-followed by selection have the same visible effect:
-\[
- \rieffect_\Pi(\pi_A(\sigma_{p;F}e),D,V)=
- \rieffect_\Pi(\sigma_{p;F}(\pi_Ae),D,V).
-\]
-Reordering $A$ also preserves this normalized terminal effect.
-\end{theorem}
-\emph{Proof in the supplement.}
-
-\begin{definition}[Typed normal form $NF_\Pi$]
+\begin{definition}[Profile-indexed typed normal form $NF_{\Pi,\pi}$]
 \label{def:nf}
-$NF_\Pi$ maps accepted, well-typed inputs to canonical terms. Multi-source SQL
-first replaces aliases by Catalog stable roles, orders graph nodes, endpoint
-pairs, edges, and per-edge predicates as above, then applies
-$\operatorname{Fold}_\Pi$. Structure-recursive normalization erases display
-names; sorts conjunctions, dependency/projection fields, group keys,
-aggregates, binary join children/equalities, and union children by stable field,
-expression, or digest; collapses an identical union branch only when
-full-tuple distinctness is proven; and canonicalizes a stable page suffix.
-Equality of normal forms is syntactic. The unchanged artifact
-\texttt{taskgate-query-normal-form-v3} performs no outer-join, arithmetic,
-window, subquery, or general SQL equivalence reasoning. Its complete typed
-digest remains the query-semantic component of replay/outcome identity;
-authorization and settlement also bind grant/policy/effect context. The
-graph-only digest is diagnostic, and previously admitted encodings are
-unchanged. Query normalization is distinct from final-ledger Fact-set
+$NF_{\Pi,\pi}$ maps accepted, well-typed inputs to canonical terms under the
+normal-form profile fixed by the task contract. Multi-source SQL
+replaces aliases by Catalog stable roles, canonicalizes the accepted join
+graph, and recursively orders all commutative components by typed stable
+identity. Equality is syntactic; the complete ordering, scalar domains, and
+rejected constructs are supplemental. Let $\pi_3$ denote the legacy V2--V4
+Outcome path and $\pi_5$ the V5 predicate/composite path. Their bindings are
+\[
+\begin{aligned}
+ \operatorname{ver}(NF_{\Pi,\pi_3})
+   &= \text{\code{taskgate-query-normal-form-v3}},\\
+ \operatorname{ver}(NF_{\Pi,\pi_5})
+   &= \text{\code{taskgate-query-normal-form-v4}}.
+\end{aligned}
+\]
+The complete typed digest is the query-semantic component of replay/outcome
+identity; authorization and settlement additionally bind grant, policy, and
+effect context. Query normalization is distinct from final-ledger Fact-set
 $\operatorname{normalize}$.
 \end{definition}
 
 \begin{theorem}[Typed normal-form soundness]
 \label{thm:nf-soundness}
-For admissible $\Pi$, immutable snapshot map $D$, $q_1,q_2$ in the closed
+For admissible $\Pi$, fixed profile $\pi$, immutable snapshot map $D$, $q_1,q_2$ in the closed
 algebra or accepted graph-lowerable SQL fragment, and the same visible field
 set $V$,
 \[
- NF_\Pi(q_1)=NF_\Pi(q_2)\Longrightarrow
+ NF_{\Pi,\pi}(q_1)=NF_{\Pi,\pi}(q_2)\Longrightarrow
  \effect_\Pi(q_1,D,V)=\effect_\Pi(q_2,D,V).
 \]
 This is not completeness for arbitrary equivalent SQL: normalization neither
@@ -872,19 +818,50 @@ invents nor removes transitive/redundant equalities.
 \end{theorem}
 \emph{Proof in the supplement.}
 
+For a fixed approved task, let $\pi_T$ be the normal-form profile bound in
+$C$ and define the canonical replay descriptor
+\begin{equation}
+ \operatorname{RK}_T(q)=\langle P,S,C,\pi_T,NF_{\Pi,\pi_T}(q),
+     \operatorname{params}_\Pi(q),\operatorname{encver}\rangle,
+ \label{eq:replay-descriptor}
+\end{equation}
+where every component uses the typed, length-delimited encoding already bound
+by the Grant and Catalog. The implementation indexes a digest of this
+descriptor but verifies the bound metadata before accepting a hit.
+
+Descriptor equality fixes the approved policy, publication, effect/View
+contracts, typed parameters, and normal form; hence it fixes all three effect
+sets and exact replay has zero novelty. The converse is not claimed outside the
+stated normalization rules.
+
+Let $\operatorname{Expand}_C(v)=(e,\mu,\beta_v)$ denote successful compilation
+of a semantic-View root $v$ into a closed core term $e$, with $\mu$ mapping its
+ordered public fields to stable terminal FieldIDs. The binding $\beta_v$
+commits the root Product/public-field identity, resolved expressions, signed
+View contract, and V5 predicate context. Compilation defines the View query
+normal form from $e$ while retaining $\beta_v$ in $C$.
+
+For successful $\operatorname{Expand}_C(v)=(e,\mu,\beta_v)$, induction over the
+accepted acyclic View DAG preserves the typed visible bag and all three effect
+sets when the internal query retains $\beta_v$. Exact guards and the proof are
+supplemental; a direct terminal query can carry different V5 Outcome FactIDs.
+
 \begin{theorem}[Base-ledger split/page/join conservation]
 \label{thm:base-conservation}
 Merging release/dependency observations for disjoint projections or a complete
 page partition equals observing the combined result. Overlapping pages and
 repeated terminal observations charge each release/dependency FactID at most
 once; join fanout changes witness multiplicity but not the union of dependency
-support. Outcome facts remain per normalized proposition and intentionally do
-not collapse a family of different page or threshold questions.
+support. V5 composite facts remain per normalized query/result outcome;
+predicate atoms are reused exactly when their canonical footprint components
+agree, so a family of page or threshold questions does not collapse wholesale.
 \end{theorem}
 \emph{Proof in the supplement.}
 
-V2 uses \code{taskgate-query-normal-form-v3}. Besides the rewrites above it
-binds namespace, snapshot, lineage digest, canonical SQL types, collation
+The legacy V2--V4 Outcome path uses \code{taskgate-query-normal-form-v3}; the
+V5 predicate/composite path uses \code{taskgate-query-normal-form-v4}. Besides
+the rewrites above, each profile binds namespace, snapshot, lineage digest,
+canonical SQL types, collation
 names/versions, PostgreSQL three-valued bag semantics, UTC, and exact numeric
 mode. It deliberately performs no outer-join, arithmetic, window, subquery, or
 general SQL equivalence reasoning.
@@ -905,98 +882,43 @@ aggregates, and page withholding; ``online'' does not mean arbitrary SQL.
 
 For joins, the PostgreSQL AST and Catalog types feed the canonical $G_J$
 builder, which emits existing \code{JoinMany} and the deterministic binary
-SQL/effect fold. Edges may carry multiple compatible equalities; topology and
-accepted parenthesization are otherwise unrestricted. The 16-source guard
-bounds SQL/evidence width and PostgreSQL planning work. Disconnected, self-,
-outer, cross, non-equality, natural, and \code{USING} joins fail closed, as do
-union-all, nested set trees, and multi-input pagination. Union-distinct retains
-two filtered branches of one product and an explicit complete deduplication
-schema. Callers cannot choose semantic roles or supply SQL fragments, FactIDs,
-or provenance; aliases are syntactic and roles are Catalog identities.
+SQL/effect fold. Accepted topology and parenthesization are otherwise
+unrestricted within the bound; unsupported joins, set trees, and pagination
+fail closed. Callers cannot supply roles, SQL fragments, FactIDs, or
+provenance.
 
-For a semantic-View product, one catalog snapshot combines exact
-\code{pg\_get\_viewdef} bytes, ordered type/collation interfaces, and
-\code{pg\_rewrite}/\code{pg\_depend} edges; parsed references must agree.
-DFS recursively expands ordinary Views, rejects cycles/unsafe dependencies,
-and stops only at Catalog-mapped populated materialized Views. The pure
-compiler resolves aliases to stable roles and emits the existing $G_J$,
-\code{JoinMany}, filters, projection, and optional group. Guards are 16
-expanded sources/depth, 64 nodes, 128 dependency edges/predicates, and 1~MiB
-of definitions; details are supplemental.
-
-The Catalog contract separates four digests: exact root definition,
-transitive dependency closure, alias-free canonical plan, and ordered public
-interface. A domain-separated task digest binds the sorted product contracts
-in the approval Manifest/Grant and query record. Request, approval callback,
-and each new query recompile it; the connector makes the final registry check
-immediately before visible/evidence SQL in their same read-only
-\code{REPEATABLE READ} transaction. Mismatch irreversibly records
-\code{REQUIRE\_REBIND} and rejects new execution/delegation. Exact terminal
-replay/history remains available; rebind creates a new root and approval rather
-than mutating the old Grant.
-
-For execution, the validated artifact is not merely drift evidence. The
-composer replaces public root outputs by their bound stable FieldIDs and feeds
-the expanded Scan/\code{JoinMany} plan through the existing
-\code{CompileRelational} exposure path. An aggregate artifact is a hard barrier:
-only projection/reordering of already computed outputs is accepted above it.
-The current composer admits one outer semantic root and rejects a query-time
-join to another Product and \code{ORDER BY}/\code{LIMIT}/\code{OFFSET} above
-the root. The signed public Grant continues to name only that root. For each
-query the Gateway deterministically derives least-privilege internal grants for
-the artifact's terminal Products; root scopes are translated through
-\code{Artifact.Output.FieldID}, and every terminal mandatory scope must be
-covered or execution rejects before reservation. These internal grants are
-neither persisted nor exposed as approved Products. Consequently V4 compiles
-the relational plan against each terminal's actual publication ordinals and
-sidecar rather than assigning a fictitious publication to the semantic root.
+For semantic Views, one catalog snapshot checks exact definitions,
+type/collation interfaces, and dependency edges, expands safe acyclic Views to
+Catalog-mapped materialized leaves, and emits the same core. Four digests bind
+root definition, dependency closure, canonical plan, and public interface into
+the Grant and query. Recompilation plus a same-snapshot connector check detects
+drift and requires a new approval. Execution resolves stable outputs and
+least-privilege terminal scopes before reservation. Expansion guards and
+lowering rules are supplemental.
 
 \subsection{Snapshot Publication and Ordinal Compilation}
 
-V4 first compiles each frozen Reporting Snapshot as an immutable publication.
-The compiler calls the existing canonical FactID encoder, creates a separate
-segment for base rows and for each base-cell field, sorts each segment by the
-full 256-bit FactHash, and assigns a 32-bit ordinal. A segment is split by a
-deterministic hash prefix before reaching $2^{32}$ entries. A Business-PG
-sidecar maps each attested entity key to a dense row handle and the applicable
-row/cell ordinals. The hot artifact contains only this map, ordinal-to-hash
-arrays, bounds, and digests; canonical payloads remain in a sealed,
-content-addressed cold artifact. Control storage may split and compress that
-artifact into verified chunks. The publication manifest binds the datasource,
-schema, snapshot, sidecar, dictionaries, compiler/profile versions, type and
-collation contracts, and every artifact digest. Duplicate entity keys,
-hash/payload collisions, count mismatches, or non-canonical artifacts prevent
-publication.
+V4 compiles each frozen snapshot into immutable per-row/per-field segments,
+sorting full Fact hashes and assigning 32-bit ordinals. A sidecar maps attested
+entity keys to ordinals; the hot artifact keeps this map and verified hashes,
+while canonical payloads remain content addressed and cold. One manifest binds
+snapshot, schemas, sidecar, dictionaries, versions, type/collation contracts,
+and digests; any collision or count/canonicality mismatch blocks publication.
 
-The online compiler still validates fields, predicates, grouping, and one of
-four aggregates; \code{COUNT(*)} and \code{COUNT(field)} retain distinct normal
-forms. It emits a visible statement and an ordinal companion. A join companion
-streams each matched source-handle tuple and the fields needed by projection, join,
-filter, group, and aggregate rules. A union-distinct companion uses
-\code{UNION ALL} plus a branch marker so that every member of a delivered class
-remains reconstructible. Both statements pass the PostgreSQL AST policy and run
-in one explicit read-only \code{REPEATABLE READ} transaction
-\cite{postgres16transaction}. The small visible result is buffered; the
-companion is ordered by canonical output group and streamed.
+The online compiler emits visible SQL and an ordinal companion in one read-only
+\code{REPEATABLE READ} transaction. The visible
+result is buffered; the ordered companion retains every dependency required by
+join, union, group, and aggregate rules.
 
-The ordinal engine retains only the current group's support bitmap, an
-ordinal-to-extra-multiplicity sparse map, and query-level dependency bitmaps.
-Same-proof witnesses add multiplicities and alternative proofs take their
-pointwise maximum exactly as in the algebra. At a group boundary, a k-way merge
-over hash-sorted segments produces the same witness commitment and derived
-release FactID as Eq.~\eqref{eq:observe}; those sparse derived releases and the
-outcome fact enter dynamic dictionaries. Release is therefore a union of
-base-cell and derived-release bitmaps, dependency uses base-row/base-cell
-bitmaps, and outcome uses a dynamic bitmap. Unknown handles, out-of-range
-ordinals, manifest mismatch, non-canonical bitmaps, overflow, or companion
-truncation fail closed before release. The V2/V3 materialized algebra remains
-the independent test oracle, not the V4 hot path.
+The engine keeps current-group support, sparse extra multiplicities, and query
+bitmaps. A k-way hash merge reproduces the algebraic witness commitment;
+Release/dependency use segmented Roaring bitmaps, while V5 Outcome hashes enter
+an exact Merkle radix set. Invalid handles, manifests, encodings, overflow, or
+truncation fail closed. The materialized algebra remains the oracle.
 
-For segment $j$, let $D_j$ be the publication-time bijection from its canonical
-FactIDs to ordinals and let $\operatorname{Decode}_j(A)=
-\{D_j^{-1}(x):x\in A\}$. Dynamic segments use the same interface after an exact
-hash/payload collision check. V4 uses portable segmented Roaring bitmaps
-\cite{chambi2016roaring}; compression changes representation, not membership.
+For each segment, publication defines a FactID--ordinal bijection $D_j$;
+portable Roaring compression changes representation, not membership
+\cite{chambi2016roaring}.
 
 \begin{theorem}[Exact bitmap refinement]
 \label{thm:bitmap-refinement}
@@ -1006,17 +928,37 @@ $\operatorname{Decode}(A\mathbin{\mathrm{OR}}B)=
 $\operatorname{Decode}(A\mathbin{\mathrm{ANDNOT}}B)=
 \operatorname{Decode}(A)\setminus\operatorname{Decode}(B)$, and
 $\operatorname{popcount}(A)=|\operatorname{Decode}(A)|$. For every successful
-query in the closed online algebra, decoding all streamed bitmap components
-yields exactly $\effect(q,D_s)$.
+query in the closed online algebra, decoding the streamed bitmap components
+yields exactly the release and dependency components of $\effect(q,D_s)$.
 \end{theorem}
 \emph{Intuition.} Bijective decoding turns OR, ANDNOT, and popcount into exact
 set operations; induction over the closed algebra then substitutes ordinals
 for singleton facts without changing support or witness commitments. The full
 proof is in the supplement.
 
-\subsection{Atomic Settlement}
+For Outcome, hash prefixes route immutable, content-addressed leaves and
+blocks, but membership always compares the full SHA-256 value. Physical
+leaf/block encodings are supplemental.
 
-For one successful V4 query, the gateway performs the following steps
+\begin{theorem}[Exact incremental Outcome-set refinement]
+\label{thm:outcome-radix-refinement}
+Let $K_O$ be a valid V5 root and $C_O$ a canonical candidate. Loading every
+leaf family whose 16-bit prefix occurs in $C_O$, performing full-hash exact
+difference/union within those families, rebuilding only their containing
+blocks, and reusing all other references yields
+$\operatorname{Decode}(K'_O)=\operatorname{Decode}(K_O)\cup C_O$ and charges
+$C_O\setminus\operatorname{Decode}(K_O)$ exactly. Any changed member, count,
+prefix, chunk, block, or root manifest changes a verified digest except with a
+SHA-256 collision.
+\end{theorem}
+\emph{Intuition.} Prefix routing partitions the full-hash universe; therefore
+an inserted candidate can affect only its own partitions. Exact comparison is
+still over all 256 hash bits, while the Merkle path authenticates reused
+partitions. The refinement does not use truncated hashes as membership keys.
+
+\subsection{Atomic Ledger Settlement and Fail-Closed Artifact Publication}
+
+For one successful V5 query, the enforcement layer performs the following steps
 (Fig.~\ref{fig:architecture-settlement}b):
 
 \begin{enumerate}
@@ -1024,28 +966,61 @@ For one successful V4 query, the gateway performs the following steps
 Lookup of a semantic replay entry occurs only after binding the signed grant and
 publication.
 \item On a miss, execute and buffer the visible statement while streaming its
-ordinal companion in the same Business-PG snapshot, then derive the exact
-three-dimensional bitmap observation. On a hit, load only an already committed
+ordinal companion in the same Business-PG snapshot, then derive exact Release
+and dependency bitmaps plus the V5 Outcome candidate. On a hit, load only an already committed
 observation reference and encrypted materialization.
+\item Encode and encrypt the canonical Parquet result, then upload it to a
+private staging key. Staging is neither canonical nor AVAILABLE and is never
+returned to the caller.
 \item In one Control-PG transaction, read the root head and epoch. For each
-dimension compute $E_d\mathbin{\mathrm{ANDNOT}}K_d$ and its popcount, reject if
-$|K_d\mathbin{\mathrm{OR}}E_d|>B_d^{Catalog}$, and create immutable copy-on-write
-containers keyed by dictionary, segment, and high 16 ordinal bits.
+$X\in\{R,D\}$ compute $E_X\mathbin{\mathrm{ANDNOT}}K_X$ and its popcount.
+For Outcome, read the small root manifest, group candidate hashes by 16-bit
+prefix, load only touched eight-bit blocks and 16-bit leaf families, and
+perform exact full-hash difference/union. Reject if any resulting cardinality
+exceeds $B_X^{Catalog}$.
 \item Publish the Release, dependency, and Outcome set manifests through one
-root-head epoch compare-and-swap. On conflict, reread the head and recompute all
+root-head epoch compare-and-swap. Persist only new Outcome leaves, changed
+blocks, and the new root manifest. On conflict, reread the head and recompute all
 three dimensions; they are never committed independently.
 \item In that same transaction, settle query/row/database-time resources,
-store the encrypted result and committed observation, append terminal audit
-evidence, and persist a signed V6 receipt.
-\item Commit and only then return the buffered or freshly re-encrypted result.
+store the committed observation and PENDING artifact metadata (including the
+expected canonical key and object digest), append terminal audit evidence, and
+persist a signed V8 settlement receipt whose nested artifact intent binds those
+fields. Commit this accounting transaction.
+\item Promote staging to the canonical object key and verify the committed
+object digest. A second Control-PG transaction changes PENDING to AVAILABLE,
+sets \code{consumed\_at}, and appends the hash-chained
+\code{QUERY\_RESULT\_CONSUMED} event. Only then return \code{result\_id}.
 \end{enumerate}
 
 Content-addressed containers and manifests are immutable; only the root head is
-mutable. Any budget failure, corrupt dictionary, CAS exhaustion, or persistence
-error rolls back containers, head, result, observation, audit, cache entry, and
-receipt. Saving $(\code{root_task_id},\code{observation_digest})$ is also exact:
+mutable. A budget failure, corrupt dictionary, CAS exhaustion, or settlement
+persistence error rolls back heads, observations, PENDING metadata, terminal
+audit, cache entry, and receipt. A private staging object may transiently
+remain, but it is unavailable and is deleted or reconciled. Once settlement
+commits, promotion failure does \emph{not} refund exposure, rewrite the V8
+receipt, or re-execute Business SQL: the legal conservative state is
+COMPLETED/charged/receipt/PENDING/not-available. This includes the crash window
+in which the canonical object exists but the AVAILABLE transaction failed.
+Readiness fails closed until idempotent recovery verifies its exact digest and
+commits availability. Saving
+$(\code{root_task_id},\code{observation_digest})$ is also exact:
 because a successfully committed root ledger grows monotonically, a repeated
-committed observation has zero novelty without rescanning its bitmap.
+committed observation has zero novelty without rescanning its effect payload.
+
+Three boundaries must therefore remain distinct. \emph{Accounted} means the
+ledger settlement committed; the normal Gateway path co-commits its V8 receipt.
+\emph{Available} means canonical
+object promotion and the consumption audit committed; it is the logical
+release boundary. \emph{Observed} would mean a caller actually downloaded
+bytes, which the prototype intentionally does not track. Thus
+\[
+ \begin{aligned}
+ \mathsf{Observed}&\subseteq\mathsf{Available}\subseteq\mathsf{Accounted},\\
+ \mathsf{Available}&\Rightarrow\mathsf{Settled}.
+ \end{aligned}
+\]
+but settlement alone does not imply availability.
 
 Semantic replay is distinct from same-request idempotence. Its key binds the
 task and grant/scope digest, typed normal form and every parameter, Catalog,
@@ -1054,7 +1029,7 @@ result-encoding versions. A hit skips Business and provenance SQL but still
 reauthorizes, charges ordinary query/row resources, writes audit and a new
 receipt, and re-encrypts under the new query's AAD. Cross-grant mismatch, cache
 miss, erased key, removed result, or failed digest verification returns to the
-novel path; the gateway never guesses a hit.
+novel path; the enforcement layer never guesses a hit.
 
 Activating $P_{e+1}$ changes the Catalog, publication, and dictionary-set
 digests, so its semantic replay identity cannot equal a $P_e$ identity. New
@@ -1062,40 +1037,45 @@ tasks therefore miss the old cache by construction; entries for $P_e$ remain
 usable only by roots still bound to $P_e$. No separate cache-invalidation
 protocol is required for publication separation.
 
-Let $F$ be the number of base facts in a publication, $n$ the streamed ordinal
-references for a query, $s$ the number of touched segments, $c$ the number of
-compressed containers touched during settlement, $g$ the largest one-group
-support, and $x$ the number of multiplicity entries above one. Publication
-construction sorts facts in $O(F\log F)$ comparison work (external sorting may
-bound memory) and stores $32F$ hash bytes plus sidecar, compressed bitmap, and
-cold-payload artifacts. Online derivation scans $n$ references; canonical
-witness output uses $O(n\log s)$ merge work and $O(s)$ merge state. Its live
-semantic state is $O(g+x)$ plus compressed query bitmaps rather than $O(n)$ Go
-string/map/JSON objects. Novelty and union cost are proportional to the $c$
-touched compressed containers, not to one SQL insert per fact. A verified
-semantic replay makes exposure lookup constant-size metadata work, although
-authorization, result re-encryption, audit, and ordinary resource accounting
-still scale with their own payloads. These are design bounds, not V4 latency
-measurements.
+Publication sorts $F$ facts in $O(F\log F)$. Online derivation scans $n$
+ordinal references with current-group state plus compressed bitmaps;
+Release/dependency settlement touches only relevant bitmap containers. For a
+deduplicated Outcome candidate of size $k$, novelty costs
+$O(k\log k+h+\ell+b)$ for loaded hashes, leaves, and blocks, with a
+candidate-prefix worst case approaching the whole root. These are design
+bounds, not V5 latency measurements.
 
 \subsection{Receipts and Failure Semantics}
 
-A V6 Ed25519 receipt binds the root task, profile, Catalog SHA, dictionary set,
-three effect digests, actual and charged counts, committed root epoch, result
-digest, and SHA-256 of the normalized observation, in addition to authorization,
-datasource, resource budget, and audit evidence. The dictionary set commits the
-publication manifests. The receipt does not expose raw values or FactIDs.
+A V8 Ed25519 \emph{settlement} receipt retains the V7 accounting evidence and
+adds a versioned nested artifact intent: result identity, Parquet/object hashes
+and sizes, row/column, schema, result-metadata, and ACL evidence, hashed canonical/staging keys,
+expiry, expected PENDING state, and the registration-audit link. It proves
+accounting and intended publication, not availability. Availability is proved
+separately by inclusion of the single hash-chained
+\code{QUERY\_RESULT\_CONSUMED} event naming the verified canonical object. The
+receipt exposes neither raw values nor FactIDs.
+The normal production path creates a \emph{co-committed V8} in the settlement
+transaction.  A compatibility path can instead validate an already immutable
+terminal/registration history and create a missing \emph{recovered V8
+attestation}; its \code{signed\_at} may be later than settlement, so the receipt
+itself is not claimed to have co-committed.  Both forms authenticate the same
+historical PENDING intent and neither proves availability; the supplement
+states this persistence-time distinction explicitly.
 For a View-bound task, the signed Grant transitively commits the task View
 binding digest and the query record stores the same digest; exact replay cannot
-cross that identity. Legacy receipt verifiers remain available, but V6 uses a
+cross that identity. Legacy receipt verifiers remain available, but V8 uses a
 disjoint digest domain.
 
-Failures before connector invocation release both reservations. Ambiguous
+Failures before connector invocation release both reservations. An
+over-budget settlement never creates a canonical object or AVAILABLE row;
+private staging may exist transiently and is unavailable until deleted or
+reconciled. Ambiguous
 connector outcomes conservatively charge the ordinary resource reservation but
-release exposure because no result can be delivered before successful
-settlement. A process restart applies the same rule. Terminal request replay is
-observational: it returns the first persisted status or result and never starts
-a second execution.
+commit no accounted result exposure because no result effect successfully
+settled. A process restart applies the same rule. Terminal request replay is
+idempotent: it returns the first persisted status, resumes PENDING promotion if
+needed, and never starts a second Business execution.
 
 Withholding the buffer does not hide the decision bit. Whether settlement
 accepts a query reveals whether its data-dependent novel Effect fits the
@@ -1145,20 +1125,26 @@ the task-scoped guarantee.
 
 \begin{theorem}[Atomic root-family budget safety]
 \label{thm:root-family-safety}
-For each $d\in\{r,i,o\}$, after any committed settlement sequence the decoded
-root head satisfies
+For an approved task $T=(P,S,B,C)$ and any committed query history $Q$, each
+$X\in\{R,D,O\}$ in the decoded root head satisfies
 \[
- K_d=\bigcup_{q\in\mathrm{settled}(T)}E_d(q),\qquad |K_d|\le B_d^{Catalog}.
+ K_X(T)=E_X(T,Q),\qquad |K_X(T)|\le B_X.
 \]
-This statement is independent of whether $K_d$ is materialized as FactID rows
+This statement is independent of whether $K_X$ is materialized as FactID rows
 or represented by immutable dictionary bitmaps.
 \end{theorem}
-\emph{Intuition.} Every descendant shares one root head; exact difference and
-one three-dimensional CAS linearize $K_d\cup E_d$, while every bound is checked
-before publication and conflicts recompute from the fresh head. The full proof
-is in the supplement.
+\emph{Proof sketch.} Induct on committed settlements. The initial head and
+$E(T,\langle\rangle)$ are empty. For the next successful query, exact set
+difference computes novelty against the inductive head; one transaction checks
+all three cardinalities and one CAS publishes
+$K_X(T)\leftarrow K_X(T)\cup E_X(T,q)$. A conflicting transaction retries from
+the newly published head, and a rejected or failed attempt changes no head.
+Every descendant resolves to this same head. Thus the committed head equals the
+componentwise union in Eq.~\eqref{eq:task-exposure}, and the pre-commit checks
+preserve every component bound. The representation-refinement details are in
+the supplement.
 
-\textbf{Catalog-issued capacity.} The three ceilings $B^r_T,B^i_T,B^o_T$ are
+\textbf{Catalog-issued capacity.} The three ceilings $B_R,B_D,B_O$ are
 human-governed capacity declarations, not learned risk scores or optimization
 targets. An organization publishes a versioned profile with its data product
 and sensitivity policy; the approval manifest binds the complete profile to the
@@ -1180,7 +1166,7 @@ nor differential-privacy composition is claimed here.
 \label{sec:system}
 
 The prototype is implemented in Go with separate Control and Business
-PostgreSQL 16 databases. A V4 Catalog declares reporting views, mandatory
+PostgreSQL 16 databases. The default Catalog selects V5 and declares reporting views, mandatory
 scopes, immutable snapshot publications, entity keys, allowed operations,
 approval routes, and resource/exposure profiles. An opaque terminal Product
 references a publication that binds its source, namespace, schema, snapshot,
@@ -1201,77 +1187,47 @@ View task into a new approval draft, and retrieve results or receipts. An extern
 signs the immutable grant. Arbitrary direct SQL remains available only for
 legacy resource-only grants; it fails closed when exposure evidence is
 required.
-The wire and storage label \code{influence} is retained for compatibility;
-under the V2/V3 profiles it denotes positive-output dependency, not causal
-influence.
-
 The Control schema stores immutable dictionary manifests and chunks, sparse
-dynamic release/outcome dictionaries, content-addressed bitmap containers and
-set manifests, one three-dimensional head/epoch per root, committed
+dynamic release dictionaries, content-addressed bitmap containers and set
+manifests for Release/dependency, and SHA-256 Merkle-radix leaves, blocks, and
+roots for Outcome. It maintains one three-dimensional head/epoch per root, committed
 observations, and constant-size query references. It also stores
 content-addressed canonical View-binding sets, a task-to-dependency reverse
 index, and the monotonic \code{ACTIVE}/\code{REQUIRE\_REBIND} status. Canonical payload blocks are
-cold and expanded only for audit; they do not occupy the Gateway's resident hot
+cold and expanded only for audit; they do not occupy the enforcement layer's resident hot
 heap. Result rows are encrypted with AES-GCM and audit events form a hash chain.
 A single high-cardinality semaphore isolates million-fact derivation from the
 small-query pool; a query-private encrypted spool is used once the configured
 working-set threshold is crossed.
 
-Publication retention follows active task references. The current publication
-and every older publication with a live root retain their complete HOT, COLD,
-sidecar, and dictionary artifacts locally. Once the last bound root terminates,
-COLD payloads may move to audit object storage, while manifests, digests,
-receipts, and audit-chain evidence remain for the policy-defined audit period.
-Local artifacts and replay entries may be reclaimed only when no live root
-references the epoch and its retention deadline has expired. With root
-lifetimes bounded by one daily refresh interval, this normally requires the
-current and immediately preceding publications; longer tasks extend the set.
-The prototype does not evaluate archival bandwidth or automated garbage
-collection.
-
-V4 is a clean-cut migration. The process refuses activation when a legacy
-per-Fact ledger is non-empty and requires an explicit offline rebuild; it does
-not silently delete history, dual-write, or infer ordinal membership from an
-incomplete ledger. The old materialized algebra and receipt verifiers remain
-test/compatibility paths, not V4 production storage.
+Reference-safe retention, reclamation, and the clean-cut V4-to-V5 migration are
+specified in the supplement; no legacy ledger is silently reinterpreted.
 
 \section{Finite-State Analysis}
 \label{sec:formal}
 
-The split TLA+ model \code{ExposureLedger.tla} contains one root, one child, two
-requests, two facts in each ledger universe, all three limits set to one, and one
-terminal replay. Its transitions are reserve, execute/buffer, derive,
-settle, over-budget reject, pre-execution release, replay, and root revocation.
-It checks three-budget safety, exact novel charge, no delivery before settlement,
-no charge without settlement, buffered rejection, evidence/buffer agreement,
-non-overlapping novel charges, task-family non-amplification, and at-most-once
-physical execution for delivered requests.
+Four bounded TLA+ models are checked with pinned TLC 1.7.1 and digest-validated
+logs \cite{lamport2002specifying}. \code{ExposureLedger.tla} checks atomic
+three-budget novelty, rejection, replay, concurrency, delegation conservation,
+and at-most-once execution.
+\code{ExposureBitmapRefinement.tla} checks that ordinal
+OR/ANDNOT/popcount decodes to exact Fact sets.
+\code{OutcomeSetAbstractRefinement.tla} checks abstract exact-set settlement,
+replay, budget, and corruption safety; it
+does not model radix layout.
 
-Using pinned TLC 1.7.1, the provenance-checked run generated
-\ExposureFormalStates{} states, found \ExposureFormalDistinct{} distinct states,
-and reached depth \ExposureFormalDepth{} with no invariant error. Model,
-configuration, and raw-log digests are validated before this manuscript builds
-\cite{lamport2002specifying}.
+\code{ArtifactPublication.tla} separates \emph{CreateCanonical} from
+\emph{MarkAvailable}, explicitly admitting PENDING with a canonical object.
+Its invariants require AVAILABLE
+$\Rightarrow$ settled $\wedge$ canonical-exists $\wedge$ exact-hash-match,
+rejection never AVAILABLE, zero additional ledger charge, and one Business
+execution through retry/recovery. It is a safety model without an eventual
+availability claim.
 
-This is exhaustive only for the submitted finite configuration. The model
-assumes exact fact derivation, abstracts SQL bytes and cryptographic hashes, and
-does not mechanically prove that Go/PostgreSQL refines TLA+. The repository
-therefore includes an action-to-method-to-transaction-to-test refinement map
-rather than claiming a proof that does not exist.
-
-View compilation/rebinding is not modeled in TLA+; the ledger results start
-after a View has produced a well-typed core plan and do not prove expansion.
-
-The finite \code{ExposureBitmapRefinement.tla} model separately represents an
-immutable ordinal--FactID bijection, exact OR/ANDNOT/popcount, stale-epoch
-refresh, and one three-dimensional head commit. Its configured invariants
-require decoded bitmap state to equal the abstract FactSet state after every
-transition and a committed-observation replay to add no facts. Its independently
-digest-checked TLC run generated \BitmapFormalStates{} states, found
-\BitmapFormalDistinct{} distinct states, and reached depth
-\BitmapFormalDepth{} without an invariant error. This bounded refinement
-obligation is not a proof for unbounded dictionaries or the Go/Roaring
-implementation.
+These runs are exhaustive only for their finite configurations. They abstract
+SQL and hashes, start after View lowering, and do not mechanically prove the
+Go/PostgreSQL refinement; the repository supplies the action/transaction/test
+map and executable implementation regressions.
 
 \section{Evaluation}
 \label{sec:evaluation}
@@ -1279,11 +1235,14 @@ implementation.
 \subsection{Questions and Reproducibility}
 
 The evaluation is organized around five questions: RQ1 ground-truth accuracy;
-RQ2 rewrite invariance of exposure accounting; RQ3 resistance to split, page,
-retry, zero/empty threshold probing, snapshot-identity substitution,
-join/union, delegation, and concurrency amplification; RQ4 legacy bottlenecks
-and V4 gates; and RQ5 safe daily refresh. Results are regenerated for
-\ExposureProfile{} from the digest-bound corpus \ExposureCorpusHash{}. RQ2's
+RQ2 rewrite invariance of exposure accounting; RQ3 accounting conservation
+under deterministic scripted split, page, retry, zero/empty threshold probing,
+snapshot-identity substitution, join/union, delegation, and concurrency
+patterns; RQ4 legacy bottlenecks and V4 ordinal-foundation gates; and RQ5 safe daily refresh. The
+archived RQ1--RQ3 corpus is regenerated for \ArchivedExposureProfile{} from the
+digest-bound corpus \ExposureCorpusHash{}; V5-specific outcome claims are
+covered by the implementation/formal regressions stated below and are not
+retroactively attributed to that corpus. RQ2's
 primary evidence is closed-language FactSet/charge invariance; broad SQL
 result-equivalence and detailed RQ4 protocols remain in the supplement. Each
 call executes one plan against the complete signed profile; no representation-
@@ -1319,114 +1278,53 @@ public-path settlement, delegation, and races. Its
 charge \RQThreeReplayOutcomeCharge{}/\RQThreeRewriteOutcomeCharge{}. Digest-bound
 raw test logs retain the complete case-level evidence.
 
+V5 tests full-hash exact-set permutation, difference/union/replay, radix tamper
+and same-prefix rechunking. Its PostgreSQL regression updates one of
+\VFiveRootBlocks{} blocks in a \VFiveRootCardinality{}-member root, reuses
+\VFiveBlocksReused{} blocks, and changes nothing on replay. Settlement binds the
+candidate digest shared by observation, charge, V8 receipt, and audit separately
+from the cumulative root digest. Source manifests, raw test receipt, counters,
+and TLC logs are generator-validated. These are functional/scaling-shape
+regressions, not a V5 latency campaign; detailed radix counters are supplemental.
+
 The PostgreSQL Join/Join--Group experiments use representative two-source
 graphs, not a capability ceiling; source-count/topology performance is unmeasured.
 
-Outside these RQ counts, five fixed-seed \code{testing/quick} properties each
-run 64 generated cases over connected two--five-source graphs, with at least
-one multi-predicate edge and one--three transparent wrappers where applicable.
-They separately check deterministic recompilation/registry insertion order,
-alias invariance, join-order invariance, direct-versus-nested equivalence, and
-semantic/interface/dependency drift. Boundary tests cover one aggregate
-barrier, cycles, and resource guards. PostgreSQL regressions cover a
-three-level DAG, materialized leaves, transitive replacement, unsafe recursion,
-and same-transaction attestation. This is restricted compiler/integration
-evidence, not a proof or performance campaign.
+Supplemental fixed-seed properties and PostgreSQL regressions exercise
+deterministic compilation, alias/join-order invariance, nested View drift,
+grammar boundaries, and same-transaction attestation; they are not a proof or
+performance campaign.
 
-\subsection{RQ4: Legacy Diagnosis and V4 Contrast}
+\subsection{RQ4: Measured V4 Ordinal Acceptance}
 
-Detailed legacy protocols, storage, and scaling are supplemental. At
-\RQFourScaleMaxFacts{} dependencies, materialization takes
-\RQFourScaleHighNovelS{}/\RQFourScaleHighReplayS{}~s novel/replay and peaks at
-\RQFourScaleGatewayGiB{}~GiB, versus \RQFourScaleHighDirectMS{}~ms direct SQL;
-this diagnostic contrast locates the bottleneck in FactSet derivation/storage.
-
-\begin{table}[t]
-\centering
-\caption{Legacy diagnostic versus measured V4 maximum point. Times are medians;
-memory definitions and campaign sources differ, so this is a scoped contrast,
-not a controlled speedup experiment.}
-\label{tab:rq4-contrast}
-\small
-\resizebox{\columnwidth}{!}{%
-\begin{tabular}{lrrrr}
-\toprule
-Path & dependencies & novel & replay & Gateway peak \\
-\midrule
-Legacy materialized & \RQFourScaleMaxFacts{} &
-\RQFourScaleHighNovelS{}~s & \RQFourScaleHighReplayS{}~s &
-\RQFourScaleGatewayGiB{}~GiB \\
-V4 bitmap & \RQFourVFourInfluenceFacts{} &
-\RQFourVFourNovelMedianS{}~s & \RQFourVFourReplayMedianMS{}~ms &
-\RQFourVFourGatewayPeakMiB{}~MiB \\
-\bottomrule
-\end{tabular}
-}
-\end{table}
-
-\subsection{RQ4: Measured V4 Acceptance}
-
-In one fixed-host deployment, all
+The complete legacy materialization diagnosis is supplemental. In one
+fixed-host V4 deployment, all
 \RQFourVFourGatesPassed{}/\RQFourVFourGatesTotal{} V4 gates pass. At
-\RQFourVFourReleaseFacts{} release, \RQFourVFourInfluenceFacts{} dependency,
+\RQFourVFourReleaseFacts{} release, \RQFourVFourDependencyFacts{} dependency,
 and \RQFourVFourOutcomeFacts{} outcome facts, novel p50/p95 is
 \RQFourVFourNovelMedianS{}/\RQFourVFourNovelTailS{}~s, replay p50/p95 is
 \RQFourVFourReplayMedianMS{}/\RQFourVFourReplayTailMS{}~ms with no Business SQL,
-and Gateway cgroup peak is \RQFourVFourGatewayPeakMiB{}~MiB. Exact result/effect
+and enforcement-layer cgroup peak is \RQFourVFourGatewayPeakMiB{}~MiB. Exact result/effect
 digests cover Scan, the representative two-source Join--Group fixture, Union,
 Page, and 0/50/90/100\% dependency
 overlap. Build, verification, activation, stage, storage, and small-query
 diagnostics are reported in the supplement and provide RQ5's baseline below.
 
-\subsection{RQ4: Supplemental Scalability Axes}
-
-Three supplemental axes pass within deliberately separate scopes:
-\RQFourVFourDistributionCells{} exact million-ordinal layout/overlap cells; one
-winner at $B$ and no partial state at $B+1$ under same-root contention; and a
-\RQFourVFourOracleFacts{}-Fact offline comparison with
-\RQFourVFourOracleMismatches{} mismatches. These are respectively kernel-only,
-ten-row serialization, and derivation-independent (but shared-encoder) evidence,
-not one enlarged end-to-end SLO.
-
 \subsection{RQ5: Daily Publication Refresh}
 
-\textbf{Question.} Can TaskGate refresh a daily Reporting Snapshot while
-preserving task binding, root-ledger isolation, and replay separation? We use
-four deterministic, TPC-H-shaped (not official TPC-H) publications of
-\RQFiveRows{} rows and \RQFiveFacts{} FactIDs each. Day~0 is the base; Days~1
-and 2 modify the first 1\% and 5\% of sorted rows; Day~3 modifies 10\% and
-inserts/deletes 1\%. Each day has an excluded calibration followed by
-\RQFiveBuildRunsPerDay{} measured production build--strict-verify--receipt-bound
-activate sequences. Their direct-child wall intervals and builder VmHWM exclude
-Compose startup, PostgreSQL memory, and cache reset. The gate is five minutes
-per summed sequence for this daily dataset, not an industry SLO.
-
-\textbf{Correctness conditions.} After $P_{e+1}$ activates: (1) a live root
-bound to $P_e$ returns $P_e$ data through its version-routed service; (2) a new
-root resolves and observes $P_{e+1}$; (3) the old root head and ledger digests
-are unchanged by activation and $P_{e+1}$ traffic; (4) a $P_{e+1}$ request
-cannot hit a $P_e$ replay entry; and
-(5) every child retains its root's publication. Publication, Catalog,
-dictionary-set, direct-oracle result, cache, and ledger digests check these
-conditions; result equality alone is insufficient.
-
-\textbf{Results.} All \RQFiveTotalBuildRuns{} measured sequences pass. Maximum
-build, verification, activation, and summed times are \RQFiveMaxBuildS{},
-\RQFiveMaxVerifyS{}, \RQFiveMaxActivateS{}, and \RQFiveMaxCycleS{}~s;
-maximum direct-builder VmHWM is \RQFiveBuilderPeakGiB{}~GiB. Each epoch is
-about \RQFiveArtifactGiB{}~GiB total and \RQFiveHotArtifactMiB{}~MiB HOT. A
-separate experiment-only pointer routes approvals and task IDs over four
-retained Catalog-bound Services and snapshot databases. Across
-\RQFiveTransitions{} switches, pointer switch p50/p95 is
-\RQFiveSwitchMedianMS{}/\RQFiveSwitchTailMS{}~ms, first-query p50/p95 is
-\RQFiveFirstQueryMedianMS{}/\RQFiveFirstQueryTailMS{}~ms, and semantic-replay
-p50/p95 is \RQFiveReplayMedianMS{}/\RQFiveReplayTailMS{}~ms. All
-\RQFiveChecksPassed{}/\RQFiveChecksTotal{} conditions pass at every switch.
-The online run regenerates the same row fingerprints but re-attests the live
-views, so its artifacts are independently bound rather than asserted byte-equal
-to the offline timing artifacts.
+Four deterministic \RQFiveRows{}-row daily publications test version-routed
+old roots, new-root activation, ledger isolation, replay separation, and child
+binding. All \RQFiveTotalBuildRuns{} build--verify--activate sequences and
+\RQFiveChecksPassed{}/\RQFiveChecksTotal{} rollover checks pass; maximum cycle
+time is \RQFiveMaxCycleS{}~s. This warm fixed-host gate is not an industry SLO.
+Change ratios, phase timings, artifact sizes, and router latency are
+supplemental.
 
 \subsection{Reproducibility Boundary}
+
+Current V5 publication-scale performance remains pending the final frozen
+WSL2 campaign; the V4 and RQ5 values below retain their historical evidence
+labels and are not relabeled as V5 measurements.
 
 RQ1--RQ3 use small fixtures. Legacy and V4 evidence is warm, single-host, and
 TPC-H-derived (not official), excluding cold-cache, multi-node, and
@@ -1441,9 +1339,12 @@ measured production load balancer.
 \section{Limitations and Threats to Validity}
 \label{sec:limits}
 
-\textbf{Semantic scope.} V3 accounts each successful normalized proposition,
-including an empty relation or zero scalar, but assigns one unit rather than
-estimating its information content. It does not enumerate rejected rows as
+\textbf{Semantic scope.} V5 accounts canonical predicate atoms and one
+composite identity for each successful normalized query/result, including an
+empty relation or zero scalar. Each identity has unit weight rather than an
+estimate of information content. Shared atoms reduce repeated-charge
+arbitrage, but atom boundaries are the declared typed grammar rather than an
+inference-theoretic decomposition. It does not enumerate rejected rows as
 dependencies or account non-output groups/pages, order/rank-only inputs,
 timing, correlations, background knowledge, or physical reads. A single rich
 proposition may reveal more than one bit. The mechanism is neither minimal
@@ -1455,55 +1356,29 @@ approval creates fresh capacity unless an external principal/tenant policy
 prevents it. The same applies across independently approved publication
 epochs; TaskGate does not model or deduplicate a principal's durable knowledge.
 
-\textbf{Query and identity scope.} V4 SLO scope is a genuinely frozen,
-manifest-proven publication, not a mutable source or an arbitrary MVCC view.
-TaskGate targets immutable reporting publications produced by scheduled daily
-synchronization. It does not query mutable OLTP primaries, serve continuously
-changing CDC streams, or migrate an active root between publication epochs.
-Minute- or second-level freshness would require an incremental-publication
-design and a separate cross-epoch accounting argument.
-Online support is one product, a connected inner-equijoin graph over two to 16
-distinct Catalog roles, or a two-branch one-product union-distinct, optionally
-grouped. A semantic-View root may recursively traverse an acyclic ordinary-View
-DAG, but only when the closure flattens to the one-product/SPJG part of that
-same core with one aggregate barrier; the prototype guards depth at 16,
-reachable nodes at 64, dependency edges at 128, expanded sources at 16, and
-definition bytes at 1~MiB. Graph topology/parenthesization and multiple
-equalities per edge are supported within the operational source guard.
-The expanded artifact enters the same relational exposure and terminal-ordinal
-path, but the current query-time composer admits only one outer semantic root:
-it rejects joining the root to another Product and ordering/paging above it;
-above an aggregate barrier it admits pure projection only.
-Disconnected, repeated-role/self, outer, cross, and non-equality joins,
-aggregate-consuming joins/filters/reaggregation, union-all, nested set trees,
-multi-input pagination, windows, negation, recursion, and arbitrary subqueries
-fail closed. Materialized Views are opaque governed leaves, not recursively
-expanded definitions. Stable
-entity keys and snapshot publications are administrator declarations backed by compiler checks;
-production still requires a trustworthy versioned publication pipeline and
-collision review. The online gates exclude offline index build, arbitrary SQL,
-mutable sources, and queueing delay.
+\textbf{Query and identity scope.} The measured V4 ordinal SLO scope is a genuinely frozen,
+manifest-proven daily publication. Mutable OLTP/CDC and active-root epoch
+migration require a different cross-epoch argument. Online support is one
+product, a bounded connected inner-equijoin graph, or two-branch one-product
+union-distinct, optionally grouped. A bounded acyclic semantic-View DAG may
+flatten to the one-product/SPJG core with one aggregate barrier. Richer joins,
+sets, paging, aggregation, negation, recursion, and subqueries fail closed;
+materialized Views are opaque leaves. Exact guards and rejected constructs are
+supplemental. Stable entity keys/publications remain administrator declarations
+requiring a trustworthy versioned pipeline and collision review.
 
-\textbf{View-change scope.} The reverse dependency index makes affected tasks
-addressable, but the prototype's safety path rechecks at request, approval, and
-execution boundaries; it does not claim a continuously running DDL event
-listener. Exact dependency revision changes are conservatively rebind-worthy
-even if $h_{plan}$ remains equal. The current tests establish canonicalization
-and fail-closed drift behavior for the restricted grammar, not general SQL
-semantic preservation or View-DAG discovery/performance at enterprise scale.
+\textbf{View-change scope.} The prototype rechecks at request, approval, and
+execution boundaries, not through a continuous DDL listener. Dependency
+revision conservatively requires rebind. Tests cover the restricted grammar,
+not general SQL equivalence or enterprise-scale DAG discovery.
 
-\textbf{Cost and deployment.} The measured legacy per-Fact path is expensive:
-the million-fact result is
-\RQFourScaleHighNovelS{}/\RQFourScaleHighReplayS{}~s novel/replay and
-\RQFourScaleGatewayGiB{}~GiB gateway memory. V4 removes that hot-path
-representation; in the measured campaign its maximum-point novel/replay
-p50 is \RQFourVFourNovelMedianS{}~s/\RQFourVFourReplayMedianMS{}~ms and its cgroup
-peak is \RQFourVFourGatewayPeakMiB{}~MiB. Immutable indexes shift rather than
-erase cost: only \RQFourVFourBuildRuns{} build and one deployment were measured,
-and dynamic dictionaries, same-root CAS contention, retention automation, encrypted
-spooling, and audit expansion still require production evaluation. The single
-gateway, local tokens, demo approval service, and one connector do not establish
-distributed, production, multi-engine, or live-agent behavior.
+\textbf{Cost and deployment.} V4 removes the diagnosed legacy million-Fact
+object materialization, but only \RQFourVFourBuildRuns{} build and one fixed-host
+deployment were measured. V5 establishes touched-branch I/O shape, not 1M
+latency or sustained contention. Index construction, dynamic dictionaries,
+retention, spooling, and audit still cost resources; one instance, demo
+approval, and one connector do not establish distributed, multi-engine, or
+live-agent production behavior.
 
 \section{Conclusion}
 
@@ -1513,9 +1388,9 @@ publication binding stabilizes FactIDs, replay, delegation, and exact
 withhold-before-settlement accounting; dependency-aware semantic-View binding
 additionally freezes each accepted nested View closure and requires a new root
 and approval after drift. A later daily publication is reserved for new roots.
-V4 replaces the legacy million-object hot path with immutable
-ordinals, streamed bitmaps, sparse dynamic facts, and one three-dimensional
-CAS. The formal models and scoped campaigns support exactness, atomicity, and
+V5 combines V4's immutable ordinals and streamed Release/dependency bitmaps
+with predicate-atom/composite Outcome semantics and an exact touched-branch
+Merkle radix set under one three-dimensional CAS. The formal models and scoped campaigns support exactness, atomicity, and
 compact representation on one fixed host; RQ5 additionally supports daily
 rollover within its stated measurement boundary. Arbitrary SQL, mutable
 OLTP/CDC, cross-publication knowledge accounting, and multi-host latency remain

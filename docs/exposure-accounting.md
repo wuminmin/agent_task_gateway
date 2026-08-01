@@ -4,13 +4,19 @@ TaskGate 的核心预算主体是人类授权的根任务，而不是单条 SQL�
 进程或一次数据库连接。系统在传统查询数、返回行数和数据库时间之外，维护
 三个互相独立的事实账本：
 
-- **release exposure**：已经交付给任务族的原始或派生结果事实；
+- **accounted result exposure**（API/数据库兼容标签 `release`）：查询成功结算时，
+  为准备逻辑发布而计费的原始或派生结果事实；它不证明 artifact 已可用或已被观察；
 - **positive-output dependency**：按 V2 闭合代数规则参与已交付正向输出成功推导
   的基础 row/cell facts；API/数据库仍以 `influence` 作为兼容标签。
 - **query outcome**：一个成功查询对应一个 FactID，绑定服务端规范化 QueryPlan、
   发布 FactSet 摘要和可见行数；不同命题即使都返回空集或 `0` 也不会合并。
 
-这里的“交付”由 TaskGate 控制的 canonical result artifact 定义：Gateway 在对象存储中成功创建客户端侧加密的规范 Parquet 对象时，该结果即视为任务族已经消费。Agent 是否调用 preview、是否生成下载 URL、是否真的下载以及下载次数，都不会增加或撤销 release/dependency/outcome 费用。
+令 `F_release_candidate(q)` 为 withheld execution 内派生的候选结果事实，
+`F_release_accounted(q)` 为 settlement 已计费事实，`F_release_available(q)`
+为 canonical artifact 达到 `AVAILABLE` 后可逻辑发布的事实。成功结算时前两者相等，且
+`F_release_available(q) ⊆ F_release_accounted(q)`。promotion 永久失败时，已计费事实
+可以从未变成可用事实。系统不跟踪 preview、下载或 Agent/人的实际观察；这些行为既不
+增加也不撤销 release/dependency/outcome 费用。
 
 这不是差分隐私预算，也不估算互信息或推断风险。它是一个版本化契约下的
 确定性显式披露与命题计量模型。dependency 是保守 operator-input footprint：既不
@@ -165,7 +171,7 @@ exact replay / View-binding check -> reserve
 2. 先用绑定 task/grant/scope、typed normal form、Catalog/schema/View binding/publication/dictionary 和编译版本的 key 查询 committed semantic replay。命中只复用已提交 observation 和 `AVAILABLE` artifact，不执行 Business/provenance SQL；`PENDING`、过期、已清理或 key 非 `ACTIVE` 的 source 不可复用。
 3. miss 时，Connector 在 Business PostgreSQL 的同一个只读 `REPEATABLE READ` 事务中先重新发现已绑定 View closure、核对预期 registry revision，再缓冲可见结果并流式读取 ordinal companion；Gateway 同时只保留当前 canonical group 的 support bitmap、稀疏 witness multiplicity 和查询级 dependency bitmap。检查与查询共享同一数据库快照，封闭 View replacement TOCTOU。最终可见投影编码为 Parquet，并在上传对象存储前用 `chunked-aes-gcm-v1` 客户端侧加密为 private staging 对象。
 4. Gateway 生成 base release/dependency bitmap 及动态 derived release/outcome。未知 handle、越界 ordinal、manifest 不匹配、非规范 bitmap、overflow 或截断都 fail closed。
-5. Control PostgreSQL 对三个维度分别执行精确 `ANDNOT + popcount` 和 `OR`，并通过一次 root-head epoch CAS 原子发布。CAS 冲突重读 head 并重算全部 R/I/O。
+5. Go control path 从 Control PostgreSQL 读取已提交的三维 set，分别执行精确 `ANDNOT + popcount` 和 `OR`；同一 Control PostgreSQL 事务持久化 set 内容，并通过一次 root-head epoch CAS 原子发布。CAS 冲突重读 head 并重算全部 R/I/O。
 6. 同一 Control PostgreSQL 事务提交 exposure/资源结算、`PENDING` artifact 元数据、semantic materialization、终态审计和 Ed25519 V6 回执；Control PG 不保存 Parquet bytes 或结果行。commit 后 Gateway 把 staging 对象幂等提升到确定性的 canonical key。canonical 对象创建成功即 `consumed`，随后 artifact 标记为 `AVAILABLE`，普通 query/get 只返回 `result_id`、行列数、期限和摘要。semantic replay 命中仍重新授权、扣普通资源、写审计/新回执，并为新 query 创建自己的 artifact。
 
 promotion 在 Control commit 后中断时，持久的 `PENDING` intent 由启动和后台恢复继续；只有 staging 与已提交哈希/ETag 证据一致时才能幂等 promotion。恢复不重执行 SQL、不退款、不创建第二个 Receipt；staging 丢失或 canonical 证据冲突时 readiness fail closed，需先恢复正确对象证据或受审修复，当前不自动放弃/退款。`preview_result` 默认 20 行且单次最多 100 行，默认对大于 64 MiB 的 artifact 关闭；`deliver_result` 返回默认 5 分钟且不超过 artifact TTL 的 Gateway capability URL。两者以及实际下载都不是新的计费事件。

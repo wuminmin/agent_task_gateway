@@ -1,6 +1,7 @@
 package queryplan
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -14,9 +15,13 @@ import (
 )
 
 const (
-	NormalFormVersion = "taskgate-query-normal-form-v3"
-	normalFormDomain  = "TASKGATE-QUERY-NORMAL-FORM-V3\x00"
-	attestedCollation = "postgresql-deterministic-exact-v1"
+	// NormalFormVersion remains the V3/V4 clean-cut identity. Existing V4
+	// tasks must never have their normal-form or outcome hashes reinterpreted.
+	NormalFormVersion   = "taskgate-query-normal-form-v3"
+	NormalFormVersionV4 = "taskgate-query-normal-form-v4"
+	normalFormDomain    = "TASKGATE-QUERY-NORMAL-FORM-V3\x00"
+	normalFormDomainV4  = "TASKGATE-QUERY-NORMAL-FORM-V4\x00"
+	attestedCollation   = "postgresql-deterministic-exact-v1"
 )
 
 // NormalForm is intentionally a restricted syntactic normal form, not an
@@ -180,15 +185,96 @@ func NormalizeV2(plan QueryPlan, product Product) (NormalForm, error) {
 	return result, nil
 }
 
+// NormalizeV4 adds type-level literal normalization and canonical IN/NOT IN
+// member set ordering for taskgate-exposure-v5. It intentionally leaves the
+// V3 normalizer untouched so old V4 query and outcome hashes remain stable.
+func NormalizeV4(plan QueryPlan, product Product) (NormalForm, error) {
+	result, err := NormalizeV2(plan, product)
+	if err != nil {
+		return NormalForm{}, err
+	}
+	result.Version = NormalFormVersionV4
+	result.Profile = exposure.ProfileV5
+	result.Filters = result.Filters[:0]
+	for _, filter := range plan.Filters {
+		typeName, err := exposure.CanonicalSQLTypeV2(product.ColumnTypes[filter.Column])
+		if err != nil {
+			return NormalForm{}, err
+		}
+		normalized, err := normalizeTypedFilterV4(NormalizedFilter{
+			Column: canonicalField(product.SourceNamespace, filter.Column), SQLType: typeName,
+			Op: filter.Op,
+		}, filter.Value)
+		if err != nil {
+			return NormalForm{}, fmt.Errorf("normalize V4 filter %s: %w", filter.Column, err)
+		}
+		result.Filters = append(result.Filters, normalized)
+	}
+	sort.Slice(result.Filters, func(i, j int) bool {
+		left, _ := json.Marshal(result.Filters[i])
+		right, _ := json.Marshal(result.Filters[j])
+		return bytes.Compare(left, right) < 0
+	})
+	return result, nil
+}
+
+func normalizeTypedFilterV4(filter NormalizedFilter, value any) (NormalizedFilter, error) {
+	filter.Op = strings.ToUpper(strings.TrimSpace(filter.Op))
+	if filter.Op == "!=" {
+		filter.Op = "<>"
+	}
+	if filter.Op == "IN" || filter.Op == "NOT IN" {
+		values, ok := literalSlice(value)
+		if !ok || len(values) == 0 || len(values) > MaxRawPredicateLiterals {
+			return NormalizedFilter{}, fmt.Errorf("IN requires 1..%d flat literals", MaxRawPredicateLiterals)
+		}
+		canonical := make([]string, 0, len(values))
+		seen := make(map[string]struct{}, len(values))
+		for _, member := range values {
+			encoded, err := exposure.CanonicalSQLValue(filter.SQLType, member)
+			if err != nil {
+				return NormalizedFilter{}, err
+			}
+			if _, duplicate := seen[encoded]; duplicate {
+				continue
+			}
+			seen[encoded] = struct{}{}
+			canonical = append(canonical, encoded)
+		}
+		sort.Strings(canonical)
+		encoded, err := json.Marshal(canonical)
+		if err != nil {
+			return NormalizedFilter{}, err
+		}
+		filter.Value = encoded
+		return filter, nil
+	}
+	canonical, err := exposure.CanonicalSQLValue(filter.SQLType, value)
+	if err != nil {
+		return NormalizedFilter{}, err
+	}
+	encoded, err := json.Marshal(canonical)
+	if err != nil {
+		return NormalizedFilter{}, err
+	}
+	filter.Value = encoded
+	return filter, nil
+}
+
 func (normal NormalForm) Digest() (string, error) {
-	if normal.Version != NormalFormVersion || normal.Profile != "taskgate-exposure-v2" {
-		return "", errors.New("invalid V2 normal form")
+	domain := normalFormDomain
+	switch {
+	case normal.Version == NormalFormVersion && normal.Profile == "taskgate-exposure-v2":
+	case normal.Version == NormalFormVersionV4 && normal.Profile == exposure.ProfileV5:
+		domain = normalFormDomainV4
+	default:
+		return "", errors.New("invalid query normal form version/profile pair")
 	}
 	encoded, err := json.Marshal(normal)
 	if err != nil {
 		return "", err
 	}
-	digest := sha256.Sum256(append([]byte(normalFormDomain), encoded...))
+	digest := sha256.Sum256(append([]byte(domain), encoded...))
 	return hex.EncodeToString(digest[:]), nil
 }
 
@@ -358,11 +444,22 @@ type AlgebraNormalFormV2 struct {
 // duplicate set-valued Union branches are idempotent, and UNION ALL is
 // fail-closed.
 func NormalizeAlgebraV2(plan AlgebraPlanV2) (AlgebraNormalFormV2, error) {
-	node, err := normalizeAlgebraNodeV2(plan)
+	node, err := normalizeAlgebraNode(plan, false)
 	if err != nil {
 		return AlgebraNormalFormV2{}, err
 	}
 	digest := sha256.Sum256(append([]byte(normalFormDomain+"ALGEBRA\x00"), node.Canonical...))
+	return AlgebraNormalFormV2{Canonical: node.Canonical, SHA256: hex.EncodeToString(digest[:])}, nil
+}
+
+// NormalizeAlgebraV4 preserves the V3 algebra closure while canonicalizing
+// caller literal values by PostgreSQL type for V5 query identity.
+func NormalizeAlgebraV4(plan AlgebraPlanV2) (AlgebraNormalFormV2, error) {
+	node, err := normalizeAlgebraNode(plan, true)
+	if err != nil {
+		return AlgebraNormalFormV2{}, err
+	}
+	digest := sha256.Sum256(append([]byte(normalFormDomainV4+"ALGEBRA\x00"), node.Canonical...))
 	return AlgebraNormalFormV2{Canonical: node.Canonical, SHA256: hex.EncodeToString(digest[:])}, nil
 }
 
@@ -375,6 +472,10 @@ type normalizedAlgebraNodeV2 struct {
 }
 
 func normalizeAlgebraNodeV2(plan AlgebraPlanV2) (normalizedAlgebraNodeV2, error) {
+	return normalizeAlgebraNode(plan, false)
+}
+
+func normalizeAlgebraNode(plan AlgebraPlanV2, typedLiterals bool) (normalizedAlgebraNodeV2, error) {
 	op := strings.ToLower(strings.TrimSpace(plan.Op))
 	switch op {
 	case "scan":
@@ -398,7 +499,7 @@ func normalizeAlgebraNodeV2(plan AlgebraPlanV2) (normalizedAlgebraNodeV2, error)
 		canonical, err := json.Marshal(scan)
 		return normalizedAlgebraNodeV2{Canonical: canonical, Schema: schema}, err
 	case "select":
-		input, err := requiredAlgebraInputV2(plan.Input)
+		input, err := requiredAlgebraInput(plan.Input, typedLiterals)
 		if err != nil {
 			return normalizedAlgebraNodeV2{}, err
 		}
@@ -407,7 +508,7 @@ func normalizeAlgebraNodeV2(plan AlgebraPlanV2) (normalizedAlgebraNodeV2, error)
 		}
 		predicates := make([]NormalizedFilter, 0, len(plan.Predicates))
 		for _, predicate := range plan.Predicates {
-			normalized, normalizeErr := normalizeAlgebraFilterV2(predicate, input.Schema)
+			normalized, normalizeErr := normalizeAlgebraFilter(predicate, input.Schema, typedLiterals)
 			if normalizeErr != nil {
 				return normalizedAlgebraNodeV2{}, normalizeErr
 			}
@@ -421,7 +522,7 @@ func normalizeAlgebraNodeV2(plan AlgebraPlanV2) (normalizedAlgebraNodeV2, error)
 		canonical, err := json.Marshal(map[string]any{"op": "select", "input": input.Canonical, "predicates": predicates})
 		return normalizedAlgebraNodeV2{Canonical: canonical, Schema: input.Schema, TupleDistinct: input.TupleDistinct}, err
 	case "project":
-		input, err := requiredAlgebraInputV2(plan.Input)
+		input, err := requiredAlgebraInput(plan.Input, typedLiterals)
 		if err != nil {
 			return normalizedAlgebraNodeV2{}, err
 		}
@@ -447,11 +548,11 @@ func normalizeAlgebraNodeV2(plan AlgebraPlanV2) (normalizedAlgebraNodeV2, error)
 		if plan.Left == nil || plan.Right == nil {
 			return normalizedAlgebraNodeV2{}, errors.New("V2 join normal form requires two inputs")
 		}
-		left, err := normalizeAlgebraNodeV2(*plan.Left)
+		left, err := normalizeAlgebraNode(*plan.Left, typedLiterals)
 		if err != nil {
 			return normalizedAlgebraNodeV2{}, err
 		}
-		right, err := normalizeAlgebraNodeV2(*plan.Right)
+		right, err := normalizeAlgebraNode(*plan.Right, typedLiterals)
 		if err != nil {
 			return normalizedAlgebraNodeV2{}, err
 		}
@@ -475,11 +576,11 @@ func normalizeAlgebraNodeV2(plan AlgebraPlanV2) (normalizedAlgebraNodeV2, error)
 		if plan.UnionAll {
 			return normalizedAlgebraNodeV2{}, errors.New("UNION ALL is outside taskgate-exposure-v2")
 		}
-		left, err := normalizeAlgebraNodeV2(*plan.Left)
+		left, err := normalizeAlgebraNode(*plan.Left, typedLiterals)
 		if err != nil {
 			return normalizedAlgebraNodeV2{}, err
 		}
-		right, err := normalizeAlgebraNodeV2(*plan.Right)
+		right, err := normalizeAlgebraNode(*plan.Right, typedLiterals)
 		if err != nil {
 			return normalizedAlgebraNodeV2{}, err
 		}
@@ -495,7 +596,7 @@ func normalizeAlgebraNodeV2(plan AlgebraPlanV2) (normalizedAlgebraNodeV2, error)
 		canonical, err := json.Marshal(map[string]any{"op": op, "left": left.Canonical, "right": right.Canonical})
 		return normalizedAlgebraNodeV2{Canonical: canonical, Schema: left.Schema, TupleDistinct: true}, err
 	case "group":
-		input, err := requiredAlgebraInputV2(plan.Input)
+		input, err := requiredAlgebraInput(plan.Input, typedLiterals)
 		if err != nil {
 			return normalizedAlgebraNodeV2{}, err
 		}
@@ -524,7 +625,7 @@ func normalizeAlgebraNodeV2(plan AlgebraPlanV2) (normalizedAlgebraNodeV2, error)
 		canonical, err := json.Marshal(map[string]any{"op": "group", "input": input.Canonical, "group_by": groupFields, "aggregates": aggregates})
 		return normalizedAlgebraNodeV2{Canonical: canonical, Schema: schema, TupleDistinct: true}, err
 	case "page":
-		input, err := requiredAlgebraInputV2(plan.Input)
+		input, err := requiredAlgebraInput(plan.Input, typedLiterals)
 		if err != nil {
 			return normalizedAlgebraNodeV2{}, err
 		}
@@ -573,10 +674,14 @@ func normalizeAlgebraNodeV2(plan AlgebraPlanV2) (normalizedAlgebraNodeV2, error)
 }
 
 func requiredAlgebraInputV2(input *AlgebraPlanV2) (normalizedAlgebraNodeV2, error) {
+	return requiredAlgebraInput(input, false)
+}
+
+func requiredAlgebraInput(input *AlgebraPlanV2, typedLiterals bool) (normalizedAlgebraNodeV2, error) {
 	if input == nil {
 		return normalizedAlgebraNodeV2{}, errors.New("V2 unary normal form requires an input")
 	}
-	return normalizeAlgebraNodeV2(*input)
+	return normalizeAlgebraNode(*input, typedLiterals)
 }
 
 func normalizeAlgebraSchemaV2(input []AlgebraFieldV2) ([]AlgebraFieldV2, error) {
@@ -614,6 +719,10 @@ func normalizeAlgebraSchemaV2(input []AlgebraFieldV2) ([]AlgebraFieldV2, error) 
 }
 
 func normalizeAlgebraFilterV2(filter NormalizedFilter, schema []AlgebraFieldV2) (NormalizedFilter, error) {
+	return normalizeAlgebraFilter(filter, schema, false)
+}
+
+func normalizeAlgebraFilter(filter NormalizedFilter, schema []AlgebraFieldV2, typedLiteral bool) (NormalizedFilter, error) {
 	filter.Column = strings.ToLower(strings.TrimSpace(filter.Column))
 	definition, present := algebraFieldIndexV2(schema)[filter.Column]
 	if !present {
@@ -655,16 +764,33 @@ func normalizeAlgebraFilterV2(filter NormalizedFilter, schema []AlgebraFieldV2) 
 	}
 	if filter.Op == "IN" || filter.Op == "NOT IN" {
 		values, ok := decoded.([]any)
-		if !ok || len(values) == 0 || len(values) > 100 {
-			return NormalizedFilter{}, errors.New("V2 IN requires a non-empty array of at most 100 typed literals")
+		if !ok || len(values) == 0 || len(values) > MaxRawPredicateLiterals {
+			return NormalizedFilter{}, fmt.Errorf("V2 IN requires a non-empty array of at most %d typed literals", MaxRawPredicateLiterals)
 		}
+		canonicalValues := make([]string, 0, len(values))
+		seen := make(map[string]struct{}, len(values))
 		for _, value := range values {
-			if _, err := exposure.CanonicalSQLValue(definition.SQLType, value); err != nil {
+			canonicalValue, err := exposure.CanonicalSQLValue(definition.SQLType, value)
+			if err != nil {
 				return NormalizedFilter{}, fmt.Errorf("V2 predicate literal disagrees with field %q: %w", filter.Column, err)
 			}
+			if _, duplicate := seen[canonicalValue]; !duplicate {
+				seen[canonicalValue] = struct{}{}
+				canonicalValues = append(canonicalValues, canonicalValue)
+			}
 		}
-	} else if _, err := exposure.CanonicalSQLValue(definition.SQLType, decoded); err != nil {
-		return NormalizedFilter{}, fmt.Errorf("V2 predicate literal disagrees with field %q: %w", filter.Column, err)
+		if typedLiteral {
+			sort.Strings(canonicalValues)
+			decoded = canonicalValues
+		}
+	} else {
+		canonicalValue, err := exposure.CanonicalSQLValue(definition.SQLType, decoded)
+		if err != nil {
+			return NormalizedFilter{}, fmt.Errorf("V2 predicate literal disagrees with field %q: %w", filter.Column, err)
+		}
+		if typedLiteral {
+			decoded = canonicalValue
+		}
 	}
 	canonical, err := canonicalJSON(decoded)
 	if err != nil {

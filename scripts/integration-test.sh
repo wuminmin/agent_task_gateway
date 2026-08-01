@@ -62,6 +62,7 @@ BOB_COOKIE=$(mktemp /tmp/taskbound-bob-cookie.XXXXXX)
 OA_PAGE=$(mktemp /tmp/taskbound-oa-page.XXXXXX)
 DOWNLOAD_FILE=$(mktemp /tmp/taskbound-result-download.XXXXXX)
 DOWNLOAD_HEADERS=$(mktemp /tmp/taskbound-result-headers.XXXXXX)
+GO_TEST_JSON=$(mktemp /tmp/taskbound-go-test.XXXXXX)
 
 COMPOSE_PORT_OVERRIDE="services:
   control-postgres:
@@ -90,6 +91,7 @@ COMPOSE_PORT_OVERRIDE="services:
       PUBLIC_OA_BASE_URL: http://127.0.0.1:${OA_PORT}
   mcp-probe:
     profiles: [integration-tools]
+    image: ${PROJECT_NAME}-mcp-probe
     build:
       context: .
       args:
@@ -104,20 +106,29 @@ COMPOSE_PORT_OVERRIDE="services:
       - control-plane
   test-runner:
     profiles: [integration-tools]
+    image: ${PROJECT_NAME}-test-runner
     build:
       context: .
       target: base
     environment:
       CONTROL_TEST_POSTGRES_DSN: postgres://postgres:${CONTROL_POSTGRES_ADMIN_PASSWORD}@control-postgres:5432/${CONTROL_POSTGRES_DB}?sslmode=disable
       BUSINESS_TEST_POSTGRES_DSN: postgres://gateway_reader:${GATEWAY_DB_PASSWORD}@business-postgres:5432/${POSTGRES_DB}?sslmode=disable
+      RESULT_ARTIFACT_TEST_S3_ENDPOINT: http://result-object-store:9000
+      RESULT_ARTIFACT_TEST_S3_REGION: us-east-1
+      RESULT_ARTIFACT_TEST_S3_BUCKET: taskgate-results
+      RESULT_ARTIFACT_TEST_S3_ACCESS_KEY: ${GATEWAY_OBJECT_STORE_ACCESS_KEY}
+      RESULT_ARTIFACT_TEST_S3_SECRET_KEY: ${GATEWAY_OBJECT_STORE_SECRET_KEY}
     depends_on:
       control-postgres:
         condition: service_healthy
       business-postgres:
         condition: service_healthy
+      result-object-store-init:
+        condition: service_completed_successfully
     networks:
       - control-plane
       - business-data
+      - result-storage
     command: [\"go\", \"test\", \"-race\", \"./...\"]
 networks:
   integration-host:"
@@ -147,6 +158,9 @@ cleanup() {
   esac
   case "$DOWNLOAD_HEADERS" in
     /tmp/taskbound-result-headers.*) rm -f "$DOWNLOAD_HEADERS" ;;
+  esac
+  case "$GO_TEST_JSON" in
+    /tmp/taskbound-go-test.*) rm -f "$GO_TEST_JSON" ;;
   esac
   if [ "$KEEP_STACK" != "1" ]; then
     if ! compose down --volumes --remove-orphans >/dev/null 2>&1; then
@@ -340,8 +354,76 @@ gateway_container=$(compose ps --quiet gateway)
 gateway_environment=$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$gateway_container")
 assert_contains "$gateway_environment" "GATEWAY_CONNECTOR_MAX_ROWS=$GATEWAY_CONNECTOR_MAX_ROWS" "V4 connector row ceiling"
 pass "Gateway deployment admits the maximum-point provenance row count"
-compose --profile integration-tools run --rm --build test-runner
-pass "PostgreSQL-backed unit and race tests passed"
+compose --profile integration-tools build test-runner
+if ! compose --profile integration-tools run --rm test-runner \
+  go test -json -race -count=1 -tags=taskgate_integration ./... >"$GO_TEST_JSON"; then
+  cat "$GO_TEST_JSON"
+  fail "complete PostgreSQL-backed Go test suite failed"
+fi
+cat "$GO_TEST_JSON"
+if ! python3 - "$GO_TEST_JSON" <<'PY'
+import json
+import pathlib
+import sys
+
+events = []
+for line_number, line in enumerate(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines(), 1):
+    if not line.startswith("{"):
+        continue
+    try:
+        event = json.loads(line)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"malformed go test JSON event at line {line_number}: {exc}")
+    if isinstance(event, dict) and "Action" in event:
+        events.append(event)
+
+# Go reports a package-level skip for packages that contain no _test.go files.
+# Those packages are still part of ./...; only that explicitly evidenced
+# lifecycle event is benign. Every named test skip and every other package skip
+# invalidates the complete-suite receipt.
+no_test_packages = {
+    event.get("Package") for event in events
+    if event.get("Action") == "output" and "[no test files]" in event.get("Output", "")
+}
+skips = [
+    event for event in events
+    if event.get("Action") == "skip"
+    and (event.get("Test") or event.get("Package") not in no_test_packages)
+]
+failures = [event for event in events if event.get("Action") == "fail"]
+package_passes = [
+    event for event in events
+    if event.get("Action") == "pass" and not event.get("Test") and event.get("Package")
+]
+if not events or skips or failures or not package_passes:
+    print(
+        f"go test evidence invalid: events={len(events)} skips={len(skips)} "
+        f"failures={len(failures)} package_passes={len(package_passes)}",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+PY
+then
+  fail "complete Go test evidence contained a skip, failure, or no package pass"
+fi
+pass "complete PostgreSQL-backed unit and race tests passed with zero skips"
+promotion_recovery_output=$(compose --profile integration-tools run --rm test-runner \
+  go test -json -count=1 -run '^TestCanonicalCopySurvivesAvailableTransactionFailureAndRecoversExactlyOnce$' \
+  ./internal/gateway)
+printf '%s\n' "$promotion_recovery_output"
+if ! printf '%s\n' "$promotion_recovery_output" | python3 -c '
+import json
+import sys
+
+name = "TestCanonicalCopySurvivesAvailableTransactionFailureAndRecoversExactlyOnce"
+events = [json.loads(line) for line in sys.stdin if line.strip().startswith("{")]
+passed = any(event.get("Test") == name and event.get("Action") == "pass" for event in events)
+skipped = any(event.get("Test") == name and event.get("Action") == "skip" for event in events)
+raise SystemExit(0 if passed and not skipped else 1)
+'; then
+  fail "canonical-copy/AVAILABLE-commit crash-window test did not execute and pass"
+fi
+pass "canonical-copy/AVAILABLE-commit crash-window recovery passed"
 
 attempt=0
 until curl_safe --fail --silent --show-error "$GATEWAY_URL/health/ready" >/dev/null 2>&1; do
@@ -397,7 +479,8 @@ assert_contains "$initialize_response" '"version":"2.1.0"' "MCP initialize"
 assert_not_contains "$initialize_response" '"error"' "MCP initialize"
 pass "MCP initialize succeeds with Alice credentials"
 
-compose --profile integration-tools run --rm --build mcp-probe
+compose --profile integration-tools build mcp-probe
+compose --profile integration-tools run --rm mcp-probe
 pass "official Go MCP client completed a protocol-level call against the Compose Gateway"
 
 # Tool discovery is role-filtered, not merely guarded at invocation time.
@@ -449,8 +532,9 @@ summary_request=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
   '{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"request_data_task","arguments":{"objective":"按月份分析销售部差旅报销","data_products":["expense_summary"],"columns":{"expense_summary":["month","total_amount"]},"scopes":{"department":["销售部"]}}}}')
 assert_contains "$summary_request" '"isError":false' "summary task request"
 assert_contains "$summary_request" '"approval_mode":"manual"' "summary task approval route"
-assert_contains "$summary_request" '"exposure_profile_version":"taskgate-exposure-v4"' "summary V4 profile"
-assert_contains "$summary_request" '"max_outcome_facts":10' "summary V4 outcome ceiling"
+assert_contains "$summary_request" '"exposure_profile_version":"taskgate-exposure-v5"' "summary V5 profile"
+assert_contains "$summary_request" '"max_outcome_facts":10' "summary V5 outcome ceiling"
+assert_contains "$summary_request" '"predicate_footprint":' "summary V5 predicate limits"
 assert_contains "$summary_request" '"budget_source":"catalog_profile"' "summary Catalog budget source"
 assert_contains "$summary_request" '"max_queries":10' "summary complete Catalog query budget"
 summary_task=$(json_string "$summary_request" task_id)
@@ -480,6 +564,8 @@ assert_contains "$summary_query" '"artifact_status":"AVAILABLE"' "summary object
 assert_contains "$summary_query" '"row_count":' "summary structured plan"
 assert_contains "$summary_query" '"exposure":' "summary exposure settlement"
 assert_contains "$summary_query" '"charged_release_facts":' "summary exposure settlement"
+assert_contains "$summary_query" '"outcome_radix":' "summary V5 radix telemetry"
+assert_contains "$summary_query" '"blocks_loaded":' "summary V5 radix telemetry counters"
 assert_structured_field_absent "$summary_query" rows "summary metadata-only response"
 assert_not_contains "$summary_query" '"object_key":' "summary object-key redaction"
 summary_query_id=$(json_string "$summary_query" query_id)
@@ -552,13 +638,25 @@ assert_structured_field_absent "$stored_result" rows "persisted metadata-only re
 assert_not_contains "$stored_result" '"object_key":' "persisted object-key redaction"
 assert_contains "$stored_result" '"result_hash":' "persisted result receipt"
 assert_contains "$stored_result" '"gateway_key_id":"gateway-integration-ed25519-v1"' "signed query receipt key"
-assert_contains "$stored_result" '"version":"6"' "V4 query receipt version"
+assert_contains "$stored_result" '"version":"8"' "V5 artifact query receipt version"
+assert_contains "$stored_result" '"artifact_intent":' "V5 artifact intent receipt binding"
+assert_contains "$stored_result" '"result_metadata_sha256":' "V5 result metadata receipt binding"
 assert_contains "$stored_result" '"dictionary_set_sha256":' "V4 dictionary-set receipt binding"
 assert_contains "$stored_result" '"signature":' "signed query receipt signature"
+catalog_runtime_digest=$(json_string "$stored_result" catalog_digest)
+case "$catalog_runtime_digest" in
+  *[!0-9a-f]*|'') fail "runtime Catalog digest is not lowercase SHA-256" ;;
+esac
+[ "${#catalog_runtime_digest}" -eq 64 ] || fail "runtime Catalog digest is not 64 hexadecimal characters"
+if [ -n "${TASKGATE_COMPOSE_EVIDENCE_RUNTIME:-}" ]; then
+  printf 'catalog_runtime_digest\t%s\n' "$catalog_runtime_digest" >"$TASKGATE_COMPOSE_EVIDENCE_RUNTIME"
+fi
 carol_receipt=$(mcp_call "$TASKBOUND_CAROL_TOKEN" \
   "{\"jsonrpc\":\"2.0\",\"id\":13,\"method\":\"tools/call\",\"params\":{\"name\":\"get_audit_receipt\",\"arguments\":{\"receipt_id\":\"$summary_query_id\"}}}")
 assert_contains "$carol_receipt" '"isError":false' "persisted Carol audit receipt"
 assert_contains "$carol_receipt" '"current_hash":' "persisted audit chain"
+assert_contains "$carol_receipt" '"artifact_intent_inclusion":' "artifact registration inclusion proofs"
+assert_contains "$carol_receipt" '"availability_event_inclusion":' "artifact availability inclusion proof"
 assert_not_contains "$carol_receipt" '"columns":' "Carol audit receipt raw columns"
 summary_preview_after_restart=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
   "{\"jsonrpc\":\"2.0\",\"id\":94,\"method\":\"tools/call\",\"params\":{\"name\":\"preview_result\",\"arguments\":{\"result_id\":\"$summary_result_id\",\"offset\":0,\"limit\":1}}}")
@@ -607,6 +705,43 @@ detail_query=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
 assert_contains "$detail_query" '"isError":false' "detail query after Bob approval"
 assert_contains "$detail_query" '"receipt_no"' "detail query after Bob approval"
 pass "Bob approval gates and then enables a high-sensitivity detail query"
+
+# Exercise the complete V5 caller-predicate path, including duplicate removal
+# and NULL preservation. A reordered/deduplicated IN list must reuse the
+# committed observation without another Business PostgreSQL execution. Keep
+# this evidence task separate so its novel atoms do not consume the budget of
+# the detail-task scenarios below.
+predicate_request=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
+  '{"jsonrpc":"2.0","id":180,"method":"tools/call","params":{"name":"request_data_task","arguments":{"objective":"验证销售部报销谓词足迹与语义重放","data_products":["expense_detail"],"columns":{"expense_detail":["receipt_no","amount"]},"scopes":{"department":["销售部"]}}}}')
+assert_contains "$predicate_request" '"approval_mode":"manual"' "V5 caller predicate approval route"
+predicate_task=$(json_string "$predicate_request" task_id)
+predicate_oa_url=$(json_string "$predicate_request" oa_url)
+[ -n "$predicate_task" ] && [ -n "$predicate_oa_url" ] || fail "predicate request omitted task_id or oa_url"
+predicate_draft=${predicate_oa_url##*/}
+oa_action "$ALICE_COOKIE" "$predicate_draft" submit
+wait_task_state "$predicate_task" AWAITING_APPROVAL >/dev/null
+oa_action "$BOB_COOKIE" "$predicate_draft" decision approved
+wait_task_state "$predicate_task" ACTIVE >/dev/null
+predicate_query=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
+  "{\"jsonrpc\":\"2.0\",\"id\":181,\"method\":\"tools/call\",\"params\":{\"name\":\"query_sql\",\"arguments\":{\"task_id\":\"$predicate_task\",\"request_id\":\"integration-detail-predicate-1\",\"sql\":\"SELECT receipt_no, amount FROM expense_detail WHERE amount IN (100, NULL, 100, 200) ORDER BY receipt_no\"}}}")
+assert_contains "$predicate_query" '"isError":false' "V5 caller predicate query"
+assert_contains "$predicate_query" '"artifact_status":"AVAILABLE"' "V5 caller predicate Parquet"
+assert_contains "$predicate_query" '"raw_literal_count":4' "V5 caller predicate raw literals"
+assert_contains "$predicate_query" '"unique_atom_count":3' "V5 caller predicate unique atoms"
+assert_contains "$predicate_query" '"actual_predicate_atom_count":3' "V5 caller predicate actual atoms"
+assert_contains "$predicate_query" '"actual_outcome_facts":4' "V5 caller predicate outcome facts"
+assert_contains "$predicate_query" '"actual_composite_count":1' "V5 caller predicate composite"
+
+predicate_replay=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
+  "{\"jsonrpc\":\"2.0\",\"id\":182,\"method\":\"tools/call\",\"params\":{\"name\":\"query_sql\",\"arguments\":{\"task_id\":\"$predicate_task\",\"request_id\":\"integration-detail-predicate-2\",\"sql\":\"SELECT receipt_no, amount FROM expense_detail WHERE amount IN (200, 100, NULL) ORDER BY receipt_no\"}}}")
+assert_contains "$predicate_replay" '"isError":false' "V5 caller predicate semantic replay"
+assert_contains "$predicate_replay" '"semantic_replay":true' "V5 caller predicate semantic replay"
+assert_contains "$predicate_replay" '"charged_predicate_atom_count":0' "V5 caller predicate replay atom charge"
+assert_contains "$predicate_replay" '"charged_outcome_facts":0' "V5 caller predicate replay outcome charge"
+assert_not_contains "$predicate_replay" '"business_postgresql"' "V5 caller predicate replay Business PG calls"
+assert_not_contains "$predicate_replay" '"provenance_postgresql"' "V5 caller predicate replay provenance PG calls"
+pass "V5 semantic replay avoided Business PostgreSQL and repeated exposure charge"
+pass "caller SQL lowers through V5 atomization, Parquet publication, and zero-execution semantic replay"
 
 # A separate Bob rejection is terminal. Repeated query attempts remain denied.
 reject_request=$(mcp_call "$TASKBOUND_ALICE_TOKEN" \
@@ -715,5 +850,29 @@ if reader_psql --command "SET default_transaction_read_only=off; UPDATE taskgate
   fail "gateway_reader unexpectedly mutated an immutable ordinal sidecar"
 fi
 pass "gateway_reader cannot write, refresh snapshots, or mutate ordinal sidecars"
+
+# A recording wrapper may request immutable image IDs before cleanup removes
+# this run's containers. The file is temporary input to the signed-off Compose
+# receipt and is never itself treated as evidence.
+if [ -n "${TASKGATE_COMPOSE_EVIDENCE_IMAGES:-}" ]; then
+  : >"$TASKGATE_COMPOSE_EVIDENCE_IMAGES"
+  for evidence_service in control-postgres business-postgres snapshot-index-detail snapshot-index-summary \
+    result-object-store result-object-store-init gateway oa-demo; do
+    evidence_container=$(compose ps --all --quiet "$evidence_service")
+    [ -n "$evidence_container" ] || fail "evidence container missing for $evidence_service"
+    evidence_image_id=$(docker inspect --format '{{.Image}}' "$evidence_container")
+    evidence_image_ref=$(docker inspect --format '{{.Config.Image}}' "$evidence_container")
+    printf '%s\t%s\t%s\n' "$evidence_service" "$evidence_image_ref" "$evidence_image_id" >>"$TASKGATE_COMPOSE_EVIDENCE_IMAGES"
+  done
+  for evidence_service in mcp-probe test-runner; do
+    evidence_image_ref="${PROJECT_NAME}-${evidence_service}"
+    evidence_image_id=$(docker image inspect --format '{{.Id}}' "$evidence_image_ref")
+    case "$evidence_image_id" in
+      sha256:*) ;;
+      *) fail "evidence image ID malformed for $evidence_service" ;;
+    esac
+    printf '%s\t%s\t%s\n' "$evidence_service" "$evidence_image_ref" "$evidence_image_id" >>"$TASKGATE_COMPOSE_EVIDENCE_IMAGES"
+  done
+fi
 
 echo "all Compose end-to-end checks passed, including canonical object-store Parquet persistence and delivery"

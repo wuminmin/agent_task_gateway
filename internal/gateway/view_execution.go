@@ -80,7 +80,7 @@ func (s *Service) prepareTaskPlan(ctx context.Context, task control.Task, grant 
 	if err != nil {
 		return preparedQueryPlan{}, viewQueryUnsupported(viewCompositionReason(err))
 	}
-	return s.prepareSemanticViewPlan(grant, root, artifact, composition, current)
+	return s.prepareSemanticViewPlan(grant, root, artifact, composition, current, plan)
 }
 
 func semanticRelationalProfile(grant control.ExposureGrant) bool {
@@ -88,7 +88,7 @@ func semanticRelationalProfile(grant control.ExposureGrant) bool {
 		return false
 	}
 	switch grant.ProfileVersion {
-	case exposure.ProfileV2, exposure.ProfileV3, exposure.ProfileV4:
+	case exposure.ProfileV2, exposure.ProfileV3, exposure.ProfileV4, exposure.ProfileV5:
 		return true
 	default:
 		return false
@@ -287,7 +287,11 @@ func catalogScopeByName(scopes []catalog.Scope, name string) (catalog.Scope, boo
 }
 
 func (s *Service) prepareSemanticViewPlan(grant control.TaskGrant, root catalog.Product, artifact viewcompiler.Artifact,
-	composition viewcompiler.Composition, binding *resolvedViewBinding) (preparedQueryPlan, error) {
+	composition viewcompiler.Composition, binding *resolvedViewBinding, outerPlans ...queryplan.QueryPlan) (preparedQueryPlan, error) {
+	var outer queryplan.QueryPlan
+	if len(outerPlans) != 0 {
+		outer = outerPlans[0]
+	}
 	governance, err := s.semanticViewGovernanceFor(root, artifact)
 	if err != nil {
 		return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "语义 View 的终端治理闭包无效"}
@@ -321,7 +325,7 @@ func (s *Service) prepareSemanticViewPlan(grant control.TaskGrant, root catalog.
 	for name, product := range governance.products {
 		columns := requiredColumns[name]
 		queryProduct := relationalQueryProduct(product, columns)
-		if grant.Exposure.ProfileVersion == exposure.ProfileV4 {
+		if grant.Exposure.ProfileVersion == exposure.ProfileV4 || grant.Exposure.ProfileVersion == exposure.ProfileV5 {
 			queryProduct, err = s.ordinalQueryProduct(product, columns)
 			if err != nil {
 				return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "语义 View 的终端 Product 未绑定可信 V4 快照发布物"}
@@ -363,7 +367,7 @@ func (s *Service) prepareSemanticViewPlan(grant control.TaskGrant, root catalog.
 	context.viewRegistryRevision = binding.Expectation.ExpectedRevisionDigest
 
 	prepared := preparedQueryPlan{SQL: context.mainSQL, Exposure: context}
-	if grant.Exposure.ProfileVersion == exposure.ProfileV4 {
+	if grant.Exposure.ProfileVersion == exposure.ProfileV4 || grant.Exposure.ProfileVersion == exposure.ProfileV5 {
 		bound, bindErr := s.bindOrdinalSidecars(compilation.ProvenanceSQL, compilation.ProvenanceFields, compilation.OrdinalProgram)
 		if bindErr != nil {
 			return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodeConflict, Message: "语义 View 的 V4 快照索引或 sidecar 与 Catalog 不一致"}
@@ -371,6 +375,41 @@ func (s *Service) prepareSemanticViewPlan(grant control.TaskGrant, root catalog.
 		context.provenanceSQL = bound.ProvenanceSQL
 		context.provenanceFields = append([]string(nil), bound.ProvenanceFields...)
 		context.ordinal = &bound
+	}
+	if grant.Exposure.ProfileVersion == exposure.ProfileV5 {
+		outputByName := make(map[string]viewcompiler.Output, len(artifact.Outputs))
+		for _, output := range artifact.Outputs {
+			outputByName[output.Name] = output
+		}
+		callerFilters := make([]queryplan.PredicateFilterBinding, 0, len(outer.Filters))
+		fieldBindings := make(map[string]queryplan.PredicateFieldBinding, len(outer.Filters))
+		stableRole := root.StableRelationRole
+		if stableRole == "" {
+			stableRole = root.Name
+		}
+		for _, filter := range outer.Filters {
+			output, present := outputByName[filter.Column]
+			if !present || output.Kind != viewcompiler.OutputField || output.FieldID == "" {
+				return preparedQueryPlan{}, viewQueryUnsupported("SEMANTIC_VIEW_PREDICATE_BINDING")
+			}
+			resolvedDigest, digestErr := digestViewEvidence("TASKGATE-V5-VIEW-PREDICATE-EXPRESSION-V1\x00", struct {
+				Binding string              `json:"binding"`
+				Plan    string              `json:"plan"`
+				Output  viewcompiler.Output `json:"output"`
+			}{Binding: binding.Digest, Plan: artifact.CanonicalPlanDigest, Output: output})
+			if digestErr != nil {
+				return preparedQueryPlan{}, digestErr
+			}
+			fieldBindings[output.FieldID] = queryplan.PredicateFieldBinding{SemanticProductID: root.Name,
+				StableRole: stableRole, PublicFieldID: output.Name, ResolvedExpressionSHA256: resolvedDigest,
+				SQLType: output.SQLType, CollationName: output.Collation, CollationVersion: output.CollationVersion}
+			callerFilters = append(callerFilters, queryplan.PredicateFilterBinding{Field: output.FieldID,
+				Filter: queryplan.Filter{Column: output.FieldID, Op: filter.Op, Value: filter.Value}})
+		}
+		if footprintErr := context.configurePredicateFootprintV5(s.catalog.SHA256, grant.MandatoryScope,
+			queryProducts, callerFilters, fieldBindings, root.Name, predicateLimitsForGrant(grant.Exposure)); footprintErr != nil {
+			return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "语义 View 无法生成 V5 谓词足迹"}
+		}
 	}
 	return prepared, nil
 }

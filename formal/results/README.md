@@ -5,7 +5,8 @@ here.  The original one-task model keeps the compatibility paths `tlc.log` and
 `tlc.json`; split models write separate JSON/log pairs such as
 `vector_budget.json`, `sql_authorization.json`, `multi_task_audit.json`, and
 `receipt_audit.json`, `recovery_liveness.json`, `exposure_ledger.json`, and
-`exposure_bitmap_refinement.json`.
+`artifact_publication.json`, `exposure_bitmap_refinement.json`, and
+`outcome_set_abstract_refinement.json`.
 
 The repository intentionally retains those logs and JSON files.  The local
 ignore file explicitly unignores the retained artifacts while ignoring other

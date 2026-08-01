@@ -6,10 +6,13 @@ Finite split model for TaskGate's root-family three-dimensional exposure ledger.
 
 Every root and delegated child shares knownRelease/knownInfluence/knownOutcome. Query
 results are buffered and provenance-derived before an atomic settle either
-adds only novel facts and permits delivery or rejects without disclosure.
+adds only novel facts to the accounted ledger or rejects without disclosure.
+Artifact publication and logical availability are modeled separately in
+ArtifactPublication.tla.
 ***************************************************************************)
 
 CONSTANTS RootTask, ChildTask, Requests, ReleaseFacts, InfluenceFacts, OutcomeFacts,
+          PredicateAtoms, CompositeOutcomes,
           MaxRelease, MaxInfluence, MaxOutcome, MaxReplays
 
 ASSUME /\ RootTask # ChildTask
@@ -17,6 +20,10 @@ ASSUME /\ RootTask # ChildTask
        /\ ReleaseFacts # {}
        /\ InfluenceFacts # {}
        /\ OutcomeFacts # {}
+       /\ PredicateAtoms \subseteq OutcomeFacts
+       /\ CompositeOutcomes \subseteq OutcomeFacts
+       /\ PredicateAtoms \cap CompositeOutcomes = {}
+       /\ PredicateAtoms \cup CompositeOutcomes = OutcomeFacts
        /\ MaxRelease \in Nat \ {0}
        /\ MaxInfluence \in Nat \ {0}
        /\ MaxOutcome \in Nat \ {0}
@@ -45,7 +52,7 @@ VARIABLES active,
           knownRelease,
           knownInfluence,
           knownOutcome,
-          delivered,
+          accounted,
           physicalExecutions,
           replayCount
 
@@ -54,7 +61,7 @@ vars == <<active, requestState, requestTask,
           derivedRelease, derivedInfluence, derivedOutcome,
           priorKnownRelease, priorKnownInfluence, priorKnownOutcome,
           chargedRelease, chargedInfluence, chargedOutcome,
-          knownRelease, knownInfluence, knownOutcome, delivered,
+          knownRelease, knownInfluence, knownOutcome, accounted,
           physicalExecutions, replayCount>>
 
 CanStart(task) == active[task] /\ active[RootTask]
@@ -78,7 +85,7 @@ Init ==
     /\ knownRelease = {}
     /\ knownInfluence = {}
     /\ knownOutcome = {}
-    /\ delivered = [request \in Requests |-> FALSE]
+    /\ accounted = [request \in Requests |-> FALSE]
     /\ physicalExecutions = [request \in Requests |-> 0]
     /\ replayCount = [request \in Requests |-> 0]
 
@@ -91,7 +98,7 @@ Reserve(request, task) ==
                     derivedRelease, derivedInfluence, derivedOutcome,
                     priorKnownRelease, priorKnownInfluence, priorKnownOutcome,
                     chargedRelease, chargedInfluence, chargedOutcome,
-                    knownRelease, knownInfluence, knownOutcome, delivered,
+                    knownRelease, knownInfluence, knownOutcome, accounted,
                     physicalExecutions, replayCount>>
 
 ExecuteAndBuffer(request) ==
@@ -99,7 +106,9 @@ ExecuteAndBuffer(request) ==
        influence \in SUBSET InfluenceFacts,
        outcome \in SUBSET OutcomeFacts :
         /\ requestState[request] = "RESERVED"
-        /\ Cardinality(outcome) = 1
+        /\ outcome # {}
+        /\ Cardinality(outcome \cap CompositeOutcomes) = 1
+        /\ outcome \ PredicateAtoms \subseteq CompositeOutcomes
         /\ requestState' = [requestState EXCEPT ![request] = "BUFFERED"]
         /\ bufferedRelease' = [bufferedRelease EXCEPT ![request] = release]
         /\ bufferedInfluence' = [bufferedInfluence EXCEPT ![request] = influence]
@@ -109,7 +118,7 @@ ExecuteAndBuffer(request) ==
                         derivedInfluence, derivedOutcome, priorKnownRelease,
                         priorKnownInfluence, priorKnownOutcome, chargedRelease,
                         chargedInfluence, chargedOutcome, knownRelease, knownInfluence, knownOutcome,
-                        delivered, replayCount>>
+                        accounted, replayCount>>
 
 DeriveProvenance(request) ==
     /\ requestState[request] = "BUFFERED"
@@ -121,7 +130,7 @@ DeriveProvenance(request) ==
                     bufferedInfluence, bufferedOutcome, priorKnownRelease,
                     priorKnownInfluence, priorKnownOutcome, chargedRelease,
                     chargedInfluence, chargedOutcome, knownRelease, knownInfluence, knownOutcome,
-                    delivered, physicalExecutions, replayCount>>
+                    accounted, physicalExecutions, replayCount>>
 
 Settle(request) ==
     LET novelRelease == derivedRelease[request] \ knownRelease
@@ -141,7 +150,7 @@ Settle(request) ==
         /\ knownRelease' = knownRelease \cup novelRelease
         /\ knownInfluence' = knownInfluence \cup novelInfluence
         /\ knownOutcome' = knownOutcome \cup novelOutcome
-        /\ delivered' = [delivered EXCEPT ![request] = TRUE]
+        /\ accounted' = [accounted EXCEPT ![request] = TRUE]
         /\ UNCHANGED <<active, requestTask, bufferedRelease,
                         bufferedInfluence, bufferedOutcome, derivedRelease,
                         derivedInfluence, derivedOutcome, physicalExecutions, replayCount>>
@@ -160,7 +169,7 @@ RejectOverBudget(request) ==
                         derivedInfluence, derivedOutcome, priorKnownRelease,
                         priorKnownInfluence, priorKnownOutcome, chargedRelease,
                         chargedInfluence, chargedOutcome, knownRelease, knownInfluence, knownOutcome,
-                        delivered, physicalExecutions, replayCount>>
+                        accounted, physicalExecutions, replayCount>>
 
 ReleaseBeforeExecution(request) ==
     /\ requestState[request] = "RESERVED"
@@ -170,7 +179,7 @@ ReleaseBeforeExecution(request) ==
                     derivedInfluence, derivedOutcome, priorKnownRelease,
                     priorKnownInfluence, priorKnownOutcome, chargedRelease,
                     chargedInfluence, chargedOutcome, knownRelease, knownInfluence, knownOutcome,
-                    delivered, physicalExecutions, replayCount>>
+                    accounted, physicalExecutions, replayCount>>
 
 Replay(request) ==
     /\ requestState[request] \in TerminalStates
@@ -181,7 +190,7 @@ Replay(request) ==
                     derivedRelease, derivedInfluence, derivedOutcome,
                     priorKnownRelease, priorKnownInfluence, priorKnownOutcome,
                     chargedRelease, chargedInfluence, chargedOutcome,
-                    knownRelease, knownInfluence, knownOutcome, delivered,
+                    knownRelease, knownInfluence, knownOutcome, accounted,
                     physicalExecutions>>
 
 RevokeRoot ==
@@ -192,7 +201,7 @@ RevokeRoot ==
                     derivedRelease, derivedInfluence, derivedOutcome,
                     priorKnownRelease, priorKnownInfluence, priorKnownOutcome,
                     chargedRelease, chargedInfluence, chargedOutcome,
-                    knownRelease, knownInfluence, knownOutcome, delivered,
+                    knownRelease, knownInfluence, knownOutcome, accounted,
                     physicalExecutions, replayCount>>
 
 AllTerminal == \A request \in Requests : requestState[request] \in TerminalStates
@@ -236,7 +245,7 @@ TypeOK ==
     /\ knownRelease \in SUBSET ReleaseFacts
     /\ knownInfluence \in SUBSET InfluenceFacts
     /\ knownOutcome \in SUBSET OutcomeFacts
-    /\ delivered \in [Requests -> BOOLEAN]
+    /\ accounted \in [Requests -> BOOLEAN]
     /\ physicalExecutions \in [Requests -> 0..1]
     /\ replayCount \in [Requests -> 0..MaxReplays]
 
@@ -245,8 +254,8 @@ TripleBudgetSafety ==
     /\ Cardinality(knownInfluence) <= MaxInfluence
     /\ Cardinality(knownOutcome) <= MaxOutcome
 
-NoDeliveryBeforeSettle ==
-    \A request \in Requests : delivered[request] <=> requestState[request] = "SETTLED"
+AccountedIffSettled ==
+    \A request \in Requests : accounted[request] <=> requestState[request] = "SETTLED"
 
 ExactNovelCharge ==
     \A request \in Requests : requestState[request] = "SETTLED" =>
@@ -262,7 +271,7 @@ NoChargeWithoutSettlement ==
 
 RejectedResultsStayBuffered ==
     \A request \in Requests : requestState[request] = "REJECTED" =>
-        /\ ~delivered[request]
+        /\ ~accounted[request]
         /\ physicalExecutions[request] = 1
 
 DerivedEvidenceMatchesBuffer ==
@@ -282,7 +291,7 @@ TaskFamilyNonAmplification ==
     /\ knownInfluence = UnionCharges(chargedInfluence)
     /\ knownOutcome = UnionCharges(chargedOutcome)
 
-DeliveredQueriesExecutedOnce ==
-    \A request \in Requests : delivered[request] => physicalExecutions[request] = 1
+SettledQueriesExecutedOnce ==
+    \A request \in Requests : accounted[request] => physicalExecutions[request] = 1
 
 =============================================================================

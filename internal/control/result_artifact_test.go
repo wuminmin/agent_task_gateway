@@ -2,6 +2,7 @@ package control
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -120,6 +121,70 @@ func TestResultArtifactRegistrationRejectsDifferentEvidence(t *testing.T) {
 	defer rollback(tx2)
 	if _, err := insertResultArtifactTx(context.Background(), tx2, invalid); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("schema/column mismatch = %v, want invalid", err)
+	}
+}
+
+func TestArtifactFinalizationReusesOriginalRegistrationAuditWhenReceiptIsRecovered(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 7, 31, 12, 0, 0, 123456000, time.UTC)
+	cipher := testCipher(t, 68)
+	store := openTestStore(t, testpostgres.SchemaDSN(t), cipher, WithClock(fixedClock{value: now}))
+	artifact := reserveAndBuildResultArtifact(t, store, cipher.KeyID(), "receipt_recovery", now)
+	settlement := BudgetSettlement{QueryID: artifact.QueryID, Rows: artifact.RowCount, DBMS: 7, ObservedDBMS: 7}
+
+	first, _, _, err := store.FinalizeQueryArtifactMeasuredWithReceipt(ctx, settlement, artifact, nil)
+	if err != nil {
+		t.Fatalf("initial artifact finalization: %v", err)
+	}
+	var captured QueryReceipt
+	builderCalls := 0
+	builder := func(evidence QueryReceipt) (SaveQueryReceiptRequest, error) {
+		builderCalls++
+		captured = evidence
+		return SaveQueryReceiptRequest{
+			QueryID: evidence.Query.ID, Version: "8", GatewayKeyID: "test-gateway-key",
+			Signature: "test-signature", SignedAt: now,
+			TerminalAuditSequence: evidence.Audit.Sequence, TerminalAuditHash: evidence.Audit.CurrentHash,
+			ReceiptJSON: []byte(`{"version":"8"}`),
+		}, nil
+	}
+	replayed, _, _, err := store.FinalizeQueryArtifactMeasuredWithReceipt(ctx, settlement, artifact, builder)
+	if err != nil {
+		t.Fatalf("receipt recovery finalization: %v", err)
+	}
+	if replayed.ID != first.ID || builderCalls != 1 {
+		t.Fatalf("recovery replay = %+v, builder calls = %d", replayed, builderCalls)
+	}
+	normalizedArtifact, normalizeErr := normalizeResultArtifact(artifact)
+	if normalizeErr != nil {
+		t.Fatal(normalizeErr)
+	}
+	if captured.Artifact == nil || captured.ArtifactRegistrationAudit == nil ||
+		!sameResultArtifactEvidence(*captured.Artifact, normalizedArtifact) {
+		t.Fatalf("recovered receipt evidence is incomplete: %+v", captured)
+	}
+	registration := captured.ArtifactRegistrationAudit
+	if registration.EventType != "QUERY_RESULT_OBJECT_REGISTERED" ||
+		registration.Sequence != captured.Audit.Sequence+1 || registration.PreviousHash != captured.Audit.CurrentHash {
+		t.Fatalf("recovered registration audit does not follow terminal audit: %+v", registration)
+	}
+	events, err := store.ListAuditEvents(ctx, AuditFilter{
+		QueryID: artifact.QueryID, EventType: "QUERY_RESULT_OBJECT_REGISTERED", Limit: 10,
+	})
+	if err != nil || len(events) != 1 || events[0].CurrentHash != registration.CurrentHash {
+		t.Fatalf("registration audits after recovery = %+v, %v", events, err)
+	}
+	payload := string(events[0].Payload)
+	var projection map[string]any
+	if err := json.Unmarshal(events[0].Payload, &projection); err != nil {
+		t.Fatalf("decode registration payload: %v", err)
+	}
+	if strings.Contains(payload, artifact.ObjectKey) || strings.Contains(payload, artifact.StagingKey) ||
+		projection["object_key_sha256"] != plaintextHash([]byte(artifact.ObjectKey)) ||
+		projection["schema_sha256"] != plaintextHash(normalizedArtifact.SchemaJSON) ||
+		projection["result_metadata_sha256"] != plaintextHash(normalizedArtifact.ResultMetadataJSON) ||
+		projection["parquet_size"] != float64(normalizedArtifact.ParquetSize) {
+		t.Fatalf("registration payload leaks keys or omits complete intent projection: %s", payload)
 	}
 }
 

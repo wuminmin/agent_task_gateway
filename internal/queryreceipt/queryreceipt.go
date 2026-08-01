@@ -10,6 +10,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -26,12 +27,19 @@ const (
 	VersionV4         = "4"
 	VersionV5         = "5"
 	VersionV6         = "6"
+	VersionV7         = "7"
+	VersionV8         = "8"
 	signatureDomainV1 = "TASKGATE-QUERY-RECEIPT-V1\x00"
 	signatureDomainV2 = "TASKGATE-QUERY-RECEIPT-V2\x00"
 	signatureDomainV3 = "TASKGATE-QUERY-RECEIPT-V3\x00"
 	signatureDomainV4 = "TASKGATE-QUERY-RECEIPT-V4\x00"
 	signatureDomainV5 = "TASKGATE-QUERY-RECEIPT-V5\x00"
 	signatureDomainV6 = "TASKGATE-QUERY-RECEIPT-V6\x00"
+	signatureDomainV7 = "TASKGATE-QUERY-RECEIPT-V7\x00"
+	signatureDomainV8 = "TASKGATE-QUERY-RECEIPT-V8\x00"
+
+	ArtifactIntentVersionV1 = "taskgate-artifact-intent-v1"
+	ArtifactStatusPending   = "PENDING"
 
 	StatusCompleted     = "COMPLETED"
 	StatusReleased      = "RELEASED"
@@ -60,61 +68,191 @@ type BudgetStateV1 struct {
 }
 
 type ExposureEvidenceV1 struct {
-	RootTaskID            string `json:"root_task_id"`
-	ProfileVersion        string `json:"profile_version"`
-	ActualReleaseFacts    int64  `json:"actual_release_facts"`
-	ActualInfluenceFacts  int64  `json:"actual_influence_facts"`
-	ActualOutcomeFacts    int64  `json:"actual_outcome_facts,omitempty"`
-	ChargedReleaseFacts   int64  `json:"charged_release_facts"`
-	ChargedInfluenceFacts int64  `json:"charged_influence_facts"`
-	ChargedOutcomeFacts   int64  `json:"charged_outcome_facts,omitempty"`
-	ObservationSHA256     string `json:"observation_sha256"`
-	DictionarySetSHA256   string `json:"dictionary_set_sha256,omitempty"`
-	ReleaseSetSHA256      string `json:"release_set_sha256,omitempty"`
-	InfluenceSetSHA256    string `json:"influence_set_sha256,omitempty"`
-	OutcomeSetSHA256      string `json:"outcome_set_sha256,omitempty"`
-	RootEpoch             int64  `json:"root_epoch,omitempty"`
+	RootTaskID                string `json:"root_task_id"`
+	ProfileVersion            string `json:"profile_version"`
+	ActualReleaseFacts        int64  `json:"actual_release_facts"`
+	ActualInfluenceFacts      int64  `json:"actual_influence_facts"`
+	ActualOutcomeFacts        int64  `json:"actual_outcome_facts,omitempty"`
+	ChargedReleaseFacts       int64  `json:"charged_release_facts"`
+	ChargedInfluenceFacts     int64  `json:"charged_influence_facts"`
+	ChargedOutcomeFacts       int64  `json:"charged_outcome_facts,omitempty"`
+	ObservationSHA256         string `json:"observation_sha256"`
+	DictionarySetSHA256       string `json:"dictionary_set_sha256,omitempty"`
+	ReleaseSetSHA256          string `json:"release_set_sha256,omitempty"`
+	InfluenceSetSHA256        string `json:"influence_set_sha256,omitempty"`
+	OutcomeSetSHA256          string `json:"outcome_set_sha256,omitempty"`
+	RootEpoch                 int64  `json:"root_epoch,omitempty"`
+	PredicateProfileVersion   string `json:"predicate_profile_version,omitempty"`
+	PredicateContextSHA256    string `json:"predicate_context_sha256,omitempty"`
+	PredicateSetSHA256        string `json:"predicate_set_sha256,omitempty"`
+	ActualPredicateAtomCount  int64  `json:"actual_predicate_atom_count"`
+	ChargedPredicateAtomCount int64  `json:"charged_predicate_atom_count"`
+	CompositeOutcomeSHA256    string `json:"composite_outcome_sha256,omitempty"`
+	ActualCompositeCount      int64  `json:"actual_composite_count,omitempty"`
+	ChargedCompositeCount     int64  `json:"charged_composite_count,omitempty"`
+}
+
+// ArtifactIntentEvidenceV1 is the immutable, privacy-preserving description
+// of the PENDING result object registered immediately after query completion.
+// Physical object keys and display/query metadata are represented only by
+// their SHA-256 digests.
+type ArtifactIntentEvidenceV1 struct {
+	Version                       string     `json:"version"`
+	ResultID                      string     `json:"result_id"`
+	Format                        string     `json:"format"`
+	Encryption                    string     `json:"encryption"`
+	KeyID                         string     `json:"key_id"`
+	ParquetSHA256                 string     `json:"parquet_sha256"`
+	ObjectSHA256                  string     `json:"object_sha256"`
+	ParquetSize                   int64      `json:"parquet_size"`
+	ObjectSize                    int64      `json:"object_size"`
+	RowCount                      int64      `json:"row_count"`
+	ColumnCount                   int64      `json:"column_count"`
+	SchemaSHA256                  string     `json:"schema_sha256"`
+	ResultMetadataSHA256          string     `json:"result_metadata_sha256"`
+	ACLSHA256                     string     `json:"acl_sha256"`
+	ObjectKeySHA256               string     `json:"object_key_sha256"`
+	StagingKeySHA256              string     `json:"staging_key_sha256"`
+	ExpiresAt                     *time.Time `json:"expires_at,omitempty"`
+	Status                        string     `json:"status"`
+	IntentSHA256                  string     `json:"intent_sha256"`
+	RegistrationAuditSequence     int64      `json:"registration_audit_sequence"`
+	RegistrationPreviousAuditHash string     `json:"registration_previous_audit_hash"`
+	RegistrationAuditHash         string     `json:"registration_audit_hash"`
 }
 
 // QueryReceiptV1 contains no raw rows, SQL text, credentials, or physical
 // relation names. Signature is unpadded base64url Ed25519.
 type QueryReceiptV1 struct {
-	Version           string              `json:"version"`
-	ReceiptID         string              `json:"receipt_id"`
-	TaskID            string              `json:"task_id"`
-	QueryID           string              `json:"query_id"`
-	RequestID         string              `json:"request_id"`
-	ManifestDigest    string              `json:"manifest_digest"`
-	GrantDigest       string              `json:"grant_digest"`
-	CatalogDigest     string              `json:"catalog_digest"`
-	CatalogVersion    string              `json:"catalog_version"`
-	DatasourceID      string              `json:"datasource_id"`
-	SchemaDigest      string              `json:"schema_digest"`
-	RequestDigest     string              `json:"request_digest"`
-	SQLFingerprint    string              `json:"sql_fingerprint"`
-	PolicyDecision    string              `json:"policy_decision"`
-	BudgetBefore      BudgetStateV1       `json:"budget_before"`
-	BudgetReserved    BudgetVectorV1      `json:"budget_reserved"`
-	BudgetCharged     BudgetVectorV1      `json:"budget_charged"`
-	BudgetAfter       BudgetStateV1       `json:"budget_after"`
-	RowCount          int64               `json:"row_count"`
-	DatabaseMS        int64               `json:"db_ms"`
-	ResultHash        string              `json:"result_hash"`
-	Status            string              `json:"status"`
-	ErrorCode         string              `json:"error_code"`
-	CreatedAt         time.Time           `json:"created_at"`
-	CompletedAt       time.Time           `json:"completed_at"`
-	AuditSequence     int64               `json:"audit_sequence"`
-	PreviousAuditHash string              `json:"previous_audit_hash"`
-	AuditHash         string              `json:"audit_hash"`
-	SignedAt          *time.Time          `json:"signed_at,omitempty"`
-	GatewayKeyID      string              `json:"gateway_key_id"`
-	Signature         string              `json:"signature"`
-	Exposure          *ExposureEvidenceV1 `json:"exposure,omitempty"`
+	Version           string                    `json:"version"`
+	ReceiptID         string                    `json:"receipt_id"`
+	TaskID            string                    `json:"task_id"`
+	QueryID           string                    `json:"query_id"`
+	RequestID         string                    `json:"request_id"`
+	ManifestDigest    string                    `json:"manifest_digest"`
+	GrantDigest       string                    `json:"grant_digest"`
+	CatalogDigest     string                    `json:"catalog_digest"`
+	CatalogVersion    string                    `json:"catalog_version"`
+	DatasourceID      string                    `json:"datasource_id"`
+	SchemaDigest      string                    `json:"schema_digest"`
+	RequestDigest     string                    `json:"request_digest"`
+	SQLFingerprint    string                    `json:"sql_fingerprint"`
+	PolicyDecision    string                    `json:"policy_decision"`
+	BudgetBefore      BudgetStateV1             `json:"budget_before"`
+	BudgetReserved    BudgetVectorV1            `json:"budget_reserved"`
+	BudgetCharged     BudgetVectorV1            `json:"budget_charged"`
+	BudgetAfter       BudgetStateV1             `json:"budget_after"`
+	RowCount          int64                     `json:"row_count"`
+	DatabaseMS        int64                     `json:"db_ms"`
+	ResultHash        string                    `json:"result_hash"`
+	Status            string                    `json:"status"`
+	ErrorCode         string                    `json:"error_code"`
+	CreatedAt         time.Time                 `json:"created_at"`
+	CompletedAt       time.Time                 `json:"completed_at"`
+	AuditSequence     int64                     `json:"audit_sequence"`
+	PreviousAuditHash string                    `json:"previous_audit_hash"`
+	AuditHash         string                    `json:"audit_hash"`
+	SignedAt          *time.Time                `json:"signed_at,omitempty"`
+	GatewayKeyID      string                    `json:"gateway_key_id"`
+	Signature         string                    `json:"signature"`
+	Exposure          *ExposureEvidenceV1       `json:"exposure,omitempty"`
+	ArtifactIntent    *ArtifactIntentEvidenceV1 `json:"artifact_intent,omitempty"`
+}
+
+// BuildArtifactIntent validates the supplied immutable evidence and seals it
+// with a digest over every field except intent_sha256 itself.
+func BuildArtifactIntent(intent ArtifactIntentEvidenceV1) (ArtifactIntentEvidenceV1, error) {
+	intent.IntentSHA256 = ""
+	if err := validateArtifactIntentEvidence(intent, false); err != nil {
+		return ArtifactIntentEvidenceV1{}, err
+	}
+	digest, err := artifactIntentSHA256(intent)
+	if err != nil {
+		return ArtifactIntentEvidenceV1{}, err
+	}
+	intent.IntentSHA256 = digest
+	return intent, nil
+}
+
+func (r QueryReceiptV1) validateArtifactIntent() error {
+	intent := *r.ArtifactIntent
+	if err := validateArtifactIntentEvidence(intent, true); err != nil {
+		return err
+	}
+	if r.ResultHash != intent.ParquetSHA256 || r.RowCount != intent.RowCount {
+		return fmt.Errorf("%w: artifact intent does not match query result evidence", ErrInvalidReceipt)
+	}
+	if intent.RegistrationAuditSequence != r.AuditSequence+1 ||
+		intent.RegistrationPreviousAuditHash != r.AuditHash {
+		return fmt.Errorf("%w: artifact registration does not follow terminal audit evidence", ErrInvalidReceipt)
+	}
+	expected, err := artifactIntentSHA256(intent)
+	if err != nil {
+		return fmt.Errorf("%w: cannot canonicalize artifact intent: %v", ErrInvalidReceipt, err)
+	}
+	if subtle.ConstantTimeCompare([]byte(expected), []byte(intent.IntentSHA256)) != 1 {
+		return fmt.Errorf("%w: artifact intent digest mismatch", ErrInvalidReceipt)
+	}
+	return nil
+}
+
+func validateArtifactIntentEvidence(intent ArtifactIntentEvidenceV1, requireIntentDigest bool) error {
+	if intent.Version != ArtifactIntentVersionV1 || strings.TrimSpace(intent.ResultID) == "" ||
+		intent.ResultID != strings.TrimSpace(intent.ResultID) || intent.Format != "parquet" ||
+		intent.Encryption != "chunked-aes-gcm-v1" || strings.TrimSpace(intent.KeyID) == "" ||
+		intent.KeyID != strings.TrimSpace(intent.KeyID) || intent.ParquetSize < 0 || intent.ObjectSize <= 0 ||
+		intent.RowCount < 0 || intent.ColumnCount <= 0 || intent.Status != ArtifactStatusPending ||
+		intent.RegistrationAuditSequence <= 0 {
+		return fmt.Errorf("%w: artifact intent evidence is missing or invalid", ErrInvalidReceipt)
+	}
+	for name, value := range map[string]string{
+		"parquet_sha256": intent.ParquetSHA256, "object_sha256": intent.ObjectSHA256,
+		"schema_sha256": intent.SchemaSHA256, "result_metadata_sha256": intent.ResultMetadataSHA256,
+		"acl_sha256":        intent.ACLSHA256,
+		"object_key_sha256": intent.ObjectKeySHA256, "staging_key_sha256": intent.StagingKeySHA256,
+		"registration_previous_audit_hash": intent.RegistrationPreviousAuditHash,
+		"registration_audit_hash":          intent.RegistrationAuditHash,
+	} {
+		if !isSHA256(value) {
+			return fmt.Errorf("%w: artifact %s is not lowercase SHA-256", ErrInvalidReceipt, name)
+		}
+	}
+	if requireIntentDigest && !isSHA256(intent.IntentSHA256) {
+		return fmt.Errorf("%w: artifact intent_sha256 is not lowercase SHA-256", ErrInvalidReceipt)
+	}
+	if intent.ExpiresAt != nil && intent.ExpiresAt.IsZero() {
+		return fmt.Errorf("%w: artifact expiry is invalid", ErrInvalidReceipt)
+	}
+	return nil
+}
+
+func artifactIntentSHA256(intent ArtifactIntentEvidenceV1) (string, error) {
+	unsigned := map[string]any{
+		"version": intent.Version, "result_id": intent.ResultID, "format": intent.Format,
+		"encryption": intent.Encryption, "key_id": intent.KeyID,
+		"parquet_sha256": intent.ParquetSHA256, "object_sha256": intent.ObjectSHA256,
+		"parquet_size": intent.ParquetSize, "object_size": intent.ObjectSize,
+		"row_count": intent.RowCount, "column_count": intent.ColumnCount,
+		"schema_sha256": intent.SchemaSHA256, "result_metadata_sha256": intent.ResultMetadataSHA256,
+		"acl_sha256":        intent.ACLSHA256,
+		"object_key_sha256": intent.ObjectKeySHA256, "staging_key_sha256": intent.StagingKeySHA256,
+		"status": intent.Status, "registration_audit_sequence": intent.RegistrationAuditSequence,
+		"registration_previous_audit_hash": intent.RegistrationPreviousAuditHash,
+		"registration_audit_hash":          intent.RegistrationAuditHash,
+	}
+	if intent.ExpiresAt != nil {
+		unsigned["expires_at"] = intent.ExpiresAt
+	}
+	canonical, err := approval.CanonicalJSON(unsigned)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(canonical)
+	return hex.EncodeToString(digest[:]), nil
 }
 
 func (r QueryReceiptV1) ValidateUnsigned() error {
-	if r.Version != VersionV1 && r.Version != VersionV2 && r.Version != VersionV3 && r.Version != VersionV4 && r.Version != VersionV5 && r.Version != VersionV6 {
+	if r.Version != VersionV1 && r.Version != VersionV2 && r.Version != VersionV3 && r.Version != VersionV4 && r.Version != VersionV5 && r.Version != VersionV6 && r.Version != VersionV7 && r.Version != VersionV8 {
 		return fmt.Errorf("%w: unsupported version %q", ErrInvalidReceipt, r.Version)
 	}
 	if strings.TrimSpace(r.ReceiptID) == "" || strings.TrimSpace(r.TaskID) == "" ||
@@ -127,7 +265,7 @@ func (r QueryReceiptV1) ValidateUnsigned() error {
 		"request_digest":      r.RequestDigest,
 		"previous_audit_hash": r.PreviousAuditHash, "audit_hash": r.AuditHash,
 	}
-	if r.Version == VersionV2 || r.Version == VersionV3 || r.Version == VersionV4 || r.Version == VersionV5 || r.Version == VersionV6 {
+	if r.Version == VersionV2 || r.Version == VersionV3 || r.Version == VersionV4 || r.Version == VersionV5 || r.Version == VersionV6 || r.Version == VersionV7 || r.Version == VersionV8 {
 		digests["schema_digest"] = r.SchemaDigest
 	}
 	for name, value := range digests {
@@ -135,7 +273,7 @@ func (r QueryReceiptV1) ValidateUnsigned() error {
 			return fmt.Errorf("%w: %s is not lowercase SHA-256", ErrInvalidReceipt, name)
 		}
 	}
-	if (r.Version == VersionV2 || r.Version == VersionV3 || r.Version == VersionV4 || r.Version == VersionV5 || r.Version == VersionV6) && strings.TrimSpace(r.DatasourceID) == "" {
+	if (r.Version == VersionV2 || r.Version == VersionV3 || r.Version == VersionV4 || r.Version == VersionV5 || r.Version == VersionV6 || r.Version == VersionV7 || r.Version == VersionV8) && strings.TrimSpace(r.DatasourceID) == "" {
 		return fmt.Errorf("%w: datasource_id is required", ErrInvalidReceipt)
 	}
 	if strings.TrimSpace(r.CatalogVersion) == "" || strings.TrimSpace(r.SQLFingerprint) == "" ||
@@ -147,7 +285,7 @@ func (r QueryReceiptV1) ValidateUnsigned() error {
 	if r.CompletedAt.Before(r.CreatedAt) {
 		return fmt.Errorf("%w: completion precedes creation", ErrInvalidReceipt)
 	}
-	if r.Version == VersionV3 || r.Version == VersionV4 || r.Version == VersionV5 || r.Version == VersionV6 {
+	if r.Version == VersionV3 || r.Version == VersionV4 || r.Version == VersionV5 || r.Version == VersionV6 || r.Version == VersionV7 || r.Version == VersionV8 {
 		if r.SignedAt == nil || r.SignedAt.IsZero() {
 			return fmt.Errorf("%w: signed_at is required", ErrInvalidReceipt)
 		}
@@ -169,7 +307,7 @@ func (r QueryReceiptV1) ValidateUnsigned() error {
 	}
 	if r.Exposure != nil {
 		exposure := r.Exposure
-		if (r.Version != VersionV4 && r.Version != VersionV5 && r.Version != VersionV6) || strings.TrimSpace(exposure.RootTaskID) == "" ||
+		if (r.Version != VersionV4 && r.Version != VersionV5 && r.Version != VersionV6 && r.Version != VersionV7 && r.Version != VersionV8) || strings.TrimSpace(exposure.RootTaskID) == "" ||
 			strings.TrimSpace(exposure.ProfileVersion) == "" || !isSHA256(exposure.ObservationSHA256) ||
 			exposure.ActualReleaseFacts < 0 || exposure.ActualInfluenceFacts < 0 || exposure.ActualOutcomeFacts < 0 ||
 			exposure.ChargedReleaseFacts < 0 || exposure.ChargedInfluenceFacts < 0 || exposure.ChargedOutcomeFacts < 0 ||
@@ -181,11 +319,34 @@ func (r QueryReceiptV1) ValidateUnsigned() error {
 			(r.Version == VersionV5 && (exposure.ProfileVersion != "taskgate-exposure-v3" || exposure.ActualOutcomeFacts != 1)) ||
 			(r.Version == VersionV6 && (exposure.ProfileVersion != "taskgate-exposure-v4" || exposure.ActualOutcomeFacts != 1 ||
 				exposure.RootEpoch <= 0 || !isSHA256(exposure.DictionarySetSHA256) || !isSHA256(exposure.ReleaseSetSHA256) ||
-				!isSHA256(exposure.InfluenceSetSHA256) || !isSHA256(exposure.OutcomeSetSHA256))) {
+				!isSHA256(exposure.InfluenceSetSHA256) || !isSHA256(exposure.OutcomeSetSHA256)) ||
+				((r.Version == VersionV7 || r.Version == VersionV8) && (exposure.ProfileVersion != "taskgate-exposure-v5" ||
+					exposure.PredicateProfileVersion != "taskgate-predicate-footprint-v1" ||
+					exposure.ActualCompositeCount != 1 || exposure.ChargedCompositeCount < 0 || exposure.ChargedCompositeCount > 1 ||
+					exposure.ActualPredicateAtomCount < 0 || exposure.ChargedPredicateAtomCount < 0 ||
+					exposure.ChargedPredicateAtomCount > exposure.ActualPredicateAtomCount ||
+					exposure.ActualOutcomeFacts != exposure.ActualPredicateAtomCount+1 ||
+					exposure.ChargedOutcomeFacts != exposure.ChargedPredicateAtomCount+exposure.ChargedCompositeCount ||
+					exposure.RootEpoch <= 0 || !isSHA256(exposure.DictionarySetSHA256) || !isSHA256(exposure.ReleaseSetSHA256) ||
+					!isSHA256(exposure.InfluenceSetSHA256) || !isSHA256(exposure.OutcomeSetSHA256) ||
+					!isSHA256(exposure.PredicateContextSHA256) || !isSHA256(exposure.PredicateSetSHA256) ||
+					!isSHA256(exposure.CompositeOutcomeSHA256)))) {
 			return fmt.Errorf("%w: receipt version and outcome evidence disagree", ErrInvalidReceipt)
 		}
-	} else if r.Version == VersionV4 || r.Version == VersionV5 || r.Version == VersionV6 {
-		return fmt.Errorf("%w: V4/V5/V6 requires exposure evidence", ErrInvalidReceipt)
+	} else if r.Version == VersionV4 || r.Version == VersionV5 || r.Version == VersionV6 || r.Version == VersionV7 || r.Version == VersionV8 {
+		return fmt.Errorf("%w: V4/V5/V6/V7/V8 requires exposure evidence", ErrInvalidReceipt)
+	}
+	if r.Version != VersionV8 {
+		if r.ArtifactIntent != nil {
+			return fmt.Errorf("%w: V1-V7 must not carry artifact intent", ErrInvalidReceipt)
+		}
+	} else {
+		if r.Status != StatusCompleted || r.ArtifactIntent == nil {
+			return fmt.Errorf("%w: V8 requires completed artifact intent evidence", ErrInvalidReceipt)
+		}
+		if err := r.validateArtifactIntent(); err != nil {
+			return err
+		}
 	}
 	if err := r.validateBudgetSemantics(); err != nil {
 		return err
@@ -368,6 +529,106 @@ func VerifyAuditInclusion(receipt QueryReceiptV1, proof auditchain.InclusionProo
 		return fmt.Errorf("%w: %v", ErrInvalidReceipt, err)
 	}
 	return nil
+}
+
+// VerifyArtifactIntentInclusion proves both the terminal completion event and
+// the immediately following artifact registration event against audit
+// checkpoints, then checks the registration payload against the signed intent.
+func VerifyArtifactIntentInclusion(receipt QueryReceiptV1, terminalProof, registrationProof auditchain.InclusionProof) error {
+	if receipt.Version != VersionV8 || receipt.ArtifactIntent == nil {
+		return fmt.Errorf("%w: artifact inclusion requires a V8 receipt", ErrInvalidReceipt)
+	}
+	if err := VerifyAuditInclusion(receipt, terminalProof); err != nil {
+		return err
+	}
+	intent := receipt.ArtifactIntent
+	registration := registrationProof.TerminalEvent
+	if registration.EventType != "QUERY_RESULT_OBJECT_REGISTERED" ||
+		registration.TaskID != receipt.TaskID || registration.QueryID != receipt.QueryID ||
+		registration.Sequence != intent.RegistrationAuditSequence ||
+		registration.PreviousHash != intent.RegistrationPreviousAuditHash ||
+		registration.CurrentHash != intent.RegistrationAuditHash {
+		return fmt.Errorf("%w: artifact registration event does not match receipt", ErrInvalidReceipt)
+	}
+	if err := auditchain.VerifyInclusion(registrationProof); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidReceipt, err)
+	}
+	expected, err := json.Marshal(artifactRegistrationPayload(*intent))
+	if err != nil {
+		return fmt.Errorf("%w: cannot encode artifact registration evidence: %v", ErrInvalidReceipt, err)
+	}
+	expected, err = auditchain.NormalizePayload(expected)
+	if err != nil {
+		return fmt.Errorf("%w: cannot normalize artifact registration evidence: %v", ErrInvalidReceipt, err)
+	}
+	actual, err := auditchain.NormalizePayload(registration.Payload)
+	if err != nil || !bytes.Equal(actual, expected) {
+		return fmt.Errorf("%w: artifact registration payload does not match intent", ErrInvalidReceipt)
+	}
+	return nil
+}
+
+// VerifyArtifactAvailabilityInclusion verifies the dedicated proof for the
+// QUERY_RESULT_CONSUMED event that crosses the logical AVAILABLE boundary.
+// The event is deliberately not part of the immutable V8 receipt because it
+// occurs after settlement; its payload must nevertheless match that receipt's
+// signed artifact intent exactly.
+func VerifyArtifactAvailabilityInclusion(receipt QueryReceiptV1, availabilityProof auditchain.InclusionProof) error {
+	if receipt.Version != VersionV8 || receipt.ArtifactIntent == nil {
+		return fmt.Errorf("%w: artifact availability inclusion requires a V8 receipt", ErrInvalidReceipt)
+	}
+	event := availabilityProof.TerminalEvent
+	intent := receipt.ArtifactIntent
+	if event.EventType != "QUERY_RESULT_CONSUMED" || event.TaskID != receipt.TaskID ||
+		event.QueryID != receipt.QueryID {
+		return fmt.Errorf("%w: artifact availability event does not match receipt", ErrInvalidReceipt)
+	}
+	if event.Sequence <= intent.RegistrationAuditSequence {
+		return fmt.Errorf("%w: artifact availability event does not follow registration audit", ErrInvalidReceipt)
+	}
+	if err := auditchain.VerifyInclusion(availabilityProof); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidReceipt, err)
+	}
+	var payload struct {
+		ResultID     string `json:"result_id"`
+		ResultSHA256 string `json:"result_sha256"`
+		ObjectSHA256 string `json:"object_sha256"`
+		Format       string `json:"format"`
+		Status       string `json:"status"`
+		ConsumedAt   string `json:"consumed_at"`
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil ||
+		payload.ResultID != intent.ResultID || payload.ResultSHA256 != intent.ParquetSHA256 ||
+		payload.ObjectSHA256 != intent.ObjectSHA256 || payload.Format != intent.Format ||
+		payload.Status != "AVAILABLE" {
+		return fmt.Errorf("%w: artifact availability payload does not match intent", ErrInvalidReceipt)
+	}
+	consumedAt, err := time.Parse(time.RFC3339Nano, payload.ConsumedAt)
+	if err != nil || consumedAt.IsZero() {
+		return fmt.Errorf("%w: artifact availability consumed_at is invalid", ErrInvalidReceipt)
+	}
+	return nil
+}
+
+func artifactRegistrationPayload(intent ArtifactIntentEvidenceV1) map[string]any {
+	// The event payload is the artifact projection of the intent. The audit
+	// sequence/hash and intent_sha256 are intentionally excluded because they
+	// are only known after this event has itself been hashed.
+	payload := map[string]any{
+		"version": intent.Version, "result_id": intent.ResultID, "format": intent.Format,
+		"encryption": intent.Encryption, "key_id": intent.KeyID,
+		"parquet_sha256": intent.ParquetSHA256, "object_sha256": intent.ObjectSHA256,
+		"parquet_size": intent.ParquetSize, "object_size": intent.ObjectSize,
+		"row_count": intent.RowCount, "column_count": intent.ColumnCount,
+		"schema_sha256": intent.SchemaSHA256, "result_metadata_sha256": intent.ResultMetadataSHA256,
+		"acl_sha256":        intent.ACLSHA256,
+		"object_key_sha256": intent.ObjectKeySHA256, "staging_key_sha256": intent.StagingKeySHA256,
+		"status": intent.Status,
+	}
+	if intent.ExpiresAt != nil {
+		payload["expires_at"] = intent.ExpiresAt
+	}
+	return payload
 }
 
 type Verifier struct{ keys map[string]VerifyingKey }
@@ -569,7 +830,7 @@ func signingPayload(receipt QueryReceiptV1) ([]byte, error) {
 		"audit_hash": receipt.AuditHash, "gateway_key_id": receipt.GatewayKeyID,
 	}
 	domain := signatureDomainV1
-	if receipt.Version == VersionV2 || receipt.Version == VersionV3 || receipt.Version == VersionV4 || receipt.Version == VersionV5 || receipt.Version == VersionV6 {
+	if receipt.Version == VersionV2 || receipt.Version == VersionV3 || receipt.Version == VersionV4 || receipt.Version == VersionV5 || receipt.Version == VersionV6 || receipt.Version == VersionV7 || receipt.Version == VersionV8 {
 		domain = signatureDomainV2
 		unsigned["datasource_id"] = receipt.DatasourceID
 		unsigned["schema_digest"] = receipt.SchemaDigest
@@ -592,6 +853,17 @@ func signingPayload(receipt QueryReceiptV1) ([]byte, error) {
 		domain = signatureDomainV6
 		unsigned["signed_at"] = receipt.SignedAt
 		unsigned["exposure"] = receipt.Exposure
+	}
+	if receipt.Version == VersionV7 {
+		domain = signatureDomainV7
+		unsigned["signed_at"] = receipt.SignedAt
+		unsigned["exposure"] = receipt.Exposure
+	}
+	if receipt.Version == VersionV8 {
+		domain = signatureDomainV8
+		unsigned["signed_at"] = receipt.SignedAt
+		unsigned["exposure"] = receipt.Exposure
+		unsigned["artifact_intent"] = receipt.ArtifactIntent
 	}
 	canonical, err := approval.CanonicalJSON(unsigned)
 	if err != nil {

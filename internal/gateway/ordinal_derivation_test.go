@@ -874,7 +874,10 @@ func assertOrdinalEffectEqualsOracle(t *testing.T, effect ordinalEffect, resolve
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertFactsEqual(t, "outcome", effect.Outcome, wantOutcome)
+	if len(effect.Outcome) != 1 {
+		t.Fatalf("outcome cardinality = %d, want 1", len(effect.Outcome))
+	}
+	assertFactsEqual(t, "outcome", effect.Outcome[0], wantOutcome)
 }
 
 func assertFactSetsEqual(t *testing.T, label string, got, want exposure.FactSet) {

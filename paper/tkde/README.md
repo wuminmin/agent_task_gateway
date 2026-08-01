@@ -1,7 +1,9 @@
 # TaskGate TKDE working draft
 
 This is a separate database-paper project derived from the implementation and
-the requirements in [../../tkde.md](../../tkde.md). It is not a template
+the historical gap analysis in [../../tkde.md](../../tkde.md). Its current
+title is *Task-Scoped Accounting of Cumulative Query Exposure over Versioned
+Reporting Snapshots*. It is not a template
 conversion of the TDSC security-gateway draft.
 
 ## Versioning and submission status
@@ -66,14 +68,18 @@ exposure report. `generate_evidence.py` then verifies:
 - the three-scale representative two-source PostgreSQL 16 Join--Group report,
   its 27 direct/novel/replay points, exact million-fact accounting,
   raw-artifact digest, implementation digest, and service memory peaks;
-- the source-controlled V4 acceptance manifest, current tested-source digest,
-  fixed environment and verification receipts, all 30 implemented gates and
-  all 560 measured operations, including exact overlap, replay identity,
+- the source-controlled V4 acceptance manifest, archived tested-source digest,
+  current-tree divergence metadata, fixed environment and verification
+  receipts, all 30 implemented gates and all 560 measured operations,
+  including exact overlap, replay identity,
   latency, cgroup-memory, network, WAL, offline-build, artifact, activation,
   storage, and small-query-regression checks;
 - the V4 small-query candidate's 832 raw operation samples and Docker-memory
   observations, from which its five benchmark cells are reconstructed before
   comparison with the digest-bound legacy baseline;
+- the V4 supplemental layout, same-root concurrency, and million-Fact oracle
+  pack, whose four source bindings are reconstructed from the retained
+  `fede479...` archive while later source changes remain disclosure metadata;
 - the production Control PostgreSQL storage curve and budget-boundary trials;
 - compact source snapshots for the legacy performance, storage, and scale
   campaigns, each uniquely bound to commit `38a35d7...` and re-hashed from
@@ -86,7 +92,12 @@ exposure report. `generate_evidence.py` then verifies:
   manifests, dataset bindings, timings, and all five correctness conditions;
 - the model, configuration, and raw-log hashes in
   `formal/results/exposure_ledger.json` and
-  `formal/results/exposure_bitmap_refinement.json`.
+  `formal/results/exposure_bitmap_refinement.json`;
+- the V5 Outcome bounded production/test source manifest, source-set digest,
+  base implementation commit, raw `go test -json` execution receipt, exact
+  radix counters, and full-rebuild-reference match;
+- the model, configuration, and raw-log hashes for the abstract V5 Outcome-set
+  settlement and recoverable Artifact Publication safety models.
 
 It then emits `generated/evidence.tex` and compiles both `main.tex` and the
 separate `supplement.tex` with a pinned Docker TeX environment. The broad 1,024
@@ -96,7 +107,7 @@ Complete typing/big-step rules, output-key cases, and the detailed operator
 coverage matrix are also in the supplement; the main paper retains the effect
 summary and safety properties. Detailed legacy materialized-ledger timing,
 storage, and Join--Group diagnostics are likewise in the supplement; the main
-paper retains one scoped Legacy--V4 contrast. A local TeX syntax build is
+paper retains the measured V4 acceptance result. A local TeX syntax build is
 available through `paper/tkde/build.sh`, but it still uses Docker for the
 exposure evaluation.
 
@@ -120,7 +131,7 @@ storage, and scale reports are all consumed by the paper build.
 Checked 2026-07-27: the IEEE Computer Society's public author guidance defines
 12 formatted pages for a regular Transactions paper, including references and
 author biographies, and the [2026 IEEE charge
-list](https://magazines.ieeeauthorcenter.ieee.org/wp-content/uploads/sites/10/IEEE-Article-Processing-Charges-List.pdf)
+list](https://journals.ieeeauthorcenter.ieee.org/wp-content/uploads/sites/7/IEEE-Article-Processing-Charges-List.pdf)
 lists TKDE at 12 pages before mandatory overlength charges of USD 220 per page.
 The [Computer Society author
 guidance](https://www.computer.org/publications/author-resources) warns that a
@@ -129,7 +140,8 @@ threshold. Therefore the corresponding author must still confirm the selected
 TKDE manuscript category, initial-submission limit, treatment of supplementary
 material, and current charge acknowledgement in ScholarOne/Author Portal
 immediately before submission. Do not infer acceptability from a successful
-local PDF build alone. The 2026-07-30 pinned-template syntax build is 12
-main-paper pages plus a separate 9-page supplement. The main paper now matches
-the cited production threshold, but the initial-submission and supplement rules
-still require confirmation.
+local PDF build alone. The 2026-08-01 pinned-template syntax build is 12
+main-paper pages plus a separate 12-page supplement. The main paper therefore
+meets the cited regular-paper production threshold without relying on an
+unverified 14-page initial-submission allowance; the initial-submission and
+supplement rules still require confirmation immediately before upload.

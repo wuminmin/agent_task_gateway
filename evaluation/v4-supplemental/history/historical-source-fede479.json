@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "campaign_id": "taskgate-v4-supplemental-fede479",
+  "git_commit": "fede4798add8bb7bbf5793466efc9cf857c4bb8a",
+  "git_tree": "24a3f56ed5d5f53b6fe6595c70563ae4bfff5701",
+  "archive": "evaluation/v4-supplemental/history/historical-source-fede479.tar.gz",
+  "archive_sha256": "6f09478f6b7a8f7e75790574425d84f14511bde725af8273d0ba1f207932c329",
+  "archive_generation": "git -c tar.umask=0022 archive --format=tar <commit> -- <sorted generalized source paths> | gzip -n -9",
+  "source_scope_sha256": "27ac9c29d845b62616f968738559387bd9adbeb9b91f0017684156878a26f6e3",
+  "source_scope_files": 138,
+  "source_paths_sha256": "773e4181046db2fc7f71ca4edaa0e5120534a863ee5044e2216336e528f30808",
+  "source_scope_algorithm": "sha256(path\\0bytes\\0) over sorted generalized supplemental source scope v1",
+  "source_selection": "generalized supplemental source scope reconstructed from archived concurrency/oracle declarations and fixed validator inputs"
+}

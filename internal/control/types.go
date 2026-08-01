@@ -123,8 +123,17 @@ type ExposureLimits struct {
 }
 
 type ExposureGrant struct {
-	Limits         ExposureLimits `json:"limits"`
-	ProfileVersion string         `json:"profile_version"`
+	Limits             ExposureLimits              `json:"limits"`
+	ProfileVersion     string                      `json:"profile_version"`
+	PredicateFootprint *PredicateFootprintLimitsV1 `json:"predicate_footprint,omitempty"`
+}
+
+type PredicateFootprintLimitsV1 struct {
+	Version                  string `json:"version"`
+	MaxRawLiteralsPerQuery   int64  `json:"max_raw_literals_per_query"`
+	MaxUniqueAtomsPerQuery   int64  `json:"max_unique_atoms_per_query"`
+	MaxAtomPayloadBytes      int64  `json:"max_atom_payload_bytes"`
+	MaxTotalAtomPayloadBytes int64  `json:"max_total_atom_payload_bytes"`
 }
 
 func (g ExposureGrant) Enabled() bool {
@@ -165,16 +174,21 @@ type ExposureReservation struct {
 }
 
 type ExposureCharge struct {
-	QueryID               string `json:"query_id"`
-	RootTaskID            string `json:"root_task_id"`
-	ProfileVersion        string `json:"profile_version"`
-	ActualReleaseFacts    int64  `json:"actual_release_facts"`
-	ActualInfluenceFacts  int64  `json:"actual_influence_facts"`
-	ActualOutcomeFacts    int64  `json:"actual_outcome_facts"`
-	ChargedReleaseFacts   int64  `json:"charged_release_facts"`
-	ChargedInfluenceFacts int64  `json:"charged_influence_facts"`
-	ChargedOutcomeFacts   int64  `json:"charged_outcome_facts"`
-	ObservationSHA256     string `json:"observation_sha256"`
+	QueryID                   string `json:"query_id"`
+	RootTaskID                string `json:"root_task_id"`
+	ProfileVersion            string `json:"profile_version"`
+	ActualReleaseFacts        int64  `json:"actual_release_facts"`
+	ActualInfluenceFacts      int64  `json:"actual_influence_facts"`
+	ActualOutcomeFacts        int64  `json:"actual_outcome_facts"`
+	ChargedReleaseFacts       int64  `json:"charged_release_facts"`
+	ChargedInfluenceFacts     int64  `json:"charged_influence_facts"`
+	ChargedOutcomeFacts       int64  `json:"charged_outcome_facts"`
+	ActualPredicateAtomCount  int64  `json:"actual_predicate_atom_count"`
+	ChargedPredicateAtomCount int64  `json:"charged_predicate_atom_count"`
+	CompositeOutcomeSHA256    string `json:"composite_outcome_sha256,omitempty"`
+	PredicateContextSHA256    string `json:"predicate_context_sha256,omitempty"`
+	PredicateSetSHA256        string `json:"predicate_set_sha256,omitempty"`
+	ObservationSHA256         string `json:"observation_sha256"`
 	// V4 fields bind a charge to the immutable dictionary and the one atomic
 	// three-dimensional root-head transition. They are empty for V1--V3.
 	DictionarySetDigest string `json:"dictionary_set_digest,omitempty"`
@@ -195,8 +209,10 @@ type OrdinalDynamicFact struct {
 }
 
 const (
-	OrdinalDynamicDerivedRelease = "DERIVED_RELEASE"
-	OrdinalDynamicOutcome        = "OUTCOME"
+	OrdinalDynamicDerivedRelease   = "DERIVED_RELEASE"
+	OrdinalDynamicOutcome          = "OUTCOME"
+	OrdinalDynamicPredicateAtom    = "PREDICATE_ATOM"
+	OrdinalDynamicCompositeOutcome = "COMPOSITE_OUTCOME"
 )
 
 // OrdinalHybridSet combines exact snapshot ordinals with the intentionally
@@ -234,6 +250,7 @@ type OrdinalObservationReference struct {
 type OrdinalMaterializationPublish struct {
 	CacheKeySHA256 string
 	ExpiresAt      *time.Time
+	ProfileVersion string
 }
 
 type OrdinalMaterializationLookup struct {
@@ -242,10 +259,12 @@ type OrdinalMaterializationLookup struct {
 	GrantDigest         string
 	CatalogDigest       string
 	DictionarySetDigest string
+	ProfileVersion      string
 }
 
 type OrdinalMaterialization struct {
 	CacheKeySHA256 string
+	ProfileVersion string
 	TaskID         string
 	RootTaskID     string
 	SourceQueryID  string
@@ -499,10 +518,12 @@ type QueryRecordPage struct {
 }
 
 type QueryReceipt struct {
-	Query    QueryRecord
-	Audit    AuditEvent
-	Receipt  *PersistedQueryReceipt
-	Exposure *ExposureCharge
+	Query                     QueryRecord
+	Audit                     AuditEvent
+	Receipt                   *PersistedQueryReceipt
+	Exposure                  *ExposureCharge
+	Artifact                  *ResultArtifact
+	ArtifactRegistrationAudit *AuditEvent
 }
 
 type PersistedQueryReceipt struct {

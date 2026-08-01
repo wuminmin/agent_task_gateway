@@ -1,0 +1,197 @@
+{
+  "compose_execution": {
+    "receipt": "evaluation/v5-outcome/compose-receipt.json",
+    "receipt_sha256": "149ab37bb4b56e393202a81412fada497a1b3f8e515697f752733f1e1f50e91e"
+  },
+  "deterministic_set": {
+    "duplicate_idempotent": true,
+    "members": 10000,
+    "permutation_deterministic": true,
+    "tamper_rejected": true
+  },
+  "implementation_base_commit": "030c1f6c42abf67dac3fb512ca7206bf694827ec",
+  "postgres_committed_graph": {
+    "blocks_loaded": 1,
+    "blocks_reused": 255,
+    "candidate_cardinality": 1,
+    "hashes_loaded": 2,
+    "leaves_changed": 1,
+    "leaves_loaded": 1,
+    "replay_changed_objects": 0,
+    "root_block_count": 256,
+    "root_cardinality": 100000,
+    "transaction_boundary": "commit_then_independent_merge"
+  },
+  "raw_execution": {
+    "command": [
+      "go",
+      "test",
+      "-json",
+      "-count=1",
+      "./internal/exposure",
+      "./internal/control",
+      "-run",
+      "Test(ValidateCanonicalSQLValueEncodingCoversAdmissibleDomain|ValidateCanonicalSQLValueEncodingSpecialValues|ValidateCanonicalJSONBEncodingRejectsMalformedTrees|PredicateAtomsAcceptCanonicalTimeAndJSONB|CanonicalTimeValidatorMatchesEncoderAtMicrosecondBoundaries|V5SettlementAndSemanticReplayPostgres|OutcomeHashSetV5PostgresLoadsOnlyTouchedBranches|OutcomeHashSetV5SamePrefixMultiChunkBoundaries|NormalizeV5OutcomeFactsValidatesAtomCompositeBinding|OutcomeHashSetV5ExactDifferenceUnionAndReplay|OutcomeHashSetV5DeterministicAndTamperEvident)$"
+    ],
+    "exit_code": 0,
+    "go_version": "go version go1.25.12 linux/amd64",
+    "packages_passed": 2,
+    "postgres_version": "PostgreSQL 16.14 (Debian 16.14-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit",
+    "raw_log": "evaluation/v5-outcome/raw/go-test.jsonl",
+    "raw_log_sha256": "c5281414953cb4871f50303cbd11dc305e6acd4017ce37af63b010958468e706",
+    "tests_failed": 0,
+    "tests_passed": 11,
+    "tests_skipped": 0
+  },
+  "same_prefix_multichunk": {
+    "chunk_size": 4096,
+    "chunks_before": 3,
+    "contiguous_rechunking": true,
+    "full_rebuild_reference_match": true,
+    "insert_positions": [
+      "first",
+      "middle",
+      "last"
+    ],
+    "members": 8193,
+    "missing_chunk_rejected": true,
+    "prefix16": "4224",
+    "replay_changed_objects": 0
+  },
+  "schema_version": 3,
+  "source_manifest": {
+    "algorithm": "sha256(canonical-json(sorted-path-sha256-list))",
+    "files": [
+      {
+        "path": "config/catalog.yaml",
+        "sha256": "b14248c07d6b85346508d40dcf1d36c84160355bd2b952007a3d90e17c65b226"
+      },
+      {
+        "path": "go.mod",
+        "sha256": "b694a98fd2197fbb830306c8fd72976aa7a9e9a5f69c3e5c3683fdfa5efde7ec"
+      },
+      {
+        "path": "go.sum",
+        "sha256": "74fab9bab7eb3804d3c845cd07e7b76d1606e423964aee9330f16af928ff7389"
+      },
+      {
+        "path": "internal/control/budget.go",
+        "sha256": "3c20b4a46b3978d518135d65f50781860436592c01c4cf2e8744c25b82a9ecbd"
+      },
+      {
+        "path": "internal/control/migrations/018_predicate_footprint_v5.sql",
+        "sha256": "3e15bc1891b20be86ae9bbdd3fe38d5c4b86c70c1d5b2e605935e355c04012f8"
+      },
+      {
+        "path": "internal/control/ordinal_exposure_v5.go",
+        "sha256": "b4f1e1e741af4db0f001cf5333a8cbcaa6c857de6eb6dd5c499d8d624cac9db5"
+      },
+      {
+        "path": "internal/control/ordinal_materialization_artifact_test.go",
+        "sha256": "802bf7f3babbee2b4f0087888ecfbf810ef68580d1ff3b2f3815bf02fe954a73"
+      },
+      {
+        "path": "internal/control/outcome_hashset_v5.go",
+        "sha256": "7a29d8fd285db12e6cd1d0f95d490fb2ea4e40ad60084a786e6ace432d51c6cc"
+      },
+      {
+        "path": "internal/control/outcome_hashset_v5_test.go",
+        "sha256": "fd7a5da63dc033f371b11c5f0deae507e1cb500c58b8a1bd711226e3ba9b2d1b"
+      },
+      {
+        "path": "internal/control/result.go",
+        "sha256": "06425b5bb459e6f1147f7796d240e5721fa2d2646ff77027e2efa588c87b5204"
+      },
+      {
+        "path": "internal/control/result_artifact.go",
+        "sha256": "a49e750989138a780df1d61726a14ffa688c2c0b3e8d76e0d41044020d6aad7d"
+      },
+      {
+        "path": "internal/control/result_artifact_test.go",
+        "sha256": "aa50ad24aa89d07c1a96680d40bcae07471725c10c7854b33f29b9dc58148739"
+      },
+      {
+        "path": "internal/exposure/canonical_validation_test.go",
+        "sha256": "25d390d15df3c59f97e28336e1cf76f75a9e407c25cce0608f79f43e31dfb27a"
+      },
+      {
+        "path": "internal/exposure/fact.go",
+        "sha256": "0597a7835dc73cfd155b42152a4a3de869c08805ed2a4dfcbb4bbb0aba74e60a"
+      },
+      {
+        "path": "internal/exposure/outcome_v5_test.go",
+        "sha256": "d69d36c6cf0aab5b6eb2b6c79124ce4810d514bace6e9c4b36bb0a96399b2ec9"
+      },
+      {
+        "path": "internal/gateway/exposure.go",
+        "sha256": "f36aa63baf1c964f274ade601d7746836e874b33759f0daf0f934816ffc80425"
+      },
+      {
+        "path": "internal/gateway/ordinal_derivation_scale_test.go",
+        "sha256": "2ff8c2d823a664d5af00f445eda8d29d3f5e3e5ce5f54919c4f06a81165dbbb4"
+      },
+      {
+        "path": "internal/gateway/ordinal_single_product_postgres_test.go",
+        "sha256": "2b7bf46eeb7416c60104cdceb56b7d8b826fa611d713950a2269f967e860bdd5"
+      },
+      {
+        "path": "internal/gateway/query.go",
+        "sha256": "34f16642fde9b18124cac9d9fdb62d463144736cde88727968718449401d3955"
+      },
+      {
+        "path": "internal/gateway/query_test.go",
+        "sha256": "baf38b527075bda18c7bcda637fe6080094c1c0cdf63da4320106748f2308f8f"
+      },
+      {
+        "path": "internal/gateway/result_artifact.go",
+        "sha256": "728e511fd432787ff39930f7ffcde28c8202921b15bda289a5da0ad99174d8ad"
+      },
+      {
+        "path": "internal/gateway/result_artifact_test.go",
+        "sha256": "f9fd2ad720b2e3b63b4a5d307a1881795b544e0304d591cb85a83de3ee762cd6"
+      },
+      {
+        "path": "internal/gateway/service.go",
+        "sha256": "0d66212581feedd982b918362c136e99b4758131cd56a672a1fc5dfbe9cd9f02"
+      },
+      {
+        "path": "internal/queryplan/normalform.go",
+        "sha256": "946a40b229b5f34c9614d1b1e6a158c755554ed34bc962f31e7594125c9346cf"
+      },
+      {
+        "path": "internal/queryplan/predicate_footprint.go",
+        "sha256": "df00d072b6f99f57f71410ba1689e9965b4c5f7c9b18b0f48b97d5eabf361ace"
+      },
+      {
+        "path": "internal/queryreceipt/queryreceipt.go",
+        "sha256": "d24ec47eea12b631d1000f53321244bd7cf42c98267b5e75391800c895e7d9dd"
+      },
+      {
+        "path": "internal/queryreceipt/queryreceipt_test.go",
+        "sha256": "f11aa8eda043eb8e35727c4021c4690a6741c83dbf558c5ab7c2985382f73639"
+      },
+      {
+        "path": "internal/resultartifact/artifact.go",
+        "sha256": "33aa19723c58c5dbe27b8af927748799a44875bf9f681c8d6a2e8fa26a91f70a"
+      },
+      {
+        "path": "internal/resultartifact/s3_live_test.go",
+        "sha256": "70c57e37f3cd02b996a9ae30fd5d062dbb331893cc0a318aadc396cd333667d1"
+      },
+      {
+        "path": "internal/snapshotbundle/scale_test.go",
+        "sha256": "522c5449c8e5cd69970cac90be148745e13e137247220b784dddf3dfbfcb5e92"
+      },
+      {
+        "path": "scripts/integration-test.sh",
+        "sha256": "96c82419293ae3043bb38757cc68c12e7c7f6a097e8ae8770962ad1af6609481"
+      },
+      {
+        "path": "scripts/record-compose-e2e.sh",
+        "sha256": "6a56101863e0066d992fb3e186c0c5dad4d34e52c36a8f005c66c63f881ac25b"
+      }
+    ],
+    "sha256": "8570d99c330f056a9e8e2135d2ba92e98c3120e9feb89d9d1c8e1b6c3b25cefa"
+  },
+  "submission_commit": "85885a542cf5aa0968b1d22c71ea3562a5b07406"
+}

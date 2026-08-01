@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -173,9 +174,20 @@ VALUES ($1,$2,$3,$4,'RESERVED',$5,$6,$7,$8)`, queryID, taskID, rootTaskID, profi
 }
 
 func settleAnyExposureMeasuredTx(ctx context.Context, tx *sql.Tx, now time.Time, settlement BudgetSettlement) (*ExposureCharge, exposureSettlementMetrics, error) {
-	var isV4 bool
-	if err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM v4_query_exposure_reservations WHERE query_id=$1)`, settlement.QueryID).Scan(&isV4); err != nil {
+	var isV4, isV5 bool
+	if err := tx.QueryRowContext(ctx, `SELECT
+ EXISTS (SELECT 1 FROM v4_query_exposure_reservations WHERE query_id=$1),
+ EXISTS (SELECT 1 FROM v5_query_exposure_reservations WHERE query_id=$1)`, settlement.QueryID).Scan(&isV4, &isV5); err != nil {
 		return nil, exposureSettlementMetrics{}, err
+	}
+	if isV5 {
+		if (settlement.OrdinalExposure == nil) == (settlement.OrdinalObservationRef == nil) || settlement.Exposure != nil {
+			return nil, exposureSettlementMetrics{}, errors.New("V5 requires exactly one observation or committed observation reference")
+		}
+		if settlement.OrdinalObservationRef != nil {
+			return settleV5ObservationRefMeasuredTx(ctx, tx, now, settlement.QueryID, settlement.OrdinalObservationRef)
+		}
+		return settleV5ExposureMeasuredTx(ctx, tx, now, settlement.QueryID, settlement.OrdinalExposure)
 	}
 	if isV4 {
 		if (settlement.OrdinalExposure == nil) == (settlement.OrdinalObservationRef == nil) {
@@ -1042,9 +1054,14 @@ WHERE reservation.query_id=$1`, queryID).
 }
 
 func releaseAnyExposureReservationTx(ctx context.Context, tx *sql.Tx, now time.Time, queryID string) error {
-	var isV4 bool
-	if err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM v4_query_exposure_reservations WHERE query_id=$1)`, queryID).Scan(&isV4); err != nil {
+	var isV4, isV5 bool
+	if err := tx.QueryRowContext(ctx, `SELECT
+ EXISTS (SELECT 1 FROM v4_query_exposure_reservations WHERE query_id=$1),
+ EXISTS (SELECT 1 FROM v5_query_exposure_reservations WHERE query_id=$1)`, queryID).Scan(&isV4, &isV5); err != nil {
 		return err
+	}
+	if isV5 {
+		return releaseV5ExposureReservationTx(ctx, tx, now, queryID)
 	}
 	if !isV4 {
 		return releaseExposureReservationTx(ctx, tx, now, queryID)

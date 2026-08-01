@@ -21,8 +21,12 @@ Current formal status:
 - Recovery liveness config: `formal/RecoveryLiveness.cfg`
 - Root-family exposure model: `formal/ExposureLedger.tla`
 - Root-family exposure config: `formal/ExposureLedger.cfg`
+- Artifact publication model: `formal/ArtifactPublication.tla`
+- Artifact publication config: `formal/ArtifactPublication.cfg`
 - V4 ordinal/bitmap refinement model: `formal/ExposureBitmapRefinement.tla`
 - V4 ordinal/bitmap refinement config: `formal/ExposureBitmapRefinement.cfg`
+- Abstract V5 Outcome-set settlement model: `formal/OutcomeSetAbstractRefinement.tla`
+- Abstract V5 Outcome-set settlement config: `formal/OutcomeSetAbstractRefinement.cfg`
 - Primary result: `formal/results/tlc.json`
 - Vector-budget result: `formal/results/vector_budget.json`
 - SQL authorization result: `formal/results/sql_authorization.json`
@@ -30,7 +34,9 @@ Current formal status:
 - Receipt/audit result: `formal/results/receipt_audit.json`
 - Recovery liveness result: `formal/results/recovery_liveness.json`
 - Root-family exposure result: `formal/results/exposure_ledger.json`
-- V4 ordinal/bitmap result: pending regeneration; no V4 TLC number is claimed
+- Artifact publication result: `formal/results/artifact_publication.json`
+- V4 ordinal/bitmap result: `formal/results/exposure_bitmap_refinement.json`
+- Abstract V5 Outcome-set settlement result: `formal/results/outcome_set_abstract_refinement.json`
 - Archived tool: TLC 1.7.1
 - Latest core TLC result: passed at 2026-07-25T03:38:31Z with 14,824,257
   states generated, 3,255,552 distinct states, and depth 18.
@@ -44,8 +50,16 @@ Current formal status:
   3,281 states generated, 3,281 distinct states, and depth 3.
 - Latest recovery-liveness TLC result: passed at 2026-07-25T03:38:44Z with
   221 states generated, 135 distinct states, and depth 7.
-- Latest root-family exposure result: passed at 2026-07-25T03:38:45Z with
-  107,286 states generated, 39,010 distinct states, and depth 12.
+- Latest root-family exposure result: passed at 2026-08-01T06:27:34Z with
+  410,766 states generated, 148,706 distinct states, and depth 12.
+- Latest artifact-publication result: passed at 2026-08-01T08:01:51Z with
+  1,497 states generated, 484 distinct states, and depth 15.
+- Latest V4 ordinal/bitmap refinement result: passed at
+  2026-08-01T06:27:37Z with 122,976 states generated, 60,680 distinct states,
+  and depth 9.
+- Latest abstract V5 Outcome-set settlement result: passed at
+  2026-08-01T08:01:54Z with 20 states generated, 10 distinct states, and
+  depth 4.
 - Scope: one core task, finite request/receipt sets, abstract
   relation/column/scope sets, explicit crash transitions, a separate finite
   vector-budget ledger over query, row, and DBMS dimensions, a finite
@@ -55,7 +69,12 @@ Current formal status:
   one root and one child task, finite release/influence/outcome fact universes, and
   bounded terminal replay. The V4 refinement model separately supplies a finite
   FactID--ordinal bijection, segmented exact bitmaps, one root epoch, CAS refresh,
-  and committed-observation replay.
+  and committed-observation replay. The abstract V5 Outcome model checks exact
+  hash-set difference/union, no double charge, budget/replay safety, and
+  fail-closed collision/corruption states; it does not represent physical
+  radix partitions or object reuse. The artifact model separates accounted
+  settlement from later verified availability, exercises failure/mismatch/retry,
+  and permits recovery without re-execution.
 
 The model intentionally abstracts away SQL parser byte-level syntax, full AST
 coverage, cryptographic signatures, PostgreSQL row contents, network I/O,
@@ -93,9 +112,12 @@ at the named abstraction boundaries.
 | `ExposureLedger.requestTask` | Root or delegated task that issued a request | `query_exposure_reservations.task_id` and `root_task_id`; every family member resolves to the same root ledger |
 | `ExposureLedger.requestState = "RESERVED"` | Exposure evidence is required for the query | `query_exposure_reservations.status='RESERVED'` created with the ordinary resource reservation |
 | `ExposureLedger.requestState IN {"BUFFERED","DERIVED"}` | Business result and companion provenance have executed but remain internal | Gateway memory between `QueryPair` and `FinalizeQuery`; these transient states are intentionally not durable database states |
-| `ExposureLedger.requestState = "SETTLED"` | Novel facts were atomically accepted and the encrypted result became releasable | Exposure reservation and root ledger updated in the same transaction as terminal query evidence and encrypted result |
-| `ExposureLedger.requestState = "REJECTED"` | Actual novel exposure exceeded either root limit | Transaction rolls back fact inserts and result persistence; Gateway returns `exposure_budget_exhausted` without the buffered result |
-| `ExposureLedger.delivered` | Successful MCP response or later authorized result read | Result is returned only after the atomic finalization transaction commits |
+| `ExposureLedger.requestState = "SETTLED"` | Novel facts were atomically accepted and accounted | Exposure reservation and root ledger updated with terminal query evidence, V8 settlement receipt, and PENDING artifact intent |
+| `ExposureLedger.requestState = "REJECTED"` | Actual novel exposure exceeded a root limit | Transaction rolls back fact/head and PENDING metadata; any private staging object is unavailable and deleted/reconciled; Gateway returns `exposure_budget_exhausted` |
+| `ExposureLedger.accounted` | Ledger settlement has committed | `query_records.status='COMPLETED'` and exposure reservation is `SETTLED`; this does not imply artifact availability |
+| `ArtifactPublication.artifactState = "STAGED"` | Encrypted Parquet exists only at a private staging key | No result-artifact row is AVAILABLE and staging is not a read path |
+| `ArtifactPublication.artifactState = "PENDING"` | Accounting committed with recoverable publication intent | `result_artifacts.status='PENDING'`, V8 receipt exists; a canonical object may exist physically but is not consumable |
+| `ArtifactPublication.artifactState = "AVAILABLE"` | Logical release boundary after verified promotion | Canonical object hash matches committed metadata; `status='AVAILABLE'`, `consumed_at` and `QUERY_RESULT_CONSUMED` commit together |
 | `ExposureBitmapRefinement.FactOf` | Immutable publication dictionary (`internal/ordinal`) | `ordinal_dictionary_segments/chunks` plus publication digest binding |
 | `ExposureBitmapRefinement.head` and `rootEpoch` | `control.OrdinalRootHead` | Three set-manifest digests and one epoch in the ordinal root-head row |
 | `ExposureBitmapRefinement.bitmapEffect` | `ordinal.BitmapSet` / `control.OrdinalHybridSet` | Immutable content-addressed containers plus sparse dynamic facts |
@@ -143,11 +165,18 @@ at the named abstraction boundaries.
 | `ExposureLedger.Reserve` | `gateway.Service.executeSQL`, `Store.ReserveBudget` with `ExposureReservationRequest` | Inserts `query_records` and `query_exposure_reservations` in the resource-budget reservation transaction after resolving `tasks.root_task_id` | `TestExposurePlanHidesMeteringKeysAndDeduplicatesReplay`, `TestExposureTaskRejectsDirectSQLWithoutProvenance` | Estimated exposure is admission metadata; only actual novel FactIDs affect the root ledger. |
 | `ExposureLedger.ExecuteAndBuffer` | `dataconnector.Connector.QueryPair` | Visible and provenance companion queries run in one read-only `REPEATABLE READ` business-database transaction; no Control PG result is yet committed | `TestExposurePlanHidesMeteringKeysAndDeduplicatesReplay`, live Compose acceptance | The model represents both result sets as fact sets and tracks physical execution separately from exposure charge. |
 | `ExposureLedger.DeriveProvenance` | `planExposureContext.deriveObservationV2`, `AttachOutcomeV3`, `ValidateRelationV2`, `ObserveV2` | Hidden typed entity keys and source rows become V2 release/dependency sets; V3 binds the normalized proposition and released result into one outcome fact | V2 algebra/oracle tests; `TestExposurePlanHidesMeteringKeysAndDeduplicatesReplay`; `TestExposureV3ChargesDistinctZeroResultPredicates` | TLC assumes derivation exact; typed base semantics are in `docs/exposure-algebra-v2.md`, and the V3 wrapper is in `docs/exposure-accounting.md`. |
-| `ExposureLedger.Settle` | `settleExposureTx` inside `FinalizeQueryMeasuredWithReceipt` | Locks the root ledger, inserts immutable facts with collision checks, checks all three limits, updates three counters, and stores encrypted result, terminal audit, and V5 receipt atomically | `TestExposureSettlementIsNovelFactIdempotent`, `TestDelegatedTasksShareRootAccountingState`, `TestConcurrentTaskFamilySettlementCannotOverspend`, `TestExposureV3ChargesDistinctZeroResultPredicates` | A row lock serializes concurrent family settlement; charges equal only successful novel inserts. |
-| `ExposureLedger.RejectOverBudget` | failed `settleExposureTx` / finalization rollback | Conditional root-ledger update fails with `ErrExposureBudgetExhausted`; the surrounding transaction rolls back novel facts and result persistence | `TestExposureOverBudgetDoesNotStoreOrChargeResult`, `TestExposureBudgetRejectsBufferedResultBeforeRelease` | Physical DB work is still represented in ordinary execution telemetry, while the result is never released. |
+| `ExposureLedger.Settle` | V5 settlement inside `FinalizeOrdinalQueryArtifactMeasuredWithReceipt` | Locks the root head, checks all three limits, advances the three set digests, and commits terminal query/audit, V8 PENDING Artifact Intent receipt, and PENDING artifact metadata atomically | `TestV5SettlementAndSemanticReplayPostgres`, `TestConcurrentTaskFamilySettlementCannotOverspend`, artifact Control tests | A row lock/CAS serializes concurrent family settlement; availability is a later transition. |
+| `ExposureLedger.RejectOverBudget` | failed V5 settlement / finalization rollback | Conditional root-ledger update fails with `ErrExposureBudgetExhausted`; the surrounding transaction rolls back novel heads and PENDING metadata | `TestExposureOverBudgetDoesNotStoreOrChargeResult`, `TestExposureBudgetRejectsBufferedResultBeforeRelease` | Physical DB work and private staging can exist transiently, but no canonical object or AVAILABLE state is created. |
 | `ExposureLedger.ReleaseBeforeExecution` | `releaseExposureReservationTx` inside resource reservation release | Marks the exposure reservation `RELEASED` and appends audit evidence without adding facts | definite pre-execution failure tests | This action excludes failures after visible data has been produced. |
 | `ExposureLedger.Replay` | `queryReplayResponse` and immutable query result/receipt lookup | Unique `(task_id, request_id)` returns the terminal observation; no connector or settlement transaction is rerun | `TestRequestIDIsRequiredAndRetriesNeverExecuteTwice`, `TestExposurePlanHidesMeteringKeysAndDeduplicatesReplay` | Replay count is bounded only to keep the TLC state space finite. |
 | `ExposureLedger.RevokeRoot` | `revokeTask`, ancestor checks in execution | Root archival blocks new descendant requests; already terminal request IDs remain observationally replayable | `TestDelegatedTaskSharesRootExposureAndStopsWithParent` | The split model tracks root activity but abstracts the full signed delegation chain. |
+| `ArtifactPublication.Stage` | `gateway.Service.stageResultArtifact` | Encode/encrypt and upload to a randomized private staging key before Control settlement | result-artifact manager tests | STAGED bytes confer no logical availability. |
+| `ArtifactPublication.Settle` | `FinalizeOrdinalQueryArtifactMeasuredWithReceipt` | One Control transaction commits ledgers, terminal query/audit, V8 PENDING Artifact Intent receipt, expected object hash, and PENDING row | `TestArtifactPromotionFailurePreservesSettlementAndRecoversWithoutReexecution` | V8 signs the publication intent; it does not claim AVAILABLE. |
+| `ArtifactPublication.CreateCanonical` | `resultartifact.Manager.Promote` | Create the canonical key and verify immutable metadata/hash while Control may still remain PENDING | `TestCanonicalCopySurvivesAvailableTransactionFailureAndRecoversExactlyOnce`, result-artifact manager tests | This action explicitly exposes the cross-store crash window. PENDING does not imply physical absence. |
+| `ArtifactPublication.MarkAvailable` | `Store.MarkResultArtifactAvailable` | Atomically set AVAILABLE/`consumed_at` and append `QUERY_RESULT_CONSUMED` after canonical verification | `TestResultDeliveryCapabilityExpiresAndDownloadsDoNotMutateState`, `TestCanonicalCopySurvivesAvailableTransactionFailureAndRecoversExactlyOnce`, Control artifact tests | The audit event proves logical availability; later downloads do not mutate state. |
+| `ArtifactPublication.CanonicalCreateFail` / `AvailableCommitFail` / `PromotionHashMismatch` | failed copy, failed Control AVAILABLE commit, or digest verification in `gateway.Service.promoteResultArtifact` | PENDING intent and settlement remain durable; a matching canonical object may already exist, but no AVAILABLE transition occurs | `TestArtifactPromotionFailurePreservesSettlementAndRecoversWithoutReexecution`, `TestCanonicalCopySurvivesAvailableTransactionFailureAndRecoversExactlyOnce`, artifact manager digest tests | Failure is explored as state; PENDING intentionally permits canonical existence. |
+| `ArtifactPublication.RetryPending` | promotion retry / reconciliation scheduling | Clears only transient failed-attempt state; the artifact remains PENDING | artifact recovery tests | No fairness is assumed, so the model makes no eventual-availability claim. |
+| `ArtifactPublication.Recover` | `Service.ReconcilePendingArtifacts` and same-request replay | Reuses committed PENDING intent and any matching canonical object; no budget/exposure settlement and no connector invocation | `TestArtifactPromotionFailurePreservesSettlementAndRecoversWithoutReexecution`, `TestCanonicalCopySurvivesAvailableTransactionFailureAndRecoversExactlyOnce`, `TestArtifactRecoveryGatesReadinessUntilFullPassCompletes` | Readiness remains closed until a full recovery pass succeeds. |
 
 ## V4 Ordinal Refinement Mapping
 
@@ -177,7 +206,8 @@ at the named abstraction boundaries.
 | A fact is charged at most once per root and ledger kind | `exposure_facts` primary key on `(root_task_id, ledger_kind, fact_sha256)` |
 | Exposure facts are immutable | `exposure_facts_no_update` and `exposure_facts_no_delete` triggers |
 | Delegated tasks share the root budget subject | signed `root_task_id`/`parent_task_id`, task foreign keys, delegation narrowing checks, and root-ledger lookup |
-| Exposure evidence and result commit together | `FinalizeQueryMeasuredWithReceipt` performs exposure settlement, encrypted result insertion, terminal audit, and receipt persistence in one Control PG transaction |
+| Exposure settlement and publication intent commit together | V5 artifact finalization commits exposure heads, terminal query/audit, V8 receipt, expected object digest, and PENDING metadata in one Control PG transaction |
+| Availability is subsequent and fail closed | `MarkResultArtifactAvailable` commits AVAILABLE, `consumed_at`, and `QUERY_RESULT_CONSUMED` only after canonical promotion and digest verification |
 
 ## Current Non-Refinement Gaps
 

@@ -37,7 +37,7 @@ func (c *Catalog) V4Enabled() bool {
 		profiles[profile.Name] = profile.ExposureProfileVersion
 	}
 	for _, route := range c.ApprovalRoutes {
-		if profiles[route.BudgetProfile] == exposureProfileV4 {
+		if profiles[route.BudgetProfile] == exposureProfileV4 || profiles[route.BudgetProfile] == exposureProfileV5 {
 			return true
 		}
 	}
@@ -148,16 +148,17 @@ type ApprovalRoute struct {
 }
 
 type BudgetProfile struct {
-	Name                   string   `yaml:"name" json:"name"`
-	MaxQueries             int64    `yaml:"max_queries" json:"max_queries"`
-	MaxRows                int64    `yaml:"max_rows" json:"max_rows"`
-	MaxDBTime              Duration `yaml:"max_db_time" json:"max_db_time"`
-	QueryTimeout           Duration `yaml:"query_timeout" json:"query_timeout"`
-	TaskTTL                Duration `yaml:"task_ttl" json:"task_ttl"`
-	MaxReleaseFacts        int64    `yaml:"max_release_facts,omitempty" json:"max_release_facts,omitempty"`
-	MaxInfluenceFacts      int64    `yaml:"max_influence_facts,omitempty" json:"max_influence_facts,omitempty"`
-	MaxOutcomeFacts        int64    `yaml:"max_outcome_facts,omitempty" json:"max_outcome_facts,omitempty"`
-	ExposureProfileVersion string   `yaml:"exposure_profile_version,omitempty" json:"exposure_profile_version,omitempty"`
+	Name                   string                             `yaml:"name" json:"name"`
+	MaxQueries             int64                              `yaml:"max_queries" json:"max_queries"`
+	MaxRows                int64                              `yaml:"max_rows" json:"max_rows"`
+	MaxDBTime              Duration                           `yaml:"max_db_time" json:"max_db_time"`
+	QueryTimeout           Duration                           `yaml:"query_timeout" json:"query_timeout"`
+	TaskTTL                Duration                           `yaml:"task_ttl" json:"task_ttl"`
+	MaxReleaseFacts        int64                              `yaml:"max_release_facts,omitempty" json:"max_release_facts,omitempty"`
+	MaxInfluenceFacts      int64                              `yaml:"max_influence_facts,omitempty" json:"max_influence_facts,omitempty"`
+	MaxOutcomeFacts        int64                              `yaml:"max_outcome_facts,omitempty" json:"max_outcome_facts,omitempty"`
+	ExposureProfileVersion string                             `yaml:"exposure_profile_version,omitempty" json:"exposure_profile_version,omitempty"`
+	PredicateFootprint     *domain.PredicateFootprintLimitsV1 `yaml:"predicate_footprint,omitempty" json:"predicate_footprint,omitempty"`
 }
 
 func (p BudgetProfile) Budget() domain.Budget {
@@ -169,7 +170,16 @@ func (p BudgetProfile) Budget() domain.Budget {
 		TaskTTL:         p.TaskTTL.Duration,
 		MaxReleaseFacts: p.MaxReleaseFacts, MaxInfluenceFacts: p.MaxInfluenceFacts, MaxOutcomeFacts: p.MaxOutcomeFacts,
 		ExposureProfileVersion: p.ExposureProfileVersion,
+		PredicateFootprint:     clonePredicateFootprintLimits(p.PredicateFootprint),
 	}
+}
+
+func clonePredicateFootprintLimits(input *domain.PredicateFootprintLimitsV1) *domain.PredicateFootprintLimitsV1 {
+	if input == nil {
+		return nil
+	}
+	copy := *input
+	return &copy
 }
 
 // EffectiveSensitivity includes field-level classifications so a product can

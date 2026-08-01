@@ -23,8 +23,8 @@
 \newcommand{\rieffect}{\mathcal E^{ri}}
 \input{generated/evidence.tex}
 
-\title{Supplement to ``TaskGate: Task-Scoped Query-Outcome and Exposure
-Accounting over Versioned Reporting Snapshots''}
+\title{Supplement to ``TaskGate: Task-Scoped Accounting of Cumulative Query
+Exposure over Versioned Reporting Snapshots''}
 \author{Anonymous Author(s)}
 \date{}
 
@@ -40,6 +40,22 @@ fold defined in the main paper, so the existing binary T-Join/E-Join rules
 apply at every fold step. Join fields are stable role-qualified IDs; equality
 requires the same canonical type and collation; union schemas are identical
 including type and collation.
+
+\subsection{Canonical Scalar Domain}
+
+The closed domain contains \code{smallint}, \code{integer}, \code{bigint},
+\code{numeric}, \code{real}, \code{double precision}, \code{boolean},
+\code{bytea}, \code{date}, \code{time without time zone}, both timestamp forms,
+\code{uuid}, \code{text}, \code{character}, \code{character varying}, and
+\code{jsonb}, with PostgreSQL aliases mapped to these names. Integers retain
+their widths; exact numerics are reduced rationals; floats retain IEEE width
+with canonical NaN, infinities, and negative zero. Temporal values use
+PostgreSQL microseconds and \code{timestamptz} uses UTC. Text binds deterministic
+collation name and actual version. Text-preserving \code{json},
+\code{time with time zone}, and floating-point SUM are excluded. Aggregate
+results follow PostgreSQL: COUNT returns \code{int8}; SUM of int2/int4 returns
+\code{int8}, int8/numeric returns \code{numeric}; MIN/MAX retain input type.
+Unsupported casts, arithmetic, or overflow make evaluation undefined.
 
 \subsection{Typing}
 
@@ -190,7 +206,7 @@ maximum combines alternative witnesses. Grouping includes group-key inputs and
 the complete declared aggregate argument, including NULL and non-extreme
 \code{MIN/MAX} inputs. Exact/integer \code{SUM} is admitted; floating-point
 \code{SUM} is undefined. Pagination uses PostgreSQL ordering plus a Catalog
-key suffix that proves totality, and copies annotations only for the delivered
+key suffix that proves totality, and copies annotations only for the selected output
 slice. These are positive-output dependencies, not physical-read or minimal
 causal provenance.
 
@@ -309,7 +325,7 @@ index from each task/Product to every reachable schema-qualified dependency.
 Task binding begins \code{ACTIVE}. Any current compile failure or mismatch of
 the persisted set makes \code{REQUIRE\_REBIND} durable; database constraints
 prevent a transition back to \code{ACTIVE}. Exact terminal replay is looked up
-before this new-work gate. Otherwise the Gateway re-resolves the current set,
+before this new-work gate. Otherwise the enforcement layer re-resolves the current set,
 reserves ordinary resources, and the connector rechecks the registry revision
 inside the same Business-PG snapshot used by visible and companion SQL. A
 connector mismatch releases the reservation and settles no exposure. Rebind
@@ -317,7 +333,7 @@ creates a new root request and external approval from the old Grant's final narr
 scope; no Grant, historical query, result, or receipt is rewritten.
 
 The signed Grant remains at the semantic-root interface; expanded terminal
-Products are not silently added to its approved set. For each query the Gateway
+Products are not silently added to its approved set. For each query the enforcement layer
 derives an ephemeral least-privilege policy grant for every terminal named by
 the bound artifact. Public scope outputs are resolved through
 \code{Artifact.Output.FieldID} to stable terminal role/column pairs, and every
@@ -372,11 +388,15 @@ determinism follows from the unique representative and ordering functions.
 \end{proof}
 
 \begin{proof}[Proof of Outcome separation and replay]
-The outcome-identity payload length-prefixes $h_N$, $h_R$, and $m$. Unequal
-$h_N$ therefore yields unequal semantic payloads; under the collision-detection
-assumption, it cannot reuse the same ledger identity. Equal normalized plans
-and normalized releases make every payload component equal. Novel-set
-settlement then gives charges one and zero, respectively.
+Every V5 atom payload length-prefixes the predicate context, stable role and
+FieldID, resolved expression, type/collation, operator, and canonical literal.
+Changing any component changes the payload and, under the collision assumption,
+its FactID. The composite length-prefixes the normal-form and result-observation
+digests, row count, context, complete atom-set digest, and atom cardinality.
+Exact replay or a supported rewrite makes all these components equal; changing
+the normal form, result observation, or complete atom set changes the composite
+payload. Exact set difference therefore charges each novel atom/composite once
+and charges replay zero.
 \end{proof}
 
 \begin{proof}[Proof of Representation closure and partial-function semantics]
@@ -416,7 +436,7 @@ sets, and hence their ordered canonical encodings, are unique.
 \begin{proof}[Proof of Group-key completeness]
 E-Group includes $\bigoplus_{g\in G}\alpha_g(t)$ in the output row annotation.
 Projection preserves that annotation, and effect extraction includes every
-delivered row's $S_r$ independently of $V$.
+selected output row's $S_r$ independently of $V$.
 \end{proof}
 
 \begin{proof}[Proof of Distinct-dependency completeness]
@@ -510,8 +530,9 @@ arguments.
 \end{proof}
 
 \begin{proof}[Proof of Atomic root-family budget safety]
-Every descendant resolves to the same root head. Exact bitmap refinement makes
-the concrete candidate decode to $K_d\cup E_d$ and its charged count to
+Every descendant resolves to the same root head. Exact bitmap refinement for
+Release/dependency and exact Merkle-radix refinement for Outcome make each
+concrete candidate decode to $K_d\cup E_d$ and its charged count to
 $|E_d\setminus K_d|$. A successful epoch CAS linearizes all three candidate
 heads at one point; a conflicting transaction recomputes rather than publishing
 a stale difference. The precondition checks every Catalog bound and failure
@@ -520,10 +541,10 @@ identity and all three bounds. This is the abstract FactSet TLA+ transition, so
 the physical representation does not alter the safety argument.
 \end{proof}
 
-\section{V3 Outcome Wrapper}
+\section{Legacy V3 Outcome Wrapper and V5 Upgrade}
 
 V3 leaves every V2 release/dependency FactID unchanged. After the V2
-observation is normalized, the gateway computes
+observation is normalized, the enforcement layer computes
 \[
  h_R=H(\code{TASKGATE-OUTCOME-DIGEST-V1},m,
        \operatorname{sort}\{\operatorname{Canon}(f):f\in F_r\})
@@ -542,6 +563,49 @@ The RQ3 threshold campaign uses three normalized predicates whose global
 \code{COUNT(*)} output is the same zero. Their V2 release/dependency increments
 after the first are zero, but the three normal-form digests yield three outcome
 facts. Exact replay and an alias/case/whitespace rewrite reuse the first fact.
+
+V5 retains that archived campaign as a compatibility baseline but changes the
+current Outcome effect to $A(q)\cup\{c_q\}$. The atomizer expands \code{IN} to
+typed equality atoms and \code{NOT IN} to typed inequality atoms, removes exact
+duplicates, and binds every atom to the predicate context. The composite binds
+normal form V4, canonical result observation, row count, context, sorted atom
+set digest, and atom count. Signed limits bound raw literals, unique atoms, one
+payload, and total payload before Business SQL.
+
+The exact SHA-256 set partitions members by prefix16 into deterministic
+4096-member chunks. A prefix8 block commits ordered leaf references, and the
+root commits at most 256 block references and total cardinality. For a
+candidate, settlement reads only its prefix8 blocks and prefix16 leaf families,
+compares full hashes, rebuilds only affected leaf families/blocks, and reuses
+all other digests. Hence the physical work is
+$O(k\log k+h+\ell+b)$ for candidate cardinality $k$, hashes loaded $h$, leaf
+chunks $\ell$, and blocks $b$, plus a root manifest bounded by 256 references;
+the algorithm never scans untouched radix partitions. Its worst-case cost is
+linear in the membership and manifest references of candidate-touched
+partitions, which may approach total root size under adversarially concentrated
+prefixes. The source-controlled PostgreSQL regression commits a
+\VFiveRootCardinality{}-member object graph before an independent merge
+transaction; the \VFiveSamePrefixMembers{}-member same-prefix regression covers
+multi-chunk boundary shifts and missing-chunk failure.
+
+\begin{table}[h]
+\centering
+\caption{V5 reproducibility bindings. The Git identity is the existing base
+commit; the complete bounded source manifest binds the tested working tree,
+including production and test files.}
+\label{tab:v5-reproducibility}
+\small
+\begin{tabular}{L{0.29\columnwidth}L{0.64\columnwidth}}
+\toprule
+Binding & Identity \\
+\midrule
+Implementation base commit & \VFiveImplementationCommit \\
+Implementation source-set SHA-256 & \VFiveImplementationSourceHash \\
+Raw \code{go test -json} SHA-256 & \VFiveRawLogHash \\
+Required tests passing & \VFiveRawTestsPassed{}; zero skipped and zero failed \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \section{V4 Ordinal/Bitmap Refinement}
 
@@ -591,10 +655,10 @@ checks exact cardinalities and set/observation digests. A distinct,
 source-bound supplement now covers the obligations that report did not imply:
 \RQFourVFourDistributionCells{} dense/clustered/random-sparse--overlap cells,
 public-path same-root batches of widths \RQFourVFourConcurrencyWidths{} through
-\RQFourVFourConcurrencyGateways{} Gateway replicas, and an offline
+\RQFourVFourConcurrencyGateways{} enforcement-layer replicas, and an offline
 derivation-independent comparison of all \RQFourVFourOracleFacts{} facts.
 
-The layout result is a bitmap-kernel measurement, not Gateway end-to-end
+The layout result is a bitmap-kernel measurement, not TaskGate end-to-end
 latency: \RQFourVFourDistributionRoundTrips{} exact portable complete-set
 round-trip checks pass at their actual cardinalities, and the worst
 ANDNOT--popcount--OR p95 is
@@ -624,7 +688,9 @@ and readiness degraded. The fixed path sanitizes that settlement, preserves the
 budget-exhaustion terminal code, and is covered by both a targeted regression
 and the final fresh concurrency campaign. The earlier 560-operation
 success-path report remains reproducible from its archived source snapshot;
-the final concurrency report binds the fixed current source.
+the final concurrency report is likewise bound to the fixed source captured by
+its archived commit. Later implementation changes are reported as source
+divergence and are not attributed to either campaign.
 
 \subsection{Implementation Coverage}
 
@@ -666,6 +732,22 @@ and direction, acceptance at the 16-source boundary, and rejection at 17
 sources.  They are implementation tests, not
 multi-source PG E2E evidence, performance measurements, or a mechanized proof.
 
+\subsection{V8 Persistence-Time Semantics}
+
+The normal Gateway production path creates a \emph{co-committed V8}: receipt
+signing and insertion occur in the same Control-PG transaction as resource and
+exposure settlement, terminal and artifact-registration audit evidence, and
+the PENDING artifact row.  The implementation also retains a compatibility
+recovery path for a terminal query, artifact row, and registration event that
+already exist while the receipt row is absent.  This path first validates the
+original registration event against the immutable audit chain and then emits a
+\emph{recovered V8 attestation}.  Such an attestation authenticates the same
+historical PENDING intent, but its \code{signed\_at} can postdate the original
+settlement and the receipt itself was not co-committed with that settlement.
+Both forms prove intent rather than availability; the normal Compose path
+produces the co-committed form.  They share one V8 wire format and verification
+rule rather than carrying a recovery-mode flag.
+
 \section{Descriptive Baseline Contrast}
 
 For one grouped sum/count fixture, Table~\ref{tab:baselines} reports six
@@ -706,7 +788,7 @@ an exposure/provenance overhead claim.
 All recorded timings in this subsection predate the V4 ordinal path. They
 exercise the V2 release/dependency subledger, the dominant materialized set
 retained inside V3: millions of canonical payload/string/map objects are
-derived in the Gateway and inserted as individual FactID rows. V3 functional
+derived in the enforcement layer and inserted as individual FactID rows. V3 functional
 and race tests additionally execute the outcome insert and V5 receipt, but the
 artifact does not isolate its one-fact latency at every scale. These results are
 a reproducible diagnosis and regression baseline, not evidence that V4 meets
@@ -714,7 +796,7 @@ its performance gates.
 
 The controlled local campaign uses an i9-13900HX host with 32 logical CPUs and
 16.6~GB RAM under WSL2/Docker 29.1.3. Each of three trials creates fresh
-Business and Control PostgreSQL~16.14 databases, a gateway, one root task, and
+Business and Control PostgreSQL~16.14 databases, one enforcement-layer instance, one root task, and
 eight delegated workers. After a 32-query history ramp, each worker issues 200
 measured warm-cache queries at concurrency 1, 4, and 8. Every full-path request
 enters through public MCP and includes authorization, reservation, paired
@@ -901,7 +983,7 @@ is \RQFourScaleHighReplayS{}~s [\RQFourScaleHighReplayLowS{},
 \RQFourScaleHighReplayDeriveS{}~s replay; fact-store work consumes
 \RQFourScaleHighNovelStoreS{} and \RQFourScaleHighReplayStoreS{}~s,
 respectively, versus \RQFourScaleHighDirectMS{}~ms for direct SQL. Campaign-wide
-peaks are \RQFourScaleGatewayGiB{}~GiB for the gateway and
+peaks are \RQFourScaleGatewayGiB{}~GiB for the enforcement layer and
 \RQFourScaleControlGiB{}~GiB for Control PostgreSQL. Thus ordinary SQL is not
 the bottleneck: legacy full relation-to-FactSet derivation and per-fact storage
 dominate both paths, while replay still repeats derivation and membership work.
@@ -920,6 +1002,14 @@ not substitutes for the PostgreSQL end-to-end result.
 
 \section{RQ5: Daily Publication and Retained-Version Routing}
 \label{sec:rq5-supp}
+
+Publication retention follows live root references. The current epoch and any
+older epoch with a live root retain complete HOT, COLD, sidecar, and dictionary
+artifacts locally. After the last bound root terminates, COLD payloads may move
+to audit object storage, while manifests, digests, receipts, and audit-chain
+evidence remain for the policy audit period. Local artifacts and replay entries
+may be reclaimed only after both the last reference and retention deadline.
+The prototype does not evaluate archival bandwidth or automated collection.
 
 \textbf{Offline publication campaign.}
 The source-controlled campaign builds four \RQFiveRows-row,
@@ -991,7 +1081,7 @@ the retained chain but cannot independently re-hash those omitted payloads.
 
 \textbf{Online transition campaign.}
 This is a separate \RQFiveRows-row campaign over four retained,
-Catalog-bound Gateway services and frozen PostgreSQL snapshots, sharing an
+Catalog-bound enforcement-layer services and frozen PostgreSQL snapshots, sharing an
 isolated Control database. An experiment-only approval-time router changes
 which concrete service new root approvals select; it neither adds a query-time
 \code{latest} alias nor measures a production router. Table~\ref{tab:rq5-online-supp}

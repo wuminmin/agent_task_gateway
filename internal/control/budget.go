@@ -313,7 +313,7 @@ func (s *Store) settleWithReceipt(ctx context.Context, settlement BudgetSettleme
 	} else if err := releaseAnyExposureReservationTx(ctx, tx, now, settlement.QueryID); err != nil {
 		return QueryRecord{}, PersistedQueryReceipt{}, opErr(op, settlementErrorKind(err), err)
 	}
-	record, audit, err := settleBudgetTx(ctx, tx, now, settlement, status, resultHash)
+	record, audit, err := settleBudgetTx(ctx, tx, now, settlement, status, resultHash, false)
 	if err != nil {
 		return QueryRecord{}, PersistedQueryReceipt{}, opErr(op, settlementErrorKind(err), err)
 	}
@@ -346,7 +346,8 @@ func settlementErrorKind(err error) error {
 	return ErrConflict
 }
 
-func settleBudgetTx(ctx context.Context, tx *sql.Tx, now time.Time, settlement BudgetSettlement, status QueryStatus, resultHash string) (QueryRecord, AuditEvent, error) {
+func settleBudgetTx(ctx context.Context, tx *sql.Tx, now time.Time, settlement BudgetSettlement, status QueryStatus,
+	resultHash string, deferBudgetArchive bool) (QueryRecord, AuditEvent, error) {
 	record, err := scanQuery(tx.QueryRowContext(ctx, querySelect+` WHERE id=$1 FOR UPDATE`, settlement.QueryID))
 	if err != nil {
 		if isNoRows(err) {
@@ -446,7 +447,7 @@ WHERE id=$12 AND status='RESERVED'`, status, settlement.Rows, settlement.DBMS, o
 	if err != nil {
 		return QueryRecord{}, AuditEvent{}, err
 	}
-	if (status == QueryCompleted || status == QueryFailed || status == QueryIndeterminate) && (after.Usage.UsedQueries >= after.Limits.Queries || after.Usage.UsedRows >= after.Limits.Rows || after.Usage.UsedDBMS >= after.Limits.DBMS) {
+	if !deferBudgetArchive && budgetSettlementReachesHardLimit(status, after) {
 		if err := archiveTaskTx(ctx, tx, record.TaskID, TerminalBudgetExhausted, "system", now); err != nil {
 			return QueryRecord{}, AuditEvent{}, err
 		}
@@ -464,6 +465,12 @@ WHERE id=$12 AND status='RESERVED'`, status, settlement.Rows, settlement.DBMS, o
 	completedAt := dbTime(now)
 	record.CompletedAt = &completedAt
 	return record, audit, nil
+}
+
+func budgetSettlementReachesHardLimit(status QueryStatus, after BudgetSnapshot) bool {
+	return (status == QueryCompleted || status == QueryFailed || status == QueryIndeterminate) &&
+		(after.Usage.UsedQueries >= after.Limits.Queries || after.Usage.UsedRows >= after.Limits.Rows ||
+			after.Usage.UsedDBMS >= after.Limits.DBMS)
 }
 
 func notBefore(value, lowerBound time.Time) time.Time {
@@ -667,6 +674,10 @@ func (s *Store) GetQueryReceipt(ctx context.Context, queryID string) (QueryRecei
 		return QueryReceipt{}, opErr(op, ErrConflict, err)
 	}
 	evidence := QueryReceipt{Query: query, Audit: audit}
+	persisted, persistedErr := scanPersistedQueryReceipt(s.db.QueryRowContext(ctx, receiptSelect+` WHERE query_id=$1`, queryID))
+	if persistedErr != nil && !isNoRows(persistedErr) {
+		return QueryReceipt{}, opErr(op, ErrConflict, persistedErr)
+	}
 	if query.Status == QueryCompleted {
 		charge, chargeErr := s.GetExposureCharge(ctx, queryID)
 		if chargeErr == nil {
@@ -674,14 +685,38 @@ func (s *Store) GetQueryReceipt(ctx context.Context, queryID string) (QueryRecei
 		} else if !errors.Is(chargeErr, ErrNotFound) {
 			return QueryReceipt{}, chargeErr
 		}
+		// Existing V1-V7 receipts deliberately do not bind artifact evidence.
+		// Only load the complete registration projection for V8 or when a
+		// missing receipt may need a recovered V8 attestation. That recovery
+		// signs immutable historical audit evidence after settlement; it is not
+		// the ordinary co-committed receipt path.
+		if persistedErr != nil || persisted.Version == "8" {
+			artifact, artifactErr := s.GetResultArtifactByQuery(ctx, queryID)
+			if artifactErr == nil {
+				events, listErr := s.ListAuditEventsForQuery(ctx, queryID)
+				if listErr != nil {
+					return QueryReceipt{}, listErr
+				}
+				registrations := make([]AuditEvent, 0, 1)
+				for _, event := range events {
+					if event.EventType == "QUERY_RESULT_OBJECT_REGISTERED" {
+						registrations = append(registrations, event)
+					}
+				}
+				registration, validationErr := validateResultArtifactRegistrationAudit(query, artifact, registrations)
+				if validationErr != nil {
+					return QueryReceipt{}, opErr(op, ErrConflict, validationErr)
+				}
+				evidence.Artifact = &artifact
+				evidence.ArtifactRegistrationAudit = &registration
+			} else if !errors.Is(artifactErr, ErrNotFound) {
+				return QueryReceipt{}, artifactErr
+			}
+		}
 	}
-	receipt, err := scanPersistedQueryReceipt(s.db.QueryRowContext(ctx, receiptSelect+` WHERE query_id=$1`, queryID))
-	if err == nil {
-		evidence.Receipt = &receipt
+	if persistedErr == nil {
+		evidence.Receipt = &persisted
 		return evidence, nil
-	}
-	if !isNoRows(err) {
-		return QueryReceipt{}, opErr(op, ErrConflict, err)
 	}
 	return evidence, nil
 }

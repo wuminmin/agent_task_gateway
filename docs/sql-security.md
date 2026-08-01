@@ -49,6 +49,13 @@ ORDER BY amount DESC
 
 ## Exposure reporting SQL profile
 
+TaskGate defines a controlled analytical SQL profile; it does not claim
+unqualified support for full SQL. Full SQL is intentionally outside the
+accounted path because constructs whose semantics cannot be lowered exactly
+would introduce ambiguity, create accounting-bypass risk, and break
+deterministic compilation. Unsupported constructs therefore fail closed before
+business-database execution and exposure reservation.
+
 `taskgate-reporting-sql-v1` 是可无损转换为 canonical QueryPlan 的闭合子集：
 
 - 恰好一条 `SELECT`，只引用 Grant 中的未限定逻辑产品名和获批字段；

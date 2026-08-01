@@ -14,10 +14,22 @@ or expiry races with in-flight requests, and the global audit sequence.
 `ReceiptAudit.tla` models persisted terminal receipt semantics and the binding
 between receipt audit fields and the terminal audit event. `RecoveryLiveness.tla`
 models conservative recovery under weak fairness.
-`ExposureLedger.tla` models the TKDE data-semantics path: two distinct fact
+`ExposureLedger.tla` models the TKDE data-semantics path: three distinct fact
 ledgers shared by a root task and its delegated child, execution into a
 withheld buffer, provenance derivation, exact novel-fact settlement,
-over-budget rejection before delivery, terminal replay, and root revocation.
+over-budget rejection, terminal replay, and root revocation. It ends at
+accounting and does not equate settlement with delivery.
+`ArtifactPublication.tla` separately models private STAGED data, atomically
+settled PENDING intent, canonical-object creation as a distinct step from the
+Control AVAILABLE commit, committed-object hash agreement, failures on either
+side of that cross-store boundary, retry while PENDING, and recovery without a
+second execution or ledger delta. It is a safety model:
+without weak fairness it makes no eventual-availability claim.
+`OutcomeSetAbstractRefinement.tla` is an abstract exact-set settlement model for
+difference/union, no double charge, budget safety, replay, and fail-closed
+collision/corruption states. It does not model prefix16 routing, chunks,
+blocks, radix manifests, or object reuse; executable regressions cover those
+physical obligations.
 `REFINEMENT.md` maps each modeled action to the current Go method,
 PostgreSQL transaction or invariant, and test/fault-injection evidence. That
 mapping is an audit artifact, not a mechanized refinement proof.
@@ -30,7 +42,7 @@ make formal
 
 `make formal` writes the original TaskGate result to `formal/results/tlc.json`
 and writes one JSON/log pair for each split model under `formal/results/`,
-including `exposure_ledger.json` and `exposure_ledger.log`.
+including `exposure_ledger.json`, `artifact_publication.json`, and their logs.
 
 The core task lifecycle model keeps a scalar budget to control state growth.
 The split vector-budget model checks the same `used + reserved <= limit`
@@ -58,12 +70,16 @@ implementation refines these models.
 | Catalog drift fails closed | `CatalogDrift`, `CatalogFailClosed` |
 | Crash recovery is conservative | `DefinitePreConnectorFailure`, `CrashFromDurableReservation`, `CrashUnknownOutcome`, `CrashWithKnownResult`, `SettleKnown` |
 | Recovery eventually converges when the recovery step remains enabled | `RecoveryConverges` in `RecoveryLiveness.tla` under `WF_vars(RecoverStep)` |
-| Release and source-influence exposure stay independently bounded | `DualBudgetSafety` in `ExposureLedger.tla` |
+| Release, source-influence, and Outcome exposure stay independently bounded | `TripleBudgetSafety` in `ExposureLedger.tla` |
 | Only facts novel to the root task are charged | `ExactNovelCharge`, `NovelChargesDoNotOverlap`, `TaskFamilyNonAmplification` |
-| Query results remain withheld until successful settlement | `NoDeliveryBeforeSettle`, `RejectedResultsStayBuffered` |
+| Ledger accounting occurs exactly at successful settlement | `AccountedIffSettled`, `RejectedResultsStayBuffered` |
+| Availability requires settlement, canonical existence, and matching hash | `AvailableImpliesSettledCanonicalHashMatch` in `ArtifactPublication.tla` |
+| Rejection never becomes available | `RejectedNotAvailable` in `ArtifactPublication.tla` |
+| Canonical creation or AVAILABLE-commit failure remains unavailable pending retry/recovery | `CanonicalCreateFail`, `AvailableCommitFail`, `PromotionHashMismatch`, `RetryPending`, and `RetryRequiredStaysPending` in `ArtifactPublication.tla` |
+| Publication recovery has zero exposure delta and one execution | `RecoveryHasZeroLedgerDelta`, `RecoveryDoesNotReexecute` in `ArtifactPublication.tla` |
 | Provenance evidence corresponds to the buffered execution | `DerivedEvidenceMatchesBuffer` |
 | Root and delegated tasks cannot multiply exposure by repeating facts | shared `knownRelease`/`knownInfluence`, `TaskFamilyNonAmplification` |
-| Terminal retry does not execute or charge again | `DeliveredQueriesExecutedOnce`, `NoChargeWithoutSettlement`, `Replay` |
+| Terminal retry does not execute or charge again | `SettledQueriesExecutedOnce`, `NoChargeWithoutSettlement`, `Replay` |
 
 `DefinitePreConnectorFailure` is only a known in-process failure before the
 connector is called, so releasing its reservation is sound. A process crash

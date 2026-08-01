@@ -1,3 +1,5 @@
+//go:build taskgate_scale
+
 package gateway
 
 import (
@@ -25,7 +27,7 @@ func TestOrdinalSingleProductOnlinePathAgainstPostgreSQL(t *testing.T) {
 	artifactDirectory := strings.TrimSpace(os.Getenv("V4_SCALE_SNAPSHOT_ARTIFACT_DIR"))
 	catalogPath := strings.TrimSpace(os.Getenv("V4_SCALE_CATALOG_PATH"))
 	if dsn == "" || artifactDirectory == "" || catalogPath == "" {
-		t.Skip("V4 scale database, snapshot artifact directory, and Catalog are required")
+		t.Fatal("V4 scale database, snapshot artifact directory, and Catalog are required")
 	}
 
 	logicalCatalog, err := catalog.Load(catalogPath)

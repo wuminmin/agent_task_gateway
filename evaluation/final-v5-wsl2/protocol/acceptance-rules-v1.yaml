@@ -1,0 +1,22 @@
+schema_version: 1
+publication_pass_requires:
+  - frozen full 40-character Git SHA
+  - measured paths clean
+  - exactly three fresh deployments
+  - stable measured adapter SHA-256 and unique deployment-volume identity SHA-256
+  - matching Ubuntu, vmstat-before/after, and Windows host environment digests
+  - every required cell and sample present
+  - pswpin and pswpout deltas equal zero
+  - no OOM and no unexpected container restart
+  - no result, FactSet, receipt, or availability-audit mismatch
+  - no cross-epoch replay or budget violation
+  - semantic replay business_sql_delta equals zero
+  - rejected request has no result_id, AVAILABLE artifact, or success audit
+  - raw JSONL independently reconstructs all summaries
+invalid_rules:
+  offered_concurrency_not_observed: width cell is invalid, not pass or fail
+  unsupported_sql: fail-closed only, never equivalent
+  product_limit_or_oom: retain failure at requested scale
+pilot:
+  publication_eligible: false
+  paper_macros: forbidden

@@ -2,7 +2,9 @@ package gateway
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -42,6 +44,99 @@ func TestReceiptSigningClampsRegressedWallClock(t *testing.T) {
 	}
 	if evidence.Query.CompletedAt == nil || request.SignedAt.Before(*evidence.Query.CompletedAt) {
 		t.Fatalf("signed_at %s precedes completed_at %v", request.SignedAt, evidence.Query.CompletedAt)
+	}
+}
+
+func TestFinalizePipelineResponseHasNonOverlappingTopLevelPhases(t *testing.T) {
+	start := time.Now().Add(-10 * time.Millisecond)
+	measurement := &queryPipelineMeasurement{requestStarted: start, prepareFinished: start.Add(time.Millisecond), executeFinished: start.Add(3 * time.Millisecond)}
+	response := map[string]any{}
+	finalizePipelineResponse(response, storedQueryResult{}, measurement, start.Add(4*time.Millisecond), start.Add(5*time.Millisecond), start.Add(6*time.Millisecond))
+	pipeline := response["pipeline_ms"].(map[string]float64)
+	sum := 0.0
+	for _, name := range []string{"prepare", "execute_and_derive", "artifact_stage", "control_settlement", "artifact_publication", "response_finalize"} {
+		value, present := pipeline[name]
+		if !present || value < 0 {
+			t.Fatalf("%s=%v present=%v", name, value, present)
+		}
+		sum += value
+	}
+	if pipeline["server_total"]+0.001 < sum {
+		t.Fatalf("server total %.3f < phases %.3f", pipeline["server_total"], sum)
+	}
+}
+
+func TestBuildQueryReceiptRequestEmitsV8ArtifactIntent(t *testing.T) {
+	digest64 := fmt.Sprintf("%064x", 1)
+	created := time.Date(2026, 8, 1, 1, 0, 0, 0, time.UTC)
+	completed := created.Add(time.Millisecond)
+	after := control.BudgetSnapshot{
+		TaskID: "task-v8", Limits: control.BudgetLimits{Queries: 10, Rows: 100, DBMS: 1000},
+		Usage: control.BudgetUsage{UsedQueries: 1, UsedRows: 1, UsedDBMS: 2}, UpdatedAt: completed,
+	}
+	record := control.QueryRecord{
+		ID: "query-v8", TaskID: "task-v8", RequestID: "request-v8", Actor: "alice",
+		RequestDigest: digest64, SQLFingerprint: "fingerprint-v8", CatalogVersion: "catalog-v8",
+		CatalogDigest: digest64, DatasourceID: "datasource-v8", SchemaDigest: digest64,
+		ManifestDigest: digest64, GrantDigest: digest64, PolicyDecision: "ALLOW",
+		Status: control.QueryCompleted, ReservedRows: 5, ReservedDBMS: 50,
+		ResultRows: 1, ResultDBMS: 2, ChargedQueries: 1, ChargedRows: 1, ChargedDBMS: 2,
+		BudgetBefore: control.BudgetSnapshot{
+			TaskID: "task-v8", Limits: control.BudgetLimits{Queries: 10, Rows: 100, DBMS: 1000}, UpdatedAt: created,
+		},
+		BudgetAfter: &after, ResultSHA256: digest64, CreatedAt: created, CompletedAt: &completed,
+	}
+	terminal := control.AuditEvent{Sequence: 7, PreviousHash: digest64, CurrentHash: digest64}
+	registration := control.AuditEvent{Sequence: 8, PreviousHash: digest64, CurrentHash: fmt.Sprintf("%064x", 2)}
+	expires := completed.Add(time.Hour)
+	artifact := control.ResultArtifact{
+		ResultID: "result-v8", QueryID: record.ID, TaskID: record.TaskID, KeyID: "artifact-key-v8",
+		Format: "parquet", Encryption: "chunked-aes-gcm-v1",
+		StagingKey: "private/staging/result-v8", ObjectKey: "private/results/result-v8",
+		ParquetSHA256: digest64, ObjectSHA256: fmt.Sprintf("%064x", 3),
+		ParquetSize: 128, ObjectSize: 160, RowCount: 1, ColumnCount: 1,
+		SchemaJSON: []byte(`[{"name":"amount"}]`), ACLJSON: []byte(`{"subject":"alice"}`),
+		ResultMetadataJSON: []byte(`{"display_columns":["amount"],"limited":false}`),
+		Status:             control.ResultArtifactAvailable, ExpiresAt: &expires,
+	}
+	exposureCharge := control.ExposureCharge{
+		QueryID: record.ID, RootTaskID: record.TaskID, ProfileVersion: exposure.ProfileV5,
+		ActualOutcomeFacts: 2, ChargedOutcomeFacts: 2,
+		ActualPredicateAtomCount: 1, ChargedPredicateAtomCount: 1,
+		CompositeOutcomeSHA256: fmt.Sprintf("%064x", 4), PredicateContextSHA256: fmt.Sprintf("%064x", 5),
+		PredicateSetSHA256: fmt.Sprintf("%064x", 6), ObservationSHA256: fmt.Sprintf("%064x", 7),
+		DictionarySetDigest: fmt.Sprintf("%064x", 8), ReleaseSetSHA256: fmt.Sprintf("%064x", 9),
+		InfluenceSetSHA256: fmt.Sprintf("%064x", 10), OutcomeSetSHA256: fmt.Sprintf("%064x", 11), RootEpoch: 1,
+	}
+	signer := queryreceipt.DemoSigner([]byte("gateway-v8-builder-test"))
+	request, err := BuildQueryReceiptRequest(control.QueryReceipt{
+		Query: record, Audit: terminal, Exposure: &exposureCharge,
+		Artifact: &artifact, ArtifactRegistrationAudit: &registration,
+	}, signer, completed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var signed queryreceipt.QueryReceiptV1
+	if err := json.Unmarshal(request.ReceiptJSON, &signed); err != nil {
+		t.Fatal(err)
+	}
+	if signed.Version != queryreceipt.VersionV8 || signed.ArtifactIntent == nil ||
+		signed.ArtifactIntent.Status != queryreceipt.ArtifactStatusPending {
+		t.Fatalf("V8 artifact receipt = %+v", signed)
+	}
+	if signed.ArtifactIntent.ResultMetadataSHA256 != digest(string(artifact.ResultMetadataJSON)) {
+		t.Fatalf("result metadata digest = %q, want complete metadata binding", signed.ArtifactIntent.ResultMetadataSHA256)
+	}
+	if strings.Contains(string(request.ReceiptJSON), artifact.ObjectKey) ||
+		strings.Contains(string(request.ReceiptJSON), artifact.StagingKey) {
+		t.Fatalf("V8 receipt leaked physical object key: %s", request.ReceiptJSON)
+	}
+	verifier, err := queryreceipt.NewVerifier(map[string]ed25519.PublicKey{signer.KeyID(): signer.PublicKey()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := verifier.Verify(signed); err != nil {
+		t.Fatalf("verify V8 builder output: %v", err)
 	}
 }
 
@@ -93,6 +188,12 @@ func TestExposurePlanHidesMeteringKeysAndDeduplicatesReplay(t *testing.T) {
 	if replay["idempotent_replay"] != true || len(harness.connector.requests) != 2 {
 		t.Fatalf("replay executed again: replay=%+v calls=%d", replay, len(harness.connector.requests))
 	}
+	replayPipeline := replay["pipeline_ms"].(map[string]float64)
+	if replayPipeline["execute_and_derive"] != 0 || replayPipeline["artifact_stage"] != 0 ||
+		replayPipeline["control_settlement"] != 0 || replayPipeline["artifact_publication"] != 0 ||
+		replayPipeline["server_total"]+0.001 < replayPipeline["prepare"]+replayPipeline["response_finalize"] {
+		t.Fatalf("idempotent replay pipeline = %+v", replayPipeline)
+	}
 
 	arguments["request_id"] = "exposure-request-2"
 	second := mustCallGatewayTool(t, harness.service, harness.alice, "execute_plan", arguments)
@@ -132,6 +233,61 @@ func TestOrdinalSemanticAuthorizationDigestIgnoresVolatileResourceCeilings(t *te
 	}
 	if got := ordinalSemanticAuthorizationDigest(secondVisible, secondProvenance, strings.Repeat("f", 64)); got == first {
 		t.Fatal("authorization manifest change did not partition semantic identity")
+	}
+}
+
+func TestOrdinalSemanticAuthorizationDigestV5UsesCanonicalIdentity(t *testing.T) {
+	planDigest := strings.Repeat("1", 64)
+	manifestDigest := strings.Repeat("2", 64)
+	footprint := &queryplan.PredicateFootprint{
+		Version:         "taskgate-predicate-footprint-v1",
+		ContextSHA256:   strings.Repeat("3", 64),
+		AtomSetSHA256:   strings.Repeat("4", 64),
+		UniqueAtomCount: 3,
+		RawLiteralCount: 4,
+		DuplicateCount:  1,
+	}
+	first := ordinalSemanticAuthorizationDigestV5(planDigest, manifestDigest, footprint)
+
+	// Raw literal multiplicity is request metadata. Canonical plan and atom-set
+	// identity remain unchanged after reordering or deduplicating IN members.
+	equivalent := *footprint
+	equivalent.RawLiteralCount = 3
+	equivalent.DuplicateCount = 0
+	if got := ordinalSemanticAuthorizationDigestV5(planDigest, manifestDigest, &equivalent); got != first {
+		t.Fatalf("equivalent V5 predicate syntax partitioned semantic identity: %s != %s", got, first)
+	}
+
+	cases := []struct {
+		name      string
+		plan      string
+		manifest  string
+		footprint queryplan.PredicateFootprint
+	}{
+		{name: "plan", plan: strings.Repeat("5", 64), manifest: manifestDigest, footprint: *footprint},
+		{name: "manifest", plan: planDigest, manifest: strings.Repeat("6", 64), footprint: *footprint},
+		{name: "context", plan: planDigest, manifest: manifestDigest, footprint: func() queryplan.PredicateFootprint {
+			changed := *footprint
+			changed.ContextSHA256 = strings.Repeat("7", 64)
+			return changed
+		}()},
+		{name: "atom set", plan: planDigest, manifest: manifestDigest, footprint: func() queryplan.PredicateFootprint {
+			changed := *footprint
+			changed.AtomSetSHA256 = strings.Repeat("8", 64)
+			return changed
+		}()},
+		{name: "atom count", plan: planDigest, manifest: manifestDigest, footprint: func() queryplan.PredicateFootprint {
+			changed := *footprint
+			changed.UniqueAtomCount++
+			return changed
+		}()},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ordinalSemanticAuthorizationDigestV5(tc.plan, tc.manifest, &tc.footprint); got == first {
+				t.Fatal("semantic identity change did not partition V5 authorization digest")
+			}
+		})
 	}
 }
 

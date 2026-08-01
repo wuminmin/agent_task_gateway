@@ -4,9 +4,9 @@
 
 `taskgate-exposure-v2` 是与 V1 不可混用的 Exposure Profile。一个 root task family 的 Control PG ledger 在创建时固定 profile；委托任务不能改变它。
 
-默认 Catalog 定义 V4 budget profiles。V4 原样复用本文的 V2
-release/dependency FactID 和 V3 OutcomeFact，只把物理 FactSet 换成可逆 ordinal
-bitmap；旧 V1/V2/V3 仍用于历史账本、兼容部署和回归 oracle。所有 approval
+默认 Catalog 已升级为 V5 budget profiles：Release/Dependency 仍复用本文的 V2
+FactID 与 V4 ordinal bitmap，Outcome 则使用 predicate atoms、composite 与
+Merkle radix set；旧 V1/V2/V3/V4 仍用于历史账本、兼容部署和回归 oracle。所有 approval
 routes 都要求独立的人类审批。
 
 V2 的可信执行边界是 canonical `QueryPlan`，客户端不提交 FactID 或计量成本。

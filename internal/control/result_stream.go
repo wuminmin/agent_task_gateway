@@ -37,7 +37,7 @@ func (s *Store) FinalizeOrdinalQueryStreamMeasuredWithReceipt(ctx context.Contex
 	builder TerminalReceiptBuilder) (QueryRecord, PersistedQueryReceipt, FinalizeQueryMetrics, error) {
 	if (settlement.OrdinalExposure == nil) == (settlement.OrdinalObservationRef == nil) || settlement.Exposure != nil {
 		return QueryRecord{}, PersistedQueryReceipt{}, FinalizeQueryMetrics{}, opErr("finalize ordinal query stream", ErrInvalid,
-			fmt.Errorf("exactly one V4 observation or committed observation reference is required"))
+			fmt.Errorf("exactly one ordinal observation or committed observation reference is required"))
 	}
 	settlement.OrdinalMaterialization = publish
 	return s.FinalizeQueryStreamMeasuredWithReceipt(ctx, settlement, plaintext, builder)

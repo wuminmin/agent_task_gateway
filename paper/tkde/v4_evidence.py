@@ -86,6 +86,30 @@ HEX64 = re.compile(r"^[0-9a-f]{64}$")
 TASK_ID = re.compile(r"^task_[0-9a-f]{32}$")
 RECEIPT_DOMAIN = b"taskgate/snapshot-verification-receipt/v1\x00"
 MAX_POINT = (12, 1_035_000, 1)
+HISTORICAL_CATALOG_PATH = "evaluation/v4-acceptance/scale-fixture/catalog-full.yaml"
+HISTORICAL_ORCHESTRATION_PATHS = {
+    "compose": "compose.yaml",
+    "scale_overlay": "evaluation/v4-acceptance/compose.scale-narrow.yaml",
+    "observer_overlay": "evaluation/v4-acceptance/compose.observer.yaml",
+    "full_overlay": "evaluation/v4-acceptance/compose.full.yaml",
+    "full_template": "evaluation/v4-acceptance/full-matrix.template.json",
+    "provisioner": "evaluation/v4-acceptance/provision-full.sh",
+    "dockerfile": "Dockerfile",
+    "evaluation_dockerfile": "evaluation/Dockerfile",
+}
+HISTORICAL_COMPILER_INPUT_PATHS = {
+    "scale_orders_v4_narrow_1_sha256": (
+        "evaluation/v4-acceptance/scale-fixture/snapshots/scale-orders-v4-narrow-1.json"
+    ),
+    "scale_lineitem_v4_narrow_1_sha256": (
+        "evaluation/v4-acceptance/scale-fixture/snapshots/scale-lineitem-v4-narrow-1.json"
+    ),
+}
+HISTORICAL_ENVIRONMENT_INPUT_PATHS = frozenset({
+    HISTORICAL_CATALOG_PATH,
+    *HISTORICAL_ORCHESTRATION_PATHS.values(),
+    *HISTORICAL_COMPILER_INPUT_PATHS.values(),
+})
 
 
 def _require(condition: bool, message: str) -> None:
@@ -468,6 +492,12 @@ def _historical_source_snapshot(provenance_raw: bytes, archive_raw: bytes,
         reported_source_sha256 == EXPECTED_HISTORICAL_SOURCE_SHA256,
         "historical source path/content digest is not reproducible",
     )
+    _require(HISTORICAL_ENVIRONMENT_INPUT_PATHS.issubset(files),
+             "historical source archive omits a measured environment input")
+    environment_input_sha256 = {
+        relative: _sha(files[relative])
+        for relative in sorted(HISTORICAL_ENVIRONMENT_INPUT_PATHS)
+    }
     return {
         "mode": "historical_source_snapshot",
         "campaign_id": EXPECTED_CAMPAIGN,
@@ -479,6 +509,7 @@ def _historical_source_snapshot(provenance_raw: bytes, archive_raw: bytes,
         "source_file_count": len(files),
         "archive_member_count": member_count,
         "archive_uncompressed_source_bytes": total_bytes,
+        "environment_input_sha256": environment_input_sha256,
     }
 
 
@@ -498,6 +529,37 @@ def _current_source_relation(root: Path, historical_source_sha256: str) -> dict[
         "historical_source_sha256": historical_source_sha256,
         "matches_historical": matches,
     }
+
+
+def _validate_historical_environment_inputs(
+        environment: dict[str, Any], input_sha256: Any) -> None:
+    """Bind the measured environment to the immutable campaign source archive."""
+
+    _require(isinstance(input_sha256, dict) and
+             set(input_sha256) == HISTORICAL_ENVIRONMENT_INPUT_PATHS and
+             all(HEX64.fullmatch(value) for value in input_sha256.values()),
+             "historical environment input digest set differs")
+
+    catalog_sha = input_sha256[HISTORICAL_CATALOG_PATH]
+    catalog = environment.get("software", {}).get("catalog", {})
+    _require(catalog.get("host_sha256") == catalog.get("gateway_mount_sha256") ==
+             catalog.get("control_cutover_digest") == catalog_sha,
+             "environment Catalog digest differs from historical source snapshot")
+
+    reported_orchestration = environment.get("software", {}).get("orchestration_sha256", {})
+    _require(isinstance(reported_orchestration, dict) and
+             set(reported_orchestration) == set(HISTORICAL_ORCHESTRATION_PATHS),
+             "environment orchestration artifact set differs")
+    for name, relative in HISTORICAL_ORCHESTRATION_PATHS.items():
+        _require(reported_orchestration[name] == input_sha256[relative],
+                 f"environment orchestration digest {name} differs from historical source snapshot")
+
+    inputs = environment.get("datasets", {}).get("compiler_inputs", {})
+    _require(isinstance(inputs, dict) and set(inputs) == set(HISTORICAL_COMPILER_INPUT_PATHS),
+             "environment compiler input set differs")
+    for name, relative in HISTORICAL_COMPILER_INPUT_PATHS.items():
+        _require(inputs[name] == input_sha256[relative],
+                 f"environment compiler input digest {name} differs from historical source snapshot")
 
 
 def _canonical_receipt(raw: bytes, label: str) -> dict[str, Any]:
@@ -798,33 +860,8 @@ def validate_v4_evidence(repository_root: Path | str,
              preflight_info.get("receipt_bound_activation_runs") == 3,
              "environment receipt aggregate differs")
 
-    catalog_sha = _sha(_read_regular(root / "evaluation/v4-acceptance/scale-fixture/catalog-full.yaml", 1 << 20))
-    catalog = environment.get("software", {}).get("catalog", {})
-    _require(catalog.get("host_sha256") == catalog.get("gateway_mount_sha256") ==
-             catalog.get("control_cutover_digest") == catalog_sha, "environment Catalog digest differs")
-    orchestration_paths = {
-        "compose": "compose.yaml",
-        "scale_overlay": "evaluation/v4-acceptance/compose.scale-narrow.yaml",
-        "observer_overlay": "evaluation/v4-acceptance/compose.observer.yaml",
-        "full_overlay": "evaluation/v4-acceptance/compose.full.yaml",
-        "full_template": "evaluation/v4-acceptance/full-matrix.template.json",
-        "provisioner": "evaluation/v4-acceptance/provision-full.sh",
-        "dockerfile": "Dockerfile",
-        "evaluation_dockerfile": "evaluation/Dockerfile",
-    }
-    reported_orchestration = environment.get("software", {}).get("orchestration_sha256", {})
-    _require(set(reported_orchestration) == set(orchestration_paths),
-             "environment orchestration artifact set differs")
-    for name, relative in orchestration_paths.items():
-        _require(reported_orchestration[name] == _sha(_read_regular(root / relative, 4 << 20)),
-                 f"environment orchestration digest {name} differs")
-    inputs = environment.get("datasets", {}).get("compiler_inputs", {})
-    _require(inputs.get("scale_orders_v4_narrow_1_sha256") == _sha(_read_regular(
-        root / "evaluation/v4-acceptance/scale-fixture/snapshots/scale-orders-v4-narrow-1.json", 1 << 20)),
-        "environment orders compiler input digest differs")
-    _require(inputs.get("scale_lineitem_v4_narrow_1_sha256") == _sha(_read_regular(
-        root / "evaluation/v4-acceptance/scale-fixture/snapshots/scale-lineitem-v4-narrow-1.json", 1 << 20)),
-        "environment lineitem compiler input digest differs")
+    _validate_historical_environment_inputs(
+        environment, historical_source["environment_input_sha256"])
     counts = environment.get("datasets", {}).get("counts", {})
     _require(counts == {"scale_orders_rows": 50000, "scale_lineitem_rows": 250000,
                         "scale_orders_sidecar_rows": 50000, "scale_lineitem_sidecar_rows": 250000,

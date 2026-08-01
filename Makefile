@@ -1,4 +1,4 @@
-.PHONY: verify test build up down logs formal eval-validate eval-exposure eval-exposure-performance eval-exposure-scale eval-exposure-storage eval-provenance-baseline eval-daily-publication eval-daily-publication-online eval-daily-publication-validate eval-smoke eval-full artifacts fuzz paper-evidence paper paper-tkde paper-tdsc
+.PHONY: verify test build up down logs formal eval-validate eval-exposure eval-exposure-performance eval-exposure-scale eval-exposure-storage eval-provenance-baseline eval-daily-publication eval-daily-publication-online eval-daily-publication-validate eval-smoke eval-full eval-v5-final-validate eval-v5-final-preflight eval-v5-final-smoke eval-v5-final-finalize eval-v5-final-evidence artifacts fuzz paper-evidence paper paper-tkde paper-tdsc
 
 verify:
 	docker build --target verify -t taskbound-agent-data-gateway-verify .
@@ -64,6 +64,29 @@ eval-smoke:
 eval-full:
 	./evaluation/run.sh full
 	./evaluation/security/run-full.sh
+
+eval-v5-final-validate:
+	./evaluation/final-v5-wsl2/scripts/validate.sh
+
+eval-v5-final-preflight:
+	./evaluation/final-v5-wsl2/scripts/preflight-wsl2.sh --mode pilot
+
+eval-v5-final-smoke:
+	@tmp_dir="$$(mktemp -d /tmp/taskgate-final-v5-smoke.XXXXXX)"; \
+	run_dir="$$tmp_dir/run"; \
+	trap 'rm -rf "$$tmp_dir"' EXIT; \
+	evaluation/final-v5-wsl2/scripts/run-pilot.sh "$$run_dir"; \
+	test -f "$$run_dir/PILOT-NOT-FOR-PUBLICATION"; \
+	grep -q 'publication_eligible=false' "$$run_dir/PILOT-NOT-FOR-PUBLICATION"; \
+	! grep -q '\\newcommand' "$$run_dir/generated/latex/evidence.tex"
+
+eval-v5-final-finalize:
+	@test -n "$(RUN_DIR)" || (echo "RUN_DIR is required" >&2; exit 2)
+	./evaluation/final-v5-wsl2/scripts/finalize.sh "$(RUN_DIR)"
+
+eval-v5-final-evidence:
+	@test -n "$(RUN_DIR)" || (echo "RUN_DIR is required" >&2; exit 2)
+	go run ./evaluation/cmd/final-v5 evidence --run-dir "$(RUN_DIR)"
 
 artifacts:
 	./evaluation/generate-artifacts.sh

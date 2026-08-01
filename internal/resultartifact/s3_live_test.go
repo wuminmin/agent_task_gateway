@@ -1,3 +1,5 @@
+//go:build taskgate_integration
+
 package resultartifact
 
 import (
@@ -13,7 +15,7 @@ import (
 func TestS3BackendLive(t *testing.T) {
 	endpoint := os.Getenv("RESULT_ARTIFACT_TEST_S3_ENDPOINT")
 	if endpoint == "" {
-		t.Skip("RESULT_ARTIFACT_TEST_S3_ENDPOINT is required for the S3 artifact test")
+		t.Fatal("RESULT_ARTIFACT_TEST_S3_ENDPOINT is required for the S3 artifact test")
 	}
 	backend, err := NewS3Backend(S3Config{
 		Endpoint: endpoint, Region: envOr("RESULT_ARTIFACT_TEST_S3_REGION", "us-east-1"),

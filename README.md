@@ -1,60 +1,214 @@
-# TaskGate: Task-Bound Query-Outcome and Exposure Accounting for Database Agents
+# TaskGate: Accounting and Controlling Cumulative Data Exposure in Agentic Database Systems
 
-TaskGate 是一个数据库研究原型：它把累计数据暴露绑定到人类授权的根任务，使自适应查询、重试、分页和子 Agent 共享同一知识账本。Agent 必须先提交明确的数据产品、字段、Scope 和目的；Gateway 从 Catalog 绑定完整预算 Profile，经 OA 审批后才允许查询只读数据产品。Gateway 不包含模型层；授权、provenance、计量和结算均由确定性代码完成。
+TaskGate is a research prototype for cumulative data exposure accounting and control in agentic database systems. It governs database access by autonomous AI agents by accumulating novel release, dependency, and outcome facts in a task-scoped Exposure Ledger, then applying deterministic compilation, accounting, and enforcement before a result can be released.
 
-人类审批的是 Catalog 预定义的完整三维容量，正常批准后全部交给 Agent。系统不自动校准“最小预算”，也不把未使用额度视为优化目标；唯一的 exposure admission 条件是提交后的共享 root-family ledger 不超过人类签名边界。
+## Problem
 
-> 当前仓库是单实例 Demo，不是可直接上线的生产网关。生产差距见[威胁模型与生产化差距](docs/threat-model.md)。
+自主数据库 Agent 会自适应地拆分问题、重试、分页并委托子 Agent。传统数据库授权主要判断一次查询是否允许执行；PostgreSQL RLS、VPD、ABAC/XACML 等机制本身并不记录一个任务跨多次合法查询已经累计获得了哪些事实。因而，每次请求都合规并不意味着整段任务执行的累计暴露仍在批准边界内。
 
-## 核心模型
+TaskGate 补充而不取代这些访问控制。它关注的问题是：在一个经人工批准的任务及其全部委托后代中，新查询带来的累计数据暴露是否仍然可接受。MCP、工具调用和 HTTP 路由只是当前原型承载这一机制的接口，不是研究贡献本身。
 
-每个事实至少绑定 `(product, snapshot, entity key, field, value version)`。
-根任务维护三个集合账本：实际交付的 `release exposure`、保守的
-`positive-output dependency footprint`。后者在 API、数据库和回执中继续使用
-兼容标签 `influence`，但表示按 V2 规则参与已交付正向输出推导的 row/cell
-facts，不是最小 causal influence，也不是完整 physical read set；第三个
-`query outcome` 把规范化 QueryPlan 命题绑定到发布结果摘要，因此两个不同
-阈值即使都回答空集或 `0`，仍会分别收费。一次查询只
-支付相对根任务已计量集合的新事实：
+## Key Insight
+
+访问许可不足以表达累计暴露边界，还需要跨查询的 Exposure Accounting。TaskGate 把自适应查询、重试、重叠分页和子 Agent 统一绑定到一个 root-family Exposure Ledger；一次执行只为此前未计量的新事实收费。相同事实的规范重放不重复收费，不同规范命题即使都返回空集或 `0`，仍产生不同的 outcome exposure。
+
+Agent 先声明数据产品、字段、Scope 和目的。TaskGate Enforcement Layer 从 Catalog 绑定完整预算 Profile，OA 人工批准后才激活任务。正常批准会把 Profile 的完整三维容量交给 Agent；系统不自动寻找“最小预算”，也不把未用额度作为优化目标。准入条件是本次增量提交后，共享 root-family ledger 的每个维度都不超过人工签名边界。
+
+## TaskGate Model
+
+人工审批任务表示为 `T=(P,S,B,C)`：
+
+- `P`：绑定 principal、数据产品、字段和 Scope 的获批策略/Grant；
+- `S`：任务绑定的不可变 reporting publication；
+- `B`：release、positive-output dependency 和 query-outcome 三维 exposure 预算；
+- `C`：签名的语义与执行约束。
+
+上游业务数据可以继续变化；已批准任务保持绑定原 publication，新任务可绑定新的已发布版本。当前模型面向版本化、只读 reporting snapshots，不面向 mutable OLTP/CDC serving。
+
+数据库事实至少绑定：
 
 ```text
-delta(T, q) = (|F_release(q) - K_release(T)|,
-               |F_influence(q) - K_influence(T)|,
-               |F_outcome(q) - K_outcome(T)|)
+F = (product, snapshot, entity key, field, value version)
 ```
 
-V4 把 canonical FactID 语义精确编码为冻结 snapshot 的 ordinal bitmap；少量派生 release/outcome 使用动态字典。在线路径是 `reserve -> replay lookup / execute+stream -> derive bitmap -> stage encrypted Parquet -> three-head CAS -> canonical promotion`。
-可见结果与 ordinal provenance companion 在同一个只读 `REPEATABLE READ` 事务执行。Gateway 在对象存储客户端侧加密 Parquet；Control PostgreSQL 只提交账本、artifact 元数据、审计和 V6 签名回执，不保存 Parquet 或结果行。确定性的 canonical 对象创建成功即记为 `consumed/AVAILABLE`，随后普通查询只向 Agent 返回 `result_id` 与摘要。超出任一 exposure 上限的结果不会产生 canonical 对象。
+对任务的已接受查询序列 `Q`，`E(T,Q)` 是三类事实集合的累计大小：
 
-实现范围和非目标见[任务级数据暴露记账](docs/exposure-accounting.md)。
+- `release exposure`：实际进入交付结果的事实；
+- `positive-output dependency footprint`：按声明的代数规则参与正向输出推导的保守依赖足迹；
+- `query-outcome exposure`：规范化 QueryPlan 命题及其发布结果摘要。
 
-## 架构概览
+API、数据库和回执为兼容性保留字段名 `influence`；它表示 positive-output dependency footprint，不表示最小 causal influence 或完整 physical read set。完整定义、前提和安全性质见[TaskGate 形式模型](docs/formal-model.md)和[任务级 Exposure Accounting](docs/exposure-accounting.md)。
+
+## Architecture
 
 ```text
-冻结 Reporting Snapshot + Candidate Catalog
-                 │ offline compile
-                 ├── Business PG ordinal sidecar
+Versioned Reporting Snapshot + Candidate Catalog
+                 │ offline publication compile
+                 ├── Business PostgreSQL ordinal sidecar
                  └── HOT hash/ordinal + COLD payload ── publication manifest
                                                         │
-Agent ──► Gateway ── authorize / semantic replay ───────┤
-             │ miss: visible SQL + streamed ordinal companion
-             ▼
-       exact weighted bitmap effect
-             ▼
-Control PG: ANDNOT + popcount + one R/I/O root-head CAS
-             ▼
- commit PENDING artifact metadata/audit/V6 receipt
-             ▼
- S3/MinIO: promote encrypted Parquet canonical object
-             ▼
-       consumed/AVAILABLE → result_id + summary
+Autonomous Agent ──► TaskGate Enforcement Layer ────────┤
+                         │ authorize / semantic replay
+                         │ miss: visible SQL + ordinal companion
+                         ▼
+                  exact weighted bitmap effect
+                         ▼
+TaskGate control path: bitmap ANDNOT + popcount + exact union
+                         ▼
+Control PostgreSQL: persist sets + one R/D/O root-head CAS
+                         ▼
+            encrypted Parquet staging + audit + V6 receipt
+                         ▼
+S3/MinIO: deterministic canonical object promotion
+                         ▼
+                 consumed/AVAILABLE → result_id
 ```
 
-两个 PostgreSQL 使用独立容器、账号和 Volume；S3 兼容对象存储使用独立的内部网络、bucket-scoped Gateway 凭据和持久 Volume。result bucket 必须私有且禁用 versioning，以保证 TTL/purge 删除的是实际 bytes，而不只是 delete marker。所有子 Agent 解析到同一个 root head；CAS 冲突会重读并重新计算三个维度，不能分维提交。Gateway 仍按单实例部署，本版本不提供多 Gateway 执行租约协议。
+V4 将 canonical FactID 精确编码为不可变 snapshot 的 ordinal bitmap；少量 derived release/outcome facts 使用动态字典。可见结果和 ordinal provenance companion 在同一个只读 `REPEATABLE READ` 事务中执行。Control PostgreSQL 保存 ledger、artifact 元数据、审计和签名回执，不保存 Parquet 或结果行；Parquet 在 TaskGate Enforcement Layer 客户端侧加密后写入私有对象存储。
 
-## 快速启动
+两个 PostgreSQL 使用独立容器、账号和 Volume。S3 兼容对象存储使用独立内部网络、bucket-scoped 执行层凭据和持久 Volume；result bucket 必须私有且禁用 versioning，确保 TTL/purge 删除实际 bytes，而不只是写入 delete marker。
 
-宿主机只需要 Docker Engine 与 Docker Compose v2：
+## Exposure Ledger
+
+根任务维护三个单调集合 `K_release`、`K_dependency` 和 `K_outcome`。查询 `q` 的收费向量只包含相对于共享账本的新事实：
+
+```text
+delta(T, q) = (|F_release(q)    - K_release(T)|,
+               |F_dependency(q) - K_dependency(T)|,
+               |F_outcome(q)    - K_outcome(T)|)
+```
+
+物理路径用 exact bitmap `ANDNOT`、`OR` 和 `popcount` 实现集合差、并集和基数。所有子 Agent 解析到同一 root head；一次 three-head epoch CAS 原子发布三个维度，冲突后读取新 head 并重新计算，不能分维花费。任一维度超过预算时，整次结算关闭式拒绝，结果不会成为 canonical artifact。
+
+确定性的 canonical 对象创建成功即记为 `consumed/AVAILABLE`。普通 Agent 随后只得到 `result_id` 和摘要；下载是否发生、下载次数以及 Agent Host 的临时副本都不会改变 ledger、`consumed` 状态或 receipt。在线顺序是：
+
+```text
+reserve
+  → replay lookup or execute-and-stream
+  → derive exact bitmap effect
+  → stage encrypted Parquet
+  → three-head CAS
+  → canonical promotion
+```
+
+## Enforcement
+
+TaskGate defines a controlled analytical SQL profile; it does not claim support for full SQL. `taskgate-reporting-sql-v1` intentionally excludes constructs that cannot be compiled within the declared accounting semantics, reducing semantic ambiguity, preventing exposure-accounting bypass, and preserving deterministic compilation to canonical QueryPlan.
+
+### Agent Task Execution workflow
+
+当前 Demo 通过 MCP 2.0 transport 暴露以下方法；这些方法名为兼容 API，不定义 TaskGate 的研究边界。
+
+1. 调用 `list_data_products`、`describe_data_product` 和 `get_sql_capabilities`，读取数据产品、字段、稳定角色、Scope 及受控 SQL profile。
+2. 调用 `request_data_task`，提交非空 `objective`、`data_products`、各产品的非空 `columns` 和 `scopes`。TaskGate Enforcement Layer 按最高敏感级别选择 Catalog Profile，并把完整 Profile 写入审批 Manifest；Agent 不选择或优化预算。
+3. 在 OA 提交并完成人工审批。
+4. 任务进入 `ACTIVE` 后调用 `query_sql(task_id, request_id, sql)`。Exposure-enabled Grant 只接受可无损 lowering 为 canonical QueryPlan 的分析查询，实际执行的 visible SQL 和 provenance companion 都从该计划重新生成。
+5. 子任务通过 `parent_task_id` 和 `delegate_principal_id` 创建；授权维度只能收缩，并与 root task 共享 Exposure Ledger。
+
+客户端生成的 `request_id` 在一个任务内必须唯一。相同 ID 和相同请求只观察首次持久化终态；相同 ID 搭配不同请求会关闭式拒绝。新的 request ID 重放相同规范命题和结果时，三维增量为零。语法、授权或 lowering 失败发生在业务数据库执行和正式 reservation 前，不产生 exposure charge。
+
+最小分析查询示例：
+
+```sql
+SELECT month, SUM(total_amount) AS amount
+FROM expense_summary
+GROUP BY month
+ORDER BY month ASC
+LIMIT 20;
+```
+
+`taskgate-reporting-sql-v1` 包含单产品 projection/filter/order/limit/offset、`COUNT(*)`、`COUNT(column)`、`SUM`、`MIN`、`MAX`，以及由 2–16 个不同 Catalog 稳定角色构成的 connected INNER equi-join graph。每条 edge 可以包含一个或多个 column-to-column equality predicate。16-source 上限是限制生成 SQL 宽度、provenance 行数和 PostgreSQL planning work 的 operational complexity/DoS ceiling；请求还受 1 MiB transport 请求体、PostgreSQL AST 白名单校验、资源预算、超时和行数上限约束。
+
+Full SQL intentionally remains unsupported. Self-join、outer/cross/non-equality join、断开的 join graph、子查询、CTE、set operation、窗口、`HAVING` 和多输入分页均在该 profile 外；执行层不会把 `LEFT JOIN` 静默改为 `INNER JOIN`。Resource-only Grant 继续使用兼容的安全 SQL policy，但不会扩大 exposure-enabled profile。
+
+普通 Agent 的 `tools/list` 不默认列出 `execute_plan`。该入口仅保留给 SDK、内部测试、基准、调试和确定性工作流，并与 SQL lowering 共用同一 QueryPlan 编译和 Exposure Accounting 边界，不是策略旁路。
+
+### Result enforcement and delivery
+
+成功响应中的 `exposure` 区分本次 actual facts 与相对 root ledger 的 charged facts；`exposure_budget` 返回上限、已用和剩余值。`query_sql`、`execute_plan` 和 `get_query_result` 的普通响应不包含 `rows` 或对象键，而是返回 `result_id`、列定义、`row_count`、`column_count`、`expires_at` 和计费摘要。
+
+少量检查使用 `preview_result(result_id, offset, limit)`，其中 `limit` 最大为 100。完整文件通过 `deliver_result(result_id, format="parquet")` 获取默认 5 分钟的短期下载 URL。非 loopback 的 `GATEWAY_PUBLIC_BASE_URL` 必须使用 HTTPS；日志和 APM 必须脱敏 capability URL 中的 `token`。
+
+### Task-scoped Nested View DAG
+
+声明 `taskgate-view-contract-v1` 的 Product 可作为 semantic root。执行层只为本次任务请求的 roots 在 PostgreSQL `REPEATABLE READ` snapshot 中发现传递依赖：ordinary View 递归展开；已治理、已填充的 materialized view 是映射到 Catalog Product 的 opaque terminal publication；raw、foreign、system relation 以及递归或循环依赖关闭式拒绝。
+
+可接受 closure 必须能 flatten 为现有 canonical SPJG/`join_many` QueryPlan：direct projection/rename、column-to-literal `AND` filter、connected INNER equi-join、`GROUP BY` 及 `COUNT/SUM/MIN/MAX`。约束包括最多一道 aggregate barrier、16 个 expanded base sources、View depth 16、reachable nodes 64、dependency edges 128 和 1 MiB closure definition bytes。这是受控语法范围，不是任意 SQL View 支持。
+
+当前 query-time 边界要求 semantic root 是唯一外层数据产品，不能再与另一 Product join；其上方暂不接受 `ORDER BY`/`LIMIT`/`OFFSET`。跨过 aggregate barrier 后，外层只能纯投影已计算 public outputs。Catalog 分别固定 exact definition、transitive dependency、typed canonical plan 和 ordered output interface 四个摘要。发现 drift 后，任务单向进入 `REQUIRE_REBIND`；恢复访问需要基于更新 Catalog 新建任务并重新审批，旧 Grant 不会原地改绑。
+
+高级 `execute_plan` 使用 Catalog 稳定角色而不是输入 SQL alias。例如：
+
+```json
+{
+  "from": {
+    "join_many": {
+      "sources": [
+        {"product": "expense_detail", "role": "expense_detail"},
+        {"product": "expense_summary", "role": "expense_summary"}
+      ],
+      "on": [
+        {"left": "expense_detail.department", "right": "expense_summary.department"}
+      ]
+    }
+  },
+  "columns": [
+    "expense_detail.receipt_no",
+    "expense_summary.total_amount"
+  ]
+}
+```
+
+## Evaluation
+
+仓库提供以下可复现入口：
+
+```bash
+make verify
+make formal
+make eval-exposure
+make eval-smoke
+make paper
+make logs
+```
+
+`make verify` 执行格式检查、`go vet`、真实 PostgreSQL `go test -race ./...`、镜像构建和隔离 Compose 端到端验收。`make formal` 检查抽象 ledger 与 bitmap refinement artifacts。
+
+`make paper` 构建 substantially revised TKDE working manuscript。`make paper-tdsc` 只保留为早期 working draft 的构建入口；该 draft 从未投稿，也不在评审中。
+
+`make eval-exposure` 覆盖 ground-truth FactID、独立 oracle、split/merge、overlapping pagination、retry、join multiplicity、snapshot update 和 anti-arbitrage cases。它还执行 1,024 个唯一规范化 PostgreSQL baseline/rewrite SQL pair；这些 pair 是补充性等价改写压力测试，不应表述为 1,024 个独立数据集或 exposure invariance 的单独证明。
+
+`evaluation/exposure-performance/results.json` 汇总三次 fresh-stack 本地 trial 的 31,296 个 RQ4 observations，其中 7,896 个是 full-path operations，23,400 个是 direct/paired snapshot/paired-plus-algebra ablations。该 campaign 使用仓库内十行 fixture，不是 TPC、多节点或生产规模结果。
+
+当前 evaluation 还包括同 root delegation/concurrent settlement tests、受控 View compiler properties，以及版本化 daily publication harness。攻击相关 evidence 证明已实现的确定性 split/merge、重叠分页、重试和 outcome probing cases 会进入同一累计 ledger；仓库尚未报告由 live LLM 驱动、贯穿全新 roots 并与 authorization-only baseline 对照的完整端到端攻击 campaign。实验范围和待补项目见[TKDE 实验执行指南](docs/experiment-guide.md)。
+
+本轮新增的可执行方法文档分别定义了[基线比较](docs/evaluation-baseline.md)、
+[自适应 Agent 攻击](docs/adversarial-agent-evaluation.md)、
+[多 Agent 共享账本](docs/multi-agent-evaluation.md)和
+[10K–100M 性能矩阵](docs/performance-evaluation.md)。其中空表表示尚待作者在固定
+环境执行的实验，不是零值或已测结果。
+
+## Limitations
+
+- Exposure Ledger 是任务及其委托后代的计量状态，不是主体的完整知识状态或总体隐私损失；系统没有跨独立 root approvals 的 principal/tenant 全局 ledger。
+- Positive-output dependency footprint 只在声明的受控代数内成立，不是最小 causal provenance，也不覆盖全部 physical reads、负信息或排序位置泄露。
+- 一个 outcome 单位不等于一个信息 bit；背景知识、timing 和预算接受/拒绝造成的推断不进入当前模型。
+- controlled analytical SQL profile 和 bounded Nested View DAG 有意不覆盖 full SQL、任意 SQL provenance、mutable OLTP/CDC serving 或跨引擎等价。
+- 属性测试是限定语法内的实现证据，不是任意 SQL 语义保持的 mechanized proof；当前公开性能数据也不能外推为生产 SLO。
+
+这些边界以及与数据库 provenance 系统的区别见[provenance comparison](docs/provenance-comparison.md)和[threat model](docs/threat-model.md)。
+
+## Production Gap
+
+当前仓库是单实例 research demo，不是可直接上线或安全横向扩容的生产执行层。默认 deployment 每个 publication epoch 只有一个 TaskGate Enforcement Layer 实例；PostgreSQL 行锁和 root-head CAS 处理该实例内的并发，但尚无 multi-instance execution lease 或等价的分布式 settlement protocol。
+
+Connector/visible-result-to-Parquet 路径仍可能在内存持有完整结果，且 `preview_result` 默认拒绝大于 64 MiB 的 artifact。百万行生产使用前需要有界 streaming Parquet writer/reader、固定环境容量基准、外部 KMS/HSM/Secret Manager、严格 publication retention/routing、独立 WORM audit service 和运维监控。提高 `GATEWAY_CONNECTOR_MAX_ROWS` 不是有界内存证明。完整生产差距见[威胁模型与生产化差距](docs/threat-model.md)。
+
+## Operational usage
+
+### Quick start
+
+宿主机需要 Docker Engine 与 Docker Compose v2：
 
 ```bash
 cp .env.example .env
@@ -66,20 +220,15 @@ curl -i http://127.0.0.1:8082/health/ready
 curl -i http://127.0.0.1:8092/health/ready
 ```
 
-Compose 和 Gateway 二进制默认把 `GATEWAY_CONNECTOR_MAX_ROWS` 设为
-`1200000`，使 345,000 行 provenance 的 V4 maximum-point workload 不会被
-connector ceiling 截断。降低这个值是显式的部署取舍；超限时系统会关闭式拒绝，
-不会释放部分结果。
+Compose 和现有 `gateway` 二进制通过兼容环境变量 `GATEWAY_CONNECTOR_MAX_ROWS` 默认设置 `1200000`，使 345,000-row provenance V4 maximum-point workload 不会被 connector ceiling 截断。降低该值是部署取舍；超限时系统关闭式拒绝，不释放部分结果。
 
-本机入口：
-
-| 服务 | 地址 |
+| Service | Address |
 |---|---|
-| Gateway / MCP | `http://127.0.0.1:8082/mcp` |
+| TaskGate Enforcement Layer（MCP transport） | `http://127.0.0.1:8082/mcp` |
 | OA Demo | `http://127.0.0.1:8092/login` |
-| 系统控制库 | `127.0.0.1:25433` / `taskbound_gateway` |
-| 业务数据源库 | 仅 Gateway 内部网络 / `travel_demo` |
-| Parquet 对象存储 | 仅 `result-storage` 内部网络 / `taskgate-results` |
+| Control PostgreSQL | `127.0.0.1:25433` / `taskbound_gateway` |
+| Business PostgreSQL | 仅内部网络 / `travel_demo` |
+| Parquet object storage | 仅 `result-storage` 内部网络 / `taskgate-results` |
 
 如需本机数据库客户端调试，可显式启用非论文部署覆盖：
 
@@ -87,201 +236,45 @@ connector ceiling 截断。降低这个值是显式的部署取舍；超限时�
 docker compose -f compose.yaml -f compose.debug.yaml up --build -d --wait
 ```
 
-Navicat 的用户名和密码对应关系见[本地启动与数据库调试](docs/getting-started.md#navicat-连接参数)。Business PostgreSQL 与 MinIO API/Console 仅在显式启用调试覆盖时绑定宿主机回环地址。
+Navicat 凭据见[本地启动与数据库调试](docs/getting-started.md#navicat-%E8%BF%9E%E6%8E%A5%E5%8F%82%E6%95%B0)。Business PostgreSQL 与 MinIO API/Console 只在该 debug override 中绑定宿主机回环地址。
 
-## MCP 2.0 工作流
+### Demo identities
 
-1. 调用 `list_data_products`、`describe_data_product` 和 `get_sql_capabilities`，获取逻辑产品、字段、稳定角色、Scope 以及 `taskgate-reporting-sql-v1` 能力边界。
-2. 调用 `request_data_task`，显式提交非空 `objective`、`data_products`、每个产品的非空 `columns` 及 `scopes`。Gateway 按最高敏感级别选择 Catalog Profile，并把完整 Profile 写入审批 Manifest；Agent 不选择或优化预算。
-3. 在 OA 提交并完成人工审批。正常批准把整个签名额度交给 Agent；系统不奖励未使用额度，安全边界按额度全部耗尽计算。
-4. ACTIVE 后使用 `query_sql(task_id, request_id, sql)`。对启用 exposure 的 Grant，Gateway 只接受能无损转换为 canonical QueryPlan 的报表 SQL；成功后只执行从该计划重新生成的 visible SQL 和 provenance companion。
-5. 生成计划继续使用同快照 ordinal provenance、V4 FactID/三维 bitmap 结算、结果 withholding、semantic replay 和 V6 receipt 链路。子 Agent 任务通过 `parent_task_id` 和 `delegate_principal_id` 创建，所有授权维度只能收缩，且共享根账本。
-
-`request_id` 由客户端生成并在一个任务内保持唯一。相同 ID 和相同请求只返回首次持久化结果/状态；相同 ID 搭配不同请求会关闭式拒绝，重试不会产生第二次执行或预算消费。
-
-`query_sql` 的最小 SQL：
-
-```sql
-SELECT month, SUM(total_amount) AS amount
-FROM expense_summary
-GROUP BY month
-ORDER BY month ASC
-LIMIT 20;
-```
-
-普通 Agent 的 `tools/list` 不默认列出 `execute_plan`。该入口仍保留给 SDK、内部测试、基准、调试和确定性工作流；它与 SQL lowering 共用唯一 QueryPlan 编译/记账边界，不是策略旁路。
-
-成功响应包含 `exposure` 与 `exposure_budget`：前者区分本次 actual facts 和
-相对根任务的 charged facts，后者给出共享账本的上限、已用和剩余值。相同
-`request_id` 只观察首次终态；新的 request ID 重放同一规范化命题和结果时三维
-增量均为零，不同命题即使得到相同空/零结果也会新增 outcome 费用。
-
-`query_sql`、`execute_plan` 和 `get_query_result` 的普通响应不包含 `rows` 或对象键，而是返回 `result_id`、列定义、`row_count`、`column_count`、`expires_at` 与计费摘要。需要检查少量数据时调用 `preview_result(result_id, offset, limit)`，其中 `limit` 最大为 100；需要完整文件时调用 `deliver_result(result_id, format="parquet")` 获取默认 5 分钟的短期下载 URL。下载是否发生、下载次数和 Agent Host 的临时副本都不会改变预算、`consumed` 状态或 Receipt；消费边界已经是 canonical Parquet 对象创建成功。非 loopback 的 `GATEWAY_PUBLIC_BASE_URL` 必须使用 HTTPS，日志/APM 必须脱敏 capability URL 中的 `token`。
-
-`taskgate-reporting-sql-v1` 支持单产品
-projection/filter/order/limit/offset 和 `COUNT(*)/COUNT(column)/SUM/MIN/MAX`，以及 2–16 个不同 Catalog 稳定角色组成的任意 connected INNER equi-join graph 形状；每条 edge 可包含一个或多个 column-to-column equality predicate。Lowering 先将 SQL alias 解析为 Catalog 稳定角色，再对 graph 的 nodes、edges 和 predicates 规范排序并转换为现有 `join_many`；下游将其 deterministic binary fold 为现有二元 Join 代数。16-source 上限是限制生成 SQL 宽度、provenance 行和 PostgreSQL planning work 的 operational complexity/DoS ceiling，不限制上述 graph 形状，并支持 10 表 Join；请求还受 1 MiB MCP 请求体、PostgreSQL AST 解析/白名单校验和现有资源预算与超时/行数上限约束。Self-join、outer/cross/non-equality join、断开的 join graph、子查询、CTE、set operation、窗口、`HAVING` 和多输入分页都在 SQL profile 外，Gateway 不会把 `LEFT JOIN` 静默改成 `INNER JOIN`。Resource-only Grant 继续使用现有安全 SQL policy，但不会因此扩大 exposure SQL profile。
-
-SQL 语法、授权或 lowering 失败在业务数据库执行和正式 reservation 之前返回结构化、可修复的错误，不扣查询、DBMS、release、dependency 或 outcome 预算。原始 SQL 派生的摘要只用于审计和 `(task_id, request_id)` 幂等；FactID、OutcomeFact 和 semantic replay 始终使用 canonical QueryPlan/`plan_digest`，不使用原始 SQL 文本哈希。
-
-### Task-scoped Nested View DAG（Phase B）
-
-Product 可选声明 `taskgate-view-contract-v1`。这类 semantic root 不再被当作一个
-孤立 Reporting View：Gateway 只为本次任务请求的 roots 在 PostgreSQL
-`REPEATABLE READ` 快照中发现传递依赖。普通 View 递归展开；已治理、已填充的
-materialized view 是 opaque terminal publication，必须映射到现有 Catalog Product，
-不会继续追入其 seed tables。Raw/foreign/system relation、递归或循环依赖都关闭式拒绝。
-
-可接受的 View closure 必须能 flatten 为现有 canonical SPJG/`join_many` QueryPlan：
-direct projection/rename、column-to-literal 的 `AND` filter、任意形状的 connected
-INNER equi-join（每条 edge 可有多个 equality predicate）、`GROUP BY` 以及
-`COUNT/SUM/MIN/MAX`。一个 closure 最多有一道 aggregate barrier；barrier 之上的
-View 只能做单输入纯投影/重命名，不能再 filter、join 或 aggregate。Expanded base
-sources 最多 16 个，同时限制 View depth 16、reachable nodes 64、dependency edges
-128、closure definition bytes 1 MiB。这里的“Nested View”不是任意 SQL View 支持。
-在这些上限内，ordinary View 可有任意递归层数和 connected JoinGraph 形状，
-不是只支持固定两层或两表；每条 Join edge 的 equality conjunction 也不限为一个 predicate。
-
-查询 semantic root 时，Gateway 不会把它仍当作一个 opaque Product 计量。它将外层
-单-root QueryPlan 的 public output 通过 `Artifact.Output.FieldID` 替换为展开后的稳定字段，
-再把计划交给现有 `CompileRelational`/`join_many` exposure 路径。V4 因此从每个
-terminal publication 的 ordinal/sidecar 构造 provenance，而不是为 semantic root 伪造
-`snapshot_publication`。对外签名 Grant 仍只批准 root；Gateway 每次查询从已绑定
-Artifact 派生最小 terminal internal grants，用同一 FieldID 映射注入 root Scope，
-并要求覆盖每个 terminal 的 mandatory scope。这些内部产品/字段不写回、不扩大
-签名 Grant；任一 scope 无法唯一映射时在 reservation 前关闭式拒绝。
-
-当前查询时组合边界是：semantic root 必须是唯一外层数据产品，不能再与
-另一个 query-time Product Join，且其上方的 `ORDER BY`/`LIMIT`/`OFFSET` 暂不接受。
-这不限制 View closure 内部的最多 16 源 Join。若 closure 已跨过 aggregate barrier，
-外层还只能纯投影已计算的 public outputs；外层 filter、Join、group 或再聚合均拒绝。
-这些 semantic-root 专属覆盖项以及 rewrite/rebind 错误分类由
-`get_sql_capabilities.semantic_views`、`rewrite_error_codes` 和
-`rebind_error_codes` 明确返回，不应套用普通单 Product 的分页能力。旧客户端仍可读取
-`repairable_error_codes`，它只是 `rewrite_error_codes` 的兼容别名，不包含必须新建任务的
-semantic drift。
-
-Catalog 对每个 semantic root 固定四个独立摘要：exact root definition、transitive
-dependency closure、typed canonical plan 和 ordered output interface。申请任务时，
-Gateway 校验四者并把按产品规范排序的 task View binding digest 写入签名
-Manifest/Grant；OA 回调激活前再校验一次。每个新查询还会先比对当前 binding，随后
-Connector 在执行 visible/provenance SQL 的同一个只读 `REPEATABLE READ` 事务内
-重新发现相同 closure 并核 revision digest，封闭检查到执行之间的 View replacement
-窗口。Legacy source-level `schema_digest` 继续覆盖没有 `view_contract` 的 products，
-明确排除 semantic roots，因此无关 View 的替换不会使所有任务或 readiness 一起失效。
-
-漂移返回 `VIEW_SEMANTIC_CHANGED`，并把该任务的正交 binding 状态单向置为
-`REQUIRE_REBIND`；旧 Grant 不会原地改绑，也不再接受新 query。恢复访问必须基于
-更新后的 Catalog 创建新 task 并重新 OA 审批。旧 task 的 exact `request_id` 终态重放、
-已有 result metadata/artifact 和 receipt 仍按原保留策略可验证。Phase B 规范采用
-request/approval/delegation/execution 边界的惰性重算，不运行 DDL listener、也没有
-`STALE` 中间状态；持久 reverse dependency index 只提供受影响任务的定位与审计证据，
-首次发现不一致时直接执行不可逆的 `ACTIVE -> REQUIRE_REBIND`。五类独立、固定 seed 的
-`testing/quick` properties 各生成 64 个 2–5 表 connected graph case，覆盖重复编译确定性、
-alias invariance、join-order invariance、direct/nested equivalence 和 semantic/interface/dependency
-drift 摘要敏感性；生成图至少含一条 multi-predicate edge，nested case 含 1–3 层
-transparent wrappers。另有 cycle/limit/aggregate-barrier 负例及真实 PostgreSQL 传递漂移回归；这些是限定语法下的实现证据，不是对
-任意 SQL 的形式化语义证明或生产规模实验。
-
-四摘要由只读生成命令产生，命令不会原地修改 Catalog：
-
-```bash
-go run ./evaluation/cmd/view-contract \
-  -catalog ./config/catalog.candidate.yaml \
-  -dsn "$TASKGATE_VIEW_CONTRACT_DSN" \
-  -products customer_value
-```
-
-将输出审入新的 candidate Catalog 后再走发布与 OA rebind；运行期不要自动接受新摘要。
-
-SQL alias 只是输入语法；lowering 会把它映射到 Catalog 稳定角色。高级 `execute_plan` 的 Join 字段直接使用该稳定角色：
-
-```json
-{
-  "from": {
-    "join_many": {
-      "sources": [
-        {"product": "expense_detail", "role": "expense_detail"},
-        {"product": "expense_summary", "role": "expense_summary"}
-      ],
-      "on": [{"left": "expense_detail.department", "right": "expense_summary.department"}]
-    }
-  },
-  "columns": ["expense_detail.receipt_no", "expense_summary.total_amount"]
-}
-```
-
-`union_distinct` 仅是高级 QueryPlan 入口的现有能力，不属于 `taskgate-reporting-sql-v1` lowering。其 `columns` 是完整去重 tuple；即使最终 `columns` 隐藏其中字段，这些字段仍参与 dependency：
-
-```json
-{
-  "from": {
-    "union_distinct": {
-      "role": "expense_summary",
-      "columns": ["department", "month"],
-      "left": {"product": "expense_summary", "role": "left_branch", "filters": [{"column": "expense_type", "op": "=", "value": "机票"}]},
-      "right": {"product": "expense_summary", "role": "right_branch", "filters": [{"column": "expense_type", "op": "=", "value": "酒店"}]}
-    }
-  },
-  "columns": ["expense_summary.department"]
-}
-```
-
-## 身份
-
-| 身份 | 入口 | 权限 | 凭据来源 |
+| Identity | Interface | Permission | Credential source |
 |---|---|---|---|
-| Alice | MCP | 申请任务、查询自己的 ACTIVE 任务、读取结果元数据、有界预览、短期交付与凭证 | `TASKBOUND_ALICE_TOKEN` |
-| Carol | MCP | 读取审计事件和查询凭证，不能读取原始结果 | `TASKBOUND_CAROL_TOKEN` |
-| Alice | OA | 提交自己的 OA 草稿 | `alice` / `OA_ALICE_PASSWORD` |
+| Alice | Agent API（MCP transport） | 申请任务、查询自己的 `ACTIVE` 任务、读取结果元数据、有界预览、短期交付和 receipt | `TASKBOUND_ALICE_TOKEN` |
+| Carol | Agent API（MCP transport） | 读取 audit events 和 query receipts，不能读取原始结果 | `TASKBOUND_CAROL_TOKEN` |
+| Alice | OA | 提交自己的 OA draft | `alice` / `OA_ALICE_PASSWORD` |
 | Bob | OA | 审批人工任务 | `bob` / `OA_BOB_PASSWORD` |
 
-## 验证与数据保留
+### Retention and recovery notes
 
-```bash
-make verify
-make formal
-make eval-exposure
-make eval-smoke
-make paper
-make logs
-docker compose down
-```
+新 `result_artifacts` 行只保存 artifact 元数据；客户端侧加密 Parquet 保存在 S3/MinIO。Control transaction 先登记 `PENDING`，执行层再幂等提升 staging object 并标记 `AVAILABLE/consumed`。恢复只在 staging 与已提交 evidence 一致时继续 promotion，不重新执行 SQL 或重复收费；staging 丢失或 canonical evidence 冲突时 readiness 关闭式失败，需要受审修复。
 
-`make verify` 会执行格式检查、`go vet`、真实 PostgreSQL `go test -race ./...`、镜像构建和隔离的 Compose 端到端验收。
+`GATEWAY_RESULT_RETENTION_TTL` 触发先删除过期 canonical bytes、再写 metadata tombstone，同时保留 query record、receipt 和 audit evidence。每个 artifact 绑定 `GATEWAY_DATA_KEY_ID`；Demo 的 key-ID erasure 不会销毁外部 KMS 中的真实 key material。Legal hold 阻止 TTL/manual retention cleanup，但不延长 `expires_at`，也不会自动阻止独立 key-erasure 流程。
 
-`make eval-exposure` 运行可审计的 ground truth、由独立 oracle 校验的
-1,024 个唯一 PostgreSQL 结果等价改写（补充性压力测试，不作为 exposure invariance 证据）、
-anti-arbitrage cases 和计费基线。`evaluation/exposure-performance/results.json` 保存三次独立
-PostgreSQL 全路径 trial 的 31,296 个 RQ4 观测；该结果限定为本地十行 fixture，
-不冒充 TPC 或生产规模。`make paper` 构建新的 TKDE 工作稿；
-未投稿的旧安全网关工作稿仍可用 `make paper-tdsc` 构建。
+Receipt verifier 可读取 `/.well-known/taskgate/query-receipt-keyring.json`。`GATEWAY_AUDIT_ANCHOR_URL` 可将签名 audit-chain checkpoint POST 到外部日志或 WORM service；其保留和不可篡改性由部署环境保证。
 
-`evaluation/v4-acceptance/config.example.json` 同样只演示本仓库十行冻结
-Catalog 的 case schema 与四种 plan shape，不包含 12 Release / 1,035,000
-Influence maximum point。用它运行时相应 SLO gate 必须保持 `unmeasured`；论文
-验收必须换成独立冻结的大规模 publication、真实 ACTIVE task IDs 与校准后的
-0/50/90/100% overlap cases。
+`docker compose down` 保留 `control-pg-data`、`business-pg-data`、`snapshot-index-artifacts`、`gateway-encrypted-spool` 和 `result-object-data`。`docker compose down --volumes` 会删除当前 Compose 项目的这五个 Volume。旧版 `gateway-data` Volume 不再挂载，也不会自动删除。
 
-新查询的 `result_artifacts` 行只保存 `result_id`、对象键、schema、行列数、ACL、TTL、明文/密文哈希、key ID 和生命周期状态；客户端侧加密的 Parquet 原件保存在 S3/MinIO。Control 事务先登记 `PENDING`，Gateway 再把 staging 对象幂等提升为 deterministic canonical 对象并标记 `AVAILABLE/consumed`；启动和后台恢复只在 staging 与已提交证据一致时继续 PENDING promotion，不重执行 SQL 或重复收费。staging 丢失或 canonical 证据冲突时 readiness fail closed，需先恢复对象证据或受审修复；当前不会自动放弃/退款。
+### Documentation
 
-当前研究原型的 Connector/可见结果到 Parquet 部分路径仍会在内存持有完整结果，`preview_result` 默认又对大于 64 MiB 的 artifact 关闭。百万行生产使用前仍需要有界流式 Parquet writer/reader 与容量基准；`GATEWAY_CONNECTOR_MAX_ROWS` 的高上限本身不是有界内存的证明。
-
-设置 `GATEWAY_RESULT_RETENTION_TTL` 会让 Gateway 定期先删除超过保留期的 canonical 对象，再把 Control 元数据置为删除终态，同时保留查询记录、回执和审计证据。每个 artifact 绑定 `GATEWAY_DATA_KEY_ID` 并登记在 `result_encryption_keys`；带 `GATEWAY_ADMIN_TOKEN` 的管理员可以擦除 key ID，使保留对象后续读取 fail closed。该 Demo 不销毁外部 KMS 中的真实 key material，生产环境需要把 key ID 擦除接入 KMS/HSM/Secret Manager。管理员接口也支持手动 purge 以及设置/释放 legal hold；active hold 会阻止对应任务的对象被 TTL 或手动 retention 清理，但不会延长 artifact `expires_at` 或继续开放读取，也不会自动阻止独立的 key-erasure 审批流程。
-
-查询回执验证方可读取 `/.well-known/taskgate/query-receipt-keyring.json`，获得 `taskgate-query-receipt-keyring/v1` 公钥 Bundle。Bundle 包含 active Gateway Key ID、历史验签公钥以及 `valid_from`/`retired_at` 窗口，不包含私钥材料。
-
-设置 `GATEWAY_AUDIT_ANCHOR_URL` 会让 Gateway 定期把当前审计 Hash Chain checkpoint 签名为 `taskgate-audit-checkpoint-anchor/v1` 并 POST 到外部日志或 WORM 服务。该外部服务的保留和不可篡改性由部署环境保证。
-
-`docker compose down` 保留 `control-pg-data`、`business-pg-data`、不可变
-`snapshot-index-artifacts`、仅保存认证密文临时文件的 `gateway-encrypted-spool` 和保存规范加密 Parquet 的 `result-object-data`；`docker compose down --volumes` 会删除当前 Compose 项目的这五个 Volume。旧版本的 `gateway-data` Volume 已不再挂载，也不会被本次改造自动删除，可按需手工备份或清理。
-
-## 文档
-
-- [TaskGate V4：Snapshot-Indexed Hybrid Bitmap Ledger](docs/exposure-v4.md)
+- [累计数据暴露模型](docs/exposure-model.md)
+- [版本化 Publication 与每日同步](docs/versioned-publication.md)
+- [数据库安全控制基线评测方法](docs/evaluation-baseline.md)
+- [自适应 Agent 攻击评测方法](docs/adversarial-agent-evaluation.md)
+- [多 Agent 共享账本评测方法](docs/multi-agent-evaluation.md)
+- [10K–100M 性能评测方法](docs/performance-evaluation.md)
+- [TaskGate 形式模型](docs/formal-model.md)
+- [TaskGate 与数据库 provenance 系统的边界](docs/provenance-comparison.md)
+- [TKDE 实验执行指南](docs/experiment-guide.md)
+- [TaskGate V4: Snapshot-Indexed Hybrid Bitmap Ledger](docs/exposure-v4.md)
+- [TaskGate V5: Predicate Atom Footprint 与 Composite Outcome](docs/exposure-v5.md)
 - [架构与安全边界](docs/architecture.md)
 - [任务级 Exposure 语义、在线算法与支持边界](docs/exposure-accounting.md)
-- [Compose 启动、Navicat 与 MCP 演示](docs/getting-started.md)
+- [Compose 启动、Navicat 与 Agent API 演示](docs/getting-started.md)
 - [Catalog 编写指南](docs/catalog-guide.md)
 - [OA 与数据源适配器接口](docs/adapters.md)
-- [SQL 与 QueryPlan 安全规则](docs/sql-security.md)
+- [受控 SQL profile 与 QueryPlan 安全规则](docs/sql-security.md)
 - [威胁模型与生产化差距](docs/threat-model.md)
+- [本轮 TKDE 改造实施计划](docs/codex_taskgate_tkde_revision_plan.md)

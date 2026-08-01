@@ -30,6 +30,14 @@ import (
 	"taskbound.local/agent-data-gateway/internal/domain"
 )
 
+func clonePredicateFootprint(input *domain.PredicateFootprintLimitsV1) *domain.PredicateFootprintLimitsV1 {
+	if input == nil {
+		return nil
+	}
+	copy := *input
+	return &copy
+}
+
 type Config struct {
 	ServiceToken   string
 	CallbackSecret string
@@ -615,6 +623,7 @@ func narrowedGrantFromForm(draft *Draft, r *http.Request, issuedAt time.Time) (a
 		MaxInfluenceFacts:      parent.Budget.MaxInfluenceFacts,
 		MaxOutcomeFacts:        parent.Budget.MaxOutcomeFacts,
 		ExposureProfileVersion: parent.Budget.ExposureProfileVersion,
+		PredicateFootprint:     clonePredicateFootprint(parent.Budget.PredicateFootprint),
 	}
 	budgetFields := []struct {
 		name   string

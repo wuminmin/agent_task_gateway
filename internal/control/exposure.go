@@ -34,17 +34,28 @@ func validateExposureGrant(grant ExposureGrant) error {
 	if release > 0 && strings.TrimSpace(grant.ProfileVersion) == "" {
 		return fmt.Errorf("exposure profile version is required")
 	}
-	if release > 0 && grant.ProfileVersion != exposure.ProfileV1 && grant.ProfileVersion != exposure.ProfileV2 && grant.ProfileVersion != exposure.ProfileV3 && grant.ProfileVersion != exposure.ProfileV4 {
+	if release > 0 && grant.ProfileVersion != exposure.ProfileV1 && grant.ProfileVersion != exposure.ProfileV2 && grant.ProfileVersion != exposure.ProfileV3 && grant.ProfileVersion != exposure.ProfileV4 && grant.ProfileVersion != exposure.ProfileV5 {
 		return fmt.Errorf("unsupported exposure profile version")
 	}
-	if (grant.ProfileVersion == exposure.ProfileV3 || grant.ProfileVersion == exposure.ProfileV4) && outcome <= 0 {
-		return fmt.Errorf("V3/V4 requires a positive outcome limit")
+	if (grant.ProfileVersion == exposure.ProfileV3 || grant.ProfileVersion == exposure.ProfileV4 || grant.ProfileVersion == exposure.ProfileV5) && outcome <= 0 {
+		return fmt.Errorf("V3/V4/V5 requires a positive outcome limit")
 	}
-	if grant.ProfileVersion != exposure.ProfileV3 && grant.ProfileVersion != exposure.ProfileV4 && outcome != 0 {
-		return fmt.Errorf("outcome limit requires V3/V4")
+	if grant.ProfileVersion != exposure.ProfileV3 && grant.ProfileVersion != exposure.ProfileV4 && grant.ProfileVersion != exposure.ProfileV5 && outcome != 0 {
+		return fmt.Errorf("outcome limit requires V3/V4/V5")
 	}
 	if release == 0 && grant.ProfileVersion != "" {
 		return fmt.Errorf("exposure profile requires positive limits")
+	}
+	if grant.ProfileVersion == exposure.ProfileV5 {
+		limits := grant.PredicateFootprint
+		if limits == nil || limits.Version != exposure.PredicateFootprintVersion ||
+			limits.MaxRawLiteralsPerQuery <= 0 || limits.MaxUniqueAtomsPerQuery <= 0 ||
+			limits.MaxUniqueAtomsPerQuery > 65536 || limits.MaxRawLiteralsPerQuery < limits.MaxUniqueAtomsPerQuery ||
+			limits.MaxAtomPayloadBytes <= 0 || limits.MaxTotalAtomPayloadBytes < limits.MaxAtomPayloadBytes {
+			return fmt.Errorf("V5 requires valid predicate footprint limits")
+		}
+	} else if grant.PredicateFootprint != nil {
+		return fmt.Errorf("predicate footprint limits require V5")
 	}
 	return nil
 }
@@ -55,6 +66,9 @@ func ensureExposureLedgerTx(ctx context.Context, tx *sql.Tx, taskID string, gran
 	}
 	if grant.ProfileVersion == exposure.ProfileV4 {
 		return ensureOrdinalExposureHeadTx(ctx, tx, taskID, grant, now)
+	}
+	if grant.ProfileVersion == exposure.ProfileV5 {
+		return ensureV5ExposureHeadTx(ctx, tx, taskID, grant, now)
 	}
 	var rootTaskID string
 	if err := tx.QueryRowContext(ctx, `SELECT root_task_id FROM tasks WHERE id=$1 FOR SHARE`, taskID).Scan(&rootTaskID); err != nil {
@@ -102,7 +116,14 @@ func (s *Store) GetExposureLedger(ctx context.Context, taskID string) (ExposureL
 	if err := s.checkOpen(op); err != nil {
 		return ExposureLedgerSnapshot{}, err
 	}
-	result, err := getOrdinalExposureLedger(ctx, s.db, taskID)
+	result, err := getV5ExposureLedger(ctx, s.db, taskID)
+	if err == nil {
+		return result, nil
+	}
+	if !isNoRows(err) {
+		return ExposureLedgerSnapshot{}, opErr(op, ErrConflict, err)
+	}
+	result, err = getOrdinalExposureLedger(ctx, s.db, taskID)
 	if err == nil {
 		return result, nil
 	}
@@ -134,6 +155,9 @@ func reserveExposureTx(ctx context.Context, tx *sql.Tx, queryID, taskID string, 
 	}
 	if taskProfile == exposure.ProfileV4 {
 		return reserveOrdinalExposureTx(ctx, tx, queryID, taskID, request, now)
+	}
+	if taskProfile == exposure.ProfileV5 {
+		return reserveV5ExposureTx(ctx, tx, queryID, taskID, request, now)
 	}
 	var rootTaskID string
 	if err := tx.QueryRowContext(ctx, `SELECT root_task_id FROM tasks WHERE id=$1`, taskID).Scan(&rootTaskID); err != nil {
@@ -176,6 +200,7 @@ type exposureSettlementMetrics struct {
 	ReservationLock time.Duration
 	LedgerLock      time.Duration
 	FactStore       time.Duration
+	OutcomeRadix    OutcomeRadixTelemetryV5
 }
 
 func settleExposureTx(ctx context.Context, tx *sql.Tx, now time.Time, queryID string, observation *exposure.Observation) (*ExposureCharge, error) {
@@ -530,6 +555,13 @@ func (s *Store) GetExposureCharge(ctx context.Context, queryID string) (Exposure
 		return ExposureCharge{}, err
 	}
 	charge, err := getOrdinalExposureCharge(ctx, s.db, queryID)
+	if err == nil {
+		return charge, nil
+	}
+	if !isNoRows(err) {
+		return ExposureCharge{}, opErr(op, ErrConflict, err)
+	}
+	charge, err = getV5ExposureCharge(ctx, s.db, queryID)
 	if err == nil {
 		return charge, nil
 	}

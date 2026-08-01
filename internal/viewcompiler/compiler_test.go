@@ -58,6 +58,29 @@ func TestCompileNestedTransparentViewsEqualsDirectPlan(t *testing.T) {
 	}
 }
 
+func TestCompileMeasuredMatchesCompileArtifact(t *testing.T) {
+	products, bases := testProductsAndBases("a", "b")
+	name := rel("semantic", "measured")
+	registry := RegistrySnapshot{PostgreSQLMajorVersion: 16, Relations: bases}
+	registry.Relations[name] = testView(name, `SELECT a.id, b.value AS b_value FROM raw.a a JOIN raw.b b ON a.id=b.parent_id`, []Column{intColumn("id"), intColumn("b_value")}, rel("raw", "a"), rel("raw", "b"))
+	compiler := mustCompiler(t, registry, products)
+	measured, metrics, err := compiler.CompileMeasured(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err := compiler.Compile(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(measured, plain) {
+		t.Fatal("measured compile changed artifact")
+	}
+	sum := metrics.ParseValidation + metrics.RecursiveExpansion + metrics.JoinGraphCanonicalization + metrics.PlanMaterialization + metrics.DigestGeneration
+	if metrics.Total < sum {
+		t.Fatalf("overlapping compile stages: %+v", metrics)
+	}
+}
+
 func TestCompileArbitraryDepthAndOneAggregateBarrier(t *testing.T) {
 	products, bases := testProductsAndBases("orders", "lines")
 	joinName := rel("semantic", "order_lines")

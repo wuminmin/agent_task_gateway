@@ -190,7 +190,7 @@ func TestOACallbackHMACSubmissionApprovalReplayAndBadSignature(t *testing.T) {
 
 func TestDelegatedTaskSharesRootExposureAndStopsWithParent(t *testing.T) {
 	harness := newGatewayHarness(t)
-	harness.createExposureV4SummaryTask(t, "task-family-root", control.ExposureLimits{ReleaseFacts: 20, InfluenceFacts: 20, OutcomeFacts: 5})
+	harness.createExposureV5SummaryTask(t, "task-family-root", control.ExposureLimits{ReleaseFacts: 20, InfluenceFacts: 20, OutcomeFacts: 5})
 	bob := mcp.Principal{ID: "principal-bob-agent", Subject: "bob-agent", Role: "query"}
 	if err := harness.store.CreatePrincipal(context.Background(), control.Principal{
 		ID: bob.ID, Subject: bob.Subject, Role: bob.Role, CreatedAt: harness.clock.value,
@@ -205,14 +205,14 @@ func TestDelegatedTaskSharesRootExposureAndStopsWithParent(t *testing.T) {
 		"columns":       map[string][]string{"expense_summary": {"month", "total_amount"}},
 		"scopes":        map[string]any{"department": []any{"销售部"}},
 	})
-	if request["budget_source"] != "catalog_profile_intersect_parent_grant" || request["budget_profile"] != "summary-manual-v4" {
+	if request["budget_source"] != "catalog_profile_intersect_parent_grant" || request["budget_profile"] != "summary-manual-v5" {
 		t.Fatalf("delegated budget provenance = %#v", request)
 	}
 	delegatedBudget, ok := request["budget"].(map[string]any)
 	if !ok || delegatedBudget["max_release_facts"] != int64(20) || delegatedBudget["max_influence_facts"] != int64(20) || delegatedBudget["max_outcome_facts"] != int64(5) {
 		t.Fatalf("delegated budget was not intersected with the parent grant: %#v", request["budget"])
 	}
-	if delegatedBudget["exposure_profile_version"] != exposure.ProfileV4 {
+	if delegatedBudget["exposure_profile_version"] != exposure.ProfileV5 || delegatedBudget["predicate_footprint"] == nil {
 		t.Fatalf("delegated task changed its parent root-ledger semantics: %#v", request["budget"])
 	}
 	childID := request["task_id"].(string)

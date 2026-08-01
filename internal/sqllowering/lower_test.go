@@ -52,6 +52,20 @@ func TestLowerThreeTableJoinErasesAliasesAndJoinOrder(t *testing.T) {
 	}
 }
 
+func TestLowerPreservesNullInCallerPredicates(t *testing.T) {
+	result, err := Lower(`SELECT o.order_id FROM orders o WHERE o.order_id IN (1, NULL, 1)`, loweringTestProducts())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Plan.Filters) != 1 || result.Plan.Filters[0].Op != "IN" {
+		t.Fatalf("lowered filter = %#v", result.Plan.Filters)
+	}
+	values, ok := result.Plan.Filters[0].Value.([]any)
+	if !ok || len(values) != 3 || values[1] != nil {
+		t.Fatalf("NULL literal was not preserved: %#v", result.Plan.Filters[0].Value)
+	}
+}
+
 func TestLowerTenTableJoinWithMultiplePredicatesPerEdge(t *testing.T) {
 	products := graphTestProducts(10)
 	var sql strings.Builder

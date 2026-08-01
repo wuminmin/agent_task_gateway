@@ -101,6 +101,10 @@ type Service struct {
 	artifactRecoveryFailures atomic.Int64
 	artifactRecoveryRunning  atomic.Bool
 	artifactRecoveryMu       sync.Mutex
+	// markArtifactAvailable is a narrow fault-injection seam for the crash
+	// window after canonical object creation and before the Control AVAILABLE
+	// transaction commits. Production always leaves it nil.
+	markArtifactAvailable func(context.Context, string, string, string) (control.ResultArtifact, error)
 	// highCardinalityDerivations isolates million-fact bitmap work from the
 	// small-query pool. Capacity one is intentional and queue time is outside
 	// the advertised execution SLO.

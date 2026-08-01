@@ -8,6 +8,7 @@ import io
 import json
 import re
 import runpy
+import subprocess
 import tarfile
 from pathlib import Path
 
@@ -32,7 +33,88 @@ SCALE = ROOT / "evaluation/exposure-scale/results.json"
 SCALE_SOURCE_PROVENANCE = ROOT / "evaluation/exposure-performance/evidence/legacy-scale-source.json"
 FORMAL = ROOT / "formal/results/exposure_ledger.json"
 FORMAL_BITMAP = ROOT / "formal/results/exposure_bitmap_refinement.json"
+FORMAL_OUTCOME = ROOT / "formal/results/outcome_set_abstract_refinement.json"
+FORMAL_ARTIFACT = ROOT / "formal/results/artifact_publication.json"
+V5_OUTCOME = ROOT / "evaluation/v5-outcome/evidence.json"
+V5_COMPOSE_RECEIPT = ROOT / "evaluation/v5-outcome/compose-receipt.json"
 OUTPUT = PAPER_DIR / "generated/evidence.tex"
+
+V5_SOURCE_PATHS = (
+    "config/catalog.yaml",
+    "go.mod",
+    "go.sum",
+    "internal/control/budget.go",
+    "internal/control/migrations/018_predicate_footprint_v5.sql",
+    "internal/control/ordinal_exposure_v5.go",
+    "internal/control/ordinal_materialization_artifact_test.go",
+    "internal/control/outcome_hashset_v5.go",
+    "internal/control/outcome_hashset_v5_test.go",
+    "internal/control/result.go",
+    "internal/control/result_artifact.go",
+    "internal/control/result_artifact_test.go",
+    "internal/exposure/canonical_validation_test.go",
+    "internal/exposure/fact.go",
+    "internal/exposure/outcome_v5_test.go",
+    "internal/gateway/exposure.go",
+    "internal/gateway/ordinal_derivation_scale_test.go",
+    "internal/gateway/ordinal_single_product_postgres_test.go",
+    "internal/gateway/query.go",
+    "internal/gateway/query_test.go",
+    "internal/gateway/result_artifact.go",
+    "internal/gateway/result_artifact_test.go",
+    "internal/gateway/service.go",
+    "internal/queryplan/normalform.go",
+    "internal/queryplan/predicate_footprint.go",
+    "internal/queryreceipt/queryreceipt.go",
+    "internal/queryreceipt/queryreceipt_test.go",
+    "internal/resultartifact/artifact.go",
+    "internal/resultartifact/s3_live_test.go",
+    "internal/snapshotbundle/scale_test.go",
+    "scripts/integration-test.sh",
+    "scripts/record-compose-e2e.sh",
+)
+
+V5_MEASURED_PATHS = (
+    "Dockerfile", "compose.yaml", "go.mod", "go.sum", "cmd", "internal",
+    "config", "db", "scripts/compose-test.sh", "scripts/integration-test.sh",
+    "scripts/record-compose-e2e.sh", "paper/tkde/generate_evidence.py",
+)
+
+V5_EVIDENCE_TOOLING_PATHS = (
+    "paper/tkde/generate_evidence.py",
+    "scripts/integration-test.sh",
+    "scripts/record-compose-e2e.sh",
+)
+
+V5_RAW_TEST_COMMAND = [
+    "go", "test", "-json", "-count=1", "./internal/exposure", "./internal/control",
+    "-run",
+    "Test(ValidateCanonicalSQLValueEncodingCoversAdmissibleDomain|"
+    "ValidateCanonicalSQLValueEncodingSpecialValues|"
+    "ValidateCanonicalJSONBEncodingRejectsMalformedTrees|"
+    "PredicateAtomsAcceptCanonicalTimeAndJSONB|"
+    "CanonicalTimeValidatorMatchesEncoderAtMicrosecondBoundaries|"
+    "V5SettlementAndSemanticReplayPostgres|"
+    "OutcomeHashSetV5PostgresLoadsOnlyTouchedBranches|"
+    "OutcomeHashSetV5SamePrefixMultiChunkBoundaries|"
+    "NormalizeV5OutcomeFactsValidatesAtomCompositeBinding|"
+    "OutcomeHashSetV5ExactDifferenceUnionAndReplay|"
+    "OutcomeHashSetV5DeterministicAndTamperEvident)$",
+]
+
+V5_EXPECTED_TESTS = {
+    "TestValidateCanonicalSQLValueEncodingCoversAdmissibleDomain",
+    "TestValidateCanonicalSQLValueEncodingSpecialValues",
+    "TestValidateCanonicalJSONBEncodingRejectsMalformedTrees",
+    "TestPredicateAtomsAcceptCanonicalTimeAndJSONB",
+    "TestCanonicalTimeValidatorMatchesEncoderAtMicrosecondBoundaries",
+    "TestV5SettlementAndSemanticReplayPostgres",
+    "TestOutcomeHashSetV5PostgresLoadsOnlyTouchedBranches",
+    "TestOutcomeHashSetV5SamePrefixMultiChunkBoundaries",
+    "TestNormalizeV5OutcomeFactsValidatesAtomCompositeBinding",
+    "TestOutcomeHashSetV5ExactDifferenceUnionAndReplay",
+    "TestOutcomeHashSetV5DeterministicAndTamperEvident",
+}
 
 PERFORMANCE_SOURCE_DIRS = (
     "internal",
@@ -110,6 +192,18 @@ def string_set_sha256(domain: str, values: list[str]) -> str:
         digest.update(value.encode("utf-8"))
         digest.update(b"\x00")
     return digest.hexdigest()
+
+
+def v5_evidence_tooling() -> dict:
+    files = [{"path": path, "sha256": sha256(ROOT / path)} for path in V5_EVIDENCE_TOOLING_PATHS]
+    payload = json.dumps(
+        files, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8")
+    return {
+        "algorithm": "sha256-canonical-json-v1",
+        "files": files,
+        "sha256": hashlib.sha256(payload).hexdigest(),
+    }
 
 
 def path_set_sha256(paths: list[Path]) -> str:
@@ -660,6 +754,255 @@ def validate_formal(path: Path, label: str) -> dict:
     return result
 
 
+def v5_source_manifest_digest(files: list[dict[str, str]]) -> str:
+    canonical = json.dumps(files, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def validate_v5_raw_execution(receipt: dict) -> None:
+    require(
+        set(receipt) == {
+            "raw_log", "raw_log_sha256", "command", "go_version",
+            "postgres_version", "exit_code", "tests_passed", "tests_skipped",
+            "tests_failed", "packages_passed",
+        },
+        "V5 raw execution receipt schema is invalid",
+    )
+    raw_relative = receipt.get("raw_log", "")
+    raw_path = ROOT / raw_relative
+    require(
+        raw_relative == "evaluation/v5-outcome/raw/go-test.jsonl"
+        and raw_path.is_file()
+        and receipt.get("raw_log_sha256") == sha256(raw_path)
+        and receipt.get("command") == V5_RAW_TEST_COMMAND
+        and re.fullmatch(r"go version go1\.[0-9]+(?:\.[0-9]+)? linux/amd64", receipt.get("go_version", "")) is not None
+        and re.fullmatch(r"PostgreSQL 16\.[0-9]+ .*", receipt.get("postgres_version", "")) is not None
+        and receipt.get("exit_code") == 0,
+        "V5 raw execution identity, command, runtime, or digest is invalid",
+    )
+    events = []
+    for line_number, line in enumerate(raw_path.read_text(encoding="utf-8").splitlines(), 1):
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"V5 raw go-test log line {line_number} is not JSON") from exc
+        require(isinstance(event, dict) and "Action" in event and "Package" in event,
+                f"V5 raw go-test event {line_number} is malformed")
+        events.append(event)
+    passed = {
+        event["Test"] for event in events
+        if event.get("Action") == "pass" and event.get("Test") and "/" not in event["Test"]
+    }
+    skipped = {event["Test"] for event in events if event.get("Action") == "skip" and event.get("Test")}
+    failed = {event["Test"] for event in events if event.get("Action") == "fail" and event.get("Test")}
+    package_passes = {
+        event["Package"] for event in events
+        if event.get("Action") == "pass" and not event.get("Test")
+    }
+    package_failures = {
+        event["Package"] for event in events
+        if event.get("Action") == "fail" and not event.get("Test")
+    }
+    require(
+        passed == V5_EXPECTED_TESTS
+        and not skipped
+        and not failed
+        and package_passes == {
+            "taskbound.local/agent-data-gateway/internal/exposure",
+            "taskbound.local/agent-data-gateway/internal/control",
+        }
+        and not package_failures
+        and receipt.get("tests_passed") == len(passed)
+        and receipt.get("tests_skipped") == len(skipped)
+        and receipt.get("tests_failed") == len(failed)
+        and receipt.get("packages_passed") == len(package_passes),
+        "V5 raw go-test receipt does not prove the exact required passing test set",
+    )
+
+
+def validate_v5_compose_execution(binding: dict, submission_commit: str) -> None:
+    require(
+        set(binding) == {"receipt", "receipt_sha256"}
+        and binding.get("receipt") == "evaluation/v5-outcome/compose-receipt.json"
+        and V5_COMPOSE_RECEIPT.is_file()
+        and binding.get("receipt_sha256") == sha256(V5_COMPOSE_RECEIPT),
+        "V5 Compose execution receipt binding is missing or stale",
+    )
+    receipt = load_json(V5_COMPOSE_RECEIPT)
+    require(
+        set(receipt) == {
+            "schema_version", "submission_commit", "executed_at", "command",
+            "compose_images", "catalog_file_sha256", "catalog_runtime_digest",
+            "evidence_tooling", "exit_code", "assertions", "raw_log", "raw_log_sha256",
+        }
+        and receipt.get("schema_version") == 2
+        and receipt.get("submission_commit") == submission_commit
+        and re.fullmatch(
+            r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z",
+            receipt.get("executed_at", ""),
+        ) is not None
+        and receipt.get("command") == ["./scripts/integration-test.sh"]
+        and receipt.get("catalog_file_sha256") == sha256(ROOT / "config/catalog.yaml")
+        and re.fullmatch(r"[0-9a-f]{64}", receipt.get("catalog_runtime_digest", "")) is not None
+        and receipt.get("catalog_runtime_digest") == receipt.get("catalog_file_sha256")
+        and receipt.get("evidence_tooling") == v5_evidence_tooling()
+        and receipt.get("exit_code") == 0
+        and receipt.get("assertions") == {
+            "caller_predicate": True,
+            "go_test_no_skips": True,
+            "parquet_available": True,
+            "promotion_recovery": True,
+            "semantic_replay": True,
+        },
+        "V5 Compose execution identity or required assertions are invalid",
+    )
+    images = receipt.get("compose_images")
+    expected_services = sorted({
+        "control-postgres", "business-postgres", "snapshot-index-detail",
+        "snapshot-index-summary", "result-object-store",
+        "result-object-store-init", "gateway", "oa-demo", "mcp-probe", "test-runner",
+    })
+    require(
+        isinstance(images, list)
+        and [item.get("service") for item in images] == expected_services
+        and all(
+            isinstance(item, dict) and set(item) == {"service", "reference", "image_id"}
+            and isinstance(item["service"], str) and item["service"]
+            and isinstance(item["reference"], str) and item["reference"]
+            and re.fullmatch(r"sha256:[0-9a-f]{64}", item["image_id"]) is not None
+            for item in images
+        ),
+        "V5 Compose image identities are incomplete or malformed",
+    )
+    raw_relative = receipt.get("raw_log", "")
+    raw_path = ROOT / raw_relative
+    require(
+        raw_relative == "evaluation/v5-outcome/raw/compose-e2e.log"
+        and raw_path.is_file()
+        and receipt.get("raw_log_sha256") == sha256(raw_path),
+        "V5 Compose raw log is missing or stale",
+    )
+    log = raw_path.read_text(encoding="utf-8", errors="replace")
+    for marker in (
+        "ok - approved query creates an AVAILABLE canonical Parquet",
+        "ok - V5 semantic replay avoided Business PostgreSQL and repeated exposure charge",
+        "ok - caller SQL lowers through V5 atomization",
+        "ok - canonical-copy/AVAILABLE-commit crash-window recovery passed",
+        "ok - complete PostgreSQL-backed unit and race tests passed with zero skips",
+        "all Compose end-to-end checks passed",
+    ):
+        require(marker in log, f"V5 Compose raw log omitted {marker!r}")
+
+
+def validate_v5_outcome_evidence() -> dict:
+    result = load_json(V5_OUTCOME)
+    schema_version = result.get("schema_version")
+    expected_fields = {
+        "schema_version", "implementation_base_commit", "source_manifest",
+        "raw_execution", "deterministic_set", "postgres_committed_graph",
+        "same_prefix_multichunk",
+    }
+    if schema_version == 3:
+        expected_fields |= {"submission_commit", "compose_execution"}
+    require(
+        set(result) == expected_fields and schema_version in {2, 3},
+        "V5 outcome evidence schema is invalid",
+    )
+    base_commit = result.get("implementation_base_commit", "")
+    commit_check = subprocess.run(
+        ["git", "cat-file", "-e", f"{base_commit}^{{commit}}"],
+        cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
+    )
+    ancestry_check = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", base_commit, "HEAD"], cwd=ROOT,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
+    )
+    require(
+        re.fullmatch(r"[0-9a-f]{40}", base_commit) is not None
+        and commit_check.returncode == 0
+        and ancestry_check.returncode == 0,
+        "V5 implementation base commit is missing or is not an ancestor of HEAD",
+    )
+    if schema_version == 3:
+        submission_commit = result.get("submission_commit", "")
+        submission_check = subprocess.run(
+            ["git", "cat-file", "-e", f"{submission_commit}^{{commit}}"],
+            cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        submission_ancestry = subprocess.run(
+            ["git", "merge-base", "--is-ancestor", submission_commit, "HEAD"],
+            cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        require(
+            re.fullmatch(r"[0-9a-f]{40}", submission_commit) is not None
+            and submission_check.returncode == 0
+            and submission_ancestry.returncode == 0,
+            "V5 submission commit is missing or is not an ancestor of HEAD",
+        )
+        measured_diff = subprocess.run(
+            ["git", "diff", "--quiet", submission_commit, "--", *V5_MEASURED_PATHS],
+            cwd=ROOT, check=False,
+        )
+        measured_status = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=all", "--", *V5_MEASURED_PATHS],
+            cwd=ROOT, capture_output=True, text=True, check=False,
+        )
+        require(
+            measured_diff.returncode == 0 and not measured_status.stdout.strip(),
+            "V5 measured paths differ from the frozen submission commit",
+        )
+        validate_v5_compose_execution(result.get("compose_execution", {}), submission_commit)
+    manifest = result.get("source_manifest", {})
+    require(
+        set(manifest) == {"algorithm", "files", "sha256"}
+        and manifest.get("algorithm") == "sha256(canonical-json(sorted-path-sha256-list))"
+        and isinstance(manifest.get("files"), list),
+        "V5 implementation source manifest schema is invalid",
+    )
+    files = manifest["files"]
+    require(
+        [item.get("path") for item in files if isinstance(item, dict)] == list(V5_SOURCE_PATHS)
+        and all(set(item) == {"path", "sha256"} for item in files),
+        "V5 implementation source manifest paths are incomplete or unordered",
+    )
+    for item in files:
+        source = ROOT / item["path"]
+        require(
+            source.is_file() and re.fullmatch(r"[0-9a-f]{64}", item["sha256"]) is not None
+            and sha256(source) == item["sha256"],
+            f"V5 implementation source binding is stale for {item['path']}",
+        )
+    require(
+        manifest.get("sha256") == v5_source_manifest_digest(files),
+        "V5 implementation source-set digest is stale",
+    )
+    validate_v5_raw_execution(result.get("raw_execution", {}))
+    require(
+        result.get("deterministic_set") == {
+            "members": 10000, "permutation_deterministic": True,
+            "duplicate_idempotent": True, "tamper_rejected": True,
+        }
+        and result.get("postgres_committed_graph") == {
+            "root_cardinality": 100000, "root_block_count": 256,
+            "candidate_cardinality": 1, "blocks_loaded": 1,
+            "leaves_loaded": 1, "hashes_loaded": 2,
+            "blocks_reused": 255, "leaves_changed": 1,
+            "replay_changed_objects": 0,
+            "transaction_boundary": "commit_then_independent_merge",
+        }
+        and result.get("same_prefix_multichunk") == {
+            "members": 8193, "prefix16": "4224", "chunk_size": 4096,
+            "chunks_before": 3, "insert_positions": ["first", "middle", "last"],
+            "full_rebuild_reference_match": True, "contiguous_rechunking": True,
+            "missing_chunk_rejected": True, "replay_changed_objects": 0,
+        },
+        "V5 outcome evidence counters or asserted properties are invalid",
+    )
+    return result
+
+
 def main() -> None:
     report = validate_exposure()
     performance = validate_performance()
@@ -671,6 +1014,9 @@ def main() -> None:
     rq5 = validate_rq5_evidence()
     formal = validate_formal(FORMAL, "exposure ledger")
     bitmap_formal = validate_formal(FORMAL_BITMAP, "bitmap refinement")
+    outcome_formal = validate_formal(FORMAL_OUTCOME, "abstract outcome-set settlement")
+    artifact_formal = validate_formal(FORMAL_ARTIFACT, "artifact publication")
+    v5_outcome = validate_v5_outcome_evidence()
     rq1 = report["rq1_ground_truth"]
     rq2 = report["rq2_rewrite_invariance"]
     rq3 = report["rq3_anti_arbitrage"]
@@ -716,7 +1062,7 @@ def main() -> None:
     replay = baseline["full_replay"]
     lines = [
         "% Generated by paper/tkde/generate_evidence.py. Do not edit.",
-        rf"\newcommand{{\ExposureProfile}}{{\texttt{{{report['profile_version']}}}}}",
+        rf"\newcommand{{\ArchivedExposureProfile}}{{\texttt{{{report['profile_version']}}}}}",
         rf"\newcommand{{\ExposureCorpusHash}}{{\texttt{{{report['corpus_sha256'][:12]}}}}}",
         rf"\newcommand{{\RQOneCases}}{{{rq1['cases']}}}",
         rf"\newcommand{{\RQOnePassed}}{{{rq1['passed']}}}",
@@ -933,6 +1279,26 @@ def main() -> None:
         rf"\newcommand{{\BitmapFormalStates}}{{{comma(bitmap_formal['states_generated'])}}}",
         rf"\newcommand{{\BitmapFormalDistinct}}{{{comma(bitmap_formal['distinct_states'])}}}",
         rf"\newcommand{{\BitmapFormalDepth}}{{{bitmap_formal['search_depth']}}}",
+        rf"\newcommand{{\OutcomeFormalStates}}{{{comma(outcome_formal['states_generated'])}}}",
+        rf"\newcommand{{\OutcomeFormalDistinct}}{{{comma(outcome_formal['distinct_states'])}}}",
+        rf"\newcommand{{\OutcomeFormalDepth}}{{{outcome_formal['search_depth']}}}",
+        rf"\newcommand{{\ArtifactFormalStates}}{{{comma(artifact_formal['states_generated'])}}}",
+        rf"\newcommand{{\ArtifactFormalDistinct}}{{{comma(artifact_formal['distinct_states'])}}}",
+        rf"\newcommand{{\ArtifactFormalDepth}}{{{artifact_formal['search_depth']}}}",
+        rf"\newcommand{{\VFiveImplementationCommit}}{{\texttt{{{v5_outcome['implementation_base_commit']}}}}}",
+        rf"\newcommand{{\VFiveImplementationSourceHash}}{{\nolinkurl{{{v5_outcome['source_manifest']['sha256']}}}}}",
+        rf"\newcommand{{\VFiveRawLogHash}}{{\nolinkurl{{{v5_outcome['raw_execution']['raw_log_sha256']}}}}}",
+        rf"\newcommand{{\VFiveRawTestsPassed}}{{{v5_outcome['raw_execution']['tests_passed']}}}",
+        rf"\newcommand{{\VFiveDeterministicMembers}}{{{comma(v5_outcome['deterministic_set']['members'])}}}",
+        rf"\newcommand{{\VFiveRootCardinality}}{{{comma(v5_outcome['postgres_committed_graph']['root_cardinality'])}}}",
+        rf"\newcommand{{\VFiveRootBlocks}}{{{v5_outcome['postgres_committed_graph']['root_block_count']}}}",
+        rf"\newcommand{{\VFiveBlocksLoaded}}{{{v5_outcome['postgres_committed_graph']['blocks_loaded']}}}",
+        rf"\newcommand{{\VFiveLeavesLoaded}}{{{v5_outcome['postgres_committed_graph']['leaves_loaded']}}}",
+        rf"\newcommand{{\VFiveHashesLoaded}}{{{v5_outcome['postgres_committed_graph']['hashes_loaded']}}}",
+        rf"\newcommand{{\VFiveBlocksReused}}{{{v5_outcome['postgres_committed_graph']['blocks_reused']}}}",
+        rf"\newcommand{{\VFiveLeavesChanged}}{{{v5_outcome['postgres_committed_graph']['leaves_changed']}}}",
+        rf"\newcommand{{\VFiveReplayChangedObjects}}{{{v5_outcome['postgres_committed_graph']['replay_changed_objects']}}}",
+        rf"\newcommand{{\VFiveSamePrefixMembers}}{{{comma(v5_outcome['same_prefix_multichunk']['members'])}}}",
     ]
     rq5_offline = rq5["offline"]
     rq5_online = rq5["online"]

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "taskgate-final-v5-environment-v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "campaign_id", "deployment_id", "captured_at", "git_commit", "git_status", "publication_eligible", "host", "software", "storage", "datasets"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "campaign_id": {"type": "string", "minLength": 1},
+    "deployment_id": {"type": "string", "pattern": "^deployment-[0-9]{2}$"},
+    "captured_at": {"type": "string", "format": "date-time"},
+    "git_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "git_status": {"type": "array", "items": {"type": "string"}},
+    "publication_eligible": {"type": "boolean"},
+    "host": {"type": "object"},
+    "software": {"type": "object"},
+    "storage": {"type": "object"},
+    "datasets": {
+      "type": "object",
+      "required": ["dataset_sha256", "catalog_sha256", "deployment_volume_id_sha256"],
+      "properties": {
+        "dataset_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "catalog_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "deployment_volume_id_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    }
+  }
+}
