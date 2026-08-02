@@ -6,6 +6,8 @@ encrypted Parquet result path, V8 settlement receipts, and exact Merkle radix
 set now present in the repository.
 
 - **Core architecture:** current draft candidate; not submission-frozen
+- **Submission format:** rendered abstract 182 words; containerized IEEE build
+  12 main-paper pages plus a 12-page supplement
 - **Enterprise data-estate vision:** integrated into the manuscript as a
   brownfield-compatible serving-tier architecture; no production integration
   cost or enterprise deployment claim

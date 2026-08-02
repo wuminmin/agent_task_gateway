@@ -63,39 +63,26 @@ an official TPC-H run and neither campaign claims production generality.}}
 \maketitle
 
 \begin{abstract}
-Large enterprises already operate governed reporting estates, but lack a
-task-to-data release contract for adaptive agents. We study such agents against
-replicas refreshed through scheduled daily synchronization rather than mutable
-OLTP primaries. Each cut becomes an immutable, versioned Reporting Publication;
-every approved root and delegated child remains bound to one publication for life.
-Within that epoch, adaptive rewrites, pages,
-retries, and delegation can accumulate disclosure. \systemname{} (BDG)
-meters this
-accumulation with typed FactID sets for accounted result values, conservative
-positive-output dependency footprints, and successful query outcomes. Before
-release, the visible query and provenance companion observe one PostgreSQL
-snapshot; BDG derives the declared effects exactly with respect to the
-task-bound, versioned exposure profile within the admitted fragment,
-atomically charges only facts novel to the root-family ledger, and permits no
-modeled artifact to reach \code{AVAILABLE} before that settlement.
-Semantic replay is free of new exposure only within the same publication-bound
-identity. We give semantics for a positive relational
-fragment, paper-level conservation theorems, bounded model checking, and
-implementation-level differential and fault-injection evidence. A restricted
-semantic-View front end recursively discovers nested PostgreSQL View DAGs and
-accepts a closure only when it flattens to the same typed SPJG/JoinMany core;
-task-scoped dependency binding closes new work after View drift. The outcome
-profile charges canonical predicate atoms plus one composite result identity
-and stores cumulative SHA-256 membership in an incrementally updated Merkle
-radix set; release and dependency use immutable publication-time ordinals and
-streamed compressed bitmaps. Independent-oracle,
-rewrite, concurrency, PostgreSQL, and fixed-host experiments validate the
-scoped mechanisms. Four \RQFiveRows{}-row daily
-publications finish every measured cycle within
-\RQFiveMaxCycleS{}~s, and a retained-route campaign passes all five rollover conditions.
-BDG targets periodic reporting publications; mutable OLTP, continuous
-CDC, intra-task epoch switching, and cross-publication knowledge accounting
-are outside scope.
+Large enterprises already operate governed reporting estates, but these
+systems typically do not provide a unified, task-scoped cumulative release
+contract for adaptive agents. \systemname{} (BDG) governs agents that query
+immutable reporting publications produced by scheduled synchronization. For
+each approved root task and its delegated descendants, BDG models three
+profile-defined effects: accounted result facts, conservative positive-output
+dependency facts, and canonical query outcomes. A visible query and its
+provenance companion share one PostgreSQL snapshot. Before release, BDG
+computes profile-relative exact set novelty against the root-family ledger and
+atomically settles all three budgets. No modeled artifact becomes retrievable before
+settlement; failed promotion remains recoverable without re-executing the
+business query. The admitted positive relational fragment supports connected
+inner equijoins, grouping, bounded unions, and nested View expansion. Immutable
+ordinals, compressed bitmaps, and an incrementally updated Merkle-radix set
+represent cumulative effects. Paper theorems, bounded model checking, and
+executable PostgreSQL differential and fault-injection tests validate the
+scoped semantics and protocol. BDG targets periodic governed reporting
+products; it neither measures an agent's complete knowledge nor provides
+differential privacy, and it excludes mutable transactional databases and
+cross-publication knowledge accounting.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -112,10 +99,11 @@ acquired?'' Within one approved task, an agent may split projections, overlap
 pages, retry, rewrite, and delegate while individual queries remain legal.
 Per-query authorization and row limits do not state the root family's distinct
 cumulative exposure.
-BDG accounts that contract-defined quantity, not the agent's knowledge. DFC
-asks whether a SQL flow is allowed \cite{summers2026dataflow,summers2026passant};
-conditional on authorization and any DFC checks, BDG asks whether the next
-allowed execution fits the root's cumulative contract.
+BDG accounts that contract-defined quantity, not the agent's knowledge.
+Data-flow control (DFC) asks whether a SQL flow is allowed
+\cite{summers2026dataflow,summers2026passant}; conditional on authorization and
+any DFC checks, BDG asks whether the next allowed execution fits the root's
+cumulative contract.
 
 Query count ignores answer size; row count makes a one-row aggregate appear
 cheap despite millions of source rows; bytes and cells depend on encoding and
@@ -144,13 +132,15 @@ prompt or application.
 
 BDG is instead a brownfield-compatible data-egress layer at a governed serving
 tier materialized from a lake or warehouse. The reporting pipeline supplies
-immutable publications; the Catalog supplies versioned Products and stable
-identities; identity/workflow systems supply subject, organization, purpose,
-and approval; and object storage receives artifacts. In this integration path,
-BDG compiles those inputs into a signed task contract and settles cumulative
-exposure at one shared release boundary. At this model-independent database
-enforcement boundary, human-approved boundaries delimit machine-enforced
-autonomy; the raw lake is not exposed directly to the agent.
+immutable publications; the Catalog supplies Products, metadata, and candidate
+business keys; identity/workflow systems supply subject, organization, purpose,
+and approval; and object storage receives artifacts. BDG structurally validates
+and version-binds administrator-attested stable semantic identities, compiles
+these inputs into a signed task contract, and settles cumulative exposure under
+a shared logical Gate contract implemented by Catalog-bound, version-routed
+instances. At this
+model-independent database boundary, human-approved bounds delimit
+machine-enforced autonomy; the raw lake is not exposed directly to the agent.
 
 This arrangement motivates a bonded-warehouse model. An immutable Reporting
 Publication is governed inventory: a signed Grant permits queries but does not
@@ -275,52 +265,27 @@ formal analysis, and evaluation. Its five
 implementation-backed contributions are:
 
 \begin{enumerate}
-\item A typed FactID and three-set semantics separating accounted
-result facts (wire label \code{release}), positive-output dependency footprints, and outcomes composed
-of reusable canonical predicate atoms and one query/result composite in a
-restricted relational algebra.
-\item A same-snapshot streamed ordinal companion for one-product plans and
-connected inner-equijoin graphs over two to 16 distinct Catalog roles, plus
-two-branch union-distinct, including grouping and four aggregates; a bounded
-nested-View compiler eliminates transparent View layers into this existing
-core rather than introducing an unaccounted SQL path.
-\item A representation-independent, profile-relative exact settlement rule,
-physically refined
-by immutable snapshot dictionaries, segmented compressed bitmaps, and an exact
-incremental Merkle radix set for outcome hashes: atomically charge
-$E_q\setminus\accounted_T$, treat profile units as accounting identities rather
-than information bits, withhold on any limit, permit no modeled artifact to
-reach \code{AVAILABLE} before settlement, and make semantic replay zero-novelty
-for exposure (ordinary query/row resource accounting still applies).
-\item Signed, monotonic root-family delegation whose descendants share one
-three-dimensional ledger, preventing task-tree fan-out from multiplying exposure capacity.
-\item Three explicitly separated assurance layers: representation-independent
-theorems for the algebra, bounded TLA+ safety models for settlement and
-recovery, and executable Go/PostgreSQL differential and fault-injection
-evidence, including full paths through one million dependency facts.
+\item A typed FactID semantics for accounted Result, positive-output
+Dependency, and canonical-atom/composite Outcome sets in a restricted algebra.
+\item A same-snapshot ordinal companion for admitted one-Product, connected
+2--16-role equijoins, two-branch union, grouping, and aggregates; bounded nested
+Views flatten into this same core.
+\item Profile-relative exact novelty and atomic three-budget settlement,
+refined by immutable ordinal dictionaries, compressed bitmaps, and an exact
+Merkle-radix Outcome set; settlement precedes \code{AVAILABLE}, and semantic
+replay is zero-novelty.
+\item Signed, monotonic delegation whose descendants share one root-family
+ledger, preventing task-tree fan-out from multiplying capacity.
+\item Separate algebraic theorems, bounded TLA+ safety models, and executable
+Go/PostgreSQL differential and fault-injection evidence.
 \end{enumerate}
 
 These mechanisms expose a reusable task-to-data contract boundary for
 governed serving Products while leaving the surrounding enterprise data,
 identity, approval, storage, and audit systems in place.
 
-The implementation claims neither arbitrary SQL equivalence, differential
-privacy, inference control, principal-wide accounting, nor denial-oblivious
-auditing. Its exposure-enabled path accepts one Product or a connected
-2--16-role inner-equijoin graph, and a two-branch same-Product union-distinct;
-disconnected, self, outer, cross, and non-equality joins reject. Nested Views
-are admitted only when bounded expansion flattens to the same SPJG core with at
-most one aggregate barrier, not by general PostgreSQL View equivalence. Nested
-set trees and multi-input pagination remain outside the grammar. Each newly
-approved root has a distinct ledger, and Outcome units bound declared
-atoms/composites rather than information bits. These are explicit boundaries,
-not a broad ``SQL support'' claim.
-
-The target is a governed analytics or operations copilot working inside one
-approved case. Release limits cap repeated value extraction, dependency limits
-expose large-source aggregates, and Outcome limits charge adaptive yes/no or
-empty-result probing. Population-level privacy across approved roots still
-requires a tenant-wide policy or differential privacy.
+Section~\ref{sec:limits} makes the closed-language, cross-root, denial,
+privacy, and deployment boundaries explicit.
 
 \section{Context and Related Work}
 \label{sec:related}
@@ -449,6 +414,14 @@ deterministic DB-side effects, atomic settlement, or formal DP guarantee \\
 
 \section{Exposure Model}
 \label{sec:model}
+
+Agents, their plans, and delegated calls are untrusted. The model assumes
+trusted identity, organizational-attribute, and approval assertions; Catalog
+and Exposure-Profile authors and the immutable publication pipeline;
+PostgreSQL execution and snapshot semantics; enforcement and Control services;
+cryptographic and key-management configuration; and object-store access
+control. Section~\ref{sec:system} states the associated failure and governance
+boundary.
 
 \subsection{Publication Epochs and Task Binding}
 
@@ -1256,15 +1229,13 @@ Startup and per-query attestation verify these bindings. Each service instance
 is Catalog-bound, so rollover routes old roots to retained $P_e$ instances and
 new approvals to $P_{e+1}$; active tasks never change in place.
 
-MCP tools list Products, request and execute tasks, inspect budgets, delegate,
-rebind stale Views into new approval drafts, and retrieve results or receipts;
-an external adapter signs the immutable Grant. Direct SQL is resource-only and
-fails closed when exposure evidence is required. Control stores immutable
-dictionaries and set manifests, one three-dimensional root head, committed
-observations/query references, and content-addressed View bindings with
-monotonic \code{ACTIVE}/\code{REQUIRE\_REBIND} state. Canonical payloads remain
-cold. Results use AES-GCM, audits form a hash chain, and high-cardinality work
-uses a separate semaphore and encrypted spill path.
+MCP tools cover Product discovery, task approval/execution/delegation, View
+rebind, budgets, results, and receipts; an external adapter signs Grants.
+Direct SQL remains resource-only and fails closed when exposure evidence is
+required. Control PostgreSQL persists versioned set metadata, a
+three-dimensional root head, observations, and monotonic View bindings;
+canonical payloads remain cold. Results use AES-GCM, audits a hash chain, and
+high-cardinality work an isolated semaphore and encrypted spill path.
 
 Reference-safe retention and reclamation are specified in the supplement;
 stored ledger identities are never silently reinterpreted.
@@ -1277,9 +1248,9 @@ fronts the governed serving tier, not the raw lake.
 Table~\ref{tab:enterprise-integration} defines a brownfield-compatible,
 incremental integration path, not a completed production deployment. It
 replaces none of the lake/warehouse, Data Catalog, IAM/HR, OA/BPM, object
-store, RLS/DFC, Audit/SIEM, or Agent platform. One shared Gate provides a
-common contract boundary for identity, approval, scope, audit, and release
-across agent--data-domain pairs.
+store, RLS/DFC, Audit/SIEM, or Agent platform. Catalog-bound, version-routed
+instances implement a shared logical Gate contract across
+agent--data-domain pairs.
 
 \begin{table}[t]
 \centering
@@ -1292,7 +1263,7 @@ across agent--data-domain pairs.
 Existing system & Supplies to BDG & BDG adds \\
 \midrule
 Lake / warehouse & Curated governed serving Product & Immutable publication binding \\
-Data Catalog & Schema, owner, lineage, classification, stable IDs & Product/effect-profile contract bound by Signed Grant \\
+Data Catalog & Schema, owner, lineage, classification, candidate business keys & Structural/version binding of attested stable identities and Product/Exposure-Profile contract \\
 IAM/HR + OA/BPM & Subject, org/role, purpose, approver/chain, decision/expiry & Subject/scope and Signed Grant binding \\
 Object store + Audit/SIEM & Staging, storage, and audit endpoints & PENDING/AVAILABLE and settlement evidence \\
 Agent platform & Plans and tool calls & Untrusted-client boundary \\
@@ -1300,15 +1271,21 @@ Agent platform & Plans and tool calls & Untrusted-client boundary \\
 \end{tabular}
 \end{table}
 
+OA/BPM or another tenant-governance layer may impose principal- or tenant-level
+issuance policies across roots; the current BDG ledger remains intentionally
+scoped to one root family.
+
 \textbf{Threat and governance boundary.}
-The agent, plans, retries, pages, and delegation are untrusted. BDG trusts the
-authenticated approval, Catalog and Exposure-Profile authors, immutable publication
-pipeline, enforcement service, Control database, cryptography, and object-store
+The agent, plans, retries, pages, and delegation are untrusted. BDG trusts
+authenticated identity and organizational-attribute assertions; approval,
+Catalog, and Exposure-Profile authorities; the immutable publication pipeline;
+Business PostgreSQL execution semantics; the enforcement service and Control
+database; and cryptography, key-management configuration, and object-store
 access control. Crashes, concurrency, stale bindings, replay, and promotion
-failure are in scope; malicious Catalog/approval authorities, direct bypass,
-colluding independent roots, and external-tool leakage are not. BDG enforces
-an approved organizational policy; it does not autonomously determine whether
-that policy is appropriate.
+failure are in scope; compromised or malicious trusted authorities, direct
+bypass, colluding independent roots, and external-tool leakage are not. BDG
+enforces an approved organizational policy; it does not autonomously determine
+whether that policy is appropriate.
 
 \textbf{Governance responsibility.}
 Data owners decide business purpose and releasable scope; security and privacy teams define sensitive
@@ -1322,215 +1299,121 @@ permission, security defines boundaries, and BDG enforces the supported signed
 portion; broader flow policy remains a separate DFC or equivalent
 responsibility.
 
-\textbf{Toward agent-ready data utilities.}
-In a long-term deployment vision, a governed Product could add to schema,
-owner, quality, and lineage a Clearance Manifest of eligible requesters,
-approval route, mandatory scope, visible/denied fields, admitted query profile,
-Exposure Profile, delegation, retention, and audit level. Approval would
-instantiate a short-lived task contract. A future governance plane could
-author and test these manifests; the present prototype implements no complete
-Catalog UI or Policy Studio.
-
 \section{Three-Layer Assurance}
 \label{sec:formal}
 
-\textbf{Paper theorems.} The algebra establishes representation-independent
-Fact identity, deterministic effects, exact novelty, and root-family
-conservation for the closed language. These are mathematical properties of the
-stated model, not proofs of the parser, PostgreSQL, or distributed implementation.
-
-\textbf{TLA+ safety models.} Four bounded models are checked with pinned TLC
-1.7.1 and digest-validated logs \cite{lamport2002specifying}.
-\code{ExposureLedger.tla} starts after SQL-to-provenance compilation and checks
-atomic three-budget settlement, replay, concurrency, delegation, and
-at-most-once execution. \code{ExposureBitmapRefinement.tla} checks bounded
-FactSet/bitmap correspondence; \code{OutcomeSetAbstractRefinement.tla} checks
-abstract exact-set settlement and collision fail-closed safety, not predicate
-payloads or radix layout;
-\code{ArtifactPublication.tla} checks PENDING/AVAILABLE recovery safety without
-liveness. SQL parsing, the complete AST, PostgreSQL rows, concrete hashes and
-signatures, networking, and ciphertext are abstracted.
-
-\textbf{Executable refinement evidence.} Differential/oracle tests,
-Go/PostgreSQL regressions, concurrency schedules, tamper cases, and fault
-injection exercise the implementation correspondence. Radix partitioning and
-object reuse belong to this layer, not TLA+. The action/transaction/test map is
-an auditable refinement artifact, not a mechanized refinement proof. We
-therefore claim \emph{bounded model checking plus implementation-level
-differential and fault-injection evidence}, not a formally verified system.
+Paper theorems establish representation-independent Fact identity,
+deterministic effects, exact novelty, and root-family conservation for the
+closed algebra; they do not prove the parser or implementation. Four separate
+bounded TLC models \cite{lamport2002specifying} check abstract root settlement,
+FactSet/bitmap correspondence, exact Outcome-set settlement with collision
+fail-closed safety, and PENDING/AVAILABLE recovery. They start after compilation
+and abstract away SQL syntax, PostgreSQL rows, concrete hashes/signatures,
+networking, and ciphertext.
+Executable Go/PostgreSQL differential, concurrency, tamper, and fault-injection
+tests check implementation correspondence, including radix partitioning and
+object reuse. The supplement maps these layers and their gaps. We claim bounded
+model checking plus implementation evidence, neither a combined mechanized
+refinement nor a formally verified system.
 
 \section{Evaluation}
 \label{sec:evaluation}
 
 \subsection{Questions and Reproducibility}
 
-The five questions are RQ1 ground-truth accuracy, RQ2 rewrite invariance, RQ3
-scripted conservation under split, page, retry, probe, snapshot, join, union,
-delegation, and concurrency, RQ4 ordinal-foundation gates, and RQ5 daily refresh.
-RQ1--RQ3 regenerate digest-bound corpus \ExposureCorpusHash{}; implementation
-and formal regressions cover Outcome. RQ2 evidence is closed-language
-FactSet/charge invariance; broad SQL result-equivalence and RQ4 protocols are
-supplemental. Each call uses one complete signed profile; no representation or
-budget planner is evaluated.
-The present evaluation measures database semantics and release mechanisms,
-not enterprise integration effort, administrator workload, or organizational
-productivity.
-
-Passant is a semantic comparator, not a latency baseline
-\cite{summers2026passant}: its reported per-query policy-rewrite cost excludes
-BDG's cumulative novelty ledger, Parquet materialization, receipt, and
-promotion path. A single winner metric would therefore compare different
-controls.
-
-Evidence is obligation-specific: rules/oracles cover output and dependency;
-RQ2/RQ3 cover conservation; Outcome tests cover probes; separate settlement
-and publication models plus fault injection cover release; and binding/replay,
-receipt, observation, artifact-hash, and availability-audit regressions cover
-profile binding and reconciliation. The final-campaign adapter also fail-closed
-verifies an independent Control binding/effect projection, audit path,
-ciphertext, and delivered Parquet schema. This is executable correspondence,
-not a new protocol, formal refinement, or proof of agent-knowledge safety; the
-supplement maps every layer and gap.
+RQ1 asks ground-truth Fact membership; RQ2 closed-fragment rewrite and charge
+invariance; RQ3 conservation under adaptive execution, delegation, and
+concurrency; RQ4 ordinal/bitmap full-path acceptance; and RQ5 daily publication
+and retained routing. RQ1--RQ3 regenerate digest-bound corpus
+\ExposureCorpusHash{}. Every call uses a complete signed profile; no
+representation or budget planner is evaluated. The study measures database
+semantics and release mechanisms, not enterprise integration effort or
+organizational productivity. Passant is a semantic comparator, not a latency
+baseline \cite{summers2026passant}: its per-query rewrite excludes BDG's
+cumulative ledger, Parquet, receipt, and promotion path.
 
 \begin{table}[t]
 \centering
 \caption{Current source-backed evidence.}
 \label{tab:current-evidence}
-\small
+\scriptsize
 \begin{tabular}{L{0.12\columnwidth}L{0.70\columnwidth}}
 \toprule
 RQ & Current result \\
 \midrule
-RQ1 & \RQOnePassed{}/\RQOneCases{} independent-oracle cases on \RQOneRows{} source rows \\
-RQ2 & \RQTwoExposureRewrites{} closed-language rewrite families, \RQTwoExposureCases{} instances and \RQTwoExposureNFCases{} normal-form checks: FactSet/charge invariant, \RQTwoExposureMismatches{} mismatches \\
-RQ3 & \RQThreePassed{}/\RQThreeCases{} deterministic; \RQThreeIntegration{}/\RQThreeExecuted{} PostgreSQL race tests; representative two-source PG Join/Union exchange and downstream-group tests \\
-RQ4 & \RQFourVFourGatesPassed{}/\RQFourVFourGatesTotal{} ordinal/bitmap gates pass at \RQFourVFourNovelMedianS{}/\RQFourVFourNovelTailS{}~s novel and \RQFourVFourReplayMedianMS{}/\RQFourVFourReplayTailMS{}~ms replay p50/p95; supplemental layout, same-root contention, and \RQFourVFourOracleFacts{}-Fact oracle gates pass within their stated scopes \\
-RQ5 & Four \RQFiveRows{}-row epochs, \RQFiveTotalBuildRuns{} builds: max cycle \RQFiveMaxCycleS{}~s; \RQFiveChecksPassed{}/\RQFiveChecksTotal{} rollover conditions pass across \RQFiveTransitions{} transitions \\
+RQ1 & \RQOnePassed{}/\RQOneCases{} independent-oracle cases (\RQOneRows{} rows) \\
+RQ2 & \RQTwoExposureRewrites{} rewrite families, \RQTwoExposureCases{} cases, \RQTwoExposureNFCases{} normal-form checks; \RQTwoExposureMismatches{} FactSet/charge mismatches \\
+RQ3 & \RQThreePassed{}/\RQThreeCases{} deterministic and \RQThreeIntegration{}/\RQThreeExecuted{} PostgreSQL race tests; Join/Union/Group paths \\
+RQ4 & \RQFourVFourGatesPassed{}/\RQFourVFourGatesTotal{} gates; novel \RQFourVFourNovelMedianS{}/\RQFourVFourNovelTailS{}~s and replay \RQFourVFourReplayMedianMS{}/\RQFourVFourReplayTailMS{}~ms p50/p95; layout, contention, and \RQFourVFourOracleFacts{}-Fact oracle pass \\
+RQ5 & Four \RQFiveRows{}-row epochs, \RQFiveTotalBuildRuns{} builds, max \RQFiveMaxCycleS{}~s; \RQFiveChecksPassed{}/\RQFiveChecksTotal{} rollover checks across \RQFiveTransitions{} transitions \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-RQ1 imports no production exposure/policy code and checks exact memberships
-across projection, NULL/three-valued boundaries, grouping, join, union, and
-page cases. RQ2 requires equal release/dependency sets and zero
-bidirectional incremental charge for supported rewrites; out-of-language SQL
-tests only result equality. RQ3 covers split/page/retry, snapshot-identity
-separation (not in-task switching), join/union, public-path settlement,
-delegation, and races. Its
-\RQThreeThresholdQuestions{} zero-count predicates produce
-\RQThreeDistinctOutcomes{} outcome FactIDs; replay and a normalized rewrite
-charge \RQThreeReplayOutcomeCharge{}/\RQThreeRewriteOutcomeCharge{}; digest-bound
-logs retain case-level evidence.
-
-Outcome regressions cover full-hash difference/union/replay, radix tamper and
-rechunking, and bind \code{observation\_sha256} plus three component-set digests
-across charge, receipt, and audit, separately from the root digest.
-Generator-validated radix details show function and I/O shape, not latency.
-
-\subsection{RQ4: Measured Ordinal/Bitmap Acceptance}
-
-In one fixed-host deployment, all
-\RQFourVFourGatesPassed{}/\RQFourVFourGatesTotal{} gates pass. At
-\RQFourVFourReleaseFacts{} release, \RQFourVFourDependencyFacts{} dependency,
-and \RQFourVFourOutcomeFacts{} outcome facts, novel p50/p95 is
-\RQFourVFourNovelMedianS{}/\RQFourVFourNovelTailS{}~s, replay p50/p95 is
-\RQFourVFourReplayMedianMS{}/\RQFourVFourReplayTailMS{}~ms with no Business SQL,
-and enforcement-layer cgroup peak is \RQFourVFourGatewayPeakMiB{}~MiB. Result/effect
-digest checks cover Scan, a representative two-source Join--Group fixture, Union, Page,
-and 0/50/90/100\% dependency overlap; supporting diagnostics are supplemental.
-
-\subsection{RQ5: Daily Publication Refresh}
-
-Four deterministic \RQFiveRows{}-row daily publications test version-routed
-old roots, new-root activation, ledger isolation, replay separation, and child
-binding. All \RQFiveTotalBuildRuns{} build--verify--activate sequences and
-\RQFiveChecksPassed{}/\RQFiveChecksTotal{} rollover checks pass; maximum cycle
-time is \RQFiveMaxCycleS{}~s. This warm fixed-host gate is not an industry SLO.
-Change ratios, phase timings, artifact sizes, and router latency are
+RQ1 imports no production policy code; RQ2 requires equal
+Result/Dependency sets and zero bidirectional incremental charge; and RQ3
+covers split, page, retry, snapshot identity, joins/unions, delegation, and
+races. Outcome regressions cover empty probes, replay, radix tamper, and digest
+binding. Detailed fixtures, logs, and broad-SQL result-equivalence tests are
 supplemental.
 
 \subsection{Reproducibility Boundary}
 
-Publication-scale performance remains pending the final frozen WSL2 campaign;
-the reported values keep their measured scope and are not generalized beyond it.
-
-RQ1--RQ3 use small fixtures. The ordinal/bitmap evidence is warm, single-host, and
-TPC-H-derived (not official), excluding cold-cache, multi-node, and
-production-SLO claims; it uses one index build and one deployment, not
-\RQFourVFourRoots{} independent deployments. Retained raw data reconstruct
-every digest gate. Targeted failure and contention tests cover the current
-settlement path. The supplement records scope and exclusions. RQ5's cycle sums three
-sequential warm child intervals; its router is an experiment controller, not a
-measured production load balancer.
+Publication-scale performance remains pending the final frozen WSL2 campaign.
+RQ1--RQ3 use small fixtures; ordinal/bitmap evidence is warm, single-host, and
+TPC-H-derived (not official), with one index build and deployment rather than
+\RQFourVFourRoots{} independent deployments. Retained raw data reconstructs
+each digest gate. RQ5 sums three sequential warm child intervals, and its
+router is an experiment controller, not a production load balancer. No result
+is generalized to cold-cache, multi-node, or production-SLO behavior.
 
 \section{Limitations and Threats to Validity}
 \label{sec:limits}
 
-\textbf{Semantic scope.} Each successful outcome contributes canonical atoms
-and one query/result composite, including for empty or zero results. Unit
-weights are governance capacity, not information content; grammar-defined atom
-boundaries are not an inference decomposition. BDG does not enumerate rejected
-rows as dependencies or account non-output groups/pages, order/rank-only
-inputs, timing, correlations, background knowledge, or physical reads. A rich
-proposition may exceed one bit; the mechanism is neither minimal causal
-provenance nor differential privacy.
+\textbf{Semantic and subject scope.} Outcome atoms and composites are governance
+units, not bits or an inference decomposition. BDG omits rejected rows,
+non-output groups/pages, rank-only inputs, timing, correlations, background
+knowledge, and physical reads; it provides neither minimal causality nor
+differential privacy. Refusal leaks an uncharged threshold bit. Every approved
+root or publication has fresh capacity absent external principal/tenant policy;
+BDG does not deduplicate durable knowledge.
 
-\textbf{Decision and subject scope.} Refusal exposes an uncharged threshold bit;
-no denial noninterference is claimed. Each independently approved root,
-including one for a new publication, has fresh capacity absent external
-principal/tenant policy; BDG neither models nor deduplicates a principal's
-durable knowledge.
+\textbf{Query and identity scope.} Evidence uses frozen, manifest-proven
+publications, not mutable transactional sources or active-root migration. The
+stated Product/join/union/View fragment is closed; richer joins, sets, paging,
+negation, recursion, and subqueries fail closed, while materialized Views are
+opaque leaves. Stable keys and publications remain trusted administrator
+declarations. View drift is checked at request, approval, and execution rather
+than continuously; rebind is not general equivalence or enterprise-scale
+discovery.
 
-\textbf{Query and identity scope.} Measurements use frozen, manifest-proven
-daily publications; mutable OLTP/CDC and active-root epoch migration need a
-different argument. Online support is one Product, a bounded connected
-inner-equijoin graph, or a two-branch same-Product union-distinct, optionally
-grouped. A bounded acyclic View DAG may flatten to the SPJG core with one
-aggregate barrier. Richer joins, sets, paging, aggregation, negation, recursion,
-and subqueries fail closed; materialized Views are opaque leaves. Stable
-keys/publications remain administrator declarations requiring a trusted
-versioned pipeline and collision review; exact guards are supplemental.
-
-\textbf{View-change scope.} The prototype rechecks at request, approval, and
-execution, not continuously. Dependency revision requires rebind; tests cover
-the restricted grammar, not general equivalence or enterprise-scale discovery.
-
-\textbf{Governance and integration scope.} Exposure-Profile correctness is a
-trusted premise. BDG validates structure, stable identities, versions,
-supported semantics, and settlement, not whether a profile is appropriate
-organizational policy. Its one primary database path and demo approval adapter
-have no production Data Lake, IAM, OA/BPM, or SIEM study or measured brownfield
-integration effort. Multi-engine connectors, Policy Studio, and shadow mode
-remain future work.
-
-\textbf{Cost and deployment.} The ordinal/bitmap design avoids million-Fact
-object materialization, but only \RQFourVFourBuildRuns{} build and one fixed-host
-deployment were measured. The Outcome radix set establishes touched-branch I/O
-shape, not 1M latency or sustained contention. Indexing, retention, spooling,
-dynamic dictionaries, and audit still cost resources; distributed or live-agent
-behavior is unproven.
+\textbf{Governance and deployment scope.} Profile correctness is trusted. BDG
+validates structural and version bindings for administrator-attested identities,
+plus supported semantics and settlement; it does not decide policy
+appropriateness. Its single primary database path and demo approval adapter
+provide no production Data Lake/IAM/workflow/SIEM study or integration-cost
+measurement; multi-engine connectors and Policy Studio remain future work.
+Only \RQFourVFourBuildRuns{} build and one fixed-host deployment were measured.
+The radix results establish touched-branch I/O shape, not million-scale latency,
+sustained contention, distributed behavior, or live-agent performance.
 
 \section{Conclusion}
 
-\system provides profile-relative exact cumulative accounting of modeled
-Result, Dependency, and Outcome sets within one publication-bound root family.
-Paper theorems establish the closed algebra, separate bounded TLA+ models check
-root settlement and artifact-publication safety, and executable evidence tests
-their implementation correspondence. Together they support no unaccounted
-governed release: \code{AVAILABLE} implies prior atomic settlement, while a
-settled artifact may remain \code{PENDING}. BDG does not measure the agent's
-complete knowledge or privacy loss; it guarantees that modeled exposure cannot
-cross the governed \code{AVAILABLE} boundary without profile-bound accounting
-and atomic root-family settlement. Arbitrary SQL, mutable OLTP/CDC,
-cross-publication knowledge accounting, and multi-host latency remain outside
-the claim.
+\system provides profile-relative exact accounting of modeled Result,
+Dependency, and Outcome sets within one publication-bound root family. Paper
+theorems, separate bounded TLA+ models, and executable tests support the scoped
+safety claim: no governed artifact becomes \code{AVAILABLE} before atomic
+root-family settlement, although a settled artifact may remain \code{PENDING}.
+This is not an account of total knowledge or privacy loss; arbitrary SQL,
+mutable transactional sources, cross-publication accounting, and multi-host
+latency remain outside scope.
 
-BDG is therefore not another data lake or agent framework, but a task-to-data
-release layer for existing enterprise data estates. Near term, it makes governed reporting
-Products usable by adaptive agents without broad, persistent database
-identities. Longer term, an agent-ready data utility could unite human
-approval, Catalog semantics, cumulative accounting, and auditable release in
-one reusable contract boundary across domains and agent implementations.
+BDG is a task-to-data release layer for existing enterprise data estates, not
+another lake or agent framework. It makes governed reporting Products usable
+by adaptive agents without broad, persistent database identities. Longer term,
+an agent-ready data utility could unite human approval, Catalog semantics,
+cumulative accounting, and auditable release through a reusable logical
+contract across domains and agent implementations.
 
 BDG turns governed data at rest into governed agent capability in use. It does
 not determine the correct organizational policy; it makes an approved policy

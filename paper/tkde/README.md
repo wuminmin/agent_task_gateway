@@ -186,8 +186,9 @@ its technical content around that evolution history.
 
 ## Submission-length check
 
-The pinned-template build is currently 13 main-paper pages plus a separate
-supplement after adding the expanded DFC/Passant comparison.
+The containerized IEEE-template build is currently 12 main-paper pages plus a
+12-page supplement. The main-paper abstract is 182 words when counted from the
+rendered PDF after joining line-break hyphenation.
 Before upload, the corresponding author must confirm the current TKDE category,
 initial-submission limit, supplementary-material rules, and any overlength
 acknowledgement in the submission portal. A successful local build alone does
