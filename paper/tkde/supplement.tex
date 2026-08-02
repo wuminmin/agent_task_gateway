@@ -373,7 +373,10 @@ study, or part of the digest-bound RQ counts in the main paper.
 The theorem and property names below match the labeled statements in the main
 paper. References to effect extraction, annotation invariants, row identity,
 and outcome identity denote the corresponding displayed main-paper
-definitions; the complete operator rules they use appear above.
+definitions; the complete operator rules they use appear above. These are
+paper-level, representation-independent arguments over the declared algebra.
+They do not prove the SQL parser, complete AST, PostgreSQL row execution,
+cryptographic primitives, network, or ciphertext implementation.
 
 \begin{proof}[Proof of Fact identity]
 Each scalar encoder is a canonical representative of its typed equivalence
@@ -536,9 +539,11 @@ concrete candidate decode to $K_d\cup E_d$ and its charged count to
 $|E_d\setminus K_d|$. A successful epoch CAS linearizes all three candidate
 heads at one point; a conflicting transaction recomputes rather than publishing
 a stale difference. The precondition checks every Catalog bound and failure
-publishes no head. Induction over successful CAS order establishes the union
-identity and all three bounds. This is the abstract FactSet TLA+ transition, so
-the physical representation does not alter the safety argument.
+publishes no head. Induction over successful CAS order establishes the modeled
+union identity and all three bounds. The bounded TLA+ model separately checks
+instances of this abstract transition. Correspondence to the physical
+implementation is supported by executable evidence rather than by a mechanized
+refinement proof.
 \end{proof}
 
 \section{Outcome Set and Radix Refinement}
@@ -564,7 +569,9 @@ partitions, which may approach total root size under adversarially concentrated
 prefixes. The source-controlled PostgreSQL regression commits a
 \VFiveRootCardinality{}-member object graph before an independent merge
 transaction; the \VFiveSamePrefixMembers{}-member same-prefix regression covers
-multi-chunk boundary shifts and missing-chunk failure.
+multi-chunk boundary shifts and missing-chunk failure. These regressions, not
+the abstract TLA+ model, cover radix partitioning, touched-branch reconstruction,
+object reuse, and malformed-object rejection.
 
 \begin{table}[h]
 \centering
@@ -618,7 +625,9 @@ $K'_d=K_d\cup F_d$ for every $d\in\{r,i,o\}$ and preserves the root-family
 theorem. The finite model \code{ExposureBitmapRefinement.tla} specifies this
 commuting relation and configured invariants for bounded dictionaries,
 requests, replay, and CAS conflicts; it is not a mechanized proof of the Go
-implementation and is not itself performance evidence.
+implementation and is not itself performance evidence. The accompanying
+action/transaction/test correspondence is an auditable refinement map, not a
+machine-checked refinement theorem.
 
 The source-controlled ordinal/bitmap campaign measures
 \RQFourVFourSamples{} operations on \RQFourVFourRoots{} fresh roots in one

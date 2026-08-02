@@ -55,6 +55,20 @@ The evidence generator validates the following current claims before writing
 - the finite-state ledger, bitmap-refinement, Outcome-set, and recoverable
   artifact-publication checks.
 
+The manuscript keeps three assurance layers separate:
+
+1. paper theorems for the algebra and representation-independent properties;
+2. bounded TLA+ safety models for settlement, concurrency, and publication
+   recovery after SQL-to-provenance compilation;
+3. executable Go/PostgreSQL differential, concurrency, tamper, and
+   fault-injection evidence for implementation correspondence.
+
+The models abstract the parser, complete AST, PostgreSQL rows, concrete hashes
+and signatures, network, and ciphertext. Radix partition/object reuse is tested
+in executable regressions. The action/transaction/test map is an audit artifact,
+not a mechanized refinement proof; the paper does not claim a formally verified
+system.
+
 The build compiles `main.tex` and `supplement.tex` in the pinned Docker TeX
 environment. A syntax-oriented entry point is available at `build.sh`. The
 supplement contains complete inference rules, proofs, implementation coverage,

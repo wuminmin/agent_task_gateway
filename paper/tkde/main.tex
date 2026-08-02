@@ -74,7 +74,8 @@ the visible query and provenance companion observe one PostgreSQL snapshot;
 TaskGate derives exact effects and atomically charges only facts novel to the
 root-family ledger. Semantic replay is free of new exposure only within the
 same publication-bound identity. We give semantics for a positive relational
-fragment, conservation properties, and finite-state checks. A restricted
+fragment, paper-level conservation theorems, bounded model checking, and
+implementation-level differential and fault-injection evidence. A restricted
 semantic-View front end recursively discovers nested PostgreSQL View DAGs and
 accepts a closure only when it flattens to the same typed SPJG/JoinMany core;
 task-scoped dependency binding closes new work after View drift. The outcome
@@ -274,11 +275,10 @@ any limit, and make semantic replay zero-novelty for exposure (ordinary
 query/row resource accounting still applies).
 \item Signed, monotonic root-family delegation whose descendants share one
 three-dimensional ledger, preventing task-tree fan-out from multiplying exposure capacity.
-\item New formal properties and evidence for these mechanisms: three-budget
-safety, exact/non-overlapping novel charge, no pre-settlement delivery, and
-task-family non-amplification; algebraic/rewrite tests, a finite TLA+ ledger
-model, and full-path PostgreSQL experiments through one million dependency
-facts, together with exact-set functional and scaling-shape regressions.
+\item Three explicitly separated assurance layers: representation-independent
+theorems for the algebra, bounded TLA+ safety models for settlement and
+recovery, and executable Go/PostgreSQL differential and fault-injection
+evidence, including full paths through one million dependency facts.
 \end{enumerate}
 
 The implementation does \emph{not} claim arbitrary SQL equivalence, differential
@@ -1183,31 +1183,32 @@ working-set threshold is crossed.
 Reference-safe retention and reclamation are specified in the supplement;
 stored ledger identities are never silently reinterpreted.
 
-\section{Finite-State Analysis}
+\section{Three-Layer Assurance}
 \label{sec:formal}
 
-Four bounded TLA+ models are checked with pinned TLC 1.7.1 and digest-validated
-logs \cite{lamport2002specifying}. \code{ExposureLedger.tla} checks atomic
-three-budget novelty, rejection, replay, concurrency, delegation conservation,
-and at-most-once execution.
-\code{ExposureBitmapRefinement.tla} checks that ordinal
-OR/ANDNOT/popcount decodes to exact Fact sets.
-\code{OutcomeSetAbstractRefinement.tla} checks abstract exact-set settlement,
-replay, budget, and corruption safety; it
-does not model radix layout.
+\textbf{Paper theorems.} The algebra establishes representation-independent
+Fact identity, deterministic effects, exact novelty, and root-family
+conservation for the closed language. These are mathematical properties of the
+stated model, not proofs of the parser, PostgreSQL, or distributed implementation.
 
-\code{ArtifactPublication.tla} separates \emph{CreateCanonical} from
-\emph{MarkAvailable}, explicitly admitting PENDING with a canonical object.
-Its invariants require AVAILABLE
-$\Rightarrow$ settled $\wedge$ canonical-exists $\wedge$ exact-hash-match,
-rejection never AVAILABLE, zero additional ledger charge, and one Business
-execution through retry/recovery. It is a safety model without an eventual
-availability claim.
+\textbf{TLA+ safety models.} Four bounded models are checked with pinned TLC
+1.7.1 and digest-validated logs \cite{lamport2002specifying}.
+\code{ExposureLedger.tla} starts after SQL-to-provenance compilation and checks
+atomic three-budget settlement, replay, concurrency, delegation, and
+at-most-once execution. \code{ExposureBitmapRefinement.tla} checks bounded
+FactSet/bitmap correspondence; \code{OutcomeSetAbstractRefinement.tla} checks
+abstract exact-set settlement and corruption safety, not radix layout;
+\code{ArtifactPublication.tla} checks PENDING/AVAILABLE recovery safety without
+liveness. SQL parsing, the complete AST, PostgreSQL rows, concrete hashes and
+signatures, networking, and ciphertext are abstracted.
 
-These runs are exhaustive only for their finite configurations. They abstract
-SQL and hashes, start after View lowering, and do not mechanically prove the
-Go/PostgreSQL refinement; the repository supplies the action/transaction/test
-map and executable implementation regressions.
+\textbf{Executable refinement evidence.} Differential/oracle tests,
+Go/PostgreSQL regressions, concurrency schedules, tamper cases, and fault
+injection exercise the implementation correspondence. Radix partitioning and
+object reuse belong to this layer, not TLA+. The action/transaction/test map is
+an auditable refinement artifact, not a mechanized refinement proof. We
+therefore claim \emph{bounded model checking plus implementation-level
+differential and fault-injection evidence}, not a formally verified system.
 
 \section{Evaluation}
 \label{sec:evaluation}
@@ -1366,7 +1367,8 @@ additionally freezes each accepted nested View closure and requires a new root
 and approval after drift. A later daily publication is reserved for new roots.
 TaskGate combines immutable ordinals and streamed Release/dependency bitmaps
 with predicate-atom/composite Outcome semantics and an exact touched-branch
-Merkle radix set under one three-dimensional CAS. The formal models and scoped campaigns support exactness, atomicity, and
+Merkle radix set under one three-dimensional CAS. Paper theorems, bounded
+model checking, and scoped executable evidence support exactness, atomicity, and
 compact representation on one fixed host; RQ5 additionally supports daily
 rollover within its stated measurement boundary. Arbitrary SQL, mutable
 OLTP/CDC, cross-publication knowledge accounting, and multi-host latency remain
