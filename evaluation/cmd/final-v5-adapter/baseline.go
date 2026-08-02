@@ -16,12 +16,14 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/parquet-go/parquet-go"
 
 	"taskbound.local/agent-data-gateway/evaluation/internal/experiment"
+	"taskbound.local/agent-data-gateway/evaluation/internal/releasedartifact"
 	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 	"taskbound.local/agent-data-gateway/internal/resultartifact"
 )
@@ -66,18 +68,26 @@ type queryResponse struct {
 	IdempotentReplay bool                        `json:"idempotent_replay"`
 	Receipt          queryreceipt.QueryReceiptV1 `json:"receipt"`
 	Exposure         struct {
-		ActualReleaseFacts       int64  `json:"actual_release_facts"`
-		ActualInfluenceFacts     int64  `json:"actual_influence_facts"`
-		ActualOutcomeFacts       int64  `json:"actual_outcome_facts"`
-		ChargedReleaseFacts      int64  `json:"charged_release_facts"`
-		ChargedInfluenceFacts    int64  `json:"charged_influence_facts"`
-		ChargedOutcomeFacts      int64  `json:"charged_outcome_facts"`
-		ReleaseSetSHA256         string `json:"release_set_sha256"`
-		InfluenceSetSHA256       string `json:"influence_set_sha256"`
-		OutcomeSetSHA256         string `json:"outcome_set_sha256"`
-		RootEpoch                int64  `json:"root_epoch"`
-		ActualPredicateAtomCount int64  `json:"actual_predicate_atom_count"`
-		ActualCompositeCount     int64  `json:"actual_composite_count"`
+		QueryID                   string `json:"query_id"`
+		RootTaskID                string `json:"root_task_id"`
+		ProfileVersion            string `json:"profile_version"`
+		ActualReleaseFacts        int64  `json:"actual_release_facts"`
+		ActualInfluenceFacts      int64  `json:"actual_influence_facts"`
+		ActualOutcomeFacts        int64  `json:"actual_outcome_facts"`
+		ChargedReleaseFacts       int64  `json:"charged_release_facts"`
+		ChargedInfluenceFacts     int64  `json:"charged_influence_facts"`
+		ChargedOutcomeFacts       int64  `json:"charged_outcome_facts"`
+		ActualPredicateAtomCount  int64  `json:"actual_predicate_atom_count"`
+		ChargedPredicateAtomCount int64  `json:"charged_predicate_atom_count"`
+		CompositeOutcomeSHA256    string `json:"composite_outcome_sha256"`
+		PredicateContextSHA256    string `json:"predicate_context_sha256"`
+		PredicateSetSHA256        string `json:"predicate_set_sha256"`
+		ObservationSHA256         string `json:"observation_sha256"`
+		DictionarySetDigest       string `json:"dictionary_set_digest"`
+		ReleaseSetSHA256          string `json:"release_set_sha256"`
+		InfluenceSetSHA256        string `json:"influence_set_sha256"`
+		OutcomeSetSHA256          string `json:"outcome_set_sha256"`
+		RootEpoch                 int64  `json:"root_epoch"`
 	} `json:"exposure"`
 }
 
@@ -325,13 +335,10 @@ func (adapter *realAdapter) completeTaskgateSample(ctx context.Context, operatio
 	if response.TaskID != state.taskID || response.ArtifactStatus != "AVAILABLE" || response.ResultID == "" || response.QueryID == "" {
 		return experiment.Sample{}, errors.New("query response omitted AVAILABLE identity")
 	}
-	if err := adapter.verifier.Verify(response.Receipt); err != nil {
-		return experiment.Sample{}, err
-	}
 	if response.Receipt.Version != queryreceipt.VersionV8 || response.Receipt.ArtifactIntent == nil || response.Receipt.QueryID != response.QueryID || response.Receipt.TaskID != state.taskID {
 		return experiment.Sample{}, errors.New("query response omitted matching V8 receipt")
 	}
-	auditEvidence, err := adapter.verifyAudit(ctx, response)
+	auditEvidence, err := adapter.loadAuditEvidence(ctx, response)
 	if err != nil {
 		return experiment.Sample{}, err
 	}
@@ -352,7 +359,26 @@ func (adapter *realAdapter) completeTaskgateSample(ctx context.Context, operatio
 	if shaBytes(parquetBytes) != delivery.ArtifactSHA256 {
 		return experiment.Sample{}, errors.New("downloaded Parquet digest mismatch")
 	}
-	rows, err := parseParquet(parquetBytes, response.ResultID, response.RowCount)
+	expectedBinding, canonicalEvidence, canonicalObject, err := adapter.openCanonicalObject(ctx, response)
+	if err != nil {
+		return experiment.Sample{}, err
+	}
+	defer canonicalObject.Close()
+	canonicalEvidence.ReleasedParquet = parquetBytes
+	availability := auditEvidence.Availability
+	if err := releasedartifact.VerifyReleasedArtifact(adapter.verifier, releasedartifact.SettlementEvidence{
+		Receipt: response.Receipt, ExpectedBinding: expectedBinding, ReceiptInclusion: auditEvidence.Audit,
+		TerminalInclusion: auditEvidence.Terminal, RegistrationInclusion: auditEvidence.Registration,
+		AvailabilityInclusion: &availability,
+	}, canonicalEvidence); err != nil {
+		return experiment.Sample{}, err
+	}
+	if err := validateResponseAgainstVerifiedReceipt(response); err != nil {
+		return experiment.Sample{}, err
+	}
+	intent := response.Receipt.ArtifactIntent
+	signedExposure := response.Receipt.Exposure
+	rows, err := parseParquet(parquetBytes, intent.ResultID, intent.RowCount)
 	if err != nil {
 		return experiment.Sample{}, err
 	}
@@ -368,15 +394,14 @@ func (adapter *realAdapter) completeTaskgateSample(ctx context.Context, operatio
 	sample.ClientAvailableMS, sample.ClientFullDrainMS = availableMS, durationMS(time.Since(started))
 	sample.PipelineMS = response.PipelineMS
 	sample.DiagnosticMS = response.DiagnosticMS
-	sample.RowCount, sample.ColumnCount, sample.ResultSHA256 = response.RowCount, response.ColumnCount, resultDigest
+	sample.RowCount, sample.ColumnCount, sample.ResultSHA256 = intent.RowCount, int(intent.ColumnCount), resultDigest
 	sample.PhysicalSQLSHA256, sample.LogicalSQLSHA256 = sha(sqlText), sha(sqlText)
 	sample.QueryPlanSHA256 = response.PlanDigest
-	exposure := response.Exposure
-	sample.ActualReleaseFacts, sample.ChargedReleaseFacts = exposure.ActualReleaseFacts, exposure.ChargedReleaseFacts
-	sample.ActualDependencyFacts, sample.ChargedDependencyFacts = exposure.ActualInfluenceFacts, exposure.ChargedInfluenceFacts
-	sample.ActualOutcomeFacts, sample.ChargedOutcomeFacts = exposure.ActualOutcomeFacts, exposure.ChargedOutcomeFacts
-	sample.ReleaseSetSHA256, sample.DependencySetSHA256, sample.OutcomeSetSHA256 = exposure.ReleaseSetSHA256, exposure.InfluenceSetSHA256, exposure.OutcomeSetSHA256
-	sample.PredicateAtomCount, sample.CompositeCount = exposure.ActualPredicateAtomCount, exposure.ActualCompositeCount
+	sample.ActualReleaseFacts, sample.ChargedReleaseFacts = signedExposure.ActualReleaseFacts, signedExposure.ChargedReleaseFacts
+	sample.ActualDependencyFacts, sample.ChargedDependencyFacts = signedExposure.ActualInfluenceFacts, signedExposure.ChargedInfluenceFacts
+	sample.ActualOutcomeFacts, sample.ChargedOutcomeFacts = signedExposure.ActualOutcomeFacts, signedExposure.ChargedOutcomeFacts
+	sample.ReleaseSetSHA256, sample.DependencySetSHA256, sample.OutcomeSetSHA256 = signedExposure.ReleaseSetSHA256, signedExposure.InfluenceSetSHA256, signedExposure.OutcomeSetSHA256
+	sample.PredicateAtomCount, sample.CompositeCount = signedExposure.ActualPredicateAtomCount, signedExposure.ActualCompositeCount
 	sample.SemanticReplay, sample.IdempotentReplay = response.SemanticReplay, response.IdempotentReplay
 	if operation.Mode == "semantic_replay" || operation.Mode == "normalized_rewrite_replay" {
 		if !response.SemanticReplay {
@@ -398,14 +423,13 @@ func (adapter *realAdapter) completeTaskgateSample(ctx context.Context, operatio
 	sample.RootEpochBefore, sample.RootEpochAfter = before.epoch, after.epoch
 	sample.RootSetSHA256Before, sample.RootSetSHA256After = before.digest, after.digest
 	sample.RootTaskIDHash = saltedTaskHash(operation, state.taskID)
-	intent := response.Receipt.ArtifactIntent
 	sample.ParquetBytes, sample.EncryptedObjectBytes = intent.ParquetSize, intent.ObjectSize
 	sample.ArtifactSHA256, sample.ObjectSHA256 = intent.ParquetSHA256, intent.ObjectSHA256
 	receiptBytes, _ := json.Marshal(response.Receipt)
 	sample.ReceiptVersion, sample.ReceiptSHA256, sample.ArtifactIntentSHA256 = response.Receipt.Version, shaBytes(receiptBytes), intent.IntentSHA256
 	availabilityBytes, _ := json.Marshal(auditEvidence.Availability)
 	sample.AvailabilityAuditSHA256, sample.ReceiptVerified, sample.ArtifactAvailable = shaBytes(availabilityBytes), true, true
-	sample.BaselineVerification = &experiment.BaselineVerificationEvidence{Receipt: response.Receipt, KeyBundle: adapter.keyBundle, AuditProof: auditEvidence.Audit, TerminalProof: auditEvidence.Terminal, RegistrationProof: auditEvidence.Registration, AvailabilityProof: auditEvidence.Availability, ArtifactStatus: response.ArtifactStatus, DownloadedParquetSHA256: shaBytes(parquetBytes), ParsedResultSHA256: resultDigest}
+	sample.BaselineVerification = &experiment.BaselineVerificationEvidence{Receipt: response.Receipt, KeyBundle: adapter.keyBundle, AuditProof: auditEvidence.Audit, TerminalProof: auditEvidence.Terminal, RegistrationProof: auditEvidence.Registration, AvailabilityProof: auditEvidence.Availability, ArtifactStatus: canonicalEvidence.Status, DownloadedParquetSHA256: shaBytes(parquetBytes), ParsedResultSHA256: resultDigest}
 	sample.Status = "pass"
 	return sample, nil
 }
@@ -654,6 +678,115 @@ func parseParquet(value []byte, resultID string, expectedRows int64) ([][]any, e
 		limit = 1
 	}
 	return resultartifact.ReadParquet(value, resultID, schema, 0, limit)
+}
+
+// validateResponseAgainstVerifiedReceipt prevents mutable response metadata
+// from drifting away from the signed evidence that the campaign records. It
+// is called only after VerifyReleasedArtifact has authenticated the receipt
+// and compared it with the independent Control projection.
+func validateResponseAgainstVerifiedReceipt(response queryResponse) error {
+	intent := response.Receipt.ArtifactIntent
+	exposure := response.Receipt.Exposure
+	if intent == nil || exposure == nil {
+		return errors.New("verified response omitted artifact intent or exposure evidence")
+	}
+	stringsToCompare := []struct {
+		name, actual, expected string
+	}{
+		{"task ID", response.TaskID, response.Receipt.TaskID},
+		{"query ID", response.QueryID, response.Receipt.QueryID},
+		{"result ID", response.ResultID, intent.ResultID},
+		{"exposure query ID", response.Exposure.QueryID, response.Receipt.QueryID},
+		{"root task ID", response.Exposure.RootTaskID, exposure.RootTaskID},
+		{"exposure profile", response.Exposure.ProfileVersion, exposure.ProfileVersion},
+		{"observation digest", response.Exposure.ObservationSHA256, exposure.ObservationSHA256},
+		{"dictionary-set digest", response.Exposure.DictionarySetDigest, exposure.DictionarySetSHA256},
+		{"Result-set digest", response.Exposure.ReleaseSetSHA256, exposure.ReleaseSetSHA256},
+		{"Dependency-set digest", response.Exposure.InfluenceSetSHA256, exposure.InfluenceSetSHA256},
+		{"Outcome-set digest", response.Exposure.OutcomeSetSHA256, exposure.OutcomeSetSHA256},
+		{"predicate-context digest", response.Exposure.PredicateContextSHA256, exposure.PredicateContextSHA256},
+		{"predicate-set digest", response.Exposure.PredicateSetSHA256, exposure.PredicateSetSHA256},
+		{"composite-outcome digest", response.Exposure.CompositeOutcomeSHA256, exposure.CompositeOutcomeSHA256},
+	}
+	for _, comparison := range stringsToCompare {
+		if comparison.actual == "" || comparison.actual != comparison.expected {
+			return fmt.Errorf("query response %s differs from verified receipt", comparison.name)
+		}
+	}
+	countsToCompare := []struct {
+		name             string
+		actual, expected int64
+	}{
+		{"row count", response.RowCount, intent.RowCount},
+		{"column count", int64(response.ColumnCount), intent.ColumnCount},
+		{"actual Result count", response.Exposure.ActualReleaseFacts, exposure.ActualReleaseFacts},
+		{"actual Dependency count", response.Exposure.ActualInfluenceFacts, exposure.ActualInfluenceFacts},
+		{"actual Outcome count", response.Exposure.ActualOutcomeFacts, exposure.ActualOutcomeFacts},
+		{"charged Result count", response.Exposure.ChargedReleaseFacts, exposure.ChargedReleaseFacts},
+		{"charged Dependency count", response.Exposure.ChargedInfluenceFacts, exposure.ChargedInfluenceFacts},
+		{"charged Outcome count", response.Exposure.ChargedOutcomeFacts, exposure.ChargedOutcomeFacts},
+		{"actual predicate count", response.Exposure.ActualPredicateAtomCount, exposure.ActualPredicateAtomCount},
+		{"charged predicate count", response.Exposure.ChargedPredicateAtomCount, exposure.ChargedPredicateAtomCount},
+		{"root epoch", response.Exposure.RootEpoch, exposure.RootEpoch},
+	}
+	for _, comparison := range countsToCompare {
+		if comparison.actual != comparison.expected {
+			return fmt.Errorf("query response %s differs from verified receipt", comparison.name)
+		}
+	}
+	return nil
+}
+
+func (adapter *realAdapter) openCanonicalObject(ctx context.Context, response queryResponse) (releasedartifact.ExpectedBinding, releasedartifact.CanonicalObjectEvidence, io.ReadCloser, error) {
+	var binding releasedartifact.ExpectedBinding
+	var object releasedartifact.CanonicalObjectEvidence
+	var expiresAt pgtype.Timestamptz
+	err := adapter.control.QueryRow(ctx, `
+SELECT q.task_id,q.id,a.result_id,
+       q.manifest_digest,q.grant_digest,q.catalog_digest,q.catalog_version,q.datasource_id,q.schema_digest,
+       reservation.root_task_id,reservation.profile_version,head.predicate_profile_version,
+       reservation.observation_sha256,observation.dictionary_set_digest,
+       observation.release_set_sha256,observation.influence_set_sha256,observation.outcome_set_sha256,
+       reservation.predicate_context_sha256,reservation.predicate_set_sha256,reservation.composite_outcome_sha256,
+       reservation.actual_release_facts,reservation.actual_influence_facts,reservation.actual_outcome_facts,
+       reservation.charged_release_facts,reservation.charged_influence_facts,reservation.charged_outcome_facts,
+       reservation.actual_predicate_atom_count,reservation.charged_predicate_atom_count,reservation.root_epoch,
+       a.result_id,a.query_id,a.task_id,a.key_id,a.format,a.encryption,a.staging_key,a.object_key,
+       a.parquet_sha256,a.object_sha256,a.parquet_size,a.object_size,a.row_count,a.column_count,
+       a.schema_json,a.result_metadata_json,a.acl_json,a.expires_at,a.status
+FROM query_records q
+JOIN v5_query_exposure_reservations reservation ON reservation.query_id=q.id AND reservation.status='SETTLED'
+JOIN v5_observations observation ON observation.observation_sha256=reservation.observation_sha256
+JOIN v5_exposure_root_heads head ON head.root_task_id=reservation.root_task_id
+JOIN result_artifacts a ON a.query_id=q.id
+WHERE q.id=$1 AND q.task_id=$2 AND a.result_id=$3`,
+		response.QueryID, response.TaskID, response.ResultID).Scan(
+		&binding.TaskID, &binding.QueryID, &binding.ResultID,
+		&binding.ManifestDigest, &binding.GrantDigest, &binding.CatalogDigest, &binding.CatalogVersion,
+		&binding.DatasourceID, &binding.SchemaDigest, &binding.RootTaskID, &binding.ProfileVersion,
+		&binding.PredicateProfileVersion, &binding.ObservationSHA256, &binding.DictionarySetSHA256,
+		&binding.ReleaseSetSHA256, &binding.InfluenceSetSHA256, &binding.OutcomeSetSHA256,
+		&binding.PredicateContextSHA256, &binding.PredicateSetSHA256, &binding.CompositeOutcomeSHA256,
+		&binding.ActualReleaseFacts, &binding.ActualInfluenceFacts, &binding.ActualOutcomeFacts,
+		&binding.ChargedReleaseFacts, &binding.ChargedInfluenceFacts, &binding.ChargedOutcomeFacts,
+		&binding.ActualPredicateAtomCount, &binding.ChargedPredicateAtomCount, &binding.RootEpoch,
+		&object.ResultID, &object.QueryID, &object.TaskID, &object.KeyID, &object.Format, &object.Encryption,
+		&object.StagingKey, &object.ObjectKey, &object.ParquetSHA256, &object.ObjectSHA256,
+		&object.ParquetSize, &object.ObjectSize, &object.RowCount, &object.ColumnCount,
+		&object.SchemaJSON, &object.ResultMetadataJSON, &object.ACLJSON, &expiresAt, &object.Status)
+	if err != nil {
+		return binding, object, nil, err
+	}
+	if expiresAt.Valid {
+		value := expiresAt.Time.UTC()
+		object.ExpiresAt = &value
+	}
+	canonical, err := adapter.objectStore.GetObject(ctx, adapter.objectBucket, object.ObjectKey, minio.GetObjectOptions{})
+	if err != nil {
+		return binding, object, nil, err
+	}
+	object.Ciphertext = canonical
+	return binding, object, canonical, nil
 }
 
 func baseSample(operation experiment.AdapterOperation, system string) experiment.Sample {

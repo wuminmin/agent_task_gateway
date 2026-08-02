@@ -809,7 +809,7 @@ O1 & Result extraction and representation closure & TLA+ accepts abstract candid
 O2 & Complete operator rules; dependency determinism; group/distinct/aggregate completeness proofs & TLA+ copies abstract Dependency candidates without modeling the rules & RQ1 memberships and hidden predicate/join/group/aggregate PostgreSQL checks \\
 O3 & Typed-normal-form, base-ledger, Outcome replay, and root-family theorems & \code{ExposureLedger} set novelty/family invariants; bitmap CAS refresh; no SQL rewrite model & RQ2 rewrite campaign; RQ3 split/page/retry/delegation/concurrency tests \\
 O4 & Atom/composite definition and Outcome separation theorem & Outcome shape and exact-set invariants only; no predicate payload or entropy model & zero/empty predicate separation, replay, full-hash and radix tests \\
-O5 & Settlement definition and the one-way release Property & Separate \code{ExposureLedger} budget and \code{ArtifactPublication} availability/hash invariants; Control settlement and AVAILABLE transactions link them & over-budget withholding, promotion failure/recovery, V8 intent, availability-inclusion, and fault-injection tests \\
+O5 & Settlement definition and the one-way release Property & Separate \code{ExposureLedger} budget and \code{ArtifactPublication} availability/hash invariants; Control settlement and AVAILABLE transactions link them & over-budget withholding, promotion failure/recovery, V8 intent, availability-inclusion, final-campaign receipt/object composition, and fault-injection tests \\
 O6 & Approved-task/profile definition and replay descriptor & No profile/Catalog/publication variables in these TLA+ models & replay-key binding, foreign-Catalog dictionary, View drift, receipt-signature, and publication-separation regressions \\
 \bottomrule
 \end{tabular}
@@ -823,8 +823,13 @@ the Control-PG sequence that co-commits root observation/effect settlement,
 terminal and registration audits, a \code{PENDING} artifact intent, and the V8
 receipt, followed by canonical-object verification and a second transaction
 that co-commits \code{AVAILABLE} with
-\code{QUERY\_RESULT\_CONSUMED}. This is combined evidence, not a mechanized
-cross-module refinement or a liveness guarantee.
+\code{QUERY\_RESULT\_CONSUMED}. The source-controlled final-campaign adapter
+uses one fail-closed verifier to compare the signed Grant/Catalog/profile and
+effect fields with an independent Control projection, prove the terminal,
+registration, and availability events on one audit path, re-hash the raw
+canonical ciphertext, and check the delivered Parquet size, identity, and
+normalized schema. This is combined executable evidence, not a public audit
+SDK, mechanized cross-module refinement, or liveness guarantee.
 
 \begin{table}[h]
 \centering
@@ -838,7 +843,7 @@ Layer & Bound evidence & Required reconciliation & Insufficient alone \\
 \midrule
 Effect manifest & Three candidate sets, \code{observation\_sha256}, component digests, profile and publication context & Same query observation must be the effect settled under the bound root & Does not prove ledger commit or availability \\
 Root-family ledger & Three committed heads, exact novelty/cardinalities, root epoch, settlement and terminal audit & Head transition and query observation must identify the manifest and remain within all bounds & Does not prove object promotion \\
-Artifact and receipt & Parquet/object hashes, registration/PENDING intent, V8 receipt, canonical verification, availability audit & AVAILABLE event must name the same query and signed intent after canonical hash verification & Receipt alone proves PENDING intent; availability event cannot replace settlement \\
+Artifact and receipt & Parquet/object hashes, registration/PENDING intent, V8 receipt, canonical verification, availability audit & One final-campaign verifier reconciles the same query, signed intent, Control projection, canonical bytes, Parquet schema, and AVAILABLE event & Receipt alone proves PENDING intent; availability event cannot replace settlement \\
 \bottomrule
 \end{tabular}
 \end{table}

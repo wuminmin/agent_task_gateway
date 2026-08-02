@@ -50,7 +50,7 @@ type verifiedAuditEvidence struct {
 	Availability auditchain.InclusionProof
 }
 
-func (adapter *realAdapter) verifyAudit(ctx context.Context, response queryResponse) (verifiedAuditEvidence, error) {
+func (adapter *realAdapter) loadAuditEvidence(ctx context.Context, response queryResponse) (verifiedAuditEvidence, error) {
 	var evidence auditReceiptResponse
 	if err := adapter.carol.call(ctx, "get_audit_receipt", map[string]string{"receipt_id": response.QueryID}, &evidence); err != nil {
 		return verifiedAuditEvidence{}, err
@@ -63,19 +63,10 @@ func (adapter *realAdapter) verifyAudit(ctx context.Context, response queryRespo
 	auditProof := evidence.AuditInclusion.proof()
 	terminalProof := evidence.ArtifactIntentInclusion.Terminal.proof()
 	registrationProof := evidence.ArtifactIntentInclusion.Registration.proof()
-	if err := queryreceipt.VerifyAuditInclusion(response.Receipt, auditProof); err != nil {
-		return verifiedAuditEvidence{}, err
-	}
-	if err := queryreceipt.VerifyArtifactIntentInclusion(response.Receipt, terminalProof, registrationProof); err != nil {
-		return verifiedAuditEvidence{}, err
-	}
 	if evidence.AvailabilityEventInclusion == nil {
 		return verifiedAuditEvidence{}, errors.New("AVAILABLE result omitted availability inclusion")
 	}
 	availabilityProof := evidence.AvailabilityEventInclusion.proof()
-	if err := queryreceipt.VerifyArtifactAvailabilityInclusion(response.Receipt, availabilityProof); err != nil {
-		return verifiedAuditEvidence{}, err
-	}
 	return verifiedAuditEvidence{Audit: auditProof, Terminal: terminalProof, Registration: registrationProof, Availability: availabilityProof}, nil
 }
 

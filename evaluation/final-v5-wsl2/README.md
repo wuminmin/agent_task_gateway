@@ -24,7 +24,7 @@ make eval-v5-final-smoke
 make eval-v5-final-real-pilot
 ```
 
-It creates a unique fresh Compose project, captures Docker/PostgreSQL/MinIO freshness evidence, provisions real tasks through public OA approval, and runs the source-controlled adapter through Direct PostgreSQL plus public `query_sql`, semantic replay, idempotent replay, AVAILABLE delivery, Parquet parsing, V8 verification, and audit-inclusion verification. A dedicated recovery arm forces the real Control `PENDING -> AVAILABLE` transaction to fail after the canonical object exists, then proves from `pg_stat_statements`, Control counters, the object store, and the unchanged V8 intent that recovery neither re-queries nor re-settles. It remains `PILOT-NOT-FOR-PUBLICATION` and currently covers only baseline/S1/tiny.
+It creates a unique fresh Compose project, captures Docker/PostgreSQL/MinIO freshness evidence, provisions real tasks through public OA approval, and runs the source-controlled adapter through Direct PostgreSQL plus public `query_sql`, semantic replay, idempotent replay, and AVAILABLE delivery. One evaluation-only `VerifyReleasedArtifact` call then reconciles the independently read Control binding/effect projection, V8 signature, terminal/registration/availability audit path, raw MinIO canonical ciphertext, and delivered Parquet hash/size/identity/schema. A dedicated recovery arm forces the real Control `PENDING -> AVAILABLE` transaction to fail after the canonical object exists, then proves from `pg_stat_statements`, Control counters, the object store, and the unchanged V8 intent that recovery neither re-queries nor re-settles. It remains `PILOT-NOT-FOR-PUBLICATION` and currently covers only baseline/S1/tiny.
 
 ## Runner/adapter contract
 

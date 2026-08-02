@@ -1370,6 +1370,10 @@ Outcome replay/separation tests. No-unaccounted release uses the separate
 settlement/publication TLA+ models plus fault injection, while profile binding
 and three-way reconciliation use Grant/Catalog/publication replay regressions
 and receipt, observation, artifact-hash, and availability-audit verification.
+The source-controlled final-campaign adapter additionally invokes one
+fail-closed verifier over an independent Control binding/effect projection,
+the audit path, raw canonical ciphertext, and delivered Parquet schema; this
+is executable correspondence rather than a new protocol or formal refinement.
 None of these tests proves agent-knowledge safety; the supplement and artifact
 matrix state each layer and gap.
 

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"taskbound.local/agent-data-gateway/evaluation/finalv5oracle"
+	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 )
 
 func TestMain(m *testing.M) {
@@ -211,6 +212,51 @@ func TestMatchedPairIdentityIsGroupScopedAndRecordsExactOrder(t *testing.T) {
 		if operation.PairID != operations[0].PairID || !sameStringSet(strings.Split(operation.PairedSystemOrder, ","), []string{"direct", "provsql", "taskgate"}) {
 			t.Fatalf("ProvSQL pair metadata = %+v", operations)
 		}
+	}
+}
+
+func TestValidateBaselineSignedSampleRejectsUnsignedCountDrift(t *testing.T) {
+	intent := &queryreceipt.ArtifactIntentEvidenceV1{
+		IntentSHA256: "intent", ParquetSHA256: "parquet", ObjectSHA256: "object",
+		ParquetSize: 101, ObjectSize: 202, RowCount: 3, ColumnCount: 2,
+	}
+	exposure := &queryreceipt.ExposureEvidenceV1{
+		ReleaseSetSHA256: "release", InfluenceSetSHA256: "dependency", OutcomeSetSHA256: "outcome",
+		ActualReleaseFacts: 3, ActualInfluenceFacts: 4, ActualOutcomeFacts: 6,
+		ChargedReleaseFacts: 1, ChargedInfluenceFacts: 2, ChargedOutcomeFacts: 3,
+		ActualPredicateAtomCount: 5, ActualCompositeCount: 1, RootEpoch: 8,
+	}
+	sample := Sample{
+		ArtifactIntentSHA256: intent.IntentSHA256, ArtifactSHA256: intent.ParquetSHA256,
+		ObjectSHA256: intent.ObjectSHA256, ParquetBytes: intent.ParquetSize,
+		EncryptedObjectBytes: intent.ObjectSize, RowCount: intent.RowCount, ColumnCount: int(intent.ColumnCount),
+		ReleaseSetSHA256: exposure.ReleaseSetSHA256, DependencySetSHA256: exposure.InfluenceSetSHA256,
+		OutcomeSetSHA256: exposure.OutcomeSetSHA256, ActualReleaseFacts: exposure.ActualReleaseFacts,
+		ActualDependencyFacts: exposure.ActualInfluenceFacts, ActualOutcomeFacts: exposure.ActualOutcomeFacts,
+		ChargedReleaseFacts: exposure.ChargedReleaseFacts, ChargedDependencyFacts: exposure.ChargedInfluenceFacts,
+		ChargedOutcomeFacts: exposure.ChargedOutcomeFacts, PredicateAtomCount: exposure.ActualPredicateAtomCount,
+		CompositeCount: exposure.ActualCompositeCount, RootEpochAfter: exposure.RootEpoch,
+	}
+	if err := validateBaselineSignedSample(intent, exposure, sample); err != nil {
+		t.Fatalf("matching signed sample: %v", err)
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*Sample)
+	}{
+		{name: "column count", mutate: func(value *Sample) { value.ColumnCount++ }},
+		{name: "predicate count", mutate: func(value *Sample) { value.PredicateAtomCount++ }},
+		{name: "composite count", mutate: func(value *Sample) { value.CompositeCount++ }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			mutated := sample
+			test.mutate(&mutated)
+			if err := validateBaselineSignedSample(intent, exposure, mutated); err == nil {
+				t.Fatal("unsigned sample drift was accepted")
+			}
+		})
 	}
 }
 

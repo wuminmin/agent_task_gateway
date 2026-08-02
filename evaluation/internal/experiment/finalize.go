@@ -800,15 +800,36 @@ func validateBaselineVerification(sample Sample) error {
 		return errors.New("raw receipt/audit digest differs from sample")
 	}
 	intent, exposure := evidence.Receipt.ArtifactIntent, evidence.Receipt.Exposure
-	if intent.IntentSHA256 != sample.ArtifactIntentSHA256 || intent.ParquetSHA256 != sample.ArtifactSHA256 || intent.ObjectSHA256 != sample.ObjectSHA256 || intent.ParquetSize != sample.ParquetBytes || intent.ObjectSize != sample.EncryptedObjectBytes ||
-		evidence.DownloadedParquetSHA256 != intent.ParquetSHA256 || evidence.ParsedResultSHA256 != sample.ResultSHA256 || evidence.Receipt.ResultHash != intent.ParquetSHA256 || evidence.Receipt.RowCount != sample.RowCount {
-		return errors.New("artifact/result evidence differs from signed receipt")
+	if err := validateBaselineSignedSample(intent, exposure, sample); err != nil {
+		return err
 	}
-	if exposure.ReleaseSetSHA256 != sample.ReleaseSetSHA256 || exposure.InfluenceSetSHA256 != sample.DependencySetSHA256 || exposure.OutcomeSetSHA256 != sample.OutcomeSetSHA256 || exposure.ActualReleaseFacts != sample.ActualReleaseFacts || exposure.ActualInfluenceFacts != sample.ActualDependencyFacts || exposure.ActualOutcomeFacts != sample.ActualOutcomeFacts || exposure.ChargedReleaseFacts != sample.ChargedReleaseFacts || exposure.ChargedInfluenceFacts != sample.ChargedDependencyFacts || exposure.ChargedOutcomeFacts != sample.ChargedOutcomeFacts || exposure.RootEpoch != sample.RootEpochAfter {
-		return errors.New("exposure evidence differs from signed receipt")
+	if evidence.DownloadedParquetSHA256 != intent.ParquetSHA256 || evidence.ParsedResultSHA256 != sample.ResultSHA256 ||
+		evidence.Receipt.ResultHash != intent.ParquetSHA256 || evidence.Receipt.RowCount != intent.RowCount {
+		return errors.New("artifact/result evidence differs from signed receipt")
 	}
 	if sha256Hex([]byte(sample.CampaignID+"\x00"+sample.DeploymentID+"\x00"+evidence.Receipt.TaskID)) != sample.RootTaskIDHash {
 		return errors.New("salted root identity differs from receipt task")
+	}
+	return nil
+}
+
+func validateBaselineSignedSample(intent *queryreceipt.ArtifactIntentEvidenceV1, exposure *queryreceipt.ExposureEvidenceV1, sample Sample) error {
+	if intent == nil || exposure == nil {
+		return errors.New("signed artifact or exposure evidence is absent")
+	}
+	if intent.IntentSHA256 != sample.ArtifactIntentSHA256 || intent.ParquetSHA256 != sample.ArtifactSHA256 ||
+		intent.ObjectSHA256 != sample.ObjectSHA256 || intent.ParquetSize != sample.ParquetBytes ||
+		intent.ObjectSize != sample.EncryptedObjectBytes || intent.RowCount != sample.RowCount ||
+		intent.ColumnCount != int64(sample.ColumnCount) {
+		return errors.New("artifact/result evidence differs from signed receipt")
+	}
+	if exposure.ReleaseSetSHA256 != sample.ReleaseSetSHA256 || exposure.InfluenceSetSHA256 != sample.DependencySetSHA256 ||
+		exposure.OutcomeSetSHA256 != sample.OutcomeSetSHA256 || exposure.ActualReleaseFacts != sample.ActualReleaseFacts ||
+		exposure.ActualInfluenceFacts != sample.ActualDependencyFacts || exposure.ActualOutcomeFacts != sample.ActualOutcomeFacts ||
+		exposure.ChargedReleaseFacts != sample.ChargedReleaseFacts || exposure.ChargedInfluenceFacts != sample.ChargedDependencyFacts ||
+		exposure.ChargedOutcomeFacts != sample.ChargedOutcomeFacts || exposure.ActualPredicateAtomCount != sample.PredicateAtomCount ||
+		exposure.ActualCompositeCount != sample.CompositeCount || exposure.RootEpoch != sample.RootEpochAfter {
+		return errors.New("exposure evidence differs from signed receipt")
 	}
 	return nil
 }
