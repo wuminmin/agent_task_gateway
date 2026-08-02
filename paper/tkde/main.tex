@@ -69,11 +69,12 @@ approved root and delegated child remains bound to one publication for life.
 Within that epoch, adaptive rewrites, pages,
 retries, and delegation can accumulate disclosure. TaskGate meters this
 accumulation with typed FactID sets for accounted result values, conservative
-positive-output dependency footprints, and successful query outcomes. Before release,
-the visible query and provenance companion observe one PostgreSQL snapshot;
-TaskGate derives exact effects and atomically charges only facts novel to the
-root-family ledger. Semantic replay is free of new exposure only within the
-same publication-bound identity. We give semantics for a positive relational
+positive-output dependency footprints, and successful query outcomes. Before
+release, the visible query and provenance companion observe one PostgreSQL
+snapshot; TaskGate derives the declared effects exactly within the admitted
+fragment and atomically charges only facts novel to the root-family ledger.
+Semantic replay is free of new exposure only within the same publication-bound
+identity. We give semantics for a positive relational
 fragment, paper-level conservation theorems, bounded model checking, and
 implementation-level differential and fault-injection evidence. A restricted
 semantic-View front end recursively discovers nested PostgreSQL View DAGs and
@@ -109,7 +110,11 @@ identifier, ask an equivalent query, or delegate a narrower subtask. Per-query
 authorization and row limits do not state how much distinct exposure the
 resulting root family has accumulated. TaskGate addresses this task-scoped
 accounting question; its contract-defined exposure is not a model of the
-agent's knowledge.
+agent's knowledge. Per-query DFC asks whether a SQL data flow is allowed
+\cite{summers2026dataflow,summers2026passant}; TaskGate does not subsume that
+policy language. Conditional on separate authorization and any applicable
+flow-policy enforcement, it asks whether the next permitted execution still
+fits the approved root's cumulative exposure contract.
 
 Counting queries is insensitive to answer size. Counting returned rows makes a
 one-row aggregate appear cheap even when it depends on millions of source rows.
@@ -312,10 +317,12 @@ requires a tenant-wide policy or differential privacy.
 
 \subsection{Closest System Families}
 
-GAAP is the closest system at the agent data-flow layer
-\cite{stanley2026gaap}: its cross-call information-flow control covers indirect
-cross-service propagation outside TaskGate's scope, whereas TaskGate specializes
-in typed SQL facts, same-snapshot evidence, and exact per-root settlement.
+At the cross-tool agent-execution layer, GAAP provides the most directly
+relevant IFC contrast \cite{stanley2026gaap}: its persistent information-flow
+state spans execution steps and separated tasks and covers indirect
+cross-service propagation outside TaskGate's scope. TaskGate instead
+specializes in typed SQL facts, same-snapshot evidence, and exact per-root
+settlement under its declared profile.
 
 \textbf{History and pricing.} Auditing reconstructs access or asks whether a
 history determines forbidden data; simulatable auditing also protects denial
@@ -338,27 +345,112 @@ general provenance algebra: it specializes a positive fragment to co-generate
 typed release/dependency effects with the answer and settle their cumulative
 novelty before release.
 
+\textbf{Data-flow policy enforcement.} FlowGuard and the later DFC/Passant work
+in the same DFC line are the closest database-layer comparators to TaskGate
+\cite{summers2026dataflow,summers2026passant}. The Passant paper formalizes
+optimizer-invariant aggregate predicates over each output tuple's bag of
+provenance monomials and introduces Provenance Guard Notation (PGN). It
+describes rewrites that remove or replace violating tuples, terminate a query,
+and constrain \code{INSERT}/\code{UPDATE} through source, sink, and
+required-source policies. This per-query model covers contributor thresholds,
+prohibited source combinations, grounding, prompt-bound untrusted flows, and
+legal state transitions that TaskGate does not subsume.
+
+The temporal control unit differs. The Passant paper focuses on single-query
+enforcement and explicitly leaves trajectory-level agent policies to future
+work. TaskGate assumes that each query has passed authorization and any
+applicable flow-policy checks, then persists canonical Result, Dependency, and
+Outcome FactID sets under one approved root task. It charges exact set novelty
+under the declared profile across successful queries, retries, pages, supported
+normal-form-equivalent rewrites, and delegated descendants. Settlement
+atomically advances one three-dimensional root head and co-commits audit,
+receipt, and a PENDING artifact intent; promotion to AVAILABLE is then
+recoverable and fail-closed. The prototype does not integrate or evaluate a
+Passant--TaskGate composition. Thus DFC asks whether a data flow is allowed,
+whereas TaskGate asks whether another allowed flow still fits the approved
+cumulative exposure contract.
+
 \textbf{Authorization and delegation.} Usage/history control and delegation
 establish ongoing decisions, attenuation, and quotas
 \cite{park2004ucon,abadi2003history,li2003delegation,chadwick2008permis}.
 RLS/VPD, ABAC/XACML, and query-policy systems decide which operation and rows
 are authorized
-\cite{postgres16rls,hu2014abac,mehta2017qapla,zhang2022blockaid,liu2026safenlidb}.
+\cite{postgres16rls,hu2014abac,mehta2017qapla,zhang2022blockaid}.
 TaskGate assumes that boundary, then makes every descendant settle against one
 root ledger; distributed vouchers remain outside its centralized prototype.
 
 \textbf{Agent controls.} MCP authorization/tools and authenticated delegation
 scope who may invoke a capability \cite{mcp2025auth,mcp2025tools,south2025delegation};
-prompt-injection and runtime-flow defenses address complementary threats
-\cite{debenedetti2024agentdojo,summers2026dataflow}. They do not alone account
-database facts accumulated across successful calls. TaskGate treats the agent
-and generated SQL as untrusted clients behind these controls.
+prompt-injection benchmarks such as AgentDojo evaluate model/tool behavior
+\cite{debenedetti2024agentdojo}. TaskGate treats the agent and generated SQL as
+untrusted clients, but neither sanitizes strings in a result artifact nor
+tracks their flow into later prompts or external tools. SafeNLIDB instead uses
+interaction history for model-side, multi-turn inference-risk assessment and
+SQL generation \cite{liu2026safenlidb}; it is not a deterministic database-side
+FactID ledger, while TaskGate claims no inference safety.
 
 \textbf{Novelty boundary.} Relative to these systems, TaskGate contributes
 database-specific three-set FactID semantics, same-snapshot provenance, exact
-novel-set settlement, and shared-root conservation. It is narrower than
-cross-tool noninterference and stronger than stateless authorization only for
-the modeled task-scoped threat.
+novel-set settlement, and shared-root conservation. It does not replace
+per-query DFC; it adds a persistent task-root accounting and settlement layer
+across individually authorized and, when separately enforced,
+flow-policy-compliant SQL executions.
+Table~\ref{tab:system-comparison} makes the orthogonal control dimensions
+explicit. TaskGate is narrower than DFC's policy, SQL, and write-operation
+scope and than cross-tool noninterference. Its claimed additional axis is exact
+set novelty only under the declared profile, closed language, root family, and
+publication. None of its exposure sets is a DP budget or a measure of an
+agent's complete knowledge.
+
+\begin{table*}[t]
+\centering
+\caption{Representative control boundaries from the cited artifacts. Entries
+describe modeled or paper-reported scopes; they are neither a feature score nor
+a latency ranking.}
+\label{tab:system-comparison}
+\scriptsize
+\setlength{\tabcolsep}{2pt}
+\renewcommand{\arraystretch}{1.04}
+\begin{tabular}{L{0.107\textwidth}L{0.17\textwidth}L{0.17\textwidth}L{0.18\textwidth}L{0.155\textwidth}L{0.153\textwidth}}
+\toprule
+System/family & Controlled object and decision & Horizon and persistent subject &
+Enforcement/release coupling & Reported SQL or tool boundary &
+Explicit non-goal in this comparison \\
+\midrule
+\system & Declared Result, Dependency, and Outcome FactID set novelty:
+does the next release fit the budget? & One signed, publication-bound root
+family; descendants share its persistent ledger & One three-dimensional
+root-head CAS co-commits ledger, audit, receipt, and PENDING intent; availability
+is recoverable & Closed read-only reporting fragment: SPJG, JoinMany, bounded
+Union/View DAGs & No per-query DFC resolution, writes, prompt/cross-tool IFC,
+DP, or inference control \\
+DFC/Passant \cite{summers2026dataflow,summers2026passant} & Aggregate policy
+predicate over a bag of provenance monomials: is this flow compliant? &
+Passant paper: one SQL execution; relational context may include identity,
+delegation, or system state; trajectory policy is future work & Paper describes
+REMOVE/transform/KILL and \code{INSERT}/\code{UPDATE} source, required-source,
+and sink policies & Paper states monotonic SQL-92 and evaluates five engines &
+No signed task-root novelty ledger or cumulative-budget CAS; general-tool DFC
+is future work \\
+GAAP \cite{stanley2026gaap} & Permission-consistent disclosure of IFC-labeled
+private data & Persistent state across execution steps and tasks separated in
+time & Deterministic disclosure confinement at agent/tool sinks & Agent
+execution environment with cross-service flows & Not SQL FactID novelty or
+database/artifact settlement \\
+GProM/ProvSQL \cite{arab2018gprom,senellart2018provsql,sen2026provsql} &
+General query provenance representation, rewriting, and circuits & Query-result
+derivations rather than an approved root-family budget & Capture and evaluate
+provenance; no cumulative release decision & Database-level mechanisms with
+broader SQL/provenance scope than TaskGate & No task approval binding or
+cumulative exposure settlement \\
+SafeNLIDB \cite{liu2026safenlidb} & Learned safety decision and SQL generation
+from schema, constraints, and interaction history & Multi-turn history supplied
+to the model, not a persisted exact FactID ledger & Reject or generate SQL at
+the model/NLIDB layer & LLM-based natural-language database interface & No
+deterministic DB-side effects, atomic settlement, or formal DP guarantee \\
+\bottomrule
+\end{tabular}
+\end{table*}
 
 \section{Exposure Model}
 \label{sec:model}
@@ -1227,6 +1319,12 @@ primary evidence is closed-language FactSet/charge invariance; broad SQL
 result-equivalence and detailed RQ4 protocols remain in the supplement. Each
 call executes one plan against the complete signed profile; no representation-
 or budget-selection planner is evaluated.
+
+Passant is a semantic comparator, not a latency baseline
+\cite{summers2026passant}: its reported per-query policy-rewrite cost excludes
+TaskGate's cumulative novelty ledger, Parquet materialization, receipt, and
+promotion path. A single winner metric would therefore compare different
+controls.
 
 \begin{table}[t]
 \centering

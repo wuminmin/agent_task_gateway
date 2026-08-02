@@ -92,7 +92,8 @@ its technical content around that evolution history.
 
 ## Submission-length check
 
-The pinned-template build is 12 main-paper pages plus a separate supplement.
+The pinned-template build is currently 13 main-paper pages plus a separate
+supplement after adding the expanded DFC/Passant comparison.
 Before upload, the corresponding author must confirm the current TKDE category,
 initial-submission limit, supplementary-material rules, and any overlength
 acknowledgement in the submission portal. A successful local build alone does
