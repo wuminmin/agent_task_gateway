@@ -87,42 +87,51 @@ type compileState struct {
 }
 
 // CompileMetrics contains non-overlapping observational stages for one
-// compiler call. Allocation counters are process-wide runtime deltas and are
-// therefore most meaningful in the runner's single-compile, fixed-process
-// measurement mode.
+// compiler call. Latency samples leave allocation fields at zero; allocation
+// runs are exposed separately so runtime.ReadMemStats cannot distort the
+// sub-millisecond latency path.
 type CompileMetrics struct {
-	Total                     time.Duration
-	RecursiveExpansion        time.Duration
-	ParseValidation           time.Duration
-	JoinGraphCanonicalization time.Duration
-	PlanMaterialization       time.Duration
-	DigestGeneration          time.Duration
-	AllocBytes                uint64
-	AllocObjects              uint64
+	Total               time.Duration
+	RecursiveExpansion  time.Duration
+	ParseValidation     time.Duration
+	CompileSemantic     time.Duration
+	PlanMaterialization time.Duration
+	DigestGeneration    time.Duration
+	AllocBytes          uint64
+	AllocObjects        uint64
 }
 
 func (compiler *Compiler) Compile(root RelationName) (Artifact, error) {
-	artifact, _, err := compiler.CompileMeasured(root)
+	artifact, _, err := compiler.compileCore(root)
 	return artifact, err
 }
 
-// CompileMeasured is Compile with observational timing/allocation counters.
-// Compile delegates here so callers cannot select a semantically different
-// measured implementation.
+// CompileMeasured records latency stages without calling runtime.ReadMemStats.
+// Both measured and ordinary compilation delegate to compileCore.
 func (compiler *Compiler) CompileMeasured(root RelationName) (artifact Artifact, metrics CompileMetrics, err error) {
-	started := time.Now()
+	return compiler.compileCore(root)
+}
+
+// CompileAllocationMeasured runs the same compiler core while measuring
+// process-wide allocation deltas. Its Total/stage timings must not be mixed
+// with CompileMeasured latency samples.
+func (compiler *Compiler) CompileAllocationMeasured(root RelationName) (artifact Artifact, metrics CompileMetrics, err error) {
 	var before, after runtime.MemStats
 	runtime.ReadMemStats(&before)
-	defer func() {
-		metrics.Total = time.Since(started)
-		runtime.ReadMemStats(&after)
-		if after.TotalAlloc >= before.TotalAlloc {
-			metrics.AllocBytes = after.TotalAlloc - before.TotalAlloc
-		}
-		if after.Mallocs >= before.Mallocs {
-			metrics.AllocObjects = after.Mallocs - before.Mallocs
-		}
-	}()
+	artifact, metrics, err = compiler.compileCore(root)
+	runtime.ReadMemStats(&after)
+	if after.TotalAlloc >= before.TotalAlloc {
+		metrics.AllocBytes = after.TotalAlloc - before.TotalAlloc
+	}
+	if after.Mallocs >= before.Mallocs {
+		metrics.AllocObjects = after.Mallocs - before.Mallocs
+	}
+	return artifact, metrics, err
+}
+
+func (compiler *Compiler) compileCore(root RelationName) (artifact Artifact, metrics CompileMetrics, err error) {
+	started := time.Now()
+	defer func() { metrics.Total = time.Since(started) }()
 	if compiler == nil {
 		return artifact, metrics, reject(CodeInvalidRegistry, root, "compiler is nil")
 	}
@@ -151,7 +160,7 @@ func (compiler *Compiler) CompileMeasured(root RelationName) (artifact Artifact,
 	}
 	stageStarted = time.Now()
 	_, normal, semanticErr := queryplan.CompileSemantic(plan, compiler.products)
-	metrics.JoinGraphCanonicalization = time.Since(stageStarted)
+	metrics.CompileSemantic = time.Since(stageStarted)
 	if semanticErr != nil {
 		return artifact, metrics, reject(CodePlanInvalid, root, "expanded semantic plan: %v", semanticErr)
 	}

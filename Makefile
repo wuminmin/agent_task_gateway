@@ -1,4 +1,4 @@
-.PHONY: verify test build up down logs formal eval-validate eval-exposure eval-exposure-performance eval-exposure-scale eval-exposure-storage eval-provenance-baseline eval-daily-publication eval-daily-publication-online eval-daily-publication-validate eval-smoke eval-full eval-v5-final-validate eval-v5-final-preflight eval-v5-final-smoke eval-v5-final-finalize eval-v5-final-evidence artifacts fuzz paper-evidence paper paper-tkde paper-tdsc
+.PHONY: verify test build up down logs formal eval-validate eval-exposure eval-exposure-performance eval-exposure-scale eval-exposure-storage eval-provenance-baseline eval-daily-publication eval-daily-publication-online eval-daily-publication-validate eval-smoke eval-full eval-v5-final-validate eval-v5-final-preflight eval-v5-final-smoke eval-v5-final-real-pilot eval-v5-final-finalize eval-v5-final-campaign-finalize eval-v5-final-evidence artifacts fuzz paper-evidence paper paper-tkde paper-tdsc
 
 verify:
 	docker build --target verify -t taskbound-agent-data-gateway-verify .
@@ -80,9 +80,16 @@ eval-v5-final-smoke:
 	grep -q 'publication_eligible=false' "$$run_dir/PILOT-NOT-FOR-PUBLICATION"; \
 	! grep -q '\\newcommand' "$$run_dir/generated/latex/evidence.tex"
 
+eval-v5-final-real-pilot:
+	TASKGATE_REAL_PILOT_BUILD=1 ./evaluation/final-v5-wsl2/scripts/run-real-pilot.sh
+
 eval-v5-final-finalize:
 	@test -n "$(RUN_DIR)" || (echo "RUN_DIR is required" >&2; exit 2)
 	./evaluation/final-v5-wsl2/scripts/finalize.sh "$(RUN_DIR)"
+
+eval-v5-final-campaign-finalize:
+	@test -n "$(CAMPAIGN_ROOT)" || (echo "CAMPAIGN_ROOT is required" >&2; exit 2)
+	go run ./evaluation/cmd/final-v5 campaign-finalize --campaign-root "$(CAMPAIGN_ROOT)"
 
 eval-v5-final-evidence:
 	@test -n "$(RUN_DIR)" || (echo "RUN_DIR is required" >&2; exit 2)

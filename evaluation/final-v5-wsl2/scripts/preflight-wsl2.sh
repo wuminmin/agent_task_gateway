@@ -8,19 +8,29 @@ while (($#)); do
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
-[[ "$mode" == pilot || "$mode" == publication ]] || { echo "--mode pilot|publication is required" >&2; exit 2; }
+[[ "$mode" == smoke || "$mode" == pilot || "$mode" == publication ]] || { echo "--mode smoke|pilot|publication is required" >&2; exit 2; }
 
 repo="$(git rev-parse --show-toplevel)"
 failures=()
-grep -qi microsoft /proc/sys/kernel/osrelease || failures+=("not WSL2")
-docker info >/dev/null 2>&1 || failures+=("Docker unavailable")
-[[ "$(stat -fc %T /sys/fs/cgroup)" == cgroup2fs ]] || failures+=("cgroup v2 unavailable")
-compose_version="$(docker compose version --short 2>/dev/null | sed 's/^v//')"
-[[ "$(printf '%s\n' 2.24.4 "$compose_version" | sort -V | head -n1)" == 2.24.4 ]] || failures+=("Docker Compose < 2.24.4")
+for required_command in git go jq sha256sum; do
+  command -v "$required_command" >/dev/null 2>&1 || failures+=("required command unavailable: $required_command")
+done
 commit="$(git rev-parse HEAD)"
 [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || failures+=("Git commit is not a full SHA")
 
+if [[ "$mode" != smoke ]]; then
+  command -v docker >/dev/null 2>&1 || failures+=("required command unavailable: docker")
+  grep -qi microsoft /proc/sys/kernel/osrelease || failures+=("not WSL2")
+  docker info >/dev/null 2>&1 || failures+=("Docker unavailable")
+  [[ "$(stat -fc %T /sys/fs/cgroup)" == cgroup2fs ]] || failures+=("cgroup v2 unavailable")
+  compose_version="$(docker compose version --short 2>/dev/null | sed 's/^v//')"
+  [[ "$(printf '%s\n' 2.24.4 "$compose_version" | sort -V | head -n1)" == 2.24.4 ]] || failures+=("Docker Compose < 2.24.4")
+fi
+
 if [[ "$mode" == publication ]]; then
+  for required_command in psql containerd; do
+    command -v "$required_command" >/dev/null 2>&1 || failures+=("required command unavailable: $required_command")
+  done
   # shellcheck disable=SC1091
   . /etc/os-release
   [[ "${ID:-}" == ubuntu && "${VERSION_ID:-}" == 22.04 ]] || failures+=("publication requires Ubuntu 22.04")
@@ -40,5 +50,5 @@ if ((${#failures[@]})); then
   printf 'preflight failure: %s\n' "${failures[@]}" >&2
   exit 1
 fi
-if [[ "$mode" == pilot ]]; then echo "publication_eligible=false"; else echo "publication_eligible=true"; fi
+if [[ "$mode" == publication ]]; then echo "publication_eligible=true"; else echo "publication_eligible=false"; fi
 echo "commit=$commit"

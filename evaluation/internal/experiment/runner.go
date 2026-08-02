@@ -33,6 +33,8 @@ type AdapterOperation struct {
 	ProcessReplicate  int    `json:"process_replicate"`
 	OrderPosition     int    `json:"order_position"`
 	RandomSeed        int64  `json:"random_seed"`
+	PairID            string `json:"pair_id"`
+	PairedSystemOrder string `json:"paired_system_order"`
 	Warmup            bool   `json:"warmup"`
 	FreshRootRequired bool   `json:"fresh_root_required"`
 	RootGroupID       string `json:"root_group_id"`
@@ -94,8 +96,8 @@ func RunCommand(experimentID string) int {
 }
 
 // ExecuteAdapterCampaign owns operation ordering, sample identity, overwrite
-// protection, and publication gating. The private adapter owns only
-// environment-specific provisioning and measurement.
+// protection, and publication gating. The checked-in adapter owns only
+// experiment-specific provisioning and measurement.
 func ExecuteAdapterCampaign(config Config, deploymentID, adapterPath, outputPath string) error {
 	if err := config.Validate(config.ExperimentID); err != nil {
 		return err
@@ -139,7 +141,7 @@ func ExecuteAdapterCampaign(config Config, deploymentID, adapterPath, outputPath
 	orderPosition := 0
 	for processReplicate := 1; processReplicate <= processes; processReplicate++ {
 		operations := buildOperations(config, deploymentID, deploymentNumber, processReplicate, &orderPosition)
-		samples, err := runAdapterProcess(absAdapter, operations)
+		samples, err := runAdapterProcess(absAdapter, config.ExperimentID, operations)
 		if err != nil {
 			for _, operation := range operations {
 				if !operation.Warmup {
@@ -192,6 +194,9 @@ func invalidAdapterSample(operation AdapterOperation, code string) Sample {
 		ProcessReplicate:    operation.ProcessReplicate,
 		OrderPosition:       operation.OrderPosition,
 		RandomSeed:          operation.RandomSeed,
+		PairID:              operation.PairID,
+		PairedSystemOrder:   operation.PairedSystemOrder,
+		RootGroupID:         operation.RootGroupID,
 		System:              system,
 		Mode:                operation.Mode,
 		WorkloadID:          operation.WorkloadID,
@@ -251,8 +256,29 @@ func buildOperations(config Config, deploymentID string, deploymentNumber, proce
 		for _, cellIndex := range DeterministicOrder(len(cells), roundSeed) {
 			selected := cells[cellIndex]
 			for _, groupIndex := range DeterministicOrder(len(selected.groups), roundSeed+int64(cellIndex+1)*97) {
-				group := selected.groups[groupIndex]
-				for modePosition, mode := range group {
+				declaredGroup := selected.groups[groupIndex]
+				group := append([]string(nil), declaredGroup...)
+				if containsMode(group, "direct") && containsMode(group, "novel") {
+					if DeterministicOrder(2, roundSeed+int64(cellIndex+1)*193)[0] == 0 {
+					} else {
+						group = taskgateBeforeDirect(group)
+					}
+				} else if independentPairedGroup(group) {
+					ordered := DeterministicOrder(len(group), roundSeed+int64(cellIndex+1)*193)
+					shuffled := make([]string, len(group))
+					for index, source := range ordered {
+						shuffled[index] = group[source]
+					}
+					group = shuffled
+				}
+				pairOrder := strings.Join(group, ",")
+				pairKind := "sample"
+				if warmup {
+					pairKind = "warmup"
+				}
+				pairID := fmt.Sprintf("%s-p%02d-%s-%04d-%s-%s-g%02d", deploymentID, processReplicate, pairKind, iteration, selected.workload, selected.scale, groupIndex+1)
+				rootGroupID := strings.Join(declaredGroup, ",")
+				for _, mode := range group {
 					*orderPosition++
 					sampleKind := "sample"
 					if warmup {
@@ -271,9 +297,11 @@ func buildOperations(config Config, deploymentID string, deploymentNumber, proce
 						ProcessReplicate:  processReplicate,
 						OrderPosition:     *orderPosition,
 						RandomSeed:        config.RandomSeed,
+						PairID:            pairID,
+						PairedSystemOrder: pairOrder,
 						Warmup:            warmup,
-						FreshRootRequired: config.FreshRootPerSample && modePosition == 0 && freshRootAnchor(mode),
-						RootGroupID:       group[0],
+						FreshRootRequired: config.FreshRootPerSample && freshRootAnchor(mode),
+						RootGroupID:       rootGroupID,
 						WorkloadID:        selected.workload,
 						Scale:             selected.scale,
 						Mode:              mode,
@@ -299,7 +327,12 @@ func dependencyAwareModeGroups(modes []string) [][]string {
 	used := map[string]bool{}
 	var groups [][]string
 	if present["novel"] {
-		chain := []string{"novel"}
+		chain := make([]string, 0, 5)
+		if present["direct"] {
+			chain = append(chain, "direct")
+			used["direct"] = true
+		}
+		chain = append(chain, "novel")
 		used["novel"] = true
 		for _, replay := range []string{"semantic_replay", "normalized_rewrite_replay", "idempotent_replay"} {
 			if present[replay] {
@@ -308,6 +341,23 @@ func dependencyAwareModeGroups(modes []string) [][]string {
 			}
 		}
 		groups = append(groups, chain)
+	}
+	if present["pending_recovery"] {
+		// Recovery is itself a novel execution followed by an exact request-ID
+		// replay. Keep it on an independent fresh root so it never depends on a
+		// successful novel arm from the ordinary matched baseline chain.
+		groups = append(groups, []string{"pending_recovery"})
+		used["pending_recovery"] = true
+	}
+	if present["direct"] && present["provsql"] && present["taskgate"] && !present["novel"] {
+		group := make([]string, 0, 3)
+		for _, mode := range modes {
+			if mode == "direct" || mode == "provsql" || mode == "taskgate" {
+				group = append(group, mode)
+				used[mode] = true
+			}
+		}
+		groups = append(groups, group)
 	}
 	if present["build_verify_activate"] {
 		chain := []string{"build_verify_activate"}
@@ -327,6 +377,29 @@ func dependencyAwareModeGroups(modes []string) [][]string {
 	return groups
 }
 
+func containsMode(modes []string, wanted string) bool {
+	for _, mode := range modes {
+		if mode == wanted {
+			return true
+		}
+	}
+	return false
+}
+
+func independentPairedGroup(modes []string) bool {
+	return len(modes) > 1 && containsMode(modes, "direct") && containsMode(modes, "provsql") && containsMode(modes, "taskgate")
+}
+
+func taskgateBeforeDirect(group []string) []string {
+	result := make([]string, 0, len(group))
+	for _, mode := range group {
+		if mode != "direct" {
+			result = append(result, mode)
+		}
+	}
+	return append(result, "direct")
+}
+
 func freshRootAnchor(mode string) bool {
 	switch mode {
 	case "direct", "semantic_replay", "idempotent_replay", "normalized_rewrite_replay",
@@ -337,7 +410,7 @@ func freshRootAnchor(mode string) bool {
 	}
 }
 
-func runAdapterProcess(path string, operations []AdapterOperation) ([]Sample, error) {
+func runAdapterProcess(path, experimentID string, operations []AdapterOperation) ([]Sample, error) {
 	var input bytes.Buffer
 	encoder := json.NewEncoder(&input)
 	for _, operation := range operations {
@@ -347,7 +420,7 @@ func runAdapterProcess(path string, operations []AdapterOperation) ([]Sample, er
 	}
 	var output bytes.Buffer
 	var stderr bytes.Buffer
-	command := exec.Command(path)
+	command := exec.Command(path, "--experiment", experimentID)
 	command.Stdin = &input
 	command.Stdout = &output
 	command.Stderr = &stderr
@@ -385,7 +458,8 @@ func validateAdapterSample(config Config, operation AdapterOperation, sample Sam
 		sample.SampleID != operation.SampleID || sample.Iteration != operation.Iteration ||
 		sample.ProcessReplicate != operation.ProcessReplicate || sample.OrderPosition != operation.OrderPosition ||
 		sample.RandomSeed != operation.RandomSeed || sample.WorkloadID != operation.WorkloadID ||
-		sample.Scale != operation.Scale || sample.Mode != operation.Mode {
+		sample.Scale != operation.Scale || sample.Mode != operation.Mode || sample.PairID != operation.PairID ||
+		sample.PairedSystemOrder != operation.PairedSystemOrder || sample.RootGroupID != operation.RootGroupID {
 		return errors.New("identity fields do not exactly match the requested operation")
 	}
 	if err := sample.Validate(); err != nil {
@@ -448,7 +522,11 @@ func WriteSmoke(config Config, runDir string) error {
 				for iteration := 1; iteration <= config.Samples; iteration++ {
 					position++
 					phases := map[string]float64{"prepare": .01, "execute_and_derive": .02, "artifact_stage": .01, "control_settlement": .01, "artifact_publication": .01, "response_finalize": .01, "server_total": .08}
-					sample := Sample{SchemaVersion: 1, CampaignID: config.CampaignID, DeploymentID: "deployment-01", ExperimentID: config.ExperimentID, CellID: cell, SampleID: fmt.Sprintf("smoke-%04d", position), Iteration: iteration, OrderPosition: position, RandomSeed: config.RandomSeed, System: "taskgate", Mode: mode, WorkloadID: workload.ID, Scale: scale, ClientAvailableMS: .07, ClientFullDrainMS: .08, PipelineMS: phases, DiagnosticMS: map[string]float64{}, RowCount: 1, ColumnCount: 2, ResultSHA256: digest, ReceiptVersion: "8", Status: "pass", PublicationEligible: false, KernelOnly: config.KernelOnly}
+					system := "taskgate"
+					if mode == "direct" {
+						system = "postgresql"
+					}
+					sample := Sample{SchemaVersion: 1, CampaignID: config.CampaignID, DeploymentID: "deployment-01", ExperimentID: config.ExperimentID, CellID: cell, SampleID: fmt.Sprintf("smoke-%04d", position), Iteration: iteration, OrderPosition: position, RandomSeed: config.RandomSeed, PairID: fmt.Sprintf("smoke-pair-%s-%s-%04d", workload.ID, scale, iteration), PairedSystemOrder: strings.Join(workload.Modes, ","), RootGroupID: strings.Join(workload.Modes, ","), System: system, Mode: mode, WorkloadID: workload.ID, Scale: scale, ClientAvailableMS: .07, ClientFullDrainMS: .08, PipelineMS: phases, DiagnosticMS: map[string]float64{}, RowCount: 1, ColumnCount: 2, ResultSHA256: digest, ReceiptVersion: "8", Status: "pass", PublicationEligible: false, KernelOnly: config.KernelOnly}
 					if mode == "semantic_replay" {
 						sample.SemanticReplay = true
 					}

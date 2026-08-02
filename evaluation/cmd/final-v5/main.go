@@ -14,7 +14,7 @@ func main() { os.Exit(run()) }
 
 func run() int {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: final-v5 <validate|finalize|evidence|smoke|record-environment|record-deployment>")
+		fmt.Fprintln(os.Stderr, "usage: final-v5 <validate|finalize|campaign-finalize|evidence|smoke|record-environment|record-deployment>")
 		return 2
 	}
 	switch os.Args[1] {
@@ -22,6 +22,8 @@ func run() int {
 		return validate(os.Args[2:])
 	case "finalize":
 		return finalize(os.Args[2:])
+	case "campaign-finalize":
+		return campaignFinalize(os.Args[2:])
 	case "evidence":
 		return evidence(os.Args[2:])
 	case "smoke":
@@ -36,6 +38,21 @@ func run() int {
 	}
 }
 
+func campaignFinalize(args []string) int {
+	f := flag.NewFlagSet("campaign-finalize", flag.ContinueOnError)
+	campaignRoot := f.String("campaign-root", "", "")
+	if f.Parse(args) != nil || *campaignRoot == "" {
+		return 2
+	}
+	summary, err := experiment.FinalizePublicationCampaign(*campaignRoot)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	_ = json.NewEncoder(os.Stdout).Encode(summary)
+	return 0
+}
+
 func recordDeployment(args []string) int {
 	f := flag.NewFlagSet("record-deployment", flag.ContinueOnError)
 	output := f.String("output", "", "")
@@ -43,6 +60,7 @@ func recordDeployment(args []string) int {
 	deployment := f.String("deployment-id", "", "")
 	environmentSHA := f.String("environment-sha256", "", "")
 	windowsEnvironmentSHA := f.String("windows-environment-sha256", "", "")
+	freshDeploymentProofSHA := f.String("fresh-deployment-proof-sha256", "", "")
 	vmstatBeforeSHA := f.String("vmstat-before-sha256", "", "")
 	vmstatAfterSHA := f.String("vmstat-after-sha256", "", "")
 	started := f.String("started-at", "", "")
@@ -55,7 +73,7 @@ func recordDeployment(args []string) int {
 	if f.Parse(args) != nil || *output == "" || *campaign == "" || *deployment == "" || *exitStatus < 0 {
 		return 2
 	}
-	manifest := experiment.DeploymentManifest{SchemaVersion: 1, CampaignID: *campaign, DeploymentID: *deployment, FreshDeployment: true, EnvironmentSHA256: *environmentSHA, WindowsEnvironmentSHA256: *windowsEnvironmentSHA, VMStatBeforeSHA256: *vmstatBeforeSHA, VMStatAfterSHA256: *vmstatAfterSHA, StartedAt: *started, FinishedAt: *finished, ExitStatus: *exitStatus, SwapInDelta: *swapIn, SwapOutDelta: *swapOut, OOM: *oom, UnexpectedContainerRestarts: *restarts}
+	manifest := experiment.DeploymentManifest{SchemaVersion: 1, CampaignID: *campaign, DeploymentID: *deployment, FreshDeployment: true, FreshDeploymentProofSHA256: *freshDeploymentProofSHA, EnvironmentSHA256: *environmentSHA, WindowsEnvironmentSHA256: *windowsEnvironmentSHA, VMStatBeforeSHA256: *vmstatBeforeSHA, VMStatAfterSHA256: *vmstatAfterSHA, StartedAt: *started, FinishedAt: *finished, ExitStatus: *exitStatus, SwapInDelta: *swapIn, SwapOutDelta: *swapOut, OOM: *oom, UnexpectedContainerRestarts: *restarts}
 	if err := experiment.WriteDeployment(*output, manifest); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
@@ -144,7 +162,7 @@ func evidence(args []string) int {
 }
 func smoke(args []string) int {
 	f := flag.NewFlagSet("smoke", flag.ContinueOnError)
-	configPath := f.String("config", "evaluation/final-v5-wsl2/config/pilot.example.json", "")
+	configPath := f.String("config", "evaluation/final-v5-wsl2/config/smoke.example.json", "")
 	runDir := f.String("run-dir", "", "")
 	if f.Parse(args) != nil || *runDir == "" {
 		return 2

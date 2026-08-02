@@ -3,7 +3,9 @@ publication_pass_requires:
   - frozen full 40-character Git SHA
   - measured paths clean
   - exactly three fresh deployments
-  - stable measured adapter SHA-256 and unique deployment-volume identity SHA-256
+  - one source-controlled adapter binary and source digest shared by all nine experiments
+  - independently verified fresh-deployment proof with unique Compose volume set and PostgreSQL system identifiers
+  - campaign-level finalizer seals exactly nine passing experiment manifests
   - matching Ubuntu, vmstat-before/after, and Windows host environment digests
   - every required cell and sample present
   - pswpin and pswpout deltas equal zero
@@ -13,6 +15,15 @@ publication_pass_requires:
   - semantic replay business_sql_delta equals zero
   - rejected request has no result_id, AVAILABLE artifact, or success audit
   - raw JSONL independently reconstructs all summaries
+  - protocol, workload, acceptance, and statistics bytes match the config SHA-256 bindings
+  - baseline V8 signature, terminal/registration/availability inclusion, Parquet digest, and typed result are recomputed from raw evidence
+  - canonical-exists-but-PENDING recovery preserves Business SQL calls, query count, settlement count, budget usage, receipt, and ArtifactIntent
+  - RLS evidence proves relrowsecurity, non-owner/no-BYPASSRLS role, exact pg_policies bytes, independent 70% oracle, equal prefixes, and exposure-budget stop
+  - adaptive attacks recompute page/split unions, normal-form identity, request-ID settlement counts, and preregistered threshold ceilings
+  - ProvSQL evidence binds version/commit, agg_token OID, gate type, unique nonces, monotone growth, unique representations, SQL, dataset, cache, and order
+  - compiler evidence proves nested/direct results, canonical-plan invariance, and exact depth/source structured errors
+  - concurrency evidence proves B-1 to B, exactly one charged winner, B+1 rejection, and recomputed final root set
+  - RQ5 evidence proves old/new routing, immutable old ledger, cross-publication replay miss, and child/root publication consistency
 invalid_rules:
   offered_concurrency_not_observed: width cell is invalid, not pass or fail
   unsupported_sql: fail-closed only, never equivalent

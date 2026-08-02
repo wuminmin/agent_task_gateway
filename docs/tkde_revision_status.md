@@ -7,7 +7,10 @@ set now present in the repository.
 
 - **Core architecture:** frozen candidate
 - **Functional evidence:** complete for current scoped mechanisms
-- **Experiment laboratory:** pending implementation
+- **Measurement instrumentation:** complete
+- **Experiment orchestration/evidence skeleton:** complete
+- **Source-controlled real adapters:** baseline tiny path implemented; eight experiment families pending
+- **Real Pilot / formal campaign:** not executed / not ready
 - **Formal publication campaign:** not executed
 - **Paper numeric update:** pending
 

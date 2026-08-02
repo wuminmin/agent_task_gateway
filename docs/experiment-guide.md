@@ -50,12 +50,12 @@ physical-read set.
 
 | Experiment | Reusable repository support | Missing work before the requested table is publishable |
 |---|---|---|
-| 1. PostgreSQL baseline | `evaluation/cmd/v5-full`, final-V5 strict orchestration/sample framework, S1--S6 matrix, and public-path pipeline/artifact timers are implemented | The author must bind the site adapter and private frozen inputs, then run the three-deployment WSL2 campaign; every numeric cell remains blank. |
-| 2. PostgreSQL RLS | `evaluation/cmd/rls-adaptive`, real RLS DDL/introspection, independent trace-union oracle, preregistered budget rule, and raw schema are implemented | The site adapter, private frozen task/role inputs, and three-deployment campaign remain for the author; `native_view` is still not RLS. |
-| 3. Adaptive attacks | `evaluation/cmd/adaptive-attacks` and the A--E/reverse-direction protocol are implemented alongside existing semantic/oracle checks | No publication A--E sample has been executed. |
-| 4. ProvSQL | The historical external baseline is preserved; `evaluation/cmd/taskgate-provsql-pair` orchestration and the connected nonce-join fixture are implemented | The site adapter and fair paired three-system campaign remain, so no TaskGate value may be joined to the old smoke. |
-| 5. View DAG scalability | `CompileMeasured` and `evaluation/cmd/view-scale` expose the preregistered depth/source matrix and non-overlapping stages | The five-process, 4,500-compiles-per-deployment campaign (13,500 across three deployments) has not run. |
-| 6. Concurrency | `evaluation/cmd/v5-concurrency`, widths 10/50/100/500, forced/natural modes, and explicit production CAS attempt/conflict counters are implemented | The 30-fresh-root cells have not run; width 500 remains invalid without offered-concurrency evidence. |
+| 1. PostgreSQL baseline | The checked-in unified adapter implements a real tiny S1 Direct PostgreSQL / public `query_sql` / semantic replay / idempotent replay path with V8, audit, and full Parquet verification | Publication S1--S6 coverage and a successful real Pilot remain pending; every numeric cell remains blank. |
+| 2. PostgreSQL RLS | The finalizer recomputes the independent 70% oracle and enforces RLS enablement, non-owner/no-BYPASSRLS role, policy bytes, equal prefixes, and the exposure-budget stop | The unified real RLS adapter capability remains incomplete; `native_view` is still not RLS. |
+| 3. Adaptive attacks | The finalizer independently checks exact page/split unions, normal forms, request-ID settlement counts, and threshold ceilings | The unified real attack adapter and publication A--E samples remain incomplete. |
+| 4. ProvSQL | The validator binds version/commit, `agg_token` OID, gate type/growth, nonce and representation uniqueness, plus paired SQL/dataset/cache/order | The unified real ProvSQL adapter and fair paired three-system campaign remain, so no TaskGate value may be joined to the old smoke. |
+| 5. View DAG scalability | `CompileMeasured` is latency-only, `CompileAllocationMeasured` isolates runtime allocation reads, and the finalizer enforces result/plan invariance and exact limit errors | The unified real compiler adapter and five-process campaign have not run. |
+| 6. Concurrency | Production CAS telemetry and an independent B-1/exactly-one-winner/final-root validator are implemented | The unified real concurrency adapter and 30-fresh-root cells have not run; width 500 remains invalid without offered-concurrency evidence. |
 
 The final-V5 framework is under `evaluation/final-v5-wsl2/`. Its tiny smoke is
 not evidence. Until a frozen, digest-bound, three-deployment publication

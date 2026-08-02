@@ -3,7 +3,7 @@
   "$id": "taskgate-final-v5-adapter-operation-v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "campaign_class", "campaign_id", "deployment_id", "experiment_id", "cell_id", "sample_id", "iteration", "process_replicate", "order_position", "random_seed", "warmup", "fresh_root_required", "root_group_id", "workload_id", "scale", "mode"],
+  "required": ["schema_version", "campaign_class", "campaign_id", "deployment_id", "experiment_id", "cell_id", "sample_id", "iteration", "process_replicate", "order_position", "random_seed", "pair_id", "paired_system_order", "warmup", "fresh_root_required", "root_group_id", "workload_id", "scale", "mode"],
   "properties": {
     "schema_version": {"const": 1},
     "campaign_class": {"enum": ["pilot", "publication"]},
@@ -16,6 +16,8 @@
     "process_replicate": {"type": "integer", "minimum": 1},
     "order_position": {"type": "integer", "minimum": 1},
     "random_seed": {"type": "integer"},
+    "pair_id": {"type": "string", "minLength": 1},
+    "paired_system_order": {"type": "string", "minLength": 1},
     "warmup": {"type": "boolean"},
     "fresh_root_required": {"type": "boolean"},
     "root_group_id": {"type": "string", "minLength": 1},

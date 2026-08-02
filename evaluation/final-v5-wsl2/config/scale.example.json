@@ -1,5 +1,11 @@
 {
   "schema_version": 1,
+  "protocol_version": "taskgate-final-v5-wsl2-v1",
+  "protocol_profile": "scale",
+  "protocol_sha256": "194045cf94e6691d8baaf55591c502d54848a9ab86103502b2007a754c936db9",
+  "workload_manifest_sha256": "c5a921581dd8ab3e43d940504c5c0e537b913cc6107f78116ca91650fa1aaee7",
+  "acceptance_rules_sha256": "16b5e3d5712d2498325b8bedc79d827c6547e1517bda89156cc2e7f1191cfcd1",
+  "statistics_sha256": "4c296e35d693c78d40048ea2fbb8500754b35d17a3ea85a11cb25cc60ba64a59",
   "campaign_class": "publication",
   "campaign_id": "replace-with-unique-campaign-id",
   "experiment_id": "scale",
@@ -10,7 +16,70 @@
   "random_seed": 20260801,
   "fresh_root_per_sample": true,
   "workloads": [
-    {"id":"dependency-e2e","scales":["10k-overlap-0","10k-overlap-50","10k-overlap-90","10k-overlap-100","100k-overlap-0","100k-overlap-50","100k-overlap-90","100k-overlap-100","1035000-overlap-0","1035000-overlap-50","1035000-overlap-90","1035000-overlap-100"],"modes":["novel","semantic_replay"]},
-    {"id":"outcome-merkle","scales":["10k-x1-o0","10k-x1-o50","10k-x1-o90","10k-x1-o100","10k-x100-o0","10k-x100-o50","10k-x100-o90","10k-x100-o100","10k-x10k-o0","10k-x10k-o50","10k-x10k-o90","10k-x10k-o100","100k-x1-o0","100k-x1-o50","100k-x1-o90","100k-x1-o100","100k-x100-o0","100k-x100-o50","100k-x100-o90","100k-x100-o100","100k-x10k-o0","100k-x10k-o50","100k-x10k-o90","100k-x10k-o100","1m-x1-o0","1m-x1-o50","1m-x1-o90","1m-x1-o100","1m-x100-o0","1m-x100-o50","1m-x100-o90","1m-x100-o100","1m-x10k-o0","1m-x10k-o50","1m-x10k-o90","1m-x10k-o100"],"modes":["merkle_control"]}
+    {
+      "id": "dependency-e2e",
+      "scales": [
+        "10k-overlap-0",
+        "10k-overlap-50",
+        "10k-overlap-90",
+        "10k-overlap-100",
+        "100k-overlap-0",
+        "100k-overlap-50",
+        "100k-overlap-90",
+        "100k-overlap-100",
+        "1035000-overlap-0",
+        "1035000-overlap-50",
+        "1035000-overlap-90",
+        "1035000-overlap-100"
+      ],
+      "modes": [
+        "novel",
+        "semantic_replay"
+      ]
+    },
+    {
+      "id": "outcome-merkle",
+      "scales": [
+        "10k-x1-o0",
+        "10k-x1-o50",
+        "10k-x1-o90",
+        "10k-x1-o100",
+        "10k-x100-o0",
+        "10k-x100-o50",
+        "10k-x100-o90",
+        "10k-x100-o100",
+        "10k-x10k-o0",
+        "10k-x10k-o50",
+        "10k-x10k-o90",
+        "10k-x10k-o100",
+        "100k-x1-o0",
+        "100k-x1-o50",
+        "100k-x1-o90",
+        "100k-x1-o100",
+        "100k-x100-o0",
+        "100k-x100-o50",
+        "100k-x100-o90",
+        "100k-x100-o100",
+        "100k-x10k-o0",
+        "100k-x10k-o50",
+        "100k-x10k-o90",
+        "100k-x10k-o100",
+        "1m-x1-o0",
+        "1m-x1-o50",
+        "1m-x1-o90",
+        "1m-x1-o100",
+        "1m-x100-o0",
+        "1m-x100-o50",
+        "1m-x100-o90",
+        "1m-x100-o100",
+        "1m-x10k-o0",
+        "1m-x10k-o50",
+        "1m-x10k-o90",
+        "1m-x10k-o100"
+      ],
+      "modes": [
+        "merkle_control"
+      ]
+    }
   ]
 }

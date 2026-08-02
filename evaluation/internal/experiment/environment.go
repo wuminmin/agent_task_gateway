@@ -3,6 +3,7 @@ package experiment
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
@@ -28,25 +29,77 @@ func RecordEnvironment(repo, campaignID, deploymentID string, eligible bool, dat
 	if repo == "" || campaignID == "" || deploymentID == "" {
 		return EnvironmentManifest{}, errors.New("repo, campaign, and deployment are required")
 	}
-	run := func(name string, args ...string) string {
+	run := func(name string, args ...string) (string, error) {
 		command := exec.Command(name, args...)
 		command.Dir = repo
 		value, err := command.CombinedOutput()
 		if err != nil {
-			return "ERROR: " + err.Error()
+			return "", fmt.Errorf("record environment command %s: %w", name, err)
 		}
-		return strings.TrimSpace(string(value))
+		return strings.TrimSpace(string(value)), nil
 	}
-	commit := run("git", "rev-parse", "HEAD")
-	statusText := run("git", "status", "--short")
+	commit, err := run("git", "rev-parse", "HEAD")
+	if err != nil {
+		return EnvironmentManifest{}, err
+	}
+	statusText, err := run("git", "status", "--short")
+	if err != nil {
+		return EnvironmentManifest{}, err
+	}
 	var status []string
 	if statusText != "" {
 		status = strings.Split(statusText, "\n")
 	}
 	manifest := EnvironmentManifest{SchemaVersion: 1, CampaignID: campaignID, DeploymentID: deploymentID, CapturedAt: time.Now().UTC().Format(time.RFC3339Nano), GitCommit: commit, GitStatus: status, PublicationEligible: eligible, Datasets: datasets}
-	manifest.Host = map[string]any{"os_release": run("cat", "/etc/os-release"), "uname": run("uname", "-a"), "lscpu": run("lscpu"), "nproc": run("nproc"), "memory": run("free", "-b"), "meminfo": run("cat", "/proc/meminfo"), "vmstat": run("cat", "/proc/vmstat"), "goos": runtime.GOOS, "goarch": runtime.GOARCH}
-	manifest.Software = map[string]any{"go": run("go", "version"), "postgresql": run("psql", "--version"), "docker_engine": run("docker", "version", "--format", "{{json .}}"), "docker_compose": run("docker", "compose", "version"), "docker_info": run("docker", "info", "--format", "{{json .}}"), "containerd": run("containerd", "--version"), "image_ids": run("docker", "image", "ls", "--no-trunc", "--digests", "--format", "{{.Repository}} {{.Tag}} {{.Digest}} {{.ID}}")}
-	manifest.Storage = map[string]any{"df": run("df", "-T"), "lsblk": run("lsblk", "-f"), "cgroup_filesystem": run("stat", "-fc", "%T", "/sys/fs/cgroup")}
+	capture := func(target map[string]any, key, name string, args ...string) error {
+		value, captureErr := run(name, args...)
+		if captureErr != nil {
+			return captureErr
+		}
+		if value == "" {
+			return fmt.Errorf("record environment command %s returned empty output", name)
+		}
+		target[key] = value
+		return nil
+	}
+	manifest.Host = map[string]any{"goos": runtime.GOOS, "goarch": runtime.GOARCH}
+	for _, command := range []struct {
+		key, name string
+		args      []string
+	}{
+		{"os_release", "cat", []string{"/etc/os-release"}}, {"uname", "uname", []string{"-a"}},
+		{"lscpu", "lscpu", nil}, {"nproc", "nproc", nil}, {"memory", "free", []string{"-b"}},
+		{"meminfo", "cat", []string{"/proc/meminfo"}}, {"vmstat", "cat", []string{"/proc/vmstat"}},
+	} {
+		if err := capture(manifest.Host, command.key, command.name, command.args...); err != nil {
+			return EnvironmentManifest{}, err
+		}
+	}
+	manifest.Software = map[string]any{}
+	for _, command := range []struct {
+		key, name string
+		args      []string
+	}{
+		{"go", "go", []string{"version"}}, {"postgresql", "psql", []string{"--version"}},
+		{"docker_engine", "docker", []string{"version", "--format", "{{json .}}"}}, {"docker_compose", "docker", []string{"compose", "version"}},
+		{"docker_info", "docker", []string{"info", "--format", "{{json .}}"}}, {"containerd", "containerd", []string{"--version"}},
+		{"image_ids", "docker", []string{"image", "ls", "--no-trunc", "--digests", "--format", "{{.Repository}} {{.Tag}} {{.Digest}} {{.ID}}"}},
+	} {
+		if err := capture(manifest.Software, command.key, command.name, command.args...); err != nil {
+			return EnvironmentManifest{}, err
+		}
+	}
+	manifest.Storage = map[string]any{}
+	for _, command := range []struct {
+		key, name string
+		args      []string
+	}{
+		{"df", "df", []string{"-T"}}, {"lsblk", "lsblk", []string{"-f"}}, {"cgroup_filesystem", "stat", []string{"-fc", "%T", "/sys/fs/cgroup"}},
+	} {
+		if err := capture(manifest.Storage, command.key, command.name, command.args...); err != nil {
+			return EnvironmentManifest{}, err
+		}
+	}
 	return manifest, nil
 }
 
@@ -60,7 +113,7 @@ func WriteEnvironment(path string, manifest EnvironmentManifest) error {
 
 func WriteDeployment(path string, manifest DeploymentManifest) error {
 	if manifest.SchemaVersion != 1 || manifest.CampaignID == "" || manifest.DeploymentID == "" ||
-		!manifest.FreshDeployment || !validSHA256(manifest.EnvironmentSHA256) || !validSHA256(manifest.WindowsEnvironmentSHA256) || !validSHA256(manifest.VMStatBeforeSHA256) || !validSHA256(manifest.VMStatAfterSHA256) || manifest.StartedAt == "" || manifest.FinishedAt == "" ||
+		!manifest.FreshDeployment || !validSHA256(manifest.FreshDeploymentProofSHA256) || !validSHA256(manifest.EnvironmentSHA256) || !validSHA256(manifest.WindowsEnvironmentSHA256) || !validSHA256(manifest.VMStatBeforeSHA256) || !validSHA256(manifest.VMStatAfterSHA256) || manifest.StartedAt == "" || manifest.FinishedAt == "" ||
 		manifest.SwapInDelta < 0 || manifest.SwapOutDelta < 0 || manifest.UnexpectedContainerRestarts < 0 {
 		return errors.New("invalid deployment manifest")
 	}

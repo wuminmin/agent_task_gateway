@@ -3,7 +3,7 @@
   "$id": "taskgate-final-v5-sample-v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "campaign_id", "deployment_id", "experiment_id", "cell_id", "sample_id", "iteration", "order_position", "random_seed", "system", "mode", "workload_id", "scale", "client_available_ms", "client_full_drain_ms", "pipeline_ms", "diagnostic_ms", "row_count", "column_count", "result_sha256", "artifact_sha256", "object_sha256", "actual_release_facts", "charged_release_facts", "actual_dependency_facts", "charged_dependency_facts", "actual_outcome_facts", "charged_outcome_facts", "predicate_atom_count", "composite_count", "semantic_replay", "idempotent_replay", "business_sql_delta", "root_epoch_before", "root_epoch_after", "root_set_sha256_before", "root_set_sha256_after", "parquet_bytes", "encrypted_object_bytes", "receipt_version", "receipt_sha256", "artifact_intent_sha256", "availability_audit_sha256", "gateway_memory_peak_bytes", "gateway_cpu_usec_delta", "gateway_network_rx_delta", "gateway_network_tx_delta", "control_wal_bytes_delta", "business_wal_bytes_delta", "status", "error_code", "publication_eligible"],
+  "required": ["schema_version", "campaign_id", "deployment_id", "experiment_id", "cell_id", "sample_id", "iteration", "order_position", "random_seed", "pair_id", "paired_system_order", "root_group_id", "system", "mode", "workload_id", "scale", "client_available_ms", "client_full_drain_ms", "pipeline_ms", "diagnostic_ms", "row_count", "column_count", "result_sha256", "artifact_sha256", "object_sha256", "actual_release_facts", "charged_release_facts", "actual_dependency_facts", "charged_dependency_facts", "actual_outcome_facts", "charged_outcome_facts", "predicate_atom_count", "composite_count", "semantic_replay", "idempotent_replay", "business_sql_delta", "root_epoch_before", "root_epoch_after", "root_set_sha256_before", "root_set_sha256_after", "parquet_bytes", "encrypted_object_bytes", "receipt_version", "receipt_sha256", "artifact_intent_sha256", "availability_audit_sha256", "gateway_memory_peak_bytes", "gateway_cpu_usec_delta", "gateway_network_rx_delta", "gateway_network_tx_delta", "control_wal_bytes_delta", "business_wal_bytes_delta", "status", "error_code", "publication_eligible"],
   "properties": {
     "schema_version": {"const": 1},
     "campaign_id": {"type": "string", "minLength": 1},
@@ -15,6 +15,9 @@
     "process_replicate": {"type": "integer", "minimum": 1},
     "order_position": {"type": "integer", "minimum": 1},
     "random_seed": {"type": "integer"},
+    "pair_id": {"type": "string", "minLength": 1},
+    "paired_system_order": {"type": "string", "minLength": 1},
+    "root_group_id": {"type": "string", "minLength": 1},
     "system": {"enum": ["postgresql", "taskgate", "provsql"]},
     "mode": {"type": "string", "minLength": 1},
     "workload_id": {"type": "string", "minLength": 1},
@@ -77,7 +80,15 @@
     "error_code": {"type": "string"},
     "publication_eligible": {"type": "boolean"},
     "kernel_only": {"type": "boolean"},
-    "reason": {"type": "string"}
+    "reason": {"type": "string"},
+    "baseline_verification": {"type": "object"},
+    "recovery_verification": {"type": "object"},
+    "rls_verification": {"type": "object"},
+    "attack_verification": {"type": "object"},
+    "provsql_verification": {"type": "object"},
+    "compiler_verification": {"type": "object"},
+    "concurrency_verification": {"type": "object"},
+    "rq5_verification": {"type": "object"}
     ,"trace": {
       "type": "array",
       "items": {

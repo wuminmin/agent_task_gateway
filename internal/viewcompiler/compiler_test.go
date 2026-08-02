@@ -75,9 +75,19 @@ func TestCompileMeasuredMatchesCompileArtifact(t *testing.T) {
 	if !reflect.DeepEqual(measured, plain) {
 		t.Fatal("measured compile changed artifact")
 	}
-	sum := metrics.ParseValidation + metrics.RecursiveExpansion + metrics.JoinGraphCanonicalization + metrics.PlanMaterialization + metrics.DigestGeneration
+	sum := metrics.ParseValidation + metrics.RecursiveExpansion + metrics.CompileSemantic + metrics.PlanMaterialization + metrics.DigestGeneration
 	if metrics.Total < sum {
 		t.Fatalf("overlapping compile stages: %+v", metrics)
+	}
+	if metrics.AllocBytes != 0 || metrics.AllocObjects != 0 {
+		t.Fatalf("latency compile mixed allocation counters: %+v", metrics)
+	}
+	allocationMeasured, allocationMetrics, err := compiler.CompileAllocationMeasured(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(allocationMeasured, plain) || allocationMetrics.AllocBytes == 0 || allocationMetrics.AllocObjects == 0 {
+		t.Fatalf("allocation compile changed artifact or omitted counters: %+v", allocationMetrics)
 	}
 }
 

@@ -4,7 +4,6 @@ param(
   [Parameter(Mandatory=$true)][string]$CampaignId,
   [Parameter(Mandatory=$true)][ValidatePattern('^[0-9a-f]{40}$')][string]$FrozenCommit,
   [Parameter(Mandatory=$true)][string]$PrivateConfigDir,
-  [Parameter(Mandatory=$true)][string]$AdapterDir,
   [Parameter(Mandatory=$true)][string]$DatasetBindingsDir,
   [ValidateSet(3)][int]$Deployments = 3
 )
@@ -31,12 +30,13 @@ $windowsHostPath = "taskgate-$CampaignId-windows-host.json"
 $windowsHostJson = $manifest.windows | ConvertTo-Json -Depth 8
 [IO.File]::WriteAllText($windowsHostPath, $windowsHostJson + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
 $windowsHostSHA256 = (Get-FileHash $windowsHostPath -Algorithm SHA256).Hash.ToLowerInvariant()
+$windowsHostBase64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($windowsHostPath))
 $manifest.windows_host_sha256 = $windowsHostSHA256
 for ($i=1; $i -le $Deployments; $i++) {
   wsl.exe --shutdown
   $deploymentId = "deployment-{0:d2}" -f $i
   $bindings = "$DatasetBindingsDir/$deploymentId.json"
-  $command = "cd $(ConvertTo-BashLiteral $RepoPath) && TASKGATE_EXPERIMENT_CLASS=publication TASKGATE_SUBMISSION_COMMIT=$(ConvertTo-BashLiteral $FrozenCommit) TASKGATE_CAMPAIGN_ID=$(ConvertTo-BashLiteral $CampaignId) TASKGATE_DEPLOYMENT_ID=$(ConvertTo-BashLiteral $deploymentId) TASKGATE_PRIVATE_CONFIG_DIR=$(ConvertTo-BashLiteral $PrivateConfigDir) TASKGATE_ADAPTER_DIR=$(ConvertTo-BashLiteral $AdapterDir) TASKGATE_DATASET_BINDINGS=$(ConvertTo-BashLiteral $bindings) TASKGATE_WINDOWS_ENVIRONMENT_SHA256=$(ConvertTo-BashLiteral $windowsHostSHA256) TASKGATE_FRESH_DEPLOYMENT=1 evaluation/final-v5-wsl2/scripts/run-deployment.sh"
+  $command = "cd $(ConvertTo-BashLiteral $RepoPath) && TASKGATE_EXPERIMENT_CLASS=publication TASKGATE_SUBMISSION_COMMIT=$(ConvertTo-BashLiteral $FrozenCommit) TASKGATE_CAMPAIGN_ID=$(ConvertTo-BashLiteral $CampaignId) TASKGATE_DEPLOYMENT_ID=$(ConvertTo-BashLiteral $deploymentId) TASKGATE_PRIVATE_CONFIG_DIR=$(ConvertTo-BashLiteral $PrivateConfigDir) TASKGATE_DATASET_BINDINGS=$(ConvertTo-BashLiteral $bindings) TASKGATE_WINDOWS_ENVIRONMENT_SHA256=$(ConvertTo-BashLiteral $windowsHostSHA256) TASKGATE_WINDOWS_ENVIRONMENT_BASE64=$(ConvertTo-BashLiteral $windowsHostBase64) TASKGATE_FRESH_DEPLOYMENT=1 evaluation/final-v5-wsl2/scripts/run-deployment.sh"
   wsl.exe -d $Distro -- bash -lc $command
   $status = $LASTEXITCODE
   $manifest.deployments += [ordered]@{ deployment_id=$deploymentId; exit_status=$status }

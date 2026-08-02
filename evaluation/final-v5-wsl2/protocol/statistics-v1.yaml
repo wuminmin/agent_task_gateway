@@ -5,7 +5,14 @@ forbidden: [p99, outlier_deletion]
 deployment_reporting:
   per_deployment: [p50, p95]
   cross_deployment: [median, range]
-paired_ratio_scope: same deployment, workload, scale, cache policy, and drain boundary
+paired_samples:
+  identity: pair_id
+  scope: same deployment, workload, scale, cache policy, and drain boundary
+  arm_order: deterministically randomized and recorded as paired_system_order
+  ratios: compute taskgate_latency_ms / postgresql_latency_ms within each complete pair
+  differences: compute taskgate_latency_ms - postgresql_latency_ms within each complete pair
+  aggregation: [median_pair_ratio, p95_pair_ratio, median_pair_difference_ms]
+  forbidden: ratio of independently aggregated arm percentiles
 bootstrap: {deterministic: true, seed: 20260801, interval: 0.95}
 failed_and_invalid_samples: retained and counted separately
 finalizer_source: raw JSONL only

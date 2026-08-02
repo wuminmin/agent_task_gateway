@@ -1,6 +1,6 @@
 schema_version: 1
 protocol_id: taskgate-final-v5-wsl2-v1
-status: preregistered-framework-only
+status: staged-source-adapter-baseline-only
 claim_boundary: WSL2 Ubuntu 22.04, one Gateway instance, PostgreSQL 16, immutable reporting publications
 campaign:
   publication_deployments: 3
@@ -12,7 +12,8 @@ campaign:
   adapter_protocol: adapter-operation-v1-jsonl
   adapter_stderr: forbidden
   adapter_sha256_frozen_across_deployments: true
-  unique_deployment_volume_digest: required
+  fresh_deployment_proof: required
+  campaign_finalizer_requires_experiments: [baseline, scale, artifact, rls, attack, provsql, compiler, concurrency, rq5]
   outlier_deletion: forbidden
   publication_requires_full_commit: true
 exposure:

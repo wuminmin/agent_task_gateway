@@ -18,10 +18,10 @@ Validation completed in this development session:
 
 The PowerShell controller was inspected but not executed because `pwsh` is unavailable in the development environment. No publication-scale command is authorized by this file.
 
-Known operational boundaries:
+Current operational boundaries:
 
 - WSL2 Ubuntu 22.04 and a single Gateway instance are the publication claim boundary.
-- Deployment-specific adapter executables plus private prepared task pools, tokens, DSNs, dataset bindings, and frozen commit substitutions are author-supplied at execution time and must never be committed. The checked-in runner freezes each adapter digest and validates its operation/sample contract.
+- The unified source-controlled adapter and reproducible build binding are implemented. Only the real baseline/S1/tiny path is complete; scale, artifact, RLS, attack, ProvSQL, compiler, concurrency, and RQ5 implementations remain fail-closed.
 - The current product still materializes result rows in memory. A 100K-row failure/OOM remains a failed sample; the harness does not reduce scale or increase limits.
 - The 10M/100M profile is opt-in and must remain labeled `kernel_only=true`.
 - ProvSQL representation semantics differ from TaskGate and do not support a global winner claim.
@@ -29,4 +29,9 @@ Known operational boundaries:
 Formal publication experiments executed: NO
 Paper numeric results updated: NO
 Historical evidence relabeled: NO
-Publication experiment framework ready: YES
+Measurement instrumentation ready: YES
+Experiment orchestration/evidence skeleton ready: YES
+Real source-controlled baseline adapter ready: YES
+Real baseline Pilot executed: NO
+All nine real experiment adapters ready: NO
+Formal publication campaign ready to launch: NO
