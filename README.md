@@ -174,7 +174,7 @@ make logs
 
 `make verify` 执行格式检查、`go vet`、真实 PostgreSQL `go test -race ./...`、镜像构建和隔离 Compose 端到端验收。`make formal` 检查抽象 ledger 与 bitmap refinement artifacts。
 
-`make paper` 构建 substantially revised TKDE working manuscript。`make paper-tdsc` 只保留为早期 working draft 的构建入口；该 draft 从未投稿，也不在评审中。
+`make paper` 构建 substantially revised TKDE working manuscript。`make paper-tdsc` 只保留为同一作者的 SessionBound 早期 working draft 构建入口；该 draft 从未投稿、未被接收，也不在评审中。
 
 `make eval-exposure` 覆盖 ground-truth FactID、独立 oracle、split/merge、overlapping pagination、retry、join multiplicity、snapshot update 和 anti-arbitrage cases。它还执行 1,024 个唯一规范化 PostgreSQL baseline/rewrite SQL pair；这些 pair 是补充性等价改写压力测试，不应表述为 1,024 个独立数据集或 exposure invariance 的单独证明。
 

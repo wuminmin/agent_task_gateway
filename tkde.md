@@ -141,7 +141,10 @@ TKDE 主文建议控制在 12 页：
 - 通过 [IEEE Publishing Portal](https://journals.ieeeauthorcenter.ieee.org/submit-your-article-for-peer-review/ieee-publishing-portal/) 选择 TKDE 和 Regular Paper。
 - 默认单匿名；可以申请双匿名，但由 EIC 决定。
 - Traditional 模式不收 OA APC；可选 OA 当前为 2,800 美元。[IEEE OA 费用](https://open.ieee.org/for-authors/article-processing-charges/)
-- 不得并投；本项目的 TDSC 工作稿从未投稿。TKDE 投稿只需披露早期预印本 arXiv:2607.00751v1，并在正文、Cover Letter 和 arXiv Comments 中说明实质差异。
+- 不得并投；SessionBound 与本 TKDE 稿为同一作者，前者只是公开在 arXiv
+  的未投稿工作稿，从未投稿或被 TDSC 接收。TKDE 投稿时应在正文、Cover
+  Letter 和 arXiv Comments 中如实披露两稿关系与实质差异，但不得把
+  SessionBound 表述成已接受论文或独立外部工作。
 - 代码和数据公开不是强制，但 TKDE 明确鼓励 DataPort 和 Code Ocean；这篇论文最好提供查询变形集、Agent traces、原始结果和复现实验脚本。
 
 改造开始时的 Go/No-Go 判断：

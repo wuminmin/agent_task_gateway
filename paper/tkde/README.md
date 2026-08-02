@@ -69,10 +69,12 @@ single full experiment to run after the manuscript and protocol are frozen.
 
 ## Related-manuscript disclosure
 
-The Introduction cites the preliminary SessionBound preprint once to identify
-the earlier authorization substrate. Submission materials must disclose that
-relationship and the database-specific contributions of this manuscript; the
-paper does not organize its technical content around that evolution history.
+SessionBound and this TKDE manuscript have the same author. SessionBound is an
+unsubmitted working manuscript available as a preliminary arXiv preprint; it
+has not been submitted to or accepted by TDSC. The Introduction states that
+status explicitly. Submission materials must disclose the relationship and the
+database-specific contributions of this manuscript; the paper does not organize
+its technical content around that evolution history.
 
 ## Submission-length check
 
