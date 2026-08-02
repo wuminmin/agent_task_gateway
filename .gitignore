@@ -13,3 +13,7 @@ coverage.out
 dist/
 tmp/
 /artifacts/snapshot-index/
+
+.agents/
+.claude/
+AGENTS.md
