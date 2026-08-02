@@ -425,8 +425,7 @@ func (adapter *realAdapter) completeTaskgateSample(ctx context.Context, operatio
 	sample.RootTaskIDHash = saltedTaskHash(operation, state.taskID)
 	sample.ParquetBytes, sample.EncryptedObjectBytes = intent.ParquetSize, intent.ObjectSize
 	sample.ArtifactSHA256, sample.ObjectSHA256 = intent.ParquetSHA256, intent.ObjectSHA256
-	receiptBytes, _ := json.Marshal(response.Receipt)
-	sample.ReceiptVersion, sample.ReceiptSHA256, sample.ArtifactIntentSHA256 = response.Receipt.Version, shaBytes(receiptBytes), intent.IntentSHA256
+	sample.ReceiptVersion, sample.ReceiptSHA256, sample.ArtifactIntentSHA256 = response.Receipt.Version, receiptDigest(response.Receipt), intent.IntentSHA256
 	availabilityBytes, _ := json.Marshal(auditEvidence.Availability)
 	sample.AvailabilityAuditSHA256, sample.ReceiptVerified, sample.ArtifactAvailable = shaBytes(availabilityBytes), true, true
 	sample.BaselineVerification = &experiment.BaselineVerificationEvidence{Receipt: response.Receipt, KeyBundle: adapter.keyBundle, AuditProof: auditEvidence.Audit, TerminalProof: auditEvidence.Terminal, RegistrationProof: auditEvidence.Registration, AvailabilityProof: auditEvidence.Availability, ArtifactStatus: canonicalEvidence.Status, DownloadedParquetSHA256: shaBytes(parquetBytes), ParsedResultSHA256: resultDigest}
@@ -588,7 +587,13 @@ WHERE q.task_id=$1 AND q.request_id=$2`, taskID, requestID).
 	if err := json.Unmarshal(receiptJSON, &receipt); err != nil || receipt.ArtifactIntent == nil {
 		return snapshot, errors.New("PENDING recovery receipt omitted its V8 artifact intent")
 	}
-	snapshot.receiptSHA256 = shaBytes(receiptJSON)
+	// Control persists RFC 8785 canonical bytes while the public response is
+	// decoded into a typed receipt and encoded by the experiment harness. Hash
+	// the typed identity on both paths so key ordering cannot create a false
+	// recovery mismatch. Every typed receipt field, including its signature,
+	// remains part of this identity; Control separately enforces persistence
+	// immutability.
+	snapshot.receiptSHA256 = receiptDigest(receipt)
 	snapshot.intentSHA256 = receipt.ArtifactIntent.IntentSHA256
 	return snapshot, nil
 }
@@ -812,6 +817,10 @@ func sha(value string) string { return shaBytes([]byte(value)) }
 func shaBytes(value []byte) string {
 	digest := sha256.Sum256(value)
 	return hex.EncodeToString(digest[:])
+}
+func receiptDigest(receipt queryreceipt.QueryReceiptV1) string {
+	encoded, _ := json.Marshal(receipt)
+	return shaBytes(encoded)
 }
 func saltedTaskHash(operation experiment.AdapterOperation, taskID string) string {
 	return sha(operation.CampaignID + "\x00" + operation.DeploymentID + "\x00" + taskID)

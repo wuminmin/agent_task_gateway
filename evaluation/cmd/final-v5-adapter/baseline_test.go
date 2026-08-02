@@ -1,10 +1,30 @@
 package main
 
 import (
+	"encoding/json"
 	"testing"
 
+	"taskbound.local/agent-data-gateway/internal/approval"
 	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 )
+
+func TestReceiptDigestUsesTypedIdentityAcrossWireEncodings(t *testing.T) {
+	receipt := matchingVerifiedResponse().Receipt
+	canonical, err := approval.CanonicalJSON(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded queryreceipt.QueryReceiptV1
+	if err := json.Unmarshal(canonical, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if shaBytes(canonical) == receiptDigest(decoded) {
+		t.Fatal("fixture did not exercise distinct canonical and typed JSON encodings")
+	}
+	if receiptDigest(receipt) != receiptDigest(decoded) {
+		t.Fatal("semantically identical receipt changed identity across wire encodings")
+	}
+}
 
 func TestValidateResponseAgainstVerifiedReceiptRejectsUnsignedResponseDrift(t *testing.T) {
 	response := matchingVerifiedResponse()
