@@ -23,9 +23,11 @@ formal publication, ledger, receipt, and artifact-state definitions.
 - Clearance and bonded-warehouse language remain narrative shorthand for the
   governed declaration, settlement, and release boundary; they are not legal
   or DFC-policy compliance claims.
-- This revision changes claims and evidence mapping only. It does not change
-  production protocol semantics, namespaces, wire
-  formats, schema, or evidence-bound experiment artifacts and numbers.
+- The manuscript revision changes claims and evidence mapping; supporting
+  repository changes are confined to draft/final evidence validation and
+  low-cost regressions of existing semantics. It does not change production
+  protocol semantics, namespaces, wire formats, schema, or evidence-bound
+  experiment artifacts and numbers.
 
 The manuscript name is Bonded Data Gate (BDG). Evidence-bound protocol
 namespaces such as `taskgate-*`, hash-domain separators, the
@@ -61,13 +63,56 @@ Build both the paper and supplement from the repository root:
 make paper
 ```
 
+This default build does not run measurements or invoke
+`evaluation/run-exposure.sh`. It validates the source-controlled evidence,
+regenerates `generated/evidence.tex` from those existing artifacts, and then
+compiles the paper and supplement.
+
 Validate source-controlled evidence and regenerate the LaTeX evidence macros:
 
 ```sh
 make paper-evidence
 ```
 
-The evidence generator validates the following current claims before writing
+This target also uses only existing evidence artifacts; it does not execute an
+evaluation campaign. The generator's default `draft` mode validates schema-3
+source, Catalog, and evidence-tooling hashes from the historical
+`submission_commit` Git blobs, along with receipt/raw-log bindings and internal
+manifest digests. The recorded submission must remain an ancestor of `HEAD`,
+but later descendant manuscript and implementation work need not remain
+byte-identical to that measured tree.
+
+An intentional exposure-evidence refresh followed by the same containerized
+build is available through a separate explicit entry point:
+
+```sh
+make paper-refresh-exposure
+```
+
+That target runs `evaluation/run-exposure.sh` and may update measured evidence.
+It is not a prerequisite of `make paper` or `make paper-tkde` and should not be
+used for routine syntax or manuscript builds.
+
+After the evidence scope is frozen and reviewed, run the distinct strict check:
+
+```sh
+make paper-final-check
+```
+
+This check does not refresh experiments. It invokes the generator with
+`--evidence-mode final` from a clean worktree; final mode additionally requires
+all measured paths to be byte-identical to the recorded submission commit. It
+validates and regenerates the existing evidence macros,
+requires `generated/evidence.tex` to match the committed `HEAD` version exactly,
+and then performs the containerized build. It therefore expects the frozen-tree
+source/raw evidence and Compose receipt to have already been regenerated,
+reviewed, and committed; the Compose wrapper is not a one-command replacement
+for that source/raw evidence step.
+Thus refreshing measurements and accepting frozen evidence remain two separate
+actions.
+
+The evidence generator validates the following claims recorded by the retained
+evidence packages before writing
 `generated/evidence.tex`:
 
 - RQ1 independent-oracle memberships;
@@ -96,8 +141,11 @@ not a mechanized refinement proof; the paper does not claim a formally verified
 system.
 
 The build compiles `main.tex` and `supplement.tex` in the pinned Docker TeX
-environment. A syntax-oriented entry point is available at `build.sh`. The
-supplement contains complete inference rules, proofs, implementation coverage,
+environment. The local `build.sh` entry point is also evaluation-free by
+default; its explicit `refresh-exposure` argument opts into the exposure refresh
+before compilation, while `final` carries strict evidence validation through
+the actual compilation. The supplement contains complete inference rules, proofs,
+implementation coverage,
 radix/bitmap details, receipt persistence semantics, publication-routing
 measurements, and broad SQL result-equivalence stress tests. Superseded module
 walkthroughs and implementations are intentionally excluded.

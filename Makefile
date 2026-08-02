@@ -1,4 +1,4 @@
-.PHONY: verify test build up down logs formal eval-validate eval-exposure eval-exposure-performance eval-exposure-scale eval-exposure-storage eval-provenance-baseline eval-daily-publication eval-daily-publication-online eval-daily-publication-validate eval-smoke eval-full eval-v5-final-validate eval-v5-final-preflight eval-v5-final-smoke eval-v5-final-real-pilot eval-v5-final-finalize eval-v5-final-campaign-finalize eval-v5-final-evidence artifacts fuzz paper-evidence paper paper-tkde paper-tdsc
+.PHONY: verify test build up down logs formal eval-validate eval-exposure eval-exposure-performance eval-exposure-scale eval-exposure-storage eval-provenance-baseline eval-daily-publication eval-daily-publication-online eval-daily-publication-validate eval-smoke eval-full eval-v5-final-validate eval-v5-final-preflight eval-v5-final-smoke eval-v5-final-real-pilot eval-v5-final-finalize eval-v5-final-campaign-finalize eval-v5-final-evidence artifacts fuzz paper-evidence paper paper-tkde paper-refresh-exposure paper-final-check paper-tdsc
 
 verify:
 	docker build --target verify -t taskbound-agent-data-gateway-verify .
@@ -109,6 +109,16 @@ paper:
 
 paper-tkde:
 	./paper/tkde/build-container.sh
+
+paper-refresh-exposure:
+	./paper/tkde/build-container.sh refresh-exposure
+
+paper-final-check:
+	@worktree_status=$$(git --no-replace-objects status --porcelain --untracked-files=all) || exit $$?; \
+		if test -n "$$worktree_status"; then echo "paper-final-check requires a clean worktree" >&2; exit 1; fi
+	python3 paper/tkde/generate_evidence.py --evidence-mode final
+	git --no-replace-objects diff --exit-code HEAD -- paper/tkde/generated/evidence.tex
+	./paper/tkde/build-container.sh final
 
 paper-tdsc:
 	./paper/tdsc/build-container.sh

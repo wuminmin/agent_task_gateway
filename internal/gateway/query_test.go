@@ -1,10 +1,12 @@
 package gateway
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +20,7 @@ import (
 	"taskbound.local/agent-data-gateway/internal/exposure"
 	"taskbound.local/agent-data-gateway/internal/queryplan"
 	"taskbound.local/agent-data-gateway/internal/queryreceipt"
+	"taskbound.local/agent-data-gateway/internal/resultartifact"
 	"taskbound.local/agent-data-gateway/internal/semanticcache"
 	"taskbound.local/agent-data-gateway/internal/sqlpolicy"
 )
@@ -949,6 +952,20 @@ func TestExposureBudgetRejectsBufferedResultBeforeRelease(t *testing.T) {
 func TestOrdinalExposureBudgetBPlusOneCommitsCompleteFailureOnly(t *testing.T) {
 	harness := newGatewayHarness(t)
 	harness.installCatalogV4SnapshotRegistry(t)
+	backend := newGatewayArtifactMemoryBackend()
+	artifactCipher, err := control.NewAES256GCM(bytes.Repeat([]byte{0x45}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifactTempDir := t.TempDir()
+	if err := os.Chmod(artifactTempDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	artifactManager, err := resultartifact.NewManager(backend, artifactCipher, artifactTempDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	harness.service.resultArtifacts = artifactManager
 	taskID := "task-v4-exposure-b-plus-one"
 	requestID := "v4-exposure-b-plus-one-request"
 	// This scan releases two visible base-cell facts. A release ceiling of one
@@ -980,6 +997,16 @@ func TestOrdinalExposureBudgetBPlusOneCommitsCompleteFailureOnly(t *testing.T) {
 		"total_amount": json.Number("1680.00"),
 	}
 	visible := scanVisibleResult(t, bound.Program, []map[string]any{row})
+	for index := range visible.Columns {
+		switch visible.Columns[index].Name {
+		case "month":
+			visible.Columns[index].DataTypeOID = 25
+		case "total_amount":
+			visible.Columns[index].DataTypeOID = 1700
+		default:
+			t.Fatalf("unexpected visible artifact column %q", visible.Columns[index].Name)
+		}
+	}
 	visible.DatabaseTime = 2 * time.Millisecond
 	provenanceColumns, positions := ordinalProvenanceColumns(bound.Program)
 	provenanceRow := make([]any, len(provenanceColumns))
@@ -1023,7 +1050,7 @@ func TestOrdinalExposureBudgetBPlusOneCommitsCompleteFailureOnly(t *testing.T) {
 
 	var reservationStatus string
 	var encryptedResults, encryptedChunks, materializations, queryObservations, rootObservations int
-	var failureAudits, receipts int
+	var artifacts, availableArtifacts, availabilityAudits, failureAudits, receipts int
 	if err := harness.store.DB().QueryRowContext(context.Background(), `SELECT
  (SELECT status FROM v4_query_exposure_reservations WHERE query_id=$1),
  (SELECT count(*) FROM encrypted_query_results WHERE query_id=$1),
@@ -1031,19 +1058,31 @@ func TestOrdinalExposureBudgetBPlusOneCommitsCompleteFailureOnly(t *testing.T) {
  (SELECT count(*) FROM v4_committed_materializations WHERE source_query_id=$1),
  (SELECT count(*) FROM v4_query_observations WHERE query_id=$1),
  (SELECT count(*) FROM v4_root_observations WHERE first_query_id=$1),
+	(SELECT count(*) FROM result_artifacts WHERE query_id=$1),
+	(SELECT count(*) FROM result_artifacts WHERE query_id=$1 AND status='AVAILABLE'),
+	(SELECT count(*) FROM audit_events WHERE query_id=$1 AND event_type='QUERY_RESULT_CONSUMED'),
  (SELECT count(*) FROM audit_events WHERE query_id=$1 AND event_type='QUERY_FAILED'),
  (SELECT count(*) FROM query_receipts WHERE query_id=$1)`, record.ID).Scan(
 		&reservationStatus, &encryptedResults, &encryptedChunks, &materializations,
-		&queryObservations, &rootObservations, &failureAudits, &receipts); err != nil {
+		&queryObservations, &rootObservations, &artifacts, &availableArtifacts, &availabilityAudits,
+		&failureAudits, &receipts); err != nil {
 		t.Fatal(err)
 	}
 	if reservationStatus != "RELEASED" || encryptedResults != 0 || encryptedChunks != 0 ||
 		materializations != 0 || queryObservations != 0 || rootObservations != 0 ||
-		failureAudits != 1 || receipts != 1 {
+		artifacts != 0 || availableArtifacts != 0 || availabilityAudits != 0 || failureAudits != 1 || receipts != 1 {
 		t.Fatalf("B+1 atomic failure evidence: reservation=%s result=%d chunks=%d materialization=%d "+
-			"query_observation=%d root_observation=%d failure_audit=%d receipt=%d",
+			"query_observation=%d root_observation=%d artifacts=%d available=%d availability_audit=%d "+
+			"failure_audit=%d receipt=%d",
 			reservationStatus, encryptedResults, encryptedChunks, materializations, queryObservations,
-			rootObservations, failureAudits, receipts)
+			rootObservations, artifacts, availableArtifacts, availabilityAudits, failureAudits, receipts)
+	}
+	objects, err := backend.List(context.Background(), "", "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(objects) != 0 {
+		t.Fatalf("B+1 left unpublished artifact objects: %+v", objects)
 	}
 	headAfter, err := harness.store.GetOrdinalRootHead(context.Background(), taskID)
 	if err != nil {

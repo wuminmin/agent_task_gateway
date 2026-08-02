@@ -579,9 +579,9 @@ object reuse, and malformed-object rejection.
 
 \begin{table}[h]
 \centering
-\caption{Outcome-set reproducibility bindings. The Git identity is the existing base
-commit; the complete bounded source manifest binds the tested working tree,
-including production and test files.}
+\caption{Outcome-set reproducibility bindings. The implementation base identifies
+the code lineage; for schema~3, the bounded source manifest is rehashed from the
+recorded submission-commit blobs rather than the current working tree.}
 \label{tab:outcome-reproducibility}
 \small
 \begin{tabular}{L{0.29\columnwidth}L{0.64\columnwidth}}
@@ -589,6 +589,7 @@ including production and test files.}
 Binding & Identity \\
 \midrule
 Implementation base commit & \VFiveImplementationCommit \\
+Evidence snapshot commit & Schema-3 \code{submission\_commit} in \code{evaluation/v5-outcome/evidence.json} \\
 Implementation source-set SHA-256 & \VFiveImplementationSourceHash \\
 Raw \code{go test -json} SHA-256 & \VFiveRawLogHash \\
 Required tests passing & \VFiveRawTestsPassed{}; zero skipped and zero failed \\

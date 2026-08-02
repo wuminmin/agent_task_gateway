@@ -23,6 +23,7 @@ func TestBindingDigestIsStableAndAuthorityScoped(t *testing.T) {
 		"catalog":    func(value *Binding) { value.CatalogDigest = strings.Repeat("d", 64) },
 		"schema":     func(value *Binding) { value.SchemaDigest = strings.Repeat("e", 64) },
 		"dictionary": func(value *Binding) { value.DictionarySetDigest = strings.Repeat("f", 64) },
+		"profile":    func(value *Binding) { value.ExposureProfile = "taskgate-exposure-v3" },
 		"compiler":   func(value *Binding) { value.CompilerVersion = "taskgate-ordinal-compiler-v2" },
 		"ordering":   func(value *Binding) { value.OrderingVersion = "taskgate-canonical-order-v2" },
 		"pagination": func(value *Binding) { value.PaginationVersion = "taskgate-pagination-v2" },

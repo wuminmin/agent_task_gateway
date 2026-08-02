@@ -22,6 +22,8 @@ type ordinalReplayTestFixture struct {
 	task                control.Task
 	grantDigest         string
 	cacheKey            string
+	dictionaryDigest    string
+	manifestDigest      string
 	dictionarySetDigest string
 }
 
@@ -82,6 +84,7 @@ func newOrdinalReplayTestFixture(t *testing.T, taskID string, sourcePlaintext []
 	}
 	fixture := ordinalReplayTestFixture{
 		harness: harness, grantDigest: strings.Repeat("3", 64), cacheKey: strings.Repeat("5", 64),
+		dictionaryDigest: dictionaryFixture.artifact.Hot.DictionaryDigest(), manifestDigest: manifestDigest,
 		dictionarySetDigest: dictionarySetDigest,
 	}
 	source := fixture.reserveRows(t, taskID+"-source", taskID+"-source-request", sourceRows)
@@ -191,6 +194,45 @@ func TestOrdinalSemanticReplayNormalMissKeepsReservationForNovelPath(t *testing.
 		t.Fatalf("normal miss result=%#v outcome=%v err=%v", result, outcome, err)
 	}
 	assertReplayReservationStatus(t, fixture, reservation.QueryID, control.QueryReserved)
+	if _, err := fixture.harness.store.ReleaseBudget(context.Background(), reservation.QueryID, "TEST_CLEANUP"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestOrdinalSemanticReplayRejectsChangedPublicationBindingEvenWithReusedCacheKey(t *testing.T) {
+	fixture := newOrdinalReplayTestFixture(t, "task-v4-replay-publication-change", validOrdinalReplaySource(t))
+	changedSet, err := ordinal.NewDictionarySetManifest(fixture.harness.catalog.SHA256, ordinal.DictionarySetMember{
+		PublicationName: "replay-cleanup-publication-v2", DictionaryDigest: fixture.dictionaryDigest,
+		ManifestDigest: fixture.manifestDigest,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.harness.store.PutOrdinalDictionarySet(context.Background(), changedSet); err != nil {
+		t.Fatal(err)
+	}
+	changedDigest, err := changedSet.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changedDigest == fixture.dictionarySetDigest {
+		t.Fatal("publication identity change did not partition the dictionary-set binding")
+	}
+
+	reservation := fixture.reserve(t, "query-v4-replay-publication-change", "request-v4-replay-publication-change")
+	result, outcome, err := fixture.harness.service.tryOrdinalSemanticReplay(context.Background(), fixture.task,
+		reservation.RequestID, reservation.QueryID, fixture.grantDigest, fixture.cacheKey,
+		changedDigest, reservation, map[string]float64{})
+	if err != nil || outcome != ordinalReplayContinueNovel || result != nil {
+		t.Fatalf("changed-publication replay result=%#v outcome=%v err=%v", result, outcome, err)
+	}
+	assertReplayReservationStatus(t, fixture, reservation.QueryID, control.QueryReserved)
+	if _, err := fixture.harness.store.LookupOrdinalMaterialization(context.Background(), control.OrdinalMaterializationLookup{
+		CacheKeySHA256: fixture.cacheKey, TaskID: fixture.task.ID, GrantDigest: fixture.grantDigest,
+		CatalogDigest: fixture.harness.catalog.SHA256, DictionarySetDigest: fixture.dictionarySetDigest,
+	}); err != nil {
+		t.Fatalf("changed binding disturbed the original committed materialization: %v", err)
+	}
 	if _, err := fixture.harness.store.ReleaseBudget(context.Background(), reservation.QueryID, "TEST_CLEANUP"); err != nil {
 		t.Fatal(err)
 	}

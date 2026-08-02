@@ -296,9 +296,10 @@ core rather than introducing an unaccounted SQL path.
 physically refined
 by immutable snapshot dictionaries, segmented compressed bitmaps, and an exact
 incremental Merkle radix set for outcome hashes: atomically charge
-$E_q\setminus\accounted_T$, withhold on
-any limit, and make semantic replay zero-novelty for exposure (ordinary
-query/row resource accounting still applies).
+$E_q\setminus\accounted_T$, treat profile units as accounting identities rather
+than information bits, withhold on any limit, permit no modeled artifact to
+reach \code{AVAILABLE} before settlement, and make semantic replay zero-novelty
+for exposure (ordinary query/row resource accounting still applies).
 \item Signed, monotonic root-family delegation whose descendants share one
 three-dimensional ledger, preventing task-tree fan-out from multiplying exposure capacity.
 \item Three explicitly separated assurance layers: representation-independent

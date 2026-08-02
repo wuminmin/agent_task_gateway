@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import io
 import json
@@ -85,6 +86,9 @@ V5_EVIDENCE_TOOLING_PATHS = (
     "scripts/integration-test.sh",
     "scripts/record-compose-e2e.sh",
 )
+
+EVIDENCE_VALIDATION_MODES = ("draft", "strict", "final")
+GIT_NO_REPLACE = ("git", "--no-replace-objects")
 
 V5_RAW_TEST_COMMAND = [
     "go", "test", "-json", "-count=1", "./internal/exposure", "./internal/control",
@@ -177,6 +181,14 @@ def require(condition: bool, message: str) -> None:
         raise ValueError(message)
 
 
+def normalize_evidence_validation_mode(mode: str) -> str:
+    require(
+        mode in EVIDENCE_VALIDATION_MODES,
+        f"evidence validation mode must be one of {', '.join(EVIDENCE_VALIDATION_MODES)}",
+    )
+    return "strict" if mode in {"strict", "final"} else "draft"
+
+
 def comma(value: int) -> str:
     return f"{value:,}"
 
@@ -192,18 +204,6 @@ def string_set_sha256(domain: str, values: list[str]) -> str:
         digest.update(value.encode("utf-8"))
         digest.update(b"\x00")
     return digest.hexdigest()
-
-
-def v5_evidence_tooling() -> dict:
-    files = [{"path": path, "sha256": sha256(ROOT / path)} for path in V5_EVIDENCE_TOOLING_PATHS]
-    payload = json.dumps(
-        files, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
-    ).encode("utf-8")
-    return {
-        "algorithm": "sha256-canonical-json-v1",
-        "files": files,
-        "sha256": hashlib.sha256(payload).hexdigest(),
-    }
 
 
 def path_set_sha256(paths: list[Path]) -> str:
@@ -759,6 +759,97 @@ def v5_source_manifest_digest(files: list[dict[str, str]]) -> str:
     return hashlib.sha256(canonical).hexdigest()
 
 
+def validate_git_commit(commit: str, label: str) -> None:
+    commit_check = subprocess.run(
+        [*GIT_NO_REPLACE, "cat-file", "-e", f"{commit}^{{commit}}"], cwd=ROOT,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
+    )
+    require(
+        re.fullmatch(r"[0-9a-f]{40}", commit) is not None
+        and commit_check.returncode == 0,
+        f"{label} is missing or is not a Git commit",
+    )
+
+
+def validate_git_ancestry(ancestor: str, descendant: str, label: str) -> None:
+    ancestry_check = subprocess.run(
+        [*GIT_NO_REPLACE, "merge-base", "--is-ancestor", ancestor, descendant], cwd=ROOT,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
+    )
+    require(ancestry_check.returncode == 0, f"{label} ancestry is invalid")
+
+
+def git_commit_file_bytes(commit: str, relative: str) -> bytes:
+    blob = subprocess.run(
+        [*GIT_NO_REPLACE, "show", f"{commit}:{relative}"], cwd=ROOT,
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False,
+    )
+    require(
+        blob.returncode == 0,
+        f"Git commit {commit} does not contain required evidence source {relative}",
+    )
+    return blob.stdout
+
+
+def git_commit_file_sha256(commit: str, relative: str) -> str:
+    return hashlib.sha256(git_commit_file_bytes(commit, relative)).hexdigest()
+
+
+def validate_commit_bound_files(
+    files: list[dict[str, str]], expected_paths: tuple[str, ...], commit: str, label: str,
+) -> None:
+    require(
+        [item.get("path") for item in files if isinstance(item, dict)] == list(expected_paths)
+        and all(
+            isinstance(item, dict)
+            and set(item) == {"path", "sha256"}
+            and re.fullmatch(r"[0-9a-f]{64}", item.get("sha256", "")) is not None
+            for item in files
+        ),
+        f"{label} paths are incomplete or unordered",
+    )
+    for item in files:
+        require(
+            git_commit_file_sha256(commit, item["path"]) == item["sha256"],
+            f"{label} binding is stale for {item['path']} at {commit}",
+        )
+
+
+def validate_v5_evidence_tooling(tooling: dict, submission_commit: str) -> None:
+    require(
+        isinstance(tooling, dict)
+        and set(tooling) == {"algorithm", "files", "sha256"}
+        and tooling.get("algorithm") == "sha256-canonical-json-v1"
+        and isinstance(tooling.get("files"), list),
+        "V5 evidence-tooling manifest schema is invalid",
+    )
+    files = tooling["files"]
+    validate_commit_bound_files(
+        files, V5_EVIDENCE_TOOLING_PATHS, submission_commit, "V5 evidence-tooling manifest",
+    )
+    require(
+        tooling.get("sha256") == v5_source_manifest_digest(files),
+        "V5 evidence-tooling manifest digest is stale",
+    )
+
+
+def validate_v5_measured_paths_frozen(submission_commit: str) -> None:
+    measured_diff = subprocess.run(
+        [*GIT_NO_REPLACE, "diff", "--quiet", submission_commit, "--", *V5_MEASURED_PATHS],
+        cwd=ROOT, check=False,
+    )
+    measured_status = subprocess.run(
+        [*GIT_NO_REPLACE, "status", "--porcelain", "--untracked-files=all", "--", *V5_MEASURED_PATHS],
+        cwd=ROOT, capture_output=True, text=True, check=False,
+    )
+    require(
+        measured_diff.returncode == 0
+        and measured_status.returncode == 0
+        and not measured_status.stdout.strip(),
+        "V5 measured paths differ from the frozen submission commit",
+    )
+
+
 def validate_v5_raw_execution(receipt: dict) -> None:
     require(
         set(receipt) == {
@@ -842,10 +933,10 @@ def validate_v5_compose_execution(binding: dict, submission_commit: str) -> None
             receipt.get("executed_at", ""),
         ) is not None
         and receipt.get("command") == ["./scripts/integration-test.sh"]
-        and receipt.get("catalog_file_sha256") == sha256(ROOT / "config/catalog.yaml")
+        and receipt.get("catalog_file_sha256")
+        == git_commit_file_sha256(submission_commit, "config/catalog.yaml")
         and re.fullmatch(r"[0-9a-f]{64}", receipt.get("catalog_runtime_digest", "")) is not None
         and receipt.get("catalog_runtime_digest") == receipt.get("catalog_file_sha256")
-        and receipt.get("evidence_tooling") == v5_evidence_tooling()
         and receipt.get("exit_code") == 0
         and receipt.get("assertions") == {
             "caller_predicate": True,
@@ -856,6 +947,7 @@ def validate_v5_compose_execution(binding: dict, submission_commit: str) -> None
         },
         "V5 Compose execution identity or required assertions are invalid",
     )
+    validate_v5_evidence_tooling(receipt.get("evidence_tooling", {}), submission_commit)
     images = receipt.get("compose_images")
     expected_services = sorted({
         "control-postgres", "business-postgres", "snapshot-index-detail",
@@ -894,7 +986,8 @@ def validate_v5_compose_execution(binding: dict, submission_commit: str) -> None
         require(marker in log, f"V5 Compose raw log omitted {marker!r}")
 
 
-def validate_v5_outcome_evidence() -> dict:
+def validate_v5_outcome_evidence(evidence_mode: str = "draft") -> dict:
+    normalized_mode = normalize_evidence_validation_mode(evidence_mode)
     result = load_json(V5_OUTCOME)
     schema_version = result.get("schema_version")
     expected_fields = {
@@ -908,72 +1001,60 @@ def validate_v5_outcome_evidence() -> dict:
         set(result) == expected_fields and schema_version in {2, 3},
         "V5 outcome evidence schema is invalid",
     )
-    base_commit = result.get("implementation_base_commit", "")
-    commit_check = subprocess.run(
-        ["git", "cat-file", "-e", f"{base_commit}^{{commit}}"],
-        cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
-    )
-    ancestry_check = subprocess.run(
-        ["git", "merge-base", "--is-ancestor", base_commit, "HEAD"], cwd=ROOT,
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
-    )
     require(
-        re.fullmatch(r"[0-9a-f]{40}", base_commit) is not None
-        and commit_check.returncode == 0
-        and ancestry_check.returncode == 0,
-        "V5 implementation base commit is missing or is not an ancestor of HEAD",
+        normalized_mode != "strict" or schema_version == 3,
+        "strict/final V5 evidence validation requires schema version 3 submission evidence",
     )
+    base_commit = result.get("implementation_base_commit", "")
+    validate_git_commit(base_commit, "V5 implementation base commit")
+    submission_commit = ""
     if schema_version == 3:
         submission_commit = result.get("submission_commit", "")
-        submission_check = subprocess.run(
-            ["git", "cat-file", "-e", f"{submission_commit}^{{commit}}"],
-            cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            check=False,
+        validate_git_commit(submission_commit, "V5 submission commit")
+        validate_git_ancestry(
+            base_commit, submission_commit,
+            "V5 implementation base commit to submission commit",
         )
-        submission_ancestry = subprocess.run(
-            ["git", "merge-base", "--is-ancestor", submission_commit, "HEAD"],
-            cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            check=False,
+        validate_git_ancestry(
+            submission_commit, "HEAD", "V5 submission commit to HEAD",
         )
-        require(
-            re.fullmatch(r"[0-9a-f]{40}", submission_commit) is not None
-            and submission_check.returncode == 0
-            and submission_ancestry.returncode == 0,
-            "V5 submission commit is missing or is not an ancestor of HEAD",
-        )
-        measured_diff = subprocess.run(
-            ["git", "diff", "--quiet", submission_commit, "--", *V5_MEASURED_PATHS],
-            cwd=ROOT, check=False,
-        )
-        measured_status = subprocess.run(
-            ["git", "status", "--porcelain", "--untracked-files=all", "--", *V5_MEASURED_PATHS],
-            cwd=ROOT, capture_output=True, text=True, check=False,
-        )
-        require(
-            measured_diff.returncode == 0 and not measured_status.stdout.strip(),
-            "V5 measured paths differ from the frozen submission commit",
-        )
+        if normalized_mode == "strict":
+            validate_v5_measured_paths_frozen(submission_commit)
         validate_v5_compose_execution(result.get("compose_execution", {}), submission_commit)
+    else:
+        validate_git_ancestry(
+            base_commit, "HEAD", "V5 implementation base commit to HEAD",
+        )
     manifest = result.get("source_manifest", {})
     require(
-        set(manifest) == {"algorithm", "files", "sha256"}
+        isinstance(manifest, dict)
+        and set(manifest) == {"algorithm", "files", "sha256"}
         and manifest.get("algorithm") == "sha256(canonical-json(sorted-path-sha256-list))"
         and isinstance(manifest.get("files"), list),
         "V5 implementation source manifest schema is invalid",
     )
     files = manifest["files"]
-    require(
-        [item.get("path") for item in files if isinstance(item, dict)] == list(V5_SOURCE_PATHS)
-        and all(set(item) == {"path", "sha256"} for item in files),
-        "V5 implementation source manifest paths are incomplete or unordered",
-    )
-    for item in files:
-        source = ROOT / item["path"]
-        require(
-            source.is_file() and re.fullmatch(r"[0-9a-f]{64}", item["sha256"]) is not None
-            and sha256(source) == item["sha256"],
-            f"V5 implementation source binding is stale for {item['path']}",
+    if submission_commit:
+        validate_commit_bound_files(
+            files, V5_SOURCE_PATHS, submission_commit, "V5 implementation source manifest",
         )
+    else:
+        require(
+            [item.get("path") for item in files if isinstance(item, dict)] == list(V5_SOURCE_PATHS)
+            and all(
+                isinstance(item, dict)
+                and set(item) == {"path", "sha256"}
+                and re.fullmatch(r"[0-9a-f]{64}", item.get("sha256", "")) is not None
+                for item in files
+            ),
+            "V5 implementation source manifest paths are incomplete or unordered",
+        )
+        for item in files:
+            source = ROOT / item["path"]
+            require(
+                source.is_file() and sha256(source) == item["sha256"],
+                f"V5 implementation source binding is stale for {item['path']}",
+            )
     require(
         manifest.get("sha256") == v5_source_manifest_digest(files),
         "V5 implementation source-set digest is stale",
@@ -1003,7 +1084,24 @@ def validate_v5_outcome_evidence() -> dict:
     return result
 
 
-def main() -> None:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Validate retained TKDE evidence and regenerate evidence macros.",
+    )
+    parser.add_argument(
+        "--evidence-mode",
+        choices=EVIDENCE_VALIDATION_MODES,
+        default="draft",
+        help=(
+            "draft validates retained evidence against its historical commits; "
+            "strict/final additionally require current measured paths to remain frozen"
+        ),
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> None:
+    arguments = parse_args(argv)
     report = validate_exposure()
     performance = validate_performance()
     path_analysis = validate_path_analysis(performance)
@@ -1016,7 +1114,7 @@ def main() -> None:
     bitmap_formal = validate_formal(FORMAL_BITMAP, "bitmap refinement")
     outcome_formal = validate_formal(FORMAL_OUTCOME, "abstract outcome-set settlement")
     artifact_formal = validate_formal(FORMAL_ARTIFACT, "artifact publication")
-    v5_outcome = validate_v5_outcome_evidence()
+    v5_outcome = validate_v5_outcome_evidence(arguments.evidence_mode)
     rq1 = report["rq1_ground_truth"]
     rq2 = report["rq2_rewrite_invariance"]
     rq3 = report["rq3_anti_arbitrage"]

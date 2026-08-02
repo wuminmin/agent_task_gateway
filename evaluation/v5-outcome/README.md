@@ -2,15 +2,32 @@
 
 `evidence.json` binds the V5 exact-set regressions to an existing implementation
 base commit, a bounded manifest of production and test source files, and a raw
-`go test -json` execution receipt. The paper evidence generator verifies the
-Git object, re-hashes every manifest entry and its canonical source-set digest,
-parses every raw JSON event, and rejects a missing, skipped, failed, extra, or
-stale required test. The base commit alone is not represented as the tested
-tree: the source manifest binds all listed working-tree changes.
+`go test -json` execution receipt. For schema version 3, the paper evidence
+generator re-hashes every source-manifest entry from the historical
+`submission_commit` Git blobs, checks the canonical source-set digest, and
+verifies both the implementation-base-to-submission lineage and the recorded
+submission's ancestry to `HEAD`. It also parses every raw JSON event
+and rejects a missing, skipped, failed, extra, or stale required test. This
+historical validation remains meaningful as descendant draft development
+changes the current `HEAD`; it does not reinterpret current files as measured
+evidence.
 
-Before final submission, run `scripts/record-compose-e2e.sh` from a clean,
-frozen submission commit. It refuses measured-path drift, runs the complete
-Compose acceptance suite, retains `raw/compose-e2e.log`, and writes
+This is not a one-command source/raw/Compose resealer. Once the manuscript and
+protocol are actually final, use this order:
+
+1. freeze and commit the measured source tree;
+2. rerun the exact V5 raw test/counter procedure and regenerate the schema-2
+   source manifest and `raw_execution` receipt for that tree (there is currently
+   no separate one-command recorder for this step);
+3. run `scripts/record-compose-e2e.sh` with that clean frozen commit as
+   `HEAD` (or `TASKGATE_SUBMISSION_COMMIT`);
+4. review and commit the resulting evidence-only files and generated macros,
+   then run `make paper-final-check` from the clean evidence commit.
+
+The Compose wrapper preflights the source manifest and raw execution receipt
+before starting the costly acceptance run. It refuses stale evidence or
+measured-path drift, runs the complete Compose acceptance suite, retains
+`raw/compose-e2e.log`, and writes
 `compose-receipt.json` with the submission SHA, all immutable Compose image IDs
 (including `test-runner` and `mcp-probe`), distinct Catalog file/runtime
 digests, evidence-tooling file/digest bindings, exit status, five required E2E
@@ -21,14 +38,19 @@ package-level `[no test files]` lifecycle event is the sole explicit exception,
 so packages without tests remain in the complete `./...` traversal without
 being misreported as a skipped test. Costly scale experiments use the separate
 `taskgate_scale` build tag and are not part of this acceptance run.
-On success the wrapper automatically promotes `evidence.json` to schema version
-3, adds `submission_commit` and the receipt-hash binding, and runs the paper
-generator as an independent final check. The receipt and evidence may live in a
-later evidence-only commit: the generator requires the frozen SHA to be an
-ancestor and every measured path in the checked-out tree to be identical to
-that SHA, avoiding a circular "receipt must already be in the measured commit"
-dependency. Schema version 2 remains readable only for the current pre-freeze
-evidence; it does not make the stronger final-submission claim.
+On success the wrapper promotes `evidence.json` to schema version
+3, adds `submission_commit` and the receipt-hash binding, and invokes the paper
+generator with `--evidence-mode final`. In its default draft mode, the generator
+validates the source manifest, Catalog, and evidence-tooling hashes against that
+historical commit while continuing to validate receipt bindings, raw-log hashes,
+and internal canonical digests; current measured paths may evolve. In explicit
+`strict` or `final` mode, it additionally requires every measured path in the
+checked-out tree to be clean and identical to that SHA. This avoids a circular
+"receipt must already be in the measured commit" dependency while preserving a
+fail-closed final gate.
+Schema version 2 remains readable in draft mode with its implementation base
+required to be an ancestor of `HEAD`; strict/final validation rejects schema 2
+because it has no `submission_commit` freeze claim.
 
 The PostgreSQL regression commits the 100,000-member immutable object graph in
 one transaction and performs novelty/replay in a separate transaction. It does

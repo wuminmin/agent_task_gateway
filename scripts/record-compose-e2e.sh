@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-set -uo pipefail
+set -euo pipefail
 
 root_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 log_path="$root_dir/evaluation/v5-outcome/raw/compose-e2e.log"
 receipt_path="$root_dir/evaluation/v5-outcome/compose-receipt.json"
-submission_commit=${TASKGATE_SUBMISSION_COMMIT:-$(git -C "$root_dir" rev-parse HEAD)}
+submission_commit=${TASKGATE_SUBMISSION_COMMIT:-$(git -C "$root_dir" --no-replace-objects rev-parse HEAD)}
 measured_paths=(
   Dockerfile compose.yaml go.mod go.sum
   cmd internal config db
@@ -18,11 +18,40 @@ fail() {
 }
 
 [[ "$submission_commit" =~ ^[0-9a-f]{40}$ ]] || fail "submission commit must be a full SHA"
-git -C "$root_dir" cat-file -e "${submission_commit}^{commit}" 2>/dev/null || fail "submission commit does not exist"
-git -C "$root_dir" diff --quiet "$submission_commit" -- "${measured_paths[@]}" || \
+git -C "$root_dir" --no-replace-objects cat-file -e "${submission_commit}^{commit}" 2>/dev/null || fail "submission commit does not exist"
+git -C "$root_dir" --no-replace-objects merge-base --is-ancestor "$submission_commit" HEAD || \
+  fail "submission commit is not an ancestor of HEAD"
+git -C "$root_dir" --no-replace-objects diff --quiet "$submission_commit" -- "${measured_paths[@]}" || \
   fail "measured paths differ from submission commit"
-if [[ -n $(git -C "$root_dir" status --porcelain --untracked-files=all -- "${measured_paths[@]}") ]]; then
+if ! measured_status=$(git -C "$root_dir" --no-replace-objects status --porcelain --untracked-files=all -- "${measured_paths[@]}"); then
+  fail "cannot inspect measured-path status"
+fi
+if [[ -n $measured_status ]]; then
   fail "measured paths contain uncommitted or untracked changes"
+fi
+
+# Fail before the costly Compose run unless the existing V5 source manifest and
+# raw execution receipt already describe this frozen tree. This wrapper records
+# Compose evidence; it deliberately does not manufacture or refresh those inputs.
+if ! PYTHONPATH="$root_dir/paper/tkde" python3 - "$submission_commit" <<'PY'
+import sys
+
+import generate_evidence as evidence
+
+requested_submission = sys.argv[1]
+record = evidence.load_json(evidence.V5_OUTCOME)
+schema_version = record.get("schema_version")
+if schema_version == 2:
+    evidence.validate_v5_outcome_evidence("draft")
+elif schema_version == 3:
+    if record.get("submission_commit") != requested_submission:
+        raise ValueError("existing V5 evidence names a different submission commit")
+    evidence.validate_v5_outcome_evidence("final")
+else:
+    raise ValueError("cannot record Compose evidence for an unknown V5 evidence schema")
+PY
+then
+  fail "prepare V5 source-manifest and raw-execution evidence for the frozen submission before Compose recording"
 fi
 
 mkdir -p "$(dirname -- "$log_path")"
@@ -133,5 +162,5 @@ evidence["compose_execution"] = {
 }
 evidence_path.write_text(json.dumps(evidence, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 PY
-python3 "$root_dir/paper/tkde/generate_evidence.py"
+python3 "$root_dir/paper/tkde/generate_evidence.py" --evidence-mode final
 echo "ok - Compose E2E receipt: ${receipt_path#$root_dir/}"
