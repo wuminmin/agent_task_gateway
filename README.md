@@ -1,20 +1,48 @@
-# TaskGate: Accounting and Controlling Cumulative Data Exposure in Agentic Database Systems
+# Bonded Data Gate (BDG)
 
-TaskGate is a research prototype for cumulative data exposure accounting and control in agentic database systems. It governs database access by autonomous AI agents by accumulating novel release, dependency, and outcome facts in a task-scoped Exposure Ledger, then applying deterministic compilation, accounting, and enforcement before a result can be released.
+> **Authorized to query. Cleared to release.**
+
+BDG is a bonded-warehouse data gate for AI agents. A signed task grant permits
+governed query submission, while results become releasable only after scope
+validation, cumulative exposure settlement, and auditable publication.
+
+The paper title is **Bonded Data Gate: Task-Scoped Clearance and Cumulative
+Exposure Accounting for AI Agents**.
+Use the full three-word name in titles and first mentions; `BDG` is only a
+concise in-document abbreviation.
+
+Evidence-bound identifiers such as `taskgate-*`, `TASKGATE-*`,
+`taskgate_ordinal`, and `/.well-known/taskgate/...` remain unchanged until the
+protocol and manuscript freeze. Any namespace migration will happen once,
+followed by evidence regeneration; these internal identifiers are not the
+system's research name.
+
+## Bonded-Warehouse Model
+
+- **Bonded reporting publication:** immutable, versioned reporting inventory
+  held inside the trusted data environment.
+- **Bonded Data Gate:** validates the task and scope, derives Result,
+  Dependency, and Outcome effects, settles cumulative novelty, and controls
+  artifact promotion.
+- **Exposure Ledger:** the formal persistent root-family ledger used for
+  cumulative exposure accounting.
+- **Settlement receipt:** evidence that accounting committed together with a
+  PENDING publication intent. It is not by itself a release certificate;
+  releasability additionally requires verified promotion to `AVAILABLE`.
 
 ## Problem
 
 自主数据库 Agent 会自适应地拆分问题、重试、分页并委托子 Agent。传统数据库授权主要判断一次查询是否允许执行；PostgreSQL RLS、VPD、ABAC/XACML 等机制本身并不记录一个任务跨多次合法查询已经累计获得了哪些事实。因而，每次请求都合规并不意味着整段任务执行的累计暴露仍在批准边界内。
 
-TaskGate 补充而不取代这些访问控制。它关注的问题是：在一个经人工批准的任务及其全部委托后代中，新查询带来的累计数据暴露是否仍然可接受。MCP、工具调用和 HTTP 路由只是当前原型承载这一机制的接口，不是研究贡献本身。
+BDG 补充而不取代这些访问控制。它关注的问题是：在一个经人工批准的任务及其全部委托后代中，新查询带来的累计数据暴露是否仍然可接受。MCP、工具调用和 HTTP 路由只是当前原型承载这一机制的接口，不是研究贡献本身。
 
 ## Key Insight
 
-访问许可不足以表达累计暴露边界，还需要跨查询的 Exposure Accounting。TaskGate 把自适应查询、重试、重叠分页和子 Agent 统一绑定到一个 root-family Exposure Ledger；一次执行只为此前未计量的新事实收费。相同事实的规范重放不重复收费，不同规范命题即使都返回空集或 `0`，仍产生不同的 outcome exposure。
+访问许可不足以表达累计暴露边界，还需要跨查询的 Exposure Accounting。BDG 把自适应查询、重试、重叠分页和子 Agent 统一绑定到一个 root-family Exposure Ledger；一次执行只为此前未计量的新事实收费。相同事实的规范重放不重复收费，不同规范命题即使都返回空集或 `0`，仍产生不同的 outcome exposure。
 
-Agent 先声明数据产品、字段、Scope 和目的。TaskGate Enforcement Layer 从 Catalog 绑定完整预算 Profile，OA 人工批准后才激活任务。正常批准会把 Profile 的完整三维容量交给 Agent；系统不自动寻找“最小预算”，也不把未用额度作为优化目标。准入条件是本次增量提交后，共享 root-family ledger 的每个维度都不超过人工签名边界。
+Agent 先声明数据产品、字段、Scope 和目的。BDG Enforcement Layer 从 Catalog 绑定完整预算 Profile，OA 人工批准后才激活任务。正常批准会把 Profile 的完整三维容量交给 Agent；系统不自动寻找“最小预算”，也不把未用额度作为优化目标。准入条件是本次增量提交后，共享 root-family ledger 的每个维度都不超过人工签名边界。
 
-## TaskGate Model
+## BDG Model
 
 人工审批任务表示为 `T=(P,S,B,C)`：
 
@@ -37,7 +65,7 @@ F = (product, snapshot, entity key, field, value version)
 - `positive-output dependency footprint`：按声明的代数规则参与正向输出推导的保守依赖足迹；
 - `query-outcome exposure`：规范化 QueryPlan 命题及其发布结果摘要。
 
-API、数据库和回执为兼容性保留字段名 `influence`；它表示 positive-output dependency footprint，不表示最小 causal influence 或完整 physical read set。完整定义、前提和安全性质见[TaskGate 形式模型](docs/formal-model.md)和[任务级 Exposure Accounting](docs/exposure-accounting.md)。
+API、数据库和回执为兼容性保留字段名 `influence`；它表示 positive-output dependency footprint，不表示最小 causal influence 或完整 physical read set。完整定义、前提和安全性质见[BDG 形式模型](docs/formal-model.md)和[任务级 Exposure Accounting](docs/exposure-accounting.md)。
 
 ## Architecture
 
@@ -47,13 +75,13 @@ Versioned Reporting Snapshot + Candidate Catalog
                  ├── Business PostgreSQL ordinal sidecar
                  └── HOT hash/ordinal + COLD payload ── publication manifest
                                                         │
-Autonomous Agent ──► TaskGate Enforcement Layer ────────┤
+Autonomous Agent ──► BDG Enforcement Layer ────────┤
                          │ authorize / semantic replay
                          │ miss: visible SQL + ordinal companion
                          ▼
                   exact weighted bitmap effect
                          ▼
-TaskGate control path: bitmap ANDNOT + popcount + exact union
+BDG control path: bitmap ANDNOT + popcount + exact union
                          ▼
 Control PostgreSQL: persist sets + one R/D/O root-head CAS
                          ▼
@@ -64,7 +92,7 @@ S3/MinIO: deterministic canonical object promotion
                  consumed/AVAILABLE → result_id
 ```
 
-V4 将 canonical FactID 精确编码为不可变 snapshot 的 ordinal bitmap；少量 derived release/outcome facts 使用动态字典。可见结果和 ordinal provenance companion 在同一个只读 `REPEATABLE READ` 事务中执行。Control PostgreSQL 保存 ledger、artifact 元数据、审计和签名回执，不保存 Parquet 或结果行；Parquet 在 TaskGate Enforcement Layer 客户端侧加密后写入私有对象存储。
+V4 将 canonical FactID 精确编码为不可变 snapshot 的 ordinal bitmap；少量 derived release/outcome facts 使用动态字典。可见结果和 ordinal provenance companion 在同一个只读 `REPEATABLE READ` 事务中执行。Control PostgreSQL 保存 ledger、artifact 元数据、审计和签名回执，不保存 Parquet 或结果行；Parquet 在 BDG Enforcement Layer 客户端侧加密后写入私有对象存储。
 
 两个 PostgreSQL 使用独立容器、账号和 Volume。S3 兼容对象存储使用独立内部网络、bucket-scoped 执行层凭据和持久 Volume；result bucket 必须私有且禁用 versioning，确保 TTL/purge 删除实际 bytes，而不只是写入 delete marker。
 
@@ -78,7 +106,7 @@ delta(T, q) = (|F_release(q)    - K_release(T)|,
                |F_outcome(q)    - K_outcome(T)|)
 ```
 
-物理路径用 exact bitmap `ANDNOT`、`OR` 和 `popcount` 实现集合差、并集和基数。所有子 Agent 解析到同一 root head；一次 three-head epoch CAS 原子发布三个维度，冲突后读取新 head 并重新计算，不能分维花费。任一维度超过预算时，整次结算关闭式拒绝，结果不会成为 canonical artifact。
+物理路径用 exact bitmap `ANDNOT`、`OR` 和 `popcount` 实现集合差、并集和基数。所有子 Agent 解析到同一 root head；一次三维 root-head CAS 原子发布三个维度，冲突后读取新 head 并重新计算，不能分维花费。任一维度超过预算时，整次结算关闭式拒绝，结果不会成为 canonical artifact。
 
 确定性的 canonical 对象创建成功即记为 `consumed/AVAILABLE`。普通 Agent 随后只得到 `result_id` 和摘要；下载是否发生、下载次数以及 Agent Host 的临时副本都不会改变 ledger、`consumed` 状态或 receipt。在线顺序是：
 
@@ -93,14 +121,14 @@ reserve
 
 ## Enforcement
 
-TaskGate defines a controlled analytical SQL profile; it does not claim support for full SQL. `taskgate-reporting-sql-v1` intentionally excludes constructs that cannot be compiled within the declared accounting semantics, reducing semantic ambiguity, preventing exposure-accounting bypass, and preserving deterministic compilation to canonical QueryPlan.
+BDG defines a controlled analytical SQL profile; it does not claim support for full SQL. `taskgate-reporting-sql-v1` intentionally excludes constructs that cannot be compiled within the declared accounting semantics, reducing semantic ambiguity, preventing exposure-accounting bypass, and preserving deterministic compilation to canonical QueryPlan.
 
 ### Agent Task Execution workflow
 
-当前 Demo 通过 MCP 2.0 transport 暴露以下方法；这些方法名为兼容 API，不定义 TaskGate 的研究边界。
+当前 Demo 通过 MCP 2.0 transport 暴露以下方法；这些方法名为兼容 API，不定义 BDG 的研究边界。
 
 1. 调用 `list_data_products`、`describe_data_product` 和 `get_sql_capabilities`，读取数据产品、字段、稳定角色、Scope 及受控 SQL profile。
-2. 调用 `request_data_task`，提交非空 `objective`、`data_products`、各产品的非空 `columns` 和 `scopes`。TaskGate Enforcement Layer 按最高敏感级别选择 Catalog Profile，并把完整 Profile 写入审批 Manifest；Agent 不选择或优化预算。
+2. 调用 `request_data_task`，提交非空 `objective`、`data_products`、各产品的非空 `columns` 和 `scopes`。BDG Enforcement Layer 按最高敏感级别选择 Catalog Profile，并把完整 Profile 写入审批 Manifest；Agent 不选择或优化预算。
 3. 在 OA 提交并完成人工审批。
 4. 任务进入 `ACTIVE` 后调用 `query_sql(task_id, request_id, sql)`。Exposure-enabled Grant 只接受可无损 lowering 为 canonical QueryPlan 的分析查询，实际执行的 visible SQL 和 provenance companion 都从该计划重新生成。
 5. 子任务通过 `parent_task_id` 和 `delegate_principal_id` 创建；授权维度只能收缩，并与 root task 共享 Exposure Ledger。
@@ -200,7 +228,7 @@ make logs
 
 ## Production Gap
 
-当前仓库是单实例 research demo，不是可直接上线或安全横向扩容的生产执行层。默认 deployment 每个 publication epoch 只有一个 TaskGate Enforcement Layer 实例；PostgreSQL 行锁和 root-head CAS 处理该实例内的并发，但尚无 multi-instance execution lease 或等价的分布式 settlement protocol。
+当前仓库是单实例 research demo，不是可直接上线或安全横向扩容的生产执行层。默认 deployment 每个 publication epoch 只有一个 BDG Enforcement Layer 实例；PostgreSQL 行锁和 root-head CAS 处理该实例内的并发，但尚无 multi-instance execution lease 或等价的分布式 settlement protocol。
 
 Connector/visible-result-to-Parquet 路径仍可能在内存持有完整结果，且 `preview_result` 默认拒绝大于 64 MiB 的 artifact。百万行生产使用前需要有界 streaming Parquet writer/reader、固定环境容量基准、外部 KMS/HSM/Secret Manager、严格 publication retention/routing、独立 WORM audit service 和运维监控。提高 `GATEWAY_CONNECTOR_MAX_ROWS` 不是有界内存证明。完整生产差距见[威胁模型与生产化差距](docs/threat-model.md)。
 
@@ -224,7 +252,7 @@ Compose 和现有 `gateway` 二进制通过兼容环境变量 `GATEWAY_CONNECTOR
 
 | Service | Address |
 |---|---|
-| TaskGate Enforcement Layer（MCP transport） | `http://127.0.0.1:8082/mcp` |
+| BDG Enforcement Layer（MCP transport） | `http://127.0.0.1:8082/mcp` |
 | OA Demo | `http://127.0.0.1:8092/login` |
 | Control PostgreSQL | `127.0.0.1:25433` / `taskbound_gateway` |
 | Business PostgreSQL | 仅内部网络 / `travel_demo` |
@@ -265,11 +293,11 @@ Receipt verifier 可读取 `/.well-known/taskgate/query-receipt-keyring.json`。
 - [自适应 Agent 攻击评测方法](docs/adversarial-agent-evaluation.md)
 - [多 Agent 共享账本评测方法](docs/multi-agent-evaluation.md)
 - [10K–100M 性能评测方法](docs/performance-evaluation.md)
-- [TaskGate 形式模型](docs/formal-model.md)
-- [TaskGate 与数据库 provenance 系统的边界](docs/provenance-comparison.md)
+- [BDG 形式模型](docs/formal-model.md)
+- [BDG 与数据库 provenance 系统的边界](docs/provenance-comparison.md)
 - [TKDE 实验执行指南](docs/experiment-guide.md)
-- [TaskGate V4: Snapshot-Indexed Hybrid Bitmap Ledger](docs/exposure-v4.md)
-- [TaskGate V5: Predicate Atom Footprint 与 Composite Outcome](docs/exposure-v5.md)
+- [BDG V4: Snapshot-Indexed Hybrid Bitmap Ledger](docs/exposure-v4.md)
+- [BDG V5: Predicate Atom Footprint 与 Composite Outcome](docs/exposure-v5.md)
 - [架构与安全边界](docs/architecture.md)
 - [任务级 Exposure 语义、在线算法与支持边界](docs/exposure-accounting.md)
 - [Compose 启动、Navicat 与 Agent API 演示](docs/getting-started.md)

@@ -1,12 +1,20 @@
-# TaskGate TKDE manuscript
+# Bonded Data Gate (BDG) TKDE manuscript
 
-This directory contains the current database-paper manuscript, *Task-Scoped
-Accounting of Cumulative Query Exposure over Versioned Reporting Snapshots*.
-The paper presents one coherent TaskGate design: typed release, dependency,
+This directory contains the current database-paper manuscript, *Bonded Data
+Gate: Task-Scoped Clearance and Cumulative Exposure Accounting for AI Agents*.
+The paper presents one coherent BDG design: typed release, dependency,
 and Outcome exposure; immutable publication dictionaries; streamed compressed
 bitmaps; an exact Merkle-radix Outcome set; atomic root-family settlement; and
-signed publication receipts. Internal artifact identifiers are not manuscript
-module names.
+signed settlement receipts with separately audited availability. The
+bonded-warehouse language is a narrative analogy, not a replacement for the
+formal publication, ledger, receipt, and artifact-state definitions.
+
+The manuscript name is Bonded Data Gate (BDG). Evidence-bound protocol
+namespaces such as `taskgate-*`, hash-domain separators, the
+`taskgate_ordinal` schema, and historical TLA+/evaluation filenames remain
+unchanged during revision. If the protocol namespace is renamed, it will be one
+deliberate post-freeze migration followed by evidence regeneration, not a
+partial compatibility alias.
 
 The manuscript targets governed reporting replicas refreshed by scheduled
 ETL/synchronization, not mutable OLTP primaries or continuous CDC. Deployment

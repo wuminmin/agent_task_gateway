@@ -28,7 +28,8 @@
 }{}
 \makeatother
 
-\newcommand{\system}{TaskGate\xspace}
+\newcommand{\systemname}{Bonded Data Gate}
+\newcommand{\system}{BDG\xspace}
 \newcommand{\code}[1]{\texttt{\detokenize{#1}}}
 \newcommand{\release}{\mathsf{release}}
 \newcommand{\facts}{\mathcal{F}}
@@ -48,8 +49,8 @@
 % exposed as system module versions in the paper.
 \newcommand{\RQFourVFourDependencyFacts}{\RQFourVFourInfluenceFacts}
 
-\title{TaskGate: Task-Scoped Accounting of Cumulative Query Exposure over
-Versioned Reporting Snapshots}
+\title{\systemname: Task-Scoped Clearance and Cumulative Exposure
+Accounting for AI Agents}
 
 \author{Anonymous Author(s)%
 \thanks{The artifact includes a controlled local PostgreSQL performance
@@ -67,11 +68,12 @@ refreshed through scheduled daily synchronization rather than mutable OLTP
 primaries. Each cut becomes an immutable, versioned Reporting Snapshot; every
 approved root and delegated child remains bound to one publication for life.
 Within that epoch, adaptive rewrites, pages,
-retries, and delegation can accumulate disclosure. TaskGate meters this
+retries, and delegation can accumulate disclosure. \systemname{} (BDG)
+meters this
 accumulation with typed FactID sets for accounted result values, conservative
 positive-output dependency footprints, and successful query outcomes. Before
 release, the visible query and provenance companion observe one PostgreSQL
-snapshot; TaskGate derives the declared effects exactly within the admitted
+snapshot; BDG derives the declared effects exactly within the admitted
 fragment and atomically charges only facts novel to the root-family ledger.
 Semantic replay is free of new exposure only within the same publication-bound
 identity. We give semantics for a positive relational
@@ -88,7 +90,7 @@ rewrite, concurrency, PostgreSQL, and fixed-host experiments validate the
 scoped mechanisms. Four \RQFiveRows{}-row daily
 publications finish every measured cycle within
 \RQFiveMaxCycleS{}~s, and a retained-route campaign passes all five rollover conditions.
-TaskGate targets periodic reporting publications; mutable OLTP, continuous
+BDG targets periodic reporting publications; mutable OLTP, continuous
 CDC, intra-task epoch switching, and cross-publication knowledge accounting
 are outside scope.
 \end{abstract}
@@ -108,10 +110,10 @@ human-approved task, the agent can issue many individually legal
 queries. It can split a projection, overlap pages, retry with a new request
 identifier, ask an equivalent query, or delegate a narrower subtask. Per-query
 authorization and row limits do not state how much distinct exposure the
-resulting root family has accumulated. TaskGate addresses this task-scoped
+resulting root family has accumulated. BDG addresses this task-scoped
 accounting question; its contract-defined exposure is not a model of the
 agent's knowledge. Per-query DFC asks whether a SQL data flow is allowed
-\cite{summers2026dataflow,summers2026passant}; TaskGate does not subsume that
+\cite{summers2026dataflow,summers2026passant}; BDG does not subsume that
 policy language. Conditional on separate authorization and any applicable
 flow-policy enforcement, it asks whether the next permitted execution still
 fits the approved root's cumulative exposure contract.
@@ -129,15 +131,26 @@ on an agent-specific planning algorithm; agents are one important client class.
 
 Enterprise operational analytics commonly separates transactional systems
 from reporting access. Production systems feed a governed analytical replica
-through scheduled ETL or synchronization; TaskGate does not query the OLTP
-primary. After each cut, TaskGate compiles the resulting dataset into an
+through scheduled ETL or synchronization; BDG does not query the OLTP
+primary. After each cut, BDG compiles the resulting dataset into an
 immutable publication. For example, an overnight synchronization may finish at
 01:00, after which that day's approved tasks bind to the new publication. The
 next cut creates another publication for newly approved tasks, while any
 unfinished task and all its descendants continue reading the prior one in a
 retained, version-routed deployment; without that route, access fails closed.
-Thus TaskGate addresses adaptive disclosure within one approved reporting
+Thus BDG addresses adaptive disclosure within one approved reporting
 epoch, not freshness or consistency over a continuously changing database.
+
+This arrangement motivates a bonded-warehouse model. The immutable Reporting
+Publication is governed inventory inside the warehouse: a signed task grant
+authorizes query submission but does not by itself clear an artifact to leave
+the trusted boundary. BDG is the release checkpoint. Clearance completes only
+after scope validation, cumulative exposure settlement, and verified promotion
+to \code{AVAILABLE}. Here, clearance is narrative shorthand for this
+settlement-and-availability path, not for legal or data-flow compliance. The
+formal model therefore retains \emph{Exposure Ledger} and \emph{settlement
+receipt}: the latter certifies settlement and a \code{PENDING} publication
+intent, not availability by itself.
 
 \system treats the root task as the budget subject. A result has three effects.
 \emph{Accounted result exposure} identifies result values selected for logical
@@ -165,7 +178,7 @@ The system follows a withhold-before-settlement discipline:
 \end{center}
 
 The visible query and its ordinal provenance companion observe one frozen
-publication in a PostgreSQL snapshot. The TaskGate enforcement layer releases neither while a
+publication in a PostgreSQL snapshot. The BDG enforcement layer releases neither while a
 control-database transaction computes exact bitmap/radix-set differences, advances
 one three-dimensional root head, checks all Catalog limits, settles resource
 use, and persists terminal audit and a settlement receipt with a PENDING result
@@ -245,7 +258,7 @@ the offline publication index from the online withhold-before-settlement path.
   label={[font=\scriptsize]below:trusted enforcement boundary}] {};
 \end{tikzpicture}
 }
-\caption{TaskGate uses publication-time ordinals for frozen Release/dependency
+\caption{BDG uses publication-time ordinals for frozen Release/dependency
 facts and an exact Merkle radix set for Outcome atom/composite hashes.
 Root-family accounting is atomic; Parquet publication is recoverable and
 fail-closed between PENDING and AVAILABLE.
@@ -320,7 +333,7 @@ requires a tenant-wide policy or differential privacy.
 At the cross-tool agent-execution layer, GAAP provides the most directly
 relevant IFC contrast \cite{stanley2026gaap}: its persistent information-flow
 state spans execution steps and separated tasks and covers indirect
-cross-service propagation outside TaskGate's scope. TaskGate instead
+cross-service propagation outside BDG's scope. BDG instead
 specializes in typed SQL facts, same-snapshot evidence, and exact per-root
 settlement under its declared profile.
 
@@ -328,7 +341,7 @@ settlement under its declared profile.
 history determines forbidden data; simulatable auditing also protects denial
 \cite{agrawal2004hippocratic,motwani2008auditing,kenthapadi2005simulatable}.
 Query-pricing systems study determinacy, history, aggregation, and information
-gain \cite{koutris2012query,deep2017qirana,peng2025aria}. TaskGate neither
+gain \cite{koutris2012query,deep2017qirana,peng2025aria}. BDG neither
 models prior knowledge nor denial leakage: it charges declared facts and
 normalized successful outcomes inside one signed root and withholds delivery
 when atomic settlement fails. Unlike DP accounting and answer reuse
@@ -340,13 +353,13 @@ source locations, and algebraic derivations
 \cite{buneman2001why,cui2001lineage,green2007provenance,cheney2009provenance};
 aggregation needs value-level treatment \cite{amsterdamer2011aggregate}.
 GProM and ProvSQL provide broader rewrite/circuit mechanisms
-\cite{arab2018gprom,senellart2018provsql,sen2026provsql}. TaskGate claims no new
+\cite{arab2018gprom,senellart2018provsql,sen2026provsql}. BDG claims no new
 general provenance algebra: it specializes a positive fragment to co-generate
 typed release/dependency effects with the answer and settle their cumulative
 novelty before release.
 
 \textbf{Data-flow policy enforcement.} FlowGuard and the later DFC/Passant work
-in the same DFC line are the closest database-layer comparators to TaskGate
+in the same DFC line are the closest database-layer comparators to BDG
 \cite{summers2026dataflow,summers2026passant}. The Passant paper formalizes
 optimizer-invariant aggregate predicates over each output tuple's bag of
 provenance monomials and introduces Provenance Guard Notation (PGN). It
@@ -354,11 +367,11 @@ describes rewrites that remove or replace violating tuples, terminate a query,
 and constrain \code{INSERT}/\code{UPDATE} through source, sink, and
 required-source policies. This per-query model covers contributor thresholds,
 prohibited source combinations, grounding, prompt-bound untrusted flows, and
-legal state transitions that TaskGate does not subsume.
+legal state transitions that BDG does not subsume.
 
 The temporal control unit differs. The Passant paper focuses on single-query
 enforcement and explicitly leaves trajectory-level agent policies to future
-work. TaskGate assumes that each query has passed authorization and any
+work. BDG assumes that each query has passed authorization and any
 applicable flow-policy checks, then persists canonical Result, Dependency, and
 Outcome FactID sets under one approved root task. It charges exact set novelty
 under the declared profile across successful queries, retries, pages, supported
@@ -366,8 +379,8 @@ normal-form-equivalent rewrites, and delegated descendants. Settlement
 atomically advances one three-dimensional root head and co-commits audit,
 receipt, and a PENDING artifact intent; promotion to AVAILABLE is then
 recoverable and fail-closed. The prototype does not integrate or evaluate a
-Passant--TaskGate composition. Thus DFC asks whether a data flow is allowed,
-whereas TaskGate asks whether another allowed flow still fits the approved
+Passant--BDG composition. Thus DFC asks whether a data flow is allowed,
+whereas BDG asks whether another allowed flow still fits the approved
 cumulative exposure contract.
 
 \textbf{Authorization and delegation.} Usage/history control and delegation
@@ -376,27 +389,27 @@ establish ongoing decisions, attenuation, and quotas
 RLS/VPD, ABAC/XACML, and query-policy systems decide which operation and rows
 are authorized
 \cite{postgres16rls,hu2014abac,mehta2017qapla,zhang2022blockaid}.
-TaskGate assumes that boundary, then makes every descendant settle against one
+BDG assumes that boundary, then makes every descendant settle against one
 root ledger; distributed vouchers remain outside its centralized prototype.
 
 \textbf{Agent controls.} MCP authorization/tools and authenticated delegation
 scope who may invoke a capability \cite{mcp2025auth,mcp2025tools,south2025delegation};
 prompt-injection benchmarks such as AgentDojo evaluate model/tool behavior
-\cite{debenedetti2024agentdojo}. TaskGate treats the agent and generated SQL as
+\cite{debenedetti2024agentdojo}. BDG treats the agent and generated SQL as
 untrusted clients, but neither sanitizes strings in a result artifact nor
 tracks their flow into later prompts or external tools. SafeNLIDB instead uses
 interaction history for model-side, multi-turn inference-risk assessment and
 SQL generation \cite{liu2026safenlidb}; it is not a deterministic database-side
-FactID ledger, while TaskGate claims no inference safety.
+FactID ledger, while BDG claims no inference safety.
 
-\textbf{Novelty boundary.} Relative to these systems, TaskGate contributes
+\textbf{Novelty boundary.} Relative to these systems, BDG contributes
 database-specific three-set FactID semantics, same-snapshot provenance, exact
 novel-set settlement, and shared-root conservation. It does not replace
 per-query DFC; it adds a persistent task-root accounting and settlement layer
 across individually authorized and, when separately enforced,
 flow-policy-compliant SQL executions.
 Table~\ref{tab:system-comparison} makes the orthogonal control dimensions
-explicit. TaskGate is narrower than DFC's policy, SQL, and write-operation
+explicit. BDG is narrower than DFC's policy, SQL, and write-operation
 scope and than cross-tool noninterference. Its claimed additional axis is exact
 set novelty only under the declared profile, closed language, root family, and
 publication. None of its exposure sets is a DP budget or a measure of an
@@ -441,7 +454,7 @@ GProM/ProvSQL \cite{arab2018gprom,senellart2018provsql,sen2026provsql} &
 General query provenance representation, rewriting, and circuits & Query-result
 derivations rather than an approved root-family budget & Capture and evaluate
 provenance; no cumulative release decision & Database-level mechanisms with
-broader SQL/provenance scope than TaskGate & No task approval binding or
+broader SQL/provenance scope than BDG & No task approval binding or
 cumulative exposure settlement \\
 SafeNLIDB \cite{liu2026safenlidb} & Learned safety decision and SQL generation
 from schema, constraints, and interaction history & Multi-turn history supplied
@@ -457,7 +470,7 @@ deterministic DB-side effects, atomic settlement, or formal DP guarantee \\
 
 \subsection{Publication Epochs and Task Binding}
 
-TaskGate's upstream boundary is a completed reporting synchronization, not a
+BDG's upstream boundary is a completed reporting synchronization, not a
 mutable transactional database. We model its compiled output as follows.
 
 \begin{definition}[Publication epoch]
@@ -475,7 +488,7 @@ and \emph{dictionary} is the set of ordinal dictionaries. We write $h_e$
 for the digest of a canonical descriptor of these five components. In the prototype the
 signed Catalog SHA transitively commits the datasource/schema, snapshot ID,
 and manifest/dictionary/sidecar digests. The upstream synchronization cutoff
-is a trusted ETL premise and co-versioned routing metadata; TaskGate does not
+is a trusted ETL premise and co-versioned routing metadata; BDG does not
 cryptographically enforce it as a separate manifest field.
 A new synchronization creates a new $P_{e+1}$; it never mutates $P_e$.
 \end{definition}
@@ -580,7 +593,7 @@ digest; $\tau,\kappa,op,v$ are type, collation, operator, and canonical
 literal. For any outcome Fact $f$, its physical key is
 $\operatorname{FactHash}_O(f)=H(d_O\|\operatorname{Canon}(f))$.
 Let $h_A$ commit the sorted $\operatorname{FactHash}_O$ values of $A(q)$ and
-$k_c=\code{COMPOSITE\_OUTCOME}$. TaskGate creates one semantic composite object
+$k_c=\code{COMPOSITE\_OUTCOME}$. BDG creates one semantic composite object
 \begin{equation}
  \begin{aligned}
  c_q&=\langle k_c,\pi,\operatorname{profile}(N),h_N,h_y,m,h_c,h_A,|A(q)|\rangle,\\
@@ -650,7 +663,7 @@ transitively bound by $S$ and $C$. The task exposure is
 The components are respectively accounted result exposure (wire label
 \code{release}), positive-output dependency
 footprint, and query-outcome exposure. Failed or rejected attempts contribute
-no set because TaskGate releases and commits none of their effects; this model
+no set because BDG releases and commits none of their effects; this model
 does not account the rejection bit. We abbreviate the singleton history by
 $E(T,q)$.
 \end{definition}
@@ -667,7 +680,7 @@ $B=\langle B_R,B_D,B_O\rangle$. Settlement computes
  \label{eq:delta}
 \end{align}
 
-TaskGate measures cardinality independently in each dimension. A query may settle
+BDG measures cardinality independently in each dimension. A query may settle
 only if
 $|\accounted_T^R|+|\Delta_T^R|\leq B_R$ and
 $|\accounted_T^D|+|\Delta_T^D|\leq B_D$ and
@@ -833,7 +846,7 @@ the two base ledgers are sets.  Equation~\eqref{eq:observe} is the declared
 positive-output dependency-footprint profile: it is exact with respect to these
 inductive rules, not with respect to arbitrary causal provenance or physical
 source access.  Empty answers have an empty base effect except for the single
-visible row of a global aggregate; TaskGate nevertheless adds the tested predicate
+visible row of a global aggregate; BDG nevertheless adds the tested predicate
 atoms and one composite outcome.
 
 \begin{theorem}[Representation closure and partial-function semantics]
@@ -1083,7 +1096,8 @@ because a successfully committed root ledger grows monotonically, a repeated
 committed observation has zero novelty without rescanning its effect payload.
 
 Three boundaries must therefore remain distinct. \emph{Accounted} means the
-ledger settlement committed; the normal Gateway path co-commits its receipt.
+ledger settlement committed; the normal production enforcement path
+co-commits its receipt.
 \emph{Available} means canonical
 object promotion and the consumption audit committed; it is the logical
 release boundary. \emph{Observed} would mean a caller actually downloaded
@@ -1221,7 +1235,7 @@ the supplement.
 human-governed capacity declarations, not learned risk scores or optimization
 targets. An organization publishes a versioned profile with its data product
 and sensitivity policy; the approval manifest binds the complete profile to the
-root task. Normal issuance grants that full approved capacity. TaskGate assigns
+root task. Normal issuance grants that full approved capacity. BDG assigns
 no value to unused capacity, does not infer a smaller allowance from Agent
 behavior, and does not optimize budget utilization. An explicitly narrower
 human grant remains an authorization decision, not an automatic calibration
@@ -1322,7 +1336,7 @@ or budget-selection planner is evaluated.
 
 Passant is a semantic comparator, not a latency baseline
 \cite{summers2026passant}: its reported per-query policy-rewrite cost excludes
-TaskGate's cumulative novelty ledger, Parquet materialization, receipt, and
+BDG's cumulative novelty ledger, Parquet materialization, receipt, and
 promotion path. A single winner metric would therefore compare different
 controls.
 
@@ -1414,7 +1428,7 @@ measured production load balancer.
 \section{Limitations and Threats to Validity}
 \label{sec:limits}
 
-\textbf{Semantic scope.} TaskGate accounts canonical predicate atoms and one
+\textbf{Semantic scope.} BDG accounts canonical predicate atoms and one
 composite identity for each successful normalized query/result, including an
 empty relation or zero scalar. Each identity has unit weight rather than an
 estimate of information content. Shared atoms reduce repeated-charge
@@ -1429,7 +1443,7 @@ causal provenance nor differential privacy.
 no denial noninterference is claimed. Ledgers cover one root family, so repeated
 approval creates fresh capacity unless an external principal/tenant policy
 prevents it. The same applies across independently approved publication
-epochs; TaskGate does not model or deduplicate a principal's durable knowledge.
+epochs; BDG does not model or deduplicate a principal's durable knowledge.
 
 \textbf{Query and identity scope.} The measured ordinal SLO scope is a genuinely frozen,
 manifest-proven daily publication. Mutable OLTP/CDC and active-root epoch
@@ -1463,7 +1477,7 @@ publication binding stabilizes FactIDs, replay, delegation, and exact
 withhold-before-settlement accounting; dependency-aware semantic-View binding
 additionally freezes each accepted nested View closure and requires a new root
 and approval after drift. A later daily publication is reserved for new roots.
-TaskGate combines immutable ordinals and streamed Release/dependency bitmaps
+BDG combines immutable ordinals and streamed Release/dependency bitmaps
 with predicate-atom/composite Outcome semantics and an exact touched-branch
 Merkle radix set under one three-dimensional CAS. Paper theorems, bounded
 model checking, and scoped executable evidence support exactness, atomicity, and

@@ -23,13 +23,17 @@
 \newcommand{\rieffect}{\mathcal E^{ri}}
 \input{generated/evidence.tex}
 
-\title{Supplement to ``TaskGate: Task-Scoped Accounting of Cumulative Query
-Exposure over Versioned Reporting Snapshots''}
+\title{Supplement to ``Bonded Data Gate: Task-Scoped Clearance and Cumulative
+Exposure Accounting for AI Agents''}
 \author{Anonymous Author(s)}
 \date{}
 
 \begin{document}
 \maketitle
+
+Throughout, BDG abbreviates Bonded Data Gate. The bonded-warehouse phrasing is
+a narrative analogy; the formal objects and artifact states retain the names
+defined in the main paper.
 
 \section{Complete Inference Rules}
 
@@ -44,7 +48,7 @@ including type and collation.
 \subsection{Canonical Scalar Domain}
 
 The closed domain contains \code{smallint}, \code{integer}, \code{bigint},
-\code{numeric}, \code{real}, \code{double precision}, \code{boolean},
+\code{numeric}, \code{real}, \code{double precision}, \code{boolean},\linebreak
 \code{bytea}, \code{date}, \code{time without time zone}, both timestamp forms,
 \code{uuid}, \code{text}, \code{character}, \code{character varying}, and
 \code{jsonb}, with PostgreSQL aliases mapped to these names. Integers retain
@@ -645,7 +649,7 @@ public-path same-root batches of widths \RQFourVFourConcurrencyWidths{} through
 \RQFourVFourConcurrencyGateways{} enforcement-layer replicas, and an offline
 derivation-independent comparison of all \RQFourVFourOracleFacts{} facts.
 
-The layout result is a bitmap-kernel measurement, not TaskGate end-to-end
+The layout result is a bitmap-kernel measurement, not BDG end-to-end
 latency: \RQFourVFourDistributionRoundTrips{} exact portable complete-set
 round-trip checks pass at their actual cardinalities, and the worst
 ANDNOT--popcount--OR p95 is
@@ -720,7 +724,7 @@ multi-source PG E2E evidence, performance measurements, or a mechanized proof.
 
 \subsection{Receipt Persistence-Time Semantics}
 
-The normal Gateway production path creates a \emph{co-committed receipt}: receipt
+The normal production enforcement path creates a \emph{co-committed receipt}: receipt
 signing and insertion occur in the same Control-PG transaction as resource and
 exposure settlement, terminal and artifact-registration audit evidence, and
 the PENDING artifact row.  The implementation also retains a compatibility
@@ -899,7 +903,7 @@ key-construction audit verifies the Catalog/schema/dictionary-set components.
 This supplement reports a campaign intentionally separated from the main
 paper's exposure-invariance evidence.  It asks only whether each generated
 PostgreSQL rewrite returns the same rows as its baseline.  Most templates lie
-outside TaskGate's closed structured-plan algebra; therefore the campaign does
+outside BDG's closed structured-plan algebra; therefore the campaign does
 \emph{not} establish equal release FactSets, equal positive-output-dependency
 FactSets, equal incremental charges, or online compiler coverage.
 
