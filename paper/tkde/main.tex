@@ -44,7 +44,8 @@
 \newtheorem{theorem}{Theorem}
 
 \input{generated/evidence.tex}
-% The evidence generator retains this legacy identifier for artifact compatibility.
+% Internal evidence macro names preserve artifact compatibility and are not
+% exposed as system module versions in the paper.
 \newcommand{\RQFourVFourDependencyFacts}{\RQFourVFourInfluenceFacts}
 
 \title{TaskGate: Task-Scoped Accounting of Cumulative Query Exposure over
@@ -76,11 +77,11 @@ same publication-bound identity. We give semantics for a positive relational
 fragment, conservation properties, and finite-state checks. A restricted
 semantic-View front end recursively discovers nested PostgreSQL View DAGs and
 accepts a closure only when it flattens to the same typed SPJG/JoinMany core;
-task-scoped dependency binding closes new work after View drift. The current
-V5 outcome profile charges canonical predicate atoms plus one composite result
-identity and stores the cumulative SHA-256 membership in an incrementally
-updated Merkle radix set; release and dependency retain V4's immutable
-publication-time ordinals and streamed compressed bitmaps. Independent-oracle,
+task-scoped dependency binding closes new work after View drift. The outcome
+profile charges canonical predicate atoms plus one composite result identity
+and stores cumulative SHA-256 membership in an incrementally updated Merkle
+radix set; release and dependency use immutable publication-time ordinals and
+streamed compressed bitmaps. Independent-oracle,
 rewrite, concurrency, PostgreSQL, and fixed-host experiments validate the
 scoped mechanisms. Four \RQFiveRows{}-row daily
 publications finish every measured cycle within
@@ -143,7 +144,7 @@ It is neither minimal causal provenance nor the complete physical read set.
 This second dimension prevents a count from being accounted as one input fact
 merely because it returns one cell. Both effects are sets, so a fact already
 recorded in the root-family ledger has zero incremental charge.  The third,
-\emph{query outcome}, is V5's union of canonical predicate atoms and one
+\emph{query outcome}, is the union of canonical predicate atoms and one
 composite binding the full normalized query/atom set to the result observation
 and visible cardinality. Thus ``no row satisfies $x>100$'' and ``no row
 satisfies $x>200$'' reuse any shared atoms but charge their different literal
@@ -161,7 +162,7 @@ The visible query and its ordinal provenance companion observe one frozen
 publication in a PostgreSQL snapshot. The TaskGate enforcement layer releases neither while a
 control-database transaction computes exact bitmap/radix-set differences, advances
 one three-dimensional root head, checks all Catalog limits, settles resource
-use, and persists terminal audit, a V8 settlement receipt with a PENDING result
+use, and persists terminal audit and a settlement receipt with a PENDING result
 intent. After that atomic settlement commits, a recoverable object-store step
 promotes the private staging object and a second Control transaction records
 AVAILABLE/CONSUMED. A failed limit check rolls back the settlement while the
@@ -212,7 +213,7 @@ the offline publication index from the online withhold-before-settlement path.
 \node[txnbox, minimum width=26mm] (execute) at (13.0,3.0)
   {visible SQL + streamed\\ordinal companion};
 \node[txnbox, minimum width=23mm] (derive) at (16.0,3.0)
-  {bitmap + V5 atom/\\composite effect};
+  {bitmap + atom/\\composite effect};
 \node[txnbox, minimum width=25mm] (cached) at (13.0,1.75)
   {committed observation\\reference};
 \node[txnbox, minimum width=21mm] (novelty) at (16.0,1.55)
@@ -220,7 +221,7 @@ the offline publication index from the online withhold-before-settlement path.
 \node[txnbox, minimum width=21mm] (cas) at (13.0,.45)
   {three-ledger\\root-head CAS};
 \node[txnbox, fill=green!10, minimum width=26mm] (commit) at (10.15,.45)
-  {commit ledgers/audit/V8\\+ PENDING intent};
+  {commit ledgers/audit/receipt\\+ PENDING intent};
 \node[box, fill=blue!7, minimum width=25mm] (promote) at (7.65,.45)
   {promote + verify\\AVAILABLE/CONSUMED};
 \draw[exchange] (client) -- (cache);
@@ -238,8 +239,8 @@ the offline publication index from the online withhold-before-settlement path.
   label={[font=\scriptsize]below:trusted enforcement boundary}] {};
 \end{tikzpicture}
 }
-\caption{V5 retains publication-time ordinals for frozen Release/dependency
-facts and uses an exact Merkle radix set for Outcome atom/composite hashes.
+\caption{TaskGate uses publication-time ordinals for frozen Release/dependency
+facts and an exact Merkle radix set for Outcome atom/composite hashes.
 Root-family accounting is atomic; Parquet publication is recoverable and
 fail-closed between PENDING and AVAILABLE.
 A cache hit reuses only a committed
@@ -248,18 +249,14 @@ audit, receipt, and commit-before-release still execute.}
 \label{fig:architecture-settlement}
 \end{figure*}
 
-The preliminary preprint of this work, \emph{SessionBound: Turning Enterprise
-Task Approval into Budgeted Database Sessions} (arXiv:2607.00751v1), introduced
-the task-scoped authorization substrate: approval-bound short-lived database
-sessions, signed task tokens, SQL/View/scope enforcement, resource budgets,
-and audit receipts \cite{wu2026sessionbound}. The present, substantially
-revised article develops the database-specific accounting semantics,
-implementation, formal analysis, and evaluation. Its five
+The preliminary SessionBound preprint introduced the task-scoped authorization
+substrate \cite{wu2026sessionbound}. This article develops the database-specific
+accounting semantics, implementation, formal analysis, and evaluation. Its five
 implementation-backed contributions are:
 
 \begin{enumerate}
-\item A versioned, typed FactID and three-set semantics separating accounted
-result facts (wire label \code{release}), positive-output dependency footprints, and V5 outcomes composed
+\item A typed FactID and three-set semantics separating accounted
+result facts (wire label \code{release}), positive-output dependency footprints, and outcomes composed
 of reusable canonical predicate atoms and one query/result composite in a
 restricted relational algebra.
 \item A same-snapshot streamed ordinal companion for one-product plans and
@@ -278,9 +275,8 @@ three-dimensional ledger, preventing task-tree fan-out from multiplying exposure
 \item New formal properties and evidence for these mechanisms: three-budget
 safety, exact/non-overlapping novel charge, no pre-settlement delivery, and
 task-family non-amplification; algebraic/rewrite tests, a finite TLA+ ledger
-model, and archived V4 full-path PostgreSQL experiments through one million
-dependency facts, together with current V5 functional and scaling-shape
-regressions.
+model, and full-path PostgreSQL experiments through one million dependency
+facts, together with exact-set functional and scaling-shape regressions.
 \end{enumerate}
 
 The implementation does \emph{not} claim arbitrary SQL equivalence, differential
@@ -297,22 +293,17 @@ barrier; this is not general PostgreSQL View equivalence. At query time one
 semantic-View root may be composed with projection/filter/grouping over an
 ungrouped closure, or with pure projection over an aggregate barrier; joining
 that root to another product and ordering/paging above it are not admitted.
-A newly approved root creates a distinct ledger. V5 Outcome accounting bounds
+A newly approved root creates a distinct ledger. Outcome accounting bounds
 the number of distinct predicate atoms and composite successful outcomes
 admitted by this grammar; it is not an information-theoretic bound on the bits
 revealed by either unit. These boundaries are part of the result, rather than
 hidden behind a broad ``SQL support'' label.
 
-The commercial fit is a governed analytics or operations copilot operating
-inside one approved case: finance agents testing reimbursement/credit
-thresholds, fraud or compliance investigators refining ``no matching case''
-queries, customer-support agents searching entitlement conditions, and
-delegated analysts splitting one investigation. Release limits cap repeated
-value extraction, dependency limits expose large-source aggregates, and the
-outcome limit makes adaptive yes/no or empty-result probing consume explicit
-case capacity. Organizations that need population-level privacy across many
-approved roots still require differential privacy or a tenant-wide policy;
-TaskGate supplies auditable workflow conservation, not that replacement.
+The target is a governed analytics or operations copilot working inside one
+approved case. Release limits cap repeated value extraction, dependency limits
+expose large-source aggregates, and Outcome limits charge adaptive yes/no or
+empty-result probing. Population-level privacy across approved roots still
+requires a tenant-wide policy or differential privacy.
 
 \section{Context and Related Work}
 \label{sec:related}
@@ -386,7 +377,7 @@ A publication epoch is
 \end{equation}
 where \emph{snapshot\_bundle} maps every stable role to its immutable reporting
 publication, \emph{catalog} binds the bundle's schema, policy, and lineage,
-and \emph{dictionary} is the set of V4 ordinal dictionaries. We write $h_e$
+and \emph{dictionary} is the set of ordinal dictionaries. We write $h_e$
 for the digest of a canonical descriptor of these five components. In the prototype the
 signed Catalog SHA transitively commits the datasource/schema, snapshot ID,
 and manifest/dictionary/sidecar digests. The upstream synchronization cutoff
@@ -413,7 +404,7 @@ $T$ or any delegated descendant. Then
  \label{eq:publication-binding}
 \end{equation}
 The Catalog transitively binds the grant and FactID environment to that epoch;
-ledger state, replay metadata, result evidence, audit events, and V8 receipts
+ledger state, replay metadata, result evidence, audit events, and receipts
 carry the corresponding publication and dictionary bindings. Execution,
 settlement, and replay fail closed if they differ. Consequently an active root
 cannot switch publications, even after the next cut becomes active for new
@@ -439,7 +430,7 @@ monotone accounted ledger $K(T)$ is mutable protocol state and is deliberately
 \emph{not} a component of the approved tuple.
 \end{definition}
 
-The V2 release/dependency algebra treats a FactID as a semantic object and its SHA-256 as only a database
+The release/dependency algebra treats a FactID as a semantic object and its SHA-256 as only a database
 index.  Its semantic environment is
 $\Pi=\langle pg,\mathcal T,UTC,\mathcal C,D,h_C\rangle$: a PostgreSQL major
 version, admitted type domain, timezone, exact deterministic collation
@@ -467,15 +458,15 @@ is a finite-support witness multiset (the empty support is allowed).  The produc
 name: it is exactly the namespace projection of $\mathcal B$.  The witness
 commitment $CW(W)$ length-prefixes the lexically sorted
 $(\operatorname{FactHash}(f),W(f))$ pairs; the empty multiset has a separate
-token.  The durable key is
-$\mathrm{SHA256}(\texttt{TASKGATE-FACT-V2\textbackslash0}\|\operatorname{Canon}(f))$.
+token. The durable key is
+$\mathrm{SHA256}(d_R\|\operatorname{Canon}(f))$, where $d_R$ is the
+release/dependency domain separator.
 Control PostgreSQL stores $\operatorname{Canon}(f)$ and compares it on every
-hash conflict; a same-hash, different-payload row aborts the transaction. V5
-retains V2 release/dependency identities but gives predicate atoms and
-composite outcomes disjoint tagged kinds under
-$d_5=\texttt{TASKGATE-FACT-V5\textbackslash0}$.
+hash conflict; a same-hash, different-payload row aborts the transaction.
+Predicate atoms and composite outcomes use disjoint tagged kinds under the
+outcome domain separator $d_O$.
 
-Let $N(q)$ be the accepted V4 query normal form, $h_N$ its SHA-256, $m$ the
+Let $N(q)$ be the accepted query normal form, $h_N$ its SHA-256, $m$ the
 visible row count, $h_y$ the canonical result-observation commitment, and
 $h_c$ the predicate-context commitment to the approved Catalog, immutable
 publication/lineage, stable roles, and resolved expressions. Atomization
@@ -485,22 +476,22 @@ deduplication, let $k_a=\code{PREDICATE\_ATOM}$ and define semantic atom
 objects before their physical keys:
 \begin{equation}
  \begin{aligned}
- a_i&=\langle k_a,\pi_5,h_c,p,r,f,e,\tau,\kappa,op,v\rangle,\\
+ a_i&=\langle k_a,\pi,h_c,p,r,f,e,\tau,\kappa,op,v\rangle,\\
  A(q)&=\{a_i\mid a_i\in\operatorname{Atomize}(q)\}.
  \end{aligned}
  \label{eq:predicate-atoms}
 \end{equation}
 Here $p,r,f,e$ are the semantic Product, stable role, public FieldID, and resolved-expression
 digest; $\tau,\kappa,op,v$ are type, collation, operator, and canonical
-literal. For any V5 semantic Fact $f$, its physical key is
-$\operatorname{FactHash}_5(f)=H(d_5\|\operatorname{Canon}(f))$.
-Let $h_A$ commit the sorted $\operatorname{FactHash}_5$ values of $A(q)$ and
-$k_c=\code{COMPOSITE\_OUTCOME}$. V5 creates one semantic composite object
+literal. For any outcome Fact $f$, its physical key is
+$\operatorname{FactHash}_O(f)=H(d_O\|\operatorname{Canon}(f))$.
+Let $h_A$ commit the sorted $\operatorname{FactHash}_O$ values of $A(q)$ and
+$k_c=\code{COMPOSITE\_OUTCOME}$. TaskGate creates one semantic composite object
 \begin{equation}
  \begin{aligned}
- c_q&=\langle k_c,\pi_5,\operatorname{ver}(N),h_N,h_y,m,h_c,h_A,|A(q)|\rangle,\\
+ c_q&=\langle k_c,\pi,\operatorname{profile}(N),h_N,h_y,m,h_c,h_A,|A(q)|\rangle,\\
  \facts_O(q)&=A(q)\cup\{c_q\},\\
- M_O(q)&=\{\operatorname{FactHash}_5(f)\mid f\in\facts_O(q)\}.
+ M_O(q)&=\{\operatorname{FactHash}_O(f)\mid f\in\facts_O(q)\}.
  \end{aligned}
  \label{eq:outcome-fact}
 \end{equation}
@@ -514,14 +505,14 @@ payload, and total atom payload before settlement.
 
 \begin{theorem}[Fact identity well-definedness]
 \label{thm:fact-identity}
-For every value in the V2 supported PostgreSQL type domain, canonical encoding
+For every value in the supported PostgreSQL type domain, canonical encoding
 is deterministic and injective over the typed semantic payload (that is, over
 PostgreSQL semantic-value equivalence, not raw float NaN bit patterns).
 \end{theorem}
 \emph{Proof in the supplement.}
 
 \begin{definition}[Exposure effect]
-For query $q$ over snapshot $D_s$, the V5 effect
+For query $q$ over snapshot $D_s$, the exposure effect
 $\effect(q,D_s)=\langle \facts_R,\facts_D,\facts_O\rangle$ contains accounted
 result facts (retaining the wire label \code{release})
 $\facts_R$ and positive-output dependency-footprint facts $\facts_D$ under a
@@ -582,7 +573,7 @@ $B=\langle B_R,B_D,B_O\rangle$. Settlement computes
  \label{eq:delta}
 \end{align}
 
-V5 measures cardinality independently in each dimension. A query may settle
+TaskGate measures cardinality independently in each dimension. A query may settle
 only if
 $|\accounted_T^R|+|\Delta_T^R|\leq B_R$ and
 $|\accounted_T^D|+|\Delta_T^D|\leq B_D$ and
@@ -593,13 +584,12 @@ for publication and charged at settlement, not proof of availability or
 observation. Dependency FactIDs remain internal to the enforcement layer; the agent receives
 only result data, counts, and receipt digests. Hence $\accounted_T^D$ is not a
 set of facts known by the agent, and no component is a complete epistemic
-or privacy-loss state.  The wire and storage label \code{influence} is retained
-for compatibility; under the V2--V5 profiles it denotes the positive-output
-dependency footprint, not causal influence.
+or privacy-loss state. The wire and storage label \code{influence} denotes the
+positive-output dependency footprint, not causal influence.
 
 \begin{theorem}[Outcome separation and replay]
 \label{thm:outcome-separation}
-For successful queries in one V5 predicate context, exact replay and supported
+For successful queries in one predicate context, exact replay and supported
 equivalent rewrites produce the same atom set and composite identity and hence
 zero incremental Outcome charge. Changing one canonical predicate component
 changes that atom except with a SHA-256 collision; changing the complete normal
@@ -698,7 +688,7 @@ cases, and page bounds are in the supplementary material.
 
 \begin{table*}[t]
 \centering
-\caption{Main-text summary of the V2 big-step effect. ``Row annotation'' is
+\caption{Main-text summary of the big-step effect. ``Row annotation'' is
 always included in the dependency set of a selected output row.}
 \label{tab:effect-summary}
 \small
@@ -749,7 +739,7 @@ the two base ledgers are sets.  Equation~\eqref{eq:observe} is the declared
 positive-output dependency-footprint profile: it is exact with respect to these
 inductive rules, not with respect to arbitrary causal provenance or physical
 source access.  Empty answers have an empty base effect except for the single
-visible row of a global aggregate; V5 nevertheless adds the tested predicate
+visible row of a global aggregate; TaskGate nevertheless adds the tested predicate
 atoms and one composite outcome.
 
 \begin{theorem}[Representation closure and partial-function semantics]
@@ -788,16 +778,8 @@ normal-form profile fixed by the task contract. Multi-source SQL
 replaces aliases by Catalog stable roles, canonicalizes the accepted join
 graph, and recursively orders all commutative components by typed stable
 identity. Equality is syntactic; the complete ordering, scalar domains, and
-rejected constructs are supplemental. Let $\pi_3$ denote the legacy V2--V4
-Outcome path and $\pi_5$ the V5 predicate/composite path. Their bindings are
-\[
-\begin{aligned}
- \operatorname{ver}(NF_{\Pi,\pi_3})
-   &= \text{\code{taskgate-query-normal-form-v3}},\\
- \operatorname{ver}(NF_{\Pi,\pi_5})
-   &= \text{\code{taskgate-query-normal-form-v4}}.
-\end{aligned}
-\]
+rejected constructs are supplemental. The task contract binds exactly one
+normal-form profile; no alternative is selected at query time.
 The complete typed digest is the query-semantic component of replay/outcome
 identity; authorization and settlement additionally bind grant, policy, and
 effect context. Query normalization is distinct from final-ledger Fact-set
@@ -838,13 +820,13 @@ Let $\operatorname{Expand}_C(v)=(e,\mu,\beta_v)$ denote successful compilation
 of a semantic-View root $v$ into a closed core term $e$, with $\mu$ mapping its
 ordered public fields to stable terminal FieldIDs. The binding $\beta_v$
 commits the root Product/public-field identity, resolved expressions, signed
-View contract, and V5 predicate context. Compilation defines the View query
+View contract, and predicate context. Compilation defines the View query
 normal form from $e$ while retaining $\beta_v$ in $C$.
 
 For successful $\operatorname{Expand}_C(v)=(e,\mu,\beta_v)$, induction over the
 accepted acyclic View DAG preserves the typed visible bag and all three effect
 sets when the internal query retains $\beta_v$. Exact guards and the proof are
-supplemental; a direct terminal query can carry different V5 Outcome FactIDs.
+supplemental; a direct terminal query can carry different Outcome FactIDs.
 
 \begin{theorem}[Base-ledger split/page/join conservation]
 \label{thm:base-conservation}
@@ -852,15 +834,13 @@ Merging release/dependency observations for disjoint projections or a complete
 page partition equals observing the combined result. Overlapping pages and
 repeated terminal observations charge each release/dependency FactID at most
 once; join fanout changes witness multiplicity but not the union of dependency
-support. V5 composite facts remain per normalized query/result outcome;
+support. Composite facts remain per normalized query/result outcome;
 predicate atoms are reused exactly when their canonical footprint components
 agree, so a family of page or threshold questions does not collapse wholesale.
 \end{theorem}
 \emph{Proof in the supplement.}
 
-The legacy V2--V4 Outcome path uses \code{taskgate-query-normal-form-v3}; the
-V5 predicate/composite path uses \code{taskgate-query-normal-form-v4}. Besides
-the rewrites above, each profile binds namespace, snapshot, lineage digest,
+Besides the rewrites above, the profile binds namespace, snapshot, lineage digest,
 canonical SQL types, collation
 names/versions, PostgreSQL three-valued bag semantics, UTC, and exact numeric
 mode. It deliberately performs no outer-join, arithmetic, window, subquery, or
@@ -898,7 +878,7 @@ lowering rules are supplemental.
 
 \subsection{Snapshot Publication and Ordinal Compilation}
 
-V4 compiles each frozen snapshot into immutable per-row/per-field segments,
+The publication compiler turns each frozen snapshot into immutable per-row/per-field segments,
 sorting full Fact hashes and assigning 32-bit ordinals. A sidecar maps attested
 entity keys to ordinals; the hot artifact keeps this map and verified hashes,
 while canonical payloads remain content addressed and cold. One manifest binds
@@ -912,7 +892,7 @@ join, union, group, and aggregate rules.
 
 The engine keeps current-group support, sparse extra multiplicities, and query
 bitmaps. A k-way hash merge reproduces the algebraic witness commitment;
-Release/dependency use segmented Roaring bitmaps, while V5 Outcome hashes enter
+Release/dependency use segmented Roaring bitmaps, while Outcome hashes enter
 an exact Merkle radix set. Invalid handles, manifests, encodings, overflow, or
 truncation fail closed. The materialized algebra remains the oracle.
 
@@ -942,7 +922,7 @@ leaf/block encodings are supplemental.
 
 \begin{theorem}[Exact incremental Outcome-set refinement]
 \label{thm:outcome-radix-refinement}
-Let $K_O$ be a valid V5 root and $C_O$ a canonical candidate. Loading every
+Let $K_O$ be a valid Outcome root and $C_O$ a canonical candidate. Loading every
 leaf family whose 16-bit prefix occurs in $C_O$, performing full-hash exact
 difference/union within those families, rebuilding only their containing
 blocks, and reusing all other references yields
@@ -958,7 +938,7 @@ partitions. The refinement does not use truncated hashes as membership keys.
 
 \subsection{Atomic Ledger Settlement and Fail-Closed Artifact Publication}
 
-For one successful V5 query, the enforcement layer performs the following steps
+For one successful query, the enforcement layer performs the following steps
 (Fig.~\ref{fig:architecture-settlement}b):
 
 \begin{enumerate}
@@ -967,7 +947,7 @@ Lookup of a semantic replay entry occurs only after binding the signed grant and
 publication.
 \item On a miss, execute and buffer the visible statement while streaming its
 ordinal companion in the same Business-PG snapshot, then derive exact Release
-and dependency bitmaps plus the V5 Outcome candidate. On a hit, load only an already committed
+and dependency bitmaps plus the Outcome candidate. On a hit, load only an already committed
 observation reference and encrypted materialization.
 \item Encode and encrypt the canonical Parquet result, then upload it to a
 private staging key. Staging is neither canonical nor AVAILABLE and is never
@@ -985,7 +965,7 @@ three dimensions; they are never committed independently.
 \item In that same transaction, settle query/row/database-time resources,
 store the committed observation and PENDING artifact metadata (including the
 expected canonical key and object digest), append terminal audit evidence, and
-persist a signed V8 settlement receipt whose nested artifact intent binds those
+persist a signed settlement receipt whose nested artifact intent binds those
 fields. Commit this accounting transaction.
 \item Promote staging to the canonical object key and verify the committed
 object digest. A second Control-PG transaction changes PENDING to AVAILABLE,
@@ -998,7 +978,7 @@ mutable. A budget failure, corrupt dictionary, CAS exhaustion, or settlement
 persistence error rolls back heads, observations, PENDING metadata, terminal
 audit, cache entry, and receipt. A private staging object may transiently
 remain, but it is unavailable and is deleted or reconciled. Once settlement
-commits, promotion failure does \emph{not} refund exposure, rewrite the V8
+commits, promotion failure does \emph{not} refund exposure, rewrite the
 receipt, or re-execute Business SQL: the legal conservative state is
 COMPLETED/charged/receipt/PENDING/not-available. This includes the crash window
 in which the canonical object exists but the AVAILABLE transaction failed.
@@ -1009,7 +989,7 @@ because a successfully committed root ledger grows monotonically, a repeated
 committed observation has zero novelty without rescanning its effect payload.
 
 Three boundaries must therefore remain distinct. \emph{Accounted} means the
-ledger settlement committed; the normal Gateway path co-commits its V8 receipt.
+ledger settlement committed; the normal Gateway path co-commits its receipt.
 \emph{Available} means canonical
 object promotion and the consumption audit committed; it is the logical
 release boundary. \emph{Observed} would mean a caller actually downloaded
@@ -1043,29 +1023,28 @@ Release/dependency settlement touches only relevant bitmap containers. For a
 deduplicated Outcome candidate of size $k$, novelty costs
 $O(k\log k+h+\ell+b)$ for loaded hashes, leaves, and blocks, with a
 candidate-prefix worst case approaching the whole root. These are design
-bounds, not V5 latency measurements.
+bounds, not latency measurements.
 
 \subsection{Receipts and Failure Semantics}
 
-A V8 Ed25519 \emph{settlement} receipt retains the V7 accounting evidence and
-adds a versioned nested artifact intent: result identity, Parquet/object hashes
+A signed Ed25519 \emph{settlement} receipt contains accounting evidence and a
+nested artifact intent: result identity, Parquet/object hashes
 and sizes, row/column, schema, result-metadata, and ACL evidence, hashed canonical/staging keys,
 expiry, expected PENDING state, and the registration-audit link. It proves
 accounting and intended publication, not availability. Availability is proved
 separately by inclusion of the single hash-chained
 \code{QUERY\_RESULT\_CONSUMED} event naming the verified canonical object. The
 receipt exposes neither raw values nor FactIDs.
-The normal production path creates a \emph{co-committed V8} in the settlement
+The normal production path creates a \emph{co-committed receipt} in the settlement
 transaction.  A compatibility path can instead validate an already immutable
-terminal/registration history and create a missing \emph{recovered V8
+terminal/registration history and create a missing \emph{recovered
 attestation}; its \code{signed\_at} may be later than settlement, so the receipt
 itself is not claimed to have co-committed.  Both forms authenticate the same
-historical PENDING intent and neither proves availability; the supplement
+PENDING intent and neither proves availability; the supplement
 states this persistence-time distinction explicitly.
 For a View-bound task, the signed Grant transitively commits the task View
 binding digest and the query record stores the same digest; exact replay cannot
-cross that identity. Legacy receipt verifiers remain available, but V8 uses a
-disjoint digest domain.
+cross that identity. Receipt verification uses a dedicated digest domain.
 
 Failures before connector invocation release both reservations. An
 over-budget settlement never creates a canonical object or AVAILABLE row;
@@ -1166,7 +1145,7 @@ nor differential-privacy composition is claimed here.
 \label{sec:system}
 
 The prototype is implemented in Go with separate Control and Business
-PostgreSQL 16 databases. The default Catalog selects V5 and declares reporting views, mandatory
+PostgreSQL 16 databases. The default Catalog declares reporting views, mandatory
 scopes, immutable snapshot publications, entity keys, allowed operations,
 approval routes, and resource/exposure profiles. An opaque terminal Product
 references a publication that binds its source, namespace, schema, snapshot,
@@ -1185,8 +1164,7 @@ Clients use MCP tools to list products, request a task, execute one structured
 plan, inspect both budgets, delegate a narrower task, rebind a stale semantic
 View task into a new approval draft, and retrieve results or receipts. An external approval adapter
 signs the immutable grant. Arbitrary direct SQL remains available only for
-legacy resource-only grants; it fails closed when exposure evidence is
-required.
+resource-only grants; it fails closed when exposure evidence is required.
 The Control schema stores immutable dictionary manifests and chunks, sparse
 dynamic release dictionaries, content-addressed bitmap containers and set
 manifests for Release/dependency, and SHA-256 Merkle-radix leaves, blocks, and
@@ -1200,8 +1178,8 @@ A single high-cardinality semaphore isolates million-fact derivation from the
 small-query pool; a query-private encrypted spool is used once the configured
 working-set threshold is crossed.
 
-Reference-safe retention, reclamation, and the clean-cut V4-to-V5 migration are
-specified in the supplement; no legacy ledger is silently reinterpreted.
+Reference-safe retention and reclamation are specified in the supplement;
+stored ledger identities are never silently reinterpreted.
 
 \section{Finite-State Analysis}
 \label{sec:formal}
@@ -1238,11 +1216,10 @@ The evaluation is organized around five questions: RQ1 ground-truth accuracy;
 RQ2 rewrite invariance of exposure accounting; RQ3 accounting conservation
 under deterministic scripted split, page, retry, zero/empty threshold probing,
 snapshot-identity substitution, join/union, delegation, and concurrency
-patterns; RQ4 legacy bottlenecks and V4 ordinal-foundation gates; and RQ5 safe daily refresh. The
-archived RQ1--RQ3 corpus is regenerated for \ArchivedExposureProfile{} from the
-digest-bound corpus \ExposureCorpusHash{}; V5-specific outcome claims are
-covered by the implementation/formal regressions stated below and are not
-retroactively attributed to that corpus. RQ2's
+patterns; RQ4 ordinal-foundation gates; and RQ5 safe daily refresh. The
+RQ1--RQ3 corpus is regenerated from the digest-bound corpus
+\ExposureCorpusHash{}; Outcome claims are covered by the implementation and
+formal regressions stated below. RQ2's
 primary evidence is closed-language FactSet/charge invariance; broad SQL
 result-equivalence and detailed RQ4 protocols remain in the supplement. Each
 call executes one plan against the complete signed profile; no representation-
@@ -1260,7 +1237,7 @@ RQ & Current result \\
 RQ1 & \RQOnePassed{}/\RQOneCases{} independent-oracle cases on \RQOneRows{} source rows \\
 RQ2 & \RQTwoExposureRewrites{} closed-language rewrite families, \RQTwoExposureCases{} instances and \RQTwoExposureNFCases{} normal-form checks: FactSet/charge invariant, \RQTwoExposureMismatches{} mismatches \\
 RQ3 & \RQThreePassed{}/\RQThreeCases{} deterministic; \RQThreeIntegration{}/\RQThreeExecuted{} PostgreSQL race tests; representative two-source PG Join/Union exchange and downstream-group tests \\
-RQ4 & Legacy diagnosis to \RQFourScaleMaxFacts{} dependencies; V4: \RQFourVFourGatesPassed{}/\RQFourVFourGatesTotal{} base gates pass at \RQFourVFourNovelMedianS{}/\RQFourVFourNovelTailS{}~s novel and \RQFourVFourReplayMedianMS{}/\RQFourVFourReplayTailMS{}~ms replay p50/p95; supplemental layout, same-root contention, and \RQFourVFourOracleFacts{}-Fact oracle gates pass within their stated scopes \\
+RQ4 & \RQFourVFourGatesPassed{}/\RQFourVFourGatesTotal{} ordinal/bitmap gates pass at \RQFourVFourNovelMedianS{}/\RQFourVFourNovelTailS{}~s novel and \RQFourVFourReplayMedianMS{}/\RQFourVFourReplayTailMS{}~ms replay p50/p95; supplemental layout, same-root contention, and \RQFourVFourOracleFacts{}-Fact oracle gates pass within their stated scopes \\
 RQ5 & Four \RQFiveRows{}-row epochs, \RQFiveTotalBuildRuns{} builds: max cycle \RQFiveMaxCycleS{}~s; \RQFiveChecksPassed{}/\RQFiveChecksTotal{} rollover conditions pass across \RQFiveTransitions{} transitions \\
 \bottomrule
 \end{tabular}
@@ -1278,14 +1255,14 @@ public-path settlement, delegation, and races. Its
 charge \RQThreeReplayOutcomeCharge{}/\RQThreeRewriteOutcomeCharge{}. Digest-bound
 raw test logs retain the complete case-level evidence.
 
-V5 tests full-hash exact-set permutation, difference/union/replay, radix tamper
+Outcome-set tests cover full-hash permutation, difference/union/replay, radix tamper
 and same-prefix rechunking. Its PostgreSQL regression updates one of
 \VFiveRootBlocks{} blocks in a \VFiveRootCardinality{}-member root, reuses
 \VFiveBlocksReused{} blocks, and changes nothing on replay. Settlement binds the
-candidate digest shared by observation, charge, V8 receipt, and audit separately
+candidate digest shared by observation, charge, receipt, and audit separately
 from the cumulative root digest. Source manifests, raw test receipt, counters,
 and TLC logs are generator-validated. These are functional/scaling-shape
-regressions, not a V5 latency campaign; detailed radix counters are supplemental.
+regressions, not a latency campaign; detailed radix counters are supplemental.
 
 The PostgreSQL Join/Join--Group experiments use representative two-source
 graphs, not a capability ceiling; source-count/topology performance is unmeasured.
@@ -1295,11 +1272,10 @@ deterministic compilation, alias/join-order invariance, nested View drift,
 grammar boundaries, and same-transaction attestation; they are not a proof or
 performance campaign.
 
-\subsection{RQ4: Measured V4 Ordinal Acceptance}
+\subsection{RQ4: Measured Ordinal/Bitmap Acceptance}
 
-The complete legacy materialization diagnosis is supplemental. In one
-fixed-host V4 deployment, all
-\RQFourVFourGatesPassed{}/\RQFourVFourGatesTotal{} V4 gates pass. At
+In one fixed-host deployment, all
+\RQFourVFourGatesPassed{}/\RQFourVFourGatesTotal{} gates pass. At
 \RQFourVFourReleaseFacts{} release, \RQFourVFourDependencyFacts{} dependency,
 and \RQFourVFourOutcomeFacts{} outcome facts, novel p50/p95 is
 \RQFourVFourNovelMedianS{}/\RQFourVFourNovelTailS{}~s, replay p50/p95 is
@@ -1322,24 +1298,22 @@ supplemental.
 
 \subsection{Reproducibility Boundary}
 
-Current V5 publication-scale performance remains pending the final frozen
-WSL2 campaign; the V4 and RQ5 values below retain their historical evidence
-labels and are not relabeled as V5 measurements.
+Publication-scale performance remains pending the final frozen WSL2 campaign;
+the reported values keep their measured scope and are not generalized beyond it.
 
-RQ1--RQ3 use small fixtures. Legacy and V4 evidence is warm, single-host, and
+RQ1--RQ3 use small fixtures. The ordinal/bitmap evidence is warm, single-host, and
 TPC-H-derived (not official), excluding cold-cache, multi-node, and
-production-SLO claims; V4 uses one index build and one deployment, not
+production-SLO claims; it uses one index build and one deployment, not
 \RQFourVFourRoots{} independent deployments. Retained raw data reconstruct
-every digest gate. A later failure-only finalization fix has targeted and fresh
-contention tests but does not relabel the archived V4 SLO. The supplement
-records scope and exclusions. RQ5's cycle sums three
+every digest gate. Targeted failure and contention tests cover the current
+settlement path. The supplement records scope and exclusions. RQ5's cycle sums three
 sequential warm child intervals; its router is an experiment controller, not a
 measured production load balancer.
 
 \section{Limitations and Threats to Validity}
 \label{sec:limits}
 
-\textbf{Semantic scope.} V5 accounts canonical predicate atoms and one
+\textbf{Semantic scope.} TaskGate accounts canonical predicate atoms and one
 composite identity for each successful normalized query/result, including an
 empty relation or zero scalar. Each identity has unit weight rather than an
 estimate of information content. Shared atoms reduce repeated-charge
@@ -1356,7 +1330,7 @@ approval creates fresh capacity unless an external principal/tenant policy
 prevents it. The same applies across independently approved publication
 epochs; TaskGate does not model or deduplicate a principal's durable knowledge.
 
-\textbf{Query and identity scope.} The measured V4 ordinal SLO scope is a genuinely frozen,
+\textbf{Query and identity scope.} The measured ordinal SLO scope is a genuinely frozen,
 manifest-proven daily publication. Mutable OLTP/CDC and active-root epoch
 migration require a different cross-epoch argument. Online support is one
 product, a bounded connected inner-equijoin graph, or two-branch one-product
@@ -1372,9 +1346,9 @@ execution boundaries, not through a continuous DDL listener. Dependency
 revision conservatively requires rebind. Tests cover the restricted grammar,
 not general SQL equivalence or enterprise-scale DAG discovery.
 
-\textbf{Cost and deployment.} V4 removes the diagnosed legacy million-Fact
+\textbf{Cost and deployment.} The ordinal/bitmap design avoids million-Fact
 object materialization, but only \RQFourVFourBuildRuns{} build and one fixed-host
-deployment were measured. V5 establishes touched-branch I/O shape, not 1M
+deployment were measured. The Outcome radix set establishes touched-branch I/O shape, not 1M
 latency or sustained contention. Index construction, dynamic dictionaries,
 retention, spooling, and audit still cost resources; one instance, demo
 approval, and one connector do not establish distributed, multi-engine, or
@@ -1388,7 +1362,7 @@ publication binding stabilizes FactIDs, replay, delegation, and exact
 withhold-before-settlement accounting; dependency-aware semantic-View binding
 additionally freezes each accepted nested View closure and requires a new root
 and approval after drift. A later daily publication is reserved for new roots.
-V5 combines V4's immutable ordinals and streamed Release/dependency bitmaps
+TaskGate combines immutable ordinals and streamed Release/dependency bitmaps
 with predicate-atom/composite Outcome semantics and an exact touched-branch
 Merkle radix set under one three-dimensional CAS. The formal models and scoped campaigns support exactness, atomicity, and
 compact representation on one fixed host; RQ5 additionally supports daily
