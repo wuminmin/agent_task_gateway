@@ -1,10 +1,12 @@
 # M3 Profile-Relative Clearance Accounting Claim Matrix
 
-This matrix audits the TKDE M3 claim boundary at base commit
-`6b552a4802b64cac8f3a23c68527dfa026991553`. It distinguishes paper
-semantics, bounded TLA+ invariants, PostgreSQL transaction structure, and
-executable tests. A `SUPPORTED` row means the scoped claim has identified
-evidence; it does not mean that one layer proves the complete implementation.
+The M3 review began at commit
+`6b552a4802b64cac8f3a23c68527dfa026991553`; the current matrix reflects
+follow-up evidence reviewed through
+`8bc2202cbb0960617e17b05994192d93c686a286`. It distinguishes paper semantics,
+bounded TLA+ invariants, PostgreSQL transaction structure, and executable
+tests. A `SUPPORTED` row means the scoped claim has identified evidence; it
+does not mean that one layer proves the complete implementation.
 
 The accepted safety statement is:
 

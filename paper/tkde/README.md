@@ -25,7 +25,7 @@ formal publication, ledger, receipt, and artifact-state definitions.
   or DFC-policy compliance claims.
 - The manuscript revision changes claims and evidence mapping; supporting
   repository changes are confined to draft/final evidence validation and
-  low-cost regressions of existing semantics. It does not change production
+  lightweight regressions of existing semantics. It does not change production
   protocol semantics, namespaces, wire formats, schema, or evidence-bound
   experiment artifacts and numbers.
 
@@ -54,6 +54,25 @@ per edge. Disconnected graphs, self joins, outer/cross joins, and non-equality
 join predicates fail closed. The complete typed-algebra normal form contributes
 to replay and Outcome identity; authorization and settlement additionally bind
 the plan, grant, policy, publication, and effect context.
+
+## Enterprise data-estate vision
+
+The manuscript positions BDG as a task-to-data release layer at a governed
+serving tier materialized from an enterprise data lake or warehouse. The
+incremental, brownfield-compatible integration path preserves the existing
+lake/warehouse, Data Catalog, IAM/HR, OA/BPM, object store, Audit/SIEM, and
+Agent platform. Those systems remain authoritative for governed Products,
+identity and organizational attributes, human approval, storage, and external
+audit; BDG compiles their bound inputs into a signed task contract and performs
+cumulative settlement at the shared data-egress boundary.
+
+Here, `brownfield-compatible` describes an architectural interface division;
+it does not claim low deployment cost. The current work contains no production
+enterprise deployment study and does not measure integration effort,
+administrator workload, or organizational productivity. An agent-ready data
+utility, machine-enforceable Clearance Manifests, a Policy Studio, shadow mode,
+and multi-engine connectors remain future work and are not implemented in the
+present prototype.
 
 ## Build and validation
 
@@ -147,7 +166,8 @@ before compilation, while `final` carries strict evidence validation through
 the actual compilation. The supplement contains complete inference rules, proofs,
 implementation coverage,
 radix/bitmap details, receipt persistence semantics, publication-routing
-measurements, and broad SQL result-equivalence stress tests. Superseded module
+measurements, an enterprise integration and governance vision, and broad SQL
+result-equivalence stress tests. Superseded module
 walkthroughs and implementations are intentionally excluded.
 
 The reported experiments are controlled, single-host evidence. They do not

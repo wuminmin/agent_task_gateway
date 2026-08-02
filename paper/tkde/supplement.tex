@@ -1060,4 +1060,68 @@ metamorphic check counts, and statement count.  These controls make the stress
 test reproducible without enlarging its evidentiary meaning.  The main paper's
 RQ2 conclusion rests instead on the closed-language FactSet/charge checks.
 
+\section{Enterprise Integration and Governance Vision}
+\label{sec:supp-enterprise-vision}
+
+This section describes a brownfield-compatible, incremental deployment vision,
+not an evaluated production deployment. BDG preserves existing enterprise
+systems and places a shared data-egress boundary after curated products at the
+governed serving tier. Table~\ref{tab:supp-enterprise-interfaces} separates the
+inputs BDG consumes, the contract checks it adds, and responsibilities that
+remain with each system and its operators.
+
+\begin{table}[h]
+\centering
+\caption{Enterprise interface division. These are architectural boundaries,
+not production-integration evidence.}
+\label{tab:supp-enterprise-interfaces}
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{L{0.13\textwidth}L{0.23\textwidth}L{0.27\textwidth}L{0.27\textwidth}}
+\toprule
+Existing system & Supplies to BDG & BDG validates or adds & Outside BDG responsibility \\
+\midrule
+Lake / warehouse & Curated snapshot or governed serving Product & Immutable publication and version binding & Raw-lake access, ETL, source quality, and stewardship \\
+Data Catalog & Product, schema, owner, lineage, classification, and stable IDs & Signed Product, field, profile, and supported-semantics contract & Business ownership and classification correctness \\
+IAM / HR & Authenticated subject, department, region, and role & Task-subject and mandatory organizational-scope binding & Identity lifecycle and attribute correctness \\
+OA / BPM & Purpose, approver, expiry, chain, and decision & Immutable Signed Task Grant & Approval appropriateness and workflow design \\
+Object store & Private staging, canonical storage, and access control & Hash-bound intent and PENDING/AVAILABLE protocol & Durability, key custody, and storage operations \\
+Audit / SIEM & Enterprise evidence destination & Settlement, receipt, and availability evidence & Correlation, retention, and incident response \\
+Agent platform & Plans, retries, pages, delegation, and tool calls & Untrusted-client enforcement boundary & Model/prompt behavior and cross-tool information flow \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Illustrative scenarios (not evaluated as production deployments).}
+In a telecommunications enterprise, headquarters marketing could analyze
+nationwide aggregate KPIs while a provincial marketer's mandatory regional
+scope limits the same Product to one province. MSISDNs, names, and government
+identifiers would not enter the marketing Product; an enterprise-wide salary
+query would require a separate HR-leader-approved task. Operations personnel
+could use a distinct equipment-and-facility Product, but the present analytical
+BDG path would not control a network in real time. In banking, branch staff
+could analyze regional aggregates, while risk or fraud casework uses a
+short-lived, high-sensitivity, independently approved task. This does not make
+BDG a regulatory-compliance decision maker or replace DP or DFC. In an electric
+utility, regional load, loss, and equipment-health Products could remain
+separate from marketing and finance domains; BDG would not perform subsecond
+control, protection actions, or equipment-configuration writes. The scenarios
+only illustrate how Product, scope, approval, and the task-bound root-family
+Exposure Ledger compose.
+
+\textbf{Future Policy Studio (not implemented).}
+A future governance plane could move a profile through
+Draft $\rightarrow$ metadata discovery $\rightarrow$ stable-key validation
+$\rightarrow$ sensitive-field inheritance $\rightarrow$ generated negative
+tests $\rightarrow$ shadow execution $\rightarrow$ multi-role approval
+$\rightarrow$ signed profile publication. Data owners would decide purpose and
+releasable scope; security/privacy teams would define sensitive boundaries;
+IAM/OA would attest identity and approval; DBAs/data engineers would validate
+database facts and performance mappings; BDG would compile and enforce the
+published contract; and auditors would reconcile approval, settlement, and
+AVAILABLE evidence. Multi-engine connectors, DFC/Passant composition,
+principal/tenant-wide policy, differential privacy, and cross-tool IFC remain
+separate future work. The present prototype does not implement this complete
+governance platform.
+
 \end{document}

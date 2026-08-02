@@ -6,6 +6,9 @@ encrypted Parquet result path, V8 settlement receipts, and exact Merkle radix
 set now present in the repository.
 
 - **Core architecture:** current draft candidate; not submission-frozen
+- **Enterprise data-estate vision:** integrated into the manuscript as a
+  brownfield-compatible serving-tier architecture; no production integration
+  cost or enterprise deployment claim
 - **Functional evidence:** complete for the scoped rows marked `SUPPORTED`;
   the combined-formal-model limitation below remains explicit
 - **Measurement instrumentation:** complete
