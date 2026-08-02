@@ -38,7 +38,10 @@ tmp_dir="$(mktemp -d /tmp/taskgate-fresh-proof.XXXXXX)"
 trap 'rm -rf "$tmp_dir"' EXIT
 
 compose_config_output="${TASKGATE_FRESH_PROOF_OUTPUT%.json}.compose-config.yaml"
-"${compose[@]}" config > "$compose_config_output"
+# Preserve the canonical Compose topology without persisting values resolved
+# from the local .env. Runtime bindings are consumed only in-process by the
+# launcher and must never become Pilot or publication evidence.
+"${compose[@]}" config --no-interpolate > "$compose_config_output"
 chmod 600 "$compose_config_output"
 compose_sha="$(sha256sum "$compose_config_output" | awk '{print $1}')"
 mapfile -t volume_names < <("${compose[@]}" config --volumes | while IFS= read -r logical; do

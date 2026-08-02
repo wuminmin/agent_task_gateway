@@ -72,7 +72,7 @@ export TASKGATE_FINAL_V5_OBJECT_STORE_ACCESS_KEY="$object_access_key"
 export TASKGATE_FINAL_V5_OBJECT_STORE_SECRET_KEY="$object_secret_key"
 export TASKGATE_FINAL_V5_OBJECT_STORE_BUCKET="$object_bucket"
 
-go build -trimpath -o "$adapter_bin" ./evaluation/cmd/final-v5-adapter
+go build -trimpath -buildvcs=false -o "$adapter_bin" ./evaluation/cmd/final-v5-adapter
 sha256sum "$adapter_bin" | awk '{print $1}' > "$run_dir/adapter.sha256"
 go run ./evaluation/cmd/v5-full -config "$run_dir/config.json" -deployment-id deployment-01 \
   -adapter "$adapter_bin" -output "$run_dir/raw/deployment-01.jsonl"

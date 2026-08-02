@@ -1,5 +1,7 @@
 .PHONY: verify test build up down logs formal eval-validate eval-exposure eval-exposure-performance eval-exposure-scale eval-exposure-storage eval-provenance-baseline eval-daily-publication eval-daily-publication-online eval-daily-publication-validate eval-smoke eval-full eval-v5-final-validate eval-v5-final-preflight eval-v5-final-smoke eval-v5-final-real-pilot eval-v5-final-finalize eval-v5-final-campaign-finalize eval-v5-final-evidence artifacts fuzz paper-evidence paper paper-tkde paper-refresh-exposure paper-final-check paper-tdsc
 
+FINAL_V5_SMOKE_RUNNER ?= evaluation/final-v5-wsl2/scripts/run-pilot.sh
+
 verify:
 	docker build --target verify -t taskbound-agent-data-gateway-verify .
 	./scripts/compose-test.sh
@@ -72,13 +74,16 @@ eval-v5-final-preflight:
 	./evaluation/final-v5-wsl2/scripts/preflight-wsl2.sh --mode pilot
 
 eval-v5-final-smoke:
-	@tmp_dir="$$(mktemp -d /tmp/taskgate-final-v5-smoke.XXXXXX)"; \
+	@set -eu; \
+	tmp_dir="$$(mktemp -d /tmp/taskgate-final-v5-smoke.XXXXXX)"; \
 	run_dir="$$tmp_dir/run"; \
 	trap 'rm -rf "$$tmp_dir"' EXIT; \
-	evaluation/final-v5-wsl2/scripts/run-pilot.sh "$$run_dir"; \
+	"$(FINAL_V5_SMOKE_RUNNER)" "$$run_dir"; \
 	test -f "$$run_dir/PILOT-NOT-FOR-PUBLICATION"; \
 	grep -q 'publication_eligible=false' "$$run_dir/PILOT-NOT-FOR-PUBLICATION"; \
-	! grep -q '\\newcommand' "$$run_dir/generated/latex/evidence.tex"
+	if test -f "$$run_dir/generated/latex/evidence.tex"; then \
+		! grep -q '\\newcommand' "$$run_dir/generated/latex/evidence.tex"; \
+	fi
 
 eval-v5-final-real-pilot:
 	TASKGATE_REAL_PILOT_BUILD=1 ./evaluation/final-v5-wsl2/scripts/run-real-pilot.sh
