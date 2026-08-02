@@ -7,11 +7,14 @@ cd "$repo"
 fresh_script=evaluation/final-v5-wsl2/scripts/start-fresh-deployment.sh
 smoke_script=evaluation/final-v5-wsl2/scripts/run-pilot.sh
 real_script=evaluation/final-v5-wsl2/scripts/run-real-pilot.sh
+observer_mountpoint=db/init/09-final-v5-pg-stat-statements.sql
 
 grep -Fq '"${compose[@]}" config --no-interpolate > "$compose_config_output"' "$fresh_script"
 ! grep -Fq '"${compose[@]}" config > "$compose_config_output"' "$fresh_script"
 grep -Fq 'go build -buildvcs=false -o "$adapter_bin"' "$smoke_script"
 grep -Fq 'go build -trimpath -buildvcs=false -o "$adapter_bin"' "$real_script"
+test -f "$observer_mountpoint"
+! grep -Eq '^[[:space:]]*[^-[:space:]]' "$observer_mountpoint"
 
 tmp_dir="$(mktemp -d /tmp/taskgate-final-v5-harness.XXXXXX)"
 trap 'rm -rf "$tmp_dir"' EXIT

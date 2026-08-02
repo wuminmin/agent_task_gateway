@@ -1,0 +1,2 @@
+-- Empty mountpoint for the final-v5 Pilot observer override. The real
+-- pg_stat_statements setup remains isolated to compose.real-pilot.yaml.
