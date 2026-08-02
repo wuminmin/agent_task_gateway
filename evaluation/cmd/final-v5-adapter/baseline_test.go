@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"testing"
 
+	"taskbound.local/agent-data-gateway/evaluation/internal/experiment"
 	"taskbound.local/agent-data-gateway/internal/approval"
 	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 )
@@ -48,6 +50,68 @@ func TestValidateResponseAgainstVerifiedReceiptRejectsUnsignedResponseDrift(t *t
 				t.Fatal("response drift was accepted")
 			}
 		})
+	}
+}
+
+func TestPilotIdentityHashesAreAuthorityAndKindSeparated(t *testing.T) {
+	operation := experiment.AdapterOperation{CampaignID: "campaign-one", DeploymentID: "deployment-one"}
+	query := saltedIdentityHash(operation, "query", "shared-id")
+	result := saltedIdentityHash(operation, "result", "shared-id")
+	otherDeployment := operation
+	otherDeployment.DeploymentID = "deployment-two"
+
+	for name, digest := range map[string]string{
+		"query":            query,
+		"result":           result,
+		"other deployment": saltedIdentityHash(otherDeployment, "query", "shared-id"),
+	} {
+		if !validDigest(digest) {
+			t.Fatalf("%s identity is not a SHA-256 digest: %q", name, digest)
+		}
+	}
+	if query == result || query == saltedIdentityHash(otherDeployment, "query", "shared-id") {
+		t.Fatal("redacted identity did not bind both identifier kind and deployment authority")
+	}
+}
+
+func TestObservationBindingDigestSeparatesRootAuthority(t *testing.T) {
+	observation := sha("shared-observation")
+	first := observationBindingDigest("root-one", observation)
+	second := observationBindingDigest("root-two", observation)
+	if !validDigest(first) || !validDigest(second) || first == second {
+		t.Fatal("root-bound observation identity did not separate independent roots")
+	}
+}
+
+func TestResponseTerminalIdentityEvidenceRetainsOnlyRedactedIDs(t *testing.T) {
+	operation := experiment.AdapterOperation{CampaignID: "campaign-one", DeploymentID: "deployment-one"}
+	response := matchingVerifiedResponse()
+	response.Receipt.ArtifactIntent.ObjectKeySHA256 = sha("results/private/object")
+	response.Receipt.ArtifactIntent.ObjectSHA256 = sha("ciphertext")
+	response.Receipt.ArtifactIntent.IntentSHA256 = sha("intent")
+	response.Receipt.Exposure.ObservationSHA256 = sha("observation")
+	response.Exposure.ObservationSHA256 = response.Receipt.Exposure.ObservationSHA256
+	manifest := &experiment.RedactedVerifierManifest{
+		CanonicalCiphertextSHA256: response.Receipt.ArtifactIntent.ObjectSHA256,
+		CanonicalCiphertextSize:   123,
+	}
+
+	evidence := responseTerminalIdentityEvidence(operation, response, manifest)
+	if !evidence.Found || evidence.QueryIDHash != saltedIdentityHash(operation, "query", response.QueryID) ||
+		evidence.ResultIDHash != saltedIdentityHash(operation, "result", response.ResultID) ||
+		evidence.ObjectKeySHA256 != response.Receipt.ArtifactIntent.ObjectKeySHA256 ||
+		evidence.CanonicalCiphertextSHA256 != manifest.CanonicalCiphertextSHA256 ||
+		evidence.CanonicalCiphertextSize != manifest.CanonicalCiphertextSize {
+		t.Fatal("returned terminal identity is not bound to the verified response and transcript")
+	}
+	encoded, err := json.Marshal(evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, raw := range [][]byte{[]byte(response.QueryID), []byte(response.ResultID), []byte("results/private/object")} {
+		if bytes.Contains(encoded, raw) {
+			t.Fatalf("redacted terminal evidence leaked raw identity %q", raw)
+		}
 	}
 }
 

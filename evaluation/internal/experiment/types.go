@@ -230,91 +230,94 @@ func (config Config) Validate(expectedExperiment string) error {
 }
 
 type Sample struct {
-	SchemaVersion             int                           `json:"schema_version"`
-	CampaignID                string                        `json:"campaign_id"`
-	DeploymentID              string                        `json:"deployment_id"`
-	ExperimentID              string                        `json:"experiment_id"`
-	CellID                    string                        `json:"cell_id"`
-	SampleID                  string                        `json:"sample_id"`
-	Iteration                 int                           `json:"iteration"`
-	ProcessReplicate          int                           `json:"process_replicate,omitempty"`
-	OrderPosition             int                           `json:"order_position"`
-	RandomSeed                int64                         `json:"random_seed"`
-	PairID                    string                        `json:"pair_id"`
-	PairedSystemOrder         string                        `json:"paired_system_order"`
-	RootGroupID               string                        `json:"root_group_id"`
-	System                    string                        `json:"system"`
-	Mode                      string                        `json:"mode"`
-	WorkloadID                string                        `json:"workload_id"`
-	Scale                     string                        `json:"scale"`
-	ClientAvailableMS         float64                       `json:"client_available_ms"`
-	ClientFullDrainMS         float64                       `json:"client_full_drain_ms"`
-	GenerationBoundaryMS      float64                       `json:"generation_boundary_ms,omitempty"`
-	FullTaskGateMS            float64                       `json:"full_taskgate_ms,omitempty"`
-	PipelineMS                map[string]float64            `json:"pipeline_ms"`
-	DiagnosticMS              map[string]float64            `json:"diagnostic_ms"`
-	Counters                  map[string]int64              `json:"counters,omitempty"`
-	RowCount                  int64                         `json:"row_count"`
-	ColumnCount               int                           `json:"column_count"`
-	ResultSHA256              string                        `json:"result_sha256"`
-	PhysicalSQLSHA256         string                        `json:"physical_sql_sha256,omitempty"`
-	LogicalSQLSHA256          string                        `json:"logical_sql_sha256,omitempty"`
-	QueryPlanSHA256           string                        `json:"query_plan_sha256,omitempty"`
-	ReleaseSetSHA256          string                        `json:"release_set_sha256,omitempty"`
-	DependencySetSHA256       string                        `json:"dependency_set_sha256,omitempty"`
-	OutcomeSetSHA256          string                        `json:"outcome_set_sha256,omitempty"`
-	ArtifactSHA256            string                        `json:"artifact_sha256"`
-	ObjectSHA256              string                        `json:"object_sha256"`
-	ActualReleaseFacts        int64                         `json:"actual_release_facts"`
-	ChargedReleaseFacts       int64                         `json:"charged_release_facts"`
-	ActualDependencyFacts     int64                         `json:"actual_dependency_facts"`
-	ChargedDependencyFacts    int64                         `json:"charged_dependency_facts"`
-	ActualOutcomeFacts        int64                         `json:"actual_outcome_facts"`
-	ChargedOutcomeFacts       int64                         `json:"charged_outcome_facts"`
-	PredicateAtomCount        int64                         `json:"predicate_atom_count"`
-	CompositeCount            int64                         `json:"composite_count"`
-	SemanticReplay            bool                          `json:"semantic_replay"`
-	IdempotentReplay          bool                          `json:"idempotent_replay"`
-	BusinessSQLDelta          int64                         `json:"business_sql_delta"`
-	RootEpochBefore           int64                         `json:"root_epoch_before"`
-	RootEpochAfter            int64                         `json:"root_epoch_after"`
-	RootTaskIDHash            string                        `json:"root_task_id_hash,omitempty"`
-	RootSetSHA256Before       string                        `json:"root_set_sha256_before"`
-	RootSetSHA256After        string                        `json:"root_set_sha256_after"`
-	ParquetBytes              int64                         `json:"parquet_bytes"`
-	EncryptedObjectBytes      int64                         `json:"encrypted_object_bytes"`
-	ReceiptVersion            string                        `json:"receipt_version"`
-	ReceiptSHA256             string                        `json:"receipt_sha256"`
-	ArtifactIntentSHA256      string                        `json:"artifact_intent_sha256"`
-	AvailabilityAuditSHA256   string                        `json:"availability_audit_sha256"`
-	ReceiptVerified           bool                          `json:"receipt_verified,omitempty"`
-	ArtifactAvailable         bool                          `json:"artifact_available,omitempty"`
-	Rejected                  bool                          `json:"rejected,omitempty"`
-	RejectedNoResult          bool                          `json:"rejected_no_result,omitempty"`
-	RejectedNoArtifact        bool                          `json:"rejected_no_artifact,omitempty"`
-	RejectedNoSuccessfulAudit bool                          `json:"rejected_no_successful_audit,omitempty"`
-	CrossEpochReplay          bool                          `json:"cross_epoch_replay,omitempty"`
-	BudgetViolation           bool                          `json:"budget_violation,omitempty"`
-	GatewayMemoryPeakBytes    int64                         `json:"gateway_memory_peak_bytes"`
-	GatewayCPUUsecDelta       int64                         `json:"gateway_cpu_usec_delta"`
-	GatewayNetworkRXDelta     int64                         `json:"gateway_network_rx_delta"`
-	GatewayNetworkTXDelta     int64                         `json:"gateway_network_tx_delta"`
-	ControlWALBytesDelta      int64                         `json:"control_wal_bytes_delta"`
-	BusinessWALBytesDelta     int64                         `json:"business_wal_bytes_delta"`
-	Status                    string                        `json:"status"`
-	ErrorCode                 string                        `json:"error_code"`
-	PublicationEligible       bool                          `json:"publication_eligible"`
-	KernelOnly                bool                          `json:"kernel_only,omitempty"`
-	Reason                    string                        `json:"reason,omitempty"`
-	Trace                     []TraceStep                   `json:"trace,omitempty"`
-	BaselineVerification      *BaselineVerificationEvidence `json:"baseline_verification,omitempty"`
-	RecoveryVerification      *RecoveryVerificationEvidence `json:"recovery_verification,omitempty"`
-	RLSVerification           *RLSVerificationEvidence      `json:"rls_verification,omitempty"`
-	AttackVerification        *AttackVerificationEvidence   `json:"attack_verification,omitempty"`
-	ProvSQLVerification       *ProvSQLVerificationEvidence  `json:"provsql_verification,omitempty"`
-	CompilerVerification      *CompilerVerificationEvidence `json:"compiler_verification,omitempty"`
-	ConcurrencyVerification   *ConcurrencyVerification      `json:"concurrency_verification,omitempty"`
-	RQ5Verification           *RQ5VerificationEvidence      `json:"rq5_verification,omitempty"`
+	SchemaVersion             int                               `json:"schema_version"`
+	CampaignID                string                            `json:"campaign_id"`
+	DeploymentID              string                            `json:"deployment_id"`
+	ExperimentID              string                            `json:"experiment_id"`
+	CellID                    string                            `json:"cell_id"`
+	SampleID                  string                            `json:"sample_id"`
+	Iteration                 int                               `json:"iteration"`
+	ProcessReplicate          int                               `json:"process_replicate,omitempty"`
+	OrderPosition             int                               `json:"order_position"`
+	RandomSeed                int64                             `json:"random_seed"`
+	PairID                    string                            `json:"pair_id"`
+	PairedSystemOrder         string                            `json:"paired_system_order"`
+	RootGroupID               string                            `json:"root_group_id"`
+	System                    string                            `json:"system"`
+	Mode                      string                            `json:"mode"`
+	WorkloadID                string                            `json:"workload_id"`
+	Scale                     string                            `json:"scale"`
+	ClientAvailableMS         float64                           `json:"client_available_ms"`
+	ClientFullDrainMS         float64                           `json:"client_full_drain_ms"`
+	GenerationBoundaryMS      float64                           `json:"generation_boundary_ms,omitempty"`
+	FullTaskGateMS            float64                           `json:"full_taskgate_ms,omitempty"`
+	PipelineMS                map[string]float64                `json:"pipeline_ms"`
+	DiagnosticMS              map[string]float64                `json:"diagnostic_ms"`
+	Counters                  map[string]int64                  `json:"counters,omitempty"`
+	RowCount                  int64                             `json:"row_count"`
+	ColumnCount               int                               `json:"column_count"`
+	ResultSHA256              string                            `json:"result_sha256"`
+	PhysicalSQLSHA256         string                            `json:"physical_sql_sha256,omitempty"`
+	LogicalSQLSHA256          string                            `json:"logical_sql_sha256,omitempty"`
+	QueryPlanSHA256           string                            `json:"query_plan_sha256,omitempty"`
+	ReleaseSetSHA256          string                            `json:"release_set_sha256,omitempty"`
+	DependencySetSHA256       string                            `json:"dependency_set_sha256,omitempty"`
+	OutcomeSetSHA256          string                            `json:"outcome_set_sha256,omitempty"`
+	ArtifactSHA256            string                            `json:"artifact_sha256"`
+	ObjectSHA256              string                            `json:"object_sha256"`
+	ActualReleaseFacts        int64                             `json:"actual_release_facts"`
+	ChargedReleaseFacts       int64                             `json:"charged_release_facts"`
+	ActualDependencyFacts     int64                             `json:"actual_dependency_facts"`
+	ChargedDependencyFacts    int64                             `json:"charged_dependency_facts"`
+	ActualOutcomeFacts        int64                             `json:"actual_outcome_facts"`
+	ChargedOutcomeFacts       int64                             `json:"charged_outcome_facts"`
+	PredicateAtomCount        int64                             `json:"predicate_atom_count"`
+	CompositeCount            int64                             `json:"composite_count"`
+	SemanticReplay            bool                              `json:"semantic_replay"`
+	IdempotentReplay          bool                              `json:"idempotent_replay"`
+	BusinessSQLDelta          int64                             `json:"business_sql_delta"`
+	RootEpochBefore           int64                             `json:"root_epoch_before"`
+	RootEpochAfter            int64                             `json:"root_epoch_after"`
+	RootTaskIDHash            string                            `json:"root_task_id_hash,omitempty"`
+	RootSetSHA256Before       string                            `json:"root_set_sha256_before"`
+	RootSetSHA256After        string                            `json:"root_set_sha256_after"`
+	ParquetBytes              int64                             `json:"parquet_bytes"`
+	EncryptedObjectBytes      int64                             `json:"encrypted_object_bytes"`
+	ReceiptVersion            string                            `json:"receipt_version"`
+	ReceiptSHA256             string                            `json:"receipt_sha256"`
+	ArtifactIntentSHA256      string                            `json:"artifact_intent_sha256"`
+	AvailabilityAuditSHA256   string                            `json:"availability_audit_sha256"`
+	ReceiptVerified           bool                              `json:"receipt_verified,omitempty"`
+	ArtifactAvailable         bool                              `json:"artifact_available,omitempty"`
+	Rejected                  bool                              `json:"rejected,omitempty"`
+	RejectedNoResult          bool                              `json:"rejected_no_result,omitempty"`
+	RejectedNoArtifact        bool                              `json:"rejected_no_artifact,omitempty"`
+	RejectedNoSuccessfulAudit bool                              `json:"rejected_no_successful_audit,omitempty"`
+	CrossEpochReplay          bool                              `json:"cross_epoch_replay,omitempty"`
+	BudgetViolation           bool                              `json:"budget_violation,omitempty"`
+	GatewayMemoryPeakBytes    int64                             `json:"gateway_memory_peak_bytes"`
+	GatewayCPUUsecDelta       int64                             `json:"gateway_cpu_usec_delta"`
+	GatewayNetworkRXDelta     int64                             `json:"gateway_network_rx_delta"`
+	GatewayNetworkTXDelta     int64                             `json:"gateway_network_tx_delta"`
+	ControlWALBytesDelta      int64                             `json:"control_wal_bytes_delta"`
+	BusinessWALBytesDelta     int64                             `json:"business_wal_bytes_delta"`
+	Status                    string                            `json:"status"`
+	ErrorCode                 string                            `json:"error_code"`
+	PublicationEligible       bool                              `json:"publication_eligible"`
+	KernelOnly                bool                              `json:"kernel_only,omitempty"`
+	Reason                    string                            `json:"reason,omitempty"`
+	Trace                     []TraceStep                       `json:"trace,omitempty"`
+	BaselineVerification      *BaselineVerificationEvidence     `json:"baseline_verification,omitempty"`
+	ReplayVerification        *ReplayVerificationEvidence       `json:"replay_verification,omitempty"`
+	CrossBindingVerification  *CrossBindingVerificationEvidence `json:"cross_binding_verification,omitempty"`
+	IdempotentVerification    *IdempotentVerificationEvidence   `json:"idempotent_verification,omitempty"`
+	RecoveryVerification      *RecoveryVerificationEvidence     `json:"recovery_verification,omitempty"`
+	RLSVerification           *RLSVerificationEvidence          `json:"rls_verification,omitempty"`
+	AttackVerification        *AttackVerificationEvidence       `json:"attack_verification,omitempty"`
+	ProvSQLVerification       *ProvSQLVerificationEvidence      `json:"provsql_verification,omitempty"`
+	CompilerVerification      *CompilerVerificationEvidence     `json:"compiler_verification,omitempty"`
+	ConcurrencyVerification   *ConcurrencyVerification          `json:"concurrency_verification,omitempty"`
+	RQ5Verification           *RQ5VerificationEvidence          `json:"rq5_verification,omitempty"`
 }
 
 type BaselineVerificationEvidence struct {
@@ -327,31 +330,227 @@ type BaselineVerificationEvidence struct {
 	ArtifactStatus          string                         `json:"artifact_status"`
 	DownloadedParquetSHA256 string                         `json:"downloaded_parquet_sha256"`
 	ParsedResultSHA256      string                         `json:"parsed_result_sha256"`
+	VerifierManifest        *RedactedVerifierManifest      `json:"verifier_manifest,omitempty"`
+}
+
+// BusinessSQLSnapshot is an independently observed pg_stat_statements sample.
+// The reset epoch and deallocation counter make a counter reset (or eviction)
+// distinguishable from a genuine zero-delta replay.
+type BusinessSQLSnapshot struct {
+	StatsResetUnixMicro int64 `json:"stats_reset_unix_micro"`
+	Dealloc             int64 `json:"dealloc"`
+	VisibleCalls        int64 `json:"visible_calls"`
+	CompanionCalls      int64 `json:"companion_calls"`
+}
+
+// RootLedgerSnapshot is the complete, redacted root-head state needed by the
+// Pilot replay checks. It contains no FactID or payload bytes.
+type RootLedgerSnapshot struct {
+	Epoch                    int64  `json:"epoch"`
+	DictionarySetSHA256      string `json:"dictionary_set_sha256"`
+	ReleaseSetSHA256         string `json:"release_set_sha256"`
+	ReleaseCardinality       int64  `json:"release_cardinality"`
+	DependencySetSHA256      string `json:"dependency_set_sha256"`
+	DependencyCardinality    int64  `json:"dependency_cardinality"`
+	OutcomeSetSHA256         string `json:"outcome_set_sha256"`
+	OutcomeCardinality       int64  `json:"outcome_cardinality"`
+	RootObservationSetSHA256 string `json:"root_observation_set_sha256"`
+	RootObservationCount     int64  `json:"root_observation_count"`
+}
+
+// ReplayVerificationEvidence binds an ordinary semantic replay to independent
+// Business SQL counters and complete root snapshots.
+type ReplayVerificationEvidence struct {
+	BusinessBefore          BusinessSQLSnapshot `json:"business_before"`
+	BusinessAfter           BusinessSQLSnapshot `json:"business_after"`
+	RootBefore              RootLedgerSnapshot  `json:"root_before"`
+	RootAfter               RootLedgerSnapshot  `json:"root_after"`
+	SourceObservationSHA256 string              `json:"source_observation_sha256"`
+	ReplayObservationSHA256 string              `json:"replay_observation_sha256"`
+}
+
+// RedactedVerifierManifest retains the complete verifier verdict and its
+// cryptographic bindings without retaining ciphertext or Parquet payloads.
+type RedactedVerifierManifest struct {
+	VerifierVersion           string `json:"verifier_version"`
+	QueryIDHash               string `json:"query_id_hash"`
+	ResultIDHash              string `json:"result_id_hash"`
+	RootTaskIDHash            string `json:"root_task_id_hash"`
+	ReceiptSHA256             string `json:"receipt_sha256"`
+	ObservationSHA256         string `json:"observation_sha256"`
+	ReleaseSetSHA256          string `json:"release_set_sha256"`
+	DependencySetSHA256       string `json:"dependency_set_sha256"`
+	OutcomeSetSHA256          string `json:"outcome_set_sha256"`
+	ArtifactIntentSHA256      string `json:"artifact_intent_sha256"`
+	ObjectKeySHA256           string `json:"object_key_sha256"`
+	CanonicalCiphertextSHA256 string `json:"canonical_ciphertext_sha256"`
+	CanonicalCiphertextSize   int64  `json:"canonical_ciphertext_size"`
+	ReleasedParquetSHA256     string `json:"released_parquet_sha256"`
+	ReleasedParquetSize       int64  `json:"released_parquet_size"`
+	SchemaSHA256              string `json:"schema_sha256"`
+	TerminalAuditSequence     int64  `json:"terminal_audit_sequence"`
+	RegistrationAuditSequence int64  `json:"registration_audit_sequence"`
+	AvailabilityAuditSequence int64  `json:"availability_audit_sequence"`
+	VerificationResult        string `json:"verification_result"`
+}
+
+// CrossBindingVerificationEvidence records a second approved root executing
+// the same logical query. Every identity is salted/redacted in the JSONL.
+type CrossBindingVerificationEvidence struct {
+	FirstTaskIDHash                string                    `json:"first_task_id_hash"`
+	SecondTaskIDHash               string                    `json:"second_task_id_hash"`
+	FirstRootTaskIDHash            string                    `json:"first_root_task_id_hash"`
+	SecondRootTaskIDHash           string                    `json:"second_root_task_id_hash"`
+	FirstQueryIDHash               string                    `json:"first_query_id_hash"`
+	SecondQueryIDHash              string                    `json:"second_query_id_hash"`
+	FirstGrantSHA256               string                    `json:"first_grant_sha256"`
+	SecondGrantSHA256              string                    `json:"second_grant_sha256"`
+	FirstCacheKeySHA256            string                    `json:"first_cache_key_sha256"`
+	SecondCacheKeySHA256           string                    `json:"second_cache_key_sha256"`
+	FirstSQLFingerprintSHA256      string                    `json:"first_sql_fingerprint_sha256"`
+	SecondSQLFingerprintSHA256     string                    `json:"second_sql_fingerprint_sha256"`
+	FirstCatalogSHA256             string                    `json:"first_catalog_sha256"`
+	SecondCatalogSHA256            string                    `json:"second_catalog_sha256"`
+	FirstSchemaSHA256              string                    `json:"first_schema_sha256"`
+	SecondSchemaSHA256             string                    `json:"second_schema_sha256"`
+	FirstDatasourceIDHash          string                    `json:"first_datasource_id_hash"`
+	SecondDatasourceIDHash         string                    `json:"second_datasource_id_hash"`
+	FirstObservationSHA256         string                    `json:"first_observation_sha256"`
+	SecondObservationSHA256        string                    `json:"second_observation_sha256"`
+	FirstObservationBindingSHA256  string                    `json:"first_observation_binding_sha256"`
+	SecondObservationBindingSHA256 string                    `json:"second_observation_binding_sha256"`
+	FirstSourceQueryIDHash         string                    `json:"first_source_query_id_hash"`
+	SecondSourceQueryIDHash        string                    `json:"second_source_query_id_hash"`
+	SecondRootFirstQueryIDHash     string                    `json:"second_root_first_query_id_hash"`
+	BusinessBefore                 BusinessSQLSnapshot       `json:"business_before"`
+	BusinessAfter                  BusinessSQLSnapshot       `json:"business_after"`
+	SemanticReplayAudits           int64                     `json:"semantic_replay_audits"`
+	SettlementAudits               int64                     `json:"settlement_audits"`
+	SemanticReplay                 bool                      `json:"semantic_replay"`
+	IdempotentReplay               bool                      `json:"idempotent_replay"`
+	VerifierManifest               *RedactedVerifierManifest `json:"verifier_manifest"`
+}
+
+// TerminalIdentitySnapshot is the redacted identity of one terminal result.
+type TerminalIdentitySnapshot struct {
+	Found                     bool   `json:"found"`
+	QueryIDHash               string `json:"query_id_hash"`
+	ResultIDHash              string `json:"result_id_hash"`
+	ReceiptSHA256             string `json:"receipt_sha256"`
+	IntentSHA256              string `json:"intent_sha256"`
+	ObjectKeySHA256           string `json:"object_key_sha256"`
+	CommittedObjectSHA256     string `json:"committed_object_sha256"`
+	CanonicalCiphertextSHA256 string `json:"canonical_ciphertext_sha256"`
+	CanonicalCiphertextSize   int64  `json:"canonical_ciphertext_size"`
+	ArtifactStatus            string `json:"artifact_status"`
+	ObservationSHA256         string `json:"observation_sha256"`
+}
+
+// IdempotentControlSnapshot captures all Business, Control, root, audit, and
+// canonical-object state that must remain unchanged on request-ID replay.
+type IdempotentControlSnapshot struct {
+	Business           BusinessSQLSnapshot      `json:"business"`
+	Root               RootLedgerSnapshot       `json:"root"`
+	QueryRecords       int64                    `json:"query_records"`
+	ExposureCharges    int64                    `json:"exposure_charges"`
+	Observations       int64                    `json:"observations"`
+	Receipts           int64                    `json:"receipts"`
+	Artifacts          int64                    `json:"artifacts"`
+	AvailableArtifacts int64                    `json:"available_artifacts"`
+	TerminalAudits     int64                    `json:"terminal_audits"`
+	RegistrationAudits int64                    `json:"registration_audits"`
+	AvailabilityAudits int64                    `json:"availability_audits"`
+	CanonicalObjects   int64                    `json:"canonical_objects"`
+	Target             TerminalIdentitySnapshot `json:"target"`
+}
+
+type IdempotentVerificationEvidence struct {
+	Before   IdempotentControlSnapshot `json:"before"`
+	After    IdempotentControlSnapshot `json:"after"`
+	Returned TerminalIdentitySnapshot  `json:"returned"`
+}
+
+type CanonicalObjectSnapshot struct {
+	Exists                    bool   `json:"exists"`
+	ObjectKeySHA256           string `json:"object_key_sha256"`
+	CanonicalCiphertextSHA256 string `json:"canonical_ciphertext_sha256"`
+	CanonicalCiphertextSize   int64  `json:"canonical_ciphertext_size"`
+	IntentSHA256              string `json:"intent_sha256"`
+}
+
+// RecoveryExposureSnapshot is the redacted projection of signed exposure
+// evidence retained at the failure and post-recovery boundaries.
+type RecoveryExposureSnapshot struct {
+	RootTaskIDHash            string `json:"root_task_id_hash"`
+	ProfileVersion            string `json:"profile_version"`
+	ActualReleaseFacts        int64  `json:"actual_release_facts"`
+	ActualInfluenceFacts      int64  `json:"actual_influence_facts"`
+	ActualOutcomeFacts        int64  `json:"actual_outcome_facts"`
+	ChargedReleaseFacts       int64  `json:"charged_release_facts"`
+	ChargedInfluenceFacts     int64  `json:"charged_influence_facts"`
+	ChargedOutcomeFacts       int64  `json:"charged_outcome_facts"`
+	ObservationSHA256         string `json:"observation_sha256"`
+	DictionarySetSHA256       string `json:"dictionary_set_sha256"`
+	ReleaseSetSHA256          string `json:"release_set_sha256"`
+	InfluenceSetSHA256        string `json:"influence_set_sha256"`
+	OutcomeSetSHA256          string `json:"outcome_set_sha256"`
+	RootEpoch                 int64  `json:"root_epoch"`
+	PredicateProfileVersion   string `json:"predicate_profile_version"`
+	PredicateContextSHA256    string `json:"predicate_context_sha256"`
+	PredicateSetSHA256        string `json:"predicate_set_sha256"`
+	ActualPredicateAtomCount  int64  `json:"actual_predicate_atom_count"`
+	ChargedPredicateAtomCount int64  `json:"charged_predicate_atom_count"`
+	CompositeOutcomeSHA256    string `json:"composite_outcome_sha256"`
+	ActualCompositeCount      int64  `json:"actual_composite_count"`
+	ChargedCompositeCount     int64  `json:"charged_composite_count"`
 }
 
 // RecoveryVerificationEvidence contains raw counters captured on both sides
 // of a forced canonical-exists-but-PENDING recovery. The finalizer recomputes
 // the no-requery/no-resettlement assertions instead of trusting booleans.
 type RecoveryVerificationEvidence struct {
-	FailureObserved         bool   `json:"failure_observed"`
-	CanonicalObjectObserved bool   `json:"canonical_object_observed"`
-	ArtifactStatusBefore    string `json:"artifact_status_before"`
-	ArtifactStatusAfter     string `json:"artifact_status_after"`
-	BusinessCallsBefore     int64  `json:"business_calls_before"`
-	BusinessCallsAtFailure  int64  `json:"business_calls_at_failure"`
-	BusinessCallsAfter      int64  `json:"business_calls_after"`
-	QueryRecordsBefore      int64  `json:"query_records_before"`
-	QueryRecordsAtFailure   int64  `json:"query_records_at_failure"`
-	QueryRecordsAfter       int64  `json:"query_records_after"`
-	SettlementsAtFailure    int64  `json:"settlements_at_failure"`
-	SettlementsAfter        int64  `json:"settlements_after"`
-	UsedQueriesBefore       int64  `json:"used_queries_before"`
-	UsedQueriesAtFailure    int64  `json:"used_queries_at_failure"`
-	UsedQueriesAfter        int64  `json:"used_queries_after"`
-	ReceiptSHA256AtFailure  string `json:"receipt_sha256_at_failure"`
-	ReceiptSHA256After      string `json:"receipt_sha256_after"`
-	IntentSHA256AtFailure   string `json:"intent_sha256_at_failure"`
-	IntentSHA256After       string `json:"intent_sha256_after"`
+	FailureObserved                    bool                     `json:"failure_observed"`
+	CanonicalObjectObserved            bool                     `json:"canonical_object_observed"`
+	ArtifactStatusBefore               string                   `json:"artifact_status_before"`
+	ArtifactStatusAfter                string                   `json:"artifact_status_after"`
+	BusinessCallsBefore                int64                    `json:"business_calls_before"`
+	BusinessCallsAtFailure             int64                    `json:"business_calls_at_failure"`
+	BusinessCallsAfter                 int64                    `json:"business_calls_after"`
+	QueryRecordsBefore                 int64                    `json:"query_records_before"`
+	QueryRecordsAtFailure              int64                    `json:"query_records_at_failure"`
+	QueryRecordsAfter                  int64                    `json:"query_records_after"`
+	SettlementsAtFailure               int64                    `json:"settlements_at_failure"`
+	SettlementsAfter                   int64                    `json:"settlements_after"`
+	UsedQueriesBefore                  int64                    `json:"used_queries_before"`
+	UsedQueriesAtFailure               int64                    `json:"used_queries_at_failure"`
+	UsedQueriesAfter                   int64                    `json:"used_queries_after"`
+	ReceiptSHA256AtFailure             string                   `json:"receipt_sha256_at_failure"`
+	ReceiptSHA256After                 string                   `json:"receipt_sha256_after"`
+	IntentSHA256AtFailure              string                   `json:"intent_sha256_at_failure"`
+	IntentSHA256After                  string                   `json:"intent_sha256_after"`
+	BusinessBeforeSnapshot             BusinessSQLSnapshot      `json:"business_before_snapshot"`
+	BusinessAtFailureSnapshot          BusinessSQLSnapshot      `json:"business_at_failure_snapshot"`
+	BusinessAfterSnapshot              BusinessSQLSnapshot      `json:"business_after_snapshot"`
+	RootAtFailure                      RootLedgerSnapshot       `json:"root_at_failure"`
+	RootAfter                          RootLedgerSnapshot       `json:"root_after"`
+	ExposureAtFailure                  RecoveryExposureSnapshot `json:"exposure_at_failure"`
+	ExposureAfter                      RecoveryExposureSnapshot `json:"exposure_after"`
+	ObjectAtFailure                    CanonicalObjectSnapshot  `json:"object_at_failure"`
+	ObjectAfter                        CanonicalObjectSnapshot  `json:"object_after"`
+	SettlementAuditSequencesAtFailure  []int64                  `json:"settlement_audit_sequences_at_failure"`
+	SettlementAuditSequencesAfter      []int64                  `json:"settlement_audit_sequences_after"`
+	TerminalAuditsAtFailure            int64                    `json:"terminal_audits_at_failure"`
+	TerminalAuditsAfter                int64                    `json:"terminal_audits_after"`
+	RegistrationAuditsAtFailure        int64                    `json:"registration_audits_at_failure"`
+	RegistrationAuditsAfter            int64                    `json:"registration_audits_after"`
+	AvailabilityAuditsAtFailure        int64                    `json:"availability_audits_at_failure"`
+	AvailabilityAuditsAfter            int64                    `json:"availability_audits_after"`
+	TerminalAuditSequenceAtFailure     int64                    `json:"terminal_audit_sequence_at_failure"`
+	TerminalAuditSequenceAfter         int64                    `json:"terminal_audit_sequence_after"`
+	RegistrationAuditSequenceAtFailure int64                    `json:"registration_audit_sequence_at_failure"`
+	RegistrationAuditSequenceAfter     int64                    `json:"registration_audit_sequence_after"`
+	AvailabilityAuditSequenceAtFailure int64                    `json:"availability_audit_sequence_at_failure"`
+	AvailabilityAuditSequenceAfter     int64                    `json:"availability_audit_sequence_after"`
 }
 
 type RLSVerificationEvidence struct {

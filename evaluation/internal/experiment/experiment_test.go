@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"taskbound.local/agent-data-gateway/evaluation/finalv5oracle"
+	"taskbound.local/agent-data-gateway/internal/auditchain"
 	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 )
 
@@ -262,9 +263,29 @@ func TestValidateBaselineSignedSampleRejectsUnsignedCountDrift(t *testing.T) {
 
 func TestRecoveryEvidenceRejectsRequeryAndAcceptsStableRecovery(t *testing.T) {
 	sample := validTestSample()
-	sample.Mode = "pending_recovery"
+	sample.Mode, sample.IdempotentReplay = "pending_recovery", true
+	sample.BusinessSQLDelta = 2
 	sample.ReceiptSHA256 = strings.Repeat("a", 64)
 	sample.ArtifactIntentSHA256 = strings.Repeat("b", 64)
+	root := validRootLedgerSnapshot()
+	sample.RootEpochBefore, sample.RootEpochAfter = 0, root.Epoch
+	sample.RootSetSHA256Before, sample.RootSetSHA256After = rootLedgerSetSHA256(RootLedgerSnapshot{}), rootLedgerSetSHA256(root)
+	sample.ReleaseSetSHA256, sample.DependencySetSHA256, sample.OutcomeSetSHA256 = root.ReleaseSetSHA256, root.DependencySetSHA256, root.OutcomeSetSHA256
+	sample.ActualReleaseFacts, sample.ActualDependencyFacts, sample.ActualOutcomeFacts = root.ReleaseCardinality, root.DependencyCardinality, root.OutcomeCardinality
+	sample.ObjectSHA256 = strings.Repeat("8", 64)
+	sample.EncryptedObjectBytes = 1087
+	exposure := validRecoveryExposure(root)
+	sample.RootTaskIDHash = redactedTaskSHA256(sample, exposure.RootTaskID)
+	recoveryExposure := recoveryExposureSnapshot(sample, exposure)
+	intent := &queryreceipt.ArtifactIntentEvidenceV1{ObjectKeySHA256: strings.Repeat("7", 64), ObjectSHA256: sample.ObjectSHA256, ObjectSize: sample.EncryptedObjectBytes, IntentSHA256: sample.ArtifactIntentSHA256, RegistrationAuditSequence: 8}
+	sample.BaselineVerification = &BaselineVerificationEvidence{
+		Receipt:       queryreceipt.QueryReceiptV1{AuditSequence: 7, Exposure: &exposure, ArtifactIntent: intent},
+		TerminalProof: auditchain.InclusionProof{TerminalEvent: auditchain.Event{Sequence: 7}}, RegistrationProof: auditchain.InclusionProof{TerminalEvent: auditchain.Event{Sequence: 8}},
+		AvailabilityProof: auditchain.InclusionProof{TerminalEvent: auditchain.Event{Sequence: 9}},
+	}
+	beforeBusiness := BusinessSQLSnapshot{StatsResetUnixMicro: 100, VisibleCalls: 5, CompanionCalls: 5}
+	failureBusiness := BusinessSQLSnapshot{StatsResetUnixMicro: 100, VisibleCalls: 6, CompanionCalls: 6}
+	object := CanonicalObjectSnapshot{Exists: true, ObjectKeySHA256: intent.ObjectKeySHA256, CanonicalCiphertextSHA256: sample.ObjectSHA256, CanonicalCiphertextSize: sample.EncryptedObjectBytes, IntentSHA256: sample.ArtifactIntentSHA256}
 	sample.RecoveryVerification = &RecoveryVerificationEvidence{
 		FailureObserved: true, CanonicalObjectObserved: true,
 		ArtifactStatusBefore: "PENDING", ArtifactStatusAfter: "AVAILABLE",
@@ -274,13 +295,342 @@ func TestRecoveryEvidenceRejectsRequeryAndAcceptsStableRecovery(t *testing.T) {
 		UsedQueriesBefore: 0, UsedQueriesAtFailure: 1, UsedQueriesAfter: 1,
 		ReceiptSHA256AtFailure: sample.ReceiptSHA256, ReceiptSHA256After: sample.ReceiptSHA256,
 		IntentSHA256AtFailure: sample.ArtifactIntentSHA256, IntentSHA256After: sample.ArtifactIntentSHA256,
+		BusinessBeforeSnapshot: beforeBusiness, BusinessAtFailureSnapshot: failureBusiness, BusinessAfterSnapshot: failureBusiness,
+		RootAtFailure: root, RootAfter: root, ExposureAtFailure: recoveryExposure, ExposureAfter: recoveryExposure,
+		ObjectAtFailure: object, ObjectAfter: object,
+		SettlementAuditSequencesAtFailure: []int64{7}, SettlementAuditSequencesAfter: []int64{7},
+		TerminalAuditsAtFailure: 1, TerminalAuditsAfter: 1, RegistrationAuditsAtFailure: 1, RegistrationAuditsAfter: 1,
+		AvailabilityAuditsAtFailure: 0, AvailabilityAuditsAfter: 1,
+		TerminalAuditSequenceAtFailure: 7, TerminalAuditSequenceAfter: 7, RegistrationAuditSequenceAtFailure: 8, RegistrationAuditSequenceAfter: 8,
+		AvailabilityAuditSequenceAtFailure: 0, AvailabilityAuditSequenceAfter: 9,
 	}
 	if err := validateRecoveryVerification(sample); err != nil {
 		t.Fatal(err)
 	}
-	sample.RecoveryVerification.BusinessCallsAfter++
+	original := *sample.RecoveryVerification
+	tests := []struct {
+		name   string
+		mutate func(*RecoveryVerificationEvidence)
+	}{
+		{name: "Business requery", mutate: func(value *RecoveryVerificationEvidence) { value.BusinessAfterSnapshot.VisibleCalls++ }},
+		{name: "counter reset", mutate: func(value *RecoveryVerificationEvidence) { value.BusinessAfterSnapshot.StatsResetUnixMicro++ }},
+		{name: "root drift", mutate: func(value *RecoveryVerificationEvidence) { value.RootAfter.Epoch++ }},
+		{name: "exposure drift", mutate: func(value *RecoveryVerificationEvidence) {
+			value.ExposureAfter.ObservationSHA256 = strings.Repeat("f", 64)
+		}},
+		{name: "object drift", mutate: func(value *RecoveryVerificationEvidence) { value.ObjectAfter.CanonicalCiphertextSize++ }},
+		{name: "settlement sequence", mutate: func(value *RecoveryVerificationEvidence) { value.SettlementAuditSequencesAfter = []int64{8} }},
+		{name: "availability count", mutate: func(value *RecoveryVerificationEvidence) { value.AvailabilityAuditsAfter++ }},
+		{name: "terminal count", mutate: func(value *RecoveryVerificationEvidence) { value.TerminalAuditsAfter++ }},
+		{name: "registration sequence", mutate: func(value *RecoveryVerificationEvidence) { value.RegistrationAuditSequenceAfter++ }},
+		{name: "availability sequence", mutate: func(value *RecoveryVerificationEvidence) {
+			value.AvailabilityAuditSequenceAfter = value.RegistrationAuditSequenceAfter
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			mutated := original
+			mutated.SettlementAuditSequencesAtFailure = append([]int64(nil), mutated.SettlementAuditSequencesAtFailure...)
+			mutated.SettlementAuditSequencesAfter = append([]int64(nil), mutated.SettlementAuditSequencesAfter...)
+			test.mutate(&mutated)
+			sample.RecoveryVerification = &mutated
+			if err := validateRecoveryVerification(sample); err == nil {
+				t.Fatal("mutated recovery evidence was accepted")
+			}
+		})
+	}
+	sample.RecoveryVerification = &original
+	sample.BusinessSQLDelta = 1
 	if err := validateRecoveryVerification(sample); err == nil {
-		t.Fatal("recovery Business SQL re-execution was accepted")
+		t.Fatal("recovery accepted a forged top-level Business SQL delta")
+	}
+	sample.BusinessSQLDelta = 2
+	sample.RootSetSHA256After = strings.Repeat("f", 64)
+	if err := validateRecoveryVerification(sample); err == nil {
+		t.Fatal("recovery accepted a top-level root digest not recomputed from its snapshot")
+	}
+}
+
+func TestSemanticReplayEvidenceFailsClosedOnIndependentSnapshotDrift(t *testing.T) {
+	sample := validTestSample()
+	sample.Mode, sample.SemanticReplay = "semantic_replay", true
+	root := validRootLedgerSnapshot()
+	bindSampleToRoot(&sample, root)
+	observation := strings.Repeat("6", 64)
+	sample.BaselineVerification = &BaselineVerificationEvidence{Receipt: queryreceipt.QueryReceiptV1{Exposure: &queryreceipt.ExposureEvidenceV1{ObservationSHA256: observation}}}
+	business := BusinessSQLSnapshot{StatsResetUnixMicro: 100, Dealloc: 3, VisibleCalls: 9, CompanionCalls: 9}
+	sample.ReplayVerification = &ReplayVerificationEvidence{BusinessBefore: business, BusinessAfter: business, RootBefore: root, RootAfter: root, SourceObservationSHA256: observation, ReplayObservationSHA256: observation}
+	if err := validateReplayVerification(sample); err != nil {
+		t.Fatal(err)
+	}
+	original := *sample.ReplayVerification
+	tests := []struct {
+		name   string
+		mutate func(*ReplayVerificationEvidence)
+	}{
+		{name: "visible SQL", mutate: func(value *ReplayVerificationEvidence) { value.BusinessAfter.VisibleCalls++ }},
+		{name: "companion SQL", mutate: func(value *ReplayVerificationEvidence) { value.BusinessAfter.CompanionCalls++ }},
+		{name: "stats reset", mutate: func(value *ReplayVerificationEvidence) { value.BusinessAfter.StatsResetUnixMicro++ }},
+		{name: "deallocation", mutate: func(value *ReplayVerificationEvidence) { value.BusinessAfter.Dealloc++ }},
+		{name: "root digest", mutate: func(value *ReplayVerificationEvidence) { value.RootAfter.ReleaseSetSHA256 = strings.Repeat("e", 64) }},
+		{name: "root cardinality", mutate: func(value *ReplayVerificationEvidence) { value.RootAfter.DependencyCardinality++ }},
+		{name: "observation", mutate: func(value *ReplayVerificationEvidence) { value.ReplayObservationSHA256 = strings.Repeat("e", 64) }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			mutated := original
+			test.mutate(&mutated)
+			sample.ReplayVerification = &mutated
+			if err := validateReplayVerification(sample); err == nil {
+				t.Fatal("mutated semantic replay evidence was accepted")
+			}
+		})
+	}
+	sample.ReplayVerification = &original
+	sample.RootSetSHA256Before = strings.Repeat("f", 64)
+	if err := validateReplayVerification(sample); err == nil {
+		t.Fatal("semantic replay accepted a top-level root digest not recomputed from the snapshot")
+	}
+}
+
+func TestNovelEvidenceRequiresFreshRootAndIndependentExecution(t *testing.T) {
+	sample := validTestSample()
+	sample.Mode, sample.BusinessSQLDelta = "novel", 2
+	fresh := RootLedgerSnapshot{RootObservationSetSHA256: emptyRootObservationSetSHA256()}
+	after := validRootLedgerSnapshot()
+	sample.RootEpochBefore, sample.RootEpochAfter = fresh.Epoch, after.Epoch
+	sample.RootSetSHA256Before, sample.RootSetSHA256After = rootLedgerSetSHA256(fresh), rootLedgerSetSHA256(after)
+	sample.ReleaseSetSHA256, sample.DependencySetSHA256, sample.OutcomeSetSHA256 = after.ReleaseSetSHA256, after.DependencySetSHA256, after.OutcomeSetSHA256
+	sample.ActualReleaseFacts, sample.ActualDependencyFacts, sample.ActualOutcomeFacts = after.ReleaseCardinality, after.DependencyCardinality, after.OutcomeCardinality
+	beforeBusiness := BusinessSQLSnapshot{StatsResetUnixMicro: 100, Dealloc: 2, VisibleCalls: 9, CompanionCalls: 9}
+	afterBusiness := BusinessSQLSnapshot{StatsResetUnixMicro: 100, Dealloc: 2, VisibleCalls: 10, CompanionCalls: 10}
+	evidence := ReplayVerificationEvidence{BusinessBefore: beforeBusiness, BusinessAfter: afterBusiness, RootBefore: fresh, RootAfter: after}
+	sample.ReplayVerification = &evidence
+	if err := validateNovelVerification(sample); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name   string
+		mutate func(*ReplayVerificationEvidence)
+	}{
+		{name: "visible execution missing", mutate: func(value *ReplayVerificationEvidence) { value.BusinessAfter.VisibleCalls-- }},
+		{name: "companion execution missing", mutate: func(value *ReplayVerificationEvidence) { value.BusinessAfter.CompanionCalls-- }},
+		{name: "counter reset", mutate: func(value *ReplayVerificationEvidence) { value.BusinessAfter.StatsResetUnixMicro++ }},
+		{name: "nonfresh epoch", mutate: func(value *ReplayVerificationEvidence) { value.RootBefore.Epoch = 1 }},
+		{name: "nonfresh component", mutate: func(value *ReplayVerificationEvidence) { value.RootBefore.ReleaseSetSHA256 = strings.Repeat("f", 64) }},
+		{name: "forged empty observation set", mutate: func(value *ReplayVerificationEvidence) {
+			value.RootBefore.RootObservationSetSHA256 = strings.Repeat("f", 64)
+		}},
+		{name: "root after drift", mutate: func(value *ReplayVerificationEvidence) { value.RootAfter.ReleaseCardinality++ }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			mutated := evidence
+			test.mutate(&mutated)
+			sample.ReplayVerification = &mutated
+			if err := validateNovelVerification(sample); err == nil {
+				t.Fatal("mutated novel evidence was accepted")
+			}
+		})
+	}
+	sample.ReplayVerification = &evidence
+	sample.BusinessSQLDelta = 1
+	if err := validateNovelVerification(sample); err == nil {
+		t.Fatal("novel request accepted a forged top-level Business SQL delta")
+	}
+}
+
+func TestIdempotentEvidenceFailsClosedOnControlAndIdentityDrift(t *testing.T) {
+	sample := validTestSample()
+	sample.Mode, sample.IdempotentReplay = "idempotent_replay", true
+	root := validRootLedgerSnapshot()
+	bindSampleToRoot(&sample, root)
+	intent := &queryreceipt.ArtifactIntentEvidenceV1{ResultID: "result-1", ObjectKeySHA256: strings.Repeat("7", 64), ObjectSHA256: strings.Repeat("8", 64), ObjectSize: 1087, IntentSHA256: strings.Repeat("9", 64)}
+	exposure := &queryreceipt.ExposureEvidenceV1{ObservationSHA256: strings.Repeat("6", 64)}
+	receipt := queryreceipt.QueryReceiptV1{QueryID: "query-1", ArtifactIntent: intent, Exposure: exposure}
+	receiptBytes, _ := json.Marshal(receipt)
+	target := TerminalIdentitySnapshot{
+		Found: true, QueryIDHash: redactedIdentitySHA256(sample, "query", receipt.QueryID), ResultIDHash: redactedIdentitySHA256(sample, "result", intent.ResultID),
+		ReceiptSHA256: sha256Hex(receiptBytes), IntentSHA256: intent.IntentSHA256, ObjectKeySHA256: intent.ObjectKeySHA256,
+		CommittedObjectSHA256: intent.ObjectSHA256, CanonicalCiphertextSHA256: intent.ObjectSHA256, CanonicalCiphertextSize: intent.ObjectSize,
+		ArtifactStatus: "AVAILABLE", ObservationSHA256: exposure.ObservationSHA256,
+	}
+	snapshot := IdempotentControlSnapshot{
+		Business: BusinessSQLSnapshot{StatsResetUnixMicro: 100, Dealloc: 2, VisibleCalls: 9, CompanionCalls: 9}, Root: root,
+		QueryRecords: 1, ExposureCharges: 1, Observations: 1, Receipts: 1, Artifacts: 1, AvailableArtifacts: 1,
+		TerminalAudits: 1, RegistrationAudits: 1, AvailabilityAudits: 1, CanonicalObjects: 1, Target: target,
+	}
+	sample.BaselineVerification = &BaselineVerificationEvidence{Receipt: receipt}
+	sample.IdempotentVerification = &IdempotentVerificationEvidence{Before: snapshot, After: snapshot, Returned: target}
+	if err := validateIdempotentVerification(sample); err != nil {
+		t.Fatal(err)
+	}
+	original := *sample.IdempotentVerification
+	tests := []struct {
+		name   string
+		mutate func(*IdempotentVerificationEvidence)
+	}{
+		{name: "Business SQL", mutate: func(value *IdempotentVerificationEvidence) { value.After.Business.VisibleCalls++ }},
+		{name: "Control count", mutate: func(value *IdempotentVerificationEvidence) { value.After.QueryRecords++ }},
+		{name: "root", mutate: func(value *IdempotentVerificationEvidence) { value.After.Root.OutcomeCardinality++ }},
+		{name: "audit", mutate: func(value *IdempotentVerificationEvidence) { value.After.AvailabilityAudits++ }},
+		{name: "object count", mutate: func(value *IdempotentVerificationEvidence) { value.After.CanonicalObjects++ }},
+		{name: "returned identity", mutate: func(value *IdempotentVerificationEvidence) { value.Returned.QueryIDHash = strings.Repeat("e", 64) }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			mutated := original
+			test.mutate(&mutated)
+			sample.IdempotentVerification = &mutated
+			if err := validateIdempotentVerification(sample); err == nil {
+				t.Fatal("mutated idempotent evidence was accepted")
+			}
+		})
+	}
+	sample.IdempotentVerification = &original
+	sample.RootSetSHA256After = strings.Repeat("f", 64)
+	if err := validateIdempotentVerification(sample); err == nil {
+		t.Fatal("idempotent replay accepted a top-level root digest not recomputed from the snapshot")
+	}
+}
+
+func TestCrossBindingNegativeControlRejectsReplayOrIdentityReuse(t *testing.T) {
+	sample := validTestSample()
+	sample.Mode, sample.SemanticReplay = "semantic_replay", true
+	firstRoot := strings.Repeat("1", 64)
+	firstObservation := strings.Repeat("a", 64)
+	sample.RootTaskIDHash = firstRoot
+	sample.BaselineVerification = &BaselineVerificationEvidence{Receipt: queryreceipt.QueryReceiptV1{
+		GrantDigest: strings.Repeat("5", 64), SQLFingerprint: strings.Repeat("9", 64), CatalogDigest: strings.Repeat("e", 64),
+		SchemaDigest: strings.Repeat("f", 64), DatasourceID: "datasource-1", Exposure: &queryreceipt.ExposureEvidenceV1{ObservationSHA256: firstObservation},
+	}}
+	manifest := validRedactedVerifierManifest()
+	manifest.QueryIDHash = strings.Repeat("4", 64)
+	manifest.RootTaskIDHash = strings.Repeat("2", 64)
+	manifest.ObservationSHA256 = strings.Repeat("b", 64)
+	evidence := CrossBindingVerificationEvidence{
+		FirstTaskIDHash: firstRoot, SecondTaskIDHash: strings.Repeat("2", 64), FirstRootTaskIDHash: firstRoot, SecondRootTaskIDHash: strings.Repeat("2", 64),
+		FirstQueryIDHash: strings.Repeat("3", 64), SecondQueryIDHash: strings.Repeat("4", 64), FirstGrantSHA256: strings.Repeat("5", 64), SecondGrantSHA256: strings.Repeat("6", 64),
+		FirstCacheKeySHA256: strings.Repeat("7", 64), SecondCacheKeySHA256: strings.Repeat("8", 64), FirstObservationSHA256: firstObservation, SecondObservationSHA256: strings.Repeat("b", 64),
+		FirstSQLFingerprintSHA256: strings.Repeat("9", 64), SecondSQLFingerprintSHA256: strings.Repeat("9", 64), FirstCatalogSHA256: strings.Repeat("e", 64), SecondCatalogSHA256: strings.Repeat("e", 64),
+		FirstSchemaSHA256: strings.Repeat("f", 64), SecondSchemaSHA256: strings.Repeat("f", 64), FirstDatasourceIDHash: redactedIdentitySHA256(sample, "datasource", "datasource-1"), SecondDatasourceIDHash: redactedIdentitySHA256(sample, "datasource", "datasource-1"),
+		FirstObservationBindingSHA256: rootObservationBindingSHA256(firstRoot, firstObservation), SecondObservationBindingSHA256: rootObservationBindingSHA256(strings.Repeat("2", 64), strings.Repeat("b", 64)),
+		FirstSourceQueryIDHash: strings.Repeat("3", 64), SecondSourceQueryIDHash: strings.Repeat("4", 64), SecondRootFirstQueryIDHash: strings.Repeat("4", 64),
+		BusinessBefore:   BusinessSQLSnapshot{StatsResetUnixMicro: 100, Dealloc: 2, VisibleCalls: 9, CompanionCalls: 9},
+		BusinessAfter:    BusinessSQLSnapshot{StatsResetUnixMicro: 100, Dealloc: 2, VisibleCalls: 10, CompanionCalls: 10},
+		SettlementAudits: 1, VerifierManifest: &manifest,
+	}
+	sample.CrossBindingVerification = &evidence
+	if err := validateCrossBindingVerification(sample); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name   string
+		mutate func(*CrossBindingVerificationEvidence)
+	}{
+		{name: "root reuse", mutate: func(value *CrossBindingVerificationEvidence) {
+			value.SecondRootTaskIDHash, value.SecondTaskIDHash = value.FirstRootTaskIDHash, value.FirstTaskIDHash
+		}},
+		{name: "grant reuse", mutate: func(value *CrossBindingVerificationEvidence) { value.SecondGrantSHA256 = value.FirstGrantSHA256 }},
+		{name: "cache reuse", mutate: func(value *CrossBindingVerificationEvidence) { value.SecondCacheKeySHA256 = value.FirstCacheKeySHA256 }},
+		{name: "SQL drift", mutate: func(value *CrossBindingVerificationEvidence) {
+			value.SecondSQLFingerprintSHA256 = strings.Repeat("a", 64)
+		}},
+		{name: "product drift", mutate: func(value *CrossBindingVerificationEvidence) { value.SecondDatasourceIDHash = strings.Repeat("a", 64) }},
+		{name: "signed SQL mismatch", mutate: func(value *CrossBindingVerificationEvidence) {
+			value.FirstSQLFingerprintSHA256, value.SecondSQLFingerprintSHA256 = strings.Repeat("a", 64), strings.Repeat("a", 64)
+		}},
+		{name: "signed datasource mismatch", mutate: func(value *CrossBindingVerificationEvidence) {
+			value.FirstDatasourceIDHash, value.SecondDatasourceIDHash = strings.Repeat("a", 64), strings.Repeat("a", 64)
+		}},
+		{name: "observation binding reuse", mutate: func(value *CrossBindingVerificationEvidence) {
+			value.SecondObservationBindingSHA256 = value.FirstObservationBindingSHA256
+		}},
+		{name: "unrecomputable observation binding", mutate: func(value *CrossBindingVerificationEvidence) {
+			value.SecondObservationBindingSHA256 = strings.Repeat("f", 64)
+		}},
+		{name: "SQL suppression", mutate: func(value *CrossBindingVerificationEvidence) { value.BusinessAfter.CompanionCalls-- }},
+		{name: "semantic replay audit", mutate: func(value *CrossBindingVerificationEvidence) { value.SemanticReplayAudits = 1 }},
+		{name: "not first query", mutate: func(value *CrossBindingVerificationEvidence) {
+			value.SecondRootFirstQueryIDHash = strings.Repeat("3", 64)
+		}},
+		{name: "verifier fail", mutate: func(value *CrossBindingVerificationEvidence) {
+			copyManifest := *value.VerifierManifest
+			copyManifest.VerificationResult = "fail"
+			value.VerifierManifest = &copyManifest
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			mutated := evidence
+			copyManifest := *evidence.VerifierManifest
+			mutated.VerifierManifest = &copyManifest
+			test.mutate(&mutated)
+			sample.CrossBindingVerification = &mutated
+			if err := validateCrossBindingVerification(sample); err == nil {
+				t.Fatal("mutated cross-binding evidence was accepted")
+			}
+		})
+	}
+}
+
+func TestRedactedVerifierManifestCrossBindsHashesSizesAndAuditSequence(t *testing.T) {
+	sample := validTestSample()
+	sample.RootTaskIDHash = redactedTaskSHA256(sample, "task-1")
+	sample.ArtifactSHA256, sample.ObjectSHA256 = strings.Repeat("a", 64), strings.Repeat("b", 64)
+	sample.ArtifactIntentSHA256, sample.ReceiptSHA256 = strings.Repeat("c", 64), strings.Repeat("d", 64)
+	sample.ParquetBytes, sample.EncryptedObjectBytes = 1039, 1087
+	exposure := &queryreceipt.ExposureEvidenceV1{
+		RootTaskID: "task-1", ObservationSHA256: strings.Repeat("e", 64), ReleaseSetSHA256: strings.Repeat("1", 64),
+		InfluenceSetSHA256: strings.Repeat("2", 64), OutcomeSetSHA256: strings.Repeat("3", 64),
+	}
+	intent := &queryreceipt.ArtifactIntentEvidenceV1{
+		ResultID: "result-1", ParquetSHA256: sample.ArtifactSHA256, ObjectSHA256: sample.ObjectSHA256,
+		ParquetSize: sample.ParquetBytes, ObjectSize: sample.EncryptedObjectBytes, SchemaSHA256: strings.Repeat("4", 64),
+		ObjectKeySHA256: strings.Repeat("5", 64), IntentSHA256: sample.ArtifactIntentSHA256, RegistrationAuditSequence: 8,
+	}
+	receipt := queryreceipt.QueryReceiptV1{QueryID: "query-1", AuditSequence: 7, Exposure: exposure, ArtifactIntent: intent}
+	receiptBytes, _ := json.Marshal(receipt)
+	sample.ReceiptSHA256 = sha256Hex(receiptBytes)
+	manifest := RedactedVerifierManifest{
+		VerifierVersion: redactedVerifierVersion, QueryIDHash: redactedIdentitySHA256(sample, "query", receipt.QueryID), ResultIDHash: redactedIdentitySHA256(sample, "result", intent.ResultID),
+		RootTaskIDHash: sample.RootTaskIDHash, ReceiptSHA256: sample.ReceiptSHA256, ObservationSHA256: exposure.ObservationSHA256,
+		ReleaseSetSHA256: exposure.ReleaseSetSHA256, DependencySetSHA256: exposure.InfluenceSetSHA256, OutcomeSetSHA256: exposure.OutcomeSetSHA256,
+		ArtifactIntentSHA256: intent.IntentSHA256, ObjectKeySHA256: intent.ObjectKeySHA256, CanonicalCiphertextSHA256: intent.ObjectSHA256,
+		CanonicalCiphertextSize: intent.ObjectSize, ReleasedParquetSHA256: intent.ParquetSHA256, ReleasedParquetSize: intent.ParquetSize,
+		SchemaSHA256: intent.SchemaSHA256, TerminalAuditSequence: 7, RegistrationAuditSequence: 8, AvailabilityAuditSequence: 9, VerificationResult: "pass",
+	}
+	sample.BaselineVerification = &BaselineVerificationEvidence{
+		Receipt: receipt, TerminalProof: auditchain.InclusionProof{TerminalEvent: auditchain.Event{Sequence: 7}},
+		RegistrationProof: auditchain.InclusionProof{TerminalEvent: auditchain.Event{Sequence: 8}}, AvailabilityProof: auditchain.InclusionProof{TerminalEvent: auditchain.Event{Sequence: 9}},
+		VerifierManifest: &manifest,
+	}
+	if err := validateRedactedVerifierManifest(sample); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name   string
+		mutate func(*RedactedVerifierManifest)
+	}{
+		{name: "receipt", mutate: func(value *RedactedVerifierManifest) { value.ReceiptSHA256 = strings.Repeat("f", 64) }},
+		{name: "object hash", mutate: func(value *RedactedVerifierManifest) { value.CanonicalCiphertextSHA256 = strings.Repeat("f", 64) }},
+		{name: "object size", mutate: func(value *RedactedVerifierManifest) { value.CanonicalCiphertextSize++ }},
+		{name: "Parquet", mutate: func(value *RedactedVerifierManifest) { value.ReleasedParquetSHA256 = strings.Repeat("f", 64) }},
+		{name: "schema", mutate: func(value *RedactedVerifierManifest) { value.SchemaSHA256 = strings.Repeat("f", 64) }},
+		{name: "availability sequence", mutate: func(value *RedactedVerifierManifest) {
+			value.AvailabilityAuditSequence = value.RegistrationAuditSequence
+		}},
+		{name: "result", mutate: func(value *RedactedVerifierManifest) { value.VerificationResult = "fail" }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			mutated := manifest
+			test.mutate(&mutated)
+			sample.BaselineVerification.VerifierManifest = &mutated
+			if err := validateRedactedVerifierManifest(sample); err == nil {
+				t.Fatal("mutated verifier manifest was accepted")
+			}
+		})
 	}
 }
 
@@ -479,6 +829,43 @@ func buildPublicationEvidence(t *testing.T, reuseRoot bool) string {
 
 func validTestSample() Sample {
 	return Sample{SchemaVersion: 1, CampaignID: "c", DeploymentID: "deployment-01", ExperimentID: "baseline", CellID: "S1/tiny/novel", SampleID: "s1", Iteration: 1, OrderPosition: 1, RandomSeed: 1, PairID: "pair-1", PairedSystemOrder: "unpaired", RootGroupID: "novel", System: "taskgate", Mode: "novel", WorkloadID: "S1", Scale: "tiny", PipelineMS: map[string]float64{"prepare": 1, "execute_and_derive": 1, "artifact_stage": 1, "control_settlement": 1, "artifact_publication": 1, "response_finalize": 1, "server_total": 7}, DiagnosticMS: map[string]float64{}, Status: "pass", PublicationEligible: false}
+}
+
+func validRootLedgerSnapshot() RootLedgerSnapshot {
+	return RootLedgerSnapshot{
+		Epoch: 1, DictionarySetSHA256: strings.Repeat("0", 64), ReleaseSetSHA256: strings.Repeat("1", 64), ReleaseCardinality: 3,
+		DependencySetSHA256: strings.Repeat("2", 64), DependencyCardinality: 4, OutcomeSetSHA256: strings.Repeat("3", 64), OutcomeCardinality: 2,
+		RootObservationSetSHA256: strings.Repeat("4", 64), RootObservationCount: 1,
+	}
+}
+
+func bindSampleToRoot(sample *Sample, root RootLedgerSnapshot) {
+	sample.RootEpochBefore, sample.RootEpochAfter = root.Epoch, root.Epoch
+	sample.RootSetSHA256Before, sample.RootSetSHA256After = rootLedgerSetSHA256(root), rootLedgerSetSHA256(root)
+	sample.ReleaseSetSHA256, sample.DependencySetSHA256, sample.OutcomeSetSHA256 = root.ReleaseSetSHA256, root.DependencySetSHA256, root.OutcomeSetSHA256
+	sample.ActualReleaseFacts, sample.ActualDependencyFacts, sample.ActualOutcomeFacts = root.ReleaseCardinality, root.DependencyCardinality, root.OutcomeCardinality
+}
+
+func validRecoveryExposure(root RootLedgerSnapshot) queryreceipt.ExposureEvidenceV1 {
+	return queryreceipt.ExposureEvidenceV1{
+		RootTaskID: "task-1", ProfileVersion: "taskgate-exposure-v5", ActualReleaseFacts: root.ReleaseCardinality,
+		ActualInfluenceFacts: root.DependencyCardinality, ActualOutcomeFacts: root.OutcomeCardinality,
+		ChargedReleaseFacts: root.ReleaseCardinality, ChargedInfluenceFacts: root.DependencyCardinality, ChargedOutcomeFacts: root.OutcomeCardinality,
+		ObservationSHA256: strings.Repeat("6", 64), DictionarySetSHA256: root.DictionarySetSHA256, ReleaseSetSHA256: root.ReleaseSetSHA256,
+		InfluenceSetSHA256: root.DependencySetSHA256, OutcomeSetSHA256: root.OutcomeSetSHA256, RootEpoch: root.Epoch,
+		PredicateProfileVersion: "taskgate-predicate-footprint-v1", PredicateContextSHA256: strings.Repeat("7", 64), PredicateSetSHA256: strings.Repeat("8", 64),
+		ActualPredicateAtomCount: 1, ChargedPredicateAtomCount: 1, CompositeOutcomeSHA256: strings.Repeat("9", 64), ActualCompositeCount: 1, ChargedCompositeCount: 1,
+	}
+}
+
+func validRedactedVerifierManifest() RedactedVerifierManifest {
+	return RedactedVerifierManifest{
+		VerifierVersion: redactedVerifierVersion, QueryIDHash: strings.Repeat("1", 64), ResultIDHash: strings.Repeat("2", 64), RootTaskIDHash: strings.Repeat("3", 64),
+		ReceiptSHA256: strings.Repeat("4", 64), ObservationSHA256: strings.Repeat("5", 64), ReleaseSetSHA256: strings.Repeat("6", 64), DependencySetSHA256: strings.Repeat("7", 64),
+		OutcomeSetSHA256: strings.Repeat("8", 64), ArtifactIntentSHA256: strings.Repeat("9", 64), ObjectKeySHA256: strings.Repeat("a", 64),
+		CanonicalCiphertextSHA256: strings.Repeat("b", 64), CanonicalCiphertextSize: 1087, ReleasedParquetSHA256: strings.Repeat("c", 64), ReleasedParquetSize: 1039,
+		SchemaSHA256: strings.Repeat("d", 64), TerminalAuditSequence: 7, RegistrationAuditSequence: 8, AvailabilityAuditSequence: 9, VerificationResult: "pass",
+	}
 }
 
 func bindTestProtocol(t *testing.T, config *Config) {

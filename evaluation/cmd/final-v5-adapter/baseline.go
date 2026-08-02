@@ -52,7 +52,14 @@ type realAdapter struct {
 	pairs        map[string]*pairState
 }
 
-type pairState struct{ taskID, novelRequestID string }
+type pairState struct {
+	taskID                 string
+	novelRequestID         string
+	novelQueryID           string
+	novelResultID          string
+	novelObservationSHA256 string
+	novelGrantSHA256       string
+}
 
 type queryResponse struct {
 	ResultID         string                      `json:"result_id"`
@@ -91,9 +98,49 @@ type queryResponse struct {
 	} `json:"exposure"`
 }
 
-type rootState struct {
-	epoch  int64
-	digest string
+type rawTerminalIdentity struct {
+	taskID                string
+	rootTaskID            string
+	queryID               string
+	requestID             string
+	resultID              string
+	receiptID             string
+	queryStatus           string
+	reservationStatus     string
+	artifactStatus        string
+	requestDigest         string
+	grantDigest           string
+	resultSHA256          string
+	observationSHA256     string
+	receiptSHA256         string
+	receiptIdentitySHA256 string
+	intentSHA256          string
+	objectKey             string
+	objectSHA256          string
+	parquetSHA256         string
+	objectSize            int64
+	parquetSize           int64
+	rootEpoch             int64
+	settlementAudits      int64
+	terminalAudits        int64
+	registrationAudits    int64
+	availabilityAudits    int64
+	terminalSequence      int64
+	registrationSequence  int64
+	availabilitySequence  int64
+	terminalHash          string
+	registrationHash      string
+	availabilityHash      string
+	receipt               queryreceipt.QueryReceiptV1
+}
+
+type rawCrossBinding struct {
+	taskID, rootTaskID, queryID, grantDigest string
+	cacheKeySHA256, observationSHA256        string
+	sourceQueryID, rootFirstQueryID          string
+	sqlFingerprint, catalogDigest            string
+	schemaDigest, datasourceID               string
+	semanticReplayAudits, settlementAudits   int64
 }
 
 func newRealAdapter(ctx context.Context) (*realAdapter, error) {
@@ -300,10 +347,6 @@ func (adapter *realAdapter) taskgate(ctx context.Context, operation experiment.A
 		}
 		state.taskID = taskID
 	}
-	before, err := adapter.rootState(ctx, state.taskID)
-	if err != nil {
-		return experiment.Sample{}, err
-	}
 	requestID := "final-v5-" + sha(operation.PairID)[:20] + "-novel"
 	sqlText := pilotTaskGateSQL
 	switch operation.Mode {
@@ -322,16 +365,90 @@ func (adapter *realAdapter) taskgate(ctx context.Context, operation experiment.A
 	default:
 		return experiment.Sample{}, errors.New("unsupported baseline mode")
 	}
+	beforeRoot, err := adapter.rootLedgerSnapshot(ctx, state.taskID)
+	if err != nil {
+		return experiment.Sample{}, err
+	}
+	var idempotentBefore *experiment.IdempotentControlSnapshot
+	if operation.Mode == "idempotent_replay" {
+		snapshot, snapshotErr := adapter.idempotentControlSnapshot(ctx, operation, state.taskID, requestID)
+		if snapshotErr != nil {
+			return experiment.Sample{}, snapshotErr
+		}
+		idempotentBefore = &snapshot
+	}
+	businessBefore, err := adapter.businessSQLSnapshot(ctx)
+	if err != nil {
+		return experiment.Sample{}, err
+	}
+	if idempotentBefore != nil {
+		idempotentBefore.Business = businessBefore
+	}
 	started := time.Now()
 	var response queryResponse
 	if err := adapter.alice.call(ctx, "query_sql", map[string]any{"task_id": state.taskID, "request_id": requestID, "sql": sqlText}, &response); err != nil {
 		return experiment.Sample{}, err
 	}
-	return adapter.completeTaskgateSample(ctx, operation, state, before, started, durationMS(time.Since(started)), sqlText, response)
+	availableMS := durationMS(time.Since(started))
+	businessAfter, err := adapter.businessSQLSnapshot(ctx)
+	if err != nil {
+		return experiment.Sample{}, err
+	}
+	afterRoot, err := adapter.rootLedgerSnapshot(ctx, state.taskID)
+	if err != nil {
+		return experiment.Sample{}, err
+	}
+	sample, err := adapter.completeTaskgateSample(ctx, operation, state, beforeRoot, afterRoot, started, availableMS, sqlText, response)
+	if err != nil {
+		return experiment.Sample{}, err
+	}
+	if businessAfter.VisibleCalls < businessBefore.VisibleCalls || businessAfter.CompanionCalls < businessBefore.CompanionCalls {
+		return experiment.Sample{}, errors.New("Business SQL observer counters regressed")
+	}
+	sample.BusinessSQLDelta = businessAfter.VisibleCalls - businessBefore.VisibleCalls + businessAfter.CompanionCalls - businessBefore.CompanionCalls
+	sample.ReplayVerification = &experiment.ReplayVerificationEvidence{
+		BusinessBefore: businessBefore,
+		BusinessAfter:  businessAfter,
+		RootBefore:     beforeRoot,
+		RootAfter:      afterRoot,
+	}
+	if operation.Mode == "novel" {
+		state.novelQueryID = response.QueryID
+		state.novelResultID = response.ResultID
+		state.novelObservationSHA256 = response.Exposure.ObservationSHA256
+		state.novelGrantSHA256 = response.Receipt.GrantDigest
+	}
+	if operation.Mode == "semantic_replay" || operation.Mode == "normalized_rewrite_replay" {
+		sample.ReplayVerification.SourceObservationSHA256 = state.novelObservationSHA256
+		sample.ReplayVerification.ReplayObservationSHA256 = response.Exposure.ObservationSHA256
+		if operation.Mode == "semantic_replay" {
+			cross, crossErr := adapter.crossBindingVerification(ctx, operation, state)
+			if crossErr != nil {
+				return experiment.Sample{}, crossErr
+			}
+			sample.CrossBindingVerification = &cross
+		}
+	}
+	if operation.Mode == "idempotent_replay" {
+		if idempotentBefore == nil {
+			return experiment.Sample{}, errors.New("idempotent before snapshot is absent")
+		}
+		idempotentAfter, snapshotErr := adapter.idempotentControlSnapshot(ctx, operation, state.taskID, requestID)
+		if snapshotErr != nil {
+			return experiment.Sample{}, snapshotErr
+		}
+		idempotentAfter.Business = businessAfter
+		sample.IdempotentVerification = &experiment.IdempotentVerificationEvidence{
+			Before:   *idempotentBefore,
+			After:    idempotentAfter,
+			Returned: responseTerminalIdentityEvidence(operation, response, sample.BaselineVerification.VerifierManifest),
+		}
+	}
+	return sample, nil
 }
 
 func (adapter *realAdapter) completeTaskgateSample(ctx context.Context, operation experiment.AdapterOperation, state *pairState,
-	before rootState, started time.Time, availableMS float64, sqlText string, response queryResponse) (experiment.Sample, error) {
+	before, after experiment.RootLedgerSnapshot, started time.Time, availableMS float64, sqlText string, response queryResponse) (experiment.Sample, error) {
 	if response.TaskID != state.taskID || response.ArtifactStatus != "AVAILABLE" || response.ResultID == "" || response.QueryID == "" {
 		return experiment.Sample{}, errors.New("query response omitted AVAILABLE identity")
 	}
@@ -366,11 +483,15 @@ func (adapter *realAdapter) completeTaskgateSample(ctx context.Context, operatio
 	defer canonicalObject.Close()
 	canonicalEvidence.ReleasedParquet = parquetBytes
 	availability := auditEvidence.Availability
-	if err := releasedartifact.VerifyReleasedArtifact(adapter.verifier, releasedartifact.SettlementEvidence{
+	transcript, err := releasedartifact.VerifyReleasedArtifactWithTranscript(adapter.verifier, releasedartifact.SettlementEvidence{
 		Receipt: response.Receipt, ExpectedBinding: expectedBinding, ReceiptInclusion: auditEvidence.Audit,
 		TerminalInclusion: auditEvidence.Terminal, RegistrationInclusion: auditEvidence.Registration,
 		AvailabilityInclusion: &availability,
-	}, canonicalEvidence); err != nil {
+	}, canonicalEvidence)
+	if err != nil || !transcript.Passed {
+		if err == nil {
+			err = errors.New("released-artifact verifier returned no passing transcript")
+		}
 		return experiment.Sample{}, err
 	}
 	if err := validateResponseAgainstVerifiedReceipt(response); err != nil {
@@ -383,10 +504,6 @@ func (adapter *realAdapter) completeTaskgateSample(ctx context.Context, operatio
 		return experiment.Sample{}, err
 	}
 	resultDigest, err := experiment.CanonicalResultHash(rows)
-	if err != nil {
-		return experiment.Sample{}, err
-	}
-	after, err := adapter.rootState(ctx, state.taskID)
 	if err != nil {
 		return experiment.Sample{}, err
 	}
@@ -407,40 +524,64 @@ func (adapter *realAdapter) completeTaskgateSample(ctx context.Context, operatio
 		if !response.SemanticReplay {
 			return experiment.Sample{}, errors.New("semantic replay marker missing")
 		}
-		sample.BusinessSQLDelta = 0
 	} else if operation.Mode == "idempotent_replay" || operation.Mode == "pending_recovery" {
 		if !response.IdempotentReplay {
 			return experiment.Sample{}, errors.New("idempotent replay marker missing")
 		}
-		if operation.Mode == "idempotent_replay" {
-			sample.BusinessSQLDelta = 0
-		} else {
-			sample.BusinessSQLDelta = 1
-		}
-	} else {
-		sample.BusinessSQLDelta = 1
 	}
-	sample.RootEpochBefore, sample.RootEpochAfter = before.epoch, after.epoch
-	sample.RootSetSHA256Before, sample.RootSetSHA256After = before.digest, after.digest
+	sample.RootEpochBefore, sample.RootEpochAfter = before.Epoch, after.Epoch
+	sample.RootSetSHA256Before, sample.RootSetSHA256After = rootSetDigest(before), rootSetDigest(after)
 	sample.RootTaskIDHash = saltedTaskHash(operation, state.taskID)
 	sample.ParquetBytes, sample.EncryptedObjectBytes = intent.ParquetSize, intent.ObjectSize
 	sample.ArtifactSHA256, sample.ObjectSHA256 = intent.ParquetSHA256, intent.ObjectSHA256
 	sample.ReceiptVersion, sample.ReceiptSHA256, sample.ArtifactIntentSHA256 = response.Receipt.Version, receiptDigest(response.Receipt), intent.IntentSHA256
 	availabilityBytes, _ := json.Marshal(auditEvidence.Availability)
 	sample.AvailabilityAuditSHA256, sample.ReceiptVerified, sample.ArtifactAvailable = shaBytes(availabilityBytes), true, true
-	sample.BaselineVerification = &experiment.BaselineVerificationEvidence{Receipt: response.Receipt, KeyBundle: adapter.keyBundle, AuditProof: auditEvidence.Audit, TerminalProof: auditEvidence.Terminal, RegistrationProof: auditEvidence.Registration, AvailabilityProof: auditEvidence.Availability, ArtifactStatus: canonicalEvidence.Status, DownloadedParquetSHA256: shaBytes(parquetBytes), ParsedResultSHA256: resultDigest}
+	manifest := &experiment.RedactedVerifierManifest{
+		VerifierVersion: "taskgate-final-v5-composite-verifier-v1",
+		QueryIDHash:     saltedIdentityHash(operation, "query", response.QueryID),
+		ResultIDHash:    saltedIdentityHash(operation, "result", response.ResultID),
+		RootTaskIDHash:  saltedTaskHash(operation, expectedBinding.RootTaskID),
+		ReceiptSHA256:   receiptDigest(response.Receipt), ObservationSHA256: expectedBinding.ObservationSHA256,
+		ReleaseSetSHA256: expectedBinding.ReleaseSetSHA256, DependencySetSHA256: expectedBinding.InfluenceSetSHA256,
+		OutcomeSetSHA256: expectedBinding.OutcomeSetSHA256, ArtifactIntentSHA256: intent.IntentSHA256,
+		ObjectKeySHA256:           intent.ObjectKeySHA256,
+		CanonicalCiphertextSHA256: transcript.CiphertextSHA256, CanonicalCiphertextSize: transcript.CiphertextSize,
+		ReleasedParquetSHA256: transcript.ReleasedParquetSHA256, ReleasedParquetSize: transcript.ReleasedParquetSize,
+		SchemaSHA256:              transcript.ReleasedSchemaSHA256,
+		TerminalAuditSequence:     transcript.TerminalAuditSequence,
+		RegistrationAuditSequence: transcript.RegistrationAuditSequence,
+		AvailabilityAuditSequence: transcript.AvailabilityAuditSequence,
+		VerificationResult:        "pass",
+	}
+	sample.BaselineVerification = &experiment.BaselineVerificationEvidence{
+		Receipt: response.Receipt, KeyBundle: adapter.keyBundle, AuditProof: auditEvidence.Audit,
+		TerminalProof: auditEvidence.Terminal, RegistrationProof: auditEvidence.Registration,
+		AvailabilityProof: auditEvidence.Availability, ArtifactStatus: canonicalEvidence.Status,
+		DownloadedParquetSHA256: shaBytes(parquetBytes), ParsedResultSHA256: resultDigest,
+		VerifierManifest: manifest,
+	}
 	sample.Status = "pass"
 	return sample, nil
 }
 
 type recoverySnapshot struct {
-	queryRecords   int64
-	usedQueries    int64
-	settlements    int64
-	artifactStatus string
-	objectKey      string
-	receiptSHA256  string
-	intentSHA256   string
+	queryRecords              int64
+	usedQueries               int64
+	settlements               int64
+	artifactStatus            string
+	receiptSHA256             string
+	intentSHA256              string
+	root                      experiment.RootLedgerSnapshot
+	exposure                  queryreceipt.ExposureEvidenceV1
+	object                    experiment.CanonicalObjectSnapshot
+	settlementAuditSequences  []int64
+	terminalAudits            int64
+	registrationAudits        int64
+	availabilityAudits        int64
+	terminalAuditSequence     int64
+	registrationAuditSequence int64
+	availabilityAuditSequence int64
 }
 
 func (adapter *realAdapter) pendingRecovery(ctx context.Context, operation experiment.AdapterOperation, state *pairState) (experiment.Sample, error) {
@@ -451,7 +592,7 @@ func (adapter *realAdapter) pendingRecovery(ctx context.Context, operation exper
 		}
 		state.taskID = taskID
 	}
-	beforeRoot, err := adapter.rootState(ctx, state.taskID)
+	beforeRoot, err := adapter.rootLedgerSnapshot(ctx, state.taskID)
 	if err != nil {
 		return experiment.Sample{}, err
 	}
@@ -459,7 +600,7 @@ func (adapter *realAdapter) pendingRecovery(ctx context.Context, operation exper
 	if err != nil {
 		return experiment.Sample{}, err
 	}
-	businessBefore, err := adapter.businessCallCount(ctx)
+	businessBefore, err := adapter.businessSQLSnapshot(ctx)
 	if err != nil {
 		return experiment.Sample{}, err
 	}
@@ -478,20 +619,16 @@ func (adapter *realAdapter) pendingRecovery(ctx context.Context, operation exper
 	if callErr := adapter.alice.call(ctx, "query_sql", map[string]any{"task_id": state.taskID, "request_id": requestID, "sql": pilotTaskGateSQL}, &ignored); callErr == nil {
 		return experiment.Sample{}, errors.New("availability blocker did not force a PENDING response")
 	}
+	businessAtFailure, err := adapter.businessSQLSnapshot(ctx)
+	if err != nil {
+		return experiment.Sample{}, err
+	}
 	atFailure, err := adapter.recoverySnapshot(ctx, state.taskID, requestID)
 	if err != nil {
 		return experiment.Sample{}, err
 	}
-	businessAtFailure, err := adapter.businessCallCount(ctx)
-	if err != nil {
-		return experiment.Sample{}, err
-	}
-	if atFailure.artifactStatus != "PENDING" || atFailure.objectKey == "" {
+	if atFailure.artifactStatus != "PENDING" || !atFailure.object.Exists {
 		return experiment.Sample{}, errors.New("forced failure did not leave a durable PENDING artifact")
-	}
-	stat, err := adapter.objectStore.StatObject(ctx, adapter.objectBucket, atFailure.objectKey, minio.StatObjectOptions{})
-	if err != nil || stat.Size <= 0 {
-		return experiment.Sample{}, errors.New("canonical object was not present before PENDING recovery")
 	}
 	if err := adapter.removeAvailabilityBlocker(ctx); err != nil {
 		return experiment.Sample{}, err
@@ -501,7 +638,16 @@ func (adapter *realAdapter) pendingRecovery(ctx context.Context, operation exper
 	if err := adapter.alice.call(ctx, "query_sql", map[string]any{"task_id": state.taskID, "request_id": requestID, "sql": pilotTaskGateSQL}, &response); err != nil {
 		return experiment.Sample{}, err
 	}
-	sample, err := adapter.completeTaskgateSample(ctx, operation, state, beforeRoot, started, durationMS(time.Since(started)), pilotTaskGateSQL, response)
+	availableMS := durationMS(time.Since(started))
+	businessAfter, err := adapter.businessSQLSnapshot(ctx)
+	if err != nil {
+		return experiment.Sample{}, err
+	}
+	afterRoot, err := adapter.rootLedgerSnapshot(ctx, state.taskID)
+	if err != nil {
+		return experiment.Sample{}, err
+	}
+	sample, err := adapter.completeTaskgateSample(ctx, operation, state, beforeRoot, afterRoot, started, availableMS, pilotTaskGateSQL, response)
 	if err != nil {
 		return experiment.Sample{}, err
 	}
@@ -509,21 +655,53 @@ func (adapter *realAdapter) pendingRecovery(ctx context.Context, operation exper
 	if err != nil {
 		return experiment.Sample{}, err
 	}
-	businessAfter, err := adapter.businessCallCount(ctx)
-	if err != nil {
-		return experiment.Sample{}, err
-	}
+	sample.BusinessSQLDelta = businessAtFailure.VisibleCalls - businessBefore.VisibleCalls +
+		businessAtFailure.CompanionCalls - businessBefore.CompanionCalls
 	sample.RecoveryVerification = &experiment.RecoveryVerificationEvidence{
 		FailureObserved: true, CanonicalObjectObserved: true,
 		ArtifactStatusBefore: atFailure.artifactStatus, ArtifactStatusAfter: after.artifactStatus,
-		BusinessCallsBefore: businessBefore, BusinessCallsAtFailure: businessAtFailure, BusinessCallsAfter: businessAfter,
-		QueryRecordsBefore: before.queryRecords, QueryRecordsAtFailure: atFailure.queryRecords, QueryRecordsAfter: after.queryRecords,
+		BusinessCallsBefore:    businessBefore.VisibleCalls + businessBefore.CompanionCalls,
+		BusinessCallsAtFailure: businessAtFailure.VisibleCalls + businessAtFailure.CompanionCalls,
+		BusinessCallsAfter:     businessAfter.VisibleCalls + businessAfter.CompanionCalls,
+		QueryRecordsBefore:     before.queryRecords, QueryRecordsAtFailure: atFailure.queryRecords, QueryRecordsAfter: after.queryRecords,
 		SettlementsAtFailure: atFailure.settlements, SettlementsAfter: after.settlements,
 		UsedQueriesBefore: before.usedQueries, UsedQueriesAtFailure: atFailure.usedQueries, UsedQueriesAfter: after.usedQueries,
 		ReceiptSHA256AtFailure: atFailure.receiptSHA256, ReceiptSHA256After: after.receiptSHA256,
 		IntentSHA256AtFailure: atFailure.intentSHA256, IntentSHA256After: after.intentSHA256,
+		BusinessBeforeSnapshot: businessBefore, BusinessAtFailureSnapshot: businessAtFailure, BusinessAfterSnapshot: businessAfter,
+		RootAtFailure: atFailure.root, RootAfter: after.root,
+		ExposureAtFailure: recoveryExposureEvidence(operation, atFailure.exposure),
+		ExposureAfter:     recoveryExposureEvidence(operation, after.exposure),
+		ObjectAtFailure:   atFailure.object, ObjectAfter: after.object,
+		SettlementAuditSequencesAtFailure: atFailure.settlementAuditSequences,
+		SettlementAuditSequencesAfter:     after.settlementAuditSequences,
+		AvailabilityAuditsAtFailure:       atFailure.availabilityAudits, AvailabilityAuditsAfter: after.availabilityAudits,
+		TerminalAuditsAtFailure: atFailure.terminalAudits, TerminalAuditsAfter: after.terminalAudits,
+		RegistrationAuditsAtFailure: atFailure.registrationAudits, RegistrationAuditsAfter: after.registrationAudits,
+		TerminalAuditSequenceAtFailure: atFailure.terminalAuditSequence, TerminalAuditSequenceAfter: after.terminalAuditSequence,
+		RegistrationAuditSequenceAtFailure: atFailure.registrationAuditSequence, RegistrationAuditSequenceAfter: after.registrationAuditSequence,
+		AvailabilityAuditSequenceAtFailure: atFailure.availabilityAuditSequence, AvailabilityAuditSequenceAfter: after.availabilityAuditSequence,
 	}
 	return sample, nil
+}
+
+func recoveryExposureEvidence(operation experiment.AdapterOperation,
+	exposure queryreceipt.ExposureEvidenceV1) experiment.RecoveryExposureSnapshot {
+	return experiment.RecoveryExposureSnapshot{
+		RootTaskIDHash: saltedTaskHash(operation, exposure.RootTaskID), ProfileVersion: exposure.ProfileVersion,
+		ActualReleaseFacts: exposure.ActualReleaseFacts, ActualInfluenceFacts: exposure.ActualInfluenceFacts,
+		ActualOutcomeFacts: exposure.ActualOutcomeFacts, ChargedReleaseFacts: exposure.ChargedReleaseFacts,
+		ChargedInfluenceFacts: exposure.ChargedInfluenceFacts, ChargedOutcomeFacts: exposure.ChargedOutcomeFacts,
+		ObservationSHA256: exposure.ObservationSHA256, DictionarySetSHA256: exposure.DictionarySetSHA256,
+		ReleaseSetSHA256: exposure.ReleaseSetSHA256, InfluenceSetSHA256: exposure.InfluenceSetSHA256,
+		OutcomeSetSHA256: exposure.OutcomeSetSHA256, RootEpoch: exposure.RootEpoch,
+		PredicateProfileVersion: exposure.PredicateProfileVersion,
+		PredicateContextSHA256:  exposure.PredicateContextSHA256, PredicateSetSHA256: exposure.PredicateSetSHA256,
+		ActualPredicateAtomCount:  exposure.ActualPredicateAtomCount,
+		ChargedPredicateAtomCount: exposure.ChargedPredicateAtomCount,
+		CompositeOutcomeSHA256:    exposure.CompositeOutcomeSHA256,
+		ActualCompositeCount:      exposure.ActualCompositeCount, ChargedCompositeCount: exposure.ChargedCompositeCount,
+	}
 }
 
 func (adapter *realAdapter) installAvailabilityBlocker(ctx context.Context) error {
@@ -563,53 +741,154 @@ func (adapter *realAdapter) removeAvailabilityBlocker(ctx context.Context) error
 
 func (adapter *realAdapter) recoverySnapshot(ctx context.Context, taskID, requestID string) (recoverySnapshot, error) {
 	var snapshot recoverySnapshot
-	if err := adapter.control.QueryRow(ctx, `SELECT count(*) FROM query_records WHERE task_id=$1`, taskID).Scan(&snapshot.queryRecords); err != nil {
+	tx, err := adapter.control.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
 		return snapshot, err
 	}
-	if err := adapter.control.QueryRow(ctx, `SELECT used_queries FROM budget_ledger WHERE task_id=$1`, taskID).Scan(&snapshot.usedQueries); err != nil {
+	defer tx.Rollback(context.Background())
+	if err := tx.QueryRow(ctx, `
+SELECT (SELECT count(*) FROM query_records WHERE task_id=t.id),b.used_queries
+FROM tasks t JOIN budget_ledger b ON b.task_id=t.id WHERE t.id=$1`, taskID).
+		Scan(&snapshot.queryRecords, &snapshot.usedQueries); err != nil {
 		return snapshot, err
 	}
 	if requestID == "" {
+		if err := tx.Commit(ctx); err != nil {
+			return snapshot, err
+		}
 		return snapshot, nil
 	}
-	var receiptJSON []byte
-	if err := adapter.control.QueryRow(ctx, `
-SELECT a.status,a.object_key,r.receipt_json,
-       (SELECT count(*) FROM audit_events e WHERE e.query_id=q.id AND e.event_type='QUERY_V5_EXPOSURE_SETTLED')
-FROM query_records q
-JOIN result_artifacts a ON a.query_id=q.id
-JOIN query_receipts r ON r.query_id=q.id
-WHERE q.task_id=$1 AND q.request_id=$2`, taskID, requestID).
-		Scan(&snapshot.artifactStatus, &snapshot.objectKey, &receiptJSON, &snapshot.settlements); err != nil {
+	snapshot.root, err = loadRootLedgerSnapshot(ctx, tx, taskID)
+	if err != nil {
 		return snapshot, err
 	}
+	var queryID, rootTaskID, queryStatus, reservationStatus string
+	var reservationRootEpoch int64
+	var observationSHA256, observationDictionarySHA256 string
+	var observationReleaseSHA256, observationDependencySHA256, observationOutcomeSHA256 string
+	var observationPredicateContextSHA256, observationPredicateSetSHA256, observationCompositeSHA256 string
+	var observationReleaseFacts, observationDependencyFacts, observationOutcomeFacts, observationPredicateFacts int64
+	var objectKey, objectSHA256, resultID string
+	var objectSize int64
+	var receiptJSON []byte
+	var persistedReceiptSHA256 string
+	err = tx.QueryRow(ctx, `
+SELECT q.id,t.root_task_id,q.status,r.status,r.root_epoch,r.observation_sha256,
+       o.dictionary_set_digest,o.release_set_sha256,o.influence_set_sha256,o.outcome_set_sha256,
+       o.predicate_context_sha256,o.predicate_set_sha256,o.composite_outcome_sha256,
+       o.actual_release_facts,o.actual_influence_facts,o.actual_outcome_facts,o.predicate_atom_count,
+       a.status,a.object_key,a.object_sha256,a.object_size,a.result_id,
+       qr.receipt_json,qr.receipt_sha256,
+       (SELECT count(*) FROM audit_events e WHERE e.query_id=q.id AND e.event_type='QUERY_V5_EXPOSURE_SETTLED'),
+       (SELECT count(*) FROM audit_events e WHERE e.query_id=q.id AND e.event_type IN
+         ('QUERY_COMPLETED','QUERY_BUDGET_RELEASED','QUERY_FAILED','QUERY_INDETERMINATE','QUERY_INTERRUPTED')),
+       (SELECT count(*) FROM audit_events e WHERE e.query_id=q.id AND e.event_type='QUERY_RESULT_OBJECT_REGISTERED'),
+       (SELECT count(*) FROM audit_events e WHERE e.query_id=q.id AND e.event_type='QUERY_RESULT_CONSUMED'),
+       COALESCE((SELECT max(sequence) FROM audit_events e WHERE e.query_id=q.id AND e.event_type IN
+         ('QUERY_COMPLETED','QUERY_BUDGET_RELEASED','QUERY_FAILED','QUERY_INDETERMINATE','QUERY_INTERRUPTED')),0),
+       COALESCE((SELECT max(sequence) FROM audit_events e WHERE e.query_id=q.id AND e.event_type='QUERY_RESULT_OBJECT_REGISTERED'),0),
+       COALESCE((SELECT max(sequence) FROM audit_events e WHERE e.query_id=q.id AND e.event_type='QUERY_RESULT_CONSUMED'),0)
+FROM query_records q
+JOIN result_artifacts a ON a.query_id=q.id
+JOIN tasks t ON t.id=q.task_id
+JOIN v5_query_exposure_reservations r ON r.query_id=q.id
+JOIN v5_observations o ON o.observation_sha256=r.observation_sha256
+JOIN query_receipts qr ON qr.query_id=q.id
+WHERE q.task_id=$1 AND q.request_id=$2`, taskID, requestID).
+		Scan(&queryID, &rootTaskID, &queryStatus, &reservationStatus, &reservationRootEpoch, &observationSHA256,
+			&observationDictionarySHA256, &observationReleaseSHA256, &observationDependencySHA256, &observationOutcomeSHA256,
+			&observationPredicateContextSHA256, &observationPredicateSetSHA256, &observationCompositeSHA256,
+			&observationReleaseFacts, &observationDependencyFacts, &observationOutcomeFacts, &observationPredicateFacts,
+			&snapshot.artifactStatus, &objectKey, &objectSHA256, &objectSize, &resultID,
+			&receiptJSON, &persistedReceiptSHA256, &snapshot.settlements,
+			&snapshot.terminalAudits, &snapshot.registrationAudits, &snapshot.availabilityAudits,
+			&snapshot.terminalAuditSequence, &snapshot.registrationAuditSequence, &snapshot.availabilityAuditSequence)
+	if err != nil {
+		return snapshot, err
+	}
+	rows, err := tx.Query(ctx, `SELECT sequence FROM audit_events
+WHERE query_id=$1 AND event_type='QUERY_V5_EXPOSURE_SETTLED' ORDER BY sequence`, queryID)
+	if err != nil {
+		return snapshot, err
+	}
+	for rows.Next() {
+		var sequence int64
+		if err := rows.Scan(&sequence); err != nil {
+			rows.Close()
+			return snapshot, err
+		}
+		snapshot.settlementAuditSequences = append(snapshot.settlementAuditSequences, sequence)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return snapshot, err
+	}
+	rows.Close()
+	if shaBytes(receiptJSON) != persistedReceiptSHA256 || !validDigest(persistedReceiptSHA256) {
+		return snapshot, errors.New("PENDING recovery receipt bytes differ from their Control digest")
+	}
 	var receipt queryreceipt.QueryReceiptV1
-	if err := json.Unmarshal(receiptJSON, &receipt); err != nil || receipt.ArtifactIntent == nil {
+	if err := json.Unmarshal(receiptJSON, &receipt); err != nil || receipt.ArtifactIntent == nil || receipt.Exposure == nil {
 		return snapshot, errors.New("PENDING recovery receipt omitted its V8 artifact intent")
 	}
-	// Control persists RFC 8785 canonical bytes while the public response is
-	// decoded into a typed receipt and encoded by the experiment harness. Hash
-	// the typed identity on both paths so key ordering cannot create a false
-	// recovery mismatch. Every typed receipt field, including its signature,
-	// remains part of this identity; Control separately enforces persistence
-	// immutability.
+	if err := adapter.verifier.Verify(receipt); err != nil {
+		return snapshot, fmt.Errorf("verify PENDING recovery receipt: %w", err)
+	}
+	intent, exposure := receipt.ArtifactIntent, receipt.Exposure
+	if receipt.Version != queryreceipt.VersionV8 || receipt.TaskID != taskID || receipt.QueryID != queryID ||
+		queryStatus != "COMPLETED" || reservationStatus != "SETTLED" ||
+		exposure.RootTaskID != rootTaskID || exposure.RootEpoch != reservationRootEpoch ||
+		exposure.ObservationSHA256 != observationSHA256 || exposure.DictionarySetSHA256 != observationDictionarySHA256 ||
+		exposure.ReleaseSetSHA256 != observationReleaseSHA256 || exposure.InfluenceSetSHA256 != observationDependencySHA256 ||
+		exposure.OutcomeSetSHA256 != observationOutcomeSHA256 || exposure.PredicateContextSHA256 != observationPredicateContextSHA256 ||
+		exposure.PredicateSetSHA256 != observationPredicateSetSHA256 || exposure.CompositeOutcomeSHA256 != observationCompositeSHA256 ||
+		exposure.ActualReleaseFacts != observationReleaseFacts || exposure.ActualInfluenceFacts != observationDependencyFacts ||
+		exposure.ActualOutcomeFacts != observationOutcomeFacts || exposure.ActualPredicateAtomCount != observationPredicateFacts ||
+		intent.ResultID != resultID || intent.ObjectKeySHA256 != sha(objectKey) || intent.ObjectSHA256 != objectSHA256 ||
+		intent.ObjectSize != objectSize || snapshot.settlements != 1 || len(snapshot.settlementAuditSequences) != 1 ||
+		snapshot.terminalAudits != 1 || snapshot.registrationAudits != 1 || snapshot.availabilityAudits < 0 || snapshot.availabilityAudits > 1 ||
+		snapshot.terminalAuditSequence != receipt.AuditSequence || snapshot.registrationAuditSequence != intent.RegistrationAuditSequence ||
+		(snapshot.availabilityAudits == 0 && snapshot.availabilityAuditSequence != 0) ||
+		(snapshot.availabilityAudits == 1 && snapshot.availabilityAuditSequence <= snapshot.registrationAuditSequence) {
+		return snapshot, errors.New("PENDING recovery Control projection differs from signed evidence")
+	}
 	snapshot.receiptSHA256 = receiptDigest(receipt)
-	snapshot.intentSHA256 = receipt.ArtifactIntent.IntentSHA256
+	snapshot.intentSHA256 = intent.IntentSHA256
+	snapshot.exposure = *exposure
+	if err := tx.Commit(ctx); err != nil {
+		return snapshot, err
+	}
+	snapshot.object, err = adapter.canonicalObjectSnapshot(ctx, objectKey, objectSize, objectSHA256, intent.IntentSHA256)
+	if err != nil {
+		return snapshot, err
+	}
 	return snapshot, nil
 }
 
-func (adapter *realAdapter) businessCallCount(ctx context.Context) (int64, error) {
-	const query = `SELECT COALESCE(sum(s.calls),0)::bigint
-FROM pg_stat_statements s
-WHERE s.dbid=(SELECT oid FROM pg_database WHERE datname=current_database())
-  AND s.userid=(SELECT oid FROM pg_roles WHERE rolname='gateway_reader')
-  AND (position('reporting.expense_detail' in replace(lower(s.query),'"','')) > 0
-       OR position('taskgate_ordinal.expense_detail_v1' in replace(lower(s.query),'"','')) > 0)`
-	var calls int64
-	if err := adapter.observer.QueryRow(ctx, query).Scan(&calls); err != nil {
-		return 0, err
+func (adapter *realAdapter) businessSQLSnapshot(ctx context.Context) (experiment.BusinessSQLSnapshot, error) {
+	const query = `WITH statements AS (
+  SELECT s.calls::bigint AS calls,replace(lower(s.query),'"','') AS normalized_query
+  FROM pg_stat_statements s
+  WHERE s.dbid=(SELECT oid FROM pg_database WHERE datname=current_database())
+    AND s.userid=(SELECT oid FROM pg_roles WHERE rolname='gateway_reader')
+)
+SELECT COALESCE(sum(calls) FILTER (
+         WHERE position('reporting.expense_detail' in normalized_query)>0
+           AND position('taskgate_ordinal.expense_detail_v1' in normalized_query)=0),0)::bigint,
+       COALESCE(sum(calls) FILTER (
+         WHERE position('taskgate_ordinal.expense_detail_v1' in normalized_query)>0),0)::bigint,
+       info.stats_reset,info.dealloc::bigint
+FROM pg_stat_statements_info info
+LEFT JOIN statements ON true
+GROUP BY info.stats_reset,info.dealloc`
+	var snapshot experiment.BusinessSQLSnapshot
+	var reset time.Time
+	if err := adapter.observer.QueryRow(ctx, query).Scan(
+		&snapshot.VisibleCalls, &snapshot.CompanionCalls, &reset, &snapshot.Dealloc); err != nil {
+		return snapshot, err
 	}
-	return calls, nil
+	snapshot.StatsResetUnixMicro = reset.UTC().UnixMicro()
+	return snapshot, nil
 }
 
 func (adapter *realAdapter) provisionTask(ctx context.Context, operation experiment.AdapterOperation) (string, error) {
@@ -654,14 +933,441 @@ func (adapter *realAdapter) waitTask(ctx context.Context, taskID, expected strin
 	return errors.New("task state transition timed out")
 }
 
-func (adapter *realAdapter) rootState(ctx context.Context, taskID string) (rootState, error) {
-	var epoch int64
-	var release, influence, outcome string
-	err := adapter.control.QueryRow(ctx, `SELECT epoch,COALESCE(release_set_sha256,''),COALESCE(influence_set_sha256,''),COALESCE(outcome_set_sha256,'') FROM v5_exposure_root_heads WHERE root_task_id=(SELECT root_task_id FROM tasks WHERE id=$1)`, taskID).Scan(&epoch, &release, &influence, &outcome)
+func (adapter *realAdapter) rootLedgerSnapshot(ctx context.Context, taskID string) (experiment.RootLedgerSnapshot, error) {
+	var snapshot experiment.RootLedgerSnapshot
+	tx, err := adapter.control.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
-		return rootState{}, err
+		return snapshot, err
 	}
-	return rootState{epoch: epoch, digest: sha(strings.Join([]string{release, influence, outcome}, "\x00"))}, nil
+	defer tx.Rollback(context.Background())
+	snapshot, err = loadRootLedgerSnapshot(ctx, tx, taskID)
+	if err != nil {
+		return snapshot, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return snapshot, err
+	}
+	return snapshot, nil
+}
+
+func loadRootLedgerSnapshot(ctx context.Context, tx pgx.Tx, taskID string) (experiment.RootLedgerSnapshot, error) {
+	var snapshot experiment.RootLedgerSnapshot
+	var usedRelease, usedDependency, usedOutcome int64
+	err := tx.QueryRow(ctx, `
+SELECT h.epoch,COALESCE(h.dictionary_set_digest,''),
+       COALESCE(h.release_set_sha256,''),h.used_release_facts,
+       COALESCE(r.static_cardinality+r.dynamic_cardinality,0),
+       COALESCE(h.influence_set_sha256,''),h.used_influence_facts,
+       COALESCE(d.static_cardinality+d.dynamic_cardinality,0),
+       COALESCE(h.outcome_set_sha256,''),h.used_outcome_facts,
+       COALESCE(o.cardinality,0)
+FROM tasks t
+JOIN v5_exposure_root_heads h ON h.root_task_id=t.root_task_id
+LEFT JOIN v4_bitmap_sets r ON r.set_sha256=h.release_set_sha256
+LEFT JOIN v4_bitmap_sets d ON d.set_sha256=h.influence_set_sha256
+LEFT JOIN v5_outcome_hash_sets o ON o.set_sha256=h.outcome_set_sha256
+WHERE t.id=$1`, taskID).Scan(
+		&snapshot.Epoch, &snapshot.DictionarySetSHA256,
+		&snapshot.ReleaseSetSHA256, &usedRelease, &snapshot.ReleaseCardinality,
+		&snapshot.DependencySetSHA256, &usedDependency, &snapshot.DependencyCardinality,
+		&snapshot.OutcomeSetSHA256, &usedOutcome, &snapshot.OutcomeCardinality)
+	if err != nil {
+		return snapshot, err
+	}
+	if usedRelease != snapshot.ReleaseCardinality || usedDependency != snapshot.DependencyCardinality || usedOutcome != snapshot.OutcomeCardinality {
+		return snapshot, errors.New("root head cardinality differs from its immutable component set")
+	}
+	rows, err := tx.Query(ctx, `
+SELECT ro.observation_sha256
+FROM tasks t
+JOIN v5_root_observations ro ON ro.root_task_id=t.root_task_id
+WHERE t.id=$1
+ORDER BY ro.observation_sha256`, taskID)
+	if err != nil {
+		return snapshot, err
+	}
+	var observations []string
+	for rows.Next() {
+		var digest string
+		if err := rows.Scan(&digest); err != nil {
+			rows.Close()
+			return snapshot, err
+		}
+		observations = append(observations, digest)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return snapshot, err
+	}
+	rows.Close()
+	snapshot.RootObservationCount = int64(len(observations))
+	snapshot.RootObservationSetSHA256 = observationSetDigest(observations)
+	if err := validateRootLedgerSnapshot(snapshot); err != nil {
+		return snapshot, err
+	}
+	return snapshot, nil
+}
+
+func validateRootLedgerSnapshot(snapshot experiment.RootLedgerSnapshot) error {
+	if snapshot.Epoch == 0 {
+		if snapshot.DictionarySetSHA256 != "" || snapshot.ReleaseSetSHA256 != "" || snapshot.DependencySetSHA256 != "" || snapshot.OutcomeSetSHA256 != "" ||
+			snapshot.ReleaseCardinality != 0 || snapshot.DependencyCardinality != 0 || snapshot.OutcomeCardinality != 0 || snapshot.RootObservationCount != 0 {
+			return errors.New("fresh root head contains committed exposure")
+		}
+	} else if !validDigest(snapshot.DictionarySetSHA256) || !validDigest(snapshot.ReleaseSetSHA256) ||
+		!validDigest(snapshot.DependencySetSHA256) || !validDigest(snapshot.OutcomeSetSHA256) {
+		return errors.New("committed root head contains an invalid digest")
+	}
+	if snapshot.RootObservationCount < 0 || !validDigest(snapshot.RootObservationSetSHA256) {
+		return errors.New("root observation set evidence is invalid")
+	}
+	return nil
+}
+
+func observationSetDigest(values []string) string {
+	hash := sha256.New()
+	_, _ = hash.Write([]byte("TASKGATE-FINAL-V5-ROOT-OBSERVATION-SET-V1\x00"))
+	for _, value := range values {
+		_, _ = hash.Write([]byte(value))
+		_, _ = hash.Write([]byte{0})
+	}
+	return hex.EncodeToString(hash.Sum(nil))
+}
+
+func rootSetDigest(snapshot experiment.RootLedgerSnapshot) string {
+	return sha(strings.Join([]string{snapshot.ReleaseSetSHA256, snapshot.DependencySetSHA256, snapshot.OutcomeSetSHA256}, "\x00"))
+}
+
+func validDigest(value string) bool {
+	decoded, err := hex.DecodeString(value)
+	return err == nil && len(decoded) == sha256.Size && value == strings.ToLower(value)
+}
+
+func (adapter *realAdapter) idempotentControlSnapshot(ctx context.Context, operation experiment.AdapterOperation,
+	taskID, requestID string) (experiment.IdempotentControlSnapshot, error) {
+	var snapshot experiment.IdempotentControlSnapshot
+	tx, err := adapter.control.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return snapshot, err
+	}
+	defer tx.Rollback(context.Background())
+	snapshot.Root, err = loadRootLedgerSnapshot(ctx, tx, taskID)
+	if err != nil {
+		return snapshot, err
+	}
+	err = tx.QueryRow(ctx, `
+SELECT
+  (SELECT count(*) FROM query_records q WHERE q.task_id=t.id),
+  (SELECT count(*) FROM v5_query_exposure_reservations r WHERE r.task_id=t.id AND r.status='SETTLED'),
+  (SELECT count(*) FROM v5_query_observations o JOIN query_records q ON q.id=o.query_id WHERE q.task_id=t.id),
+  (SELECT count(*) FROM query_receipts r JOIN query_records q ON q.id=r.query_id WHERE q.task_id=t.id),
+  (SELECT count(*) FROM result_artifacts a WHERE a.task_id=t.id),
+  (SELECT count(*) FROM result_artifacts a WHERE a.task_id=t.id AND a.status='AVAILABLE'),
+  (SELECT count(*) FROM audit_events e WHERE e.task_id=t.id AND e.event_type IN
+    ('QUERY_COMPLETED','QUERY_BUDGET_RELEASED','QUERY_FAILED','QUERY_INDETERMINATE','QUERY_INTERRUPTED')),
+  (SELECT count(*) FROM audit_events e WHERE e.task_id=t.id AND e.event_type='QUERY_RESULT_OBJECT_REGISTERED'),
+  (SELECT count(*) FROM audit_events e WHERE e.task_id=t.id AND e.event_type='QUERY_RESULT_CONSUMED')
+FROM tasks t WHERE t.id=$1`, taskID).Scan(
+		&snapshot.QueryRecords, &snapshot.ExposureCharges, &snapshot.Observations,
+		&snapshot.Receipts, &snapshot.Artifacts, &snapshot.AvailableArtifacts,
+		&snapshot.TerminalAudits, &snapshot.RegistrationAudits, &snapshot.AvailabilityAudits)
+	if err != nil {
+		return snapshot, err
+	}
+	raw, err := adapter.loadTerminalIdentity(ctx, tx, taskID, requestID)
+	if err != nil {
+		return snapshot, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return snapshot, err
+	}
+	object, err := adapter.canonicalObjectSnapshot(ctx, raw.objectKey, raw.objectSize, raw.objectSHA256, raw.intentSHA256)
+	if err != nil {
+		return snapshot, err
+	}
+	snapshot.CanonicalObjects, err = adapter.canonicalObjectCount(ctx)
+	if err != nil {
+		return snapshot, err
+	}
+	snapshot.Target = adapter.terminalIdentityEvidence(operation, raw, object)
+	return snapshot, nil
+}
+
+func (adapter *realAdapter) loadTerminalIdentity(ctx context.Context, tx pgx.Tx, taskID, requestID string) (rawTerminalIdentity, error) {
+	var raw rawTerminalIdentity
+	var receiptJSON []byte
+	var persistedReceiptSHA256, queryObservationSHA256 string
+	var persistedTerminalHash string
+	var queryObservationEpoch, persistedTerminalSequence int64
+	err := tx.QueryRow(ctx, `
+SELECT q.id,q.task_id,t.root_task_id,q.request_id,q.status,q.request_digest,q.grant_digest,q.result_sha256,
+       r.status,r.observation_sha256,r.root_epoch,qo.observation_sha256,qo.root_epoch,
+       qr.receipt_sha256,qr.receipt_json,qr.terminal_audit_sequence,qr.terminal_audit_hash,
+       a.result_id,a.object_key,a.status,a.object_sha256,a.parquet_sha256,a.object_size,a.parquet_size,
+       (SELECT count(*) FROM audit_events e WHERE e.query_id=q.id AND e.event_type='QUERY_V5_EXPOSURE_SETTLED'),
+       (SELECT count(*) FROM audit_events e WHERE e.query_id=q.id AND e.event_type IN
+         ('QUERY_COMPLETED','QUERY_BUDGET_RELEASED','QUERY_FAILED','QUERY_INDETERMINATE','QUERY_INTERRUPTED')),
+       (SELECT count(*) FROM audit_events e WHERE e.query_id=q.id AND e.event_type='QUERY_RESULT_OBJECT_REGISTERED'),
+       (SELECT count(*) FROM audit_events e WHERE e.query_id=q.id AND e.event_type='QUERY_RESULT_CONSUMED'),
+       COALESCE((SELECT max(sequence) FROM audit_events e WHERE e.query_id=q.id AND e.event_type IN
+         ('QUERY_COMPLETED','QUERY_BUDGET_RELEASED','QUERY_FAILED','QUERY_INDETERMINATE','QUERY_INTERRUPTED')),0),
+       COALESCE((SELECT max(sequence) FROM audit_events e WHERE e.query_id=q.id AND e.event_type='QUERY_RESULT_OBJECT_REGISTERED'),0),
+       COALESCE((SELECT max(sequence) FROM audit_events e WHERE e.query_id=q.id AND e.event_type='QUERY_RESULT_CONSUMED'),0),
+       COALESCE((SELECT max(current_hash) FROM audit_events e WHERE e.query_id=q.id AND e.event_type IN
+         ('QUERY_COMPLETED','QUERY_BUDGET_RELEASED','QUERY_FAILED','QUERY_INDETERMINATE','QUERY_INTERRUPTED')),''),
+       COALESCE((SELECT max(current_hash) FROM audit_events e WHERE e.query_id=q.id AND e.event_type='QUERY_RESULT_OBJECT_REGISTERED'),''),
+       COALESCE((SELECT max(current_hash) FROM audit_events e WHERE e.query_id=q.id AND e.event_type='QUERY_RESULT_CONSUMED'),'')
+FROM query_records q
+JOIN tasks t ON t.id=q.task_id
+JOIN v5_query_exposure_reservations r ON r.query_id=q.id
+JOIN v5_query_observations qo ON qo.query_id=q.id
+JOIN query_receipts qr ON qr.query_id=q.id
+JOIN result_artifacts a ON a.query_id=q.id
+WHERE q.task_id=$1 AND q.request_id=$2`, taskID, requestID).Scan(
+		&raw.queryID, &raw.taskID, &raw.rootTaskID, &raw.requestID, &raw.queryStatus,
+		&raw.requestDigest, &raw.grantDigest, &raw.resultSHA256,
+		&raw.reservationStatus, &raw.observationSHA256, &raw.rootEpoch,
+		&queryObservationSHA256, &queryObservationEpoch,
+		&persistedReceiptSHA256, &receiptJSON, &persistedTerminalSequence, &persistedTerminalHash,
+		&raw.resultID, &raw.objectKey, &raw.artifactStatus, &raw.objectSHA256, &raw.parquetSHA256,
+		&raw.objectSize, &raw.parquetSize,
+		&raw.settlementAudits, &raw.terminalAudits, &raw.registrationAudits, &raw.availabilityAudits,
+		&raw.terminalSequence, &raw.registrationSequence, &raw.availabilitySequence,
+		&raw.terminalHash, &raw.registrationHash, &raw.availabilityHash)
+	if err != nil {
+		return raw, err
+	}
+	if shaBytes(receiptJSON) != persistedReceiptSHA256 || !validDigest(persistedReceiptSHA256) {
+		return raw, errors.New("persisted receipt bytes differ from their Control digest")
+	}
+	if err := json.Unmarshal(receiptJSON, &raw.receipt); err != nil {
+		return raw, err
+	}
+	if err := adapter.verifier.Verify(raw.receipt); err != nil {
+		return raw, fmt.Errorf("verify persisted receipt: %w", err)
+	}
+	intent, exposure := raw.receipt.ArtifactIntent, raw.receipt.Exposure
+	if raw.queryStatus != "COMPLETED" || raw.reservationStatus != "SETTLED" || raw.artifactStatus != "AVAILABLE" ||
+		intent == nil || exposure == nil || raw.receipt.Version != queryreceipt.VersionV8 ||
+		raw.receipt.TaskID != raw.taskID || raw.receipt.QueryID != raw.queryID || raw.receipt.RequestID != raw.requestID ||
+		intent.ResultID != raw.resultID || intent.ObjectKeySHA256 != sha(raw.objectKey) ||
+		intent.ObjectSHA256 != raw.objectSHA256 || intent.ParquetSHA256 != raw.parquetSHA256 ||
+		intent.ObjectSize != raw.objectSize || intent.ParquetSize != raw.parquetSize ||
+		exposure.RootTaskID != raw.rootTaskID || exposure.ObservationSHA256 != raw.observationSHA256 ||
+		queryObservationSHA256 != raw.observationSHA256 || queryObservationEpoch != raw.rootEpoch {
+		return raw, errors.New("terminal query identity is internally inconsistent")
+	}
+	if raw.settlementAudits != 1 || raw.terminalAudits != 1 || raw.registrationAudits != 1 || raw.availabilityAudits != 1 ||
+		persistedTerminalSequence != raw.terminalSequence || persistedTerminalHash != raw.terminalHash ||
+		raw.terminalSequence != raw.receipt.AuditSequence || raw.terminalHash != raw.receipt.AuditHash ||
+		raw.registrationSequence != intent.RegistrationAuditSequence || raw.registrationHash != intent.RegistrationAuditHash ||
+		raw.availabilitySequence <= raw.registrationSequence {
+		return raw, errors.New("terminal query audit identity is incomplete")
+	}
+	raw.receiptID = raw.receipt.ReceiptID
+	raw.receiptSHA256 = persistedReceiptSHA256
+	raw.receiptIdentitySHA256 = receiptDigest(raw.receipt)
+	raw.intentSHA256 = intent.IntentSHA256
+	return raw, nil
+}
+
+func (adapter *realAdapter) canonicalObjectSnapshot(ctx context.Context, objectKey string, expectedSize int64,
+	expectedSHA256, intentSHA256 string) (experiment.CanonicalObjectSnapshot, error) {
+	var snapshot experiment.CanonicalObjectSnapshot
+	if objectKey == "" || expectedSize <= 0 || !validDigest(expectedSHA256) || !validDigest(intentSHA256) {
+		return snapshot, errors.New("canonical object projection is incomplete")
+	}
+	stat, err := adapter.objectStore.StatObject(ctx, adapter.objectBucket, objectKey, minio.StatObjectOptions{})
+	if err != nil || stat.Size != expectedSize {
+		return snapshot, errors.New("canonical object Stat differs from Control")
+	}
+	object, err := adapter.objectStore.GetObject(ctx, adapter.objectBucket, objectKey, minio.GetObjectOptions{})
+	if err != nil {
+		return snapshot, err
+	}
+	defer object.Close()
+	hash := sha256.New()
+	written, err := io.Copy(hash, io.LimitReader(object, expectedSize+1))
+	if err != nil || written != expectedSize {
+		return snapshot, errors.New("canonical object stream size differs from Control")
+	}
+	actualSHA256 := hex.EncodeToString(hash.Sum(nil))
+	if actualSHA256 != expectedSHA256 {
+		return snapshot, errors.New("canonical object stream digest differs from Control")
+	}
+	return experiment.CanonicalObjectSnapshot{
+		Exists: true, ObjectKeySHA256: sha(objectKey), CanonicalCiphertextSHA256: actualSHA256,
+		CanonicalCiphertextSize: written, IntentSHA256: intentSHA256,
+	}, nil
+}
+
+func (adapter *realAdapter) canonicalObjectCount(ctx context.Context) (int64, error) {
+	var count int64
+	for object := range adapter.objectStore.ListObjects(ctx, adapter.objectBucket, minio.ListObjectsOptions{Prefix: "results/", Recursive: true}) {
+		if object.Err != nil {
+			return 0, object.Err
+		}
+		count++
+	}
+	return count, nil
+}
+
+func (adapter *realAdapter) terminalIdentityEvidence(operation experiment.AdapterOperation, raw rawTerminalIdentity,
+	object experiment.CanonicalObjectSnapshot) experiment.TerminalIdentitySnapshot {
+	return experiment.TerminalIdentitySnapshot{
+		Found: true, QueryIDHash: saltedIdentityHash(operation, "query", raw.queryID),
+		ResultIDHash:  saltedIdentityHash(operation, "result", raw.resultID),
+		ReceiptSHA256: raw.receiptIdentitySHA256, IntentSHA256: raw.intentSHA256,
+		ObjectKeySHA256: object.ObjectKeySHA256, CommittedObjectSHA256: raw.objectSHA256,
+		CanonicalCiphertextSHA256: object.CanonicalCiphertextSHA256,
+		CanonicalCiphertextSize:   object.CanonicalCiphertextSize,
+		ArtifactStatus:            raw.artifactStatus, ObservationSHA256: raw.observationSHA256,
+	}
+}
+
+func responseTerminalIdentityEvidence(operation experiment.AdapterOperation, response queryResponse,
+	manifest *experiment.RedactedVerifierManifest) experiment.TerminalIdentitySnapshot {
+	if response.Receipt.ArtifactIntent == nil || manifest == nil {
+		return experiment.TerminalIdentitySnapshot{}
+	}
+	intent := response.Receipt.ArtifactIntent
+	return experiment.TerminalIdentitySnapshot{
+		Found: true, QueryIDHash: saltedIdentityHash(operation, "query", response.QueryID),
+		ResultIDHash:  saltedIdentityHash(operation, "result", response.ResultID),
+		ReceiptSHA256: receiptDigest(response.Receipt), IntentSHA256: intent.IntentSHA256,
+		ObjectKeySHA256: intent.ObjectKeySHA256, CommittedObjectSHA256: intent.ObjectSHA256,
+		CanonicalCiphertextSHA256: manifest.CanonicalCiphertextSHA256,
+		CanonicalCiphertextSize:   manifest.CanonicalCiphertextSize,
+		ArtifactStatus:            response.ArtifactStatus, ObservationSHA256: response.Exposure.ObservationSHA256,
+	}
+}
+
+func saltedIdentityHash(operation experiment.AdapterOperation, kind, value string) string {
+	return sha("TASKGATE-FINAL-V5-PILOT-IDENTITY-V1\x00" + operation.CampaignID + "\x00" + operation.DeploymentID + "\x00" + kind + "\x00" + value)
+}
+
+func (adapter *realAdapter) crossBindingVerification(ctx context.Context, operation experiment.AdapterOperation,
+	state *pairState) (experiment.CrossBindingVerificationEvidence, error) {
+	var evidence experiment.CrossBindingVerificationEvidence
+	if state.taskID == "" || state.novelRequestID == "" || state.novelQueryID == "" {
+		return evidence, errors.New("cross-binding check lacks its novel anchor")
+	}
+	first, err := adapter.crossBindingSnapshot(ctx, state.taskID, state.novelRequestID)
+	if err != nil {
+		return evidence, err
+	}
+	secondTaskID, err := adapter.provisionTask(ctx, operation)
+	if err != nil {
+		return evidence, err
+	}
+	beforeRoot, err := adapter.rootLedgerSnapshot(ctx, secondTaskID)
+	if err != nil {
+		return evidence, err
+	}
+	businessBefore, err := adapter.businessSQLSnapshot(ctx)
+	if err != nil {
+		return evidence, err
+	}
+	requestID := "final-v5-" + sha(operation.SampleID)[:20] + "-cross-binding"
+	started := time.Now()
+	var response queryResponse
+	if err := adapter.alice.call(ctx, "query_sql", map[string]any{
+		"task_id": secondTaskID, "request_id": requestID, "sql": pilotTaskGateSQL,
+	}, &response); err != nil {
+		return evidence, err
+	}
+	availableMS := durationMS(time.Since(started))
+	businessAfter, err := adapter.businessSQLSnapshot(ctx)
+	if err != nil {
+		return evidence, err
+	}
+	afterRoot, err := adapter.rootLedgerSnapshot(ctx, secondTaskID)
+	if err != nil {
+		return evidence, err
+	}
+	if response.SemanticReplay || response.IdempotentReplay {
+		return evidence, errors.New("cross-binding query reused an authority-bound materialization")
+	}
+	secondState := &pairState{taskID: secondTaskID}
+	crossOperation := operation
+	crossOperation.Mode = "novel"
+	verifiedSample, err := adapter.completeTaskgateSample(ctx, crossOperation, secondState, beforeRoot, afterRoot,
+		started, availableMS, pilotTaskGateSQL, response)
+	if err != nil {
+		return evidence, err
+	}
+	second, err := adapter.crossBindingSnapshot(ctx, secondTaskID, requestID)
+	if err != nil {
+		return evidence, err
+	}
+	if first.taskID == second.taskID || first.rootTaskID == second.rootTaskID || first.queryID == second.queryID ||
+		first.grantDigest == second.grantDigest || first.cacheKeySHA256 == second.cacheKeySHA256 ||
+		second.sourceQueryID != second.queryID || second.rootFirstQueryID != second.queryID ||
+		businessAfter.VisibleCalls-businessBefore.VisibleCalls != 1 ||
+		businessAfter.CompanionCalls-businessBefore.CompanionCalls != 1 {
+		return evidence, errors.New("cross-binding negative evidence is incomplete")
+	}
+	if verifiedSample.BaselineVerification == nil || verifiedSample.BaselineVerification.VerifierManifest == nil {
+		return evidence, errors.New("cross-binding released-artifact manifest is absent")
+	}
+	evidence = experiment.CrossBindingVerificationEvidence{
+		FirstTaskIDHash: saltedTaskHash(operation, first.taskID), SecondTaskIDHash: saltedTaskHash(operation, second.taskID),
+		FirstRootTaskIDHash: saltedTaskHash(operation, first.rootTaskID), SecondRootTaskIDHash: saltedTaskHash(operation, second.rootTaskID),
+		FirstQueryIDHash: saltedIdentityHash(operation, "query", first.queryID), SecondQueryIDHash: saltedIdentityHash(operation, "query", second.queryID),
+		FirstGrantSHA256: first.grantDigest, SecondGrantSHA256: second.grantDigest,
+		FirstCacheKeySHA256: first.cacheKeySHA256, SecondCacheKeySHA256: second.cacheKeySHA256,
+		FirstSQLFingerprintSHA256: first.sqlFingerprint, SecondSQLFingerprintSHA256: second.sqlFingerprint,
+		FirstCatalogSHA256: first.catalogDigest, SecondCatalogSHA256: second.catalogDigest,
+		FirstSchemaSHA256: first.schemaDigest, SecondSchemaSHA256: second.schemaDigest,
+		FirstDatasourceIDHash:  saltedIdentityHash(operation, "datasource", first.datasourceID),
+		SecondDatasourceIDHash: saltedIdentityHash(operation, "datasource", second.datasourceID),
+		FirstObservationSHA256: first.observationSHA256, SecondObservationSHA256: second.observationSHA256,
+		FirstObservationBindingSHA256:  observationBindingDigest(saltedTaskHash(operation, first.rootTaskID), first.observationSHA256),
+		SecondObservationBindingSHA256: observationBindingDigest(saltedTaskHash(operation, second.rootTaskID), second.observationSHA256),
+		FirstSourceQueryIDHash:         saltedIdentityHash(operation, "query", first.sourceQueryID),
+		SecondSourceQueryIDHash:        saltedIdentityHash(operation, "query", second.sourceQueryID),
+		SecondRootFirstQueryIDHash:     saltedIdentityHash(operation, "query", second.rootFirstQueryID),
+		BusinessBefore:                 businessBefore, BusinessAfter: businessAfter,
+		SemanticReplayAudits: second.semanticReplayAudits, SettlementAudits: second.settlementAudits,
+		SemanticReplay: response.SemanticReplay, IdempotentReplay: response.IdempotentReplay,
+		VerifierManifest: verifiedSample.BaselineVerification.VerifierManifest,
+	}
+	return evidence, nil
+}
+
+func (adapter *realAdapter) crossBindingSnapshot(ctx context.Context, taskID, requestID string) (rawCrossBinding, error) {
+	var snapshot rawCrossBinding
+	err := adapter.control.QueryRow(ctx, `
+SELECT q.task_id,t.root_task_id,q.id,q.grant_digest,m.cache_key_sha256,r.observation_sha256,
+       q.sql_fingerprint,q.catalog_digest,q.schema_digest,q.datasource_id,
+       m.source_query_id,ro.first_query_id,
+       (SELECT count(*) FROM audit_events e WHERE e.query_id=q.id AND e.event_type='QUERY_V5_SEMANTIC_REPLAY'),
+       (SELECT count(*) FROM audit_events e WHERE e.query_id=q.id AND e.event_type='QUERY_V5_EXPOSURE_SETTLED')
+FROM query_records q
+JOIN tasks t ON t.id=q.task_id
+JOIN v5_query_exposure_reservations r ON r.query_id=q.id AND r.status='SETTLED'
+JOIN v5_committed_materializations m ON m.task_id=q.task_id AND m.source_query_id=q.id
+JOIN v5_root_observations ro ON ro.root_task_id=t.root_task_id AND ro.observation_sha256=r.observation_sha256
+WHERE q.task_id=$1 AND q.request_id=$2`, taskID, requestID).Scan(
+		&snapshot.taskID, &snapshot.rootTaskID, &snapshot.queryID, &snapshot.grantDigest,
+		&snapshot.cacheKeySHA256, &snapshot.observationSHA256,
+		&snapshot.sqlFingerprint, &snapshot.catalogDigest, &snapshot.schemaDigest, &snapshot.datasourceID,
+		&snapshot.sourceQueryID,
+		&snapshot.rootFirstQueryID, &snapshot.semanticReplayAudits, &snapshot.settlementAudits)
+	if err != nil {
+		return snapshot, err
+	}
+	if !validDigest(snapshot.grantDigest) || !validDigest(snapshot.cacheKeySHA256) || !validDigest(snapshot.sqlFingerprint) ||
+		!validDigest(snapshot.catalogDigest) || !validDigest(snapshot.schemaDigest) || strings.TrimSpace(snapshot.datasourceID) == "" ||
+		!validDigest(snapshot.observationSHA256) || snapshot.sourceQueryID != snapshot.queryID ||
+		snapshot.rootFirstQueryID != snapshot.queryID || snapshot.semanticReplayAudits != 0 || snapshot.settlementAudits != 1 {
+		return snapshot, errors.New("novel cross-binding anchor is invalid")
+	}
+	return snapshot, nil
+}
+
+func observationBindingDigest(rootTaskIDHash, observationSHA256 string) string {
+	return sha("TASKGATE-FINAL-V5-ROOT-OBSERVATION-BINDING-V1\x00" + rootTaskIDHash + "\x00" + observationSHA256)
 }
 
 func parseParquet(value []byte, resultID string, expectedRows int64) ([][]any, error) {

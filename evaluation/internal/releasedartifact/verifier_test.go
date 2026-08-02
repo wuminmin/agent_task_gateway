@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,6 +21,80 @@ func TestVerifyReleasedArtifactComposesReceiptAuditAndObjectEvidence(t *testing.
 	fixture := newReleaseFixture(t, "one")
 	if err := VerifyReleasedArtifact(fixture.verifier, fixture.settlement, fixture.object()); err != nil {
 		t.Fatalf("VerifyReleasedArtifact: %v", err)
+	}
+}
+
+func TestVerifyReleasedArtifactWithTranscriptRecordsLiveRedactedEvidence(t *testing.T) {
+	fixture := newReleaseFixture(t, "one")
+	normalizedSchema, err := normalizeJSON(fixture.schemaJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	transcript, err := VerifyReleasedArtifactWithTranscript(fixture.verifier, fixture.settlement, fixture.object())
+	if err != nil {
+		t.Fatalf("VerifyReleasedArtifactWithTranscript: %v", err)
+	}
+	want := Transcript{
+		Passed:                    true,
+		ReceiptAuditSequence:      fixture.settlement.ReceiptInclusion.TerminalEvent.Sequence,
+		TerminalAuditSequence:     fixture.settlement.TerminalInclusion.TerminalEvent.Sequence,
+		RegistrationAuditSequence: fixture.settlement.RegistrationInclusion.TerminalEvent.Sequence,
+		AvailabilityAuditSequence: fixture.settlement.AvailabilityInclusion.TerminalEvent.Sequence,
+		CiphertextSHA256:          shaHex(fixture.ciphertext),
+		CiphertextSize:            int64(len(fixture.ciphertext)),
+		ReleasedParquetSHA256:     shaHex(fixture.parquet),
+		ReleasedParquetSize:       int64(len(fixture.parquet)),
+		ReleasedSchemaSHA256:      shaHex(normalizedSchema),
+	}
+	if !reflect.DeepEqual(transcript, want) {
+		t.Fatalf("transcript = %#v, want %#v", transcript, want)
+	}
+}
+
+func TestVerifyReleasedArtifactWithTranscriptReturnsZeroOnFailure(t *testing.T) {
+	fixture := newReleaseFixture(t, "one")
+	wrong := fixture.object()
+	wrong.Ciphertext = bytes.NewReader([]byte("wrong canonical ciphertext"))
+
+	transcript, err := VerifyReleasedArtifactWithTranscript(fixture.verifier, fixture.settlement, wrong)
+	if !errors.Is(err, ErrInvalidRelease) {
+		t.Fatalf("wrong canonical object error = %v, want %v", err, ErrInvalidRelease)
+	}
+	if transcript != (Transcript{}) {
+		t.Fatalf("failure transcript = %#v, want zero value", transcript)
+	}
+}
+
+func TestVerificationTranscriptContainsNoRawIdentityKeyPayloadOrArtifact(t *testing.T) {
+	fixture := newReleaseFixture(t, "private")
+	transcript, err := VerifyReleasedArtifactWithTranscript(fixture.verifier, fixture.settlement, fixture.object())
+	if err != nil {
+		t.Fatalf("VerifyReleasedArtifactWithTranscript: %v", err)
+	}
+	encoded, err := json.Marshal(transcript)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{
+		fixture.settlement.Receipt.TaskID,
+		fixture.settlement.Receipt.QueryID,
+		fixture.settlement.Receipt.ReceiptID,
+		fixture.settlement.Receipt.RequestID,
+		fixture.settlement.Receipt.ArtifactIntent.ResultID,
+		fixture.settlement.Receipt.ArtifactIntent.KeyID,
+		fixture.objectKey,
+		fixture.stagingKey,
+		string(fixture.ciphertext),
+		fixture.settlement.TerminalInclusion.TerminalEvent.EventID,
+		fixture.settlement.RegistrationInclusion.TerminalEvent.EventID,
+		fixture.settlement.AvailabilityInclusion.TerminalEvent.EventID,
+		`"principal":"alice"`,
+		`"status":"COMPLETED"`,
+	} {
+		if strings.Contains(string(encoded), forbidden) {
+			t.Fatalf("transcript leaked forbidden value %q: %s", forbidden, encoded)
+		}
 	}
 }
 

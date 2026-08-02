@@ -512,6 +512,31 @@ func validateExperimentEvidence(sample Sample) ([]string, bool) {
 			if err := validateBaselineVerification(sample); err != nil {
 				fail("baseline independent verification failed: " + err.Error())
 			}
+			// Stage A.1 instrumentation is Pilot-only. Publication evidence keeps
+			// its frozen protocol while real-system Pilot samples fail closed on
+			// every newly required replay/verifier observation.
+			if !sample.PublicationEligible {
+				if err := validateRedactedVerifierManifest(sample); err != nil {
+					fail("baseline redacted verifier manifest failed: " + err.Error())
+				}
+				switch sample.Mode {
+				case "novel":
+					if err := validateNovelVerification(sample); err != nil {
+						fail("baseline novel execution verification failed: " + err.Error())
+					}
+				case "semantic_replay":
+					if err := validateReplayVerification(sample); err != nil {
+						fail("baseline semantic replay verification failed: " + err.Error())
+					}
+					if err := validateCrossBindingVerification(sample); err != nil {
+						fail("baseline cross-binding verification failed: " + err.Error())
+					}
+				case "idempotent_replay":
+					if err := validateIdempotentVerification(sample); err != nil {
+						fail("baseline idempotent replay verification failed: " + err.Error())
+					}
+				}
+			}
 			if sample.Mode == "pending_recovery" {
 				if err := validateRecoveryVerification(sample); err != nil {
 					fail("baseline recovery verification failed: " + err.Error())
@@ -834,6 +859,357 @@ func validateBaselineSignedSample(intent *queryreceipt.ArtifactIntentEvidenceV1,
 	return nil
 }
 
+const redactedVerifierVersion = "taskgate-final-v5-composite-verifier-v1"
+
+func validateBusinessSQLSnapshot(snapshot BusinessSQLSnapshot) error {
+	if snapshot.StatsResetUnixMicro <= 0 || snapshot.Dealloc < 0 || snapshot.VisibleCalls < 0 || snapshot.CompanionCalls < 0 {
+		return errors.New("Business SQL counter snapshot is absent or invalid")
+	}
+	return nil
+}
+
+func validateBusinessSQLTransition(before, after BusinessSQLSnapshot, visibleDelta, companionDelta int64) error {
+	if err := validateBusinessSQLSnapshot(before); err != nil {
+		return err
+	}
+	if err := validateBusinessSQLSnapshot(after); err != nil {
+		return err
+	}
+	if before.StatsResetUnixMicro != after.StatsResetUnixMicro || before.Dealloc != after.Dealloc {
+		return errors.New("Business SQL statistics reset or deallocation changed between snapshots")
+	}
+	if after.VisibleCalls < before.VisibleCalls || after.CompanionCalls < before.CompanionCalls {
+		return errors.New("Business SQL counters regressed between snapshots")
+	}
+	if after.VisibleCalls-before.VisibleCalls != visibleDelta || after.CompanionCalls-before.CompanionCalls != companionDelta {
+		return fmt.Errorf("Business SQL deltas differ from required visible=%d companion=%d", visibleDelta, companionDelta)
+	}
+	return nil
+}
+
+func validateRootLedgerSnapshot(snapshot RootLedgerSnapshot) error {
+	if snapshot.Epoch <= 0 || snapshot.ReleaseCardinality < 0 || snapshot.DependencyCardinality < 0 || snapshot.OutcomeCardinality < 0 || snapshot.RootObservationCount <= 0 {
+		return errors.New("root ledger epoch/cardinality evidence is absent or invalid")
+	}
+	for _, digest := range []string{snapshot.DictionarySetSHA256, snapshot.ReleaseSetSHA256, snapshot.DependencySetSHA256, snapshot.OutcomeSetSHA256, snapshot.RootObservationSetSHA256} {
+		if !validSHA256(digest) {
+			return errors.New("root ledger contains an invalid digest")
+		}
+	}
+	return nil
+}
+
+func validateFreshRootLedgerSnapshot(snapshot RootLedgerSnapshot) error {
+	if snapshot.Epoch != 0 || snapshot.DictionarySetSHA256 != "" || snapshot.ReleaseSetSHA256 != "" ||
+		snapshot.DependencySetSHA256 != "" || snapshot.OutcomeSetSHA256 != "" || snapshot.ReleaseCardinality != 0 ||
+		snapshot.DependencyCardinality != 0 || snapshot.OutcomeCardinality != 0 || snapshot.RootObservationCount != 0 ||
+		snapshot.RootObservationSetSHA256 != emptyRootObservationSetSHA256() {
+		return errors.New("novel request did not begin from a valid fresh zero root")
+	}
+	return nil
+}
+
+func emptyRootObservationSetSHA256() string {
+	return sha256Hex([]byte("TASKGATE-FINAL-V5-ROOT-OBSERVATION-SET-V1\x00"))
+}
+
+func validateRootMatchesSample(snapshot RootLedgerSnapshot, sample Sample) error {
+	if snapshot.Epoch != sample.RootEpochAfter || snapshot.ReleaseSetSHA256 != sample.ReleaseSetSHA256 ||
+		snapshot.DependencySetSHA256 != sample.DependencySetSHA256 || snapshot.OutcomeSetSHA256 != sample.OutcomeSetSHA256 ||
+		snapshot.ReleaseCardinality != sample.ActualReleaseFacts || snapshot.DependencyCardinality != sample.ActualDependencyFacts ||
+		snapshot.OutcomeCardinality != sample.ActualOutcomeFacts {
+		return errors.New("root ledger snapshot differs from the sample exposure")
+	}
+	return nil
+}
+
+func validateNovelVerification(sample Sample) error {
+	evidence := sample.ReplayVerification
+	if evidence == nil {
+		return errors.New("raw novel execution snapshots are absent")
+	}
+	if err := validateBusinessSQLTransition(evidence.BusinessBefore, evidence.BusinessAfter, 1, 1); err != nil {
+		return err
+	}
+	if err := validateFreshRootLedgerSnapshot(evidence.RootBefore); err != nil {
+		return err
+	}
+	if err := validateRootLedgerSnapshot(evidence.RootAfter); err != nil {
+		return err
+	}
+	if err := validateRootMatchesSample(evidence.RootAfter, sample); err != nil {
+		return err
+	}
+	if sample.RootEpochBefore != evidence.RootBefore.Epoch || sample.RootEpochAfter != evidence.RootAfter.Epoch ||
+		sample.RootSetSHA256Before != rootLedgerSetSHA256(evidence.RootBefore) || sample.RootSetSHA256After != rootLedgerSetSHA256(evidence.RootAfter) {
+		return errors.New("novel top-level root transition differs from independent snapshots")
+	}
+	observedBusinessDelta := evidence.BusinessAfter.VisibleCalls - evidence.BusinessBefore.VisibleCalls +
+		evidence.BusinessAfter.CompanionCalls - evidence.BusinessBefore.CompanionCalls
+	if sample.BusinessSQLDelta != 2 || sample.BusinessSQLDelta != observedBusinessDelta || sample.SemanticReplay || sample.IdempotentReplay {
+		return errors.New("novel execution markers or top-level Business SQL delta are inconsistent")
+	}
+	return nil
+}
+
+func validateReplayVerification(sample Sample) error {
+	evidence := sample.ReplayVerification
+	if evidence == nil {
+		return errors.New("raw semantic replay snapshots are absent")
+	}
+	if err := validateBusinessSQLTransition(evidence.BusinessBefore, evidence.BusinessAfter, 0, 0); err != nil {
+		return err
+	}
+	if err := validateRootLedgerSnapshot(evidence.RootBefore); err != nil {
+		return err
+	}
+	if err := validateRootLedgerSnapshot(evidence.RootAfter); err != nil {
+		return err
+	}
+	if evidence.RootBefore != evidence.RootAfter {
+		return errors.New("semantic replay changed the complete root ledger snapshot")
+	}
+	if err := validateRootMatchesSample(evidence.RootAfter, sample); err != nil {
+		return err
+	}
+	if sample.RootEpochBefore != evidence.RootBefore.Epoch || sample.RootSetSHA256Before != rootLedgerSetSHA256(evidence.RootBefore) ||
+		sample.RootSetSHA256After != rootLedgerSetSHA256(evidence.RootAfter) {
+		return errors.New("semantic replay top-level root transition differs from the independent snapshot")
+	}
+	if !validSHA256(evidence.SourceObservationSHA256) || evidence.SourceObservationSHA256 != evidence.ReplayObservationSHA256 {
+		return errors.New("semantic replay did not retain the source observation identity")
+	}
+	if sample.BaselineVerification == nil || sample.BaselineVerification.Receipt.Exposure == nil ||
+		evidence.ReplayObservationSHA256 != sample.BaselineVerification.Receipt.Exposure.ObservationSHA256 {
+		return errors.New("semantic replay observation differs from the signed receipt")
+	}
+	if !sample.SemanticReplay || sample.IdempotentReplay || sample.BusinessSQLDelta != 0 {
+		return errors.New("semantic replay markers are inconsistent")
+	}
+	return nil
+}
+
+func validateRedactedManifestStructure(manifest *RedactedVerifierManifest) error {
+	if manifest == nil || manifest.VerifierVersion != redactedVerifierVersion || manifest.VerificationResult != "pass" ||
+		manifest.CanonicalCiphertextSize <= 0 || manifest.ReleasedParquetSize <= 0 ||
+		manifest.TerminalAuditSequence <= 0 || manifest.RegistrationAuditSequence <= 0 ||
+		manifest.AvailabilityAuditSequence <= manifest.RegistrationAuditSequence {
+		return errors.New("redacted composite verifier manifest is absent or incomplete")
+	}
+	for _, digest := range []string{
+		manifest.QueryIDHash, manifest.ResultIDHash, manifest.RootTaskIDHash, manifest.ReceiptSHA256,
+		manifest.ObservationSHA256, manifest.ReleaseSetSHA256, manifest.DependencySetSHA256,
+		manifest.OutcomeSetSHA256, manifest.ArtifactIntentSHA256, manifest.ObjectKeySHA256,
+		manifest.CanonicalCiphertextSHA256, manifest.ReleasedParquetSHA256, manifest.SchemaSHA256,
+	} {
+		if !validSHA256(digest) {
+			return errors.New("redacted composite verifier manifest contains an invalid digest")
+		}
+	}
+	return nil
+}
+
+func validateRedactedVerifierManifest(sample Sample) error {
+	evidence := sample.BaselineVerification
+	if evidence == nil || evidence.Receipt.ArtifactIntent == nil || evidence.Receipt.Exposure == nil {
+		return errors.New("raw V8 evidence required by the verifier manifest is absent")
+	}
+	manifest := evidence.VerifierManifest
+	if err := validateRedactedManifestStructure(manifest); err != nil {
+		return err
+	}
+	receipt, intent, exposure := evidence.Receipt, evidence.Receipt.ArtifactIntent, evidence.Receipt.Exposure
+	receiptBytes, err := json.Marshal(receipt)
+	if err != nil {
+		return err
+	}
+	queryIDHash := redactedIdentitySHA256(sample, "query", receipt.QueryID)
+	resultIDHash := redactedIdentitySHA256(sample, "result", intent.ResultID)
+	rootTaskIDHash := redactedTaskSHA256(sample, exposure.RootTaskID)
+	if manifest.QueryIDHash != queryIDHash || manifest.ResultIDHash != resultIDHash || manifest.RootTaskIDHash != rootTaskIDHash ||
+		manifest.RootTaskIDHash != sample.RootTaskIDHash || manifest.ReceiptSHA256 != sha256Hex(receiptBytes) || manifest.ReceiptSHA256 != sample.ReceiptSHA256 ||
+		manifest.ObservationSHA256 != exposure.ObservationSHA256 || manifest.ReleaseSetSHA256 != exposure.ReleaseSetSHA256 ||
+		manifest.DependencySetSHA256 != exposure.InfluenceSetSHA256 || manifest.OutcomeSetSHA256 != exposure.OutcomeSetSHA256 ||
+		manifest.ArtifactIntentSHA256 != intent.IntentSHA256 || manifest.ArtifactIntentSHA256 != sample.ArtifactIntentSHA256 ||
+		manifest.ObjectKeySHA256 != intent.ObjectKeySHA256 || manifest.CanonicalCiphertextSHA256 != intent.ObjectSHA256 ||
+		manifest.CanonicalCiphertextSHA256 != sample.ObjectSHA256 || manifest.CanonicalCiphertextSize != intent.ObjectSize ||
+		manifest.CanonicalCiphertextSize != sample.EncryptedObjectBytes || manifest.ReleasedParquetSHA256 != intent.ParquetSHA256 ||
+		manifest.ReleasedParquetSHA256 != sample.ArtifactSHA256 || manifest.ReleasedParquetSize != intent.ParquetSize ||
+		manifest.ReleasedParquetSize != sample.ParquetBytes || manifest.SchemaSHA256 != intent.SchemaSHA256 {
+		return errors.New("redacted composite verifier manifest differs from signed result evidence")
+	}
+	if manifest.TerminalAuditSequence != receipt.AuditSequence || manifest.TerminalAuditSequence != evidence.TerminalProof.TerminalEvent.Sequence ||
+		manifest.RegistrationAuditSequence != intent.RegistrationAuditSequence || manifest.RegistrationAuditSequence != evidence.RegistrationProof.TerminalEvent.Sequence ||
+		manifest.AvailabilityAuditSequence != evidence.AvailabilityProof.TerminalEvent.Sequence {
+		return errors.New("redacted composite verifier audit sequence differs from inclusion proofs")
+	}
+	return nil
+}
+
+func redactedIdentitySHA256(sample Sample, kind, rawID string) string {
+	return sha256Hex([]byte("TASKGATE-FINAL-V5-PILOT-IDENTITY-V1\x00" + sample.CampaignID + "\x00" + sample.DeploymentID + "\x00" + kind + "\x00" + rawID))
+}
+
+func redactedTaskSHA256(sample Sample, rawID string) string {
+	return sha256Hex([]byte(sample.CampaignID + "\x00" + sample.DeploymentID + "\x00" + rawID))
+}
+
+func rootLedgerSetSHA256(snapshot RootLedgerSnapshot) string {
+	return sha256Hex([]byte(strings.Join([]string{snapshot.ReleaseSetSHA256, snapshot.DependencySetSHA256, snapshot.OutcomeSetSHA256}, "\x00")))
+}
+
+func rootObservationBindingSHA256(rootTaskIDHash, observationSHA256 string) string {
+	return sha256Hex([]byte("TASKGATE-FINAL-V5-ROOT-OBSERVATION-BINDING-V1\x00" + rootTaskIDHash + "\x00" + observationSHA256))
+}
+
+func validateCrossBindingVerification(sample Sample) error {
+	evidence := sample.CrossBindingVerification
+	if evidence == nil {
+		return errors.New("cross-binding negative-control evidence is absent")
+	}
+	for _, digest := range []string{
+		evidence.FirstTaskIDHash, evidence.SecondTaskIDHash, evidence.FirstRootTaskIDHash, evidence.SecondRootTaskIDHash,
+		evidence.FirstQueryIDHash, evidence.SecondQueryIDHash, evidence.FirstGrantSHA256, evidence.SecondGrantSHA256,
+		evidence.FirstCacheKeySHA256, evidence.SecondCacheKeySHA256, evidence.FirstSQLFingerprintSHA256, evidence.SecondSQLFingerprintSHA256,
+		evidence.FirstCatalogSHA256, evidence.SecondCatalogSHA256, evidence.FirstSchemaSHA256, evidence.SecondSchemaSHA256,
+		evidence.FirstDatasourceIDHash, evidence.SecondDatasourceIDHash, evidence.FirstObservationSHA256,
+		evidence.SecondObservationSHA256, evidence.FirstObservationBindingSHA256, evidence.SecondObservationBindingSHA256,
+		evidence.FirstSourceQueryIDHash, evidence.SecondSourceQueryIDHash, evidence.SecondRootFirstQueryIDHash,
+	} {
+		if !validSHA256(digest) {
+			return errors.New("cross-binding negative control contains an invalid identity digest")
+		}
+	}
+	if evidence.FirstTaskIDHash != evidence.FirstRootTaskIDHash || evidence.SecondTaskIDHash != evidence.SecondRootTaskIDHash ||
+		evidence.FirstTaskIDHash == evidence.SecondTaskIDHash || evidence.FirstRootTaskIDHash == evidence.SecondRootTaskIDHash ||
+		evidence.FirstQueryIDHash == evidence.SecondQueryIDHash || evidence.FirstGrantSHA256 == evidence.SecondGrantSHA256 ||
+		evidence.FirstCacheKeySHA256 == evidence.SecondCacheKeySHA256 || evidence.FirstObservationBindingSHA256 == evidence.SecondObservationBindingSHA256 {
+		return errors.New("cross-binding negative control did not use distinct task/root/query/grant/cache/observation bindings")
+	}
+	if evidence.FirstSQLFingerprintSHA256 != evidence.SecondSQLFingerprintSHA256 ||
+		evidence.FirstCatalogSHA256 != evidence.SecondCatalogSHA256 || evidence.FirstSchemaSHA256 != evidence.SecondSchemaSHA256 ||
+		evidence.FirstDatasourceIDHash != evidence.SecondDatasourceIDHash {
+		return errors.New("cross-binding negative control did not hold SQL/product/catalog/schema/datasource constant")
+	}
+	if evidence.FirstObservationBindingSHA256 != rootObservationBindingSHA256(evidence.FirstRootTaskIDHash, evidence.FirstObservationSHA256) ||
+		evidence.SecondObservationBindingSHA256 != rootObservationBindingSHA256(evidence.SecondRootTaskIDHash, evidence.SecondObservationSHA256) {
+		return errors.New("cross-binding observation identities do not recompute from their root bindings")
+	}
+	if evidence.FirstRootTaskIDHash != sample.RootTaskIDHash || evidence.FirstSourceQueryIDHash != evidence.FirstQueryIDHash ||
+		evidence.SecondSourceQueryIDHash != evidence.SecondQueryIDHash || evidence.SecondRootFirstQueryIDHash != evidence.SecondQueryIDHash {
+		return errors.New("cross-binding negative control is not bound to a first query on the second root")
+	}
+	if sample.BaselineVerification == nil || sample.BaselineVerification.Receipt.Exposure == nil ||
+		evidence.FirstGrantSHA256 != sample.BaselineVerification.Receipt.GrantDigest ||
+		evidence.FirstObservationSHA256 != sample.BaselineVerification.Receipt.Exposure.ObservationSHA256 {
+		return errors.New("cross-binding source identity differs from the semantic replay receipt")
+	}
+	receipt := sample.BaselineVerification.Receipt
+	if evidence.FirstSQLFingerprintSHA256 != receipt.SQLFingerprint || evidence.FirstCatalogSHA256 != receipt.CatalogDigest ||
+		evidence.FirstSchemaSHA256 != receipt.SchemaDigest ||
+		evidence.FirstDatasourceIDHash != redactedIdentitySHA256(sample, "datasource", receipt.DatasourceID) {
+		return errors.New("cross-binding SQL/product identity differs from the signed semantic receipt")
+	}
+	if err := validateBusinessSQLTransition(evidence.BusinessBefore, evidence.BusinessAfter, 1, 1); err != nil {
+		return err
+	}
+	if evidence.SemanticReplayAudits != 0 || evidence.SettlementAudits != 1 || evidence.SemanticReplay || evidence.IdempotentReplay {
+		return errors.New("cross-binding negative control did not take one fresh-settlement path")
+	}
+	if err := validateRedactedManifestStructure(evidence.VerifierManifest); err != nil {
+		return err
+	}
+	if evidence.VerifierManifest.QueryIDHash != evidence.SecondQueryIDHash || evidence.VerifierManifest.RootTaskIDHash != evidence.SecondRootTaskIDHash ||
+		evidence.VerifierManifest.ObservationSHA256 != evidence.SecondObservationSHA256 {
+		return errors.New("cross-binding verifier manifest is not bound to the second root/query/observation")
+	}
+	return nil
+}
+
+func validateTerminalIdentitySnapshot(snapshot TerminalIdentitySnapshot) error {
+	if !snapshot.Found || snapshot.ArtifactStatus != "AVAILABLE" || snapshot.CanonicalCiphertextSize <= 0 {
+		return errors.New("terminal identity snapshot is absent or not AVAILABLE")
+	}
+	for _, digest := range []string{snapshot.QueryIDHash, snapshot.ResultIDHash, snapshot.ReceiptSHA256, snapshot.IntentSHA256,
+		snapshot.ObjectKeySHA256, snapshot.CommittedObjectSHA256, snapshot.CanonicalCiphertextSHA256, snapshot.ObservationSHA256} {
+		if !validSHA256(digest) {
+			return errors.New("terminal identity snapshot contains an invalid digest")
+		}
+	}
+	if snapshot.CommittedObjectSHA256 != snapshot.CanonicalCiphertextSHA256 {
+		return errors.New("Control committed-object digest differs from canonical ciphertext")
+	}
+	return nil
+}
+
+func validateIdempotentControlSnapshot(snapshot IdempotentControlSnapshot) error {
+	if err := validateBusinessSQLSnapshot(snapshot.Business); err != nil {
+		return err
+	}
+	if err := validateRootLedgerSnapshot(snapshot.Root); err != nil {
+		return err
+	}
+	if snapshot.QueryRecords < 1 || snapshot.ExposureCharges < 1 || snapshot.Observations < 1 || snapshot.Receipts < 1 ||
+		snapshot.Artifacts < 1 || snapshot.AvailableArtifacts < 1 || snapshot.AvailableArtifacts > snapshot.Artifacts ||
+		snapshot.TerminalAudits < 1 || snapshot.RegistrationAudits < 1 || snapshot.AvailabilityAudits < 1 || snapshot.CanonicalObjects < 1 {
+		return errors.New("idempotent Control/object counters are absent or incoherent")
+	}
+	return validateTerminalIdentitySnapshot(snapshot.Target)
+}
+
+func validateIdempotentVerification(sample Sample) error {
+	evidence := sample.IdempotentVerification
+	if evidence == nil {
+		return errors.New("raw idempotent replay snapshots are absent")
+	}
+	if err := validateIdempotentControlSnapshot(evidence.Before); err != nil {
+		return err
+	}
+	if err := validateIdempotentControlSnapshot(evidence.After); err != nil {
+		return err
+	}
+	if err := validateBusinessSQLTransition(evidence.Before.Business, evidence.After.Business, 0, 0); err != nil {
+		return err
+	}
+	if evidence.Before != evidence.After {
+		return errors.New("idempotent replay changed Business/Control/root/audit/object state")
+	}
+	if err := validateTerminalIdentitySnapshot(evidence.Returned); err != nil {
+		return err
+	}
+	if evidence.Returned != evidence.Before.Target {
+		return errors.New("idempotent replay returned a different terminal identity")
+	}
+	if err := validateRootMatchesSample(evidence.After.Root, sample); err != nil {
+		return err
+	}
+	if sample.RootEpochBefore != evidence.Before.Root.Epoch || sample.RootSetSHA256Before != rootLedgerSetSHA256(evidence.Before.Root) ||
+		sample.RootSetSHA256After != rootLedgerSetSHA256(evidence.After.Root) ||
+		!sample.IdempotentReplay || sample.SemanticReplay || sample.BusinessSQLDelta != 0 {
+		return errors.New("idempotent replay markers or top-level root transition are inconsistent")
+	}
+	baseline := sample.BaselineVerification
+	if baseline == nil || baseline.Receipt.ArtifactIntent == nil || baseline.Receipt.Exposure == nil {
+		return errors.New("idempotent replay lacks signed result evidence")
+	}
+	intent, exposure := baseline.Receipt.ArtifactIntent, baseline.Receipt.Exposure
+	receiptBytes, err := json.Marshal(baseline.Receipt)
+	if err != nil {
+		return err
+	}
+	want := TerminalIdentitySnapshot{
+		Found: true, QueryIDHash: redactedIdentitySHA256(sample, "query", baseline.Receipt.QueryID),
+		ResultIDHash: redactedIdentitySHA256(sample, "result", intent.ResultID), ReceiptSHA256: sha256Hex(receiptBytes),
+		IntentSHA256: intent.IntentSHA256, ObjectKeySHA256: intent.ObjectKeySHA256,
+		CommittedObjectSHA256: intent.ObjectSHA256, CanonicalCiphertextSHA256: intent.ObjectSHA256,
+		CanonicalCiphertextSize: intent.ObjectSize, ArtifactStatus: "AVAILABLE", ObservationSHA256: exposure.ObservationSHA256,
+	}
+	if evidence.Returned != want {
+		return errors.New("idempotent terminal identity differs from signed receipt/object evidence")
+	}
+	return nil
+}
+
 func validateRecoveryVerification(sample Sample) error {
 	evidence := sample.RecoveryVerification
 	if evidence == nil {
@@ -843,9 +1219,28 @@ func validateRecoveryVerification(sample Sample) error {
 		evidence.ArtifactStatusBefore != "PENDING" || evidence.ArtifactStatusAfter != "AVAILABLE" {
 		return errors.New("forced PENDING transition was not observed")
 	}
+	if !sample.IdempotentReplay || sample.SemanticReplay {
+		return errors.New("recovery response did not take the idempotent resume path")
+	}
 	if evidence.BusinessCallsAtFailure <= evidence.BusinessCallsBefore ||
 		evidence.BusinessCallsAfter != evidence.BusinessCallsAtFailure {
 		return errors.New("artifact recovery re-executed Business PostgreSQL")
+	}
+	if err := validateBusinessSQLTransition(evidence.BusinessBeforeSnapshot, evidence.BusinessAtFailureSnapshot, 1, 1); err != nil {
+		return fmt.Errorf("forced query Business SQL evidence: %w", err)
+	}
+	if err := validateBusinessSQLTransition(evidence.BusinessAtFailureSnapshot, evidence.BusinessAfterSnapshot, 0, 0); err != nil {
+		return fmt.Errorf("recovery Business SQL evidence: %w", err)
+	}
+	if evidence.BusinessCallsBefore != evidence.BusinessBeforeSnapshot.VisibleCalls+evidence.BusinessBeforeSnapshot.CompanionCalls ||
+		evidence.BusinessCallsAtFailure != evidence.BusinessAtFailureSnapshot.VisibleCalls+evidence.BusinessAtFailureSnapshot.CompanionCalls ||
+		evidence.BusinessCallsAfter != evidence.BusinessAfterSnapshot.VisibleCalls+evidence.BusinessAfterSnapshot.CompanionCalls {
+		return errors.New("aggregate and separated Business SQL counters differ")
+	}
+	observedBusinessDelta := evidence.BusinessAtFailureSnapshot.VisibleCalls - evidence.BusinessBeforeSnapshot.VisibleCalls +
+		evidence.BusinessAtFailureSnapshot.CompanionCalls - evidence.BusinessBeforeSnapshot.CompanionCalls
+	if observedBusinessDelta != 2 || sample.BusinessSQLDelta != observedBusinessDelta {
+		return errors.New("recovery top-level Business SQL delta differs from the independent visible/companion counters")
 	}
 	if evidence.QueryRecordsAtFailure-evidence.QueryRecordsBefore != 1 ||
 		evidence.QueryRecordsAfter != evidence.QueryRecordsAtFailure {
@@ -853,6 +1248,15 @@ func validateRecoveryVerification(sample Sample) error {
 	}
 	if evidence.SettlementsAtFailure != 1 || evidence.SettlementsAfter != evidence.SettlementsAtFailure {
 		return errors.New("artifact recovery repeated exposure settlement")
+	}
+	if int64(len(evidence.SettlementAuditSequencesAtFailure)) != evidence.SettlementsAtFailure ||
+		!equalInt64s(evidence.SettlementAuditSequencesAtFailure, evidence.SettlementAuditSequencesAfter) {
+		return errors.New("artifact recovery changed the exposure-settlement audit sequence")
+	}
+	for index, sequence := range evidence.SettlementAuditSequencesAtFailure {
+		if sequence <= 0 || (index > 0 && sequence <= evidence.SettlementAuditSequencesAtFailure[index-1]) {
+			return errors.New("exposure-settlement audit sequence is invalid")
+		}
 	}
 	if evidence.UsedQueriesAtFailure-evidence.UsedQueriesBefore != 1 ||
 		evidence.UsedQueriesAfter != evidence.UsedQueriesAtFailure {
@@ -862,6 +1266,119 @@ func validateRecoveryVerification(sample Sample) error {
 		!validSHA256(evidence.IntentSHA256AtFailure) || evidence.IntentSHA256After != evidence.IntentSHA256AtFailure ||
 		evidence.ReceiptSHA256After != sample.ReceiptSHA256 || evidence.IntentSHA256After != sample.ArtifactIntentSHA256 {
 		return errors.New("artifact recovery changed the signed V8 intent")
+	}
+	if err := validateRootLedgerSnapshot(evidence.RootAtFailure); err != nil {
+		return err
+	}
+	if err := validateRootLedgerSnapshot(evidence.RootAfter); err != nil {
+		return err
+	}
+	if evidence.RootAtFailure != evidence.RootAfter {
+		return errors.New("artifact recovery changed the complete root ledger snapshot")
+	}
+	if err := validateRootMatchesSample(evidence.RootAfter, sample); err != nil {
+		return err
+	}
+	if sample.RootEpochBefore != 0 || sample.RootEpochAfter != evidence.RootAfter.Epoch ||
+		sample.RootSetSHA256Before != rootLedgerSetSHA256(RootLedgerSnapshot{}) ||
+		sample.RootSetSHA256After != rootLedgerSetSHA256(evidence.RootAfter) {
+		return errors.New("recovery top-level root transition differs from the failure/after snapshots")
+	}
+	if err := validateRecoveryExposureSnapshot(evidence.ExposureAtFailure, evidence.RootAtFailure, sample); err != nil {
+		return err
+	}
+	if err := validateRecoveryExposureSnapshot(evidence.ExposureAfter, evidence.RootAfter, sample); err != nil {
+		return err
+	}
+	if evidence.ExposureAtFailure != evidence.ExposureAfter {
+		return errors.New("artifact recovery changed the signed exposure component sets")
+	}
+	if sample.BaselineVerification == nil || sample.BaselineVerification.Receipt.Exposure == nil || sample.BaselineVerification.Receipt.ArtifactIntent == nil ||
+		evidence.ExposureAfter != recoveryExposureSnapshot(sample, *sample.BaselineVerification.Receipt.Exposure) {
+		return errors.New("recovery exposure snapshot differs from the signed receipt")
+	}
+	if err := validateCanonicalObjectSnapshot(evidence.ObjectAtFailure); err != nil {
+		return err
+	}
+	if err := validateCanonicalObjectSnapshot(evidence.ObjectAfter); err != nil {
+		return err
+	}
+	if evidence.ObjectAtFailure != evidence.ObjectAfter {
+		return errors.New("artifact recovery changed the canonical object or intent")
+	}
+	if evidence.ObjectAfter.ObjectKeySHA256 != sample.BaselineVerification.Receipt.ArtifactIntent.ObjectKeySHA256 ||
+		evidence.ObjectAfter.CanonicalCiphertextSHA256 != sample.ObjectSHA256 || evidence.ObjectAfter.CanonicalCiphertextSize != sample.EncryptedObjectBytes ||
+		evidence.ObjectAfter.IntentSHA256 != sample.ArtifactIntentSHA256 {
+		return errors.New("recovery canonical object snapshot differs from the signed intent")
+	}
+	if evidence.TerminalAuditsAtFailure != 1 || evidence.TerminalAuditsAfter != 1 ||
+		evidence.RegistrationAuditsAtFailure != 1 || evidence.RegistrationAuditsAfter != 1 ||
+		evidence.AvailabilityAuditsAtFailure != 0 || evidence.AvailabilityAuditsAfter != 1 {
+		return errors.New("artifact recovery did not preserve terminal/registration audits and append exactly one availability audit")
+	}
+	baseline := sample.BaselineVerification
+	if evidence.TerminalAuditSequenceAtFailure <= 0 || evidence.TerminalAuditSequenceAtFailure != evidence.TerminalAuditSequenceAfter ||
+		evidence.TerminalAuditSequenceAfter != baseline.Receipt.AuditSequence || evidence.TerminalAuditSequenceAfter != baseline.TerminalProof.TerminalEvent.Sequence ||
+		evidence.RegistrationAuditSequenceAtFailure <= 0 || evidence.RegistrationAuditSequenceAtFailure != evidence.RegistrationAuditSequenceAfter ||
+		evidence.RegistrationAuditSequenceAfter != baseline.Receipt.ArtifactIntent.RegistrationAuditSequence ||
+		evidence.RegistrationAuditSequenceAfter != baseline.RegistrationProof.TerminalEvent.Sequence ||
+		evidence.AvailabilityAuditSequenceAtFailure != 0 || evidence.AvailabilityAuditSequenceAfter <= evidence.RegistrationAuditSequenceAfter ||
+		evidence.AvailabilityAuditSequenceAfter != baseline.AvailabilityProof.TerminalEvent.Sequence {
+		return errors.New("artifact recovery audit sequences differ from signed inclusion proofs")
+	}
+	return nil
+}
+
+func validateRecoveryExposureSnapshot(exposure RecoveryExposureSnapshot, root RootLedgerSnapshot, sample Sample) error {
+	if exposure.RootTaskIDHash != sample.RootTaskIDHash || !validSHA256(exposure.RootTaskIDHash) || exposure.ProfileVersion == "" || exposure.PredicateProfileVersion == "" || exposure.RootEpoch != root.Epoch ||
+		exposure.DictionarySetSHA256 != root.DictionarySetSHA256 || exposure.ReleaseSetSHA256 != root.ReleaseSetSHA256 ||
+		exposure.InfluenceSetSHA256 != root.DependencySetSHA256 || exposure.OutcomeSetSHA256 != root.OutcomeSetSHA256 ||
+		exposure.ActualReleaseFacts != root.ReleaseCardinality || exposure.ActualInfluenceFacts != root.DependencyCardinality ||
+		exposure.ActualOutcomeFacts != root.OutcomeCardinality {
+		return errors.New("recovery exposure component sets differ from the root snapshot")
+	}
+	for _, digest := range []string{exposure.ObservationSHA256, exposure.DictionarySetSHA256, exposure.ReleaseSetSHA256,
+		exposure.InfluenceSetSHA256, exposure.OutcomeSetSHA256, exposure.PredicateContextSHA256, exposure.PredicateSetSHA256,
+		exposure.CompositeOutcomeSHA256} {
+		if !validSHA256(digest) {
+			return errors.New("recovery exposure component evidence contains an invalid digest")
+		}
+	}
+	if exposure.ActualReleaseFacts < 0 || exposure.ActualInfluenceFacts < 0 || exposure.ActualOutcomeFacts < 0 ||
+		exposure.ChargedReleaseFacts < 0 || exposure.ChargedInfluenceFacts < 0 || exposure.ChargedOutcomeFacts < 0 ||
+		exposure.ChargedReleaseFacts > exposure.ActualReleaseFacts || exposure.ChargedInfluenceFacts > exposure.ActualInfluenceFacts ||
+		exposure.ChargedOutcomeFacts > exposure.ActualOutcomeFacts || exposure.ActualPredicateAtomCount < 0 || exposure.ChargedPredicateAtomCount < 0 ||
+		exposure.ChargedPredicateAtomCount > exposure.ActualPredicateAtomCount || exposure.ActualCompositeCount < 0 || exposure.ChargedCompositeCount < 0 ||
+		exposure.ChargedCompositeCount > exposure.ActualCompositeCount {
+		return errors.New("recovery exposure component cardinalities are invalid")
+	}
+	return nil
+}
+
+func recoveryExposureSnapshot(sample Sample, exposure queryreceipt.ExposureEvidenceV1) RecoveryExposureSnapshot {
+	return RecoveryExposureSnapshot{
+		RootTaskIDHash: redactedTaskSHA256(sample, exposure.RootTaskID), ProfileVersion: exposure.ProfileVersion,
+		ActualReleaseFacts: exposure.ActualReleaseFacts, ActualInfluenceFacts: exposure.ActualInfluenceFacts,
+		ActualOutcomeFacts: exposure.ActualOutcomeFacts, ChargedReleaseFacts: exposure.ChargedReleaseFacts,
+		ChargedInfluenceFacts: exposure.ChargedInfluenceFacts, ChargedOutcomeFacts: exposure.ChargedOutcomeFacts,
+		ObservationSHA256: exposure.ObservationSHA256, DictionarySetSHA256: exposure.DictionarySetSHA256,
+		ReleaseSetSHA256: exposure.ReleaseSetSHA256, InfluenceSetSHA256: exposure.InfluenceSetSHA256,
+		OutcomeSetSHA256: exposure.OutcomeSetSHA256, RootEpoch: exposure.RootEpoch,
+		PredicateProfileVersion: exposure.PredicateProfileVersion, PredicateContextSHA256: exposure.PredicateContextSHA256,
+		PredicateSetSHA256: exposure.PredicateSetSHA256, ActualPredicateAtomCount: exposure.ActualPredicateAtomCount,
+		ChargedPredicateAtomCount: exposure.ChargedPredicateAtomCount, CompositeOutcomeSHA256: exposure.CompositeOutcomeSHA256,
+		ActualCompositeCount: exposure.ActualCompositeCount, ChargedCompositeCount: exposure.ChargedCompositeCount,
+	}
+}
+
+func validateCanonicalObjectSnapshot(snapshot CanonicalObjectSnapshot) error {
+	if !snapshot.Exists || snapshot.CanonicalCiphertextSize <= 0 {
+		return errors.New("canonical object snapshot is absent")
+	}
+	for _, digest := range []string{snapshot.ObjectKeySHA256, snapshot.CanonicalCiphertextSHA256, snapshot.IntentSHA256} {
+		if !validSHA256(digest) {
+			return errors.New("canonical object snapshot contains an invalid digest")
+		}
 	}
 	return nil
 }
