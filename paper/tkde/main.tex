@@ -73,8 +73,10 @@ meters this
 accumulation with typed FactID sets for accounted result values, conservative
 positive-output dependency footprints, and successful query outcomes. Before
 release, the visible query and provenance companion observe one PostgreSQL
-snapshot; BDG derives the declared effects exactly within the admitted
-fragment and atomically charges only facts novel to the root-family ledger.
+snapshot; BDG derives the declared effects exactly with respect to the
+task-bound, versioned exposure profile within the admitted fragment,
+atomically charges only facts novel to the root-family ledger, and permits no
+modeled artifact to reach \code{AVAILABLE} before that settlement.
 Semantic replay is free of new exposure only within the same publication-bound
 identity. We give semantics for a positive relational
 fragment, paper-level conservation theorems, bounded model checking, and
@@ -147,10 +149,15 @@ authorizes query submission but does not by itself clear an artifact to leave
 the trusted boundary. BDG is the release checkpoint. Clearance completes only
 after scope validation, cumulative exposure settlement, and verified promotion
 to \code{AVAILABLE}. Here, clearance is narrative shorthand for this
-settlement-and-availability path, not for legal or data-flow compliance. The
-formal model therefore retains \emph{Exposure Ledger} and \emph{settlement
-receipt}: the latter certifies settlement and a \code{PENDING} publication
-intent, not availability by itself.
+settlement-and-availability path, not for legal or data-flow compliance.
+Exactness is profile-relative and accounting-oriented rather than epistemic:
+the manifest-like Exposure Profile does not measure an agent's complete
+knowledge, just as a warehouse manifest does not state an item's full economic
+meaning. The analogy explains only governed boundary, declaration, settlement,
+and release; it provides neither legal nor DFC-policy compliance. The formal
+model therefore retains \emph{Exposure Ledger} and \emph{settlement receipt}:
+the latter certifies settlement and a \code{PENDING} publication intent, not
+availability by itself.
 
 \system treats the root task as the budget subject. A result has three effects.
 \emph{Accounted result exposure} identifies result values selected for logical
@@ -285,7 +292,8 @@ connected inner-equijoin graphs over two to 16 distinct Catalog roles, plus
 two-branch union-distinct, including grouping and four aggregates; a bounded
 nested-View compiler eliminates transparent View layers into this existing
 core rather than introducing an unaccounted SQL path.
-\item A representation-independent exact settlement rule, physically refined
+\item A representation-independent, profile-relative exact settlement rule,
+physically refined
 by immutable snapshot dictionaries, segmented compressed bitmaps, and an exact
 incremental Merkle radix set for outcome hashes: atomically charge
 $E_q\setminus\accounted_T$, withhold on
@@ -497,7 +505,7 @@ Any deployment alias such as \code{latest publication} must resolve to the
 concrete Catalog digest whose transitive binding instantiates $P_e$ in the
 authorization snapshot presented for approval; that binding becomes final
 when approval succeeds. The prototype
-has no mutable runtime alias: it eagerly writes the candidate digest into the
+has no mutable runtime alias: it eagerly writes the resolved Catalog digest into the
 draft and approval revalidates it, so a deployer that requires the newest epoch
 after a rollover must cancel and reissue the draft rather than rewrite it. In
 particular, \emph{``latest'' is resolved at approval time, never at query time}. Let
@@ -630,19 +638,11 @@ $\facts_O=A(q)\cup\{c_q\}$ contains the predicate footprint and composite
 query/result identity from Eqs.~\eqref{eq:predicate-atoms}--\eqref{eq:outcome-fact}.
 \end{definition}
 
-For a successfully evaluated query $q$, let
-$F_R^{\mathrm{candidate}}(q)$ be the result facts derived inside the withheld
-execution, $F_R^{\mathrm{accounted}}(q)$ the subset committed by settlement,
-and $F_R^{\mathrm{available}}(q)$ the facts whose canonical artifact has reached
-\code{AVAILABLE}. Successful settlement commits the complete candidate set, so
-$F_R^{\mathrm{accounted}}(q)=F_R^{\mathrm{candidate}}(q)$, whereas publication
-is a later recoverable step and only
-\[
- F_R^{\mathrm{available}}(q)\subseteq F_R^{\mathrm{accounted}}(q)
-\]
-is guaranteed. Download and human/agent observation are not tracked. Thus the
-ledger conservatively upper-bounds both logically available and actually
-observed result facts; it does not assert either event occurred.
+For a successful $q$, settlement commits the complete candidate Result set,
+whereas publication is later and recoverable:
+$F_R^{\mathrm{available}}(q)\subseteq F_R^{\mathrm{accounted}}(q)
+=F_R^{\mathrm{candidate}}(q)$. Download is untracked, so accounting only
+upper-bounds availability and actual observation; it asserts neither occurred.
 
 \begin{definition}[Task-scoped cumulative exposure]
 \label{def:task-exposure}
@@ -686,13 +686,88 @@ $|\accounted_T^R|+|\Delta_T^R|\leq B_R$ and
 $|\accounted_T^D|+|\Delta_T^D|\leq B_D$ and
 $|\accounted_T^O|+|\Delta_T^O|\leq B_O$.
 
-The word ``accounted'' is intentional. Result facts describe values selected
-for publication and charged at settlement, not proof of availability or
-observation. Dependency FactIDs remain internal to the enforcement layer; the agent receives
-only result data, counts, and receipt digests. Hence $\accounted_T^D$ is not a
-set of facts known by the agent, and no component is a complete epistemic
-or privacy-loss state. The wire and storage label \code{influence} denotes the
-positive-output dependency footprint, not causal influence.
+\subsection{Exposure Profiles as Clearance Manifests}
+\label{sec:clearance-profile}
+
+\begin{definition}[Profile-relative clearance exactness]
+\label{def:profile-relative-exactness}
+For an approved $T=(P,S,B,C)$, $C$ binds one versioned Exposure Profile $\pi$.
+For any admissible $\Pi$ and successful query in the closed language, write
+$\facts_X^\pi(q)$ for the existing component $\facts_X(q,S)$ with its profile
+binding made explicit. BDG exactly computes the canonical Result, Dependency,
+and Outcome sets $\facts_R^\pi(q),\facts_D^\pi(q),\facts_O^\pi(q)$ and their
+componentwise novelty
+\[
+ \Delta_T^X(q)=\facts_X^\pi(q)\setminus\accounted_T^X,
+ \qquad X\in\{R,D,O\}.
+\]
+This is governance/accounting exactness under the signed contract and closed
+semantics. FactIDs are governance accounting identities, not estimates of
+semantic information content. The definition does not compute total semantic
+information gain, differential-privacy loss, an agent knowledge state, or a
+complete side-channel account. BDG does not estimate total information learned
+by an agent or measure knowledge leakage; it prevents unaccounted governed
+release under a task-bound, versioned exposure profile.
+\end{definition}
+
+The six obligations separate assurance layers: O1--O4 are semantic/theorem
+claims, O5 combines separate bounded models with transaction tests, and O6 is a
+binding obligation. No bounded model or test alone proves the implementation.
+
+\begin{enumerate}
+\item[\textbf{O1}] \textbf{Output coverage.} For successful result bag $R$ and
+requested fields $V$, every selected cell $(t,a)\in R\times V$ satisfies
+$\operatorname{mat}(R,t,a)\in\facts_R(R,V)$ by Eq.~\eqref{eq:observe}.
+Normalization may merge equal identities, so coverage is not row count;
+\code{SELECT id} and \code{SELECT id,revenue} differ.
+\item[\textbf{O2}] \textbf{Positive dependency coverage.}
+$\facts_D^\pi$ is exactly the declared inductive footprint, including retained
+predicate fields, join-key annotations, group keys, and complete aggregate
+arguments. It is neither minimal causality nor all physical reads, and excludes
+rejected rows and non-output pages under this profile.
+\item[\textbf{O3}] \textbf{Conservation.} The listed normal-form rewrites,
+projection splits, complete page partitions, idempotent overlaps/retries, join support,
+and root-ledger delegation cannot reduce cumulative charge. This covers the
+stated aliases and join parenthesizations, not arbitrary SQL equivalence.
+\item[\textbf{O4}] \textbf{Probe capacity.} Each success creates one composite
+and canonical predicate atoms; exact replay reuses them, while a changed
+canonical predicate component or normalized query/result observation changes the corresponding
+identity except for collision. Zero/empty results remain outcomes. Cardinality
+is governance capacity, not entropy; one atom is not one bit of privacy loss.
+\end{enumerate}
+
+\begin{property}[O5: No unaccounted governed release]
+\label{prop:no-unaccounted-release}
+Let $\mathsf{AVAILABLE}(q)$ mean that $q$'s canonical artifact has reached the
+\code{AVAILABLE} state. For every modeled query and $X\in\{R,D,O\}$,
+\[
+ \mathsf{AVAILABLE}(q)\Longrightarrow
+ \facts_X^\pi(q)\subseteq\accounted_T^X
+ \ \wedge\ |\accounted_T^X|\leq B_X.
+\]
+\end{property}
+Execution and private staging are not release. Settlement may leave an artifact
+\code{PENDING}, so the converse is false; rejection cannot create
+\code{AVAILABLE}. Evidence combines separate bounded
+\code{ArtifactPublication.tla}/\code{ExposureLedger.tla} safety with Control-PG
+fault-injection, receipt, and availability tests, not a mechanized composition.
+
+\textbf{O6: Profile binding.} $C$ binds effect/normal-form profiles,
+type/collation, View contract, replay identity, and result handling. Derivation,
+settlement, and replay revalidate one task/Catalog/publication/dictionary
+context, which audit/receipt evidence also binds; changes cannot reuse the old
+semantic replay. The receipt directly carries the profile version and binds
+the full environment transitively through the signed Grant and the receipt's Catalog,
+observation, dictionary-set, and component-set digests; there is no
+\code{profile_digest} field.
+
+\textbf{Three-way reconciliation.} BDG links (i) the effect manifest---three
+candidate sets, observation, profile, and publication; (ii) root-ledger heads,
+novelty, bounds, and settlement; and (iii) artifact hashes, \code{PENDING}
+intent, receipt, canonical verification, and availability audit. These are not
+independent truths: \code{AVAILABLE} must identify the same settled observation
+and intent. Hash/binding mismatch or missing audit fails closed; neither the
+receipt alone nor an availability event without settlement suffices.
 
 \begin{theorem}[Outcome separation and replay]
 \label{thm:outcome-separation}
@@ -1048,121 +1123,58 @@ partitions. The refinement does not use truncated hashes as membership keys.
 For one successful query, the enforcement layer performs the following steps
 (Fig.~\ref{fig:architecture-settlement}b):
 
-\begin{enumerate}
-\item Reauthorize the fixed plan and complete the ordinary resource reservation.
-Lookup of a semantic replay entry occurs only after binding the signed grant and
-publication.
-\item On a miss, execute and buffer the visible statement while streaming its
-ordinal companion in the same Business-PG snapshot, then derive exact Release
-and dependency bitmaps plus the Outcome candidate. On a hit, load only an already committed
-observation reference and encrypted materialization.
-\item Encode and encrypt the canonical Parquet result, then upload it to a
-private staging key. Staging is neither canonical nor AVAILABLE and is never
-returned to the caller.
-\item In one Control-PG transaction, read the root head and epoch. For each
-$X\in\{R,D\}$ compute $E_X\mathbin{\mathrm{ANDNOT}}K_X$ and its popcount.
-For Outcome, read the small root manifest, group candidate hashes by 16-bit
-prefix, load only touched eight-bit blocks and 16-bit leaf families, and
-perform exact full-hash difference/union. Reject if any resulting cardinality
-exceeds $B_X^{Catalog}$.
-\item Publish the Release, dependency, and Outcome set manifests through one
-root-head epoch compare-and-swap. Persist only new Outcome leaves, changed
-blocks, and the new root manifest. On conflict, reread the head and recompute all
-three dimensions; they are never committed independently.
-\item In that same transaction, settle query/row/database-time resources,
-store the committed observation and PENDING artifact metadata (including the
-expected canonical key and object digest), append terminal audit evidence, and
-persist a signed settlement receipt whose nested artifact intent binds those
-fields. Commit this accounting transaction.
-\item Promote staging to the canonical object key and verify the committed
-object digest. A second Control-PG transaction changes PENDING to AVAILABLE,
-sets \code{consumed\_at}, and appends the hash-chained
-\code{QUERY\_RESULT\_CONSUMED} event. Only then return \code{result\_id}.
+\begin{enumerate}\setlength{\itemsep}{0pt}
+\item Reauthorize and reserve resources; semantic replay lookup follows signed
+grant/publication binding.
+\item On a miss, execute visible and ordinal statements in one Business-PG
+snapshot, derive all three effects, and stage encrypted Parquet. A hit loads an
+already committed observation/materialization. Staging is never AVAILABLE.
+\item In one Control-PG transaction, compute exact bitmap/full-hash novelty
+against the root head, reject any $B_X$ excess, and CAS all three manifests;
+conflicts reread and recompute every dimension.
+\item The same transaction settles resources, observation/effects, PENDING
+intent, terminal/registration audit, and the signed receipt.
+\item Verify promotion to the canonical object, then co-commit AVAILABLE and
+\code{QUERY\_RESULT\_CONSUMED} in a second transaction before returning the ID.
 \end{enumerate}
 
-Content-addressed containers and manifests are immutable; only the root head is
-mutable. A budget failure, corrupt dictionary, CAS exhaustion, or settlement
-persistence error rolls back heads, observations, PENDING metadata, terminal
-audit, cache entry, and receipt. A private staging object may transiently
-remain, but it is unavailable and is deleted or reconciled. Once settlement
-commits, promotion failure does \emph{not} refund exposure, rewrite the
-receipt, or re-execute Business SQL: the legal conservative state is
-COMPLETED/charged/receipt/PENDING/not-available. This includes the crash window
-in which the canonical object exists but the AVAILABLE transaction failed.
-Readiness fails closed until idempotent recovery verifies its exact digest and
-commits availability. Saving
-$(\code{root_task_id},\code{observation_digest})$ is also exact:
-because a successfully committed root ledger grows monotonically, a repeated
-committed observation has zero novelty without rescanning its effect payload.
+Only root heads are mutable. Pre-settlement failure rolls back heads,
+observations, PENDING intent, audits, cache, and receipt; any leftover staging
+object stays unavailable. After settlement, promotion failure neither refunds
+nor re-executes: recovery verifies the canonical digest and resumes the
+charged/PENDING artifact idempotently. Within its bound context,
+$(\code{root_task_id},\code{observation_sha256})$ then identifies zero-novelty
+replay without rescanning effects.
 
-Three boundaries must therefore remain distinct. \emph{Accounted} means the
-ledger settlement committed; the normal production enforcement path
-co-commits its receipt.
-\emph{Available} means canonical
-object promotion and the consumption audit committed; it is the logical
-release boundary. \emph{Observed} would mean a caller actually downloaded
-bytes, which the prototype intentionally does not track. Thus
-\[
- \begin{aligned}
- \mathsf{Observed}&\subseteq\mathsf{Available}\subseteq\mathsf{Accounted},\\
- \mathsf{Available}&\Rightarrow\mathsf{Settled}.
- \end{aligned}
-\]
-but settlement alone does not imply availability.
+The boundaries remain distinct: \emph{accounted} means settlement committed,
+\emph{available} means canonical promotion plus consumption audit, and
+\emph{observed} means an untracked download. Thus
+$\mathsf{Observed}\subseteq\mathsf{Available}\subseteq\mathsf{Accounted}$ and
+$\mathsf{Available}\Rightarrow\mathsf{Settled}$, but not conversely.
 
-Semantic replay is distinct from same-request idempotence. Its key binds the
-task and grant/scope digest, typed normal form and every parameter, Catalog,
-schema, publication and dictionary-set digests, and profile/compiler/order/page/
-result-encoding versions. A hit skips Business and provenance SQL but still
-reauthorizes, charges ordinary query/row resources, writes audit and a new
-receipt, and re-encrypts under the new query's AAD. Cross-grant mismatch, cache
-miss, erased key, removed result, or failed digest verification returns to the
-novel path; the enforcement layer never guesses a hit.
-
-Activating $P_{e+1}$ changes the Catalog, publication, and dictionary-set
-digests, so its semantic replay identity cannot equal a $P_e$ identity. New
-tasks therefore miss the old cache by construction; entries for $P_e$ remain
-usable only by roots still bound to $P_e$. No separate cache-invalidation
-protocol is required for publication separation.
-
-Publication sorts $F$ facts in $O(F\log F)$. Online derivation scans $n$
-ordinal references with current-group state plus compressed bitmaps;
-Release/dependency settlement touches only relevant bitmap containers. For a
-deduplicated Outcome candidate of size $k$, novelty costs
-$O(k\log k+h+\ell+b)$ for loaded hashes, leaves, and blocks, with a
-candidate-prefix worst case approaching the whole root. These are design
-bounds, not latency measurements.
+Unlike request idempotence, semantic replay binds task/grant, typed normal
+form/parameters, Catalog/schema/publication/dictionaries, and all profile and
+encoding versions. A hit skips Business/provenance SQL but reauthorizes,
+charges resources, audits, receipts, and re-encrypts; any mismatch or failed
+verification takes the novel path. Because $P_{e+1}$ changes publication
+bindings, new tasks cannot hit $P_e$ entries, which remain only for retained
+$P_e$ roots.
 
 \subsection{Receipts and Failure Semantics}
 
-A signed Ed25519 \emph{settlement} receipt contains accounting evidence and a
-nested artifact intent: result identity, Parquet/object hashes
-and sizes, row/column, schema, result-metadata, and ACL evidence, hashed canonical/staging keys,
-expiry, expected PENDING state, and the registration-audit link. It proves
-accounting and intended publication, not availability. Availability is proved
-separately by inclusion of the single hash-chained
-\code{QUERY\_RESULT\_CONSUMED} event naming the verified canonical object. The
-receipt exposes neither raw values nor FactIDs.
-The normal production path creates a \emph{co-committed receipt} in the settlement
-transaction.  A compatibility path can instead validate an already immutable
-terminal/registration history and create a missing \emph{recovered
-attestation}; its \code{signed\_at} may be later than settlement, so the receipt
-itself is not claimed to have co-committed.  Both forms authenticate the same
-PENDING intent and neither proves availability; the supplement
-states this persistence-time distinction explicitly.
-For a View-bound task, the signed Grant transitively commits the task View
-binding digest and the query record stores the same digest; exact replay cannot
-cross that identity. Receipt verification uses a dedicated digest domain.
+A signed Ed25519 settlement receipt binds accounting evidence, result/object
+metadata and hashes, the expected \code{PENDING} intent, and registration audit;
+it exposes no raw values or FactIDs. Availability separately requires the
+hash-chained \code{QUERY\_RESULT\_CONSUMED} inclusion. The normal path
+co-commits the receipt; a recovered attestation may postdate settlement, but
+both authenticate only the same PENDING intent. Signed Grant/query View binding
+and a dedicated receipt domain prevent replay across that identity.
 
-Failures before connector invocation release both reservations. An
-over-budget settlement never creates a canonical object or AVAILABLE row;
-private staging may exist transiently and is unavailable until deleted or
-reconciled. Ambiguous
-connector outcomes conservatively charge the ordinary resource reservation but
-commit no accounted result exposure because no result effect successfully
-settled. A process restart applies the same rule. Terminal request replay is
-idempotent: it returns the first persisted status, resumes PENDING promotion if
-needed, and never starts a second Business execution.
+Failures before connector invocation release reservations. Over-budget
+settlement creates no canonical object or AVAILABLE row; transient private
+staging remains unavailable. Ambiguous connector outcomes charge ordinary
+resources but no exposure without settlement. Terminal replay returns the first
+status, may resume PENDING promotion, and never repeats Business execution.
 
 Withholding the buffer does not hide the decision bit. Whether settlement
 accepts a query reveals whether its data-dependent novel Effect fits the
@@ -1231,23 +1243,32 @@ componentwise union in Eq.~\eqref{eq:task-exposure}, and the pre-commit checks
 preserve every component bound. The representation-refinement details are in
 the supplement.
 
-\textbf{Catalog-issued capacity.} The three ceilings $B_R,B_D,B_O$ are
-human-governed capacity declarations, not learned risk scores or optimization
-targets. An organization publishes a versioned profile with its data product
-and sensitivity policy; the approval manifest binds the complete profile to the
-root task. Normal issuance grants that full approved capacity. BDG assigns
-no value to unused capacity, does not infer a smaller allowance from Agent
-behavior, and does not optimize budget utilization. An explicitly narrower
-human grant remains an authorization decision, not an automatic calibration
-step. Hence 1,000 means capacity for 1,000 distinct semantic facts, not
-``risk 1,000,'' and the profile must remain acceptable when all 1,000 units are
-consumed. Query count, row, and DB-time limits are separate availability guards.
+\textbf{Catalog-issued capacity.} Table~\ref{tab:profile-calibration} separates
+profile units from resource guards and from quantities they do not estimate.
 
-Unit weights provide representation-independent integers, exact replay/delegation
-set union, and stable audit thresholds. They do not equate harm: field and
-sensitivity policy remains the first boundary. A harm model may maintain a
-separate sensitivity-weighted ledger over the same FactIDs; neither that model
-nor differential-privacy composition is claimed here.
+\begin{table}[t]
+\centering
+\caption{Profile calibration boundary.}
+\label{tab:profile-calibration}
+\scriptsize
+\setlength{\tabcolsep}{2.5pt}
+\begin{tabular}{L{0.13\columnwidth}L{0.40\columnwidth}L{0.37\columnwidth}}
+\toprule
+Budget & Governs & Does not represent \\
+\midrule
+$B_R$ & Distinct accounted Result Fact identities selected for publication & Knowledge value or privacy loss \\
+$B_D$ & Distinct profile-declared positive-output Dependency Facts & Minimal causes or all physical reads \\
+$B_O$ & Distinct canonical predicate atoms and query/result composites & Bits, entropy, or DP $\epsilon$ \\
+Query, row, or DB time & Request and resource availability & Semantic novelty or exposure deduplication \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+These human-governed declarations are neither learned risk scores nor
+optimization targets: 1,000 permits 1,000 declared units, not ``risk 1,000.''
+BDG neither values unused capacity nor infers a smaller allowance; the bound
+profile must remain acceptable when fully used. Unit weights enable exact set
+union, not harm or DP accounting.
 
 \section{System Realization}
 \label{sec:system}
@@ -1303,7 +1324,8 @@ stated model, not proofs of the parser, PostgreSQL, or distributed implementatio
 atomic three-budget settlement, replay, concurrency, delegation, and
 at-most-once execution. \code{ExposureBitmapRefinement.tla} checks bounded
 FactSet/bitmap correspondence; \code{OutcomeSetAbstractRefinement.tla} checks
-abstract exact-set settlement and corruption safety, not radix layout;
+abstract exact-set settlement and collision fail-closed safety, not predicate
+payloads or radix layout;
 \code{ArtifactPublication.tla} checks PENDING/AVAILABLE recovery safety without
 liveness. SQL parsing, the complete AST, PostgreSQL rows, concrete hashes and
 signatures, networking, and ciphertext are abstracted.
@@ -1340,6 +1362,16 @@ BDG's cumulative novelty ledger, Parquet materialization, receipt, and
 promotion path. A single winner metric would therefore compare different
 controls.
 
+The claim-to-evidence map is obligation-specific. Output/dependency coverage
+uses the complete inference rules and independent oracle; conservation uses
+RQ2 rewrites and RQ3 split/page/retry/delegation cases; probe capacity uses
+Outcome replay/separation tests. No-unaccounted release uses the separate
+settlement/publication TLA+ models plus fault injection, while profile binding
+and three-way reconciliation use Grant/Catalog/publication replay regressions
+and receipt, observation, artifact-hash, and availability-audit verification.
+None of these tests proves agent-knowledge safety; the supplement and artifact
+matrix state each layer and gap.
+
 \begin{table}[t]
 \centering
 \caption{Current source-backed evidence.}
@@ -1370,22 +1402,11 @@ public-path settlement, delegation, and races. Its
 charge \RQThreeReplayOutcomeCharge{}/\RQThreeRewriteOutcomeCharge{}. Digest-bound
 raw test logs retain the complete case-level evidence.
 
-Outcome-set tests cover full-hash permutation, difference/union/replay, radix tamper
-and same-prefix rechunking. Its PostgreSQL regression updates one of
-\VFiveRootBlocks{} blocks in a \VFiveRootCardinality{}-member root, reuses
-\VFiveBlocksReused{} blocks, and changes nothing on replay. Settlement binds the
-candidate digest shared by observation, charge, receipt, and audit separately
-from the cumulative root digest. Source manifests, raw test receipt, counters,
-and TLC logs are generator-validated. These are functional/scaling-shape
-regressions, not a latency campaign; detailed radix counters are supplemental.
-
-The PostgreSQL Join/Join--Group experiments use representative two-source
-graphs, not a capability ceiling; source-count/topology performance is unmeasured.
-
-Supplemental fixed-seed properties and PostgreSQL regressions exercise
-deterministic compilation, alias/join-order invariance, nested View drift,
-grammar boundaries, and same-transaction attestation; they are not a proof or
-performance campaign.
+Outcome regressions cover full-hash difference/union/replay, radix tamper and
+rechunking, and bind \code{observation\_sha256} plus three component-set digests
+across charge, receipt, and audit, separately from the root digest. Manifests,
+test receipts, counters, and TLC logs are generator-validated; supplemental
+radix details are functional/scaling-shape evidence, not latency results.
 
 \subsection{RQ4: Measured Ordinal/Bitmap Acceptance}
 
@@ -1395,8 +1416,8 @@ In one fixed-host deployment, all
 and \RQFourVFourOutcomeFacts{} outcome facts, novel p50/p95 is
 \RQFourVFourNovelMedianS{}/\RQFourVFourNovelTailS{}~s, replay p50/p95 is
 \RQFourVFourReplayMedianMS{}/\RQFourVFourReplayTailMS{}~ms with no Business SQL,
-and enforcement-layer cgroup peak is \RQFourVFourGatewayPeakMiB{}~MiB. Exact result/effect
-digests cover Scan, the representative two-source Join--Group fixture, Union,
+and enforcement-layer cgroup peak is \RQFourVFourGatewayPeakMiB{}~MiB. Result/effect
+digest checks cover Scan, the representative two-source Join--Group fixture, Union,
 Page, and 0/50/90/100\% dependency
 overlap. Build, verification, activation, stage, storage, and small-query
 diagnostics are reported in the supplement and provide RQ5's baseline below.
@@ -1471,20 +1492,18 @@ live-agent production behavior.
 
 \section{Conclusion}
 
-\system conserves typed release, dependency, and outcome exposure within one
-approved root family and immutable Reporting Snapshot. Approval-time
-publication binding stabilizes FactIDs, replay, delegation, and exact
-withhold-before-settlement accounting; dependency-aware semantic-View binding
-additionally freezes each accepted nested View closure and requires a new root
-and approval after drift. A later daily publication is reserved for new roots.
-BDG combines immutable ordinals and streamed Release/dependency bitmaps
-with predicate-atom/composite Outcome semantics and an exact touched-branch
-Merkle radix set under one three-dimensional CAS. Paper theorems, bounded
-model checking, and scoped executable evidence support exactness, atomicity, and
-compact representation on one fixed host; RQ5 additionally supports daily
-rollover within its stated measurement boundary. Arbitrary SQL, mutable
-OLTP/CDC, cross-publication knowledge accounting, and multi-host latency remain
-outside the claim.
+\system provides profile-relative exact cumulative accounting of modeled
+Result, Dependency, and Outcome sets within one publication-bound root family.
+Paper theorems establish the closed algebra, separate bounded TLA+ models check
+root settlement and artifact-publication safety, and executable evidence tests
+their implementation correspondence. Together they support no unaccounted
+governed release: \code{AVAILABLE} implies prior atomic settlement, while a
+settled artifact may remain \code{PENDING}. BDG does not measure the agent's
+complete knowledge or privacy loss; it guarantees that modeled exposure cannot
+cross the governed \code{AVAILABLE} boundary without profile-bound accounting
+and atomic root-family settlement. Arbitrary SQL, mutable OLTP/CDC,
+cross-publication knowledge accounting, and multi-host latency remain outside
+the claim.
 
 \bibliographystyle{IEEEtran}
 \bibliography{references}

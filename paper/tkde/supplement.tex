@@ -738,6 +738,122 @@ Both forms prove intent rather than availability; the normal Compose path
 produces the co-committed form. They share one wire format and verification
 rule rather than carrying a recovery-mode flag.
 
+\section{Clearance-Accounting Obligations and Evidence}
+\label{sec:supp-clearance-accounting}
+
+Fix an approved root $T=(P,S,B,C)$ whose contract binds versioned profile
+$\pi$. Let $K_X(T)$ denote the decoded Fact set in the corresponding committed
+root-family head---equivalently, its accounted set. We write
+$\facts_X^\pi(q)$ for the Result, Dependency, or Outcome
+component already defined by the main-paper effect under $S$ and $C$, and
+$\Delta_T^X(q)=\facts_X^\pi(q)\setminus K_X(T)$.  This notation exposes the
+profile parameter; it does not add a second exposure algebra.  A selected
+visible cell is exactly a pair $(t,a)$ with $t$ in the successful result bag
+and $a$ in its requested visible field set.
+
+\textbf{O1---Output coverage.} Every selected visible cell contributes its
+validated materialized Result identity. Equal semantic identities may collapse
+under set normalization, so coverage is neither returned-row count nor one
+distinct FactID per wire-cell occurrence. Changing the selected field set changes the
+covered cells.
+
+\textbf{O2---Positive dependency coverage.} The Dependency set is exactly the
+support selected by E-Scan, E-Project, E-Select, E-Page, E-Join, E-Union, and
+E-Group: retained predicate fields, join keys, group keys, distinctness fields,
+and complete aggregate arguments are included. It is not minimal causal
+provenance or a physical-read trace, and it omits rejected rows and non-output
+pages under this profile.
+
+\textbf{O3---Conservation.} Only the listed typed normal-form rewrites,
+disjoint projection splits, complete page partitions, overlaps/retries,
+canonical join folds, and root-family delegation are covered. Their Fact-set
+union cannot be reduced by changing the admitted representation; arbitrary SQL
+equivalence is not claimed.
+
+\textbf{O4---Probe capacity.} A successful query contributes canonical
+predicate atoms and one normalized query/result composite, even for zero or
+empty output. Exact replay reuses both; a changed canonical predicate or
+normalized query/result observation separates the corresponding identity
+except for collision. Cardinality is governance capacity, not entropy or
+privacy bits.
+
+\textbf{O5---No unaccounted governed release.} If a canonical artifact for $q$
+is \code{AVAILABLE}, then each $\facts_X^\pi(q)$ must already be included in
+$K_X(T)$ and every $|K_X(T)|\leq B_X$. Settlement can precede availability, so
+the reverse implication is false. Staging, failed settlement, and a bare
+settlement receipt do not cross this boundary.
+
+\textbf{O6---Profile binding.} Query derivation, settlement, semantic replay,
+receipt verification, and audit must agree on the task, Grant, Catalog,
+publication/dictionary, profile, normal form, View contract, type/collation,
+and result handling. The receipt directly records the profile version and
+observation/component digests; the complete environment is transitively bound,
+not represented by a \code{profile\_digest} field.
+
+Table~\ref{tab:soundness-evidence-supp} is the claim-evidence matrix. ``TLA+''
+means a bounded invariant in the stated finite configuration. A blank semantic
+extraction in TLA+ is not repaired by calling an implementation test a proof.
+
+\begin{table}[h]
+\centering
+\caption{Clearance soundness obligations and assurance layers.}
+\label{tab:soundness-evidence-supp}
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{L{0.09\textwidth}L{0.26\textwidth}L{0.29\textwidth}L{0.27\textwidth}}
+\toprule
+Claim & Paper semantics/theorem & Bounded TLA+ or transaction & Executable evidence \\
+\midrule
+O1 & Result extraction and representation closure & TLA+ accepts abstract candidate sets; it does not derive visible cells & Independent RQ1 oracle; ordinal-versus-algebra derivation tests \\
+O2 & Complete operator rules; dependency determinism; group/distinct/aggregate completeness proofs & TLA+ copies abstract Dependency candidates without modeling the rules & RQ1 memberships and hidden predicate/join/group/aggregate PostgreSQL checks \\
+O3 & Typed-normal-form, base-ledger, Outcome replay, and root-family theorems & \code{ExposureLedger} set novelty/family invariants; bitmap CAS refresh; no SQL rewrite model & RQ2 rewrite campaign; RQ3 split/page/retry/delegation/concurrency tests \\
+O4 & Atom/composite definition and Outcome separation theorem & Outcome shape and exact-set invariants only; no predicate payload or entropy model & zero/empty predicate separation, replay, full-hash and radix tests \\
+O5 & Settlement definition and the one-way release Property & Separate \code{ExposureLedger} budget and \code{ArtifactPublication} availability/hash invariants; Control settlement and AVAILABLE transactions link them & over-budget withholding, promotion failure/recovery, V8 intent, availability-inclusion, and fault-injection tests \\
+O6 & Approved-task/profile definition and replay descriptor & No profile/Catalog/publication variables in these TLA+ models & replay-key binding, foreign-Catalog dictionary, View drift, receipt-signature, and publication-separation regressions \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+No single row asserts a formally verified implementation. In particular,
+\code{ArtifactPublication.tla} checks only that its abstract AVAILABLE state
+implies its local settled flag and a matching canonical hash; the separate
+ledger models check novelty and bounds. The implementation correspondence is
+the Control-PG sequence that co-commits root observation/effect settlement,
+terminal and registration audits, a \code{PENDING} artifact intent, and the V8
+receipt, followed by canonical-object verification and a second transaction
+that co-commits \code{AVAILABLE} with
+\code{QUERY\_RESULT\_CONSUMED}. This is combined evidence, not a mechanized
+cross-module refinement or a liveness guarantee.
+
+\begin{table}[h]
+\centering
+\caption{Three-way reconciliation.}
+\label{tab:three-way-reconciliation-supp}
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{L{0.16\textwidth}L{0.29\textwidth}L{0.29\textwidth}L{0.17\textwidth}}
+\toprule
+Layer & Bound evidence & Required reconciliation & Insufficient alone \\
+\midrule
+Effect manifest & Three candidate sets, \code{observation\_sha256}, component digests, profile and publication context & Same query observation must be the effect settled under the bound root & Does not prove ledger commit or availability \\
+Root-family ledger & Three committed heads, exact novelty/cardinalities, root epoch, settlement and terminal audit & Head transition and query observation must identify the manifest and remain within all bounds & Does not prove object promotion \\
+Artifact and receipt & Parquet/object hashes, registration/PENDING intent, V8 receipt, canonical verification, availability audit & AVAILABLE event must name the same query and signed intent after canonical hash verification & Receipt alone proves PENDING intent; availability event cannot replace settlement \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The receipt uses \code{observation\_\allowbreak sha256} and the component
+digests \code{release\_set\_\allowbreak sha256},
+\code{influence\_set\_\allowbreak sha256}, and
+\code{outcome\_set\_\allowbreak sha256}; it has no field named
+\code{candidate\_\allowbreak digest}, \code{effect\_\allowbreak digest}, or
+\code{profile\_\allowbreak digest}.
+Hash, binding, or audit mismatch fails closed. Residual quantities and channels
+remain outside the manifest: differential privacy, total/background knowledge,
+timing, uncharged refusal, information content of
+rich predicates, fresh-root capacity, and cross-publication durable knowledge
+or deduplication.
+
 \section{Descriptive Baseline Contrast}
 
 For one grouped sum/count fixture, Table~\ref{tab:baselines} reports six

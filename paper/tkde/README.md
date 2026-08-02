@@ -9,6 +9,24 @@ signed settlement receipts with separately audited availability. The
 bonded-warehouse language is a narrative analogy, not a replacement for the
 formal publication, ledger, receipt, and artifact-state definitions.
 
+## M3 exactness boundary
+
+- Exactness is profile-relative: within the admitted language, BDG computes
+  the declared Result, Dependency, and Outcome Fact sets and their novelty
+  against the task-bound root-family ledger.
+- FactIDs are governance accounting identities, not estimates of knowledge
+  value, semantic information content, entropy, or privacy loss.
+- An `AVAILABLE` artifact implies prior three-dimensional settlement; a
+  settlement receipt proves a `PENDING` intent and does not prove availability
+  without the separate `QUERY_RESULT_CONSUMED` audit inclusion.
+- BDG does not measure total agent knowledge or provide differential privacy.
+- Clearance and bonded-warehouse language remain narrative shorthand for the
+  governed declaration, settlement, and release boundary; they are not legal
+  or DFC-policy compliance claims.
+- This revision changes claims and evidence mapping only. It does not change
+  production protocol semantics, namespaces, wire
+  formats, schema, or evidence-bound experiment artifacts and numbers.
+
 The manuscript name is Bonded Data Gate (BDG). Evidence-bound protocol
 namespaces such as `taskgate-*`, hash-domain separators, the
 `taskgate_ordinal` schema, and historical TLA+/evaluation filenames remain
