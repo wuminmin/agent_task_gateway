@@ -16,4 +16,5 @@ tmp/
 
 .agents/
 .claude/
+.codex/
 AGENTS.md
