@@ -71,8 +71,8 @@ func TestRepositoryCatalog(t *testing.T) {
 	if _, _, err := parsed.ResolveProducts([]string{"expense_summary", "expense_detail"}); err != nil {
 		t.Fatalf("repository products cannot be resolved: %v", err)
 	}
-	if len(parsed.SnapshotPublications) != 2 {
-		t.Fatalf("repository snapshot publications = %d, want 2", len(parsed.SnapshotPublications))
+	if len(parsed.SnapshotPublications) != 5 {
+		t.Fatalf("repository snapshot publications = %d, want 5", len(parsed.SnapshotPublications))
 	}
 	if !parsed.V4Enabled() {
 		t.Fatal("repository Catalog did not select V4 deployment mode")
@@ -84,6 +84,100 @@ func TestRepositoryCatalog(t *testing.T) {
 	policy, err := parsed.ResolveTaskPolicy([]string{"expense_detail"})
 	if err != nil || policy.Budget.ExposureProfileVersion != "taskgate-exposure-v5" || policy.Budget.PredicateFootprint == nil {
 		t.Fatalf("repository V5 policy = %#v, err=%v", policy, err)
+	}
+	provsql, err := parsed.ResolveTaskPolicy([]string{"provsql_lineitem", "provsql_nonce", "provsql_orders"})
+	if err != nil || provsql.BudgetProfile != "final-v5-provsql-low-v1" || provsql.Budget.MaxInfluenceFacts < 1_000_000 {
+		t.Fatalf("repository ProvSQL policy = %#v, err=%v", provsql, err)
+	}
+}
+
+func TestProductScopedApprovalRouteIsExactAndFailClosed(t *testing.T) {
+	parsed, err := Load("../../config/catalog.yaml")
+	if err != nil {
+		t.Fatalf("load repository Catalog: %v", err)
+	}
+	attack, err := parsed.ResolveTaskPolicy([]string{"final_v5_attack_expense_detail"})
+	if err != nil {
+		t.Fatalf("resolve exact Attack product route: %v", err)
+	}
+	if attack.BudgetProfile != "final-v5-attack-medium-v1" ||
+		len(attack.ApprovalRoute.Products) != 1 || attack.ApprovalRoute.Products[0] != "final_v5_attack_expense_detail" {
+		t.Fatalf("exact scoped policy = %#v", attack)
+	}
+	attack.ApprovalRoute.Products[0] = "mutated"
+	again, err := parsed.ResolveTaskPolicy([]string{"final_v5_attack_expense_detail"})
+	if err != nil || again.ApprovalRoute.Products[0] != "final_v5_attack_expense_detail" {
+		t.Fatalf("scoped route slice escaped Catalog ownership: policy=%#v err=%v", again, err)
+	}
+
+	ordinary, err := parsed.ResolveTaskPolicy([]string{"expense_detail"})
+	if err != nil {
+		t.Fatalf("resolve ordinary sensitivity fallback: %v", err)
+	}
+	if ordinary.BudgetProfile != "detail-manual-v5" || len(ordinary.ApprovalRoute.Products) != 0 {
+		t.Fatalf("ordinary fallback changed = %#v", ordinary)
+	}
+
+	if _, err := parsed.ResolveTaskPolicy([]string{"expense_summary", "final_v5_attack_expense_detail"}); !errors.Is(err, ErrInvalidApprovalRoute) {
+		t.Fatalf("mixed scoped product error = %v, want ErrInvalidApprovalRoute", err)
+	}
+}
+
+func TestConcurrencyProductUsesExactIndependentRouteAndBudget(t *testing.T) {
+	parsed, err := Load("../../config/catalog.yaml")
+	if err != nil {
+		t.Fatalf("load repository Catalog: %v", err)
+	}
+	product, found := parsed.LookupProduct("final_v5_concurrency_expense_detail")
+	if !found || product.ReportingView != "reporting.final_v5_concurrency_expense_detail" ||
+		product.SnapshotPublication != "expense-detail-v1" || product.FactNamespace != "travel.expense_receipt" ||
+		product.StableRelationRole != "expense_detail" || len(product.Fields) != 4 {
+		t.Fatalf("dedicated concurrency product drifted: found=%v product=%#v", found, product)
+	}
+	policy, err := parsed.ResolveTaskPolicy([]string{"final_v5_concurrency_expense_detail"})
+	if err != nil {
+		t.Fatalf("resolve exact concurrency product route: %v", err)
+	}
+	if policy.BudgetProfile != "final-v5-concurrency-v1" || policy.Budget.MaxQueries != 600 ||
+		policy.Budget.MaxRows < 504 || policy.Budget.MaxOutcomeFacts != 5 ||
+		policy.Budget.ExposureProfileVersion != "taskgate-exposure-v5" ||
+		len(policy.ApprovalRoute.Products) != 1 || policy.ApprovalRoute.Products[0] != product.Name {
+		t.Fatalf("dedicated concurrency policy drifted: %#v", policy)
+	}
+	if _, err := parsed.ResolveTaskPolicy([]string{"final_v5_attack_expense_detail", product.Name}); !errors.Is(err, ErrInvalidApprovalRoute) {
+		t.Fatalf("mixed evaluation products bypassed exact scoped route: %v", err)
+	}
+}
+
+func TestProductScopedApprovalRouteRejectsInvalidCatalogBindings(t *testing.T) {
+	data, err := os.ReadFile("../../config/catalog.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	valid := string(data)
+	const exact = "    products: [final_v5_attack_expense_detail]\n"
+	const route = `  - sensitivity: medium
+    products: [final_v5_attack_expense_detail]
+    mode: manual
+    approver: bob
+    budget_profile: final-v5-attack-medium-v1
+`
+	tests := []struct {
+		name string
+		yaml string
+	}{
+		{"duplicate route", strings.Replace(valid, "\nbudget_profiles:\n", "\n"+route+"\nbudget_profiles:\n", 1)},
+		{"duplicate product", strings.Replace(valid, exact, "    products: [final_v5_attack_expense_detail, final_v5_attack_expense_detail]\n", 1)},
+		{"unsorted products", strings.Replace(valid, exact, "    products: [final_v5_attack_expense_detail, expense_summary]\n", 1)},
+		{"unknown product", strings.Replace(valid, exact, "    products: [final_v5_attack_unknown]\n", 1)},
+		{"sensitivity mismatch", strings.Replace(valid, route, strings.Replace(route, "sensitivity: medium", "sensitivity: high", 1), 1)},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, parseErr := Parse([]byte(test.yaml)); !errors.Is(parseErr, ErrInvalidApprovalRoute) {
+				t.Fatalf("Parse error = %v, want ErrInvalidApprovalRoute", parseErr)
+			}
+		})
 	}
 }
 

@@ -67,6 +67,21 @@ SELECT
 FROM legacy.expenses AS x
 JOIN legacy.employees AS e USING (employee_no);
 
+-- A physically independent, immutable projection used only by the frozen
+-- Final-V5 A--D evaluation product. It exposes exactly the entity key,
+-- mandatory scope, and corpus measure; it is not an alias or a synthetic
+-- result source.
+CREATE MATERIALIZED VIEW reporting.final_v5_attack_expense_detail AS
+SELECT receipt_no, department, amount
+FROM reporting.expense_detail;
+
+-- A physically independent, immutable projection for the same-task/same-root
+-- Final-V5 concurrency matrix. It is deliberately not an alias and cannot be
+-- used to manufacture query results outside the ordinary Gateway path.
+CREATE MATERIALIZED VIEW reporting.final_v5_concurrency_expense_detail AS
+SELECT receipt_no, department, expense_type, city
+FROM reporting.expense_detail;
+
 CREATE MATERIALIZED VIEW reporting.expense_summary AS
 SELECT
     to_char(date_trunc('month', x.expense_date), 'YYYY-MM') AS month,

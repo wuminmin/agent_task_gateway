@@ -21,7 +21,7 @@ The PowerShell controller was inspected but not executed because `pwsh` is unava
 Current operational boundaries:
 
 - WSL2 Ubuntu 22.04 and a single Gateway instance are the publication claim boundary.
-- The unified source-controlled adapter and reproducible build binding are implemented. Only the real baseline/S1/tiny path is complete; scale, artifact, RLS, attack, ProvSQL, compiler, concurrency, and RQ5 implementations remain fail-closed.
+- The unified source-controlled adapter and reproducible build binding are implemented for all nine experiment families. Stage B validation and any backend preflights are engineering gates only; none of their samples is accepted or sealed as publication evidence, and the formal three-deployment campaign has not run.
 - The current product still materializes result rows in memory. A 100K-row failure/OOM remains a failed sample; the harness does not reduce scale or increase limits.
 - The 10M/100M profile is opt-in and must remain labeled `kernel_only=true`.
 - ProvSQL representation semantics differ from TaskGate and do not support a global winner claim.
@@ -32,6 +32,6 @@ Historical evidence relabeled: NO
 Measurement instrumentation ready: YES
 Experiment orchestration/evidence skeleton ready: YES
 Real source-controlled baseline adapter ready: YES
-Real baseline Pilot executed: NO
-All nine real experiment adapters ready: NO
+Real baseline Pilot accepted as publication evidence: NO
+All nine real experiment adapters ready: YES
 Formal publication campaign ready to launch: NO

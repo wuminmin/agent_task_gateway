@@ -100,7 +100,26 @@ func main() {
 		logger.Error("initialize query receipt public key bundle", "error", err)
 		os.Exit(1)
 	}
+	controlMaxOpen, err := positiveInt64Env("GATEWAY_CONTROL_MAX_OPEN_CONNECTIONS", 10)
+	if err != nil || controlMaxOpen > 4096 {
+		logger.Error("invalid Control PostgreSQL open-connection limit", "error", "must be between 1 and 4096")
+		os.Exit(1)
+	}
+	controlMaxIdle, err := positiveInt64Env("GATEWAY_CONTROL_MAX_IDLE_CONNECTIONS", 4)
+	if err != nil || controlMaxIdle > controlMaxOpen {
+		logger.Error("invalid Control PostgreSQL idle-connection limit", "error", "must be between 1 and the open-connection limit")
+		os.Exit(1)
+	}
+	controlConnMaxLifetime, err := positiveDurationEnv("GATEWAY_CONTROL_CONNECTION_MAX_LIFETIME", 30*time.Minute)
+	if err != nil {
+		logger.Error("invalid Control PostgreSQL connection lifetime", "error", err)
+		os.Exit(1)
+	}
 	store, err := control.Open(ctx, requiredEnv("CONTROL_POSTGRES_DSN"), cipher,
+		control.WithPoolConfig(control.PoolConfig{
+			MaxOpenConns: int(controlMaxOpen), MaxIdleConns: int(controlMaxIdle),
+			ConnMaxLifetime: controlConnMaxLifetime,
+		}),
 		control.WithRecoveryReceiptBuilder(func(evidence control.QueryReceipt) (control.SaveQueryReceiptRequest, error) {
 			return gatewayapp.BuildQueryReceiptRequest(evidence, queryReceiptSigner, time.Now().UTC())
 		}))
@@ -221,9 +240,14 @@ func main() {
 		logger.Error("initialize result delivery", "error", err)
 		os.Exit(1)
 	}
+	connectorMaxConnections, err := positiveInt64Env("GATEWAY_CONNECTOR_MAX_CONNECTIONS", int64(dataconnector.DefaultMaxConnections))
+	if err != nil || connectorMaxConnections > 4096 {
+		logger.Error("invalid Business PostgreSQL connector connection limit", "error", "must be between 1 and 4096")
+		os.Exit(1)
+	}
 	connector, err := dataconnector.New(ctx, dataconnector.Config{
 		DSN: businessDSN, StatementTimeout: connectorStatementTimeout,
-		ConnectTimeout: 10 * time.Second, MaxRows: connectorMaxRows, MaxConnections: 4,
+		ConnectTimeout: 10 * time.Second, MaxRows: connectorMaxRows, MaxConnections: int32(connectorMaxConnections),
 		ExpectedSchema: expectedSchema, ExpectedSchemaDigest: source.SchemaDigest,
 		ExpectedAttestation: dataconnector.ExpectedAttestation{
 			DatasourceID: source.DatasourceID, Database: source.Database, User: source.User,
@@ -265,11 +289,38 @@ func main() {
 		os.Exit(1)
 	}
 
+	var concurrencyProbe *gatewayapp.ConcurrencyProbe
+	if concurrencyToken := strings.TrimSpace(os.Getenv("GATEWAY_EVALUATION_CONCURRENCY_TOKEN")); concurrencyToken != "" {
+		httpActiveCapacity, capacityErr := positiveInt64Env("GATEWAY_EVALUATION_CONCURRENCY_HTTP_ACTIVE", 512)
+		if capacityErr != nil || httpActiveCapacity > 4096 {
+			logger.Error("invalid evaluation concurrency active capacity", "error", "must be between 1 and 4096")
+			os.Exit(1)
+		}
+		httpQueueCapacity, capacityErr := positiveInt64Env("GATEWAY_EVALUATION_CONCURRENCY_HTTP_QUEUE", 512)
+		if capacityErr != nil || httpQueueCapacity > 16384 {
+			logger.Error("invalid evaluation concurrency queue capacity", "error", "must be between 1 and 16384")
+			os.Exit(1)
+		}
+		concurrencyProbe, err = gatewayapp.NewConcurrencyProbe(gatewayapp.ConcurrencyProbeConfig{
+			Token: concurrencyToken, MaxActive: int(httpActiveCapacity), MaxQueued: int(httpQueueCapacity),
+			PoolStats: store.DBStats, ConnectorMaxConnections: int(connectorMaxConnections),
+		})
+		if err != nil {
+			logger.Error("initialize authenticated evaluation concurrency probe", "error", err)
+			os.Exit(1)
+		}
+	}
+
 	router := chi.NewRouter()
 	router.Get("/health/live", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	router.Get("/health/ready", readiness(store, connector, service))
 	router.Get("/.well-known/taskgate/query-receipt-keyring.json", queryReceiptKeyringHandler(queryReceiptKeyBundle))
-	router.Handle("/mcp", mcpServer)
+	if concurrencyProbe != nil {
+		router.Mount(gatewayapp.ConcurrencyProbeAdminPath, concurrencyProbe.AdminHandler())
+		router.With(func(next http.Handler) http.Handler { return concurrencyProbe.Middleware(next) }).Handle("/mcp", mcpServer)
+	} else {
+		router.Handle("/mcp", mcpServer)
+	}
 	router.Handle("/api/v1/oa/callback", service.OACallbackHandler())
 	router.Handle("/api/v1/results/{result_id}/download", service.ResultDownloadHandler())
 	mountRetentionAdmin(router, store, retention, logger, service)

@@ -15,8 +15,10 @@ set now present in the repository.
   the combined-formal-model limitation below remains explicit
 - **Measurement instrumentation:** complete
 - **Experiment orchestration/evidence skeleton:** complete
-- **Source-controlled real adapters:** baseline tiny path implemented; eight experiment families pending
-- **Real Pilot / formal campaign:** not executed / not ready
+- **Source-controlled real adapters:** all nine experiment families implemented with fail-closed capability registration
+- **Stage B adapter verification:** all eight validate-only, unit,
+  failure-retention, and schema gates complete; any real-backend preflight is
+  an engineering diagnostic, not publication evidence
 - **Formal publication campaign:** not executed
 - **Paper numeric update:** pending
 - **Final V5 evidence reseal:** deferred until manuscript/protocol finalization;

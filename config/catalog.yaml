@@ -1,4 +1,4 @@
-catalog_version: "2026-08-01.1"
+catalog_version: "2026-08-02.stage-b-v1"
 
 sources:
   - name: travel_demo
@@ -9,7 +9,7 @@ sources:
     database: travel_demo
     user: gateway_reader
     postgres_major_version: 16
-    schema_digest: 02b4a211cfbab7347fdce28e2dd76406b1118c5f18e1d2146cc2e85a38ccf1cc
+    schema_digest: 686a7a779dac25c56df01e3bf9ecc1daf4040c05cabdbc56acf2597daf9d296e
     secretRef: GATEWAY_DB_PASSWORD
 
 snapshot_publications:
@@ -20,7 +20,7 @@ snapshot_publications:
     ordinal_sidecar: taskgate_ordinal.expense_summary_v1
     sidecar_digest: 2cd4e5c835252ec3bcd04aee11c28c70c6329b35bf6770f06a570cd918c9ceff
     dictionary_digest: ac0239021ec58514d62ac0c4c56191c2337fc943106b6df900221e620e809a1f
-    manifest_digest: 8d675bbf97adfbc03234a468055c223a9ea3d9ffc6ab2d5f6b8da38abeb70432
+    manifest_digest: 072590ed127c8601378c4857551a5d1e2d2f965cddabbd211bedd6c911d22f98
   - name: expense-detail-v1
     source: travel_demo
     source_namespace: travel.expense_receipt
@@ -28,7 +28,31 @@ snapshot_publications:
     ordinal_sidecar: taskgate_ordinal.expense_detail_v1
     sidecar_digest: bbf33dd42179b80cd8cca631f579c4c6e49ef51eb1d3a4ce157090a797c5acf7
     dictionary_digest: 315995feeaa332b0d0f50834867ed5701a491ddc547bb2d666338fc938057232
-    manifest_digest: 9bc393632756c13ed355181658a6358aa656e1a828f69da36fc951c5061d390c
+    manifest_digest: 1a86555e4d17ccbbce790cdd75622026e158b270e180ae2c35eff31db0df6a96
+  - name: provsql-orders-v1
+    source: travel_demo
+    source_namespace: final_v5.provsql_orders
+    snapshot: final-v5-provsql-2026-v1
+    ordinal_sidecar: taskgate_ordinal.provsql_orders_v1
+    sidecar_digest: a75e4a6aa2f9b6cf724c295e7b9ec2e75460015f31a21e87b6791223d52aba18
+    dictionary_digest: af304d7670eb00a84f671690df5bea26815edf9e53e6c2c2b1878e3153d8e975
+    manifest_digest: 87e6ccb2a8e2d791942e11c1f29ab4eae788400f3644744c5ee9762de898c861
+  - name: provsql-lineitem-v1
+    source: travel_demo
+    source_namespace: final_v5.provsql_lineitem
+    snapshot: final-v5-provsql-2026-v1
+    ordinal_sidecar: taskgate_ordinal.provsql_lineitem_v1
+    sidecar_digest: f8b90a24a69fe0fdcc0423462fd9920e44860eb38b881d8e803622d89285cfa2
+    dictionary_digest: e718bc8f0d9eeb92069cbb7df26b8041e6ebc13ca8ef0943ba77e280cfd9895d
+    manifest_digest: 4752e89ab26ae9bd35b52f24f21b2400d7aab6d4350c90ab54cdbca427e56600
+  - name: provsql-nonce-v1
+    source: travel_demo
+    source_namespace: final_v5.provsql_nonce
+    snapshot: final-v5-provsql-2026-v1
+    ordinal_sidecar: taskgate_ordinal.provsql_nonce_v1
+    sidecar_digest: be22806ef83c069ae6da1fc08983b503e59fadb0acf45ce4a7417d12dfdbd9dd
+    dictionary_digest: 8f44bdcadfe186a39533be51b885f02b195095830acaaf57330acc0e7ab102de
+    manifest_digest: 5ff6636fc31034803efc29f5a99a61304016aa933ffab8b61558ecde990c1410
 
 scopes:
   - name: department
@@ -40,6 +64,10 @@ scopes:
     description: 报销发生日期范围
     min: "2026-01-01"
     max: "2026-12-31"
+  - name: partition_key
+    type: enum
+    description: Final-V5 ProvSQL 冻结分区键
+    allowed_values: ["1"]
 
 products:
   - name: expense_summary
@@ -145,6 +173,214 @@ products:
         collation_version: "2.36"
         description: 审批状态
 
+  # Dedicated immutable relation for the frozen Final-V5 A--D corpus. Its
+  # medium classification selects the evaluation profile without changing the
+  # authorization semantics of the production high-sensitivity product used
+  # by the E ceiling trace.
+  - name: final_v5_attack_expense_detail
+    source: travel_demo
+    reporting_view: reporting.final_v5_attack_expense_detail
+    description: IEEE TKDE Final-V5 Attack A-D 专用冻结报销字段
+    sensitivity: medium
+    snapshot: travel-demo-2026-v1
+    snapshot_publication: expense-detail-v1
+    entity_key: [receipt_no]
+    fact_namespace: travel.expense_receipt
+    stable_relation_role: expense_detail
+    scopes: [department]
+    allowed_functions: []
+    allowed_operators: ["=", "<>", "<", "<=", ">", ">=", "+", "-", "*", "/"]
+    allowed_aggregates: [count]
+    fields:
+      - name: receipt_no
+        type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
+        description: 报销单号
+      - name: department
+        type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
+        description: 部门
+      - name: amount
+        type: numeric
+        description: 报销金额
+
+  # Dedicated physically materialized product for the frozen same-root
+  # concurrency matrix. One approved task owns the one production V5 root;
+  # width denotes unique requests on that same task, never child tasks.
+  - name: final_v5_concurrency_expense_detail
+    source: travel_demo
+    reporting_view: reporting.final_v5_concurrency_expense_detail
+    description: IEEE TKDE Final-V5 单任务同根并发专用冻结报销字段
+    sensitivity: medium
+    snapshot: travel-demo-2026-v1
+    snapshot_publication: expense-detail-v1
+    entity_key: [receipt_no]
+    fact_namespace: travel.expense_receipt
+    stable_relation_role: expense_detail
+    scopes: [department]
+    allowed_functions: []
+    allowed_operators: ["="]
+    allowed_aggregates: []
+    fields:
+      - name: receipt_no
+        type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
+        description: 报销单号
+      - name: department
+        type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
+        description: 部门
+      - name: expense_type
+        type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
+        description: 费用类型
+      - name: city
+        type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
+        description: 出差城市
+
+  # Independent immutable publications for the paired RLS validity-control
+  # and 70%-budget arms. Both preserve the expense-detail semantic identity;
+  # distinct products select immutable, predeclared budget profiles.
+  - name: final_v5_rls_unlimited_expense_detail
+    source: travel_demo
+    reporting_view: reporting.final_v5_rls_unlimited_expense_detail
+    description: IEEE TKDE Final-V5 RLS 无限暴露有效性对照
+    sensitivity: medium
+    snapshot: travel-demo-2026-v1
+    snapshot_publication: expense-detail-v1
+    entity_key: [receipt_no]
+    fact_namespace: travel.expense_receipt
+    stable_relation_role: expense_detail
+    scopes: [department]
+    allowed_functions: []
+    allowed_operators: ["=", "<=", ">="]
+    allowed_aggregates: [count]
+    fields:
+      - name: receipt_no
+        type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
+        description: 报销单号
+      - name: department
+        type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
+        description: 部门
+      - name: amount
+        type: numeric
+        description: 报销金额
+
+  - name: final_v5_rls_bounded_expense_detail
+    source: travel_demo
+    reporting_view: reporting.final_v5_rls_bounded_expense_detail
+    description: IEEE TKDE Final-V5 RLS 预注册 70% 暴露预算对照
+    sensitivity: medium
+    snapshot: travel-demo-2026-v1
+    snapshot_publication: expense-detail-v1
+    entity_key: [receipt_no]
+    fact_namespace: travel.expense_receipt
+    stable_relation_role: expense_detail
+    scopes: [department]
+    allowed_functions: []
+    allowed_operators: ["=", "<=", ">="]
+    allowed_aggregates: [count]
+    fields:
+      - name: receipt_no
+        type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
+        description: 报销单号
+      - name: department
+        type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
+        description: 部门
+      - name: amount
+        type: numeric
+        description: 报销金额
+
+  - name: provsql_orders
+    source: travel_demo
+    reporting_view: reporting.provsql_orders
+    description: IEEE TKDE Final-V5 ProvSQL 冻结订单关系
+    sensitivity: low
+    snapshot: final-v5-provsql-2026-v1
+    snapshot_publication: provsql-orders-v1
+    entity_key: [orderkey]
+    fact_namespace: final_v5.provsql_orders
+    stable_relation_role: provsql_orders
+    scopes: [partition_key]
+    allowed_functions: []
+    allowed_operators: ["=", "<="]
+    allowed_aggregates: [sum, count]
+    fields:
+      - name: orderkey
+        type: bigint
+        description: 冻结订单键
+      - name: status
+        type: bigint
+        description: 冻结订单状态
+      - name: partition_key
+        type: integer
+        description: 强制分区键
+
+  - name: provsql_lineitem
+    source: travel_demo
+    reporting_view: reporting.provsql_lineitem
+    description: IEEE TKDE Final-V5 ProvSQL 冻结订单明细关系
+    sensitivity: low
+    snapshot: final-v5-provsql-2026-v1
+    snapshot_publication: provsql-lineitem-v1
+    entity_key: [orderkey, linenumber]
+    fact_namespace: final_v5.provsql_lineitem
+    stable_relation_role: provsql_lineitem
+    scopes: [partition_key]
+    allowed_functions: []
+    allowed_operators: ["=", "<="]
+    allowed_aggregates: [sum, count]
+    fields:
+      - name: orderkey
+        type: bigint
+        description: 冻结订单键
+      - name: linenumber
+        type: integer
+        description: 冻结明细行号
+      - name: extendedprice
+        type: numeric
+        description: 冻结扩展价格
+      - name: partition_key
+        type: integer
+        description: 强制分区键
+
+  - name: provsql_nonce
+    source: travel_demo
+    reporting_view: reporting.provsql_nonce
+    description: IEEE TKDE Final-V5 ProvSQL 每操作唯一 nonce 关系
+    sensitivity: low
+    snapshot: final-v5-provsql-2026-v1
+    snapshot_publication: provsql-nonce-v1
+    entity_key: [nonce_id]
+    fact_namespace: final_v5.provsql_nonce
+    stable_relation_role: provsql_nonce
+    scopes: [partition_key]
+    allowed_functions: []
+    allowed_operators: ["="]
+    allowed_aggregates: [sum, count]
+    fields:
+      - name: nonce_id
+        type: bigint
+        description: 每操作唯一 nonce
+      - name: partition_key
+        type: integer
+        description: 强制分区键
+
 approval_routes:
   - sensitivity: low
     mode: manual
@@ -158,6 +394,31 @@ approval_routes:
     mode: manual
     approver: bob
     budget_profile: detail-manual-v5
+  - sensitivity: medium
+    products: [final_v5_attack_expense_detail]
+    mode: manual
+    approver: bob
+    budget_profile: final-v5-attack-medium-v1
+  - sensitivity: medium
+    products: [final_v5_concurrency_expense_detail]
+    mode: manual
+    approver: bob
+    budget_profile: final-v5-concurrency-v1
+  - sensitivity: medium
+    products: [final_v5_rls_unlimited_expense_detail]
+    mode: manual
+    approver: bob
+    budget_profile: final-v5-rls-unlimited-v1
+  - sensitivity: medium
+    products: [final_v5_rls_bounded_expense_detail]
+    mode: manual
+    approver: bob
+    budget_profile: final-v5-rls-bounded-70-v1
+  - sensitivity: low
+    products: [provsql_lineitem, provsql_nonce, provsql_orders]
+    mode: manual
+    approver: bob
+    budget_profile: final-v5-provsql-low-v1
 
 budget_profiles:
   - name: summary-manual-v5
@@ -192,3 +453,84 @@ budget_profiles:
       max_unique_atoms_per_query: 4
       max_atom_payload_bytes: 4096
       max_total_atom_payload_bytes: 16384
+  - name: final-v5-attack-medium-v1
+    max_queries: 10
+    max_rows: 100
+    max_db_time: 15s
+    query_timeout: 5s
+    task_ttl: 15m
+    max_release_facts: 500
+    max_influence_facts: 2500
+    max_outcome_facts: 10
+    exposure_profile_version: taskgate-exposure-v5
+    predicate_footprint:
+      version: taskgate-predicate-footprint-v1
+      max_raw_literals_per_query: 500
+      max_unique_atoms_per_query: 4
+      max_atom_payload_bytes: 4096
+      max_total_atom_payload_bytes: 16384
+  - name: final-v5-concurrency-v1
+    max_queries: 600
+    max_rows: 1000
+    max_db_time: 30m
+    query_timeout: 5s
+    task_ttl: 2h
+    max_release_facts: 5000
+    max_influence_facts: 25000
+    max_outcome_facts: 5
+    exposure_profile_version: taskgate-exposure-v5
+    predicate_footprint:
+      version: taskgate-predicate-footprint-v1
+      max_raw_literals_per_query: 500
+      max_unique_atoms_per_query: 4
+      max_atom_payload_bytes: 4096
+      max_total_atom_payload_bytes: 16384
+  - name: final-v5-rls-unlimited-v1
+    max_queries: 110
+    max_rows: 1000
+    max_db_time: 10m
+    query_timeout: 5s
+    task_ttl: 2h
+    max_release_facts: 1000
+    max_influence_facts: 1000
+    max_outcome_facts: 1000
+    exposure_profile_version: taskgate-exposure-v5
+    predicate_footprint:
+      version: taskgate-predicate-footprint-v1
+      max_raw_literals_per_query: 64
+      max_unique_atoms_per_query: 8
+      max_atom_payload_bytes: 4096
+      max_total_atom_payload_bytes: 32768
+  - name: final-v5-rls-bounded-70-v1
+    max_queries: 110
+    max_rows: 1000
+    max_db_time: 10m
+    query_timeout: 5s
+    task_ttl: 2h
+    # floor(70% * U_R/U_D/U_O) from the frozen independent oracle.
+    max_release_facts: 7
+    max_influence_facts: 12
+    max_outcome_facts: 18
+    exposure_profile_version: taskgate-exposure-v5
+    predicate_footprint:
+      version: taskgate-predicate-footprint-v1
+      max_raw_literals_per_query: 64
+      max_unique_atoms_per_query: 8
+      max_atom_payload_bytes: 4096
+      max_total_atom_payload_bytes: 32768
+  - name: final-v5-provsql-low-v1
+    max_queries: 1
+    max_rows: 3
+    max_db_time: 30m
+    query_timeout: 30m
+    task_ttl: 1h
+    max_release_facts: 32
+    max_influence_facts: 2000000
+    max_outcome_facts: 64
+    exposure_profile_version: taskgate-exposure-v5
+    predicate_footprint:
+      version: taskgate-predicate-footprint-v1
+      max_raw_literals_per_query: 32
+      max_unique_atoms_per_query: 16
+      max_atom_payload_bytes: 4096
+      max_total_atom_payload_bytes: 65536

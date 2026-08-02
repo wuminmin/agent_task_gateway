@@ -14,7 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"taskbound.local/agent-data-gateway/evaluation/finalv5oracle"
 	"taskbound.local/agent-data-gateway/internal/auditchain"
 	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 )
@@ -27,13 +26,47 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+func TestValidateOnlyConfigDigestCoversExactConfigBytes(t *testing.T) {
+	first := []byte(`{"campaign_id":"same","experiment_id":"scale","workloads":[1]}`)
+	second := []byte(`{"campaign_id":"same","experiment_id":"scale","workloads":[2]}`)
+	firstDigest := sha256Hex(first)
+	secondDigest := sha256Hex(second)
+	if firstDigest == secondDigest {
+		t.Fatal("different config bytes produced the same SHA-256")
+	}
+	if firstDigest != "2031dfd8fbf83b0a4f5a3c2c46871c8b2bb6320d7a139746245576fad000de0f" {
+		t.Fatalf("unexpected exact-byte config SHA-256: %s", firstDigest)
+	}
+}
+
 func runTestAdapter() {
 	scanner := bufio.NewScanner(os.Stdin)
 	encoder := json.NewEncoder(os.Stdout)
+	status := os.Getenv("TASKGATE_TEST_ADAPTER_STATUS")
+	if status == "" {
+		status = "pass"
+	}
+	emitted := 0
+	exitAfter, _ := strconv.Atoi(os.Getenv("TASKGATE_TEST_ADAPTER_EXIT_AFTER"))
+	skipSample, _ := strconv.Atoi(os.Getenv("TASKGATE_TEST_ADAPTER_SKIP_SAMPLE"))
+	malformedSample, _ := strconv.Atoi(os.Getenv("TASKGATE_TEST_ADAPTER_MALFORMED_SAMPLE"))
+	seen := 0
 	for scanner.Scan() {
 		var operation AdapterOperation
 		if StrictJSON(scanner.Bytes(), &operation) != nil {
 			os.Exit(1)
+		}
+		operationStatus := status
+		if operation.Warmup && os.Getenv("TASKGATE_TEST_ADAPTER_WARMUP_STATUS") != "" {
+			operationStatus = os.Getenv("TASKGATE_TEST_ADAPTER_WARMUP_STATUS")
+		}
+		seen++
+		if skipSample > 0 && seen == skipSample {
+			continue
+		}
+		if malformedSample > 0 && seen == malformedSample {
+			_, _ = fmt.Fprintln(os.Stdout, `{"schema_version":`)
+			continue
 		}
 		rootIdentity := strings.Join([]string{operation.DeploymentID, operation.WorkloadID, operation.Scale, strconv.Itoa(operation.ProcessReplicate), strconv.Itoa(operation.Iteration), operation.RootGroupID}, "\x00")
 		digestBytes := sha256.Sum256([]byte(rootIdentity))
@@ -43,7 +76,7 @@ func runTestAdapter() {
 		sample := Sample{
 			SchemaVersion: 1, CampaignID: operation.CampaignID, DeploymentID: operation.DeploymentID,
 			ExperimentID: operation.ExperimentID, CellID: operation.CellID, SampleID: operation.SampleID,
-			Iteration: operation.Iteration, ProcessReplicate: operation.ProcessReplicate, OrderPosition: operation.OrderPosition,
+			Iteration: operation.Iteration, ProcessReplicate: operation.ProcessReplicate, Warmup: operation.Warmup, OrderPosition: operation.OrderPosition,
 			RandomSeed: operation.RandomSeed, PairID: operation.PairID, PairedSystemOrder: operation.PairedSystemOrder,
 			RootGroupID: operation.RootGroupID,
 			System:      "taskgate", Mode: operation.Mode, WorkloadID: operation.WorkloadID,
@@ -51,14 +84,282 @@ func runTestAdapter() {
 			PipelineMS:   map[string]float64{"prepare": .1, "execute_and_derive": .2, "artifact_stage": .1, "control_settlement": .1, "artifact_publication": .1, "response_finalize": .1, "server_total": .8},
 			DiagnosticMS: map[string]float64{}, ResultSHA256: resultDigest, RootTaskIDHash: digest, ReceiptVersion: "8",
 			ReceiptSHA256: digest, ArtifactIntentSHA256: digest, AvailabilityAuditSHA256: digest,
-			ReceiptVerified: true, ArtifactAvailable: true, Status: "pass", PublicationEligible: true,
+			ReceiptVerified: true, ArtifactAvailable: true, Status: operationStatus, PublicationEligible: operation.CampaignClass == "publication", KernelOnly: operation.KernelOnly,
+		}
+		if operationStatus != "pass" {
+			sample.ErrorCode = "test_" + operationStatus
+			sample.Reason = "retained test adapter outcome"
+		}
+		if os.Getenv("TASKGATE_TEST_ADAPTER_OVERCHARGE") == "1" {
+			sample.ActualOutcomeFacts = 0
+			sample.ChargedOutcomeFacts = 1
+		}
+		if os.Getenv("TASKGATE_TEST_ADAPTER_PIPELINE_MISMATCH") == "1" {
+			sample.PipelineMS["server_total"] = 0
+		}
+		if os.Getenv("TASKGATE_TEST_ADAPTER_OMIT_ROOT") == "1" {
+			sample.RootTaskIDHash = ""
 		}
 		if encoder.Encode(sample) != nil {
 			os.Exit(1)
 		}
+		emitted++
+		if exitAfter > 0 && emitted == exitAfter {
+			os.Exit(17)
+		}
 	}
 	if scanner.Err() != nil {
 		os.Exit(1)
+	}
+}
+
+func TestRunnerPreservesEmittedFailureWhenAdapterThenExits(t *testing.T) {
+	config := Config{
+		SchemaVersion: 1, CampaignClass: "pilot", PilotKind: "real_system",
+		CampaignID: "retention-partial-exit", ExperimentID: "attack",
+		Deployments: 1, Samples: 2, RandomSeed: 20260801, FreshRootPerSample: true,
+		Workloads: []Workload{{ID: "retention", Scales: []string{"tiny"}, Modes: []string{"novel"}}},
+	}
+	t.Setenv("TASKGATE_TEST_ADAPTER", "1")
+	t.Setenv("TASKGATE_TEST_ADAPTER_STATUS", "fail")
+	t.Setenv("TASKGATE_TEST_ADAPTER_OMIT_ROOT", "1")
+	t.Setenv("TASKGATE_TEST_ADAPTER_EXIT_AFTER", "1")
+	t.Setenv("TASKGATE_EXPERIMENT_CLASS", "pilot")
+	t.Setenv("TASKGATE_CAMPAIGN_ID", config.CampaignID)
+	output := filepath.Join(t.TempDir(), "partial-exit.jsonl")
+	if err := ExecuteAdapterCampaign(config, "deployment-01", os.Args[0], output); err == nil {
+		t.Fatal("adapter process exit did not fail the campaign")
+	}
+	samples, err := ReadSamples([]string{output})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(samples) != 2 || samples[0].Status != "fail" || samples[0].ErrorCode != "test_fail" ||
+		samples[1].Status != "invalid" || samples[1].ErrorCode != "adapter_process_failure" {
+		t.Fatalf("partial process outcomes were not preserved: %+v", samples)
+	}
+}
+
+func TestRunnerPreservesLaterFailureWhenAdapterOmitsEarlierSample(t *testing.T) {
+	config := Config{
+		SchemaVersion: 1, CampaignClass: "pilot", PilotKind: "real_system",
+		CampaignID: "retention-missing-prefix", ExperimentID: "artifact",
+		Deployments: 1, Samples: 2, RandomSeed: 20260801, FreshRootPerSample: true,
+		Workloads: []Workload{{ID: "retention", Scales: []string{"tiny"}, Modes: []string{"novel"}}},
+	}
+	t.Setenv("TASKGATE_TEST_ADAPTER", "1")
+	t.Setenv("TASKGATE_TEST_ADAPTER_STATUS", "fail")
+	t.Setenv("TASKGATE_TEST_ADAPTER_OMIT_ROOT", "1")
+	t.Setenv("TASKGATE_TEST_ADAPTER_SKIP_SAMPLE", "1")
+	t.Setenv("TASKGATE_EXPERIMENT_CLASS", "pilot")
+	t.Setenv("TASKGATE_CAMPAIGN_ID", config.CampaignID)
+	output := filepath.Join(t.TempDir(), "missing-prefix.jsonl")
+	if err := ExecuteAdapterCampaign(config, "deployment-01", os.Args[0], output); err == nil {
+		t.Fatal("adapter protocol omission did not fail the campaign")
+	}
+	samples, err := ReadSamples([]string{output})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(samples) != 2 || samples[0].Status != "invalid" || samples[0].ErrorCode != "adapter_process_failure" ||
+		samples[1].Status != "fail" || samples[1].ErrorCode != "test_fail" {
+		t.Fatalf("later emitted failure was not preserved by sample identity: %+v", samples)
+	}
+}
+
+func TestRunnerPreservesLaterFailureWhenEarlierOutputIsMalformed(t *testing.T) {
+	config := Config{
+		SchemaVersion: 1, CampaignClass: "pilot", PilotKind: "real_system",
+		CampaignID: "retention-malformed-prefix", ExperimentID: "artifact",
+		Deployments: 1, Samples: 2, RandomSeed: 20260801, FreshRootPerSample: true,
+		Workloads: []Workload{{ID: "retention", Scales: []string{"tiny"}, Modes: []string{"novel"}}},
+	}
+	t.Setenv("TASKGATE_TEST_ADAPTER", "1")
+	t.Setenv("TASKGATE_TEST_ADAPTER_STATUS", "fail")
+	t.Setenv("TASKGATE_TEST_ADAPTER_OMIT_ROOT", "1")
+	t.Setenv("TASKGATE_TEST_ADAPTER_MALFORMED_SAMPLE", "1")
+	t.Setenv("TASKGATE_EXPERIMENT_CLASS", "pilot")
+	t.Setenv("TASKGATE_CAMPAIGN_ID", config.CampaignID)
+	output := filepath.Join(t.TempDir(), "malformed-prefix.jsonl")
+	if err := ExecuteAdapterCampaign(config, "deployment-01", os.Args[0], output); err == nil {
+		t.Fatal("malformed adapter output did not fail the campaign")
+	}
+	samples, err := ReadSamples([]string{output})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(samples) != 2 || samples[0].Status != "invalid" || samples[0].ErrorCode != "adapter_process_failure" ||
+		samples[1].Status != "fail" || samples[1].ErrorCode != "test_fail" {
+		t.Fatalf("malformed prefix erased a later emitted failure: %+v", samples)
+	}
+}
+
+func TestEveryStageBRunnerRetainsFailAndInvalidSamples(t *testing.T) {
+	experiments := []string{"scale", "artifact", "rls", "attack", "provsql", "compiler", "concurrency", "rq5"}
+	statuses := []string{"fail", "invalid"}
+	modes := []string{"novel", "semantic_replay", "idempotent_replay"}
+	for _, experimentID := range experiments {
+		for _, status := range statuses {
+			t.Run(experimentID+"/"+status, func(t *testing.T) {
+				config := Config{
+					SchemaVersion: 1, CampaignClass: "pilot", PilotKind: "real_system",
+					CampaignID: "retention-" + experimentID, ExperimentID: experimentID,
+					Deployments: 1, Samples: 1, RandomSeed: 20260801, FreshRootPerSample: true,
+					Workloads: []Workload{{ID: "retention", Scales: []string{"tiny"}, Modes: modes}},
+				}
+				t.Setenv("TASKGATE_TEST_ADAPTER", "1")
+				t.Setenv("TASKGATE_TEST_ADAPTER_STATUS", status)
+				t.Setenv("TASKGATE_TEST_ADAPTER_OMIT_ROOT", "1")
+				t.Setenv("TASKGATE_EXPERIMENT_CLASS", "pilot")
+				t.Setenv("TASKGATE_CAMPAIGN_ID", config.CampaignID)
+				output := filepath.Join(t.TempDir(), experimentID+"-"+status+".jsonl")
+				if err := ExecuteAdapterCampaign(config, "deployment-01", os.Args[0], output); err != nil {
+					t.Fatal(err)
+				}
+				samples, err := ReadSamples([]string{output})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(samples) != len(modes) {
+					t.Fatalf("retained %d samples, want %d: %+v", len(samples), len(modes), samples)
+				}
+				for index, sample := range samples {
+					if sample.Mode != modes[index] || sample.Status != status || sample.ErrorCode != "test_"+status {
+						t.Fatalf("retained sample %d = %+v", index, sample)
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestRunnerRetainsFailedAndInvalidWarmups(t *testing.T) {
+	for _, status := range []string{"fail", "invalid"} {
+		t.Run(status, func(t *testing.T) {
+			config := Config{
+				SchemaVersion: 1, CampaignClass: "pilot", PilotKind: "real_system",
+				CampaignID: "retention-warmup-" + status, ExperimentID: "provsql",
+				Deployments: 1, Warmups: 1, Samples: 1, RandomSeed: 20260801, FreshRootPerSample: true,
+				Workloads: []Workload{{ID: "retention", Scales: []string{"tiny"}, Modes: []string{"novel"}}},
+			}
+			t.Setenv("TASKGATE_TEST_ADAPTER", "1")
+			t.Setenv("TASKGATE_TEST_ADAPTER_WARMUP_STATUS", status)
+			t.Setenv("TASKGATE_EXPERIMENT_CLASS", "pilot")
+			t.Setenv("TASKGATE_CAMPAIGN_ID", config.CampaignID)
+			output := filepath.Join(t.TempDir(), "warmup-"+status+".jsonl")
+			if err := ExecuteAdapterCampaign(config, "deployment-01", os.Args[0], output); err == nil {
+				t.Fatal("failed warmup did not fail the campaign")
+			}
+			samples, err := ReadSamples([]string{output})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(samples) != 2 || !samples[0].Warmup || !strings.Contains(samples[0].SampleID, "-warmup-") ||
+				samples[0].Status != status || samples[0].ErrorCode != "test_"+status ||
+				samples[1].Warmup || !strings.Contains(samples[1].SampleID, "-sample-") || samples[1].Status != "pass" {
+				t.Fatalf("warmup failure and measured sample were not both retained: %+v", samples)
+			}
+		})
+	}
+}
+
+func TestRunnerRetainsFailedOverchargeEvidence(t *testing.T) {
+	config := Config{
+		SchemaVersion: 1, CampaignClass: "pilot", PilotKind: "real_system",
+		CampaignID: "retention-overcharge", ExperimentID: "attack",
+		Deployments: 1, Samples: 1, RandomSeed: 20260801, FreshRootPerSample: true,
+		Workloads: []Workload{{ID: "retention", Scales: []string{"tiny"}, Modes: []string{"novel"}}},
+	}
+	t.Setenv("TASKGATE_TEST_ADAPTER", "1")
+	t.Setenv("TASKGATE_TEST_ADAPTER_STATUS", "fail")
+	t.Setenv("TASKGATE_TEST_ADAPTER_OVERCHARGE", "1")
+	t.Setenv("TASKGATE_EXPERIMENT_CLASS", "pilot")
+	t.Setenv("TASKGATE_CAMPAIGN_ID", config.CampaignID)
+	output := filepath.Join(t.TempDir(), "overcharge.jsonl")
+	if err := ExecuteAdapterCampaign(config, "deployment-01", os.Args[0], output); err != nil {
+		t.Fatal(err)
+	}
+	samples, err := ReadSamples([]string{output})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(samples) != 1 || samples[0].Status != "fail" || samples[0].ErrorCode != "test_fail" ||
+		samples[0].ActualOutcomeFacts != 0 || samples[0].ChargedOutcomeFacts != 1 {
+		t.Fatalf("overcharge failure was replaced or altered: %+v", samples)
+	}
+}
+
+func TestRunnerRetainsFailedPipelineInvariantEvidence(t *testing.T) {
+	config := Config{
+		SchemaVersion: 1, CampaignClass: "pilot", PilotKind: "real_system",
+		CampaignID: "retention-pipeline", ExperimentID: "artifact",
+		Deployments: 1, Samples: 1, RandomSeed: 20260801, FreshRootPerSample: true,
+		Workloads: []Workload{{ID: "retention", Scales: []string{"tiny"}, Modes: []string{"novel"}}},
+	}
+	t.Setenv("TASKGATE_TEST_ADAPTER", "1")
+	t.Setenv("TASKGATE_TEST_ADAPTER_STATUS", "fail")
+	t.Setenv("TASKGATE_TEST_ADAPTER_PIPELINE_MISMATCH", "1")
+	t.Setenv("TASKGATE_EXPERIMENT_CLASS", "pilot")
+	t.Setenv("TASKGATE_CAMPAIGN_ID", config.CampaignID)
+	output := filepath.Join(t.TempDir(), "pipeline.jsonl")
+	if err := ExecuteAdapterCampaign(config, "deployment-01", os.Args[0], output); err != nil {
+		t.Fatal(err)
+	}
+	samples, err := ReadSamples([]string{output})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(samples) != 1 || samples[0].Status != "fail" || samples[0].ErrorCode != "test_fail" ||
+		samples[0].PipelineMS["server_total"] != 0 || samples[0].PipelineMS["prepare"] == 0 {
+		t.Fatalf("pipeline failure was replaced or altered: %+v", samples)
+	}
+}
+
+func TestRunnerRetainsKernelOnlyInitializationFailure(t *testing.T) {
+	config := Config{
+		SchemaVersion: 1, CampaignClass: "pilot", PilotKind: "real_system",
+		CampaignID: "retention-kernel-only", ExperimentID: "scale",
+		Deployments: 1, Samples: 1, RandomSeed: 20260801, KernelOnly: true,
+		Workloads: []Workload{{ID: "taskgate_scale_extreme", Scales: []string{"10m"}, Modes: []string{"kernel_storage_only"}}},
+	}
+	t.Setenv("TASKGATE_TEST_ADAPTER", "1")
+	t.Setenv("TASKGATE_TEST_ADAPTER_STATUS", "invalid")
+	t.Setenv("TASKGATE_EXPERIMENT_CLASS", "pilot")
+	t.Setenv("TASKGATE_CAMPAIGN_ID", config.CampaignID)
+	output := filepath.Join(t.TempDir(), "kernel-only-invalid.jsonl")
+	if err := ExecuteAdapterCampaign(config, "deployment-01", os.Args[0], output); err != nil {
+		t.Fatal(err)
+	}
+	samples, err := ReadSamples([]string{output})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(samples) != 1 || !samples[0].KernelOnly || samples[0].Status != "invalid" || samples[0].ErrorCode != "test_invalid" {
+		t.Fatalf("kernel-only initialization failure was replaced or altered: %+v", samples)
+	}
+}
+
+func TestRunnerRetainsReplacementWhenAdapterSampleFailsValidation(t *testing.T) {
+	config := Config{
+		SchemaVersion: 1, CampaignClass: "pilot", PilotKind: "real_system",
+		CampaignID: "retention-malformed", ExperimentID: "scale",
+		Deployments: 1, Samples: 1, RandomSeed: 20260801, FreshRootPerSample: true,
+		Workloads: []Workload{{ID: "retention", Scales: []string{"tiny"}, Modes: []string{"novel"}}},
+	}
+	t.Setenv("TASKGATE_TEST_ADAPTER", "1")
+	t.Setenv("TASKGATE_TEST_ADAPTER_OMIT_ROOT", "1")
+	t.Setenv("TASKGATE_EXPERIMENT_CLASS", "pilot")
+	t.Setenv("TASKGATE_CAMPAIGN_ID", config.CampaignID)
+	output := filepath.Join(t.TempDir(), "malformed.jsonl")
+	if err := ExecuteAdapterCampaign(config, "deployment-01", os.Args[0], output); err == nil {
+		t.Fatal("adapter protocol failure did not fail the campaign")
+	}
+	samples, err := ReadSamples([]string{output})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(samples) != 1 || samples[0].Status != "invalid" || samples[0].ErrorCode != "adapter_sample_validation_failure" {
+		t.Fatalf("retained replacement = %+v", samples)
 	}
 }
 
@@ -92,11 +393,155 @@ func TestMatchedPairAggregationDoesNotDivideArmMedians(t *testing.T) {
 }
 
 func TestProtocolBindingRejectsShrunkWorkload(t *testing.T) {
-	config := Config{Workloads: []Workload{{ID: "S1", Scales: []string{"tiny"}, Modes: []string{"direct", "novel"}}}}
+	config := Config{ExperimentID: "test", Workloads: []Workload{{ID: "S1", Scales: []string{"tiny"}, Modes: []string{"direct", "novel"}}}}
 	bindTestProtocol(t, &config)
 	config.Workloads[0].Modes = []string{"direct"}
 	if err := config.ValidateProtocol(protocolRoot()); err == nil || !strings.Contains(err.Error(), "differ") {
 		t.Fatalf("shrunk workload profile was accepted: %v", err)
+	}
+}
+
+func TestProtocolBindingRejectsCrossProfileAndKernelMismatch(t *testing.T) {
+	tests := []struct {
+		name       string
+		experiment string
+		profile    string
+		kernelOnly bool
+	}{
+		{name: "baseline using artifact", experiment: "baseline", profile: "artifact"},
+		{name: "artifact using baseline", experiment: "artifact", profile: "baseline"},
+		{name: "scale using extreme without kernel gate", experiment: "scale", profile: "scale-extreme"},
+		{name: "kernel scale using ordinary profile", experiment: "scale", profile: "scale", kernelOnly: true},
+		{name: "non-scale kernel flag", experiment: "compiler", profile: "compiler", kernelOnly: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			config := Config{ExperimentID: test.experiment, KernelOnly: test.kernelOnly, Workloads: []Workload{{ID: "S1", Scales: []string{"tiny"}, Modes: []string{"novel"}}}}
+			bindTestProtocol(t, &config)
+			config.ProtocolProfile = test.profile
+			if err := config.ValidateProtocol(protocolRoot()); err == nil {
+				t.Fatal("cross-profile or kernel/profile mismatch was accepted")
+			}
+		})
+	}
+}
+
+func TestProtocolReplicateMatrixIsMachineEnforced(t *testing.T) {
+	tests := []struct {
+		name   string
+		want   string
+		mutate func(*Config, map[string]any)
+	}{
+		{name: "config count drift", want: "replicate counts differ", mutate: func(config *Config, _ map[string]any) { config.Samples++ }},
+		{name: "protocol count drift", want: "replicate counts differ", mutate: func(_ *Config, protocol map[string]any) {
+			contracts := protocol["campaign"].(map[string]any)["replicate_contracts"].(map[string]any)
+			contracts["test"].(map[string]any)["warmups_per_cell_per_process"] = float64(4)
+		}},
+		{name: "duplicate profile membership", want: "belongs to multiple replicate contracts", mutate: func(_ *Config, protocol map[string]any) {
+			contracts := protocol["campaign"].(map[string]any)["replicate_contracts"].(map[string]any)
+			contracts["duplicate"] = map[string]any{"profiles": []any{"baseline"}, "process_replicates": float64(1),
+				"warmups_per_cell_per_process": float64(5), "measured_samples_per_cell_per_process": float64(30)}
+		}},
+		{name: "workload profile lacks contract", want: "lacks a replicate contract", mutate: func(_ *Config, protocol map[string]any) {
+			contracts := protocol["campaign"].(map[string]any)["replicate_contracts"].(map[string]any)
+			contracts["test"].(map[string]any)["profiles"] = []any{"other"}
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			config := Config{ExperimentID: "baseline", Warmups: 5, Samples: 30,
+				Workloads: []Workload{{ID: "S1", Scales: []string{"tiny"}, Modes: []string{"novel"}}}}
+			bindTestProtocol(t, &config)
+			path := filepath.Join(protocolRoot(), "protocol-v1.yaml")
+			value, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var protocol map[string]any
+			if err := json.Unmarshal(value, &protocol); err != nil {
+				t.Fatal(err)
+			}
+			test.mutate(&config, protocol)
+			encoded, err := json.Marshal(protocol)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, append(encoded, '\n'), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			config.ProtocolSHA256, _ = FileSHA256(path)
+			if err := config.ValidateProtocol(protocolRoot()); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("protocol/config replicate mutation error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestPublicationReplicateAndWarmupContracts(t *testing.T) {
+	base := Config{
+		SchemaVersion: 1, CampaignClass: "publication", CampaignID: "contract-test", ExperimentID: "baseline",
+		SubmissionCommit: "0123456789abcdef0123456789abcdef01234567", Deployments: 3,
+		Warmups: 5, Samples: 30, RandomSeed: 20260801, FreshRootPerSample: true,
+		ProtocolVersion: finalProtocolVersion, ProtocolProfile: "baseline",
+		ProtocolSHA256: strings.Repeat("1", 64), WorkloadSHA256: strings.Repeat("2", 64),
+		AcceptanceSHA256: strings.Repeat("3", 64), StatisticsSHA256: strings.Repeat("4", 64),
+		Workloads: []Workload{{ID: "S1", Scales: []string{"tiny"}, Modes: []string{"novel"}}},
+	}
+	tests := []struct {
+		name   string
+		mutate func(*Config)
+	}{
+		{name: "negative process replicates", mutate: func(config *Config) { config.ProcessReplicates = -1 }},
+		{name: "baseline extra process", mutate: func(config *Config) { config.ProcessReplicates = 2 }},
+		{name: "compiler extra warmup", mutate: func(config *Config) {
+			config.ExperimentID, config.ProtocolProfile = "compiler", "compiler"
+			config.ProcessReplicates, config.Warmups, config.Samples = 5, 2, 100
+		}},
+		{name: "adaptive warmup", mutate: func(config *Config) {
+			config.ExperimentID, config.ProtocolProfile = "rls", "rls"
+			config.Warmups, config.Samples = 1, 3
+		}},
+		{name: "adaptive extra replicate", mutate: func(config *Config) {
+			config.ExperimentID, config.ProtocolProfile = "attack", "attack"
+			config.Warmups, config.Samples, config.ProcessReplicates = 0, 3, 2
+		}},
+		{name: "rq5 warmup", mutate: func(config *Config) {
+			config.ExperimentID, config.ProtocolProfile = "rq5", "rq5"
+			config.Warmups, config.Samples = 1, 4
+		}},
+		{name: "rq5 extra process", mutate: func(config *Config) {
+			config.ExperimentID, config.ProtocolProfile = "rq5", "rq5"
+			config.Warmups, config.Samples, config.ProcessReplicates = 0, 4, 2
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			config := base
+			test.mutate(&config)
+			if err := config.Validate(config.ExperimentID); err == nil {
+				t.Fatal("invalid publication replicate/warmup contract was accepted")
+			}
+		})
+	}
+}
+
+func TestConfigRejectsUnsafeCampaignIDs(t *testing.T) {
+	base := Config{
+		SchemaVersion: 1, CampaignClass: "pilot", PilotKind: "real_system", CampaignID: "safe-campaign_1.0",
+		ExperimentID: "baseline", Deployments: 1, Samples: 1, RandomSeed: 20260802,
+		Workloads: []Workload{{ID: "S1", Scales: []string{"tiny"}, Modes: []string{"novel"}}},
+	}
+	if err := base.Validate("baseline"); err != nil {
+		t.Fatalf("safe campaign ID rejected: %v", err)
+	}
+	for _, campaignID := range []string{"../escape", "nested/path", ".", "-leading", "space id", "", strings.Repeat("a", 129)} {
+		t.Run(campaignID, func(t *testing.T) {
+			config := base
+			config.CampaignID = campaignID
+			if err := config.Validate("baseline"); err == nil {
+				t.Fatalf("unsafe campaign ID %q was accepted", campaignID)
+			}
+		})
 	}
 }
 
@@ -182,6 +627,14 @@ func TestDependencyAwareOrderKeepsReplayAfterNovel(t *testing.T) {
 	}
 }
 
+func TestKernelAndMerkleMicrobenchmarksDoNotClaimTaskRoots(t *testing.T) {
+	for _, mode := range []string{"merkle_control", "kernel_storage_only"} {
+		if freshRootAnchor(mode) {
+			t.Fatalf("microbenchmark mode %q incorrectly claims a TaskGate root", mode)
+		}
+	}
+}
+
 func TestMatchedPairIdentityIsGroupScopedAndRecordsExactOrder(t *testing.T) {
 	baseline := Config{RandomSeed: 20260801, FreshRootPerSample: true, Samples: 1, Workloads: []Workload{{ID: "S1", Scales: []string{"tiny"}, Modes: []string{"direct", "novel", "semantic_replay", "pending_recovery"}}}}
 	position := 0
@@ -213,6 +666,29 @@ func TestMatchedPairIdentityIsGroupScopedAndRecordsExactOrder(t *testing.T) {
 		if operation.PairID != operations[0].PairID || !sameStringSet(strings.Split(operation.PairedSystemOrder, ","), []string{"direct", "provsql", "taskgate"}) {
 			t.Fatalf("ProvSQL pair metadata = %+v", operations)
 		}
+	}
+
+	rls := Config{ExperimentID: "rls", RandomSeed: 20260801, FreshRootPerSample: true, Samples: 1, Workloads: []Workload{{ID: "trace", Scales: []string{"100"}, Modes: []string{"rls", "unlimited", "bounded"}}}}
+	position = 0
+	operations = buildOperations(rls, "deployment-01", 1, 1, &position)
+	if len(operations) != 3 {
+		t.Fatalf("RLS operations = %+v", operations)
+	}
+	rootGroups := map[string]bool{}
+	for _, operation := range operations {
+		if operation.PairID != operations[0].PairID || !sameStringSet(strings.Split(operation.PairedSystemOrder, ","), []string{"rls", "unlimited", "bounded"}) {
+			t.Fatalf("RLS pair metadata = %+v", operations)
+		}
+		rootGroups[operation.RootGroupID] = true
+		if operation.Mode == "rls" && operation.FreshRootRequired {
+			t.Fatal("native RLS arm incorrectly requires a TaskGate root")
+		}
+		if operation.Mode != "rls" && !operation.FreshRootRequired {
+			t.Fatalf("TaskGate RLS arm %q lacks a fresh root", operation.Mode)
+		}
+	}
+	if len(rootGroups) != 3 {
+		t.Fatalf("paired RLS arms incorrectly share root groups: %+v", operations)
 	}
 }
 
@@ -258,6 +734,31 @@ func TestValidateBaselineSignedSampleRejectsUnsignedCountDrift(t *testing.T) {
 				t.Fatal("unsigned sample drift was accepted")
 			}
 		})
+	}
+}
+
+func TestValidateBaselineRootIdentityUsesSignedExposureRootForDelegatedReceipt(t *testing.T) {
+	sample := Sample{CampaignID: "campaign", DeploymentID: "deployment"}
+	receipt := queryreceipt.QueryReceiptV1{
+		TaskID: "delegated-child",
+		Exposure: &queryreceipt.ExposureEvidenceV1{
+			RootTaskID: "root-task",
+		},
+	}
+	sample.RootTaskIDHash = redactedTaskSHA256(sample, receipt.Exposure.RootTaskID)
+	if err := validateBaselineRootIdentity(sample, receipt); err != nil {
+		t.Fatalf("delegated receipt root identity: %v", err)
+	}
+
+	mutated := sample
+	mutated.RootTaskIDHash = redactedTaskSHA256(sample, receipt.TaskID)
+	if err := validateBaselineRootIdentity(mutated, receipt); err == nil {
+		t.Fatal("child TaskID was accepted as the delegated receipt root")
+	}
+
+	receipt.Exposure.RootTaskID = ""
+	if err := validateBaselineRootIdentity(sample, receipt); err == nil {
+		t.Fatal("missing signed exposure root was accepted")
 	}
 }
 
@@ -684,7 +1185,13 @@ func buildPublicationEvidence(t *testing.T, reuseRoot bool) string {
 		}
 	}
 	commit := "0123456789abcdef0123456789abcdef01234567"
-	config := Config{SchemaVersion: 1, CampaignClass: "publication", CampaignID: "publication-test", ExperimentID: "rls", SubmissionCommit: commit, Deployments: 3, Samples: 3, RandomSeed: 20260801, FreshRootPerSample: true, Workloads: []Workload{{ID: "trace", Scales: []string{"100"}, Modes: []string{"rls", "unlimited", "bounded"}}}}
+	// This fixture tests publication sealing and fresh-root uniqueness itself.
+	// It deliberately uses a test-only experiment ID so that evolving
+	// experiment-specific cryptographic validators are exercised in their own
+	// focused suites rather than replaced here with synthetic signed evidence.
+	config := Config{SchemaVersion: 1, CampaignClass: "publication", CampaignID: "publication-test", ExperimentID: "finalizer-fixture", SubmissionCommit: commit,
+		Deployments: 3, Warmups: 5, Samples: 30, RandomSeed: 20260801, FreshRootPerSample: true,
+		Workloads: []Workload{{ID: "root-uniqueness", Scales: []string{"tiny"}, Modes: []string{"novel"}}}}
 	bindTestProtocol(t, &config)
 	configBytes, _ := json.Marshal(config)
 	if err := os.WriteFile(filepath.Join(runDir, "config.json"), configBytes, 0o600); err != nil {
@@ -693,16 +1200,6 @@ func buildPublicationEvidence(t *testing.T, reuseRoot bool) string {
 	if err := os.WriteFile(filepath.Join(runDir, "adapter.sha256"), []byte(strings.Repeat("a", 64)+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	digest := strings.Repeat("b", 64)
-	oracleTrace := make([]finalv5oracle.Observation, 100)
-	for index := range oracleTrace {
-		oracleTrace[index] = finalv5oracle.Observation{Release: []string{strings.Repeat("1", 64)}, Dependency: []string{strings.Repeat("2", 64)}, Outcome: []string{strings.Repeat("3", 64)}}
-	}
-	oracleResult, err := finalv5oracle.Evaluate(oracleTrace)
-	if err != nil {
-		t.Fatal(err)
-	}
-	policiesJSON := json.RawMessage(`[{"policyname":"department_scope"}]`)
 	windowsHostPath := filepath.Join(runDir, "environment", "windows-host.json")
 	if err := os.WriteFile(windowsHostPath, []byte("{\"host\":\"test\"}\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -770,51 +1267,26 @@ func buildPublicationEvidence(t *testing.T, reuseRoot bool) string {
 			t.Fatal(err)
 		}
 		position := 0
-		for iteration := 1; iteration <= 3; iteration++ {
+		for iteration := 1; iteration <= 30; iteration++ {
 			for _, mode := range config.Workloads[0].Modes {
 				position++
+				rootIdentity := fmt.Sprintf("%s-%s-%d", deploymentID, mode, iteration)
+				if reuseRoot && deployment == 1 && iteration == 2 {
+					rootIdentity = fmt.Sprintf("%s-%s-%d", deploymentID, mode, 1)
+				}
+				rootBytes := sha256.Sum256([]byte(rootIdentity))
+				rootHash := hex.EncodeToString(rootBytes[:])
 				sample := validTestSample()
-				sample.CampaignID, sample.DeploymentID, sample.ExperimentID = config.CampaignID, deploymentID, "rls"
-				sample.CellID, sample.SampleID, sample.Iteration, sample.OrderPosition, sample.RandomSeed = "trace/100/"+mode, fmt.Sprintf("%s-%d", deploymentID, position), iteration, position, config.RandomSeed
+				sample.CampaignID, sample.DeploymentID, sample.ExperimentID = config.CampaignID, deploymentID, config.ExperimentID
+				sample.CellID, sample.SampleID, sample.Iteration, sample.OrderPosition, sample.RandomSeed = "root-uniqueness/tiny/"+mode, fmt.Sprintf("%s-%d", deploymentID, position), iteration, position, config.RandomSeed
 				sample.PairID = fmt.Sprintf("%s-pair-%d", deploymentID, iteration)
 				sample.RootGroupID = mode
-				sample.Mode, sample.WorkloadID, sample.Scale, sample.ResultSHA256, sample.PublicationEligible = mode, "trace", "100", digest, true
-				sample.RLSVerification = &RLSVerificationEvidence{RelRowSecurity: true, BaselineRole: "rls_reader", TableOwnerRole: "postgres", PoliciesJSON: policiesJSON, PoliciesSHA256: sha256Hex(policiesJSON), OracleComputedBefore: true, OracleTrace: oracleTrace, OracleResult: oracleResult}
-				if mode == "rls" {
-					sample.System = "postgresql"
-				} else {
-					sample.System = "taskgate"
-					rootIdentity := fmt.Sprintf("%s-%s-%d", deploymentID, mode, iteration)
-					if reuseRoot && deployment == 1 && iteration == 2 && mode == "unlimited" {
-						rootIdentity = fmt.Sprintf("%s-%s-%d", deploymentID, mode, 1)
-					}
-					rootBytes := sha256.Sum256([]byte(rootIdentity))
-					sample.RootTaskIDHash = hex.EncodeToString(rootBytes[:])
-					if mode == "bounded" {
-						sample.RLSVerification.StopReason = "EXPOSURE_BUDGET_EXHAUSTED"
-						sample.Rejected, sample.RejectedNoResult, sample.RejectedNoArtifact, sample.RejectedNoSuccessfulAudit = true, true, true, true
-					} else {
-						sample.ReleaseSetSHA256, sample.DependencySetSHA256, sample.OutcomeSetSHA256 = oracleResult.Release.SetSHA256, oracleResult.Dependency.SetSHA256, oracleResult.Outcome.SetSHA256
-						sample.ReceiptVersion, sample.ReceiptSHA256, sample.ArtifactIntentSHA256, sample.AvailabilityAuditSHA256 = "8", digest, digest, digest
-						sample.ReceiptVerified, sample.ArtifactAvailable = true, true
-						sample.ArtifactSHA256, sample.ObjectSHA256 = digest, digest
-					}
-				}
-				traceSteps := 100
-				if mode == "bounded" {
-					traceSteps = 2
-				}
-				for step := 1; step <= traceSteps; step++ {
-					trace := TraceStep{Index: step, ConcreteSQL: fmt.Sprintf("SELECT %d", step), PriorStateSHA256: digest, ResultSHA256: digest, NextSQLSHA256: digest}
-					if sample.System == "taskgate" {
-						trace.PlanSHA256, trace.ObservationSHA256 = digest, digest
-						trace.ReleaseSetSHA256, trace.DependencySetSHA256, trace.OutcomeSetSHA256 = digest, digest, digest
-					}
-					if mode == "bounded" && step == traceSteps {
-						trace.Rejected, trace.NoResult, trace.NoAvailableArtifact, trace.NoSuccessfulAudit = true, true, true, true
-					}
-					sample.Trace = append(sample.Trace, trace)
-				}
+				sample.System, sample.Mode, sample.WorkloadID, sample.Scale, sample.PublicationEligible = "taskgate", mode, "root-uniqueness", "tiny", true
+				sample.PairedSystemOrder, sample.RootTaskIDHash = mode, rootHash
+				sample.ResultSHA256 = sha256Hex([]byte(fmt.Sprintf("finalizer-fixture-%s-%d", deploymentID, iteration)))
+				sample.ReceiptVersion, sample.ReceiptSHA256 = "8", rootHash
+				sample.ArtifactIntentSHA256, sample.AvailabilityAuditSHA256 = rootHash, rootHash
+				sample.ReceiptVerified, sample.ArtifactAvailable = true, true
 				if err := writer.Write(sample); err != nil {
 					t.Fatal(err)
 				}
@@ -828,7 +1300,7 @@ func buildPublicationEvidence(t *testing.T, reuseRoot bool) string {
 }
 
 func validTestSample() Sample {
-	return Sample{SchemaVersion: 1, CampaignID: "c", DeploymentID: "deployment-01", ExperimentID: "baseline", CellID: "S1/tiny/novel", SampleID: "s1", Iteration: 1, OrderPosition: 1, RandomSeed: 1, PairID: "pair-1", PairedSystemOrder: "unpaired", RootGroupID: "novel", System: "taskgate", Mode: "novel", WorkloadID: "S1", Scale: "tiny", PipelineMS: map[string]float64{"prepare": 1, "execute_and_derive": 1, "artifact_stage": 1, "control_settlement": 1, "artifact_publication": 1, "response_finalize": 1, "server_total": 7}, DiagnosticMS: map[string]float64{}, Status: "pass", PublicationEligible: false}
+	return Sample{SchemaVersion: 1, CampaignID: "c", DeploymentID: "deployment-01", ExperimentID: "baseline", CellID: "S1/tiny/novel", SampleID: "s1", Iteration: 1, ProcessReplicate: 1, OrderPosition: 1, RandomSeed: 1, PairID: "pair-1", PairedSystemOrder: "unpaired", RootGroupID: "novel", System: "taskgate", Mode: "novel", WorkloadID: "S1", Scale: "tiny", PipelineMS: map[string]float64{"prepare": 1, "execute_and_derive": 1, "artifact_stage": 1, "control_settlement": 1, "artifact_publication": 1, "response_finalize": 1, "server_total": 7}, DiagnosticMS: map[string]float64{}, Status: "pass", PublicationEligible: false}
 }
 
 func validRootLedgerSnapshot() RootLedgerSnapshot {
@@ -872,16 +1344,37 @@ func bindTestProtocol(t *testing.T, config *Config) {
 	t.Helper()
 	root := t.TempDir()
 	config.ProtocolVersion = finalProtocolVersion
-	config.ProtocolProfile = "test"
+	if config.ExperimentID == "" {
+		config.ExperimentID = "test"
+	}
+	config.ProtocolProfile = config.ExperimentID
+	if config.Samples == 0 {
+		config.Samples = 1
+	}
+	effectiveProcesses := config.ProcessReplicates
+	if effectiveProcesses == 0 {
+		effectiveProcesses = 1
+	}
 	workloads, err := json.Marshal(map[string]any{
 		"schema_version": 2,
-		"profiles":       map[string]any{"test": map[string]any{"workloads": config.Workloads}},
+		"profiles":       map[string]any{config.ProtocolProfile: map[string]any{"workloads": config.Workloads}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	protocol, err := json.Marshal(map[string]any{
+		"schema_version": 1,
+		"protocol_id":    finalProtocolVersion,
+		"campaign": map[string]any{"replicate_contracts": map[string]any{"test": map[string]any{
+			"profiles": []string{config.ProtocolProfile}, "process_replicates": effectiveProcesses,
+			"warmups_per_cell_per_process": config.Warmups, "measured_samples_per_cell_per_process": config.Samples,
+		}}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	files := map[string][]byte{
-		"protocol-v1.yaml":         []byte("schema_version: 1\nprotocol_id: taskgate-final-v5-wsl2-v1\n"),
+		"protocol-v1.yaml":         append(protocol, '\n'),
 		"workloads-v1.yaml":        append(workloads, '\n'),
 		"acceptance-rules-v1.yaml": []byte("schema_version: 1\n"),
 		"statistics-v1.yaml":       []byte("schema_version: 1\n"),

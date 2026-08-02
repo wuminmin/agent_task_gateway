@@ -36,7 +36,7 @@ func catalogArtifact(publication loadedPublication) (*catalog.Catalog, []byte, e
 			Description: "Frozen deterministic RQ5 daily lineitem publication", Sensitivity: domain.SensitivityLow,
 			Fields: []catalog.Field{
 				{Name: "dataset_partition", Type: "smallint", Description: "Fixed fixture partition"},
-				{Name: "l_orderkey", Type: "bigint", Description: "Stable synthetic order key"},
+				{Name: "l_orderkey", Type: "bigint", Description: "Stable deterministic order key"},
 				{Name: "l_linenumber", Type: "integer", Description: "Stable line number"},
 				{Name: "l_extendedprice", Type: "numeric", Description: "Deterministic extended price"},
 			},
@@ -53,7 +53,12 @@ func catalogArtifact(publication loadedPublication) (*catalog.Catalog, []byte, e
 			Name: "rq5-online-v4", MaxQueries: 20, MaxRows: 100, MaxDBTime: catalog.Duration{Duration: time.Minute},
 			QueryTimeout: catalog.Duration{Duration: 15 * time.Second}, TaskTTL: catalog.Duration{Duration: time.Hour},
 			MaxReleaseFacts: 1000, MaxInfluenceFacts: 100000, MaxOutcomeFacts: 20,
-			ExposureProfileVersion: "taskgate-exposure-v4",
+			ExposureProfileVersion: "taskgate-exposure-v5",
+			PredicateFootprint: &domain.PredicateFootprintLimitsV1{
+				Version: domain.PredicateFootprintV1, MaxRawLiteralsPerQuery: 64,
+				MaxUniqueAtomsPerQuery: 8, MaxAtomPayloadBytes: 4096,
+				MaxTotalAtomPayloadBytes: 32768,
+			},
 		}},
 	}
 	encoded, err := yaml.Marshal(logical)

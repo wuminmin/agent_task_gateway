@@ -1,0 +1,32 @@
+{
+  "version": "taskgate-snapshot-index-input-v1",
+  "publication_name": "provsql-lineitem-v1",
+  "catalog_source": "travel_demo",
+  "source_relation": "reporting.provsql_lineitem",
+  "ordinal_sidecar": "taskgate_ordinal.provsql_lineitem_v1",
+  "entity_key_fields": ["orderkey", "linenumber"],
+  "snapshot": {
+    "source_id": "taskgate-demo-travel",
+    "source_namespace": "final_v5.provsql_lineitem",
+    "snapshot": "final-v5-provsql-2026-v1",
+    "schema_digest": "686a7a779dac25c56df01e3bf9ecc1daf4040c05cabdbc56acf2597daf9d296e",
+    "fields": [
+      {"name": "orderkey", "sql_type": "bigint"},
+      {"name": "orderkey", "canonical_field_id": "provsql_lineitem.orderkey", "sql_type": "bigint"},
+      {"name": "linenumber", "sql_type": "integer"},
+      {"name": "linenumber", "canonical_field_id": "provsql_lineitem.linenumber", "sql_type": "integer"},
+      {"name": "extendedprice", "sql_type": "numeric"},
+      {"name": "extendedprice", "canonical_field_id": "provsql_lineitem.extendedprice", "sql_type": "numeric"},
+      {"name": "partition_key", "sql_type": "integer"},
+      {"name": "partition_key", "canonical_field_id": "provsql_lineitem.partition_key", "sql_type": "integer"}
+    ],
+    "rows": []
+  },
+  "expected_digests": {
+    "sidecar_digest": "f8b90a24a69fe0fdcc0423462fd9920e44860eb38b881d8e803622d89285cfa2",
+    "dictionary_digest": "e718bc8f0d9eeb92069cbb7df26b8041e6ebc13ca8ef0943ba77e280cfd9895d",
+    "manifest_digest": "4752e89ab26ae9bd35b52f24f21b2400d7aab6d4350c90ab54cdbca427e56600",
+    "cold_payload_digest": "09348d31b4c5f2a05a92908ee69f4b16b7b27f771dfd07208b41b16027a7f17f",
+    "hot_index_digest": "65dcf1c0edf2e6fcf4f85204b800f7368d211648ccf2c3b3f2ace8feac4232d1"
+  }
+}

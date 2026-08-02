@@ -20,7 +20,7 @@ RUN git init /tmp/provsql \
     && make -C /tmp/provsql -j"$(nproc)" \
     && make -C /tmp/provsql DESTDIR=/opt/provsql-root install \
     && install -d /opt/provsql-root/usr/local/share/taskgate-evaluation \
-    && printf '%s\n' "${PROVSQL_COMMIT}" > /opt/provsql-root/usr/local/share/taskgate-evaluation/provsql-source-commit
+    && printf '%s' "${PROVSQL_COMMIT}" > /opt/provsql-root/usr/local/share/taskgate-evaluation/provsql-source-commit
 
 FROM ${POSTGRES_IMAGE}
 ARG PROVSQL_VERSION

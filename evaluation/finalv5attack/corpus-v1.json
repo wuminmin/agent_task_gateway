@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "corpus_id": "taskgate-final-v5-attack-corpus-v1",
+  "dataset_id": "travel-demo-2026-v1",
+  "cases": [
+    {
+      "workload_id": "A-pagination",
+      "scale": "complete-to-pages",
+      "steps": [
+        {"id":"complete","logical_sql":"SELECT receipt_no, amount FROM final_v5_attack_expense_detail ORDER BY receipt_no ASC LIMIT 100","direct_sql":"SELECT receipt_no, amount FROM reporting.final_v5_attack_expense_detail WHERE department = '销售部' ORDER BY receipt_no ASC LIMIT 100","classification":"accepted","role":"complete","primary":true},
+        {"id":"page-1","logical_sql":"SELECT receipt_no, amount FROM final_v5_attack_expense_detail ORDER BY receipt_no ASC LIMIT 2 OFFSET 0","direct_sql":"SELECT receipt_no, amount FROM reporting.final_v5_attack_expense_detail WHERE department = '销售部' ORDER BY receipt_no ASC LIMIT 2 OFFSET 0","classification":"accepted","role":"partition"},
+        {"id":"page-2","logical_sql":"SELECT receipt_no, amount FROM final_v5_attack_expense_detail ORDER BY receipt_no ASC LIMIT 2 OFFSET 2","direct_sql":"SELECT receipt_no, amount FROM reporting.final_v5_attack_expense_detail WHERE department = '销售部' ORDER BY receipt_no ASC LIMIT 2 OFFSET 2","classification":"accepted","role":"partition"},
+        {"id":"page-3","logical_sql":"SELECT receipt_no, amount FROM final_v5_attack_expense_detail ORDER BY receipt_no ASC LIMIT 2 OFFSET 4","direct_sql":"SELECT receipt_no, amount FROM reporting.final_v5_attack_expense_detail WHERE department = '销售部' ORDER BY receipt_no ASC LIMIT 2 OFFSET 4","classification":"accepted","role":"partition"},
+        {"id":"page-overlap","logical_sql":"SELECT receipt_no, amount FROM final_v5_attack_expense_detail ORDER BY receipt_no ASC LIMIT 2 OFFSET 1","direct_sql":"SELECT receipt_no, amount FROM reporting.final_v5_attack_expense_detail WHERE department = '销售部' ORDER BY receipt_no ASC LIMIT 2 OFFSET 1","classification":"accepted","role":"overlap"},
+        {"id":"page-1-replay","logical_sql":"SELECT receipt_no, amount FROM final_v5_attack_expense_detail ORDER BY receipt_no ASC LIMIT 2 OFFSET 0","direct_sql":"SELECT receipt_no, amount FROM reporting.final_v5_attack_expense_detail WHERE department = '销售部' ORDER BY receipt_no ASC LIMIT 2 OFFSET 0","classification":"semantic_replay","role":"replay"}
+      ]
+    },
+    {
+      "workload_id": "A-pagination",
+      "scale": "pages-to-complete",
+      "steps": [
+        {"id":"page-1","logical_sql":"SELECT receipt_no, amount FROM final_v5_attack_expense_detail ORDER BY receipt_no ASC LIMIT 2 OFFSET 0","direct_sql":"SELECT receipt_no, amount FROM reporting.final_v5_attack_expense_detail WHERE department = '销售部' ORDER BY receipt_no ASC LIMIT 2 OFFSET 0","classification":"accepted","role":"partition"},
+        {"id":"page-2","logical_sql":"SELECT receipt_no, amount FROM final_v5_attack_expense_detail ORDER BY receipt_no ASC LIMIT 2 OFFSET 2","direct_sql":"SELECT receipt_no, amount FROM reporting.final_v5_attack_expense_detail WHERE department = '销售部' ORDER BY receipt_no ASC LIMIT 2 OFFSET 2","classification":"accepted","role":"partition"},
+        {"id":"page-3","logical_sql":"SELECT receipt_no, amount FROM final_v5_attack_expense_detail ORDER BY receipt_no ASC LIMIT 2 OFFSET 4","direct_sql":"SELECT receipt_no, amount FROM reporting.final_v5_attack_expense_detail WHERE department = '销售部' ORDER BY receipt_no ASC LIMIT 2 OFFSET 4","classification":"accepted","role":"partition"},
+        {"id":"page-overlap","logical_sql":"SELECT receipt_no, amount FROM final_v5_attack_expense_detail ORDER BY receipt_no ASC LIMIT 2 OFFSET 1","direct_sql":"SELECT receipt_no, amount FROM reporting.final_v5_attack_expense_detail WHERE department = '销售部' ORDER BY receipt_no ASC LIMIT 2 OFFSET 1","classification":"accepted","role":"overlap"},
+        {"id":"page-1-replay","logical_sql":"SELECT receipt_no, amount FROM final_v5_attack_expense_detail ORDER BY receipt_no ASC LIMIT 2 OFFSET 0","direct_sql":"SELECT receipt_no, amount FROM reporting.final_v5_attack_expense_detail WHERE department = '销售部' ORDER BY receipt_no ASC LIMIT 2 OFFSET 0","classification":"semantic_replay","role":"replay"},
+        {"id":"complete","logical_sql":"SELECT receipt_no, amount FROM final_v5_attack_expense_detail ORDER BY receipt_no ASC LIMIT 100","direct_sql":"SELECT receipt_no, amount FROM reporting.final_v5_attack_expense_detail WHERE department = '销售部' ORDER BY receipt_no ASC LIMIT 100","classification":"accepted","role":"complete","primary":true}
+      ]
+    },
+    {
+      "workload_id": "B-equivalent-sql",
+      "scale": "variants-v1",
+      "steps": [
+        {"id":"equal-canonical","logical_sql":"SELECT receipt_no, amount FROM final_v5_attack_expense_detail WHERE amount = 320 ORDER BY receipt_no ASC","direct_sql":"SELECT receipt_no, amount FROM reporting.final_v5_attack_expense_detail WHERE department = '销售部' AND amount = 320 ORDER BY receipt_no ASC","classification":"accepted_equivalent","role":"equivalent","primary":true},
+        {"id":"equal-reversed","logical_sql":"SELECT receipt_no, amount FROM final_v5_attack_expense_detail AS d WHERE 320 = d.amount ORDER BY d.receipt_no ASC","direct_sql":"SELECT receipt_no, amount FROM reporting.final_v5_attack_expense_detail AS d WHERE d.department = '销售部' AND 320 = d.amount ORDER BY d.receipt_no ASC","classification":"accepted_equivalent","role":"equivalent"},
+        {"id":"equal-format-alias","logical_sql":"  SELECT d.receipt_no, d.amount FROM final_v5_attack_expense_detail d WHERE (d.amount=320) ORDER BY d.receipt_no ASC  ","direct_sql":"SELECT d.receipt_no, d.amount FROM reporting.final_v5_attack_expense_detail d WHERE d.department = '销售部' AND (d.amount=320) ORDER BY d.receipt_no ASC","classification":"accepted_equivalent","role":"equivalent"},
+        {"id":"equal-numeric-spelling","logical_sql":"SELECT receipt_no, amount FROM final_v5_attack_expense_detail WHERE amount = 320.00 ORDER BY receipt_no ASC","direct_sql":"SELECT receipt_no, amount FROM reporting.final_v5_attack_expense_detail WHERE department = '销售部' AND amount = 320.00 ORDER BY receipt_no ASC","classification":"accepted_equivalent","role":"equivalent"},
+        {"id":"unsupported-set-operation","logical_sql":"SELECT receipt_no, amount FROM final_v5_attack_expense_detail WHERE amount = 320 UNION SELECT receipt_no, amount FROM final_v5_attack_expense_detail WHERE amount = 320","direct_sql":"SELECT receipt_no, amount FROM reporting.final_v5_attack_expense_detail WHERE department = '销售部' AND amount = 320 UNION SELECT receipt_no, amount FROM reporting.final_v5_attack_expense_detail WHERE department = '销售部' AND amount = 320","classification":"expected_rejection","role":"negative","expected_error_code":"SQL_NOT_LOWERABLE","expected_error_reason":"SET_OPERATION_UNSUPPORTED"}
+      ]
+    },
+    {
+      "workload_id": "C-request-id",
+      "scale": "same-and-different",
+      "steps": [
+        {"id":"request-id-control","logical_sql":"SELECT receipt_no, amount FROM final_v5_attack_expense_detail ORDER BY receipt_no ASC LIMIT 3","direct_sql":"SELECT receipt_no, amount FROM reporting.final_v5_attack_expense_detail WHERE department = '销售部' ORDER BY receipt_no ASC LIMIT 3","classification":"accepted","role":"request_identity","primary":true}
+      ]
+    },
+    {
+      "workload_id": "D-split-union",
+      "scale": "complete-to-split",
+      "steps": [
+        {"id":"complete","logical_sql":"SELECT receipt_no, amount FROM final_v5_attack_expense_detail WHERE amount >= 0 ORDER BY receipt_no ASC","direct_sql":"SELECT receipt_no, amount FROM reporting.final_v5_attack_expense_detail WHERE department = '销售部' AND amount >= 0 ORDER BY receipt_no ASC","classification":"accepted","role":"complete","primary":true},
+        {"id":"split-low","logical_sql":"SELECT receipt_no, amount FROM final_v5_attack_expense_detail WHERE amount < 800 ORDER BY receipt_no ASC","direct_sql":"SELECT receipt_no, amount FROM reporting.final_v5_attack_expense_detail WHERE department = '销售部' AND amount < 800 ORDER BY receipt_no ASC","classification":"accepted","role":"partition"},
+        {"id":"split-high","logical_sql":"SELECT receipt_no, amount FROM final_v5_attack_expense_detail WHERE amount >= 800 ORDER BY receipt_no ASC","direct_sql":"SELECT receipt_no, amount FROM reporting.final_v5_attack_expense_detail WHERE department = '销售部' AND amount >= 800 ORDER BY receipt_no ASC","classification":"accepted","role":"partition"},
+        {"id":"public-union-negative","logical_sql":"SELECT receipt_no, amount FROM final_v5_attack_expense_detail WHERE amount < 800 UNION SELECT receipt_no, amount FROM final_v5_attack_expense_detail WHERE amount >= 800","direct_sql":"SELECT receipt_no, amount FROM reporting.final_v5_attack_expense_detail WHERE department = '销售部' AND amount < 800 UNION SELECT receipt_no, amount FROM reporting.final_v5_attack_expense_detail WHERE department = '销售部' AND amount >= 800","classification":"expected_rejection","role":"negative","expected_error_code":"SQL_NOT_LOWERABLE","expected_error_reason":"SET_OPERATION_UNSUPPORTED"}
+      ]
+    },
+    {
+      "workload_id": "D-split-union",
+      "scale": "split-to-complete",
+      "steps": [
+        {"id":"split-low","logical_sql":"SELECT receipt_no, amount FROM final_v5_attack_expense_detail WHERE amount < 800 ORDER BY receipt_no ASC","direct_sql":"SELECT receipt_no, amount FROM reporting.final_v5_attack_expense_detail WHERE department = '销售部' AND amount < 800 ORDER BY receipt_no ASC","classification":"accepted","role":"partition"},
+        {"id":"split-high","logical_sql":"SELECT receipt_no, amount FROM final_v5_attack_expense_detail WHERE amount >= 800 ORDER BY receipt_no ASC","direct_sql":"SELECT receipt_no, amount FROM reporting.final_v5_attack_expense_detail WHERE department = '销售部' AND amount >= 800 ORDER BY receipt_no ASC","classification":"accepted","role":"partition"},
+        {"id":"complete","logical_sql":"SELECT receipt_no, amount FROM final_v5_attack_expense_detail WHERE amount >= 0 ORDER BY receipt_no ASC","direct_sql":"SELECT receipt_no, amount FROM reporting.final_v5_attack_expense_detail WHERE department = '销售部' AND amount >= 0 ORDER BY receipt_no ASC","classification":"accepted","role":"complete","primary":true},
+        {"id":"public-union-negative","logical_sql":"SELECT receipt_no, amount FROM final_v5_attack_expense_detail WHERE amount < 800 UNION SELECT receipt_no, amount FROM final_v5_attack_expense_detail WHERE amount >= 800","direct_sql":"SELECT receipt_no, amount FROM reporting.final_v5_attack_expense_detail WHERE department = '销售部' AND amount < 800 UNION SELECT receipt_no, amount FROM reporting.final_v5_attack_expense_detail WHERE department = '销售部' AND amount >= 800","classification":"expected_rejection","role":"negative","expected_error_code":"SQL_NOT_LOWERABLE","expected_error_reason":"SET_OPERATION_UNSUPPORTED"}
+      ]
+    },
+    {
+      "workload_id": "E-threshold",
+      "scale": "preregistered-v1",
+      "outcome_ceiling": 5,
+      "thresholds": [300, 320, 880],
+      "threshold_results": [6, 6, 4],
+      "steps": [
+        {"id":"threshold-300","logical_sql":"SELECT count(*) AS request_count FROM expense_detail WHERE amount >= 300","direct_sql":"SELECT count(*) AS request_count FROM reporting.expense_detail WHERE department = '销售部' AND amount >= 300","classification":"accepted","role":"threshold","task_route":"delegated_child","threshold":300,"primary":true},
+        {"id":"threshold-320","logical_sql":"SELECT count(*) AS request_count FROM expense_detail WHERE amount >= 320","direct_sql":"SELECT count(*) AS request_count FROM reporting.expense_detail WHERE department = '销售部' AND amount >= 320","classification":"accepted","role":"threshold","task_route":"root","threshold":320,"primary":true},
+        {"id":"outcome-primer-320-detail","logical_sql":"SELECT receipt_no, amount FROM expense_detail WHERE amount >= 320 ORDER BY receipt_no ASC","direct_sql":"SELECT receipt_no, amount FROM reporting.expense_detail WHERE department = '销售部' AND amount >= 320 ORDER BY receipt_no ASC","classification":"accepted","role":"outcome_primer","task_route":"root"},
+        {"id":"outcome-primer-320-replay","logical_sql":"SELECT receipt_no, amount FROM expense_detail WHERE amount >= 320 ORDER BY receipt_no ASC","direct_sql":"SELECT receipt_no, amount FROM reporting.expense_detail WHERE department = '销售部' AND amount >= 320 ORDER BY receipt_no ASC","classification":"semantic_replay","role":"replay","task_route":"root"},
+        {"id":"outcome-primer-320-rewrite","logical_sql":"SELECT receipt_no, amount FROM expense_detail WHERE 320 <= amount ORDER BY receipt_no ASC","direct_sql":"SELECT receipt_no, amount FROM reporting.expense_detail WHERE department = '销售部' AND 320 <= amount ORDER BY receipt_no ASC","classification":"semantic_replay","role":"equivalent","task_route":"root"},
+        {"id":"threshold-880-budget","logical_sql":"SELECT count(*) AS request_count FROM expense_detail WHERE amount >= 880","direct_sql":"SELECT count(*) AS request_count FROM reporting.expense_detail WHERE department = '销售部' AND amount >= 880","classification":"expected_rejection","role":"threshold_rejection","task_route":"delegated_child","threshold":880,"expected_error_code":"EXPOSURE_BUDGET_EXHAUSTED","primary":true}
+      ]
+    }
+  ]
+}

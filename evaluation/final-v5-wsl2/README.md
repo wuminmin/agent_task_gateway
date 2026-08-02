@@ -30,7 +30,13 @@ It creates a unique fresh Compose project, captures Docker/PostgreSQL/MinIO fres
 
 All runner entrypoints share `evaluation/internal/experiment`. A runner owns strict config validation, exact source-controlled protocol/cell binding, matched-pair identity and randomized arm order, warmup exclusion, process replicates, publication gating, fresh-root hash uniqueness, raw overwrite protection, and failure retention. `evaluation/finalv5oracle` independently computes exact trace unions and the fixed 70% RLS budgets without importing production exposure code.
 
-The one checked-in executable is `evaluation/cmd/final-v5-adapter`. The runner invokes it with `--experiment`; it reads operation JSONL and returns exactly one sample per line. Its source manifest, build command, frozen commit, and binary SHA-256 enter every evidence pack. `--capabilities` is fail-closed: a formal campaign cannot start until all nine experiment implementations report complete. At present only `baseline` reports complete; every other experiment returns structured invalid evidence.
+The one checked-in executable is `evaluation/cmd/final-v5-adapter`. The runner invokes it with `--experiment`; it reads operation JSONL and returns exactly one sample per line. Its source manifest, build command, frozen commit, and binary SHA-256 enter every evidence pack. `--capabilities` is fail-closed: a formal campaign cannot start until all nine experiment implementations report complete. Only source-controlled real constructors may be registered; a registered Adapter still returns structured invalid evidence when its required private deployment binding or backend is absent.
+
+For Outcome-Merkle cells, the `x1` candidate cannot express 50% or 90% overlap exactly. The source-controlled parser uses `nearest_integer_half_up`, so both `x1-o50` and `x1-o90` contain one overlapping candidate member and retain the target label plus realized integer overlap in evidence. These cells must never be described as having an exact realized 50% or 90% fraction.
+
+Outcome-Merkle uses a recorded `warm_immutable_content_after_fixture_prefill` policy: deterministic content-addressed root and candidate objects are prepared before the measured merge, warmups populate reusable immutable content, and measured samples exercise the production load/difference/union/persist-and-verify path against that warm content. Physical growth can therefore be zero after warmup and is reported separately from logically changed objects. This policy must not be relabeled as a cold first-persist measurement.
+
+Outcome-Merkle and extreme kernel/storage samples do not claim a Task-root identity: `root_task_id_hash` remains empty. Their run identity is retained in workload-specific verification evidence. The in-process memory field for these microbenchmarks is `heap_alloc_bytes_after`, a boundary snapshot of Go's `HeapAlloc`; it is not reported as a process or container peak.
 
 Private material is not checked in. Prepare these directories after the code/config freeze:
 
@@ -42,7 +48,7 @@ dataset-bindings/
   deployment-01.json deployment-02.json deployment-03.json
 ```
 
-Every dataset binding must contain `dataset_sha256` and `catalog_sha256`. Docker volume identity is no longer author-supplied: `start-fresh-deployment.sh` derives it from actual Compose volume inspection and PostgreSQL system identifiers. Copy the example configs, replace the campaign ID and zero commit, and keep credentials in environment variables—not in configs or bindings.
+Every dataset binding must contain `dataset_sha256` and `catalog_sha256`. Docker volume identity is no longer author-supplied: `start-fresh-deployment.sh` derives it from actual Compose volume inspection and PostgreSQL system identifiers. Copy the example configs, replace the campaign ID and zero commit, and keep credentials in environment variables—not in configs or bindings. Stage B changed the frozen protocol hash to bind the profile-specific replicate matrix; any private config carrying the earlier hash must be regenerated and reviewed rather than silently reused.
 
 ## Commands
 

@@ -72,15 +72,15 @@ services:
         condition: service_completed_successfully
       snapshot-index-summary:
         condition: service_completed_successfully
-    volumes:
+    volumes: !override
       - ./evaluation/v4-acceptance/scale-fixture/snapshots/scale-orders-v4-narrow-1.json:/input/scale-orders-v4-narrow-1.json:ro
       - ./evaluation/v4-acceptance/scale-fixture/snapshots/scale-lineitem-v4-narrow-1.json:/input/scale-lineitem-v4-narrow-1.json:ro
       - snapshot-index-artifacts:/data/snapshot-index:ro
     read_only: true
-    tmpfs:
+    tmpfs: !override
       - /tmp:size=16m,mode=1777
     restart: "no"
-    security_opt:
+    security_opt: !override
       - no-new-privileges:true
     networks:
       - business-data

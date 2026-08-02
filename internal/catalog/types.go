@@ -141,7 +141,11 @@ const (
 )
 
 type ApprovalRoute struct {
-	Sensitivity   domain.Sensitivity  `yaml:"sensitivity" json:"sensitivity"`
+	Sensitivity domain.Sensitivity `yaml:"sensitivity" json:"sensitivity"`
+	// Products optionally binds this route to one exact sorted product set.
+	// Product-scoped routes are fail-closed: a named product cannot be mixed
+	// into another set and fall back to the sensitivity-wide route.
+	Products      []string            `yaml:"products,omitempty" json:"products,omitempty"`
 	Mode          domain.ApprovalMode `yaml:"mode" json:"mode"`
 	Approver      string              `yaml:"approver,omitempty" json:"approver,omitempty"`
 	BudgetProfile string              `yaml:"budget_profile" json:"budget_profile"`

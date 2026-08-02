@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "corpus_id": "taskgate-final-v5-rls-corpus-v1",
+  "dataset_id": "travel-demo-2026-v1",
+  "seed": 20260801,
+  "policy_role": "final_v5_rls_reader",
+  "policy_department": "销售部",
+  "rows": [
+    {"receipt_no":"TR-2026-0001","employee_name":"张伟","department":"销售部","amount":1680},
+    {"receipt_no":"TR-2026-0002","employee_name":"李娜","department":"销售部","amount":880},
+    {"receipt_no":"TR-2026-0003","employee_name":"张伟","department":"销售部","amount":553},
+    {"receipt_no":"TR-2026-0004","employee_name":"李娜","department":"销售部","amount":320},
+    {"receipt_no":"TR-2026-0005","employee_name":"王强","department":"研发部","amount":1450},
+    {"receipt_no":"TR-2026-0006","employee_name":"王强","department":"研发部","amount":1260},
+    {"receipt_no":"TR-2026-0007","employee_name":"赵敏","department":"财务部","amount":420},
+    {"receipt_no":"TR-2026-0008","employee_name":"张伟","department":"销售部","amount":960},
+    {"receipt_no":"TR-2026-0009","employee_name":"李娜","department":"销售部","amount":1910},
+    {"receipt_no":"TR-2026-0010","employee_name":"王强","department":"研发部","amount":280}
+  ],
+  "schedule": {
+    "equality_receipts": ["TR-2026-0001","TR-2026-0002","TR-2026-0003","TR-2026-0004","TR-2026-0008","TR-2026-0009"],
+    "pagination_offsets": [0,2,4],
+    "pagination_cycles": 10,
+    "equivalent_thresholds": [320,553,880],
+    "equivalent_cycles": 5,
+    "aggregate_thresholds": [300,553,960],
+    "aggregate_cycles": 10,
+    "adaptive_steps": 4,
+    "adaptive_odd_threshold": 880,
+    "adaptive_even_threshold": 553
+  }
+}

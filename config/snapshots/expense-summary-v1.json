@@ -9,7 +9,7 @@
     "source_id": "taskgate-demo-travel",
     "source_namespace": "travel.expense_summary",
     "snapshot": "travel-demo-2026-v1",
-    "schema_digest": "02b4a211cfbab7347fdce28e2dd76406b1118c5f18e1d2146cc2e85a38ccf1cc",
+    "schema_digest": "686a7a779dac25c56df01e3bf9ecc1daf4040c05cabdbc56acf2597daf9d296e",
     "fields": [
       {"name": "month", "sql_type": "text", "collation": "en_US.utf8", "collation_version": "2.36"},
       {"name": "month", "canonical_field_id": "expense_summary.month", "sql_type": "text", "collation": "en_US.utf8", "collation_version": "2.36"},
@@ -38,7 +38,7 @@
   "expected_digests": {
     "sidecar_digest": "2cd4e5c835252ec3bcd04aee11c28c70c6329b35bf6770f06a570cd918c9ceff",
     "dictionary_digest": "ac0239021ec58514d62ac0c4c56191c2337fc943106b6df900221e620e809a1f",
-    "manifest_digest": "8d675bbf97adfbc03234a468055c223a9ea3d9ffc6ab2d5f6b8da38abeb70432",
+    "manifest_digest": "072590ed127c8601378c4857551a5d1e2d2f965cddabbd211bedd6c911d22f98",
     "cold_payload_digest": "5c829b553fabc808791d74240b8a43bba6f38e14950b9bd630aa016b8c5e590e",
     "hot_index_digest": "d28b74a651b333db57fbb3a75dc00fef60ea5c9041a1f0b765c1380db27f2028"
   }

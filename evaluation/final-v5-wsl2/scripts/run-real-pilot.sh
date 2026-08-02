@@ -30,7 +30,7 @@ export TASKGATE_FRESH_PROOF_OUTPUT="$run_dir/environment/deployment-01.fresh.jso
 compose=(docker compose --project-name "$COMPOSE_PROJECT_NAME" --file compose.yaml --file compose.debug.yaml --file evaluation/final-v5-wsl2/compose.real-pilot.yaml)
 compose_json="$("${compose[@]}" config --format json)"
 service_env() { jq -r --arg service "$1" --arg name "$2" '.services[$service].environment[$name] // empty' <<< "$compose_json"; }
-urlencode() { jq -rn --arg value "$1" '$value|@uri'; }
+urlencode() { printf '%s' "$1" | jq -sRr '@uri'; }
 export GATEWAY_OBJECT_STORE_BUCKET="$(service_env gateway GATEWAY_OBJECT_STORE_BUCKET)"
 [[ -n "$GATEWAY_OBJECT_STORE_BUCKET" ]] || { echo "Compose omitted the result bucket" >&2; exit 1; }
 adapter_bin="$(mktemp /tmp/taskgate-final-v5-real-adapter.XXXXXX)"

@@ -1,0 +1,268 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"strings"
+	"time"
+
+	"taskbound.local/agent-data-gateway/evaluation/internal/concurrencyfixture"
+	"taskbound.local/agent-data-gateway/evaluation/internal/experiment"
+	gatewayapp "taskbound.local/agent-data-gateway/internal/gateway"
+)
+
+const (
+	concurrencyProbeTokenEnv   = "TASKGATE_FINAL_V5_CONCURRENCY_TOKEN"
+	concurrencyMinimumPool     = int64(32)
+	concurrencyEvidenceVersion = "taskgate-final-v5-concurrency-verification-v1"
+)
+
+type concurrencyBackend interface {
+	Capacity(context.Context) (gatewayapp.ConcurrencyProbeCapacity, error)
+	Run(context.Context, experiment.AdapterOperation, concurrencyfixture.Cell) (experiment.Sample, error)
+	Close()
+}
+
+type concurrencyAdapter struct {
+	backend  concurrencyBackend
+	capacity gatewayapp.ConcurrencyProbeCapacity
+}
+
+type concurrencyRunError struct {
+	code    string
+	invalid bool
+	sample  experiment.Sample
+	cause   error
+}
+
+func (err *concurrencyRunError) Error() string {
+	if err == nil {
+		return "concurrency run error"
+	}
+	if err.cause != nil {
+		return err.code + ": " + err.cause.Error()
+	}
+	return err.code
+}
+
+func (err *concurrencyRunError) Unwrap() error {
+	if err == nil {
+		return nil
+	}
+	return err.cause
+}
+
+// newConcurrencyAdapter is capability-safe: it requires the ordinary real
+// adapter dependencies plus the opt-in authenticated service probe and the
+// capacity needed by the frozen width-500 cell. Missing runtime configuration
+// therefore yields an invalid sample; it can never fall back to a local
+// barrier or self-asserted measurement.
+func newConcurrencyAdapter(ctx context.Context) (*concurrencyAdapter, error) {
+	token := strings.TrimSpace(os.Getenv(concurrencyProbeTokenEnv))
+	if len(token) < 32 {
+		return nil, fmt.Errorf("%s must contain at least 32 characters", concurrencyProbeTokenEnv)
+	}
+	real, err := newRealAdapter(ctx)
+	if err != nil {
+		return nil, err
+	}
+	backend := &realConcurrencyBackend{
+		real: real,
+		probe: &httpConcurrencyProbeClient{
+			baseURL: strings.TrimRight(real.gatewayBase, "/") + gatewayapp.ConcurrencyProbeAdminPath,
+			token:   token, client: real.http,
+		},
+		probeToken: token,
+	}
+	adapter, err := newConcurrencyAdapterWithBackend(ctx, backend)
+	if err != nil {
+		backend.Close()
+		return nil, err
+	}
+	return adapter, nil
+}
+
+func newConcurrencyAdapterWithBackend(ctx context.Context, backend concurrencyBackend) (*concurrencyAdapter, error) {
+	if backend == nil {
+		return nil, errors.New("real concurrency backend is required")
+	}
+	if err := concurrencyfixture.Validate(); err != nil {
+		return nil, err
+	}
+	capacity, err := backend.Capacity(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateConcurrencyCapacity(capacity); err != nil {
+		return nil, err
+	}
+	return &concurrencyAdapter{backend: backend, capacity: capacity}, nil
+}
+
+func validateConcurrencyCapacity(capacity gatewayapp.ConcurrencyProbeCapacity) error {
+	if capacity.Version != gatewayapp.ConcurrencyProbeVersion || !validDigest(capacity.GatewayInstanceSHA256) ||
+		capacity.HTTPActiveCapacity < 1 || capacity.HTTPQueueCapacity < 1 ||
+		capacity.HTTPActiveCapacity+capacity.HTTPQueueCapacity < 500 ||
+		capacity.ControlPoolCapacity < concurrencyMinimumPool || capacity.ConnectorPoolCapacity < concurrencyMinimumPool {
+		return errors.New("authenticated Gateway concurrency capacity cannot execute the frozen width-500 matrix")
+	}
+	return nil
+}
+
+func (adapter *concurrencyAdapter) Close() {
+	if adapter != nil && adapter.backend != nil {
+		adapter.backend.Close()
+	}
+}
+
+func (adapter *concurrencyAdapter) Execute(ctx context.Context, operation experiment.AdapterOperation) experiment.Sample {
+	cell, found := concurrencyfixture.Lookup(operation.WorkloadID, operation.Scale, operation.Mode)
+	if adapter == nil || adapter.backend == nil || operation.ExperimentID != "concurrency" || !found {
+		return invalidSample(operation, "unsupported_source_controlled_concurrency_cell")
+	}
+	sample, err := adapter.backend.Run(ctx, operation, cell)
+	if err != nil {
+		var measured *concurrencyRunError
+		if errors.As(err, &measured) {
+			retained := measured.sample
+			if retained.SchemaVersion == 0 {
+				retained = sample
+			}
+			if retained.SchemaVersion == 0 {
+				retained = invalidSample(operation, measured.code)
+			}
+			if measured.invalid {
+				retained.Status = "invalid"
+				retained.ErrorCode = measured.code
+				retained.Reason = "the requested concurrency width was not observed at the authenticated Gateway service boundary"
+				return retained
+			}
+			retained.Status = "fail"
+			retained.ErrorCode = measured.code
+			retained.Reason = "a real concurrency backend operation was attempted and failed; retained evidence must be audited"
+			return retained
+		}
+		if sample.SchemaVersion != 0 {
+			sample.Status = "fail"
+			sample.ErrorCode = "real_concurrency_measurement_failed"
+			sample.Reason = "a real concurrency backend operation was attempted and failed; retained evidence must be audited"
+			return sample
+		}
+		return failedSample(operation, "real_concurrency_measurement_failed")
+	}
+	if sample.Status != "pass" {
+		return sample
+	}
+	if err := experiment.ValidateConcurrencyEvidence(sample); err != nil {
+		sample.Status = "fail"
+		sample.ErrorCode = "concurrency_evidence_invariant_failed"
+		sample.Reason = "the real concurrency run completed but violated a frozen evidence invariant"
+	}
+	return sample
+}
+
+type concurrencyProbeAPI interface {
+	Capacity(context.Context) (gatewayapp.ConcurrencyProbeCapacity, error)
+	CreateRound(context.Context, string, string, int) (gatewayapp.ConcurrencyProbeSnapshot, error)
+	Snapshot(context.Context, string) (gatewayapp.ConcurrencyProbeSnapshot, error)
+	DeleteRound(context.Context, string) error
+}
+
+type httpConcurrencyProbeClient struct {
+	baseURL string
+	token   string
+	client  *http.Client
+}
+
+func (client *httpConcurrencyProbeClient) Capacity(ctx context.Context) (gatewayapp.ConcurrencyProbeCapacity, error) {
+	var result gatewayapp.ConcurrencyProbeCapacity
+	return result, client.do(ctx, http.MethodGet, "/capacity", nil, &result, http.StatusOK)
+}
+
+func (client *httpConcurrencyProbeClient) CreateRound(ctx context.Context, roundSHA, mode string, width int) (gatewayapp.ConcurrencyProbeSnapshot, error) {
+	var result gatewayapp.ConcurrencyProbeSnapshot
+	err := client.do(ctx, http.MethodPost, "/rounds", map[string]any{
+		"round_sha256": roundSHA, "mode": mode, "expected_width": width,
+	}, &result, http.StatusCreated)
+	return result, err
+}
+
+func (client *httpConcurrencyProbeClient) Snapshot(ctx context.Context, roundSHA string) (gatewayapp.ConcurrencyProbeSnapshot, error) {
+	var result gatewayapp.ConcurrencyProbeSnapshot
+	err := client.do(ctx, http.MethodGet, "/rounds/"+url.PathEscape(roundSHA), nil, &result, http.StatusOK)
+	return result, err
+}
+
+func (client *httpConcurrencyProbeClient) DeleteRound(ctx context.Context, roundSHA string) error {
+	return client.do(ctx, http.MethodDelete, "/rounds/"+url.PathEscape(roundSHA), nil, nil, http.StatusNoContent)
+}
+
+func (client *httpConcurrencyProbeClient) do(ctx context.Context, method, path string, input, output any, wantStatus int) error {
+	if client == nil || client.client == nil || strings.TrimSpace(client.baseURL) == "" || len(client.token) < 32 {
+		return errors.New("concurrency probe client is incomplete")
+	}
+	var body io.Reader
+	if input != nil {
+		encoded, err := json.Marshal(input)
+		if err != nil {
+			return err
+		}
+		body = bytes.NewReader(encoded)
+	}
+	request, err := http.NewRequestWithContext(ctx, method, client.baseURL+path, body)
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Authorization", "Bearer "+client.token)
+	request.Header.Set("Accept", "application/json")
+	if input != nil {
+		request.Header.Set("Content-Type", "application/json")
+	}
+	response, err := client.client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	encoded, err := readExactlyBounded(response.Body, 1<<20)
+	if err != nil {
+		return err
+	}
+	if response.StatusCode != wantStatus {
+		return fmt.Errorf("concurrency probe returned HTTP %d", response.StatusCode)
+	}
+	if output == nil {
+		if len(bytes.TrimSpace(encoded)) != 0 {
+			return errors.New("concurrency probe returned an unexpected response body")
+		}
+		return nil
+	}
+	if err := experiment.StrictJSON(encoded, output); err != nil {
+		return fmt.Errorf("decode strict concurrency probe response: %w", err)
+	}
+	return nil
+}
+
+func concurrencyRoundIdentity(operation experiment.AdapterOperation) concurrencyfixture.RoundIdentity {
+	return concurrencyfixture.RoundIdentity{
+		CampaignID: operation.CampaignID, DeploymentID: operation.DeploymentID, ExperimentID: operation.ExperimentID,
+		CellID: operation.CellID, SampleID: operation.SampleID, Iteration: operation.Iteration,
+		ProcessReplicate: operation.ProcessReplicate, PairID: operation.PairID, RootGroupID: operation.RootGroupID,
+	}
+}
+
+func waitForProbeCompletion(ctx context.Context, probe concurrencyProbeAPI, roundSHA string, width int64) (gatewayapp.ConcurrencyProbeSnapshot, error) {
+	return gatewayapp.WaitForConcurrencyProbeSnapshot(ctx, 10*time.Millisecond,
+		func(loadCtx context.Context) (gatewayapp.ConcurrencyProbeSnapshot, error) {
+			return probe.Snapshot(loadCtx, roundSHA)
+		},
+		func(snapshot gatewayapp.ConcurrencyProbeSnapshot) bool {
+			return snapshot.Released && snapshot.Completed == width && snapshot.Active == 0 && snapshot.Queued == 0 && snapshot.BarrierWaiting == 0
+		})
+}

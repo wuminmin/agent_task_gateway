@@ -1,5 +1,3 @@
-name: taskgate-daily-publication-online
-
 services:
   business-postgres:
     image: postgres:16-bookworm@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55
@@ -24,7 +22,7 @@ services:
     security_opt:
       - no-new-privileges:true
     networks:
-      - online-data
+      - business-data
 
   control-postgres:
     image: postgres:16-bookworm@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55
@@ -40,7 +38,90 @@ services:
     security_opt:
       - no-new-privileges:true
     networks:
-      - online-data
+      - control-plane
+
+  result-object-store:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z@sha256:a1ea29fa28355559ef137d71fc570e508a214ec84ff8083e39bc5428980b015e
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${DAILY_RQ5_MINIO_ROOT_USER:-rq5-minio-root}
+      MINIO_ROOT_PASSWORD: ${DAILY_RQ5_MINIO_ROOT_PASSWORD:-rq5-minio-root-local-only}
+    volumes:
+      - online-result-object-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - result-storage
+
+  result-object-store-init:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z@sha256:aead63c77f9db9107f1696fb08ecb0faeda23729cde94b0f663edf4fe09728e3
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        printf '%s\n%s\n' "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" |
+          mc alias set rq5 http://result-object-store:9000
+        mc mb --ignore-existing --region us-east-1 "rq5/$${RQ5_BUCKET}"
+        mc anonymous set none "rq5/$${RQ5_BUCKET}"
+    environment:
+      MC_CONFIG_DIR: /tmp/.mc
+      MINIO_ROOT_USER: ${DAILY_RQ5_MINIO_ROOT_USER:-rq5-minio-root}
+      MINIO_ROOT_PASSWORD: ${DAILY_RQ5_MINIO_ROOT_PASSWORD:-rq5-minio-root-local-only}
+      RQ5_BUCKET: ${DAILY_RQ5_OBJECT_BUCKET:-taskgate-rq5-results}
+    depends_on:
+      result-object-store:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - result-storage
+
+  phase:
+    profiles: [tools]
+    image: ${DAILY_PUBLICATION_PHASE_IMAGE:-taskgate-daily-publication-phase}
+    build:
+      context: ../..
+      dockerfile: evaluation/daily-publication/Dockerfile
+      target: phase
+    environment:
+      SNAPSHOT_POSTGRES_DSN: postgres://gateway_reader:${DAILY_GATEWAY_DB_PASSWORD:-daily-gateway-local}@business-postgres:5432/taskgate_daily?sslmode=disable
+    depends_on:
+      business-postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    mem_limit: ${DAILY_PUBLICATION_PHASE_MEMORY_LIMIT:-6g}
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - business-data
+
+  preparer:
+    profiles: [tools]
+    image: ${DAILY_PUBLICATION_ONLINE_IMAGE:-taskgate-daily-publication-online-tool}
+    build:
+      context: ../..
+      dockerfile: evaluation/daily-publication-online/Dockerfile
+      target: runtime
+    environment:
+      SNAPSHOT_POSTGRES_DSN: postgres://gateway_reader:${DAILY_GATEWAY_DB_PASSWORD:-daily-gateway-local}@business-postgres:5432/taskgate_daily?sslmode=disable
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    mem_limit: ${DAILY_PUBLICATION_ONLINE_MEMORY_LIMIT:-6g}
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - business-data
 
   online:
     profiles: [tools]
@@ -56,10 +137,30 @@ services:
       SNAPSHOT_POSTGRES_DSN_DAY2: postgres://gateway_reader:${DAILY_GATEWAY_DB_PASSWORD:-daily-gateway-local}@business-postgres:5432/taskgate_daily_day2?sslmode=disable
       SNAPSHOT_POSTGRES_DSN_DAY3: postgres://gateway_reader:${DAILY_GATEWAY_DB_PASSWORD:-daily-gateway-local}@business-postgres:5432/taskgate_daily_day3?sslmode=disable
       CONTROL_POSTGRES_DSN: postgres://postgres:${DAILY_CONTROL_PASSWORD:-daily-control-local}@control-postgres:5432/taskgate_control?sslmode=disable
+      RQ5_RESULT_OBJECT_ENDPOINT: http://result-object-store:9000
+      RQ5_RESULT_OBJECT_BUCKET: ${DAILY_RQ5_OBJECT_BUCKET:-taskgate-rq5-results}
+      RQ5_RESULT_OBJECT_ACCESS_KEY: ${DAILY_RQ5_MINIO_ROOT_USER:-rq5-minio-root}
+      RQ5_RESULT_OBJECT_SECRET_KEY: ${DAILY_RQ5_MINIO_ROOT_PASSWORD:-rq5-minio-root-local-only}
+      RQ5_RECEIPT_KEY_ID: ${DAILY_RQ5_RECEIPT_KEY_ID:-rq5-sequential-ed25519-v1}
+      RQ5_RECEIPT_PRIVATE_KEY: ${DAILY_RQ5_RECEIPT_PRIVATE_KEY:-}
+      RQ5_RESULT_DATA_KEY: ${DAILY_RQ5_RESULT_DATA_KEY:-}
+      RQ5_OA_BASE_URL: http://oa-demo:8092
+      RQ5_OA_SERVICE_TOKEN: ${DAILY_RQ5_OA_SERVICE_TOKEN:-}
+      RQ5_OA_CALLBACK_SECRET: ${DAILY_RQ5_OA_CALLBACK_SECRET:-}
+      RQ5_OA_RECEIPT_KEY_ID: ${DAILY_RQ5_OA_RECEIPT_KEY_ID:-}
+      RQ5_OA_RECEIPT_PUBLIC_KEY: ${DAILY_RQ5_OA_RECEIPT_PUBLIC_KEY:-}
+      RQ5_OA_ALICE_PASSWORD: ${DAILY_RQ5_OA_ALICE_PASSWORD:-}
+      RQ5_OA_BOB_PASSWORD: ${DAILY_RQ5_OA_BOB_PASSWORD:-}
+      RQ5_CALLBACK_LISTEN_ADDR: :8083
+      RQ5_DELIVERY_SIGNING_KEY: ${DAILY_RQ5_DELIVERY_SIGNING_KEY:-}
     depends_on:
       business-postgres:
         condition: service_healthy
       control-postgres:
+        condition: service_healthy
+      result-object-store-init:
+        condition: service_completed_successfully
+      oa-demo:
         condition: service_healthy
     read_only: true
     tmpfs:
@@ -68,7 +169,10 @@ services:
     security_opt:
       - no-new-privileges:true
     networks:
-      - online-data
+      - business-data
+      - control-plane
+      - result-storage
+      - public-edge
 
   installer:
     profiles: [tools]
@@ -79,7 +183,7 @@ services:
       target: runtime
     entrypoint: ["/usr/local/bin/snapshot-sidecar-install"]
     environment:
-      SNAPSHOT_INSTALL_POSTGRES_DSN: postgres://postgres:${DAILY_POSTGRES_PASSWORD:-daily-postgres-local}@business-postgres:5432/taskgate_daily?sslmode=disable
+      SNAPSHOT_INSTALL_POSTGRES_DSN: ${DAILY_RQ5_INSTALL_DSN:?set deployment-bound installer DSN}
     depends_on:
       business-postgres:
         condition: service_healthy
@@ -90,11 +194,53 @@ services:
     security_opt:
       - no-new-privileges:true
     networks:
-      - online-data
+      - business-data
+
+  oa-demo:
+    # The OA process is built into the same source-sealed runtime image as the
+    # online tool, but it has its own binding so the driver can attest and pin
+    # the exact image used by this service independently.
+    image: ${DAILY_RQ5_OA_IMAGE:-taskgate-daily-publication-online-tool}
+    build:
+      context: ../..
+      dockerfile: evaluation/daily-publication-online/Dockerfile
+      target: runtime
+    entrypoint: ["/usr/local/bin/oa-demo"]
+    environment:
+      OA_ADDR: :8092
+      OA_SERVICE_TOKEN: ${DAILY_RQ5_OA_SERVICE_TOKEN:?set deployment-generated OA service token}
+      OA_CALLBACK_SECRET: ${DAILY_RQ5_OA_CALLBACK_SECRET:?set deployment-generated OA callback secret}
+      OA_RECEIPT_KEY_ID: ${DAILY_RQ5_OA_RECEIPT_KEY_ID:?set deployment-generated OA receipt key ID}
+      OA_RECEIPT_PRIVATE_KEY: ${DAILY_RQ5_OA_RECEIPT_PRIVATE_KEY:?set deployment-generated OA receipt key}
+      OA_SESSION_SECRET: ${DAILY_RQ5_OA_SESSION_SECRET:?set deployment-generated OA session secret}
+      OA_ALICE_PASSWORD: ${DAILY_RQ5_OA_ALICE_PASSWORD:?set deployment-generated Alice password}
+      OA_BOB_PASSWORD: ${DAILY_RQ5_OA_BOB_PASSWORD:?set deployment-generated Bob password}
+      GATEWAY_CALLBACK_URL: ${DAILY_RQ5_GATEWAY_CALLBACK_URL:?set unique cycle callback URL}
+      PUBLIC_OA_BASE_URL: http://oa-demo:8092
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/rq5-online-transition", "healthcheck", "-url", "http://127.0.0.1:8092/health/ready"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - public-edge
 
 volumes:
   online-business-data:
+  online-result-object-data:
 
 networks:
-  online-data:
+  business-data:
+    external: true
+    name: ${DAILY_RQ5_BUSINESS_NETWORK:?set isolated RQ5 Business fixture network}
+  control-plane:
+    internal: true
+  result-storage:
+    internal: true
+  public-edge:
     internal: true

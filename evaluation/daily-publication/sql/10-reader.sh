@@ -2,7 +2,8 @@
 set -eu
 
 psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
-  --set=ON_ERROR_STOP=1 --set=reader_password="$DAILY_SNAPSHOT_PASSWORD" <<'SQL'
+  --set=ON_ERROR_STOP=1 <<'SQL'
+\getenv reader_password DAILY_SNAPSHOT_PASSWORD
 CREATE ROLE daily_snapshot_reader
   LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS
   PASSWORD :'reader_password';

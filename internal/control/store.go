@@ -37,7 +37,26 @@ type storeOptions struct {
 	clock                  Clock
 	recover                bool
 	recoveryReceiptBuilder TerminalReceiptBuilder
+	pool                   PoolConfig
 }
+
+// PoolConfig controls the production Control PostgreSQL connection pool.
+// Zero values select the long-standing defaults.  The explicit option exists
+// so a deployment that advertises a measured concurrency width can provision
+// and attest a matching server-side queue/pool boundary instead of silently
+// inheriting the historical ten-connection development limit.
+type PoolConfig struct {
+	MaxOpenConns    int
+	MaxIdleConns    int
+	ConnMaxLifetime time.Duration
+}
+
+const (
+	defaultMaxOpenConns = 10
+	defaultMaxIdleConns = 4
+)
+
+var defaultConnMaxLifetime = 30 * time.Minute
 
 func WithClock(clock Clock) Option {
 	return func(options *storeOptions) {
@@ -58,6 +77,12 @@ func WithoutStartupRecovery() Option {
 // settles budget safely but leaves receipt backfill to a later gateway read.
 func WithRecoveryReceiptBuilder(builder TerminalReceiptBuilder) Option {
 	return func(options *storeOptions) { options.recoveryReceiptBuilder = builder }
+}
+
+// WithPoolConfig configures the Control PostgreSQL pool. Invalid values fail
+// New/Open rather than being coerced to an unbounded database/sql setting.
+func WithPoolConfig(config PoolConfig) Option {
+	return func(options *storeOptions) { options.pool = config }
 }
 
 // Open opens a PostgreSQL control database, applies embedded migrations, and
@@ -90,11 +115,15 @@ func New(ctx context.Context, db *sql.DB, cipher ResultCipher, options ...Option
 			option(&config)
 		}
 	}
+	pool, err := normalizedPoolConfig(config.pool)
+	if err != nil {
+		return nil, opErr("new store", ErrInvalid, err)
+	}
 	store := &Store{db: db, cipher: cipher, clock: config.clock}
 
-	db.SetMaxOpenConns(10)
-	db.SetMaxIdleConns(4)
-	db.SetConnMaxLifetime(30 * time.Minute)
+	db.SetMaxOpenConns(pool.MaxOpenConns)
+	db.SetMaxIdleConns(pool.MaxIdleConns)
+	db.SetConnMaxLifetime(pool.ConnMaxLifetime)
 	if err := db.PingContext(ctx); err != nil {
 		return nil, opErr("ping", ErrConflict, err)
 	}
@@ -111,6 +140,16 @@ func New(ctx context.Context, db *sql.DB, cipher ResultCipher, options ...Option
 
 func (s *Store) DB() *sql.DB { return s.db }
 
+// DBStats returns database/sql's non-sensitive pool telemetry. It is used by
+// authenticated operational/evaluation endpoints to bind offered load to the
+// actual service pool, never to expose a DSN or query text.
+func (s *Store) DBStats() sql.DBStats {
+	if s == nil || s.db == nil {
+		return sql.DBStats{}
+	}
+	return s.db.Stats()
+}
+
 func (s *Store) Close() error {
 	if s == nil || s.db == nil || s.closed.Swap(true) {
 		return nil
@@ -126,6 +165,27 @@ func (s *Store) checkOpen(op string) error {
 }
 
 func (s *Store) now() time.Time { return dbTime(s.clock.Now()) }
+
+func normalizedPoolConfig(config PoolConfig) (PoolConfig, error) {
+	if config.MaxOpenConns == 0 {
+		config.MaxOpenConns = defaultMaxOpenConns
+	}
+	if config.MaxIdleConns == 0 {
+		config.MaxIdleConns = defaultMaxIdleConns
+		if config.MaxIdleConns > config.MaxOpenConns {
+			config.MaxIdleConns = config.MaxOpenConns
+		}
+	}
+	if config.ConnMaxLifetime == 0 {
+		config.ConnMaxLifetime = defaultConnMaxLifetime
+	}
+	if config.MaxOpenConns < 1 || config.MaxOpenConns > 4096 ||
+		config.MaxIdleConns < 0 || config.MaxIdleConns > config.MaxOpenConns ||
+		config.ConnMaxLifetime < time.Second {
+		return PoolConfig{}, errors.New("invalid Control PostgreSQL pool configuration")
+	}
+	return config, nil
+}
 
 func dbTime(value time.Time) time.Time { return value.UTC().Truncate(time.Microsecond) }
 

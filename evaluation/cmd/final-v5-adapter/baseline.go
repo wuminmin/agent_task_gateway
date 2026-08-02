@@ -24,6 +24,7 @@ import (
 
 	"taskbound.local/agent-data-gateway/evaluation/internal/experiment"
 	"taskbound.local/agent-data-gateway/evaluation/internal/releasedartifact"
+	"taskbound.local/agent-data-gateway/internal/control"
 	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 	"taskbound.local/agent-data-gateway/internal/resultartifact"
 )
@@ -62,18 +63,19 @@ type pairState struct {
 }
 
 type queryResponse struct {
-	ResultID         string                      `json:"result_id"`
-	QueryID          string                      `json:"query_id"`
-	TaskID           string                      `json:"task_id"`
-	ArtifactStatus   string                      `json:"artifact_status"`
-	RowCount         int64                       `json:"row_count"`
-	ColumnCount      int                         `json:"column_count"`
-	PipelineMS       map[string]float64          `json:"pipeline_ms"`
-	DiagnosticMS     map[string]float64          `json:"diagnostic_ms"`
-	PlanDigest       string                      `json:"plan_digest"`
-	SemanticReplay   bool                        `json:"semantic_replay"`
-	IdempotentReplay bool                        `json:"idempotent_replay"`
-	Receipt          queryreceipt.QueryReceiptV1 `json:"receipt"`
+	ResultID         string                          `json:"result_id"`
+	QueryID          string                          `json:"query_id"`
+	TaskID           string                          `json:"task_id"`
+	ArtifactStatus   string                          `json:"artifact_status"`
+	RowCount         int64                           `json:"row_count"`
+	ColumnCount      int                             `json:"column_count"`
+	PipelineMS       map[string]float64              `json:"pipeline_ms"`
+	DiagnosticMS     map[string]float64              `json:"diagnostic_ms"`
+	PlanDigest       string                          `json:"plan_digest"`
+	SemanticReplay   bool                            `json:"semantic_replay"`
+	IdempotentReplay bool                            `json:"idempotent_replay"`
+	OutcomeRadix     control.OutcomeRadixTelemetryV5 `json:"outcome_radix"`
+	Receipt          queryreceipt.QueryReceiptV1     `json:"receipt"`
 	Exposure         struct {
 		QueryID                   string `json:"query_id"`
 		RootTaskID                string `json:"root_task_id"`
@@ -531,7 +533,10 @@ func (adapter *realAdapter) completeTaskgateSample(ctx context.Context, operatio
 	}
 	sample.RootEpochBefore, sample.RootEpochAfter = before.Epoch, after.Epoch
 	sample.RootSetSHA256Before, sample.RootSetSHA256After = rootSetDigest(before), rootSetDigest(after)
-	sample.RootTaskIDHash = saltedTaskHash(operation, state.taskID)
+	// A delegated task has its own response TaskID but the V8 exposure receipt
+	// is bound to the shared authorization root. Always derive the published
+	// root identity from the independently verified artifact binding.
+	sample.RootTaskIDHash = saltedTaskHash(operation, expectedBinding.RootTaskID)
 	sample.ParquetBytes, sample.EncryptedObjectBytes = intent.ParquetSize, intent.ObjectSize
 	sample.ArtifactSHA256, sample.ObjectSHA256 = intent.ParquetSHA256, intent.ObjectSHA256
 	sample.ReceiptVersion, sample.ReceiptSHA256, sample.ArtifactIntentSHA256 = response.Receipt.Version, receiptDigest(response.Receipt), intent.IntentSHA256
@@ -873,7 +878,10 @@ func (adapter *realAdapter) businessSQLSnapshot(ctx context.Context) (experiment
     AND s.userid=(SELECT oid FROM pg_roles WHERE rolname='gateway_reader')
 )
 SELECT COALESCE(sum(calls) FILTER (
-         WHERE position('reporting.expense_detail' in normalized_query)>0
+         WHERE (position('reporting.expense_detail' in normalized_query)>0
+                OR position('reporting.final_v5_attack_expense_detail' in normalized_query)>0
+                OR position('reporting.final_v5_rls_unlimited_expense_detail' in normalized_query)>0
+                OR position('reporting.final_v5_rls_bounded_expense_detail' in normalized_query)>0)
            AND position('taskgate_ordinal.expense_detail_v1' in normalized_query)=0),0)::bigint,
        COALESCE(sum(calls) FILTER (
          WHERE position('taskgate_ordinal.expense_detail_v1' in normalized_query)>0),0)::bigint,
@@ -892,31 +900,8 @@ GROUP BY info.stats_reset,info.dealloc`
 }
 
 func (adapter *realAdapter) provisionTask(ctx context.Context, operation experiment.AdapterOperation) (string, error) {
-	var created struct {
-		TaskID string `json:"task_id"`
-		OAURL  string `json:"oa_url"`
-	}
-	arguments := map[string]any{"objective": "Final V5 real baseline pilot " + operation.PairID, "data_products": []string{"expense_detail"}, "columns": map[string][]string{"expense_detail": {"receipt_no", "department"}}, "scopes": map[string]any{"department": []string{"销售部"}}}
-	if err := adapter.alice.call(ctx, "request_data_task", arguments, &created); err != nil {
-		return "", err
-	}
-	if created.TaskID == "" || created.OAURL == "" {
-		return "", errors.New("task request omitted identity")
-	}
-	draftID := pathTail(created.OAURL)
-	if err := oaAction(ctx, adapter.aliceOA, adapter.oaBase, draftID, "submit", ""); err != nil {
-		return "", err
-	}
-	if err := adapter.waitTask(ctx, created.TaskID, "AWAITING_APPROVAL"); err != nil {
-		return "", err
-	}
-	if err := oaAction(ctx, adapter.bobOA, adapter.oaBase, draftID, "decision", "approved"); err != nil {
-		return "", err
-	}
-	if err := adapter.waitTask(ctx, created.TaskID, "ACTIVE"); err != nil {
-		return "", err
-	}
-	return created.TaskID, nil
+	return adapter.provisionExpenseTask(ctx, "Final V5 real baseline pilot "+operation.PairID,
+		[]string{"receipt_no", "department"})
 }
 
 func (adapter *realAdapter) waitTask(ctx context.Context, taskID, expected string) error {
@@ -1501,14 +1486,18 @@ WHERE q.id=$1 AND q.task_id=$2 AND a.result_id=$3`,
 }
 
 func baseSample(operation experiment.AdapterOperation, system string) experiment.Sample {
-	return experiment.Sample{SchemaVersion: 1, CampaignID: operation.CampaignID, DeploymentID: operation.DeploymentID, ExperimentID: operation.ExperimentID, CellID: operation.CellID, SampleID: operation.SampleID, Iteration: operation.Iteration, ProcessReplicate: operation.ProcessReplicate, OrderPosition: operation.OrderPosition, RandomSeed: operation.RandomSeed, PairID: operation.PairID, PairedSystemOrder: operation.PairedSystemOrder, RootGroupID: operation.RootGroupID, System: system, Mode: operation.Mode, WorkloadID: operation.WorkloadID, Scale: operation.Scale, PipelineMS: zeroPipeline(), DiagnosticMS: map[string]float64{}, Status: "invalid", PublicationEligible: operation.CampaignClass == "publication"}
+	return experiment.Sample{SchemaVersion: 1, CampaignID: operation.CampaignID, DeploymentID: operation.DeploymentID, ExperimentID: operation.ExperimentID, CellID: operation.CellID, SampleID: operation.SampleID, Iteration: operation.Iteration, ProcessReplicate: operation.ProcessReplicate, Warmup: operation.Warmup, OrderPosition: operation.OrderPosition, RandomSeed: operation.RandomSeed, PairID: operation.PairID, PairedSystemOrder: operation.PairedSystemOrder, RootGroupID: operation.RootGroupID, System: system, Mode: operation.Mode, WorkloadID: operation.WorkloadID, Scale: operation.Scale, PipelineMS: zeroPipeline(), DiagnosticMS: map[string]float64{}, Status: "invalid", PublicationEligible: operation.CampaignClass == "publication", KernelOnly: operation.KernelOnly}
 }
 
 func invalidSample(operation experiment.AdapterOperation, code string) experiment.Sample {
-	sample := baseSample(operation, "taskgate")
-	if operation.Mode == "direct" {
-		sample.System = "postgresql"
+	system := "taskgate"
+	switch operation.Mode {
+	case "direct", "rls":
+		system = "postgresql"
+	case "provsql":
+		system = "provsql"
 	}
+	sample := baseSample(operation, system)
 	sample.ErrorCode = code
 	sample.Reason = "source-controlled adapter failed closed; inspect service logs outside the evidence channel"
 	return sample

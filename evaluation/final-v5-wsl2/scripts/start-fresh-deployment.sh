@@ -6,8 +6,15 @@ set -euo pipefail
 : "${TASKGATE_CAMPAIGN_ID:?TASKGATE_CAMPAIGN_ID is required}"
 : "${TASKGATE_DEPLOYMENT_ID:?TASKGATE_DEPLOYMENT_ID is required}"
 
-[[ "$COMPOSE_PROJECT_NAME" =~ ^taskgate-final-v5-[a-z0-9][a-z0-9-]*-deployment-0[1-3]$ ]] || {
+[[ "$COMPOSE_PROJECT_NAME" =~ ^taskgate-final-v5-deployment-0[1-3]-[0-9a-f]{20}$ ]] || {
   echo "refusing unsafe Compose project name" >&2; exit 2;
+}
+expected_compose_project="$(
+  bash evaluation/final-v5-wsl2/scripts/deployment-project-name.sh \
+    "$TASKGATE_CAMPAIGN_ID" "$TASKGATE_DEPLOYMENT_ID"
+)"
+[[ "$COMPOSE_PROJECT_NAME" == "$expected_compose_project" ]] || {
+  echo "Compose project does not match the complete campaign/deployment identity" >&2; exit 2;
 }
 [[ "$TASKGATE_FRESH_PROOF_OUTPUT" != / ]] || {
   echo "unsafe proof output" >&2; exit 2;

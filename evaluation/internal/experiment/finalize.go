@@ -7,14 +7,19 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
-	"taskbound.local/agent-data-gateway/evaluation/finalv5oracle"
+	"taskbound.local/agent-data-gateway/evaluation/internal/compilerfixture"
+	"taskbound.local/agent-data-gateway/evaluation/internal/provsqlfixture"
+	"taskbound.local/agent-data-gateway/internal/queryplan"
 	"taskbound.local/agent-data-gateway/internal/queryreceipt"
+	"taskbound.local/agent-data-gateway/internal/viewcompiler"
 )
 
 type DeploymentDistribution struct {
@@ -33,6 +38,14 @@ type Distribution struct {
 	DeploymentP50Median float64                           `json:"deployment_p50_median,omitempty"`
 	DeploymentP50Min    float64                           `json:"deployment_p50_min,omitempty"`
 	DeploymentP50Max    float64                           `json:"deployment_p50_max,omitempty"`
+}
+
+type provSQLSequenceObservation struct {
+	order, iteration                        int
+	nonce                                   int64
+	gatesBefore, gatesAfter                 int64
+	artifactBytesBefore, artifactBytesAfter int64
+	representation                          string
 }
 type PairedRatio struct {
 	DeploymentID        string   `json:"deployment_id"`
@@ -117,6 +130,14 @@ func FinalizeRun(runDir string) (Summary, error) {
 		return Summary{}, err
 	}
 	summary := Summary{SchemaVersion: 1, CampaignID: config.CampaignID, CampaignClass: config.CampaignClass, SubmissionCommit: config.SubmissionCommit, Status: "incomplete", Cells: map[string]Distribution{}}
+	expectedRQ5BuildManifestSHA256 := ""
+	if config.ExperimentID == "rq5" {
+		expectedRQ5BuildManifestSHA256, err = loadRQ5DriverBuildManifestSHA256(runDir)
+		if err != nil {
+			summary.Status = "fail"
+			summary.Reasons = append(summary.Reasons, "RQ5 sealed driver build manifest is absent, non-regular, or unreadable")
+		}
+	}
 	byCell := map[string][]float64{}
 	byDeployment := map[string]map[string][]float64{}
 	type pairObservation struct {
@@ -131,6 +152,8 @@ func FinalizeRun(runDir string) (Summary, error) {
 	factSetPairs := map[string]map[string]map[string]bool{}
 	attackDirectionPairs := map[string]map[string]bool{}
 	rlsStepResults := map[string]map[string]string{}
+	provSQLSequences := map[string][]provSQLSequenceObservation{}
+	provSQLPairs := map[string]map[string]*ProvSQLVerificationEvidence{}
 	deployments := map[string]bool{}
 	seenFreshRoots := map[string]bool{}
 	rootAnchors := map[string]string{}
@@ -163,6 +186,22 @@ func FinalizeRun(runDir string) (Summary, error) {
 				resultPairs[resultKey] = map[string]string{}
 			}
 			resultPairs[resultKey][sample.System+"/"+sample.Mode] = sample.ResultSHA256
+		}
+		if sample.Status == "pass" && sample.ExperimentID == "provsql" && sample.ProvSQLVerification != nil {
+			if provSQLPairs[resultKey] == nil {
+				provSQLPairs[resultKey] = map[string]*ProvSQLVerificationEvidence{}
+			}
+			provSQLPairs[resultKey][sample.Mode] = sample.ProvSQLVerification
+			if sample.Mode == "provsql" {
+				sequenceKey := sample.DeploymentID + "\x00" + strconv.Itoa(sample.ProcessReplicate) + "\x00provsql"
+				evidence := sample.ProvSQLVerification
+				provSQLSequences[sequenceKey] = append(provSQLSequences[sequenceKey], provSQLSequenceObservation{
+					order: sample.OrderPosition, iteration: sample.Iteration, nonce: evidence.Nonce,
+					gatesBefore: evidence.GatesBefore, gatesAfter: evidence.GatesAfter,
+					artifactBytesBefore: evidence.ArtifactBytesBefore, artifactBytesAfter: evidence.ArtifactBytesAfter,
+					representation: evidence.RepresentationSHA256,
+				})
+			}
 		}
 		if sample.Status == "pass" && !sample.Rejected {
 			for dimension, digest := range map[string]string{"release": sample.ReleaseSetSHA256, "dependency": sample.DependencySetSHA256, "outcome": sample.OutcomeSetSHA256} {
@@ -269,6 +308,14 @@ func FinalizeRun(runDir string) (Summary, error) {
 				summary.Reasons = append(summary.Reasons, "paired exact FactSet mismatch")
 			}
 		}
+	}
+	if provSQLReasons := validateProvSQLCrossEvidence(provSQLPairs, provSQLSequences); len(provSQLReasons) != 0 {
+		summary.Status = "fail"
+		summary.Reasons = append(summary.Reasons, provSQLReasons...)
+	}
+	if rq5Reasons := validateRQ5RuntimeIdentityConsistency(samples, expectedRQ5BuildManifestSHA256); len(rq5Reasons) != 0 {
+		summary.Status = "fail"
+		summary.Reasons = append(summary.Reasons, rq5Reasons...)
 	}
 	for _, evidence := range attackDirectionPairs {
 		if len(evidence) > 1 {
@@ -408,6 +455,67 @@ func FinalizeRun(runDir string) (Summary, error) {
 		return summary, err
 	}
 	return summary, nil
+}
+
+func validateProvSQLCrossEvidence(pairs map[string]map[string]*ProvSQLVerificationEvidence,
+	sequences map[string][]provSQLSequenceObservation) []string {
+	var reasons []string
+	for _, modes := range pairs {
+		if len(modes) != 3 || modes["direct"] == nil || modes["provsql"] == nil || modes["taskgate"] == nil {
+			reasons = append(reasons, "ProvSQL three-arm evidence pair is incomplete")
+			continue
+		}
+		anchor := modes["direct"]
+		for _, mode := range []string{"provsql", "taskgate"} {
+			one := modes[mode]
+			if one.Nonce != anchor.Nonce || one.NonceBindingSHA256 != anchor.NonceBindingSHA256 ||
+				one.BindingSHA256 != anchor.BindingSHA256 || one.DatasetSHA256 != anchor.DatasetSHA256 ||
+				one.LogicalSQLSHA256 != anchor.LogicalSQLSHA256 || one.ExpectedResultSHA256 != anchor.ExpectedResultSHA256 ||
+				one.ObservedResultSHA256 != anchor.ObservedResultSHA256 ||
+				one.ExpectedDependencyFacts != anchor.ExpectedDependencyFacts ||
+				one.ExpectedDependencySHA256 != anchor.ExpectedDependencySHA256 {
+				reasons = append(reasons, "ProvSQL three-arm nonce/query/result/FactSet binding mismatch")
+			}
+		}
+		if modes["direct"].PostgreSQLVersion != modes["provsql"].PostgreSQLVersion ||
+			modes["direct"].PostgreSQLVersionNum != modes["provsql"].PostgreSQLVersionNum ||
+			modes["direct"].UUIDOID != modes["provsql"].UUIDOID {
+			reasons = append(reasons, "direct and ProvSQL PostgreSQL builds differ")
+		}
+	}
+	for _, observations := range sequences {
+		observations = append([]provSQLSequenceObservation(nil), observations...)
+		sort.Slice(observations, func(i, j int) bool { return observations[i].order < observations[j].order })
+		seenNonces, seenRepresentations, seenOrders := map[int64]bool{}, map[string]bool{}, map[int]bool{}
+		artifactBytesGrew := false
+		for index, observation := range observations {
+			if seenOrders[observation.order] || seenNonces[observation.nonce] ||
+				!validSHA256(observation.representation) || seenRepresentations[observation.representation] ||
+				observation.gatesAfter <= observation.gatesBefore || observation.artifactBytesBefore <= 0 ||
+				observation.artifactBytesAfter < observation.artifactBytesBefore {
+				reasons = append(reasons, "ProvSQL execution-order nonce/representation/growth evidence is not unique and strict")
+			}
+			artifactBytesGrew = artifactBytesGrew || observation.artifactBytesAfter > observation.artifactBytesBefore
+			if index > 0 {
+				previous := observations[index-1]
+				if observation.gatesBefore < previous.gatesAfter || observation.gatesAfter <= previous.gatesAfter ||
+					observation.artifactBytesBefore < previous.artifactBytesAfter || observation.artifactBytesAfter < previous.artifactBytesAfter {
+					reasons = append(reasons, "ProvSQL gates or representation bytes regress in actual execution order")
+				}
+			}
+			seenOrders[observation.order] = true
+			seenNonces[observation.nonce] = true
+			seenRepresentations[observation.representation] = true
+		}
+		// ProvSQL grows mmap files in allocation chunks, so an individual real
+		// query may add gates while file length remains flat. Require monotone
+		// bytes per operation and at least one observed allocation growth over
+		// the complete retained sequence instead of inventing per-query growth.
+		if len(observations) > 0 && !artifactBytesGrew {
+			reasons = append(reasons, "ProvSQL representation bytes never grew over the retained sequence")
+		}
+	}
+	return uniqueStrings(reasons)
 }
 
 func directPairModes(config Config, workloadID string) []string {
@@ -550,7 +658,7 @@ func validateExperimentEvidence(sample Sample) ([]string, bool) {
 		if sample.ExperimentID == "rls" {
 			expectedSteps := 100
 			if sample.WorkloadID == "policy-denied-control" {
-				expectedSteps = 1
+				expectedSteps = 2
 			}
 			if sample.Mode == "bounded" {
 				if len(sample.Trace) < 1 || len(sample.Trace) > expectedSteps || !sample.Trace[len(sample.Trace)-1].Rejected {
@@ -579,19 +687,12 @@ func validateExperimentEvidence(sample Sample) ([]string, bool) {
 			fail("ProvSQL independent verification failed: " + err.Error())
 		}
 	case "scale":
-		if sample.WorkloadID == "dependency-e2e" {
-			expected, ok := overlapFromScale(sample.Scale, "overlap-")
-			if !ok || sample.ActualDependencyFacts <= 0 || (sample.ActualDependencyFacts-sample.ChargedDependencyFacts)*100 != sample.ActualDependencyFacts*int64(expected) {
-				fail("dependency overlap label does not match actual/charged facts")
-			}
-		} else if sample.WorkloadID == "outcome-merkle" {
-			requireCounters("blocks_loaded", "leaves_loaded", "hashes_loaded", "blocks_reused", "leaves_changed", "novelty", "storage_bytes", "peak_heap_bytes", "replay_changed_objects")
-			requireDiagnostics("outcome_radix_load", "outcome_radix_difference_union", "outcome_radix_persist")
+		if err := validateScaleVerification(sample); err != nil {
+			fail("scale independent verification failed: " + err.Error())
 		}
 	case "artifact":
-		requireDiagnostics("parquet_encode_encrypt", "local_staging_sync", "staging_object_put", "receipt_signing", "canonical_object_stat", "canonical_object_copy", "canonical_object_hash_verify", "mark_available")
-		if sample.ParquetBytes <= 0 || sample.EncryptedObjectBytes <= 0 || sample.GatewayMemoryPeakBytes <= 0 {
-			fail("artifact sample lacks byte or memory measurements")
+		if err := validateArtifactVerification(sample); err != nil {
+			fail("artifact independent verification failed: " + err.Error())
 		}
 	case "compiler":
 		requireDiagnostics("total", "recursive_expansion", "parse_validation", "compile_semantic", "plan_materialization", "digest_generation")
@@ -600,19 +701,9 @@ func validateExperimentEvidence(sample Sample) ([]string, bool) {
 			fail("compiler independent verification failed: " + err.Error())
 		}
 	case "concurrency":
-		if sample.Mode == "natural_contention" {
-			requireCounters("cas_attempts", "cas_conflicts", "cas_retries")
-			if sample.Counters["cas_attempts"] < 1 || sample.Counters["cas_retries"] != sample.Counters["cas_conflicts"] {
-				fail("natural contention CAS counters are incoherent")
-			}
-		}
-		if sample.Scale == "500" && (sample.Counters["barrier_clients"] != 500 || sample.Counters["offered_concurrency_observed"] != 1) {
-			fail("width 500 passed without offered concurrency evidence")
-		}
-		if sample.Mode != "serial" {
-			if err := validateConcurrencyVerification(sample); err != nil {
-				fail("concurrency independent verification failed: " + err.Error())
-			}
+		requireCounters("cas_attempts", "cas_conflicts", "cas_retries", "barrier_clients", "service_clients_observed", "offered_concurrency_observed", "forced_queue_waiters")
+		if err := validateConcurrencyVerification(sample); err != nil {
+			fail("concurrency independent verification failed: " + err.Error())
 		}
 	case "rq5":
 		if err := validateRQ5Verification(sample); err != nil {
@@ -623,143 +714,457 @@ func validateExperimentEvidence(sample Sample) ([]string, bool) {
 }
 
 func validateRLSVerification(sample Sample, expectedSteps int) error {
-	evidence := sample.RLSVerification
-	if evidence == nil || !evidence.RelRowSecurity || evidence.BaselineRole == "" || evidence.TableOwnerRole == "" ||
-		evidence.BaselineRoleIsOwner || evidence.BaselineRoleBypassRLS || evidence.BaselineRole == evidence.TableOwnerRole ||
-		!json.Valid(evidence.PoliciesJSON) || sha256Hex(evidence.PoliciesJSON) != evidence.PoliciesSHA256 {
-		return errors.New("PostgreSQL RLS role/policy evidence is absent or unsafe")
-	}
-	if len(evidence.OracleTrace) != expectedSteps {
-		return errors.New("independent oracle trace length differs from preregistration")
-	}
-	recomputed, err := finalv5oracle.Evaluate(evidence.OracleTrace)
-	if err != nil || recomputed != evidence.OracleResult {
-		return errors.New("independent 70% oracle result does not recompute")
-	}
-	if sample.Mode == "bounded" {
-		if !evidence.OracleComputedBefore || evidence.StopReason != "EXPOSURE_BUDGET_EXHAUSTED" {
-			return errors.New("bounded arm was not stopped by a precomputed exposure budget")
-		}
-	} else if sample.Mode == "unlimited" {
-		if sample.ReleaseSetSHA256 != recomputed.Release.SetSHA256 || sample.DependencySetSHA256 != recomputed.Dependency.SetSHA256 || sample.OutcomeSetSHA256 != recomputed.Outcome.SetSHA256 {
-			return errors.New("unlimited TaskGate union differs from independent oracle")
-		}
-	}
-	return nil
+	return validateRLSVerificationStrict(sample, expectedSteps)
 }
 
 func validateAttackVerification(sample Sample) error {
-	evidence := sample.AttackVerification
-	if evidence == nil {
-		return errors.New("raw attack verification evidence is absent")
+	return validateAttackVerificationStrict(sample)
+}
+
+// ValidateAttackEvidence is the adapter-side fail-closed gate. It is exported
+// only inside evaluation/internal so the source-controlled adapter can retain
+// an observed invariant violation as status=fail instead of emitting a pass
+// record that the campaign finalizer would reject later.
+func ValidateAttackEvidence(sample Sample) error {
+	if sample.ExperimentID != "attack" || sample.Status != "pass" {
+		return errors.New("attack evidence validation requires a passing attack sample")
 	}
-	switch {
-	case strings.HasPrefix(sample.WorkloadID, "A-") || strings.HasPrefix(sample.WorkloadID, "D-"):
-		complete, err := finalv5oracle.Evaluate([]finalv5oracle.Observation{evidence.CompleteObservation})
-		if err != nil {
-			return err
-		}
-		split, err := finalv5oracle.Evaluate(evidence.SplitObservations)
-		if err != nil || complete.Release != split.Release || complete.Dependency != split.Dependency || complete.Outcome != split.Outcome {
-			return errors.New("complete and split/page exact unions differ")
-		}
-	case strings.HasPrefix(sample.WorkloadID, "B-"):
-		if len(evidence.NormalFormSHA256) < 2 {
-			return errors.New("equivalent-SQL variants are absent")
-		}
-		for _, digest := range evidence.NormalFormSHA256 {
-			if !validSHA256(digest) || digest != evidence.NormalFormSHA256[0] {
-				return errors.New("equivalent-SQL normal forms differ")
-			}
-		}
-	case strings.HasPrefix(sample.WorkloadID, "C-"):
-		if evidence.QueryRecordsSameID != evidence.QueryRecordsBefore || evidence.SettlementsSameID != evidence.SettlementsBefore ||
-			evidence.QueryRecordsDifferentID != evidence.QueryRecordsSameID+1 || evidence.SettlementsDifferentID != evidence.SettlementsSameID+1 {
-			return errors.New("request-ID replay settlement counts are inconsistent")
-		}
-	case strings.HasPrefix(sample.WorkloadID, "E-"):
-		if len(evidence.ExpectedThresholds) == 0 || !equalInt64s(evidence.ExpectedThresholds, evidence.ObservedThresholds) || evidence.OutcomeCeiling <= 0 || evidence.ObservedOutcome > evidence.OutcomeCeiling {
-			return errors.New("threshold sequence or Outcome ceiling differs from preregistration")
-		}
-	default:
-		return errors.New("unknown preregistered attack workload")
+	if err := validateAttackVerification(sample); err != nil {
+		return err
+	}
+	failed := false
+	validateTrace(sample, func(string) { failed = true })
+	if failed {
+		return errors.New("attack trace transition evidence is invalid")
 	}
 	return nil
 }
 
 func validateProvSQLVerification(sample Sample) error {
+	return validateProvSQLVerificationForWarmup(sample, false)
+}
+
+func validateProvSQLVerificationForWarmup(sample Sample, warmup bool) error {
 	evidence := sample.ProvSQLVerification
-	if evidence == nil || evidence.Version == "" || !fullSHA.MatchString(evidence.Commit) || evidence.AggTokenOID == 0 || evidence.GateType == "" ||
-		len(evidence.Nonces) < 2 || len(evidence.Nonces) != len(evidence.GateCardinalities) || len(evidence.Nonces) != len(evidence.RepresentationSHA256) {
-		return errors.New("ProvSQL version/type/gate sequence evidence is incomplete")
+	if evidence == nil {
+		return errors.New("ProvSQL verification evidence is absent")
 	}
-	for _, digest := range []string{evidence.SQLSHA256, evidence.DatasetSHA256, evidence.CacheConditionSHA256, evidence.ExecutionOrderSHA256} {
+	spec, err := provsqlfixture.ParseScale(sample.Scale)
+	if err != nil || sample.WorkloadID != "nonce-join-group" || sample.ProcessReplicate != 1 {
+		return errors.New("ProvSQL sample is outside the frozen matrix")
+	}
+	nonce, err := provsqlfixture.Nonce(sample.Scale, sample.ProcessReplicate, sample.Iteration, warmup)
+	if err != nil {
+		return err
+	}
+	nonceBinding, _ := provsqlfixture.NonceBindingSHA256(sample.Scale, sample.ProcessReplicate, sample.Iteration, warmup)
+	logical, _ := provsqlfixture.LogicalSQL(sample.Scale, nonce)
+	expectedRows, err := provsqlfixture.ExpectedResultRows(sample.Scale)
+	if err != nil {
+		return err
+	}
+	expectedResult, err := CanonicalResultHash(expectedRows)
+	if err != nil {
+		return err
+	}
+	physical := provsqlfixture.PhysicalSQLSHA256()
+	if sample.Mode == "taskgate" {
+		physical = sha256Hex([]byte(logical))
+	}
+	if evidence.Version != "taskgate-final-v5-provsql-verification-v1" ||
+		evidence.FixtureVersion != provsqlfixture.Version || evidence.FixtureSQLSHA256 != provsqlfixture.FixtureSQLSHA256() ||
+		evidence.EnableSQLSHA256 != provsqlfixture.EnableSQLSHA256() || evidence.DatasetSHA256 != provsqlfixture.ExpectedDatasetSHA256() ||
+		evidence.DatasetProbeSQLSHA256 != provsqlfixture.DatasetProbeSQLSHA256() ||
+		evidence.BusinessDatasetProbeSQLSHA256 != provsqlfixture.BusinessDatasetProbeSQLSHA256() ||
+		evidence.DatasetRows != provsqlfixture.DatasetRowCount ||
+		evidence.ScaleLimit != spec.Limit || evidence.Nonce != nonce || evidence.Warmup != warmup || evidence.NonceBindingSHA256 != nonceBinding ||
+		evidence.PhysicalSQLSHA256 != physical || evidence.LogicalSQLSHA256 != sha256Hex([]byte(logical)) ||
+		evidence.ExpectedRows != provsqlfixture.ExpectedRows || evidence.ExpectedColumns != provsqlfixture.ExpectedColumns ||
+		evidence.ExpectedResultSHA256 != expectedResult || evidence.ObservedResultSHA256 != expectedResult ||
+		sample.RowCount != provsqlfixture.ExpectedRows || sample.ColumnCount != provsqlfixture.ExpectedColumns || sample.ResultSHA256 != expectedResult ||
+		evidence.ExpectedDependencyFacts <= 0 || !validSHA256(evidence.ExpectedDependencySHA256) ||
+		!validSHA256(evidence.TypedDrainSHA256) || evidence.FailureStage != "" {
+		return errors.New("ProvSQL fixture/query/result/drain binding differs from the frozen oracle")
+	}
+	for _, digest := range []string{evidence.BindingSHA256, evidence.CacheConditionSHA256, evidence.ExecutionOrderSHA256} {
 		if !validSHA256(digest) {
 			return errors.New("ProvSQL paired execution binding is invalid")
 		}
 	}
-	nonces, representations := map[string]bool{}, map[string]bool{}
-	for index := range evidence.Nonces {
-		if evidence.Nonces[index] == "" || nonces[evidence.Nonces[index]] || !validSHA256(evidence.RepresentationSHA256[index]) || representations[evidence.RepresentationSHA256[index]] ||
-			(index > 0 && evidence.GateCardinalities[index] <= evidence.GateCardinalities[index-1]) {
-			return errors.New("ProvSQL nonce/gate growth/representation sequence is not unique")
+	if evidence.CacheConditionSHA256 != sha256Hex([]byte(provsqlfixture.Version+"\x00warm-after-complete-typed-dataset-fingerprint")) ||
+		evidence.ExecutionOrderSHA256 != sha256Hex([]byte(strings.Join([]string{provsqlfixture.Version, "execution-order-v2", sample.PairID,
+			sample.PairedSystemOrder, strconv.Itoa(sample.OrderPosition), sample.Mode, strconv.FormatInt(nonce, 10)}, "\x00"))) ||
+		sample.PhysicalSQLSHA256 != evidence.PhysicalSQLSHA256 || sample.LogicalSQLSHA256 != evidence.LogicalSQLSHA256 {
+		return errors.New("ProvSQL cache/order/SQL evidence does not recompute")
+	}
+	switch sample.Mode {
+	case "direct":
+		if sample.System != "postgresql" || evidence.Boundary != "direct_complete_typed_drain" ||
+			evidence.TypedDrainFields != provsqlfixture.ExpectedRows*4 ||
+			!equalUint32s(evidence.FieldOIDs, []uint32{25, 1700, 20, 20}) ||
+			!validExternalProvSQLSession(evidence) || evidence.ProvSQLVersion != "" || evidence.ProvSQLCommit != "" ||
+			evidence.SharedPreload || evidence.AggTokenTextAsUUID || evidence.AggTokenOID != 0 ||
+			evidence.CarrierGateType != "" || evidence.RowGateType != "" || evidence.RootTypesVerified || evidence.AggregateTokens != 0 ||
+			evidence.RowTokens != 0 || evidence.GatesBefore != 0 || evidence.GatesAfter != 0 ||
+			evidence.ArtifactBytesBefore != 0 || evidence.ArtifactBytesAfter != 0 || evidence.RepresentationSHA256 != "" {
+			return errors.New("direct PostgreSQL arm contains invalid ProvSQL/system evidence")
 		}
-		nonces[evidence.Nonces[index]], representations[evidence.RepresentationSHA256[index]] = true, true
+	case "provsql":
+		if sample.System != "provsql" || evidence.Boundary != "provsql_complete_typed_drain" ||
+			evidence.TypedDrainFields != provsqlfixture.ExpectedRows*5 ||
+			!validExternalProvSQLSession(evidence) || evidence.ProvSQLVersion != provsqlfixture.ProvSQLVersion ||
+			evidence.ProvSQLCommit != provsqlfixture.ProvSQLCommit || !evidence.SharedPreload || !evidence.AggTokenTextAsUUID ||
+			evidence.AggTokenOID == 0 || evidence.UUIDOID == 0 ||
+			!equalUint32s(evidence.FieldOIDs, []uint32{25, evidence.AggTokenOID, evidence.AggTokenOID, evidence.AggTokenOID, evidence.UUIDOID}) ||
+			evidence.CarrierGateType != "agg" || evidence.RowGateType != "delta" || !evidence.RootTypesVerified ||
+			evidence.AggregateTokens != provsqlfixture.ExpectedRows*provsqlfixture.CarrierColumns ||
+			evidence.RowTokens != provsqlfixture.ExpectedRows || evidence.GatesAfter <= evidence.GatesBefore ||
+			evidence.ArtifactBytesBefore <= 0 || evidence.ArtifactBytesAfter < evidence.ArtifactBytesBefore ||
+			!validSHA256(evidence.RepresentationSHA256) {
+			return errors.New("ProvSQL arm lacks pinned agg_token/gate/representation evidence")
+		}
+	case "taskgate":
+		if sample.System != "taskgate" || evidence.Boundary != "taskgate_released_parquet_v8" ||
+			evidence.TypedDrainFields != provsqlfixture.ExpectedRows*4 || len(evidence.FieldOIDs) != 0 || evidence.RootTypesVerified ||
+			evidence.TypedDrainSHA256 != sample.ResultSHA256 || evidence.PostgreSQLVersion != "" || evidence.PostgreSQLVersionNum != "" ||
+			evidence.StatementTimeoutMS != 0 || evidence.MaxParallelWorkers != 0 || evidence.ClientMinMessages != "" ||
+			evidence.LogMinMessages != "" || evidence.ProvSQLVersion != "" || evidence.ProvSQLCommit != "" || evidence.SharedPreload ||
+			evidence.AggTokenTextAsUUID || evidence.AggTokenOID != 0 || evidence.UUIDOID != 0 ||
+			evidence.CarrierGateType != "" || evidence.RowGateType != "" || evidence.AggregateTokens != 0 || evidence.RowTokens != 0 ||
+			evidence.GatesBefore != 0 || evidence.GatesAfter != 0 || evidence.ArtifactBytesBefore != 0 ||
+			evidence.ArtifactBytesAfter != 0 || evidence.RepresentationSHA256 != "" ||
+			sample.ActualDependencyFacts != evidence.ExpectedDependencyFacts || sample.DependencySetSHA256 != evidence.ExpectedDependencySHA256 ||
+			sample.GenerationBoundaryMS <= 0 || sample.FullTaskGateMS != sample.ClientFullDrainMS {
+			return errors.New("TaskGate arm lacks exact V8/Parquet/FactSet boundary evidence")
+		}
+	default:
+		return errors.New("unknown ProvSQL paired mode")
 	}
 	return nil
 }
+
+func validExternalProvSQLSession(evidence *ProvSQLVerificationEvidence) bool {
+	return evidence.PostgreSQLVersion != "" && evidence.PostgreSQLVersionNum != "" &&
+		evidence.StatementTimeoutMS == provsqlfixture.StatementTimeout && evidence.MaxParallelWorkers == 0 &&
+		evidence.ClientMinMessages == "error" && evidence.LogMinMessages == "error" && evidence.UUIDOID != 0
+}
+
+func equalUint32s(left, right []uint32) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}
+
+// ValidateProvSQLEvidence is the adapter-side fail-closed gate for a measured
+// operation. Cross-sample nonce/representation/growth checks are intentionally
+// performed by FinalizeRun, which sees the complete retained sequence.
+func ValidateProvSQLEvidence(sample Sample) error {
+	if sample.ExperimentID != "provsql" || sample.Status != "pass" {
+		return errors.New("ProvSQL evidence validation requires a passing measured sample")
+	}
+	return validateProvSQLVerification(sample)
+}
+
+// ValidateProvSQLWarmupEvidence applies the same independent fixture, query,
+// typed-drain, circuit, V8, and FactSet checks as the measured-sample gate,
+// while recomputing the disjoint source-controlled warmup nonce domain. The
+// runner still discards passing warmups after protocol validation; failed or
+// invalid warmups are retained and fail the run instead of disappearing.
+func ValidateProvSQLWarmupEvidence(sample Sample) error {
+	if sample.ExperimentID != "provsql" || sample.Status != "pass" ||
+		sample.ProvSQLVerification == nil || !sample.ProvSQLVerification.Warmup {
+		return errors.New("ProvSQL warmup evidence validation requires a passing warmup sample")
+	}
+	return validateProvSQLVerificationForWarmup(sample, true)
+}
+
+type expectedCompilerEvidence struct {
+	fixture             compilerfixture.Case
+	datasetSHA256       string
+	resultSHA256        string
+	physicalSQLSHA256   string
+	logicalSQLSHA256    string
+	artifacts           map[string]CompilerArtifactEvidence
+	errorCode           string
+	errorRelationSHA256 string
+}
+
+var compilerEvidenceCache sync.Map
 
 func validateCompilerVerification(sample Sample) error {
 	evidence := sample.CompilerVerification
 	if evidence == nil {
 		return errors.New("compiler equivalence evidence is absent")
 	}
+	expected, err := expectedCompilerVerification(sample.WorkloadID, sample.Scale, sample.Mode)
+	if err != nil {
+		return err
+	}
+	if evidence.FixtureVersion != compilerfixture.Version ||
+		evidence.RegistrySHA256 != compilerfixture.RegistrySHA256(expected.fixture.Registry) ||
+		evidence.ProductsSHA256 != compilerfixture.ProductsSHA256(expected.fixture.Products) ||
+		evidence.FixtureSQLSHA256 != compilerfixture.FixtureSQLSHA256 || evidence.DatasetSHA256 != expected.datasetSHA256 {
+		return errors.New("compiler fixture/registry/product binding differs from the frozen source")
+	}
+	if evidence.ExpectedDepth != expected.fixture.ExpectedDepth || evidence.ObservedDepth != expected.fixture.ExpectedDepth ||
+		evidence.ExpectedSources != expected.fixture.ExpectedSources || evidence.ObservedSources != expected.fixture.ExpectedSources {
+		return errors.New("compiler scale label does not match the frozen registry complexity")
+	}
+	if sample.Counters["alloc_bytes"] <= 0 || sample.Counters["alloc_objects"] <= 0 {
+		return errors.New("compiler allocation run is absent")
+	}
+	if err := validateCompilerTiming(sample); err != nil {
+		return err
+	}
 	if sample.Mode == "structured_rejection" {
-		if sample.Scale == "depth-17" && (evidence.StructuredErrorCode != "VIEW_DEPTH_LIMIT" || evidence.ObservedDepth != 17) {
-			return errors.New("depth-17 did not return the preregistered structured error")
+		if evidence.StructuredErrorCode != expected.errorCode || evidence.AllocationErrorCode != expected.errorCode ||
+			evidence.StructuredErrorRelationSHA256 != expected.errorRelationSHA256 || sample.ErrorCode != expected.errorCode {
+			return errors.New("compiler limit control did not return the exact production error in both isolated runs")
 		}
-		if sample.Scale == "sources-17" && (evidence.StructuredErrorCode != "VIEW_SOURCE_LIMIT" || evidence.ObservedSources != 17) {
-			return errors.New("sources-17 did not return the preregistered structured error")
+		if !sample.Rejected || !sample.RejectedNoResult || !sample.RejectedNoArtifact || !sample.RejectedNoSuccessfulAudit ||
+			sample.ResultSHA256 != "" || sample.ArtifactSHA256 != "" || sample.ObjectSHA256 != "" || sample.QueryPlanSHA256 != "" ||
+			sample.PhysicalSQLSHA256 != "" || sample.LogicalSQLSHA256 != "" || evidence.DirectResultSHA256 != "" ||
+			evidence.NestedResultSHA256 != "" || len(evidence.Artifacts) != 0 {
+			return errors.New("compiler limit control returned result or artifact evidence")
 		}
 		return nil
 	}
-	if !validSHA256(evidence.NestedResultSHA256) || evidence.NestedResultSHA256 != evidence.DirectResultSHA256 || len(evidence.CanonicalPlanSHA256) < 3 {
-		return errors.New("nested/direct result equivalence is absent")
+	if sample.Mode != "compile" || sample.Rejected || evidence.StructuredErrorCode != "" ||
+		evidence.StructuredErrorRelationSHA256 != "" || evidence.AllocationErrorCode != "" {
+		return errors.New("supported compiler cell is mislabeled as a rejection")
 	}
-	for _, digest := range evidence.CanonicalPlanSHA256 {
-		if !validSHA256(digest) || digest != evidence.CanonicalPlanSHA256[0] {
-			return errors.New("alias/join-order/parenthesis canonical plans differ")
+	if evidence.DirectResultSHA256 != expected.resultSHA256 || evidence.NestedResultSHA256 != expected.resultSHA256 ||
+		sample.ResultSHA256 != expected.resultSHA256 || sample.RowCount != int64(len(expected.fixture.ExpectedRows)) ||
+		sample.ColumnCount != len(expected.fixture.ExpectedRows[0]) {
+		return errors.New("live PostgreSQL direct/nested result oracle differs from the frozen expected multiset")
+	}
+	if sample.PhysicalSQLSHA256 != expected.physicalSQLSHA256 || sample.LogicalSQLSHA256 != expected.logicalSQLSHA256 {
+		return errors.New("compiler PostgreSQL SQL binding differs from the independently generated oracle")
+	}
+	if len(evidence.Artifacts) != len(expected.artifacts) {
+		return errors.New("compiler artifact matrix is incomplete")
+	}
+	actual := make(map[string]CompilerArtifactEvidence, len(evidence.Artifacts))
+	for _, artifact := range evidence.Artifacts {
+		if _, duplicate := actual[artifact.Name]; duplicate {
+			return errors.New("compiler artifact matrix contains a duplicate variant")
+		}
+		want, present := expected.artifacts[artifact.Name]
+		if !present || !equalCompilerArtifactEvidence(artifact, want) {
+			return fmt.Errorf("compiler artifact %q differs from independent recompilation", artifact.Name)
+		}
+		actual[artifact.Name] = artifact
+	}
+	measured := actual["measured"]
+	if sample.ArtifactSHA256 != measured.ArtifactSHA256 || sample.QueryPlanSHA256 != measured.CanonicalPlanSHA256 ||
+		actual["repeat"].ArtifactSHA256 != measured.ArtifactSHA256 || actual["allocation"].ArtifactSHA256 != measured.ArtifactSHA256 {
+		return errors.New("measured/repeat/allocation artifacts are not byte-identical")
+	}
+	direct := actual["direct"]
+	for name, artifact := range actual {
+		if name == "repeat" || name == "allocation" {
+			continue
+		}
+		if artifact.CanonicalPlanSHA256 != direct.CanonicalPlanSHA256 || artifact.InterfaceSHA256 != direct.InterfaceSHA256 ||
+			artifact.OutputsSHA256 != direct.OutputsSHA256 || artifact.BaseProductsSHA256 != direct.BaseProductsSHA256 {
+			return errors.New("alias/join-order/parenthesis/nesting semantic artifacts differ")
+		}
+	}
+	return nil
+}
+
+// ValidateCompilerEvidence is the adapter-side fail-closed gate. The exact
+// same independent recompilation and live-oracle invariants are applied again
+// by FinalizeRun to the retained sample stream.
+func ValidateCompilerEvidence(sample Sample) error {
+	if sample.ExperimentID != "compiler" || sample.Status != "pass" {
+		return errors.New("compiler evidence validation requires a passing compiler sample")
+	}
+	return validateCompilerVerification(sample)
+}
+
+func expectedCompilerVerification(workloadID, scale, mode string) (*expectedCompilerEvidence, error) {
+	key := workloadID + "\x00" + scale + "\x00" + mode
+	if cached, present := compilerEvidenceCache.Load(key); present {
+		return cached.(*expectedCompilerEvidence), nil
+	}
+	one, err := compilerfixture.Build(workloadID, scale, mode)
+	if err != nil {
+		return nil, fmt.Errorf("compiler sample is outside the frozen matrix: %w", err)
+	}
+	datasetSHA256, err := CanonicalResultHash(compilerfixture.DatasetRows())
+	if err != nil {
+		return nil, err
+	}
+	expected := &expectedCompilerEvidence{fixture: one, datasetSHA256: datasetSHA256, artifacts: map[string]CompilerArtifactEvidence{}}
+	compiler, err := one.NewCompiler()
+	if err != nil {
+		return nil, err
+	}
+	if mode == "structured_rejection" {
+		_, compileErr := compiler.Compile(one.MeasuredRoot)
+		var structured *viewcompiler.Error
+		if !errors.As(compileErr, &structured) || structured == nil {
+			return nil, errors.New("frozen compiler control no longer returns a structured error")
+		}
+		expected.errorCode = string(structured.Code)
+		expected.errorRelationSHA256 = compilerfixture.SHA256String(compilerfixture.Version + "\x00relation\x00" + structured.Relation.String())
+		compilerEvidenceCache.Store(key, expected)
+		return expected, nil
+	}
+	for name, root := range one.SemanticRoots {
+		artifact, compileErr := compiler.Compile(root)
+		if compileErr != nil {
+			return nil, fmt.Errorf("recompile frozen compiler variant %s: %w", name, compileErr)
+		}
+		expected.artifacts[name] = compilerArtifactFromDescriptor(name, compilerfixture.DescribeArtifact(artifact, one.Registry))
+	}
+	measured := expected.artifacts["measured"]
+	expected.artifacts["repeat"] = renamedCompilerArtifact(measured, "repeat")
+	expected.artifacts["allocation"] = renamedCompilerArtifact(measured, "allocation")
+	resultSHA256, err := CanonicalResultHash(one.ExpectedRows)
+	if err != nil {
+		return nil, err
+	}
+	nestedArtifact, compileErr := compiler.Compile(one.SemanticRoots["nested"])
+	if compileErr != nil {
+		return nil, compileErr
+	}
+	logical, err := queryplan.CompileRelational(nestedArtifact.Plan, one.Products)
+	if err != nil {
+		return nil, err
+	}
+	expected.resultSHA256 = resultSHA256
+	expected.physicalSQLSHA256 = compilerfixture.SHA256String(one.DirectSQL)
+	expected.logicalSQLSHA256 = compilerfixture.SHA256String(logical.VisibleSQL)
+	compilerEvidenceCache.Store(key, expected)
+	return expected, nil
+}
+
+func compilerArtifactFromDescriptor(name string, value compilerfixture.ArtifactDescriptor) CompilerArtifactEvidence {
+	return CompilerArtifactEvidence{
+		Name: name, ArtifactSHA256: value.ArtifactSHA256, DefinitionSHA256: value.DefinitionSHA256,
+		DependencySHA256: value.DependencySHA256, InterfaceSHA256: value.InterfaceSHA256,
+		CanonicalPlanSHA256: value.CanonicalPlanSHA256, BindingSHA256: value.BindingSHA256,
+		OutputsSHA256: value.OutputsSHA256, BaseProductsSHA256: value.BaseProductsSHA256,
+		ReachableRelations: value.ReachableRelations, DependencyEdges: value.DependencyEdges,
+		ExpandedSources: value.ExpandedSources, DefinitionBytes: value.DefinitionBytes,
+		CanonicalPlanBytes: value.CanonicalPlanBytes,
+	}
+}
+
+func renamedCompilerArtifact(value CompilerArtifactEvidence, name string) CompilerArtifactEvidence {
+	value.Name = name
+	return value
+}
+
+func equalCompilerArtifactEvidence(left, right CompilerArtifactEvidence) bool {
+	return left == right && validSHA256(left.ArtifactSHA256) && validSHA256(left.DefinitionSHA256) &&
+		validSHA256(left.DependencySHA256) && validSHA256(left.InterfaceSHA256) && validSHA256(left.CanonicalPlanSHA256) &&
+		validSHA256(left.BindingSHA256) && validSHA256(left.OutputsSHA256) && validSHA256(left.BaseProductsSHA256) &&
+		left.ReachableRelations > 0 && left.ExpandedSources > 0 && left.DefinitionBytes > 0 && left.CanonicalPlanBytes > 0
+}
+
+func validateCompilerTiming(sample Sample) error {
+	total, present := sample.DiagnosticMS["total"]
+	if !present || total <= 0 || math.IsNaN(total) || math.IsInf(total, 0) {
+		return errors.New("compiler total timing is absent or non-finite")
+	}
+	var stages float64
+	for _, name := range []string{"recursive_expansion", "parse_validation", "compile_semantic", "plan_materialization", "digest_generation"} {
+		value, ok := sample.DiagnosticMS[name]
+		if !ok || value < 0 || math.IsNaN(value) || math.IsInf(value, 0) {
+			return errors.New("compiler stage timing is absent or non-finite")
+		}
+		stages += value
+	}
+	if stages > total+0.001 || math.Abs(sample.PipelineMS["execute_and_derive"]-total) > 0.001 ||
+		math.Abs(sample.PipelineMS["server_total"]-total) > 0.001 || math.Abs(sample.ClientAvailableMS-total) > 0.001 ||
+		math.Abs(sample.ClientFullDrainMS-total) > 0.001 {
+		return errors.New("compiler timing boundary is internally inconsistent")
+	}
+	for _, name := range []string{"prepare", "artifact_stage", "control_settlement", "artifact_publication", "response_finalize"} {
+		if sample.PipelineMS[name] != 0 {
+			return errors.New("compiler-only timing incorrectly includes a Gateway pipeline phase")
 		}
 	}
 	return nil
 }
 
 func validateConcurrencyVerification(sample Sample) error {
-	evidence := sample.ConcurrencyVerification
-	width, err := strconv.ParseInt(sample.Scale, 10, 64)
-	if evidence == nil || err != nil || width < 2 || evidence.BudgetLimit <= 0 || evidence.UsageBefore != evidence.BudgetLimit-1 ||
-		evidence.Accepted != 1 || evidence.Rejected != width-1 || evidence.UsageAfter != evidence.BudgetLimit || evidence.ChargedWinners != 1 {
-		return errors.New("B-1 boundary did not yield exactly one charged winner")
-	}
-	if len(evidence.FinalRootFacts) == 0 || canonicalStringSetSHA256(evidence.FinalRootFacts) != evidence.FinalRootSetSHA256 {
-		return errors.New("final root set digest does not recompute")
-	}
-	return nil
+	return validateConcurrencyVerificationStrict(sample)
 }
 
 func validateRQ5Verification(sample Sample) error {
-	evidence := sample.RQ5Verification
-	if evidence == nil {
-		return errors.New("raw publication transition evidence is absent")
+	return validateRQ5VerificationStrict(sample)
+}
+
+type rq5RuntimeIdentity struct {
+	BuildManifestSHA256 string
+	PhaseImageID        string
+	OnlineImageID       string
+	OAImageID           string
+	PhaseBinarySHA256   string
+	OnlineBinarySHA256  string
+	OABinarySHA256      string
+	PhaseBinaryMTime    int64
+	OnlineBinaryMTime   int64
+	OABinaryMTime       int64
+}
+
+const (
+	rq5RuntimeIdentityChangedReason = "RQ5 build manifest or runtime image identity changed across cycles/deployments"
+	rq5BuildManifestMismatchReason  = "RQ5 sample build-manifest digest differs from sealed driver build manifest"
+)
+
+func loadRQ5DriverBuildManifestSHA256(runDir string) (string, error) {
+	path := filepath.Join(runDir, "rq5-driver-build.json")
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return "", errors.New("RQ5 driver build manifest must be a regular non-symlink file")
 	}
-	for _, digest := range []string{evidence.OldPublicationSHA256, evidence.NewPublicationSHA256, evidence.OldTaskRouteSHA256, evidence.NewTaskRouteSHA256, evidence.OldLedgerBeforeSHA256, evidence.OldLedgerAfterSHA256, evidence.CrossReplaySourceSHA256, evidence.CrossReplayTargetSHA256, evidence.ChildPublicationSHA256, evidence.RootPublicationSHA256} {
-		if !validSHA256(digest) {
-			return errors.New("publication transition contains an invalid digest")
+	digest, err := FileSHA256(path)
+	if err != nil || !validSHA256(digest) {
+		return "", errors.New("RQ5 driver build manifest cannot be hashed")
+	}
+	return digest, nil
+}
+
+func validateRQ5RuntimeIdentityConsistency(samples []Sample, expectedBuildManifestSHA256 string) []string {
+	var locked *rq5RuntimeIdentity
+	for _, sample := range samples {
+		if sample.ExperimentID != "rq5" || sample.Status != "pass" || sample.RQ5Verification == nil {
+			continue
 		}
-	}
-	if evidence.OldPublicationSHA256 == evidence.NewPublicationSHA256 || evidence.OldTaskRouteSHA256 != evidence.OldPublicationSHA256 || evidence.NewTaskRouteSHA256 != evidence.NewPublicationSHA256 ||
-		evidence.OldLedgerBeforeSHA256 != evidence.OldLedgerAfterSHA256 || evidence.CrossReplaySourceSHA256 != evidence.OldPublicationSHA256 || evidence.CrossReplayTargetSHA256 != evidence.NewPublicationSHA256 || evidence.CrossPublicationReplayHit || evidence.ChildPublicationSHA256 != evidence.RootPublicationSHA256 {
-		return errors.New("publication transition invariants do not hold")
+		identity := rq5RuntimeIdentity{
+			BuildManifestSHA256: sample.RQ5Verification.BuildManifestSHA256,
+			PhaseImageID:        sample.RQ5Verification.PhaseImageID,
+			OnlineImageID:       sample.RQ5Verification.OnlineImageID,
+			OAImageID:           sample.RQ5Verification.OAImageID,
+			PhaseBinarySHA256:   sample.RQ5Verification.PhaseBinarySHA256,
+			OnlineBinarySHA256:  sample.RQ5Verification.OnlineBinarySHA256,
+			OABinarySHA256:      sample.RQ5Verification.OABinarySHA256,
+			PhaseBinaryMTime:    sample.RQ5Verification.PhaseBinaryMTimeUnix,
+			OnlineBinaryMTime:   sample.RQ5Verification.OnlineBinaryMTimeUnix,
+			OABinaryMTime:       sample.RQ5Verification.OABinaryMTimeUnix,
+		}
+		if expectedBuildManifestSHA256 != "" && identity.BuildManifestSHA256 != expectedBuildManifestSHA256 {
+			return []string{rq5BuildManifestMismatchReason}
+		}
+		if locked == nil {
+			copy := identity
+			locked = &copy
+			continue
+		}
+		if identity != *locked {
+			return []string{rq5RuntimeIdentityChangedReason}
+		}
 	}
 	return nil
 }
@@ -832,8 +1237,18 @@ func validateBaselineVerification(sample Sample) error {
 		evidence.Receipt.ResultHash != intent.ParquetSHA256 || evidence.Receipt.RowCount != intent.RowCount {
 		return errors.New("artifact/result evidence differs from signed receipt")
 	}
-	if sha256Hex([]byte(sample.CampaignID+"\x00"+sample.DeploymentID+"\x00"+evidence.Receipt.TaskID)) != sample.RootTaskIDHash {
-		return errors.New("salted root identity differs from receipt task")
+	if err := validateBaselineRootIdentity(sample, evidence.Receipt); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateBaselineRootIdentity(sample Sample, receipt queryreceipt.QueryReceiptV1) error {
+	if receipt.Exposure == nil || strings.TrimSpace(receipt.Exposure.RootTaskID) == "" {
+		return errors.New("signed exposure root identity is absent")
+	}
+	if sha256Hex([]byte(sample.CampaignID+"\x00"+sample.DeploymentID+"\x00"+receipt.Exposure.RootTaskID)) != sample.RootTaskIDHash {
+		return errors.New("salted root identity differs from signed exposure root")
 	}
 	return nil
 }

@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"taskbound.local/agent-data-gateway/internal/domain"
@@ -57,11 +58,45 @@ func (c *Catalog) ApprovalRouteFor(sensitivity domain.Sensitivity) (ApprovalRout
 		return ApprovalRoute{}, false
 	}
 	for _, route := range c.ApprovalRoutes {
-		if route.Sensitivity == sensitivity {
+		if route.Sensitivity == sensitivity && len(route.Products) == 0 {
 			return route, true
 		}
 	}
 	return ApprovalRoute{}, false
+}
+
+// ApprovalRouteForProducts resolves an exact product-scoped route before the
+// ordinary sensitivity fallback. If any requested product is named by a
+// scoped route, only an exact set match is allowed; subset/superset mixtures
+// cannot inherit a broader sensitivity route.
+func (c *Catalog) ApprovalRouteForProducts(sensitivity domain.Sensitivity, names []string) (ApprovalRoute, bool) {
+	if c == nil {
+		return ApprovalRoute{}, false
+	}
+	normalized := append([]string(nil), names...)
+	for index := range normalized {
+		normalized[index] = strings.TrimSpace(normalized[index])
+	}
+	sort.Strings(normalized)
+	scopedProductRequested := false
+	for _, route := range c.ApprovalRoutes {
+		if len(route.Products) == 0 {
+			continue
+		}
+		if sameCatalogStrings(route.Products, normalized) {
+			if route.Sensitivity != sensitivity {
+				return ApprovalRoute{}, false
+			}
+			return cloneApprovalRoute(route), true
+		}
+		if catalogStringsIntersect(route.Products, normalized) {
+			scopedProductRequested = true
+		}
+	}
+	if scopedProductRequested {
+		return ApprovalRoute{}, false
+	}
+	return c.ApprovalRouteFor(sensitivity)
 }
 
 func (c *Catalog) LookupBudgetProfile(name string) (BudgetProfile, bool) {
@@ -118,7 +153,11 @@ func (c *Catalog) ResolveTaskPolicy(names []string) (TaskPolicy, error) {
 	if err != nil {
 		return TaskPolicy{}, err
 	}
-	route, found := c.ApprovalRouteFor(sensitivity)
+	resolvedNames := make([]string, 0, len(products))
+	for _, product := range products {
+		resolvedNames = append(resolvedNames, product.Name)
+	}
+	route, found := c.ApprovalRouteForProducts(sensitivity, resolvedNames)
 	if !found {
 		return TaskPolicy{}, fmt.Errorf("%w: no route for sensitivity", ErrInvalidApprovalRoute)
 	}
@@ -147,4 +186,32 @@ func cloneProduct(product Product) Product {
 		product.ViewContract = &contract
 	}
 	return product
+}
+
+func cloneApprovalRoute(route ApprovalRoute) ApprovalRoute {
+	route.Products = append([]string(nil), route.Products...)
+	return route
+}
+
+func sameCatalogStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func catalogStringsIntersect(left, right []string) bool {
+	for _, one := range left {
+		for _, two := range right {
+			if one == two {
+				return true
+			}
+		}
+	}
+	return false
 }
