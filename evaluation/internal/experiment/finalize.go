@@ -98,6 +98,8 @@ type FreshDeploymentProof struct {
 	VolumeInspectSHA256          string              `json:"volume_inspect_sha256"`
 	ControlPGSystemIdentifier    string              `json:"control_pg_system_identifier"`
 	BusinessPGSystemIdentifier   string              `json:"business_pg_system_identifier"`
+	DeploymentVolumeIDSHA256     string              `json:"deployment_volume_id_sha256"`
+	CatalogSHA256                string              `json:"catalog_sha256"`
 	ControlInitialCounts         map[string]int64    `json:"control_initial_counts"`
 	DatasetFingerprintSHA256     string              `json:"dataset_fingerprint_sha256"`
 	MinIOInitialObjectCount      int64               `json:"minio_initial_object_count"`
@@ -1866,6 +1868,9 @@ func validateDeploymentEvidence(runDir string, config Config) []string {
 	seenControlSystems := map[string]bool{}
 	seenBusinessSystems := map[string]bool{}
 	seenComposeProjects := map[string]bool{}
+	seenDeploymentVolumeIDs := map[string]bool{}
+	frozenDatasetSHA256 := ""
+	frozenCatalogSHA256 := ""
 	windowsEnvironmentSHA256 := ""
 	windowsHostPath := filepath.Join(runDir, "environment", "windows-host.json")
 	windowsHostDigest, windowsHostErr := FileSHA256(windowsHostPath)
@@ -1903,13 +1908,14 @@ func validateDeploymentEvidence(runDir string, config Config) []string {
 		}
 		reasons = append(reasons, proofReasons...)
 		if proof.SchemaVersion == 1 {
-			if seenVolumes[proof.VolumeSetSHA256] || seenControlSystems[proof.ControlPGSystemIdentifier] || seenBusinessSystems[proof.BusinessPGSystemIdentifier] || seenComposeProjects[proof.ComposeProjectName] {
+			if seenVolumes[proof.VolumeSetSHA256] || seenControlSystems[proof.ControlPGSystemIdentifier] || seenBusinessSystems[proof.BusinessPGSystemIdentifier] || seenComposeProjects[proof.ComposeProjectName] || seenDeploymentVolumeIDs[proof.DeploymentVolumeIDSHA256] {
 				reasons = append(reasons, "fresh-deployment identity reused: "+deployment.DeploymentID)
 			}
 			seenVolumes[proof.VolumeSetSHA256] = true
 			seenControlSystems[proof.ControlPGSystemIdentifier] = true
 			seenBusinessSystems[proof.BusinessPGSystemIdentifier] = true
 			seenComposeProjects[proof.ComposeProjectName] = true
+			seenDeploymentVolumeIDs[proof.DeploymentVolumeIDSHA256] = true
 		}
 		for suffix, expected := range map[string]string{"vmstat-before.txt": deployment.VMStatBeforeSHA256, "vmstat-after.txt": deployment.VMStatAfterSHA256} {
 			actual, hashErr := FileSHA256(filepath.Join(runDir, "environment", deployment.DeploymentID+"."+suffix))
@@ -1931,8 +1937,24 @@ func validateDeploymentEvidence(runDir string, config Config) []string {
 		}
 		dataset, datasetOK := environment.Datasets["dataset_sha256"].(string)
 		catalog, catalogOK := environment.Datasets["catalog_sha256"].(string)
-		if !datasetOK || !catalogOK || !validSHA256(dataset) || !validSHA256(catalog) {
+		volumeID, volumeOK := environment.Datasets["deployment_volume_id_sha256"].(string)
+		if !datasetOK || !catalogOK || !volumeOK || !validEnvironmentDatasetBindings(environment.Datasets) {
 			reasons = append(reasons, "dataset/catalog digest acceptance failed: "+deployment.DeploymentID)
+			continue
+		}
+		if dataset != proof.DatasetFingerprintSHA256 || catalog != proof.CatalogSHA256 || volumeID != proof.DeploymentVolumeIDSHA256 {
+			reasons = append(reasons, "environment/fresh-deployment binding mismatch: "+deployment.DeploymentID)
+			continue
+		}
+		if frozenDatasetSHA256 == "" {
+			frozenDatasetSHA256 = dataset
+		} else if dataset != frozenDatasetSHA256 {
+			reasons = append(reasons, "dataset digest changed across deployments")
+		}
+		if frozenCatalogSHA256 == "" {
+			frozenCatalogSHA256 = catalog
+		} else if catalog != frozenCatalogSHA256 {
+			reasons = append(reasons, "Catalog digest changed across deployments")
 		}
 	}
 	for number := 1; number <= config.Deployments; number++ {
@@ -1952,7 +1974,9 @@ func readFreshDeploymentProof(path, runDir string, config Config, deploymentID s
 	var reasons []string
 	if proof.SchemaVersion != 1 || proof.CampaignID != config.CampaignID || proof.DeploymentID != deploymentID || proof.CapturedAt == "" || proof.ComposeProjectName == "" ||
 		!validSHA256(proof.ComposeConfigSHA256) || !validSHA256(proof.VolumeSetSHA256) || !validSHA256(proof.VolumeInspectSHA256) ||
-		proof.ControlPGSystemIdentifier == "" || proof.BusinessPGSystemIdentifier == "" || !validSHA256(proof.DatasetFingerprintSHA256) ||
+		!validPostgresSystemIdentifier(proof.ControlPGSystemIdentifier) || !validPostgresSystemIdentifier(proof.BusinessPGSystemIdentifier) || proof.ControlPGSystemIdentifier == proof.BusinessPGSystemIdentifier ||
+		!validSHA256(proof.DeploymentVolumeIDSHA256) || proof.DeploymentVolumeIDSHA256 != deriveDeploymentVolumeID(proof) ||
+		!validSHA256(proof.CatalogSHA256) || !validSHA256(proof.DatasetFingerprintSHA256) ||
 		proof.MinIOInitialObjectCount != 0 || !validSHA256(proof.SnapshotArtifactVolumeSHA256) || len(proof.Volumes) < 5 {
 		reasons = append(reasons, "fresh-deployment proof acceptance failed: "+deploymentID)
 	}
@@ -2009,6 +2033,10 @@ func readFreshDeploymentProof(path, runDir string, config Config, deploymentID s
 	datasetPath := filepath.Join(runDir, "environment", deploymentID+".fresh.dataset-fingerprint.txt")
 	if digest, err := FileSHA256(datasetPath); err != nil || digest != proof.DatasetFingerprintSHA256 {
 		reasons = append(reasons, "dataset fingerprint bytes do not match proof: "+deploymentID)
+	}
+	catalogPath := filepath.Join(runDir, "environment", deploymentID+".fresh.catalog.yaml")
+	if digest, err := FileSHA256(catalogPath); err != nil || digest != proof.CatalogSHA256 {
+		reasons = append(reasons, "live Catalog bytes do not match proof: "+deploymentID)
 	}
 	return proof, reasons
 }

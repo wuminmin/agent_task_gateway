@@ -68,6 +68,7 @@ type PublicationCampaignSummary struct {
 func FinalizePublicationCampaign(campaignRoot string) (PublicationCampaignSummary, error) {
 	var campaign PublicationCampaignSummary
 	adapterDigest := ""
+	environmentDigests := make(map[string]string)
 	for _, name := range requiredPublicationExperiments {
 		runDir := filepath.Join(campaignRoot, name)
 		config, _, err := LoadConfig(filepath.Join(runDir, "config.json"), name)
@@ -96,6 +97,17 @@ func FinalizePublicationCampaign(campaignRoot string) (PublicationCampaignSummar
 		}
 		if err := verifyEvidenceManifest(runDir, manifest); err != nil {
 			return campaign, fmt.Errorf("%s sealed evidence: %w", name, err)
+		}
+		for deployment := 1; deployment <= config.Deployments; deployment++ {
+			deploymentID := fmt.Sprintf("deployment-%02d", deployment)
+			relative := filepath.ToSlash(filepath.Join("environment", deploymentID+".json"))
+			digest, ok := evidenceManifestFileSHA256(manifest, relative)
+			if !ok {
+				return campaign, fmt.Errorf("%s sealed evidence omits %s", name, relative)
+			}
+			if err := bindCampaignEnvironmentDigest(environmentDigests, deploymentID, digest); err != nil {
+				return campaign, err
+			}
 		}
 		oneAdapter, err := verifySourceBuildBinding(
 			filepath.Join(runDir, "adapter.sha256"), filepath.Join(runDir, "adapter-build.json"),
@@ -155,6 +167,32 @@ func FinalizePublicationCampaign(campaignRoot string) (PublicationCampaignSummar
 		return campaign, err
 	}
 	return campaign, nil
+}
+
+func bindCampaignEnvironmentDigest(digests map[string]string, deploymentID, digest string) error {
+	if digests == nil || deploymentID == "" || !validSHA256(digest) {
+		return errors.New("campaign environment digest binding is invalid")
+	}
+	if expected := digests[deploymentID]; expected == "" {
+		digests[deploymentID] = digest
+	} else if digest != expected {
+		return fmt.Errorf("deployment environment changed across experiments: %s", deploymentID)
+	}
+	return nil
+}
+
+func evidenceManifestFileSHA256(manifest EvidenceManifest, path string) (string, bool) {
+	digest := ""
+	for _, file := range manifest.Files {
+		if file.Path != path {
+			continue
+		}
+		if digest != "" || !validSHA256(file.SHA256) {
+			return "", false
+		}
+		digest = file.SHA256
+	}
+	return digest, digest != ""
 }
 
 func verifySourceBuildBinding(digestPath, manifestPath, binaryPath, submissionCommit,

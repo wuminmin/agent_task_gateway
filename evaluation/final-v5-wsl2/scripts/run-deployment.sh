@@ -102,6 +102,7 @@ fresh_proof_path="$campaign_root/environment/$TASKGATE_DEPLOYMENT_ID.fresh.json"
 fresh_volume_inspect_path="$campaign_root/environment/$TASKGATE_DEPLOYMENT_ID.fresh.volume-inspect.json"
 fresh_compose_config_path="$campaign_root/environment/$TASKGATE_DEPLOYMENT_ID.fresh.compose-config.yaml"
 fresh_dataset_fingerprint_path="$campaign_root/environment/$TASKGATE_DEPLOYMENT_ID.fresh.dataset-fingerprint.txt"
+fresh_catalog_path="$campaign_root/environment/$TASKGATE_DEPLOYMENT_ID.fresh.catalog.yaml"
 windows_host_path="$campaign_root/environment/windows-host.json"
 vmstat_before_path="$campaign_root/environment/$TASKGATE_DEPLOYMENT_ID.vmstat-before.txt"
 vmstat_after_path="$campaign_root/environment/$TASKGATE_DEPLOYMENT_ID.vmstat-after.txt"
@@ -127,7 +128,12 @@ export COMPOSE_PROJECT_NAME="$(
 [[ "$COMPOSE_PROJECT_NAME" =~ ^taskgate-final-v5-deployment-0[1-3]-[0-9a-f]{20}$ ]] || {
   echo "derived Compose project name violates the exact deployment contract" >&2; exit 1;
 }
-export TASKGATE_COMPOSE_FILES="${TASKGATE_COMPOSE_FILES:-compose.yaml:compose.debug.yaml:evaluation/final-v5-wsl2/compose.real-pilot.yaml:evaluation/final-v5-wsl2/compose.provsql.yaml}"
+formal_compose_files=compose.yaml:compose.debug.yaml:evaluation/final-v5-wsl2/compose.real-pilot.yaml:evaluation/final-v5-wsl2/compose.provsql.yaml
+if [[ -n "${TASKGATE_COMPOSE_FILES:-}" && "$TASKGATE_COMPOSE_FILES" != "$formal_compose_files" ]]; then
+  echo "publication Compose files are source-controlled and cannot be overridden" >&2
+  exit 2
+fi
+export TASKGATE_COMPOSE_FILES="$formal_compose_files"
 export TASKGATE_FINAL_V5_DIRECT_DSN='postgres://postgres:final-v5-provsql-local-only@127.0.0.1:25534/final_v5_provsql?sslmode=disable'
 export TASKGATE_FINAL_V5_PROVSQL_DSN='postgres://postgres:final-v5-provsql-local-only@127.0.0.1:25535/final_v5_provsql?sslmode=disable'
 export TASKGATE_FRESH_PROOF_OUTPUT="$fresh_proof_path"
@@ -474,6 +480,9 @@ finish_deployment() {
     fi
     if [[ ! -e "$experiment_root/environment/$TASKGATE_DEPLOYMENT_ID.fresh.dataset-fingerprint.txt" ]]; then
       install -m 600 "$fresh_dataset_fingerprint_path" "$experiment_root/environment/$TASKGATE_DEPLOYMENT_ID.fresh.dataset-fingerprint.txt" || status=1
+    fi
+    if [[ ! -e "$experiment_root/environment/$TASKGATE_DEPLOYMENT_ID.fresh.catalog.yaml" ]]; then
+      install -m 600 "$fresh_catalog_path" "$experiment_root/environment/$TASKGATE_DEPLOYMENT_ID.fresh.catalog.yaml" || status=1
     fi
     if [[ ! -e "$experiment_root/environment/windows-host.json" ]]; then
       install -m 600 "$windows_host_path" "$experiment_root/environment/windows-host.json" || status=1

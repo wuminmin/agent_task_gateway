@@ -211,3 +211,81 @@ func TestRealPilotUsesCollisionSafeDeploymentProjectName(t *testing.T) {
 		t.Fatal("real Pilot still uses the legacy project name rejected by the fresh-deployment safety boundary")
 	}
 }
+
+func TestPublicationEnvironmentBindsFreshDatasetCatalogAndVolumeEvidence(t *testing.T) {
+	readScript := func(name string) string {
+		t.Helper()
+		value, err := os.ReadFile(filepath.Join("..", "..", "final-v5-wsl2", "scripts", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(value)
+	}
+	fresh := readScript("start-fresh-deployment.sh")
+	for _, required := range []string{
+		"TASKGATE-FINAL-V5-DEPLOYMENT-VOLUME-ID-V1",
+		"deployment_volume_id_sha256",
+		"catalog_sha256",
+		`gateway cat /etc/taskbound/catalog.yaml`,
+		`publication dataset fingerprint SQL is source-controlled and cannot be overridden`,
+		`publication Compose files differ from the frozen formal topology`,
+		`.services.gateway.environment.CATALOG_PATH == $target`,
+		`$mounts[0].source == $source`,
+	} {
+		if !strings.Contains(fresh, required) {
+			t.Fatalf("fresh-deployment launcher omits binding contract %q", required)
+		}
+	}
+	record := readScript("record-environment.sh")
+	if !strings.Contains(record, `--fresh-deployment-proof "$TASKGATE_FRESH_PROOF_OUTPUT"`) {
+		t.Fatal("publication environment recorder does not consume the fresh-deployment proof")
+	}
+	run := readScript("run-deployment.sh")
+	for _, required := range []string{`fresh.catalog.yaml`, `publication Compose files are source-controlled and cannot be overridden`} {
+		if !strings.Contains(run, required) {
+			t.Fatalf("formal deployment omits binding guard %q", required)
+		}
+	}
+}
+
+func TestCampaignEnvironmentDigestMustMatchAcrossExperiments(t *testing.T) {
+	digests := make(map[string]string)
+	first := strings.Repeat("a", 64)
+	if err := bindCampaignEnvironmentDigest(digests, "deployment-01", first); err != nil {
+		t.Fatal(err)
+	}
+	if err := bindCampaignEnvironmentDigest(digests, "deployment-01", first); err != nil {
+		t.Fatalf("identical experiment environment was rejected: %v", err)
+	}
+	if err := bindCampaignEnvironmentDigest(digests, "deployment-01", strings.Repeat("b", 64)); err == nil {
+		t.Fatal("changed experiment environment digest was accepted")
+	}
+}
+
+func TestFreshDeploymentRejectsPublicationComposeOverrideBeforeStartup(t *testing.T) {
+	repoRoot := filepath.Join("..", "..", "..")
+	campaignID, deploymentID := "compose-override-test", "deployment-01"
+	derive := filepath.Join(repoRoot, "evaluation", "final-v5-wsl2", "scripts", "deployment-project-name.sh")
+	projectBytes, err := exec.Command("bash", derive, campaignID, deploymentID).CombinedOutput()
+	if err != nil {
+		t.Fatalf("derive project name: %v: %s", err, projectBytes)
+	}
+	launcher := filepath.Join("evaluation", "final-v5-wsl2", "scripts", "start-fresh-deployment.sh")
+	command := exec.Command("bash", launcher)
+	command.Dir = repoRoot
+	command.Env = append(os.Environ(),
+		"TASKGATE_EXPERIMENT_CLASS=publication",
+		"TASKGATE_CAMPAIGN_ID="+campaignID,
+		"TASKGATE_DEPLOYMENT_ID="+deploymentID,
+		"COMPOSE_PROJECT_NAME="+strings.TrimSpace(string(projectBytes)),
+		"TASKGATE_FRESH_PROOF_OUTPUT="+filepath.Join(t.TempDir(), "deployment-01.fresh.json"),
+		"TASKGATE_COMPOSE_FILES=compose.yaml",
+	)
+	output, err := command.CombinedOutput()
+	if err == nil {
+		t.Fatal("publication Compose override reached deployment startup")
+	}
+	if !strings.Contains(string(output), "publication Compose files differ from the frozen formal topology") {
+		t.Fatalf("publication Compose override failed for the wrong reason: %s", output)
+	}
+}

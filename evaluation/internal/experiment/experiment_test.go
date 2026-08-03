@@ -1176,6 +1176,174 @@ func TestPublicationFinalizerSealsCompleteEvidenceAndRejectsRootReuse(t *testing
 	}
 }
 
+func TestPublicationFinalizerRejectsSelfConsistentEnvironmentBindingDrift(t *testing.T) {
+	tests := []struct {
+		name      string
+		want      string
+		forbidden []string
+		mutate    func(*testing.T, string)
+	}{
+		{
+			name: "environment proof volume mismatch",
+			want: "environment/fresh-deployment binding mismatch",
+			forbidden: []string{
+				"environment digest mismatch",
+				"fresh-deployment proof digest mismatch",
+			},
+			mutate: func(t *testing.T, runDir string) {
+				rewritePublicationEnvironment(t, runDir, "deployment-02", func(environment *EnvironmentManifest) {
+					environment.Datasets["deployment_volume_id_sha256"] = strings.Repeat("e", 64)
+				})
+			},
+		},
+		{
+			name: "coherent dataset drift",
+			want: "dataset digest changed across deployments",
+			forbidden: []string{
+				"environment/fresh-deployment binding mismatch",
+				"dataset fingerprint bytes do not match proof",
+				"environment digest mismatch",
+				"fresh-deployment proof digest mismatch",
+			},
+			mutate: func(t *testing.T, runDir string) {
+				deploymentID := "deployment-02"
+				datasetPath := filepath.Join(runDir, "environment", deploymentID+".fresh.dataset-fingerprint.txt")
+				if err := os.WriteFile(datasetPath, []byte("different-frozen-publication-dataset"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				datasetSHA, err := FileSHA256(datasetPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				rewritePublicationFreshProof(t, runDir, deploymentID, func(proof *FreshDeploymentProof) {
+					proof.DatasetFingerprintSHA256 = datasetSHA
+				})
+				rewritePublicationEnvironment(t, runDir, deploymentID, func(environment *EnvironmentManifest) {
+					environment.Datasets["dataset_sha256"] = datasetSHA
+				})
+			},
+		},
+		{
+			name: "coherent Catalog drift",
+			want: "Catalog digest changed across deployments",
+			forbidden: []string{
+				"environment/fresh-deployment binding mismatch",
+				"live Catalog bytes do not match proof",
+				"environment digest mismatch",
+				"fresh-deployment proof digest mismatch",
+			},
+			mutate: func(t *testing.T, runDir string) {
+				deploymentID := "deployment-02"
+				catalogPath := filepath.Join(runDir, "environment", deploymentID+".fresh.catalog.yaml")
+				if err := os.WriteFile(catalogPath, []byte("catalog: different-frozen-publication-catalog\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				catalogSHA, err := FileSHA256(catalogPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				rewritePublicationFreshProof(t, runDir, deploymentID, func(proof *FreshDeploymentProof) {
+					proof.CatalogSHA256 = catalogSHA
+				})
+				rewritePublicationEnvironment(t, runDir, deploymentID, func(environment *EnvironmentManifest) {
+					environment.Datasets["catalog_sha256"] = catalogSHA
+				})
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			runDir := buildPublicationEvidence(t, false)
+			test.mutate(t, runDir)
+			summary, err := FinalizeRun(runDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if summary.Status == "pass" || summary.PublicationEligible {
+				t.Fatalf("mutated summary=%+v", summary)
+			}
+			if !containsReason(summary.Reasons, test.want) {
+				t.Fatalf("reasons %v do not contain %q", summary.Reasons, test.want)
+			}
+			for _, forbidden := range test.forbidden {
+				if containsReason(summary.Reasons, forbidden) {
+					t.Fatalf("mutation only hit outer integrity check %q: %v", forbidden, summary.Reasons)
+				}
+			}
+		})
+	}
+}
+
+func rewritePublicationEnvironment(t *testing.T, runDir, deploymentID string, mutate func(*EnvironmentManifest)) {
+	t.Helper()
+	path := filepath.Join(runDir, "environment", deploymentID+".json")
+	value, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var environment EnvironmentManifest
+	if err := StrictJSON(value, &environment); err != nil {
+		t.Fatal(err)
+	}
+	mutate(&environment)
+	writePublicationFixtureJSON(t, path, environment)
+	digest, err := FileSHA256(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rewritePublicationDeploymentManifest(t, runDir, deploymentID, func(manifest *DeploymentManifest) {
+		manifest.EnvironmentSHA256 = digest
+	})
+}
+
+func rewritePublicationFreshProof(t *testing.T, runDir, deploymentID string, mutate func(*FreshDeploymentProof)) {
+	t.Helper()
+	path := filepath.Join(runDir, "environment", deploymentID+".fresh.json")
+	value, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var proof FreshDeploymentProof
+	if err := StrictJSON(value, &proof); err != nil {
+		t.Fatal(err)
+	}
+	mutate(&proof)
+	writePublicationFixtureJSON(t, path, proof)
+	digest, err := FileSHA256(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rewritePublicationDeploymentManifest(t, runDir, deploymentID, func(manifest *DeploymentManifest) {
+		manifest.FreshDeploymentProofSHA256 = digest
+	})
+}
+
+func rewritePublicationDeploymentManifest(t *testing.T, runDir, deploymentID string, mutate func(*DeploymentManifest)) {
+	t.Helper()
+	path := filepath.Join(runDir, "deployments", deploymentID+".json")
+	value, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest DeploymentManifest
+	if err := StrictJSON(value, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	mutate(&manifest)
+	writePublicationFixtureJSON(t, path, manifest)
+}
+
+func writePublicationFixtureJSON(t *testing.T, path string, value any) {
+	t.Helper()
+	encoded, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, append(encoded, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func buildPublicationEvidence(t *testing.T, reuseRoot bool) string {
 	t.Helper()
 	runDir := t.TempDir()
@@ -1205,13 +1373,10 @@ func buildPublicationEvidence(t *testing.T, reuseRoot bool) string {
 		t.Fatal(err)
 	}
 	windowsHostSHA, _ := FileSHA256(windowsHostPath)
+	frozenDatasetBytes := []byte("frozen-publication-dataset")
+	frozenCatalogBytes := []byte("catalog: frozen-publication-catalog\n")
 	for deployment := 1; deployment <= 3; deployment++ {
 		deploymentID := fmt.Sprintf("deployment-%02d", deployment)
-		environment := EnvironmentManifest{SchemaVersion: 1, CampaignID: config.CampaignID, DeploymentID: deploymentID, CapturedAt: time.Now().UTC().Format(time.RFC3339Nano), GitCommit: commit, GitStatus: []string{}, PublicationEligible: true, Host: map[string]any{"os": "test"}, Software: map[string]any{"go": "test"}, Storage: map[string]any{"fs": "test"}, Datasets: map[string]any{"dataset_sha256": strings.Repeat("c", 64), "catalog_sha256": strings.Repeat("d", 64)}}
-		environmentPath := filepath.Join(runDir, "environment", deploymentID+".json")
-		if err := WriteEnvironment(environmentPath, environment); err != nil {
-			t.Fatal(err)
-		}
 		beforePath := filepath.Join(runDir, "environment", deploymentID+".vmstat-before.txt")
 		afterPath := filepath.Join(runDir, "environment", deploymentID+".vmstat-after.txt")
 		if err := os.WriteFile(beforePath, []byte("pswpin 0\npswpout 0\n"), 0o600); err != nil {
@@ -1220,7 +1385,6 @@ func buildPublicationEvidence(t *testing.T, reuseRoot bool) string {
 		if err := os.WriteFile(afterPath, []byte("pswpin 0\npswpout 0\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		environmentSHA, _ := FileSHA256(environmentPath)
 		beforeSHA, _ := FileSHA256(beforePath)
 		afterSHA, _ := FileSHA256(afterPath)
 		inspectPath := filepath.Join(runDir, "environment", deploymentID+".fresh.volume-inspect.json")
@@ -1246,18 +1410,30 @@ func buildPublicationEvidence(t *testing.T, reuseRoot bool) string {
 		}
 		composeSHA, _ := FileSHA256(composePath)
 		datasetPath := filepath.Join(runDir, "environment", deploymentID+".fresh.dataset-fingerprint.txt")
-		if err := os.WriteFile(datasetPath, []byte("dataset-"+deploymentID), 0o600); err != nil {
+		if err := os.WriteFile(datasetPath, frozenDatasetBytes, 0o600); err != nil {
 			t.Fatal(err)
 		}
 		datasetSHA, _ := FileSHA256(datasetPath)
+		catalogPath := filepath.Join(runDir, "environment", deploymentID+".fresh.catalog.yaml")
+		if err := os.WriteFile(catalogPath, frozenCatalogBytes, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		catalogSHA, _ := FileSHA256(catalogPath)
 		sort.Strings(volumeSetLines)
-		proof := FreshDeploymentProof{SchemaVersion: 1, CampaignID: config.CampaignID, DeploymentID: deploymentID, CapturedAt: UTCNow(), ComposeProjectName: fmt.Sprintf("project-%d", deployment), ComposeConfigSHA256: composeSHA, Volumes: volumes, VolumeSetSHA256: sha256Hex([]byte(strings.Join(volumeSetLines, ""))), VolumeInspectSHA256: inspectSHA, ControlPGSystemIdentifier: fmt.Sprintf("control-%d", deployment), BusinessPGSystemIdentifier: fmt.Sprintf("business-%d", deployment), ControlInitialCounts: map[string]int64{"tasks": 0, "query_records": 0, "root_heads": 0, "result_artifacts": 0}, DatasetFingerprintSHA256: datasetSHA, SnapshotArtifactVolumeSHA256: strings.Repeat("9", 64)}
+		proof := FreshDeploymentProof{SchemaVersion: 1, CampaignID: config.CampaignID, DeploymentID: deploymentID, CapturedAt: UTCNow(), ComposeProjectName: fmt.Sprintf("project-%d", deployment), ComposeConfigSHA256: composeSHA, Volumes: volumes, VolumeSetSHA256: sha256Hex([]byte(strings.Join(volumeSetLines, ""))), VolumeInspectSHA256: inspectSHA, ControlPGSystemIdentifier: fmt.Sprintf("100000000000000000%d", deployment), BusinessPGSystemIdentifier: fmt.Sprintf("200000000000000000%d", deployment), ControlInitialCounts: map[string]int64{"tasks": 0, "query_records": 0, "root_heads": 0, "result_artifacts": 0}, DatasetFingerprintSHA256: datasetSHA, CatalogSHA256: catalogSHA, SnapshotArtifactVolumeSHA256: strings.Repeat("9", 64)}
+		proof.DeploymentVolumeIDSHA256 = deriveDeploymentVolumeID(proof)
 		proofBytes, _ := json.Marshal(proof)
 		proofPath := filepath.Join(runDir, "environment", deploymentID+".fresh.json")
 		if err := os.WriteFile(proofPath, proofBytes, 0o600); err != nil {
 			t.Fatal(err)
 		}
 		proofSHA, _ := FileSHA256(proofPath)
+		environment := EnvironmentManifest{SchemaVersion: 1, CampaignID: config.CampaignID, DeploymentID: deploymentID, CapturedAt: time.Now().UTC().Format(time.RFC3339Nano), GitCommit: commit, GitStatus: []string{}, PublicationEligible: true, Host: map[string]any{"os": "test"}, Software: map[string]any{"go": "test"}, Storage: map[string]any{"fs": "test"}, Datasets: map[string]any{"dataset_sha256": proof.DatasetFingerprintSHA256, "catalog_sha256": proof.CatalogSHA256, "deployment_volume_id_sha256": proof.DeploymentVolumeIDSHA256}}
+		environmentPath := filepath.Join(runDir, "environment", deploymentID+".json")
+		if err := WriteEnvironment(environmentPath, environment); err != nil {
+			t.Fatal(err)
+		}
+		environmentSHA, _ := FileSHA256(environmentPath)
 		manifest := DeploymentManifest{SchemaVersion: 1, CampaignID: config.CampaignID, DeploymentID: deploymentID, FreshDeployment: true, FreshDeploymentProofSHA256: proofSHA, EnvironmentSHA256: environmentSHA, WindowsEnvironmentSHA256: windowsHostSHA, VMStatBeforeSHA256: beforeSHA, VMStatAfterSHA256: afterSHA, StartedAt: UTCNow(), FinishedAt: UTCNow()}
 		if err := WriteDeployment(filepath.Join(runDir, "deployments", deploymentID+".json"), manifest); err != nil {
 			t.Fatal(err)

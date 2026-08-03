@@ -48,7 +48,7 @@ dataset-bindings/
   deployment-01.json deployment-02.json deployment-03.json
 ```
 
-Every dataset binding must contain `dataset_sha256` and `catalog_sha256`. Docker volume identity is no longer author-supplied: `start-fresh-deployment.sh` derives it from actual Compose volume inspection and PostgreSQL system identifiers. Copy the example configs, replace the campaign ID and zero commit, and keep credentials in environment variables—not in configs or bindings. Stage B changed the frozen protocol hash to bind the profile-specific replicate matrix; any private config carrying the earlier hash must be regenerated and reviewed rather than silently reused.
+Every dataset binding must contain the reviewed `dataset_sha256` and `catalog_sha256`, and must not contain `deployment_volume_id_sha256`. Publication runs fix the dataset probe to the source-controlled SQL, capture the live Gateway Catalog bytes, require both observed digests to equal the reviewed binding, and derive the deployment-volume identity from the actual Compose volume set plus both PostgreSQL system identifiers. The finalizers independently recheck those bindings across all three deployments and all nine experiment directories. Copy the example configs, replace the campaign ID and zero commit, and keep credentials in environment variables—not in configs or bindings. Stage B changed the frozen protocol hash to bind the profile-specific replicate matrix; any private config carrying the earlier hash must be regenerated and reviewed rather than silently reused.
 
 ## Commands
 
