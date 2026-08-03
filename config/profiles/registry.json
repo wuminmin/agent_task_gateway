@@ -1,0 +1,780 @@
+{
+  "schema_version": 1,
+  "registry_version": "taskgate-final-v5-workload-closure-profile-v1",
+  "contract_release": "final-v5-contracts-v1.1",
+  "max_hot_limit_bytes": 167772160,
+  "max_hot_limit_scope": "per Catalog-bound Gateway instance HOT limit",
+  "profiles": [
+    {
+      "profile_id": "profile-09f64a745c591420",
+      "alias": "rls-bounded",
+      "closure": {
+        "products": [
+          "final_v5_rls_bounded_expense_detail"
+        ],
+        "publications": [
+          "expense-detail-v1"
+        ],
+        "sources": [
+          "travel_demo"
+        ],
+        "scopes": [
+          "department"
+        ],
+        "budget_profiles": [
+          "final-v5-rls-bounded-70-v1"
+        ],
+        "routable": true,
+        "closure_sha256": "09f64a745c5914208391b9744499cb1cfa1734206a3289d34131659348596ee1"
+      },
+      "workload_cells": [
+        "rls/adaptive-100-v1/100-queries/bounded",
+        "rls/policy-denied-control/single/bounded"
+      ],
+      "experiments": [
+        "rls"
+      ],
+      "catalog_sha256": "1531b01256c7729ca403108a39d0ec0f78134a299761c9dea2e3611ae201fec9",
+      "catalog_path": "config/profiles/rls-bounded.catalog.yaml",
+      "hot_artifacts": [
+        {
+          "publication": "expense-detail-v1",
+          "hot_index_digest": "ae29bfd905ac88b7b6c3d437373c9dcfa1e1f8471c3398c3e82867eb6f4d0675",
+          "bytes": 16638
+        }
+      ],
+      "total_hot_bytes": 16638,
+      "max_hot_limit_bytes": 167772160,
+      "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
+      "within_hot_limit": true
+    },
+    {
+      "profile_id": "profile-27d102440e1dcd23",
+      "alias": "result-heavy",
+      "closure": {
+        "products": [
+          "final_v5_result_heavy"
+        ],
+        "publications": [
+          "final-v5-result-heavy-v1"
+        ],
+        "sources": [
+          "travel_demo"
+        ],
+        "scopes": [
+          "category"
+        ],
+        "budget_profiles": [
+          "final-v5-benchmark-low-v1"
+        ],
+        "routable": true,
+        "closure_sha256": "27d102440e1dcd23c589cc7d292fd08ecabf63919aefb80eefb7f73a8c3d5b26"
+      },
+      "workload_cells": [
+        "artifact/result-heavy/100k-x16/novel",
+        "artifact/result-heavy/100k-x4/novel",
+        "artifact/result-heavy/100x16/novel",
+        "artifact/result-heavy/100x4/novel",
+        "artifact/result-heavy/10k-x16/novel",
+        "artifact/result-heavy/10k-x4/novel",
+        "baseline/S6/100k-x16/direct",
+        "baseline/S6/100k-x16/novel",
+        "baseline/S6/100k-x4/direct",
+        "baseline/S6/100k-x4/novel",
+        "baseline/S6/100x16/direct",
+        "baseline/S6/100x16/novel",
+        "baseline/S6/100x4/direct",
+        "baseline/S6/100x4/novel",
+        "baseline/S6/10k-x16/direct",
+        "baseline/S6/10k-x16/novel",
+        "baseline/S6/10k-x4/direct",
+        "baseline/S6/10k-x4/novel"
+      ],
+      "experiments": [
+        "artifact",
+        "baseline"
+      ],
+      "catalog_sha256": "3989d4a96aae714f5588ac025b0c283eb1279b675e9c53cf101dd400bd656109",
+      "catalog_path": "config/profiles/result-heavy.catalog.yaml",
+      "hot_artifacts": [
+        {
+          "publication": "final-v5-result-heavy-v1",
+          "hot_index_digest": "ae4ea784dfee65958a4db790d686ed19a803c5e371f13880561bc7387b1020d8",
+          "bytes": 126813361
+        }
+      ],
+      "total_hot_bytes": 126813361,
+      "max_hot_limit_bytes": 167772160,
+      "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
+      "within_hot_limit": true
+    },
+    {
+      "profile_id": "profile-3ea003d7069393a3",
+      "alias": "analytics-orders-lineitem",
+      "closure": {
+        "products": [
+          "provsql_lineitem",
+          "provsql_orders"
+        ],
+        "publications": [
+          "provsql-lineitem-v1",
+          "provsql-orders-v1"
+        ],
+        "sources": [
+          "travel_demo"
+        ],
+        "scopes": [
+          "partition_key"
+        ],
+        "budget_profiles": null,
+        "routable": false,
+        "closure_sha256": "3ea003d7069393a3f02e94e483b0ede8a8b58721ae2501b16590e58ed2c064e8"
+      },
+      "workload_cells": [
+        "baseline/S2/SF1/direct",
+        "baseline/S2/SF1/idempotent_replay",
+        "baseline/S2/SF1/normalized_rewrite_replay",
+        "baseline/S2/SF1/novel",
+        "baseline/S2/SF1/semantic_replay",
+        "baseline/S2/SF10/direct",
+        "baseline/S2/SF10/idempotent_replay",
+        "baseline/S2/SF10/normalized_rewrite_replay",
+        "baseline/S2/SF10/novel",
+        "baseline/S2/SF10/semantic_replay"
+      ],
+      "experiments": [
+        "baseline"
+      ],
+      "catalog_sha256": "829b4aecb37d607300e266d5293b8ced1115cb82182ac766610a3b162b57b1d0",
+      "catalog_path": "config/profiles/analytics-orders-lineitem.catalog.yaml",
+      "hot_artifacts": [
+        {
+          "publication": "provsql-lineitem-v1",
+          "hot_index_digest": "65dcf1c0edf2e6fcf4f85204b800f7368d211648ccf2c3b3f2ace8feac4232d1",
+          "bytes": 101004070
+        },
+        {
+          "publication": "provsql-orders-v1",
+          "hot_index_digest": "80bdee604013afac5a24497e778a633b31262f2784df78fba11b1a98010199c1",
+          "bytes": 16603206
+        }
+      ],
+      "total_hot_bytes": 117607276,
+      "max_hot_limit_bytes": 167772160,
+      "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
+      "within_hot_limit": true
+    },
+    {
+      "profile_id": "profile-4c9f3109e3ccbe1c",
+      "alias": "expense-detail",
+      "closure": {
+        "products": [
+          "expense_detail"
+        ],
+        "publications": [
+          "expense-detail-v1"
+        ],
+        "sources": [
+          "travel_demo"
+        ],
+        "scopes": [
+          "department"
+        ],
+        "budget_profiles": [
+          "detail-manual-v5"
+        ],
+        "routable": true,
+        "closure_sha256": "4c9f3109e3ccbe1c0fd214fc0fb4a113636c5f8161a0e9cbb4095cf801153ae0"
+      },
+      "workload_cells": [
+        "attack/E-threshold/preregistered-v1/direct",
+        "attack/E-threshold/preregistered-v1/novel",
+        "rq5/online-transition-v1/single/build",
+        "rq5/online-transition-v1/single/retained"
+      ],
+      "experiments": [
+        "attack",
+        "rq5"
+      ],
+      "catalog_sha256": "0edf48bd41c60a1e908c0f89557fb2d5d46b77e1e24412f866bdaa7e1c353ac5",
+      "catalog_path": "config/profiles/expense-detail.catalog.yaml",
+      "hot_artifacts": [
+        {
+          "publication": "expense-detail-v1",
+          "hot_index_digest": "ae29bfd905ac88b7b6c3d437373c9dcfa1e1f8471c3398c3e82867eb6f4d0675",
+          "bytes": 16638
+        }
+      ],
+      "total_hot_bytes": 16638,
+      "max_hot_limit_bytes": 167772160,
+      "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
+      "within_hot_limit": true
+    },
+    {
+      "profile_id": "profile-7404bc3f8832831d",
+      "alias": "attack-expense-detail",
+      "closure": {
+        "products": [
+          "final_v5_attack_expense_detail"
+        ],
+        "publications": [
+          "expense-detail-v1"
+        ],
+        "sources": [
+          "travel_demo"
+        ],
+        "scopes": [
+          "department"
+        ],
+        "budget_profiles": [
+          "final-v5-attack-medium-v1"
+        ],
+        "routable": true,
+        "closure_sha256": "7404bc3f8832831d31eda8a41b94bae80323210106fd3d62d486bb33ded159af"
+      },
+      "workload_cells": [
+        "attack/A-pagination/complete-to-pages/direct",
+        "attack/A-pagination/complete-to-pages/novel",
+        "attack/A-pagination/pages-to-complete/direct",
+        "attack/A-pagination/pages-to-complete/novel",
+        "attack/B-equivalent-sql/variants-v1/direct",
+        "attack/B-equivalent-sql/variants-v1/novel",
+        "attack/C-request-id/same-and-different/idempotent_replay",
+        "attack/C-request-id/same-and-different/novel",
+        "attack/C-request-id/same-and-different/semantic_replay",
+        "attack/D-split-union/complete-to-split/direct",
+        "attack/D-split-union/complete-to-split/novel",
+        "attack/D-split-union/split-to-complete/direct",
+        "attack/D-split-union/split-to-complete/novel"
+      ],
+      "experiments": [
+        "attack"
+      ],
+      "catalog_sha256": "ca797c155dcffaffa3c2e660c3af9402251457dddfd74570e722a00d944a78fc",
+      "catalog_path": "config/profiles/attack-expense-detail.catalog.yaml",
+      "hot_artifacts": [
+        {
+          "publication": "expense-detail-v1",
+          "hot_index_digest": "ae29bfd905ac88b7b6c3d437373c9dcfa1e1f8471c3398c3e82867eb6f4d0675",
+          "bytes": 16638
+        }
+      ],
+      "total_hot_bytes": 16638,
+      "max_hot_limit_bytes": 167772160,
+      "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
+      "within_hot_limit": true
+    },
+    {
+      "profile_id": "profile-77710836f3468364",
+      "alias": "analytics-orders",
+      "closure": {
+        "products": [
+          "provsql_orders"
+        ],
+        "publications": [
+          "provsql-orders-v1"
+        ],
+        "sources": [
+          "travel_demo"
+        ],
+        "scopes": [
+          "partition_key"
+        ],
+        "budget_profiles": null,
+        "routable": false,
+        "closure_sha256": "77710836f34683640863e6d7375047202521778d93dea3728d225e4ec473f3ab"
+      },
+      "workload_cells": [
+        "baseline/S1/SF1/direct",
+        "baseline/S1/SF1/idempotent_replay",
+        "baseline/S1/SF1/normalized_rewrite_replay",
+        "baseline/S1/SF1/novel",
+        "baseline/S1/SF1/semantic_replay",
+        "baseline/S1/SF10/direct",
+        "baseline/S1/SF10/idempotent_replay",
+        "baseline/S1/SF10/normalized_rewrite_replay",
+        "baseline/S1/SF10/novel",
+        "baseline/S1/SF10/semantic_replay",
+        "baseline/S5/SF1/direct",
+        "baseline/S5/SF1/idempotent_replay",
+        "baseline/S5/SF1/novel",
+        "baseline/S5/SF1/semantic_replay",
+        "baseline/S5/SF10/direct",
+        "baseline/S5/SF10/idempotent_replay",
+        "baseline/S5/SF10/novel",
+        "baseline/S5/SF10/semantic_replay"
+      ],
+      "experiments": [
+        "baseline"
+      ],
+      "catalog_sha256": "a9b35ce34595227960fe32c905372461d38d605aadea2564ad41e0f432b096ad",
+      "catalog_path": "config/profiles/analytics-orders.catalog.yaml",
+      "hot_artifacts": [
+        {
+          "publication": "provsql-orders-v1",
+          "hot_index_digest": "80bdee604013afac5a24497e778a633b31262f2784df78fba11b1a98010199c1",
+          "bytes": 16603206
+        }
+      ],
+      "total_hot_bytes": 16603206,
+      "max_hot_limit_bytes": 167772160,
+      "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
+      "within_hot_limit": true
+    },
+    {
+      "profile_id": "profile-994c32595163c9fc",
+      "alias": "provsql-nonce-join",
+      "closure": {
+        "products": [
+          "provsql_lineitem",
+          "provsql_nonce",
+          "provsql_orders"
+        ],
+        "publications": [
+          "provsql-lineitem-v1",
+          "provsql-nonce-v1",
+          "provsql-orders-v1"
+        ],
+        "sources": [
+          "travel_demo"
+        ],
+        "scopes": [
+          "partition_key"
+        ],
+        "budget_profiles": [
+          "final-v5-provsql-low-v1"
+        ],
+        "routable": true,
+        "closure_sha256": "994c32595163c9fc6cd699ee2015d44e79c524df3c37d0a607349d0dd074e6a2"
+      },
+      "workload_cells": [
+        "provsql/nonce-join-group/10k/direct",
+        "provsql/nonce-join-group/10k/provsql",
+        "provsql/nonce-join-group/10k/taskgate",
+        "provsql/nonce-join-group/1k/direct",
+        "provsql/nonce-join-group/1k/provsql",
+        "provsql/nonce-join-group/1k/taskgate",
+        "provsql/nonce-join-group/45k/direct",
+        "provsql/nonce-join-group/45k/provsql",
+        "provsql/nonce-join-group/45k/taskgate"
+      ],
+      "experiments": [
+        "provsql"
+      ],
+      "catalog_sha256": "19c7bb073b9c0cea3bb99c9df1d0594579f4f0d17a69d5ba4415186a4139487d",
+      "catalog_path": "config/profiles/provsql-nonce-join.catalog.yaml",
+      "hot_artifacts": [
+        {
+          "publication": "provsql-lineitem-v1",
+          "hot_index_digest": "65dcf1c0edf2e6fcf4f85204b800f7368d211648ccf2c3b3f2ace8feac4232d1",
+          "bytes": 101004070
+        },
+        {
+          "publication": "provsql-nonce-v1",
+          "hot_index_digest": "12e44c67ba4c7b28f8bf8f989b0845979f501a38d06c0d31a9feea8cbf49e530",
+          "bytes": 262487
+        },
+        {
+          "publication": "provsql-orders-v1",
+          "hot_index_digest": "80bdee604013afac5a24497e778a633b31262f2784df78fba11b1a98010199c1",
+          "bytes": 16603206
+        }
+      ],
+      "total_hot_bytes": 117869763,
+      "max_hot_limit_bytes": 167772160,
+      "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
+      "within_hot_limit": true
+    },
+    {
+      "profile_id": "profile-bf1ad45b34f2dfbe",
+      "alias": "rls-unlimited",
+      "closure": {
+        "products": [
+          "final_v5_rls_unlimited_expense_detail"
+        ],
+        "publications": [
+          "expense-detail-v1"
+        ],
+        "sources": [
+          "travel_demo"
+        ],
+        "scopes": [
+          "department"
+        ],
+        "budget_profiles": [
+          "final-v5-rls-unlimited-v1"
+        ],
+        "routable": true,
+        "closure_sha256": "bf1ad45b34f2dfbe352b1adee8b94564217529296c1ef758b2b4c42b4166d71f"
+      },
+      "workload_cells": [
+        "rls/adaptive-100-v1/100-queries/rls",
+        "rls/adaptive-100-v1/100-queries/unlimited",
+        "rls/policy-denied-control/single/rls",
+        "rls/policy-denied-control/single/unlimited"
+      ],
+      "experiments": [
+        "rls"
+      ],
+      "catalog_sha256": "78f0a27d97c820809f236b11d92f21ba17739e50be64539d4f76f218c6d8262e",
+      "catalog_path": "config/profiles/rls-unlimited.catalog.yaml",
+      "hot_artifacts": [
+        {
+          "publication": "expense-detail-v1",
+          "hot_index_digest": "ae29bfd905ac88b7b6c3d437373c9dcfa1e1f8471c3398c3e82867eb6f4d0675",
+          "bytes": 16638
+        }
+      ],
+      "total_hot_bytes": 16638,
+      "max_hot_limit_bytes": 167772160,
+      "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
+      "within_hot_limit": true
+    },
+    {
+      "profile_id": "profile-ee81b1a977832a45",
+      "alias": "concurrency-expense-detail",
+      "closure": {
+        "products": [
+          "final_v5_concurrency_expense_detail"
+        ],
+        "publications": [
+          "expense-detail-v1"
+        ],
+        "sources": [
+          "travel_demo"
+        ],
+        "scopes": [
+          "department"
+        ],
+        "budget_profiles": [
+          "final-v5-concurrency-v1"
+        ],
+        "routable": true,
+        "closure_sha256": "ee81b1a977832a4598a978ca6730ab1b59dfcdc4c7834ca89116518efa4f4fea"
+      },
+      "workload_cells": [
+        "concurrency/serial-control/1/serial",
+        "concurrency/shared-root/10/forced_queue_safety",
+        "concurrency/shared-root/10/natural_contention",
+        "concurrency/shared-root/100/forced_queue_safety",
+        "concurrency/shared-root/100/natural_contention",
+        "concurrency/shared-root/50/forced_queue_safety",
+        "concurrency/shared-root/50/natural_contention",
+        "concurrency/shared-root/500/forced_queue_safety",
+        "concurrency/shared-root/500/natural_contention"
+      ],
+      "experiments": [
+        "concurrency"
+      ],
+      "catalog_sha256": "3bd237516b389097ea3ce78a2447858760cb9abbcdcc8850c4e4081b61fa5e79",
+      "catalog_path": "config/profiles/concurrency-expense-detail.catalog.yaml",
+      "hot_artifacts": [
+        {
+          "publication": "expense-detail-v1",
+          "hot_index_digest": "ae29bfd905ac88b7b6c3d437373c9dcfa1e1f8471c3398c3e82867eb6f4d0675",
+          "bytes": 16638
+        }
+      ],
+      "total_hot_bytes": 16638,
+      "max_hot_limit_bytes": 167772160,
+      "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
+      "within_hot_limit": true
+    }
+  ],
+  "unresolved_cells": [
+    {
+      "cell": "baseline/S3/10k-50k/direct",
+      "products": [
+        "final_v5_exposure_scale"
+      ],
+      "reason": "Catalog does not publish Product \"final_v5_exposure_scale\""
+    },
+    {
+      "cell": "baseline/S3/10k-50k/idempotent_replay",
+      "products": [
+        "final_v5_exposure_scale"
+      ],
+      "reason": "Catalog does not publish Product \"final_v5_exposure_scale\""
+    },
+    {
+      "cell": "baseline/S3/10k-50k/normalized_rewrite_replay",
+      "products": [
+        "final_v5_exposure_scale"
+      ],
+      "reason": "Catalog does not publish Product \"final_v5_exposure_scale\""
+    },
+    {
+      "cell": "baseline/S3/10k-50k/novel",
+      "products": [
+        "final_v5_exposure_scale"
+      ],
+      "reason": "Catalog does not publish Product \"final_v5_exposure_scale\""
+    },
+    {
+      "cell": "baseline/S3/10k-50k/semantic_replay",
+      "products": [
+        "final_v5_exposure_scale"
+      ],
+      "reason": "Catalog does not publish Product \"final_v5_exposure_scale\""
+    },
+    {
+      "cell": "baseline/S3/1k-5k/direct",
+      "products": [
+        "final_v5_exposure_scale"
+      ],
+      "reason": "Catalog does not publish Product \"final_v5_exposure_scale\""
+    },
+    {
+      "cell": "baseline/S3/1k-5k/idempotent_replay",
+      "products": [
+        "final_v5_exposure_scale"
+      ],
+      "reason": "Catalog does not publish Product \"final_v5_exposure_scale\""
+    },
+    {
+      "cell": "baseline/S3/1k-5k/normalized_rewrite_replay",
+      "products": [
+        "final_v5_exposure_scale"
+      ],
+      "reason": "Catalog does not publish Product \"final_v5_exposure_scale\""
+    },
+    {
+      "cell": "baseline/S3/1k-5k/novel",
+      "products": [
+        "final_v5_exposure_scale"
+      ],
+      "reason": "Catalog does not publish Product \"final_v5_exposure_scale\""
+    },
+    {
+      "cell": "baseline/S3/1k-5k/semantic_replay",
+      "products": [
+        "final_v5_exposure_scale"
+      ],
+      "reason": "Catalog does not publish Product \"final_v5_exposure_scale\""
+    },
+    {
+      "cell": "baseline/S3/45k-225k/direct",
+      "products": [
+        "final_v5_exposure_scale"
+      ],
+      "reason": "Catalog does not publish Product \"final_v5_exposure_scale\""
+    },
+    {
+      "cell": "baseline/S3/45k-225k/idempotent_replay",
+      "products": [
+        "final_v5_exposure_scale"
+      ],
+      "reason": "Catalog does not publish Product \"final_v5_exposure_scale\""
+    },
+    {
+      "cell": "baseline/S3/45k-225k/normalized_rewrite_replay",
+      "products": [
+        "final_v5_exposure_scale"
+      ],
+      "reason": "Catalog does not publish Product \"final_v5_exposure_scale\""
+    },
+    {
+      "cell": "baseline/S3/45k-225k/novel",
+      "products": [
+        "final_v5_exposure_scale"
+      ],
+      "reason": "Catalog does not publish Product \"final_v5_exposure_scale\""
+    },
+    {
+      "cell": "baseline/S3/45k-225k/semantic_replay",
+      "products": [
+        "final_v5_exposure_scale"
+      ],
+      "reason": "Catalog does not publish Product \"final_v5_exposure_scale\""
+    },
+    {
+      "cell": "baseline/S4/depth-4/direct",
+      "products": [
+        "final_v5_analytics_depth4"
+      ],
+      "reason": "Catalog does not publish Product \"final_v5_analytics_depth4\""
+    },
+    {
+      "cell": "baseline/S4/depth-4/novel",
+      "products": [
+        "final_v5_analytics_depth4"
+      ],
+      "reason": "Catalog does not publish Product \"final_v5_analytics_depth4\""
+    },
+    {
+      "cell": "baseline/S4/depth-4/semantic_replay",
+      "products": [
+        "final_v5_analytics_depth4"
+      ],
+      "reason": "Catalog does not publish Product \"final_v5_analytics_depth4\""
+    },
+    {
+      "cell": "scale/dependency-e2e/100k-overlap-0/novel",
+      "products": [
+        "final_v5_exposure_scale"
+      ],
+      "reason": "Catalog does not publish Product \"final_v5_exposure_scale\""
+    },
+    {
+      "cell": "scale/dependency-e2e/100k-overlap-0/semantic_replay",
+      "products": [
+        "final_v5_exposure_scale"
+      ],
+      "reason": "Catalog does not publish Product \"final_v5_exposure_scale\""
+    },
+    {
+      "cell": "scale/dependency-e2e/100k-overlap-100/novel",
+      "products": [
+        "final_v5_exposure_scale"
+      ],
+      "reason": "Catalog does not publish Product \"final_v5_exposure_scale\""
+    },
+    {
+      "cell": "scale/dependency-e2e/100k-overlap-100/semantic_replay",
+      "products": [
+        "final_v5_exposure_scale"
+      ],
+      "reason": "Catalog does not publish Product \"final_v5_exposure_scale\""
+    },
+    {
+      "cell": "scale/dependency-e2e/100k-overlap-50/novel",
+      "products": [
+        "final_v5_exposure_scale"
+      ],
+      "reason": "Catalog does not publish Product \"final_v5_exposure_scale\""
+    },
+    {
+      "cell": "scale/dependency-e2e/100k-overlap-50/semantic_replay",
+      "products": [
+        "final_v5_exposure_scale"
+      ],
+      "reason": "Catalog does not publish Product \"final_v5_exposure_scale\""
+    },
+    {
+      "cell": "scale/dependency-e2e/100k-overlap-90/novel",
+      "products": [
+        "final_v5_exposure_scale"
+      ],
+      "reason": "Catalog does not publish Product \"final_v5_exposure_scale\""
+    },
+    {
+      "cell": "scale/dependency-e2e/100k-overlap-90/semantic_replay",
+      "products": [
+        "final_v5_exposure_scale"
+      ],
+      "reason": "Catalog does not publish Product \"final_v5_exposure_scale\""
+    },
+    {
+      "cell": "scale/dependency-e2e/1035000-overlap-0/novel",
+      "products": [
+        "final_v5_exposure_scale"
+      ],
+      "reason": "Catalog does not publish Product \"final_v5_exposure_scale\""
+    },
+    {
+      "cell": "scale/dependency-e2e/1035000-overlap-0/semantic_replay",
+      "products": [
+        "final_v5_exposure_scale"
+      ],
+      "reason": "Catalog does not publish Product \"final_v5_exposure_scale\""
+    },
+    {
+      "cell": "scale/dependency-e2e/1035000-overlap-100/novel",
+      "products": [
+        "final_v5_exposure_scale"
+      ],
+      "reason": "Catalog does not publish Product \"final_v5_exposure_scale\""
+    },
+    {
+      "cell": "scale/dependency-e2e/1035000-overlap-100/semantic_replay",
+      "products": [
+        "final_v5_exposure_scale"
+      ],
+      "reason": "Catalog does not publish Product \"final_v5_exposure_scale\""
+    },
+    {
+      "cell": "scale/dependency-e2e/1035000-overlap-50/novel",
+      "products": [
+        "final_v5_exposure_scale"
+      ],
+      "reason": "Catalog does not publish Product \"final_v5_exposure_scale\""
+    },
+    {
+      "cell": "scale/dependency-e2e/1035000-overlap-50/semantic_replay",
+      "products": [
+        "final_v5_exposure_scale"
+      ],
+      "reason": "Catalog does not publish Product \"final_v5_exposure_scale\""
+    },
+    {
+      "cell": "scale/dependency-e2e/1035000-overlap-90/novel",
+      "products": [
+        "final_v5_exposure_scale"
+      ],
+      "reason": "Catalog does not publish Product \"final_v5_exposure_scale\""
+    },
+    {
+      "cell": "scale/dependency-e2e/1035000-overlap-90/semantic_replay",
+      "products": [
+        "final_v5_exposure_scale"
+      ],
+      "reason": "Catalog does not publish Product \"final_v5_exposure_scale\""
+    },
+    {
+      "cell": "scale/dependency-e2e/10k-overlap-0/novel",
+      "products": [
+        "final_v5_exposure_scale"
+      ],
+      "reason": "Catalog does not publish Product \"final_v5_exposure_scale\""
+    },
+    {
+      "cell": "scale/dependency-e2e/10k-overlap-0/semantic_replay",
+      "products": [
+        "final_v5_exposure_scale"
+      ],
+      "reason": "Catalog does not publish Product \"final_v5_exposure_scale\""
+    },
+    {
+      "cell": "scale/dependency-e2e/10k-overlap-100/novel",
+      "products": [
+        "final_v5_exposure_scale"
+      ],
+      "reason": "Catalog does not publish Product \"final_v5_exposure_scale\""
+    },
+    {
+      "cell": "scale/dependency-e2e/10k-overlap-100/semantic_replay",
+      "products": [
+        "final_v5_exposure_scale"
+      ],
+      "reason": "Catalog does not publish Product \"final_v5_exposure_scale\""
+    },
+    {
+      "cell": "scale/dependency-e2e/10k-overlap-50/novel",
+      "products": [
+        "final_v5_exposure_scale"
+      ],
+      "reason": "Catalog does not publish Product \"final_v5_exposure_scale\""
+    },
+    {
+      "cell": "scale/dependency-e2e/10k-overlap-50/semantic_replay",
+      "products": [
+        "final_v5_exposure_scale"
+      ],
+      "reason": "Catalog does not publish Product \"final_v5_exposure_scale\""
+    },
+    {
+      "cell": "scale/dependency-e2e/10k-overlap-90/novel",
+      "products": [
+        "final_v5_exposure_scale"
+      ],
+      "reason": "Catalog does not publish Product \"final_v5_exposure_scale\""
+    },
+    {
+      "cell": "scale/dependency-e2e/10k-overlap-90/semantic_replay",
+      "products": [
+        "final_v5_exposure_scale"
+      ],
+      "reason": "Catalog does not publish Product \"final_v5_exposure_scale\""
+    }
+  ]
+}

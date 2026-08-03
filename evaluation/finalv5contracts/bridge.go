@@ -49,6 +49,7 @@ const (
 	indexContractPath         = "contracts/index-v1.json"
 	baselineContractPath      = "contracts/baseline-v1.json"
 	artifactContractPath      = "contracts/artifact-v1.json"
+	scaleContractPath         = "contracts/scale-v1.json"
 	normalizationContractPath = "contracts/result-normalization-v1.json"
 	catalogCandidatePath      = "catalog/benchmark-contract-v1.yaml"
 	datasetGeneratorPath      = "sql/datasets/benchmark-v1-generate.sql"
@@ -277,6 +278,9 @@ type contractArm struct {
 type contractProduct struct {
 	IDs                  []string `json:"ids"`
 	CatalogBindingStatus string   `json:"catalog_binding_status"`
+	// Scale control cells carry a deterministic member vector instead of a
+	// Catalog Product, so they declare no Product closure at all.
+	ControlFixture string `json:"control_fixture"`
 }
 
 type contractPublication struct {
@@ -1229,4 +1233,44 @@ func equalStrings(left, right []string) bool {
 func digestBytes(value []byte) string {
 	digest := sha256.Sum256(value)
 	return hex.EncodeToString(digest[:])
+}
+
+// ContractCell is one preregistered cell of any contract experiment together
+// with the Products its Query Contract requests.
+type ContractCell struct {
+	Identity CellIdentity `json:"identity"`
+	Products []string     `json:"products"`
+}
+
+// ContractWorkloadCells returns every Baseline, Scale and Artifact cell with
+// its requested Products. Deployment profiles are derived from this, so the
+// contract remains the only place that says which Products a cell needs.
+func (runtime *Runtime) ContractWorkloadCells() ([]ContractCell, error) {
+	var scale scaleDocument
+	if err := decodeStrictJSON(runtime.contents[scaleContractPath], &scale); err != nil {
+		return nil, fmt.Errorf("scale contract: %w", err)
+	}
+	var cells []ContractCell
+	for _, group := range []struct {
+		experiment string
+		source     []cell
+	}{
+		{"baseline", runtime.baseline.Cells},
+		{"scale", scale.Cells},
+		{ArtifactExperimentID, runtime.artifact.Cells},
+	} {
+		for index := range group.source {
+			source := group.source[index]
+			var product contractProduct
+			if err := decodeStrictJSON(source.Product, &product); err != nil {
+				return nil, fmt.Errorf("%s cell %s/%s product section: %w",
+					group.experiment, source.Scale, source.Mode, err)
+			}
+			cells = append(cells, ContractCell{
+				Identity: CellIdentity{ExperimentID: group.experiment, WorkloadID: source.Workload,
+					Scale: source.Scale, Mode: source.Mode},
+				Products: append([]string(nil), product.IDs...)})
+		}
+	}
+	return cells, nil
 }
