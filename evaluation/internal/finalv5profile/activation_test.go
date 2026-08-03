@@ -11,6 +11,13 @@ func activationProfile(t *testing.T) Profile {
 	return profileByAlias(t, registry, "result-heavy")
 }
 
+func count(value int64) *int64 { return &value }
+
+func cleanDrain() DrainCounts {
+	return DrainCounts{InflightQueries: count(0), PendingArtifacts: count(0),
+		OpenReservations: count(0), ActiveServedRoots: count(0)}
+}
+
 func passingEvidence(t *testing.T, profile Profile) ActivationEvidence {
 	t.Helper()
 	expected := ExpectedArtifacts(profile)
@@ -28,7 +35,14 @@ func passingEvidence(t *testing.T, profile Profile) ActivationEvidence {
 			ProcessNonce: strings.Repeat("2", 64), PreviousCacheNamespace: strings.Repeat("3", 64),
 			CacheNamespace: strings.Repeat("4", 64), PreviousCacheUnreachable: true,
 			SemanticCacheCatalogBound: true, PreviousHotArtifactsRetired: true},
-		OutsideProduct:        []OutsideProductProbe{{Product: "provsql_orders", Refused: true}},
+		DrainBefore:            cleanDrain(),
+		DrainObservationStatus: DrainObservationObserved,
+		DrainObserverVersion:   "taskgate-final-v5-drain-observer-v1",
+		DrainObservationSHA256: strings.Repeat("5", 64),
+		OutsideProduct: []OutsideProductProbe{{Product: "provsql_orders",
+			RequestedProductSHA256: strings.Repeat("6", 64), CatalogListAbsent: true,
+			LiveRequestRefused: true, Refused: true, Classification: "tool_error",
+			ResponseSHA256: strings.Repeat("7", 64)}},
 		ActivationSmokePassed: true, Status: "pass"}
 }
 
@@ -73,13 +87,31 @@ func TestActivationEvidenceFailsClosed(t *testing.T) {
 			evidence.HotLimitBytes = MaxHotBytesPerInstance * 2
 		},
 		"in-flight query at switch": func(evidence *ActivationEvidence) {
-			evidence.DrainBefore.InflightQueries = 1
+			evidence.DrainBefore.InflightQueries = count(1)
 		},
 		"pending artifact at switch": func(evidence *ActivationEvidence) {
-			evidence.DrainBefore.PendingArtifacts = 1
+			evidence.DrainBefore.PendingArtifacts = count(1)
 		},
 		"open reservation at switch": func(evidence *ActivationEvidence) {
-			evidence.DrainBefore.OpenReservations = 1
+			evidence.DrainBefore.OpenReservations = count(1)
+		},
+		"active served root at switch": func(evidence *ActivationEvidence) {
+			evidence.DrainBefore.ActiveServedRoots = count(1)
+		},
+		"drain observer unavailable": func(evidence *ActivationEvidence) {
+			evidence.DrainObservationStatus = "unavailable"
+		},
+		"drain observation missing a field": func(evidence *ActivationEvidence) {
+			evidence.DrainBefore.OpenReservations = nil
+		},
+		"default empty drain struct": func(evidence *ActivationEvidence) {
+			evidence.DrainBefore = DrainCounts{}
+		},
+		"drain observation not attributable": func(evidence *ActivationEvidence) {
+			evidence.DrainObservationSHA256 = "not-a-digest"
+		},
+		"drain observer version missing": func(evidence *ActivationEvidence) {
+			evidence.DrainObserverVersion = "  "
 		},
 		"process not restarted": func(evidence *ActivationEvidence) {
 			evidence.CacheIsolation.ProcessRestarted = false
@@ -97,10 +129,23 @@ func TestActivationEvidenceFailsClosed(t *testing.T) {
 			evidence.OutsideProduct = nil
 		},
 		"outside Product served": func(evidence *ActivationEvidence) {
-			evidence.OutsideProduct = []OutsideProductProbe{{Product: "provsql_orders", Refused: false}}
+			evidence.OutsideProduct[0].LiveRequestRefused = false
+			evidence.OutsideProduct[0].Refused = false
+			evidence.OutsideProduct[0].Classification = "request_accepted"
+		},
+		"only a Catalog list check, no live request": func(evidence *ActivationEvidence) {
+			evidence.OutsideProduct[0].LiveRequestRefused = false
+			evidence.OutsideProduct[0].Refused = false
+		},
+		"live refusal without a Catalog list check": func(evidence *ActivationEvidence) {
+			evidence.OutsideProduct[0].CatalogListAbsent = false
+			evidence.OutsideProduct[0].Refused = false
+		},
+		"refusal without a stable classification": func(evidence *ActivationEvidence) {
+			evidence.OutsideProduct[0].Classification = "  "
 		},
 		"probed its own closure": func(evidence *ActivationEvidence) {
-			evidence.OutsideProduct = []OutsideProductProbe{{Product: "final_v5_result_heavy", Refused: true}}
+			evidence.OutsideProduct[0].Product = "final_v5_result_heavy"
 		},
 		"failed status": func(evidence *ActivationEvidence) {
 			evidence.Status = "fail"

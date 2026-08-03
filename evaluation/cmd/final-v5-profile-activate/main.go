@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -43,6 +44,7 @@ type options struct {
 	sequence        int
 	outputPath      string
 	outsideProducts string
+	probeToken      string
 	readyTimeout    time.Duration
 }
 
@@ -61,6 +63,7 @@ func main() {
 	flag.IntVar(&opts.sequence, "activation-sequence", 1, "1-based activation sequence in this deployment")
 	flag.StringVar(&opts.outputPath, "evidence-out", "", "activation evidence output path")
 	flag.StringVar(&opts.outsideProducts, "outside-products", "", "comma-separated Products that must be refused")
+	flag.StringVar(&opts.probeToken, "probe-token-env", "TASKBOUND_ALICE_TOKEN", "env var holding the pilot agent token")
 	flag.DurationVar(&opts.readyTimeout, "ready-timeout", 5*time.Minute, "readiness timeout")
 	flag.Parse()
 	if flag.NArg() != 0 {
@@ -69,6 +72,14 @@ func main() {
 	if err := run(opts); err != nil {
 		fatal(err)
 	}
+}
+
+// firstActivationDrainDigest is the fixed digest of a provably empty gate: no
+// Gateway was serving, so there was nothing to drain.
+func firstActivationDrainDigest() string {
+	hash := sha256.New()
+	fmt.Fprintf(hash, "%s\x00%d\x00%d\x00%d\x00%d\x00", "taskgate-final-v5-drain-observer-v1", 0, 0, 0, 0)
+	return hex.EncodeToString(hash.Sum(nil))
 }
 
 func fatal(err error) {
@@ -127,10 +138,83 @@ func run(opts options) error {
 	started := time.Now().UTC()
 	evidence.ActivationStarted = started.Format(time.RFC3339Nano)
 
-	previous, _ := readDiagnostic(ctx, opts)
+	// The previous profile is verified, never assumed. A declared predecessor
+	// that cannot be read, or that is not the profile actually running, stops
+	// the switch: an unverifiable predecessor makes the whole activation chain
+	// unverifiable.
+	previous, previousErr := readDiagnostic(ctx, opts)
+	switch {
+	case opts.previousProfile != "":
+		if previousErr != nil {
+			evidence.Failures = append(evidence.Failures,
+				"declared previous profile could not be read: "+previousErr.Error())
+			return writeEvidence(opts.outputPath, evidence)
+		}
+		declared, err := finalv5profile.LookupProfileByID(registry, opts.previousProfile)
+		if err != nil {
+			evidence.Failures = append(evidence.Failures, err.Error())
+			return writeEvidence(opts.outputPath, evidence)
+		}
+		observedPrevious, err := resolveObservedProfile(registry, previous)
+		if err != nil {
+			evidence.Failures = append(evidence.Failures, "previous profile: "+err.Error())
+			return writeEvidence(opts.outputPath, evidence)
+		}
+		if observedPrevious.ID != declared.ID {
+			evidence.Failures = append(evidence.Failures, fmt.Sprintf(
+				"the running Gateway serves profile %s, the caller declared %s", observedPrevious.ID, declared.ID))
+			return writeEvidence(opts.outputPath, evidence)
+		}
+		if strings.TrimSpace(previous.Activation.ProcessNonce) == "" ||
+			strings.TrimSpace(previous.Activation.CacheNamespace) == "" {
+			evidence.Failures = append(evidence.Failures, "previous Gateway reported no process nonce or cache namespace")
+			return writeEvidence(opts.outputPath, evidence)
+		}
+	case previousErr == nil && previous != nil:
+		// A Gateway is already serving a profile but the caller declared none.
+		// Resolve it exactly rather than pretending this is a first activation.
+		observedPrevious, err := resolveObservedProfile(registry, previous)
+		if err != nil {
+			evidence.Failures = append(evidence.Failures,
+				"a Gateway is already running but its profile is unresolvable: "+err.Error())
+			return writeEvidence(opts.outputPath, evidence)
+		}
+		evidence.PreviousProfileID = observedPrevious.ID
+	}
 	if previous != nil {
 		evidence.CacheIsolation.PreviousProcessNonce = previous.Activation.ProcessNonce
 		evidence.CacheIsolation.PreviousCacheNamespace = previous.Activation.CacheNamespace
+		// The drain gate is read from the profile that is about to be stopped.
+		evidence.DrainObserverVersion = previous.Drain.Version
+		evidence.DrainObservationStatus = previous.Drain.Status
+		evidence.DrainObservationSHA256 = previous.Drain.SHA256
+		if previous.Drain.Counts != nil {
+			evidence.DrainBefore = finalv5profile.DrainCounts{
+				InflightQueries:   previous.Drain.Counts.InflightQueries,
+				PendingArtifacts:  previous.Drain.Counts.PendingArtifacts,
+				OpenReservations:  previous.Drain.Counts.OpenReservations,
+				ActiveServedRoots: previous.Drain.Counts.ActiveServedRoots}
+		}
+		if evidence.DrainObservationStatus != finalv5profile.DrainObservationObserved ||
+			!evidence.DrainBefore.Complete() {
+			evidence.Failures = append(evidence.Failures,
+				"the outgoing profile drain could not be observed; refusing to stop it")
+			return writeEvidence(opts.outputPath, evidence)
+		}
+		if !evidence.DrainBefore.Clean() {
+			evidence.Failures = append(evidence.Failures,
+				"the outgoing profile still holds in-flight work; refusing to switch")
+			return writeEvidence(opts.outputPath, evidence)
+		}
+	} else {
+		// A first activation has no outgoing profile. The gate is recorded as
+		// observed-empty only because there is provably nothing running.
+		zero := int64(0)
+		evidence.DrainObserverVersion = "taskgate-final-v5-drain-observer-v1"
+		evidence.DrainObservationStatus = finalv5profile.DrainObservationObserved
+		evidence.DrainBefore = finalv5profile.DrainCounts{InflightQueries: &zero,
+			PendingArtifacts: &zero, OpenReservations: &zero, ActiveServedRoots: &zero}
+		evidence.DrainObservationSHA256 = firstActivationDrainDigest()
 	}
 	if err := stopCatalogBoundServices(ctx, opts); err != nil {
 		evidence.Failures = append(evidence.Failures, "stop catalog-bound services: "+err.Error())
@@ -167,7 +251,11 @@ func run(opts options) error {
 	evidence.CacheIsolation.ProcessRestarted = previous == nil ||
 		previous.Activation.ProcessNonce != current.Activation.ProcessNonce
 	evidence.CacheIsolation.PreviousCacheUnreachable = evidence.CacheIsolation.ProcessRestarted
-	evidence.CacheIsolation.SemanticCacheCatalogBound = true
+	// SemanticCacheCatalogBound is only true when the switch actually changed
+	// the namespace every in-process and persisted lookup is keyed by.
+	evidence.CacheIsolation.SemanticCacheCatalogBound = previous == nil ||
+		(previous.Activation.CacheNamespace != current.Activation.CacheNamespace &&
+			previous.Activation.CatalogSHA256 != current.Activation.CatalogSHA256)
 	evidence.CacheIsolation.PreviousHotArtifactsRetired = previous == nil ||
 		!sharesArtifact(previous.Activation.HotArtifacts, current.Activation.HotArtifacts)
 	if current.Activation.CatalogSHA256 != profile.CatalogSHA256 {
@@ -177,9 +265,14 @@ func run(opts options) error {
 	evidence.GatewayImageID, evidence.GatewayContainerID = containerIdentity(ctx, opts)
 
 	for _, product := range splitProducts(opts.outsideProducts) {
-		refused, observed := probeOutsideProduct(current, product)
-		evidence.OutsideProduct = append(evidence.OutsideProduct,
-			finalv5profile.OutsideProductProbe{Product: product, Refused: refused, Observed: observed})
+		absent, observed := probeOutsideProduct(current, product)
+		liveRefused, classification, responseDigest := liveOutsideProductProbe(ctx, opts, product)
+		probe := finalv5profile.OutsideProductProbe{Product: product,
+			CatalogListAbsent: absent, LiveRequestRefused: liveRefused,
+			Refused: absent && liveRefused, Observed: observed,
+			Classification: classification, ResponseSHA256: responseDigest,
+			RequestedProductSHA256: productDigest(product)}
+		evidence.OutsideProduct = append(evidence.OutsideProduct, probe)
 	}
 	if len(evidence.Failures) == 0 {
 		evidence.Status = "pass"
@@ -220,6 +313,86 @@ type diagnosticResponse struct {
 		ProcessNonce       string `json:"process_instance_nonce"`
 		ProcessStartedUnix int64  `json:"process_started_unix"`
 	} `json:"activation"`
+	Drain struct {
+		Version string `json:"observer_version"`
+		Status  string `json:"status"`
+		SHA256  string `json:"observation_sha256"`
+		Error   string `json:"error,omitempty"`
+		Counts  *struct {
+			InflightQueries   *int64 `json:"inflight_queries"`
+			PendingArtifacts  *int64 `json:"pending_artifacts"`
+			OpenReservations  *int64 `json:"open_reservations"`
+			ActiveServedRoots *int64 `json:"active_served_roots"`
+		} `json:"counts"`
+	} `json:"drain"`
+}
+
+// resolveObservedProfile reverse-resolves which registered profile a running
+// Gateway is actually serving, from what it reports holding. The expected
+// profile ID is never written into evidence as if the Gateway had reported it:
+// zero or several matches is an activation failure.
+func resolveObservedProfile(registry finalv5profile.Registry, response *diagnosticResponse) (finalv5profile.Profile, error) {
+	observedArtifacts := make([]finalv5profile.ObservedArtifact, 0, len(response.Activation.HotArtifacts))
+	for _, artifact := range response.Activation.HotArtifacts {
+		observedArtifacts = append(observedArtifacts, finalv5profile.ObservedArtifact{
+			Identity: artifact.Publication, Digest: artifact.HotIndexDigest, Bytes: artifact.Bytes})
+	}
+	var matched []finalv5profile.Profile
+	for _, profile := range registry.Profiles {
+		if !profile.Status.CatalogMaterializable || profile.CatalogSHA256 != response.Activation.CatalogSHA256 {
+			continue
+		}
+		if !equalSets(profile.Closure.Products, response.Activation.Products) ||
+			!equalSets(profile.Closure.Publications, response.Activation.Publications) {
+			continue
+		}
+		if !equalArtifactSets(finalv5profile.ExpectedArtifacts(profile), observedArtifacts) {
+			continue
+		}
+		matched = append(matched, profile)
+	}
+	switch len(matched) {
+	case 1:
+		return matched[0], nil
+	case 0:
+		return finalv5profile.Profile{}, fmt.Errorf(
+			"the running Gateway serves Catalog %s, which matches no registered profile", response.Activation.CatalogSHA256)
+	default:
+		return finalv5profile.Profile{}, fmt.Errorf(
+			"the running Gateway matches %d registered profiles; profile identity is ambiguous", len(matched))
+	}
+}
+
+func equalSets(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	first := append([]string(nil), left...)
+	second := append([]string(nil), right...)
+	sort.Strings(first)
+	sort.Strings(second)
+	for index := range first {
+		if first[index] != second[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func equalArtifactSets(left, right []finalv5profile.ObservedArtifact) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	first := append([]finalv5profile.ObservedArtifact(nil), left...)
+	second := append([]finalv5profile.ObservedArtifact(nil), right...)
+	sort.Slice(first, func(a, b int) bool { return first[a].Identity < first[b].Identity })
+	sort.Slice(second, func(a, b int) bool { return second[a].Identity < second[b].Identity })
+	for index := range first {
+		if first[index] != second[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func probeOutsideProduct(response *diagnosticResponse, product string) (bool, string) {
@@ -390,6 +563,11 @@ func fileSHA256(path string) (string, error) {
 	return hex.EncodeToString(digest[:]), nil
 }
 
+func productDigest(product string) string {
+	digest := sha256.Sum256([]byte("taskgate-final-v5-outside-product-probe-v1\x00" + product))
+	return hex.EncodeToString(digest[:])
+}
+
 func splitProducts(value string) []string {
 	var products []string
 	for _, entry := range strings.Split(value, ",") {
@@ -398,4 +576,73 @@ func splitProducts(value string) []string {
 		}
 	}
 	return products
+}
+
+// liveOutsideProductProbe asks the running deployment, through the ordinary
+// public MCP task-request path, for a Product that belongs to a different
+// profile. A Catalog list check alone proves only what the file says; this
+// proves the deployment actually refuses to issue a task for it.
+//
+// It never touches Control directly and never calls an internal Go function in
+// place of the public API. It records a stable classification, not the raw
+// response: no token, no SQL, no identity, no secret.
+func liveOutsideProductProbe(ctx context.Context, opts options, product string) (bool, string, string) {
+	token := strings.TrimSpace(os.Getenv(opts.probeToken))
+	if token == "" {
+		return false, "probe_identity_absent", ""
+	}
+	payload, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+		"params": map[string]any{"name": "request_data_task", "arguments": map[string]any{
+			"objective":     "Stage B.2a-Live outside-Product refusal probe",
+			"data_products": []string{product},
+			"columns":       map[string][]string{product: {"department"}},
+			"scopes":        map[string]any{},
+		}}})
+	if err != nil {
+		return false, "probe_encode_failed", ""
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		strings.TrimRight(opts.gatewayURL, "/")+"/mcp", bytes.NewReader(payload))
+	if err != nil {
+		return false, "probe_request_failed", ""
+	}
+	request.Header.Set("Authorization", "Bearer "+token)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "application/json")
+	response, err := (&http.Client{Timeout: 30 * time.Second}).Do(request)
+	if err != nil {
+		return false, "probe_transport_failed", ""
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+	if err != nil {
+		return false, "probe_read_failed", ""
+	}
+	digest := sha256.Sum256(body)
+	responseDigest := hex.EncodeToString(digest[:])
+	if response.StatusCode != http.StatusOK {
+		return true, fmt.Sprintf("http_%d", response.StatusCode), responseDigest
+	}
+	var decoded struct {
+		Result *struct {
+			IsError           bool            `json:"isError"`
+			StructuredContent json.RawMessage `json:"structuredContent"`
+		} `json:"result"`
+		Error *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		return false, "probe_decode_failed", responseDigest
+	}
+	switch {
+	case decoded.Error != nil:
+		return true, fmt.Sprintf("jsonrpc_error_%d", decoded.Error.Code), responseDigest
+	case decoded.Result != nil && decoded.Result.IsError:
+		return true, "tool_error", responseDigest
+	default:
+		// The deployment issued a task for a Product outside its closure.
+		return false, "request_accepted", responseDigest
+	}
 }

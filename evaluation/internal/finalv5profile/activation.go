@@ -17,18 +17,31 @@ type ObservedArtifact struct {
 	Bytes    int64  `json:"bytes"`
 }
 
+// DrainObservationObserved is the only status that admits a DrainCounts value.
+const DrainObservationObserved = "observed"
+
 // DrainCounts are the pre-switch gates. A profile switch must not strand work.
+// The pointer fields are load bearing: a missing field must be distinguishable
+// from an observed zero, so "cannot observe" can never be serialized as
+// "nothing outstanding".
 type DrainCounts struct {
-	InflightQueries   int64 `json:"inflight_queries"`
-	PendingArtifacts  int64 `json:"pending_artifacts"`
-	OpenReservations  int64 `json:"open_reservations"`
-	ActiveServedRoots int64 `json:"active_served_roots"`
+	InflightQueries   *int64 `json:"inflight_queries"`
+	PendingArtifacts  *int64 `json:"pending_artifacts"`
+	OpenReservations  *int64 `json:"open_reservations"`
+	ActiveServedRoots *int64 `json:"active_served_roots"`
 }
 
-// Clean reports whether the previous profile can be stopped safely.
+// Complete reports whether every gate was actually reported.
+func (counts DrainCounts) Complete() bool {
+	return counts.InflightQueries != nil && counts.PendingArtifacts != nil &&
+		counts.OpenReservations != nil && counts.ActiveServedRoots != nil
+}
+
+// Clean reports whether the previous profile can be stopped safely. An
+// incomplete observation is never clean.
 func (counts DrainCounts) Clean() bool {
-	return counts.InflightQueries == 0 && counts.PendingArtifacts == 0 &&
-		counts.OpenReservations == 0 && counts.ActiveServedRoots == 0
+	return counts.Complete() && *counts.InflightQueries == 0 && *counts.PendingArtifacts == 0 &&
+		*counts.OpenReservations == 0 && *counts.ActiveServedRoots == 0
 }
 
 // CacheIsolation records the two isolation layers separately.
@@ -44,10 +57,17 @@ type CacheIsolation struct {
 }
 
 // OutsideProductProbe is the negative check that a closure is really closed.
+// A Catalog list check alone is not refusal evidence: it says what the file
+// declares, not what the deployment does. Both layers must hold.
 type OutsideProductProbe struct {
-	Product  string `json:"product"`
-	Refused  bool   `json:"refused"`
-	Observed string `json:"observed"`
+	Product                string `json:"product"`
+	RequestedProductSHA256 string `json:"requested_product_sha256"`
+	CatalogListAbsent      bool   `json:"catalog_list_absent"`
+	LiveRequestRefused     bool   `json:"live_request_refused"`
+	Refused                bool   `json:"refused"`
+	Observed               string `json:"observed"`
+	Classification         string `json:"classification"`
+	ResponseSHA256         string `json:"response_sha256,omitempty"`
 }
 
 // ActivationEvidence is the non-sensitive record of one profile activation. It
@@ -89,9 +109,12 @@ type ActivationEvidence struct {
 	ActualHotBytes       int64              `json:"actual_hot_bytes"`
 	HotLimitBytes        int64              `json:"hot_limit_bytes"`
 
-	DrainBefore    DrainCounts           `json:"drain_before"`
-	CacheIsolation CacheIsolation        `json:"cache_isolation"`
-	OutsideProduct []OutsideProductProbe `json:"outside_product_probes"`
+	DrainBefore            DrainCounts           `json:"drain_before"`
+	DrainObservationStatus string                `json:"drain_observation_status"`
+	DrainObserverVersion   string                `json:"drain_observer_version"`
+	DrainObservationSHA256 string                `json:"drain_observation_sha256"`
+	CacheIsolation         CacheIsolation        `json:"cache_isolation"`
+	OutsideProduct         []OutsideProductProbe `json:"outside_product_probes"`
 
 	// ActivationSmokePassed and WorkloadTargetedValidationPassed are separate
 	// on purpose: activating a Catalog is not the same as executing the
@@ -137,8 +160,21 @@ func ValidateActivationEvidence(evidence ActivationEvidence, profile Profile) er
 		return fmt.Errorf("profile %q activated %d HOT bytes against the %d byte %s",
 			profile.Alias, evidence.ActualHotBytes, MaxHotBytesPerInstance, HotLimitScope)
 	}
+	// An unobserved drain is a failure, not an empty one.
+	if evidence.DrainObservationStatus != DrainObservationObserved {
+		return fmt.Errorf("profile %q was activated without an observed drain (status %q)",
+			profile.Alias, evidence.DrainObservationStatus)
+	}
+	if strings.TrimSpace(evidence.DrainObserverVersion) == "" || !validDigest(evidence.DrainObservationSHA256) {
+		return fmt.Errorf("profile %q drain observation is not attributable", profile.Alias)
+	}
+	if !evidence.DrainBefore.Complete() {
+		return fmt.Errorf("profile %q drain observation omits a gate", profile.Alias)
+	}
 	if !evidence.DrainBefore.Clean() {
-		return fmt.Errorf("profile %q was activated while %+v remained", profile.Alias, evidence.DrainBefore)
+		return fmt.Errorf("profile %q was activated while work remained: inflight=%d pending=%d reservations=%d roots=%d",
+			profile.Alias, *evidence.DrainBefore.InflightQueries, *evidence.DrainBefore.PendingArtifacts,
+			*evidence.DrainBefore.OpenReservations, *evidence.DrainBefore.ActiveServedRoots)
 	}
 	if !evidence.CacheIsolation.ProcessRestarted || !evidence.CacheIsolation.PreviousCacheUnreachable ||
 		!evidence.CacheIsolation.SemanticCacheCatalogBound {
@@ -156,8 +192,13 @@ func ValidateActivationEvidence(evidence ActivationEvidence, profile Profile) er
 		return fmt.Errorf("profile %q ran no outside-Product negative probe", profile.Alias)
 	}
 	for _, probe := range evidence.OutsideProduct {
-		if !probe.Refused {
-			return fmt.Errorf("profile %q served outside-closure Product %q", profile.Alias, probe.Product)
+		if !probe.CatalogListAbsent || !probe.LiveRequestRefused || !probe.Refused {
+			return fmt.Errorf("profile %q outside-Product probe for %q is incomplete: catalog_absent=%t live_refused=%t",
+				profile.Alias, probe.Product, probe.CatalogListAbsent, probe.LiveRequestRefused)
+		}
+		if strings.TrimSpace(probe.Classification) == "" {
+			return fmt.Errorf("profile %q outside-Product refusal for %q has no stable classification",
+				profile.Alias, probe.Product)
 		}
 		if contains(profile.Closure.Products, probe.Product) {
 			return fmt.Errorf("profile %q probed %q, which is inside its own closure", profile.Alias, probe.Product)
@@ -179,6 +220,18 @@ func ExpectedArtifacts(profile Profile) []ObservedArtifact {
 	}
 	sort.Slice(artifacts, func(left, right int) bool { return artifacts[left].Identity < artifacts[right].Identity })
 	return artifacts
+}
+
+func validDigest(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+	for _, character := range value {
+		if (character < '0' || character > '9') && (character < 'a' || character > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 func equalStringSets(left, right []string) bool {

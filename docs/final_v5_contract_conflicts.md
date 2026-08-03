@@ -209,6 +209,58 @@ something the paper reports:
 Until it is resolved no Artifact cell can execute against a running Gateway,
 so `artifact` remains `false` and the capability report remains `6/9`.
 
+## C12 — Profile activation needs a per-profile snapshot artifact directory
+
+Found by the Stage B.2a-Live activation smoke against a real deployment.
+
+`cmd/gateway/snapshot_loader.go` requires the snapshot artifact directory to
+contain exactly the publications the active Catalog declares. It rejects an
+extra directory with `snapshot artifact directory contains undeclared
+publication`. That check is correct and must not be relaxed.
+
+The shared `snapshot-index-artifacts` volume holds all six compiled
+publications, because one compiler pass builds them all. A profile Catalog
+declares only its own closure -- `final-v5-result-heavy-v1` for the
+result-heavy profile -- so a Gateway started on that Catalog against the shared
+volume fails closed on the other five directories:
+
+    load: snapshot artifact directory contains undeclared publication
+          "expense-detail-v1"
+
+Activating a profile therefore requires swapping the artifact directory as well
+as the Catalog: `GATEWAY_SNAPSHOT_ARTIFACT_DIR` must point at a directory
+holding exactly the closure's publication bundles. Swapping only the Catalog is
+not sufficient, and no profile has been activated yet for this reason.
+
+This is a deployment-layer gap, not a contract change: contract v1.2 already
+says a Catalog-bound instance activates one closure at a time. Resolving it does
+not alter the profile unit, the closure digests, the HOT ceiling or any Oracle.
+
+## C13 — Cross-profile semantic replay cannot be tested with the current profiles
+
+The persisted semantic-replay isolation test requires one logical query that is
+legal under two different live-route profiles. The seven Catalog-and-route
+cleared profiles have pairwise disjoint Product closures:
+
+| profile | Products |
+| --- | --- |
+| result-heavy | `final_v5_result_heavy` |
+| provsql-nonce-join | `provsql_orders`, `provsql_lineitem`, `provsql_nonce` |
+| expense-detail | `expense_detail` |
+| attack-expense-detail | `final_v5_attack_expense_detail` |
+| concurrency-expense-detail | `final_v5_concurrency_expense_detail` |
+| rls-unlimited | `final_v5_rls_unlimited_expense_detail` |
+| rls-bounded | `final_v5_rls_bounded_expense_detail` |
+
+Five of them share the Publication `expense-detail-v1`, but each exposes it
+through a different Product, so a query legal under one is refused by another by
+construction. No pair admits the same logical query, and the test is therefore
+`SEMANTIC CACHE ISOLATION TEST BLOCKED`.
+
+Comparing digests across profiles is explicitly not accepted as a substitute.
+Resolving this needs either a reviewed profile pair that shares a Product, or an
+author decision that cross-profile replay isolation is proven some other way.
+
 No generated digest is frozen by this register. A generated value first becomes
 a `REVIEW_CANDIDATE`; only explicit author review may change its status to
 approved/frozen. Until every conflict required by a claim is resolved,

@@ -324,7 +324,7 @@ func main() {
 	router.Handle("/api/v1/oa/callback", service.OACallbackHandler())
 	router.Handle("/api/v1/results/{result_id}/download", service.ResultDownloadHandler())
 	mountRetentionAdmin(router, store, retention, logger, service)
-	mountProfileDiagnostic(router, activatedSnapshotState, retention.AdminToken, service.ReadyError)
+	mountProfileDiagnostic(router, activatedSnapshotState, retention.AdminToken, service.ReadyError, store.DB())
 
 	go sweepExpired(ctx, store, logger)
 	go sweepPendingResultArtifacts(ctx, service, logger)
