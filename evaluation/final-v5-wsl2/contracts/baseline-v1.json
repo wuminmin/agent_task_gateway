@@ -1,0 +1,5859 @@
+{
+  "schema_version": 1,
+  "contract_version": "taskgate-final-v5-author-contract-v1",
+  "status": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+  "research_design_status": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+  "exact_generated_bytes_freeze_status": "NOT_APPROVED",
+  "experiment_id": "baseline",
+  "protocol_profile": "baseline",
+  "protocol_matrix": {
+    "source": "protocol/workloads-v1.yaml#profiles.baseline",
+    "workload_manifest_sha256": "c5a921581dd8ab3e43d940504c5c0e537b913cc6107f78116ca91650fa1aaee7",
+    "bytes_and_labels_unchanged": true,
+    "expected_expanded_cell_count": 58
+  },
+  "references": {
+    "products": "contracts/benchmark-products-v1.json",
+    "normalization": "contracts/result-normalization-v1.json",
+    "oracle_policy": "contracts/oracle-policy-v1.json",
+    "conflicts": "../../../docs/final_v5_contract_conflicts.md"
+  },
+  "required_cell_fields": [
+    "workload",
+    "scale",
+    "mode",
+    "product",
+    "publication",
+    "query",
+    "direct",
+    "bdg",
+    "setup",
+    "measured",
+    "expected",
+    "oracle",
+    "negative",
+    "claims",
+    "status"
+  ],
+  "workload_specs": {
+    "S1": {
+      "query": "single Product; SF1/SF10 are 5,000/50,000 key thresholds on frozen provsql_orders"
+    },
+    "S2": {
+      "query": "connected inner equijoin plus status grouping on frozen provsql_orders/provsql_lineitem; same thresholds; no nonce; the evaluation normalizer applies canonical typed-row ordering because production multi-source lowering forbids ORDER BY"
+    },
+    "S3": {
+      "query": "one member_rank result column from final_v5_exposure_scale; four predicate fields plus base row produce exactly five dependency Facts per retained row"
+    },
+    "S4": {
+      "query": "four layers are fixed filter/projection, connected join, aggregate, root projection; outer query only projects and evaluation canonical typed-row ordering supplies deterministic comparison",
+      "root_view_contract": {
+        "profile_version": "taskgate-view-contract-v1",
+        "definition_digest": null,
+        "dependency_digest": null,
+        "canonical_plan_digest": null,
+        "interface_digest": null,
+        "digest_generation_status": "PENDING_LIVE_POSTGRESQL_GENERATION",
+        "digest_review_status": "NOT_APPROVED"
+      }
+    },
+    "S5": {
+      "query": "Direct uses SQL UNION DISTINCT; BDG uses execute_plan structured union; right branch is an exact half-size subset; evaluation canonical typed-row ordering is outside the measured query"
+    },
+    "S6": {
+      "query": "100/10k/100k rows at x4/x16; x4 is exact leading projection of sixteen real fields; shared with Artifact"
+    }
+  },
+  "cells": [
+    {
+      "workload": "S1",
+      "scale": "SF1",
+      "mode": "direct",
+      "product": {
+        "ids": [
+          "provsql_orders"
+        ],
+        "catalog_binding_status": "EXISTING_PRODUCT_REUSED"
+      },
+      "publication": {
+        "ids": [
+          "provsql-orders-v1"
+        ],
+        "binding_status": "EXISTING_PUBLICATION_REUSED"
+      },
+      "query": {
+        "spec_id": "baseline/S1/SF1",
+        "parameters": {
+          "orderkey_max": 5000
+        },
+        "template": "sql/contracts/S1-direct.sql",
+        "total_order_required": true,
+        "result_ordering": "query_order_v1"
+      },
+      "direct": {
+        "active": true,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S1-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": false,
+        "entrypoint": "query",
+        "template": "sql/contracts/S1-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "direct"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 5000,
+        "column_count": 2,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S1/SF1/direct.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered S1 overhead decomposition",
+          "registered replay/rewrite behavior"
+        ],
+        "prohibited": [
+          "universal SQL overhead",
+          "enterprise-query generalization"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S1",
+      "scale": "SF1",
+      "mode": "novel",
+      "product": {
+        "ids": [
+          "provsql_orders"
+        ],
+        "catalog_binding_status": "EXISTING_PRODUCT_REUSED"
+      },
+      "publication": {
+        "ids": [
+          "provsql-orders-v1"
+        ],
+        "binding_status": "EXISTING_PUBLICATION_REUSED"
+      },
+      "query": {
+        "spec_id": "baseline/S1/SF1",
+        "parameters": {
+          "orderkey_max": 5000
+        },
+        "template": "sql/contracts/S1-bdg.sql",
+        "total_order_required": true,
+        "result_ordering": "query_order_v1"
+      },
+      "direct": {
+        "active": false,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S1-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": true,
+        "entrypoint": "query",
+        "template": "sql/contracts/S1-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "novel"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 5000,
+        "column_count": 2,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S1/SF1/novel.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered S1 overhead decomposition",
+          "registered replay/rewrite behavior"
+        ],
+        "prohibited": [
+          "universal SQL overhead",
+          "enterprise-query generalization"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S1",
+      "scale": "SF1",
+      "mode": "semantic_replay",
+      "product": {
+        "ids": [
+          "provsql_orders"
+        ],
+        "catalog_binding_status": "EXISTING_PRODUCT_REUSED"
+      },
+      "publication": {
+        "ids": [
+          "provsql-orders-v1"
+        ],
+        "binding_status": "EXISTING_PUBLICATION_REUSED"
+      },
+      "query": {
+        "spec_id": "baseline/S1/SF1",
+        "parameters": {
+          "orderkey_max": 5000
+        },
+        "template": "sql/contracts/S1-bdg.sql",
+        "total_order_required": true,
+        "result_ordering": "query_order_v1"
+      },
+      "direct": {
+        "active": false,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S1-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": true,
+        "entrypoint": "query",
+        "template": "sql/contracts/S1-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "semantic_replay"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 5000,
+        "column_count": 2,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S1/SF1/semantic_replay.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered S1 overhead decomposition",
+          "registered replay/rewrite behavior"
+        ],
+        "prohibited": [
+          "universal SQL overhead",
+          "enterprise-query generalization"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S1",
+      "scale": "SF1",
+      "mode": "idempotent_replay",
+      "product": {
+        "ids": [
+          "provsql_orders"
+        ],
+        "catalog_binding_status": "EXISTING_PRODUCT_REUSED"
+      },
+      "publication": {
+        "ids": [
+          "provsql-orders-v1"
+        ],
+        "binding_status": "EXISTING_PUBLICATION_REUSED"
+      },
+      "query": {
+        "spec_id": "baseline/S1/SF1",
+        "parameters": {
+          "orderkey_max": 5000
+        },
+        "template": "sql/contracts/S1-bdg.sql",
+        "total_order_required": true,
+        "result_ordering": "query_order_v1"
+      },
+      "direct": {
+        "active": false,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S1-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": true,
+        "entrypoint": "query",
+        "template": "sql/contracts/S1-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "idempotent_replay"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 5000,
+        "column_count": 2,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S1/SF1/idempotent_replay.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered S1 overhead decomposition",
+          "registered replay/rewrite behavior"
+        ],
+        "prohibited": [
+          "universal SQL overhead",
+          "enterprise-query generalization"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S1",
+      "scale": "SF1",
+      "mode": "normalized_rewrite_replay",
+      "product": {
+        "ids": [
+          "provsql_orders"
+        ],
+        "catalog_binding_status": "EXISTING_PRODUCT_REUSED"
+      },
+      "publication": {
+        "ids": [
+          "provsql-orders-v1"
+        ],
+        "binding_status": "EXISTING_PUBLICATION_REUSED"
+      },
+      "query": {
+        "spec_id": "baseline/S1/SF1",
+        "parameters": {
+          "orderkey_max": 5000
+        },
+        "template": "sql/contracts/S1-bdg.sql",
+        "total_order_required": true,
+        "result_ordering": "query_order_v1"
+      },
+      "direct": {
+        "active": false,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S1-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": true,
+        "entrypoint": "query",
+        "template": "sql/contracts/S1-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "normalized_rewrite_replay"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 5000,
+        "column_count": 2,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S1/SF1/normalized_rewrite_replay.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered S1 overhead decomposition",
+          "registered replay/rewrite behavior"
+        ],
+        "prohibited": [
+          "universal SQL overhead",
+          "enterprise-query generalization"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S1",
+      "scale": "SF10",
+      "mode": "direct",
+      "product": {
+        "ids": [
+          "provsql_orders"
+        ],
+        "catalog_binding_status": "EXISTING_PRODUCT_REUSED"
+      },
+      "publication": {
+        "ids": [
+          "provsql-orders-v1"
+        ],
+        "binding_status": "EXISTING_PUBLICATION_REUSED"
+      },
+      "query": {
+        "spec_id": "baseline/S1/SF10",
+        "parameters": {
+          "orderkey_max": 50000
+        },
+        "template": "sql/contracts/S1-direct.sql",
+        "total_order_required": true,
+        "result_ordering": "query_order_v1"
+      },
+      "direct": {
+        "active": true,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S1-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": false,
+        "entrypoint": "query",
+        "template": "sql/contracts/S1-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "direct"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 50000,
+        "column_count": 2,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S1/SF10/direct.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered S1 overhead decomposition",
+          "registered replay/rewrite behavior"
+        ],
+        "prohibited": [
+          "universal SQL overhead",
+          "enterprise-query generalization"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S1",
+      "scale": "SF10",
+      "mode": "novel",
+      "product": {
+        "ids": [
+          "provsql_orders"
+        ],
+        "catalog_binding_status": "EXISTING_PRODUCT_REUSED"
+      },
+      "publication": {
+        "ids": [
+          "provsql-orders-v1"
+        ],
+        "binding_status": "EXISTING_PUBLICATION_REUSED"
+      },
+      "query": {
+        "spec_id": "baseline/S1/SF10",
+        "parameters": {
+          "orderkey_max": 50000
+        },
+        "template": "sql/contracts/S1-bdg.sql",
+        "total_order_required": true,
+        "result_ordering": "query_order_v1"
+      },
+      "direct": {
+        "active": false,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S1-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": true,
+        "entrypoint": "query",
+        "template": "sql/contracts/S1-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "novel"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 50000,
+        "column_count": 2,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S1/SF10/novel.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered S1 overhead decomposition",
+          "registered replay/rewrite behavior"
+        ],
+        "prohibited": [
+          "universal SQL overhead",
+          "enterprise-query generalization"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S1",
+      "scale": "SF10",
+      "mode": "semantic_replay",
+      "product": {
+        "ids": [
+          "provsql_orders"
+        ],
+        "catalog_binding_status": "EXISTING_PRODUCT_REUSED"
+      },
+      "publication": {
+        "ids": [
+          "provsql-orders-v1"
+        ],
+        "binding_status": "EXISTING_PUBLICATION_REUSED"
+      },
+      "query": {
+        "spec_id": "baseline/S1/SF10",
+        "parameters": {
+          "orderkey_max": 50000
+        },
+        "template": "sql/contracts/S1-bdg.sql",
+        "total_order_required": true,
+        "result_ordering": "query_order_v1"
+      },
+      "direct": {
+        "active": false,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S1-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": true,
+        "entrypoint": "query",
+        "template": "sql/contracts/S1-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "semantic_replay"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 50000,
+        "column_count": 2,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S1/SF10/semantic_replay.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered S1 overhead decomposition",
+          "registered replay/rewrite behavior"
+        ],
+        "prohibited": [
+          "universal SQL overhead",
+          "enterprise-query generalization"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S1",
+      "scale": "SF10",
+      "mode": "idempotent_replay",
+      "product": {
+        "ids": [
+          "provsql_orders"
+        ],
+        "catalog_binding_status": "EXISTING_PRODUCT_REUSED"
+      },
+      "publication": {
+        "ids": [
+          "provsql-orders-v1"
+        ],
+        "binding_status": "EXISTING_PUBLICATION_REUSED"
+      },
+      "query": {
+        "spec_id": "baseline/S1/SF10",
+        "parameters": {
+          "orderkey_max": 50000
+        },
+        "template": "sql/contracts/S1-bdg.sql",
+        "total_order_required": true,
+        "result_ordering": "query_order_v1"
+      },
+      "direct": {
+        "active": false,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S1-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": true,
+        "entrypoint": "query",
+        "template": "sql/contracts/S1-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "idempotent_replay"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 50000,
+        "column_count": 2,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S1/SF10/idempotent_replay.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered S1 overhead decomposition",
+          "registered replay/rewrite behavior"
+        ],
+        "prohibited": [
+          "universal SQL overhead",
+          "enterprise-query generalization"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S1",
+      "scale": "SF10",
+      "mode": "normalized_rewrite_replay",
+      "product": {
+        "ids": [
+          "provsql_orders"
+        ],
+        "catalog_binding_status": "EXISTING_PRODUCT_REUSED"
+      },
+      "publication": {
+        "ids": [
+          "provsql-orders-v1"
+        ],
+        "binding_status": "EXISTING_PUBLICATION_REUSED"
+      },
+      "query": {
+        "spec_id": "baseline/S1/SF10",
+        "parameters": {
+          "orderkey_max": 50000
+        },
+        "template": "sql/contracts/S1-bdg.sql",
+        "total_order_required": true,
+        "result_ordering": "query_order_v1"
+      },
+      "direct": {
+        "active": false,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S1-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": true,
+        "entrypoint": "query",
+        "template": "sql/contracts/S1-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "normalized_rewrite_replay"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 50000,
+        "column_count": 2,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S1/SF10/normalized_rewrite_replay.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered S1 overhead decomposition",
+          "registered replay/rewrite behavior"
+        ],
+        "prohibited": [
+          "universal SQL overhead",
+          "enterprise-query generalization"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S2",
+      "scale": "SF1",
+      "mode": "direct",
+      "product": {
+        "ids": [
+          "provsql_orders",
+          "provsql_lineitem"
+        ],
+        "catalog_binding_status": "EXISTING_PRODUCT_REUSED"
+      },
+      "publication": {
+        "ids": [
+          "provsql-orders-v1",
+          "provsql-lineitem-v1"
+        ],
+        "binding_status": "EXISTING_PUBLICATION_REUSED"
+      },
+      "query": {
+        "spec_id": "baseline/S2/SF1",
+        "parameters": {
+          "orderkey_max": 5000
+        },
+        "template": "sql/contracts/S2-direct.sql",
+        "total_order_required": false,
+        "result_ordering": "canonical_typed_row_lexicographic_v1"
+      },
+      "direct": {
+        "active": true,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S2-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": false,
+        "entrypoint": "query",
+        "template": "sql/contracts/S2-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "direct"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 3,
+        "column_count": 3,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S2/SF1/direct.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered connected Join-Group equivalence and overhead",
+          "separately registered ProvSQL common-data comparison"
+        ],
+        "prohibited": [
+          "global winner claim",
+          "all join topologies"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S2",
+      "scale": "SF1",
+      "mode": "novel",
+      "product": {
+        "ids": [
+          "provsql_orders",
+          "provsql_lineitem"
+        ],
+        "catalog_binding_status": "EXISTING_PRODUCT_REUSED"
+      },
+      "publication": {
+        "ids": [
+          "provsql-orders-v1",
+          "provsql-lineitem-v1"
+        ],
+        "binding_status": "EXISTING_PUBLICATION_REUSED"
+      },
+      "query": {
+        "spec_id": "baseline/S2/SF1",
+        "parameters": {
+          "orderkey_max": 5000
+        },
+        "template": "sql/contracts/S2-bdg.sql",
+        "total_order_required": false,
+        "result_ordering": "canonical_typed_row_lexicographic_v1"
+      },
+      "direct": {
+        "active": false,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S2-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": true,
+        "entrypoint": "query",
+        "template": "sql/contracts/S2-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "novel"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 3,
+        "column_count": 3,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S2/SF1/novel.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered connected Join-Group equivalence and overhead",
+          "separately registered ProvSQL common-data comparison"
+        ],
+        "prohibited": [
+          "global winner claim",
+          "all join topologies"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S2",
+      "scale": "SF1",
+      "mode": "semantic_replay",
+      "product": {
+        "ids": [
+          "provsql_orders",
+          "provsql_lineitem"
+        ],
+        "catalog_binding_status": "EXISTING_PRODUCT_REUSED"
+      },
+      "publication": {
+        "ids": [
+          "provsql-orders-v1",
+          "provsql-lineitem-v1"
+        ],
+        "binding_status": "EXISTING_PUBLICATION_REUSED"
+      },
+      "query": {
+        "spec_id": "baseline/S2/SF1",
+        "parameters": {
+          "orderkey_max": 5000
+        },
+        "template": "sql/contracts/S2-bdg.sql",
+        "total_order_required": false,
+        "result_ordering": "canonical_typed_row_lexicographic_v1"
+      },
+      "direct": {
+        "active": false,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S2-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": true,
+        "entrypoint": "query",
+        "template": "sql/contracts/S2-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "semantic_replay"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 3,
+        "column_count": 3,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S2/SF1/semantic_replay.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered connected Join-Group equivalence and overhead",
+          "separately registered ProvSQL common-data comparison"
+        ],
+        "prohibited": [
+          "global winner claim",
+          "all join topologies"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S2",
+      "scale": "SF1",
+      "mode": "idempotent_replay",
+      "product": {
+        "ids": [
+          "provsql_orders",
+          "provsql_lineitem"
+        ],
+        "catalog_binding_status": "EXISTING_PRODUCT_REUSED"
+      },
+      "publication": {
+        "ids": [
+          "provsql-orders-v1",
+          "provsql-lineitem-v1"
+        ],
+        "binding_status": "EXISTING_PUBLICATION_REUSED"
+      },
+      "query": {
+        "spec_id": "baseline/S2/SF1",
+        "parameters": {
+          "orderkey_max": 5000
+        },
+        "template": "sql/contracts/S2-bdg.sql",
+        "total_order_required": false,
+        "result_ordering": "canonical_typed_row_lexicographic_v1"
+      },
+      "direct": {
+        "active": false,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S2-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": true,
+        "entrypoint": "query",
+        "template": "sql/contracts/S2-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "idempotent_replay"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 3,
+        "column_count": 3,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S2/SF1/idempotent_replay.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered connected Join-Group equivalence and overhead",
+          "separately registered ProvSQL common-data comparison"
+        ],
+        "prohibited": [
+          "global winner claim",
+          "all join topologies"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S2",
+      "scale": "SF1",
+      "mode": "normalized_rewrite_replay",
+      "product": {
+        "ids": [
+          "provsql_orders",
+          "provsql_lineitem"
+        ],
+        "catalog_binding_status": "EXISTING_PRODUCT_REUSED"
+      },
+      "publication": {
+        "ids": [
+          "provsql-orders-v1",
+          "provsql-lineitem-v1"
+        ],
+        "binding_status": "EXISTING_PUBLICATION_REUSED"
+      },
+      "query": {
+        "spec_id": "baseline/S2/SF1",
+        "parameters": {
+          "orderkey_max": 5000
+        },
+        "template": "sql/contracts/S2-bdg.sql",
+        "total_order_required": false,
+        "result_ordering": "canonical_typed_row_lexicographic_v1"
+      },
+      "direct": {
+        "active": false,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S2-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": true,
+        "entrypoint": "query",
+        "template": "sql/contracts/S2-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "normalized_rewrite_replay"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 3,
+        "column_count": 3,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S2/SF1/normalized_rewrite_replay.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered connected Join-Group equivalence and overhead",
+          "separately registered ProvSQL common-data comparison"
+        ],
+        "prohibited": [
+          "global winner claim",
+          "all join topologies"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S2",
+      "scale": "SF10",
+      "mode": "direct",
+      "product": {
+        "ids": [
+          "provsql_orders",
+          "provsql_lineitem"
+        ],
+        "catalog_binding_status": "EXISTING_PRODUCT_REUSED"
+      },
+      "publication": {
+        "ids": [
+          "provsql-orders-v1",
+          "provsql-lineitem-v1"
+        ],
+        "binding_status": "EXISTING_PUBLICATION_REUSED"
+      },
+      "query": {
+        "spec_id": "baseline/S2/SF10",
+        "parameters": {
+          "orderkey_max": 50000
+        },
+        "template": "sql/contracts/S2-direct.sql",
+        "total_order_required": false,
+        "result_ordering": "canonical_typed_row_lexicographic_v1"
+      },
+      "direct": {
+        "active": true,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S2-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": false,
+        "entrypoint": "query",
+        "template": "sql/contracts/S2-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "direct"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 3,
+        "column_count": 3,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S2/SF10/direct.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered connected Join-Group equivalence and overhead",
+          "separately registered ProvSQL common-data comparison"
+        ],
+        "prohibited": [
+          "global winner claim",
+          "all join topologies"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S2",
+      "scale": "SF10",
+      "mode": "novel",
+      "product": {
+        "ids": [
+          "provsql_orders",
+          "provsql_lineitem"
+        ],
+        "catalog_binding_status": "EXISTING_PRODUCT_REUSED"
+      },
+      "publication": {
+        "ids": [
+          "provsql-orders-v1",
+          "provsql-lineitem-v1"
+        ],
+        "binding_status": "EXISTING_PUBLICATION_REUSED"
+      },
+      "query": {
+        "spec_id": "baseline/S2/SF10",
+        "parameters": {
+          "orderkey_max": 50000
+        },
+        "template": "sql/contracts/S2-bdg.sql",
+        "total_order_required": false,
+        "result_ordering": "canonical_typed_row_lexicographic_v1"
+      },
+      "direct": {
+        "active": false,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S2-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": true,
+        "entrypoint": "query",
+        "template": "sql/contracts/S2-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "novel"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 3,
+        "column_count": 3,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S2/SF10/novel.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered connected Join-Group equivalence and overhead",
+          "separately registered ProvSQL common-data comparison"
+        ],
+        "prohibited": [
+          "global winner claim",
+          "all join topologies"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S2",
+      "scale": "SF10",
+      "mode": "semantic_replay",
+      "product": {
+        "ids": [
+          "provsql_orders",
+          "provsql_lineitem"
+        ],
+        "catalog_binding_status": "EXISTING_PRODUCT_REUSED"
+      },
+      "publication": {
+        "ids": [
+          "provsql-orders-v1",
+          "provsql-lineitem-v1"
+        ],
+        "binding_status": "EXISTING_PUBLICATION_REUSED"
+      },
+      "query": {
+        "spec_id": "baseline/S2/SF10",
+        "parameters": {
+          "orderkey_max": 50000
+        },
+        "template": "sql/contracts/S2-bdg.sql",
+        "total_order_required": false,
+        "result_ordering": "canonical_typed_row_lexicographic_v1"
+      },
+      "direct": {
+        "active": false,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S2-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": true,
+        "entrypoint": "query",
+        "template": "sql/contracts/S2-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "semantic_replay"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 3,
+        "column_count": 3,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S2/SF10/semantic_replay.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered connected Join-Group equivalence and overhead",
+          "separately registered ProvSQL common-data comparison"
+        ],
+        "prohibited": [
+          "global winner claim",
+          "all join topologies"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S2",
+      "scale": "SF10",
+      "mode": "idempotent_replay",
+      "product": {
+        "ids": [
+          "provsql_orders",
+          "provsql_lineitem"
+        ],
+        "catalog_binding_status": "EXISTING_PRODUCT_REUSED"
+      },
+      "publication": {
+        "ids": [
+          "provsql-orders-v1",
+          "provsql-lineitem-v1"
+        ],
+        "binding_status": "EXISTING_PUBLICATION_REUSED"
+      },
+      "query": {
+        "spec_id": "baseline/S2/SF10",
+        "parameters": {
+          "orderkey_max": 50000
+        },
+        "template": "sql/contracts/S2-bdg.sql",
+        "total_order_required": false,
+        "result_ordering": "canonical_typed_row_lexicographic_v1"
+      },
+      "direct": {
+        "active": false,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S2-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": true,
+        "entrypoint": "query",
+        "template": "sql/contracts/S2-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "idempotent_replay"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 3,
+        "column_count": 3,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S2/SF10/idempotent_replay.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered connected Join-Group equivalence and overhead",
+          "separately registered ProvSQL common-data comparison"
+        ],
+        "prohibited": [
+          "global winner claim",
+          "all join topologies"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S2",
+      "scale": "SF10",
+      "mode": "normalized_rewrite_replay",
+      "product": {
+        "ids": [
+          "provsql_orders",
+          "provsql_lineitem"
+        ],
+        "catalog_binding_status": "EXISTING_PRODUCT_REUSED"
+      },
+      "publication": {
+        "ids": [
+          "provsql-orders-v1",
+          "provsql-lineitem-v1"
+        ],
+        "binding_status": "EXISTING_PUBLICATION_REUSED"
+      },
+      "query": {
+        "spec_id": "baseline/S2/SF10",
+        "parameters": {
+          "orderkey_max": 50000
+        },
+        "template": "sql/contracts/S2-bdg.sql",
+        "total_order_required": false,
+        "result_ordering": "canonical_typed_row_lexicographic_v1"
+      },
+      "direct": {
+        "active": false,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S2-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": true,
+        "entrypoint": "query",
+        "template": "sql/contracts/S2-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "normalized_rewrite_replay"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 3,
+        "column_count": 3,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S2/SF10/normalized_rewrite_replay.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered connected Join-Group equivalence and overhead",
+          "separately registered ProvSQL common-data comparison"
+        ],
+        "prohibited": [
+          "global winner claim",
+          "all join topologies"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S3",
+      "scale": "1k-5k",
+      "mode": "direct",
+      "product": {
+        "ids": [
+          "final_v5_exposure_scale"
+        ],
+        "catalog_binding_status": "PENDING_CANDIDATE_SELECTION_AND_LIVE_BINDING"
+      },
+      "publication": {
+        "ids": [
+          "final-v5-exposure-scale-v1"
+        ],
+        "binding_status": "PENDING_GENERATION"
+      },
+      "query": {
+        "spec_id": "baseline/S3/1k-5k",
+        "parameters": {
+          "member_max": 1000
+        },
+        "template": "sql/contracts/S3-direct.sql",
+        "total_order_required": true,
+        "result_ordering": "query_order_v1"
+      },
+      "direct": {
+        "active": true,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S3-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": false,
+        "entrypoint": "query",
+        "template": "sql/contracts/S3-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "direct"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 1000,
+        "column_count": 1,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": 1000,
+        "dependency_candidate_cardinality": 5000,
+        "outcome_candidate_cardinality": 5,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S3/1k-5k/direct.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered 1:5 release-to-dependency candidate ratio"
+        ],
+        "prohibited": [
+          "general provenance compression ratio"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S3",
+      "scale": "1k-5k",
+      "mode": "novel",
+      "product": {
+        "ids": [
+          "final_v5_exposure_scale"
+        ],
+        "catalog_binding_status": "PENDING_CANDIDATE_SELECTION_AND_LIVE_BINDING"
+      },
+      "publication": {
+        "ids": [
+          "final-v5-exposure-scale-v1"
+        ],
+        "binding_status": "PENDING_GENERATION"
+      },
+      "query": {
+        "spec_id": "baseline/S3/1k-5k",
+        "parameters": {
+          "member_max": 1000
+        },
+        "template": "sql/contracts/S3-bdg.sql",
+        "total_order_required": true,
+        "result_ordering": "query_order_v1"
+      },
+      "direct": {
+        "active": false,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S3-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": true,
+        "entrypoint": "query",
+        "template": "sql/contracts/S3-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "novel"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 1000,
+        "column_count": 1,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": 1000,
+        "dependency_candidate_cardinality": 5000,
+        "outcome_candidate_cardinality": 5,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S3/1k-5k/novel.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered 1:5 release-to-dependency candidate ratio"
+        ],
+        "prohibited": [
+          "general provenance compression ratio"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S3",
+      "scale": "1k-5k",
+      "mode": "semantic_replay",
+      "product": {
+        "ids": [
+          "final_v5_exposure_scale"
+        ],
+        "catalog_binding_status": "PENDING_CANDIDATE_SELECTION_AND_LIVE_BINDING"
+      },
+      "publication": {
+        "ids": [
+          "final-v5-exposure-scale-v1"
+        ],
+        "binding_status": "PENDING_GENERATION"
+      },
+      "query": {
+        "spec_id": "baseline/S3/1k-5k",
+        "parameters": {
+          "member_max": 1000
+        },
+        "template": "sql/contracts/S3-bdg.sql",
+        "total_order_required": true,
+        "result_ordering": "query_order_v1"
+      },
+      "direct": {
+        "active": false,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S3-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": true,
+        "entrypoint": "query",
+        "template": "sql/contracts/S3-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "semantic_replay"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 1000,
+        "column_count": 1,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": 1000,
+        "dependency_candidate_cardinality": 5000,
+        "outcome_candidate_cardinality": 5,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S3/1k-5k/semantic_replay.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered 1:5 release-to-dependency candidate ratio"
+        ],
+        "prohibited": [
+          "general provenance compression ratio"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S3",
+      "scale": "1k-5k",
+      "mode": "idempotent_replay",
+      "product": {
+        "ids": [
+          "final_v5_exposure_scale"
+        ],
+        "catalog_binding_status": "PENDING_CANDIDATE_SELECTION_AND_LIVE_BINDING"
+      },
+      "publication": {
+        "ids": [
+          "final-v5-exposure-scale-v1"
+        ],
+        "binding_status": "PENDING_GENERATION"
+      },
+      "query": {
+        "spec_id": "baseline/S3/1k-5k",
+        "parameters": {
+          "member_max": 1000
+        },
+        "template": "sql/contracts/S3-bdg.sql",
+        "total_order_required": true,
+        "result_ordering": "query_order_v1"
+      },
+      "direct": {
+        "active": false,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S3-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": true,
+        "entrypoint": "query",
+        "template": "sql/contracts/S3-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "idempotent_replay"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 1000,
+        "column_count": 1,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": 1000,
+        "dependency_candidate_cardinality": 5000,
+        "outcome_candidate_cardinality": 5,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S3/1k-5k/idempotent_replay.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered 1:5 release-to-dependency candidate ratio"
+        ],
+        "prohibited": [
+          "general provenance compression ratio"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S3",
+      "scale": "1k-5k",
+      "mode": "normalized_rewrite_replay",
+      "product": {
+        "ids": [
+          "final_v5_exposure_scale"
+        ],
+        "catalog_binding_status": "PENDING_CANDIDATE_SELECTION_AND_LIVE_BINDING"
+      },
+      "publication": {
+        "ids": [
+          "final-v5-exposure-scale-v1"
+        ],
+        "binding_status": "PENDING_GENERATION"
+      },
+      "query": {
+        "spec_id": "baseline/S3/1k-5k",
+        "parameters": {
+          "member_max": 1000
+        },
+        "template": "sql/contracts/S3-bdg.sql",
+        "total_order_required": true,
+        "result_ordering": "query_order_v1"
+      },
+      "direct": {
+        "active": false,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S3-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": true,
+        "entrypoint": "query",
+        "template": "sql/contracts/S3-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "normalized_rewrite_replay"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 1000,
+        "column_count": 1,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": 1000,
+        "dependency_candidate_cardinality": 5000,
+        "outcome_candidate_cardinality": 5,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S3/1k-5k/normalized_rewrite_replay.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered 1:5 release-to-dependency candidate ratio"
+        ],
+        "prohibited": [
+          "general provenance compression ratio"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S3",
+      "scale": "10k-50k",
+      "mode": "direct",
+      "product": {
+        "ids": [
+          "final_v5_exposure_scale"
+        ],
+        "catalog_binding_status": "PENDING_CANDIDATE_SELECTION_AND_LIVE_BINDING"
+      },
+      "publication": {
+        "ids": [
+          "final-v5-exposure-scale-v1"
+        ],
+        "binding_status": "PENDING_GENERATION"
+      },
+      "query": {
+        "spec_id": "baseline/S3/10k-50k",
+        "parameters": {
+          "member_max": 10000
+        },
+        "template": "sql/contracts/S3-direct.sql",
+        "total_order_required": true,
+        "result_ordering": "query_order_v1"
+      },
+      "direct": {
+        "active": true,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S3-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": false,
+        "entrypoint": "query",
+        "template": "sql/contracts/S3-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "direct"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 10000,
+        "column_count": 1,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": 10000,
+        "dependency_candidate_cardinality": 50000,
+        "outcome_candidate_cardinality": 5,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S3/10k-50k/direct.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered 1:5 release-to-dependency candidate ratio"
+        ],
+        "prohibited": [
+          "general provenance compression ratio"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S3",
+      "scale": "10k-50k",
+      "mode": "novel",
+      "product": {
+        "ids": [
+          "final_v5_exposure_scale"
+        ],
+        "catalog_binding_status": "PENDING_CANDIDATE_SELECTION_AND_LIVE_BINDING"
+      },
+      "publication": {
+        "ids": [
+          "final-v5-exposure-scale-v1"
+        ],
+        "binding_status": "PENDING_GENERATION"
+      },
+      "query": {
+        "spec_id": "baseline/S3/10k-50k",
+        "parameters": {
+          "member_max": 10000
+        },
+        "template": "sql/contracts/S3-bdg.sql",
+        "total_order_required": true,
+        "result_ordering": "query_order_v1"
+      },
+      "direct": {
+        "active": false,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S3-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": true,
+        "entrypoint": "query",
+        "template": "sql/contracts/S3-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "novel"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 10000,
+        "column_count": 1,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": 10000,
+        "dependency_candidate_cardinality": 50000,
+        "outcome_candidate_cardinality": 5,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S3/10k-50k/novel.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered 1:5 release-to-dependency candidate ratio"
+        ],
+        "prohibited": [
+          "general provenance compression ratio"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S3",
+      "scale": "10k-50k",
+      "mode": "semantic_replay",
+      "product": {
+        "ids": [
+          "final_v5_exposure_scale"
+        ],
+        "catalog_binding_status": "PENDING_CANDIDATE_SELECTION_AND_LIVE_BINDING"
+      },
+      "publication": {
+        "ids": [
+          "final-v5-exposure-scale-v1"
+        ],
+        "binding_status": "PENDING_GENERATION"
+      },
+      "query": {
+        "spec_id": "baseline/S3/10k-50k",
+        "parameters": {
+          "member_max": 10000
+        },
+        "template": "sql/contracts/S3-bdg.sql",
+        "total_order_required": true,
+        "result_ordering": "query_order_v1"
+      },
+      "direct": {
+        "active": false,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S3-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": true,
+        "entrypoint": "query",
+        "template": "sql/contracts/S3-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "semantic_replay"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 10000,
+        "column_count": 1,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": 10000,
+        "dependency_candidate_cardinality": 50000,
+        "outcome_candidate_cardinality": 5,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S3/10k-50k/semantic_replay.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered 1:5 release-to-dependency candidate ratio"
+        ],
+        "prohibited": [
+          "general provenance compression ratio"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S3",
+      "scale": "10k-50k",
+      "mode": "idempotent_replay",
+      "product": {
+        "ids": [
+          "final_v5_exposure_scale"
+        ],
+        "catalog_binding_status": "PENDING_CANDIDATE_SELECTION_AND_LIVE_BINDING"
+      },
+      "publication": {
+        "ids": [
+          "final-v5-exposure-scale-v1"
+        ],
+        "binding_status": "PENDING_GENERATION"
+      },
+      "query": {
+        "spec_id": "baseline/S3/10k-50k",
+        "parameters": {
+          "member_max": 10000
+        },
+        "template": "sql/contracts/S3-bdg.sql",
+        "total_order_required": true,
+        "result_ordering": "query_order_v1"
+      },
+      "direct": {
+        "active": false,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S3-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": true,
+        "entrypoint": "query",
+        "template": "sql/contracts/S3-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "idempotent_replay"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 10000,
+        "column_count": 1,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": 10000,
+        "dependency_candidate_cardinality": 50000,
+        "outcome_candidate_cardinality": 5,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S3/10k-50k/idempotent_replay.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered 1:5 release-to-dependency candidate ratio"
+        ],
+        "prohibited": [
+          "general provenance compression ratio"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S3",
+      "scale": "10k-50k",
+      "mode": "normalized_rewrite_replay",
+      "product": {
+        "ids": [
+          "final_v5_exposure_scale"
+        ],
+        "catalog_binding_status": "PENDING_CANDIDATE_SELECTION_AND_LIVE_BINDING"
+      },
+      "publication": {
+        "ids": [
+          "final-v5-exposure-scale-v1"
+        ],
+        "binding_status": "PENDING_GENERATION"
+      },
+      "query": {
+        "spec_id": "baseline/S3/10k-50k",
+        "parameters": {
+          "member_max": 10000
+        },
+        "template": "sql/contracts/S3-bdg.sql",
+        "total_order_required": true,
+        "result_ordering": "query_order_v1"
+      },
+      "direct": {
+        "active": false,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S3-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": true,
+        "entrypoint": "query",
+        "template": "sql/contracts/S3-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "normalized_rewrite_replay"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 10000,
+        "column_count": 1,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": 10000,
+        "dependency_candidate_cardinality": 50000,
+        "outcome_candidate_cardinality": 5,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S3/10k-50k/normalized_rewrite_replay.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered 1:5 release-to-dependency candidate ratio"
+        ],
+        "prohibited": [
+          "general provenance compression ratio"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S3",
+      "scale": "45k-225k",
+      "mode": "direct",
+      "product": {
+        "ids": [
+          "final_v5_exposure_scale"
+        ],
+        "catalog_binding_status": "PENDING_CANDIDATE_SELECTION_AND_LIVE_BINDING"
+      },
+      "publication": {
+        "ids": [
+          "final-v5-exposure-scale-v1"
+        ],
+        "binding_status": "PENDING_GENERATION"
+      },
+      "query": {
+        "spec_id": "baseline/S3/45k-225k",
+        "parameters": {
+          "member_max": 45000
+        },
+        "template": "sql/contracts/S3-direct.sql",
+        "total_order_required": true,
+        "result_ordering": "query_order_v1"
+      },
+      "direct": {
+        "active": true,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S3-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": false,
+        "entrypoint": "query",
+        "template": "sql/contracts/S3-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "direct"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 45000,
+        "column_count": 1,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": 45000,
+        "dependency_candidate_cardinality": 225000,
+        "outcome_candidate_cardinality": 5,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S3/45k-225k/direct.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered 1:5 release-to-dependency candidate ratio"
+        ],
+        "prohibited": [
+          "general provenance compression ratio"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S3",
+      "scale": "45k-225k",
+      "mode": "novel",
+      "product": {
+        "ids": [
+          "final_v5_exposure_scale"
+        ],
+        "catalog_binding_status": "PENDING_CANDIDATE_SELECTION_AND_LIVE_BINDING"
+      },
+      "publication": {
+        "ids": [
+          "final-v5-exposure-scale-v1"
+        ],
+        "binding_status": "PENDING_GENERATION"
+      },
+      "query": {
+        "spec_id": "baseline/S3/45k-225k",
+        "parameters": {
+          "member_max": 45000
+        },
+        "template": "sql/contracts/S3-bdg.sql",
+        "total_order_required": true,
+        "result_ordering": "query_order_v1"
+      },
+      "direct": {
+        "active": false,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S3-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": true,
+        "entrypoint": "query",
+        "template": "sql/contracts/S3-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "novel"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 45000,
+        "column_count": 1,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": 45000,
+        "dependency_candidate_cardinality": 225000,
+        "outcome_candidate_cardinality": 5,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S3/45k-225k/novel.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered 1:5 release-to-dependency candidate ratio"
+        ],
+        "prohibited": [
+          "general provenance compression ratio"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S3",
+      "scale": "45k-225k",
+      "mode": "semantic_replay",
+      "product": {
+        "ids": [
+          "final_v5_exposure_scale"
+        ],
+        "catalog_binding_status": "PENDING_CANDIDATE_SELECTION_AND_LIVE_BINDING"
+      },
+      "publication": {
+        "ids": [
+          "final-v5-exposure-scale-v1"
+        ],
+        "binding_status": "PENDING_GENERATION"
+      },
+      "query": {
+        "spec_id": "baseline/S3/45k-225k",
+        "parameters": {
+          "member_max": 45000
+        },
+        "template": "sql/contracts/S3-bdg.sql",
+        "total_order_required": true,
+        "result_ordering": "query_order_v1"
+      },
+      "direct": {
+        "active": false,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S3-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": true,
+        "entrypoint": "query",
+        "template": "sql/contracts/S3-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "semantic_replay"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 45000,
+        "column_count": 1,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": 45000,
+        "dependency_candidate_cardinality": 225000,
+        "outcome_candidate_cardinality": 5,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S3/45k-225k/semantic_replay.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered 1:5 release-to-dependency candidate ratio"
+        ],
+        "prohibited": [
+          "general provenance compression ratio"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S3",
+      "scale": "45k-225k",
+      "mode": "idempotent_replay",
+      "product": {
+        "ids": [
+          "final_v5_exposure_scale"
+        ],
+        "catalog_binding_status": "PENDING_CANDIDATE_SELECTION_AND_LIVE_BINDING"
+      },
+      "publication": {
+        "ids": [
+          "final-v5-exposure-scale-v1"
+        ],
+        "binding_status": "PENDING_GENERATION"
+      },
+      "query": {
+        "spec_id": "baseline/S3/45k-225k",
+        "parameters": {
+          "member_max": 45000
+        },
+        "template": "sql/contracts/S3-bdg.sql",
+        "total_order_required": true,
+        "result_ordering": "query_order_v1"
+      },
+      "direct": {
+        "active": false,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S3-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": true,
+        "entrypoint": "query",
+        "template": "sql/contracts/S3-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "idempotent_replay"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 45000,
+        "column_count": 1,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": 45000,
+        "dependency_candidate_cardinality": 225000,
+        "outcome_candidate_cardinality": 5,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S3/45k-225k/idempotent_replay.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered 1:5 release-to-dependency candidate ratio"
+        ],
+        "prohibited": [
+          "general provenance compression ratio"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S3",
+      "scale": "45k-225k",
+      "mode": "normalized_rewrite_replay",
+      "product": {
+        "ids": [
+          "final_v5_exposure_scale"
+        ],
+        "catalog_binding_status": "PENDING_CANDIDATE_SELECTION_AND_LIVE_BINDING"
+      },
+      "publication": {
+        "ids": [
+          "final-v5-exposure-scale-v1"
+        ],
+        "binding_status": "PENDING_GENERATION"
+      },
+      "query": {
+        "spec_id": "baseline/S3/45k-225k",
+        "parameters": {
+          "member_max": 45000
+        },
+        "template": "sql/contracts/S3-bdg.sql",
+        "total_order_required": true,
+        "result_ordering": "query_order_v1"
+      },
+      "direct": {
+        "active": false,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S3-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": true,
+        "entrypoint": "query",
+        "template": "sql/contracts/S3-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "normalized_rewrite_replay"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 45000,
+        "column_count": 1,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": 45000,
+        "dependency_candidate_cardinality": 225000,
+        "outcome_candidate_cardinality": 5,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S3/45k-225k/normalized_rewrite_replay.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered 1:5 release-to-dependency candidate ratio"
+        ],
+        "prohibited": [
+          "general provenance compression ratio"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S4",
+      "scale": "depth-4",
+      "mode": "direct",
+      "product": {
+        "ids": [
+          "final_v5_analytics_depth4"
+        ],
+        "catalog_binding_status": "PENDING_CANDIDATE_SELECTION_AND_LIVE_BINDING"
+      },
+      "publication": {
+        "ids": [
+          "provsql-orders-v1",
+          "provsql-lineitem-v1"
+        ],
+        "binding_status": "EXISTING_PUBLICATION_REUSED"
+      },
+      "query": {
+        "spec_id": "baseline/S4/depth-4",
+        "parameters": {
+          "fixed_view_orderkey_max": 5000
+        },
+        "template": "sql/contracts/S4-direct.sql",
+        "total_order_required": false,
+        "result_ordering": "canonical_typed_row_lexicographic_v1"
+      },
+      "direct": {
+        "active": true,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S4-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": false,
+        "entrypoint": "query",
+        "template": "sql/contracts/S4-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "direct"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 3,
+        "column_count": 3,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S4/depth-4/direct.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered fixed-filter/projection -> connected-join -> aggregate -> root-projection depth-4 chain"
+        ],
+        "prohibited": [
+          "arbitrary View equivalence",
+          "filter or aggregate above the aggregate View barrier"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S4",
+      "scale": "depth-4",
+      "mode": "novel",
+      "product": {
+        "ids": [
+          "final_v5_analytics_depth4"
+        ],
+        "catalog_binding_status": "PENDING_CANDIDATE_SELECTION_AND_LIVE_BINDING"
+      },
+      "publication": {
+        "ids": [
+          "provsql-orders-v1",
+          "provsql-lineitem-v1"
+        ],
+        "binding_status": "EXISTING_PUBLICATION_REUSED"
+      },
+      "query": {
+        "spec_id": "baseline/S4/depth-4",
+        "parameters": {
+          "fixed_view_orderkey_max": 5000
+        },
+        "template": "sql/contracts/S4-bdg.sql",
+        "total_order_required": false,
+        "result_ordering": "canonical_typed_row_lexicographic_v1"
+      },
+      "direct": {
+        "active": false,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S4-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": true,
+        "entrypoint": "query",
+        "template": "sql/contracts/S4-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "novel"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 3,
+        "column_count": 3,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S4/depth-4/novel.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered fixed-filter/projection -> connected-join -> aggregate -> root-projection depth-4 chain"
+        ],
+        "prohibited": [
+          "arbitrary View equivalence",
+          "filter or aggregate above the aggregate View barrier"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S4",
+      "scale": "depth-4",
+      "mode": "semantic_replay",
+      "product": {
+        "ids": [
+          "final_v5_analytics_depth4"
+        ],
+        "catalog_binding_status": "PENDING_CANDIDATE_SELECTION_AND_LIVE_BINDING"
+      },
+      "publication": {
+        "ids": [
+          "provsql-orders-v1",
+          "provsql-lineitem-v1"
+        ],
+        "binding_status": "EXISTING_PUBLICATION_REUSED"
+      },
+      "query": {
+        "spec_id": "baseline/S4/depth-4",
+        "parameters": {
+          "fixed_view_orderkey_max": 5000
+        },
+        "template": "sql/contracts/S4-bdg.sql",
+        "total_order_required": false,
+        "result_ordering": "canonical_typed_row_lexicographic_v1"
+      },
+      "direct": {
+        "active": false,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S4-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": true,
+        "entrypoint": "query",
+        "template": "sql/contracts/S4-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "semantic_replay"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 3,
+        "column_count": 3,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S4/depth-4/semantic_replay.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered fixed-filter/projection -> connected-join -> aggregate -> root-projection depth-4 chain"
+        ],
+        "prohibited": [
+          "arbitrary View equivalence",
+          "filter or aggregate above the aggregate View barrier"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S5",
+      "scale": "SF1",
+      "mode": "direct",
+      "product": {
+        "ids": [
+          "provsql_orders"
+        ],
+        "catalog_binding_status": "EXISTING_PRODUCT_REUSED"
+      },
+      "publication": {
+        "ids": [
+          "provsql-orders-v1"
+        ],
+        "binding_status": "EXISTING_PUBLICATION_REUSED"
+      },
+      "query": {
+        "spec_id": "baseline/S5/SF1",
+        "parameters": {
+          "orderkey_max": 5000,
+          "overlap_branch_max": 2500
+        },
+        "template": "sql/contracts/S5-direct.sql",
+        "total_order_required": false,
+        "result_ordering": "canonical_typed_row_lexicographic_v1"
+      },
+      "direct": {
+        "active": true,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S5-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": false,
+        "entrypoint": "execute_plan",
+        "template": "sql/contracts/S5-bdg-plan.json",
+        "complete_drain": true,
+        "mode_semantics": "direct"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 5000,
+        "column_count": 2,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S5/SF1/direct.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered two-branch UNION DISTINCT behavior"
+        ],
+        "prohibited": [
+          "arbitrary set-operation support",
+          "BDG SQL-union entrypoint"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S5",
+      "scale": "SF1",
+      "mode": "novel",
+      "product": {
+        "ids": [
+          "provsql_orders"
+        ],
+        "catalog_binding_status": "EXISTING_PRODUCT_REUSED"
+      },
+      "publication": {
+        "ids": [
+          "provsql-orders-v1"
+        ],
+        "binding_status": "EXISTING_PUBLICATION_REUSED"
+      },
+      "query": {
+        "spec_id": "baseline/S5/SF1",
+        "parameters": {
+          "orderkey_max": 5000,
+          "overlap_branch_max": 2500
+        },
+        "template": "sql/contracts/S5-bdg-plan.json",
+        "total_order_required": false,
+        "result_ordering": "canonical_typed_row_lexicographic_v1"
+      },
+      "direct": {
+        "active": false,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S5-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": true,
+        "entrypoint": "execute_plan",
+        "template": "sql/contracts/S5-bdg-plan.json",
+        "complete_drain": true,
+        "mode_semantics": "novel"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 5000,
+        "column_count": 2,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S5/SF1/novel.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered two-branch UNION DISTINCT behavior"
+        ],
+        "prohibited": [
+          "arbitrary set-operation support",
+          "BDG SQL-union entrypoint"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S5",
+      "scale": "SF1",
+      "mode": "semantic_replay",
+      "product": {
+        "ids": [
+          "provsql_orders"
+        ],
+        "catalog_binding_status": "EXISTING_PRODUCT_REUSED"
+      },
+      "publication": {
+        "ids": [
+          "provsql-orders-v1"
+        ],
+        "binding_status": "EXISTING_PUBLICATION_REUSED"
+      },
+      "query": {
+        "spec_id": "baseline/S5/SF1",
+        "parameters": {
+          "orderkey_max": 5000,
+          "overlap_branch_max": 2500
+        },
+        "template": "sql/contracts/S5-bdg-plan.json",
+        "total_order_required": false,
+        "result_ordering": "canonical_typed_row_lexicographic_v1"
+      },
+      "direct": {
+        "active": false,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S5-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": true,
+        "entrypoint": "execute_plan",
+        "template": "sql/contracts/S5-bdg-plan.json",
+        "complete_drain": true,
+        "mode_semantics": "semantic_replay"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 5000,
+        "column_count": 2,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S5/SF1/semantic_replay.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered two-branch UNION DISTINCT behavior"
+        ],
+        "prohibited": [
+          "arbitrary set-operation support",
+          "BDG SQL-union entrypoint"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S5",
+      "scale": "SF1",
+      "mode": "idempotent_replay",
+      "product": {
+        "ids": [
+          "provsql_orders"
+        ],
+        "catalog_binding_status": "EXISTING_PRODUCT_REUSED"
+      },
+      "publication": {
+        "ids": [
+          "provsql-orders-v1"
+        ],
+        "binding_status": "EXISTING_PUBLICATION_REUSED"
+      },
+      "query": {
+        "spec_id": "baseline/S5/SF1",
+        "parameters": {
+          "orderkey_max": 5000,
+          "overlap_branch_max": 2500
+        },
+        "template": "sql/contracts/S5-bdg-plan.json",
+        "total_order_required": false,
+        "result_ordering": "canonical_typed_row_lexicographic_v1"
+      },
+      "direct": {
+        "active": false,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S5-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": true,
+        "entrypoint": "execute_plan",
+        "template": "sql/contracts/S5-bdg-plan.json",
+        "complete_drain": true,
+        "mode_semantics": "idempotent_replay"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 5000,
+        "column_count": 2,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S5/SF1/idempotent_replay.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered two-branch UNION DISTINCT behavior"
+        ],
+        "prohibited": [
+          "arbitrary set-operation support",
+          "BDG SQL-union entrypoint"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S5",
+      "scale": "SF10",
+      "mode": "direct",
+      "product": {
+        "ids": [
+          "provsql_orders"
+        ],
+        "catalog_binding_status": "EXISTING_PRODUCT_REUSED"
+      },
+      "publication": {
+        "ids": [
+          "provsql-orders-v1"
+        ],
+        "binding_status": "EXISTING_PUBLICATION_REUSED"
+      },
+      "query": {
+        "spec_id": "baseline/S5/SF10",
+        "parameters": {
+          "orderkey_max": 50000,
+          "overlap_branch_max": 25000
+        },
+        "template": "sql/contracts/S5-direct.sql",
+        "total_order_required": false,
+        "result_ordering": "canonical_typed_row_lexicographic_v1"
+      },
+      "direct": {
+        "active": true,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S5-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": false,
+        "entrypoint": "execute_plan",
+        "template": "sql/contracts/S5-bdg-plan.json",
+        "complete_drain": true,
+        "mode_semantics": "direct"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 50000,
+        "column_count": 2,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S5/SF10/direct.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered two-branch UNION DISTINCT behavior"
+        ],
+        "prohibited": [
+          "arbitrary set-operation support",
+          "BDG SQL-union entrypoint"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S5",
+      "scale": "SF10",
+      "mode": "novel",
+      "product": {
+        "ids": [
+          "provsql_orders"
+        ],
+        "catalog_binding_status": "EXISTING_PRODUCT_REUSED"
+      },
+      "publication": {
+        "ids": [
+          "provsql-orders-v1"
+        ],
+        "binding_status": "EXISTING_PUBLICATION_REUSED"
+      },
+      "query": {
+        "spec_id": "baseline/S5/SF10",
+        "parameters": {
+          "orderkey_max": 50000,
+          "overlap_branch_max": 25000
+        },
+        "template": "sql/contracts/S5-bdg-plan.json",
+        "total_order_required": false,
+        "result_ordering": "canonical_typed_row_lexicographic_v1"
+      },
+      "direct": {
+        "active": false,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S5-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": true,
+        "entrypoint": "execute_plan",
+        "template": "sql/contracts/S5-bdg-plan.json",
+        "complete_drain": true,
+        "mode_semantics": "novel"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 50000,
+        "column_count": 2,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S5/SF10/novel.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered two-branch UNION DISTINCT behavior"
+        ],
+        "prohibited": [
+          "arbitrary set-operation support",
+          "BDG SQL-union entrypoint"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S5",
+      "scale": "SF10",
+      "mode": "semantic_replay",
+      "product": {
+        "ids": [
+          "provsql_orders"
+        ],
+        "catalog_binding_status": "EXISTING_PRODUCT_REUSED"
+      },
+      "publication": {
+        "ids": [
+          "provsql-orders-v1"
+        ],
+        "binding_status": "EXISTING_PUBLICATION_REUSED"
+      },
+      "query": {
+        "spec_id": "baseline/S5/SF10",
+        "parameters": {
+          "orderkey_max": 50000,
+          "overlap_branch_max": 25000
+        },
+        "template": "sql/contracts/S5-bdg-plan.json",
+        "total_order_required": false,
+        "result_ordering": "canonical_typed_row_lexicographic_v1"
+      },
+      "direct": {
+        "active": false,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S5-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": true,
+        "entrypoint": "execute_plan",
+        "template": "sql/contracts/S5-bdg-plan.json",
+        "complete_drain": true,
+        "mode_semantics": "semantic_replay"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 50000,
+        "column_count": 2,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S5/SF10/semantic_replay.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered two-branch UNION DISTINCT behavior"
+        ],
+        "prohibited": [
+          "arbitrary set-operation support",
+          "BDG SQL-union entrypoint"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S5",
+      "scale": "SF10",
+      "mode": "idempotent_replay",
+      "product": {
+        "ids": [
+          "provsql_orders"
+        ],
+        "catalog_binding_status": "EXISTING_PRODUCT_REUSED"
+      },
+      "publication": {
+        "ids": [
+          "provsql-orders-v1"
+        ],
+        "binding_status": "EXISTING_PUBLICATION_REUSED"
+      },
+      "query": {
+        "spec_id": "baseline/S5/SF10",
+        "parameters": {
+          "orderkey_max": 50000,
+          "overlap_branch_max": 25000
+        },
+        "template": "sql/contracts/S5-bdg-plan.json",
+        "total_order_required": false,
+        "result_ordering": "canonical_typed_row_lexicographic_v1"
+      },
+      "direct": {
+        "active": false,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S5-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": true,
+        "entrypoint": "execute_plan",
+        "template": "sql/contracts/S5-bdg-plan.json",
+        "complete_drain": true,
+        "mode_semantics": "idempotent_replay"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 50000,
+        "column_count": 2,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S5/SF10/idempotent_replay.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered two-branch UNION DISTINCT behavior"
+        ],
+        "prohibited": [
+          "arbitrary set-operation support",
+          "BDG SQL-union entrypoint"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S6",
+      "scale": "100x4",
+      "mode": "direct",
+      "product": {
+        "ids": [
+          "final_v5_result_heavy"
+        ],
+        "catalog_binding_status": "PENDING_CANDIDATE_SELECTION_AND_LIVE_BINDING"
+      },
+      "publication": {
+        "ids": [
+          "final-v5-result-heavy-v1"
+        ],
+        "binding_status": "PENDING_GENERATION"
+      },
+      "query": {
+        "spec_id": "baseline/S6/100x4",
+        "parameters": {
+          "rows": 100,
+          "projection": "x4"
+        },
+        "template": "sql/contracts/S6-x4-direct.sql",
+        "total_order_required": true,
+        "result_ordering": "query_order_v1"
+      },
+      "direct": {
+        "active": true,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S6-x4-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": false,
+        "entrypoint": "query",
+        "template": "sql/contracts/S6-x4-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "direct"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 100,
+        "column_count": 4,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S6/100x4/direct.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered result-heavy logical/result-materialization costs"
+        ],
+        "prohibited": [
+          "all result shapes",
+          "Parquet binary identity across writers"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S6",
+      "scale": "100x4",
+      "mode": "novel",
+      "product": {
+        "ids": [
+          "final_v5_result_heavy"
+        ],
+        "catalog_binding_status": "PENDING_CANDIDATE_SELECTION_AND_LIVE_BINDING"
+      },
+      "publication": {
+        "ids": [
+          "final-v5-result-heavy-v1"
+        ],
+        "binding_status": "PENDING_GENERATION"
+      },
+      "query": {
+        "spec_id": "baseline/S6/100x4",
+        "parameters": {
+          "rows": 100,
+          "projection": "x4"
+        },
+        "template": "sql/contracts/S6-x4-bdg.sql",
+        "total_order_required": true,
+        "result_ordering": "query_order_v1"
+      },
+      "direct": {
+        "active": false,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S6-x4-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": true,
+        "entrypoint": "query",
+        "template": "sql/contracts/S6-x4-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "novel"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 100,
+        "column_count": 4,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S6/100x4/novel.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered result-heavy logical/result-materialization costs"
+        ],
+        "prohibited": [
+          "all result shapes",
+          "Parquet binary identity across writers"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S6",
+      "scale": "10k-x4",
+      "mode": "direct",
+      "product": {
+        "ids": [
+          "final_v5_result_heavy"
+        ],
+        "catalog_binding_status": "PENDING_CANDIDATE_SELECTION_AND_LIVE_BINDING"
+      },
+      "publication": {
+        "ids": [
+          "final-v5-result-heavy-v1"
+        ],
+        "binding_status": "PENDING_GENERATION"
+      },
+      "query": {
+        "spec_id": "baseline/S6/10k-x4",
+        "parameters": {
+          "rows": 10000,
+          "projection": "x4"
+        },
+        "template": "sql/contracts/S6-x4-direct.sql",
+        "total_order_required": true,
+        "result_ordering": "query_order_v1"
+      },
+      "direct": {
+        "active": true,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S6-x4-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": false,
+        "entrypoint": "query",
+        "template": "sql/contracts/S6-x4-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "direct"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 10000,
+        "column_count": 4,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S6/10k-x4/direct.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered result-heavy logical/result-materialization costs"
+        ],
+        "prohibited": [
+          "all result shapes",
+          "Parquet binary identity across writers"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S6",
+      "scale": "10k-x4",
+      "mode": "novel",
+      "product": {
+        "ids": [
+          "final_v5_result_heavy"
+        ],
+        "catalog_binding_status": "PENDING_CANDIDATE_SELECTION_AND_LIVE_BINDING"
+      },
+      "publication": {
+        "ids": [
+          "final-v5-result-heavy-v1"
+        ],
+        "binding_status": "PENDING_GENERATION"
+      },
+      "query": {
+        "spec_id": "baseline/S6/10k-x4",
+        "parameters": {
+          "rows": 10000,
+          "projection": "x4"
+        },
+        "template": "sql/contracts/S6-x4-bdg.sql",
+        "total_order_required": true,
+        "result_ordering": "query_order_v1"
+      },
+      "direct": {
+        "active": false,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S6-x4-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": true,
+        "entrypoint": "query",
+        "template": "sql/contracts/S6-x4-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "novel"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 10000,
+        "column_count": 4,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S6/10k-x4/novel.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered result-heavy logical/result-materialization costs"
+        ],
+        "prohibited": [
+          "all result shapes",
+          "Parquet binary identity across writers"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S6",
+      "scale": "100k-x4",
+      "mode": "direct",
+      "product": {
+        "ids": [
+          "final_v5_result_heavy"
+        ],
+        "catalog_binding_status": "PENDING_CANDIDATE_SELECTION_AND_LIVE_BINDING"
+      },
+      "publication": {
+        "ids": [
+          "final-v5-result-heavy-v1"
+        ],
+        "binding_status": "PENDING_GENERATION"
+      },
+      "query": {
+        "spec_id": "baseline/S6/100k-x4",
+        "parameters": {
+          "rows": 100000,
+          "projection": "x4"
+        },
+        "template": "sql/contracts/S6-x4-direct.sql",
+        "total_order_required": true,
+        "result_ordering": "query_order_v1"
+      },
+      "direct": {
+        "active": true,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S6-x4-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": false,
+        "entrypoint": "query",
+        "template": "sql/contracts/S6-x4-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "direct"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 100000,
+        "column_count": 4,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S6/100k-x4/direct.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered result-heavy logical/result-materialization costs"
+        ],
+        "prohibited": [
+          "all result shapes",
+          "Parquet binary identity across writers"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S6",
+      "scale": "100k-x4",
+      "mode": "novel",
+      "product": {
+        "ids": [
+          "final_v5_result_heavy"
+        ],
+        "catalog_binding_status": "PENDING_CANDIDATE_SELECTION_AND_LIVE_BINDING"
+      },
+      "publication": {
+        "ids": [
+          "final-v5-result-heavy-v1"
+        ],
+        "binding_status": "PENDING_GENERATION"
+      },
+      "query": {
+        "spec_id": "baseline/S6/100k-x4",
+        "parameters": {
+          "rows": 100000,
+          "projection": "x4"
+        },
+        "template": "sql/contracts/S6-x4-bdg.sql",
+        "total_order_required": true,
+        "result_ordering": "query_order_v1"
+      },
+      "direct": {
+        "active": false,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S6-x4-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": true,
+        "entrypoint": "query",
+        "template": "sql/contracts/S6-x4-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "novel"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 100000,
+        "column_count": 4,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S6/100k-x4/novel.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered result-heavy logical/result-materialization costs"
+        ],
+        "prohibited": [
+          "all result shapes",
+          "Parquet binary identity across writers"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S6",
+      "scale": "100x16",
+      "mode": "direct",
+      "product": {
+        "ids": [
+          "final_v5_result_heavy"
+        ],
+        "catalog_binding_status": "PENDING_CANDIDATE_SELECTION_AND_LIVE_BINDING"
+      },
+      "publication": {
+        "ids": [
+          "final-v5-result-heavy-v1"
+        ],
+        "binding_status": "PENDING_GENERATION"
+      },
+      "query": {
+        "spec_id": "baseline/S6/100x16",
+        "parameters": {
+          "rows": 100,
+          "projection": "x16"
+        },
+        "template": "sql/contracts/S6-x16-direct.sql",
+        "total_order_required": true,
+        "result_ordering": "query_order_v1"
+      },
+      "direct": {
+        "active": true,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S6-x16-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": false,
+        "entrypoint": "query",
+        "template": "sql/contracts/S6-x16-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "direct"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 100,
+        "column_count": 16,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S6/100x16/direct.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered result-heavy logical/result-materialization costs"
+        ],
+        "prohibited": [
+          "all result shapes",
+          "Parquet binary identity across writers"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S6",
+      "scale": "100x16",
+      "mode": "novel",
+      "product": {
+        "ids": [
+          "final_v5_result_heavy"
+        ],
+        "catalog_binding_status": "PENDING_CANDIDATE_SELECTION_AND_LIVE_BINDING"
+      },
+      "publication": {
+        "ids": [
+          "final-v5-result-heavy-v1"
+        ],
+        "binding_status": "PENDING_GENERATION"
+      },
+      "query": {
+        "spec_id": "baseline/S6/100x16",
+        "parameters": {
+          "rows": 100,
+          "projection": "x16"
+        },
+        "template": "sql/contracts/S6-x16-bdg.sql",
+        "total_order_required": true,
+        "result_ordering": "query_order_v1"
+      },
+      "direct": {
+        "active": false,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S6-x16-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": true,
+        "entrypoint": "query",
+        "template": "sql/contracts/S6-x16-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "novel"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 100,
+        "column_count": 16,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S6/100x16/novel.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered result-heavy logical/result-materialization costs"
+        ],
+        "prohibited": [
+          "all result shapes",
+          "Parquet binary identity across writers"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S6",
+      "scale": "10k-x16",
+      "mode": "direct",
+      "product": {
+        "ids": [
+          "final_v5_result_heavy"
+        ],
+        "catalog_binding_status": "PENDING_CANDIDATE_SELECTION_AND_LIVE_BINDING"
+      },
+      "publication": {
+        "ids": [
+          "final-v5-result-heavy-v1"
+        ],
+        "binding_status": "PENDING_GENERATION"
+      },
+      "query": {
+        "spec_id": "baseline/S6/10k-x16",
+        "parameters": {
+          "rows": 10000,
+          "projection": "x16"
+        },
+        "template": "sql/contracts/S6-x16-direct.sql",
+        "total_order_required": true,
+        "result_ordering": "query_order_v1"
+      },
+      "direct": {
+        "active": true,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S6-x16-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": false,
+        "entrypoint": "query",
+        "template": "sql/contracts/S6-x16-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "direct"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 10000,
+        "column_count": 16,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S6/10k-x16/direct.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered result-heavy logical/result-materialization costs"
+        ],
+        "prohibited": [
+          "all result shapes",
+          "Parquet binary identity across writers"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S6",
+      "scale": "10k-x16",
+      "mode": "novel",
+      "product": {
+        "ids": [
+          "final_v5_result_heavy"
+        ],
+        "catalog_binding_status": "PENDING_CANDIDATE_SELECTION_AND_LIVE_BINDING"
+      },
+      "publication": {
+        "ids": [
+          "final-v5-result-heavy-v1"
+        ],
+        "binding_status": "PENDING_GENERATION"
+      },
+      "query": {
+        "spec_id": "baseline/S6/10k-x16",
+        "parameters": {
+          "rows": 10000,
+          "projection": "x16"
+        },
+        "template": "sql/contracts/S6-x16-bdg.sql",
+        "total_order_required": true,
+        "result_ordering": "query_order_v1"
+      },
+      "direct": {
+        "active": false,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S6-x16-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": true,
+        "entrypoint": "query",
+        "template": "sql/contracts/S6-x16-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "novel"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 10000,
+        "column_count": 16,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S6/10k-x16/novel.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered result-heavy logical/result-materialization costs"
+        ],
+        "prohibited": [
+          "all result shapes",
+          "Parquet binary identity across writers"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S6",
+      "scale": "100k-x16",
+      "mode": "direct",
+      "product": {
+        "ids": [
+          "final_v5_result_heavy"
+        ],
+        "catalog_binding_status": "PENDING_CANDIDATE_SELECTION_AND_LIVE_BINDING"
+      },
+      "publication": {
+        "ids": [
+          "final-v5-result-heavy-v1"
+        ],
+        "binding_status": "PENDING_GENERATION"
+      },
+      "query": {
+        "spec_id": "baseline/S6/100k-x16",
+        "parameters": {
+          "rows": 100000,
+          "projection": "x16"
+        },
+        "template": "sql/contracts/S6-x16-direct.sql",
+        "total_order_required": true,
+        "result_ordering": "query_order_v1"
+      },
+      "direct": {
+        "active": true,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S6-x16-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": false,
+        "entrypoint": "query",
+        "template": "sql/contracts/S6-x16-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "direct"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 100000,
+        "column_count": 16,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S6/100k-x16/direct.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered result-heavy logical/result-materialization costs"
+        ],
+        "prohibited": [
+          "all result shapes",
+          "Parquet binary identity across writers"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    },
+    {
+      "workload": "S6",
+      "scale": "100k-x16",
+      "mode": "novel",
+      "product": {
+        "ids": [
+          "final_v5_result_heavy"
+        ],
+        "catalog_binding_status": "PENDING_CANDIDATE_SELECTION_AND_LIVE_BINDING"
+      },
+      "publication": {
+        "ids": [
+          "final-v5-result-heavy-v1"
+        ],
+        "binding_status": "PENDING_GENERATION"
+      },
+      "query": {
+        "spec_id": "baseline/S6/100k-x16",
+        "parameters": {
+          "rows": 100000,
+          "projection": "x16"
+        },
+        "template": "sql/contracts/S6-x16-bdg.sql",
+        "total_order_required": true,
+        "result_ordering": "query_order_v1"
+      },
+      "direct": {
+        "active": false,
+        "entrypoint": "postgresql_sql",
+        "template": "sql/contracts/S6-x16-direct.sql",
+        "complete_drain": true
+      },
+      "bdg": {
+        "active": true,
+        "entrypoint": "query",
+        "template": "sql/contracts/S6-x16-bdg.sql",
+        "complete_drain": true,
+        "mode_semantics": "novel"
+      },
+      "setup": {
+        "fresh_deployment": true,
+        "oa_and_task_provisioning": "BEFORE_MEASUREMENT",
+        "warmups": 5,
+        "warmup_seed": 20260801,
+        "publication_probe_required": true
+      },
+      "measured": {
+        "samples": 30,
+        "start": "immediately_before_arm_query_call",
+        "end": "after_complete_logical_result_drain",
+        "include_provisioning": false,
+        "include_oracle": false,
+        "retain_failed_samples": true
+      },
+      "expected": {
+        "row_count": 100000,
+        "column_count": 16,
+        "normalized_schema_sha256": null,
+        "canonical_result_sha256": null,
+        "release_candidate_cardinality": null,
+        "dependency_candidate_cardinality": null,
+        "outcome_candidate_cardinality": null,
+        "release_candidate_set_sha256": null,
+        "dependency_candidate_set_sha256": null,
+        "outcome_candidate_set_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "oracle": {
+        "policy": "contracts/oracle-policy-v1.json",
+        "oracle_manifest_path": "oracle-manifests/baseline/S6/100k-x16/novel.json",
+        "manifest_sha256": null,
+        "generation_status": "NOT_GENERATED",
+        "review_status": "NOT_APPROVED"
+      },
+      "negative": [
+        "wrong Product or Publication binding",
+        "wrong rendered parameter",
+        "partial result drain",
+        "schema/row/result digest mismatch",
+        "release/dependency/outcome count or digest mismatch",
+        "production-derived expected value",
+        "forbidden bypass"
+      ],
+      "claims": {
+        "allowed": [
+          "registered result-heavy logical/result-materialization costs"
+        ],
+        "prohibited": [
+          "all result shapes",
+          "Parquet binary identity across writers"
+        ]
+      },
+      "status": {
+        "research_design": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+        "implementation": "PENDING_IMPLEMENTATION",
+        "generated_digest_review": "NOT_GENERATED",
+        "exact_generated_bytes_freeze": "NOT_APPROVED"
+      }
+    }
+  ]
+}

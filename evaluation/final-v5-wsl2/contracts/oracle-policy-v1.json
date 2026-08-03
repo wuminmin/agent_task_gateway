@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "contract_version": "taskgate-final-v5-author-contract-v1",
+  "status": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+  "research_design_status": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+  "exact_generated_bytes_freeze_status": "NOT_APPROVED",
+  "oracle_policy_id": "taskgate-final-v5-independent-oracle-policy-v1",
+  "implementation_package": "evaluation/finalv5oracle",
+  "manifest_schema": "schema/oracle-manifest-v1.schema.json",
+  "independence_boundary": {
+    "rule": "expected values must be derived from the source-controlled dataset/query/normalization contracts without calling production exposure, root, query-normalization, gateway, Receipt, or artifact-verification implementations",
+    "forbidden_import_prefixes": [
+      "taskbound.local/agent-data-gateway/internal/exposure",
+      "taskbound.local/agent-data-gateway/internal/control",
+      "taskbound.local/agent-data-gateway/internal/gateway",
+      "taskbound.local/agent-data-gateway/internal/semanticcache",
+      "taskbound.local/agent-data-gateway/internal/ordinal",
+      "taskbound.local/agent-data-gateway/internal/queryplan",
+      "taskbound.local/agent-data-gateway/internal/sqlpolicy",
+      "taskbound.local/agent-data-gateway/internal/queryreceipt"
+    ],
+    "allowed_inputs": ["reviewed contract JSON", "query templates", "deterministic public dataset formulas", "read-only PostgreSQL query results for independently specified SQL", "Parquet bytes for logical-content validation"],
+    "forbidden_inputs": ["production candidate Fact IDs", "production set digests used as expected values", "production result_sha256 used as expected value", "credentials, grants, Receipts, ciphertext, or sensitive source rows in an oracle manifest"],
+    "enforcement": ["Go import-boundary test", "unknown/duplicate manifest key rejection", "canonical manifest byte check", "mutation tests against an independently implemented reference model"]
+  },
+  "canonical_fact_id": {
+    "encoding": "length-delimited, domain-separated typed components; no delimiter concatenation",
+    "base_row": ["domain", "publication_id", "fact_namespace", "stable_relation_role", "entity_key field names", "typed entity_key values"],
+    "base_cell": ["base-row identity", "field name", "typed field value"],
+    "derived_release": ["domain", "normalized query identity", "ordered output role", "typed output value", "source identity contribution"],
+    "predicate_atom": ["domain", "normalized query identity", "product/stable role", "field", "operator", "typed literal"],
+    "predicate_composite": ["domain", "normalized query identity", "canonical ordered atom IDs"],
+    "digest": "SHA-256 lowercase hex"
+  },
+  "oracle_families": {
+    "Result": {
+      "inputs": ["ordered normalized schema", "ordered typed rows"],
+      "outputs": ["row_count", "column_count", "normalized_schema_sha256", "canonical_result_sha256"],
+      "normalization_contract": "contracts/result-normalization-v1.json",
+      "streaming_required_for_100k_rows": true
+    },
+    "Dependency": {
+      "inputs": ["publication descriptors", "stable keys", "retained source rows", "four registered predicate fields"],
+      "outputs": ["dependency_candidate_cardinality", "dependency_candidate_set_sha256", "existing_cardinality", "existing_set_sha256", "overlap_cardinality", "overlap_set_sha256", "novel_cardinality", "novel_set_sha256", "union_cardinality", "union_set_sha256"],
+      "S3_and_scale_rule": "one base-row Fact and four predicate-field Facts per retained final_v5_exposure_scale row",
+      "streaming_set_algebra_required": true
+    },
+    "Outcome": {
+      "inputs": ["canonical predicate atoms", "canonical composite expression", "registered 30-sample schedule"],
+      "outputs": ["outcome_candidate_cardinality", "outcome_candidate_set_sha256", "schedule_sha256", "per-sample overlap and aggregate membership counts"],
+      "predicate_rule": "partition_key=1, family_id=1, member_rank<=N, and metric<=1001.00 produce four distinct atom identities plus one composite identity for the candidate query",
+      "x1_rule": "o0/o50/o90/o100 select 0/15/27/30 overlapping memberships across exactly 30 measured samples",
+      "fixed_vectors_required": true
+    },
+    "Artifact": {
+      "logical_outputs": ["parsed Parquet normalized schema", "logical row/column counts", "canonical logical-result SHA-256", "plaintext logical equality to Baseline S6"],
+      "runtime_observations_not_predeclared": ["Parquet binary SHA-256 and byte count", "ciphertext object SHA-256 and byte count", "Receipt and availability evidence digests"],
+      "rule": "an oracle never creates or injects the measured Parquet artifact"
+    }
+  },
+  "manifest": {
+    "one_manifest_per_cell": true,
+    "required_identity_fields": ["schema_version", "oracle_version", "contract_version", "experiment_id", "workload_id", "scale", "mode", "dataset_spec_sha256", "catalog_spec_sha256", "query_spec_sha256", "normalization_spec_sha256"],
+    "expected_fields": ["row_count", "column_count", "normalized_schema_sha256", "canonical_result_sha256", "release_candidate_cardinality", "dependency_candidate_cardinality", "outcome_candidate_cardinality", "release_candidate_set_sha256", "dependency_candidate_set_sha256", "outcome_candidate_set_sha256", "existing_cardinality", "existing_set_sha256", "overlap_cardinality", "overlap_set_sha256", "novel_cardinality", "novel_set_sha256", "union_cardinality", "union_set_sha256", "schedule_sha256"],
+    "generation_fields": ["seed", "generator_version", "command"],
+    "canonical_json": "known struct field order, no insignificant whitespace, HTML escaping disabled, one final LF, no unknown or duplicate keys",
+    "manifest_sha256": "SHA-256 over exact canonical JSON bytes",
+    "generated_manifest_digests": null,
+    "generated_manifest_digest_status": "NOT_GENERATED",
+    "generated_manifest_digest_review_status": "NOT_APPROVED"
+  },
+  "required_tests": [
+    "fixed canonical encoding vectors for every supported SQL type including NULL",
+    "S3 exact 1k/5k, 10k/50k, and 45k/225k cardinality and digest vectors",
+    "Scale prefix set intersection/difference/union vectors at 0/50/90/100 percent",
+    "Outcome x1 30-sample schedule and x100/x10k per-sample vectors",
+    "S5 branch-order and UNION DISTINCT equivalence vectors",
+    "S6 PostgreSQL-versus-Parquet typed logical equality vectors",
+    "mutations of key, field, predicate, operator, literal, query identity, result cell, row order, NULL tag, and publication binding must change the relevant digest",
+    "large-set tests prove streaming behavior and bounded memory"
+  ],
+  "publication_rule": "only oracle spec, counts, and cryptographic digests are publication evidence; raw source rows, Fact IDs, and sensitive values are excluded",
+  "freeze_preconditions": ["all required tests pass", "all 124 default Baseline/Scale/Artifact manifests are generated", "contract and manifest file digests are placed in contracts/index-v1.json", "authors review the exact generated bytes"]
+}

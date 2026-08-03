@@ -1,0 +1,238 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "taskgate-final-v5-oracle-manifest-v1",
+  "title": "TaskGate Final V5 independent Oracle manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "oracle_version",
+    "contract_version",
+    "experiment_id",
+    "workload_id",
+    "scale",
+    "mode",
+    "dataset_spec_sha256",
+    "catalog_spec_sha256",
+    "query_spec_sha256",
+    "normalization_spec_sha256",
+    "expected",
+    "generation"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "oracle_version": { "const": "taskgate-final-v5-independent-oracle-v1" },
+    "contract_version": { "const": "taskgate-final-v5-author-contract-v1" },
+    "experiment_id": { "enum": ["baseline", "scale", "artifact"] },
+    "workload_id": { "$ref": "#/$defs/token" },
+    "scale": { "$ref": "#/$defs/token" },
+    "mode": { "$ref": "#/$defs/token" },
+    "dataset_spec_sha256": { "$ref": "#/$defs/sha256" },
+    "catalog_spec_sha256": { "$ref": "#/$defs/sha256" },
+    "query_spec_sha256": { "$ref": "#/$defs/sha256" },
+    "normalization_spec_sha256": { "$ref": "#/$defs/sha256" },
+    "expected": { "$ref": "#/$defs/expected" },
+    "generation": { "$ref": "#/$defs/generation" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "experiment_id": { "const": "baseline" } },
+        "required": ["experiment_id"]
+      },
+      "then": {
+        "properties": {
+          "workload_id": { "enum": ["S1", "S2", "S3", "S4", "S5", "S6"] },
+          "expected": {
+            "required": ["row_count", "column_count", "normalized_schema_sha256", "canonical_result_sha256"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "experiment_id": { "const": "baseline" },
+          "workload_id": { "const": "S3" }
+        },
+        "required": ["experiment_id", "workload_id"]
+      },
+      "then": {
+        "properties": {
+          "expected": {
+            "required": [
+              "release_candidate_cardinality",
+              "release_candidate_set_sha256",
+              "dependency_candidate_cardinality",
+              "dependency_candidate_set_sha256",
+              "outcome_candidate_cardinality",
+              "outcome_candidate_set_sha256"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "experiment_id": { "const": "artifact" } },
+        "required": ["experiment_id"]
+      },
+      "then": {
+        "properties": {
+          "workload_id": { "const": "result-heavy" },
+          "expected": {
+            "required": ["row_count", "column_count", "normalized_schema_sha256", "canonical_result_sha256"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "experiment_id": { "const": "scale" } },
+        "required": ["experiment_id"]
+      },
+      "then": {
+        "properties": { "workload_id": { "enum": ["dependency-e2e", "outcome-merkle"] } }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "experiment_id": { "const": "scale" },
+          "workload_id": { "const": "dependency-e2e" }
+        },
+        "required": ["experiment_id", "workload_id"]
+      },
+      "then": {
+        "properties": {
+          "expected": {
+            "required": [
+              "row_count",
+              "column_count",
+              "normalized_schema_sha256",
+              "canonical_result_sha256",
+              "release_candidate_cardinality",
+              "release_candidate_set_sha256",
+              "dependency_candidate_cardinality",
+              "dependency_candidate_set_sha256",
+              "outcome_candidate_cardinality",
+              "outcome_candidate_set_sha256",
+              "existing_cardinality",
+              "existing_set_sha256",
+              "overlap_cardinality",
+              "overlap_set_sha256",
+              "novel_cardinality",
+              "novel_set_sha256",
+              "union_cardinality",
+              "union_set_sha256"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "experiment_id": { "const": "scale" },
+          "workload_id": { "const": "outcome-merkle" }
+        },
+        "required": ["experiment_id", "workload_id"]
+      },
+      "then": {
+        "properties": {
+          "expected": {
+            "required": [
+              "outcome_candidate_cardinality",
+              "outcome_candidate_set_sha256",
+              "existing_cardinality",
+              "existing_set_sha256",
+              "overlap_cardinality",
+              "overlap_set_sha256",
+              "novel_cardinality",
+              "novel_set_sha256",
+              "union_cardinality",
+              "union_set_sha256",
+              "schedule_sha256"
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "token": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\u0000\\r\\n\\t ](?:[^\\u0000\\r\\n\\t]*[^\\u0000\\r\\n\\t ])?$"
+    },
+    "nonnegativeInteger": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "positiveInteger": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "expected": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "row_count": { "$ref": "#/$defs/nonnegativeInteger" },
+        "column_count": { "$ref": "#/$defs/positiveInteger" },
+        "normalized_schema_sha256": { "$ref": "#/$defs/sha256" },
+        "canonical_result_sha256": { "$ref": "#/$defs/sha256" },
+        "release_candidate_cardinality": { "$ref": "#/$defs/nonnegativeInteger" },
+        "dependency_candidate_cardinality": { "$ref": "#/$defs/nonnegativeInteger" },
+        "outcome_candidate_cardinality": { "$ref": "#/$defs/nonnegativeInteger" },
+        "release_candidate_set_sha256": { "$ref": "#/$defs/sha256" },
+        "dependency_candidate_set_sha256": { "$ref": "#/$defs/sha256" },
+        "outcome_candidate_set_sha256": { "$ref": "#/$defs/sha256" },
+        "existing_cardinality": { "$ref": "#/$defs/nonnegativeInteger" },
+        "existing_set_sha256": { "$ref": "#/$defs/sha256" },
+        "overlap_cardinality": { "$ref": "#/$defs/nonnegativeInteger" },
+        "overlap_set_sha256": { "$ref": "#/$defs/sha256" },
+        "novel_cardinality": { "$ref": "#/$defs/nonnegativeInteger" },
+        "novel_set_sha256": { "$ref": "#/$defs/sha256" },
+        "union_cardinality": { "$ref": "#/$defs/nonnegativeInteger" },
+        "union_set_sha256": { "$ref": "#/$defs/sha256" },
+        "schedule_sha256": { "$ref": "#/$defs/sha256" }
+      },
+      "dependentRequired": {
+        "row_count": ["column_count", "normalized_schema_sha256", "canonical_result_sha256"],
+        "column_count": ["row_count", "normalized_schema_sha256", "canonical_result_sha256"],
+        "release_candidate_cardinality": ["release_candidate_set_sha256"],
+        "release_candidate_set_sha256": ["release_candidate_cardinality"],
+        "dependency_candidate_cardinality": ["dependency_candidate_set_sha256"],
+        "dependency_candidate_set_sha256": ["dependency_candidate_cardinality"],
+        "outcome_candidate_cardinality": ["outcome_candidate_set_sha256"],
+        "outcome_candidate_set_sha256": ["outcome_candidate_cardinality"],
+        "existing_cardinality": ["existing_set_sha256"],
+        "existing_set_sha256": ["existing_cardinality"],
+        "overlap_cardinality": ["overlap_set_sha256"],
+        "overlap_set_sha256": ["overlap_cardinality"],
+        "novel_cardinality": ["novel_set_sha256"],
+        "novel_set_sha256": ["novel_cardinality"],
+        "union_cardinality": ["union_set_sha256"],
+        "union_set_sha256": ["union_cardinality"]
+      }
+    },
+    "generation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["seed", "generator_version", "command"],
+      "properties": {
+        "seed": { "type": "integer" },
+        "generator_version": { "$ref": "#/$defs/token" },
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000\\r\\n]+$"
+        }
+      }
+    }
+  }
+}

@@ -13,17 +13,25 @@ set now present in the repository.
   cost or enterprise deployment claim
 - **Functional evidence:** complete for the scoped rows marked `SUPPORTED`;
   the combined-formal-model limitation below remains explicit
-- **Measurement instrumentation:** a Real-Pilot PASS applies only to the exact
-  commit recorded in that evidence.  This repair adds a strict
-  source-controlled Final-V5 observer and frozen binding validation; it does
-  not inherit any earlier commit's PASS, so every resulting commit must be
-  independently revalidated and rerun before it is treated as current evidence
+- **Measurement instrumentation:** the Real-system Pilot passed only for repair
+  candidate commit `59a9ee4462f6f23c5469ddb1feb643bad41e0630`; its evidence
+  remains `publication_eligible=false`.  A later commit does not inherit that
+  PASS and must be independently revalidated and rerun before it is treated as
+  current evidence
 - **Experiment orchestration/evidence skeleton:** complete
 - **Source-controlled formal capabilities:** `6/9` are currently true: RLS,
   adaptive attacks, ProvSQL, compiler, concurrency, and RQ5.  Baseline, Scale,
   and Artifact correctly remain false.  Baseline has only the non-publication
   `S1/tiny` Real-Pilot path; Scale and Artifact have handler code but no
-  Catalog-realizable complete formal matrix with reviewed datasets and oracles
+  launcher-selected, live-bound complete formal matrix with reviewed datasets and oracles
+- **Author contract decision:** the current instruction fixes the research
+  design of the Baseline, Scale, and Artifact contracts, the three-family
+  shared Benchmark Product architecture, and the independent Oracle method as
+  `AUTHOR_APPROVED_FOR_IMPLEMENTATION`. Exact generated manifest/digest bytes,
+  core-Claim bytes, nine private configs, three dataset bindings, `9/9`, a
+  Campaign ID, submission freeze, publication execution, and paper numbers
+  remain unapproved; see
+  `docs/final_v5_author_review_manifest.md`
 - **Stage B adapter verification:** incomplete.  Offline validate-only, unit,
   failure-retention, and schema checks do not promote a handler into a formal
   capability; any real-backend preflight is an engineering diagnostic, not
