@@ -28,6 +28,7 @@
         "catalog_materializable": true,
         "live_route_available": true,
         "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
           {
@@ -88,6 +89,7 @@
         "catalog_materializable": true,
         "live_route_available": true,
         "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
           {
@@ -149,6 +151,7 @@
         "catalog_materializable": true,
         "live_route_available": true,
         "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
           {
@@ -218,6 +221,7 @@
         "catalog_materializable": true,
         "live_route_available": true,
         "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
           {
@@ -276,6 +280,7 @@
         "catalog_materializable": true,
         "live_route_available": true,
         "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
           {
@@ -345,9 +350,16 @@
         "closure_complete": true,
         "catalog_materializable": false,
         "live_route_available": false,
-        "activation_supported": true,
+        "activation_supported": false,
+        "activation_smoke_passed": false,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
+          {
+            "state": "activation_supported",
+            "code": "live_activation_smoke_not_executed",
+            "subject": "profile-46b22367d1386567",
+            "detail": "catalog_materializable_false; live_activation_smoke_not_executed; live_route_available_false; no_approval_route_for_exact_product_closure; product_absent_from_live_catalog; route_not_evaluable"
+          },
           {
             "state": "catalog_materializable",
             "code": "product_absent_from_live_catalog",
@@ -409,9 +421,16 @@
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": false,
-        "activation_supported": true,
+        "activation_supported": false,
+        "activation_smoke_passed": false,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
+          {
+            "state": "activation_supported",
+            "code": "live_activation_smoke_not_executed",
+            "subject": "profile-5b48ad2a02c5446d",
+            "detail": "live_activation_smoke_not_executed; live_route_available_false; no_approval_route_for_closure; no_approval_route_for_exact_product_closure"
+          },
           {
             "state": "live_route_available",
             "code": "no_approval_route_for_closure",
@@ -484,9 +503,16 @@
         "closure_complete": true,
         "catalog_materializable": false,
         "live_route_available": false,
-        "activation_supported": true,
+        "activation_supported": false,
+        "activation_smoke_passed": false,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
+          {
+            "state": "activation_supported",
+            "code": "live_activation_smoke_not_executed",
+            "subject": "profile-794efc2159ffaa5f",
+            "detail": "catalog_materializable_false; live_activation_smoke_not_executed; live_route_available_false; no_approval_route_for_exact_product_closure; product_absent_from_live_catalog; publication_absent_from_live_catalog; route_not_evaluable"
+          },
           {
             "state": "catalog_materializable",
             "code": "product_absent_from_live_catalog",
@@ -594,6 +620,7 @@
         "catalog_materializable": true,
         "live_route_available": true,
         "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
           {
@@ -669,6 +696,7 @@
         "catalog_materializable": true,
         "live_route_available": true,
         "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
           {
@@ -743,9 +771,16 @@
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": false,
-        "activation_supported": true,
+        "activation_supported": false,
+        "activation_smoke_passed": false,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
+          {
+            "state": "activation_supported",
+            "code": "live_activation_smoke_not_executed",
+            "subject": "profile-f60ec5752f501da0",
+            "detail": "live_activation_smoke_not_executed; live_route_available_false; no_approval_route_for_closure; no_approval_route_for_exact_product_closure"
+          },
           {
             "state": "live_route_available",
             "code": "no_approval_route_for_closure",

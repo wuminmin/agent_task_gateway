@@ -1,0 +1,216 @@
+{
+  "schema_version": 1,
+  "record": "taskgate-final-v5-profile-activation-support-v1",
+  "contract_release": "final-v5-contracts-v1.2",
+  "profile_registry_sha256": "29c5420e715f685f35ee181769150b9b3e041f3dcb455b2d3da8e5a26cc87d9c",
+  "activation_implementation_available": true,
+  "activation_smoke_manifest_sha256": "8911a20b9052cad0622ded595a23019b76fc6a874cc48609d1b52d7a1e217092",
+  "outside_product_route_matrix_sha256": "8c1dbf09e97b40a7263bd5b38f0a92bd554b7e96da1661d203a9c2fb0452be19",
+  "semantic_cache_isolation_evidence_sha256": "fee599cd560f52994beae79e006a5ba991bc3925355424534bfefc338397220a",
+  "outside_product_route_matrix_status": "pass",
+  "semantic_cache_isolation_status": "pass",
+  "semantic_cache_catalog_bound": true,
+  "outside_product_route_matrix_failed_probe_count": 0,
+  "profiles": [
+    {
+      "profile_id": "profile-00bc8f7d5633f596",
+      "profile_alias": "rls-unlimited",
+      "catalog_sha256": "4ea11563ac1e1433115bd27e24395dab72e2cb6635baa00b20bae16c48d5dbb9",
+      "closure_sha256": "00bc8f7d5633f5964545ed5c1aefd3120e36512a094dd09676c0697c15f1dc0a",
+      "profile_schema_attestation": "6af9951f0c0b88a40f2f6e253938fa2e1eb4918feef37dc36a0e65b7c58f7504",
+      "publication_identities": [
+        "expense-detail-v1"
+      ],
+      "activation_supported": true,
+      "activation_smoke_passed": true,
+      "activation_evidence_sha256": [
+        "c9536fbef79a54c21a33c722030015ff2016de16747b65990beb88f1b44c805f"
+      ],
+      "reason": ""
+    },
+    {
+      "profile_id": "profile-0d88c4e9d8b7561b",
+      "profile_alias": "expense-detail",
+      "catalog_sha256": "924d385e6561fedb4b865702f1a049eb2677f3022448947ab15446871175879d",
+      "closure_sha256": "0d88c4e9d8b7561bc4705cc395a268bf6634bc619ae391d3574c3f93addf3fb1",
+      "profile_schema_attestation": "512c9f2e86739fc409d91a0dfe45ae671fd78831729608d30c329b0d367be729",
+      "publication_identities": [
+        "expense-detail-v1"
+      ],
+      "activation_supported": true,
+      "activation_smoke_passed": true,
+      "activation_evidence_sha256": [
+        "04753012e8f67d9f957badb9f8e91ee30bbff1da152d5c314adf96edc65ea1a6"
+      ],
+      "reason": ""
+    },
+    {
+      "profile_id": "profile-158c6ffcccef2383",
+      "profile_alias": "attack-expense-detail",
+      "catalog_sha256": "c02407c16495d2f627b66cc91f5fe3feba0274e3f0748eb08f224ba0da57caeb",
+      "closure_sha256": "158c6ffcccef2383a957e4244c8b95eea8378b0092c123f7c2076acccda2e2bf",
+      "profile_schema_attestation": "a2d8282a40aa0b93201252af53266c9061ca350b7bbb98018c8c8043c3b267b2",
+      "publication_identities": [
+        "expense-detail-v1"
+      ],
+      "activation_supported": true,
+      "activation_smoke_passed": true,
+      "activation_evidence_sha256": [
+        "a7c3c2f35b8b90a231e769658834283ed0412a8a4236aee7eaeb8e9afd4962c3"
+      ],
+      "reason": ""
+    },
+    {
+      "profile_id": "profile-18c12d9c4dc04fc5",
+      "profile_alias": "rls-bounded",
+      "catalog_sha256": "9f81bad7373630fcebd6f95dbef9f5feff2fe9c775c7658f10c3d2c4f94299be",
+      "closure_sha256": "18c12d9c4dc04fc599a5f41351c9d83fe4439c8c12d616f9dff6f454bd75c18d",
+      "profile_schema_attestation": "a2bb7bfee820e373b9fab983dfd2d25f6590065f43c05e0691e78a15a83a6bdd",
+      "publication_identities": [
+        "expense-detail-v1"
+      ],
+      "activation_supported": true,
+      "activation_smoke_passed": true,
+      "activation_evidence_sha256": [
+        "f2c79b62d96c5fc3c2b453caa93f148eb51753e3c1ea0fb67a118eff12b917a2"
+      ],
+      "reason": ""
+    },
+    {
+      "profile_id": "profile-3947f508ef5e9677",
+      "profile_alias": "concurrency-expense-detail",
+      "catalog_sha256": "3d5f636452fc7926138db712d4fcca7add8fef7acc37f5f84562bc2d48ad2600",
+      "closure_sha256": "3947f508ef5e96777dfc3966d6a2c0eb46b1a365f1810b9a87990375cb2bfe0a",
+      "profile_schema_attestation": "f60632ace9219693da7244b327484d7a65d10d24ec0c876bc32075416ce4b104",
+      "publication_identities": [
+        "expense-detail-v1"
+      ],
+      "activation_supported": true,
+      "activation_smoke_passed": true,
+      "activation_evidence_sha256": [
+        "9be7658fe266bbf44f4e83ef84fa405eb9567892b00f5c4b560a696d24ee1c61"
+      ],
+      "reason": ""
+    },
+    {
+      "profile_id": "profile-46b22367d1386567",
+      "profile_alias": "depth4-semantic-view",
+      "catalog_sha256": "",
+      "closure_sha256": "46b22367d138656780ed27942f4717904aa0eb8fae9e956bf79ebfe1cdb6a1a2",
+      "publication_identities": [
+        "provsql-lineitem-v1",
+        "provsql-orders-v1"
+      ],
+      "activation_supported": false,
+      "activation_smoke_passed": false,
+      "activation_evidence_sha256": null,
+      "reason": "catalog_materializable_false; live_activation_smoke_not_executed; live_route_available_false; no_approval_route_for_exact_product_closure; product_absent_from_live_catalog; route_not_evaluable",
+      "blocked_by": [
+        "catalog_materializable_false",
+        "live_activation_smoke_not_executed",
+        "live_route_available_false",
+        "no_approval_route_for_exact_product_closure",
+        "product_absent_from_live_catalog",
+        "route_not_evaluable"
+      ]
+    },
+    {
+      "profile_id": "profile-5b48ad2a02c5446d",
+      "profile_alias": "analytics-orders-lineitem",
+      "catalog_sha256": "6dedb81d8db5071f3795df10f1d8597712cc6e7e8c8e070cbedeb6e546470f5d",
+      "closure_sha256": "5b48ad2a02c5446d07cd2c837428be7e10b9b2bff675d5df94868f828058e380",
+      "profile_schema_attestation": "e13e08ecbe35e85206a37f07f387bbf25a66fef4ed2897c8abe8a1bd9d3c7701",
+      "publication_identities": [
+        "provsql-lineitem-v1",
+        "provsql-orders-v1"
+      ],
+      "activation_supported": false,
+      "activation_smoke_passed": false,
+      "activation_evidence_sha256": null,
+      "reason": "live_activation_smoke_not_executed; live_route_available_false; no_approval_route_for_closure; no_approval_route_for_exact_product_closure",
+      "blocked_by": [
+        "live_activation_smoke_not_executed",
+        "live_route_available_false",
+        "no_approval_route_for_closure",
+        "no_approval_route_for_exact_product_closure"
+      ]
+    },
+    {
+      "profile_id": "profile-794efc2159ffaa5f",
+      "profile_alias": "exposure-scale",
+      "catalog_sha256": "",
+      "closure_sha256": "794efc2159ffaa5f87406c8e3e22610d316a7413a0626a7c8130a332fb260906",
+      "publication_identities": [
+        "final-v5-exposure-scale-v1"
+      ],
+      "activation_supported": false,
+      "activation_smoke_passed": false,
+      "activation_evidence_sha256": null,
+      "reason": "catalog_materializable_false; live_activation_smoke_not_executed; live_route_available_false; no_approval_route_for_exact_product_closure; product_absent_from_live_catalog; publication_absent_from_live_catalog; route_not_evaluable",
+      "blocked_by": [
+        "catalog_materializable_false",
+        "live_activation_smoke_not_executed",
+        "live_route_available_false",
+        "no_approval_route_for_exact_product_closure",
+        "product_absent_from_live_catalog",
+        "publication_absent_from_live_catalog",
+        "route_not_evaluable"
+      ]
+    },
+    {
+      "profile_id": "profile-a60a787c64c95451",
+      "profile_alias": "provsql-nonce-join",
+      "catalog_sha256": "ad5838887e571aa1451a670acdc4486f646b63e4a00d676412be5c3148752317",
+      "closure_sha256": "a60a787c64c9545177fa6b47e3723eb01725b71945b8a196753f90f2f2e05c79",
+      "profile_schema_attestation": "64930465463cf47a0528a8d86a4f655b7478cd717fdb7c827f2c72e417877f64",
+      "publication_identities": [
+        "provsql-lineitem-v1",
+        "provsql-nonce-v1",
+        "provsql-orders-v1"
+      ],
+      "activation_supported": true,
+      "activation_smoke_passed": true,
+      "activation_evidence_sha256": [
+        "724ed6fba193d9e100db40051dac639770e76da8990814cf110de4dece39070e"
+      ],
+      "reason": ""
+    },
+    {
+      "profile_id": "profile-a86cd4df5cad6e26",
+      "profile_alias": "result-heavy",
+      "catalog_sha256": "533837084c0df141a0fac6e74788a4c2b9eb84611c1f96d4c760806745b4f709",
+      "closure_sha256": "a86cd4df5cad6e2685d1930caeccdbe3a865194fcef33faeca86b7c2c592bdbd",
+      "profile_schema_attestation": "ae4d7458afd85267bb5a0171e0724c70343c74fb4595e1f63edbb4beb717dd70",
+      "publication_identities": [
+        "final-v5-result-heavy-v1"
+      ],
+      "activation_supported": true,
+      "activation_smoke_passed": true,
+      "activation_evidence_sha256": [
+        "4d2d09674d28e8096232b186d722ab0de2843d90849e9e7571350640319b474c",
+        "c4e0124db01761674383e50132800e2bfb1d7f5d93cd16cf7b9b6821941c0454"
+      ],
+      "reason": ""
+    },
+    {
+      "profile_id": "profile-f60ec5752f501da0",
+      "profile_alias": "analytics-orders",
+      "catalog_sha256": "a1c9f76be6e15016c2e31b46481814e86eef099e3f7ad3b330bbedb86f80db10",
+      "closure_sha256": "f60ec5752f501da0147f9d2789234af64de4d98f7542c63b472c8aaecb26214d",
+      "profile_schema_attestation": "2f503bdc932295871e82b64f0d346613a6ee4eb01ef99fd52e329ee81fad5a36",
+      "publication_identities": [
+        "provsql-orders-v1"
+      ],
+      "activation_supported": false,
+      "activation_smoke_passed": false,
+      "activation_evidence_sha256": null,
+      "reason": "live_activation_smoke_not_executed; live_route_available_false; no_approval_route_for_closure; no_approval_route_for_exact_product_closure",
+      "blocked_by": [
+        "live_activation_smoke_not_executed",
+        "live_route_available_false",
+        "no_approval_route_for_closure",
+        "no_approval_route_for_exact_product_closure"
+      ]
+    }
+  ]
+}

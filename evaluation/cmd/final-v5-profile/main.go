@@ -37,23 +37,19 @@ const (
 	coveragePath     = "evaluation/final-v5-wsl2/profiles/profile-coverage-v1.2.json"
 	intersectionPath = "evaluation/final-v5-wsl2/profiles/product-intersection-v1.json"
 	attestationPath  = "config/profiles/schema-attestations-v1.json"
+	// activationSupportPath is the per-profile activation support manifest. It is
+	// the only source of activation_supported; there is no global override.
+	activationSupportPath = "config/profiles/activation-support-v1.json"
 	profileDirectory = "config/profiles"
 )
 
-// activationSupported records whether a Catalog-bound runtime activation
-// orchestrator exists in this tree and has been exercised. It is a
-// source-controlled fact about the repository, not a claim that any particular
-// profile's workload cells have run.
-//
-// It is true: evaluation/cmd/final-v5-profile-activate activates a profile on
-// its own Catalog and its own snapshot artifact directory, re-attests the
-// reporting surface against the live database, and was exercised by a
-// Result-heavy canary followed by an eight-step activation smoke covering all
-// seven Catalog-and-route cleared profiles including a switch-back.
-//
-// It says nothing about targeted_validation_passed, which still requires each
-// profile's own workload cells to run.
-const activationSupported = true
+// activationImplementationAvailable is a property of the harness, not of any
+// profile: an activator, a per-profile artifact materializer, a Gateway
+// activation diagnostic, a profile-bound restart and the C12/C14/C15 mechanisms
+// all exist. Whether a *particular* profile has actually been activated is a
+// separate, per-profile question answered by the activation support manifest
+// (config/profiles/activation-support-v1.json), never by this constant.
+const activationImplementationAvailable = true
 
 // declaration is the source-controlled input for experiments that have no
 // machine contract. Baseline, Scale and Artifact Product sets always come from
@@ -115,8 +111,15 @@ func run(root string, verifyOnly bool) error {
 	if err != nil {
 		return err
 	}
+	support, err := loadActivationSupport(root)
+	if err != nil {
+		return err
+	}
+	// Build leaves activation_supported false for every profile. It is applied
+	// below, once each profile Catalog has been materialized and its digest is
+	// known, so a claim can be rejected when it names a different Catalog.
 	profiles, err := finalv5profile.Build(finalv5profile.BuildInput{Master: master, Live: live,
-		Cells: cells, Aliases: declared.Aliases, Hot: hot, ActivationSupported: activationSupported})
+		Cells: cells, Aliases: declared.Aliases, Hot: hot, ActivationSupported: false})
 	if err != nil {
 		return err
 	}
@@ -125,6 +128,7 @@ func run(root string, verifyOnly bool) error {
 			return err
 		}
 	}
+	finalv5profile.ApplyActivationSupport(profiles, support)
 	registry := finalv5profile.Registry{SchemaVersion: 1, RegistryVersion: finalv5profile.RegistryVersion,
 		ContractRelease: contractRelease(), MaxHotLimitBytes: finalv5profile.MaxHotBytesPerInstance,
 		HotLimitScope: finalv5profile.HotLimitScope, Profiles: profiles}
@@ -352,7 +356,9 @@ func printDerivedClosures(root string) error {
 		}
 		entry, present := groups[closure.SHA256]
 		if !present {
-			status, _ := finalv5profile.EvaluateStatus(closure, reasons, live, hot, activationSupported)
+			// Closure review output. Activation support is a per-profile
+			// evidence question that this listing deliberately does not answer.
+			status, _ := finalv5profile.EvaluateStatus(closure, reasons, live, hot, false)
 			entry = &group{closure: closure, status: status}
 			groups[closure.SHA256] = entry
 		}
@@ -438,6 +444,28 @@ func workloadCells(root string) ([]finalv5profile.WorkloadCell, declaration, err
 // is optional only so a first bootstrap can generate profile Catalogs before a
 // live deployment exists to attest them; a test requires every materializable
 // profile to be attested in the committed tree.
+// loadActivationSupport reads the per-profile activation support manifest. An
+// absent manifest is not an error and is not an escape hatch: it yields an empty
+// support set, so every profile stays unsupported until a live smoke is recorded.
+func loadActivationSupport(root string) (map[string]finalv5profile.ProfileActivationSupport, error) {
+	value, err := os.ReadFile(filepath.Join(root, activationSupportPath))
+	if os.IsNotExist(err) {
+		return map[string]finalv5profile.ProfileActivationSupport{}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read activation support manifest: %w", err)
+	}
+	support, err := finalv5profile.DecodeActivationSupport(value)
+	if err != nil {
+		return nil, err
+	}
+	if support.ContractRelease != contractRelease() {
+		return nil, fmt.Errorf("activation support manifest pins contract %s, this tree is %s",
+			support.ContractRelease, contractRelease())
+	}
+	return support.SupportedProfiles()
+}
+
 func loadAttestations(root string) (finalv5profile.SchemaAttestationRegistry, error) {
 	var registry finalv5profile.SchemaAttestationRegistry
 	value, err := os.ReadFile(filepath.Join(root, attestationPath))

@@ -110,10 +110,16 @@ type UnresolvedReason struct {
 // approval route, and a Catalog may be materializable long before a runtime can
 // activate it; one boolean cannot express that.
 type ProfileStatus struct {
-	ClosureComplete          bool               `json:"closure_complete"`
-	CatalogMaterializable    bool               `json:"catalog_materializable"`
-	LiveRouteAvailable       bool               `json:"live_route_available"`
-	ActivationSupported      bool               `json:"activation_supported"`
+	ClosureComplete       bool `json:"closure_complete"`
+	CatalogMaterializable bool `json:"catalog_materializable"`
+	LiveRouteAvailable    bool `json:"live_route_available"`
+	// ActivationSupported is per profile and is derived from the activation
+	// support manifest, never from a global "the activator exists" constant. A
+	// profile the harness could activate but never has is not supported.
+	ActivationSupported bool `json:"activation_supported"`
+	// ActivationSmokePassed records the evidence behind ActivationSupported. It
+	// is reported, not gating: ActivationSupported is the contract state.
+	ActivationSmokePassed    bool               `json:"activation_smoke_passed"`
 	TargetedValidationPassed bool               `json:"targeted_validation_passed"`
 	UnresolvedReasons        []UnresolvedReason `json:"unresolved_reasons"`
 }
@@ -289,12 +295,12 @@ func ComputeClosure(master *catalog.Catalog, requested []string) (Closure, []Unr
 func EvaluateStatus(closure Closure, closureReasons []UnresolvedReason, live *catalog.Catalog,
 	hot map[string]HotArtifact, activationSupported bool) (ProfileStatus, []string) {
 	status := ProfileStatus{ClosureComplete: len(closureReasons) == 0,
-		ActivationSupported: activationSupported,
-		UnresolvedReasons:   append([]UnresolvedReason(nil), closureReasons...)}
+		ActivationSupported: activationSupported, ActivationSmokePassed: activationSupported,
+		UnresolvedReasons: append([]UnresolvedReason(nil), closureReasons...)}
 	if !status.ActivationSupported {
 		status.UnresolvedReasons = append(status.UnresolvedReasons, UnresolvedReason{
-			State: "activation_supported", Code: "activation_not_implemented",
-			Detail: "no Catalog-bound runtime activation exists for this profile"})
+			State: "activation_supported", Code: "live_activation_smoke_not_executed",
+			Detail: "no live activation smoke has been recorded for this profile"})
 	}
 	materializable := true
 	for _, name := range closure.Products {
