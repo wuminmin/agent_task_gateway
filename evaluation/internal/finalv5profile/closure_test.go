@@ -73,9 +73,16 @@ func TestBaselineS6AndArtifactShareOneProfile(t *testing.T) {
 			t.Fatalf("scale %s: %v", scale, err)
 		}
 	}
-	if !resultHeavy.Closure.Routable || len(resultHeavy.Closure.Products) != 1 ||
-		resultHeavy.Closure.Products[0] != "final_v5_result_heavy" {
+	if len(resultHeavy.Closure.Products) != 1 || resultHeavy.Closure.Products[0] != "final_v5_result_heavy" {
 		t.Fatalf("result-heavy closure = %+v", resultHeavy.Closure)
+	}
+	// Baseline S6 and Artifact must be able to run on one live deployment: the
+	// closure is complete, materializable and routable in the live Catalog.
+	// Activation and targeted validation are separate states and are asserted
+	// by the activation smoke and the targeted run, not here.
+	if !resultHeavy.Status.ClosureComplete || !resultHeavy.Status.CatalogMaterializable ||
+		!resultHeavy.Status.LiveRouteAvailable {
+		t.Fatalf("result-heavy status = %+v", resultHeavy.Status)
 	}
 }
 
@@ -88,6 +95,9 @@ func TestEveryProfileFitsThePerInstanceHotLimit(t *testing.T) {
 	}
 	var largest int64
 	for _, profile := range registry.Profiles {
+		if !profile.Status.CatalogMaterializable {
+			continue
+		}
 		if profile.TotalHotBytes > profile.MaxHotLimitBytes {
 			t.Fatalf("profile %q activates %d HOT bytes", profile.Alias, profile.TotalHotBytes)
 		}
@@ -131,14 +141,24 @@ func TestRegistryCompletenessAndIdentityRules(t *testing.T) {
 			assigned[cell] = true
 		}
 	}
-	for _, cell := range registry.UnresolvedCells {
-		if assigned[cell.Cell] || strings.TrimSpace(cell.Reason) == "" {
-			t.Fatalf("unresolved cell %+v is inconsistent", cell)
+	// A profile that is not routable must say exactly which state blocks it.
+	for _, profile := range registry.Profiles {
+		if profile.Routable {
+			continue
 		}
-	}
-	for _, cell := range registry.UnresolvedCells {
-		if strings.HasPrefix(cell.Cell, "artifact/") {
-			t.Fatalf("artifact cell %q is unresolved", cell.Cell)
+		if len(profile.Status.UnresolvedReasons) == 0 {
+			t.Fatalf("profile %q is not routable and records no reason", profile.Alias)
+		}
+		for _, reason := range profile.Status.UnresolvedReasons {
+			switch reason.State {
+			case "closure_complete", "catalog_materializable", "live_route_available",
+				"activation_supported", "targeted_validation_passed":
+			default:
+				t.Fatalf("profile %q reason names unknown state %q", profile.Alias, reason.State)
+			}
+			if strings.TrimSpace(reason.Code) == "" || strings.TrimSpace(reason.Detail) == "" {
+				t.Fatalf("profile %q reason %+v is not structured", profile.Alias, reason)
+			}
 		}
 	}
 }
@@ -148,6 +168,14 @@ func TestRegistryCompletenessAndIdentityRules(t *testing.T) {
 func TestProfileCatalogsAreClosedAndCrossProfileProductsAreRejected(t *testing.T) {
 	registry := loadRegistry(t)
 	for _, profile := range registry.Profiles {
+		if !profile.Status.CatalogMaterializable {
+			// A profile the live Catalog cannot publish must have no generated
+			// Catalog at all, so nothing can accidentally activate it.
+			if profile.CatalogPath != "" || profile.CatalogSHA256 != "" {
+				t.Fatalf("non-materializable profile %q carries a Catalog", profile.Alias)
+			}
+			continue
+		}
 		loaded, err := catalog.Load(filepath.Join(repositoryRoot, profile.CatalogPath))
 		if err != nil {
 			t.Fatalf("profile %q Catalog: %v", profile.Alias, err)
@@ -206,10 +234,10 @@ func TestProfileCatalogsAreClosedAndCrossProfileProductsAreRejected(t *testing.T
 // missing Publication and a fail-closed sentinel digest.
 func TestClosureFailsClosedOnMissingDependencies(t *testing.T) {
 	full := fullCatalog(t)
-	if _, err := ComputeClosure(full, []string{"final_v5_absent_product"}); err == nil {
-		t.Fatal("a closure over an absent Product was accepted")
+	if _, reasons, err := ComputeClosure(full, []string{"final_v5_absent_product"}); err != nil || len(reasons) == 0 {
+		t.Fatalf("an absent Product produced no structured reason: reasons=%+v err=%v", reasons, err)
 	}
-	if _, err := ComputeClosure(full, nil); err == nil {
+	if _, _, err := ComputeClosure(full, nil); err == nil {
 		t.Fatal("an empty closure was accepted")
 	}
 	for name, mutate := range map[string]func(*catalog.Catalog){
@@ -238,8 +266,13 @@ func TestClosureFailsClosedOnMissingDependencies(t *testing.T) {
 		mutated.SnapshotPublications = append([]catalog.SnapshotPublication(nil), mutated.SnapshotPublications...)
 		mutated.Scopes = append([]catalog.Scope(nil), mutated.Scopes...)
 		mutate(&mutated)
-		if _, err := ComputeClosure(&mutated, []string{"final_v5_result_heavy"}); err == nil {
-			t.Fatalf("%s was accepted", name)
+		closure, reasons, err := ComputeClosure(&mutated, []string{"final_v5_result_heavy"})
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		status, _ := EvaluateStatus(closure, reasons, &mutated, map[string]HotArtifact{}, true)
+		if status.ClosureComplete && status.CatalogMaterializable {
+			t.Fatalf("%s was accepted as complete and materializable", name)
 		}
 	}
 }
@@ -254,18 +287,16 @@ func TestIdenticalClosuresMergeAndDifferentClosuresDoNot(t *testing.T) {
 		{ExperimentID: "attack", WorkloadID: "A", Scale: "s", Mode: "novel", Products: []string{"final_v5_attack_expense_detail"}},
 	}
 	for _, cell := range cells {
-		closure, err := ComputeClosure(full, cell.Products)
+		closure, _, err := ComputeClosure(full, cell.Products)
 		if err != nil {
 			t.Fatal(err)
 		}
 		aliases[closure.SHA256] = "alias-" + closure.SHA256[:8]
 	}
-	profiles, unresolved, err := Build(full, cells, aliases)
+	profiles, err := Build(BuildInput{Master: full, Live: full, Cells: cells, Aliases: aliases,
+		Hot: map[string]HotArtifact{}, ActivationSupported: true})
 	if err != nil {
 		t.Fatal(err)
-	}
-	if len(unresolved) != 0 {
-		t.Fatalf("unexpected unresolved cells: %+v", unresolved)
 	}
 	if len(profiles) != 2 {
 		t.Fatalf("identical closures did not merge: %d profiles", len(profiles))

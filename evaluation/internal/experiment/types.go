@@ -391,6 +391,10 @@ type Sample struct {
 	CompilerVerification      *CompilerVerificationEvidence     `json:"compiler_verification,omitempty"`
 	ConcurrencyVerification   *ConcurrencyVerification          `json:"concurrency_verification,omitempty"`
 	RQ5Verification           *RQ5VerificationEvidence          `json:"rq5_verification,omitempty"`
+	// ProfileBinding names the deployment profile this arm ran against. Every
+	// arm of one cell must agree, including a Direct arm that never reaches the
+	// Gateway but must still read the same Dataset, Catalog and Publication.
+	ProfileBinding *ProfileBinding `json:"profile_binding,omitempty"`
 }
 
 type BaselineVerificationEvidence struct {

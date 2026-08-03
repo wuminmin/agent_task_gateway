@@ -36,6 +36,7 @@ const (
 	// Result-heavy Dataset Generator; see contracts/AMENDMENT-v1.1.md.
 	contractReleaseV1  = "final-v5-contracts-v1"
 	contractReleaseV11 = "final-v5-contracts-v1.1"
+	contractReleaseV12 = "final-v5-contracts-v1.2"
 )
 
 var (
@@ -1002,6 +1003,7 @@ func validateIndex(root, evaluationRoot string) error {
 		"contracts/artifact-v1.json":             "experiment_contract",
 		"contracts/benchmark-products-v1.json":   "product_contract",
 		"contracts/oracle-policy-v1.json":        "oracle_policy",
+		"contracts/profile-activation-v1.json":   "profile_activation_policy",
 		"contracts/result-normalization-v1.json": "normalization_contract",
 		"catalog/benchmark-contract-v1.yaml":     "catalog_candidate",
 		"sql/datasets/benchmark-v1-generate.sql": "dataset_generator",
@@ -1054,10 +1056,18 @@ func validateContractRelease(index indexDocument, evaluationRoot string) error {
 		}
 		return nil
 	}
-	if index.ContractRelease != contractReleaseV11 || index.SupersedesContractRelease != contractReleaseV1 {
+	// Amendments form a chain: each release names exactly the one it replaced
+	// and ships its own record, so evidence can never attribute corrected bytes
+	// to an earlier release.
+	chain := map[string][2]string{
+		contractReleaseV11: {contractReleaseV1, "contracts/AMENDMENT-v1.1.md"},
+		contractReleaseV12: {contractReleaseV11, "contracts/AMENDMENT-v1.2.md"},
+	}
+	expected, reviewed := chain[index.ContractRelease]
+	if !reviewed || index.SupersedesContractRelease != expected[0] {
 		return fmt.Errorf("contract release %q is not a reviewed release", index.ContractRelease)
 	}
-	if index.Amendment != "contracts/AMENDMENT-v1.1.md" {
+	if index.Amendment != expected[1] {
 		return errors.New("amended contract index does not point at its amendment record")
 	}
 	if _, err := regularRelativeFile(evaluationRoot, index.Amendment); err != nil {

@@ -54,6 +54,7 @@ const (
 	catalogCandidatePath      = "catalog/benchmark-contract-v1.yaml"
 	datasetGeneratorPath      = "sql/datasets/benchmark-v1-generate.sql"
 	datasetProbePath          = "sql/datasets/benchmark-v1-probe.sql"
+	profileActivationPath     = "contracts/profile-activation-v1.json"
 	protocolDocumentPath      = "protocol/protocol-v1.yaml"
 	workloadManifestPath      = "protocol/workloads-v1.yaml"
 )
@@ -100,7 +101,8 @@ func LoadRuntimeFS(files fs.FS) (*Runtime, error) {
 	}
 	// An amended contract must identify its own release, so evidence can never
 	// attribute corrected bytes to the release they superseded.
-	if index.ContractRelease != contractReleaseV1 && index.ContractRelease != contractReleaseV11 {
+	if index.ContractRelease != contractReleaseV1 && index.ContractRelease != contractReleaseV11 &&
+		index.ContractRelease != contractReleaseV12 {
 		return nil, fmt.Errorf("contract index release %q is not reviewed", index.ContractRelease)
 	}
 	runtime.contractRelease = index.ContractRelease

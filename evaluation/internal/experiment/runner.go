@@ -40,8 +40,12 @@ type AdapterOperation struct {
 	FreshRootRequired bool   `json:"fresh_root_required"`
 	RootGroupID       string `json:"root_group_id"`
 	WorkloadID        string `json:"workload_id"`
-	Scale             string `json:"scale"`
-	Mode              string `json:"mode"`
+	// ProfileID is the deployment profile the orchestrator activated for this
+	// operation. An adapter must refuse an operation whose profile is not the
+	// one its cell resolves to.
+	ProfileID string `json:"profile_id,omitempty"`
+	Scale     string `json:"scale"`
+	Mode      string `json:"mode"`
 }
 
 func RunCommand(experimentID string) int {

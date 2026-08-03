@@ -21,6 +21,7 @@ import "embed"
 //go:embed contracts/index-v1.json
 //go:embed contracts/baseline-v1.json contracts/scale-v1.json contracts/artifact-v1.json
 //go:embed contracts/benchmark-products-v1.json contracts/oracle-policy-v1.json
+//go:embed contracts/profile-activation-v1.json
 //go:embed contracts/result-normalization-v1.json
 //go:embed catalog/benchmark-contract-v1.yaml
 //go:embed sql/contracts

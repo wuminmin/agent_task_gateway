@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "contract_version": "taskgate-final-v5-author-contract-v1",
+  "status": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+  "research_design_status": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+  "exact_generated_bytes_freeze_status": "NOT_APPROVED",
+  "policy_id": "taskgate-final-v5-profile-activation-v1",
+  "profile_unit": {
+    "definition": "a profile is the canonical minimal transitive Product closure required by one or more workload cells",
+    "identity": "canonical closure digest; the readable alias is presentation only",
+    "experiment_names_are_not_profiles": true,
+    "identical_closures_must_merge": true,
+    "distinct_closures_must_not_share_a_profile_id": true
+  },
+  "readiness_states": [
+    "closure_complete",
+    "catalog_materializable",
+    "live_route_available",
+    "activation_supported",
+    "targeted_validation_passed"
+  ],
+  "routable_rule": "a profile is routable only when all five readiness states hold; every false state must carry a structured unresolved reason",
+  "hot_limit": {
+    "bytes": 167772160,
+    "scope": "per Catalog-bound Gateway instance HOT limit",
+    "checked_per_activated_profile": true,
+    "summed_across_mutually_exclusive_profiles": false,
+    "may_be_raised": false
+  },
+  "activation": {
+    "requires_catalog_bound_restart": true,
+    "verifies_catalog_sha256": true,
+    "activates_only_the_closure": true,
+    "refuses_outside_closure_products": true,
+    "drains_previous_profile_before_stop": [
+      "no in-flight query",
+      "no ACTIVE root still served by the current Gateway",
+      "no unresolved PENDING artifact",
+      "no unreleased reservation"
+    ],
+    "isolation": [
+      "a new Gateway process, so no previous in-process HOT, compiled Catalog or View cache survives",
+      "persisted semantic replay is bound by Catalog, profile and Publication binding digests"
+    ],
+    "excluded_from_measured_samples": true,
+    "excluded_from_pipeline_ms": true,
+    "evidence_record": "taskgate-final-v5-profile-activation-evidence-v1"
+  },
+  "matched_pair_rule": {
+    "scope": "every arm and repetition of one workload cell",
+    "must_share": ["profile_id", "closure_sha256", "catalog_sha256", "dataset_binding", "publication_identity"],
+    "on_mismatch": "the whole cell is invalid; the failing evidence is retained and no single arm is deleted"
+  },
+  "unchanged_by_this_policy": [
+    "workload cells",
+    "Product logical data",
+    "Query Contracts",
+    "Oracle semantics",
+    "Dataset logical content",
+    "warmups",
+    "measured samples",
+    "deployments",
+    "statistics",
+    "FactID",
+    "Receipt",
+    "PENDING/AVAILABLE protocol"
+  ],
+  "generated_profile_digest_status": "NOT_GENERATED",
+  "generated_profile_digest_review_status": "NOT_APPROVED"
+}

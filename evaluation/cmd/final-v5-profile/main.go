@@ -25,12 +25,27 @@ import (
 )
 
 const (
-	fullCatalogPath  = "config/catalog.yaml"
+	// masterCatalogPath is the reviewed, contract-indexed Catalog candidate. It
+	// names every Product the campaign will ever need, so a closure derived from
+	// it exists even for a workload whose Product is not live yet.
+	masterCatalogPath = "evaluation/final-v5-wsl2/catalog/benchmark-contract-v1.yaml"
+	// liveCatalogPath is what a deployment actually runs, with generated digests.
+	liveCatalogPath  = "config/catalog.yaml"
 	declarationPath  = "config/profiles/workloads-v1.yaml"
 	registryPath     = "config/profiles/registry.json"
 	hotMeasurePath   = "config/profiles/hot-artifacts.json"
+	coveragePath     = "evaluation/final-v5-wsl2/profiles/profile-coverage-v1.2.json"
 	profileDirectory = "config/profiles"
 )
+
+// activationSupported records whether a Catalog-bound runtime activation
+// orchestrator exists in this tree. It is a source-controlled fact about the
+// repository, not a claim that any particular profile has been activated.
+//
+// It is false: contracts/profile-activation-v1.json specifies the activation
+// and isolation requirements, but no orchestrator implements them yet, so no
+// profile can honestly report activation_supported.
+const activationSupported = false
 
 // declaration is the source-controlled input for experiments that have no
 // machine contract. Baseline, Scale and Artifact Product sets always come from
@@ -72,15 +87,15 @@ func main() {
 }
 
 func run(root string, verifyOnly bool) error {
-	full, err := catalog.Load(filepath.Join(root, fullCatalogPath))
+	master, err := catalog.Load(filepath.Join(root, masterCatalogPath))
 	if err != nil {
-		return fmt.Errorf("load full Catalog: %w", err)
+		return fmt.Errorf("load master Catalog candidate: %w", err)
+	}
+	live, err := catalog.Load(filepath.Join(root, liveCatalogPath))
+	if err != nil {
+		return fmt.Errorf("load live Catalog: %w", err)
 	}
 	cells, declared, err := workloadCells(root)
-	if err != nil {
-		return err
-	}
-	profiles, unresolved, err := finalv5profile.Build(full, cells, declared.Aliases)
 	if err != nil {
 		return err
 	}
@@ -88,25 +103,105 @@ func run(root string, verifyOnly bool) error {
 	if err != nil {
 		return err
 	}
+	profiles, err := finalv5profile.Build(finalv5profile.BuildInput{Master: master, Live: live,
+		Cells: cells, Aliases: declared.Aliases, Hot: hot, ActivationSupported: activationSupported})
+	if err != nil {
+		return err
+	}
 	for index := range profiles {
-		if err := materializeProfile(root, full, &profiles[index], hot, verifyOnly); err != nil {
+		if err := materializeProfile(root, live, &profiles[index], hot, verifyOnly); err != nil {
 			return err
 		}
 	}
 	registry := finalv5profile.Registry{SchemaVersion: 1, RegistryVersion: finalv5profile.RegistryVersion,
 		ContractRelease: contractRelease(), MaxHotLimitBytes: finalv5profile.MaxHotBytesPerInstance,
-		HotLimitScope: finalv5profile.HotLimitScope, Profiles: profiles, UnresolvedCells: unresolved}
+		HotLimitScope: finalv5profile.HotLimitScope, Profiles: profiles}
 	if err := finalv5profile.ValidateRegistry(registry, cells); err != nil {
 		return err
 	}
-	encoded, err := json.MarshalIndent(registry, "", "  ")
+	if err := writeCanonicalJSON(filepath.Join(root, registryPath), registry, verifyOnly); err != nil {
+		return err
+	}
+	return writeCanonicalJSON(filepath.Join(root, coveragePath), buildCoverage(registry, cells), verifyOnly)
+}
+
+// coverageReport is the source-controlled cell completeness audit. Every count
+// is derived from the registry; nothing here is hand written.
+type coverageReport struct {
+	SchemaVersion    int               `json:"schema_version"`
+	ContractsVersion string            `json:"contracts_version"`
+	RegistryVersion  string            `json:"registry_version"`
+	TotalCells       int               `json:"total_cells"`
+	MappedCells      int               `json:"mapped_cells"`
+	RoutableCells    int               `json:"routable_cells"`
+	UnresolvedCells  int               `json:"unresolved_cells"`
+	DuplicateCells   int               `json:"duplicate_cells"`
+	MissingCells     int               `json:"missing_cells"`
+	DuplicateCellIDs []string          `json:"duplicate_cell_ids"`
+	MissingCellIDs   []string          `json:"missing_cell_ids"`
+	Profiles         []coverageProfile `json:"profiles"`
+}
+
+type coverageProfile struct {
+	ProfileID        string                            `json:"profile_id"`
+	Alias            string                            `json:"alias"`
+	ClosureSHA256    string                            `json:"closure_sha256"`
+	Routable         bool                              `json:"routable"`
+	Status           finalv5profile.ProfileStatus      `json:"status"`
+	UnresolvedReason []finalv5profile.UnresolvedReason `json:"unresolved_reason"`
+	CatalogSHA256    string                            `json:"catalog_sha256"`
+	TotalHotBytes    int64                             `json:"total_hot_bytes"`
+	Cells            []string                          `json:"cells"`
+}
+
+func buildCoverage(registry finalv5profile.Registry, cells []finalv5profile.WorkloadCell) coverageReport {
+	report := coverageReport{SchemaVersion: 1, ContractsVersion: registry.ContractRelease,
+		RegistryVersion: registry.RegistryVersion, TotalCells: len(cells),
+		DuplicateCellIDs: []string{}, MissingCellIDs: []string{}}
+	seen := map[string]int{}
+	for _, profile := range registry.Profiles {
+		entry := coverageProfile{ProfileID: profile.ID, Alias: profile.Alias,
+			ClosureSHA256: profile.Closure.SHA256, Routable: profile.Routable, Status: profile.Status,
+			UnresolvedReason: profile.Status.UnresolvedReasons, CatalogSHA256: profile.CatalogSHA256,
+			TotalHotBytes: profile.TotalHotBytes, Cells: profile.Cells}
+		report.Profiles = append(report.Profiles, entry)
+		report.MappedCells += len(profile.Cells)
+		if profile.Routable {
+			report.RoutableCells += len(profile.Cells)
+		} else {
+			report.UnresolvedCells += len(profile.Cells)
+		}
+		for _, cell := range profile.Cells {
+			seen[cell]++
+		}
+	}
+	for _, cell := range sortedKeys(seen) {
+		if seen[cell] > 1 {
+			report.DuplicateCellIDs = append(report.DuplicateCellIDs, cell)
+		}
+	}
+	for _, cell := range cells {
+		if seen[cell.String()] == 0 {
+			report.MissingCellIDs = append(report.MissingCellIDs, cell.String())
+		}
+	}
+	sort.Strings(report.MissingCellIDs)
+	report.DuplicateCells = len(report.DuplicateCellIDs)
+	report.MissingCells = len(report.MissingCellIDs)
+	return report
+}
+
+func writeCanonicalJSON(path string, value any, verifyOnly bool) error {
+	encoded, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
 		return err
 	}
 	encoded = append(encoded, '\n')
-	path := filepath.Join(root, registryPath)
 	if verifyOnly {
 		return compareBytes(path, encoded)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
 	}
 	return os.WriteFile(path, encoded, 0o644)
 }
@@ -114,7 +209,15 @@ func run(root string, verifyOnly bool) error {
 // printDerivedClosures reports every distinct closure so a reviewer can assign
 // its alias. Aliases are review output, not an input the tool may invent.
 func printDerivedClosures(root string) error {
-	full, err := catalog.Load(filepath.Join(root, fullCatalogPath))
+	master, err := catalog.Load(filepath.Join(root, masterCatalogPath))
+	if err != nil {
+		return err
+	}
+	live, err := catalog.Load(filepath.Join(root, liveCatalogPath))
+	if err != nil {
+		return err
+	}
+	hot, err := loadHotArtifacts(root)
 	if err != nil {
 		return err
 	}
@@ -124,32 +227,29 @@ func printDerivedClosures(root string) error {
 	}
 	type group struct {
 		closure finalv5profile.Closure
+		status  finalv5profile.ProfileStatus
 		cells   []string
 	}
 	groups := map[string]*group{}
-	var unresolved []string
 	for _, cell := range cells {
-		closure, err := finalv5profile.ComputeClosure(full, cell.Products)
+		closure, reasons, err := finalv5profile.ComputeClosure(master, cell.Products)
 		if err != nil {
-			unresolved = append(unresolved, fmt.Sprintf("%s: %v", cell, err))
-			continue
+			return err
 		}
 		entry, present := groups[closure.SHA256]
 		if !present {
-			entry = &group{closure: closure}
+			status, _ := finalv5profile.EvaluateStatus(closure, reasons, live, hot, activationSupported)
+			entry = &group{closure: closure, status: status}
 			groups[closure.SHA256] = entry
 		}
 		entry.cells = append(entry.cells, cell.String())
 	}
 	for _, digest := range sortedKeys(groups) {
 		entry := groups[digest]
-		fmt.Printf("%s  routable=%t  cells=%d\n  products=%v\n  publications=%v\n  budgets=%v\n  example=%s\n",
-			digest, entry.closure.Routable, len(entry.cells), entry.closure.Products,
-			entry.closure.Publications, entry.closure.BudgetProfiles, entry.cells[0])
-	}
-	sort.Strings(unresolved)
-	for _, line := range unresolved {
-		fmt.Println("UNRESOLVED", line)
+		fmt.Printf("%s  cells=%d closure=%t materializable=%t route=%t activation=%t\n  products=%v\n  publications=%v\n  example=%s\n",
+			digest, len(entry.cells), entry.status.ClosureComplete, entry.status.CatalogMaterializable,
+			entry.status.LiveRouteAvailable, entry.status.ActivationSupported,
+			entry.closure.Products, entry.closure.Publications, entry.cells[0])
 	}
 	return nil
 }
@@ -219,6 +319,15 @@ func workloadCells(root string) ([]finalv5profile.WorkloadCell, declaration, err
 // and records its live digest and HOT artifact sizes.
 func materializeProfile(root string, full *catalog.Catalog, profile *finalv5profile.Profile,
 	hot map[string]finalv5profile.HotArtifact, verifyOnly bool) error {
+	if !profile.Status.CatalogMaterializable {
+		// A profile whose closure the live Catalog cannot publish yet stays a
+		// first-class registry entry, but it must not get a generated Catalog:
+		// emitting one would claim a deployment can activate it.
+		profile.CatalogPath, profile.CatalogSHA256 = "", ""
+		profile.HotArtifacts, profile.TotalHotBytes = nil, 0
+		profile.WithinHotLimitBytes = false
+		return nil
+	}
 	document := projectCatalog(full, profile.Closure)
 	encoded, err := yaml.Marshal(document)
 	if err != nil {
@@ -299,7 +408,7 @@ func projectCatalog(full *catalog.Catalog, closure finalv5profile.Closure) *cata
 	for _, product := range document.Products {
 		sensitivities[product.Sensitivity] = true
 	}
-	budgets := append([]string(nil), closure.BudgetProfiles...)
+	var budgets []string
 	for _, route := range full.ApprovalRoutes {
 		keep := false
 		switch {

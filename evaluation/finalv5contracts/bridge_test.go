@@ -26,7 +26,7 @@ func loadBridge(t *testing.T) *Runtime {
 
 func TestBridgeBindsEveryFrozenArtifactCell(t *testing.T) {
 	runtime := loadBridge(t)
-	if runtime.ContractRelease() != contractReleaseV11 {
+	if runtime.ContractRelease() != contractReleaseV12 {
 		t.Fatalf("contract release = %q", runtime.ContractRelease())
 	}
 	cells, err := runtime.ArtifactCells()

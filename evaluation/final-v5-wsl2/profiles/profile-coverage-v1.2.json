@@ -1,28 +1,21 @@
 {
   "schema_version": 1,
+  "contracts_version": "final-v5-contracts-v1.2",
   "registry_version": "taskgate-final-v5-workload-closure-profile-v2",
-  "contract_release": "final-v5-contracts-v1.2",
-  "max_hot_limit_bytes": 167772160,
-  "max_hot_limit_scope": "per Catalog-bound Gateway instance HOT limit",
+  "total_cells": 129,
+  "mapped_cells": 129,
+  "routable_cells": 0,
+  "unresolved_cells": 129,
+  "duplicate_cells": 0,
+  "missing_cells": 0,
+  "duplicate_cell_ids": [],
+  "missing_cell_ids": [],
   "profiles": [
     {
       "profile_id": "profile-00bc8f7d5633f596",
       "alias": "rls-unlimited",
-      "closure": {
-        "products": [
-          "final_v5_rls_unlimited_expense_detail"
-        ],
-        "publications": [
-          "expense-detail-v1"
-        ],
-        "sources": [
-          "travel_demo"
-        ],
-        "scopes": [
-          "department"
-        ],
-        "closure_sha256": "00bc8f7d5633f5964545ed5c1aefd3120e36512a094dd09676c0697c15f1dc0a"
-      },
+      "closure_sha256": "00bc8f7d5633f5964545ed5c1aefd3120e36512a094dd09676c0697c15f1dc0a",
+      "routable": false,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
@@ -42,51 +35,32 @@
           }
         ]
       },
-      "routable": false,
-      "budget_profiles": [
-        "final-v5-rls-unlimited-v1"
+      "unresolved_reason": [
+        {
+          "state": "activation_supported",
+          "code": "activation_not_implemented",
+          "detail": "no Catalog-bound runtime activation exists for this profile"
+        },
+        {
+          "state": "targeted_validation_passed",
+          "code": "targeted_run_not_executed",
+          "detail": "no targeted non-publication run has executed this profile's cells"
+        }
       ],
-      "workload_cells": [
+      "catalog_sha256": "ec427c52fb8fbc5eb1757c0bb899f2e73f502a28a9cfc6790cc9c4338dfbca1a",
+      "total_hot_bytes": 16638,
+      "cells": [
         "rls/adaptive-100-v1/100-queries/rls",
         "rls/adaptive-100-v1/100-queries/unlimited",
         "rls/policy-denied-control/single/rls",
         "rls/policy-denied-control/single/unlimited"
-      ],
-      "experiments": [
-        "rls"
-      ],
-      "catalog_sha256": "ec427c52fb8fbc5eb1757c0bb899f2e73f502a28a9cfc6790cc9c4338dfbca1a",
-      "catalog_path": "config/profiles/rls-unlimited.catalog.yaml",
-      "hot_artifacts": [
-        {
-          "publication": "expense-detail-v1",
-          "hot_index_digest": "ae29bfd905ac88b7b6c3d437373c9dcfa1e1f8471c3398c3e82867eb6f4d0675",
-          "bytes": 16638
-        }
-      ],
-      "total_hot_bytes": 16638,
-      "max_hot_limit_bytes": 167772160,
-      "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
-      "within_hot_limit": true
+      ]
     },
     {
       "profile_id": "profile-0d88c4e9d8b7561b",
       "alias": "expense-detail",
-      "closure": {
-        "products": [
-          "expense_detail"
-        ],
-        "publications": [
-          "expense-detail-v1"
-        ],
-        "sources": [
-          "travel_demo"
-        ],
-        "scopes": [
-          "department"
-        ],
-        "closure_sha256": "0d88c4e9d8b7561bc4705cc395a268bf6634bc619ae391d3574c3f93addf3fb1"
-      },
+      "closure_sha256": "0d88c4e9d8b7561bc4705cc395a268bf6634bc619ae391d3574c3f93addf3fb1",
+      "routable": false,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
@@ -106,52 +80,32 @@
           }
         ]
       },
-      "routable": false,
-      "budget_profiles": [
-        "detail-manual-v5"
+      "unresolved_reason": [
+        {
+          "state": "activation_supported",
+          "code": "activation_not_implemented",
+          "detail": "no Catalog-bound runtime activation exists for this profile"
+        },
+        {
+          "state": "targeted_validation_passed",
+          "code": "targeted_run_not_executed",
+          "detail": "no targeted non-publication run has executed this profile's cells"
+        }
       ],
-      "workload_cells": [
+      "catalog_sha256": "4595df80976f269a86f13081785e655c9f8619942d5512e96ce3b1f3541ec074",
+      "total_hot_bytes": 16638,
+      "cells": [
         "attack/E-threshold/preregistered-v1/direct",
         "attack/E-threshold/preregistered-v1/novel",
         "rq5/online-transition-v1/single/build",
         "rq5/online-transition-v1/single/retained"
-      ],
-      "experiments": [
-        "attack",
-        "rq5"
-      ],
-      "catalog_sha256": "4595df80976f269a86f13081785e655c9f8619942d5512e96ce3b1f3541ec074",
-      "catalog_path": "config/profiles/expense-detail.catalog.yaml",
-      "hot_artifacts": [
-        {
-          "publication": "expense-detail-v1",
-          "hot_index_digest": "ae29bfd905ac88b7b6c3d437373c9dcfa1e1f8471c3398c3e82867eb6f4d0675",
-          "bytes": 16638
-        }
-      ],
-      "total_hot_bytes": 16638,
-      "max_hot_limit_bytes": 167772160,
-      "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
-      "within_hot_limit": true
+      ]
     },
     {
       "profile_id": "profile-158c6ffcccef2383",
       "alias": "attack-expense-detail",
-      "closure": {
-        "products": [
-          "final_v5_attack_expense_detail"
-        ],
-        "publications": [
-          "expense-detail-v1"
-        ],
-        "sources": [
-          "travel_demo"
-        ],
-        "scopes": [
-          "department"
-        ],
-        "closure_sha256": "158c6ffcccef2383a957e4244c8b95eea8378b0092c123f7c2076acccda2e2bf"
-      },
+      "closure_sha256": "158c6ffcccef2383a957e4244c8b95eea8378b0092c123f7c2076acccda2e2bf",
+      "routable": false,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
@@ -171,11 +125,21 @@
           }
         ]
       },
-      "routable": false,
-      "budget_profiles": [
-        "final-v5-attack-medium-v1"
+      "unresolved_reason": [
+        {
+          "state": "activation_supported",
+          "code": "activation_not_implemented",
+          "detail": "no Catalog-bound runtime activation exists for this profile"
+        },
+        {
+          "state": "targeted_validation_passed",
+          "code": "targeted_run_not_executed",
+          "detail": "no targeted non-publication run has executed this profile's cells"
+        }
       ],
-      "workload_cells": [
+      "catalog_sha256": "c350060db07090818e6709dc8cfaacba1f4e2eb903bc357f54a77d013f1f3f46",
+      "total_hot_bytes": 16638,
+      "cells": [
         "attack/A-pagination/complete-to-pages/direct",
         "attack/A-pagination/complete-to-pages/novel",
         "attack/A-pagination/pages-to-complete/direct",
@@ -189,42 +153,13 @@
         "attack/D-split-union/complete-to-split/novel",
         "attack/D-split-union/split-to-complete/direct",
         "attack/D-split-union/split-to-complete/novel"
-      ],
-      "experiments": [
-        "attack"
-      ],
-      "catalog_sha256": "c350060db07090818e6709dc8cfaacba1f4e2eb903bc357f54a77d013f1f3f46",
-      "catalog_path": "config/profiles/attack-expense-detail.catalog.yaml",
-      "hot_artifacts": [
-        {
-          "publication": "expense-detail-v1",
-          "hot_index_digest": "ae29bfd905ac88b7b6c3d437373c9dcfa1e1f8471c3398c3e82867eb6f4d0675",
-          "bytes": 16638
-        }
-      ],
-      "total_hot_bytes": 16638,
-      "max_hot_limit_bytes": 167772160,
-      "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
-      "within_hot_limit": true
+      ]
     },
     {
       "profile_id": "profile-18c12d9c4dc04fc5",
       "alias": "rls-bounded",
-      "closure": {
-        "products": [
-          "final_v5_rls_bounded_expense_detail"
-        ],
-        "publications": [
-          "expense-detail-v1"
-        ],
-        "sources": [
-          "travel_demo"
-        ],
-        "scopes": [
-          "department"
-        ],
-        "closure_sha256": "18c12d9c4dc04fc599a5f41351c9d83fe4439c8c12d616f9dff6f454bd75c18d"
-      },
+      "closure_sha256": "18c12d9c4dc04fc599a5f41351c9d83fe4439c8c12d616f9dff6f454bd75c18d",
+      "routable": false,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
@@ -244,49 +179,30 @@
           }
         ]
       },
-      "routable": false,
-      "budget_profiles": [
-        "final-v5-rls-bounded-70-v1"
-      ],
-      "workload_cells": [
-        "rls/adaptive-100-v1/100-queries/bounded",
-        "rls/policy-denied-control/single/bounded"
-      ],
-      "experiments": [
-        "rls"
-      ],
-      "catalog_sha256": "012ef6543dce66b8ffdb2610204cb43b3b502b22785ab1b5bad04104abebaede",
-      "catalog_path": "config/profiles/rls-bounded.catalog.yaml",
-      "hot_artifacts": [
+      "unresolved_reason": [
         {
-          "publication": "expense-detail-v1",
-          "hot_index_digest": "ae29bfd905ac88b7b6c3d437373c9dcfa1e1f8471c3398c3e82867eb6f4d0675",
-          "bytes": 16638
+          "state": "activation_supported",
+          "code": "activation_not_implemented",
+          "detail": "no Catalog-bound runtime activation exists for this profile"
+        },
+        {
+          "state": "targeted_validation_passed",
+          "code": "targeted_run_not_executed",
+          "detail": "no targeted non-publication run has executed this profile's cells"
         }
       ],
+      "catalog_sha256": "012ef6543dce66b8ffdb2610204cb43b3b502b22785ab1b5bad04104abebaede",
       "total_hot_bytes": 16638,
-      "max_hot_limit_bytes": 167772160,
-      "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
-      "within_hot_limit": true
+      "cells": [
+        "rls/adaptive-100-v1/100-queries/bounded",
+        "rls/policy-denied-control/single/bounded"
+      ]
     },
     {
       "profile_id": "profile-3947f508ef5e9677",
       "alias": "concurrency-expense-detail",
-      "closure": {
-        "products": [
-          "final_v5_concurrency_expense_detail"
-        ],
-        "publications": [
-          "expense-detail-v1"
-        ],
-        "sources": [
-          "travel_demo"
-        ],
-        "scopes": [
-          "department"
-        ],
-        "closure_sha256": "3947f508ef5e96777dfc3966d6a2c0eb46b1a365f1810b9a87990375cb2bfe0a"
-      },
+      "closure_sha256": "3947f508ef5e96777dfc3966d6a2c0eb46b1a365f1810b9a87990375cb2bfe0a",
+      "routable": false,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
@@ -306,11 +222,21 @@
           }
         ]
       },
-      "routable": false,
-      "budget_profiles": [
-        "final-v5-concurrency-v1"
+      "unresolved_reason": [
+        {
+          "state": "activation_supported",
+          "code": "activation_not_implemented",
+          "detail": "no Catalog-bound runtime activation exists for this profile"
+        },
+        {
+          "state": "targeted_validation_passed",
+          "code": "targeted_run_not_executed",
+          "detail": "no targeted non-publication run has executed this profile's cells"
+        }
       ],
-      "workload_cells": [
+      "catalog_sha256": "1967cc40cf53b58fec57fda1cf704bf56fe354261ab31944172e8cc227fb6895",
+      "total_hot_bytes": 16638,
+      "cells": [
         "concurrency/serial-control/1/serial",
         "concurrency/shared-root/10/forced_queue_safety",
         "concurrency/shared-root/10/natural_contention",
@@ -320,47 +246,13 @@
         "concurrency/shared-root/50/natural_contention",
         "concurrency/shared-root/500/forced_queue_safety",
         "concurrency/shared-root/500/natural_contention"
-      ],
-      "experiments": [
-        "concurrency"
-      ],
-      "catalog_sha256": "1967cc40cf53b58fec57fda1cf704bf56fe354261ab31944172e8cc227fb6895",
-      "catalog_path": "config/profiles/concurrency-expense-detail.catalog.yaml",
-      "hot_artifacts": [
-        {
-          "publication": "expense-detail-v1",
-          "hot_index_digest": "ae29bfd905ac88b7b6c3d437373c9dcfa1e1f8471c3398c3e82867eb6f4d0675",
-          "bytes": 16638
-        }
-      ],
-      "total_hot_bytes": 16638,
-      "max_hot_limit_bytes": 167772160,
-      "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
-      "within_hot_limit": true
+      ]
     },
     {
       "profile_id": "profile-46b22367d1386567",
       "alias": "depth4-semantic-view",
-      "closure": {
-        "products": [
-          "final_v5_analytics_depth4",
-          "provsql_lineitem",
-          "provsql_orders"
-        ],
-        "publications": [
-          "provsql-lineitem-v1",
-          "provsql-orders-v1"
-        ],
-        "sources": [
-          "travel_demo"
-        ],
-        "scopes": [
-          "lineitem_partition_key",
-          "orders_partition_key",
-          "partition_key"
-        ],
-        "closure_sha256": "46b22367d138656780ed27942f4717904aa0eb8fae9e956bf79ebfe1cdb6a1a2"
-      },
+      "closure_sha256": "46b22367d138656780ed27942f4717904aa0eb8fae9e956bf79ebfe1cdb6a1a2",
+      "routable": false,
       "status": {
         "closure_complete": true,
         "catalog_materializable": false,
@@ -391,44 +283,42 @@
           }
         ]
       },
-      "routable": false,
-      "budget_profiles": null,
-      "workload_cells": [
+      "unresolved_reason": [
+        {
+          "state": "activation_supported",
+          "code": "activation_not_implemented",
+          "detail": "no Catalog-bound runtime activation exists for this profile"
+        },
+        {
+          "state": "catalog_materializable",
+          "code": "product_absent_from_live_catalog",
+          "subject": "final_v5_analytics_depth4",
+          "detail": "the live Catalog does not publish this Product"
+        },
+        {
+          "state": "live_route_available",
+          "code": "route_not_evaluable",
+          "detail": "the closure is not materializable, so no live route can be resolved"
+        },
+        {
+          "state": "targeted_validation_passed",
+          "code": "targeted_run_not_executed",
+          "detail": "no targeted non-publication run has executed this profile's cells"
+        }
+      ],
+      "catalog_sha256": "",
+      "total_hot_bytes": 0,
+      "cells": [
         "baseline/S4/depth-4/direct",
         "baseline/S4/depth-4/novel",
         "baseline/S4/depth-4/semantic_replay"
-      ],
-      "experiments": [
-        "baseline"
-      ],
-      "catalog_sha256": "",
-      "catalog_path": "",
-      "hot_artifacts": null,
-      "total_hot_bytes": 0,
-      "max_hot_limit_bytes": 167772160,
-      "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
-      "within_hot_limit": false
+      ]
     },
     {
       "profile_id": "profile-5b48ad2a02c5446d",
       "alias": "analytics-orders-lineitem",
-      "closure": {
-        "products": [
-          "provsql_lineitem",
-          "provsql_orders"
-        ],
-        "publications": [
-          "provsql-lineitem-v1",
-          "provsql-orders-v1"
-        ],
-        "sources": [
-          "travel_demo"
-        ],
-        "scopes": [
-          "partition_key"
-        ],
-        "closure_sha256": "5b48ad2a02c5446d07cd2c837428be7e10b9b2bff675d5df94868f828058e380"
-      },
+      "closure_sha256": "5b48ad2a02c5446d07cd2c837428be7e10b9b2bff675d5df94868f828058e380",
+      "routable": false,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
@@ -454,9 +344,27 @@
           }
         ]
       },
-      "routable": false,
-      "budget_profiles": null,
-      "workload_cells": [
+      "unresolved_reason": [
+        {
+          "state": "activation_supported",
+          "code": "activation_not_implemented",
+          "detail": "no Catalog-bound runtime activation exists for this profile"
+        },
+        {
+          "state": "live_route_available",
+          "code": "no_approval_route_for_closure",
+          "subject": "provsql_lineitem,provsql_orders",
+          "detail": "the live Catalog resolves no approval route for this exact Product closure: invalid approval route: no route for sensitivity"
+        },
+        {
+          "state": "targeted_validation_passed",
+          "code": "targeted_run_not_executed",
+          "detail": "no targeted non-publication run has executed this profile's cells"
+        }
+      ],
+      "catalog_sha256": "b60396aa05cd85294d14fd04e4fa3dc85e0414f0daf56198dca40f759066d51d",
+      "total_hot_bytes": 117607276,
+      "cells": [
         "baseline/S2/SF1/direct",
         "baseline/S2/SF1/idempotent_replay",
         "baseline/S2/SF1/normalized_rewrite_replay",
@@ -467,47 +375,13 @@
         "baseline/S2/SF10/normalized_rewrite_replay",
         "baseline/S2/SF10/novel",
         "baseline/S2/SF10/semantic_replay"
-      ],
-      "experiments": [
-        "baseline"
-      ],
-      "catalog_sha256": "b60396aa05cd85294d14fd04e4fa3dc85e0414f0daf56198dca40f759066d51d",
-      "catalog_path": "config/profiles/analytics-orders-lineitem.catalog.yaml",
-      "hot_artifacts": [
-        {
-          "publication": "provsql-lineitem-v1",
-          "hot_index_digest": "65dcf1c0edf2e6fcf4f85204b800f7368d211648ccf2c3b3f2ace8feac4232d1",
-          "bytes": 101004070
-        },
-        {
-          "publication": "provsql-orders-v1",
-          "hot_index_digest": "80bdee604013afac5a24497e778a633b31262f2784df78fba11b1a98010199c1",
-          "bytes": 16603206
-        }
-      ],
-      "total_hot_bytes": 117607276,
-      "max_hot_limit_bytes": 167772160,
-      "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
-      "within_hot_limit": true
+      ]
     },
     {
       "profile_id": "profile-794efc2159ffaa5f",
       "alias": "exposure-scale",
-      "closure": {
-        "products": [
-          "final_v5_exposure_scale"
-        ],
-        "publications": [
-          "final-v5-exposure-scale-v1"
-        ],
-        "sources": [
-          "travel_demo"
-        ],
-        "scopes": [
-          "partition_key"
-        ],
-        "closure_sha256": "794efc2159ffaa5f87406c8e3e22610d316a7413a0626a7c8130a332fb260906"
-      },
+      "closure_sha256": "794efc2159ffaa5f87406c8e3e22610d316a7413a0626a7c8130a332fb260906",
+      "routable": false,
       "status": {
         "closure_complete": true,
         "catalog_materializable": false,
@@ -544,9 +418,38 @@
           }
         ]
       },
-      "routable": false,
-      "budget_profiles": null,
-      "workload_cells": [
+      "unresolved_reason": [
+        {
+          "state": "activation_supported",
+          "code": "activation_not_implemented",
+          "detail": "no Catalog-bound runtime activation exists for this profile"
+        },
+        {
+          "state": "catalog_materializable",
+          "code": "product_absent_from_live_catalog",
+          "subject": "final_v5_exposure_scale",
+          "detail": "the live Catalog does not publish this Product"
+        },
+        {
+          "state": "catalog_materializable",
+          "code": "publication_absent_from_live_catalog",
+          "subject": "final-v5-exposure-scale-v1",
+          "detail": "the live Catalog does not declare this Publication"
+        },
+        {
+          "state": "live_route_available",
+          "code": "route_not_evaluable",
+          "detail": "the closure is not materializable, so no live route can be resolved"
+        },
+        {
+          "state": "targeted_validation_passed",
+          "code": "targeted_run_not_executed",
+          "detail": "no targeted non-publication run has executed this profile's cells"
+        }
+      ],
+      "catalog_sha256": "",
+      "total_hot_bytes": 0,
+      "cells": [
         "baseline/S3/10k-50k/direct",
         "baseline/S3/10k-50k/idempotent_replay",
         "baseline/S3/10k-50k/normalized_rewrite_replay",
@@ -586,41 +489,13 @@
         "scale/dependency-e2e/10k-overlap-50/semantic_replay",
         "scale/dependency-e2e/10k-overlap-90/novel",
         "scale/dependency-e2e/10k-overlap-90/semantic_replay"
-      ],
-      "experiments": [
-        "baseline",
-        "scale"
-      ],
-      "catalog_sha256": "",
-      "catalog_path": "",
-      "hot_artifacts": null,
-      "total_hot_bytes": 0,
-      "max_hot_limit_bytes": 167772160,
-      "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
-      "within_hot_limit": false
+      ]
     },
     {
       "profile_id": "profile-a60a787c64c95451",
       "alias": "provsql-nonce-join",
-      "closure": {
-        "products": [
-          "provsql_lineitem",
-          "provsql_nonce",
-          "provsql_orders"
-        ],
-        "publications": [
-          "provsql-lineitem-v1",
-          "provsql-nonce-v1",
-          "provsql-orders-v1"
-        ],
-        "sources": [
-          "travel_demo"
-        ],
-        "scopes": [
-          "partition_key"
-        ],
-        "closure_sha256": "a60a787c64c9545177fa6b47e3723eb01725b71945b8a196753f90f2f2e05c79"
-      },
+      "closure_sha256": "a60a787c64c9545177fa6b47e3723eb01725b71945b8a196753f90f2f2e05c79",
+      "routable": false,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
@@ -640,11 +515,21 @@
           }
         ]
       },
-      "routable": false,
-      "budget_profiles": [
-        "final-v5-provsql-low-v1"
+      "unresolved_reason": [
+        {
+          "state": "activation_supported",
+          "code": "activation_not_implemented",
+          "detail": "no Catalog-bound runtime activation exists for this profile"
+        },
+        {
+          "state": "targeted_validation_passed",
+          "code": "targeted_run_not_executed",
+          "detail": "no targeted non-publication run has executed this profile's cells"
+        }
       ],
-      "workload_cells": [
+      "catalog_sha256": "6bf2ba3c12a3d042396574c143e9cd320f2ed42042882d5911a1d378e00d8011",
+      "total_hot_bytes": 117869763,
+      "cells": [
         "provsql/nonce-join-group/10k/direct",
         "provsql/nonce-join-group/10k/provsql",
         "provsql/nonce-join-group/10k/taskgate",
@@ -654,52 +539,13 @@
         "provsql/nonce-join-group/45k/direct",
         "provsql/nonce-join-group/45k/provsql",
         "provsql/nonce-join-group/45k/taskgate"
-      ],
-      "experiments": [
-        "provsql"
-      ],
-      "catalog_sha256": "6bf2ba3c12a3d042396574c143e9cd320f2ed42042882d5911a1d378e00d8011",
-      "catalog_path": "config/profiles/provsql-nonce-join.catalog.yaml",
-      "hot_artifacts": [
-        {
-          "publication": "provsql-lineitem-v1",
-          "hot_index_digest": "65dcf1c0edf2e6fcf4f85204b800f7368d211648ccf2c3b3f2ace8feac4232d1",
-          "bytes": 101004070
-        },
-        {
-          "publication": "provsql-nonce-v1",
-          "hot_index_digest": "12e44c67ba4c7b28f8bf8f989b0845979f501a38d06c0d31a9feea8cbf49e530",
-          "bytes": 262487
-        },
-        {
-          "publication": "provsql-orders-v1",
-          "hot_index_digest": "80bdee604013afac5a24497e778a633b31262f2784df78fba11b1a98010199c1",
-          "bytes": 16603206
-        }
-      ],
-      "total_hot_bytes": 117869763,
-      "max_hot_limit_bytes": 167772160,
-      "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
-      "within_hot_limit": true
+      ]
     },
     {
       "profile_id": "profile-a86cd4df5cad6e26",
       "alias": "result-heavy",
-      "closure": {
-        "products": [
-          "final_v5_result_heavy"
-        ],
-        "publications": [
-          "final-v5-result-heavy-v1"
-        ],
-        "sources": [
-          "travel_demo"
-        ],
-        "scopes": [
-          "category"
-        ],
-        "closure_sha256": "a86cd4df5cad6e2685d1930caeccdbe3a865194fcef33faeca86b7c2c592bdbd"
-      },
+      "closure_sha256": "a86cd4df5cad6e2685d1930caeccdbe3a865194fcef33faeca86b7c2c592bdbd",
+      "routable": false,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
@@ -719,11 +565,21 @@
           }
         ]
       },
-      "routable": false,
-      "budget_profiles": [
-        "final-v5-benchmark-low-v1"
+      "unresolved_reason": [
+        {
+          "state": "activation_supported",
+          "code": "activation_not_implemented",
+          "detail": "no Catalog-bound runtime activation exists for this profile"
+        },
+        {
+          "state": "targeted_validation_passed",
+          "code": "targeted_run_not_executed",
+          "detail": "no targeted non-publication run has executed this profile's cells"
+        }
       ],
-      "workload_cells": [
+      "catalog_sha256": "20f3af6fc4a6262dcb385e98d2f7324041be4944ae9eddbaa0765ed5de9622c0",
+      "total_hot_bytes": 126813361,
+      "cells": [
         "artifact/result-heavy/100k-x16/novel",
         "artifact/result-heavy/100k-x4/novel",
         "artifact/result-heavy/100x16/novel",
@@ -742,43 +598,13 @@
         "baseline/S6/10k-x16/novel",
         "baseline/S6/10k-x4/direct",
         "baseline/S6/10k-x4/novel"
-      ],
-      "experiments": [
-        "artifact",
-        "baseline"
-      ],
-      "catalog_sha256": "20f3af6fc4a6262dcb385e98d2f7324041be4944ae9eddbaa0765ed5de9622c0",
-      "catalog_path": "config/profiles/result-heavy.catalog.yaml",
-      "hot_artifacts": [
-        {
-          "publication": "final-v5-result-heavy-v1",
-          "hot_index_digest": "ae4ea784dfee65958a4db790d686ed19a803c5e371f13880561bc7387b1020d8",
-          "bytes": 126813361
-        }
-      ],
-      "total_hot_bytes": 126813361,
-      "max_hot_limit_bytes": 167772160,
-      "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
-      "within_hot_limit": true
+      ]
     },
     {
       "profile_id": "profile-f60ec5752f501da0",
       "alias": "analytics-orders",
-      "closure": {
-        "products": [
-          "provsql_orders"
-        ],
-        "publications": [
-          "provsql-orders-v1"
-        ],
-        "sources": [
-          "travel_demo"
-        ],
-        "scopes": [
-          "partition_key"
-        ],
-        "closure_sha256": "f60ec5752f501da0147f9d2789234af64de4d98f7542c63b472c8aaecb26214d"
-      },
+      "closure_sha256": "f60ec5752f501da0147f9d2789234af64de4d98f7542c63b472c8aaecb26214d",
+      "routable": false,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
@@ -804,9 +630,27 @@
           }
         ]
       },
-      "routable": false,
-      "budget_profiles": null,
-      "workload_cells": [
+      "unresolved_reason": [
+        {
+          "state": "activation_supported",
+          "code": "activation_not_implemented",
+          "detail": "no Catalog-bound runtime activation exists for this profile"
+        },
+        {
+          "state": "live_route_available",
+          "code": "no_approval_route_for_closure",
+          "subject": "provsql_orders",
+          "detail": "the live Catalog resolves no approval route for this exact Product closure: invalid approval route: no route for sensitivity"
+        },
+        {
+          "state": "targeted_validation_passed",
+          "code": "targeted_run_not_executed",
+          "detail": "no targeted non-publication run has executed this profile's cells"
+        }
+      ],
+      "catalog_sha256": "5961d667dd2c334ffdc50ff001b56a22e7c91804ec50cbd3e568859041635166",
+      "total_hot_bytes": 16603206,
+      "cells": [
         "baseline/S1/SF1/direct",
         "baseline/S1/SF1/idempotent_replay",
         "baseline/S1/SF1/normalized_rewrite_replay",
@@ -825,23 +669,7 @@
         "baseline/S5/SF10/idempotent_replay",
         "baseline/S5/SF10/novel",
         "baseline/S5/SF10/semantic_replay"
-      ],
-      "experiments": [
-        "baseline"
-      ],
-      "catalog_sha256": "5961d667dd2c334ffdc50ff001b56a22e7c91804ec50cbd3e568859041635166",
-      "catalog_path": "config/profiles/analytics-orders.catalog.yaml",
-      "hot_artifacts": [
-        {
-          "publication": "provsql-orders-v1",
-          "hot_index_digest": "80bdee604013afac5a24497e778a633b31262f2784df78fba11b1a98010199c1",
-          "bytes": 16603206
-        }
-      ],
-      "total_hot_bytes": 16603206,
-      "max_hot_limit_bytes": 167772160,
-      "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
-      "within_hot_limit": true
+      ]
     }
   ]
 }
