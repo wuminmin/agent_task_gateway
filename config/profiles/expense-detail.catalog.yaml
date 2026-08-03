@@ -17,7 +17,7 @@ sources:
       database: travel_demo
       user: gateway_reader
       postgres_major_version: 16
-      schema_digest: ebedbecf4f8fbc4eaf150d32fd260fe9b902549367abee880cc02d4b6c3ff96b
+      schema_digest: 512c9f2e86739fc409d91a0dfe45ae671fd78831729608d30c329b0d367be729
       secretRef: GATEWAY_DB_PASSWORD
 snapshot_publications:
     - name: expense-detail-v1

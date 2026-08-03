@@ -532,7 +532,11 @@ func startCatalogBoundServices(ctx context.Context, opts options, catalogPath, a
 	if err != nil {
 		return err
 	}
-	args := append(composeArgs(opts), "up", "-d", "--force-recreate", "--wait")
+	// --no-deps is load bearing. A profile switch recreates only the
+	// Catalog-bound services; without it Compose re-runs the snapshot compiler
+	// chain and recompiles every publication on every activation, which would
+	// rebuild the Dataset a profile switch is required to leave alone.
+	args := append(composeArgs(opts), "up", "-d", "--force-recreate", "--no-deps", "--wait")
 	command := exec.CommandContext(ctx, "docker", append(args, catalogBoundServices...)...)
 	command.Dir = opts.root
 	environment := append(os.Environ(), "TASKGATE_PROFILE_CATALOG="+absolute, "TASKGATE_EXPERIMENT_CLASS=pilot")

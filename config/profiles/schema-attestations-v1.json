@@ -1,0 +1,148 @@
+{
+  "schema_version": 1,
+  "attestation_version": "taskgate-final-v5-profile-schema-attestation-v1",
+  "contract_release": "final-v5-contracts-v1.2",
+  "source": "travel_demo",
+  "postgres_major_version": 16,
+  "generated_at": "2026-08-03T13:57:16Z",
+  "profiles": [
+    {
+      "profile_id": "profile-00bc8f7d5633f596",
+      "profile_alias": "rls-unlimited",
+      "closure_sha256": "00bc8f7d5633f5964545ed5c1aefd3120e36512a094dd09676c0697c15f1dc0a",
+      "source": "travel_demo",
+      "postgres_major_version": 16,
+      "product_set_sha256": "6931d9660eec49258333a0eb157fb56f23144a3af42674796d673063306257e2",
+      "reporting_view_set_sha256": "9f7fc22728daca526a956d75edc49a2c64417ad424161bc392a2983b06885d34",
+      "reporting_views": [
+        "reporting.final_v5_rls_unlimited_expense_detail"
+      ],
+      "schema_digest": "6af9951f0c0b88a40f2f6e253938fa2e1eb4918feef37dc36a0e65b7c58f7504",
+      "schema_digest_tool_sha256": "b71cbbca6da75e7166c9656c8ff6edf5010768eef701b89bdfef428305122a9e",
+      "generated_from_fresh_deployment": true
+    },
+    {
+      "profile_id": "profile-0d88c4e9d8b7561b",
+      "profile_alias": "expense-detail",
+      "closure_sha256": "0d88c4e9d8b7561bc4705cc395a268bf6634bc619ae391d3574c3f93addf3fb1",
+      "source": "travel_demo",
+      "postgres_major_version": 16,
+      "product_set_sha256": "00281793c8e25c86b17beb60ea358f107e8acac771d211e1efe8309899b72407",
+      "reporting_view_set_sha256": "b44db4969a0a8eac6c4cc779fa54f5b4413255224da5c093b7077fc77b2f3029",
+      "reporting_views": [
+        "reporting.expense_detail"
+      ],
+      "schema_digest": "512c9f2e86739fc409d91a0dfe45ae671fd78831729608d30c329b0d367be729",
+      "schema_digest_tool_sha256": "b71cbbca6da75e7166c9656c8ff6edf5010768eef701b89bdfef428305122a9e",
+      "generated_from_fresh_deployment": true
+    },
+    {
+      "profile_id": "profile-158c6ffcccef2383",
+      "profile_alias": "attack-expense-detail",
+      "closure_sha256": "158c6ffcccef2383a957e4244c8b95eea8378b0092c123f7c2076acccda2e2bf",
+      "source": "travel_demo",
+      "postgres_major_version": 16,
+      "product_set_sha256": "f179dc8a1531f0c8a41f69bcdd4eeb7333f6ffe6092a04efa6bda033d2113bc3",
+      "reporting_view_set_sha256": "379e87b75d22e0f38851a62de56499489d402886d91a1ed12756d3c40882a54a",
+      "reporting_views": [
+        "reporting.final_v5_attack_expense_detail"
+      ],
+      "schema_digest": "a2d8282a40aa0b93201252af53266c9061ca350b7bbb98018c8c8043c3b267b2",
+      "schema_digest_tool_sha256": "b71cbbca6da75e7166c9656c8ff6edf5010768eef701b89bdfef428305122a9e",
+      "generated_from_fresh_deployment": true
+    },
+    {
+      "profile_id": "profile-18c12d9c4dc04fc5",
+      "profile_alias": "rls-bounded",
+      "closure_sha256": "18c12d9c4dc04fc599a5f41351c9d83fe4439c8c12d616f9dff6f454bd75c18d",
+      "source": "travel_demo",
+      "postgres_major_version": 16,
+      "product_set_sha256": "ce672dd0c42193cd7a4b16d3c6c8753bdb52b4130cf1bfd513c11fd1aabce9ca",
+      "reporting_view_set_sha256": "5f299c34b68a112f94d4ba5c0216970ca77ef0f3b6c51f1ffe3916130919a278",
+      "reporting_views": [
+        "reporting.final_v5_rls_bounded_expense_detail"
+      ],
+      "schema_digest": "a2bb7bfee820e373b9fab983dfd2d25f6590065f43c05e0691e78a15a83a6bdd",
+      "schema_digest_tool_sha256": "b71cbbca6da75e7166c9656c8ff6edf5010768eef701b89bdfef428305122a9e",
+      "generated_from_fresh_deployment": true
+    },
+    {
+      "profile_id": "profile-3947f508ef5e9677",
+      "profile_alias": "concurrency-expense-detail",
+      "closure_sha256": "3947f508ef5e96777dfc3966d6a2c0eb46b1a365f1810b9a87990375cb2bfe0a",
+      "source": "travel_demo",
+      "postgres_major_version": 16,
+      "product_set_sha256": "358fd56bd761b840bb95e7882151fbf54f6a3f6630a634a3745e9d3de54f819e",
+      "reporting_view_set_sha256": "8e72f4d7d03197900e9036fcf10e8cbb26a0b5ffe3a169bdcd0da6124f8f21d1",
+      "reporting_views": [
+        "reporting.final_v5_concurrency_expense_detail"
+      ],
+      "schema_digest": "f60632ace9219693da7244b327484d7a65d10d24ec0c876bc32075416ce4b104",
+      "schema_digest_tool_sha256": "b71cbbca6da75e7166c9656c8ff6edf5010768eef701b89bdfef428305122a9e",
+      "generated_from_fresh_deployment": true
+    },
+    {
+      "profile_id": "profile-5b48ad2a02c5446d",
+      "profile_alias": "analytics-orders-lineitem",
+      "closure_sha256": "5b48ad2a02c5446d07cd2c837428be7e10b9b2bff675d5df94868f828058e380",
+      "source": "travel_demo",
+      "postgres_major_version": 16,
+      "product_set_sha256": "9a6ea07d4bccfa54764476cb225d173cd027924dc3d8c2bcec8f76b631772956",
+      "reporting_view_set_sha256": "caaeaddbf7f9a0d6417f7b1c39d1f7e32ed0b0f1665b62b325b052ae848d90bc",
+      "reporting_views": [
+        "reporting.provsql_lineitem",
+        "reporting.provsql_orders"
+      ],
+      "schema_digest": "e13e08ecbe35e85206a37f07f387bbf25a66fef4ed2897c8abe8a1bd9d3c7701",
+      "schema_digest_tool_sha256": "b71cbbca6da75e7166c9656c8ff6edf5010768eef701b89bdfef428305122a9e",
+      "generated_from_fresh_deployment": true
+    },
+    {
+      "profile_id": "profile-a60a787c64c95451",
+      "profile_alias": "provsql-nonce-join",
+      "closure_sha256": "a60a787c64c9545177fa6b47e3723eb01725b71945b8a196753f90f2f2e05c79",
+      "source": "travel_demo",
+      "postgres_major_version": 16,
+      "product_set_sha256": "a46076c8f5ee013fff244ac0b7c9bf7e68976799ae1c22f3f424d14139e41a5c",
+      "reporting_view_set_sha256": "9a6d29ffb84aaf04bab9d371bd4e14b6e96f70821f1f66dbeba4a8075e9edb2a",
+      "reporting_views": [
+        "reporting.provsql_lineitem",
+        "reporting.provsql_nonce",
+        "reporting.provsql_orders"
+      ],
+      "schema_digest": "64930465463cf47a0528a8d86a4f655b7478cd717fdb7c827f2c72e417877f64",
+      "schema_digest_tool_sha256": "b71cbbca6da75e7166c9656c8ff6edf5010768eef701b89bdfef428305122a9e",
+      "generated_from_fresh_deployment": true
+    },
+    {
+      "profile_id": "profile-a86cd4df5cad6e26",
+      "profile_alias": "result-heavy",
+      "closure_sha256": "a86cd4df5cad6e2685d1930caeccdbe3a865194fcef33faeca86b7c2c592bdbd",
+      "source": "travel_demo",
+      "postgres_major_version": 16,
+      "product_set_sha256": "ca5376bad57b5216d5f0fa75aaa843eb0864265ac4b11e472640263c69362311",
+      "reporting_view_set_sha256": "9e96faec1c245e467e7b2f7534ed00c9793eef996730f3aa3bcae21e7d76a125",
+      "reporting_views": [
+        "reporting.final_v5_result_heavy"
+      ],
+      "schema_digest": "ae4d7458afd85267bb5a0171e0724c70343c74fb4595e1f63edbb4beb717dd70",
+      "schema_digest_tool_sha256": "b71cbbca6da75e7166c9656c8ff6edf5010768eef701b89bdfef428305122a9e",
+      "generated_from_fresh_deployment": true
+    },
+    {
+      "profile_id": "profile-f60ec5752f501da0",
+      "profile_alias": "analytics-orders",
+      "closure_sha256": "f60ec5752f501da0147f9d2789234af64de4d98f7542c63b472c8aaecb26214d",
+      "source": "travel_demo",
+      "postgres_major_version": 16,
+      "product_set_sha256": "ab258c45aacacf701786b2c86da7128c7946f3934c3f0da0df8cd416d7986d53",
+      "reporting_view_set_sha256": "9a54c484cd585143c1a5d77ae4b0c685edce70db05e9786b0647670fd93e50b6",
+      "reporting_views": [
+        "reporting.provsql_orders"
+      ],
+      "schema_digest": "2f503bdc932295871e82b64f0d346613a6ee4eb01ef99fd52e329ee81fad5a36",
+      "schema_digest_tool_sha256": "b71cbbca6da75e7166c9656c8ff6edf5010768eef701b89bdfef428305122a9e",
+      "generated_from_fresh_deployment": true
+    }
+  ]
+}

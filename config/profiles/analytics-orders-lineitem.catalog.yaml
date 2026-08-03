@@ -17,7 +17,7 @@ sources:
       database: travel_demo
       user: gateway_reader
       postgres_major_version: 16
-      schema_digest: ebedbecf4f8fbc4eaf150d32fd260fe9b902549367abee880cc02d4b6c3ff96b
+      schema_digest: e13e08ecbe35e85206a37f07f387bbf25a66fef4ed2897c8abe8a1bd9d3c7701
       secretRef: GATEWAY_DB_PASSWORD
 snapshot_publications:
     - name: provsql-orders-v1

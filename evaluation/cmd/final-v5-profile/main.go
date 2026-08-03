@@ -36,6 +36,7 @@ const (
 	hotMeasurePath   = "config/profiles/hot-artifacts.json"
 	coveragePath     = "evaluation/final-v5-wsl2/profiles/profile-coverage-v1.2.json"
 	intersectionPath = "evaluation/final-v5-wsl2/profiles/product-intersection-v1.json"
+	attestationPath  = "config/profiles/schema-attestations-v1.json"
 	profileDirectory = "config/profiles"
 )
 
@@ -104,13 +105,17 @@ func run(root string, verifyOnly bool) error {
 	if err != nil {
 		return err
 	}
+	attestations, err := loadAttestations(root)
+	if err != nil {
+		return err
+	}
 	profiles, err := finalv5profile.Build(finalv5profile.BuildInput{Master: master, Live: live,
 		Cells: cells, Aliases: declared.Aliases, Hot: hot, ActivationSupported: activationSupported})
 	if err != nil {
 		return err
 	}
 	for index := range profiles {
-		if err := materializeProfile(root, live, &profiles[index], hot, verifyOnly); err != nil {
+		if err := materializeProfile(root, live, &profiles[index], hot, attestations, verifyOnly); err != nil {
 			return err
 		}
 	}
@@ -423,8 +428,28 @@ func workloadCells(root string) ([]finalv5profile.WorkloadCell, declaration, err
 
 // materializeProfile writes the deterministic minimal Catalog of one profile
 // and records its live digest and HOT artifact sizes.
+// loadAttestations reads the reviewed per-profile schema attestations. The file
+// is optional only so a first bootstrap can generate profile Catalogs before a
+// live deployment exists to attest them; a test requires every materializable
+// profile to be attested in the committed tree.
+func loadAttestations(root string) (finalv5profile.SchemaAttestationRegistry, error) {
+	var registry finalv5profile.SchemaAttestationRegistry
+	value, err := os.ReadFile(filepath.Join(root, attestationPath))
+	if os.IsNotExist(err) {
+		return registry, nil
+	}
+	if err != nil {
+		return registry, err
+	}
+	if err := json.Unmarshal(value, &registry); err != nil {
+		return registry, err
+	}
+	return registry, registry.Validate()
+}
+
 func materializeProfile(root string, full *catalog.Catalog, profile *finalv5profile.Profile,
-	hot map[string]finalv5profile.HotArtifact, verifyOnly bool) error {
+	hot map[string]finalv5profile.HotArtifact,
+	attestations finalv5profile.SchemaAttestationRegistry, verifyOnly bool) error {
 	if !profile.Status.CatalogMaterializable {
 		// A profile whose closure the live Catalog cannot publish yet stays a
 		// first-class registry entry, but it must not get a generated Catalog:
@@ -435,6 +460,14 @@ func materializeProfile(root string, full *catalog.Catalog, profile *finalv5prof
 		return nil
 	}
 	document := projectCatalog(full, profile.Closure)
+	// A profile Catalog declares only its own closure, so it must carry the
+	// attestation of exactly those reporting views rather than the full
+	// Catalog's, which covers every Product.
+	if attestation, found := attestations.Lookup(profile.ID); found {
+		for index := range document.Sources {
+			document.Sources[index].SchemaDigest = attestation.SchemaDigest
+		}
+	}
 	encoded, err := yaml.Marshal(document)
 	if err != nil {
 		return err

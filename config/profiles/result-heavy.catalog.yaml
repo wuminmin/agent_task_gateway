@@ -17,7 +17,7 @@ sources:
       database: travel_demo
       user: gateway_reader
       postgres_major_version: 16
-      schema_digest: ebedbecf4f8fbc4eaf150d32fd260fe9b902549367abee880cc02d4b6c3ff96b
+      schema_digest: ae4d7458afd85267bb5a0171e0724c70343c74fb4595e1f63edbb4beb717dd70
       secretRef: GATEWAY_DB_PASSWORD
 snapshot_publications:
     - name: final-v5-result-heavy-v1

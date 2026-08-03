@@ -91,7 +91,7 @@
           "detail": "no targeted non-publication run has executed this profile's cells"
         }
       ],
-      "catalog_sha256": "ec427c52fb8fbc5eb1757c0bb899f2e73f502a28a9cfc6790cc9c4338dfbca1a",
+      "catalog_sha256": "4ea11563ac1e1433115bd27e24395dab72e2cb6635baa00b20bae16c48d5dbb9",
       "total_hot_bytes": 16638,
       "cells": [
         "rls/adaptive-100-v1/100-queries/rls",
@@ -137,7 +137,7 @@
           "detail": "no targeted non-publication run has executed this profile's cells"
         }
       ],
-      "catalog_sha256": "4595df80976f269a86f13081785e655c9f8619942d5512e96ce3b1f3541ec074",
+      "catalog_sha256": "924d385e6561fedb4b865702f1a049eb2677f3022448947ab15446871175879d",
       "total_hot_bytes": 16638,
       "cells": [
         "attack/E-threshold/preregistered-v1/direct",
@@ -183,7 +183,7 @@
           "detail": "no targeted non-publication run has executed this profile's cells"
         }
       ],
-      "catalog_sha256": "c350060db07090818e6709dc8cfaacba1f4e2eb903bc357f54a77d013f1f3f46",
+      "catalog_sha256": "c02407c16495d2f627b66cc91f5fe3feba0274e3f0748eb08f224ba0da57caeb",
       "total_hot_bytes": 16638,
       "cells": [
         "attack/A-pagination/complete-to-pages/direct",
@@ -238,7 +238,7 @@
           "detail": "no targeted non-publication run has executed this profile's cells"
         }
       ],
-      "catalog_sha256": "012ef6543dce66b8ffdb2610204cb43b3b502b22785ab1b5bad04104abebaede",
+      "catalog_sha256": "9f81bad7373630fcebd6f95dbef9f5feff2fe9c775c7658f10c3d2c4f94299be",
       "total_hot_bytes": 16638,
       "cells": [
         "rls/adaptive-100-v1/100-queries/bounded",
@@ -282,7 +282,7 @@
           "detail": "no targeted non-publication run has executed this profile's cells"
         }
       ],
-      "catalog_sha256": "1967cc40cf53b58fec57fda1cf704bf56fe354261ab31944172e8cc227fb6895",
+      "catalog_sha256": "3d5f636452fc7926138db712d4fcca7add8fef7acc37f5f84562bc2d48ad2600",
       "total_hot_bytes": 16638,
       "cells": [
         "concurrency/serial-control/1/serial",
@@ -412,7 +412,7 @@
           "detail": "no targeted non-publication run has executed this profile's cells"
         }
       ],
-      "catalog_sha256": "b60396aa05cd85294d14fd04e4fa3dc85e0414f0daf56198dca40f759066d51d",
+      "catalog_sha256": "6dedb81d8db5071f3795df10f1d8597712cc6e7e8c8e070cbedeb6e546470f5d",
       "total_hot_bytes": 117607276,
       "cells": [
         "baseline/S2/SF1/direct",
@@ -579,7 +579,7 @@
           "detail": "no targeted non-publication run has executed this profile's cells"
         }
       ],
-      "catalog_sha256": "6bf2ba3c12a3d042396574c143e9cd320f2ed42042882d5911a1d378e00d8011",
+      "catalog_sha256": "ad5838887e571aa1451a670acdc4486f646b63e4a00d676412be5c3148752317",
       "total_hot_bytes": 117869763,
       "cells": [
         "provsql/nonce-join-group/10k/direct",
@@ -630,7 +630,7 @@
           "detail": "no targeted non-publication run has executed this profile's cells"
         }
       ],
-      "catalog_sha256": "20f3af6fc4a6262dcb385e98d2f7324041be4944ae9eddbaa0765ed5de9622c0",
+      "catalog_sha256": "533837084c0df141a0fac6e74788a4c2b9eb84611c1f96d4c760806745b4f709",
       "total_hot_bytes": 126813361,
       "cells": [
         "artifact/result-heavy/100k-x16/novel",
@@ -702,7 +702,7 @@
           "detail": "no targeted non-publication run has executed this profile's cells"
         }
       ],
-      "catalog_sha256": "5961d667dd2c334ffdc50ff001b56a22e7c91804ec50cbd3e568859041635166",
+      "catalog_sha256": "a1c9f76be6e15016c2e31b46481814e86eef099e3f7ad3b330bbedb86f80db10",
       "total_hot_bytes": 16603206,
       "cells": [
         "baseline/S1/SF1/direct",
