@@ -109,12 +109,20 @@ type ActivationEvidence struct {
 	ActualHotBytes       int64              `json:"actual_hot_bytes"`
 	HotLimitBytes        int64              `json:"hot_limit_bytes"`
 
-	DrainBefore            DrainCounts           `json:"drain_before"`
-	DrainObservationStatus string                `json:"drain_observation_status"`
-	DrainObserverVersion   string                `json:"drain_observer_version"`
-	DrainObservationSHA256 string                `json:"drain_observation_sha256"`
-	CacheIsolation         CacheIsolation        `json:"cache_isolation"`
-	OutsideProduct         []OutsideProductProbe `json:"outside_product_probes"`
+	DrainBefore            DrainCounts `json:"drain_before"`
+	DrainObservationStatus string      `json:"drain_observation_status"`
+	DrainObserverVersion   string      `json:"drain_observer_version"`
+	DrainObservationSHA256 string      `json:"drain_observation_sha256"`
+
+	// The exact per-profile artifact directory this activation mounted, and the
+	// publications the loader reported activating from it.
+	ProfileArtifactManifestSHA256  string                `json:"profile_artifact_manifest_sha256"`
+	ProfileArtifactDirectorySHA256 string                `json:"profile_artifact_directory_sha256"`
+	MountedArtifactIdentity        string                `json:"mounted_artifact_directory_identity"`
+	ExpectedSourcePublications     []string              `json:"expected_source_publications"`
+	ObservedLoaderPublications     []string              `json:"observed_loader_publications"`
+	CacheIsolation                 CacheIsolation        `json:"cache_isolation"`
+	OutsideProduct                 []OutsideProductProbe `json:"outside_product_probes"`
 
 	// ActivationSmokePassed and WorkloadTargetedValidationPassed are separate
 	// on purpose: activating a Catalog is not the same as executing the
@@ -144,6 +152,16 @@ func ValidateActivationEvidence(evidence ActivationEvidence, profile Profile) er
 	if !equalStringSets(evidence.ExpectedProducts, evidence.ObservedProducts) {
 		return fmt.Errorf("profile %q activated Products %v, expected %v",
 			profile.Alias, evidence.ObservedProducts, evidence.ExpectedProducts)
+	}
+	// The mounted artifact directory must be the exact per-profile directory,
+	// and the loader must have activated exactly its publications.
+	if !validDigest(evidence.ProfileArtifactDirectorySHA256) || !validDigest(evidence.ProfileArtifactManifestSHA256) ||
+		strings.TrimSpace(evidence.MountedArtifactIdentity) == "" {
+		return fmt.Errorf("profile %q does not identify the mounted artifact directory", profile.Alias)
+	}
+	if !equalStringSets(evidence.ExpectedSourcePublications, evidence.ObservedLoaderPublications) {
+		return fmt.Errorf("profile %q mounted publications %v but the loader activated %v",
+			profile.Alias, evidence.ExpectedSourcePublications, evidence.ObservedLoaderPublications)
 	}
 	if !equalStringSets(evidence.ExpectedPublications, evidence.ObservedPublications) {
 		return fmt.Errorf("profile %q activated Publications %v, expected %v",

@@ -21,6 +21,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,21 +32,23 @@ import (
 const diagnosticPath = "/admin/v1/evaluation/profile-activation"
 
 type options struct {
-	root            string
-	composeProject  string
-	composeFiles    string
-	deploymentID    string
-	profileID       string
-	registryPath    string
-	gatewayURL      string
-	adminToken      string
-	datasetBinding  string
-	previousProfile string
-	sequence        int
-	outputPath      string
-	outsideProducts string
-	probeToken      string
-	readyTimeout    time.Duration
+	root             string
+	composeProject   string
+	composeFiles     string
+	deploymentID     string
+	profileID        string
+	registryPath     string
+	gatewayURL       string
+	adminToken       string
+	datasetBinding   string
+	previousProfile  string
+	sequence         int
+	outputPath       string
+	outsideProducts  string
+	artifactDir      string
+	artifactManifest string
+	probeToken       string
+	readyTimeout     time.Duration
 }
 
 func main() {
@@ -63,6 +66,8 @@ func main() {
 	flag.IntVar(&opts.sequence, "activation-sequence", 1, "1-based activation sequence in this deployment")
 	flag.StringVar(&opts.outputPath, "evidence-out", "", "activation evidence output path")
 	flag.StringVar(&opts.outsideProducts, "outside-products", "", "comma-separated Products that must be refused")
+	flag.StringVar(&opts.artifactDir, "profile-artifact-dir", "", "exact per-profile snapshot artifact directory")
+	flag.StringVar(&opts.artifactManifest, "profile-artifact-manifest", "", "profile artifact manifest path")
 	flag.StringVar(&opts.probeToken, "probe-token-env", "TASKBOUND_ALICE_TOKEN", "env var holding the pilot agent token")
 	flag.DurationVar(&opts.readyTimeout, "ready-timeout", 5*time.Minute, "readiness timeout")
 	flag.Parse()
@@ -72,14 +77,6 @@ func main() {
 	if err := run(opts); err != nil {
 		fatal(err)
 	}
-}
-
-// firstActivationDrainDigest is the fixed digest of a provably empty gate: no
-// Gateway was serving, so there was nothing to drain.
-func firstActivationDrainDigest() string {
-	hash := sha256.New()
-	fmt.Fprintf(hash, "%s\x00%d\x00%d\x00%d\x00%d\x00", "taskgate-final-v5-drain-observer-v1", 0, 0, 0, 0)
-	return hex.EncodeToString(hash.Sum(nil))
 }
 
 func fatal(err error) {
@@ -132,6 +129,31 @@ func run(opts options) error {
 		if evidence.DatasetBindingSHA, err = fileSHA256(opts.datasetBinding); err != nil {
 			return fmt.Errorf("dataset binding: %w", err)
 		}
+	}
+
+	// Bind the exact per-profile artifact directory before anything is started.
+	if opts.artifactDir != "" {
+		if opts.artifactManifest == "" {
+			return errors.New("profile-artifact-manifest is required with profile-artifact-dir")
+		}
+		artifactManifest, err := loadArtifactManifest(opts.artifactManifest, profile.ID)
+		if err != nil {
+			return err
+		}
+		if err := finalv5profile.VerifyProfileArtifactDirectory(opts.artifactDir, artifactManifest); err != nil {
+			return fmt.Errorf("profile artifact directory: %w", err)
+		}
+		evidence.ProfileArtifactDirectorySHA256 = artifactManifest.DirectorySHA256
+		evidence.ProfileArtifactManifestSHA256, err = fileSHA256(opts.artifactManifest)
+		if err != nil {
+			return err
+		}
+		absolute, err := filepath.Abs(opts.artifactDir)
+		if err != nil {
+			return err
+		}
+		evidence.MountedArtifactIdentity = absolute
+		evidence.ExpectedSourcePublications = artifactManifest.Publications
 	}
 
 	ctx := context.Background()
@@ -207,20 +229,33 @@ func run(opts options) error {
 			return writeEvidence(opts.outputPath, evidence)
 		}
 	} else {
-		// A first activation has no outgoing profile. The gate is recorded as
-		// observed-empty only because there is provably nothing running.
-		zero := int64(0)
-		evidence.DrainObserverVersion = "taskgate-final-v5-drain-observer-v1"
+		// A first activation has no outgoing Gateway to ask, so the gates are
+		// read straight from Control. They are never assumed to be zero.
+		counts, digest, initialized, err := observeControlDrain(ctx, opts)
+		if err != nil {
+			evidence.DrainObservationStatus = "unavailable"
+			evidence.DrainObserverVersion = drainObserverVersion
+			evidence.Failures = append(evidence.Failures, err.Error())
+			return writeEvidence(opts.outputPath, evidence)
+		}
+		evidence.DrainObserverVersion = drainObserverVersion
+		if !initialized {
+			evidence.DrainObserverVersion = drainObserverVersion + "-uninitialized-control"
+		}
 		evidence.DrainObservationStatus = finalv5profile.DrainObservationObserved
-		evidence.DrainBefore = finalv5profile.DrainCounts{InflightQueries: &zero,
-			PendingArtifacts: &zero, OpenReservations: &zero, ActiveServedRoots: &zero}
-		evidence.DrainObservationSHA256 = firstActivationDrainDigest()
+		evidence.DrainBefore = counts
+		evidence.DrainObservationSHA256 = digest
+		if !evidence.DrainBefore.Clean() {
+			evidence.Failures = append(evidence.Failures,
+				"Control still holds in-flight work before the first activation")
+			return writeEvidence(opts.outputPath, evidence)
+		}
 	}
 	if err := stopCatalogBoundServices(ctx, opts); err != nil {
 		evidence.Failures = append(evidence.Failures, "stop catalog-bound services: "+err.Error())
 		return writeEvidence(opts.outputPath, evidence)
 	}
-	if err := startCatalogBoundServices(ctx, opts, catalogPath); err != nil {
+	if err := startCatalogBoundServices(ctx, opts, catalogPath, opts.artifactDir); err != nil {
 		evidence.Failures = append(evidence.Failures, "restart catalog-bound services: "+err.Error())
 		return writeEvidence(opts.outputPath, evidence)
 	}
@@ -238,6 +273,7 @@ func run(opts options) error {
 
 	evidence.ObservedProducts = current.Activation.Products
 	evidence.ObservedPublications = current.Activation.Publications
+	evidence.ObservedLoaderPublications = current.Activation.Publications
 	for _, artifact := range current.Activation.HotArtifacts {
 		evidence.ObservedHotArtifacts = append(evidence.ObservedHotArtifacts,
 			finalv5profile.ObservedArtifact{Identity: artifact.Publication,
@@ -491,7 +527,7 @@ func stopCatalogBoundServices(ctx context.Context, opts options) error {
 	return runCommand(ctx, opts.root, "docker", append(args, catalogBoundServices...)...)
 }
 
-func startCatalogBoundServices(ctx context.Context, opts options, catalogPath string) error {
+func startCatalogBoundServices(ctx context.Context, opts options, catalogPath, artifactDir string) error {
 	absolute, err := filepath.Abs(catalogPath)
 	if err != nil {
 		return err
@@ -499,7 +535,15 @@ func startCatalogBoundServices(ctx context.Context, opts options, catalogPath st
 	args := append(composeArgs(opts), "up", "-d", "--force-recreate", "--wait")
 	command := exec.CommandContext(ctx, "docker", append(args, catalogBoundServices...)...)
 	command.Dir = opts.root
-	command.Env = append(os.Environ(), "TASKGATE_PROFILE_CATALOG="+absolute, "TASKGATE_EXPERIMENT_CLASS=pilot")
+	environment := append(os.Environ(), "TASKGATE_PROFILE_CATALOG="+absolute, "TASKGATE_EXPERIMENT_CLASS=pilot")
+	if artifactDir != "" {
+		absoluteArtifacts, err := filepath.Abs(artifactDir)
+		if err != nil {
+			return err
+		}
+		environment = append(environment, "TASKGATE_PROFILE_ARTIFACT_DIR="+absoluteArtifacts)
+	}
+	command.Env = environment
 	command.Stdout, command.Stderr = os.Stderr, os.Stderr
 	return command.Run()
 }
@@ -529,6 +573,126 @@ func runCommand(ctx context.Context, dir, name string, args ...string) error {
 	command := exec.CommandContext(ctx, name, args...)
 	command.Dir, command.Stdout, command.Stderr = dir, os.Stderr, os.Stderr
 	return command.Run()
+}
+
+// loadArtifactManifest reads the manifest emitted beside a materialized
+// profile directory and refuses one that describes a different profile.
+func loadArtifactManifest(path, profileID string) (finalv5profile.ArtifactManifest, error) {
+	value, err := os.ReadFile(path)
+	if err != nil {
+		return finalv5profile.ArtifactManifest{}, err
+	}
+	var document struct {
+		Profiles map[string]finalv5profile.ArtifactManifest `json:"profiles"`
+	}
+	if err := json.Unmarshal(value, &document); err != nil {
+		return finalv5profile.ArtifactManifest{}, err
+	}
+	manifest, found := document.Profiles[profileID]
+	if !found {
+		return finalv5profile.ArtifactManifest{}, fmt.Errorf("artifact manifest set has no entry for %s", profileID)
+	}
+	if manifest.ProfileID != profileID {
+		return finalv5profile.ArtifactManifest{}, errors.New("artifact manifest identifies a different profile")
+	}
+	return manifest, nil
+}
+
+// observeControlDrain reads the drain gates straight from Control when there is
+// no outgoing Gateway to ask. It runs through compose exec, so no DSN is
+// constructed here and none reaches the evidence.
+func observeControlDrain(ctx context.Context, opts options) (finalv5profile.DrainCounts, string, bool, error) {
+	// On a genuinely fresh deployment the Gateway has never started, so it has
+	// never migrated the Control schema. That is an observable state, not an
+	// unobservable one: with no tables there are provably no in-flight queries,
+	// PENDING artifacts, reservations or ACTIVE roots. It is reported as such
+	// and recorded, rather than assumed or hard-coded.
+	const presence = `SELECT count(*)::bigint FROM information_schema.tables
+ WHERE table_schema='public'
+   AND table_name IN ('query_records','result_artifacts','query_exposure_reservations','tasks')`
+	present, err := controlScalar(ctx, opts, presence)
+	if err != nil {
+		return finalv5profile.DrainCounts{}, "", false, fmt.Errorf("control drain observation failed: %w", err)
+	}
+	if present == 0 {
+		zero := int64(0)
+		counts := finalv5profile.DrainCounts{InflightQueries: &zero, PendingArtifacts: &zero,
+			OpenReservations: &zero, ActiveServedRoots: &zero}
+		return counts, drainDigest(drainObserverVersion+"-uninitialized-control", 0, 0, 0, 0), false, nil
+	}
+	if present != 4 {
+		return finalv5profile.DrainCounts{}, "", false,
+			fmt.Errorf("control drain observation found %d of 4 gate tables", present)
+	}
+	const query = `SELECT
+  (SELECT count(*) FROM query_records WHERE status = 'RESERVED')::bigint || ' ' ||
+  (SELECT count(*) FROM result_artifacts WHERE status = 'PENDING')::bigint || ' ' ||
+  (SELECT count(*) FROM query_exposure_reservations WHERE status = 'RESERVED')::bigint || ' ' ||
+  (SELECT count(*) FROM tasks WHERE state = 'ACTIVE')::bigint`
+	out, err := controlQuery(ctx, opts, query)
+	if err != nil {
+		return finalv5profile.DrainCounts{}, "", true, fmt.Errorf("control drain observation failed: %w", err)
+	}
+	fields := strings.Fields(strings.TrimSpace(out))
+	if len(fields) != 4 {
+		return finalv5profile.DrainCounts{}, "", true, errors.New("control drain observation returned an unexpected shape")
+	}
+	values := make([]int64, 4)
+	for index, field := range fields {
+		parsed, err := strconv.ParseInt(field, 10, 64)
+		if err != nil {
+			return finalv5profile.DrainCounts{}, "", true, errors.New("control drain observation is not numeric")
+		}
+		values[index] = parsed
+	}
+	counts := finalv5profile.DrainCounts{InflightQueries: &values[0], PendingArtifacts: &values[1],
+		OpenReservations: &values[2], ActiveServedRoots: &values[3]}
+	return counts, drainDigest(drainObserverVersion, values[0], values[1], values[2], values[3]), true, nil
+}
+
+func drainDigest(version string, values ...int64) string {
+	hash := sha256.New()
+	fmt.Fprintf(hash, "%s\x00", version)
+	for _, value := range values {
+		fmt.Fprintf(hash, "%d\x00", value)
+	}
+	return hex.EncodeToString(hash.Sum(nil))
+}
+
+func controlQuery(ctx context.Context, opts options, query string) (string, error) {
+	args := append(composeArgs(opts), "exec", "-T", "control-postgres",
+		psqlBinary, "-U", "postgres", "-d", controlDatabase(), "-XAtqc", query)
+	var out bytes.Buffer
+	command := exec.CommandContext(ctx, "docker", args...)
+	command.Dir, command.Stdout, command.Stderr = opts.root, &out, os.Stderr
+	if err := command.Run(); err != nil {
+		return "", err
+	}
+	value := strings.TrimSpace(out.String())
+	if strings.Contains(value, "ERROR:") {
+		return "", errors.New("control query returned an error")
+	}
+	return value, nil
+}
+
+func controlScalar(ctx context.Context, opts options, query string) (int64, error) {
+	value, err := controlQuery(ctx, opts, query)
+	if err != nil {
+		return 0, err
+	}
+	return strconv.ParseInt(strings.TrimSpace(value), 10, 64)
+}
+
+const (
+	drainObserverVersion = "taskgate-final-v5-drain-observer-v1"
+	psqlBinary           = "psql"
+)
+
+func controlDatabase() string {
+	if value := strings.TrimSpace(os.Getenv("CONTROL_POSTGRES_DB")); value != "" {
+		return value
+	}
+	return "taskbound_gateway"
 }
 
 func loadRegistry(path string) (finalv5profile.Registry, error) {

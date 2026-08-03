@@ -35,6 +35,7 @@ const (
 	registryPath     = "config/profiles/registry.json"
 	hotMeasurePath   = "config/profiles/hot-artifacts.json"
 	coveragePath     = "evaluation/final-v5-wsl2/profiles/profile-coverage-v1.2.json"
+	intersectionPath = "evaluation/final-v5-wsl2/profiles/product-intersection-v1.json"
 	profileDirectory = "config/profiles"
 )
 
@@ -122,7 +123,10 @@ func run(root string, verifyOnly bool) error {
 	if err := writeCanonicalJSON(filepath.Join(root, registryPath), registry, verifyOnly); err != nil {
 		return err
 	}
-	return writeCanonicalJSON(filepath.Join(root, coveragePath), buildCoverage(registry, cells), verifyOnly)
+	if err := writeCanonicalJSON(filepath.Join(root, coveragePath), buildCoverage(registry, cells), verifyOnly); err != nil {
+		return err
+	}
+	return writeCanonicalJSON(filepath.Join(root, intersectionPath), buildIntersection(registry), verifyOnly)
 }
 
 // coverageReport is the source-controlled cell completeness audit. Every count
@@ -216,6 +220,78 @@ func buildCoverage(registry finalv5profile.Registry, cells []finalv5profile.Work
 	report.DuplicateCatalogBound = len(report.DuplicateCellIDs)
 	report.MissingCatalogBoundCells = len(report.MissingCellIDs)
 	return report
+}
+
+// intersectionReport answers, from the registry alone, whether any two
+// deployment-ready profiles share a Product. A shared Product is what makes a
+// live same-query cross-profile test constructible; without one, that test is
+// not applicable rather than merely unfinished.
+type intersectionReport struct {
+	SchemaVersion    int                `json:"schema_version"`
+	Record           string             `json:"record"`
+	ContractsVersion string             `json:"contracts_version"`
+	RegistryVersion  string             `json:"registry_version"`
+	ProfileCount     int                `json:"profile_count"`
+	PairCount        int                `json:"pair_count"`
+	OverlappingPairs int                `json:"overlapping_pair_count"`
+	Pairs            []intersectionPair `json:"pairs"`
+}
+
+type intersectionPair struct {
+	LeftProfileID               string   `json:"left_profile_id"`
+	RightProfileID              string   `json:"right_profile_id"`
+	LeftAlias                   string   `json:"left_alias"`
+	RightAlias                  string   `json:"right_alias"`
+	LeftProducts                []string `json:"left_products"`
+	RightProducts               []string `json:"right_products"`
+	Intersection                []string `json:"intersection"`
+	IntersectionCount           int      `json:"intersection_count"`
+	SameQueryLiveTestApplicable bool     `json:"same_query_live_test_applicable"`
+}
+
+func buildIntersection(registry finalv5profile.Registry) intersectionReport {
+	var live []finalv5profile.Profile
+	for _, profile := range registry.Profiles {
+		if profile.Status.ClosureComplete && profile.Status.CatalogMaterializable &&
+			profile.Status.LiveRouteAvailable {
+			live = append(live, profile)
+		}
+	}
+	sort.Slice(live, func(a, b int) bool { return live[a].ID < live[b].ID })
+	report := intersectionReport{SchemaVersion: 1,
+		Record: "taskgate-final-v5-product-intersection-v1", ContractsVersion: registry.ContractRelease,
+		RegistryVersion: registry.RegistryVersion, ProfileCount: len(live), Pairs: []intersectionPair{}}
+	for left := 0; left < len(live); left++ {
+		for right := left + 1; right < len(live); right++ {
+			shared := intersect(live[left].Closure.Products, live[right].Closure.Products)
+			pair := intersectionPair{LeftProfileID: live[left].ID, RightProfileID: live[right].ID,
+				LeftAlias: live[left].Alias, RightAlias: live[right].Alias,
+				LeftProducts: live[left].Closure.Products, RightProducts: live[right].Closure.Products,
+				Intersection: shared, IntersectionCount: len(shared),
+				SameQueryLiveTestApplicable: len(shared) > 0}
+			if pair.SameQueryLiveTestApplicable {
+				report.OverlappingPairs++
+			}
+			report.Pairs = append(report.Pairs, pair)
+		}
+	}
+	report.PairCount = len(report.Pairs)
+	return report
+}
+
+func intersect(left, right []string) []string {
+	present := map[string]bool{}
+	for _, value := range right {
+		present[value] = true
+	}
+	shared := []string{}
+	for _, value := range left {
+		if present[value] {
+			shared = append(shared, value)
+		}
+	}
+	sort.Strings(shared)
+	return shared
 }
 
 func writeCanonicalJSON(path string, value any, verifyOnly bool) error {

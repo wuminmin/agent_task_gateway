@@ -348,7 +348,11 @@ services:
       # one generated profile Catalog so a Catalog-bound Gateway instance
       # activates that closure and nothing else.
       - ${TASKGATE_PROFILE_CATALOG:-./config/catalog.yaml}:/etc/taskbound/catalog.yaml:ro
-      - snapshot-index-artifacts:/var/lib/taskgate/snapshot-index:ro
+      # Exactly one profile's snapshot artifact directory. It defaults to the
+      # shared compiler output; the profile activator points it at a directory
+      # holding only the activated closure's publication bundles, because the
+      # loader fails closed on any publication the Catalog does not declare.
+      - ${TASKGATE_PROFILE_ARTIFACT_DIR:-snapshot-index-artifacts}:/var/lib/taskgate/snapshot-index:ro
       # Adaptive query spools and Parquet upload staging contain only
       # authenticated ciphertext. Keep them on disk: a 16 MiB tmpfs makes the
       # mandatory >128 MiB spill path impossible and would also count against

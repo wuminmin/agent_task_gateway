@@ -35,10 +35,15 @@ func passingEvidence(t *testing.T, profile Profile) ActivationEvidence {
 			ProcessNonce: strings.Repeat("2", 64), PreviousCacheNamespace: strings.Repeat("3", 64),
 			CacheNamespace: strings.Repeat("4", 64), PreviousCacheUnreachable: true,
 			SemanticCacheCatalogBound: true, PreviousHotArtifactsRetired: true},
-		DrainBefore:            cleanDrain(),
-		DrainObservationStatus: DrainObservationObserved,
-		DrainObserverVersion:   "taskgate-final-v5-drain-observer-v1",
-		DrainObservationSHA256: strings.Repeat("5", 64),
+		ProfileArtifactManifestSHA256:  strings.Repeat("8", 64),
+		ProfileArtifactDirectorySHA256: strings.Repeat("9", 64),
+		MountedArtifactIdentity:        "/pilot/artifacts/profiles/" + profile.ID,
+		ExpectedSourcePublications:     profile.Closure.Publications,
+		ObservedLoaderPublications:     profile.Closure.Publications,
+		DrainBefore:                    cleanDrain(),
+		DrainObservationStatus:         DrainObservationObserved,
+		DrainObserverVersion:           "taskgate-final-v5-drain-observer-v1",
+		DrainObservationSHA256:         strings.Repeat("5", 64),
 		OutsideProduct: []OutsideProductProbe{{Product: "provsql_orders",
 			RequestedProductSHA256: strings.Repeat("6", 64), CatalogListAbsent: true,
 			LiveRequestRefused: true, Refused: true, Classification: "tool_error",
@@ -146,6 +151,23 @@ func TestActivationEvidenceFailsClosed(t *testing.T) {
 		},
 		"probed its own closure": func(evidence *ActivationEvidence) {
 			evidence.OutsideProduct[0].Product = "final_v5_result_heavy"
+		},
+		"mounted artifact directory not identified": func(evidence *ActivationEvidence) {
+			evidence.MountedArtifactIdentity = " "
+		},
+		"artifact directory digest missing": func(evidence *ActivationEvidence) {
+			evidence.ProfileArtifactDirectorySHA256 = ""
+		},
+		"artifact manifest digest missing": func(evidence *ActivationEvidence) {
+			evidence.ProfileArtifactManifestSHA256 = "not-a-digest"
+		},
+		"loader activated a publication the mount did not hold": func(evidence *ActivationEvidence) {
+			evidence.ObservedLoaderPublications = append(
+				append([]string(nil), evidence.ObservedLoaderPublications...), "provsql-orders-v1")
+		},
+		"mount held a publication the loader did not activate": func(evidence *ActivationEvidence) {
+			evidence.ExpectedSourcePublications = append(
+				append([]string(nil), evidence.ExpectedSourcePublications...), "provsql-orders-v1")
 		},
 		"failed status": func(evidence *ActivationEvidence) {
 			evidence.Status = "fail"
