@@ -196,3 +196,18 @@ func TestDeploymentProjectNameHashesCompleteIdentityWithoutCollision(t *testing.
 		t.Fatal("destructive fresh-deployment launcher does not rederive the exact project owner identity")
 	}
 }
+
+func TestRealPilotUsesCollisionSafeDeploymentProjectName(t *testing.T) {
+	launcher, err := os.ReadFile(filepath.Join("..", "..", "final-v5-wsl2", "scripts", "run-real-pilot.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(launcher)
+	if !strings.Contains(body, "deployment-project-name.sh") ||
+		!strings.Contains(body, `"$TASKGATE_CAMPAIGN_ID" "$TASKGATE_DEPLOYMENT_ID"`) {
+		t.Fatal("real Pilot does not derive the same complete owner identity as the destructive fresh-deployment launcher")
+	}
+	if strings.Contains(body, "taskgate-final-v5-pilot-local-only-deployment-01") {
+		t.Fatal("real Pilot still uses the legacy project name rejected by the fresh-deployment safety boundary")
+	}
+}

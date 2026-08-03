@@ -23,7 +23,10 @@ printf '%s\n' 'publication_eligible=false' 'real_system=true' 'scope=baseline-ti
 export TASKGATE_EXPERIMENT_CLASS=pilot
 export TASKGATE_CAMPAIGN_ID=pilot-local-only
 export TASKGATE_DEPLOYMENT_ID=deployment-01
-export COMPOSE_PROJECT_NAME=taskgate-final-v5-pilot-local-only-deployment-01
+export COMPOSE_PROJECT_NAME="$(
+  bash evaluation/final-v5-wsl2/scripts/deployment-project-name.sh \
+    "$TASKGATE_CAMPAIGN_ID" "$TASKGATE_DEPLOYMENT_ID"
+)"
 export TASKGATE_COMPOSE_FILES=compose.yaml:compose.debug.yaml:evaluation/final-v5-wsl2/compose.real-pilot.yaml
 export TASKGATE_FRESH_PROOF_OUTPUT="$run_dir/environment/deployment-01.fresh.json"
 
