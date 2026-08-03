@@ -21,21 +21,23 @@ func (nilMapAdapterFixture) Execute(context.Context, experiment.AdapterOperation
 }
 func (nilMapAdapterFixture) Close() {}
 
-func TestCapabilitiesAreDerivedOnlyFromRealFactories(t *testing.T) {
+func TestCapabilitiesRequireRealFactoriesAndCompletePublicationProfiles(t *testing.T) {
 	capabilities := implementedCapabilities()
 	if len(capabilities) != len(experimentIDs) {
 		t.Fatalf("capability count = %d, want %d", len(capabilities), len(experimentIDs))
 	}
-	for _, experimentID := range experimentIDs {
-		factory, registered := adapterFactories[experimentID]
-		implemented := registered && factory != nil
-		if capabilities[experimentID] != implemented {
-			t.Fatalf("capability %q = %v, real factory available = %v", experimentID, capabilities[experimentID], implemented)
-		}
+	want := map[string]bool{
+		"baseline": false,
+		"scale":    false, "artifact": false, "rls": true, "attack": true,
+		"provsql": true, "compiler": true, "concurrency": true, "rq5": true,
 	}
 	for _, experimentID := range experimentIDs {
-		if !capabilities[experimentID] {
-			t.Fatalf("completed adapter %q was not reported", experimentID)
+		factory, registered := adapterFactories[experimentID]
+		if !registered || factory == nil {
+			t.Fatalf("source-controlled factory %q is absent", experimentID)
+		}
+		if capabilities[experimentID] != want[experimentID] {
+			t.Fatalf("capability %q = %v, want %v", experimentID, capabilities[experimentID], want[experimentID])
 		}
 	}
 }

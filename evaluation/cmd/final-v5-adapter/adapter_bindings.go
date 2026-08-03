@@ -2,22 +2,20 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	"taskbound.local/agent-data-gateway/evaluation/internal/experiment"
-	"taskbound.local/agent-data-gateway/evaluation/internal/provsqlfixture"
+	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5binding"
 )
 
-const adapterBindingSectionName = "final_v5_adapter_v1"
+const adapterBindingSectionName = finalv5binding.SectionName
 
 type adapterDeploymentBinding struct {
 	DatasetSHA256 string
@@ -26,145 +24,38 @@ type adapterDeploymentBinding struct {
 	Section       adapterBindingSection
 }
 
-type adapterBindingSection struct {
-	SchemaVersion   int                        `json:"schema_version"`
-	DatasetProbeSQL string                     `json:"dataset_probe_sql"`
-	Observer        observerCommandBinding     `json:"observer"`
-	Scale           *scaleDeploymentBinding    `json:"scale,omitempty"`
-	Artifact        *artifactDeploymentBinding `json:"artifact,omitempty"`
-	ProvSQL         *provSQLDeploymentBinding  `json:"provsql,omitempty"`
+type adapterBindingValidation struct {
+	SchemaVersion        int    `json:"schema_version"`
+	Status               string `json:"status"`
+	DatasetSHA256        string `json:"dataset_sha256"`
+	CatalogSHA256        string `json:"catalog_sha256"`
+	BindingFileSHA256    string `json:"dataset_binding_sha256"`
+	AdapterSectionSHA256 string `json:"final_v5_adapter_sha256"`
+	DatasetProbeSHA256   string `json:"dataset_probe_sql_sha256"`
+	ScaleCells           int    `json:"scale_cells"`
+	ArtifactCells        int    `json:"artifact_cells"`
+	ProvSQLCells         int    `json:"provsql_cells"`
 }
 
-type observerCommandBinding struct {
-	Argv             []string `json:"argv"`
-	ExecutableSHA256 string   `json:"executable_sha256"`
-}
-
-type boundTaskRequest struct {
-	Objective         string              `json:"objective"`
-	DataProducts      []string            `json:"data_products"`
-	Columns           map[string][]string `json:"columns"`
-	Scopes            map[string][]string `json:"scopes"`
-	VisibleRelation   string              `json:"visible_relation"`
-	CompanionRelation string              `json:"companion_relation"`
-}
-
-type boundQueryExpectation struct {
-	SQL                    string `json:"sql"`
-	ExpectedRows           int64  `json:"expected_rows"`
-	ExpectedColumns        int    `json:"expected_columns"`
-	ExpectedResultSHA256   string `json:"expected_result_sha256"`
-	DependencyFacts        int64  `json:"dependency_facts"`
-	DependencySetSHA256    string `json:"dependency_set_sha256"`
-	ExpectedVisibleCalls   int64  `json:"expected_visible_calls,omitempty"`
-	ExpectedCompanionCalls int64  `json:"expected_companion_calls,omitempty"`
-}
-
-type dependencyCellBinding struct {
-	Task      boundTaskRequest       `json:"task"`
-	Candidate boundQueryExpectation  `json:"candidate"`
-	History   *boundQueryExpectation `json:"history,omitempty"`
-}
-
-type scaleDeploymentBinding struct {
-	DependencyE2E       map[string]dependencyCellBinding `json:"dependency_e2e,omitempty"`
-	EnableOutcomeMerkle bool                             `json:"enable_outcome_merkle,omitempty"`
-	EnableExtreme       bool                             `json:"enable_extreme,omitempty"`
-}
-
-type artifactCellBinding struct {
-	Task  boundTaskRequest      `json:"task"`
-	Query boundQueryExpectation `json:"query"`
-}
-
-type artifactDeploymentBinding struct {
-	ResultHeavy map[string]artifactCellBinding `json:"result_heavy"`
-}
-
-// provSQLDeploymentBinding contains only deployment facts that cannot be
-// inferred from the public fixture: the approved Task request and exact
-// TaskGate Dependency FactSet oracle for every nonce. SQL, visible results,
-// dataset contents, versions, and nonce allocation remain source-controlled.
-type provSQLDeploymentBinding struct {
-	FixtureVersion                string                           `json:"fixture_version"`
-	FixtureSQLSHA256              string                           `json:"fixture_sql_sha256"`
-	EnableSQLSHA256               string                           `json:"enable_sql_sha256"`
-	DatasetSHA256                 string                           `json:"dataset_sha256"`
-	DatasetProbeSQLSHA256         string                           `json:"dataset_probe_sql_sha256"`
-	BusinessDatasetProbeSQLSHA256 string                           `json:"business_dataset_probe_sql_sha256"`
-	Task                          boundTaskRequest                 `json:"task"`
-	TaskGate                      map[string]boundQueryExpectation `json:"taskgate"`
-}
+type adapterBindingSection = finalv5binding.Section
+type boundTaskRequest = finalv5binding.BoundTaskRequest
+type boundQueryExpectation = finalv5binding.BoundQueryExpectation
+type dependencyCellBinding = finalv5binding.DependencyCellBinding
+type scaleDeploymentBinding = finalv5binding.ScaleBinding
+type artifactCellBinding = finalv5binding.ArtifactCellBinding
+type artifactDeploymentBinding = finalv5binding.ArtifactBinding
+type provSQLDeploymentBinding = finalv5binding.ProvSQLBinding
 
 func provSQLBindingKey(scale string, nonce int64) string {
-	return scale + "/" + fmt.Sprintf("%d", nonce)
+	return finalv5binding.ProvSQLBindingKey(scale, nonce)
 }
 
 func validateProvSQLDeploymentBinding(binding *provSQLDeploymentBinding) error {
-	if binding == nil || binding.FixtureVersion != provsqlfixture.Version ||
-		binding.FixtureSQLSHA256 != provsqlfixture.FixtureSQLSHA256() ||
-		binding.EnableSQLSHA256 != provsqlfixture.EnableSQLSHA256() ||
-		binding.DatasetSHA256 != provsqlfixture.ExpectedDatasetSHA256() ||
-		binding.DatasetProbeSQLSHA256 != provsqlfixture.DatasetProbeSQLSHA256() ||
-		binding.BusinessDatasetProbeSQLSHA256 != provsqlfixture.BusinessDatasetProbeSQLSHA256() ||
-		validateBoundTask(binding.Task) != nil || len(binding.TaskGate) != 105 {
-		return errors.New("ProvSQL deployment binding differs from the frozen fixture")
-	}
-	for _, scale := range []string{"1k", "10k", "45k"} {
-		for _, phase := range []struct {
-			warmup bool
-			count  int
-		}{{warmup: true, count: 5}, {warmup: false, count: 30}} {
-			for iteration := 1; iteration <= phase.count; iteration++ {
-				nonce, err := provsqlfixture.Nonce(scale, 1, iteration, phase.warmup)
-				if err != nil {
-					return err
-				}
-				expected, present := binding.TaskGate[provSQLBindingKey(scale, nonce)]
-				if !present {
-					return errors.New("ProvSQL deployment binding omits a frozen nonce cell")
-				}
-				if err := validateProvSQLCellExpectation(expected, scale, nonce); err != nil {
-					return err
-				}
-			}
-		}
-	}
-	return nil
+	return finalv5binding.ValidateProvSQLBinding(binding)
 }
 
 func validateProvSQLCellBinding(binding *provSQLDeploymentBinding, scale string, nonce int64) (boundQueryExpectation, error) {
-	if err := validateProvSQLDeploymentBinding(binding); err != nil {
-		return boundQueryExpectation{}, err
-	}
-	expected, present := binding.TaskGate[provSQLBindingKey(scale, nonce)]
-	if !present {
-		return boundQueryExpectation{}, errors.New("ProvSQL TaskGate cell lacks its exact frozen query/FactSet oracle")
-	}
-	if err := validateProvSQLCellExpectation(expected, scale, nonce); err != nil {
-		return boundQueryExpectation{}, err
-	}
-	return expected, nil
-}
-
-func validateProvSQLCellExpectation(expected boundQueryExpectation, scale string, nonce int64) error {
-	logical, err := provsqlfixture.LogicalSQL(scale, nonce)
-	if err != nil || validateBoundQuery(expected) != nil || expected.SQL != logical ||
-		expected.ExpectedRows != provsqlfixture.ExpectedRows || expected.ExpectedColumns != provsqlfixture.ExpectedColumns ||
-		expected.DependencyFacts <= 0 || !validDigest(expected.DependencySetSHA256) ||
-		expected.ExpectedVisibleCalls < 0 || expected.ExpectedCompanionCalls < 0 ||
-		expected.ExpectedVisibleCalls+expected.ExpectedCompanionCalls == 0 {
-		return errors.New("ProvSQL TaskGate cell lacks its exact frozen query/FactSet oracle")
-	}
-	rows, err := provsqlfixture.ExpectedResultRows(scale)
-	if err != nil {
-		return err
-	}
-	resultSHA256, err := experiment.CanonicalResultHash(rows)
-	if err != nil || expected.ExpectedResultSHA256 != resultSHA256 {
-		return errors.New("ProvSQL TaskGate result oracle differs from the source fixture")
-	}
-	return nil
+	return finalv5binding.ValidateProvSQLCellBinding(binding, scale, nonce)
 }
 
 func loadAdapterDeploymentBinding() (adapterDeploymentBinding, error) {
@@ -173,111 +64,50 @@ func loadAdapterDeploymentBinding() (adapterDeploymentBinding, error) {
 	if path == "" {
 		return result, errors.New("TASKGATE_DATASET_BINDINGS is required")
 	}
-	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() > 4<<20 {
-		return result, errors.New("dataset binding must be a bounded regular file")
-	}
-	value, err := os.ReadFile(path)
+	binding, err := finalv5binding.LoadPublicationFile(path, finalv5binding.CatalogPath)
 	if err != nil {
 		return result, err
 	}
-	var top map[string]json.RawMessage
-	if err := experiment.StrictJSON(value, &top); err != nil {
-		return result, fmt.Errorf("decode dataset binding: %w", err)
-	}
-	if err := json.Unmarshal(top["dataset_sha256"], &result.DatasetSHA256); err != nil || !validDigest(result.DatasetSHA256) {
-		return result, errors.New("dataset binding lacks dataset_sha256")
-	}
-	if err := json.Unmarshal(top["catalog_sha256"], &result.CatalogSHA256); err != nil || !validDigest(result.CatalogSHA256) {
-		return result, errors.New("dataset binding lacks catalog_sha256")
-	}
-	sectionBytes := top[adapterBindingSectionName]
-	if len(sectionBytes) == 0 {
-		return result, errors.New("dataset binding lacks the strict final_v5_adapter_v1 section")
-	}
-	if err := experiment.StrictJSON(sectionBytes, &result.Section); err != nil {
-		return result, fmt.Errorf("decode strict adapter binding section: %w", err)
-	}
-	result.SectionSHA256 = shaBytes(sectionBytes)
-	if result.Section.SchemaVersion != 1 {
-		return result, errors.New("adapter binding section schema is unsupported")
-	}
-	if err := validateReadOnlySQL(result.Section.DatasetProbeSQL); err != nil {
-		return result, fmt.Errorf("dataset probe: %w", err)
-	}
-	if err := validateObserverCommand(result.Section.Observer); err != nil {
+	if err := validateFrozenAdapterBindingIdentity(binding); err != nil {
 		return result, err
 	}
-	return result, nil
+	return adapterDeploymentBinding{DatasetSHA256: binding.DatasetSHA256, CatalogSHA256: binding.CatalogSHA256,
+		SectionSHA256: binding.SectionSHA256, Section: binding.Section}, nil
 }
 
-func validateObserverCommand(binding observerCommandBinding) error {
-	if len(binding.Argv) == 0 || !filepath.IsAbs(binding.Argv[0]) || !validDigest(binding.ExecutableSHA256) {
-		return errors.New("observer binding lacks an absolute executable and SHA-256")
-	}
-	for _, argument := range binding.Argv {
-		if strings.TrimSpace(argument) == "" || strings.IndexByte(argument, 0) >= 0 {
-			return errors.New("observer argv contains an invalid argument")
-		}
-	}
-	info, err := os.Lstat(binding.Argv[0])
-	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode()&0o111 == 0 {
-		return errors.New("observer executable is absent, non-executable, or a symlink")
-	}
-	digest, err := experiment.FileSHA256(binding.Argv[0])
-	if err != nil || digest != binding.ExecutableSHA256 {
-		return errors.New("observer executable differs from its deployment binding")
+func validateFrozenAdapterBindingIdentity(binding finalv5binding.Binding) error {
+	expectedFile := strings.TrimSpace(os.Getenv("TASKGATE_FINAL_V5_BINDING_FILE_SHA256"))
+	expectedSection := strings.TrimSpace(os.Getenv("TASKGATE_FINAL_V5_BINDING_SECTION_SHA256"))
+	if !validDigest(expectedFile) || !validDigest(expectedSection) || binding.FileSHA256 != expectedFile ||
+		binding.SectionSHA256 != expectedSection {
+		return errors.New("dataset binding differs from the pre-start frozen file/section identity")
 	}
 	return nil
+}
+
+func validateAdapterBindingInput() (adapterBindingValidation, error) {
+	path := strings.TrimSpace(os.Getenv("TASKGATE_DATASET_BINDINGS"))
+	if path == "" {
+		return adapterBindingValidation{}, errors.New("TASKGATE_DATASET_BINDINGS is required")
+	}
+	binding, err := finalv5binding.LoadPublicationFile(path, finalv5binding.CatalogPath)
+	if err != nil {
+		return adapterBindingValidation{}, err
+	}
+	return adapterBindingValidation{SchemaVersion: 1, Status: "valid",
+		DatasetSHA256: binding.DatasetSHA256, CatalogSHA256: binding.CatalogSHA256,
+		BindingFileSHA256: binding.FileSHA256, AdapterSectionSHA256: binding.SectionSHA256,
+		DatasetProbeSHA256: finalv5binding.DatasetProbeSHA256(),
+		ScaleCells:         len(binding.Section.Scale.DependencyE2E),
+		ArtifactCells:      len(binding.Section.Artifact.ResultHeavy), ProvSQLCells: len(binding.Section.ProvSQL.TaskGate)}, nil
 }
 
 func validateBoundTask(task boundTaskRequest) error {
-	canonicalRelation := regexp.MustCompile(`^[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*$`)
-	if strings.TrimSpace(task.Objective) == "" || len(task.DataProducts) == 0 || len(task.Columns) == 0 ||
-		!canonicalRelation.MatchString(task.VisibleRelation) || !canonicalRelation.MatchString(task.CompanionRelation) ||
-		task.VisibleRelation == task.CompanionRelation {
-		return errors.New("bound task request is incomplete")
-	}
-	seen := map[string]bool{}
-	for _, product := range task.DataProducts {
-		if strings.TrimSpace(product) == "" || seen[product] || len(task.Columns[product]) == 0 {
-			return errors.New("bound task products/columns are inconsistent")
-		}
-		seen[product] = true
-		columnSeen := map[string]bool{}
-		for _, column := range task.Columns[product] {
-			if strings.TrimSpace(column) == "" || columnSeen[column] {
-				return errors.New("bound task contains an empty or duplicate column")
-			}
-			columnSeen[column] = true
-		}
-	}
-	if len(seen) != len(task.Columns) {
-		return errors.New("bound task columns contain an undeclared product")
-	}
-	return nil
+	return finalv5binding.ValidateBoundTask(task)
 }
 
 func validateBoundQuery(query boundQueryExpectation) error {
-	if err := validateReadOnlySQL(query.SQL); err != nil {
-		return err
-	}
-	if query.ExpectedRows < 0 || query.ExpectedColumns <= 0 || !validDigest(query.ExpectedResultSHA256) ||
-		query.DependencyFacts < 0 || (query.DependencyFacts > 0 && !validDigest(query.DependencySetSHA256)) ||
-		(query.DependencyFacts == 0 && query.DependencySetSHA256 != "") {
-		return errors.New("bound query expectation is incomplete")
-	}
-	return nil
-}
-
-func validateReadOnlySQL(sqlText string) error {
-	trimmed := strings.TrimSpace(sqlText)
-	upper := strings.ToUpper(trimmed)
-	if trimmed == "" || (!strings.HasPrefix(upper, "SELECT ") && !strings.HasPrefix(upper, "WITH ")) ||
-		strings.Contains(trimmed, ";") || strings.Contains(trimmed, "\x00") {
-		return errors.New("only one semicolon-free SELECT/CTE statement is allowed")
-	}
-	return nil
+	return finalv5binding.ValidateBoundQuery(query)
 }
 
 func (adapter *realAdapter) verifyDatasetProbe(ctx context.Context, binding adapterDeploymentBinding) (string, error) {
@@ -286,7 +116,7 @@ func (adapter *realAdapter) verifyDatasetProbe(ctx context.Context, binding adap
 		return "", err
 	}
 	defer tx.Rollback(context.Background())
-	rows, err := tx.Query(ctx, binding.Section.DatasetProbeSQL)
+	rows, err := tx.Query(ctx, finalv5binding.DatasetProbeSQL)
 	if err != nil {
 		return "", err
 	}
@@ -371,8 +201,44 @@ func (adapter *realAdapter) provisionBoundTask(ctx context.Context, operation ex
 	return created.TaskID, nil
 }
 
-func captureBoundObserver(ctx context.Context, binding observerCommandBinding) (experiment.ObserverSnapshot, error) {
-	if err := validateObserverCommand(binding); err != nil {
+func validateObserverRuntimeBinding() (string, error) {
+	executable := strings.TrimSpace(os.Getenv("TASKGATE_FINAL_V5_OBSERVER"))
+	executableSHA256 := strings.TrimSpace(os.Getenv("TASKGATE_FINAL_V5_OBSERVER_SHA256"))
+	manifest := strings.TrimSpace(os.Getenv("TASKGATE_FINAL_V5_OBSERVER_BUILD_MANIFEST"))
+	manifestSHA256 := strings.TrimSpace(os.Getenv("TASKGATE_FINAL_V5_OBSERVER_BUILD_MANIFEST_SHA256"))
+	if !filepath.IsAbs(executable) || !filepath.IsAbs(manifest) || !validDigest(executableSHA256) || !validDigest(manifestSHA256) {
+		return "", errors.New("source-built observer runtime binding is incomplete")
+	}
+	for _, file := range []struct {
+		path       string
+		digest     string
+		executable bool
+	}{{executable, executableSHA256, true}, {manifest, manifestSHA256, false}} {
+		info, err := os.Lstat(file.path)
+		if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o022 != 0 ||
+			(file.executable && info.Mode()&0o111 == 0) {
+			return "", errors.New("source-built observer runtime file is absent, unsafe, or non-executable")
+		}
+		digest, err := experiment.FileSHA256(file.path)
+		if err != nil || digest != file.digest {
+			return "", errors.New("source-built observer runtime file differs from its SHA-256 binding")
+		}
+	}
+	if _, err := experiment.VerifySourceBuildManifest(manifest, executable, executableSHA256,
+		strings.TrimSpace(os.Getenv("TASKGATE_SUBMISSION_COMMIT")),
+		"go build -buildvcs=false -trimpath -o final-v5-observer ./evaluation/cmd/final-v5-observer",
+		[]string{"evaluation/cmd/final-v5-observer/main.go", "evaluation/internal/experiment/observer.go"}); err != nil {
+		return "", fmt.Errorf("source-built observer manifest contract: %w", err)
+	}
+	return executable, nil
+}
+
+func captureBoundObserver(ctx context.Context, phase string) (experiment.ObserverSnapshot, error) {
+	if phase != "before" && phase != "after" {
+		return experiment.ObserverSnapshot{}, errors.New("observer phase must be before or after")
+	}
+	executable, err := validateObserverRuntimeBinding()
+	if err != nil {
 		return experiment.ObserverSnapshot{}, err
 	}
 	environment := []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}
@@ -381,10 +247,10 @@ func captureBoundObserver(ctx context.Context, binding observerCommandBinding) (
 			environment = append(environment, name+"="+value)
 		}
 	}
-	return experiment.RunObserver(ctx, binding.Argv, environment)
+	return experiment.RunObserver(ctx, []string{executable, "--phase", phase}, environment)
 }
 
-func applyObserverDelta(sample *experiment.Sample, before, after experiment.ObserverSnapshot) error {
+func applyObserverDelta(sample *experiment.Sample, before, after experiment.ObserverSnapshot, expectedBusinessSQL int64) error {
 	delta, err := experiment.DifferenceObserver(before, after)
 	if err != nil {
 		return err
@@ -394,6 +260,9 @@ func applyObserverDelta(sample *experiment.Sample, before, after experiment.Obse
 	}
 	if delta.ContainerRestartDelta != 0 {
 		return errors.New("observer recorded a container restart")
+	}
+	if delta.BusinessSQLDelta != expectedBusinessSQL {
+		return errors.New("observer total Business SQL delta differs from targeted visible/companion counters")
 	}
 	sample.GatewayMemoryPeakBytes = delta.GatewayMemoryPeakBytes
 	sample.GatewayCPUUsecDelta = delta.GatewayCPUUsecDelta

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"taskbound.local/agent-data-gateway/evaluation/internal/experiment"
+	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5binding"
 )
 
 func testBoundTask(columns int) boundTaskRequest {
@@ -128,6 +129,63 @@ func TestScaleAndArtifactInvariantFailuresRetainMeasuredEvidence(t *testing.T) {
 	}
 }
 
+func TestPostAssertionFailuresRetainIndependentRuntimeSnapshots(t *testing.T) {
+	digest := strings.Repeat("a", 64)
+	operation := experiment.AdapterOperation{SchemaVersion: 1, CampaignClass: "publication", CampaignID: "c",
+		DeploymentID: "deployment-01", ExperimentID: "scale", CellID: "cell", SampleID: "sample",
+		Iteration: 1, ProcessReplicate: 1, OrderPosition: 1, RandomSeed: 1, PairID: "pair",
+		PairedSystemOrder: "novel", RootGroupID: "novel", WorkloadID: "dependency-e2e",
+		Scale: "10k-overlap-0", Mode: "novel"}
+	businessBefore := experiment.BusinessSQLSnapshot{StatsResetUnixMicro: 100, VisibleCalls: 10, CompanionCalls: 20}
+	businessAfter := businessBefore
+	businessAfter.VisibleCalls++
+	businessAfter.CompanionCalls++
+	rootBefore := experiment.RootLedgerSnapshot{RootObservationSetSHA256: digest}
+	rootAfter := experiment.RootLedgerSnapshot{Epoch: 1, DependencySetSHA256: digest}
+	observerBefore := experiment.ObserverSnapshot{SchemaVersion: 1, MemoryScope: "cgroup_v2_memory_peak_including_mmap",
+		Phase: "before", RuntimeIdentitySHA256: digest, GatewayMemoryPeakBytes: 100, GatewayCPUUsec: 10,
+		GatewayNetworkRXBytes: 20, GatewayNetworkTXBytes: 30, BusinessSQLQueries: 40,
+		ControlWALBytes: 50, BusinessWALBytes: 60}
+	observerAfter := observerBefore
+	observerAfter.Phase = "after"
+	observerAfter.GatewayMemoryPeakBytes = 200
+	observerAfter.BusinessSQLQueries = 43 // targeted counters below still total two
+
+	scale := baseSample(operation, "taskgate")
+	scale.BusinessSQLDelta = 2
+	scale.ScaleVerification = &experiment.ScaleVerificationEvidence{BindingSHA256: digest,
+		BusinessBefore: businessBefore, BusinessAfter: businessAfter, RootBefore: rootBefore, RootAfter: rootAfter,
+		ObserverBefore: &observerBefore, ObserverAfter: &observerAfter}
+	if err := applyObserverDelta(&scale, observerBefore, observerAfter, 2); err == nil {
+		t.Fatal("observer mismatch was accepted")
+	}
+	failedScale := retainedScaleFailure(operation, scale, "dependency_e2e_measurement_failed")
+	if failedScale.ScaleVerification == nil || failedScale.ScaleVerification.ObserverAfter == nil ||
+		failedScale.ScaleVerification.BusinessAfter != businessAfter || failedScale.ScaleVerification.RootAfter != rootAfter {
+		t.Fatalf("scale post-assertion failure discarded safe snapshots: %+v", failedScale)
+	}
+
+	operation.ExperimentID, operation.WorkloadID, operation.Scale = "artifact", "result-heavy", "100x4"
+	artifact := baseSample(operation, "taskgate")
+	artifact.BusinessSQLDelta = 2
+	artifact.ArtifactVerification = &experiment.ArtifactVerificationEvidence{BindingSHA256: digest,
+		BusinessBefore: businessBefore, BusinessAfter: businessAfter, RootBefore: rootBefore, RootAfter: rootAfter,
+		ObserverBefore: observerBefore, ObserverAfter: observerAfter}
+	failedArtifact := retainedArtifactFailure(operation, artifact, "artifact_measurement_failed")
+	if failedArtifact.ArtifactVerification == nil || failedArtifact.ArtifactVerification.ObserverAfter != observerAfter ||
+		failedArtifact.ArtifactVerification.BusinessAfter != businessAfter || failedArtifact.ArtifactVerification.RootAfter != rootAfter {
+		t.Fatalf("artifact post-assertion failure discarded safe snapshots: %+v", failedArtifact)
+	}
+
+	retained := &experiment.ProvSQLVerificationEvidence{BusinessBefore: &businessBefore, BusinessAfter: &businessAfter,
+		RootBefore: &rootBefore, RootAfter: &rootAfter, ObserverBefore: &observerBefore, ObserverAfter: &observerAfter}
+	finalEvidence := &experiment.ProvSQLVerificationEvidence{}
+	copyProvSQLTaskGateSnapshots(finalEvidence, retained)
+	if finalEvidence.BusinessAfter == nil || finalEvidence.RootAfter == nil || finalEvidence.ObserverAfter == nil {
+		t.Fatal("ProvSQL failure conversion discarded independently sampled runtime boundaries")
+	}
+}
+
 func TestObservedTaskGatePrefixNeverClaimsUnverifiedArtifact(t *testing.T) {
 	digest := strings.Repeat("b", 64)
 	operation := experiment.AdapterOperation{SchemaVersion: 1, CampaignClass: "publication", CampaignID: "c",
@@ -191,4 +249,17 @@ func TestScaleAndArtifactConstructorsSatisfyRealFactoryContract(t *testing.T) {
 	var scaleFactory adapterFactory = newScaleAdapter
 	var artifactFactory adapterFactory = newArtifactAdapter
 	_ = []adapterFactory{scaleFactory, artifactFactory}
+}
+
+func TestAdapterRejectsBindingChangedAfterPreStartFreeze(t *testing.T) {
+	binding := finalv5binding.Binding{FileSHA256: strings.Repeat("a", 64), SectionSHA256: strings.Repeat("b", 64)}
+	t.Setenv("TASKGATE_FINAL_V5_BINDING_FILE_SHA256", binding.FileSHA256)
+	t.Setenv("TASKGATE_FINAL_V5_BINDING_SECTION_SHA256", binding.SectionSHA256)
+	if err := validateFrozenAdapterBindingIdentity(binding); err != nil {
+		t.Fatal(err)
+	}
+	binding.FileSHA256 = strings.Repeat("c", 64)
+	if err := validateFrozenAdapterBindingIdentity(binding); err == nil {
+		t.Fatal("binding bytes changed after pre-start freeze were accepted")
+	}
 }

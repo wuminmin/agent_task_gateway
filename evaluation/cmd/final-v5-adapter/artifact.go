@@ -158,7 +158,7 @@ func (adapter *artifactAdapter) executeResultHeavy(ctx context.Context, operatio
 	if err != nil {
 		return experiment.Sample{}, err
 	}
-	observerBefore, err := captureBoundObserver(ctx, binding.Section.Observer)
+	observerBefore, err := captureBoundObserver(ctx, "before")
 	if err != nil {
 		return experiment.Sample{}, err
 	}
@@ -188,22 +188,6 @@ func (adapter *artifactAdapter) executeResultHeavy(ctx context.Context, operatio
 	if err != nil {
 		return partial, err
 	}
-	observerAfter, err := captureBoundObserver(ctx, binding.Section.Observer)
-	if err != nil {
-		return sample, err
-	}
-	if err := applyObserverDelta(&sample, observerBefore, observerAfter); err != nil {
-		return sample, err
-	}
-	if err := validateBoundSampleResult(sample, cell.Query); err != nil {
-		return sample, err
-	}
-	visibleDelta := businessAfter.VisibleCalls - businessBefore.VisibleCalls
-	companionDelta := businessAfter.CompanionCalls - businessBefore.CompanionCalls
-	if visibleDelta != 1 || companionDelta != 1 {
-		return sample, errors.New("artifact query did not execute exactly one visible and companion Business statement")
-	}
-	sample.BusinessSQLDelta = visibleDelta + companionDelta
 	sample.ArtifactVerification = &experiment.ArtifactVerificationEvidence{
 		Version: artifactVerificationVersion, BindingSHA256: binding.SectionSHA256,
 		DatasetSHA256: binding.DatasetSHA256, CatalogSHA256: binding.CatalogSHA256,
@@ -212,7 +196,24 @@ func (adapter *artifactAdapter) executeResultHeavy(ctx context.Context, operatio
 		ExpectedResultSHA256: cell.Query.ExpectedResultSHA256, ObservedRows: sample.RowCount,
 		ObservedColumns: sample.ColumnCount, ObservedResultSHA256: sample.ResultSHA256,
 		BusinessBefore: businessBefore, BusinessAfter: businessAfter, RootBefore: beforeRoot,
-		RootAfter: afterRoot, ObserverBefore: observerBefore, ObserverAfter: observerAfter,
+		RootAfter: afterRoot, ObserverBefore: observerBefore,
+	}
+	observerAfter, err := captureBoundObserver(ctx, "after")
+	if err != nil {
+		return sample, err
+	}
+	sample.ArtifactVerification.ObserverAfter = observerAfter
+	visibleDelta := businessAfter.VisibleCalls - businessBefore.VisibleCalls
+	companionDelta := businessAfter.CompanionCalls - businessBefore.CompanionCalls
+	sample.BusinessSQLDelta = visibleDelta + companionDelta
+	if visibleDelta != 1 || companionDelta != 1 {
+		return sample, errors.New("artifact query did not execute exactly one visible and companion Business statement")
+	}
+	if err := applyObserverDelta(&sample, observerBefore, observerAfter, sample.BusinessSQLDelta); err != nil {
+		return sample, err
+	}
+	if err := validateBoundSampleResult(sample, cell.Query); err != nil {
+		return sample, err
 	}
 	return sample, nil
 }

@@ -183,7 +183,7 @@ func (adapter *scaleAdapter) executeDependencyE2E(ctx context.Context, operation
 	if err != nil {
 		return experiment.Sample{}, err
 	}
-	observerBefore, err := captureBoundObserver(ctx, binding.Section.Observer)
+	observerBefore, err := captureBoundObserver(ctx, "before")
 	if err != nil {
 		return experiment.Sample{}, err
 	}
@@ -213,19 +213,6 @@ func (adapter *scaleAdapter) executeDependencyE2E(ctx context.Context, operation
 	if err != nil {
 		return partial, err
 	}
-	observerAfter, err := captureBoundObserver(ctx, binding.Section.Observer)
-	if err != nil {
-		return sample, err
-	}
-	if err := applyObserverDelta(&sample, observerBefore, observerAfter); err != nil {
-		return sample, err
-	}
-	if err := validateBoundSampleResult(sample, cell.Candidate); err != nil {
-		return sample, err
-	}
-	observedBusiness := businessAfter.VisibleCalls - businessBefore.VisibleCalls +
-		businessAfter.CompanionCalls - businessBefore.CompanionCalls
-	sample.BusinessSQLDelta = observedBusiness
 	historyDigest := ""
 	if cell.History != nil {
 		historyDigest = cell.History.DependencySetSHA256
@@ -240,7 +227,26 @@ func (adapter *scaleAdapter) executeDependencyE2E(ctx context.Context, operation
 		ExpectedOverlapFacts: spec.OverlapFacts, ObservedOverlapFacts: spec.OverlapFacts,
 		HistoryDependencySHA256: historyDigest, CandidateDependencySHA256: cell.Candidate.DependencySetSHA256,
 		BusinessBefore: businessBefore, BusinessAfter: businessAfter, RootBefore: beforeRoot, RootAfter: afterRoot,
-		ObserverBefore: &observerBefore, ObserverAfter: &observerAfter,
+		ObserverBefore: &observerBefore,
+	}
+	if operation.Mode == "semantic_replay" {
+		evidence.SourceObservationSHA256 = state.novelObservationSHA256
+		evidence.ReplayObservationSHA256 = response.Exposure.ObservationSHA256
+	}
+	sample.ScaleVerification = evidence
+	observerAfter, err := captureBoundObserver(ctx, "after")
+	if err != nil {
+		return sample, err
+	}
+	evidence.ObserverAfter = &observerAfter
+	observedBusiness := businessAfter.VisibleCalls - businessBefore.VisibleCalls +
+		businessAfter.CompanionCalls - businessBefore.CompanionCalls
+	sample.BusinessSQLDelta = observedBusiness
+	if err := applyObserverDelta(&sample, observerBefore, observerAfter, observedBusiness); err != nil {
+		return sample, err
+	}
+	if err := validateBoundSampleResult(sample, cell.Candidate); err != nil {
+		return sample, err
 	}
 	if operation.Mode == "novel" {
 		state.novelRequestID = requestID
@@ -248,11 +254,7 @@ func (adapter *scaleAdapter) executeDependencyE2E(ctx context.Context, operation
 		state.novelResultID = response.ResultID
 		state.novelObservationSHA256 = response.Exposure.ObservationSHA256
 		state.novelGrantSHA256 = response.Receipt.GrantDigest
-	} else {
-		evidence.SourceObservationSHA256 = state.novelObservationSHA256
-		evidence.ReplayObservationSHA256 = response.Exposure.ObservationSHA256
 	}
-	sample.ScaleVerification = evidence
 	return sample, nil
 }
 

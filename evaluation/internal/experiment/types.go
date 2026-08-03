@@ -1078,7 +1078,15 @@ type ProvSQLVerificationEvidence struct {
 	ArtifactBytesBefore           int64    `json:"artifact_bytes_before,omitempty"`
 	ArtifactBytesAfter            int64    `json:"artifact_bytes_after,omitempty"`
 	RepresentationSHA256          string   `json:"representation_sha256,omitempty"`
-	FailureStage                  string   `json:"failure_stage,omitempty"`
+	// Only the TaskGate arm carries these independent runtime boundaries. The
+	// direct PostgreSQL and ProvSQL arms must leave all six pointers nil.
+	BusinessBefore *BusinessSQLSnapshot `json:"business_before,omitempty"`
+	BusinessAfter  *BusinessSQLSnapshot `json:"business_after,omitempty"`
+	RootBefore     *RootLedgerSnapshot  `json:"root_before,omitempty"`
+	RootAfter      *RootLedgerSnapshot  `json:"root_after,omitempty"`
+	ObserverBefore *ObserverSnapshot    `json:"observer_before,omitempty"`
+	ObserverAfter  *ObserverSnapshot    `json:"observer_after,omitempty"`
+	FailureStage   string               `json:"failure_stage,omitempty"`
 }
 
 type CompilerVerificationEvidence struct {

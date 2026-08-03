@@ -156,6 +156,7 @@ func FinalizeRun(runDir string) (Summary, error) {
 	rlsStepResults := map[string]map[string]string{}
 	provSQLSequences := map[string][]provSQLSequenceObservation{}
 	provSQLPairs := map[string]map[string]*ProvSQLVerificationEvidence{}
+	sampleBindingDigests := map[string]map[string]bool{}
 	deployments := map[string]bool{}
 	seenFreshRoots := map[string]bool{}
 	rootAnchors := map[string]string{}
@@ -165,6 +166,12 @@ func FinalizeRun(runDir string) (Summary, error) {
 			return summary, errors.New("raw sample campaign/experiment mismatch")
 		}
 		deployments[sample.DeploymentID] = true
+		if digest := sampleAdapterBindingSHA256(sample); digest != "" {
+			if sampleBindingDigests[sample.DeploymentID] == nil {
+				sampleBindingDigests[sample.DeploymentID] = map[string]bool{}
+			}
+			sampleBindingDigests[sample.DeploymentID][digest] = true
+		}
 		rootKey := sample.DeploymentID + "\x00" + sample.WorkloadID + "\x00" + sample.Scale + "\x00" + strconv.Itoa(sample.ProcessReplicate) + "\x00" + strconv.Itoa(sample.Iteration) + "\x00" + sample.RootGroupID
 		if verifyRealEvidence && sample.Status == "pass" && sample.System == "taskgate" {
 			if freshRootAnchor(sample.Mode) {
@@ -426,6 +433,10 @@ func FinalizeRun(runDir string) (Summary, error) {
 	}
 	if config.CampaignClass == "publication" {
 		summary.Reasons = append(summary.Reasons, validateDeploymentEvidence(runDir, config)...)
+		environmentBindings, bindingReasons := readRunEnvironmentBindingIdentities(runDir, config)
+		summary.Reasons = append(summary.Reasons, bindingReasons...)
+		summary.Reasons = append(summary.Reasons,
+			validatePublicationSampleBindingDigests(config.ExperimentID, environmentBindings, sampleBindingDigests)...)
 	}
 	for _, workload := range config.Workloads {
 		for _, scale := range workload.Scales {
@@ -457,6 +468,60 @@ func FinalizeRun(runDir string) (Summary, error) {
 		return summary, err
 	}
 	return summary, nil
+}
+
+func validatePublicationSampleBindingDigests(experimentID string, expected map[string]string,
+	observed map[string]map[string]bool) []string {
+	if experimentID != "scale" && experimentID != "artifact" && experimentID != "provsql" {
+		return nil
+	}
+	var reasons []string
+	for deploymentID, digest := range expected {
+		one := observed[deploymentID]
+		if len(one) != 1 || !one[digest] {
+			reasons = append(reasons, "sample/environment strict adapter binding mismatch: "+deploymentID)
+		}
+	}
+	return reasons
+}
+
+func sampleAdapterBindingSHA256(sample Sample) string {
+	switch sample.ExperimentID {
+	case "scale":
+		if sample.ScaleVerification != nil && sample.ScaleVerification.Boundary == "dependency_e2e" {
+			return sample.ScaleVerification.BindingSHA256
+		}
+	case "artifact":
+		if sample.ArtifactVerification != nil {
+			return sample.ArtifactVerification.BindingSHA256
+		}
+	case "provsql":
+		if sample.ProvSQLVerification != nil {
+			return sample.ProvSQLVerification.BindingSHA256
+		}
+	}
+	return ""
+}
+
+func readRunEnvironmentBindingIdentities(runDir string, config Config) (map[string]string, []string) {
+	result := map[string]string{}
+	var reasons []string
+	for deployment := 1; deployment <= config.Deployments; deployment++ {
+		deploymentID := fmt.Sprintf("deployment-%02d", deployment)
+		value, err := os.ReadFile(filepath.Join(runDir, "environment", deploymentID+".json"))
+		var manifest EnvironmentManifest
+		if err != nil || StrictJSON(value, &manifest) != nil {
+			reasons = append(reasons, "environment strict adapter binding is unreadable: "+deploymentID)
+			continue
+		}
+		section, _, err := environmentBindingIdentity(manifest)
+		if err != nil {
+			reasons = append(reasons, "environment strict adapter binding is invalid: "+deploymentID)
+			continue
+		}
+		result[deploymentID] = section
+	}
+	return result, reasons
 }
 
 func validateProvSQLCrossEvidence(pairs map[string]map[string]*ProvSQLVerificationEvidence,
@@ -808,7 +873,8 @@ func validateProvSQLVerificationForWarmup(sample Sample, warmup bool) error {
 			evidence.SharedPreload || evidence.AggTokenTextAsUUID || evidence.AggTokenOID != 0 ||
 			evidence.CarrierGateType != "" || evidence.RowGateType != "" || evidence.RootTypesVerified || evidence.AggregateTokens != 0 ||
 			evidence.RowTokens != 0 || evidence.GatesBefore != 0 || evidence.GatesAfter != 0 ||
-			evidence.ArtifactBytesBefore != 0 || evidence.ArtifactBytesAfter != 0 || evidence.RepresentationSHA256 != "" {
+			evidence.ArtifactBytesBefore != 0 || evidence.ArtifactBytesAfter != 0 || evidence.RepresentationSHA256 != "" ||
+			!emptyProvSQLTaskGateSnapshots(evidence) {
 			return errors.New("direct PostgreSQL arm contains invalid ProvSQL/system evidence")
 		}
 	case "provsql":
@@ -822,7 +888,7 @@ func validateProvSQLVerificationForWarmup(sample Sample, warmup bool) error {
 			evidence.AggregateTokens != provsqlfixture.ExpectedRows*provsqlfixture.CarrierColumns ||
 			evidence.RowTokens != provsqlfixture.ExpectedRows || evidence.GatesAfter <= evidence.GatesBefore ||
 			evidence.ArtifactBytesBefore <= 0 || evidence.ArtifactBytesAfter < evidence.ArtifactBytesBefore ||
-			!validSHA256(evidence.RepresentationSHA256) {
+			!validSHA256(evidence.RepresentationSHA256) || !emptyProvSQLTaskGateSnapshots(evidence) {
 			return errors.New("ProvSQL arm lacks pinned agg_token/gate/representation evidence")
 		}
 	case "taskgate":
@@ -836,13 +902,43 @@ func validateProvSQLVerificationForWarmup(sample Sample, warmup bool) error {
 			evidence.GatesBefore != 0 || evidence.GatesAfter != 0 || evidence.ArtifactBytesBefore != 0 ||
 			evidence.ArtifactBytesAfter != 0 || evidence.RepresentationSHA256 != "" ||
 			sample.ActualDependencyFacts != evidence.ExpectedDependencyFacts || sample.DependencySetSHA256 != evidence.ExpectedDependencySHA256 ||
-			sample.GenerationBoundaryMS <= 0 || sample.FullTaskGateMS != sample.ClientFullDrainMS {
+			sample.GenerationBoundaryMS <= 0 || sample.FullTaskGateMS != sample.ClientFullDrainMS ||
+			evidence.BusinessBefore == nil || evidence.BusinessAfter == nil || evidence.RootBefore == nil ||
+			evidence.RootAfter == nil || evidence.ObserverBefore == nil || evidence.ObserverAfter == nil {
 			return errors.New("TaskGate arm lacks exact V8/Parquet/FactSet boundary evidence")
+		}
+		if err := validateBusinessSQLTransition(*evidence.BusinessBefore, *evidence.BusinessAfter, 1, 1); err != nil {
+			return err
+		}
+		if sample.BusinessSQLDelta != 2 || sample.SemanticReplay || sample.IdempotentReplay {
+			return errors.New("TaskGate ProvSQL arm has inconsistent execution markers or targeted Business SQL delta")
+		}
+		if err := validateFreshRootLedgerSnapshot(*evidence.RootBefore); err != nil {
+			return err
+		}
+		if err := validateRootLedgerSnapshot(*evidence.RootAfter); err != nil {
+			return err
+		}
+		if err := validateRootMatchesSample(*evidence.RootAfter, sample); err != nil {
+			return err
+		}
+		if sample.RootEpochBefore != evidence.RootBefore.Epoch || sample.RootEpochAfter != evidence.RootAfter.Epoch ||
+			sample.RootSetSHA256Before != rootLedgerSetSHA256(*evidence.RootBefore) ||
+			sample.RootSetSHA256After != rootLedgerSetSHA256(*evidence.RootAfter) {
+			return errors.New("TaskGate ProvSQL root transition differs from independent snapshots")
+		}
+		if err := validateObserverTransition(sample, evidence.ObserverBefore, evidence.ObserverAfter); err != nil {
+			return err
 		}
 	default:
 		return errors.New("unknown ProvSQL paired mode")
 	}
 	return nil
+}
+
+func emptyProvSQLTaskGateSnapshots(evidence *ProvSQLVerificationEvidence) bool {
+	return evidence.BusinessBefore == nil && evidence.BusinessAfter == nil && evidence.RootBefore == nil &&
+		evidence.RootAfter == nil && evidence.ObserverBefore == nil && evidence.ObserverAfter == nil
 }
 
 func validExternalProvSQLSession(evidence *ProvSQLVerificationEvidence) bool {
@@ -1859,6 +1955,15 @@ func validateDeploymentEvidence(runDir string, config Config) []string {
 	if adapterErr != nil || !validSHA256(strings.TrimSpace(string(adapterDigest))) {
 		reasons = append(reasons, "measured adapter SHA-256 is missing or invalid")
 	}
+	if config.CampaignClass == "publication" {
+		campaignRoot := filepath.Dir(filepath.Clean(runDir))
+		if _, err := verifySourceBuildBinding(
+			filepath.Join(runDir, "observer.sha256"), filepath.Join(runDir, "observer-build.json"),
+			filepath.Join(campaignRoot, "source-adapter", "final-v5-observer"),
+			config.SubmissionCommit, observerBuildCommand, observerRequiredSources); err != nil {
+			reasons = append(reasons, "source-built observer identity or build manifest is invalid")
+		}
+	}
 	paths, _ := filepath.Glob(filepath.Join(runDir, "deployments", "deployment-*.json"))
 	if len(paths) != 3 {
 		return append(reasons, "exactly three deployment manifests are required")
@@ -1871,6 +1976,8 @@ func validateDeploymentEvidence(runDir string, config Config) []string {
 	seenDeploymentVolumeIDs := map[string]bool{}
 	frozenDatasetSHA256 := ""
 	frozenCatalogSHA256 := ""
+	frozenAdapterBindingSHA256 := ""
+	frozenBindingFileSHA256 := ""
 	windowsEnvironmentSHA256 := ""
 	windowsHostPath := filepath.Join(runDir, "environment", "windows-host.json")
 	windowsHostDigest, windowsHostErr := FileSHA256(windowsHostPath)
@@ -1938,8 +2045,13 @@ func validateDeploymentEvidence(runDir string, config Config) []string {
 		dataset, datasetOK := environment.Datasets["dataset_sha256"].(string)
 		catalog, catalogOK := environment.Datasets["catalog_sha256"].(string)
 		volumeID, volumeOK := environment.Datasets["deployment_volume_id_sha256"].(string)
+		adapterBindingSHA, bindingFileSHA, bindingIdentityErr := environmentBindingIdentity(environment)
 		if !datasetOK || !catalogOK || !volumeOK || !validEnvironmentDatasetBindings(environment.Datasets) {
 			reasons = append(reasons, "dataset/catalog digest acceptance failed: "+deployment.DeploymentID)
+			continue
+		}
+		if bindingIdentityErr != nil {
+			reasons = append(reasons, "strict adapter binding identity failed: "+deployment.DeploymentID)
 			continue
 		}
 		if dataset != proof.DatasetFingerprintSHA256 || catalog != proof.CatalogSHA256 || volumeID != proof.DeploymentVolumeIDSHA256 {
@@ -1955,6 +2067,16 @@ func validateDeploymentEvidence(runDir string, config Config) []string {
 			frozenCatalogSHA256 = catalog
 		} else if catalog != frozenCatalogSHA256 {
 			reasons = append(reasons, "Catalog digest changed across deployments")
+		}
+		if frozenAdapterBindingSHA256 == "" {
+			frozenAdapterBindingSHA256 = adapterBindingSHA
+		} else if adapterBindingSHA != frozenAdapterBindingSHA256 {
+			reasons = append(reasons, "strict adapter section changed across deployments")
+		}
+		if frozenBindingFileSHA256 == "" {
+			frozenBindingFileSHA256 = bindingFileSHA
+		} else if bindingFileSHA != frozenBindingFileSHA256 {
+			reasons = append(reasons, "dataset binding bytes changed across deployments")
 		}
 	}
 	for number := 1; number <= config.Deployments; number++ {

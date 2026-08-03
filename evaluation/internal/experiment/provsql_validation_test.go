@@ -79,6 +79,39 @@ func validProvSQLValidationSample(t *testing.T, mode string) Sample {
 		evidence.TypedDrainFields, evidence.TypedDrainSHA256 = 12, resultSHA
 		sample.ActualDependencyFacts, sample.DependencySetSHA256 = evidence.ExpectedDependencyFacts, evidence.ExpectedDependencySHA256
 		sample.GenerationBoundaryMS, sample.FullTaskGateMS = 2, sample.ClientFullDrainMS
+		businessBefore := BusinessSQLSnapshot{StatsResetUnixMicro: 100, Dealloc: 2, VisibleCalls: 10, CompanionCalls: 20}
+		businessAfter := businessBefore
+		businessAfter.VisibleCalls++
+		businessAfter.CompanionCalls++
+		rootBefore := RootLedgerSnapshot{RootObservationSetSHA256: emptyRootObservationSetSHA256()}
+		rootAfter := RootLedgerSnapshot{Epoch: 1, DictionarySetSHA256: strings.Repeat("1", 64),
+			ReleaseSetSHA256: strings.Repeat("2", 64), ReleaseCardinality: 0,
+			DependencySetSHA256: evidence.ExpectedDependencySHA256, DependencyCardinality: evidence.ExpectedDependencyFacts,
+			OutcomeSetSHA256: strings.Repeat("3", 64), OutcomeCardinality: 0,
+			RootObservationSetSHA256: strings.Repeat("4", 64), RootObservationCount: 1}
+		observerBefore := ObserverSnapshot{SchemaVersion: 1, MemoryScope: observerMemoryScope,
+			Phase: "before", RuntimeIdentitySHA256: strings.Repeat("5", 64), GatewayMemoryPeakBytes: 100,
+			GatewayCPUUsec: 10, GatewayNetworkRXBytes: 20, GatewayNetworkTXBytes: 30,
+			BusinessSQLQueries: 40, ControlWALBytes: 50, BusinessWALBytes: 60}
+		observerAfter := observerBefore
+		observerAfter.Phase = "after"
+		observerAfter.GatewayMemoryPeakBytes = 200
+		observerAfter.GatewayCPUUsec++
+		observerAfter.GatewayNetworkRXBytes += 2
+		observerAfter.GatewayNetworkTXBytes += 3
+		observerAfter.BusinessSQLQueries += 2
+		observerAfter.ControlWALBytes += 4
+		observerAfter.BusinessWALBytes += 5
+		evidence.BusinessBefore, evidence.BusinessAfter = &businessBefore, &businessAfter
+		evidence.RootBefore, evidence.RootAfter = &rootBefore, &rootAfter
+		evidence.ObserverBefore, evidence.ObserverAfter = &observerBefore, &observerAfter
+		sample.BusinessSQLDelta = 2
+		sample.RootEpochBefore, sample.RootEpochAfter = rootBefore.Epoch, rootAfter.Epoch
+		sample.ReleaseSetSHA256, sample.OutcomeSetSHA256 = rootAfter.ReleaseSetSHA256, rootAfter.OutcomeSetSHA256
+		sample.RootSetSHA256Before, sample.RootSetSHA256After = rootLedgerSetSHA256(rootBefore), rootLedgerSetSHA256(rootAfter)
+		sample.GatewayMemoryPeakBytes = 200
+		sample.GatewayCPUUsecDelta, sample.GatewayNetworkRXDelta, sample.GatewayNetworkTXDelta = 1, 2, 3
+		sample.ControlWALBytesDelta, sample.BusinessWALBytesDelta = 4, 5
 	}
 	sample.ProvSQLVerification = evidence
 	return sample
@@ -130,6 +163,30 @@ func cloneProvSQLValidationSample(source Sample) Sample {
 	result := source
 	evidence := *source.ProvSQLVerification
 	evidence.FieldOIDs = append([]uint32(nil), source.ProvSQLVerification.FieldOIDs...)
+	if evidence.BusinessBefore != nil {
+		value := *evidence.BusinessBefore
+		evidence.BusinessBefore = &value
+	}
+	if evidence.BusinessAfter != nil {
+		value := *evidence.BusinessAfter
+		evidence.BusinessAfter = &value
+	}
+	if evidence.RootBefore != nil {
+		value := *evidence.RootBefore
+		evidence.RootBefore = &value
+	}
+	if evidence.RootAfter != nil {
+		value := *evidence.RootAfter
+		evidence.RootAfter = &value
+	}
+	if evidence.ObserverBefore != nil {
+		value := *evidence.ObserverBefore
+		evidence.ObserverBefore = &value
+	}
+	if evidence.ObserverAfter != nil {
+		value := *evidence.ObserverAfter
+		evidence.ObserverAfter = &value
+	}
 	result.ProvSQLVerification = &evidence
 	return result
 }
@@ -188,16 +245,32 @@ func TestProvSQLIndependentValidatorRejectsCriticalMutations(t *testing.T) {
 
 	taskgate := validProvSQLValidationSample(t, "taskgate")
 	for name, mutate := range map[string]func(*Sample){
-		"FactSet count":  func(sample *Sample) { sample.ActualDependencyFacts-- },
-		"FactSet digest": func(sample *Sample) { sample.DependencySetSHA256 = strings.Repeat("0", 64) },
-		"full boundary":  func(sample *Sample) { sample.FullTaskGateMS-- },
-		"circuit leak":   func(sample *Sample) { sample.ProvSQLVerification.GatesAfter = 1 },
+		"FactSet count":        func(sample *Sample) { sample.ActualDependencyFacts-- },
+		"FactSet digest":       func(sample *Sample) { sample.DependencySetSHA256 = strings.Repeat("0", 64) },
+		"full boundary":        func(sample *Sample) { sample.FullTaskGateMS-- },
+		"circuit leak":         func(sample *Sample) { sample.ProvSQLVerification.GatesAfter = 1 },
+		"missing SQL snapshot": func(sample *Sample) { sample.ProvSQLVerification.BusinessBefore = nil },
+		"targeted visible SQL": func(sample *Sample) { sample.ProvSQLVerification.BusinessAfter.VisibleCalls++ },
+		"observer total SQL": func(sample *Sample) {
+			sample.ProvSQLVerification.ObserverAfter.BusinessSQLQueries++
+		},
+		"observer identity": func(sample *Sample) {
+			sample.ProvSQLVerification.ObserverAfter.RuntimeIdentitySHA256 = strings.Repeat("6", 64)
+		},
+		"root transition": func(sample *Sample) { sample.ProvSQLVerification.RootAfter.Epoch++ },
 	} {
 		sample := cloneProvSQLValidationSample(taskgate)
 		mutate(&sample)
 		if err := ValidateProvSQLEvidence(sample); err == nil {
 			t.Fatalf("TaskGate %s mutation was accepted", name)
 		}
+	}
+
+	directWithTaskGateEvidence := cloneProvSQLValidationSample(base)
+	value := BusinessSQLSnapshot{StatsResetUnixMicro: 1}
+	directWithTaskGateEvidence.ProvSQLVerification.BusinessBefore = &value
+	if err := ValidateProvSQLEvidence(directWithTaskGateEvidence); err == nil {
+		t.Fatal("direct arm accepted manufactured TaskGate runtime evidence")
 	}
 }
 
@@ -273,6 +346,28 @@ func TestProvSQLFinalizerCrossEvidenceRejectsPairAndSequenceMutations(t *testing
 	}}
 	if reasons := validateProvSQLCrossEvidence(pairs, allPlateau); !containsReason(reasons, "never grew") {
 		t.Fatalf("all-plateau mmap sequence reasons = %v", reasons)
+	}
+}
+
+func TestProvSQLAllThreeArmsBindToEnvironmentSectionDigest(t *testing.T) {
+	digest := strings.Repeat("a", 64)
+	observed := map[string]map[string]bool{"deployment-01": {}}
+	for _, mode := range []string{"direct", "provsql", "taskgate"} {
+		sample := validProvSQLValidationSample(t, mode)
+		got := sampleAdapterBindingSHA256(sample)
+		if got != digest {
+			t.Fatalf("%s arm binding = %q, want %q", mode, got, digest)
+		}
+		observed["deployment-01"][got] = true
+	}
+	if reasons := validatePublicationSampleBindingDigests("provsql",
+		map[string]string{"deployment-01": digest}, observed); len(reasons) != 0 {
+		t.Fatalf("three-arm binding reasons = %v", reasons)
+	}
+	observed["deployment-01"][strings.Repeat("f", 64)] = true
+	if reasons := validatePublicationSampleBindingDigests("provsql",
+		map[string]string{"deployment-01": digest}, observed); !containsReason(reasons, "strict adapter binding mismatch") {
+		t.Fatalf("mutated three-arm binding reasons = %v", reasons)
 	}
 }
 

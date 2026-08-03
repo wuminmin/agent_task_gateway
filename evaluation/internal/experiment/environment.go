@@ -10,6 +10,13 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5binding"
+)
+
+const (
+	finalV5AdapterBindingSHAKey = "final_v5_adapter_sha256"
+	datasetBindingFileSHAKey    = "dataset_binding_sha256"
 )
 
 type EnvironmentManifest struct {
@@ -134,23 +141,20 @@ func ReadDatasetBindings(path string) (map[string]any, error) {
 	if path == "" {
 		return map[string]any{}, nil
 	}
-	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() > 4<<20 {
-		return nil, errors.New("dataset binding must be a bounded regular file")
-	}
-	value, err := os.ReadFile(path)
+	binding, err := finalv5binding.LoadPublicationFile(path, finalv5binding.CatalogPath)
 	if err != nil {
 		return nil, err
 	}
-	var decoded map[string]any
-	if err := StrictJSON(value, &decoded); err != nil {
-		return nil, err
-	}
-	redacted, ok := RedactSecrets(decoded).(map[string]any)
-	if !ok {
-		return nil, errors.New("dataset binding is not an object")
-	}
-	return redacted, nil
+	// Never copy private tasks, scopes, SQL, or exact oracles into the public
+	// environment manifest. The frozen source adapter validates those bytes;
+	// publication evidence retains only their complete-file and strict-section
+	// identities.
+	return map[string]any{
+		"dataset_sha256":            binding.DatasetSHA256,
+		"catalog_sha256":            binding.CatalogSHA256,
+		finalV5AdapterBindingSHAKey: binding.SectionSHA256,
+		datasetBindingFileSHAKey:    binding.FileSHA256,
+	}, nil
 }
 
 const deploymentVolumeIdentityDomain = "TASKGATE-FINAL-V5-DEPLOYMENT-VOLUME-ID-V1"
@@ -170,16 +174,26 @@ func validPostgresSystemIdentifier(value string) bool {
 }
 
 func validEnvironmentDatasetBindings(datasets map[string]any) bool {
-	if len(datasets) == 0 {
+	if len(datasets) != 5 {
 		return false
 	}
-	for _, name := range []string{"dataset_sha256", "catalog_sha256", "deployment_volume_id_sha256"} {
+	for _, name := range []string{"dataset_sha256", "catalog_sha256", "deployment_volume_id_sha256",
+		finalV5AdapterBindingSHAKey, datasetBindingFileSHAKey} {
 		value, ok := datasets[name].(string)
 		if !ok || !validSHA256(value) {
 			return false
 		}
 	}
 	return true
+}
+
+func environmentBindingIdentity(manifest EnvironmentManifest) (string, string, error) {
+	if !validEnvironmentDatasetBindings(manifest.Datasets) {
+		return "", "", errors.New("environment binding identity is absent or invalid")
+	}
+	section, _ := manifest.Datasets[finalV5AdapterBindingSHAKey].(string)
+	file, _ := manifest.Datasets[datasetBindingFileSHAKey].(string)
+	return section, file, nil
 }
 
 // BindPublicationDatasets turns the reviewed dataset/Catalog declarations into
@@ -195,7 +209,10 @@ func BindPublicationDatasets(bindings map[string]any, proofPath, campaignID, dep
 	}
 	dataset, datasetOK := bindings["dataset_sha256"].(string)
 	catalog, catalogOK := bindings["catalog_sha256"].(string)
-	if !datasetOK || !catalogOK || !validSHA256(dataset) || !validSHA256(catalog) {
+	sectionSHA, sectionOK := bindings[finalV5AdapterBindingSHAKey].(string)
+	fileSHA, fileOK := bindings[datasetBindingFileSHAKey].(string)
+	if len(bindings) != 4 || !datasetOK || !catalogOK || !sectionOK || !fileOK || !validSHA256(dataset) ||
+		!validSHA256(catalog) || !validSHA256(sectionSHA) || !validSHA256(fileSHA) {
 		return nil, errors.New("publication dataset/Catalog bindings are missing or invalid")
 	}
 	info, err := os.Lstat(proofPath)

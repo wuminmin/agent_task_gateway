@@ -1176,6 +1176,51 @@ func TestPublicationFinalizerSealsCompleteEvidenceAndRejectsRootReuse(t *testing
 	}
 }
 
+func TestPublicationRunFinalizerRejectsObserverIdentityMutations(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(*testing.T, string)
+	}{
+		{name: "digest", mutate: func(t *testing.T, runDir string) {
+			if err := os.WriteFile(filepath.Join(runDir, "observer.sha256"), []byte(strings.Repeat("f", 64)+"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "build command", mutate: func(t *testing.T, runDir string) {
+			path := filepath.Join(runDir, "observer-build.json")
+			value, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var manifest sourceBuildBinding
+			if err := StrictJSON(value, &manifest); err != nil {
+				t.Fatal(err)
+			}
+			manifest.BuildCommand = "go build ./unreviewed-observer"
+			writePublicationFixtureJSON(t, path, manifest)
+		}},
+		{name: "binary", mutate: func(t *testing.T, runDir string) {
+			path := filepath.Join(filepath.Dir(runDir), "source-adapter", "final-v5-observer")
+			if err := os.WriteFile(path, []byte("mutated observer\n"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runDir := buildPublicationEvidence(t, false)
+			test.mutate(t, runDir)
+			summary, err := FinalizeRun(runDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if summary.Status == "pass" || summary.PublicationEligible ||
+				!containsReason(summary.Reasons, "source-built observer identity") {
+				t.Fatalf("observer mutation was not rejected: %+v", summary)
+			}
+		})
+	}
+}
+
 func TestPublicationFinalizerRejectsSelfConsistentEnvironmentBindingDrift(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -1368,6 +1413,32 @@ func buildPublicationEvidence(t *testing.T, reuseRoot bool) string {
 	if err := os.WriteFile(filepath.Join(runDir, "adapter.sha256"), []byte(strings.Repeat("a", 64)+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	observerDir := filepath.Join(filepath.Dir(runDir), "source-adapter")
+	if err := os.MkdirAll(observerDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	observerBinary := filepath.Join(observerDir, "final-v5-observer")
+	if err := os.WriteFile(observerBinary, []byte("test source-built observer\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(observerBinary, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	observerSHA, err := FileSHA256(observerBinary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(runDir, "observer.sha256"), []byte(observerSHA+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var observerListing strings.Builder
+	for _, source := range observerRequiredSources {
+		fmt.Fprintf(&observerListing, "%s  %s\n", sha256Hex([]byte("test/"+source)), source)
+	}
+	observerManifest := sourceBuildBinding{SchemaVersion: 1, SubmissionCommit: commit, BinarySHA256: observerSHA,
+		SourceSHA256: sha256Hex([]byte(observerListing.String())), GoVersion: "go test",
+		BuildCommand: observerBuildCommand, SourceFiles: observerListing.String()}
+	writePublicationFixtureJSON(t, filepath.Join(runDir, "observer-build.json"), observerManifest)
 	windowsHostPath := filepath.Join(runDir, "environment", "windows-host.json")
 	if err := os.WriteFile(windowsHostPath, []byte("{\"host\":\"test\"}\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -1428,7 +1499,7 @@ func buildPublicationEvidence(t *testing.T, reuseRoot bool) string {
 			t.Fatal(err)
 		}
 		proofSHA, _ := FileSHA256(proofPath)
-		environment := EnvironmentManifest{SchemaVersion: 1, CampaignID: config.CampaignID, DeploymentID: deploymentID, CapturedAt: time.Now().UTC().Format(time.RFC3339Nano), GitCommit: commit, GitStatus: []string{}, PublicationEligible: true, Host: map[string]any{"os": "test"}, Software: map[string]any{"go": "test"}, Storage: map[string]any{"fs": "test"}, Datasets: map[string]any{"dataset_sha256": proof.DatasetFingerprintSHA256, "catalog_sha256": proof.CatalogSHA256, "deployment_volume_id_sha256": proof.DeploymentVolumeIDSHA256}}
+		environment := EnvironmentManifest{SchemaVersion: 1, CampaignID: config.CampaignID, DeploymentID: deploymentID, CapturedAt: time.Now().UTC().Format(time.RFC3339Nano), GitCommit: commit, GitStatus: []string{}, PublicationEligible: true, Host: map[string]any{"os": "test"}, Software: map[string]any{"go": "test"}, Storage: map[string]any{"fs": "test"}, Datasets: map[string]any{"dataset_sha256": proof.DatasetFingerprintSHA256, "catalog_sha256": proof.CatalogSHA256, "deployment_volume_id_sha256": proof.DeploymentVolumeIDSHA256, finalV5AdapterBindingSHAKey: strings.Repeat("7", 64), datasetBindingFileSHAKey: strings.Repeat("8", 64)}}
 		environmentPath := filepath.Join(runDir, "environment", deploymentID+".json")
 		if err := WriteEnvironment(environmentPath, environment); err != nil {
 			t.Fatal(err)

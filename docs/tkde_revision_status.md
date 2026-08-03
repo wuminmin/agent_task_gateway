@@ -13,12 +13,25 @@ set now present in the repository.
   cost or enterprise deployment claim
 - **Functional evidence:** complete for the scoped rows marked `SUPPORTED`;
   the combined-formal-model limitation below remains explicit
-- **Measurement instrumentation:** complete
+- **Measurement instrumentation:** a Real-Pilot PASS applies only to the exact
+  commit recorded in that evidence.  This repair adds a strict
+  source-controlled Final-V5 observer and frozen binding validation; it does
+  not inherit any earlier commit's PASS, so every resulting commit must be
+  independently revalidated and rerun before it is treated as current evidence
 - **Experiment orchestration/evidence skeleton:** complete
-- **Source-controlled real adapters:** all nine experiment families implemented with fail-closed capability registration
-- **Stage B adapter verification:** all eight validate-only, unit,
-  failure-retention, and schema gates complete; any real-backend preflight is
-  an engineering diagnostic, not publication evidence
+- **Source-controlled formal capabilities:** `6/9` are currently true: RLS,
+  adaptive attacks, ProvSQL, compiler, concurrency, and RQ5.  Baseline, Scale,
+  and Artifact correctly remain false.  Baseline has only the non-publication
+  `S1/tiny` Real-Pilot path; Scale and Artifact have handler code but no
+  Catalog-realizable complete formal matrix with reviewed datasets and oracles
+- **Stage B adapter verification:** incomplete.  Offline validate-only, unit,
+  failure-retention, and schema checks do not promote a handler into a formal
+  capability; any real-backend preflight is an engineering diagnostic, not
+  publication evidence
+- **Stage D freeze gate:** blocked; all nine capabilities, the repaired exact
+  commit's Real Pilot, reviewed configs and core Claim, fixed dataset/Catalog
+  digests, and a clean measured tree must all pass before a Campaign ID or
+  submission commit is recorded
 - **Formal publication campaign:** not executed
 - **Paper numeric update:** pending
 - **Final V5 evidence reseal:** deferred until manuscript/protocol finalization;

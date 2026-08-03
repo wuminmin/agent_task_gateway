@@ -14,10 +14,7 @@ import (
 
 func TestBindPublicationDatasetsInjectsProofDerivedVolumeIdentity(t *testing.T) {
 	proofPath, proof := writePublicationBindingProof(t, "binding-campaign", "deployment-01")
-	bindings := map[string]any{
-		"dataset_sha256": proof.DatasetFingerprintSHA256,
-		"catalog_sha256": proof.CatalogSHA256,
-	}
+	bindings := testReviewedBindings(proof.DatasetFingerprintSHA256, proof.CatalogSHA256)
 
 	bound, err := BindPublicationDatasets(bindings, proofPath, proof.CampaignID, proof.DeploymentID)
 	if err != nil {
@@ -47,6 +44,15 @@ func TestBindPublicationDatasetsRejectsAuthorSuppliedVolumeIdentity(t *testing.T
 	}
 }
 
+func TestBindPublicationDatasetsRejectsPrivateSectionLeak(t *testing.T) {
+	proofPath, proof := writePublicationBindingProof(t, "binding-campaign", "deployment-01")
+	bindings := testReviewedBindings(proof.DatasetFingerprintSHA256, proof.CatalogSHA256)
+	bindings["final_v5_adapter_v1"] = map[string]any{"sql": "private"}
+	if _, err := BindPublicationDatasets(bindings, proofPath, proof.CampaignID, proof.DeploymentID); err == nil {
+		t.Fatal("private adapter section could leak into environment evidence")
+	}
+}
+
 func TestBindPublicationDatasetsRejectsDatasetAndCatalogMismatch(t *testing.T) {
 	proofPath, proof := writePublicationBindingProof(t, "binding-campaign", "deployment-01")
 	tests := []struct {
@@ -59,7 +65,7 @@ func TestBindPublicationDatasetsRejectsDatasetAndCatalogMismatch(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			bindings := map[string]any{"dataset_sha256": test.dataset, "catalog_sha256": test.catalog}
+			bindings := testReviewedBindings(test.dataset, test.catalog)
 			if _, err := BindPublicationDatasets(bindings, proofPath, proof.CampaignID, proof.DeploymentID); err == nil {
 				t.Fatalf("%s digest mismatch was accepted", test.name)
 			}
@@ -69,10 +75,7 @@ func TestBindPublicationDatasetsRejectsDatasetAndCatalogMismatch(t *testing.T) {
 
 func TestBindPublicationDatasetsRejectsProofIdentityMismatch(t *testing.T) {
 	proofPath, proof := writePublicationBindingProof(t, "binding-campaign", "deployment-01")
-	bindings := map[string]any{
-		"dataset_sha256": proof.DatasetFingerprintSHA256,
-		"catalog_sha256": proof.CatalogSHA256,
-	}
+	bindings := testReviewedBindings(proof.DatasetFingerprintSHA256, proof.CatalogSHA256)
 	tests := []struct {
 		name       string
 		campaignID string
@@ -87,6 +90,14 @@ func TestBindPublicationDatasetsRejectsProofIdentityMismatch(t *testing.T) {
 				t.Fatalf("fresh proof with mismatched %s identity was accepted", test.name)
 			}
 		})
+	}
+}
+
+func testReviewedBindings(datasetSHA256, catalogSHA256 string) map[string]any {
+	return map[string]any{
+		"dataset_sha256": datasetSHA256, "catalog_sha256": catalogSHA256,
+		finalV5AdapterBindingSHAKey: strings.Repeat("7", 64),
+		datasetBindingFileSHAKey:    strings.Repeat("8", 64),
 	}
 }
 

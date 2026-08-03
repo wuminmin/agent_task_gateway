@@ -186,14 +186,10 @@ func (adapter *provSQLAdapter) Close() {
 }
 
 func (adapter *provSQLAdapter) Execute(ctx context.Context, operation experiment.AdapterOperation) experiment.Sample {
-	if operation.ExperimentID != "provsql" || operation.WorkloadID != "nonce-join-group" ||
-		(operation.Mode != "direct" && operation.Mode != "provsql" && operation.Mode != "taskgate") {
+	if !validProvSQLCell(operation) {
 		return invalidSample(operation, "unsupported_frozen_provsql_cell")
 	}
-	spec, err := provsqlfixture.ParseScale(operation.Scale)
-	if err != nil {
-		return invalidSample(operation, "unsupported_frozen_provsql_cell")
-	}
+	spec, _ := provsqlfixture.ParseScale(operation.Scale)
 	nonce, err := provsqlfixture.Nonce(operation.Scale, operation.ProcessReplicate, operation.Iteration, operation.Warmup)
 	if err != nil {
 		return invalidSample(operation, "provsql_nonce_allocation_invalid")
@@ -229,6 +225,7 @@ func (adapter *provSQLAdapter) Execute(ctx context.Context, operation experiment
 	case "taskgate":
 		var executeErr error
 		sample, executeErr = adapter.executeProvSQLTaskGate(ctx, operation, expected)
+		retainedSnapshots := sample.ProvSQLVerification
 		if executeErr != nil {
 			execution := provSQLExecution{Rows: sample.RowCount, Columns: sample.ColumnCount,
 				ResultSHA256: sample.ResultSHA256, TypedDrainFields: sample.RowCount * int64(sample.ColumnCount),
@@ -238,6 +235,7 @@ func (adapter *provSQLAdapter) Execute(ctx context.Context, operation experiment
 			copyProvSQLPartialSample(&failed, sample)
 			failed.ProvSQLVerification = adapter.provSQLVerification(operation, expected, spec, nonce,
 				"taskgate_released_parquet_v8", provSQLSystem{}, execution)
+			copyProvSQLTaskGateSnapshots(failed.ProvSQLVerification, retainedSnapshots)
 			failed.ProvSQLVerification.FailureStage = "taskgate_query_or_verifier"
 			return failed
 		}
@@ -246,6 +244,7 @@ func (adapter *provSQLAdapter) Execute(ctx context.Context, operation experiment
 			TypedDrainSHA256: sample.ResultSHA256}
 		sample.ProvSQLVerification = adapter.provSQLVerification(operation, expected, spec, nonce,
 			"taskgate_released_parquet_v8", provSQLSystem{}, execution)
+		copyProvSQLTaskGateSnapshots(sample.ProvSQLVerification, retainedSnapshots)
 	}
 	validate := experiment.ValidateProvSQLEvidence
 	if operation.Warmup {
@@ -255,6 +254,24 @@ func (adapter *provSQLAdapter) Execute(ctx context.Context, operation experiment
 		return retainedProvSQLInvariantFailure(sample)
 	}
 	return sample
+}
+
+func validProvSQLCell(operation experiment.AdapterOperation) bool {
+	if operation.ExperimentID != "provsql" || operation.WorkloadID != "nonce-join-group" ||
+		(operation.Mode != "direct" && operation.Mode != "provsql" && operation.Mode != "taskgate") {
+		return false
+	}
+	_, err := provsqlfixture.ParseScale(operation.Scale)
+	return err == nil
+}
+
+func copyProvSQLTaskGateSnapshots(target, source *experiment.ProvSQLVerificationEvidence) {
+	if target == nil || source == nil {
+		return
+	}
+	target.BusinessBefore, target.BusinessAfter = source.BusinessBefore, source.BusinessAfter
+	target.RootBefore, target.RootAfter = source.RootBefore, source.RootAfter
+	target.ObserverBefore, target.ObserverAfter = source.ObserverBefore, source.ObserverAfter
 }
 
 func retainedProvSQLInvariantFailure(sample experiment.Sample) experiment.Sample {
@@ -377,7 +394,7 @@ func (adapter *provSQLAdapter) executeProvSQLTaskGate(ctx context.Context, opera
 	if err != nil {
 		return partial, err
 	}
-	observerBefore, err := captureBoundObserver(ctx, adapter.binding.Section.Observer)
+	observerBefore, err := captureBoundObserver(ctx, "before")
 	if err != nil {
 		return partial, err
 	}
@@ -398,29 +415,40 @@ func (adapter *provSQLAdapter) executeProvSQLTaskGate(ctx context.Context, opera
 	if err != nil {
 		return partial, err
 	}
+	partial = observedTaskgateQueryPrefix(operation, state.taskID, expected.SQL, started, availableMS,
+		response, beforeRoot, afterRoot)
+	partial.ProvSQLVerification = &experiment.ProvSQLVerificationEvidence{
+		BusinessBefore: &businessBefore, BusinessAfter: &businessAfter,
+		RootBefore: &beforeRoot, RootAfter: &afterRoot, ObserverBefore: &observerBefore,
+	}
 	sample, err := adapter.real.completeTaskgateSample(ctx, operation, state, beforeRoot, afterRoot,
 		started, availableMS, expected.SQL, response)
 	if err != nil {
 		return partial, err
 	}
+	sample.ProvSQLVerification = partial.ProvSQLVerification
 	partial = sample
-	observerAfter, err := captureBoundObserver(ctx, adapter.binding.Section.Observer)
+	observerAfter, err := captureBoundObserver(ctx, "after")
 	if err != nil {
 		return partial, err
 	}
-	if err := applyObserverDelta(&sample, observerBefore, observerAfter); err != nil {
+	sample.ProvSQLVerification.ObserverAfter = &observerAfter
+	partial = sample
+	visibleDelta := businessAfter.VisibleCalls - businessBefore.VisibleCalls
+	companionDelta := businessAfter.CompanionCalls - businessBefore.CompanionCalls
+	sample.BusinessSQLDelta = visibleDelta + companionDelta
+	partial = sample
+	if visibleDelta != 1 || companionDelta != 1 ||
+		expected.ExpectedVisibleCalls != 1 || expected.ExpectedCompanionCalls != 1 {
+		return partial, errors.New("ProvSQL TaskGate Business statement counts differ from the private exact binding")
+	}
+	if err := applyObserverDelta(&sample, observerBefore, observerAfter, sample.BusinessSQLDelta); err != nil {
 		return partial, err
 	}
 	partial = sample
 	if err := validateBoundSampleResult(sample, expected); err != nil {
 		return partial, err
 	}
-	visibleDelta := businessAfter.VisibleCalls - businessBefore.VisibleCalls
-	companionDelta := businessAfter.CompanionCalls - businessBefore.CompanionCalls
-	if visibleDelta != expected.ExpectedVisibleCalls || companionDelta != expected.ExpectedCompanionCalls {
-		return partial, errors.New("ProvSQL TaskGate Business statement counts differ from the private exact binding")
-	}
-	sample.BusinessSQLDelta = visibleDelta + companionDelta
 	partial = sample
 	generation := sample.PipelineMS["prepare"] + sample.PipelineMS["execute_and_derive"]
 	if generation <= 0 || sample.ClientFullDrainMS <= 0 {

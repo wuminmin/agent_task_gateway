@@ -52,20 +52,70 @@ func TestRunDeploymentBuildCommandsMatchCampaignFinalizer(t *testing.T) {
 		t.Fatal(err)
 	}
 	script := string(value)
-	for _, command := range []string{sourceAdapterBuildCommand, rq5DriverBuildCommand} {
+	for _, command := range []string{sourceAdapterBuildCommand, observerBuildCommand, rq5DriverBuildCommand} {
 		if !strings.Contains(script, `--arg build_command "`+command+`"`) {
 			t.Fatalf("run-deployment build manifest does not record %q", command)
 		}
 	}
 	const fullInventory = `git ls-files | sort | while IFS= read -r source_file`
-	if strings.Count(script, fullInventory) != 2 {
-		t.Fatal("adapter and RQ5 build manifests must each bind the complete tracked-file inventory")
+	if strings.Count(script, fullInventory) != 3 {
+		t.Fatal("adapter, observer, and RQ5 build manifests must each bind the complete tracked-file inventory")
 	}
 	repoRoot := filepath.Join("..", "..", "..")
 	for _, path := range rq5RequiredRuntimeSources {
 		if output, err := exec.Command("git", "-C", repoRoot, "ls-files", "--error-unmatch", path).CombinedOutput(); err != nil {
 			t.Fatalf("required RQ5 runtime input %q is outside the complete tracked inventory: %v: %s", path, err, output)
 		}
+	}
+}
+
+func TestPublicationPrivateInputsAndObserverFailClosedBeforeMeasurement(t *testing.T) {
+	value, err := os.ReadFile(filepath.Join("..", "..", "final-v5-wsl2", "scripts", "run-deployment.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(value)
+	marker := strings.Index(script, `(set -o noclobber; printf '%s\n' "$(date -u +%FT%TZ)" > "$marker")`)
+	composeBuild := strings.Index(script, `"${compose_build[@]}" build`)
+	validateBinding := strings.Index(script, `binding_validation="$($adapter_binary --validate-binding)"`)
+	validateObserver := strings.Index(script, `$adapter_binary --validate-observer-runtime`)
+	freezeConfig := strings.Index(script, `install -m 600 "$config_source" "$frozen_config"`)
+	exportExpectedBinding := strings.Index(script, `export TASKGATE_FINAL_V5_BINDING_FILE_SHA256=`)
+	if marker < 0 || composeBuild < 0 || validateBinding < 0 || validateObserver < 0 || freezeConfig < 0 || exportExpectedBinding < 0 ||
+		validateBinding > marker || validateObserver > marker || freezeConfig > marker || exportExpectedBinding > marker || marker > composeBuild {
+		t.Fatal("private config/binding/observer identity is not frozen and validated before marker/Compose")
+	}
+	startFresh := strings.Index(script, `evaluation/final-v5-wsl2/scripts/start-fresh-deployment.sh`)
+	bootstrapBefore := strings.Index(script, `"$TASKGATE_FINAL_V5_OBSERVER" --phase before`)
+	bootstrapAfter := strings.Index(script, `"$TASKGATE_FINAL_V5_OBSERVER" --phase after`)
+	measured := strings.Index(script, `export TASKGATE_ENVIRONMENT_OUTPUT="$environment_path"`)
+	if startFresh < 0 || bootstrapBefore < startFresh || bootstrapAfter < bootstrapBefore || measured < bootstrapAfter ||
+		!strings.Contains(script, `.[0].runtime_identity_sha256 == .[1].runtime_identity_sha256`) ||
+		!strings.Contains(script, `.[0].oom_events == 0 and .[1].oom_events == 0`) ||
+		!strings.Contains(script, `.[0].container_restarts == 0 and .[1].container_restarts == 0`) {
+		t.Fatal("source-built observer is not exercised as a strict before/after transition before measured runners")
+	}
+	for _, modeGuard := range []string{
+		`private config directory must have mode 0700`, `private config must have mode 0600`,
+		`private dataset binding directory must have mode 0700`, `private dataset binding must have mode 0600`,
+	} {
+		if !strings.Contains(script, modeGuard) {
+			t.Fatalf("publication launcher omits private input permission guard %q", modeGuard)
+		}
+	}
+
+	powerShellBytes, err := os.ReadFile(filepath.Join("..", "..", "final-v5-wsl2", "scripts", "run-three-deployments.ps1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	powerShell := string(powerShellBytes)
+	precheck := strings.Index(powerShell, `$bindingCheck =`)
+	firstDeployment := strings.Index(powerShell, `for ($i=1; $i -le $Deployments; $i++) {
+  wsl.exe --shutdown`)
+	if precheck < 0 || firstDeployment < 0 || precheck > firstDeployment ||
+		!strings.Contains(powerShell, `deployment binding bytes differ`) ||
+		!strings.Contains(powerShell, `"$(stat -c %a "$binding")" == 600`) {
+		t.Fatal("PowerShell controller does not verify all three byte-identical 0600 bindings before deployment-01")
 	}
 }
 

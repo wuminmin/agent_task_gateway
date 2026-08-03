@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"os"
 	"reflect"
 
@@ -20,9 +21,9 @@ type sourceControlledAdapter interface {
 
 type adapterFactory func(context.Context) (sourceControlledAdapter, error)
 
-// adapterFactories is the single capability gate. An experiment is reported
-// as implemented only after its real, source-controlled constructor is wired
-// here; unsupported and placeholder handlers cannot turn a capability on.
+// adapterFactories is the source-controlled execution registry. A constructor
+// is necessary but not always sufficient for a formal capability: adapters
+// that also serve a narrower Pilot must pass their publication profile gate.
 var adapterFactories = map[string]adapterFactory{
 	"baseline":    func(ctx context.Context) (sourceControlledAdapter, error) { return newRealAdapter(ctx) },
 	"scale":       func(ctx context.Context) (sourceControlledAdapter, error) { return newScaleAdapter(ctx) },
@@ -39,7 +40,7 @@ func implementedCapabilities() map[string]bool {
 	result := make(map[string]bool, len(experimentIDs))
 	for _, experimentID := range experimentIDs {
 		factory, registered := adapterFactories[experimentID]
-		result[experimentID] = registered && factory != nil
+		result[experimentID] = registered && factory != nil && publicationCoverageGateSatisfied(experimentID)
 	}
 	return result
 }
@@ -72,9 +73,38 @@ func nilSourceControlledAdapter(adapter sourceControlledAdapter) bool {
 func main() {
 	experimentID := flag.String("experiment", "", "source-controlled experiment implementation")
 	capabilities := flag.Bool("capabilities", false, "print implemented experiment capabilities")
+	validateBinding := flag.Bool("validate-binding", false, "strictly validate the complete private deployment binding")
+	validateObserver := flag.Bool("validate-observer-runtime", false, "validate the frozen observer executable and build manifest")
 	flag.Parse()
+	selectedModes := 0
+	for _, selected := range []bool{*capabilities, *validateBinding, *validateObserver} {
+		if selected {
+			selectedModes++
+		}
+	}
+	if selectedModes > 1 || (selectedModes > 0 && *experimentID != "") {
+		fmt.Fprintln(os.Stderr, "adapter inspection modes are mutually exclusive")
+		os.Exit(2)
+	}
 	if *capabilities {
 		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"schema_version": 1, "adapter": "final-v5-adapter", "experiments": implementedCapabilities()})
+		return
+	}
+	if *validateBinding {
+		report, err := validateAdapterBindingInput()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		_ = json.NewEncoder(os.Stdout).Encode(report)
+		return
+	}
+	if *validateObserver {
+		if _, err := validateObserverRuntimeBinding(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"schema_version": 1, "status": "valid"})
 		return
 	}
 	scanner := bufio.NewScanner(os.Stdin)

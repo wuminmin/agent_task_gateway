@@ -482,6 +482,7 @@ func validateObserverTransition(sample Sample, before, after *ObserverSnapshot) 
 		return err
 	}
 	if delta.GatewayMemoryPeakBytes <= 0 || delta.OOMDelta != 0 || delta.ContainerRestartDelta != 0 ||
+		delta.BusinessSQLDelta != sample.BusinessSQLDelta ||
 		delta.GatewayMemoryPeakBytes != sample.GatewayMemoryPeakBytes || delta.GatewayCPUUsecDelta != sample.GatewayCPUUsecDelta ||
 		delta.GatewayNetworkRXDelta != sample.GatewayNetworkRXDelta || delta.GatewayNetworkTXDelta != sample.GatewayNetworkTXDelta ||
 		delta.ControlWALBytesDelta != sample.ControlWALBytesDelta || delta.BusinessWALBytesDelta != sample.BusinessWALBytesDelta {

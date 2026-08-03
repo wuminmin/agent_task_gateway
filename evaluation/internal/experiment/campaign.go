@@ -12,6 +12,7 @@ var requiredPublicationExperiments = []string{"baseline", "scale", "artifact", "
 
 const (
 	sourceAdapterBuildCommand = "go build -buildvcs=false -trimpath -o final-v5-adapter ./evaluation/cmd/final-v5-adapter"
+	observerBuildCommand      = "go build -buildvcs=false -trimpath -o final-v5-observer ./evaluation/cmd/final-v5-observer"
 	rq5DriverBuildCommand     = "go build -buildvcs=false -trimpath -o rq5-sequential-driver ./evaluation/cmd/rq5-sequential-driver"
 )
 
@@ -34,11 +35,17 @@ var rq5RequiredRuntimeSources = []string{
 	"db/init/00-schema.sql",
 }
 
+var observerRequiredSources = []string{
+	"evaluation/cmd/final-v5-observer/main.go",
+	"evaluation/internal/experiment/observer.go",
+}
+
 type CampaignExperimentEvidence struct {
 	ExperimentID           string `json:"experiment_id"`
 	SummarySHA256          string `json:"summary_sha256"`
 	EvidenceManifestSHA256 string `json:"evidence_manifest_sha256"`
 	AdapterSHA256          string `json:"adapter_sha256"`
+	ObserverSHA256         string `json:"observer_sha256"`
 	RQ5DriverSHA256        string `json:"rq5_driver_sha256,omitempty"`
 }
 
@@ -68,6 +75,9 @@ type PublicationCampaignSummary struct {
 func FinalizePublicationCampaign(campaignRoot string) (PublicationCampaignSummary, error) {
 	var campaign PublicationCampaignSummary
 	adapterDigest := ""
+	observerDigest := ""
+	adapterBindingDigest := ""
+	datasetBindingDigest := ""
 	environmentDigests := make(map[string]string)
 	for _, name := range requiredPublicationExperiments {
 		runDir := filepath.Join(campaignRoot, name)
@@ -108,6 +118,20 @@ func FinalizePublicationCampaign(campaignRoot string) (PublicationCampaignSummar
 			if err := bindCampaignEnvironmentDigest(environmentDigests, deploymentID, digest); err != nil {
 				return campaign, err
 			}
+			environmentBytes, err := os.ReadFile(filepath.Join(runDir, "environment", deploymentID+".json"))
+			var environment EnvironmentManifest
+			if err != nil || StrictJSON(environmentBytes, &environment) != nil {
+				return campaign, fmt.Errorf("%s environment binding is unreadable: %s", name, deploymentID)
+			}
+			sectionSHA, fileSHA, err := environmentBindingIdentity(environment)
+			if err != nil {
+				return campaign, fmt.Errorf("%s environment binding is invalid: %s", name, deploymentID)
+			}
+			if adapterBindingDigest == "" {
+				adapterBindingDigest, datasetBindingDigest = sectionSHA, fileSHA
+			} else if sectionSHA != adapterBindingDigest || fileSHA != datasetBindingDigest {
+				return campaign, errors.New("private dataset/adapter binding changed across deployments or experiments")
+			}
 		}
 		oneAdapter, err := verifySourceBuildBinding(
 			filepath.Join(runDir, "adapter.sha256"), filepath.Join(runDir, "adapter-build.json"),
@@ -120,6 +144,25 @@ func FinalizePublicationCampaign(campaignRoot string) (PublicationCampaignSummar
 			adapterDigest = oneAdapter
 		} else if oneAdapter != adapterDigest {
 			return campaign, errors.New("experiments were not executed by one frozen unified adapter")
+		}
+		oneObserver, err := verifySourceBuildBinding(
+			filepath.Join(runDir, "observer.sha256"), filepath.Join(runDir, "observer-build.json"),
+			filepath.Join(campaignRoot, "source-adapter", "final-v5-observer"),
+			config.SubmissionCommit, observerBuildCommand, observerRequiredSources)
+		if err != nil {
+			return campaign, fmt.Errorf("%s source observer build binding invalid: %w", name, err)
+		}
+		for _, relative := range []string{"observer.sha256", "observer-build.json"} {
+			sealedSHA, present := evidenceManifestFileSHA256(manifest, relative)
+			actualSHA, hashErr := FileSHA256(filepath.Join(runDir, relative))
+			if !present || hashErr != nil || sealedSHA != actualSHA {
+				return campaign, fmt.Errorf("%s sealed evidence omits or changes %s", name, relative)
+			}
+		}
+		if observerDigest == "" {
+			observerDigest = oneObserver
+		} else if oneObserver != observerDigest {
+			return campaign, errors.New("experiments were not observed by one frozen source-built observer")
 		}
 		if campaign.CampaignID == "" {
 			campaign = PublicationCampaignSummary{SchemaVersion: 1, CampaignID: config.CampaignID, SubmissionCommit: config.SubmissionCommit, ProtocolVersion: config.ProtocolVersion, ProtocolSHA256: config.ProtocolSHA256, WorkloadSHA256: config.WorkloadSHA256, AcceptanceSHA256: config.AcceptanceSHA256, StatisticsSHA256: config.StatisticsSHA256}
@@ -155,7 +198,7 @@ func FinalizePublicationCampaign(campaignRoot string) (PublicationCampaignSummar
 		manifestSHA, _ := FileSHA256(manifestPath)
 		campaign.Experiments = append(campaign.Experiments, CampaignExperimentEvidence{ExperimentID: name,
 			SummarySHA256: summarySHA, EvidenceManifestSHA256: manifestSHA, AdapterSHA256: oneAdapter,
-			RQ5DriverSHA256: rq5DriverDigest})
+			ObserverSHA256: oneObserver, RQ5DriverSHA256: rq5DriverDigest})
 	}
 	campaign.Status = "pass"
 	encoded, _ := json.MarshalIndent(campaign, "", "  ")
@@ -197,6 +240,10 @@ func evidenceManifestFileSHA256(manifest EvidenceManifest, path string) (string,
 
 func verifySourceBuildBinding(digestPath, manifestPath, binaryPath, submissionCommit,
 	expectedCommand string, requiredSources []string) (string, error) {
+	digestInfo, err := os.Lstat(digestPath)
+	if err != nil || !digestInfo.Mode().IsRegular() || digestInfo.Mode()&os.ModeSymlink != 0 || digestInfo.Mode().Perm()&0o022 != 0 {
+		return "", errors.New("binary digest file is absent, unsafe, or group/world writable")
+	}
 	digestBytes, err := os.ReadFile(digestPath)
 	if err != nil {
 		return "", err
@@ -204,6 +251,21 @@ func verifySourceBuildBinding(digestPath, manifestPath, binaryPath, submissionCo
 	digest := string(bytesTrimSpace(digestBytes))
 	if !validSHA256(digest) {
 		return "", errors.New("binary digest is invalid")
+	}
+	return VerifySourceBuildManifest(manifestPath, binaryPath, digest, submissionCommit, expectedCommand, requiredSources)
+}
+
+// VerifySourceBuildManifest is shared by the pre-start adapter runtime gate
+// and campaign finalizer so an observer cannot pass early under a weaker
+// self-signed manifest contract.
+func VerifySourceBuildManifest(manifestPath, binaryPath, digest, submissionCommit,
+	expectedCommand string, requiredSources []string) (string, error) {
+	if !validSHA256(digest) {
+		return "", errors.New("binary digest is invalid")
+	}
+	manifestInfo, err := os.Lstat(manifestPath)
+	if err != nil || !manifestInfo.Mode().IsRegular() || manifestInfo.Mode()&os.ModeSymlink != 0 || manifestInfo.Mode().Perm()&0o022 != 0 {
+		return "", errors.New("build manifest is absent, unsafe, or group/world writable")
 	}
 	manifestBytes, err := os.ReadFile(manifestPath)
 	if err != nil {
@@ -223,7 +285,7 @@ func verifySourceBuildBinding(digestPath, manifestPath, binaryPath, submissionCo
 		return "", err
 	}
 	info, err := os.Lstat(binaryPath)
-	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode()&0o111 == 0 {
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o022 != 0 || info.Mode()&0o111 == 0 {
 		return "", errors.New("bound binary is absent, non-executable, or a symlink")
 	}
 	actual, err := FileSHA256(binaryPath)

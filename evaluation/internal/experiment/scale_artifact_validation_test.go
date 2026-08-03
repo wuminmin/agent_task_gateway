@@ -200,3 +200,23 @@ func TestArtifactAndDependencyValidatorsFailClosedBeforeRawVerifierEvidence(t *t
 		t.Fatal("mislabeled dependency cardinality was accepted")
 	}
 }
+
+func TestObserverTotalBusinessSQLMustMatchTargetedCounters(t *testing.T) {
+	before := ObserverSnapshot{SchemaVersion: 1, MemoryScope: observerMemoryScope, Phase: "before",
+		RuntimeIdentitySHA256:  strings.Repeat("9", 64),
+		GatewayMemoryPeakBytes: 100, GatewayCPUUsec: 10, GatewayNetworkRXBytes: 20,
+		GatewayNetworkTXBytes: 30, BusinessSQLQueries: 40, ControlWALBytes: 50, BusinessWALBytes: 60}
+	after := ObserverSnapshot{SchemaVersion: 1, MemoryScope: observerMemoryScope, Phase: "after",
+		RuntimeIdentitySHA256:  strings.Repeat("9", 64),
+		GatewayMemoryPeakBytes: 200, GatewayCPUUsec: 11, GatewayNetworkRXBytes: 22,
+		GatewayNetworkTXBytes: 33, BusinessSQLQueries: 42, ControlWALBytes: 54, BusinessWALBytes: 65}
+	sample := Sample{GatewayMemoryPeakBytes: 200, GatewayCPUUsecDelta: 1, GatewayNetworkRXDelta: 2,
+		GatewayNetworkTXDelta: 3, ControlWALBytesDelta: 4, BusinessWALBytesDelta: 5, BusinessSQLDelta: 2}
+	if err := validateObserverTransition(sample, &before, &after); err != nil {
+		t.Fatal(err)
+	}
+	after.BusinessSQLQueries++
+	if err := validateObserverTransition(sample, &before, &after); err == nil {
+		t.Fatal("observer total SQL mutation was accepted despite unchanged targeted counters")
+	}
+}
