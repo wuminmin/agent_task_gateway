@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"taskbound.local/agent-data-gateway/evaluation/finalv5contracts"
 	"taskbound.local/agent-data-gateway/evaluation/internal/experiment"
 	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5binding"
 )
@@ -29,20 +30,41 @@ func testBoundQuery(rows int64, columns int, dependencies int64) boundQueryExpec
 		DependencyFacts: dependencies, DependencySetSHA256: digest}
 }
 
-func TestFrozenCellBindingsCrossCheckExactScale(t *testing.T) {
-	artifact, err := experiment.ParseArtifactScale("100x4")
+// The Artifact experiment no longer carries a hand-written cell binding: its
+// shape comes from the verified Contract Index. Cross-check that the contract
+// and the frozen scale parser still agree on every cell.
+func TestFrozenArtifactCellsMatchTheContractIndex(t *testing.T) {
+	runtime, err := finalv5contracts.LoadRuntime()
 	if err != nil {
 		t.Fatal(err)
 	}
-	cell := artifactCellBinding{Task: testBoundTask(4), Query: testBoundQuery(100, 4, 100)}
-	if err := validateArtifactCellBinding(artifact, cell); err != nil {
+	cells, err := runtime.ArtifactCells()
+	if err != nil {
 		t.Fatal(err)
 	}
-	cell.Query.ExpectedRows = 99
-	if err := validateArtifactCellBinding(artifact, cell); err == nil {
-		t.Fatal("artifact binding with a shrunken row count was accepted")
+	if len(cells) != len(artifactPublicationRequirements) || len(cells) != 6 {
+		t.Fatalf("contract resolved %d artifact cells", len(cells))
 	}
+	for _, cell := range cells {
+		spec, err := experiment.ParseArtifactScale(cell.Identity.Scale)
+		if err != nil {
+			t.Fatalf("%s: %v", cell.Identity, err)
+		}
+		if spec.Rows != cell.ExpectedRows || spec.Columns != cell.ExpectedColumns {
+			t.Fatalf("%s contract shape %dx%d differs from the frozen scale parser %dx%d",
+				cell.Identity, cell.ExpectedRows, cell.ExpectedColumns, spec.Rows, spec.Columns)
+		}
+		query, err := runtime.QueryContract(cell)
+		if err != nil {
+			t.Fatalf("%s: %v", cell.Identity, err)
+		}
+		if query.BDG.PublicTool != finalv5contracts.PublicBDGTool {
+			t.Fatalf("%s does not resolve to the public BDG entrypoint", cell.Identity)
+		}
+	}
+}
 
+func TestFrozenCellBindingsCrossCheckExactScale(t *testing.T) {
 	dependency := dependencyCellBinding{Task: testBoundTask(4), Candidate: testBoundQuery(10, 4, 10_000),
 		History: func() *boundQueryExpectation { value := testBoundQuery(5, 4, 5_000); return &value }()}
 	if err := validateDependencyCellBinding("10k-overlap-50", dependency); err != nil {

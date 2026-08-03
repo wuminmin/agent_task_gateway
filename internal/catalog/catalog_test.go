@@ -71,8 +71,8 @@ func TestRepositoryCatalog(t *testing.T) {
 	if _, _, err := parsed.ResolveProducts([]string{"expense_summary", "expense_detail"}); err != nil {
 		t.Fatalf("repository products cannot be resolved: %v", err)
 	}
-	if len(parsed.SnapshotPublications) != 5 {
-		t.Fatalf("repository snapshot publications = %d, want 5", len(parsed.SnapshotPublications))
+	if len(parsed.SnapshotPublications) != 6 {
+		t.Fatalf("repository snapshot publications = %d, want 6", len(parsed.SnapshotPublications))
 	}
 	if !parsed.V4Enabled() {
 		t.Fatal("repository Catalog did not select V4 deployment mode")

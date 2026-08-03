@@ -33,11 +33,19 @@ services:
     volumes:
       - business-pg-data:/var/lib/postgresql/data
       - ./db/init:/docker-entrypoint-initdb.d:ro
+      # db/init/07b-final-v5-benchmark-dataset.sh runs the exact contract-indexed
+      # generator bytes from this read-only mount, so a deployment cannot drift
+      # away from evaluation/final-v5-wsl2/contracts/index-v1.json.
+      - ./evaluation/final-v5-wsl2/sql/datasets:/opt/taskgate/final-v5-sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      # Probe over TCP, not the local socket. During initdb the entrypoint runs
+      # a temporary socket-only server, so a socket probe reports healthy while
+      # db/init is still creating the Final-V5 benchmark corpus and dependent
+      # services race ahead into a refused connection.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 3s
       timeout: 3s
-      retries: 20
+      retries: 60
     security_opt:
       - no-new-privileges:true
     networks:
@@ -108,6 +116,40 @@ services:
     networks:
       - business-data
 
+  # The Final-V5 result-heavy Publication compiles 100,000 rows over sixteen
+  # fields, so it gets its own offline compiler with a larger ceiling instead of
+  # raising the limit of the existing publications. This is a build-time
+  # compiler, not a governed runtime component: the Gateway keeps its 512 MiB
+  # cgroup ceiling, which is what the memory evidence is about.
+  snapshot-index-result-heavy:
+    build:
+      context: .
+      args:
+        TARGET: snapshot-index
+    command:
+      - -input
+      - /input/final-v5-result-heavy-v1.json
+      - -output-dir
+      - /data/snapshot-index
+      - -allow-existing-identical
+    environment:
+      SNAPSHOT_POSTGRES_DSN: postgres://gateway_reader:${GATEWAY_DB_PASSWORD:?set GATEWAY_DB_PASSWORD in .env}@business-postgres:5432/${POSTGRES_DB:-travel_demo}?sslmode=disable
+    depends_on:
+      business-postgres:
+        condition: service_healthy
+      snapshot-index-summary:
+        condition: service_completed_successfully
+    volumes:
+      - ./config/snapshots/final-v5-result-heavy-v1.json:/input/final-v5-result-heavy-v1.json:ro
+      - snapshot-index-artifacts:/data/snapshot-index
+    read_only: true
+    mem_limit: 16g
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - business-data
+
   snapshot-sidecar-install:
     build:
       context: .
@@ -126,12 +168,14 @@ services:
       - /input/provsql-lineitem-v1.json
       - -input
       - /input/provsql-nonce-v1.json
+      - -input
+      - /input/final-v5-result-heavy-v1.json
     environment:
       SNAPSHOT_INSTALL_POSTGRES_DSN: postgres://postgres:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@business-postgres:5432/${POSTGRES_DB:-travel_demo}?sslmode=disable
     depends_on:
       business-postgres:
         condition: service_healthy
-      snapshot-index-summary:
+      snapshot-index-result-heavy:
         condition: service_completed_successfully
     volumes:
       - ./config/snapshots/expense-detail-v1.json:/input/expense-detail-v1.json:ro
@@ -139,11 +183,12 @@ services:
       - ./config/snapshots/provsql-orders-v1.json:/input/provsql-orders-v1.json:ro
       - ./config/snapshots/provsql-lineitem-v1.json:/input/provsql-lineitem-v1.json:ro
       - ./config/snapshots/provsql-nonce-v1.json:/input/provsql-nonce-v1.json:ro
+      - ./config/snapshots/final-v5-result-heavy-v1.json:/input/final-v5-result-heavy-v1.json:ro
       - snapshot-index-artifacts:/data/snapshot-index:ro
     read_only: true
     tmpfs:
       - /tmp:size=32m,mode=1777
-    mem_limit: 4g
+    mem_limit: 16g
     restart: "no"
     security_opt:
       - no-new-privileges:true

@@ -31,6 +31,11 @@ const (
 	notApproved         = "NOT_APPROVED"
 	notGenerated        = "NOT_GENERATED"
 	workloadManifestSHA = "c5a921581dd8ab3e43d940504c5c0e537b913cc6107f78116ca91650fa1aaee7"
+
+	// Reviewed contract releases. v1.1 corrects the int4 overflow in the
+	// Result-heavy Dataset Generator; see contracts/AMENDMENT-v1.1.md.
+	contractReleaseV1  = "final-v5-contracts-v1"
+	contractReleaseV11 = "final-v5-contracts-v1.1"
 )
 
 var (
@@ -146,8 +151,14 @@ type indexReferences struct {
 }
 
 type indexDocument struct {
-	SchemaVersion                   int             `json:"schema_version"`
-	IndexVersion                    string          `json:"index_version"`
+	SchemaVersion int    `json:"schema_version"`
+	IndexVersion  string `json:"index_version"`
+	// ContractRelease names the reviewed release these exact bytes belong to.
+	// Amended bytes must never continue to call themselves the release they
+	// superseded, so the index identifies itself rather than relying on a tag.
+	ContractRelease                 string          `json:"contract_release"`
+	SupersedesContractRelease       string          `json:"supersedes_contract_release"`
+	Amendment                       string          `json:"amendment"`
 	Status                          string          `json:"status"`
 	DigestStatus                    string          `json:"digest_status"`
 	ExactGeneratedBytesFreezeStatus string          `json:"exact_generated_bytes_freeze_status"`
@@ -967,6 +978,9 @@ func validateIndex(root, evaluationRoot string) error {
 		index.Status != authorApproved || index.DigestStatus != "REVIEW_CANDIDATE" || index.ExactGeneratedBytesFreezeStatus != notApproved {
 		return errors.New("contract index status/version header is invalid")
 	}
+	if err := validateContractRelease(index, evaluationRoot); err != nil {
+		return err
+	}
 	if !index.HashLockedReferences.ProtocolAndMatrixBytesUnchangedByContract ||
 		index.HashLockedReferences.WorkloadManifestSHA256 != workloadManifestSHA {
 		return errors.New("contract index hash-locked workload reference drifted")
@@ -1023,6 +1037,31 @@ func validateIndex(root, evaluationRoot string) error {
 		if actual != artifact.SHA256 {
 			return fmt.Errorf("contract index SHA-256 mismatch for %s: index=%s actual=%s", artifact.Path, artifact.SHA256, actual)
 		}
+	}
+	return nil
+}
+
+// validateContractRelease keeps an amended contract from continuing to call
+// itself the release it superseded. Amended bytes must name their own release,
+// name what they replaced, and ship a source-controlled amendment record.
+func validateContractRelease(index indexDocument, evaluationRoot string) error {
+	if index.ContractRelease == "" {
+		return errors.New("contract index does not name its contract release")
+	}
+	if index.ContractRelease == contractReleaseV1 {
+		if index.SupersedesContractRelease != "" || index.Amendment != "" {
+			return errors.New("the original contract release cannot supersede or amend another release")
+		}
+		return nil
+	}
+	if index.ContractRelease != contractReleaseV11 || index.SupersedesContractRelease != contractReleaseV1 {
+		return fmt.Errorf("contract release %q is not a reviewed release", index.ContractRelease)
+	}
+	if index.Amendment != "contracts/AMENDMENT-v1.1.md" {
+		return errors.New("amended contract index does not point at its amendment record")
+	}
+	if _, err := regularRelativeFile(evaluationRoot, index.Amendment); err != nil {
+		return fmt.Errorf("amendment record %s: %w", index.Amendment, err)
 	}
 	return nil
 }

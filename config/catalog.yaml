@@ -9,7 +9,10 @@ sources:
     database: travel_demo
     user: gateway_reader
     postgres_major_version: 16
-    schema_digest: 686a7a779dac25c56df01e3bf9ecc1daf4040c05cabdbc56acf2597daf9d296e
+    # Live attested reporting-view digest. Adding the Final-V5 result-heavy
+    # Product changes the source attestation, so it was regenerated with
+    # evaluation/cmd/schema-digest against a fresh deployment.
+    schema_digest: ebedbecf4f8fbc4eaf150d32fd260fe9b902549367abee880cc02d4b6c3ff96b
     secretRef: GATEWAY_DB_PASSWORD
 
 snapshot_publications:
@@ -20,7 +23,7 @@ snapshot_publications:
     ordinal_sidecar: taskgate_ordinal.expense_summary_v1
     sidecar_digest: 2cd4e5c835252ec3bcd04aee11c28c70c6329b35bf6770f06a570cd918c9ceff
     dictionary_digest: ac0239021ec58514d62ac0c4c56191c2337fc943106b6df900221e620e809a1f
-    manifest_digest: 072590ed127c8601378c4857551a5d1e2d2f965cddabbd211bedd6c911d22f98
+    manifest_digest: fab914ec7a73ca135d53b510e9699ceb11766c54aeacc01ce8468a0ab933ca9c
   - name: expense-detail-v1
     source: travel_demo
     source_namespace: travel.expense_receipt
@@ -28,7 +31,7 @@ snapshot_publications:
     ordinal_sidecar: taskgate_ordinal.expense_detail_v1
     sidecar_digest: bbf33dd42179b80cd8cca631f579c4c6e49ef51eb1d3a4ce157090a797c5acf7
     dictionary_digest: 315995feeaa332b0d0f50834867ed5701a491ddc547bb2d666338fc938057232
-    manifest_digest: 1a86555e4d17ccbbce790cdd75622026e158b270e180ae2c35eff31db0df6a96
+    manifest_digest: f52ab2737ca04030fbb7c9d446c7b9c2e87f4c23c123b0a94c97aace2e423915
   - name: provsql-orders-v1
     source: travel_demo
     source_namespace: final_v5.provsql_orders
@@ -36,7 +39,7 @@ snapshot_publications:
     ordinal_sidecar: taskgate_ordinal.provsql_orders_v1
     sidecar_digest: a75e4a6aa2f9b6cf724c295e7b9ec2e75460015f31a21e87b6791223d52aba18
     dictionary_digest: af304d7670eb00a84f671690df5bea26815edf9e53e6c2c2b1878e3153d8e975
-    manifest_digest: 87e6ccb2a8e2d791942e11c1f29ab4eae788400f3644744c5ee9762de898c861
+    manifest_digest: e79cda20623ec8904f834273800f466918578072d336bdfaef160974ae155909
   - name: provsql-lineitem-v1
     source: travel_demo
     source_namespace: final_v5.provsql_lineitem
@@ -44,7 +47,7 @@ snapshot_publications:
     ordinal_sidecar: taskgate_ordinal.provsql_lineitem_v1
     sidecar_digest: f8b90a24a69fe0fdcc0423462fd9920e44860eb38b881d8e803622d89285cfa2
     dictionary_digest: e718bc8f0d9eeb92069cbb7df26b8041e6ebc13ca8ef0943ba77e280cfd9895d
-    manifest_digest: 4752e89ab26ae9bd35b52f24f21b2400d7aab6d4350c90ab54cdbca427e56600
+    manifest_digest: 4be0601c8b909e89051e4018c430542e9d1c1827460b82a3f0cd7eff66e25ab5
   - name: provsql-nonce-v1
     source: travel_demo
     source_namespace: final_v5.provsql_nonce
@@ -52,7 +55,19 @@ snapshot_publications:
     ordinal_sidecar: taskgate_ordinal.provsql_nonce_v1
     sidecar_digest: be22806ef83c069ae6da1fc08983b503e59fadb0acf45ce4a7417d12dfdbd9dd
     dictionary_digest: 8f44bdcadfe186a39533be51b885f02b195095830acaaf57330acc0e7ab102de
-    manifest_digest: 5ff6636fc31034803efc29f5a99a61304016aa933ffab8b61558ecde990c1410
+    manifest_digest: 0b1d55d61a37e2ebf3434c9e7f9212a72382cbb68aa8e15ae9c6d820c22b6ebb
+  # Final-V5 result-heavy publication. These digests are the live values the
+  # snapshot compiler generated for config/snapshots/final-v5-result-heavy-v1.json;
+  # the reviewed Catalog candidate deliberately still carries all-zero
+  # fail-closed sentinels because only a deployment can produce them.
+  - name: final-v5-result-heavy-v1
+    source: travel_demo
+    source_namespace: final_v5.result_heavy
+    snapshot: final-v5-result-heavy-2026-v1
+    ordinal_sidecar: taskgate_ordinal.final_v5_result_heavy_v1
+    sidecar_digest: f50d45943e4388bc9cbc897be0ff337bf76cf004cd55e553fdab8695b567a1fc
+    dictionary_digest: 9d014210da03effded9c72f42fe1af370c9a563fbee6315c298c10560a7254c0
+    manifest_digest: 80238c32b6773b623efd48730cb31e4375faff4430aabe19436e78a9b2eb88fd
 
 scopes:
   - name: department
@@ -68,6 +83,10 @@ scopes:
     type: enum
     description: Final-V5 ProvSQL 冻结分区键
     allowed_values: ["1"]
+  - name: category
+    type: enum
+    description: Final-V5 result-heavy complete category domain
+    allowed_values: [alpha, beta, gamma, delta]
 
 products:
   - name: expense_summary
@@ -381,6 +400,80 @@ products:
         type: integer
         description: 强制分区键
 
+  # Final-V5 result-heavy Product, copied verbatim from the reviewed Catalog
+  # candidate evaluation/final-v5-wsl2/catalog/benchmark-contract-v1.yaml so a
+  # live/candidate identity comparison in the Contract-to-Runtime Bridge holds.
+  - name: final_v5_result_heavy
+    source: travel_demo
+    reporting_view: reporting.final_v5_result_heavy
+    description: Final-V5 deterministic 100000-row sixteen-field result relation
+    sensitivity: low
+    snapshot: final-v5-result-heavy-2026-v1
+    snapshot_publication: final-v5-result-heavy-v1
+    entity_key: [row_id]
+    fact_namespace: final_v5.result_heavy
+    stable_relation_role: final_v5_result_heavy
+    scopes: [category]
+    allowed_functions: []
+    allowed_operators: ["=", "<=", "in"]
+    allowed_aggregates: []
+    fields:
+      - name: row_id
+        type: bigint
+        description: Stable deterministic row identifier
+      - name: category
+        type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
+        description: Deterministic category
+      - name: amount
+        type: numeric
+        description: Deterministic amount
+      - name: event_date
+        type: date
+        description: Deterministic event date
+      - name: sequence_no
+        type: integer
+        description: Deterministic sequence number
+      - name: approved
+        type: boolean
+        description: Deterministic approval flag
+      - name: event_timestamp
+        type: timestamp without time zone
+        description: Deterministic event timestamp
+      - name: description
+        type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
+        description: Deterministic description
+      - name: quantity
+        type: bigint
+        description: Deterministic quantity
+      - name: unit_price
+        type: numeric
+        description: Deterministic unit price
+      - name: tax_amount
+        type: numeric
+        description: Deterministic signed tax amount
+      - name: settled_date
+        type: date
+        description: Deterministic settlement date
+      - name: processed_at
+        type: timestamp without time zone
+        description: Deterministic processing timestamp
+      - name: region
+        type: text
+        collation: en_US.utf8
+        collation_version: "2.36"
+        description: Deterministic region
+      - name: revision
+        type: integer
+        description: Deterministic revision
+      - name: active
+        type: boolean
+        description: Deterministic active flag
+
+
 approval_routes:
   - sensitivity: low
     mode: manual
@@ -419,6 +512,15 @@ approval_routes:
     mode: manual
     approver: bob
     budget_profile: final-v5-provsql-low-v1
+
+  # The default low route keeps its historical summary budget. The frozen
+  # Artifact cells need the reviewed benchmark ceiling, so result-heavy gets an
+  # exact product-scoped manual OA route instead of widening every low Product.
+  - sensitivity: low
+    products: [final_v5_result_heavy]
+    mode: manual
+    approver: bob
+    budget_profile: final-v5-benchmark-low-v1
 
 budget_profiles:
   - name: summary-manual-v5
@@ -531,6 +633,25 @@ budget_profiles:
     predicate_footprint:
       version: taskgate-predicate-footprint-v1
       max_raw_literals_per_query: 32
+      max_unique_atoms_per_query: 16
+      max_atom_payload_bytes: 4096
+      max_total_atom_payload_bytes: 65536
+  # Reviewed Final-V5 benchmark ceiling, copied verbatim from the Catalog
+  # candidate. It is the only profile that can carry the frozen 100000-row,
+  # 16-column Artifact cell (1,600,000 release Facts) on a manual OA route.
+  - name: final-v5-benchmark-low-v1
+    max_queries: 128
+    max_rows: 100000
+    max_db_time: 30m
+    query_timeout: 30m
+    task_ttl: 2h
+    max_release_facts: 2000000
+    max_influence_facts: 3000000
+    max_outcome_facts: 128
+    exposure_profile_version: taskgate-exposure-v5
+    predicate_footprint:
+      version: taskgate-predicate-footprint-v1
+      max_raw_literals_per_query: 64
       max_unique_atoms_per_query: 16
       max_atom_payload_bytes: 4096
       max_total_atom_payload_bytes: 65536

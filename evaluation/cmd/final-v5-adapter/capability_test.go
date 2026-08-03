@@ -201,33 +201,55 @@ func TestFrozenCatalogCannotBackCompleteScaleOrArtifactProfiles(t *testing.T) {
 		// Even the zero-overlap formal cell performs novel followed by a
 		// semantic replay on the same approved task. A one-query grant cannot
 		// execute that pair; nonzero-overlap cells additionally need history.
-		if policy.Budget.MaxQueries >= 2 {
+		// The reviewed result-heavy route does grant many queries, but the
+		// Catalog publishes no exposure-scale Product for it to read, so it
+		// still cannot carry a dependency-e2e cell.
+		if policy.Budget.MaxQueries >= 2 && !onlyResultHeavy(policy) {
 			t.Fatalf("Catalog now has a large-influence two-query route %q; implement and review the complete scale profile before changing its gate", policy.BudgetProfile)
 		}
 	}
 	if largeInfluenceRoutes == 0 {
 		t.Fatal("Catalog evidence premise changed: no route reaches the frozen 1,035,000-Fact scale")
 	}
-
-	maxRows, maxApprovedColumns := int64(0), 0
-	for _, policy := range policies {
-		if policy.Budget.MaxRows > maxRows {
-			maxRows = policy.Budget.MaxRows
+	for _, product := range frozen.Products {
+		if product.Name == "final_v5_exposure_scale" {
+			t.Fatal("Catalog now publishes the exposure-scale Product; implement and review the complete scale profile before changing its gate")
 		}
+	}
+
+	// The reviewed benchmark route deliberately reaches the frozen 100,000-row,
+	// 16-column result-heavy shape. Nothing else may: a wide grant reachable
+	// from any other product set would let an unreviewed task execute a
+	// result-heavy sized query.
+	for _, policy := range policies {
 		columns := 0
 		for _, product := range policy.Products {
 			columns += len(product.Fields)
 		}
-		if columns > maxApprovedColumns {
-			maxApprovedColumns = columns
+		wide := policy.Budget.MaxRows >= 10_000 || columns >= 16
+		if !wide {
+			continue
+		}
+		if policy.BudgetProfile != "final-v5-benchmark-low-v1" {
+			t.Fatalf("Catalog profile %q now grants %d rows and %d columns; only the reviewed result-heavy route may",
+				policy.BudgetProfile, policy.Budget.MaxRows, columns)
+		}
+		if len(policy.Products) != 1 || policy.Products[0].Name != "final_v5_result_heavy" {
+			t.Fatalf("the reviewed benchmark route resolved for %d products; it must bind final_v5_result_heavy alone", len(policy.Products))
+		}
+		if policy.Budget.MaxRows != 100_000 || columns != 16 {
+			t.Fatalf("reviewed result-heavy route grants %d rows and %d columns; the frozen cells need exactly 100000 and 16",
+				policy.Budget.MaxRows, columns)
+		}
+		if policy.Budget.MaxReleaseFacts < 100_000*16 {
+			t.Fatalf("reviewed result-heavy route grants %d release Facts; the 100k x16 cell needs %d",
+				policy.Budget.MaxReleaseFacts, 100_000*16)
 		}
 	}
-	if maxRows >= 10_000 {
-		t.Fatalf("Catalog now grants %d rows; implement and review every result-heavy row scale before changing its gate", maxRows)
-	}
-	if maxApprovedColumns >= 16 {
-		t.Fatalf("Catalog now permits a %d-column task; implement and review every x16 result-heavy cell before changing its gate", maxApprovedColumns)
-	}
+}
+
+func onlyResultHeavy(policy catalog.TaskPolicy) bool {
+	return len(policy.Products) == 1 && policy.Products[0].Name == "final_v5_result_heavy"
 }
 
 func legalCatalogTaskPolicies(t *testing.T, frozen *catalog.Catalog) []catalog.TaskPolicy {

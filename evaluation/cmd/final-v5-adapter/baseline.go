@@ -451,36 +451,45 @@ func (adapter *realAdapter) taskgate(ctx context.Context, operation experiment.A
 
 func (adapter *realAdapter) completeTaskgateSample(ctx context.Context, operation experiment.AdapterOperation, state *pairState,
 	before, after experiment.RootLedgerSnapshot, started time.Time, availableMS float64, sqlText string, response queryResponse) (experiment.Sample, error) {
+	sample, _, err := adapter.completeTaskgateSampleWithParquet(ctx, operation, state, before, after, started, availableMS, sqlText, response)
+	return sample, err
+}
+
+// completeTaskgateSampleWithParquet additionally returns the verified released
+// Parquet bytes. The Artifact experiment re-reduces exactly those bytes through
+// the independent oracle, so it must not download or re-derive them separately.
+func (adapter *realAdapter) completeTaskgateSampleWithParquet(ctx context.Context, operation experiment.AdapterOperation, state *pairState,
+	before, after experiment.RootLedgerSnapshot, started time.Time, availableMS float64, sqlText string, response queryResponse) (experiment.Sample, []byte, error) {
 	if response.TaskID != state.taskID || response.ArtifactStatus != "AVAILABLE" || response.ResultID == "" || response.QueryID == "" {
-		return experiment.Sample{}, errors.New("query response omitted AVAILABLE identity")
+		return experiment.Sample{}, nil, errors.New("query response omitted AVAILABLE identity")
 	}
 	if response.Receipt.Version != queryreceipt.VersionV8 || response.Receipt.ArtifactIntent == nil || response.Receipt.QueryID != response.QueryID || response.Receipt.TaskID != state.taskID {
-		return experiment.Sample{}, errors.New("query response omitted matching V8 receipt")
+		return experiment.Sample{}, nil, errors.New("query response omitted matching V8 receipt")
 	}
 	auditEvidence, err := adapter.loadAuditEvidence(ctx, response)
 	if err != nil {
-		return experiment.Sample{}, err
+		return experiment.Sample{}, nil, err
 	}
 	var delivery struct {
 		DownloadURL    string `json:"download_url"`
 		ArtifactSHA256 string `json:"artifact_sha256"`
 	}
 	if err := adapter.alice.call(ctx, "deliver_result", map[string]any{"result_id": response.ResultID, "format": "parquet"}, &delivery); err != nil {
-		return experiment.Sample{}, err
+		return experiment.Sample{}, nil, err
 	}
 	if delivery.DownloadURL == "" || delivery.ArtifactSHA256 != response.Receipt.ArtifactIntent.ParquetSHA256 {
-		return experiment.Sample{}, errors.New("delivery metadata disagrees with receipt")
+		return experiment.Sample{}, nil, errors.New("delivery metadata disagrees with receipt")
 	}
 	parquetBytes, err := httpGet(ctx, adapter.http, delivery.DownloadURL, 1<<30)
 	if err != nil {
-		return experiment.Sample{}, err
+		return experiment.Sample{}, nil, err
 	}
 	if shaBytes(parquetBytes) != delivery.ArtifactSHA256 {
-		return experiment.Sample{}, errors.New("downloaded Parquet digest mismatch")
+		return experiment.Sample{}, nil, errors.New("downloaded Parquet digest mismatch")
 	}
 	expectedBinding, canonicalEvidence, canonicalObject, err := adapter.openCanonicalObject(ctx, response)
 	if err != nil {
-		return experiment.Sample{}, err
+		return experiment.Sample{}, nil, err
 	}
 	defer canonicalObject.Close()
 	canonicalEvidence.ReleasedParquet = parquetBytes
@@ -494,20 +503,20 @@ func (adapter *realAdapter) completeTaskgateSample(ctx context.Context, operatio
 		if err == nil {
 			err = errors.New("released-artifact verifier returned no passing transcript")
 		}
-		return experiment.Sample{}, err
+		return experiment.Sample{}, nil, err
 	}
 	if err := validateResponseAgainstVerifiedReceipt(response); err != nil {
-		return experiment.Sample{}, err
+		return experiment.Sample{}, nil, err
 	}
 	intent := response.Receipt.ArtifactIntent
 	signedExposure := response.Receipt.Exposure
 	rows, err := parseParquet(parquetBytes, intent.ResultID, intent.RowCount)
 	if err != nil {
-		return experiment.Sample{}, err
+		return experiment.Sample{}, nil, err
 	}
 	resultDigest, err := experiment.CanonicalResultHash(rows)
 	if err != nil {
-		return experiment.Sample{}, err
+		return experiment.Sample{}, nil, err
 	}
 	sample := baseSample(operation, "taskgate")
 	sample.ClientAvailableMS, sample.ClientFullDrainMS = availableMS, durationMS(time.Since(started))
@@ -524,11 +533,11 @@ func (adapter *realAdapter) completeTaskgateSample(ctx context.Context, operatio
 	sample.SemanticReplay, sample.IdempotentReplay = response.SemanticReplay, response.IdempotentReplay
 	if operation.Mode == "semantic_replay" || operation.Mode == "normalized_rewrite_replay" {
 		if !response.SemanticReplay {
-			return experiment.Sample{}, errors.New("semantic replay marker missing")
+			return experiment.Sample{}, nil, errors.New("semantic replay marker missing")
 		}
 	} else if operation.Mode == "idempotent_replay" || operation.Mode == "pending_recovery" {
 		if !response.IdempotentReplay {
-			return experiment.Sample{}, errors.New("idempotent replay marker missing")
+			return experiment.Sample{}, nil, errors.New("idempotent replay marker missing")
 		}
 	}
 	sample.RootEpochBefore, sample.RootEpochAfter = before.Epoch, after.Epoch
@@ -567,7 +576,7 @@ func (adapter *realAdapter) completeTaskgateSample(ctx context.Context, operatio
 		VerifierManifest: manifest,
 	}
 	sample.Status = "pass"
-	return sample, nil
+	return sample, parquetBytes, nil
 }
 
 type recoverySnapshot struct {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"taskbound.local/agent-data-gateway/evaluation/finalv5attack"
+	"taskbound.local/agent-data-gateway/evaluation/finalv5contracts"
 	"taskbound.local/agent-data-gateway/evaluation/internal/compilerfixture"
 	"taskbound.local/agent-data-gateway/evaluation/internal/concurrencyfixture"
 	"taskbound.local/agent-data-gateway/evaluation/internal/experiment"
@@ -110,15 +111,38 @@ var scalePublicationRequirements = append(
 
 var scaleImplementedPublicationCells = []publicationCell{}
 
-// The current Catalog likewise has no real result-heavy task route. Its
-// largest row grant is below the 10k/100k cells, and no legal product set can
-// approve the 16 distinct columns required by the x16 cells. Keep the whole
-// capability false rather than advertising the one possibly routable corner.
-var artifactPublicationRequirements = expandPublicationWorkloads([]publicationWorkload{
-	{ID: "result-heavy", Scales: []string{"100x4", "10k-x4", "100k-x4", "100x16", "10k-x16", "100k-x16"}, Modes: []string{"novel"}},
-})
+// artifactRealSystemValidated records whether a targeted, non-publication
+// real-system run has executed all six frozen result-heavy cells end to end --
+// OA approval, the public BDG query, result exposure settlement, Parquet,
+// AES-GCM staging, PENDING, canonical object promotion, AVAILABLE, the
+// composite Receipt/Object/Audit verification, and the independent Artifact
+// Oracle. Source-controlled cell resolution is necessary but never sufficient:
+// flip this only together with retained evidence of that run.
+const artifactRealSystemValidated = false
 
-var artifactImplementedPublicationCells = []publicationCell{}
+// artifactContractRuntime is the verified Contract Index. The Artifact matrix
+// is derived from it rather than from a second hand-maintained table, so the
+// Adapter and the contract can never disagree about which cells exist.
+var artifactContractRuntime, artifactContractRuntimeErr = finalv5contracts.LoadRuntime()
+
+var artifactPublicationRequirements = contractArtifactRequirements()
+
+func contractArtifactRequirements() []publicationCell {
+	if artifactContractRuntimeErr != nil {
+		return nil
+	}
+	required, err := artifactContractRuntime.ArtifactRequirements()
+	if err != nil {
+		return nil
+	}
+	cells := make([]publicationCell, 0, len(required))
+	for _, identity := range required {
+		cells = append(cells, publicationCell{WorkloadID: identity.WorkloadID, Scale: identity.Scale, Mode: identity.Mode})
+	}
+	return cells
+}
+
+var artifactImplementedPublicationCells = implementedPublicationCells("artifact", artifactPublicationRequirements)
 
 var rlsPublicationRequirements = expandPublicationWorkloads([]publicationWorkload{
 	{ID: "adaptive-100-v1", Scales: []string{"100-queries"}, Modes: []string{"rls", "unlimited", "bounded"}},
@@ -195,6 +219,25 @@ func realPublicationCellImplemented(experimentID string, cell publicationCell) b
 	case "concurrency":
 		_, found := concurrencyfixture.Lookup(cell.WorkloadID, cell.Scale, cell.Mode)
 		return found
+	case "artifact":
+		// A cell counts as implemented only when the frozen contract resolves
+		// it, its query renders from the indexed template, its independent
+		// Oracle Manifest verifies against the Contract Index, and a real
+		// end-to-end run has already validated the whole six-cell profile.
+		if artifactContractRuntimeErr != nil || !artifactRealSystemValidated {
+			return false
+		}
+		resolved, err := artifactContractRuntime.ArtifactCell(cell.Scale, cell.Mode)
+		if err != nil || resolved.Identity.WorkloadID != cell.WorkloadID {
+			return false
+		}
+		if _, err := artifactContractRuntime.QueryContract(resolved); err != nil {
+			return false
+		}
+		if _, _, err := artifactContractRuntime.OracleManifest(resolved); err != nil {
+			return false
+		}
+		return artifactContractRuntime.VerifyProjectionPrefix() == nil
 	case "rq5":
 		for iteration := 1; iteration <= rq5fixture.CyclesPerDeployment; iteration++ {
 			if !rq5fixture.IsCell(cell.WorkloadID, cell.Scale, cell.Mode, iteration) {

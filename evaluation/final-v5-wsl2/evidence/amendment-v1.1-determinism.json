@@ -1,0 +1,131 @@
+{
+  "campaign_id": null,
+  "contract_index_sha256": "59ad79087f1963327e4b0ed9aa0e56330778229e6d54534ab45783daaa97e172",
+  "contract_release": "final-v5-contracts-v1.1",
+  "dataset_generation": {
+    "artifact_shapes": [
+      {
+        "canonical_result_sha256": "e9a6f28caed552217cd30da5d405c08bda1d0e73099a0a3918093d697623ddf6",
+        "cell": "artifact/result-heavy/100x4/novel",
+        "column_count": 4,
+        "matches_oracle_manifest": true,
+        "normalized_schema_sha256": "7cdc7fd5f759f6e7a3ff73de33ff9124a8902085e0f00b349e0b74bd8a821f98",
+        "row_count": 100
+      },
+      {
+        "canonical_result_sha256": "0efd8bf61b0f416494a38560a8f6e93e92381e852ef22582808e130cd42e8b0d",
+        "cell": "artifact/result-heavy/10k-x4/novel",
+        "column_count": 4,
+        "matches_oracle_manifest": true,
+        "normalized_schema_sha256": "7cdc7fd5f759f6e7a3ff73de33ff9124a8902085e0f00b349e0b74bd8a821f98",
+        "row_count": 10000
+      },
+      {
+        "canonical_result_sha256": "eabf799a506f420de4f65ad99807ad5cb31f3da20c889367d2460516f90f532b",
+        "cell": "artifact/result-heavy/100k-x4/novel",
+        "column_count": 4,
+        "matches_oracle_manifest": true,
+        "normalized_schema_sha256": "7cdc7fd5f759f6e7a3ff73de33ff9124a8902085e0f00b349e0b74bd8a821f98",
+        "row_count": 100000
+      },
+      {
+        "canonical_result_sha256": "cf2c24d5c9755a9bec7d39b7235712f39d5bd023dede76f712bbd461d23159e0",
+        "cell": "artifact/result-heavy/100x16/novel",
+        "column_count": 16,
+        "matches_oracle_manifest": true,
+        "normalized_schema_sha256": "394378d8ac2bbf7f296de5b3655fe04bd7fe70a6dcd18e44c32e2a5ee4a9c3d6",
+        "row_count": 100
+      },
+      {
+        "canonical_result_sha256": "191260116f14b4a96a695fd2d3cf21e45b58c274258788cdec92da4e999c9e79",
+        "cell": "artifact/result-heavy/10k-x16/novel",
+        "column_count": 16,
+        "matches_oracle_manifest": true,
+        "normalized_schema_sha256": "394378d8ac2bbf7f296de5b3655fe04bd7fe70a6dcd18e44c32e2a5ee4a9c3d6",
+        "row_count": 10000
+      },
+      {
+        "canonical_result_sha256": "d2831ad661272b677f38a2d743da3b988e9a0fe8fbd0c9cf39adedf72e79441c",
+        "cell": "artifact/result-heavy/100k-x16/novel",
+        "column_count": 16,
+        "matches_oracle_manifest": true,
+        "normalized_schema_sha256": "394378d8ac2bbf7f296de5b3655fe04bd7fe70a6dcd18e44c32e2a5ee4a9c3d6",
+        "row_count": 100000
+      }
+    ],
+    "byte_identical": true,
+    "deployment_ids": [
+      "tgv5-det-a",
+      "tgv5-det-b"
+    ],
+    "exposure_scale": {
+      "ordered_rows_md5": "5759c87194de3501124dbf788068b6fe",
+      "rows": 414000
+    },
+    "independent_deployments": 2,
+    "postgresql_image": "postgres:16-bookworm"
+  },
+  "dataset_generator_sha256": "2f67aa9ee55dd6eb2d7da4eaf1c8d50fd7e5e65f65492f7f1bb231d1c1f25027",
+  "dataset_generator_sha256_v1": "a528e84bfc2d2fff1415d2c66147fe71a7afe51050163808e096e01343f00540",
+  "direct_vs_independent_oracle": {
+    "canonical_result_digest_equal": true,
+    "normalized_schema_digest_equal": true,
+    "row_count_equal": true,
+    "shapes_verified": [
+      "artifact/result-heavy/100x4/novel",
+      "artifact/result-heavy/10k-x4/novel",
+      "artifact/result-heavy/100k-x4/novel",
+      "artifact/result-heavy/100x16/novel",
+      "artifact/result-heavy/10k-x16/novel",
+      "artifact/result-heavy/100k-x16/novel"
+    ]
+  },
+  "note": "Direct PostgreSQL drains normalized through the shared Contract-to-Runtime Bridge normalizer. No Publication Campaign was executed; no paper number was produced.",
+  "oracle_manifest_generation": {
+    "byte_identical": true,
+    "independent_generations": 2,
+    "manifests": [
+      {
+        "cell": "artifact/result-heavy/100x4/novel",
+        "dataset_spec_sha256": "2f67aa9ee55dd6eb2d7da4eaf1c8d50fd7e5e65f65492f7f1bb231d1c1f25027",
+        "manifest_sha256": "dca6a5024631f222d659abc8d18a721a8d1740b8cfe417bcc3f5c65038528e30",
+        "path": "oracle-manifests/artifact/result-heavy/100x4/novel.json"
+      },
+      {
+        "cell": "artifact/result-heavy/10k-x4/novel",
+        "dataset_spec_sha256": "2f67aa9ee55dd6eb2d7da4eaf1c8d50fd7e5e65f65492f7f1bb231d1c1f25027",
+        "manifest_sha256": "835d1a23ace4b7fc972ec59093a7f5ad86c49a410c273ccf2b2861c422f4275d",
+        "path": "oracle-manifests/artifact/result-heavy/10k-x4/novel.json"
+      },
+      {
+        "cell": "artifact/result-heavy/100k-x4/novel",
+        "dataset_spec_sha256": "2f67aa9ee55dd6eb2d7da4eaf1c8d50fd7e5e65f65492f7f1bb231d1c1f25027",
+        "manifest_sha256": "9f5ec9ee3e8400cf28dd1451f1d0080967edcea4e025f329315ed8982292df54",
+        "path": "oracle-manifests/artifact/result-heavy/100k-x4/novel.json"
+      },
+      {
+        "cell": "artifact/result-heavy/100x16/novel",
+        "dataset_spec_sha256": "2f67aa9ee55dd6eb2d7da4eaf1c8d50fd7e5e65f65492f7f1bb231d1c1f25027",
+        "manifest_sha256": "49a91d3b90512f994ea5f62276d849985298ba95439526dd4a2b5af5f11beebe",
+        "path": "oracle-manifests/artifact/result-heavy/100x16/novel.json"
+      },
+      {
+        "cell": "artifact/result-heavy/10k-x16/novel",
+        "dataset_spec_sha256": "2f67aa9ee55dd6eb2d7da4eaf1c8d50fd7e5e65f65492f7f1bb231d1c1f25027",
+        "manifest_sha256": "013ebdc5f444498f5fd7cf9ac0b4f78db6fac79eaf68fe5f109cf45d52b4993f",
+        "path": "oracle-manifests/artifact/result-heavy/10k-x16/novel.json"
+      },
+      {
+        "cell": "artifact/result-heavy/100k-x16/novel",
+        "dataset_spec_sha256": "2f67aa9ee55dd6eb2d7da4eaf1c8d50fd7e5e65f65492f7f1bb231d1c1f25027",
+        "manifest_sha256": "7c0272a172aef9ea70a26909eba13d07a7a650353394707f677bb6d6f69bbe80",
+        "path": "oracle-manifests/artifact/result-heavy/100k-x16/novel.json"
+      }
+    ]
+  },
+  "publication_eligible": false,
+  "record": "taskgate-final-v5-amendment-v1.1-determinism",
+  "schema_version": 1,
+  "submission_commit": null,
+  "supersedes_contract_release": "final-v5-contracts-v1"
+}

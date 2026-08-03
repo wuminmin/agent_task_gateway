@@ -1,6 +1,9 @@
 {
   "schema_version": 1,
   "index_version": "taskgate-final-v5-contract-index-v1",
+  "contract_release": "final-v5-contracts-v1.1",
+  "supersedes_contract_release": "final-v5-contracts-v1",
+  "amendment": "contracts/AMENDMENT-v1.1.md",
   "status": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
   "digest_status": "REVIEW_CANDIDATE",
   "exact_generated_bytes_freeze_status": "NOT_APPROVED",
@@ -17,7 +20,7 @@
     {"kind": "oracle_policy", "path": "contracts/oracle-policy-v1.json", "sha256": "1c0d2a8ff6b6654f6cc0577cf4e6277d5c6fd3f440b4264d4f20300f8d01c1f8"},
     {"kind": "normalization_contract", "path": "contracts/result-normalization-v1.json", "sha256": "2eb64f136ffc164f078517e9604db907543ff02ae86a1249b0cb90bb44cf0f64"},
     {"kind": "catalog_candidate", "path": "catalog/benchmark-contract-v1.yaml", "sha256": "dcb26eaabe6e5612d4d58ddf09dcfbf9e7db00e1a37570ced6e6af0259bbd243"},
-    {"kind": "dataset_generator", "path": "sql/datasets/benchmark-v1-generate.sql", "sha256": "a528e84bfc2d2fff1415d2c66147fe71a7afe51050163808e096e01343f00540"},
+    {"kind": "dataset_generator", "path": "sql/datasets/benchmark-v1-generate.sql", "sha256": "2f67aa9ee55dd6eb2d7da4eaf1c8d50fd7e5e65f65492f7f1bb231d1c1f25027"},
     {"kind": "dataset_probe", "path": "sql/datasets/benchmark-v1-probe.sql", "sha256": "d739dc754ad497848ebbf09c6b97331342f83d4956c15a69f0dc2fe52e7276f0"},
     {"kind": "query_template", "path": "sql/contracts/S1-bdg.sql", "sha256": "c496feecc7ed1ea51bd331d00147233d977187c08ff8f3664c071317fb7580d0"},
     {"kind": "query_template", "path": "sql/contracts/S1-direct.sql", "sha256": "f11291cae77b90fef6d38f23579001125535995f0032ce155b6977ff224fa290"},

@@ -78,7 +78,7 @@ SELECT row_id,
            + (((row_id - 1) % 1000) * interval '1 microsecond'),
        'artifact-row-' || row_id::text,
        1 + ((row_id - 1) % 10000),
-       ((row_id * 104729) % 10000000)::numeric / 10000,
+       ((row_id::bigint * 104729) % 10000000)::numeric / 10000,
        CASE WHEN (row_id % 11) = 0 THEN -1 ELSE 1 END
            * (((row_id * 37) % 1000000)::numeric / 100),
        date '2020-01-01' + ((row_id - 1 + 31) % 3653)::integer,

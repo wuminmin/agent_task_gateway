@@ -166,6 +166,49 @@ Private configs, Catalog digest, campaign result, final submission commit, and
 paper numbers also do not exist. External-preparation `.NOT_READY` state
 remains untouched.
 
+## C11 — Result-heavy HOT artifacts exceed the Gateway activation boundary
+
+Resolved under `final-v5-contracts-v1.1`: the Result-heavy Dataset Generator
+now materializes, the `final_v5_result_heavy` Product and the
+`final-v5-result-heavy-v1` Publication are wired into the live Compose stack,
+Business PostgreSQL, the ordinal sidecar installer and `config/catalog.yaml`,
+and the Contract-to-Runtime Bridge binds all six Artifact cells to that live
+Catalog with generated (non-sentinel) digests.
+
+Remaining conflict: the Gateway refuses to activate the resulting Catalog.
+`cmd/gateway/snapshot_loader.go` enforces a deployment-wide 160 MiB HOT
+artifact activation boundary, and the live publications now total 233.4 MiB:
+
+| Publication | HOT bytes |
+| --- | --- |
+| `final-v5-result-heavy-v1` | 126,813,361 (120.9 MiB) |
+| `provsql-lineitem-v1` | 101,004,070 (96.3 MiB) |
+| `provsql-orders-v1` | 16,603,206 (15.8 MiB) |
+| `provsql-nonce-v1` | 262,487 |
+| `expense-detail-v1` | 16,638 |
+| `expense-summary-v1` | 9,488 |
+| **total** | **244,709,250 (233.4 MiB)** |
+| boundary | 167,772,160 (160.0 MiB) |
+
+The 100,000-row, sixteen-field Publication alone is 120.9 MiB, so it fits
+beside the expense Publications (121.0 MiB total) but not beside the frozen
+ProvSQL corpus. The reviewed Catalog candidate additionally declares
+`final_v5_exposure_scale`, which would add more.
+
+This is a production limit, not a test artifact, and it is deliberately not
+bypassed. Resolving it is an author decision because each option changes
+something the paper reports:
+
+- raising `maxGatewayHotArtifactsBytes` changes a published V4 architectural
+  threshold and the 512 MiB Gateway memory story;
+- giving the Artifact profile its own activated Catalog subset changes what
+  "the live production Catalog" means for that profile;
+- changing the Result-heavy Publication to a cold-only or handle-only sidecar
+  changes the Publication design the Oracle and Receipts bind to.
+
+Until it is resolved no Artifact cell can execute against a running Gateway,
+so `artifact` remains `false` and the capability report remains `6/9`.
+
 No generated digest is frozen by this register. A generated value first becomes
 a `REVIEW_CANDIDATE`; only explicit author review may change its status to
 approved/frozen. Until every conflict required by a claim is resolved,
