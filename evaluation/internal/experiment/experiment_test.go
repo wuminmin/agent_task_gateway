@@ -614,7 +614,7 @@ func TestAdapterCampaignIsDeterministicAndCreateExclusive(t *testing.T) {
 func TestDependencyAwareOrderKeepsReplayAfterNovel(t *testing.T) {
 	config := Config{RandomSeed: 20260801, FreshRootPerSample: true, Samples: 1, Workloads: []Workload{{ID: "S1", Scales: []string{"tiny"}, Modes: []string{"direct", "idempotent_replay", "novel", "semantic_replay"}}}}
 	position := 0
-	operations := buildOperations(config, "deployment-01", 1, 1, &position)
+	operations := buildOperations(config, "deployment-01", 1, 1, &position, nil)
 	positions := map[string]int{}
 	for index, operation := range operations {
 		positions[operation.Mode] = index
@@ -638,7 +638,7 @@ func TestKernelAndMerkleMicrobenchmarksDoNotClaimTaskRoots(t *testing.T) {
 func TestMatchedPairIdentityIsGroupScopedAndRecordsExactOrder(t *testing.T) {
 	baseline := Config{RandomSeed: 20260801, FreshRootPerSample: true, Samples: 1, Workloads: []Workload{{ID: "S1", Scales: []string{"tiny"}, Modes: []string{"direct", "novel", "semantic_replay", "pending_recovery"}}}}
 	position := 0
-	operations := buildOperations(baseline, "deployment-01", 1, 1, &position)
+	operations := buildOperations(baseline, "deployment-01", 1, 1, &position, nil)
 	var baselinePair, recoveryPair string
 	for _, operation := range operations {
 		if operation.Mode == "pending_recovery" {
@@ -658,7 +658,7 @@ func TestMatchedPairIdentityIsGroupScopedAndRecordsExactOrder(t *testing.T) {
 
 	provsql := Config{RandomSeed: 20260801, Samples: 1, Workloads: []Workload{{ID: "nonce", Scales: []string{"1k"}, Modes: []string{"direct", "provsql", "taskgate"}}}}
 	position = 0
-	operations = buildOperations(provsql, "deployment-01", 1, 1, &position)
+	operations = buildOperations(provsql, "deployment-01", 1, 1, &position, nil)
 	if len(operations) != 3 {
 		t.Fatalf("ProvSQL operations = %+v", operations)
 	}
@@ -670,7 +670,7 @@ func TestMatchedPairIdentityIsGroupScopedAndRecordsExactOrder(t *testing.T) {
 
 	rls := Config{ExperimentID: "rls", RandomSeed: 20260801, FreshRootPerSample: true, Samples: 1, Workloads: []Workload{{ID: "trace", Scales: []string{"100"}, Modes: []string{"rls", "unlimited", "bounded"}}}}
 	position = 0
-	operations = buildOperations(rls, "deployment-01", 1, 1, &position)
+	operations = buildOperations(rls, "deployment-01", 1, 1, &position, nil)
 	if len(operations) != 3 {
 		t.Fatalf("RLS operations = %+v", operations)
 	}

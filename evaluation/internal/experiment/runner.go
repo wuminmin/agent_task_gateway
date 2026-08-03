@@ -58,6 +58,8 @@ func RunCommand(experimentID string) int {
 	outputPath := flags.String("output", "", "create-exclusive measured JSONL output")
 	deploymentID := flags.String("deployment-id", "", "fresh deployment identity")
 	adapterPath := flags.String("adapter", "", "exact executable implementing the JSONL adapter protocol")
+	profilePath := flags.String("profile-binding", "",
+		"activated deployment profile binding JSON; required for publication and profile-bound pilot runs")
 	if err := flags.Parse(os.Args[1:]); err != nil {
 		return 2
 	}
@@ -95,7 +97,12 @@ func RunCommand(experimentID string) int {
 		fmt.Fprintln(os.Stderr, "formal execution requires -output, -deployment-id, and -adapter")
 		return 2
 	}
-	if err := ExecuteAdapterCampaign(config, *deploymentID, *adapterPath, *outputPath); err != nil {
+	profile, err := loadRunnerProfileBinding(*profilePath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if err := ExecuteAdapterCampaignWithProfile(config, *deploymentID, *adapterPath, *outputPath, profile); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
@@ -106,8 +113,34 @@ func RunCommand(experimentID string) int {
 // protection, and publication gating. The checked-in adapter owns only
 // experiment-specific provisioning and measurement.
 func ExecuteAdapterCampaign(config Config, deploymentID, adapterPath, outputPath string) error {
+	return ExecuteAdapterCampaignWithProfile(config, deploymentID, adapterPath, outputPath, nil)
+}
+
+// ExecuteAdapterCampaignWithProfile runs a campaign against an already
+// activated deployment profile. The orchestrator owns the binding: it is
+// derived from the Profile Registry, the profile Catalog, the deployment
+// Dataset Binding and the canonical Publication closure, then handed to every
+// operation. An Adapter only echoes it back and proves it really ran against
+// those bytes, so the two halves have to agree or the sample is refused.
+//
+// Passing no binding stays legal here so the many existing pilot paths keep
+// working unchanged; FinalizeRun remains the gate that refuses an unbound run
+// whose class requires a profile. What the Runner will never do is invent a
+// binding, or let a sample claim one the operation did not carry.
+func ExecuteAdapterCampaignWithProfile(config Config, deploymentID, adapterPath, outputPath string,
+	profile *ProfileBinding) error {
 	if err := config.Validate(config.ExperimentID); err != nil {
 		return err
+	}
+	if profile != nil {
+		if !profileBindingRequired(config) {
+			// Synthetic framework smoke runs are never publication evidence and
+			// must not acquire a deployment identity they did not run against.
+			return errors.New("this run class must not carry a deployment profile binding")
+		}
+		if err := profile.Validate(); err != nil {
+			return fmt.Errorf("activated profile binding: %w", err)
+		}
 	}
 	deploymentNumber, err := parseDeploymentID(deploymentID, config.Deployments)
 	if err != nil {
@@ -148,7 +181,7 @@ func ExecuteAdapterCampaign(config Config, deploymentID, adapterPath, outputPath
 	orderPosition := 0
 	var campaignErrors []error
 	for processReplicate := 1; processReplicate <= processes; processReplicate++ {
-		operations := buildOperations(config, deploymentID, deploymentNumber, processReplicate, &orderPosition)
+		operations := buildOperations(config, deploymentID, deploymentNumber, processReplicate, &orderPosition, profile)
 		samples, processErr := runAdapterProcess(absAdapter, config.ExperimentID, operations)
 		for index := range operations {
 			op := operations[index]
@@ -261,7 +294,8 @@ func validateRunnerEnvironment(config Config) error {
 	return nil
 }
 
-func buildOperations(config Config, deploymentID string, deploymentNumber, processReplicate int, orderPosition *int) []AdapterOperation {
+func buildOperations(config Config, deploymentID string, deploymentNumber, processReplicate int, orderPosition *int,
+	profile *ProfileBinding) []AdapterOperation {
 	seed := config.RandomSeed + int64(deploymentNumber*100_000+processReplicate*1_000)
 	type cell struct {
 		workload string
@@ -336,6 +370,7 @@ func buildOperations(config Config, deploymentID string, deploymentNumber, proce
 						WorkloadID:        selected.workload,
 						Scale:             selected.scale,
 						Mode:              mode,
+						ProfileBinding:    profile,
 					})
 				}
 			}
@@ -666,3 +701,25 @@ func WriteSmoke(config Config, runDir string) error {
 }
 
 func UTCNow() string { return time.Now().UTC().Format(time.RFC3339Nano) }
+
+// loadRunnerProfileBinding reads the activated deployment profile the
+// orchestrator bound before starting the run. It is strict: an unreadable,
+// unknown-field or incomplete binding stops the run rather than degrading to an
+// unbound one.
+func loadRunnerProfileBinding(path string) (*ProfileBinding, error) {
+	if strings.TrimSpace(path) == "" {
+		return nil, nil
+	}
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read activated profile binding: %w", err)
+	}
+	var binding ProfileBinding
+	if err := StrictJSON(payload, &binding); err != nil {
+		return nil, fmt.Errorf("decode activated profile binding: %w", err)
+	}
+	if err := binding.Validate(); err != nil {
+		return nil, fmt.Errorf("activated profile binding: %w", err)
+	}
+	return &binding, nil
+}

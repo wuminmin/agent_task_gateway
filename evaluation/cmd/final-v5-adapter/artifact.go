@@ -78,6 +78,11 @@ func (adapter *artifactAdapter) Execute(ctx context.Context, operation experimen
 	}
 	sample, err := adapter.executeResultHeavy(ctx, operation, cell)
 	if err != nil {
+		// The campaign record stays redacted: it carries only the taxonomy code.
+		// A retained failure still has to be diagnosable by the operator running
+		// the deployment, so the underlying error goes to this process's stderr,
+		// which never enters a sample, an evidence file or an agent context.
+		fmt.Fprintf(os.Stderr, "artifact cell %s: %v\n", cell.Identity, err)
 		return retainedArtifactFailure(operation, sample, artifactFailureCode(err))
 	}
 	return validateArtifactPass(sample)
@@ -219,6 +224,13 @@ func (adapter *artifactAdapter) executeResultHeavy(ctx context.Context, operatio
 		return sample, err
 	}
 	sample.ArtifactVerification.ObserverAfter = observerAfter
+	// Bind the sample to the activated Result-heavy profile. The Catalog digest
+	// comes from the Receipt the Gateway signed, so this is an observation of
+	// what actually served the query, not a declaration about it.
+	sample.ProfileBinding, err = artifactProfileBindingFor(sample.BaselineVerification.Receipt.CatalogDigest)
+	if err != nil {
+		return sample, err
+	}
 	visibleDelta := businessAfter.VisibleCalls - businessBefore.VisibleCalls
 	companionDelta := businessAfter.CompanionCalls - businessBefore.CompanionCalls
 	sample.BusinessSQLDelta = visibleDelta + companionDelta
