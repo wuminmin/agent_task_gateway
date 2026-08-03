@@ -288,6 +288,57 @@ gives each profile Catalog the attestation that matches what it actually
 declares. Until it is resolved no profile can be activated, so the activation
 smoke remains unexecuted.
 
+## C15 — Per-profile source schema digest collides with shared Publication bundles
+
+Found by the Stage B.2a-Live-4 Result-heavy canary, after C14 was implemented.
+
+C14 gives each profile Catalog the attestation of exactly its own reporting
+surface, so `sources[].schema_digest` is now per profile. `cmd/gateway/
+snapshot_loader.go:matchBundleToCatalog` requires:
+
+    bundle.DictionaryManifest.SchemaDigest == source.SchemaDigest
+
+A publication bundle embeds one schema digest, fixed when the snapshot compiler
+built it. A Publication is deliberately shared: `expense-detail-v1` backs five
+profiles, and under C14 those five profiles now declare five different source
+schema digests. One bundle cannot equal all five, so the canary fails with:
+
+    load snapshot publication "final-v5-result-heavy-v1":
+    bundle does not match the Catalog datasource/schema attestation
+
+The two digests answer different questions and the loader currently conflates
+them:
+
+- the bundle digest attests the schema of the source relation that Publication
+  was compiled from;
+- the Catalog source digest, after C14, attests the reporting surface the
+  active profile declares.
+
+Two coherent resolutions exist and both are author decisions:
+
+1. Compile a per-profile copy of each publication bundle carrying that profile's
+   schema digest. A Publication then stops being one immutable artifact shared
+   across profiles: its `manifest_digest`, which the Catalog pins, becomes per
+   profile, and Publication identity changes.
+
+2. Separate the two attestations in the loader, so a bundle attests its own
+   source relation while the Catalog attests the profile reporting surface. This
+   is a production-code change to what `matchBundleToCatalog` compares.
+
+Neither is applied here. C14's static half stands -- the profile Catalogs carry
+their own reviewed attestations, Profile IDs are unchanged, and the deployment no
+longer reports `DATA_CONNECTOR_SCHEMA_DRIFT` -- but no profile can be activated
+until this is resolved, so the canary and the full smoke remain unexecuted.
+
+Confirmed fixed by this canary, independently of C15:
+
+- `--no-deps` works: only the Gateway and OA were recreated. Business
+  PostgreSQL, Control PostgreSQL and the object store kept their container IDs,
+  the snapshot compiler did not re-run, and the Dataset was not rebuilt.
+- C12 stays fixed: the loader no longer reports an undeclared publication.
+- C14's schema-drift gate is cleared: the connector no longer reports
+  `DATA_CONNECTOR_SCHEMA_DRIFT`.
+
 No generated digest is frozen by this register. A generated value first becomes
 a `REVIEW_CANDIDATE`; only explicit author review may change its status to
 approved/frozen. Until every conflict required by a claim is resolved,

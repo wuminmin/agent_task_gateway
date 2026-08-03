@@ -35,6 +35,13 @@ func passingEvidence(t *testing.T, profile Profile) ActivationEvidence {
 			ProcessNonce: strings.Repeat("2", 64), PreviousCacheNamespace: strings.Repeat("3", 64),
 			CacheNamespace: strings.Repeat("4", 64), PreviousCacheUnreachable: true,
 			SemanticCacheCatalogBound: true, PreviousHotArtifactsRetired: true},
+		AttestationVersion:             SchemaAttestationVersion,
+		ExpectedSchemaDigest:           strings.Repeat("a", 64),
+		ObservedSchemaDigest:           strings.Repeat("a", 64),
+		ExpectedReportingViewSetSHA256: strings.Repeat("b", 64),
+		ObservedReportingViewSetSHA256: strings.Repeat("b", 64),
+		SchemaDigestToolSHA256:         strings.Repeat("c", 64),
+		SchemaAttestationStatus:        "verified",
 		ProfileArtifactManifestSHA256:  strings.Repeat("8", 64),
 		ProfileArtifactDirectorySHA256: strings.Repeat("9", 64),
 		MountedArtifactIdentity:        "/pilot/artifacts/profiles/" + profile.ID,
@@ -151,6 +158,18 @@ func TestActivationEvidenceFailsClosed(t *testing.T) {
 		},
 		"probed its own closure": func(evidence *ActivationEvidence) {
 			evidence.OutsideProduct[0].Product = "final_v5_result_heavy"
+		},
+		"schema attestation not verified": func(evidence *ActivationEvidence) {
+			evidence.SchemaAttestationStatus = "unverified"
+		},
+		"live schema digest differs": func(evidence *ActivationEvidence) {
+			evidence.ObservedSchemaDigest = strings.Repeat("d", 64)
+		},
+		"live reporting view set differs": func(evidence *ActivationEvidence) {
+			evidence.ObservedReportingViewSetSHA256 = strings.Repeat("e", 64)
+		},
+		"attestation tool not identified": func(evidence *ActivationEvidence) {
+			evidence.SchemaDigestToolSHA256 = ""
 		},
 		"mounted artifact directory not identified": func(evidence *ActivationEvidence) {
 			evidence.MountedArtifactIdentity = " "

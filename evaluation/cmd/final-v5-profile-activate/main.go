@@ -47,6 +47,8 @@ type options struct {
 	outsideProducts  string
 	artifactDir      string
 	artifactManifest string
+	businessDSN      string
+	attestations     string
 	probeToken       string
 	readyTimeout     time.Duration
 }
@@ -68,6 +70,10 @@ func main() {
 	flag.StringVar(&opts.outsideProducts, "outside-products", "", "comma-separated Products that must be refused")
 	flag.StringVar(&opts.artifactDir, "profile-artifact-dir", "", "exact per-profile snapshot artifact directory")
 	flag.StringVar(&opts.artifactManifest, "profile-artifact-manifest", "", "profile artifact manifest path")
+	flag.StringVar(&opts.businessDSN, "business-dsn-env", "TASKGATE_FINAL_V5_BUSINESS_DSN",
+		"env var holding the Business PostgreSQL DSN used for live schema re-attestation")
+	flag.StringVar(&opts.attestations, "schema-attestations", "config/profiles/schema-attestations-v1.json",
+		"reviewed per-profile schema attestation registry")
 	flag.StringVar(&opts.probeToken, "probe-token-env", "TASKBOUND_ALICE_TOKEN", "env var holding the pilot agent token")
 	flag.DurationVar(&opts.readyTimeout, "ready-timeout", 5*time.Minute, "readiness timeout")
 	flag.Parse()
@@ -299,6 +305,13 @@ func run(opts options) error {
 			"gateway activated Catalog %s, expected %s", current.Activation.CatalogSHA256, profile.CatalogSHA256))
 	}
 	evidence.GatewayImageID, evidence.GatewayContainerID = containerIdentity(ctx, opts)
+
+	// Re-attest the reporting surface against the live deployment. Readiness
+	// only proves the Gateway accepted the Catalog it was given; this proves the
+	// Catalog still describes the database.
+	if err := reattestSchema(ctx, opts, profile, &evidence); err != nil {
+		evidence.Failures = append(evidence.Failures, err.Error())
+	}
 
 	for _, product := range splitProducts(opts.outsideProducts) {
 		absent, observed := probeOutsideProduct(current, product)
@@ -581,6 +594,48 @@ func runCommand(ctx context.Context, dir, name string, args ...string) error {
 
 // loadArtifactManifest reads the manifest emitted beside a materialized
 // profile directory and refuses one that describes a different profile.
+// reattestSchema recomputes the profile's schema attestation from the live
+// database using the same derivation the reviewed registry was generated with.
+func reattestSchema(ctx context.Context, opts options, profile finalv5profile.Profile,
+	evidence *finalv5profile.ActivationEvidence) error {
+	evidence.AttestationVersion = finalv5profile.SchemaAttestationVersion
+	evidence.SchemaAttestationStatus = "unverified"
+	value, err := os.ReadFile(filepath.Join(opts.root, opts.attestations))
+	if err != nil {
+		return fmt.Errorf("read schema attestations: %w", err)
+	}
+	var registry finalv5profile.SchemaAttestationRegistry
+	if err := json.Unmarshal(value, &registry); err != nil {
+		return fmt.Errorf("decode schema attestations: %w", err)
+	}
+	if err := registry.Validate(); err != nil {
+		return err
+	}
+	attestation, found := registry.Lookup(profile.ID)
+	if !found {
+		return fmt.Errorf("profile %s has no reviewed schema attestation", profile.ID)
+	}
+	evidence.ExpectedSchemaDigest = attestation.SchemaDigest
+	evidence.ExpectedReportingViewSetSHA256 = attestation.ReportingViewSetSHA256
+	evidence.SchemaDigestToolSHA256 = attestation.SchemaDigestToolSHA256
+	dsn := strings.TrimSpace(os.Getenv(opts.businessDSN))
+	if dsn == "" {
+		return errors.New("live schema re-attestation requires a Business PostgreSQL DSN")
+	}
+	observedDigest, views, err := liveSchemaAttestation(ctx, opts.root, profile, dsn)
+	if err != nil {
+		return fmt.Errorf("live schema re-attestation: %w", err)
+	}
+	evidence.ObservedSchemaDigest = observedDigest
+	evidence.ObservedReportingViewSetSHA256 = finalv5profile.CanonicalNameSetSHA256("reporting-view-set", views)
+	if evidence.ObservedSchemaDigest == evidence.ExpectedSchemaDigest &&
+		evidence.ObservedReportingViewSetSHA256 == evidence.ExpectedReportingViewSetSHA256 {
+		evidence.SchemaAttestationStatus = "verified"
+		return nil
+	}
+	return fmt.Errorf("live schema attestation differs from the reviewed attestation for %s", profile.Alias)
+}
+
 func loadArtifactManifest(path, profileID string) (finalv5profile.ArtifactManifest, error) {
 	value, err := os.ReadFile(path)
 	if err != nil {

@@ -116,11 +116,22 @@ type ActivationEvidence struct {
 
 	// The exact per-profile artifact directory this activation mounted, and the
 	// publications the loader reported activating from it.
-	ProfileArtifactManifestSHA256  string                `json:"profile_artifact_manifest_sha256"`
-	ProfileArtifactDirectorySHA256 string                `json:"profile_artifact_directory_sha256"`
-	MountedArtifactIdentity        string                `json:"mounted_artifact_directory_identity"`
-	ExpectedSourcePublications     []string              `json:"expected_source_publications"`
-	ObservedLoaderPublications     []string              `json:"observed_loader_publications"`
+	ProfileArtifactManifestSHA256  string   `json:"profile_artifact_manifest_sha256"`
+	ProfileArtifactDirectorySHA256 string   `json:"profile_artifact_directory_sha256"`
+	MountedArtifactIdentity        string   `json:"mounted_artifact_directory_identity"`
+	ExpectedSourcePublications     []string `json:"expected_source_publications"`
+	ObservedLoaderPublications     []string `json:"observed_loader_publications"`
+
+	// Live schema re-attestation. Gateway readiness alone is not proof that the
+	// profile Catalog describes the reporting surface the deployment actually
+	// has, so the attestation is recomputed against the live database.
+	AttestationVersion             string                `json:"attestation_version"`
+	ExpectedSchemaDigest           string                `json:"expected_schema_digest"`
+	ObservedSchemaDigest           string                `json:"observed_schema_digest"`
+	ExpectedReportingViewSetSHA256 string                `json:"expected_reporting_view_set_sha256"`
+	ObservedReportingViewSetSHA256 string                `json:"observed_reporting_view_set_sha256"`
+	SchemaDigestToolSHA256         string                `json:"schema_digest_tool_sha256"`
+	SchemaAttestationStatus        string                `json:"schema_attestation_status"`
 	CacheIsolation                 CacheIsolation        `json:"cache_isolation"`
 	OutsideProduct                 []OutsideProductProbe `json:"outside_product_probes"`
 
@@ -152,6 +163,24 @@ func ValidateActivationEvidence(evidence ActivationEvidence, profile Profile) er
 	if !equalStringSets(evidence.ExpectedProducts, evidence.ObservedProducts) {
 		return fmt.Errorf("profile %q activated Products %v, expected %v",
 			profile.Alias, evidence.ObservedProducts, evidence.ExpectedProducts)
+	}
+	// The profile Catalog must describe the reporting surface the deployment
+	// actually has. Readiness is not a substitute for re-attestation.
+	if evidence.SchemaAttestationStatus != "verified" {
+		return fmt.Errorf("profile %q schema attestation status is %q",
+			profile.Alias, evidence.SchemaAttestationStatus)
+	}
+	if evidence.AttestationVersion != SchemaAttestationVersion ||
+		!validDigest(evidence.SchemaDigestToolSHA256) {
+		return fmt.Errorf("profile %q schema attestation is not attributable", profile.Alias)
+	}
+	if !validDigest(evidence.ExpectedSchemaDigest) || evidence.ExpectedSchemaDigest != evidence.ObservedSchemaDigest {
+		return fmt.Errorf("profile %q expected schema digest %s, the live deployment attested %s",
+			profile.Alias, evidence.ExpectedSchemaDigest, evidence.ObservedSchemaDigest)
+	}
+	if !validDigest(evidence.ExpectedReportingViewSetSHA256) ||
+		evidence.ExpectedReportingViewSetSHA256 != evidence.ObservedReportingViewSetSHA256 {
+		return fmt.Errorf("profile %q reporting view set differs from its attestation", profile.Alias)
 	}
 	// The mounted artifact directory must be the exact per-profile directory,
 	// and the loader must have activated exactly its publications.
