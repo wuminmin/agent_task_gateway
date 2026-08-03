@@ -73,6 +73,12 @@ TASKGATE_SQL`
 
 var (
 	formalProjectPattern  = regexp.MustCompile(`^taskgate-final-v5-deployment-0[1-3]-[0-9a-f]{20}$`)
+	// The exact service set a formal Final-V5 deployment builds from
+	// compose.yaml, compose.debug.yaml, compose.real-pilot.yaml and
+	// compose.provsql.yaml. snapshot-index-result-heavy joined the deployment
+	// with contracts v1.1 (5e12765) and this list was not updated with it, so
+	// the exact-topology check could not pass on any deployment the repository
+	// can actually build. The check stays exact; it now names the real topology.
 	formalProjectServices = []string{
 		businessService,
 		controlService,
@@ -83,6 +89,7 @@ var (
 		"result-object-store",
 		"result-object-store-init",
 		"snapshot-index-detail",
+		"snapshot-index-result-heavy",
 		"snapshot-index-summary",
 		"snapshot-sidecar-install",
 	}
