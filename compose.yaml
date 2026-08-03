@@ -281,6 +281,9 @@ services:
       TASKBOUND_ALICE_TOKEN: ${TASKBOUND_ALICE_TOKEN:?set TASKBOUND_ALICE_TOKEN in .env}
       TASKBOUND_CAROL_TOKEN: ${TASKBOUND_CAROL_TOKEN:?set TASKBOUND_CAROL_TOKEN in .env}
       GATEWAY_ADMIN_TOKEN: ${GATEWAY_ADMIN_TOKEN:-}
+      # Opens the read-only profile activation diagnostic on the authenticated
+      # admin interface. Empty in ordinary deployments.
+      TASKGATE_EXPERIMENT_CLASS: ${TASKGATE_EXPERIMENT_CLASS:-}
       GATEWAY_RESULT_RETENTION_TTL: ${GATEWAY_RESULT_RETENTION_TTL:-}
       GATEWAY_RESULT_RETENTION_SWEEP_INTERVAL: ${GATEWAY_RESULT_RETENTION_SWEEP_INTERVAL:-1h}
       GATEWAY_OBJECT_STORE_ENDPOINT: ${GATEWAY_OBJECT_STORE_ENDPOINT:-http://result-object-store:9000}
@@ -340,7 +343,11 @@ services:
     ports:
       - 127.0.0.1:8082:8082
     volumes:
-      - ./config/catalog.yaml:/etc/taskbound/catalog.yaml:ro
+      # The activated deployment profile Catalog. It defaults to the full
+      # Catalog; evaluation/cmd/final-v5-profile-activate points it at exactly
+      # one generated profile Catalog so a Catalog-bound Gateway instance
+      # activates that closure and nothing else.
+      - ${TASKGATE_PROFILE_CATALOG:-./config/catalog.yaml}:/etc/taskbound/catalog.yaml:ro
       - snapshot-index-artifacts:/var/lib/taskgate/snapshot-index:ro
       # Adaptive query spools and Parquet upload staging contain only
       # authenticated ciphertext. Keep them on disk: a 16 MiB tmpfs makes the

@@ -282,9 +282,12 @@ func TestIdenticalClosuresMergeAndDifferentClosuresDoNot(t *testing.T) {
 	full := fullCatalog(t)
 	aliases := map[string]string{}
 	cells := []WorkloadCell{
-		{ExperimentID: "baseline", WorkloadID: "S6", Scale: "100x4", Mode: "direct", Products: []string{"final_v5_result_heavy"}},
-		{ExperimentID: "artifact", WorkloadID: "result-heavy", Scale: "100x4", Mode: "novel", Products: []string{"final_v5_result_heavy"}},
-		{ExperimentID: "attack", WorkloadID: "A", Scale: "s", Mode: "novel", Products: []string{"final_v5_attack_expense_detail"}},
+		{ExperimentID: "baseline", WorkloadID: "S6", Scale: "100x4", Mode: "direct",
+			Products: []string{"final_v5_result_heavy"}, ProfileRequirement: RequirementCatalogBound},
+		{ExperimentID: "artifact", WorkloadID: "result-heavy", Scale: "100x4", Mode: "novel",
+			Products: []string{"final_v5_result_heavy"}, ProfileRequirement: RequirementCatalogBound},
+		{ExperimentID: "attack", WorkloadID: "A", Scale: "s", Mode: "novel",
+			Products: []string{"final_v5_attack_expense_detail"}, ProfileRequirement: RequirementCatalogBound},
 	}
 	for _, cell := range cells {
 		closure, _, err := ComputeClosure(full, cell.Products)

@@ -6,9 +6,13 @@ import (
 )
 
 func testBinding() ProfileBinding {
+	publications, err := CanonicalPublicationSetSHA256([]string{"final-v5-result-heavy-v1"})
+	if err != nil {
+		panic(err)
+	}
 	return ProfileBinding{Version: ProfileBindingVersion, ProfileID: "profile-a86cd4df5cad6e26",
 		ClosureSHA256: strings.Repeat("a", 64), CatalogSHA256: strings.Repeat("b", 64),
-		DatasetBindingSHA256: strings.Repeat("c", 64), PublicationIdentity: "final-v5-result-heavy-v1"}
+		DatasetBindingSHA256: strings.Repeat("c", 64), PublicationIdentity: publications}
 }
 
 func pairedSamples(direct, bdg ProfileBinding) []Sample {
@@ -39,8 +43,12 @@ func TestMatchedPairProfileRejectsEveryMismatch(t *testing.T) {
 		"different dataset binding": func(binding *ProfileBinding) {
 			binding.DatasetBindingSHA256 = strings.Repeat("f", 64)
 		},
-		"different publication identity": func(binding *ProfileBinding) {
-			binding.PublicationIdentity = "provsql-orders-v1"
+		"different publication set": func(binding *ProfileBinding) {
+			other, err := CanonicalPublicationSetSHA256([]string{"provsql-orders-v1", "provsql-lineitem-v1"})
+			if err != nil {
+				panic(err)
+			}
+			binding.PublicationIdentity = other
 		},
 	} {
 		bdg := testBinding()
@@ -97,7 +105,9 @@ func TestProfileBindingValidationIsFailClosed(t *testing.T) {
 		"non digest closure":   func(binding *ProfileBinding) { binding.ClosureSHA256 = "abc" },
 		"non digest catalog":   func(binding *ProfileBinding) { binding.CatalogSHA256 = "" },
 		"non digest dataset":   func(binding *ProfileBinding) { binding.DatasetBindingSHA256 = "0x1" },
-		"empty publication":    func(binding *ProfileBinding) { binding.PublicationIdentity = "  " },
+		"publication name not a set digest": func(binding *ProfileBinding) {
+			binding.PublicationIdentity = "final-v5-result-heavy-v1"
+		},
 	} {
 		binding := testBinding()
 		mutate(&binding)

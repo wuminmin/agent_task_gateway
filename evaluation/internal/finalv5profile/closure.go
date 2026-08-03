@@ -51,6 +51,21 @@ const ActivationPolicy = "restart a Catalog-bound Gateway on this profile Catalo
 // Catalog candidate carries until a deployment generates the real digest.
 var sentinelDigest = strings.Repeat("0", 64)
 
+// Profile requirement classes. A cell that never binds a Gateway Catalog is not
+// a coverage gap; it is a different kind of unit and must say so rather than be
+// silently absent from the denominator.
+const (
+	// RequirementCatalogBound: the cell requests Catalog Products and therefore
+	// must map to exactly one deployment profile.
+	RequirementCatalogBound = "catalog_bound"
+	// RequirementControlOnly: the cell runs entirely against Control-side or
+	// kernel-only paths and requests no Catalog Product.
+	RequirementControlOnly = "control_only"
+	// RequirementProfileExempt: the cell is reviewed as exempt from profile
+	// mapping for a recorded reason.
+	RequirementProfileExempt = "profile_exempt"
+)
+
 // WorkloadCell is one preregistered cell together with the Products its Query
 // Contract requests.
 type WorkloadCell struct {
@@ -59,6 +74,11 @@ type WorkloadCell struct {
 	Scale        string   `json:"scale" yaml:"scale"`
 	Mode         string   `json:"mode" yaml:"mode"`
 	Products     []string `json:"products" yaml:"products"`
+	// ProfileRequirement is machine readable and always set. A cell is never
+	// dropped from the audit because it happens not to need a Catalog.
+	ProfileRequirement string `json:"profile_requirement" yaml:"profile_requirement"`
+	// RequirementReason explains a non catalog_bound classification.
+	RequirementReason string `json:"requirement_reason,omitempty" yaml:"requirement_reason,omitempty"`
 }
 
 func (cell WorkloadCell) String() string {
@@ -98,10 +118,23 @@ type ProfileStatus struct {
 	UnresolvedReasons        []UnresolvedReason `json:"unresolved_reasons"`
 }
 
-// Routable is true only when every state holds.
+// Routable is true only when every state holds. Only a routable profile may
+// carry a Publication Campaign.
 func (status ProfileStatus) Routable() bool {
 	return status.ClosureComplete && status.CatalogMaterializable && status.LiveRouteAvailable &&
 		status.ActivationSupported && status.TargetedValidationPassed
+}
+
+// TargetedRunEligible is a derived convenience, not a sixth contract state. It
+// says a profile may be activated for a pilot, an activation smoke or a
+// targeted non-publication validation -- everything except a Publication
+// Campaign, which still requires Routable.
+//
+// Passing an activation smoke never sets TargetedValidationPassed: activating a
+// Catalog is not the same as executing the profile's workload cells.
+func (status ProfileStatus) TargetedRunEligible() bool {
+	return status.ClosureComplete && status.CatalogMaterializable &&
+		status.LiveRouteAvailable && status.ActivationSupported
 }
 
 // HotArtifact is one activated HOT artifact and its observed byte count.
@@ -120,6 +153,7 @@ type Profile struct {
 	Closure             Closure       `json:"closure"`
 	Status              ProfileStatus `json:"status"`
 	Routable            bool          `json:"routable"`
+	TargetedRunEligible bool          `json:"targeted_run_eligible"`
 	BudgetProfiles      []string      `json:"budget_profiles"`
 	Cells               []string      `json:"workload_cells"`
 	Experiments         []string      `json:"experiments"`
@@ -398,6 +432,9 @@ func Build(input BuildInput) ([]Profile, error) {
 			return nil, fmt.Errorf("workload cell %s is declared twice", cell)
 		}
 		seenCells[cell.String()] = true
+		if cell.ProfileRequirement != RequirementCatalogBound {
+			continue
+		}
 		closure, reasons, err := ComputeClosure(input.Master, cell.Products)
 		if err != nil {
 			return nil, fmt.Errorf("workload cell %s: %w", cell, err)
@@ -406,7 +443,7 @@ func Build(input BuildInput) ([]Profile, error) {
 		if !present {
 			status, budgets := EvaluateStatus(closure, reasons, input.Live, input.Hot, input.ActivationSupported)
 			profile = &Profile{ID: ProfileID(closure.SHA256), Closure: closure, Status: status,
-				Routable: status.Routable(), BudgetProfiles: budgets,
+				Routable: status.Routable(), TargetedRunEligible: status.TargetedRunEligible(), BudgetProfiles: budgets,
 				MaxHotLimitBytes: MaxHotBytesPerInstance, ActivationPolicy: ActivationPolicy}
 			byDigest[closure.SHA256] = profile
 		}
@@ -477,6 +514,12 @@ func ValidateRegistry(registry Registry, cells []WorkloadCell) error {
 		if profile.Routable != profile.Status.Routable() {
 			return fmt.Errorf("profile %q routable flag disagrees with its five states", profile.Alias)
 		}
+		if profile.TargetedRunEligible != profile.Status.TargetedRunEligible() {
+			return fmt.Errorf("profile %q targeted_run_eligible disagrees with its four preconditions", profile.Alias)
+		}
+		if profile.Routable && !profile.TargetedRunEligible {
+			return fmt.Errorf("profile %q is routable without being targeted-run eligible", profile.Alias)
+		}
 		if !profile.Routable && len(profile.Status.UnresolvedReasons) == 0 {
 			return fmt.Errorf("profile %q is not routable and records no structured reason", profile.Alias)
 		}
@@ -508,17 +551,29 @@ func ValidateRegistry(registry Registry, cells []WorkloadCell) error {
 	if err := validateAliases(registry.Profiles); err != nil {
 		return err
 	}
+	catalogBound := 0
 	for _, cell := range cells {
+		if cell.ProfileRequirement != RequirementCatalogBound {
+			if assigned[cell.String()] != 0 {
+				return fmt.Errorf("%s cell %s was mapped to a profile", cell.ProfileRequirement, cell)
+			}
+			if strings.TrimSpace(cell.RequirementReason) == "" {
+				return fmt.Errorf("cell %s is %s without a recorded reason", cell, cell.ProfileRequirement)
+			}
+			continue
+		}
+		catalogBound++
 		switch assigned[cell.String()] {
 		case 1:
 		case 0:
-			return fmt.Errorf("workload cell %s is not assigned to any profile", cell)
+			return fmt.Errorf("catalog-bound cell %s is not assigned to any profile", cell)
 		default:
-			return fmt.Errorf("workload cell %s is assigned to %d profiles", cell, assigned[cell.String()])
+			return fmt.Errorf("catalog-bound cell %s is assigned to %d profiles", cell, assigned[cell.String()])
 		}
 	}
-	if len(assigned) != len(cells) {
-		return fmt.Errorf("profile registry assigns %d cells, the contract declares %d", len(assigned), len(cells))
+	if len(assigned) != catalogBound {
+		return fmt.Errorf("profile registry assigns %d cells, the contract declares %d catalog-bound cells",
+			len(assigned), catalogBound)
 	}
 	return nil
 }

@@ -40,12 +40,14 @@ type AdapterOperation struct {
 	FreshRootRequired bool   `json:"fresh_root_required"`
 	RootGroupID       string `json:"root_group_id"`
 	WorkloadID        string `json:"workload_id"`
-	// ProfileID is the deployment profile the orchestrator activated for this
-	// operation. An adapter must refuse an operation whose profile is not the
-	// one its cell resolves to.
-	ProfileID string `json:"profile_id,omitempty"`
-	Scale     string `json:"scale"`
-	Mode      string `json:"mode"`
+	// ProfileBinding is the complete deployment profile the orchestrator
+	// activated for this operation. The orchestrator derives it from the Profile
+	// Registry, the profile Catalog, the deployment Dataset Binding and the
+	// canonical Publication closure; an Adapter only echoes it back and proves
+	// it actually ran against those bytes. An Adapter never chooses any member.
+	ProfileBinding *ProfileBinding `json:"profile_binding,omitempty"`
+	Scale          string          `json:"scale"`
+	Mode           string          `json:"mode"`
 }
 
 func RunCommand(experimentID string) int {
@@ -527,6 +529,32 @@ func runAdapterProcess(path, experimentID string, operations []AdapterOperation)
 	return samples, errors.Join(processErrors...)
 }
 
+// validateOperationProfileBinding is fail-closed per sample. It never accepts a
+// partial comparison: an equal profile_id with a different Catalog digest is a
+// different deployment and must not become a pass sample.
+func validateOperationProfileBinding(operation AdapterOperation, sample Sample) error {
+	if operation.ProfileBinding == nil {
+		// Synthetic framework smoke runs deliberately carry no profile. They are
+		// never publication evidence, and the Runner refuses to invent a binding
+		// on their behalf.
+		if sample.ProfileBinding != nil {
+			return errors.New("sample carries a profile binding the operation did not request")
+		}
+		return nil
+	}
+	if err := RequireProfileBinding(sample); err != nil {
+		return err
+	}
+	if err := operation.ProfileBinding.Validate(); err != nil {
+		return fmt.Errorf("requested profile binding is invalid: %w", err)
+	}
+	if fields := operation.ProfileBinding.MismatchedFields(*sample.ProfileBinding); len(fields) != 0 {
+		return fmt.Errorf("sample profile binding differs from the activated profile on %s",
+			strings.Join(fields, ", "))
+	}
+	return nil
+}
+
 func validateAdapterSample(config Config, operation AdapterOperation, sample Sample, seenFreshRoots, rootGroups map[string]string) error {
 	if sample.CampaignID != operation.CampaignID || sample.DeploymentID != operation.DeploymentID ||
 		sample.ExperimentID != operation.ExperimentID || sample.CellID != operation.CellID ||
@@ -538,6 +566,13 @@ func validateAdapterSample(config Config, operation AdapterOperation, sample Sam
 		return errors.New("identity fields do not exactly match the requested operation")
 	}
 	if err := sample.Validate(); err != nil {
+		return err
+	}
+	// A profile-enabled run binds every arm, including a Direct arm that never
+	// reaches the Gateway: the pair is only comparable when both read the same
+	// Dataset, Catalog and Publication set. Warmups are bound too, because a
+	// warmup executed against the wrong profile would prime the wrong caches.
+	if err := validateOperationProfileBinding(operation, sample); err != nil {
 		return err
 	}
 	if operation.Warmup {

@@ -43,6 +43,7 @@
         ]
       },
       "routable": false,
+      "targeted_run_eligible": false,
       "budget_profiles": [
         "final-v5-rls-unlimited-v1"
       ],
@@ -107,6 +108,7 @@
         ]
       },
       "routable": false,
+      "targeted_run_eligible": false,
       "budget_profiles": [
         "detail-manual-v5"
       ],
@@ -172,6 +174,7 @@
         ]
       },
       "routable": false,
+      "targeted_run_eligible": false,
       "budget_profiles": [
         "final-v5-attack-medium-v1"
       ],
@@ -245,6 +248,7 @@
         ]
       },
       "routable": false,
+      "targeted_run_eligible": false,
       "budget_profiles": [
         "final-v5-rls-bounded-70-v1"
       ],
@@ -307,6 +311,7 @@
         ]
       },
       "routable": false,
+      "targeted_run_eligible": false,
       "budget_profiles": [
         "final-v5-concurrency-v1"
       ],
@@ -392,6 +397,7 @@
         ]
       },
       "routable": false,
+      "targeted_run_eligible": false,
       "budget_profiles": null,
       "workload_cells": [
         "baseline/S4/depth-4/direct",
@@ -455,6 +461,7 @@
         ]
       },
       "routable": false,
+      "targeted_run_eligible": false,
       "budget_profiles": null,
       "workload_cells": [
         "baseline/S2/SF1/direct",
@@ -545,6 +552,7 @@
         ]
       },
       "routable": false,
+      "targeted_run_eligible": false,
       "budget_profiles": null,
       "workload_cells": [
         "baseline/S3/10k-50k/direct",
@@ -641,6 +649,7 @@
         ]
       },
       "routable": false,
+      "targeted_run_eligible": false,
       "budget_profiles": [
         "final-v5-provsql-low-v1"
       ],
@@ -720,6 +729,7 @@
         ]
       },
       "routable": false,
+      "targeted_run_eligible": false,
       "budget_profiles": [
         "final-v5-benchmark-low-v1"
       ],
@@ -805,6 +815,7 @@
         ]
       },
       "routable": false,
+      "targeted_run_eligible": false,
       "budget_profiles": null,
       "workload_cells": [
         "baseline/S1/SF1/direct",

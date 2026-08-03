@@ -1157,6 +1157,19 @@ func TestExperimentEvidenceRejectsRecomputedOverlapAndMissingConcurrencyProof(t 
 	}
 }
 
+// publicationTestProfileBinding is the one deployment profile every fixture
+// sample in a publication run shares.
+func publicationTestProfileBinding(t *testing.T) ProfileBinding {
+	t.Helper()
+	publications, err := CanonicalPublicationSetSHA256([]string{"expense-detail-v1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ProfileBinding{Version: ProfileBindingVersion, ProfileID: "profile-0d88c4e9d8b7561b",
+		ClosureSHA256: sha256Hex([]byte("fixture-closure")), CatalogSHA256: sha256Hex([]byte("fixture-catalog")),
+		DatasetBindingSHA256: sha256Hex([]byte("fixture-dataset")), PublicationIdentity: publications}
+}
+
 func TestPublicationFinalizerSealsCompleteEvidenceAndRejectsRootReuse(t *testing.T) {
 	passing := buildPublicationEvidence(t, false)
 	summary, err := FinalizeRun(passing)
@@ -1534,6 +1547,10 @@ func buildPublicationEvidence(t *testing.T, reuseRoot bool) string {
 				sample.ReceiptVersion, sample.ReceiptSHA256 = "8", rootHash
 				sample.ArtifactIntentSHA256, sample.AvailabilityAuditSHA256 = rootHash, rootHash
 				sample.ReceiptVerified, sample.ArtifactAvailable = true, true
+				// A publication sample must name the deployment profile it ran
+				// against; the finalizer now refuses an unbound one.
+				binding := publicationTestProfileBinding(t)
+				sample.ProfileBinding = &binding
 				if err := writer.Write(sample); err != nil {
 					t.Fatal(err)
 				}

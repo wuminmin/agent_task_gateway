@@ -128,48 +128,75 @@ func run(root string, verifyOnly bool) error {
 // coverageReport is the source-controlled cell completeness audit. Every count
 // is derived from the registry; nothing here is hand written.
 type coverageReport struct {
-	SchemaVersion    int               `json:"schema_version"`
-	ContractsVersion string            `json:"contracts_version"`
-	RegistryVersion  string            `json:"registry_version"`
-	TotalCells       int               `json:"total_cells"`
-	MappedCells      int               `json:"mapped_cells"`
-	RoutableCells    int               `json:"routable_cells"`
-	UnresolvedCells  int               `json:"unresolved_cells"`
-	DuplicateCells   int               `json:"duplicate_cells"`
-	MissingCells     int               `json:"missing_cells"`
-	DuplicateCellIDs []string          `json:"duplicate_cell_ids"`
-	MissingCellIDs   []string          `json:"missing_cell_ids"`
-	Profiles         []coverageProfile `json:"profiles"`
+	SchemaVersion    int    `json:"schema_version"`
+	ContractsVersion string `json:"contracts_version"`
+	RegistryVersion  string `json:"registry_version"`
+	// CoverageScope names the denominator the mapping counts apply to. The
+	// profile mapping invariant is about Catalog-bound cells; control-only and
+	// exempt cells are counted separately rather than omitted.
+	CoverageScope            string            `json:"coverage_scope"`
+	AllFormalCells           int               `json:"all_formal_cells"`
+	CatalogBoundCells        int               `json:"catalog_bound_cells"`
+	ControlOnlyCells         int               `json:"control_only_cells"`
+	ProfileExemptCells       int               `json:"catalog_profile_exempt_cells"`
+	MappedCatalogBoundCells  int               `json:"mapped_catalog_bound_cells"`
+	MissingCatalogBoundCells int               `json:"missing_catalog_bound_cells"`
+	DuplicateCatalogBound    int               `json:"duplicate_catalog_bound_cells"`
+	RoutableCells            int               `json:"routable_cells"`
+	TargetedRunEligibleCells int               `json:"targeted_run_eligible_cells"`
+	UnresolvedCells          int               `json:"unresolved_cells"`
+	DuplicateCellIDs         []string          `json:"duplicate_cell_ids"`
+	MissingCellIDs           []string          `json:"missing_cell_ids"`
+	ControlOnlyCellIDs       []string          `json:"control_only_cell_ids"`
+	Profiles                 []coverageProfile `json:"profiles"`
 }
 
 type coverageProfile struct {
-	ProfileID        string                            `json:"profile_id"`
-	Alias            string                            `json:"alias"`
-	ClosureSHA256    string                            `json:"closure_sha256"`
-	Routable         bool                              `json:"routable"`
-	Status           finalv5profile.ProfileStatus      `json:"status"`
-	UnresolvedReason []finalv5profile.UnresolvedReason `json:"unresolved_reason"`
-	CatalogSHA256    string                            `json:"catalog_sha256"`
-	TotalHotBytes    int64                             `json:"total_hot_bytes"`
-	Cells            []string                          `json:"cells"`
+	ProfileID           string                            `json:"profile_id"`
+	Alias               string                            `json:"alias"`
+	ClosureSHA256       string                            `json:"closure_sha256"`
+	Routable            bool                              `json:"routable"`
+	TargetedRunEligible bool                              `json:"targeted_run_eligible"`
+	Status              finalv5profile.ProfileStatus      `json:"status"`
+	UnresolvedReason    []finalv5profile.UnresolvedReason `json:"unresolved_reason"`
+	CatalogSHA256       string                            `json:"catalog_sha256"`
+	TotalHotBytes       int64                             `json:"total_hot_bytes"`
+	Cells               []string                          `json:"cells"`
 }
 
 func buildCoverage(registry finalv5profile.Registry, cells []finalv5profile.WorkloadCell) coverageReport {
 	report := coverageReport{SchemaVersion: 1, ContractsVersion: registry.ContractRelease,
-		RegistryVersion: registry.RegistryVersion, TotalCells: len(cells),
-		DuplicateCellIDs: []string{}, MissingCellIDs: []string{}}
+		RegistryVersion: registry.RegistryVersion, CoverageScope: "catalog_bound_workload_cells",
+		AllFormalCells: len(cells), DuplicateCellIDs: []string{}, MissingCellIDs: []string{},
+		ControlOnlyCellIDs: []string{}}
+	for _, cell := range cells {
+		switch cell.ProfileRequirement {
+		case finalv5profile.RequirementCatalogBound:
+			report.CatalogBoundCells++
+		case finalv5profile.RequirementControlOnly:
+			report.ControlOnlyCells++
+			report.ControlOnlyCellIDs = append(report.ControlOnlyCellIDs, cell.String())
+		case finalv5profile.RequirementProfileExempt:
+			report.ProfileExemptCells++
+		}
+	}
+	sort.Strings(report.ControlOnlyCellIDs)
 	seen := map[string]int{}
 	for _, profile := range registry.Profiles {
 		entry := coverageProfile{ProfileID: profile.ID, Alias: profile.Alias,
-			ClosureSHA256: profile.Closure.SHA256, Routable: profile.Routable, Status: profile.Status,
+			ClosureSHA256: profile.Closure.SHA256, Routable: profile.Routable,
+			TargetedRunEligible: profile.TargetedRunEligible, Status: profile.Status,
 			UnresolvedReason: profile.Status.UnresolvedReasons, CatalogSHA256: profile.CatalogSHA256,
 			TotalHotBytes: profile.TotalHotBytes, Cells: profile.Cells}
 		report.Profiles = append(report.Profiles, entry)
-		report.MappedCells += len(profile.Cells)
+		report.MappedCatalogBoundCells += len(profile.Cells)
 		if profile.Routable {
 			report.RoutableCells += len(profile.Cells)
 		} else {
 			report.UnresolvedCells += len(profile.Cells)
+		}
+		if profile.TargetedRunEligible {
+			report.TargetedRunEligibleCells += len(profile.Cells)
 		}
 		for _, cell := range profile.Cells {
 			seen[cell]++
@@ -181,13 +208,13 @@ func buildCoverage(registry finalv5profile.Registry, cells []finalv5profile.Work
 		}
 	}
 	for _, cell := range cells {
-		if seen[cell.String()] == 0 {
+		if cell.ProfileRequirement == finalv5profile.RequirementCatalogBound && seen[cell.String()] == 0 {
 			report.MissingCellIDs = append(report.MissingCellIDs, cell.String())
 		}
 	}
 	sort.Strings(report.MissingCellIDs)
-	report.DuplicateCells = len(report.DuplicateCellIDs)
-	report.MissingCells = len(report.MissingCellIDs)
+	report.DuplicateCatalogBound = len(report.DuplicateCellIDs)
+	report.MissingCatalogBoundCells = len(report.MissingCellIDs)
 	return report
 }
 
@@ -288,15 +315,18 @@ func workloadCells(root string) ([]finalv5profile.WorkloadCell, declaration, err
 	}
 	cells := make([]finalv5profile.WorkloadCell, 0, len(contractCells))
 	for _, contractCell := range contractCells {
-		if len(contractCell.Products) == 0 {
-			// A cell with no Product closure activates no Catalog and cannot be
-			// bound to a Gateway instance; it is not a deployment profile.
-			continue
-		}
-		cells = append(cells, finalv5profile.WorkloadCell{
+		cell := finalv5profile.WorkloadCell{
 			ExperimentID: contractCell.Identity.ExperimentID, WorkloadID: contractCell.Identity.WorkloadID,
 			Scale: contractCell.Identity.Scale, Mode: contractCell.Identity.Mode,
-			Products: contractCell.Products})
+			Products: contractCell.Products, ProfileRequirement: finalv5profile.RequirementCatalogBound}
+		if len(contractCell.Products) == 0 {
+			// A cell that requests no Catalog Product never binds a Gateway
+			// Catalog. It is classified rather than dropped, so the coverage
+			// denominator stays honest.
+			cell.ProfileRequirement = finalv5profile.RequirementControlOnly
+			cell.RequirementReason = "the contract cell requests no Catalog Product; it runs on Control-side or kernel-only paths"
+		}
+		cells = append(cells, cell)
 	}
 	for _, experiment := range sortedKeys(declared.Experiments) {
 		for _, workload := range declared.Experiments[experiment] {
@@ -307,7 +337,7 @@ func workloadCells(root string) ([]finalv5profile.WorkloadCell, declaration, err
 				for _, mode := range workload.Modes {
 					cells = append(cells, finalv5profile.WorkloadCell{ExperimentID: experiment,
 						WorkloadID: workload.WorkloadID, Scale: scale, Mode: mode,
-						Products: workload.Products})
+						Products: workload.Products, ProfileRequirement: finalv5profile.RequirementCatalogBound})
 				}
 			}
 		}

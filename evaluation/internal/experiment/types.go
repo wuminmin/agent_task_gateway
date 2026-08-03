@@ -231,6 +231,23 @@ func StrictJSON(value []byte, target any) error {
 	return nil
 }
 
+// PilotKinds are the reviewed non-publication run classes.
+// profile_activation_smoke exercises Catalog-bound activation and isolation
+// without executing a workload cell; artifact_targeted executes the frozen
+// Artifact cells for validation only. Both bind every arm to a deployment
+// profile; synthetic_smoke never does.
+var PilotKinds = [...]string{"synthetic_smoke", "real_system", "profile_activation_smoke", "artifact_targeted"}
+
+// ValidPilotKind reports whether a pilot declares a reviewed run class.
+func ValidPilotKind(kind string) bool {
+	for _, candidate := range PilotKinds {
+		if kind == candidate {
+			return true
+		}
+	}
+	return false
+}
+
 func (config Config) Validate(expectedExperiment string) error {
 	if config.SchemaVersion != 1 || !campaignIDPattern.MatchString(config.CampaignID) ||
 		config.ExperimentID == "" || (expectedExperiment != "" && config.ExperimentID != expectedExperiment) ||
@@ -239,9 +256,8 @@ func (config Config) Validate(expectedExperiment string) error {
 		return errors.New("invalid experiment configuration")
 	}
 	if config.CampaignClass == "pilot" {
-		if config.Deployments != 1 || config.Samples > 3 ||
-			(config.PilotKind != "synthetic_smoke" && config.PilotKind != "real_system") {
-			return errors.New("pilot must declare synthetic_smoke or real_system, use one deployment, and use at most three samples per cell")
+		if config.Deployments != 1 || config.Samples > 3 || !ValidPilotKind(config.PilotKind) {
+			return errors.New("pilot must declare a reviewed pilot kind, use one deployment, and use at most three samples per cell")
 		}
 	} else {
 		if config.PilotKind != "" {

@@ -118,6 +118,23 @@ type Summary struct {
 	Notices             []string                `json:"notices,omitempty"`
 }
 
+// profileBindingRequired says when a run must bind every arm to a deployment
+// profile. Synthetic framework smoke stays exempt; anything that can become
+// evidence about a real system does not.
+func profileBindingRequired(config Config) bool {
+	return config.CampaignClass == "publication" || config.PilotKind == "real_system" ||
+		config.PilotKind == "profile_activation_smoke" || config.PilotKind == "artifact_targeted"
+}
+
+func appendUniqueReason(reasons []string, reason string) []string {
+	for _, existing := range reasons {
+		if existing == reason {
+			return reasons
+		}
+	}
+	return append(reasons, reason)
+}
+
 func FinalizeRun(runDir string) (Summary, error) {
 	config, _, err := LoadConfig(filepath.Join(runDir, "config.json"), "")
 	if err != nil {
@@ -138,6 +155,33 @@ func FinalizeRun(runDir string) (Summary, error) {
 		if err != nil {
 			summary.Status = "fail"
 			summary.Reasons = append(summary.Reasons, "RQ5 sealed driver build manifest is absent, non-regular, or unreadable")
+		}
+	}
+	// Profile binding is enforced before any statistic is computed. A run that
+	// mixes deployment profiles inside one cell produced an incomparable pair,
+	// so the whole cell is invalidated first and the retained evidence keeps
+	// every original arm.
+	if profileBindingRequired(config) {
+		for index := range samples {
+			if samples[index].Status != "pass" {
+				continue
+			}
+			if err := RequireProfileBinding(samples[index]); err != nil {
+				samples[index].Status = "invalid"
+				samples[index].ErrorCode = "profile_binding_missing"
+				samples[index].Reason = "a profile-enabled run requires every arm to name the deployment profile it ran against"
+				summary.Status = "fail"
+				summary.Reasons = appendUniqueReason(summary.Reasons,
+					fmt.Sprintf("cell %s sample %s has no deployment profile binding", samples[index].CellID, samples[index].SampleID))
+			}
+		}
+	}
+	if updated, affected := InvalidateMismatchedProfileCells(samples); len(affected) != 0 {
+		samples = updated
+		summary.Status = "fail"
+		for _, cell := range affected {
+			summary.Reasons = appendUniqueReason(summary.Reasons,
+				fmt.Sprintf("cell %s arms ran against different deployment profiles; the whole cell is invalid", cell))
 		}
 	}
 	byCell := map[string][]float64{}

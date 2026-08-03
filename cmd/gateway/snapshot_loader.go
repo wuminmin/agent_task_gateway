@@ -40,6 +40,7 @@ type snapshotPublicationStore interface {
 type loadedSnapshotPublication struct {
 	publication catalog.SnapshotPublication
 	index       *ordinal.HotDictionary
+	hotBytes    int64
 }
 
 func snapshotRegistryFromEnv(ctx context.Context, logicalCatalog *catalog.Catalog, store snapshotPublicationStore) (*ordinal.Registry, error) {
@@ -49,6 +50,10 @@ func snapshotRegistryFromEnv(ctx context.Context, logicalCatalog *catalog.Catalo
 	}
 	return loadSnapshotArtifactDirectory(ctx, directory, logicalCatalog, store)
 }
+
+// activatedSnapshotState is captured by the loader for the read-only profile
+// diagnostic. It is written exactly once, during startup verification.
+var activatedSnapshotState *activationState
 
 // loadSnapshotArtifactDirectory activates exactly the publications declared by
 // the already validated Catalog. Unknown, missing, symlinked, oversized, or
@@ -107,6 +112,7 @@ func loadSnapshotArtifactDirectory(ctx context.Context, directory string, logica
 			return nil, fmt.Errorf("load snapshot publication %q: %w", publication.Name, loadErr)
 		}
 		totalHotBytes += hotBytes
+		value.hotBytes = hotBytes
 		loaded = append(loaded, value)
 	}
 	// Persist the one-way deployment mode only after every Catalog publication
@@ -136,6 +142,15 @@ func loadSnapshotArtifactDirectory(ctx context.Context, directory string, logica
 			return nil, fmt.Errorf("persist snapshot publication %q metadata: %w", value.publication.Name, err)
 		}
 	}
+	// Record what this process actually parsed, so the activation diagnostic
+	// reports observed state instead of echoing a Catalog back to its caller.
+	observed := make([]activatedHotArtifact, 0, len(loaded))
+	for _, value := range loaded {
+		observed = append(observed, activatedHotArtifact{Publication: value.publication.Name,
+			ManifestDigest: value.publication.ManifestDigest,
+			HotIndexDigest: value.index.Manifest().HotIndexDigest, Bytes: value.hotBytes})
+	}
+	activatedSnapshotState = newActivationState(logicalCatalog, observed, totalHotBytes, maxGatewayHotArtifactsBytes)
 	// The Catalog-wide dictionary universe is persisted lazily at query
 	// compilation/settlement. Startup only proves every member publication; it
 	// does not create query/control state before an authorized request exists.
