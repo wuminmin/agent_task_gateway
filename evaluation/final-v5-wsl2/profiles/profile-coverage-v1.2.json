@@ -11,7 +11,7 @@
   "missing_catalog_bound_cells": 0,
   "duplicate_catalog_bound_cells": 0,
   "routable_cells": 0,
-  "targeted_run_eligible_cells": 0,
+  "targeted_run_eligible_cells": 59,
   "unresolved_cells": 129,
   "duplicate_cell_ids": [],
   "missing_cell_ids": [],
@@ -59,19 +59,14 @@
       "alias": "rls-unlimited",
       "closure_sha256": "00bc8f7d5633f5964545ed5c1aefd3120e36512a094dd09676c0697c15f1dc0a",
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
+        "activation_supported": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "activation_not_implemented",
-            "detail": "no Catalog-bound runtime activation exists for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -80,11 +75,6 @@
         ]
       },
       "unresolved_reason": [
-        {
-          "state": "activation_supported",
-          "code": "activation_not_implemented",
-          "detail": "no Catalog-bound runtime activation exists for this profile"
-        },
         {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
@@ -105,19 +95,14 @@
       "alias": "expense-detail",
       "closure_sha256": "0d88c4e9d8b7561bc4705cc395a268bf6634bc619ae391d3574c3f93addf3fb1",
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
+        "activation_supported": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "activation_not_implemented",
-            "detail": "no Catalog-bound runtime activation exists for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -126,11 +111,6 @@
         ]
       },
       "unresolved_reason": [
-        {
-          "state": "activation_supported",
-          "code": "activation_not_implemented",
-          "detail": "no Catalog-bound runtime activation exists for this profile"
-        },
         {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
@@ -151,19 +131,14 @@
       "alias": "attack-expense-detail",
       "closure_sha256": "158c6ffcccef2383a957e4244c8b95eea8378b0092c123f7c2076acccda2e2bf",
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
+        "activation_supported": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "activation_not_implemented",
-            "detail": "no Catalog-bound runtime activation exists for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -172,11 +147,6 @@
         ]
       },
       "unresolved_reason": [
-        {
-          "state": "activation_supported",
-          "code": "activation_not_implemented",
-          "detail": "no Catalog-bound runtime activation exists for this profile"
-        },
         {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
@@ -206,19 +176,14 @@
       "alias": "rls-bounded",
       "closure_sha256": "18c12d9c4dc04fc599a5f41351c9d83fe4439c8c12d616f9dff6f454bd75c18d",
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
+        "activation_supported": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "activation_not_implemented",
-            "detail": "no Catalog-bound runtime activation exists for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -227,11 +192,6 @@
         ]
       },
       "unresolved_reason": [
-        {
-          "state": "activation_supported",
-          "code": "activation_not_implemented",
-          "detail": "no Catalog-bound runtime activation exists for this profile"
-        },
         {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
@@ -250,19 +210,14 @@
       "alias": "concurrency-expense-detail",
       "closure_sha256": "3947f508ef5e96777dfc3966d6a2c0eb46b1a365f1810b9a87990375cb2bfe0a",
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
+        "activation_supported": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "activation_not_implemented",
-            "detail": "no Catalog-bound runtime activation exists for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -271,11 +226,6 @@
         ]
       },
       "unresolved_reason": [
-        {
-          "state": "activation_supported",
-          "code": "activation_not_implemented",
-          "detail": "no Catalog-bound runtime activation exists for this profile"
-        },
         {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
@@ -306,14 +256,9 @@
         "closure_complete": true,
         "catalog_materializable": false,
         "live_route_available": false,
-        "activation_supported": false,
+        "activation_supported": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "activation_not_implemented",
-            "detail": "no Catalog-bound runtime activation exists for this profile"
-          },
           {
             "state": "catalog_materializable",
             "code": "product_absent_from_live_catalog",
@@ -333,11 +278,6 @@
         ]
       },
       "unresolved_reason": [
-        {
-          "state": "activation_supported",
-          "code": "activation_not_implemented",
-          "detail": "no Catalog-bound runtime activation exists for this profile"
-        },
         {
           "state": "catalog_materializable",
           "code": "product_absent_from_live_catalog",
@@ -373,14 +313,9 @@
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": false,
-        "activation_supported": false,
+        "activation_supported": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "activation_not_implemented",
-            "detail": "no Catalog-bound runtime activation exists for this profile"
-          },
           {
             "state": "live_route_available",
             "code": "no_approval_route_for_closure",
@@ -395,11 +330,6 @@
         ]
       },
       "unresolved_reason": [
-        {
-          "state": "activation_supported",
-          "code": "activation_not_implemented",
-          "detail": "no Catalog-bound runtime activation exists for this profile"
-        },
         {
           "state": "live_route_available",
           "code": "no_approval_route_for_closure",
@@ -437,14 +367,9 @@
         "closure_complete": true,
         "catalog_materializable": false,
         "live_route_available": false,
-        "activation_supported": false,
+        "activation_supported": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "activation_not_implemented",
-            "detail": "no Catalog-bound runtime activation exists for this profile"
-          },
           {
             "state": "catalog_materializable",
             "code": "product_absent_from_live_catalog",
@@ -470,11 +395,6 @@
         ]
       },
       "unresolved_reason": [
-        {
-          "state": "activation_supported",
-          "code": "activation_not_implemented",
-          "detail": "no Catalog-bound runtime activation exists for this profile"
-        },
         {
           "state": "catalog_materializable",
           "code": "product_absent_from_live_catalog",
@@ -547,19 +467,14 @@
       "alias": "provsql-nonce-join",
       "closure_sha256": "a60a787c64c9545177fa6b47e3723eb01725b71945b8a196753f90f2f2e05c79",
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
+        "activation_supported": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "activation_not_implemented",
-            "detail": "no Catalog-bound runtime activation exists for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -568,11 +483,6 @@
         ]
       },
       "unresolved_reason": [
-        {
-          "state": "activation_supported",
-          "code": "activation_not_implemented",
-          "detail": "no Catalog-bound runtime activation exists for this profile"
-        },
         {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
@@ -598,19 +508,14 @@
       "alias": "result-heavy",
       "closure_sha256": "a86cd4df5cad6e2685d1930caeccdbe3a865194fcef33faeca86b7c2c592bdbd",
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
+        "activation_supported": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "activation_not_implemented",
-            "detail": "no Catalog-bound runtime activation exists for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -619,11 +524,6 @@
         ]
       },
       "unresolved_reason": [
-        {
-          "state": "activation_supported",
-          "code": "activation_not_implemented",
-          "detail": "no Catalog-bound runtime activation exists for this profile"
-        },
         {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
@@ -663,14 +563,9 @@
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": false,
-        "activation_supported": false,
+        "activation_supported": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "activation_not_implemented",
-            "detail": "no Catalog-bound runtime activation exists for this profile"
-          },
           {
             "state": "live_route_available",
             "code": "no_approval_route_for_closure",
@@ -685,11 +580,6 @@
         ]
       },
       "unresolved_reason": [
-        {
-          "state": "activation_supported",
-          "code": "activation_not_implemented",
-          "detail": "no Catalog-bound runtime activation exists for this profile"
-        },
         {
           "state": "live_route_available",
           "code": "no_approval_route_for_closure",

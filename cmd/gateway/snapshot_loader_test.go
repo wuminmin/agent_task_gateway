@@ -204,10 +204,13 @@ func TestSnapshotRegistryFromEnvIsOptional(t *testing.T) {
 	}
 }
 
-func writeLoaderFixture(t *testing.T) (string, *catalog.Catalog, snapshotbundle.CompiledBundle) {
-	t.Helper()
-	const schemaDigest = "1111111111111111111111111111111111111111111111111111111111111111"
-	input := snapshotbundle.CompilerInput{
+// loaderFixtureSchemaDigest is the build-time schema attestation frozen into
+// the fixture Publication. After C15 it is deliberately unrelated to the
+// profile reporting-surface attestation a Catalog pins in Source.SchemaDigest.
+const loaderFixtureSchemaDigest = "1111111111111111111111111111111111111111111111111111111111111111"
+
+func loaderCompilerInput(schemaDigest string) snapshotbundle.CompilerInput {
+	return snapshotbundle.CompilerInput{
 		Version: snapshotbundle.CompilerInputVersion, PublicationName: "expense-detail-v1", CatalogSource: "travel_demo",
 		OrdinalSidecar: "taskgate_ordinal.expense_detail_v1", EntityKeyFields: []string{"receipt_no"},
 		Snapshot: snapshotbundle.SnapshotInput{SourceID: "travel-demo", SourceNamespace: "travel.expense_receipt",
@@ -221,6 +224,12 @@ func writeLoaderFixture(t *testing.T) (string, *catalog.Catalog, snapshotbundle.
 				{Values: map[string]any{"receipt_no": "R-002", "amount": json.Number("20.00")}},
 			}},
 	}
+}
+
+func writeLoaderFixture(t *testing.T) (string, *catalog.Catalog, snapshotbundle.CompiledBundle) {
+	t.Helper()
+	const schemaDigest = loaderFixtureSchemaDigest
+	input := loaderCompilerInput(schemaDigest)
 	bundle, err := snapshotbundle.Compile(input)
 	if err != nil {
 		t.Fatalf("Compile fixture: %v", err)

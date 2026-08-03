@@ -27,14 +27,9 @@
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
+        "activation_supported": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "activation_not_implemented",
-            "detail": "no Catalog-bound runtime activation exists for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -43,7 +38,7 @@
         ]
       },
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "budget_profiles": [
         "final-v5-rls-unlimited-v1"
       ],
@@ -92,14 +87,9 @@
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
+        "activation_supported": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "activation_not_implemented",
-            "detail": "no Catalog-bound runtime activation exists for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -108,7 +98,7 @@
         ]
       },
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "budget_profiles": [
         "detail-manual-v5"
       ],
@@ -158,14 +148,9 @@
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
+        "activation_supported": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "activation_not_implemented",
-            "detail": "no Catalog-bound runtime activation exists for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -174,7 +159,7 @@
         ]
       },
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "budget_profiles": [
         "final-v5-attack-medium-v1"
       ],
@@ -232,14 +217,9 @@
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
+        "activation_supported": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "activation_not_implemented",
-            "detail": "no Catalog-bound runtime activation exists for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -248,7 +228,7 @@
         ]
       },
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "budget_profiles": [
         "final-v5-rls-bounded-70-v1"
       ],
@@ -295,14 +275,9 @@
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
+        "activation_supported": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "activation_not_implemented",
-            "detail": "no Catalog-bound runtime activation exists for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -311,7 +286,7 @@
         ]
       },
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "budget_profiles": [
         "final-v5-concurrency-v1"
       ],
@@ -370,14 +345,9 @@
         "closure_complete": true,
         "catalog_materializable": false,
         "live_route_available": false,
-        "activation_supported": false,
+        "activation_supported": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "activation_not_implemented",
-            "detail": "no Catalog-bound runtime activation exists for this profile"
-          },
           {
             "state": "catalog_materializable",
             "code": "product_absent_from_live_catalog",
@@ -439,14 +409,9 @@
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": false,
-        "activation_supported": false,
+        "activation_supported": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "activation_not_implemented",
-            "detail": "no Catalog-bound runtime activation exists for this profile"
-          },
           {
             "state": "live_route_available",
             "code": "no_approval_route_for_closure",
@@ -519,14 +484,9 @@
         "closure_complete": true,
         "catalog_materializable": false,
         "live_route_available": false,
-        "activation_supported": false,
+        "activation_supported": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "activation_not_implemented",
-            "detail": "no Catalog-bound runtime activation exists for this profile"
-          },
           {
             "state": "catalog_materializable",
             "code": "product_absent_from_live_catalog",
@@ -633,14 +593,9 @@
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
+        "activation_supported": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "activation_not_implemented",
-            "detail": "no Catalog-bound runtime activation exists for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -649,7 +604,7 @@
         ]
       },
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "budget_profiles": [
         "final-v5-provsql-low-v1"
       ],
@@ -713,14 +668,9 @@
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
+        "activation_supported": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "activation_not_implemented",
-            "detail": "no Catalog-bound runtime activation exists for this profile"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -729,7 +679,7 @@
         ]
       },
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "budget_profiles": [
         "final-v5-benchmark-low-v1"
       ],
@@ -793,14 +743,9 @@
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": false,
-        "activation_supported": false,
+        "activation_supported": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "activation_not_implemented",
-            "detail": "no Catalog-bound runtime activation exists for this profile"
-          },
           {
             "state": "live_route_available",
             "code": "no_approval_route_for_closure",

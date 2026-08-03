@@ -193,6 +193,12 @@ func loadSnapshotPublication(baseDirectory string, logicalCatalog *catalog.Catal
 	if err := matchHotIndexToCatalog(logicalCatalog, publication, bundleManifest, hot); err != nil {
 		return loadedSnapshotPublication{}, 0, err
 	}
+	// Separating the attestation domains removed the only implicit tie between
+	// a Product and the bundle it reads through, so the binding is checked here
+	// explicitly. See docs/final_v5_c15_attestation_separation.md.
+	if err := verifyProductPublicationCompatibility(logicalCatalog, publication); err != nil {
+		return loadedSnapshotPublication{}, 0, err
+	}
 	hotArtifactBytes := int64(len(hotBytes))
 	// MarshalBinaryWithoutEntityKeys is valid for a connector that has a
 	// separately attested sidecar, but this startup path promises to verify the
@@ -269,10 +275,21 @@ func matchBundleToCatalog(logicalCatalog *catalog.Catalog, publication catalog.S
 		return errors.New("bundle does not match the Catalog snapshot publication")
 	}
 	source, found := catalogSource(logicalCatalog, publication.Source)
-	if !found || bundle.DictionaryManifest.SourceID != source.DatasourceID ||
-		bundle.DictionaryManifest.SchemaDigest != source.SchemaDigest {
-		return errors.New("bundle does not match the Catalog datasource/schema attestation")
+	if !found || bundle.DictionaryManifest.SourceID != source.DatasourceID {
+		return errors.New("bundle does not match the Catalog datasource")
 	}
+	// The bundle's embedded schema attestation is deliberately not compared
+	// with Source.SchemaDigest. They answer different questions: the bundle
+	// records the attestation this immutable Publication was compiled under,
+	// while Source.SchemaDigest attests the reporting surface the *active
+	// profile* declares. One Publication is shared by several profiles, so no
+	// single embedded value could equal all of their surface attestations.
+	//
+	// The build attestation stays fully bound: DictionaryManifest.Digest folds
+	// SchemaDigest in, and the ManifestDigest equality above is checked against
+	// the Catalog-approved publication identity, so editing it still fails
+	// closed as the Publication identity violation it is. See
+	// docs/final_v5_c15_attestation_separation.md.
 	return nil
 }
 
@@ -287,9 +304,12 @@ func matchHotIndexToCatalog(logicalCatalog *catalog.Catalog, publication catalog
 		return errors.New("HOT index does not match Catalog and bundle manifests")
 	}
 	source, found := catalogSource(logicalCatalog, publication.Source)
-	if !found || manifest.SourceID != source.DatasourceID || manifest.SchemaDigest != source.SchemaDigest {
-		return errors.New("HOT index datasource/schema binding mismatch")
+	if !found || manifest.SourceID != source.DatasourceID {
+		return errors.New("HOT index datasource binding mismatch")
 	}
+	// Same separation as matchBundleToCatalog. The HOT manifest is already
+	// required to be DeepEqual to the bundle manifest and to recompute to the
+	// Catalog-approved ManifestDigest, which covers its schema attestation.
 	return nil
 }
 

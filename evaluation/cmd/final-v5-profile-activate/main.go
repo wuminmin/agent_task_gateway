@@ -27,6 +27,7 @@ import (
 
 	"taskbound.local/agent-data-gateway/evaluation/internal/experiment"
 	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5profile"
+	"taskbound.local/agent-data-gateway/internal/snapshotbundle"
 )
 
 const diagnosticPath = "/admin/v1/evaluation/profile-activation"
@@ -295,9 +296,12 @@ func run(opts options) error {
 	evidence.CacheIsolation.PreviousCacheUnreachable = evidence.CacheIsolation.ProcessRestarted
 	// SemanticCacheCatalogBound is only true when the switch actually changed
 	// the namespace every in-process and persisted lookup is keyed by.
+	// The cache namespace folds the process nonce and the activated Catalog, so
+	// a genuine restart always changes it. Requiring the Catalog digest to
+	// change as well would wrongly reject re-activating the same profile, which
+	// is a legal operation and is exactly what the switch-back exercises.
 	evidence.CacheIsolation.SemanticCacheCatalogBound = previous == nil ||
-		(previous.Activation.CacheNamespace != current.Activation.CacheNamespace &&
-			previous.Activation.CatalogSHA256 != current.Activation.CatalogSHA256)
+		previous.Activation.CacheNamespace != current.Activation.CacheNamespace
 	evidence.CacheIsolation.PreviousHotArtifactsRetired = previous == nil ||
 		!sharesArtifact(previous.Activation.HotArtifacts, current.Activation.HotArtifacts)
 	if current.Activation.CatalogSHA256 != profile.CatalogSHA256 {
@@ -312,6 +316,23 @@ func run(opts options) error {
 	if err := reattestSchema(ctx, opts, profile, &evidence); err != nil {
 		evidence.Failures = append(evidence.Failures, err.Error())
 	}
+
+	// C15. The Publication-build Schema Attestation lives in a different domain
+	// from the reporting surface just re-attested, so it is verified separately,
+	// through the Publication identity chain, against the artifact directory
+	// this activation actually mounted and the identities the loader reported.
+	activatedIdentities := make(map[string]string, len(current.Activation.HotArtifacts))
+	for _, artifact := range current.Activation.HotArtifacts {
+		activatedIdentities[artifact.Publication] = artifact.ManifestDigest
+	}
+	bundleErr := recordPublicationBundleAttestations(opts.artifactDir, activatedIdentities, &evidence)
+	if bundleErr != nil {
+		evidence.Failures = append(evidence.Failures, "publication bundle attestation: "+bundleErr.Error())
+	}
+	// Both chains had to complete on their own terms. Equality between the two
+	// digests is never required, and never consulted here.
+	evidence.AttestationDomainsSeparated = evidence.ProfileSurfaceAttestation.Verified &&
+		bundleErr == nil && len(evidence.PublicationBundleAttestations) > 0
 
 	for _, product := range splitProducts(opts.outsideProducts) {
 		absent, observed := probeOutsideProduct(current, product)
@@ -628,12 +649,82 @@ func reattestSchema(ctx context.Context, opts options, profile finalv5profile.Pr
 	}
 	evidence.ObservedSchemaDigest = observedDigest
 	evidence.ObservedReportingViewSetSHA256 = finalv5profile.CanonicalNameSetSHA256("reporting-view-set", views)
+	evidence.ProfileSurfaceAttestation = finalv5profile.SurfaceAttestation{
+		Domain: "profile-reporting-surface", CatalogSource: attestation.Source,
+		CatalogPinnedDigest: evidence.ExpectedSchemaDigest, LiveObservedDigest: evidence.ObservedSchemaDigest,
+		ReportingViewSetSHA256: evidence.ObservedReportingViewSetSHA256,
+		ReportingViews:         append([]string(nil), views...)}
 	if evidence.ObservedSchemaDigest == evidence.ExpectedSchemaDigest &&
 		evidence.ObservedReportingViewSetSHA256 == evidence.ExpectedReportingViewSetSHA256 {
 		evidence.SchemaAttestationStatus = "verified"
+		evidence.ProfileSurfaceAttestation.Verified = true
 		return nil
 	}
 	return fmt.Errorf("live schema attestation differs from the reviewed attestation for %s", profile.Alias)
+}
+
+// recordPublicationBundleAttestations reads the Publication-build Schema
+// Attestation out of every bundle in the exact artifact directory this
+// activation mounted, and verifies it the only way it can legitimately be
+// verified after C15: through the identity chain. The bundle's dictionary
+// manifest is re-digested here, independently of the Gateway, and the result
+// must equal both the identity the bundle claims and the identity the loader
+// reported activating. Nothing is compared with the profile's reporting-surface
+// attestation; whether they happen to be equal is recorded as an observation
+// only. See docs/final_v5_c15_attestation_separation.md.
+func recordPublicationBundleAttestations(artifactDir string, activated map[string]string,
+	evidence *finalv5profile.ActivationEvidence) error {
+	if artifactDir == "" {
+		return errors.New("publication bundle attestation requires the mounted artifact directory")
+	}
+	publications := append([]string(nil), evidence.ExpectedSourcePublications...)
+	if len(publications) == 0 {
+		return errors.New("artifact manifest declared no publications to attest")
+	}
+	sort.Strings(publications)
+	records := make([]finalv5profile.BundleAttestation, 0, len(publications))
+	for _, name := range publications {
+		path := filepath.Join(artifactDir, name, name+".bundle.json")
+		payload, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("read publication bundle %s: %w", name, err)
+		}
+		manifest, err := snapshotbundle.DecodeBundleManifest(bytes.NewReader(payload))
+		if err != nil {
+			return fmt.Errorf("decode publication bundle %s: %w", name, err)
+		}
+		recomputed, err := manifest.DictionaryManifest.Digest()
+		if err != nil {
+			return fmt.Errorf("recompute publication identity for %s: %w", name, err)
+		}
+		fileDigest := sha256.Sum256(payload)
+		record := finalv5profile.BundleAttestation{Domain: "publication-build",
+			Publication:             manifest.PublicationName,
+			BuildSchemaAttestation:  manifest.DictionaryManifest.SchemaDigest,
+			ManifestDigest:          manifest.ManifestDigest,
+			DictionaryDigest:        manifest.DictionaryManifest.DictionaryDigest,
+			SidecarDigest:           manifest.DictionaryManifest.SidecarDigest,
+			HotIndexDigest:          manifest.DictionaryManifest.HotIndexDigest,
+			BundleManifestSHA256:    hex.EncodeToString(fileDigest[:]),
+			RecomputedIdentityMatch: recomputed == manifest.ManifestDigest,
+			ActivatedByLoader:       activated[manifest.PublicationName] == manifest.ManifestDigest,
+			EqualsProfileSurfaceDigest: manifest.DictionaryManifest.SchemaDigest ==
+				evidence.ObservedSchemaDigest}
+		records = append(records, record)
+		if !record.RecomputedIdentityMatch {
+			return fmt.Errorf("publication %s does not recompute to its own identity", name)
+		}
+		if !record.ActivatedByLoader {
+			return fmt.Errorf("publication %s identity %s was not the one the loader activated",
+				name, manifest.ManifestDigest)
+		}
+	}
+	evidence.PublicationBundleAttestations = records
+	if len(activated) != len(records) {
+		return fmt.Errorf("loader activated %d publications, the artifact directory holds %d",
+			len(activated), len(records))
+	}
+	return nil
 }
 
 func loadArtifactManifest(path, profileID string) (finalv5profile.ArtifactManifest, error) {

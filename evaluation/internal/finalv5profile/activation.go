@@ -45,6 +45,44 @@ func (counts DrainCounts) Clean() bool {
 }
 
 // CacheIsolation records the two isolation layers separately.
+// SurfaceAttestation records the Profile Reporting-Surface Attestation: proof
+// that the reporting views this profile's Products declare match the live
+// Business PostgreSQL schema. It is what a Catalog pins in Source.SchemaDigest.
+// Two profiles with different reporting surfaces legitimately attest to
+// different digests against the same database.
+type SurfaceAttestation struct {
+	Domain                 string   `json:"domain"`
+	CatalogSource          string   `json:"catalog_source"`
+	CatalogPinnedDigest    string   `json:"catalog_pinned_schema_digest"`
+	LiveObservedDigest     string   `json:"live_observed_schema_digest"`
+	ReportingViewSetSHA256 string   `json:"reporting_view_set_sha256"`
+	ReportingViews         []string `json:"reporting_views"`
+	Verified               bool     `json:"verified"`
+}
+
+// BundleAttestation records the Publication-build Schema Attestation of one
+// activated Publication: the attestation the immutable bundle was compiled
+// under. It is bound transitively -- the dictionary manifest digest folds it in
+// and becomes the Publication identity the Catalog pins and the loader
+// activates -- so it is verified through the identity chain, never by comparing
+// it with a profile's reporting surface.
+type BundleAttestation struct {
+	Domain                  string `json:"domain"`
+	Publication             string `json:"publication"`
+	BuildSchemaAttestation  string `json:"build_schema_attestation"`
+	ManifestDigest          string `json:"manifest_digest"`
+	DictionaryDigest        string `json:"dictionary_digest"`
+	SidecarDigest           string `json:"sidecar_digest"`
+	HotIndexDigest          string `json:"hot_index_digest"`
+	BundleManifestSHA256    string `json:"bundle_manifest_file_sha256"`
+	RecomputedIdentityMatch bool   `json:"recomputed_identity_matches_bundle"`
+	ActivatedByLoader       bool   `json:"activated_by_loader"`
+	// EqualsProfileSurfaceDigest is an observation, not a requirement. A shared
+	// Publication cannot equal every profile's surface attestation, which is why
+	// the loader no longer compares them.
+	EqualsProfileSurfaceDigest bool `json:"equals_profile_surface_attestation"`
+}
+
 type CacheIsolation struct {
 	ProcessRestarted            bool   `json:"process_restarted"`
 	PreviousProcessNonce        string `json:"previous_process_nonce,omitempty"`
@@ -134,6 +172,20 @@ type ActivationEvidence struct {
 	SchemaAttestationStatus        string                `json:"schema_attestation_status"`
 	CacheIsolation                 CacheIsolation        `json:"cache_isolation"`
 	OutsideProduct                 []OutsideProductProbe `json:"outside_product_probes"`
+
+	// C15. The deployment carries two schema attestations that answer different
+	// questions, so the evidence records them as two separate chains rather than
+	// as one value that must agree with itself.
+	ProfileSurfaceAttestation     SurfaceAttestation  `json:"profile_surface_attestation"`
+	PublicationBundleAttestations []BundleAttestation `json:"publication_bundle_attestations"`
+	// AttestationDomainsSeparated is true only when both chains independently
+	// completed: the profile's declared reporting surface was re-derived against
+	// the live database and matched what its Catalog pins, and every activated
+	// Publication's build attestation was verified through the immutable bundle
+	// to the Publication identity the loader actually activated. It is
+	// deliberately NOT derived from the two digests being equal or unequal;
+	// requiring either would re-couple the domains C15 separated.
+	AttestationDomainsSeparated bool `json:"attestation_domains_separated"`
 
 	// ActivationSmokePassed and WorkloadTargetedValidationPassed are separate
 	// on purpose: activating a Catalog is not the same as executing the

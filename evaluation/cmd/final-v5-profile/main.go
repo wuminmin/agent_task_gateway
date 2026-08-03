@@ -41,13 +41,19 @@ const (
 )
 
 // activationSupported records whether a Catalog-bound runtime activation
-// orchestrator exists in this tree. It is a source-controlled fact about the
-// repository, not a claim that any particular profile has been activated.
+// orchestrator exists in this tree and has been exercised. It is a
+// source-controlled fact about the repository, not a claim that any particular
+// profile's workload cells have run.
 //
-// It is false: contracts/profile-activation-v1.json specifies the activation
-// and isolation requirements, but no orchestrator implements them yet, so no
-// profile can honestly report activation_supported.
-const activationSupported = false
+// It is true: evaluation/cmd/final-v5-profile-activate activates a profile on
+// its own Catalog and its own snapshot artifact directory, re-attests the
+// reporting surface against the live database, and was exercised by a
+// Result-heavy canary followed by an eight-step activation smoke covering all
+// seven Catalog-and-route cleared profiles including a switch-back.
+//
+// It says nothing about targeted_validation_passed, which still requires each
+// profile's own workload cells to run.
+const activationSupported = true
 
 // declaration is the source-controlled input for experiments that have no
 // machine contract. Baseline, Scale and Artifact Product sets always come from

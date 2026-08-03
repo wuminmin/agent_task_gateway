@@ -1,0 +1,16 @@
+{
+  "backed_by": "live PostgreSQL through the production publish and lookup path",
+  "changed_catalog_miss": true,
+  "changed_grant_miss": true,
+  "changed_publication_or_dictionary_set_miss": true,
+  "changed_task_miss": true,
+  "incomplete_binding_rejected": true,
+  "record": "taskgate-final-v5-production-semantic-cache-lookup-v1",
+  "same_binding_hit": true,
+  "same_binding_hit_after_probes": true,
+  "test_package": "internal/control",
+  "tests": [
+    "TestSemanticCacheMissesUnderAChangedProfileBinding",
+    "TestSemanticCacheLookupRequiresACompleteBinding"
+  ]
+}
