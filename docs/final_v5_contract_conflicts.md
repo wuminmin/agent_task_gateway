@@ -261,6 +261,33 @@ Comparing digests across profiles is explicitly not accepted as a substitute.
 Resolving this needs either a reviewed profile pair that shares a Product, or an
 author decision that cross-profile replay isolation is proven some other way.
 
+## C14 — A profile Catalog needs its own datasource schema digest
+
+Found by the Stage B.2a-Live-2 activation smoke, after C12 was fixed. The
+Gateway now loads the profile Catalog and exactly its own snapshot artifacts,
+and fails at the next gate:
+
+    DATA_CONNECTOR_SCHEMA_DRIFT: reporting schema does not match the approved catalog
+
+`internal/dataconnector.attestSchemaDigest` computes the source attestation over
+the reporting views of **the Products the active Catalog declares**. The full
+Catalog declares ten Products, so its `sources[].schema_digest` covers ten
+views. A generated profile Catalog declares only its closure -- one Product for
+result-heavy -- so the live attestation covers one view and cannot equal the
+inherited digest.
+
+Each generated profile Catalog therefore needs its own `sources[].schema_digest`
+computed over exactly its closure's reporting views. `evaluation/cmd/schema-digest`
+already computes that value against a live database; the profile Catalog
+generator must call it per profile and bind the result, the same way the full
+Catalog's digest was regenerated under amendment v1.1.
+
+This is a deployment-layer gap, not a contract change. It alters no Product,
+Query Contract, Oracle, workload cell, closure digest or HOT ceiling; it only
+gives each profile Catalog the attestation that matches what it actually
+declares. Until it is resolved no profile can be activated, so the activation
+smoke remains unexecuted.
+
 No generated digest is frozen by this register. A generated value first becomes
 a `REVIEW_CANDIDATE`; only explicit author review may change its status to
 approved/frozen. Until every conflict required by a claim is resolved,
