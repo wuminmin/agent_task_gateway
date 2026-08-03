@@ -33,6 +33,24 @@ type TraceUnion struct {
 	Outcome    Dimension `json:"outcome"`
 }
 
+// EvaluatePrefixes returns the exact independent union after every query.
+// It intentionally recomputes from the source trace instead of consuming any
+// production ledger member or response FactID.
+func EvaluatePrefixes(trace []Observation) ([]TraceUnion, error) {
+	if len(trace) == 0 {
+		return nil, errors.New("independent oracle trace is empty")
+	}
+	result := make([]TraceUnion, len(trace))
+	for index := range trace {
+		prefix, err := Evaluate(trace[:index+1])
+		if err != nil {
+			return nil, err
+		}
+		result[index] = prefix
+	}
+	return result, nil
+}
+
 // Evaluate computes U_R/U_D/U_O and the preregistered floor(70% * U)
 // budgets. Every nonzero dimension receives a minimum budget of one.
 func Evaluate(trace []Observation) (TraceUnion, error) {

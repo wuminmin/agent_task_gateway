@@ -1,73 +1,60 @@
 BEGIN;
 
--- Publication is all-or-nothing: do not expose a Catalog snapshot unless the
--- materialized reporting relations and their ordinal companions describe the
--- same entity-key sets and the manifest-declared row counts are exact.
+-- Assert the source-side frozen corpus before any live snapshot compiler is
+-- allowed to scan it. The offline sidecar installer independently proves the
+-- row count and entity-key equality for all five compiler bundles.
 DO $taskgate_publication_check$
-DECLARE
-    detail_rows bigint;
-    summary_rows bigint;
 BEGIN
-    SELECT row_count INTO detail_rows
-    FROM taskgate_ordinal.publications
-    WHERE publication_name = 'expense-detail-v1';
-
-    SELECT row_count INTO summary_rows
-    FROM taskgate_ordinal.publications
-    WHERE publication_name = 'expense-summary-v1';
-
-    IF detail_rows IS NULL OR summary_rows IS NULL THEN
-        RAISE EXCEPTION 'a required TaskGate snapshot publication is missing';
+    IF (SELECT count(*) FROM reporting.expense_detail) <> 10 THEN
+        RAISE EXCEPTION 'expense-detail-v1 source row count is not frozen at 10';
     END IF;
 
-    IF (SELECT count(*) FROM reporting.expense_detail) <> detail_rows OR
-       (SELECT count(*) FROM taskgate_ordinal.expense_detail_v1) <> detail_rows THEN
-        RAISE EXCEPTION 'expense-detail-v1 row count does not match its publication';
+    IF (SELECT count(*) FROM reporting.final_v5_attack_expense_detail) <> 10 OR
+       EXISTS (
+           SELECT 1
+           FROM reporting.final_v5_attack_expense_detail
+           WHERE receipt_no IS NULL OR department IS NULL OR amount IS NULL
+       ) OR
+       EXISTS (
+           SELECT receipt_no, department, amount FROM reporting.final_v5_attack_expense_detail
+           EXCEPT
+           SELECT receipt_no, department, amount FROM reporting.expense_detail
+       ) OR EXISTS (
+           SELECT receipt_no, department, amount FROM reporting.expense_detail
+           EXCEPT
+           SELECT receipt_no, department, amount FROM reporting.final_v5_attack_expense_detail
+       ) THEN
+        RAISE EXCEPTION 'Final-V5 attack projection does not match expense-detail-v1';
     END IF;
 
-    IF EXISTS (
-        SELECT receipt_no FROM reporting.expense_detail
-        EXCEPT
-        SELECT receipt_no FROM taskgate_ordinal.expense_detail_v1
-    ) OR EXISTS (
-        SELECT receipt_no FROM taskgate_ordinal.expense_detail_v1
-        EXCEPT
-        SELECT receipt_no FROM reporting.expense_detail
-    ) THEN
-        RAISE EXCEPTION 'expense-detail-v1 entity keys do not match its ordinal sidecar';
+    IF (SELECT count(*) FROM reporting.final_v5_concurrency_expense_detail) <> 10 OR
+       EXISTS (
+           SELECT 1
+           FROM reporting.final_v5_concurrency_expense_detail
+           WHERE receipt_no IS NULL OR department IS NULL OR expense_type IS NULL OR city IS NULL
+       ) OR
+       EXISTS (
+           SELECT receipt_no, department, expense_type, city
+           FROM reporting.final_v5_concurrency_expense_detail
+           EXCEPT
+           SELECT receipt_no, department, expense_type, city FROM reporting.expense_detail
+       ) OR EXISTS (
+           SELECT receipt_no, department, expense_type, city FROM reporting.expense_detail
+           EXCEPT
+           SELECT receipt_no, department, expense_type, city
+           FROM reporting.final_v5_concurrency_expense_detail
+       ) THEN
+        RAISE EXCEPTION 'Final-V5 concurrency projection does not match expense-detail-v1';
     END IF;
 
-    IF EXISTS (
-        SELECT handle FROM generate_series(1::bigint, detail_rows) AS expected(handle)
-        EXCEPT
-        SELECT row_handle FROM taskgate_ordinal.expense_detail_v1
-    ) THEN
-        RAISE EXCEPTION 'expense-detail-v1 row handles are not contiguous';
+    IF (SELECT count(*) FROM reporting.expense_summary) <> 10 THEN
+        RAISE EXCEPTION 'expense-summary-v1 source row count is not frozen at 10';
     END IF;
 
-    IF (SELECT count(*) FROM reporting.expense_summary) <> summary_rows OR
-       (SELECT count(*) FROM taskgate_ordinal.expense_summary_v1) <> summary_rows THEN
-        RAISE EXCEPTION 'expense-summary-v1 row count does not match its publication';
-    END IF;
-
-    IF EXISTS (
-        SELECT month, department, expense_type FROM reporting.expense_summary
-        EXCEPT
-        SELECT month, department, expense_type FROM taskgate_ordinal.expense_summary_v1
-    ) OR EXISTS (
-        SELECT month, department, expense_type FROM taskgate_ordinal.expense_summary_v1
-        EXCEPT
-        SELECT month, department, expense_type FROM reporting.expense_summary
-    ) THEN
-        RAISE EXCEPTION 'expense-summary-v1 entity keys do not match its ordinal sidecar';
-    END IF;
-
-    IF EXISTS (
-        SELECT handle FROM generate_series(1::bigint, summary_rows) AS expected(handle)
-        EXCEPT
-        SELECT row_handle FROM taskgate_ordinal.expense_summary_v1
-    ) THEN
-        RAISE EXCEPTION 'expense-summary-v1 row handles are not contiguous';
+    IF (SELECT count(*) FROM reporting.provsql_orders) <> 50000 OR
+       (SELECT count(*) FROM reporting.provsql_lineitem) <> 250000 OR
+       (SELECT count(*) FROM reporting.provsql_nonce) <> 1000 THEN
+        RAISE EXCEPTION 'Final-V5 ProvSQL source row counts differ from the frozen corpus';
     END IF;
 END
 $taskgate_publication_check$;
@@ -105,26 +92,36 @@ CREATE TRIGGER reject_frozen_expenses_mutation
 BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE ON legacy.expenses
 FOR EACH STATEMENT EXECUTE FUNCTION taskgate_ordinal.reject_frozen_publication_mutation();
 
+CREATE TRIGGER reject_frozen_provsql_orders_mutation
+BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE ON final_v5_provsql.orders
+FOR EACH STATEMENT EXECUTE FUNCTION taskgate_ordinal.reject_frozen_publication_mutation();
+
+CREATE TRIGGER reject_frozen_provsql_lineitem_mutation
+BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE ON final_v5_provsql.lineitem
+FOR EACH STATEMENT EXECUTE FUNCTION taskgate_ordinal.reject_frozen_publication_mutation();
+
+CREATE TRIGGER reject_frozen_provsql_nonce_mutation
+BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE ON final_v5_provsql.nonce
+FOR EACH STATEMENT EXECUTE FUNCTION taskgate_ordinal.reject_frozen_publication_mutation();
+
 CREATE TRIGGER reject_frozen_attestation_mutation
 BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE ON reporting.datasource_attestation
 FOR EACH STATEMENT EXECUTE FUNCTION taskgate_ordinal.reject_frozen_publication_mutation();
 
-CREATE TRIGGER reject_frozen_publications_mutation
-BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE ON taskgate_ordinal.publications
-FOR EACH STATEMENT EXECUTE FUNCTION taskgate_ordinal.reject_frozen_publication_mutation();
-
-CREATE TRIGGER reject_frozen_detail_sidecar_mutation
-BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE ON taskgate_ordinal.expense_detail_v1
-FOR EACH STATEMENT EXECUTE FUNCTION taskgate_ordinal.reject_frozen_publication_mutation();
-
-CREATE TRIGGER reject_frozen_summary_sidecar_mutation
-BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE ON taskgate_ordinal.expense_summary_v1
-FOR EACH STATEMENT EXECUTE FUNCTION taskgate_ordinal.reject_frozen_publication_mutation();
-
 COMMENT ON MATERIALIZED VIEW reporting.expense_detail IS
     'Immutable TaskGate publication expense-detail-v1; refresh requires an explicit new Catalog publication.';
+COMMENT ON MATERIALIZED VIEW reporting.final_v5_attack_expense_detail IS
+    'Immutable physical projection of expense-detail-v1 for the frozen Final-V5 A--D corpus.';
+COMMENT ON MATERIALIZED VIEW reporting.final_v5_concurrency_expense_detail IS
+    'Immutable physical projection of expense-detail-v1 for the frozen Final-V5 same-task/same-root matrix.';
 COMMENT ON MATERIALIZED VIEW reporting.expense_summary IS
     'Immutable TaskGate publication expense-summary-v1; refresh requires an explicit new Catalog publication.';
+COMMENT ON MATERIALIZED VIEW reporting.provsql_orders IS
+    'Immutable Final-V5 ProvSQL orders publication; refresh requires a new Catalog publication.';
+COMMENT ON MATERIALIZED VIEW reporting.provsql_lineitem IS
+    'Immutable Final-V5 ProvSQL lineitem publication; refresh requires a new Catalog publication.';
+COMMENT ON MATERIALIZED VIEW reporting.provsql_nonce IS
+    'Immutable Final-V5 ProvSQL nonce publication; refresh requires a new Catalog publication.';
 COMMENT ON ROLE taskgate_snapshot_owner IS
     'NOLOGIN owner of the immutable TaskGate business snapshot and ordinal sidecars.';
 
@@ -135,12 +132,18 @@ ALTER TABLE legacy.employees OWNER TO taskgate_snapshot_owner;
 ALTER TABLE legacy.expenses OWNER TO taskgate_snapshot_owner;
 ALTER TABLE reporting.datasource_attestation OWNER TO taskgate_snapshot_owner;
 ALTER MATERIALIZED VIEW reporting.expense_detail OWNER TO taskgate_snapshot_owner;
+ALTER MATERIALIZED VIEW reporting.final_v5_attack_expense_detail OWNER TO taskgate_snapshot_owner;
+ALTER MATERIALIZED VIEW reporting.final_v5_concurrency_expense_detail OWNER TO taskgate_snapshot_owner;
 ALTER MATERIALIZED VIEW reporting.expense_summary OWNER TO taskgate_snapshot_owner;
-ALTER TABLE taskgate_ordinal.publications OWNER TO taskgate_snapshot_owner;
-ALTER TABLE taskgate_ordinal.expense_detail_v1 OWNER TO taskgate_snapshot_owner;
-ALTER TABLE taskgate_ordinal.expense_summary_v1 OWNER TO taskgate_snapshot_owner;
+ALTER TABLE final_v5_provsql.orders OWNER TO taskgate_snapshot_owner;
+ALTER TABLE final_v5_provsql.lineitem OWNER TO taskgate_snapshot_owner;
+ALTER TABLE final_v5_provsql.nonce OWNER TO taskgate_snapshot_owner;
+ALTER MATERIALIZED VIEW reporting.provsql_orders OWNER TO taskgate_snapshot_owner;
+ALTER MATERIALIZED VIEW reporting.provsql_lineitem OWNER TO taskgate_snapshot_owner;
+ALTER MATERIALIZED VIEW reporting.provsql_nonce OWNER TO taskgate_snapshot_owner;
 ALTER FUNCTION taskgate_ordinal.reject_frozen_publication_mutation() OWNER TO taskgate_snapshot_owner;
 ALTER SCHEMA legacy OWNER TO taskgate_snapshot_owner;
+ALTER SCHEMA final_v5_provsql OWNER TO taskgate_snapshot_owner;
 ALTER SCHEMA reporting OWNER TO taskgate_snapshot_owner;
 ALTER SCHEMA taskgate_ordinal OWNER TO taskgate_snapshot_owner;
 

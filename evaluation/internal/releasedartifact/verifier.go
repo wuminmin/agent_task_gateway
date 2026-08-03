@@ -103,29 +103,61 @@ type CanonicalObjectEvidence struct {
 	ReleasedParquet    []byte
 }
 
+// Transcript is the redacted, evaluation-only record emitted after a complete
+// live verification. It deliberately contains only check results, audit
+// sequence numbers, and digests/dimensions computed from the bytes actually
+// consumed by this verifier. In particular, it does not retain task, query,
+// result, key, or event identifiers; object-store keys; audit payloads; or
+// artifact bytes.
+//
+// A zero Transcript is never evidence of success. Callers must require both a
+// nil error and Passed=true.
+type Transcript struct {
+	Passed                    bool   `json:"passed"`
+	ReceiptAuditSequence      int64  `json:"receipt_audit_sequence"`
+	TerminalAuditSequence     int64  `json:"terminal_audit_sequence"`
+	RegistrationAuditSequence int64  `json:"registration_audit_sequence"`
+	AvailabilityAuditSequence int64  `json:"availability_audit_sequence"`
+	CiphertextSHA256          string `json:"ciphertext_sha256"`
+	CiphertextSize            int64  `json:"ciphertext_size"`
+	ReleasedParquetSHA256     string `json:"released_parquet_sha256"`
+	ReleasedParquetSize       int64  `json:"released_parquet_size"`
+	ReleasedSchemaSHA256      string `json:"released_schema_sha256"`
+}
+
 // VerifyReleasedArtifact is the final-campaign composition point for a
 // released result. Verification proceeds from the receipt signature and its
 // signed Grant/Catalog/profile/effect fields, through terminal and artifact
 // audit inclusion, to the exact canonical ciphertext and released Parquet
 // bytes named by the Artifact Intent.
 func VerifyReleasedArtifact(verifier *queryreceipt.Verifier, settlement SettlementEvidence, object CanonicalObjectEvidence) error {
+	_, err := VerifyReleasedArtifactWithTranscript(verifier, settlement, object)
+	return err
+}
+
+// VerifyReleasedArtifactWithTranscript performs the same composition as
+// VerifyReleasedArtifact and, only after every check succeeds, returns a
+// redacted transcript of the values observed by the live verifier. Every
+// failure returns the zero Transcript so partial verification cannot be
+// mistaken for affirmative campaign evidence.
+func VerifyReleasedArtifactWithTranscript(verifier *queryreceipt.Verifier, settlement SettlementEvidence, object CanonicalObjectEvidence) (Transcript, error) {
 	if verifier == nil {
-		return invalid("receipt verifier is unavailable")
+		return Transcript{}, invalid("receipt verifier is unavailable")
 	}
 	if err := verifier.Verify(settlement.Receipt); err != nil {
-		return fmt.Errorf("%w: receipt signature or signed binding: %v", ErrInvalidRelease, err)
+		return Transcript{}, fmt.Errorf("%w: receipt signature or signed binding: %v", ErrInvalidRelease, err)
 	}
 	if err := verifyExpectedBinding(settlement.Receipt, settlement.ExpectedBinding); err != nil {
-		return fmt.Errorf("%w: Control binding projection: %v", ErrInvalidRelease, err)
+		return Transcript{}, fmt.Errorf("%w: Control binding projection: %v", ErrInvalidRelease, err)
 	}
 	if err := queryreceipt.VerifyAuditInclusion(settlement.Receipt, settlement.ReceiptInclusion); err != nil {
-		return fmt.Errorf("%w: settlement audit inclusion: %v", ErrInvalidRelease, err)
+		return Transcript{}, fmt.Errorf("%w: settlement audit inclusion: %v", ErrInvalidRelease, err)
 	}
 	if err := queryreceipt.VerifyArtifactIntentInclusion(settlement.Receipt, settlement.TerminalInclusion, settlement.RegistrationInclusion); err != nil {
-		return fmt.Errorf("%w: artifact intent inclusion: %v", ErrInvalidRelease, err)
+		return Transcript{}, fmt.Errorf("%w: artifact intent inclusion: %v", ErrInvalidRelease, err)
 	}
 	if settlement.AvailabilityInclusion == nil {
-		return invalid("availability inclusion is absent")
+		return Transcript{}, invalid("availability inclusion is absent")
 	}
 	registration := settlement.RegistrationInclusion.TerminalEvent
 	availability := settlement.AvailabilityInclusion.TerminalEvent
@@ -133,83 +165,101 @@ func VerifyReleasedArtifact(verifier *queryreceipt.Verifier, settlement Settleme
 		!proofContains(settlement.TerminalInclusion, registration) ||
 		!proofContains(settlement.ReceiptInclusion, availability) ||
 		!proofContains(settlement.RegistrationInclusion, availability) {
-		return invalid("receipt, registration, and availability events do not share one audit path")
+		return Transcript{}, invalid("receipt, registration, and availability events do not share one audit path")
 	}
 	if err := queryreceipt.VerifyArtifactAvailabilityInclusion(settlement.Receipt, *settlement.AvailabilityInclusion); err != nil {
-		return fmt.Errorf("%w: availability inclusion: %v", ErrInvalidRelease, err)
+		return Transcript{}, fmt.Errorf("%w: availability inclusion: %v", ErrInvalidRelease, err)
 	}
 
 	intent := settlement.Receipt.ArtifactIntent
 	if intent == nil {
 		// Verifier.Verify already rejects this for V8. Keep the guard local so
 		// future receipt versions cannot accidentally bypass object checks.
-		return invalid("artifact intent is absent")
+		return Transcript{}, invalid("artifact intent is absent")
 	}
 	if err := verifyArtifactProjection(settlement.Receipt, object); err != nil {
-		return fmt.Errorf("%w: Control artifact projection: %v", ErrInvalidRelease, err)
+		return Transcript{}, fmt.Errorf("%w: Control artifact projection: %v", ErrInvalidRelease, err)
 	}
 	if strings.TrimSpace(object.ObjectKey) == "" || object.Ciphertext == nil {
-		return invalid("canonical object key and ciphertext stream are required")
+		return Transcript{}, invalid("canonical object key and ciphertext stream are required")
 	}
 	if !digestMatches([]byte(object.ObjectKey), intent.ObjectKeySHA256) {
-		return invalid("canonical object key does not match artifact intent")
+		return Transcript{}, invalid("canonical object key does not match artifact intent")
 	}
-	if err := verifyStream(object.Ciphertext, intent.ObjectSize, intent.ObjectSHA256); err != nil {
-		return fmt.Errorf("%w: canonical object: %v", ErrInvalidRelease, err)
+	streamedCiphertext, err := verifyStream(object.Ciphertext, intent.ObjectSize, intent.ObjectSHA256)
+	if err != nil {
+		return Transcript{}, fmt.Errorf("%w: canonical object: %v", ErrInvalidRelease, err)
 	}
 	if int64(len(object.ReleasedParquet)) != intent.ParquetSize ||
 		!digestMatches(object.ReleasedParquet, intent.ParquetSHA256) {
-		return invalid("released Parquet hash or size does not match artifact intent")
+		return Transcript{}, invalid("released Parquet hash or size does not match artifact intent")
 	}
-	if err := verifyParquet(intent, object.ReleasedParquet); err != nil {
-		return fmt.Errorf("%w: released Parquet: %v", ErrInvalidRelease, err)
+	releasedSchemaSHA256, err := verifyParquet(intent, object.ReleasedParquet)
+	if err != nil {
+		return Transcript{}, fmt.Errorf("%w: released Parquet: %v", ErrInvalidRelease, err)
 	}
-	return nil
+	return Transcript{
+		Passed:                    true,
+		ReceiptAuditSequence:      settlement.ReceiptInclusion.TerminalEvent.Sequence,
+		TerminalAuditSequence:     settlement.TerminalInclusion.TerminalEvent.Sequence,
+		RegistrationAuditSequence: registration.Sequence,
+		AvailabilityAuditSequence: availability.Sequence,
+		CiphertextSHA256:          streamedCiphertext.SHA256,
+		CiphertextSize:            streamedCiphertext.Size,
+		ReleasedParquetSHA256:     sha256Hex(object.ReleasedParquet),
+		ReleasedParquetSize:       int64(len(object.ReleasedParquet)),
+		ReleasedSchemaSHA256:      releasedSchemaSHA256,
+	}, nil
 }
 
-func verifyStream(reader io.Reader, expectedSize int64, expectedSHA256 string) error {
+type streamObservation struct {
+	SHA256 string
+	Size   int64
+}
+
+func verifyStream(reader io.Reader, expectedSize int64, expectedSHA256 string) (streamObservation, error) {
 	if expectedSize <= 0 {
-		return errors.New("committed object size is invalid")
+		return streamObservation{}, errors.New("committed object size is invalid")
 	}
 	hash := sha256.New()
 	written, err := io.Copy(hash, io.LimitReader(reader, expectedSize+1))
 	if err != nil {
-		return err
+		return streamObservation{}, err
 	}
 	if written != expectedSize {
-		return errors.New("ciphertext size does not match artifact intent")
+		return streamObservation{}, errors.New("ciphertext size does not match artifact intent")
 	}
 	expected, err := hex.DecodeString(expectedSHA256)
 	if err != nil || len(expected) != sha256.Size || subtle.ConstantTimeCompare(hash.Sum(nil), expected) != 1 {
-		return errors.New("ciphertext hash does not match artifact intent")
+		return streamObservation{}, errors.New("ciphertext hash does not match artifact intent")
 	}
-	return nil
+	return streamObservation{SHA256: hex.EncodeToString(hash.Sum(nil)), Size: written}, nil
 }
 
-func verifyParquet(intent *queryreceipt.ArtifactIntentEvidenceV1, value []byte) error {
+func verifyParquet(intent *queryreceipt.ArtifactIntentEvidenceV1, value []byte) (string, error) {
 	file, err := parquet.OpenFile(bytes.NewReader(value), int64(len(value)))
 	if err != nil {
-		return err
+		return "", err
 	}
 	format, formatOK := file.Lookup("taskgate.format")
 	resultID, resultIDOK := file.Lookup("taskgate.result_id")
 	schemaJSON, schemaOK := file.Lookup("taskgate.schema")
 	if !formatOK || format != "taskgate-result-parquet-v1" ||
 		!resultIDOK || resultID != intent.ResultID || !schemaOK {
-		return errors.New("identity metadata does not match artifact intent")
+		return "", errors.New("identity metadata does not match artifact intent")
 	}
 	normalizedSchema, err := normalizeJSON([]byte(schemaJSON))
 	if err != nil || !digestMatches(normalizedSchema, intent.SchemaSHA256) {
-		return errors.New("schema digest does not match artifact intent")
+		return "", errors.New("schema digest does not match artifact intent")
 	}
 	var schema []resultartifact.ColumnSchema
 	if err := json.Unmarshal([]byte(schemaJSON), &schema); err != nil || int64(len(schema)) != intent.ColumnCount {
-		return errors.New("schema column count does not match artifact intent")
+		return "", errors.New("schema column count does not match artifact intent")
 	}
 	if file.NumRows() != intent.RowCount {
-		return errors.New("row count does not match artifact intent")
+		return "", errors.New("row count does not match artifact intent")
 	}
-	return nil
+	return sha256Hex(normalizedSchema), nil
 }
 
 func verifyExpectedBinding(receipt queryreceipt.QueryReceiptV1, expected ExpectedBinding) error {
@@ -346,6 +396,11 @@ func digestMatches(value []byte, expectedHex string) bool {
 	}
 	actual := sha256.Sum256(value)
 	return subtle.ConstantTimeCompare(actual[:], expected) == 1
+}
+
+func sha256Hex(value []byte) string {
+	digest := sha256.Sum256(value)
+	return hex.EncodeToString(digest[:])
 }
 
 func invalid(reason string) error {

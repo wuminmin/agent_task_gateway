@@ -1,12 +1,31 @@
 schema_version: 1
 protocol_id: taskgate-final-v5-wsl2-v1
-status: staged-source-adapter-baseline-only
+status: staged-source-adapters-complete-campaign-not-run
 claim_boundary: WSL2 Ubuntu 22.04, one Gateway instance, PostgreSQL 16, immutable reporting publications
 campaign:
   publication_deployments: 3
   fresh_wsl_restart_between_deployments: true
-  warmups: 5
-  measured_samples_per_cell: 30
+  replicate_contracts:
+    standard:
+      profiles: [baseline, scale, scale-extreme, artifact, provsql, concurrency]
+      process_replicates: 1
+      warmups_per_cell_per_process: 5
+      measured_samples_per_cell_per_process: 30
+    compiler:
+      profiles: [compiler]
+      process_replicates: 5
+      warmups_per_cell_per_process: 1
+      measured_samples_per_cell_per_process: 100
+    security:
+      profiles: [rls, attack]
+      process_replicates: 1
+      warmups_per_cell_per_process: 0
+      measured_samples_per_cell_per_process: 3
+    rq5:
+      profiles: [rq5]
+      process_replicates: 1
+      warmups_per_cell_per_process: 0
+      measured_samples_per_cell_per_process: 4
   randomized_arm_order: seeded
   overwrite_raw: forbidden
   adapter_protocol: adapter-operation-v1-jsonl

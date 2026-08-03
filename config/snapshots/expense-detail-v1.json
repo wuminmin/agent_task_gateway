@@ -9,7 +9,7 @@
     "source_id": "taskgate-demo-travel",
     "source_namespace": "travel.expense_receipt",
     "snapshot": "travel-demo-2026-v1",
-    "schema_digest": "02b4a211cfbab7347fdce28e2dd76406b1118c5f18e1d2146cc2e85a38ccf1cc",
+    "schema_digest": "ebedbecf4f8fbc4eaf150d32fd260fe9b902549367abee880cc02d4b6c3ff96b",
     "fields": [
       {"name": "receipt_no", "sql_type": "text", "collation": "en_US.utf8", "collation_version": "2.36"},
       {"name": "receipt_no", "canonical_field_id": "expense_detail.receipt_no", "sql_type": "text", "collation": "en_US.utf8", "collation_version": "2.36"},
@@ -48,7 +48,7 @@
   "expected_digests": {
     "sidecar_digest": "bbf33dd42179b80cd8cca631f579c4c6e49ef51eb1d3a4ce157090a797c5acf7",
     "dictionary_digest": "315995feeaa332b0d0f50834867ed5701a491ddc547bb2d666338fc938057232",
-    "manifest_digest": "9bc393632756c13ed355181658a6358aa656e1a828f69da36fc951c5061d390c",
+    "manifest_digest": "f52ab2737ca04030fbb7c9d446c7b9c2e87f4c23c123b0a94c97aace2e423915",
     "cold_payload_digest": "6ae1f688f5bafac44723624a6df5e72cc636c68aca213e92d62a47d97fa88cd6",
     "hot_index_digest": "ae29bfd905ac88b7b6c3d437373c9dcfa1e1f8471c3398c3e82867eb6f4d0675"
   }

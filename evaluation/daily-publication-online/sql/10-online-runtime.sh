@@ -2,7 +2,8 @@
 set -eu
 
 psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
-  --set=ON_ERROR_STOP=1 --set=gateway_password="$DAILY_GATEWAY_DB_PASSWORD" <<'SQL'
+  --set=ON_ERROR_STOP=1 <<'SQL'
+\getenv gateway_password DAILY_GATEWAY_DB_PASSWORD
 BEGIN;
 
 CREATE ROLE taskgate_snapshot_owner

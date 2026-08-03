@@ -29,24 +29,27 @@ type options struct {
 }
 
 type phaseReport struct {
-	SchemaVersion string          `json:"schema_version"`
-	Status        string          `json:"status"`
-	Phase         string          `json:"phase"`
-	Day           string          `json:"day"`
-	Sample        int             `json:"sample"`
-	Executable    string          `json:"executable"`
-	ArgvSHA256    string          `json:"argv_sha256"`
-	WallMS        float64         `json:"wall_ms"`
-	PeakRSSBytes  *uint64         `json:"peak_rss_bytes"`
-	PeakRSSScope  string          `json:"peak_rss_scope"`
-	ExitCode      int             `json:"exit_code"`
-	StdoutBytes   int             `json:"stdout_bytes"`
-	StdoutSHA256  string          `json:"stdout_sha256"`
-	StderrBytes   int             `json:"stderr_bytes"`
-	StderrSHA256  string          `json:"stderr_sha256"`
-	CommandReport json.RawMessage `json:"command_report,omitempty"`
-	Failure       string          `json:"failure,omitempty"`
-	Measurement   string          `json:"measurement_boundary"`
+	SchemaVersion string `json:"schema_version"`
+	Status        string `json:"status"`
+	Phase         string `json:"phase"`
+	Day           string `json:"day"`
+	Sample        int    `json:"sample"`
+	Executable    string `json:"executable"`
+	// ExecutableSHA256 binds the measured process to the exact child bytes,
+	// rather than merely recording a caller-controlled basename.
+	ExecutableSHA256 string          `json:"executable_sha256"`
+	ArgvSHA256       string          `json:"argv_sha256"`
+	WallMS           float64         `json:"wall_ms"`
+	PeakRSSBytes     *uint64         `json:"peak_rss_bytes"`
+	PeakRSSScope     string          `json:"peak_rss_scope"`
+	ExitCode         int             `json:"exit_code"`
+	StdoutBytes      int             `json:"stdout_bytes"`
+	StdoutSHA256     string          `json:"stdout_sha256"`
+	StderrBytes      int             `json:"stderr_bytes"`
+	StderrSHA256     string          `json:"stderr_sha256"`
+	CommandReport    json.RawMessage `json:"command_report,omitempty"`
+	Failure          string          `json:"failure,omitempty"`
+	Measurement      string          `json:"measurement_boundary"`
 }
 
 func main() {
@@ -87,6 +90,11 @@ func run(ctx context.Context, args []string) (phaseReport, error) {
 		PeakRSSScope:  "root_process_vm_hwm_linux_procfs",
 		ExitCode:      -1,
 		Measurement:   "child process wall clock and /proc/<pid>/status VmHWM; excludes container startup and orchestration",
+	}
+	report.ExecutableSHA256, err = regularFileSHA256(opts.argv[0])
+	if err != nil {
+		report.Failure = "hash child executable"
+		return report, err
 	}
 
 	command := exec.CommandContext(ctx, opts.argv[0], opts.argv[1:]...)
@@ -131,6 +139,27 @@ func run(ctx context.Context, args []string) (phaseReport, error) {
 	report.CommandReport = commandReport
 	report.Status = "pass"
 	return report, nil
+}
+
+func regularFileSHA256(path string) (string, error) {
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return "", errors.New("child executable must be a regular non-symlink file")
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	opened, err := file.Stat()
+	if err != nil || !os.SameFile(info, opened) {
+		return "", errors.New("child executable identity changed while opening")
+	}
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 func parseOptions(args []string) (options, error) {

@@ -38,7 +38,7 @@ func emit(encoder *json.Encoder, operation experiment.AdapterOperation) error {
 	sample := experiment.Sample{
 		SchemaVersion: 1, CampaignID: operation.CampaignID, DeploymentID: operation.DeploymentID,
 		ExperimentID: operation.ExperimentID, CellID: operation.CellID, SampleID: operation.SampleID,
-		Iteration: operation.Iteration, ProcessReplicate: operation.ProcessReplicate, OrderPosition: operation.OrderPosition,
+		Iteration: operation.Iteration, ProcessReplicate: operation.ProcessReplicate, Warmup: operation.Warmup, OrderPosition: operation.OrderPosition,
 		RandomSeed: operation.RandomSeed, PairID: operation.PairID, PairedSystemOrder: operation.PairedSystemOrder,
 		RootGroupID: operation.RootGroupID,
 		System:      system, Mode: operation.Mode, WorkloadID: operation.WorkloadID,
@@ -47,7 +47,7 @@ func emit(encoder *json.Encoder, operation experiment.AdapterOperation) error {
 		DiagnosticMS: map[string]float64{}, RowCount: 1, ColumnCount: 3, ResultSHA256: resultHash,
 		RootTaskIDHash: hex.EncodeToString(rootBytes[:]), ReceiptVersion: "8",
 		SemanticReplay: operation.Mode == "semantic_replay", IdempotentReplay: operation.Mode == "idempotent_replay",
-		Status: "pass", PublicationEligible: false,
+		Status: "pass", PublicationEligible: false, KernelOnly: operation.KernelOnly,
 	}
 	return encoder.Encode(sample)
 }

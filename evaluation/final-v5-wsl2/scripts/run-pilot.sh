@@ -10,7 +10,7 @@ install -m 600 evaluation/final-v5-wsl2/config/smoke.example.json "$run_dir/conf
 printf '%s\n' 'publication_eligible=false' > "$run_dir/PILOT-NOT-FOR-PUBLICATION"
 adapter_bin="$(mktemp /tmp/taskgate-final-v5-smoke-adapter.XXXXXX)"
 trap 'rm -f "$adapter_bin"' EXIT
-go build -o "$adapter_bin" ./evaluation/cmd/v5-smoke-adapter
+go build -buildvcs=false -o "$adapter_bin" ./evaluation/cmd/v5-smoke-adapter
 TASKGATE_EXPERIMENT_CLASS=pilot TASKGATE_CAMPAIGN_ID=smoke-local-only \
   go run ./evaluation/cmd/v5-full -config "$run_dir/config.json" \
   -deployment-id deployment-01 -adapter "$adapter_bin" -output "$run_dir/raw/deployment-01.jsonl"

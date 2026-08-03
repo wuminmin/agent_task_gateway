@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "contract_version": "taskgate-final-v5-author-contract-v1",
+  "status": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+  "research_design_status": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+  "exact_generated_bytes_freeze_status": "NOT_APPROVED",
+  "normalization_id": "taskgate-final-v5-canonical-result-v1",
+  "implementation_reference": "evaluation/finalv5oracle/canonical.go and evaluation/finalv5oracle/result.go",
+  "purpose": "one independent typed logical-result identity shared by Direct PostgreSQL, Full BDG, Baseline, and Artifact Parquet read-back, with an explicit registered ordering mode",
+  "hash": "SHA-256",
+  "binary_primitives": {
+    "U64": "unsigned 64-bit big-endian",
+    "LP": "U64 byte length followed by exactly that many bytes",
+    "text_encoding": "UTF-8",
+    "domain_rule": "domain byte strings below are written raw, including the final NUL byte"
+  },
+  "schema_encoding": {
+    "domain": "TASKGATE-FINAL-V5-RESULT-SCHEMA-V1\\u0000",
+    "payload": "U64(column_count) || for each column in result order: LP(exact column name UTF-8) || LP(canonical SQL type ASCII)",
+    "digest": "SHA-256(raw domain || payload)",
+    "digest_field": "normalized_schema_sha256",
+    "column_order_preserved": true,
+    "duplicate_or_empty_column_names_rejected": true,
+    "collation_contract": "physical text fields bind en_US.utf8 version 2.36 in benchmark-products-v1; the logical-result order is either a registered query order or canonical typed-row bytes and never an implicit host collation"
+  },
+  "row_stream_encoding": {
+    "domain": "TASKGATE-FINAL-V5-RESULT-ROWS-V1\\u0000",
+    "row": "U64(column_count) || for each cell: LP(canonical SQL type) || one byte NULL flag || LP(canonical payload)",
+    "null": "flag byte 0 followed by LP(empty)",
+    "value": "flag byte 1 followed by LP(canonical payload)",
+    "stream": "SHA-256(raw domain || for each row in the cell's registered order: LP(encoded row))",
+    "duplicates_preserved": true,
+    "ordering_modes": {
+      "query_order_v1": "commit rows exactly in explicit stable-key query order",
+      "canonical_typed_row_lexicographic_v1": "sort complete encoded rows by unsigned bytewise lexical order before committing; duplicates are retained; bounded to 200000 rows and 256 MiB encoded bytes"
+    },
+    "complete_drain_required": true
+  },
+  "result_encoding": {
+    "domain": "TASKGATE-FINAL-V5-CANONICAL-RESULT-V1\\u0000",
+    "bytes": "raw domain || LP(raw 32-byte normalized schema digest) || U64(row_count) || U64(column_count) || LP(raw 32-byte row-stream digest)",
+    "digest": "SHA-256(bytes)",
+    "digest_field": "canonical_result_sha256"
+  },
+  "canonical_types": [
+    {"name": "bigint", "payload": "exact signed value as 8-byte two's-complement big-endian"},
+    {"name": "integer", "payload": "exact signed value as 4-byte two's-complement big-endian"},
+    {"name": "numeric", "payload": "finite exact decimal UTF-8 expanded without exponent, leading plus, insignificant fractional trailing zeroes, or negative zero; zero is 0"},
+    {"name": "text", "payload": "original valid UTF-8 bytes without normalization, collation folding, trimming, or case folding"},
+    {"name": "date", "payload": "valid calendar date YYYY-MM-DD"},
+    {"name": "timestamp without time zone", "payload": "YYYY-MM-DD HH:MM:SS with optional 1-9 fractional digits and no timezone; insignificant fractional trailing zeroes omitted"},
+    {"name": "boolean", "payload": "one byte: 0 for false, 1 for true"}
+  ],
+  "postgresql_type_aliases": {
+    "bigint": ["bigint", "int8"],
+    "integer": ["integer", "int", "int4"],
+    "numeric": ["numeric", "decimal"],
+    "text": ["text", "varchar", "character varying"],
+    "date": ["date"],
+    "timestamp without time zone": ["timestamp", "timestamp without time zone"],
+    "boolean": ["boolean", "bool"]
+  },
+  "total_order_rule": "S1, S3, S6, Artifact, and single-Product Scale results use query_order_v1; S2, S4, and S5 use canonical_typed_row_lexicographic_v1 because production Join/semantic-View/UNION grammar forbids ORDER BY",
+  "input_adapters": {
+    "direct": "fully drained PostgreSQL typed rows plus field descriptions",
+    "bdg": "fully drained public BDG typed rows plus field descriptions",
+    "artifact": "flat non-repeated Parquet columns and rows read from the emitted file using the reviewed logical schema"
+  },
+  "arm_equivalence": {
+    "same_rendered_query_parameters_required": true,
+    "same_ordered_normalized_schema_required": true,
+    "same_ordered_typed_rows_required": true,
+    "same_row_and_column_counts_required": true,
+    "same_canonical_result_sha256_required": true,
+    "parquet_binary_sha256_equivalence_required": false,
+    "production_result_sha256_is_not_an_oracle": true
+  },
+  "rejections": [
+    "unsupported SQL type or PostgreSQL OID",
+    "invalid UTF-8 column name/value or duplicate column name",
+    "out-of-range integer or inexact floating-point numeric input",
+    "non-finite or oversized numeric",
+    "invalid date or zoned/overprecision timestamp",
+    "row width/type different from normalized schema",
+    "partial drain, missing registered ordering mode, or canonical-sort bound exceeded",
+    "Parquet column order/name/type/repetition mismatch"
+  ],
+  "generated_contract_digest": null,
+  "generated_contract_digest_status": "NOT_GENERATED",
+  "generated_contract_digest_review_status": "NOT_APPROVED"
+}

@@ -185,11 +185,16 @@ func recordEnvironment(args []string) int {
 	deployment := f.String("deployment-id", "", "")
 	output := f.String("output", "", "")
 	bindings := f.String("dataset-bindings", "", "")
+	freshProof := f.String("fresh-deployment-proof", "", "")
 	eligible := f.Bool("publication-eligible", false, "")
-	if f.Parse(args) != nil || *campaign == "" || *deployment == "" || *output == "" {
+	if f.Parse(args) != nil || *campaign == "" || *deployment == "" || *output == "" ||
+		(*eligible && (*bindings == "" || *freshProof == "")) {
 		return 2
 	}
 	datasets, err := experiment.ReadDatasetBindings(*bindings)
+	if err == nil && *eligible {
+		datasets, err = experiment.BindPublicationDatasets(datasets, *freshProof, *campaign, *deployment)
+	}
 	if err == nil {
 		var manifest experiment.EnvironmentManifest
 		manifest, err = experiment.RecordEnvironment(*repo, *campaign, *deployment, *eligible, datasets)

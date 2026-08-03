@@ -51,14 +51,15 @@ physical-read set.
 | Experiment | Reusable repository support | Missing work before the requested table is publishable |
 |---|---|---|
 | 1. PostgreSQL baseline | The checked-in unified adapter implements a real tiny S1 Direct PostgreSQL / public `query_sql` / semantic replay / idempotent replay path with V8, audit, and full Parquet verification | Publication S1--S6 coverage and a successful real Pilot remain pending; every numeric cell remains blank. |
-| 2. PostgreSQL RLS | The finalizer recomputes the independent 70% oracle and enforces RLS enablement, non-owner/no-BYPASSRLS role, policy bytes, equal prefixes, and the exposure-budget stop | The unified real RLS adapter capability remains incomplete; `native_view` is still not RLS. |
-| 3. Adaptive attacks | The finalizer independently checks exact page/split unions, normal forms, request-ID settlement counts, and threshold ceilings | The unified real attack adapter and publication A--E samples remain incomplete. |
-| 4. ProvSQL | The validator binds version/commit, `agg_token` OID, gate type/growth, nonce and representation uniqueness, plus paired SQL/dataset/cache/order | The unified real ProvSQL adapter and fair paired three-system campaign remain, so no TaskGate value may be joined to the old smoke. |
-| 5. View DAG scalability | `CompileMeasured` is latency-only, `CompileAllocationMeasured` isolates runtime allocation reads, and the finalizer enforces result/plan invariance and exact limit errors | The unified real compiler adapter and five-process campaign have not run. |
-| 6. Concurrency | Production CAS telemetry and an independent B-1/exactly-one-winner/final-root validator are implemented | The unified real concurrency adapter and 30-fresh-root cells have not run; width 500 remains invalid without offered-concurrency evidence. |
+| 2. PostgreSQL RLS | The unified real adapter and finalizer recompute the independent 70% oracle and enforce FORCE RLS, non-owner/no-BYPASSRLS role, policy bytes, exact prefixes, and the exposure-budget stop | The three-deployment publication matrix has not run; `native_view` is still not RLS and every numeric cell remains blank. |
+| 3. Adaptive attacks | The unified real adapter and finalizer independently check exact page/split unions, normal forms, request-ID settlement counts, and threshold ceilings | The three-deployment publication A--E matrix has not run; Stage B live preflight is not publication evidence. |
+| 4. ProvSQL | The unified real paired adapter binds version/commit, `agg_token` OID, gate type/growth, nonce and representation uniqueness, plus paired SQL/dataset/cache/order | The fair three-system publication campaign remains unexecuted, so no TaskGate value may be joined to the old smoke. |
+| 5. View DAG scalability | The unified real compiler adapter keeps `CompileMeasured` latency-only, isolates runtime allocation reads, and enforces result/plan invariance and exact limit errors | The preregistered five-process publication campaign has not run. |
+| 6. Concurrency | The unified real adapter uses production CAS telemetry and an independent B-1/exactly-one-winner/final-root validator | The 30-fresh-root publication cells have not run; width 500 remains invalid without offered-concurrency evidence. |
 
-The final-V5 framework is under `evaluation/final-v5-wsl2/`. Its tiny smoke is
-not evidence. Until a frozen, digest-bound, three-deployment publication
+The final-V5 framework is under `evaluation/final-v5-wsl2/`. All nine real
+source-controlled adapter constructors are wired; their Stage B validate-only,
+unit, retention gates and the tiny smoke are not publication evidence. Until a frozen, digest-bound, three-deployment publication
 campaign passes its finalizer, leave every numeric cell below blank. Current
 V5 publication-scale performance remains pending the final frozen WSL2
 campaign.

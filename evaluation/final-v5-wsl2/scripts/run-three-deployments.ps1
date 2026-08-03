@@ -13,6 +13,16 @@ function ConvertTo-BashLiteral([string]$Value) {
   $replacement = $quote + [char]34 + $quote + [char]34 + $quote
   return $quote + $Value.Replace($quote, $replacement) + $quote
 }
+$bindingPaths = @()
+for ($i=1; $i -le $Deployments; $i++) {
+  $bindingPaths += ("$DatasetBindingsDir/deployment-{0:d2}.json" -f $i)
+}
+$bindingLiterals = ($bindingPaths | ForEach-Object { ConvertTo-BashLiteral $_ }) -join " "
+$privateConfigLiteral = ConvertTo-BashLiteral $PrivateConfigDir
+$datasetBindingsLiteral = ConvertTo-BashLiteral $DatasetBindingsDir
+$bindingCheck = 'set -euo pipefail; [[ -d ' + $privateConfigLiteral + ' && "$(stat -c %a ' + $privateConfigLiteral + ')" == 700 ]]; [[ -d ' + $datasetBindingsLiteral + ' && "$(stat -c %a ' + $datasetBindingsLiteral + ')" == 700 ]]; first=""; for binding in ' + $bindingLiterals + '; do [[ -f "$binding" && ! -L "$binding" && "$(stat -c %a "$binding")" == 600 ]]; digest="$(sha256sum "$binding")"; digest="${digest%% *}"; if [[ -z "$first" ]]; then first="$digest"; elif [[ "$digest" != "$first" ]]; then echo "deployment binding bytes differ" >&2; exit 1; fi; done'
+wsl.exe -d $Distro -- bash -lc $bindingCheck
+if ($LASTEXITCODE -ne 0) { throw "All three private deployment binding files must be safe and byte-identical" }
 $manifest = [ordered]@{
   schema_version = 1; campaign_id = $CampaignId; frozen_commit = $FrozenCommit; windows_host_sha256 = ""
   windows = [ordered]@{

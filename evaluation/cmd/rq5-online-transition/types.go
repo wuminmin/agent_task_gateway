@@ -14,8 +14,9 @@ const (
 )
 
 var (
-	days         = [...]string{"day0", "day1", "day2", "day3"}
-	sha256Regexp = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	days          = [...]string{"day0", "day1", "day2", "day3"}
+	sha256Regexp  = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	imageIDRegexp = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 )
 
 type onlineEvidence struct {

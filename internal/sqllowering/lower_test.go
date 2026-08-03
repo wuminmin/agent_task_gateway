@@ -66,6 +66,38 @@ func TestLowerPreservesNullInCallerPredicates(t *testing.T) {
 	}
 }
 
+func TestLowerTypedNumericLiteralSpellingsShareV4NormalForm(t *testing.T) {
+	products := loweringTestProducts()
+	base, err := Lower(`SELECT l.order_id, l.extended_price FROM lineitem AS l WHERE l.extended_price = 320 ORDER BY l.order_id ASC`, products)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate, err := Lower(`SELECT l.order_id, l.extended_price FROM lineitem AS l WHERE l.extended_price = 320.00 ORDER BY l.order_id ASC`, products)
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseNormal, err := queryplan.NormalizeV4(base.Plan, products["lineitem"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidateNormal, err := queryplan.NormalizeV4(candidate.Plan, products["lineitem"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseDigest, err := baseNormal.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidateDigest, err := candidateNormal.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(baseNormal, candidateNormal) || baseDigest != candidateDigest {
+		t.Fatalf("typed-equivalent numeric SQL diverged: base=%#v/%s candidate=%#v/%s",
+			baseNormal, baseDigest, candidateNormal, candidateDigest)
+	}
+}
+
 func TestLowerTenTableJoinWithMultiplePredicatesPerEdge(t *testing.T) {
 	products := graphTestProducts(10)
 	var sql strings.Builder

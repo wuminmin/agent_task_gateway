@@ -3,6 +3,7 @@ package gateway
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -29,6 +30,48 @@ import (
 type gatewayTestClock struct{ value time.Time }
 
 func (clock *gatewayTestClock) Now() time.Time { return clock.value }
+
+// liveCompilerTestSnapshotIndex is confined to unit-test registry setup. It
+// represents a publication whose rows intentionally are not checked into the
+// repository; production activates only the independently verified live HOT
+// bundle. Tests that actually read rows continue to use a compiled index.
+type liveCompilerTestSnapshotIndex struct {
+	publication catalog.SnapshotPublication
+	input       snapshotbundle.CompilerInput
+}
+
+func (index liveCompilerTestSnapshotIndex) Manifest() ordinal.DictionaryManifest {
+	return ordinal.DictionaryManifest{
+		Version: ordinal.DictionaryVersion, SourceID: index.input.Snapshot.SourceID,
+		SourceNamespace: index.publication.SourceNamespace, Snapshot: index.publication.Snapshot,
+		SchemaDigest: index.input.Snapshot.SchemaDigest, DictionaryDigest: index.publication.DictionaryDigest,
+		SidecarDigest: index.publication.SidecarDigest,
+	}
+}
+
+func (index liveCompilerTestSnapshotIndex) DictionaryDigest() string {
+	return index.publication.DictionaryDigest
+}
+func (index liveCompilerTestSnapshotIndex) ManifestDigest() string {
+	return index.publication.ManifestDigest
+}
+func (liveCompilerTestSnapshotIndex) Hash(ordinal.FactRef) ([sha256.Size]byte, error) {
+	return [sha256.Size]byte{}, ordinal.ErrUnknownFact
+}
+func (liveCompilerTestSnapshotIndex) SegmentFactCount(string) (uint64, bool) { return 0, false }
+func (liveCompilerTestSnapshotIndex) ValidateSetBounds(ordinal.BitmapSet) error {
+	return ordinal.ErrUnknownFact
+}
+func (liveCompilerTestSnapshotIndex) RowCount() uint64 { return 0 }
+func (liveCompilerTestSnapshotIndex) LookupRowHandle(string) (ordinal.RowHandle, bool) {
+	return 0, false
+}
+func (liveCompilerTestSnapshotIndex) LookupRow(ordinal.RowHandle) (ordinal.RowRefs, bool) {
+	return ordinal.RowRefs{}, false
+}
+func (liveCompilerTestSnapshotIndex) LookupEntity(string) (ordinal.RowRefs, bool) {
+	return ordinal.RowRefs{}, false
+}
 
 type fakeApproval struct {
 	requests []approval.DraftRequest
@@ -339,13 +382,19 @@ func (harness *gatewayHarness) installCatalogV4SnapshotRegistry(t *testing.T) ma
 		if closeErr != nil {
 			t.Fatalf("close snapshot compiler input %s: %v", publication.Name, closeErr)
 		}
-		bundle, compileErr := snapshotbundle.Compile(input)
-		if compileErr != nil {
-			t.Fatalf("compile snapshot publication %s: %v", publication.Name, compileErr)
-		}
-		index, parseErr := ordinal.ParseHotDictionary(bundle.Hot, publication.ManifestDigest)
-		if parseErr != nil {
-			t.Fatalf("parse snapshot publication %s: %v", publication.Name, parseErr)
+		var index ordinal.SnapshotIndex
+		if len(input.Snapshot.Rows) == 0 {
+			index = liveCompilerTestSnapshotIndex{publication: publication, input: input}
+		} else {
+			bundle, compileErr := snapshotbundle.Compile(input)
+			if compileErr != nil {
+				t.Fatalf("compile snapshot publication %s: %v", publication.Name, compileErr)
+			}
+			parsed, parseErr := ordinal.ParseHotDictionary(bundle.Hot, publication.ManifestDigest)
+			if parseErr != nil {
+				t.Fatalf("parse snapshot publication %s: %v", publication.Name, parseErr)
+			}
+			index = parsed
 		}
 		if index.DictionaryDigest() != publication.DictionaryDigest ||
 			index.Manifest().SidecarDigest != publication.SidecarDigest {

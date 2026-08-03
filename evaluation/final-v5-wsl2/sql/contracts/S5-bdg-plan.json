@@ -1,0 +1,34 @@
+{
+  "template_schema_version": 1,
+  "entrypoint": "execute_plan",
+  "render_rule": "replace each complete $parameter object with a JSON integer before submitting the plan member",
+  "parameters": {
+    "orderkey_max": {"type": "integer", "minimum": 1},
+    "overlap_branch_max": {"type": "integer", "minimum": 1}
+  },
+  "plan": {
+    "from": {
+      "union_distinct": {
+        "role": "provsql_orders",
+        "columns": ["orderkey", "status"],
+        "left": {
+          "product": "provsql_orders",
+          "role": "left_branch",
+          "filters": [
+            {"column": "partition_key", "op": "=", "value": 1},
+            {"column": "orderkey", "op": "<=", "value": {"$parameter": "orderkey_max"}}
+          ]
+        },
+        "right": {
+          "product": "provsql_orders",
+          "role": "right_branch",
+          "filters": [
+            {"column": "partition_key", "op": "=", "value": 1},
+            {"column": "orderkey", "op": "<=", "value": {"$parameter": "overlap_branch_max"}}
+          ]
+        }
+      }
+    },
+    "columns": ["provsql_orders.orderkey", "provsql_orders.status"]
+  }
+}

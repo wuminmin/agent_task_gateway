@@ -1,6 +1,14 @@
-DO $$ BEGIN CREATE ROLE taskgate_rls_subject NOLOGIN NOBYPASSRLS; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-ALTER TABLE reporting.orders ENABLE ROW LEVEL SECURITY;
-ALTER TABLE reporting.orders FORCE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS final_v5_tenant_scope ON reporting.orders;
-CREATE POLICY final_v5_tenant_scope ON reporting.orders FOR SELECT TO taskgate_rls_subject USING (tenant_id = current_setting('taskgate.tenant_id', true)::bigint);
-GRANT SELECT ON reporting.orders TO taskgate_rls_subject;
+-- Canonical policy excerpt installed by db/init/09-final-v5-rls-fixture.sql.
+-- The target is a real base table over the frozen travel fixture, never the
+-- historical/nonexistent reporting.orders placeholder.
+ALTER TABLE final_v5_rls.expense_detail ENABLE ROW LEVEL SECURITY;
+ALTER TABLE final_v5_rls.expense_detail FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS final_v5_sales_scope ON final_v5_rls.expense_detail;
+CREATE POLICY final_v5_sales_scope
+ON final_v5_rls.expense_detail
+AS PERMISSIVE
+FOR SELECT
+TO final_v5_rls_reader
+USING (department = '销售部');
+REVOKE ALL ON TABLE final_v5_rls.expense_detail FROM final_v5_rls_reader;
+GRANT SELECT (receipt_no, amount) ON final_v5_rls.expense_detail TO final_v5_rls_reader;

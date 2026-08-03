@@ -33,11 +33,19 @@ services:
     volumes:
       - business-pg-data:/var/lib/postgresql/data
       - ./db/init:/docker-entrypoint-initdb.d:ro
+      # db/init/07b-final-v5-benchmark-dataset.sh runs the exact contract-indexed
+      # generator bytes from this read-only mount, so a deployment cannot drift
+      # away from evaluation/final-v5-wsl2/contracts/index-v1.json.
+      - ./evaluation/final-v5-wsl2/sql/datasets:/opt/taskgate/final-v5-sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      # Probe over TCP, not the local socket. During initdb the entrypoint runs
+      # a temporary socket-only server, so a socket probe reports healthy while
+      # db/init is still creating the Final-V5 benchmark corpus and dependent
+      # services race ahead into a refused connection.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 3s
       timeout: 3s
-      retries: 20
+      retries: 60
     security_opt:
       - no-new-privileges:true
     networks:
@@ -78,6 +86,12 @@ services:
     command:
       - -input
       - /input/expense-summary-v1.json
+      - -input
+      - /input/provsql-orders-v1.json
+      - -input
+      - /input/provsql-lineitem-v1.json
+      - -input
+      - /input/provsql-nonce-v1.json
       - -output-dir
       - /data/snapshot-index
       - -allow-existing-identical
@@ -86,11 +100,95 @@ services:
     depends_on:
       business-postgres:
         condition: service_healthy
+      snapshot-index-detail:
+        condition: service_completed_successfully
     volumes:
       - ./config/snapshots/expense-summary-v1.json:/input/expense-summary-v1.json:ro
+      - ./config/snapshots/provsql-orders-v1.json:/input/provsql-orders-v1.json:ro
+      - ./config/snapshots/provsql-lineitem-v1.json:/input/provsql-lineitem-v1.json:ro
+      - ./config/snapshots/provsql-nonce-v1.json:/input/provsql-nonce-v1.json:ro
       - snapshot-index-artifacts:/data/snapshot-index
     read_only: true
     mem_limit: 4g
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - business-data
+
+  # The Final-V5 result-heavy Publication compiles 100,000 rows over sixteen
+  # fields, so it gets its own offline compiler with a larger ceiling instead of
+  # raising the limit of the existing publications. This is a build-time
+  # compiler, not a governed runtime component: the Gateway keeps its 512 MiB
+  # cgroup ceiling, which is what the memory evidence is about.
+  snapshot-index-result-heavy:
+    build:
+      context: .
+      args:
+        TARGET: snapshot-index
+    command:
+      - -input
+      - /input/final-v5-result-heavy-v1.json
+      - -output-dir
+      - /data/snapshot-index
+      - -allow-existing-identical
+    environment:
+      SNAPSHOT_POSTGRES_DSN: postgres://gateway_reader:${GATEWAY_DB_PASSWORD:?set GATEWAY_DB_PASSWORD in .env}@business-postgres:5432/${POSTGRES_DB:-travel_demo}?sslmode=disable
+    depends_on:
+      business-postgres:
+        condition: service_healthy
+      snapshot-index-summary:
+        condition: service_completed_successfully
+    volumes:
+      - ./config/snapshots/final-v5-result-heavy-v1.json:/input/final-v5-result-heavy-v1.json:ro
+      - snapshot-index-artifacts:/data/snapshot-index
+    read_only: true
+    mem_limit: 16g
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - business-data
+
+  snapshot-sidecar-install:
+    build:
+      context: .
+      args:
+        TARGET: snapshot-sidecar-install
+    command:
+      - -artifact-dir
+      - /data/snapshot-index
+      - -input
+      - /input/expense-detail-v1.json
+      - -input
+      - /input/expense-summary-v1.json
+      - -input
+      - /input/provsql-orders-v1.json
+      - -input
+      - /input/provsql-lineitem-v1.json
+      - -input
+      - /input/provsql-nonce-v1.json
+      - -input
+      - /input/final-v5-result-heavy-v1.json
+    environment:
+      SNAPSHOT_INSTALL_POSTGRES_DSN: postgres://postgres:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@business-postgres:5432/${POSTGRES_DB:-travel_demo}?sslmode=disable
+    depends_on:
+      business-postgres:
+        condition: service_healthy
+      snapshot-index-result-heavy:
+        condition: service_completed_successfully
+    volumes:
+      - ./config/snapshots/expense-detail-v1.json:/input/expense-detail-v1.json:ro
+      - ./config/snapshots/expense-summary-v1.json:/input/expense-summary-v1.json:ro
+      - ./config/snapshots/provsql-orders-v1.json:/input/provsql-orders-v1.json:ro
+      - ./config/snapshots/provsql-lineitem-v1.json:/input/provsql-lineitem-v1.json:ro
+      - ./config/snapshots/provsql-nonce-v1.json:/input/provsql-nonce-v1.json:ro
+      - ./config/snapshots/final-v5-result-heavy-v1.json:/input/final-v5-result-heavy-v1.json:ro
+      - snapshot-index-artifacts:/data/snapshot-index:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    mem_limit: 16g
     restart: "no"
     security_opt:
       - no-new-privileges:true
@@ -124,7 +222,8 @@ services:
     entrypoint: ["/bin/sh", "-ec"]
     command:
       - |
-        mc alias set taskgate http://result-object-store:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
+        printf '%s\n%s\n' "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" |
+          mc alias set taskgate http://result-object-store:9000
         mc mb --ignore-existing --region "$${GATEWAY_OBJECT_STORE_REGION}" "taskgate/$${GATEWAY_OBJECT_STORE_BUCKET}"
         mc anonymous set none "taskgate/$${GATEWAY_OBJECT_STORE_BUCKET}"
         # Do not install a time-only staging lifecycle: a committed PENDING
@@ -139,7 +238,8 @@ services:
             *) printf '%s\n' "$${policy_line}" ;;
           esac
         done < /config/taskgate-results-policy.json > /tmp/taskgate-results-policy.json
-        mc admin user add taskgate "$${GATEWAY_OBJECT_STORE_ACCESS_KEY}" "$${GATEWAY_OBJECT_STORE_SECRET_KEY}"
+        printf '%s\n%s\n' "$${GATEWAY_OBJECT_STORE_ACCESS_KEY}" "$${GATEWAY_OBJECT_STORE_SECRET_KEY}" |
+          mc admin user add taskgate
         mc admin policy create taskgate taskgate-result-artifacts /tmp/taskgate-results-policy.json
         mc admin policy attach taskgate taskgate-result-artifacts --user "$${GATEWAY_OBJECT_STORE_ACCESS_KEY}"
     environment:
@@ -181,6 +281,9 @@ services:
       TASKBOUND_ALICE_TOKEN: ${TASKBOUND_ALICE_TOKEN:?set TASKBOUND_ALICE_TOKEN in .env}
       TASKBOUND_CAROL_TOKEN: ${TASKBOUND_CAROL_TOKEN:?set TASKBOUND_CAROL_TOKEN in .env}
       GATEWAY_ADMIN_TOKEN: ${GATEWAY_ADMIN_TOKEN:-}
+      # Opens the read-only profile activation diagnostic on the authenticated
+      # admin interface. Empty in ordinary deployments.
+      TASKGATE_EXPERIMENT_CLASS: ${TASKGATE_EXPERIMENT_CLASS:-}
       GATEWAY_RESULT_RETENTION_TTL: ${GATEWAY_RESULT_RETENTION_TTL:-}
       GATEWAY_RESULT_RETENTION_SWEEP_INTERVAL: ${GATEWAY_RESULT_RETENTION_SWEEP_INTERVAL:-1h}
       GATEWAY_OBJECT_STORE_ENDPOINT: ${GATEWAY_OBJECT_STORE_ENDPOINT:-http://result-object-store:9000}
@@ -204,6 +307,16 @@ services:
       GATEWAY_AUDIT_ANCHOR_PRIVATE_KEY: ${GATEWAY_AUDIT_ANCHOR_PRIVATE_KEY:-}
       GATEWAY_SNAPSHOT_ARTIFACT_DIR: /var/lib/taskgate/snapshot-index
       GATEWAY_CONNECTOR_MAX_ROWS: ${GATEWAY_CONNECTOR_MAX_ROWS:-1200000}
+      GATEWAY_CONNECTOR_MAX_CONNECTIONS: ${GATEWAY_CONNECTOR_MAX_CONNECTIONS:-4}
+      GATEWAY_CONTROL_MAX_OPEN_CONNECTIONS: ${GATEWAY_CONTROL_MAX_OPEN_CONNECTIONS:-10}
+      GATEWAY_CONTROL_MAX_IDLE_CONNECTIONS: ${GATEWAY_CONTROL_MAX_IDLE_CONNECTIONS:-4}
+      GATEWAY_CONTROL_CONNECTION_MAX_LIFETIME: ${GATEWAY_CONTROL_CONNECTION_MAX_LIFETIME:-30m}
+      # Disabled unless a private campaign token is explicitly supplied.
+      # The authenticated probe observes server arrivals/active/queued requests;
+      # it never fabricates MCP results and exposes no task/query identities.
+      GATEWAY_EVALUATION_CONCURRENCY_TOKEN: ${TASKGATE_FINAL_V5_CONCURRENCY_TOKEN:-}
+      GATEWAY_EVALUATION_CONCURRENCY_HTTP_ACTIVE: ${GATEWAY_EVALUATION_CONCURRENCY_HTTP_ACTIVE:-512}
+      GATEWAY_EVALUATION_CONCURRENCY_HTTP_QUEUE: ${GATEWAY_EVALUATION_CONCURRENCY_HTTP_QUEUE:-512}
       OA_SERVICE_TOKEN: ${OA_SERVICE_TOKEN:?set OA_SERVICE_TOKEN in .env}
       OA_CALLBACK_SECRET: ${OA_CALLBACK_SECRET:?set OA_CALLBACK_SECRET in .env}
       OA_RECEIPT_KEY_ID: ${OA_RECEIPT_KEY_ID:-}
@@ -221,6 +334,8 @@ services:
         condition: service_completed_successfully
       snapshot-index-summary:
         condition: service_completed_successfully
+      snapshot-sidecar-install:
+        condition: service_completed_successfully
       result-object-store-init:
         condition: service_completed_successfully
       oa-demo:
@@ -228,7 +343,11 @@ services:
     ports:
       - 127.0.0.1:8082:8082
     volumes:
-      - ./config/catalog.yaml:/etc/taskbound/catalog.yaml:ro
+      # The activated deployment profile Catalog. It defaults to the full
+      # Catalog; evaluation/cmd/final-v5-profile-activate points it at exactly
+      # one generated profile Catalog so a Catalog-bound Gateway instance
+      # activates that closure and nothing else.
+      - ${TASKGATE_PROFILE_CATALOG:-./config/catalog.yaml}:/etc/taskbound/catalog.yaml:ro
       - snapshot-index-artifacts:/var/lib/taskgate/snapshot-index:ro
       # Adaptive query spools and Parquet upload staging contain only
       # authenticated ciphertext. Keep them on disk: a 16 MiB tmpfs makes the

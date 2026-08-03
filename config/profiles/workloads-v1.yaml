@@ -1,0 +1,85 @@
+# Source-controlled Product declaration for the experiments that have no
+# machine contract. Baseline, Scale and Artifact always derive their Product
+# sets from the Contract Index instead, so this file can never disagree with a
+# frozen contract.
+#
+# aliases maps a canonical closure digest to its readable name. The digest is
+# the profile identity; the alias exists for logs and evidence only, and two
+# identical closures therefore cannot become two profiles.
+schema_version: 1
+registry_version: taskgate-final-v5-workload-closure-profile-v2
+
+experiments:
+  # Each RLS arm requests exactly one immutable Product: the unlimited relation
+  # backs both the PostgreSQL RLS control and the unlimited TaskGate arm, and
+  # the 70%-budget arm has its own Product.
+  rls:
+    - workload_id: adaptive-100-v1
+      scales: [100-queries]
+      modes: [rls, unlimited]
+      products: [final_v5_rls_unlimited_expense_detail]
+    - workload_id: adaptive-100-v1
+      scales: [100-queries]
+      modes: [bounded]
+      products: [final_v5_rls_bounded_expense_detail]
+    - workload_id: policy-denied-control
+      scales: [single]
+      modes: [rls, unlimited]
+      products: [final_v5_rls_unlimited_expense_detail]
+    - workload_id: policy-denied-control
+      scales: [single]
+      modes: [bounded]
+      products: [final_v5_rls_bounded_expense_detail]
+  attack:
+    - workload_id: A-pagination
+      scales: [complete-to-pages, pages-to-complete]
+      modes: [direct, novel]
+      products: [final_v5_attack_expense_detail]
+    - workload_id: B-equivalent-sql
+      scales: [variants-v1]
+      modes: [direct, novel]
+      products: [final_v5_attack_expense_detail]
+    - workload_id: C-request-id
+      scales: [same-and-different]
+      modes: [novel, semantic_replay, idempotent_replay]
+      products: [final_v5_attack_expense_detail]
+    - workload_id: D-split-union
+      scales: [complete-to-split, split-to-complete]
+      modes: [direct, novel]
+      products: [final_v5_attack_expense_detail]
+    - workload_id: E-threshold
+      scales: [preregistered-v1]
+      modes: [direct, novel]
+      products: [expense_detail]
+  concurrency:
+    - workload_id: shared-root
+      scales: ["10", "50", "100", "500"]
+      modes: [forced_queue_safety, natural_contention]
+      products: [final_v5_concurrency_expense_detail]
+    - workload_id: serial-control
+      scales: ["1"]
+      modes: [serial]
+      products: [final_v5_concurrency_expense_detail]
+  provsql:
+    - workload_id: nonce-join-group
+      scales: [1k, 10k, 45k]
+      modes: [direct, provsql, taskgate]
+      products: [provsql_orders, provsql_lineitem, provsql_nonce]
+  rq5:
+    - workload_id: online-transition-v1
+      scales: [single]
+      modes: [build, retained]
+      products: [expense_detail]
+
+aliases:
+  f60ec5752f501da0147f9d2789234af64de4d98f7542c63b472c8aaecb26214d: analytics-orders
+  5b48ad2a02c5446d07cd2c837428be7e10b9b2bff675d5df94868f828058e380: analytics-orders-lineitem
+  158c6ffcccef2383a957e4244c8b95eea8378b0092c123f7c2076acccda2e2bf: attack-expense-detail
+  3947f508ef5e96777dfc3966d6a2c0eb46b1a365f1810b9a87990375cb2bfe0a: concurrency-expense-detail
+  46b22367d138656780ed27942f4717904aa0eb8fae9e956bf79ebfe1cdb6a1a2: depth4-semantic-view
+  0d88c4e9d8b7561bc4705cc395a268bf6634bc619ae391d3574c3f93addf3fb1: expense-detail
+  794efc2159ffaa5f87406c8e3e22610d316a7413a0626a7c8130a332fb260906: exposure-scale
+  a60a787c64c9545177fa6b47e3723eb01725b71945b8a196753f90f2f2e05c79: provsql-nonce-join
+  a86cd4df5cad6e2685d1930caeccdbe3a865194fcef33faeca86b7c2c592bdbd: result-heavy
+  18c12d9c4dc04fc599a5f41351c9d83fe4439c8c12d616f9dff6f454bd75c18d: rls-bounded
+  00bc8f7d5633f5964545ed5c1aefd3120e36512a094dd09676c0697c15f1dc0a: rls-unlimited

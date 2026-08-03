@@ -3,113 +3,4853 @@
   "$id": "taskgate-final-v5-sample-v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "campaign_id", "deployment_id", "experiment_id", "cell_id", "sample_id", "iteration", "order_position", "random_seed", "pair_id", "paired_system_order", "root_group_id", "system", "mode", "workload_id", "scale", "client_available_ms", "client_full_drain_ms", "pipeline_ms", "diagnostic_ms", "row_count", "column_count", "result_sha256", "artifact_sha256", "object_sha256", "actual_release_facts", "charged_release_facts", "actual_dependency_facts", "charged_dependency_facts", "actual_outcome_facts", "charged_outcome_facts", "predicate_atom_count", "composite_count", "semantic_replay", "idempotent_replay", "business_sql_delta", "root_epoch_before", "root_epoch_after", "root_set_sha256_before", "root_set_sha256_after", "parquet_bytes", "encrypted_object_bytes", "receipt_version", "receipt_sha256", "artifact_intent_sha256", "availability_audit_sha256", "gateway_memory_peak_bytes", "gateway_cpu_usec_delta", "gateway_network_rx_delta", "gateway_network_tx_delta", "control_wal_bytes_delta", "business_wal_bytes_delta", "status", "error_code", "publication_eligible"],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "pass"
+          },
+          "experiment_id": {
+            "const": "scale"
+          }
+        },
+        "required": [
+          "status",
+          "experiment_id"
+        ]
+      },
+      "then": {
+        "required": [
+          "scale_verification"
+        ],
+        "properties": {
+          "scale_verification": {
+            "$ref": "#/properties/scale_verification/anyOf/0"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "pass"
+          },
+          "experiment_id": {
+            "const": "artifact"
+          }
+        },
+        "required": [
+          "status",
+          "experiment_id"
+        ]
+      },
+      "then": {
+        "required": [
+          "artifact_verification"
+        ],
+        "properties": {
+          "artifact_verification": {
+            "$ref": "#/properties/artifact_verification/anyOf/0"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "pass"
+          },
+          "experiment_id": {
+            "const": "rls"
+          }
+        },
+        "required": [
+          "status",
+          "experiment_id"
+        ]
+      },
+      "then": {
+        "required": [
+          "rls_verification"
+        ],
+        "properties": {
+          "rls_verification": {
+            "$ref": "#/properties/rls_verification/anyOf/0"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "pass"
+          },
+          "experiment_id": {
+            "const": "attack"
+          }
+        },
+        "required": [
+          "status",
+          "experiment_id"
+        ]
+      },
+      "then": {
+        "required": [
+          "attack_verification"
+        ],
+        "properties": {
+          "attack_verification": {
+            "$ref": "#/properties/attack_verification/anyOf/0"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "pass"
+          },
+          "experiment_id": {
+            "const": "provsql"
+          }
+        },
+        "required": [
+          "status",
+          "experiment_id"
+        ]
+      },
+      "then": {
+        "required": [
+          "provsql_verification"
+        ],
+        "properties": {
+          "provsql_verification": {
+            "$ref": "#/properties/provsql_verification/anyOf/0"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "pass"
+          },
+          "experiment_id": {
+            "const": "compiler"
+          }
+        },
+        "required": [
+          "status",
+          "experiment_id"
+        ]
+      },
+      "then": {
+        "required": [
+          "compiler_verification"
+        ],
+        "properties": {
+          "compiler_verification": {
+            "$ref": "#/properties/compiler_verification/anyOf/0"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "pass"
+          },
+          "experiment_id": {
+            "const": "concurrency"
+          }
+        },
+        "required": [
+          "status",
+          "experiment_id"
+        ]
+      },
+      "then": {
+        "required": [
+          "concurrency_verification"
+        ],
+        "properties": {
+          "concurrency_verification": {
+            "$ref": "#/properties/concurrency_verification/anyOf/0"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "pass"
+          },
+          "experiment_id": {
+            "const": "rq5"
+          }
+        },
+        "required": [
+          "status",
+          "experiment_id"
+        ]
+      },
+      "then": {
+        "required": [
+          "rq5_verification"
+        ],
+        "properties": {
+          "rq5_verification": {
+            "$ref": "#/properties/rq5_verification/anyOf/0"
+          }
+        }
+      }
+    }
+  ],
+  "required": [
+    "schema_version",
+    "campaign_id",
+    "deployment_id",
+    "experiment_id",
+    "cell_id",
+    "sample_id",
+    "iteration",
+    "process_replicate",
+    "warmup",
+    "order_position",
+    "random_seed",
+    "pair_id",
+    "paired_system_order",
+    "root_group_id",
+    "system",
+    "mode",
+    "workload_id",
+    "scale",
+    "client_available_ms",
+    "client_full_drain_ms",
+    "pipeline_ms",
+    "diagnostic_ms",
+    "row_count",
+    "column_count",
+    "result_sha256",
+    "artifact_sha256",
+    "object_sha256",
+    "actual_release_facts",
+    "charged_release_facts",
+    "actual_dependency_facts",
+    "charged_dependency_facts",
+    "actual_outcome_facts",
+    "charged_outcome_facts",
+    "predicate_atom_count",
+    "composite_count",
+    "semantic_replay",
+    "idempotent_replay",
+    "business_sql_delta",
+    "root_epoch_before",
+    "root_epoch_after",
+    "root_set_sha256_before",
+    "root_set_sha256_after",
+    "parquet_bytes",
+    "encrypted_object_bytes",
+    "receipt_version",
+    "receipt_sha256",
+    "artifact_intent_sha256",
+    "availability_audit_sha256",
+    "gateway_memory_peak_bytes",
+    "gateway_cpu_usec_delta",
+    "gateway_network_rx_delta",
+    "gateway_network_tx_delta",
+    "control_wal_bytes_delta",
+    "business_wal_bytes_delta",
+    "status",
+    "error_code",
+    "publication_eligible"
+  ],
   "properties": {
-    "schema_version": {"const": 1},
-    "campaign_id": {"type": "string", "minLength": 1},
-    "deployment_id": {"type": "string", "pattern": "^deployment-[0-9]{2}$"},
-    "experiment_id": {"enum": ["baseline", "scale", "artifact", "rls", "attack", "provsql", "compiler", "concurrency", "rq5"]},
-    "cell_id": {"type": "string", "minLength": 1},
-    "sample_id": {"type": "string", "minLength": 1},
-    "iteration": {"type": "integer", "minimum": 1},
-    "process_replicate": {"type": "integer", "minimum": 1},
-    "order_position": {"type": "integer", "minimum": 1},
-    "random_seed": {"type": "integer"},
-    "pair_id": {"type": "string", "minLength": 1},
-    "paired_system_order": {"type": "string", "minLength": 1},
-    "root_group_id": {"type": "string", "minLength": 1},
-    "system": {"enum": ["postgresql", "taskgate", "provsql"]},
-    "mode": {"type": "string", "minLength": 1},
-    "workload_id": {"type": "string", "minLength": 1},
-    "scale": {"type": "string", "minLength": 1},
-    "client_available_ms": {"type": "number", "minimum": 0},
-    "client_full_drain_ms": {"type": "number", "minimum": 0},
-    "generation_boundary_ms": {"type": "number", "minimum": 0},
-    "full_taskgate_ms": {"type": "number", "minimum": 0},
-    "pipeline_ms": {"type": "object", "additionalProperties": {"type": "number", "minimum": 0}, "required": ["prepare", "execute_and_derive", "artifact_stage", "control_settlement", "artifact_publication", "response_finalize", "server_total"]},
-    "diagnostic_ms": {"type": "object", "additionalProperties": {"type": "number", "minimum": 0}},
-    "counters": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
-    "row_count": {"type": "integer", "minimum": 0},
-    "column_count": {"type": "integer", "minimum": 0},
-    "result_sha256": {"type": "string"},
-    "physical_sql_sha256": {"type": "string"},
-    "logical_sql_sha256": {"type": "string"},
-    "query_plan_sha256": {"type": "string"},
-    "release_set_sha256": {"type": "string"},
-    "dependency_set_sha256": {"type": "string"},
-    "outcome_set_sha256": {"type": "string"},
-    "artifact_sha256": {"type": "string"},
-    "object_sha256": {"type": "string"},
-    "actual_release_facts": {"type": "integer", "minimum": 0},
-    "charged_release_facts": {"type": "integer", "minimum": 0},
-    "actual_dependency_facts": {"type": "integer", "minimum": 0},
-    "charged_dependency_facts": {"type": "integer", "minimum": 0},
-    "actual_outcome_facts": {"type": "integer", "minimum": 0},
-    "charged_outcome_facts": {"type": "integer", "minimum": 0},
-    "predicate_atom_count": {"type": "integer", "minimum": 0},
-    "composite_count": {"type": "integer", "minimum": 0},
-    "semantic_replay": {"type": "boolean"},
-    "idempotent_replay": {"type": "boolean"},
-    "business_sql_delta": {"type": "integer", "minimum": 0},
-    "root_epoch_before": {"type": "integer", "minimum": 0},
-    "root_epoch_after": {"type": "integer", "minimum": 0},
-    "root_task_id_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-    "root_set_sha256_before": {"type": "string"},
-    "root_set_sha256_after": {"type": "string"},
-    "parquet_bytes": {"type": "integer", "minimum": 0},
-    "encrypted_object_bytes": {"type": "integer", "minimum": 0},
-    "receipt_version": {"type": "string"},
-    "receipt_sha256": {"type": "string"},
-    "artifact_intent_sha256": {"type": "string"},
-    "availability_audit_sha256": {"type": "string"},
-    "receipt_verified": {"type": "boolean"},
-    "artifact_available": {"type": "boolean"},
-    "rejected": {"type": "boolean"},
-    "rejected_no_result": {"type": "boolean"},
-    "rejected_no_artifact": {"type": "boolean"},
-    "rejected_no_successful_audit": {"type": "boolean"},
-    "cross_epoch_replay": {"type": "boolean"},
-    "budget_violation": {"type": "boolean"},
-    "gateway_memory_peak_bytes": {"type": "integer", "minimum": 0},
-    "gateway_cpu_usec_delta": {"type": "integer", "minimum": 0},
-    "gateway_network_rx_delta": {"type": "integer", "minimum": 0},
-    "gateway_network_tx_delta": {"type": "integer", "minimum": 0},
-    "control_wal_bytes_delta": {"type": "integer", "minimum": 0},
-    "business_wal_bytes_delta": {"type": "integer", "minimum": 0},
-    "status": {"enum": ["pass", "fail", "invalid"]},
-    "error_code": {"type": "string"},
-    "publication_eligible": {"type": "boolean"},
-    "kernel_only": {"type": "boolean"},
-    "reason": {"type": "string"},
-    "baseline_verification": {"type": "object"},
-    "recovery_verification": {"type": "object"},
-    "rls_verification": {"type": "object"},
-    "attack_verification": {"type": "object"},
-    "provsql_verification": {"type": "object"},
-    "compiler_verification": {"type": "object"},
-    "concurrency_verification": {"type": "object"},
-    "rq5_verification": {"type": "object"}
-    ,"trace": {
+    "schema_version": {
+      "const": 1
+    },
+    "campaign_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "deployment_id": {
+      "type": "string",
+      "pattern": "^deployment-[0-9]{2}$"
+    },
+    "experiment_id": {
+      "enum": [
+        "baseline",
+        "scale",
+        "artifact",
+        "rls",
+        "attack",
+        "provsql",
+        "compiler",
+        "concurrency",
+        "rq5"
+      ]
+    },
+    "cell_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sample_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "iteration": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "process_replicate": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "warmup": {
+      "type": "boolean"
+    },
+    "order_position": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "random_seed": {
+      "type": "integer"
+    },
+    "pair_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "paired_system_order": {
+      "type": "string",
+      "minLength": 1
+    },
+    "root_group_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "system": {
+      "enum": [
+        "postgresql",
+        "taskgate",
+        "provsql"
+      ]
+    },
+    "mode": {
+      "type": "string",
+      "minLength": 1
+    },
+    "workload_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "scale": {
+      "type": "string",
+      "minLength": 1
+    },
+    "client_available_ms": {
+      "type": "number",
+      "minimum": 0
+    },
+    "client_full_drain_ms": {
+      "type": "number",
+      "minimum": 0
+    },
+    "generation_boundary_ms": {
+      "type": "number",
+      "minimum": 0
+    },
+    "full_taskgate_ms": {
+      "type": "number",
+      "minimum": 0
+    },
+    "pipeline_ms": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "number",
+        "minimum": 0
+      },
+      "required": [
+        "prepare",
+        "execute_and_derive",
+        "artifact_stage",
+        "control_settlement",
+        "artifact_publication",
+        "response_finalize",
+        "server_total"
+      ]
+    },
+    "diagnostic_ms": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "number",
+        "minimum": 0
+      }
+    },
+    "counters": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "row_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "column_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "result_sha256": {
+      "type": "string"
+    },
+    "physical_sql_sha256": {
+      "type": "string"
+    },
+    "logical_sql_sha256": {
+      "type": "string"
+    },
+    "query_plan_sha256": {
+      "type": "string"
+    },
+    "release_set_sha256": {
+      "type": "string"
+    },
+    "dependency_set_sha256": {
+      "type": "string"
+    },
+    "outcome_set_sha256": {
+      "type": "string"
+    },
+    "artifact_sha256": {
+      "type": "string"
+    },
+    "object_sha256": {
+      "type": "string"
+    },
+    "actual_release_facts": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "charged_release_facts": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "actual_dependency_facts": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "charged_dependency_facts": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "actual_outcome_facts": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "charged_outcome_facts": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "predicate_atom_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "composite_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "semantic_replay": {
+      "type": "boolean"
+    },
+    "idempotent_replay": {
+      "type": "boolean"
+    },
+    "business_sql_delta": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "root_epoch_before": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "root_epoch_after": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "root_task_id_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "root_set_sha256_before": {
+      "type": "string"
+    },
+    "root_set_sha256_after": {
+      "type": "string"
+    },
+    "parquet_bytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "encrypted_object_bytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "receipt_version": {
+      "type": "string"
+    },
+    "receipt_sha256": {
+      "type": "string"
+    },
+    "artifact_intent_sha256": {
+      "type": "string"
+    },
+    "availability_audit_sha256": {
+      "type": "string"
+    },
+    "receipt_verified": {
+      "type": "boolean"
+    },
+    "artifact_available": {
+      "type": "boolean"
+    },
+    "rejected": {
+      "type": "boolean"
+    },
+    "rejected_no_result": {
+      "type": "boolean"
+    },
+    "rejected_no_artifact": {
+      "type": "boolean"
+    },
+    "rejected_no_successful_audit": {
+      "type": "boolean"
+    },
+    "cross_epoch_replay": {
+      "type": "boolean"
+    },
+    "budget_violation": {
+      "type": "boolean"
+    },
+    "gateway_memory_peak_bytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "gateway_cpu_usec_delta": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "gateway_network_rx_delta": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "gateway_network_tx_delta": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "control_wal_bytes_delta": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "business_wal_bytes_delta": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "status": {
+      "enum": [
+        "pass",
+        "fail",
+        "invalid"
+      ]
+    },
+    "error_code": {
+      "type": "string"
+    },
+    "publication_eligible": {
+      "type": "boolean"
+    },
+    "kernel_only": {
+      "type": "boolean"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "baseline_verification": {
+      "type": "object"
+    },
+    "scale_verification": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "version",
+            "boundary"
+          ],
+          "properties": {
+            "version": {
+              "const": "taskgate-final-v5-scale-verification-v1"
+            },
+            "boundary": {
+              "enum": [
+                "dependency_e2e",
+                "outcome_merkle_control",
+                "kernel_storage_only"
+              ]
+            },
+            "binding_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "dataset_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "catalog_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "dataset_probe_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "query_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "expected_rows": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "expected_columns": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "expected_result_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "expected_candidate_facts": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "observed_candidate_facts": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "expected_overlap_facts": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "observed_overlap_facts": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "history_dependency_sha256": {
+              "type": "string"
+            },
+            "candidate_dependency_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "business_before": {
+              "type": "object"
+            },
+            "business_after": {
+              "type": "object"
+            },
+            "root_before": {
+              "type": "object"
+            },
+            "root_after": {
+              "type": "object"
+            },
+            "source_observation_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "replay_observation_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "observer_before": {
+              "type": "object"
+            },
+            "observer_after": {
+              "type": "object"
+            },
+            "outcome_merkle": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "production_path",
+                "content_cache_policy",
+                "overlap_rounding",
+                "fixture_sha256",
+                "backend_run_sha256",
+                "root_cardinality",
+                "candidate_cardinality",
+                "overlap_cardinality",
+                "novel_cardinality",
+                "union_cardinality",
+                "root_member_oracle_sha256",
+                "candidate_member_oracle_sha256",
+                "union_member_oracle_sha256",
+                "observed_union_member_sha256",
+                "production_root_sha256",
+                "production_union_sha256",
+                "replay_union_sha256",
+                "blocks_loaded",
+                "leaves_loaded",
+                "hashes_loaded",
+                "blocks_reused",
+                "leaves_changed",
+                "changed_objects",
+                "replay_changed_objects",
+                "storage_objects_before",
+                "storage_objects_after",
+                "storage_bytes_before",
+                "storage_bytes_after",
+                "heap_alloc_bytes_after",
+                "load_ms",
+                "difference_union_ms",
+                "persist_ms"
+              ],
+              "properties": {
+                "production_path": {
+                  "const": "control.differenceAndUnionV5Tx+persistV5SetObjectsTx"
+                },
+                "content_cache_policy": {
+                  "const": "warm_immutable_content_after_fixture_prefill"
+                },
+                "overlap_rounding": {
+                  "const": "nearest_integer_half_up"
+                },
+                "fixture_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "backend_run_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "root_cardinality": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "candidate_cardinality": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "overlap_cardinality": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "novel_cardinality": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "union_cardinality": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "root_member_oracle_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "candidate_member_oracle_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "union_member_oracle_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "observed_union_member_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "production_root_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "production_union_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "replay_union_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "blocks_loaded": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "leaves_loaded": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "hashes_loaded": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "blocks_reused": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "leaves_changed": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "changed_objects": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "replay_changed_objects": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "storage_objects_before": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "storage_objects_after": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "storage_bytes_before": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "storage_bytes_after": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "heap_alloc_bytes_after": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "load_ms": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "difference_union_ms": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "persist_ms": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              }
+            },
+            "kernel_storage": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "production_path",
+                "fixture_sha256",
+                "run_identity_sha256",
+                "expected_cardinality",
+                "candidate_cardinality",
+                "difference_cardinality",
+                "union_cardinality",
+                "candidate_sha256",
+                "difference_sha256",
+                "union_sha256",
+                "round_trip_sha256",
+                "segment_count",
+                "container_count",
+                "storage_bytes",
+                "allocated_bytes",
+                "allocations",
+                "heap_alloc_bytes_after",
+                "difference_ms",
+                "union_ms",
+                "cardinality_ms",
+                "storage_round_trip_ms"
+              ],
+              "properties": {
+                "production_path": {
+                  "const": "ordinal.BitmapSet.Difference+Union+PortableContainers"
+                },
+                "fixture_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "run_identity_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "expected_cardinality": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "candidate_cardinality": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "difference_cardinality": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "union_cardinality": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "candidate_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "difference_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "union_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "round_trip_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "segment_count": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "container_count": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "storage_bytes": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "allocated_bytes": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "allocations": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "heap_alloc_bytes_after": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "difference_ms": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "union_ms": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "cardinality_ms": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "storage_round_trip_ms": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                }
+              }
+            }
+          }
+        },
+        {
+          "$ref": "#/$defs/partialScaleVerification"
+        }
+      ]
+    },
+    "artifact_verification": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "version",
+            "binding_sha256",
+            "dataset_sha256",
+            "catalog_sha256",
+            "dataset_probe_sha256",
+            "query_sha256",
+            "expected_rows",
+            "expected_columns",
+            "expected_result_sha256",
+            "observed_rows",
+            "observed_columns",
+            "observed_result_sha256",
+            "business_before",
+            "business_after",
+            "root_before",
+            "root_after",
+            "observer_before",
+            "observer_after"
+          ],
+          "properties": {
+            "version": {
+              "const": "taskgate-final-v5-artifact-verification-v1"
+            },
+            "binding_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "dataset_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "catalog_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "dataset_probe_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "query_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "expected_rows": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "expected_columns": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "expected_result_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "observed_rows": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "observed_columns": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "observed_result_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "business_before": {
+              "type": "object"
+            },
+            "business_after": {
+              "type": "object"
+            },
+            "root_before": {
+              "type": "object"
+            },
+            "root_after": {
+              "type": "object"
+            },
+            "observer_before": {
+              "type": "object"
+            },
+            "observer_after": {
+              "type": "object"
+            }
+          }
+        },
+        {
+          "$ref": "#/$defs/partialArtifactVerification"
+        }
+      ]
+    },
+    "replay_verification": {
+      "type": "object"
+    },
+    "cross_binding_verification": {
+      "type": "object"
+    },
+    "idempotent_verification": {
+      "type": "object"
+    },
+    "recovery_verification": {
+      "type": "object"
+    },
+    "rls_verification": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/rlsVerification"
+        },
+        {
+          "$ref": "#/$defs/partialRLSVerification"
+        }
+      ]
+    },
+    "attack_verification": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/attackVerification"
+        },
+        {
+          "$ref": "#/$defs/partialAttackVerification"
+        }
+      ]
+    },
+    "provsql_verification": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "version",
+            "boundary",
+            "binding_sha256",
+            "fixture_version",
+            "fixture_sql_sha256",
+            "enable_sql_sha256",
+            "dataset_sha256",
+            "dataset_probe_sql_sha256",
+            "business_dataset_probe_sql_sha256",
+            "dataset_rows",
+            "scale_limit",
+            "nonce",
+            "warmup",
+            "nonce_binding_sha256",
+            "physical_sql_sha256",
+            "logical_sql_sha256",
+            "cache_condition_sha256",
+            "execution_order_sha256",
+            "expected_rows",
+            "expected_columns",
+            "expected_result_sha256",
+            "observed_result_sha256",
+            "expected_dependency_facts",
+            "expected_dependency_sha256",
+            "typed_drain_fields",
+            "typed_drain_sha256",
+            "field_oids",
+            "postgresql_version",
+            "postgresql_version_num",
+            "statement_timeout_ms",
+            "max_parallel_workers_per_gather",
+            "client_min_messages",
+            "log_min_messages"
+          ],
+          "properties": {
+            "version": {
+              "const": "taskgate-final-v5-provsql-verification-v1"
+            },
+            "boundary": {
+              "enum": [
+                "direct_complete_typed_drain",
+                "provsql_complete_typed_drain",
+                "taskgate_released_parquet_v8"
+              ]
+            },
+            "binding_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "fixture_version": {
+              "type": "string",
+              "minLength": 1
+            },
+            "fixture_sql_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "enable_sql_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "dataset_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "dataset_probe_sql_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "business_dataset_probe_sql_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "dataset_rows": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "scale_limit": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "nonce": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "warmup": {
+              "type": "boolean"
+            },
+            "nonce_binding_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "physical_sql_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "logical_sql_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "cache_condition_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "execution_order_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "expected_rows": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "expected_columns": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "expected_result_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "observed_result_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "expected_dependency_facts": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "expected_dependency_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "typed_drain_fields": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "typed_drain_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "field_oids": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 4294967295
+              }
+            },
+            "postgresql_version": {
+              "type": "string"
+            },
+            "postgresql_version_num": {
+              "type": "string"
+            },
+            "statement_timeout_ms": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "max_parallel_workers_per_gather": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "client_min_messages": {
+              "type": "string"
+            },
+            "log_min_messages": {
+              "type": "string"
+            },
+            "provsql_version": {
+              "type": "string"
+            },
+            "provsql_commit": {
+              "type": "string"
+            },
+            "shared_preload": {
+              "type": "boolean"
+            },
+            "agg_token_text_as_uuid": {
+              "type": "boolean"
+            },
+            "agg_token_oid": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            },
+            "uuid_oid": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            },
+            "carrier_gate_type": {
+              "type": "string"
+            },
+            "row_gate_type": {
+              "type": "string"
+            },
+            "root_types_verified": {
+              "type": "boolean"
+            },
+            "aggregate_tokens": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "row_tokens": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "gates_before": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "gates_after": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "artifact_bytes_before": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "artifact_bytes_after": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "representation_sha256": {
+              "type": "string"
+            },
+            "business_before": {
+              "type": "object"
+            },
+            "business_after": {
+              "type": "object"
+            },
+            "root_before": {
+              "type": "object"
+            },
+            "root_after": {
+              "type": "object"
+            },
+            "observer_before": {
+              "type": "object"
+            },
+            "observer_after": {
+              "type": "object"
+            },
+            "failure_stage": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "$ref": "#/$defs/partialProvSQLVerification"
+        }
+      ]
+    },
+    "compiler_verification": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "fixture_version",
+            "registry_sha256",
+            "products_sha256",
+            "fixture_sql_sha256",
+            "dataset_sha256",
+            "expected_depth",
+            "observed_depth",
+            "expected_sources",
+            "observed_sources",
+            "direct_result_sha256",
+            "nested_result_sha256",
+            "artifacts",
+            "structured_error_code",
+            "structured_error_relation_sha256",
+            "allocation_error_code"
+          ],
+          "properties": {
+            "fixture_version": {
+              "const": "taskgate-final-v5-compiler-fixture-v1"
+            },
+            "registry_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "products_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "fixture_sql_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "dataset_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "expected_depth": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "observed_depth": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "expected_sources": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "observed_sources": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "direct_result_sha256": {
+              "type": "string"
+            },
+            "nested_result_sha256": {
+              "type": "string"
+            },
+            "structured_error_code": {
+              "type": "string"
+            },
+            "structured_error_relation_sha256": {
+              "type": "string"
+            },
+            "allocation_error_code": {
+              "type": "string"
+            },
+            "artifacts": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name",
+                  "artifact_sha256",
+                  "definition_sha256",
+                  "dependency_sha256",
+                  "interface_sha256",
+                  "canonical_plan_sha256",
+                  "binding_sha256",
+                  "outputs_sha256",
+                  "base_products_sha256",
+                  "reachable_relations",
+                  "dependency_edges",
+                  "expanded_sources",
+                  "definition_bytes",
+                  "canonical_plan_bytes"
+                ],
+                "properties": {
+                  "name": {
+                    "enum": [
+                      "measured",
+                      "direct",
+                      "nested",
+                      "alias",
+                      "join_order",
+                      "parenthesized",
+                      "repeat",
+                      "allocation",
+                      "unexpected",
+                      "unexpected_allocation"
+                    ]
+                  },
+                  "artifact_sha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "definition_sha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "dependency_sha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "interface_sha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "canonical_plan_sha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "binding_sha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "outputs_sha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "base_products_sha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "reachable_relations": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "dependency_edges": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "expanded_sources": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "definition_bytes": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "canonical_plan_bytes": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "$ref": "#/$defs/partialCompilerVerification"
+        }
+      ]
+    },
+    "concurrency_verification": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "version",
+            "fixture_sha256",
+            "plans_sha256",
+            "probe_version",
+            "gateway_instance_sha256",
+            "round_sha256",
+            "root_task_id_hash",
+            "contender_request_set_sha256",
+            "expected_width",
+            "http_active_capacity",
+            "http_queue_capacity",
+            "control_pool_capacity",
+            "connector_pool_capacity",
+            "service_arrivals",
+            "service_unique_participants",
+            "service_participant_set_sha256",
+            "service_peak_barrier_waiting",
+            "service_peak_active",
+            "service_peak_queued",
+            "service_completed",
+            "service_canceled",
+            "service_rejected",
+            "peak_control_pool_in_use",
+            "control_pool_wait_count_delta",
+            "control_pool_wait_nanoseconds",
+            "root_lock_waiters_observed",
+            "production_cas_attempts",
+            "production_cas_conflicts",
+            "production_cas_retries",
+            "natural_cas_attempts",
+            "natural_cas_conflicts",
+            "natural_cas_retries",
+            "initial_root",
+            "before_boundary",
+            "at_boundary",
+            "after_rejected_overflow",
+            "resource_budget_profile",
+            "resource_max_queries",
+            "budget_limit",
+            "usage_before",
+            "accepted",
+            "rejected",
+            "usage_after",
+            "charged_winners",
+            "zero_novelty_settlements",
+            "expected_result_sha256",
+            "final_root_fact_hashes",
+            "final_root_set_sha256",
+            "contenders",
+            "overflow"
+          ],
+          "properties": {
+            "version": {
+              "const": "taskgate-final-v5-concurrency-verification-v1"
+            },
+            "fixture_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "plans_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "probe_version": {
+              "type": "string",
+              "minLength": 1
+            },
+            "gateway_instance_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "round_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "root_task_id_hash": {
+              "$ref": "#/$defs/sha256"
+            },
+            "contender_request_set_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "expected_width": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "http_active_capacity": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "http_queue_capacity": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "control_pool_capacity": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "connector_pool_capacity": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "service_arrivals": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "service_unique_participants": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "service_participant_set_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "service_peak_barrier_waiting": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "service_peak_active": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "service_peak_queued": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "service_completed": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "service_canceled": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "service_rejected": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "peak_control_pool_in_use": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "control_pool_wait_count_delta": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "control_pool_wait_nanoseconds": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "root_lock_waiters_observed": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "production_cas_attempts": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "production_cas_conflicts": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "production_cas_retries": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "natural_cas_attempts": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "natural_cas_conflicts": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "natural_cas_retries": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "initial_root": {
+              "$ref": "#/$defs/attackRootSnapshot"
+            },
+            "before_boundary": {
+              "$ref": "#/$defs/attackRootSnapshot"
+            },
+            "at_boundary": {
+              "$ref": "#/$defs/attackRootSnapshot"
+            },
+            "after_rejected_overflow": {
+              "$ref": "#/$defs/attackRootSnapshot"
+            },
+            "resource_budget_profile": {
+              "type": "string",
+              "minLength": 1
+            },
+            "resource_max_queries": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "budget_limit": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "usage_before": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "accepted": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "rejected": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "usage_after": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "charged_winners": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "zero_novelty_settlements": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "expected_result_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "final_root_fact_hashes": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            },
+            "final_root_set_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "contenders": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/concurrencyContender"
+              }
+            },
+            "overflow": {
+              "$ref": "#/$defs/concurrencyOverflow"
+            }
+          }
+        },
+        {
+          "$ref": "#/$defs/partialConcurrencyVerification"
+        }
+      ]
+    },
+    "rq5_verification": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/rq5Verification"
+        },
+        {
+          "$ref": "#/$defs/partialRQ5Verification"
+        }
+      ]
+    },
+    "trace": {
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["index", "concrete_sql", "prior_state_sha256", "result_sha256", "next_sql_sha256"],
+        "required": [
+          "index",
+          "concrete_sql",
+          "prior_state_sha256",
+          "result_sha256",
+          "next_sql_sha256"
+        ],
         "properties": {
-          "index": {"type": "integer", "minimum": 1},
-          "concrete_sql": {"type": "string", "minLength": 1},
-          "prior_state_sha256": {"type": "string"},
-          "result_sha256": {"type": "string"},
-          "next_sql_sha256": {"type": "string"},
-          "plan_sha256": {"type": "string"},
-          "observation_sha256": {"type": "string"},
-          "release_set_sha256": {"type": "string"},
-          "dependency_set_sha256": {"type": "string"},
-          "outcome_set_sha256": {"type": "string"},
-          "rejected": {"type": "boolean"},
-          "no_result": {"type": "boolean"},
-          "no_available_artifact": {"type": "boolean"},
-          "no_successful_audit": {"type": "boolean"}
+          "index": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "concrete_sql": {
+            "type": "string",
+            "minLength": 1
+          },
+          "prior_state_sha256": {
+            "type": "string"
+          },
+          "result_sha256": {
+            "type": "string"
+          },
+          "next_sql_sha256": {
+            "type": "string"
+          },
+          "plan_sha256": {
+            "type": "string"
+          },
+          "observation_sha256": {
+            "type": "string"
+          },
+          "release_set_sha256": {
+            "type": "string"
+          },
+          "dependency_set_sha256": {
+            "type": "string"
+          },
+          "outcome_set_sha256": {
+            "type": "string"
+          },
+          "rejected": {
+            "type": "boolean"
+          },
+          "no_result": {
+            "type": "boolean"
+          },
+          "no_available_artifact": {
+            "type": "boolean"
+          },
+          "no_successful_audit": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "profile_binding": {
+      "$ref": "#/$defs/profileBinding"
+    }
+  },
+  "$defs": {
+    "partialScaleVerification": {
+      "type": "object",
+      "propertyNames": {
+        "enum": [
+          "binding_sha256",
+          "boundary",
+          "business_after",
+          "business_before",
+          "candidate_dependency_sha256",
+          "catalog_sha256",
+          "dataset_probe_sha256",
+          "dataset_sha256",
+          "expected_candidate_facts",
+          "expected_columns",
+          "expected_overlap_facts",
+          "expected_result_sha256",
+          "expected_rows",
+          "history_dependency_sha256",
+          "kernel_storage",
+          "observed_candidate_facts",
+          "observed_overlap_facts",
+          "observer_after",
+          "observer_before",
+          "outcome_merkle",
+          "query_sha256",
+          "replay_observation_sha256",
+          "root_after",
+          "root_before",
+          "source_observation_sha256",
+          "version"
+        ]
+      }
+    },
+    "partialArtifactVerification": {
+      "type": "object",
+      "propertyNames": {
+        "enum": [
+          "binding_sha256",
+          "business_after",
+          "business_before",
+          "catalog_sha256",
+          "dataset_probe_sha256",
+          "dataset_sha256",
+          "expected_columns",
+          "expected_result_sha256",
+          "expected_rows",
+          "observed_columns",
+          "observed_result_sha256",
+          "observed_rows",
+          "observer_after",
+          "observer_before",
+          "query_sha256",
+          "root_after",
+          "root_before",
+          "version"
+        ]
+      }
+    },
+    "partialRLSVerification": {
+      "type": "object",
+      "propertyNames": {
+        "enum": [
+          "baseline_role",
+          "baseline_role_bypassrls",
+          "baseline_role_canlogin",
+          "baseline_role_createdb",
+          "baseline_role_createrole",
+          "baseline_role_inherit",
+          "baseline_role_is_owner",
+          "baseline_role_replication",
+          "baseline_role_superuser",
+          "budget_profile",
+          "corpus_id",
+          "corpus_sha256",
+          "current_role",
+          "dataset_id",
+          "dataset_sha256",
+          "final_root",
+          "first_rejection_index",
+          "grants_json",
+          "grants_sha256",
+          "memberships_json",
+          "memberships_sha256",
+          "negative_control",
+          "oracle_computed_before_bounded",
+          "oracle_prefixes",
+          "oracle_result",
+          "oracle_trace",
+          "policies_json",
+          "policies_sha256",
+          "policy_name",
+          "policy_schema",
+          "policy_seed",
+          "policy_table",
+          "product",
+          "relforcerowsecurity",
+          "relrowsecurity",
+          "results_after_budget",
+          "root_task_id_hash",
+          "session_user",
+          "steps",
+          "stop_reason",
+          "successful_queries",
+          "table_owner_role",
+          "trace_sha256",
+          "unrelated_authorization_denials",
+          "version"
+        ]
+      }
+    },
+    "partialAttackVerification": {
+      "type": "object",
+      "propertyNames": {
+        "enum": [
+          "anchor_query_id_hash",
+          "anchor_request_id_hash",
+          "anchor_result_id_hash",
+          "budget_profile",
+          "complete_row_set_sha256",
+          "corpus_id",
+          "corpus_sha256",
+          "dataset_id",
+          "decomposed_row_set_sha256",
+          "expected_thresholds",
+          "final_root",
+          "normal_form_sha256",
+          "observed_outcome",
+          "observed_threshold_results",
+          "outcome_ceiling",
+          "primary_result_sha256",
+          "product",
+          "root_task_id_hash",
+          "steps",
+          "threshold_rejection_index",
+          "version"
+        ]
+      }
+    },
+    "partialProvSQLVerification": {
+      "type": "object",
+      "propertyNames": {
+        "enum": [
+          "agg_token_oid",
+          "agg_token_text_as_uuid",
+          "aggregate_tokens",
+          "artifact_bytes_after",
+          "artifact_bytes_before",
+          "binding_sha256",
+          "boundary",
+          "business_after",
+          "business_before",
+          "business_dataset_probe_sql_sha256",
+          "cache_condition_sha256",
+          "carrier_gate_type",
+          "client_min_messages",
+          "dataset_probe_sql_sha256",
+          "dataset_rows",
+          "dataset_sha256",
+          "enable_sql_sha256",
+          "execution_order_sha256",
+          "expected_columns",
+          "expected_dependency_facts",
+          "expected_dependency_sha256",
+          "expected_result_sha256",
+          "expected_rows",
+          "failure_stage",
+          "field_oids",
+          "fixture_sql_sha256",
+          "fixture_version",
+          "gates_after",
+          "gates_before",
+          "log_min_messages",
+          "logical_sql_sha256",
+          "max_parallel_workers_per_gather",
+          "nonce",
+          "nonce_binding_sha256",
+          "observed_result_sha256",
+          "observer_after",
+          "observer_before",
+          "physical_sql_sha256",
+          "postgresql_version",
+          "postgresql_version_num",
+          "provsql_commit",
+          "provsql_version",
+          "representation_sha256",
+          "root_after",
+          "root_before",
+          "root_types_verified",
+          "row_gate_type",
+          "row_tokens",
+          "scale_limit",
+          "shared_preload",
+          "statement_timeout_ms",
+          "typed_drain_fields",
+          "typed_drain_sha256",
+          "uuid_oid",
+          "version",
+          "warmup"
+        ]
+      }
+    },
+    "partialCompilerVerification": {
+      "type": "object",
+      "propertyNames": {
+        "enum": [
+          "allocation_error_code",
+          "artifacts",
+          "dataset_sha256",
+          "direct_result_sha256",
+          "expected_depth",
+          "expected_sources",
+          "fixture_sql_sha256",
+          "fixture_version",
+          "nested_result_sha256",
+          "observed_depth",
+          "observed_sources",
+          "products_sha256",
+          "registry_sha256",
+          "structured_error_code",
+          "structured_error_relation_sha256"
+        ]
+      }
+    },
+    "partialConcurrencyVerification": {
+      "type": "object",
+      "propertyNames": {
+        "enum": [
+          "accepted",
+          "after_rejected_overflow",
+          "at_boundary",
+          "before_boundary",
+          "budget_limit",
+          "charged_winners",
+          "connector_pool_capacity",
+          "contender_request_set_sha256",
+          "contenders",
+          "control_pool_capacity",
+          "control_pool_wait_count_delta",
+          "control_pool_wait_nanoseconds",
+          "expected_result_sha256",
+          "expected_width",
+          "final_root_fact_hashes",
+          "final_root_set_sha256",
+          "fixture_sha256",
+          "gateway_instance_sha256",
+          "http_active_capacity",
+          "http_queue_capacity",
+          "initial_root",
+          "natural_cas_attempts",
+          "natural_cas_conflicts",
+          "natural_cas_retries",
+          "overflow",
+          "peak_control_pool_in_use",
+          "plans_sha256",
+          "probe_version",
+          "production_cas_attempts",
+          "production_cas_conflicts",
+          "production_cas_retries",
+          "rejected",
+          "resource_budget_profile",
+          "resource_max_queries",
+          "root_lock_waiters_observed",
+          "root_task_id_hash",
+          "round_sha256",
+          "service_arrivals",
+          "service_canceled",
+          "service_completed",
+          "service_participant_set_sha256",
+          "service_peak_active",
+          "service_peak_barrier_waiting",
+          "service_peak_queued",
+          "service_rejected",
+          "service_unique_participants",
+          "usage_after",
+          "usage_before",
+          "version",
+          "zero_novelty_settlements"
+        ]
+      }
+    },
+    "partialRQ5Verification": {
+      "type": "object",
+      "propertyNames": {
+        "enum": [
+          "build",
+          "build_manifest_sha256",
+          "config_sha256",
+          "cycle_index",
+          "dataset_manifest_sha256",
+          "fixture_sha256",
+          "from_day",
+          "generator_sha256",
+          "lifecycle",
+          "lifecycle_sha256",
+          "oa_binary_mtime_unix",
+          "oa_binary_sha256",
+          "oa_image_id",
+          "online_binary_mtime_unix",
+          "online_binary_sha256",
+          "online_image_id",
+          "phase_binary_mtime_unix",
+          "phase_binary_sha256",
+          "phase_image_id",
+          "publication_set_sha256",
+          "publications",
+          "route",
+          "rows_per_publication",
+          "to_day",
+          "topology",
+          "version"
+        ]
+      }
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "dockerImageID": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "rlsOracleObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "release",
+        "dependency",
+        "outcome"
+      ],
+      "properties": {
+        "release": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/sha256"
+          }
+        },
+        "dependency": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/sha256"
+          }
+        },
+        "outcome": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/sha256"
+          }
+        }
+      }
+    },
+    "rlsOracleDimension": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cardinality",
+        "set_sha256",
+        "budget"
+      ],
+      "properties": {
+        "cardinality": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "set_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "budget": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "rlsOracleTraceUnion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "oracle",
+        "queries",
+        "release",
+        "dependency",
+        "outcome"
+      ],
+      "properties": {
+        "oracle": {
+          "const": "taskgate-final-v5-independent-trace-union-oracle-v1"
+        },
+        "queries": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "release": {
+          "$ref": "#/$defs/rlsOracleDimension"
+        },
+        "dependency": {
+          "$ref": "#/$defs/rlsOracleDimension"
+        },
+        "outcome": {
+          "$ref": "#/$defs/rlsOracleDimension"
+        }
+      }
+    },
+    "rlsControlSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "task_id_hash",
+        "root_task_id_hash",
+        "product",
+        "budget_profile",
+        "max_queries",
+        "max_rows",
+        "used_queries",
+        "used_rows",
+        "reserved_queries",
+        "reserved_rows",
+        "max_release_facts",
+        "max_dependency_facts",
+        "max_outcome_facts",
+        "business",
+        "root",
+        "query_records",
+        "settlements",
+        "observations",
+        "receipts",
+        "artifacts",
+        "available_artifacts",
+        "successful_audits",
+        "failure_audits",
+        "canonical_objects"
+      ],
+      "properties": {
+        "task_id_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "root_task_id_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "product": {
+          "enum": [
+            "final_v5_rls_unlimited_expense_detail",
+            "final_v5_rls_bounded_expense_detail"
+          ]
+        },
+        "budget_profile": {
+          "enum": [
+            "final-v5-rls-unlimited-v1",
+            "final-v5-rls-bounded-70-v1"
+          ]
+        },
+        "max_queries": {
+          "const": 110
+        },
+        "max_rows": {
+          "const": 1000
+        },
+        "used_queries": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 110
+        },
+        "used_rows": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "reserved_queries": {
+          "const": 0
+        },
+        "reserved_rows": {
+          "const": 0
+        },
+        "max_release_facts": {
+          "enum": [
+            7,
+            1000
+          ]
+        },
+        "max_dependency_facts": {
+          "enum": [
+            12,
+            1000
+          ]
+        },
+        "max_outcome_facts": {
+          "enum": [
+            18,
+            1000
+          ]
+        },
+        "business": {
+          "$ref": "#/$defs/attackBusinessSnapshot"
+        },
+        "root": {
+          "$ref": "#/$defs/attackRootSnapshot"
+        },
+        "query_records": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "settlements": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "observations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "receipts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "artifacts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "available_artifacts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "successful_audits": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failure_audits": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "canonical_objects": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "rlsNegativeControl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target_receipt_no",
+        "target_department",
+        "policy_department",
+        "target_present_outside_policy",
+        "policy_filtered",
+        "expected_row_count",
+        "observed_row_count",
+        "expected_result_sha256",
+        "observed_result_sha256",
+        "authorization_sql_sha256",
+        "expected_authorization_error_code",
+        "observed_authorization_error_code",
+        "observed_authorization_error_reason",
+        "authorization_rejected_no_rows"
+      ],
+      "properties": {
+        "target_receipt_no": {
+          "const": "TR-2026-0005"
+        },
+        "target_department": {
+          "const": "研发部"
+        },
+        "policy_department": {
+          "const": "销售部"
+        },
+        "target_present_outside_policy": {
+          "const": true
+        },
+        "policy_filtered": {
+          "const": true
+        },
+        "expected_row_count": {
+          "const": 0
+        },
+        "observed_row_count": {
+          "const": 0
+        },
+        "expected_result_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "observed_result_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "authorization_sql_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "expected_authorization_error_code": {
+          "enum": [
+            "42501",
+            "COLUMN_NOT_APPROVED"
+          ]
+        },
+        "observed_authorization_error_code": {
+          "enum": [
+            "42501",
+            "COLUMN_NOT_APPROVED"
+          ]
+        },
+        "observed_authorization_error_reason": {
+          "const": "UNAPPROVED_COLUMN"
+        },
+        "authorization_rejected_no_rows": {
+          "const": true
+        },
+        "before": {
+          "$ref": "#/$defs/rlsControlSnapshot"
+        },
+        "after": {
+          "$ref": "#/$defs/rlsControlSnapshot"
+        },
+        "rejected_query": {
+          "$ref": "#/$defs/attackRejectedQuery"
+        }
+      }
+    },
+    "rlsStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "index",
+        "step_id",
+        "family",
+        "variant",
+        "logical_sql_sha256",
+        "direct_sql_sha256",
+        "expected_result_sha256",
+        "row_count",
+        "column_count",
+        "accepted",
+        "rejected",
+        "actual_release_facts",
+        "charged_release_facts",
+        "actual_dependency_facts",
+        "charged_dependency_facts",
+        "actual_outcome_facts",
+        "charged_outcome_facts",
+        "predicate_atom_count",
+        "composite_count",
+        "semantic_replay",
+        "idempotent_replay",
+        "oracle_prefix",
+        "parquet_bytes",
+        "encrypted_object_bytes"
+      ],
+      "properties": {
+        "index": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "step_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "family": {
+          "enum": [
+            "equality",
+            "pagination",
+            "equivalent_predicate",
+            "repeated_aggregation",
+            "adaptive_choice",
+            "policy_denied_control",
+            "authorization_denied_control"
+          ]
+        },
+        "variant": {
+          "type": "string",
+          "minLength": 1
+        },
+        "logical_sql_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "direct_sql_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "expected_result_sha256": {
+          "type": "string",
+          "pattern": "^(|[0-9a-f]{64})$"
+        },
+        "observed_result_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "verified_result_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "row_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "column_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "scalar_int64": {
+          "type": "integer"
+        },
+        "decision_previous_step": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 99
+        },
+        "decision_previous_value": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "decision_rule": {
+          "const": "odd->880;even->553"
+        },
+        "decision_threshold": {
+          "enum": [
+            553,
+            880
+          ]
+        },
+        "accepted": {
+          "type": "boolean"
+        },
+        "rejected": {
+          "type": "boolean"
+        },
+        "observed_error_code": {
+          "enum": [
+            "42501",
+            "COLUMN_NOT_APPROVED",
+            "EXPOSURE_BUDGET_EXHAUSTED"
+          ]
+        },
+        "observed_error_reason": {
+          "enum": [
+            "UNAPPROVED_COLUMN",
+            "ROOT_DEPENDENCY_CEILING_EXCEEDED"
+          ]
+        },
+        "request_id_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "query_id_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "result_id_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "plan_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "observation_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "release_set_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "dependency_set_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "outcome_set_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "actual_release_facts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "charged_release_facts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "actual_dependency_facts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "charged_dependency_facts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "actual_outcome_facts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "charged_outcome_facts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "predicate_atom_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "composite_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "semantic_replay": {
+          "type": "boolean"
+        },
+        "idempotent_replay": {
+          "type": "boolean"
+        },
+        "root_task_id_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "before": {
+          "$ref": "#/$defs/rlsControlSnapshot"
+        },
+        "after": {
+          "$ref": "#/$defs/rlsControlSnapshot"
+        },
+        "oracle_prefix": {
+          "$ref": "#/$defs/rlsOracleTraceUnion"
+        },
+        "artifact_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "object_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "parquet_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "encrypted_object_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "receipt_version": {
+          "const": "8"
+        },
+        "receipt_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "artifact_intent_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "availability_audit_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "verification": {
+          "$ref": "#/$defs/attackV8Verification"
+        },
+        "rejected_query": {
+          "$ref": "#/$defs/attackRejectedQuery"
+        }
+      }
+    },
+    "rlsVerification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "corpus_id",
+        "corpus_sha256",
+        "trace_sha256",
+        "dataset_id",
+        "dataset_sha256",
+        "policy_seed",
+        "policy_schema",
+        "policy_table",
+        "policy_name",
+        "relrowsecurity",
+        "relforcerowsecurity",
+        "session_user",
+        "current_role",
+        "baseline_role",
+        "table_owner_role",
+        "baseline_role_is_owner",
+        "baseline_role_canlogin",
+        "baseline_role_superuser",
+        "baseline_role_inherit",
+        "baseline_role_createdb",
+        "baseline_role_createrole",
+        "baseline_role_replication",
+        "baseline_role_bypassrls",
+        "policies_json",
+        "policies_sha256",
+        "memberships_json",
+        "memberships_sha256",
+        "grants_json",
+        "grants_sha256",
+        "oracle_computed_before_bounded",
+        "oracle_trace",
+        "oracle_result",
+        "oracle_prefixes",
+        "steps",
+        "successful_queries",
+        "unrelated_authorization_denials",
+        "results_after_budget"
+      ],
+      "properties": {
+        "version": {
+          "const": "taskgate-final-v5-rls-evidence-v1"
+        },
+        "corpus_id": {
+          "const": "taskgate-final-v5-rls-corpus-v1"
+        },
+        "corpus_sha256": {
+          "const": "39e86d75f10be47847e7db155f28c564c43f4d50d765a99605028b3fc6535b3b"
+        },
+        "trace_sha256": {
+          "const": "b3694e18f701026ca3aa12148824e3077e1d916f4b711516a000d43e6251a4a5"
+        },
+        "dataset_id": {
+          "const": "travel-demo-2026-v1"
+        },
+        "dataset_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "policy_seed": {
+          "const": 20260801
+        },
+        "product": {
+          "enum": [
+            "final_v5_rls_unlimited_expense_detail",
+            "final_v5_rls_bounded_expense_detail"
+          ]
+        },
+        "budget_profile": {
+          "enum": [
+            "final-v5-rls-unlimited-v1",
+            "final-v5-rls-bounded-70-v1"
+          ]
+        },
+        "root_task_id_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "policy_schema": {
+          "const": "final_v5_rls"
+        },
+        "policy_table": {
+          "const": "expense_detail"
+        },
+        "policy_name": {
+          "const": "final_v5_sales_scope"
+        },
+        "relrowsecurity": {
+          "const": true
+        },
+        "relforcerowsecurity": {
+          "const": true
+        },
+        "session_user": {
+          "type": "string",
+          "minLength": 1
+        },
+        "current_role": {
+          "const": "final_v5_rls_reader"
+        },
+        "baseline_role": {
+          "const": "final_v5_rls_reader"
+        },
+        "table_owner_role": {
+          "const": "taskgate_snapshot_owner"
+        },
+        "baseline_role_is_owner": {
+          "const": false
+        },
+        "baseline_role_canlogin": {
+          "const": false
+        },
+        "baseline_role_superuser": {
+          "const": false
+        },
+        "baseline_role_inherit": {
+          "const": false
+        },
+        "baseline_role_createdb": {
+          "const": false
+        },
+        "baseline_role_createrole": {
+          "const": false
+        },
+        "baseline_role_replication": {
+          "const": false
+        },
+        "baseline_role_bypassrls": {
+          "const": false
+        },
+        "policies_json": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "schema",
+              "table",
+              "policy",
+              "permissive",
+              "roles",
+              "command",
+              "qual",
+              "with_check"
+            ],
+            "properties": {
+              "schema": {
+                "const": "final_v5_rls"
+              },
+              "table": {
+                "const": "expense_detail"
+              },
+              "policy": {
+                "const": "final_v5_sales_scope"
+              },
+              "permissive": {
+                "const": "PERMISSIVE"
+              },
+              "roles": {
+                "type": "array",
+                "items": {
+                  "const": "final_v5_rls_reader"
+                }
+              },
+              "command": {
+                "const": "SELECT"
+              },
+              "qual": {
+                "const": "(department = '销售部'::text)"
+              },
+              "with_check": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        "policies_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "memberships_json": {
+          "type": "array",
+          "maxItems": 0
+        },
+        "memberships_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "grants_json": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "schema",
+              "relation",
+              "name",
+              "privilege"
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "column",
+                  "schema"
+                ]
+              },
+              "schema": {
+                "const": "final_v5_rls"
+              },
+              "relation": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "privilege": {
+                "enum": [
+                  "SELECT",
+                  "USAGE"
+                ]
+              }
+            }
+          }
+        },
+        "grants_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "oracle_computed_before_bounded": {
+          "const": true
+        },
+        "oracle_trace": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/rlsOracleObservation"
+          }
+        },
+        "oracle_result": {
+          "$ref": "#/$defs/rlsOracleTraceUnion"
+        },
+        "oracle_prefixes": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/rlsOracleTraceUnion"
+          }
+        },
+        "steps": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/rlsStep"
+          }
+        },
+        "successful_queries": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "first_rejection_index": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "unrelated_authorization_denials": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "results_after_budget": {
+          "const": 0
+        },
+        "stop_reason": {
+          "enum": [
+            "TRACE_COMPLETED",
+            "EXPOSURE_BUDGET_EXHAUSTED",
+            "POLICY_FILTER_AND_AUTHORIZATION_REJECTION"
+          ]
+        },
+        "final_root": {
+          "$ref": "#/$defs/attackRootSnapshot"
+        },
+        "negative_control": {
+          "$ref": "#/$defs/rlsNegativeControl"
+        }
+      }
+    },
+    "attackBusinessSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stats_reset_unix_micro",
+        "dealloc",
+        "visible_calls",
+        "companion_calls"
+      ],
+      "properties": {
+        "stats_reset_unix_micro": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "dealloc": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "visible_calls": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "companion_calls": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "attackRootSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "epoch",
+        "dictionary_set_sha256",
+        "release_set_sha256",
+        "release_cardinality",
+        "dependency_set_sha256",
+        "dependency_cardinality",
+        "outcome_set_sha256",
+        "outcome_cardinality",
+        "root_observation_set_sha256",
+        "root_observation_count"
+      ],
+      "properties": {
+        "epoch": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "dictionary_set_sha256": {
+          "type": "string"
+        },
+        "release_set_sha256": {
+          "type": "string"
+        },
+        "release_cardinality": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "dependency_set_sha256": {
+          "type": "string"
+        },
+        "dependency_cardinality": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "outcome_set_sha256": {
+          "type": "string"
+        },
+        "outcome_cardinality": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "root_observation_set_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "root_observation_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "attackControlSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "task_id_hash",
+        "root_task_id_hash",
+        "product",
+        "budget_profile",
+        "max_queries",
+        "used_queries",
+        "reserved_queries",
+        "max_outcome_facts",
+        "business",
+        "root",
+        "query_records",
+        "settlements",
+        "observations",
+        "receipts",
+        "artifacts",
+        "available_artifacts",
+        "successful_audits",
+        "failure_audits",
+        "canonical_objects"
+      ],
+      "properties": {
+        "task_id_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "root_task_id_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "product": {
+          "enum": [
+            "expense_detail",
+            "final_v5_attack_expense_detail"
+          ]
+        },
+        "budget_profile": {
+          "enum": [
+            "detail-manual-v5",
+            "final-v5-attack-medium-v1"
+          ]
+        },
+        "max_queries": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "used_queries": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reserved_queries": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_outcome_facts": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "business": {
+          "$ref": "#/$defs/attackBusinessSnapshot"
+        },
+        "root": {
+          "$ref": "#/$defs/attackRootSnapshot"
+        },
+        "query_records": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "settlements": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "observations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "receipts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "artifacts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "available_artifacts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "successful_audits": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failure_audits": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "canonical_objects": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "attackRejectedQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "found",
+        "encrypted_results",
+        "encrypted_chunks",
+        "materializations",
+        "query_observations",
+        "root_observations",
+        "artifacts",
+        "available_artifacts",
+        "availability_audits",
+        "successful_audits",
+        "failure_audits",
+        "receipts"
+      ],
+      "properties": {
+        "found": {
+          "type": "boolean"
+        },
+        "query_id_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "status": {
+          "type": "string"
+        },
+        "error_code": {
+          "type": "string"
+        },
+        "result_sha256": {
+          "type": "string"
+        },
+        "reservation_status": {
+          "type": "string"
+        },
+        "encrypted_results": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "encrypted_chunks": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "materializations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "query_observations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "root_observations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "artifacts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "available_artifacts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "availability_audits": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "successful_audits": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failure_audits": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "receipts": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "attackV8Verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "receipt",
+        "key_bundle",
+        "audit_proof",
+        "terminal_proof",
+        "registration_proof",
+        "availability_proof",
+        "artifact_status",
+        "downloaded_parquet_sha256",
+        "parsed_result_sha256"
+      ],
+      "properties": {
+        "receipt": {
+          "type": "object"
+        },
+        "key_bundle": {
+          "type": "object"
+        },
+        "audit_proof": {
+          "type": "object"
+        },
+        "terminal_proof": {
+          "type": "object"
+        },
+        "registration_proof": {
+          "type": "object"
+        },
+        "availability_proof": {
+          "type": "object"
+        },
+        "artifact_status": {
+          "const": "AVAILABLE"
+        },
+        "downloaded_parquet_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "parsed_result_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "verifier_manifest": {
+          "$ref": "#/$defs/redactedVerifierManifest"
+        }
+      }
+    },
+    "attackStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "index",
+        "variant_id",
+        "classification",
+        "role",
+        "logical_sql_sha256",
+        "direct_sql_sha256",
+        "accepted",
+        "rejected",
+        "row_count",
+        "column_count",
+        "actual_release_facts",
+        "charged_release_facts",
+        "actual_dependency_facts",
+        "charged_dependency_facts",
+        "actual_outcome_facts",
+        "charged_outcome_facts",
+        "predicate_atom_count",
+        "composite_count",
+        "semantic_replay",
+        "idempotent_replay",
+        "root_epoch_after",
+        "parquet_bytes",
+        "encrypted_object_bytes"
+      ],
+      "properties": {
+        "index": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16
+        },
+        "variant_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "classification": {
+          "enum": [
+            "accepted",
+            "accepted_equivalent",
+            "semantic_replay",
+            "expected_rejection"
+          ]
+        },
+        "role": {
+          "enum": [
+            "complete",
+            "partition",
+            "overlap",
+            "replay",
+            "equivalent",
+            "negative",
+            "request_identity",
+            "threshold",
+            "threshold_rejection"
+          ]
+        },
+        "logical_sql_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "direct_sql_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "accepted": {
+          "type": "boolean"
+        },
+        "rejected": {
+          "type": "boolean"
+        },
+        "observed_error_code": {
+          "enum": [
+            "SQL_NOT_LOWERABLE",
+            "EXPOSURE_BUDGET_EXHAUSTED"
+          ]
+        },
+        "observed_error_reason": {
+          "enum": [
+            "SET_OPERATION_UNSUPPORTED",
+            "ROOT_OUTCOME_CEILING_EXCEEDED"
+          ]
+        },
+        "trace_id_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "request_id_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "query_id_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "result_id_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "row_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "column_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "result_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "scalar_int64": {
+          "type": "integer"
+        },
+        "row_sha256": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/sha256"
+          }
+        },
+        "row_set_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "plan_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "result_metadata_json": {
+          "type": "object"
+        },
+        "observation_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "release_set_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "dependency_set_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "outcome_set_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "actual_release_facts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "charged_release_facts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "actual_dependency_facts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "charged_dependency_facts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "actual_outcome_facts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "charged_outcome_facts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "predicate_atom_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "composite_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "semantic_replay": {
+          "type": "boolean"
+        },
+        "idempotent_replay": {
+          "type": "boolean"
+        },
+        "root_task_id_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "root_epoch_after": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "artifact_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "object_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "parquet_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "encrypted_object_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "receipt_version": {
+          "type": "string"
+        },
+        "receipt_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "artifact_intent_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "availability_audit_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "before": {
+          "$ref": "#/$defs/attackControlSnapshot"
+        },
+        "after": {
+          "$ref": "#/$defs/attackControlSnapshot"
+        },
+        "verification": {
+          "$ref": "#/$defs/attackV8Verification"
+        },
+        "rejected_query": {
+          "$ref": "#/$defs/attackRejectedQuery"
+        }
+      }
+    },
+    "attackVerification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "corpus_id",
+        "corpus_sha256",
+        "dataset_id",
+        "product",
+        "steps",
+        "primary_result_sha256"
+      ],
+      "properties": {
+        "version": {
+          "const": "taskgate-final-v5-attack-evidence-v1"
+        },
+        "corpus_id": {
+          "const": "taskgate-final-v5-attack-corpus-v1"
+        },
+        "corpus_sha256": {
+          "const": "483b667369a05b2d3f8b2e7729d7794c6e0f89f5c2e0ba6800b918fa783ffae9"
+        },
+        "dataset_id": {
+          "const": "travel-demo-2026-v1"
+        },
+        "product": {
+          "enum": [
+            "expense_detail",
+            "final_v5_attack_expense_detail"
+          ]
+        },
+        "budget_profile": {
+          "enum": [
+            "detail-manual-v5",
+            "final-v5-attack-medium-v1"
+          ]
+        },
+        "root_task_id_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/attackStep"
+          }
+        },
+        "primary_result_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "complete_row_set_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "decomposed_row_set_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "normal_form_sha256": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sha256"
+          }
+        },
+        "expected_thresholds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "integer"
+          }
+        },
+        "observed_threshold_results": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          }
+        },
+        "outcome_ceiling": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "observed_outcome": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "threshold_rejection_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "final_root": {
+          "$ref": "#/$defs/attackRootSnapshot"
+        },
+        "anchor_request_id_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "anchor_query_id_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "anchor_result_id_hash": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "redactedVerifierManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "verifier_version",
+        "query_id_hash",
+        "result_id_hash",
+        "root_task_id_hash",
+        "receipt_sha256",
+        "observation_sha256",
+        "release_set_sha256",
+        "dependency_set_sha256",
+        "outcome_set_sha256",
+        "artifact_intent_sha256",
+        "object_key_sha256",
+        "canonical_ciphertext_sha256",
+        "canonical_ciphertext_size",
+        "released_parquet_sha256",
+        "released_parquet_size",
+        "schema_sha256",
+        "terminal_audit_sequence",
+        "registration_audit_sequence",
+        "availability_audit_sequence",
+        "verification_result"
+      ],
+      "properties": {
+        "verifier_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "query_id_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "result_id_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "root_task_id_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "receipt_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "observation_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "release_set_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "dependency_set_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "outcome_set_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "artifact_intent_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "object_key_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "canonical_ciphertext_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "canonical_ciphertext_size": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "released_parquet_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "released_parquet_size": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "schema_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "terminal_audit_sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "registration_audit_sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "availability_audit_sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "verification_result": {
+          "const": "pass"
+        }
+      }
+    },
+    "concurrencyContender": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "index",
+        "participant_sha256",
+        "task_id_hash",
+        "root_task_id_hash",
+        "request_id_hash",
+        "query_id_hash",
+        "result_id_hash",
+        "result_sha256",
+        "observation_sha256",
+        "composite_outcome_sha256",
+        "predicate_set_sha256",
+        "root_epoch",
+        "actual_outcome_facts",
+        "charged_outcome_facts",
+        "cas_attempts",
+        "cas_conflicts",
+        "cas_retries",
+        "receipt_version",
+        "receipt_sha256",
+        "artifact_intent_sha256",
+        "availability_audit_sha256",
+        "receipt_verified",
+        "artifact_available",
+        "verifier_manifest"
+      ],
+      "properties": {
+        "index": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "participant_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "task_id_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "root_task_id_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "request_id_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "query_id_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "result_id_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "result_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "observation_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "composite_outcome_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "predicate_set_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "root_epoch": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "actual_outcome_facts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "charged_outcome_facts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cas_attempts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cas_conflicts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cas_retries": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "receipt_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "receipt_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "artifact_intent_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "availability_audit_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "receipt_verified": {
+          "type": "boolean"
+        },
+        "artifact_available": {
+          "type": "boolean"
+        },
+        "verifier_manifest": {
+          "$ref": "#/$defs/redactedVerifierManifest"
+        }
+      }
+    },
+    "concurrencyOverflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attempts",
+        "rejected",
+        "error_code",
+        "found",
+        "query_id_hash",
+        "status",
+        "reservation_status",
+        "result_sha256",
+        "encrypted_results",
+        "encrypted_chunks",
+        "materializations",
+        "query_observations",
+        "root_observations",
+        "artifacts",
+        "available_artifacts",
+        "availability_audits",
+        "successful_audits",
+        "release_audits",
+        "failure_audits",
+        "receipts"
+      ],
+      "properties": {
+        "attempts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rejected": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "error_code": {
+          "type": "string"
+        },
+        "found": {
+          "type": "boolean"
+        },
+        "query_id_hash": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "reservation_status": {
+          "type": "string"
+        },
+        "result_sha256": {
+          "type": "string"
+        },
+        "encrypted_results": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "encrypted_chunks": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "materializations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "query_observations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "root_observations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "artifacts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "available_artifacts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "availability_audits": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "successful_audits": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "release_audits": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failure_audits": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "receipts": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "rq5Pipeline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "prepare",
+        "execute_and_derive",
+        "artifact_stage",
+        "control_settlement",
+        "artifact_publication",
+        "response_finalize",
+        "server_total"
+      ],
+      "properties": {
+        "prepare": {
+          "type": "number",
+          "minimum": 0
+        },
+        "execute_and_derive": {
+          "type": "number",
+          "minimum": 0
+        },
+        "artifact_stage": {
+          "type": "number",
+          "minimum": 0
+        },
+        "control_settlement": {
+          "type": "number",
+          "minimum": 0
+        },
+        "artifact_publication": {
+          "type": "number",
+          "minimum": 0
+        },
+        "response_finalize": {
+          "type": "number",
+          "minimum": 0
+        },
+        "server_total": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "rq5Diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "parquet_encode_encrypt": {
+          "type": "number",
+          "minimum": 0
+        },
+        "local_staging_sync": {
+          "type": "number",
+          "minimum": 0
+        },
+        "staging_object_put": {
+          "type": "number",
+          "minimum": 0
+        },
+        "receipt_signing": {
+          "type": "number",
+          "minimum": 0
+        },
+        "exposure_reservation_lock": {
+          "type": "number",
+          "minimum": 0
+        },
+        "exposure_ledger_lock": {
+          "type": "number",
+          "minimum": 0
+        },
+        "exposure_fact_store": {
+          "type": "number",
+          "minimum": 0
+        },
+        "outcome_radix_load": {
+          "type": "number",
+          "minimum": 0
+        },
+        "outcome_radix_difference_union": {
+          "type": "number",
+          "minimum": 0
+        },
+        "outcome_radix_persist": {
+          "type": "number",
+          "minimum": 0
+        },
+        "canonical_object_stat": {
+          "type": "number",
+          "minimum": 0
+        },
+        "canonical_object_copy": {
+          "type": "number",
+          "minimum": 0
+        },
+        "canonical_object_verify": {
+          "type": "number",
+          "minimum": 0
+        },
+        "canonical_object_hash_verify": {
+          "type": "number",
+          "minimum": 0
+        },
+        "staging_object_delete": {
+          "type": "number",
+          "minimum": 0
+        },
+        "mark_available": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "rq5Publication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "index",
+        "day",
+        "publication_name",
+        "row_count",
+        "approved_input_sha256",
+        "catalog_sha256",
+        "bundle_manifest_sha256",
+        "publication_manifest_sha256",
+        "dictionary_sha256",
+        "sidecar_sha256",
+        "schema_sha256",
+        "hot_artifact_sha256",
+        "cold_artifact_sha256",
+        "sidecar_artifact_sha256",
+        "direct_result_sha256",
+        "artifact_bytes",
+        "hot_artifact_bytes"
+      ],
+      "properties": {
+        "index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "day": {
+          "enum": [
+            "day0",
+            "day1",
+            "day2",
+            "day3"
+          ]
+        },
+        "publication_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "row_count": {
+          "const": 345000
+        },
+        "approved_input_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "catalog_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "bundle_manifest_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "publication_manifest_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "dictionary_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "sidecar_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "schema_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "hot_artifact_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "cold_artifact_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "sidecar_artifact_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "direct_result_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "artifact_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "hot_artifact_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 167772160
+        }
+      }
+    },
+    "rq5Phase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "phase",
+        "status",
+        "wall_ms",
+        "peak_rss_bytes",
+        "executable_sha256",
+        "argv_sha256",
+        "stdout_sha256",
+        "command_report_sha256"
+      ],
+      "properties": {
+        "phase": {
+          "enum": [
+            "build",
+            "strict_verify",
+            "activation"
+          ]
+        },
+        "status": {
+          "const": "pass"
+        },
+        "wall_ms": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "peak_rss_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "executable_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "argv_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "stdout_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "command_report_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "rq5Build": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "day",
+        "row_count",
+        "cycle_wall_ms",
+        "artifact_bytes",
+        "hot_artifact_bytes",
+        "publication_manifest_sha256",
+        "dictionary_sha256",
+        "verification_receipt_sha256",
+        "build",
+        "strict_verify",
+        "activation"
+      ],
+      "properties": {
+        "day": {
+          "enum": [
+            "day0",
+            "day1",
+            "day2",
+            "day3"
+          ]
+        },
+        "row_count": {
+          "const": 345000
+        },
+        "cycle_wall_ms": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 300000
+        },
+        "artifact_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "hot_artifact_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 167772160
+        },
+        "publication_manifest_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "dictionary_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "verification_receipt_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "build": {
+          "$ref": "#/$defs/rq5Phase"
+        },
+        "strict_verify": {
+          "$ref": "#/$defs/rq5Phase"
+        },
+        "activation": {
+          "$ref": "#/$defs/rq5Phase"
+        }
+      }
+    },
+    "rq5Topology": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "model",
+        "disclosure",
+        "single_service_slot",
+        "request_router_present",
+        "max_concurrent_services",
+        "service_starts",
+        "service_stops",
+        "final_active_services",
+        "hot_artifact_limit_bytes",
+        "max_active_hot_artifact_bytes"
+      ],
+      "properties": {
+        "model": {
+          "const": "single_production_gateway_service_slot_sequential_catalog_restart"
+        },
+        "disclosure": {
+          "const": "single service slot; at any instant only one production Gateway service; Catalog changes use sequential stop-old/start-new restart; retained checks stop new, start old, query old, stop old, and restore new; no request router"
+        },
+        "single_service_slot": {
+          "const": true
+        },
+        "request_router_present": {
+          "const": false
+        },
+        "max_concurrent_services": {
+          "const": 1
+        },
+        "service_starts": {
+          "const": 4
+        },
+        "service_stops": {
+          "const": 4
+        },
+        "final_active_services": {
+          "const": 0
+        },
+        "hot_artifact_limit_bytes": {
+          "const": 167772160
+        },
+        "max_active_hot_artifact_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 167772160
+        }
+      }
+    },
+    "rq5LifecycleStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sequence",
+        "action",
+        "reason",
+        "day",
+        "catalog_sha256",
+        "publication_sha256",
+        "service_instance_sha256",
+        "active_before",
+        "active_after"
+      ],
+      "properties": {
+        "sequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8
+        },
+        "action": {
+          "enum": [
+            "start",
+            "stop"
+          ]
+        },
+        "reason": {
+          "enum": [
+            "start_retained_old",
+            "stop_old_for_new_activation",
+            "start_new_after_activation",
+            "stop_new_for_retained_check",
+            "start_old_for_retained_check",
+            "stop_old_for_new_restore",
+            "restore_new_after_retained_check",
+            "stop_new_cycle_complete"
+          ]
+        },
+        "day": {
+          "enum": [
+            "day0",
+            "day1",
+            "day2",
+            "day3"
+          ]
+        },
+        "catalog_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "publication_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "service_instance_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "active_before": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "active_after": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "rq5Query": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "day",
+        "catalog_sha256",
+        "publication_sha256",
+        "task_id_hash",
+        "root_task_id_hash",
+        "request_id_hash",
+        "query_id_hash",
+        "result_id_hash",
+        "result_sha256",
+        "row_count",
+        "column_count",
+        "client_available_ms",
+        "client_full_drain_ms",
+        "pipeline_ms",
+        "diagnostic_ms",
+        "physical_sql_sha256",
+        "logical_sql_sha256",
+        "query_plan_sha256",
+        "actual_release_facts",
+        "charged_release_facts",
+        "actual_dependency_facts",
+        "charged_dependency_facts",
+        "actual_outcome_facts",
+        "charged_outcome_facts",
+        "predicate_atom_count",
+        "composite_count",
+        "semantic_replay",
+        "business_sql_delta",
+        "root_epoch_before",
+        "root_epoch_after",
+        "root_set_sha256_before",
+        "root_set_sha256_after",
+        "parquet_bytes",
+        "encrypted_object_bytes",
+        "receipt_version",
+        "receipt_sha256",
+        "artifact_intent_sha256",
+        "availability_audit_sha256",
+        "receipt_verified",
+        "artifact_available",
+        "verifier_manifest"
+      ],
+      "properties": {
+        "day": {
+          "enum": [
+            "day0",
+            "day1",
+            "day2",
+            "day3"
+          ]
+        },
+        "catalog_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "publication_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "task_id_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "root_task_id_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "request_id_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "query_id_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "result_id_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "result_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "row_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "column_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "client_available_ms": {
+          "type": "number",
+          "minimum": 0
+        },
+        "client_full_drain_ms": {
+          "type": "number",
+          "minimum": 0
+        },
+        "pipeline_ms": {
+          "$ref": "#/$defs/rq5Pipeline"
+        },
+        "diagnostic_ms": {
+          "$ref": "#/$defs/rq5Diagnostic"
+        },
+        "physical_sql_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "logical_sql_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "query_plan_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "actual_release_facts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "charged_release_facts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "actual_dependency_facts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "charged_dependency_facts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "actual_outcome_facts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "charged_outcome_facts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "predicate_atom_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "composite_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "semantic_replay": {
+          "type": "boolean"
+        },
+        "business_sql_delta": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "root_epoch_before": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "root_epoch_after": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "root_set_sha256_before": {
+          "$ref": "#/$defs/sha256"
+        },
+        "root_set_sha256_after": {
+          "$ref": "#/$defs/sha256"
+        },
+        "parquet_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "encrypted_object_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "receipt_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "receipt_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "artifact_intent_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "availability_audit_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "receipt_verified": {
+          "const": true
+        },
+        "artifact_available": {
+          "const": true
+        },
+        "verifier_manifest": {
+          "$ref": "#/$defs/redactedVerifierManifest"
+        }
+      }
+    },
+    "rq5Route": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "switch_to_new_wall_ms",
+        "retained_check_wall_ms",
+        "restore_new_wall_ms",
+        "full_route_wall_ms",
+        "old_publication_sha256",
+        "new_publication_sha256",
+        "old_catalog_sha256",
+        "new_catalog_sha256",
+        "old_task_id_hash",
+        "new_task_id_hash",
+        "new_root_task_id_hash",
+        "child_task_id_hash",
+        "child_parent_task_id_hash",
+        "child_root_task_id_hash",
+        "old_ledger_before_sha256",
+        "old_ledger_after_sha256",
+        "new_ledger_before_restore_sha256",
+        "new_ledger_after_restore_sha256",
+        "old_cache_key_sha256",
+        "new_cache_key_sha256",
+        "cross_replay_source_sha256",
+        "cross_replay_target_sha256",
+        "cross_publication_replay_hit",
+        "child_publication_sha256",
+        "root_publication_sha256",
+        "old_initial",
+        "new_initial",
+        "old_retained",
+        "new_restored"
+      ],
+      "properties": {
+        "switch_to_new_wall_ms": {
+          "type": "number",
+          "minimum": 0
+        },
+        "retained_check_wall_ms": {
+          "type": "number",
+          "minimum": 0
+        },
+        "restore_new_wall_ms": {
+          "type": "number",
+          "minimum": 0
+        },
+        "full_route_wall_ms": {
+          "type": "number",
+          "minimum": 0
+        },
+        "old_publication_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "new_publication_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "old_catalog_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "new_catalog_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "old_task_id_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "new_task_id_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "new_root_task_id_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "child_task_id_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "child_parent_task_id_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "child_root_task_id_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "old_ledger_before_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "old_ledger_after_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "new_ledger_before_restore_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "new_ledger_after_restore_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "old_cache_key_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "new_cache_key_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "cross_replay_source_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "cross_replay_target_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "cross_publication_replay_hit": {
+          "type": "boolean"
+        },
+        "child_publication_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "root_publication_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "old_initial": {
+          "$ref": "#/$defs/rq5Query"
+        },
+        "new_initial": {
+          "$ref": "#/$defs/rq5Query"
+        },
+        "old_retained": {
+          "$ref": "#/$defs/rq5Query"
+        },
+        "new_restored": {
+          "$ref": "#/$defs/rq5Query"
+        }
+      }
+    },
+    "rq5Verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "fixture_sha256",
+        "build_manifest_sha256",
+        "phase_image_id",
+        "online_image_id",
+        "oa_image_id",
+        "phase_binary_sha256",
+        "online_binary_sha256",
+        "oa_binary_sha256",
+        "phase_binary_mtime_unix",
+        "online_binary_mtime_unix",
+        "oa_binary_mtime_unix",
+        "dataset_manifest_sha256",
+        "generator_sha256",
+        "config_sha256",
+        "rows_per_publication",
+        "cycle_index",
+        "from_day",
+        "to_day",
+        "publication_set_sha256",
+        "publications",
+        "build",
+        "topology",
+        "lifecycle_sha256",
+        "lifecycle",
+        "route"
+      ],
+      "properties": {
+        "version": {
+          "const": "taskgate-final-v5-rq5-fixture-v1"
+        },
+        "fixture_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "build_manifest_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "phase_image_id": {
+          "$ref": "#/$defs/dockerImageID"
+        },
+        "online_image_id": {
+          "$ref": "#/$defs/dockerImageID"
+        },
+        "oa_image_id": {
+          "$ref": "#/$defs/dockerImageID"
+        },
+        "phase_binary_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "online_binary_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "oa_binary_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "phase_binary_mtime_unix": {
+          "const": 0
+        },
+        "online_binary_mtime_unix": {
+          "const": 0
+        },
+        "oa_binary_mtime_unix": {
+          "const": 0
+        },
+        "dataset_manifest_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "generator_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "config_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "rows_per_publication": {
+          "const": 345000
+        },
+        "cycle_index": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4
+        },
+        "from_day": {
+          "enum": [
+            "day0",
+            "day1",
+            "day2",
+            "day3"
+          ]
+        },
+        "to_day": {
+          "enum": [
+            "day0",
+            "day1",
+            "day2",
+            "day3"
+          ]
+        },
+        "publication_set_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "publications": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "$ref": "#/$defs/rq5Publication"
+          }
+        },
+        "build": {
+          "$ref": "#/$defs/rq5Build"
+        },
+        "topology": {
+          "$ref": "#/$defs/rq5Topology"
+        },
+        "lifecycle_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "lifecycle": {
+          "type": "array",
+          "minItems": 8,
+          "maxItems": 8,
+          "items": {
+            "$ref": "#/$defs/rq5LifecycleStep"
+          }
+        },
+        "route": {
+          "$ref": "#/$defs/rq5Route"
+        }
+      }
+    },
+    "profileBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "profile_id",
+        "closure_sha256",
+        "catalog_sha256",
+        "dataset_binding_sha256",
+        "publication_identity"
+      ],
+      "properties": {
+        "version": {
+          "const": "taskgate-final-v5-profile-binding-v1"
+        },
+        "profile_id": {
+          "type": "string",
+          "pattern": "^profile-[0-9a-f]{16}$"
+        },
+        "closure_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "catalog_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "dataset_binding_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "publication_identity": {
+          "type": "string",
+          "minLength": 1
         }
       }
     }

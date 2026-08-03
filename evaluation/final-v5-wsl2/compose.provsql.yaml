@@ -1,0 +1,74 @@
+services:
+  final-v5-direct-postgres:
+    image: postgres@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55
+    environment:
+      POSTGRES_DB: final_v5_provsql
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: final-v5-provsql-local-only
+    ports:
+      - 127.0.0.1:25534:5432
+    volumes:
+      - final-v5-direct-data:/var/lib/postgresql/data
+      - ./evaluation/internal/provsqlfixture/fixture.sql:/docker-entrypoint-initdb.d/10-final-v5-provsql-fixture.sql:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          pg_isready -h 127.0.0.1 -U postgres -d final_v5_provsql &&
+          PGPASSWORD=$${POSTGRES_PASSWORD} psql -h 127.0.0.1 -U postgres -d final_v5_provsql -XAtqc
+          "SELECT (NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname='provsql') AND
+          (SELECT count(*) FROM final_v5_provsql.orders)=50000 AND
+          (SELECT count(*) FROM final_v5_provsql.lineitem)=250000 AND
+          (SELECT count(*) FROM final_v5_provsql.nonce)=1000)::int" | grep -qx 1
+      interval: 3s
+      timeout: 5s
+      retries: 120
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - provsql-evaluation
+
+  final-v5-provsql-postgres:
+    build:
+      context: .
+      dockerfile: evaluation/provenance-baseline/Dockerfile.provsql
+      args:
+        POSTGRES_IMAGE: postgres@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55
+        PROVSQL_VERSION: "1.11.0"
+        PROVSQL_COMMIT: 6388fd06b79b7d247b4ff4dad4959374d0e92358
+    environment:
+      POSTGRES_DB: final_v5_provsql
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: final-v5-provsql-local-only
+    ports:
+      - 127.0.0.1:25535:5432
+    volumes:
+      - final-v5-provsql-data:/var/lib/postgresql/data
+      - ./evaluation/internal/provsqlfixture/fixture.sql:/docker-entrypoint-initdb.d/10-final-v5-provsql-fixture.sql:ro
+      - ./evaluation/internal/provsqlfixture/enable-provsql.sql:/docker-entrypoint-initdb.d/20-enable-final-v5-provsql.sql:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          pg_isready -h 127.0.0.1 -U postgres -d final_v5_provsql &&
+          PGPASSWORD=$${POSTGRES_PASSWORD} psql -h 127.0.0.1 -U postgres -d final_v5_provsql -XAtqc
+          "SELECT (current_setting('shared_preload_libraries')='provsql' AND
+          (SELECT extversion FROM pg_extension WHERE extname='provsql')='1.11.0' AND
+          btrim(pg_read_file('/usr/local/share/taskgate-evaluation/provsql-source-commit'), E' \\t\\n\\r')='6388fd06b79b7d247b4ff4dad4959374d0e92358' AND
+          (SELECT count(*) FROM final_v5_provsql.orders)=50000 AND
+          (SELECT count(*) FROM final_v5_provsql.lineitem)=250000 AND
+          (SELECT count(*) FROM final_v5_provsql.nonce)=1000)::int" | grep -qx 1
+      interval: 3s
+      timeout: 5s
+      retries: 120
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - provsql-evaluation
+
+volumes:
+  final-v5-direct-data:
+  final-v5-provsql-data:
+
+networks:
+  provsql-evaluation:

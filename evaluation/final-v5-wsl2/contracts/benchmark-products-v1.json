@@ -1,0 +1,231 @@
+{
+  "schema_version": 1,
+  "contract_version": "taskgate-final-v5-author-contract-v1",
+  "status": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+  "contract_status": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+  "exact_generated_bytes_freeze_status": "NOT_APPROVED",
+  "dataset_spec_id": "taskgate-final-v5-benchmark-dataset-v1",
+  "generator": {
+    "version": "taskgate-final-v5-benchmark-generator-v1",
+    "seed": 20260803,
+    "sql": "sql/datasets/benchmark-v1-generate.sql",
+    "probe_sql": "sql/datasets/benchmark-v1-probe.sql",
+    "deterministic": true,
+    "non_sensitive": true,
+    "generated_bytes_sha256": null,
+    "probe_output_sha256": null,
+    "digest_generation_status": "NOT_GENERATED",
+    "digest_review_status": "NOT_APPROVED"
+  },
+  "probe_hash_semantics": {
+    "sql_md5_fields": "non-binding database sanity checks only",
+    "binding_dataset_fingerprint": "evaluation-only typed streaming SHA-256 over the reviewed schema and every ordered row of every terminal Product",
+    "binding_dataset_fingerprint_sha256": null,
+    "generation_status": "NOT_GENERATED",
+    "review_status": "NOT_APPROVED",
+    "production_hash_may_not_be_reused_as_expected": true
+  },
+  "catalog_binding": {
+    "default_catalog_must_change": false,
+    "formal_campaign_catalog_path": "catalog/benchmark-contract-v1.yaml",
+    "formal_campaign_catalog_kind": "complete directly loadable Catalog candidate; not a merge overlay",
+    "formal_campaign_catalog_status": "SOURCE_CONTROLLED_REVIEW_CANDIDATE",
+    "formal_campaign_catalog_sha256": null,
+    "formal_campaign_catalog_digest_review_status": "NOT_APPROVED",
+    "candidate_digest_sentinels": "all-zero SHA-256 fields deliberately fail closed until live generated values replace them",
+    "existing_products_are_reused_without_relabeling": true
+  },
+  "global_rules": {
+    "postgresql_major_version": 16,
+    "volatile_expressions": false,
+    "stable_business_keys_required": true,
+    "typed_dataset_fingerprint_required": true,
+    "unit_test_fixtures_may_not_replace_publication_data": true,
+    "direct_parquet_injection_allowed": false,
+    "control_table_direct_write_allowed": false
+  },
+  "products": [
+    {
+      "product_id": "provsql_orders",
+      "status": "EXISTING_REUSED",
+      "reporting_view": "reporting.provsql_orders",
+      "snapshot": "final-v5-provsql-2026-v1",
+      "publication_id": "provsql-orders-v1",
+      "fact_namespace": "final_v5.provsql_orders",
+      "stable_relation_role": "provsql_orders",
+      "entity_key": ["orderkey"],
+      "fields": [
+        {"name": "orderkey", "type": "bigint"},
+        {"name": "status", "type": "bigint"},
+        {"name": "partition_key", "type": "integer"}
+      ],
+      "row_count": 50000
+    },
+    {
+      "product_id": "provsql_lineitem",
+      "status": "EXISTING_REUSED",
+      "reporting_view": "reporting.provsql_lineitem",
+      "snapshot": "final-v5-provsql-2026-v1",
+      "publication_id": "provsql-lineitem-v1",
+      "fact_namespace": "final_v5.provsql_lineitem",
+      "stable_relation_role": "provsql_lineitem",
+      "entity_key": ["orderkey", "linenumber"],
+      "fields": [
+        {"name": "orderkey", "type": "bigint"},
+        {"name": "linenumber", "type": "integer"},
+        {"name": "extendedprice", "type": "numeric"},
+        {"name": "partition_key", "type": "integer"}
+      ],
+      "row_count": 250000,
+      "rows_per_order": 5
+    },
+    {
+      "product_id": "provsql_nonce",
+      "status": "EXISTING_REUSED",
+      "reporting_view": "reporting.provsql_nonce",
+      "snapshot": "final-v5-provsql-2026-v1",
+      "publication_id": "provsql-nonce-v1",
+      "fact_namespace": "final_v5.provsql_nonce",
+      "stable_relation_role": "provsql_nonce",
+      "entity_key": ["nonce_id"],
+      "fields": [
+        {"name": "nonce_id", "type": "bigint"},
+        {"name": "partition_key", "type": "integer"}
+      ],
+      "row_count": 1000
+    },
+    {
+      "product_id": "final_v5_exposure_scale",
+      "status": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+      "reporting_view": "reporting.final_v5_exposure_scale",
+      "snapshot": "final-v5-exposure-scale-2026-v1",
+      "publication_id": "final-v5-exposure-scale-v1",
+      "fact_namespace": "final_v5.exposure_scale",
+      "source_namespace": "final_v5.exposure_scale",
+      "stable_relation_role": "final_v5_exposure_scale",
+      "entity_key": ["member_rank"],
+      "fields": [
+        {"name": "member_rank", "type": "bigint"},
+        {"name": "metric", "type": "numeric"},
+        {"name": "family_id", "type": "integer"},
+        {"name": "partition_key", "type": "integer"}
+      ],
+      "row_count": 414000,
+      "row_formula": {
+        "member_rank": "generate_series(1,414000)",
+        "metric": "((((member_rank * 13) mod 100000) + 100) / 100) as exact numeric",
+        "family_id": 1,
+        "partition_key": 1
+      },
+      "publication_artifacts": {
+        "publication_sha256": null,
+        "ordinal_sidecar_sha256": null,
+        "dictionary_sha256": null,
+        "manifest_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      }
+    },
+    {
+      "product_id": "final_v5_analytics_depth4",
+      "status": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+      "reporting_view": "reporting.final_v5_analytics_depth4",
+      "snapshot": "final-v5-provsql-2026-v1",
+      "publication_id": null,
+      "terminal_product_ids": ["provsql_orders", "provsql_lineitem"],
+      "terminal_publication_ids": ["provsql-orders-v1", "provsql-lineitem-v1"],
+      "fact_namespace": "final_v5.analytics_depth4",
+      "stable_relation_role": "final_v5_analytics_depth4",
+      "entity_key": ["status", "orders_partition_key", "lineitem_partition_key"],
+      "semantic_view_depth": 4,
+      "fields": [
+        {"name": "status", "type": "bigint"},
+        {"name": "total_extendedprice", "type": "numeric"},
+        {"name": "line_count", "type": "bigint"},
+        {"name": "orders_partition_key", "type": "integer"},
+        {"name": "lineitem_partition_key", "type": "integer"}
+      ],
+      "view_layers": [
+        {"depth": 1, "relation": "reporting.final_v5_analytics_depth4_l1", "operation": "fixed partition/orderkey filter and projection over provsql_lineitem, with orderkey_max=5000"},
+        {"depth": 2, "relation": "reporting.final_v5_analytics_depth4_l2", "operation": "connected inner equijoin with provsql_orders and stable-role projection"},
+        {"depth": 3, "relation": "reporting.final_v5_analytics_depth4_l3", "operation": "GROUP BY status and both terminal scope fields with sum(extendedprice) and count(*)"},
+        {"depth": 4, "relation": "reporting.final_v5_analytics_depth4", "operation": "root projection of three analytical fields plus both public terminal-scope fields"}
+      ],
+      "root_view_contract": {
+        "profile_version": "taskgate-view-contract-v1",
+        "definition_digest": null,
+        "dependency_digest": null,
+        "canonical_plan_digest": null,
+        "interface_digest": null,
+        "digest_generation_status": "PENDING_LIVE_POSTGRESQL_GENERATION",
+        "digest_review_status": "NOT_APPROVED"
+      },
+      "outer_query_rule": "outer S4 query projects the three analytical fields only; deterministic comparison uses evaluation canonical-row order because semantic View composition forbids outer ORDER BY"
+    },
+    {
+      "product_id": "final_v5_result_heavy",
+      "status": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
+      "reporting_view": "reporting.final_v5_result_heavy",
+      "snapshot": "final-v5-result-heavy-2026-v1",
+      "publication_id": "final-v5-result-heavy-v1",
+      "fact_namespace": "final_v5.result_heavy",
+      "stable_relation_role": "final_v5_result_heavy",
+      "entity_key": ["row_id"],
+      "fields": [
+        {"name": "row_id", "type": "bigint"},
+        {"name": "category", "type": "text", "collation": "en_US.utf8", "collation_version": "2.36"},
+        {"name": "amount", "type": "numeric"},
+        {"name": "event_date", "type": "date"},
+        {"name": "sequence_no", "type": "integer"},
+        {"name": "approved", "type": "boolean"},
+        {"name": "event_timestamp", "type": "timestamp without time zone"},
+        {"name": "description", "type": "text", "collation": "en_US.utf8", "collation_version": "2.36"},
+        {"name": "quantity", "type": "bigint"},
+        {"name": "unit_price", "type": "numeric"},
+        {"name": "tax_amount", "type": "numeric"},
+        {"name": "settled_date", "type": "date"},
+        {"name": "processed_at", "type": "timestamp without time zone"},
+        {"name": "region", "type": "text", "collation": "en_US.utf8", "collation_version": "2.36"},
+        {"name": "revision", "type": "integer"},
+        {"name": "active", "type": "boolean"}
+      ],
+      "row_count": 100000,
+      "projection_x4": ["row_id", "category", "amount", "event_date"],
+      "projection_x16": ["row_id", "category", "amount", "event_date", "sequence_no", "approved", "event_timestamp", "description", "quantity", "unit_price", "tax_amount", "settled_date", "processed_at", "region", "revision", "active"],
+      "publication_artifacts": {
+        "publication_sha256": null,
+        "ordinal_sidecar_sha256": null,
+        "dictionary_sha256": null,
+        "manifest_sha256": null,
+        "digest_generation_status": "NOT_GENERATED",
+        "digest_review_status": "NOT_APPROVED"
+      }
+    }
+  ],
+  "analytics_scale_parameters": {
+    "SF1": {"orderkey_max": 5000},
+    "SF10": {"orderkey_max": 50000},
+    "rule": "both labels are query thresholds over the same frozen 50,000-order/250,000-lineitem publication; no 500,000-row order corpus is created"
+  },
+  "exposure_fact_accounting": {
+    "product_id": "final_v5_exposure_scale",
+    "publication_id": "final-v5-exposure-scale-v1",
+    "dependency_facts_per_retained_source_row": 5,
+    "dependency_composition": [
+      "one base-row Fact",
+      "predicate cell Fact: partition_key",
+      "predicate cell Fact: family_id",
+      "predicate cell Fact: member_rank",
+      "predicate cell Fact: metric"
+    ],
+    "allowed_predicates": ["partition_key = 1", "family_id = 1", "member_rank <= N", "metric <= 1001.00"],
+    "overlap_intervals": "candidate=(0,M]; history=(M-K,2M-K]; each has M retained rows, intersection K, and union 2M-K"
+  },
+  "freeze_preconditions": [
+    "generate the result-heavy publication and sidecars on the named PostgreSQL build",
+    "generate and review the root View-contract definition, dependency, canonical-plan, and interface digests",
+    "replace all fail-closed digest sentinels in the dedicated full Catalog candidate with live generated review candidates and bind its exact digest without changing the default Catalog",
+    "run the benchmark probe and independent oracles",
+    "record generated artifact digests in a separately reviewed freeze commit"
+  ]
+}

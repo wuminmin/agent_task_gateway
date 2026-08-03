@@ -36,11 +36,18 @@ type AdapterOperation struct {
 	PairID            string `json:"pair_id"`
 	PairedSystemOrder string `json:"paired_system_order"`
 	Warmup            bool   `json:"warmup"`
+	KernelOnly        bool   `json:"kernel_only"`
 	FreshRootRequired bool   `json:"fresh_root_required"`
 	RootGroupID       string `json:"root_group_id"`
 	WorkloadID        string `json:"workload_id"`
-	Scale             string `json:"scale"`
-	Mode              string `json:"mode"`
+	// ProfileBinding is the complete deployment profile the orchestrator
+	// activated for this operation. The orchestrator derives it from the Profile
+	// Registry, the profile Catalog, the deployment Dataset Binding and the
+	// canonical Publication closure; an Adapter only echoes it back and proves
+	// it actually ran against those bytes. An Adapter never chooses any member.
+	ProfileBinding *ProfileBinding `json:"profile_binding,omitempty"`
+	Scale          string          `json:"scale"`
+	Mode           string          `json:"mode"`
 }
 
 func RunCommand(experimentID string) int {
@@ -64,7 +71,7 @@ func RunCommand(experimentID string) int {
 		return 1
 	}
 	if *validateOnly {
-		digest, _ := CanonicalResultHash([][]any{{config.CampaignID, config.ExperimentID}})
+		digest := sha256Hex(configBytes)
 		out := map[string]any{"status": "valid", "experiment_id": experimentID, "config_sha256": digest, "config_bytes": len(configBytes)}
 		_ = json.NewEncoder(os.Stdout).Encode(out)
 		return 0
@@ -139,37 +146,51 @@ func ExecuteAdapterCampaign(config Config, deploymentID, adapterPath, outputPath
 	seenFreshRoots := map[string]string{}
 	rootGroups := map[string]string{}
 	orderPosition := 0
+	var campaignErrors []error
 	for processReplicate := 1; processReplicate <= processes; processReplicate++ {
 		operations := buildOperations(config, deploymentID, deploymentNumber, processReplicate, &orderPosition)
-		samples, err := runAdapterProcess(absAdapter, config.ExperimentID, operations)
-		if err != nil {
-			for _, operation := range operations {
-				if !operation.Warmup {
-					if writeErr := writer.Write(invalidAdapterSample(operation, "adapter_process_failure")); writeErr != nil {
-						return writeErr
-					}
-				}
-			}
-			return fmt.Errorf("adapter process replicate %d: %w", processReplicate, err)
-		}
+		samples, processErr := runAdapterProcess(absAdapter, config.ExperimentID, operations)
 		for index := range operations {
-			op, sample := operations[index], samples[index]
+			op := operations[index]
+			if samples[index] == nil {
+				if writeErr := writer.Write(invalidAdapterSample(op, "adapter_process_failure")); writeErr != nil {
+					return writeErr
+				}
+				continue
+			}
+			sample := *samples[index]
 			if err := validateAdapterSample(config, op, sample, seenFreshRoots, rootGroups); err != nil {
-				return fmt.Errorf("adapter sample %s: %w", op.SampleID, err)
+				campaignErrors = append(campaignErrors, fmt.Errorf("adapter sample %s: %w", op.SampleID, err))
+				if writeErr := writer.Write(invalidAdapterSample(op, "adapter_sample_validation_failure")); writeErr != nil {
+					return writeErr
+				}
+				continue
 			}
 			if op.Warmup {
+				// Passing warmups remain untimed and excluded from raw measurements.
+				// A failed/invalid warmup is an experiment failure in its own right:
+				// retain it in JSONL so the requested operation is never erased.
+				if sample.Status != "pass" {
+					campaignErrors = append(campaignErrors, fmt.Errorf("adapter warmup %s returned status %s", op.SampleID, sample.Status))
+					if err := writer.Write(sample); err != nil {
+						return err
+					}
+				}
 				continue
 			}
 			if err := writer.Write(sample); err != nil {
 				return err
 			}
 		}
+		if processErr != nil {
+			campaignErrors = append(campaignErrors, fmt.Errorf("adapter process replicate %d: %w", processReplicate, processErr))
+		}
 	}
 	if err := writer.Close(); err != nil {
 		return err
 	}
 	completed = true
-	return nil
+	return errors.Join(campaignErrors...)
 }
 
 func invalidAdapterSample(operation AdapterOperation, code string) Sample {
@@ -192,6 +213,8 @@ func invalidAdapterSample(operation AdapterOperation, code string) Sample {
 		SampleID:            operation.SampleID,
 		Iteration:           operation.Iteration,
 		ProcessReplicate:    operation.ProcessReplicate,
+		Warmup:              operation.Warmup,
+		KernelOnly:          operation.KernelOnly,
 		OrderPosition:       operation.OrderPosition,
 		RandomSeed:          operation.RandomSeed,
 		PairID:              operation.PairID,
@@ -206,7 +229,7 @@ func invalidAdapterSample(operation AdapterOperation, code string) Sample {
 		Status:              "invalid",
 		ErrorCode:           code,
 		PublicationEligible: operation.CampaignClass == "publication",
-		Reason:              "deployment adapter did not return a complete operation batch",
+		Reason:              "runner retained a schema-safe invalid outcome after an adapter protocol failure",
 	}
 }
 
@@ -277,8 +300,15 @@ func buildOperations(config Config, deploymentID string, deploymentNumber, proce
 					pairKind = "warmup"
 				}
 				pairID := fmt.Sprintf("%s-p%02d-%s-%04d-%s-%s-g%02d", deploymentID, processReplicate, pairKind, iteration, selected.workload, selected.scale, groupIndex+1)
-				rootGroupID := strings.Join(declaredGroup, ",")
 				for _, mode := range group {
+					rootGroupID := strings.Join(declaredGroup, ",")
+					// RLS, unlimited TaskGate, and bounded TaskGate are paired arms
+					// over one frozen trace, but the two TaskGate arms require
+					// independent exposure roots. Pair identity must not imply root
+					// reuse across those systems.
+					if config.ExperimentID == "rls" {
+						rootGroupID = mode
+					}
 					*orderPosition++
 					sampleKind := "sample"
 					if warmup {
@@ -300,6 +330,7 @@ func buildOperations(config Config, deploymentID string, deploymentNumber, proce
 						PairID:            pairID,
 						PairedSystemOrder: pairOrder,
 						Warmup:            warmup,
+						KernelOnly:        config.KernelOnly,
 						FreshRootRequired: config.FreshRootPerSample && freshRootAnchor(mode),
 						RootGroupID:       rootGroupID,
 						WorkloadID:        selected.workload,
@@ -359,6 +390,16 @@ func dependencyAwareModeGroups(modes []string) [][]string {
 		}
 		groups = append(groups, group)
 	}
+	if present["rls"] && present["unlimited"] && present["bounded"] {
+		group := make([]string, 0, 3)
+		for _, mode := range modes {
+			if mode == "rls" || mode == "unlimited" || mode == "bounded" {
+				group = append(group, mode)
+				used[mode] = true
+			}
+		}
+		groups = append(groups, group)
+	}
 	if present["build_verify_activate"] {
 		chain := []string{"build_verify_activate"}
 		used["build_verify_activate"] = true
@@ -387,7 +428,8 @@ func containsMode(modes []string, wanted string) bool {
 }
 
 func independentPairedGroup(modes []string) bool {
-	return len(modes) > 1 && containsMode(modes, "direct") && containsMode(modes, "provsql") && containsMode(modes, "taskgate")
+	return len(modes) > 1 && ((containsMode(modes, "direct") && containsMode(modes, "provsql") && containsMode(modes, "taskgate")) ||
+		(containsMode(modes, "rls") && containsMode(modes, "unlimited") && containsMode(modes, "bounded")))
 }
 
 func taskgateBeforeDirect(group []string) []string {
@@ -403,14 +445,15 @@ func taskgateBeforeDirect(group []string) []string {
 func freshRootAnchor(mode string) bool {
 	switch mode {
 	case "direct", "semantic_replay", "idempotent_replay", "normalized_rewrite_replay",
-		"provsql", "rls", "compile", "structured_rejection", "retained_route":
+		"provsql", "rls", "compile", "structured_rejection", "retained_route",
+		"merkle_control", "kernel_storage_only":
 		return false
 	default:
 		return true
 	}
 }
 
-func runAdapterProcess(path, experimentID string, operations []AdapterOperation) ([]Sample, error) {
+func runAdapterProcess(path, experimentID string, operations []AdapterOperation) ([]*Sample, error) {
 	var input bytes.Buffer
 	encoder := json.NewEncoder(&input)
 	for _, operation := range operations {
@@ -424,39 +467,99 @@ func runAdapterProcess(path, experimentID string, operations []AdapterOperation)
 	command.Stdin = &input
 	command.Stdout = &output
 	command.Stderr = &stderr
+	var processErrors []error
 	if err := command.Run(); err != nil {
-		return nil, fmt.Errorf("exited unsuccessfully: %w", err)
+		processErrors = append(processErrors, fmt.Errorf("exited unsuccessfully: %w", err))
 	}
 	if stderr.Len() != 0 {
-		return nil, errors.New("adapter wrote stderr; content was suppressed by the evidence secret boundary")
+		processErrors = append(processErrors, errors.New("adapter wrote stderr; content was suppressed by the evidence secret boundary"))
 	}
 	scanner := bufio.NewScanner(&output)
 	scanner.Buffer(make([]byte, 64*1024), 16*1024*1024)
-	samples := make([]Sample, 0, len(operations))
+	// Preserve every independently decodable line even if another line is
+	// missing/malformed or the adapter exits non-zero. Responses are placed by
+	// their requested sample identity rather than their physical line number:
+	// otherwise omitting an early response would shift every later, valid
+	// fail/invalid outcome into the wrong slot and erase it during validation.
+	// Protocol ordering and cardinality remain fail-closed errors.
+	samples := make([]*Sample, len(operations))
+	expectedBySampleID := make(map[string]int, len(operations))
+	for index, operation := range operations {
+		if _, exists := expectedBySampleID[operation.SampleID]; exists {
+			return nil, fmt.Errorf("duplicate requested sample identity %q", operation.SampleID)
+		}
+		expectedBySampleID[operation.SampleID] = index
+	}
+	line := 0
 	for scanner.Scan() {
 		if len(bytes.TrimSpace(scanner.Bytes())) == 0 {
-			return nil, errors.New("adapter emitted a blank line")
+			processErrors = append(processErrors, fmt.Errorf("adapter output line %d is blank", line+1))
+			line++
+			continue
 		}
 		var sample Sample
 		if err := StrictJSON(scanner.Bytes(), &sample); err != nil {
-			return nil, fmt.Errorf("invalid JSONL output line %d: %w", len(samples)+1, err)
+			processErrors = append(processErrors, fmt.Errorf("invalid JSONL output line %d: %w", line+1, err))
+			line++
+			continue
 		}
-		samples = append(samples, sample)
+		index, requested := expectedBySampleID[sample.SampleID]
+		if !requested {
+			processErrors = append(processErrors, fmt.Errorf("adapter output line %d has an unrequested sample identity", line+1))
+			line++
+			continue
+		}
+		if samples[index] != nil {
+			processErrors = append(processErrors, fmt.Errorf("adapter output line %d duplicates sample %q", line+1, sample.SampleID))
+			line++
+			continue
+		}
+		if line >= len(operations) || operations[line].SampleID != sample.SampleID {
+			processErrors = append(processErrors, fmt.Errorf("adapter output line %d is out of requested order", line+1))
+		}
+		samples[index] = &sample
+		line++
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, err
+		processErrors = append(processErrors, err)
 	}
-	if len(samples) != len(operations) {
-		return nil, fmt.Errorf("adapter returned %d samples for %d operations", len(samples), len(operations))
+	if line != len(operations) {
+		processErrors = append(processErrors, fmt.Errorf("adapter returned %d lines for %d operations", line, len(operations)))
 	}
-	return samples, nil
+	return samples, errors.Join(processErrors...)
+}
+
+// validateOperationProfileBinding is fail-closed per sample. It never accepts a
+// partial comparison: an equal profile_id with a different Catalog digest is a
+// different deployment and must not become a pass sample.
+func validateOperationProfileBinding(operation AdapterOperation, sample Sample) error {
+	if operation.ProfileBinding == nil {
+		// Synthetic framework smoke runs deliberately carry no profile. They are
+		// never publication evidence, and the Runner refuses to invent a binding
+		// on their behalf.
+		if sample.ProfileBinding != nil {
+			return errors.New("sample carries a profile binding the operation did not request")
+		}
+		return nil
+	}
+	if err := RequireProfileBinding(sample); err != nil {
+		return err
+	}
+	if err := operation.ProfileBinding.Validate(); err != nil {
+		return fmt.Errorf("requested profile binding is invalid: %w", err)
+	}
+	if fields := operation.ProfileBinding.MismatchedFields(*sample.ProfileBinding); len(fields) != 0 {
+		return fmt.Errorf("sample profile binding differs from the activated profile on %s",
+			strings.Join(fields, ", "))
+	}
+	return nil
 }
 
 func validateAdapterSample(config Config, operation AdapterOperation, sample Sample, seenFreshRoots, rootGroups map[string]string) error {
 	if sample.CampaignID != operation.CampaignID || sample.DeploymentID != operation.DeploymentID ||
 		sample.ExperimentID != operation.ExperimentID || sample.CellID != operation.CellID ||
 		sample.SampleID != operation.SampleID || sample.Iteration != operation.Iteration ||
-		sample.ProcessReplicate != operation.ProcessReplicate || sample.OrderPosition != operation.OrderPosition ||
+		sample.ProcessReplicate != operation.ProcessReplicate || sample.Warmup != operation.Warmup || sample.KernelOnly != operation.KernelOnly || sample.OrderPosition != operation.OrderPosition ||
 		sample.RandomSeed != operation.RandomSeed || sample.WorkloadID != operation.WorkloadID ||
 		sample.Scale != operation.Scale || sample.Mode != operation.Mode || sample.PairID != operation.PairID ||
 		sample.PairedSystemOrder != operation.PairedSystemOrder || sample.RootGroupID != operation.RootGroupID {
@@ -465,14 +568,28 @@ func validateAdapterSample(config Config, operation AdapterOperation, sample Sam
 	if err := sample.Validate(); err != nil {
 		return err
 	}
+	// A profile-enabled run binds every arm, including a Direct arm that never
+	// reaches the Gateway: the pair is only comparable when both read the same
+	// Dataset, Catalog and Publication set. Warmups are bound too, because a
+	// warmup executed against the wrong profile would prime the wrong caches.
+	if err := validateOperationProfileBinding(operation, sample); err != nil {
+		return err
+	}
 	if operation.Warmup {
 		return nil
 	}
 	if sample.PublicationEligible != (config.CampaignClass == "publication") {
 		return errors.New("publication eligibility does not match campaign class")
 	}
-	if sample.KernelOnly != config.KernelOnly {
+	if operation.KernelOnly != config.KernelOnly {
 		return errors.New("kernel-only label does not match the frozen config")
+	}
+	// A fail/invalid operation may stop before provisioning a TaskGate root.
+	// Its schema-safe outcome must still be retained in raw evidence; fresh-root
+	// uniqueness is a correctness gate for completed measurements, not a reason
+	// to erase a failed attempt.
+	if sample.Status != "pass" {
+		return nil
 	}
 	if operation.FreshRootRequired && sample.System == "taskgate" {
 		if !validSHA256(sample.RootTaskIDHash) {
@@ -526,7 +643,7 @@ func WriteSmoke(config Config, runDir string) error {
 					if mode == "direct" {
 						system = "postgresql"
 					}
-					sample := Sample{SchemaVersion: 1, CampaignID: config.CampaignID, DeploymentID: "deployment-01", ExperimentID: config.ExperimentID, CellID: cell, SampleID: fmt.Sprintf("smoke-%04d", position), Iteration: iteration, OrderPosition: position, RandomSeed: config.RandomSeed, PairID: fmt.Sprintf("smoke-pair-%s-%s-%04d", workload.ID, scale, iteration), PairedSystemOrder: strings.Join(workload.Modes, ","), RootGroupID: strings.Join(workload.Modes, ","), System: system, Mode: mode, WorkloadID: workload.ID, Scale: scale, ClientAvailableMS: .07, ClientFullDrainMS: .08, PipelineMS: phases, DiagnosticMS: map[string]float64{}, RowCount: 1, ColumnCount: 2, ResultSHA256: digest, ReceiptVersion: "8", Status: "pass", PublicationEligible: false, KernelOnly: config.KernelOnly}
+					sample := Sample{SchemaVersion: 1, CampaignID: config.CampaignID, DeploymentID: "deployment-01", ExperimentID: config.ExperimentID, CellID: cell, SampleID: fmt.Sprintf("smoke-%04d", position), Iteration: iteration, ProcessReplicate: 1, Warmup: false, OrderPosition: position, RandomSeed: config.RandomSeed, PairID: fmt.Sprintf("smoke-pair-%s-%s-%04d", workload.ID, scale, iteration), PairedSystemOrder: strings.Join(workload.Modes, ","), RootGroupID: strings.Join(workload.Modes, ","), System: system, Mode: mode, WorkloadID: workload.ID, Scale: scale, ClientAvailableMS: .07, ClientFullDrainMS: .08, PipelineMS: phases, DiagnosticMS: map[string]float64{}, RowCount: 1, ColumnCount: 2, ResultSHA256: digest, ReceiptVersion: "8", Status: "pass", PublicationEligible: false, KernelOnly: config.KernelOnly}
 					if mode == "semantic_replay" {
 						sample.SemanticReplay = true
 					}

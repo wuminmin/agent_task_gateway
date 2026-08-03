@@ -166,14 +166,21 @@ func (c *Catalog) validate(viewContractCandidates map[string]struct{}) error {
 	}
 
 	routes := make(map[domain.Sensitivity]ApprovalRoute, len(c.ApprovalRoutes))
+	scopedRouteSets := make(map[string]struct{}, len(c.ApprovalRoutes))
 	for index, route := range c.ApprovalRoutes {
 		path := fmt.Sprintf("approval_routes[%d]", index)
 		problems = append(problems, validateApprovalRoute(path, route, profiles)...)
-		if route.Sensitivity != "" {
+		if route.Sensitivity != "" && len(route.Products) == 0 {
 			if _, exists := routes[route.Sensitivity]; exists {
 				problems = append(problems, fieldError(path+".sensitivity", "approval route is duplicated", ErrInvalidApprovalRoute))
 			}
 			routes[route.Sensitivity] = route
+		} else if route.Sensitivity != "" {
+			key := strings.Join(route.Products, "\x00")
+			if _, exists := scopedRouteSets[key]; exists {
+				problems = append(problems, fieldError(path+".products", "product-scoped approval route is duplicated", ErrInvalidApprovalRoute))
+			}
+			scopedRouteSets[key] = struct{}{}
 		}
 	}
 	ordinalDeployment := len(c.SnapshotPublications) != 0
@@ -205,7 +212,7 @@ func (c *Catalog) validate(viewContractCandidates map[string]struct{}) error {
 		}
 	}
 
-	products := make(map[string]struct{}, len(c.Products))
+	products := make(map[string]Product, len(c.Products))
 	views := make(map[string]struct{}, len(c.Products))
 	for index, product := range c.Products {
 		path := fmt.Sprintf("products[%d]", index)
@@ -214,7 +221,7 @@ func (c *Catalog) validate(viewContractCandidates map[string]struct{}) error {
 			if _, exists := products[product.Name]; exists {
 				problems = append(problems, fieldError(path+".name", "product name is duplicated", ErrDuplicateProduct))
 			}
-			products[product.Name] = struct{}{}
+			products[product.Name] = product
 		}
 		if product.ReportingView != "" {
 			if _, exists := views[product.ReportingView]; exists {
@@ -236,7 +243,33 @@ func (c *Catalog) validate(viewContractCandidates map[string]struct{}) error {
 			}
 		}
 	}
-
+	scopedProducts := make(map[string]string)
+	for index, route := range c.ApprovalRoutes {
+		if len(route.Products) == 0 {
+			continue
+		}
+		path := fmt.Sprintf("approval_routes[%d].products", index)
+		var sensitivities []domain.Sensitivity
+		for _, name := range route.Products {
+			product, exists := products[name]
+			if !exists {
+				problems = append(problems, fieldError(path, "product-scoped route references an unknown product", ErrInvalidApprovalRoute))
+				continue
+			}
+			sensitivity, sensitivityErr := product.EffectiveSensitivity()
+			if sensitivityErr == nil {
+				sensitivities = append(sensitivities, sensitivity)
+			}
+			if previous, exists := scopedProducts[name]; exists {
+				problems = append(problems, fieldError(path, "product is already exclusive to "+previous, ErrInvalidApprovalRoute))
+			} else {
+				scopedProducts[name] = path
+			}
+		}
+		if highest, highestErr := domain.HighestSensitivity(sensitivities...); highestErr == nil && highest != route.Sensitivity {
+			problems = append(problems, fieldError(path, "route sensitivity differs from the exact product set", ErrInvalidApprovalRoute))
+		}
+	}
 	if len(problems) > 0 {
 		return problems
 	}
@@ -375,6 +408,12 @@ func validateApprovalRoute(path string, route ApprovalRoute, profiles map[string
 		problems = append(problems, fieldError(path+".budget_profile", "budget profile is required", ErrInvalidApprovalRoute))
 	} else if _, exists := profiles[route.BudgetProfile]; !exists {
 		problems = append(problems, fieldError(path+".budget_profile", "referenced budget profile does not exist", ErrInvalidApprovalRoute))
+	}
+	for index, product := range route.Products {
+		if !identifierPattern.MatchString(product) || index > 0 && route.Products[index-1] >= product {
+			problems = append(problems, fieldError(path+".products", "products must be sorted, unique lowercase logical names", ErrInvalidApprovalRoute))
+			break
+		}
 	}
 	return problems
 }

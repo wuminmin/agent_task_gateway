@@ -3,19 +3,27 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"testing"
 )
 
 func TestRunCapturesOneJSONCommandReport(t *testing.T) {
+	shell, err := filepath.EvalSymlinks("/bin/sh")
+	if err != nil {
+		t.Fatal(err)
+	}
 	report, err := run(context.Background(), []string{
 		"-phase", "build", "-day", "day0", "-sample", "1",
-		"/bin/sh", "-c", `printf '{"mode":"build","total_artifact_bytes":7}\n'`,
+		shell, "-c", `printf '{"mode":"build","total_artifact_bytes":7}\n'`,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if report.Status != "pass" || report.ExitCode != 0 || report.WallMS <= 0 || report.StdoutBytes == 0 {
 		t.Fatalf("unexpected report: %+v", report)
+	}
+	if len(report.ExecutableSHA256) != 64 {
+		t.Fatalf("executable SHA-256 = %q", report.ExecutableSHA256)
 	}
 	var child map[string]any
 	if err := json.Unmarshal(report.CommandReport, &child); err != nil || child["mode"] != "build" {
@@ -24,9 +32,13 @@ func TestRunCapturesOneJSONCommandReport(t *testing.T) {
 }
 
 func TestRunRejectsNonJSONAndNonzeroCommands(t *testing.T) {
+	shell, err := filepath.EvalSymlinks("/bin/sh")
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, argv := range [][]string{
-		{"-phase", "activation", "-day", "day3", "-sample", "1", "/bin/sh", "-c", "printf nope"},
-		{"-phase", "activation", "-day", "day3", "-sample", "1", "/bin/sh", "-c", "exit 7"},
+		{"-phase", "activation", "-day", "day3", "-sample", "1", shell, "-c", "printf nope"},
+		{"-phase", "activation", "-day", "day3", "-sample", "1", shell, "-c", "exit 7"},
 	} {
 		report, err := run(context.Background(), argv)
 		if err == nil || report.Status != "fail" {

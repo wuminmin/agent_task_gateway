@@ -29,3 +29,16 @@ func TestEvaluateRejectsMalformedFactID(t *testing.T) {
 		t.Fatal("malformed FactID accepted")
 	}
 }
+
+func TestEvaluatePrefixesRetainsEveryExactUnion(t *testing.T) {
+	fact := func(number int) string { return fmt.Sprintf("%064x", number) }
+	trace := []Observation{
+		{Release: []string{fact(1)}, Dependency: []string{fact(10)}, Outcome: []string{fact(20)}},
+		{Release: []string{fact(1), fact(2)}, Dependency: []string{fact(11)}, Outcome: []string{fact(20), fact(21)}},
+	}
+	prefixes, err := EvaluatePrefixes(trace)
+	if err != nil || len(prefixes) != 2 || prefixes[0].Queries != 1 || prefixes[0].Release.Cardinality != 1 ||
+		prefixes[1].Queries != 2 || prefixes[1].Release.Cardinality != 2 || prefixes[1].Dependency.Cardinality != 2 || prefixes[1].Outcome.Cardinality != 2 {
+		t.Fatalf("prefixes = %+v, err=%v", prefixes, err)
+	}
+}

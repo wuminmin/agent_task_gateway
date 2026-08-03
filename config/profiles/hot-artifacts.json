@@ -1,0 +1,37 @@
+{
+  "note": "Observed HOT artifact sizes from the snapshot compiler of a fresh deployment. Sizes are runtime observations, never predeclared expectations.",
+  "observed": {
+    "expense-detail-v1": {
+      "bytes": 16638,
+      "hot_index_digest": "ae29bfd905ac88b7b6c3d437373c9dcfa1e1f8471c3398c3e82867eb6f4d0675",
+      "publication": "expense-detail-v1"
+    },
+    "expense-summary-v1": {
+      "bytes": 9488,
+      "hot_index_digest": "d28b74a651b333db57fbb3a75dc00fef60ea5c9041a1f0b765c1380db27f2028",
+      "publication": "expense-summary-v1"
+    },
+    "final-v5-result-heavy-v1": {
+      "bytes": 126813361,
+      "hot_index_digest": "ae4ea784dfee65958a4db790d686ed19a803c5e371f13880561bc7387b1020d8",
+      "publication": "final-v5-result-heavy-v1"
+    },
+    "provsql-lineitem-v1": {
+      "bytes": 101004070,
+      "hot_index_digest": "65dcf1c0edf2e6fcf4f85204b800f7368d211648ccf2c3b3f2ace8feac4232d1",
+      "publication": "provsql-lineitem-v1"
+    },
+    "provsql-nonce-v1": {
+      "bytes": 262487,
+      "hot_index_digest": "12e44c67ba4c7b28f8bf8f989b0845979f501a38d06c0d31a9feea8cbf49e530",
+      "publication": "provsql-nonce-v1"
+    },
+    "provsql-orders-v1": {
+      "bytes": 16603206,
+      "hot_index_digest": "80bdee604013afac5a24497e778a633b31262f2784df78fba11b1a98010199c1",
+      "publication": "provsql-orders-v1"
+    }
+  },
+  "record": "taskgate-final-v5-observed-hot-artifacts",
+  "schema_version": 1
+}

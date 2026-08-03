@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"taskbound.local/agent-data-gateway/evaluation/internal/experiment"
 	"taskbound.local/agent-data-gateway/internal/approval"
 	"taskbound.local/agent-data-gateway/internal/control"
 	"taskbound.local/agent-data-gateway/internal/dataconnector"
@@ -503,7 +504,7 @@ LIMIT 10`, deployment.Publication.Input.SourceRelation)
 	if result.RowCount != 5 || len(result.Rows) != 5 {
 		return directOracle{}, fmt.Errorf("sentinel query rows=%d, want 5", result.RowCount)
 	}
-	digest, err := normalizedJSONDigest(result.Rows)
+	digest, err := experiment.CanonicalResultHash(result.Rows)
 	if err != nil {
 		return directOracle{}, err
 	}

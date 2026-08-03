@@ -1144,13 +1144,19 @@ func installSemanticRuntimeSnapshotRegistry(t *testing.T, service *Service) {
 		if closeErr != nil {
 			t.Fatalf("close snapshot input %s: %v", publication.Name, closeErr)
 		}
-		bundle, compileErr := snapshotbundle.Compile(input)
-		if compileErr != nil {
-			t.Fatalf("compile snapshot input %s: %v", publication.Name, compileErr)
-		}
-		index, parseErr := ordinal.ParseHotDictionary(bundle.Hot, publication.ManifestDigest)
-		if parseErr != nil {
-			t.Fatalf("parse snapshot index %s: %v", publication.Name, parseErr)
+		var index ordinal.SnapshotIndex
+		if len(input.Snapshot.Rows) == 0 {
+			index = liveCompilerTestSnapshotIndex{publication: publication, input: input}
+		} else {
+			bundle, compileErr := snapshotbundle.Compile(input)
+			if compileErr != nil {
+				t.Fatalf("compile snapshot input %s: %v", publication.Name, compileErr)
+			}
+			parsed, parseErr := ordinal.ParseHotDictionary(bundle.Hot, publication.ManifestDigest)
+			if parseErr != nil {
+				t.Fatalf("parse snapshot index %s: %v", publication.Name, parseErr)
+			}
+			index = parsed
 		}
 		if registerErr := registry.RegisterPublication(ordinal.PublicationKey{
 			CatalogDigest: service.catalog.SHA256, PublicationName: publication.Name,

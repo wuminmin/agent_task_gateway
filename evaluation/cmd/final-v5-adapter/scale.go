@@ -1,0 +1,599 @@
+package main
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"os"
+	"runtime"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+
+	"taskbound.local/agent-data-gateway/evaluation/internal/experiment"
+	"taskbound.local/agent-data-gateway/internal/control"
+	"taskbound.local/agent-data-gateway/internal/ordinal"
+)
+
+const scaleVerificationVersion = "taskgate-final-v5-scale-verification-v1"
+
+type scaleAdapter struct{ real *realAdapter }
+
+// newScaleAdapter wires the frozen Scale workloads to real TaskGate,
+// PostgreSQL Outcome-radix, and production ordinal implementations. Missing
+// deployment bindings or backends remain fail-closed at execution time.
+func newScaleAdapter(ctx context.Context) (sourceControlledAdapter, error) {
+	real, err := newRealAdapter(ctx)
+	if err != nil {
+		return nil, err
+	}
+	real.timeout = 30 * time.Minute
+	real.http.Timeout = real.timeout
+	return &scaleAdapter{real: real}, nil
+}
+
+func (adapter *scaleAdapter) Close() { adapter.real.Close() }
+
+func (adapter *scaleAdapter) Execute(ctx context.Context, operation experiment.AdapterOperation) experiment.Sample {
+	if operation.ExperimentID != "scale" {
+		return invalidSample(operation, "experiment_identity_mismatch")
+	}
+	switch operation.WorkloadID {
+	case "dependency-e2e":
+		if _, err := experiment.ParseDependencyScale(operation.Scale); err != nil ||
+			(operation.Mode != "novel" && operation.Mode != "semantic_replay") {
+			return invalidSample(operation, "unsupported_frozen_scale_cell")
+		}
+		binding, err := loadAdapterDeploymentBinding()
+		if err != nil || binding.Section.Scale == nil {
+			return invalidSample(operation, "scale_binding_invalid")
+		}
+		cell, ok := binding.Section.Scale.DependencyE2E[operation.Scale]
+		if !ok || validateDependencyCellBinding(operation.Scale, cell) != nil {
+			return invalidSample(operation, "dependency_cell_binding_invalid")
+		}
+		if operation.Mode == "semantic_replay" {
+			state := adapter.real.pairs[scaleStateKey(operation)]
+			if state == nil || state.taskID == "" || state.novelObservationSHA256 == "" {
+				return invalidSample(operation, "semantic_replay_lacks_novel_anchor")
+			}
+		}
+		sample, err := adapter.executeDependencyE2E(ctx, operation, binding, cell)
+		if err != nil {
+			return retainedScaleFailure(operation, sample, "dependency_e2e_measurement_failed")
+		}
+		return validateScalePass(sample)
+	case "outcome-merkle":
+		if _, err := experiment.ParseOutcomeMerkleScale(operation.Scale); err != nil || operation.Mode != "merkle_control" {
+			return invalidSample(operation, "unsupported_frozen_scale_cell")
+		}
+		binding, err := loadAdapterDeploymentBinding()
+		if err != nil || binding.Section.Scale == nil || !binding.Section.Scale.EnableOutcomeMerkle ||
+			strings.TrimSpace(os.Getenv("TASKGATE_FINAL_V5_CONTROL_DSN")) == "" {
+			return invalidSample(operation, "outcome_merkle_backend_invalid")
+		}
+		sample, err := executeOutcomeMerkle(ctx, operation)
+		if err != nil {
+			return retainedScaleFailure(operation, sample, "outcome_merkle_measurement_failed")
+		}
+		return validateScalePass(sample)
+	case "taskgate_scale_extreme":
+		if _, err := experiment.ParseExtremeScale(operation.Scale); err != nil || operation.Mode != "kernel_storage_only" {
+			return invalidSample(operation, "unsupported_frozen_scale_cell")
+		}
+		binding, err := loadAdapterDeploymentBinding()
+		if err != nil || binding.Section.Scale == nil || !binding.Section.Scale.EnableExtreme {
+			return invalidSample(operation, "kernel_storage_binding_invalid")
+		}
+		sample, err := executeKernelStorage(operation)
+		if err != nil {
+			return retainedScaleFailure(operation, sample, "kernel_storage_measurement_failed")
+		}
+		return validateScalePass(sample)
+	default:
+		return invalidSample(operation, "unsupported_frozen_scale_workload")
+	}
+}
+
+func validateScalePass(sample experiment.Sample) experiment.Sample {
+	if sample.Status == "pass" {
+		if err := experiment.ValidateScaleEvidence(sample); err != nil {
+			sample.Status = "fail"
+			sample.ErrorCode = "scale_evidence_invariant_failed"
+			sample.Reason = "the retained real scale sample failed its independent evidence invariant"
+		}
+	}
+	return sample
+}
+
+func retainedScaleFailure(operation experiment.AdapterOperation, sample experiment.Sample, code string) experiment.Sample {
+	if sample.SchemaVersion == 0 {
+		sample = failedSample(operation, code)
+	} else {
+		sample.Status = "fail"
+		sample.ErrorCode = code
+		sample.Reason = "a real scale backend operation was attempted and failed; safely collected evidence is retained"
+	}
+	return sample
+}
+
+func scaleStateKey(operation experiment.AdapterOperation) string {
+	return operation.PairID + "\x00" + operation.RootGroupID
+}
+
+func validateDependencyCellBinding(scale string, cell dependencyCellBinding) error {
+	spec, err := experiment.ParseDependencyScale(scale)
+	if err != nil || validateBoundTask(cell.Task) != nil || validateBoundQuery(cell.Candidate) != nil ||
+		cell.Candidate.DependencyFacts != spec.CandidateFacts || !validDigest(cell.Candidate.DependencySetSHA256) {
+		return errors.New("candidate binding differs from frozen dependency scale")
+	}
+	if spec.OverlapFacts == 0 {
+		if cell.History != nil {
+			return errors.New("zero-overlap cell unexpectedly declares history")
+		}
+		return nil
+	}
+	if cell.History == nil || validateBoundQuery(*cell.History) != nil || cell.History.DependencyFacts != spec.OverlapFacts ||
+		!validDigest(cell.History.DependencySetSHA256) {
+		return errors.New("history binding differs from frozen dependency overlap")
+	}
+	return nil
+}
+
+func (adapter *scaleAdapter) executeDependencyE2E(ctx context.Context, operation experiment.AdapterOperation,
+	binding adapterDeploymentBinding, cell dependencyCellBinding) (experiment.Sample, error) {
+	spec, _ := experiment.ParseDependencyScale(operation.Scale)
+	probeDigest, err := adapter.real.verifyDatasetProbe(ctx, binding)
+	if err != nil {
+		return experiment.Sample{}, err
+	}
+	key := scaleStateKey(operation)
+	state := adapter.real.pairs[key]
+	if state == nil {
+		state = &pairState{}
+		adapter.real.pairs[key] = state
+	}
+	if operation.Mode == "novel" {
+		if state.taskID != "" {
+			return experiment.Sample{}, errors.New("novel dependency pair reused a task")
+		}
+		state.taskID, err = adapter.real.provisionBoundTask(ctx, operation, cell.Task)
+		if err != nil {
+			return experiment.Sample{}, err
+		}
+		if cell.History != nil {
+			if err := adapter.prefillDependencyHistory(ctx, operation, state, cell.Task, *cell.History); err != nil {
+				return experiment.Sample{}, err
+			}
+		}
+	}
+	if state.taskID == "" {
+		return experiment.Sample{}, errors.New("dependency query lacks an approved task")
+	}
+
+	beforeRoot, err := adapter.real.rootLedgerSnapshot(ctx, state.taskID)
+	if err != nil {
+		return experiment.Sample{}, err
+	}
+	businessBefore, err := adapter.real.businessSQLSnapshotFor(ctx, cell.Task)
+	if err != nil {
+		return experiment.Sample{}, err
+	}
+	observerBefore, err := captureBoundObserver(ctx, "before")
+	if err != nil {
+		return experiment.Sample{}, err
+	}
+	requestID := "final-v5-scale-" + sha(operation.SampleID)[:24]
+	started := time.Now()
+	var response queryResponse
+	if err := adapter.real.alice.call(ctx, "query_sql", map[string]any{
+		"task_id": state.taskID, "request_id": requestID, "sql": cell.Candidate.SQL,
+	}, &response); err != nil {
+		return experiment.Sample{}, err
+	}
+	availableMS := durationMS(time.Since(started))
+	partial := observedTaskgateQueryPrefix(operation, state.taskID, cell.Candidate.SQL, started, availableMS,
+		response, beforeRoot, beforeRoot)
+	businessAfter, err := adapter.real.businessSQLSnapshotFor(ctx, cell.Task)
+	if err != nil {
+		return partial, err
+	}
+	afterRoot, err := adapter.real.rootLedgerSnapshot(ctx, state.taskID)
+	if err != nil {
+		return partial, err
+	}
+	partial = observedTaskgateQueryPrefix(operation, state.taskID, cell.Candidate.SQL, started, availableMS,
+		response, beforeRoot, afterRoot)
+	sample, err := adapter.real.completeTaskgateSample(ctx, operation, state, beforeRoot, afterRoot,
+		started, availableMS, cell.Candidate.SQL, response)
+	if err != nil {
+		return partial, err
+	}
+	historyDigest := ""
+	if cell.History != nil {
+		historyDigest = cell.History.DependencySetSHA256
+	}
+	evidence := &experiment.ScaleVerificationEvidence{
+		Version: scaleVerificationVersion, Boundary: "dependency_e2e",
+		BindingSHA256: binding.SectionSHA256, DatasetSHA256: binding.DatasetSHA256,
+		CatalogSHA256: binding.CatalogSHA256, DatasetProbeSHA256: probeDigest,
+		QuerySHA256: sha(cell.Candidate.SQL), ExpectedRows: cell.Candidate.ExpectedRows,
+		ExpectedColumns: cell.Candidate.ExpectedColumns, ExpectedResultSHA256: cell.Candidate.ExpectedResultSHA256,
+		ExpectedCandidateFacts: spec.CandidateFacts, ObservedCandidateFacts: sample.ActualDependencyFacts,
+		ExpectedOverlapFacts: spec.OverlapFacts, ObservedOverlapFacts: spec.OverlapFacts,
+		HistoryDependencySHA256: historyDigest, CandidateDependencySHA256: cell.Candidate.DependencySetSHA256,
+		BusinessBefore: businessBefore, BusinessAfter: businessAfter, RootBefore: beforeRoot, RootAfter: afterRoot,
+		ObserverBefore: &observerBefore,
+	}
+	if operation.Mode == "semantic_replay" {
+		evidence.SourceObservationSHA256 = state.novelObservationSHA256
+		evidence.ReplayObservationSHA256 = response.Exposure.ObservationSHA256
+	}
+	sample.ScaleVerification = evidence
+	observerAfter, err := captureBoundObserver(ctx, "after")
+	if err != nil {
+		return sample, err
+	}
+	evidence.ObserverAfter = &observerAfter
+	observedBusiness := businessAfter.VisibleCalls - businessBefore.VisibleCalls +
+		businessAfter.CompanionCalls - businessBefore.CompanionCalls
+	sample.BusinessSQLDelta = observedBusiness
+	if err := applyObserverDelta(&sample, observerBefore, observerAfter, observedBusiness); err != nil {
+		return sample, err
+	}
+	if err := validateBoundSampleResult(sample, cell.Candidate); err != nil {
+		return sample, err
+	}
+	if operation.Mode == "novel" {
+		state.novelRequestID = requestID
+		state.novelQueryID = response.QueryID
+		state.novelResultID = response.ResultID
+		state.novelObservationSHA256 = response.Exposure.ObservationSHA256
+		state.novelGrantSHA256 = response.Receipt.GrantDigest
+	}
+	return sample, nil
+}
+
+func (adapter *scaleAdapter) prefillDependencyHistory(ctx context.Context, operation experiment.AdapterOperation,
+	state *pairState, task boundTaskRequest, history boundQueryExpectation) error {
+	before, err := adapter.real.rootLedgerSnapshot(ctx, state.taskID)
+	if err != nil {
+		return err
+	}
+	if before.Epoch != 0 || before.DependencyCardinality != 0 {
+		return errors.New("dependency prefill did not start from a fresh root")
+	}
+	businessBefore, err := adapter.real.businessSQLSnapshotFor(ctx, task)
+	if err != nil {
+		return err
+	}
+	requestID := "final-v5-history-" + sha(operation.SampleID)[:24]
+	started := time.Now()
+	var response queryResponse
+	if err := adapter.real.alice.call(ctx, "query_sql", map[string]any{
+		"task_id": state.taskID, "request_id": requestID, "sql": history.SQL,
+	}, &response); err != nil {
+		return err
+	}
+	availableMS := durationMS(time.Since(started))
+	businessAfter, err := adapter.real.businessSQLSnapshotFor(ctx, task)
+	if err != nil {
+		return err
+	}
+	after, err := adapter.real.rootLedgerSnapshot(ctx, state.taskID)
+	if err != nil {
+		return err
+	}
+	prefillOperation := operation
+	prefillOperation.CellID += "/history-prefill"
+	prefillOperation.SampleID += "-history-prefill"
+	prefillOperation.Mode = "novel"
+	sample, err := adapter.real.completeTaskgateSample(ctx, prefillOperation, state, before, after,
+		started, availableMS, history.SQL, response)
+	if err != nil {
+		return err
+	}
+	if err := validateBoundSampleResult(sample, history); err != nil {
+		return err
+	}
+	if after.DependencyCardinality != history.DependencyFacts || after.DependencySetSHA256 != history.DependencySetSHA256 ||
+		businessAfter.VisibleCalls-businessBefore.VisibleCalls != 1 ||
+		businessAfter.CompanionCalls-businessBefore.CompanionCalls != 1 {
+		return errors.New("public TaskGate history prefill differs from its exact oracle")
+	}
+	return nil
+}
+
+func validateBoundSampleResult(sample experiment.Sample, expected boundQueryExpectation) error {
+	if sample.Status != "pass" || sample.RowCount != expected.ExpectedRows || sample.ColumnCount != expected.ExpectedColumns ||
+		sample.ResultSHA256 != expected.ExpectedResultSHA256 || sample.ActualDependencyFacts != expected.DependencyFacts ||
+		sample.DependencySetSHA256 != expected.DependencySetSHA256 {
+		return errors.New("verified TaskGate result differs from its bound rows/columns/result/Dependency oracle")
+	}
+	return nil
+}
+
+type outcomeOperands struct {
+	root, candidate       []string
+	fixtureSHA256         string
+	rootOracleSHA256      string
+	candidateOracleSHA256 string
+	unionOracleSHA256     string
+}
+
+func executeOutcomeMerkle(ctx context.Context, operation experiment.AdapterOperation) (experiment.Sample, error) {
+	spec, _ := experiment.ParseOutcomeMerkleScale(operation.Scale)
+	operands, err := buildOutcomeOperands(operation.RandomSeed, operation.Scale, spec)
+	if err != nil {
+		return experiment.Sample{}, err
+	}
+	result, err := control.EvaluateOutcomeRadixPostgresV5(ctx, strings.TrimSpace(os.Getenv("TASKGATE_FINAL_V5_CONTROL_DSN")),
+		control.OutcomeRadixEvaluationRequest{RootHashes: operands.root, CandidateHashes: operands.candidate})
+	if err != nil {
+		return experiment.Sample{}, err
+	}
+	var afterMemory runtime.MemStats
+	runtime.ReadMemStats(&afterMemory)
+	wantNovel := spec.CandidateFacts - spec.OverlapFacts
+	loadMS := durationMS(result.Telemetry.LoadDuration)
+	differenceMS := durationMS(result.Telemetry.DifferenceUnionDuration)
+	persistMS := durationMS(result.Telemetry.PersistDuration)
+	totalMS := durationMS(result.MeasuredDuration)
+	settlementMS := totalMS - loadMS - differenceMS
+	if settlementMS < 0 {
+		settlementMS = 0
+	}
+	sample := baseSample(operation, "taskgate")
+	sample.ClientAvailableMS, sample.ClientFullDrainMS = totalMS, totalMS
+	sample.PipelineMS["prepare"] = loadMS
+	sample.PipelineMS["execute_and_derive"] = differenceMS
+	sample.PipelineMS["control_settlement"] = settlementMS
+	sample.PipelineMS["server_total"] = loadMS + differenceMS + settlementMS
+	sample.DiagnosticMS = map[string]float64{
+		"outcome_radix_load": loadMS, "outcome_radix_difference_union": differenceMS,
+		"outcome_radix_persist": persistMS,
+	}
+	heapAllocAfter := int64(afterMemory.HeapAlloc)
+	backendIdentity := saltedTaskHash(operation, fmt.Sprintf("control-txid:%d:%s", result.BackendTransactionID, result.RootSetSHA256))
+	sample.ResultSHA256 = result.UnionSetSHA256
+	sample.ActualOutcomeFacts, sample.ChargedOutcomeFacts = spec.CandidateFacts, result.NovelCardinality
+	sample.OutcomeSetSHA256 = result.UnionSetSHA256
+	sample.RootSetSHA256Before, sample.RootSetSHA256After = result.RootSetSHA256, result.UnionSetSHA256
+	sample.Counters = map[string]int64{
+		"blocks_loaded": result.Telemetry.BlocksLoaded, "leaves_loaded": result.Telemetry.LeavesLoaded,
+		"hashes_loaded": result.Telemetry.HashesLoaded, "blocks_reused": result.Telemetry.BlocksReused,
+		"leaves_changed": result.Telemetry.LeavesChanged, "novelty": result.NovelCardinality,
+		"storage_bytes": result.StorageAfter.Bytes, "heap_alloc_bytes_after": heapAllocAfter,
+		"replay_changed_objects": result.ReplayChangedObjects,
+	}
+	sample.ScaleVerification = &experiment.ScaleVerificationEvidence{
+		Version: scaleVerificationVersion, Boundary: "outcome_merkle_control",
+		OutcomeMerkle: &experiment.OutcomeMerkleEvidence{
+			ProductionPath:     "control.differenceAndUnionV5Tx+persistV5SetObjectsTx",
+			ContentCachePolicy: "warm_immutable_content_after_fixture_prefill",
+			OverlapRounding:    "nearest_integer_half_up", FixtureSHA256: operands.fixtureSHA256,
+			BackendRunSHA256: backendIdentity, RootCardinality: spec.RootFacts,
+			CandidateCardinality: spec.CandidateFacts, OverlapCardinality: spec.OverlapFacts,
+			NovelCardinality: result.NovelCardinality, UnionCardinality: result.UnionCardinality,
+			RootMemberOracleSHA256:      operands.rootOracleSHA256,
+			CandidateMemberOracleSHA256: operands.candidateOracleSHA256,
+			UnionMemberOracleSHA256:     operands.unionOracleSHA256,
+			ObservedUnionMemberSHA256:   result.ObservedUnionMemberSHA256,
+			ProductionRootSHA256:        result.RootSetSHA256, ProductionUnionSHA256: result.UnionSetSHA256,
+			ReplayUnionSHA256: result.ReplayUnionSHA256, BlocksLoaded: result.Telemetry.BlocksLoaded,
+			LeavesLoaded: result.Telemetry.LeavesLoaded, HashesLoaded: result.Telemetry.HashesLoaded,
+			BlocksReused: result.Telemetry.BlocksReused, LeavesChanged: result.Telemetry.LeavesChanged,
+			ChangedObjects: result.ChangedObjects, ReplayChangedObjects: result.ReplayChangedObjects,
+			StorageObjectsBefore: result.StorageBefore.Objects, StorageObjectsAfter: result.StorageAfter.Objects,
+			StorageBytesBefore: result.StorageBefore.Bytes, StorageBytesAfter: result.StorageAfter.Bytes,
+			HeapAllocBytesAfter: heapAllocAfter, LoadMS: loadMS, DifferenceUnionMS: differenceMS, PersistMS: persistMS,
+		},
+	}
+	if result.RootCardinality != spec.RootFacts || result.CandidateCardinality != spec.CandidateFacts ||
+		result.NovelCardinality != wantNovel || result.UnionCardinality != spec.RootFacts+wantNovel ||
+		result.ReplayUnionSHA256 != result.UnionSetSHA256 ||
+		result.ObservedUnionMemberSHA256 != operands.unionOracleSHA256 {
+		return sample, errors.New("production Outcome radix result differs from independent cardinality oracle")
+	}
+	sample.Status = "pass"
+	return sample, nil
+}
+
+func buildOutcomeOperands(seed int64, scale string, spec experiment.OutcomeMerkleScaleSpec) (outcomeOperands, error) {
+	result := outcomeOperands{root: make([]string, spec.RootFacts), candidate: make([]string, 0, spec.CandidateFacts)}
+	seen := make(map[string]bool, spec.RootFacts+spec.CandidateFacts)
+	for index := int64(0); index < spec.RootFacts; index++ {
+		value := deterministicOutcomeHash("root", seed, index)
+		if seen[value] {
+			return outcomeOperands{}, errors.New("deterministic root fixture collided")
+		}
+		seen[value] = true
+		result.root[index] = value
+	}
+	for index := int64(0); index < spec.OverlapFacts; index++ {
+		result.candidate = append(result.candidate, result.root[index])
+	}
+	for index := int64(0); int64(len(result.candidate)) < spec.CandidateFacts; index++ {
+		value := deterministicOutcomeHash("candidate", seed, index)
+		if seen[value] {
+			continue
+		}
+		seen[value] = true
+		result.candidate = append(result.candidate, value)
+	}
+	union := append([]string(nil), result.root...)
+	union = append(union, result.candidate[spec.OverlapFacts:]...)
+	result.rootOracleSHA256 = ordinaryHashSetDigest(result.root)
+	result.candidateOracleSHA256 = ordinaryHashSetDigest(result.candidate)
+	result.unionOracleSHA256 = ordinaryHashSetDigest(union)
+	result.fixtureSHA256 = sha(strings.Join([]string{"TASKGATE-FINAL-V5-OUTCOME-FIXTURE-V1", strconv.FormatInt(seed, 10),
+		scale, result.rootOracleSHA256, result.candidateOracleSHA256, result.unionOracleSHA256}, "\x00"))
+	return result, nil
+}
+
+func deterministicOutcomeHash(kind string, seed, index int64) string {
+	hash := sha256.New()
+	_, _ = hash.Write([]byte("TASKGATE-FINAL-V5-OUTCOME-MEMBER-V1\x00" + kind + "\x00"))
+	var encoded [16]byte
+	binary.BigEndian.PutUint64(encoded[:8], uint64(seed))
+	binary.BigEndian.PutUint64(encoded[8:], uint64(index))
+	_, _ = hash.Write(encoded[:])
+	return hex.EncodeToString(hash.Sum(nil))
+}
+
+func ordinaryHashSetDigest(values []string) string {
+	ordered := append([]string(nil), values...)
+	sort.Strings(ordered)
+	hash := sha256.New()
+	_, _ = hash.Write([]byte("TASKGATE-FINAL-V5-ORDINARY-HASH-SET-ORACLE-V1\x00"))
+	for _, value := range ordered {
+		_, _ = hash.Write([]byte(value))
+	}
+	return hex.EncodeToString(hash.Sum(nil))
+}
+
+func executeKernelStorage(operation experiment.AdapterOperation) (experiment.Sample, error) {
+	facts, _ := experiment.ParseExtremeScale(operation.Scale)
+	const segmentCount = int64(4)
+	dictionaryDigest := sha(strings.Join([]string{"TASKGATE-FINAL-V5-EXTREME-DICTIONARY-V1", operation.CampaignID,
+		operation.DeploymentID, operation.SampleID, strconv.FormatInt(operation.RandomSeed, 10)}, "\x00"))
+	fixtureSHA := sha(strings.Join([]string{"TASKGATE-FINAL-V5-EXTREME-FIXTURE-V1", operation.Scale,
+		strconv.FormatInt(facts, 10), strconv.FormatInt(segmentCount, 10), strconv.FormatInt(operation.RandomSeed, 10)}, "\x00"))
+	fixtureStarted := time.Now()
+	builder := ordinal.NewBuilder()
+	perSegment := (facts + segmentCount - 1) / segmentCount
+	for index := int64(0); index < facts; index++ {
+		segment := index / perSegment
+		ordinalValue := uint32(index % perSegment)
+		if err := builder.Add(ordinal.FactRef{DictionaryDigest: dictionaryDigest,
+			SegmentID: fmt.Sprintf("dense-%02d", segment), Ordinal: ordinalValue}); err != nil {
+			return experiment.Sample{}, err
+		}
+	}
+	candidate, err := builder.Freeze()
+	if err != nil || int64(candidate.Cardinality()) != facts {
+		return experiment.Sample{}, errors.New("extreme candidate fixture cardinality mismatch")
+	}
+	empty, err := ordinal.NewBitmapSet()
+	if err != nil {
+		return experiment.Sample{}, err
+	}
+	fixtureMS := durationMS(time.Since(fixtureStarted))
+	var memoryBefore runtime.MemStats
+	runtime.ReadMemStats(&memoryBefore)
+	measuredStarted := time.Now()
+	differenceStarted := time.Now()
+	difference := candidate.Difference(empty)
+	differenceMS := durationMS(time.Since(differenceStarted))
+	unionStarted := time.Now()
+	union := empty.Union(candidate)
+	unionMS := durationMS(time.Since(unionStarted))
+	cardinalityStarted := time.Now()
+	differenceCardinality, unionCardinality := difference.Cardinality(), union.Cardinality()
+	cardinalityMS := durationMS(time.Since(cardinalityStarted))
+	availableMS := durationMS(time.Since(measuredStarted))
+	storageStarted := time.Now()
+	storageMS := float64(0)
+	storageBytes, containerCount := int64(0), int64(0)
+	retainedKernelPrefix := func() experiment.Sample {
+		sample := baseSample(operation, "taskgate")
+		sample.KernelOnly = true
+		sample.GenerationBoundaryMS = fixtureMS
+		sample.ClientAvailableMS = availableMS
+		sample.ClientFullDrainMS = durationMS(time.Since(measuredStarted))
+		sample.PipelineMS["execute_and_derive"] = differenceMS + unionMS + cardinalityMS
+		sample.PipelineMS["artifact_stage"] = storageMS
+		sample.PipelineMS["server_total"] = sample.PipelineMS["execute_and_derive"] + storageMS
+		sample.DiagnosticMS = map[string]float64{"bitmap_difference": differenceMS, "bitmap_union": unionMS,
+			"bitmap_cardinality": cardinalityMS, "portable_container_round_trip": storageMS}
+		sample.Counters = map[string]int64{"candidate_facts": facts, "difference_facts": int64(differenceCardinality),
+			"union_facts": int64(unionCardinality), "segments": int64(len(union.SegmentBounds())),
+			"containers": containerCount, "storage_bytes": storageBytes}
+		sample.ActualDependencyFacts, sample.ChargedDependencyFacts = facts, facts
+		return sample
+	}
+	portable, err := union.PortableContainers()
+	if err != nil {
+		storageMS = durationMS(time.Since(storageStarted))
+		return retainedKernelPrefix(), err
+	}
+	containerCount = int64(len(portable))
+	for _, container := range portable {
+		storageBytes += int64(len(container.Bitmap))
+	}
+	roundTrip, err := ordinal.ParsePortableContainers(portable)
+	if err != nil {
+		storageMS = durationMS(time.Since(storageStarted))
+		return retainedKernelPrefix(), err
+	}
+	storageMS = durationMS(time.Since(storageStarted))
+	fullMS := durationMS(time.Since(measuredStarted))
+	candidateDigest, err := candidate.Digest()
+	if err != nil {
+		return retainedKernelPrefix(), err
+	}
+	differenceDigest, err := difference.Digest()
+	if err != nil {
+		return retainedKernelPrefix(), err
+	}
+	unionDigest, err := union.Digest()
+	if err != nil {
+		return retainedKernelPrefix(), err
+	}
+	roundTripDigest, err := roundTrip.Digest()
+	if err != nil {
+		partial := retainedKernelPrefix()
+		partial.ResultSHA256 = unionDigest
+		partial.DependencySetSHA256 = unionDigest
+		return partial, err
+	}
+	var memoryAfter runtime.MemStats
+	runtime.ReadMemStats(&memoryAfter)
+	allocated := int64(memoryAfter.TotalAlloc - memoryBefore.TotalAlloc)
+	allocations := int64(memoryAfter.Mallocs - memoryBefore.Mallocs)
+	heapAllocAfter := int64(memoryAfter.HeapAlloc)
+	runIdentity := saltedTaskHash(operation, unionDigest)
+	sample := baseSample(operation, "taskgate")
+	sample.KernelOnly = true
+	sample.GenerationBoundaryMS = fixtureMS
+	sample.ClientAvailableMS, sample.ClientFullDrainMS = availableMS, fullMS
+	sample.PipelineMS["execute_and_derive"] = differenceMS + unionMS + cardinalityMS
+	sample.PipelineMS["artifact_stage"] = storageMS
+	sample.PipelineMS["server_total"] = sample.PipelineMS["execute_and_derive"] + storageMS
+	sample.DiagnosticMS = map[string]float64{"bitmap_difference": differenceMS, "bitmap_union": unionMS,
+		"bitmap_cardinality": cardinalityMS, "portable_container_round_trip": storageMS}
+	sample.Counters = map[string]int64{"candidate_facts": facts, "difference_facts": int64(differenceCardinality),
+		"union_facts": int64(unionCardinality), "segments": int64(len(union.SegmentBounds())),
+		"containers": int64(len(portable)), "storage_bytes": storageBytes, "alloc_bytes": allocated,
+		"alloc_objects": allocations, "heap_alloc_bytes_after": heapAllocAfter}
+	sample.ResultSHA256 = unionDigest
+	sample.ActualDependencyFacts, sample.ChargedDependencyFacts = facts, facts
+	sample.DependencySetSHA256 = unionDigest
+	emptyDigest, err := empty.Digest()
+	if err != nil {
+		return sample, err
+	}
+	sample.RootSetSHA256Before, sample.RootSetSHA256After = emptyDigest, unionDigest
+	sample.ScaleVerification = &experiment.ScaleVerificationEvidence{Version: scaleVerificationVersion,
+		Boundary: "kernel_storage_only", KernelStorage: &experiment.KernelStorageEvidence{
+			ProductionPath: "ordinal.BitmapSet.Difference+Union+PortableContainers", FixtureSHA256: fixtureSHA,
+			RunIdentitySHA256: runIdentity, ExpectedCardinality: facts, CandidateCardinality: facts,
+			DifferenceCardinality: int64(differenceCardinality), UnionCardinality: int64(unionCardinality),
+			CandidateSHA256: candidateDigest, DifferenceSHA256: differenceDigest, UnionSHA256: unionDigest,
+			RoundTripSHA256: roundTripDigest, SegmentCount: int64(len(union.SegmentBounds())),
+			ContainerCount: int64(len(portable)), StorageBytes: storageBytes, AllocatedBytes: allocated,
+			Allocations: allocations, HeapAllocBytesAfter: heapAllocAfter, DifferenceMS: differenceMS, UnionMS: unionMS,
+			CardinalityMS: cardinalityMS, StorageRoundTripMS: storageMS,
+		}}
+	if differenceCardinality != uint64(facts) || unionCardinality != uint64(facts) ||
+		candidateDigest != differenceDigest || candidateDigest != unionDigest || unionDigest != roundTripDigest ||
+		storageBytes <= 0 || len(portable) == 0 {
+		return sample, errors.New("production ordinal algebra/storage round trip differs from exact dense oracle")
+	}
+	sample.Status = "pass"
+	return sample, nil
+}

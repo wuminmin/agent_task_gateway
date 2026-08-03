@@ -1,0 +1,28 @@
+{
+  "version": "taskgate-snapshot-index-input-v1",
+  "publication_name": "provsql-nonce-v1",
+  "catalog_source": "travel_demo",
+  "source_relation": "reporting.provsql_nonce",
+  "ordinal_sidecar": "taskgate_ordinal.provsql_nonce_v1",
+  "entity_key_fields": ["nonce_id"],
+  "snapshot": {
+    "source_id": "taskgate-demo-travel",
+    "source_namespace": "final_v5.provsql_nonce",
+    "snapshot": "final-v5-provsql-2026-v1",
+    "schema_digest": "ebedbecf4f8fbc4eaf150d32fd260fe9b902549367abee880cc02d4b6c3ff96b",
+    "fields": [
+      {"name": "nonce_id", "sql_type": "bigint"},
+      {"name": "nonce_id", "canonical_field_id": "provsql_nonce.nonce_id", "sql_type": "bigint"},
+      {"name": "partition_key", "sql_type": "integer"},
+      {"name": "partition_key", "canonical_field_id": "provsql_nonce.partition_key", "sql_type": "integer"}
+    ],
+    "rows": []
+  },
+  "expected_digests": {
+    "sidecar_digest": "be22806ef83c069ae6da1fc08983b503e59fadb0acf45ce4a7417d12dfdbd9dd",
+    "dictionary_digest": "8f44bdcadfe186a39533be51b885f02b195095830acaaf57330acc0e7ab102de",
+    "manifest_digest": "0b1d55d61a37e2ebf3434c9e7f9212a72382cbb68aa8e15ae9c6d820c22b6ebb",
+    "cold_payload_digest": "7c2e49619a3fd7782e4279943534db748ddcc08ed4c7fd396c7d854f63703718",
+    "hot_index_digest": "12e44c67ba4c7b28f8bf8f989b0845979f501a38d06c0d31a9feea8cbf49e530"
+  }
+}
