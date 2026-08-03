@@ -263,6 +263,20 @@ func loadEvidence(directory string) (map[string][]evidenceDocument, string, erro
 
 func verifyCommitted(root string, registry finalv5profile.Registry) error {
 	payload, err := os.ReadFile(filepath.Join(root, supportPath))
+	if os.IsNotExist(err) {
+		// No manifest means no profile has a recorded live activation smoke
+		// under this contract release. That is a legitimate state -- it is
+		// exactly where a fresh contract release starts -- so verification
+		// checks that the registry agrees rather than demanding a file.
+		for _, profile := range registry.Profiles {
+			if profile.Status.ActivationSupported {
+				return fmt.Errorf("profile %s claims activation support with no manifest", profile.Alias)
+			}
+		}
+		fmt.Printf("activation support manifest: absent; %d registry profiles are unsupported\n",
+			len(registry.Profiles))
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("read activation support manifest: %w", err)
 	}

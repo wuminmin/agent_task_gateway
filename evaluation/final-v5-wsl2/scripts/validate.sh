@@ -11,4 +11,10 @@ echo "final V5 workload-closure profile regeneration: pass"
 # hand-edited readiness state fails the build.
 go run ./evaluation/cmd/final-v5-activation-support -verify
 echo "final V5 per-profile activation support: pass"
+
+# Every SQL and plan artifact the Contract Index names must actually parse,
+# execute or compile. Digest and structure checks alone let three releases ship
+# a dataset probe PostgreSQL could not parse; see contracts/AMENDMENT-v1.3.md.
+# Without a disposable PostgreSQL this reports SKIPPED and claims nothing.
+go run ./evaluation/cmd/final-v5-contract-sql-check
 evaluation/final-v5-wsl2/scripts/validate-pilot-harness.sh

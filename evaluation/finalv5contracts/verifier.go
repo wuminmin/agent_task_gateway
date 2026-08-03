@@ -33,10 +33,14 @@ const (
 	workloadManifestSHA = "c5a921581dd8ab3e43d940504c5c0e537b913cc6107f78116ca91650fa1aaee7"
 
 	// Reviewed contract releases. v1.1 corrects the int4 overflow in the
-	// Result-heavy Dataset Generator; see contracts/AMENDMENT-v1.1.md.
+	// Result-heavy Dataset Generator; see contracts/AMENDMENT-v1.1.md. v1.3 is a
+	// syntax-only erratum: the benchmark probe used the reserved keyword
+	// COLLATION as a bare CTE identifier and could not parse at all; see
+	// contracts/AMENDMENT-v1.3.md.
 	contractReleaseV1  = "final-v5-contracts-v1"
 	contractReleaseV11 = "final-v5-contracts-v1.1"
 	contractReleaseV12 = "final-v5-contracts-v1.2"
+	contractReleaseV13 = "final-v5-contracts-v1.3"
 )
 
 var (
@@ -1062,6 +1066,7 @@ func validateContractRelease(index indexDocument, evaluationRoot string) error {
 	chain := map[string][2]string{
 		contractReleaseV11: {contractReleaseV1, "contracts/AMENDMENT-v1.1.md"},
 		contractReleaseV12: {contractReleaseV11, "contracts/AMENDMENT-v1.2.md"},
+		contractReleaseV13: {contractReleaseV12, "contracts/AMENDMENT-v1.3.md"},
 	}
 	expected, reviewed := chain[index.ContractRelease]
 	if !reviewed || index.SupersedesContractRelease != expected[0] {

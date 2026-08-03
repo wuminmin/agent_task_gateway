@@ -1,7 +1,7 @@
 \set ON_ERROR_STOP on
 
 WITH
-collation AS (
+collation_info AS (
     SELECT collname, collprovider, collversion,
            pg_collation_actual_version(oid) AS actual_version
     FROM pg_collation
@@ -128,7 +128,7 @@ SELECT jsonb_build_object(
     'probe_version', 'taskgate-final-v5-benchmark-probe-v1',
     'database', current_database(),
     'server_version_num', current_setting('server_version_num'),
-    'collation', (SELECT to_jsonb(collation) FROM collation),
+    'collation', (SELECT to_jsonb(collation_info) FROM collation_info),
     'provsql', (SELECT value FROM provsql),
     'exposure_scale', (SELECT value FROM exposure),
     'result_heavy', (SELECT value FROM result_heavy),

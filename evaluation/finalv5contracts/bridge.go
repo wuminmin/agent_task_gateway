@@ -102,7 +102,7 @@ func LoadRuntimeFS(files fs.FS) (*Runtime, error) {
 	// An amended contract must identify its own release, so evidence can never
 	// attribute corrected bytes to the release they superseded.
 	if index.ContractRelease != contractReleaseV1 && index.ContractRelease != contractReleaseV11 &&
-		index.ContractRelease != contractReleaseV12 {
+		index.ContractRelease != contractReleaseV12 && index.ContractRelease != contractReleaseV13 {
 		return nil, fmt.Errorf("contract index release %q is not reviewed", index.ContractRelease)
 	}
 	runtime.contractRelease = index.ContractRelease
@@ -1275,4 +1275,62 @@ func (runtime *Runtime) ContractWorkloadCells() ([]ContractCell, error) {
 		}
 	}
 	return cells, nil
+}
+
+// IndexedArtifact is one artifact the Contract Index names, exposed so a
+// validator can iterate the contract rather than carry its own file list. A
+// newly indexed artifact is then covered automatically.
+type IndexedArtifact struct {
+	Kind   string `json:"kind"`
+	Path   string `json:"path"`
+	SHA256 string `json:"sha256"`
+}
+
+// IndexedArtifacts returns every artifact the Contract Index names, in index
+// order. The digests are the reviewed ones the runtime already revalidated
+// against the embedded bytes.
+func (runtime *Runtime) IndexedArtifacts() ([]IndexedArtifact, error) {
+	indexBytes, err := runtime.readContract(indexContractPath)
+	if err != nil {
+		return nil, err
+	}
+	var index indexDocument
+	if err := decodeStrictJSON(indexBytes, &index); err != nil {
+		return nil, fmt.Errorf("contract index: %w", err)
+	}
+	artifacts := make([]IndexedArtifact, 0, len(index.Artifacts))
+	for _, artifact := range index.Artifacts {
+		artifacts = append(artifacts, IndexedArtifact{Kind: artifact.Kind,
+			Path: artifact.Path, SHA256: artifact.SHA256})
+	}
+	return artifacts, nil
+}
+
+// RenderIndexedTemplate renders one contract SQL template with the single
+// frozen positional row parameter. It is the same renderer the measured path
+// uses, so an executability check proves the exact bytes that would run.
+func (runtime *Runtime) RenderIndexedTemplate(templatePath string, rows int64) (RenderedQuery, error) {
+	digest, err := runtime.ContractSHA256(templatePath)
+	if err != nil {
+		return RenderedQuery{}, err
+	}
+	template, err := runtime.readContract(templatePath)
+	if err != nil {
+		return RenderedQuery{}, err
+	}
+	rendered, parameters, err := renderPositionalInt64(string(template), rows)
+	if err != nil {
+		return RenderedQuery{}, fmt.Errorf("template %s: %w", templatePath, err)
+	}
+	return RenderedQuery{TemplatePath: templatePath, TemplateSHA256: digest, SQL: rendered,
+		SQLSHA256: digestBytes([]byte(rendered)), Parameters: parameters}, nil
+}
+
+// DatasetGeneratorSQL returns the contract-indexed benchmark generator bytes.
+func (runtime *Runtime) DatasetGeneratorSQL() (string, error) {
+	value, err := runtime.readContract(datasetGeneratorPath)
+	if err != nil {
+		return "", err
+	}
+	return string(value), nil
 }

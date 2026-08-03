@@ -31,6 +31,13 @@ func committedRegistry(t *testing.T) finalv5profile.Registry {
 func committedSupport(t *testing.T) finalv5profile.ActivationSupport {
 	t.Helper()
 	payload, err := os.ReadFile(filepath.Join(repositoryRoot(t), supportPath))
+	if os.IsNotExist(err) {
+		// Activation support does not carry across a contract release, so a
+		// freshly amended release legitimately has no manifest until its
+		// profiles are re-activated. The registry must then claim no support,
+		// which TestRegistryClaimsNoSupportWithoutAManifest checks.
+		t.Skip("no activation support manifest for this contract release yet")
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,6 +110,21 @@ func TestResultHeavyCarriesBothActivationEvidenceDigests(t *testing.T) {
 		return
 	}
 	t.Fatal("result-heavy is absent from the activation support manifest")
+}
+
+// Without a manifest for this contract release, no profile may claim support.
+// This is what stops a re-freeze from silently inheriting the previous
+// release's activation evidence.
+func TestRegistryClaimsNoSupportWithoutAManifest(t *testing.T) {
+	if _, err := os.Stat(filepath.Join(repositoryRoot(t), supportPath)); !os.IsNotExist(err) {
+		t.Skip("this contract release has an activation support manifest")
+	}
+	for _, profile := range committedRegistry(t).Profiles {
+		if profile.Status.ActivationSupported || profile.Status.ActivationSmokePassed ||
+			profile.TargetedRunEligible || profile.Routable {
+			t.Errorf("%s claims activation support with no manifest for this release", profile.Alias)
+		}
+	}
 }
 
 // The committed registry must be exactly what the committed manifest derives.
@@ -228,6 +250,9 @@ func TestEvidenceCannotPaperOverAnotherBlockedState(t *testing.T) {
 // business data -- only identities and digests.
 func TestCommittedManifestCarriesNoSecretsOrBusinessData(t *testing.T) {
 	payload, err := os.ReadFile(filepath.Join(repositoryRoot(t), supportPath))
+	if os.IsNotExist(err) {
+		t.Skip("no activation support manifest for this contract release yet")
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
