@@ -18,3 +18,55 @@ tmp/
 .claude/
 .codex/
 AGENTS.md
+# Go writes a main package's executable into the working directory, so
+# `go build ./evaluation/cmd/<command>` from the repository root leaves the
+# binary at the root where `git add -A` will sweep it in. Build into
+# generated/bin instead (see the `bin` Makefile target).
+#
+# TestNoBuildOutputInRepositoryRoot is the actual guard: it rejects any tracked
+# root-level binary, including a command added after this list was written.
+/generated/bin/
+/adaptive-attacks
+/ast-gateway
+/exposure-bench
+/exposure-eval
+/exposure-storage
+/final-v5
+/final-v5-activation-support
+/final-v5-adapter
+/final-v5-attestation-footprint
+/final-v5-contract-sql-check
+/final-v5-observer
+/final-v5-oracle
+/final-v5-profile
+/final-v5-profile-activate
+/final-v5-profile-artifacts
+/final-v5-profile-attest
+/gateway
+/mcp-probe
+/merge-evidence
+/oa-demo
+/phase
+/provenance-baseline
+/rls-adaptive
+/rq5-online-transition
+/rq5-sequential-driver
+/runner
+/schema-digest
+/snapshot-index
+/snapshot-sidecar-install
+/taskgate-provsql-pair
+/v4-acceptance
+/v4-compose-observer
+/v4-concurrency
+/v4-distribution
+/v4-million-oracle
+/v4-offline
+/v5-artifact
+/v5-concurrency
+/v5-full
+/v5-rq5
+/v5-scale
+/v5-smoke-adapter
+/view-contract
+/view-scale

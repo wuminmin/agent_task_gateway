@@ -127,3 +127,15 @@ paper-final-check:
 
 paper-tdsc:
 	./paper/tdsc/build-container.sh
+
+# Go writes a main package's executable into the working directory, so building
+# a command from the repository root leaves the binary where `git add -A` will
+# sweep it in. Everything that produces an executable goes here instead.
+GENERATED_BIN := generated/bin
+
+# -buildvcs=false because a linked worktree makes the VCS stamp unresolvable;
+# it is the standard flag for building this repository outside a plain clone.
+.PHONY: bin
+bin:
+	@mkdir -p $(GENERATED_BIN)
+	GOFLAGS=-buildvcs=false go build -o $(GENERATED_BIN)/ ./cmd/... ./evaluation/cmd/...
