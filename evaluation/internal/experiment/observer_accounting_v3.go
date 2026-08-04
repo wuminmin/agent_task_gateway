@@ -86,6 +86,51 @@ func (environment MeasurementEnvironment) Validate() error {
 	return nil
 }
 
+// GatewayPathKind is the closed set of execution paths a governed operation can
+// take. It is authoritative: Validate pins every dimension from the path kind
+// rather than accepting any numerically self-consistent combination, so a
+// hybrid that no code path can produce cannot be expressed at all.
+type GatewayPathKind string
+
+const (
+	// PathPairedNovel is Exposure V4/V5 novel execution: one preflight
+	// attestation, one QueryPairStream transaction, visible plus companion.
+	PathPairedNovel GatewayPathKind = "paired_novel"
+	// PathSemanticReplay is served from the semantic cache under a new request
+	// ID. The cache lookup happens after datasourceEvidence, so the preflight
+	// attestation still runs.
+	PathSemanticReplay GatewayPathKind = "semantic_replay"
+	// PathIdempotentReplay is an exact request-ID replay, returning before
+	// datasourceEvidence and touching Business PostgreSQL not at all.
+	PathIdempotentReplay GatewayPathKind = "idempotent_replay"
+	// PathSingleQuery is Connector.Query: one transaction, one target
+	// statement, no provenance companion and no representation pin.
+	PathSingleQuery GatewayPathKind = "single_query"
+)
+
+// pathDimensions is the exact dimension tuple each path kind must carry. It is
+// the single source of truth for Validate and for the named constructors, so
+// the two cannot drift apart.
+type pathDimensions struct {
+	preflight, single, paired, visible, companion int64
+	requiresSchema                                bool
+}
+
+func dimensionsFor(kind GatewayPathKind) (pathDimensions, bool) {
+	switch kind {
+	case PathPairedNovel:
+		return pathDimensions{preflight: 1, single: 0, paired: 1, visible: 1, companion: 1, requiresSchema: true}, true
+	case PathSemanticReplay:
+		return pathDimensions{preflight: 1, single: 0, paired: 0, visible: 0, companion: 0, requiresSchema: true}, true
+	case PathIdempotentReplay:
+		return pathDimensions{preflight: 0, single: 0, paired: 0, visible: 0, companion: 0, requiresSchema: false}, true
+	case PathSingleQuery:
+		return pathDimensions{preflight: 1, single: 1, paired: 0, visible: 1, companion: 0, requiresSchema: true}, true
+	default:
+		return pathDimensions{}, false
+	}
+}
+
 // GatewayControlPlanV3 is the phase-derived expectation.
 //
 // The dimensions are independent by construction. In particular the transaction
@@ -95,6 +140,10 @@ func (environment MeasurementEnvironment) Validate() error {
 // before reaching Business PostgreSQL at all.
 type GatewayControlPlanV3 struct {
 	Version string `json:"version"`
+	// PathKind is authoritative. The algebraic checks below are retained as
+	// defence in depth, but they cannot by themselves exclude a hybrid that is
+	// arithmetically consistent and yet corresponds to no execution path.
+	PathKind GatewayPathKind `json:"path_kind"`
 	// PreflightAttestationPasses is Connector.Attestation against the pool,
 	// outside any transaction, before the semantic-cache lookup.
 	PreflightAttestationPasses int64 `json:"preflight_attestation_passes"`
@@ -163,6 +212,13 @@ func (plan GatewayControlPlanV3) ExpectedTotal() int64 {
 }
 
 // Validate rejects a plan that does not describe a derivable execution path.
+//
+// PathKind is authoritative: every dimension is pinned to the tuple that path
+// actually produces. The algebraic checks that follow are retained as defence in
+// depth -- they would catch a mistake in the dimension table itself -- but they
+// are not what excludes a hybrid. A numerically self-consistent combination that
+// corresponds to no code path is rejected because its PathKind does not match,
+// not because the arithmetic disagrees.
 func (plan GatewayControlPlanV3) Validate() error {
 	if plan.Version != ObserverAccountingV3Version {
 		return fmt.Errorf("gateway control plan version %q is unsupported", plan.Version)
@@ -170,41 +226,58 @@ func (plan GatewayControlPlanV3) Validate() error {
 	if err := plan.Environment.Validate(); err != nil {
 		return err
 	}
-	for name, value := range map[string]int64{
-		"preflight_attestation_passes": plan.PreflightAttestationPasses,
-		"single_query_transactions":    plan.SingleQueryTransactions,
-		"paired_query_transactions":    plan.PairedQueryTransactions,
-		"expected_schema_entries":      plan.ExpectedSchemaEntries,
-		"expected_visible_calls":       plan.ExpectedVisibleCalls,
-		"expected_companion_calls":     plan.ExpectedCompanionCall,
+	required, known := dimensionsFor(plan.PathKind)
+	if !known {
+		return fmt.Errorf("gateway control plan path_kind %q is not a derivable execution path", plan.PathKind)
+	}
+	for _, dimension := range []struct {
+		name         string
+		actual, want int64
+	}{
+		{"preflight_attestation_passes", plan.PreflightAttestationPasses, required.preflight},
+		{"single_query_transactions", plan.SingleQueryTransactions, required.single},
+		{"paired_query_transactions", plan.PairedQueryTransactions, required.paired},
+		{"expected_visible_calls", plan.ExpectedVisibleCalls, required.visible},
+		{"expected_companion_calls", plan.ExpectedCompanionCall, required.companion},
 	} {
-		if value < 0 {
-			return fmt.Errorf("gateway control plan %s is negative", name)
+		if dimension.actual != dimension.want {
+			return fmt.Errorf("path_kind %s requires %s=%d, plan carries %d",
+				plan.PathKind, dimension.name, dimension.want, dimension.actual)
 		}
 	}
+	// E and its digest are presence-coupled in both directions: a plan that
+	// attests must name what it attested against, and a plan that attests
+	// against nothing must not carry a digest.
+	switch {
+	case required.requiresSchema:
+		if plan.ExpectedSchemaEntries <= 0 {
+			return fmt.Errorf("path_kind %s attests against no ExpectedSchema entry", plan.PathKind)
+		}
+		if !validSHA256(plan.ExpectedSchemaDigest) {
+			return errors.New("gateway control plan ExpectedSchema digest is not a lowercase SHA-256")
+		}
+	default:
+		if plan.ExpectedSchemaEntries != 0 {
+			return fmt.Errorf("path_kind %s reaches no ExpectedSchema entry but claims %d",
+				plan.PathKind, plan.ExpectedSchemaEntries)
+		}
+		if plan.ExpectedSchemaDigest != "" {
+			return fmt.Errorf("path_kind %s attests against nothing but carries an ExpectedSchema digest", plan.PathKind)
+		}
+	}
+
+	// Defence in depth. These restate the structural facts the dimension table
+	// encodes, so a table edit that broke one of them would fail here too.
 	transactions := plan.SingleQueryTransactions + plan.PairedQueryTransactions
-	// A transaction can only be accounted for if the Connector held a schema
-	// expectation to attest against, and likewise a preflight pass.
-	if plan.ExpectedSchemaEntries == 0 && (transactions > 0 || plan.PreflightAttestationPasses > 0) {
-		return errors.New("gateway control plan attests against no ExpectedSchema entry")
-	}
-	if plan.ExpectedSchemaEntries > 0 && !validSHA256(plan.ExpectedSchemaDigest) {
-		return errors.New("gateway control plan ExpectedSchema digest is not SHA-256")
-	}
-	// A single-query transaction settles exactly one target statement and a
-	// paired transaction exactly two, so the target counts are constrained by
-	// the transaction mix rather than defining it.
 	if targets := plan.ExpectedVisibleCalls + plan.ExpectedCompanionCall; targets !=
 		plan.SingleQueryTransactions+2*plan.PairedQueryTransactions {
 		return fmt.Errorf("gateway control plan settles %d single and %d paired transactions but expects %d target statements",
 			plan.SingleQueryTransactions, plan.PairedQueryTransactions, targets)
 	}
-	// A paired transaction settles exactly one visible and one companion.
 	if plan.PairedQueryTransactions > 0 && plan.ExpectedCompanionCall != plan.PairedQueryTransactions {
 		return fmt.Errorf("gateway control plan pairs %d transactions with %d companion statements",
 			plan.PairedQueryTransactions, plan.ExpectedCompanionCall)
 	}
-	// A single-query transaction has no provenance companion.
 	if plan.PairedQueryTransactions == 0 && plan.ExpectedCompanionCall != 0 {
 		return errors.New("gateway control plan expects a companion statement without a paired transaction")
 	}
@@ -216,6 +289,25 @@ func (plan GatewayControlPlanV3) Validate() error {
 	return nil
 }
 
+// planFor builds the plan for one path kind from the single dimension table, so
+// a constructor cannot disagree with Validate.
+func planFor(kind GatewayPathKind, schemaEntries int64, schemaDigest string) GatewayControlPlanV3 {
+	dimensions, _ := dimensionsFor(kind)
+	plan := GatewayControlPlanV3{
+		Version: ObserverAccountingV3Version, PathKind: kind,
+		PreflightAttestationPasses: dimensions.preflight,
+		SingleQueryTransactions:    dimensions.single,
+		PairedQueryTransactions:    dimensions.paired,
+		ExpectedVisibleCalls:       dimensions.visible,
+		ExpectedCompanionCall:      dimensions.companion,
+		Environment:                RequiredMeasurementEnvironment(),
+	}
+	if dimensions.requiresSchema {
+		plan.ExpectedSchemaEntries, plan.ExpectedSchemaDigest = schemaEntries, schemaDigest
+	}
+	return plan
+}
+
 // The four derivable paths. Each is a named constructor rather than a set of
 // magic numbers at a call site, so a path that does not exist cannot be
 // expressed by accident.
@@ -223,13 +315,7 @@ func (plan GatewayControlPlanV3) Validate() error {
 // PairedNovelPlanV3 is the Exposure V4/V5 novel path: one preflight
 // attestation, one QueryPairStream transaction, one visible and one companion.
 func PairedNovelPlanV3(schemaEntries int64, schemaDigest string) GatewayControlPlanV3 {
-	return GatewayControlPlanV3{
-		Version: ObserverAccountingV3Version, PreflightAttestationPasses: 1,
-		SingleQueryTransactions: 0, PairedQueryTransactions: 1,
-		ExpectedSchemaEntries: schemaEntries, ExpectedSchemaDigest: schemaDigest,
-		ExpectedVisibleCalls: 1, ExpectedCompanionCall: 1,
-		Environment: RequiredMeasurementEnvironment(),
-	}
+	return planFor(PathPairedNovel, schemaEntries, schemaDigest)
 }
 
 // SemanticReplayPlanV3 is a replay served from the semantic cache under a new
@@ -238,34 +324,20 @@ func PairedNovelPlanV3(schemaEntries int64, schemaDigest string) GatewayControlP
 // statement executes. Modelling this as all-zero, as v2 did, would reject a
 // correct replay.
 func SemanticReplayPlanV3(schemaEntries int64, schemaDigest string) GatewayControlPlanV3 {
-	return GatewayControlPlanV3{
-		Version: ObserverAccountingV3Version, PreflightAttestationPasses: 1,
-		SingleQueryTransactions: 0, PairedQueryTransactions: 0,
-		ExpectedSchemaEntries: schemaEntries, ExpectedSchemaDigest: schemaDigest,
-		ExpectedVisibleCalls: 0, ExpectedCompanionCall: 0,
-		Environment: RequiredMeasurementEnvironment(),
-	}
+	return planFor(PathSemanticReplay, schemaEntries, schemaDigest)
 }
 
 // IdempotentReplayPlanV3 is an exact request-ID replay. It returns before
 // datasourceEvidence, so it touches Business PostgreSQL not at all.
 func IdempotentReplayPlanV3() GatewayControlPlanV3 {
-	return GatewayControlPlanV3{
-		Version: ObserverAccountingV3Version, Environment: RequiredMeasurementEnvironment(),
-	}
+	return planFor(PathIdempotentReplay, 0, "")
 }
 
 // SingleQueryPlanV3 is the Connector.Query path: one preflight attestation, one
 // transaction, one target statement, and no representation pin -- Query does
 // not issue one.
 func SingleQueryPlanV3(schemaEntries int64, schemaDigest string) GatewayControlPlanV3 {
-	return GatewayControlPlanV3{
-		Version: ObserverAccountingV3Version, PreflightAttestationPasses: 1,
-		SingleQueryTransactions: 1, PairedQueryTransactions: 0,
-		ExpectedSchemaEntries: schemaEntries, ExpectedSchemaDigest: schemaDigest,
-		ExpectedVisibleCalls: 1, ExpectedCompanionCall: 0,
-		Environment: RequiredMeasurementEnvironment(),
-	}
+	return planFor(PathSingleQuery, schemaEntries, schemaDigest)
 }
 
 // Equal reports whether two plans are identical in every dimension. The
@@ -279,6 +351,7 @@ func (plan GatewayControlPlanV3) MismatchedFields(other GatewayControlPlanV3) []
 	var fields []string
 	for name, pair := range map[string][2]any{
 		"version":                      {plan.Version, other.Version},
+		"path_kind":                    {plan.PathKind, other.PathKind},
 		"preflight_attestation_passes": {plan.PreflightAttestationPasses, other.PreflightAttestationPasses},
 		"single_query_transactions":    {plan.SingleQueryTransactions, other.SingleQueryTransactions},
 		"paired_query_transactions":    {plan.PairedQueryTransactions, other.PairedQueryTransactions},

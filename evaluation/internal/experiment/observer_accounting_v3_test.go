@@ -211,3 +211,86 @@ func TestMismatchedFieldsNamesEveryDisagreement(t *testing.T) {
 		}
 	}
 }
+
+// path_kind is authoritative. Every dimension is pinned to the tuple the path
+// actually produces, so a hybrid that is arithmetically self-consistent but
+// corresponds to no code path is still rejected.
+func TestPathKindRejectsEveryHybridCombination(t *testing.T) {
+	for name, mutate := range map[string]func(*GatewayControlPlanV3){
+		"paired novel claiming a single-query transaction": func(p *GatewayControlPlanV3) {
+			p.SingleQueryTransactions = 1
+			p.ExpectedVisibleCalls = 2 // keeps the algebra self-consistent
+		},
+		"paired novel with a second preflight pass": func(p *GatewayControlPlanV3) {
+			p.PreflightAttestationPasses = 2
+		},
+		"paired novel demoted to no preflight": func(p *GatewayControlPlanV3) {
+			p.PreflightAttestationPasses = 0
+		},
+		"semantic replay that opens a paired transaction": func(p *GatewayControlPlanV3) {
+			p.PathKind = PathSemanticReplay
+		},
+		"single query that keeps a companion": func(p *GatewayControlPlanV3) {
+			p.PathKind = PathSingleQuery
+		},
+		"idempotent replay that still attests": func(p *GatewayControlPlanV3) {
+			p.PathKind = PathIdempotentReplay
+		},
+		"an unknown path kind": func(p *GatewayControlPlanV3) {
+			p.PathKind = "paired_novel_v2"
+		},
+		"an empty path kind": func(p *GatewayControlPlanV3) {
+			p.PathKind = ""
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			plan := PairedNovelPlanV3(1, testSchemaDigest)
+			mutate(&plan)
+			if err := plan.Validate(); err == nil {
+				t.Fatal("a plan that corresponds to no execution path was accepted")
+			}
+		})
+	}
+}
+
+// E and its digest are presence-coupled in both directions.
+func TestExpectedSchemaEntriesAndDigestArePresenceCoupled(t *testing.T) {
+	attesting := PairedNovelPlanV3(1, testSchemaDigest)
+	attesting.ExpectedSchemaDigest = ""
+	if err := attesting.Validate(); err == nil {
+		t.Fatal("an attesting plan with no ExpectedSchema digest was accepted")
+	}
+	attesting = PairedNovelPlanV3(1, "NOT-LOWERCASE-SHA256")
+	if err := attesting.Validate(); err == nil {
+		t.Fatal("an ExpectedSchema digest that is not a lowercase SHA-256 was accepted")
+	}
+
+	idempotent := IdempotentReplayPlanV3()
+	idempotent.ExpectedSchemaDigest = testSchemaDigest
+	if err := idempotent.Validate(); err == nil {
+		t.Fatal("a plan attesting against nothing was allowed to carry a digest")
+	}
+	idempotent = IdempotentReplayPlanV3()
+	idempotent.ExpectedSchemaEntries = 1
+	if err := idempotent.Validate(); err == nil {
+		t.Fatal("a plan reaching no ExpectedSchema entry was allowed to claim one")
+	}
+}
+
+// Every named constructor must produce a plan its own Validate accepts, and
+// each must carry its own path kind.
+func TestEveryNamedPathConstructorValidates(t *testing.T) {
+	for kind, plan := range map[GatewayPathKind]GatewayControlPlanV3{
+		PathPairedNovel:      PairedNovelPlanV3(1, testSchemaDigest),
+		PathSemanticReplay:   SemanticReplayPlanV3(1, testSchemaDigest),
+		PathIdempotentReplay: IdempotentReplayPlanV3(),
+		PathSingleQuery:      SingleQueryPlanV3(1, testSchemaDigest),
+	} {
+		if plan.PathKind != kind {
+			t.Errorf("constructor for %s produced path_kind %s", kind, plan.PathKind)
+		}
+		if err := plan.Validate(); err != nil {
+			t.Errorf("constructor for %s produced an invalid plan: %v", kind, err)
+		}
+	}
+}
