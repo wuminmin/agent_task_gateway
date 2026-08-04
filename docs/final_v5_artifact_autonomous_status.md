@@ -6,8 +6,7 @@ stays on `main @ 804d65d` and is never touched.
 
 ## Current HEAD
 
-`21e693a` plus this checkpoint — equals `origin/tkde-artifact-rerun`, worktree
-clean.
+`306eba3` — equals `origin/tkde-artifact-rerun`, worktree clean.
 
 Session start was `5e60495`. Tags `final-v5-contracts-v1` … `v1.4` verified
 unmoved at `1702e65`, `5e12765`, `6f353f3`, `38e3bd3`, `36b04ba`. No v1.5 tag
@@ -23,6 +22,8 @@ Forward commits this session, in order:
 | `4361f9d` | N4 probe: footprint qualified as a contract |
 | `61f932d` | PostgreSQL runtime identity pinned to an immutable digest |
 | `21e693a` | N4 audit: five corrections before any qualification run |
+| `818c481` | N4 qualification harness; two live Gateway failures retained |
+| `306eba3` | **Stage N4 complete**: two independent live qualifications agree |
 
 ## Completed milestones
 
@@ -109,52 +110,60 @@ here rather than by amending.
 - No raw or normalized SQL in publication evidence; `queryid` is
   deployment-local diagnosis only.
 
+## Stage N4: complete
+
+Two independent, isolated, fresh full-topology qualifications of the exact
+Result-heavy Profile Catalog agree exactly.
+
+| | value |
+| --- | --- |
+| `portable_footprint_sha256` | `032e9c53704d…` — **identical across both runs** |
+| ExpectedSchema | `e2a3796fb3f5…`, E=1, from `catalogschema.Build` |
+| every scope | one internal key `e5738df1650276a7`, 1 call/attestation |
+| constructor == explicit preflight | true, both runs |
+| full `footprint_sha256` | `846cf4bf1060…` / `7f0515552438…` — differ by design |
+
+The full digests differ because they bind the qualification ID and the
+deployment-local image IDs, which cannot be shared between isolated runs.
+`PortableSHA256` excludes exactly those and covers everything else.
+
+Per run: 11 snapshots, 10 adjacent intervals, each isolating exactly one
+Attestation, each with `total_delta == structural_sum`, all four scopes stable,
+live schema verified. `publication_eligible=false` throughout.
+
+Evidence: `evaluation/final-v5-wsl2/raw/attestation-footprint-two-run-agreement.json`
+plus the two run directories. Bulk publication data (5.3 GiB/run) is excluded
+from git and reproducible by rerunning the harness.
+
 ## Next executable step
 
-**Materialize the per-profile snapshot artifact directory, then run the two
-qualifications.** The probe, the contract and the harness are all in place;
-what is missing is deployment wiring on critical path A.
+Critical path **B**: shared physical-query preparation (`internal/physicalquery`),
+so the visible and companion target identities are derived once and the Gateway
+delegates to the same code the evaluation uses. See
+`docs/final_v5_observer_v3_measurement_window.md` §2 for the exact surface
+required — it must cover the exposure-ledger limit computation, not just
+`queryplan.Compile`, or the rendered digest will never match a live run.
 
-`evaluation/final-v5-wsl2/scripts/qualify-attestation-footprint.sh` brings up a
-fresh isolated project with its own volumes, proves `/health/ready` explicitly
-outside the measurement window, verifies the running Gateway carries the
-`/health/live` periodic probe, captures the complete PostgreSQL runtime identity
-from the running container, and runs the probe. Two live attempts have been made
-and both failed in the Gateway, for two distinct real reasons:
+Then C (operation-scoped compiled classifier — note `BuildClassifierManifest`
+now takes the qualified footprint), D (`ObserverSnapshotV2`), E (independent
+finalizer), F (v1.5 freeze), G (activation, canaries, six cells).
 
-1. **Full catalog exceeds the activation boundary.** `compose.yaml` defaults
-   `TASKGATE_PROFILE_CATALOG` to `config/catalog.yaml`; the Gateway rejected it
-   with `Catalog hot artifacts exceed the 160 MiB activation boundary`. Fixed in
-   the harness by exporting `TASKGATE_PROFILE_CATALOG` to the Profile Catalog
-   being qualified — which is required anyway, since the full catalog is a
-   different ExpectedSchema from the one the footprint qualifies.
-2. **Undeclared publication in the shared artifact volume.** With the
-   Result-heavy catalog the Gateway then rejected startup with `snapshot artifact
-   directory contains undeclared publication "expense-detail-v1"`. The three
-   `snapshot-index-*` services populate one shared `snapshot-index-artifacts`
-   volume with every publication, while the Result-heavy closure declares only
-   `final-v5-result-heavy-v1`. The Gateway fails closed, correctly.
+### Harness notes for whoever continues
 
-The designed mechanism for (2) is already present and unused here:
-`compose.yaml:355` mounts `${TASKGATE_PROFILE_ARTIFACT_DIR:-snapshot-index-artifacts}`
-into the Gateway, and `evaluation/cmd/final-v5-profile-artifacts` materializes
-per-profile directories from a verified full artifact directory
-(`--source`, `--destination`, `--profile-id`, `--manifest-out`). So the sequence
-is: bring the topology up far enough for the snapshot-index services to populate
-the full volume, export it, run `final-v5-profile-artifacts` for the Result-heavy
-profile, point `TASKGATE_PROFILE_ARTIFACT_DIR` at that directory, and start the
-Gateway.
+`evaluation/final-v5-wsl2/scripts/qualify-attestation-footprint.sh` is the
+working two-phase deployment. Four findings are baked into it and will apply to
+every later live gate:
 
-Then run, sequentially — `business-postgres` publishes a fixed host port, so
-concurrent runs would not be isolated:
-
-```
-QUALIFICATION_ID=qualification-01 bash evaluation/final-v5-wsl2/scripts/qualify-attestation-footprint.sh
-QUALIFICATION_ID=qualification-02 bash evaluation/final-v5-wsl2/scripts/qualify-attestation-footprint.sh
-```
-
-and require the two `portable_footprint_sha256` values and the exact
-per-scope/per-key multisets to be identical. Retain both runs either way.
+1. `TASKGATE_PROFILE_CATALOG` must name the Profile Catalog being exercised; the
+   default full catalog exceeds the 160 MiB hot-artifact activation boundary.
+2. The Gateway cannot start against the shared `snapshot-index-artifacts` volume
+   — it fails closed on publications outside its closure. Materialize a
+   per-profile directory with `final-v5-profile-artifacts` and point
+   `TASKGATE_PROFILE_ARTIFACT_DIR` at it.
+3. `docker compose up --wait` returns non-zero when a one-shot service exits 0.
+   Poll long-running services for health and jobs for exit code instead.
+4. The artifact volume is root-owned mode 0700; copy as root and chown, and
+   treat a zero-file copy as an error.
 
 ## Retained true blockers
 
