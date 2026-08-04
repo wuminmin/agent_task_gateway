@@ -33,6 +33,11 @@ const (
 	// make an authorized statement mean what the compiler decided it means.
 	SafetySessionPinSQL = `SELECT pg_catalog.set_config('search_path', 'pg_catalog', true), pg_catalog.set_config('standard_conforming_strings', 'on', true)`
 
+	// StatementTimeoutPinSQL bounds one target statement. It is issued
+	// immediately before each target statement rather than once per
+	// transaction, so its multiplicity follows V + C.
+	StatementTimeoutPinSQL = `SELECT pg_catalog.set_config('statement_timeout', $1, true)`
+
 	// RepresentationPinSQL pins the settings that determine how values are
 	// rendered, and returns them for verification.
 	RepresentationPinSQL = `WITH taskgate_representation_pin AS (

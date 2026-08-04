@@ -541,10 +541,10 @@ func (c *Connector) Query(ctx context.Context, request QueryRequest) (result Res
 
 	// set_config with is_local=true is transaction-scoped and parameterized;
 	// no request text is interpolated into these settings.
-	if _, err := tx.Exec(ctx, `SELECT pg_catalog.set_config('statement_timeout', $1, true)`, timeoutSetting(timeout)); err != nil {
+	if _, err := tx.Exec(ctx, StatementTimeoutPinSQL, timeoutSetting(timeout)); err != nil {
 		return Result{}, classifyQueryError(err)
 	}
-	if _, err := tx.Exec(ctx, `SELECT pg_catalog.set_config('search_path', 'pg_catalog', true), pg_catalog.set_config('standard_conforming_strings', 'on', true)`); err != nil {
+	if _, err := tx.Exec(ctx, SafetySessionPinSQL); err != nil {
 		return Result{}, classifyQueryError(err)
 	}
 	attestation, err := c.attestDatasource(ctx, tx)
@@ -712,7 +712,7 @@ func (c *Connector) queryInTx(ctx context.Context, tx pgx.Tx, request QueryReque
 		return Result{}, connectorError(CodeInvalidQuery, errors.New("row limit is zero"))
 	}
 	timeout := clampTimeout(request.StatementTimeout, c.statementTimeout)
-	if _, err := tx.Exec(ctx, `SELECT pg_catalog.set_config('statement_timeout', $1, true)`, timeoutSetting(timeout)); err != nil {
+	if _, err := tx.Exec(ctx, StatementTimeoutPinSQL, timeoutSetting(timeout)); err != nil {
 		return Result{}, classifyQueryError(err)
 	}
 	startedAt := time.Now()
@@ -757,7 +757,7 @@ func (c *Connector) streamQueryInTx(ctx context.Context, tx pgx.Tx, request Quer
 		return StreamResult{}, connectorError(CodeInvalidQuery, errors.New("row limit is zero"))
 	}
 	timeout := clampTimeout(request.StatementTimeout, c.statementTimeout)
-	if _, err := tx.Exec(ctx, `SELECT pg_catalog.set_config('statement_timeout', $1, true)`, timeoutSetting(timeout)); err != nil {
+	if _, err := tx.Exec(ctx, StatementTimeoutPinSQL, timeoutSetting(timeout)); err != nil {
 		return StreamResult{}, classifyQueryError(err)
 	}
 	startedAt := time.Now()

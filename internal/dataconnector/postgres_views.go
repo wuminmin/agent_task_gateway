@@ -78,10 +78,10 @@ func (c *Connector) DiscoverViewRegistry(ctx context.Context, roots []viewcompil
 			_ = tx.Rollback(context.Background())
 		}
 	}()
-	if _, execErr := tx.Exec(ctx, `SELECT pg_catalog.set_config('search_path', 'pg_catalog', true), pg_catalog.set_config('standard_conforming_strings', 'on', true)`); execErr != nil {
+	if _, execErr := tx.Exec(ctx, SafetySessionPinSQL); execErr != nil {
 		return snapshot, connectorError(CodeConnection, execErr)
 	}
-	if _, execErr := tx.Exec(ctx, `SELECT pg_catalog.set_config('statement_timeout', $1, true)`, timeoutSetting(c.statementTimeout)); execErr != nil {
+	if _, execErr := tx.Exec(ctx, StatementTimeoutPinSQL, timeoutSetting(c.statementTimeout)); execErr != nil {
 		return snapshot, connectorError(CodeConnection, execErr)
 	}
 	snapshot, discoverErr := discoverViewRegistry(ctx, tx, roots, baseProducts)
