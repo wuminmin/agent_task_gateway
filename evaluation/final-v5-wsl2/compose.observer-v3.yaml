@@ -1,0 +1,50 @@
+# Formal measurement override for observer-accounting-v3 (contracts v1.5).
+#
+# Ordinary compose.yaml healthchecks the Gateway against /health/ready every
+# three seconds. That endpoint calls connector.Ping, and Ping performs a full
+# Business PostgreSQL Attestation: one datasource identity read plus, per
+# ExpectedSchema entry, a column attestation, a view-definition attestation and
+# the nested pg_rewrite lookup PostgreSQL performs inside pg_get_viewdef.
+#
+# Under pg_stat_statements.track=all those are counted as gateway_reader
+# statements. A measured sample lasting longer than the healthcheck interval
+# would therefore accumulate an unpredictable number of them inside the observer
+# window, and every derived per-class multiplicity would be wrong by an amount
+# that depends on wall-clock timing.
+#
+# The fix is to stop the *periodic* probe from touching Business PostgreSQL, not
+# to model background noise into GatewayControlPlanV3 and not to disable health
+# monitoring. Readiness is still proven -- explicitly, by the harness, outside
+# the accounting window.
+#
+# This override is for v1.5 qualification and publication deployments only.
+# Ordinary production compose.yaml keeps /health/ready.
+#
+# The formal harness must:
+#   1. start the deployment;
+#   2. poll /health/ready explicitly until it passes;
+#   3. retain a readiness qualification record;
+#   4. only then begin any sample;
+#   5. perform one explicit /health/ready check immediately before observerBefore;
+#   6. take observerBefore after that check;
+#   7. execute the measured operation;
+#   8. take observerAfter;
+#   9. perform a second explicit /health/ready check after observerAfter.
+#
+# Steps 5 and 9 sit outside the SQL accounting window by construction: the
+# window is bounded by observerBefore and observerAfter.
+#
+# The source-built observer rejects a formal v1.5 measurement whose running
+# Gateway container carries any periodic healthcheck command other than the
+# exact /health/live command below, and binds that command into its runtime
+# identity, so this override cannot be silently omitted.
+
+services:
+  gateway:
+    healthcheck:
+      # Liveness only. This handler returns 204 without touching the control
+      # store or the data source, so it issues no Business PostgreSQL statement.
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8082/health/live"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
