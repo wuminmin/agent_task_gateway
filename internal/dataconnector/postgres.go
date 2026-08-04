@@ -652,11 +652,11 @@ func (c *Connector) QueryPairStream(ctx context.Context, request QueryPairStream
 			_ = tx.Rollback(context.Background())
 		}
 	}()
-	if _, err := tx.Exec(ctx, `SELECT pg_catalog.set_config('search_path', 'pg_catalog', true), pg_catalog.set_config('standard_conforming_strings', 'on', true)`); err != nil {
+	if _, err := tx.Exec(ctx, SafetySessionPinSQL); err != nil {
 		return QueryPairStreamResult{}, classifyQueryError(err)
 	}
-	if _, err := tx.Exec(ctx, `SELECT pg_catalog.set_config('TimeZone', 'UTC', true), pg_catalog.set_config('extra_float_digits', '3', true)`); err != nil {
-		return QueryPairStreamResult{}, classifyQueryError(err)
+	if err := pinRepresentation(ctx, tx); err != nil {
+		return QueryPairStreamResult{}, err
 	}
 	attestation, err := c.attestDatasource(ctx, tx)
 	if err != nil {
