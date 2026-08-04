@@ -1,5 +1,11 @@
 # Observer statement accounting: the derived control plan
 
+> **SUPERSEDED — this derivation is wrong.** It models the Result-heavy path as
+> two `Connector.Query` transactions. The production path is one preflight
+> `Connector.Attestation` followed by a single `Connector.QueryPairStream`
+> transaction. See `docs/final_v5_observer_accounting_v14_audit.md`. Retained
+> unchanged below as the audit record of what `final-v5-contracts-v1.4` froze.
+
 Design note for the author-approved option (b), closed-world statement
 accounting. This records the *derivation* of the required-control multiplicities
 from the frozen execution path, so the expected counts are computed from
@@ -96,7 +102,12 @@ updates, nineteen mutation tests including both same-total substitutions, and
 the finalizer-side re-derivation. N is read from the Catalog the Gateway signed
 rather than declared.
 
-Outstanding, and operator-gated: a live activation smoke under v1.4. Activation
-support does not carry across a contract release, so every profile is currently
-`targeted_run_eligible=false`, no Artifact run can execute,
-`artifactRealSystemValidated` stays false and the capability stays 6/9.
+**That implementation is invalid and was never exercised live.** The claim above
+that the finalizer "re-derives" is also wrong: it re-validates the plan the
+Adapter supplied rather than deriving one independently. v1.4 is superseded
+before live activation; see `docs/final_v5_observer_accounting_v14_audit.md` for
+the full defect list and `taskgate-final-v5-observer-accounting-v3` for the
+replacement.
+
+Every profile remains `targeted_run_eligible=false`, no Artifact run can
+execute, `artifactRealSystemValidated` stays false and the capability stays 6/9.
