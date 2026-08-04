@@ -39,6 +39,22 @@
 # exact /health/live command below, and binds that command into its runtime
 # identity, so this override cannot be silently omitted.
 
+#
+# This overlay also pins the PostgreSQL runtime identity. compose.yaml runs
+# business-postgres and control-postgres on the tag postgres:16-bookworm, which
+# is mutable: the same Compose file yields a different server whenever the tag is
+# republished upstream. Business PostgreSQL is the server the whole observer
+# accounting measures and the one an Attestation footprint is qualified against,
+# so a floating tag makes every qualified measurement unreproducible in
+# principle -- the footprint would name an environment that no longer exists.
+#
+# The digest below is not a new choice. compose.real-pilot.yaml already pins
+# final-v5-direct-postgres to exactly it; the Business and control servers were
+# simply left unpinned. Verified to yield "PostgreSQL 16.14 (Debian
+# 16.14-1.pgdg12+1)", which is the server_version_num 160014 that
+# RequiredMeasurementEnvironment demands, so this fixes reproducibility rather
+# than changing the frozen measurement environment.
+
 services:
   gateway:
     healthcheck:
@@ -48,3 +64,9 @@ services:
       interval: 3s
       timeout: 3s
       retries: 30
+
+  business-postgres:
+    image: postgres@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55
+
+  control-postgres:
+    image: postgres@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55
