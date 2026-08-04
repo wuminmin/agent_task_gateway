@@ -6,11 +6,17 @@ stays on `main @ 804d65d` and is never touched.
 
 ## Current HEAD
 
-`4884119` — equals `origin/tkde-artifact-rerun`, worktree clean.
+`865ae8c` — equals `origin/tkde-artifact-rerun`, worktree clean.
 
 Session start was `5e60495`. Tags `final-v5-contracts-v1` … `v1.4` verified
-unmoved at `1702e65`, `5e12765`, `6f353f3`, `38e3bd3`, `36b04ba`. No v1.5 tag
+unmoved at `00c4636`, `167581c`, `6966cd0`, `114d190`, `af15ee1`. No v1.5 tag
 exists yet, correctly: no v1.5 freeze evidence exists.
+
+A previous continuation record named `4884119` as HEAD. That was the HEAD when
+it was written; the branch had since advanced to `3d1eea9`. History is
+forward-only, so the record is corrected here rather than by amending, and the
+verification is against the actual branch tip rather than against a hard-coded
+SHA.
 
 Forward commits this session, in order:
 
@@ -33,6 +39,10 @@ Forward commits this session, in order:
 | `55ccd3d` | SQL-executability gate passing live |
 | `11c9e30` | repository hygiene: committed build artifact removed and prevented |
 | `4884119` | **I1 (part 1)** observer Business census + v2 snapshot identities |
+| `3d1eea9` | continuation record for hygiene and the first half of I1 |
+| `50c3cb8` | **I1-A** immutable Gateway source/build/runtime identity + formal build |
+| `e3622a5` | **I1-B** observer emits `ObserverSnapshotV2` authoritatively |
+| `865ae8c` | **I2-A (structures)** `internal/querybinding`, Query Receipt V9, physicalquery delegation |
 
 ## Completed milestones
 
@@ -214,24 +224,140 @@ from Business PostgreSQL:
 - `observerRequiredSources` extended to every file whose bytes change what a
   snapshot means.
 
+## I1-A — complete (`50c3cb8`)
+
+The observer's `gateway_source_sha256` was filled by hashing the checkout the
+observer happened to run from. That asserts something the observer cannot know:
+that the running container was built from those bytes. Nothing distinguished
+"the image came from this commit" from "someone ran the observer in a directory
+that happens to be at this commit", and the ordinary Dockerfile's `COPY . .`
+made the gap real rather than theoretical.
+
+- **`GatewayRuntimeIdentityV1`** carries submission commit, clean-tree status at
+  build, build-context and source-manifest digests, build target, OCI revision
+  label, local and container image IDs, binary digest, platform, healthcheck
+  digest and both base images. A canonical aggregate is carried too, but only as
+  a convenience: every load-bearing member stays independently inspectable,
+  because an aggregate that is the only carried value is an unexplained opaque
+  hash.
+- **`internal/formalbuild` + `Dockerfile.formal` + `final-v5-gateway-build`.**
+  The context is materialized with `git archive` and streamed to the builder, so
+  it contains exactly the blobs reachable from the named commit and untracked or
+  ignored host files have no path in. The context digest binds relative path,
+  file mode, file bytes and symlink target, and is computed twice — over the tar
+  fed to the builder and over the commit tree from the object database — with
+  agreement required. That agreement is what makes the digest checkable by a
+  reviewer holding only the commit.
+- **Verification reads the running container through Docker Engine** and compares
+  each label against an independently computed value, never against the image's
+  own claims. The image also carries its provenance as files beside the binary,
+  which must agree with the labels: a label is metadata a retag can rewrite, the
+  files are content in the layer the binary lives in.
+- **Base images are pinned by digest** in `formal-build/base-images.json`, not by
+  tag. The document is committed unpinned and the formal build refuses to run
+  until `record-base-images` fills it — a build that quietly accepts whatever a
+  tag points at today is the provenance gap the file exists to close.
+
+Defect found by the tests: `git archive` prepends a `pax_global_header` carrying
+the commit id. Digesting it would have made two commits with byte-identical
+trees digest differently, so the context digest would no longer have meant "the
+same source bytes". It is excluded.
+
+## I1-B — complete (`e3622a5`)
+
+`run()` parsed only `--phase` and `collect()` returned the v1 document, so every
+identity `ObserverSnapshotV2` was designed to carry either came from the Adapter
+or did not exist.
+
+- The v1.5 path parses the full invocation and emits v2 **or fails**. There is no
+  fallback: a path that degrades under exactly the conditions the evidence exists
+  to detect is worse than no evidence.
+- The observer resolves the Gateway identity through Docker Engine against a
+  context materialized from the published commit, and the PostgreSQL identity
+  from the running container's image. Neither is accepted from the Adapter or the
+  environment — a runtime identity supplied by the party being measured is a
+  claim about the deployment, not evidence about it.
+- `readBusinessCensus` replaces `readBusinessCounters`; total and structural rows
+  come from one `MATERIALIZED` row set.
+- **Project topology is retained as its own signed member.** The Gateway and
+  PostgreSQL identities say what those two services are and nothing about the
+  other ten; a sidecar replaced between the before and after snapshots would
+  leave both untouched while changing what the interval contained.
+
+Defect found: the census kept only the **first** queryid for a merged structural
+key while summing the calls of all of them, implying that one row identified the
+aggregate. Every contributing queryid is now retained, sorted and deduplicated,
+as a process-local diagnostic. `queryid` stays absent from the emitted document
+entirely rather than merely unused.
+
+`EntriesFromCommit` reads its blobs through one `git cat-file --batch` instead of
+one subprocess per file; the observer recomputes this digest on every snapshot,
+and a process launch per tracked file made the cost proportional to the
+repository rather than to the measurement.
+
+## I2-A — structures and delegation complete (`865ae8c`); persistence NOT done
+
+Query Receipt V8 binds the authorization, the budget and the exposure
+accounting, but nothing in it says which physical statements ran. The evaluation
+filled that gap by re-deriving them afterwards and treating the result as though
+the Gateway had signed it — a second opinion about the execution, not evidence
+about it, and the two can differ in exactly the case the evidence exists to
+detect.
+
+**Done:**
+
+- **`internal/querybinding`**, neutral because the Gateway, the receipt and the
+  evaluation all need it and production must not depend on evaluation code.
+  `ExposureLedgerBeforeV1` carries the pre-state the row limits derive from and
+  no FactID, bitmap member, task payload or SQL. Its limits/used/remaining
+  vectors must agree: `Remaining` is what a caller would have to forge to widen
+  a row limit, so it must not be independently assertable.
+  `QueryExecutionBindingV1` keeps `Authorized` and `Executed` separate, because a
+  semantic replay authorizes its targets to derive the semantic key and runs
+  neither; collapsing them would make that path indistinguishable from a novel
+  execution. Path semantics are enforced by the structure, not by each consumer.
+- **Query Receipt V9** signs both structures whole, not merely their digests —
+  signing only a digest leaves every other member unprotected against a holder
+  who recomputes it to match an edit. The binding must name the pre-state and the
+  `budget_before` the receipt itself carries, and its row limits must reproduce
+  from that signed pre-state. V8 semantics are untouched; earlier versions may
+  not carry V9 material, or a holder could staple a binding onto a V8 receipt and
+  present it as signed.
+- **Production physicalquery delegation.** The Gateway calls
+  `physicalquery.Derive` once and executes the decisions it returns, instead of
+  authorizing the pair itself and delegating only the row-limit arithmetic.
+  Previously the two agreed only as long as nobody changed one of them, and a
+  divergence would have surfaced as a measurement result rather than as a build
+  failure.
+
+**Not done — V9 database persistence, recovery and replay.** The Control
+PostgreSQL migration and store plumbing that would persist
+`ExposureLedgerBeforeV1` and `QueryExecutionBindingV1` atomically with the
+terminal query evidence, reload them without loss, sign the same canonical
+binding on recovery, and return the original binding byte-for-byte on idempotent
+replay, are **not implemented**. The V9 structures are exercised only by
+hand-constructed receipts, which is explicitly not sufficient.
+
+The blocker was environmental, not technical: at the previous session Docker was
+absent from this WSL2 distro (`docker` not on PATH, Desktop WSL integration off)
+and no PostgreSQL server was listening, so the DB-backed gateway tests skipped
+and neither the persistence round-trip nor the live canary could be verified.
+Landing an unverifiable migration was refused rather than attempted. Docker is
+available again as of this record.
+
 ## Next executable step
 
-**Finish I1**, then I2–I4. Concretely:
+1. Pin the formal Gateway base images, then run the formal Gateway build.
+2. Bring up the pinned PostgreSQL 16.14 Control and Business services and restore
+   the DB-backed test environment.
+3. **Complete I2-A persistence** with live database tests.
+4. Then I2-B (adapter on the v3 path), I3 (finalizer as sole authority), I4
+   (Artifact, Scale, ProvSQL call sites), the remaining integration cases, and
+   the live Result-heavy 100x4 diagnosis canary.
 
-1. `collect()` in `evaluation/cmd/final-v5-observer/main.go` still returns the v1
-   `experiment.ObserverSnapshot`. Convert it to build `ObserverSnapshotV2` from
-   `readBusinessCensus` plus the existing resolved identities. It needs the
-   Gateway **image/source/build** identity, which the current code hashes into an
-   opaque `runtimeIdentitySHA256` rather than carrying as fields — that has to be
-   surfaced into `ObserverRuntimeIdentity`.
-2. `run()` switches to `parseObserverInvocation` and emits the v2 document.
-3. Then I2 (adapter), I3 (finalizer as sole authority), I4 (Artifact, Scale,
-   ProvSQL call sites), the 30-item integration test gate, and the live
-   Result-heavy 100x4 diagnosis canary.
-
-Integration-gate items already covered by tests: 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
-12, 13, 14, 15, 16, 17, 20, 23, 24, 26, 27, 28, 29, 30. Not yet covered: 1
-(observer emits strict v2 JSON — blocked on step 1 above), 18, 19, 21, 22, 25.
+Integration-gate items already covered by tests: 1 (observer emits strict v2
+JSON — done in I1-B), 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 20,
+23, 24, 26, 27, 28, 29, 30. Not yet covered: 18, 19, 21, 22, 25.
 
 ## Retained true blockers
 
@@ -250,9 +376,15 @@ Watch items, all ordinary technical work:
   `RELEASE.*` tags rather than digests. Conventionally immutable, and they touch
   no PostgreSQL statement accounting, so they are out of scope for the
   Attestation footprint — but they are not yet digest-pinned.
-- Docker 29.1.3 and Go 1.25.12 available; no containers running at last check.
-  Prior deployment images are cached locally, so bring-up should not rebuild
-  from scratch.
+- Docker availability has moved twice. It was present, then absent for a whole
+  session (Docker Desktop WSL integration off, `docker` not on PATH), and is
+  present again: client 29.1.3, server Docker Desktop 4.55.0, Compose v2.40.3.
+  Go 1.25.12 on the host. Anything Docker-dependent should re-check
+  `docker version` rather than assume.
+- There is no host PostgreSQL server and none should be installed: the
+  repository's digest-pinned PostgreSQL 16.14 containers are the frozen
+  environment the whole accounting is qualified against, and a host install
+  would be a different server.
 
 ## Capability and release state
 
@@ -274,3 +406,9 @@ evidence.
 `gofmt` clean · `git diff --check` clean · `go build ./...` ok ·
 `go vet ./...` ok · `go test -count=1 ./...` ok ·
 `validate.sh` exit 0 (with the SQL-executability skip noted above).
+
+Run at `50c3cb8`, `e3622a5` and `865ae8c` in turn. The DB-backed tests
+(`internal/control`, `internal/dataconnector`, `internal/gateway`,
+`evaluation/security`) **skipped** at all three, so the physicalquery delegation
+in `865ae8c` is verified by the unit and policy tests only. A green
+`go test ./...` at those commits is not evidence about database behaviour.
