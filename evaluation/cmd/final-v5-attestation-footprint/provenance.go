@@ -206,7 +206,8 @@ func bindProfile(root, registryPath, catalogPath, profileID, artifactManifestPat
 	binding.ArtifactManifestSHA256 = digestBytes(manifestBytes)
 	var manifestSet struct {
 		Profiles map[string]struct {
-			DirectorySHA256 string `json:"directory_sha256"`
+			DirectorySHA256 string `json:"profile_artifact_directory_sha256"`
+			CatalogSHA256   string `json:"catalog_sha256"`
 		} `json:"profiles"`
 	}
 	if err := json.Unmarshal(manifestBytes, &manifestSet); err != nil {
@@ -220,6 +221,15 @@ func bindProfile(root, registryPath, catalogPath, profileID, artifactManifestPat
 	binding.ArtifactDirectorySHA256 = entry.DirectorySHA256
 	if binding.ArtifactDirectorySHA256 == "" {
 		return binding, catalogschema.Result{}, errors.New("the profile artifact manifest carries no directory digest")
+	}
+	// The materializer digests the Catalog it built the artifacts from. If that
+	// disagrees with the Catalog this qualification loaded, the Gateway was
+	// started against artifacts belonging to a different Catalog -- which no
+	// statement count would reveal.
+	if entry.CatalogSHA256 != binding.CatalogSHA256 {
+		return binding, catalogschema.Result{}, fmt.Errorf(
+			"the profile artifacts were materialized from Catalog %s but this qualification loaded %s",
+			entry.CatalogSHA256[:12], binding.CatalogSHA256[:12])
 	}
 	return binding, built, nil
 }
