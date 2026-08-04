@@ -344,12 +344,15 @@ func BuildClassifierManifest(footprint AttestationFootprintV2, targets []Classif
 
 // TargetEntry builds one target identity from the exact rendered SQL the frozen
 // contract produced for this operation.
-func TargetEntry(class GatewayStatementClassV3, renderedSQL, contractIdentity string) (ClassifierEntry, error) {
-	if class != V3TargetedVisible && class != V3TargetedCompanion {
-		return ClassifierEntry{}, fmt.Errorf("class %s is not a target statement", class)
-	}
-	if contractIdentity == "" {
-		return ClassifierEntry{}, errors.New("a target identity must name its frozen contract")
+// The contract identity is DERIVED from the operation's, not declared. A
+// free-form per-target string let a manifest name any contract it liked, so a
+// target belonging to another workload could be introduced without any class
+// count changing. Deriving it means the only way to change what a target claims
+// is to change the operation it is compiled for.
+func TargetEntry(class GatewayStatementClassV3, renderedSQL, operationContractIdentity string) (ClassifierEntry, error) {
+	contractIdentity, err := TargetContractIdentity(operationContractIdentity, class)
+	if err != nil {
+		return ClassifierEntry{}, err
 	}
 	digest, err := StrictASTDigest(renderedSQL)
 	if err != nil {
