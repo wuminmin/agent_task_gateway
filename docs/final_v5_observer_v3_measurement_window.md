@@ -112,3 +112,74 @@ drift.
 
 The compose override is delivered. The observer-side enforcement, the shared
 physical-query package, and the C3.5 manifest hardening are not yet implemented.
+
+## 3. Stage N1: the Attestation internal footprint is stable, and it scales with E
+
+Measured against an isolated full 12-service topology with the observer-v3
+override last, PostgreSQL 16.14, `track=all`, `track_utility=on`,
+`track_planning=off`. Diagnosis only: `publication_eligible=false`,
+`capability_changing=false`, `activation_support_changing=false`,
+`formal_campaign=false`.
+
+Fourteen trials covering both scopes (pool/preflight and transactional), both
+relation kinds, cold and warm repetitions, and a two-entry ExpectedSchema.
+
+### Stability — no stop condition
+
+**`ATTESTATION INTERNAL FOOTPRINT NOT STABLE` does not apply.** Every trial at a
+given ExpectedSchema produced an identical internal footprint: one structural
+key `e5738df16502…`, with no variation across
+
+- scope (preflight vs transactional),
+- relation kind (plain view vs materialized),
+- cold first invocation vs warm repetitions.
+
+The comparison is over the exact multiset of structural keys and multiplicities,
+never a union across repetitions.
+
+### The earlier relation-kind hypothesis was wrong
+
+The previous note speculated that the Result-heavy relation being materialized
+explained why the Stage M-B readiness probe and the Stage B query window looked
+different. **It does not.** Plain and materialized views produce the same
+internal key and the same multiplicity. The `relkind` read observed in the
+Stage M-B breakdown is a *top-level* statement inside the view-definition path,
+not the internal statement at all.
+
+All three observations reconcile under one rule, once each is normalized by the
+number of Attestations it actually performed:
+
+| observation | Attestations | internal statements |
+| --- | --- | --- |
+| Stage B query window (preflight + transaction) | 2 | 2 |
+| Stage M-B explicit readiness (1 attestation, 3 top-level + 1 internal = 4) | 1 | 1 |
+| Stage N1, every trial | 2 | 2 |
+
+`dataconnector.New` itself attests once at construction, which is why each trial
+contains two Attestations; the probe normalizes by that count rather than
+reporting the raw delta.
+
+### It scales with E — so the footprint must stay schema-qualified
+
+At `E = 1` "one per Attestation" and "one per ExpectedSchema entry per
+Attestation" are indistinguishable. The two-entry trial separates them:
+
+| ExpectedSchema entries | top-level per trial | internal per Attestation |
+| --- | --- | --- |
+| 1 | 6 | 1 |
+| 2 | 10 | 2 |
+
+The internal statement is emitted once per `pg_get_viewdef` call, so the
+multiplicity **is** proportional to E.
+
+This means the arithmetic of the superseded rule `(P + S + Q) * E` was
+empirically correct. What was unjustified was everything around it: naming the
+class after one particular internal statement shape, asserting that identity as
+a universal constant, and assuming the preflight and transactional scopes share
+a footprint without measuring them separately. Those assumptions happened to
+hold here; they were not evidence.
+
+`AttestationFootprintV1` therefore remains the right shape, and its
+`expected_schema_digest` field is load-bearing rather than decorative: a
+footprint qualified for one ExpectedSchema is invalid for another, and must be
+re-qualified whenever E changes.
