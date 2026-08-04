@@ -1,0 +1,97 @@
+# syntax=docker/dockerfile:1.7
+#
+# The formal Gateway build.
+#
+# The ordinary Dockerfile ends its base stage with COPY . ., which copies the
+# host working directory. That is convenient for development and worthless as
+# provenance: an untracked file, a stale generated binary or an edit that was
+# never committed all enter the image indistinguishably from tracked source, and
+# no label on the result can tell a reviewer which happened.
+#
+# This file is never built against a host directory. final-v5-gateway-build
+# materializes the context with git archive and streams that tar to the builder,
+# so the context contains exactly the blobs reachable from the named commit and
+# there is no path by which an untracked host file could enter. COPY . . below
+# is therefore copying the commit, not the checkout.
+#
+# The base images are pinned by digest rather than by tag. A tag is a mutable
+# pointer: golang:1.25-bookworm names different bytes on different days, so an
+# image built from an identical commit would not be reproducible and "same
+# source" would not imply "same binary". The digests are held in
+# formal-build/base-images.json and passed in as build arguments so the pin is
+# source-controlled and reviewable rather than buried in this file; the builder
+# refuses to proceed when the recorded pin and the resolved digest disagree.
+
+ARG BUILDER_BASE_IMAGE
+ARG RUNTIME_BASE_IMAGE
+
+FROM ${BUILDER_BASE_IMAGE} AS build
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+
+ARG TARGET=gateway
+ARG SOURCE_COMMIT
+ARG BUILD_CONTEXT_SHA256
+ARG SOURCE_MANIFEST_SHA256
+
+# The build arguments are required rather than defaulted. A formal image whose
+# revision label is empty proves nothing, and an empty string is exactly what a
+# missing --build-arg would produce.
+RUN test -n "${TARGET}" && test -n "${SOURCE_COMMIT}" \
+    && test -n "${BUILD_CONTEXT_SHA256}" && test -n "${SOURCE_MANIFEST_SHA256}"
+
+# -trimpath and the empty build id keep the binary a function of the source
+# rather than of the path it happened to be built in, so two builds of one
+# commit produce one digest.
+RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w -buildid=" -o /out/app ./cmd/${TARGET}
+
+# The binary digest is computed inside the image that contains the binary and
+# recorded beside it. Deriving it later from the outside would digest whatever
+# was extracted, which is a different claim.
+RUN sha256sum /out/app | cut -d' ' -f1 > /out/app.sha256 \
+    && printf '%s\n' "${SOURCE_COMMIT}" > /out/source-commit \
+    && printf '%s\n' "${BUILD_CONTEXT_SHA256}" > /out/build-context-sha256 \
+    && printf '%s\n' "${SOURCE_MANIFEST_SHA256}" > /out/source-manifest-sha256 \
+    && printf '%s\n' "${TARGET}" > /out/build-target
+
+FROM ${RUNTIME_BASE_IMAGE} AS runtime
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system --gid 10001 taskbound \
+    && useradd --system --uid 10001 --gid taskbound --home-dir /nonexistent --shell /usr/sbin/nologin taskbound \
+    && mkdir -p /data/snapshot-index \
+    && chown -R 10001:10001 /data
+
+COPY --from=build /out/app /usr/local/bin/app
+# The provenance files travel with the binary so the running container can be
+# asked what it is, rather than only the image it was created from. A container
+# started from a retagged image still answers with the commit it was built at.
+COPY --from=build /out/app.sha256 /usr/local/share/taskgate/gateway-binary-sha256
+COPY --from=build /out/source-commit /usr/local/share/taskgate/source-commit
+COPY --from=build /out/build-context-sha256 /usr/local/share/taskgate/build-context-sha256
+COPY --from=build /out/source-manifest-sha256 /usr/local/share/taskgate/source-manifest-sha256
+COPY --from=build /out/build-target /usr/local/share/taskgate/build-target
+
+ARG TARGET
+ARG SOURCE_COMMIT
+ARG BUILD_CONTEXT_SHA256
+ARG SOURCE_MANIFEST_SHA256
+ARG BUILDER_BASE_IMAGE
+ARG RUNTIME_BASE_IMAGE
+
+LABEL org.opencontainers.image.revision="${SOURCE_COMMIT}"
+LABEL taskgate.build_context_sha256="${BUILD_CONTEXT_SHA256}"
+LABEL taskgate.source_manifest_sha256="${SOURCE_MANIFEST_SHA256}"
+LABEL taskgate.build_target="${TARGET}"
+LABEL taskgate.builder_base_image="${BUILDER_BASE_IMAGE}"
+LABEL taskgate.runtime_base_image="${RUNTIME_BASE_IMAGE}"
+LABEL taskgate.formal_build="v1"
+
+USER 10001:10001
+ENTRYPOINT ["/usr/local/bin/app"]

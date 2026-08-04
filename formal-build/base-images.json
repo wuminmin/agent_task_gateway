@@ -1,0 +1,40 @@
+{
+  "_comment": [
+    "Digest pins for the formal Gateway build (Dockerfile.formal).",
+    "",
+    "A tag is a mutable pointer: golang:1.25-bookworm names different bytes on",
+    "different days. Building a formal image from a tag would mean an identical",
+    "commit could produce a different binary, so 'same source' would not imply",
+    "'same image' and the revision label would bind nothing that matters.",
+    "",
+    "Each entry pins one base image by its registry content digest. The formal",
+    "builder resolves the reference it is about to use through Docker Engine and",
+    "refuses to build when the resolved digest differs from the pin recorded",
+    "here, so an upstream retag fails the build instead of silently changing the",
+    "Gateway.",
+    "",
+    "A digest of \"\" means the image is NOT yet pinned. The formal builder treats",
+    "an unpinned base as a hard failure rather than resolving the tag, because a",
+    "build that quietly accepts whatever the tag points at today is exactly the",
+    "provenance gap this file exists to close. Record the pins on a host with",
+    "registry access:",
+    "",
+    "    go run ./evaluation/cmd/final-v5-gateway-build record-base-images",
+    "",
+    "which resolves each tag once, writes the digest here, and leaves the result",
+    "to be reviewed and committed like any other source change."
+  ],
+  "version": "taskgate-formal-build-base-images-v1",
+  "images": [
+    {
+      "role": "builder",
+      "tag": "golang:1.25-bookworm",
+      "digest": ""
+    },
+    {
+      "role": "runtime",
+      "tag": "debian:bookworm-slim",
+      "digest": ""
+    }
+  ]
+}
