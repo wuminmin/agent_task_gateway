@@ -6,7 +6,8 @@ stays on `main @ 804d65d` and is never touched.
 
 ## Current HEAD
 
-`61f932d` — equals `origin/tkde-artifact-rerun`, worktree clean.
+`21e693a` plus this checkpoint — equals `origin/tkde-artifact-rerun`, worktree
+clean.
 
 Session start was `5e60495`. Tags `final-v5-contracts-v1` … `v1.4` verified
 unmoved at `1702e65`, `5e12765`, `6f353f3`, `38e3bd3`, `36b04ba`. No v1.5 tag
@@ -21,6 +22,7 @@ Forward commits this session, in order:
 | `507ba30` | this continuation record |
 | `4361f9d` | N4 probe: footprint qualified as a contract |
 | `61f932d` | PostgreSQL runtime identity pinned to an immutable digest |
+| `21e693a` | N4 audit: five corrections before any qualification run |
 
 ## Completed milestones
 
@@ -32,30 +34,45 @@ Forward commits this session, in order:
   builds ExpectedSchema directly from live relations and never calls
   `catalogschema.Build`, which is why no digest was available. The evidence
   directory is retained unchanged.
-- **N2.** `AttestationFootprintV1` in
-  `evaluation/internal/experiment/attestation_footprint.go`. Qualified against
-  exactly one ExpectedSchema digest + entry count, one measurement environment
-  and one immutable PostgreSQL image ID; the two Attestation scopes are carried
-  separately, never merged. `Require` binds all four and fails closed. No
-  interpolation across ExpectedSchemas by design.
-- **N3.** `GatewayControlPlanV3` consumes the footprint.
-  `nested_viewdef_rewrite_lookup` is no longer `(P + S + Q) * E`; it is the
-  measured count plus the digest of the qualification that produced it.
-  `view_column_attestation` and `view_definition_attestation` keep their
-  source-derived per-entry rule. `RequireFootprint` re-derives the nested count
-  scope-wise so the finalizer recomputes rather than believes the Adapter.
-  Constructors now return an error and refuse a footprint qualified elsewhere.
-- **N4 probe** (`4361f9d`). `catalogschema.Digest` is exported and `Build` calls
-  it, so the probe — which assembles ExpectedSchema from live relations rather
-  than from a Catalog — produces an identity in the production digest space.
-  Every trial records the ExpectedSchema digest, the entry count as an integer,
-  and relation kinds as a per-entry list. The trial matrix is filled out: all
-  three configurations (plain, materialized, two-entry) run the full cold/warm
-  repetitions in both scopes, where N1 ran its two-entry case once, warm, with no
-  relation-kind cross. The immutable PostgreSQL image ID and `DIAGNOSIS_ID` are
-  both required. The probe emits `AttestationFootprintV1` per distinct
-  ExpectedSchema and raises `ATTESTATION INTERNAL FOOTPRINT NOT STABLE` rather
-  than averaging or unioning disagreeing trials. **Not yet run live.**
+- **N2/N3/N4, as superseded by the `21e693a` audit.** The V1 footprint and the
+  first N4 probe were both written and then corrected before any qualification
+  ran; only the corrected shape matters now.
+  `AttestationFootprintV2` is qualified against one ExpectedSchema digest and
+  entry count, one measurement environment and one complete
+  `PostgreSQLRuntimeIdentity` (digest-pinned reference, RepoDigest, local image
+  ID, running container image ID, platform), across **four** scopes —
+  `constructor_or_cold_pool`, `explicit_preflight_pool`,
+  `single_query_transaction`, `paired_query_transaction` — never merged, so the
+  Artifact paired path cannot consume a footprint measured through
+  `Connector.Query`. Constructor and explicit preflight are retained separately
+  with their equality recorded, which is what a later revision would need before
+  merging them.
+  The measured quantity is the **multiset** of internal structural keys, carried
+  end to end into `GatewayControlPlanV3.InternalExpectation` and the classifier
+  manifest, summed per key as `P * preflight + S * single + Q * paired` and
+  validated key by key; the class aggregate survives only as a reporting number.
+  A same-total substitution of one internal key by another fails.
+  `nested_viewdef_rewrite_lookup` is renamed `postgresql_internal_attestation`,
+  and the classifier no longer hard-codes a `pg_rewrite` template — internal keys
+  enter the manifest from the qualified footprint under a `qualified_footprint`
+  source kind.
+  `PortableSHA256` excludes the qualification ID and deployment-local image IDs;
+  it is what the two independent runs must agree on.
+- **The ExpectedSchema identity defect, measured.** The first N4 probe
+  reconstructed ExpectedSchema from live `pg_attribute` (name and type only).
+  `catalogschema.Digest` also covers collation, collation version and collation
+  determinism, and the Result-heavy Catalog carries `en_US.utf8` / `2.36` on
+  three of its sixteen fields. On this tree the Catalog-derived digest is
+  `e2a3796f…` and the reconstruction digests to `d2fd017b…`. The qualification
+  path now uses `catalog.Load` + `catalogschema.Build`; live relations are read
+  only to verify the Catalog, never to define the identity.
+- **The measurement sequence.** `AttestationsPerTrial = 2` and dividing a
+  combined delta by it are gone. `pg_stat_statements` is reset once and every
+  measurement is an adjacent-cumulative-snapshot delta bracketing exactly one
+  Attestation. Each interval binds `stats_reset`, `dealloc`, the environment,
+  `pg_postmaster_start_time()` and `total delta == sum of structural row deltas`,
+  and rejects backwards counts and disappearing keys. Nothing is called "cold"
+  because the view was reset; the cold/warm stability claim is withdrawn.
 - **PostgreSQL runtime identity pinned** (`61f932d`). `business-postgres` and
   `control-postgres` ran on the mutable tag `postgres:16-bookworm`, while
   `compose.real-pilot.yaml` already pinned `final-v5-direct-postgres` to
@@ -94,36 +111,50 @@ here rather than by amending.
 
 ## Next executable step
 
-**Run the Stage N4 qualification live.** The probe is written, unit-tested and
-committed; nothing has yet populated an `AttestationFootprintV1` from
-measurement, so no plan can currently be built for a real deployment.
+**Materialize the per-profile snapshot artifact directory, then run the two
+qualifications.** The probe, the contract and the harness are all in place;
+what is missing is deployment wiring on critical path A.
 
-The topology composes and resolves cleanly — verified, 12 services exactly:
+`evaluation/final-v5-wsl2/scripts/qualify-attestation-footprint.sh` brings up a
+fresh isolated project with its own volumes, proves `/health/ready` explicitly
+outside the measurement window, verifies the running Gateway carries the
+`/health/live` periodic probe, captures the complete PostgreSQL runtime identity
+from the running container, and runs the probe. Two live attempts have been made
+and both failed in the Gateway, for two distinct real reasons:
+
+1. **Full catalog exceeds the activation boundary.** `compose.yaml` defaults
+   `TASKGATE_PROFILE_CATALOG` to `config/catalog.yaml`; the Gateway rejected it
+   with `Catalog hot artifacts exceed the 160 MiB activation boundary`. Fixed in
+   the harness by exporting `TASKGATE_PROFILE_CATALOG` to the Profile Catalog
+   being qualified — which is required anyway, since the full catalog is a
+   different ExpectedSchema from the one the footprint qualifies.
+2. **Undeclared publication in the shared artifact volume.** With the
+   Result-heavy catalog the Gateway then rejected startup with `snapshot artifact
+   directory contains undeclared publication "expense-detail-v1"`. The three
+   `snapshot-index-*` services populate one shared `snapshot-index-artifacts`
+   volume with every publication, while the Result-heavy closure declares only
+   `final-v5-result-heavy-v1`. The Gateway fails closed, correctly.
+
+The designed mechanism for (2) is already present and unused here:
+`compose.yaml:355` mounts `${TASKGATE_PROFILE_ARTIFACT_DIR:-snapshot-index-artifacts}`
+into the Gateway, and `evaluation/cmd/final-v5-profile-artifacts` materializes
+per-profile directories from a verified full artifact directory
+(`--source`, `--destination`, `--profile-id`, `--manifest-out`). So the sequence
+is: bring the topology up far enough for the snapshot-index services to populate
+the full volume, export it, run `final-v5-profile-artifacts` for the Result-heavy
+profile, point `TASKGATE_PROFILE_ARTIFACT_DIR` at that directory, and start the
+Gateway.
+
+Then run, sequentially — `business-postgres` publishes a fixed host port, so
+concurrent runs would not be isolated:
 
 ```
-docker compose --project-name <non-formal-id> \
-  -f compose.yaml -f compose.debug.yaml \
-  -f evaluation/final-v5-wsl2/compose.real-pilot.yaml \
-  -f evaluation/final-v5-wsl2/compose.provsql.yaml \
-  -f evaluation/final-v5-wsl2/compose.observer-v3.yaml up -d
+QUALIFICATION_ID=qualification-01 bash evaluation/final-v5-wsl2/scripts/qualify-attestation-footprint.sh
+QUALIFICATION_ID=qualification-02 bash evaluation/final-v5-wsl2/scripts/qualify-attestation-footprint.sh
 ```
 
-The observer-v3 override resolves last and yields the `/health/live`
-healthcheck at a 3s interval, confirmed through `compose config`.
-
-Then, with `DIAGNOSIS_ID` set to a fresh non-formal ID and
-`-postgresql-image-id` read from `docker inspect` of the running
-business-postgres container, run `final-v5-attestation-footprint` into a **new**
-directory under `evaluation/final-v5-wsl2/raw/`. Never overwrite
-`diagnosis-attestation-footprint-20260804T103538Z-4c6db5f116e4`. Carry the
-`DIAGNOSIS-NOT-FOR-PUBLICATION` marker as the N1 directory does.
-
-Note the probe's `-plain-view` and `-materialized-view` must name real relations
-in the deployed `travel_demo` database; N1's invocation is not recorded anywhere,
-so these have to be read off the deployed schema.
-
-After that the critical path continues at A: formal Compose and per-sample
-readiness wiring, then immutable Gateway source/build/image identity.
+and require the two `portable_footprint_sha256` values and the exact
+per-scope/per-key multisets to be identical. Retain both runs either way.
 
 ## Retained true blockers
 
@@ -134,6 +165,10 @@ Watch items, all ordinary technical work:
 - `validate.sh` reports `contract SQL executability: SKIPPED
   (TASKGATE_FINAL_V5_SQLCHECK_ADMIN_DSN is not set)`. A skip must not count as a
   pass at freeze time, so v1.5 freeze requires this gate run with the DSN set.
+- The three retained failure directories under
+  `evaluation/final-v5-wsl2/raw/` record the two Gateway startup findings above.
+  `raw/.gitignore` is `*`, so evidence is force-added when it is worth keeping;
+  these were checked for credentials before being committed.
 - `result-object-store` and `result-object-store-init` still use MinIO
   `RELEASE.*` tags rather than digests. Conventionally immutable, and they touch
   no PostgreSQL statement accounting, so they are out of scope for the

@@ -1,0 +1,436 @@
+#1 [internal] load local bake definitions
+#1 reading from stdin 4.80kB done
+#1 DONE 0.0s
+
+#2 [snapshot-sidecar-install internal] load build definition from Dockerfile
+#2 transferring dockerfile: 1.02kB done
+#2 DONE 0.0s
+
+#3 [final-v5-provsql-postgres internal] load build definition from Dockerfile.provsql
+#3 transferring dockerfile: 1.81kB done
+#3 DONE 0.0s
+
+#4 [final-v5-provsql-postgres] resolve image config for docker-image://docker.io/docker/dockerfile:1.7
+#4 DONE 4.5s
+
+#5 [final-v5-provsql-postgres] docker-image://docker.io/docker/dockerfile:1.7@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
+#5 CACHED
+
+#6 [final-v5-provsql-postgres internal] load metadata for docker.io/library/postgres@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55
+#6 DONE 0.0s
+
+#7 [snapshot-index-summary internal] load build definition from Dockerfile
+#7 transferring dockerfile: 1.02kB done
+#7 DONE 0.0s
+
+#8 [snapshot-sidecar-install internal] load build definition from Dockerfile
+#8 transferring dockerfile: 1.02kB done
+#8 DONE 0.0s
+
+#9 [oa-demo internal] load build definition from Dockerfile
+#9 transferring dockerfile: 1.02kB done
+#9 DONE 0.0s
+
+#10 [final-v5-provsql-postgres internal] load .dockerignore
+#10 transferring context: 721B done
+#10 DONE 0.0s
+
+#11 [snapshot-index-result-heavy internal] load build definition from Dockerfile
+#11 transferring dockerfile: 1.02kB done
+#11 DONE 0.0s
+
+#12 [final-v5-provsql-postgres build 1/3] FROM docker.io/library/postgres@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55
+#12 DONE 0.0s
+
+#13 [gateway internal] load build definition from Dockerfile
+#13 transferring dockerfile: 1.02kB done
+#13 DONE 0.1s
+
+#14 [snapshot-index-detail internal] load build definition from Dockerfile
+#14 transferring dockerfile: 1.02kB done
+#14 DONE 0.1s
+
+#15 [final-v5-provsql-postgres stage-1 3/4] COPY --from=build /usr/lib/x86_64-linux-gnu/libboost_serialization.so.1.74.0 /usr/lib/x86_64-linux-gnu/
+#15 CACHED
+
+#16 [final-v5-provsql-postgres stage-1 2/4] COPY --from=build /opt/provsql-root/ /
+#16 CACHED
+
+#17 [final-v5-provsql-postgres build 2/3] RUN apt-get update     && apt-get install -y --no-install-recommends         build-essential ca-certificates git libboost-dev libboost-serialization-dev         postgresql-server-dev-16=16.14-1.pgdg12+1     && rm -rf /var/lib/apt/lists/*
+#17 CACHED
+
+#18 [final-v5-provsql-postgres build 3/3] RUN git init /tmp/provsql     && git -C /tmp/provsql remote add origin https://github.com/PierreSenellart/provsql.git     && git -C /tmp/provsql fetch --depth 1 origin "6388fd06b79b7d247b4ff4dad4959374d0e92358"     && git -C /tmp/provsql checkout --detach FETCH_HEAD     && test "$(git -C /tmp/provsql rev-parse HEAD)" = "6388fd06b79b7d247b4ff4dad4959374d0e92358"     && make -C /tmp/provsql -j"$(nproc)"     && make -C /tmp/provsql DESTDIR=/opt/provsql-root install     && install -d /opt/provsql-root/usr/local/share/taskgate-evaluation     && printf '%s' "6388fd06b79b7d247b4ff4dad4959374d0e92358" > /opt/provsql-root/usr/local/share/taskgate-evaluation/provsql-source-commit
+#18 CACHED
+
+#19 [final-v5-provsql-postgres stage-1 4/4] RUN ! ldd /usr/lib/postgresql/16/lib/provsql.so | grep -q 'not found'
+#19 CACHED
+
+#20 [final-v5-provsql-postgres] exporting to image
+#20 exporting layers done
+#20 writing image sha256:d24b220e36a423298684eb6acf9aa067fa1bc7d83b46c2a3e5efefefe17724e0 done
+#20 naming to docker.io/library/taskgate-n4-qualification-01-diag-21e693ac0600-final-v5-provsql-postgres done
+#20 DONE 0.0s
+
+#21 [final-v5-provsql-postgres] resolving provenance for metadata file
+#21 DONE 0.0s
+
+#22 [gateway internal] load metadata for docker.io/library/debian:bookworm-slim
+#22 DONE 2.4s
+
+#23 [gateway internal] load metadata for docker.io/library/golang:1.25-bookworm
+#23 DONE 4.0s
+
+#24 [snapshot-sidecar-install internal] load .dockerignore
+#24 transferring context: 721B done
+#24 DONE 0.0s
+
+#25 [gateway internal] load .dockerignore
+#25 transferring context: 721B done
+#25 DONE 0.0s
+
+#26 [snapshot-index-summary internal] load .dockerignore
+#26 transferring context: 721B done
+#26 DONE 0.0s
+
+#27 [snapshot-index-detail internal] load .dockerignore
+#27 transferring context: 721B done
+#27 DONE 0.0s
+
+#28 [oa-demo base 1/6] FROM docker.io/library/golang:1.25-bookworm@sha256:ea341baa9bd5ba6784f6d7161ace70544349a6242d54d34a0fbfd2c4d51c9d58
+#28 DONE 0.0s
+
+#29 [oa-demo runtime 1/3] FROM docker.io/library/debian:bookworm-slim@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818
+#29 DONE 0.0s
+
+#30 [oa-demo internal] load .dockerignore
+#30 transferring context: 721B done
+#30 DONE 0.1s
+
+#31 [snapshot-index-result-heavy internal] load .dockerignore
+#31 transferring context: 721B done
+#31 DONE 0.1s
+
+#32 [oa-demo internal] load build context
+#32 transferring context: 69.04kB 0.0s done
+#32 DONE 0.1s
+
+#28 [snapshot-index-result-heavy base 1/6] FROM docker.io/library/golang:1.25-bookworm@sha256:ea341baa9bd5ba6784f6d7161ace70544349a6242d54d34a0fbfd2c4d51c9d58
+#28 DONE 0.0s
+
+#29 [snapshot-index-result-heavy runtime 1/3] FROM docker.io/library/debian:bookworm-slim@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818
+#29 DONE 0.0s
+
+#33 [snapshot-sidecar-install internal] load build context
+#33 transferring context: 69.04kB 0.0s done
+#33 DONE 0.1s
+
+#34 [snapshot-index-summary internal] load build context
+#34 transferring context: 69.04kB 0.0s done
+#34 DONE 0.1s
+
+#35 [gateway internal] load build context
+#35 transferring context: 69.04kB 0.0s done
+#35 DONE 0.1s
+
+#36 [snapshot-sidecar-install base 2/6] RUN apt-get update     && apt-get install -y --no-install-recommends build-essential ca-certificates     && rm -rf /var/lib/apt/lists/*
+#36 CACHED
+
+#37 [snapshot-sidecar-install base 3/6] WORKDIR /src
+#37 CACHED
+
+#38 [snapshot-sidecar-install base 4/6] COPY go.mod go.sum ./
+#38 CACHED
+
+#39 [snapshot-index-detail internal] load build context
+#39 transferring context: 69.04kB 0.0s done
+#39 DONE 0.1s
+
+#40 [snapshot-index-result-heavy internal] load build context
+#40 transferring context: 69.04kB 0.0s done
+#40 DONE 0.1s
+
+#41 [snapshot-index-result-heavy base 5/6] RUN go mod download
+#41 CACHED
+
+#42 [snapshot-index-result-heavy base 6/6] COPY . .
+#42 DONE 0.1s
+
+#43 [snapshot-index-summary base 5/6] RUN go mod download
+#43 CACHED
+
+#44 [snapshot-index-summary base 6/6] COPY . .
+#44 CACHED
+
+#45 [snapshot-index-summary base 4/6] COPY go.mod go.sum ./
+#45 CACHED
+
+#46 [gateway base 5/6] RUN go mod download
+#46 CACHED
+
+#47 [gateway base 6/6] COPY . .
+#47 CACHED
+
+#48 [gateway base 4/6] COPY go.mod go.sum ./
+#48 CACHED
+
+#36 [gateway base 2/6] RUN apt-get update     && apt-get install -y --no-install-recommends build-essential ca-certificates     && rm -rf /var/lib/apt/lists/*
+#36 CACHED
+
+#49 [oa-demo base 5/6] RUN go mod download
+#49 CACHED
+
+#50 [oa-demo base 6/6] COPY . .
+#50 CACHED
+
+#37 [gateway base 3/6] WORKDIR /src
+#37 CACHED
+
+#51 [oa-demo base 4/6] COPY go.mod go.sum ./
+#51 CACHED
+
+#52 [snapshot-index-result-heavy build 1/1] RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /out/app ./cmd/snapshot-index
+#52 ...
+
+#53 [snapshot-sidecar-install build 1/1] RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /out/app ./cmd/snapshot-sidecar-install
+#53 ...
+
+#54 [gateway build 1/1] RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /out/app ./cmd/gateway
+#54 ...
+
+#55 [oa-demo build 1/1] RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /out/app ./cmd/oa-demo
+#55 DONE 10.5s
+
+#53 [snapshot-sidecar-install build 1/1] RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /out/app ./cmd/snapshot-sidecar-install
+#53 ...
+
+#52 [snapshot-index-result-heavy build 1/1] RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /out/app ./cmd/snapshot-index
+#52 DONE 10.6s
+
+#56 [oa-demo runtime 2/3] RUN apt-get update     && apt-get install -y --no-install-recommends ca-certificates curl     && rm -rf /var/lib/apt/lists/*     && groupadd --system --gid 10001 taskbound     && useradd --system --uid 10001 --gid taskbound --home-dir /nonexistent --shell /usr/sbin/nologin taskbound     && mkdir -p /data/snapshot-index     && chown -R 10001:10001 /data
+#56 CACHED
+
+#57 [oa-demo runtime 3/3] COPY --from=build /out/app /usr/local/bin/app
+#57 CACHED
+
+#58 [oa-demo] exporting to image
+#58 exporting layers done
+#58 writing image sha256:506ef7cc41f4c79868e95c214de55b402223bbb03b37eb01e42658ec7fd78457 done
+#58 naming to docker.io/library/taskgate-n4-qualification-01-diag-21e693ac0600-oa-demo done
+#58 DONE 0.0s
+
+#53 [snapshot-sidecar-install build 1/1] RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /out/app ./cmd/snapshot-sidecar-install
+#53 DONE 10.6s
+
+#59 [snapshot-index-detail runtime 3/3] COPY --from=build /out/app /usr/local/bin/app
+#59 CACHED
+
+#56 [snapshot-sidecar-install runtime 2/3] RUN apt-get update     && apt-get install -y --no-install-recommends ca-certificates curl     && rm -rf /var/lib/apt/lists/*     && groupadd --system --gid 10001 taskbound     && useradd --system --uid 10001 --gid taskbound --home-dir /nonexistent --shell /usr/sbin/nologin taskbound     && mkdir -p /data/snapshot-index     && chown -R 10001:10001 /data
+#56 CACHED
+
+#60 [snapshot-sidecar-install runtime 3/3] COPY --from=build /out/app /usr/local/bin/app
+#60 CACHED
+
+#61 [snapshot-sidecar-install] exporting to image
+#61 exporting layers done
+#61 writing image sha256:18d600ba932997781845a0d531f163d3c5a6bf99ce7b1813d29d3a9e04cffd13 done
+#61 naming to docker.io/library/taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-sidecar-install done
+#61 DONE 0.1s
+
+#62 [snapshot-index-result-heavy] exporting to image
+#62 exporting layers done
+#62 writing image sha256:48a8feb75fb2c71a82e7f31c6c733ff73bb38e7264ceb14cc29f23df81e47e92 0.0s done
+#62 naming to docker.io/library/taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-index-result-heavy 0.0s done
+#62 DONE 0.1s
+
+#63 [snapshot-index-summary] exporting to image
+#63 exporting layers done
+#63 writing image sha256:8e4efc21be5d04750ee2118cb44df2334a531d3e037514dd5c81a70f4845e5e6 0.0s done
+#63 naming to docker.io/library/taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-index-summary 0.0s done
+#63 DONE 0.1s
+
+#64 [snapshot-index-detail] exporting to image
+#64 exporting layers done
+#64 writing image sha256:119a634a0870ce3c64c9e1c47afebdd0e446573d157daf28fe54f6a78c49e092 0.0s done
+#64 naming to docker.io/library/taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-index-detail 0.0s done
+#64 DONE 0.1s
+
+#65 [oa-demo] resolving provenance for metadata file
+#65 DONE 0.1s
+
+#66 [snapshot-index-detail] resolving provenance for metadata file
+#66 DONE 0.0s
+
+#67 [snapshot-index-summary] resolving provenance for metadata file
+#67 DONE 0.0s
+
+#68 [snapshot-index-result-heavy] resolving provenance for metadata file
+#68 DONE 0.1s
+
+#69 [snapshot-sidecar-install] resolving provenance for metadata file
+#69 DONE 0.0s
+
+#54 [gateway build 1/1] RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /out/app ./cmd/gateway
+#54 DONE 31.7s
+
+#56 [gateway runtime 2/3] RUN apt-get update     && apt-get install -y --no-install-recommends ca-certificates curl     && rm -rf /var/lib/apt/lists/*     && groupadd --system --gid 10001 taskbound     && useradd --system --uid 10001 --gid taskbound --home-dir /nonexistent --shell /usr/sbin/nologin taskbound     && mkdir -p /data/snapshot-index     && chown -R 10001:10001 /data
+#56 CACHED
+
+#70 [gateway runtime 3/3] COPY --from=build /out/app /usr/local/bin/app
+#70 CACHED
+
+#71 [gateway] exporting to image
+#71 exporting layers done
+#71 writing image sha256:bb3a821123fb0cb009c1b821f6a7884e0edac0f5957da2f892573e924a554f07 done
+#71 naming to docker.io/library/taskgate-n4-qualification-01-diag-21e693ac0600-gateway done
+#71 DONE 0.0s
+
+#72 [gateway] resolving provenance for metadata file
+#72 DONE 0.0s
+ taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-index-detail  Built
+ taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-index-summary  Built
+ taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-index-result-heavy  Built
+ taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-sidecar-install  Built
+ taskgate-n4-qualification-01-diag-21e693ac0600-final-v5-provsql-postgres  Built
+ taskgate-n4-qualification-01-diag-21e693ac0600-oa-demo  Built
+ taskgate-n4-qualification-01-diag-21e693ac0600-gateway  Built
+ Network taskgate-n4-qualification-01-diag-21e693ac0600_provsql-evaluation  Creating
+ Network taskgate-n4-qualification-01-diag-21e693ac0600_provsql-evaluation  Created
+ Network taskgate-n4-qualification-01-diag-21e693ac0600_business-data  Creating
+ Network taskgate-n4-qualification-01-diag-21e693ac0600_business-data  Created
+ Network taskgate-n4-qualification-01-diag-21e693ac0600_control-plane  Creating
+ Network taskgate-n4-qualification-01-diag-21e693ac0600_control-plane  Created
+ Network taskgate-n4-qualification-01-diag-21e693ac0600_public-edge  Creating
+ Network taskgate-n4-qualification-01-diag-21e693ac0600_public-edge  Created
+ Network taskgate-n4-qualification-01-diag-21e693ac0600_debug-host  Creating
+ Network taskgate-n4-qualification-01-diag-21e693ac0600_debug-host  Created
+ Network taskgate-n4-qualification-01-diag-21e693ac0600_result-storage  Creating
+ Network taskgate-n4-qualification-01-diag-21e693ac0600_result-storage  Created
+ Volume taskgate-n4-qualification-01-diag-21e693ac0600_final-v5-provsql-data  Creating
+ Volume taskgate-n4-qualification-01-diag-21e693ac0600_final-v5-provsql-data  Created
+ Volume taskgate-n4-qualification-01-diag-21e693ac0600_gateway-encrypted-spool  Creating
+ Volume taskgate-n4-qualification-01-diag-21e693ac0600_gateway-encrypted-spool  Created
+ Volume taskgate-n4-qualification-01-diag-21e693ac0600_final-v5-direct-data  Creating
+ Volume taskgate-n4-qualification-01-diag-21e693ac0600_final-v5-direct-data  Created
+ Volume taskgate-n4-qualification-01-diag-21e693ac0600_snapshot-index-artifacts  Creating
+ Volume taskgate-n4-qualification-01-diag-21e693ac0600_snapshot-index-artifacts  Created
+ Volume taskgate-n4-qualification-01-diag-21e693ac0600_control-pg-data  Creating
+ Volume taskgate-n4-qualification-01-diag-21e693ac0600_control-pg-data  Created
+ Volume taskgate-n4-qualification-01-diag-21e693ac0600_result-object-data  Creating
+ Volume taskgate-n4-qualification-01-diag-21e693ac0600_result-object-data  Created
+ Volume taskgate-n4-qualification-01-diag-21e693ac0600_business-pg-data  Creating
+ Volume taskgate-n4-qualification-01-diag-21e693ac0600_business-pg-data  Created
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-control-postgres-1  Creating
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-result-object-store-1  Creating
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-final-v5-provsql-postgres-1  Creating
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-oa-demo-1  Creating
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-final-v5-direct-postgres-1  Creating
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-business-postgres-1  Creating
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-final-v5-direct-postgres-1  Created
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-control-postgres-1  Created
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-business-postgres-1  Created
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-index-detail-1  Creating
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-oa-demo-1  Created
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-result-object-store-1  Created
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-result-object-store-init-1  Creating
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-final-v5-provsql-postgres-1  Created
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-index-detail-1  Created
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-index-summary-1  Creating
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-result-object-store-init-1  Created
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-index-summary-1  Created
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-index-result-heavy-1  Creating
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-index-result-heavy-1  Created
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-sidecar-install-1  Creating
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-sidecar-install-1  Created
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-gateway-1  Creating
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-gateway-1  Created
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-final-v5-direct-postgres-1  Starting
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-control-postgres-1  Starting
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-final-v5-provsql-postgres-1  Starting
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-business-postgres-1  Starting
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-oa-demo-1  Starting
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-result-object-store-1  Starting
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-oa-demo-1  Started
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-final-v5-direct-postgres-1  Started
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-control-postgres-1  Started
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-final-v5-provsql-postgres-1  Started
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-business-postgres-1  Started
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-business-postgres-1  Waiting
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-result-object-store-1  Started
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-result-object-store-1  Waiting
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-result-object-store-1  Healthy
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-result-object-store-init-1  Starting
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-result-object-store-init-1  Started
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-business-postgres-1  Healthy
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-index-detail-1  Starting
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-index-detail-1  Started
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-index-detail-1  Waiting
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-business-postgres-1  Waiting
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-business-postgres-1  Healthy
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-index-detail-1  Exited
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-index-summary-1  Starting
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-index-summary-1  Started
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-index-summary-1  Waiting
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-business-postgres-1  Waiting
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-business-postgres-1  Healthy
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-index-summary-1  Exited
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-index-result-heavy-1  Starting
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-index-result-heavy-1  Started
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-index-result-heavy-1  Waiting
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-business-postgres-1  Waiting
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-business-postgres-1  Healthy
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-index-result-heavy-1  Exited
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-sidecar-install-1  Starting
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-sidecar-install-1  Started
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-index-summary-1  Waiting
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-sidecar-install-1  Waiting
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-result-object-store-init-1  Waiting
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-oa-demo-1  Waiting
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-control-postgres-1  Waiting
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-business-postgres-1  Waiting
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-index-detail-1  Waiting
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-index-detail-1  Exited
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-control-postgres-1  Healthy
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-oa-demo-1  Healthy
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-index-summary-1  Exited
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-business-postgres-1  Healthy
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-result-object-store-init-1  Exited
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-sidecar-install-1  Exited
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-gateway-1  Starting
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-gateway-1  Started
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-business-postgres-1  Waiting
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-result-object-store-init-1  Waiting
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-index-detail-1  Waiting
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-gateway-1  Waiting
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-final-v5-direct-postgres-1  Waiting
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-final-v5-provsql-postgres-1  Waiting
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-sidecar-install-1  Waiting
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-result-object-store-1  Waiting
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-control-postgres-1  Waiting
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-oa-demo-1  Waiting
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-index-summary-1  Waiting
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-index-result-heavy-1  Waiting
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-control-postgres-1  Healthy
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-final-v5-direct-postgres-1  Healthy
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-result-object-store-1  Healthy
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-index-summary-1  Exited
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-index-result-heavy-1  Exited
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-final-v5-provsql-postgres-1  Healthy
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-index-detail-1  Exited
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-sidecar-install-1  Exited
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-result-object-store-init-1  Exited
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-business-postgres-1  Healthy
+ Container taskgate-n4-qualification-01-diag-21e693ac0600-oa-demo-1  Healthy
+container taskgate-n4-qualification-01-diag-21e693ac0600-gateway-1 exited (1)
+NAME                                                                           IMAGE                                                                              COMMAND                   SERVICE                       CREATED         STATUS                              PORTS
+taskgate-n4-qualification-01-diag-21e693ac0600-business-postgres-1             postgres@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55   "docker-entrypoint.s…"   business-postgres             2 minutes ago   Up 2 minutes (healthy)              127.0.0.1:25434->5432/tcp
+taskgate-n4-qualification-01-diag-21e693ac0600-control-postgres-1              postgres@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55   "docker-entrypoint.s…"   control-postgres              2 minutes ago   Up 2 minutes (healthy)              127.0.0.1:25433->5432/tcp
+taskgate-n4-qualification-01-diag-21e693ac0600-final-v5-direct-postgres-1      postgres@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55   "docker-entrypoint.s…"   final-v5-direct-postgres      2 minutes ago   Up 2 minutes (healthy)              127.0.0.1:25534->5432/tcp
+taskgate-n4-qualification-01-diag-21e693ac0600-final-v5-provsql-postgres-1     taskgate-n4-qualification-01-diag-21e693ac0600-final-v5-provsql-postgres           "docker-entrypoint.s…"   final-v5-provsql-postgres     2 minutes ago   Up 2 minutes (healthy)              127.0.0.1:25535->5432/tcp
+taskgate-n4-qualification-01-diag-21e693ac0600-gateway-1                       taskgate-n4-qualification-01-diag-21e693ac0600-gateway                             "/usr/local/bin/app"      gateway                       2 minutes ago   Exited (1) Less than a second ago   
+taskgate-n4-qualification-01-diag-21e693ac0600-oa-demo-1                       taskgate-n4-qualification-01-diag-21e693ac0600-oa-demo                             "/usr/local/bin/app"      oa-demo                       2 minutes ago   Up 2 minutes (healthy)              127.0.0.1:8092->8092/tcp
+taskgate-n4-qualification-01-diag-21e693ac0600-result-object-store-1           minio/minio:RELEASE.2025-04-22T22-12-26Z                                           "/usr/bin/docker-ent…"   result-object-store           2 minutes ago   Up 2 minutes (healthy)              127.0.0.1:29020->9000/tcp, 127.0.0.1:29021->9001/tcp
+taskgate-n4-qualification-01-diag-21e693ac0600-result-object-store-init-1      minio/mc:RELEASE.2025-04-16T18-13-26Z                                              "/bin/sh -ec 'printf…"   result-object-store-init      2 minutes ago   Exited (0) 2 minutes ago            
+taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-index-detail-1         taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-index-detail               "/usr/local/bin/app …"   snapshot-index-detail         2 minutes ago   Exited (0) 2 minutes ago            
+taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-index-result-heavy-1   taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-index-result-heavy         "/usr/local/bin/app …"   snapshot-index-result-heavy   2 minutes ago   Exited (0) 13 seconds ago           
+taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-index-summary-1        taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-index-summary              "/usr/local/bin/app …"   snapshot-index-summary        2 minutes ago   Exited (0) About a minute ago       
+taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-sidecar-install-1      taskgate-n4-qualification-01-diag-21e693ac0600-snapshot-sidecar-install            "/usr/local/bin/app …"   snapshot-sidecar-install      2 minutes ago   Exited (0) 4 seconds ago            
