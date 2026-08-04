@@ -262,7 +262,12 @@ func applyObserverDelta(sample *experiment.Sample, before, after experiment.Obse
 		return errors.New("observer recorded a container restart")
 	}
 	if delta.BusinessSQLDelta != expectedBusinessSQL {
-		return errors.New("observer total Business SQL delta differs from targeted visible/companion counters")
+		// Counters only: no SQL text, no identity, no business value. The two
+		// numbers are reported because they are what a reviewer needs: the
+		// observer counts every gateway_reader statement, while the targeted
+		// counters count only the Product relations.
+		return fmt.Errorf("observer total Business SQL delta %d differs from targeted visible/companion counters %d",
+			delta.BusinessSQLDelta, expectedBusinessSQL)
 	}
 	sample.GatewayMemoryPeakBytes = delta.GatewayMemoryPeakBytes
 	sample.GatewayCPUUsecDelta = delta.GatewayCPUUsecDelta
