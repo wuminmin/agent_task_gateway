@@ -33,14 +33,23 @@ func snapshotOf(t *testing.T, label string, rows []ObserverStructuralRow) Observ
 	for _, row := range sorted {
 		total += row.Calls
 	}
+	phase := "after"
+	if label == "before" {
+		phase = "before"
+	}
 	return ObserverSnapshotV2{
-		Version: ObserverSnapshotV2Version, Label: label, Role: "gateway_reader",
+		Version: ObserverSnapshotV2Version, SchemaVersion: 2, Phase: phase,
+		ObserverWindowID:         strings.Repeat("a1", 32),
+		ClassifierManifestSHA256: strings.Repeat("b2", 32),
+		OperationBindingSHA256:   strings.Repeat("c3", 32),
+		ObserverSourceSHA256:     strings.Repeat("d4", 32),
+		Label:                    label, Role: "gateway_reader",
 		Total: total, Structural: sorted,
 		Environment: RequiredMeasurementEnvironment(),
 		StatsReset:  "2026-08-04 10:41:46.431868+00", Dealloc: 0,
 		Runtime: testObserverRuntime(t),
 		Resource: ObserverResourceEvidence{
-			PostmasterStartTime: "2026-08-04 10:40:00+00", WALLSN: "0/1A2B3C4",
+			PostmasterStartTime: "2026-08-04 10:40:00+00", BusinessWALBytes: 27438592,
 		},
 	}
 }
@@ -328,7 +337,7 @@ func TestSnapshotDigestCoversRuntimeAndResourceEvidence(t *testing.T) {
 	for name, mutate := range map[string]func(*ObserverSnapshotV2){
 		"gateway source":      func(s *ObserverSnapshotV2) { s.Runtime.GatewaySourceSHA256 = strings.Repeat("7", 64) },
 		"healthcheck command": func(s *ObserverSnapshotV2) { s.Runtime.HealthcheckCommandSHA256 = strings.Repeat("6", 64) },
-		"WAL position":        func(s *ObserverSnapshotV2) { s.Resource.WALLSN = "0/FFFFFFF" },
+		"WAL position":        func(s *ObserverSnapshotV2) { s.Resource.BusinessWALBytes = 99 },
 		"restart count":       func(s *ObserverSnapshotV2) { s.Resource.GatewayRestartCount = 2 },
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -342,5 +351,102 @@ func TestSnapshotDigestCoversRuntimeAndResourceEvidence(t *testing.T) {
 				t.Fatalf("changing the %s did not change the snapshot digest", name)
 			}
 		})
+	}
+}
+
+// A before/after pair carrying different window, manifest, binding or observer
+// identities is two halves of two different measurements, not one window.
+func TestWindowIdentitiesMustMatchAcrossThePair(t *testing.T) {
+	for _, testCase := range []struct {
+		name   string
+		mutate func(*ObserverSnapshotV2)
+		want   string
+	}{
+		{"observer window id",
+			func(s *ObserverSnapshotV2) { s.ObserverWindowID = strings.Repeat("9", 64) },
+			"observer window id differs"},
+		{"classifier manifest",
+			func(s *ObserverSnapshotV2) { s.ClassifierManifestSHA256 = strings.Repeat("8", 64) },
+			"classifier manifest differs"},
+		{"operation binding",
+			func(s *ObserverSnapshotV2) { s.OperationBindingSHA256 = strings.Repeat("7", 64) },
+			"operation binding differs"},
+		{"observer source identity",
+			func(s *ObserverSnapshotV2) { s.ObserverSourceSHA256 = strings.Repeat("6", 64) },
+			"observer source identity differs"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			window, classifier, _ := pairedNovelWindow(t)
+			testCase.mutate(&window.After)
+			_, err := window.Delta(classifier)
+			if err == nil {
+				t.Fatal("a mismatched window identity was accepted")
+			}
+			if !strings.Contains(err.Error(), testCase.want) {
+				t.Fatalf("error %q does not name the mismatch %q", err, testCase.want)
+			}
+		})
+	}
+}
+
+// Two snapshots of the same phase are not a window.
+func TestWindowRequiresOneBeforeAndOneAfter(t *testing.T) {
+	for _, testCase := range []struct {
+		name          string
+		before, after string
+	}{
+		{"two befores", "before", "before"},
+		{"two afters", "after", "after"},
+		{"reversed", "after", "before"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			window, classifier, _ := pairedNovelWindow(t)
+			window.Before.Phase, window.After.Phase = testCase.before, testCase.after
+			if _, err := window.Delta(classifier); err == nil {
+				t.Fatal("a window without one before and one after was accepted")
+			}
+		})
+	}
+}
+
+// A snapshot missing any of the identities the observer must emit is refused
+// before a single count is read.
+func TestSnapshotRequiresEveryObserverIdentity(t *testing.T) {
+	for _, testCase := range []struct {
+		name   string
+		mutate func(*ObserverSnapshotV2)
+		want   string
+	}{
+		{"schema version", func(s *ObserverSnapshotV2) { s.SchemaVersion = 1 }, "schema_version"},
+		{"phase", func(s *ObserverSnapshotV2) { s.Phase = "" }, "neither before nor after"},
+		{"window id", func(s *ObserverSnapshotV2) { s.ObserverWindowID = "" }, "no window identifier"},
+		{"classifier manifest", func(s *ObserverSnapshotV2) { s.ClassifierManifestSHA256 = "" },
+			"names no classifier manifest"},
+		{"malformed operation binding", func(s *ObserverSnapshotV2) { s.OperationBindingSHA256 = "nope" },
+			"operation binding is not"},
+		{"observer source", func(s *ObserverSnapshotV2) { s.ObserverSourceSHA256 = "" },
+			"no observer source identity"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			snapshot := snapshotOf(t, "after", nil)
+			testCase.mutate(&snapshot)
+			err := snapshot.Validate()
+			if err == nil {
+				t.Fatal("a snapshot missing a required identity was accepted")
+			}
+			if !strings.Contains(err.Error(), testCase.want) {
+				t.Fatalf("error %q does not name the missing identity %q", err, testCase.want)
+			}
+		})
+	}
+}
+
+// The operation binding is optional for paths that have none, but must be a
+// digest when present.
+func TestOperationBindingIsOptionalButTyped(t *testing.T) {
+	snapshot := snapshotOf(t, "after", nil)
+	snapshot.OperationBindingSHA256 = ""
+	if err := snapshot.Validate(); err != nil {
+		t.Fatalf("an absent operation binding must be legal: %v", err)
 	}
 }

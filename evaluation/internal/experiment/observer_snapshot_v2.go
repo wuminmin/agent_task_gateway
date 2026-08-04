@@ -67,12 +67,24 @@ func (identity ObserverRuntimeIdentity) Validate() error {
 type ObserverResourceEvidence struct {
 	// PostmasterStartTime detects a PostgreSQL restart in band.
 	PostmasterStartTime string `json:"postmaster_start_time"`
-	// WALLSN is the write-ahead log position, so WAL growth across the window is
-	// reportable.
-	WALLSN string `json:"wal_lsn"`
+	// BusinessWALBytes and ControlWALBytes are write-ahead log positions, so WAL
+	// growth across the window is reportable.
+	BusinessWALBytes int64 `json:"business_wal_bytes"`
+	ControlWALBytes  int64 `json:"control_wal_bytes"`
+	// The Gateway resource counters carried since v1. They do not participate in
+	// statement accounting, but a sample whose Gateway was starved or restarted
+	// is not a clean measurement of anything.
+	GatewayCPUUsec         int64 `json:"gateway_cpu_usec"`
+	GatewayNetworkRXBytes  int64 `json:"gateway_network_rx_bytes"`
+	GatewayNetworkTXBytes  int64 `json:"gateway_network_tx_bytes"`
+	GatewayMemoryPeakBytes int64 `json:"gateway_memory_peak_bytes"`
 	// GatewayRestartCount and GatewayOOMKilled come from the container runtime.
 	GatewayRestartCount int64 `json:"gateway_restart_count"`
 	GatewayOOMKilled    bool  `json:"gateway_oom_killed"`
+	// ContainerRestarts is the whole project's restart total.
+	ContainerRestarts int64 `json:"container_restarts"`
+	// OOMEvents is the Gateway cgroup OOM counter.
+	OOMEvents int64 `json:"oom_events"`
 }
 
 // ObserverSnapshotV2 is one atomic reading of everything the accounting depends
@@ -85,7 +97,26 @@ type ObserverResourceEvidence struct {
 // except by coincidence.
 type ObserverSnapshotV2 struct {
 	Version string `json:"version"`
-	Label   string `json:"label"`
+	// SchemaVersion is 2. It is carried alongside Version so a v1 reader that
+	// only understands schema_version still refuses this document.
+	SchemaVersion int `json:"schema_version"`
+	// Phase is before or after. A window made of two snapshots of the same phase
+	// is not a window.
+	Phase string `json:"phase"`
+	// ObserverWindowID ties the two snapshots of one measurement together. The
+	// Adapter freezes it before observerBefore; a before/after pair carrying
+	// different IDs is two halves of two different measurements.
+	ObserverWindowID string `json:"observer_window_id"`
+	// ClassifierManifestSHA256 and OperationBindingSHA256 are the identities the
+	// observer was invoked under. Carrying them means the classifier a sample was
+	// finalized with is the one the observer was told about, rather than one
+	// chosen afterwards.
+	ClassifierManifestSHA256 string `json:"classifier_manifest_sha256"`
+	OperationBindingSHA256   string `json:"operation_binding_sha256,omitempty"`
+	// ObserverSourceSHA256 is the source-build identity of the observer binary
+	// that produced this snapshot.
+	ObserverSourceSHA256 string `json:"observer_source_sha256"`
+	Label                string `json:"label"`
 	// Role is the database role the census is restricted to.
 	Role string `json:"role"`
 	// Total is the role-wide call total.
@@ -105,6 +136,25 @@ func (snapshot ObserverSnapshotV2) Validate() error {
 	if snapshot.Version != ObserverSnapshotV2Version {
 		return fmt.Errorf("observer snapshot version %q is unsupported; v3 acceptance requires %s",
 			snapshot.Version, ObserverSnapshotV2Version)
+	}
+	if snapshot.SchemaVersion != 2 {
+		return fmt.Errorf("observer snapshot schema_version is %d; v3 acceptance requires 2",
+			snapshot.SchemaVersion)
+	}
+	if snapshot.Phase != "before" && snapshot.Phase != "after" {
+		return fmt.Errorf("observer snapshot phase %q is neither before nor after", snapshot.Phase)
+	}
+	if !validSHA256(snapshot.ObserverWindowID) {
+		return errors.New("observer snapshot carries no window identifier")
+	}
+	if !validSHA256(snapshot.ClassifierManifestSHA256) {
+		return errors.New("observer snapshot names no classifier manifest")
+	}
+	if snapshot.OperationBindingSHA256 != "" && !validSHA256(snapshot.OperationBindingSHA256) {
+		return errors.New("observer snapshot operation binding is not a lowercase SHA-256")
+	}
+	if !validSHA256(snapshot.ObserverSourceSHA256) {
+		return errors.New("observer snapshot carries no observer source identity")
 	}
 	if snapshot.Role == "" {
 		return errors.New("observer snapshot names no role")
@@ -219,6 +269,25 @@ func (window ObserverWindowV2) Delta(classifier *CompiledClassifier) (ObservedDe
 	if window.Before.Role != window.After.Role {
 		return ObservedDelta{}, fmt.Errorf("the window changed role from %q to %q",
 			window.Before.Role, window.After.Role)
+	}
+	if window.Before.Phase != "before" || window.After.Phase != "after" {
+		return ObservedDelta{}, fmt.Errorf("a window requires a before and an after snapshot, got %q and %q",
+			window.Before.Phase, window.After.Phase)
+	}
+	for _, identity := range []struct {
+		name          string
+		before, after string
+	}{
+		{"observer window id", window.Before.ObserverWindowID, window.After.ObserverWindowID},
+		{"classifier manifest", window.Before.ClassifierManifestSHA256, window.After.ClassifierManifestSHA256},
+		{"operation binding", window.Before.OperationBindingSHA256, window.After.OperationBindingSHA256},
+		{"observer source identity", window.Before.ObserverSourceSHA256, window.After.ObserverSourceSHA256},
+	} {
+		if identity.before != identity.after {
+			return ObservedDelta{}, fmt.Errorf("the %s differs between the before and after snapshots (%s vs %s); "+
+				"these are two halves of two different measurements",
+				identity.name, shortDigest(identity.before), shortDigest(identity.after))
+		}
 	}
 	for _, invariant := range []struct {
 		name          string

@@ -42,8 +42,21 @@ var rq5RequiredRuntimeSources = []string{
 // still verify against this manifest.
 var observerRequiredSources = []string{
 	"evaluation/cmd/final-v5-observer/main.go",
+	// The v2 snapshot path: the single-statement census, the structural digest
+	// of every row, and the exact argv identities a v1.5 snapshot is emitted
+	// under. A build that dropped any of these would still produce a snapshot,
+	// and it would mean something different.
+	"evaluation/cmd/final-v5-observer/snapshot_v2.go",
 	"evaluation/internal/experiment/observer.go",
+	"evaluation/internal/experiment/observer_snapshot_v2.go",
 	"evaluation/internal/experiment/formal_window.go",
+	// The strict AST digest decides every structural identity the snapshot
+	// carries, so its bytes are part of what a snapshot means.
+	"evaluation/internal/experiment/strict_ast.go",
+	// The measurement environment and the PostgreSQL runtime identity the
+	// snapshot is validated against.
+	"evaluation/internal/experiment/observer_accounting_v3.go",
+	"evaluation/internal/experiment/attestation_footprint.go",
 }
 
 type CampaignExperimentEvidence struct {
