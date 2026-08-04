@@ -1,0 +1,8 @@
+# Stage B rule: raw SQL/query text may be inspected locally but must never be
+# committed. Only the approved projection in ../observer-window-diagnosis-v1.json
+# is durable evidence.
+census-before.txt
+census-after.txt
+rendered-query.sql
+query_sql.json
+request_data_task.json

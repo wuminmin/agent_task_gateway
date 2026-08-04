@@ -1,0 +1,114 @@
+{
+  "activation_support_changing": false,
+  "capability_changing": false,
+  "diagnosis_id": "observer-v15-20260804T050859Z-97090bb1851b",
+  "entries": [
+    {
+      "class": "datasource_identity",
+      "normalized_template_sha256": "3f51caac941734d3e979723b18d0b7289fff0069d9427d8ca1660117c19e6cd5",
+      "observed_delta": 2,
+      "phase": "preflight+transaction",
+      "queryid": -5408109414808547103,
+      "source_attribution": "liveIdentity",
+      "toplevel": true
+    },
+    {
+      "class": "nested_viewdef_rewrite_lookup",
+      "normalized_template_sha256": "42a794740940860428658540d116cbed9ab76fe91e18cfd64ff70197458f7f14",
+      "observed_delta": 2,
+      "phase": "preflight+transaction",
+      "queryid": 5548817353774115488,
+      "source_attribution": "pg_get_viewdef() internal",
+      "toplevel": false
+    },
+    {
+      "class": "session_double_pin_ambiguous",
+      "normalized_template_sha256": "fb0d13b9d8d2cf0854c2ea248b09bf9693fe824cc683738b189664a3d8184c51",
+      "observed_delta": 2,
+      "phase": "transaction",
+      "queryid": 3562230349643926827,
+      "source_attribution": "QueryPairStream safety+representation pins",
+      "toplevel": true
+    },
+    {
+      "class": "statement_timeout_pin",
+      "normalized_template_sha256": "aac23b68f5e9b3d4622f6ceaee6028c1f6678fe88d9e8b3cdc5f52c45fe82637",
+      "observed_delta": 2,
+      "phase": "transaction",
+      "queryid": -5378431905038090156,
+      "source_attribution": "queryInTx/streamQueryInTx",
+      "toplevel": true
+    },
+    {
+      "class": "view_column_attestation",
+      "normalized_template_sha256": "00de576dd9129db2376618483836ac006dc61e3e2578a08b4b1a7a8522d21f4f",
+      "observed_delta": 2,
+      "phase": "preflight+transaction",
+      "queryid": -5652606820626484518,
+      "source_attribution": "attestSchemaDigest",
+      "toplevel": true
+    },
+    {
+      "class": "view_definition_attestation",
+      "normalized_template_sha256": "ded03fddf18f2e7a6d73ffdaf3a051279fb24375769070e0af6203154aaeb066",
+      "observed_delta": 2,
+      "phase": "preflight+transaction",
+      "queryid": -1277912955944760728,
+      "source_attribution": "viewDefinition",
+      "toplevel": true
+    },
+    {
+      "class": "targeted_visible_or_companion",
+      "normalized_template_sha256": "a26f015a525393a1e5fab6c9ddf65f41c61579c9b1c09dcadad915d646783664",
+      "observed_delta": 1,
+      "phase": "transaction",
+      "queryid": -4130787868019867847,
+      "source_attribution": "authorized target",
+      "toplevel": true
+    },
+    {
+      "class": "targeted_visible_or_companion",
+      "normalized_template_sha256": "1762f01342cfe22dcb3a3dfbada419a98f04690923355e27ed73b79cd41bf6a7",
+      "observed_delta": 1,
+      "phase": "transaction",
+      "queryid": 6881120240908614128,
+      "source_attribution": "authorized target",
+      "toplevel": true
+    },
+    {
+      "class": "transaction_begin",
+      "normalized_template_sha256": "851b0053106e7f9e4aa288d24da420ea0c7ffe3586e7e0cd593df09f3c9a0c70",
+      "observed_delta": 1,
+      "phase": "transaction",
+      "queryid": 6213930813521682135,
+      "source_attribution": "QueryPairStream BeginTx",
+      "toplevel": true
+    },
+    {
+      "class": "transaction_commit",
+      "normalized_template_sha256": "52b8df92dfc7ff8823d4ba729802d527a7a6283c36831218f8b15b161b175921",
+      "observed_delta": 1,
+      "phase": "transaction",
+      "queryid": 2064869707185898531,
+      "source_attribution": "QueryPairStream Commit",
+      "toplevel": true
+    }
+  ],
+  "formal_campaign": false,
+  "gateway_role": "gateway_reader",
+  "observed_total_delta": 16,
+  "pg_stat_statements": {
+    "dealloc": 0,
+    "stats_reset": "2026-08-04 05:16:25.598066+00",
+    "stats_reset_stable_across_window": true,
+    "track": "all",
+    "track_utility": "on"
+  },
+  "postgresql_version": "16.14 (Debian 16.14-1.pgdg12+1)",
+  "publication_eligible": false,
+  "queryid_portability_caveat": "queryid values are PostgreSQL-version and installation specific; they are recorded for this 16.14 deployment only and are not a portable identity",
+  "record": "taskgate-final-v5-observer-window-diagnosis-v1",
+  "schema_version": 1,
+  "unexpected_delta": 0,
+  "workload": "result-heavy/100x4/novel"
+}
