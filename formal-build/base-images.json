@@ -24,17 +24,17 @@
     "which resolves each tag once, writes the digest here, and leaves the result",
     "to be reviewed and committed like any other source change."
   ],
-  "version": "taskgate-formal-build-base-images-v1",
   "images": [
     {
       "role": "builder",
       "tag": "golang:1.25-bookworm",
-      "digest": ""
+      "digest": "sha256:ea341baa9bd5ba6784f6d7161ace70544349a6242d54d34a0fbfd2c4d51c9d58"
     },
     {
       "role": "runtime",
       "tag": "debian:bookworm-slim",
-      "digest": ""
+      "digest": "sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818"
     }
-  ]
+  ],
+  "version": "taskgate-formal-build-base-images-v1"
 }
