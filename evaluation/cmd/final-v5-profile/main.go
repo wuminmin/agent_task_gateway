@@ -40,7 +40,7 @@ const (
 	// activationSupportPath is the per-profile activation support manifest. It is
 	// the only source of activation_supported; there is no global override.
 	activationSupportPath = "config/profiles/activation-support-v1.json"
-	profileDirectory = "config/profiles"
+	profileDirectory      = "config/profiles"
 )
 
 // activationImplementationAvailable is a property of the harness, not of any

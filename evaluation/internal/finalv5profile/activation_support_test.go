@@ -46,9 +46,9 @@ func TestActivationSupportManifestAcceptsAProvenProfile(t *testing.T) {
 	}
 }
 
-// 1. A profile the manifest never mentions can never become supported. This is
-//    the case that produced the wrong state before: the activator existed, so
-//    every profile inherited support.
+//  1. A profile the manifest never mentions can never become supported. This is
+//     the case that produced the wrong state before: the activator existed, so
+//     every profile inherited support.
 func TestProfileAbsentFromManifestIsNeverSupported(t *testing.T) {
 	byID, err := validSupportManifest().SupportedProfiles()
 	if err != nil {
