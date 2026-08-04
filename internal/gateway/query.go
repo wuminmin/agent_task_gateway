@@ -22,6 +22,7 @@ import (
 	"taskbound.local/agent-data-gateway/internal/domain"
 	"taskbound.local/agent-data-gateway/internal/exposure"
 	"taskbound.local/agent-data-gateway/internal/mcp"
+	"taskbound.local/agent-data-gateway/internal/physicalquery"
 	"taskbound.local/agent-data-gateway/internal/queryplan"
 	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 	"taskbound.local/agent-data-gateway/internal/semanticcache"
@@ -871,28 +872,34 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 		}
 	}
 	engine := sqlpolicy.New(sqlpolicy.Config{})
-	visibleRowLimit := remaining.Rows
-	if exposureContext != nil && !exposureContext.usesExpandedEvidence() {
-		visibleRowLimit = min64(visibleRowLimit, exposureLedger.Limits.InfluenceFacts)
+	// The row-limit derivation lives in internal/physicalquery so that the
+	// evaluation and the finalizer reproduce the statements this executes rather
+	// than reimplementing the arithmetic. sqlpolicy renders the limit into the
+	// SQL, so a second implementation would change the executed bytes.
+	ledgerState := physicalquery.LedgerPreState{
+		RemainingRows: remaining.Rows, HasExposureContext: exposureContext != nil,
 	}
-	decision, err := engine.Authorize(sqlpolicy.Request{SQL: agentSQL, Grant: policyGrant, RowLimit: visibleRowLimit})
+	if exposureContext != nil {
+		ledgerState.InfluenceFacts = exposureLedger.Limits.InfluenceFacts
+		ledgerState.UsesExpandedEvidence = exposureContext.usesExpandedEvidence()
+	}
+	decision, err := engine.Authorize(sqlpolicy.Request{
+		SQL: agentSQL, Grant: policyGrant,
+		RowLimit: physicalquery.RequestedVisibleRowLimit(ledgerState),
+	})
 	if err != nil {
 		return nil, err
 	}
 	var provenanceDecision sqlpolicy.Decision
 	var provenanceEvidenceRows int64
 	if exposureContext != nil {
-		provenanceEvidenceRows = decision.RowLimit
-		provenancePolicyRows := provenanceEvidenceRows
-		if exposureContext.usesExpandedEvidence() {
-			provenanceEvidenceRows = exposureLedger.Limits.InfluenceFacts
-			provenancePolicyRows = provenanceEvidenceRows + 1
-		}
-		if provenanceEvidenceRows < 1 {
+		limits, limitsErr := physicalquery.DeriveLimits(ledgerState, decision.RowLimit)
+		if limitsErr != nil {
 			return nil, toolError(control.ErrExposureBudgetExhausted)
 		}
+		provenanceEvidenceRows = limits.CompanionEvidenceRows
 		provenanceDecision, err = engine.Authorize(sqlpolicy.Request{
-			SQL: exposureContext.provenanceSQL, Grant: policyGrant, RowLimit: provenancePolicyRows,
+			SQL: exposureContext.provenanceSQL, Grant: policyGrant, RowLimit: limits.CompanionPolicyRows,
 		})
 		if err != nil {
 			return nil, toolError(control.ErrExposureEvidenceRequired)
