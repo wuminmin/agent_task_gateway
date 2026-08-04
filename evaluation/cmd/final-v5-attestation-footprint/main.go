@@ -66,8 +66,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"taskbound.local/agent-data-gateway/evaluation/internal/experiment"
-	"taskbound.local/agent-data-gateway/internal/catalog"
-	"taskbound.local/agent-data-gateway/internal/catalogschema"
 	"taskbound.local/agent-data-gateway/internal/dataconnector"
 )
 
@@ -132,10 +130,15 @@ type qualificationReport struct {
 	ActivationSupportChanging bool   `json:"activation_support_changing"`
 	FormalCampaign            bool   `json:"formal_campaign"`
 
-	CatalogPath           string `json:"catalog_path"`
-	CatalogSHA256         string `json:"catalog_sha256"`
-	ExpectedSchemaDigest  string `json:"expected_schema_digest"`
-	ExpectedSchemaEntries int64  `json:"expected_schema_entries"`
+	CatalogPath string `json:"catalog_path"`
+	// Provenance ties this run to a clean, published commit and to the exact
+	// bytes of every source-built dependency.
+	Provenance QualificationProvenance `json:"provenance"`
+	// Profile binds the run to the exact profile, registry, catalog,
+	// ExpectedSchema and artifact manifest it qualified against.
+	Profile               ProfileBinding `json:"profile_binding"`
+	ExpectedSchemaDigest  string         `json:"expected_schema_digest"`
+	ExpectedSchemaEntries int64          `json:"expected_schema_entries"`
 	// ExpectedSchemaRelations names the ordered entries, for review. It is
 	// schema-qualified relation naming only; no data and no SQL.
 	ExpectedSchemaRelations []string `json:"expected_schema_relations"`
@@ -173,11 +176,15 @@ func main() {
 }
 
 func run() error {
-	var dsn, adminDSN, out, catalogPath, identityPath, datasourceID, database, reader string
+	var out, catalogPath, identityPath, datasourceID, database, reader string
+	var registryPath, profileID, artifactManifestPath, root string
 	var majorVersion, repetitions int
-	flag.StringVar(&dsn, "gateway-reader-dsn", "", "gateway_reader DSN for the Connector under test")
-	flag.StringVar(&adminDSN, "admin-dsn", "", "superuser DSN used only to read and reset pg_stat_statements")
 	flag.StringVar(&out, "out", "", "qualification report path")
+	flag.StringVar(&root, "root", ".", "repository root")
+	flag.StringVar(&registryPath, "profile-registry", "config/profiles/registry.json", "profile registry path")
+	flag.StringVar(&profileID, "profile-id", "", "profile whose Catalog is qualified")
+	flag.StringVar(&artifactManifestPath, "profile-artifact-manifest", "",
+		"per-profile artifact manifest the Gateway was started against")
 	flag.StringVar(&catalogPath, "catalog", "", "activated Profile Catalog whose ExpectedSchema is qualified")
 	flag.StringVar(&identityPath, "postgresql-identity", "",
 		"JSON file carrying the complete immutable PostgreSQL runtime identity")
@@ -187,8 +194,16 @@ func run() error {
 	flag.IntVar(&majorVersion, "postgresql-major", 16, "expected PostgreSQL major version")
 	flag.IntVar(&repetitions, "repetitions", 3, "repetitions of each repeatable scope")
 	flag.Parse()
-	if dsn == "" || adminDSN == "" || out == "" || catalogPath == "" || identityPath == "" {
-		return errors.New("gateway-reader-dsn, admin-dsn, out, catalog and postgresql-identity are required")
+	// Credentials are never flags: a flag lands in the process table, in shell
+	// history and in any log that echoes the command. They are read from the
+	// environment and never written to the report.
+	dsn := strings.TrimSpace(os.Getenv("TASKGATE_QUALIFICATION_READER_DSN"))
+	adminDSN := strings.TrimSpace(os.Getenv("TASKGATE_QUALIFICATION_ADMIN_DSN"))
+	if dsn == "" || adminDSN == "" {
+		return errors.New("TASKGATE_QUALIFICATION_READER_DSN and TASKGATE_QUALIFICATION_ADMIN_DSN must be supplied in the environment")
+	}
+	if out == "" || catalogPath == "" || identityPath == "" || profileID == "" || artifactManifestPath == "" {
+		return errors.New("out, catalog, postgresql-identity, profile-id and profile-artifact-manifest are required")
 	}
 	if repetitions < 2 {
 		return fmt.Errorf("repetitions must be at least 2 so a scope has something to agree with, got %d", repetitions)
@@ -203,15 +218,18 @@ func run() error {
 		return err
 	}
 
+	// A qualification that cannot be tied to clean, published bytes is refused
+	// before anything is measured.
+	provenance, err := collectProvenance(root)
+	if err != nil {
+		return err
+	}
+
 	// The ExpectedSchema identity comes from the Catalog builder, never from a
 	// live catalog read.
-	logicalCatalog, err := catalog.Load(catalogPath)
+	profile, built, err := bindProfile(root, registryPath, catalogPath, profileID, artifactManifestPath)
 	if err != nil {
-		return fmt.Errorf("load catalog %s: %w", catalogPath, err)
-	}
-	built, err := catalogschema.Build(logicalCatalog)
-	if err != nil {
-		return fmt.Errorf("build ExpectedSchema from %s: %w", catalogPath, err)
+		return err
 	}
 
 	ctx := context.Background()
@@ -226,7 +244,8 @@ func run() error {
 		DiagnosisID:         diagnosisID,
 		PublicationEligible: false, CapabilityChanging: false,
 		ActivationSupportChanging: false, FormalCampaign: false,
-		CatalogPath: catalogPath, ExpectedSchemaDigest: built.Digest,
+		CatalogPath: catalogPath, Provenance: provenance, Profile: profile,
+		ExpectedSchemaDigest:  built.Digest,
 		ExpectedSchemaEntries: built.Count, PostgreSQL: postgreSQL,
 		QueryIDPortabilityCaveat: "queryid is PostgreSQL-version and installation specific; " +
 			"it is recorded for deployment-local diagnosis only and is not a portable identity",
@@ -293,6 +312,11 @@ func run() error {
 		return err
 	}
 	fmt.Printf("attestation footprint qualification for %s\n", catalogPath)
+	fmt.Printf("  commit %s (clean, equals origin/%s)\n", provenance.Commit[:12], provenance.Branch)
+	fmt.Printf("  profile %s (%s) registry %s catalog %s\n", profile.Alias, profile.ProfileID,
+		profile.RegistryRelease, profile.CatalogSHA256[:12])
+	fmt.Printf("  artifact manifest %s directory %s\n",
+		profile.ArtifactManifestSHA256[:12], profile.ArtifactDirectorySHA256[:12])
 	fmt.Printf("  ExpectedSchema E=%d digest=%s (from catalogschema.Build)\n",
 		built.Count, built.Digest[:12])
 	fmt.Printf("  %d snapshots, %d intervals, %d internal keys\n",

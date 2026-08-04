@@ -226,15 +226,30 @@ json.dump({
 PYIDENT
 echo "postgresql image: ${image_reference} on ${platform}"
 
-admin_dsn="postgres://postgres:postgres-04f459a04bd431eba54c2a8271bb1db34c7e5c812e1b83db@127.0.0.1:25434/travel_demo?sslmode=disable"
-reader_dsn="postgres://gateway_reader:gateway-reader-66c7f869ec350adeb83e105185c2d72690e6077765e43157@127.0.0.1:25434/travel_demo?sslmode=disable"
+# Credentials are read from the deployment rather than written here, and are
+# passed to the probe through the environment rather than as flags: a flag lands
+# in the process table, in shell history and in any log that echoes the command.
+# Nothing below echoes them, and the probe never writes them to its report.
+read_service_env() { # service, variable
+  docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' \
+    "$("${compose[@]}" ps -q "$1")" | sed -n "s/^$2=//p" | head -1
+}
+postgres_password="$(read_service_env business-postgres POSTGRES_PASSWORD)"
+reader_password="$(read_service_env business-postgres GATEWAY_DB_PASSWORD)"
+[[ -n "$postgres_password" && -n "$reader_password" ]] || {
+  echo "could not read deployment credentials from the running container" >&2; exit 1; }
+
+export TASKGATE_QUALIFICATION_ADMIN_DSN="postgres://postgres:${postgres_password}@127.0.0.1:25434/travel_demo?sslmode=disable"
+export TASKGATE_QUALIFICATION_READER_DSN="postgres://gateway_reader:${reader_password}@127.0.0.1:25434/travel_demo?sslmode=disable"
+unset postgres_password reader_password
 
 echo "== qualifying against ${PROFILE_CATALOG}"
 DIAGNOSIS_ID="$diagnosis_id" \
 GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-attestation-footprint \
-  --gateway-reader-dsn "$reader_dsn" \
-  --admin-dsn "$admin_dsn" \
+  --root "$repo" \
   --catalog "$PROFILE_CATALOG" \
+  --profile-id "$PROFILE_ID" \
+  --profile-artifact-manifest "$outdir/profile-artifact-manifest.json" \
   --postgresql-identity "$outdir/postgresql-identity.json" \
   --datasource-id taskgate-demo-travel \
   --database travel_demo \
