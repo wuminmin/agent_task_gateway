@@ -36,6 +36,16 @@ const (
 	// SourceQueryContract is a target statement whose identity comes from the
 	// frozen rendered query contract for one operation.
 	SourceQueryContract ClassifierSourceKind = "query_contract"
+	// SourceQualifiedFootprint is a PostgreSQL-internal statement whose identity
+	// was measured, not written. There is no TaskGate source to pin and no
+	// portable template to assert: the shape is an implementation detail of one
+	// server build, so it is bound to the qualification run that measured it.
+	//
+	// The previous design hard-coded one pg_rewrite lookup as a runtime
+	// template. That asserted a particular internal statement as a universal
+	// constant on the strength of a single deployment, which is the same
+	// unjustified generalization the footprint contract exists to retire.
+	SourceQualifiedFootprint ClassifierSourceKind = "qualified_footprint"
 )
 
 // ClassifierEntry maps one structural key to exactly one class.
@@ -58,6 +68,9 @@ type ClassifierEntry struct {
 	// PostgreSQLVersionNum binds a runtime template to the server that emits
 	// it, empty for source-pinned statements.
 	PostgreSQLVersionNum int64 `json:"postgresql_version_num,omitempty"`
+	// FootprintSHA256 names the qualification that measured a PostgreSQL-internal
+	// statement, empty otherwise.
+	FootprintSHA256 string `json:"footprint_sha256,omitempty"`
 }
 
 // classifierKey is the classification key: structural identity plus toplevel.
@@ -83,7 +96,7 @@ func requiredManifestClasses() []GatewayStatementClassV3 {
 		V3TransactionBegin, V3TransactionCommit,
 		V3SafetySessionPin, V3RepresentationPin, V3StatementTimeoutPin,
 		V3DatasourceIdentity, V3ViewColumnAttestation, V3ViewDefinitionAttest,
-		V3NestedViewdefRewrite,
+		V3PostgreSQLInternalAttestation,
 	}
 }
 
@@ -129,22 +142,37 @@ func (manifest ClassifierManifest) Validate() error {
 			if !validSHA256(entry.SourceSHA256) {
 				return fmt.Errorf("class %s is pinned to Connector source but carries no source digest", entry.Class)
 			}
-			if entry.PostgreSQLVersionNum != 0 || entry.ContractIdentity != "" {
+			if entry.PostgreSQLVersionNum != 0 || entry.ContractIdentity != "" || entry.FootprintSHA256 != "" {
 				return fmt.Errorf("class %s carries an identity that does not belong to a Connector constant", entry.Class)
 			}
 		case SourceRuntimeTemplate:
 			if entry.PostgreSQLVersionNum == 0 {
 				return fmt.Errorf("class %s is a runtime template but is bound to no PostgreSQL version", entry.Class)
 			}
-			if entry.SourceSHA256 != "" || entry.ContractIdentity != "" {
+			if entry.SourceSHA256 != "" || entry.ContractIdentity != "" || entry.FootprintSHA256 != "" {
 				return fmt.Errorf("class %s carries an identity that does not belong to a runtime template", entry.Class)
 			}
 		case SourceQueryContract:
 			if entry.ContractIdentity == "" {
 				return fmt.Errorf("class %s is a target statement but names no frozen contract", entry.Class)
 			}
-			if entry.SourceSHA256 != "" || entry.PostgreSQLVersionNum != 0 {
+			if entry.SourceSHA256 != "" || entry.PostgreSQLVersionNum != 0 || entry.FootprintSHA256 != "" {
 				return fmt.Errorf("class %s carries an identity that does not belong to a query contract", entry.Class)
+			}
+		case SourceQualifiedFootprint:
+			if entry.Class != V3PostgreSQLInternalAttestation {
+				return fmt.Errorf("class %s is not a PostgreSQL-internal statement and must not be bound to a footprint", entry.Class)
+			}
+			if !validSHA256(entry.FootprintSHA256) {
+				return fmt.Errorf("class %s is measured but names no qualification footprint", entry.Class)
+			}
+			// PostgreSQL-internal Attestation statements are nested by
+			// definition; only track=all records them at all.
+			if entry.RequiredTopLevel {
+				return fmt.Errorf("class %s requires toplevel, but PostgreSQL-internal statements are nested", entry.Class)
+			}
+			if entry.SourceSHA256 != "" || entry.ContractIdentity != "" || entry.PostgreSQLVersionNum != 0 {
+				return fmt.Errorf("class %s carries an identity that does not belong to a measured statement", entry.Class)
 			}
 		default:
 			return fmt.Errorf("class %s has unknown source kind %q", entry.Class, entry.SourceKind)
@@ -243,9 +271,6 @@ func controlManifestEntries() ([]ClassifierEntry, error) {
 	}{
 		{V3TransactionBegin, runtimeBeginTemplate, true},
 		{V3TransactionCommit, runtimeCommitTemplate, true},
-		// PostgreSQL performs this inside pg_get_viewdef. It is only counted
-		// under track=all, and only ever as a nested statement.
-		{V3NestedViewdefRewrite, runtimeNestedRewriteTemplate, false},
 	}
 	for _, template := range runtime {
 		digest, err := StrictASTDigest(template.sql)
@@ -263,10 +288,14 @@ func controlManifestEntries() ([]ClassifierEntry, error) {
 // Runtime templates, bound to PostgreSQL 16.14 and confirmed live by
 // TestRuntimeTemplateDigestsAreStableOnLivePostgreSQL. These are what pgx and
 // the server emit; there is no Connector constant to pin them to.
+//
+// The PostgreSQL-internal Attestation statements are deliberately NOT here.
+// They are measured per qualification and enter the manifest from the footprint,
+// because their shape is a property of one server build rather than a portable
+// template.
 const (
-	runtimeBeginTemplate         = `begin isolation level repeatable read read only`
-	runtimeCommitTemplate        = `commit`
-	runtimeNestedRewriteTemplate = `SELECT * FROM pg_catalog.pg_rewrite WHERE ev_class = $1 AND rulename = $2`
+	runtimeBeginTemplate  = `begin isolation level repeatable read read only`
+	runtimeCommitTemplate = `commit`
 )
 
 // BuildClassifierManifest assembles the manifest for one operation: the shared
@@ -274,10 +303,27 @@ const (
 // renders. Targets are per operation on purpose -- a global manifest listing
 // every workload's allowed targets would let a missing legitimate target be
 // replaced by another workload's, with no change to any class count.
-func BuildClassifierManifest(targets []ClassifierEntry) (ClassifierManifest, error) {
+// The PostgreSQL-internal keys come from the qualified footprint, so the
+// manifest can classify exactly the internal statements that qualification
+// measured and nothing else. An internal statement the footprint never saw lands
+// in the unexpected class rather than being absorbed by a hard-coded template.
+func BuildClassifierManifest(footprint AttestationFootprintV2, targets []ClassifierEntry) (ClassifierManifest, error) {
+	footprintDigest, err := footprint.SHA256()
+	if err != nil {
+		return ClassifierManifest{}, fmt.Errorf("qualified footprint: %w", err)
+	}
 	entries, err := controlManifestEntries()
 	if err != nil {
 		return ClassifierManifest{}, err
+	}
+	for _, key := range footprint.InternalKeys() {
+		entries = append(entries, ClassifierEntry{
+			Class: V3PostgreSQLInternalAttestation, StrictASTSHA256: key,
+			// Always nested: the same shape at top level is a different
+			// statement and must not satisfy this class.
+			RequiredTopLevel: false, SourceKind: SourceQualifiedFootprint,
+			FootprintSHA256: footprintDigest,
+		})
 	}
 	for _, target := range targets {
 		if target.Class != V3TargetedVisible && target.Class != V3TargetedCompanion {

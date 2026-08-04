@@ -5,173 +5,228 @@ import (
 	"testing"
 
 	"taskbound.local/agent-data-gateway/evaluation/internal/experiment"
-	"taskbound.local/agent-data-gateway/internal/catalogschema"
-	"taskbound.local/agent-data-gateway/internal/dataconnector"
 )
 
 const (
 	internalKey = "e5738df1650276a7f20e677172e067bc62bab12d48c18a378c9b6ed602433842"
 	otherKey    = "3cfbbde6160f50e1d80a3302c6f6a95426c191405290b3d6c54980d3e71c9f34"
-	testImageID = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+	targetKey   = "aa11bb22cc33dd44ee55ff6677889900aabbccddeeff00112233445566778899"
 )
 
-func testConfiguration(entries int) schemaConfiguration {
-	schema := make([]dataconnector.ViewSchema, 0, entries)
-	kinds := make([]string, 0, entries)
-	for index := 0; index < entries; index++ {
-		schema = append(schema, dataconnector.ViewSchema{
-			Schema: "reporting", View: string(rune('a'+index)) + "_view",
-			Columns: []dataconnector.SchemaColumn{{Name: "id", PostgreSQLType: "bigint"}},
+// baseSnapshot is a healthy cumulative reading. Intervals are built by advancing
+// a copy of it, so every invariant is exercised against a realistic pair.
+func baseSnapshot(label string, index int) snapshot {
+	return snapshot{
+		Index: index, Label: label,
+		calls:               map[structuralKey]int64{},
+		queryIDs:            map[structuralKey]string{},
+		StatsReset:          "2026-08-04 10:41:46.431868+00",
+		Dealloc:             0,
+		PostmasterStartTime: "2026-08-04 10:40:00+00",
+		Environment:         experiment.RequiredMeasurementEnvironment(),
+	}
+}
+
+// advance returns the next cumulative snapshot after adding the given calls.
+func advance(from snapshot, label string, added map[structuralKey]int64) snapshot {
+	to := baseSnapshot(label, from.Index+1)
+	to.StatsReset, to.Dealloc = from.StatsReset, from.Dealloc
+	to.PostmasterStartTime, to.Environment = from.PostmasterStartTime, from.Environment
+	for key, calls := range from.calls {
+		to.calls[key] = calls
+		to.queryIDs[key] = from.queryIDs[key]
+	}
+	to.Total = from.Total
+	for key, calls := range added {
+		to.calls[key] += calls
+		to.queryIDs[key] = "diagnosis-local"
+		to.Total += calls
+	}
+	return to
+}
+
+func internal(digest string) structuralKey { return structuralKey{StrictASTSHA256: digest} }
+func topLevel(digest string) structuralKey {
+	return structuralKey{StrictASTSHA256: digest, TopLevel: true}
+}
+
+// One Attestation is isolated between two adjacent snapshots. Nothing is
+// divided by an assumed attestations-per-trial.
+func TestIntervalIsolatesExactlyOneAttestation(t *testing.T) {
+	from := baseSnapshot("baseline", 0)
+	to := advance(from, "explicit-preflight-0", map[structuralKey]int64{
+		internal(internalKey): 1,
+		topLevel(targetKey):   3,
+	})
+	interval, err := deltaBetween(from, to, experiment.AttestationScopeExplicitPreflightPool, 0)
+	if err != nil {
+		t.Fatalf("deltaBetween: %v", err)
+	}
+	if interval.Attestations != 1 {
+		t.Fatalf("interval isolates %d attestations, want 1", interval.Attestations)
+	}
+	if len(interval.Internal) != 1 || interval.Internal[0].Calls != 1 {
+		t.Fatalf("internal delta = %+v", interval.Internal)
+	}
+	if interval.TotalDelta != 4 || interval.StructuralSum != 4 {
+		t.Fatalf("total=%d structural=%d, want 4 and 4", interval.TotalDelta, interval.StructuralSum)
+	}
+}
+
+// Every invariant an interval depends on must invalidate it rather than skew a
+// count silently.
+func TestIntervalBindsItsInvariants(t *testing.T) {
+	for _, testCase := range []struct {
+		name   string
+		mutate func(*snapshot)
+		want   string
+	}{
+		{"pg_stat_statements reset inside the window",
+			func(s *snapshot) { s.StatsReset = "2026-08-04 11:00:00+00" }, "was reset inside the window"},
+		{"entries evicted",
+			func(s *snapshot) { s.Dealloc = 2 }, "evicted entries"},
+		{"PostgreSQL restarted",
+			func(s *snapshot) { s.PostmasterStartTime = "2026-08-04 12:00:00+00" }, "restarted inside the window"},
+		{"measurement environment changed",
+			func(s *snapshot) { s.Environment.Track = "top" }, "environment changed inside the window"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			from := baseSnapshot("baseline", 0)
+			to := advance(from, "explicit-preflight-0", map[structuralKey]int64{internal(internalKey): 1})
+			testCase.mutate(&to)
+			_, err := deltaBetween(from, to, experiment.AttestationScopeExplicitPreflightPool, 0)
+			if err == nil {
+				t.Fatal("a violated interval invariant was accepted")
+			}
+			if !strings.Contains(err.Error(), testCase.want) {
+				t.Fatalf("error %q does not name the violation %q", err, testCase.want)
+			}
 		})
-		kinds = append(kinds, "plain_view")
 	}
-	// The same digest function buildConfigurations uses, so the test stays in
-	// the production ExpectedSchema identity space.
-	return schemaConfiguration{kinds: kinds, entries: schema, digest: catalogschema.Digest(schema)}
 }
 
-func trialsFor(configuration schemaConfiguration, callsPerAttestation int64, repetitions int) []trial {
-	var trials []trial
+// The total delta must equal the sum of the classified structural rows, or a
+// call was counted outside what the probe accounted for.
+func TestIntervalRejectsAnUnaccountedCall(t *testing.T) {
+	from := baseSnapshot("baseline", 0)
+	to := advance(from, "explicit-preflight-0", map[structuralKey]int64{internal(internalKey): 1})
+	to.Total += 5 // a call with no structural row behind it
+	_, err := deltaBetween(from, to, experiment.AttestationScopeExplicitPreflightPool, 0)
+	if err == nil {
+		t.Fatal("an unaccounted call was accepted")
+	}
+	if !strings.Contains(err.Error(), "outside the classified rows") {
+		t.Fatalf("error %q does not name the discrepancy", err)
+	}
+}
+
+func TestIntervalRejectsCountsGoingBackwards(t *testing.T) {
+	from := baseSnapshot("baseline", 0)
+	from.calls[internal(internalKey)] = 5
+	from.Total = 5
+	to := advance(from, "explicit-preflight-0", nil)
+	to.calls[internal(internalKey)] = 2
+	to.Total = 2
+	if _, err := deltaBetween(from, to, experiment.AttestationScopeExplicitPreflightPool, 0); err == nil {
+		t.Fatal("a backwards cumulative count was accepted")
+	}
+}
+
+func TestIntervalRejectsADisappearingKey(t *testing.T) {
+	from := baseSnapshot("baseline", 0)
+	from.calls[internal(internalKey)] = 5
+	from.Total = 5
+	to := baseSnapshot("explicit-preflight-0", 1)
+	to.Total = 5
+	if _, err := deltaBetween(from, to, experiment.AttestationScopeExplicitPreflightPool, 0); err == nil {
+		t.Fatal("a key vanishing from pg_stat_statements was accepted")
+	}
+}
+
+// intervalsFor builds agreeing intervals for one scope.
+func intervalsFor(scope experiment.AttestationScope, calls int64, repetitions int) []measuredInterval {
+	var intervals []measuredInterval
 	for repetition := 0; repetition < repetitions; repetition++ {
-		for _, scope := range []string{scopePreflight, scopeTransaction} {
-			trials = append(trials, trial{
-				Scope: scope, ExpectedSchemaDigest: configuration.digest,
-				ExpectedSchemaEntries: int64(len(configuration.entries)),
-				RelationKinds:         configuration.kinds, Repetition: repetition,
-				AttestationsPerTrial: 2,
-				InternalPerAttestation: []structuralEntry{
-					{StrictASTSHA256: internalKey, Calls: callsPerAttestation},
-				},
-			})
-		}
+		intervals = append(intervals, measuredInterval{
+			Scope: scope, Repetition: repetition, Attestations: 1,
+			Internal: []structuralEntry{{structuralKey: internal(internalKey), Calls: calls}},
+		})
 	}
-	return trials
+	return intervals
 }
 
-func TestQualifyEmitsAFootprintBoundToItsExpectedSchema(t *testing.T) {
-	configuration := testConfiguration(1)
-	trials := trialsFor(configuration, 1, 3)
-	stability, footprint, err := qualify(trials, configuration,
-		experiment.RequiredMeasurementEnvironment(), testImageID, "qualification-test")
+func TestAgreedFootprintAcceptsStableIntervals(t *testing.T) {
+	entries, stable, count, err := agreedFootprint(
+		intervalsFor(experiment.AttestationScopeExplicitPreflightPool, 1, 3),
+		experiment.AttestationScopeExplicitPreflightPool)
 	if err != nil {
-		t.Fatalf("qualify: %v", err)
+		t.Fatalf("agreedFootprint: %v", err)
 	}
-	if !stability.PreflightStable || !stability.TransactionStable {
-		t.Fatalf("stable trials reported unstable: %+v", stability)
+	if !stable || count != 3 {
+		t.Fatalf("stable=%t count=%d, want true and 3", stable, count)
 	}
-	if footprint.ExpectedSchemaDigest != configuration.digest {
-		t.Fatalf("footprint bound to %s, want the measured schema %s",
-			footprint.ExpectedSchemaDigest, configuration.digest)
-	}
-	if footprint.ExpectedSchemaEntries != 1 {
-		t.Fatalf("footprint entries = %d, want 1", footprint.ExpectedSchemaEntries)
-	}
-	if err := footprint.Require(configuration.digest, 1,
-		experiment.RequiredMeasurementEnvironment(), testImageID); err != nil {
-		t.Fatalf("the emitted footprint must bind to its own conditions: %v", err)
+	if len(entries) != 1 || entries[0].CallsPerAttestation != 1 {
+		t.Fatalf("entries = %+v", entries)
 	}
 }
 
-// The two-entry configuration is what separates "per Attestation" from "per
-// ExpectedSchema entry"; the emitted footprint must carry the measured 2.
-func TestQualifyCarriesTheMeasuredPerEntryMultiplicity(t *testing.T) {
-	configuration := testConfiguration(2)
-	_, footprint, err := qualify(trialsFor(configuration, 2, 3), configuration,
-		experiment.RequiredMeasurementEnvironment(), testImageID, "qualification-test")
-	if err != nil {
-		t.Fatalf("qualify: %v", err)
-	}
-	scope, err := footprint.Scope(experiment.AttestationScopePreflight)
-	if err != nil {
-		t.Fatalf("scope: %v", err)
-	}
-	if got := scope.TotalCallsPerAttestation(); got != 2 {
-		t.Fatalf("per-attestation calls = %d, want the measured 2", got)
-	}
-}
-
-// Disagreement between repetitions must stop the qualification, not be averaged,
-// unioned or resolved by taking the last trial.
-func TestQualifyRefusesWhenTrialsDisagree(t *testing.T) {
-	configuration := testConfiguration(1)
-	for name, mutate := range map[string]func([]trial){
-		"a differing multiplicity": func(trials []trial) {
-			trials[len(trials)-1].InternalPerAttestation[0].Calls = 2
+// Disagreement must stop the qualification, not be averaged, unioned or
+// resolved by taking the last interval.
+func TestAgreedFootprintRefusesWhenIntervalsDisagree(t *testing.T) {
+	scope := experiment.AttestationScopeExplicitPreflightPool
+	for name, mutate := range map[string]func([]measuredInterval){
+		"a differing multiplicity": func(intervals []measuredInterval) {
+			intervals[2].Internal[0].Calls = 2
 		},
-		"a differing structural key": func(trials []trial) {
-			trials[len(trials)-1].InternalPerAttestation[0].StrictASTSHA256 = otherKey
+		"a differing structural key": func(intervals []measuredInterval) {
+			intervals[2].Internal[0].StrictASTSHA256 = otherKey
 		},
-		"an extra internal statement": func(trials []trial) {
-			trials[len(trials)-1].InternalPerAttestation = append(
-				trials[len(trials)-1].InternalPerAttestation,
-				structuralEntry{StrictASTSHA256: otherKey, Calls: 1})
+		"an extra internal statement": func(intervals []measuredInterval) {
+			intervals[2].Internal = append(intervals[2].Internal,
+				structuralEntry{structuralKey: internal(otherKey), Calls: 1})
 		},
-		"a missing internal statement": func(trials []trial) {
-			trials[len(trials)-1].InternalPerAttestation = nil
+		"a missing internal statement": func(intervals []measuredInterval) {
+			intervals[2].Internal = nil
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			trials := trialsFor(configuration, 1, 3)
-			mutate(trials)
-			_, _, err := qualify(trials, configuration,
-				experiment.RequiredMeasurementEnvironment(), testImageID, "qualification-test")
-			if err == nil {
-				t.Fatal("disagreeing trials produced a qualified footprint")
+			intervals := intervalsFor(scope, 1, 3)
+			mutate(intervals)
+			_, stable, _, err := agreedFootprint(intervals, scope)
+			if err != nil {
+				t.Fatalf("agreedFootprint: %v", err)
 			}
-			if !strings.Contains(err.Error(), "ATTESTATION INTERNAL FOOTPRINT NOT STABLE") {
-				t.Fatalf("error %q does not raise the stop condition", err)
+			if stable {
+				t.Fatal("disagreeing intervals were reported stable")
 			}
 		})
 	}
 }
 
-// A scope with no trial at all must fail rather than yield a footprint silent
+// A scope with no interval at all must fail rather than yield a footprint silent
 // about it.
-func TestQualifyRefusesAnUnmeasuredScope(t *testing.T) {
-	configuration := testConfiguration(1)
-	var preflightOnly []trial
-	for _, measured := range trialsFor(configuration, 1, 3) {
-		if measured.Scope == scopePreflight {
-			preflightOnly = append(preflightOnly, measured)
-		}
-	}
-	if _, _, err := qualify(preflightOnly, configuration,
-		experiment.RequiredMeasurementEnvironment(), testImageID, "qualification-test"); err == nil {
-		t.Fatal("a footprint was qualified without measuring the transactional scope")
+func TestAgreedFootprintRefusesAnUnmeasuredScope(t *testing.T) {
+	intervals := intervalsFor(experiment.AttestationScopeExplicitPreflightPool, 1, 3)
+	if _, _, _, err := agreedFootprint(intervals,
+		experiment.AttestationScopePairedQueryTransaction); err == nil {
+		t.Fatal("a scope with no interval was accepted")
 	}
 }
 
-// Trials belonging to another ExpectedSchema must not be absorbed into this
-// one's footprint.
-func TestQualifyIgnoresAnotherExpectedSchemasTrials(t *testing.T) {
-	one := testConfiguration(1)
-	two := testConfiguration(2)
-	trials := append(trialsFor(one, 1, 3), trialsFor(two, 2, 3)...)
-	_, footprint, err := qualify(trials, one,
-		experiment.RequiredMeasurementEnvironment(), testImageID, "qualification-test")
+// Intervals belonging to another scope must not be absorbed.
+func TestAgreedFootprintIgnoresOtherScopes(t *testing.T) {
+	intervals := append(
+		intervalsFor(experiment.AttestationScopeExplicitPreflightPool, 1, 3),
+		intervalsFor(experiment.AttestationScopePairedQueryTransaction, 9, 3)...)
+	entries, stable, count, err := agreedFootprint(intervals,
+		experiment.AttestationScopeExplicitPreflightPool)
 	if err != nil {
-		t.Fatalf("qualify: %v", err)
+		t.Fatalf("agreedFootprint: %v", err)
 	}
-	scope, err := footprint.Scope(experiment.AttestationScopeTransactional)
-	if err != nil {
-		t.Fatalf("scope: %v", err)
+	if !stable || count != 3 {
+		t.Fatalf("stable=%t count=%d", stable, count)
 	}
-	if got := scope.TotalCallsPerAttestation(); got != 1 {
-		t.Fatalf("per-attestation calls = %d, want the 1 measured for this ExpectedSchema", got)
-	}
-}
-
-func TestImageIDMustBeImmutable(t *testing.T) {
-	for _, imageID := range []string{
-		"", "postgres:16.14", "sha256:short",
-		"sha256:zzzz111111111111111111111111111111111111111111111111111111111111",
-		strings.Repeat("1", 64),
-	} {
-		if err := requireImageID(imageID); err == nil {
-			t.Fatalf("image identity %q was accepted", imageID)
-		}
-	}
-	if err := requireImageID(testImageID); err != nil {
-		t.Fatalf("an immutable image identity was rejected: %v", err)
+	if entries[0].CallsPerAttestation != 1 {
+		t.Fatalf("the paired scope's 9 leaked into the preflight footprint: %+v", entries)
 	}
 }

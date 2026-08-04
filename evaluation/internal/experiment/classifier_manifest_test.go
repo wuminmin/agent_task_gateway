@@ -26,7 +26,7 @@ func testTargets(t *testing.T) []ClassifierEntry {
 
 func testManifest(t *testing.T) ClassifierManifest {
 	t.Helper()
-	manifest, err := BuildClassifierManifest(testTargets(t))
+	manifest, err := BuildClassifierManifest(qualifiedFootprint(t), testTargets(t))
 	if err != nil {
 		t.Fatalf("build manifest: %v", err)
 	}
@@ -43,7 +43,7 @@ func TestClassifierManifestIsValidAndDeterministic(t *testing.T) {
 		t.Fatalf("manifest digest is not SHA-256: %q", digest)
 	}
 	for i := 0; i < 8; i++ {
-		again, err := BuildClassifierManifest(testTargets(t))
+		again, err := BuildClassifierManifest(qualifiedFootprint(t), testTargets(t))
 		if err != nil {
 			t.Fatalf("rebuild: %v", err)
 		}
@@ -115,7 +115,7 @@ func TestNestedRewriteEntryRequiresNonTopLevel(t *testing.T) {
 	manifest := testManifest(t)
 	var nested ClassifierEntry
 	for _, entry := range manifest.Entries {
-		if entry.Class == V3NestedViewdefRewrite {
+		if entry.Class == V3PostgreSQLInternalAttestation {
 			nested = entry
 		}
 	}
@@ -127,7 +127,7 @@ func TestNestedRewriteEntryRequiresNonTopLevel(t *testing.T) {
 	if class := manifest.Classify(nested.StrictASTSHA256, true); class != V3Unexpected {
 		t.Fatalf("a top-level statement with the nested shape classified as %s", class)
 	}
-	if class := manifest.Classify(nested.StrictASTSHA256, false); class != V3NestedViewdefRewrite {
+	if class := manifest.Classify(nested.StrictASTSHA256, false); class != V3PostgreSQLInternalAttestation {
 		t.Fatalf("the nested lookup classified as %s", class)
 	}
 }
@@ -337,14 +337,14 @@ func TestBuildClassifierManifestRejectsNonTargetExtras(t *testing.T) {
 		Class: V3SafetySessionPin, StrictASTSHA256: testSchemaDigest,
 		RequiredTopLevel: true, SourceKind: SourceQueryContract, ContractIdentity: "x",
 	}
-	if _, err := BuildClassifierManifest([]ClassifierEntry{control}); err == nil {
+	if _, err := BuildClassifierManifest(qualifiedFootprint(t), []ClassifierEntry{control}); err == nil {
 		t.Fatal("a non-target entry was accepted as an operation target")
 	}
 	unpinned := ClassifierEntry{
 		Class: V3TargetedVisible, StrictASTSHA256: testSchemaDigest,
 		RequiredTopLevel: true, SourceKind: SourceConnectorConstant, SourceSHA256: testSchemaDigest,
 	}
-	if _, err := BuildClassifierManifest([]ClassifierEntry{unpinned}); err == nil {
+	if _, err := BuildClassifierManifest(qualifiedFootprint(t), []ClassifierEntry{unpinned}); err == nil {
 		t.Fatal("a target not bound to a frozen query contract was accepted")
 	}
 }
