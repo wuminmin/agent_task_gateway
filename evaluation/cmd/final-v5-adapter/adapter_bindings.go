@@ -165,6 +165,41 @@ GROUP BY info.stats_reset,info.dealloc`
 	return snapshot, nil
 }
 
+// gatewayStatementCensus decomposes every gateway_reader statement
+// pg_stat_statements currently holds into the closed class set. It reads the
+// same relation and the same role as businessSQLSnapshotFor, so a census and a
+// targeted snapshot taken next to each other describe the same instant.
+//
+// The normalized templates never leave this function: pg_stat_statements has
+// already replaced every constant with a placeholder, and only the resulting
+// per-class counts are returned into the evidence.
+func (adapter *realAdapter) gatewayStatementCensus(ctx context.Context,
+	visibleRelation, companionRelation string) (experiment.GatewayStatementCensus, error) {
+	const query = `SELECT replace(lower(s.query),'"','') AS normalized_query,sum(s.calls)::bigint
+FROM pg_stat_statements s
+WHERE s.dbid=(SELECT oid FROM pg_database WHERE datname=current_database())
+  AND s.userid=(SELECT oid FROM pg_roles WHERE rolname='gateway_reader')
+GROUP BY 1`
+	rows, err := adapter.observer.Query(ctx, query)
+	if err != nil {
+		return experiment.GatewayStatementCensus{}, err
+	}
+	defer rows.Close()
+	templates := map[string]int64{}
+	for rows.Next() {
+		var template string
+		var calls int64
+		if err := rows.Scan(&template, &calls); err != nil {
+			return experiment.GatewayStatementCensus{}, err
+		}
+		templates[template] += calls
+	}
+	if err := rows.Err(); err != nil {
+		return experiment.GatewayStatementCensus{}, err
+	}
+	return experiment.CensusFromTemplates(templates, visibleRelation, companionRelation)
+}
+
 func (adapter *realAdapter) provisionBoundTask(ctx context.Context, operation experiment.AdapterOperation, task boundTaskRequest) (string, error) {
 	if err := validateBoundTask(task); err != nil {
 		return "", err
@@ -250,7 +285,17 @@ func captureBoundObserver(ctx context.Context, phase string) (experiment.Observe
 	return experiment.RunObserver(ctx, []string{executable, "--phase", phase}, environment)
 }
 
-func applyObserverDelta(sample *experiment.Sample, before, after experiment.ObserverSnapshot, expectedBusinessSQL int64) error {
+// applyObserverDelta binds the independent observer's measurements to the sample
+// and settles the closed-world statement accounting.
+//
+// It does not require the observer's total gateway_reader delta to equal the
+// targeted visible/companion counters. That equality can never hold: the
+// Connector re-establishes the controls that make a read attributable inside
+// every governed transaction, so the total legitimately exceeds the targeted
+// count. Instead the census pair decomposes the total into classes and each
+// class is compared with the multiplicity the activated profile derives.
+func applyObserverDelta(sample *experiment.Sample, before, after experiment.ObserverSnapshot,
+	plan experiment.GatewayControlPlan, censusBefore, censusAfter experiment.GatewayStatementCensus) error {
 	delta, err := experiment.DifferenceObserver(before, after)
 	if err != nil {
 		return err
@@ -261,14 +306,17 @@ func applyObserverDelta(sample *experiment.Sample, before, after experiment.Obse
 	if delta.ContainerRestartDelta != 0 {
 		return errors.New("observer recorded a container restart")
 	}
-	if delta.BusinessSQLDelta != expectedBusinessSQL {
-		// Counters only: no SQL text, no identity, no business value. The two
-		// numbers are reported because they are what a reviewer needs: the
-		// observer counts every gateway_reader statement, while the targeted
-		// counters count only the Product relations.
-		return fmt.Errorf("observer total Business SQL delta %d differs from targeted visible/companion counters %d",
-			delta.BusinessSQLDelta, expectedBusinessSQL)
+	accounting := experiment.ObserverAccounting{
+		Version: experiment.ObserverAccountingVersion, Plan: plan,
+		Before: censusBefore, After: censusAfter, ObserverTotalDelta: delta.BusinessSQLDelta,
 	}
+	if err := experiment.ValidateObserverAccounting(accounting); err != nil {
+		// Counts only: no SQL text, no identity, no business value. The class
+		// name is reported because it is what a reviewer needs -- it separates a
+		// missing control from a statement the closed world does not model.
+		return fmt.Errorf("observer statement accounting: %w", err)
+	}
+	sample.ObserverAccounting = &accounting
 	sample.GatewayMemoryPeakBytes = delta.GatewayMemoryPeakBytes
 	sample.GatewayCPUUsecDelta = delta.GatewayCPUUsecDelta
 	sample.GatewayNetworkRXDelta = delta.GatewayNetworkRXDelta

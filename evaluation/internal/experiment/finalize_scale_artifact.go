@@ -482,11 +482,36 @@ func validateObserverTransition(sample Sample, before, after *ObserverSnapshot) 
 		return err
 	}
 	if delta.GatewayMemoryPeakBytes <= 0 || delta.OOMDelta != 0 || delta.ContainerRestartDelta != 0 ||
-		delta.BusinessSQLDelta != sample.BusinessSQLDelta ||
 		delta.GatewayMemoryPeakBytes != sample.GatewayMemoryPeakBytes || delta.GatewayCPUUsecDelta != sample.GatewayCPUUsecDelta ||
 		delta.GatewayNetworkRXDelta != sample.GatewayNetworkRXDelta || delta.GatewayNetworkTXDelta != sample.GatewayNetworkTXDelta ||
 		delta.ControlWALBytesDelta != sample.ControlWALBytesDelta || delta.BusinessWALBytesDelta != sample.BusinessWALBytesDelta {
 		return errors.New("observer delta differs from the sample or records OOM/restart")
+	}
+	return validateSampleObserverAccounting(sample, delta)
+}
+
+// validateSampleObserverAccounting is the finalizer-side twin of the Adapter
+// gate. The finalizer deliberately re-derives rather than trusting the Adapter's
+// verdict, so a sample whose accounting was never settled -- or was settled
+// against a different observer transition -- cannot reach a published cell.
+func validateSampleObserverAccounting(sample Sample, delta ObserverDelta) error {
+	accounting := sample.ObserverAccounting
+	if accounting == nil {
+		return errors.New("sample carries no closed-world observer statement accounting")
+	}
+	if err := ValidateObserverAccounting(*accounting); err != nil {
+		return err
+	}
+	if accounting.ObserverTotalDelta != delta.BusinessSQLDelta {
+		return fmt.Errorf("statement accounting was settled against %d gateway_reader statements, this transition shows %d",
+			accounting.ObserverTotalDelta, delta.BusinessSQLDelta)
+	}
+	// Tie the accounting back to the targeted counter the rest of the finalizer
+	// reasons about, so the two cannot describe different executions.
+	targeted := accounting.Plan.ExpectedVisibleCalls + accounting.Plan.ExpectedCompanionCalls
+	if targeted != sample.BusinessSQLDelta {
+		return fmt.Errorf("statement accounting expects %d targeted statements, the sample records %d",
+			targeted, sample.BusinessSQLDelta)
 	}
 	return nil
 }

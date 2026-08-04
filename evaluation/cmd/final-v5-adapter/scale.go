@@ -183,6 +183,12 @@ func (adapter *scaleAdapter) executeDependencyE2E(ctx context.Context, operation
 	if err != nil {
 		return experiment.Sample{}, err
 	}
+	// Taken next to the targeted snapshot so the census and the visible/companion
+	// counters describe the same instant of pg_stat_statements.
+	censusBefore, err := adapter.real.gatewayStatementCensus(ctx, cell.Task.VisibleRelation, cell.Task.CompanionRelation)
+	if err != nil {
+		return experiment.Sample{}, err
+	}
 	observerBefore, err := captureBoundObserver(ctx, "before")
 	if err != nil {
 		return experiment.Sample{}, err
@@ -199,6 +205,10 @@ func (adapter *scaleAdapter) executeDependencyE2E(ctx context.Context, operation
 	partial := observedTaskgateQueryPrefix(operation, state.taskID, cell.Candidate.SQL, started, availableMS,
 		response, beforeRoot, beforeRoot)
 	businessAfter, err := adapter.real.businessSQLSnapshotFor(ctx, cell.Task)
+	if err != nil {
+		return partial, err
+	}
+	censusAfter, err := adapter.real.gatewayStatementCensus(ctx, cell.Task.VisibleRelation, cell.Task.CompanionRelation)
 	if err != nil {
 		return partial, err
 	}
@@ -239,10 +249,19 @@ func (adapter *scaleAdapter) executeDependencyE2E(ctx context.Context, operation
 		return sample, err
 	}
 	evidence.ObserverAfter = &observerAfter
-	observedBusiness := businessAfter.VisibleCalls - businessBefore.VisibleCalls +
-		businessAfter.CompanionCalls - businessBefore.CompanionCalls
+	visibleDelta := businessAfter.VisibleCalls - businessBefore.VisibleCalls
+	companionDelta := businessAfter.CompanionCalls - businessBefore.CompanionCalls
+	observedBusiness := visibleDelta + companionDelta
 	sample.BusinessSQLDelta = observedBusiness
-	if err := applyObserverDelta(&sample, observerBefore, observerAfter, observedBusiness); err != nil {
+	views, err := servedReportingViewCount(response.Receipt.CatalogDigest)
+	if err != nil {
+		return sample, err
+	}
+	// Each targeted statement is settled by its own governed transaction, so a
+	// served-from-cache replay derives the empty plan and a novel query derives
+	// one transaction per visible and companion statement.
+	plan := experiment.NewGatewayControlPlan(observedBusiness, views, visibleDelta, companionDelta)
+	if err := applyObserverDelta(&sample, observerBefore, observerAfter, plan, censusBefore, censusAfter); err != nil {
 		return sample, err
 	}
 	if err := validateBoundSampleResult(sample, cell.Candidate); err != nil {

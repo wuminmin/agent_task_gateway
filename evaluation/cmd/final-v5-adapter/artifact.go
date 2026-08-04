@@ -170,6 +170,12 @@ func (adapter *artifactAdapter) executeResultHeavy(ctx context.Context, operatio
 	if err != nil {
 		return experiment.Sample{}, err
 	}
+	// Taken next to the targeted snapshot so the census and the visible/companion
+	// counters describe the same instant of pg_stat_statements.
+	censusBefore, err := adapter.statementCensus(ctx, binding)
+	if err != nil {
+		return experiment.Sample{}, err
+	}
 	observerBefore, err := captureBoundObserver(ctx, "before")
 	if err != nil {
 		return experiment.Sample{}, err
@@ -186,6 +192,10 @@ func (adapter *artifactAdapter) executeResultHeavy(ctx context.Context, operatio
 	partial := observedTaskgateQueryPrefix(operation, state.taskID, query.BDG.SQL, started, availableMS,
 		response, beforeRoot, beforeRoot)
 	businessAfter, err := adapter.businessSnapshot(ctx, binding)
+	if err != nil {
+		return partial, err
+	}
+	censusAfter, err := adapter.statementCensus(ctx, binding)
 	if err != nil {
 		return partial, err
 	}
@@ -237,7 +247,16 @@ func (adapter *artifactAdapter) executeResultHeavy(ctx context.Context, operatio
 	if visibleDelta != 1 || companionDelta != 1 {
 		return sample, errors.New("artifact query did not execute exactly one visible and companion Business statement")
 	}
-	if err := applyObserverDelta(&sample, observerBefore, observerAfter, sample.BusinessSQLDelta); err != nil {
+	// A governed artifact query settles two transactions -- the visible statement
+	// and its provenance companion -- and the reporting-view count comes from the
+	// Catalog the Gateway signed, so the control multiplicity is derived from the
+	// activated profile rather than fixed at 14.
+	views, err := servedReportingViewCount(sample.BaselineVerification.Receipt.CatalogDigest)
+	if err != nil {
+		return sample, err
+	}
+	plan := experiment.NewGatewayControlPlan(2, views, visibleDelta, companionDelta)
+	if err := applyObserverDelta(&sample, observerBefore, observerAfter, plan, censusBefore, censusAfter); err != nil {
 		return sample, err
 	}
 	return sample, nil
@@ -372,6 +391,13 @@ func (adapter *artifactAdapter) businessSnapshot(ctx context.Context,
 		VisibleRelation:   binding.ReportingView,
 		CompanionRelation: binding.OrdinalSidecar,
 	})
+}
+
+// statementCensus decomposes every gateway_reader statement into the closed
+// class set against the same bound relations the targeted counters use.
+func (adapter *artifactAdapter) statementCensus(ctx context.Context,
+	binding finalv5contracts.Binding) (experiment.GatewayStatementCensus, error) {
+	return adapter.real.gatewayStatementCensus(ctx, binding.ReportingView, binding.OrdinalSidecar)
 }
 
 // provisionArtifactTask requests exactly the Product, ordered projection and

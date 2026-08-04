@@ -201,7 +201,12 @@ func TestArtifactAndDependencyValidatorsFailClosedBeforeRawVerifierEvidence(t *t
 	}
 }
 
-func TestObserverTotalBusinessSQLMustMatchTargetedCounters(t *testing.T) {
+// The observer's total gateway_reader delta is not required to equal the
+// targeted visible/companion counters -- on a governed deployment it never can,
+// because the Connector re-establishes the controls that make a read
+// attributable inside every governed transaction. What is required is that the
+// closed-world accounting explains the total exactly.
+func TestObserverTotalBusinessSQLMustBeExplainedByTheStatementAccounting(t *testing.T) {
 	before := ObserverSnapshot{SchemaVersion: 1, MemoryScope: observerMemoryScope, Phase: "before",
 		RuntimeIdentitySHA256:  strings.Repeat("9", 64),
 		GatewayMemoryPeakBytes: 100, GatewayCPUUsec: 10, GatewayNetworkRXBytes: 20,
@@ -209,14 +214,52 @@ func TestObserverTotalBusinessSQLMustMatchTargetedCounters(t *testing.T) {
 	after := ObserverSnapshot{SchemaVersion: 1, MemoryScope: observerMemoryScope, Phase: "after",
 		RuntimeIdentitySHA256:  strings.Repeat("9", 64),
 		GatewayMemoryPeakBytes: 200, GatewayCPUUsec: 11, GatewayNetworkRXBytes: 22,
-		GatewayNetworkTXBytes: 33, BusinessSQLQueries: 42, ControlWALBytes: 54, BusinessWALBytes: 65}
+		// Sixteen statements: two targeted and the fourteen controls a one-view
+		// profile derives over two governed transactions.
+		GatewayNetworkTXBytes: 33, BusinessSQLQueries: 56, ControlWALBytes: 54, BusinessWALBytes: 65}
+	accounting := resultHeavyAccounting()
 	sample := Sample{GatewayMemoryPeakBytes: 200, GatewayCPUUsecDelta: 1, GatewayNetworkRXDelta: 2,
-		GatewayNetworkTXDelta: 3, ControlWALBytesDelta: 4, BusinessWALBytesDelta: 5, BusinessSQLDelta: 2}
+		GatewayNetworkTXDelta: 3, ControlWALBytesDelta: 4, BusinessWALBytesDelta: 5, BusinessSQLDelta: 2,
+		ObserverAccounting: &accounting}
 	if err := validateObserverTransition(sample, &before, &after); err != nil {
 		t.Fatal(err)
 	}
+	// One more gateway_reader statement than the accounting explains.
 	after.BusinessSQLQueries++
 	if err := validateObserverTransition(sample, &before, &after); err == nil {
-		t.Fatal("observer total SQL mutation was accepted despite unchanged targeted counters")
+		t.Fatal("an observer total the statement accounting does not explain was accepted")
+	}
+	after.BusinessSQLQueries--
+
+	// A sample that never settled the accounting cannot pass at all.
+	unaccounted := sample
+	unaccounted.ObserverAccounting = nil
+	if err := validateObserverTransition(unaccounted, &before, &after); err == nil {
+		t.Fatal("a sample carrying no statement accounting was accepted")
+	}
+
+	// The accounting must describe the same execution the sample records.
+	drifted := accounting
+	drifted.Plan.ExpectedCompanionCalls = 2
+	drifted.Plan.GovernedTransactions = 3
+	driftedSample := sample
+	driftedSample.ObserverAccounting = &drifted
+	if err := validateObserverTransition(driftedSample, &before, &after); err == nil {
+		t.Fatal("an accounting describing a different execution than the sample was accepted")
+	}
+}
+
+// The equality this replaced is now proven impossible rather than merely
+// dropped: on the derived Result-heavy cell the observer counts 16 statements
+// while the targeted counters count 2, so no correct run could ever have
+// satisfied the v1 rule.
+func TestTargetedCountersCannotEqualTheGovernedObserverTotal(t *testing.T) {
+	plan := resultHeavyPlan()
+	targeted := plan.ExpectedVisibleCalls + plan.ExpectedCompanionCalls
+	if plan.ExpectedTotal() == targeted {
+		t.Fatal("a governed profile must issue controls beyond its targeted statements")
+	}
+	if plan.ExpectedTotal()-targeted != plan.RequiredGatewayControls() {
+		t.Fatal("the gap between the observer total and the targeted counters is not the derived control count")
 	}
 }

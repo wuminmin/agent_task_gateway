@@ -394,6 +394,13 @@ func (adapter *provSQLAdapter) executeProvSQLTaskGate(ctx context.Context, opera
 	if err != nil {
 		return partial, err
 	}
+	// Taken next to the targeted snapshot so the census and the visible/companion
+	// counters describe the same instant of pg_stat_statements.
+	censusBefore, err := adapter.real.gatewayStatementCensus(ctx,
+		adapter.binding.Section.ProvSQL.Task.VisibleRelation, adapter.binding.Section.ProvSQL.Task.CompanionRelation)
+	if err != nil {
+		return partial, err
+	}
 	observerBefore, err := captureBoundObserver(ctx, "before")
 	if err != nil {
 		return partial, err
@@ -408,6 +415,11 @@ func (adapter *provSQLAdapter) executeProvSQLTaskGate(ctx context.Context, opera
 	}
 	availableMS := durationMS(time.Since(started))
 	businessAfter, err := adapter.real.businessSQLSnapshotFor(ctx, adapter.binding.Section.ProvSQL.Task)
+	if err != nil {
+		return partial, err
+	}
+	censusAfter, err := adapter.real.gatewayStatementCensus(ctx,
+		adapter.binding.Section.ProvSQL.Task.VisibleRelation, adapter.binding.Section.ProvSQL.Task.CompanionRelation)
 	if err != nil {
 		return partial, err
 	}
@@ -442,7 +454,14 @@ func (adapter *provSQLAdapter) executeProvSQLTaskGate(ctx context.Context, opera
 		expected.ExpectedVisibleCalls != 1 || expected.ExpectedCompanionCalls != 1 {
 		return partial, errors.New("ProvSQL TaskGate Business statement counts differ from the private exact binding")
 	}
-	if err := applyObserverDelta(&sample, observerBefore, observerAfter, sample.BusinessSQLDelta); err != nil {
+	views, err := servedReportingViewCount(response.Receipt.CatalogDigest)
+	if err != nil {
+		return partial, err
+	}
+	// The exact private binding pins one visible and one companion statement, so
+	// this settles two governed transactions.
+	plan := experiment.NewGatewayControlPlan(visibleDelta+companionDelta, views, visibleDelta, companionDelta)
+	if err := applyObserverDelta(&sample, observerBefore, observerAfter, plan, censusBefore, censusAfter); err != nil {
 		return partial, err
 	}
 	partial = sample

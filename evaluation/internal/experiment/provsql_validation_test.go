@@ -99,13 +99,17 @@ func validProvSQLValidationSample(t *testing.T, mode string) Sample {
 		observerAfter.GatewayCPUUsec++
 		observerAfter.GatewayNetworkRXBytes += 2
 		observerAfter.GatewayNetworkTXBytes += 3
-		observerAfter.BusinessSQLQueries += 2
+		// Two targeted statements plus the fourteen controls a one-view profile
+		// derives over two governed transactions.
+		accounting := resultHeavyAccounting()
+		observerAfter.BusinessSQLQueries += accounting.ObserverTotalDelta
 		observerAfter.ControlWALBytes += 4
 		observerAfter.BusinessWALBytes += 5
 		evidence.BusinessBefore, evidence.BusinessAfter = &businessBefore, &businessAfter
 		evidence.RootBefore, evidence.RootAfter = &rootBefore, &rootAfter
 		evidence.ObserverBefore, evidence.ObserverAfter = &observerBefore, &observerAfter
 		sample.BusinessSQLDelta = 2
+		sample.ObserverAccounting = &accounting
 		sample.RootEpochBefore, sample.RootEpochAfter = rootBefore.Epoch, rootAfter.Epoch
 		sample.ReleaseSetSHA256, sample.OutcomeSetSHA256 = rootAfter.ReleaseSetSHA256, rootAfter.OutcomeSetSHA256
 		sample.RootSetSHA256Before, sample.RootSetSHA256After = rootLedgerSetSHA256(rootBefore), rootLedgerSetSHA256(rootAfter)

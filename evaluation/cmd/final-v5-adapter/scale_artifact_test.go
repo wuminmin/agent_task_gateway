@@ -171,15 +171,25 @@ func TestPostAssertionFailuresRetainIndependentRuntimeSnapshots(t *testing.T) {
 	observerAfter := observerBefore
 	observerAfter.Phase = "after"
 	observerAfter.GatewayMemoryPeakBytes = 200
-	observerAfter.BusinessSQLQueries = 43 // targeted counters below still total two
+	// The independent observer saw three gateway_reader statements, but the
+	// census below classifies the sixteen a one-view profile derives over two
+	// governed transactions. The accounting must refuse to reconcile them.
+	observerAfter.BusinessSQLQueries = 43
+
+	plan := experiment.NewGatewayControlPlan(2, 1, 1, 1)
+	censusBefore := experiment.NewGatewayStatementCensus()
+	censusAfter := experiment.NewGatewayStatementCensus()
+	for class, count := range plan.Expected() {
+		censusAfter.Counts[class] = censusBefore.Counts[class] + count
+	}
 
 	scale := baseSample(operation, "taskgate")
 	scale.BusinessSQLDelta = 2
 	scale.ScaleVerification = &experiment.ScaleVerificationEvidence{BindingSHA256: digest,
 		BusinessBefore: businessBefore, BusinessAfter: businessAfter, RootBefore: rootBefore, RootAfter: rootAfter,
 		ObserverBefore: &observerBefore, ObserverAfter: &observerAfter}
-	if err := applyObserverDelta(&scale, observerBefore, observerAfter, 2); err == nil {
-		t.Fatal("observer mismatch was accepted")
+	if err := applyObserverDelta(&scale, observerBefore, observerAfter, plan, censusBefore, censusAfter); err == nil {
+		t.Fatal("an observer total the statement accounting does not explain was accepted")
 	}
 	failedScale := retainedScaleFailure(operation, scale, "dependency_e2e_measurement_failed")
 	if failedScale.ScaleVerification == nil || failedScale.ScaleVerification.ObserverAfter == nil ||
