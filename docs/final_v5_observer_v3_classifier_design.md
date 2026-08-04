@@ -61,21 +61,54 @@ safety pin and shares its digest:
 No parser-based classifier can separate these, because the distinguishing
 information is destroyed by the observation source before the classifier runs.
 
-This does **not** mean a decoy passes. It means the decoy is caught by the
-*accounting* rather than the *classification*: a decoy two-GUC `set_config`
-lands in `safety_session_pin` and pushes that class above its derived
-multiplicity `S + Q`, so the run fails on the per-class count. Requirement
-"arbitrary two-GUC set_config is unexpected" is therefore satisfied at the
-accounting level, and the test for it must assert a failed accounting, not an
-`unexpected` classification.
+Two cases must be kept apart, and an earlier revision of this note ran them
+together. They have different guarantees.
 
-The same reasoning applies to a one-GUC decoy against `statement_timeout_pin`.
+### 2a. Additive decoy — closed by the accounting
+
+An **additional** same-shape statement is a new execution. It lands in the
+corresponding observational class and raises that class's count above its
+derived multiplicity, so the run fails:
+
+| decoy | class it lands in | derived multiplicity it exceeds |
+| --- | --- | --- |
+| extra two-GUC `set_config` | `safety_session_pin` | `S + Q` |
+| extra one-GUC `set_config` | `statement_timeout_pin` | `V + C` |
+
+The Stage D tests for these must assert a **failed accounting through
+over-count**, not an `unexpected` classification.
+
+### 2b. Constant-only replacement — NOT closed by the accounting
+
+A **replacement** with exactly the same normalized AST but different constants
+-- `set_config('search_path', 'public', true)` in place of
+`set_config('search_path', 'pg_catalog', true)` -- executes the same number of
+statements in the same shape. It is observationally **indistinguishable** to
+`pg_stat_statements`, and therefore to any classifier reading it.
+
+**The observer accounting does not detect this case, and must not claim to.**
+
+It is closed compositionally, by evidence outside the observation path:
+
+1. frozen Gateway source, build and image identity — the running Gateway is
+   bound to the submission commit, so altered SQL constants cannot be the ones
+   executing;
+2. exact Connector SQL source-byte digests carried in the classifier manifest,
+   so the manifest itself pins the constants;
+3. exact query-contract and result/oracle bindings, so a substituted setting
+   that changed a result would fail the oracle;
+4. observer multiplicity checking, which closes 2a above.
+
+Only the conjunction of all four closes the space. Any single layer, including
+this one, is insufficient on its own — that is the whole point of calling it a
+layered guarantee.
 
 **This is exactly why Stage C1 mattered.** Before contracts v1.5 the safety and
 representation pins *also* shared a digest, so one could be substituted for the
-other with no count change at all — invisible to both the classifier and the
-accounting. Structural domain separation removed the only substitution the
-counting could not catch.
+other with no count change at all — case 2b, and invisible to both the
+classifier and the accounting. Structural domain separation moved that
+particular substitution out of the 2b class and into 2a, where counting closes
+it. It did not, and could not, eliminate 2b in general.
 
 ## 3. What the classifier must therefore guarantee
 
