@@ -141,6 +141,19 @@ type Derivation struct {
 	Limits    Limits             `json:"limits"`
 	Visible   StatementIdentity  `json:"visible"`
 	Companion *StatementIdentity `json:"companion,omitempty"`
+
+	// VisibleDecision and CompanionDecision are the authorizer's own outputs.
+	//
+	// They are returned so the Gateway can execute exactly what was identified.
+	// Before this, production authorized the statements itself and the evaluation
+	// authorized them again to derive identities; the two agreed only as long as
+	// nobody changed one of them, and a divergence would have surfaced as a
+	// measurement result rather than as a build failure.
+	//
+	// They are excluded from JSON because Decision carries the rendered SQL, and
+	// a Derivation ends up in evidence that must not contain statement text.
+	VisibleDecision   sqlpolicy.Decision  `json:"-"`
+	CompanionDecision *sqlpolicy.Decision `json:"-"`
 }
 
 // StrictASTDigester computes the structural digest. It is injected because the
@@ -197,7 +210,7 @@ func Derive(engine Authorizer, digester StrictASTDigester, request Request) (Der
 	// derivation reports.
 	limits.VisibleRowLimit = visibleDecision.RowLimit
 
-	derivation := Derivation{Limits: limits}
+	derivation := Derivation{Limits: limits, VisibleDecision: visibleDecision}
 	if derivation.Visible, err = identify(visibleDecision, digester); err != nil {
 		return Derivation{}, fmt.Errorf("visible statement identity: %w", err)
 	}
@@ -216,6 +229,7 @@ func Derive(engine Authorizer, digester StrictASTDigester, request Request) (Der
 		return Derivation{}, fmt.Errorf("companion statement identity: %w", err)
 	}
 	derivation.Companion = &companion
+	derivation.CompanionDecision = &companionDecision
 	return derivation, nil
 }
 

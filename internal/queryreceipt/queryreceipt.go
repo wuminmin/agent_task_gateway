@@ -18,17 +18,25 @@ import (
 
 	"taskbound.local/agent-data-gateway/internal/approval"
 	"taskbound.local/agent-data-gateway/internal/auditchain"
+	"taskbound.local/agent-data-gateway/internal/querybinding"
 )
 
 const (
-	VersionV1         = "1"
-	VersionV2         = "2"
-	VersionV3         = "3"
-	VersionV4         = "4"
-	VersionV5         = "5"
-	VersionV6         = "6"
-	VersionV7         = "7"
-	VersionV8         = "8"
+	VersionV1 = "1"
+	VersionV2 = "2"
+	VersionV3 = "3"
+	VersionV4 = "4"
+	VersionV5 = "5"
+	VersionV6 = "6"
+	VersionV7 = "7"
+	VersionV8 = "8"
+	// VersionV9 adds the signed execution binding. Every earlier version says
+	// what was authorized and what it cost; none says which physical statements
+	// ran, so the evaluation re-derived them afterwards and treated the result as
+	// though the Gateway had signed it. V9 signs what the Gateway actually
+	// executed, so a reproduction can be checked against evidence rather than
+	// against a second opinion.
+	VersionV9         = "9"
 	signatureDomainV1 = "TASKGATE-QUERY-RECEIPT-V1\x00"
 	signatureDomainV2 = "TASKGATE-QUERY-RECEIPT-V2\x00"
 	signatureDomainV3 = "TASKGATE-QUERY-RECEIPT-V3\x00"
@@ -37,6 +45,7 @@ const (
 	signatureDomainV6 = "TASKGATE-QUERY-RECEIPT-V6\x00"
 	signatureDomainV7 = "TASKGATE-QUERY-RECEIPT-V7\x00"
 	signatureDomainV8 = "TASKGATE-QUERY-RECEIPT-V8\x00"
+	signatureDomainV9 = "TASKGATE-QUERY-RECEIPT-V9\x00"
 
 	ArtifactIntentVersionV1 = "taskgate-artifact-intent-v1"
 	ArtifactStatusPending   = "PENDING"
@@ -157,6 +166,13 @@ type QueryReceiptV1 struct {
 	Signature         string                    `json:"signature"`
 	Exposure          *ExposureEvidenceV1       `json:"exposure,omitempty"`
 	ArtifactIntent    *ArtifactIntentEvidenceV1 `json:"artifact_intent,omitempty"`
+	// ExposureLedgerBefore and ExecutionBinding are V9 only. They are the signed
+	// pre-state the row limits were derived from and the signed description of
+	// the statements that ran. Both are SQL-free: every statement appears as a
+	// digest, because the receipt is retained, replayed and handed to a finalizer
+	// that must not learn what was queried.
+	ExposureLedgerBefore *querybinding.ExposureLedgerBeforeV1  `json:"exposure_ledger_before,omitempty"`
+	ExecutionBinding     *querybinding.QueryExecutionBindingV1 `json:"execution_binding,omitempty"`
 }
 
 // BuildArtifactIntent validates the supplied immutable evidence and seals it
@@ -252,7 +268,7 @@ func artifactIntentSHA256(intent ArtifactIntentEvidenceV1) (string, error) {
 }
 
 func (r QueryReceiptV1) ValidateUnsigned() error {
-	if r.Version != VersionV1 && r.Version != VersionV2 && r.Version != VersionV3 && r.Version != VersionV4 && r.Version != VersionV5 && r.Version != VersionV6 && r.Version != VersionV7 && r.Version != VersionV8 {
+	if r.Version != VersionV1 && r.Version != VersionV2 && r.Version != VersionV3 && r.Version != VersionV4 && r.Version != VersionV5 && r.Version != VersionV6 && r.Version != VersionV7 && r.Version != VersionV8 && r.Version != VersionV9 {
 		return fmt.Errorf("%w: unsupported version %q", ErrInvalidReceipt, r.Version)
 	}
 	if strings.TrimSpace(r.ReceiptID) == "" || strings.TrimSpace(r.TaskID) == "" ||
@@ -273,7 +289,7 @@ func (r QueryReceiptV1) ValidateUnsigned() error {
 			return fmt.Errorf("%w: %s is not lowercase SHA-256", ErrInvalidReceipt, name)
 		}
 	}
-	if (r.Version == VersionV2 || r.Version == VersionV3 || r.Version == VersionV4 || r.Version == VersionV5 || r.Version == VersionV6 || r.Version == VersionV7 || r.Version == VersionV8) && strings.TrimSpace(r.DatasourceID) == "" {
+	if (r.Version == VersionV2 || r.Version == VersionV3 || r.Version == VersionV4 || r.Version == VersionV5 || r.Version == VersionV6 || r.Version == VersionV7 || r.Version == VersionV8 || r.Version == VersionV9) && strings.TrimSpace(r.DatasourceID) == "" {
 		return fmt.Errorf("%w: datasource_id is required", ErrInvalidReceipt)
 	}
 	if strings.TrimSpace(r.CatalogVersion) == "" || strings.TrimSpace(r.SQLFingerprint) == "" ||
@@ -307,7 +323,7 @@ func (r QueryReceiptV1) ValidateUnsigned() error {
 	}
 	if r.Exposure != nil {
 		exposure := r.Exposure
-		if (r.Version != VersionV4 && r.Version != VersionV5 && r.Version != VersionV6 && r.Version != VersionV7 && r.Version != VersionV8) || strings.TrimSpace(exposure.RootTaskID) == "" ||
+		if (r.Version != VersionV4 && r.Version != VersionV5 && r.Version != VersionV6 && r.Version != VersionV7 && r.Version != VersionV8 && r.Version != VersionV9) || strings.TrimSpace(exposure.RootTaskID) == "" ||
 			strings.TrimSpace(exposure.ProfileVersion) == "" || !isSHA256(exposure.ObservationSHA256) ||
 			exposure.ActualReleaseFacts < 0 || exposure.ActualInfluenceFacts < 0 || exposure.ActualOutcomeFacts < 0 ||
 			exposure.ChargedReleaseFacts < 0 || exposure.ChargedInfluenceFacts < 0 || exposure.ChargedOutcomeFacts < 0 ||
@@ -320,7 +336,7 @@ func (r QueryReceiptV1) ValidateUnsigned() error {
 			(r.Version == VersionV6 && (exposure.ProfileVersion != "taskgate-exposure-v4" || exposure.ActualOutcomeFacts != 1 ||
 				exposure.RootEpoch <= 0 || !isSHA256(exposure.DictionarySetSHA256) || !isSHA256(exposure.ReleaseSetSHA256) ||
 				!isSHA256(exposure.InfluenceSetSHA256) || !isSHA256(exposure.OutcomeSetSHA256)) ||
-				((r.Version == VersionV7 || r.Version == VersionV8) && (exposure.ProfileVersion != "taskgate-exposure-v5" ||
+				((r.Version == VersionV7 || r.Version == VersionV8 || r.Version == VersionV9) && (exposure.ProfileVersion != "taskgate-exposure-v5" ||
 					exposure.PredicateProfileVersion != "taskgate-predicate-footprint-v1" ||
 					exposure.ActualCompositeCount != 1 || exposure.ChargedCompositeCount < 0 || exposure.ChargedCompositeCount > 1 ||
 					exposure.ActualPredicateAtomCount < 0 || exposure.ChargedPredicateAtomCount < 0 ||
@@ -333,20 +349,25 @@ func (r QueryReceiptV1) ValidateUnsigned() error {
 					!isSHA256(exposure.CompositeOutcomeSHA256)))) {
 			return fmt.Errorf("%w: receipt version and outcome evidence disagree", ErrInvalidReceipt)
 		}
-	} else if r.Version == VersionV4 || r.Version == VersionV5 || r.Version == VersionV6 || r.Version == VersionV7 || r.Version == VersionV8 {
-		return fmt.Errorf("%w: V4/V5/V6/V7/V8 requires exposure evidence", ErrInvalidReceipt)
+	} else if r.Version == VersionV4 || r.Version == VersionV5 || r.Version == VersionV6 || r.Version == VersionV7 || r.Version == VersionV8 || r.Version == VersionV9 {
+		return fmt.Errorf("%w: V4/V5/V6/V7/V8/V9 requires exposure evidence", ErrInvalidReceipt)
 	}
-	if r.Version != VersionV8 {
+	if r.Version != VersionV8 && r.Version != VersionV9 {
 		if r.ArtifactIntent != nil {
 			return fmt.Errorf("%w: V1-V7 must not carry artifact intent", ErrInvalidReceipt)
 		}
 	} else {
 		if r.Status != StatusCompleted || r.ArtifactIntent == nil {
-			return fmt.Errorf("%w: V8 requires completed artifact intent evidence", ErrInvalidReceipt)
+			return fmt.Errorf("%w: V8/V9 requires completed artifact intent evidence", ErrInvalidReceipt)
 		}
 		if err := r.validateArtifactIntent(); err != nil {
 			return err
 		}
+	}
+	// V9 only. Earlier versions are checked here solely to refuse V9 material
+	// their signatures do not cover.
+	if err := r.validateExecutionBinding(); err != nil {
+		return err
 	}
 	if err := r.validateBudgetSemantics(); err != nil {
 		return err
@@ -535,7 +556,7 @@ func VerifyAuditInclusion(receipt QueryReceiptV1, proof auditchain.InclusionProo
 // the immediately following artifact registration event against audit
 // checkpoints, then checks the registration payload against the signed intent.
 func VerifyArtifactIntentInclusion(receipt QueryReceiptV1, terminalProof, registrationProof auditchain.InclusionProof) error {
-	if receipt.Version != VersionV8 || receipt.ArtifactIntent == nil {
+	if (receipt.Version != VersionV8 && receipt.Version != VersionV9) || receipt.ArtifactIntent == nil {
 		return fmt.Errorf("%w: artifact inclusion requires a V8 receipt", ErrInvalidReceipt)
 	}
 	if err := VerifyAuditInclusion(receipt, terminalProof); err != nil {
@@ -574,7 +595,7 @@ func VerifyArtifactIntentInclusion(receipt QueryReceiptV1, terminalProof, regist
 // occurs after settlement; its payload must nevertheless match that receipt's
 // signed artifact intent exactly.
 func VerifyArtifactAvailabilityInclusion(receipt QueryReceiptV1, availabilityProof auditchain.InclusionProof) error {
-	if receipt.Version != VersionV8 || receipt.ArtifactIntent == nil {
+	if (receipt.Version != VersionV8 && receipt.Version != VersionV9) || receipt.ArtifactIntent == nil {
 		return fmt.Errorf("%w: artifact availability inclusion requires a V8 receipt", ErrInvalidReceipt)
 	}
 	event := availabilityProof.TerminalEvent
@@ -830,7 +851,7 @@ func signingPayload(receipt QueryReceiptV1) ([]byte, error) {
 		"audit_hash": receipt.AuditHash, "gateway_key_id": receipt.GatewayKeyID,
 	}
 	domain := signatureDomainV1
-	if receipt.Version == VersionV2 || receipt.Version == VersionV3 || receipt.Version == VersionV4 || receipt.Version == VersionV5 || receipt.Version == VersionV6 || receipt.Version == VersionV7 || receipt.Version == VersionV8 {
+	if receipt.Version == VersionV2 || receipt.Version == VersionV3 || receipt.Version == VersionV4 || receipt.Version == VersionV5 || receipt.Version == VersionV6 || receipt.Version == VersionV7 || receipt.Version == VersionV8 || receipt.Version == VersionV9 {
 		domain = signatureDomainV2
 		unsigned["datasource_id"] = receipt.DatasourceID
 		unsigned["schema_digest"] = receipt.SchemaDigest
@@ -864,6 +885,17 @@ func signingPayload(receipt QueryReceiptV1) ([]byte, error) {
 		unsigned["signed_at"] = receipt.SignedAt
 		unsigned["exposure"] = receipt.Exposure
 		unsigned["artifact_intent"] = receipt.ArtifactIntent
+	}
+	if receipt.Version == VersionV9 {
+		domain = signatureDomainV9
+		unsigned["signed_at"] = receipt.SignedAt
+		unsigned["exposure"] = receipt.Exposure
+		unsigned["artifact_intent"] = receipt.ArtifactIntent
+		// The complete structures are signed, not merely their digests. Signing
+		// only the digest would leave every other member unprotected against a
+		// holder who recomputed the digest to match an edit.
+		unsigned["exposure_ledger_before"] = receipt.ExposureLedgerBefore
+		unsigned["execution_binding"] = receipt.ExecutionBinding
 	}
 	canonical, err := approval.CanonicalJSON(unsigned)
 	if err != nil {

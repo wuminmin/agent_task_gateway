@@ -883,27 +883,37 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 		ledgerState.InfluenceFacts = exposureLedger.Limits.InfluenceFacts
 		ledgerState.UsesExpandedEvidence = exposureContext.usesExpandedEvidence()
 	}
-	decision, err := engine.Authorize(sqlpolicy.Request{
-		SQL: agentSQL, Grant: policyGrant,
-		RowLimit: physicalquery.RequestedVisibleRowLimit(ledgerState),
+	// One call, not two authorizations plus a limit helper. physicalquery
+	// authorizes the visible statement, derives the companion's limits from the
+	// AUTHORIZED visible limit, authorizes the companion, and returns both
+	// decisions. The statements executed below are the ones it returned, so the
+	// identity-producing path and the execution path cannot drift: there is only
+	// one path.
+	companionSQL := ""
+	if exposureContext != nil {
+		companionSQL = exposureContext.provenanceSQL
+	}
+	derivation, err := physicalquery.Derive(engine, nil, physicalquery.Request{
+		VisibleSQL: agentSQL, CompanionSQL: companionSQL, Grant: policyGrant, State: ledgerState,
 	})
 	if err != nil {
+		if errors.Is(err, physicalquery.ErrExposureBudgetExhausted) {
+			return nil, toolError(control.ErrExposureBudgetExhausted)
+		}
+		if exposureContext != nil && strings.Contains(err.Error(), "companion") {
+			return nil, toolError(control.ErrExposureEvidenceRequired)
+		}
 		return nil, err
 	}
+	decision := derivation.VisibleDecision
 	var provenanceDecision sqlpolicy.Decision
 	var provenanceEvidenceRows int64
 	if exposureContext != nil {
-		limits, limitsErr := physicalquery.DeriveLimits(ledgerState, decision.RowLimit)
-		if limitsErr != nil {
-			return nil, toolError(control.ErrExposureBudgetExhausted)
-		}
-		provenanceEvidenceRows = limits.CompanionEvidenceRows
-		provenanceDecision, err = engine.Authorize(sqlpolicy.Request{
-			SQL: exposureContext.provenanceSQL, Grant: policyGrant, RowLimit: limits.CompanionPolicyRows,
-		})
-		if err != nil {
+		if derivation.CompanionDecision == nil {
 			return nil, toolError(control.ErrExposureEvidenceRequired)
 		}
+		provenanceDecision = *derivation.CompanionDecision
+		provenanceEvidenceRows = derivation.Limits.CompanionEvidenceRows
 	}
 	componentMS["parse_policy"] = durationMS(time.Since(policyStarted))
 	componentMS["authorization"] = durationMS(policyStarted.Sub(pipelineStarted))
