@@ -70,13 +70,30 @@ An **additional** same-shape statement is a new execution. It lands in the
 corresponding observational class and raises that class's count above its
 derived multiplicity, so the run fails:
 
-| decoy | class it lands in | derived multiplicity it exceeds |
-| --- | --- | --- |
-| extra two-GUC `set_config` | `safety_session_pin` | `S + Q` |
-| extra one-GUC `set_config` | `statement_timeout_pin` | `V + C` |
+The collision boundary is finer than "same arity", and was measured rather than
+assumed. `pg_stat_statements` numbers the constants it erases *around* any real
+bind parameter, so the timeout pin — which carries one — normalizes differently
+from an all-literal decoy of the same arity:
 
-The Stage D tests for these must assert a **failed accounting through
-over-count**, not an `unexpected` classification.
+| statement | normalized form | strict digest |
+| --- | --- | --- |
+| statement-timeout pin | `set_config($2, $1, $3)` | `a8acade16a6702d0…` |
+| one-GUC decoy, all literals | `set_config($1, $2, $3)` | `4f3b0c339e0a7b52…` |
+| one-GUC decoy, bound parameter | `set_config($2, $1, $3)` | `a8acade16a6702d0…` |
+| safety pin | `set_config($1..$3), set_config($4..$6)` | `ba22d865c6543e00…` |
+| two-GUC decoy, all literals | `set_config($1..$3), set_config($4..$6)` | `ba22d865c6543e00…` |
+
+So:
+
+| decoy | outcome |
+| --- | --- |
+| extra two-GUC `set_config` | lands in `safety_session_pin`, exceeds `S + Q` |
+| extra one-GUC `set_config` **with a bind parameter** | lands in `statement_timeout_pin`, exceeds `V + C` |
+| extra one-GUC `set_config`, **all literals** | `unexpected` outright — the parameter numbering differs |
+
+The Stage D tests must assert the outcome each case actually has: a **failed
+accounting through over-count** for the first two, and an `unexpected`
+classification for the third.
 
 ### 2b. Constant-only replacement — NOT closed by the accounting
 
