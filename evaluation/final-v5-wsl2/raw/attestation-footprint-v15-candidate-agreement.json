@@ -1,0 +1,83 @@
+{
+  "activation_support_changing": false,
+  "branch": "tkde-artifact-rerun",
+  "capability_changing": false,
+  "commit": "18bee8e6b7febe52fa3d638efb18146e12a83645",
+  "development_runs_retained": true,
+  "formal_campaign": false,
+  "full_digests_differ_as_designed": true,
+  "head_equals_origin": true,
+  "measurement_environment": {
+    "pg_stat_statements_track": "all",
+    "pg_stat_statements_track_planning": "off",
+    "pg_stat_statements_track_utility": "on",
+    "postgresql_version_num": 160014
+  },
+  "per_scope_multisets_identical": true,
+  "portable_digests_identical": true,
+  "postgresql_runtime_identity_portable": {
+    "image_reference": "postgres@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55",
+    "platform": "linux/amd64",
+    "repo_digest": "postgres@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55"
+  },
+  "profile_binding": {
+    "catalog_sha256": "533837084c0df141a0fac6e74788a4c2b9eb84611c1f96d4c760806745b4f709",
+    "expected_schema_digest": "e2a3796fb3f5c50f97ebf02a40996b9c95a50e5b028a975cfccd4cf80407d40c",
+    "expected_schema_entries": 1,
+    "profile_alias": "result-heavy",
+    "profile_artifact_directory_sha256": "814d4df9971f41b649289aa8b4b3c42f86b588b50c5691f21cf0ec010659f99b",
+    "profile_artifact_manifest_sha256": "3f60ac28d5a82591f35cd5221eb783ea7164e1a1e380a6823c7fd9a21a9058b7",
+    "profile_id": "profile-a86cd4df5cad6e26",
+    "profile_registry_release": "final-v5-contracts-v1.4",
+    "profile_registry_sha256": "e800aefa28362712e4e0daaa4608054d7bb702284d1487ecc44d7ab61d31f780"
+  },
+  "publication_eligible": false,
+  "record": "taskgate-final-v5-attestation-footprint-v15-candidate-agreement-v1",
+  "runs": [
+    {
+      "diagnosis_id": "attestation-footprint-v15-qualification-01-20260804T162627Z-18bee8e6b7fe",
+      "footprint_sha256": "f2fe4ab5a39e4ecc83fed591d191f612d4328995b8e134d776edafc928e7c848",
+      "portable_footprint_sha256": "032e9c53704d8df270693c291d36893e46e6c587b95c59bef2c6d198181ceacf",
+      "profile_artifact_manifest_sha256": "3f60ac28d5a82591f35cd5221eb783ea7164e1a1e380a6823c7fd9a21a9058b7",
+      "qualification": "diagnosis-attestation-footprint-v15-qualification-01-20260804T162627Z-18bee8e6b7fe"
+    },
+    {
+      "diagnosis_id": "attestation-footprint-v15-qualification-02-20260804T163031Z-18bee8e6b7fe",
+      "footprint_sha256": "6e51e62a82a1d058ba43d68da2e8f9bd3d30a300834f67cce122b9dd365a30d1",
+      "portable_footprint_sha256": "032e9c53704d8df270693c291d36893e46e6c587b95c59bef2c6d198181ceacf",
+      "profile_artifact_manifest_sha256": "d4c2254827f4fe295b80c483fc70727b1369ee449b12bf7a6564b970d4cb90d4",
+      "qualification": "diagnosis-attestation-footprint-v15-qualification-02-20260804T163031Z-18bee8e6b7fe"
+    }
+  ],
+  "schema_version": 2,
+  "scopes": {
+    "constructor_or_cold_pool": [
+      {
+        "calls_per_attestation": 1,
+        "strict_ast_sha256": "e5738df1650276a7f20e677172e067bc62bab12d48c18a378c9b6ed602433842"
+      }
+    ],
+    "explicit_preflight_pool": [
+      {
+        "calls_per_attestation": 1,
+        "strict_ast_sha256": "e5738df1650276a7f20e677172e067bc62bab12d48c18a378c9b6ed602433842"
+      }
+    ],
+    "paired_query_transaction": [
+      {
+        "calls_per_attestation": 1,
+        "strict_ast_sha256": "e5738df1650276a7f20e677172e067bc62bab12d48c18a378c9b6ed602433842"
+      }
+    ],
+    "single_query_transaction": [
+      {
+        "calls_per_attestation": 1,
+        "strict_ast_sha256": "e5738df1650276a7f20e677172e067bc62bab12d48c18a378c9b6ed602433842"
+      }
+    ]
+  },
+  "source_dependencies_bound": 8,
+  "source_manifest_sha256": "3495d7f0fbeeec1237fe95887327640eb67929d1158aab06fef785f9e0426586",
+  "supersedes_development_qualification": "evaluation/final-v5-wsl2/raw/attestation-footprint-two-run-agreement.json",
+  "worktree_clean": true
+}

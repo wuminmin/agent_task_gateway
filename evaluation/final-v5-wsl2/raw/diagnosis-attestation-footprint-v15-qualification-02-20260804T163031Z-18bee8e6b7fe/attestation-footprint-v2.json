@@ -1,0 +1,905 @@
+{
+  "schema_version": 3,
+  "record": "taskgate-final-v5-attestation-footprint-qualification-v3",
+  "diagnosis_id": "attestation-footprint-v15-qualification-02-20260804T163031Z-18bee8e6b7fe",
+  "publication_eligible": false,
+  "capability_changing": false,
+  "activation_support_changing": false,
+  "formal_campaign": false,
+  "catalog_path": "config/profiles/result-heavy.catalog.yaml",
+  "provenance": {
+    "commit": "18bee8e6b7febe52fa3d638efb18146e12a83645",
+    "origin_commit": "18bee8e6b7febe52fa3d638efb18146e12a83645",
+    "branch": "tkde-artifact-rerun",
+    "worktree_clean": true,
+    "head_equals_origin": true,
+    "source_identities": [
+      {
+        "path": "evaluation/cmd/final-v5-attestation-footprint/main.go",
+        "working_tree_sha256": "9b807d2279d2f89c07be777099b535038b21ebbee9d27a46cf5ae72bc16ea2a4",
+        "committed_sha256": "9b807d2279d2f89c07be777099b535038b21ebbee9d27a46cf5ae72bc16ea2a4"
+      },
+      {
+        "path": "evaluation/cmd/final-v5-attestation-footprint/provenance.go",
+        "working_tree_sha256": "ffefa77e1381b879541c6557f88808d0d7aa83fe0945e8c0075bc6a5737c6910",
+        "committed_sha256": "ffefa77e1381b879541c6557f88808d0d7aa83fe0945e8c0075bc6a5737c6910"
+      },
+      {
+        "path": "evaluation/final-v5-wsl2/compose.observer-v3.yaml",
+        "working_tree_sha256": "f3c7949942859f24b803e0f73ebb501635c520775167e0e5fc688d628deda93f",
+        "committed_sha256": "f3c7949942859f24b803e0f73ebb501635c520775167e0e5fc688d628deda93f"
+      },
+      {
+        "path": "evaluation/final-v5-wsl2/scripts/qualify-attestation-footprint.sh",
+        "working_tree_sha256": "c2b1722cc13d166a344b99fe1a0e73babfcfc187459f589b185761fcc6b85966",
+        "committed_sha256": "c2b1722cc13d166a344b99fe1a0e73babfcfc187459f589b185761fcc6b85966"
+      },
+      {
+        "path": "evaluation/internal/experiment/attestation_footprint.go",
+        "working_tree_sha256": "4a290e6962300ba040d57841cfcf3a6e2519ae67d973ed80e23b1a0136281e8b",
+        "committed_sha256": "4a290e6962300ba040d57841cfcf3a6e2519ae67d973ed80e23b1a0136281e8b"
+      },
+      {
+        "path": "evaluation/internal/experiment/strict_ast.go",
+        "working_tree_sha256": "454040681072f471daf422d06cadd27056972c08b05f0b5046c89d52b532b584",
+        "committed_sha256": "454040681072f471daf422d06cadd27056972c08b05f0b5046c89d52b532b584"
+      },
+      {
+        "path": "internal/catalogschema/catalogschema.go",
+        "working_tree_sha256": "7316534683012725ac75ff43a34ccbf5958d26e4d3fac049113110dbe66386e0",
+        "committed_sha256": "7316534683012725ac75ff43a34ccbf5958d26e4d3fac049113110dbe66386e0"
+      },
+      {
+        "path": "internal/dataconnector/postgres.go",
+        "working_tree_sha256": "735b4c9159d372d28973f778f68a14418e17238fe7596eab48422b3fafc7a5fb",
+        "committed_sha256": "735b4c9159d372d28973f778f68a14418e17238fe7596eab48422b3fafc7a5fb"
+      }
+    ],
+    "source_manifest_sha256": "3495d7f0fbeeec1237fe95887327640eb67929d1158aab06fef785f9e0426586"
+  },
+  "profile_binding": {
+    "profile_id": "profile-a86cd4df5cad6e26",
+    "profile_alias": "result-heavy",
+    "profile_registry_release": "final-v5-contracts-v1.4",
+    "profile_registry_sha256": "e800aefa28362712e4e0daaa4608054d7bb702284d1487ecc44d7ab61d31f780",
+    "catalog_sha256": "533837084c0df141a0fac6e74788a4c2b9eb84611c1f96d4c760806745b4f709",
+    "expected_schema_digest": "e2a3796fb3f5c50f97ebf02a40996b9c95a50e5b028a975cfccd4cf80407d40c",
+    "expected_schema_entries": 1,
+    "profile_artifact_manifest_sha256": "d4c2254827f4fe295b80c483fc70727b1369ee449b12bf7a6564b970d4cb90d4",
+    "profile_artifact_directory_sha256": "814d4df9971f41b649289aa8b4b3c42f86b588b50c5691f21cf0ec010659f99b"
+  },
+  "expected_schema_digest": "e2a3796fb3f5c50f97ebf02a40996b9c95a50e5b028a975cfccd4cf80407d40c",
+  "expected_schema_entries": 1,
+  "expected_schema_relations": [
+    "reporting.final_v5_result_heavy"
+  ],
+  "live_schema_verified": true,
+  "measurement_environment": {
+    "postgresql_version_num": 160014,
+    "pg_stat_statements_track": "all",
+    "pg_stat_statements_track_utility": "on",
+    "pg_stat_statements_track_planning": "off"
+  },
+  "postgresql_runtime_identity": {
+    "image_reference": "postgres@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55",
+    "repo_digest": "postgres@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55",
+    "local_image_id": "sha256:67d1da22f4037b29cdd93e03d870a4a1c4d079358367d0cbc56459e52cde205e",
+    "container_image_id": "sha256:67d1da22f4037b29cdd93e03d870a4a1c4d079358367d0cbc56459e52cde205e",
+    "platform": "linux/amd64"
+  },
+  "queryid_portability_caveat": "queryid is PostgreSQL-version and installation specific; it is recorded for deployment-local diagnosis only and is not a portable identity",
+  "snapshots": [
+    {
+      "index": 0,
+      "label": "baseline",
+      "total_calls": 0,
+      "stats_reset": "2026-08-04 16:33:26.641404+00",
+      "dealloc": 0,
+      "postmaster_start_time": "2026-08-04 16:30:46.132243+00",
+      "measurement_environment": {
+        "postgresql_version_num": 160014,
+        "pg_stat_statements_track": "all",
+        "pg_stat_statements_track_utility": "on",
+        "pg_stat_statements_track_planning": "off"
+      },
+      "pg_stat_statements_rows": 0
+    },
+    {
+      "index": 1,
+      "label": "connector-construction",
+      "total_calls": 4,
+      "stats_reset": "2026-08-04 16:33:26.641404+00",
+      "dealloc": 0,
+      "postmaster_start_time": "2026-08-04 16:30:46.132243+00",
+      "measurement_environment": {
+        "postgresql_version_num": 160014,
+        "pg_stat_statements_track": "all",
+        "pg_stat_statements_track_utility": "on",
+        "pg_stat_statements_track_planning": "off"
+      },
+      "pg_stat_statements_rows": 4
+    },
+    {
+      "index": 2,
+      "label": "explicit-preflight-0",
+      "total_calls": 8,
+      "stats_reset": "2026-08-04 16:33:26.641404+00",
+      "dealloc": 0,
+      "postmaster_start_time": "2026-08-04 16:30:46.132243+00",
+      "measurement_environment": {
+        "postgresql_version_num": 160014,
+        "pg_stat_statements_track": "all",
+        "pg_stat_statements_track_utility": "on",
+        "pg_stat_statements_track_planning": "off"
+      },
+      "pg_stat_statements_rows": 4
+    },
+    {
+      "index": 3,
+      "label": "single-query-0",
+      "total_calls": 17,
+      "stats_reset": "2026-08-04 16:33:26.641404+00",
+      "dealloc": 0,
+      "postmaster_start_time": "2026-08-04 16:30:46.132243+00",
+      "measurement_environment": {
+        "postgresql_version_num": 160014,
+        "pg_stat_statements_track": "all",
+        "pg_stat_statements_track_utility": "on",
+        "pg_stat_statements_track_planning": "off"
+      },
+      "pg_stat_statements_rows": 9
+    },
+    {
+      "index": 4,
+      "label": "paired-query-0",
+      "total_calls": 29,
+      "stats_reset": "2026-08-04 16:33:26.641404+00",
+      "dealloc": 0,
+      "postmaster_start_time": "2026-08-04 16:30:46.132243+00",
+      "measurement_environment": {
+        "postgresql_version_num": 160014,
+        "pg_stat_statements_track": "all",
+        "pg_stat_statements_track_utility": "on",
+        "pg_stat_statements_track_planning": "off"
+      },
+      "pg_stat_statements_rows": 10
+    },
+    {
+      "index": 5,
+      "label": "explicit-preflight-1",
+      "total_calls": 33,
+      "stats_reset": "2026-08-04 16:33:26.641404+00",
+      "dealloc": 0,
+      "postmaster_start_time": "2026-08-04 16:30:46.132243+00",
+      "measurement_environment": {
+        "postgresql_version_num": 160014,
+        "pg_stat_statements_track": "all",
+        "pg_stat_statements_track_utility": "on",
+        "pg_stat_statements_track_planning": "off"
+      },
+      "pg_stat_statements_rows": 10
+    },
+    {
+      "index": 6,
+      "label": "single-query-1",
+      "total_calls": 42,
+      "stats_reset": "2026-08-04 16:33:26.641404+00",
+      "dealloc": 0,
+      "postmaster_start_time": "2026-08-04 16:30:46.132243+00",
+      "measurement_environment": {
+        "postgresql_version_num": 160014,
+        "pg_stat_statements_track": "all",
+        "pg_stat_statements_track_utility": "on",
+        "pg_stat_statements_track_planning": "off"
+      },
+      "pg_stat_statements_rows": 10
+    },
+    {
+      "index": 7,
+      "label": "paired-query-1",
+      "total_calls": 54,
+      "stats_reset": "2026-08-04 16:33:26.641404+00",
+      "dealloc": 0,
+      "postmaster_start_time": "2026-08-04 16:30:46.132243+00",
+      "measurement_environment": {
+        "postgresql_version_num": 160014,
+        "pg_stat_statements_track": "all",
+        "pg_stat_statements_track_utility": "on",
+        "pg_stat_statements_track_planning": "off"
+      },
+      "pg_stat_statements_rows": 10
+    },
+    {
+      "index": 8,
+      "label": "explicit-preflight-2",
+      "total_calls": 58,
+      "stats_reset": "2026-08-04 16:33:26.641404+00",
+      "dealloc": 0,
+      "postmaster_start_time": "2026-08-04 16:30:46.132243+00",
+      "measurement_environment": {
+        "postgresql_version_num": 160014,
+        "pg_stat_statements_track": "all",
+        "pg_stat_statements_track_utility": "on",
+        "pg_stat_statements_track_planning": "off"
+      },
+      "pg_stat_statements_rows": 10
+    },
+    {
+      "index": 9,
+      "label": "single-query-2",
+      "total_calls": 67,
+      "stats_reset": "2026-08-04 16:33:26.641404+00",
+      "dealloc": 0,
+      "postmaster_start_time": "2026-08-04 16:30:46.132243+00",
+      "measurement_environment": {
+        "postgresql_version_num": 160014,
+        "pg_stat_statements_track": "all",
+        "pg_stat_statements_track_utility": "on",
+        "pg_stat_statements_track_planning": "off"
+      },
+      "pg_stat_statements_rows": 10
+    },
+    {
+      "index": 10,
+      "label": "paired-query-2",
+      "total_calls": 79,
+      "stats_reset": "2026-08-04 16:33:26.641404+00",
+      "dealloc": 0,
+      "postmaster_start_time": "2026-08-04 16:30:46.132243+00",
+      "measurement_environment": {
+        "postgresql_version_num": 160014,
+        "pg_stat_statements_track": "all",
+        "pg_stat_statements_track_utility": "on",
+        "pg_stat_statements_track_planning": "off"
+      },
+      "pg_stat_statements_rows": 10
+    }
+  ],
+  "intervals": [
+    {
+      "index": 0,
+      "scope": "constructor_or_cold_pool",
+      "repetition": 0,
+      "from_snapshot": "baseline",
+      "to_snapshot": "connector-construction",
+      "attestations": 1,
+      "toplevel_delta": [
+        {
+          "strict_ast_sha256": "3cfbbde6160f50e1d80a3302c6f6a95426c191405290b3d6c54980d3e71c9f34",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "-5652606820626484518"
+        },
+        {
+          "strict_ast_sha256": "ce05157368fc77ab8fc8e4da6f036dc322a0a3ec037d54a10b6763d34c86b56e",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "-5408109414808547103"
+        },
+        {
+          "strict_ast_sha256": "e9ddb946063549f3265b7076fa278c34848b6f999cc1d2043350b1d8b3f84e08",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "-1277912955944760728"
+        }
+      ],
+      "internal_delta": [
+        {
+          "strict_ast_sha256": "e5738df1650276a7f20e677172e067bc62bab12d48c18a378c9b6ed602433842",
+          "toplevel": false,
+          "calls": 1,
+          "queryid": "5548817353774115488"
+        }
+      ],
+      "total_delta": 4,
+      "structural_sum": 4
+    },
+    {
+      "index": 1,
+      "scope": "explicit_preflight_pool",
+      "repetition": 0,
+      "from_snapshot": "connector-construction",
+      "to_snapshot": "explicit-preflight-0",
+      "attestations": 1,
+      "toplevel_delta": [
+        {
+          "strict_ast_sha256": "3cfbbde6160f50e1d80a3302c6f6a95426c191405290b3d6c54980d3e71c9f34",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "-5652606820626484518"
+        },
+        {
+          "strict_ast_sha256": "ce05157368fc77ab8fc8e4da6f036dc322a0a3ec037d54a10b6763d34c86b56e",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "-5408109414808547103"
+        },
+        {
+          "strict_ast_sha256": "e9ddb946063549f3265b7076fa278c34848b6f999cc1d2043350b1d8b3f84e08",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "-1277912955944760728"
+        }
+      ],
+      "internal_delta": [
+        {
+          "strict_ast_sha256": "e5738df1650276a7f20e677172e067bc62bab12d48c18a378c9b6ed602433842",
+          "toplevel": false,
+          "calls": 1,
+          "queryid": "5548817353774115488"
+        }
+      ],
+      "total_delta": 4,
+      "structural_sum": 4
+    },
+    {
+      "index": 2,
+      "scope": "single_query_transaction",
+      "repetition": 0,
+      "from_snapshot": "explicit-preflight-0",
+      "to_snapshot": "single-query-0",
+      "attestations": 1,
+      "toplevel_delta": [
+        {
+          "strict_ast_sha256": "3cfbbde6160f50e1d80a3302c6f6a95426c191405290b3d6c54980d3e71c9f34",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "-5652606820626484518"
+        },
+        {
+          "strict_ast_sha256": "91d4316ad8bb8cf839ccd8b0445e35496b2604c1ef2b434b66a482f20527f0c0",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "6213930813521682135"
+        },
+        {
+          "strict_ast_sha256": "a8acade16a6702d05e7b894a642d44f3cea0f1b713fbe17a62713335c6f00c83",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "-5378431905038090156"
+        },
+        {
+          "strict_ast_sha256": "ba22d865c6543e00d12dea192639fcf809ce9be57ee4ef5c0ef51f2a6d415f2d",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "3562230349643926827"
+        },
+        {
+          "strict_ast_sha256": "cb0bbfb5a1372b56df578a1963844c5d31fa70ef2d92af9b8569f04622e47183",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "7468618335176192263"
+        },
+        {
+          "strict_ast_sha256": "ce05157368fc77ab8fc8e4da6f036dc322a0a3ec037d54a10b6763d34c86b56e",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "-5408109414808547103"
+        },
+        {
+          "strict_ast_sha256": "e9ddb946063549f3265b7076fa278c34848b6f999cc1d2043350b1d8b3f84e08",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "-1277912955944760728"
+        },
+        {
+          "strict_ast_sha256": "f440d0cec958ea7cf465a67c131f197101a6c780a60c31aaec8368e47398832e",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "2064869707185898531"
+        }
+      ],
+      "internal_delta": [
+        {
+          "strict_ast_sha256": "e5738df1650276a7f20e677172e067bc62bab12d48c18a378c9b6ed602433842",
+          "toplevel": false,
+          "calls": 1,
+          "queryid": "5548817353774115488"
+        }
+      ],
+      "total_delta": 9,
+      "structural_sum": 9
+    },
+    {
+      "index": 3,
+      "scope": "paired_query_transaction",
+      "repetition": 0,
+      "from_snapshot": "single-query-0",
+      "to_snapshot": "paired-query-0",
+      "attestations": 1,
+      "toplevel_delta": [
+        {
+          "strict_ast_sha256": "3cfbbde6160f50e1d80a3302c6f6a95426c191405290b3d6c54980d3e71c9f34",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "-5652606820626484518"
+        },
+        {
+          "strict_ast_sha256": "91d4316ad8bb8cf839ccd8b0445e35496b2604c1ef2b434b66a482f20527f0c0",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "6213930813521682135"
+        },
+        {
+          "strict_ast_sha256": "a8acade16a6702d05e7b894a642d44f3cea0f1b713fbe17a62713335c6f00c83",
+          "toplevel": true,
+          "calls": 2,
+          "queryid": "-5378431905038090156"
+        },
+        {
+          "strict_ast_sha256": "ba22d865c6543e00d12dea192639fcf809ce9be57ee4ef5c0ef51f2a6d415f2d",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "3562230349643926827"
+        },
+        {
+          "strict_ast_sha256": "cb0bbfb5a1372b56df578a1963844c5d31fa70ef2d92af9b8569f04622e47183",
+          "toplevel": true,
+          "calls": 2,
+          "queryid": "7468618335176192263"
+        },
+        {
+          "strict_ast_sha256": "ce05157368fc77ab8fc8e4da6f036dc322a0a3ec037d54a10b6763d34c86b56e",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "-5408109414808547103"
+        },
+        {
+          "strict_ast_sha256": "d474bfd147403663d0cd702d219f0576a91aa3ddbd6e1de169fc5b9886a87c3b",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "5639731077043598693"
+        },
+        {
+          "strict_ast_sha256": "e9ddb946063549f3265b7076fa278c34848b6f999cc1d2043350b1d8b3f84e08",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "-1277912955944760728"
+        },
+        {
+          "strict_ast_sha256": "f440d0cec958ea7cf465a67c131f197101a6c780a60c31aaec8368e47398832e",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "2064869707185898531"
+        }
+      ],
+      "internal_delta": [
+        {
+          "strict_ast_sha256": "e5738df1650276a7f20e677172e067bc62bab12d48c18a378c9b6ed602433842",
+          "toplevel": false,
+          "calls": 1,
+          "queryid": "5548817353774115488"
+        }
+      ],
+      "total_delta": 12,
+      "structural_sum": 12
+    },
+    {
+      "index": 4,
+      "scope": "explicit_preflight_pool",
+      "repetition": 1,
+      "from_snapshot": "paired-query-0",
+      "to_snapshot": "explicit-preflight-1",
+      "attestations": 1,
+      "toplevel_delta": [
+        {
+          "strict_ast_sha256": "3cfbbde6160f50e1d80a3302c6f6a95426c191405290b3d6c54980d3e71c9f34",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "-5652606820626484518"
+        },
+        {
+          "strict_ast_sha256": "ce05157368fc77ab8fc8e4da6f036dc322a0a3ec037d54a10b6763d34c86b56e",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "-5408109414808547103"
+        },
+        {
+          "strict_ast_sha256": "e9ddb946063549f3265b7076fa278c34848b6f999cc1d2043350b1d8b3f84e08",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "-1277912955944760728"
+        }
+      ],
+      "internal_delta": [
+        {
+          "strict_ast_sha256": "e5738df1650276a7f20e677172e067bc62bab12d48c18a378c9b6ed602433842",
+          "toplevel": false,
+          "calls": 1,
+          "queryid": "5548817353774115488"
+        }
+      ],
+      "total_delta": 4,
+      "structural_sum": 4
+    },
+    {
+      "index": 5,
+      "scope": "single_query_transaction",
+      "repetition": 1,
+      "from_snapshot": "explicit-preflight-1",
+      "to_snapshot": "single-query-1",
+      "attestations": 1,
+      "toplevel_delta": [
+        {
+          "strict_ast_sha256": "3cfbbde6160f50e1d80a3302c6f6a95426c191405290b3d6c54980d3e71c9f34",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "-5652606820626484518"
+        },
+        {
+          "strict_ast_sha256": "91d4316ad8bb8cf839ccd8b0445e35496b2604c1ef2b434b66a482f20527f0c0",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "6213930813521682135"
+        },
+        {
+          "strict_ast_sha256": "a8acade16a6702d05e7b894a642d44f3cea0f1b713fbe17a62713335c6f00c83",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "-5378431905038090156"
+        },
+        {
+          "strict_ast_sha256": "ba22d865c6543e00d12dea192639fcf809ce9be57ee4ef5c0ef51f2a6d415f2d",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "3562230349643926827"
+        },
+        {
+          "strict_ast_sha256": "cb0bbfb5a1372b56df578a1963844c5d31fa70ef2d92af9b8569f04622e47183",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "7468618335176192263"
+        },
+        {
+          "strict_ast_sha256": "ce05157368fc77ab8fc8e4da6f036dc322a0a3ec037d54a10b6763d34c86b56e",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "-5408109414808547103"
+        },
+        {
+          "strict_ast_sha256": "e9ddb946063549f3265b7076fa278c34848b6f999cc1d2043350b1d8b3f84e08",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "-1277912955944760728"
+        },
+        {
+          "strict_ast_sha256": "f440d0cec958ea7cf465a67c131f197101a6c780a60c31aaec8368e47398832e",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "2064869707185898531"
+        }
+      ],
+      "internal_delta": [
+        {
+          "strict_ast_sha256": "e5738df1650276a7f20e677172e067bc62bab12d48c18a378c9b6ed602433842",
+          "toplevel": false,
+          "calls": 1,
+          "queryid": "5548817353774115488"
+        }
+      ],
+      "total_delta": 9,
+      "structural_sum": 9
+    },
+    {
+      "index": 6,
+      "scope": "paired_query_transaction",
+      "repetition": 1,
+      "from_snapshot": "single-query-1",
+      "to_snapshot": "paired-query-1",
+      "attestations": 1,
+      "toplevel_delta": [
+        {
+          "strict_ast_sha256": "3cfbbde6160f50e1d80a3302c6f6a95426c191405290b3d6c54980d3e71c9f34",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "-5652606820626484518"
+        },
+        {
+          "strict_ast_sha256": "91d4316ad8bb8cf839ccd8b0445e35496b2604c1ef2b434b66a482f20527f0c0",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "6213930813521682135"
+        },
+        {
+          "strict_ast_sha256": "a8acade16a6702d05e7b894a642d44f3cea0f1b713fbe17a62713335c6f00c83",
+          "toplevel": true,
+          "calls": 2,
+          "queryid": "-5378431905038090156"
+        },
+        {
+          "strict_ast_sha256": "ba22d865c6543e00d12dea192639fcf809ce9be57ee4ef5c0ef51f2a6d415f2d",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "3562230349643926827"
+        },
+        {
+          "strict_ast_sha256": "cb0bbfb5a1372b56df578a1963844c5d31fa70ef2d92af9b8569f04622e47183",
+          "toplevel": true,
+          "calls": 2,
+          "queryid": "7468618335176192263"
+        },
+        {
+          "strict_ast_sha256": "ce05157368fc77ab8fc8e4da6f036dc322a0a3ec037d54a10b6763d34c86b56e",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "-5408109414808547103"
+        },
+        {
+          "strict_ast_sha256": "d474bfd147403663d0cd702d219f0576a91aa3ddbd6e1de169fc5b9886a87c3b",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "5639731077043598693"
+        },
+        {
+          "strict_ast_sha256": "e9ddb946063549f3265b7076fa278c34848b6f999cc1d2043350b1d8b3f84e08",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "-1277912955944760728"
+        },
+        {
+          "strict_ast_sha256": "f440d0cec958ea7cf465a67c131f197101a6c780a60c31aaec8368e47398832e",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "2064869707185898531"
+        }
+      ],
+      "internal_delta": [
+        {
+          "strict_ast_sha256": "e5738df1650276a7f20e677172e067bc62bab12d48c18a378c9b6ed602433842",
+          "toplevel": false,
+          "calls": 1,
+          "queryid": "5548817353774115488"
+        }
+      ],
+      "total_delta": 12,
+      "structural_sum": 12
+    },
+    {
+      "index": 7,
+      "scope": "explicit_preflight_pool",
+      "repetition": 2,
+      "from_snapshot": "paired-query-1",
+      "to_snapshot": "explicit-preflight-2",
+      "attestations": 1,
+      "toplevel_delta": [
+        {
+          "strict_ast_sha256": "3cfbbde6160f50e1d80a3302c6f6a95426c191405290b3d6c54980d3e71c9f34",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "-5652606820626484518"
+        },
+        {
+          "strict_ast_sha256": "ce05157368fc77ab8fc8e4da6f036dc322a0a3ec037d54a10b6763d34c86b56e",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "-5408109414808547103"
+        },
+        {
+          "strict_ast_sha256": "e9ddb946063549f3265b7076fa278c34848b6f999cc1d2043350b1d8b3f84e08",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "-1277912955944760728"
+        }
+      ],
+      "internal_delta": [
+        {
+          "strict_ast_sha256": "e5738df1650276a7f20e677172e067bc62bab12d48c18a378c9b6ed602433842",
+          "toplevel": false,
+          "calls": 1,
+          "queryid": "5548817353774115488"
+        }
+      ],
+      "total_delta": 4,
+      "structural_sum": 4
+    },
+    {
+      "index": 8,
+      "scope": "single_query_transaction",
+      "repetition": 2,
+      "from_snapshot": "explicit-preflight-2",
+      "to_snapshot": "single-query-2",
+      "attestations": 1,
+      "toplevel_delta": [
+        {
+          "strict_ast_sha256": "3cfbbde6160f50e1d80a3302c6f6a95426c191405290b3d6c54980d3e71c9f34",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "-5652606820626484518"
+        },
+        {
+          "strict_ast_sha256": "91d4316ad8bb8cf839ccd8b0445e35496b2604c1ef2b434b66a482f20527f0c0",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "6213930813521682135"
+        },
+        {
+          "strict_ast_sha256": "a8acade16a6702d05e7b894a642d44f3cea0f1b713fbe17a62713335c6f00c83",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "-5378431905038090156"
+        },
+        {
+          "strict_ast_sha256": "ba22d865c6543e00d12dea192639fcf809ce9be57ee4ef5c0ef51f2a6d415f2d",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "3562230349643926827"
+        },
+        {
+          "strict_ast_sha256": "cb0bbfb5a1372b56df578a1963844c5d31fa70ef2d92af9b8569f04622e47183",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "7468618335176192263"
+        },
+        {
+          "strict_ast_sha256": "ce05157368fc77ab8fc8e4da6f036dc322a0a3ec037d54a10b6763d34c86b56e",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "-5408109414808547103"
+        },
+        {
+          "strict_ast_sha256": "e9ddb946063549f3265b7076fa278c34848b6f999cc1d2043350b1d8b3f84e08",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "-1277912955944760728"
+        },
+        {
+          "strict_ast_sha256": "f440d0cec958ea7cf465a67c131f197101a6c780a60c31aaec8368e47398832e",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "2064869707185898531"
+        }
+      ],
+      "internal_delta": [
+        {
+          "strict_ast_sha256": "e5738df1650276a7f20e677172e067bc62bab12d48c18a378c9b6ed602433842",
+          "toplevel": false,
+          "calls": 1,
+          "queryid": "5548817353774115488"
+        }
+      ],
+      "total_delta": 9,
+      "structural_sum": 9
+    },
+    {
+      "index": 9,
+      "scope": "paired_query_transaction",
+      "repetition": 2,
+      "from_snapshot": "single-query-2",
+      "to_snapshot": "paired-query-2",
+      "attestations": 1,
+      "toplevel_delta": [
+        {
+          "strict_ast_sha256": "3cfbbde6160f50e1d80a3302c6f6a95426c191405290b3d6c54980d3e71c9f34",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "-5652606820626484518"
+        },
+        {
+          "strict_ast_sha256": "91d4316ad8bb8cf839ccd8b0445e35496b2604c1ef2b434b66a482f20527f0c0",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "6213930813521682135"
+        },
+        {
+          "strict_ast_sha256": "a8acade16a6702d05e7b894a642d44f3cea0f1b713fbe17a62713335c6f00c83",
+          "toplevel": true,
+          "calls": 2,
+          "queryid": "-5378431905038090156"
+        },
+        {
+          "strict_ast_sha256": "ba22d865c6543e00d12dea192639fcf809ce9be57ee4ef5c0ef51f2a6d415f2d",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "3562230349643926827"
+        },
+        {
+          "strict_ast_sha256": "cb0bbfb5a1372b56df578a1963844c5d31fa70ef2d92af9b8569f04622e47183",
+          "toplevel": true,
+          "calls": 2,
+          "queryid": "7468618335176192263"
+        },
+        {
+          "strict_ast_sha256": "ce05157368fc77ab8fc8e4da6f036dc322a0a3ec037d54a10b6763d34c86b56e",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "-5408109414808547103"
+        },
+        {
+          "strict_ast_sha256": "d474bfd147403663d0cd702d219f0576a91aa3ddbd6e1de169fc5b9886a87c3b",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "5639731077043598693"
+        },
+        {
+          "strict_ast_sha256": "e9ddb946063549f3265b7076fa278c34848b6f999cc1d2043350b1d8b3f84e08",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "-1277912955944760728"
+        },
+        {
+          "strict_ast_sha256": "f440d0cec958ea7cf465a67c131f197101a6c780a60c31aaec8368e47398832e",
+          "toplevel": true,
+          "calls": 1,
+          "queryid": "2064869707185898531"
+        }
+      ],
+      "internal_delta": [
+        {
+          "strict_ast_sha256": "e5738df1650276a7f20e677172e067bc62bab12d48c18a378c9b6ed602433842",
+          "toplevel": false,
+          "calls": 1,
+          "queryid": "5548817353774115488"
+        }
+      ],
+      "total_delta": 12,
+      "structural_sum": 12
+    }
+  ],
+  "scope_stable": {
+    "constructor_or_cold_pool": true,
+    "explicit_preflight_pool": true,
+    "paired_query_transaction": true,
+    "single_query_transaction": true
+  },
+  "constructor_matches_explicit_preflight": true,
+  "footprint": {
+    "version": "taskgate-final-v5-attestation-footprint-v2",
+    "expected_schema_digest": "e2a3796fb3f5c50f97ebf02a40996b9c95a50e5b028a975cfccd4cf80407d40c",
+    "expected_schema_entries": 1,
+    "measurement_environment": {
+      "postgresql_version_num": 160014,
+      "pg_stat_statements_track": "all",
+      "pg_stat_statements_track_utility": "on",
+      "pg_stat_statements_track_planning": "off"
+    },
+    "postgresql_runtime_identity": {
+      "image_reference": "postgres@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55",
+      "repo_digest": "postgres@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55",
+      "local_image_id": "sha256:67d1da22f4037b29cdd93e03d870a4a1c4d079358367d0cbc56459e52cde205e",
+      "container_image_id": "sha256:67d1da22f4037b29cdd93e03d870a4a1c4d079358367d0cbc56459e52cde205e",
+      "platform": "linux/amd64"
+    },
+    "qualification_id": "attestation-footprint-v15-qualification-02-20260804T163031Z-18bee8e6b7fe",
+    "scopes": [
+      {
+        "scope": "constructor_or_cold_pool",
+        "internal": [
+          {
+            "strict_ast_sha256": "e5738df1650276a7f20e677172e067bc62bab12d48c18a378c9b6ed602433842",
+            "calls_per_attestation": 1
+          }
+        ]
+      },
+      {
+        "scope": "explicit_preflight_pool",
+        "internal": [
+          {
+            "strict_ast_sha256": "e5738df1650276a7f20e677172e067bc62bab12d48c18a378c9b6ed602433842",
+            "calls_per_attestation": 1
+          }
+        ]
+      },
+      {
+        "scope": "single_query_transaction",
+        "internal": [
+          {
+            "strict_ast_sha256": "e5738df1650276a7f20e677172e067bc62bab12d48c18a378c9b6ed602433842",
+            "calls_per_attestation": 1
+          }
+        ]
+      },
+      {
+        "scope": "paired_query_transaction",
+        "internal": [
+          {
+            "strict_ast_sha256": "e5738df1650276a7f20e677172e067bc62bab12d48c18a378c9b6ed602433842",
+            "calls_per_attestation": 1
+          }
+        ]
+      }
+    ]
+  },
+  "footprint_sha256": "6e51e62a82a1d058ba43d68da2e8f9bd3d30a300834f67cce122b9dd365a30d1",
+  "portable_footprint_sha256": "032e9c53704d8df270693c291d36893e46e6c587b95c59bef2c6d198181ceacf",
+  "internal_key_count": 1
+}
