@@ -22,6 +22,19 @@ type fakeEngine struct {
 	restartReads  int
 	execCommands  map[string][]string
 	resolveErrors map[string]error
+	healthcheck   *experiment.GatewayHealthcheck
+	healthErr     error
+}
+
+func (f *fakeEngine) resolveGatewayHealthcheck(context.Context, serviceIdentity) (experiment.GatewayHealthcheck, error) {
+	if f.healthErr != nil {
+		return experiment.GatewayHealthcheck{}, f.healthErr
+	}
+	if f.healthcheck != nil {
+		return *f.healthcheck, nil
+	}
+	// A complete fake deployment carries the approved formal probe.
+	return experiment.FormalGatewayHealthcheck(), nil
 }
 
 func (f *fakeEngine) resolveService(_ context.Context, project, service string) (serviceIdentity, error) {
@@ -59,6 +72,7 @@ func TestCollectEmitsStrictRealSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	runtimeIdentity, err := runtimeIdentitySHA256(testProject, fake.restarts[1],
+		experiment.FormalGatewayHealthcheck(),
 		fake.services[testProject+"/"+gatewayService], fake.services[testProject+"/"+businessService],
 		fake.services[testProject+"/"+controlService])
 	if err != nil {
@@ -280,7 +294,7 @@ func TestRuntimeIdentityChangesWhenProjectContainerIsReplaced(t *testing.T) {
 	gateway := fake.services[testProject+"/"+gatewayService]
 	business := fake.services[testProject+"/"+businessService]
 	control := fake.services[testProject+"/"+controlService]
-	before, err := runtimeIdentitySHA256(testProject, fake.restarts[0], gateway, business, control)
+	before, err := runtimeIdentitySHA256(testProject, fake.restarts[0], experiment.FormalGatewayHealthcheck(), gateway, business, control)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +302,7 @@ func TestRuntimeIdentityChangesWhenProjectContainerIsReplaced(t *testing.T) {
 		"gateway-new": 2, "business-id": 1, "control-id": 0,
 	})
 	gateway.id, gateway.pid = "gateway-new", 201
-	after, err := runtimeIdentitySHA256(testProject, afterSnapshot, gateway, business, control)
+	after, err := runtimeIdentitySHA256(testProject, afterSnapshot, experiment.FormalGatewayHealthcheck(), gateway, business, control)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -488,4 +502,67 @@ func restartSnapshot(counts map[string]int64) projectRestartSnapshot {
 
 func mapEnvironment(values map[string]string) func(string) string {
 	return func(name string) string { return values[name] }
+}
+
+// The formal window gate. A deployment whose Gateway still probes /health/ready
+// on a timer performs a full Business PostgreSQL Attestation on every interval,
+// so the observer must refuse to produce a snapshot at all rather than emit one
+// carrying wall-clock-dependent statements.
+func TestCollectRejectsAReadinessProbingGateway(t *testing.T) {
+	readiness := experiment.GatewayHealthcheck{
+		Test:     []string{"CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8082/health/ready"},
+		Interval: "3s", Timeout: "3s", Retries: 30,
+	}
+	fake := completeFakeEngine()
+	fake.healthcheck = &readiness
+	if _, err := collect(context.Background(), fake, testProject, "before"); err == nil {
+		t.Fatal("a snapshot was produced under the readiness probe")
+	}
+}
+
+func TestCollectRejectsHealthcheckScheduleDrift(t *testing.T) {
+	for name, probe := range map[string]experiment.GatewayHealthcheck{
+		"a different interval": {Test: experiment.FormalGatewayHealthcheck().Test,
+			Interval: "30s", Timeout: "3s", Retries: 30},
+		"a different timeout": {Test: experiment.FormalGatewayHealthcheck().Test,
+			Interval: "3s", Timeout: "10s", Retries: 30},
+		"a different retry count": {Test: experiment.FormalGatewayHealthcheck().Test,
+			Interval: "3s", Timeout: "3s", Retries: 3},
+		"no probe at all": {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fake := completeFakeEngine()
+			probe := probe
+			fake.healthcheck = &probe
+			if _, err := collect(context.Background(), fake, testProject, "before"); err == nil {
+				t.Fatal("a snapshot was produced under a drifted healthcheck")
+			}
+		})
+	}
+}
+
+// The healthcheck is part of runtime identity, so a snapshot taken under the
+// readiness probe can never compare equal to one taken under the approved
+// liveness probe even if every container and PID matched.
+func TestRuntimeIdentitySeparatesHealthcheckModes(t *testing.T) {
+	fake := completeFakeEngine()
+	gateway := fake.services[testProject+"/"+gatewayService]
+	business := fake.services[testProject+"/"+businessService]
+	control := fake.services[testProject+"/"+controlService]
+	approved, err := runtimeIdentitySHA256(testProject, fake.restarts[0],
+		experiment.FormalGatewayHealthcheck(), gateway, business, control)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readiness, err := runtimeIdentitySHA256(testProject, fake.restarts[0],
+		experiment.GatewayHealthcheck{
+			Test:     []string{"CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8082/health/ready"},
+			Interval: "3s", Timeout: "3s", Retries: 30,
+		}, gateway, business, control)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if approved == readiness {
+		t.Fatal("runtime identity does not distinguish the readiness probe from the liveness probe")
+	}
 }

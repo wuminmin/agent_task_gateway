@@ -35,9 +35,15 @@ var rq5RequiredRuntimeSources = []string{
 	"db/init/00-schema.sql",
 }
 
+// observerRequiredSources is the exact source set the observer binary is built
+// from and bound to. It must name every file whose bytes change what a snapshot
+// means, not merely the entry point: the formal-window contract decides which
+// deployments may be measured at all, so a build that silently dropped it would
+// still verify against this manifest.
 var observerRequiredSources = []string{
 	"evaluation/cmd/final-v5-observer/main.go",
 	"evaluation/internal/experiment/observer.go",
+	"evaluation/internal/experiment/formal_window.go",
 }
 
 type CampaignExperimentEvidence struct {

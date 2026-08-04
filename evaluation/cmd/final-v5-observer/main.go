@@ -72,7 +72,7 @@ TASKGATE_SQL`
 )
 
 var (
-	formalProjectPattern  = regexp.MustCompile(`^taskgate-final-v5-deployment-0[1-3]-[0-9a-f]{20}$`)
+	formalProjectPattern = regexp.MustCompile(`^taskgate-final-v5-deployment-0[1-3]-[0-9a-f]{20}$`)
 	// The exact service set a formal Final-V5 deployment builds from
 	// compose.yaml, compose.debug.yaml, compose.real-pilot.yaml and
 	// compose.provsql.yaml. snapshot-index-result-heavy joined the deployment
@@ -100,6 +100,7 @@ type engine interface {
 	readGatewayResources(context.Context, serviceIdentity, string) (gatewayResourceSnapshot, error)
 	exec(context.Context, string, []string) ([]byte, error)
 	restartSnapshot(context.Context, string) (projectRestartSnapshot, error)
+	resolveGatewayHealthcheck(context.Context, serviceIdentity) (experiment.GatewayHealthcheck, error)
 }
 
 type dockerEngine struct {
@@ -116,6 +117,16 @@ type containerInspect struct {
 	RestartCount int64  `json:"RestartCount"`
 	Config       struct {
 		Labels map[string]string `json:"Labels"`
+		// Healthcheck is the periodic probe Docker actually runs. It is read so
+		// a formal measurement can refuse a deployment whose Gateway still
+		// probes /health/ready, which would issue a full Business PostgreSQL
+		// Attestation on every interval inside the observer window.
+		Healthcheck *struct {
+			Test     []string `json:"Test"`
+			Interval int64    `json:"Interval"`
+			Timeout  int64    `json:"Timeout"`
+			Retries  int64    `json:"Retries"`
+		} `json:"Healthcheck"`
 	} `json:"Config"`
 	State struct {
 		Running bool `json:"Running"`
@@ -274,7 +285,18 @@ func collect(ctx context.Context, docker engine, project, phase string) (experim
 		!sameRestartSnapshot(restartsBefore, restartsAfter) {
 		return experiment.ObserverSnapshot{}, errors.New("a project container restarted or was replaced while the observer snapshot was collected")
 	}
-	runtimeIdentity, err := runtimeIdentitySHA256(project, restartsAfter, gateway, business, control)
+	// A formal measurement refuses a deployment whose Gateway still probes
+	// /health/ready on a timer: every probe performs a full Business PostgreSQL
+	// Attestation, so the window would carry a wall-clock-dependent number of
+	// gateway_reader statements no derived plan can predict.
+	healthcheck, err := docker.resolveGatewayHealthcheck(ctx, gateway)
+	if err != nil {
+		return experiment.ObserverSnapshot{}, fmt.Errorf("resolve Gateway healthcheck: %w", err)
+	}
+	if err := healthcheck.Validate(); err != nil {
+		return experiment.ObserverSnapshot{}, err
+	}
+	runtimeIdentity, err := runtimeIdentitySHA256(project, restartsAfter, healthcheck, gateway, business, control)
 	if err != nil {
 		return experiment.ObserverSnapshot{}, err
 	}
@@ -351,7 +373,7 @@ func validateFormalProjectSnapshot(snapshot projectRestartSnapshot) error {
 const runtimeIdentityDomain = "TASKGATE-FINAL-V5-OBSERVER-RUNTIME-IDENTITY-V1"
 
 func runtimeIdentitySHA256(project string, snapshot projectRestartSnapshot,
-	critical ...serviceIdentity) (string, error) {
+	healthcheck experiment.GatewayHealthcheck, critical ...serviceIdentity) (string, error) {
 	if !formalProjectPattern.MatchString(project) || !containsServiceIdentities(snapshot, critical...) {
 		return "", errors.New("observer runtime identity input is incomplete")
 	}
@@ -374,6 +396,13 @@ func runtimeIdentitySHA256(project string, snapshot projectRestartSnapshot,
 		canonical.WriteString(snapshot.services[service])
 		canonical.WriteByte(0)
 	}
+	// The periodic healthcheck is part of the runtime identity, so a snapshot
+	// taken under the readiness probe can never compare equal to one taken
+	// under the approved liveness probe.
+	canonical.WriteString("gateway-healthcheck")
+	canonical.WriteByte(0)
+	canonical.WriteString(healthcheck.SHA256())
+	canonical.WriteByte(0)
 	canonical.WriteString("critical-pids")
 	canonical.WriteByte(0)
 	orderedCritical := append([]serviceIdentity(nil), critical...)
@@ -624,6 +653,40 @@ func (d *dockerEngine) inspectServiceIdentity(ctx context.Context, containerID, 
 		return serviceIdentity{}, errors.New("resolved container identity differs from its Compose labels or host PID")
 	}
 	return serviceIdentity{project: project, service: service, id: containerID, pid: inspected.State.PID}, nil
+}
+
+// resolveGatewayHealthcheck reads the running Gateway's periodic probe. Docker
+// reports the interval and timeout in nanoseconds; they are converted to the
+// same second-granularity strings the Compose override declares so the observer
+// compares like with like.
+func (d *dockerEngine) resolveGatewayHealthcheck(ctx context.Context, identity serviceIdentity) (experiment.GatewayHealthcheck, error) {
+	var inspected containerInspect
+	if err := d.getJSON(ctx, "/containers/"+url.PathEscape(identity.id)+"/json", &inspected); err != nil {
+		return experiment.GatewayHealthcheck{}, err
+	}
+	if inspected.ID != identity.id {
+		return experiment.GatewayHealthcheck{}, errors.New("Gateway container identity changed during healthcheck inspection")
+	}
+	if inspected.Config.Healthcheck == nil {
+		return experiment.GatewayHealthcheck{}, errors.New("the running Gateway declares no periodic healthcheck")
+	}
+	probe := inspected.Config.Healthcheck
+	return experiment.GatewayHealthcheck{
+		Test:     append([]string(nil), probe.Test...),
+		Interval: durationSeconds(probe.Interval),
+		Timeout:  durationSeconds(probe.Timeout),
+		Retries:  probe.Retries,
+	}, nil
+}
+
+func durationSeconds(nanoseconds int64) string {
+	if nanoseconds <= 0 || nanoseconds%int64(time.Second) != 0 {
+		// Anything that is not a whole number of seconds cannot equal the
+		// approved definition, and is reported verbatim so the mismatch is
+		// legible rather than rounded away.
+		return fmt.Sprintf("%dns", nanoseconds)
+	}
+	return fmt.Sprintf("%ds", nanoseconds/int64(time.Second))
 }
 
 func (d *dockerEngine) readGatewayResources(ctx context.Context, identity serviceIdentity, phase string) (gatewayResourceSnapshot, error) {
