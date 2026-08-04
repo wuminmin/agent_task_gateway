@@ -1,0 +1,68 @@
+# Overlay that turns the real deployment topology into an isolated PostgreSQL
+# test environment.
+#
+# # Why an overlay rather than a standalone file
+#
+# The database-backed tests in internal/control, internal/dataconnector,
+# internal/gateway and evaluation/security skip when no DSN is configured, and a
+# skipped test proves nothing. They need more than two empty servers: the
+# ordinal sidecars and snapshot-index artifacts that snapshot-sidecar-install
+# publishes into Business PostgreSQL, without which a gateway test fails on a
+# missing taskgate_ordinal relation rather than on anything it meant to check.
+#
+# A standalone file was tried first and was wrong for exactly that reason: it
+# reproduced the two servers and none of the artifacts, so it described a
+# different deployment that happened to answer the same version query. This
+# overlay instead composes on top of the real files --
+#
+#   compose.yaml
+#   evaluation/final-v5-wsl2/compose.real-pilot.yaml   (pg_stat_statements)
+#   evaluation/final-v5-wsl2/compose.observer-v3.yaml  (digest-pinned 16.14)
+#   compose.dbtest.yaml                                (this file)
+#
+# -- and changes only what isolation requires: the project name and the
+# published ports. Everything the tests actually exercise stays the deployment's
+# own definition, so it cannot drift away from it.
+#
+# The host installation alternative was rejected outright: the Attestation
+# footprint, the measurement environment and every internal statement key are
+# properties of one PostgreSQL build, so a host server would be a different
+# server, not a convenient equivalent.
+#
+# Driven by scripts/db-test-env.sh, which owns the credentials, the ports and
+# the DSNs.
+
+name: taskgate-dbtest
+
+services:
+  control-postgres:
+    ports: !override
+      - 127.0.0.1:${DBTEST_CONTROL_PORT:-25533}:5432
+
+  business-postgres:
+    # compose.yaml publishes no port for Business PostgreSQL -- the deployment
+    # reaches it over the business-data network. The tests run on the host, so
+    # it is published here and nowhere else.
+    #
+    # A plain list, not `!override`. control-postgres above needs !override
+    # because compose.yaml already publishes 25433 and the lists would otherwise
+    # merge, leaving both ports bound. Here there is no base list to replace,
+    # and !override silently produced no published port at all.
+    ports:
+      - 127.0.0.1:${DBTEST_BUSINESS_PORT:-25534}:5432
+    # Publishing alone is not enough: business-data is `internal: true`, so a
+    # container attached only to it gets PortBindings recorded and no actual
+    # host mapping -- the failure looks like "connection refused" on a port
+    # docker inspect claims is bound. A second, non-internal network is what
+    # makes the published port real. scripts/integration-test.sh does the same
+    # thing for the same reason.
+    #
+    # business-data stays attached and stays internal, so this adds a path from
+    # the host to the test server without giving the server a route out.
+    networks:
+      - business-data
+      - dbtest-host
+
+networks:
+  # Non-internal, so the published Business PostgreSQL port actually maps.
+  dbtest-host:

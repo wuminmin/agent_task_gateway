@@ -384,7 +384,44 @@ Watch items, all ordinary technical work:
 - There is no host PostgreSQL server and none should be installed: the
   repository's digest-pinned PostgreSQL 16.14 containers are the frozen
   environment the whole accounting is qualified against, and a host install
-  would be a different server.
+  would be a different server. `scripts/db-test-env.sh` brings up that
+  environment and exports the DSNs.
+- **Five `internal/gateway` tests fail against a real control store, and did so
+  before this work.** Verified identical at `3d1eea9`, the accepted pre-session
+  boundary, so nothing here caused them; they were simply never run, because
+  they skipped for want of `CONTROL_TEST_POSTGRES_DSN`.
+
+  `TestDelegatedTaskSharesRootExposureAndStopsWithParent`,
+  `TestSQLAndExecutePlanShareV4SemanticReplayAfterConsumedRowBudget`,
+  `TestOrdinalExposureBudgetBPlusOneCommitsCompleteFailureOnly`,
+  `TestCanonicalCopySurvivesAvailableTransactionFailureAndRecoversExactlyOnce`,
+  `TestExecutePlanSemanticViewCarriesRegistryExpectationToPairedQueries`.
+
+  All five fail persisting the `provsql-orders-v1` publication. The harness
+  stands that publication in with `liveCompilerTestSnapshotIndex`, because its
+  rows are deliberately not checked in -- production activates only the
+  independently verified live HOT bundle. The double's manifest omits the
+  cold-payload and hot-index digests, and `DictionaryManifest.Validate` requires
+  all five, so the control store rejects it.
+
+  The chain bottoms out and cannot be closed from inside the test: filling the
+  two digests from the input's `expected_digests` gets past that check and hits
+  `dictionary has no segments`; real segments need real fact counts; those need
+  the rows that are deliberately absent. Skipping the store write instead moves
+  the failure into production, where `PutOrdinalDictionarySet` then reports
+  `V4 dictionary set 无法按 Catalog 证据发布` — the dictionary row it needs is the
+  one that was skipped. Both attempts were made and reverted rather than left
+  in place, and no fixture was fabricated: a manifest digest that did not
+  reproduce the Catalog's would assert a publication that never existed.
+
+  Closing this needs a compiled `provsql-orders-v1` fixture, or a harness that
+  installs publications the way `snapshot-sidecar-install` does. It is
+  independent of I1/I2 and is not on the critical path to the canary.
+
+  Incidental finding while diagnosing: `DictionaryManifest.Validate`
+  (`internal/ordinal/dictionary.go:68`) reports the first invalid digest while
+  iterating a **map**, so the same failure names "cold payload digest" or "hot
+  index digest" at random between runs.
 
 ## Capability and release state
 
