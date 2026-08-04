@@ -161,6 +161,21 @@ type GatewayControlPlanV3 struct {
 	ExpectedVisibleCalls  int64  `json:"expected_visible_calls"`
 	ExpectedCompanionCall int64  `json:"expected_companion_calls"`
 
+	// AttestationFootprintSHA256 pins the qualification run whose measured
+	// footprint produced NestedInternalCalls. It is empty exactly when the path
+	// performs no Attestation.
+	AttestationFootprintSHA256 string `json:"attestation_footprint_sha256,omitempty"`
+	// NestedInternalCalls is the expected count of the statements PostgreSQL
+	// emits inside pg_get_viewdef.
+	//
+	// It is carried rather than computed from E because it is not derivable from
+	// TaskGate source at all: it is a measured property of one server, one
+	// ExpectedSchema, one environment and one image. Earlier versions asserted
+	// (P+S+Q)*E, which happened to be the measured value but was a rule nothing
+	// established. The finalizer does not trust this number -- RequireFootprint
+	// recomputes it from the qualified footprint.
+	NestedInternalCalls int64 `json:"nested_internal_calls"`
+
 	Environment MeasurementEnvironment `json:"measurement_environment"`
 }
 
@@ -174,14 +189,20 @@ type GatewayControlPlanV3 struct {
 //	datasource_identity           = P + S + Q
 //	view_column_attestation       = (P + S + Q) * E
 //	view_definition_attestation   = (P + S + Q) * E
-//	nested_viewdef_rewrite_lookup = (P + S + Q) * E
+//	nested_viewdef_rewrite_lookup = measured, per qualified footprint
 //	targeted_visible              = V
 //	targeted_companion            = C
 //	unexpected                    = 0
 //
-// The nested lookup is not a Gateway statement. PostgreSQL issues it internally
-// inside pg_get_viewdef, and it is only observable because track='all' counts
-// nested statements; it must also be observed with toplevel=false.
+// The two per-entry attestations are source-derived: the Connector executes one
+// exported constant per ExpectedSchema entry, so the shared builder settles their
+// multiplicity.
+//
+// The nested lookup is not. PostgreSQL issues it internally inside
+// pg_get_viewdef, it is only observable because track='all' counts nested
+// statements, and it must be observed with toplevel=false. No reading of TaskGate
+// source establishes how often the server emits it, so it comes from a qualified
+// AttestationFootprintV1 rather than from a rule.
 func (plan GatewayControlPlanV3) Expected() map[GatewayStatementClassV3]int64 {
 	transactions := plan.SingleQueryTransactions + plan.PairedQueryTransactions
 	attestations := plan.PreflightAttestationPasses + transactions
@@ -195,7 +216,7 @@ func (plan GatewayControlPlanV3) Expected() map[GatewayStatementClassV3]int64 {
 		V3DatasourceIdentity:    attestations,
 		V3ViewColumnAttestation: perEntry,
 		V3ViewDefinitionAttest:  perEntry,
-		V3NestedViewdefRewrite:  perEntry,
+		V3NestedViewdefRewrite:  plan.NestedInternalCalls,
 		V3TargetedVisible:       plan.ExpectedVisibleCalls,
 		V3TargetedCompanion:     plan.ExpectedCompanionCall,
 		V3Unexpected:            0,
@@ -256,6 +277,15 @@ func (plan GatewayControlPlanV3) Validate() error {
 		if !validSHA256(plan.ExpectedSchemaDigest) {
 			return errors.New("gateway control plan ExpectedSchema digest is not a lowercase SHA-256")
 		}
+		// A path that attests must name the qualification its nested count came
+		// from. Without this a plan could carry any number for a class no source
+		// derivation can check.
+		if !validSHA256(plan.AttestationFootprintSHA256) {
+			return fmt.Errorf("path_kind %s attests but names no qualified Attestation footprint", plan.PathKind)
+		}
+		if plan.NestedInternalCalls < 0 {
+			return fmt.Errorf("gateway control plan expects %d nested internal statements", plan.NestedInternalCalls)
+		}
 	default:
 		if plan.ExpectedSchemaEntries != 0 {
 			return fmt.Errorf("path_kind %s reaches no ExpectedSchema entry but claims %d",
@@ -263,6 +293,13 @@ func (plan GatewayControlPlanV3) Validate() error {
 		}
 		if plan.ExpectedSchemaDigest != "" {
 			return fmt.Errorf("path_kind %s attests against nothing but carries an ExpectedSchema digest", plan.PathKind)
+		}
+		if plan.AttestationFootprintSHA256 != "" {
+			return fmt.Errorf("path_kind %s performs no Attestation but carries a footprint digest", plan.PathKind)
+		}
+		if plan.NestedInternalCalls != 0 {
+			return fmt.Errorf("path_kind %s performs no Attestation but expects %d nested internal statements",
+				plan.PathKind, plan.NestedInternalCalls)
 		}
 	}
 
@@ -291,7 +328,13 @@ func (plan GatewayControlPlanV3) Validate() error {
 
 // planFor builds the plan for one path kind from the single dimension table, so
 // a constructor cannot disagree with Validate.
-func planFor(kind GatewayPathKind, schemaEntries int64, schemaDigest string) GatewayControlPlanV3 {
+//
+// The footprint is not merely stored: the ExpectedSchema the caller names is
+// checked against the one the footprint was qualified for, and the nested count
+// is derived scope-wise from the measured per-Attestation multiplicities. A
+// footprint qualified elsewhere therefore cannot produce a plan at all.
+func planFor(kind GatewayPathKind, schemaEntries int64, schemaDigest string,
+	footprint AttestationFootprintV1) (GatewayControlPlanV3, error) {
 	dimensions, _ := dimensionsFor(kind)
 	plan := GatewayControlPlanV3{
 		Version: ObserverAccountingV3Version, PathKind: kind,
@@ -303,9 +346,78 @@ func planFor(kind GatewayPathKind, schemaEntries int64, schemaDigest string) Gat
 		Environment:                RequiredMeasurementEnvironment(),
 	}
 	if dimensions.requiresSchema {
+		if footprint.ExpectedSchemaDigest != schemaDigest || footprint.ExpectedSchemaEntries != schemaEntries {
+			return GatewayControlPlanV3{}, fmt.Errorf(
+				"path_kind %s plans against ExpectedSchema %s with %d entries, "+
+					"the supplied footprint was qualified for %s with %d entries",
+				kind, shortDigest(schemaDigest), schemaEntries,
+				shortDigest(footprint.ExpectedSchemaDigest), footprint.ExpectedSchemaEntries)
+		}
+		if footprint.Environment != plan.Environment {
+			return GatewayControlPlanV3{}, fmt.Errorf(
+				"path_kind %s plans under PostgreSQL %d but the footprint was qualified under %d",
+				kind, plan.Environment.PostgreSQLVersionNum, footprint.Environment.PostgreSQLVersionNum)
+		}
+		digest, err := footprint.SHA256()
+		if err != nil {
+			return GatewayControlPlanV3{}, fmt.Errorf("path_kind %s: %w", kind, err)
+		}
+		nested, err := footprint.InternalCalls(dimensions.preflight, dimensions.single+dimensions.paired)
+		if err != nil {
+			return GatewayControlPlanV3{}, fmt.Errorf("path_kind %s: %w", kind, err)
+		}
 		plan.ExpectedSchemaEntries, plan.ExpectedSchemaDigest = schemaEntries, schemaDigest
+		plan.AttestationFootprintSHA256, plan.NestedInternalCalls = digest, nested
 	}
-	return plan
+	if err := plan.Validate(); err != nil {
+		return GatewayControlPlanV3{}, err
+	}
+	return plan, nil
+}
+
+// RequireFootprint re-derives the nested expectation from a qualified footprint
+// and the live deployment identity, and rejects any disagreement.
+//
+// This is what lets the finalizer refuse to trust the Adapter. The plan carries
+// NestedInternalCalls as a claim; this recomputes it from the footprint the
+// digest pins, under the ExpectedSchema, environment and image the run actually
+// used. A plan whose nested count was edited, or whose footprint was qualified
+// against a different deployment, fails here rather than at acceptance.
+func (plan GatewayControlPlanV3) RequireFootprint(footprint AttestationFootprintV1, postgreSQLImageID string) error {
+	if err := plan.Validate(); err != nil {
+		return err
+	}
+	dimensions, known := dimensionsFor(plan.PathKind)
+	if !known {
+		return fmt.Errorf("gateway control plan path_kind %q is not a derivable execution path", plan.PathKind)
+	}
+	if !dimensions.requiresSchema {
+		// The path performs no Attestation; Validate already required the plan to
+		// carry no footprint binding, so there is nothing to re-derive.
+		return nil
+	}
+	digest, err := footprint.SHA256()
+	if err != nil {
+		return err
+	}
+	if digest != plan.AttestationFootprintSHA256 {
+		return fmt.Errorf("gateway control plan was derived under Attestation footprint %s, the supplied qualification is %s",
+			shortDigest(plan.AttestationFootprintSHA256), shortDigest(digest))
+	}
+	if err := footprint.Require(plan.ExpectedSchemaDigest, plan.ExpectedSchemaEntries,
+		plan.Environment, postgreSQLImageID); err != nil {
+		return err
+	}
+	nested, err := footprint.InternalCalls(plan.PreflightAttestationPasses,
+		plan.SingleQueryTransactions+plan.PairedQueryTransactions)
+	if err != nil {
+		return err
+	}
+	if nested != plan.NestedInternalCalls {
+		return fmt.Errorf("gateway control plan expects %d nested internal statements, the qualified footprint derives %d",
+			plan.NestedInternalCalls, nested)
+	}
+	return nil
 }
 
 // The four derivable paths. Each is a named constructor rather than a set of
@@ -314,8 +426,9 @@ func planFor(kind GatewayPathKind, schemaEntries int64, schemaDigest string) Gat
 
 // PairedNovelPlanV3 is the Exposure V4/V5 novel path: one preflight
 // attestation, one QueryPairStream transaction, one visible and one companion.
-func PairedNovelPlanV3(schemaEntries int64, schemaDigest string) GatewayControlPlanV3 {
-	return planFor(PathPairedNovel, schemaEntries, schemaDigest)
+func PairedNovelPlanV3(schemaEntries int64, schemaDigest string,
+	footprint AttestationFootprintV1) (GatewayControlPlanV3, error) {
+	return planFor(PathPairedNovel, schemaEntries, schemaDigest, footprint)
 }
 
 // SemanticReplayPlanV3 is a replay served from the semantic cache under a new
@@ -323,21 +436,25 @@ func PairedNovelPlanV3(schemaEntries int64, schemaDigest string) GatewayControlP
 // preflight attestation still runs; no transaction is opened and no target
 // statement executes. Modelling this as all-zero, as v2 did, would reject a
 // correct replay.
-func SemanticReplayPlanV3(schemaEntries int64, schemaDigest string) GatewayControlPlanV3 {
-	return planFor(PathSemanticReplay, schemaEntries, schemaDigest)
+func SemanticReplayPlanV3(schemaEntries int64, schemaDigest string,
+	footprint AttestationFootprintV1) (GatewayControlPlanV3, error) {
+	return planFor(PathSemanticReplay, schemaEntries, schemaDigest, footprint)
 }
 
 // IdempotentReplayPlanV3 is an exact request-ID replay. It returns before
 // datasourceEvidence, so it touches Business PostgreSQL not at all.
-func IdempotentReplayPlanV3() GatewayControlPlanV3 {
-	return planFor(PathIdempotentReplay, 0, "")
+// It performs no Attestation, so it is the one path that needs no qualified
+// footprint.
+func IdempotentReplayPlanV3() (GatewayControlPlanV3, error) {
+	return planFor(PathIdempotentReplay, 0, "", AttestationFootprintV1{})
 }
 
 // SingleQueryPlanV3 is the Connector.Query path: one preflight attestation, one
 // transaction, one target statement, and no representation pin -- Query does
 // not issue one.
-func SingleQueryPlanV3(schemaEntries int64, schemaDigest string) GatewayControlPlanV3 {
-	return planFor(PathSingleQuery, schemaEntries, schemaDigest)
+func SingleQueryPlanV3(schemaEntries int64, schemaDigest string,
+	footprint AttestationFootprintV1) (GatewayControlPlanV3, error) {
+	return planFor(PathSingleQuery, schemaEntries, schemaDigest, footprint)
 }
 
 // Equal reports whether two plans are identical in every dimension. The
@@ -359,6 +476,8 @@ func (plan GatewayControlPlanV3) MismatchedFields(other GatewayControlPlanV3) []
 		"expected_schema_digest":       {plan.ExpectedSchemaDigest, other.ExpectedSchemaDigest},
 		"expected_visible_calls":       {plan.ExpectedVisibleCalls, other.ExpectedVisibleCalls},
 		"expected_companion_calls":     {plan.ExpectedCompanionCall, other.ExpectedCompanionCall},
+		"attestation_footprint_sha256": {plan.AttestationFootprintSHA256, other.AttestationFootprintSHA256},
+		"nested_internal_calls":        {plan.NestedInternalCalls, other.NestedInternalCalls},
 		"measurement_environment":      {plan.Environment, other.Environment},
 	} {
 		if pair[0] != pair[1] {
