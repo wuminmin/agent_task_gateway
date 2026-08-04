@@ -73,8 +73,20 @@ type businessCensus struct {
 	walBytes            int64
 	total               int64
 	rows                []experiment.ObserverStructuralRow
-	// queryIDs are deployment-local decimal diagnostics, never identity.
-	queryIDs map[string]string
+	// queryIDs maps one structural key to every deployment-local queryid that
+	// contributed to it, sorted and deduplicated.
+	//
+	// Several pg_stat_statements rows can normalize to a single
+	// strict_ast_sha256 + toplevel key, and their calls are summed. An earlier
+	// version kept only the first contributing queryid, which implied that one
+	// row identified the aggregate; it did not. The whole list is retained so a
+	// diagnostic can name every row it came from.
+	//
+	// This never leaves the process. A queryid is PostgreSQL-version and
+	// installation specific, so it is not portable identity and must never
+	// participate in classification, binding or acceptance -- which is why it is
+	// absent from ObserverSnapshotV2 entirely rather than merely unused.
+	queryIDs map[string][]string
 }
 
 // readBusinessCensus executes the single census statement and classifies it.
@@ -85,7 +97,7 @@ type businessCensus struct {
 // log the harness retains.
 func readBusinessCensus(ctx context.Context, docker statementExecutor, containerID string) (businessCensus, error) {
 	var census businessCensus
-	census.queryIDs = map[string]string{}
+	census.queryIDs = map[string][]string{}
 	raw, err := docker.exec(ctx, containerID, []string{"sh", "-c", businessCensusShell})
 	if err != nil {
 		return census, fmt.Errorf("read Business PostgreSQL census: %w", err)
@@ -134,8 +146,7 @@ func readBusinessCensus(ctx context.Context, docker statementExecutor, container
 			// Two pg_stat_statements rows can normalize to one structural key.
 			// Their calls are summed rather than one silently replacing the
 			// other, which would make the total disagree with the census.
-			if existing, found := census.queryIDs[key]; found {
-				_ = existing
+			if _, found := census.queryIDs[key]; found {
 				for index := range census.rows {
 					if census.rows[index].StrictASTSHA256 == row.StrictASTSHA256 &&
 						census.rows[index].TopLevel == row.TopLevel {
@@ -143,9 +154,10 @@ func readBusinessCensus(ctx context.Context, docker statementExecutor, container
 						break
 					}
 				}
+				census.queryIDs[key] = appendQueryID(census.queryIDs[key], queryID)
 				continue
 			}
-			census.queryIDs[key] = queryID
+			census.queryIDs[key] = []string{queryID}
 			census.rows = append(census.rows, row)
 		default:
 			return census, fmt.Errorf("Business census returned an unknown row marker %q", fields[0])
@@ -225,13 +237,24 @@ type observerInvocation struct {
 
 func parseObserverInvocation(args []string) (observerInvocation, error) {
 	var invocation observerInvocation
+	if len(args) == 0 {
+		return invocation, errors.New("observer received no argv")
+	}
 	rest := args[1:]
+	// A repeated flag is rejected rather than last-wins. Under last-wins an
+	// invocation naming two window ids would silently attribute the snapshot to
+	// whichever came last, and the pair would still look internally consistent.
+	seen := map[string]bool{}
 	for len(rest) > 0 {
 		if len(rest) < 2 {
 			return invocation, fmt.Errorf("observer flag %q has no value", rest[0])
 		}
 		name, value := rest[0], rest[1]
 		rest = rest[2:]
+		if seen[name] {
+			return invocation, fmt.Errorf("observer flag %q is repeated", name)
+		}
+		seen[name] = true
 		switch name {
 		case "--phase":
 			invocation.phase = value
@@ -258,6 +281,19 @@ func parseObserverInvocation(args []string) (observerInvocation, error) {
 		return invocation, errors.New("--operation-binding-sha256 must be a lowercase SHA-256 when supplied")
 	}
 	return invocation, nil
+}
+
+// appendQueryID keeps the contributing queryids sorted and deduplicated, so the
+// diagnostic reads the same however PostgreSQL happened to order the rows.
+func appendQueryID(existing []string, queryID string) []string {
+	index := sort.SearchStrings(existing, queryID)
+	if index < len(existing) && existing[index] == queryID {
+		return existing
+	}
+	existing = append(existing, "")
+	copy(existing[index+1:], existing[index:])
+	existing[index] = queryID
+	return existing
 }
 
 func isSHA256(value string) bool {

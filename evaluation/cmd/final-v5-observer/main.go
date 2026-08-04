@@ -30,17 +30,19 @@ import (
 	"time"
 
 	"taskbound.local/agent-data-gateway/evaluation/internal/experiment"
+	"taskbound.local/agent-data-gateway/evaluation/internal/formalbuild"
 )
 
 const (
-	memoryScope         = "cgroup_v2_memory_peak_including_mmap"
 	defaultDockerSocket = "/var/run/docker.sock"
 	maxDockerResponse   = 1 << 20
 	observerTimeout     = 10 * time.Second
 	gatewayService      = "gateway"
-	businessService     = "business-postgres"
-	controlService      = "control-postgres"
-	gatewayMemoryShell  = `set -eu
+	// businessCensusRole is the only role the Business census is restricted to.
+	businessCensusRole = "gateway_reader"
+	businessService    = "business-postgres"
+	controlService     = "control-postgres"
+	gatewayMemoryShell = `set -eu
 printf 'TASKGATE_CGROUP\n'
 cat /proc/self/cgroup
 printf 'TASKGATE_CONTROLLERS\n'
@@ -49,21 +51,6 @@ printf 'TASKGATE_MEMORY_PEAK\n'
 cat /sys/fs/cgroup/memory.peak
 printf 'TASKGATE_MEMORY_EVENTS\n'
 cat /sys/fs/cgroup/memory.events`
-	businessSnapshotShell = `set -eu
-test -n "${POSTGRES_DB:-}"
-psql -X --no-psqlrc --set ON_ERROR_STOP=1 --username postgres --dbname "$POSTGRES_DB" --tuples-only --no-align --field-separator '|' <<'TASKGATE_SQL'
-SELECT
-  CASE WHEN (SELECT count(*) FROM pg_roles WHERE rolname = 'gateway_reader') = 1
-       THEN COALESCE((
-         SELECT sum(s.calls)::bigint
-         FROM pg_stat_statements AS s
-         WHERE s.dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-           AND s.userid = (SELECT oid FROM pg_roles WHERE rolname = 'gateway_reader')
-       ), 0)::bigint
-       ELSE NULL
-  END,
-  pg_wal_lsn_diff(pg_current_wal_lsn(), '0/0')::bigint;
-TASKGATE_SQL`
 	controlSnapshotShell = `set -eu
 test -n "${POSTGRES_DB:-}"
 psql -X --no-psqlrc --set ON_ERROR_STOP=1 --username postgres --dbname "$POSTGRES_DB" --tuples-only --no-align <<'TASKGATE_SQL'
@@ -95,7 +82,15 @@ var (
 	}
 )
 
+// engine is everything the observer needs from Docker.
+//
+// It embeds formalbuild.Engine so the observer resolves the Gateway and
+// PostgreSQL identities through the same inspection code the formal build path
+// verifies with. The alternative -- accepting either identity from the Adapter
+// or the environment -- would mean the finalizer's independence rested on a
+// value supplied by the party being measured.
 type engine interface {
+	formalbuild.Engine
 	resolveService(context.Context, string, string) (serviceIdentity, error)
 	readGatewayResources(context.Context, serviceIdentity, string) (gatewayResourceSnapshot, error)
 	exec(context.Context, string, []string) ([]byte, error)
@@ -187,14 +182,31 @@ func main() {
 	}
 }
 
+// run emits exactly one ObserverSnapshotV2.
+//
+// There is deliberately no fallback. A v1.5 invocation that cannot produce a
+// complete v2 identity fails; it does not quietly emit the v1 document, because
+// a path that degrades under exactly the conditions the evidence exists to
+// detect is worse than no evidence at all.
 func run(args []string, getenv func(string) string, stdout io.Writer) error {
-	phase, err := observerPhase(args)
+	invocation, err := parseObserverInvocation(args)
 	if err != nil {
 		return err
 	}
 	project := strings.TrimSpace(getenv("COMPOSE_PROJECT_NAME"))
 	if !formalProjectPattern.MatchString(project) {
 		return errors.New("COMPOSE_PROJECT_NAME is not a formal Final-V5 deployment project")
+	}
+	observerSource, err := observerSourceSHA256()
+	if err != nil {
+		return err
+	}
+	// The expected source is computed from the repository, never read off the
+	// image being verified. Materializing it here also means a dirty or
+	// unpublished tree fails before any container is touched.
+	expected, err := expectedGatewaySource(getenv)
+	if err != nil {
+		return err
 	}
 	socket, err := dockerSocket(getenv)
 	if err != nil {
@@ -209,7 +221,7 @@ func run(args []string, getenv func(string) string, stdout io.Writer) error {
 	if err := docker.negotiate(ctx); err != nil {
 		return err
 	}
-	snapshot, err := collect(ctx, docker, project, phase)
+	snapshot, err := collectV2(ctx, docker, project, invocation, observerSource, expected)
 	if err != nil {
 		return err
 	}
@@ -218,103 +230,164 @@ func run(args []string, getenv func(string) string, stdout io.Writer) error {
 	return encoder.Encode(snapshot)
 }
 
-func observerPhase(args []string) (string, error) {
-	if len(args) != 3 || args[1] != "--phase" || (args[2] != "before" && args[2] != "after") {
-		return "", errors.New("observer requires exact --phase before|after")
+// expectedGatewaySource materializes the published commit the running Gateway
+// must have been built from.
+//
+// TASKGATE_FINAL_V5_REPO_ROOT selects the repository, not the identity: whatever
+// root is named, the commit must be clean and published and the running image's
+// labels must match what that commit materializes to. Naming the wrong root
+// therefore fails the verification rather than passing it with different values.
+func expectedGatewaySource(getenv func(string) string) (formalbuild.ExpectedSource, error) {
+	root := strings.TrimSpace(getenv("TASKGATE_FINAL_V5_REPO_ROOT"))
+	if root == "" {
+		root = "."
 	}
-	return args[2], nil
+	materialized, err := formalbuild.MaterializeHead(root)
+	if err != nil {
+		return formalbuild.ExpectedSource{}, fmt.Errorf("materialize the Gateway source identity: %w", err)
+	}
+	return formalbuild.FromContext(materialized), nil
 }
 
-func collect(ctx context.Context, docker engine, project, phase string) (experiment.ObserverSnapshot, error) {
+// collectV2 takes one atomic reading of everything the accounting depends on.
+//
+// The topology is read before and after the collection and required to be
+// identical, so a container that restarted or was replaced mid-snapshot
+// invalidates the reading rather than skewing it. The Business census is a
+// single MATERIALIZED statement, so the role-wide total and the structural rows
+// cannot describe two different instants -- the property
+// ObserverSnapshotV2.Validate makes checkable by requiring the total to equal
+// the sum of the rows.
+func collectV2(ctx context.Context, docker engine, project string, invocation observerInvocation,
+	observerSource string, expected formalbuild.ExpectedSource) (experiment.ObserverSnapshotV2, error) {
+	var empty experiment.ObserverSnapshotV2
 	if !formalProjectPattern.MatchString(project) {
-		return experiment.ObserverSnapshot{}, errors.New("invalid formal Compose project")
+		return empty, errors.New("invalid formal Compose project")
 	}
-	if phase != "before" && phase != "after" {
-		return experiment.ObserverSnapshot{}, errors.New("invalid observer phase")
+	if invocation.phase != "before" && invocation.phase != "after" {
+		return empty, errors.New("invalid observer phase")
 	}
 	restartsBefore, err := docker.restartSnapshot(ctx, project)
 	if err != nil {
-		return experiment.ObserverSnapshot{}, fmt.Errorf("read project restart count: %w", err)
+		return empty, fmt.Errorf("read project restart count: %w", err)
 	}
 	if err := validateFormalProjectSnapshot(restartsBefore); err != nil {
-		return experiment.ObserverSnapshot{}, err
+		return empty, err
 	}
 	gateway, err := docker.resolveService(ctx, project, gatewayService)
 	if err != nil {
-		return experiment.ObserverSnapshot{}, fmt.Errorf("resolve Gateway container: %w", err)
+		return empty, fmt.Errorf("resolve Gateway container: %w", err)
 	}
 	business, err := docker.resolveService(ctx, project, businessService)
 	if err != nil {
-		return experiment.ObserverSnapshot{}, fmt.Errorf("resolve Business PostgreSQL container: %w", err)
+		return empty, fmt.Errorf("resolve Business PostgreSQL container: %w", err)
 	}
 	control, err := docker.resolveService(ctx, project, controlService)
 	if err != nil {
-		return experiment.ObserverSnapshot{}, fmt.Errorf("resolve Control PostgreSQL container: %w", err)
+		return empty, fmt.Errorf("resolve Control PostgreSQL container: %w", err)
 	}
 	if gateway.id == business.id || gateway.id == control.id || business.id == control.id {
-		return experiment.ObserverSnapshot{}, errors.New("formal services resolved to duplicate containers")
+		return empty, errors.New("formal services resolved to duplicate containers")
 	}
 	if !containsServiceIdentities(restartsBefore, gateway, business, control) {
-		return experiment.ObserverSnapshot{}, errors.New("required formal services are absent from the project container identity snapshot")
+		return empty, errors.New("required formal services are absent from the project container identity snapshot")
 	}
 
-	rawResources, err := docker.readGatewayResources(ctx, gateway, phase)
+	// The healthcheck is resolved before the census. A deployment whose Gateway
+	// still probes /health/ready on a timer performs a full Business PostgreSQL
+	// Attestation on every interval, so the window would carry a
+	// wall-clock-dependent number of gateway_reader statements no derived plan
+	// can predict; there is no point censusing it.
+	healthcheck, err := docker.resolveGatewayHealthcheck(ctx, gateway)
 	if err != nil {
-		return experiment.ObserverSnapshot{}, err
+		return empty, fmt.Errorf("resolve Gateway healthcheck: %w", err)
+	}
+	if err := healthcheck.Validate(); err != nil {
+		return empty, err
+	}
+	gatewayIdentity, err := formalbuild.ResolveGatewayIdentity(ctx, docker, gateway.id, expected, healthcheck.SHA256())
+	if err != nil {
+		return empty, fmt.Errorf("resolve Gateway runtime identity: %w", err)
+	}
+	postgreSQL, err := formalbuild.ResolvePostgreSQLIdentity(ctx, docker, business.id)
+	if err != nil {
+		return empty, err
+	}
+
+	rawResources, err := docker.readGatewayResources(ctx, gateway, invocation.phase)
+	if err != nil {
+		return empty, err
 	}
 	resources, err := parseGatewayResources(rawResources)
 	if err != nil {
-		return experiment.ObserverSnapshot{}, err
+		return empty, err
 	}
-	businessQueries, businessWAL, err := readBusinessCounters(ctx, docker, business.id)
+	census, err := readBusinessCensus(ctx, docker, business.id)
 	if err != nil {
-		return experiment.ObserverSnapshot{}, err
+		return empty, err
 	}
 	controlWAL, err := readControlWAL(ctx, docker, control.id)
 	if err != nil {
-		return experiment.ObserverSnapshot{}, err
+		return empty, err
 	}
 	restartsAfter, err := docker.restartSnapshot(ctx, project)
 	if err != nil {
-		return experiment.ObserverSnapshot{}, fmt.Errorf("re-read project restart count: %w", err)
+		return empty, fmt.Errorf("re-read project restart count: %w", err)
 	}
 	if err := validateFormalProjectSnapshot(restartsAfter); err != nil {
-		return experiment.ObserverSnapshot{}, err
+		return empty, err
 	}
 	if !containsServiceIdentities(restartsAfter, gateway, business, control) ||
 		!sameRestartSnapshot(restartsBefore, restartsAfter) {
-		return experiment.ObserverSnapshot{}, errors.New("a project container restarted or was replaced while the observer snapshot was collected")
+		return empty, errors.New("a project container restarted or was replaced while the observer snapshot was collected")
 	}
-	// A formal measurement refuses a deployment whose Gateway still probes
-	// /health/ready on a timer: every probe performs a full Business PostgreSQL
-	// Attestation, so the window would carry a wall-clock-dependent number of
-	// gateway_reader statements no derived plan can predict.
-	healthcheck, err := docker.resolveGatewayHealthcheck(ctx, gateway)
+	projectTopology, err := runtimeIdentitySHA256(project, restartsAfter, healthcheck, gateway, business, control)
 	if err != nil {
-		return experiment.ObserverSnapshot{}, fmt.Errorf("resolve Gateway healthcheck: %w", err)
+		return empty, err
 	}
-	if err := healthcheck.Validate(); err != nil {
-		return experiment.ObserverSnapshot{}, err
+
+	snapshot := experiment.ObserverSnapshotV2{
+		Version:                  experiment.ObserverSnapshotV2Version,
+		SchemaVersion:            2,
+		Phase:                    invocation.phase,
+		ObserverWindowID:         invocation.observerWindowID,
+		ClassifierManifestSHA256: invocation.classifierManifestSHA256,
+		OperationBindingSHA256:   invocation.operationBindingSHA256,
+		ObserverSourceSHA256:     observerSource,
+		Label:                    invocation.phase,
+		Role:                     businessCensusRole,
+		Total:                    census.total,
+		Structural:               census.rows,
+		Environment:              census.environment,
+		StatsReset:               census.statsReset,
+		Dealloc:                  census.dealloc,
+		Runtime: experiment.ObserverRuntimeIdentity{
+			GatewayContainerID:    gateway.id,
+			Gateway:               gatewayIdentity,
+			PostgreSQL:            postgreSQL,
+			ProjectTopologySHA256: projectTopology,
+		},
+		Resource: experiment.ObserverResourceEvidence{
+			PostmasterStartTime:    census.postmasterStartTime,
+			BusinessWALBytes:       census.walBytes,
+			ControlWALBytes:        controlWAL,
+			GatewayCPUUsec:         resources.cpuUsec,
+			GatewayNetworkRXBytes:  resources.networkRX,
+			GatewayNetworkTXBytes:  resources.networkTX,
+			GatewayMemoryPeakBytes: resources.memoryPeak,
+			GatewayRestartCount:    restartsAfter.counts[gateway.id],
+			GatewayOOMKilled:       resources.oomEvents > 0,
+			ContainerRestarts:      restartsAfter.total,
+			OOMEvents:              resources.oomEvents,
+		},
 	}
-	runtimeIdentity, err := runtimeIdentitySHA256(project, restartsAfter, healthcheck, gateway, business, control)
-	if err != nil {
-		return experiment.ObserverSnapshot{}, err
+	// Validated here rather than by the consumer: a snapshot that cannot serve as
+	// authoritative evidence must never reach stdout, because once it is JSON on
+	// a pipe it is indistinguishable from one that can.
+	if err := snapshot.Validate(); err != nil {
+		return empty, err
 	}
-	return experiment.ObserverSnapshot{
-		SchemaVersion:          1,
-		MemoryScope:            memoryScope,
-		Phase:                  phase,
-		RuntimeIdentitySHA256:  runtimeIdentity,
-		GatewayMemoryPeakBytes: resources.memoryPeak,
-		GatewayCPUUsec:         resources.cpuUsec,
-		GatewayNetworkRXBytes:  resources.networkRX,
-		GatewayNetworkTXBytes:  resources.networkTX,
-		BusinessSQLQueries:     businessQueries,
-		ControlWALBytes:        controlWAL,
-		BusinessWALBytes:       businessWAL,
-		OOMEvents:              resources.oomEvents,
-		ContainerRestarts:      restartsAfter.total,
-	}, nil
+	return snapshot, nil
 }
 
 func containsServiceIdentities(snapshot projectRestartSnapshot, identities ...serviceIdentity) bool {
@@ -440,24 +513,42 @@ func parseGatewayResources(snapshot gatewayResourceSnapshot) (parsedGatewayResou
 		networkRX: snapshot.networkRX, networkTX: snapshot.networkTX, oomEvents: memoryEvents["oom"]}, nil
 }
 
-func readBusinessCounters(ctx context.Context, docker engine, containerID string) (int64, int64, error) {
-	raw, err := docker.exec(ctx, containerID, []string{"sh", "-c", businessSnapshotShell})
+// ImageInspect, ContainerInspect, Exec and ResolveService make *dockerEngine a
+// formalbuild.Engine, so the observer resolves the Gateway and PostgreSQL
+// identities through the same code the formal build path is verified with
+// rather than through a second, separately-drifting client.
+func (d *dockerEngine) ImageInspect(ctx context.Context, reference string) (formalbuild.ImageInspect, error) {
+	var inspected formalbuild.ImageInspect
+	if strings.TrimSpace(reference) == "" {
+		return inspected, errors.New("cannot inspect an image with no reference")
+	}
+	if err := d.getJSON(ctx, "/images/"+url.PathEscape(reference)+"/json", &inspected); err != nil {
+		return formalbuild.ImageInspect{}, fmt.Errorf("inspect image %s: %w", reference, err)
+	}
+	return inspected, nil
+}
+
+func (d *dockerEngine) ContainerInspect(ctx context.Context, containerID string) (formalbuild.ContainerInspect, error) {
+	var inspected formalbuild.ContainerInspect
+	if err := d.getJSON(ctx, "/containers/"+url.PathEscape(containerID)+"/json", &inspected); err != nil {
+		return formalbuild.ContainerInspect{}, err
+	}
+	if inspected.ID != containerID {
+		return formalbuild.ContainerInspect{}, errors.New("Docker Engine returned a different container than the one inspected")
+	}
+	return inspected, nil
+}
+
+func (d *dockerEngine) Exec(ctx context.Context, containerID string, command []string) ([]byte, error) {
+	return d.exec(ctx, containerID, command)
+}
+
+func (d *dockerEngine) ResolveService(ctx context.Context, project, service string) (string, error) {
+	identity, err := d.resolveService(ctx, project, service)
 	if err != nil {
-		return 0, 0, fmt.Errorf("read Business PostgreSQL counters: %w", err)
+		return "", err
 	}
-	fields := strings.Split(strings.TrimSpace(string(raw)), "|")
-	if len(fields) != 2 {
-		return 0, 0, errors.New("Business PostgreSQL observer returned a malformed row")
-	}
-	queries, err := parseNonnegativeString(fields[0], "Business SQL calls")
-	if err != nil {
-		return 0, 0, err
-	}
-	wal, err := parsePositiveString(fields[1], "Business WAL position")
-	if err != nil {
-		return 0, 0, err
-	}
-	return queries, wal, nil
+	return identity.id, nil
 }
 
 func readControlWAL(ctx context.Context, docker engine, containerID string) (int64, error) {

@@ -208,6 +208,77 @@ func ResolveGatewayIdentity(ctx context.Context, engine Engine, containerID stri
 	return sealed, nil
 }
 
+// ResolvePostgreSQLIdentity inspects a running PostgreSQL container and returns
+// its immutable identity.
+//
+// The observer resolves this for itself rather than accepting it from the
+// Adapter or the environment. A runtime identity supplied by the party being
+// measured is not evidence about the deployment; it is a claim about it.
+func ResolvePostgreSQLIdentity(ctx context.Context, engine Engine,
+	containerID string) (experiment.PostgreSQLRuntimeIdentity, error) {
+	var identity experiment.PostgreSQLRuntimeIdentity
+	container, err := engine.ContainerInspect(ctx, containerID)
+	if err != nil {
+		return identity, err
+	}
+	if !container.State.Running {
+		return identity, fmt.Errorf("the PostgreSQL container %s is not running", shortImageID(containerID))
+	}
+	image, err := engine.ImageInspect(ctx, container.Image)
+	if err != nil {
+		return identity, err
+	}
+	repoDigest, err := soleRepoDigest(image, container.Config.Image)
+	if err != nil {
+		return identity, err
+	}
+	identity = experiment.PostgreSQLRuntimeIdentity{
+		ImageReference:   container.Config.Image,
+		RepoDigest:       repoDigest,
+		LocalImageID:     image.ID,
+		ContainerImageID: container.Image,
+		Platform:         image.Platform(),
+	}
+	if err := identity.Validate(); err != nil {
+		return experiment.PostgreSQLRuntimeIdentity{}, fmt.Errorf("PostgreSQL runtime identity: %w", err)
+	}
+	return identity, nil
+}
+
+// soleRepoDigest returns the one registry digest for the repository the
+// deployment named.
+//
+// Exactly one, never the first of several: an image carrying two digests for one
+// repository cannot say which bytes the deployment is running, and picking one
+// would make the evidence depend on map ordering.
+func soleRepoDigest(image ImageInspect, reference string) (string, error) {
+	repository, _, found := strings.Cut(reference, "@")
+	if !found {
+		repository, _, _ = strings.Cut(reference, ":")
+	}
+	if repository == "" {
+		return "", fmt.Errorf("the deployment names image %q, which has no repository", reference)
+	}
+	var digests []string
+	for _, repoDigest := range image.RepoDigests {
+		name, digest, split := strings.Cut(repoDigest, "@")
+		if !split || name != repository {
+			continue
+		}
+		digests = append(digests, repository+"@"+digest)
+	}
+	switch len(digests) {
+	case 1:
+		return digests[0], nil
+	case 0:
+		return "", fmt.Errorf("image %s carries no registry digest for %q; it was built or loaded rather than "+
+			"pulled, so there is nothing immutable to bind", shortImageID(image.ID), repository)
+	default:
+		return "", fmt.Errorf("image %s carries %d registry digests for %q; the running server is ambiguous",
+			shortImageID(image.ID), len(digests), repository)
+	}
+}
+
 // referenceDigest extracts the digest half of a repository@digest reference.
 func referenceDigest(reference string) string {
 	_, digest, found := strings.Cut(reference, "@")

@@ -9,13 +9,51 @@ import (
 
 func testObserverRuntime(t *testing.T) ObserverRuntimeIdentity {
 	t.Helper()
-	image := "sha256:" + strings.Repeat("3", 64)
 	return ObserverRuntimeIdentity{
-		GatewayImageID: image, GatewayContainerID: "gateway-container",
-		GatewaySourceSHA256:      strings.Repeat("4", 64),
-		HealthcheckCommandSHA256: healthcheckDigest(`["CMD","curl","--fail","--silent","http://127.0.0.1:8082/health/live"]`),
-		PostgreSQL:               testRuntimeIdentity(),
+		GatewayContainerID:    "gateway-container",
+		Gateway:               testGatewayRuntimeIdentity(t),
+		PostgreSQL:            testRuntimeIdentity(),
+		ProjectTopologySHA256: strings.Repeat("9", 64),
 	}
+}
+
+// testGatewayRuntimeIdentity seals a complete Gateway identity, so a test that
+// mutates one member is exercising the same validation the observer runs.
+func testGatewayRuntimeIdentity(t *testing.T) GatewayRuntimeIdentityV1 {
+	t.Helper()
+	image := "sha256:" + strings.Repeat("3", 64)
+	sealed, err := GatewayRuntimeIdentityV1{
+		SubmissionCommit:     strings.Repeat("ab", 20),
+		CleanTreeAtBuild:     true,
+		BuildContextSHA256:   strings.Repeat("4", 64),
+		SourceManifestSHA256: strings.Repeat("5", 64),
+		BuildTarget:          "gateway",
+		OCIRevisionLabel:     strings.Repeat("ab", 20),
+		LocalImageID:         image,
+		ContainerImageID:     image,
+		BinarySHA256:         strings.Repeat("6", 64),
+		Platform:             "linux/amd64",
+		HealthcheckSHA256:    FormalGatewayHealthcheck().SHA256(),
+		BuilderBaseImage:     "golang@sha256:" + strings.Repeat("7", 64),
+		RuntimeBaseImage:     "debian@sha256:" + strings.Repeat("8", 64),
+	}.Seal()
+	if err != nil {
+		t.Fatalf("seal the test Gateway runtime identity: %v", err)
+	}
+	return sealed
+}
+
+// reseal applies a change and recomputes the aggregate, producing an identity
+// that is internally consistent but describes a different Gateway.
+func reseal(t *testing.T, identity GatewayRuntimeIdentityV1,
+	mutate func(*GatewayRuntimeIdentityV1)) GatewayRuntimeIdentityV1 {
+	t.Helper()
+	mutate(&identity)
+	sealed, err := identity.Seal()
+	if err != nil {
+		t.Fatalf("reseal the Gateway runtime identity: %v", err)
+	}
+	return sealed
 }
 
 func healthcheckDigest(command string) string {
@@ -147,15 +185,32 @@ func TestWindowBindsItsInvariants(t *testing.T) {
 		{"measurement environment",
 			func(s *ObserverSnapshotV2) { s.Environment.Track = "top" },
 			"observer accounting v3 is derived for"},
+		// Each of these reseals the identity, so what the window rejects is a
+		// genuinely different-but-valid Gateway rather than a corrupted struct.
 		{"gateway image",
-			func(s *ObserverSnapshotV2) { s.Runtime.GatewayImageID = "sha256:" + strings.Repeat("9", 64) },
-			"runtime identity changed"},
+			func(s *ObserverSnapshotV2) {
+				s.Runtime.Gateway = reseal(t, s.Runtime.Gateway, func(i *GatewayRuntimeIdentityV1) {
+					i.LocalImageID = "sha256:" + strings.Repeat("9", 64)
+					i.ContainerImageID = i.LocalImageID
+				})
+			}, "runtime identity changed"},
 		{"gateway source",
-			func(s *ObserverSnapshotV2) { s.Runtime.GatewaySourceSHA256 = strings.Repeat("8", 64) },
-			"runtime identity changed"},
+			func(s *ObserverSnapshotV2) {
+				s.Runtime.Gateway = reseal(t, s.Runtime.Gateway, func(i *GatewayRuntimeIdentityV1) {
+					i.BuildContextSHA256 = strings.Repeat("8", 64)
+				})
+			}, "runtime identity changed"},
+		{"gateway binary",
+			func(s *ObserverSnapshotV2) {
+				s.Runtime.Gateway = reseal(t, s.Runtime.Gateway, func(i *GatewayRuntimeIdentityV1) {
+					i.BinarySHA256 = strings.Repeat("e", 64)
+				})
+			}, "runtime identity changed"},
 		{"healthcheck command",
 			func(s *ObserverSnapshotV2) {
-				s.Runtime.HealthcheckCommandSHA256 = healthcheckDigest(`["CMD","curl","http://127.0.0.1:8082/health/ready"]`)
+				s.Runtime.Gateway = reseal(t, s.Runtime.Gateway, func(i *GatewayRuntimeIdentityV1) {
+					i.HealthcheckSHA256 = healthcheckDigest(`["CMD","curl","http://127.0.0.1:8082/health/ready"]`)
+				})
 			}, "runtime identity changed"},
 		{"PostgreSQL image",
 			func(s *ObserverSnapshotV2) {
@@ -335,10 +390,18 @@ func TestSnapshotDigestCoversRuntimeAndResourceEvidence(t *testing.T) {
 		t.Fatalf("digest: %v", err)
 	}
 	for name, mutate := range map[string]func(*ObserverSnapshotV2){
-		"gateway source":      func(s *ObserverSnapshotV2) { s.Runtime.GatewaySourceSHA256 = strings.Repeat("7", 64) },
-		"healthcheck command": func(s *ObserverSnapshotV2) { s.Runtime.HealthcheckCommandSHA256 = strings.Repeat("6", 64) },
-		"WAL position":        func(s *ObserverSnapshotV2) { s.Resource.BusinessWALBytes = 99 },
-		"restart count":       func(s *ObserverSnapshotV2) { s.Resource.GatewayRestartCount = 2 },
+		"gateway source": func(s *ObserverSnapshotV2) {
+			s.Runtime.Gateway = reseal(t, s.Runtime.Gateway, func(i *GatewayRuntimeIdentityV1) {
+				i.BuildContextSHA256 = strings.Repeat("7", 64)
+			})
+		},
+		"healthcheck command": func(s *ObserverSnapshotV2) {
+			s.Runtime.Gateway = reseal(t, s.Runtime.Gateway, func(i *GatewayRuntimeIdentityV1) {
+				i.HealthcheckSHA256 = strings.Repeat("6", 64)
+			})
+		},
+		"WAL position":  func(s *ObserverSnapshotV2) { s.Resource.BusinessWALBytes = 99 },
+		"restart count": func(s *ObserverSnapshotV2) { s.Resource.GatewayRestartCount = 2 },
 	} {
 		t.Run(name, func(t *testing.T) {
 			mutated := base

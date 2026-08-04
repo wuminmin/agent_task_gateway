@@ -30,34 +30,46 @@ type ObserverStructuralRow struct {
 }
 
 // ObserverRuntimeIdentity binds what was actually running during the window.
+//
+// Gateway is the typed identity rather than a single gateway_source_sha256.
+// That earlier field was filled by hashing the checkout the observer happened to
+// run from, which asserts something the observer cannot know: that the running
+// container was built from those bytes. Nothing in the evidence distinguished
+// "the image came from this commit" from "someone ran the observer in a
+// directory that happens to be at this commit".
 type ObserverRuntimeIdentity struct {
-	GatewayImageID     string `json:"gateway_image_id"`
 	GatewayContainerID string `json:"gateway_container_id"`
-	// GatewaySourceSHA256 binds the running Gateway to the frozen submission
-	// source, so a constant-only Connector mutation is detectable even when
-	// pg_stat_statements has erased the constants.
-	GatewaySourceSHA256 string `json:"gateway_source_sha256"`
-	// HealthcheckCommandSHA256 digests the running periodic probe command. The
-	// observer-v3 override replaces /health/ready with /health/live; without
-	// binding it, the override could be silently omitted and the window would
-	// absorb a wall-clock-dependent number of Attestations.
-	HealthcheckCommandSHA256 string                    `json:"healthcheck_command_sha256"`
-	PostgreSQL               PostgreSQLRuntimeIdentity `json:"postgresql"`
+	// Gateway is the immutable source/build/runtime identity the observer
+	// inspected for itself through Docker Engine. Its members stay individually
+	// inspectable; the healthcheck digest it carries is the running periodic
+	// probe, which matters because the observer-v3 override replaces
+	// /health/ready with /health/live and a probe that still reaches
+	// /health/ready performs a full Business PostgreSQL Attestation on every
+	// interval.
+	Gateway    GatewayRuntimeIdentityV1  `json:"gateway"`
+	PostgreSQL PostgreSQLRuntimeIdentity `json:"postgresql"`
+	// ProjectTopologySHA256 binds the exact Compose service set, the container
+	// identity of every service, the critical host PIDs and the periodic
+	// healthcheck.
+	//
+	// The Gateway and PostgreSQL identities above say what those two services
+	// are; they say nothing about the other ten. A sidecar restarted or replaced
+	// between the before and after snapshots would leave both untouched while
+	// changing what the measured interval contained, so the topology is bound
+	// separately and compared across the window.
+	ProjectTopologySHA256 string `json:"project_topology_sha256"`
 }
 
 // Validate rejects an identity that leaves the running system ambiguous.
 func (identity ObserverRuntimeIdentity) Validate() error {
-	if err := requireImageID(identity.GatewayImageID); err != nil {
-		return fmt.Errorf("gateway_image_id: %w", err)
-	}
 	if identity.GatewayContainerID == "" {
 		return errors.New("gateway_container_id is empty")
 	}
-	if !validSHA256(identity.GatewaySourceSHA256) {
-		return errors.New("gateway_source_sha256 is not a lowercase SHA-256")
+	if !validSHA256(identity.ProjectTopologySHA256) {
+		return errors.New("project_topology_sha256 is not a lowercase SHA-256")
 	}
-	if !validSHA256(identity.HealthcheckCommandSHA256) {
-		return errors.New("healthcheck_command_sha256 is not a lowercase SHA-256")
+	if err := identity.Gateway.Validate(); err != nil {
+		return fmt.Errorf("gateway: %w", err)
 	}
 	return identity.PostgreSQL.Validate()
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -218,5 +219,99 @@ func TestCensusRequiresItsEnvironmentAndStateRows(t *testing.T) {
 				t.Fatal("an incomplete census was accepted")
 			}
 		})
+	}
+}
+
+// A repeated flag is rejected rather than last-wins. Under last-wins an
+// invocation naming two window ids would silently attribute the snapshot to
+// whichever came last, and the resulting pair would still look consistent.
+func TestObserverInvocationRejectsRepeatedFlags(t *testing.T) {
+	digest := strings.Repeat("a", 64)
+	other := strings.Repeat("b", 64)
+	for name, args := range map[string][]string{
+		"repeated phase": {"observer", "--phase", "before", "--phase", "after",
+			"--observer-window-id", digest, "--classifier-manifest-sha256", other},
+		"repeated window id": {"observer", "--phase", "before",
+			"--observer-window-id", digest, "--observer-window-id", other,
+			"--classifier-manifest-sha256", other},
+		"repeated classifier": {"observer", "--phase", "before", "--observer-window-id", digest,
+			"--classifier-manifest-sha256", other, "--classifier-manifest-sha256", digest},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := parseObserverInvocation(args); err == nil {
+				t.Fatal("a repeated observer flag was accepted")
+			}
+		})
+	}
+	if _, err := parseObserverInvocation(nil); err == nil {
+		t.Fatal("an empty argv was accepted")
+	}
+}
+
+// Several pg_stat_statements rows can normalize to one strict_ast_sha256 +
+// toplevel key. Their calls must be summed, and every contributing queryid must
+// be retained: keeping only the first would imply that one row identified the
+// aggregate, which it does not.
+func TestCensusAggregatesMultipleQueryIDsSharingOneStructuralKey(t *testing.T) {
+	// Same structure, different constants: PostgreSQL keeps these as separate
+	// rows with separate queryids, the strict AST digest maps them to one key.
+	response := canonicalCensus(
+		"T|9|||",
+		censusLine("SELECT * FROM t WHERE id = 1", true, 2, "111"),
+		censusLine("SELECT * FROM t WHERE id = 2", true, 3, "222"),
+		censusLine("SELECT * FROM t WHERE id = 3", true, 4, "333"),
+	)
+	census, err := readBusinessCensus(context.Background(), censusEngine{response}, "container")
+	if err != nil {
+		t.Fatalf("census: %v", err)
+	}
+	if len(census.rows) != 1 {
+		t.Fatalf("three constant-only variants produced %d structural rows, want 1: %+v", len(census.rows), census.rows)
+	}
+	if census.rows[0].Calls != 9 || census.total != 9 {
+		t.Fatalf("aggregated calls = %d, total = %d, want 9 and 9", census.rows[0].Calls, census.total)
+	}
+	key := census.rows[0].StrictASTSHA256 + "|true"
+	got := census.queryIDs[key]
+	if len(got) != 3 {
+		t.Fatalf("the merged key retained %d queryids, want all 3: %v", len(got), got)
+	}
+	for index, want := range []string{"111", "222", "333"} {
+		if got[index] != want {
+			t.Fatalf("contributing queryids are %v, want them sorted and complete", got)
+		}
+	}
+
+	// Whatever order PostgreSQL returned them in, the diagnostic reads the same.
+	reordered := canonicalCensus(
+		"T|9|||",
+		censusLine("SELECT * FROM t WHERE id = 3", true, 4, "333"),
+		censusLine("SELECT * FROM t WHERE id = 1", true, 2, "111"),
+		censusLine("SELECT * FROM t WHERE id = 2", true, 3, "222"),
+	)
+	second, err := readBusinessCensus(context.Background(), censusEngine{reordered}, "container")
+	if err != nil {
+		t.Fatalf("census: %v", err)
+	}
+	if !reflect.DeepEqual(second.queryIDs[key], got) {
+		t.Fatalf("row order changed the retained queryids: %v vs %v", second.queryIDs[key], got)
+	}
+
+	// The diagnostic never leaves the process: no queryid may reach the emitted
+	// document, because a queryid is PostgreSQL-version and installation
+	// specific and must never participate in identity.
+	snapshot := experiment.ObserverSnapshotV2{
+		Version: experiment.ObserverSnapshotV2Version, SchemaVersion: 2, Phase: "after",
+		Role: "gateway_reader", Total: census.total, Structural: census.rows,
+		Environment: census.environment, StatsReset: census.statsReset, Dealloc: census.dealloc,
+	}
+	encoded, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, queryID := range []string{"111", "222", "333"} {
+		if strings.Contains(string(encoded), queryID) {
+			t.Fatalf("the emitted snapshot carries the deployment-local queryid %s", queryID)
+		}
 	}
 }

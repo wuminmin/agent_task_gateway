@@ -33,6 +33,7 @@ import (
 	"io"
 	"os/exec"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -206,7 +207,9 @@ func EntriesFromCommit(root, commit string) ([]Entry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("enumerate tracked files at %s: %w", shortCommit(commit), err)
 	}
-	var entries []Entry
+	type tracked struct{ path, mode, object string }
+	var files []tracked
+	var objects []string
 	for _, record := range strings.Split(string(listing), "\x00") {
 		if record == "" {
 			continue
@@ -227,13 +230,26 @@ func EntriesFromCommit(root, commit string) ([]Entry, error) {
 		if objectType != "blob" {
 			return nil, fmt.Errorf("tracked path %q has unsupported object type %q", path, objectType)
 		}
-		content, err := runGitBytes(root, "cat-file", "blob", object)
-		if err != nil {
-			return nil, fmt.Errorf("read blob for %q: %w", path, err)
-		}
+		files = append(files, tracked{path: path, mode: mode, object: object})
+		objects = append(objects, object)
+	}
+	if len(files) == 0 {
+		return nil, fmt.Errorf("commit %s has no tracked files", shortCommit(commit))
+	}
+	// One `git cat-file --batch` rather than one subprocess per blob. The
+	// observer recomputes this digest on every snapshot, and a process launch per
+	// tracked file made that cost proportional to the repository rather than to
+	// the measurement.
+	contents, err := batchBlobs(root, objects)
+	if err != nil {
+		return nil, err
+	}
+	entries := make([]Entry, 0, len(files))
+	for index, file := range files {
+		content := contents[index]
 		digest := sha256.Sum256(content)
-		entry := Entry{Path: path, Mode: mode, ContentSHA256: hex.EncodeToString(digest[:])}
-		if mode == gitModeSymlink {
+		entry := Entry{Path: file.path, Mode: file.mode, ContentSHA256: hex.EncodeToString(digest[:])}
+		if file.mode == gitModeSymlink {
 			entry.SymlinkTarget = string(content)
 		}
 		if err := entry.validate(); err != nil {
@@ -241,10 +257,50 @@ func EntriesFromCommit(root, commit string) ([]Entry, error) {
 		}
 		entries = append(entries, entry)
 	}
-	if len(entries) == 0 {
-		return nil, fmt.Errorf("commit %s has no tracked files", shortCommit(commit))
-	}
 	return entries, nil
+}
+
+// batchBlobs reads every named blob through one `git cat-file --batch`.
+//
+// The reply is length-delimited, so the contents are framed by the header git
+// emits rather than by any separator that could occur inside a blob.
+func batchBlobs(root string, objects []string) ([][]byte, error) {
+	command := exec.Command("git", "-C", root, "cat-file", "--batch")
+	command.Stdin = strings.NewReader(strings.Join(objects, "\n") + "\n")
+	var stderr bytes.Buffer
+	command.Stderr = &stderr
+	output, err := command.Output()
+	if err != nil {
+		return nil, fmt.Errorf("read %d tracked blobs: %w: %s", len(objects), err,
+			strings.TrimSpace(stderr.String()))
+	}
+	contents := make([][]byte, 0, len(objects))
+	rest := output
+	for index := range objects {
+		// Header: "<object> <type> <size>\n", then <size> bytes, then "\n".
+		newline := bytes.IndexByte(rest, '\n')
+		if newline < 0 {
+			return nil, fmt.Errorf("git cat-file truncated before blob %d of %d", index+1, len(objects))
+		}
+		fields := strings.Fields(string(rest[:newline]))
+		if len(fields) != 3 || fields[1] != "blob" {
+			return nil, fmt.Errorf("git cat-file reported %q for a tracked blob", string(rest[:newline]))
+		}
+		size, err := strconv.Atoi(fields[2])
+		if err != nil || size < 0 {
+			return nil, fmt.Errorf("git cat-file reported size %q for %s", fields[2], fields[0])
+		}
+		rest = rest[newline+1:]
+		if len(rest) < size+1 {
+			return nil, fmt.Errorf("git cat-file truncated the body of %s", fields[0])
+		}
+		contents = append(contents, rest[:size])
+		rest = rest[size+1:]
+	}
+	if len(rest) != 0 {
+		return nil, fmt.Errorf("git cat-file emitted %d trailing bytes", len(rest))
+	}
+	return contents, nil
 }
 
 // EntriesFromArchive reads the tar git archive produced and enumerates it in the

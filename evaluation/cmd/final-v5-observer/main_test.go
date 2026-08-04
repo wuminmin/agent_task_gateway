@@ -3,13 +3,17 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
 	"taskbound.local/agent-data-gateway/evaluation/internal/experiment"
+	"taskbound.local/agent-data-gateway/evaluation/internal/formalbuild"
 )
 
 const testProject = "taskgate-final-v5-deployment-02-0123456789abcdefabcd"
@@ -24,6 +28,61 @@ type fakeEngine struct {
 	resolveErrors map[string]error
 	healthcheck   *experiment.GatewayHealthcheck
 	healthErr     error
+	// The Docker inspection surface the observer resolves its Gateway and
+	// PostgreSQL identities through. It is part of the fake deployment rather
+	// than stubbed out, because "the observer inspects these for itself" is the
+	// property v2 exists to establish.
+	images     map[string]formalbuild.ImageInspect
+	containers map[string]formalbuild.ContainerInspect
+	imageFiles map[string]string
+	binary     string
+}
+
+func (f *fakeEngine) ImageInspect(_ context.Context, reference string) (formalbuild.ImageInspect, error) {
+	image, present := f.images[reference]
+	if !present {
+		return formalbuild.ImageInspect{}, fmt.Errorf("no such image %s", reference)
+	}
+	return image, nil
+}
+
+func (f *fakeEngine) ContainerInspect(_ context.Context, containerID string) (formalbuild.ContainerInspect, error) {
+	container, present := f.containers[containerID]
+	if !present {
+		return formalbuild.ContainerInspect{}, fmt.Errorf("no such container %s", containerID)
+	}
+	return container, nil
+}
+
+func (f *fakeEngine) ResolveService(ctx context.Context, project, service string) (string, error) {
+	identity, err := f.resolveService(ctx, project, service)
+	if err != nil {
+		return "", err
+	}
+	return identity.id, nil
+}
+
+// Exec answers the formal-provenance reads the identity resolver performs and
+// otherwise falls through to the recorded container output.
+func (f *fakeEngine) Exec(ctx context.Context, containerID string, command []string) ([]byte, error) {
+	script := command[len(command)-1]
+	switch {
+	case strings.Contains(script, "sha256sum /usr/local/bin/app"):
+		return []byte(f.binary + "\n"), nil
+	case strings.Contains(script, "TASKGATE_FILE"):
+		var rendered strings.Builder
+		for _, path := range []string{
+			"/usr/local/share/taskgate/source-commit",
+			"/usr/local/share/taskgate/build-context-sha256",
+			"/usr/local/share/taskgate/source-manifest-sha256",
+			"/usr/local/share/taskgate/build-target",
+			"/usr/local/share/taskgate/gateway-binary-sha256",
+		} {
+			fmt.Fprintf(&rendered, "TASKGATE_FILE %s\n%s\n", path, f.imageFiles[path])
+		}
+		return []byte(rendered.String()), nil
+	}
+	return f.exec(ctx, containerID, command)
 }
 
 func (f *fakeEngine) resolveGatewayHealthcheck(context.Context, serviceIdentity) (experiment.GatewayHealthcheck, error) {
@@ -65,45 +124,73 @@ func (f *fakeEngine) restartSnapshot(context.Context, string) (projectRestartSna
 	return f.restarts[index], nil
 }
 
-func TestCollectEmitsStrictRealSnapshot(t *testing.T) {
+// Integration gate 1: the observer emits a strict ObserverSnapshotV2, with the
+// census read as one atomic statement and every identity resolved by the
+// observer itself.
+func TestCollectEmitsStrictObserverSnapshotV2(t *testing.T) {
 	fake := completeFakeEngine()
-	got, err := collect(context.Background(), fake, testProject, "before")
+	got, err := collectFake(fake, testProject, "before")
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtimeIdentity, err := runtimeIdentitySHA256(testProject, fake.restarts[1],
-		experiment.FormalGatewayHealthcheck(),
-		fake.services[testProject+"/"+gatewayService], fake.services[testProject+"/"+businessService],
-		fake.services[testProject+"/"+controlService])
-	if err != nil {
-		t.Fatal(err)
+	if err := got.Validate(); err != nil {
+		t.Fatalf("the emitted snapshot does not validate: %v", err)
 	}
-	want := experiment.ObserverSnapshot{
-		SchemaVersion:          1,
-		MemoryScope:            memoryScope,
-		Phase:                  "before",
-		RuntimeIdentitySHA256:  runtimeIdentity,
-		GatewayMemoryPeakBytes: 268435456,
-		GatewayCPUUsec:         987654,
-		GatewayNetworkRXBytes:  404,
-		GatewayNetworkTXBytes:  606,
-		BusinessSQLQueries:     42,
-		ControlWALBytes:        68157440,
-		BusinessWALBytes:       73400320,
-		OOMEvents:              2,
-		ContainerRestarts:      3,
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("snapshot differs\n got: %+v\nwant: %+v", got, want)
-	}
-	for container, wantScript := range map[string]string{
-		"business-id": businessSnapshotShell,
-		"control-id":  controlSnapshotShell,
+
+	invocation := fakeInvocation("before")
+	for name, pair := range map[string][2]string{
+		"version":            {got.Version, experiment.ObserverSnapshotV2Version},
+		"phase":              {got.Phase, "before"},
+		"observer window":    {got.ObserverWindowID, invocation.observerWindowID},
+		"classifier":         {got.ClassifierManifestSHA256, invocation.classifierManifestSHA256},
+		"operation binding":  {got.OperationBindingSHA256, invocation.operationBindingSHA256},
+		"role":               {got.Role, "gateway_reader"},
+		"gateway container":  {got.Runtime.GatewayContainerID, "gateway-id"},
+		"gateway commit":     {got.Runtime.Gateway.SubmissionCommit, fakeCommit},
+		"gateway image":      {got.Runtime.Gateway.LocalImageID, fakeGatewayImageID},
+		"gateway binary":     {got.Runtime.Gateway.BinarySHA256, fakeBinaryDigest},
+		"postgres reference": {got.Runtime.PostgreSQL.ImageReference, "postgres@" + fakePostgresDigest},
 	} {
-		if command := fake.execCommands[container]; !reflect.DeepEqual(command, []string{"sh", "-c", wantScript}) {
-			t.Fatalf("unexpected %s command: %#v", container, command)
+		if pair[0] != pair[1] {
+			t.Errorf("%s is %q, want %q", name, pair[0], pair[1])
 		}
 	}
+	if got.SchemaVersion != 2 {
+		t.Errorf("schema_version is %d, want 2", got.SchemaVersion)
+	}
+	if got.Runtime.Gateway.HealthcheckSHA256 != experiment.FormalGatewayHealthcheck().SHA256() {
+		t.Error("the snapshot does not bind the approved formal healthcheck")
+	}
+
+	// The role total and the structural rows come from one row set.
+	var sum int64
+	for _, row := range got.Structural {
+		sum += row.Calls
+	}
+	if got.Total != 3 || sum != got.Total {
+		t.Fatalf("total=%d rows sum=%d; the reading was not atomic", got.Total, sum)
+	}
+	if got.Resource.ControlWALBytes != 68157440 || got.Resource.BusinessWALBytes == 0 {
+		t.Errorf("WAL evidence is missing: %+v", got.Resource)
+	}
+	if got.Resource.GatewayCPUUsec != 987654 || got.Resource.GatewayMemoryPeakBytes != 268435456 ||
+		got.Resource.GatewayNetworkRXBytes != 404 || got.Resource.GatewayNetworkTXBytes != 606 ||
+		got.Resource.OOMEvents != 2 || got.Resource.ContainerRestarts != 3 ||
+		got.Resource.GatewayRestartCount != 2 || got.Resource.PostmasterStartTime == "" {
+		t.Errorf("resource evidence is incomplete: %+v", got.Resource)
+	}
+
+	// The authoritative census statement is the one that was run, not the old
+	// two-field counter query.
+	if command := fake.execCommands["business-id"]; !reflect.DeepEqual(command,
+		[]string{"sh", "-c", businessCensusShell}) {
+		t.Fatalf("the observer did not read the authoritative census: %#v", command)
+	}
+	if command := fake.execCommands["control-id"]; !reflect.DeepEqual(command,
+		[]string{"sh", "-c", controlSnapshotShell}) {
+		t.Fatalf("unexpected Control command: %#v", command)
+	}
+
 	raw, err := json.Marshal(got)
 	if err != nil {
 		t.Fatal(err)
@@ -112,18 +199,157 @@ func TestCollectEmitsStrictRealSnapshot(t *testing.T) {
 	if err := json.Unmarshal(raw, &fields); err != nil {
 		t.Fatal(err)
 	}
-	wantFields := []string{
-		"schema_version", "memory_scope", "phase", "runtime_identity_sha256", "gateway_memory_peak_bytes", "gateway_cpu_usec",
-		"gateway_network_rx_bytes", "gateway_network_tx_bytes", "business_sql_queries",
-		"control_wal_bytes", "business_wal_bytes", "oom_events", "container_restarts",
-	}
-	if len(fields) != len(wantFields) {
-		t.Fatalf("flat observer JSON has %d fields, want %d: %s", len(fields), len(wantFields), raw)
-	}
-	for _, field := range wantFields {
+	for _, field := range []string{
+		"version", "schema_version", "phase", "observer_window_id", "classifier_manifest_sha256",
+		"observer_source_sha256", "role", "total_calls", "structural_rows",
+		"measurement_environment", "stats_reset", "dealloc", "runtime_identity", "resource_evidence",
+	} {
 		if _, present := fields[field]; !present {
-			t.Fatalf("flat observer JSON omitted %q: %s", field, raw)
+			t.Errorf("the v2 document omits %q", field)
 		}
+	}
+	// The v1 document's fields must not survive into v2.
+	for _, gone := range []string{"business_sql_queries", "runtime_identity_sha256", "memory_scope"} {
+		if _, present := fields[gone]; present {
+			t.Errorf("the v2 document still carries the v1 field %q", gone)
+		}
+	}
+}
+
+// A v1.5 invocation must never yield a schema-1 document, and the run path must
+// emit the v2 one.
+func TestRunEmitsSchemaTwoAndNeverSchemaOne(t *testing.T) {
+	var out strings.Builder
+	snapshot, err := collectFake(completeFakeEngine(), testProject, "after")
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoder := json.NewEncoder(&out)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(snapshot); err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Version       string `json:"version"`
+		SchemaVersion int    `json:"schema_version"`
+	}
+	if err := json.Unmarshal([]byte(out.String()), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.SchemaVersion != 2 || decoded.Version != experiment.ObserverSnapshotV2Version {
+		t.Fatalf("the observer emitted schema %d version %q", decoded.SchemaVersion, decoded.Version)
+	}
+	// A v1 reader keys on schema_version, so a v1 consumer of this document must
+	// refuse it rather than silently reading a v2 body as v1.
+	var asV1 experiment.ObserverSnapshot
+	if err := json.Unmarshal([]byte(out.String()), &asV1); err == nil && asV1.SchemaVersion == 1 {
+		t.Fatal("the v2 document decoded as a valid v1 snapshot")
+	}
+}
+
+// The Gateway and PostgreSQL identities must come from the observer's own
+// inspection. A deployment whose image does not match the verified source, or
+// whose PostgreSQL is not digest-pinned, cannot produce a snapshot at all.
+func TestCollectRefusesAMismatchedGatewayOrPostgreSQL(t *testing.T) {
+	for name, corrupt := range map[string]func(*fakeEngine){
+		"gateway image built from another commit": func(fake *fakeEngine) {
+			image := fake.images[fakeGatewayImageID]
+			labels := copyLabels(image.Config.Labels)
+			labels[formalbuild.LabelRevision] = "fedcba9876543210fedcba9876543210fedcba98"
+			image.Config.Labels = labels
+			fake.images[fakeGatewayImageID] = image
+		},
+		"gateway image built from another context": func(fake *fakeEngine) {
+			image := fake.images[fakeGatewayImageID]
+			labels := copyLabels(image.Config.Labels)
+			labels[formalbuild.LabelBuildContext] = strings.Repeat("e", 64)
+			image.Config.Labels = labels
+			fake.images[fakeGatewayImageID] = image
+		},
+		"gateway image is not a formal build": func(fake *fakeEngine) {
+			image := fake.images[fakeGatewayImageID]
+			labels := copyLabels(image.Config.Labels)
+			delete(labels, formalbuild.LabelFormalBuild)
+			image.Config.Labels = labels
+			fake.images[fakeGatewayImageID] = image
+		},
+		"gateway binary was replaced": func(fake *fakeEngine) {
+			fake.binary = strings.Repeat("c", 64)
+		},
+		"gateway container runs another image": func(fake *fakeEngine) {
+			container := fake.containers["gateway-id"]
+			container.Image = fakePostgresImage
+			fake.containers["gateway-id"] = container
+		},
+		"postgresql is named by a mutable tag": func(fake *fakeEngine) {
+			container := fake.containers["business-id"]
+			container.Config.Image = "postgres:16-bookworm"
+			fake.containers["business-id"] = container
+		},
+		"postgresql carries no registry digest": func(fake *fakeEngine) {
+			image := fake.images[fakePostgresImage]
+			image.RepoDigests = nil
+			fake.images[fakePostgresImage] = image
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fake := completeFakeEngine()
+			corrupt(fake)
+			if _, err := collectFake(fake, testProject, "before"); err == nil {
+				t.Fatal("a snapshot was emitted for a deployment the observer must refuse")
+			}
+		})
+	}
+}
+
+func copyLabels(labels map[string]string) map[string]string {
+	copied := make(map[string]string, len(labels))
+	for key, value := range labels {
+		copied[key] = value
+	}
+	return copied
+}
+
+// The observer's identity must track its own sources: two snapshots of one
+// window are only comparable if the same observer produced both.
+func TestObserverSourceIdentityIsStableAndCoversEveryPackageSource(t *testing.T) {
+	first, err := observerSourceSHA256()
+	if err != nil {
+		t.Fatalf("observerSourceSHA256: %v", err)
+	}
+	second, err := observerSourceSHA256()
+	if err != nil {
+		t.Fatalf("observerSourceSHA256: %v", err)
+	}
+	if first != second || len(first) != 64 {
+		t.Fatalf("the observer source identity is unstable or malformed: %q %q", first, second)
+	}
+
+	// A new non-test source file must not escape the inventory. The embed
+	// directive names files explicitly to keep test edits out of a production
+	// snapshot's identity, and this is what stops that from silently under-
+	// covering the observer.
+	embedded, err := observerSourceNames()
+	if err != nil {
+		t.Fatal(err)
+	}
+	present := map[string]bool{}
+	for _, name := range embedded {
+		present[name] = true
+	}
+	entries, err := readPackageSources()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range entries {
+		if !present[name] {
+			t.Errorf("%s is a source of the observer but is absent from its embedded inventory; "+
+				"add it to the go:embed directive in observer_source.go", name)
+		}
+		delete(present, name)
+	}
+	for name := range present {
+		t.Errorf("the observer embeds %q, which is not one of its non-test sources", name)
 	}
 }
 
@@ -133,7 +359,7 @@ func TestCollectFailsClosedWhenRestartChangesDuringSnapshot(t *testing.T) {
 		restartSnapshot(map[string]int64{"gateway-id": 2, "business-id": 1, "control-id": 0}),
 		restartSnapshot(map[string]int64{"gateway-id": 3, "business-id": 1, "control-id": 0}),
 	}
-	_, err := collect(context.Background(), fake, testProject, "before")
+	_, err := collectFake(fake, testProject, "before")
 	if err == nil || !strings.Contains(err.Error(), "restarted or was replaced") {
 		t.Fatalf("expected restart race to fail closed, got %v", err)
 	}
@@ -145,7 +371,7 @@ func TestCollectFailsClosedWhenContainerIdentityChangesAtSameRestartTotal(t *tes
 		restartSnapshot(map[string]int64{"gateway-id": 2, "business-id": 1, "control-id": 0}),
 		restartSnapshot(map[string]int64{"gateway-new": 2, "business-id": 1, "control-id": 0}),
 	}
-	_, err := collect(context.Background(), fake, testProject, "before")
+	_, err := collectFake(fake, testProject, "before")
 	if err == nil || !strings.Contains(err.Error(), "restarted or was replaced") {
 		t.Fatalf("expected same-total container replacement to fail closed, got %v", err)
 	}
@@ -154,20 +380,34 @@ func TestCollectFailsClosedWhenContainerIdentityChangesAtSameRestartTotal(t *tes
 func TestCollectFailsClosedOnMissingCPUCounter(t *testing.T) {
 	fake := completeFakeEngine()
 	fake.resources.cpuUsec = 0
-	_, err := collect(context.Background(), fake, testProject, "before")
+	_, err := collectFake(fake, testProject, "before")
 	if err == nil || !strings.Contains(err.Error(), "omitted a real Gateway CPU/network counter") {
 		t.Fatalf("expected missing real CPU counter to fail closed, got %v", err)
 	}
 }
 
-func TestCollectFailsClosedOnMissingBusinessRoleValue(t *testing.T) {
-	fake := completeFakeEngine()
-	// PostgreSQL renders the CASE NULL as an empty first field. Treating that
-	// as zero would turn a missing measured role into synthetic evidence.
-	fake.outputs["business-id"] = []byte("|73400320\n")
-	_, err := collect(context.Background(), fake, testProject, "before")
-	if err == nil || !strings.Contains(err.Error(), "Business SQL calls") {
-		t.Fatalf("expected missing Business counter to fail closed, got %v", err)
+// The v2 census carries the role total and the structural rows in one
+// materialized row set. A reading whose total disagrees with its rows, or which
+// omits state the window depends on, describes no single instant and must never
+// become a snapshot.
+func TestCollectFailsClosedOnANonAtomicOrIncompleteCensus(t *testing.T) {
+	for name, response := range map[string]string{
+		"total disagrees with the rows": canonicalCensus(
+			"T|5|||", censusLine("SELECT 1", true, 2, "111")),
+		"no state row": "E|160014|all|on|off\nT|2|||\n" +
+			censusLine("SELECT 1", true, 2, "111") + "\n",
+		"no total row": "E|160014|all|on|off\n" +
+			"S|2026-08-04 10:41:46.431868+00|0|2026-08-04 10:40:00+00|73400320\n" +
+			censusLine("SELECT 1", true, 2, "111") + "\n",
+		"malformed row": "E|160014|all|on|off\nnonsense\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			fake := completeFakeEngine()
+			fake.outputs["business-id"] = []byte(response)
+			if _, err := collectFake(fake, testProject, "before"); err == nil {
+				t.Fatal("a snapshot was built from a census that cannot be authoritative")
+			}
+		})
 	}
 }
 
@@ -182,7 +422,7 @@ func TestCollectFailsClosedOnZeroMemoryPeakOrWAL(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			fake := completeFakeEngine()
 			mutate(fake)
-			if _, err := collect(context.Background(), fake, testProject, "before"); err == nil {
+			if _, err := collectFake(fake, testProject, "before"); err == nil {
 				t.Fatal("missing real counter was accepted")
 			}
 		})
@@ -190,12 +430,12 @@ func TestCollectFailsClosedOnZeroMemoryPeakOrWAL(t *testing.T) {
 }
 
 func TestCollectRejectsNonFormalProjectAndDuplicateServices(t *testing.T) {
-	if _, err := collect(context.Background(), completeFakeEngine(), "other-project", "before"); err == nil {
+	if _, err := collectFake(completeFakeEngine(), "other-project", "before"); err == nil {
 		t.Fatal("non-formal Compose project was accepted")
 	}
 	fake := completeFakeEngine()
 	fake.services[testProject+"/"+businessService] = fake.services[testProject+"/"+gatewayService]
-	if _, err := collect(context.Background(), fake, testProject, "before"); err == nil || !strings.Contains(err.Error(), "duplicate") {
+	if _, err := collectFake(fake, testProject, "before"); err == nil || !strings.Contains(err.Error(), "duplicate") {
 		t.Fatalf("duplicate service container was accepted: %v", err)
 	}
 }
@@ -433,8 +673,90 @@ func TestDockerEngineRejectsProjectContainerWithoutServiceIdentity(t *testing.T)
 	}
 }
 
+// The formal source the fake deployment's Gateway image was built from.
+const (
+	fakeCommit         = "0123456789abcdef0123456789abcdef01234567"
+	fakeContextDigest  = "5555555555555555555555555555555555555555555555555555555555555555"
+	fakeManifestDigest = "4444444444444444444444444444444444444444444444444444444444444444"
+	fakeGatewayImageID = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+	fakePostgresImage  = "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+	fakeBinaryDigest   = "3333333333333333333333333333333333333333333333333333333333333333"
+	fakePostgresDigest = "sha256:9999999999999999999999999999999999999999999999999999999999999999"
+)
+
+func fakeExpectedSource() formalbuild.ExpectedSource {
+	return formalbuild.ExpectedSource{
+		Commit: fakeCommit, ContextSHA256: fakeContextDigest,
+		SourceManifestSHA256: fakeManifestDigest, CleanTree: true,
+	}
+}
+
+func fakeInvocation(phase string) observerInvocation {
+	return observerInvocation{
+		phase:                    phase,
+		observerWindowID:         strings.Repeat("a1", 32),
+		classifierManifestSHA256: strings.Repeat("b2", 32),
+		operationBindingSHA256:   strings.Repeat("c3", 32),
+	}
+}
+
+// collectFake runs the v2 collection against a fake deployment.
+func collectFake(fake *fakeEngine, project, phase string) (experiment.ObserverSnapshotV2, error) {
+	source, err := observerSourceSHA256()
+	if err != nil {
+		return experiment.ObserverSnapshotV2{}, err
+	}
+	return collectV2(context.Background(), fake, project, fakeInvocation(phase), source, fakeExpectedSource())
+}
+
+// fakeBusinessCensus is one atomic Business reading: an environment row, a state
+// row, the role total and the structural rows that sum to it.
+func fakeBusinessCensus() []byte {
+	return []byte(canonicalCensus(
+		"T|3|||",
+		censusLine("SELECT 1", true, 2, "111"),
+		censusLine("SELECT 2", false, 1, "222"),
+	))
+}
+
 func completeFakeEngine() *fakeEngine {
+	gatewayImage := formalbuild.ImageInspect{ID: fakeGatewayImageID, Architecture: "amd64", OS: "linux"}
+	gatewayImage.Config.Labels = map[string]string{
+		formalbuild.LabelFormalBuild:      "v1",
+		formalbuild.LabelRevision:         fakeCommit,
+		formalbuild.LabelBuildContext:     fakeContextDigest,
+		formalbuild.LabelSourceManifest:   fakeManifestDigest,
+		formalbuild.LabelBuildTarget:      formalbuild.GatewayBuildTarget,
+		formalbuild.LabelBuilderBaseImage: "golang@sha256:" + strings.Repeat("7", 64),
+		formalbuild.LabelRuntimeBaseImage: "debian@sha256:" + strings.Repeat("8", 64),
+	}
+	postgresImage := formalbuild.ImageInspect{
+		ID: fakePostgresImage, Architecture: "amd64", OS: "linux",
+		RepoDigests: []string{"postgres@" + fakePostgresDigest},
+	}
+	gatewayContainer := formalbuild.ContainerInspect{ID: "gateway-id", Image: fakeGatewayImageID}
+	gatewayContainer.State.Running = true
+	businessContainer := formalbuild.ContainerInspect{ID: "business-id", Image: fakePostgresImage}
+	businessContainer.State.Running = true
+	businessContainer.Config.Image = "postgres@" + fakePostgresDigest
+
 	return &fakeEngine{
+		images: map[string]formalbuild.ImageInspect{
+			fakeGatewayImageID: gatewayImage,
+			fakePostgresImage:  postgresImage,
+		},
+		containers: map[string]formalbuild.ContainerInspect{
+			"gateway-id":  gatewayContainer,
+			"business-id": businessContainer,
+		},
+		imageFiles: map[string]string{
+			"/usr/local/share/taskgate/source-commit":          fakeCommit,
+			"/usr/local/share/taskgate/build-context-sha256":   fakeContextDigest,
+			"/usr/local/share/taskgate/source-manifest-sha256": fakeManifestDigest,
+			"/usr/local/share/taskgate/build-target":           formalbuild.GatewayBuildTarget,
+			"/usr/local/share/taskgate/gateway-binary-sha256":  fakeBinaryDigest,
+		},
+		binary: fakeBinaryDigest,
 		services: map[string]serviceIdentity{
 			testProject + "/" + gatewayService: {
 				project: testProject, service: gatewayService, id: "gateway-id", pid: 101,
@@ -454,7 +776,7 @@ func completeFakeEngine() *fakeEngine {
 			networkTX:    606,
 		},
 		outputs: map[string][]byte{
-			"business-id": []byte("42|73400320\n"),
+			"business-id": fakeBusinessCensus(),
 			"control-id":  []byte("68157440\n"),
 		},
 		restarts: []projectRestartSnapshot{
@@ -515,7 +837,7 @@ func TestCollectRejectsAReadinessProbingGateway(t *testing.T) {
 	}
 	fake := completeFakeEngine()
 	fake.healthcheck = &readiness
-	if _, err := collect(context.Background(), fake, testProject, "before"); err == nil {
+	if _, err := collectFake(fake, testProject, "before"); err == nil {
 		t.Fatal("a snapshot was produced under the readiness probe")
 	}
 }
@@ -534,7 +856,7 @@ func TestCollectRejectsHealthcheckScheduleDrift(t *testing.T) {
 			fake := completeFakeEngine()
 			probe := probe
 			fake.healthcheck = &probe
-			if _, err := collect(context.Background(), fake, testProject, "before"); err == nil {
+			if _, err := collectFake(fake, testProject, "before"); err == nil {
 				t.Fatal("a snapshot was produced under a drifted healthcheck")
 			}
 		})
@@ -564,5 +886,103 @@ func TestRuntimeIdentitySeparatesHealthcheckModes(t *testing.T) {
 	}
 	if approved == readiness {
 		t.Fatal("runtime identity does not distinguish the readiness probe from the liveness probe")
+	}
+}
+
+// readPackageSources lists the observer's non-test Go sources on disk.
+func readPackageSources() ([]string, error) {
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names, nil
+}
+
+// Test 11: a change to the observer's source inventory must change the identity
+// it stamps on its snapshots. Without this the before/after pair could not
+// detect that two different observers produced the two halves of one window.
+func TestObserverSourceInventoryChangesAlterTheIdentity(t *testing.T) {
+	base := []inventoryEntry{
+		{name: "main.go", content: []byte("package main\n")},
+		{name: "snapshot_v2.go", content: []byte("package main // census\n")},
+	}
+	baseDigest := inventoryDigest(base)
+
+	for name, mutated := range map[string][]inventoryEntry{
+		"a file's content changed": {
+			{name: "main.go", content: []byte("package main // edited\n")},
+			{name: "snapshot_v2.go", content: []byte("package main // census\n")},
+		},
+		"a file was renamed": {
+			{name: "observer.go", content: []byte("package main\n")},
+			{name: "snapshot_v2.go", content: []byte("package main // census\n")},
+		},
+		"a file was added": append(append([]inventoryEntry(nil), base...),
+			inventoryEntry{name: "extra.go", content: []byte("package main\n")}),
+		"a file was removed": base[:1],
+		"two files' contents were swapped": {
+			{name: "main.go", content: []byte("package main // census\n")},
+			{name: "snapshot_v2.go", content: []byte("package main\n")},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if inventoryDigest(mutated) == baseDigest {
+				t.Fatal("the observer source identity did not change with its inventory")
+			}
+		})
+	}
+
+	// The same inventory must always digest the same, or two snapshots of one
+	// undisturbed window could never compare equal.
+	if inventoryDigest(base) != baseDigest {
+		t.Fatal("the observer source identity is not deterministic")
+	}
+}
+
+// Test 12: in an undisturbed deployment the before and after snapshots must
+// carry byte-identical runtime identities. Anything else would make the window
+// comparison reject a measurement that was in fact clean.
+func TestRuntimeIdentitiesAreByteIdenticalAcrossAnUndisturbedWindow(t *testing.T) {
+	before, err := collectFake(completeFakeEngine(), testProject, "before")
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := collectFake(completeFakeEngine(), testProject, "after")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.Runtime != after.Runtime {
+		t.Fatalf("the runtime identity differs across an undisturbed window:\n before %+v\n after  %+v",
+			before.Runtime, after.Runtime)
+	}
+	beforeJSON, err := json.Marshal(before.Runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterJSON, err := json.Marshal(after.Runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(beforeJSON, afterJSON) {
+		t.Fatalf("the serialized runtime identity differs across an undisturbed window:\n%s\n%s",
+			beforeJSON, afterJSON)
+	}
+	if before.ObserverSourceSHA256 != after.ObserverSourceSHA256 {
+		t.Fatal("the two halves of one window report different observer source identities")
+	}
+
+	// The window itself must accept the pair. A disturbed deployment is caught
+	// by the invariant comparison; an undisturbed one must survive it.
+	if before.Runtime.ProjectTopologySHA256 != after.Runtime.ProjectTopologySHA256 {
+		t.Fatal("the project topology identity moved across an undisturbed window")
 	}
 }

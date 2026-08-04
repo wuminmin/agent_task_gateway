@@ -60,6 +60,11 @@ type ContainerInspect struct {
 	} `json:"State"`
 	Config struct {
 		Labels map[string]string `json:"Labels"`
+		// Image is the reference the deployment named for this container, as
+		// written in the Compose file. It is carried separately from the resolved
+		// image ID because only the reference shows whether the deployment named
+		// a mutable tag or an immutable digest.
+		Image string `json:"Image"`
 		// Healthcheck is the periodic probe Docker actually runs. It is part of
 		// the runtime identity because the observer-v3 override replaces
 		// /health/ready with /health/live: a probe that still reaches
