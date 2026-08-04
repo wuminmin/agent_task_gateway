@@ -1,0 +1,9 @@
+attestation footprint qualification for config/profiles/result-heavy.catalog.yaml
+  ExpectedSchema E=1 digest=e2a3796fb3f5 (from catalogschema.Build)
+  11 snapshots, 10 intervals, 1 internal keys
+  constructor_or_cold_pool     1 internal calls/attestation over 1 keys
+  explicit_preflight_pool      1 internal calls/attestation over 1 keys
+  single_query_transaction     1 internal calls/attestation over 1 keys
+  paired_query_transaction     1 internal calls/attestation over 1 keys
+  constructor == explicit preflight: true
+  footprint=846cf4bf1060 portable=032e9c53704d

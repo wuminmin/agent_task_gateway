@@ -1,0 +1,72 @@
+{
+  "activation_support_changing": false,
+  "all_intervals_isolate_one_attestation": true,
+  "all_intervals_total_equals_structural_sum": true,
+  "capability_changing": false,
+  "constructor_matches_explicit_preflight": true,
+  "expected_schema_digest": "e2a3796fb3f5c50f97ebf02a40996b9c95a50e5b028a975cfccd4cf80407d40c",
+  "expected_schema_entries": 1,
+  "formal_campaign": false,
+  "full_digests_differ_as_designed": true,
+  "intervals_per_run": [
+    10,
+    10
+  ],
+  "measurement_environment": {
+    "pg_stat_statements_track": "all",
+    "pg_stat_statements_track_planning": "off",
+    "pg_stat_statements_track_utility": "on",
+    "postgresql_version_num": 160014
+  },
+  "per_scope_multisets_identical": true,
+  "portable_digests_identical": true,
+  "postgresql_runtime_identity_portable": {
+    "image_reference": "postgres@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55",
+    "platform": "linux/amd64",
+    "repo_digest": "postgres@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55"
+  },
+  "profile_catalog": "config/profiles/result-heavy.catalog.yaml",
+  "publication_eligible": false,
+  "record": "taskgate-final-v5-attestation-footprint-two-run-agreement-v1",
+  "runs": [
+    {
+      "directory": "diagnosis-attestation-footprint-qualification-01-20260804T153903Z-818c481ebe5b",
+      "footprint_sha256": "846cf4bf1060a872c288a4e50f4b16586b6f7f983c19d8782ada723d48a5ccfc",
+      "portable_footprint_sha256": "032e9c53704d8df270693c291d36893e46e6c587b95c59bef2c6d198181ceacf",
+      "qualification_id": "attestation-footprint-qualification-01-20260804T153903Z-818c481ebe5b"
+    },
+    {
+      "directory": "diagnosis-attestation-footprint-qualification-02-20260804T154235Z-818c481ebe5b",
+      "footprint_sha256": "7f05155524380730c1e444fc510aed79d0023dce0a5c3dc1a9c61dd1d40b037c",
+      "portable_footprint_sha256": "032e9c53704d8df270693c291d36893e46e6c587b95c59bef2c6d198181ceacf",
+      "qualification_id": "attestation-footprint-qualification-02-20260804T154235Z-818c481ebe5b"
+    }
+  ],
+  "schema_version": 1,
+  "scopes": {
+    "constructor_or_cold_pool": [
+      {
+        "calls_per_attestation": 1,
+        "strict_ast_sha256": "e5738df1650276a7f20e677172e067bc62bab12d48c18a378c9b6ed602433842"
+      }
+    ],
+    "explicit_preflight_pool": [
+      {
+        "calls_per_attestation": 1,
+        "strict_ast_sha256": "e5738df1650276a7f20e677172e067bc62bab12d48c18a378c9b6ed602433842"
+      }
+    ],
+    "paired_query_transaction": [
+      {
+        "calls_per_attestation": 1,
+        "strict_ast_sha256": "e5738df1650276a7f20e677172e067bc62bab12d48c18a378c9b6ed602433842"
+      }
+    ],
+    "single_query_transaction": [
+      {
+        "calls_per_attestation": 1,
+        "strict_ast_sha256": "e5738df1650276a7f20e677172e067bc62bab12d48c18a378c9b6ed602433842"
+      }
+    ]
+  }
+}
