@@ -6,7 +6,7 @@ stays on `main @ 804d65d` and is never touched.
 
 ## Current HEAD
 
-`306eba3` — equals `origin/tkde-artifact-rerun`, worktree clean.
+`55ccd3d` — equals `origin/tkde-artifact-rerun`, worktree clean.
 
 Session start was `5e60495`. Tags `final-v5-contracts-v1` … `v1.4` verified
 unmoved at `1702e65`, `5e12765`, `6f353f3`, `38e3bd3`, `36b04ba`. No v1.5 tag
@@ -24,6 +24,13 @@ Forward commits this session, in order:
 | `21e693a` | N4 audit: five corrections before any qualification run |
 | `818c481` | N4 qualification harness; two live Gateway failures retained |
 | `306eba3` | **Stage N4 complete**: two independent live qualifications agree |
+| `18a5f58` | **B** `internal/physicalquery`: shared statements + row limits |
+| `d3d2c1b` | **C** bound, compiled, operation-scoped classifier |
+| `4b26984` | **D** `ObserverSnapshotV2`: authoritative and atomic |
+| `c43b7ba` | **E** independent finalizer |
+| `c541d7e`, `18bee8e` | N4 forward-fix: provenance, profile binding, no embedded credentials |
+| `349d8b9` | two v1.5-candidate qualifications, agreeing |
+| `55ccd3d` | SQL-executability gate passing live |
 
 ## Completed milestones
 
@@ -110,60 +117,79 @@ here rather than by amending.
 - No raw or normalized SQL in publication evidence; `queryid` is
   deployment-local diagnosis only.
 
-## Stage N4: complete
+## Completed: B, C, D, E, and the N4 forward-fix
 
-Two independent, isolated, fresh full-topology qualifications of the exact
-Result-heavy Profile Catalog agree exactly.
+**B — `internal/physicalquery`** (`18a5f58`). Shared derivation of the physical
+statements and the runtime row limits, with the Gateway delegating to it. The
+limits live here because `sqlpolicy` renders them into the executable SQL. Three
+properties preserved exactly: the companion follows the *authorized* visible
+limit (so the visible statement is authorized first, and the ordering is
+load-bearing); non-expanded evidence clamps the visible limit to InfluenceFacts
+while expanded evidence does not and asks for one extra row; and the ledger
+pre-state is an input, so a partly-consumed ledger derives different bytes while
+leaving the structural identity fixed.
+
+**C — compiled, bound classifier** (`d3d2c1b`). `OperationIdentity` binds
+operation, path, contract, ExpectedSchema and qualification. Free-form target
+declarations are gone: `TargetContractIdentity` derives a target's contract from
+the operation's, so another workload's target cannot be expressed. The manifest
+compiles into an immutable keyed lookup, target cardinality is enforced per path,
+and internal keys must carry the operation's footprint digest.
+`BindingSHA256` lets the finalizer recompute the binding.
+
+**D — `ObserverSnapshotV2`** (`4b26984`). One atomic reading; `Validate` requires
+the role total to equal the sum of the structural rows, which is what makes
+"same row set" checkable. Runtime identity is part of the snapshot, including the
+SHA-256 of the running healthcheck command. `Accept` is equality class by class
+*and* key by key — same-total internal substitution, same-total control
+substitution, and missing/extra controls all fail.
+
+**E — independent finalizer** (`c43b7ba`). Derives ExpectedSchema from the
+Catalog, the plan from path + footprint, the operation identity from frozen
+contract material, and the targets from statements reproduced through
+`physicalquery` — then looks at the Adapter's evidence only to reject it. Path
+kind is an independent input, never inferred from target count. `MeasurementArm`
+stops direct-PostgreSQL and native-ProvSQL arms from carrying observer evidence.
+
+**N4 forward-fix and requalification** (`c541d7e`, `18bee8e`, `349d8b9`). Two
+fresh isolated qualifications from clean, published commit `18bee8e`:
 
 | | value |
 | --- | --- |
-| `portable_footprint_sha256` | `032e9c53704d…` — **identical across both runs** |
-| ExpectedSchema | `e2a3796fb3f5…`, E=1, from `catalogschema.Build` |
-| every scope | one internal key `e5738df1650276a7`, 1 call/attestation |
-| constructor == explicit preflight | true, both runs |
-| full `footprint_sha256` | `846cf4bf1060…` / `7f0515552438…` — differ by design |
+| portable footprint | `032e9c53704d…` — identical, and matches the development runs |
+| ExpectedSchema | `e2a3796fb3f5…`, E=1 |
+| profile / registry | `profile-a86cd4df5cad6e26` / `final-v5-contracts-v1.4` |
+| catalog bytes | `533837084c0d…`, cross-checked against the artifact manifest |
+| artifact directory | `814d4df9971f…`, identical in both runs |
+| source dependencies | 8, each bound to its bytes at HEAD |
 
-The full digests differ because they bind the qualification ID and the
-deployment-local image IDs, which cannot be shared between isolated runs.
-`PortableSHA256` excludes exactly those and covers everything else.
+Qualification now refuses a dirty worktree, an unpublished commit, or any source
+file differing from the commit. DSN passwords are gone from the harness; the
+probe takes no DSN flag at all.
 
-Per run: 11 snapshots, 10 adjacent intervals, each isolating exactly one
-Attestation, each with `total_delta == structural_sum`, all four scopes stable,
-live schema verified. `publication_eligible=false` throughout.
-
-Evidence: `evaluation/final-v5-wsl2/raw/attestation-footprint-two-run-agreement.json`
-plus the two run directories. Bulk publication data (5.3 GiB/run) is excluded
-from git and reproducible by rerunning the harness.
+**SQL-executability gate** (`55ccd3d`). Now PASSES live with `-require-live`:
+28 artifacts, 71 rendered cells, 0 failed, PostgreSQL 16.14. The committed
+manifest regenerated byte-identically.
+`evaluation/final-v5-wsl2/scripts/run-sql-executability-gate.sh` reproduces it.
+The freeze-time prohibition on a skipped gate is satisfied.
 
 ## Next executable step
 
-Critical path **B**: shared physical-query preparation (`internal/physicalquery`),
-so the visible and companion target identities are derived once and the Gateway
-delegates to the same code the evaluation uses. See
-`docs/final_v5_observer_v3_measurement_window.md` §2 for the exact surface
-required — it must cover the exposure-ledger limit computation, not just
-`queryplan.Compile`, or the rendered digest will never match a live run.
+**Integration.** B–E are libraries with tests, not yet wired into the running
+harness. `grep` over `evaluation/cmd/` shows only the footprint probe uses
+`ObserverSnapshotV2`, `CompiledClassifier`, `FinalizeObservationV3` or
+`AttestationFootprintV2`; `final-v5-adapter` and `final-v5-observer` still take
+the pre-v3 path. Nothing downstream can pass until they are converted:
 
-Then C (operation-scoped compiled classifier — note `BuildClassifierManifest`
-now takes the qualified footprint), D (`ObserverSnapshotV2`), E (independent
-finalizer), F (v1.5 freeze), G (activation, canaries, six cells).
+1. `final-v5-observer` emits `ObserverSnapshotV2` (it must collect the runtime
+   and image identities and the healthcheck digest itself);
+2. `final-v5-adapter` builds the operation identity, compiles the classifier and
+   carries `CarriedEvidenceV3`;
+3. the finalizer path calls `FinalizeObservationV3` and rejects v2 evidence.
 
-### Harness notes for whoever continues
-
-`evaluation/final-v5-wsl2/scripts/qualify-attestation-footprint.sh` is the
-working two-phase deployment. Four findings are baked into it and will apply to
-every later live gate:
-
-1. `TASKGATE_PROFILE_CATALOG` must name the Profile Catalog being exercised; the
-   default full catalog exceeds the 160 MiB hot-artifact activation boundary.
-2. The Gateway cannot start against the shared `snapshot-index-artifacts` volume
-   — it fails closed on publications outside its closure. Materialize a
-   per-profile directory with `final-v5-profile-artifacts` and point
-   `TASKGATE_PROFILE_ARTIFACT_DIR` at it.
-3. `docker compose up --wait` returns non-zero when a one-shot service exits 0.
-   Poll long-running services for health and jobs for exit code instead.
-4. The artifact volume is root-owned mode 0700; copy as root and chown, and
-   treat a zero-file copy as an error.
+Then **F** (v1.5 freeze: AMENDMENT-v1.5, the observer-accounting machine
+contract, index regeneration, tag) and **G** (activation, 100x4 / 100k-x4 /
+100k-x16 canaries, six cells, cross-cell leakage, capability).
 
 ## Retained true blockers
 
