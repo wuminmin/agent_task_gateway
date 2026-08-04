@@ -95,13 +95,21 @@ func Build(logicalCatalog *catalog.Catalog) (Result, error) {
 	if selected.SchemaDigest == "" {
 		return Result{}, errors.New("selected catalog source is missing schema_digest")
 	}
-	return Result{Source: selected, Entries: entries, Count: int64(len(entries)), Digest: digestEntries(entries)}, nil
+	return Result{Source: selected, Entries: entries, Count: int64(len(entries)), Digest: Digest(entries)}, nil
 }
 
-// digestEntries is the canonical digest of the ordered entry list. It is
-// length-delimited at every level so that no regrouping of schema, view or
+// Digest is the canonical digest of an ordered ExpectedSchema entry list.
+//
+// It is exported so that anything qualifying a measurement against an
+// ExpectedSchema -- notably the Attestation footprint probe, which assembles its
+// entries from live relations rather than from a Catalog -- produces an identity
+// in the same space as the one Build gives the Gateway. A second digest
+// implementation would make a qualified footprint impossible to bind to the
+// production schema it is supposed to be valid for.
+//
+// It is length-delimited at every level so that no regrouping of schema, view or
 // column names can produce the same bytes.
-func digestEntries(entries []dataconnector.ViewSchema) string {
+func Digest(entries []dataconnector.ViewSchema) string {
 	hash := sha256.New()
 	hash.Write([]byte(expectedSchemaListDomain + "\x00"))
 	fmt.Fprintf(hash, "%d\x00", len(entries))
