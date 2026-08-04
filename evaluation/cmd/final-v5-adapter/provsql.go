@@ -454,13 +454,13 @@ func (adapter *provSQLAdapter) executeProvSQLTaskGate(ctx context.Context, opera
 		expected.ExpectedVisibleCalls != 1 || expected.ExpectedCompanionCalls != 1 {
 		return partial, errors.New("ProvSQL TaskGate Business statement counts differ from the private exact binding")
 	}
-	views, err := servedReportingViewCount(response.Receipt.CatalogDigest)
+	schema, err := servedExpectedSchema(response.Receipt.CatalogDigest)
 	if err != nil {
 		return partial, err
 	}
 	// The exact private binding pins one visible and one companion statement, so
 	// this settles two governed transactions.
-	plan := experiment.NewGatewayControlPlan(visibleDelta+companionDelta, views, visibleDelta, companionDelta)
+	plan := experiment.NewGatewayControlPlan(visibleDelta+companionDelta, schema.Count, visibleDelta, companionDelta)
 	if err := applyObserverDelta(&sample, observerBefore, observerAfter, plan, censusBefore, censusAfter); err != nil {
 		return partial, err
 	}

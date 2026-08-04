@@ -10,66 +10,66 @@ import (
 
 	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5profile"
 	"taskbound.local/agent-data-gateway/internal/catalog"
+	"taskbound.local/agent-data-gateway/internal/catalogschema"
 )
 
 // The closed-world statement accounting compares each class of gateway_reader
-// statement with a multiplicity derived from the activated profile. Two
-// quantities drive that derivation: how many governed transactions the operation
-// settles, and how many reporting views the Catalog declares to the Connector.
+// statement with a multiplicity derived from the activated profile. The
+// per-entry attestation classes scale with E, the exact number of ordered
+// ExpectedSchema entries the Connector holds.
 //
-// The first is a property of the operation and is stated at each call site. The
-// second is resolved here, once per served Catalog, because it belongs to the
-// deployment rather than to any one experiment: the Connector attests every view
-// in its schema expectation inside every governed transaction, whichever
-// workload issued it.
+// E is resolved here, once per served Catalog, because it belongs to the
+// deployment rather than to any one experiment, and it is resolved through the
+// same shared builder cmd/gateway calls at startup so the two cannot disagree.
 
 var (
-	reportingViewsOnce  sync.Once
-	reportingViewsValue int64
-	reportingViewsFor   string
-	reportingViewsErr   error
+	expectedSchemaOnce  sync.Once
+	expectedSchemaValue catalogschema.Result
+	expectedSchemaFornn string
+	expectedSchemaErr   error
 )
 
-// servedReportingViewCount is the N in the derived control multiplicity
-// T * (5 + 2 * N), for the Catalog the Gateway signed into the Receipt.
+// servedExpectedSchema is the exact ordered ExpectedSchema for the Catalog the
+// Gateway signed into the Receipt, carrying both the entry count E and its
+// canonical digest.
 //
 // It is resolved by finding the registry profile that pins exactly that Catalog
-// digest and counting the reporting views its Catalog bytes declare. Both steps
-// are observations: a Catalog no profile pins, or a Catalog file whose bytes
-// hash to something else, yields no count at all rather than a guess.
-func servedReportingViewCount(catalogSHA256 string) (int64, error) {
+// digest and building from its bytes. Both steps are observations: a Catalog no
+// profile pins, or a Catalog file whose bytes hash to something else, yields
+// nothing rather than a guess.
+func servedExpectedSchema(catalogSHA256 string) (catalogschema.Result, error) {
 	digest := strings.TrimSpace(catalogSHA256)
 	if len(digest) != 64 {
-		return 0, errors.New("a served Catalog digest is required to derive the control multiplicity")
+		return catalogschema.Result{}, errors.New("a served Catalog digest is required to derive the control multiplicity")
 	}
-	reportingViewsOnce.Do(func() {
-		reportingViewsFor = digest
-		reportingViewsValue, reportingViewsErr = resolveReportingViewCount(digest)
+	expectedSchemaOnce.Do(func() {
+		expectedSchemaFornn = digest
+		expectedSchemaValue, expectedSchemaErr = resolveExpectedSchema(digest)
 	})
-	if reportingViewsErr != nil {
-		return 0, reportingViewsErr
+	if expectedSchemaErr != nil {
+		return catalogschema.Result{}, expectedSchemaErr
 	}
-	// The count is cached for the run, so it is only reusable while the
-	// deployment is still serving the Catalog it was derived from.
-	if reportingViewsFor != digest {
-		return 0, fmt.Errorf("the deployment served Catalog %s after the control multiplicity was derived from %s",
-			digest, reportingViewsFor)
+	// The derivation is cached for the run, so it is only reusable while the
+	// deployment is still serving the Catalog it came from.
+	if expectedSchemaFornn != digest {
+		return catalogschema.Result{}, fmt.Errorf("the deployment served Catalog %s after the ExpectedSchema was derived from %s",
+			digest, expectedSchemaFornn)
 	}
-	return reportingViewsValue, nil
+	return expectedSchemaValue, nil
 }
 
-func resolveReportingViewCount(catalogSHA256 string) (int64, error) {
+func resolveExpectedSchema(catalogSHA256 string) (catalogschema.Result, error) {
 	registryPath := strings.TrimSpace(os.Getenv("TASKGATE_FINAL_V5_PROFILE_REGISTRY"))
 	if registryPath == "" {
-		return 0, errors.New("TASKGATE_FINAL_V5_PROFILE_REGISTRY is required to derive the control multiplicity")
+		return catalogschema.Result{}, errors.New("TASKGATE_FINAL_V5_PROFILE_REGISTRY is required to derive the control multiplicity")
 	}
 	payload, err := os.ReadFile(registryPath)
 	if err != nil {
-		return 0, fmt.Errorf("read profile registry: %w", err)
+		return catalogschema.Result{}, fmt.Errorf("read profile registry: %w", err)
 	}
 	var registry finalv5profile.Registry
 	if err := json.Unmarshal(payload, &registry); err != nil {
-		return 0, fmt.Errorf("decode profile registry: %w", err)
+		return catalogschema.Result{}, fmt.Errorf("decode profile registry: %w", err)
 	}
 	var matched []finalv5profile.Profile
 	for _, candidate := range registry.Profiles {
@@ -78,60 +78,52 @@ func resolveReportingViewCount(catalogSHA256 string) (int64, error) {
 		}
 	}
 	if len(matched) == 0 {
-		return 0, fmt.Errorf("no registry profile pins the served Catalog %s", catalogSHA256)
+		return catalogschema.Result{}, fmt.Errorf("no registry profile pins the served Catalog %s", catalogSHA256)
 	}
-	// Several profiles may legitimately share one Catalog. They must then agree
-	// on the reporting-view count, because the Connector holds one schema
+	// Several profiles may legitimately share one Catalog. They must then derive
+	// the same ExpectedSchema, because the Connector holds one schema
 	// expectation per deployment; disagreement means the registry and the
 	// Catalog have drifted apart and no multiplicity is derivable.
-	count, err := reportingViewCount(matched[0])
+	built, err := expectedSchemaFor(matched[0])
 	if err != nil {
-		return 0, err
+		return catalogschema.Result{}, err
 	}
 	for _, profile := range matched[1:] {
-		other, err := reportingViewCount(profile)
+		other, err := expectedSchemaFor(profile)
 		if err != nil {
-			return 0, err
+			return catalogschema.Result{}, err
 		}
-		if other != count {
-			return 0, fmt.Errorf("profiles %s and %s pin one Catalog but derive %d and %d reporting views",
-				matched[0].Alias, profile.Alias, count, other)
+		if other.Digest != built.Digest {
+			return catalogschema.Result{}, fmt.Errorf("profiles %s and %s pin one Catalog but derive different ExpectedSchema",
+				matched[0].Alias, profile.Alias)
 		}
 	}
-	return count, nil
+	return built, nil
 }
 
-// reportingViewCount counts the reporting views one profile's Catalog declares
-// to the Connector. Products carrying a ViewContract are excluded because the
-// Connector holds no schema expectation for them, exactly as the profile
-// attestation computes its own reporting-view set.
-func reportingViewCount(profile finalv5profile.Profile) (int64, error) {
+// expectedSchemaFor derives the exact ordered ExpectedSchema one profile's
+// Catalog produces, through the same shared builder the Gateway calls at
+// startup.
+//
+// This replaces the contracts v1.4 derivation, which counted *distinct
+// reporting views*. That was wrong: the builder appends one entry per governed
+// Product without deduplication, so a Catalog with two Products on one view
+// holds two ExpectedSchema entries and performs two attestation passes. The
+// unique-view map undercounted exactly those Catalogs.
+func expectedSchemaFor(profile finalv5profile.Profile) (catalogschema.Result, error) {
 	payload, err := os.ReadFile(profile.CatalogPath)
 	if err != nil {
-		return 0, fmt.Errorf("read profile Catalog: %w", err)
+		return catalogschema.Result{}, fmt.Errorf("read profile Catalog: %w", err)
 	}
 	source, err := catalog.Parse(payload)
 	if err != nil {
-		return 0, fmt.Errorf("parse profile Catalog: %w", err)
+		return catalogschema.Result{}, fmt.Errorf("parse profile Catalog: %w", err)
 	}
-	// Counting views from a file that is not the Catalog the registry pinned
-	// would turn the derivation back into a declaration.
+	// Deriving from a file that is not the Catalog the registry pinned would
+	// turn the derivation back into a declaration.
 	if source.SHA256 != profile.CatalogSHA256 {
-		return 0, fmt.Errorf("profile Catalog at %s hashes to %s, registry pins %s",
+		return catalogschema.Result{}, fmt.Errorf("profile Catalog at %s hashes to %s, registry pins %s",
 			profile.CatalogPath, source.SHA256, profile.CatalogSHA256)
 	}
-	views := map[string]bool{}
-	for _, product := range source.Products {
-		if product.ViewContract != nil {
-			continue
-		}
-		if strings.TrimSpace(product.ReportingView) == "" {
-			return 0, fmt.Errorf("Catalog product %s declares no reporting view", product.Name)
-		}
-		views[product.ReportingView] = true
-	}
-	if len(views) == 0 {
-		return 0, errors.New("profile Catalog declares no attested reporting view")
-	}
-	return int64(len(views)), nil
+	return catalogschema.Build(source)
 }

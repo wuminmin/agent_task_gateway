@@ -251,11 +251,11 @@ func (adapter *artifactAdapter) executeResultHeavy(ctx context.Context, operatio
 	// and its provenance companion -- and the reporting-view count comes from the
 	// Catalog the Gateway signed, so the control multiplicity is derived from the
 	// activated profile rather than fixed at 14.
-	views, err := servedReportingViewCount(sample.BaselineVerification.Receipt.CatalogDigest)
+	schema, err := servedExpectedSchema(sample.BaselineVerification.Receipt.CatalogDigest)
 	if err != nil {
 		return sample, err
 	}
-	plan := experiment.NewGatewayControlPlan(2, views, visibleDelta, companionDelta)
+	plan := experiment.NewGatewayControlPlan(2, schema.Count, visibleDelta, companionDelta)
 	if err := applyObserverDelta(&sample, observerBefore, observerAfter, plan, censusBefore, censusAfter); err != nil {
 		return sample, err
 	}

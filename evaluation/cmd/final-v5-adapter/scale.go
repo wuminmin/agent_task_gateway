@@ -253,14 +253,14 @@ func (adapter *scaleAdapter) executeDependencyE2E(ctx context.Context, operation
 	companionDelta := businessAfter.CompanionCalls - businessBefore.CompanionCalls
 	observedBusiness := visibleDelta + companionDelta
 	sample.BusinessSQLDelta = observedBusiness
-	views, err := servedReportingViewCount(response.Receipt.CatalogDigest)
+	schema, err := servedExpectedSchema(response.Receipt.CatalogDigest)
 	if err != nil {
 		return sample, err
 	}
 	// Each targeted statement is settled by its own governed transaction, so a
 	// served-from-cache replay derives the empty plan and a novel query derives
 	// one transaction per visible and companion statement.
-	plan := experiment.NewGatewayControlPlan(observedBusiness, views, visibleDelta, companionDelta)
+	plan := experiment.NewGatewayControlPlan(observedBusiness, schema.Count, visibleDelta, companionDelta)
 	if err := applyObserverDelta(&sample, observerBefore, observerAfter, plan, censusBefore, censusAfter); err != nil {
 		return sample, err
 	}

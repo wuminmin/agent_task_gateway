@@ -28,6 +28,7 @@ import (
 	"taskbound.local/agent-data-gateway/internal/approval"
 	"taskbound.local/agent-data-gateway/internal/auditchain"
 	"taskbound.local/agent-data-gateway/internal/catalog"
+	"taskbound.local/agent-data-gateway/internal/catalogschema"
 	"taskbound.local/agent-data-gateway/internal/control"
 	"taskbound.local/agent-data-gateway/internal/dataconnector"
 	gatewayapp "taskbound.local/agent-data-gateway/internal/gateway"
@@ -400,54 +401,16 @@ func sweepOrphanResultStaging(ctx context.Context, service *gatewayapp.Service, 
 	}
 }
 
+// expectedDatasource delegates to the one shared builder so the Gateway and the
+// evaluation cannot derive different ExpectedSchema entry counts. The
+// attestation multiplicity in observer-accounting-v3 is a function of that
+// count, so a second implementation here would be a second answer.
 func expectedDatasource(logicalCatalog *catalog.Catalog) (catalog.Source, []dataconnector.ViewSchema, error) {
-	if logicalCatalog == nil || len(logicalCatalog.Products) == 0 {
-		return catalog.Source{}, nil, errors.New("validated catalog contains no products")
+	built, err := catalogschema.Build(logicalCatalog)
+	if err != nil {
+		return catalog.Source{}, nil, err
 	}
-	sources := make(map[string]catalog.Source, len(logicalCatalog.Sources))
-	for _, source := range logicalCatalog.Sources {
-		sources[source.Name] = source
-	}
-	var selected catalog.Source
-	result := make([]dataconnector.ViewSchema, 0, len(logicalCatalog.Products))
-	for _, product := range logicalCatalog.Products {
-		source, ok := sources[product.Source]
-		if !ok {
-			return catalog.Source{}, nil, errors.New("validated catalog contains a product with an invalid source")
-		}
-		if selected.Name == "" {
-			selected = source
-		} else if selected.Name != source.Name {
-			return catalog.Source{}, nil, errors.New("multiple catalog sources require connector routing")
-		}
-		// Phase-B semantic Views are attested by a task-scoped transitive
-		// registry binding inside each query transaction. Keeping them out of
-		// the legacy source-wide digest prevents an unrelated View replacement
-		// from disabling every task and readiness probe.
-		if product.ViewContract != nil {
-			continue
-		}
-		schema, view, ok := strings.Cut(product.ReportingView, ".")
-		if !ok || schema == "" || view == "" {
-			return catalog.Source{}, nil, errors.New("validated catalog contains an invalid reporting view")
-		}
-		columns := make([]dataconnector.SchemaColumn, 0, len(product.Fields))
-		for _, field := range product.Fields {
-			columns = append(columns, dataconnector.SchemaColumn{Name: field.Name, PostgreSQLType: field.Type,
-				Collation: field.Collation, CollationVersion: field.CollationVersion, CollationDeterministic: field.Collation != ""})
-		}
-		result = append(result, dataconnector.ViewSchema{Schema: schema, View: view, Columns: columns})
-	}
-	if selected.Name == "" {
-		return catalog.Source{}, nil, errors.New("validated catalog contains no source")
-	}
-	if len(result) == 0 {
-		return catalog.Source{}, nil, errors.New("semantic View catalogs require at least one governed terminal product")
-	}
-	if selected.SchemaDigest == "" {
-		return catalog.Source{}, nil, errors.New("selected catalog source is missing schema_digest")
-	}
-	return selected, result, nil
+	return built.Source, built.Entries, nil
 }
 
 func sourceDSN(source catalog.Source, password string) string {
