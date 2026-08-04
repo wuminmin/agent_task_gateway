@@ -36,11 +36,15 @@ const (
 	// Result-heavy Dataset Generator; see contracts/AMENDMENT-v1.1.md. v1.3 is a
 	// syntax-only erratum: the benchmark probe used the reserved keyword
 	// COLLATION as a bare CTE identifier and could not parse at all; see
-	// contracts/AMENDMENT-v1.3.md.
+	// contracts/AMENDMENT-v1.3.md. v1.4 replaces an unsatisfiable observer gate
+	// with closed-world statement accounting; see contracts/AMENDMENT-v1.4.md.
+	// It changes gate code only: every indexed artifact is byte-identical to
+	// v1.3.
 	contractReleaseV1  = "final-v5-contracts-v1"
 	contractReleaseV11 = "final-v5-contracts-v1.1"
 	contractReleaseV12 = "final-v5-contracts-v1.2"
 	contractReleaseV13 = "final-v5-contracts-v1.3"
+	contractReleaseV14 = "final-v5-contracts-v1.4"
 )
 
 var (
@@ -1067,6 +1071,7 @@ func validateContractRelease(index indexDocument, evaluationRoot string) error {
 		contractReleaseV11: {contractReleaseV1, "contracts/AMENDMENT-v1.1.md"},
 		contractReleaseV12: {contractReleaseV11, "contracts/AMENDMENT-v1.2.md"},
 		contractReleaseV13: {contractReleaseV12, "contracts/AMENDMENT-v1.3.md"},
+		contractReleaseV14: {contractReleaseV13, "contracts/AMENDMENT-v1.4.md"},
 	}
 	expected, reviewed := chain[index.ContractRelease]
 	if !reviewed || index.SupersedesContractRelease != expected[0] {

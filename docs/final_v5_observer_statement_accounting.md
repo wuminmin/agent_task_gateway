@@ -73,10 +73,30 @@ substitution which preserves the total — one fewer attestation, one more
 unknown — still fails. That property is what makes closed-world accounting
 strictly stronger than the equality it replaces, rather than a relaxation of it.
 
-## Not yet implemented
+## What the View Registry adds, and why it is not in the formula
 
-This note is the derivation only. The typed `observer-accounting-v2` record, the
-fail-closed normalized-template classifier, the three call-site updates, the
-mutation tests, AMENDMENT-v1.4 and the v1.4 freeze are still outstanding. Until
-they exist, `artifactRealSystemValidated` stays false and the capability stays
-6/9.
+`Connector.Query` also calls `verifyViewRegistry`, which issues a server-version
+pin and one discovery traversal per relation in the view closure. It is a no-op
+when the request carries no View Registry expectation, and the Gateway only
+attaches one when the signed Grant carries a View binding digest. The
+Result-heavy profile carries none, which is why the formula above closes at
+exactly 16 without a View Registry term.
+
+This is not an assumption the accounting relies on. A profile that does reach
+Business PostgreSQL through the View Registry produces statements the classifier
+does not model, they land in the `unexpected` class, and the run fails. Extending
+the closed world to cover those profiles is a contract change, not an
+implementation detail.
+
+## Implementation status
+
+Implemented in `b51ad59` and frozen as `final-v5-contracts-v1.4`:
+`experiment.ObserverAccounting`, `ClassifyGatewayStatement`, the three call-site
+updates, nineteen mutation tests including both same-total substitutions, and
+the finalizer-side re-derivation. N is read from the Catalog the Gateway signed
+rather than declared.
+
+Outstanding, and operator-gated: a live activation smoke under v1.4. Activation
+support does not carry across a contract release, so every profile is currently
+`targeted_run_eligible=false`, no Artifact run can execute,
+`artifactRealSystemValidated` stays false and the capability stays 6/9.

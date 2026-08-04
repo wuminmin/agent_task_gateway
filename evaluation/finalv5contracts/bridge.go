@@ -102,7 +102,8 @@ func LoadRuntimeFS(files fs.FS) (*Runtime, error) {
 	// An amended contract must identify its own release, so evidence can never
 	// attribute corrected bytes to the release they superseded.
 	if index.ContractRelease != contractReleaseV1 && index.ContractRelease != contractReleaseV11 &&
-		index.ContractRelease != contractReleaseV12 && index.ContractRelease != contractReleaseV13 {
+		index.ContractRelease != contractReleaseV12 && index.ContractRelease != contractReleaseV13 &&
+		index.ContractRelease != contractReleaseV14 {
 		return nil, fmt.Errorf("contract index release %q is not reviewed", index.ContractRelease)
 	}
 	runtime.contractRelease = index.ContractRelease

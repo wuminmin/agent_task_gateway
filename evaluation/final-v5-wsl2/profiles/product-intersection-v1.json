@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "record": "taskgate-final-v5-product-intersection-v1",
-  "contracts_version": "final-v5-contracts-v1.3",
+  "contracts_version": "final-v5-contracts-v1.4",
   "registry_version": "taskgate-final-v5-workload-closure-profile-v2",
   "profile_count": 7,
   "pair_count": 21,
