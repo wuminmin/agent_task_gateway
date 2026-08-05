@@ -192,7 +192,82 @@ call-graph tests rather than by measurement.
 | No Adapter file constructs `TrustedInputsV3` or `IndependentInputsV3`. | `experiment.TestAdapterCannotConstructTrustedInputs` | PASS |
 | The V9 test-fixture package is not imported by production files. | `testfixture.TestFixtureIsNotImportedByProduction` | PASS |
 
-## The runtime cutover is BLOCKED on a missing shared target derivation
+## The shared target preparation — approved, in progress
+
+The blocker below was put to the author, who **approved the extraction**. It is
+the third of its kind, after `internal/physicalquery` itself and then
+`internal/sqlidentity`, and needs no further authorization.
+
+### The proof boundary, stated correctly
+
+Both the Gateway and the finalizer call **the same frozen functions**. The
+property that establishes is:
+
+    independent reconstruction from independently sourced inputs
+    using the frozen shared preparation algorithm
+
+It is **not** "an independently implemented compiler", and neither the paper nor
+the v1.5 contract may claim that. One implementation is the point — two would
+drift, and the drift would read as a measurement result. The compiler's own
+semantic correctness continues to be established by the frozen contracts, the
+oracles, the SQL-executability gate and the result comparisons. What the v3
+observer adds is that the runtime actually executed the structure and the bytes
+the frozen compiler defines.
+
+### Where it lives
+
+`internal/physicalquery`, extended rather than a new lower package:
+`go list -deps` confirms `catalog`, `queryplan`, `exposure` and `ordinal` do not
+import `physicalquery`, so the preferred design has no cycle. The three stages
+are now `Prepare` → `DeriveLimits` → `Derive`.
+
+### Landed
+
+- `PreparedOperationV1` — the deterministic half of what the Gateway's
+  `planExposureContext` holds: both statements, the projections execution needs,
+  the grouped/expanded-evidence state that settles the companion's row budget,
+  and the content-addressed identities. SQL fields carry `json:"-"`, and
+  `CarriesSQL` is a method so a member added on the wrong side of that line is
+  caught in the package rather than in whatever evidence file it reaches.
+- `RequireSame` — the comparison the finalizer will rest on. Member by member,
+  statements compared by digest so a rejection carries no SQL into its message.
+- The pure input contract — `Grant` (deliberately not `control.TaskGrant`, which
+  sits beside the Control Store), `CatalogView` as a value rather than an
+  interface, and `SnapshotBinding`, which replaces the Gateway's in-memory
+  snapshot registry: each caller verifies the artifact against the Catalog itself
+  and passes the verified digests in.
+
+### Remaining, in order
+
+1. **Differential parity harness** in `package gateway` (the glue is unexported,
+   so the test has to live there), covering the twelve required shapes: simple
+   non-grouped, grouped/aggregate, single-query non-exposure, paired ordinal
+   V4/V5, expanded and non-expanded evidence, relational Join/Union, semantic
+   View, mandatory scopes, duplicate view/Product bindings, Scale
+   history/pre-consumed ledger, ProvSQL TaskGate, Result-heavy 100x4.
+2. **Move the derivation.** From `exposure.go`: `buildPlanExposureContext`,
+   `configureV2`, `configurePredicateFootprintV5`, `extendGrant`,
+   `usesExpandedEvidence` and their pure helpers. From `ordinal_sidecar.go`:
+   `ordinalQueryProduct` and `bindOrdinalSidecars`, with registry access replaced
+   by `SnapshotBinding`. From `relational_exposure.go`: the builder half only.
+   From `query.go`: `preparePlan`'s dispatch. The observation half of each file
+   — everything deriving an `exposure.Observation` from a `dataconnector.Result`
+   — stays in the Gateway.
+3. **Gateway delegates**, wrapping `PreparedOperationV1` in its execution/result
+   context. `derivePhysicalQuery` authorizes once; no second authorization.
+4. **Finalizer takes `TargetPreparationInputsV1`** instead of
+   `TrustedInputsV3.VisibleSQL`/`CompanionSQL`, calls `Prepare` then `Derive`
+   itself, and compares against the V9 signature. The signed values are
+   comparison targets, never derivation inputs.
+5. **Replace the blocker** with `TestTargetPreparationIsShared`,
+   `TestGatewayDelegatesTargetPreparation` and
+   `TestFinalizerDerivesTargetsFromFrozenInputs`, plus AST/import guards proving
+   the Gateway holds no second compiler path, the evaluation tree holds no
+   reimplementation, and the Adapter constructs no trusted inputs.
+
+Only then does the runtime cutover in the next section become possible.
+
+## The blocker this replaces
 
 Gate 22 is resolved, so the classifier no longer stands in the way of the
 cutover. What does is a prerequisite that has never existed.
