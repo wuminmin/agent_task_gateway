@@ -3,7 +3,7 @@
 ## Purpose
 
 This document is the authoritative acceptance criterion for the v3 runtime
-integration: the migration that makes `FinalizeObservationV3` the sole
+integration: the migration that makes `FinalizeTaskGateObservationV3` the sole
 acceptance authority for TaskGate observations and removes the v1.4 accounting
 from the active runtime.
 
@@ -29,70 +29,53 @@ rather than by reading prose.
 | --- | --- |
 | `PASS` | Required evidence exists and is green at this HEAD. |
 | `OPEN` | Requirement is stated; evidence does not yet exist. |
-| `UNSPECIFIED` | **The requirement text was not supplied.** See the gap notice. |
 
-## Gap notice — 24 of 30 requirements were not supplied
+The earlier gap notice, which recorded twenty-four requirements as
+`UNSPECIFIED`, is **resolved**: the missing text was supplied authoritatively by
+author decision and is transcribed below. No requirement in this document is
+inferred.
 
-The instruction that established this document stated that the authoritative
-30-item list was supplied with it and was to be committed verbatim. The material
-actually supplied contained the requirement text for gates **18, 19, 21, 22 and
-25** only. Gate **1** is recoverable from the continuation record, which
-describes it as "observer emits strict v2 JSON — done in I1-B".
-
-The remaining twenty-four requirements — 2–17, 20, 23, 24 and 26–30 — were not
-supplied in any form, and no revision of this repository has ever contained
-them: `git rev-list --all` grepped for the list returns only the continuation
-record's own summary line, which enumerates *which* IDs are covered without
-saying what any of them require.
-
-They are therefore recorded below as `UNSPECIFIED` rather than invented.
-Reconstructing an acceptance criterion by guessing what a gate probably meant
-would produce exactly the defect this arc exists to remove — a check that agrees
-with whoever wrote it rather than testing an independent claim — and a plausible
-wrong gate is worse than a visibly absent one, because it reads as coverage.
-
-The continuation record's claim that gates 2–17, 20, 23, 24 and 26–30 are
-"already covered by tests" is retained here as an unverified prior claim. It
-cannot be confirmed while the requirement text is missing: a test cannot be
-matched to a requirement nobody can read.
-
-**To close this gap:** supply the 24 requirement texts, and they will be filled
-in against their existing IDs without renumbering.
+A gate is marked `PASS` only where an existing test was read and found to check
+the stated semantics, not merely to have a plausible name. Where the semantics
+differ, or where only part of a requirement is covered, the gate stays `OPEN`
+and a focused test is owed.
 
 ## The gates
 
 | # | Requirement | Required evidence / test symbol | Status |
 | --- | --- | --- | --- |
-| 1 | The out-of-process observer emits strict `ObserverSnapshotV2` JSON and has no v1 fallback path. | `main.TestCollectEmitsStrictObserverSnapshotV2`; `experiment.ObserverSnapshotV2.Validate` | PASS (I1-B, `e3622a5`) |
-| 2 | *Not supplied.* | — | UNSPECIFIED |
-| 3 | *Not supplied.* | — | UNSPECIFIED |
-| 4 | *Not supplied.* | — | UNSPECIFIED |
-| 5 | *Not supplied.* | — | UNSPECIFIED |
-| 6 | *Not supplied.* | — | UNSPECIFIED |
-| 7 | *Not supplied.* | — | UNSPECIFIED |
-| 8 | *Not supplied.* | — | UNSPECIFIED |
-| 9 | *Not supplied.* | — | UNSPECIFIED |
-| 10 | *Not supplied.* | — | UNSPECIFIED |
-| 11 | *Not supplied.* | — | UNSPECIFIED |
-| 12 | *Not supplied.* | — | UNSPECIFIED |
-| 13 | *Not supplied.* | — | UNSPECIFIED |
-| 14 | *Not supplied.* | — | UNSPECIFIED |
-| 15 | *Not supplied.* | — | UNSPECIFIED |
-| 16 | *Not supplied.* | — | UNSPECIFIED |
-| 17 | *Not supplied.* | — | UNSPECIFIED |
-| 18 | **Wrong visible target.** Independently mutate the visible target's exact digest, strict AST digest, row limit, prepared target binding and role. Every mutation must fail finalization. | `experiment.TestGate18WrongVisibleTargetFailsFinalization` | OPEN |
-| 19 | **Wrong companion target.** Perform the same five mutations independently on the companion target. Every mutation must fail finalization. | `experiment.TestGate19WrongCompanionTargetFailsFinalization` | OPEN |
-| 20 | *Not supplied.* | — | UNSPECIFIED |
-| 21 | **Semantic replay.** A verified V9 receipt with `path_kind=semantic_replay` must carry targets `authorized=true, executed=false`, observer visible and companion deltas of 0, and any target execution must fail finalization. | `experiment.TestGate21SemanticReplayAuthorizesWithoutExecuting` | OPEN |
-| 22 | **Idempotent replay.** The original receipt is returned byte-for-byte, no new execution binding row is written, the observer Business delta is 0, and any statement at all must fail finalization. | `experiment.TestGate22IdempotentReplayReturnsOriginalReceiptByteForByte` | OPEN |
-| 23 | *Not supplied.* | — | UNSPECIFIED |
-| 24 | *Not supplied.* | — | UNSPECIFIED |
-| 25 | **Adapter verdict is never consulted.** Given evidence in which the Adapter claims `pass` while carrying a bad plan, a bad target or a bad delta, the production finalizer must reject it without reference to the claimed verdict. | `experiment.TestGate25AdapterVerdictIsNeverConsulted` | OPEN |
-| 26 | *Not supplied.* | — | UNSPECIFIED |
-| 27 | *Not supplied.* | — | UNSPECIFIED |
-| 28 | *Not supplied.* | — | UNSPECIFIED |
-| 29 | *Not supplied.* | — | UNSPECIFIED |
-| 30 | *Not supplied.* | — | UNSPECIFIED |
+| 1 | The out-of-process observer emits strict `ObserverSnapshotV2` JSON and has no v1 fallback path. | `main.TestCollectEmitsStrictObserverSnapshotV2` | PASS |
+| 2 | **Snapshot-v1 rejection.** A schema-v1 `ObserverSnapshot` must be rejected by the v1.5/v3 runtime path. No fallback to v1 is permitted. | `experiment.TestV1EvidenceIsRefusedOnTheV3Path` | PASS |
+| 3 | **Observer-window identity mismatch.** `before.observer_window_id != after.observer_window_id` must fail. | `experiment.TestWindowIdentitiesMustMatchAcrossThePair/observer_window_id` | PASS |
+| 4 | **Classifier-manifest identity mismatch.** Before/after, Adapter, observer and finalizer classifier-manifest digests must agree exactly. Any mismatch must fail. | `experiment.TestWindowIdentitiesMustMatchAcrossThePair/classifier_manifest` (before/after, observer) + `experiment.TestFinalizerRejectsEveryAdapterDisagreement/a_substituted_classifier_manifest` (Adapter vs finalizer) | PASS |
+| 5 | **Operation-binding identity mismatch.** Before/after, carried and independently derived operation-binding digests must agree exactly. Any mismatch must fail. | `experiment.TestWindowIdentitiesMustMatchAcrossThePair/operation_binding` + `experiment.TestFinalizerRejectsEveryAdapterDisagreement/a_different_operation_id` + `experiment.TestBindingDigestCoversTheWholeOperation` | PASS |
+| 6 | **Atomic role-total invariant.** Observer role-wide total must equal the sum of structural rows from the same snapshot row set. Any disagreement must fail. | `experiment.TestSnapshotRejectsATotalThatDisagreesWithItsRows` + `experiment.TestUnaccountedRoleCallFails` | PASS |
+| 7 | **Counter regression or disappearing row.** Any cumulative-call regression, disappearing structural key or impossible before/after transition must fail. | `experiment.TestWindowRejectsCountsGoingBackwards` (regression) + `experiment.TestDisappearingStructuralKeyFails` (disappearance) | OPEN |
+| 8 | **`pg_stat_statements` reset mutation.** `stats_reset` changing inside the observer window must fail. | `experiment.TestWindowBindsItsInvariants/pg_stat_statements_reset` | PASS |
+| 9 | **`pg_stat_statements` eviction mutation.** `dealloc` changing, or non-zero `dealloc` proving possible eviction, must fail. | `experiment.TestWindowBindsItsInvariants/entries_evicted` + the non-zero `dealloc` guard in `ObserverWindowV2.Delta` | PASS |
+| 10 | **Measurement-environment mutation.** PostgreSQL version, `track`, `track_utility` or `track_planning` drift must fail. | `experiment.TestWindowBindsItsInvariants/measurement_environment` + `experiment.MeasurementEnvironment.Validate` | PASS |
+| 11 | **PostgreSQL runtime mutation.** Any immutable PostgreSQL image, container, platform or server-identity mismatch must fail. | `experiment.TestWindowBindsItsInvariants/PostgreSQL_image`, `/PostgreSQL_restart` + `experiment.TestFinalizerRejectsAWindowFromAnotherRuntime` + `experiment.TestRuntimeIdentityRejectsIncompleteBindings` | PASS |
+| 12 | **Gateway runtime/source mutation.** Any Gateway commit, context, source manifest, image, binary, container or formal-build identity mismatch must fail. | `experiment.TestWindowBindsItsInvariants/gateway_image`, `/gateway_source`, `/gateway_binary`, `/gateway_restart`, `/gateway_OOM` | PASS |
+| 13 | **Formal-healthcheck mutation.** Any approved `/health/live` command, interval, timeout or retries mismatch must fail. | `experiment.TestFormalHealthcheckAcceptsOnlyTheApprovedDefinition` (command, interval, timeout, retries) + `experiment.TestHealthcheckIdentitySeparatesEveryDimension` + `experiment.TestWindowBindsItsInvariants/healthcheck_command` | PASS |
+| 14 | **Same-total control-class substitution.** Missing one required control plus an extra different control at the same total must fail. | `experiment.TestSameTotalControlSubstitutionFails` | PASS |
+| 15 | **Same-total PostgreSQL-internal-key substitution.** Missing one qualified internal key plus another key at the same total must fail. | `experiment.TestSameTotalInternalSubstitutionFails` | PASS |
+| 16 | **Missing required control.** Any control class or internal key below exact expected multiplicity fails. | `experiment.TestMissingAndExtraControlsBothFail` + `experiment.TestCompiledInternalKeysMatchTheQualification` | PASS |
+| 17 | **Extra or unexpected statement.** Any class/key above expected multiplicity or absent from the classifier fails. | `experiment.TestUnexpectedStatementFailsClosed` + `experiment.TestMissingAndExtraControlsBothFail` | PASS |
+| 18 | **Wrong visible target.** Independently mutate the visible target's prepared binding, exact digest, strict digest, row limit, role and contract identity. Every mutation must fail finalization. | `experiment.TestGate18WrongVisibleTargetFailsFinalization` | OPEN |
+| 19 | **Wrong companion target.** Perform the same six mutations independently on the companion target. Every mutation must fail finalization. | `experiment.TestGate19WrongCompanionTargetFailsFinalization` | OPEN |
+| 20 | **Another workload's target.** A target belonging to another operation/cell/workload cannot classify for this operation. | `experiment.TestAnotherWorkloadsTargetIsRefused` + `experiment.TestCompilationFreezesTheTable` | PASS |
+| 21 | **Semantic replay.** Targets `authorized=true`/`executed=false`; zero visible and companion delta; any `executed=true` or target statement must fail. | `experiment.TestGate21SemanticReplayAuthorizesWithoutExecuting` | OPEN |
+| 22 | **Idempotent replay.** The original persisted V9 receipt document is returned unchanged; no new query, binding or reservation; zero Business delta; any Business statement must fail. | `experiment.TestGate22IdempotentReplayReturnsThePersistedReceiptUnchanged` | OPEN |
+| 23 | **Adapter-supplied wrong plan.** A carried plan differing from independent finalizer derivation fails. | `experiment.TestFinalizerRejectsEveryAdapterDisagreement/a_plan_claiming_another_path`, `/an_edited_internal_expectation` | PASS |
+| 24 | **Adapter-supplied wrong manifest.** A carried manifest or binding differing from independent derivation fails. | `experiment.TestFinalizerRejectsEveryAdapterDisagreement/a_substituted_classifier_manifest`, `/a_substituted_classifier_binding` | PASS |
+| 25 | **Adapter verdict.** The Adapter claims `pass` while the evidence carries a bad plan, target or delta; the finalizer rejects it because no Adapter verdict has acceptance authority. | `experiment.TestGate25AdapterVerdictIsNeverConsulted` | OPEN |
+| 26 | **Baseline arm manufactures observer evidence.** Direct PostgreSQL, native ProvSQL and empty/control arms reject TaskGate observer evidence. | `experiment.TestBaselineArmsCannotCarryObserverEvidence` | PASS |
+| 27 | **SQL-bearing observer output.** No raw, normalized, base64 SQL or SQL-bearing parser object may enter observer JSON, `Sample`, logs or durable evidence. | `main.TestEmittedSnapshotCarriesNoSQLBearingField` + `experiment.TestClassifierManifestContainsNoSQL` + `queryreceipt.TestV9CarriesNoSQL` | PASS |
+| 28 | **SQL leak through errors.** Errors may reveal only safe codes and deployment-local `queryid`, never SQL. | `main.TestParserFailuresDoNotLeakSQL` | PASS |
+| 29 | **Legacy v1.4 accounting rejected.** v1.4/v2 accounting evidence cannot satisfy v1.5/v3 acceptance. | `experiment.TestGate29LegacyV14AccountingCannotSatisfyV3` | OPEN |
+| 30 | **Binding-digest mutation.** Mutation of any window, operation, manifest, classifier, target, execution, pre-state, receipt, runtime, image or footprint digest fails. | `experiment.TestBindingDigestCoversTheWholeOperation` + `experiment.TestSnapshotDigestCoversRuntimeAndResourceEvidence` + `experiment.TestRequireBindsEveryQualificationCondition` + `querybinding.QueryExecutionBindingV1.Validate` digest recomputation | PASS |
+
+Twenty-three gates PASS at this HEAD. Seven are OPEN: 7, 18, 19, 21, 22, 25, 29.
 
 ## Structural gates
 
@@ -102,28 +85,18 @@ call-graph tests rather than by measurement.
 
 | Condition | Test symbol | State |
 | --- | --- | --- |
-| No active package references the v1.4 accounting types or functions. | `experiment.TestNoActiveReferenceToV14Accounting` | Enforced as a ratchet |
-| `evaluation/internal/legacyv14` is imported only by legacy tools and rejection tests. | `experiment.TestLegacyV14IsImportedOnlyByLegacyToolsAndRejectionTests` | Not yet written |
-| The v3 acceptance wrapper has real non-test callers from all three TaskGate paths. | `experiment.TestFinalizeObservationV3HasProductionCallers` | Reports; does not yet fail |
+| No active package references the v1.4 accounting types or functions. | `experiment.TestNoActiveReferenceToV14Accounting` | Ratchet; must become a zero assertion |
+| The v3 acceptance wrapper has real non-test callers from all three TaskGate paths. | `experiment.TestFinalizeObservationV3HasProductionCallers` | Reports; must become a failure |
+| No Adapter file constructs `TrustedInputsV3` or `IndependentInputsV3`. | `experiment.TestAdapterCannotConstructTrustedInputs` | Not yet written |
+| The V9 test-fixture package is not imported by production files. | `testfixture.TestFixtureIsNotImportedByProduction` | Not yet written |
 
-`TestNoActiveReferenceToV14Accounting` is a **ratchet**, not a zero assertion.
-It pins the exact set of active v1.4 references that remain, parsed from the AST
-rather than grepped, so a comment is discussion and only a compilable reference
-counts. The count can only fall: a new reference fails, and *removing* one also
-fails, with an instruction to tighten the inventory, so an allowance cannot
-outlive the reason for it. A test asserting zero today would simply be red and
-would protect nothing.
-
-The remaining active surface, which must reach empty before the canary:
-
-| File | Retired symbols still referenced |
-| --- | --- |
-| `evaluation/cmd/final-v5-adapter/adapter_bindings.go` | `CensusFromTemplates`, `GatewayControlPlan`, `GatewayStatementCensus`, `ObserverAccounting`, `ObserverAccountingVersion`, `ValidateObserverAccounting` |
-| `evaluation/cmd/final-v5-adapter/artifact.go` | `GatewayStatementCensus`, `NewGatewayControlPlan` |
-| `evaluation/cmd/final-v5-adapter/provsql.go` | `NewGatewayControlPlan` |
-| `evaluation/cmd/final-v5-adapter/scale.go` | `NewGatewayControlPlan` |
-| `evaluation/internal/experiment/finalize_scale_artifact.go` | `ObserverAccounting`, `ValidateObserverAccounting` |
-| `evaluation/internal/experiment/types.go` | `ObserverAccounting` |
+`TestNoActiveReferenceToV14Accounting` is a **ratchet** while the cutover is in
+progress. It pins the exact set of active v1.4 references that remain, parsed
+from the AST rather than grepped, so a comment is discussion and only a
+compilable reference counts. The count can only fall: a new reference fails, and
+*removing* one also fails, with an instruction to tighten the inventory, so an
+allowance cannot outlive the reason for it. **At the end of the cutover the
+inventory is empty and the ratchet becomes a plain zero-reference assertion.**
 
 ## Canary prerequisite
 
@@ -131,11 +104,13 @@ The Result-heavy 100x4 diagnosis-only v3 canary must not run until every one of
 the following holds:
 
 1. all 30 gates pass;
-2. the full DSN-enabled suite passes;
-3. the v1.4 active symbols are unreachable;
+2. the full DSN-enabled suite passes, with zero failures and zero required skips;
+3. the v1.4 active symbols are unreachable and the reference set is empty;
 4. the finalizer production wrapper has real callers;
 5. Artifact, Scale and ProvSQL all use v3;
 6. the worktree is clean;
 7. HEAD equals origin.
 
-Condition 1 is currently unsatisfiable for the reason given in the gap notice.
+The boundary to declare when all of the above hold is:
+
+    V3 RUNTIME INTEGRATION PASS — CONTRACTS V1.5 FREEZE PENDING
