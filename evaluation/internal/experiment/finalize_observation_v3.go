@@ -49,6 +49,15 @@ type CarriedEvidenceV3 struct {
 	// identities of what actually ran.
 	VisibleStatement   physicalquery.StatementIdentity  `json:"visible_statement"`
 	CompanionStatement *physicalquery.StatementIdentity `json:"companion_statement,omitempty"`
+	// The prepared target bindings the Adapter read off the signed receipt.
+	//
+	// physicalquery.StatementIdentity has no member for these -- it describes a
+	// statement, not its place in a compiled operation -- so they are carried
+	// beside it. Without them the prepared target binding would be signed and
+	// never compared, and a receipt re-sealed around a different prepared target
+	// would be accepted: gates 18 and 19 caught exactly that.
+	VisiblePreparedTargetBindingSHA256   string `json:"visible_prepared_target_binding_sha256,omitempty"`
+	CompanionPreparedTargetBindingSHA256 string `json:"companion_prepared_target_binding_sha256,omitempty"`
 }
 
 // IndependentInputsV3 is everything the finalizer derives from, none of it

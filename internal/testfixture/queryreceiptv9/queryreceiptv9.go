@@ -374,3 +374,11 @@ func Mutate(receipt queryreceipt.QueryReceiptV1,
 	}
 	return signed, nil
 }
+
+// PreparedTargetBinding is the prepared-target binding digest the fixture signs
+// for a role when the caller supplies none. Acceptance compares the carried
+// value with the signed one, so a test building carried evidence has to be able
+// to state the same digest.
+func PreparedTargetBinding(role querybinding.TargetRole) string {
+	return digest("prepared-target-" + string(role))
+}

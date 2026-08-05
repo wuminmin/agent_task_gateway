@@ -2,9 +2,10 @@ package experiment
 
 import (
 	"bytes"
-	"encoding/json"
+	"crypto/sha256"
 	"errors"
 	"fmt"
+	"strings"
 
 	"taskbound.local/agent-data-gateway/internal/physicalquery"
 	"taskbound.local/agent-data-gateway/internal/querybinding"
@@ -47,9 +48,9 @@ type TrustedInputsV3 struct {
 	// StrictAST computes structural identities; nil uses the package default.
 	StrictAST physicalquery.StrictASTDigester
 
-	// IdempotentReplayOf is the originally settled receipt, read from the
-	// control store finalizer-side, when this request was an exact request-ID
-	// replay. It is how the idempotent path is recognised at all.
+	// Replay, when present, is the Control Store's typed evidence that THIS
+	// request was an exact request-ID replay. It is how the idempotent path is
+	// recognised at all.
 	//
 	// An idempotent replay returns the ORIGINAL receipt unchanged, so the
 	// binding it carries describes the original execution and names that
@@ -60,14 +61,76 @@ type TrustedInputsV3 struct {
 	// replaying, and expect a visible and a companion statement from a request
 	// that never reached Business PostgreSQL.
 	//
-	// So the replay is established from the store rather than from the
-	// document, and the returned receipt is required to equal the stored one
-	// exactly.
-	IdempotentReplayOf *queryreceipt.QueryReceiptV1
-	// NewExecutionBindingRowWritten is whether the settlement transaction for
-	// THIS request wrote an execution binding row, observed in the control
-	// store. An idempotent replay must not have written one.
-	NewExecutionBindingRowWritten bool
+	// So the replay is established from the store rather than from the document.
+	Replay *IdempotentReplayEvidenceV1
+	// SettlementWroteExecutionBindingRow is whether the settlement transaction
+	// for THIS request wrote an execution binding row, observed in the control
+	// store. A novel settlement must have written one; a replay must not.
+	SettlementWroteExecutionBindingRow bool
+}
+
+// IdempotentReplayEvidenceV1 is the Control Store's account of an exact
+// request-ID replay. Every member is read finalizer-side from the store or from
+// the transport; none of it may be supplied by the Adapter, which is the party
+// whose claim is being checked.
+//
+// The receipt documents are carried as raw stored bytes rather than as decoded
+// structs. Comparing two already-decoded values compares what the decoder chose
+// to keep: an unknown member, a field ordering, a numeric formatting or a
+// dropped whitespace difference all survive re-encoding as equality. Gate 22
+// asks whether the ORIGINAL DOCUMENT came back, and only the bytes answer that.
+type IdempotentReplayEvidenceV1 struct {
+	// TaskID, RequestID and RequestDigest identify the replayed request, and
+	// must match the receipt that came back.
+	TaskID        string
+	RequestID     string
+	RequestDigest string
+	// OriginalQueryID is the query the store settled under this request ID.
+	OriginalQueryID string
+	// PersistedReceiptJSON is the receipt document as the Control Store holds
+	// it, byte for byte.
+	PersistedReceiptJSON []byte
+	// ReturnedReceiptJSON is the document the Gateway returned for this request,
+	// byte for byte as received.
+	ReturnedReceiptJSON []byte
+	// PersistedReceiptSHA256 and PersistedSignature are the stored receipt's
+	// identity, so a rewritten row is detectable even if it re-encodes to the
+	// same shape.
+	PersistedReceiptSHA256 string
+	PersistedSignature     string
+	// The three absences that make the replay idempotent. Each is observed in
+	// the control store for THIS request.
+	WroteNewQueryRow            bool
+	WroteNewExecutionBindingRow bool
+	WroteNewReservation         bool
+}
+
+// Validate rejects replay evidence that is not complete.
+//
+// Absence is the substance of this evidence, and an absent field and a false
+// boolean are indistinguishable once decoded. Requiring every identifier means
+// evidence that was never populated fails rather than reading as three
+// convenient negatives.
+func (evidence IdempotentReplayEvidenceV1) Validate() error {
+	for name, value := range map[string]string{
+		"task_id":                  evidence.TaskID,
+		"request_id":               evidence.RequestID,
+		"request_digest":           evidence.RequestDigest,
+		"original_query_id":        evidence.OriginalQueryID,
+		"persisted receipt sha256": evidence.PersistedReceiptSHA256,
+		"persisted signature":      evidence.PersistedSignature,
+	} {
+		if strings.TrimSpace(value) == "" {
+			return fmt.Errorf("idempotent replay evidence carries no %s", name)
+		}
+	}
+	if len(evidence.PersistedReceiptJSON) == 0 {
+		return errors.New("idempotent replay evidence carries no persisted receipt document")
+	}
+	if len(evidence.ReturnedReceiptJSON) == 0 {
+		return errors.New("idempotent replay evidence carries no returned receipt document")
+	}
+	return nil
 }
 
 // pathKindForBinding maps the signed binding's path kind onto the accounting's.
@@ -131,13 +194,13 @@ func FinalizeTaskGateObservationV3(receipt queryreceipt.QueryReceiptV1, verifier
 	// original execution; for every other path it comes from the Gateway's
 	// signature. Neither source is the Adapter.
 	var pathKind GatewayPathKind
-	if trusted.IdempotentReplayOf != nil {
+	if trusted.Replay != nil {
 		if err := requireIdempotentReplay(receipt, trusted); err != nil {
 			return result, err
 		}
 		pathKind = PathIdempotentReplay
 	} else {
-		if trusted.NewExecutionBindingRowWritten != true {
+		if !trusted.SettlementWroteExecutionBindingRow {
 			return result, errors.New("a non-replay settlement wrote no execution binding row")
 		}
 		derived, err := pathKindForBinding(binding.PathKind)
@@ -162,31 +225,69 @@ func FinalizeTaskGateObservationV3(receipt queryreceipt.QueryReceiptV1, verifier
 		VisibleSQL: trusted.VisibleSQL, CompanionSQL: trusted.CompanionSQL,
 		StrictAST: trusted.StrictAST,
 	}
-	return FinalizeObservationV3(carried, inputs)
+	finalized, err := FinalizeObservationV3(carried, inputs)
+	if err != nil {
+		return result, err
+	}
+	// A replay that reached Business PostgreSQL is not a replay. The derived
+	// idempotent plan already expects zero in every class, so Accept has checked
+	// this class by class; restating it on the total is what makes the failure
+	// say the thing gate 22 is about rather than naming one class.
+	if pathKind == PathIdempotentReplay && finalized.Delta.Total != 0 {
+		return result, fmt.Errorf("an idempotent replay moved the observer Business total by %d; "+
+			"it must reach Business PostgreSQL not at all", finalized.Delta.Total)
+	}
+	return finalized, nil
 }
 
-// requireIdempotentReplay checks the two properties that make a replay idempotent:
-// the receipt came back unchanged, and the settlement created nothing.
+// requireIdempotentReplay checks the properties that make a replay idempotent:
+// the stored document came back unchanged, its identity is unchanged, and the
+// settlement created nothing.
 //
-// "Unchanged" is compared over the canonical encoding of both documents rather
-// than field by field. A field-by-field comparison has to be extended whenever
-// the receipt grows a member, and the one time it is forgotten is the one time a
-// replay could differ from its original without saying so.
+// The document comparison is over raw stored bytes. Comparing two decoded
+// structs would compare what the decoder chose to keep -- an unknown member, a
+// re-ordered field, a reformatted number all survive re-encoding as equality --
+// and the question gate 22 asks is whether the original document came back.
 func requireIdempotentReplay(receipt queryreceipt.QueryReceiptV1, trusted TrustedInputsV3) error {
-	if trusted.NewExecutionBindingRowWritten {
-		return errors.New("an idempotent replay wrote a new execution binding row; " +
-			"the original receipt is returned unchanged and nothing is settled")
+	evidence := *trusted.Replay
+	if err := evidence.Validate(); err != nil {
+		return err
 	}
-	returned, err := json.Marshal(receipt)
-	if err != nil {
-		return fmt.Errorf("encode the replayed receipt: %w", err)
+	if trusted.SettlementWroteExecutionBindingRow {
+		return errors.New("the trusted settlement evidence and the replay evidence disagree " +
+			"about whether an execution binding row was written")
 	}
-	original, err := json.Marshal(*trusted.IdempotentReplayOf)
-	if err != nil {
-		return fmt.Errorf("encode the originally settled receipt: %w", err)
+	// Nothing may have been created. Each of these is a separate row a replay
+	// must not produce, and naming them separately is what makes a partial
+	// replay -- one that reserved budget, say -- fail rather than average out.
+	for name, written := range map[string]bool{
+		"a new query row":             evidence.WroteNewQueryRow,
+		"a new execution binding row": evidence.WroteNewExecutionBindingRow,
+		"a new reservation":           evidence.WroteNewReservation,
+	} {
+		if written {
+			return fmt.Errorf("an idempotent replay wrote %s; the original receipt is "+
+				"returned unchanged and nothing is settled", name)
+		}
 	}
-	if !bytes.Equal(returned, original) {
-		return errors.New("the replayed receipt is not the originally settled receipt byte for byte")
+	// The returned document must be the stored one, byte for byte.
+	if !bytes.Equal(evidence.ReturnedReceiptJSON, evidence.PersistedReceiptJSON) {
+		return errors.New("the returned receipt document is not the persisted document byte for byte")
+	}
+	// And the stored document's own identity must be unchanged, so a row
+	// rewritten to re-encode identically is still detectable.
+	storedDigest := fmt.Sprintf("%x", sha256.Sum256(evidence.PersistedReceiptJSON))
+	if storedDigest != evidence.PersistedReceiptSHA256 {
+		return fmt.Errorf("the persisted receipt document digests to %s but the store records %s",
+			shortDigest(storedDigest), shortDigest(evidence.PersistedReceiptSHA256))
+	}
+	if receipt.Signature != evidence.PersistedSignature {
+		return errors.New("the replayed receipt's signature differs from the persisted signature")
+	}
+	// The receipt that came back must be the one this request settled.
+	if receipt.TaskID != evidence.TaskID || receipt.RequestID != evidence.RequestID ||
+		receipt.RequestDigest != evidence.RequestDigest || receipt.QueryID != evidence.OriginalQueryID {
+		return errors.New("the replayed receipt does not identify the request the store recorded")
 	}
 	return nil
 }
@@ -216,7 +317,8 @@ func requireSignedTargets(pathKind GatewayPathKind, binding querybinding.QueryEx
 		if err := requireTargetExecution("visible", binding.Visible, executes); err != nil {
 			return err
 		}
-		if err := requireCarriedMatchesSigned("visible", binding.Visible, carried.VisibleStatement); err != nil {
+		if err := requireCarriedMatchesSigned("visible", binding.Visible, carried.VisibleStatement,
+			carried.VisiblePreparedTargetBindingSHA256); err != nil {
 			return err
 		}
 	}
@@ -234,7 +336,8 @@ func requireSignedTargets(pathKind GatewayPathKind, binding querybinding.QueryEx
 		if carried.CompanionStatement == nil {
 			return fmt.Errorf("path_kind %s settles a companion statement but none was carried", pathKind)
 		}
-		if err := requireCarriedMatchesSigned("companion", *binding.Companion, *carried.CompanionStatement); err != nil {
+		if err := requireCarriedMatchesSigned("companion", *binding.Companion, *carried.CompanionStatement,
+			carried.CompanionPreparedTargetBindingSHA256); err != nil {
 			return err
 		}
 	case binding.Companion != nil:
@@ -274,7 +377,7 @@ func requireTargetExecution(role string, target querybinding.TargetRecordV1, exe
 // altering the plan. The prepared target binding is checked because it is what
 // stops one target's statement being presented as another's.
 func requireCarriedMatchesSigned(role string, signed querybinding.TargetRecordV1,
-	statement physicalquery.StatementIdentity) error {
+	statement physicalquery.StatementIdentity, preparedTargetBinding string) error {
 	if signed.ExactSQLSHA256 != statement.ExactSHA256 {
 		return fmt.Errorf("the carried %s statement is %s, the Gateway signed %s; the executed bytes differ",
 			role, shortDigest(statement.ExactSHA256), shortDigest(signed.ExactSQLSHA256))
@@ -290,6 +393,11 @@ func requireCarriedMatchesSigned(role string, signed querybinding.TargetRecordV1
 	if signed.PolicyFingerprint != statement.Fingerprint {
 		return fmt.Errorf("the carried %s statement carries policy fingerprint %s, the Gateway signed %s",
 			role, shortDigest(statement.Fingerprint), shortDigest(signed.PolicyFingerprint))
+	}
+	if signed.PreparedTargetBindingSHA256 != preparedTargetBinding {
+		return fmt.Errorf("the carried %s target is prepared as %s, the Gateway signed %s; "+
+			"a statement cannot be presented as another target's",
+			role, shortDigest(preparedTargetBinding), shortDigest(signed.PreparedTargetBindingSHA256))
 	}
 	return nil
 }
