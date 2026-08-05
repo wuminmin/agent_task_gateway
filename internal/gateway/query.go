@@ -2023,9 +2023,13 @@ func (s *Service) getAuditReceipt(ctx context.Context, _ mcp.Principal, raw json
 		return nil, err
 	}
 	result := map[string]any{"receipt": receipt, "audit_chain_events": chain, "audit_inclusion": publicProof}
-	if signed.Version == queryreceipt.VersionV8 {
+	// V8 or later. V9 carries the same artifact intent and must expose the same
+	// inclusion proofs; an equality here made a V9 receipt skip them entirely, so
+	// an auditor would have seen the artifact evidence disappear from a receipt
+	// that in fact says strictly more than V8 did.
+	if queryreceipt.VersionAtLeast(signed.Version, queryreceipt.VersionV8) {
 		if evidence.ArtifactRegistrationAudit == nil {
-			return nil, fmt.Errorf("V8 receipt is missing artifact registration audit evidence")
+			return nil, fmt.Errorf("a V%s receipt is missing artifact registration audit evidence", signed.Version)
 		}
 		registrationPublicProof, registrationTypedProof, err := s.auditInclusionProof(ctx, *evidence.ArtifactRegistrationAudit)
 		if err != nil {

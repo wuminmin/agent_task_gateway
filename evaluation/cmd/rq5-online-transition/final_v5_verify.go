@@ -27,7 +27,7 @@ func (environment *finalV5CycleEnvironment) verifyQuery(ctx context.Context,
 	if err := json.Unmarshal(response.Receipt, &receipt); err != nil {
 		return evidence, fmt.Errorf("decode RQ5 V8 receipt: %w", err)
 	}
-	if receipt.Version != queryreceipt.VersionV8 || receipt.TaskID != task.ID || receipt.QueryID != response.QueryID ||
+	if !queryreceipt.VersionAtLeast(receipt.Version, queryreceipt.VersionV8) || receipt.TaskID != task.ID || receipt.QueryID != response.QueryID ||
 		receipt.ArtifactIntent == nil || receipt.Exposure == nil || receipt.CatalogDigest != binding.evidence.CatalogSHA256 ||
 		receipt.CatalogVersion != task.CatalogVersion || receipt.Exposure.RootTaskID != task.RootTaskID {
 		return evidence, errors.New("RQ5 query receipt is not a V8 attestation for the active Catalog-bound task")

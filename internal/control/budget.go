@@ -723,11 +723,16 @@ func (s *Store) GetQueryReceipt(ctx context.Context, queryID string) (QueryRecei
 			return QueryReceipt{}, chargeErr
 		}
 		// Existing V1-V7 receipts deliberately do not bind artifact evidence.
-		// Only load the complete registration projection for V8 or when a
-		// missing receipt may need a recovered V8 attestation. That recovery
-		// signs immutable historical audit evidence after settlement; it is not
-		// the ordinary co-committed receipt path.
-		if persistedErr != nil || persisted.Version == "8" {
+		// Only load the complete registration projection for V8 OR LATER, or when
+		// a missing receipt may need a recovered attestation. That recovery signs
+		// immutable historical audit evidence after settlement; it is not the
+		// ordinary co-committed receipt path.
+		//
+		// This was written as an equality against the literal "8". V9 carries the
+		// same artifact intent, so the equality quietly stopped loading the
+		// registration projection for it and every consumer saw a V9 receipt with
+		// no artifact evidence attached.
+		if persistedErr != nil || queryreceiptVersionAtLeastV8(persisted.Version) {
 			artifact, artifactErr := s.GetResultArtifactByQuery(ctx, queryID)
 			if artifactErr == nil {
 				events, listErr := s.ListAuditEventsForQuery(ctx, queryID)
@@ -751,11 +756,27 @@ func (s *Store) GetQueryReceipt(ctx context.Context, queryID string) (QueryRecei
 			}
 		}
 	}
+	// The signed execution binding, when the query has one. A caller re-signing a
+	// recovered receipt must see the persisted binding, not reconstruct it.
+	binding, bindingErr := s.GetQueryExecutionBinding(ctx, queryID)
+	if bindingErr == nil {
+		evidence.ExecutionBinding = &binding
+	} else if !errors.Is(bindingErr, ErrNotFound) {
+		return QueryReceipt{}, bindingErr
+	}
 	if persistedErr == nil {
 		evidence.Receipt = &persisted
 		return evidence, nil
 	}
 	return evidence, nil
+}
+
+// queryreceiptVersionAtLeastV8 orders persisted receipt versions without
+// importing internal/queryreceipt, which imports this package's neighbours and
+// would make the dependency circular. The versions are single decimal digits by
+// construction; anything else is older than V8 by definition.
+func queryreceiptVersionAtLeastV8(version string) bool {
+	return len(version) == 1 && version[0] >= '8' && version[0] <= '9'
 }
 
 func (s *Store) ListQueryReceipts(ctx context.Context, taskID string, limit int) ([]QueryReceipt, error) {

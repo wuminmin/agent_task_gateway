@@ -81,8 +81,19 @@ func receiptVersionIndex(version string) int {
 // unrecognised version is never "at least" anything; ValidateUnsigned rejects it
 // outright before any of these checks run.
 func (r QueryReceiptV1) atLeast(version string) bool {
-	current := receiptVersionIndex(r.Version)
-	return current >= 0 && current >= receiptVersionIndex(version)
+	return VersionAtLeast(r.Version, version)
+}
+
+// VersionAtLeast orders two receipt versions.
+//
+// It is exported because callers outside this package have to ask "does this
+// receipt carry artifact intent" and the like. Written as an equality against
+// VersionV8, such a check silently stops matching the moment a later version
+// adds evidence on top of V8's -- which is exactly what V9 does, and what made
+// a V9 receipt skip the artifact inclusion proofs a V8 receipt gets.
+func VersionAtLeast(version, minimum string) bool {
+	current := receiptVersionIndex(version)
+	return current >= 0 && current >= receiptVersionIndex(minimum)
 }
 
 var (
