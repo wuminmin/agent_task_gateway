@@ -179,7 +179,26 @@ case "${1:-}" in
     export BUSINESS_TEST_POSTGRES_DSN="$(business_dsn)"
     export EXPOSURE_TEST_POSTGRES_DSN="$(control_dsn)"
     export GOFLAGS=${GOFLAGS:--buildvcs=false}
-    exec go test "$@"
+    # go test applies a 10-minute per-package timeout by default, and
+    # internal/gateway alone takes ~20 minutes against a real control store:
+    # each V9 live test installs a Catalog V4 snapshot registry, and compiling
+    # those ordinal artifacts is genuinely expensive. Without an explicit
+    # timeout the DSN-enabled suite panics mid-package and reports a failure
+    # that looks like a hang but is only a budget.
+    #
+    # This was invisible while the DB-backed tests skipped for want of these
+    # DSNs: the first run that actually exercised them was the first run that
+    # could hit it.
+    timeout_supplied=false
+    for argument in "$@"; do
+      case "$argument" in
+        -timeout|-timeout=*|--timeout|--timeout=*) timeout_supplied=true ;;
+      esac
+    done
+    if [ "$timeout_supplied" = true ]; then
+      exec go test "$@"
+    fi
+    exec go test -timeout="${TASKGATE_DB_TEST_TIMEOUT:-60m}" "$@"
     ;;
 
   down)

@@ -36,10 +36,14 @@ The earlier gap notice, which recorded twenty-four requirements as
 author decision and is transcribed below. No requirement in this document is
 inferred.
 
-A gate is marked `PASS` only where an existing test was read and found to check
-the stated semantics, not merely to have a plausible name. Where the semantics
-differ, or where only part of a requirement is covered, the gate stays `OPEN`
-and a focused test is owed.
+Every gate now carries its own **stable test symbol**, named for the gate, so
+this document is checkable by symbol rather than by prose. Each such test
+asserts its own requirement rather than delegating to a similarly-named existing
+test. The older tests remain: they were written against the implementation and
+read as documentation of it, while these are the contract.
+
+A gate is marked `PASS` only where its named test exists and is green at this
+HEAD.
 
 Gates 18, 19 and 22 each found a real defect while being written; those are
 recorded with the gate rather than silently fixed.
@@ -49,35 +53,35 @@ recorded with the gate rather than silently fixed.
 | # | Requirement | Required evidence / test symbol | Status |
 | --- | --- | --- | --- |
 | 1 | The out-of-process observer emits strict `ObserverSnapshotV2` JSON and has no v1 fallback path. | `main.TestCollectEmitsStrictObserverSnapshotV2` | PASS |
-| 2 | **Snapshot-v1 rejection.** A schema-v1 `ObserverSnapshot` must be rejected by the v1.5/v3 runtime path. No fallback to v1 is permitted. | `experiment.TestV1EvidenceIsRefusedOnTheV3Path` | PASS |
-| 3 | **Observer-window identity mismatch.** `before.observer_window_id != after.observer_window_id` must fail. | `experiment.TestWindowIdentitiesMustMatchAcrossThePair/observer_window_id` | PASS |
-| 4 | **Classifier-manifest identity mismatch.** Before/after, Adapter, observer and finalizer classifier-manifest digests must agree exactly. Any mismatch must fail. | `experiment.TestWindowIdentitiesMustMatchAcrossThePair/classifier_manifest` (before/after, observer) + `experiment.TestFinalizerRejectsEveryAdapterDisagreement/a_substituted_classifier_manifest` (Adapter vs finalizer) | PASS |
-| 5 | **Operation-binding identity mismatch.** Before/after, carried and independently derived operation-binding digests must agree exactly. Any mismatch must fail. | `experiment.TestWindowIdentitiesMustMatchAcrossThePair/operation_binding` + `experiment.TestFinalizerRejectsEveryAdapterDisagreement/a_different_operation_id` + `experiment.TestBindingDigestCoversTheWholeOperation` | PASS |
-| 6 | **Atomic role-total invariant.** Observer role-wide total must equal the sum of structural rows from the same snapshot row set. Any disagreement must fail. | `experiment.TestSnapshotRejectsATotalThatDisagreesWithItsRows` + `experiment.TestUnaccountedRoleCallFails` | PASS |
-| 7 | **Counter regression or disappearing row.** Any cumulative-call regression, disappearing structural key or impossible before/after transition must fail. | `experiment.TestWindowRejectsCountsGoingBackwards` (regression) + `experiment.TestGate7DisappearingStructuralKeyFails` (disappearance) | PASS |
-| 8 | **`pg_stat_statements` reset mutation.** `stats_reset` changing inside the observer window must fail. | `experiment.TestWindowBindsItsInvariants/pg_stat_statements_reset` | PASS |
-| 9 | **`pg_stat_statements` eviction mutation.** `dealloc` changing, or non-zero `dealloc` proving possible eviction, must fail. | `experiment.TestWindowBindsItsInvariants/entries_evicted` + the non-zero `dealloc` guard in `ObserverWindowV2.Delta` | PASS |
-| 10 | **Measurement-environment mutation.** PostgreSQL version, `track`, `track_utility` or `track_planning` drift must fail. | `experiment.TestWindowBindsItsInvariants/measurement_environment` + `experiment.MeasurementEnvironment.Validate` | PASS |
-| 11 | **PostgreSQL runtime mutation.** Any immutable PostgreSQL image, container, platform or server-identity mismatch must fail. | `experiment.TestWindowBindsItsInvariants/PostgreSQL_image`, `/PostgreSQL_restart` + `experiment.TestFinalizerRejectsAWindowFromAnotherRuntime` + `experiment.TestRuntimeIdentityRejectsIncompleteBindings` | PASS |
-| 12 | **Gateway runtime/source mutation.** Any Gateway commit, context, source manifest, image, binary, container or formal-build identity mismatch must fail. | `experiment.TestWindowBindsItsInvariants/gateway_image`, `/gateway_source`, `/gateway_binary`, `/gateway_restart`, `/gateway_OOM` | PASS |
-| 13 | **Formal-healthcheck mutation.** Any approved `/health/live` command, interval, timeout or retries mismatch must fail. | `experiment.TestFormalHealthcheckAcceptsOnlyTheApprovedDefinition` (command, interval, timeout, retries) + `experiment.TestHealthcheckIdentitySeparatesEveryDimension` + `experiment.TestWindowBindsItsInvariants/healthcheck_command` | PASS |
-| 14 | **Same-total control-class substitution.** Missing one required control plus an extra different control at the same total must fail. | `experiment.TestSameTotalControlSubstitutionFails` | PASS |
-| 15 | **Same-total PostgreSQL-internal-key substitution.** Missing one qualified internal key plus another key at the same total must fail. | `experiment.TestSameTotalInternalSubstitutionFails` | PASS |
-| 16 | **Missing required control.** Any control class or internal key below exact expected multiplicity fails. | `experiment.TestMissingAndExtraControlsBothFail` + `experiment.TestCompiledInternalKeysMatchTheQualification` | PASS |
-| 17 | **Extra or unexpected statement.** Any class/key above expected multiplicity or absent from the classifier fails. | `experiment.TestUnexpectedStatementFailsClosed` + `experiment.TestMissingAndExtraControlsBothFail` | PASS |
+| 2 | **Snapshot-v1 rejection.** A schema-v1 `ObserverSnapshot` must be rejected by the v1.5/v3 runtime path. No fallback to v1 is permitted. | `experiment.TestGate02SnapshotV1Rejected` | PASS |
+| 3 | **Observer-window identity mismatch.** `before.observer_window_id != after.observer_window_id` must fail. | `experiment.TestGate03WindowIdentityMismatchRejected` | PASS |
+| 4 | **Classifier-manifest identity mismatch.** Before/after, Adapter, observer and finalizer classifier-manifest digests must agree exactly. Any mismatch must fail. | `experiment.TestGate04ClassifierManifestMismatchRejected` | PASS |
+| 5 | **Operation-binding identity mismatch.** Before/after, carried and independently derived operation-binding digests must agree exactly. Any mismatch must fail. | `experiment.TestGate05OperationBindingMismatchRejected` | PASS |
+| 6 | **Atomic role-total invariant.** Observer role-wide total must equal the sum of structural rows from the same snapshot row set. Any disagreement must fail. | `experiment.TestGate06RoleTotalMustEqualStructuralSum` | PASS |
+| 7 | **Counter regression or disappearing row.** Any cumulative-call regression, disappearing structural key or impossible before/after transition must fail. | `experiment.TestGate07CounterRegressionOrDisappearanceRejected` | PASS |
+| 8 | **`pg_stat_statements` reset mutation.** `stats_reset` changing inside the observer window must fail. | `experiment.TestGate08StatsResetMutationRejected` | PASS |
+| 9 | **`pg_stat_statements` eviction mutation.** `dealloc` changing, or non-zero `dealloc` proving possible eviction, must fail. | `experiment.TestGate09DeallocMutationRejected` | PASS |
+| 10 | **Measurement-environment mutation.** PostgreSQL version, `track`, `track_utility` or `track_planning` drift must fail. | `experiment.TestGate10MeasurementEnvironmentMutationRejected` | PASS |
+| 11 | **PostgreSQL runtime mutation.** Any immutable PostgreSQL image, container, platform or server-identity mismatch must fail. | `experiment.TestGate11PostgreSQLRuntimeMutationRejected` | PASS |
+| 12 | **Gateway runtime/source mutation.** Any Gateway commit, context, source manifest, image, binary, container or formal-build identity mismatch must fail. | `experiment.TestGate12GatewayRuntimeMutationRejected` | PASS |
+| 13 | **Formal-healthcheck mutation.** Any approved `/health/live` command, interval, timeout or retries mismatch must fail. | `experiment.TestGate13FormalHealthcheckMutationRejected` | PASS |
+| 14 | **Same-total control-class substitution.** Missing one required control plus an extra different control at the same total must fail. | `experiment.TestGate14SameTotalControlSubstitutionRejected` | PASS |
+| 15 | **Same-total PostgreSQL-internal-key substitution.** Missing one qualified internal key plus another key at the same total must fail. | `experiment.TestGate15SameTotalInternalKeySubstitutionRejected` | PASS |
+| 16 | **Missing required control.** Any control class or internal key below exact expected multiplicity fails. | `experiment.TestGate16MissingRequiredControlRejected` | PASS |
+| 17 | **Extra or unexpected statement.** Any class/key above expected multiplicity or absent from the classifier fails. | `experiment.TestGate17UnexpectedStatementRejected` | PASS |
 | 18 | **Wrong visible target.** Independently mutate the visible target's prepared binding, exact digest, strict digest, row limit, role and contract identity. Every mutation must fail finalization. | `experiment.TestGate18WrongVisibleTargetFailsFinalization` + `experiment.TestGate18And19RejectAnotherContractIdentityForATarget` | PASS |
 | 19 | **Wrong companion target.** Perform the same six mutations independently on the companion target. Every mutation must fail finalization. | `experiment.TestGate19WrongCompanionTargetFailsFinalization` + `experiment.TestGate18And19RejectAnotherContractIdentityForATarget` | PASS |
-| 20 | **Another workload's target.** A target belonging to another operation/cell/workload cannot classify for this operation. | `experiment.TestAnotherWorkloadsTargetIsRefused` + `experiment.TestCompilationFreezesTheTable` | PASS |
+| 20 | **Another workload's target.** A target belonging to another operation/cell/workload cannot classify for this operation. | `experiment.TestGate20AnotherWorkloadTargetRejected` | PASS |
 | 21 | **Semantic replay.** Targets `authorized=true`/`executed=false`; zero visible and companion delta; any `executed=true` or target statement must fail. | `experiment.TestGate21SemanticReplayAuthorizesWithoutExecuting` | PASS |
 | 22 | **Idempotent replay.** The original persisted V9 receipt document is returned unchanged; no new query, binding or reservation; zero Business delta; any Business statement must fail. | `experiment.TestGate22IsBlockedByAConflictBetweenTwoV3Invariants` (pins the blocker) + `experiment.TestIdempotentReplayEvidenceRequiresEveryMember` (wrapper half) | **BLOCKED** |
-| 23 | **Adapter-supplied wrong plan.** A carried plan differing from independent finalizer derivation fails. | `experiment.TestFinalizerRejectsEveryAdapterDisagreement/a_plan_claiming_another_path`, `/an_edited_internal_expectation` | PASS |
-| 24 | **Adapter-supplied wrong manifest.** A carried manifest or binding differing from independent derivation fails. | `experiment.TestFinalizerRejectsEveryAdapterDisagreement/a_substituted_classifier_manifest`, `/a_substituted_classifier_binding` | PASS |
+| 23 | **Adapter-supplied wrong plan.** A carried plan differing from independent finalizer derivation fails. | `experiment.TestGate23AdapterWrongPlanRejected` | PASS |
+| 24 | **Adapter-supplied wrong manifest.** A carried manifest or binding differing from independent derivation fails. | `experiment.TestGate24AdapterWrongManifestRejected` | PASS |
 | 25 | **Adapter verdict.** The Adapter claims `pass` while the evidence carries a bad plan, target or delta; the finalizer rejects it because no Adapter verdict has acceptance authority. | `experiment.TestGate25AdapterVerdictIsNeverConsulted` | PASS |
-| 26 | **Baseline arm manufactures observer evidence.** Direct PostgreSQL, native ProvSQL and empty/control arms reject TaskGate observer evidence. | `experiment.TestBaselineArmsCannotCarryObserverEvidence` | PASS |
-| 27 | **SQL-bearing observer output.** No raw, normalized, base64 SQL or SQL-bearing parser object may enter observer JSON, `Sample`, logs or durable evidence. | `main.TestEmittedSnapshotCarriesNoSQLBearingField` + `experiment.TestClassifierManifestContainsNoSQL` + `queryreceipt.TestV9CarriesNoSQL` | PASS |
-| 28 | **SQL leak through errors.** Errors may reveal only safe codes and deployment-local `queryid`, never SQL. | `main.TestParserFailuresDoNotLeakSQL` | PASS |
-| 29 | **Legacy v1.4 accounting rejected.** v1.4/v2 accounting evidence cannot satisfy v1.5/v3 acceptance. | `experiment.TestGate29LegacyV14AccountingCannotSatisfyV3` | PASS |
-| 30 | **Binding-digest mutation.** Mutation of any window, operation, manifest, classifier, target, execution, pre-state, receipt, runtime, image or footprint digest fails. | `experiment.TestBindingDigestCoversTheWholeOperation` + `experiment.TestSnapshotDigestCoversRuntimeAndResourceEvidence` + `experiment.TestRequireBindsEveryQualificationCondition` + `querybinding.QueryExecutionBindingV1.Validate` digest recomputation | PASS |
+| 26 | **Baseline arm manufactures observer evidence.** Direct PostgreSQL, native ProvSQL and empty/control arms reject TaskGate observer evidence. | `experiment.TestGate26BaselineArmObserverEvidenceRejected` | PASS |
+| 27 | **SQL-bearing observer output.** No raw, normalized, base64 SQL or SQL-bearing parser object may enter observer JSON, `Sample`, logs or durable evidence. | `main.TestGate27ObserverEmitsNoSQL` | PASS |
+| 28 | **SQL leak through errors.** Errors may reveal only safe codes and deployment-local `queryid`, never SQL. | `main.TestGate28ErrorsLeakNoSQL` | PASS |
+| 29 | **Legacy v1.4 accounting rejected.** v1.4/v2 accounting evidence cannot satisfy v1.5/v3 acceptance. | `experiment.TestGate29LegacyV14EvidenceRejected` | PASS |
+| 30 | **Binding-digest mutation.** Mutation of any window, operation, manifest, classifier, target, execution, pre-state, receipt, runtime, image or footprint digest fails. | `experiment.TestGate30BindingDigestMutationRejected` | PASS |
 
 Twenty-nine gates PASS at this HEAD. **Gate 22 is BLOCKED** on an author
 decision, not on work.
