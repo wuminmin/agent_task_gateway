@@ -114,6 +114,8 @@ case "${1:-}" in
   env)
     echo "export CONTROL_TEST_POSTGRES_DSN='$(control_dsn)'"
     echo "export BUSINESS_TEST_POSTGRES_DSN='$(business_dsn)'"
+    echo "export BUSINESS_ADMIN_TEST_POSTGRES_DSN='$(business_admin_dsn)'"
+    echo "export TASKGATE_FINAL_V5_BUSINESS_DSN='$(business_dsn)'"
     echo "export EXPOSURE_TEST_POSTGRES_DSN='$(control_dsn)'"
     echo "export TASKGATE_FINAL_V5_SQLCHECK_ADMIN_DSN='$(business_admin_dsn)'"
     ;;
@@ -177,6 +179,26 @@ case "${1:-}" in
     shift
     export CONTROL_TEST_POSTGRES_DSN="$(control_dsn)"
     export BUSINESS_TEST_POSTGRES_DSN="$(business_dsn)"
+    # BUSINESS_ADMIN_TEST_POSTGRES_DSN reaches the deployment that HAS
+    # pg_stat_statements, as a role that may reset it. Before it existed the
+    # three tests about what that server retains -- the pin domain-separation
+    # proof and both halves of the strict-AST C3 gate -- read the control-store
+    # DSN and skipped with "pg_stat_statements is not installed on this
+    # deployment" on a harness where it demonstrably is.
+    export BUSINESS_ADMIN_TEST_POSTGRES_DSN="$(business_admin_dsn)"
+    # The live compiler fixture reads this. It was skipping as "live compiler
+    # PostgreSQL DSN is not configured" against a harness whose business server
+    # already carries the final_v5_compiler schema it needs.
+    export TASKGATE_FINAL_V5_BUSINESS_DSN="$(business_dsn)"
+    # TASKGATE_FINAL_V5_SQLCHECK_ADMIN_DSN is deliberately NOT exported here,
+    # even though `env` prints it. The two probe-equivalence tests it enables
+    # provision their own benchmark dataset and require a database that does NOT
+    # already carry the frozen final_v5_benchmark schema; this harness's business
+    # server is provisioned with it by db/init, so they fail on
+    # `schema "final_v5_benchmark" already exists` rather than skipping. They
+    # need a bare PostgreSQL 16.14 admin DSN of their own. Exporting it here
+    # would convert a visible, explained skip into a failure that says nothing
+    # about the probe rename it is supposed to check.
     export EXPOSURE_TEST_POSTGRES_DSN="$(control_dsn)"
     export GOFLAGS=${GOFLAGS:--buildvcs=false}
     # go test applies a 10-minute per-package timeout by default, and

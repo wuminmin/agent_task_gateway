@@ -21,7 +21,7 @@ import (
 // same bytes, same bind parameters, same transaction -- and the digest of what
 // the server retained is compared with the digest of the source constant.
 func TestSourceDerivedDigestsMatchLivePostgreSQL(t *testing.T) {
-	dsn := testpostgres.SchemaDSN(t)
+	dsn := testpostgres.StatementStatsDSN(t)
 	ctx := context.Background()
 	conn, err := pgx.Connect(ctx, dsn)
 	if err != nil {
@@ -41,6 +41,10 @@ func TestSourceDerivedDigestsMatchLivePostgreSQL(t *testing.T) {
 	if versionNum != "160014" {
 		t.Skipf("the v3 rules are bound to PostgreSQL 160014, this server is %s", versionNum)
 	}
+	testpostgres.LockStatementStats(t, func(query string, arguments ...any) error {
+		_, err := conn.Exec(ctx, query, arguments...)
+		return err
+	})
 	if _, err := conn.Exec(ctx, `SELECT public.pg_stat_statements_reset()`); err != nil {
 		t.Skipf("cannot reset pg_stat_statements: %v", err)
 	}
@@ -113,7 +117,7 @@ WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())`)
 // to the observed PostgreSQL 16.14 text rather than to a Connector string, and
 // must be confirmed live rather than assumed.
 func TestRuntimeTemplateDigestsAreStableOnLivePostgreSQL(t *testing.T) {
-	dsn := testpostgres.SchemaDSN(t)
+	dsn := testpostgres.StatementStatsDSN(t)
 	ctx := context.Background()
 	conn, err := pgx.Connect(ctx, dsn)
 	if err != nil {
@@ -136,17 +140,35 @@ func TestRuntimeTemplateDigestsAreStableOnLivePostgreSQL(t *testing.T) {
 		t.Skipf("the nested-lookup rule requires PostgreSQL 160014 with track=all; this server is %s/%s",
 			versionNum, track)
 	}
+	testpostgres.LockStatementStats(t, func(query string, arguments ...any) error {
+		_, err := conn.Exec(ctx, query, arguments...)
+		return err
+	})
 	if _, err := conn.Exec(ctx, `SELECT public.pg_stat_statements_reset()`); err != nil {
 		t.Skipf("cannot reset pg_stat_statements: %v", err)
 	}
 
 	// Provoke the nested lookup exactly as the view-definition attestation does.
-	if _, err := conn.Exec(ctx, `CREATE VIEW taskgate_strict_ast_probe AS SELECT 1 AS one`); err != nil {
+	//
+	// The probe is dropped on the way in as well as on the way out. This test
+	// used to run against a throwaway schema that was dropped wholesale, so a
+	// leaked view was invisible; against the real Business deployment -- which is
+	// where pg_stat_statements actually lives, and therefore the only server this
+	// test can prove anything on -- a leaked view fails the NEXT run with
+	// "relation already exists", which says nothing about the rule under test.
+	const probeView = `taskgate_strict_ast_probe`
+	if _, err := conn.Exec(ctx, `DROP VIEW IF EXISTS `+probeView); err != nil {
+		t.Fatalf("drop a leaked probe view: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = conn.Exec(context.Background(), `DROP VIEW IF EXISTS `+probeView)
+	})
+	if _, err := conn.Exec(ctx, `CREATE VIEW `+probeView+` AS SELECT 1 AS one`); err != nil {
 		t.Fatalf("create probe view: %v", err)
 	}
 	var definition string
 	if err := conn.QueryRow(ctx,
-		`SELECT pg_get_viewdef('taskgate_strict_ast_probe'::regclass, true)`).Scan(&definition); err != nil {
+		`SELECT pg_get_viewdef('`+probeView+`'::regclass, true)`).Scan(&definition); err != nil {
 		t.Fatalf("pg_get_viewdef: %v", err)
 	}
 

@@ -18,7 +18,7 @@ import (
 // The test skips when pg_stat_statements is unavailable rather than passing
 // vacuously; a skipped run proves nothing and says so.
 func TestSessionPinsProduceDistinctQueryIDsLive(t *testing.T) {
-	dsn := testpostgres.SchemaDSN(t)
+	dsn := testpostgres.StatementStatsDSN(t)
 	ctx := context.Background()
 	conn, err := pgx.Connect(ctx, dsn)
 	if err != nil {
@@ -31,6 +31,10 @@ func TestSessionPinsProduceDistinctQueryIDsLive(t *testing.T) {
 		`SELECT count(*) = 1 FROM pg_extension WHERE extname = 'pg_stat_statements'`).Scan(&available); err != nil || !available {
 		t.Skip("pg_stat_statements is not installed on this deployment")
 	}
+	testpostgres.LockStatementStats(t, func(query string, arguments ...any) error {
+		_, err := conn.Exec(ctx, query, arguments...)
+		return err
+	})
 	if _, err := conn.Exec(ctx, `SELECT public.pg_stat_statements_reset()`); err != nil {
 		t.Skipf("cannot reset pg_stat_statements: %v", err)
 	}
@@ -70,7 +74,7 @@ WHERE query LIKE '%set_config%' AND query NOT LIKE '%statement_timeout%'`).Scan(
 // Structural separation must not have changed what the pins do. Both settings
 // must be in force inside the transaction, and neither may survive it.
 func TestSessionPinsApplyAndStayTransactionLocalLive(t *testing.T) {
-	dsn := testpostgres.SchemaDSN(t)
+	dsn := testpostgres.StatementStatsDSN(t)
 	ctx := context.Background()
 	conn, err := pgx.Connect(ctx, dsn)
 	if err != nil {

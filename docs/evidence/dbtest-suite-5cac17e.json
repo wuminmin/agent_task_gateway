@@ -1,0 +1,117 @@
+{
+  "version": "taskgate-final-v5-dbtest-report-v1",
+  "commit": "5cac17e8bdb07fbc51aadbf06748994fa753ed5e",
+  "postgresql_image": "postgres@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55",
+  "postgresql_version_num": "160014",
+  "go_version": "go1.25.12",
+  "package_timeout": "60m",
+  "packages": 96,
+  "packages_failed": 0,
+  "tests": 2736,
+  "tests_passed": 2724,
+  "tests_failed": 0,
+  "tests_skipped": 12,
+  "failed_packages": null,
+  "failed_tests": null,
+  "skips": [
+    {
+      "package": "taskbound.local/agent-data-gateway/evaluation/cmd/final-v5-activation-support",
+      "test": "TestCommittedManifestCarriesNoSecretsOrBusinessData",
+      "reason": "main_test.go:254: no activation support manifest for this contract release yet",
+      "declared": true,
+      "category": "evidence_not_yet_produced",
+      "why": "not DB-backed; same absent manifest"
+    },
+    {
+      "package": "taskbound.local/agent-data-gateway/evaluation/cmd/final-v5-activation-support",
+      "test": "TestCommittedManifestSupportsExactlyTheSevenProvenProfiles",
+      "reason": "main_test.go:55: no activation support manifest for this contract release yet",
+      "declared": true,
+      "category": "evidence_not_yet_produced",
+      "why": "not DB-backed; the activation-support manifest is produced at the contract release this HEAD precedes"
+    },
+    {
+      "package": "taskbound.local/agent-data-gateway/evaluation/cmd/final-v5-activation-support",
+      "test": "TestCommittedRegistryMatchesTheManifest",
+      "reason": "main_test.go:134: no activation support manifest for this contract release yet",
+      "declared": true,
+      "category": "evidence_not_yet_produced",
+      "why": "not DB-backed; same absent manifest"
+    },
+    {
+      "package": "taskbound.local/agent-data-gateway/evaluation/cmd/final-v5-activation-support",
+      "test": "TestResultHeavyCarriesBothActivationEvidenceDigests",
+      "reason": "main_test.go:99: no activation support manifest for this contract release yet",
+      "declared": true,
+      "category": "evidence_not_yet_produced",
+      "why": "not DB-backed; same absent manifest"
+    },
+    {
+      "package": "taskbound.local/agent-data-gateway/evaluation/cmd/final-v5-adapter",
+      "test": "TestAttackAdapterLivePreflight",
+      "reason": "attack_live_test.go:17: TASKGATE_FINAL_V5_ATTACK_LIVE=1 is required",
+      "declared": true,
+      "category": "separate_deployment_required",
+      "why": "runs every frozen Attack arm through a full formal topology -- OA, Gateway, Control store, MinIO, the V8 verifier and Parquet -- none of which this two-server harness starts"
+    },
+    {
+      "package": "taskbound.local/agent-data-gateway/evaluation/cmd/final-v5-adapter",
+      "test": "TestProvSQLLiveExternalPair",
+      "reason": "provsql_live_test.go:23: set TASKGATE_FINAL_V5_DIRECT_DSN and TASKGATE_FINAL_V5_PROVSQL_DSN",
+      "declared": true,
+      "category": "separate_deployment_required",
+      "why": "requires evaluation/final-v5-wsl2/compose.provsql.yaml, whose final-v5-direct-postgres binds 127.0.0.1:25534 -- the port this harness's business server uses -- and whose ProvSQL server is a source-built image; the two projects cannot run side by side"
+    },
+    {
+      "package": "taskbound.local/agent-data-gateway/evaluation/cmd/final-v5-adapter",
+      "test": "TestRLSAdapterLivePreflight",
+      "reason": "rls_live_test.go:19: TASKGATE_FINAL_V5_RLS_LIVE=1 is required",
+      "declared": true,
+      "category": "separate_deployment_required",
+      "why": "same full formal topology as the Attack preflight, plus a digest-consistent activated Catalog"
+    },
+    {
+      "package": "taskbound.local/agent-data-gateway/evaluation/internal/experiment",
+      "test": "TestExplicitReadinessOutsideTheWindowStillAttests",
+      "reason": "formal_window_live_test.go:127: TASKGATE_FINAL_V5_FORMAL_WINDOW_PROJECT is not set; this gate is only meaningful against a running formal deployment",
+      "declared": true,
+      "category": "separate_deployment_required",
+      "why": "requires a running formal Gateway to attest against"
+    },
+    {
+      "package": "taskbound.local/agent-data-gateway/evaluation/internal/experiment",
+      "test": "TestFormalDeploymentRunsTheApprovedHealthcheckLive",
+      "reason": "formal_window_live_test.go:60: TASKGATE_FINAL_V5_FORMAL_WINDOW_PROJECT is not set; this gate is only meaningful against a running formal deployment",
+      "declared": true,
+      "category": "separate_deployment_required",
+      "why": "inspects a running formal Compose project through Docker; there is none in this harness"
+    },
+    {
+      "package": "taskbound.local/agent-data-gateway/evaluation/internal/experiment",
+      "test": "TestPeriodicLivenessProbesAddNoBusinessStatements",
+      "reason": "formal_window_live_test.go:86: TASKGATE_FINAL_V5_FORMAL_WINDOW_PROJECT is not set; this gate is only meaningful against a running formal deployment",
+      "declared": true,
+      "category": "separate_deployment_required",
+      "why": "measures the periodic healthcheck's Business statements on a running formal deployment"
+    },
+    {
+      "package": "taskbound.local/agent-data-gateway/evaluation/internal/finalv5sqlcheck",
+      "test": "TestBenchmarkProbeRenameIsSemanticsPreserving",
+      "reason": "probe_equivalence_test.go:26: TASKGATE_FINAL_V5_SQLCHECK_ADMIN_DSN is required for the probe semantic-equivalence check",
+      "declared": true,
+      "category": "separate_database_required",
+      "why": "provisions its own benchmark dataset and requires a database that does not already carry the frozen final_v5_benchmark schema, which db/init installs on this harness's business server; covered instead by the SQL-executability gate against a disposable empty database"
+    },
+    {
+      "package": "taskbound.local/agent-data-gateway/evaluation/internal/finalv5sqlcheck",
+      "test": "TestReservedKeywordCTEIsRejectedByPostgreSQL",
+      "reason": "probe_equivalence_test.go:113: TASKGATE_FINAL_V5_SQLCHECK_ADMIN_DSN is required",
+      "declared": true,
+      "category": "separate_database_required",
+      "why": "same provisioning requirement as the probe-rename check; covered instead by the SQL-executability gate against a disposable empty database"
+    }
+  ],
+  "undeclared_skips": null,
+  "report_sha256": "6c4480b03db397e14b12cff55f15a07e3c3ce519bf77acf14eb73e534fed4fa0",
+  "accepted": true
+}

@@ -254,6 +254,60 @@ compilable reference counts. The count can only fall: a new reference fails, and
 allowance cannot outlive the reason for it. **At the end of the cutover the
 inventory is empty and the ratchet becomes a plain zero-reference assertion.**
 
+## DSN-enabled suite — acceptance is machine-checked, not an exit code
+
+An exit code cannot distinguish a suite that ran from a suite that skipped.
+Running with `-json` so skips are observable found four DB-backed tests that had
+never actually run, on a harness that could run all of them, across runs that
+all exited zero.
+
+`evaluation/cmd/final-v5-dbtest-report` is now the acceptance authority. It reads
+the `go test -json` stream, emits the committed summary, and **fails on any skip
+it does not declare** — with a reason that must match what the test actually
+printed, so an allowance stops covering a test that starts skipping for a
+different reason.
+
+The retained summary for this HEAD is
+`docs/evidence/dbtest-suite-5cac17e.json`: 96 packages, 2736 tests, **0 failed
+packages, 0 failed tests, 12 declared skips, `"accepted": true`**, against
+PostgreSQL `160014` on the digest-pinned image, Go 1.25.12, 60-minute package
+timeout, with the SHA-256 of the raw report it was derived from.
+
+### Fixed — four tests that had never run
+
+- `internal/dataconnector.TestSessionPinsProduceDistinctQueryIDsLive` and both
+  halves of the strict-AST C3 gate
+  (`internal/sqlidentity.TestSourceDerivedDigestsMatchLivePostgreSQL`,
+  `TestRuntimeTemplateDigestsAreStableOnLivePostgreSQL`) read
+  `testpostgres.SchemaDSN`, which is the **control** store. It has no
+  `pg_stat_statements`, so all three skipped with *"pg_stat_statements is not
+  installed on this deployment"* on a harness where it demonstrably is — and C3
+  is the gate the classifier's source-derived digests rest on. They now use
+  `testpostgres.StatementStatsDSN`, backed by `BUSINESS_ADMIN_TEST_POSTGRES_DSN`.
+- `final-v5-adapter.TestLiveCompilerPostgreSQLFixture` skipped as *"live compiler
+  PostgreSQL DSN is not configured"* against a harness whose business server
+  already carries the `final_v5_compiler` schema it needs.
+  `TASKGATE_FINAL_V5_BUSINESS_DSN` is now exported.
+
+Making them run surfaced two further defects they had been hiding: the C3 probe
+view leaked (it had only ever run against a throwaway schema that was dropped
+wholesale, so the second run against a persistent server failed on *"relation
+already exists"*), and nothing serialized the three tests that reset the
+server-wide `pg_stat_statements` while `go test ./...` runs packages in
+parallel. Both are fixed — the probe is dropped on the way in and out, and the
+resets take a session-scoped advisory lock.
+
+### Declared skips
+
+Each is declared in `allowedSkips` with a category and a justification that a
+reviewer can check.
+
+| Category | Tests | Why |
+| --- | --- | --- |
+| `separate_database_required` | the two `finalv5sqlcheck` probe-equivalence tests | They provision their own benchmark dataset and require a database that does **not** already carry the frozen `final_v5_benchmark` schema, which `db/init` installs here. `scripts/db-test-env.sh env` printed their DSN and `test` did not, and that asymmetry was hiding a real incompatibility rather than an oversight: exporting it turns a visible, explained skip into `schema "final_v5_benchmark" already exists`, which says nothing about the probe rename under test. **Allowlisted only because `run-sql-executability-gate.sh` passes on this same HEAD** against its disposable empty PostgreSQL 16.14 — `final-v5-contracts-v1.4`, 28 artifacts, 71 rendered cells, 0 failed. |
+| `separate_deployment_required` | `TestProvSQLLiveExternalPair`; `TestAttackAdapterLivePreflight`; `TestRLSAdapterLivePreflight`; the three `experiment.formal_window_live` gates | The ProvSQL pair needs `compose.provsql.yaml`, whose `final-v5-direct-postgres` binds `127.0.0.1:25534` — the port this harness's business server uses — and whose ProvSQL server is a source-built image; the two projects cannot run side by side. The rest need a full formal topology (OA, Gateway, Control store, MinIO) that this two-server harness does not start. |
+| `evidence_not_yet_produced` | the four `final-v5-activation-support` tests | Not DB-backed. The activation-support manifest is produced at the contract release this HEAD precedes. |
+
 ## Canary prerequisite
 
 The Result-heavy 100x4 diagnosis-only v3 canary must not run until every one of
