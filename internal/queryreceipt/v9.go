@@ -75,21 +75,34 @@ func (r QueryReceiptV1) validateExecutionBinding() error {
 	}
 	// Nor is the ledger identity independent. The exposure evidence names the
 	// ledger the operation settled against; the pre-state must name the same one.
-	// An epoch change resets the accounting, so a pre-state carrying a different
-	// epoch describes limits that no longer existed when the query ran.
 	if r.Exposure != nil {
 		for _, field := range []struct {
 			name              string
-			receipt, prestate any
+			receipt, prestate string
 		}{
 			{"root task", r.Exposure.RootTaskID, r.ExposureLedgerBefore.RootTaskID},
-			{"root epoch", r.Exposure.RootEpoch, r.ExposureLedgerBefore.RootEpoch},
 			{"profile version", r.Exposure.ProfileVersion, r.ExposureLedgerBefore.ProfileVersion},
 		} {
 			if field.receipt != field.prestate {
-				return fmt.Errorf("%w: the exposure evidence and the ledger pre-state name different %ss (%v and %v)",
+				return fmt.Errorf("%w: the exposure evidence and the ledger pre-state name different %ss (%q and %q)",
 					ErrInvalidReceipt, field.name, field.receipt, field.prestate)
 			}
+		}
+		// The epoch is bound as an ordering rather than an equality, and the
+		// difference is not a weakening -- it is what the epoch means.
+		//
+		// ExposureLedgerBefore.RootEpoch is the epoch the operation was AUTHORIZED
+		// against; Exposure.RootEpoch is the epoch its charge LANDED at. A novel
+		// observation advances the root head by one as it settles, so requiring the
+		// two to be equal would reject every novel paired execution -- that is,
+		// every case V9 exists to describe. The epoch is monotonic, so requiring
+		// the pre-state's to be no later than the charge's still leaves it
+		// unforgeable in the direction that matters: an older epoch cannot be
+		// claimed to have authorized a charge that settled against a newer one.
+		if r.ExposureLedgerBefore.RootEpoch > r.Exposure.RootEpoch {
+			return fmt.Errorf("%w: the ledger pre-state was read at root epoch %d but the charge settled at "+
+				"epoch %d; the epoch is monotonic, so the pre-state cannot postdate the charge",
+				ErrInvalidReceipt, r.ExposureLedgerBefore.RootEpoch, r.Exposure.RootEpoch)
 		}
 	}
 	// The row limits must be reproducible from the signed pre-state. This is the

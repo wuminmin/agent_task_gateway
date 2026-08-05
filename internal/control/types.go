@@ -141,11 +141,18 @@ func (g ExposureGrant) Enabled() bool {
 }
 
 type ExposureLedgerSnapshot struct {
-	RootTaskID     string         `json:"root_task_id"`
-	ProfileVersion string         `json:"profile_version"`
-	Limits         ExposureLimits `json:"limits"`
-	Used           ExposureLimits `json:"used"`
-	UpdatedAt      time.Time      `json:"updated_at"`
+	RootTaskID     string `json:"root_task_id"`
+	ProfileVersion string `json:"profile_version"`
+	// RootEpoch is the root head's epoch when this snapshot was read. It is the
+	// epoch the operation is AUTHORIZED against, which a novel observation then
+	// advances by one as it settles; the charge reports the later value. Both are
+	// signed into a V9 receipt, and the pre-state's may not postdate the charge's.
+	//
+	// It is zero for the V1--V3 ledgers, which have no root head and no epoch.
+	RootEpoch int64          `json:"root_epoch,omitempty"`
+	Limits    ExposureLimits `json:"limits"`
+	Used      ExposureLimits `json:"used"`
+	UpdatedAt time.Time      `json:"updated_at"`
 }
 
 func (s ExposureLedgerSnapshot) Remaining() ExposureLimits {
@@ -381,6 +388,13 @@ type BudgetReservation struct {
 	Replay   bool
 	Record   *QueryRecord
 	Exposure *ExposureReservation
+	// ExposureLedgerBefore is the exposure ledger as it stood under the SAME
+	// task lock that produced Before. The two together are the authoritative
+	// pre-state a V9 execution binding is derived from and signed against; read
+	// apart, they describe one operation only by coincidence.
+	//
+	// Nil for a resource-only task, which has no exposure ledger.
+	ExposureLedgerBefore *ExposureLedgerSnapshot
 }
 
 type ReserveRequest struct {
@@ -423,6 +437,19 @@ type BudgetSettlement struct {
 	OrdinalExposure        *OrdinalExposureObservation
 	OrdinalObservationRef  *OrdinalObservationReference
 	OrdinalMaterialization *OrdinalMaterializationPublish
+	// ExecutionBinding is the signed description of what this query executed.
+	//
+	// It travels with the settlement rather than being written separately so that
+	// it commits in the transaction that makes the query terminal. A binding
+	// written in its own transaction could survive a rolled-back settlement, or
+	// be missing from a committed one, and either way a receipt would describe an
+	// execution the query records do not agree happened.
+	//
+	// Nil for every path that must not create one: an idempotent replay returns
+	// the original receipt, a released query never executed, an indeterminate one
+	// cannot prove what completed, and a failed execution cannot prove which of
+	// its targets ran.
+	ExecutionBinding *QueryExecutionBinding
 }
 
 type EncryptedResult struct {
@@ -524,6 +551,14 @@ type QueryReceipt struct {
 	Exposure                  *ExposureCharge
 	Artifact                  *ResultArtifact
 	ArtifactRegistrationAudit *AuditEvent
+	// ExecutionBinding is loaded from query_execution_bindings inside the same
+	// transaction that is about to sign the receipt, never carried in from the
+	// caller's memory. The receipt says "this is what executed"; it must say it
+	// about the row that was persisted, or a restart would re-sign something
+	// else.
+	//
+	// Nil for every query that has no binding, which includes every pre-V9 path.
+	ExecutionBinding *QueryExecutionBinding
 }
 
 type PersistedQueryReceipt struct {

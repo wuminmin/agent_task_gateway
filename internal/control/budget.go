@@ -147,6 +147,18 @@ FOR SHARE OF task_grant`, request.TaskID).Scan(&boundViewDigest, &viewStatus, &s
 	if before.Usage.ReservedQueries != 0 {
 		return BudgetReservation{}, opErr(op, ErrQueryInProgress, nil)
 	}
+	// Read the exposure ledger under the SAME lock that produced `before`.
+	//
+	// The Gateway used to call GetBudget at one instant, GetExposureLedger at
+	// another, and ReserveBudget at a third, then sign all three as though they
+	// were one atomic pre-state. They are the two halves of the state that
+	// authorizes a statement's row limits, and a V9 receipt claims they describe
+	// one operation; reading them apart makes that claim true only when nothing
+	// else touched the task in between.
+	exposureLedgerBefore, err := exposureLedgerPreStateTx(ctx, tx, request.TaskID)
+	if err != nil {
+		return BudgetReservation{}, opErr(op, ErrConflict, err)
+	}
 	remaining := before.Remaining()
 	if remaining.Queries < 1 || remaining.Rows < 1 || remaining.DBMS < 1 {
 		if err := archiveTaskTx(ctx, tx, request.TaskID, TerminalBudgetExhausted, "system", s.now()); err != nil {
@@ -219,7 +231,29 @@ WHERE task_id=$4 AND reserved_queries=0`, allowedRows, allowedDBMS, dbTime(now),
 		return BudgetReservation{}, opErr(op, ErrConflict, err)
 	}
 	return BudgetReservation{QueryID: request.QueryID, TaskID: request.TaskID, RequestID: request.RequestID, AllowedRows: allowedRows,
-		AllowedDBMS: allowedDBMS, Before: before, After: after, Exposure: exposureReservation}, nil
+		AllowedDBMS: allowedDBMS, Before: before, After: after, Exposure: exposureReservation,
+		ExposureLedgerBefore: exposureLedgerBefore}, nil
+}
+
+// exposureLedgerPreStateTx reads whichever exposure ledger the task has, inside
+// the caller's transaction.
+//
+// A resource-only task has none; that is an ordinary outcome and yields nil
+// rather than an error, because a plain query has no exposure context and
+// derives no companion.
+func exposureLedgerPreStateTx(ctx context.Context, tx *sql.Tx, taskID string) (*ExposureLedgerSnapshot, error) {
+	for _, read := range []func(context.Context, rowQueryer, string) (ExposureLedgerSnapshot, error){
+		getV5ExposureLedger, getOrdinalExposureLedger, getLegacyExposureLedger,
+	} {
+		ledger, err := read(ctx, tx, taskID)
+		if err == nil {
+			return &ledger, nil
+		}
+		if !isNoRows(err) {
+			return nil, err
+		}
+	}
+	return nil, nil
 }
 
 // SettleBudget releases the reservation and atomically charges bounded actual
@@ -316,6 +350,9 @@ func (s *Store) settleWithReceipt(ctx context.Context, settlement BudgetSettleme
 	record, audit, err := settleBudgetTx(ctx, tx, now, settlement, status, resultHash, false)
 	if err != nil {
 		return QueryRecord{}, PersistedQueryReceipt{}, opErr(op, settlementErrorKind(err), err)
+	}
+	if err := writeSettlementExecutionBindingTx(ctx, tx, now, settlement, status, record.ID); err != nil {
+		return QueryRecord{}, PersistedQueryReceipt{}, opErr(op, ErrConflict, err)
 	}
 	var receipt PersistedQueryReceipt
 	if builder != nil {

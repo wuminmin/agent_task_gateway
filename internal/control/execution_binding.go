@@ -199,6 +199,22 @@ func requireIdenticalStoredBindingTx(ctx context.Context, tx *sql.Tx, binding Qu
 	return nil
 }
 
+// getQueryExecutionBindingTx reloads the binding inside the caller's
+// transaction, so a settlement can read back what it has just written and a
+// receipt can be signed over the persisted row rather than over a value held in
+// memory.
+func getQueryExecutionBindingTx(ctx context.Context, tx *sql.Tx, queryID string) (QueryExecutionBinding, error) {
+	binding, err := scanQueryExecutionBinding(
+		tx.QueryRowContext(ctx, executionBindingSelect+` WHERE query_id=$1`, queryID))
+	if err != nil {
+		return QueryExecutionBinding{}, err
+	}
+	if err := binding.Validate(); err != nil {
+		return QueryExecutionBinding{}, err
+	}
+	return binding, nil
+}
+
 // GetQueryExecutionBinding reloads the binding recorded for one query.
 //
 // Returns ErrNotFound when the query executed under a pre-V9 path. That is an
@@ -305,4 +321,28 @@ func scanStoredExecutionBinding(row rowScanner) (QueryExecutionBinding, []byte, 
 		}
 	}
 	return binding, bindingJSON, ledgerJSON, nil
+}
+
+// writeSettlementExecutionBindingTx persists the settlement's execution binding,
+// if it carries one.
+//
+// Only a COMPLETED query may create one. The other terminal statuses are
+// deliberately excluded rather than merely unreached: a released query never
+// invoked the Connector, an indeterminate one cannot prove what completed, and a
+// failed one cannot prove which of its targets ran. A binding written for any of
+// them would assert a target sequence nothing observed.
+func writeSettlementExecutionBindingTx(ctx context.Context, tx *sql.Tx, now time.Time,
+	settlement BudgetSettlement, status QueryStatus, queryID string) error {
+	if settlement.ExecutionBinding == nil {
+		return nil
+	}
+	if status != QueryCompleted {
+		return fmt.Errorf("%w: a %s query cannot carry an execution binding", ErrInvalid, status)
+	}
+	binding := *settlement.ExecutionBinding
+	if binding.QueryID != queryID {
+		return fmt.Errorf("%w: the execution binding names query %s but the settlement is for %s",
+			ErrInvalid, binding.QueryID, queryID)
+	}
+	return putQueryExecutionBindingTx(ctx, tx, now, binding)
 }

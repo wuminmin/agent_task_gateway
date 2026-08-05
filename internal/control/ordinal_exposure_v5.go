@@ -105,11 +105,11 @@ VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, rootTaskID, exposure.ProfileV5, gr
 func getV5ExposureLedger(ctx context.Context, source rowQueryer, taskID string) (ExposureLedgerSnapshot, error) {
 	var result ExposureLedgerSnapshot
 	var updated time.Time
-	err := source.QueryRowContext(ctx, `SELECT h.root_task_id,h.profile_version,
+	err := source.QueryRowContext(ctx, `SELECT h.root_task_id,h.profile_version,h.epoch,
  h.max_release_facts,h.max_influence_facts,h.max_outcome_facts,
  h.used_release_facts,h.used_influence_facts,h.used_outcome_facts,h.updated_at
 FROM tasks t JOIN v5_exposure_root_heads h ON h.root_task_id=t.root_task_id WHERE t.id=$1`, taskID).
-		Scan(&result.RootTaskID, &result.ProfileVersion, &result.Limits.ReleaseFacts,
+		Scan(&result.RootTaskID, &result.ProfileVersion, &result.RootEpoch, &result.Limits.ReleaseFacts,
 			&result.Limits.InfluenceFacts, &result.Limits.OutcomeFacts, &result.Used.ReleaseFacts,
 			&result.Used.InfluenceFacts, &result.Used.OutcomeFacts, &updated)
 	if err != nil {

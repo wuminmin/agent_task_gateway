@@ -324,6 +324,9 @@ func (s *Store) finalizePreparedQueryAttempt(ctx context.Context, settlement Bud
 		}
 		record.ResultSHA256 = resultHash
 	}
+	if err := writeSettlementExecutionBindingTx(ctx, tx, now, settlement, QueryCompleted, record.ID); err != nil {
+		return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, ErrConflict, err)
+	}
 	var registrationAudit *AuditEvent
 	if created {
 		eventType := "QUERY_RESULT_STORED"

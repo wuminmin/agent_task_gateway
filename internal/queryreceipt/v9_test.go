@@ -586,7 +586,7 @@ func TestV9LedgerPreStateMustMatchExposureEvidence(t *testing.T) {
 			ledger.RootTaskID = "some-other-root-task"
 			resealLedger(t, r, ledger)
 		},
-		"root epoch": func(t *testing.T, r *QueryReceiptV1) {
+		"root epoch later than the charge": func(t *testing.T, r *QueryReceiptV1) {
 			ledger := *r.ExposureLedgerBefore
 			ledger.RootEpoch = r.Exposure.RootEpoch + 1
 			resealLedger(t, r, ledger)
@@ -683,4 +683,20 @@ func resealLedger(t *testing.T, receipt *QueryReceiptV1, ledger querybinding.Exp
 		t.Fatalf("reseal execution binding: %v", err)
 	}
 	receipt.ExecutionBinding = &resealed
+}
+
+// A novel observation advances the root head as it settles, so the pre-state
+// epoch is normally one BEHIND the charge's. Rejecting that would reject every
+// novel paired execution, which is the case V9 exists to describe.
+func TestV9AcceptsAPreStateEpochBehindTheCharge(t *testing.T) {
+	receipt := validV9Receipt(t)
+	ledger := *receipt.ExposureLedgerBefore
+	if receipt.Exposure.RootEpoch < 1 {
+		t.Fatalf("the fixture charge settled at epoch %d, so this case proves nothing", receipt.Exposure.RootEpoch)
+	}
+	ledger.RootEpoch = receipt.Exposure.RootEpoch - 1
+	resealLedger(t, &receipt, ledger)
+	if err := receipt.ValidateUnsigned(); err != nil {
+		t.Fatalf("a pre-state read one epoch before its charge settled was refused: %v", err)
+	}
 }

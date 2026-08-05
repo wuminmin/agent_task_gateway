@@ -130,19 +130,30 @@ func (s *Store) GetExposureLedger(ctx context.Context, taskID string) (ExposureL
 	if !isNoRows(err) {
 		return ExposureLedgerSnapshot{}, opErr(op, ErrConflict, err)
 	}
-	result = ExposureLedgerSnapshot{}
-	var updated time.Time
-	err = s.db.QueryRowContext(ctx, `
-SELECT l.root_task_id, l.profile_version, l.max_release_facts, l.max_influence_facts, l.max_outcome_facts,
-       l.used_release_facts, l.used_influence_facts, l.used_outcome_facts, l.updated_at
-FROM tasks t JOIN exposure_ledgers l ON l.root_task_id=t.root_task_id
-	WHERE t.id=$1`, taskID).Scan(&result.RootTaskID, &result.ProfileVersion, &result.Limits.ReleaseFacts,
-		&result.Limits.InfluenceFacts, &result.Limits.OutcomeFacts, &result.Used.ReleaseFacts, &result.Used.InfluenceFacts, &result.Used.OutcomeFacts, &updated)
+	result, err = getLegacyExposureLedger(ctx, s.db, taskID)
 	if err != nil {
 		if isNoRows(err) {
 			return ExposureLedgerSnapshot{}, opErr(op, ErrNotFound, err)
 		}
 		return ExposureLedgerSnapshot{}, opErr(op, ErrConflict, err)
+	}
+	return result, nil
+}
+
+// getLegacyExposureLedger reads the V1--V3 ledger, which has no root head and
+// therefore no epoch.
+func getLegacyExposureLedger(ctx context.Context, source rowQueryer, taskID string) (ExposureLedgerSnapshot, error) {
+	var result ExposureLedgerSnapshot
+	var updated time.Time
+	err := source.QueryRowContext(ctx, `
+SELECT l.root_task_id, l.profile_version, l.max_release_facts, l.max_influence_facts, l.max_outcome_facts,
+       l.used_release_facts, l.used_influence_facts, l.used_outcome_facts, l.updated_at
+FROM tasks t JOIN exposure_ledgers l ON l.root_task_id=t.root_task_id
+	WHERE t.id=$1`, taskID).Scan(&result.RootTaskID, &result.ProfileVersion, &result.Limits.ReleaseFacts,
+		&result.Limits.InfluenceFacts, &result.Limits.OutcomeFacts, &result.Used.ReleaseFacts,
+		&result.Used.InfluenceFacts, &result.Used.OutcomeFacts, &updated)
+	if err != nil {
+		return ExposureLedgerSnapshot{}, err
 	}
 	result.UpdatedAt = dbTime(updated)
 	return result, nil

@@ -124,6 +124,16 @@ func persistTerminalReceiptTx(ctx context.Context, tx *sql.Tx, now time.Time, ev
 	if !isNoRows(err) {
 		return PersistedQueryReceipt{}, err
 	}
+	// Load the binding from the row, not from the caller. The receipt builder
+	// selects V9 on the strength of this, so it must see what was persisted a few
+	// statements earlier in this same transaction -- which is also what a
+	// recovery, signing long after the fact, will see.
+	binding, err := getQueryExecutionBindingTx(ctx, tx, evidence.Query.ID)
+	if err == nil {
+		evidence.ExecutionBinding = &binding
+	} else if !isNoRows(err) {
+		return PersistedQueryReceipt{}, err
+	}
 	request, err := builder(evidence)
 	if err != nil {
 		return PersistedQueryReceipt{}, err

@@ -23,6 +23,7 @@ import (
 	"taskbound.local/agent-data-gateway/internal/exposure"
 	"taskbound.local/agent-data-gateway/internal/mcp"
 	"taskbound.local/agent-data-gateway/internal/physicalquery"
+	"taskbound.local/agent-data-gateway/internal/querybinding"
 	"taskbound.local/agent-data-gateway/internal/queryplan"
 	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 	"taskbound.local/agent-data-gateway/internal/semanticcache"
@@ -876,44 +877,29 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 	// evaluation and the finalizer reproduce the statements this executes rather
 	// than reimplementing the arithmetic. sqlpolicy renders the limit into the
 	// SQL, so a second implementation would change the executed bytes.
-	ledgerState := physicalquery.LedgerPreState{
-		RemainingRows: remaining.Rows, HasExposureContext: exposureContext != nil,
-	}
-	if exposureContext != nil {
-		ledgerState.InfluenceFacts = exposureLedger.Limits.InfluenceFacts
-		ledgerState.UsesExpandedEvidence = exposureContext.usesExpandedEvidence()
-	}
-	// One call, not two authorizations plus a limit helper. physicalquery
-	// authorizes the visible statement, derives the companion's limits from the
-	// AUTHORIZED visible limit, authorizes the companion, and returns both
-	// decisions. The statements executed below are the ones it returned, so the
-	// identity-producing path and the execution path cannot drift: there is only
-	// one path.
+	//
+	// This first derivation is PREPARATION ONLY. Its purpose is to learn what to
+	// reserve: the reservation needs a requested row count and, under an exposure
+	// profile, fact estimates that depend on the derived limits. The budget it
+	// reads was fetched above, outside any lock, and the exposure ledger likewise;
+	// between here and ReserveBudget another request on the same task can settle a
+	// query and move both. The statements actually executed are re-derived below
+	// from the pre-state the reservation itself observed under the task lock.
 	companionSQL := ""
 	if exposureContext != nil {
 		companionSQL = exposureContext.provenanceSQL
 	}
-	derivation, err := physicalquery.Derive(engine, nil, physicalquery.Request{
-		VisibleSQL: agentSQL, CompanionSQL: companionSQL, Grant: policyGrant, State: ledgerState,
-	})
-	if err != nil {
-		if errors.Is(err, physicalquery.ErrExposureBudgetExhausted) {
-			return nil, toolError(control.ErrExposureBudgetExhausted)
-		}
-		if exposureContext != nil && strings.Contains(err.Error(), "companion") {
-			return nil, toolError(control.ErrExposureEvidenceRequired)
-		}
-		return nil, err
+	preparationState := physicalquery.LedgerPreState{
+		RemainingRows: remaining.Rows, HasExposureContext: exposureContext != nil,
 	}
-	decision := derivation.VisibleDecision
-	var provenanceDecision sqlpolicy.Decision
-	var provenanceEvidenceRows int64
 	if exposureContext != nil {
-		if derivation.CompanionDecision == nil {
-			return nil, toolError(control.ErrExposureEvidenceRequired)
-		}
-		provenanceDecision = *derivation.CompanionDecision
-		provenanceEvidenceRows = derivation.Limits.CompanionEvidenceRows
+		preparationState.InfluenceFacts = exposureLedger.Limits.InfluenceFacts
+		preparationState.UsesExpandedEvidence = exposureContext.usesExpandedEvidence()
+	}
+	prepared, err := s.derivePhysicalQuery(engine, agentSQL, companionSQL, policyGrant, preparationState,
+		exposureContext != nil)
+	if err != nil {
+		return nil, err
 	}
 	componentMS["parse_policy"] = durationMS(time.Since(policyStarted))
 	componentMS["authorization"] = durationMS(policyStarted.Sub(pipelineStarted))
@@ -931,27 +917,6 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 			return nil, &mcp.ToolError{Code: apierr.CodeConflict, Message: "V4 dictionary set 无法按 Catalog 证据发布"}
 		}
 	}
-	var ordinalCacheKey string
-	if exposureContext != nil && exposureContext.ordinal != nil &&
-		(exposureLedger.ProfileVersion == exposure.ProfileV4 || exposureLedger.ProfileVersion == exposure.ProfileV5) {
-		authorizationDigest := ordinalSemanticAuthorizationDigest(decision, provenanceDecision,
-			protocolGrant.Core.ManifestDigest)
-		if exposureLedger.ProfileVersion == exposure.ProfileV5 {
-			authorizationDigest = ordinalSemanticAuthorizationDigestV5(exposureContext.planDigest,
-				protocolGrant.Core.ManifestDigest, exposureContext.predicateFootprint)
-		}
-		binding := ordinalSemanticReplayBinding(task.ID, grantDigest, authorizationDigest,
-			exposureContext.planDigest, s.catalog.SHA256, evidence.SchemaDigest, exposureContext.ordinal.DictionarySetDigest)
-		if exposureLedger.ProfileVersion == exposure.ProfileV5 {
-			binding = ordinalSemanticReplayBindingV5(task.ID, grantDigest, authorizationDigest,
-				exposureContext.planDigest, s.catalog.SHA256, evidence.SchemaDigest,
-				exposureContext.ordinal.DictionarySetDigest, exposureContext.predicateFootprint)
-		}
-		ordinalCacheKey, err = binding.Digest()
-		if err != nil {
-			return nil, &mcp.ToolError{Code: apierr.CodeConflict, Message: "ordinal semantic replay key 无法规范化"}
-		}
-	}
 	queryID := randomID("query")
 	approvedPerQueryTimeout := time.Duration(protocolGrant.Core.Budget.PerQueryTimeoutMS) * time.Millisecond
 	requestedTimeout := approvedPerQueryTimeout
@@ -965,18 +930,18 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 	reserveStarted := time.Now()
 	reserveRequest := control.ReserveRequest{
 		QueryID: queryID, TaskID: task.ID, RequestID: requestID, Actor: principal.Subject,
-		RequestDigest: requestDigest, SQLFingerprint: decision.Fingerprint,
+		RequestDigest: requestDigest, SQLFingerprint: prepared.visible.Fingerprint,
 		CatalogVersion: task.CatalogVersion, CatalogDigest: protocolGrant.Core.CatalogSHA256,
 		DatasourceID: evidence.DatasourceID, SchemaDigest: evidence.SchemaDigest,
 		ViewBindingDigest: protocolGrant.Core.ViewBindingDigest,
 		ManifestDigest:    protocolGrant.Core.ManifestDigest, GrantDigest: grantDigest, PolicyDecision: "ALLOW",
-		RequestedRows: decision.RowLimit, RequestedDBMS: requestedDBMS,
+		RequestedRows: prepared.visible.RowLimit, RequestedDBMS: requestedDBMS,
 	}
 	if exposureContext != nil {
 		reserveRequest.Exposure = &control.ExposureReservationRequest{
 			ProfileVersion:          exposureLedger.ProfileVersion,
-			EstimatedReleaseFacts:   saturatedProduct(decision.RowLimit, int64(len(exposureContext.visibleFields))),
-			EstimatedInfluenceFacts: saturatedProduct(provenanceEvidenceRows, int64(len(exposureContext.provenanceFields)+1)),
+			EstimatedReleaseFacts:   saturatedProduct(prepared.visible.RowLimit, int64(len(exposureContext.visibleFields))),
+			EstimatedInfluenceFacts: saturatedProduct(prepared.companionEvidenceRows, int64(len(exposureContext.provenanceFields)+1)),
 		}
 		if exposureLedger.ProfileVersion == exposure.ProfileV3 || exposureLedger.ProfileVersion == exposure.ProfileV4 {
 			reserveRequest.Exposure.EstimatedOutcomeFacts = 1
@@ -994,6 +959,85 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 	componentMS["reserve"] = durationMS(time.Since(reserveStarted))
 	if reservation.Replay && reservation.Record != nil {
 		return s.queryReplayResponseAt(ctx, *reservation.Record, pipelineStarted, time.Now())
+	}
+	// THE AUTHORITATIVE PRE-STATE. reservation.Before and
+	// reservation.ExposureLedgerBefore were read under one task lock, in the same
+	// transaction that took the reservation. Everything below -- the executed
+	// statements, the row limits rendered into them, the semantic replay key, the
+	// signed execution binding -- derives from this one state, so the receipt does
+	// not assemble a pre-state out of three separate observations and sign it as
+	// though it were atomic.
+	executionState := physicalquery.LedgerPreState{
+		RemainingRows: reservation.Before.Remaining().Rows, HasExposureContext: exposureContext != nil,
+	}
+	if exposureContext != nil {
+		if reservation.ExposureLedgerBefore == nil {
+			s.releaseQueryBudget(ctx, queryID, "EXPOSURE_PRE_STATE_UNAVAILABLE")
+			return nil, toolError(control.ErrExposureEvidenceRequired)
+		}
+		exposureLedger = *reservation.ExposureLedgerBefore
+		executionState.InfluenceFacts = exposureLedger.Limits.InfluenceFacts
+		executionState.UsesExpandedEvidence = exposureContext.usesExpandedEvidence()
+	}
+	executed, err := s.derivePhysicalQuery(engine, agentSQL, companionSQL, policyGrant, executionState,
+		exposureContext != nil)
+	if err != nil {
+		s.releaseQueryBudget(ctx, queryID, "AUTHORIZATION_PRE_STATE_CHANGED")
+		return nil, err
+	}
+	// The reservation was sized from the preparation derivation. A pre-state that
+	// moved in the widening direction -- a raised budget, a raised influence
+	// limit -- would leave the authoritative derivation asking for more than was
+	// reserved, and nothing downstream would notice. Fail closed rather than
+	// execute an under-reserved statement.
+	if err := requireNarrowedDerivation(prepared, executed, reservation.AllowedRows); err != nil {
+		s.releaseQueryBudget(ctx, queryID, "AUTHORIZATION_PRE_STATE_WIDENED")
+		return nil, toolError(control.ErrExposureEvidenceRequired)
+	}
+	decision := executed.derivation.VisibleDecision
+	var provenanceDecision sqlpolicy.Decision
+	var provenanceEvidenceRows int64
+	if exposureContext != nil {
+		provenanceDecision = *executed.derivation.CompanionDecision
+		provenanceEvidenceRows = executed.companionEvidenceRows
+	}
+	var ordinalCacheKey string
+	if exposureContext != nil && exposureContext.ordinal != nil &&
+		(exposureLedger.ProfileVersion == exposure.ProfileV4 || exposureLedger.ProfileVersion == exposure.ProfileV5) {
+		authorizationDigest := ordinalSemanticAuthorizationDigest(decision, provenanceDecision,
+			protocolGrant.Core.ManifestDigest)
+		if exposureLedger.ProfileVersion == exposure.ProfileV5 {
+			authorizationDigest = ordinalSemanticAuthorizationDigestV5(exposureContext.planDigest,
+				protocolGrant.Core.ManifestDigest, exposureContext.predicateFootprint)
+		}
+		semanticBinding := ordinalSemanticReplayBinding(task.ID, grantDigest, authorizationDigest,
+			exposureContext.planDigest, s.catalog.SHA256, evidence.SchemaDigest, exposureContext.ordinal.DictionarySetDigest)
+		if exposureLedger.ProfileVersion == exposure.ProfileV5 {
+			semanticBinding = ordinalSemanticReplayBindingV5(task.ID, grantDigest, authorizationDigest,
+				exposureContext.planDigest, s.catalog.SHA256, evidence.SchemaDigest,
+				exposureContext.ordinal.DictionarySetDigest, exposureContext.predicateFootprint)
+		}
+		ordinalCacheKey, err = semanticBinding.Digest()
+		if err != nil {
+			s.releaseQueryBudget(ctx, queryID, "ORDINAL_REPLAY_KEY_INVALID")
+			return nil, &mcp.ToolError{Code: apierr.CodeConflict, Message: "ordinal semantic replay key 无法规范化"}
+		}
+	}
+	// The prepared identity of this operation, and the sealed pre-state the
+	// limits above were derived from. Both are needed before anything runs: the
+	// binding written with the terminal evidence must describe the statements
+	// that were actually sent, and it must name the state that authorized them.
+	bindsExecution := s.executionBindingApplies(exposureContext, exposureLedger)
+	var preparedOp preparedOperation
+	var ledgerBefore querybinding.ExposureLedgerBeforeV1
+	if bindsExecution {
+		preparedOp, ledgerBefore, err = s.prepareExecutionBinding(exposureContext, executionState, exposureLedger,
+			reservation.Before, agentSQL, companionSQL, protocolGrant, grantDigest, evidence)
+		if err != nil {
+			s.releaseQueryBudget(ctx, queryID, "EXECUTION_BINDING_UNAVAILABLE")
+			return nil, &mcp.ToolError{Code: apierr.CodeConflict,
+				Message: "执行绑定无法按已签名的前置状态构造；查询未执行"}
+		}
 	}
 	if ordinalCacheKey != "" {
 		replayed, replayOutcome, replayErr := s.tryOrdinalSemanticReplayForQuery(ctx, task, requestID, queryID, grantDigest,
@@ -1105,6 +1149,32 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 		data.DatabaseTime = businessDatabaseDuration + provenanceDatabaseDuration
 	}
 	settlement := querySettlement(queryID, data, connectorStarted, reservation)
+	// The binding is built here, after the Connector returned, because
+	// TargetRecordV1.Executed must record what was sent rather than what was
+	// planned. It is attached to the settlement so it is written inside the same
+	// transaction that commits the terminal query record, the budget settlement,
+	// the exposure settlement and the receipt: a settled query has both rows or
+	// neither.
+	//
+	// It is NOT attached when the connector failed. A failed execution cannot
+	// prove which of its targets ran, and a binding that claimed paired-novel
+	// semantics for a sequence that may have stopped after the visible statement
+	// would be a false description rather than a missing one.
+	if bindsExecution && queryErr == nil {
+		path := querybinding.PathPairedNovel
+		if executed.companion == nil {
+			path = querybinding.PathSingleQuery
+		}
+		binding, bindingErr := buildQueryExecutionBinding(queryID, path, preparedOp, executed,
+			ledgerBefore, reservation.Before, true)
+		if bindingErr != nil {
+			settlement.ErrorCode = "EXECUTION_BINDING_INVALID"
+			s.failQueryBudget(ctx, settlement)
+			return nil, &mcp.ToolError{Code: apierr.CodeConflict,
+				Message: "执行绑定无法按已签名的前置状态构造；结果未释放"}
+		}
+		settlement.ExecutionBinding = &binding
+	}
 	if queryErr != nil {
 		code := string(dataconnector.CodeQueryFailed)
 		var connectorErr *dataconnector.Error
@@ -2163,6 +2233,40 @@ func BuildQueryReceiptRequest(evidence control.QueryReceipt, signer *queryreceip
 		artifactIntent = &intent
 		version = queryreceipt.VersionV8
 	}
+	// V9 selection.
+	//
+	// V9 is emitted exactly when the query has a persisted execution binding AND
+	// the receipt already qualifies for V8, because V9 is V8 plus the execution
+	// evidence and ValidateUnsigned requires the artifact intent for both. The
+	// binding comes from the row loaded inside this transaction, never from a
+	// caller's memory.
+	//
+	// The two failure modes are deliberately asymmetric:
+	//
+	//   - a historical query with no binding stays at the version it earned. V9
+	//     evidence is not stapled onto it; a receipt must not claim to describe an
+	//     execution nothing recorded.
+	//   - a query that HAS a binding but cannot reach V8 is refused outright. That
+	//     is the silent downgrade this whole path exists to prevent: the Gateway
+	//     built and persisted a description of what it executed, and emitting V8
+	//     would drop it while still looking like a valid receipt.
+	var executionBinding *querybinding.QueryExecutionBindingV1
+	var exposureLedgerBefore *querybinding.ExposureLedgerBeforeV1
+	if evidence.ExecutionBinding != nil {
+		if version != queryreceipt.VersionV8 {
+			return control.SaveQueryReceiptRequest{}, fmt.Errorf(
+				"query %s carries a persisted execution binding but its evidence only supports a V%s receipt; "+
+					"emitting one would silently drop the execution binding", record.ID, version)
+		}
+		if err := evidence.ExecutionBinding.Validate(); err != nil {
+			return control.SaveQueryReceiptRequest{}, fmt.Errorf("persisted execution binding: %w", err)
+		}
+		binding := evidence.ExecutionBinding.Binding
+		ledger := evidence.ExecutionBinding.ExposureLedgerBefore
+		executionBinding = &binding
+		exposureLedgerBefore = &ledger
+		version = queryreceipt.VersionV9
+	}
 	receipt := queryreceipt.QueryReceiptV1{
 		Version: version, ReceiptID: record.ID,
 		TaskID: record.TaskID, QueryID: record.ID, RequestID: record.RequestID,
@@ -2182,6 +2286,7 @@ func BuildQueryReceiptRequest(evidence control.QueryReceipt, signer *queryreceip
 		AuditSequence: evidence.Audit.Sequence, PreviousAuditHash: evidence.Audit.PreviousHash,
 		AuditHash: evidence.Audit.CurrentHash, SignedAt: &signedAt,
 		Exposure: exposureEvidence, ArtifactIntent: artifactIntent,
+		ExecutionBinding: executionBinding, ExposureLedgerBefore: exposureLedgerBefore,
 	}
 	signed, err := signer.Sign(receipt)
 	if err != nil {
