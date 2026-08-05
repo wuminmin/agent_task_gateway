@@ -6,7 +6,22 @@ stays on `main @ 804d65d` and is never touched.
 
 ## Current HEAD
 
-`5f71cbb` — equals `origin/tkde-artifact-rerun`, worktree clean.
+`7e12238` — worktree clean. The push that makes it equal `origin/tkde-artifact-rerun`
+is recorded below, and the N4 requalification and formal rebuild both refuse to
+run before it.
+
+Session start was `7356be0`, verified equal to `origin/tkde-artifact-rerun` with
+a clean worktree. `50c3cb8`, `e3622a5`, `865ae8c`, `d4b2b7f`, `2d52bea` and
+`5f71cbb` were confirmed ancestors; tags `final-v5-contracts-v1` … `v1.4`
+unmoved at `00c4636`, `167581c`, `6966cd0`, `114d190`, `af15ee1`; primary
+worktree still `main @ 804d65d`; no v1.5 tag. Docker 29.1.3 client and server are
+available again and `scripts/db-test-env.sh verify` passes against the
+digest-pinned PostgreSQL 16.14 pair (`server_version_num=160014`, 31
+`taskgate_ordinal` sidecar relations).
+
+### Previous HEAD record
+
+`5f71cbb` — equalled `origin/tkde-artifact-rerun`, worktree clean.
 
 Session start was `5e60495`. Tags `final-v5-contracts-v1` … `v1.4` verified
 unmoved at `00c4636`, `167581c`, `6966cd0`, `114d190`, `af15ee1`. No v1.5 tag
@@ -47,6 +62,94 @@ Forward commits this session, in order:
 | `d4b2b7f` | formal Gateway base images pinned by digest |
 | `2d52bea` | digest-pinned PostgreSQL environment for DB-backed tests |
 | `5f71cbb` | **I2-A (persistence)** migration 019 + store plumbing for the execution binding |
+| `422a80a` | **I2-A0** neutral `internal/sqlidentity`; four V9 validation gaps; exact binding idempotency; canonical persistence; deterministic manifest diagnostics |
+| `a6ee9c6` | **I2-A1–A4** authoritative execution pre-state, real production binding, atomic write, V9 version selection |
+| `d02efd3` | **I2-A2** semantic-replay binding, `executed=false` on both targets |
+| `81bab97` | live V9 round-trip proof; the five live gateway tests fixed with the real bundle |
+| `9dffac8` | **I2-B (part)** Adapter requires a verified V9 instead of re-deriving statements |
+| `7e12238` | V8 equalities that hid artifact evidence on a V9 receipt |
+
+## I2-A — production V9 round-trip
+
+**The defect I2-A0 existed to fix.** The strict normalized-AST digest lived in
+`evaluation/internal/experiment`, which Go's internal rule keeps inside
+`evaluation/`. Production could not import it, so the Gateway passed a nil
+digester to `physicalquery.Derive` and the structural digest of every statement
+it authorized was empty — the one field the observer classifies on. The
+implementation now lives in `internal/sqlidentity`; `experiment` keeps aliases so
+its call sites read as before. The move was checked byte-for-byte against the
+pre-move implementation over eleven statements before the old file was deleted,
+and golden vectors now pin the digest space so a future edit has to be a
+deliberate `StrictASTSchemaVersion` bump. Parser failures carry a stable code
+rather than the parser's own message, which quotes the offending SQL.
+
+**Four V9 rules were missing rather than relaxed.** `schema_digest` and
+`signed_at` had been enforced since V2 and V3, but the conditions were written as
+explicit disjunctions and V9 was left out of three of them; they are version
+ranges now. `remaining_rows` and the ledger identity were independently
+assertable and are cross-bound to `budget_before` and the exposure evidence. The
+visible row limit was checked against the signed pre-state only when a companion
+was bound. And `ON CONFLICT DO NOTHING` made a contradictory second binding
+silent rather than merely redundant.
+
+**One deviation from the written specification, deliberate.** The specification
+asked for `ExposureLedgerBefore.RootEpoch == receipt.Exposure.RootEpoch`. Those
+are not the same quantity: the pre-state's epoch is the one the operation was
+authorized against, and the charge's is the one it settled at, which a novel
+observation advances by exactly one
+(`internal/control/ordinal_exposure.go:902`, `ordinal_exposure_v5.go:1225`).
+Equality would reject every novel paired execution — precisely what V9 exists to
+describe. The binding enforced is the ordering the epoch actually satisfies: the
+pre-state may not postdate the charge. Root task and profile version remain
+strict equalities.
+
+**I2-A1, the pre-state.** The Gateway read the budget at one instant, the
+exposure ledger at another, and took its reservation at a third, then signed all
+three as one atomic pre-state. `ReserveBudget` now reads the exposure ledger
+under the same task lock that produces the budget snapshot and returns both. The
+first derivation is demoted to preparation — it exists only to size the
+reservation — and the statements sent to the Connector are re-derived from the
+pre-state the reservation observed. A pre-state that moved in the widening
+direction leaves the reservation too small for the statement about to run; there
+is no safe silent repair, so it fails closed before execution.
+
+**I2-A2, source-checked identities.** The compiler and renderer identities are
+computed from what those packages do — a frozen probe is compiled and rendered
+and the output digested — so a behaviour change moves them even when no version
+constant is touched. `TestCompilerIdentityIsPinnedToItsSource` and
+`TestRendererIdentityIsPinnedToItsSource` pin the values and say, in the failure
+message, to bump the version rather than update the expectation.
+
+**I2-A3 and I2-A4.** The binding travels on the settlement and is written inside
+the transaction that commits the terminal record, the budget settlement, the
+exposure settlement and the receipt. Only a COMPLETED query may create one. The
+receipt builder loads it back from the row. V9 is emitted when a persisted
+binding exists and the receipt already qualifies for V8; a query that has a
+binding but cannot reach V8 is refused rather than downgraded.
+
+### The five live gateway tests
+
+Not an I2-A regression, and now fixed. `installCatalogV4SnapshotRegistry`
+substituted a hand-written double for any publication whose committed compiler
+input carries no rows; that double's manifest had no cold payload, no hot index
+and no segments, so `PutOrdinalDictionarySet` refused it — and every exposure-V5
+path, including the only configuration that can emit V9, was unreachable in
+tests. The source rows are not missing: they are fifty thousand rows of generated
+ProvSQL data living in the Business database, which is where they belong. The
+harness scans them exactly as `cmd/snapshot-index` does, compiles the bundle,
+loads it through `ordinal.ParseHotDictionary`, and verifies the result against
+both the compiler input's `expected_digests` and the Catalog. The double is
+deleted.
+
+`TestCanonicalCopySurvivesAvailableTransactionFailureAndRecoversExactlyOnce` then
+reached its assertions and found V9 where it expected V8 — the correct version
+for a completed exposure-V5 artifact query — and, one layer deeper, exposed three
+V8 *equalities* that meant "carries artifact intent": `GetQueryReceipt` compared
+the persisted version against the literal `"8"` and stopped loading the artifact
+registration projection; `get_audit_receipt` gated the whole inclusion block the
+same way and silently dropped both the intent and availability proofs an auditor
+gets; and the independent finalizer and RQ5 verifier refused V9 outright. Receipt
+versions are ordered now, through an exported `VersionAtLeast`.
 
 ## Completed milestones
 
