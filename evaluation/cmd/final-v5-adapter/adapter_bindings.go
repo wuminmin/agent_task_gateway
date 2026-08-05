@@ -13,6 +13,7 @@ import (
 
 	"taskbound.local/agent-data-gateway/evaluation/internal/experiment"
 	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5binding"
+	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 )
 
 const adapterBindingSectionName = finalv5binding.SectionName
@@ -331,4 +332,43 @@ func failedSample(operation experiment.AdapterOperation, code string) experiment
 	sample.Status = "fail"
 	sample.Reason = "a real backend operation was attempted and failed; the original frozen cell was retained"
 	return sample
+}
+
+// requireVerifiedV9 is the v3 path's receipt acceptance rule.
+//
+// Until v1.5 the Adapter accepted V8 and then RE-DERIVED the physical statements
+// itself to decide what the Gateway had executed. That is a second opinion about
+// an execution, not evidence about it, and the two can differ in exactly the
+// case the evidence exists to detect. The Gateway now signs what it executed, so
+// the Adapter reads it instead of reconstructing it.
+//
+// There is deliberately no legacy fallback. A completed exposure-V5 artifact
+// operation on this path always carries an execution binding; accepting V8 here
+// would silently restore the re-derivation it replaces.
+func requireVerifiedV9(verifier receiptVerifier, receipt queryreceipt.QueryReceiptV1) error {
+	if receipt.Version != queryreceipt.VersionV9 {
+		return fmt.Errorf("receipt is V%s; the v3 path requires a signed V9 execution binding", receipt.Version)
+	}
+	if err := receipt.Validate(); err != nil {
+		return fmt.Errorf("V9 receipt does not validate: %w", err)
+	}
+	if verifier != nil {
+		if err := verifier.Verify(receipt); err != nil {
+			return fmt.Errorf("verify V9 receipt: %w", err)
+		}
+	}
+	// Validate() already requires both structures for V9. Restating it here makes
+	// the Adapter's dependency explicit: everything below reads them.
+	if receipt.ExecutionBinding == nil || receipt.ExposureLedgerBefore == nil {
+		return errors.New("V9 receipt carries no execution binding or pre-state")
+	}
+	if receipt.ArtifactIntent == nil || receipt.Exposure == nil {
+		return errors.New("V9 receipt carries no artifact intent or exposure evidence")
+	}
+	return nil
+}
+
+// receiptVerifier is the subset of the keyring the acceptance rule needs.
+type receiptVerifier interface {
+	Verify(queryreceipt.QueryReceiptV1) error
 }

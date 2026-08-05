@@ -463,8 +463,11 @@ func (adapter *realAdapter) completeTaskgateSampleWithParquet(ctx context.Contex
 	if response.TaskID != state.taskID || response.ArtifactStatus != "AVAILABLE" || response.ResultID == "" || response.QueryID == "" {
 		return experiment.Sample{}, nil, errors.New("query response omitted AVAILABLE identity")
 	}
-	if response.Receipt.Version != queryreceipt.VersionV8 || response.Receipt.ArtifactIntent == nil || response.Receipt.QueryID != response.QueryID || response.Receipt.TaskID != state.taskID {
-		return experiment.Sample{}, nil, errors.New("query response omitted matching V8 receipt")
+	if err := requireVerifiedV9(adapter.verifier, response.Receipt); err != nil {
+		return experiment.Sample{}, nil, fmt.Errorf("query response omitted a verified V9 receipt: %w", err)
+	}
+	if response.Receipt.QueryID != response.QueryID || response.Receipt.TaskID != state.taskID {
+		return experiment.Sample{}, nil, errors.New("the V9 receipt names another query or task")
 	}
 	auditEvidence, err := adapter.loadAuditEvidence(ctx, response)
 	if err != nil {
@@ -842,14 +845,14 @@ WHERE query_id=$1 AND event_type='QUERY_V5_EXPOSURE_SETTLED' ORDER BY sequence`,
 		return snapshot, errors.New("PENDING recovery receipt bytes differ from their Control digest")
 	}
 	var receipt queryreceipt.QueryReceiptV1
-	if err := json.Unmarshal(receiptJSON, &receipt); err != nil || receipt.ArtifactIntent == nil || receipt.Exposure == nil {
-		return snapshot, errors.New("PENDING recovery receipt omitted its V8 artifact intent")
+	if err := json.Unmarshal(receiptJSON, &receipt); err != nil {
+		return snapshot, errors.New("PENDING recovery receipt does not decode")
 	}
-	if err := adapter.verifier.Verify(receipt); err != nil {
-		return snapshot, fmt.Errorf("verify PENDING recovery receipt: %w", err)
+	if err := requireVerifiedV9(adapter.verifier, receipt); err != nil {
+		return snapshot, fmt.Errorf("PENDING recovery receipt: %w", err)
 	}
 	intent, exposure := receipt.ArtifactIntent, receipt.Exposure
-	if receipt.Version != queryreceipt.VersionV8 || receipt.TaskID != taskID || receipt.QueryID != queryID ||
+	if receipt.TaskID != taskID || receipt.QueryID != queryID ||
 		queryStatus != "COMPLETED" || reservationStatus != "SETTLED" ||
 		exposure.RootTaskID != rootTaskID || exposure.RootEpoch != reservationRootEpoch ||
 		exposure.ObservationSHA256 != observationSHA256 || exposure.DictionarySetSHA256 != observationDictionarySHA256 ||
@@ -1137,12 +1140,11 @@ WHERE q.task_id=$1 AND q.request_id=$2`, taskID, requestID).Scan(
 	if err := json.Unmarshal(receiptJSON, &raw.receipt); err != nil {
 		return raw, err
 	}
-	if err := adapter.verifier.Verify(raw.receipt); err != nil {
-		return raw, fmt.Errorf("verify persisted receipt: %w", err)
+	if err := requireVerifiedV9(adapter.verifier, raw.receipt); err != nil {
+		return raw, fmt.Errorf("persisted receipt: %w", err)
 	}
 	intent, exposure := raw.receipt.ArtifactIntent, raw.receipt.Exposure
 	if raw.queryStatus != "COMPLETED" || raw.reservationStatus != "SETTLED" || raw.artifactStatus != "AVAILABLE" ||
-		intent == nil || exposure == nil || raw.receipt.Version != queryreceipt.VersionV8 ||
 		raw.receipt.TaskID != raw.taskID || raw.receipt.QueryID != raw.queryID || raw.receipt.RequestID != raw.requestID ||
 		intent.ResultID != raw.resultID || intent.ObjectKeySHA256 != sha(raw.objectKey) ||
 		intent.ObjectSHA256 != raw.objectSHA256 || intent.ParquetSHA256 != raw.parquetSHA256 ||
