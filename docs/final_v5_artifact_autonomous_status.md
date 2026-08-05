@@ -504,7 +504,60 @@ linux/amd64 with the recorded repoDigest; the image labels equal the provenance
 files inside the image; and `sha256sum /usr/local/bin/app` recomputed inside the
 image equals the recorded binary digest.
 
+## N4 requalification after the strict-AST move — two runs agree
+
+Moving the strict normalized-AST digest to `internal/sqlidentity` changed an N4
+source dependency, so the existing qualifications became still-valid development
+evidence that had to be reproduced from the new source. Two fresh isolated
+qualifications from clean, published `1a539e1`:
+
+| | qualification-i2a-01 | qualification-i2a-02 |
+| --- | --- | --- |
+| portable footprint | `032e9c53704d` | `032e9c53704d` |
+| footprint | `8bac78bfdfd3` | `d6dea7d99721` |
+| ExpectedSchema | `e2a3796fb3f5`, E=1 | `e2a3796fb3f5`, E=1 |
+| profile / registry | `profile-a86cd4df5cad6e26` / `final-v5-contracts-v1.4` | same |
+| catalog bytes | `533837084c0d` | same |
+| artifact directory | `814d4df9971f` | `814d4df9971f` |
+| artifact manifest | `e2b96d53af3a` | `8939d1173eb4` |
+| PostgreSQL | `postgres@sha256:92620dadd…`, linux/amd64 | same |
+
+The **portable** footprint is what must agree, and it does — and it equals the
+`032e9c53704d` recorded for the `18bee8e` runs. The non-portable footprint
+differs between the two runs because it binds deployment-specific identity, and
+the artifact manifest digest differs for the same reason; the artifact directory
+digest, which is content, is identical.
+
+The internal footprint is unchanged in all four scopes — one internal call per
+attestation over one key for `constructor_or_cold_pool`,
+`explicit_preflight_pool`, `single_query_transaction` and
+`paired_query_transaction`, with `constructor == explicit preflight` true, over
+11 snapshots and 10 intervals.
+
+This is the live answer to the question I2-A0 raised. The specification predicted
+the portable footprint should be unchanged if the move was truly byte-equivalent.
+Three independent checks now agree that it was: the direct comparison against the
+pre-move implementation over eleven statements before the old file was deleted,
+the golden vectors pinning the digest space, and this measurement through two
+fresh topologies. The N4 evidence produced before the move stays valid rather
+than merely tolerated.
+
+Two process failures preceded the passing runs, both recorded rather than
+retried silently. The first was a port collision: the standing `db-test-env`
+deployment holds `127.0.0.1:25534`, which the qualification's
+`final-v5-direct-postgres` also binds, so phase 1 failed at container
+networking. The second was a dirty worktree — the probe refuses to qualify
+against an unpublished tree, which is what makes a qualification checkable by a
+reviewer holding only the commit. Both retained directories remain under
+`raw/`.
+
 ## SQL-executability gate — PASS, live
+
+Rerun at `1a539e1` after the I2-A changes: 28 artifacts, 71 rendered cells, 0
+failed, against a disposable digest-pinned PostgreSQL 16.14, with the committed
+manifest regenerating byte-identically (the worktree stayed clean).
+
+### Original run
 
 `evaluation/final-v5-wsl2/scripts/run-sql-executability-gate.sh`: 28 artifacts,
 71 rendered cells, 0 failed, against a disposable digest-pinned PostgreSQL 16.14.
