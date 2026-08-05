@@ -46,8 +46,17 @@ type CarriedEvidenceV3 struct {
 	// Window is the observed before/after interval.
 	Window ObserverWindowV2 `json:"window"`
 	// VisibleStatement and CompanionStatement are the signed runtime execution
-	// identities of what actually ran.
-	VisibleStatement   physicalquery.StatementIdentity  `json:"visible_statement"`
+	// identities of what actually ran, for THIS request.
+	//
+	// Both are pointers so that absence is a state rather than a value. A
+	// non-pointer visible identity made "this path executed no target" and "this
+	// path executed a target whose every digest happened to be empty"
+	// indistinguishable, and the two replay paths execute no target at all: for
+	// them the only correct evidence is nil, and a zero-valued struct must not be
+	// able to stand in for it. An idempotent replay in particular returns the
+	// ORIGINAL receipt, whose signed binding describes the original execution;
+	// nothing in it is a target of the current request.
+	VisibleStatement   *physicalquery.StatementIdentity `json:"visible_statement,omitempty"`
 	CompanionStatement *physicalquery.StatementIdentity `json:"companion_statement,omitempty"`
 	// The prepared target bindings the Adapter read off the signed receipt.
 	//
@@ -92,12 +101,13 @@ type IndependentInputsV3 struct {
 type FinalizationV3 struct {
 	Operation                OperationIdentity     `json:"operation"`
 	Plan                     GatewayControlPlanV3  `json:"plan"`
-	ExpectedSchemaDigest     string                `json:"expected_schema_digest"`
-	ExpectedSchemaEntries    int64                 `json:"expected_schema_entries"`
+	PlanSHA256               string                `json:"plan_sha256"`
+	ExpectedSchemaDigest     string                `json:"expected_schema_digest,omitempty"`
+	ExpectedSchemaEntries    int64                 `json:"expected_schema_entries,omitempty"`
 	ClassifierManifestSHA256 string                `json:"classifier_manifest_sha256"`
 	ClassifierBindingSHA256  string                `json:"classifier_binding_sha256"`
 	Delta                    ObservedDelta         `json:"observed_delta"`
-	InternalExpectation      []InternalExpectation `json:"internal_expectation"`
+	InternalExpectation      []InternalExpectation `json:"internal_expectation,omitempty"`
 }
 
 // FinalizeObservationV3 independently rebuilds every expected identity and then
@@ -105,6 +115,15 @@ type FinalizationV3 struct {
 //
 // The order is deliberate: the finalizer derives first and looks at the Adapter's
 // claims only to reject them. At no point does a carried value feed a derivation.
+//
+// The derivation branches on whether the path reaches an ExpectedSchema at all,
+// read off the shared dimension table rather than by naming a path. A path that
+// performs no Attestation has no Catalog to load, no footprint to qualify, no
+// ExpectedSchema to build and no target SQL to reproduce -- and demanding those
+// of it is not strictness, it is asking for evidence of something that did not
+// happen. What such a path gets instead is an all-zero plan and an entry-less
+// manifest, under which every Business statement in the window is unclassified
+// and therefore fatal.
 func FinalizeObservationV3(carried CarriedEvidenceV3, inputs IndependentInputsV3) (FinalizationV3, error) {
 	var result FinalizationV3
 
@@ -113,68 +132,103 @@ func FinalizeObservationV3(carried CarriedEvidenceV3, inputs IndependentInputsV3
 		return result, fmt.Errorf("arm %q does not execute through the governed Connector and cannot carry observer evidence",
 			carried.Arm)
 	}
-
-	// 1. ExpectedSchema, from the Catalog builder rather than from any digest
-	// the sample carries.
-	logicalCatalog, err := catalog.Load(inputs.CatalogPath)
-	if err != nil {
-		return result, fmt.Errorf("load activated Profile Catalog: %w", err)
-	}
-	built, err := catalogschema.Build(logicalCatalog)
-	if err != nil {
-		return result, fmt.Errorf("build ExpectedSchema: %w", err)
-	}
-	result.ExpectedSchemaDigest, result.ExpectedSchemaEntries = built.Digest, built.Count
-
-	// 2. The qualified footprint must be valid for this deployment.
-	if err := inputs.Footprint.Require(built.Digest, built.Count,
-		RequiredMeasurementEnvironment(), inputs.PostgreSQL); err != nil {
-		return result, fmt.Errorf("qualified footprint: %w", err)
+	dimensions, known := dimensionsFor(inputs.PathKind)
+	if !known {
+		return result, fmt.Errorf("path_kind %q is not a derivable execution path", inputs.PathKind)
 	}
 
-	// 3. The plan, from the path kind and the footprint.
-	derivedPlan, err := planFor(inputs.PathKind, built.Count, built.Digest, inputs.Footprint)
-	if err != nil {
-		return result, fmt.Errorf("derive control plan: %w", err)
+	digester := inputs.StrictAST
+	if digester == nil {
+		digester = StrictASTDigest
 	}
+
+	var (
+		derivedPlan       GatewayControlPlanV3
+		derivedOperation  OperationIdentity
+		manifestFootprint *AttestationFootprintV2
+		targets           []ClassifierEntry
+	)
+
+	if dimensions.requiresSchema {
+		// 1. ExpectedSchema, from the Catalog builder rather than from any digest
+		// the sample carries.
+		logicalCatalog, err := catalog.Load(inputs.CatalogPath)
+		if err != nil {
+			return result, fmt.Errorf("load activated Profile Catalog: %w", err)
+		}
+		built, err := catalogschema.Build(logicalCatalog)
+		if err != nil {
+			return result, fmt.Errorf("build ExpectedSchema: %w", err)
+		}
+		result.ExpectedSchemaDigest, result.ExpectedSchemaEntries = built.Digest, built.Count
+
+		// 2. The qualified footprint must be valid for this deployment.
+		if err := inputs.Footprint.Require(built.Digest, built.Count,
+			RequiredMeasurementEnvironment(), inputs.PostgreSQL); err != nil {
+			return result, fmt.Errorf("qualified footprint: %w", err)
+		}
+
+		// 3. The plan, from the path kind and the footprint.
+		derivedPlan, err = planFor(inputs.PathKind, built.Count, built.Digest, inputs.Footprint)
+		if err != nil {
+			return result, fmt.Errorf("derive control plan: %w", err)
+		}
+
+		// 4. The operation identity, from frozen contract material.
+		footprintDigest, err := inputs.Footprint.SHA256()
+		if err != nil {
+			return result, err
+		}
+		derivedOperation = OperationIdentity{
+			OperationID: inputs.OperationID, PathKind: inputs.PathKind,
+			ContractIdentity:     inputs.ContractIdentity,
+			ExpectedSchemaDigest: built.Digest, AttestationFootprintSHA256: footprintDigest,
+		}
+
+		// 5. The targets, rebuilt from the statements the finalizer reproduced
+		// through shared production logic.
+		targets, err = deriveTargets(inputs, digester)
+		if err != nil {
+			return result, err
+		}
+		footprint := inputs.Footprint
+		manifestFootprint = &footprint
+	} else {
+		// A path that reaches Business PostgreSQL not at all. Every input that
+		// only an attesting path can legitimately have must be absent, and
+		// absent means absent: accepting a Catalog path "just in case" would let
+		// a replay be finalized against schema material belonging to some other
+		// request, and accepting a footprint would attach a qualification to a
+		// window in which no Attestation occurred.
+		if err := requireNoSchemaMaterial(inputs); err != nil {
+			return result, err
+		}
+		var err error
+		derivedPlan, err = planFor(inputs.PathKind, 0, "", AttestationFootprintV2{})
+		if err != nil {
+			return result, fmt.Errorf("derive control plan: %w", err)
+		}
+		derivedOperation = OperationIdentity{
+			OperationID: inputs.OperationID, PathKind: inputs.PathKind,
+			ContractIdentity: inputs.ContractIdentity,
+		}
+	}
+
 	result.Plan, result.InternalExpectation = derivedPlan, derivedPlan.InternalExpectation
-
-	// 4. The operation identity, from frozen contract material.
-	footprintDigest, err := inputs.Footprint.SHA256()
-	if err != nil {
-		return result, err
-	}
-	derivedOperation := OperationIdentity{
-		OperationID: inputs.OperationID, PathKind: inputs.PathKind,
-		ContractIdentity: inputs.ContractIdentity,
-	}
-	if dimensions, _ := dimensionsFor(inputs.PathKind); dimensions.requiresSchema {
-		derivedOperation.ExpectedSchemaDigest = built.Digest
-		derivedOperation.AttestationFootprintSHA256 = footprintDigest
-	}
 	if err := derivedOperation.Validate(); err != nil {
 		return result, fmt.Errorf("derive operation identity: %w", err)
 	}
 	result.Operation = derivedOperation
 
-	// 5. The classifier, from the footprint and the statements the finalizer
-	// reproduced through shared production logic.
-	digester := inputs.StrictAST
-	if digester == nil {
-		digester = StrictASTDigest
-	}
-	targets, err := deriveTargets(inputs, digester)
-	if err != nil {
-		return result, err
-	}
-	derivedManifest, err := BuildClassifierManifest(inputs.Footprint, targets)
+	derivedManifest, err := BuildClassifierManifestV2(derivedPlan, manifestFootprint, targets)
 	if err != nil {
 		return result, fmt.Errorf("derive classifier manifest: %w", err)
 	}
-	classifier, err := CompileClassifier(derivedOperation, derivedManifest)
+	classifier, err := CompileClassifierV2(derivedOperation, derivedPlan, derivedManifest)
 	if err != nil {
 		return result, fmt.Errorf("compile derived classifier: %w", err)
 	}
+	result.PlanSHA256 = classifier.PlanSHA256()
 	result.ClassifierManifestSHA256 = classifier.ManifestSHA256()
 	result.ClassifierBindingSHA256 = classifier.BindingSHA256()
 
@@ -219,6 +273,31 @@ func FinalizeObservationV3(carried CarriedEvidenceV3, inputs IndependentInputsV3
 		return result, errors.New("the observer window ran against a different PostgreSQL runtime than the qualification")
 	}
 	return result, nil
+}
+
+// requireNoSchemaMaterial rejects finalizer inputs that carry evidence a
+// non-attesting path cannot have produced.
+//
+// This is the finalizer refusing to derive from material that does not belong to
+// the request in front of it. An exact request-ID replay returns before
+// datasourceEvidence: it builds no ExpectedSchema, performs no Attestation and
+// renders no target statement. Inputs claiming otherwise describe some other
+// execution, and silently ignoring them would let a replay be finalized against
+// a Catalog and a qualification that had nothing to do with it.
+func requireNoSchemaMaterial(inputs IndependentInputsV3) error {
+	if inputs.CatalogPath != "" {
+		return fmt.Errorf("path_kind %s builds no ExpectedSchema, but a Profile Catalog was supplied to finalize it",
+			inputs.PathKind)
+	}
+	if !inputs.Footprint.isZero() {
+		return fmt.Errorf("path_kind %s performs no Attestation, but a qualified footprint was supplied to finalize it",
+			inputs.PathKind)
+	}
+	if inputs.VisibleSQL != "" || inputs.CompanionSQL != "" {
+		return fmt.Errorf("path_kind %s executes no target statement, but target SQL was reproduced for it",
+			inputs.PathKind)
+	}
+	return nil
 }
 
 // deriveTargets rebuilds the target identities from the statements the finalizer
@@ -269,30 +348,49 @@ func targetEntryWithDigester(class GatewayStatementClassV3, renderedSQL, operati
 }
 
 // requireStatementIdentities compares the signed runtime execution identities
-// against the statements the finalizer reproduced.
+// against the statements the finalizer reproduced, and requires their absence
+// where the path executes nothing.
 //
 // Both digests are checked. The structural digest is what the observer keys on;
 // the exact digest is what detects a constant-only mutation that
 // pg_stat_statements has normalized away. The row limits are checked too, because
 // they are rendered into the executable bytes.
+//
+// Absence is checked in both directions and for both roles. A replay executes no
+// target of its own, so carrying ANY current execution identity for one is
+// evidence of something the path cannot have done -- including the prepared
+// target bindings, which name a compiled target rather than a statement and
+// would otherwise survive unexamined.
 func requireStatementIdentities(carried CarriedEvidenceV3, inputs IndependentInputsV3,
 	digester physicalquery.StrictASTDigester) error {
 	visible, companion, _ := requiredTargets(inputs.PathKind)
-	if visible > 0 {
-		if err := compareStatement("visible", carried.VisibleStatement, inputs.VisibleSQL, digester); err != nil {
+	for _, role := range []struct {
+		name      string
+		expected  int64
+		statement *physicalquery.StatementIdentity
+		prepared  string
+		sql       string
+	}{
+		{"visible", visible, carried.VisibleStatement, carried.VisiblePreparedTargetBindingSHA256, inputs.VisibleSQL},
+		{"companion", companion, carried.CompanionStatement, carried.CompanionPreparedTargetBindingSHA256, inputs.CompanionSQL},
+	} {
+		if role.expected == 0 {
+			if role.statement != nil {
+				return fmt.Errorf("path_kind %s executes no %s statement, but a %s execution identity was carried for this request",
+					inputs.PathKind, role.name, role.name)
+			}
+			if role.prepared != "" {
+				return fmt.Errorf("path_kind %s executes no %s statement, but a %s prepared target binding was carried for this request",
+					inputs.PathKind, role.name, role.name)
+			}
+			continue
+		}
+		if role.statement == nil {
+			return fmt.Errorf("path_kind %s executes a %s statement but none was signed", inputs.PathKind, role.name)
+		}
+		if err := compareStatement(role.name, *role.statement, role.sql, digester); err != nil {
 			return err
 		}
-	}
-	switch {
-	case companion > 0:
-		if carried.CompanionStatement == nil {
-			return fmt.Errorf("path_kind %s executes a companion statement but none was signed", inputs.PathKind)
-		}
-		if err := compareStatement("companion", *carried.CompanionStatement, inputs.CompanionSQL, digester); err != nil {
-			return err
-		}
-	case carried.CompanionStatement != nil:
-		return fmt.Errorf("path_kind %s executes no companion statement but one was signed", inputs.PathKind)
 	}
 	return nil
 }

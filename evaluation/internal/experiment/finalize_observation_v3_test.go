@@ -88,11 +88,12 @@ func honestCarriedEvidence(t *testing.T, inputs IndependentInputsV3) CarriedEvid
 	if err != nil {
 		t.Fatalf("targets: %v", err)
 	}
-	manifest, err := BuildClassifierManifest(inputs.Footprint, targets)
+	footprint := inputs.Footprint
+	manifest, err := BuildClassifierManifestV2(plan, &footprint, targets)
 	if err != nil {
 		t.Fatalf("manifest: %v", err)
 	}
-	classifier, err := CompileClassifier(operation, manifest)
+	classifier, err := CompileClassifierV2(operation, plan, manifest)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -121,7 +122,7 @@ func honestCarriedEvidence(t *testing.T, inputs IndependentInputsV3) CarriedEvid
 		ClassifierManifestSHA256: classifier.ManifestSHA256(),
 		ClassifierBindingSHA256:  classifier.BindingSHA256(),
 		Window:                   ObserverWindowV2{Before: before, After: after},
-		VisibleStatement: physicalquery.StatementIdentity{
+		VisibleStatement: &physicalquery.StatementIdentity{
 			ExactSHA256:     physicalquery.ExactDigest(inputs.VisibleSQL),
 			StrictASTSHA256: visibleStrict, RowLimit: 100,
 		},

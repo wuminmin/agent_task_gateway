@@ -105,8 +105,8 @@ func sortStructural(rows []ObserverStructuralRow) {
 func pairedNovelWindow(t *testing.T) (ObserverWindowV2, *CompiledClassifier, GatewayControlPlanV3) {
 	t.Helper()
 	targets := pairedTargets(t)
-	manifest := compiledTestManifest(t, targets...)
-	classifier, err := CompileClassifier(testOperation(t, PathPairedNovel), manifest)
+	manifest := compiledTestManifest(t, PathPairedNovel, targets...)
+	classifier, err := compileTest(t, PathPairedNovel, manifest)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -293,7 +293,7 @@ func TestSameTotalControlSubstitutionFails(t *testing.T) {
 	window, classifier, plan := pairedNovelWindow(t)
 	// Move one call from the safety pin to the representation pin: both are
 	// control classes expecting 1, so every aggregate stays put.
-	manifest := compiledTestManifest(t, pairedTargets(t)...)
+	manifest := compiledTestManifest(t, PathPairedNovel, pairedTargets(t)...)
 	var safety, representation string
 	for _, entry := range manifest.Entries {
 		switch entry.Class {
@@ -329,7 +329,7 @@ func TestMissingAndExtraControlsBothFail(t *testing.T) {
 	for name, adjust := range map[string]int64{"missing": -1, "extra": +1} {
 		t.Run(name, func(t *testing.T) {
 			window, classifier, plan := pairedNovelWindow(t)
-			manifest := compiledTestManifest(t, pairedTargets(t)...)
+			manifest := compiledTestManifest(t, PathPairedNovel, pairedTargets(t)...)
 			var safety string
 			for _, entry := range manifest.Entries {
 				if entry.Class == V3SafetySessionPin {

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"taskbound.local/agent-data-gateway/internal/dataconnector"
 	"taskbound.local/agent-data-gateway/internal/physicalquery"
 	"taskbound.local/agent-data-gateway/internal/querybinding"
 	"taskbound.local/agent-data-gateway/internal/queryreceipt"
@@ -28,13 +29,21 @@ func (c gateCase) finalize() (FinalizationV3, error) {
 }
 
 func trustedFrom(inputs IndependentInputsV3) TrustedInputsV3 {
-	return TrustedInputsV3{
+	trusted := TrustedInputsV3{
 		CatalogPath: inputs.CatalogPath, Footprint: inputs.Footprint,
 		PostgreSQL: inputs.PostgreSQL, OperationID: inputs.OperationID,
 		ContractIdentity: inputs.ContractIdentity,
 		VisibleSQL:       inputs.VisibleSQL, CompanionSQL: inputs.CompanionSQL,
 		SettlementWroteExecutionBindingRow: true,
 	}
+	// A path that reaches Business PostgreSQL not at all builds no
+	// ExpectedSchema, performs no Attestation and renders no target statement, so
+	// it must be finalized with none of that material.
+	if dimensions, _ := dimensionsFor(inputs.PathKind); !dimensions.requiresSchema {
+		trusted.CatalogPath, trusted.Footprint = "", AttestationFootprintV2{}
+		trusted.VisibleSQL, trusted.CompanionSQL = "", ""
+	}
+	return trusted
 }
 
 // carriedFor builds the carried evidence a correct Adapter produces for one path
@@ -50,10 +59,6 @@ func carriedFor(t *testing.T, inputs IndependentInputsV3) CarriedEvidenceV3 {
 	if !known {
 		t.Fatalf("path_kind %q has no dimensions", inputs.PathKind)
 	}
-	footprintDigest, err := inputs.Footprint.SHA256()
-	if err != nil {
-		t.Fatalf("footprint digest: %v", err)
-	}
 	// Attestation bindings are presence-coupled to the path in both directions:
 	// a path that attests must name what against and under which qualification,
 	// and one that does not must claim neither.
@@ -61,24 +66,41 @@ func carriedFor(t *testing.T, inputs IndependentInputsV3) CarriedEvidenceV3 {
 		OperationID: inputs.OperationID, PathKind: inputs.PathKind,
 		ContractIdentity: inputs.ContractIdentity,
 	}
+	var (
+		plan              GatewayControlPlanV3
+		manifestFootprint *AttestationFootprintV2
+		targets           []ClassifierEntry
+		err               error
+	)
 	if dimensions.requiresSchema {
+		footprintDigest, digestErr := inputs.Footprint.SHA256()
+		if digestErr != nil {
+			t.Fatalf("footprint digest: %v", digestErr)
+		}
 		operation.ExpectedSchemaDigest = inputs.Footprint.ExpectedSchemaDigest
 		operation.AttestationFootprintSHA256 = footprintDigest
+		plan, err = planFor(inputs.PathKind, inputs.Footprint.ExpectedSchemaEntries,
+			inputs.Footprint.ExpectedSchemaDigest, inputs.Footprint)
+		if err != nil {
+			t.Fatalf("plan: %v", err)
+		}
+		targets, err = deriveTargets(inputs, StrictASTDigest)
+		if err != nil {
+			t.Fatalf("targets: %v", err)
+		}
+		footprint := inputs.Footprint
+		manifestFootprint = &footprint
+	} else {
+		plan, err = planFor(inputs.PathKind, 0, "", AttestationFootprintV2{})
+		if err != nil {
+			t.Fatalf("plan: %v", err)
+		}
 	}
-	plan, err := planFor(inputs.PathKind, inputs.Footprint.ExpectedSchemaEntries,
-		inputs.Footprint.ExpectedSchemaDigest, inputs.Footprint)
-	if err != nil {
-		t.Fatalf("plan: %v", err)
-	}
-	targets, err := deriveTargets(inputs, StrictASTDigest)
-	if err != nil {
-		t.Fatalf("targets: %v", err)
-	}
-	manifest, err := BuildClassifierManifest(inputs.Footprint, targets)
+	manifest, err := BuildClassifierManifestV2(plan, manifestFootprint, targets)
 	if err != nil {
 		t.Fatalf("manifest: %v", err)
 	}
-	classifier, err := CompileClassifier(operation, manifest)
+	classifier, err := CompileClassifierV2(operation, plan, manifest)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -103,7 +125,7 @@ func carriedFor(t *testing.T, inputs IndependentInputsV3) CarriedEvidenceV3 {
 	}
 	if dimensions.visible > 0 {
 		strict, _ := StrictASTDigest(inputs.VisibleSQL)
-		carried.VisibleStatement = physicalquery.StatementIdentity{
+		carried.VisibleStatement = &physicalquery.StatementIdentity{
 			ExactSHA256: physicalquery.ExactDigest(inputs.VisibleSQL), StrictASTSHA256: strict,
 			RowLimit: fixture.VisibleRowLimit, Fingerprint: "fixture-visible-fingerprint",
 		}
@@ -318,81 +340,317 @@ func TestGate21SemanticReplayAuthorizesWithoutExecuting(t *testing.T) {
 	})
 }
 
-// Gate 22 is OPEN, and this test pins the reason.
+// Gate 22. An exact request-ID replay returns the original document unchanged,
+// settles nothing, and reaches Business PostgreSQL not at all.
 //
-// The v3 model as it stands cannot finalize an exact request-ID replay at all,
-// because two of its invariants are in direct conflict on that path:
+// The path is finalized under a zero-statement classifier manifest: a real
+// document with a real digest, bound to this operation and this all-zero plan,
+// whose entry list is empty. That is the strictest closed world available rather
+// than a relaxation of one -- with no entry to match, EVERY Business statement
+// observed in the window is V3Unexpected, and the all-zero plan accepts none.
 //
-//   - CompileClassifier presence-couples attestation in both directions. A path
-//     that performs no Attestation -- idempotent_replay returns before
-//     datasourceEvidence and reaches Business PostgreSQL not at all -- must name
-//     neither an ExpectedSchema nor a qualified footprint, and an internal
-//     manifest entry naming a qualification the operation does not claim is
-//     rejected.
-//   - ClassifierManifest.Validate requires an entry for every class in
-//     requiredManifestClasses(), which includes postgresql_internal_attestation
-//     unconditionally. The only source of internal keys is the footprint.
-//
-// So the manifest must carry internal keys, and the operation must not claim the
-// qualification those keys came from. Nothing satisfies both.
-//
-// Resolving it is an author decision, because each way out changes what a
-// manifest or an operation identity MEANS:
-//
-//   - make the required-class set path-aware, so a non-attesting operation's
-//     closed world excludes the internal class. This relaxes a closed-world rule
-//     whose purpose is that no observed statement goes unclassified;
-//   - let a non-attesting operation still name the footprint, weakening the
-//     presence coupling that keeps a replay distinguishable from an execution;
-//   - finalize replays through a separate acceptance path.
-//
-// Weakening either invariant unilaterally is precisely the quiet relaxation this
-// arc exists to prevent, so the conflict is pinned here instead. This test fails
-// the moment someone resolves it, which is when the real gate 22 gets written.
-func TestGate22IsBlockedByAConflictBetweenTwoV3Invariants(t *testing.T) {
-	inputs := finalizerInputs(t)
-	inputs.PathKind = PathIdempotentReplay
+// This replaces TestGate22IsBlockedByAConflictBetweenTwoV3Invariants, which
+// pinned the conflict between the old universal required-class rule and the
+// presence coupling that forbids a non-attesting operation from naming a
+// qualification. The author resolved it by making the class set path-aware; see
+// docs/final_v5_v3_runtime_integration_gates.md.
+func TestGate22IdempotentReplayReturnsOriginalReceiptByteForByte(t *testing.T) {
+	base := idempotentReplayCase(t)
 
-	dimensions, known := dimensionsFor(PathIdempotentReplay)
-	if !known || dimensions.requiresSchema {
-		t.Fatal("idempotent_replay is expected to perform no Attestation")
+	finalized, err := base.finalize()
+	if err != nil {
+		t.Fatalf("an honest idempotent replay was rejected: %v", err)
 	}
 
-	var internalRequired bool
-	for _, class := range requiredManifestClasses() {
-		if class == V3PostgreSQLInternalAttestation {
-			internalRequired = true
+	// The zero-statement manifest is a document, and it is the one the finalizer
+	// independently derived for this operation and this all-zero plan.
+	zero := compiledTestManifest(t, PathIdempotentReplay)
+	if len(zero.Entries) != 0 {
+		t.Fatalf("the idempotent replay manifest declares %d entr(ies)", len(zero.Entries))
+	}
+	zeroDigest, err := zero.SHA256()
+	if err != nil {
+		t.Fatalf("zero-statement manifest digest: %v", err)
+	}
+	if finalized.ClassifierManifestSHA256 != zeroDigest {
+		t.Fatalf("the replay finalized under manifest %s, the zero-statement manifest is %s",
+			shortDigest(finalized.ClassifierManifestSHA256), shortDigest(zeroDigest))
+	}
+	if finalized.Operation.PathKind != PathIdempotentReplay {
+		t.Fatalf("the replay finalized as path_kind %s", finalized.Operation.PathKind)
+	}
+	// It attests against nothing, so it names nothing.
+	if finalized.ExpectedSchemaDigest != "" || finalized.Operation.AttestationFootprintSHA256 != "" {
+		t.Fatal("an idempotent replay finalized with an ExpectedSchema or a qualified footprint")
+	}
+
+	// Zero Business delta, and empty rather than merely balanced: a structural
+	// row in any class would mean the replay touched Business PostgreSQL.
+	if finalized.Delta.Total != 0 {
+		t.Fatalf("an idempotent replay moved the Business total by %d", finalized.Delta.Total)
+	}
+	for _, class := range GatewayStatementClassesV3() {
+		if got := finalized.Delta.PerClass[class]; got != 0 {
+			t.Errorf("an idempotent replay recorded %d %s statement(s)", got, class)
 		}
 	}
-	if !internalRequired {
-		t.Fatal("the internal class is no longer unconditionally required; " +
-			"the gate 22 conflict may be resolved -- write the real gate")
+	if len(finalized.Delta.Internal) != 0 || len(finalized.Delta.Unexpected) != 0 {
+		t.Fatal("an idempotent replay produced a non-empty structural delta")
 	}
 
-	// A manifest built without internal keys cannot validate...
-	if _, err := BuildClassifierManifest(AttestationFootprintV2{}, nil); err == nil {
-		t.Fatal("a manifest with no internal keys now builds; " +
-			"the gate 22 conflict may be resolved -- write the real gate")
+	// The returned document must be the persisted one, byte for byte, and its
+	// stored identity unchanged.
+	t.Run("a changed returned document", func(t *testing.T) {
+		broken := idempotentReplayCase(t)
+		replay := *broken.trusted.Replay
+		replay.ReturnedReceiptJSON = append(append([]byte(nil), replay.PersistedReceiptJSON...), ' ')
+		broken.trusted.Replay = &replay
+		if _, err := broken.finalize(); err == nil {
+			t.Fatal("a returned document differing from the persisted one by one byte was accepted")
+		}
+	})
+	t.Run("a rewritten persisted document", func(t *testing.T) {
+		broken := idempotentReplayCase(t)
+		replay := *broken.trusted.Replay
+		rewritten := append(append([]byte(nil), replay.PersistedReceiptJSON...), ' ')
+		replay.PersistedReceiptJSON, replay.ReturnedReceiptJSON = rewritten, rewritten
+		broken.trusted.Replay = &replay
+		if _, err := broken.finalize(); err == nil {
+			t.Fatal("a rewritten stored document was accepted; its recorded digest no longer describes it")
+		}
+	})
+	t.Run("a changed signature", func(t *testing.T) {
+		broken := idempotentReplayCase(t)
+		replay := *broken.trusted.Replay
+		replay.PersistedSignature = "another-signature"
+		broken.trusted.Replay = &replay
+		if _, err := broken.finalize(); err == nil {
+			t.Fatal("a replayed receipt whose signature differs from the persisted one was accepted")
+		}
+	})
+	t.Run("another request's receipt", func(t *testing.T) {
+		for name, mutate := range map[string]func(*IdempotentReplayEvidenceV1){
+			"task id":    func(e *IdempotentReplayEvidenceV1) { e.TaskID = "another-task" },
+			"request id": func(e *IdempotentReplayEvidenceV1) { e.RequestID = "another-request" },
+			"request digest": func(e *IdempotentReplayEvidenceV1) {
+				e.RequestDigest = fmt.Sprintf("%x", sha256.Sum256([]byte("another request")))
+			},
+			"original query id": func(e *IdempotentReplayEvidenceV1) { e.OriginalQueryID = "another-query" },
+		} {
+			t.Run(name, func(t *testing.T) {
+				broken := idempotentReplayCase(t)
+				replay := *broken.trusted.Replay
+				mutate(&replay)
+				broken.trusted.Replay = &replay
+				if _, err := broken.finalize(); err == nil {
+					t.Fatalf("a replay whose %s does not identify the recorded request was accepted", name)
+				}
+			})
+		}
+	})
+
+	// Nothing may have been created. Each row is named separately so a partial
+	// replay -- one that reserved budget, say -- fails rather than averaging out.
+	t.Run("something was settled", func(t *testing.T) {
+		for name, mutate := range map[string]func(*IdempotentReplayEvidenceV1){
+			"a new query row":             func(e *IdempotentReplayEvidenceV1) { e.WroteNewQueryRow = true },
+			"a new execution binding row": func(e *IdempotentReplayEvidenceV1) { e.WroteNewExecutionBindingRow = true },
+			"a new reservation":           func(e *IdempotentReplayEvidenceV1) { e.WroteNewReservation = true },
+		} {
+			t.Run(name, func(t *testing.T) {
+				broken := idempotentReplayCase(t)
+				replay := *broken.trusted.Replay
+				mutate(&replay)
+				broken.trusted.Replay = &replay
+				if _, err := broken.finalize(); err == nil {
+					t.Fatalf("a replay that wrote %s was accepted", name)
+				}
+			})
+		}
+		broken := idempotentReplayCase(t)
+		broken.trusted.SettlementWroteExecutionBindingRow = true
+		if _, err := broken.finalize(); err == nil {
+			t.Fatal("the settlement and replay evidence disagreed about a binding row and were accepted")
+		}
+	})
+
+	// Any Business statement at all is fatal, whatever it is. Each of these is a
+	// structure that is perfectly legitimate on some other path; here none of
+	// them can be classified, so each lands in the unexpected sink.
+	t.Run("a Business statement in the window", func(t *testing.T) {
+		for name, row := range map[string]ObserverStructuralRow{
+			"a transaction BEGIN":       structuralRowFor(t, runtimeBeginTemplate, true),
+			"a transaction COMMIT":      structuralRowFor(t, runtimeCommitTemplate, true),
+			"the safety session pin":    structuralRowFor(t, dataconnector.SafetySessionPinSQL, true),
+			"the datasource identity":   structuralRowFor(t, dataconnector.DatasourceIdentitySQL, true),
+			"a view column attestation": structuralRowFor(t, dataconnector.ViewColumnAttestationSQL, true),
+			"the visible target":        structuralRowFor(t, finalizerVisibleSQL, true),
+			"the companion target":      structuralRowFor(t, finalizerCompanionSQL, true),
+			"a qualified internal key": {
+				StrictASTSHA256: testInternalKeyA, TopLevel: false, Calls: 1,
+			},
+			"an unknown statement": {
+				StrictASTSHA256: fmt.Sprintf("%x", sha256.Sum256([]byte("something else entirely"))),
+				TopLevel:        true, Calls: 1,
+			},
+		} {
+			t.Run(name, func(t *testing.T) {
+				broken := idempotentReplayCase(t)
+				broken.carried.Window.After = snapshotOf(t, "after", []ObserverStructuralRow{row})
+				if _, err := broken.finalize(); err == nil {
+					t.Fatalf("an idempotent replay window containing %s was accepted", name)
+				}
+			})
+		}
+	})
+
+	// A role total that moved without any structural row is not a smaller
+	// version of the same defect: it means the total and the census did not come
+	// from one row set, and the atomic invariant rejects the snapshot outright.
+	t.Run("a role total with no structural rows", func(t *testing.T) {
+		broken := idempotentReplayCase(t)
+		broken.carried.Window.After.Total = 1
+		if err := broken.carried.Window.After.Validate(); err == nil {
+			t.Fatal("a snapshot whose total disagrees with its census validated")
+		}
+		if _, err := broken.finalize(); err == nil {
+			t.Fatal("an idempotent replay whose role total moved with no structural row was accepted")
+		}
+	})
+
+	// The window must have been measured under one unchanging deployment. The
+	// healthcheck digest is part of that identity for a specific reason: the
+	// observer-v3 override replaces /health/ready with /health/live, and a probe
+	// still reaching /health/ready performs a full Business Attestation on every
+	// interval -- readiness attestation is only ever legitimate OUTSIDE the
+	// window.
+	t.Run("the periodic healthcheck changed inside the window", func(t *testing.T) {
+		broken := idempotentReplayCase(t)
+		broken.carried.Window.After.Runtime.Gateway.HealthcheckSHA256 = strings.Repeat("9", 64)
+		if _, err := broken.finalize(); err == nil {
+			t.Fatal("a window whose periodic healthcheck definition changed was accepted")
+		}
+	})
+
+	// Attestation and target material must not reach an idempotent replay through
+	// any door: not the finalizer's inputs, not the Adapter's evidence.
+	t.Run("attestation or target material", func(t *testing.T) {
+		for name, mutate := range map[string]func(*gateCase){
+			"a Profile Catalog": func(c *gateCase) {
+				c.trusted.CatalogPath = resultHeavyCatalogPath(t)
+			},
+			"a qualified footprint": func(c *gateCase) {
+				footprint, _ := realSchemaFootprint(t)
+				c.trusted.Footprint = footprint
+			},
+			"reproduced visible SQL":   func(c *gateCase) { c.trusted.VisibleSQL = finalizerVisibleSQL },
+			"reproduced companion SQL": func(c *gateCase) { c.trusted.CompanionSQL = finalizerCompanionSQL },
+			"a carried visible statement": func(c *gateCase) {
+				c.carried.VisibleStatement = &physicalquery.StatementIdentity{
+					ExactSHA256: physicalquery.ExactDigest(finalizerVisibleSQL),
+				}
+			},
+			"a carried companion statement": func(c *gateCase) {
+				c.carried.CompanionStatement = &physicalquery.StatementIdentity{
+					ExactSHA256: physicalquery.ExactDigest(finalizerCompanionSQL),
+				}
+			},
+			"a carried visible prepared target binding": func(c *gateCase) {
+				c.carried.VisiblePreparedTargetBindingSHA256 = fixture.PreparedTargetBinding(querybinding.RoleVisible)
+			},
+			"a carried companion prepared target binding": func(c *gateCase) {
+				c.carried.CompanionPreparedTargetBindingSHA256 = fixture.PreparedTargetBinding(querybinding.RoleCompanion)
+			},
+			"an ExpectedSchema on the operation": func(c *gateCase) {
+				c.carried.Operation.ExpectedSchemaDigest = strings.Repeat("a", 64)
+			},
+			"a footprint on the operation": func(c *gateCase) {
+				c.carried.Operation.AttestationFootprintSHA256 = strings.Repeat("b", 64)
+			},
+		} {
+			t.Run(name, func(t *testing.T) {
+				broken := idempotentReplayCase(t)
+				mutate(&broken)
+				if _, err := broken.finalize(); err == nil {
+					t.Fatalf("an idempotent replay carrying %s was accepted", name)
+				}
+			})
+		}
+	})
+
+	// And the empty manifest is a contract for THIS path alone.
+	t.Run("the empty manifest on an executing path", func(t *testing.T) {
+		for _, kind := range []GatewayPathKind{PathPairedNovel, PathSingleQuery, PathSemanticReplay} {
+			if _, err := compileTest(t, kind, zero); err == nil {
+				t.Fatalf("the zero-statement manifest compiled for %s", kind)
+			}
+		}
+	})
+}
+
+// idempotentReplayCase is an honest exact request-ID replay: the original
+// paired-novel receipt comes back unchanged, the store recorded that nothing was
+// settled, and the observer saw no Business statement at all.
+func idempotentReplayCase(t *testing.T) gateCase {
+	t.Helper()
+	inputs := finalizerInputs(t)
+	inputs.PathKind = PathIdempotentReplay
+	carried := carriedFor(t, inputs)
+
+	// The document that comes back is the ORIGINAL execution's receipt. Its
+	// signed binding describes that execution and names its path kind, which is
+	// exactly why the replay is established from the Control Store instead.
+	companionTarget := fixture.Target{
+		ExactSQLSHA256:  physicalquery.ExactDigest(finalizerCompanionSQL),
+		StrictASTSHA256: mustStrictDigest(t, finalizerCompanionSQL),
+	}
+	receipt, err := fixture.PairedNovel(fixture.Options{
+		Visible: fixture.Target{
+			ExactSQLSHA256:  physicalquery.ExactDigest(finalizerVisibleSQL),
+			StrictASTSHA256: mustStrictDigest(t, finalizerVisibleSQL),
+		},
+		Companion: &companionTarget,
+	})
+	if err != nil {
+		t.Fatalf("build the original signed V9: %v", err)
+	}
+	verifier, err := fixture.Verifier()
+	if err != nil {
+		t.Fatalf("verifier: %v", err)
+	}
+	persisted, err := fixture.PersistedJSON(receipt)
+	if err != nil {
+		t.Fatalf("persist the original receipt: %v", err)
 	}
 
-	// ...and one built WITH them cannot compile against a non-attesting
-	// operation, which is the other half of the vice.
-	targets, err := deriveTargets(inputs, StrictASTDigest)
+	trusted := trustedFrom(inputs)
+	trusted.SettlementWroteExecutionBindingRow = false
+	trusted.Replay = &IdempotentReplayEvidenceV1{
+		TaskID: receipt.TaskID, RequestID: receipt.RequestID,
+		RequestDigest: receipt.RequestDigest, OriginalQueryID: receipt.QueryID,
+		PersistedReceiptJSON: persisted,
+		// A distinct copy, so a test that mutates one does not silently mutate
+		// the other and pass for the wrong reason.
+		ReturnedReceiptJSON:    append([]byte(nil), persisted...),
+		PersistedReceiptSHA256: fmt.Sprintf("%x", sha256.Sum256(persisted)),
+		PersistedSignature:     receipt.Signature,
+	}
+	return gateCase{receipt: receipt, verifier: verifier, carried: carried, trusted: trusted}
+}
+
+// structuralRowFor is one observed statement, keyed the way the observer keys it.
+func structuralRowFor(t *testing.T, sql string, topLevel bool) ObserverStructuralRow {
+	t.Helper()
+	return ObserverStructuralRow{StrictASTSHA256: mustStrictDigest(t, sql), TopLevel: topLevel, Calls: 1}
+}
+
+func mustStrictDigest(t *testing.T, sql string) string {
+	t.Helper()
+	digest, err := StrictASTDigest(sql)
 	if err != nil {
-		t.Fatalf("targets: %v", err)
+		t.Fatalf("strict AST digest: %v", err)
 	}
-	manifest, err := BuildClassifierManifest(inputs.Footprint, targets)
-	if err != nil {
-		t.Fatalf("manifest: %v", err)
-	}
-	operation := OperationIdentity{
-		OperationID: inputs.OperationID, PathKind: PathIdempotentReplay,
-		ContractIdentity: inputs.ContractIdentity,
-	}
-	if _, err := CompileClassifier(operation, manifest); err == nil {
-		t.Fatal("a non-attesting operation now compiles against a footprint-bound manifest; " +
-			"the gate 22 conflict may be resolved -- write the real gate")
-	}
+	return digest
 }
 
 // The replay evidence contract itself is complete and testable, and is checked

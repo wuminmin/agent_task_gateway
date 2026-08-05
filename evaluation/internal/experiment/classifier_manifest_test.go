@@ -24,13 +24,12 @@ func testTargets(t *testing.T) []ClassifierEntry {
 	return []ClassifierEntry{visible, companion}
 }
 
+// testManifest is the paired-novel manifest: the one path whose closed world
+// contains every control class, so the classification tests below can exercise
+// all of them from one document.
 func testManifest(t *testing.T) ClassifierManifest {
 	t.Helper()
-	manifest, err := BuildClassifierManifest(qualifiedFootprint(t), testTargets(t))
-	if err != nil {
-		t.Fatalf("build manifest: %v", err)
-	}
-	return manifest
+	return compiledTestManifest(t, PathPairedNovel, testTargets(t)...)
 }
 
 func TestClassifierManifestIsValidAndDeterministic(t *testing.T) {
@@ -43,10 +42,7 @@ func TestClassifierManifestIsValidAndDeterministic(t *testing.T) {
 		t.Fatalf("manifest digest is not SHA-256: %q", digest)
 	}
 	for i := 0; i < 8; i++ {
-		again, err := BuildClassifierManifest(qualifiedFootprint(t), testTargets(t))
-		if err != nil {
-			t.Fatalf("rebuild: %v", err)
-		}
+		again := testManifest(t)
 		other, err := again.SHA256()
 		if err != nil {
 			t.Fatalf("rebuild digest: %v", err)
@@ -264,15 +260,7 @@ func TestClassifierManifestRejectsInvalidShapes(t *testing.T) {
 			m.Entries[1].StrictASTSHA256 = m.Entries[0].StrictASTSHA256
 			m.Entries[1].RequiredTopLevel = m.Entries[0].RequiredTopLevel
 		},
-		"a missing required class": func(m *ClassifierManifest) {
-			trimmed := make([]ClassifierEntry, 0, len(m.Entries))
-			for _, entry := range m.Entries {
-				if entry.Class != V3RepresentationPin {
-					trimmed = append(trimmed, entry)
-				}
-			}
-			m.Entries = trimmed
-		},
+		"an unknown path kind": func(m *ClassifierManifest) { m.PathKind = "paired_novel_v2" },
 		"entries out of canonical order": func(m *ClassifierManifest) {
 			m.Entries[0], m.Entries[len(m.Entries)-1] = m.Entries[len(m.Entries)-1], m.Entries[0]
 		},
@@ -333,18 +321,265 @@ func TestOperationSpecificTargetsDoNotAcceptAnotherWorkloadsQuery(t *testing.T) 
 }
 
 func TestBuildClassifierManifestRejectsNonTargetExtras(t *testing.T) {
+	footprint := qualifiedFootprint(t)
+	plan := testPlan(t, PathPairedNovel)
 	control := ClassifierEntry{
 		Class: V3SafetySessionPin, StrictASTSHA256: testSchemaDigest,
 		RequiredTopLevel: true, SourceKind: SourceQueryContract, ContractIdentity: "x",
 	}
-	if _, err := BuildClassifierManifest(qualifiedFootprint(t), []ClassifierEntry{control}); err == nil {
+	if _, err := BuildClassifierManifestV2(plan, &footprint, []ClassifierEntry{control}); err == nil {
 		t.Fatal("a non-target entry was accepted as an operation target")
 	}
 	unpinned := ClassifierEntry{
 		Class: V3TargetedVisible, StrictASTSHA256: testSchemaDigest,
 		RequiredTopLevel: true, SourceKind: SourceConnectorConstant, SourceSHA256: testSchemaDigest,
 	}
-	if _, err := BuildClassifierManifest(qualifiedFootprint(t), []ClassifierEntry{unpinned}); err == nil {
+	if _, err := BuildClassifierManifestV2(plan, &footprint, []ClassifierEntry{unpinned}); err == nil {
 		t.Fatal("a target not bound to a frozen query contract was accepted")
+	}
+}
+
+// The v2 rule. Which classes a manifest declares is settled by the
+// independently derived plan, in both directions: a class the plan expects must
+// be declared exactly, and a class it does not expect must not be declared at
+// all.
+//
+// The second half is what version 1 had backwards, and it is not surplus
+// tidiness. An entry for a class the path cannot produce makes that statement
+// CLASSIFIABLE, so a control statement appearing where none should would be
+// counted as a known class rather than landing in the unexpected sink.
+func TestManifestClassSetIsDerivedFromThePlan(t *testing.T) {
+	plan := testPlan(t, PathPairedNovel)
+
+	t.Run("a class the plan expects must be declared", func(t *testing.T) {
+		manifest := testManifest(t)
+		trimmed := make([]ClassifierEntry, 0, len(manifest.Entries))
+		for _, entry := range manifest.Entries {
+			if entry.Class != V3RepresentationPin {
+				trimmed = append(trimmed, entry)
+			}
+		}
+		manifest.Entries = trimmed
+		if err := manifest.Validate(); err != nil {
+			t.Fatalf("the trimmed manifest is still structurally valid: %v", err)
+		}
+		if err := manifest.requireClassSet(plan); err == nil {
+			t.Fatal("a manifest missing a class the plan expects was accepted")
+		}
+	})
+
+	t.Run("a class the plan does not expect must not be declared", func(t *testing.T) {
+		// The representation pin is the paired path's alone: Connector.Query
+		// issues none. A single-query manifest declaring one would make that
+		// statement classifiable on a path that cannot produce it.
+		single := testPlan(t, PathSingleQuery)
+		manifest := compiledTestManifest(t, PathSingleQuery, pairedTargets(t)[:1]...)
+		for _, entry := range manifest.Entries {
+			if entry.Class == V3RepresentationPin {
+				t.Fatal("a single-query manifest declared the representation pin")
+			}
+		}
+		digest, err := StrictASTDigest(dataconnector.RepresentationPinSQL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		manifest.Entries = append(manifest.Entries, ClassifierEntry{
+			Class: V3RepresentationPin, StrictASTSHA256: digest, RequiredTopLevel: true,
+			SourceKind: SourceConnectorConstant, SourceSHA256: sourceDigest(dataconnector.RepresentationPinSQL),
+		})
+		sortManifestEntries(manifest.Entries)
+		if err := manifest.Validate(); err != nil {
+			t.Fatalf("the extended manifest is still structurally valid: %v", err)
+		}
+		if err := manifest.requireClassSet(single); err == nil {
+			t.Fatal("a manifest declaring a class the path cannot produce was accepted")
+		}
+		if _, err := CompileClassifierV2(testOperation(t, PathSingleQuery), single, manifest); err == nil {
+			t.Fatal("a manifest declaring a class the path cannot produce compiled")
+		}
+	})
+
+	t.Run("internal keys are compared key by key", func(t *testing.T) {
+		manifest := testManifest(t)
+		for index := range manifest.Entries {
+			if manifest.Entries[index].Class == V3PostgreSQLInternalAttestation {
+				manifest.Entries[index].StrictASTSHA256 = testInternalKeyB
+			}
+		}
+		sortManifestEntries(manifest.Entries)
+		if err := manifest.requireClassSet(plan); err == nil {
+			t.Fatal("a substituted PostgreSQL-internal key was accepted; " +
+				"the class count is identical and only a per-key comparison sees it")
+		}
+	})
+}
+
+// Each path's manifest declares exactly the structures the author's decision
+// names for it, and nothing else.
+func TestEachPathDeclaresItsOwnClosedWorld(t *testing.T) {
+	for _, testCase := range []struct {
+		kind    GatewayPathKind
+		targets []ClassifierEntry
+		want    []GatewayStatementClassV3
+	}{
+		{PathPairedNovel, pairedTargets(t), []GatewayStatementClassV3{
+			V3TransactionBegin, V3TransactionCommit, V3SafetySessionPin, V3RepresentationPin,
+			V3StatementTimeoutPin, V3DatasourceIdentity, V3ViewColumnAttestation,
+			V3ViewDefinitionAttest, V3PostgreSQLInternalAttestation,
+			V3TargetedVisible, V3TargetedCompanion,
+		}},
+		{PathSingleQuery, pairedTargets(t)[:1], []GatewayStatementClassV3{
+			V3TransactionBegin, V3TransactionCommit, V3SafetySessionPin,
+			V3StatementTimeoutPin, V3DatasourceIdentity, V3ViewColumnAttestation,
+			V3ViewDefinitionAttest, V3PostgreSQLInternalAttestation, V3TargetedVisible,
+		}},
+		{PathSemanticReplay, nil, []GatewayStatementClassV3{
+			V3DatasourceIdentity, V3ViewColumnAttestation, V3ViewDefinitionAttest,
+			V3PostgreSQLInternalAttestation,
+		}},
+		{PathIdempotentReplay, nil, nil},
+	} {
+		t.Run(string(testCase.kind), func(t *testing.T) {
+			manifest := compiledTestManifest(t, testCase.kind, testCase.targets...)
+			declared := map[GatewayStatementClassV3]bool{}
+			for _, entry := range manifest.Entries {
+				declared[entry.Class] = true
+			}
+			for _, class := range testCase.want {
+				if !declared[class] {
+					t.Errorf("%s declares no %s", testCase.kind, class)
+				}
+				delete(declared, class)
+			}
+			for class := range declared {
+				t.Errorf("%s declares %s, which its plan does not expect", testCase.kind, class)
+			}
+		})
+	}
+}
+
+// The idempotent replay's manifest is a document, not a gap: it exists, it has a
+// path kind, it digests, it compiles -- and its entry list is empty, so every
+// Business statement in the window is unclassified.
+func TestIdempotentReplayHasASignedZeroStatementManifest(t *testing.T) {
+	manifest := compiledTestManifest(t, PathIdempotentReplay)
+	if manifest.Version != ClassifierManifestVersion {
+		t.Fatalf("the zero-statement manifest carries version %q", manifest.Version)
+	}
+	if manifest.PathKind != PathIdempotentReplay {
+		t.Fatalf("the zero-statement manifest carries path_kind %q", manifest.PathKind)
+	}
+	if len(manifest.Entries) != 0 {
+		t.Fatalf("the idempotent replay manifest declares %d entr(ies)", len(manifest.Entries))
+	}
+	digest, err := manifest.SHA256()
+	if err != nil {
+		t.Fatalf("the zero-statement manifest produced no digest: %v", err)
+	}
+	if len(digest) != 64 {
+		t.Fatalf("the zero-statement manifest digest is not SHA-256: %q", digest)
+	}
+	classifier, err := compileTest(t, PathIdempotentReplay, manifest)
+	if err != nil {
+		t.Fatalf("the zero-statement manifest did not compile: %v", err)
+	}
+	// Every structure any other path may legitimately produce is unclassified
+	// here, which is the whole content of the contract.
+	for name, sql := range map[string]string{
+		"BEGIN":                   runtimeBeginTemplate,
+		"COMMIT":                  runtimeCommitTemplate,
+		"the safety pin":          dataconnector.SafetySessionPinSQL,
+		"the datasource identity": dataconnector.DatasourceIdentitySQL,
+		"a view attestation":      dataconnector.ViewColumnAttestationSQL,
+	} {
+		key, err := StrictASTDigest(sql)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if class := classifier.Classify(key, true); class != V3Unexpected {
+			t.Errorf("%s classified as %s in an idempotent replay's closed world", name, class)
+		}
+	}
+	if class := classifier.Classify(testInternalKeyA, false); class != V3Unexpected {
+		t.Errorf("a qualified PostgreSQL-internal key classified as %s in an idempotent replay", class)
+	}
+}
+
+// A manifest with no entries is a contract only where the plan expects nothing.
+// Compiled against any path that reaches Business PostgreSQL it must fail.
+func TestAnEmptyManifestCompilesOnlyForANonExecutingPath(t *testing.T) {
+	empty := compiledTestManifest(t, PathIdempotentReplay)
+	for _, kind := range []GatewayPathKind{PathPairedNovel, PathSingleQuery, PathSemanticReplay} {
+		t.Run(string(kind), func(t *testing.T) {
+			if _, err := compileTest(t, kind, empty); err == nil {
+				t.Fatalf("an entry-less manifest compiled for %s", kind)
+			}
+			// Nor by relabelling it: the class set still has to come from the
+			// plan, and every one of these paths expects statements.
+			relabelled := empty
+			relabelled.PathKind = kind
+			if err := relabelled.Validate(); err == nil {
+				t.Fatalf("an entry-less manifest relabelled %s was structurally accepted", kind)
+			}
+			if _, err := compileTest(t, kind, relabelled); err == nil {
+				t.Fatalf("an entry-less manifest relabelled %s compiled", kind)
+			}
+		})
+	}
+}
+
+// An idempotent replay must not be given attestation material through any door:
+// not a footprint, not an internal key, not a target.
+func TestIdempotentReplayRejectsAttestationAndTargetMaterial(t *testing.T) {
+	plan := testPlan(t, PathIdempotentReplay)
+	footprint := qualifiedFootprint(t)
+
+	if _, err := BuildClassifierManifestV2(plan, &footprint, nil); err == nil {
+		t.Fatal("an idempotent replay manifest was built with a qualified footprint")
+	}
+	if _, err := BuildClassifierManifestV2(plan, nil, pairedTargets(t)); err == nil {
+		t.Fatal("an idempotent replay manifest was built with target entries")
+	}
+
+	// And a hand-assembled one carrying an internal key must not compile.
+	digest, err := footprint.SHA256()
+	if err != nil {
+		t.Fatal(err)
+	}
+	smuggled := ClassifierManifest{
+		Version: ClassifierManifestVersion, PathKind: PathIdempotentReplay,
+		Entries: []ClassifierEntry{{
+			Class: V3PostgreSQLInternalAttestation, StrictASTSHA256: testInternalKeyA,
+			RequiredTopLevel: false, SourceKind: SourceQualifiedFootprint, FootprintSHA256: digest,
+		}},
+	}
+	if err := smuggled.requireClassSet(plan); err == nil {
+		t.Fatal("an idempotent replay manifest carrying an internal key satisfied the plan")
+	}
+	if _, err := compileTest(t, PathIdempotentReplay, smuggled); err == nil {
+		t.Fatal("an idempotent replay manifest carrying an internal key compiled")
+	}
+}
+
+// A v1 manifest is historical development evidence. It must be rejected by name
+// rather than silently reinterpreted under the v2 class rules, which mean
+// something else.
+func TestManifestV1IsRejectedByName(t *testing.T) {
+	manifest := testManifest(t)
+	manifest.Version = classifierManifestVersionV1
+	err := manifest.Validate()
+	if err == nil {
+		t.Fatal("a v1 classifier manifest was accepted for v1.5 acceptance")
+	}
+	if !strings.Contains(err.Error(), classifierManifestVersionV1) {
+		t.Fatalf("the rejection %q does not name the superseded schema", err)
+	}
+}
+
+func sortManifestEntries(entries []ClassifierEntry) {
+	for i := 1; i < len(entries); i++ {
+		for j := i; j > 0 && manifestLess(entries[j], entries[j-1]); j-- {
+			entries[j], entries[j-1] = entries[j-1], entries[j]
+		}
 	}
 }

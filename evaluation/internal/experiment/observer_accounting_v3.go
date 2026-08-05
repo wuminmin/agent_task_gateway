@@ -1,9 +1,13 @@
 package experiment
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"sort"
+
+	"taskbound.local/agent-data-gateway/internal/approval"
 )
 
 // ObserverAccountingV3Version identifies the phase-derived closed-world
@@ -500,6 +504,32 @@ func validateInternalExpectation(expectation []InternalExpectation) error {
 		return errors.New("gateway control plan internal expectation is not in canonical order")
 	}
 	return nil
+}
+
+// gatewayControlPlanDomain domain-separates the control plan digest.
+const gatewayControlPlanDomain = "TASKGATE-FINAL-V5-OBSERVER-ACCOUNTING-V3-PLAN"
+
+// SHA256 is the plan's canonical domain-separated digest.
+//
+// It exists because the plan is now what settles which classes a manifest may
+// declare. Binding a manifest to an operation says the closed world belongs to
+// that operation; it does not say which multiplicity plan the class set was
+// derived from. Without the plan digest in the compiled binding, the same
+// operation could present one manifest under a plan that expects a class and
+// another under a plan that expects none of it, and every other digest would
+// agree.
+func (plan GatewayControlPlanV3) SHA256() (string, error) {
+	if err := plan.Validate(); err != nil {
+		return "", err
+	}
+	canonical, err := approval.CanonicalJSON(plan)
+	if err != nil {
+		return "", fmt.Errorf("canonicalize gateway control plan: %w", err)
+	}
+	hash := sha256.New()
+	hash.Write([]byte(gatewayControlPlanDomain + "\x00"))
+	hash.Write(canonical)
+	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 // InternalExpectationTotal is the aggregate for reporting only. Acceptance

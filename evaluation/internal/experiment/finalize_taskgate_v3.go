@@ -30,19 +30,25 @@ type ReceiptVerifierV3 interface {
 // VisibleSQL and CompanionSQL are the statements the finalizer reproduced
 // through internal/physicalquery from signed pre-state; they are compared with
 // the signed bytes rather than trusted.
+// CatalogPath, Footprint, VisibleSQL and CompanionSQL describe an execution
+// against Business PostgreSQL. An exact request-ID replay performs none, so for
+// it all four must be EMPTY: they are not ignored on that path, they are
+// rejected, because supplying them would mean finalizing a replay against schema
+// and qualification material belonging to some other request.
 type TrustedInputsV3 struct {
 	// CatalogPath is the activated Profile Catalog. The ExpectedSchema is built
-	// from it rather than accepted as a digest.
+	// from it rather than accepted as a digest. Empty on an idempotent replay.
 	CatalogPath string
 	// Footprint is the qualified Attestation footprint from its own retained
-	// qualification evidence.
+	// qualification evidence. Zero on an idempotent replay.
 	Footprint AttestationFootprintV2
 	// PostgreSQL is the runtime identity read from the running deployment.
 	PostgreSQL PostgreSQLRuntimeIdentity
 	// OperationID and ContractIdentity come from the frozen workload contract.
 	OperationID      string
 	ContractIdentity string
-	// VisibleSQL and CompanionSQL are independently reproduced statements.
+	// VisibleSQL and CompanionSQL are independently reproduced statements. Empty
+	// on an idempotent replay.
 	VisibleSQL   string
 	CompanionSQL string
 	// StrictAST computes structural identities; nil uses the package default.
@@ -317,7 +323,10 @@ func requireSignedTargets(pathKind GatewayPathKind, binding querybinding.QueryEx
 		if err := requireTargetExecution("visible", binding.Visible, executes); err != nil {
 			return err
 		}
-		if err := requireCarriedMatchesSigned("visible", binding.Visible, carried.VisibleStatement,
+		if carried.VisibleStatement == nil {
+			return fmt.Errorf("path_kind %s settles a visible statement but none was carried", pathKind)
+		}
+		if err := requireCarriedMatchesSigned("visible", binding.Visible, *carried.VisibleStatement,
 			carried.VisiblePreparedTargetBindingSHA256); err != nil {
 			return err
 		}

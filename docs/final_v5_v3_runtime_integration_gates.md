@@ -73,7 +73,7 @@ recorded with the gate rather than silently fixed.
 | 19 | **Wrong companion target.** Perform the same six mutations independently on the companion target. Every mutation must fail finalization. | `experiment.TestGate19WrongCompanionTargetFailsFinalization` + `experiment.TestGate18And19RejectAnotherContractIdentityForATarget` | PASS |
 | 20 | **Another workload's target.** A target belonging to another operation/cell/workload cannot classify for this operation. | `experiment.TestGate20AnotherWorkloadTargetRejected` | PASS |
 | 21 | **Semantic replay.** Targets `authorized=true`/`executed=false`; zero visible and companion delta; any `executed=true` or target statement must fail. | `experiment.TestGate21SemanticReplayAuthorizesWithoutExecuting` | PASS |
-| 22 | **Idempotent replay.** The original persisted V9 receipt document is returned unchanged; no new query, binding or reservation; zero Business delta; any Business statement must fail. | `experiment.TestGate22IsBlockedByAConflictBetweenTwoV3Invariants` (pins the blocker) + `experiment.TestIdempotentReplayEvidenceRequiresEveryMember` (wrapper half) | **BLOCKED** |
+| 22 | **Idempotent replay.** The original persisted V9 receipt document is returned unchanged; no new query, binding or reservation; zero Business delta; any Business statement must fail. | `experiment.TestGate22IdempotentReplayReturnsOriginalReceiptByteForByte` + `experiment.TestIdempotentReplayEvidenceRequiresEveryMember` (wrapper half) | PASS |
 | 23 | **Adapter-supplied wrong plan.** A carried plan differing from independent finalizer derivation fails. | `experiment.TestGate23AdapterWrongPlanRejected` | PASS |
 | 24 | **Adapter-supplied wrong manifest.** A carried manifest or binding differing from independent derivation fails. | `experiment.TestGate24AdapterWrongManifestRejected` | PASS |
 | 25 | **Adapter verdict.** The Adapter claims `pass` while the evidence carries a bad plan, target or delta; the finalizer rejects it because no Adapter verdict has acceptance authority. | `experiment.TestGate25AdapterVerdictIsNeverConsulted` | PASS |
@@ -83,43 +83,101 @@ recorded with the gate rather than silently fixed.
 | 29 | **Legacy v1.4 accounting rejected.** v1.4/v2 accounting evidence cannot satisfy v1.5/v3 acceptance. | `experiment.TestGate29LegacyV14EvidenceRejected` | PASS |
 | 30 | **Binding-digest mutation.** Mutation of any window, operation, manifest, classifier, target, execution, pre-state, receipt, runtime, image or footprint digest fails. | `experiment.TestGate30BindingDigestMutationRejected` | PASS |
 
-Twenty-nine gates PASS at this HEAD. **Gate 22 is BLOCKED** on an author
-decision, not on work.
+All thirty gates PASS at this HEAD.
 
-### Gate 22 is blocked by a conflict between two v3 invariants
+### Gate 22's blocker was resolved by author decision: a path-aware class set
 
-The v3 model as it stands cannot finalize an exact request-ID replay at all,
-because two of its own rules contradict each other on that path:
+Gate 22 was previously `BLOCKED`. The v3 model could not finalize an exact
+request-ID replay at all, because two of its own rules contradicted each other on
+that path:
 
 - `CompileClassifier` presence-couples attestation in both directions. A path
   performing no Attestation -- `idempotent_replay` returns before
   `datasourceEvidence` and reaches Business PostgreSQL not at all -- must name
   neither an ExpectedSchema nor a qualified footprint, and an internal manifest
   entry naming a qualification the operation does not claim is rejected.
-- `ClassifierManifest.Validate` requires an entry for every class in
-  `requiredManifestClasses()`, which includes
+- `ClassifierManifest.Validate` required an entry for every class in
+  `requiredManifestClasses()`, which included
   `postgresql_internal_attestation` unconditionally. The only source of internal
   keys is the footprint.
 
-So the manifest must carry internal keys and the operation must not claim the
-qualification they came from. Nothing satisfies both.
+So the manifest had to carry internal keys and the operation had to not claim the
+qualification they came from. Nothing satisfied both.
 
-Each way out changes what a manifest or an operation identity *means*, which is
-why it is an author decision rather than a fix:
+**The author approved the path-aware class set**, forward-versioned rather than
+applied to v1 in place. The reasoning is that this was never a safety rule: v1
+conflated *every class the Gateway can ever produce* with *every class THIS
+execution path may produce*. An idempotent replay's legitimate closed world is
+the empty set, and an empty set is a strict, content-addressed, operation-bound
+contract -- the strongest one available on that path, because with no entry to
+match, every Business statement in the window is `V3Unexpected` and the all-zero
+plan accepts none.
 
-1. make the required-class set path-aware, so a non-attesting operation's closed
-   world excludes the internal class -- this relaxes a closed-world rule whose
-   purpose is that no observed statement goes unclassified;
-2. let a non-attesting operation still name the footprint -- this weakens the
-   presence coupling that keeps a replay distinguishable from an execution;
-3. finalize replays through a separate acceptance path.
+The active versions are now:
 
-Weakening either invariant unilaterally is the quiet relaxation this arc exists
-to prevent, so the conflict is pinned by
-`TestGate22IsBlockedByAConflictBetweenTwoV3Invariants`, which fails the moment
-someone resolves it. The wrapper's half of gate 22 -- the typed replay evidence
-contract, stored-byte comparison, unchanged signature and digest, the three
-absences and the zero Business delta -- is implemented and tested.
+    taskgate-final-v5-observer-classifier-manifest-v2
+    taskgate-final-v5-compiled-classifier-v2
+
+Version 1 of each remains historical development evidence and does not enter v1.5
+acceptance. `ClassifierManifest.Validate` rejects a v1 document **by name**, so
+it fails with the reason rather than being silently reinterpreted under rules
+that mean something else.
+
+The rule that replaced `requiredManifestClasses()` is derived from the
+independently derived `GatewayControlPlanV3`, in both directions:
+
+| Plan | Manifest |
+| --- | --- |
+| `plan.Expected()[class] > 0` | must declare that class, exactly |
+| `plan.Expected()[class] == 0` | must not declare it at all |
+| `postgresql_internal_attestation` | manifest keys `==` `plan.InternalExpectation` keys, per key, each bound to `plan.AttestationFootprintSHA256` |
+| `targeted_visible` / `targeted_companion` | manifest cardinality `==` the plan's expectation |
+
+The second row is what v1 had backwards. An entry for a class the path cannot
+produce is not harmless surplus: it makes that statement *classifiable*, so a
+control statement appearing where none should would be counted as a known class
+instead of landing in the unexpected sink.
+
+The resulting shape per path:
+
+| Path | Declared classes |
+| --- | --- |
+| `paired_novel` | BEGIN, COMMIT, safety pin, representation pin, timeout pin, datasource identity, both view attestations, qualified internal keys, visible, companion |
+| `single_query` | as above minus the representation pin and the companion |
+| `semantic_replay` | datasource identity, both view attestations, qualified preflight internal keys |
+| `idempotent_replay` | none — `Entries = []` |
+
+The manifest may be structurally empty **only** where the independently derived
+plan expects zero in every class; an empty manifest compiled against any other
+plan fails, and so does an empty manifest merely relabelled with another path
+kind.
+
+Three further changes fall out of this:
+
+1. `ClassifierManifest` carries `PathKind`, and `CompileClassifierV2` requires
+   `operation.PathKind == plan.PathKind == manifest.PathKind`. A manifest is only
+   meaningful for one execution path.
+2. `GatewayControlPlanV3` gained a domain-separated SHA-256, bound into the
+   compiled-classifier digest alongside the operation identity and the manifest
+   digest. Under v1 the class set was universal, so a plan digest protected
+   nothing; under v2 the plan settles the class set, and without it the same
+   operation could present one manifest under a plan expecting a class and
+   another manifest under a plan expecting none of it, with every other digest
+   agreeing.
+3. `FinalizeObservationV3` branches **before** Catalog and footprint processing,
+   on `dimensionsFor(pathKind).requiresSchema` rather than by naming a path. A
+   non-attesting path supplying a Catalog path, a footprint or reproduced target
+   SQL is *rejected*, not ignored: accepting it would finalize a replay against
+   schema and qualification material belonging to some other request.
+   `CarriedEvidenceV3.VisibleStatement` became a pointer for the same reason --
+   a zero-valued execution identity must not be able to stand in for the absence
+   of one.
+
+The idempotent replay still requires, through the unchanged wrapper: the
+current observer runtime, PostgreSQL, Gateway and healthcheck identities stable
+across the window; reset/dealloc/restart/OOM state stable; the persisted receipt
+bytes returned unchanged; the persisted signature unchanged; no new query,
+reservation or execution-binding row; and an observer delta of exactly zero.
 
 ## Structural gates
 
@@ -147,7 +205,7 @@ inventory is empty and the ratchet becomes a plain zero-reference assertion.**
 The Result-heavy 100x4 diagnosis-only v3 canary must not run until every one of
 the following holds:
 
-1. all 30 gates pass -- currently 29, with gate 22 BLOCKED as above;
+1. all 30 gates pass;
 2. the full DSN-enabled suite passes, with zero failures and zero required skips;
 3. the v1.4 active symbols are unreachable and the reference set is empty;
 4. the finalizer production wrapper has real callers;

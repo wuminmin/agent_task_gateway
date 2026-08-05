@@ -25,13 +25,55 @@ func testOperation(t *testing.T, kind GatewayPathKind) OperationIdentity {
 	return identity
 }
 
-func compiledTestManifest(t *testing.T, targets ...ClassifierEntry) ClassifierManifest {
+// testPlan is the independently derived plan for one path against the shared
+// qualified footprint. Under manifest v2 it is the plan, not the manifest, that
+// settles which classes exist in a path's closed world, so almost every
+// classifier test needs one.
+func testPlan(t *testing.T, kind GatewayPathKind) GatewayControlPlanV3 {
 	t.Helper()
-	manifest, err := BuildClassifierManifest(qualifiedFootprint(t), targets)
+	return testPlanFrom(t, kind, qualifiedFootprint(t))
+}
+
+func testPlanFrom(t *testing.T, kind GatewayPathKind, footprint AttestationFootprintV2) GatewayControlPlanV3 {
+	t.Helper()
+	entries, digest := footprint.ExpectedSchemaEntries, footprint.ExpectedSchemaDigest
+	if dimensions, _ := dimensionsFor(kind); !dimensions.requiresSchema {
+		entries, digest, footprint = 0, "", AttestationFootprintV2{}
+	}
+	plan, err := planFor(kind, entries, digest, footprint)
 	if err != nil {
-		t.Fatalf("build manifest: %v", err)
+		t.Fatalf("plan for %s: %v", kind, err)
+	}
+	return plan
+}
+
+// buildTestManifest supplies the qualified footprint exactly when the path
+// attests, which is what BuildClassifierManifestV2 requires: a non-attesting
+// path must present none at all.
+func buildTestManifest(t *testing.T, plan GatewayControlPlanV3, footprint AttestationFootprintV2,
+	targets ...ClassifierEntry) ClassifierManifest {
+	t.Helper()
+	var supplied *AttestationFootprintV2
+	if dimensions, _ := dimensionsFor(plan.PathKind); dimensions.requiresSchema {
+		supplied = &footprint
+	}
+	manifest, err := BuildClassifierManifestV2(plan, supplied, targets)
+	if err != nil {
+		t.Fatalf("build manifest for %s: %v", plan.PathKind, err)
 	}
 	return manifest
+}
+
+func compiledTestManifest(t *testing.T, kind GatewayPathKind, targets ...ClassifierEntry) ClassifierManifest {
+	t.Helper()
+	return buildTestManifest(t, testPlan(t, kind), qualifiedFootprint(t), targets...)
+}
+
+// compileTest is the three-document compile every test needs: one operation, the
+// plan derived for its path, and the manifest built from that plan.
+func compileTest(t *testing.T, kind GatewayPathKind, manifest ClassifierManifest) (*CompiledClassifier, error) {
+	t.Helper()
+	return CompileClassifierV2(testOperation(t, kind), testPlan(t, kind), manifest)
 }
 
 func pairedTargets(t *testing.T) []ClassifierEntry {
@@ -51,7 +93,7 @@ func pairedTargets(t *testing.T) []ClassifierEntry {
 
 func TestCompiledClassifierResolvesEveryDefinedKey(t *testing.T) {
 	targets := pairedTargets(t)
-	classifier, err := CompileClassifier(testOperation(t, PathPairedNovel), compiledTestManifest(t, targets...))
+	classifier, err := compileTest(t, PathPairedNovel, compiledTestManifest(t, PathPairedNovel, targets...))
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -74,8 +116,9 @@ func TestCompiledClassifierResolvesEveryDefinedKey(t *testing.T) {
 	}
 }
 
-// Target cardinality is path-specific. A manifest carrying a companion cannot
-// classify for a path that issues none, even though every control entry matches.
+// Target cardinality is path-specific, and under v2 the plan is what states it.
+// A manifest carrying a companion cannot be built for -- let alone compiled
+// against -- a path that issues none, even though every control entry matches.
 func TestCompilationEnforcesPathSpecificTargetCardinality(t *testing.T) {
 	paired := pairedTargets(t)
 	visibleOnly := paired[:1]
@@ -86,14 +129,21 @@ func TestCompilationEnforcesPathSpecificTargetCardinality(t *testing.T) {
 		targets []ClassifierEntry
 		wantErr string
 	}{
-		{"paired novel needs a companion", PathPairedNovel, visibleOnly, "companion target statements"},
-		{"single query must not carry one", PathSingleQuery, paired, "companion target statements"},
-		{"semantic replay executes no target", PathSemanticReplay, visibleOnly, "visible target statements"},
+		{"paired novel needs a companion", PathPairedNovel, visibleOnly, "targeted_companion"},
+		{"single query must not carry one", PathSingleQuery, paired, "targeted_companion"},
+		{"semantic replay executes no target", PathSemanticReplay, visibleOnly, "targeted_visible"},
+		{"idempotent replay executes no target", PathIdempotentReplay, visibleOnly, "targeted_visible"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			_, err := CompileClassifier(testOperation(t, testCase.kind), compiledTestManifest(t, testCase.targets...))
+			plan := testPlan(t, testCase.kind)
+			var footprint *AttestationFootprintV2
+			if dimensions, _ := dimensionsFor(testCase.kind); dimensions.requiresSchema {
+				qualified := qualifiedFootprint(t)
+				footprint = &qualified
+			}
+			_, err := BuildClassifierManifestV2(plan, footprint, testCase.targets)
 			if err == nil {
-				t.Fatal("a manifest with the wrong target cardinality compiled")
+				t.Fatal("a manifest with the wrong target cardinality was built")
 			}
 			if !strings.Contains(err.Error(), testCase.wantErr) {
 				t.Fatalf("error %q does not name the cardinality defect", err)
@@ -102,11 +152,42 @@ func TestCompilationEnforcesPathSpecificTargetCardinality(t *testing.T) {
 	}
 
 	// The correct cardinalities must compile.
-	if _, err := CompileClassifier(testOperation(t, PathSingleQuery), compiledTestManifest(t, visibleOnly...)); err != nil {
-		t.Fatalf("single query with one visible target rejected: %v", err)
+	for _, testCase := range []struct {
+		kind    GatewayPathKind
+		targets []ClassifierEntry
+	}{
+		{PathPairedNovel, paired},
+		{PathSingleQuery, visibleOnly},
+		{PathSemanticReplay, nil},
+		{PathIdempotentReplay, nil},
+	} {
+		t.Run(string(testCase.kind), func(t *testing.T) {
+			if _, err := compileTest(t, testCase.kind,
+				compiledTestManifest(t, testCase.kind, testCase.targets...)); err != nil {
+				t.Fatalf("the honest %s manifest was rejected: %v", testCase.kind, err)
+			}
+		})
 	}
-	if _, err := CompileClassifier(testOperation(t, PathSemanticReplay), compiledTestManifest(t)); err != nil {
-		t.Fatalf("semantic replay with no target rejected: %v", err)
+}
+
+// A manifest is only meaningful for one execution path. One built for a path
+// that executes must not compile for a path that does not, and the reverse.
+func TestAManifestCannotBePresentedForAnotherPath(t *testing.T) {
+	for _, testCase := range []struct {
+		built, compiled GatewayPathKind
+		targets         []ClassifierEntry
+	}{
+		{PathPairedNovel, PathSingleQuery, pairedTargets(t)},
+		{PathSingleQuery, PathPairedNovel, pairedTargets(t)[:1]},
+		{PathSemanticReplay, PathIdempotentReplay, nil},
+		{PathIdempotentReplay, PathSemanticReplay, nil},
+	} {
+		t.Run(string(testCase.built)+" as "+string(testCase.compiled), func(t *testing.T) {
+			manifest := compiledTestManifest(t, testCase.built, testCase.targets...)
+			if _, err := compileTest(t, testCase.compiled, manifest); err == nil {
+				t.Fatalf("a %s manifest compiled for %s", testCase.built, testCase.compiled)
+			}
+		})
 	}
 }
 
@@ -120,7 +201,7 @@ func TestAnotherWorkloadsTargetIsRefused(t *testing.T) {
 		t.Fatalf("foreign target: %v", err)
 	}
 	companion := pairedTargets(t)[1]
-	_, err = CompileClassifier(testOperation(t, PathPairedNovel), compiledTestManifest(t, foreign, companion))
+	_, err = compileTest(t, PathPairedNovel, compiledTestManifest(t, PathPairedNovel, foreign, companion))
 	if err == nil {
 		t.Fatal("another workload's target compiled into this operation's classifier")
 	}
@@ -129,22 +210,29 @@ func TestAnotherWorkloadsTargetIsRefused(t *testing.T) {
 	}
 }
 
-// Internal keys must come from the qualification the operation is bound to.
+// Internal keys must come from the qualification the plan was derived under, and
+// the operation must be bound to that same qualification.
 func TestInternalKeysFromAnotherQualificationAreRefused(t *testing.T) {
-	// A manifest built from a different footprint carries a different
-	// footprint digest on its internal entries.
 	other := footprintWithScopeCalls(t, 1, map[AttestationScope]int64{
 		AttestationScopeConstructorOrColdPool:  1,
 		AttestationScopeExplicitPreflightPool:  1,
 		AttestationScopeSingleQueryTransaction: 1,
 		AttestationScopePairedQueryTransaction: 5,
 	})
-	manifest, err := BuildClassifierManifest(other, pairedTargets(t))
-	if err != nil {
-		t.Fatalf("build manifest: %v", err)
+
+	// A footprint the plan was not derived under cannot build its manifest at
+	// all: the internal keys would be measured by one qualification and expected
+	// by another.
+	if _, err := BuildClassifierManifestV2(testPlan(t, PathPairedNovel), &other, pairedTargets(t)); err == nil {
+		t.Fatal("a manifest was built from a qualification the plan was not derived under")
 	}
-	if _, err := CompileClassifier(testOperation(t, PathPairedNovel), manifest); err == nil {
-		t.Fatal("a manifest from another qualification compiled")
+
+	// And a manifest that IS internally coherent with its own plan cannot be
+	// compiled for an operation bound to a different qualification.
+	otherPlan := testPlanFrom(t, PathPairedNovel, other)
+	manifest := buildTestManifest(t, otherPlan, other, pairedTargets(t)...)
+	if _, err := CompileClassifierV2(testOperation(t, PathPairedNovel), otherPlan, manifest); err == nil {
+		t.Fatal("an operation compiled against a plan from another qualification")
 	}
 }
 
@@ -152,16 +240,21 @@ func TestInternalKeysFromAnotherQualificationAreRefused(t *testing.T) {
 // classifier cannot be presented for a different one.
 func TestBindingDigestCoversTheWholeOperation(t *testing.T) {
 	operation := testOperation(t, PathPairedNovel)
-	manifest := compiledTestManifest(t, pairedTargets(t)...)
-	classifier, err := CompileClassifier(operation, manifest)
+	plan := testPlan(t, PathPairedNovel)
+	manifest := compiledTestManifest(t, PathPairedNovel, pairedTargets(t)...)
+	classifier, err := CompileClassifierV2(operation, plan, manifest)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
+	}
+	planDigest, err := plan.SHA256()
+	if err != nil {
+		t.Fatalf("plan digest: %v", err)
 	}
 	manifestDigest, err := manifest.SHA256()
 	if err != nil {
 		t.Fatalf("manifest digest: %v", err)
 	}
-	if err := classifier.RequireBinding(operation, manifestDigest); err != nil {
+	if err := classifier.RequireBinding(operation, planDigest, manifestDigest); err != nil {
 		t.Fatalf("a classifier must satisfy its own binding: %v", err)
 	}
 
@@ -175,23 +268,36 @@ func TestBindingDigestCoversTheWholeOperation(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			mutated := operation
 			mutate(&mutated)
-			if err := classifier.RequireBinding(mutated, manifestDigest); err == nil {
+			if err := classifier.RequireBinding(mutated, planDigest, manifestDigest); err == nil {
 				t.Fatalf("the binding ignored a changed %s", name)
 			}
 		})
 	}
 
-	// And a different manifest under the same operation.
-	if err := classifier.RequireBinding(operation, strings.Repeat("c", 64)); err == nil {
+	// A different manifest under the same operation and plan.
+	if err := classifier.RequireBinding(operation, planDigest, strings.Repeat("c", 64)); err == nil {
 		t.Fatal("the binding ignored a substituted manifest")
+	}
+	// And a different plan under the same operation and manifest, which is what
+	// the v2 binding adds: the class set is the plan's to settle, so a
+	// substituted plan must not go unnoticed.
+	if err := classifier.RequireBinding(operation, strings.Repeat("e", 64), manifestDigest); err == nil {
+		t.Fatal("the binding ignored a substituted control plan")
+	}
+	other, err := testPlanFrom(t, PathPairedNovel, footprintFor(t, 2)).SHA256()
+	if err != nil {
+		t.Fatalf("another plan digest: %v", err)
+	}
+	if err := classifier.RequireBinding(operation, other, manifestDigest); err == nil {
+		t.Fatal("the binding ignored a plan derived under another ExpectedSchema")
 	}
 }
 
 // Compilation freezes the table. A manifest mutated after compilation must not
 // change what the compiled classifier accepts.
 func TestCompilationFreezesTheTable(t *testing.T) {
-	manifest := compiledTestManifest(t, pairedTargets(t)...)
-	classifier, err := CompileClassifier(testOperation(t, PathPairedNovel), manifest)
+	manifest := compiledTestManifest(t, PathPairedNovel, pairedTargets(t)...)
+	classifier, err := compileTest(t, PathPairedNovel, manifest)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -248,7 +354,7 @@ func TestOperationIdentityPresenceCoupling(t *testing.T) {
 // finalizer can compare them.
 func TestCompiledInternalKeysMatchTheQualification(t *testing.T) {
 	footprint := qualifiedFootprint(t)
-	classifier, err := CompileClassifier(testOperation(t, PathPairedNovel), compiledTestManifest(t, pairedTargets(t)...))
+	classifier, err := compileTest(t, PathPairedNovel, compiledTestManifest(t, PathPairedNovel, pairedTargets(t)...))
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}

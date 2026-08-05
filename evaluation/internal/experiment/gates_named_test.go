@@ -246,7 +246,7 @@ func TestGate13FormalHealthcheckMutationRejected(t *testing.T) {
 // Gate 14.
 func TestGate14SameTotalControlSubstitutionRejected(t *testing.T) {
 	window, classifier, plan := pairedNovelWindow(t)
-	manifest := compiledTestManifest(t, pairedTargets(t)...)
+	manifest := compiledTestManifest(t, PathPairedNovel, pairedTargets(t)...)
 	var safety, representation string
 	for _, entry := range manifest.Entries {
 		switch entry.Class {
@@ -367,8 +367,8 @@ func TestGate20AnotherWorkloadTargetRejected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build a foreign target: %v", err)
 	}
-	manifest := compiledTestManifest(t, foreign)
-	if _, err := CompileClassifier(testOperation(t, PathPairedNovel), manifest); err == nil {
+	manifest := compiledTestManifest(t, PathSingleQuery, foreign)
+	if _, err := compileTest(t, PathSingleQuery, manifest); err == nil {
 		t.Fatal("a target belonging to another workload compiled for this operation")
 	}
 }
@@ -476,10 +476,15 @@ func TestGate29LegacyV14EvidenceRejected(t *testing.T) {
 func TestGate30BindingDigestMutationRejected(t *testing.T) {
 	t.Run("operation, manifest and classifier", func(t *testing.T) {
 		operation := testOperation(t, PathPairedNovel)
-		manifest := compiledTestManifest(t, pairedTargets(t)...)
-		classifier, err := CompileClassifier(operation, manifest)
+		plan := testPlan(t, PathPairedNovel)
+		manifest := compiledTestManifest(t, PathPairedNovel, pairedTargets(t)...)
+		classifier, err := CompileClassifierV2(operation, plan, manifest)
 		if err != nil {
 			t.Fatalf("compile: %v", err)
+		}
+		planDigest, err := plan.SHA256()
+		if err != nil {
+			t.Fatalf("plan digest: %v", err)
 		}
 		manifestDigest, err := manifest.SHA256()
 		if err != nil {
@@ -495,13 +500,16 @@ func TestGate30BindingDigestMutationRejected(t *testing.T) {
 			t.Run(name, func(t *testing.T) {
 				mutated := operation
 				mutate(&mutated)
-				if err := classifier.RequireBinding(mutated, manifestDigest); err == nil {
+				if err := classifier.RequireBinding(mutated, planDigest, manifestDigest); err == nil {
 					t.Fatalf("the binding ignored a changed %s", name)
 				}
 			})
 		}
-		if err := classifier.RequireBinding(operation, strings.Repeat("c", 64)); err == nil {
+		if err := classifier.RequireBinding(operation, planDigest, strings.Repeat("c", 64)); err == nil {
 			t.Fatal("the binding ignored a substituted manifest digest")
+		}
+		if err := classifier.RequireBinding(operation, strings.Repeat("e", 64), manifestDigest); err == nil {
+			t.Fatal("the binding ignored a substituted control plan digest")
 		}
 	})
 

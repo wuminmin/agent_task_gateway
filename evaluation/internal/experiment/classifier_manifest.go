@@ -12,10 +12,32 @@ import (
 )
 
 // ClassifierManifestVersion identifies the manifest schema.
-const ClassifierManifestVersion = "taskgate-final-v5-observer-classifier-manifest-v1"
+//
+// Version 2 makes the closed world path-aware. Version 1 carried no path kind
+// and required every manifest to define a fixed universal class set, which
+// conflated "every class the Gateway can ever produce" with "every class THIS
+// execution path may produce". That was not a safety rule: it made an exact
+// idempotent replay -- which reaches Business PostgreSQL not at all -- unable to
+// have a manifest, because the required set included
+// postgresql_internal_attestation whose only source is a qualified footprint the
+// non-attesting operation is forbidden to name.
+//
+// Under v2 a manifest declares exactly the structures its path can legitimately
+// produce with an expected multiplicity above zero, and nothing else. For an
+// idempotent replay that set is empty, and an empty entry list is the strongest
+// contract available: every Business statement in the window is unclassified,
+// becomes V3Unexpected, and fails the all-zero plan.
+const ClassifierManifestVersion = "taskgate-final-v5-observer-classifier-manifest-v2"
+
+// classifierManifestVersionV1 is the superseded schema. It is named so a v1
+// document is rejected with the reason rather than as an unrecognised string:
+// v1 manifests remain valid historical development evidence and must not be
+// silently reinterpreted under the v2 rules, because the class set they carry
+// means something else.
+const classifierManifestVersionV1 = "taskgate-final-v5-observer-classifier-manifest-v1"
 
 // classifierManifestDomain domain-separates the manifest digest.
-const classifierManifestDomain = "TASKGATE-FINAL-V5-OBSERVER-CLASSIFIER-MANIFEST-V1"
+const classifierManifestDomain = "TASKGATE-FINAL-V5-OBSERVER-CLASSIFIER-MANIFEST-V2"
 
 // ClassifierSourceKind records where an entry's identity came from, so a
 // reviewer can tell a statement pinned to Connector source bytes from one bound
@@ -84,36 +106,53 @@ type classifierKey struct {
 // It carries no SQL. The strict AST digest is the observable identity and the
 // source digest pins the bytes behind it; neither reveals the statement.
 type ClassifierManifest struct {
-	Version string            `json:"version"`
-	Entries []ClassifierEntry `json:"entries"`
-}
-
-// requiredManifestClasses are the classes every operation-scoped manifest must
-// define. Target classes are deliberately absent: a semantic or idempotent
-// replay legitimately has none, so they are added per operation.
-func requiredManifestClasses() []GatewayStatementClassV3 {
-	return []GatewayStatementClassV3{
-		V3TransactionBegin, V3TransactionCommit,
-		V3SafetySessionPin, V3RepresentationPin, V3StatementTimeoutPin,
-		V3DatasourceIdentity, V3ViewColumnAttestation, V3ViewDefinitionAttest,
-		V3PostgreSQLInternalAttestation,
-	}
+	Version string `json:"version"`
+	// PathKind is the execution path whose closed world this manifest describes.
+	//
+	// It is a member rather than an argument because the class set is now
+	// path-specific: the same entry list means a different contract under a
+	// different path. Carrying it makes the manifest digest move with the path,
+	// and lets compilation require that the operation, the independently derived
+	// plan and the manifest all name the same one.
+	PathKind GatewayPathKind   `json:"path_kind"`
+	Entries  []ClassifierEntry `json:"entries"`
 }
 
 // Validate rejects a manifest that cannot classify deterministically.
+//
+// It is deliberately structural. Which classes a manifest MUST declare is not
+// its own to say -- that would be the Adapter declaring the standard it is held
+// to -- so it is settled by the independently derived GatewayControlPlanV3 in
+// requireClassSet, which compilation applies. What is checked here is only what
+// a manifest can be wrong about on its own terms: an unknown class, an
+// ambiguous key, an identity that does not belong to its source kind, an order
+// that would make the digest depend on assembly.
 func (manifest ClassifierManifest) Validate() error {
+	if manifest.Version == classifierManifestVersionV1 {
+		return fmt.Errorf("classifier manifest is %s, which required a universal class set and carried no path kind; "+
+			"v1.5 acceptance requires %s and a v1 document must be rebuilt rather than reinterpreted",
+			classifierManifestVersionV1, ClassifierManifestVersion)
+	}
 	if manifest.Version != ClassifierManifestVersion {
 		return fmt.Errorf("classifier manifest version %q is unsupported", manifest.Version)
 	}
-	if len(manifest.Entries) == 0 {
-		return errors.New("classifier manifest is empty")
+	dimensions, knownPath := dimensionsFor(manifest.PathKind)
+	if !knownPath {
+		return fmt.Errorf("classifier manifest path_kind %q is not a derivable execution path", manifest.PathKind)
+	}
+	// An empty entry list is a legitimate contract, but only where the path
+	// reaches Business PostgreSQL not at all. Anywhere else it would mean every
+	// statement the path certainly executes is unclassified, which no plan can
+	// accept and which would otherwise fail far from its cause.
+	if len(manifest.Entries) == 0 && !manifest.pathIsSilent(dimensions) {
+		return fmt.Errorf("classifier manifest for path_kind %s declares no statement, "+
+			"but that path reaches Business PostgreSQL", manifest.PathKind)
 	}
 	known := map[GatewayStatementClassV3]bool{}
 	for _, class := range GatewayStatementClassesV3() {
 		known[class] = true
 	}
 	seen := map[classifierKey]GatewayStatementClassV3{}
-	defined := map[GatewayStatementClassV3]bool{}
 	for index, entry := range manifest.Entries {
 		if !known[entry.Class] {
 			return fmt.Errorf("classifier manifest entry %d names unknown class %q", index, entry.Class)
@@ -135,7 +174,6 @@ func (manifest ClassifierManifest) Validate() error {
 			return fmt.Errorf("classifier manifest maps one key to both %s and %s", other, entry.Class)
 		}
 		seen[key] = entry.Class
-		defined[entry.Class] = true
 
 		switch entry.SourceKind {
 		case SourceConnectorConstant:
@@ -178,15 +216,107 @@ func (manifest ClassifierManifest) Validate() error {
 			return fmt.Errorf("class %s has unknown source kind %q", entry.Class, entry.SourceKind)
 		}
 	}
-	for _, class := range requiredManifestClasses() {
-		if !defined[class] {
-			return fmt.Errorf("classifier manifest defines no entry for required class %s", class)
-		}
-	}
 	if !sort.SliceIsSorted(manifest.Entries, func(left, right int) bool {
 		return manifestLess(manifest.Entries[left], manifest.Entries[right])
 	}) {
 		return errors.New("classifier manifest entries are not in canonical order")
+	}
+	return nil
+}
+
+// pathIsSilent reports whether the path reaches Business PostgreSQL not at all.
+// It is read off the shared dimension table rather than by naming
+// idempotent_replay, so a later path with the same property gets the same
+// treatment without an edit here.
+func (manifest ClassifierManifest) pathIsSilent(dimensions pathDimensions) bool {
+	return dimensions.preflight == 0 && dimensions.single == 0 && dimensions.paired == 0 &&
+		dimensions.visible == 0 && dimensions.companion == 0
+}
+
+// requireClassSet is the v2 rule, and it is derived entirely from the plan.
+//
+//	plan.Expected()[class] > 0  -- the manifest must declare that class exactly
+//	plan.Expected()[class] == 0 -- the manifest must not declare it at all
+//
+// The second half is what version 1 had backwards. A manifest listing a class
+// the path cannot produce is not harmless surplus: it makes that statement
+// classifiable, so a control statement appearing where none should would be
+// counted as a known class rather than landing in V3Unexpected. Forbidding it
+// is what makes an idempotent replay's empty manifest a contract -- every
+// Business statement in the window is unclassified by construction.
+//
+// The internal class is compared key by key rather than by presence, because it
+// is the one class whose keys are measured rather than derived; and targets are
+// compared by cardinality, because a path's target count is what distinguishes
+// the four paths from each other.
+func (manifest ClassifierManifest) requireClassSet(plan GatewayControlPlanV3) error {
+	expected := plan.Expected()
+	byClass := map[GatewayStatementClassV3][]ClassifierEntry{}
+	for _, entry := range manifest.Entries {
+		byClass[entry.Class] = append(byClass[entry.Class], entry)
+	}
+	for _, class := range GatewayStatementClassesV3() {
+		switch class {
+		case V3Unexpected, V3PostgreSQLInternalAttestation:
+			// The sink is never declared -- Validate rejects it outright -- and
+			// the internal class is settled key by key below.
+			continue
+		case V3TargetedVisible, V3TargetedCompanion:
+			// The plan's target expectation IS the cardinality: one target
+			// statement executes once.
+			if got, want := int64(len(byClass[class])), expected[class]; got != want {
+				return fmt.Errorf("path_kind %s expects %d %s statement(s), the manifest declares %d",
+					plan.PathKind, want, class, got)
+			}
+		default:
+			// Every control class is realized by exactly one Connector constant
+			// or one runtime template, so its key count is one when the plan
+			// expects it and zero when it does not. The multiplicity itself is
+			// the plan's to check, not the manifest's to declare.
+			want := 0
+			if expected[class] > 0 {
+				want = 1
+			}
+			if got := len(byClass[class]); got != want {
+				if want == 0 {
+					return fmt.Errorf("path_kind %s executes no %s, but the manifest declares %d entr(ies) for it; "+
+						"a class the path cannot produce must stay unclassifiable",
+						plan.PathKind, class, got)
+				}
+				return fmt.Errorf("path_kind %s expects %s but the manifest declares %d entr(ies) for it",
+					plan.PathKind, class, got)
+			}
+		}
+	}
+
+	// PostgreSQL-internal keys: exactly the plan's expectation, key for key,
+	// each bound to the qualification the plan was derived under. A superset
+	// would make an internal statement the plan does not expect classifiable; a
+	// subset would leave a qualified one unclassified.
+	planKeys := map[string]bool{}
+	for _, entry := range plan.InternalExpectation {
+		planKeys[entry.StrictASTSHA256] = true
+	}
+	manifestKeys := map[string]bool{}
+	for _, entry := range byClass[V3PostgreSQLInternalAttestation] {
+		if entry.FootprintSHA256 != plan.AttestationFootprintSHA256 {
+			return fmt.Errorf("internal key %s is bound to qualification %s, the plan was derived under %s",
+				shortDigest(entry.StrictASTSHA256), shortDigest(entry.FootprintSHA256),
+				shortDigest(plan.AttestationFootprintSHA256))
+		}
+		manifestKeys[entry.StrictASTSHA256] = true
+	}
+	for key := range planKeys {
+		if !manifestKeys[key] {
+			return fmt.Errorf("the plan expects PostgreSQL-internal key %s, which the manifest does not declare",
+				shortDigest(key))
+		}
+	}
+	for key := range manifestKeys {
+		if !planKeys[key] {
+			return fmt.Errorf("the manifest declares PostgreSQL-internal key %s, which the plan does not expect",
+				shortDigest(key))
+		}
 	}
 	return nil
 }
@@ -235,12 +365,19 @@ func sourceDigest(sql string) string {
 }
 
 // controlManifestEntries builds the control half of a manifest from the exact
-// Connector constants and the confirmed PostgreSQL 16.14 runtime templates.
+// Connector constants and the confirmed PostgreSQL 16.14 runtime templates,
+// emitting only the classes the supplied expectation puts above zero.
 //
 // Nothing here retypes SQL: every connector_constant entry hashes the same
 // exported constant the Connector executes, so a production edit changes the
 // manifest digest and invalidates prior evidence.
-func controlManifestEntries() ([]ClassifierEntry, error) {
+//
+// The filter is the whole of the v2 change on this side. A single-query
+// operation issues no representation pin and a semantic replay opens no
+// transaction, so neither may be able to classify one: not listing them is what
+// sends such a statement to V3Unexpected instead of to a class that happens to
+// be expected zero times.
+func controlManifestEntries(expected map[GatewayStatementClassV3]int64) ([]ClassifierEntry, error) {
 	required := RequiredMeasurementEnvironment()
 	constants := []struct {
 		class GatewayStatementClassV3
@@ -253,8 +390,11 @@ func controlManifestEntries() ([]ClassifierEntry, error) {
 		{V3ViewColumnAttestation, dataconnector.ViewColumnAttestationSQL},
 		{V3ViewDefinitionAttest, dataconnector.ViewDefinitionAttestationSQL},
 	}
-	entries := make([]ClassifierEntry, 0, len(constants)+3)
+	entries := make([]ClassifierEntry, 0, len(constants)+2)
 	for _, constant := range constants {
+		if expected[constant.class] == 0 {
+			continue
+		}
 		digest, err := StrictASTDigest(constant.sql)
 		if err != nil {
 			return nil, fmt.Errorf("strict AST digest for %s: %w", constant.class, err)
@@ -273,6 +413,9 @@ func controlManifestEntries() ([]ClassifierEntry, error) {
 		{V3TransactionCommit, runtimeCommitTemplate, true},
 	}
 	for _, template := range runtime {
+		if expected[template.class] == 0 {
+			continue
+		}
 		digest, err := StrictASTDigest(template.sql)
 		if err != nil {
 			return nil, fmt.Errorf("strict AST digest for %s: %w", template.class, err)
@@ -298,33 +441,77 @@ const (
 	runtimeCommitTemplate = `commit`
 )
 
-// BuildClassifierManifest assembles the manifest for one operation: the shared
-// controls plus exactly the target identities that operation's frozen contract
-// renders. Targets are per operation on purpose -- a global manifest listing
-// every workload's allowed targets would let a missing legitimate target be
-// replaced by another workload's, with no change to any class count.
-// The PostgreSQL-internal keys come from the qualified footprint, so the
-// manifest can classify exactly the internal statements that qualification
-// measured and nothing else. An internal statement the footprint never saw lands
-// in the unexpected class rather than being absorbed by a hard-coded template.
-func BuildClassifierManifest(footprint AttestationFootprintV2, targets []ClassifierEntry) (ClassifierManifest, error) {
-	footprintDigest, err := footprint.SHA256()
-	if err != nil {
-		return ClassifierManifest{}, fmt.Errorf("qualified footprint: %w", err)
+// BuildClassifierManifestV2 assembles the manifest one execution path is
+// entitled to, from the independently derived plan.
+//
+// The plan settles the class set, so the manifest cannot declare what it is
+// required to contain. Targets stay per operation on purpose -- a global
+// manifest listing every workload's allowed targets would let a missing
+// legitimate target be replaced by another workload's, with no change to any
+// class count. The PostgreSQL-internal keys come from the qualified footprint,
+// re-derived here rather than copied from the plan, so the manifest can classify
+// exactly the internal statements that qualification measured for these scopes
+// and nothing else.
+//
+// The footprint is a pointer because its absence is meaningful. A path that
+// performs no Attestation must supply none: a zero-valued footprint would be a
+// document claiming a qualification that never happened, and passing one by
+// value made "no footprint" and "an empty footprint" the same argument.
+func BuildClassifierManifestV2(plan GatewayControlPlanV3, footprint *AttestationFootprintV2,
+	targets []ClassifierEntry) (ClassifierManifest, error) {
+	if err := plan.Validate(); err != nil {
+		return ClassifierManifest{}, fmt.Errorf("control plan: %w", err)
 	}
-	entries, err := controlManifestEntries()
+	dimensions, _ := dimensionsFor(plan.PathKind)
+	expected := plan.Expected()
+
+	entries, err := controlManifestEntries(expected)
 	if err != nil {
 		return ClassifierManifest{}, err
 	}
-	for _, key := range footprint.InternalKeys() {
-		entries = append(entries, ClassifierEntry{
-			Class: V3PostgreSQLInternalAttestation, StrictASTSHA256: key,
-			// Always nested: the same shape at top level is a different
-			// statement and must not satisfy this class.
-			RequiredTopLevel: false, SourceKind: SourceQualifiedFootprint,
-			FootprintSHA256: footprintDigest,
-		})
+
+	switch {
+	case dimensions.requiresSchema:
+		if footprint == nil {
+			return ClassifierManifest{}, fmt.Errorf(
+				"path_kind %s attests, so its manifest cannot be built without the qualified footprint "+
+					"its PostgreSQL-internal keys were measured by", plan.PathKind)
+		}
+		footprintDigest, err := footprint.SHA256()
+		if err != nil {
+			return ClassifierManifest{}, fmt.Errorf("qualified footprint: %w", err)
+		}
+		if footprintDigest != plan.AttestationFootprintSHA256 {
+			return ClassifierManifest{}, fmt.Errorf(
+				"the plan was derived under Attestation footprint %s, the supplied qualification is %s",
+				shortDigest(plan.AttestationFootprintSHA256), shortDigest(footprintDigest))
+		}
+		// Re-derived from the measurement rather than read off the plan, then
+		// compared: the plan carries the expectation as a claim, and a manifest
+		// built from that claim would agree with it by construction.
+		derived, err := footprint.InternalExpectation(plan.PreflightAttestationPasses,
+			plan.SingleQueryTransactions, plan.PairedQueryTransactions)
+		if err != nil {
+			return ClassifierManifest{}, err
+		}
+		if err := requireSameInternalExpectation(plan.InternalExpectation, derived); err != nil {
+			return ClassifierManifest{}, fmt.Errorf("PostgreSQL-internal expectation: %w", err)
+		}
+		for _, entry := range derived {
+			entries = append(entries, ClassifierEntry{
+				Class: V3PostgreSQLInternalAttestation, StrictASTSHA256: entry.StrictASTSHA256,
+				// Always nested: the same shape at top level is a different
+				// statement and must not satisfy this class.
+				RequiredTopLevel: false, SourceKind: SourceQualifiedFootprint,
+				FootprintSHA256: footprintDigest,
+			})
+		}
+	case footprint != nil:
+		return ClassifierManifest{}, fmt.Errorf(
+			"path_kind %s performs no Attestation, so its manifest must carry no qualified footprint",
+			plan.PathKind)
 	}
+
 	for _, target := range targets {
 		if target.Class != V3TargetedVisible && target.Class != V3TargetedCompanion {
 			return ClassifierManifest{}, fmt.Errorf("class %s is not a target statement", target.Class)
@@ -335,8 +522,13 @@ func BuildClassifierManifest(footprint AttestationFootprintV2, targets []Classif
 		entries = append(entries, target)
 	}
 	sort.Slice(entries, func(left, right int) bool { return manifestLess(entries[left], entries[right]) })
-	manifest := ClassifierManifest{Version: ClassifierManifestVersion, Entries: entries}
+	manifest := ClassifierManifest{
+		Version: ClassifierManifestVersion, PathKind: plan.PathKind, Entries: entries,
+	}
 	if err := manifest.Validate(); err != nil {
+		return ClassifierManifest{}, err
+	}
+	if err := manifest.requireClassSet(plan); err != nil {
 		return ClassifierManifest{}, err
 	}
 	return manifest, nil

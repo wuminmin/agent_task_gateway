@@ -293,6 +293,21 @@ func (footprint AttestationScopeFootprint) validate() error {
 	return nil
 }
 
+// isZero reports whether the footprint carries no qualification at all.
+//
+// Every member is named rather than the struct compared with ==, because the
+// scope list makes it incomparable. Naming them also means a new member has to
+// be considered here rather than silently reading as "absent", which matters:
+// this is what the non-attesting paths use to require that no qualification was
+// supplied for a window in which no Attestation occurred.
+func (footprint AttestationFootprintV2) isZero() bool {
+	return footprint.Version == "" && footprint.ExpectedSchemaDigest == "" &&
+		footprint.ExpectedSchemaEntries == 0 &&
+		footprint.Environment == (MeasurementEnvironment{}) &&
+		footprint.PostgreSQL == (PostgreSQLRuntimeIdentity{}) &&
+		footprint.QualificationID == "" && len(footprint.Scopes) == 0
+}
+
 // Scope returns the qualified footprint for one scope.
 func (footprint AttestationFootprintV2) Scope(scope AttestationScope) (AttestationScopeFootprint, error) {
 	for _, candidate := range footprint.Scopes {
