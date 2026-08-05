@@ -452,7 +452,37 @@ and neither the persistence round-trip nor the live canary could be verified.
 Landing an unverifiable migration was refused rather than attempted. Docker is
 available again as of this record.
 
-## Formal Gateway build — done, provenance retained
+## Formal Gateway build — rebuilt from the integrated commit
+
+The `d4b2b7f` image below is now intentionally historical: it predates migration
+019, the store plumbing and the whole production V9 path, so it must not be used
+for the v3 canary. Rebuilt from the integrated, published commit:
+
+| | |
+| --- | --- |
+| source commit | `76aef1fbefb1fbf3e19a6b6889120206b19828f4` (clean, equals `origin/tkde-artifact-rerun`) |
+| build context | `4548fb68c4dee5abbfd42a2ef07f3fb77a9a577f54af7da1fe1db53703f633fc` over 1289 tracked files |
+| source manifest | `05ecf02d80420e78a54c1a19b9a260cb1240792c7250c2881c08be650abcf9a6` |
+| build target | `gateway` |
+| image ID | `sha256:7b4494945a02b100114974060dd9822e14f3c0b783c46141c3f115c351b5ed76` |
+| binary | `be879ece120d4c80aec680b9f1d3794a33ff90bbb2a572fb3b7dce2385aab7fb` |
+| platform | `linux/amd64` |
+| builder base | `golang@sha256:ea341baa9bd5ba6784f6d7161ace70544349a6242d54d34a0fbfd2c4d51c9d58` |
+| runtime base | `debian@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818` |
+
+The image labels carry the same commit, context and manifest digests the builder
+computed, and `sha256sum /usr/local/bin/app` recomputed inside the image equals
+the recorded binary digest. The base pins are unchanged from `d4b2b7f`, so the
+context digest moving from `3e813b17…` to `4548fb68…` is entirely the source
+change: 1274 tracked files became 1289.
+
+This image is the I2-A integration build. Any commit after `76aef1f` — including
+this record — moves the context digest, so the image the v3 canary runs must be
+rebuilt from whatever commit is finally integrated, and its provenance recorded
+in place of the table above. The formal builder refuses a dirty or unpublished
+tree, which is what makes that check mechanical rather than remembered.
+
+### Previous formal build (historical — do NOT use for the v3 canary)
 
 Docker returned, the base images were pinned (`d4b2b7f`) and the formal build ran
 from a clean, published commit:
