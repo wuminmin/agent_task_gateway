@@ -6,7 +6,7 @@ stays on `main @ 804d65d` and is never touched.
 
 ## Current HEAD
 
-`865ae8c` — equals `origin/tkde-artifact-rerun`, worktree clean.
+`5f71cbb` — equals `origin/tkde-artifact-rerun`, worktree clean.
 
 Session start was `5e60495`. Tags `final-v5-contracts-v1` … `v1.4` verified
 unmoved at `00c4636`, `167581c`, `6966cd0`, `114d190`, `af15ee1`. No v1.5 tag
@@ -43,6 +43,10 @@ Forward commits this session, in order:
 | `50c3cb8` | **I1-A** immutable Gateway source/build/runtime identity + formal build |
 | `e3622a5` | **I1-B** observer emits `ObserverSnapshotV2` authoritatively |
 | `865ae8c` | **I2-A (structures)** `internal/querybinding`, Query Receipt V9, physicalquery delegation |
+| `9bc330b` | this record, corrected forward to `865ae8c` |
+| `d4b2b7f` | formal Gateway base images pinned by digest |
+| `2d52bea` | digest-pinned PostgreSQL environment for DB-backed tests |
+| `5f71cbb` | **I2-A (persistence)** migration 019 + store plumbing for the execution binding |
 
 ## Completed milestones
 
@@ -345,13 +349,46 @@ and neither the persistence round-trip nor the live canary could be verified.
 Landing an unverifiable migration was refused rather than attempted. Docker is
 available again as of this record.
 
+## Formal Gateway build — done, provenance retained
+
+Docker returned, the base images were pinned (`d4b2b7f`) and the formal build ran
+from a clean, published commit:
+
+| | |
+| --- | --- |
+| source commit | `d4b2b7fb0ff37c992946a808ac0623ac9624cba3` |
+| build context | `3e813b1701bbddba80b6c70d88a8e1189ab7dafa08d7c1c4ea8f7e85035a98a7` over 1274 tracked files |
+| source manifest | `19e17a792be18e805e8d2347f5e6934ebb4fba75efd2998fc852279c3cf12dd5` |
+| build target | `gateway` |
+| image ID | `sha256:308247c28cab01365a2fbc0c2434afd6fc9a86816a7c262a651306786e4242d0` |
+| binary | `22097ba0e2bb39ea319d933f7a7d0a027f731855c89eb8e1a8a74bb64d639880` |
+| platform | `linux/amd64` |
+| builder base | `golang@sha256:ea341baa9bd5ba6784f6d7161ace70544349a6242d54d34a0fbfd2c4d51c9d58` |
+| runtime base | `debian@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818` |
+
+Verified independently of the build run: both base digests resolve on
+linux/amd64 with the recorded repoDigest; the image labels equal the provenance
+files inside the image; and `sha256sum /usr/local/bin/app` recomputed inside the
+image equals the recorded binary digest.
+
+## SQL-executability gate — PASS, live
+
+`evaluation/final-v5-wsl2/scripts/run-sql-executability-gate.sh`: 28 artifacts,
+71 rendered cells, 0 failed, against a disposable digest-pinned PostgreSQL 16.14.
+That script exists because the gate needs a database initialized the way the
+deployment initializes it but otherwise EMPTY — the generator creates
+`final_v5_benchmark` itself, so pointing the check at the standing test
+environment fails with "schema already exists". `validate.sh` still reports
+SKIPPED on its own, which remains not-evidence; this run is the evidence.
+
 ## Next executable step
 
-1. Pin the formal Gateway base images, then run the formal Gateway build.
-2. Bring up the pinned PostgreSQL 16.14 Control and Business services and restore
-   the DB-backed test environment.
-3. **Complete I2-A persistence** with live database tests.
-4. Then I2-B (adapter on the v3 path), I3 (finalizer as sole authority), I4
+1. **Finish I2-A**: the Gateway must construct `QueryExecutionBindingV1` from the
+   `physicalquery.Derive` decisions it already executes, write it through
+   `putQueryExecutionBindingTx` in the terminal settlement transaction, and have
+   `QueryReceiptEvidence` load it so the receipt is signed as V9. The persistence
+   layer under it is done and live-tested; nothing writes the row yet.
+2. Then I2-B (adapter on the v3 path), I3 (finalizer as sole authority), I4
    (Artifact, Scale, ProvSQL call sites), the remaining integration cases, and
    the live Result-heavy 100x4 diagnosis canary.
 
