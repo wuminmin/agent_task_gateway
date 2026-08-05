@@ -6,20 +6,31 @@ stays on `main @ 804d65d` and is never touched.
 
 ## Current HEAD
 
-`7e12238` — worktree clean. The push that makes it equal `origin/tkde-artifact-rerun`
-is recorded below, and the N4 requalification and formal rebuild both refuse to
-run before it.
+`49dab4e` — worktree clean, equal to `origin/tkde-artifact-rerun`. The N4
+checkpoint closed at this HEAD: the two qualifications from published `1a539e1`
+both finished, every required equality was checked from the reports rather than
+from their logs, and the agreement is committed alongside the two evidence sets.
+
+Tags `final-v5-contracts-v1` … `v1.4` re-verified unmoved at the annotated-tag
+objects `00c4636`, `167581c`, `6966cd0`, `114d190`, `af15ee1` (commits `1702e65`,
+`5e12765`, `6f353f3`, `38e3bd3`, `36b04ba`); no v1.5 tag; primary worktree still
+`main @ 804d65d` and clean. Docker 29.1.3 client and server, Compose v2.40.3.
+
+### Previous HEAD record
+
+`7e12238` — worktree clean. The push that made it equal
+`origin/tkde-artifact-rerun` is recorded below, and the N4 requalification and
+formal rebuild both refused to run before it.
 
 Session start was `7356be0`, verified equal to `origin/tkde-artifact-rerun` with
 a clean worktree. `50c3cb8`, `e3622a5`, `865ae8c`, `d4b2b7f`, `2d52bea` and
 `5f71cbb` were confirmed ancestors; tags `final-v5-contracts-v1` … `v1.4`
-unmoved at `00c4636`, `167581c`, `6966cd0`, `114d190`, `af15ee1`; primary
-worktree still `main @ 804d65d`; no v1.5 tag. Docker 29.1.3 client and server are
-available again and `scripts/db-test-env.sh verify` passes against the
-digest-pinned PostgreSQL 16.14 pair (`server_version_num=160014`, 31
+unmoved; primary worktree still `main @ 804d65d`; no v1.5 tag. Docker 29.1.3
+client and server are available again and `scripts/db-test-env.sh verify` passes
+against the digest-pinned PostgreSQL 16.14 pair (`server_version_num=160014`, 31
 `taskgate_ordinal` sidecar relations).
 
-### Previous HEAD record
+### Earlier HEAD record
 
 `5f71cbb` — equalled `origin/tkde-artifact-rerun`, worktree clean.
 
@@ -68,6 +79,10 @@ Forward commits this session, in order:
 | `81bab97` | live V9 round-trip proof; the five live gateway tests fixed with the real bundle |
 | `9dffac8` | **I2-B (part)** Adapter requires a verified V9 instead of re-deriving statements |
 | `7e12238` | V8 equalities that hid artifact evidence on a V9 receipt |
+| `76aef1f` | record for the I2-A production V9 round-trip |
+| `1a539e1` | record for the formal Gateway rebuild from the integrated commit |
+| `49dab4e` | record for the N4 requalification and the SQL-executability rerun |
+| `HEAD` | **N4 checkpoint closed**: the two `1a539e1` evidence sets, their agreement, and this record |
 
 ## I2-A — production V9 round-trip
 
@@ -551,6 +566,61 @@ against an unpublished tree, which is what makes a qualification checkable by a
 reviewer holding only the commit. Both retained directories remain under
 `raw/`.
 
+### The agreement, and what was actually compared
+
+`raw/attestation-footprint-i2a-agreement.json`. The table above was written from
+the two `qualification.log` files; the agreement is computed from the two
+`attestation-footprint-v2.json` reports instead, so the checkpoint does not rest
+on a log line agreeing with itself. Every equality below was recomputed and had
+to hold before the file was written:
+
+- **Portable footprint** — `032e9c53704d`, identical.
+- **Every scope/key multiset** — compared as multisets of
+  `(strict_ast_sha256, calls_per_attestation)`, not as counts. The scope name
+  sets match and all four scopes carry the single key
+  `e5738df165027…` at one call per attestation, with `scope_stable` true
+  throughout, `constructor == explicit preflight` true and
+  `internal_key_count` 1 in both runs.
+- **ExpectedSchema** — digest `e2a3796fb3f5`, E=1, and the relation list itself
+  (`reporting.final_v5_result_heavy`), not merely the digest over it.
+- **PostgreSQL portable identity** — image reference, repo digest and platform
+  identical, plus the whole `measurement_environment`
+  (`server_version_num=160014`, `track=all`, `track_utility=on`,
+  `track_planning=off`). The deployment-local `local_image_id` and
+  `container_image_id` are compared but not required to agree; both runs share a
+  host, so they happen to match too.
+- **Source dependencies** — `source_manifest_sha256` `037cf38fdcab…` plus each
+  of the 8 bound paths compared entry by entry. This manifest differs from the
+  `18bee8e` runs' `3495d7f0fbee…` exactly because the strict-AST move changed
+  the bound set; that is the change the requalification exists to cover.
+- **Profile binding** — every field identical except
+  `profile_artifact_manifest_sha256`, which binds deployment identity and is
+  designed to differ; the artifact *directory* digest `814d4df9971f`, which is
+  content, is identical.
+
+Both runs also re-asserted `publication_eligible`, `capability_changing`,
+`activation_support_changing` and `formal_campaign` all false, and
+`worktree_clean` / `head_equals_origin` / `live_schema_verified` all true. The
+agreement supersedes `raw/attestation-footprint-v15-candidate-agreement.json`,
+which is retained.
+
+No source fix was required, so no requalification from a new commit was needed.
+
+**What is committed, and what is only retained.** Each run directory is 5.2 GB
+on disk. What is committed is the seven-file report set per run — the same set
+the `18bee8e` qualifications committed, plus `compose-up.log`, which is 20 KB of
+real container-level run evidence and costs nothing to keep. Both were checked
+for credentials before being added, as `raw/.gitignore` is `*` and evidence has
+to be force-added.
+
+The two bulk trees are deliberately not committed and stay in the worktree:
+`profile-artifacts/` (1.9 GB), every file of which is bound by `sha256` and
+`bytes` in the committed `profile-artifact-manifest.json` under directory digest
+`814d4df9971f`; and `snapshot-index-artifacts-full/` (3.4 GB), bound by
+`source_artifact_root_sha256` `6330d00e55f9`. A reviewer holding the commit can
+therefore check every artifact identity the qualification asserts; committing the
+bytes would add 10.4 GB and no checkable fact.
+
 ## SQL-executability gate — PASS, live
 
 Rerun at `1a539e1` after the I2-A changes: 28 artifacts, 71 rendered cells, 0
@@ -569,14 +639,19 @@ SKIPPED on its own, which remains not-evidence; this run is the evidence.
 
 ## Next executable step
 
-1. **Finish I2-A**: the Gateway must construct `QueryExecutionBindingV1` from the
-   `physicalquery.Derive` decisions it already executes, write it through
-   `putQueryExecutionBindingTx` in the terminal settlement transaction, and have
-   `QueryReceiptEvidence` load it so the receipt is signed as V9. The persistence
-   layer under it is done and live-tested; nothing writes the row yet.
-2. Then I2-B (adapter on the v3 path), I3 (finalizer as sole authority), I4
-   (Artifact, Scale, ProvSQL call sites), the remaining integration cases, and
-   the live Result-heavy 100x4 diagnosis canary.
+I2-A is complete and proved live at `76aef1f` — the Gateway constructs
+`QueryExecutionBindingV1` from the `physicalquery.Derive` decisions it executes,
+writes it in the terminal settlement transaction, and `QueryReceiptEvidence`
+loads it so the receipt is signed as V9. The N4 checkpoint above is closed.
+
+1. **Finish I2-B**: `9dffac8` made the Adapter require a verified V9 instead of
+   re-deriving statements; the remaining v3 call sites still have to move onto
+   it.
+2. Then I3 (finalizer as sole authority), I4 (Artifact, Scale, ProvSQL call
+   sites) and the remaining integration cases.
+3. Build the final formal Gateway only from the fully integrated runtime
+   candidate — not from an intermediate commit — and then run the live
+   Result-heavy 100x4 v3 diagnosis canary.
 
 Integration-gate items already covered by tests: 1 (observer emits strict v2
 JSON — done in I1-B), 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 20,
@@ -667,7 +742,13 @@ evidence.
 `go vet ./...` ok · `go test -count=1 ./...` ok ·
 `validate.sh` exit 0 (with the SQL-executability skip noted above).
 
-Run at `50c3cb8`, `e3622a5` and `865ae8c` in turn. The DB-backed tests
+Re-run at the N4-checkpoint commit. That commit changes no Go source — it adds
+the two evidence sets, their agreement and this record — so the gates confirm
+the tree is unchanged rather than proving anything new about the runtime. The
+DB-backed tests skipped again here, for want of their DSNs; the live evidence
+for this checkpoint is the two qualifications themselves, not this suite.
+
+Previously run at `50c3cb8`, `e3622a5` and `865ae8c` in turn. The DB-backed tests
 (`internal/control`, `internal/dataconnector`, `internal/gateway`,
 `evaluation/security`) **skipped** at all three, so the physicalquery delegation
 in `865ae8c` is verified by the unit and policy tests only. A green
