@@ -266,3 +266,56 @@ func contains(values []string, want string) bool {
 	}
 	return false
 }
+
+// adapterPackages are the packages that produce evidence rather than accept it.
+// They may construct CarriedEvidenceV3 and nothing else: TrustedInputsV3 and
+// IndependentInputsV3 are the finalizer's own, and an Adapter that could build
+// one would be supplying the material its claim is checked against.
+var adapterPackages = []string{
+	"evaluation/cmd/final-v5-adapter",
+	"evaluation/cmd/final-v5-observer",
+}
+
+func TestAdapterCannotConstructTrustedInputs(t *testing.T) {
+	root := repositoryRoot(t)
+	forbidden := map[string]bool{"TrustedInputsV3": true, "IndependentInputsV3": true}
+
+	for _, pkg := range adapterPackages {
+		err := filepath.Walk(filepath.Join(root, pkg), func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			if info.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+			fileSet := token.NewFileSet()
+			parsed, parseErr := parser.ParseFile(fileSet, path, nil, 0)
+			if parseErr != nil {
+				t.Fatalf("parse %s: %v", path, parseErr)
+			}
+			relative, _ := filepath.Rel(root, path)
+			ast.Inspect(parsed, func(node ast.Node) bool {
+				// experiment.TrustedInputsV3{...} anywhere in an Adapter file,
+				// as a composite literal or as a named type.
+				selector, ok := node.(*ast.SelectorExpr)
+				if !ok {
+					return true
+				}
+				identifier, ok := selector.X.(*ast.Ident)
+				if !ok || identifier.Name != "experiment" {
+					return true
+				}
+				if forbidden[selector.Sel.Name] {
+					t.Errorf("%s names experiment.%s; the Adapter supplies CarriedEvidenceV3 only, "+
+						"and the finalizer constructs its own trusted inputs",
+						filepath.ToSlash(relative), selector.Sel.Name)
+				}
+				return true
+			})
+			return nil
+		})
+		if err != nil && !os.IsNotExist(err) {
+			t.Fatalf("walk %s: %v", pkg, err)
+		}
+	}
+}
