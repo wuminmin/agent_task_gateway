@@ -8,6 +8,48 @@
 // evaluation reimplemented the derivation, the two would drift and the drift
 // would look like a measurement result.
 //
+// # The three stages
+//
+// The package used to start halfway through the problem: it applied policy and
+// row limits to SQL somebody else had already compiled. Producing that SQL --
+// from a QueryPlan, a Catalog, an exposure profile and the pinned snapshot
+// artifacts -- lived in unexported glue inside internal/gateway, so the
+// finalizer could not reach it and the v3 acceptance path could not be built at
+// all. The stages are now:
+//
+//	Prepare              immutable source material -> the statements to execute
+//	DeriveLimits         signed ledger pre-state   -> the runtime row limits
+//	Derive               statements + grant        -> authorized identities
+//
+// Prepare is the extraction that closed that gap, after internal/physicalquery
+// itself and then internal/sqlidentity. See preparation.go and
+// preparation_inputs.go.
+//
+// # What sharing this package proves, and what it does not
+//
+// The Gateway and the finalizer call THE SAME frozen functions here. The
+// property that establishes is
+//
+//	independent reconstruction from independently sourced inputs using the
+//	frozen shared preparation algorithm
+//
+// and it is NOT "an independently implemented compiler". Nothing built on this
+// package may claim the latter. One implementation is the point: two would
+// drift. The compiler's own semantic correctness is established elsewhere -- by
+// the frozen contracts, the oracles, the SQL-executability gate and the result
+// comparisons. What the v3 observer adds is that the runtime actually executed
+// the structure and the bytes the frozen compiler defines.
+//
+// # Purity
+//
+// Every function here is a pure function of its arguments: no database handle,
+// no Control Store, no Docker or HTTP client, no environment variable, no
+// mutable global, no gateway.Service receiver and no type from package gateway.
+// Where the Gateway previously read an in-memory snapshot registry, the caller
+// now loads the already-verified immutable artifact itself and passes a typed
+// binding in -- the Gateway from its live registry, the finalizer from retained
+// Profile and Publication evidence.
+//
 // # Why the limits belong here
 //
 // internal/sqlpolicy renders the row limit INTO the executable SQL. The
