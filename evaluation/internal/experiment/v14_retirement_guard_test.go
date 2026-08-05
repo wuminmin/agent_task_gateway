@@ -217,6 +217,14 @@ func TestNoActiveReferenceToV14Accounting(t *testing.T) {
 // the reference guard is a ratchet: a test that fails until unrelated work lands
 // is not a guard, it is a reminder that makes the suite red. The names it counts
 // are the ones the migration has to change.
+//
+// The three files it names are where the TaskGate workloads live, not
+// necessarily where the CALL will end up. An Adapter file cannot call the
+// wrapper directly -- TestAdapterCannotConstructTrustedInputs forbids it from
+// naming TrustedInputsV3 -- so acceptance has to be reached through a
+// finalizer-side entry point that constructs its own. Whichever shape the
+// migration takes, it is blocked on the missing shared target derivation pinned
+// by TestV3CutoverIsBlockedByTheUnsharedTargetDerivation.
 func TestFinalizeObservationV3HasProductionCallers(t *testing.T) {
 	root := repositoryRoot(t)
 	wrapper := "FinalizeTaskGateObservationV3"

@@ -6,10 +6,76 @@ stays on `main @ 804d65d` and is never touched.
 
 ## Current HEAD
 
+`701ef75` and its successor — worktree clean, equal to
+`origin/tkde-artifact-rerun`. **Gate 22 is resolved and all thirty gates now
+PASS.** The **runtime cutover is still not done**, and it is now blocked on a
+different thing than before. See "Gate 22 resolved" and "The cutover blocker"
+below, and `docs/final_v5_v3_runtime_integration_gates.md` for both in full.
+
+### Gate 22 resolved — the path-aware classifier class set
+
+The author approved a path-aware class set, forward-versioned to
+`taskgate-final-v5-observer-classifier-manifest-v2` and
+`taskgate-final-v5-compiled-classifier-v2`. v1 of each stays historical
+development evidence and is now rejected **by name** rather than reinterpreted.
+
+`requiredManifestClasses()` is gone. Which classes a manifest may declare is
+derived from the independently derived `GatewayControlPlanV3`, in both
+directions: a class the plan expects must be declared exactly, and a class it
+does not expect must not be declared at all. The second half is what v1 had
+backwards — an entry for an impossible class makes that statement *classifiable*,
+so a control statement appearing where none should would be counted as a known
+class instead of landing in the unexpected sink.
+
+An idempotent replay therefore has a real manifest document — version, path kind,
+signed digest, compiled operation binding — whose entry list is empty. With no
+entry to match, every Business statement in its window is `V3Unexpected` and the
+all-zero plan accepts none. That is the strictest contract available on that
+path, not the weakest.
+
+`ClassifierManifest` now carries `PathKind`; `CompileClassifierV2` requires
+`operation.PathKind == plan.PathKind == manifest.PathKind`;
+`GatewayControlPlanV3` gained a domain-separated SHA-256 that is bound into the
+compiled-classifier digest; `FinalizeObservationV3` branches on
+`dimensionsFor(pathKind).requiresSchema` **before** Catalog and footprint
+processing, and rejects rather than ignores schema, footprint or target material
+supplied for a non-attesting path; and `CarriedEvidenceV3.VisibleStatement`
+became a pointer so absence is a state rather than a zero value.
+
+`TestGate22IdempotentReplayReturnsOriginalReceiptByteForByte` replaces the
+blocker test and is green.
+
+### The cutover blocker — the target derivation is not shared
+
+`FinalizeObservationV3` needs `VisibleSQL`/`CompanionSQL`, the **physical
+statements the operation executed**, on every path that reaches Business
+PostgreSQL: `deriveTargets` builds the manifest's target entries from them
+(gates 18/19/20 have nothing to compare against otherwise), and
+`requireStatementIdentities` compares them against the signed execution binding.
+
+Only the Gateway (the party being checked), the Adapter (which
+`TestAdapterCannotConstructTrustedInputs` forbids) or a reimplementation (which
+the `internal/physicalquery` package doc forbids in terms) could supply them
+today. The derivation is unexported glue in `internal/gateway`
+(`planExposureContext`, `buildRelationalExposureContext`,
+`Service.derivePhysicalQuery`).
+
+The resolution is the same extraction that produced `internal/physicalquery` and
+then `internal/sqlidentity`: lift that glue into a shared package both the
+Gateway and the finalizer call. Pinned by
+`experiment.TestV3CutoverIsBlockedByTheUnsharedTargetDerivation`, which fails the
+moment it becomes shareable.
+
+Everything downstream is therefore unreached: the v1.4 ratchet is still
+non-empty, no TaskGate path has a v3 production caller, and the boundary
+`V3 RUNTIME INTEGRATION PASS — CONTRACTS V1.5 FREEZE PENDING` is **not**
+declared.
+
+### Previous HEAD record — the gate 22 blocker
+
 `a3e7b7a` — worktree clean, equal to `origin/tkde-artifact-rerun`. The v3
-acceptance authority and its gate contract are complete; the **runtime cutover
-is not done** and **gate 22 is blocked on an author decision**. See "V3 runtime
-integration — state" below.
+acceptance authority and its gate contract are complete; the runtime cutover
+is not done and gate 22 is blocked on an author decision.
 
 ### Previous HEAD record — N4 checkpoint
 

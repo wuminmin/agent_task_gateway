@@ -189,8 +189,62 @@ call-graph tests rather than by measurement.
 | --- | --- | --- |
 | No active package references the v1.4 accounting types or functions. | `experiment.TestNoActiveReferenceToV14Accounting` | Ratchet; must become a zero assertion |
 | The v3 acceptance wrapper has real non-test callers from all three TaskGate paths. | `experiment.TestFinalizeObservationV3HasProductionCallers` | Reports; must become a failure |
-| No Adapter file constructs `TrustedInputsV3` or `IndependentInputsV3`. | `experiment.TestAdapterCannotConstructTrustedInputs` | Not yet written |
-| The V9 test-fixture package is not imported by production files. | `testfixture.TestFixtureIsNotImportedByProduction` | Not yet written |
+| No Adapter file constructs `TrustedInputsV3` or `IndependentInputsV3`. | `experiment.TestAdapterCannotConstructTrustedInputs` | PASS |
+| The V9 test-fixture package is not imported by production files. | `testfixture.TestFixtureIsNotImportedByProduction` | PASS |
+
+## The runtime cutover is BLOCKED on a missing shared target derivation
+
+Gate 22 is resolved, so the classifier no longer stands in the way of the
+cutover. What does is a prerequisite that has never existed.
+
+`FinalizeObservationV3` requires `VisibleSQL` and `CompanionSQL` — **the physical
+statements the operation actually executed** — on every path that reaches
+Business PostgreSQL. It needs them for two separate things:
+
+- `deriveTargets` builds the manifest's target entries from them. Without them
+  the classifier has no visible or companion key at all, so gates 18, 19 and 20
+  have nothing to compare against;
+- `requireStatementIdentities` compares them against the Gateway's signed
+  execution binding. That comparison is the point: it is what catches a receipt
+  re-sealed around a different statement.
+
+Only three parties could supply them today, and each is excluded:
+
+1. **the Gateway** — the party whose claim is being checked;
+2. **the Adapter** — `TestAdapterCannotConstructTrustedInputs` exists precisely
+   to forbid it. An Adapter that supplied the target SQL would be supplying the
+   material its own claim is checked against, which is the same defect the
+   author's manifest decision rejected in a different guise;
+3. **a reimplementation in the evaluation tree** — which the
+   `internal/physicalquery` package doc forbids in terms: *"if the evaluation
+   reimplemented the derivation, the two would drift and the drift would look
+   like a measurement result."*
+
+The derivation is unexported glue inside `internal/gateway`.
+`internal/queryplan` exports `CompileOrdinal` and `CompileRelational`, and
+`internal/physicalquery` exports `Derive`; the step **between** them — agent SQL
+plus Catalog products, to an exposure plan, to the compiled visible and companion
+statements — lives in `planExposureContext`, `buildRelationalExposureContext` and
+`Service.derivePhysicalQuery`, which no other package can reach.
+
+**The resolution is the same extraction that produced `internal/physicalquery`:**
+lift that glue into a shared package both the Gateway and the finalizer call, so
+the finalizer reaches the same two statements from frozen contract material and
+signed pre-state rather than being told them. It is a forward extraction, not a
+rewrite: `physicalquery` was moved out of the evaluation tree for exactly this
+reason, and `sqlidentity` after it.
+
+Until then the cutover cannot land without either weakening the Adapter guard or
+reimplementing the derivation. The conflict is pinned by
+`experiment.TestV3CutoverIsBlockedByTheUnsharedTargetDerivation`, which fails the
+moment the derivation becomes shareable — which is when the real cutover gets
+written.
+
+Everything downstream of the cutover therefore remains unreached: the v1.4
+retirement ratchet is still non-empty, the three TaskGate paths still have no v3
+production caller, and the boundary
+`V3 RUNTIME INTEGRATION PASS — CONTRACTS V1.5 FREEZE PENDING`
+must not be declared.
 
 `TestNoActiveReferenceToV14Accounting` is a **ratchet** while the cutover is in
 progress. It pins the exact set of active v1.4 references that remain, parsed
