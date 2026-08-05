@@ -6,9 +6,10 @@ stays on `main @ 804d65d` and is never touched.
 
 ## Current HEAD
 
-`65ac2e7` — worktree clean, equal to `origin/tkde-artifact-rerun`. The v3
-runtime integration is begun but **not** complete; see "V3 runtime integration —
-state" below for exactly what lands and what does not.
+`a3e7b7a` — worktree clean, equal to `origin/tkde-artifact-rerun`. The v3
+acceptance authority and its gate contract are complete; the **runtime cutover
+is not done** and **gate 22 is blocked on an author decision**. See "V3 runtime
+integration — state" below.
 
 ### Previous HEAD record — N4 checkpoint
 
@@ -88,7 +89,17 @@ Forward commits this session, in order:
 | `76aef1f` | record for the I2-A production V9 round-trip |
 | `1a539e1` | record for the formal Gateway rebuild from the integrated commit |
 | `49dab4e` | record for the N4 requalification and the SQL-executability rerun |
-| `HEAD` | **N4 checkpoint closed**: the two `1a539e1` evidence sets, their agreement, and this record |
+| `54ec901` | **N4 checkpoint closed**: the two `1a539e1` evidence sets, their agreement, and the record |
+| `2aa5252` | the v3 accounting stack has no production caller |
+| `624b295` | the v3 runtime integration gate list, 24 requirements recorded UNSPECIFIED |
+| `bcd2f1c` | **I3** `FinalizeTaskGateObservationV3`, the V9-verified acceptance entry point |
+| `65ac2e7` | the v1.4 retirement enforced as an AST ratchet |
+| `86eb6f0` | record of the v3 integration state |
+| `35f77c6` | **Phase 0** the gate contract completed; gap notice resolved |
+| `e8128ef` | `internal/testfixture/queryreceiptv9` from public API only |
+| `16cedfb` | gates 7, 18, 19, 21, 25, 29; gate 22's blocker pinned |
+| `a3e7b7a` | the Adapter guarded out of constructing trusted inputs |
+| `HEAD` | this record |
 
 ## I2-A — production V9 round-trip
 
@@ -700,6 +711,52 @@ formal Gateway rebuild is downstream of the same migration, since the image must
 come from the fully integrated commit.
 
 ### V3 runtime integration — state
+
+Six commits land. Capability, release, tags, Campaign and paper state are
+untouched, the canary has not run, and the boundary
+`V3 RUNTIME INTEGRATION PASS — CONTRACTS V1.5 FREEZE PENDING` is **not**
+declared, because its first prerequisite is that all thirty gates pass.
+
+| commit | what |
+| --- | --- |
+| `35f77c6` | the gate contract completed with the supplied requirements; gap notice resolved |
+| `e8128ef` | `internal/testfixture/queryreceiptv9`, a signed V9 fixture built only from public API |
+| `16cedfb` | gates 7, 18, 19, 21, 25, 29 implemented; gate 22's blocker pinned |
+| `a3e7b7a` | the Adapter is guarded out of constructing the finalizer's trusted inputs |
+
+**29 of 30 gates PASS. Gate 22 is BLOCKED**, and not for want of work: the v3
+model cannot finalize an exact request-ID replay at all, because two of its own
+invariants contradict each other on that path. `CompileClassifier`
+presence-couples attestation in both directions, so a non-attesting operation
+must name neither an ExpectedSchema nor a footprint and cannot compile against a
+manifest whose internal entries name a qualification it does not claim. But
+`ClassifierManifest.Validate` requires an entry for every class in
+`requiredManifestClasses()`, which includes `postgresql_internal_attestation`
+unconditionally, and the footprint is the only source of internal keys. The
+manifest must carry those keys and the operation must not claim where they came
+from.
+
+Each way out changes what a manifest or an operation identity *means*, so it is
+an author decision and is recorded as one in the gate document. A speculative
+`BuildNonAttestingClassifierManifest` was written, found to hit the same wall at
+`Validate`, and reverted rather than left as dead code. The conflict is pinned
+by a test that fails the moment it is resolved.
+
+**Three defects the gates found while being written**, each recorded rather than
+silently fixed:
+
+- the prepared target binding was signed and never compared, so a receipt
+  re-sealed around a different prepared target was accepted. `CarriedEvidenceV3`
+  now carries both roles' prepared bindings and acceptance compares them;
+- gate 7's disappearing-structural-key branch existed and had no test;
+- gate 22's conflict above.
+
+**What is still not done**: the runtime cutover. The three TaskGate call sites
+still build v1.4 accounting, so nothing calls the acceptance wrapper and
+`retiredV14ActiveReferences` is not yet empty. The ratchet pins the remaining
+surface file by file and can only tighten.
+
+#### Superseded by the above
 
 Three commits land against the author's decisions. None of them changes
 capability, release, tags, Campaign or paper state, and the canary has not run.
