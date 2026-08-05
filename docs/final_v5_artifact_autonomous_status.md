@@ -644,18 +644,75 @@ I2-A is complete and proved live at `76aef1f` — the Gateway constructs
 writes it in the terminal settlement transaction, and `QueryReceiptEvidence`
 loads it so the receipt is signed as V9. The N4 checkpoint above is closed.
 
-1. **Finish I2-B**: `9dffac8` made the Adapter require a verified V9 instead of
-   re-deriving statements; the remaining v3 call sites still have to move onto
-   it.
-2. Then I3 (finalizer as sole authority), I4 (Artifact, Scale, ProvSQL call
-   sites) and the remaining integration cases.
-3. Build the final formal Gateway only from the fully integrated runtime
-   candidate — not from an intermediate commit — and then run the live
-   Result-heavy 100x4 v3 diagnosis canary.
+### The v3 accounting stack has no production caller
+
+Established by inspection at this HEAD, and it resizes everything below.
+`FinalizeObservationV3`, `CarriedEvidenceV3`, `IndependentInputsV3`,
+`GatewayControlPlanV3` and the four `…PlanV3` constructors are referenced from
+their own tests and from nowhere else. The one non-test reference is
+`ObservedDelta.Accept`, inside the v3 files themselves.
+
+What the Adapter and the finalizer actually run is still v1.4.
+`applyObserverDelta` (`adapter_bindings.go:298`) builds an
+`experiment.ObserverAccounting` around a v1.4 `GatewayControlPlan`, and the
+finalizer reaches it through `validateObserverTransition` →
+`validateSampleObserverAccounting` (`finalize_scale_artifact.go:490,497`), which
+reads `sample.ObserverAccounting.Plan` — the plan the Adapter supplied.
+
+That is defect 7 of `docs/final_v5_observer_accounting_v14_audit.md` verbatim:
+the finalizer checks that the plan is internally consistent and matches the
+observed counts, but never derives the expected plan independently, so *a wrong
+plan the Adapter also measured against passes*. `docs/final_v5_observer_
+statement_accounting.md` already records that v1.4 "is invalid and was never
+exercised live" and that its claim of finalizer-side re-derivation "is also
+wrong". The replacement was written — `c43b7ba`, "E — independent finalizer" —
+but never wired in. Its doc comment, "the finalizer derives first and looks at
+the Adapter's claims only to reject them", describes code nothing calls.
+
+So I3 is not "harden the finalizer". I3 is **cut the live path over to the v3
+finalizer and retire the v1.4 accounting**, and I4 is the same migration seen
+from the three call sites that must feed it. They are one change, not two: the
+v3 finalizer cannot be wired in until Artifact, Scale and ProvSQL emit
+`CarriedEvidenceV3` instead of `ObserverAccounting`, and emitting it is most of
+the work — it needs the observer window as `ObserverWindowV2`, the classifier
+manifest and binding digests, and the *signed* visible/companion
+`physicalquery.StatementIdentity` pair, which is exactly what I2-A made
+available and `9dffac8` began reading.
+
+`IndependentInputsV3` also has to be assembled by the finalizer from sources the
+Adapter never touches: the activated Catalog path, the qualified
+`AttestationFootprintV2` from its own retained evidence, the live PostgreSQL
+runtime identity, the path kind taken from the Gateway's signed receipt, the
+frozen contract identity, and the visible/companion SQL reproduced through
+`internal/physicalquery` from signed pre-state.
+
+**This blocks the canary.** A "100x4 v3 canary" run against the current tree
+would measure the v1.4 path, because that is the only accounting path the
+running code has. It would produce a green result that is not evidence for the
+v3 accounting, which is the specific failure mode this arc exists to remove. The
+formal Gateway rebuild is downstream of the same migration, since the image must
+come from the fully integrated commit.
+
+### Remaining order
+
+1. **I2-B/I3/I4 as one migration**: move Artifact, Scale and ProvSQL onto
+   `CarriedEvidenceV3`, assemble `IndependentInputsV3` in the finalizer, call
+   `FinalizeObservationV3` as the sole authority, and retire the v1.4
+   `ObserverAccounting` and `GatewayControlPlan` rather than leaving two
+   accountings in the tree.
+2. Then the remaining integration cases, the formal Gateway build from the
+   integrated commit, and only then the live Result-heavy 100x4 v3 canary.
 
 Integration-gate items already covered by tests: 1 (observer emits strict v2
 JSON — done in I1-B), 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 20,
 23, 24, 26, 27, 28, 29, 30. Not yet covered: 18, 19, 21, 22, 25.
+
+**The numbered gate list itself is not in the repository.** It is referenced here
+and defined nowhere under `docs/`, so items 18, 19, 21, 22 and 25 cannot be
+worked from this record alone. Whoever continues either restores the list into
+`docs/` — where it belongs, being an acceptance criterion for publication
+evidence — or states the five items so they can be closed against something
+checkable. This is a recording gap, not a technical blocker.
 
 ## Retained true blockers
 
