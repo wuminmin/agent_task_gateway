@@ -100,11 +100,30 @@ These are not numbered gates. They are the standing structural conditions the
 migration must hold at every commit after it lands, checked by source and
 call-graph tests rather than by measurement.
 
-| Condition | Test symbol |
+| Condition | Test symbol | State |
+| --- | --- | --- |
+| No active package references the v1.4 accounting types or functions. | `experiment.TestNoActiveReferenceToV14Accounting` | Enforced as a ratchet |
+| `evaluation/internal/legacyv14` is imported only by legacy tools and rejection tests. | `experiment.TestLegacyV14IsImportedOnlyByLegacyToolsAndRejectionTests` | Not yet written |
+| The v3 acceptance wrapper has real non-test callers from all three TaskGate paths. | `experiment.TestFinalizeObservationV3HasProductionCallers` | Reports; does not yet fail |
+
+`TestNoActiveReferenceToV14Accounting` is a **ratchet**, not a zero assertion.
+It pins the exact set of active v1.4 references that remain, parsed from the AST
+rather than grepped, so a comment is discussion and only a compilable reference
+counts. The count can only fall: a new reference fails, and *removing* one also
+fails, with an instruction to tighten the inventory, so an allowance cannot
+outlive the reason for it. A test asserting zero today would simply be red and
+would protect nothing.
+
+The remaining active surface, which must reach empty before the canary:
+
+| File | Retired symbols still referenced |
 | --- | --- |
-| No active package references the v1.4 accounting types or functions. | `experiment.TestNoActiveReferenceToV14Accounting` |
-| `evaluation/internal/legacyv14` is imported only by legacy tools and rejection tests. | `experiment.TestLegacyV14IsImportedOnlyByLegacyToolsAndRejectionTests` |
-| The `FinalizeObservationV3` production wrapper has real non-test callers from all three TaskGate paths. | `experiment.TestFinalizeObservationV3HasProductionCallers` |
+| `evaluation/cmd/final-v5-adapter/adapter_bindings.go` | `CensusFromTemplates`, `GatewayControlPlan`, `GatewayStatementCensus`, `ObserverAccounting`, `ObserverAccountingVersion`, `ValidateObserverAccounting` |
+| `evaluation/cmd/final-v5-adapter/artifact.go` | `GatewayStatementCensus`, `NewGatewayControlPlan` |
+| `evaluation/cmd/final-v5-adapter/provsql.go` | `NewGatewayControlPlan` |
+| `evaluation/cmd/final-v5-adapter/scale.go` | `NewGatewayControlPlan` |
+| `evaluation/internal/experiment/finalize_scale_artifact.go` | `ObserverAccounting`, `ValidateObserverAccounting` |
+| `evaluation/internal/experiment/types.go` | `ObserverAccounting` |
 
 ## Canary prerequisite
 
