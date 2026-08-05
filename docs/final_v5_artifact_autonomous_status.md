@@ -6,6 +6,12 @@ stays on `main @ 804d65d` and is never touched.
 
 ## Current HEAD
 
+`65ac2e7` — worktree clean, equal to `origin/tkde-artifact-rerun`. The v3
+runtime integration is begun but **not** complete; see "V3 runtime integration —
+state" below for exactly what lands and what does not.
+
+### Previous HEAD record — N4 checkpoint
+
 `49dab4e` — worktree clean, equal to `origin/tkde-artifact-rerun`. The N4
 checkpoint closed at this HEAD: the two qualifications from published `1a539e1`
 both finished, every required equality was checked from the reports rather than
@@ -693,15 +699,70 @@ v3 accounting, which is the specific failure mode this arc exists to remove. The
 formal Gateway rebuild is downstream of the same migration, since the image must
 come from the fully integrated commit.
 
+### V3 runtime integration — state
+
+Three commits land against the author's decisions. None of them changes
+capability, release, tags, Campaign or paper state, and the canary has not run.
+
+- `624b295` — `docs/final_v5_v3_runtime_integration_gates.md`, the gate list,
+  with stable numbering and no renumbering of existing IDs.
+- `bcd2f1c` — `FinalizeTaskGateObservationV3`, the V9-verified production
+  acceptance entry point. It verifies the receipt before reading anything out of
+  it, takes the path kind and the signed target records from the Gateway's
+  signature, compares the Adapter's carried statement identities against those
+  records field by field — including the row limit and the policy fingerprint,
+  neither of which a structural digest can see — and only then calls
+  `FinalizeObservationV3`. The Adapter's verdict has no parameter to arrive
+  through.
+- `65ac2e7` — the retirement ratchet and the production-caller report.
+
+**The 24 unsupplied gates.** The instruction stated the authoritative 30-item
+list was supplied with it. It was not: requirement text arrived for 18, 19, 21,
+22 and 25 only, and gate 1 is recoverable from this record. The rest are
+recorded `UNSPECIFIED` rather than invented — see the gap notice in the gate
+document. This makes canary prerequisite 1, "all 30 gates pass", currently
+unsatisfiable, independently of how much code lands.
+
+**What is not done**, and is the whole of what remains:
+
+1. The three TaskGate call sites still build v1.4 `ObserverAccounting`. Nothing
+   calls the acceptance wrapper yet, so `FinalizeObservationV3` still has no
+   production caller — the condition this arc exists to fix. The remaining
+   active surface is listed file by file in the gate document and pinned by the
+   ratchet.
+2. `evaluation/internal/legacyv14` does not exist; the v1.4 schema and decoder
+   have not been moved, and the import guard is unwritten.
+3. Gate tests 18, 19, 21, 22 and 25 are unwritten. They need a signed, valid V9
+   receipt fixture inside `evaluation/internal/experiment`, and the existing one
+   is an eight-deep unexported chain (`validReceipt` → … → `validV9Receipt`) in
+   package `queryreceipt` that cannot be reached from there.
+
+**A finding that makes the migration unavoidable rather than merely desirable.**
+The v1.4 active path cannot execute at all against the current observer, and has
+not been able to since I1-B. `captureBoundObserver` decodes the observer's
+output into the v1 `ObserverSnapshot` through `StrictJSON`, which sets
+`DisallowUnknownFields`, while the observer emits `ObserverSnapshotV2` with no
+fallback; the two field sets are nearly disjoint, so the decode fails on the
+first member. The adapter also invokes the observer with `--phase` alone, while
+`parseObserverInvocation` requires `--observer-window-id` and
+`--classifier-manifest-sha256` and rejects unknown flags. Either fault alone is
+fatal. So removing the v1.4 path breaks nothing that currently works, and any
+green Artifact/Scale/ProvSQL run predating I1-B measured a path that no longer
+exists.
+
 ### Remaining order
 
-1. **I2-B/I3/I4 as one migration**: move Artifact, Scale and ProvSQL onto
-   `CarriedEvidenceV3`, assemble `IndependentInputsV3` in the finalizer, call
-   `FinalizeObservationV3` as the sole authority, and retire the v1.4
-   `ObserverAccounting` and `GatewayControlPlan` rather than leaving two
-   accountings in the tree.
-2. Then the remaining integration cases, the formal Gateway build from the
-   integrated commit, and only then the live Result-heavy 100x4 v3 canary.
+1. **Supply the 24 missing gate requirements.** Nothing downstream can be
+   declared publication-grade without them, and no amount of code closes them.
+2. **Finish the migration**: move Artifact, Scale and ProvSQL onto
+   `CarriedEvidenceV3` and `FinalizeTaskGateObservationV3`, assemble
+   `IndependentInputsV3` finalizer-side, drive the observer with the window and
+   classifier identities it actually requires, and empty the ratchet.
+3. Move the v1.4 schema and decoder into `evaluation/internal/legacyv14` with
+   the import guard, incapable of producing or accepting a v1.5 sample.
+4. Write gate tests 18, 19, 21, 22 and 25 against the acceptance wrapper.
+5. Then the formal Gateway build from the integrated commit, and only then the
+   live Result-heavy 100x4 v3 canary.
 
 Integration-gate items already covered by tests: 1 (observer emits strict v2
 JSON — done in I1-B), 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 20,
