@@ -927,6 +927,9 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 	if requestedDBMS < 1 {
 		return nil, toolError(control.ErrTaskExpired)
 	}
+	if s.beforeReserveBudget != nil {
+		s.beforeReserveBudget(ctx, task.ID)
+	}
 	reserveStarted := time.Now()
 	reserveRequest := control.ReserveRequest{
 		QueryID: queryID, TaskID: task.ID, RequestID: requestID, Actor: principal.Subject,

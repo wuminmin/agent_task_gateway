@@ -105,6 +105,13 @@ type Service struct {
 	// window after canonical object creation and before the Control AVAILABLE
 	// transaction commits. Production always leaves it nil.
 	markArtifactAvailable func(context.Context, string, string, string) (control.ResultArtifact, error)
+	// beforeReserveBudget is a narrow fault-injection seam for the window
+	// between the preparation derivation and the reservation that establishes
+	// the authoritative pre-state. Concurrent activity in that window is exactly
+	// what the re-derivation exists to survive, and it cannot be provoked from
+	// outside: the task lock serializes reservations, so a second request cannot
+	// interleave without one. Production always leaves it nil.
+	beforeReserveBudget func(context.Context, string)
 	// highCardinalityDerivations isolates million-fact bitmap work from the
 	// small-query pool. Capacity one is intentional and queue time is outside
 	// the advertised execution SLO.

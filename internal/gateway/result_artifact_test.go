@@ -461,15 +461,21 @@ func TestCanonicalCopySurvivesAvailableTransactionFailureAndRecoversExactlyOnce(
 		t.Fatal(err)
 	}
 	if receiptBefore.Receipt == nil {
-		t.Fatal("V8 receipt was not persisted before artifact recovery")
+		t.Fatal("no receipt was persisted before artifact recovery")
 	}
 	var signedBefore queryreceipt.QueryReceiptV1
 	if err := json.Unmarshal(receiptBefore.Receipt.ReceiptJSON, &signedBefore); err != nil {
 		t.Fatal(err)
 	}
-	if signedBefore.Version != queryreceipt.VersionV8 || signedBefore.Exposure == nil ||
-		signedBefore.Exposure.ProfileVersion != exposure.ProfileV5 || signedBefore.ArtifactIntent == nil {
-		t.Fatalf("crash-window receipt is not explicit V5 + V8 evidence: %+v", signedBefore)
+	// V9, not V8. This operation is exposure-V5 with result artifacts enabled and
+	// it completed, so it has a persisted execution binding; a receipt that
+	// dropped it and emitted V8 would be the silent downgrade the version
+	// selection refuses. Everything V8 required is still required here, because
+	// V9 is V8 plus the execution evidence.
+	if signedBefore.Version != queryreceipt.VersionV9 || signedBefore.Exposure == nil ||
+		signedBefore.Exposure.ProfileVersion != exposure.ProfileV5 || signedBefore.ArtifactIntent == nil ||
+		signedBefore.ExecutionBinding == nil || signedBefore.ExposureLedgerBefore == nil {
+		t.Fatalf("crash-window receipt is not explicit V5 + V9 evidence: %+v", signedBefore)
 	}
 	intentBefore := *signedBefore.ArtifactIntent
 	connectorCalls := len(harness.connector.requests)

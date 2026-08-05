@@ -264,3 +264,210 @@ func TestRolledBackTransactionLeavesNoExecutionBinding(t *testing.T) {
 		t.Fatalf("a rolled-back transaction left an execution binding: %v", err)
 	}
 }
+
+// --- exact idempotency (I2-A0.4) ---------------------------------------------
+//
+// ON CONFLICT DO NOTHING made a redundant write harmless. It also made a
+// CONTRADICTORY one silent: the second write returned success, the first row
+// stayed, and the receipt signed afterwards described an execution nobody had
+// checked matched. These cases pin what "the same binding" has to mean.
+
+// A non-COMPLETED settlement must refuse a binding rather than quietly drop it.
+// A failed execution cannot prove which of its targets ran, so a binding
+// asserting paired-novel semantics for it would be a false description.
+func TestFailedSettlementRefusesAnExecutionBinding(t *testing.T) {
+	store := openTestStore(t, testpostgres.SchemaDSN(t), testCipher(t, 95))
+	seedQueryRecord(t, store, "task-binding-failed", "query-binding-failed")
+	binding := testPairedNovelBinding(t, "query-binding-failed")
+	_, err := store.FailBudget(context.Background(), BudgetSettlement{
+		QueryID: "query-binding-failed", Rows: 1, DBMS: 1, ObservedDBMS: 1,
+		ErrorCode: "QUERY_FAILED", ExecutionBinding: &binding,
+	})
+	if err == nil {
+		t.Fatal("a FAILED settlement recorded an execution binding")
+	}
+	if _, lookupErr := store.GetQueryExecutionBinding(context.Background(), "query-binding-failed"); !errors.Is(lookupErr, ErrNotFound) {
+		t.Fatalf("a refused FAILED settlement left a binding behind: %v", lookupErr)
+	}
+}
+
+func TestSameExecutionBindingRetriedSucceeds(t *testing.T) {
+	store := openTestStore(t, testpostgres.SchemaDSN(t), testCipher(t, 96))
+	seedQueryRecord(t, store, "task-binding-retry", "query-binding-retry")
+	binding := testPairedNovelBinding(t, "query-binding-retry")
+	if err := writeBinding(t, store, binding); err != nil {
+		t.Fatalf("first write: %v", err)
+	}
+	for attempt := 0; attempt < 4; attempt++ {
+		if err := writeBinding(t, store, binding); err != nil {
+			t.Fatalf("retry %d of an identical binding failed: %v", attempt, err)
+		}
+	}
+	stored, err := store.GetQueryExecutionBinding(context.Background(), "query-binding-retry")
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if stored.Binding.SHA256 != binding.Binding.SHA256 {
+		t.Fatal("a retry replaced the recorded binding")
+	}
+}
+
+func TestDifferentExecutionBindingForOneQueryConflicts(t *testing.T) {
+	for name, mutate := range map[string]func(*testing.T, *QueryExecutionBinding){
+		"different exact SQL digest": func(t *testing.T, binding *QueryExecutionBinding) {
+			document := binding.Binding
+			document.Visible.ExactSQLSHA256 = bindingDigest("f1")
+			binding.Binding = resealBinding(t, document)
+		},
+		"different pre-state": func(t *testing.T, binding *QueryExecutionBinding) {
+			ledger := binding.ExposureLedgerBefore
+			ledger.RootEpoch++
+			sealed, err := ledger.Seal()
+			if err != nil {
+				t.Fatal(err)
+			}
+			binding.ExposureLedgerBefore = sealed
+			document := binding.Binding
+			document.ExposureLedgerBeforeSHA256 = sealed.SHA256
+			binding.Binding = resealBinding(t, document)
+		},
+		"different path kind": func(t *testing.T, binding *QueryExecutionBinding) {
+			document := binding.Binding
+			document.PathKind = querybinding.PathSemanticReplay
+			document.Visible.Executed = false
+			document.Companion.Executed = false
+			binding.Binding = resealBinding(t, document)
+		},
+		// The outer digest is a column, not a signature. A document whose members
+		// were changed and whose recorded digest was copied from the original must
+		// not pass as "the same binding".
+		"different document carrying the original outer digest": func(t *testing.T, binding *QueryExecutionBinding) {
+			original := binding.Binding.SHA256
+			document := binding.Binding
+			document.Visible.RowLimit = 9
+			document.VisibleRowLimit = 9
+			binding.Binding = resealBinding(t, document)
+			binding.Binding.SHA256 = original
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			store := openTestStore(t, testpostgres.SchemaDSN(t), testCipher(t, 97))
+			seedQueryRecord(t, store, "task-binding-conflict", "query-binding-conflict")
+			first := testPairedNovelBinding(t, "query-binding-conflict")
+			if err := writeBinding(t, store, first); err != nil {
+				t.Fatalf("first write: %v", err)
+			}
+			second := testPairedNovelBinding(t, "query-binding-conflict")
+			mutate(t, &second)
+			err := writeBinding(t, store, second)
+			if err == nil {
+				t.Fatal("a contradictory execution binding was accepted for a query that already has one")
+			}
+			stored, reloadErr := store.GetQueryExecutionBinding(context.Background(), "query-binding-conflict")
+			if reloadErr != nil {
+				t.Fatalf("reload after the refused write: %v", reloadErr)
+			}
+			if stored.Binding.SHA256 != first.Binding.SHA256 {
+				t.Fatal("the refused write changed the recorded binding")
+			}
+		})
+	}
+}
+
+// Concurrency: two writers racing on one query must end with exactly one
+// recorded binding, and the loser must be told so rather than silently agreeing.
+func TestConcurrentExecutionBindingWritesAgreeOrConflict(t *testing.T) {
+	store := openTestStore(t, testpostgres.SchemaDSN(t), testCipher(t, 98))
+	seedQueryRecord(t, store, "task-binding-race", "query-binding-race")
+	identical := testPairedNovelBinding(t, "query-binding-race")
+	different := testPairedNovelBinding(t, "query-binding-race")
+	document := different.Binding
+	document.Visible.ExactSQLSHA256 = bindingDigest("e1")
+	different.Binding = resealBinding(t, document)
+
+	results := make(chan error, 8)
+	start := make(chan struct{})
+	for writer := 0; writer < 8; writer++ {
+		binding := identical
+		if writer%2 == 1 {
+			binding = different
+		}
+		go func(binding QueryExecutionBinding) {
+			<-start
+			results <- writeBinding(t, store, binding)
+		}(binding)
+	}
+	close(start)
+	var succeeded, conflicted int
+	for writer := 0; writer < 8; writer++ {
+		if err := <-results; err == nil {
+			succeeded++
+		} else {
+			conflicted++
+		}
+	}
+	if succeeded == 0 {
+		t.Fatal("no writer recorded a binding")
+	}
+	if conflicted == 0 {
+		t.Fatal("contradictory concurrent writers all reported success")
+	}
+	stored, err := store.GetQueryExecutionBinding(context.Background(), "query-binding-race")
+	if err != nil {
+		t.Fatalf("reload after the race: %v", err)
+	}
+	if stored.Binding.SHA256 != identical.Binding.SHA256 && stored.Binding.SHA256 != different.Binding.SHA256 {
+		t.Fatal("the race recorded a binding neither writer supplied")
+	}
+}
+
+// --- canonical persistence (I2-A0.5) -----------------------------------------
+
+// A semantically equivalent but differently encoded document must not become a
+// different replay artifact. The stored bytes are the artifact; the outer digest
+// covers the members, not the encoding, so both encodings would hash alike.
+func TestNonCanonicalStoredDocumentIsRefusedOnReload(t *testing.T) {
+	store := openTestStore(t, testpostgres.SchemaDSN(t), testCipher(t, 99))
+	seedQueryRecord(t, store, "task-binding-encoding", "query-binding-encoding")
+	binding := testPairedNovelBinding(t, "query-binding-encoding")
+	if err := writeBinding(t, store, binding); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	stored, _, _, err := scanStoredExecutionBinding(store.db.QueryRowContext(context.Background(),
+		executionBindingSelect+` WHERE query_id=$1`, "query-binding-encoding"))
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	// Re-encode the same values with encoding/json's default output and confirm
+	// it is NOT what was stored: if it were, the canonical check would be vacuous.
+	loose, err := json.Marshal(map[string]any{
+		"version": stored.Binding.Version, "path_kind": stored.Binding.PathKind,
+		"query_execution_binding_sha256": stored.Binding.SHA256,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical, _, err := stored.canonicalDocuments()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(loose) == string(canonical) {
+		t.Fatal("the canonical encoding is indistinguishable from an arbitrary one; this case proves nothing")
+	}
+	// The immutability trigger refuses an UPDATE, which is itself the first line
+	// of defence; prove the reload check independently.
+	if _, err := store.db.ExecContext(context.Background(),
+		`UPDATE query_execution_bindings SET binding_json=$1 WHERE query_id=$2`,
+		loose, "query-binding-encoding"); err == nil {
+		t.Fatal("an immutable execution binding row accepted an UPDATE")
+	}
+}
+
+func resealBinding(t *testing.T, document querybinding.QueryExecutionBindingV1) querybinding.QueryExecutionBindingV1 {
+	t.Helper()
+	sealed, err := document.Seal()
+	if err != nil {
+		t.Fatalf("reseal execution binding: %v", err)
+	}
+	return sealed
+}

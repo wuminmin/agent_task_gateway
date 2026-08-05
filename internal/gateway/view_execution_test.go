@@ -1144,20 +1144,20 @@ func installSemanticRuntimeSnapshotRegistry(t *testing.T, service *Service) {
 		if closeErr != nil {
 			t.Fatalf("close snapshot input %s: %v", publication.Name, closeErr)
 		}
-		var index ordinal.SnapshotIndex
 		if len(input.Snapshot.Rows) == 0 {
-			index = liveCompilerTestSnapshotIndex{publication: publication, input: input}
-		} else {
-			bundle, compileErr := snapshotbundle.Compile(input)
-			if compileErr != nil {
-				t.Fatalf("compile snapshot input %s: %v", publication.Name, compileErr)
-			}
-			parsed, parseErr := ordinal.ParseHotDictionary(bundle.Hot, publication.ManifestDigest)
-			if parseErr != nil {
-				t.Fatalf("parse snapshot index %s: %v", publication.Name, parseErr)
-			}
-			index = parsed
+			input = scanLiveSnapshotRows(t, input, publication.Name)
 		}
+		bundle, compileErr := snapshotbundle.Compile(input)
+		if compileErr != nil {
+			t.Fatalf("compile snapshot input %s: %v", publication.Name, compileErr)
+		}
+		parsed, parseErr := ordinal.ParseHotDictionary(bundle.Hot, publication.ManifestDigest)
+		if parseErr != nil {
+			t.Fatalf("parse snapshot index %s: %v", publication.Name, parseErr)
+		}
+		assertCompiledBundleMatchesExpectedDigests(t, publication.Name, parsed.Manifest(),
+			parsed.ManifestDigest(), input.ExpectedDigests)
+		var index ordinal.SnapshotIndex = parsed
 		if registerErr := registry.RegisterPublication(ordinal.PublicationKey{
 			CatalogDigest: service.catalog.SHA256, PublicationName: publication.Name,
 		}, publication.ManifestDigest, index); registerErr != nil {

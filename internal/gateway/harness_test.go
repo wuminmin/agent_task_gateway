@@ -3,7 +3,7 @@ package gateway
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -30,48 +31,6 @@ import (
 type gatewayTestClock struct{ value time.Time }
 
 func (clock *gatewayTestClock) Now() time.Time { return clock.value }
-
-// liveCompilerTestSnapshotIndex is confined to unit-test registry setup. It
-// represents a publication whose rows intentionally are not checked into the
-// repository; production activates only the independently verified live HOT
-// bundle. Tests that actually read rows continue to use a compiled index.
-type liveCompilerTestSnapshotIndex struct {
-	publication catalog.SnapshotPublication
-	input       snapshotbundle.CompilerInput
-}
-
-func (index liveCompilerTestSnapshotIndex) Manifest() ordinal.DictionaryManifest {
-	return ordinal.DictionaryManifest{
-		Version: ordinal.DictionaryVersion, SourceID: index.input.Snapshot.SourceID,
-		SourceNamespace: index.publication.SourceNamespace, Snapshot: index.publication.Snapshot,
-		SchemaDigest: index.input.Snapshot.SchemaDigest, DictionaryDigest: index.publication.DictionaryDigest,
-		SidecarDigest: index.publication.SidecarDigest,
-	}
-}
-
-func (index liveCompilerTestSnapshotIndex) DictionaryDigest() string {
-	return index.publication.DictionaryDigest
-}
-func (index liveCompilerTestSnapshotIndex) ManifestDigest() string {
-	return index.publication.ManifestDigest
-}
-func (liveCompilerTestSnapshotIndex) Hash(ordinal.FactRef) ([sha256.Size]byte, error) {
-	return [sha256.Size]byte{}, ordinal.ErrUnknownFact
-}
-func (liveCompilerTestSnapshotIndex) SegmentFactCount(string) (uint64, bool) { return 0, false }
-func (liveCompilerTestSnapshotIndex) ValidateSetBounds(ordinal.BitmapSet) error {
-	return ordinal.ErrUnknownFact
-}
-func (liveCompilerTestSnapshotIndex) RowCount() uint64 { return 0 }
-func (liveCompilerTestSnapshotIndex) LookupRowHandle(string) (ordinal.RowHandle, bool) {
-	return 0, false
-}
-func (liveCompilerTestSnapshotIndex) LookupRow(ordinal.RowHandle) (ordinal.RowRefs, bool) {
-	return ordinal.RowRefs{}, false
-}
-func (liveCompilerTestSnapshotIndex) LookupEntity(string) (ordinal.RowRefs, bool) {
-	return ordinal.RowRefs{}, false
-}
 
 type fakeApproval struct {
 	requests []approval.DraftRequest
@@ -217,6 +176,21 @@ type gatewayHarness struct {
 	alice     mcp.Principal
 	carol     mcp.Principal
 	secret    string
+	// dsn is the isolated migrated schema this harness's store was opened on.
+	// Tests that must observe or perturb Control state the store deliberately
+	// exposes no API for open their own connection to it.
+	dsn string
+}
+
+// controlDB opens a second connection to this harness's Control schema.
+func (harness *gatewayHarness) controlDB(t *testing.T) *sql.DB {
+	t.Helper()
+	db, err := sql.Open("pgx", harness.dsn)
+	if err != nil {
+		t.Fatalf("open control schema: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return db
 }
 
 func newGatewayHarness(t *testing.T) *gatewayHarness {
@@ -231,7 +205,8 @@ func newGatewayHarness(t *testing.T) *gatewayHarness {
 		t.Fatalf("create result cipher: %v", err)
 	}
 	clock := &gatewayTestClock{value: time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)}
-	store, err := control.Open(ctx, testpostgres.SchemaDSN(t), cipher, control.WithClock(clock))
+	dsn := testpostgres.SchemaDSN(t)
+	store, err := control.Open(ctx, dsn, cipher, control.WithClock(clock))
 	if err != nil {
 		t.Fatalf("open control store: %v", err)
 	}
@@ -266,7 +241,7 @@ func newGatewayHarness(t *testing.T) *gatewayHarness {
 	return &gatewayHarness{
 		service: service, store: store, catalog: loadedCatalog,
 		approval: approvalAdapter, connector: connector, clock: clock,
-		alice: alice, carol: carol, secret: secret,
+		alice: alice, carol: carol, secret: secret, dsn: dsn,
 	}
 }
 
@@ -382,20 +357,27 @@ func (harness *gatewayHarness) installCatalogV4SnapshotRegistry(t *testing.T) ma
 		if closeErr != nil {
 			t.Fatalf("close snapshot compiler input %s: %v", publication.Name, closeErr)
 		}
-		var index ordinal.SnapshotIndex
 		if len(input.Snapshot.Rows) == 0 {
-			index = liveCompilerTestSnapshotIndex{publication: publication, input: input}
-		} else {
-			bundle, compileErr := snapshotbundle.Compile(input)
-			if compileErr != nil {
-				t.Fatalf("compile snapshot publication %s: %v", publication.Name, compileErr)
-			}
-			parsed, parseErr := ordinal.ParseHotDictionary(bundle.Hot, publication.ManifestDigest)
-			if parseErr != nil {
-				t.Fatalf("parse snapshot publication %s: %v", publication.Name, parseErr)
-			}
-			index = parsed
+			// The committed compiler input carries no rows: the source rows for
+			// this publication live in the Business database rather than in the
+			// repository. Scan them the way cmd/snapshot-index does, so the test
+			// consumes the same bundle production would activate.
+			input = scanLiveSnapshotRows(t, input, publication.Name)
 		}
+		bundle, compileErr := snapshotbundle.Compile(input)
+		if compileErr != nil {
+			t.Fatalf("compile snapshot publication %s: %v", publication.Name, compileErr)
+		}
+		parsed, parseErr := ordinal.ParseHotDictionary(bundle.Hot, publication.ManifestDigest)
+		if parseErr != nil {
+			t.Fatalf("parse snapshot publication %s: %v", publication.Name, parseErr)
+		}
+		// The compiler input declares what the bundle must digest to, and the
+		// Catalog declares what the Gateway will accept. Both are checked: a
+		// fixture that matched neither would be a hand-written double again.
+		assertCompiledBundleMatchesExpectedDigests(t, publication.Name, parsed.Manifest(),
+			parsed.ManifestDigest(), input.ExpectedDigests)
+		var index ordinal.SnapshotIndex = parsed
 		if index.DictionaryDigest() != publication.DictionaryDigest ||
 			index.Manifest().SidecarDigest != publication.SidecarDigest {
 			t.Fatalf("snapshot publication %s does not match Catalog", publication.Name)
@@ -540,5 +522,76 @@ func (harness *gatewayHarness) createTaskWithGrantAndExposureProfile(t *testing.
 	})
 	if err != nil {
 		t.Fatalf("approve active-task seed: %v", err)
+	}
+}
+
+// liveSnapshotBundles caches one compiled bundle per publication for the whole
+// test binary.
+//
+// Scanning fifty thousand source rows and compiling them is real work, and five
+// tests install the same registry. The cache is keyed by publication name and
+// holds the verified compiler input rather than the parsed index, because
+// ParseHotDictionary hands out a live structure that a test could mutate.
+var liveSnapshotBundles sync.Map
+
+// scanLiveSnapshotRows fills a compiler input's rows from the Business database.
+//
+// The publication's source rows are deliberately not committed: they are fifty
+// thousand rows of generated ProvSQL data whose place is the database, not the
+// repository. cmd/snapshot-index scans them the same way, so a test that scans
+// them here consumes the bundle production would activate rather than a
+// hand-written double whose manifest carries no cold payload, no hot index and
+// no segments.
+func scanLiveSnapshotRows(t *testing.T, input snapshotbundle.CompilerInput, name string) snapshotbundle.CompilerInput {
+	t.Helper()
+	if cached, found := liveSnapshotBundles.Load(name); found {
+		return cached.(snapshotbundle.CompilerInput)
+	}
+	dsn := strings.TrimSpace(os.Getenv("BUSINESS_TEST_POSTGRES_DSN"))
+	if dsn == "" {
+		t.Skipf("publication %s carries no committed source rows; set BUSINESS_TEST_POSTGRES_DSN "+
+			"(scripts/db-test-env.sh) so the real bundle can be materialized", name)
+	}
+	scanned, err := snapshotbundle.ScanPostgresSnapshot(t.Context(), input, dsn)
+	if err != nil {
+		t.Fatalf("scan source relation %s for publication %s: %v", input.SourceRelation, name, err)
+	}
+	if len(scanned.Snapshot.Rows) == 0 {
+		t.Fatalf("publication %s scanned no rows from %s; the Business deployment does not carry its source data",
+			name, input.SourceRelation)
+	}
+	liveSnapshotBundles.Store(name, scanned)
+	return scanned
+}
+
+// assertCompiledBundleMatchesExpectedDigests proves the materialized bundle is
+// the one the repository and the Catalog already committed to.
+//
+// The compiler input's expected_digests were produced by a verified publication
+// run. Checking them here is what makes the fixture evidence rather than
+// whatever the current code happens to emit: if the compiler, the dictionary
+// layout or the source rows change, this fails instead of silently activating a
+// different bundle under the same publication name.
+func assertCompiledBundleMatchesExpectedDigests(t *testing.T, name string, manifest ordinal.DictionaryManifest,
+	manifestDigest string, expected snapshotbundle.ExpectedDigests) {
+	t.Helper()
+	for _, digest := range []struct{ label, want, got string }{
+		{"sidecar", expected.SidecarDigest, manifest.SidecarDigest},
+		{"dictionary", expected.DictionaryDigest, manifest.DictionaryDigest},
+		{"manifest", expected.ManifestDigest, manifestDigest},
+		{"cold payload", expected.ColdPayloadDigest, manifest.ColdPayloadDigest},
+		{"hot index", expected.HotIndexDigest, manifest.HotIndexDigest},
+	} {
+		if digest.want == "" {
+			t.Fatalf("publication %s declares no expected %s digest, so the compiled bundle is unverifiable",
+				name, digest.label)
+		}
+		if digest.want != digest.got {
+			t.Fatalf("publication %s compiled to %s digest %s but its input expects %s",
+				name, digest.label, digest.got, digest.want)
+		}
+	}
+	if err := manifest.Validate(); err != nil {
+		t.Fatalf("publication %s compiled to an invalid dictionary manifest: %v", name, err)
 	}
 }
