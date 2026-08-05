@@ -56,6 +56,35 @@ const (
 	StatusIndeterminate = "INDETERMINATE"
 )
 
+// receiptVersions is the ordered set of receipt versions, oldest first.
+//
+// The version conditions in ValidateUnsigned used to be written as explicit
+// disjunctions naming every accepted version. That style is how V9 came to be
+// omitted from three of them -- schema_digest, signed_at and the signed_at
+// ordering -- so V9 receipts passed checks every version since V2 or V3 has had
+// to satisfy. A new version now has to be added here once instead of to each
+// condition, and the conditions read as the ranges they always meant.
+var receiptVersions = []string{
+	VersionV1, VersionV2, VersionV3, VersionV4, VersionV5, VersionV6, VersionV7, VersionV8, VersionV9,
+}
+
+func receiptVersionIndex(version string) int {
+	for index, known := range receiptVersions {
+		if known == version {
+			return index
+		}
+	}
+	return -1
+}
+
+// atLeast reports whether this receipt's version is version or later. An
+// unrecognised version is never "at least" anything; ValidateUnsigned rejects it
+// outright before any of these checks run.
+func (r QueryReceiptV1) atLeast(version string) bool {
+	current := receiptVersionIndex(r.Version)
+	return current >= 0 && current >= receiptVersionIndex(version)
+}
+
 var (
 	ErrInvalidReceipt   = errors.New("invalid query receipt")
 	ErrInvalidKey       = errors.New("invalid query receipt key")
@@ -268,7 +297,7 @@ func artifactIntentSHA256(intent ArtifactIntentEvidenceV1) (string, error) {
 }
 
 func (r QueryReceiptV1) ValidateUnsigned() error {
-	if r.Version != VersionV1 && r.Version != VersionV2 && r.Version != VersionV3 && r.Version != VersionV4 && r.Version != VersionV5 && r.Version != VersionV6 && r.Version != VersionV7 && r.Version != VersionV8 && r.Version != VersionV9 {
+	if receiptVersionIndex(r.Version) < 0 {
 		return fmt.Errorf("%w: unsupported version %q", ErrInvalidReceipt, r.Version)
 	}
 	if strings.TrimSpace(r.ReceiptID) == "" || strings.TrimSpace(r.TaskID) == "" ||
@@ -281,7 +310,10 @@ func (r QueryReceiptV1) ValidateUnsigned() error {
 		"request_digest":      r.RequestDigest,
 		"previous_audit_hash": r.PreviousAuditHash, "audit_hash": r.AuditHash,
 	}
-	if r.Version == VersionV2 || r.Version == VersionV3 || r.Version == VersionV4 || r.Version == VersionV5 || r.Version == VersionV6 || r.Version == VersionV7 || r.Version == VersionV8 {
+	// V9 belongs here as much as V2..V8 do. It was omitted, so a V9 receipt could
+	// carry an absent or malformed schema_digest while every earlier version was
+	// held to it.
+	if r.atLeast(VersionV2) {
 		digests["schema_digest"] = r.SchemaDigest
 	}
 	for name, value := range digests {
@@ -289,7 +321,7 @@ func (r QueryReceiptV1) ValidateUnsigned() error {
 			return fmt.Errorf("%w: %s is not lowercase SHA-256", ErrInvalidReceipt, name)
 		}
 	}
-	if (r.Version == VersionV2 || r.Version == VersionV3 || r.Version == VersionV4 || r.Version == VersionV5 || r.Version == VersionV6 || r.Version == VersionV7 || r.Version == VersionV8 || r.Version == VersionV9) && strings.TrimSpace(r.DatasourceID) == "" {
+	if r.atLeast(VersionV2) && strings.TrimSpace(r.DatasourceID) == "" {
 		return fmt.Errorf("%w: datasource_id is required", ErrInvalidReceipt)
 	}
 	if strings.TrimSpace(r.CatalogVersion) == "" || strings.TrimSpace(r.SQLFingerprint) == "" ||
@@ -301,7 +333,10 @@ func (r QueryReceiptV1) ValidateUnsigned() error {
 	if r.CompletedAt.Before(r.CreatedAt) {
 		return fmt.Errorf("%w: completion precedes creation", ErrInvalidReceipt)
 	}
-	if r.Version == VersionV3 || r.Version == VersionV4 || r.Version == VersionV5 || r.Version == VersionV6 || r.Version == VersionV7 || r.Version == VersionV8 {
+	// As with schema_digest, V9 was omitted from this condition: a V9 receipt
+	// could be signed with no signed_at at all, or with one that predates the
+	// terminal evidence it claims to attest.
+	if r.atLeast(VersionV3) {
 		if r.SignedAt == nil || r.SignedAt.IsZero() {
 			return fmt.Errorf("%w: signed_at is required", ErrInvalidReceipt)
 		}
@@ -323,7 +358,7 @@ func (r QueryReceiptV1) ValidateUnsigned() error {
 	}
 	if r.Exposure != nil {
 		exposure := r.Exposure
-		if (r.Version != VersionV4 && r.Version != VersionV5 && r.Version != VersionV6 && r.Version != VersionV7 && r.Version != VersionV8 && r.Version != VersionV9) || strings.TrimSpace(exposure.RootTaskID) == "" ||
+		if !r.atLeast(VersionV4) || strings.TrimSpace(exposure.RootTaskID) == "" ||
 			strings.TrimSpace(exposure.ProfileVersion) == "" || !isSHA256(exposure.ObservationSHA256) ||
 			exposure.ActualReleaseFacts < 0 || exposure.ActualInfluenceFacts < 0 || exposure.ActualOutcomeFacts < 0 ||
 			exposure.ChargedReleaseFacts < 0 || exposure.ChargedInfluenceFacts < 0 || exposure.ChargedOutcomeFacts < 0 ||
@@ -336,7 +371,7 @@ func (r QueryReceiptV1) ValidateUnsigned() error {
 			(r.Version == VersionV6 && (exposure.ProfileVersion != "taskgate-exposure-v4" || exposure.ActualOutcomeFacts != 1 ||
 				exposure.RootEpoch <= 0 || !isSHA256(exposure.DictionarySetSHA256) || !isSHA256(exposure.ReleaseSetSHA256) ||
 				!isSHA256(exposure.InfluenceSetSHA256) || !isSHA256(exposure.OutcomeSetSHA256)) ||
-				((r.Version == VersionV7 || r.Version == VersionV8 || r.Version == VersionV9) && (exposure.ProfileVersion != "taskgate-exposure-v5" ||
+				(r.atLeast(VersionV7) && (exposure.ProfileVersion != "taskgate-exposure-v5" ||
 					exposure.PredicateProfileVersion != "taskgate-predicate-footprint-v1" ||
 					exposure.ActualCompositeCount != 1 || exposure.ChargedCompositeCount < 0 || exposure.ChargedCompositeCount > 1 ||
 					exposure.ActualPredicateAtomCount < 0 || exposure.ChargedPredicateAtomCount < 0 ||
@@ -349,10 +384,10 @@ func (r QueryReceiptV1) ValidateUnsigned() error {
 					!isSHA256(exposure.CompositeOutcomeSHA256)))) {
 			return fmt.Errorf("%w: receipt version and outcome evidence disagree", ErrInvalidReceipt)
 		}
-	} else if r.Version == VersionV4 || r.Version == VersionV5 || r.Version == VersionV6 || r.Version == VersionV7 || r.Version == VersionV8 || r.Version == VersionV9 {
+	} else if r.atLeast(VersionV4) {
 		return fmt.Errorf("%w: V4/V5/V6/V7/V8/V9 requires exposure evidence", ErrInvalidReceipt)
 	}
-	if r.Version != VersionV8 && r.Version != VersionV9 {
+	if !r.atLeast(VersionV8) {
 		if r.ArtifactIntent != nil {
 			return fmt.Errorf("%w: V1-V7 must not carry artifact intent", ErrInvalidReceipt)
 		}
@@ -556,8 +591,8 @@ func VerifyAuditInclusion(receipt QueryReceiptV1, proof auditchain.InclusionProo
 // the immediately following artifact registration event against audit
 // checkpoints, then checks the registration payload against the signed intent.
 func VerifyArtifactIntentInclusion(receipt QueryReceiptV1, terminalProof, registrationProof auditchain.InclusionProof) error {
-	if (receipt.Version != VersionV8 && receipt.Version != VersionV9) || receipt.ArtifactIntent == nil {
-		return fmt.Errorf("%w: artifact inclusion requires a V8 receipt", ErrInvalidReceipt)
+	if !receipt.atLeast(VersionV8) || receipt.ArtifactIntent == nil {
+		return fmt.Errorf("%w: artifact inclusion requires a V8 or later receipt", ErrInvalidReceipt)
 	}
 	if err := VerifyAuditInclusion(receipt, terminalProof); err != nil {
 		return err
@@ -595,8 +630,8 @@ func VerifyArtifactIntentInclusion(receipt QueryReceiptV1, terminalProof, regist
 // occurs after settlement; its payload must nevertheless match that receipt's
 // signed artifact intent exactly.
 func VerifyArtifactAvailabilityInclusion(receipt QueryReceiptV1, availabilityProof auditchain.InclusionProof) error {
-	if (receipt.Version != VersionV8 && receipt.Version != VersionV9) || receipt.ArtifactIntent == nil {
-		return fmt.Errorf("%w: artifact availability inclusion requires a V8 receipt", ErrInvalidReceipt)
+	if !receipt.atLeast(VersionV8) || receipt.ArtifactIntent == nil {
+		return fmt.Errorf("%w: artifact availability inclusion requires a V8 or later receipt", ErrInvalidReceipt)
 	}
 	event := availabilityProof.TerminalEvent
 	intent := receipt.ArtifactIntent

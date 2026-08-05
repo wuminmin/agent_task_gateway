@@ -662,3 +662,37 @@ func TestMultiIndexHashStreamPropagatesSnapshotHashFailure(t *testing.T) {
 		t.Fatalf("hash stream error = %v, want %v", err, sentinel)
 	}
 }
+
+// The manifest digests used to be validated by ranging over a map, so a fixture
+// with more than one malformed digest named a different field on each run. That
+// is a nondeterministic diagnostic: the failure is read while debugging a
+// fixture and quoted into evidence, and "which digest is wrong" must not depend
+// on Go's map seed.
+func TestDictionaryManifestValidateReportsAStableFirstError(t *testing.T) {
+	manifest := DictionaryManifest{
+		Version: DictionaryVersion, SourceID: "orders", SourceNamespace: "provsql",
+		Snapshot:     "snapshot-1",
+		SchemaDigest: "not-a-digest", DictionaryDigest: "also-not-a-digest",
+		SidecarDigest: "nor-this", ColdPayloadDigest: "nor-this-either",
+		HotIndexDigest: "still-not",
+		Segments: []SegmentManifest{{
+			ID: "segment-a", Kind: SegmentBaseRow, FactCount: 1,
+			HashesDigest: hex.EncodeToString(make([]byte, 32)), PayloadsDigest: hex.EncodeToString(make([]byte, 32)),
+		}},
+	}
+	first := manifest.Validate()
+	if first == nil {
+		t.Fatal("a manifest with five malformed digests validated")
+	}
+	for attempt := 0; attempt < 256; attempt++ {
+		again := manifest.Validate()
+		if again == nil || again.Error() != first.Error() {
+			t.Fatalf("validation is nondeterministic: %v then %v", first, again)
+		}
+	}
+	// The order is the one Digest() hashes in, so a reader debugging a manifest
+	// walks its fields in one direction only.
+	if want := "schema digest"; !bytes.Contains([]byte(first.Error()), []byte(want)) {
+		t.Fatalf("the first error is %q, want it to name the %s", first, want)
+	}
+}

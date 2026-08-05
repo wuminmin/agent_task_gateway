@@ -65,15 +65,65 @@ func (r QueryReceiptV1) validateExecutionBinding() error {
 		return fmt.Errorf("%w: the execution binding and its pre-state disagree about expanded evidence",
 			ErrInvalidReceipt)
 	}
+	// The pre-state's row budget is not an independent assertion. budget_before is
+	// already signed on the receipt and already says what the task had left, so a
+	// remaining_rows that does not equal limits minus used minus reserved
+	// describes a budget the receipt does not carry -- and remaining_rows is
+	// precisely the field a forger would raise to widen the visible row limit.
+	if err := requireRemainingRowsMatchBudget(r.BudgetBefore, *r.ExposureLedgerBefore); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidReceipt, err)
+	}
+	// Nor is the ledger identity independent. The exposure evidence names the
+	// ledger the operation settled against; the pre-state must name the same one.
+	// An epoch change resets the accounting, so a pre-state carrying a different
+	// epoch describes limits that no longer existed when the query ran.
+	if r.Exposure != nil {
+		for _, field := range []struct {
+			name              string
+			receipt, prestate any
+		}{
+			{"root task", r.Exposure.RootTaskID, r.ExposureLedgerBefore.RootTaskID},
+			{"root epoch", r.Exposure.RootEpoch, r.ExposureLedgerBefore.RootEpoch},
+			{"profile version", r.Exposure.ProfileVersion, r.ExposureLedgerBefore.ProfileVersion},
+		} {
+			if field.receipt != field.prestate {
+				return fmt.Errorf("%w: the exposure evidence and the ledger pre-state name different %ss (%v and %v)",
+					ErrInvalidReceipt, field.name, field.receipt, field.prestate)
+			}
+		}
+	}
 	// The row limits must be reproducible from the signed pre-state. This is the
 	// check that makes the binding evidence rather than assertion: a limit the
 	// pre-state cannot derive is a limit nothing authorized.
 	if err := requireReproducibleLimits(binding, *r.ExposureLedgerBefore); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidReceipt, err)
 	}
-	if r.Exposure != nil && r.Exposure.RootTaskID != r.ExposureLedgerBefore.RootTaskID {
-		return fmt.Errorf("%w: the exposure evidence and the ledger pre-state name different root tasks",
-			ErrInvalidReceipt)
+	return nil
+}
+
+// requireRemainingRowsMatchBudget cross-binds the two pre-states the receipt
+// carries.
+//
+// It is fail-closed by construction: a budget whose used plus reserved exceeds
+// its limit yields a negative remainder, which no valid pre-state can equal
+// because ExposureLedgerBeforeV1.Validate already refuses a negative
+// remaining_rows. Such a receipt is rejected here rather than silently clamped
+// to zero, because clamping would turn an incoherent ledger into a well-formed
+// one.
+func requireRemainingRowsMatchBudget(budget BudgetStateV1, ledger querybinding.ExposureLedgerBeforeV1) error {
+	if budget.Limits.Rows < 0 || budget.Used.Rows < 0 || budget.Reserved.Rows < 0 {
+		return fmt.Errorf("budget_before carries a negative row dimension (limits %d, used %d, reserved %d)",
+			budget.Limits.Rows, budget.Used.Rows, budget.Reserved.Rows)
+	}
+	remaining := budget.Limits.Rows - budget.Used.Rows - budget.Reserved.Rows
+	if remaining < 0 {
+		return fmt.Errorf("budget_before uses and reserves %d of %d rows, so it leaves %d remaining",
+			budget.Used.Rows+budget.Reserved.Rows, budget.Limits.Rows, remaining)
+	}
+	if ledger.RemainingRows != remaining {
+		return fmt.Errorf("the ledger pre-state claims %d remaining rows but budget_before leaves %d "+
+			"(limits %d - used %d - reserved %d)", ledger.RemainingRows, remaining,
+			budget.Limits.Rows, budget.Used.Rows, budget.Reserved.Rows)
 	}
 	return nil
 }
@@ -88,9 +138,6 @@ func (r QueryReceiptV1) validateExecutionBinding() error {
 // exactly what the pre-state is carried to support.
 func requireReproducibleLimits(binding querybinding.QueryExecutionBindingV1,
 	ledger querybinding.ExposureLedgerBeforeV1) error {
-	if binding.Companion == nil {
-		return nil
-	}
 	// The authorized visible limit is what production feeds the companion, and
 	// the policy engine may have lowered it below the requested one. So the
 	// requested limit bounds it rather than equalling it.
@@ -98,9 +145,15 @@ func requireReproducibleLimits(binding querybinding.QueryExecutionBindingV1,
 	if ledger.HasExposureContext && !ledger.UsesExpandedEvidence {
 		requested = min64(requested, ledger.Limits.InfluenceFacts)
 	}
+	// This bound holds whether or not a companion executed. It used to be skipped
+	// for a single-query binding, which left the one limit that path does render
+	// into executable SQL unchecked against the state that authorized it.
 	if binding.VisibleRowLimit > requested {
 		return fmt.Errorf("the visible row limit is %d but the signed pre-state authorizes at most %d",
 			binding.VisibleRowLimit, requested)
+	}
+	if binding.Companion == nil {
+		return nil
 	}
 	wantEvidenceRows := binding.VisibleRowLimit
 	if ledger.UsesExpandedEvidence {

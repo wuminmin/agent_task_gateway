@@ -65,13 +65,21 @@ func (m DictionaryManifest) Validate() error {
 	if !validID(m.SourceID) || !validID(m.SourceNamespace) || !validID(m.Snapshot) {
 		return fmt.Errorf("%w: dictionary source, namespace, and snapshot are required", ErrInvalid)
 	}
-	for name, digest := range map[string]string{
-		"schema": m.SchemaDigest, "dictionary": m.DictionaryDigest,
-		"sidecar": m.SidecarDigest, "cold payload": m.ColdPayloadDigest,
-		"hot index": m.HotIndexDigest,
+	// A fixed sequence, not a map. Ranging over a map made the reported error
+	// depend on Go's randomized iteration order, so one invalid fixture with two
+	// bad digests reported a different field on different runs. That is a
+	// nondeterministic diagnostic in a validator whose failures are read while
+	// debugging fixtures and quoted in evidence, and it is the same field order
+	// Digest() hashes in.
+	for _, digest := range []struct{ name, value string }{
+		{"schema", m.SchemaDigest},
+		{"dictionary", m.DictionaryDigest},
+		{"sidecar", m.SidecarDigest},
+		{"cold payload", m.ColdPayloadDigest},
+		{"hot index", m.HotIndexDigest},
 	} {
-		if !validDigest(digest) {
-			return fmt.Errorf("%w: %s digest", ErrInvalid, name)
+		if !validDigest(digest.value) {
+			return fmt.Errorf("%w: %s digest", ErrInvalid, digest.name)
 		}
 	}
 	if len(m.Segments) == 0 {
@@ -282,9 +290,14 @@ func newDictionaryCompileState(spec DictionarySpec, segmentCapacity uint64,
 	if !validDigest(spec.SchemaDigest) {
 		return nil, fmt.Errorf("%w: schema digest", ErrInvalid)
 	}
-	for name, digest := range map[string]string{"sidecar": spec.SidecarDigest, "cold payload": spec.ColdPayloadDigest} {
-		if digest != "" && !validDigest(digest) {
-			return nil, fmt.Errorf("%w: expected %s digest", ErrInvalid, name)
+	// Fixed order, for the same reason as DictionaryManifest.Validate: a spec with
+	// two malformed digests must always name the same one first.
+	for _, digest := range []struct{ name, value string }{
+		{"sidecar", spec.SidecarDigest},
+		{"cold payload", spec.ColdPayloadDigest},
+	} {
+		if digest.value != "" && !validDigest(digest.value) {
+			return nil, fmt.Errorf("%w: expected %s digest", ErrInvalid, digest.name)
 		}
 	}
 	if err := validateSegmentCapacity(segmentCapacity); err != nil {

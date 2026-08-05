@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"taskbound.local/agent-data-gateway/internal/querybinding"
 )
@@ -444,4 +445,242 @@ func TestV9RefusesASemanticReplayThatExecuted(t *testing.T) {
 	if _, err := idempotent.Seal(); err == nil {
 		t.Fatal("an idempotent replay produced a new execution binding")
 	}
+}
+
+// --- I2-A0 forward fixes -----------------------------------------------------
+//
+// The three cases below passed before only because V9 was omitted from the
+// version conditions that enforce them. They are not new rules: every version
+// since V2 (schema_digest) and V3 (signed_at) has had to satisfy them, and V9
+// inherited the requirement without inheriting the check.
+
+func TestV9RequiresSchemaDigest(t *testing.T) {
+	for name, digest := range map[string]string{
+		"absent":    "",
+		"uppercase": strings.ToUpper(fixedDigest("ab")),
+		"truncated": fixedDigest("ab")[:32],
+		"not hex":   strings.Repeat("z", 64),
+	} {
+		t.Run(name, func(t *testing.T) {
+			receipt := validV9Receipt(t)
+			if err := receipt.ValidateUnsigned(); err != nil {
+				t.Fatalf("the V9 baseline does not validate, so this case proves nothing: %v", err)
+			}
+			receipt.SchemaDigest = digest
+			if err := receipt.ValidateUnsigned(); err == nil {
+				t.Fatalf("a V9 receipt with a %s schema_digest was accepted", name)
+			}
+		})
+	}
+}
+
+func TestV9RequiresSignedAtNotBeforeCompletion(t *testing.T) {
+	t.Run("absent", func(t *testing.T) {
+		receipt := validV9Receipt(t)
+		receipt.SignedAt = nil
+		if err := receipt.ValidateUnsigned(); err == nil {
+			t.Fatal("a V9 receipt with no signed_at was accepted")
+		}
+	})
+	t.Run("zero", func(t *testing.T) {
+		receipt := validV9Receipt(t)
+		zero := time.Time{}
+		receipt.SignedAt = &zero
+		if err := receipt.ValidateUnsigned(); err == nil {
+			t.Fatal("a V9 receipt with a zero signed_at was accepted")
+		}
+	})
+	t.Run("precedes completion", func(t *testing.T) {
+		receipt := validV9Receipt(t)
+		early := receipt.CompletedAt.Add(-time.Millisecond)
+		receipt.SignedAt = &early
+		if err := receipt.ValidateUnsigned(); err == nil {
+			t.Fatal("a V9 receipt signed before the evidence it attests was accepted")
+		}
+	})
+	t.Run("at completion", func(t *testing.T) {
+		receipt := validV9Receipt(t)
+		at := receipt.CompletedAt
+		receipt.SignedAt = &at
+		if err := receipt.ValidateUnsigned(); err != nil {
+			t.Fatalf("signing at the completion instant is legitimate but was refused: %v", err)
+		}
+	})
+}
+
+// V9 must sign under its own domain. Reusing V8's would let a V8 signature be
+// presented over a V9 document.
+func TestV9SignsUnderItsOwnDomain(t *testing.T) {
+	receipt := validV9Receipt(t)
+	signer := DemoSigner([]byte("v9-domain"))
+	signed, err := signer.Sign(receipt)
+	if err != nil {
+		t.Fatalf("sign V9: %v", err)
+	}
+	keyring, err := NewKeyring(signer, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := keyring.Verify(signed); err != nil {
+		t.Fatalf("a signed V9 receipt did not verify: %v", err)
+	}
+	downgraded := signed
+	downgraded.Version = VersionV8
+	if err := keyring.Verify(downgraded); err == nil {
+		t.Fatal("a V9 signature verified over a document relabelled V8")
+	}
+}
+
+// The pre-state's remaining_rows is not independently assertable: budget_before
+// is signed on the same receipt and already says what the task had left.
+func TestV9RemainingRowsMustEqualBudgetBefore(t *testing.T) {
+	for name, mutate := range map[string]func(*QueryReceiptV1){
+		"pre-state claims more rows than the budget leaves": func(r *QueryReceiptV1) {
+			ledger := *r.ExposureLedgerBefore
+			ledger.RemainingRows = 20
+			resealLedger(t, r, ledger)
+		},
+		"pre-state claims fewer rows than the budget leaves": func(r *QueryReceiptV1) {
+			ledger := *r.ExposureLedgerBefore
+			ledger.RemainingRows = 4
+			resealLedger(t, r, ledger)
+		},
+		"budget used moves without the pre-state": func(r *QueryReceiptV1) {
+			r.BudgetBefore.Used.Rows = 3
+		},
+		"budget reserved moves without the pre-state": func(r *QueryReceiptV1) {
+			r.BudgetBefore.Reserved.Rows = 2
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			receipt := validV9Receipt(t)
+			mutate(&receipt)
+			if err := receipt.ValidateUnsigned(); err == nil {
+				t.Fatal("a V9 receipt whose two signed pre-states disagree about the row budget was accepted")
+			}
+		})
+	}
+}
+
+// A budget that has used and reserved more than its limit describes no state.
+// It must be refused rather than clamped to zero remaining.
+func TestV9FailsClosedOnOverdrawnBudget(t *testing.T) {
+	receipt := validV9Receipt(t)
+	receipt.BudgetBefore.Used.Rows = 8
+	receipt.BudgetBefore.Reserved.Rows = 5
+	ledger := *receipt.ExposureLedgerBefore
+	ledger.RemainingRows = 0
+	resealLedger(t, &receipt, ledger)
+	if err := receipt.ValidateUnsigned(); err == nil {
+		t.Fatal("an overdrawn budget_before was accepted with remaining_rows clamped to zero")
+	}
+}
+
+// The ledger identity is not independently assertable either. An epoch change
+// resets the accounting, so a pre-state naming a different epoch describes
+// limits that did not exist when the query ran.
+func TestV9LedgerPreStateMustMatchExposureEvidence(t *testing.T) {
+	for name, mutate := range map[string]func(*testing.T, *QueryReceiptV1){
+		"root task": func(t *testing.T, r *QueryReceiptV1) {
+			ledger := *r.ExposureLedgerBefore
+			ledger.RootTaskID = "some-other-root-task"
+			resealLedger(t, r, ledger)
+		},
+		"root epoch": func(t *testing.T, r *QueryReceiptV1) {
+			ledger := *r.ExposureLedgerBefore
+			ledger.RootEpoch = r.Exposure.RootEpoch + 1
+			resealLedger(t, r, ledger)
+		},
+		"profile version": func(t *testing.T, r *QueryReceiptV1) {
+			ledger := *r.ExposureLedgerBefore
+			ledger.ProfileVersion = "taskgate-exposure-v4"
+			resealLedger(t, r, ledger)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			receipt := validV9Receipt(t)
+			mutate(t, &receipt)
+			if err := receipt.ValidateUnsigned(); err == nil {
+				t.Fatalf("a V9 receipt whose pre-state names a different %s than its exposure evidence was accepted", name)
+			}
+		})
+	}
+}
+
+// A single-query binding renders exactly one row limit into executable SQL. It
+// used to be the only limit nothing checked against the state that authorized
+// it, because the reproduction returned early when no companion was bound.
+func TestV9SingleQueryVisibleLimitIsBoundedByThePreState(t *testing.T) {
+	build := func(t *testing.T, visibleRowLimit int64) QueryReceiptV1 {
+		t.Helper()
+		receipt := validV9Receipt(t)
+		ledger, err := querybinding.ExposureLedgerBeforeV1{
+			ProfileVersion: receipt.Exposure.ProfileVersion,
+			RootTaskID:     receipt.Exposure.RootTaskID,
+			RootEpoch:      receipt.Exposure.RootEpoch,
+			Limits: querybinding.FactVector{ReleaseFacts: 500, InfluenceFacts: 4, OutcomeFacts: 10,
+				PredicateAtoms: 25, CompositeOutcomes: 5},
+			Used: querybinding.FactVector{ReleaseFacts: 100, InfluenceFacts: 0, OutcomeFacts: 2,
+				PredicateAtoms: 5, CompositeOutcomes: 1},
+			Remaining: querybinding.FactVector{ReleaseFacts: 400, InfluenceFacts: 4, OutcomeFacts: 8,
+				PredicateAtoms: 20, CompositeOutcomes: 4},
+			RemainingRows: 10,
+		}.Seal()
+		if err != nil {
+			t.Fatalf("seal single-query pre-state: %v", err)
+		}
+		receipt.ExposureLedgerBefore = &ledger
+		budgetDigest, err := BudgetStateSHA256(receipt.BudgetBefore)
+		if err != nil {
+			t.Fatal(err)
+		}
+		binding, err := querybinding.QueryExecutionBindingV1{
+			PathKind:                       querybinding.PathSingleQuery,
+			PreparedOperationBindingSHA256: fixedDigest("c1"),
+			ExposureProfileVersion:         ledger.ProfileVersion,
+			VisibleRowLimit:                visibleRowLimit,
+			BudgetBeforeSHA256:             budgetDigest,
+			ExposureLedgerBeforeSHA256:     ledger.SHA256,
+			PlanSHA256:                     fixedDigest("c2"),
+			CompilerVersion:                "queryplan-v7",
+			CompilerSHA256:                 fixedDigest("c3"),
+			Visible: querybinding.TargetRecordV1{
+				Role: querybinding.RoleVisible, Authorized: true, Executed: true,
+				ExactSQLSHA256: fixedDigest("a1"), StrictASTSHA256: fixedDigest("a2"),
+				RowLimit: visibleRowLimit, PolicyFingerprint: receipt.SQLFingerprint,
+				PolicyRendererVersion: "sqlpolicy-v3", PolicyRendererDigest: fixedDigest("a3"),
+				PreparedTargetBindingSHA256: fixedDigest("a4"),
+			},
+		}.Seal()
+		if err != nil {
+			t.Fatalf("seal single-query binding: %v", err)
+		}
+		receipt.ExecutionBinding = &binding
+		return receipt
+	}
+
+	if err := build(t, 10).ValidateUnsigned(); err != nil {
+		t.Fatalf("a single-query binding at the signed remaining rows was refused: %v", err)
+	}
+	if err := build(t, 11).ValidateUnsigned(); err == nil {
+		t.Fatal("a single-query binding whose visible row limit exceeds the signed remaining rows was accepted")
+	}
+}
+
+func resealLedger(t *testing.T, receipt *QueryReceiptV1, ledger querybinding.ExposureLedgerBeforeV1) {
+	t.Helper()
+	sealed, err := ledger.Seal()
+	if err != nil {
+		t.Fatalf("reseal exposure ledger pre-state: %v", err)
+	}
+	receipt.ExposureLedgerBefore = &sealed
+	binding := *receipt.ExecutionBinding
+	binding.ExposureLedgerBeforeSHA256 = sealed.SHA256
+	binding.ExposureProfileVersion = sealed.ProfileVersion
+	binding.UsesExpandedEvidence = sealed.UsesExpandedEvidence
+	resealed, err := binding.Seal()
+	if err != nil {
+		t.Fatalf("reseal execution binding: %v", err)
+	}
+	receipt.ExecutionBinding = &resealed
 }

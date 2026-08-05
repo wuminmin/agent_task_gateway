@@ -1,4 +1,4 @@
-package experiment
+package sqlidentity_test
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"taskbound.local/agent-data-gateway/internal/dataconnector"
+	"taskbound.local/agent-data-gateway/internal/sqlidentity"
 	"taskbound.local/agent-data-gateway/internal/testpostgres"
 )
 
@@ -79,7 +80,7 @@ WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())`)
 		if err := rows.Scan(&text); err != nil {
 			t.Fatalf("scan: %v", err)
 		}
-		digest, digestErr := StrictASTDigest(text)
+		digest, digestErr := sqlidentity.StrictASTDigest(text)
 		if digestErr != nil {
 			// Utility statements the server records verbatim may not round-trip
 			// through the parser; they are covered by their own cases below.
@@ -96,7 +97,7 @@ WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())`)
 		"representation pin": dataconnector.RepresentationPinSQL,
 		"timeout pin":        dataconnector.StatementTimeoutPinSQL,
 	} {
-		want, err := StrictASTDigest(source)
+		want, err := sqlidentity.StrictASTDigest(source)
 		if err != nil {
 			t.Fatalf("%s source digest: %v", name, err)
 		}

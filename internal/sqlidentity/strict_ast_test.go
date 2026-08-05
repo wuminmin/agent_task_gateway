@@ -1,4 +1,4 @@
-package experiment
+package sqlidentity_test
 
 import (
 	"os"
@@ -6,11 +6,12 @@ import (
 	"testing"
 
 	"taskbound.local/agent-data-gateway/internal/dataconnector"
+	"taskbound.local/agent-data-gateway/internal/sqlidentity"
 )
 
 func mustDigest(t *testing.T, sql string) string {
 	t.Helper()
-	digest, err := StrictASTDigest(sql)
+	digest, err := sqlidentity.StrictASTDigest(sql)
 	if err != nil {
 		t.Fatalf("digest %q: %v", sql, err)
 	}
@@ -24,13 +25,13 @@ func mustDigest(t *testing.T, sql string) string {
 // be the one actually built. A silent parser upgrade would otherwise reuse
 // digests across two different grammars.
 func TestStrictASTParserModuleMatchesGoMod(t *testing.T) {
-	module, err := os.ReadFile("../../../go.mod")
+	module, err := os.ReadFile("../../go.mod")
 	if err != nil {
 		t.Fatalf("read go.mod: %v", err)
 	}
-	if !strings.Contains(string(module), StrictASTParserModule) {
+	if !strings.Contains(string(module), sqlidentity.StrictASTParserModule) {
 		t.Fatalf("go.mod does not require %q; the strict AST digests are bound to a parser that is not built",
-			StrictASTParserModule)
+			sqlidentity.StrictASTParserModule)
 	}
 }
 
@@ -103,7 +104,7 @@ func TestStrictASTDigestRejectsMultipleStatementsAndMalformedSQL(t *testing.T) {
 		"not SQL":          `this is not a statement`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := StrictASTDigest(sql); err == nil {
+			if _, err := sqlidentity.StrictASTDigest(sql); err == nil {
 				t.Fatal("an unusable statement produced a digest")
 			}
 		})
