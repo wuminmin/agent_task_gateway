@@ -1040,8 +1040,22 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 		}
 	}
 	if ordinalCacheKey != "" {
+		// The replay's own binding, built before the lookup so a hit settles with
+		// it. executed=false on both targets: nothing reaches the Connector.
+		var semanticBinding *control.QueryExecutionBinding
+		if bindsExecution {
+			built, bindingErr := buildQueryExecutionBinding(queryID, querybinding.PathSemanticReplay, preparedOp,
+				executed, ledgerBefore, reservation.Before, false)
+			if bindingErr != nil {
+				s.releaseQueryBudget(ctx, queryID, "EXECUTION_BINDING_INVALID")
+				return nil, &mcp.ToolError{Code: apierr.CodeConflict,
+					Message: "语义重放的执行绑定无法构造；查询未执行"}
+			}
+			semanticBinding = &built
+		}
 		replayed, replayOutcome, replayErr := s.tryOrdinalSemanticReplayForQuery(ctx, task, requestID, queryID, grantDigest,
-			ordinalCacheKey, exposureContext.ordinal.DictionarySetDigest, reservation, componentMS, responseMetadata, pipeline)
+			ordinalCacheKey, exposureContext.ordinal.DictionarySetDigest, reservation, componentMS, responseMetadata, pipeline,
+			semanticBinding)
 		if replayErr != nil {
 			return nil, replayErr
 		}
