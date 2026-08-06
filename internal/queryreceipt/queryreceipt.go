@@ -36,16 +36,31 @@ const (
 	// though the Gateway had signed it. V9 signs what the Gateway actually
 	// executed, so a reproduction can be checked against evidence rather than
 	// against a second opinion.
-	VersionV9         = "9"
-	signatureDomainV1 = "TASKGATE-QUERY-RECEIPT-V1\x00"
-	signatureDomainV2 = "TASKGATE-QUERY-RECEIPT-V2\x00"
-	signatureDomainV3 = "TASKGATE-QUERY-RECEIPT-V3\x00"
-	signatureDomainV4 = "TASKGATE-QUERY-RECEIPT-V4\x00"
-	signatureDomainV5 = "TASKGATE-QUERY-RECEIPT-V5\x00"
-	signatureDomainV6 = "TASKGATE-QUERY-RECEIPT-V6\x00"
-	signatureDomainV7 = "TASKGATE-QUERY-RECEIPT-V7\x00"
-	signatureDomainV8 = "TASKGATE-QUERY-RECEIPT-V8\x00"
-	signatureDomainV9 = "TASKGATE-QUERY-RECEIPT-V9\x00"
+	VersionV9 = "9"
+	// VersionV10 is the general execution-evidence receipt.
+	//
+	// V9 signed a QueryExecutionBindingV1, which named the preparation by digest,
+	// and inherited V8's requirement that every receipt describe a registered
+	// result object. Both had to change together.
+	//
+	// The binding changed because the digest proves nothing to a holder who was
+	// not handed the preparation; V10 signs a QueryExecutionBindingV2, which
+	// carries the sealed document. The artifact requirement changed because it
+	// was never about the receipt format: a Scale or ProvSQL operation returns its
+	// rows inline and registers no result object, so under V9's rule the only way
+	// for it to describe what it executed was to invent an artifact it does not
+	// have. V10 signs the delivery mode instead and lets it decide.
+	VersionV10         = "10"
+	signatureDomainV1  = "TASKGATE-QUERY-RECEIPT-V1\x00"
+	signatureDomainV2  = "TASKGATE-QUERY-RECEIPT-V2\x00"
+	signatureDomainV3  = "TASKGATE-QUERY-RECEIPT-V3\x00"
+	signatureDomainV4  = "TASKGATE-QUERY-RECEIPT-V4\x00"
+	signatureDomainV5  = "TASKGATE-QUERY-RECEIPT-V5\x00"
+	signatureDomainV6  = "TASKGATE-QUERY-RECEIPT-V6\x00"
+	signatureDomainV7  = "TASKGATE-QUERY-RECEIPT-V7\x00"
+	signatureDomainV8  = "TASKGATE-QUERY-RECEIPT-V8\x00"
+	signatureDomainV9  = "TASKGATE-QUERY-RECEIPT-V9\x00"
+	signatureDomainV10 = "TASKGATE-QUERY-RECEIPT-V10\x00"
 
 	ArtifactIntentVersionV1 = "taskgate-artifact-intent-v1"
 	ArtifactStatusPending   = "PENDING"
@@ -58,14 +73,12 @@ const (
 
 // receiptVersions is the ordered set of receipt versions, oldest first.
 //
-// The version conditions in ValidateUnsigned used to be written as explicit
-// disjunctions naming every accepted version. That style is how V9 came to be
-// omitted from three of them -- schema_digest, signed_at and the signed_at
-// ordering -- so V9 receipts passed checks every version since V2 or V3 has had
-// to satisfy. A new version now has to be added here once instead of to each
-// condition, and the conditions read as the ranges they always meant.
+// It orders versions and nothing else. What each version carries lives in the
+// capability table; see capabilities.go for why ordering stopped being a usable
+// answer to that question at V10.
 var receiptVersions = []string{
-	VersionV1, VersionV2, VersionV3, VersionV4, VersionV5, VersionV6, VersionV7, VersionV8, VersionV9,
+	VersionV1, VersionV2, VersionV3, VersionV4, VersionV5, VersionV6, VersionV7, VersionV8,
+	VersionV9, VersionV10,
 }
 
 func receiptVersionIndex(version string) int {
@@ -77,20 +90,16 @@ func receiptVersionIndex(version string) int {
 	return -1
 }
 
-// atLeast reports whether this receipt's version is version or later. An
-// unrecognised version is never "at least" anything; ValidateUnsigned rejects it
-// outright before any of these checks run.
-func (r QueryReceiptV1) atLeast(version string) bool {
-	return VersionAtLeast(r.Version, version)
-}
-
-// VersionAtLeast orders two receipt versions.
+// VersionAtLeast orders two receipt versions in time, and answers nothing else.
 //
-// It is exported because callers outside this package have to ask "does this
-// receipt carry artifact intent" and the like. Written as an equality against
-// VersionV8, such a check silently stops matching the moment a later version
-// adds evidence on top of V8's -- which is exactly what V9 does, and what made
-// a V9 receipt skip the artifact inclusion proofs a V8 receipt gets.
+// It is not a feature predicate. Asking "is this at least V8" to decide whether
+// a receipt carries artifact intent was correct for exactly as long as every
+// later version kept requiring one, which stopped being true at V10. Ask
+// CapabilitiesFor, SupportsArtifactIntent, RequiresExecutionBindingV1,
+// RequiresExecutionBindingV2 or RequiresExposureEvidence instead; a source guard
+// in this package's tests refuses new comparisons used the old way.
+//
+// An unrecognised version is never "at least" anything.
 func VersionAtLeast(version, minimum string) bool {
 	current := receiptVersionIndex(version)
 	return current >= 0 && current >= receiptVersionIndex(minimum)
@@ -206,13 +215,26 @@ type QueryReceiptV1 struct {
 	Signature         string                    `json:"signature"`
 	Exposure          *ExposureEvidenceV1       `json:"exposure,omitempty"`
 	ArtifactIntent    *ArtifactIntentEvidenceV1 `json:"artifact_intent,omitempty"`
-	// ExposureLedgerBefore and ExecutionBinding are V9 only. They are the signed
-	// pre-state the row limits were derived from and the signed description of
-	// the statements that ran. Both are SQL-free: every statement appears as a
-	// digest, because the receipt is retained, replayed and handed to a finalizer
-	// that must not learn what was queried.
+	// ResultDeliveryMode is V10 only: the signed, closed statement of how the
+	// result reached the caller, and therefore of whether an artifact intent must
+	// be present. Earlier versions do not sign it and must not carry it.
+	ResultDeliveryMode ResultDeliveryMode `json:"result_delivery_mode,omitempty"`
+	// ExposureLedgerBefore is the signed pre-state the row limits were derived
+	// from, carried by every version that describes an execution.
+	//
+	// ExecutionBinding and ExecutionBindingV2 are the descriptions of what ran,
+	// under V9 and V10 respectively. They are separate members rather than one
+	// polymorphic field: a single field would have to be discriminated after
+	// decoding, and a document that decoded as neither -- or as both -- would be
+	// a state the type system permitted. Each version requires its own and
+	// forbids the other, so there is nothing to discriminate.
+	//
+	// All three are SQL-free: every statement appears as a digest, because the
+	// receipt is retained, replayed and handed to a finalizer that must not learn
+	// what was queried.
 	ExposureLedgerBefore *querybinding.ExposureLedgerBeforeV1  `json:"exposure_ledger_before,omitempty"`
 	ExecutionBinding     *querybinding.QueryExecutionBindingV1 `json:"execution_binding,omitempty"`
+	ExecutionBindingV2   *querybinding.QueryExecutionBindingV2 `json:"execution_binding_v2,omitempty"`
 }
 
 // BuildArtifactIntent validates the supplied immutable evidence and seals it
@@ -250,6 +272,104 @@ func (r QueryReceiptV1) validateArtifactIntent() error {
 		return fmt.Errorf("%w: artifact intent digest mismatch", ErrInvalidReceipt)
 	}
 	return nil
+}
+
+// validateExposureEvidence holds the exposure block to its version's shape.
+//
+// The rules are unchanged; what changed is that the last of them was written as
+// "V7 or later", which would have captured V10 by accident rather than by
+// decision. V10 does account under exposure-v5, but that is now something the
+// capability table says.
+func (r QueryReceiptV1) validateExposureEvidence(capabilities Capabilities) error {
+	if r.Exposure == nil {
+		if capabilities.RequiresExposureEvidence {
+			return fmt.Errorf("%w: a V%s receipt requires exposure evidence", ErrInvalidReceipt, r.Version)
+		}
+		return nil
+	}
+	exposure := r.Exposure
+	if !capabilities.RequiresExposureEvidence || strings.TrimSpace(exposure.RootTaskID) == "" ||
+		strings.TrimSpace(exposure.ProfileVersion) == "" || !isSHA256(exposure.ObservationSHA256) ||
+		exposure.ActualReleaseFacts < 0 || exposure.ActualInfluenceFacts < 0 || exposure.ActualOutcomeFacts < 0 ||
+		exposure.ChargedReleaseFacts < 0 || exposure.ChargedInfluenceFacts < 0 || exposure.ChargedOutcomeFacts < 0 ||
+		exposure.ChargedReleaseFacts > exposure.ActualReleaseFacts ||
+		exposure.ChargedInfluenceFacts > exposure.ActualInfluenceFacts ||
+		exposure.ChargedOutcomeFacts > exposure.ActualOutcomeFacts {
+		return fmt.Errorf("%w: exposure evidence is invalid", ErrInvalidReceipt)
+	}
+	if !outcomeShapeSatisfied(capabilities.OutcomeShape, *exposure) {
+		return fmt.Errorf("%w: receipt version and outcome evidence disagree", ErrInvalidReceipt)
+	}
+	return nil
+}
+
+// outcomeShapeSatisfied is the per-profile outcome rule, one shape at a time.
+func outcomeShapeSatisfied(shape outcomeShape, exposure ExposureEvidenceV1) bool {
+	switch shape {
+	case outcomeShapeWithoutOutcomes:
+		return exposure.ActualOutcomeFacts == 0 && exposure.ChargedOutcomeFacts == 0
+	case outcomeShapeExposureV3:
+		return exposure.ProfileVersion == string(outcomeShapeExposureV3) && exposure.ActualOutcomeFacts == 1
+	case outcomeShapeExposureV4:
+		return exposure.ProfileVersion == string(outcomeShapeExposureV4) && exposure.ActualOutcomeFacts == 1 &&
+			exposure.RootEpoch > 0 && isSHA256(exposure.DictionarySetSHA256) &&
+			isSHA256(exposure.ReleaseSetSHA256) && isSHA256(exposure.InfluenceSetSHA256) &&
+			isSHA256(exposure.OutcomeSetSHA256)
+	case outcomeShapeExposureV5:
+		return exposure.ProfileVersion == string(outcomeShapeExposureV5) &&
+			exposure.PredicateProfileVersion == "taskgate-predicate-footprint-v1" &&
+			exposure.ActualCompositeCount == 1 &&
+			exposure.ChargedCompositeCount >= 0 && exposure.ChargedCompositeCount <= 1 &&
+			exposure.ActualPredicateAtomCount >= 0 && exposure.ChargedPredicateAtomCount >= 0 &&
+			exposure.ChargedPredicateAtomCount <= exposure.ActualPredicateAtomCount &&
+			exposure.ActualOutcomeFacts == exposure.ActualPredicateAtomCount+1 &&
+			exposure.ChargedOutcomeFacts == exposure.ChargedPredicateAtomCount+exposure.ChargedCompositeCount &&
+			exposure.RootEpoch > 0 && isSHA256(exposure.DictionarySetSHA256) &&
+			isSHA256(exposure.ReleaseSetSHA256) && isSHA256(exposure.InfluenceSetSHA256) &&
+			isSHA256(exposure.OutcomeSetSHA256) && isSHA256(exposure.PredicateContextSHA256) &&
+			isSHA256(exposure.PredicateSetSHA256) && isSHA256(exposure.CompositeOutcomeSHA256)
+	default:
+		// outcomeShapeNone: the version carries no exposure evidence, and the
+		// caller has already refused one that does.
+		return true
+	}
+}
+
+// validateResultDelivery enforces the artifact-intent contract.
+//
+// Under V8 and V9 the rule is unconditional and the mode is not signed. Under
+// V10 the signed mode decides, in both directions: an artifact delivery without
+// an intent is an omission, and an inline delivery with one is a claim about a
+// result object the operation never registered.
+func (r QueryReceiptV1) validateResultDelivery(capabilities Capabilities) error {
+	if !capabilities.RequiresResultDeliveryMode {
+		if r.ResultDeliveryMode != "" {
+			return fmt.Errorf("%w: a V%s receipt carries a result_delivery_mode its signature does not cover",
+				ErrInvalidReceipt, r.Version)
+		}
+	} else if !r.ResultDeliveryMode.valid() {
+		return fmt.Errorf("%w: result_delivery_mode %q is not one of %v",
+			ErrInvalidReceipt, r.ResultDeliveryMode, ResultDeliveryModes())
+	}
+	required := capabilities.RequiresArtifactIntent(r.ResultDeliveryMode)
+	if !capabilities.SupportsArtifactIntent() {
+		if r.ArtifactIntent != nil {
+			return fmt.Errorf("%w: a V%s receipt must not carry artifact intent", ErrInvalidReceipt, r.Version)
+		}
+		return nil
+	}
+	if !required {
+		if r.ArtifactIntent != nil {
+			return fmt.Errorf("%w: a V%s receipt delivering its result %s registers no result object, "+
+				"so it must not carry artifact intent", ErrInvalidReceipt, r.Version, r.ResultDeliveryMode)
+		}
+		return nil
+	}
+	if r.Status != StatusCompleted || r.ArtifactIntent == nil {
+		return fmt.Errorf("%w: a V%s receipt requires completed artifact intent evidence",
+			ErrInvalidReceipt, r.Version)
+	}
+	return r.validateArtifactIntent()
 }
 
 func validateArtifactIntentEvidence(intent ArtifactIntentEvidenceV1, requireIntentDigest bool) error {
@@ -308,8 +428,12 @@ func artifactIntentSHA256(intent ArtifactIntentEvidenceV1) (string, error) {
 }
 
 func (r QueryReceiptV1) ValidateUnsigned() error {
-	if receiptVersionIndex(r.Version) < 0 {
-		return fmt.Errorf("%w: unsupported version %q", ErrInvalidReceipt, r.Version)
+	// The capability lookup is the version check. A version with no row in the
+	// table has no defined evidence contract, so there is nothing to validate it
+	// against and nothing below would be meaningful.
+	capabilities, err := r.Capabilities()
+	if err != nil {
+		return err
 	}
 	if strings.TrimSpace(r.ReceiptID) == "" || strings.TrimSpace(r.TaskID) == "" ||
 		strings.TrimSpace(r.QueryID) == "" || strings.TrimSpace(r.RequestID) == "" || r.ReceiptID != r.QueryID {
@@ -321,10 +445,7 @@ func (r QueryReceiptV1) ValidateUnsigned() error {
 		"request_digest":      r.RequestDigest,
 		"previous_audit_hash": r.PreviousAuditHash, "audit_hash": r.AuditHash,
 	}
-	// V9 belongs here as much as V2..V8 do. It was omitted, so a V9 receipt could
-	// carry an absent or malformed schema_digest while every earlier version was
-	// held to it.
-	if r.atLeast(VersionV2) {
+	if capabilities.RequiresSchemaDigest {
 		digests["schema_digest"] = r.SchemaDigest
 	}
 	for name, value := range digests {
@@ -332,7 +453,7 @@ func (r QueryReceiptV1) ValidateUnsigned() error {
 			return fmt.Errorf("%w: %s is not lowercase SHA-256", ErrInvalidReceipt, name)
 		}
 	}
-	if r.atLeast(VersionV2) && strings.TrimSpace(r.DatasourceID) == "" {
+	if capabilities.RequiresDatasourceID && strings.TrimSpace(r.DatasourceID) == "" {
 		return fmt.Errorf("%w: datasource_id is required", ErrInvalidReceipt)
 	}
 	if strings.TrimSpace(r.CatalogVersion) == "" || strings.TrimSpace(r.SQLFingerprint) == "" ||
@@ -344,10 +465,7 @@ func (r QueryReceiptV1) ValidateUnsigned() error {
 	if r.CompletedAt.Before(r.CreatedAt) {
 		return fmt.Errorf("%w: completion precedes creation", ErrInvalidReceipt)
 	}
-	// As with schema_digest, V9 was omitted from this condition: a V9 receipt
-	// could be signed with no signed_at at all, or with one that predates the
-	// terminal evidence it claims to attest.
-	if r.atLeast(VersionV3) {
+	if capabilities.RequiresSignedAt {
 		if r.SignedAt == nil || r.SignedAt.IsZero() {
 			return fmt.Errorf("%w: signed_at is required", ErrInvalidReceipt)
 		}
@@ -367,52 +485,16 @@ func (r QueryReceiptV1) ValidateUnsigned() error {
 	if r.ResultHash != "" && !isSHA256(r.ResultHash) {
 		return fmt.Errorf("%w: result hash is invalid", ErrInvalidReceipt)
 	}
-	if r.Exposure != nil {
-		exposure := r.Exposure
-		if !r.atLeast(VersionV4) || strings.TrimSpace(exposure.RootTaskID) == "" ||
-			strings.TrimSpace(exposure.ProfileVersion) == "" || !isSHA256(exposure.ObservationSHA256) ||
-			exposure.ActualReleaseFacts < 0 || exposure.ActualInfluenceFacts < 0 || exposure.ActualOutcomeFacts < 0 ||
-			exposure.ChargedReleaseFacts < 0 || exposure.ChargedInfluenceFacts < 0 || exposure.ChargedOutcomeFacts < 0 ||
-			exposure.ChargedReleaseFacts > exposure.ActualReleaseFacts ||
-			exposure.ChargedInfluenceFacts > exposure.ActualInfluenceFacts || exposure.ChargedOutcomeFacts > exposure.ActualOutcomeFacts {
-			return fmt.Errorf("%w: exposure evidence is invalid", ErrInvalidReceipt)
-		}
-		if (r.Version == VersionV4 && (exposure.ActualOutcomeFacts != 0 || exposure.ChargedOutcomeFacts != 0)) ||
-			(r.Version == VersionV5 && (exposure.ProfileVersion != "taskgate-exposure-v3" || exposure.ActualOutcomeFacts != 1)) ||
-			(r.Version == VersionV6 && (exposure.ProfileVersion != "taskgate-exposure-v4" || exposure.ActualOutcomeFacts != 1 ||
-				exposure.RootEpoch <= 0 || !isSHA256(exposure.DictionarySetSHA256) || !isSHA256(exposure.ReleaseSetSHA256) ||
-				!isSHA256(exposure.InfluenceSetSHA256) || !isSHA256(exposure.OutcomeSetSHA256)) ||
-				(r.atLeast(VersionV7) && (exposure.ProfileVersion != "taskgate-exposure-v5" ||
-					exposure.PredicateProfileVersion != "taskgate-predicate-footprint-v1" ||
-					exposure.ActualCompositeCount != 1 || exposure.ChargedCompositeCount < 0 || exposure.ChargedCompositeCount > 1 ||
-					exposure.ActualPredicateAtomCount < 0 || exposure.ChargedPredicateAtomCount < 0 ||
-					exposure.ChargedPredicateAtomCount > exposure.ActualPredicateAtomCount ||
-					exposure.ActualOutcomeFacts != exposure.ActualPredicateAtomCount+1 ||
-					exposure.ChargedOutcomeFacts != exposure.ChargedPredicateAtomCount+exposure.ChargedCompositeCount ||
-					exposure.RootEpoch <= 0 || !isSHA256(exposure.DictionarySetSHA256) || !isSHA256(exposure.ReleaseSetSHA256) ||
-					!isSHA256(exposure.InfluenceSetSHA256) || !isSHA256(exposure.OutcomeSetSHA256) ||
-					!isSHA256(exposure.PredicateContextSHA256) || !isSHA256(exposure.PredicateSetSHA256) ||
-					!isSHA256(exposure.CompositeOutcomeSHA256)))) {
-			return fmt.Errorf("%w: receipt version and outcome evidence disagree", ErrInvalidReceipt)
-		}
-	} else if r.atLeast(VersionV4) {
-		return fmt.Errorf("%w: V4/V5/V6/V7/V8/V9 requires exposure evidence", ErrInvalidReceipt)
+	if err := r.validateExposureEvidence(capabilities); err != nil {
+		return err
 	}
-	if !r.atLeast(VersionV8) {
-		if r.ArtifactIntent != nil {
-			return fmt.Errorf("%w: V1-V7 must not carry artifact intent", ErrInvalidReceipt)
-		}
-	} else {
-		if r.Status != StatusCompleted || r.ArtifactIntent == nil {
-			return fmt.Errorf("%w: V8/V9 requires completed artifact intent evidence", ErrInvalidReceipt)
-		}
-		if err := r.validateArtifactIntent(); err != nil {
-			return err
-		}
+	if err := r.validateResultDelivery(capabilities); err != nil {
+		return err
 	}
-	// V9 only. Earlier versions are checked here solely to refuse V9 material
-	// their signatures do not cover.
-	if err := r.validateExecutionBinding(); err != nil {
+	// Every version's execution evidence, including the versions that have none:
+	// a receipt whose signature does not cover a binding must not be allowed to
+	// carry one, or a holder could staple it on and present it as signed.
+	if err := r.validateExecutionBinding(capabilities); err != nil {
 		return err
 	}
 	if err := r.validateBudgetSemantics(); err != nil {
@@ -602,8 +684,8 @@ func VerifyAuditInclusion(receipt QueryReceiptV1, proof auditchain.InclusionProo
 // the immediately following artifact registration event against audit
 // checkpoints, then checks the registration payload against the signed intent.
 func VerifyArtifactIntentInclusion(receipt QueryReceiptV1, terminalProof, registrationProof auditchain.InclusionProof) error {
-	if !receipt.atLeast(VersionV8) || receipt.ArtifactIntent == nil {
-		return fmt.Errorf("%w: artifact inclusion requires a V8 or later receipt", ErrInvalidReceipt)
+	if err := requireRegisteredArtifact(receipt, "artifact intent inclusion"); err != nil {
+		return err
 	}
 	if err := VerifyAuditInclusion(receipt, terminalProof); err != nil {
 		return err
@@ -641,8 +723,8 @@ func VerifyArtifactIntentInclusion(receipt QueryReceiptV1, terminalProof, regist
 // occurs after settlement; its payload must nevertheless match that receipt's
 // signed artifact intent exactly.
 func VerifyArtifactAvailabilityInclusion(receipt QueryReceiptV1, availabilityProof auditchain.InclusionProof) error {
-	if !receipt.atLeast(VersionV8) || receipt.ArtifactIntent == nil {
-		return fmt.Errorf("%w: artifact availability inclusion requires a V8 or later receipt", ErrInvalidReceipt)
+	if err := requireRegisteredArtifact(receipt, "artifact availability inclusion"); err != nil {
+		return err
 	}
 	event := availabilityProof.TerminalEvent
 	intent := receipt.ArtifactIntent
@@ -673,6 +755,30 @@ func VerifyArtifactAvailabilityInclusion(receipt QueryReceiptV1, availabilityPro
 	consumedAt, err := time.Parse(time.RFC3339Nano, payload.ConsumedAt)
 	if err != nil || consumedAt.IsZero() {
 		return fmt.Errorf("%w: artifact availability consumed_at is invalid", ErrInvalidReceipt)
+	}
+	return nil
+}
+
+// requireRegisteredArtifact refuses to prove an artifact for a receipt that
+// describes none.
+//
+// It distinguishes the two ways that happens, because they are different
+// failures. A version that cannot carry artifact intent at all is a caller
+// mistake. A V10 receipt that delivered its result inline is not a mistake: it
+// is the ordinary case V10 exists to admit, and audit code that treats every
+// V10 as artifact-bearing would fail on exactly those operations.
+func requireRegisteredArtifact(receipt QueryReceiptV1, what string) error {
+	capabilities, err := receipt.Capabilities()
+	if err != nil {
+		return err
+	}
+	if !capabilities.SupportsArtifactIntent() {
+		return fmt.Errorf("%w: %s requires a receipt version that registers a result object; V%s does not",
+			ErrInvalidReceipt, what, receipt.Version)
+	}
+	if !receipt.CarriesArtifactIntent() {
+		return fmt.Errorf("%w: %s was asked of a V%s receipt that delivered its result inline "+
+			"and registered no result object", ErrInvalidReceipt, what, receipt.Version)
 	}
 	return nil
 }
@@ -896,53 +1002,48 @@ func signingPayload(receipt QueryReceiptV1) ([]byte, error) {
 		"audit_sequence": receipt.AuditSequence, "previous_audit_hash": receipt.PreviousAuditHash,
 		"audit_hash": receipt.AuditHash, "gateway_key_id": receipt.GatewayKeyID,
 	}
-	domain := signatureDomainV1
-	if receipt.Version == VersionV2 || receipt.Version == VersionV3 || receipt.Version == VersionV4 || receipt.Version == VersionV5 || receipt.Version == VersionV6 || receipt.Version == VersionV7 || receipt.Version == VersionV8 || receipt.Version == VersionV9 {
-		domain = signatureDomainV2
+	// What a version signs is what it requires, read from the same table
+	// ValidateUnsigned reads. Under the previous shape this was a ladder of
+	// equalities per version, and adding a version meant remembering to extend
+	// every rung; the payload and the validation could disagree about what a
+	// version carried, and nothing would have said so.
+	capabilities, err := CapabilitiesFor(receipt.Version)
+	if err != nil {
+		return nil, err
+	}
+	if capabilities.RequiresDatasourceID || capabilities.RequiresSchemaDigest {
 		unsigned["datasource_id"] = receipt.DatasourceID
 		unsigned["schema_digest"] = receipt.SchemaDigest
 	}
-	if receipt.Version == VersionV3 {
-		domain = signatureDomainV3
+	if capabilities.RequiresSignedAt {
 		unsigned["signed_at"] = receipt.SignedAt
 	}
-	if receipt.Version == VersionV4 {
-		domain = signatureDomainV4
-		unsigned["signed_at"] = receipt.SignedAt
+	if capabilities.RequiresExposureEvidence {
 		unsigned["exposure"] = receipt.Exposure
 	}
-	if receipt.Version == VersionV5 {
-		domain = signatureDomainV5
-		unsigned["signed_at"] = receipt.SignedAt
-		unsigned["exposure"] = receipt.Exposure
-	}
-	if receipt.Version == VersionV6 {
-		domain = signatureDomainV6
-		unsigned["signed_at"] = receipt.SignedAt
-		unsigned["exposure"] = receipt.Exposure
-	}
-	if receipt.Version == VersionV7 {
-		domain = signatureDomainV7
-		unsigned["signed_at"] = receipt.SignedAt
-		unsigned["exposure"] = receipt.Exposure
-	}
-	if receipt.Version == VersionV8 {
-		domain = signatureDomainV8
-		unsigned["signed_at"] = receipt.SignedAt
-		unsigned["exposure"] = receipt.Exposure
+	if capabilities.SupportsArtifactIntent() {
+		// Signed whether or not it is present. An inline V10 signs a null here,
+		// which is what makes "this operation registered no result object" a signed
+		// statement rather than an absence a holder could have produced by deleting
+		// a member.
 		unsigned["artifact_intent"] = receipt.ArtifactIntent
 	}
-	if receipt.Version == VersionV9 {
-		domain = signatureDomainV9
-		unsigned["signed_at"] = receipt.SignedAt
-		unsigned["exposure"] = receipt.Exposure
-		unsigned["artifact_intent"] = receipt.ArtifactIntent
+	if capabilities.RequiresResultDeliveryMode {
+		unsigned["result_delivery_mode"] = string(receipt.ResultDeliveryMode)
+	}
+	if capabilities.RequiresExposureLedgerBefore {
 		// The complete structures are signed, not merely their digests. Signing
 		// only the digest would leave every other member unprotected against a
 		// holder who recomputed the digest to match an edit.
 		unsigned["exposure_ledger_before"] = receipt.ExposureLedgerBefore
-		unsigned["execution_binding"] = receipt.ExecutionBinding
 	}
+	switch capabilities.ExecutionBindingVersion {
+	case 1:
+		unsigned["execution_binding"] = receipt.ExecutionBinding
+	case 2:
+		unsigned["execution_binding_v2"] = receipt.ExecutionBindingV2
+	}
+	domain := capabilities.signatureDomain
 	canonical, err := approval.CanonicalJSON(unsigned)
 	if err != nil {
 		return nil, err

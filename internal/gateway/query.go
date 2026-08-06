@@ -2023,11 +2023,14 @@ func (s *Service) getAuditReceipt(ctx context.Context, _ mcp.Principal, raw json
 		return nil, err
 	}
 	result := map[string]any{"receipt": receipt, "audit_chain_events": chain, "audit_inclusion": publicProof}
-	// V8 or later. V9 carries the same artifact intent and must expose the same
-	// inclusion proofs; an equality here made a V9 receipt skip them entirely, so
-	// an auditor would have seen the artifact evidence disappear from a receipt
-	// that in fact says strictly more than V8 did.
-	if queryreceipt.VersionAtLeast(signed.Version, queryreceipt.VersionV8) {
+	// The inclusion proofs belong to receipts that registered a result object.
+	// This was an equality against V8, which made a V9 receipt skip them entirely
+	// even though V9 carries the same artifact intent, so an auditor saw the
+	// artifact evidence disappear from a receipt that says strictly more. A range
+	// would have made the opposite mistake at V10: an inline V10 registers no
+	// result object, and demanding its registration proof would fail every
+	// operation that returns its rows in the response.
+	if signed.RequiresArtifactInclusionProofs() {
 		if evidence.ArtifactRegistrationAudit == nil {
 			return nil, fmt.Errorf("a V%s receipt is missing artifact registration audit evidence", signed.Version)
 		}
@@ -2274,7 +2277,11 @@ func BuildQueryReceiptRequest(evidence control.QueryReceipt, signer *queryreceip
 	var executionBinding *querybinding.QueryExecutionBindingV1
 	var exposureLedgerBefore *querybinding.ExposureLedgerBeforeV1
 	if evidence.ExecutionBinding != nil {
-		if version != queryreceipt.VersionV8 {
+		// Asked of the artifact intent rather than of the version. They agree here
+		// -- the only way to reach V8 above is to have built one -- but the intent
+		// is the fact and the version is a proxy for it, and a proxy is what
+		// stopped being reliable when V10 made the artifact conditional.
+		if artifactIntent == nil {
 			return control.SaveQueryReceiptRequest{}, fmt.Errorf(
 				"query %s carries a persisted execution binding but its evidence only supports a V%s receipt; "+
 					"emitting one would silently drop the execution binding", record.ID, version)

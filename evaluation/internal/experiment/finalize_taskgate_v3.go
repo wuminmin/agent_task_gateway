@@ -178,8 +178,9 @@ func FinalizeTaskGateObservationV3(receipt queryreceipt.QueryReceiptV1, verifier
 	if verifier == nil {
 		return result, errors.New("finalization requires a receipt verifier; an unverified receipt is not evidence")
 	}
-	if receipt.Version != queryreceipt.VersionV9 {
-		return result, fmt.Errorf("receipt is V%s; v3 finalization requires a signed V9 execution binding", receipt.Version)
+	if !queryreceipt.RequiresExecutionBindingV1(receipt.Version) {
+		return result, fmt.Errorf("receipt is V%s; v3 finalization requires a receipt whose signature covers "+
+			"a QueryExecutionBindingV1", receipt.Version)
 	}
 	if err := receipt.Validate(); err != nil {
 		return result, fmt.Errorf("V9 receipt does not validate: %w", err)

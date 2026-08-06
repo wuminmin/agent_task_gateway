@@ -346,8 +346,9 @@ func failedSample(operation experiment.AdapterOperation, code string) experiment
 // operation on this path always carries an execution binding; accepting V8 here
 // would silently restore the re-derivation it replaces.
 func requireVerifiedV9(verifier receiptVerifier, receipt queryreceipt.QueryReceiptV1) error {
-	if receipt.Version != queryreceipt.VersionV9 {
-		return fmt.Errorf("receipt is V%s; the v3 path requires a signed V9 execution binding", receipt.Version)
+	if !queryreceipt.RequiresExecutionBindingV1(receipt.Version) {
+		return fmt.Errorf("receipt is V%s; the v3 path requires a receipt whose signature covers a "+
+			"QueryExecutionBindingV1", receipt.Version)
 	}
 	if err := receipt.Validate(); err != nil {
 		return fmt.Errorf("V9 receipt does not validate: %w", err)

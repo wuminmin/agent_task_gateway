@@ -9,26 +9,53 @@ import (
 	"taskbound.local/agent-data-gateway/internal/querybinding"
 )
 
-// validateExecutionBinding enforces the V9 rules.
+// validateExecutionBinding dispatches on the execution-binding version the
+// receipt's capabilities require.
 //
-// V8 semantics are untouched. The only thing said about V8 here is that it must
-// not carry V9 material: a receipt whose signature does not cover a field must
-// not be allowed to carry that field, or a holder could attach an execution
-// binding to a V8 receipt and present it as signed.
-func (r QueryReceiptV1) validateExecutionBinding() error {
-	if r.Version != VersionV9 {
-		if r.ExecutionBinding != nil || r.ExposureLedgerBefore != nil {
-			return fmt.Errorf("%w: a V%s receipt carries V9 execution evidence its signature does not cover",
+// The dispatch is strict in both directions. A version that requires V1 forbids
+// V2 and vice versa, and a version that requires neither forbids both: a receipt
+// whose signature does not cover a field must not be allowed to carry that
+// field, or a holder could attach an execution binding to a V8 receipt and
+// present it as signed.
+func (r QueryReceiptV1) validateExecutionBinding(capabilities Capabilities) error {
+	if r.ExecutionBinding != nil && !capabilities.RequiresExecutionBindingV1() {
+		return fmt.Errorf("%w: a V%s receipt carries a QueryExecutionBindingV1 its signature does not cover",
+			ErrInvalidReceipt, r.Version)
+	}
+	if r.ExecutionBindingV2 != nil && !capabilities.RequiresExecutionBindingV2() {
+		return fmt.Errorf("%w: a V%s receipt carries a QueryExecutionBindingV2 its signature does not cover",
+			ErrInvalidReceipt, r.Version)
+	}
+	if !capabilities.RequiresExposureLedgerBefore {
+		if r.ExposureLedgerBefore != nil {
+			return fmt.Errorf("%w: a V%s receipt carries an exposure ledger pre-state its signature does not cover",
 				ErrInvalidReceipt, r.Version)
 		}
 		return nil
 	}
 	if r.ExposureLedgerBefore == nil {
-		return fmt.Errorf("%w: V9 requires the signed exposure ledger pre-state", ErrInvalidReceipt)
+		return fmt.Errorf("%w: a V%s receipt requires the signed exposure ledger pre-state",
+			ErrInvalidReceipt, r.Version)
 	}
 	if err := r.ExposureLedgerBefore.Validate(); err != nil {
 		return fmt.Errorf("%w: exposure ledger pre-state: %v", ErrInvalidReceipt, err)
 	}
+	switch capabilities.ExecutionBindingVersion {
+	case 1:
+		return r.validateExecutionBindingV1()
+	case 2:
+		return r.validateExecutionBindingV2()
+	default:
+		// A version requiring a pre-state but no binding would leave the pre-state
+		// describing nothing. Nothing in the table does that; saying so beats
+		// falling through silently if something later does.
+		return fmt.Errorf("%w: V%s requires an exposure ledger pre-state but no execution binding",
+			ErrInvalidReceipt, r.Version)
+	}
+}
+
+// validateExecutionBindingV1 is V9's rule set, unchanged.
+func (r QueryReceiptV1) validateExecutionBindingV1() error {
 	if r.ExecutionBinding == nil {
 		return fmt.Errorf("%w: V9 requires the signed query execution binding", ErrInvalidReceipt)
 	}
@@ -36,12 +63,42 @@ func (r QueryReceiptV1) validateExecutionBinding() error {
 	if err := binding.Validate(); err != nil {
 		return fmt.Errorf("%w: query execution binding: %v", ErrInvalidReceipt, err)
 	}
+	return r.requireBindingAgreesWithSignedPreState(boundExecution{
+		exposureProfileVersion:     binding.ExposureProfileVersion,
+		usesExpandedEvidence:       binding.UsesExpandedEvidence,
+		exposureLedgerBeforeSHA256: binding.ExposureLedgerBeforeSHA256,
+		budgetBeforeSHA256:         binding.BudgetBeforeSHA256,
+		visibleRowLimit:            binding.VisibleRowLimit,
+		companionEvidenceRows:      binding.CompanionEvidenceRows,
+		hasCompanion:               binding.Companion != nil,
+	})
+}
+
+// boundExecution is the part of an execution binding the receipt checks against
+// its own signed pre-states.
+//
+// It exists so the rules below have exactly one implementation. V1 and V2 differ
+// in how they carry these values -- V2 reads the expanded-evidence state out of
+// the preparation rather than from a flag beside it -- but not in what the
+// receipt requires of them, and a second copy of these checks written for V2
+// would be a second thing to keep in step with the first.
+type boundExecution struct {
+	exposureProfileVersion     string
+	usesExpandedEvidence       bool
+	exposureLedgerBeforeSHA256 string
+	budgetBeforeSHA256         string
+	visibleRowLimit            int64
+	companionEvidenceRows      int64
+	hasCompanion               bool
+}
+
+func (r QueryReceiptV1) requireBindingAgreesWithSignedPreState(bound boundExecution) error {
 	// The binding must name the pre-state carried beside it. Without this the
 	// receipt could sign a binding derived from one ledger and a pre-state from
 	// another, and the limits would reproduce against neither.
-	if binding.ExposureLedgerBeforeSHA256 != r.ExposureLedgerBefore.SHA256 {
+	if bound.exposureLedgerBeforeSHA256 != r.ExposureLedgerBefore.SHA256 {
 		return fmt.Errorf("%w: the execution binding names exposure pre-state %s but the receipt carries %s",
-			ErrInvalidReceipt, shortDigest(binding.ExposureLedgerBeforeSHA256),
+			ErrInvalidReceipt, shortDigest(bound.exposureLedgerBeforeSHA256),
 			shortDigest(r.ExposureLedgerBefore.SHA256))
 	}
 	// Likewise for the budget: budget_before is already signed on the receipt, so
@@ -50,18 +107,18 @@ func (r QueryReceiptV1) validateExecutionBinding() error {
 	if err != nil {
 		return fmt.Errorf("%w: cannot canonicalize budget_before: %v", ErrInvalidReceipt, err)
 	}
-	if binding.BudgetBeforeSHA256 != budgetDigest {
+	if bound.budgetBeforeSHA256 != budgetDigest {
 		return fmt.Errorf("%w: the execution binding names budget pre-state %s but the receipt's budget_before "+
-			"digests to %s", ErrInvalidReceipt, shortDigest(binding.BudgetBeforeSHA256), shortDigest(budgetDigest))
+			"digests to %s", ErrInvalidReceipt, shortDigest(bound.budgetBeforeSHA256), shortDigest(budgetDigest))
 	}
 	// The exposure profile the limits were derived under must be the profile the
 	// ledger belongs to, and the expanded-evidence flag must agree: they are the
 	// two inputs the companion's row limit branches on.
-	if binding.ExposureProfileVersion != r.ExposureLedgerBefore.ProfileVersion {
+	if bound.exposureProfileVersion != r.ExposureLedgerBefore.ProfileVersion {
 		return fmt.Errorf("%w: the execution binding derives under profile %q but the pre-state is %q",
-			ErrInvalidReceipt, binding.ExposureProfileVersion, r.ExposureLedgerBefore.ProfileVersion)
+			ErrInvalidReceipt, bound.exposureProfileVersion, r.ExposureLedgerBefore.ProfileVersion)
 	}
-	if binding.UsesExpandedEvidence != r.ExposureLedgerBefore.UsesExpandedEvidence {
+	if bound.usesExpandedEvidence != r.ExposureLedgerBefore.UsesExpandedEvidence {
 		return fmt.Errorf("%w: the execution binding and its pre-state disagree about expanded evidence",
 			ErrInvalidReceipt)
 	}
@@ -95,10 +152,11 @@ func (r QueryReceiptV1) validateExecutionBinding() error {
 		// against; Exposure.RootEpoch is the epoch its charge LANDED at. A novel
 		// observation advances the root head by one as it settles, so requiring the
 		// two to be equal would reject every novel paired execution -- that is,
-		// every case V9 exists to describe. The epoch is monotonic, so requiring
-		// the pre-state's to be no later than the charge's still leaves it
-		// unforgeable in the direction that matters: an older epoch cannot be
-		// claimed to have authorized a charge that settled against a newer one.
+		// every case the execution evidence exists to describe. The epoch is
+		// monotonic, so requiring the pre-state's to be no later than the charge's
+		// still leaves it unforgeable in the direction that matters: an older epoch
+		// cannot be claimed to have authorized a charge that settled against a
+		// newer one.
 		if r.ExposureLedgerBefore.RootEpoch > r.Exposure.RootEpoch {
 			return fmt.Errorf("%w: the ledger pre-state was read at root epoch %d but the charge settled at "+
 				"epoch %d; the epoch is monotonic, so the pre-state cannot postdate the charge",
@@ -108,7 +166,7 @@ func (r QueryReceiptV1) validateExecutionBinding() error {
 	// The row limits must be reproducible from the signed pre-state. This is the
 	// check that makes the binding evidence rather than assertion: a limit the
 	// pre-state cannot derive is a limit nothing authorized.
-	if err := requireReproducibleLimits(binding, *r.ExposureLedgerBefore); err != nil {
+	if err := requireReproducibleLimits(bound, *r.ExposureLedgerBefore); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidReceipt, err)
 	}
 	return nil
@@ -149,7 +207,7 @@ func requireRemainingRowsMatchBudget(budget BudgetStateV1, ledger querybinding.E
 // authorize. The arithmetic reproduced is the part that does not need an
 // authorizer -- the requested visible limit and the companion pair -- which is
 // exactly what the pre-state is carried to support.
-func requireReproducibleLimits(binding querybinding.QueryExecutionBindingV1,
+func requireReproducibleLimits(bound boundExecution,
 	ledger querybinding.ExposureLedgerBeforeV1) error {
 	// The authorized visible limit is what production feeds the companion, and
 	// the policy engine may have lowered it below the requested one. So the
@@ -161,20 +219,20 @@ func requireReproducibleLimits(binding querybinding.QueryExecutionBindingV1,
 	// This bound holds whether or not a companion executed. It used to be skipped
 	// for a single-query binding, which left the one limit that path does render
 	// into executable SQL unchecked against the state that authorized it.
-	if binding.VisibleRowLimit > requested {
+	if bound.visibleRowLimit > requested {
 		return fmt.Errorf("the visible row limit is %d but the signed pre-state authorizes at most %d",
-			binding.VisibleRowLimit, requested)
+			bound.visibleRowLimit, requested)
 	}
-	if binding.Companion == nil {
+	if !bound.hasCompanion {
 		return nil
 	}
-	wantEvidenceRows := binding.VisibleRowLimit
+	wantEvidenceRows := bound.visibleRowLimit
 	if ledger.UsesExpandedEvidence {
 		wantEvidenceRows = ledger.Limits.InfluenceFacts
 	}
-	if binding.CompanionEvidenceRows != wantEvidenceRows {
+	if bound.companionEvidenceRows != wantEvidenceRows {
 		return fmt.Errorf("companion evidence rows are %d but the signed pre-state derives %d",
-			binding.CompanionEvidenceRows, wantEvidenceRows)
+			bound.companionEvidenceRows, wantEvidenceRows)
 	}
 	return nil
 }

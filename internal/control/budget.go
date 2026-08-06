@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 )
 
 func (s *Store) GetBudget(ctx context.Context, taskID string) (BudgetSnapshot, error) {
@@ -723,16 +725,19 @@ func (s *Store) GetQueryReceipt(ctx context.Context, queryID string) (QueryRecei
 			return QueryReceipt{}, chargeErr
 		}
 		// Existing V1-V7 receipts deliberately do not bind artifact evidence.
-		// Only load the complete registration projection for V8 OR LATER, or when
-		// a missing receipt may need a recovered attestation. That recovery signs
-		// immutable historical audit evidence after settlement; it is not the
-		// ordinary co-committed receipt path.
+		// Only load the complete registration projection for a version that can
+		// carry it, or when a missing receipt may need a recovered attestation.
+		// That recovery signs immutable historical audit evidence after settlement;
+		// it is not the ordinary co-committed receipt path.
 		//
-		// This was written as an equality against the literal "8". V9 carries the
-		// same artifact intent, so the equality quietly stopped loading the
-		// registration projection for it and every consumer saw a V9 receipt with
-		// no artifact evidence attached.
-		if persistedErr != nil || queryreceiptVersionAtLeastV8(persisted.Version) {
+		// This was written first as an equality against the literal "8" and then as
+		// a digit comparison meaning "8 or 9". The equality stopped loading the
+		// projection for V9, which carries the same artifact intent, so every
+		// consumer saw a V9 receipt with no artifact evidence attached. The digit
+		// comparison would have done the same to V10, whose version string is two
+		// characters long. The question is asked of the capability table now, which
+		// is the only place that answers it.
+		if persistedErr != nil || queryreceipt.SupportsArtifactIntent(persisted.Version) {
 			artifact, artifactErr := s.GetResultArtifactByQuery(ctx, queryID)
 			if artifactErr == nil {
 				events, listErr := s.ListAuditEventsForQuery(ctx, queryID)
@@ -769,14 +774,6 @@ func (s *Store) GetQueryReceipt(ctx context.Context, queryID string) (QueryRecei
 		return evidence, nil
 	}
 	return evidence, nil
-}
-
-// queryreceiptVersionAtLeastV8 orders persisted receipt versions without
-// importing internal/queryreceipt, which imports this package's neighbours and
-// would make the dependency circular. The versions are single decimal digits by
-// construction; anything else is older than V8 by definition.
-func queryreceiptVersionAtLeastV8(version string) bool {
-	return len(version) == 1 && version[0] >= '8' && version[0] <= '9'
 }
 
 func (s *Store) ListQueryReceipts(ctx context.Context, taskID string, limit int) ([]QueryReceipt, error) {
