@@ -138,7 +138,7 @@ func derivePreparation(inputs PreparationInputs) (OperationDraft, error) {
 	}
 
 	if inputs.Grant.UsesOrdinalProgram() {
-		ordinalProduct, ordinalErr := ordinalQueryProduct(inputs, product, columns)
+		ordinalProduct, ordinalErr := ordinalQueryProduct(inputs.sources(), product, columns)
 		if ordinalErr != nil {
 			return OperationDraft{}, ordinalErr
 		}
@@ -146,7 +146,7 @@ func derivePreparation(inputs PreparationInputs) (OperationDraft, error) {
 		if compileErr != nil {
 			return OperationDraft{}, compileErr
 		}
-		bound, bindErr := bindOrdinalSidecars(inputs, compiled.ProvenanceSQL,
+		bound, bindErr := bindOrdinalSidecars(inputs.sources(), compiled.ProvenanceSQL,
 			compiled.ProvenanceFields, compiled.OrdinalProgram)
 		if bindErr != nil {
 			return OperationDraft{}, bindErr
@@ -162,7 +162,7 @@ func derivePreparation(inputs PreparationInputs) (OperationDraft, error) {
 		draft.SourcePublications = bound.sourcePublications
 		draft.EstimatedBaseFacts = bound.estimatedBaseFacts
 		if inputs.Plan.Limit > 0 {
-			draft.EstimatedBaseFacts = estimateBaseFacts(inputs, bound, uint64(inputs.Plan.Limit))
+			draft.EstimatedBaseFacts = estimateBaseFacts(inputs.sources(), bound, uint64(inputs.Plan.Limit))
 		}
 		if inputs.Grant.UsesPredicateFootprint() {
 			footprint, footprintErr := derivePredicateFootprint(inputs,
@@ -233,7 +233,7 @@ func deriveRelationalPreparation(inputs PreparationInputs) (OperationDraft, erro
 		columns := stringSet(inputs.Grant.ApprovedColumns[name])
 		queryProduct := relationalQueryProduct(product, columns)
 		if inputs.Grant.UsesOrdinalProgram() {
-			if queryProduct, err = ordinalQueryProduct(inputs, product, columns); err != nil {
+			if queryProduct, err = ordinalQueryProduct(inputs.sources(), product, columns); err != nil {
 				return OperationDraft{}, err
 			}
 		}
@@ -244,7 +244,7 @@ func deriveRelationalPreparation(inputs PreparationInputs) (OperationDraft, erro
 	if err != nil {
 		return OperationDraft{}, err
 	}
-	shape, err := deriveRelationalShape(inputs, compiled, catalogProducts)
+	shape, err := deriveRelationalShape(inputs.Plan, inputs.Grant.ApprovedColumns, compiled, catalogProducts)
 	if err != nil {
 		return OperationDraft{}, err
 	}
@@ -268,7 +268,7 @@ func deriveRelationalPreparation(inputs PreparationInputs) (OperationDraft, erro
 	}
 
 	if inputs.Grant.UsesOrdinalProgram() {
-		bound, bindErr := bindOrdinalSidecars(inputs, compiled.ProvenanceSQL,
+		bound, bindErr := bindOrdinalSidecars(inputs.sources(), compiled.ProvenanceSQL,
 			compiled.ProvenanceFields, compiled.OrdinalProgram)
 		if bindErr != nil {
 			return OperationDraft{}, bindErr
@@ -329,7 +329,13 @@ type relationalShape struct {
 // meters each against its own entity key, scopes and evidence fields, and
 // widening both by the union would grant each product columns only the other
 // requires.
-func deriveRelationalShape(inputs PreparationInputs, compiled queryplan.RelationalCompilation,
+// The metering seed is a parameter rather than read off a grant, because the
+// two relational paths seed it differently: an ordinary plan starts from the
+// task's approved columns, while a semantic View starts from the positive
+// evidence closure the compilation itself computed. Everything after the seed is
+// identical, so it is one function.
+func deriveRelationalShape(plan queryplan.QueryPlan, approvedColumns map[string][]string,
+	compiled queryplan.RelationalCompilation,
 	products map[string]catalog.Product) (relationalShape, error) {
 	if compiled.VisibleSQL == "" || compiled.ProvenanceSQL == "" || len(compiled.Sources) == 0 {
 		return relationalShape{}, errors.New("relational compilation is incomplete")
@@ -341,7 +347,7 @@ func deriveRelationalShape(inputs PreparationInputs, compiled queryplan.Relation
 			product.StableRelationRole == "" || len(product.EntityKey) == 0 {
 			return relationalShape{}, fmt.Errorf("product %q lacks stable semantic metadata", name)
 		}
-		metering := stringSet(inputs.Grant.ApprovedColumns[name])
+		metering := stringSet(approvedColumns[name])
 		for _, column := range append(append([]string(nil), product.EntityKey...), product.Scopes...) {
 			if !productPublishes(product, column) {
 				return relationalShape{}, fmt.Errorf("metering field %q is absent from product %q", column, name)
@@ -366,7 +372,7 @@ func deriveRelationalShape(inputs PreparationInputs, compiled queryplan.Relation
 	for name, product := range products {
 		semantic[name] = relationalQueryProduct(product, stringSet(product.FieldNames()))
 	}
-	normal, err := queryplan.SemanticNormalForm(inputs.Plan, compiled, semantic)
+	normal, err := queryplan.SemanticNormalForm(plan, compiled, semantic)
 	if err != nil {
 		return relationalShape{}, err
 	}
@@ -735,9 +741,9 @@ func widenForSidecars(grant sqlpolicy.Grant,
 // It differs from the plain one by carrying the snapshot publication and its
 // sidecar manifest digest, which is what binds the compiled program to an
 // immutable artifact rather than to a relation name.
-func ordinalQueryProduct(inputs PreparationInputs, product catalog.Product,
+func ordinalQueryProduct(sources preparationSources, product catalog.Product,
 	approved map[string]struct{}) (queryplan.Product, error) {
-	publication, found := inputs.Catalog.LookupSnapshotPublication(product.SnapshotPublication)
+	publication, found := sources.catalog.LookupSnapshotPublication(product.SnapshotPublication)
 	if !found || publication.Source != product.Source ||
 		publication.SourceNamespace != product.FactNamespace ||
 		publication.Snapshot != product.Snapshot || publication.ManifestDigest == "" {
@@ -795,7 +801,7 @@ type boundOrdinalPreparation struct {
 // and the finalizer from retained Publication evidence, each having already
 // checked them against the Catalog, so the derivation depends on values both
 // sides can obtain rather than on whoever holds the registry.
-func bindOrdinalSidecars(inputs PreparationInputs, baseSQL string, fields []string,
+func bindOrdinalSidecars(sources preparationSources, baseSQL string, fields []string,
 	program queryplan.OrdinalProgram) (boundOrdinalPreparation, error) {
 	if strings.TrimSpace(baseSQL) == "" || len(fields) == 0 || len(program.Sources) == 0 {
 		return boundOrdinalPreparation{}, errors.New("ordinal sidecar binding input is incomplete")
@@ -829,7 +835,7 @@ func bindOrdinalSidecars(inputs PreparationInputs, baseSQL string, fields []stri
 	grants := map[string]sqlpolicy.ProductGrant{}
 
 	register := func(publication catalog.SnapshotPublication) error {
-		binding, found := inputs.SnapshotBindings[publication.Name]
+		binding, found := sources.snapshotBindings[publication.Name]
 		if !found {
 			return fmt.Errorf("publication %q has no resolved snapshot binding", publication.Name)
 		}
@@ -846,7 +852,7 @@ func bindOrdinalSidecars(inputs PreparationInputs, baseSQL string, fields []stri
 	}
 
 	for _, source := range program.Sources {
-		publication, found := inputs.Catalog.LookupSnapshotPublication(source.SidecarBinding.PublicationID)
+		publication, found := sources.catalog.LookupSnapshotPublication(source.SidecarBinding.PublicationID)
 		if !found || publication.Name == "" ||
 			source.SidecarBinding.ManifestDigest != publication.ManifestDigest ||
 			publication.SourceNamespace != source.SourceNamespace ||
@@ -910,7 +916,7 @@ func bindOrdinalSidecars(inputs PreparationInputs, baseSQL string, fields []stri
 	// The dictionary universe is Catalog-wide by construction. A query-local
 	// member set would pin a root ledger to whichever product it first executed
 	// and make exact cross-product union impossible.
-	for _, publication := range inputs.Catalog.SnapshotPublications {
+	for _, publication := range sources.catalog.SnapshotPublications {
 		if err := register(publication); err != nil {
 			return boundOrdinalPreparation{}, err
 		}
@@ -957,7 +963,7 @@ func bindOrdinalSidecars(inputs PreparationInputs, baseSQL string, fields []stri
 	for _, member := range members {
 		set = append(set, member)
 	}
-	manifest, err := ordinal.NewDictionarySetManifest(inputs.Catalog.Digest, set...)
+	manifest, err := ordinal.NewDictionarySetManifest(sources.catalog.Digest, set...)
 	if err != nil {
 		return boundOrdinalPreparation{}, err
 	}
@@ -974,7 +980,7 @@ func bindOrdinalSidecars(inputs PreparationInputs, baseSQL string, fields []stri
 	if err := result.program.ValidateProvenanceFields(result.provenanceFields); err != nil {
 		return boundOrdinalPreparation{}, err
 	}
-	result.estimatedBaseFacts = estimateBaseFacts(inputs, result, 0)
+	result.estimatedBaseFacts = estimateBaseFacts(sources, result, 0)
 	return result, nil
 }
 
@@ -983,7 +989,7 @@ func bindOrdinalSidecars(inputs PreparationInputs, baseSQL string, fields []stri
 // It selects the million-fact lane; it is not a budget charge. The row counts
 // come from the resolved snapshot bindings rather than from a live index, which
 // is what lets the finalizer reproduce it.
-func estimateBaseFacts(inputs PreparationInputs, bound boundOrdinalPreparation, scanRowLimit uint64) uint64 {
+func estimateBaseFacts(sources preparationSources, bound boundOrdinalPreparation, scanRowLimit uint64) uint64 {
 	var total uint64
 	limitedScan := bound.program.Kind == "scan" && len(bound.program.Sources) == 1 &&
 		len(bound.program.Groups) == 0 && len(bound.program.Aggregates) == 0 && scanRowLimit > 0
@@ -992,7 +998,7 @@ func estimateBaseFacts(inputs PreparationInputs, bound boundOrdinalPreparation, 
 		if !found {
 			return ^uint64(0)
 		}
-		binding, found := inputs.SnapshotBindings[publication]
+		binding, found := sources.snapshotBindings[publication]
 		if !found {
 			return ^uint64(0)
 		}

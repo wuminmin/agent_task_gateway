@@ -687,3 +687,24 @@ func (inputs PreparationInputs) SHA256() (string, error) {
 	}{PreparedOperationBindingV1Version, plan, grant, inputs.Catalog.Digest,
 		inputs.Catalog.Version, content, snapshots})
 }
+
+// preparationSources is the immutable material the ordinal and predicate
+// derivations read: the Catalog and the resolved snapshot universe.
+//
+// Both entry points produce one. Passing this rather than a whole
+// PreparationInputs is what lets the ordinal machinery serve the semantic View
+// path too -- a View preparation has no PreparationInputs to hand it, and
+// duplicating the sidecar binding for its sake would put two copies of the
+// provenance statement's construction in the package.
+type preparationSources struct {
+	catalog          CatalogView
+	snapshotBindings map[string]SnapshotBinding
+}
+
+func (inputs PreparationInputs) sources() preparationSources {
+	return preparationSources{catalog: inputs.Catalog, snapshotBindings: inputs.SnapshotBindings}
+}
+
+func (inputs SemanticViewPreparationInputsV1) sources() preparationSources {
+	return preparationSources{catalog: inputs.Catalog, snapshotBindings: inputs.SnapshotBindings}
+}

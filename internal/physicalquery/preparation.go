@@ -189,8 +189,24 @@ type PreparedOperationBindingV1 struct {
 	SourcePublicationsSHA256   string `json:"source_publications_sha256,omitempty"`
 	ViewBindingSHA256          string `json:"view_binding_sha256,omitempty"`
 	ViewRegistryRevisionSHA256 string `json:"view_registry_revision_sha256,omitempty"`
-	PredicateFootprintSHA256   string `json:"predicate_footprint_sha256,omitempty"`
-	EstimatedBaseFacts         uint64 `json:"estimated_base_facts,omitempty"`
+
+	// The semantic View identities, present exactly on a View preparation.
+	//
+	// These are separate members rather than something read out of
+	// ViewBindingSHA256 on the argument that a binding digest "covers" them. That
+	// argument is about how the Control Store happens to construct a ViewBinding,
+	// which is a different package's invariant and could change without this one
+	// noticing; a name containing the word "binding" is not a coverage proof. Each
+	// is measured here from the value preparation actually read, so a change to a
+	// compiled Artifact, a composed plan, the terminal Product closure or the
+	// governance envelope moves the sealed binding whatever the Control Store did.
+	ViewArtifactSHA256           string `json:"view_artifact_sha256,omitempty"`
+	ViewCompositionSHA256        string `json:"view_composition_sha256,omitempty"`
+	TerminalProductClosureSHA256 string `json:"terminal_product_closure_sha256,omitempty"`
+	GovernanceEnvelopeSHA256     string `json:"governance_envelope_sha256,omitempty"`
+
+	PredicateFootprintSHA256 string `json:"predicate_footprint_sha256,omitempty"`
+	EstimatedBaseFacts       uint64 `json:"estimated_base_facts,omitempty"`
 
 	// The two target bindings. Each covers its statement's digest, the inputs it
 	// was prepared from and the compiler that produced it, so a statement cannot
@@ -237,22 +253,59 @@ func (binding PreparedOperationBindingV1) Validate() error {
 		}
 	}
 	for name, digest := range map[string]string{
-		"fact fields":            binding.FactFieldsSHA256,
-		"provenance fields":      binding.ProvenanceFieldsSHA256,
-		"snapshot binding set":   binding.SnapshotBindingSetSHA256,
-		"normal form":            binding.NormalFormSHA256,
-		"ordinal program":        binding.OrdinalProgramSHA256,
-		"dictionary set":         binding.DictionarySetSHA256,
-		"sidecar grants":         binding.SidecarGrantsSHA256,
-		"source publications":    binding.SourcePublicationsSHA256,
-		"view binding":           binding.ViewBindingSHA256,
-		"view registry revision": binding.ViewRegistryRevisionSHA256,
-		"predicate footprint":    binding.PredicateFootprintSHA256,
-		"companion target":       binding.CompanionTargetSHA256,
+		"fact fields":              binding.FactFieldsSHA256,
+		"provenance fields":        binding.ProvenanceFieldsSHA256,
+		"snapshot binding set":     binding.SnapshotBindingSetSHA256,
+		"normal form":              binding.NormalFormSHA256,
+		"ordinal program":          binding.OrdinalProgramSHA256,
+		"dictionary set":           binding.DictionarySetSHA256,
+		"sidecar grants":           binding.SidecarGrantsSHA256,
+		"source publications":      binding.SourcePublicationsSHA256,
+		"view binding":             binding.ViewBindingSHA256,
+		"view registry revision":   binding.ViewRegistryRevisionSHA256,
+		"view artifact":            binding.ViewArtifactSHA256,
+		"view composition":         binding.ViewCompositionSHA256,
+		"terminal product closure": binding.TerminalProductClosureSHA256,
+		"governance envelope":      binding.GovernanceEnvelopeSHA256,
+		"predicate footprint":      binding.PredicateFootprintSHA256,
+		"companion target":         binding.CompanionTargetSHA256,
 	} {
 		if digest != "" && !validSHA256(digest) {
 			return fmt.Errorf("prepared operation binding %s digest is not a lowercase SHA-256", name)
 		}
+	}
+	// The four semantic View identities travel together. A binding carrying some
+	// of them describes a View preparation that measured only part of what it
+	// prepared against, which is worse than one that measured none: it would look
+	// like a complete View binding to anything checking for presence.
+	viewIdentities := map[string]string{
+		"view artifact":            binding.ViewArtifactSHA256,
+		"view composition":         binding.ViewCompositionSHA256,
+		"terminal product closure": binding.TerminalProductClosureSHA256,
+		"governance envelope":      binding.GovernanceEnvelopeSHA256,
+	}
+	present := 0
+	for _, digest := range viewIdentities {
+		if digest != "" {
+			present++
+		}
+	}
+	if present != 0 && present != len(viewIdentities) {
+		var missing []string
+		for name, digest := range viewIdentities {
+			if digest == "" {
+				missing = append(missing, name)
+			}
+		}
+		sort.Strings(missing)
+		return fmt.Errorf("prepared operation binding is a semantic View preparation but carries no %s digest",
+			strings.Join(missing, ", no "))
+	}
+	// A View preparation is bound to a View. Measuring the artifact and the
+	// governance envelope while naming no binding would leave the whole identity
+	// resting on values the Control Store never verified.
+	if present != 0 && binding.ViewBindingSHA256 == "" {
+		return errors.New("prepared operation binding carries semantic View identities but names no view binding")
 	}
 	// Presence-coupled in both directions, so a companion cannot be half present.
 	if binding.HasCompanion == (binding.CompanionTargetSHA256 == "") {
@@ -325,33 +378,37 @@ func (binding PreparedOperationBindingV1) RequireSame(other PreparedOperationBin
 	// something was.
 	var differences []string
 	for name, pair := range map[string][2]any{
-		"has companion":          {binding.HasCompanion, other.HasCompanion},
-		"grouped":                {binding.Grouped, other.Grouped},
-		"expanded evidence":      {binding.ExpandedEvidence, other.ExpandedEvidence},
-		"visible field count":    {binding.VisibleFieldCount, other.VisibleFieldCount},
-		"fact field count":       {binding.FactFieldCount, other.FactFieldCount},
-		"provenance field count": {binding.ProvenanceFieldCount, other.ProvenanceFieldCount},
-		"visible fields":         {binding.VisibleFieldsSHA256, other.VisibleFieldsSHA256},
-		"fact fields":            {binding.FactFieldsSHA256, other.FactFieldsSHA256},
-		"provenance fields":      {binding.ProvenanceFieldsSHA256, other.ProvenanceFieldsSHA256},
-		"preparation inputs":     {binding.PreparationInputsSHA256, other.PreparationInputsSHA256},
-		"grant":                  {binding.GrantSHA256, other.GrantSHA256},
-		"catalog":                {binding.CatalogSHA256, other.CatalogSHA256},
-		"snapshot binding set":   {binding.SnapshotBindingSetSHA256, other.SnapshotBindingSetSHA256},
-		"plan":                   {binding.PlanSHA256, other.PlanSHA256},
-		"compiler identity":      {binding.CompilerIdentitySHA256, other.CompilerIdentitySHA256},
-		"policy grant":           {binding.PolicyGrantSHA256, other.PolicyGrantSHA256},
-		"normal form":            {binding.NormalFormSHA256, other.NormalFormSHA256},
-		"ordinal program":        {binding.OrdinalProgramSHA256, other.OrdinalProgramSHA256},
-		"dictionary set":         {binding.DictionarySetSHA256, other.DictionarySetSHA256},
-		"sidecar grants":         {binding.SidecarGrantsSHA256, other.SidecarGrantsSHA256},
-		"source publications":    {binding.SourcePublicationsSHA256, other.SourcePublicationsSHA256},
-		"view binding":           {binding.ViewBindingSHA256, other.ViewBindingSHA256},
-		"view registry revision": {binding.ViewRegistryRevisionSHA256, other.ViewRegistryRevisionSHA256},
-		"predicate footprint":    {binding.PredicateFootprintSHA256, other.PredicateFootprintSHA256},
-		"estimated base facts":   {binding.EstimatedBaseFacts, other.EstimatedBaseFacts},
-		"visible target":         {binding.VisibleTargetSHA256, other.VisibleTargetSHA256},
-		"companion target":       {binding.CompanionTargetSHA256, other.CompanionTargetSHA256},
+		"has companion":            {binding.HasCompanion, other.HasCompanion},
+		"grouped":                  {binding.Grouped, other.Grouped},
+		"expanded evidence":        {binding.ExpandedEvidence, other.ExpandedEvidence},
+		"visible field count":      {binding.VisibleFieldCount, other.VisibleFieldCount},
+		"fact field count":         {binding.FactFieldCount, other.FactFieldCount},
+		"provenance field count":   {binding.ProvenanceFieldCount, other.ProvenanceFieldCount},
+		"visible fields":           {binding.VisibleFieldsSHA256, other.VisibleFieldsSHA256},
+		"fact fields":              {binding.FactFieldsSHA256, other.FactFieldsSHA256},
+		"provenance fields":        {binding.ProvenanceFieldsSHA256, other.ProvenanceFieldsSHA256},
+		"preparation inputs":       {binding.PreparationInputsSHA256, other.PreparationInputsSHA256},
+		"grant":                    {binding.GrantSHA256, other.GrantSHA256},
+		"catalog":                  {binding.CatalogSHA256, other.CatalogSHA256},
+		"snapshot binding set":     {binding.SnapshotBindingSetSHA256, other.SnapshotBindingSetSHA256},
+		"plan":                     {binding.PlanSHA256, other.PlanSHA256},
+		"compiler identity":        {binding.CompilerIdentitySHA256, other.CompilerIdentitySHA256},
+		"policy grant":             {binding.PolicyGrantSHA256, other.PolicyGrantSHA256},
+		"normal form":              {binding.NormalFormSHA256, other.NormalFormSHA256},
+		"ordinal program":          {binding.OrdinalProgramSHA256, other.OrdinalProgramSHA256},
+		"dictionary set":           {binding.DictionarySetSHA256, other.DictionarySetSHA256},
+		"sidecar grants":           {binding.SidecarGrantsSHA256, other.SidecarGrantsSHA256},
+		"source publications":      {binding.SourcePublicationsSHA256, other.SourcePublicationsSHA256},
+		"view binding":             {binding.ViewBindingSHA256, other.ViewBindingSHA256},
+		"view registry revision":   {binding.ViewRegistryRevisionSHA256, other.ViewRegistryRevisionSHA256},
+		"view artifact":            {binding.ViewArtifactSHA256, other.ViewArtifactSHA256},
+		"view composition":         {binding.ViewCompositionSHA256, other.ViewCompositionSHA256},
+		"terminal product closure": {binding.TerminalProductClosureSHA256, other.TerminalProductClosureSHA256},
+		"governance envelope":      {binding.GovernanceEnvelopeSHA256, other.GovernanceEnvelopeSHA256},
+		"predicate footprint":      {binding.PredicateFootprintSHA256, other.PredicateFootprintSHA256},
+		"estimated base facts":     {binding.EstimatedBaseFacts, other.EstimatedBaseFacts},
+		"visible target":           {binding.VisibleTargetSHA256, other.VisibleTargetSHA256},
+		"companion target":         {binding.CompanionTargetSHA256, other.CompanionTargetSHA256},
 	} {
 		if pair[0] != pair[1] {
 			differences = append(differences, name)
@@ -464,29 +521,67 @@ type PreparedOperation struct {
 // "unvalidated prepared operation" is not a state that exists.
 func NewPreparedOperation(inputs PreparationInputs, compiler CompilerIdentityV1,
 	draft OperationDraft) (PreparedOperation, error) {
+	identities, err := inputs.identities()
+	if err != nil {
+		return PreparedOperation{}, err
+	}
+	return newPreparedOperation(identities, compiler, draft)
+}
+
+// preparationIdentities is the set of input digests a binding is sealed over.
+//
+// It exists so that the two entry points differ only in how the digests are
+// obtained, never in how the binding is assembled from them. Sealing is subtle
+// enough that a second copy of it for the semantic View path would be a second
+// thing to keep in step, and the failure it would produce -- two preparations
+// of the same operation with different bindings -- is precisely what this
+// package exists to make impossible.
+type preparationIdentities struct {
+	inputs    string
+	grant     string
+	catalog   string
+	snapshots string
+	plan      string
+
+	viewBinding  string
+	viewRevision string
+
+	// The semantic View members, empty on an ordinary preparation.
+	viewArtifact       string
+	viewComposition    string
+	terminalClosure    string
+	governanceEnvelope string
+}
+
+// identities derives the digest set for an ordinary product preparation.
+func (inputs PreparationInputs) identities() (preparationIdentities, error) {
+	set := preparationIdentities{catalog: inputs.Catalog.Digest}
+	var err error
+	if set.inputs, err = inputs.SHA256(); err != nil {
+		return preparationIdentities{}, err
+	}
+	if set.grant, err = inputs.Grant.SHA256(); err != nil {
+		return preparationIdentities{}, err
+	}
+	if set.plan, err = inputs.PlanSHA256(); err != nil {
+		return preparationIdentities{}, err
+	}
+	if set.snapshots, err = inputs.SnapshotBindingSetSHA256(); err != nil {
+		return preparationIdentities{}, err
+	}
+	set.viewBinding = inputs.Grant.ViewBindingDigest
+	if set.viewRevision, err = textDigest(viewRevisionDomain, inputs.Grant.ViewRegistryRevision); err != nil {
+		return preparationIdentities{}, err
+	}
+	return set, nil
+}
+
+func newPreparedOperation(identities preparationIdentities, compiler CompilerIdentityV1,
+	draft OperationDraft) (PreparedOperation, error) {
 	if err := compiler.Validate(); err != nil {
 		return PreparedOperation{}, err
 	}
-	inputsDigest, err := inputs.SHA256()
-	if err != nil {
-		return PreparedOperation{}, err
-	}
-	grantDigest, err := inputs.Grant.SHA256()
-	if err != nil {
-		return PreparedOperation{}, err
-	}
-	planDigest, err := inputs.PlanSHA256()
-	if err != nil {
-		return PreparedOperation{}, err
-	}
-	snapshotDigest, err := inputs.SnapshotBindingSetSHA256()
-	if err != nil {
-		return PreparedOperation{}, err
-	}
-	viewRevision, err := textDigest(viewRevisionDomain, inputs.Grant.ViewRegistryRevision)
-	if err != nil {
-		return PreparedOperation{}, err
-	}
+	var err error
 
 	// The draft is copied in, so a caller that keeps its own reference and
 	// mutates it afterwards cannot reach what was sealed.
@@ -518,7 +613,7 @@ func NewPreparedOperation(inputs PreparationInputs, compiler CompilerIdentityV1,
 		return PreparedOperation{}, err
 	}
 
-	runtime, err := prepared.runtimeDigests(inputsDigest, compiler.SHA256)
+	runtime, err := prepared.runtimeDigests(identities.inputs, compiler.SHA256)
 	if err != nil {
 		return PreparedOperation{}, err
 	}
@@ -534,11 +629,11 @@ func NewPreparedOperation(inputs PreparationInputs, compiler CompilerIdentityV1,
 		FactFieldsSHA256:       runtime.factFields,
 		ProvenanceFieldsSHA256: runtime.provenanceFields,
 
-		PreparationInputsSHA256:  inputsDigest,
-		GrantSHA256:              grantDigest,
-		CatalogSHA256:            inputs.Catalog.Digest,
-		SnapshotBindingSetSHA256: snapshotDigest,
-		PlanSHA256:               planDigest,
+		PreparationInputsSHA256:  identities.inputs,
+		GrantSHA256:              identities.grant,
+		CatalogSHA256:            identities.catalog,
+		SnapshotBindingSetSHA256: identities.snapshots,
+		PlanSHA256:               identities.plan,
 		CompilerIdentitySHA256:   compiler.SHA256,
 
 		PolicyGrantSHA256:        runtime.policyGrant,
@@ -550,8 +645,13 @@ func NewPreparedOperation(inputs PreparationInputs, compiler CompilerIdentityV1,
 		PredicateFootprintSHA256: runtime.predicateFootprint,
 		EstimatedBaseFacts:       prepared.estimatedBaseFacts,
 
-		ViewBindingSHA256:          inputs.Grant.ViewBindingDigest,
-		ViewRegistryRevisionSHA256: viewRevision,
+		ViewBindingSHA256:          identities.viewBinding,
+		ViewRegistryRevisionSHA256: identities.viewRevision,
+
+		ViewArtifactSHA256:           identities.viewArtifact,
+		ViewCompositionSHA256:        identities.viewComposition,
+		TerminalProductClosureSHA256: identities.terminalClosure,
+		GovernanceEnvelopeSHA256:     identities.governanceEnvelope,
 
 		VisibleTargetSHA256:   runtime.visibleTarget,
 		CompanionTargetSHA256: runtime.companionTarget,
