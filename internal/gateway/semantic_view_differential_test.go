@@ -4,6 +4,10 @@ import (
 	"strings"
 	"testing"
 
+	"taskbound.local/agent-data-gateway/internal/control"
+	"taskbound.local/agent-data-gateway/internal/exposure"
+	"taskbound.local/agent-data-gateway/internal/mcp"
+
 	"taskbound.local/agent-data-gateway/internal/ordinal"
 	"taskbound.local/agent-data-gateway/internal/physicalquery"
 	"taskbound.local/agent-data-gateway/internal/queryplan"
@@ -17,17 +21,34 @@ import (
 // barrier that admits only a projection of already-computed outputs. They take
 // different paths through composition, so parity on one says nothing about the
 // other.
+// The profile is part of the case because it selects which halves of the moved
+// derivation run at all: V2 compiles neither an ordinal program nor a predicate
+// footprint, V4 compiles the program and binds sidecars, and only V5 builds the
+// footprint from the outer plan's filters. Comparing the V2 shapes alone would
+// have left the ordinal binding and the whole V5 predicate construction --
+// which is most of what T1c-S2 moved -- unexercised.
 type semanticViewCase struct {
 	name      string
 	aggregate bool
 	columns   []string
+	profile   string
+	// filters are the agent's own outer-plan filters, which under V5 become the
+	// predicate footprint's caller bindings.
+	filters []queryplan.Filter
 }
 
 func semanticViewCases() []semanticViewCase {
+	projection := []string{"amount"}
+	barrier := []string{"request_count", "business_unit", "total_amount"}
+	unitFilter := []queryplan.Filter{{Column: "business_unit", Op: "=", Value: "销售部"}}
 	return []semanticViewCase{
-		{name: "projection", aggregate: false, columns: []string{"amount"}},
-		{name: "aggregate_barrier", aggregate: true,
-			columns: []string{"request_count", "business_unit", "total_amount"}},
+		{name: "projection", columns: projection, profile: exposure.ProfileV2},
+		{name: "aggregate_barrier", aggregate: true, columns: barrier, profile: exposure.ProfileV2},
+		{name: "projection_v4", columns: projection, profile: exposure.ProfileV4},
+		{name: "aggregate_barrier_v4", aggregate: true, columns: barrier, profile: exposure.ProfileV4},
+		{name: "projection_v5_filtered", columns: projection, profile: exposure.ProfileV5,
+			filters: unitFilter},
+		{name: "aggregate_barrier_v5", aggregate: true, columns: barrier, profile: exposure.ProfileV5},
 	}
 }
 
@@ -42,7 +63,20 @@ type semanticViewParity struct {
 func resolveSemanticViewCase(t *testing.T, test semanticViewCase) semanticViewParity {
 	t.Helper()
 	fixture := newSemanticRuntimeFixture(t, test.aggregate)
-	outer := queryplan.QueryPlan{Product: fixture.root.Name, Columns: test.columns}
+	if test.profile != exposure.ProfileV2 {
+		// V4 onward the terminal Product must resolve to a verified immutable
+		// snapshot publication, so the Gateway needs its registry.
+		installSemanticRuntimeSnapshotRegistry(t, fixture.service)
+	}
+	fixture.grant.Exposure.ProfileVersion = test.profile
+	if test.profile == exposure.ProfileV5 {
+		fixture.grant.Exposure.PredicateFootprint = &control.PredicateFootprintLimitsV1{
+			MaxRawLiteralsPerQuery: 64, MaxUniqueAtomsPerQuery: 64,
+			MaxAtomPayloadBytes: 4096, MaxTotalAtomPayloadBytes: 65536,
+		}
+	}
+	outer := queryplan.QueryPlan{Product: fixture.root.Name, Columns: test.columns,
+		Filters: append([]queryplan.Filter(nil), test.filters...)}
 	composition, err := viewcompiler.ComposeQueryPlan(fixture.root.Name, outer, fixture.artifact)
 	if err != nil {
 		t.Fatalf("compose semantic View plan: %v", err)
@@ -154,6 +188,9 @@ func TestSemanticViewPreparationMatchesTheGateway(t *testing.T) {
 				fixture.grant, fixture.root, fixture.artifact, parity.composition,
 				fixture.binding, parity.outer)
 			if err != nil {
+				if toolErr, ok := err.(*mcp.ToolError); ok {
+					t.Fatalf("the Gateway refused to prepare the semantic View: %v details=%v", err, toolErr.Details)
+				}
 				t.Fatalf("the Gateway refused to prepare the semantic View: %v", err)
 			}
 			evidence := datasourceEvidence{DatasourceID: "parity-datasource",
@@ -191,6 +228,28 @@ func TestSemanticViewPreparationMatchesTheGateway(t *testing.T) {
 			if prepared.Binding().ViewBindingSHA256 != fixture.binding.Digest {
 				t.Errorf("the prepared binding names view %q, the resolved binding is %q",
 					prepared.Binding().ViewBindingSHA256, fixture.binding.Digest)
+			}
+
+			// The profile-selected halves must actually have run. Without this the
+			// V4 and V5 cases could agree by both preparing nothing, and the
+			// ordinal binding and predicate construction would be reported as
+			// covered while never having been exercised.
+			if test.profile != exposure.ProfileV2 {
+				if extracted.OrdinalProgram == nil {
+					t.Error("the V4-onward case compiled no ordinal program, so the comparison covered none")
+				}
+				if extracted.DictionarySetDigest == "" || len(extracted.SidecarGrants) == 0 {
+					t.Error("the V4-onward case bound no dictionary set or sidecar grant")
+				}
+			}
+			if test.profile == exposure.ProfileV5 {
+				if extracted.PredicateFootprint == nil {
+					t.Fatal("the V5 case built no predicate footprint, so the comparison covered none")
+				}
+				if len(test.filters) > 0 && extracted.PredicateFootprint.UniqueAtomCount == 0 {
+					t.Error("the filtered V5 case produced a footprint with no atoms, " +
+						"so the outer-plan filter never reached the predicate binding")
+				}
 			}
 		})
 	}

@@ -236,6 +236,16 @@ func deriveSemanticViewPreparation(inputs SemanticViewPreparationInputsV1) (
 			return OperationDraft{}, semanticViewGovernance{}, footprintErr
 		}
 		draft.PredicateFootprint = footprint
+		// V5 identifies a composed View by the V4 algebra normal form, not by the
+		// V2-era semantic one the relational shape computed. This is the same
+		// replacement deriveRelationalPreparation makes, and it is what the
+		// exposure ledger keys on -- carrying the earlier form would identify the
+		// query by something its ledger does not use.
+		normal, normalizeErr := queryplan.SemanticNormalFormV4(inputs.Composition.Plan, compiled, queryProducts)
+		if normalizeErr != nil {
+			return OperationDraft{}, semanticViewGovernance{}, normalizeErr
+		}
+		draft.NormalFormSHA256 = normal.SHA256
 	}
 
 	// The grant is built in production's order: the task's own public grant
