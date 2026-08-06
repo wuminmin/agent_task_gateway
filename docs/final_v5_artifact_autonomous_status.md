@@ -236,6 +236,32 @@ resolved binding, the compiled artifact and the composition — and preparation
 still performs no store I/O, so all three arrive as values. Until that entry
 point exists and its parity passes, T1c is not finished and T1d must not start.
 
+What that entry point has to take, established by inspection of
+`Service.prepareSemanticViewPlan` at this HEAD:
+
+- the resolved view binding's `Digest` and its
+  `Expectation.ExpectedRevisionDigest`, as values;
+- the compiled `viewcompiler.Artifact` (its `Plan`, `BaseProducts`, `Outputs`
+  and `CanonicalPlanDigest`) and the `viewcompiler.Composition`;
+- the agent-authored outer plan, which the V5 predicate binding reads its
+  filters from;
+- the Catalog's `Scopes`, which `CatalogView` does not carry yet.
+  `semanticViewGovernanceFor` needs them, through `catalogScopeByName` and
+  `equivalentScopePolicies`, to prove scope propagation from root to terminal.
+
+`internal/viewcompiler` depends only on `exposure`, `queryplan` and
+`sqllowering`, so `physicalquery` importing it introduces no cycle.
+
+Three pieces move with it: `semanticViewGovernanceFor` (~100 lines, the
+source/sensitivity/stable-role/scope envelope proof), `semanticPlanRequiredColumns`
+(the exact terminal column closure, which is what keeps a leaf-filter subquery
+from projecting every Catalog field), and the V5 predicate-binding block that
+builds `PredicateFilterBinding`s and `PredicateFieldBinding`s from the artifact
+outputs via `digestViewEvidence`. The terminal products must continue to reach
+the internal policy grant only -- never the task's public approved products --
+which `TestTheSemanticViewShapePrepares` already asserts on the legacy side and
+which the differential must preserve.
+
 Three further properties are asserted on the new side alone, because they are
 what the finalizer's independent reconstruction rests on: preparing twice from
 one input set produces the same binding; a `Service` with no registry produces
