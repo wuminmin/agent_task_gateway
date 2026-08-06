@@ -6,11 +6,123 @@ stays on `main @ 804d65d` and is never touched.
 
 ## Current HEAD
 
-`701ef75` and its successor — worktree clean, equal to
-`origin/tkde-artifact-rerun`. **Gate 22 is resolved and all thirty gates now
-PASS.** The **runtime cutover is still not done**, and it is now blocked on a
-different thing than before. See "Gate 22 resolved" and "The cutover blocker"
-below, and `docs/final_v5_v3_runtime_integration_gates.md` for both in full.
+`468dbe4` — worktree clean, equal to `origin/tkde-artifact-rerun` at session
+start (`b50637e`) and ahead by the T1a.2 commit. Tags `final-v5-contracts-v1` …
+`v1.4` unmoved (`v1.4` still `af15ee1` → `36b04ba`, matching origin); no v1.5
+tag; the primary worktree is still `main @ 804d65d` and clean. Docker 29.1.3 and
+`scripts/db-test-env.sh verify` pass against the digest-pinned PostgreSQL 16.14
+pair (`server_version_num=160014`, 31 `taskgate_ordinal` sidecar relations).
+
+**Gate 22 is resolved and all thirty gates PASS.** The **runtime cutover is
+still not done**: the extraction it depends on is in progress and is described
+under "The extraction — T1a.2 done, T1b in progress" below. See also "Gate 22
+resolved" and "The cutover blocker", and
+`docs/final_v5_v3_runtime_integration_gates.md` for both in full.
+
+### The extraction — T1a.2 done, T1b in progress
+
+**T1a.2 is complete** (`468dbe4`). `physicalquery.PreparedOperation` was
+mutable: every load-bearing member was exported, so "prepare correctly, rewrite
+the SQL or the policy grant on the returned value, execute, sign the old
+binding" was available to any caller and left no trace. A coherent binding
+proved the binding was coherent and nothing about the object the Gateway was
+about to hand the Connector, which is the claim a V9 receipt actually makes.
+
+Construction is now closed. Every member is unexported; `NewPreparedOperation`
+is the only constructor and derives every digest from an `OperationDraft` rather
+than accepting one; the accessors deep-copy; `ExecutableStatements` is the only
+route to the SQL and validates first, so an unvalidated prepared operation is
+not a reachable state. `Validate` recomputes both target bindings, the three
+field-list digests, the policy grant, the sidecar grants, the ordinal program,
+the dictionary set, the source-publication mapping, the predicate footprint and
+the base-fact estimate **from the runtime members**, and names the one that
+moved. `RequireInputs` closes the other half — binding-to-inputs — for a caller
+that holds the source material.
+
+Two members were missing from `PreparedOperationBindingV1` entirely and were
+added. `PolicyGrantSHA256` identifies the sqlpolicy grant preparation *builds*,
+which is what a statement is admitted against; `GrantSHA256` only identifies the
+task authorization preparation *reads*, so evidence naming just the latter left
+the sidecar widening between them undescribed. `SourcePublicationsSHA256` covers
+the alias-to-publication mapping the Gateway reattaches its verified snapshot
+handles through. The dictionary-set digest is the manifest's own rather than one
+local to the package, because that value is what the Control Store keys ordinal
+observations on.
+
+Nothing durable was invalidated: no production caller produces a
+`PreparedOperationBindingV1` yet, and every existing reference to
+`PreparedOperationBindingSHA256` is a test fixture with a synthetic digest.
+
+**T1b-A — complete. T1b-B — not started; it awaits `physicalquery.Prepare`.**
+The distinction is the whole point of this entry: the harness being built is not
+the differential verification being done, and this record must not be read as
+claiming old-vs-new parity has passed. Nothing has been compared against a new
+implementation, because there is no new implementation yet.
+
+`internal/gateway/preparation_parity_test.go` holds
+`legacyPrepareForParity`, which replays the exact production sequence
+(`prepareTaskPlan` → `policyGrant` → `extendGrant` → `extendOrdinalPolicyGrant`)
+and reads off a 26-member `preparationShape`; `requireSameShape` names every
+member two preparations disagree on. The legacy derivation is reachable from
+`_test.go` only, and no production path chooses between implementations.
+
+All fifteen named shapes are covered and green: the thirteen table cases
+(`simple_non_grouped_product`, `grouped_aggregate`, `single_query_non_exposure`,
+`ordinal_v4`, `ordinal_v5`, `expanded_evidence`, `non_expanded_evidence`,
+`relational_join`, `relational_union`, `duplicate_product_binding`,
+`mandatory_scope`, `provsql_taskgate`, `result_heavy_100x4`), plus
+`TestTheSemanticViewShapePrepares` (both projection and aggregate-barrier forms)
+and `TestAConsumedLedgerMovesTheDerivationAndNotThePreparation`.
+
+The last two are separate tests rather than table entries for reasons worth
+recording. The semantic View does not enter through `prepareTaskPlan`'s Catalog
+lookup: production resolves the task's view binding from the Control Store and
+then calls `prepareSemanticViewPlan` with it, and preparation itself performs no
+store I/O — so the harness supplies the resolved binding the same way the
+extracted package will receive it. The Scale pre-consumed state is a property of
+the preparation/derivation split rather than of preparation: the prepared target
+binding deliberately excludes the row limit, so a consumed ledger must move the
+`Derive` decisions and the executed bytes while leaving the prepared shape
+identical. Both halves are asserted.
+
+Old-vs-new equality is not the only oracle. Each case is additionally checked
+against evidence neither implementation produces: the prepared dictionary
+universe must be the Catalog's own publication set with matching dictionary and
+manifest digests and Catalog-published sidecar relations; both prepared
+statements must be admitted by the policy grant preparation itself produced; the
+grant must be widened only by what metering requires; a duplicated product must
+resolve to one dictionary member, one sidecar grant and one publication. Two
+mutation suites then require every load-bearing input to move the prepared shape
+or fail closed — thirteen input changes and twelve binding-input changes, with
+`failsClosed` stated per entry rather than accepting "moved or refused" for all
+of them.
+
+**A real limit was found and is pinned, not routed around.** A V5 preparation
+cannot build a predicate footprint for a UNION DISTINCT whose branches carry
+filters: `queryplan.PredicateBindings` keys its products by product name while a
+branch qualifies its columns by branch role, so `left_branch.expense_type`
+resolves to nothing and the preparation fails closed with `POLICY_DENIED`. The
+same plan prepares under V4, which accounts no footprint.
+`TestUnionBranchFilteredPredicatesFailClosedUnderV5` asserts both halves, so the
+gap cannot be mistaken for a union that is simply unpreparable. The V5 Union
+parity case therefore uses the unfiltered form; when the qualified-column work
+lands, that test fails and forces the case to be promoted back.
+
+What T1b-A does **not** contain is the old-vs-new comparison itself, because
+`physicalquery.Prepare` does not exist. `requireLegacyParity` is defined beside
+the legacy capture as the single hook T1b-B's test calls, so the two halves of
+the comparison cannot drift into reading different properties. No golden was
+generated by running the legacy implementation.
+
+Stage state, stated so it cannot be over-read:
+
+| stage | state |
+| --- | --- |
+| T1a.2 | complete |
+| T1b-A — legacy capture, named-shape matrix, mutation matrix | complete |
+| T1b-B — old vs `physicalquery.Prepare` differential | **awaits T1c's implementation** |
+| T1c — move the derivation into `internal/physicalquery` | next |
+| T1d/T1e/T1f — Gateway delegation, finalizer reconstruction, positive guards | after T1b-B passes |
 
 ### Gate 22 resolved — the path-aware classifier class set
 
