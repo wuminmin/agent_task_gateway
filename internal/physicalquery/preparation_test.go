@@ -2,11 +2,13 @@ package physicalquery
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
 	"taskbound.local/agent-data-gateway/internal/catalog"
 	"taskbound.local/agent-data-gateway/internal/exposure"
+	"taskbound.local/agent-data-gateway/internal/ordinal"
 	"taskbound.local/agent-data-gateway/internal/queryplan"
 	"taskbound.local/agent-data-gateway/internal/sqlpolicy"
 )
@@ -69,85 +71,105 @@ func testInputs() PreparationInputs {
 	}
 }
 
-// sealedTestOperation builds a coherent prepared operation the way Prepare will:
-// every digest derived, nothing asserted.
-func sealedTestOperation(t *testing.T) PreparedOperation {
+func testDictionarySet(t *testing.T) *ordinal.DictionarySetManifest {
 	t.Helper()
-	inputs := testInputs()
-	inputsDigest, err := inputs.SHA256()
-	if err != nil {
-		t.Fatalf("inputs digest: %v", err)
+	members := make([]ordinal.DictionarySetMember, 0, 2)
+	for _, name := range []string{"expense", "headcount"} {
+		publication := testPublication(name)
+		members = append(members, ordinal.DictionarySetMember{
+			PublicationName: publication.Name, DictionaryDigest: publication.DictionaryDigest,
+			ManifestDigest: publication.ManifestDigest,
+		})
 	}
-	grantDigest, err := inputs.Grant.SHA256()
+	set, err := ordinal.NewDictionarySetManifest(testCatalogView().Digest, members...)
 	if err != nil {
-		t.Fatalf("grant digest: %v", err)
+		t.Fatalf("dictionary set: %v", err)
 	}
-	planDigest, err := inputs.PlanSHA256()
-	if err != nil {
-		t.Fatalf("plan digest: %v", err)
-	}
-	snapshotDigest, err := inputs.SnapshotBindingSetSHA256()
-	if err != nil {
-		t.Fatalf("snapshot set digest: %v", err)
-	}
-	compiler, err := LocalCompilerIdentity()
-	if err != nil {
-		t.Fatalf("compiler identity: %v", err)
-	}
+	return &set
+}
 
-	prepared := PreparedOperation{
+func testOrdinalProgram() *queryplan.OrdinalProgram {
+	return &queryplan.OrdinalProgram{
+		Version: "taskgate-ordinal-program-v1", Kind: "scan",
+		Sources: []queryplan.OrdinalSource{{
+			Product: "expense", SourceAlias: "tg_src_0", SourceNamespace: "reporting",
+			Snapshot: "2026-08-01", Role: "base", HandleAlias: "tg_handle_0", HandleRequired: true,
+			Branch: -1,
+			EntityKey: []queryplan.OrdinalFieldBinding{
+				{Column: "month", ProvenanceAlias: "tg_key_0"},
+			},
+			EvidenceFields: []queryplan.OrdinalFieldBinding{
+				{Column: "amount", ProvenanceAlias: "tg_fact_0"},
+			},
+		}},
+		Visible:              []queryplan.OrdinalVisibleSpec{{}},
+		WitnessRules:         []queryplan.OrdinalWitnessRule{{}},
+		CanonicalExpressions: []string{`"expense"."month"`},
+		SnapshotBundle: []queryplan.OrdinalSnapshotBinding{
+			{SourceNamespace: "reporting", Snapshot: "2026-08-01"},
+		},
+	}
+}
+
+func testPredicateFootprint() *queryplan.PredicateFootprint {
+	return &queryplan.PredicateFootprint{
+		Version: "taskgate-predicate-footprint-v1", ContextSHA256: strings.Repeat("1", 64),
+		Atoms:           []exposure.FactID{{Profile: exposure.ProfileV5, CanonicalValue: "sales"}},
+		AtomSetSHA256:   strings.Repeat("2", 64),
+		RawLiteralCount: 1, UniqueAtomCount: 1,
+	}
+}
+
+// testDraft is the derivation output the fixtures seal. It is deliberately a
+// fully populated one -- companion, ordinal program, dictionary set, source
+// publications and predicate footprint all present -- so that every runtime
+// member has something for Validate to disagree with.
+func testDraft() OperationDraft {
+	return OperationDraft{
 		VisibleSQL:    `SELECT "month" FROM "reporting"."expense" LIMIT 10`,
 		CompanionSQL:  `SELECT "row_handle" FROM "taskgate_ordinal"."expense_v1" LIMIT 11`,
-		HasCompanion:  true,
 		VisibleFields: []string{"month"}, FactFields: []string{"month"},
 		ProvenanceFields: []string{"tg_handle_0"},
 		Grouped:          false, ExpandedEvidence: true,
+		PolicyGrant: sqlpolicy.Grant{Products: []sqlpolicy.ProductGrant{{
+			LogicalName: "expense", PhysicalSchema: "reporting", PhysicalView: "expense",
+			ApprovedColumns:  []string{"month", "amount", "department"},
+			AllowedOperators: []string{"=", "IN"},
+			MandatoryScope: []sqlpolicy.ScopePredicate{
+				{Column: "department", Operator: "IN", Values: []string{"sales"}},
+			},
+		}}},
 		SidecarGrants: []sqlpolicy.ProductGrant{{
 			LogicalName: "tg_sidecar_expense", PhysicalSchema: "taskgate_ordinal",
 			PhysicalView: "expense_v1", ApprovedColumns: []string{"row_handle", "month"},
 			AllowedOperators: []string{"="},
 		}},
+		SourcePublications: map[string]string{"tg_src_0": "expense"},
 		EstimatedBaseFacts: 4200,
 	}
-	visibleFields, err := fieldListSHA256(prepared.VisibleFields)
+}
+
+// sealedTestOperation builds a coherent prepared operation the only way one can
+// be built: every digest derived by the constructor, nothing asserted.
+func sealedTestOperation(t *testing.T) PreparedOperation {
+	t.Helper()
+	draft := testDraft()
+	draft.OrdinalProgram = testOrdinalProgram()
+	draft.DictionarySet = testDictionarySet(t)
+	draft.PredicateFootprint = testPredicateFootprint()
+	return sealOperation(t, testInputs(), draft)
+}
+
+func sealOperation(t *testing.T, inputs PreparationInputs, draft OperationDraft) PreparedOperation {
+	t.Helper()
+	compiler, err := LocalCompilerIdentity()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("compiler identity: %v", err)
 	}
-	factFields, err := fieldListSHA256(prepared.FactFields)
+	prepared, err := NewPreparedOperation(inputs, compiler, draft)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("prepare: %v", err)
 	}
-	provenanceFields, err := fieldListSHA256(prepared.ProvenanceFields)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sidecars, err := sidecarGrantsSHA256(prepared.SidecarGrants)
-	if err != nil {
-		t.Fatal(err)
-	}
-	visibleTarget, err := preparedTargetSHA256(RoleVisible, prepared.VisibleSQL, inputsDigest, compiler.SHA256)
-	if err != nil {
-		t.Fatal(err)
-	}
-	companionTarget, err := preparedTargetSHA256(RoleCompanion, prepared.CompanionSQL, inputsDigest, compiler.SHA256)
-	if err != nil {
-		t.Fatal(err)
-	}
-	binding, err := PreparedOperationBindingV1{
-		HasCompanion: true, Grouped: false, ExpandedEvidence: true,
-		VisibleFieldCount: 1, FactFieldCount: 1, ProvenanceFieldCount: 1,
-		VisibleFieldsSHA256: visibleFields, FactFieldsSHA256: factFields,
-		ProvenanceFieldsSHA256:  provenanceFields,
-		PreparationInputsSHA256: inputsDigest, GrantSHA256: grantDigest,
-		CatalogSHA256: inputs.Catalog.Digest, SnapshotBindingSetSHA256: snapshotDigest,
-		PlanSHA256: planDigest, CompilerIdentitySHA256: compiler.SHA256,
-		SidecarGrantsSHA256: sidecars, EstimatedBaseFacts: 4200,
-		VisibleTargetSHA256: visibleTarget, CompanionTargetSHA256: companionTarget,
-	}.Seal()
-	if err != nil {
-		t.Fatalf("seal: %v", err)
-	}
-	prepared.Binding = binding
 	return prepared
 }
 
@@ -164,8 +186,8 @@ func TestASealedOperationValidates(t *testing.T) {
 // asserted rather than derived.
 func TestASuppliedBindingDigestIsRejected(t *testing.T) {
 	prepared := sealedTestOperation(t)
-	prepared.Binding.SHA256 = strings.Repeat("f", 64)
-	if err := prepared.Binding.Validate(); err == nil {
+	prepared.binding.SHA256 = strings.Repeat("f", 64)
+	if err := prepared.binding.Validate(); err == nil {
 		t.Fatal("a binding digest that was written rather than sealed was accepted")
 	}
 	if err := prepared.Validate(); err == nil {
@@ -192,6 +214,8 @@ func TestTheSealCoversEveryBindingMember(t *testing.T) {
 		"snapshot binding set":   func(b *PreparedOperationBindingV1) { b.SnapshotBindingSetSHA256 = strings.Repeat("7", 64) },
 		"plan":                   func(b *PreparedOperationBindingV1) { b.PlanSHA256 = strings.Repeat("8", 64) },
 		"compiler identity":      func(b *PreparedOperationBindingV1) { b.CompilerIdentitySHA256 = strings.Repeat("9", 64) },
+		"policy grant":           func(b *PreparedOperationBindingV1) { b.PolicyGrantSHA256 = strings.Repeat("1", 64) },
+		"source publications":    func(b *PreparedOperationBindingV1) { b.SourcePublicationsSHA256 = strings.Repeat("2", 64) },
 		"ordinal program":        func(b *PreparedOperationBindingV1) { b.OrdinalProgramSHA256 = strings.Repeat("a", 64) },
 		"dictionary set":         func(b *PreparedOperationBindingV1) { b.DictionarySetSHA256 = strings.Repeat("b", 64) },
 		"sidecar grants":         func(b *PreparedOperationBindingV1) { b.SidecarGrantsSHA256 = strings.Repeat("c", 64) },
@@ -203,7 +227,7 @@ func TestTheSealCoversEveryBindingMember(t *testing.T) {
 		"companion target":       func(b *PreparedOperationBindingV1) { b.CompanionTargetSHA256 = strings.Repeat("0", 64) },
 	} {
 		t.Run(name, func(t *testing.T) {
-			binding := sealedTestOperation(t).Binding
+			binding := sealedTestOperation(t).Binding()
 			mutate(&binding)
 			if err := binding.Validate(); err == nil {
 				t.Fatalf("the seal ignored a changed %s", name)
@@ -216,7 +240,7 @@ func TestTheSealCoversEveryBindingMember(t *testing.T) {
 // merely detected by the seal. A rejection that cannot say what differs is not
 // usable evidence.
 func TestRequireSameNamesEveryChangedMember(t *testing.T) {
-	base := sealedTestOperation(t).Binding
+	base := sealedTestOperation(t).Binding()
 	for name, mutate := range map[string]func(*PreparedOperationBindingV1){
 		"grouped":              func(b *PreparedOperationBindingV1) { b.Grouped = true },
 		"visible field count":  func(b *PreparedOperationBindingV1) { b.VisibleFieldCount = 2 },
@@ -226,6 +250,8 @@ func TestRequireSameNamesEveryChangedMember(t *testing.T) {
 		"snapshot binding set": func(b *PreparedOperationBindingV1) { b.SnapshotBindingSetSHA256 = strings.Repeat("7", 64) },
 		"plan":                 func(b *PreparedOperationBindingV1) { b.PlanSHA256 = strings.Repeat("8", 64) },
 		"compiler identity":    func(b *PreparedOperationBindingV1) { b.CompilerIdentitySHA256 = strings.Repeat("9", 64) },
+		"policy grant":         func(b *PreparedOperationBindingV1) { b.PolicyGrantSHA256 = strings.Repeat("1", 64) },
+		"source publications":  func(b *PreparedOperationBindingV1) { b.SourcePublicationsSHA256 = strings.Repeat("2", 64) },
 		"estimated base facts": func(b *PreparedOperationBindingV1) { b.EstimatedBaseFacts = 1 },
 		"visible target":       func(b *PreparedOperationBindingV1) { b.VisibleTargetSHA256 = strings.Repeat("0", 64) },
 	} {
@@ -248,7 +274,7 @@ func TestRequireSameNamesEveryChangedMember(t *testing.T) {
 }
 
 func TestTwoIdenticalPreparationsAgree(t *testing.T) {
-	if err := sealedTestOperation(t).Binding.RequireSame(sealedTestOperation(t).Binding); err != nil {
+	if err := sealedTestOperation(t).Binding().RequireSame(sealedTestOperation(t).Binding()); err != nil {
 		t.Fatalf("two identical preparations disagreed: %v", err)
 	}
 }
@@ -271,7 +297,7 @@ func TestAPreparedOperationRefusesToSerialize(t *testing.T) {
 // structural rather than a keyword scan: the encoded object may contain only
 // members this test knows about.
 func TestTheDurableBindingCarriesOnlyIdentities(t *testing.T) {
-	encoded, err := json.Marshal(sealedTestOperation(t).Binding)
+	encoded, err := json.Marshal(sealedTestOperation(t).Binding())
 	if err != nil {
 		t.Fatalf("marshal binding: %v", err)
 	}
@@ -285,7 +311,8 @@ func TestTheDurableBindingCarriesOnlyIdentities(t *testing.T) {
 		"visible_fields_sha256": true, "fact_fields_sha256": true, "provenance_fields_sha256": true,
 		"preparation_inputs_sha256": true, "grant_sha256": true, "catalog_sha256": true,
 		"snapshot_binding_set_sha256": true, "plan_sha256": true, "compiler_identity_sha256": true,
-		"ordinal_program_sha256": true, "dictionary_set_sha256": true, "sidecar_grants_sha256": true,
+		"policy_grant_sha256": true, "ordinal_program_sha256": true, "dictionary_set_sha256": true,
+		"sidecar_grants_sha256": true, "source_publications_sha256": true,
 		"view_binding_sha256": true, "view_registry_revision_sha256": true,
 		"predicate_footprint_sha256": true, "estimated_base_facts": true,
 		"visible_target_sha256": true, "companion_target_sha256": true, "sha256": true,
@@ -559,26 +586,91 @@ func TestCompilerIdentityIsSealedFromTheRunningBinary(t *testing.T) {
 
 // ------------------------------------------------------- half coherence
 
-// The runtime object and its binding must describe one operation. Without this
-// they could drift and every later comparison would be against the wrong one.
-func TestTheTwoHalvesMustDescribeOneOperation(t *testing.T) {
+// The runtime object and its binding must describe one operation.
+//
+// This is the property the whole extraction rests on. A binding that merely
+// seals to its own digest proves the binding is coherent; what the Gateway's
+// evidence needs is that the object it is about to hand the Connector is the one
+// that binding describes. Every load-bearing runtime member is changed here --
+// from inside the package, since from outside there is nothing to change -- and
+// each must be caught.
+func TestEveryRuntimeMemberIsCoveredByValidate(t *testing.T) {
 	for name, breakIt := range map[string]func(*PreparedOperation){
+		"the visible statement": func(p *PreparedOperation) {
+			p.visibleSQL = `SELECT "month", "amount" FROM "reporting"."expense" LIMIT 10`
+		},
+		"the companion statement": func(p *PreparedOperation) {
+			p.companionSQL = `SELECT "row_handle" FROM "taskgate_ordinal"."headcount_v1" LIMIT 11`
+		},
 		"a companion the binding does not know about": func(p *PreparedOperation) {
-			p.HasCompanion, p.CompanionSQL = false, ""
+			p.hasCompanion, p.companionSQL = false, ""
 		},
 		"a projection the binding does not know about": func(p *PreparedOperation) {
-			p.VisibleFields = append(p.VisibleFields, "smuggled")
+			p.visibleFields = append(p.visibleFields, "smuggled")
 		},
 		"a renamed projection": func(p *PreparedOperation) {
-			p.VisibleFields = []string{"smuggled"}
+			p.visibleFields = []string{"smuggled"}
+		},
+		"a reordered projection": func(p *PreparedOperation) {
+			p.factFields = []string{"amount", "month"}
+			p.visibleFields = []string{"amount", "month"}
+		},
+		"a renamed provenance field": func(p *PreparedOperation) {
+			p.provenanceFields = []string{"tg_handle_1"}
+		},
+		"a widened policy grant": func(p *PreparedOperation) {
+			p.policyGrant.Products[0].ApprovedColumns = append(
+				p.policyGrant.Products[0].ApprovedColumns, "salary")
+		},
+		"a dropped policy scope": func(p *PreparedOperation) {
+			p.policyGrant.Products[0].MandatoryScope = nil
+		},
+		"a repointed policy relation": func(p *PreparedOperation) {
+			p.policyGrant.Products[0].PhysicalView = "expense_unfiltered"
 		},
 		"a sidecar grant the binding does not know about": func(p *PreparedOperation) {
-			p.SidecarGrants = nil
+			p.sidecarGrants = nil
+		},
+		"a widened sidecar grant": func(p *PreparedOperation) {
+			p.sidecarGrants[0].ApprovedColumns = append(p.sidecarGrants[0].ApprovedColumns, "salary")
+		},
+		"a rewritten ordinal program": func(p *PreparedOperation) {
+			p.ordinalProgram.Sources[0].EvidenceFields = nil
+		},
+		"an ordinal program the binding does not know about": func(p *PreparedOperation) {
+			p.ordinalProgram = nil
+		},
+		"a substituted dictionary set": func(p *PreparedOperation) {
+			set, err := ordinal.NewDictionarySetManifest(strings.Repeat("e", 64),
+				ordinal.DictionarySetMember{PublicationName: "expense",
+					DictionaryDigest: strings.Repeat("b", 64), ManifestDigest: strings.Repeat("a", 64)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			p.dictionarySet = &set
+		},
+		"a dictionary set the binding does not know about": func(p *PreparedOperation) {
+			p.dictionarySet = nil
+		},
+		"a redirected source publication": func(p *PreparedOperation) {
+			p.sourcePublications["tg_src_0"] = "headcount"
+		},
+		"an added source publication": func(p *PreparedOperation) {
+			p.sourcePublications["tg_src_1"] = "headcount"
+		},
+		"a rewritten predicate footprint": func(p *PreparedOperation) {
+			p.predicateFootprint.UniqueAtomCount = 0
+		},
+		"a predicate footprint the binding does not know about": func(p *PreparedOperation) {
+			p.predicateFootprint = nil
 		},
 		"a different base-fact estimate": func(p *PreparedOperation) {
-			p.EstimatedBaseFacts = 1
+			p.estimatedBaseFacts = 1
 		},
-		"a different exposure shape": func(p *PreparedOperation) { p.Grouped = true },
+		"a different exposure shape": func(p *PreparedOperation) { p.grouped = true },
+		"a dropped expanded-evidence flag": func(p *PreparedOperation) {
+			p.expandedEvidence = false
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			prepared := sealedTestOperation(t)
@@ -586,12 +678,209 @@ func TestTheTwoHalvesMustDescribeOneOperation(t *testing.T) {
 			if err := prepared.Validate(); err == nil {
 				t.Fatal("a prepared operation whose halves disagree was accepted")
 			}
+			// And the statements must be unreachable, not merely reportable as
+			// wrong. This is what "no caller may execute an unvalidated prepared
+			// operation" means in code.
+			if _, _, err := prepared.ExecutableStatements(); err == nil {
+				t.Fatal("a prepared operation whose halves disagree handed out its SQL")
+			}
 		})
 	}
 }
 
+// Nothing load-bearing may be reachable for writing from outside this package.
+// The mutation suite above proves Validate catches an in-package edit; this
+// proves an out-of-package one cannot be made at all.
+func TestAPreparedOperationExposesNoWritableMember(t *testing.T) {
+	operationType := reflect.TypeOf(PreparedOperation{})
+	for index := 0; index < operationType.NumField(); index++ {
+		field := operationType.Field(index)
+		if field.IsExported() {
+			t.Errorf("PreparedOperation exports member %q; a caller could rewrite it after preparation "+
+				"and execute something the sealed binding does not describe", field.Name)
+		}
+	}
+}
+
+// The accessors must copy. Returning the sealed state itself would put the
+// mutation back, one indirection further out.
+func TestTheAccessorsDoNotHandOutTheSealedState(t *testing.T) {
+	prepared := sealedTestOperation(t)
+
+	prepared.VisibleFields()[0] = "smuggled"
+	prepared.FactFields()[0] = "smuggled"
+	prepared.SidecarGrants()[0].ApprovedColumns[0] = "smuggled"
+	prepared.PolicyGrant().Products[0].ApprovedColumns[0] = "smuggled"
+	prepared.PolicyGrant().Products[0].MandatoryScope[0].Values[0] = "everything"
+	prepared.SourcePublications()["tg_src_0"] = "headcount"
+
+	program, err := prepared.OrdinalProgram()
+	if err != nil {
+		t.Fatal(err)
+	}
+	program.Sources = nil
+	set, err := prepared.DictionarySet()
+	if err != nil {
+		t.Fatal(err)
+	}
+	set.Members = nil
+	footprint, err := prepared.PredicateFootprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	footprint.UniqueAtomCount = 99
+
+	if err := prepared.Validate(); err != nil {
+		t.Fatalf("writing through an accessor's result reached the sealed state: %v", err)
+	}
+}
+
+// The copies must be faithful as well as detached: a member that the encoder
+// drops would be a member the digests do not cover.
+func TestTheDeepCopiesAreFaithful(t *testing.T) {
+	program := testOrdinalProgram()
+	clonedProgram, err := cloneOrdinalProgram(program)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(program, clonedProgram) {
+		t.Fatal("copying an ordinal program did not preserve it")
+	}
+	footprint := testPredicateFootprint()
+	clonedFootprint, err := clonePredicateFootprint(footprint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(footprint, clonedFootprint) {
+		t.Fatal("copying a predicate footprint did not preserve it")
+	}
+}
+
+// Validate closes the runtime-to-binding gap. RequireInputs closes the
+// binding-to-inputs one: a binding can name input digests coherently and still
+// not be the preparation these inputs produce.
+func TestRequireInputsRejectsAnotherPreparationsInputs(t *testing.T) {
+	compiler, err := LocalCompilerIdentity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared := sealedTestOperation(t)
+	if err := prepared.RequireInputs(testInputs(), compiler); err != nil {
+		t.Fatalf("an operation was rejected against the inputs it was prepared from: %v", err)
+	}
+	for name, mutate := range map[string]func(*PreparationInputs){
+		"a changed plan":    func(i *PreparationInputs) { i.Plan.Limit = 11 },
+		"a changed catalog": func(i *PreparationInputs) { i.Catalog.Digest = strings.Repeat("e", 64) },
+		"a changed scope": func(i *PreparationInputs) {
+			i.Grant.MandatoryScope = json.RawMessage(`{"department":["finance"]}`)
+		},
+		"an added product": func(i *PreparationInputs) {
+			i.Grant.ApprovedProducts = append(i.Grant.ApprovedProducts, "salary")
+		},
+		"a changed row count": func(i *PreparationInputs) {
+			i.SnapshotBindings["expense"] = mutatedRowCount(t)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			inputs := testInputs()
+			mutate(&inputs)
+			if err := prepared.RequireInputs(inputs, compiler); err == nil {
+				t.Fatalf("an operation was accepted against inputs with %s", name)
+			}
+		})
+	}
+	other := compiler
+	other.QueryPlanSHA256 = strings.Repeat("7", 64)
+	if other, err = other.Seal(); err != nil {
+		t.Fatal(err)
+	}
+	if err := prepared.RequireInputs(testInputs(), other); err == nil {
+		t.Fatal("an operation was accepted against another compiler's identity")
+	}
+}
+
+// A constructed operation must never be one that cannot validate: the
+// constructor is the only entry point, so rejecting there is what makes
+// "unvalidated prepared operation" a state that does not exist.
+func TestTheConstructorRefusesAnIncoherentDraft(t *testing.T) {
+	for name, breakIt := range map[string]func(*OperationDraft){
+		"no visible statement": func(d *OperationDraft) { d.VisibleSQL = "" },
+		"no visible field":     func(d *OperationDraft) { d.VisibleFields = nil },
+		"expanded evidence without a companion": func(d *OperationDraft) {
+			d.CompanionSQL = ""
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			draft := testDraft()
+			breakIt(&draft)
+			compiler, err := LocalCompilerIdentity()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := NewPreparedOperation(testInputs(), compiler, draft); err == nil {
+				t.Fatalf("the constructor accepted a draft with %s", name)
+			}
+		})
+	}
+}
+
+// The constructor must copy the draft in. A caller that keeps its own reference
+// and writes through it afterwards must not reach what was sealed.
+func TestTheConstructorCopiesTheDraft(t *testing.T) {
+	draft := testDraft()
+	draft.OrdinalProgram = testOrdinalProgram()
+	draft.DictionarySet = testDictionarySet(t)
+	draft.PredicateFootprint = testPredicateFootprint()
+	prepared := sealOperation(t, testInputs(), draft)
+
+	draft.VisibleFields[0] = "smuggled"
+	draft.SidecarGrants[0].ApprovedColumns[0] = "smuggled"
+	draft.PolicyGrant.Products[0].ApprovedColumns[0] = "smuggled"
+	draft.SourcePublications["tg_src_0"] = "headcount"
+	draft.OrdinalProgram.Sources = nil
+	draft.DictionarySet.Members = nil
+	draft.PredicateFootprint.UniqueAtomCount = 99
+
+	if err := prepared.Validate(); err != nil {
+		t.Fatalf("writing through the caller's draft reached the sealed operation: %v", err)
+	}
+}
+
+// A profile that prepares no ordinal material must seal without it, and must not
+// acquire an identity for something it never produced.
+func TestAnOperationWithoutOrdinalMaterialSeals(t *testing.T) {
+	inputs := testInputs()
+	inputs.Grant.ExposureProfile = exposure.ProfileV1
+	inputs.SnapshotBindings = nil
+
+	draft := testDraft()
+	draft.CompanionSQL, draft.ExpandedEvidence = "", false
+	draft.ProvenanceFields, draft.SidecarGrants, draft.SourcePublications = nil, nil, nil
+	draft.EstimatedBaseFacts = 0
+
+	prepared := sealOperation(t, inputs, draft)
+	binding := prepared.Binding()
+	for name, digest := range map[string]string{
+		"ordinal program":     binding.OrdinalProgramSHA256,
+		"dictionary set":      binding.DictionarySetSHA256,
+		"sidecar grants":      binding.SidecarGrantsSHA256,
+		"source publications": binding.SourcePublicationsSHA256,
+		"predicate footprint": binding.PredicateFootprintSHA256,
+		"provenance fields":   binding.ProvenanceFieldsSHA256,
+		"companion target":    binding.CompanionTargetSHA256,
+	} {
+		if digest != "" {
+			t.Errorf("an operation that prepared no %s carries a %s digest", name, name)
+		}
+	}
+	if binding.PolicyGrantSHA256 == "" {
+		t.Fatal("an operation with no ordinal material carries no policy grant identity; " +
+			"every operation is authorized against one")
+	}
+}
+
 func TestExpandedEvidenceRequiresACompanion(t *testing.T) {
-	binding := sealedTestOperation(t).Binding
+	binding := sealedTestOperation(t).Binding()
 	binding.HasCompanion, binding.CompanionTargetSHA256 = false, ""
 	resealed, err := binding.Seal()
 	if err != nil {
@@ -603,7 +892,7 @@ func TestExpandedEvidenceRequiresACompanion(t *testing.T) {
 }
 
 func TestTargetSHA256RefusesAnAbsentCompanion(t *testing.T) {
-	binding := sealedTestOperation(t).Binding
+	binding := sealedTestOperation(t).Binding()
 	binding.HasCompanion = false
 	if _, err := binding.TargetSHA256(RoleCompanion); err == nil {
 		t.Fatal("an absent companion produced a target binding")
