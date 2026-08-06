@@ -125,11 +125,21 @@ func extractedShapeOf(t *testing.T, service *Service, prepared physicalquery.Pre
 		// both members, so the derived one is recomputed rather than carried.
 		UsesExpandedEvidence: prepared.Grouped() || prepared.ExpandedEvidence(),
 		PlanDigest:           binding.NormalFormSHA256,
-		NormalFormSHA256:     binding.NormalFormSHA256,
 		EstimatedBaseFacts:   prepared.EstimatedBaseFacts(),
 		SidecarGrants:        prepared.SidecarGrants(),
 		SourcePublications:   prepared.SourcePublications(),
 		PolicyGrant:          prepared.PolicyGrant(),
+	}
+	// The Gateway holds two normal-form members and fills whichever its plan
+	// shape uses: a single-product plan normalizes to a NormalForm, a relational
+	// one to an AlgebraNormalFormV2. The extraction carries one member, because
+	// the profile and the plan shape already determine which normalizer produced
+	// it. Placing it in the member the legacy shape uses is what makes the two
+	// comparable without either side pretending to a distinction it does not draw.
+	if test.plan.From != nil {
+		shape.AlgebraNormalFormSHA256 = binding.NormalFormSHA256
+	} else {
+		shape.NormalFormSHA256 = binding.NormalFormSHA256
 	}
 	if program, programErr := prepared.OrdinalProgram(); programErr != nil {
 		t.Fatalf("copy the prepared ordinal program: %v", programErr)
@@ -184,11 +194,7 @@ func extractedShapeOf(t *testing.T, service *Service, prepared physicalquery.Pre
 // shape starts preparing -- which means it moved and its parity must now be
 // verified -- and when an unlisted one refuses, so the extraction cannot be
 // declared complete while a shape is quietly excluded from the comparison.
-var notYetExtracted = map[string]string{
-	"relational_join":           "online relational Join",
-	"relational_union":          "online relational Union",
-	"duplicate_product_binding": "online relational Union",
-}
+var notYetExtracted = map[string]string{}
 
 // Every extracted shape must prepare identically in both implementations.
 func TestExtractedPreparationMatchesTheGateway(t *testing.T) {

@@ -68,9 +68,7 @@ var ErrShapeNotExtracted = errors.New(
 // derivePreparation is the moved derivation.
 func derivePreparation(inputs PreparationInputs) (OperationDraft, error) {
 	if inputs.Plan.From != nil {
-		// Relational Join/Union and the semantic View compose their statements
-		// from material this function does not yet accept.
-		return OperationDraft{}, fmt.Errorf("%w: online relational Join/Union", ErrShapeNotExtracted)
+		return deriveRelationalPreparation(inputs)
 	}
 	product, found := inputs.Catalog.LookupProduct(inputs.Plan.Product)
 	if !found {
@@ -197,6 +195,192 @@ func derivePreparation(inputs PreparationInputs) (OperationDraft, error) {
 	}
 	draft.PolicyGrant = policy
 	return draft, nil
+}
+
+// deriveRelationalPreparation is the online Join/Union derivation.
+//
+// It differs from the single-product one in what supersedes what. There, the
+// ordinal compilation replaces the visible statement, because the ordinal
+// compiler recompiles the same single scan with provenance handles. Here the
+// relational compiler produces both statements at once and the ordinal binding
+// only wraps the provenance one, so the visible statement is the relational
+// compiler's throughout.
+func deriveRelationalPreparation(inputs PreparationInputs) (OperationDraft, error) {
+	// Online Join/Union is an accounted fragment only. Without a profile there is
+	// no dependency evidence, and a Join with no evidence is a cartesian
+	// disclosure nothing could account for.
+	if !inputs.Grant.UsesNormalizedIdentity() {
+		return OperationDraft{}, fmt.Errorf(
+			"online Join/Union requires an exposure profile from V2 onward, this task carries %q",
+			inputs.Grant.ExposureProfile)
+	}
+	names, err := queryplan.RelationalProductNames(inputs.Plan)
+	if err != nil {
+		return OperationDraft{}, err
+	}
+	approved := map[string]bool{}
+	for _, name := range inputs.Grant.ApprovedProducts {
+		approved[name] = true
+	}
+	queryProducts := make(map[string]queryplan.Product, len(names))
+	catalogProducts := make(map[string]catalog.Product, len(names))
+	for _, name := range names {
+		product, found := inputs.Catalog.LookupProduct(name)
+		if !found || !approved[name] {
+			return OperationDraft{}, fmt.Errorf(
+				"this relational plan reads data product %q, which the task does not approve", name)
+		}
+		columns := stringSet(inputs.Grant.ApprovedColumns[name])
+		queryProduct := relationalQueryProduct(product, columns)
+		if inputs.Grant.UsesOrdinalProgram() {
+			if queryProduct, err = ordinalQueryProduct(inputs, product, columns); err != nil {
+				return OperationDraft{}, err
+			}
+		}
+		queryProducts[name] = queryProduct
+		catalogProducts[name] = product
+	}
+	compiled, err := queryplan.CompileRelational(inputs.Plan, queryProducts)
+	if err != nil {
+		return OperationDraft{}, err
+	}
+	shape, err := deriveRelationalShape(inputs, compiled, catalogProducts)
+	if err != nil {
+		return OperationDraft{}, err
+	}
+
+	policy, err := preparationPolicyGrant(inputs)
+	if err != nil {
+		return OperationDraft{}, err
+	}
+	draft := OperationDraft{
+		VisibleSQL:   compiled.VisibleSQL,
+		CompanionSQL: compiled.ProvenanceSQL,
+		// A relational compilation projects one field list; the visible and fact
+		// projections are the same list, because every delivered field is an
+		// accounted one.
+		VisibleFields:    append([]string(nil), compiled.VisibleFields...),
+		FactFields:       append([]string(nil), compiled.VisibleFields...),
+		ProvenanceFields: append([]string(nil), compiled.ProvenanceFields...),
+		Grouped:          len(inputs.Plan.GroupBy) > 0 || len(inputs.Plan.Aggregates) > 0,
+		ExpandedEvidence: compiled.ExpandedEvidence,
+		NormalFormSHA256: shape.normalFormSHA256,
+	}
+
+	if inputs.Grant.UsesOrdinalProgram() {
+		bound, bindErr := bindOrdinalSidecars(inputs, compiled.ProvenanceSQL,
+			compiled.ProvenanceFields, compiled.OrdinalProgram)
+		if bindErr != nil {
+			return OperationDraft{}, bindErr
+		}
+		draft.CompanionSQL = bound.companionSQL
+		draft.ProvenanceFields = bound.provenanceFields
+		draft.OrdinalProgram = &bound.program
+		draft.DictionarySet = &bound.dictionarySet
+		draft.SidecarGrants = bound.sidecarGrants
+		draft.SourcePublications = bound.sourcePublications
+		draft.EstimatedBaseFacts = bound.estimatedBaseFacts
+		if inputs.Grant.UsesPredicateFootprint() {
+			footprint, footprintErr := derivePredicateFootprint(inputs, queryProducts)
+			if footprintErr != nil {
+				return OperationDraft{}, footprintErr
+			}
+			draft.PredicateFootprint = footprint
+			// A relational V5 query is identified by the algebra normal form, not
+			// by the single-relation V4 one: there is no single relation to
+			// normalize against.
+			normal, normalizeErr := queryplan.SemanticNormalFormV4(inputs.Plan, compiled, queryProducts)
+			if normalizeErr != nil {
+				return OperationDraft{}, normalizeErr
+			}
+			draft.NormalFormSHA256 = normal.SHA256
+		}
+	}
+
+	// Every product the compilation meters must be in the grant, and each is
+	// widened only by its own metering closure. A product absent from the grant
+	// is a refusal rather than an addition: the evidence would be accounted
+	// against an authorization that never covered it.
+	for _, name := range sortedStrings(names) {
+		if policy, err = widenForMetering(policy, name, shape.meteringByProduct[name]); err != nil {
+			return OperationDraft{}, err
+		}
+	}
+	if len(draft.SidecarGrants) > 0 {
+		if policy, err = widenForSidecars(policy, draft.SidecarGrants); err != nil {
+			return OperationDraft{}, err
+		}
+	}
+	draft.PolicyGrant = policy
+	return draft, nil
+}
+
+// relationalShape is the accounted material a relational compilation determines
+// beyond its statements.
+type relationalShape struct {
+	meteringByProduct map[string][]string
+	normalFormSHA256  string
+}
+
+// deriveRelationalShape computes the per-product metering closures and the
+// algebra normal form.
+//
+// The closure is per product rather than global: a Join over two products
+// meters each against its own entity key, scopes and evidence fields, and
+// widening both by the union would grant each product columns only the other
+// requires.
+func deriveRelationalShape(inputs PreparationInputs, compiled queryplan.RelationalCompilation,
+	products map[string]catalog.Product) (relationalShape, error) {
+	if compiled.VisibleSQL == "" || compiled.ProvenanceSQL == "" || len(compiled.Sources) == 0 {
+		return relationalShape{}, errors.New("relational compilation is incomplete")
+	}
+	shape := relationalShape{meteringByProduct: make(map[string][]string, len(compiled.Products))}
+	for _, name := range compiled.Products {
+		product, present := products[name]
+		if !present || product.FactNamespace == "" || product.Snapshot == "" ||
+			product.StableRelationRole == "" || len(product.EntityKey) == 0 {
+			return relationalShape{}, fmt.Errorf("product %q lacks stable semantic metadata", name)
+		}
+		metering := stringSet(inputs.Grant.ApprovedColumns[name])
+		for _, column := range append(append([]string(nil), product.EntityKey...), product.Scopes...) {
+			if !productPublishes(product, column) {
+				return relationalShape{}, fmt.Errorf("metering field %q is absent from product %q", column, name)
+			}
+			metering[column] = struct{}{}
+		}
+		for _, source := range compiled.Sources {
+			if source.Product != name {
+				continue
+			}
+			for _, field := range source.EvidenceFields {
+				metering[field] = struct{}{}
+			}
+		}
+		shape.meteringByProduct[name] = sortedSet(metering)
+	}
+	// The semantic normal form is built against the FULL published surface of
+	// every product, not against the approved one. It is a canonical identity for
+	// the query, and making it depend on what one task happened to approve would
+	// give two tasks running one query two identities.
+	semantic := make(map[string]queryplan.Product, len(products))
+	for name, product := range products {
+		semantic[name] = relationalQueryProduct(product, stringSet(product.FieldNames()))
+	}
+	normal, err := queryplan.SemanticNormalForm(inputs.Plan, compiled, semantic)
+	if err != nil {
+		return relationalShape{}, err
+	}
+	shape.normalFormSHA256 = normal.SHA256
+	return shape, nil
+}
+
+func productPublishes(product catalog.Product, column string) bool {
+	for _, field := range product.Fields {
+		if field.Name == column {
+			return true
+		}
+	}
+	return false
 }
 
 // visibleProjection is what a plain query returns, in request order.
@@ -394,8 +578,14 @@ func preparationPolicyGrant(inputs PreparationInputs) (sqlpolicy.Grant, error) {
 			return sqlpolicy.Grant{}, fmt.Errorf("preparation grant mandatory scope is not JSON: %w", err)
 		}
 	}
+	// The products are taken in the order the task grant declares them rather
+	// than sorted. Order does not affect authorization -- sqlpolicy resolves a
+	// product by logical name -- and PolicyGrantSHA256 canonicalizes before
+	// digesting, so the identity is order-insensitive either way. What sorting
+	// here WOULD change is the value the Gateway hands the policy engine, and a
+	// derivation being extracted must not alter that as a side effect.
 	products := make([]sqlpolicy.ProductGrant, 0, len(inputs.Grant.ApprovedProducts))
-	for _, name := range sortedStrings(inputs.Grant.ApprovedProducts) {
+	for _, name := range inputs.Grant.ApprovedProducts {
 		product, found := inputs.Catalog.LookupProduct(name)
 		if !found {
 			return sqlpolicy.Grant{}, fmt.Errorf("this task references data product %q, "+

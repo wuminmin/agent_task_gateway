@@ -160,8 +160,8 @@ Stage state, stated so it cannot be over-read:
 | --- | --- |
 | T1a.2 | complete |
 | T1b-A — legacy capture, named-shape matrix, mutation matrix | complete |
-| T1b-B — old vs `physicalquery.Prepare` differential | **complete for the single-product path; three relational shapes declared pending** |
-| T1c — move the derivation into `internal/physicalquery` | **single-product path done; relational Join/Union and semantic View remain** |
+| T1b-B — old vs `physicalquery.Prepare` differential | **complete for all thirteen table shapes; `notYetExtracted` is empty** |
+| T1c — move the derivation into `internal/physicalquery` | **single-product and relational done; the semantic View entry point remains** |
 | T1d/T1e/T1f — Gateway delegation, finalizer reconstruction, positive guards | after T1c finishes |
 
 ### T1c/T1b-B — the single-product derivation is extracted and verified
@@ -184,18 +184,57 @@ field ordering, the ordinal program, the dictionary universe, the sidecar
 grants, the predicate footprint, the estimated base facts, the widened policy
 grant and the prepared operation and target bindings all agree.
 
-The three relational shapes are declared pending in `notYetExtracted` and
-`Prepare` refuses them with `ErrShapeNotExtracted` rather than producing
-something. The guard fails in both directions: a listed shape that starts
-preparing must be promoted into the comparison, and an unlisted shape that
-refuses fails outright, so the extraction cannot be called complete while a
-shape is quietly excluded.
+The online relational derivation followed, and **all thirteen table shapes now
+pass**: `relational_join`, `relational_union` and `duplicate_product_binding`
+were promoted out of `notYetExtracted`, which is now empty. `Prepare` still
+refuses a shape it does not implement with `ErrShapeNotExtracted` rather than
+producing something, and the guard fails in both directions — a listed shape
+that starts preparing must be promoted, and an unlisted shape that refuses fails
+outright — so the extraction cannot be called complete while a shape is quietly
+excluded.
+
+The relational path differs from the single-product one in what supersedes what,
+and getting that backwards would have changed the executed bytes. In the
+single-product case the ordinal compilation replaces the visible statement,
+because the ordinal compiler recompiles the same scan with provenance handles.
+In the relational case the relational compiler produces both statements at once
+and the ordinal binding wraps only the provenance one, so the visible statement
+stays the relational compiler's. The metering closure is likewise per product
+rather than global: widening both products of a Join by the union of their
+closures would grant each one columns only the other requires.
+
+Promoting the relational shapes surfaced one more real divergence.
+`preparationPolicyGrant` had sorted the approved products; the Gateway iterates
+them in the order the task grant declares. Order does not affect authorization
+— sqlpolicy resolves a product by logical name — and `PolicyGrantSHA256`
+canonicalizes before digesting, so the identity is order-insensitive either way.
+What sorting *did* change was the value handed to the policy engine, and a
+derivation being extracted must not alter that as a side effect. The sort is
+gone.
+
+One further harness alignment, not a divergence: the Gateway holds two
+normal-form members and fills whichever its plan shape uses — a `NormalForm` for
+a single-product plan, an `AlgebraNormalFormV2` for a relational one. The
+extraction carries one member, because the profile and the plan shape already
+determine which normalizer produced it. The digests were identical; the harness
+now places the single member where the legacy shape keeps it.
 
 The prepared bindings are compared as the value the Gateway will actually sign.
 `physicalquery`'s binding and the Gateway's `preparedOperation.digest()` are
 different constructions and were never meant to be equal, so the differential
 computes the Gateway's binding from the **new** implementation's statements and
 requires it to equal the legacy one.
+
+**The semantic View is characterized but not yet differentially verified, and an
+empty `notYetExtracted` must not be read as saying otherwise.** That list covers
+the thirteen table shapes; the View is tracked outside the table because it does
+not enter through `prepareTaskPlan`'s Catalog lookup.
+`TestTheSemanticViewShapePrepares` still exercises only the Gateway's own path.
+Its extraction needs a second entry point — production resolves the task's view
+binding from the Control Store and then calls `prepareSemanticViewPlan` with the
+resolved binding, the compiled artifact and the composition — and preparation
+still performs no store I/O, so all three arrive as values. Until that entry
+point exists and its parity passes, T1c is not finished and T1d must not start.
 
 Three further properties are asserted on the new side alone, because they are
 what the finalizer's independent reconstruction rests on: preparing twice from
