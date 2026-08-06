@@ -19,6 +19,9 @@ const (
 	preparationGrantDomain  = "TASKGATE-PREPARATION-GRANT-V1"
 	snapshotBindingDomain   = "TASKGATE-PREPARATION-SNAPSHOT-BINDING-SET-V1"
 	preparationPlanDomain   = "TASKGATE-PREPARATION-PLAN-V1"
+
+	catalogContentDomain     = "TASKGATE-PREPARATION-CATALOG-CONTENT-V1"
+	catalogScopePolicyDomain = "TASKGATE-PREPARATION-CATALOG-SCOPE-POLICY-V1"
 )
 
 // Grant is the authorization material preparation reads.
@@ -303,6 +306,170 @@ type CatalogView struct {
 	// and a query-local member set would pin a root ledger to whichever product
 	// it first executed and make exact cross-product union impossible.
 	SnapshotPublications []catalog.SnapshotPublication
+	// Scopes is the Catalog's whole scope policy set, in canonical order.
+	//
+	// Semantic View governance reads it: proving that a root scope and the
+	// terminal scope it propagates to carry the same policy is a comparison of
+	// two Scope values, and the Gateway did that against its live Catalog. The
+	// full set is carried rather than the pair a given View happens to need, so
+	// that the value both sides digest is a property of the Catalog and not of
+	// the query.
+	Scopes []catalog.Scope
+}
+
+// CatalogViewFromCatalog is the one supported way to build a CatalogView.
+//
+// Both sides must prepare against the same Catalog, and the cheapest way to
+// guarantee that is to give them a single constructor that derives every member
+// from one loaded artifact. The Gateway passes its startup Catalog, the
+// finalizer the Catalog its activated Profile pins; neither assembles the
+// members by hand, so neither can pair one Catalog's digest with another's
+// products or scopes by accident.
+//
+// Accident is not the only case that matters, which is why ContentSHA256 exists
+// as well: the struct's fields are exported and a caller can still write them
+// directly, so the binding has to make a mismatched pairing produce a different
+// identity rather than merely be inconvenient to construct.
+func CatalogViewFromCatalog(loaded catalog.Catalog) (CatalogView, error) {
+	view := CatalogView{
+		Digest:   loaded.SHA256,
+		Version:  loaded.CatalogVersion,
+		Products: make(map[string]catalog.Product, len(loaded.Products)),
+	}
+	for _, product := range loaded.Products {
+		if _, duplicate := view.Products[product.Name]; duplicate {
+			return CatalogView{}, fmt.Errorf("catalog declares product %q twice", product.Name)
+		}
+		view.Products[product.Name] = product
+	}
+	view.SnapshotPublications = append([]catalog.SnapshotPublication(nil), loaded.SnapshotPublications...)
+	sort.Slice(view.SnapshotPublications, func(left, right int) bool {
+		return view.SnapshotPublications[left].Name < view.SnapshotPublications[right].Name
+	})
+	scopes, err := canonicalScopes(loaded.Scopes)
+	if err != nil {
+		return CatalogView{}, err
+	}
+	view.Scopes = scopes
+	if err := view.Validate(); err != nil {
+		return CatalogView{}, err
+	}
+	return view, nil
+}
+
+// canonicalScopes returns the scope set in canonical order and rejects a set
+// that cannot settle a governance decision.
+//
+// AllowedValues is sorted rather than preserved. The equivalence governance
+// actually asks -- do these two scopes carry the same policy -- treats the
+// allowed values as a set, so two Catalogs that list the same enum in different
+// orders declare the same policy and must reach the same digest.
+func canonicalScopes(scopes []catalog.Scope) ([]catalog.Scope, error) {
+	canonical := make([]catalog.Scope, 0, len(scopes))
+	seen := make(map[string]bool, len(scopes))
+	for _, scope := range scopes {
+		if strings.TrimSpace(scope.Name) == "" {
+			return nil, errors.New("catalog declares an unnamed scope")
+		}
+		if seen[scope.Name] {
+			return nil, fmt.Errorf("catalog declares scope %q twice", scope.Name)
+		}
+		seen[scope.Name] = true
+		if strings.TrimSpace(scope.Type) == "" {
+			return nil, fmt.Errorf("catalog scope %q declares no type", scope.Name)
+		}
+		values := map[string]bool{}
+		for _, value := range scope.AllowedValues {
+			if values[value] {
+				return nil, fmt.Errorf("catalog scope %q lists allowed value %q twice", scope.Name, value)
+			}
+			values[value] = true
+		}
+		scope.AllowedValues = canonicalStrings(scope.AllowedValues)
+		canonical = append(canonical, scope)
+	}
+	sort.Slice(canonical, func(left, right int) bool { return canonical[left].Name < canonical[right].Name })
+	return canonical, nil
+}
+
+// LookupScope resolves one declared scope policy by name.
+func (view CatalogView) LookupScope(name string) (catalog.Scope, bool) {
+	for _, scope := range view.Scopes {
+		if scope.Name == name {
+			return scope, true
+		}
+	}
+	return catalog.Scope{}, false
+}
+
+// EquivalentScopePolicies reports whether two declared scopes carry the same
+// policy, which is what lets a root scope propagate to a terminal one.
+//
+// An undeclared scope is never equivalent to anything, including itself: a
+// governance proof that rests on a policy the Catalog does not declare has
+// nothing to check the propagation against.
+func (view CatalogView) EquivalentScopePolicies(rootName, terminalName string) bool {
+	root, rootDeclared := view.LookupScope(rootName)
+	terminal, terminalDeclared := view.LookupScope(terminalName)
+	if !rootDeclared || !terminalDeclared {
+		return false
+	}
+	if root.Type != terminal.Type || root.Min != terminal.Min || root.Max != terminal.Max {
+		return false
+	}
+	if len(root.AllowedValues) != len(terminal.AllowedValues) {
+		return false
+	}
+	// Both sides are canonical, so equal sets are equal sequences.
+	for index, value := range root.AllowedValues {
+		if terminal.AllowedValues[index] != value {
+			return false
+		}
+	}
+	return true
+}
+
+// ScopePolicySHA256 is the canonical digest of the whole declared scope policy
+// set. It is a separate identity because it is what a governance decision
+// actually rests on, and a reviewer comparing two preparations should be able to
+// see that the policies agreed without diffing the entire Catalog.
+func (view CatalogView) ScopePolicySHA256() (string, error) {
+	scopes, err := canonicalScopes(view.Scopes)
+	if err != nil {
+		return "", err
+	}
+	return domainDigest(catalogScopePolicyDomain, scopes)
+}
+
+// ContentSHA256 is the digest of what this view actually says, as opposed to
+// Digest, which is what the caller claims it came from.
+//
+// Digest alone cannot hold the view together. It is a caller-supplied string
+// that this package has no way to recompute -- the Catalog's own digest is over
+// the artifact bytes, which a CatalogView does not carry -- so on its own it
+// lets one Catalog's digest be paired with another Catalog's products or
+// scopes, and the preparation identity would not move. Digesting the content
+// too closes that: a mismatched pairing is a different content digest, so it is
+// a different PreparedOperationBindingV1, and the finalizer preparing from its
+// own Catalog will not reproduce it.
+func (view CatalogView) ContentSHA256() (string, error) {
+	scopes, err := view.ScopePolicySHA256()
+	if err != nil {
+		return "", err
+	}
+	products := make([]catalog.Product, 0, len(view.Products))
+	for _, product := range view.Products {
+		products = append(products, product)
+	}
+	sort.Slice(products, func(left, right int) bool { return products[left].Name < products[right].Name })
+	publications := append([]catalog.SnapshotPublication(nil), view.SnapshotPublications...)
+	sort.Slice(publications, func(left, right int) bool { return publications[left].Name < publications[right].Name })
+	return domainDigest(catalogContentDomain, struct {
+		Version           string                        `json:"catalog_version"`
+		Products          []catalog.Product             `json:"products"`
+		Publications      []catalog.SnapshotPublication `json:"snapshot_publications"`
+		ScopePolicySHA256 string                        `json:"scope_policy_sha256"`
+	}{view.Version, products, publications, scopes})
 }
 
 // Validate rejects a Catalog view that cannot settle a preparation.
@@ -337,6 +504,42 @@ func (view CatalogView) Validate() error {
 		return view.SnapshotPublications[left].Name < view.SnapshotPublications[right].Name
 	}) {
 		return errors.New("catalog view snapshot publications are not in canonical order")
+	}
+	canonical, err := canonicalScopes(view.Scopes)
+	if err != nil {
+		return err
+	}
+	if !sort.SliceIsSorted(view.Scopes, func(left, right int) bool {
+		return view.Scopes[left].Name < view.Scopes[right].Name
+	}) {
+		return errors.New("catalog view scopes are not in canonical order")
+	}
+	for index, scope := range view.Scopes {
+		if len(scope.AllowedValues) != len(canonical[index].AllowedValues) {
+			return fmt.Errorf("catalog view scope %q does not carry allowed values in canonical order", scope.Name)
+		}
+		for position, value := range scope.AllowedValues {
+			if canonical[index].AllowedValues[position] != value {
+				return fmt.Errorf("catalog view scope %q does not carry allowed values in canonical order", scope.Name)
+			}
+		}
+	}
+	// Referential integrity. A product whose mandatory scope names a policy this
+	// view does not declare cannot be governed: scope propagation would compare
+	// the root's policy against nothing and the comparison would be vacuous. It
+	// is rejected here, before any statement is compiled, rather than surfacing
+	// as a governance decision that quietly had no policy to check.
+	declared := make(map[string]bool, len(view.Scopes))
+	for _, scope := range view.Scopes {
+		declared[scope.Name] = true
+	}
+	for _, product := range view.Products {
+		for _, scope := range product.Scopes {
+			if !declared[scope] {
+				return fmt.Errorf("catalog view product %q requires scope %q, which the view does not declare",
+					product.Name, scope)
+			}
+		}
 	}
 	return nil
 }
@@ -465,13 +668,22 @@ func (inputs PreparationInputs) SHA256() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// Both the claimed provenance and the actual content. Digest says which
+	// Catalog these values came from and content says what they are; signing
+	// only the first would let a caller present a real Catalog's digest beside
+	// another Catalog's products or scopes without moving the identity.
+	content, err := inputs.Catalog.ContentSHA256()
+	if err != nil {
+		return "", err
+	}
 	return domainDigest(preparationInputsDomain, struct {
-		Version        string `json:"version"`
-		PlanSHA256     string `json:"plan_sha256"`
-		GrantSHA256    string `json:"grant_sha256"`
-		CatalogSHA256  string `json:"catalog_sha256"`
-		CatalogVersion string `json:"catalog_version"`
-		SnapshotsSHA   string `json:"snapshot_binding_set_sha256,omitempty"`
+		Version              string `json:"version"`
+		PlanSHA256           string `json:"plan_sha256"`
+		GrantSHA256          string `json:"grant_sha256"`
+		CatalogSHA256        string `json:"catalog_sha256"`
+		CatalogVersion       string `json:"catalog_version"`
+		CatalogContentSHA256 string `json:"catalog_content_sha256"`
+		SnapshotsSHA         string `json:"snapshot_binding_set_sha256,omitempty"`
 	}{PreparedOperationBindingV1Version, plan, grant, inputs.Catalog.Digest,
-		inputs.Catalog.Version, snapshots})
+		inputs.Catalog.Version, content, snapshots})
 }

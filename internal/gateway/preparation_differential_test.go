@@ -5,7 +5,6 @@ import (
 	"sort"
 	"testing"
 
-	"taskbound.local/agent-data-gateway/internal/catalog"
 	"taskbound.local/agent-data-gateway/internal/ordinal"
 	"taskbound.local/agent-data-gateway/internal/physicalquery"
 	"taskbound.local/agent-data-gateway/internal/queryplan"
@@ -37,14 +36,13 @@ func preparationInputsFor(t *testing.T, service *Service, test parityCase) physi
 	resolved := resolveParityCase(t, service, test)
 	grant := resolved.grant()
 
-	products := make(map[string]catalog.Product, len(service.catalog.Products))
-	for _, product := range service.catalog.Products {
-		products[product.Name] = product
+	// The one supported constructor, not a hand-assembled view: every member has
+	// to come from the same loaded Catalog, and building it here field by field
+	// is exactly the pairing CatalogViewFromCatalog exists to prevent.
+	view, err := physicalquery.CatalogViewFromCatalog(*service.catalog)
+	if err != nil {
+		t.Fatalf("build catalog view from the Gateway's own catalog: %v", err)
 	}
-	publications := append([]catalog.SnapshotPublication(nil), service.catalog.SnapshotPublications...)
-	sort.Slice(publications, func(left, right int) bool {
-		return publications[left].Name < publications[right].Name
-	})
 
 	inputs := physicalquery.PreparationInputs{
 		Plan: resolved.plan,
@@ -55,10 +53,7 @@ func preparationInputsFor(t *testing.T, service *Service, test parityCase) physi
 			ExposureProfile:  grant.Exposure.ProfileVersion,
 			PredicateLimits:  predicateLimitsForGrant(grant.Exposure),
 		},
-		Catalog: physicalquery.CatalogView{
-			Digest: service.catalog.SHA256, Version: service.catalog.CatalogVersion,
-			Products: products, SnapshotPublications: publications,
-		},
+		Catalog: view,
 	}
 	if inputs.Grant.UsesOrdinalProgram() {
 		inputs.SnapshotBindings = gatewaySnapshotBindings(t, service)
