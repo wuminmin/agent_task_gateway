@@ -256,13 +256,14 @@ func TestEveryNamedShapeIsEitherComparedOrDeclaredPending(t *testing.T) {
 				"a pending entry that matches no case excludes nothing and hides nothing", name)
 		}
 	}
+	// The semantic View is no longer pending with the table shapes. It reaches
+	// preparation through PrepareSemanticView rather than Prepare, so it is not a
+	// parityCase and cannot appear in this list; its own differential is
+	// TestSemanticViewPreparationMatchesTheGateway, which compares both
+	// composition shapes at V2, V4 and V5.
 	if len(notYetExtracted) == 0 {
 		return
 	}
-	// While anything is pending, the semantic View is pending with it: its
-	// derivation reaches Prepare through a different entry point that does not
-	// exist yet, and TestTheSemanticViewShapePrepares still exercises only the
-	// Gateway's own path.
 	t.Logf("%d named shape(s) are not yet extracted and are not yet compared: %v",
 		len(notYetExtracted), sortedPendingShapes())
 }

@@ -4,7 +4,9 @@ import (
 	"strings"
 	"testing"
 
+	"taskbound.local/agent-data-gateway/internal/catalog"
 	"taskbound.local/agent-data-gateway/internal/control"
+	"taskbound.local/agent-data-gateway/internal/domain"
 	"taskbound.local/agent-data-gateway/internal/exposure"
 	"taskbound.local/agent-data-gateway/internal/mcp"
 
@@ -304,4 +306,194 @@ func TestSemanticViewTerminalProductsStayPrivate(t *testing.T) {
 			}
 		})
 	}
+}
+
+// viewMutation is one change to a semantic View preparation's inputs, together
+// with the outcome it must produce.
+//
+// The outcome is declared, not "either of two things". A mutation asserted to
+// move the binding must actually prepare and produce a different sealed digest,
+// and one asserted to fail closed must be refused. Accepting either would make
+// the case vacuous: a mutation that happened to be rejected earlier for an
+// unrelated reason would pass while proving nothing about the member it names.
+type viewMutation struct {
+	name string
+	// failsClosed is true when preparation must refuse the mutated inputs, and
+	// false when it must prepare something with a different sealed binding.
+	failsClosed bool
+	apply       func(*physicalquery.SemanticViewPreparationInputsV1)
+}
+
+// mutateProduct rewrites one Catalog product inside the prepared view.
+func mutateProduct(inputs *physicalquery.SemanticViewPreparationInputsV1,
+	name string, change func(p *catalog.Product)) {
+	product := inputs.Catalog.Products[name]
+	change(&product)
+	products := make(map[string]catalog.Product, len(inputs.Catalog.Products))
+	for key, value := range inputs.Catalog.Products {
+		products[key] = value
+	}
+	products[name] = product
+	inputs.Catalog.Products = products
+}
+
+func mutateScope(inputs *physicalquery.SemanticViewPreparationInputsV1,
+	name string, change func(s *catalog.Scope)) {
+	scopes := append([]catalog.Scope(nil), inputs.Catalog.Scopes...)
+	for index := range scopes {
+		if scopes[index].Name == name {
+			change(&scopes[index])
+		}
+	}
+	inputs.Catalog.Scopes = scopes
+}
+
+func semanticViewMutations(terminal string) []viewMutation {
+	return []viewMutation{
+		{name: "view binding digest", apply: func(i *physicalquery.SemanticViewPreparationInputsV1) {
+			i.ViewBindingDigest = strings.Repeat("1", 64)
+		}},
+		{name: "expected registry revision", apply: func(i *physicalquery.SemanticViewPreparationInputsV1) {
+			i.ExpectedRevisionDigest = strings.Repeat("2", 64)
+		}},
+		{name: "artifact canonical plan digest", apply: func(i *physicalquery.SemanticViewPreparationInputsV1) {
+			i.Artifact.CanonicalPlanDigest = strings.Repeat("3", 64)
+		}},
+		{name: "artifact interface digest", apply: func(i *physicalquery.SemanticViewPreparationInputsV1) {
+			i.Artifact.InterfaceDigest = strings.Repeat("4", 64)
+		}},
+		{name: "composition visible field name", apply: func(i *physicalquery.SemanticViewPreparationInputsV1) {
+			fields := append([]string(nil), i.Composition.VisibleFields...)
+			fields[0] = fields[0] + "_renamed"
+			i.Composition.VisibleFields = fields
+		}},
+		{name: "artifact output mapping", failsClosed: true,
+			apply: func(i *physicalquery.SemanticViewPreparationInputsV1) {
+				outputs := append([]viewcompiler.Output(nil), i.Artifact.Outputs...)
+				for index := range outputs {
+					if outputs[index].Name == "business_unit" {
+						outputs[index].FieldID = "nonexistent_role.nonexistent_column"
+					}
+				}
+				i.Artifact.Outputs = outputs
+			}},
+		{name: "outer plan filter", apply: func(i *physicalquery.SemanticViewPreparationInputsV1) {
+			i.OuterPlan.Filters = append(append([]queryplan.Filter(nil), i.OuterPlan.Filters...),
+				queryplan.Filter{Column: "business_unit", Op: "=", Value: "研发部"})
+		}},
+		{name: "unrelated catalog scope policy", apply: func(i *physicalquery.SemanticViewPreparationInputsV1) {
+			scopes := append([]catalog.Scope(nil), i.Catalog.Scopes...)
+			scopes = append(scopes, catalog.Scope{Name: "zz_unrelated", Type: catalog.ScopeTypeEnum,
+				AllowedValues: []string{"a", "b"}})
+			i.Catalog.Scopes = scopes
+		}},
+		{name: "terminal product source", failsClosed: true,
+			apply: func(i *physicalquery.SemanticViewPreparationInputsV1) {
+				mutateProduct(i, terminal, func(p *catalog.Product) { p.Source = "another_source" })
+			}},
+		{name: "terminal product sensitivity", failsClosed: true,
+			apply: func(i *physicalquery.SemanticViewPreparationInputsV1) {
+				mutateProduct(i, terminal, func(p *catalog.Product) {
+					p.Sensitivity = domain.SensitivityRestricted
+				})
+			}},
+		{name: "terminal stable relation role", failsClosed: true,
+			apply: func(i *physicalquery.SemanticViewPreparationInputsV1) {
+				mutateProduct(i, terminal, func(p *catalog.Product) { p.StableRelationRole = "other_role" })
+			}},
+		{name: "propagated scope policy", failsClosed: true,
+			apply: func(i *physicalquery.SemanticViewPreparationInputsV1) {
+				mutateScope(i, "department", func(s *catalog.Scope) {
+					s.AllowedValues = append(append([]string(nil), s.AllowedValues...), "zzz_extra")
+				})
+			}},
+	}
+}
+
+// TestSemanticViewMutationsMoveTheBindingOrFailClosed is the T1c-S3 coverage
+// proof and the mutation half of T1c-S4.
+//
+// It answers the question the spec refuses to let a field name answer: whether
+// ViewBindingDigest transitively binds the compiled Artifact, the Composition,
+// the outputs, the canonical plan digest, the terminal Product closure and the
+// governance envelope. It does not. Holding the binding digest fixed and
+// changing the Artifact or the Composition still moves the sealed
+// PreparedOperationBindingV1, because those values are measured here rather than
+// inferred, which is what the explicit ViewArtifactSHA256,
+// ViewCompositionSHA256, TerminalProductClosureSHA256 and
+// GovernanceEnvelopeSHA256 members exist for.
+//
+// The structural mutations run against the V2 projection, which needs no
+// database; the predicate-limit mutation needs V5 and lives below.
+func TestSemanticViewMutationsMoveTheBindingOrFailClosed(t *testing.T) {
+	base := semanticViewCase{name: "projection", columns: []string{"amount"}, profile: exposure.ProfileV2}
+	parity := resolveSemanticViewCase(t, base)
+	terminal := parity.fixture.terminal.Name
+
+	baseline, err := physicalquery.PrepareSemanticView(semanticViewInputsFor(t, parity))
+	if err != nil {
+		t.Fatalf("baseline preparation: %v", err)
+	}
+	sealed := baseline.Binding().SHA256
+
+	for _, mutation := range semanticViewMutations(terminal) {
+		t.Run(mutation.name, func(t *testing.T) {
+			inputs := semanticViewInputsFor(t, parity)
+			mutation.apply(&inputs)
+			prepared, err := physicalquery.PrepareSemanticView(inputs)
+			if mutation.failsClosed {
+				if err == nil {
+					t.Fatal("the mutation was accepted; it must fail closed")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("the mutation was expected to move the binding, but preparation "+
+					"was refused, so the case proves nothing about the member it names: %v", err)
+			}
+			if prepared.Binding().SHA256 == sealed {
+				t.Fatal("the mutation did not move the sealed prepared operation binding")
+			}
+		})
+	}
+}
+
+// TestSemanticViewPredicateLimitMutationsFailClosed covers the one member the
+// structural mutations cannot reach.
+//
+// Predicate limits only bind under V5, which needs the snapshot registry and so
+// the database. A limit the footprint exceeds must be a refusal rather than a
+// footprint quietly prepared outside it, and a limit that merely differs must
+// still move the binding, since the limits are part of the grant identity.
+func TestSemanticViewPredicateLimitMutationsFailClosed(t *testing.T) {
+	parity := resolveSemanticViewCase(t, semanticViewCase{
+		name: "projection_v5_filtered", columns: []string{"amount"}, profile: exposure.ProfileV5,
+		filters: []queryplan.Filter{{Column: "business_unit", Op: "=", Value: "销售部"}},
+	})
+	baseline, err := physicalquery.PrepareSemanticView(semanticViewInputsFor(t, parity))
+	if err != nil {
+		t.Fatalf("baseline V5 preparation: %v", err)
+	}
+	if footprint, _ := baseline.PredicateFootprint(); footprint == nil {
+		t.Fatal("the V5 baseline built no predicate footprint, so the limits bind nothing")
+	}
+
+	t.Run("payload limit the footprint exceeds", func(t *testing.T) {
+		inputs := semanticViewInputsFor(t, parity)
+		inputs.Grant.PredicateLimits.MaxAtomPayloadBytes = 8
+		if _, err := physicalquery.PrepareSemanticView(inputs); err == nil {
+			t.Fatal("a footprint exceeding the atom payload limit was prepared rather than refused")
+		}
+	})
+	t.Run("a wider limit still moves the binding", func(t *testing.T) {
+		inputs := semanticViewInputsFor(t, parity)
+		inputs.Grant.PredicateLimits.MaxTotalAtomPayloadBytes *= 2
+		prepared, err := physicalquery.PrepareSemanticView(inputs)
+		if err != nil {
+			t.Fatalf("a wider limit was refused: %v", err)
+		}
+		if prepared.Binding().SHA256 == baseline.Binding().SHA256 {
+			t.Fatal("changing a predicate limit did not move the sealed binding")
+		}
+	})
 }
