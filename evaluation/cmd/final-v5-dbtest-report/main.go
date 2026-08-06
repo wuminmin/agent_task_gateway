@@ -46,7 +46,32 @@ const (
 	SkipEvidenceNotYetProduced SkipCategory = "evidence_not_yet_produced"
 )
 
-// AllowedSkip declares one skip and why it cannot run here.
+// DeferredUntil names the milestone by which a declared skip must have been run
+// somewhere else. Every allowance carries one.
+//
+// A skip with no deadline is a permanent waiver, and a permanent waiver is how a
+// suite quietly stops proving something. These are stage-scoped debts: the test
+// is not excused, it is scheduled.
+type DeferredUntil string
+
+const (
+	// DeferredSatisfiedNow is a skip already covered by other evidence at this
+	// same code HEAD. It is the only value that carries no future obligation.
+	DeferredSatisfiedNow DeferredUntil = "satisfied_by_evidence_at_this_head"
+	// DeferredV3RuntimeIntegrationPass is due before the boundary
+	// "V3 RUNTIME INTEGRATION PASS -- CONTRACTS V1.5 FREEZE PENDING".
+	DeferredV3RuntimeIntegrationPass DeferredUntil = "before_v3_runtime_integration_pass"
+	// DeferredResultHeavyCanary is due before the Result-heavy 100x4
+	// diagnosis-only v3 canary.
+	DeferredResultHeavyCanary DeferredUntil = "before_result_heavy_100x4_canary"
+	// DeferredContractsV15Freeze is due before contracts v1.5 freeze.
+	DeferredContractsV15Freeze DeferredUntil = "before_contracts_v1_5_freeze"
+	// DeferredTargetedRunEligible is due after v1.5 freeze and before
+	// targeted_run_eligible becomes true.
+	DeferredTargetedRunEligible DeferredUntil = "after_v1_5_freeze_before_targeted_run_eligible"
+)
+
+// AllowedSkip declares one skip, why it cannot run here, and when it must.
 type AllowedSkip struct {
 	Package  string       `json:"package"`
 	Test     string       `json:"test"`
@@ -56,7 +81,20 @@ type AllowedSkip struct {
 	ReasonSubstring string `json:"reason_substring"`
 	// Why is the human-readable justification, and is the part a reviewer reads.
 	Why string `json:"why"`
+	// Scope names the harness this allowance is scoped to. An allowance is never
+	// global: it says this suite cannot run this test, not that nothing need.
+	Scope string `json:"scope"`
+	// DeferredUntil is the milestone by which the test must have run elsewhere.
+	DeferredUntil DeferredUntil `json:"deferred_until"`
+	// SatisfiedByEvidence names what already covers it, when anything does.
+	SatisfiedByEvidence string `json:"satisfied_by_evidence,omitempty"`
+	// RequiredExternalGate names the harness that must eventually run it.
+	RequiredExternalGate string `json:"required_external_gate,omitempty"`
 }
+
+// phase0Scope is the harness every current allowance is scoped to: the two
+// PostgreSQL services scripts/db-test-env.sh starts.
+const phase0Scope = "scripts/db-test-env.sh two-server DB harness"
 
 // allowedSkips is the closed set. Anything else is a failure.
 //
@@ -71,6 +109,8 @@ var allowedSkips = []AllowedSkip{
 		Why: "provisions its own benchmark dataset and requires a database that does not already " +
 			"carry the frozen final_v5_benchmark schema, which db/init installs on this harness's " +
 			"business server; covered instead by the SQL-executability gate against a disposable empty database",
+		Scope: phase0Scope, DeferredUntil: DeferredSatisfiedNow,
+		SatisfiedByEvidence: "evaluation/final-v5-wsl2/scripts/run-sql-executability-gate.sh, which runs the contract SQL against a disposable empty PostgreSQL 16.14 at this same code HEAD",
 	},
 	{
 		Package: "taskbound.local/agent-data-gateway/evaluation/internal/finalv5sqlcheck",
@@ -78,6 +118,8 @@ var allowedSkips = []AllowedSkip{
 		ReasonSubstring: "TASKGATE_FINAL_V5_SQLCHECK_ADMIN_DSN is required",
 		Why: "same provisioning requirement as the probe-rename check; covered instead by the " +
 			"SQL-executability gate against a disposable empty database",
+		Scope: phase0Scope, DeferredUntil: DeferredSatisfiedNow,
+		SatisfiedByEvidence: "evaluation/final-v5-wsl2/scripts/run-sql-executability-gate.sh at this same code HEAD",
 	},
 	{
 		Package: "taskbound.local/agent-data-gateway/evaluation/cmd/final-v5-adapter",
@@ -86,6 +128,8 @@ var allowedSkips = []AllowedSkip{
 		Why: "requires evaluation/final-v5-wsl2/compose.provsql.yaml, whose final-v5-direct-postgres " +
 			"binds 127.0.0.1:25534 -- the port this harness's business server uses -- and whose " +
 			"ProvSQL server is a source-built image; the two projects cannot run side by side",
+		Scope: phase0Scope, DeferredUntil: DeferredV3RuntimeIntegrationPass,
+		RequiredExternalGate: "evaluation/final-v5-wsl2/compose.provsql.yaml, in its own Compose project",
 	},
 	{
 		Package: "taskbound.local/agent-data-gateway/evaluation/cmd/final-v5-adapter",
@@ -93,54 +137,72 @@ var allowedSkips = []AllowedSkip{
 		ReasonSubstring: "TASKGATE_FINAL_V5_ATTACK_LIVE=1 is required",
 		Why: "runs every frozen Attack arm through a full formal topology -- OA, Gateway, Control " +
 			"store, MinIO, the V8 verifier and Parquet -- none of which this two-server harness starts",
+		Scope: phase0Scope, DeferredUntil: DeferredContractsV15Freeze,
+		RequiredExternalGate: "the final formal Compose topology with TASKGATE_FINAL_V5_ATTACK_LIVE=1",
 	},
 	{
 		Package: "taskbound.local/agent-data-gateway/evaluation/cmd/final-v5-adapter",
 		Test:    "TestRLSAdapterLivePreflight", Category: SkipSeparateDeployment,
 		ReasonSubstring: "TASKGATE_FINAL_V5_RLS_LIVE=1 is required",
-		Why: "same full formal topology as the Attack preflight, plus a digest-consistent activated Catalog",
+		Why:             "same full formal topology as the Attack preflight, plus a digest-consistent activated Catalog",
+		Scope:           phase0Scope, DeferredUntil: DeferredContractsV15Freeze,
+		RequiredExternalGate: "the final formal Compose topology with TASKGATE_FINAL_V5_RLS_LIVE=1",
 	},
 	{
 		Package: "taskbound.local/agent-data-gateway/evaluation/internal/experiment",
 		Test:    "TestFormalDeploymentRunsTheApprovedHealthcheckLive", Category: SkipSeparateDeployment,
 		ReasonSubstring: "TASKGATE_FINAL_V5_FORMAL_WINDOW_PROJECT is not set",
 		Why:             "inspects a running formal Compose project through Docker; there is none in this harness",
+		Scope:           phase0Scope, DeferredUntil: DeferredResultHeavyCanary,
+		RequiredExternalGate: "a running formal deployment named by TASKGATE_FINAL_V5_FORMAL_WINDOW_PROJECT",
 	},
 	{
 		Package: "taskbound.local/agent-data-gateway/evaluation/internal/experiment",
 		Test:    "TestPeriodicLivenessProbesAddNoBusinessStatements", Category: SkipSeparateDeployment,
 		ReasonSubstring: "TASKGATE_FINAL_V5_FORMAL_WINDOW_PROJECT is not set",
 		Why:             "measures the periodic healthcheck's Business statements on a running formal deployment",
+		Scope:           phase0Scope, DeferredUntil: DeferredResultHeavyCanary,
+		RequiredExternalGate: "a running formal deployment named by TASKGATE_FINAL_V5_FORMAL_WINDOW_PROJECT",
 	},
 	{
 		Package: "taskbound.local/agent-data-gateway/evaluation/internal/experiment",
 		Test:    "TestExplicitReadinessOutsideTheWindowStillAttests", Category: SkipSeparateDeployment,
 		ReasonSubstring: "TASKGATE_FINAL_V5_FORMAL_WINDOW_PROJECT is not set",
 		Why:             "requires a running formal Gateway to attest against",
+		Scope:           phase0Scope, DeferredUntil: DeferredResultHeavyCanary,
+		RequiredExternalGate: "a running formal deployment named by TASKGATE_FINAL_V5_FORMAL_WINDOW_PROJECT",
 	},
 	{
 		Package: "taskbound.local/agent-data-gateway/evaluation/cmd/final-v5-activation-support",
 		Test:    "TestCommittedManifestSupportsExactlyTheSevenProvenProfiles", Category: SkipEvidenceNotYetProduced,
 		ReasonSubstring: "no activation support manifest for this contract release yet",
 		Why:             "not DB-backed; the activation-support manifest is produced at the contract release this HEAD precedes",
+		Scope:           phase0Scope, DeferredUntil: DeferredTargetedRunEligible,
+		RequiredExternalGate: "the activation-support manifest produced after contracts v1.5 freeze",
 	},
 	{
 		Package: "taskbound.local/agent-data-gateway/evaluation/cmd/final-v5-activation-support",
 		Test:    "TestCommittedRegistryMatchesTheManifest", Category: SkipEvidenceNotYetProduced,
 		ReasonSubstring: "no activation support manifest for this contract release yet",
 		Why:             "not DB-backed; same absent manifest",
+		Scope:           phase0Scope, DeferredUntil: DeferredTargetedRunEligible,
+		RequiredExternalGate: "the activation-support manifest produced after contracts v1.5 freeze",
 	},
 	{
 		Package: "taskbound.local/agent-data-gateway/evaluation/cmd/final-v5-activation-support",
 		Test:    "TestResultHeavyCarriesBothActivationEvidenceDigests", Category: SkipEvidenceNotYetProduced,
 		ReasonSubstring: "no activation support manifest for this contract release yet",
 		Why:             "not DB-backed; same absent manifest",
+		Scope:           phase0Scope, DeferredUntil: DeferredTargetedRunEligible,
+		RequiredExternalGate: "the activation-support manifest produced after contracts v1.5 freeze",
 	},
 	{
 		Package: "taskbound.local/agent-data-gateway/evaluation/cmd/final-v5-activation-support",
 		Test:    "TestCommittedManifestCarriesNoSecretsOrBusinessData", Category: SkipEvidenceNotYetProduced,
 		ReasonSubstring: "no activation support manifest for this contract release yet",
 		Why:             "not DB-backed; same absent manifest",
+		Scope:           phase0Scope, DeferredUntil: DeferredTargetedRunEligible,
+		RequiredExternalGate: "the activation-support manifest produced after contracts v1.5 freeze",
 	},
 }
 
@@ -160,6 +222,14 @@ type SkipRecord struct {
 	Declared bool         `json:"declared"`
 	Category SkipCategory `json:"category,omitempty"`
 	Why      string       `json:"why,omitempty"`
+	// Scope, DeferredUntil, SatisfiedByEvidence and RequiredExternalGate turn a
+	// declared skip into a debt with a due date rather than a waiver. They are
+	// copied from the allowance so the retained record states the obligation,
+	// not merely the excuse.
+	Scope                string        `json:"scope,omitempty"`
+	DeferredUntil        DeferredUntil `json:"deferred_until,omitempty"`
+	SatisfiedByEvidence  string        `json:"satisfied_by_evidence,omitempty"`
+	RequiredExternalGate string        `json:"required_external_gate,omitempty"`
 }
 
 // Report is the committed record.
@@ -185,6 +255,11 @@ type Report struct {
 	FailedPackages []string     `json:"failed_packages"`
 	FailedTests    []string     `json:"failed_tests"`
 	Skips          []SkipRecord `json:"skips"`
+	// OutstandingObligations is every declared skip that is NOT already covered
+	// by evidence, grouped by the milestone it is due before. It is the part a
+	// later session reads: acceptance here is acceptance in this harness, and
+	// these are what still has to happen elsewhere.
+	OutstandingObligations map[DeferredUntil][]string `json:"outstanding_obligations,omitempty"`
 	// UndeclaredSkips is the acceptance condition. A non-empty list is a failure
 	// however green the exit code was.
 	UndeclaredSkips []SkipRecord `json:"undeclared_skips"`
@@ -305,6 +380,16 @@ func summarize(input io.Reader, base Report) (Report, error) {
 			if allowance, ok := declared[key]; ok &&
 				strings.Contains(record.Reason, allowance.ReasonSubstring) {
 				record.Declared, record.Category, record.Why = true, allowance.Category, allowance.Why
+				record.Scope, record.DeferredUntil = allowance.Scope, allowance.DeferredUntil
+				record.SatisfiedByEvidence = allowance.SatisfiedByEvidence
+				record.RequiredExternalGate = allowance.RequiredExternalGate
+				if allowance.DeferredUntil != DeferredSatisfiedNow {
+					if report.OutstandingObligations == nil {
+						report.OutstandingObligations = map[DeferredUntil][]string{}
+					}
+					report.OutstandingObligations[allowance.DeferredUntil] = append(
+						report.OutstandingObligations[allowance.DeferredUntil], key[0]+" "+key[1])
+				}
 			}
 			report.Skips = append(report.Skips, record)
 			if !record.Declared {
@@ -314,6 +399,9 @@ func summarize(input io.Reader, base Report) (Report, error) {
 	}
 	sort.Strings(report.FailedPackages)
 	sort.Strings(report.FailedTests)
+	for milestone := range report.OutstandingObligations {
+		sort.Strings(report.OutstandingObligations[milestone])
+	}
 	sortSkips(report.Skips)
 	sortSkips(report.UndeclaredSkips)
 

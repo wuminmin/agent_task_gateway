@@ -133,5 +133,72 @@ func TestEveryAllowanceIsCompleteAndUnique(t *testing.T) {
 		default:
 			t.Errorf("%s carries unknown category %q", allowance.Test, allowance.Category)
 		}
+		if strings.TrimSpace(allowance.Scope) == "" {
+			t.Errorf("%s names no scope; an allowance is never global", allowance.Test)
+		}
+		// Every allowance is a debt with a due date. One without a milestone is a
+		// permanent waiver, which is how a suite quietly stops proving something.
+		switch allowance.DeferredUntil {
+		case DeferredSatisfiedNow:
+			if strings.TrimSpace(allowance.SatisfiedByEvidence) == "" {
+				t.Errorf("%s claims it is already satisfied but names no evidence", allowance.Test)
+			}
+		case DeferredV3RuntimeIntegrationPass, DeferredResultHeavyCanary,
+			DeferredContractsV15Freeze, DeferredTargetedRunEligible:
+			if strings.TrimSpace(allowance.RequiredExternalGate) == "" {
+				t.Errorf("%s is deferred to %q but names no gate that will run it",
+					allowance.Test, allowance.DeferredUntil)
+			}
+		default:
+			t.Errorf("%s carries no deferral milestone; a skip with no deadline is a permanent waiver",
+				allowance.Test)
+		}
+	}
+}
+
+// A deferred skip must appear in the report's outstanding obligations, and one
+// already covered by evidence must not. That list is what a later session reads
+// to know what acceptance here did NOT establish.
+func TestDeferredSkipsBecomeOutstandingObligations(t *testing.T) {
+	var deferred, satisfied AllowedSkip
+	for _, allowance := range allowedSkips {
+		if allowance.DeferredUntil == DeferredSatisfiedNow && satisfied.Test == "" {
+			satisfied = allowance
+		}
+		if allowance.DeferredUntil != DeferredSatisfiedNow && deferred.Test == "" {
+			deferred = allowance
+		}
+	}
+	if deferred.Test == "" || satisfied.Test == "" {
+		t.Skip("the allowlist no longer contains one of each kind")
+	}
+	report := summarizeStream(t, stream(
+		`{"Action":"output","Package":"`+deferred.Package+`","Test":"`+deferred.Test+
+			`","Output":"    live_test.go:1: `+deferred.ReasonSubstring+`\n"}`,
+		`{"Action":"skip","Package":"`+deferred.Package+`","Test":"`+deferred.Test+`"}`,
+		`{"Action":"output","Package":"`+satisfied.Package+`","Test":"`+satisfied.Test+
+			`","Output":"    probe_test.go:1: `+satisfied.ReasonSubstring+`\n"}`,
+		`{"Action":"skip","Package":"`+satisfied.Package+`","Test":"`+satisfied.Test+`"}`,
+		`{"Action":"pass","Package":"`+deferred.Package+`"}`,
+		`{"Action":"pass","Package":"`+satisfied.Package+`"}`))
+	if !report.Accepted {
+		t.Fatalf("declared skips were not accepted: %+v", report.UndeclaredSkips)
+	}
+	outstanding := report.OutstandingObligations[deferred.DeferredUntil]
+	if len(outstanding) != 1 || !strings.Contains(outstanding[0], deferred.Test) {
+		t.Fatalf("the deferred skip is not an outstanding obligation: %+v", report.OutstandingObligations)
+	}
+	for _, tests := range report.OutstandingObligations {
+		for _, name := range tests {
+			if strings.Contains(name, satisfied.Test) {
+				t.Fatal("a skip already covered by evidence was recorded as an outstanding obligation")
+			}
+		}
+	}
+	// And the record states the obligation, not merely the excuse.
+	for _, skip := range report.Skips {
+		if skip.Test == deferred.Test && (skip.DeferredUntil == "" || skip.RequiredExternalGate == "") {
+			t.Fatal("a deferred skip entered the report without its due date and gate")
+		}
 	}
 }
