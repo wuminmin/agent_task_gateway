@@ -160,9 +160,72 @@ Stage state, stated so it cannot be over-read:
 | --- | --- |
 | T1a.2 | complete |
 | T1b-A — legacy capture, named-shape matrix, mutation matrix | complete |
-| T1b-B — old vs `physicalquery.Prepare` differential | **awaits T1c's implementation** |
-| T1c — move the derivation into `internal/physicalquery` | next |
-| T1d/T1e/T1f — Gateway delegation, finalizer reconstruction, positive guards | after T1b-B passes |
+| T1b-B — old vs `physicalquery.Prepare` differential | **complete for the single-product path; three relational shapes declared pending** |
+| T1c — move the derivation into `internal/physicalquery` | **single-product path done; relational Join/Union and semantic View remain** |
+| T1d/T1e/T1f — Gateway delegation, finalizer reconstruction, positive guards | after T1c finishes |
+
+### T1c/T1b-B — the single-product derivation is extracted and verified
+
+`internal/physicalquery/prepare.go` holds `Prepare(inputs)` and
+`PrepareWith(inputs, compiler)`. Everything they read is in `PreparationInputs`:
+no registry, no store, no clock. The snapshot artifacts arrive as
+`SnapshotBinding` descriptors, which the Gateway resolves from its verified
+registry and the finalizer will resolve from retained Publication evidence, so
+neither side depends on the other's copy.
+
+`internal/gateway/preparation_differential_test.go` is T1b-B.
+`TestExtractedPreparationMatchesTheGateway` compares the Gateway's derivation
+against `Prepare` across the whole 26-member shape and **passes byte-identically
+for ten of the thirteen table shapes**: `simple_non_grouped_product`,
+`grouped_aggregate`, `single_query_non_exposure`, `ordinal_v4`, `ordinal_v5`,
+`expanded_evidence`, `non_expanded_evidence`, `mandatory_scope`,
+`provsql_taskgate`, `result_heavy_100x4`. Visible and companion SQL bytes,
+field ordering, the ordinal program, the dictionary universe, the sidecar
+grants, the predicate footprint, the estimated base facts, the widened policy
+grant and the prepared operation and target bindings all agree.
+
+The three relational shapes are declared pending in `notYetExtracted` and
+`Prepare` refuses them with `ErrShapeNotExtracted` rather than producing
+something. The guard fails in both directions: a listed shape that starts
+preparing must be promoted into the comparison, and an unlisted shape that
+refuses fails outright, so the extraction cannot be called complete while a
+shape is quietly excluded.
+
+The prepared bindings are compared as the value the Gateway will actually sign.
+`physicalquery`'s binding and the Gateway's `preparedOperation.digest()` are
+different constructions and were never meant to be equal, so the differential
+computes the Gateway's binding from the **new** implementation's statements and
+requires it to equal the legacy one.
+
+Three further properties are asserted on the new side alone, because they are
+what the finalizer's independent reconstruction rests on: preparing twice from
+one input set produces the same binding; a `Service` with no registry produces
+the same preparation as one with; and `RequireInputs` proves each prepared
+operation binds the inputs it was prepared from before its shape is compared.
+
+**The differential found two real contract defects, both fixed.**
+
+`PreparedOperationBindingV1` required a fact-field digest of every operation,
+which made an unaccounted query impossible to seal at all — a plain query
+projects no fact field, because there is no exposure accounting to project one
+for. The fact and provenance digests are now each present exactly when their
+count is non-zero, checked in both directions.
+
+The binding carried no canonical plan identity. `PlanSHA256` digests the
+QueryPlan as submitted; what the exposure ledger and the Query Execution Binding
+identify a query by is the profile's normal form — V2's under V2/V3/V4, V4's
+under V5. `NormalFormSHA256` now carries it, and `Prepare` computes it in the
+order the profiles apply: normalize against the approved surface, then let V5
+replace that with the V4 form built against the ordinal product. Taking the V2
+form for a V5 query would have identified it by a form its ledger does not key
+on.
+
+One harness correction, not a divergence: for a plain query the legacy shape
+recorded no projection, because a non-exposure query builds no exposure context.
+The Gateway does compute that projection — `queryPlanResultNames` is what names
+the stored result's columns — so the harness now reads it from there. The
+comparison is against what production actually projects rather than against a
+nil the legacy shape happened to leave.
 
 ### Gate 22 resolved — the path-aware classifier class set
 

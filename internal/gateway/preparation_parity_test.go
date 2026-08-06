@@ -181,7 +181,7 @@ func legacyPrepareForParity(ctx context.Context, service *Service, task control.
 	if err != nil {
 		return preparationShape{}, err
 	}
-	return legacyShapeOf(service, prepared, grant, evidence, manifestDigest, grantDigest)
+	return legacyShapeOf(service, prepared, plan, grant, evidence, manifestDigest, grantDigest)
 }
 
 // legacyShapeOf reads every property off one prepared plan.
@@ -190,8 +190,9 @@ func legacyPrepareForParity(ctx context.Context, service *Service, task control.
 // prepareSemanticViewPlan after the Control Store has resolved the task's view
 // binding, and preparation itself performs no store I/O. Sharing this half is
 // what keeps the View case reading the same properties as every other one.
-func legacyShapeOf(service *Service, prepared preparedQueryPlan, grant control.TaskGrant,
-	evidence datasourceEvidence, manifestDigest, grantDigest string) (preparationShape, error) {
+func legacyShapeOf(service *Service, prepared preparedQueryPlan, plan queryplan.QueryPlan,
+	grant control.TaskGrant, evidence datasourceEvidence,
+	manifestDigest, grantDigest string) (preparationShape, error) {
 	policy, err := service.policyGrant(grant)
 	if err != nil {
 		return preparationShape{}, err
@@ -210,9 +211,14 @@ func legacyShapeOf(service *Service, prepared preparedQueryPlan, grant control.T
 
 	shape := preparationShape{VisibleSQL: prepared.SQL, PolicyGrant: policy}
 	if context == nil {
-		// A plain query has no exposure context at all, so there is nothing else
-		// to read. The binding below is likewise not built: executionBindingApplies
+		// A plain query builds no exposure context, so its projection is not held
+		// there. It is still a projection the Gateway computes and uses:
+		// queryPlanResultNames is what names the columns of the stored result, so
+		// reading it here compares the extraction against what production actually
+		// projects rather than against a nil the legacy shape merely happens to
+		// leave. The binding below is not built at all -- executionBindingApplies
 		// refuses one without a plan digest.
+		shape.VisibleFields = queryPlanResultNames(plan)
 		return shape, nil
 	}
 	shape.CompanionSQL = context.provenanceSQL
@@ -968,7 +974,7 @@ func TestTheSemanticViewShapePrepares(t *testing.T) {
 			}
 			evidence := datasourceEvidence{DatasourceID: "parity-datasource",
 				SchemaDigest: strings.Repeat("9", 64)}
-			shape, err := legacyShapeOf(fixture.service, prepared, fixture.grant, evidence,
+			shape, err := legacyShapeOf(fixture.service, prepared, outer, fixture.grant, evidence,
 				strings.Repeat("a", 64), strings.Repeat("b", 64))
 			if err != nil {
 				t.Fatalf("read semantic View shape: %v", err)

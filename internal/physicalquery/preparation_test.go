@@ -846,6 +846,52 @@ func TestTheConstructorCopiesTheDraft(t *testing.T) {
 	}
 }
 
+// An operation with no exposure accounting projects no fact field, and must
+// still be representable.
+//
+// The binding originally required a fact-field digest of every operation, which
+// made the unaccounted shape impossible to seal at all -- found by the
+// differential harness the first time a plain query reached Prepare. Each field
+// digest is now present exactly when its count is non-zero, in both directions.
+func TestAnOperationWithNoFactProjectionSeals(t *testing.T) {
+	inputs := testInputs()
+	inputs.Grant.ExposureProfile = ""
+	inputs.SnapshotBindings = nil
+
+	draft := OperationDraft{
+		VisibleSQL:    `SELECT "month" FROM "reporting"."expense" LIMIT 10`,
+		VisibleFields: []string{"month"},
+		PolicyGrant:   testDraft().PolicyGrant,
+	}
+	prepared := sealOperation(t, inputs, draft)
+	binding := prepared.Binding()
+	if binding.FactFieldCount != 0 || binding.FactFieldsSHA256 != "" {
+		t.Fatalf("an operation with no fact projection carries count %d and digest %q",
+			binding.FactFieldCount, binding.FactFieldsSHA256)
+	}
+
+	// And the coupling holds in both directions, so a count and a digest cannot
+	// drift apart the way a one-sided check would allow.
+	for name, mutate := range map[string]func(*PreparedOperationBindingV1){
+		"a fact digest with no count":       func(b *PreparedOperationBindingV1) { b.FactFieldsSHA256 = strings.Repeat("1", 64) },
+		"a fact count with no digest":       func(b *PreparedOperationBindingV1) { b.FactFieldCount = 2 },
+		"a provenance digest with no count": func(b *PreparedOperationBindingV1) { b.ProvenanceFieldsSHA256 = strings.Repeat("2", 64) },
+		"a provenance count with no digest": func(b *PreparedOperationBindingV1) { b.ProvenanceFieldCount = 2 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			mutated := binding
+			mutate(&mutated)
+			resealed, err := mutated.Seal()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := resealed.Validate(); err == nil {
+				t.Fatalf("the binding accepted %s", name)
+			}
+		})
+	}
+}
+
 // A profile that prepares no ordinal material must seal without it, and must not
 // acquire an identity for something it never produced.
 func TestAnOperationWithoutOrdinalMaterialSeals(t *testing.T) {

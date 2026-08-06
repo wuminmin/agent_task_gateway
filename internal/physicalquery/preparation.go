@@ -146,8 +146,12 @@ type PreparedOperationBindingV1 struct {
 	FactFieldCount       int `json:"fact_field_count"`
 	ProvenanceFieldCount int `json:"provenance_field_count"`
 
+	// Each digest is present exactly when its count is non-zero. An operation
+	// with no exposure accounting projects no fact field at all, so requiring a
+	// fact digest of every operation would make the unaccounted shape
+	// unrepresentable rather than merely unaccounted.
 	VisibleFieldsSHA256    string `json:"visible_fields_sha256"`
-	FactFieldsSHA256       string `json:"fact_fields_sha256"`
+	FactFieldsSHA256       string `json:"fact_fields_sha256,omitempty"`
 	ProvenanceFieldsSHA256 string `json:"provenance_fields_sha256,omitempty"`
 
 	// The inputs this preparation was derived from, each sealed over
@@ -169,7 +173,16 @@ type PreparedOperationBindingV1 struct {
 	// grant preparation BUILT from it, sidecars folded in. A statement is admitted
 	// against the latter, so evidence that named only the former would leave the
 	// widening between them undescribed.
-	PolicyGrantSHA256          string `json:"policy_grant_sha256"`
+	PolicyGrantSHA256 string `json:"policy_grant_sha256"`
+	// NormalFormSHA256 is the profile's canonical plan identity: the V2 normal
+	// form under V2/V3/V4, the V4 normal form under V5, the algebra normal form
+	// for a relational plan, and empty under a profile that computes none.
+	//
+	// It is not PlanSHA256. That one digests the QueryPlan as submitted, so two
+	// plans that differ only in how they were written reach different values;
+	// this one is what the exposure ledger and the Query Execution Binding
+	// identify a query by, and two plans with one canonical identity share it.
+	NormalFormSHA256           string `json:"normal_form_sha256,omitempty"`
 	OrdinalProgramSHA256       string `json:"ordinal_program_sha256,omitempty"`
 	DictionarySetSHA256        string `json:"dictionary_set_sha256,omitempty"`
 	SidecarGrantsSHA256        string `json:"sidecar_grants_sha256,omitempty"`
@@ -210,7 +223,6 @@ func (binding PreparedOperationBindingV1) Validate() error {
 	}
 	for name, digest := range map[string]string{
 		"visible fields":     binding.VisibleFieldsSHA256,
-		"fact fields":        binding.FactFieldsSHA256,
 		"preparation inputs": binding.PreparationInputsSHA256,
 		"grant":              binding.GrantSHA256,
 		"catalog":            binding.CatalogSHA256,
@@ -225,8 +237,10 @@ func (binding PreparedOperationBindingV1) Validate() error {
 		}
 	}
 	for name, digest := range map[string]string{
+		"fact fields":            binding.FactFieldsSHA256,
 		"provenance fields":      binding.ProvenanceFieldsSHA256,
 		"snapshot binding set":   binding.SnapshotBindingSetSHA256,
+		"normal form":            binding.NormalFormSHA256,
 		"ordinal program":        binding.OrdinalProgramSHA256,
 		"dictionary set":         binding.DictionarySetSHA256,
 		"sidecar grants":         binding.SidecarGrantsSHA256,
@@ -247,8 +261,17 @@ func (binding PreparedOperationBindingV1) Validate() error {
 	if binding.VisibleFieldCount <= 0 {
 		return fmt.Errorf("prepared operation binding projects %d visible fields", binding.VisibleFieldCount)
 	}
-	if (binding.ProvenanceFieldCount == 0) != (binding.ProvenanceFieldsSHA256 == "") {
-		return errors.New("prepared operation binding's provenance field count and digest disagree")
+	for _, pair := range []struct {
+		name   string
+		count  int
+		digest string
+	}{
+		{"fact", binding.FactFieldCount, binding.FactFieldsSHA256},
+		{"provenance", binding.ProvenanceFieldCount, binding.ProvenanceFieldsSHA256},
+	} {
+		if (pair.count == 0) != (pair.digest == "") {
+			return fmt.Errorf("prepared operation binding's %s field count and digest disagree", pair.name)
+		}
 	}
 	// Expanded evidence is a property of a companion-bearing operation. Without
 	// one there is no evidence row budget to expand.
@@ -318,6 +341,7 @@ func (binding PreparedOperationBindingV1) RequireSame(other PreparedOperationBin
 		"plan":                   {binding.PlanSHA256, other.PlanSHA256},
 		"compiler identity":      {binding.CompilerIdentitySHA256, other.CompilerIdentitySHA256},
 		"policy grant":           {binding.PolicyGrantSHA256, other.PolicyGrantSHA256},
+		"normal form":            {binding.NormalFormSHA256, other.NormalFormSHA256},
 		"ordinal program":        {binding.OrdinalProgramSHA256, other.OrdinalProgramSHA256},
 		"dictionary set":         {binding.DictionarySetSHA256, other.DictionarySetSHA256},
 		"sidecar grants":         {binding.SidecarGrantsSHA256, other.SidecarGrantsSHA256},
@@ -364,6 +388,11 @@ type OperationDraft struct {
 
 	Grouped          bool
 	ExpandedEvidence bool
+
+	// NormalFormSHA256 is the profile's canonical plan identity, empty under a
+	// profile that computes none. It is a digest rather than the normal form
+	// itself because the form carries column names and the durable half may not.
+	NormalFormSHA256 string
 
 	// PolicyGrant is what Derive authorizes against. It is produced by
 	// preparation rather than by the caller, so the Gateway and the finalizer
@@ -414,6 +443,7 @@ type PreparedOperation struct {
 
 	grouped          bool
 	expandedEvidence bool
+	normalFormSHA256 string
 
 	policyGrant        sqlpolicy.Grant
 	sidecarGrants      []sqlpolicy.ProductGrant
@@ -471,6 +501,7 @@ func NewPreparedOperation(inputs PreparationInputs, compiler CompilerIdentityV1,
 
 		grouped:          draft.Grouped,
 		expandedEvidence: draft.ExpandedEvidence,
+		normalFormSHA256: draft.NormalFormSHA256,
 
 		policyGrant:        clonePolicyGrant(draft.PolicyGrant),
 		sidecarGrants:      cloneProductGrants(draft.SidecarGrants),
@@ -511,6 +542,7 @@ func NewPreparedOperation(inputs PreparationInputs, compiler CompilerIdentityV1,
 		CompilerIdentitySHA256:   compiler.SHA256,
 
 		PolicyGrantSHA256:        runtime.policyGrant,
+		NormalFormSHA256:         prepared.normalFormSHA256,
 		OrdinalProgramSHA256:     runtime.ordinalProgram,
 		DictionarySetSHA256:      runtime.dictionarySet,
 		SidecarGrantsSHA256:      runtime.sidecarGrants,
@@ -733,6 +765,9 @@ func (prepared PreparedOperation) Validate() error {
 	}
 	if binding.EstimatedBaseFacts != prepared.estimatedBaseFacts {
 		return errors.New("prepared operation and its binding disagree about the estimated base facts")
+	}
+	if binding.NormalFormSHA256 != prepared.normalFormSHA256 {
+		return errors.New("prepared operation and its binding disagree about the canonical plan identity")
 	}
 	// The target digests are recomputed against the binding's own inputs and
 	// compiler identities. Those two are not runtime members, so this proves the
