@@ -221,30 +221,57 @@ the frozen compiler defines.
 import `physicalquery`, so the preferred design has no cycle. The three stages
 are now `Prepare` → `DeriveLimits` → `Derive`.
 
-### Landed
+### Landed — the sealed contract
 
-- `PreparedOperationV1` — the deterministic half of what the Gateway's
-  `planExposureContext` holds: both statements, the projections execution needs,
-  the grouped/expanded-evidence state that settles the companion's row budget,
-  and the content-addressed identities. SQL fields carry `json:"-"`, and
-  `CarriesSQL` is a method so a member added on the wrong side of that line is
-  caught in the package rather than in whatever evidence file it reaches.
-- `RequireSame` — the comparison the finalizer will rest on. Member by member,
-  statements compared by digest so a rejection carries no SQL into its message.
-- The pure input contract — `Grant` (deliberately not `control.TaskGrant`, which
-  sits beside the Control Store), `CatalogView` as a value rather than an
-  interface, and `SnapshotBinding`, which replaces the Gateway's in-memory
-  snapshot registry: each caller verifies the artifact against the Catalog itself
-  and passes the verified digests in.
+The contract is hardened before any derivation moves behind it, because it is
+what the parity tests and then the finalizer will be written against.
+
+- **`PreparedOperation` is runtime-only and refuses to serialize.** The first
+  shape held SQL and identities in one struct behind `json:"-"` tags plus a
+  keyword scan; both are conventions a future member can be added without.
+  `MarshalJSON` now returns an error outright.
+- **`PreparedOperationBindingV1` is the durable half** — the only thing that may
+  enter a V9 receipt, a Sample or retained evidence. Versions, flags, counts and
+  digests; projections enter as an order-sensitive digest plus a count rather
+  than as column names. Its test enumerates the encoded members and fails on any
+  it does not know to be SQL-free and physical-name-free.
+- **Every digest is sealed, not asserted.** `Seal` computes; `Validate`
+  recomputes and rejects a supplied one. Previously any 64 hex characters passed
+  a format check, which would have made the whole comparison decorative.
+- **Inputs are canonicalized and bound.** `PreparationInputsSHA256`,
+  `GrantSHA256` and `SnapshotBindingSetSHA256` are over canonical values, so two
+  callers assembling one authorization in different orders reach one identity —
+  the Gateway walks a Catalog, the finalizer reads a frozen contract. What
+  canonicalization must not paper over is rejected: columns granted for an
+  unapproved product, a `Products` map keyed differently from the product it
+  holds, publications out of order, a Catalog digest that is not a digest.
+- **`CompilerIdentityV1` is typed and sealed** over the `queryplan` compiler and
+  the `sqlpolicy` renderer, each with both its deliberate version and its
+  behavioural digest, read from the running binary.
+- **`SnapshotBinding` describes the artifact, not just its name** — the sidecar
+  relation the generated SQL joins and the row count the base-fact estimate
+  reads. A descriptor that only identified an artifact would force this package
+  to go and look, which is the dependency the extraction removes.
 
 ### Remaining, in order
 
 1. **Differential parity harness** in `package gateway` (the glue is unexported,
-   so the test has to live there), covering the twelve required shapes: simple
-   non-grouped, grouped/aggregate, single-query non-exposure, paired ordinal
-   V4/V5, expanded and non-expanded evidence, relational Join/Union, semantic
-   View, mandatory scopes, duplicate view/Product bindings, Scale
-   history/pre-consumed ledger, ProvSQL TaskGate, Result-heavy 100x4.
+   so the test has to live there). Table-driven; for each shape it runs the
+   existing Gateway derivation and `physicalquery.Prepare` from the *same*
+   inputs and compares visible and companion SQL bytes, the three projections,
+   the grouped and expanded flags, the plan and ordinal-program digests, the
+   dictionary-set and sidecar-grant digests, the predicate-footprint identity,
+   the view binding and revision, the estimated base facts, and the prepared
+   operation and target bindings.
+
+   Required shapes, each of which must map to at least one concrete case:
+   simple non-grouped; grouped/aggregate; single-query non-exposure; ordinal V4;
+   ordinal V5; expanded evidence; non-expanded evidence; relational Join/Union;
+   semantic View; mandatory scopes; duplicate Product/view bindings; Scale
+   pre-consumed ledger state; ProvSQL TaskGate; Result-heavy 100x4.
+
+   The old and new paths may coexist **only inside this test** during the
+   migration. There must never be a production flag choosing between them.
 2. **Move the derivation.** From `exposure.go`: `buildPlanExposureContext`,
    `configureV2`, `configurePredicateFootprintV5`, `extendGrant`,
    `usesExpandedEvidence` and their pure helpers. From `ordinal_sidecar.go`:
