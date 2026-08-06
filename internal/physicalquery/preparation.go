@@ -1,30 +1,48 @@
 package physicalquery
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
 	"strings"
 
-	"taskbound.local/agent-data-gateway/internal/approval"
 	"taskbound.local/agent-data-gateway/internal/ordinal"
+	"taskbound.local/agent-data-gateway/internal/preparedbinding"
 	"taskbound.local/agent-data-gateway/internal/queryplan"
 	"taskbound.local/agent-data-gateway/internal/sqlpolicy"
 )
 
+// The durable binding and the typed compiler identity live in preparedbinding,
+// a leaf package with no authorizer in its closure, so that the Query Execution
+// Binding and the Query Receipt can carry the whole sealed document without
+// acquiring the ability to authorize. They are aliased rather than wrapped:
+// physicalquery.PreparedOperationBindingV1 continues to name exactly one type,
+// so no conversion exists that could be applied in one direction only.
+type (
+	// PreparedOperationBindingV1 is the durable half of a preparation.
+	PreparedOperationBindingV1 = preparedbinding.PreparedOperationBindingV1
+	// CompilerIdentityV1 is the typed identity of the code that produced the
+	// statements.
+	CompilerIdentityV1 = preparedbinding.CompilerIdentityV1
+	// TargetRole names one of the two statements an operation prepares.
+	TargetRole = preparedbinding.TargetRole
+)
+
 // PreparedOperationBindingV1Version identifies the durable preparation binding.
-const PreparedOperationBindingV1Version = "taskgate-prepared-operation-binding-v1"
+const PreparedOperationBindingV1Version = preparedbinding.PreparedOperationBindingV1Version
+
+const (
+	RoleVisible   = preparedbinding.RoleVisible
+	RoleCompanion = preparedbinding.RoleCompanion
+)
 
 // The domain separators. Each digest covers a different thing, and separating
 // them means a value that is legitimate in one position cannot be replayed into
-// another.
+// another. The operation and compiler-identity domains live with the types they
+// seal, in preparedbinding.
 const (
-	preparedOperationDomain  = "TASKGATE-PREPARED-OPERATION-BINDING-V1"
 	preparedTargetDomain     = "TASKGATE-PREPARED-TARGET-V1"
-	compilerIdentityDomain   = "TASKGATE-PREPARATION-COMPILER-IDENTITY-V1"
 	fieldListDomain          = "TASKGATE-PREPARATION-FIELD-LIST-V1"
 	sidecarGrantsDomain      = "TASKGATE-PREPARATION-SIDECAR-GRANTS-V1"
 	viewRevisionDomain       = "TASKGATE-PREPARATION-VIEW-REGISTRY-REVISION-V1"
@@ -33,33 +51,6 @@ const (
 	sourcePublicationsDomain = "TASKGATE-PREPARATION-SOURCE-PUBLICATIONS-V1"
 	predicateFootprintDomain = "TASKGATE-PREPARATION-PREDICATE-FOOTPRINT-V1"
 )
-
-// TargetRole names one of the two statements an operation prepares.
-type TargetRole string
-
-const (
-	RoleVisible   TargetRole = "visible"
-	RoleCompanion TargetRole = "companion"
-)
-
-// CompilerIdentityV1 is the typed identity of the code that produced the
-// statements.
-//
-// It is typed rather than a free string because a string let a caller write
-// anything merely non-empty, and this value is what separates "the finalizer
-// reproduced the statement" from "the finalizer reproduced a statement some
-// other compiler would have produced". Both members of each pair are carried:
-// the version is what a human bumps deliberately, and the digest is what moves
-// whether or not anybody remembered to.
-type CompilerIdentityV1 struct {
-	QueryPlanVersion      string `json:"queryplan_version"`
-	QueryPlanSHA256       string `json:"queryplan_sha256"`
-	PolicyRendererVersion string `json:"policy_renderer_version"`
-	PolicyRendererSHA256  string `json:"policy_renderer_sha256"`
-	// SHA256 is computed by Seal and recomputed by Validate. It is never
-	// supplied by a caller.
-	SHA256 string `json:"sha256"`
-}
 
 // LocalCompilerIdentity is the sealed identity of the compiler and renderer this
 // binary contains.
@@ -80,350 +71,6 @@ func LocalCompilerIdentity() (CompilerIdentityV1, error) {
 		QueryPlanVersion: queryplan.CompilerVersion, QueryPlanSHA256: compiler,
 		PolicyRendererVersion: sqlpolicy.RendererVersion, PolicyRendererSHA256: renderer,
 	}.Seal()
-}
-
-// Seal computes the identity's own digest over its members.
-func (identity CompilerIdentityV1) Seal() (CompilerIdentityV1, error) {
-	identity.SHA256 = ""
-	digest, err := domainDigest(compilerIdentityDomain, identity)
-	if err != nil {
-		return CompilerIdentityV1{}, err
-	}
-	identity.SHA256 = digest
-	return identity, nil
-}
-
-// Validate recomputes the digest and rejects one that was supplied rather than
-// sealed.
-func (identity CompilerIdentityV1) Validate() error {
-	for name, value := range map[string]string{
-		"queryplan version":       identity.QueryPlanVersion,
-		"policy renderer version": identity.PolicyRendererVersion,
-	} {
-		if strings.TrimSpace(value) == "" {
-			return fmt.Errorf("compiler identity carries no %s", name)
-		}
-	}
-	for name, value := range map[string]string{
-		"queryplan digest":       identity.QueryPlanSHA256,
-		"policy renderer digest": identity.PolicyRendererSHA256,
-		"identity digest":        identity.SHA256,
-	} {
-		if !validSHA256(value) {
-			return fmt.Errorf("compiler identity %s is not a lowercase SHA-256", name)
-		}
-	}
-	sealed, err := identity.Seal()
-	if err != nil {
-		return err
-	}
-	if sealed.SHA256 != identity.SHA256 {
-		return fmt.Errorf("compiler identity digest is %s, its members seal to %s",
-			shortDigest(identity.SHA256), shortDigest(sealed.SHA256))
-	}
-	return nil
-}
-
-// PreparedOperationBindingV1 is the durable half: what may enter a V9 receipt, a
-// Sample or retained evidence.
-//
-// It carries no statement, no column name and no physical relation name -- only
-// a version, flags, counts and cryptographic identities. Projections enter as
-// digests and counts rather than as names, because a column name is still a
-// disclosure about the query and durable evidence has no need of one.
-//
-// Every digest is computed by Seal and recomputed by Validate. Under the
-// previous shape a caller could write any 64 hex characters and pass a format
-// check, which would have made the whole comparison decorative.
-type PreparedOperationBindingV1 struct {
-	Version string `json:"version"`
-
-	HasCompanion     bool `json:"has_companion"`
-	Grouped          bool `json:"grouped"`
-	ExpandedEvidence bool `json:"expanded_evidence"`
-
-	VisibleFieldCount    int `json:"visible_field_count"`
-	FactFieldCount       int `json:"fact_field_count"`
-	ProvenanceFieldCount int `json:"provenance_field_count"`
-
-	// Each digest is present exactly when its count is non-zero. An operation
-	// with no exposure accounting projects no fact field at all, so requiring a
-	// fact digest of every operation would make the unaccounted shape
-	// unrepresentable rather than merely unaccounted.
-	VisibleFieldsSHA256    string `json:"visible_fields_sha256"`
-	FactFieldsSHA256       string `json:"fact_fields_sha256,omitempty"`
-	ProvenanceFieldsSHA256 string `json:"provenance_fields_sha256,omitempty"`
-
-	// The inputs this preparation was derived from, each sealed over
-	// canonicalized values so two semantically equal inputs in different orders
-	// reach one identity, and any change to a grant, a scope, a Publication or a
-	// sidecar moves it.
-	PreparationInputsSHA256  string `json:"preparation_inputs_sha256"`
-	GrantSHA256              string `json:"grant_sha256"`
-	CatalogSHA256            string `json:"catalog_sha256"`
-	SnapshotBindingSetSHA256 string `json:"snapshot_binding_set_sha256,omitempty"`
-	PlanSHA256               string `json:"plan_sha256"`
-	CompilerIdentitySHA256   string `json:"compiler_identity_sha256"`
-
-	// What preparation produced, beyond the statements themselves.
-	//
-	// PolicyGrantSHA256 is the authorization the operation will actually be
-	// authorized against. It is not GrantSHA256: that one identifies the task
-	// authorization preparation READ, while this one identifies the sqlpolicy
-	// grant preparation BUILT from it, sidecars folded in. A statement is admitted
-	// against the latter, so evidence that named only the former would leave the
-	// widening between them undescribed.
-	PolicyGrantSHA256 string `json:"policy_grant_sha256"`
-	// NormalFormSHA256 is the profile's canonical plan identity: the V2 normal
-	// form under V2/V3/V4, the V4 normal form under V5, the algebra normal form
-	// for a relational plan, and empty under a profile that computes none.
-	//
-	// It is not PlanSHA256. That one digests the QueryPlan as submitted, so two
-	// plans that differ only in how they were written reach different values;
-	// this one is what the exposure ledger and the Query Execution Binding
-	// identify a query by, and two plans with one canonical identity share it.
-	NormalFormSHA256           string `json:"normal_form_sha256,omitempty"`
-	OrdinalProgramSHA256       string `json:"ordinal_program_sha256,omitempty"`
-	DictionarySetSHA256        string `json:"dictionary_set_sha256,omitempty"`
-	SidecarGrantsSHA256        string `json:"sidecar_grants_sha256,omitempty"`
-	SourcePublicationsSHA256   string `json:"source_publications_sha256,omitempty"`
-	ViewBindingSHA256          string `json:"view_binding_sha256,omitempty"`
-	ViewRegistryRevisionSHA256 string `json:"view_registry_revision_sha256,omitempty"`
-
-	// The semantic View identities, present exactly on a View preparation.
-	//
-	// These are separate members rather than something read out of
-	// ViewBindingSHA256 on the argument that a binding digest "covers" them. That
-	// argument is about how the Control Store happens to construct a ViewBinding,
-	// which is a different package's invariant and could change without this one
-	// noticing; a name containing the word "binding" is not a coverage proof. Each
-	// is measured here from the value preparation actually read, so a change to a
-	// compiled Artifact, a composed plan, the terminal Product closure or the
-	// governance envelope moves the sealed binding whatever the Control Store did.
-	ViewArtifactSHA256           string `json:"view_artifact_sha256,omitempty"`
-	ViewCompositionSHA256        string `json:"view_composition_sha256,omitempty"`
-	TerminalProductClosureSHA256 string `json:"terminal_product_closure_sha256,omitempty"`
-	GovernanceEnvelopeSHA256     string `json:"governance_envelope_sha256,omitempty"`
-
-	PredicateFootprintSHA256 string `json:"predicate_footprint_sha256,omitempty"`
-	EstimatedBaseFacts       uint64 `json:"estimated_base_facts,omitempty"`
-
-	// The two target bindings. Each covers its statement's digest, the inputs it
-	// was prepared from and the compiler that produced it, so a statement cannot
-	// be presented as the other role's or as another operation's.
-	VisibleTargetSHA256 string `json:"visible_target_sha256"`
-	// CompanionTargetSHA256 is empty exactly when HasCompanion is false.
-	CompanionTargetSHA256 string `json:"companion_target_sha256,omitempty"`
-
-	// SHA256 seals every member above.
-	SHA256 string `json:"sha256"`
-}
-
-// Seal computes the binding's own digest over every other member.
-func (binding PreparedOperationBindingV1) Seal() (PreparedOperationBindingV1, error) {
-	binding.Version = PreparedOperationBindingV1Version
-	binding.SHA256 = ""
-	digest, err := domainDigest(preparedOperationDomain, binding)
-	if err != nil {
-		return PreparedOperationBindingV1{}, err
-	}
-	binding.SHA256 = digest
-	return binding, nil
-}
-
-// Validate rejects a binding that is internally incoherent, and one whose digest
-// was supplied rather than derived from its members.
-func (binding PreparedOperationBindingV1) Validate() error {
-	if binding.Version != PreparedOperationBindingV1Version {
-		return fmt.Errorf("prepared operation binding version %q is unsupported", binding.Version)
-	}
-	for name, digest := range map[string]string{
-		"visible fields":     binding.VisibleFieldsSHA256,
-		"preparation inputs": binding.PreparationInputsSHA256,
-		"grant":              binding.GrantSHA256,
-		"catalog":            binding.CatalogSHA256,
-		"plan":               binding.PlanSHA256,
-		"compiler identity":  binding.CompilerIdentitySHA256,
-		"policy grant":       binding.PolicyGrantSHA256,
-		"visible target":     binding.VisibleTargetSHA256,
-		"prepared operation": binding.SHA256,
-	} {
-		if !validSHA256(digest) {
-			return fmt.Errorf("prepared operation binding %s digest is not a lowercase SHA-256", name)
-		}
-	}
-	for name, digest := range map[string]string{
-		"fact fields":              binding.FactFieldsSHA256,
-		"provenance fields":        binding.ProvenanceFieldsSHA256,
-		"snapshot binding set":     binding.SnapshotBindingSetSHA256,
-		"normal form":              binding.NormalFormSHA256,
-		"ordinal program":          binding.OrdinalProgramSHA256,
-		"dictionary set":           binding.DictionarySetSHA256,
-		"sidecar grants":           binding.SidecarGrantsSHA256,
-		"source publications":      binding.SourcePublicationsSHA256,
-		"view binding":             binding.ViewBindingSHA256,
-		"view registry revision":   binding.ViewRegistryRevisionSHA256,
-		"view artifact":            binding.ViewArtifactSHA256,
-		"view composition":         binding.ViewCompositionSHA256,
-		"terminal product closure": binding.TerminalProductClosureSHA256,
-		"governance envelope":      binding.GovernanceEnvelopeSHA256,
-		"predicate footprint":      binding.PredicateFootprintSHA256,
-		"companion target":         binding.CompanionTargetSHA256,
-	} {
-		if digest != "" && !validSHA256(digest) {
-			return fmt.Errorf("prepared operation binding %s digest is not a lowercase SHA-256", name)
-		}
-	}
-	// The four semantic View identities travel together. A binding carrying some
-	// of them describes a View preparation that measured only part of what it
-	// prepared against, which is worse than one that measured none: it would look
-	// like a complete View binding to anything checking for presence.
-	viewIdentities := map[string]string{
-		"view artifact":            binding.ViewArtifactSHA256,
-		"view composition":         binding.ViewCompositionSHA256,
-		"terminal product closure": binding.TerminalProductClosureSHA256,
-		"governance envelope":      binding.GovernanceEnvelopeSHA256,
-	}
-	present := 0
-	for _, digest := range viewIdentities {
-		if digest != "" {
-			present++
-		}
-	}
-	if present != 0 && present != len(viewIdentities) {
-		var missing []string
-		for name, digest := range viewIdentities {
-			if digest == "" {
-				missing = append(missing, name)
-			}
-		}
-		sort.Strings(missing)
-		return fmt.Errorf("prepared operation binding is a semantic View preparation but carries no %s digest",
-			strings.Join(missing, ", no "))
-	}
-	// A View preparation is bound to a View. Measuring the artifact and the
-	// governance envelope while naming no binding would leave the whole identity
-	// resting on values the Control Store never verified.
-	if present != 0 && binding.ViewBindingSHA256 == "" {
-		return errors.New("prepared operation binding carries semantic View identities but names no view binding")
-	}
-	// Presence-coupled in both directions, so a companion cannot be half present.
-	if binding.HasCompanion == (binding.CompanionTargetSHA256 == "") {
-		return errors.New("prepared operation binding's companion target and its presence flag disagree")
-	}
-	if binding.VisibleFieldCount <= 0 {
-		return fmt.Errorf("prepared operation binding projects %d visible fields", binding.VisibleFieldCount)
-	}
-	for _, pair := range []struct {
-		name   string
-		count  int
-		digest string
-	}{
-		{"fact", binding.FactFieldCount, binding.FactFieldsSHA256},
-		{"provenance", binding.ProvenanceFieldCount, binding.ProvenanceFieldsSHA256},
-	} {
-		if (pair.count == 0) != (pair.digest == "") {
-			return fmt.Errorf("prepared operation binding's %s field count and digest disagree", pair.name)
-		}
-	}
-	// Expanded evidence is a property of a companion-bearing operation. Without
-	// one there is no evidence row budget to expand.
-	if binding.ExpandedEvidence && !binding.HasCompanion {
-		return errors.New("prepared operation binding claims expanded evidence but prepares no companion statement")
-	}
-	sealed, err := binding.Seal()
-	if err != nil {
-		return err
-	}
-	if sealed.SHA256 != binding.SHA256 {
-		return fmt.Errorf("prepared operation binding digest is %s, its members seal to %s",
-			shortDigest(binding.SHA256), shortDigest(sealed.SHA256))
-	}
-	return nil
-}
-
-// TargetSHA256 is one prepared target's binding.
-func (binding PreparedOperationBindingV1) TargetSHA256(role TargetRole) (string, error) {
-	switch role {
-	case RoleVisible:
-		return binding.VisibleTargetSHA256, nil
-	case RoleCompanion:
-		if !binding.HasCompanion {
-			return "", errors.New("this operation prepares no companion statement")
-		}
-		return binding.CompanionTargetSHA256, nil
-	default:
-		return "", fmt.Errorf("%q is not a prepared target role", role)
-	}
-}
-
-// RequireSame compares two independent preparations of what should be one
-// operation and names every member they disagree on.
-//
-// This is what the finalizer rests on: it prepares from its own frozen inputs
-// and requires the result to equal what the Gateway signed. Both sides are
-// bindings, so no statement can enter the comparison or its failure message.
-func (binding PreparedOperationBindingV1) RequireSame(other PreparedOperationBindingV1) error {
-	if err := binding.Validate(); err != nil {
-		return fmt.Errorf("this preparation: %w", err)
-	}
-	if err := other.Validate(); err != nil {
-		return fmt.Errorf("the other preparation: %w", err)
-	}
-	if binding.SHA256 == other.SHA256 {
-		return nil
-	}
-	// The sealed digests differ, so at least one member does. Naming them is
-	// what makes a rejection say what was got wrong rather than merely that
-	// something was.
-	var differences []string
-	for name, pair := range map[string][2]any{
-		"has companion":            {binding.HasCompanion, other.HasCompanion},
-		"grouped":                  {binding.Grouped, other.Grouped},
-		"expanded evidence":        {binding.ExpandedEvidence, other.ExpandedEvidence},
-		"visible field count":      {binding.VisibleFieldCount, other.VisibleFieldCount},
-		"fact field count":         {binding.FactFieldCount, other.FactFieldCount},
-		"provenance field count":   {binding.ProvenanceFieldCount, other.ProvenanceFieldCount},
-		"visible fields":           {binding.VisibleFieldsSHA256, other.VisibleFieldsSHA256},
-		"fact fields":              {binding.FactFieldsSHA256, other.FactFieldsSHA256},
-		"provenance fields":        {binding.ProvenanceFieldsSHA256, other.ProvenanceFieldsSHA256},
-		"preparation inputs":       {binding.PreparationInputsSHA256, other.PreparationInputsSHA256},
-		"grant":                    {binding.GrantSHA256, other.GrantSHA256},
-		"catalog":                  {binding.CatalogSHA256, other.CatalogSHA256},
-		"snapshot binding set":     {binding.SnapshotBindingSetSHA256, other.SnapshotBindingSetSHA256},
-		"plan":                     {binding.PlanSHA256, other.PlanSHA256},
-		"compiler identity":        {binding.CompilerIdentitySHA256, other.CompilerIdentitySHA256},
-		"policy grant":             {binding.PolicyGrantSHA256, other.PolicyGrantSHA256},
-		"normal form":              {binding.NormalFormSHA256, other.NormalFormSHA256},
-		"ordinal program":          {binding.OrdinalProgramSHA256, other.OrdinalProgramSHA256},
-		"dictionary set":           {binding.DictionarySetSHA256, other.DictionarySetSHA256},
-		"sidecar grants":           {binding.SidecarGrantsSHA256, other.SidecarGrantsSHA256},
-		"source publications":      {binding.SourcePublicationsSHA256, other.SourcePublicationsSHA256},
-		"view binding":             {binding.ViewBindingSHA256, other.ViewBindingSHA256},
-		"view registry revision":   {binding.ViewRegistryRevisionSHA256, other.ViewRegistryRevisionSHA256},
-		"view artifact":            {binding.ViewArtifactSHA256, other.ViewArtifactSHA256},
-		"view composition":         {binding.ViewCompositionSHA256, other.ViewCompositionSHA256},
-		"terminal product closure": {binding.TerminalProductClosureSHA256, other.TerminalProductClosureSHA256},
-		"governance envelope":      {binding.GovernanceEnvelopeSHA256, other.GovernanceEnvelopeSHA256},
-		"predicate footprint":      {binding.PredicateFootprintSHA256, other.PredicateFootprintSHA256},
-		"estimated base facts":     {binding.EstimatedBaseFacts, other.EstimatedBaseFacts},
-		"visible target":           {binding.VisibleTargetSHA256, other.VisibleTargetSHA256},
-		"companion target":         {binding.CompanionTargetSHA256, other.CompanionTargetSHA256},
-	} {
-		if pair[0] != pair[1] {
-			differences = append(differences, name)
-		}
-	}
-	sort.Strings(differences)
-	if len(differences) == 0 {
-		// The sealed digests differ but no named member does, which means the
-		// binding has a member this comparison does not cover. That is a defect
-		// here, and saying so beats reporting agreement.
-		return fmt.Errorf("two preparations seal to %s and %s but disagree on no named member; "+
-			"PreparedOperationBindingV1 has a member RequireSame does not compare",
-			shortDigest(binding.SHA256), shortDigest(other.SHA256))
-	}
-	return fmt.Errorf("two independent preparations of one operation disagree on %v", differences)
 }
 
 // OperationDraft is what a derivation produces, before it is sealed.
@@ -1215,16 +862,11 @@ func jsonClone(from, into any) error {
 	return json.Unmarshal(encoded, into)
 }
 
-// domainDigest is the one hashing construction this package uses.
+// domainDigest is the one hashing construction this package uses. It delegates
+// to the durable binding's, so preparation and the binding it seals cannot come
+// to hash differently.
 func domainDigest(domain string, value any) (string, error) {
-	canonical, err := approval.CanonicalJSON(value)
-	if err != nil {
-		return "", fmt.Errorf("canonicalize %s: %w", domain, err)
-	}
-	hash := sha256.New()
-	hash.Write([]byte(domain + "\x00"))
-	hash.Write(canonical)
-	return hex.EncodeToString(hash.Sum(nil)), nil
+	return preparedbinding.DomainDigest(domain, value)
 }
 
 // textDigest hashes a free-text identity so it can be bound without being
@@ -1253,24 +895,6 @@ func canonicalStrings(values []string) []string {
 	return unique
 }
 
-func validSHA256(value string) bool {
-	if len(value) != 64 {
-		return false
-	}
-	for _, character := range value {
-		switch {
-		case character >= '0' && character <= '9':
-		case character >= 'a' && character <= 'f':
-		default:
-			return false
-		}
-	}
-	return true
-}
+func validSHA256(value string) bool { return preparedbinding.ValidSHA256(value) }
 
-func shortDigest(digest string) string {
-	if len(digest) < 12 {
-		return digest
-	}
-	return digest[:12]
-}
+func shortDigest(digest string) string { return preparedbinding.ShortDigest(digest) }
