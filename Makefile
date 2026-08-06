@@ -2,9 +2,18 @@
 
 FINAL_V5_SMOKE_RUNNER ?= evaluation/final-v5-wsl2/scripts/run-pilot.sh
 
-verify:
+verify: hygiene
 	docker build --target verify -t taskbound-agent-data-gateway-verify .
 	./scripts/compose-test.sh
+
+# -count=1 is load-bearing, not caution. The repository-root invariant is a
+# property of the git index, and `go test` cannot make the index a cache input
+# (see internal/repohygiene). Staging a binary that .gitignore already covers
+# changes nothing the cache can observe, so a warm cache would replay the
+# previous pass. This target is the gate's only trustworthy reading.
+.PHONY: hygiene
+hygiene:
+	GOFLAGS=-buildvcs=false go test -count=1 ./internal/repohygiene/...
 
 test:
 	docker build --target verify -t taskbound-agent-data-gateway-verify .

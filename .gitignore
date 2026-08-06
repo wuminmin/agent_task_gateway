@@ -36,6 +36,8 @@ AGENTS.md
 /final-v5-adapter
 /final-v5-attestation-footprint
 /final-v5-contract-sql-check
+/final-v5-dbtest-report
+/final-v5-gateway-build
 /final-v5-observer
 /final-v5-oracle
 /final-v5-profile
