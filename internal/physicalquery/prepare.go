@@ -91,7 +91,7 @@ func derivePreparation(inputs PreparationInputs) (OperationDraft, error) {
 		aggregates[strings.ToLower(strings.TrimSpace(aggregate))] = struct{}{}
 	}
 
-	policy, err := preparationPolicyGrant(inputs)
+	policy, err := preparationPolicyGrant(inputs.Grant, inputs.Catalog)
 	if err != nil {
 		return OperationDraft{}, err
 	}
@@ -249,7 +249,7 @@ func deriveRelationalPreparation(inputs PreparationInputs) (OperationDraft, erro
 		return OperationDraft{}, err
 	}
 
-	policy, err := preparationPolicyGrant(inputs)
+	policy, err := preparationPolicyGrant(inputs.Grant, inputs.Catalog)
 	if err != nil {
 		return OperationDraft{}, err
 	}
@@ -577,10 +577,10 @@ func normalizeV2Identity(plan queryplan.QueryPlan, product catalog.Product,
 // It is produced here rather than accepted from the caller so that the Gateway
 // and the finalizer authorize identically. A grant supplied by the party being
 // checked would make the whole comparison circular.
-func preparationPolicyGrant(inputs PreparationInputs) (sqlpolicy.Grant, error) {
+func preparationPolicyGrant(grant Grant, view CatalogView) (sqlpolicy.Grant, error) {
 	var scope map[string]any
-	if len(inputs.Grant.MandatoryScope) > 0 {
-		if err := json.Unmarshal(inputs.Grant.MandatoryScope, &scope); err != nil {
+	if len(grant.MandatoryScope) > 0 {
+		if err := json.Unmarshal(grant.MandatoryScope, &scope); err != nil {
 			return sqlpolicy.Grant{}, fmt.Errorf("preparation grant mandatory scope is not JSON: %w", err)
 		}
 	}
@@ -590,14 +590,14 @@ func preparationPolicyGrant(inputs PreparationInputs) (sqlpolicy.Grant, error) {
 	// digesting, so the identity is order-insensitive either way. What sorting
 	// here WOULD change is the value the Gateway hands the policy engine, and a
 	// derivation being extracted must not alter that as a side effect.
-	products := make([]sqlpolicy.ProductGrant, 0, len(inputs.Grant.ApprovedProducts))
-	for _, name := range inputs.Grant.ApprovedProducts {
-		product, found := inputs.Catalog.LookupProduct(name)
+	products := make([]sqlpolicy.ProductGrant, 0, len(grant.ApprovedProducts))
+	for _, name := range grant.ApprovedProducts {
+		product, found := view.LookupProduct(name)
 		if !found {
 			return sqlpolicy.Grant{}, fmt.Errorf("this task references data product %q, "+
 				"which this Catalog does not declare", name)
 		}
-		granted, err := catalogProductGrant(product, inputs.Grant.ApprovedColumns[name], scope)
+		granted, err := catalogProductGrant(product, grant.ApprovedColumns[name], scope)
 		if err != nil {
 			return sqlpolicy.Grant{}, err
 		}

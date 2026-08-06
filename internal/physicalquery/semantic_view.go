@@ -238,19 +238,34 @@ func deriveSemanticViewPreparation(inputs SemanticViewPreparationInputsV1) (
 		draft.PredicateFootprint = footprint
 	}
 
-	// The policy grant is internal and terminal-only. The root View relation is
-	// not in it: nothing is executed against the root, only against the terminal
-	// Products the composed plan compiled to.
-	products := make([]sqlpolicy.ProductGrant, 0, len(governance.products))
-	for _, name := range sortedStrings(keysOfProducts(governance.products)) {
-		granted, grantErr := catalogProductGrant(governance.products[name],
-			shape.meteringByProduct[name], terminalScopes[name])
+	// The grant is built in production's order: the task's own public grant
+	// first, then the internal terminal products merged into it, then the metering
+	// widening, then the sidecars.
+	//
+	// The public grant is the starting point rather than the terminal set alone.
+	// The root View relation stays in it because the task was approved against the
+	// root, and dropping it here would narrow what production admits -- an
+	// extraction must not change the authorization, in either direction.
+	policy, err := preparationPolicyGrant(inputs.Grant, inputs.Catalog)
+	if err != nil {
+		return OperationDraft{}, semanticViewGovernance{}, err
+	}
+	internal := make(map[string]sqlpolicy.ProductGrant, len(governance.products))
+	for name, product := range governance.products {
+		granted, grantErr := catalogProductGrant(product, shape.meteringByProduct[name], terminalScopes[name])
 		if grantErr != nil {
 			return OperationDraft{}, semanticViewGovernance{}, grantErr
 		}
-		products = append(products, granted)
+		internal[name] = granted
 	}
-	policy := sqlpolicy.Grant{Products: products}
+	if policy, err = mergeInternalTerminalGrants(policy, internal); err != nil {
+		return OperationDraft{}, semanticViewGovernance{}, err
+	}
+	for _, name := range sortedStrings(keysOfProducts(governance.products)) {
+		if policy, err = widenForMetering(policy, name, shape.meteringByProduct[name]); err != nil {
+			return OperationDraft{}, semanticViewGovernance{}, err
+		}
+	}
 	if len(draft.SidecarGrants) > 0 {
 		if policy, err = widenForSidecars(policy, draft.SidecarGrants); err != nil {
 			return OperationDraft{}, semanticViewGovernance{}, err
@@ -258,6 +273,80 @@ func deriveSemanticViewPreparation(inputs SemanticViewPreparationInputsV1) (
 	}
 	draft.PolicyGrant = policy
 	return draft, governance, nil
+}
+
+// mergeInternalTerminalGrants folds the private terminal grants into the task's
+// public one.
+//
+// A terminal Product the public grant already names is merged rather than
+// appended -- columns unioned, scope predicates added if absent -- because two
+// grants for one logical name would leave which of them authorizes a statement
+// undetermined. A physical relation conflict is a refusal: the same logical name
+// resolving to two relations means the View and the task disagree about what
+// they are reading.
+func mergeInternalTerminalGrants(grant sqlpolicy.Grant,
+	internal map[string]sqlpolicy.ProductGrant) (sqlpolicy.Grant, error) {
+	if len(internal) == 0 {
+		return grant, nil
+	}
+	result := clonePolicyGrant(grant)
+	names := make([]string, 0, len(internal))
+	for name := range internal {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		terminal := cloneProductGrant(internal[name])
+		found := false
+		for index := range result.Products {
+			if result.Products[index].LogicalName != name {
+				continue
+			}
+			found = true
+			if result.Products[index].PhysicalSchema != terminal.PhysicalSchema ||
+				result.Products[index].PhysicalView != terminal.PhysicalView {
+				return sqlpolicy.Grant{}, fmt.Errorf(
+					"semantic View terminal product %q conflicts with the task grant", name)
+			}
+			columns := stringSet(result.Products[index].ApprovedColumns)
+			for _, column := range terminal.ApprovedColumns {
+				columns[column] = struct{}{}
+			}
+			result.Products[index].ApprovedColumns = sortedSet(columns)
+			for _, predicate := range terminal.MandatoryScope {
+				if !containsScopePredicate(result.Products[index].MandatoryScope, predicate) {
+					cloned := predicate
+					cloned.Values = append([]string(nil), predicate.Values...)
+					result.Products[index].MandatoryScope = append(result.Products[index].MandatoryScope, cloned)
+				}
+			}
+			break
+		}
+		if !found {
+			result.Products = append(result.Products, terminal)
+		}
+	}
+	return result, nil
+}
+
+func containsScopePredicate(predicates []sqlpolicy.ScopePredicate, want sqlpolicy.ScopePredicate) bool {
+	for _, predicate := range predicates {
+		if predicate.Column != want.Column || predicate.Operator != want.Operator ||
+			len(predicate.Values) != len(want.Values) {
+			continue
+		}
+		same := true
+		for index, value := range predicate.Values {
+			if want.Values[index] != value {
+				same = false
+				break
+			}
+		}
+		if same {
+			return true
+		}
+	}
+	return false
 }
 
 // deriveViewPredicateFootprint builds the V5 footprint for a semantic View.
