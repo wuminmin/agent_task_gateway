@@ -11,14 +11,12 @@ import (
 	"testing"
 )
 
-// The v3 runtime cutover is BLOCKED, and this file pins the reason.
+// The v3 runtime cutover is BLOCKED, and this file pins the reason. What the
+// reason IS changed at T1d, and the change is recorded here rather than by
+// deleting the blocker.
 //
-// Gate 22 is resolved, so the classifier no longer stands in the way. What does
-// is a prerequisite that has never existed: the finalizer cannot independently
-// reproduce the physical target statements a governed operation executed.
-//
-// FinalizeObservationV3 needs them for two separate things on every executing
-// path:
+// FinalizeObservationV3 needs the physical target statements a governed
+// operation executed, on every executing path:
 //
 //   - deriveTargets builds the manifest's target entries from them. Without
 //     them the classifier has no visible or companion key, so gates 18, 19 and
@@ -28,45 +26,66 @@ import (
 //     execution binding. That comparison is the whole point: it is what catches
 //     a receipt re-sealed around a different statement.
 //
-// Only three parties could supply them today:
+// # What was blocking, and is not any more
 //
-//  1. the Gateway, which is the party being checked;
-//  2. the Adapter, which TestAdapterCannotConstructTrustedInputs exists to
-//     forbid -- an Adapter that supplied the target SQL would be supplying the
-//     material its own claim is checked against;
-//  3. a reimplementation in the evaluation tree, which is exactly what the
-//     internal/physicalquery package doc forbids: "if the evaluation
-//     reimplemented the derivation, the two would drift and the drift would look
-//     like a measurement result".
+// Until T1d the derivation was unexported glue in internal/gateway --
+// planExposureContext, buildRelationalExposureContext and the ordinal sidecar
+// binder -- so only three parties could have supplied the statements: the
+// Gateway, which is the party being checked; the Adapter, which
+// TestAdapterCannotConstructTrustedInputs forbids; or a reimplementation in the
+// evaluation tree, which the internal/physicalquery package doc forbids because
+// "the two would drift and the drift would look like a measurement result".
 //
-// The derivation itself is unexported glue in internal/gateway. queryplan
-// exports CompileOrdinal and CompileRelational, and physicalquery exports
-// Derive, but the step BETWEEN them -- agent SQL plus Catalog products to an
-// exposure plan to the compiled visible and companion statements -- lives in
-// planExposureContext and buildRelationalExposureContext, which no other package
-// can reach.
+// That is resolved. internal/physicalquery.Prepare and PrepareSemanticView are
+// exported, derive both statements from immutable inputs, and are the ONLY
+// implementation: the Gateway calls them on its production path and its own
+// derivation is deleted. A finalizer holding frozen contract material can now
+// reach the same two statements without asking the Gateway and without writing
+// a second derivation.
 //
-// The resolution is the same extraction that produced internal/physicalquery:
-// lift that glue into a shared package both the Gateway and the finalizer call,
-// so the finalizer reaches the same two statements from frozen contract material
-// and signed pre-state rather than being told them. Until then the cutover
-// cannot land without either weakening the Adapter guard or reimplementing the
-// derivation, and both are the quiet relaxation this arc exists to prevent.
+// # What is still blocking
+//
+// Nothing calls it. No finalizer path reproduces a preparation, and nothing in
+// the active tree constructs TrustedInputsV3 or IndependentInputsV3, so
+// acceptance remains reachable only from tests. That is the remaining work and
+// it is the whole of what this blocker now pins.
 //
 // See docs/final_v5_v3_runtime_integration_gates.md.
 
-// gatewayExposureGlue names the unexported derivation the finalizer needs and
-// cannot reach. Each is written out rather than discovered, so that renaming one
-// fails here instead of silently emptying the check.
-var gatewayExposureGlue = []string{
-	"planExposureContext",
-	"buildRelationalExposureContext",
-	"derivePhysicalQuery",
+// sharedTargetDerivation names what internal/physicalquery must keep exported
+// for a finalizer to reproduce a preparation at all.
+//
+// Each is written out rather than discovered, so that hiding or renaming one
+// fails here instead of silently emptying the check. Re-hiding any of them would
+// put the cutover back behind the barrier T1d removed.
+var sharedTargetDerivation = []string{
+	"Prepare",
+	"PrepareWith",
+	"PrepareSemanticView",
+	"PrepareSemanticViewWith",
+	"PreparedOperation",
+	"PreparationInputs",
+	"SemanticViewPreparationInputsV1",
 }
 
-// TestV3CutoverIsBlockedByTheUnsharedTargetDerivation fails the moment the
-// derivation becomes shareable, which is when the real cutover gets written.
-func TestV3CutoverIsBlockedByTheUnsharedTargetDerivation(t *testing.T) {
+// gatewayDeletedDerivation names the Gateway-local derivation the extraction
+// removed. None of them may come back: a second implementation in the running
+// system is the outcome the whole arc exists to avoid, and it would be invisible
+// to a differential that compares the surviving one with itself.
+var gatewayDeletedDerivation = []string{
+	"buildPlanExposureContext",
+	"buildRelationalExposureContext",
+	"bindOrdinalSidecars",
+	"ordinalQueryProduct",
+	"configureV2",
+	"configurePredicateFootprintV5",
+	"extendGrant",
+	"extendOrdinalPolicyGrant",
+}
+
+// TestV3CutoverIsBlockedByTheUnwiredFinalizer fails the moment the finalizer is
+// wired, which is when the real cutover gets written.
+func TestV3CutoverIsBlockedByTheUnwiredFinalizer(t *testing.T) {
 	// 1. The finalizer genuinely requires the reproduced statements. If this
 	// stops being true the blocker is moot and the test must be rewritten.
 	inputs := finalizerInputs(t)
@@ -76,23 +95,31 @@ func TestV3CutoverIsBlockedByTheUnsharedTargetDerivation(t *testing.T) {
 			"the cutover blocker may be resolved -- write the real cutover")
 	}
 
-	// 2. And it has no way to obtain them: every step that turns agent SQL into
-	// the compiled visible/companion pair is unexported inside internal/gateway.
-	exported := exportedIdentifiers(t, filepath.Join(repositoryRoot(t), "internal", "gateway"))
-	for _, name := range gatewayExposureGlue {
-		if exported[name] {
-			t.Fatalf("internal/gateway now exports %q; the target derivation may be shareable "+
-				"-- write the real cutover and delete this blocker", name)
-		}
-		if !exported["!declared:"+name] {
-			t.Fatalf("internal/gateway no longer declares %q; this blocker names a derivation "+
-				"that has moved, and must be rewritten against wherever it went", name)
+	// 2. The shared derivation exists and is reachable. This is the prerequisite
+	// T1d delivered, asserted so a regression that re-hid it is reported as the
+	// cutover becoming impossible again rather than as an unrelated failure.
+	root := repositoryRoot(t)
+	shared := exportedIdentifiers(t, filepath.Join(root, "internal", "physicalquery"))
+	for _, name := range sharedTargetDerivation {
+		if !shared[name] {
+			t.Fatalf("internal/physicalquery no longer exports %q; the finalizer can no longer "+
+				"reproduce a preparation, and the cutover is blocked on that again rather than "+
+				"on being unwired", name)
 		}
 	}
 
-	// 3. Nothing in the active tree constructs the finalizer's trusted inputs,
-	// which is the observable consequence: acceptance is reachable only from
-	// tests.
+	// 3. And the Gateway has not grown its own derivation back beside it.
+	gateway := exportedIdentifiers(t, filepath.Join(root, "internal", "gateway"))
+	for _, name := range gatewayDeletedDerivation {
+		if gateway["!declared:"+name] {
+			t.Fatalf("internal/gateway declares %q again; production would hold two derivations "+
+				"of one statement, which is what the extraction removed", name)
+		}
+	}
+
+	// 4. Nothing in the active tree constructs the finalizer's trusted inputs,
+	// which is the observable consequence of the remaining gap: acceptance is
+	// reachable only from tests.
 	if callers := trustedInputConstructors(t); len(callers) > 0 {
 		t.Fatalf("%v now construct the finalizer's trusted inputs; the cutover may be "+
 			"unblocked -- write it and delete this blocker", callers)

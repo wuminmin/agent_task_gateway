@@ -12,6 +12,7 @@ import (
 
 	"taskbound.local/agent-data-gateway/internal/ordinal"
 	"taskbound.local/agent-data-gateway/internal/physicalquery"
+	"taskbound.local/agent-data-gateway/internal/preparedbinding"
 	"taskbound.local/agent-data-gateway/internal/queryplan"
 	"taskbound.local/agent-data-gateway/internal/viewcompiler"
 )
@@ -86,50 +87,27 @@ func resolveSemanticViewCase(t *testing.T, test semanticViewCase) semanticViewPa
 	return semanticViewParity{fixture: fixture, outer: outer, composition: composition}
 }
 
-// semanticViewInputsFor maps the Gateway's resolved material onto the pure
-// input contract.
+// semanticViewInputsFor is the production mapping, called rather than repeated.
 //
-// This is the mapping the Gateway itself will perform at T1d. It reads the
-// Control Store binding and the verified registry the Gateway already resolved,
-// and passes values; the finalizer will build the same type from retained frozen
-// evidence. Nothing here hands the package a store, a registry or a Service.
+// While this harness owned its own copy, a passing comparison proved that
+// PrepareSemanticView agreed with the Gateway given inputs the harness built --
+// which is not the claim anyone wanted, and which stopped being true the moment
+// production began pinning the grant to the View. What matters is agreement
+// given the inputs production actually builds, and the only way to assert that
+// is to build them the same way production does.
 func semanticViewInputsFor(t *testing.T, parity semanticViewParity) physicalquery.SemanticViewPreparationInputsV1 {
 	t.Helper()
 	fixture := parity.fixture
-	view, err := physicalquery.CatalogViewFromCatalog(*fixture.service.catalog)
+	inputs, err := fixture.service.semanticViewPreparationInputs(
+		fixture.grant, fixture.artifact, parity.composition, fixture.binding, parity.outer)
 	if err != nil {
-		t.Fatalf("build catalog view from the Gateway's own catalog: %v", err)
-	}
-	grant := fixture.grant
-	inputs := physicalquery.SemanticViewPreparationInputsV1{
-		OuterPlan: parity.outer,
-		Catalog:   view,
-		Grant: physicalquery.Grant{
-			ApprovedProducts: grant.ApprovedProducts,
-			ApprovedColumns:  grant.ApprovedColumns,
-			MandatoryScope:   grant.MandatoryScope,
-			ExposureProfile:  grant.Exposure.ProfileVersion,
-			PredicateLimits:  predicateLimitsForGrant(grant.Exposure),
-		},
-		ViewBindingDigest:      fixture.binding.Digest,
-		ExpectedRevisionDigest: fixture.binding.Expectation.ExpectedRevisionDigest,
-		Artifact:               fixture.artifact,
-		Composition:            parity.composition,
-	}
-	if inputs.Grant.UsesOrdinalProgram() {
-		// The production resolver, so the View harness and the ordinary
-		// preparation harness bind the same universe from the same registry.
-		bindings, err := fixture.service.snapshotBindings()
-		if err != nil {
-			t.Fatalf("resolve snapshot bindings: %v", err)
-		}
-		inputs.SnapshotBindings = bindings
+		t.Fatalf("build semantic View preparation inputs: %v", err)
 	}
 	return inputs
 }
 
-// extractedViewShapeOf reads the same members legacyShapeOf reads, from the
-// extracted preparation instead of the Gateway's.
+// extractedViewShapeOf reads the same members productionShapeOf reads, from an
+// independently prepared operation instead of from the Gateway's context.
 func extractedViewShapeOf(t *testing.T, prepared physicalquery.PreparedOperation) preparationShape {
 	t.Helper()
 	visibleSQL, companionSQL, err := prepared.ExecutableStatements()
@@ -176,6 +154,19 @@ func extractedViewShapeOf(t *testing.T, prepared physicalquery.PreparedOperation
 	} else {
 		shape.PredicateFootprint = footprint
 	}
+	shape.PreparedOperationSHA256 = binding.SHA256
+	visible, err := binding.TargetSHA256(preparedbinding.RoleVisible)
+	if err != nil {
+		t.Fatalf("read the prepared visible target: %v", err)
+	}
+	shape.VisibleTargetSHA256 = visible
+	if binding.HasCompanion {
+		companion, companionErr := binding.TargetSHA256(preparedbinding.RoleCompanion)
+		if companionErr != nil {
+			t.Fatalf("read the prepared companion target: %v", companionErr)
+		}
+		shape.CompanionTargetSHA256 = companion
+	}
 	return shape
 }
 
@@ -193,7 +184,7 @@ func TestSemanticViewPreparationMatchesTheGateway(t *testing.T) {
 			fixture := parity.fixture
 
 			legacyPrepared, err := fixture.service.prepareSemanticViewPlan(
-				fixture.grant, fixture.root, fixture.artifact, parity.composition,
+				fixture.grant, fixture.artifact, parity.composition,
 				fixture.binding, parity.outer)
 			if err != nil {
 				if toolErr, ok := err.(*mcp.ToolError); ok {
@@ -201,10 +192,7 @@ func TestSemanticViewPreparationMatchesTheGateway(t *testing.T) {
 				}
 				t.Fatalf("the Gateway refused to prepare the semantic View: %v", err)
 			}
-			evidence := datasourceEvidence{DatasourceID: "parity-datasource",
-				SchemaDigest: strings.Repeat("9", 64)}
-			legacy, err := legacyShapeOf(fixture.service, legacyPrepared, parity.outer,
-				fixture.grant, evidence, strings.Repeat("a", 64), strings.Repeat("b", 64))
+			production, err := productionShapeOf(legacyPrepared, parity.composition.Plan)
 			if err != nil {
 				t.Fatalf("read the Gateway's semantic View shape: %v", err)
 			}
@@ -216,19 +204,13 @@ func TestSemanticViewPreparationMatchesTheGateway(t *testing.T) {
 			}
 			extracted := extractedViewShapeOf(t, prepared)
 
-			// Metering is Gateway observation state rather than prepared output, as
-			// for the table shapes; its whole effect on preparation is the statement
-			// bytes and the widened grant, both compared here.
-			legacy.MeteringColumns, extracted.MeteringColumns = nil, nil
-			// The execution-binding digests are computed by the Gateway from the
-			// shape, not by preparation, and the legacy side alone fills them.
-			legacy.PreparedOperationSHA256, legacy.VisibleTargetSHA256, legacy.CompanionTargetSHA256 = "", "", ""
-			// The registry revision travels as a digest in the new binding and as the
-			// raw operational string in the old shape, so they are compared for
-			// presence and agreement separately below rather than byte for byte.
-			revision := legacy.ViewRegistryRevision
-			legacy.ViewRegistryRevision, extracted.ViewRegistryRevision = "", ""
-			requireSameShape(t, legacy, extracted)
+			// The registry revision is Gateway-only state: the binding carries a
+			// digest of it, because an operational string is not evidence, so the
+			// two are compared for presence and agreement below rather than byte for
+			// byte.
+			revision := production.ViewRegistryRevision
+			production.ViewRegistryRevision, extracted.ViewRegistryRevision = "", ""
+			requireSameShape(t, production, extracted)
 
 			if revision == "" || prepared.Binding().ViewRegistryRevisionSHA256 == "" {
 				t.Error("a semantic View preparation carries no registry revision")
@@ -356,12 +338,34 @@ func mutateScope(inputs *physicalquery.SemanticViewPreparationInputsV1,
 
 func semanticViewMutations(terminal string) []viewMutation {
 	return []viewMutation{
-		{name: "view binding digest", apply: func(i *physicalquery.SemanticViewPreparationInputsV1) {
-			i.ViewBindingDigest = strings.Repeat("1", 64)
-		}},
-		{name: "expected registry revision", apply: func(i *physicalquery.SemanticViewPreparationInputsV1) {
-			i.ExpectedRevisionDigest = strings.Repeat("2", 64)
-		}},
+		// These two fail closed rather than moving the binding, and that is the
+		// stronger outcome. Production pins the grant to the View it was resolved
+		// against, so changing the View the inputs name while the grant still names
+		// the old one is not a different preparation -- it is a grant and a View
+		// that disagree, which preparation refuses rather than reconciles. Their
+		// effect on the sealed binding is covered by the artifact, composition and
+		// registry-revision members below, which move it.
+		{name: "view binding digest", failsClosed: true,
+			apply: func(i *physicalquery.SemanticViewPreparationInputsV1) {
+				i.ViewBindingDigest = strings.Repeat("1", 64)
+			}},
+		{name: "expected registry revision", failsClosed: true,
+			apply: func(i *physicalquery.SemanticViewPreparationInputsV1) {
+				i.ExpectedRevisionDigest = strings.Repeat("2", 64)
+			}},
+		// The coherent version of the two above: a task bound to a DIFFERENT View,
+		// with the grant and the inputs agreeing about which. That is a real
+		// operation, and it must not share an identity with this one.
+		{name: "the view the grant and the inputs both name",
+			apply: func(i *physicalquery.SemanticViewPreparationInputsV1) {
+				i.ViewBindingDigest = strings.Repeat("1", 64)
+				i.Grant.ViewBindingDigest = strings.Repeat("1", 64)
+			}},
+		{name: "the registry revision the grant and the inputs both name",
+			apply: func(i *physicalquery.SemanticViewPreparationInputsV1) {
+				i.ExpectedRevisionDigest = strings.Repeat("2", 64)
+				i.Grant.ViewRegistryRevision = strings.Repeat("2", 64)
+			}},
 		{name: "artifact canonical plan digest", apply: func(i *physicalquery.SemanticViewPreparationInputsV1) {
 			i.Artifact.CanonicalPlanDigest = strings.Repeat("3", 64)
 		}},

@@ -57,7 +57,7 @@ func TestPrepareSemanticViewPlanExpandsToLeastPrivilegeTerminalPlan(t *testing.T
 	}
 
 	prepared, err := fixture.service.prepareSemanticViewPlan(
-		fixture.grant, fixture.root, fixture.artifact, composition, fixture.binding,
+		fixture.grant, fixture.artifact, composition, fixture.binding, outer,
 	)
 	if err != nil {
 		t.Fatalf("prepare semantic View plan: %v", err)
@@ -81,22 +81,19 @@ func TestPrepareSemanticViewPlanExpandsToLeastPrivilegeTerminalPlan(t *testing.T
 			prepared.Exposure.viewBindingDigest, prepared.Exposure.viewRegistryRevision)
 	}
 
+	// The task's own grant is what an agent's plan against the public View
+	// relation is compiled and authorized by. Preparation adds the terminal
+	// closure beside it and must not have folded anything into it, or the agent
+	// could reach a terminal column through the public relation.
 	publicGrant, err := fixture.service.policyGrant(fixture.grant)
 	if err != nil {
 		t.Fatalf("build public policy grant: %v", err)
-	}
-	before := clonePolicyGrant(publicGrant)
-	extended, err := prepared.Exposure.extendGrant(publicGrant)
-	if err != nil {
-		t.Fatalf("extend terminal policy grant: %v", err)
-	}
-	if !reflect.DeepEqual(publicGrant, before) {
-		t.Fatalf("terminal expansion mutated public Grant: before=%#v after=%#v", before, publicGrant)
 	}
 	if len(publicGrant.Products) != 1 || publicGrant.Products[0].LogicalName != fixture.root.Name ||
 		!reflect.DeepEqual(publicGrant.Products[0].ApprovedColumns, []string{"amount"}) {
 		t.Fatalf("public Grant was broadened: %#v", publicGrant)
 	}
+	extended := prepared.PolicyGrant
 	if len(extended.Products) != 2 {
 		t.Fatalf("extended products = %#v, want public root plus one terminal", extended.Products)
 	}
@@ -168,7 +165,7 @@ func TestPrepareSemanticJoinManyPreservesThreeTerminalLeastPrivilegeClosure(t *t
 	}
 
 	prepared, err := fixture.service.prepareSemanticViewPlan(
-		fixture.grant, fixture.root, fixture.artifact, composition, fixture.binding,
+		fixture.grant, fixture.artifact, composition, fixture.binding, outer,
 	)
 	if err != nil {
 		t.Fatalf("prepare three-terminal semantic View: %v", err)
@@ -198,23 +195,25 @@ func TestPrepareSemanticJoinManyPreservesThreeTerminalLeastPrivilegeClosure(t *t
 		"runtime_order":   "order_tenant",
 		"runtime_payment": "payment_tenant",
 	}
-	if len(prepared.Exposure.internalPolicyProducts) != len(wantColumns) {
-		t.Fatalf("internal terminal grants = %#v, want exactly three terminals",
-			prepared.Exposure.internalPolicyProducts)
-	}
+	// The terminal grants are no longer a separate member: preparation merges
+	// them into the one grant the statements are admitted against, so they are
+	// read there. What must still hold is the closure -- each terminal approved
+	// for exactly its positive-evidence columns and confined by exactly the scope
+	// the root propagated into it.
+	extended := prepared.PolicyGrant
 	for name, columns := range wantColumns {
-		internal, present := prepared.Exposure.internalPolicyProducts[name]
+		internal, present := policyProductByName(extended, name)
 		if !present {
-			t.Fatalf("internal grant lacks terminal %q: %#v", name, prepared.Exposure.internalPolicyProducts)
+			t.Fatalf("prepared grant lacks terminal %q: %#v", name, extended.Products)
 		}
 		if !reflect.DeepEqual(internal.ApprovedColumns, columns) {
-			t.Fatalf("internal grant %q columns = %v, want exact closure %v", name, internal.ApprovedColumns, columns)
+			t.Fatalf("terminal grant %q columns = %v, want exact closure %v", name, internal.ApprovedColumns, columns)
 		}
 		wantScope := []sqlpolicy.ScopePredicate{{
 			Column: wantScopes[name], Operator: sqlpolicy.ScopeEqual, Values: []string{"tenant-42"},
 		}}
 		if !reflect.DeepEqual(internal.MandatoryScope, wantScope) {
-			t.Fatalf("internal grant %q scope = %#v, want %#v", name, internal.MandatoryScope, wantScope)
+			t.Fatalf("terminal grant %q scope = %#v, want %#v", name, internal.MandatoryScope, wantScope)
 		}
 	}
 
@@ -222,17 +221,9 @@ func TestPrepareSemanticJoinManyPreservesThreeTerminalLeastPrivilegeClosure(t *t
 	if err != nil {
 		t.Fatalf("build public root policy grant: %v", err)
 	}
-	publicBefore := clonePolicyGrant(publicGrant)
-	rootBefore, present := policyProductByName(publicBefore, fixture.root.Name)
+	rootBefore, present := policyProductByName(publicGrant, fixture.root.Name)
 	if !present {
-		t.Fatalf("public grant lacks semantic root: %#v", publicBefore)
-	}
-	extended, err := prepared.Exposure.extendGrant(publicGrant)
-	if err != nil {
-		t.Fatalf("extend public grant with terminal closure: %v", err)
-	}
-	if !reflect.DeepEqual(publicGrant, publicBefore) {
-		t.Fatalf("terminal extension mutated public root grant: before=%#v after=%#v", publicBefore, publicGrant)
+		t.Fatalf("public grant lacks semantic root: %#v", publicGrant)
 	}
 	if len(extended.Products) != len(wantColumns)+1 {
 		t.Fatalf("extended grants = %#v, want root plus three terminals", extended.Products)
@@ -286,7 +277,7 @@ func TestPrepareSemanticAggregateBarrierPreservesProjectionOrder(t *testing.T) {
 		t.Fatalf("composition visible order = %v, want %v", composition.VisibleFields, wantVisible)
 	}
 	prepared, err := fixture.service.prepareSemanticViewPlan(
-		fixture.grant, fixture.root, fixture.artifact, composition, fixture.binding,
+		fixture.grant, fixture.artifact, composition, fixture.binding, outer,
 	)
 	if err != nil {
 		t.Fatalf("prepare aggregate semantic View: %v", err)
@@ -382,8 +373,8 @@ func TestPrepareTaskPlanEnforcesRootAllowedOperatorsBeforeExpansion(t *testing.T
 
 func TestPrepareSemanticLeafFilterUsesExactTerminalColumnClosure(t *testing.T) {
 	fixture := newSemanticRuntimeFixture(t, false)
-	composition, err := viewcompiler.ComposeQueryPlan(fixture.root.Name,
-		queryplan.QueryPlan{Product: fixture.root.Name, Columns: []string{"amount"}}, fixture.artifact)
+	amountOuter := queryplan.QueryPlan{Product: fixture.root.Name, Columns: []string{"amount"}}
+	composition, err := viewcompiler.ComposeQueryPlan(fixture.root.Name, amountOuter, fixture.artifact)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -393,30 +384,19 @@ func TestPrepareSemanticLeafFilterUsesExactTerminalColumnClosure(t *testing.T) {
 	composition.Plan.From.Scan.Filters = []queryplan.Filter{{
 		Column: "status", Op: "=", Value: "approved",
 	}}
+	// The closure is asserted through the authority it produces rather than by
+	// calling the closure function: since T1d it is computed inside
+	// internal/physicalquery, and what this case is about is that a leaf filter
+	// widens the private terminal grant by its own column and by nothing else.
 	wantColumns := []string{"amount", "department", "receipt_no", "status"}
-	closure, err := semanticPlanRequiredColumns(composition.Plan,
-		map[string]catalog.Product{fixture.terminal.Name: fixture.terminal})
-	if err != nil {
-		t.Fatalf("compute terminal column closure: %v", err)
-	}
-	if got := sortedStringSet(closure[fixture.terminal.Name]); !reflect.DeepEqual(got, wantColumns) {
-		t.Fatalf("terminal column closure = %v, want %v", got, wantColumns)
-	}
 
 	prepared, err := fixture.service.prepareSemanticViewPlan(
-		fixture.grant, fixture.root, fixture.artifact, composition, fixture.binding,
+		fixture.grant, fixture.artifact, composition, fixture.binding, amountOuter,
 	)
 	if err != nil {
 		t.Fatalf("prepare leaf-filter semantic View: %v", err)
 	}
-	publicGrant, err := fixture.service.policyGrant(fixture.grant)
-	if err != nil {
-		t.Fatalf("build public policy grant: %v", err)
-	}
-	extended, err := prepared.Exposure.extendGrant(publicGrant)
-	if err != nil {
-		t.Fatalf("extend private terminal policy: %v", err)
-	}
+	extended := prepared.PolicyGrant
 	terminalGrant, present := policyProductByName(extended, fixture.terminal.Name)
 	if !present || !reflect.DeepEqual(terminalGrant.ApprovedColumns, wantColumns) {
 		t.Fatalf("private terminal authority = %#v, want exact columns %v", terminalGrant, wantColumns)
@@ -524,8 +504,8 @@ func TestReplayPreparationFailurePrefersDurableTerminalOutcome(t *testing.T) {
 
 func TestPrepareSemanticViewPlanRejectsUnprovenTerminalScope(t *testing.T) {
 	fixture := newSemanticRuntimeFixture(t, false)
-	composition, err := viewcompiler.ComposeQueryPlan(fixture.root.Name,
-		queryplan.QueryPlan{Product: fixture.root.Name, Columns: []string{"amount"}}, fixture.artifact)
+	amountOuter := queryplan.QueryPlan{Product: fixture.root.Name, Columns: []string{"amount"}}
+	composition, err := viewcompiler.ComposeQueryPlan(fixture.root.Name, amountOuter, fixture.artifact)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -539,22 +519,27 @@ func TestPrepareSemanticViewPlanRejectsUnprovenTerminalScope(t *testing.T) {
 		}
 	}
 	_, err = fixture.service.prepareSemanticViewPlan(
-		fixture.grant, fixture.root, broken, composition, fixture.binding,
+		fixture.grant, broken, composition, fixture.binding, amountOuter,
 	)
 	requireToolCode(t, err, apierr.CodePolicyDenied)
 }
 
 func TestPrepareSemanticViewPlanRejectsLowerRootSensitivity(t *testing.T) {
 	fixture := newSemanticRuntimeFixture(t, false)
-	composition, err := viewcompiler.ComposeQueryPlan(fixture.root.Name,
-		queryplan.QueryPlan{Product: fixture.root.Name, Columns: []string{"amount"}}, fixture.artifact)
+	amountOuter := queryplan.QueryPlan{Product: fixture.root.Name, Columns: []string{"amount"}}
+	composition, err := viewcompiler.ComposeQueryPlan(fixture.root.Name, amountOuter, fixture.artifact)
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The root is read from the Catalog, not from a parameter: preparation
+	// resolves it out of the CatalogView so the Gateway and the finalizer cannot
+	// be handed two different roots for one View. Lowering it therefore means
+	// lowering it in the Catalog.
 	lowRoot := fixture.root
 	lowRoot.Sensitivity = domain.SensitivityLow
+	replaceCatalogProductForTest(t, fixture.service.catalog, lowRoot)
 	_, err = fixture.service.prepareSemanticViewPlan(
-		fixture.grant, lowRoot, fixture.artifact, composition, fixture.binding,
+		fixture.grant, fixture.artifact, composition, fixture.binding, amountOuter,
 	)
 	requireToolCode(t, err, apierr.CodePolicyDenied)
 }
@@ -566,13 +551,13 @@ func TestPrepareSemanticViewPlanV4BindsOnlyTerminalOrdinalSources(t *testing.T) 
 	if fixture.root.SnapshotPublication != "" {
 		t.Fatalf("fixture root unexpectedly owns snapshot publication %q", fixture.root.SnapshotPublication)
 	}
-	composition, err := viewcompiler.ComposeQueryPlan(fixture.root.Name,
-		queryplan.QueryPlan{Product: fixture.root.Name, Columns: []string{"amount"}}, fixture.artifact)
+	amountOuter := queryplan.QueryPlan{Product: fixture.root.Name, Columns: []string{"amount"}}
+	composition, err := viewcompiler.ComposeQueryPlan(fixture.root.Name, amountOuter, fixture.artifact)
 	if err != nil {
 		t.Fatal(err)
 	}
 	prepared, err := fixture.service.prepareSemanticViewPlan(
-		fixture.grant, fixture.root, fixture.artifact, composition, fixture.binding,
+		fixture.grant, fixture.artifact, composition, fixture.binding, amountOuter,
 	)
 	if err != nil {
 		t.Fatalf("prepare V4 semantic View: %v", err)
@@ -631,13 +616,13 @@ func TestExecutePlanSemanticViewCarriesRegistryExpectationToPairedQueries(t *tes
 	// then feed one immutable published row through the streaming fake.
 	fixture.service = harness.service
 	fixture.grant.Exposure.ProfileVersion = exposure.ProfileV4
-	composition, err := viewcompiler.ComposeQueryPlan(fixture.root.Name,
-		queryplan.QueryPlan{Product: fixture.root.Name, Columns: []string{"amount"}}, fixture.artifact)
+	amountOuter := queryplan.QueryPlan{Product: fixture.root.Name, Columns: []string{"amount"}}
+	composition, err := viewcompiler.ComposeQueryPlan(fixture.root.Name, amountOuter, fixture.artifact)
 	if err != nil {
 		t.Fatal(err)
 	}
 	prepared, err := fixture.service.prepareSemanticViewPlan(
-		fixture.grant, fixture.root, fixture.artifact, composition, fixture.binding,
+		fixture.grant, fixture.artifact, composition, fixture.binding, amountOuter,
 	)
 	if err != nil {
 		t.Fatalf("prepare expected V4 row contract: %v", err)
@@ -839,7 +824,10 @@ func newSemanticJoinManyRuntimeFixture(t *testing.T) semanticJoinManyRuntimeFixt
 	}
 	logical := &catalog.Catalog{
 		CatalogVersion: "runtime-join-many-test",
-		Products:       append(append([]catalog.Product(nil), terminals...), root),
+		// Preparation is sealed against a Catalog digest, so a fixture Catalog
+		// needs one. A real load computes it; this stands in for that value.
+		SHA256:   strings.Repeat("7", 64),
+		Products: append(append([]catalog.Product(nil), terminals...), root),
 		Scopes: []catalog.Scope{
 			scopePolicy("account_tenant"),
 			scopePolicy("order_tenant"),

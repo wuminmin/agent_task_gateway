@@ -19,6 +19,15 @@ type relationalExposureContext struct {
 	products    map[string]catalog.Product
 }
 
+// relationalQueryProduct is the compilation product carrying a Catalog Product's
+// canonical semantic identity.
+//
+// It survives the preparation extraction because its two remaining callers are
+// not preparing anything: SQL lowering needs it to resolve identifiers in an
+// agent's raw statement before there is a QueryPlan at all, and View binding
+// needs it to compile the registry snapshot before any task references the
+// result. Preparation has its own copy over the same Catalog values, and neither
+// of these paths reaches it.
 func relationalQueryProduct(product catalog.Product, approved map[string]struct{}) queryplan.Product {
 	types := make(map[string]string, len(product.Fields))
 	collations := make(map[string]string, len(product.Fields))
@@ -39,54 +48,6 @@ func relationalQueryProduct(product catalog.Product, approved map[string]struct{
 		StableRole: product.StableRelationRole, StableEntityKey: append([]string(nil), product.EntityKey...),
 		LineageDigest: product.LineageManifestDigest, RequiredEvidence: append([]string(nil), product.Scopes...),
 	}
-}
-
-func buildRelationalExposureContext(plan queryplan.QueryPlan, compilation queryplan.RelationalCompilation, products map[string]catalog.Product, approved map[string][]string) (*planExposureContext, error) {
-	if compilation.VisibleSQL == "" || compilation.ProvenanceSQL == "" || len(compilation.Sources) == 0 {
-		return nil, errors.New("relational compilation is incomplete")
-	}
-	productList := make([]catalog.Product, 0, len(compilation.Products))
-	metering := make(map[string][]string, len(compilation.Products))
-	for _, name := range compilation.Products {
-		product, present := products[name]
-		if !present || product.FactNamespace == "" || product.Snapshot == "" || product.StableRelationRole == "" || len(product.EntityKey) == 0 {
-			return nil, fmt.Errorf("V2 product %q lacks stable semantic metadata", name)
-		}
-		set := stringSetFromSlice(approved[name])
-		for _, column := range append(append([]string(nil), product.EntityKey...), product.Scopes...) {
-			if _, present := catalogFieldByName(product.Fields, column); !present {
-				return nil, fmt.Errorf("metering field %q is absent from product %q", column, name)
-			}
-			set[column] = struct{}{}
-		}
-		for _, source := range compilation.Sources {
-			if source.Product != name {
-				continue
-			}
-			for _, field := range source.EvidenceFields {
-				set[field] = struct{}{}
-			}
-		}
-		metering[name] = sortedStringSet(set)
-		productList = append(productList, product)
-	}
-	semanticProducts := make(map[string]queryplan.Product, len(products))
-	for name, product := range products {
-		semanticProducts[name] = relationalQueryProduct(product, stringSetFromSlice(product.FieldNames()))
-	}
-	normal, err := queryplan.SemanticNormalForm(plan, compilation, semanticProducts)
-	if err != nil {
-		return nil, err
-	}
-	context := &planExposureContext{
-		products: productList, plan: cloneQueryPlan(plan), mainSQL: compilation.VisibleSQL,
-		provenanceSQL: compilation.ProvenanceSQL, visibleFields: append([]string(nil), compilation.VisibleFields...),
-		factFields: append([]string(nil), compilation.VisibleFields...), provenanceFields: append([]string(nil), compilation.ProvenanceFields...),
-		grouped: len(plan.GroupBy) > 0 || len(plan.Aggregates) > 0, expandedEvidence: compilation.ExpandedEvidence,
-		meteringByProduct: metering, relational: &relationalExposureContext{compilation: compilation, products: products},
-		algebraNormalForm: &normal, planDigest: normal.SHA256,
-	}
-	return context, nil
 }
 
 func relationalAlgebraPlan(plan queryplan.QueryPlan, compilation queryplan.RelationalCompilation, products map[string]catalog.Product) (queryplan.AlgebraPlanV2, error) {
@@ -300,8 +261,8 @@ func relationalAggregateType(aggregate queryplan.Aggregate, products map[string]
 }
 
 func (context *planExposureContext) deriveRelationalObservationV2(visible, provenance dataconnector.Result) (exposure.Observation, error) {
-	if context.algebraNormalForm == nil || context.planDigest == "" {
-		return exposure.Observation{}, errors.New("relational V2 query has no algebra normal form")
+	if context.planDigest == "" {
+		return exposure.Observation{}, errors.New("relational V2 query has no canonical plan identity")
 	}
 	if provenance.Truncated {
 		return exposure.Observation{}, errProvenanceTruncated

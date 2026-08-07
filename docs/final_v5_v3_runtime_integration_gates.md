@@ -322,25 +322,26 @@ Only three parties could supply them today, and each is excluded:
    reimplemented the derivation, the two would drift and the drift would look
    like a measurement result."*
 
-The derivation is unexported glue inside `internal/gateway`.
-`internal/queryplan` exports `CompileOrdinal` and `CompileRelational`, and
-`internal/physicalquery` exports `Derive`; the step **between** them — agent SQL
-plus Catalog products, to an exposure plan, to the compiled visible and companion
-statements — lives in `planExposureContext`, `buildRelationalExposureContext` and
-`Service.derivePhysicalQuery`, which no other package can reach.
+**That was true until T1d, and it is not any more.** The derivation was
+unexported glue inside `internal/gateway` — `planExposureContext`,
+`buildRelationalExposureContext` and the ordinal sidecar binder — so the step
+between `queryplan.CompileOrdinal`/`CompileRelational` and
+`physicalquery.Derive` was reachable from no other package.
 
-**The resolution is the same extraction that produced `internal/physicalquery`:**
-lift that glue into a shared package both the Gateway and the finalizer call, so
-the finalizer reaches the same two statements from frozen contract material and
-signed pre-state rather than being told them. It is a forward extraction, not a
-rewrite: `physicalquery` was moved out of the evaluation tree for exactly this
-reason, and `sqlidentity` after it.
+T1d completed the extraction. `internal/physicalquery.Prepare` and
+`PrepareSemanticView` derive both statements from immutable inputs, and they are
+now the **only** implementation: the Gateway calls them on its production path
+and its own derivation is deleted, so there is no second derivation to drift
+against. A finalizer holding frozen contract material can reach the same two
+statements without asking the Gateway and without reimplementing anything.
 
-Until then the cutover cannot land without either weakening the Adapter guard or
-reimplementing the derivation. The conflict is pinned by
-`experiment.TestV3CutoverIsBlockedByTheUnsharedTargetDerivation`, which fails the
-moment the derivation becomes shareable — which is when the real cutover gets
-written.
+**What still blocks the cutover is that nothing calls it.** No finalizer path
+reproduces a preparation, and nothing in the active tree constructs
+`TrustedInputsV3` or `IndependentInputsV3`, so acceptance remains reachable only
+from tests. The remaining conflict is pinned by
+`experiment.TestV3CutoverIsBlockedByTheUnwiredFinalizer`, which also refuses a
+regression that re-hides the shared derivation or grows a second one back inside
+`internal/gateway`.
 
 Everything downstream of the cutover therefore remains unreached: the v1.4
 retirement ratchet is still non-empty, the three TaskGate paths still have no v3

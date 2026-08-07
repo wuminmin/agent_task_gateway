@@ -592,128 +592,76 @@ func predicateFootprintResponseFor(context *planExposureContext) *predicateFootp
 		UniqueAtomCount: context.predicateFootprint.UniqueAtomCount}
 }
 
+// preparedQueryPlan is one prepared operation as the rest of the Gateway needs
+// it: the statement to execute, the authorization to admit it against, and --
+// when the profile accounts exposure -- the observation context.
+//
+// PolicyGrant is preparation's, not the task's. Preparation widens the task
+// grant by the metering closure and the ordinal sidecars, and it is the widened
+// grant the statements were compiled to be admitted by, so carrying it is what
+// keeps the Gateway from widening a second time and reaching a different answer.
 type preparedQueryPlan struct {
-	SQL      string
-	Exposure *planExposureContext
+	SQL         string
+	PolicyGrant sqlpolicy.Grant
+	Exposure    *planExposureContext
 }
 
 // preparePlan is the only QueryPlan-to-execution boundary. Both the advanced
 // structured entrypoint and exposure-enabled reporting SQL use it so visible
 // SQL, provenance, FactIDs, ordinal programs, and semantic replay cannot drift
 // between public input syntaxes. It performs no reservation or database I/O.
+//
+// It derives nothing. The statements, the projections, the policy grant, the
+// canonical plan identity, the ordinal program and the V5 predicate footprint
+// are all produced by internal/physicalquery.Prepare from immutable inputs, and
+// the finalizer reproduces them by calling the same function with values it
+// obtains for itself. There is no second path and no fallback: a shape Prepare
+// refuses is a shape this Gateway does not execute.
 func (s *Service) preparePlan(grant control.TaskGrant, plan queryplan.QueryPlan) (preparedQueryPlan, error) {
-	var prepared preparedQueryPlan
-	var err error
-	if plan.From == nil {
-		product, ok := s.catalog.LookupProduct(plan.Product)
-		if !ok || !contains(grant.ApprovedProducts, plan.Product) {
-			return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "QueryPlan 请求了任务授权外的数据产品"}
-		}
-		columns := make(map[string]struct{}, len(grant.ApprovedColumns[plan.Product]))
-		for _, column := range grant.ApprovedColumns[plan.Product] {
-			columns[column] = struct{}{}
-		}
-		aggregates := make(map[string]struct{}, len(product.AllowedAggregates))
-		for _, aggregate := range product.AllowedAggregates {
-			aggregates[strings.ToLower(aggregate)] = struct{}{}
-		}
-		prepared.SQL, err = queryplan.Compile(plan, queryplan.Product{Name: plan.Product, Columns: columns, AllowedAggregates: aggregates})
-		if err != nil {
-			return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "QueryPlan 无法在任务授权内编译"}
-		}
-		if grant.Exposure.Enabled() {
-			prepared.Exposure, err = buildPlanExposureContext(plan, product, columns, aggregates)
-			if err != nil {
-				return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "QueryPlan 不在可精确计量的数据暴露片段内"}
-			}
-			if grant.Exposure.ProfileVersion == exposure.ProfileV2 || grant.Exposure.ProfileVersion == exposure.ProfileV3 || grant.Exposure.ProfileVersion == exposure.ProfileV4 || grant.Exposure.ProfileVersion == exposure.ProfileV5 {
-				if err := prepared.Exposure.configureV2(columns, aggregates); err != nil {
-					return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "QueryPlan 缺少 V2 规范身份或无法归一化"}
-				}
-			}
-			prepared.SQL = prepared.Exposure.mainSQL
-			if grant.Exposure.ProfileVersion == exposure.ProfileV4 || grant.Exposure.ProfileVersion == exposure.ProfileV5 {
-				ordinalProduct, ordinalProductErr := s.ordinalQueryProduct(product, columns)
-				if ordinalProductErr != nil {
-					return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "V4 Product 未绑定可信快照发布物"}
-				}
-				ordinalCompilation, ordinalCompileErr := queryplan.CompileOrdinal(plan, ordinalProduct)
-				if ordinalCompileErr != nil {
-					return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "QueryPlan 无法编译为 V4 ordinal 程序"}
-				}
-				bound, bindErr := s.bindOrdinalSidecars(ordinalCompilation.ProvenanceSQL,
-					ordinalCompilation.ProvenanceFields, ordinalCompilation.OrdinalProgram)
-				if bindErr != nil {
-					return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodeConflict, Message: "V4 快照索引或 sidecar 与 Catalog 不一致"}
-				}
-				prepared.Exposure.mainSQL = ordinalCompilation.VisibleSQL
-				prepared.Exposure.provenanceSQL = bound.ProvenanceSQL
-				prepared.Exposure.provenanceFields = append([]string(nil), bound.ProvenanceFields...)
-				if plan.Limit > 0 {
-					bound.EstimatedBaseFacts = estimateOrdinalBaseFacts(bound, uint64(plan.Limit))
-				}
-				prepared.Exposure.ordinal = &bound
-				prepared.SQL = ordinalCompilation.VisibleSQL
-				if grant.Exposure.ProfileVersion == exposure.ProfileV5 {
-					if footprintErr := prepared.Exposure.configurePredicateFootprintV5(s.catalog.SHA256, grant.MandatoryScope,
-						map[string]queryplan.Product{plan.Product: ordinalProduct}, nil, nil, "", predicateLimitsForGrant(grant.Exposure)); footprintErr != nil {
-						return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "QueryPlan 无法生成 V5 谓词足迹"}
-					}
-				}
-			}
-		}
-	} else {
-		if !grant.Exposure.Enabled() || (grant.Exposure.ProfileVersion != exposure.ProfileV2 && grant.Exposure.ProfileVersion != exposure.ProfileV3 && grant.Exposure.ProfileVersion != exposure.ProfileV4 && grant.Exposure.ProfileVersion != exposure.ProfileV5) {
-			return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "在线 Join/Union 必须使用 taskgate-exposure-v2、v3、v4 或 v5"}
-		}
-		productNames, namesErr := queryplan.RelationalProductNames(plan)
-		if namesErr != nil {
-			return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "关系 QueryPlan 的 from 结构无效"}
-		}
-		queryProducts := make(map[string]queryplan.Product, len(productNames))
-		catalogProducts := make(map[string]catalog.Product, len(productNames))
-		for _, name := range productNames {
-			product, ok := s.catalog.LookupProduct(name)
-			if !ok || !contains(grant.ApprovedProducts, name) {
-				return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "关系 QueryPlan 请求了任务授权外的数据产品"}
-			}
-			approved := stringSetFromSlice(grant.ApprovedColumns[name])
-			queryProduct := relationalQueryProduct(product, approved)
-			if grant.Exposure.ProfileVersion == exposure.ProfileV4 || grant.Exposure.ProfileVersion == exposure.ProfileV5 {
-				queryProduct, err = s.ordinalQueryProduct(product, approved)
-				if err != nil {
-					return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "V4 Product 未绑定可信快照发布物"}
-				}
-			}
-			queryProducts[name] = queryProduct
-			catalogProducts[name] = product
-		}
-		relational, compileErr := queryplan.CompileRelational(plan, queryProducts)
-		if compileErr != nil {
-			return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "Join/Union QueryPlan 无法在受限关系片段内编译"}
-		}
-		prepared.SQL = relational.VisibleSQL
-		prepared.Exposure, err = buildRelationalExposureContext(plan, relational, catalogProducts, grant.ApprovedColumns)
-		if err != nil {
-			return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "Join/Union 缺少完整的正输出依赖证据"}
-		}
-		prepared.SQL = prepared.Exposure.mainSQL
-		if grant.Exposure.ProfileVersion == exposure.ProfileV4 || grant.Exposure.ProfileVersion == exposure.ProfileV5 {
-			bound, bindErr := s.bindOrdinalSidecars(relational.ProvenanceSQL, relational.ProvenanceFields, relational.OrdinalProgram)
-			if bindErr != nil {
-				return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodeConflict, Message: "V4 快照索引或 sidecar 与 Catalog 不一致"}
-			}
-			prepared.Exposure.provenanceSQL = bound.ProvenanceSQL
-			prepared.Exposure.provenanceFields = append([]string(nil), bound.ProvenanceFields...)
-			prepared.Exposure.ordinal = &bound
-			if grant.Exposure.ProfileVersion == exposure.ProfileV5 {
-				if footprintErr := prepared.Exposure.configurePredicateFootprintV5(s.catalog.SHA256, grant.MandatoryScope, queryProducts, nil, nil, "", predicateLimitsForGrant(grant.Exposure)); footprintErr != nil {
-					return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "Join/Union 无法生成 V5 谓词足迹"}
-				}
-			}
-		}
+	inputs, err := s.preparationInputs(grant, plan)
+	if err != nil {
+		// Building the inputs is the Gateway's own half -- reading the loaded
+		// Catalog and resolving Publications through the verified registry -- so a
+		// failure here is server state disagreeing with itself, not a refused plan.
+		return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodeConflict,
+			Message: "查询无法在当前 Catalog 与快照证据下构造准备输入"}
 	}
-	return prepared, nil
+	prepared, err := physicalquery.Prepare(inputs)
+	if err != nil {
+		return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied,
+			Message: "QueryPlan 不在任务授权可精确计量的数据暴露片段内"}
+	}
+	compiler, err := physicalquery.LocalCompilerIdentity()
+	if err != nil {
+		return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodeConflict,
+			Message: "本进程无法确定查询编译器身份"}
+	}
+	// Validate proves the object is the one its binding describes; RequireInputs
+	// proves the binding names these inputs and this compiler. The Gateway holds
+	// the source material, so it makes both checks before executing -- exactly as
+	// the finalizer does before comparing.
+	if err := prepared.RequireInputs(inputs, compiler); err != nil {
+		return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodeConflict,
+			Message: "准备结果与其输入证据不一致；查询未执行"}
+	}
+	visibleSQL, _, err := prepared.ExecutableStatements()
+	if err != nil {
+		return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodeConflict,
+			Message: "准备结果拒绝交出可执行语句"}
+	}
+	result := preparedQueryPlan{SQL: visibleSQL, PolicyGrant: prepared.PolicyGrant()}
+	if !grant.Exposure.Enabled() {
+		// A plain query has no companion, no plan identity and no ledger, so there
+		// is nothing for an exposure context to hold.
+		return result, nil
+	}
+	context, err := s.planExposureContextFrom(prepared, plan)
+	if err != nil {
+		return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodeConflict,
+			Message: "已准备的查询无法在当前快照索引下建立观测上下文"}
+	}
+	result.Exposure = context
+	return result, nil
 }
 
 func predicateLimitsForGrant(grant control.ExposureGrant) queryplan.PredicateLimits {
@@ -851,25 +799,35 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 	}
 	componentMS := map[string]float64{}
 	policyStarted := time.Now()
-	policyGrant, err := s.policyGrant(grant)
-	if err != nil {
-		return nil, err
-	}
+	var policyGrant sqlpolicy.Grant
 	var exposureLedger control.ExposureLedgerSnapshot
-	if exposureContext != nil {
-		policyGrant, err = exposureContext.extendGrant(policyGrant)
-		if err != nil {
+	if exposureContext == nil {
+		// Nothing was prepared, or what was prepared accounts no exposure: the
+		// statement is admitted against the task grant unwidened. This path also
+		// carries the agent's own SQL, which no preparation ever saw.
+		if policyGrant, err = s.policyGrant(grant); err != nil {
+			return nil, err
+		}
+	} else {
+		// The authorization is preparation's, not a second construction of it.
+		// Preparation widened the task grant by the metering closure and then by
+		// the ordinal sidecars, and compiled the statements to be admitted by the
+		// result; widening a second time here would be a second derivation of one
+		// authorization, and the two could disagree.
+		//
+		// What this read of the grant IS for is the check below. The grant was
+		// loaded once for preparation and again here, and an approval that narrowed
+		// in between must not be executed against the wider one preparation sealed.
+		// Comparing the sealed grant digest is exact: it is the same mapping over
+		// the same values, so a difference is a real change rather than a mapping
+		// artifact.
+		if err := requirePreparedGrantStillCurrent(exposureContext, grant); err != nil {
 			return nil, toolError(control.ErrExposureEvidenceRequired)
 		}
+		policyGrant = exposureContext.policyGrant
 		exposureLedger, err = s.store.GetExposureLedger(ctx, task.ID)
 		if err != nil || exposureLedger.ProfileVersion != grant.Exposure.ProfileVersion {
 			return nil, toolError(control.ErrExposureEvidenceRequired)
-		}
-		if exposureContext.ordinal != nil {
-			policyGrant, err = extendOrdinalPolicyGrant(policyGrant, exposureContext.ordinal.SidecarGrants)
-			if err != nil {
-				return nil, toolError(control.ErrExposureEvidenceRequired)
-			}
 		}
 	}
 	engine := sqlpolicy.New(sqlpolicy.Config{})
@@ -1031,11 +989,11 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 	// binding written with the terminal evidence must describe the statements
 	// that were actually sent, and it must name the state that authorized them.
 	bindsExecution := s.executionBindingApplies(exposureContext, exposureLedger)
-	var preparedOp preparedOperation
+	var preparedOp preparedExecution
 	var ledgerBefore querybinding.ExposureLedgerBeforeV1
 	if bindsExecution {
 		preparedOp, ledgerBefore, err = s.prepareExecutionBinding(exposureContext, executionState, exposureLedger,
-			reservation.Before, agentSQL, companionSQL, protocolGrant, grantDigest, evidence)
+			reservation.Before)
 		if err != nil {
 			s.releaseQueryBudget(ctx, queryID, "EXECUTION_BINDING_UNAVAILABLE")
 			return nil, &mcp.ToolError{Code: apierr.CodeConflict,

@@ -80,6 +80,77 @@ func PrepareSemanticViewWith(inputs SemanticViewPreparationInputsV1,
 	return newPreparedOperation(identities, compiler, draft)
 }
 
+// RequireSemanticViewInputs is RequireInputs for a View operation.
+//
+// It exists because the two entry points seal different input sets: a View
+// preparation's PreparationInputsSHA256 is the semantic View input digest, so
+// PreparedOperation.RequireInputs -- which digests a PreparationInputs -- can
+// only ever report a mismatch for one. The members checked are the ones the
+// inputs determine; the terminal-closure and governance-envelope digests are
+// derived by the derivation rather than supplied, so they are covered by
+// Validate and by the input digest that names the Artifact and Catalog they were
+// proven against, not restated here.
+func (prepared PreparedOperation) RequireSemanticViewInputs(inputs SemanticViewPreparationInputsV1,
+	compiler CompilerIdentityV1) error {
+	if err := prepared.Validate(); err != nil {
+		return err
+	}
+	if err := compiler.Validate(); err != nil {
+		return err
+	}
+	inputsDigest, err := inputs.SHA256()
+	if err != nil {
+		return err
+	}
+	grantDigest, err := inputs.Grant.SHA256()
+	if err != nil {
+		return err
+	}
+	outerDigest, err := inputs.OuterPlanSHA256()
+	if err != nil {
+		return err
+	}
+	snapshotDigest, err := inputs.SnapshotBindingSetSHA256()
+	if err != nil {
+		return err
+	}
+	viewRevision, err := textDigest(viewRevisionDomain, inputs.ExpectedRevisionDigest)
+	if err != nil {
+		return err
+	}
+	artifactDigest, err := inputs.ArtifactSHA256()
+	if err != nil {
+		return err
+	}
+	compositionDigest, err := inputs.CompositionSHA256()
+	if err != nil {
+		return err
+	}
+	binding := prepared.binding
+	for _, member := range []struct {
+		name         string
+		wanted, held string
+	}{
+		{"preparation inputs", inputsDigest, binding.PreparationInputsSHA256},
+		{"grant", grantDigest, binding.GrantSHA256},
+		{"catalog", inputs.Catalog.Digest, binding.CatalogSHA256},
+		{"outer plan", outerDigest, binding.PlanSHA256},
+		{"snapshot binding set", snapshotDigest, binding.SnapshotBindingSetSHA256},
+		{"compiler identity", compiler.SHA256, binding.CompilerIdentitySHA256},
+		{"view binding", inputs.ViewBindingDigest, binding.ViewBindingSHA256},
+		{"view registry revision", viewRevision, binding.ViewRegistryRevisionSHA256},
+		{"view artifact", artifactDigest, binding.ViewArtifactSHA256},
+		{"view composition", compositionDigest, binding.ViewCompositionSHA256},
+	} {
+		if member.wanted != member.held {
+			return fmt.Errorf("prepared semantic View operation was not prepared from these inputs: "+
+				"the %s digest is %s, these inputs give %s",
+				member.name, shortDigest(member.held), shortDigest(member.wanted))
+		}
+	}
+	return nil
+}
+
 // identities derives the digest set for a semantic View preparation.
 //
 // The four View members are measured from what preparation actually read rather
@@ -212,8 +283,9 @@ func deriveSemanticViewPreparation(inputs SemanticViewPreparationInputsV1) (
 		ProvenanceFields: append([]string(nil), compiled.ProvenanceFields...),
 		Grouped: len(inputs.Composition.Plan.GroupBy) > 0 ||
 			len(inputs.Composition.Plan.Aggregates) > 0,
-		ExpandedEvidence: compiled.ExpandedEvidence,
-		NormalFormSHA256: shape.normalFormSHA256,
+		ExpandedEvidence:      compiled.ExpandedEvidence,
+		NormalFormSHA256:      shape.normalFormSHA256,
+		RelationalCompilation: &compiled,
 	}
 
 	if inputs.Grant.UsesOrdinalProgram() {

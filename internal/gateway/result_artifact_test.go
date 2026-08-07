@@ -354,25 +354,15 @@ func TestArtifactPromotionFailurePreservesSettlementAndRecoversWithoutReexecutio
 func TestCanonicalCopySurvivesAvailableTransactionFailureAndRecoversExactlyOnce(t *testing.T) {
 	harness := newGatewayHarness(t)
 	harness.installCatalogV4SnapshotRegistry(t)
+	const taskID = "task-copy-before-available"
+	const requestID = "copy-before-available-1"
+	// The task is created before the Connector fixture, because the fixture is
+	// built from the program production prepares for this task's own grant.
+	harness.createExposureV5SummaryTask(t, taskID, control.ExposureLimits{
+		ReleaseFacts: 20, InfluenceFacts: 20, OutcomeFacts: 20,
+	})
 	plan := queryplan.QueryPlan{Product: "expense_summary", Columns: []string{"month", "total_amount"}}
-	product, found := harness.catalog.LookupProduct(plan.Product)
-	if !found {
-		t.Fatal("expense_summary product is unavailable")
-	}
-	ordinalProduct, err := harness.service.ordinalQueryProduct(product,
-		map[string]struct{}{"month": {}, "total_amount": {}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	compilation, err := queryplan.CompileOrdinal(plan, ordinalProduct)
-	if err != nil {
-		t.Fatal(err)
-	}
-	bound, err := harness.service.bindOrdinalSidecars(compilation.ProvenanceSQL,
-		compilation.ProvenanceFields, compilation.OrdinalProgram)
-	if err != nil {
-		t.Fatal(err)
-	}
+	bound := prepareOrdinalForTest(t, harness, taskID, plan)
 	row := map[string]any{
 		"month": "2026-01", "department": "销售部", "expense_type": "机票",
 		"total_amount": json.Number("1680.00"),
@@ -420,11 +410,6 @@ func TestCanonicalCopySurvivesAvailableTransactionFailureAndRecoversExactlyOnce(
 		return harness.store.MarkResultArtifactAvailable(ctx, resultID, etag, actor)
 	}
 
-	const taskID = "task-copy-before-available"
-	const requestID = "copy-before-available-1"
-	harness.createExposureV5SummaryTask(t, taskID, control.ExposureLimits{
-		ReleaseFacts: 20, InfluenceFacts: 20, OutcomeFacts: 20,
-	})
 	arguments := map[string]any{
 		"task_id": taskID, "request_id": requestID,
 		"plan": map[string]any{"product": "expense_summary", "columns": []string{"month", "total_amount"}},
@@ -467,15 +452,16 @@ func TestCanonicalCopySurvivesAvailableTransactionFailureAndRecoversExactlyOnce(
 	if err := json.Unmarshal(receiptBefore.Receipt.ReceiptJSON, &signedBefore); err != nil {
 		t.Fatal(err)
 	}
-	// V9, not V8. This operation is exposure-V5 with result artifacts enabled and
-	// it completed, so it has a persisted execution binding; a receipt that
-	// dropped it and emitted V8 would be the silent downgrade the version
-	// selection refuses. Everything V8 required is still required here, because
-	// V9 is V8 plus the execution evidence.
-	if signedBefore.Version != queryreceipt.VersionV9 || signedBefore.Exposure == nil ||
+	// V10, not V8. This operation is exposure-V5 and it completed, so it has a
+	// persisted QueryExecutionBindingV2; a receipt that dropped it and emitted V8
+	// would be the silent downgrade the version selection refuses. The artifact
+	// intent is still required here because this delivery registered a result
+	// object -- V10 states its mode rather than requiring one, and an artifact
+	// delivery that omitted the intent would be describing a different delivery.
+	if signedBefore.Version != queryreceipt.VersionV10 || signedBefore.Exposure == nil ||
 		signedBefore.Exposure.ProfileVersion != exposure.ProfileV5 || signedBefore.ArtifactIntent == nil ||
-		signedBefore.ExecutionBinding == nil || signedBefore.ExposureLedgerBefore == nil {
-		t.Fatalf("crash-window receipt is not explicit V5 + V9 evidence: %+v", signedBefore)
+		signedBefore.ExecutionBindingV2 == nil || signedBefore.ExposureLedgerBefore == nil {
+		t.Fatalf("crash-window receipt is not explicit V5 + V10 evidence: %+v", signedBefore)
 	}
 	intentBefore := *signedBefore.ArtifactIntent
 	connectorCalls := len(harness.connector.requests)

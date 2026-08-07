@@ -19,19 +19,22 @@ import (
 	"taskbound.local/agent-data-gateway/internal/sqlidentity"
 )
 
-// v9Harness is an exposure-V5 task with result artifacts enabled: the only
-// configuration a Query Execution Binding can be signed into, because V9 is V8
-// plus the execution evidence and both require the completed artifact intent.
-type v9Harness struct {
+// v10Harness is an exposure-V5 task with result artifacts enabled.
+//
+// Result artifacts are no longer what makes a Query Execution Binding signable
+// -- V10 states its delivery mode rather than requiring an artifact intent, so
+// an inline V5 execution binds too. They are kept here because the artifact
+// delivery path is what the rest of these cases exercise; the inline case has
+// its own test.
+type v10Harness struct {
 	*gatewayHarness
 	taskID string
 }
 
-func newV9Harness(t *testing.T, taskID string) *v9Harness {
+func newV10Harness(t *testing.T, taskID string) *v10Harness {
 	t.Helper()
 	harness := newGatewayHarness(t)
 	harness.installCatalogV4SnapshotRegistry(t)
-	installV9ConnectorFixture(t, harness)
 
 	backend := newGatewayArtifactMemoryBackend()
 	cipher, err := control.NewAES256GCM(bytes.Repeat([]byte{0x59}, 32))
@@ -48,39 +51,25 @@ func newV9Harness(t *testing.T, taskID string) *v9Harness {
 	}
 	harness.service.resultArtifacts = manager
 	harness.service.resultTTL = time.Hour
-	harness.service.deliverySigningKey = []byte("v9-execution-binding-test-key")
+	harness.service.deliverySigningKey = []byte("v10-execution-binding-test-key")
 
 	harness.createExposureV5SummaryTask(t, taskID, control.ExposureLimits{
 		ReleaseFacts: 40, InfluenceFacts: 40, OutcomeFacts: 40,
 	})
-	return &v9Harness{gatewayHarness: harness, taskID: taskID}
+	// The Connector fixture is installed after the task exists, because it is now
+	// built from the program the production preparation compiles for that task's
+	// own grant rather than from a program the fixture compiled itself.
+	installV10ConnectorFixture(t, harness, taskID)
+	return &v10Harness{gatewayHarness: harness, taskID: taskID}
 }
 
-// installV9ConnectorFixture makes the fake Connector return a visible row and a
+// installV10ConnectorFixture makes the fake Connector return a visible row and a
 // matching provenance row whose row handles resolve in the live compiled
 // snapshot index. Without a resolvable handle the ordinal derivation refuses the
 // evidence and nothing reaches settlement.
-func installV9ConnectorFixture(t *testing.T, harness *gatewayHarness) {
+func installV10ConnectorFixture(t *testing.T, harness *gatewayHarness, taskID string) {
 	t.Helper()
-	plan := queryplan.QueryPlan{Product: "expense_summary", Columns: []string{"month", "total_amount"}}
-	product, found := harness.catalog.LookupProduct(plan.Product)
-	if !found {
-		t.Fatal("expense_summary product is unavailable")
-	}
-	ordinalProduct, err := harness.service.ordinalQueryProduct(product,
-		map[string]struct{}{"month": {}, "total_amount": {}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	compilation, err := queryplan.CompileOrdinal(plan, ordinalProduct)
-	if err != nil {
-		t.Fatal(err)
-	}
-	bound, err := harness.service.bindOrdinalSidecars(compilation.ProvenanceSQL,
-		compilation.ProvenanceFields, compilation.OrdinalProgram)
-	if err != nil {
-		t.Fatal(err)
-	}
+	bound := prepareOrdinalForTest(t, harness, taskID, plannedSummaryQuery())
 	row := map[string]any{
 		"month": "2026-01", "department": "销售部", "expense_type": "机票",
 		"total_amount": json.Number("1680.00"),
@@ -107,7 +96,17 @@ func installV9ConnectorFixture(t *testing.T, harness *gatewayHarness) {
 	}
 }
 
-func (harness *v9Harness) executePlan(t *testing.T, requestID string) map[string]any {
+// plannedSummaryQuery is the plan executePlan submits, as a QueryPlan.
+//
+// The tool takes it as JSON; a case that re-prepares the executed operation
+// needs the same plan as a value. Deriving one from the other would be a second
+// place the fixture's query is written down, so it is stated once here and the
+// tool call renders it.
+func plannedSummaryQuery() queryplan.QueryPlan {
+	return queryplan.QueryPlan{Product: "expense_summary", Columns: []string{"month", "total_amount"}}
+}
+
+func (harness *v10Harness) executePlan(t *testing.T, requestID string) map[string]any {
 	t.Helper()
 	return mustCallGatewayTool(t, harness.service, harness.alice, "execute_plan", map[string]any{
 		"task_id": harness.taskID, "request_id": requestID,
@@ -117,7 +116,7 @@ func (harness *v9Harness) executePlan(t *testing.T, requestID string) map[string
 
 // signedReceiptFor reads the receipt from the persisted row, not from the tool
 // response. The response is a convenience; the row is the evidence.
-func (harness *v9Harness) signedReceiptFor(t *testing.T, queryID string) (queryreceipt.QueryReceiptV1, control.PersistedQueryReceipt) {
+func (harness *v10Harness) signedReceiptFor(t *testing.T, queryID string) (queryreceipt.QueryReceiptV1, control.PersistedQueryReceipt) {
 	t.Helper()
 	persisted, err := harness.store.GetPersistedQueryReceipt(t.Context(), queryID)
 	if err != nil {
@@ -132,20 +131,20 @@ func (harness *v9Harness) signedReceiptFor(t *testing.T, queryID string) (queryr
 
 // --- 1, 2, 3, 4, 5, 6 --------------------------------------------------------
 
-// A paired-novel execution must complete, emit V9, verify under the Gateway's
+// A paired-novel execution must complete, emit V10, verify under the Gateway's
 // key, and carry a binding that is byte-for-byte the persisted one, whose target
 // digests are the digests of the statements the Connector actually received.
-func TestLiveV9PairedNovelEmitsAVerifiableBindingOverWhatExecuted(t *testing.T) {
-	harness := newV9Harness(t, "task-v9-paired-novel")
-	result := harness.executePlan(t, "v9-paired-novel-1")
+func TestLiveV10PairedNovelEmitsAVerifiableBindingOverWhatExecuted(t *testing.T) {
+	harness := newV10Harness(t, "task-v10-paired-novel")
+	result := harness.executePlan(t, "v10-paired-novel-1")
 	queryID, _ := result["query_id"].(string)
 	if queryID == "" {
 		t.Fatalf("execute_plan returned no query id: %+v", result)
 	}
 
 	receipt, _ := harness.signedReceiptFor(t, queryID)
-	if receipt.Version != queryreceipt.VersionV9 {
-		t.Fatalf("a completed exposure-V5 artifact query emitted a V%s receipt, want V9", receipt.Version)
+	if receipt.Version != queryreceipt.VersionV10 {
+		t.Fatalf("a completed exposure-V5 artifact query emitted a V%s receipt, want V10", receipt.Version)
 	}
 	// (2) the signature verifies under the Gateway's own key.
 	keyring, err := queryreceipt.NewKeyring(harness.service.queryReceiptSigner, nil)
@@ -153,19 +152,19 @@ func TestLiveV9PairedNovelEmitsAVerifiableBindingOverWhatExecuted(t *testing.T) 
 		t.Fatalf("build verifying keyring: %v", err)
 	}
 	if err := keyring.Verify(receipt); err != nil {
-		t.Fatalf("the signed V9 receipt does not verify: %v", err)
+		t.Fatalf("the signed V10 receipt does not verify: %v", err)
 	}
 	if err := receipt.Validate(); err != nil {
-		t.Fatalf("the signed V9 receipt does not validate: %v", err)
+		t.Fatalf("the signed V10 receipt does not validate: %v", err)
 	}
-	if receipt.ExecutionBinding == nil || receipt.ExposureLedgerBefore == nil {
-		t.Fatal("the V9 receipt carries no execution evidence")
+	if receipt.ExecutionBindingV2 == nil || receipt.ExposureLedgerBefore == nil {
+		t.Fatal("the V10 receipt carries no execution evidence")
 	}
-	if receipt.ExecutionBinding.PathKind != querybinding.PathPairedNovel {
-		t.Fatalf("path_kind is %q, want paired_novel", receipt.ExecutionBinding.PathKind)
+	if receipt.ExecutionBindingV2.PathKind != querybinding.PathPairedNovel {
+		t.Fatalf("path_kind is %q, want paired_novel", receipt.ExecutionBindingV2.PathKind)
 	}
-	if !receipt.ExecutionBinding.Visible.Executed ||
-		receipt.ExecutionBinding.Companion == nil || !receipt.ExecutionBinding.Companion.Executed {
+	if !receipt.ExecutionBindingV2.Visible.Executed ||
+		receipt.ExecutionBindingV2.Companion == nil || !receipt.ExecutionBindingV2.Companion.Executed {
 		t.Fatal("a paired-novel binding does not record both targets as executed")
 	}
 
@@ -174,9 +173,9 @@ func TestLiveV9PairedNovelEmitsAVerifiableBindingOverWhatExecuted(t *testing.T) 
 	if err != nil {
 		t.Fatalf("stored execution binding: %v", err)
 	}
-	if stored.Binding.SHA256 != receipt.ExecutionBinding.SHA256 {
+	if stored.BindingV2.SHA256 != receipt.ExecutionBindingV2.SHA256 {
 		t.Fatalf("stored binding digests to %s but the receipt carries %s",
-			stored.Binding.SHA256, receipt.ExecutionBinding.SHA256)
+			stored.BindingV2.SHA256, receipt.ExecutionBindingV2.SHA256)
 	}
 	if stored.ExposureLedgerBefore.SHA256 != receipt.ExposureLedgerBefore.SHA256 {
 		t.Fatalf("stored pre-state digests to %s but the receipt carries %s",
@@ -190,13 +189,13 @@ func TestLiveV9PairedNovelEmitsAVerifiableBindingOverWhatExecuted(t *testing.T) 
 	}
 	visibleSQL := requests[len(requests)-2].SQL
 	companionSQL := requests[len(requests)-1].SQL
-	if got := physicalquery.ExactDigest(visibleSQL); got != receipt.ExecutionBinding.Visible.ExactSQLSHA256 {
+	if got := physicalquery.ExactDigest(visibleSQL); got != receipt.ExecutionBindingV2.Visible.ExactSQLSHA256 {
 		t.Fatalf("the visible target's exact digest is %s but the executed statement digests to %s",
-			receipt.ExecutionBinding.Visible.ExactSQLSHA256, got)
+			receipt.ExecutionBindingV2.Visible.ExactSQLSHA256, got)
 	}
-	if got := physicalquery.ExactDigest(companionSQL); got != receipt.ExecutionBinding.Companion.ExactSQLSHA256 {
+	if got := physicalquery.ExactDigest(companionSQL); got != receipt.ExecutionBindingV2.Companion.ExactSQLSHA256 {
 		t.Fatalf("the companion target's exact digest is %s but the executed statement digests to %s",
-			receipt.ExecutionBinding.Companion.ExactSQLSHA256, got)
+			receipt.ExecutionBindingV2.Companion.ExactSQLSHA256, got)
 	}
 
 	// (6) the strict digests are in the observer's and classifier's space, i.e.
@@ -206,8 +205,8 @@ func TestLiveV9PairedNovelEmitsAVerifiableBindingOverWhatExecuted(t *testing.T) 
 		sql  string
 		want string
 	}{
-		{"visible", visibleSQL, receipt.ExecutionBinding.Visible.StrictASTSHA256},
-		{"companion", companionSQL, receipt.ExecutionBinding.Companion.StrictASTSHA256},
+		{"visible", visibleSQL, receipt.ExecutionBindingV2.Visible.StrictASTSHA256},
+		{"companion", companionSQL, receipt.ExecutionBindingV2.Companion.StrictASTSHA256},
 	} {
 		strict, digestErr := sqlidentity.StrictASTDigest(target.sql)
 		if digestErr != nil {
@@ -218,18 +217,18 @@ func TestLiveV9PairedNovelEmitsAVerifiableBindingOverWhatExecuted(t *testing.T) 
 				"the binding is not in the space the observer classifies on", target.role, target.want, strict)
 		}
 	}
-	if receipt.ExecutionBinding.Visible.RowLimit != requests[len(requests)-2].MaxRows &&
-		receipt.ExecutionBinding.Visible.RowLimit < 1 {
-		t.Fatalf("the visible target's row limit is %d", receipt.ExecutionBinding.Visible.RowLimit)
+	if receipt.ExecutionBindingV2.Visible.RowLimit != requests[len(requests)-2].MaxRows &&
+		receipt.ExecutionBindingV2.Visible.RowLimit < 1 {
+		t.Fatalf("the visible target's row limit is %d", receipt.ExecutionBindingV2.Visible.RowLimit)
 	}
 }
 
 // --- 7 -----------------------------------------------------------------------
 
 // A recovery re-reads the same canonical binding rather than reconstructing one.
-func TestLiveV9RecoveryReloadsTheSameCanonicalBinding(t *testing.T) {
-	harness := newV9Harness(t, "task-v9-recovery")
-	result := harness.executePlan(t, "v9-recovery-1")
+func TestLiveV10RecoveryReloadsTheSameCanonicalBinding(t *testing.T) {
+	harness := newV10Harness(t, "task-v10-recovery")
+	result := harness.executePlan(t, "v10-recovery-1")
 	queryID := result["query_id"].(string)
 	receipt, _ := harness.signedReceiptFor(t, queryID)
 
@@ -242,12 +241,12 @@ func TestLiveV9RecoveryReloadsTheSameCanonicalBinding(t *testing.T) {
 		if reloadErr != nil {
 			t.Fatalf("reload %d: %v", attempt, reloadErr)
 		}
-		if again.Binding.SHA256 != first.Binding.SHA256 ||
+		if again.BindingV2.SHA256 != first.BindingV2.SHA256 ||
 			again.ExposureLedgerBefore.SHA256 != first.ExposureLedgerBefore.SHA256 {
 			t.Fatal("two reloads of one persisted binding disagree")
 		}
 	}
-	if first.Binding.SHA256 != receipt.ExecutionBinding.SHA256 {
+	if first.BindingV2.SHA256 != receipt.ExecutionBindingV2.SHA256 {
 		t.Fatal("the reloaded binding is not the one the receipt was signed over")
 	}
 }
@@ -257,13 +256,13 @@ func TestLiveV9RecoveryReloadsTheSameCanonicalBinding(t *testing.T) {
 // An idempotent replay returns the original receipt bytes, signature and
 // binding. It creates no second binding row: the path exists precisely because
 // nothing new executed.
-func TestLiveV9IdempotentReplayReturnsTheOriginalReceiptByteForByte(t *testing.T) {
-	harness := newV9Harness(t, "task-v9-idempotent")
-	first := harness.executePlan(t, "v9-idempotent-1")
+func TestLiveV10IdempotentReplayReturnsTheOriginalReceiptByteForByte(t *testing.T) {
+	harness := newV10Harness(t, "task-v10-idempotent")
+	first := harness.executePlan(t, "v10-idempotent-1")
 	queryID := first["query_id"].(string)
 	_, originalPersisted := harness.signedReceiptFor(t, queryID)
 
-	replayed := harness.executePlan(t, "v9-idempotent-1")
+	replayed := harness.executePlan(t, "v10-idempotent-1")
 	if replayed["idempotent_replay"] != true {
 		t.Fatalf("the second identical request was not an idempotent replay: %+v", replayed)
 	}
@@ -287,7 +286,7 @@ func TestLiveV9IdempotentReplayReturnsTheOriginalReceiptByteForByte(t *testing.T
 	if err := json.Unmarshal(replayedPersisted.ReceiptJSON, &replayedReceipt); err != nil {
 		t.Fatal(err)
 	}
-	if replayedReceipt.ExecutionBinding == nil || replayedReceipt.ExecutionBinding.SHA256 != stored.Binding.SHA256 {
+	if replayedReceipt.ExecutionBindingV2 == nil || replayedReceipt.ExecutionBindingV2.SHA256 != stored.BindingV2.SHA256 {
 		t.Fatal("the replayed receipt does not carry the originally persisted binding")
 	}
 }
@@ -298,19 +297,19 @@ func TestLiveV9IdempotentReplayReturnsTheOriginalReceiptByteForByte(t *testing.T
 // COMPLETED must have no binding at all, and a COMPLETED one must have both a
 // binding and a receipt: "the query completed but nothing describes what it
 // executed" has to be unreachable.
-func TestLiveV9BindingAndTerminalEvidenceCommitTogether(t *testing.T) {
-	harness := newV9Harness(t, "task-v9-atomicity")
+func TestLiveV10BindingAndTerminalEvidenceCommitTogether(t *testing.T) {
+	harness := newV10Harness(t, "task-v10-atomicity")
 	harness.service.markArtifactAvailable = func(context.Context, string, string, string) (control.ResultArtifact, error) {
 		return control.ResultArtifact{}, errInjectedAvailabilityFailure
 	}
 	_, execErr := callGatewayTool(harness.service, harness.alice, "execute_plan", map[string]any{
-		"task_id": harness.taskID, "request_id": "v9-atomicity-1",
+		"task_id": harness.taskID, "request_id": "v10-atomicity-1",
 		"plan": map[string]any{"product": "expense_summary", "columns": []string{"month", "total_amount"}},
 	})
 	if execErr == nil {
 		t.Fatal("the injected availability failure returned a result")
 	}
-	record, lookupErr := harness.store.GetQueryByRequestID(t.Context(), harness.taskID, "v9-atomicity-1")
+	record, lookupErr := harness.store.GetQueryByRequestID(t.Context(), harness.taskID, "v10-atomicity-1")
 	if lookupErr != nil {
 		t.Skipf("no durable query survived the injected failure (%v); this case has nothing to check", lookupErr)
 	}
@@ -333,16 +332,16 @@ var errInjectedAvailabilityFailure = errors.New("injected AVAILABLE transaction 
 
 // --- 9 -----------------------------------------------------------------------
 
-// A semantic replay is a NEW query with its own V9 receipt, whose binding says
+// A semantic replay is a NEW query with its own V10 receipt, whose binding says
 // nothing executed. It is not an idempotent replay: the request id differs, so
 // the Gateway settles a fresh query against the same committed materialization.
-func TestLiveV9SemanticReplayBindsAnExecutionThatDidNotHappen(t *testing.T) {
-	harness := newV9Harness(t, "task-v9-semantic")
-	first := harness.executePlan(t, "v9-semantic-1")
+func TestLiveV10SemanticReplayBindsAnExecutionThatDidNotHappen(t *testing.T) {
+	harness := newV10Harness(t, "task-v10-semantic")
+	first := harness.executePlan(t, "v10-semantic-1")
 	firstQueryID := first["query_id"].(string)
 
 	connectorCallsAfterNovel := len(harness.connector.requests)
-	second := harness.executePlan(t, "v9-semantic-2")
+	second := harness.executePlan(t, "v10-semantic-2")
 	secondQueryID := second["query_id"].(string)
 	if secondQueryID == firstQueryID {
 		t.Fatal("the second request reused the first query; it is an idempotent replay, not a semantic one")
@@ -357,10 +356,10 @@ func TestLiveV9SemanticReplayBindsAnExecutionThatDidNotHappen(t *testing.T) {
 	}
 
 	receipt, _ := harness.signedReceiptFor(t, secondQueryID)
-	if receipt.Version != queryreceipt.VersionV9 {
-		t.Fatalf("the semantic replay emitted a V%s receipt, want V9", receipt.Version)
+	if receipt.Version != queryreceipt.VersionV10 {
+		t.Fatalf("the semantic replay emitted a V%s receipt, want V10", receipt.Version)
 	}
-	binding := receipt.ExecutionBinding
+	binding := receipt.ExecutionBindingV2
 	if binding == nil {
 		t.Fatal("the semantic replay's receipt carries no execution binding")
 	}
@@ -375,7 +374,7 @@ func TestLiveV9SemanticReplayBindsAnExecutionThatDidNotHappen(t *testing.T) {
 	}
 	// Its own binding, not the novel query's: they describe different paths.
 	firstReceipt, _ := harness.signedReceiptFor(t, firstQueryID)
-	if firstReceipt.ExecutionBinding != nil && firstReceipt.ExecutionBinding.SHA256 == binding.SHA256 {
+	if firstReceipt.ExecutionBindingV2 != nil && firstReceipt.ExecutionBindingV2.SHA256 == binding.SHA256 {
 		t.Fatal("the semantic replay reused the novel execution's binding")
 	}
 }
@@ -390,8 +389,8 @@ func TestLiveV9SemanticReplayBindsAnExecutionThatDidNotHappen(t *testing.T) {
 // one the reservation observed -- or the request must fail closed before
 // executing. What it must never do is sign the stale budget as though it had
 // authorized the statements.
-func TestLiveV9PreStateChangedBetweenPreparationAndReservation(t *testing.T) {
-	harness := newV9Harness(t, "task-v9-prestate-race")
+func TestLiveV10PreStateChangedBetweenPreparationAndReservation(t *testing.T) {
+	harness := newV10Harness(t, "task-v10-prestate-race")
 	// Consume budget from inside the window. The task lock serializes
 	// reservations, so a competing request cannot interleave on its own; this
 	// seam is the only way to reach the state the re-derivation exists to handle.
@@ -410,13 +409,13 @@ func TestLiveV9PreStateChangedBetweenPreparationAndReservation(t *testing.T) {
 		}
 	}
 	result, err := callGatewayTool(harness.service, harness.alice, "execute_plan", map[string]any{
-		"task_id": harness.taskID, "request_id": "v9-prestate-race-1",
+		"task_id": harness.taskID, "request_id": "v10-prestate-race-1",
 		"plan": map[string]any{"product": "expense_summary", "columns": []string{"month", "total_amount"}},
 	})
 	if err != nil {
 		// Fail-closed is an accepted outcome, but only before execution: nothing
 		// may have been settled with a binding.
-		record, lookupErr := harness.store.GetQueryByRequestID(t.Context(), harness.taskID, "v9-prestate-race-1")
+		record, lookupErr := harness.store.GetQueryByRequestID(t.Context(), harness.taskID, "v10-prestate-race-1")
 		if lookupErr == nil && record.Status == control.QueryCompleted {
 			t.Fatalf("the request failed closed but a COMPLETED query survives: %+v", record)
 		}
@@ -424,7 +423,7 @@ func TestLiveV9PreStateChangedBetweenPreparationAndReservation(t *testing.T) {
 	}
 	queryID := result["query_id"].(string)
 	receipt, _ := harness.signedReceiptFor(t, queryID)
-	if receipt.Version != queryreceipt.VersionV9 || receipt.ExposureLedgerBefore == nil {
+	if receipt.Version != queryreceipt.VersionV10 || receipt.ExposureLedgerBefore == nil {
 		t.Fatalf("the completed query emitted a V%s receipt with no pre-state", receipt.Version)
 	}
 	// The signed pre-state must be the reservation's, which already reflects the
@@ -439,8 +438,8 @@ func TestLiveV9PreStateChangedBetweenPreparationAndReservation(t *testing.T) {
 		t.Fatal("the receipt signed a budget that predates the concurrent consumption; " +
 			"the pre-state is the stale preparation reading")
 	}
-	if receipt.ExecutionBinding.VisibleRowLimit > wantRemaining {
+	if receipt.ExecutionBindingV2.VisibleRowLimit > wantRemaining {
 		t.Fatalf("the executed visible limit is %d but the authoritative pre-state authorizes %d",
-			receipt.ExecutionBinding.VisibleRowLimit, wantRemaining)
+			receipt.ExecutionBindingV2.VisibleRowLimit, wantRemaining)
 	}
 }

@@ -1,8 +1,6 @@
 package gateway
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"sort"
@@ -11,323 +9,49 @@ import (
 	"taskbound.local/agent-data-gateway/internal/catalog"
 	"taskbound.local/agent-data-gateway/internal/dataconnector"
 	"taskbound.local/agent-data-gateway/internal/exposure"
+	"taskbound.local/agent-data-gateway/internal/physicalquery"
 	"taskbound.local/agent-data-gateway/internal/queryplan"
 	"taskbound.local/agent-data-gateway/internal/sqlpolicy"
 )
 
 var errProvenanceTruncated = errors.New("provenance result exceeded the connector row ceiling")
 
+// planExposureContext is the Gateway's half of one prepared operation.
+//
+// Every member below is read off a sealed physicalquery.PreparedOperation
+// rather than derived here -- see planExposureContextFrom. What remains in this
+// package is the half that cannot be a function of the preparation inputs:
+// decoding Connector results, building an exposure Observation, holding the live
+// SnapshotIndex handles, and shaping the response. Preparation owns what is
+// compiled and authorized; this owns what is observed.
 type planExposureContext struct {
-	product           catalog.Product
-	products          []catalog.Product
-	plan              queryplan.QueryPlan
-	mainSQL           string
-	provenanceSQL     string
-	visibleFields     []string
-	factFields        []string
-	provenanceFields  []string
-	meteringColumns   []string
-	grouped           bool
-	expandedEvidence  bool
-	meteringByProduct map[string][]string
-	// internalPolicyProducts is the least-privilege terminal-product closure
-	// for one gateway-compiled semantic View. It is derived from the signed
-	// View artifact and task scope, and is never copied into the public Grant.
-	internalPolicyProducts map[string]sqlpolicy.ProductGrant
-	viewBindingDigest      string
-	viewRegistryRevision   string
-	relational             *relationalExposureContext
-	normalForm             *queryplan.NormalForm
-	algebraNormalForm      *queryplan.AlgebraNormalFormV2
-	planDigest             string
-	ordinal                *boundOrdinalExecution
-	predicateFootprint     *queryplan.PredicateFootprint
-}
+	product          catalog.Product
+	plan             queryplan.QueryPlan
+	mainSQL          string
+	provenanceSQL    string
+	visibleFields    []string
+	factFields       []string
+	provenanceFields []string
+	grouped          bool
+	expandedEvidence bool
 
-func buildPlanExposureContext(plan queryplan.QueryPlan, product catalog.Product, approvedColumns map[string]struct{}, allowedAggregates map[string]struct{}) (*planExposureContext, error) {
-	if strings.TrimSpace(product.Snapshot) == "" || len(product.EntityKey) == 0 {
-		return nil, fmt.Errorf("product does not define a stable snapshot and entity key")
-	}
-	grouped := len(plan.GroupBy) > 0 || len(plan.Aggregates) > 0
-	visibleFields := append([]string(nil), plan.Columns...)
-	factFields := append([]string(nil), plan.Columns...)
-	for _, aggregate := range plan.Aggregates {
-		function := strings.ToLower(aggregate.Function)
-		switch function {
-		case "count", "sum", "min", "max":
-		default:
-			return nil, fmt.Errorf("aggregate %q is outside the exposure-accounted fragment", aggregate.Function)
-		}
-		visibleFields = append(visibleFields, aggregate.Alias)
-		factFields = append(factFields, function+"("+aggregate.Column+")")
-	}
+	viewBindingDigest    string
+	viewRegistryRevision string
+	relational           *relationalExposureContext
+	planDigest           string
+	ordinal              *boundOrdinalExecution
+	predicateFootprint   *queryplan.PredicateFootprint
 
-	catalogColumns := make(map[string]struct{}, len(product.Fields))
-	for _, field := range product.Fields {
-		catalogColumns[field.Name] = struct{}{}
-	}
-	meteringSet := make(map[string]struct{}, len(approvedColumns)+len(product.EntityKey)+len(product.Scopes))
-	for column := range approvedColumns {
-		meteringSet[column] = struct{}{}
-	}
-	for _, column := range append(append([]string(nil), product.EntityKey...), product.Scopes...) {
-		if _, ok := catalogColumns[column]; !ok {
-			return nil, fmt.Errorf("metering column %q is not published", column)
-		}
-		meteringSet[column] = struct{}{}
-	}
-	meteringColumns := sortedStringSet(meteringSet)
-	internalProduct := queryplan.Product{Name: product.Name, Columns: meteringSet, AllowedAggregates: allowedAggregates}
-
-	provenanceSet := make(map[string]struct{})
-	for _, column := range product.EntityKey {
-		provenanceSet[column] = struct{}{}
-	}
-	for _, column := range product.Scopes {
-		provenanceSet[column] = struct{}{}
-	}
-	for _, column := range plan.Columns {
-		provenanceSet[column] = struct{}{}
-	}
-	for _, aggregate := range plan.Aggregates {
-		if aggregate.Column != "*" {
-			provenanceSet[aggregate.Column] = struct{}{}
-		}
-	}
-	for _, filter := range plan.Filters {
-		provenanceSet[filter.Column] = struct{}{}
-	}
-	for _, group := range plan.GroupBy {
-		provenanceSet[group] = struct{}{}
-	}
-	provenanceFields := sortedStringSet(provenanceSet)
-
-	mainPlan := cloneQueryPlan(plan)
-	if !grouped {
-		// The visible and provenance statements use the same hidden projection
-		// and deterministic key tie-breaker, so their capped row sets are equal.
-		selected := stringSetFromSlice(mainPlan.Columns)
-		for _, field := range provenanceFields {
-			if _, present := selected[field]; !present {
-				mainPlan.Columns = append(mainPlan.Columns, field)
-				selected[field] = struct{}{}
-			}
-		}
-		ordered := make(map[string]struct{}, len(mainPlan.OrderBy)+len(product.EntityKey))
-		for _, order := range mainPlan.OrderBy {
-			ordered[order.Column] = struct{}{}
-		}
-		for _, key := range product.EntityKey {
-			if _, present := ordered[key]; !present {
-				mainPlan.OrderBy = append(mainPlan.OrderBy, queryplan.Order{Column: key, Direction: "asc"})
-				ordered[key] = struct{}{}
-			}
-		}
-	} else {
-		// Group keys participate in positive-output dependency even when they
-		// are not delivered. Select them internally so the paired result can
-		// identify groups and build their annotations, then visibleResult removes
-		// them from the external response.
-		selected := stringSetFromSlice(mainPlan.Columns)
-		for _, group := range plan.GroupBy {
-			if _, present := selected[group]; !present {
-				mainPlan.Columns = append(mainPlan.Columns, group)
-				selected[group] = struct{}{}
-			}
-		}
-	}
-	if grouped && (plan.Limit > 0 || plan.Offset > 0) {
-		ordered := make(map[string]struct{}, len(mainPlan.OrderBy)+len(plan.GroupBy))
-		for _, order := range mainPlan.OrderBy {
-			ordered[order.Column] = struct{}{}
-		}
-		for _, key := range sortedStringSet(stringSetFromSlice(plan.GroupBy)) {
-			if _, present := ordered[key]; !present {
-				mainPlan.OrderBy = append(mainPlan.OrderBy, queryplan.Order{Column: key, Direction: "asc"})
-				ordered[key] = struct{}{}
-			}
-		}
-	}
-	mainSQL, err := queryplan.Compile(mainPlan, internalProduct)
-	if err != nil {
-		return nil, err
-	}
-	provenanceSQL := mainSQL
-	if grouped {
-		provenancePlan := queryplan.QueryPlan{Product: plan.Product, Columns: provenanceFields, Filters: append([]queryplan.Filter(nil), plan.Filters...)}
-		provenanceSQL, err = queryplan.Compile(provenancePlan, internalProduct)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &planExposureContext{product: product, plan: cloneQueryPlan(plan), mainSQL: mainSQL,
-		provenanceSQL: provenanceSQL, visibleFields: visibleFields, factFields: factFields,
-		provenanceFields: provenanceFields, meteringColumns: meteringColumns, grouped: grouped}, nil
-}
-
-func (context *planExposureContext) configureV2(approvedColumns map[string]struct{}, allowedAggregates map[string]struct{}) error {
-	if strings.TrimSpace(context.product.FactNamespace) == "" || strings.TrimSpace(context.product.StableRelationRole) == "" {
-		return fmt.Errorf("V2 product lacks canonical fact namespace or stable relation role")
-	}
-	columnTypes := make(map[string]string, len(context.product.Fields))
-	columnCollations := make(map[string]string, len(context.product.Fields))
-	collationVersions := make(map[string]string, len(context.product.Fields))
-	for _, field := range context.product.Fields {
-		columnTypes[field.Name] = field.Type
-		columnCollations[field.Name] = field.Collation
-		collationVersions[field.Name] = field.CollationVersion
-	}
-	normal, err := queryplan.NormalizeV2(context.plan, queryplan.Product{
-		Name: context.product.Name, Columns: approvedColumns, AllowedAggregates: allowedAggregates,
-		ColumnTypes: columnTypes, ColumnCollations: columnCollations, CollationVersions: collationVersions,
-		SourceNamespace: context.product.FactNamespace, Snapshot: context.product.Snapshot,
-		StableEntityKey: append([]string(nil), context.product.EntityKey...), LineageDigest: context.product.LineageManifestDigest,
-	})
-	if err != nil {
-		return err
-	}
-	digest, err := normal.Digest()
-	if err != nil {
-		return err
-	}
-	context.normalForm = &normal
-	context.planDigest = digest
-	return nil
-}
-
-func (context *planExposureContext) configurePredicateFootprintV5(catalogDigest string, mandatoryScope []byte,
-	products map[string]queryplan.Product, callerFilters []queryplan.PredicateFilterBinding,
-	fields map[string]queryplan.PredicateFieldBinding, semanticProductID string, limits queryplan.PredicateLimits) error {
-	if context == nil || len(products) == 0 {
-		return errors.New("V5 predicate footprint lacks product bindings")
-	}
-	scopeHash := sha256.Sum256(append([]byte("TASKGATE-EFFECTIVE-MANDATORY-SCOPE-V1\x00"), mandatoryScope...))
-	bindings := queryplan.PredicateBindings{CatalogSHA256: catalogDigest, Products: products,
-		ViewBindingSHA256: context.viewBindingDigest, CallerFilters: callerFilters, Fields: fields,
-		SemanticProductID: semanticProductID}
-	footprint, err := queryplan.BuildPredicateFootprint(context.plan, bindings, hex.EncodeToString(scopeHash[:]), limits)
-	if err != nil {
-		return err
-	}
-	if context.relational == nil {
-		product := products[context.plan.Product]
-		normal, normalizeErr := queryplan.NormalizeV4(context.plan, product)
-		if normalizeErr != nil {
-			return normalizeErr
-		}
-		digest, digestErr := normal.Digest()
-		if digestErr != nil {
-			return digestErr
-		}
-		context.normalForm = &normal
-		context.planDigest = digest
-	} else {
-		normal, normalizeErr := queryplan.SemanticNormalFormV4(context.plan, context.relational.compilation, products)
-		if normalizeErr != nil {
-			return normalizeErr
-		}
-		context.algebraNormalForm = &normal
-		context.planDigest = normal.SHA256
-	}
-	context.predicateFootprint = &footprint
-	return nil
-}
-
-func (context *planExposureContext) extendGrant(grant sqlpolicy.Grant) (sqlpolicy.Grant, error) {
-	result := clonePolicyGrant(grant)
-	if len(context.internalPolicyProducts) != 0 {
-		names := make([]string, 0, len(context.internalPolicyProducts))
-		for name := range context.internalPolicyProducts {
-			names = append(names, name)
-		}
-		sort.Strings(names)
-		for _, name := range names {
-			internal := clonePolicyProductGrant(context.internalPolicyProducts[name])
-			found := false
-			for index := range result.Products {
-				if result.Products[index].LogicalName != name {
-					continue
-				}
-				found = true
-				if result.Products[index].PhysicalSchema != internal.PhysicalSchema ||
-					result.Products[index].PhysicalView != internal.PhysicalView {
-					return sqlpolicy.Grant{}, fmt.Errorf("semantic View terminal product %q conflicts with the task grant", name)
-				}
-				columns := stringSetFromSlice(result.Products[index].ApprovedColumns)
-				for _, column := range internal.ApprovedColumns {
-					columns[column] = struct{}{}
-				}
-				result.Products[index].ApprovedColumns = sortedStringSet(columns)
-				for _, predicate := range internal.MandatoryScope {
-					if !containsScopePredicate(result.Products[index].MandatoryScope, predicate) {
-						cloned := predicate
-						cloned.Values = append([]string(nil), predicate.Values...)
-						result.Products[index].MandatoryScope = append(result.Products[index].MandatoryScope, cloned)
-					}
-				}
-				break
-			}
-			if !found {
-				result.Products = append(result.Products, internal)
-			}
-		}
-	}
-	if context.relational != nil {
-		found := make(map[string]bool, len(context.meteringByProduct))
-		for index := range result.Products {
-			columns, required := context.meteringByProduct[result.Products[index].LogicalName]
-			if !required {
-				continue
-			}
-			found[result.Products[index].LogicalName] = true
-			set := stringSetFromSlice(result.Products[index].ApprovedColumns)
-			for _, column := range columns {
-				set[column] = struct{}{}
-			}
-			result.Products[index].ApprovedColumns = sortedStringSet(set)
-		}
-		for product := range context.meteringByProduct {
-			if !found[product] {
-				return sqlpolicy.Grant{}, fmt.Errorf("exposure product %q is absent from the task grant", product)
-			}
-		}
-		return result, nil
-	}
-	found := false
-	for index := range result.Products {
-		if result.Products[index].LogicalName != context.product.Name {
-			continue
-		}
-		found = true
-		columns := stringSetFromSlice(result.Products[index].ApprovedColumns)
-		for _, column := range context.meteringColumns {
-			columns[column] = struct{}{}
-		}
-		result.Products[index].ApprovedColumns = sortedStringSet(columns)
-	}
-	if !found {
-		return sqlpolicy.Grant{}, fmt.Errorf("exposure product is absent from the task grant")
-	}
-	return result, nil
-}
-
-func containsScopePredicate(predicates []sqlpolicy.ScopePredicate, target sqlpolicy.ScopePredicate) bool {
-	for _, predicate := range predicates {
-		if predicate.Column != target.Column || predicate.Operator != target.Operator || len(predicate.Values) != len(target.Values) {
-			continue
-		}
-		equal := true
-		for index := range predicate.Values {
-			if predicate.Values[index] != target.Values[index] {
-				equal = false
-				break
-			}
-		}
-		if equal {
-			return true
-		}
-	}
-	return false
+	// prepared is the sealed preparation this context was built from, and
+	// policyGrant the authorization it produced.
+	//
+	// The grant is carried rather than recomputed by widening the task's own: the
+	// metering closure and the ordinal sidecars that widen it are preparation's
+	// output, and a second widening here would be the duplicate derivation the
+	// extraction removes. The preparation itself travels because the Query
+	// Execution Binding V2 signs its binding whole.
+	prepared    physicalquery.PreparedOperation
+	policyGrant sqlpolicy.Grant
 }
 
 func clonePolicyGrant(input sqlpolicy.Grant) sqlpolicy.Grant {
@@ -510,8 +234,8 @@ func (context *planExposureContext) deriveObservation(visible, provenance dataco
 }
 
 func (context *planExposureContext) deriveObservationV2(visible, provenance dataconnector.Result) (exposure.Observation, error) {
-	if context.normalForm == nil || context.planDigest == "" {
-		return exposure.Observation{}, fmt.Errorf("V2 query context has no normal form")
+	if context.planDigest == "" {
+		return exposure.Observation{}, fmt.Errorf("V2 query context has no canonical plan identity")
 	}
 	if provenance.Truncated {
 		return exposure.Observation{}, errProvenanceTruncated

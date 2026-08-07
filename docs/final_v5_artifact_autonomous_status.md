@@ -325,7 +325,7 @@ became a pointer so absence is a state rather than a zero value.
 `TestGate22IdempotentReplayReturnsOriginalReceiptByteForByte` replaces the
 blocker test and is green.
 
-### The cutover blocker — the target derivation is not shared
+### The cutover blocker — the shared derivation exists, the finalizer is unwired
 
 `FinalizeObservationV3` needs `VisibleSQL`/`CompanionSQL`, the **physical
 statements the operation executed**, on every path that reaches Business
@@ -333,18 +333,17 @@ PostgreSQL: `deriveTargets` builds the manifest's target entries from them
 (gates 18/19/20 have nothing to compare against otherwise), and
 `requireStatementIdentities` compares them against the signed execution binding.
 
-Only the Gateway (the party being checked), the Adapter (which
+Until T1d only the Gateway (the party being checked), the Adapter (which
 `TestAdapterCannotConstructTrustedInputs` forbids) or a reimplementation (which
-the `internal/physicalquery` package doc forbids in terms) could supply them
-today. The derivation is unexported glue in `internal/gateway`
-(`planExposureContext`, `buildRelationalExposureContext`,
-`Service.derivePhysicalQuery`).
+the `internal/physicalquery` package doc forbids in terms) could have supplied
+them, because the derivation was unexported glue in `internal/gateway`.
 
-The resolution is the same extraction that produced `internal/physicalquery` and
-then `internal/sqlidentity`: lift that glue into a shared package both the
-Gateway and the finalizer call. Pinned by
-`experiment.TestV3CutoverIsBlockedByTheUnsharedTargetDerivation`, which fails the
-moment it becomes shareable.
+T1d resolved that half. `physicalquery.Prepare` and `PrepareSemanticView` derive
+both statements from immutable inputs and are the only implementation: the
+Gateway calls them and its own derivation is deleted. What remains is that no
+finalizer path calls them and nothing constructs `TrustedInputsV3` or
+`IndependentInputsV3`. Pinned by
+`experiment.TestV3CutoverIsBlockedByTheUnwiredFinalizer`.
 
 Everything downstream is therefore unreached: the v1.4 ratchet is still
 non-empty, no TaskGate path has a v3 production caller, and the boundary

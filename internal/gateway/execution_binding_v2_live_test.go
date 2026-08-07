@@ -8,128 +8,33 @@ import (
 
 	"taskbound.local/agent-data-gateway/internal/control"
 	"taskbound.local/agent-data-gateway/internal/physicalquery"
-	"taskbound.local/agent-data-gateway/internal/preparedbinding"
-	"taskbound.local/agent-data-gateway/internal/querybinding"
 	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 )
 
-// # What these tests do and do not prove
+// # R3b: the production V10 round-trip
 //
-// They drive the production receipt path -- control.GetQueryReceipt loading the
-// evidence a real settlement wrote, then BuildQueryReceiptRequest selecting,
-// building and signing -- over a real live execution's real evidence, with the
-// execution binding carried as a QueryExecutionBindingV2 instead of a V1.
+// These cases drive a real execution through the production Gateway path and
+// then the production receipt path -- control.GetQueryReceipt loading the
+// evidence the settlement wrote, then BuildQueryReceiptRequest selecting,
+// building and signing.
 //
-// The preparation inside that V2 is synthesized here rather than produced by
-// physicalquery.Prepare. It has to be: the Gateway does not yet call Prepare on
-// its production path, so there is no real sealed preparation for it to carry.
-// That wiring is T1d, and until it lands nothing in this file should be read as
-// proving the Gateway builds a V2 from what it prepared. What is proved is
-// everything downstream of that: a persisted V2 earns V10 and not V9, the
-// delivery mode follows whether a result object was actually registered, the
-// signature covers the whole carried preparation, and an inline delivery signs
-// and verifies without an artifact intent.
+// Nothing is synthesized. Before T1d the preparation inside the V2 had to be
+// invented here, because the Gateway did not call
+// internal/physicalquery.Prepare and there was no real sealed preparation to
+// carry; the file said so and warned that nothing in it proved the Gateway built
+// a V2 from what it prepared. That is what this now proves: the binding below is
+// the one the Gateway persisted, and the preparation inside it is the one the
+// executed statements were compiled from.
 //
 // The persistence half -- first write, idempotent retry, contradictory retry,
 // strict per-version decode, rollback -- is proved against live PostgreSQL in
 // internal/control/execution_binding_v2_test.go.
 
-func liveV2Compiler(t *testing.T) preparedbinding.CompilerIdentityV1 {
-	t.Helper()
-	// The local identity, so the compiler and renderer named in the binding are
-	// the ones this binary actually contains rather than a fixture's invention.
-	identity, err := physicalquery.LocalCompilerIdentity()
-	if err != nil {
-		t.Fatalf("local compiler identity: %v", err)
-	}
-	return identity
-}
-
-// upgradeToV2 rebuilds a real V1 binding's runtime half as a V2 around a
-// synthesized preparation.
-//
-// Every runtime member -- the path kind, the row limits, the pre-state digests,
-// both target records -- is the one the live execution actually produced. Only
-// the preparation is invented, and the prepared target digests are taken from
-// the real target records so the cross-binding V2 performs is a real check
-// rather than one arranged to pass.
-func upgradeToV2(t *testing.T, v1 querybinding.QueryExecutionBindingV1) querybinding.QueryExecutionBindingV2 {
-	t.Helper()
-	compiler := liveV2Compiler(t)
-
-	visible := v1.Visible
-	visible.PolicyRendererVersion = compiler.PolicyRendererVersion
-	visible.PolicyRendererDigest = compiler.PolicyRendererSHA256
-
-	prepared := preparedbinding.PreparedOperationBindingV1{
-		HasCompanion:     v1.Companion != nil,
-		Grouped:          true,
-		ExpandedEvidence: v1.UsesExpandedEvidence,
-
-		VisibleFieldCount: 3, FactFieldCount: 1, ProvenanceFieldCount: 2,
-		VisibleFieldsSHA256:    liveDigest("11"),
-		FactFieldsSHA256:       liveDigest("12"),
-		ProvenanceFieldsSHA256: liveDigest("13"),
-
-		PreparationInputsSHA256: liveDigest("14"),
-		GrantSHA256:             liveDigest("15"),
-		CatalogSHA256:           liveDigest("16"),
-		PlanSHA256:              v1.PlanSHA256,
-		CompilerIdentitySHA256:  compiler.SHA256,
-
-		PolicyGrantSHA256:   liveDigest("19"),
-		NormalFormSHA256:    liveDigest("1a"),
-		DictionarySetSHA256: v1.OrdinalDictionarySetSHA256,
-		SidecarGrantsSHA256: v1.SidecarGrantsSHA256,
-
-		VisibleTargetSHA256: v1.Visible.PreparedTargetBindingSHA256,
-	}
-	if v1.Companion != nil {
-		prepared.CompanionTargetSHA256 = v1.Companion.PreparedTargetBindingSHA256
-	}
-	sealedPrepared, err := prepared.Seal()
-	if err != nil {
-		t.Fatalf("seal preparation: %v", err)
-	}
-
-	candidate := querybinding.QueryExecutionBindingV2{
-		PathKind:                   v1.PathKind,
-		PreparedOperation:          sealedPrepared,
-		Compiler:                   compiler,
-		ExposureProfileVersion:     v1.ExposureProfileVersion,
-		VisibleRowLimit:            v1.VisibleRowLimit,
-		BudgetBeforeSHA256:         v1.BudgetBeforeSHA256,
-		ExposureLedgerBeforeSHA256: v1.ExposureLedgerBeforeSHA256,
-		Visible:                    visible,
-	}
-	if v1.Companion != nil {
-		companion := *v1.Companion
-		companion.PolicyRendererVersion = compiler.PolicyRendererVersion
-		companion.PolicyRendererDigest = compiler.PolicyRendererSHA256
-		candidate.Companion = &companion
-		candidate.CompanionEvidenceRows = v1.CompanionEvidenceRows
-		candidate.CompanionPolicyRows = v1.CompanionPolicyRows
-	}
-	sealed, err := candidate.Seal()
-	if err != nil {
-		t.Fatalf("seal execution binding v2: %v", err)
-	}
-	return sealed
-}
-
-func liveDigest(seed string) string {
-	digest := make([]byte, 0, 64)
-	for len(digest) < 64 {
-		digest = append(digest, seed...)
-	}
-	return string(digest[:64])
-}
-
 // liveV2Evidence runs one real paired-novel execution and returns the evidence
-// the settlement persisted, with the execution binding upgraded to a V2.
+// the settlement persisted.
 func liveV2Evidence(t *testing.T, taskID, requestID string) (control.QueryReceipt, string) {
 	t.Helper()
-	harness := newV9Harness(t, taskID)
+	harness := newV10Harness(t, taskID)
 	result := harness.executePlan(t, requestID)
 	queryID := result["query_id"].(string)
 
@@ -137,18 +42,11 @@ func liveV2Evidence(t *testing.T, taskID, requestID string) (control.QueryReceip
 	if err != nil {
 		t.Fatalf("load receipt evidence: %v", err)
 	}
-	if evidence.ExecutionBinding == nil || evidence.ExecutionBinding.Binding == nil {
-		t.Fatal("the live execution persisted no V1 execution binding to upgrade")
+	if evidence.ExecutionBinding == nil || evidence.ExecutionBinding.BindingV2 == nil {
+		t.Fatal("the live execution persisted no V2 execution binding")
 	}
-	upgraded := upgradeToV2(t, *evidence.ExecutionBinding.Binding)
-	evidence.ExecutionBinding = &control.QueryExecutionBinding{
-		QueryID:              queryID,
-		BindingV2:            &upgraded,
-		ExposureLedgerBefore: evidence.ExecutionBinding.ExposureLedgerBefore,
-		CreatedAt:            evidence.ExecutionBinding.CreatedAt,
-	}
-	if err := evidence.ExecutionBinding.Validate(); err != nil {
-		t.Fatalf("the upgraded V2 binding does not validate against the live pre-state: %v", err)
+	if evidence.ExecutionBinding.Binding != nil {
+		t.Fatal("the live execution persisted a V1 execution binding beside its V2")
 	}
 	return evidence, queryID
 }
@@ -235,6 +133,110 @@ func TestLiveV2InlineDeliveryEarnsAV10WithNoArtifactIntent(t *testing.T) {
 	}
 }
 
+// The carried preparation is the one the executed statements were compiled from.
+//
+// This is the claim T1d exists to make, and the one nothing could make while the
+// preparation in a V2 was synthesized. The Gateway prepared the operation, the
+// Connector executed the statements that preparation produced, and the signed
+// receipt carries the sealed binding of THAT preparation -- so the two prepared
+// target digests it names are the digests of the bytes that ran, and the
+// compiler identity it names is this binary's.
+func TestLiveV10CarriesThePreparationTheStatementsWereCompiledFrom(t *testing.T) {
+	harness := newV10Harness(t, "task-v10-round-trip")
+	result := harness.executePlan(t, "v10-round-trip-1")
+	queryID := result["query_id"].(string)
+
+	evidence, err := harness.store.GetQueryReceipt(t.Context(), queryID)
+	if err != nil {
+		t.Fatalf("load receipt evidence: %v", err)
+	}
+	receipt, _ := signLiveReceipt(t, evidence)
+	binding := receipt.ExecutionBindingV2
+	if binding == nil {
+		t.Fatal("the live execution signed no V2 execution binding")
+	}
+
+	// The compiler is this binary's, and the preparation names it.
+	compiler, err := physicalquery.LocalCompilerIdentity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if binding.Compiler.SHA256 != compiler.SHA256 {
+		t.Fatalf("the binding names compiler %s but this binary is %s",
+			binding.Compiler.SHA256[:12], compiler.SHA256[:12])
+	}
+	if binding.PreparedOperation.CompilerIdentitySHA256 != compiler.SHA256 {
+		t.Fatalf("the carried preparation was compiled by %s but this binary is %s",
+			binding.PreparedOperation.CompilerIdentitySHA256[:12], compiler.SHA256[:12])
+	}
+
+	// The preparation describes a real operation: both statements, the projections
+	// it compiled, the policy grant it authorized against, the V5 footprint and
+	// the ordinal universe. A synthesized preparation could carry the flags; it
+	// could not carry these and still tie to what ran.
+	prepared := binding.PreparedOperation
+	if !prepared.HasCompanion || binding.Companion == nil {
+		t.Fatal("a paired-novel V5 execution carries no companion preparation")
+	}
+	for name, digest := range map[string]string{
+		"preparation inputs":   prepared.PreparationInputsSHA256,
+		"grant":                prepared.GrantSHA256,
+		"catalog":              prepared.CatalogSHA256,
+		"plan":                 prepared.PlanSHA256,
+		"snapshot binding set": prepared.SnapshotBindingSetSHA256,
+		"policy grant":         prepared.PolicyGrantSHA256,
+		"normal form":          prepared.NormalFormSHA256,
+		"ordinal program":      prepared.OrdinalProgramSHA256,
+		"dictionary set":       prepared.DictionarySetSHA256,
+		"predicate footprint":  prepared.PredicateFootprintSHA256,
+		"visible fields":       prepared.VisibleFieldsSHA256,
+		"provenance fields":    prepared.ProvenanceFieldsSHA256,
+	} {
+		if digest == "" {
+			t.Errorf("the carried preparation names no %s; it did not come from a real V5 preparation", name)
+		}
+	}
+	if prepared.EstimatedBaseFacts == 0 {
+		t.Error("the carried preparation estimated no base facts")
+	}
+
+	// And the executed bytes are the ones it prepared. The prepared target digest
+	// covers the compiled statement, the input set and the compiler; the target
+	// record's exact digest covers the rendered bytes the Connector received. V2
+	// requires the first pair to agree, and this checks the second against the
+	// Connector's own record of what it was handed.
+	requests := harness.connector.requests
+	if len(requests) < 2 {
+		t.Fatalf("the Connector received %d statements, want a visible and a companion", len(requests))
+	}
+	visibleSQL := requests[len(requests)-2].SQL
+	companionSQL := requests[len(requests)-1].SQL
+	if got := physicalquery.ExactDigest(visibleSQL); got != binding.Visible.ExactSQLSHA256 {
+		t.Fatalf("the visible target's exact digest is %s but the executed statement digests to %s",
+			binding.Visible.ExactSQLSHA256, got)
+	}
+	if got := physicalquery.ExactDigest(companionSQL); got != binding.Companion.ExactSQLSHA256 {
+		t.Fatalf("the companion target's exact digest is %s but the executed statement digests to %s",
+			binding.Companion.ExactSQLSHA256, got)
+	}
+
+	// The Gateway's own in-memory preparation for the same task and plan must be
+	// the one that was signed. This is what closes the loop: preparation is a
+	// function of its inputs, so a second call reaching a different sealed binding
+	// would mean the signed one described something else.
+	grant, err := harness.store.GetGrant(t.Context(), harness.taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reprepared, err := harness.service.preparePlan(grant, plannedSummaryQuery())
+	if err != nil {
+		t.Fatalf("re-prepare the executed plan: %v", err)
+	}
+	if err := reprepared.Exposure.prepared.Binding().RequireSame(prepared); err != nil {
+		t.Fatalf("re-preparing the executed plan produced a different sealed binding: %v", err)
+	}
+}
+
 // The signature covers the whole carried preparation, over live evidence.
 func TestLiveV10SignatureCoversTheCarriedPreparation(t *testing.T) {
 	evidence, _ := liveV2Evidence(t, "task-v10-tamper", "v10-tamper-1")
@@ -282,4 +284,12 @@ func TestLiveV10SignatureCoversTheCarriedPreparation(t *testing.T) {
 	if !bytes.Contains(original, []byte("execution_binding_v2")) {
 		t.Fatal("the persisted receipt bytes carry no execution_binding_v2 member")
 	}
+}
+
+func liveDigest(seed string) string {
+	digest := make([]byte, 0, 64)
+	for len(digest) < 64 {
+		digest = append(digest, seed...)
+	}
+	return string(digest[:64])
 }

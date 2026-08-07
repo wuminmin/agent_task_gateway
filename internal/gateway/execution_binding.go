@@ -1,184 +1,17 @@
 package gateway
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"sort"
-	"strings"
 
 	"taskbound.local/agent-data-gateway/internal/control"
-	"taskbound.local/agent-data-gateway/internal/domain"
 	"taskbound.local/agent-data-gateway/internal/exposure"
 	"taskbound.local/agent-data-gateway/internal/physicalquery"
+	"taskbound.local/agent-data-gateway/internal/preparedbinding"
 	"taskbound.local/agent-data-gateway/internal/querybinding"
-	"taskbound.local/agent-data-gateway/internal/queryplan"
 	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 	"taskbound.local/agent-data-gateway/internal/sqlpolicy"
 )
-
-// The domains below separate three digests that would otherwise be computed
-// over overlapping material. A prepared target and the operation that contains
-// it must never collide, or a target could be presented as its own operation.
-const (
-	preparedOperationDomain = "TASKGATE-PREPARED-OPERATION-BINDING-V1"
-	preparedTargetDomain    = "TASKGATE-PREPARED-TARGET-BINDING-V1"
-	sidecarGrantsDomain     = "TASKGATE-ORDINAL-SIDECAR-GRANTS-V1"
-)
-
-// preparedOperation is everything fixed before any row limit was known.
-//
-// It is the compiler's and the Catalog's half of the execution identity: which
-// plan, compiled by which compiler, against which schema, dictionary and
-// sidecar grants. The runtime half -- the limits, the rendered bytes, what
-// actually ran -- lives in the target records.
-//
-// Every field here is read from a real source. None of them is a constant
-// chosen to make a SHA-256 check pass; a binding whose required digests were
-// filled with arbitrary values would validate and mean nothing.
-type preparedOperation struct {
-	PlanSHA256             string
-	ExposureProfileVersion string
-	GrantDigest            string
-	ManifestDigest         string
-	CatalogSHA256          string
-	DatasourceID           string
-	SchemaDigest           string
-	ViewBindingDigest      string
-	// OrdinalDictionarySetSHA256 and SidecarGrantsSHA256 are empty for an
-	// exposure operation with no ordinal sidecar.
-	OrdinalDictionarySetSHA256 string
-	SidecarGrantsSHA256        string
-	// VisibleSQL and CompanionSQL are the COMPILED statements, before sqlpolicy
-	// rendered a row limit into them. They are digested, never stored.
-	VisibleSQL   string
-	CompanionSQL string
-
-	compilerVersion    string
-	compilerSHA256     string
-	rendererVersion    string
-	rendererSHA256     string
-	visibleTargetSHA   string
-	companionTargetSHA string
-}
-
-// newPreparedOperation resolves the compiler and renderer identities and
-// computes the prepared-target digests.
-func newPreparedOperation(base preparedOperation) (preparedOperation, error) {
-	compilerSHA, err := queryplan.CompilerSHA256()
-	if err != nil {
-		return preparedOperation{}, fmt.Errorf("compiler identity: %w", err)
-	}
-	rendererSHA, err := sqlpolicy.RendererSHA256()
-	if err != nil {
-		return preparedOperation{}, fmt.Errorf("renderer identity: %w", err)
-	}
-	base.compilerVersion = queryplan.CompilerVersion
-	base.compilerSHA256 = compilerSHA
-	base.rendererVersion = sqlpolicy.RendererVersion
-	base.rendererSHA256 = rendererSHA
-	if strings.TrimSpace(base.VisibleSQL) == "" {
-		return preparedOperation{}, errors.New("a prepared operation has no visible statement")
-	}
-	base.visibleTargetSHA = base.preparedTargetDigest(querybinding.RoleVisible, base.VisibleSQL)
-	if base.CompanionSQL != "" {
-		base.companionTargetSHA = base.preparedTargetDigest(querybinding.RoleCompanion, base.CompanionSQL)
-	}
-	return base, nil
-}
-
-// preparedTargetDigest identifies one compiled statement independently of the
-// row limit it is later rendered with.
-//
-// The limit is deliberately excluded: the same prepared target is rendered with
-// different limits as the budget moves, and a target binding that changed with
-// the limit could not tie two executions to one compiled statement. The limit is
-// covered by the target record's exact digest instead.
-func (operation preparedOperation) preparedTargetDigest(role querybinding.TargetRole, preparedSQL string) string {
-	hash := sha256.New()
-	writeBindingField(hash, "domain", preparedTargetDomain)
-	writeBindingField(hash, "role", string(role))
-	writeBindingField(hash, "plan_sha256", operation.PlanSHA256)
-	writeBindingField(hash, "compiler_version", operation.compilerVersion)
-	writeBindingField(hash, "compiler_sha256", operation.compilerSHA256)
-	writeBindingField(hash, "renderer_version", operation.rendererVersion)
-	writeBindingField(hash, "renderer_sha256", operation.rendererSHA256)
-	writeBindingField(hash, "prepared_sql_sha256", physicalquery.ExactDigest(preparedSQL))
-	return hex.EncodeToString(hash.Sum(nil))
-}
-
-// digest is the operation-level identity the whole binding names.
-func (operation preparedOperation) digest() string {
-	hash := sha256.New()
-	writeBindingField(hash, "domain", preparedOperationDomain)
-	writeBindingField(hash, "plan_sha256", operation.PlanSHA256)
-	writeBindingField(hash, "compiler_version", operation.compilerVersion)
-	writeBindingField(hash, "compiler_sha256", operation.compilerSHA256)
-	writeBindingField(hash, "renderer_version", operation.rendererVersion)
-	writeBindingField(hash, "renderer_sha256", operation.rendererSHA256)
-	writeBindingField(hash, "exposure_profile_version", operation.ExposureProfileVersion)
-	writeBindingField(hash, "grant_digest", operation.GrantDigest)
-	writeBindingField(hash, "manifest_digest", operation.ManifestDigest)
-	writeBindingField(hash, "catalog_sha256", operation.CatalogSHA256)
-	writeBindingField(hash, "datasource_id", operation.DatasourceID)
-	writeBindingField(hash, "schema_digest", operation.SchemaDigest)
-	writeBindingField(hash, "view_binding_digest", operation.ViewBindingDigest)
-	writeBindingField(hash, "ordinal_dictionary_set_sha256", operation.OrdinalDictionarySetSHA256)
-	writeBindingField(hash, "sidecar_grants_sha256", operation.SidecarGrantsSHA256)
-	writeBindingField(hash, "visible_prepared_target_sha256", operation.visibleTargetSHA)
-	writeBindingField(hash, "companion_prepared_target_sha256", operation.companionTargetSHA)
-	return hex.EncodeToString(hash.Sum(nil))
-}
-
-// sidecarGrantsDigest identifies the least-privilege sidecar grants an ordinal
-// execution was extended with.
-//
-// They widen what the policy engine admits, so an execution binding that did not
-// name them could not distinguish a statement authorized against the task's own
-// products from one authorized against a wider set.
-func sidecarGrantsDigest(grants []sqlpolicy.ProductGrant) string {
-	ordered := append([]sqlpolicy.ProductGrant(nil), grants...)
-	sort.SliceStable(ordered, func(left, right int) bool {
-		return ordered[left].LogicalName < ordered[right].LogicalName
-	})
-	hash := sha256.New()
-	writeBindingField(hash, "domain", sidecarGrantsDomain)
-	writeBindingField(hash, "count", fmt.Sprintf("%d", len(ordered)))
-	for _, grant := range ordered {
-		writeBindingField(hash, "logical_name", grant.LogicalName)
-		writeBindingField(hash, "physical_schema", grant.PhysicalSchema)
-		writeBindingField(hash, "physical_view", grant.PhysicalView)
-		writeBindingField(hash, "approved_columns", strings.Join(sortedCopy(grant.ApprovedColumns), "\x1f"))
-		writeBindingField(hash, "allowed_functions", strings.Join(sortedCopy(grant.AllowedFunctions), "\x1f"))
-		writeBindingField(hash, "allowed_aggregates", strings.Join(sortedCopy(grant.AllowedAggregates), "\x1f"))
-		writeBindingField(hash, "allowed_operators", strings.Join(sortedCopy(grant.AllowedOperators), "\x1f"))
-		scope := append([]sqlpolicy.ScopePredicate(nil), grant.MandatoryScope...)
-		sort.SliceStable(scope, func(left, right int) bool {
-			if scope[left].Column == scope[right].Column {
-				return scope[left].Operator < scope[right].Operator
-			}
-			return scope[left].Column < scope[right].Column
-		})
-		writeBindingField(hash, "scope_count", fmt.Sprintf("%d", len(scope)))
-		for _, predicate := range scope {
-			writeBindingField(hash, "scope_column", predicate.Column)
-			writeBindingField(hash, "scope_operator", string(predicate.Operator))
-			writeBindingField(hash, "scope_values", strings.Join(predicate.Values, "\x1f"))
-		}
-	}
-	return hex.EncodeToString(hash.Sum(nil))
-}
-
-func sortedCopy(values []string) []string {
-	result := append([]string(nil), values...)
-	sort.Strings(result)
-	return result
-}
-
-func writeBindingField(hash interface{ Write([]byte) (int, error) }, name, value string) {
-	fmt.Fprintf(hash, "%s\x00%d\x00%s\x00", name, len(value), value)
-}
 
 // exposureLedgerBefore seals the pre-state the limits were derived from.
 //
@@ -216,44 +49,73 @@ func exposureLedgerBefore(ledger control.ExposureLedgerSnapshot, budgetBefore co
 	}.Seal()
 }
 
+// preparedExecution is the compile-time half of one Query Execution Binding V2.
+//
+// It is three values, where V1 needed a struct of eleven. That is the point of
+// the version: V1 had to restate the plan, the compiler, the dictionary set, the
+// sidecar grants, the Catalog, the datasource and the schema beside a digest of
+// a preparation nobody could check, so each of them was a second place the same
+// fact was written down. V2 carries the sealed preparation itself, and every one
+// of those members is inside it -- or, for the datasource and schema, a
+// top-level member of the receipt that signs it.
+type preparedExecution struct {
+	// binding is the sealed preparation, exactly as physicalquery produced it.
+	binding preparedbinding.PreparedOperationBindingV1
+	// compiler is the identity binding.CompilerIdentitySHA256 names. V2 requires
+	// the two to agree, and it is what the target records' renderer members are
+	// checked against.
+	compiler preparedbinding.CompilerIdentityV1
+	// profile is the exposure profile the row limits were derived under. It
+	// belongs to the ledger rather than to the preparation, which is why the
+	// preparation does not carry it.
+	profile string
+}
+
 // buildQueryExecutionBinding assembles what the Gateway executed.
 //
 // executed says whether the Connector was invoked. It is a parameter rather
 // than something inferred from the presence of a decision, because a semantic
 // replay authorizes both targets in order to derive its key and then executes
 // neither; inferring would make that path indistinguishable from a novel one.
-func buildQueryExecutionBinding(queryID string, path querybinding.PathKind, operation preparedOperation,
+func buildQueryExecutionBinding(queryID string, path querybinding.PathKind, operation preparedExecution,
 	query derivedQuery, ledger querybinding.ExposureLedgerBeforeV1, budgetBefore control.BudgetSnapshot,
 	executed bool) (control.QueryExecutionBinding, error) {
 	budgetDigest, err := queryreceipt.BudgetStateSHA256(queryReceiptBudget(budgetBefore))
 	if err != nil {
 		return control.QueryExecutionBinding{}, fmt.Errorf("canonicalize budget pre-state: %w", err)
 	}
-	visible, err := targetRecord(querybinding.RoleVisible, operation, operation.visibleTargetSHA,
+	// The prepared target digests are asked of the preparation rather than
+	// recomputed here. V2's own Validate asks the same question of the same
+	// value, so a Gateway that computed them a second way would be checked
+	// against itself.
+	visibleTarget, err := operation.binding.TargetSHA256(preparedbinding.RoleVisible)
+	if err != nil {
+		return control.QueryExecutionBinding{}, err
+	}
+	visible, err := targetRecord(querybinding.RoleVisible, operation, visibleTarget,
 		query.derivation.Visible, query.visible, executed)
 	if err != nil {
 		return control.QueryExecutionBinding{}, err
 	}
-	binding := querybinding.QueryExecutionBindingV1{
-		PathKind:                       path,
-		PreparedOperationBindingSHA256: operation.digest(),
-		ExposureProfileVersion:         operation.ExposureProfileVersion,
-		UsesExpandedEvidence:           ledger.UsesExpandedEvidence,
-		VisibleRowLimit:                query.derivation.Limits.VisibleRowLimit,
-		BudgetBeforeSHA256:             budgetDigest,
-		ExposureLedgerBeforeSHA256:     ledger.SHA256,
-		PlanSHA256:                     operation.PlanSHA256,
-		CompilerVersion:                operation.compilerVersion,
-		CompilerSHA256:                 operation.compilerSHA256,
-		OrdinalDictionarySetSHA256:     operation.OrdinalDictionarySetSHA256,
-		SidecarGrantsSHA256:            operation.SidecarGrantsSHA256,
-		Visible:                        visible,
+	binding := querybinding.QueryExecutionBindingV2{
+		PathKind:                   path,
+		PreparedOperation:          operation.binding,
+		Compiler:                   operation.compiler,
+		ExposureProfileVersion:     operation.profile,
+		VisibleRowLimit:            query.derivation.Limits.VisibleRowLimit,
+		BudgetBeforeSHA256:         budgetDigest,
+		ExposureLedgerBeforeSHA256: ledger.SHA256,
+		Visible:                    visible,
 	}
 	if query.companion != nil {
 		if query.derivation.Companion == nil {
 			return control.QueryExecutionBinding{}, errors.New("a companion statement executed with no derived identity")
 		}
-		companion, companionErr := targetRecord(querybinding.RoleCompanion, operation, operation.companionTargetSHA,
+		companionTarget, targetErr := operation.binding.TargetSHA256(preparedbinding.RoleCompanion)
+		if targetErr != nil {
+			return control.QueryExecutionBinding{}, targetErr
+		}
+		companion, companionErr := targetRecord(querybinding.RoleCompanion, operation, companionTarget,
 			*query.derivation.Companion, *query.companion, executed)
 		if companionErr != nil {
 			return control.QueryExecutionBinding{}, companionErr
@@ -267,7 +129,7 @@ func buildQueryExecutionBinding(queryID string, path querybinding.PathKind, oper
 		return control.QueryExecutionBinding{}, err
 	}
 	result := control.QueryExecutionBinding{
-		QueryID: queryID, Binding: &sealed, ExposureLedgerBefore: ledger,
+		QueryID: queryID, BindingV2: &sealed, ExposureLedgerBefore: ledger,
 	}
 	if err := result.Validate(); err != nil {
 		return control.QueryExecutionBinding{}, err
@@ -275,7 +137,7 @@ func buildQueryExecutionBinding(queryID string, path querybinding.PathKind, oper
 	return result, nil
 }
 
-func targetRecord(role querybinding.TargetRole, operation preparedOperation, preparedTargetSHA string,
+func targetRecord(role querybinding.TargetRole, operation preparedExecution, preparedTargetSHA string,
 	identity physicalquery.StatementIdentity, decision sqlpolicy.Decision, executed bool) (querybinding.TargetRecordV1, error) {
 	if identity.StrictASTSHA256 == "" {
 		// The digester is never nil on this path, so an empty structural digest
@@ -291,7 +153,8 @@ func targetRecord(role querybinding.TargetRole, operation preparedOperation, pre
 		Role: role, Authorized: true, Executed: executed,
 		ExactSQLSHA256: identity.ExactSHA256, StrictASTSHA256: identity.StrictASTSHA256,
 		RowLimit: decision.RowLimit, PolicyFingerprint: decision.Fingerprint,
-		PolicyRendererVersion: operation.rendererVersion, PolicyRendererDigest: operation.rendererSHA256,
+		PolicyRendererVersion:       operation.compiler.PolicyRendererVersion,
+		PolicyRendererDigest:        operation.compiler.PolicyRendererSHA256,
 		PreparedTargetBindingSHA256: preparedTargetSHA,
 	}, nil
 }
@@ -303,36 +166,36 @@ func targetRecord(role querybinding.TargetRole, operation preparedOperation, pre
 // exposure context: a plain query has no plan digest, no exposure profile and no
 // ledger, so it has nothing a Query Execution Binding could describe. Callers
 // check for an exposure context first.
+//
+// Since T1d it resolves nothing about the preparation. The sealed binding it
+// carries is the one physicalquery produced and the Gateway executed from, so
+// the finalizer compares against a document rather than against a digest of one
+// it was never handed.
 func (s *Service) prepareExecutionBinding(exposureContext *planExposureContext,
-	state physicalquery.LedgerPreState, ledger control.ExposureLedgerSnapshot, budgetBefore control.BudgetSnapshot,
-	visibleSQL, companionSQL string, protocolGrant domain.TaskGrantV1, grantDigest string,
-	evidence datasourceEvidence) (preparedOperation, querybinding.ExposureLedgerBeforeV1, error) {
+	state physicalquery.LedgerPreState, ledger control.ExposureLedgerSnapshot,
+	budgetBefore control.BudgetSnapshot) (preparedExecution, querybinding.ExposureLedgerBeforeV1, error) {
 	if exposureContext == nil {
-		return preparedOperation{}, querybinding.ExposureLedgerBeforeV1{}, nil
+		return preparedExecution{}, querybinding.ExposureLedgerBeforeV1{}, nil
 	}
-	base := preparedOperation{
-		PlanSHA256:             exposureContext.planDigest,
-		ExposureProfileVersion: ledger.ProfileVersion,
-		GrantDigest:            grantDigest,
-		ManifestDigest:         protocolGrant.Core.ManifestDigest,
-		CatalogSHA256:          s.catalog.SHA256,
-		DatasourceID:           evidence.DatasourceID,
-		SchemaDigest:           evidence.SchemaDigest,
-		ViewBindingDigest:      protocolGrant.Core.ViewBindingDigest,
-		VisibleSQL:             visibleSQL,
-		CompanionSQL:           companionSQL,
-	}
-	if exposureContext.ordinal != nil {
-		base.OrdinalDictionarySetSHA256 = exposureContext.ordinal.DictionarySetDigest
-		base.SidecarGrantsSHA256 = sidecarGrantsDigest(exposureContext.ordinal.SidecarGrants)
-	}
-	operation, err := newPreparedOperation(base)
+	compiler, err := physicalquery.LocalCompilerIdentity()
 	if err != nil {
-		return preparedOperation{}, querybinding.ExposureLedgerBeforeV1{}, err
+		return preparedExecution{}, querybinding.ExposureLedgerBeforeV1{}, err
+	}
+	operation := preparedExecution{
+		binding: exposureContext.prepared.Binding(), compiler: compiler, profile: ledger.ProfileVersion,
+	}
+	// The preparation must have been compiled by this binary. It was -- Prepare
+	// seals the local identity and preparePlan already required it -- so this is
+	// the statement of that fact at the point where the two are signed together,
+	// not a second chance to notice.
+	if operation.binding.CompilerIdentitySHA256 != compiler.SHA256 {
+		return preparedExecution{}, querybinding.ExposureLedgerBeforeV1{}, fmt.Errorf(
+			"this operation was prepared by compiler %s but this binary is %s",
+			operation.binding.CompilerIdentitySHA256[:12], compiler.SHA256[:12])
 	}
 	sealed, err := exposureLedgerBefore(ledger, budgetBefore, state)
 	if err != nil {
-		return preparedOperation{}, querybinding.ExposureLedgerBeforeV1{}, err
+		return preparedExecution{}, querybinding.ExposureLedgerBeforeV1{}, err
 	}
 	return operation, sealed, nil
 }
@@ -340,19 +203,17 @@ func (s *Service) prepareExecutionBinding(exposureContext *planExposureContext,
 // executionBindingApplies reports whether this operation can produce a Query
 // Execution Binding at all.
 //
-// The gate is not a policy choice; it is what the receipt contract permits. V9
-// is V8 plus the execution evidence, and ValidateUnsigned requires V8's
-// completed artifact intent for both. So a binding is only ever signable for an
-// exposure-V5 operation running with result artifacts enabled. Building one
-// anywhere else would persist a description no receipt could carry, and -- worse
-// -- would trip the fail-closed check that refuses to emit a pre-V9 receipt for
-// a query that has a binding.
+// The gate is what the receipt contract permits, not a policy choice. Under V9
+// it also required result artifacts to be enabled, because V9 is V8 plus the
+// execution evidence and V8 requires a completed artifact intent -- so an inline
+// delivery could carry no execution binding at all. V10 states the delivery mode
+// instead of requiring an artifact, which is what removes that condition: an
+// inline V5 execution now describes itself as one rather than going undescribed.
 //
 // Exposure profiles V1--V4 keep their existing receipt versions untouched.
 func (s *Service) executionBindingApplies(exposureContext *planExposureContext,
 	ledger control.ExposureLedgerSnapshot) bool {
 	return exposureContext != nil &&
 		ledger.ProfileVersion == exposure.ProfileV5 &&
-		exposureContext.planDigest != "" &&
-		s.resultArtifacts != nil
+		exposureContext.planDigest != ""
 }

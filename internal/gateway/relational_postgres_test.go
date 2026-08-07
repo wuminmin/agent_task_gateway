@@ -53,11 +53,8 @@ func TestRelationalAlgebraNormalFormBuildsForJoinUnionAndGrouping(t *testing.T) 
 			if err != nil {
 				t.Fatal(err)
 			}
-			context, err := buildRelationalExposureContext(test.plan, compiled, catalogProducts, approved)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if context.planDigest == "" || context.algebraNormalForm == nil {
+			context := relationalObservationContextForTest(t, test.plan, compiled, catalogProducts)
+			if context.planDigest == "" {
 				t.Fatal("relational plan lacks algebra identity")
 			}
 		})
@@ -267,14 +264,11 @@ func executeRelationalPostgresObservation(t *testing.T, ctx context.Context, con
 	if err != nil {
 		t.Fatal(err)
 	}
-	exposureContext, err := buildRelationalExposureContext(plan, compiled, catalogProducts, approved)
-	if err != nil {
-		t.Fatal(err)
-	}
-	grant, err = exposureContext.extendGrant(grant)
-	if err != nil {
-		t.Fatal(err)
-	}
+	exposureContext := relationalObservationContextForTest(t, plan, compiled, catalogProducts)
+	// The grant is not widened here. Every product above approves its whole
+	// published surface, so the metering closure -- approved columns plus the
+	// entity key, the mandatory scopes and the compilation'"'"'s evidence fields --
+	// is already inside it, and preparation'"'"'s widening would add nothing.
 	engine := sqlpolicy.New(sqlpolicy.Config{})
 	visible, err := engine.Authorize(sqlpolicy.Request{SQL: compiled.VisibleSQL, Grant: grant, RowLimit: 100})
 	if err != nil {

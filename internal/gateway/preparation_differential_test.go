@@ -7,21 +7,24 @@ import (
 
 	"taskbound.local/agent-data-gateway/internal/ordinal"
 	"taskbound.local/agent-data-gateway/internal/physicalquery"
+	"taskbound.local/agent-data-gateway/internal/preparedbinding"
 	"taskbound.local/agent-data-gateway/internal/queryplan"
 )
 
-// This is T1b-B: the differential half of the parity harness.
+// This began as T1b-B, the differential half of the parity harness, and became
+// something else at T1d.
 //
-// T1b-A established what the Gateway's derivation produces and checked it
-// against evidence neither implementation makes. This file adds the comparison
-// that was missing -- the Gateway's derivation against
-// internal/physicalquery.Prepare -- for every shape whose derivation has moved,
-// and requires the shapes that have not moved to say so rather than to produce
-// something.
+// While the Gateway had its own derivation this compared the two. It no longer
+// does: production calls Prepare, so the comparison below is between what the
+// production path EXPOSES and what an independent Prepare over the same inputs
+// produces. That still fails a Gateway that drops a prepared member, reorders a
+// projection, rebuilds a digest or hands the executor a grant preparation did
+// not produce -- which is the whole of what the Gateway is still able to get
+// wrong about a preparation.
 //
-// The production Gateway still runs its own derivation. Prepare is reachable
-// from tests only until every named shape passes here; that is what keeps a
-// second implementation out of the running system while it is being verified.
+// notYetExtracted is empty and the guard below keeps it that way: a shape that
+// began refusing would be a shape production can no longer execute at all,
+// because there is no second derivation left to fall back to.
 
 // preparationInputsFor builds the immutable inputs Prepare reads.
 //
@@ -41,17 +44,16 @@ func preparationInputsFor(t *testing.T, service *Service, test parityCase) physi
 	return inputs
 }
 
-// extractedShapeOf reads the same properties off a physicalquery preparation.
+// extractedShapeOf reads the same properties off an independently prepared
+// operation.
 //
-// The two prepared-binding digests are computed with the Gateway's own
-// newPreparedOperation rather than read off the physicalquery binding. They are
-// different constructions -- the Gateway's is what a Query Execution Binding
-// signs today -- so comparing physicalquery's binding against the Gateway's
-// would compare two things that were never meant to be equal. What must be
-// unchanged is the value the Gateway will sign, and that is what this computes,
-// from the new implementation's statements.
-func extractedShapeOf(t *testing.T, service *Service, prepared physicalquery.PreparedOperation,
-	test parityCase, evidence datasourceEvidence, manifestDigest, grantDigest string) preparationShape {
+// The three binding digests are the sealed preparation's own and its two
+// prepared targets, which is what a Query Execution Binding V2 carries. Under V9
+// they had to be recomputed through the Gateway's separate construction, because
+// that construction was what the receipt signed; V2 signs the preparation
+// itself, so there is one value and both sides read it.
+func extractedShapeOf(t *testing.T, prepared physicalquery.PreparedOperation,
+	test parityCase) preparationShape {
 	t.Helper()
 	visibleSQL, companionSQL, err := prepared.ExecutableStatements()
 	if err != nil {
@@ -108,28 +110,24 @@ func extractedShapeOf(t *testing.T, service *Service, prepared physicalquery.Pre
 		shape.PredicateFootprint = footprint
 	}
 	if shape.PlanDigest == "" {
+		// A non-exposure operation signs no execution binding, so the production
+		// side carries no binding identities to compare these against. Filling them
+		// here would report a difference where there is nothing to differ.
 		return shape
 	}
-
-	operation, err := newPreparedOperation(preparedOperation{
-		PlanSHA256:                 shape.PlanDigest,
-		ExposureProfileVersion:     test.profile,
-		GrantDigest:                grantDigest,
-		ManifestDigest:             manifestDigest,
-		CatalogSHA256:              service.catalog.SHA256,
-		DatasourceID:               evidence.DatasourceID,
-		SchemaDigest:               evidence.SchemaDigest,
-		OrdinalDictionarySetSHA256: shape.DictionarySetDigest,
-		SidecarGrantsSHA256:        shape.SidecarGrantsSHA256,
-		VisibleSQL:                 shape.VisibleSQL,
-		CompanionSQL:               shape.CompanionSQL,
-	})
+	shape.PreparedOperationSHA256 = binding.SHA256
+	visible, err := binding.TargetSHA256(preparedbinding.RoleVisible)
 	if err != nil {
-		t.Fatalf("build the prepared operation binding: %v", err)
+		t.Fatalf("read the prepared visible target: %v", err)
 	}
-	shape.PreparedOperationSHA256 = operation.digest()
-	shape.VisibleTargetSHA256 = operation.visibleTargetSHA
-	shape.CompanionTargetSHA256 = operation.companionTargetSHA
+	shape.VisibleTargetSHA256 = visible
+	if binding.HasCompanion {
+		companion, companionErr := binding.TargetSHA256(preparedbinding.RoleCompanion)
+		if companionErr != nil {
+			t.Fatalf("read the prepared companion target: %v", companionErr)
+		}
+		shape.CompanionTargetSHA256 = companion
+	}
 	return shape
 }
 
@@ -145,9 +143,8 @@ var notYetExtracted = map[string]string{}
 func TestExtractedPreparationMatchesTheGateway(t *testing.T) {
 	for _, test := range parityCases() {
 		t.Run(test.name, func(t *testing.T) {
-			service, legacy := prepareParityCase(t, test)
+			service, production := prepareParityCase(t, test)
 			resolved := resolveParityCase(t, service, test)
-			evidence, manifestDigest, grantDigest := parityEvidence(t, service, resolved.products)
 
 			inputs := preparationInputsFor(t, service, test)
 			prepared, err := physicalquery.Prepare(inputs)
@@ -178,14 +175,8 @@ func TestExtractedPreparationMatchesTheGateway(t *testing.T) {
 				t.Fatalf("the prepared operation does not bind these inputs: %v", err)
 			}
 
-			extracted := extractedShapeOf(t, service, prepared, resolved, evidence, manifestDigest, grantDigest)
-			// The metering projection is deliberately not compared. It is Gateway
-			// observation state rather than prepared output -- the half that reads
-			// it stays behind -- and its whole effect on what is prepared is the
-			// compiled statement bytes and the widened policy grant, both of which
-			// are compared.
-			legacy.MeteringColumns, extracted.MeteringColumns = nil, nil
-			requireSameShape(t, legacy, extracted)
+			extracted := extractedShapeOf(t, prepared, resolved)
+			requireSameShape(t, production, extracted)
 		})
 	}
 }

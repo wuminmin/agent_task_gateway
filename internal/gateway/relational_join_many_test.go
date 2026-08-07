@@ -72,14 +72,12 @@ func joinManyNormalForm(t *testing.T, plan queryplan.QueryPlan, queryProducts ma
 
 func joinManyObservation(t *testing.T, plan queryplan.QueryPlan, queryProducts map[string]queryplan.Product, products map[string]catalog.Product, approved map[string][]string) (exposure.Observation, string) {
 	t.Helper()
+	_ = approved
 	compilation, err := queryplan.CompileRelational(plan, queryProducts)
 	if err != nil {
 		t.Fatal(err)
 	}
-	context, err := buildRelationalExposureContext(plan, compilation, products, approved)
-	if err != nil {
-		t.Fatal(err)
-	}
+	context := relationalObservationContextForTest(t, plan, compilation, products)
 	values := map[string]any{
 		"detail.department": "sales", "detail.receipt_no": "R-1",
 		"region.department": "sales", "region.region_code": "PH",
@@ -150,5 +148,39 @@ func joinManyCatalogProducts() map[string]catalog.Product {
 			Name: "summary", Sensitivity: domain.SensitivityLow, FactNamespace: "travel.summary", StableRelationRole: "summary",
 			Snapshot: "s1", EntityKey: []string{"month"}, Fields: []catalog.Field{field("department"), field("month")},
 		},
+	}
+}
+
+// relationalObservationContextForTest builds just enough planExposureContext to
+// exercise the observation half against a compilation the test made itself.
+//
+// It is a fixture, not a preparation. Production reaches a context only through
+// planExposureContextFrom, from a sealed PreparedOperation, and since T1d there
+// is no other way to compile a statement at all. What these cases exercise is
+// the half that stayed in this package -- turning a Connector result pair into
+// an exposure Observation -- and that half reads the compilation, the Catalog
+// Products and the projections, none of which need a preparation to be well
+// defined. Building them here keeps a case about join or union observation from
+// having to stand up a task grant, a snapshot registry and a Control Store.
+func relationalObservationContextForTest(t *testing.T, plan queryplan.QueryPlan,
+	compilation queryplan.RelationalCompilation, products map[string]catalog.Product) *planExposureContext {
+	t.Helper()
+	semantic := make(map[string]queryplan.Product, len(products))
+	for name, product := range products {
+		semantic[name] = relationalQueryProduct(product, stringSetFromSlice(product.FieldNames()))
+	}
+	normal, err := queryplan.SemanticNormalForm(plan, compilation, semantic)
+	if err != nil {
+		t.Fatalf("semantic normal form: %v", err)
+	}
+	return &planExposureContext{
+		plan: cloneQueryPlan(plan), mainSQL: compilation.VisibleSQL, provenanceSQL: compilation.ProvenanceSQL,
+		visibleFields:    append([]string(nil), compilation.VisibleFields...),
+		factFields:       append([]string(nil), compilation.VisibleFields...),
+		provenanceFields: append([]string(nil), compilation.ProvenanceFields...),
+		grouped:          len(plan.GroupBy) > 0 || len(plan.Aggregates) > 0,
+		expandedEvidence: compilation.ExpandedEvidence,
+		planDigest:       normal.SHA256,
+		relational:       &relationalExposureContext{compilation: compilation, products: products},
 	}
 }

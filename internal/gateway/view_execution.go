@@ -2,7 +2,6 @@ package gateway
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
 
@@ -12,6 +11,7 @@ import (
 	"taskbound.local/agent-data-gateway/internal/dataconnector"
 	"taskbound.local/agent-data-gateway/internal/exposure"
 	"taskbound.local/agent-data-gateway/internal/mcp"
+	"taskbound.local/agent-data-gateway/internal/physicalquery"
 	"taskbound.local/agent-data-gateway/internal/queryplan"
 	"taskbound.local/agent-data-gateway/internal/sqlpolicy"
 	"taskbound.local/agent-data-gateway/internal/viewcompiler"
@@ -80,7 +80,7 @@ func (s *Service) prepareTaskPlan(ctx context.Context, task control.Task, grant 
 	if err != nil {
 		return preparedQueryPlan{}, viewQueryUnsupported(viewCompositionReason(err))
 	}
-	return s.prepareSemanticViewPlan(grant, root, artifact, composition, current, plan)
+	return s.prepareSemanticViewPlan(grant, artifact, composition, current, plan)
 }
 
 func semanticRelationalProfile(grant control.ExposureGrant) bool {
@@ -286,218 +286,64 @@ func catalogScopeByName(scopes []catalog.Scope, name string) (catalog.Scope, boo
 	return catalog.Scope{}, false
 }
 
-func (s *Service) prepareSemanticViewPlan(grant control.TaskGrant, root catalog.Product, artifact viewcompiler.Artifact,
-	composition viewcompiler.Composition, binding *resolvedViewBinding, outerPlans ...queryplan.QueryPlan) (preparedQueryPlan, error) {
-	var outer queryplan.QueryPlan
-	if len(outerPlans) != 0 {
-		outer = outerPlans[0]
-	}
-	governance, err := s.semanticViewGovernanceFor(root, artifact)
-	if err != nil {
-		return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "语义 View 的终端治理闭包无效"}
-	}
+// prepareSemanticViewPlan prepares one composed semantic View operation.
+//
+// It derives nothing. The governance envelope, the terminal column closure, the
+// compiled statements, the internal terminal grant, the ordinal binding and the
+// V5 predicate footprint are all produced by
+// internal/physicalquery.PrepareSemanticView from immutable values, so the
+// finalizer reaches the same statements from retained frozen evidence rather
+// than from the Gateway's word. What stays here is resolving the binding (done
+// by the caller), holding the live snapshot handles, and the registry revision
+// the Gateway re-checks before executing.
+//
+// outer is the agent's own plan against the public View relation, and it is
+// required rather than optional: preparation identifies a View operation by the
+// outer plan -- that is what PlanSHA256 names -- so an operation prepared
+// without one would be identified by nothing the agent submitted.
+func (s *Service) prepareSemanticViewPlan(grant control.TaskGrant, artifact viewcompiler.Artifact,
+	composition viewcompiler.Composition, binding *resolvedViewBinding,
+	outer queryplan.QueryPlan) (preparedQueryPlan, error) {
+	// The one shape check kept ahead of preparation. Preparation refuses it too,
+	// but only this call site can say WHY in the vocabulary an agent can act on:
+	// a composition whose projection and declared outputs disagree is a query
+	// outside the Phase B fragment, which is retryable after a rewrite rather
+	// than a policy denial.
 	if len(composition.VisibleFields) == 0 ||
 		len(composition.VisibleFields) != len(composition.Plan.Columns)+len(composition.Plan.Aggregates) {
 		return preparedQueryPlan{}, viewQueryUnsupported("SEMANTIC_VIEW_OUTPUT_MAPPING")
 	}
-
-	var signedScope map[string]any
-	if err := json.Unmarshal(grant.MandatoryScope, &signedScope); err != nil {
-		return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodeConflict, Message: "任务的强制范围证据无效"}
-	}
-	terminalScopes := make(map[string]map[string]any, len(governance.products))
-	for productName, bindings := range governance.rootScopeByColumn {
-		terminalScopes[productName] = make(map[string]any, len(bindings))
-		for terminalColumn, rootScope := range bindings {
-			value, present := signedScope[rootScope]
-			if !present {
-				return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "任务授权缺少语义 View 终端要求的强制范围"}
-			}
-			terminalScopes[productName][terminalColumn] = value
-		}
-	}
-
-	requiredColumns, err := semanticPlanRequiredColumns(composition.Plan, governance.products)
+	inputs, err := s.semanticViewPreparationInputs(grant, artifact, composition, binding, outer)
 	if err != nil {
-		return preparedQueryPlan{}, viewQueryUnsupported("SEMANTIC_VIEW_COLUMN_CLOSURE")
+		return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodeConflict,
+			Message: "语义 View 查询无法在当前 Catalog 与快照证据下构造准备输入"}
 	}
-	queryProducts := make(map[string]queryplan.Product, len(governance.products))
-	for name, product := range governance.products {
-		columns := requiredColumns[name]
-		queryProduct := relationalQueryProduct(product, columns)
-		if grant.Exposure.ProfileVersion == exposure.ProfileV4 || grant.Exposure.ProfileVersion == exposure.ProfileV5 {
-			queryProduct, err = s.ordinalQueryProduct(product, columns)
-			if err != nil {
-				return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "语义 View 的终端 Product 未绑定可信 V4 快照发布物"}
-			}
-		}
-		queryProducts[name] = queryProduct
-	}
-	compilation, err := queryplan.CompileRelational(composition.Plan, queryProducts)
+	prepared, err := physicalquery.PrepareSemanticView(inputs)
 	if err != nil {
-		return preparedQueryPlan{}, viewQueryUnsupported("SEMANTIC_VIEW_COMPOSED_PLAN_INVALID")
+		return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied,
+			Message: "语义 View 查询不在其治理闭包与任务授权内"}
 	}
-
-	// CompileRelational computes the exact positive-output evidence closure.
-	// Only that closure is allowed into the private terminal grant; allFields
-	// above was a validator snapshot for the trusted artifact, not authority.
-	internalApproved := make(map[string][]string, len(governance.products))
-	for _, source := range compilation.Sources {
-		set := stringSetFromSlice(internalApproved[source.Product])
-		for _, field := range source.EvidenceFields {
-			set[field] = struct{}{}
-		}
-		internalApproved[source.Product] = sortedStringSet(set)
-	}
-	context, err := buildRelationalExposureContext(composition.Plan, compilation, governance.products, internalApproved)
+	compiler, err := physicalquery.LocalCompilerIdentity()
 	if err != nil {
-		return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "语义 View 缺少完整的正输出依赖证据"}
+		return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodeConflict,
+			Message: "本进程无法确定查询编译器身份"}
 	}
-	context.visibleFields = append([]string(nil), composition.VisibleFields...)
-	context.factFields = append([]string(nil), composition.VisibleFields...)
-	context.internalPolicyProducts = make(map[string]sqlpolicy.ProductGrant, len(governance.products))
-	for name, product := range governance.products {
-		policyProduct, policyErr := catalogPolicyProductGrant(product, context.meteringByProduct[name], terminalScopes[name])
-		if policyErr != nil {
-			return preparedQueryPlan{}, policyErr
-		}
-		context.internalPolicyProducts[name] = policyProduct
+	if err := prepared.RequireSemanticViewInputs(inputs, compiler); err != nil {
+		return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodeConflict,
+			Message: "语义 View 准备结果与其输入证据不一致；查询未执行"}
 	}
-	context.viewBindingDigest = binding.Digest
+	// The observation is expressed in the COMPOSED plan, not the agent's outer
+	// one: the statements project and group by composed FieldIDs, so an
+	// observation built against the outer plan would be looking for columns the
+	// result does not carry. The outer plan is what the binding identifies, and
+	// that identity is already sealed.
+	context, err := s.planExposureContextFrom(prepared, composition.Plan)
+	if err != nil {
+		return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodeConflict,
+			Message: "已准备的语义 View 查询无法在当前快照索引下建立观测上下文"}
+	}
+	// The raw revision, which the binding carries only as a digest. executeSQL
+	// compares it against the revision the registry reports at execution time.
 	context.viewRegistryRevision = binding.Expectation.ExpectedRevisionDigest
-
-	prepared := preparedQueryPlan{SQL: context.mainSQL, Exposure: context}
-	if grant.Exposure.ProfileVersion == exposure.ProfileV4 || grant.Exposure.ProfileVersion == exposure.ProfileV5 {
-		bound, bindErr := s.bindOrdinalSidecars(compilation.ProvenanceSQL, compilation.ProvenanceFields, compilation.OrdinalProgram)
-		if bindErr != nil {
-			return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodeConflict, Message: "语义 View 的 V4 快照索引或 sidecar 与 Catalog 不一致"}
-		}
-		context.provenanceSQL = bound.ProvenanceSQL
-		context.provenanceFields = append([]string(nil), bound.ProvenanceFields...)
-		context.ordinal = &bound
-	}
-	if grant.Exposure.ProfileVersion == exposure.ProfileV5 {
-		outputByName := make(map[string]viewcompiler.Output, len(artifact.Outputs))
-		for _, output := range artifact.Outputs {
-			outputByName[output.Name] = output
-		}
-		callerFilters := make([]queryplan.PredicateFilterBinding, 0, len(outer.Filters))
-		fieldBindings := make(map[string]queryplan.PredicateFieldBinding, len(outer.Filters))
-		stableRole := root.StableRelationRole
-		if stableRole == "" {
-			stableRole = root.Name
-		}
-		for _, filter := range outer.Filters {
-			output, present := outputByName[filter.Column]
-			if !present || output.Kind != viewcompiler.OutputField || output.FieldID == "" {
-				return preparedQueryPlan{}, viewQueryUnsupported("SEMANTIC_VIEW_PREDICATE_BINDING")
-			}
-			resolvedDigest, digestErr := digestViewEvidence("TASKGATE-V5-VIEW-PREDICATE-EXPRESSION-V1\x00", struct {
-				Binding string              `json:"binding"`
-				Plan    string              `json:"plan"`
-				Output  viewcompiler.Output `json:"output"`
-			}{Binding: binding.Digest, Plan: artifact.CanonicalPlanDigest, Output: output})
-			if digestErr != nil {
-				return preparedQueryPlan{}, digestErr
-			}
-			fieldBindings[output.FieldID] = queryplan.PredicateFieldBinding{SemanticProductID: root.Name,
-				StableRole: stableRole, PublicFieldID: output.Name, ResolvedExpressionSHA256: resolvedDigest,
-				SQLType: output.SQLType, CollationName: output.Collation, CollationVersion: output.CollationVersion}
-			callerFilters = append(callerFilters, queryplan.PredicateFilterBinding{Field: output.FieldID,
-				Filter: queryplan.Filter{Column: output.FieldID, Op: filter.Op, Value: filter.Value}})
-		}
-		if footprintErr := context.configurePredicateFootprintV5(s.catalog.SHA256, grant.MandatoryScope,
-			queryProducts, callerFilters, fieldBindings, root.Name, predicateLimitsForGrant(grant.Exposure)); footprintErr != nil {
-			return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodePolicyDenied, Message: "语义 View 无法生成 V5 谓词足迹"}
-		}
-	}
-	return prepared, nil
-}
-
-// semanticPlanRequiredColumns computes the exact terminal column closure
-// before CompileRelational. Besides minimizing private authority, this keeps a
-// leaf-filter subquery from projecting every Catalog field merely because the
-// trusted validator snapshot knew that full schema.
-func semanticPlanRequiredColumns(plan queryplan.QueryPlan, products map[string]catalog.Product) (map[string]map[string]struct{}, error) {
-	scans, err := semanticArtifactScans(plan)
-	if err != nil {
-		return nil, err
-	}
-	roleProduct := make(map[string]string, len(scans))
-	result := make(map[string]map[string]struct{}, len(scans))
-	addColumn := func(productName, column string) error {
-		product, present := products[productName]
-		if !present {
-			return errors.New("semantic plan names an unknown terminal product")
-		}
-		if _, present := catalogFieldByName(product.Fields, column); !present {
-			return errors.New("semantic plan names an unknown terminal field")
-		}
-		if result[productName] == nil {
-			result[productName] = make(map[string]struct{})
-		}
-		result[productName][column] = struct{}{}
-		return nil
-	}
-	for _, scan := range scans {
-		if _, duplicate := roleProduct[scan.Role]; duplicate {
-			return nil, errors.New("semantic plan repeats a stable role")
-		}
-		roleProduct[scan.Role] = scan.Product
-		product, present := products[scan.Product]
-		if !present {
-			return nil, errors.New("semantic plan names an unknown terminal product")
-		}
-		for _, column := range append(append([]string(nil), product.EntityKey...), product.Scopes...) {
-			if err := addColumn(scan.Product, column); err != nil {
-				return nil, err
-			}
-		}
-		for _, filter := range scan.Filters {
-			if err := addColumn(scan.Product, filter.Column); err != nil {
-				return nil, err
-			}
-		}
-	}
-	addFieldID := func(fieldID string) error {
-		role, column, valid := splitRelationalField(fieldID)
-		productName, present := roleProduct[role]
-		if !valid || !present {
-			return errors.New("semantic plan contains an invalid stable FieldID")
-		}
-		return addColumn(productName, column)
-	}
-	for _, fieldID := range append(append([]string(nil), plan.Columns...), plan.GroupBy...) {
-		if err := addFieldID(fieldID); err != nil {
-			return nil, err
-		}
-	}
-	for _, filter := range plan.Filters {
-		if err := addFieldID(filter.Column); err != nil {
-			return nil, err
-		}
-	}
-	for _, aggregate := range plan.Aggregates {
-		if aggregate.Column != "*" {
-			if err := addFieldID(aggregate.Column); err != nil {
-				return nil, err
-			}
-		}
-	}
-	if plan.From != nil && plan.From.JoinMany != nil {
-		for _, predicate := range plan.From.JoinMany.On {
-			if err := addFieldID(predicate.Left); err != nil {
-				return nil, err
-			}
-			if err := addFieldID(predicate.Right); err != nil {
-				return nil, err
-			}
-		}
-	}
-	for name := range products {
-		if len(result[name]) == 0 {
-			return nil, errors.New("semantic plan terminal has an empty column closure")
-		}
-	}
-	return result, nil
+	return preparedQueryPlan{SQL: context.mainSQL, PolicyGrant: prepared.PolicyGrant(), Exposure: context}, nil
 }

@@ -24,6 +24,7 @@ import (
 	"taskbound.local/agent-data-gateway/internal/exposure"
 	"taskbound.local/agent-data-gateway/internal/mcp"
 	"taskbound.local/agent-data-gateway/internal/ordinal"
+	"taskbound.local/agent-data-gateway/internal/queryplan"
 	"taskbound.local/agent-data-gateway/internal/snapshotbundle"
 	"taskbound.local/agent-data-gateway/internal/testpostgres"
 )
@@ -594,4 +595,31 @@ func assertCompiledBundleMatchesExpectedDigests(t *testing.T, name string, manif
 	if err := manifest.Validate(); err != nil {
 		t.Fatalf("publication %s compiled to an invalid dictionary manifest: %v", name, err)
 	}
+}
+
+// prepareOrdinalForTest prepares one plan through the production preparation
+// path and returns the ordinal execution the Gateway would execute it with.
+//
+// Fixtures that fabricate a provenance row need the compiled program's handle
+// aliases and evidence-field aliases. Since T1d there is exactly one place those
+// come from -- internal/physicalquery, reached through Service.preparePlan -- so
+// the fixture is built against the program production actually compiled. A
+// fixture that compiled its own would agree only until the two drifted, and the
+// drift would show up as an unresolvable row handle rather than as a mismatch
+// anyone could read.
+func prepareOrdinalForTest(t *testing.T, harness *gatewayHarness, taskID string,
+	plan queryplan.QueryPlan) *boundOrdinalExecution {
+	t.Helper()
+	grant, err := harness.store.GetGrant(context.Background(), taskID)
+	if err != nil {
+		t.Fatalf("load grant for %s: %v", taskID, err)
+	}
+	prepared, err := harness.service.preparePlan(grant, plan)
+	if err != nil {
+		t.Fatalf("prepare %s: %v", taskID, err)
+	}
+	if prepared.Exposure == nil || prepared.Exposure.ordinal == nil {
+		t.Fatalf("task %s prepared no ordinal execution", taskID)
+	}
+	return prepared.Exposure.ordinal
 }

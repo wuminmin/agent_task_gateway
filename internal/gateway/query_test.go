@@ -13,7 +13,6 @@ import (
 
 	"taskbound.local/agent-data-gateway/internal/apierr"
 	"taskbound.local/agent-data-gateway/internal/approval"
-	"taskbound.local/agent-data-gateway/internal/catalog"
 	"taskbound.local/agent-data-gateway/internal/control"
 	"taskbound.local/agent-data-gateway/internal/dataconnector"
 	"taskbound.local/agent-data-gateway/internal/domain"
@@ -329,24 +328,7 @@ func TestSQLAndExecutePlanShareV4SemanticReplayAfterConsumedRowBudget(t *testing
 	plan := queryplan.QueryPlan{Product: "expense_summary", Columns: approvedColumns,
 		OrderBy: []queryplan.Order{{Column: "month", Direction: "asc"},
 			{Column: "department", Direction: "asc"}, {Column: "expense_type", Direction: "asc"}}}
-	product, found := harness.catalog.LookupProduct(plan.Product)
-	if !found {
-		t.Fatal("expense_summary product is unavailable")
-	}
-	approved := stringSetFromSlice(approvedColumns)
-	ordinalProduct, err := harness.service.ordinalQueryProduct(product, approved)
-	if err != nil {
-		t.Fatal(err)
-	}
-	compilation, err := queryplan.CompileOrdinal(plan, ordinalProduct)
-	if err != nil {
-		t.Fatal(err)
-	}
-	bound, err := harness.service.bindOrdinalSidecars(compilation.ProvenanceSQL,
-		compilation.ProvenanceFields, compilation.OrdinalProgram)
-	if err != nil {
-		t.Fatal(err)
-	}
+	bound := prepareOrdinalForTest(t, harness, taskID, plan)
 	rows := []map[string]any{
 		{"month": "2026-01", "department": "销售部", "expense_type": "机票", "total_amount": json.Number("1680.00")},
 		{"month": "2026-01", "department": "销售部", "expense_type": "酒店", "total_amount": json.Number("880.00")},
@@ -453,13 +435,20 @@ func TestGroupedExposureUsesOverflowProbeAndMatchesAlgebraRelease(t *testing.T) 
 	}
 
 	product, _ := harness.catalog.LookupProduct("expense_summary")
-	approved := make(map[string]struct{})
-	for _, field := range product.Fields {
-		approved[field.Name] = struct{}{}
-	}
-	exposureContext, err := buildPlanExposureContext(plan, product, approved, map[string]struct{}{"sum": {}})
+	// The context is obtained through the production preparation path, so the
+	// observation compared below is built from the same statements and the same
+	// provenance projection the execution above actually used.
+	grant, err := harness.store.GetGrant(context.Background(), "task-exposure-grouped")
 	if err != nil {
 		t.Fatal(err)
+	}
+	preparedPlan, err := harness.service.preparePlan(grant, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exposureContext := preparedPlan.Exposure
+	if exposureContext == nil {
+		t.Fatal("a grouped exposure plan prepared no exposure context")
 	}
 	online := result["exposure"].(control.ExposureCharge)
 	if online.ActualReleaseFacts != 2 {
@@ -499,18 +488,30 @@ func TestGroupedExposureUsesOverflowProbeAndMatchesAlgebraRelease(t *testing.T) 
 	}
 }
 
+// A paged grouped statement must order by its group keys in canonical order.
+//
+// Without a deterministic suffix two pages of one aggregate could overlap or
+// skip groups, and the exposure observation would be built over a page nobody
+// could reproduce. The plan is prepared through the production path, so what is
+// asserted is the statement the Gateway would execute rather than one a test
+// compiled for itself.
 func TestGroupedPaginationSQLUsesCanonicalGroupKeySuffix(t *testing.T) {
-	product := catalog.Product{Name: "expenses", Snapshot: "s1", EntityKey: []string{"a", "b"},
-		Fields: []catalog.Field{{Name: "a", Type: "text"}, {Name: "b", Type: "text"}, {Name: "amount", Type: "numeric"}}}
-	columns := map[string]struct{}{"a": {}, "b": {}, "amount": {}}
-	context, err := buildPlanExposureContext(queryplan.QueryPlan{Product: "expenses", Columns: []string{"b", "a"},
-		Aggregates: []queryplan.Aggregate{{Function: "sum", Column: "amount", Alias: "total"}},
-		GroupBy:    []string{"b", "a"}, Limit: 5}, product, columns, map[string]struct{}{"sum": {}})
+	service := parityService(t, false)
+	test := resolveParityCase(t, service, parityCase{
+		name: "grouped_pagination", profile: exposure.ProfileV2,
+		products: []string{"expense_summary"},
+		columns:  map[string][]string{"expense_summary": summaryColumns},
+		plan: queryplan.QueryPlan{Product: "expense_summary",
+			Columns:    []string{"expense_type", "department"},
+			Aggregates: []queryplan.Aggregate{{Function: "sum", Column: "total_amount", Alias: "total"}},
+			GroupBy:    []string{"expense_type", "department"}, Limit: 5},
+	})
+	prepared, err := service.preparePlan(test.grant(), test.plan)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(context.mainSQL, `ORDER BY "a" ASC, "b" ASC LIMIT 5`) {
-		t.Fatalf("group pagination did not use the canonical key suffix: %s", context.mainSQL)
+	if !strings.Contains(prepared.SQL, `ORDER BY "department" ASC, "expense_type" ASC LIMIT 5`) {
+		t.Fatalf("group pagination did not use the canonical key suffix: %s", prepared.SQL)
 	}
 }
 
@@ -974,24 +975,7 @@ func TestOrdinalExposureBudgetBPlusOneCommitsCompleteFailureOnly(t *testing.T) {
 		control.ExposureLimits{ReleaseFacts: 1, InfluenceFacts: 100, OutcomeFacts: 10})
 
 	plan := queryplan.QueryPlan{Product: "expense_summary", Columns: []string{"month", "total_amount"}}
-	product, found := harness.catalog.LookupProduct(plan.Product)
-	if !found {
-		t.Fatal("expense_summary product is unavailable")
-	}
-	ordinalProduct, err := harness.service.ordinalQueryProduct(product,
-		map[string]struct{}{"month": {}, "total_amount": {}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	compilation, err := queryplan.CompileOrdinal(plan, ordinalProduct)
-	if err != nil {
-		t.Fatal(err)
-	}
-	bound, err := harness.service.bindOrdinalSidecars(compilation.ProvenanceSQL,
-		compilation.ProvenanceFields, compilation.OrdinalProgram)
-	if err != nil {
-		t.Fatal(err)
-	}
+	bound := prepareOrdinalForTest(t, harness, taskID, plan)
 	row := map[string]any{
 		"month": "2026-01", "department": "销售部", "expense_type": "机票",
 		"total_amount": json.Number("1680.00"),

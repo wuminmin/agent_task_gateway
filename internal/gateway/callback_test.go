@@ -265,23 +265,8 @@ func TestDelegatedTaskSharesRootExposureAndStopsWithParent(t *testing.T) {
 	}
 
 	indexes := harness.installCatalogV4SnapshotRegistry(t)
-	product, ok := harness.catalog.LookupProduct("expense_summary")
-	if !ok {
-		t.Fatal("expense_summary product is missing")
-	}
-	ordinalProduct, err := harness.service.ordinalQueryProduct(product, map[string]struct{}{"month": {}, "total_amount": {}})
-	if err != nil {
-		t.Fatalf("build V4 query product: %v", err)
-	}
 	ordinalPlan := queryplan.QueryPlan{Product: "expense_summary", Columns: []string{"month", "total_amount"}}
-	compiled, err := queryplan.CompileOrdinal(ordinalPlan, ordinalProduct)
-	if err != nil {
-		t.Fatalf("compile V4 query: %v", err)
-	}
-	bound, err := harness.service.bindOrdinalSidecars(compiled.ProvenanceSQL, compiled.ProvenanceFields, compiled.OrdinalProgram)
-	if err != nil {
-		t.Fatalf("bind V4 query: %v", err)
-	}
+	bound := prepareOrdinalForTest(t, harness, childID, ordinalPlan)
 	entityKey, err := exposure.ComposeCanonicalKeyV2("base-entity",
 		"travel.expense_summary",
 		"month", "text", "s:2026-01",

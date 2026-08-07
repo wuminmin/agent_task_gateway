@@ -119,6 +119,18 @@ type OperationDraft struct {
 	EstimatedBaseFacts uint64
 	// PredicateFootprint is the V5 footprint, absent under other profiles.
 	PredicateFootprint *queryplan.PredicateFootprint
+	// RelationalCompilation is the compiled algebra a Join, a Union or a composed
+	// semantic View produced, absent for a single-product plan.
+	//
+	// It is not sealed into the binding. Everything about it that identifies the
+	// operation is already covered -- its statements by the two prepared targets,
+	// its shape by the plan and Catalog digests, its ordinal half by the program
+	// digest -- and adding a member to PreparedOperationBindingV1 would invalidate
+	// every activation of the current contract release for a value that names no
+	// new fact. What it carries instead is the per-source evidence structure the
+	// Gateway's observation reads, which no digest here needs to describe because
+	// nothing is authorized against it.
+	RelationalCompilation *queryplan.RelationalCompilation
 }
 
 // PreparedOperation is the in-memory result of preparing one operation.
@@ -156,6 +168,7 @@ type PreparedOperation struct {
 	sourcePublications map[string]string
 	estimatedBaseFacts uint64
 	predicateFootprint *queryplan.PredicateFootprint
+	relational         *queryplan.RelationalCompilation
 
 	binding PreparedOperationBindingV1
 }
@@ -257,6 +270,9 @@ func newPreparedOperation(identities preparationIdentities, compiler CompilerIde
 		return PreparedOperation{}, err
 	}
 	if prepared.predicateFootprint, err = clonePredicateFootprint(draft.PredicateFootprint); err != nil {
+		return PreparedOperation{}, err
+	}
+	if prepared.relational, err = cloneRelationalCompilation(draft.RelationalCompilation); err != nil {
 		return PreparedOperation{}, err
 	}
 
@@ -388,6 +404,18 @@ func (prepared PreparedOperation) PredicateFootprint() (*queryplan.PredicateFoot
 	return clonePredicateFootprint(prepared.predicateFootprint)
 }
 
+// RelationalCompilation returns a copy of the compiled algebra, nil for a
+// single-product plan.
+//
+// It is here for the observation half, which stayed with the Gateway: building
+// an exposure Observation over a Join, a Union or a composed View needs the
+// per-source roles, evidence fields and branch numbers the compilation
+// determined. Handing that back is what lets the Gateway observe what was
+// prepared instead of compiling the plan a second time to find out.
+func (prepared PreparedOperation) RelationalCompilation() (*queryplan.RelationalCompilation, error) {
+	return cloneRelationalCompilation(prepared.relational)
+}
+
 // errPreparedOperationIsNotSerializable is what a caller gets for trying.
 var errPreparedOperationIsNotSerializable = errors.New(
 	"a PreparedOperation holds executable SQL and must never be serialized; " +
@@ -492,6 +520,14 @@ func (prepared PreparedOperation) Validate() error {
 	}
 	if len(prepared.visibleFields) == 0 {
 		return errors.New("prepared operation projects no visible field")
+	}
+	// The relational compilation is the one runtime member no digest in the
+	// binding covers, so it is tied to the statements directly. A compilation
+	// whose visible statement is not the one about to execute would let the
+	// Gateway observe a different operation from the one it ran, which is the
+	// same failure the digest checks below refuse for everything else.
+	if prepared.relational != nil && prepared.relational.VisibleSQL != prepared.visibleSQL {
+		return errors.New("prepared operation's relational compilation does not carry its visible statement")
 	}
 	binding := prepared.binding
 	if err := binding.Validate(); err != nil {
@@ -851,6 +887,50 @@ func clonePredicateFootprint(footprint *queryplan.PredicateFootprint) (*querypla
 	if err := jsonClone(footprint, &clone); err != nil {
 		return nil, fmt.Errorf("copy predicate footprint: %w", err)
 	}
+	return &clone, nil
+}
+
+// cloneRelationalCompilation copies the compilation member by member rather
+// than through the canonical encoder.
+//
+// The other two deep copies round-trip through JSON, which is right for them:
+// both are large, deeply nested and covered by a digest, so whatever the encoder
+// covers is what the digest covers too. This one is not covered by a digest, and
+// it carries a Filter.Value of type any -- a round-trip would silently retype an
+// integer literal as a float, which is exactly the kind of difference a
+// value-carrying member must not acquire on the way to the observer. Only the
+// compiled ordinal program keeps the encoder, because it is the same value
+// cloneOrdinalProgram already round-trips and treating one copy differently from
+// the other is what would let them diverge.
+func cloneRelationalCompilation(
+	compilation *queryplan.RelationalCompilation) (*queryplan.RelationalCompilation, error) {
+	if compilation == nil {
+		return nil, nil
+	}
+	clone := *compilation
+	clone.VisibleFields = cloneStrings(compilation.VisibleFields)
+	clone.InternalFields = cloneStrings(compilation.InternalFields)
+	clone.ProvenanceFields = cloneStrings(compilation.ProvenanceFields)
+	clone.Products = cloneStrings(compilation.Products)
+	clone.UnionColumns = cloneStrings(compilation.UnionColumns)
+	clone.JoinPredicates = append([]queryplan.JoinPredicate(nil), compilation.JoinPredicates...)
+	clone.OutputAliases = cloneStringMap(compilation.OutputAliases)
+	if len(compilation.Sources) > 0 {
+		clone.Sources = make([]queryplan.RelationalSource, len(compilation.Sources))
+		for index, source := range compilation.Sources {
+			source.Filters = append([]queryplan.Filter(nil), source.Filters...)
+			source.EvidenceFields = cloneStrings(source.EvidenceFields)
+			source.EvidenceAlias = cloneStringMap(source.EvidenceAlias)
+			clone.Sources[index] = source
+		}
+	} else {
+		clone.Sources = nil
+	}
+	program, err := cloneOrdinalProgram(&compilation.OrdinalProgram)
+	if err != nil {
+		return nil, fmt.Errorf("copy relational compilation: %w", err)
+	}
+	clone.OrdinalProgram = *program
 	return &clone, nil
 }
 

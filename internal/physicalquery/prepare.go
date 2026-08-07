@@ -259,12 +259,13 @@ func deriveRelationalPreparation(inputs PreparationInputs) (OperationDraft, erro
 		// A relational compilation projects one field list; the visible and fact
 		// projections are the same list, because every delivered field is an
 		// accounted one.
-		VisibleFields:    append([]string(nil), compiled.VisibleFields...),
-		FactFields:       append([]string(nil), compiled.VisibleFields...),
-		ProvenanceFields: append([]string(nil), compiled.ProvenanceFields...),
-		Grouped:          len(inputs.Plan.GroupBy) > 0 || len(inputs.Plan.Aggregates) > 0,
-		ExpandedEvidence: compiled.ExpandedEvidence,
-		NormalFormSHA256: shape.normalFormSHA256,
+		VisibleFields:         append([]string(nil), compiled.VisibleFields...),
+		FactFields:            append([]string(nil), compiled.VisibleFields...),
+		ProvenanceFields:      append([]string(nil), compiled.ProvenanceFields...),
+		Grouped:               len(inputs.Plan.GroupBy) > 0 || len(inputs.Plan.Aggregates) > 0,
+		ExpandedEvidence:      compiled.ExpandedEvidence,
+		NormalFormSHA256:      shape.normalFormSHA256,
+		RelationalCompilation: &compiled,
 	}
 
 	if inputs.Grant.UsesOrdinalProgram() {

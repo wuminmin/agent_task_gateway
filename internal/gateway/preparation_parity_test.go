@@ -21,27 +21,33 @@ import (
 	"taskbound.local/agent-data-gateway/internal/exposure"
 	"taskbound.local/agent-data-gateway/internal/ordinal"
 	"taskbound.local/agent-data-gateway/internal/physicalquery"
+	"taskbound.local/agent-data-gateway/internal/preparedbinding"
 	"taskbound.local/agent-data-gateway/internal/queryplan"
 	"taskbound.local/agent-data-gateway/internal/snapshotbundle"
 	"taskbound.local/agent-data-gateway/internal/sqlpolicy"
 	"taskbound.local/agent-data-gateway/internal/viewcompiler"
 )
 
-// This file is the differential harness the target-preparation extraction moves
-// behind.
+// This file is the harness the target-preparation extraction moved behind, and
+// what it asserts changed at T1d.
 //
-// The legacy derivation is invoked ONLY from here. Production keeps exactly one
-// implementation at all times: before the extraction it is the Gateway's, after
-// it is internal/physicalquery's. A feature flag or a fallback that chose
-// between them would put both in the running system, which is the outcome the
-// whole exercise exists to avoid -- two implementations that agree in tests and
-// diverge in the one execution nobody reproduced.
+// While the extraction was in progress it was a differential: the Gateway
+// derived the statements, internal/physicalquery derived them again, and every
+// named shape had to agree. That comparison is over -- the Gateway's derivation
+// is deleted and production calls Prepare, so a differential against it would
+// now be Prepare compared with itself.
 //
-// Old-vs-new equality is necessary and not sufficient. A new implementation that
-// faithfully reproduces a legacy defect passes it. So every case is also checked
-// against evidence that was not produced by either implementation: the Catalog
-// and its snapshot publications, the policy engine, and -- where the case has a
-// physical relation to run against -- PostgreSQL itself.
+// What the comparison became is still worth making, and it is a different claim:
+// the production preparation path must EXPOSE exactly what preparation produced.
+// productionShapeOf reads every member off preparedQueryPlan and the
+// planExposureContext the Gateway built; extractedShapeOf reads the same members
+// off an independently prepared PreparedOperation. A Gateway that dropped a
+// member, reordered a projection, widened a grant or rebuilt a digest fails here.
+//
+// Equality between the two is necessary and not sufficient, exactly as before.
+// So every case is also checked against evidence neither side produced: the
+// Catalog and its snapshot publications, the policy engine, and -- where the
+// case has a physical relation to run against -- PostgreSQL itself.
 
 // ------------------------------------------------------------ observed shape
 
@@ -58,7 +64,6 @@ type preparationShape struct {
 	VisibleFields    []string
 	FactFields       []string
 	ProvenanceFields []string
-	MeteringColumns  []string
 
 	Grouped              bool
 	ExpandedEvidence     bool
@@ -86,7 +91,8 @@ type preparationShape struct {
 	// ordinal sidecars, exactly as production widens it.
 	PolicyGrant sqlpolicy.Grant
 
-	// The bindings the execution binding computes from all of the above.
+	// The sealed preparation identity and the two prepared target identities the
+	// Query Execution Binding V2 carries.
 	PreparedOperationSHA256 string
 	VisibleTargetSHA256     string
 	CompanionTargetSHA256   string
@@ -103,7 +109,7 @@ func requireSameShape(t *testing.T, want, got preparationShape) {
 	var differences []string
 	compare := func(name string, left, right any) {
 		if !reflect.DeepEqual(left, right) {
-			differences = append(differences, fmt.Sprintf("%s:\n  legacy = %s\n  new    = %s",
+			differences = append(differences, fmt.Sprintf("%s:\n  production = %s\n  prepared   = %s",
 				name, shapeMember(left), shapeMember(right)))
 		}
 	}
@@ -112,7 +118,6 @@ func requireSameShape(t *testing.T, want, got preparationShape) {
 	compare("visible field ordering", want.VisibleFields, got.VisibleFields)
 	compare("fact field ordering", want.FactFields, got.FactFields)
 	compare("provenance field ordering", want.ProvenanceFields, got.ProvenanceFields)
-	compare("metering columns", want.MeteringColumns, got.MeteringColumns)
 	compare("grouped", want.Grouped, got.Grouped)
 	compare("expanded evidence", want.ExpandedEvidence, got.ExpandedEvidence)
 	compare("uses expanded evidence", want.UsesExpandedEvidence, got.UsesExpandedEvidence)
@@ -165,59 +170,37 @@ func (shape preparationShape) shapeSHA256(t *testing.T) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// ------------------------------------------------------- the legacy derivation
+// ---------------------------------------------------- the production surface
 
-// legacyPrepareForParity runs the Gateway's own target preparation exactly as
-// executeSQL runs it, and reads off every property the extraction must preserve.
+// productionPrepareForParity runs the Gateway's production preparation for one
+// case and reads off every property the extraction must have preserved.
 //
-// The sequence below is not a reconstruction: it is the same four calls in the
-// same order that internal/gateway/query.go makes between prepareTaskPlan and
-// derivePhysicalQuery. Anything that diverged here would make the harness prove
-// parity with something production does not do.
-func legacyPrepareForParity(ctx context.Context, service *Service, task control.Task,
-	grant control.TaskGrant, plan queryplan.QueryPlan, evidence datasourceEvidence,
-	manifestDigest, grantDigest string) (preparationShape, error) {
+// It enters at prepareTaskPlan, which is where executeSQL enters, so what is
+// read below is what the running system holds and not a reconstruction of it.
+func productionPrepareForParity(ctx context.Context, service *Service, task control.Task,
+	grant control.TaskGrant, plan queryplan.QueryPlan) (preparationShape, error) {
 	prepared, err := service.prepareTaskPlan(ctx, task, grant, plan)
 	if err != nil {
 		return preparationShape{}, err
 	}
-	return legacyShapeOf(service, prepared, plan, grant, evidence, manifestDigest, grantDigest)
+	return productionShapeOf(prepared, plan)
 }
 
-// legacyShapeOf reads every property off one prepared plan.
+// productionShapeOf reads every property off one prepared plan.
 //
 // It is separate from the call above because the semantic View path reaches
 // prepareSemanticViewPlan after the Control Store has resolved the task's view
 // binding, and preparation itself performs no store I/O. Sharing this half is
 // what keeps the View case reading the same properties as every other one.
-func legacyShapeOf(service *Service, prepared preparedQueryPlan, plan queryplan.QueryPlan,
-	grant control.TaskGrant, evidence datasourceEvidence,
-	manifestDigest, grantDigest string) (preparationShape, error) {
-	policy, err := service.policyGrant(grant)
-	if err != nil {
-		return preparationShape{}, err
-	}
+func productionShapeOf(prepared preparedQueryPlan, plan queryplan.QueryPlan) (preparationShape, error) {
 	context := prepared.Exposure
-	if context != nil {
-		if policy, err = context.extendGrant(policy); err != nil {
-			return preparationShape{}, err
-		}
-		if context.ordinal != nil {
-			if policy, err = extendOrdinalPolicyGrant(policy, context.ordinal.SidecarGrants); err != nil {
-				return preparationShape{}, err
-			}
-		}
-	}
-
-	shape := preparationShape{VisibleSQL: prepared.SQL, PolicyGrant: policy}
+	shape := preparationShape{VisibleSQL: prepared.SQL, PolicyGrant: prepared.PolicyGrant}
 	if context == nil {
 		// A plain query builds no exposure context, so its projection is not held
 		// there. It is still a projection the Gateway computes and uses:
 		// queryPlanResultNames is what names the columns of the stored result, so
 		// reading it here compares the extraction against what production actually
-		// projects rather than against a nil the legacy shape merely happens to
-		// leave. The binding below is not built at all -- executionBindingApplies
-		// refuses one without a plan digest.
+		// projects rather than against a nil the shape merely happens to leave.
 		shape.VisibleFields = queryPlanResultNames(plan)
 		return shape, nil
 	}
@@ -225,7 +208,6 @@ func legacyShapeOf(service *Service, prepared preparedQueryPlan, plan queryplan.
 	shape.VisibleFields = append([]string(nil), context.visibleFields...)
 	shape.FactFields = append([]string(nil), context.factFields...)
 	shape.ProvenanceFields = append([]string(nil), context.provenanceFields...)
-	shape.MeteringColumns = append([]string(nil), context.meteringColumns...)
 	shape.Grouped = context.grouped
 	shape.ExpandedEvidence = context.expandedEvidence
 	shape.UsesExpandedEvidence = context.usesExpandedEvidence()
@@ -233,15 +215,15 @@ func legacyShapeOf(service *Service, prepared preparedQueryPlan, plan queryplan.
 	shape.ViewBindingDigest = context.viewBindingDigest
 	shape.ViewRegistryRevision = context.viewRegistryRevision
 	shape.PredicateFootprint = context.predicateFootprint
-	if context.normalForm != nil {
-		digest, digestErr := context.normalForm.Digest()
-		if digestErr != nil {
-			return preparationShape{}, digestErr
-		}
-		shape.NormalFormSHA256 = digest
-	}
-	if context.algebraNormalForm != nil {
-		shape.AlgebraNormalFormSHA256 = context.algebraNormalForm.SHA256
+	// The canonical identity is one value under one member; which of the two
+	// members it lands in is determined by the plan shape, because a relational
+	// plan is identified by an algebra normal form and a single-product one by the
+	// relation normal form. Placing it by shape is what keeps a relational
+	// preparation from being compared against a single-product one.
+	if context.relational != nil {
+		shape.AlgebraNormalFormSHA256 = context.planDigest
+	} else {
+		shape.NormalFormSHA256 = context.planDigest
 	}
 	if context.ordinal != nil {
 		program := context.ordinal.Program
@@ -252,35 +234,25 @@ func legacyShapeOf(service *Service, prepared preparedQueryPlan, plan queryplan.
 		shape.SidecarGrants = append([]sqlpolicy.ProductGrant(nil), context.ordinal.SidecarGrants...)
 		shape.SidecarGrantsSHA256 = sidecarGrantsDigest(context.ordinal.SidecarGrants)
 		shape.EstimatedBaseFacts = context.ordinal.EstimatedBaseFacts
-		// The alias-to-publication mapping is not held as a member today; it is
-		// implicit in the resolved index map. Reading it out here is what lets the
-		// extracted preparation carry it explicitly without changing behaviour.
 		shape.SourcePublications = make(map[string]string, len(program.Sources))
 		for _, source := range program.Sources {
 			shape.SourcePublications[source.SourceAlias] = source.SidecarBinding.PublicationID
 		}
 	}
-
-	operation, err := newPreparedOperation(preparedOperation{
-		PlanSHA256:                 context.planDigest,
-		ExposureProfileVersion:     grant.Exposure.ProfileVersion,
-		GrantDigest:                grantDigest,
-		ManifestDigest:             manifestDigest,
-		CatalogSHA256:              service.catalog.SHA256,
-		DatasourceID:               evidence.DatasourceID,
-		SchemaDigest:               evidence.SchemaDigest,
-		ViewBindingDigest:          context.viewBindingDigest,
-		OrdinalDictionarySetSHA256: shape.DictionarySetDigest,
-		SidecarGrantsSHA256:        shape.SidecarGrantsSHA256,
-		VisibleSQL:                 prepared.SQL,
-		CompanionSQL:               context.provenanceSQL,
-	})
+	binding := context.prepared.Binding()
+	shape.PreparedOperationSHA256 = binding.SHA256
+	visible, err := binding.TargetSHA256(preparedbinding.RoleVisible)
 	if err != nil {
 		return preparationShape{}, err
 	}
-	shape.PreparedOperationSHA256 = operation.digest()
-	shape.VisibleTargetSHA256 = operation.visibleTargetSHA
-	shape.CompanionTargetSHA256 = operation.companionTargetSHA
+	shape.VisibleTargetSHA256 = visible
+	if binding.HasCompanion {
+		companion, companionErr := binding.TargetSHA256(preparedbinding.RoleCompanion)
+		if companionErr != nil {
+			return preparationShape{}, companionErr
+		}
+		shape.CompanionTargetSHA256 = companion
+	}
 	return shape, nil
 }
 
@@ -667,16 +639,15 @@ func parityEvidence(t *testing.T, service *Service, products []string) (datasour
 		strings.Repeat("a", 64), strings.Repeat("b", 64)
 }
 
-// prepareParityCase runs the legacy derivation for one case.
+// prepareParityCase runs the production preparation for one case.
 func prepareParityCase(t *testing.T, test parityCase) (*Service, preparationShape) {
 	t.Helper()
 	service := parityService(t, test.needsRegistry)
 	resolved := resolveParityCase(t, service, test)
-	evidence, manifestDigest, grantDigest := parityEvidence(t, service, resolved.products)
-	shape, err := legacyPrepareForParity(context.Background(), service, control.Task{},
-		resolved.grant(), resolved.plan, evidence, manifestDigest, grantDigest)
+	shape, err := productionPrepareForParity(context.Background(), service, control.Task{},
+		resolved.grant(), resolved.plan)
 	if err != nil {
-		t.Fatalf("case %s: legacy preparation failed: %v", test.name, err)
+		t.Fatalf("case %s: production preparation failed: %v", test.name, err)
 	}
 	return service, shape
 }
@@ -841,13 +812,15 @@ func TestBothPreparedStatementsAreAdmittedByThePreparedGrant(t *testing.T) {
 	}
 }
 
-// The metering columns preparation adds must be exactly what the widened grant
-// gained -- no more.
+// The grant preparation hands the Gateway must be widened by nothing but what
+// metering requires.
 //
 // The widening is a real privilege increase over the task's approved surface,
-// and it is invisible in the approved-column list a reviewer reads. Checking it
-// against the task grant, which is an input rather than a derivation product,
-// is what keeps the increase bounded by the exposure requirement.
+// and it is invisible in the approved-column list a reviewer reads. The bound is
+// stated against the Catalog and the task grant -- both inputs rather than
+// derivation products -- so it holds whatever the metering closure happens to
+// contain: every added column must be the accounted product'"'"'s own entity key or
+// mandatory scope, which is what deriveExposureShape requires to be published.
 func TestTheGrantIsWidenedOnlyByWhatMeteringRequires(t *testing.T) {
 	for _, test := range parityCases() {
 		if test.profile == "" {
@@ -865,16 +838,16 @@ func TestTheGrantIsWidenedOnlyByWhatMeteringRequires(t *testing.T) {
 					continue
 				}
 				approved := stringSetFromSlice(resolved.columns[product.LogicalName])
-				metering := stringSetFromSlice(shape.MeteringColumns)
 				for _, column := range product.ApprovedColumns {
-					_, wasApproved := approved[column]
-					_, isMetering := metering[column]
-					if wasApproved || isMetering {
+					if _, wasApproved := approved[column]; wasApproved {
 						continue
 					}
-					// A relational preparation meters per product rather than
-					// through the single-product list, so the Catalog's own entity
-					// key and scopes are the bound there.
+					// The bound is the Catalog's, not the derivation's. Metering
+					// widens an accounted product by its own entity key and its own
+					// mandatory scopes and by nothing else, in both the
+					// single-product and the per-product relational closure, so
+					// stating it against the Catalog covers both without reading a
+					// list either derivation produced.
 					catalogProduct, present := service.catalog.LookupProduct(product.LogicalName)
 					if present && (contains(catalogProduct.EntityKey, column) ||
 						contains(catalogProduct.Scopes, column)) {
@@ -918,9 +891,8 @@ func TestUnionBranchFilteredPredicatesFailClosedUnderV5(t *testing.T) {
 	}
 	service := parityService(t, true)
 	resolved := resolveParityCase(t, service, test)
-	evidence, manifestDigest, grantDigest := parityEvidence(t, service, resolved.products)
-	shape, err := legacyPrepareForParity(context.Background(), service, control.Task{},
-		resolved.grant(), resolved.plan, evidence, manifestDigest, grantDigest)
+	shape, err := productionPrepareForParity(context.Background(), service, control.Task{},
+		resolved.grant(), resolved.plan)
 	if err == nil {
 		t.Fatalf("a V5 union with branch-qualified predicates prepared; "+
 			"promote the V5 Union parity case back to the branch-filtered plan "+
@@ -934,8 +906,8 @@ func TestUnionBranchFilteredPredicatesFailClosedUnderV5(t *testing.T) {
 	v4 := test
 	v4.profile = exposure.ProfileV4
 	resolvedV4 := resolveParityCase(t, service, v4)
-	if _, err := legacyPrepareForParity(context.Background(), service, control.Task{},
-		resolvedV4.grant(), resolvedV4.plan, evidence, manifestDigest, grantDigest); err != nil {
+	if _, err := productionPrepareForParity(context.Background(), service, control.Task{},
+		resolvedV4.grant(), resolvedV4.plan); err != nil {
 		t.Fatalf("the same union is not preparable under V4 either, so the V5 refusal "+
 			"is not about the predicate footprint: %v", err)
 	}
@@ -968,14 +940,11 @@ func TestTheSemanticViewShapePrepares(t *testing.T) {
 				t.Fatalf("compose semantic View plan: %v", err)
 			}
 			prepared, err := fixture.service.prepareSemanticViewPlan(
-				fixture.grant, fixture.root, fixture.artifact, composition, fixture.binding, outer)
+				fixture.grant, fixture.artifact, composition, fixture.binding, outer)
 			if err != nil {
 				t.Fatalf("prepare semantic View plan: %v", err)
 			}
-			evidence := datasourceEvidence{DatasourceID: "parity-datasource",
-				SchemaDigest: strings.Repeat("9", 64)}
-			shape, err := legacyShapeOf(fixture.service, prepared, outer, fixture.grant, evidence,
-				strings.Repeat("a", 64), strings.Repeat("b", 64))
+			shape, err := productionShapeOf(prepared, composition.Plan)
 			if err != nil {
 				t.Fatalf("read semantic View shape: %v", err)
 			}
@@ -1157,10 +1126,9 @@ func TestEveryLoadBearingInputMovesThePreparedShape(t *testing.T) {
 			mutated.plan = cloneQueryPlan(base.plan)
 			mutation.apply(&mutated)
 			resolved := resolveParityCase(t, service, mutated)
-			evidence, manifestDigest, grantDigest := parityEvidence(t, service, resolved.products)
 			registryService := parityService(t, mutated.needsRegistry)
-			shape, err := legacyPrepareForParity(context.Background(), registryService, control.Task{},
-				resolved.grant(), resolved.plan, evidence, manifestDigest, grantDigest)
+			shape, err := productionPrepareForParity(context.Background(), registryService, control.Task{},
+				resolved.grant(), resolved.plan)
 			if mutation.failsClosed {
 				if err == nil {
 					t.Fatalf("%s was accepted; it must fail closed", name)
@@ -1177,12 +1145,18 @@ func TestEveryLoadBearingInputMovesThePreparedShape(t *testing.T) {
 	}
 }
 
-// The Catalog, its publications and the compiler are inputs too, and a change to
-// any of them must move the prepared bindings.
+// The Catalog, its publications, the datasource and the compiler are inputs too,
+// and a change to any of them must move the identity a receipt signs.
 //
-// These cannot be varied through the plan or the grant, so they are varied where
-// the binding reads them. A binding that did not move would let a statement
-// compiled against one Catalog be presented as one compiled against another.
+// This is stated against the RETAINED V9 construction, which is where the
+// datasource and schema identities live: PreparedOperationBindingV1 does not
+// carry them, because preparation is a function of its inputs and a datasource
+// is not one of them. Under V10 they are top-level members of the receipt
+// instead, so they remain signed -- what this pins is that the construction
+// which does carry them distinguishes each. The members that DID move into the
+// preparation -- the Catalog, the dictionary set, the sidecar grants, the plan
+// identity, both statements -- are covered here and again by the preparation's
+// own mutation suite.
 func TestCatalogAndPublicationIdentitiesReachThePreparedBinding(t *testing.T) {
 	test := parityCase{
 		name: "binding_inputs", profile: exposure.ProfileV5,
@@ -1213,10 +1187,17 @@ func TestCatalogAndPublicationIdentitiesReachThePreparedBinding(t *testing.T) {
 		}
 		return operation.digest()
 	}
+	// The baseline is this construction's own digest, not the shape's.
+	//
+	// It used to be compared against baseline.PreparedOperationSHA256, because
+	// production computed exactly this value and the comparison proved the harness
+	// reproduced it. Production computes the sealed preparation's identity now, so
+	// the two are different constructions over overlapping material and requiring
+	// them to be equal would be requiring V9 and V2 to agree. That the production
+	// path carries the preparation faithfully is what the differential asserts;
+	// what remains here is that each member below moves the identity that carries
+	// it.
 	unchanged := build(func(*preparedOperation) {})
-	if unchanged != baseline.PreparedOperationSHA256 {
-		t.Fatal("the harness does not reproduce the binding the legacy preparation computed")
-	}
 	for name, mutate := range map[string]func(*preparedOperation){
 		"the Catalog digest":      func(o *preparedOperation) { o.CatalogSHA256 = strings.Repeat("1", 64) },
 		"the dictionary set":      func(o *preparedOperation) { o.OrdinalDictionarySetSHA256 = strings.Repeat("2", 64) },
@@ -1232,7 +1213,7 @@ func TestCatalogAndPublicationIdentitiesReachThePreparedBinding(t *testing.T) {
 		"the companion statement": func(o *preparedOperation) { o.CompanionSQL += " OFFSET 0" },
 	} {
 		t.Run(name, func(t *testing.T) {
-			if build(mutate) == baseline.PreparedOperationSHA256 {
+			if build(mutate) == unchanged {
 				t.Fatalf("changing %s did not move the prepared operation binding", name)
 			}
 		})
@@ -1285,19 +1266,4 @@ func TestADuplicatedProductResolvesToOneBinding(t *testing.T) {
 	if len(seen) != 1 {
 		t.Fatalf("the duplicate-product shape resolved %d distinct publications, want 1", len(seen))
 	}
-}
-
-// ------------------------------------------------------------- the parity hook
-
-// requireLegacyParity is what the extraction's own test calls.
-//
-// It is defined here, beside the legacy capture, so that the two halves of the
-// comparison cannot drift into reading different properties. Until
-// internal/physicalquery grows a Prepare, nothing calls it: the legacy side of
-// this harness is characterization and oracles, and the differential half
-// becomes live with the extraction.
-func requireLegacyParity(t *testing.T, test parityCase, extracted preparationShape) {
-	t.Helper()
-	_, legacy := prepareParityCase(t, test)
-	requireSameShape(t, legacy, extracted)
 }
