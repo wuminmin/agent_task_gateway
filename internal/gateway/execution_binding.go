@@ -267,7 +267,7 @@ func buildQueryExecutionBinding(queryID string, path querybinding.PathKind, oper
 		return control.QueryExecutionBinding{}, err
 	}
 	result := control.QueryExecutionBinding{
-		QueryID: queryID, Binding: sealed, ExposureLedgerBefore: ledger,
+		QueryID: queryID, Binding: &sealed, ExposureLedgerBefore: ledger,
 	}
 	if err := result.Validate(); err != nil {
 		return control.QueryExecutionBinding{}, err

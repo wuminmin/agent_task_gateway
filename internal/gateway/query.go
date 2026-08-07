@@ -2267,33 +2267,53 @@ func BuildQueryReceiptRequest(evidence control.QueryReceipt, signer *queryreceip
 	//
 	// The two failure modes are deliberately asymmetric:
 	//
-	//   - a historical query with no binding stays at the version it earned. V9
-	//     evidence is not stapled onto it; a receipt must not claim to describe an
-	//     execution nothing recorded.
-	//   - a query that HAS a binding but cannot reach V8 is refused outright. That
+	//   - a historical query with no binding stays at the version it earned. The
+	//     execution evidence is not stapled onto it; a receipt must not claim to
+	//     describe an execution nothing recorded.
+	//   - a query that HAS a binding but cannot carry it is refused outright. That
 	//     is the silent downgrade this whole path exists to prevent: the Gateway
-	//     built and persisted a description of what it executed, and emitting V8
-	//     would drop it while still looking like a valid receipt.
+	//     built and persisted a description of what it executed, and emitting the
+	//     earlier version would drop it while still looking like a valid receipt.
+	//
+	// The version the binding earns is the binding's own, not an ordering: a
+	// persisted QueryExecutionBindingV1 earns V9 and a V2 earns V10, and neither
+	// may be emitted under the other's signature.
 	var executionBinding *querybinding.QueryExecutionBindingV1
+	var executionBindingV2 *querybinding.QueryExecutionBindingV2
 	var exposureLedgerBefore *querybinding.ExposureLedgerBeforeV1
+	var deliveryMode queryreceipt.ResultDeliveryMode
 	if evidence.ExecutionBinding != nil {
-		// Asked of the artifact intent rather than of the version. They agree here
-		// -- the only way to reach V8 above is to have built one -- but the intent
-		// is the fact and the version is a proxy for it, and a proxy is what
-		// stopped being reliable when V10 made the artifact conditional.
-		if artifactIntent == nil {
-			return control.SaveQueryReceiptRequest{}, fmt.Errorf(
-				"query %s carries a persisted execution binding but its evidence only supports a V%s receipt; "+
-					"emitting one would silently drop the execution binding", record.ID, version)
-		}
 		if err := evidence.ExecutionBinding.Validate(); err != nil {
 			return control.SaveQueryReceiptRequest{}, fmt.Errorf("persisted execution binding: %w", err)
 		}
-		binding := evidence.ExecutionBinding.Binding
 		ledger := evidence.ExecutionBinding.ExposureLedgerBefore
-		executionBinding = &binding
 		exposureLedgerBefore = &ledger
-		version = queryreceipt.VersionV9
+		switch {
+		case evidence.ExecutionBinding.BindingV2 != nil:
+			// V10 states the delivery mode instead of requiring an artifact. It is
+			// read from whether a result object was in fact registered, which is the
+			// same evidence the intent above was built from -- so the mode cannot
+			// describe a delivery the settlement did not perform.
+			deliveryMode = queryreceipt.DeliveryInline
+			if artifactIntent != nil {
+				deliveryMode = queryreceipt.DeliveryArtifact
+			}
+			executionBindingV2 = evidence.ExecutionBinding.BindingV2
+			version = queryreceipt.VersionV10
+		default:
+			// V9 inherits V8's rule, so a binding it cannot carry alongside an
+			// artifact intent is refused rather than downgraded. Asked of the intent
+			// rather than of the version: they agree here -- the only way to reach V8
+			// above is to have built one -- but the intent is the fact and the
+			// version is a proxy for it.
+			if artifactIntent == nil {
+				return control.SaveQueryReceiptRequest{}, fmt.Errorf(
+					"query %s carries a persisted execution binding but its evidence only supports a V%s receipt; "+
+						"emitting one would silently drop the execution binding", record.ID, version)
+			}
+			executionBinding = evidence.ExecutionBinding.Binding
+			version = queryreceipt.VersionV9
+		}
 	}
 	receipt := queryreceipt.QueryReceiptV1{
 		Version: version, ReceiptID: record.ID,
@@ -2314,7 +2334,9 @@ func BuildQueryReceiptRequest(evidence control.QueryReceipt, signer *queryreceip
 		AuditSequence: evidence.Audit.Sequence, PreviousAuditHash: evidence.Audit.PreviousHash,
 		AuditHash: evidence.Audit.CurrentHash, SignedAt: &signedAt,
 		Exposure: exposureEvidence, ArtifactIntent: artifactIntent,
-		ExecutionBinding: executionBinding, ExposureLedgerBefore: exposureLedgerBefore,
+		ResultDeliveryMode:   deliveryMode,
+		ExposureLedgerBefore: exposureLedgerBefore,
+		ExecutionBinding:     executionBinding, ExecutionBindingV2: executionBindingV2,
 	}
 	signed, err := signer.Sign(receipt)
 	if err != nil {

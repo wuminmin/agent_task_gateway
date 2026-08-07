@@ -37,6 +37,20 @@ func (r QueryReceiptV1) validateExecutionBinding(capabilities Capabilities) erro
 		return fmt.Errorf("%w: a V%s receipt requires the signed exposure ledger pre-state",
 			ErrInvalidReceipt, r.Version)
 	}
+	// Only a completed query has an execution to describe. A released one never
+	// invoked the Connector, an indeterminate one cannot prove what completed, and
+	// a failed one cannot prove which of its targets ran; the control store
+	// refuses to persist a binding for any of them, and the receipt must refuse to
+	// carry one for the same reason.
+	//
+	// Under V8 and V9 this was implied by the unconditional artifact intent, which
+	// already required COMPLETED. V10 lifted that requirement for inline delivery
+	// and would have taken this with it, leaving an inline V10 free to report
+	// FAILED while carrying a description of what it executed.
+	if r.Status != StatusCompleted {
+		return fmt.Errorf("%w: a %s query carries execution evidence; only a completed query has an "+
+			"execution to describe", ErrInvalidReceipt, r.Status)
+	}
 	if err := r.ExposureLedgerBefore.Validate(); err != nil {
 		return fmt.Errorf("%w: exposure ledger pre-state: %v", ErrInvalidReceipt, err)
 	}

@@ -441,3 +441,23 @@ func TestV10CarriesNoSQL(t *testing.T) {
 		})
 	}
 }
+
+// Only a completed query has an execution to describe. Under V8 and V9 this was
+// implied by the unconditional artifact intent; V10 lifts that for inline
+// delivery, so the requirement has to be stated on the execution evidence
+// itself or an inline V10 could report a failure while describing what it ran.
+func TestV10RequiresACompletedQueryInBothDeliveryModes(t *testing.T) {
+	for name, build := range map[string]func(*testing.T) QueryReceiptV1{
+		"artifact": validV10ArtifactReceipt, "inline": validV10InlineReceipt,
+	} {
+		t.Run(name, func(t *testing.T) {
+			receipt := build(t)
+			receipt.Status = StatusFailed
+			receipt.ResultHash = ""
+			receipt.ErrorCode = "QUERY_FAILED"
+			if err := receipt.ValidateUnsigned(); err == nil {
+				t.Fatalf("a failed %s V10 carrying an execution binding was accepted", name)
+			}
+		})
+	}
+}

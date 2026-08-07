@@ -15,15 +15,65 @@ import (
 // QueryExecutionBinding is the persisted description of what one query
 // executed, together with the exposure pre-state its row limits derive from.
 //
-// Both are stored and returned as whole canonical documents. They are covered
-// by the receipt signature as documents, so a projection that reassembled them
-// field by field could differ from what was signed while every individual field
-// still looked right.
+// Exactly one of Binding and BindingV2 is set. They are separate members rather
+// than one polymorphic field for the same reason the receipt keeps them apart: a
+// single field would have to be discriminated after decoding, and a row that
+// decoded as neither -- or as both -- would be a state the type permitted.
+//
+// Both documents are stored and returned whole. They are covered by the receipt
+// signature as documents, so a projection that reassembled them field by field
+// could differ from what was signed while every individual field still looked
+// right.
 type QueryExecutionBinding struct {
 	QueryID              string
-	Binding              querybinding.QueryExecutionBindingV1
+	Binding              *querybinding.QueryExecutionBindingV1
+	BindingV2            *querybinding.QueryExecutionBindingV2
 	ExposureLedgerBefore querybinding.ExposureLedgerBeforeV1
 	CreatedAt            time.Time
+}
+
+// Version is the stored document's own version string.
+func (binding QueryExecutionBinding) Version() string {
+	switch {
+	case binding.Binding != nil:
+		return querybinding.QueryExecutionBindingV1Version
+	case binding.BindingV2 != nil:
+		return querybinding.QueryExecutionBindingV2Version
+	default:
+		return ""
+	}
+}
+
+// PathKind and SHA256 read whichever document is present, so callers that need
+// only the denormalized facts do not have to branch on the version themselves.
+func (binding QueryExecutionBinding) PathKind() querybinding.PathKind {
+	switch {
+	case binding.Binding != nil:
+		return binding.Binding.PathKind
+	case binding.BindingV2 != nil:
+		return binding.BindingV2.PathKind
+	default:
+		return ""
+	}
+}
+
+func (binding QueryExecutionBinding) SHA256() string {
+	switch {
+	case binding.Binding != nil:
+		return binding.Binding.SHA256
+	case binding.BindingV2 != nil:
+		return binding.BindingV2.SHA256
+	default:
+		return ""
+	}
+}
+
+// document is whichever of the two is present, for encoding.
+func (binding QueryExecutionBinding) document() any {
+	if binding.Binding != nil {
+		return *binding.Binding
+	}
+	return *binding.BindingV2
 }
 
 // Validate rejects a binding that could not have described a real execution.
@@ -31,20 +81,39 @@ func (binding QueryExecutionBinding) Validate() error {
 	if binding.QueryID == "" {
 		return fmt.Errorf("execution binding names no query")
 	}
+	if (binding.Binding == nil) == (binding.BindingV2 == nil) {
+		return fmt.Errorf("execution binding for %s carries %s; exactly one document is required",
+			binding.QueryID, bothOrNeither(binding))
+	}
 	if err := binding.ExposureLedgerBefore.Validate(); err != nil {
 		return fmt.Errorf("exposure ledger pre-state: %w", err)
 	}
-	if err := binding.Binding.Validate(); err != nil {
-		return fmt.Errorf("query execution binding: %w", err)
+	var namedLedger string
+	if binding.Binding != nil {
+		if err := binding.Binding.Validate(); err != nil {
+			return fmt.Errorf("query execution binding: %w", err)
+		}
+		namedLedger = binding.Binding.ExposureLedgerBeforeSHA256
+	} else {
+		if err := binding.BindingV2.Validate(); err != nil {
+			return fmt.Errorf("query execution binding v2: %w", err)
+		}
+		namedLedger = binding.BindingV2.ExposureLedgerBeforeSHA256
 	}
 	// The binding must name the pre-state stored beside it. Without this the two
 	// rows could describe different operations while each validated alone.
-	if binding.Binding.ExposureLedgerBeforeSHA256 != binding.ExposureLedgerBefore.SHA256 {
+	if namedLedger != binding.ExposureLedgerBefore.SHA256 {
 		return fmt.Errorf("the execution binding names exposure pre-state %s but the row carries %s",
-			shortDigestValue(binding.Binding.ExposureLedgerBeforeSHA256),
-			shortDigestValue(binding.ExposureLedgerBefore.SHA256))
+			shortDigestValue(namedLedger), shortDigestValue(binding.ExposureLedgerBefore.SHA256))
 	}
 	return nil
+}
+
+func bothOrNeither(binding QueryExecutionBinding) string {
+	if binding.Binding != nil {
+		return "both a V1 and a V2 document"
+	}
+	return "no execution binding document"
 }
 
 func shortDigestValue(digest string) string {
@@ -65,7 +134,7 @@ func shortDigestValue(digest string) string {
 // on. Pinning the encoding here is what makes "the same binding" a decidable
 // question.
 func (binding QueryExecutionBinding) canonicalDocuments() (bindingJSON, ledgerJSON []byte, err error) {
-	bindingJSON, err = canonicalDocument(binding.Binding)
+	bindingJSON, err = canonicalDocument(binding.document())
 	if err != nil {
 		return nil, nil, fmt.Errorf("canonicalize query execution binding: %w", err)
 	}
@@ -95,7 +164,7 @@ func canonicalDocument(value any) ([]byte, error) {
 }
 
 const executionBindingSelect = `
-SELECT query_id, binding_json, binding_sha256, exposure_ledger_before_json,
+SELECT query_id, binding_version, binding_json, binding_sha256, exposure_ledger_before_json,
        exposure_ledger_before_sha256, path_kind, created_at
 FROM query_execution_bindings`
 
@@ -120,13 +189,13 @@ func putQueryExecutionBindingTx(ctx context.Context, tx *sql.Tx, now time.Time,
 	// recorded.
 	result, err := tx.ExecContext(ctx, `
 INSERT INTO query_execution_bindings
-    (query_id, binding_json, binding_sha256, exposure_ledger_before_json,
+    (query_id, binding_version, binding_json, binding_sha256, exposure_ledger_before_json,
      exposure_ledger_before_sha256, path_kind, created_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 ON CONFLICT (query_id) DO NOTHING`,
-		binding.QueryID, bindingJSON, binding.Binding.SHA256,
+		binding.QueryID, binding.Version(), bindingJSON, binding.SHA256(),
 		ledgerJSON, binding.ExposureLedgerBefore.SHA256,
-		string(binding.Binding.PathKind), dbTime(now))
+		string(binding.PathKind()), dbTime(now))
 	if err != nil {
 		return err
 	}
@@ -171,6 +240,14 @@ func requireIdenticalStoredBindingTx(ctx context.Context, tx *sql.Tx, binding Qu
 		return fmt.Errorf("%w: the stored execution binding for %s no longer validates: %v",
 			ErrConflict, binding.QueryID, err)
 	}
+	// The version is compared before the documents. A stored V1 and an incoming
+	// V2 for one query is not a retry that happens to differ in some bytes; it is
+	// two descriptions of one execution under two contracts, and reporting it as a
+	// document mismatch would bury the only fact that explains it.
+	if stored.Version() != binding.Version() {
+		return fmt.Errorf("%w: query %s already carries binding_version %q, not %q",
+			ErrConflict, binding.QueryID, stored.Version(), binding.Version())
+	}
 	for _, document := range []struct {
 		name           string
 		stored, wanted []byte
@@ -187,9 +264,9 @@ func requireIdenticalStoredBindingTx(ctx context.Context, tx *sql.Tx, binding Qu
 		name           string
 		stored, wanted string
 	}{
-		{"binding_sha256", stored.Binding.SHA256, binding.Binding.SHA256},
+		{"binding_sha256", stored.SHA256(), binding.SHA256()},
 		{"exposure_ledger_before_sha256", stored.ExposureLedgerBefore.SHA256, binding.ExposureLedgerBefore.SHA256},
-		{"path_kind", string(stored.Binding.PathKind), string(binding.Binding.PathKind)},
+		{"path_kind", string(stored.PathKind()), string(binding.PathKind())},
 	} {
 		if field.stored != field.wanted {
 			return fmt.Errorf("%w: query %s already carries %s %q, not %q",
@@ -256,42 +333,71 @@ func scanQueryExecutionBinding(row rowScanner) (QueryExecutionBinding, error) {
 // stored rather than what a decoder made of it.
 func scanStoredExecutionBinding(row rowScanner) (QueryExecutionBinding, []byte, []byte, error) {
 	var (
-		binding     QueryExecutionBinding
-		bindingJSON []byte
-		bindingSHA  string
-		ledgerJSON  []byte
-		ledgerSHA   string
-		pathKind    string
-		createdAt   time.Time
+		binding        QueryExecutionBinding
+		bindingVersion string
+		bindingJSON    []byte
+		bindingSHA     string
+		ledgerJSON     []byte
+		ledgerSHA      string
+		pathKind       string
+		createdAt      time.Time
 	)
-	if err := row.Scan(&binding.QueryID, &bindingJSON, &bindingSHA, &ledgerJSON,
+	if err := row.Scan(&binding.QueryID, &bindingVersion, &bindingJSON, &bindingSHA, &ledgerJSON,
 		&ledgerSHA, &pathKind, &createdAt); err != nil {
 		return QueryExecutionBinding{}, nil, nil, err
 	}
-	if err := json.Unmarshal(bindingJSON, &binding.Binding); err != nil {
-		return QueryExecutionBinding{}, nil, nil, fmt.Errorf("decode query execution binding: %w", err)
+	// Strict dispatch. The row's version selects exactly one decoder and the
+	// decoder refuses anything the document does not match, so a V1 row can only
+	// ever be read as a V1 and a V2 row only as a V2. Trying both and taking
+	// whichever parsed would make the stored version advisory, and a V2 document
+	// missing its prepared operation would decode as a V1 with empty members
+	// rather than as the corruption it is.
+	switch bindingVersion {
+	case querybinding.QueryExecutionBindingV1Version:
+		var decoded querybinding.QueryExecutionBindingV1
+		if err := strictUnmarshal(bindingJSON, &decoded); err != nil {
+			return QueryExecutionBinding{}, nil, nil, fmt.Errorf("decode query execution binding: %w", err)
+		}
+		binding.Binding = &decoded
+	case querybinding.QueryExecutionBindingV2Version:
+		var decoded querybinding.QueryExecutionBindingV2
+		if err := strictUnmarshal(bindingJSON, &decoded); err != nil {
+			return QueryExecutionBinding{}, nil, nil, fmt.Errorf("decode query execution binding v2: %w", err)
+		}
+		binding.BindingV2 = &decoded
+	default:
+		return QueryExecutionBinding{}, nil, nil, fmt.Errorf(
+			"stored execution binding names version %q, which this build cannot read", bindingVersion)
 	}
-	if err := json.Unmarshal(ledgerJSON, &binding.ExposureLedgerBefore); err != nil {
+	if err := strictUnmarshal(ledgerJSON, &binding.ExposureLedgerBefore); err != nil {
 		return QueryExecutionBinding{}, nil, nil, fmt.Errorf("decode exposure ledger pre-state: %w", err)
 	}
 	binding.CreatedAt = createdAt.UTC()
 	// The denormalized columns are redundant with the documents on purpose. A
 	// disagreement means a value changed outside the documents the signature
 	// covers, which is precisely the tampering the redundancy exists to catch.
-	if binding.Binding.SHA256 != bindingSHA {
+	// The version is included: the column selected the decoder above, so a
+	// document whose own version member disagrees with it was read by a decoder
+	// its author did not intend.
+	if binding.Version() != bindingVersion {
+		return QueryExecutionBinding{}, nil, nil, fmt.Errorf(
+			"stored execution binding document is %s but its row records version %q",
+			binding.Version(), bindingVersion)
+	}
+	if binding.SHA256() != bindingSHA {
 		return QueryExecutionBinding{}, nil, nil, fmt.Errorf(
 			"stored execution binding digests to %s but its row records %s",
-			shortDigestValue(binding.Binding.SHA256), shortDigestValue(bindingSHA))
+			shortDigestValue(binding.SHA256()), shortDigestValue(bindingSHA))
 	}
 	if binding.ExposureLedgerBefore.SHA256 != ledgerSHA {
 		return QueryExecutionBinding{}, nil, nil, fmt.Errorf(
 			"stored exposure pre-state digests to %s but its row records %s",
 			shortDigestValue(binding.ExposureLedgerBefore.SHA256), shortDigestValue(ledgerSHA))
 	}
-	if string(binding.Binding.PathKind) != pathKind {
+	if string(binding.PathKind()) != pathKind {
 		return QueryExecutionBinding{}, nil, nil, fmt.Errorf(
 			"stored execution binding is %s but its row records path_kind %q",
-			binding.Binding.PathKind, pathKind)
+			binding.PathKind(), pathKind)
 	}
 	// Re-canonicalize what was decoded and require it to equal what was stored.
 	//
@@ -321,6 +427,19 @@ func scanStoredExecutionBinding(row rowScanner) (QueryExecutionBinding, []byte, 
 		}
 	}
 	return binding, bindingJSON, ledgerJSON, nil
+}
+
+// strictUnmarshal refuses a document carrying a member the target does not have.
+//
+// The stored bytes are re-canonicalized and compared below, which already
+// catches an unknown member. Refusing it here as well is what makes the failure
+// say what is wrong: an unknown member reported as "not its canonical encoding"
+// reads like an encoder problem rather than like a document from a version this
+// build does not understand.
+func strictUnmarshal(document []byte, into any) error {
+	decoder := json.NewDecoder(bytes.NewReader(document))
+	decoder.DisallowUnknownFields()
+	return decoder.Decode(into)
 }
 
 // writeSettlementExecutionBindingTx persists the settlement's execution binding,

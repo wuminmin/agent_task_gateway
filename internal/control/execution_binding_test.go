@@ -66,7 +66,7 @@ func testPairedNovelBinding(t *testing.T, queryID string) QueryExecutionBinding 
 	if err != nil {
 		t.Fatalf("seal execution binding: %v", err)
 	}
-	return QueryExecutionBinding{QueryID: queryID, Binding: binding, ExposureLedgerBefore: ledger}
+	return QueryExecutionBinding{QueryID: queryID, Binding: &binding, ExposureLedgerBefore: ledger}
 }
 
 // writeBinding writes one binding through the same transaction-scoped helper the
@@ -127,7 +127,7 @@ func TestQueryExecutionBindingRoundTripsWithoutLoss(t *testing.T) {
 			t.Fatalf("%s did not round-trip:\n want %s\n got  %s", name, want, got)
 		}
 	}
-	if !reloaded.Binding.Equal(original.Binding) {
+	if !reloaded.Binding.Equal(*original.Binding) {
 		t.Fatal("the reloaded binding is not the one that was written")
 	}
 	if reloaded.QueryID != "query-binding-1" || reloaded.CreatedAt.IsZero() {
@@ -175,7 +175,7 @@ func TestQueryExecutionBindingIsImmutable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetQueryExecutionBinding: %v", err)
 	}
-	if !reloaded.Binding.Equal(original.Binding) {
+	if !reloaded.Binding.Equal(*original.Binding) {
 		t.Fatal("a repeated write changed the recorded binding")
 	}
 }
@@ -315,7 +315,7 @@ func TestSameExecutionBindingRetriedSucceeds(t *testing.T) {
 func TestDifferentExecutionBindingForOneQueryConflicts(t *testing.T) {
 	for name, mutate := range map[string]func(*testing.T, *QueryExecutionBinding){
 		"different exact SQL digest": func(t *testing.T, binding *QueryExecutionBinding) {
-			document := binding.Binding
+			document := *binding.Binding
 			document.Visible.ExactSQLSHA256 = bindingDigest("f1")
 			binding.Binding = resealBinding(t, document)
 		},
@@ -327,12 +327,12 @@ func TestDifferentExecutionBindingForOneQueryConflicts(t *testing.T) {
 				t.Fatal(err)
 			}
 			binding.ExposureLedgerBefore = sealed
-			document := binding.Binding
+			document := *binding.Binding
 			document.ExposureLedgerBeforeSHA256 = sealed.SHA256
 			binding.Binding = resealBinding(t, document)
 		},
 		"different path kind": func(t *testing.T, binding *QueryExecutionBinding) {
-			document := binding.Binding
+			document := *binding.Binding
 			document.PathKind = querybinding.PathSemanticReplay
 			document.Visible.Executed = false
 			document.Companion.Executed = false
@@ -343,7 +343,7 @@ func TestDifferentExecutionBindingForOneQueryConflicts(t *testing.T) {
 		// not pass as "the same binding".
 		"different document carrying the original outer digest": func(t *testing.T, binding *QueryExecutionBinding) {
 			original := binding.Binding.SHA256
-			document := binding.Binding
+			document := *binding.Binding
 			document.Visible.RowLimit = 9
 			document.VisibleRowLimit = 9
 			binding.Binding = resealBinding(t, document)
@@ -381,7 +381,7 @@ func TestConcurrentExecutionBindingWritesAgreeOrConflict(t *testing.T) {
 	seedQueryRecord(t, store, "task-binding-race", "query-binding-race")
 	identical := testPairedNovelBinding(t, "query-binding-race")
 	different := testPairedNovelBinding(t, "query-binding-race")
-	document := different.Binding
+	document := *different.Binding
 	document.Visible.ExactSQLSHA256 = bindingDigest("e1")
 	different.Binding = resealBinding(t, document)
 
@@ -463,11 +463,11 @@ func TestNonCanonicalStoredDocumentIsRefusedOnReload(t *testing.T) {
 	}
 }
 
-func resealBinding(t *testing.T, document querybinding.QueryExecutionBindingV1) querybinding.QueryExecutionBindingV1 {
+func resealBinding(t *testing.T, document querybinding.QueryExecutionBindingV1) *querybinding.QueryExecutionBindingV1 {
 	t.Helper()
 	sealed, err := document.Seal()
 	if err != nil {
 		t.Fatalf("reseal execution binding: %v", err)
 	}
-	return sealed
+	return &sealed
 }
