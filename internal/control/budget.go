@@ -8,8 +8,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 )
 
 func (s *Store) GetBudget(ctx context.Context, taskID string) (BudgetSnapshot, error) {
@@ -154,7 +152,7 @@ FOR SHARE OF task_grant`, request.TaskID).Scan(&boundViewDigest, &viewStatus, &s
 	// The Gateway used to call GetBudget at one instant, GetExposureLedger at
 	// another, and ReserveBudget at a third, then sign all three as though they
 	// were one atomic pre-state. They are the two halves of the state that
-	// authorizes a statement's row limits, and a V9 receipt claims they describe
+	// authorizes a statement's row limits, and the receipt claims they describe
 	// one operation; reading them apart makes that claim true only when nothing
 	// else touched the task in between.
 	exposureLedgerBefore, err := exposureLedgerPreStateTx(ctx, tx, request.TaskID)
@@ -724,41 +722,35 @@ func (s *Store) GetQueryReceipt(ctx context.Context, queryID string) (QueryRecei
 		} else if !errors.Is(chargeErr, ErrNotFound) {
 			return QueryReceipt{}, chargeErr
 		}
-		// Existing V1-V7 receipts deliberately do not bind artifact evidence.
-		// Only load the complete registration projection for a version that can
-		// carry it, or when a missing receipt may need a recovered attestation.
-		// That recovery signs immutable historical audit evidence after settlement;
-		// it is not the ordinary co-committed receipt path.
-		//
-		// This was written first as an equality against the literal "8" and then as
-		// a digit comparison meaning "8 or 9". The equality stopped loading the
-		// projection for V9, which carries the same artifact intent, so every
-		// consumer saw a V9 receipt with no artifact evidence attached. The digit
-		// comparison would have done the same to V10, whose version string is two
-		// characters long. The question is asked of the capability table now, which
-		// is the only place that answers it.
-		if persistedErr != nil || queryreceipt.SupportsArtifactIntent(persisted.Version) {
-			artifact, artifactErr := s.GetResultArtifactByQuery(ctx, queryID)
-			if artifactErr == nil {
-				events, listErr := s.ListAuditEventsForQuery(ctx, queryID)
-				if listErr != nil {
-					return QueryReceipt{}, listErr
-				}
-				registrations := make([]AuditEvent, 0, 1)
-				for _, event := range events {
-					if event.EventType == "QUERY_RESULT_OBJECT_REGISTERED" {
-						registrations = append(registrations, event)
-					}
-				}
-				registration, validationErr := validateResultArtifactRegistrationAudit(query, artifact, registrations)
-				if validationErr != nil {
-					return QueryReceipt{}, opErr(op, ErrConflict, validationErr)
-				}
-				evidence.Artifact = &artifact
-				evidence.ArtifactRegistrationAudit = &registration
-			} else if !errors.Is(artifactErr, ErrNotFound) {
-				return QueryReceipt{}, artifactErr
+		// The complete registration projection, whenever the query registered a
+		// result object. Which version the persisted receipt names used to gate
+		// this -- an equality against "8", then a digit comparison meaning "8 or 9",
+		// each of which stopped loading the projection for the next version and
+		// left consumers looking at a receipt with its artifact evidence missing.
+		// There is one version now, and every receipt can carry the intent, so the
+		// question the gate was standing in for is simply whether an artifact row
+		// exists. ErrNotFound answers it, and answers it for an inline operation
+		// too.
+		artifact, artifactErr := s.GetResultArtifactByQuery(ctx, queryID)
+		if artifactErr == nil {
+			events, listErr := s.ListAuditEventsForQuery(ctx, queryID)
+			if listErr != nil {
+				return QueryReceipt{}, listErr
 			}
+			registrations := make([]AuditEvent, 0, 1)
+			for _, event := range events {
+				if event.EventType == "QUERY_RESULT_OBJECT_REGISTERED" {
+					registrations = append(registrations, event)
+				}
+			}
+			registration, validationErr := validateResultArtifactRegistrationAudit(query, artifact, registrations)
+			if validationErr != nil {
+				return QueryReceipt{}, opErr(op, ErrConflict, validationErr)
+			}
+			evidence.Artifact = &artifact
+			evidence.ArtifactRegistrationAudit = &registration
+		} else if !errors.Is(artifactErr, ErrNotFound) {
+			return QueryReceipt{}, artifactErr
 		}
 	}
 	// The signed execution binding, when the query has one. A caller re-signing a

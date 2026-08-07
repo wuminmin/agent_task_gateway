@@ -60,7 +60,7 @@ type TrustedInputsV3 struct {
 	//
 	// An idempotent replay returns the ORIGINAL receipt unchanged, so the
 	// binding it carries describes the original execution and names that
-	// original path kind -- QueryExecutionBindingV1.Validate rejects a binding
+	// original path kind -- QueryExecutionBindingV2.Validate rejects a binding
 	// that claims idempotent_replay outright, precisely because no new binding
 	// is produced. Reading the path kind off the returned receipt would
 	// therefore misclassify every idempotent replay as the execution it is
@@ -178,19 +178,18 @@ func FinalizeTaskGateObservationV3(receipt queryreceipt.QueryReceiptV1, verifier
 	if verifier == nil {
 		return result, errors.New("finalization requires a receipt verifier; an unverified receipt is not evidence")
 	}
-	if !queryreceipt.RequiresExecutionBindingV1(receipt.Version) {
-		return result, fmt.Errorf("receipt is V%s; v3 finalization requires a receipt whose signature covers "+
-			"a QueryExecutionBindingV1", receipt.Version)
+	if err := queryreceipt.RequireCurrentVersion(receipt.Version); err != nil {
+		return result, fmt.Errorf("v3 finalization requires the current receipt: %w", err)
 	}
 	if err := receipt.Validate(); err != nil {
-		return result, fmt.Errorf("V9 receipt does not validate: %w", err)
+		return result, fmt.Errorf("receipt does not validate: %w", err)
 	}
 	if err := verifier.Verify(receipt); err != nil {
-		return result, fmt.Errorf("verify V9 receipt: %w", err)
+		return result, fmt.Errorf("verify receipt: %w", err)
 	}
-	binding := receipt.ExecutionBinding
+	binding := receipt.ExecutionBindingV2
 	if binding == nil || receipt.ExposureLedgerBefore == nil {
-		return result, errors.New("V9 receipt carries no execution binding or signed exposure pre-state")
+		return result, errors.New("receipt carries no execution binding or signed exposure pre-state")
 	}
 	if err := binding.Validate(); err != nil {
 		return result, fmt.Errorf("signed execution binding does not validate: %w", err)
@@ -306,7 +305,7 @@ func requireIdempotentReplay(receipt queryreceipt.QueryReceiptV1, trusted Truste
 // document is internally coherent for the path it names -- a semantic replay
 // that reports an executed target is rejected here even if the Adapter carried
 // nothing at all. The second says the Adapter transcribed that document exactly.
-func requireSignedTargets(pathKind GatewayPathKind, binding querybinding.QueryExecutionBindingV1,
+func requireSignedTargets(pathKind GatewayPathKind, binding querybinding.QueryExecutionBindingV2,
 	carried CarriedEvidenceV3) error {
 	visible, companion, known := requiredTargets(pathKind)
 	if !known {

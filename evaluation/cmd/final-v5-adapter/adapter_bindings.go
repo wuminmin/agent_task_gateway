@@ -334,37 +334,37 @@ func failedSample(operation experiment.AdapterOperation, code string) experiment
 	return sample
 }
 
-// requireVerifiedV9 is the v3 path's receipt acceptance rule.
+// requireVerifiedReceipt is the v3 path's receipt acceptance rule.
 //
-// Until v1.5 the Adapter accepted V8 and then RE-DERIVED the physical statements
-// itself to decide what the Gateway had executed. That is a second opinion about
-// an execution, not evidence about it, and the two can differ in exactly the
-// case the evidence exists to detect. The Gateway now signs what it executed, so
-// the Adapter reads it instead of reconstructing it.
+// The Adapter used to accept a receipt that described no execution and then
+// RE-DERIVE the physical statements itself to decide what the Gateway had
+// executed. That is a second opinion about an execution, not evidence about it,
+// and the two can differ in exactly the case the evidence exists to detect. The
+// Gateway now signs what it executed, so the Adapter reads it instead of
+// reconstructing it.
 //
-// There is deliberately no legacy fallback. A completed exposure-V5 artifact
-// operation on this path always carries an execution binding; accepting V8 here
-// would silently restore the re-derivation it replaces.
-func requireVerifiedV9(verifier receiptVerifier, receipt queryreceipt.QueryReceiptV1) error {
-	if !queryreceipt.RequiresExecutionBindingV1(receipt.Version) {
-		return fmt.Errorf("receipt is V%s; the v3 path requires a receipt whose signature covers a "+
-			"QueryExecutionBindingV1", receipt.Version)
+// There is deliberately no fallback. A completed exposure-V5 artifact operation
+// on this path always carries an execution binding; accepting a receipt without
+// one would silently restore the re-derivation it replaces.
+func requireVerifiedReceipt(verifier receiptVerifier, receipt queryreceipt.QueryReceiptV1) error {
+	if err := queryreceipt.RequireCurrentVersion(receipt.Version); err != nil {
+		return fmt.Errorf("the v3 path requires the current receipt: %w", err)
 	}
 	if err := receipt.Validate(); err != nil {
-		return fmt.Errorf("V9 receipt does not validate: %w", err)
+		return fmt.Errorf("receipt does not validate: %w", err)
 	}
 	if verifier != nil {
 		if err := verifier.Verify(receipt); err != nil {
-			return fmt.Errorf("verify V9 receipt: %w", err)
+			return fmt.Errorf("verify receipt: %w", err)
 		}
 	}
-	// Validate() already requires both structures for V9. Restating it here makes
-	// the Adapter's dependency explicit: everything below reads them.
-	if receipt.ExecutionBinding == nil || receipt.ExposureLedgerBefore == nil {
-		return errors.New("V9 receipt carries no execution binding or pre-state")
+	// Validate() already requires both structures. Restating it here makes the
+	// Adapter's dependency explicit: everything below reads them.
+	if receipt.ExecutionBindingV2 == nil || receipt.ExposureLedgerBefore == nil {
+		return errors.New("receipt carries no execution binding or pre-state")
 	}
 	if receipt.ArtifactIntent == nil || receipt.Exposure == nil {
-		return errors.New("V9 receipt carries no artifact intent or exposure evidence")
+		return errors.New("receipt carries no artifact intent or exposure evidence")
 	}
 	return nil
 }

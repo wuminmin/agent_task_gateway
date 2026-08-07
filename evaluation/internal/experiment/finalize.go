@@ -1363,9 +1363,9 @@ func validateBaselineVerification(sample Sample) error {
 	if err := queryreceipt.VerifyArtifactAvailabilityInclusion(evidence.Receipt, evidence.AvailabilityProof); err != nil {
 		return err
 	}
-	if evidence.ArtifactStatus != "AVAILABLE" || !queryreceipt.SupportsArtifactIntent(evidence.Receipt.Version) ||
+	if evidence.ArtifactStatus != "AVAILABLE" || !evidence.Receipt.RequiresArtifactInclusionProofs() ||
 		evidence.Receipt.ArtifactIntent == nil || evidence.Receipt.Exposure == nil {
-		return errors.New("verified evidence is not AVAILABLE V8 exposure evidence")
+		return errors.New("verified evidence is not an AVAILABLE artifact delivery with exposure evidence")
 	}
 	receiptBytes, _ := json.Marshal(evidence.Receipt)
 	availabilityBytes, _ := json.Marshal(evidence.AvailabilityProof)

@@ -238,7 +238,8 @@ func newReleaseFixture(t *testing.T, suffix string) releaseFixture {
 
 	signedAt := created.Add(3 * time.Millisecond)
 	receipt := queryreceipt.QueryReceiptV1{
-		Version: queryreceipt.VersionV8, ReceiptID: queryID, TaskID: taskID, QueryID: queryID,
+		Version: queryreceipt.Version, ResultDeliveryMode: queryreceipt.DeliveryArtifact,
+		ReceiptID: queryID, TaskID: taskID, QueryID: queryID,
 		RequestID: "request-" + suffix, ManifestDigest: digest, GrantDigest: digest,
 		CatalogDigest: digest, CatalogVersion: "catalog-v1", DatasourceID: "datasource-v1",
 		SchemaDigest: digest, RequestDigest: digest, SQLFingerprint: "select-value-" + suffix,

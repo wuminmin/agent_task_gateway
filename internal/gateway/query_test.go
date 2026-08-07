@@ -122,9 +122,10 @@ func TestBuildQueryReceiptRequestEmitsV8ArtifactIntent(t *testing.T) {
 	if err := json.Unmarshal(request.ReceiptJSON, &signed); err != nil {
 		t.Fatal(err)
 	}
-	if signed.Version != queryreceipt.VersionV8 || signed.ArtifactIntent == nil ||
+	if signed.Version != queryreceipt.Version || signed.ArtifactIntent == nil ||
+		signed.ResultDeliveryMode != queryreceipt.DeliveryArtifact ||
 		signed.ArtifactIntent.Status != queryreceipt.ArtifactStatusPending {
-		t.Fatalf("V8 artifact receipt = %+v", signed)
+		t.Fatalf("artifact receipt = %+v", signed)
 	}
 	if signed.ArtifactIntent.ResultMetadataSHA256 != digest(string(artifact.ResultMetadataJSON)) {
 		t.Fatalf("result metadata digest = %q, want complete metadata binding", signed.ArtifactIntent.ResultMetadataSHA256)
@@ -174,8 +175,14 @@ func TestExposurePlanHidesMeteringKeysAndDeduplicatesReplay(t *testing.T) {
 		}
 	}
 	receipt := first["receipt"].(map[string]any)
-	if receipt["version"] != "4" || receipt["exposure"] == nil {
-		t.Fatalf("exposure receipt is not signed as V4: %#v", receipt)
+	if receipt["version"] != queryreceipt.Version || receipt["exposure"] == nil {
+		t.Fatalf("exposure receipt is not signed as the current version: %#v", receipt)
+	}
+	// The accounting profile is stated inside the signed exposure block rather
+	// than by the receipt version, which is the whole point of there being one.
+	if receipt["exposure"].(map[string]any)["profile_version"] != exposure.ProfileV1 {
+		t.Fatalf("exposure receipt profile = %#v, want %s",
+			receipt["exposure"].(map[string]any)["profile_version"], exposure.ProfileV1)
 	}
 	if len(harness.connector.requests) != 2 {
 		t.Fatalf("paired query calls = %d, want visible and provenance", len(harness.connector.requests))
@@ -590,8 +597,12 @@ func TestExposureV3ChargesDistinctZeroResultPredicates(t *testing.T) {
 				"filters":    []map[string]any{{"column": "total_amount", "op": ">", "value": threshold}}},
 		})
 		receipt := result["receipt"].(map[string]any)
-		if receipt["version"] != queryreceipt.VersionV5 {
-			t.Fatalf("V3 receipt version = %v, want %s", receipt["version"], queryreceipt.VersionV5)
+		if receipt["version"] != queryreceipt.Version {
+			t.Fatalf("receipt version = %v, want %s", receipt["version"], queryreceipt.Version)
+		}
+		if receipt["exposure"].(map[string]any)["profile_version"] != exposure.ProfileV3 {
+			t.Fatalf("receipt exposure profile = %v, want %s",
+				receipt["exposure"].(map[string]any)["profile_version"], exposure.ProfileV3)
 		}
 		return result["exposure"].(control.ExposureCharge)
 	}

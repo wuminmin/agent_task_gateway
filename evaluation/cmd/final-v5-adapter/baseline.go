@@ -463,11 +463,11 @@ func (adapter *realAdapter) completeTaskgateSampleWithParquet(ctx context.Contex
 	if response.TaskID != state.taskID || response.ArtifactStatus != "AVAILABLE" || response.ResultID == "" || response.QueryID == "" {
 		return experiment.Sample{}, nil, errors.New("query response omitted AVAILABLE identity")
 	}
-	if err := requireVerifiedV9(adapter.verifier, response.Receipt); err != nil {
-		return experiment.Sample{}, nil, fmt.Errorf("query response omitted a verified V9 receipt: %w", err)
+	if err := requireVerifiedReceipt(adapter.verifier, response.Receipt); err != nil {
+		return experiment.Sample{}, nil, fmt.Errorf("query response omitted a verified receipt: %w", err)
 	}
 	if response.Receipt.QueryID != response.QueryID || response.Receipt.TaskID != state.taskID {
-		return experiment.Sample{}, nil, errors.New("the V9 receipt names another query or task")
+		return experiment.Sample{}, nil, errors.New("the receipt names another query or task")
 	}
 	auditEvidence, err := adapter.loadAuditEvidence(ctx, response)
 	if err != nil {
@@ -848,7 +848,7 @@ WHERE query_id=$1 AND event_type='QUERY_V5_EXPOSURE_SETTLED' ORDER BY sequence`,
 	if err := json.Unmarshal(receiptJSON, &receipt); err != nil {
 		return snapshot, errors.New("PENDING recovery receipt does not decode")
 	}
-	if err := requireVerifiedV9(adapter.verifier, receipt); err != nil {
+	if err := requireVerifiedReceipt(adapter.verifier, receipt); err != nil {
 		return snapshot, fmt.Errorf("PENDING recovery receipt: %w", err)
 	}
 	intent, exposure := receipt.ArtifactIntent, receipt.Exposure
@@ -1140,7 +1140,7 @@ WHERE q.task_id=$1 AND q.request_id=$2`, taskID, requestID).Scan(
 	if err := json.Unmarshal(receiptJSON, &raw.receipt); err != nil {
 		return raw, err
 	}
-	if err := requireVerifiedV9(adapter.verifier, raw.receipt); err != nil {
+	if err := requireVerifiedReceipt(adapter.verifier, raw.receipt); err != nil {
 		return raw, fmt.Errorf("persisted receipt: %w", err)
 	}
 	intent, exposure := raw.receipt.ArtifactIntent, raw.receipt.Exposure

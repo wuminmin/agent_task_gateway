@@ -11,13 +11,17 @@ import (
 
 func fixedDigest(seed string) string { return strings.Repeat(seed, 64/len(seed)) }
 
-// validV9Receipt is a paired-novel execution under expanded evidence: the
+// validExecutionReceipt is a paired-novel execution under expanded evidence: the
 // companion's policy limit is its evidence rows plus one, so a truncated
 // companion result is distinguishable from a complete one.
-func validV9Receipt(t *testing.T) QueryReceiptV1 {
+//
+// It is the artifact-delivery shape. The inline shape differs only in the signed
+// delivery mode and the absent intent, and is built from this one.
+func validExecutionReceipt(t *testing.T) QueryReceiptV1 {
 	t.Helper()
-	receipt := validV8Receipt(t)
-	receipt.Version = VersionV9
+	receipt := validArtifactReceipt(t)
+	receipt.Version = Version
+	receipt.ResultDeliveryMode = DeliveryArtifact
 	// Sign() normally fills this. It is set here so ValidateUnsigned is exercised
 	// on an otherwise complete receipt, and a negative case below therefore fails
 	// for the reason it names rather than for a missing key id.
@@ -46,31 +50,31 @@ func validV9Receipt(t *testing.T) QueryReceiptV1 {
 	if err != nil {
 		t.Fatalf("budget digest: %v", err)
 	}
+	compiler := executionCompiler(t)
 	companion := querybinding.TargetRecordV1{
 		Role: querybinding.RoleCompanion, Authorized: true, Executed: true,
 		ExactSQLSHA256: fixedDigest("b1"), StrictASTSHA256: fixedDigest("b2"),
 		RowLimit: 5, PolicyFingerprint: "companion-fingerprint",
-		PolicyRendererVersion: "sqlpolicy-v3", PolicyRendererDigest: fixedDigest("b3"),
+		PolicyRendererVersion:       compiler.PolicyRendererVersion,
+		PolicyRendererDigest:        compiler.PolicyRendererSHA256,
 		PreparedTargetBindingSHA256: fixedDigest("b4"),
 	}
-	binding, err := querybinding.QueryExecutionBindingV1{
-		PathKind:                       querybinding.PathPairedNovel,
-		PreparedOperationBindingSHA256: fixedDigest("c1"),
-		ExposureProfileVersion:         ledger.ProfileVersion,
-		UsesExpandedEvidence:           true,
-		VisibleRowLimit:                10,
-		CompanionEvidenceRows:          4,
-		CompanionPolicyRows:            5,
-		BudgetBeforeSHA256:             budgetDigest,
-		ExposureLedgerBeforeSHA256:     ledger.SHA256,
-		PlanSHA256:                     fixedDigest("c2"),
-		CompilerVersion:                "queryplan-v7",
-		CompilerSHA256:                 fixedDigest("c3"),
+	binding, err := querybinding.QueryExecutionBindingV2{
+		PathKind:                   querybinding.PathPairedNovel,
+		PreparedOperation:          preparedOperationFixture(t, true),
+		Compiler:                   compiler,
+		ExposureProfileVersion:     ledger.ProfileVersion,
+		VisibleRowLimit:            10,
+		CompanionEvidenceRows:      4,
+		CompanionPolicyRows:        5,
+		BudgetBeforeSHA256:         budgetDigest,
+		ExposureLedgerBeforeSHA256: ledger.SHA256,
 		Visible: querybinding.TargetRecordV1{
 			Role: querybinding.RoleVisible, Authorized: true, Executed: true,
 			ExactSQLSHA256: fixedDigest("a1"), StrictASTSHA256: fixedDigest("a2"),
 			RowLimit: 10, PolicyFingerprint: receipt.SQLFingerprint,
-			PolicyRendererVersion: "sqlpolicy-v3", PolicyRendererDigest: fixedDigest("a3"),
+			PolicyRendererVersion:       compiler.PolicyRendererVersion,
+			PolicyRendererDigest:        compiler.PolicyRendererSHA256,
 			PreparedTargetBindingSHA256: fixedDigest("a4"),
 		},
 		Companion: &companion,
@@ -78,14 +82,14 @@ func validV9Receipt(t *testing.T) QueryReceiptV1 {
 	if err != nil {
 		t.Fatalf("seal execution binding: %v", err)
 	}
-	receipt.ExecutionBinding = &binding
+	receipt.ExecutionBindingV2 = &binding
 	return receipt
 }
 
 // V8 keeps working exactly as before. Adding V9 must not have moved any V8
 // signature, so a V8 receipt signs and verifies unchanged.
 func TestV8RemainsValidUnderItsOwnSemantics(t *testing.T) {
-	receipt := validV8Receipt(t)
+	receipt := validArtifactReceipt(t)
 	signer := DemoSigner([]byte("v8-unchanged"))
 	signed, err := signer.Sign(receipt)
 	if err != nil {
@@ -100,64 +104,93 @@ func TestV8RemainsValidUnderItsOwnSemantics(t *testing.T) {
 	}
 }
 
-// A V8 receipt carries no execution binding, so it cannot satisfy anything that
-// requires one. A holder must not be able to staple one on either: the V8
-// signature does not cover those fields.
-func TestV8CannotCarryOrSatisfyExecutionEvidence(t *testing.T) {
-	v8 := validV8Receipt(t)
-	if v8.ExecutionBinding != nil || v8.ExposureLedgerBefore != nil {
-		t.Fatal("a V8 receipt carries execution evidence")
+// A receipt that describes no execution must not be able to acquire one.
+//
+// The absence is itself signed -- the payload carries a null binding and a null
+// pre-state -- so stapling one on breaks the signature. ValidateUnsigned catches
+// the incoherent halves before that: a binding without the pre-state its limits
+// derive from, or a pre-state describing no execution.
+func TestAReceiptWithoutExecutionEvidenceCannotAcquireIt(t *testing.T) {
+	plain := validArtifactReceipt(t)
+	if plain.ExecutionBindingV2 != nil || plain.ExposureLedgerBefore != nil {
+		t.Fatal("the baseline already carries execution evidence")
+	}
+	plain.GatewayKeyID = "gateway-demo-ed25519-v1"
+	if err := plain.ValidateUnsigned(); err != nil {
+		t.Fatalf("the baseline does not validate, so the cases below prove nothing: %v", err)
 	}
 
-	v9 := validV9Receipt(t)
-	stapled := validV8Receipt(t)
-	stapled.GatewayKeyID = "gateway-demo-ed25519-v1"
-	if err := stapled.ValidateUnsigned(); err != nil {
-		t.Fatalf("the V8 baseline does not validate, so the negative case below proves nothing: %v", err)
-	}
-	stapled.ExecutionBinding = v9.ExecutionBinding
-	stapled.ExposureLedgerBefore = v9.ExposureLedgerBefore
-	if err := stapled.ValidateUnsigned(); err == nil {
-		t.Fatal("a V8 receipt carrying an execution binding its signature does not cover was accepted")
+	executing := validExecutionReceipt(t)
+	for name, staple := range map[string]func(*QueryReceiptV1){
+		"a binding with no pre-state": func(r *QueryReceiptV1) {
+			r.ExecutionBindingV2 = executing.ExecutionBindingV2
+		},
+		"a pre-state with no binding": func(r *QueryReceiptV1) {
+			r.ExposureLedgerBefore = executing.ExposureLedgerBefore
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			stapled := plain
+			staple(&stapled)
+			if err := stapled.ValidateUnsigned(); err == nil {
+				t.Fatalf("a receipt carrying %s was accepted", name)
+			}
+		})
 	}
 
-	// Downgrading a V9 to V8 must not silently drop the evidence into an
-	// unsigned position either.
-	downgraded := validV9Receipt(t)
-	downgraded.Version = VersionV8
-	if err := downgraded.ValidateUnsigned(); err == nil {
-		t.Fatal("a V9 receipt relabelled as V8 was accepted")
-	}
+	// And stapling both is refused by the signature rather than by the shape,
+	// because both together are a coherent shape -- just not the one that was
+	// signed.
+	t.Run("both, past the signature", func(t *testing.T) {
+		signer := DemoSigner([]byte("staple"))
+		keyring, err := NewKeyring(signer, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		signed, err := signer.Sign(plain)
+		if err != nil {
+			t.Fatalf("sign the baseline: %v", err)
+		}
+		if err := keyring.Verify(signed); err != nil {
+			t.Fatalf("the signed baseline does not verify: %v", err)
+		}
+		stapled := signed
+		stapled.ExecutionBindingV2 = executing.ExecutionBindingV2
+		stapled.ExposureLedgerBefore = executing.ExposureLedgerBefore
+		if err := keyring.Verify(stapled); err == nil {
+			t.Fatal("a receipt that acquired execution evidence after signing still verified")
+		}
+	})
 }
 
-func TestV9SignsAndVerifies(t *testing.T) {
-	receipt := validV9Receipt(t)
+func TestExecutionReceiptSignsAndVerifies(t *testing.T) {
+	receipt := validExecutionReceipt(t)
 	if err := receipt.ValidateUnsigned(); err != nil {
-		t.Fatalf("a well-formed V9 receipt was rejected: %v", err)
+		t.Fatalf("a well-formed execution receipt was rejected: %v", err)
 	}
 	signer := DemoSigner([]byte("v9"))
 	signed, err := signer.Sign(receipt)
 	if err != nil {
-		t.Fatalf("sign V9: %v", err)
+		t.Fatalf("sign: %v", err)
 	}
 	keyring, err := NewKeyring(signer, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := keyring.Verify(signed); err != nil {
-		t.Fatalf("a signed V9 receipt did not verify: %v", err)
+		t.Fatalf("a signed execution receipt did not verify: %v", err)
 	}
 }
 
 // V9 requires both structures. A receipt claiming the version without them is
 // asserting an execution binding it does not have.
-func TestV9RequiresBothSignedStructures(t *testing.T) {
+func TestExecutionReceiptRequiresBothSignedStructures(t *testing.T) {
 	for name, mutate := range map[string]func(*QueryReceiptV1){
-		"no execution binding": func(r *QueryReceiptV1) { r.ExecutionBinding = nil },
+		"no execution binding": func(r *QueryReceiptV1) { r.ExecutionBindingV2 = nil },
 		"no ledger pre-state":  func(r *QueryReceiptV1) { r.ExposureLedgerBefore = nil },
 	} {
 		t.Run(name, func(t *testing.T) {
-			receipt := validV9Receipt(t)
+			receipt := validExecutionReceipt(t)
 			mutate(&receipt)
 			if err := receipt.ValidateUnsigned(); err == nil {
 				t.Fatal("a V9 receipt without its signed execution evidence was accepted")
@@ -168,30 +201,30 @@ func TestV9RequiresBothSignedStructures(t *testing.T) {
 
 // The binding must name the pre-state and budget the receipt actually carries,
 // or it could have been derived against a state nothing here describes.
-func TestV9BindsItsPreStateAndBudget(t *testing.T) {
+func TestExecutionReceiptBindsItsPreStateAndBudget(t *testing.T) {
 	t.Run("pre-state digest", func(t *testing.T) {
-		receipt := validV9Receipt(t)
-		binding := *receipt.ExecutionBinding
+		receipt := validExecutionReceipt(t)
+		binding := *receipt.ExecutionBindingV2
 		binding.ExposureLedgerBeforeSHA256 = fixedDigest("9")
 		resealed, err := binding.Seal()
 		if err != nil {
 			t.Fatal(err)
 		}
-		receipt.ExecutionBinding = &resealed
+		receipt.ExecutionBindingV2 = &resealed
 		if err := receipt.ValidateUnsigned(); err == nil {
 			t.Fatal("a binding naming another exposure pre-state was accepted")
 		}
 	})
 
 	t.Run("budget digest", func(t *testing.T) {
-		receipt := validV9Receipt(t)
-		binding := *receipt.ExecutionBinding
+		receipt := validExecutionReceipt(t)
+		binding := *receipt.ExecutionBindingV2
 		binding.BudgetBeforeSHA256 = fixedDigest("9")
 		resealed, err := binding.Seal()
 		if err != nil {
 			t.Fatal(err)
 		}
-		receipt.ExecutionBinding = &resealed
+		receipt.ExecutionBindingV2 = &resealed
 		if err := receipt.ValidateUnsigned(); err == nil {
 			t.Fatal("a binding naming another budget pre-state was accepted")
 		}
@@ -200,7 +233,7 @@ func TestV9BindsItsPreStateAndBudget(t *testing.T) {
 	// Changing the receipt's own budget_before must invalidate the binding too:
 	// the digest is what ties them together in both directions.
 	t.Run("budget mutated on the receipt", func(t *testing.T) {
-		receipt := validV9Receipt(t)
+		receipt := validExecutionReceipt(t)
 		receipt.BudgetBefore.Limits.Rows = 999
 		if err := receipt.ValidateUnsigned(); err == nil {
 			t.Fatal("mutating budget_before left the execution binding valid")
@@ -210,21 +243,21 @@ func TestV9BindsItsPreStateAndBudget(t *testing.T) {
 
 // The row limits must be reproducible from the signed pre-state. A limit the
 // pre-state cannot derive is a limit nothing authorized.
-func TestV9RowLimitsMustReproduceFromThePreState(t *testing.T) {
-	for name, mutate := range map[string]func(*querybinding.QueryExecutionBindingV1){
-		"visible limit exceeds the budget": func(b *querybinding.QueryExecutionBindingV1) {
+func TestExecutionReceiptRowLimitsMustReproduceFromThePreState(t *testing.T) {
+	for name, mutate := range map[string]func(*querybinding.QueryExecutionBindingV2){
+		"visible limit exceeds the budget": func(b *querybinding.QueryExecutionBindingV2) {
 			b.VisibleRowLimit = 11
 			b.Visible.RowLimit = 11
 		},
-		"companion evidence rows invented": func(b *querybinding.QueryExecutionBindingV1) {
+		"companion evidence rows invented": func(b *querybinding.QueryExecutionBindingV2) {
 			b.CompanionEvidenceRows = 3
 			b.CompanionPolicyRows = 4
 			b.Companion.RowLimit = 4
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			receipt := validV9Receipt(t)
-			binding := *receipt.ExecutionBinding
+			receipt := validExecutionReceipt(t)
+			binding := *receipt.ExecutionBindingV2
 			companion := *binding.Companion
 			binding.Companion = &companion
 			mutate(&binding)
@@ -232,7 +265,7 @@ func TestV9RowLimitsMustReproduceFromThePreState(t *testing.T) {
 			if err != nil {
 				t.Fatalf("reseal: %v", err)
 			}
-			receipt.ExecutionBinding = &resealed
+			receipt.ExecutionBindingV2 = &resealed
 			if err := receipt.ValidateUnsigned(); err == nil {
 				t.Fatal("a row limit the signed pre-state cannot derive was accepted")
 			}
@@ -242,13 +275,13 @@ func TestV9RowLimitsMustReproduceFromThePreState(t *testing.T) {
 
 // The signature must cover every member of the binding and the pre-state. Each
 // case mutates a signed receipt and requires verification to fail.
-func TestV9SignatureCoversTheCompleteExecutionBinding(t *testing.T) {
-	signer := DemoSigner([]byte("v9-coverage"))
+func TestExecutionReceiptSignatureCoversTheCompleteExecutionBinding(t *testing.T) {
+	signer := DemoSigner([]byte("execution-binding-coverage"))
 	keyring, err := NewKeyring(signer, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	base, err := signer.Sign(validV9Receipt(t))
+	base, err := signer.Sign(validExecutionReceipt(t))
 	if err != nil {
 		t.Fatalf("sign: %v", err)
 	}
@@ -258,42 +291,42 @@ func TestV9SignatureCoversTheCompleteExecutionBinding(t *testing.T) {
 
 	for name, mutate := range map[string]func(*QueryReceiptV1){
 		"exact digest": func(r *QueryReceiptV1) {
-			r.ExecutionBinding.Visible.ExactSQLSHA256 = fixedDigest("9")
+			r.ExecutionBindingV2.Visible.ExactSQLSHA256 = fixedDigest("9")
 		},
 		"strict digest": func(r *QueryReceiptV1) {
-			r.ExecutionBinding.Visible.StrictASTSHA256 = fixedDigest("9")
+			r.ExecutionBindingV2.Visible.StrictASTSHA256 = fixedDigest("9")
 		},
 		"companion exact digest": func(r *QueryReceiptV1) {
-			r.ExecutionBinding.Companion.ExactSQLSHA256 = fixedDigest("9")
+			r.ExecutionBindingV2.Companion.ExactSQLSHA256 = fixedDigest("9")
 		},
 		"companion strict digest": func(r *QueryReceiptV1) {
-			r.ExecutionBinding.Companion.StrictASTSHA256 = fixedDigest("9")
+			r.ExecutionBindingV2.Companion.StrictASTSHA256 = fixedDigest("9")
 		},
 		"visible row limit": func(r *QueryReceiptV1) {
-			r.ExecutionBinding.VisibleRowLimit = 9
-			r.ExecutionBinding.Visible.RowLimit = 9
+			r.ExecutionBindingV2.VisibleRowLimit = 9
+			r.ExecutionBindingV2.Visible.RowLimit = 9
 		},
 		"companion row limit": func(r *QueryReceiptV1) {
-			r.ExecutionBinding.CompanionPolicyRows = 6
-			r.ExecutionBinding.Companion.RowLimit = 6
+			r.ExecutionBindingV2.CompanionPolicyRows = 6
+			r.ExecutionBindingV2.Companion.RowLimit = 6
 		},
 		"executed flag": func(r *QueryReceiptV1) {
-			r.ExecutionBinding.Companion.Executed = false
+			r.ExecutionBindingV2.Companion.Executed = false
 		},
 		"path kind": func(r *QueryReceiptV1) {
-			r.ExecutionBinding.PathKind = querybinding.PathSemanticReplay
+			r.ExecutionBindingV2.PathKind = querybinding.PathSemanticReplay
 		},
-		"plan identity": func(r *QueryReceiptV1) {
-			r.ExecutionBinding.PlanSHA256 = fixedDigest("9")
+		"prepared plan identity": func(r *QueryReceiptV1) {
+			r.ExecutionBindingV2.PreparedOperation.PlanSHA256 = fixedDigest("9")
 		},
-		"compiler identity": func(r *QueryReceiptV1) {
-			r.ExecutionBinding.CompilerSHA256 = fixedDigest("9")
+		"prepared compiler identity": func(r *QueryReceiptV1) {
+			r.ExecutionBindingV2.PreparedOperation.CompilerIdentitySHA256 = fixedDigest("9")
 		},
 		"policy fingerprint": func(r *QueryReceiptV1) {
-			r.ExecutionBinding.Visible.PolicyFingerprint = "other-fingerprint"
+			r.ExecutionBindingV2.Visible.PolicyFingerprint = "other-fingerprint"
 		},
 		"prepared target binding": func(r *QueryReceiptV1) {
-			r.ExecutionBinding.Visible.PreparedTargetBindingSHA256 = fixedDigest("9")
+			r.ExecutionBindingV2.Visible.PreparedTargetBindingSHA256 = fixedDigest("9")
 		},
 		"pre-state limits": func(r *QueryReceiptV1) {
 			r.ExposureLedgerBefore.Limits.InfluenceFacts = 40
@@ -308,11 +341,11 @@ func TestV9SignatureCoversTheCompleteExecutionBinding(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			mutated := base
-			binding := *base.ExecutionBinding
-			companion := *base.ExecutionBinding.Companion
+			binding := *base.ExecutionBindingV2
+			companion := *base.ExecutionBindingV2.Companion
 			binding.Companion = &companion
 			ledger := *base.ExposureLedgerBefore
-			mutated.ExecutionBinding = &binding
+			mutated.ExecutionBindingV2 = &binding
 			mutated.ExposureLedgerBefore = &ledger
 			mutate(&mutated)
 			if err := keyring.Verify(mutated); err == nil {
@@ -323,27 +356,27 @@ func TestV9SignatureCoversTheCompleteExecutionBinding(t *testing.T) {
 }
 
 // Swapping the visible and companion statements must not verify.
-func TestV9TargetRoleSwapFails(t *testing.T) {
+func TestExecutionReceiptTargetRoleSwapFails(t *testing.T) {
 	signer := DemoSigner([]byte("v9-swap"))
 	keyring, err := NewKeyring(signer, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	base, err := signer.Sign(validV9Receipt(t))
+	base, err := signer.Sign(validExecutionReceipt(t))
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	swapped := base
-	binding := *base.ExecutionBinding
-	visible, companion := base.ExecutionBinding.Visible, *base.ExecutionBinding.Companion
+	binding := *base.ExecutionBindingV2
+	visible, companion := base.ExecutionBindingV2.Visible, *base.ExecutionBindingV2.Companion
 	binding.Visible.ExactSQLSHA256, binding.Visible.StrictASTSHA256 =
 		companion.ExactSQLSHA256, companion.StrictASTSHA256
 	swappedCompanion := companion
 	swappedCompanion.ExactSQLSHA256, swappedCompanion.StrictASTSHA256 =
 		visible.ExactSQLSHA256, visible.StrictASTSHA256
 	binding.Companion = &swappedCompanion
-	swapped.ExecutionBinding = &binding
+	swapped.ExecutionBindingV2 = &binding
 
 	if err := keyring.Verify(swapped); err == nil {
 		t.Fatal("a receipt with swapped visible and companion statements verified")
@@ -355,9 +388,9 @@ func TestV9TargetRoleSwapFails(t *testing.T) {
 
 // An idempotent replay returns the original signed receipt unchanged, so its
 // execution binding must be byte-identical rather than re-derived.
-func TestV9ReplayReturnsAByteIdenticalExecutionBinding(t *testing.T) {
+func TestExecutionReceiptReplayReturnsAByteIdenticalExecutionBinding(t *testing.T) {
 	signer := DemoSigner([]byte("v9-replay"))
-	original, err := signer.Sign(validV9Receipt(t))
+	original, err := signer.Sign(validExecutionReceipt(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -378,10 +411,10 @@ func TestV9ReplayReturnsAByteIdenticalExecutionBinding(t *testing.T) {
 	if err := keyring.Verify(replayed); err != nil {
 		t.Fatalf("the replayed receipt did not verify: %v", err)
 	}
-	if replayed.ExecutionBinding.SHA256 != original.ExecutionBinding.SHA256 {
+	if replayed.ExecutionBindingV2.SHA256 != original.ExecutionBindingV2.SHA256 {
 		t.Fatal("the replayed execution binding is not the original")
 	}
-	if !replayed.ExecutionBinding.Equal(*original.ExecutionBinding) {
+	if !replayed.ExecutionBindingV2.Equal(*original.ExecutionBindingV2) {
 		t.Fatal("the replayed execution binding is not equal to the original")
 	}
 	roundTripped, err := json.Marshal(replayed)
@@ -398,9 +431,9 @@ func TestV9ReplayReturnsAByteIdenticalExecutionBinding(t *testing.T) {
 
 // Nothing in a V9 receipt may carry SQL: it is retained, replayed and handed to
 // a finalizer that must not learn what was queried.
-func TestV9CarriesNoSQL(t *testing.T) {
+func TestExecutionReceiptCarriesNoSQL(t *testing.T) {
 	signer := DemoSigner([]byte("v9-no-sql"))
-	signed, err := signer.Sign(validV9Receipt(t))
+	signed, err := signer.Sign(validExecutionReceipt(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -431,16 +464,16 @@ func TestV9CarriesNoSQL(t *testing.T) {
 
 // The path semantics reach the receipt: a semantic replay that executed a
 // target is refused before anything is signed.
-func TestV9RefusesASemanticReplayThatExecuted(t *testing.T) {
-	receipt := validV9Receipt(t)
-	binding := *receipt.ExecutionBinding
+func TestExecutionReceiptRefusesASemanticReplayThatExecuted(t *testing.T) {
+	receipt := validExecutionReceipt(t)
+	binding := *receipt.ExecutionBindingV2
 	binding.PathKind = querybinding.PathSemanticReplay
 	if _, err := binding.Seal(); err == nil {
 		t.Fatal("a semantic replay that executed its targets sealed cleanly")
 	}
 
 	// An idempotent replay never creates a binding at all.
-	idempotent := *receipt.ExecutionBinding
+	idempotent := *receipt.ExecutionBindingV2
 	idempotent.PathKind = querybinding.PathIdempotentReplay
 	if _, err := idempotent.Seal(); err == nil {
 		t.Fatal("an idempotent replay produced a new execution binding")
@@ -454,7 +487,7 @@ func TestV9RefusesASemanticReplayThatExecuted(t *testing.T) {
 // since V2 (schema_digest) and V3 (signed_at) has had to satisfy them, and V9
 // inherited the requirement without inheriting the check.
 
-func TestV9RequiresSchemaDigest(t *testing.T) {
+func TestExecutionReceiptRequiresSchemaDigest(t *testing.T) {
 	for name, digest := range map[string]string{
 		"absent":    "",
 		"uppercase": strings.ToUpper(fixedDigest("ab")),
@@ -462,7 +495,7 @@ func TestV9RequiresSchemaDigest(t *testing.T) {
 		"not hex":   strings.Repeat("z", 64),
 	} {
 		t.Run(name, func(t *testing.T) {
-			receipt := validV9Receipt(t)
+			receipt := validExecutionReceipt(t)
 			if err := receipt.ValidateUnsigned(); err != nil {
 				t.Fatalf("the V9 baseline does not validate, so this case proves nothing: %v", err)
 			}
@@ -474,16 +507,16 @@ func TestV9RequiresSchemaDigest(t *testing.T) {
 	}
 }
 
-func TestV9RequiresSignedAtNotBeforeCompletion(t *testing.T) {
+func TestExecutionReceiptRequiresSignedAtNotBeforeCompletion(t *testing.T) {
 	t.Run("absent", func(t *testing.T) {
-		receipt := validV9Receipt(t)
+		receipt := validExecutionReceipt(t)
 		receipt.SignedAt = nil
 		if err := receipt.ValidateUnsigned(); err == nil {
 			t.Fatal("a V9 receipt with no signed_at was accepted")
 		}
 	})
 	t.Run("zero", func(t *testing.T) {
-		receipt := validV9Receipt(t)
+		receipt := validExecutionReceipt(t)
 		zero := time.Time{}
 		receipt.SignedAt = &zero
 		if err := receipt.ValidateUnsigned(); err == nil {
@@ -491,7 +524,7 @@ func TestV9RequiresSignedAtNotBeforeCompletion(t *testing.T) {
 		}
 	})
 	t.Run("precedes completion", func(t *testing.T) {
-		receipt := validV9Receipt(t)
+		receipt := validExecutionReceipt(t)
 		early := receipt.CompletedAt.Add(-time.Millisecond)
 		receipt.SignedAt = &early
 		if err := receipt.ValidateUnsigned(); err == nil {
@@ -499,7 +532,7 @@ func TestV9RequiresSignedAtNotBeforeCompletion(t *testing.T) {
 		}
 	})
 	t.Run("at completion", func(t *testing.T) {
-		receipt := validV9Receipt(t)
+		receipt := validExecutionReceipt(t)
 		at := receipt.CompletedAt
 		receipt.SignedAt = &at
 		if err := receipt.ValidateUnsigned(); err != nil {
@@ -510,30 +543,30 @@ func TestV9RequiresSignedAtNotBeforeCompletion(t *testing.T) {
 
 // V9 must sign under its own domain. Reusing V8's would let a V8 signature be
 // presented over a V9 document.
-func TestV9SignsUnderItsOwnDomain(t *testing.T) {
-	receipt := validV9Receipt(t)
+func TestExecutionReceiptSignsUnderItsOwnDomain(t *testing.T) {
+	receipt := validExecutionReceipt(t)
 	signer := DemoSigner([]byte("v9-domain"))
 	signed, err := signer.Sign(receipt)
 	if err != nil {
-		t.Fatalf("sign V9: %v", err)
+		t.Fatalf("sign: %v", err)
 	}
 	keyring, err := NewKeyring(signer, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := keyring.Verify(signed); err != nil {
-		t.Fatalf("a signed V9 receipt did not verify: %v", err)
+		t.Fatalf("a signed execution receipt did not verify: %v", err)
 	}
-	downgraded := signed
-	downgraded.Version = VersionV8
-	if err := keyring.Verify(downgraded); err == nil {
-		t.Fatal("a V9 signature verified over a document relabelled V8")
+	relabelled := signed
+	relabelled.Version = "9"
+	if err := keyring.Verify(relabelled); err == nil {
+		t.Fatal("a signature verified over a document relabelled to another version")
 	}
 }
 
 // The pre-state's remaining_rows is not independently assertable: budget_before
 // is signed on the same receipt and already says what the task had left.
-func TestV9RemainingRowsMustEqualBudgetBefore(t *testing.T) {
+func TestExecutionReceiptRemainingRowsMustEqualBudgetBefore(t *testing.T) {
 	for name, mutate := range map[string]func(*QueryReceiptV1){
 		"pre-state claims more rows than the budget leaves": func(r *QueryReceiptV1) {
 			ledger := *r.ExposureLedgerBefore
@@ -553,7 +586,7 @@ func TestV9RemainingRowsMustEqualBudgetBefore(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			receipt := validV9Receipt(t)
+			receipt := validExecutionReceipt(t)
 			mutate(&receipt)
 			if err := receipt.ValidateUnsigned(); err == nil {
 				t.Fatal("a V9 receipt whose two signed pre-states disagree about the row budget was accepted")
@@ -564,8 +597,8 @@ func TestV9RemainingRowsMustEqualBudgetBefore(t *testing.T) {
 
 // A budget that has used and reserved more than its limit describes no state.
 // It must be refused rather than clamped to zero remaining.
-func TestV9FailsClosedOnOverdrawnBudget(t *testing.T) {
-	receipt := validV9Receipt(t)
+func TestExecutionReceiptFailsClosedOnOverdrawnBudget(t *testing.T) {
+	receipt := validExecutionReceipt(t)
 	receipt.BudgetBefore.Used.Rows = 8
 	receipt.BudgetBefore.Reserved.Rows = 5
 	ledger := *receipt.ExposureLedgerBefore
@@ -579,7 +612,7 @@ func TestV9FailsClosedOnOverdrawnBudget(t *testing.T) {
 // The ledger identity is not independently assertable either. An epoch change
 // resets the accounting, so a pre-state naming a different epoch describes
 // limits that did not exist when the query ran.
-func TestV9LedgerPreStateMustMatchExposureEvidence(t *testing.T) {
+func TestExecutionReceiptLedgerPreStateMustMatchExposureEvidence(t *testing.T) {
 	for name, mutate := range map[string]func(*testing.T, *QueryReceiptV1){
 		"root task": func(t *testing.T, r *QueryReceiptV1) {
 			ledger := *r.ExposureLedgerBefore
@@ -598,10 +631,10 @@ func TestV9LedgerPreStateMustMatchExposureEvidence(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			receipt := validV9Receipt(t)
+			receipt := validExecutionReceipt(t)
 			mutate(t, &receipt)
 			if err := receipt.ValidateUnsigned(); err == nil {
-				t.Fatalf("a V9 receipt whose pre-state names a different %s than its exposure evidence was accepted", name)
+				t.Fatalf("a receipt whose pre-state names a different %s than its exposure evidence was accepted", name)
 			}
 		})
 	}
@@ -610,10 +643,10 @@ func TestV9LedgerPreStateMustMatchExposureEvidence(t *testing.T) {
 // A single-query binding renders exactly one row limit into executable SQL. It
 // used to be the only limit nothing checked against the state that authorized
 // it, because the reproduction returned early when no companion was bound.
-func TestV9SingleQueryVisibleLimitIsBoundedByThePreState(t *testing.T) {
+func TestExecutionReceiptSingleQueryVisibleLimitIsBoundedByThePreState(t *testing.T) {
 	build := func(t *testing.T, visibleRowLimit int64) QueryReceiptV1 {
 		t.Helper()
-		receipt := validV9Receipt(t)
+		receipt := validExecutionReceipt(t)
 		ledger, err := querybinding.ExposureLedgerBeforeV1{
 			ProfileVersion: receipt.Exposure.ProfileVersion,
 			RootTaskID:     receipt.Exposure.RootTaskID,
@@ -634,28 +667,28 @@ func TestV9SingleQueryVisibleLimitIsBoundedByThePreState(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		binding, err := querybinding.QueryExecutionBindingV1{
-			PathKind:                       querybinding.PathSingleQuery,
-			PreparedOperationBindingSHA256: fixedDigest("c1"),
-			ExposureProfileVersion:         ledger.ProfileVersion,
-			VisibleRowLimit:                visibleRowLimit,
-			BudgetBeforeSHA256:             budgetDigest,
-			ExposureLedgerBeforeSHA256:     ledger.SHA256,
-			PlanSHA256:                     fixedDigest("c2"),
-			CompilerVersion:                "queryplan-v7",
-			CompilerSHA256:                 fixedDigest("c3"),
+		compiler := executionCompiler(t)
+		binding, err := querybinding.QueryExecutionBindingV2{
+			PathKind:                   querybinding.PathSingleQuery,
+			PreparedOperation:          preparedOperationFixture(t, false),
+			Compiler:                   compiler,
+			ExposureProfileVersion:     ledger.ProfileVersion,
+			VisibleRowLimit:            visibleRowLimit,
+			BudgetBeforeSHA256:         budgetDigest,
+			ExposureLedgerBeforeSHA256: ledger.SHA256,
 			Visible: querybinding.TargetRecordV1{
 				Role: querybinding.RoleVisible, Authorized: true, Executed: true,
 				ExactSQLSHA256: fixedDigest("a1"), StrictASTSHA256: fixedDigest("a2"),
 				RowLimit: visibleRowLimit, PolicyFingerprint: receipt.SQLFingerprint,
-				PolicyRendererVersion: "sqlpolicy-v3", PolicyRendererDigest: fixedDigest("a3"),
+				PolicyRendererVersion:       compiler.PolicyRendererVersion,
+				PolicyRendererDigest:        compiler.PolicyRendererSHA256,
 				PreparedTargetBindingSHA256: fixedDigest("a4"),
 			},
 		}.Seal()
 		if err != nil {
 			t.Fatalf("seal single-query binding: %v", err)
 		}
-		receipt.ExecutionBinding = &binding
+		receipt.ExecutionBindingV2 = &binding
 		return receipt
 	}
 
@@ -674,22 +707,34 @@ func resealLedger(t *testing.T, receipt *QueryReceiptV1, ledger querybinding.Exp
 		t.Fatalf("reseal exposure ledger pre-state: %v", err)
 	}
 	receipt.ExposureLedgerBefore = &sealed
-	binding := *receipt.ExecutionBinding
+	binding := *receipt.ExecutionBindingV2
 	binding.ExposureLedgerBeforeSHA256 = sealed.SHA256
 	binding.ExposureProfileVersion = sealed.ProfileVersion
-	binding.UsesExpandedEvidence = sealed.UsesExpandedEvidence
+	// The expanded-evidence state lives in the preparation, which is the only
+	// place it is written down. Moving it means re-sealing the preparation rather
+	// than setting a flag beside it, which is the property V2 was built to have.
+	if binding.PreparedOperation.ExpandedEvidence != sealed.UsesExpandedEvidence {
+		prepared := binding.PreparedOperation
+		prepared.ExpandedEvidence = sealed.UsesExpandedEvidence
+		prepared.SHA256 = ""
+		resealedPreparation, err := prepared.Seal()
+		if err != nil {
+			t.Fatalf("reseal prepared operation: %v", err)
+		}
+		binding.PreparedOperation = resealedPreparation
+	}
 	resealed, err := binding.Seal()
 	if err != nil {
 		t.Fatalf("reseal execution binding: %v", err)
 	}
-	receipt.ExecutionBinding = &resealed
+	receipt.ExecutionBindingV2 = &resealed
 }
 
 // A novel observation advances the root head as it settles, so the pre-state
 // epoch is normally one BEHIND the charge's. Rejecting that would reject every
-// novel paired execution, which is the case V9 exists to describe.
-func TestV9AcceptsAPreStateEpochBehindTheCharge(t *testing.T) {
-	receipt := validV9Receipt(t)
+// novel paired execution, which is the case the execution evidence exists to describe.
+func TestExecutionReceiptAcceptsAPreStateEpochBehindTheCharge(t *testing.T) {
+	receipt := validExecutionReceipt(t)
 	ledger := *receipt.ExposureLedgerBefore
 	if receipt.Exposure.RootEpoch < 1 {
 		t.Fatalf("the fixture charge settled at epoch %d, so this case proves nothing", receipt.Exposure.RootEpoch)

@@ -514,10 +514,10 @@ func TestGate30BindingDigestMutationRejected(t *testing.T) {
 	})
 
 	t.Run("execution binding and pre-state", func(t *testing.T) {
-		// QueryExecutionBindingV1.Validate recomputes the binding digest over
+		// QueryExecutionBindingV2.Validate recomputes the binding digest over
 		// every member, so a stale digest is fatal wherever it came from.
 		base := pairedNovelCase(t)
-		binding := *base.receipt.ExecutionBinding
+		binding := *base.receipt.ExecutionBindingV2
 		binding.SHA256 = strings.Repeat("d", 64)
 		if err := binding.Validate(); err == nil {
 			t.Fatal("an execution binding with a substituted digest validated")

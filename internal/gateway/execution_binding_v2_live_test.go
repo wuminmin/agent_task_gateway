@@ -45,9 +45,6 @@ func liveV2Evidence(t *testing.T, taskID, requestID string) (control.QueryReceip
 	if evidence.ExecutionBinding == nil || evidence.ExecutionBinding.BindingV2 == nil {
 		t.Fatal("the live execution persisted no V2 execution binding")
 	}
-	if evidence.ExecutionBinding.Binding != nil {
-		t.Fatal("the live execution persisted a V1 execution binding beside its V2")
-	}
 	return evidence, queryID
 }
 
@@ -84,15 +81,12 @@ func TestLiveV2ArtifactDeliveryEarnsAVerifiableV10(t *testing.T) {
 	evidence, _ := liveV2Evidence(t, "task-v10-artifact", "v10-artifact-1")
 	receipt, _ := signLiveReceipt(t, evidence)
 
-	if receipt.Version != queryreceipt.VersionV10 {
+	if receipt.Version != queryreceipt.Version {
 		t.Fatalf("a persisted V2 binding produced a V%s receipt", receipt.Version)
 	}
 	if receipt.ResultDeliveryMode != queryreceipt.DeliveryArtifact {
 		t.Fatalf("delivery mode is %q; the settlement registered a result object",
 			receipt.ResultDeliveryMode)
-	}
-	if receipt.ExecutionBinding != nil {
-		t.Fatal("a V10 receipt carries a V1 execution binding")
 	}
 	if receipt.ExecutionBindingV2 == nil {
 		t.Fatal("a V10 receipt carries no V2 execution binding")
@@ -116,7 +110,7 @@ func TestLiveV2InlineDeliveryEarnsAV10WithNoArtifactIntent(t *testing.T) {
 	evidence.ArtifactRegistrationAudit = nil
 
 	receipt, _ := signLiveReceipt(t, evidence)
-	if receipt.Version != queryreceipt.VersionV10 {
+	if receipt.Version != queryreceipt.Version {
 		t.Fatalf("an inline V2 binding produced a V%s receipt", receipt.Version)
 	}
 	if receipt.ResultDeliveryMode != queryreceipt.DeliveryInline {

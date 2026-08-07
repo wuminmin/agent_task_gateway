@@ -1,4 +1,4 @@
-// Package queryreceiptv9 builds signed Query Receipt V9 documents for tests.
+// Package queryreceiptv10 builds signed Query Receipt documents for tests.
 //
 // It exists because the receipt fixtures that already existed lived in package
 // queryreceipt's own _test.go files as an eight-deep chain of unexported
@@ -8,8 +8,8 @@
 // surface permanently in order to serve a temporary need.
 //
 // Everything here is built from public production constructors and types. It
-// therefore also serves as a standing check that a valid V9 CAN be built from
-// the public surface: if a future change makes that impossible without an
+// therefore also serves as a standing check that a valid receipt CAN be built
+// from the public surface: if a future change makes that impossible without an
 // unexported helper, this package stops compiling.
 //
 // Two rules hold and are enforced by TestFixtureIsNotImportedByProduction in
@@ -22,7 +22,7 @@
 // The signer is seeded, so receipt bytes and signatures are byte-for-byte
 // reproducible across runs. Gate 22 compares stored receipt bytes, and a
 // fixture that re-randomized its key would make that comparison vacuous.
-package queryreceiptv9
+package queryreceiptv10
 
 import (
 	"crypto/ed25519"
@@ -31,6 +31,7 @@ import (
 	"fmt"
 	"time"
 
+	"taskbound.local/agent-data-gateway/internal/preparedbinding"
 	"taskbound.local/agent-data-gateway/internal/querybinding"
 	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 )
@@ -39,7 +40,7 @@ import (
 const KeyID = "taskgate-test-fixture-ed25519-v1"
 
 // seed is fixed so the key, and therefore every signature, is deterministic.
-const seed = "taskgate-final-v5-queryreceipt-v9-fixture-seed-0001"
+const seed = "taskgate-final-v5-queryreceipt-v10-fixture-seed-001"
 
 // digest is a deterministic stand-in digest derived from a label. Labels rather
 // than repeated characters make a failing assertion say which value moved.
@@ -111,7 +112,7 @@ func (target Target) record(role querybinding.TargetRole, executed bool, rowLimi
 		Role: role, Authorized: true, Executed: executed,
 		ExactSQLSHA256: target.ExactSQLSHA256, StrictASTSHA256: target.StrictASTSHA256,
 		RowLimit: rowLimit, PolicyFingerprint: target.PolicyFingerprint,
-		PolicyRendererVersion:       "sqlpolicy-v3",
+		PolicyRendererVersion:       policyRendererVersion,
 		PolicyRendererDigest:        digest("policy-renderer"),
 		PreparedTargetBindingSHA256: target.PreparedTargetBindingSHA256,
 	}
@@ -136,9 +137,9 @@ type Options struct {
 	TaskID, QueryID, RequestID string
 }
 
-// unsignedBase is a complete V8-shaped receipt: every field V1 through V8
-// require, so that adding the V9 members yields a receipt that validates for the
-// reason under test rather than for a missing member three versions down.
+// unsignedBase is the receipt with every member the execution evidence does not
+// supply, so that adding the binding yields a receipt that validates for the
+// reason under test rather than for a missing member elsewhere.
 func unsignedBase(options Options) (queryreceipt.QueryReceiptV1, error) {
 	created := time.Date(2026, 8, 5, 0, 0, 0, 0, time.UTC)
 	completed := created.Add(time.Millisecond)
@@ -157,8 +158,9 @@ func unsignedBase(options Options) (queryreceipt.QueryReceiptV1, error) {
 	}
 
 	receipt := queryreceipt.QueryReceiptV1{
-		Version: queryreceipt.VersionV9, ReceiptID: queryID, TaskID: taskID,
-		QueryID: queryID, RequestID: requestID,
+		Version: queryreceipt.Version, ReceiptID: queryID, TaskID: taskID,
+		ResultDeliveryMode: queryreceipt.DeliveryArtifact,
+		QueryID:            queryID, RequestID: requestID,
 		ManifestDigest: common, GrantDigest: common, CatalogDigest: common,
 		CatalogVersion: "catalog-v1", DatasourceID: "taskgate-fixture-expenses",
 		SchemaDigest: common, RequestDigest: digest("request/" + requestID),
@@ -266,33 +268,42 @@ func build(options Options, pathKind querybinding.PathKind, executed bool) (quer
 		visibleLimit = SingleQueryVisibleRowLimit
 	}
 	visible := options.Visible.record(querybinding.RoleVisible, executed, visibleLimit)
-	binding := querybinding.QueryExecutionBindingV1{
-		PathKind:                       pathKind,
-		PreparedOperationBindingSHA256: digest("prepared-operation"),
-		ExposureProfileVersion:         ledger.ProfileVersion,
-		VisibleRowLimit:                visible.RowLimit,
-		BudgetBeforeSHA256:             budgetDigest,
-		ExposureLedgerBeforeSHA256:     ledger.SHA256,
-		PlanSHA256:                     digest("plan"),
-		CompilerVersion:                "queryplan-v7",
-		CompilerSHA256:                 digest("compiler"),
-		Visible:                        visible,
-	}
+	var companionRecord *querybinding.TargetRecordV1
 	if options.Companion != nil {
-		companion := options.Companion.record(querybinding.RoleCompanion, executed, CompanionRowLimit)
-		binding.Companion = &companion
+		record := options.Companion.record(querybinding.RoleCompanion, executed, CompanionRowLimit)
+		companionRecord = &record
+	}
+	// The preparation is sealed against the same prepared-target digests the
+	// target records carry, because that is the cross-check the binding exists to
+	// make: a fixture that sealed its own digests would produce a binding whose
+	// statements were rendered from a preparation it does not describe.
+	prepared, err := preparedOperation(visible, companionRecord, expanded)
+	if err != nil {
+		return empty, err
+	}
+	binding := querybinding.QueryExecutionBindingV2{
+		PathKind:                   pathKind,
+		PreparedOperation:          prepared,
+		Compiler:                   compiler,
+		ExposureProfileVersion:     ledger.ProfileVersion,
+		VisibleRowLimit:            visible.RowLimit,
+		BudgetBeforeSHA256:         budgetDigest,
+		ExposureLedgerBeforeSHA256: ledger.SHA256,
+		Visible:                    visible,
+	}
+	if companionRecord != nil {
+		binding.Companion = companionRecord
 		// Under expanded evidence the evidence rows are the pre-state's influence
 		// facts and the policy limit is one more, so a truncated companion result
 		// is distinguishable from a complete one.
-		binding.UsesExpandedEvidence = expanded
 		binding.CompanionEvidenceRows = ledgerInfluenceFacts
-		binding.CompanionPolicyRows = companion.RowLimit
+		binding.CompanionPolicyRows = companionRecord.RowLimit
 	}
 	sealed, err := binding.Seal()
 	if err != nil {
 		return empty, fmt.Errorf("seal execution binding: %w", err)
 	}
-	receipt.ExecutionBinding = &sealed
+	receipt.ExecutionBindingV2 = &sealed
 
 	signer, err := Signer()
 	if err != nil {
@@ -305,7 +316,7 @@ func build(options Options, pathKind querybinding.PathKind, executed bool) (quer
 	return signed, nil
 }
 
-// PairedNovel returns a signed paired-novel V9: both targets authorized and
+// PairedNovel returns a signed paired-novel receipt: both targets authorized and
 // executed.
 func PairedNovel(options Options) (queryreceipt.QueryReceiptV1, error) {
 	if options.Companion == nil {
@@ -314,14 +325,14 @@ func PairedNovel(options Options) (queryreceipt.QueryReceiptV1, error) {
 	return build(options, querybinding.PathPairedNovel, true)
 }
 
-// SemanticReplay returns a signed semantic-replay V9: targets authorized so the
-// semantic key could be derived, and executed by nothing.
+// SemanticReplay returns a signed semantic-replay receipt: targets authorized so
+// the semantic key could be derived, and executed by nothing.
 func SemanticReplay(options Options) (queryreceipt.QueryReceiptV1, error) {
 	return build(options, querybinding.PathSemanticReplay, false)
 }
 
-// SingleQuery returns a signed single-query V9: one executed visible statement
-// and no companion.
+// SingleQuery returns a signed single-query receipt: one executed visible
+// statement and no companion.
 func SingleQuery(options Options) (queryreceipt.QueryReceiptV1, error) {
 	options.Companion = nil
 	return build(options, querybinding.PathSingleQuery, true)
@@ -340,17 +351,17 @@ func PersistedJSON(receipt queryreceipt.QueryReceiptV1) ([]byte, error) {
 // re-sealed and re-signed.
 //
 // Re-sealing matters. A mutation that left the binding digest stale would be
-// caught by QueryExecutionBindingV1.Validate for the wrong reason -- the test
+// caught by QueryExecutionBindingV2.Validate for the wrong reason -- the test
 // would pass while proving only that a digest check exists. Re-sealing produces
 // a binding that is internally consistent and genuinely describes a different
 // execution, which is what acceptance has to reject.
 func Mutate(receipt queryreceipt.QueryReceiptV1,
-	fn func(*querybinding.QueryExecutionBindingV1)) (queryreceipt.QueryReceiptV1, error) {
+	fn func(*querybinding.QueryExecutionBindingV2)) (queryreceipt.QueryReceiptV1, error) {
 	var empty queryreceipt.QueryReceiptV1
-	if receipt.ExecutionBinding == nil {
+	if receipt.ExecutionBindingV2 == nil {
 		return empty, fmt.Errorf("receipt carries no execution binding to mutate")
 	}
-	binding := *receipt.ExecutionBinding
+	binding := *receipt.ExecutionBindingV2
 	if binding.Companion != nil {
 		companion := *binding.Companion
 		binding.Companion = &companion
@@ -362,7 +373,7 @@ func Mutate(receipt queryreceipt.QueryReceiptV1,
 		return empty, fmt.Errorf("re-seal mutated binding: %w", err)
 	}
 	mutated := receipt
-	mutated.ExecutionBinding = &sealed
+	mutated.ExecutionBindingV2 = &sealed
 	mutated.Signature = ""
 	signer, err := Signer()
 	if err != nil {
@@ -381,4 +392,67 @@ func Mutate(receipt queryreceipt.QueryReceiptV1,
 // to state the same digest.
 func PreparedTargetBinding(role querybinding.TargetRole) string {
 	return digest("prepared-target-" + string(role))
+}
+
+// policyRendererVersion is the renderer every target record names. It has to
+// equal the renderer the preparation was compiled against, or the binding's
+// renderer cross-check refuses the fixture.
+const policyRendererVersion = "sqlpolicy-v3"
+
+// compiler is the typed compiler identity the preparation is sealed against and
+// the binding carries. It is a package-level value rather than a constructor
+// call per fixture so that every receipt this package builds names one compiler,
+// which is what makes two fixtures comparable.
+var compiler = mustSealCompiler()
+
+func mustSealCompiler() preparedbinding.CompilerIdentityV1 {
+	sealed, err := preparedbinding.CompilerIdentityV1{
+		QueryPlanVersion: "queryplan-v7", QueryPlanSHA256: digest("query-plan-compiler"),
+		PolicyRendererVersion: policyRendererVersion, PolicyRendererSHA256: digest("policy-renderer"),
+	}.Seal()
+	if err != nil {
+		panic("queryreceiptv10: seal compiler identity: " + err.Error())
+	}
+	return sealed
+}
+
+// preparedOperation seals the preparation the two target records were rendered
+// from.
+//
+// The prepared target digests are taken from the records rather than chosen
+// here. The binding requires them to agree, and a caller that supplied its own
+// target digests is describing statements its finalizer will independently
+// reproduce -- so the preparation has to be the one that prepared those, not a
+// fixture-shaped stand-in that happens to validate on its own.
+func preparedOperation(visible querybinding.TargetRecordV1, companion *querybinding.TargetRecordV1,
+	expanded bool) (preparedbinding.PreparedOperationBindingV1, error) {
+	binding := preparedbinding.PreparedOperationBindingV1{
+		HasCompanion: companion != nil, Grouped: true, ExpandedEvidence: expanded,
+		VisibleFieldCount: 4, FactFieldCount: 2, ProvenanceFieldCount: 3,
+		VisibleFieldsSHA256:      digest("visible-fields"),
+		FactFieldsSHA256:         digest("fact-fields"),
+		ProvenanceFieldsSHA256:   digest("provenance-fields"),
+		PreparationInputsSHA256:  digest("preparation-inputs"),
+		GrantSHA256:              digest("grant"),
+		CatalogSHA256:            digest("catalog"),
+		SnapshotBindingSetSHA256: digest("snapshot-binding-set"),
+		PlanSHA256:               digest("plan"),
+		CompilerIdentitySHA256:   compiler.SHA256,
+		PolicyGrantSHA256:        digest("policy-grant"),
+		NormalFormSHA256:         digest("normal-form"),
+		OrdinalProgramSHA256:     digest("ordinal-program"),
+		DictionarySetSHA256:      digest("dictionary-set"),
+		SourcePublicationsSHA256: digest("source-publications"),
+		PredicateFootprintSHA256: digest("predicate-footprint"),
+		EstimatedBaseFacts:       4096,
+		VisibleTargetSHA256:      visible.PreparedTargetBindingSHA256,
+	}
+	if companion != nil {
+		binding.CompanionTargetSHA256 = companion.PreparedTargetBindingSHA256
+	}
+	sealed, err := binding.Seal()
+	if err != nil {
+		return preparedbinding.PreparedOperationBindingV1{}, fmt.Errorf("seal prepared operation: %w", err)
+	}
+	return sealed, nil
 }

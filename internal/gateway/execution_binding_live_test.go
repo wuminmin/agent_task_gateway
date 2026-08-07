@@ -143,7 +143,7 @@ func TestLiveV10PairedNovelEmitsAVerifiableBindingOverWhatExecuted(t *testing.T)
 	}
 
 	receipt, _ := harness.signedReceiptFor(t, queryID)
-	if receipt.Version != queryreceipt.VersionV10 {
+	if receipt.Version != queryreceipt.Version {
 		t.Fatalf("a completed exposure-V5 artifact query emitted a V%s receipt, want V10", receipt.Version)
 	}
 	// (2) the signature verifies under the Gateway's own key.
@@ -356,7 +356,7 @@ func TestLiveV10SemanticReplayBindsAnExecutionThatDidNotHappen(t *testing.T) {
 	}
 
 	receipt, _ := harness.signedReceiptFor(t, secondQueryID)
-	if receipt.Version != queryreceipt.VersionV10 {
+	if receipt.Version != queryreceipt.Version {
 		t.Fatalf("the semantic replay emitted a V%s receipt, want V10", receipt.Version)
 	}
 	binding := receipt.ExecutionBindingV2
@@ -423,7 +423,7 @@ func TestLiveV10PreStateChangedBetweenPreparationAndReservation(t *testing.T) {
 	}
 	queryID := result["query_id"].(string)
 	receipt, _ := harness.signedReceiptFor(t, queryID)
-	if receipt.Version != queryreceipt.VersionV10 || receipt.ExposureLedgerBefore == nil {
+	if receipt.Version != queryreceipt.Version || receipt.ExposureLedgerBefore == nil {
 		t.Fatalf("the completed query emitted a V%s receipt with no pre-state", receipt.Version)
 	}
 	// The signed pre-state must be the reservation's, which already reflects the

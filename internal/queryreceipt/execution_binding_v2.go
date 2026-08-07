@@ -7,9 +7,8 @@ import "fmt"
 // It is deliberately thin. Everything the receipt requires of an execution
 // binding -- that it names the pre-states carried beside it, that its limits
 // reproduce from them, that the ledger identity agrees with the exposure charge
-// -- is the same for V9 and V10 and lives in one place. What V10 adds is the
-// document V2 carries and V1 did not, and the two cross-checks that document
-// makes possible.
+// -- lives in one place, beside the pre-state it is checked against. What is
+// here is what the carried preparation makes possible and a digest would not.
 func (r QueryReceiptV1) validateExecutionBindingV2() error {
 	if r.ExecutionBindingV2 == nil {
 		return fmt.Errorf("%w: V10 requires the signed query execution binding V2", ErrInvalidReceipt)

@@ -333,9 +333,41 @@ func TestArtifactPromotionFailurePreservesSettlementAndRecoversWithoutReexecutio
 	}
 	budgetAfter, _ := harness.store.GetBudget(t.Context(), taskID)
 	receiptAfter, _ := harness.store.GetQueryReceipt(t.Context(), record.ID)
-	if !reflect.DeepEqual(budgetAfter, budgetBefore) || !reflect.DeepEqual(receiptAfter, receiptBefore) {
-		t.Fatalf("recovery changed settlement evidence\nbudget: %+v -> %+v\nreceipt: %+v -> %+v",
-			budgetBefore, budgetAfter, receiptBefore, receiptAfter)
+	if !reflect.DeepEqual(budgetAfter, budgetBefore) {
+		t.Fatalf("recovery changed the settled budget\n%+v ->\n%+v", budgetBefore, budgetAfter)
+	}
+	// The settlement evidence is compared member by member rather than as a whole
+	// struct, because one member of it is not settlement evidence.
+	//
+	// QueryReceipt.Artifact is the LIVE result-object row, and promoting a PENDING
+	// object to AVAILABLE is precisely what the recovery under test does -- so a
+	// whole-struct comparison asserts that recovery did not do its job. What must
+	// not move is what settlement sealed: the query record, the terminal audit
+	// event, the signed receipt document, and the registration audit the signature
+	// covers.
+	for name, pair := range map[string][2]any{
+		"query record":       {receiptBefore.Query, receiptAfter.Query},
+		"terminal audit":     {receiptBefore.Audit, receiptAfter.Audit},
+		"signed receipt":     {receiptBefore.Receipt, receiptAfter.Receipt},
+		"registration audit": {receiptBefore.ArtifactRegistrationAudit, receiptAfter.ArtifactRegistrationAudit},
+		"exposure":           {receiptBefore.Exposure, receiptAfter.Exposure},
+		"execution binding":  {receiptBefore.ExecutionBinding, receiptAfter.ExecutionBinding},
+	} {
+		if !reflect.DeepEqual(pair[0], pair[1]) {
+			t.Fatalf("recovery changed the settled %s\n%+v ->\n%+v", name, pair[0], pair[1])
+		}
+	}
+	// And the object itself moved in exactly one way: from PENDING to consumed.
+	if receiptBefore.Artifact.Status != control.ResultArtifactPending ||
+		receiptAfter.Artifact.Status != control.ResultArtifactAvailable {
+		t.Fatalf("the recovered artifact went %s -> %s, want PENDING -> AVAILABLE",
+			receiptBefore.Artifact.Status, receiptAfter.Artifact.Status)
+	}
+	before, after := *receiptBefore.Artifact, *receiptAfter.Artifact
+	before.Status, after.Status = "", ""
+	before.ConsumedAt, after.ConsumedAt = nil, nil
+	if !reflect.DeepEqual(before, after) {
+		t.Fatalf("recovery changed the artifact beyond its promotion\n%+v ->\n%+v", before, after)
 	}
 	if len(harness.connector.requests) != connectorCalls {
 		t.Fatalf("recovery re-executed Business PostgreSQL: calls %d -> %d", connectorCalls, len(harness.connector.requests))
@@ -458,7 +490,7 @@ func TestCanonicalCopySurvivesAvailableTransactionFailureAndRecoversExactlyOnce(
 	// intent is still required here because this delivery registered a result
 	// object -- V10 states its mode rather than requiring one, and an artifact
 	// delivery that omitted the intent would be describing a different delivery.
-	if signedBefore.Version != queryreceipt.VersionV10 || signedBefore.Exposure == nil ||
+	if signedBefore.Version != queryreceipt.Version || signedBefore.Exposure == nil ||
 		signedBefore.Exposure.ProfileVersion != exposure.ProfileV5 || signedBefore.ArtifactIntent == nil ||
 		signedBefore.ExecutionBindingV2 == nil || signedBefore.ExposureLedgerBefore == nil {
 		t.Fatalf("crash-window receipt is not explicit V5 + V10 evidence: %+v", signedBefore)

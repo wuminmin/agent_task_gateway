@@ -16,18 +16,12 @@ import (
 // QueryExecutionBinding is the persisted description of what one query
 // executed, together with the exposure pre-state its row limits derive from.
 //
-// Exactly one of Binding and BindingV2 is set. They are separate members rather
-// than one polymorphic field for the same reason the receipt keeps them apart: a
-// single field would have to be discriminated after decoding, and a row that
-// decoded as neither -- or as both -- would be a state the type permitted.
-//
-// Both documents are stored and returned whole. They are covered by the receipt
-// signature as documents, so a projection that reassembled them field by field
+// The document is stored and returned whole. It is covered by the receipt
+// signature as a document, so a projection that reassembled it field by field
 // could differ from what was signed while every individual field still looked
 // right.
 type QueryExecutionBinding struct {
 	QueryID              string
-	Binding              *querybinding.QueryExecutionBindingV1
 	BindingV2            *querybinding.QueryExecutionBindingV2
 	ExposureLedgerBefore querybinding.ExposureLedgerBeforeV1
 	CreatedAt            time.Time
@@ -35,48 +29,34 @@ type QueryExecutionBinding struct {
 
 // Version is the stored document's own version string.
 func (binding QueryExecutionBinding) Version() string {
-	switch {
-	case binding.Binding != nil:
-		return querybinding.QueryExecutionBindingV1Version
-	case binding.BindingV2 != nil:
-		return querybinding.QueryExecutionBindingV2Version
-	default:
+	if binding.BindingV2 == nil {
 		return ""
 	}
+	return querybinding.QueryExecutionBindingV2Version
 }
 
-// PathKind and SHA256 read whichever document is present, so callers that need
-// only the denormalized facts do not have to branch on the version themselves.
+// PathKind and SHA256 read the stored document, so callers that need only the
+// denormalized facts do not have to reach into it themselves.
 func (binding QueryExecutionBinding) PathKind() querybinding.PathKind {
-	switch {
-	case binding.Binding != nil:
-		return binding.Binding.PathKind
-	case binding.BindingV2 != nil:
-		return binding.BindingV2.PathKind
-	default:
+	if binding.BindingV2 == nil {
 		return ""
 	}
+	return binding.BindingV2.PathKind
 }
 
 func (binding QueryExecutionBinding) SHA256() string {
-	switch {
-	case binding.Binding != nil:
-		return binding.Binding.SHA256
-	case binding.BindingV2 != nil:
-		return binding.BindingV2.SHA256
-	default:
+	if binding.BindingV2 == nil {
 		return ""
 	}
+	return binding.BindingV2.SHA256
 }
 
 // PreparedOperation is the sealed preparation the stored row describes, and
-// whether the row can describe one at all.
+// whether the row describes one at all.
 //
-// A V1 row cannot: it carries only a digest of the preparation, so the document
-// a caller would have to compare against is not in the database. Returning false
-// rather than a zero binding is what keeps that distinguishable -- a zero
-// binding would compare unequal to everything and read like a mismatch rather
-// than like an absence.
+// Returning false rather than a zero binding is what keeps an absent row
+// distinguishable -- a zero binding would compare unequal to everything and read
+// like a mismatch rather than like an absence.
 //
 // It returns the canonical preparedbinding type directly. Reaching it through
 // physicalquery's alias would make persistence depend on the compiler and the
@@ -89,11 +69,8 @@ func (binding QueryExecutionBinding) PreparedOperation() (preparedbinding.Prepar
 	return binding.BindingV2.PreparedOperation, true
 }
 
-// document is whichever of the two is present, for encoding.
+// document is the stored structure, for encoding.
 func (binding QueryExecutionBinding) document() any {
-	if binding.Binding != nil {
-		return *binding.Binding
-	}
 	return *binding.BindingV2
 }
 
@@ -102,25 +79,16 @@ func (binding QueryExecutionBinding) Validate() error {
 	if binding.QueryID == "" {
 		return fmt.Errorf("execution binding names no query")
 	}
-	if (binding.Binding == nil) == (binding.BindingV2 == nil) {
-		return fmt.Errorf("execution binding for %s carries %s; exactly one document is required",
-			binding.QueryID, bothOrNeither(binding))
+	if binding.BindingV2 == nil {
+		return fmt.Errorf("execution binding for %s carries no execution binding document", binding.QueryID)
 	}
 	if err := binding.ExposureLedgerBefore.Validate(); err != nil {
 		return fmt.Errorf("exposure ledger pre-state: %w", err)
 	}
-	var namedLedger string
-	if binding.Binding != nil {
-		if err := binding.Binding.Validate(); err != nil {
-			return fmt.Errorf("query execution binding: %w", err)
-		}
-		namedLedger = binding.Binding.ExposureLedgerBeforeSHA256
-	} else {
-		if err := binding.BindingV2.Validate(); err != nil {
-			return fmt.Errorf("query execution binding v2: %w", err)
-		}
-		namedLedger = binding.BindingV2.ExposureLedgerBeforeSHA256
+	if err := binding.BindingV2.Validate(); err != nil {
+		return fmt.Errorf("query execution binding v2: %w", err)
 	}
+	namedLedger := binding.BindingV2.ExposureLedgerBeforeSHA256
 	// The binding must name the pre-state stored beside it. Without this the two
 	// rows could describe different operations while each validated alone.
 	if namedLedger != binding.ExposureLedgerBefore.SHA256 {
@@ -128,13 +96,6 @@ func (binding QueryExecutionBinding) Validate() error {
 			shortDigestValue(namedLedger), shortDigestValue(binding.ExposureLedgerBefore.SHA256))
 	}
 	return nil
-}
-
-func bothOrNeither(binding QueryExecutionBinding) string {
-	if binding.Binding != nil {
-		return "both a V1 and a V2 document"
-	}
-	return "no execution binding document"
 }
 
 func shortDigestValue(digest string) string {
@@ -315,10 +276,10 @@ func getQueryExecutionBindingTx(ctx context.Context, tx *sql.Tx, queryID string)
 
 // GetQueryExecutionBinding reloads the binding recorded for one query.
 //
-// Returns ErrNotFound when the query executed under a pre-V9 path. That is an
-// ordinary outcome, not a failure: every receipt version before 9 describes no
-// execution binding, and so does a query recovered as INDETERMINATE, which never
-// completed an execution to describe.
+// Returns ErrNotFound when the query recorded no execution binding. That is an
+// ordinary outcome, not a failure: a query the receipt contract does not bind an
+// execution for records none, and neither does one recovered as INDETERMINATE,
+// which never completed an execution to describe.
 func (s *Store) GetQueryExecutionBinding(ctx context.Context, queryID string) (QueryExecutionBinding, error) {
 	const op = "get query execution binding"
 	if err := s.checkOpen(op); err != nil {
@@ -367,29 +328,19 @@ func scanStoredExecutionBinding(row rowScanner) (QueryExecutionBinding, []byte, 
 		&ledgerSHA, &pathKind, &createdAt); err != nil {
 		return QueryExecutionBinding{}, nil, nil, err
 	}
-	// Strict dispatch. The row's version selects exactly one decoder and the
-	// decoder refuses anything the document does not match, so a V1 row can only
-	// ever be read as a V1 and a V2 row only as a V2. Trying both and taking
-	// whichever parsed would make the stored version advisory, and a V2 document
-	// missing its prepared operation would decode as a V1 with empty members
-	// rather than as the corruption it is.
-	switch bindingVersion {
-	case querybinding.QueryExecutionBindingV1Version:
-		var decoded querybinding.QueryExecutionBindingV1
-		if err := strictUnmarshal(bindingJSON, &decoded); err != nil {
-			return QueryExecutionBinding{}, nil, nil, fmt.Errorf("decode query execution binding: %w", err)
-		}
-		binding.Binding = &decoded
-	case querybinding.QueryExecutionBindingV2Version:
-		var decoded querybinding.QueryExecutionBindingV2
-		if err := strictUnmarshal(bindingJSON, &decoded); err != nil {
-			return QueryExecutionBinding{}, nil, nil, fmt.Errorf("decode query execution binding v2: %w", err)
-		}
-		binding.BindingV2 = &decoded
-	default:
+	// The stored version is checked rather than assumed, and a row naming
+	// anything else is refused outright rather than decoded on the chance that it
+	// parses. This build writes and reads exactly one execution-binding version;
+	// a row naming another is a database this build must not sign receipts over.
+	if bindingVersion != querybinding.QueryExecutionBindingV2Version {
 		return QueryExecutionBinding{}, nil, nil, fmt.Errorf(
 			"stored execution binding names version %q, which this build cannot read", bindingVersion)
 	}
+	var decoded querybinding.QueryExecutionBindingV2
+	if err := strictUnmarshal(bindingJSON, &decoded); err != nil {
+		return QueryExecutionBinding{}, nil, nil, fmt.Errorf("decode query execution binding v2: %w", err)
+	}
+	binding.BindingV2 = &decoded
 	if err := strictUnmarshal(ledgerJSON, &binding.ExposureLedgerBefore); err != nil {
 		return QueryExecutionBinding{}, nil, nil, fmt.Errorf("decode exposure ledger pre-state: %w", err)
 	}

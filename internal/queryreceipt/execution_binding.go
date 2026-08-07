@@ -9,44 +9,31 @@ import (
 	"taskbound.local/agent-data-gateway/internal/querybinding"
 )
 
-// validateExecutionBinding dispatches on the execution-binding version the
-// receipt's capabilities require.
+// validateExecutionBinding holds a receipt to the execution evidence it carries.
 //
-// The dispatch is strict in both directions. A version that requires V1 forbids
-// V2 and vice versa, and a version that requires neither forbids both: a receipt
-// whose signature does not cover a field must not be allowed to carry that
-// field, or a holder could attach an execution binding to a V8 receipt and
-// present it as signed.
-func (r QueryReceiptV1) validateExecutionBinding(capabilities Capabilities) error {
-	if r.ExecutionBinding != nil && !capabilities.RequiresExecutionBindingV1() {
-		return fmt.Errorf("%w: a V%s receipt carries a QueryExecutionBindingV1 its signature does not cover",
-			ErrInvalidReceipt, r.Version)
-	}
-	if r.ExecutionBindingV2 != nil && !capabilities.RequiresExecutionBindingV2() {
-		return fmt.Errorf("%w: a V%s receipt carries a QueryExecutionBindingV2 its signature does not cover",
-			ErrInvalidReceipt, r.Version)
-	}
-	if !capabilities.RequiresExposureLedgerBefore {
-		if r.ExposureLedgerBefore != nil {
-			return fmt.Errorf("%w: a V%s receipt carries an exposure ledger pre-state its signature does not cover",
-				ErrInvalidReceipt, r.Version)
+// Whether an execution is described is read from whether the binding is there,
+// and the signature covers that presence -- so a receipt cannot acquire a
+// binding it was not signed with, nor shed one it was. What is left to check is
+// coherence: the binding and its pre-state are two halves of one statement, only
+// a completed query has an execution to describe, and the limits must reproduce
+// from the pre-state the receipt signs beside them.
+func (r QueryReceiptV1) validateExecutionBinding() error {
+	if (r.ExecutionBindingV2 == nil) != (r.ExposureLedgerBefore == nil) {
+		missing, present := "execution binding", "exposure ledger pre-state"
+		if r.ExecutionBindingV2 != nil {
+			missing, present = present, missing
 		}
-		return nil
+		return fmt.Errorf("%w: the receipt carries an %s but no %s; the limits are only checkable "+
+			"against the state they were derived from", ErrInvalidReceipt, present, missing)
 	}
-	if r.ExposureLedgerBefore == nil {
-		return fmt.Errorf("%w: a V%s receipt requires the signed exposure ledger pre-state",
-			ErrInvalidReceipt, r.Version)
+	if r.ExecutionBindingV2 == nil {
+		return nil
 	}
 	// Only a completed query has an execution to describe. A released one never
 	// invoked the Connector, an indeterminate one cannot prove what completed, and
 	// a failed one cannot prove which of its targets ran; the control store
 	// refuses to persist a binding for any of them, and the receipt must refuse to
 	// carry one for the same reason.
-	//
-	// Under V8 and V9 this was implied by the unconditional artifact intent, which
-	// already required COMPLETED. V10 lifted that requirement for inline delivery
-	// and would have taken this with it, leaving an inline V10 free to report
-	// FAILED while carrying a description of what it executed.
 	if r.Status != StatusCompleted {
 		return fmt.Errorf("%w: a %s query carries execution evidence; only a completed query has an "+
 			"execution to describe", ErrInvalidReceipt, r.Status)
@@ -54,48 +41,16 @@ func (r QueryReceiptV1) validateExecutionBinding(capabilities Capabilities) erro
 	if err := r.ExposureLedgerBefore.Validate(); err != nil {
 		return fmt.Errorf("%w: exposure ledger pre-state: %v", ErrInvalidReceipt, err)
 	}
-	switch capabilities.ExecutionBindingVersion {
-	case 1:
-		return r.validateExecutionBindingV1()
-	case 2:
-		return r.validateExecutionBindingV2()
-	default:
-		// A version requiring a pre-state but no binding would leave the pre-state
-		// describing nothing. Nothing in the table does that; saying so beats
-		// falling through silently if something later does.
-		return fmt.Errorf("%w: V%s requires an exposure ledger pre-state but no execution binding",
-			ErrInvalidReceipt, r.Version)
-	}
-}
-
-// validateExecutionBindingV1 is V9's rule set, unchanged.
-func (r QueryReceiptV1) validateExecutionBindingV1() error {
-	if r.ExecutionBinding == nil {
-		return fmt.Errorf("%w: V9 requires the signed query execution binding", ErrInvalidReceipt)
-	}
-	binding := *r.ExecutionBinding
-	if err := binding.Validate(); err != nil {
-		return fmt.Errorf("%w: query execution binding: %v", ErrInvalidReceipt, err)
-	}
-	return r.requireBindingAgreesWithSignedPreState(boundExecution{
-		exposureProfileVersion:     binding.ExposureProfileVersion,
-		usesExpandedEvidence:       binding.UsesExpandedEvidence,
-		exposureLedgerBeforeSHA256: binding.ExposureLedgerBeforeSHA256,
-		budgetBeforeSHA256:         binding.BudgetBeforeSHA256,
-		visibleRowLimit:            binding.VisibleRowLimit,
-		companionEvidenceRows:      binding.CompanionEvidenceRows,
-		hasCompanion:               binding.Companion != nil,
-	})
+	return r.validateExecutionBindingV2()
 }
 
 // boundExecution is the part of an execution binding the receipt checks against
 // its own signed pre-states.
 //
-// It exists so the rules below have exactly one implementation. V1 and V2 differ
-// in how they carry these values -- V2 reads the expanded-evidence state out of
-// the preparation rather than from a flag beside it -- but not in what the
-// receipt requires of them, and a second copy of these checks written for V2
-// would be a second thing to keep in step with the first.
+// It is a projection rather than the binding itself so that these rules stay
+// about what the receipt requires -- that the binding names the pre-states
+// carried beside it and that its limits reproduce from them -- and not about how
+// the binding happens to carry them.
 type boundExecution struct {
 	exposureProfileVersion     string
 	usesExpandedEvidence       bool

@@ -10,7 +10,7 @@ import (
 	"taskbound.local/agent-data-gateway/internal/physicalquery"
 	"taskbound.local/agent-data-gateway/internal/querybinding"
 	"taskbound.local/agent-data-gateway/internal/queryreceipt"
-	fixture "taskbound.local/agent-data-gateway/internal/testfixture/queryreceiptv9"
+	fixture "taskbound.local/agent-data-gateway/internal/testfixture/queryreceiptv10"
 )
 
 // gateCase is one complete, honest acceptance input: a signed V9, the verifier
@@ -183,7 +183,7 @@ func TestGateBaselineHonestCaseIsAccepted(t *testing.T) {
 func (c gateCase) mutateTarget(t *testing.T, role querybinding.TargetRole,
 	fn func(*querybinding.TargetRecordV1)) (gateCase, error) {
 	t.Helper()
-	mutated, err := fixture.Mutate(c.receipt, func(b *querybinding.QueryExecutionBindingV1) {
+	mutated, err := fixture.Mutate(c.receipt, func(b *querybinding.QueryExecutionBindingV2) {
 		if role == querybinding.RoleVisible {
 			fn(&b.Visible)
 			b.VisibleRowLimit = b.Visible.RowLimit

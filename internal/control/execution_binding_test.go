@@ -37,28 +37,29 @@ func testExposureLedgerBefore(t *testing.T) querybinding.ExposureLedgerBeforeV1 
 func testPairedNovelBinding(t *testing.T, queryID string) QueryExecutionBinding {
 	t.Helper()
 	ledger := testExposureLedgerBefore(t)
+	compiler := testCompilerIdentity(t)
 	companion := querybinding.TargetRecordV1{
 		Role: querybinding.RoleCompanion, Authorized: true, Executed: true,
 		ExactSQLSHA256: bindingDigest("b1"), StrictASTSHA256: bindingDigest("b2"),
 		RowLimit: 5, PolicyFingerprint: "companion-fingerprint",
-		PolicyRendererVersion: "sqlpolicy-v3", PolicyRendererDigest: bindingDigest("b3"),
+		PolicyRendererVersion:       compiler.PolicyRendererVersion,
+		PolicyRendererDigest:        compiler.PolicyRendererSHA256,
 		PreparedTargetBindingSHA256: bindingDigest("b4"),
 	}
-	binding, err := querybinding.QueryExecutionBindingV1{
-		PathKind:                       querybinding.PathPairedNovel,
-		PreparedOperationBindingSHA256: bindingDigest("c1"),
-		ExposureProfileVersion:         ledger.ProfileVersion,
-		UsesExpandedEvidence:           true,
-		VisibleRowLimit:                10, CompanionEvidenceRows: 4, CompanionPolicyRows: 5,
+	binding, err := querybinding.QueryExecutionBindingV2{
+		PathKind:               querybinding.PathPairedNovel,
+		PreparedOperation:      testPreparedOperation(t),
+		Compiler:               compiler,
+		ExposureProfileVersion: ledger.ProfileVersion,
+		VisibleRowLimit:        10, CompanionEvidenceRows: 4, CompanionPolicyRows: 5,
 		BudgetBeforeSHA256:         bindingDigest("d1"),
 		ExposureLedgerBeforeSHA256: ledger.SHA256,
-		PlanSHA256:                 bindingDigest("c2"),
-		CompilerVersion:            "queryplan-v7", CompilerSHA256: bindingDigest("c3"),
 		Visible: querybinding.TargetRecordV1{
 			Role: querybinding.RoleVisible, Authorized: true, Executed: true,
 			ExactSQLSHA256: bindingDigest("a1"), StrictASTSHA256: bindingDigest("a2"),
 			RowLimit: 10, PolicyFingerprint: "visible-fingerprint",
-			PolicyRendererVersion: "sqlpolicy-v3", PolicyRendererDigest: bindingDigest("a3"),
+			PolicyRendererVersion:       compiler.PolicyRendererVersion,
+			PolicyRendererDigest:        compiler.PolicyRendererSHA256,
 			PreparedTargetBindingSHA256: bindingDigest("a4"),
 		},
 		Companion: &companion,
@@ -66,7 +67,7 @@ func testPairedNovelBinding(t *testing.T, queryID string) QueryExecutionBinding 
 	if err != nil {
 		t.Fatalf("seal execution binding: %v", err)
 	}
-	return QueryExecutionBinding{QueryID: queryID, Binding: &binding, ExposureLedgerBefore: ledger}
+	return QueryExecutionBinding{QueryID: queryID, BindingV2: &binding, ExposureLedgerBefore: ledger}
 }
 
 // writeBinding writes one binding through the same transaction-scoped helper the
@@ -112,7 +113,7 @@ func TestQueryExecutionBindingRoundTripsWithoutLoss(t *testing.T) {
 	// as documents, so a reload that differed anywhere would sign something
 	// other than what executed.
 	for name, pair := range map[string][2]any{
-		"binding": {original.Binding, reloaded.Binding},
+		"binding": {original.BindingV2, reloaded.BindingV2},
 		"ledger":  {original.ExposureLedgerBefore, reloaded.ExposureLedgerBefore},
 	} {
 		want, err := json.Marshal(pair[0])
@@ -127,7 +128,7 @@ func TestQueryExecutionBindingRoundTripsWithoutLoss(t *testing.T) {
 			t.Fatalf("%s did not round-trip:\n want %s\n got  %s", name, want, got)
 		}
 	}
-	if !reloaded.Binding.Equal(*original.Binding) {
+	if !reloaded.BindingV2.Equal(*original.BindingV2) {
 		t.Fatal("the reloaded binding is not the one that was written")
 	}
 	if reloaded.QueryID != "query-binding-1" || reloaded.CreatedAt.IsZero() {
@@ -175,7 +176,7 @@ func TestQueryExecutionBindingIsImmutable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetQueryExecutionBinding: %v", err)
 	}
-	if !reloaded.Binding.Equal(*original.Binding) {
+	if !reloaded.BindingV2.Equal(*original.BindingV2) {
 		t.Fatal("a repeated write changed the recorded binding")
 	}
 }
@@ -307,7 +308,7 @@ func TestSameExecutionBindingRetriedSucceeds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reload: %v", err)
 	}
-	if stored.Binding.SHA256 != binding.Binding.SHA256 {
+	if stored.BindingV2.SHA256 != binding.BindingV2.SHA256 {
 		t.Fatal("a retry replaced the recorded binding")
 	}
 }
@@ -315,9 +316,9 @@ func TestSameExecutionBindingRetriedSucceeds(t *testing.T) {
 func TestDifferentExecutionBindingForOneQueryConflicts(t *testing.T) {
 	for name, mutate := range map[string]func(*testing.T, *QueryExecutionBinding){
 		"different exact SQL digest": func(t *testing.T, binding *QueryExecutionBinding) {
-			document := *binding.Binding
+			document := *binding.BindingV2
 			document.Visible.ExactSQLSHA256 = bindingDigest("f1")
-			binding.Binding = resealBinding(t, document)
+			binding.BindingV2 = resealBindingV2(t, document)
 		},
 		"different pre-state": func(t *testing.T, binding *QueryExecutionBinding) {
 			ledger := binding.ExposureLedgerBefore
@@ -327,27 +328,27 @@ func TestDifferentExecutionBindingForOneQueryConflicts(t *testing.T) {
 				t.Fatal(err)
 			}
 			binding.ExposureLedgerBefore = sealed
-			document := *binding.Binding
+			document := *binding.BindingV2
 			document.ExposureLedgerBeforeSHA256 = sealed.SHA256
-			binding.Binding = resealBinding(t, document)
+			binding.BindingV2 = resealBindingV2(t, document)
 		},
 		"different path kind": func(t *testing.T, binding *QueryExecutionBinding) {
-			document := *binding.Binding
+			document := *binding.BindingV2
 			document.PathKind = querybinding.PathSemanticReplay
 			document.Visible.Executed = false
 			document.Companion.Executed = false
-			binding.Binding = resealBinding(t, document)
+			binding.BindingV2 = resealBindingV2(t, document)
 		},
 		// The outer digest is a column, not a signature. A document whose members
 		// were changed and whose recorded digest was copied from the original must
 		// not pass as "the same binding".
 		"different document carrying the original outer digest": func(t *testing.T, binding *QueryExecutionBinding) {
-			original := binding.Binding.SHA256
-			document := *binding.Binding
+			original := binding.BindingV2.SHA256
+			document := *binding.BindingV2
 			document.Visible.RowLimit = 9
 			document.VisibleRowLimit = 9
-			binding.Binding = resealBinding(t, document)
-			binding.Binding.SHA256 = original
+			binding.BindingV2 = resealBindingV2(t, document)
+			binding.BindingV2.SHA256 = original
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -367,7 +368,7 @@ func TestDifferentExecutionBindingForOneQueryConflicts(t *testing.T) {
 			if reloadErr != nil {
 				t.Fatalf("reload after the refused write: %v", reloadErr)
 			}
-			if stored.Binding.SHA256 != first.Binding.SHA256 {
+			if stored.BindingV2.SHA256 != first.BindingV2.SHA256 {
 				t.Fatal("the refused write changed the recorded binding")
 			}
 		})
@@ -381,9 +382,9 @@ func TestConcurrentExecutionBindingWritesAgreeOrConflict(t *testing.T) {
 	seedQueryRecord(t, store, "task-binding-race", "query-binding-race")
 	identical := testPairedNovelBinding(t, "query-binding-race")
 	different := testPairedNovelBinding(t, "query-binding-race")
-	document := *different.Binding
+	document := *different.BindingV2
 	document.Visible.ExactSQLSHA256 = bindingDigest("e1")
-	different.Binding = resealBinding(t, document)
+	different.BindingV2 = resealBindingV2(t, document)
 
 	results := make(chan error, 8)
 	start := make(chan struct{})
@@ -416,7 +417,7 @@ func TestConcurrentExecutionBindingWritesAgreeOrConflict(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reload after the race: %v", err)
 	}
-	if stored.Binding.SHA256 != identical.Binding.SHA256 && stored.Binding.SHA256 != different.Binding.SHA256 {
+	if stored.BindingV2.SHA256 != identical.BindingV2.SHA256 && stored.BindingV2.SHA256 != different.BindingV2.SHA256 {
 		t.Fatal("the race recorded a binding neither writer supplied")
 	}
 }
@@ -441,8 +442,8 @@ func TestNonCanonicalStoredDocumentIsRefusedOnReload(t *testing.T) {
 	// Re-encode the same values with encoding/json's default output and confirm
 	// it is NOT what was stored: if it were, the canonical check would be vacuous.
 	loose, err := json.Marshal(map[string]any{
-		"version": stored.Binding.Version, "path_kind": stored.Binding.PathKind,
-		"query_execution_binding_sha256": stored.Binding.SHA256,
+		"version": stored.BindingV2.Version, "path_kind": stored.BindingV2.PathKind,
+		"query_execution_binding_sha256": stored.BindingV2.SHA256,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -461,13 +462,4 @@ func TestNonCanonicalStoredDocumentIsRefusedOnReload(t *testing.T) {
 		loose, "query-binding-encoding"); err == nil {
 		t.Fatal("an immutable execution binding row accepted an UPDATE")
 	}
-}
-
-func resealBinding(t *testing.T, document querybinding.QueryExecutionBindingV1) *querybinding.QueryExecutionBindingV1 {
-	t.Helper()
-	sealed, err := document.Seal()
-	if err != nil {
-		t.Fatalf("reseal execution binding: %v", err)
-	}
-	return &sealed
 }

@@ -1,7 +1,6 @@
 package querybinding
 
 import (
-	"bytes"
 	"encoding/json"
 	"reflect"
 	"sort"
@@ -152,7 +151,7 @@ func TestExecutionBindingV2SealsAndValidates(t *testing.T) {
 // The whole point of V2. Every member of the prepared binding must be covered:
 // mutating one either moves the V2 digest or fails validation, while the V1
 // binding that names the preparation only by digest is left completely unmoved.
-func TestV2CoversEveryPreparedBindingMemberThatV1CannotSee(t *testing.T) {
+func TestV2CoversEveryPreparedBindingMember(t *testing.T) {
 	mutations := map[string]func(*preparedbinding.PreparedOperationBindingV1){
 		"HasCompanion": func(b *preparedbinding.PreparedOperationBindingV1) {
 			b.HasCompanion = false
@@ -200,25 +199,7 @@ func TestV2CoversEveryPreparedBindingMemberThatV1CannotSee(t *testing.T) {
 	requireEveryPreparedMemberMutated(t, mutations)
 
 	baselineV2 := pairedNovelV2(t)
-	baselineV1 := pairedNovel(t)
-	// The V1 baseline names the same preparation the V2 baseline carries. That is
-	// the comparison being made: one signs the digest, the other signs the
-	// document.
-	if baselineV1.PreparedOperationBindingSHA256 == baselineV2.PreparedOperation.SHA256 {
-		t.Fatal("the fixtures accidentally share a prepared digest; rewrite the test")
-	}
 	prepared := testPrepared(t)
-	namedV1, err := rebindV1To(baselineV1, prepared.SHA256)
-	if err != nil {
-		t.Fatalf("rebind the V1 baseline onto the preparation: %v", err)
-	}
-	// The V1 receipt material, as a holder would receive it. A V1 binding carries
-	// no preparation document, so these bytes are the whole of what a verifier has
-	// to work with when someone hands it a preparation alongside.
-	namedV1Bytes, err := json.Marshal(namedV1)
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	for name, mutate := range mutations {
 		t.Run(name, func(t *testing.T) {
@@ -233,35 +214,20 @@ func TestV2CoversEveryPreparedBindingMemberThatV1CannotSee(t *testing.T) {
 					"PreparedOperationBindingV1.Seal does not cover it", name)
 			}
 
-			// V1 is blind by construction. It names the ORIGINAL preparation by
-			// digest and carries no document, so a holder handed the MUTATED
-			// preparation receives byte-identical V1 material and a binding that
-			// still validates. There is no member of V1 the substitution moves.
-			//
-			// Asserting the bytes rather than a recomputed digest is the point: the
-			// question is what a verifier is given, not what it could recompute if
-			// it already had the right preparation.
-			if err := namedV1.Validate(); err != nil {
-				t.Fatalf("the V1 binding stopped validating for a reason it cannot see: %v", err)
-			}
-			currentV1Bytes, marshalErr := json.Marshal(namedV1)
-			if marshalErr != nil {
-				t.Fatal(marshalErr)
-			}
-			if !bytes.Equal(currentV1Bytes, namedV1Bytes) {
-				t.Fatal("the V1 fixture is not deterministic; the comparison below means nothing")
-			}
-
-			// V2 either refuses the mutated preparation or seals to a different
-			// digest. Both are acceptable; agreeing with the baseline is not.
+			// The binding either refuses the mutated preparation or seals to a
+			// different digest. Both are acceptable; agreeing with the baseline is
+			// not, because that is the substitution the carried document exists to
+			// refuse -- a holder handed a different preparation must not be able to
+			// present it as the one that was signed.
 			candidate := baselineV2.withCopiedCompanion()
 			candidate.PreparedOperation = resealed
-			sealedV2, v2Err := candidate.Seal()
-			if v2Err != nil {
+			sealed, err := candidate.Seal()
+			if err != nil {
 				return
 			}
-			if sealedV2.SHA256 == baselineV2.SHA256 {
-				t.Fatalf("mutating %s left the V2 digest unchanged and the binding valid; V2 does not cover it", name)
+			if sealed.SHA256 == baselineV2.SHA256 {
+				t.Fatalf("mutating %s left the binding digest unchanged and the binding valid; "+
+					"the signature does not cover it", name)
 			}
 		})
 	}
@@ -298,16 +264,6 @@ func requireEveryPreparedMemberMutated(t *testing.T,
 			t.Fatalf("the mutation sweep names %q, which PreparedOperationBindingV1 does not have", name)
 		}
 	}
-}
-
-func rebindV1To(base QueryExecutionBindingV1, preparedSHA256 string) (QueryExecutionBindingV1, error) {
-	rebound := base
-	if rebound.Companion != nil {
-		companion := *rebound.Companion
-		rebound.Companion = &companion
-	}
-	rebound.PreparedOperationBindingSHA256 = preparedSHA256
-	return rebound.Seal()
 }
 
 // A preparation whose member was edited without resealing must be refused

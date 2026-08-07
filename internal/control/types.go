@@ -146,7 +146,7 @@ type ExposureLedgerSnapshot struct {
 	// RootEpoch is the root head's epoch when this snapshot was read. It is the
 	// epoch the operation is AUTHORIZED against, which a novel observation then
 	// advances by one as it settles; the charge reports the later value. Both are
-	// signed into a V9 receipt, and the pre-state's may not postdate the charge's.
+	// signed into the receipt, and the pre-state's may not postdate the charge's.
 	//
 	// It is zero for the V1--V3 ledgers, which have no root head and no epoch.
 	RootEpoch int64          `json:"root_epoch,omitempty"`
@@ -390,7 +390,7 @@ type BudgetReservation struct {
 	Exposure *ExposureReservation
 	// ExposureLedgerBefore is the exposure ledger as it stood under the SAME
 	// task lock that produced Before. The two together are the authoritative
-	// pre-state a V9 execution binding is derived from and signed against; read
+	// pre-state the execution binding is derived from and signed against; read
 	// apart, they describe one operation only by coincidence.
 	//
 	// Nil for a resource-only task, which has no exposure ledger.
@@ -557,7 +557,7 @@ type QueryReceipt struct {
 	// about the row that was persisted, or a restart would re-sign something
 	// else.
 	//
-	// Nil for every query that has no binding, which includes every pre-V9 path.
+	// Nil for every query that recorded no execution binding.
 	ExecutionBinding *QueryExecutionBinding
 }
 

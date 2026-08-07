@@ -203,12 +203,13 @@ func (s *Service) prepareExecutionBinding(exposureContext *planExposureContext,
 // executionBindingApplies reports whether this operation can produce a Query
 // Execution Binding at all.
 //
-// The gate is what the receipt contract permits, not a policy choice. Under V9
-// it also required result artifacts to be enabled, because V9 is V8 plus the
-// execution evidence and V8 requires a completed artifact intent -- so an inline
-// delivery could carry no execution binding at all. V10 states the delivery mode
-// instead of requiring an artifact, which is what removes that condition: an
-// inline V5 execution now describes itself as one rather than going undescribed.
+// The gate is what the receipt contract permits, not a policy choice. It used to
+// require result artifacts to be enabled as well, because the receipt that
+// carried the execution evidence also required a completed artifact intent -- so
+// an inline delivery could carry no execution binding at all. V10 states the
+// delivery mode instead of requiring an artifact, which is what removes that
+// condition: an inline V5 execution now describes itself as one rather than
+// going undescribed.
 //
 // Exposure profiles V1--V4 keep their existing receipt versions untouched.
 func (s *Service) executionBindingApplies(exposureContext *planExposureContext,

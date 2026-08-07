@@ -7,10 +7,12 @@ import (
 
 	"taskbound.local/agent-data-gateway/internal/auditchain"
 	"taskbound.local/agent-data-gateway/internal/preparedbinding"
-	"taskbound.local/agent-data-gateway/internal/querybinding"
 )
 
-func v10Compiler(t *testing.T) preparedbinding.CompilerIdentityV1 {
+// executionCompiler is the typed compiler identity every fixture preparation is
+// sealed against, and every fixture target record names. The binding requires
+// the three to agree.
+func executionCompiler(t *testing.T) preparedbinding.CompilerIdentityV1 {
 	t.Helper()
 	sealed, err := preparedbinding.CompilerIdentityV1{
 		QueryPlanVersion: "queryplan-v7", QueryPlanSHA256: fixedDigest("c2"),
@@ -22,9 +24,9 @@ func v10Compiler(t *testing.T) preparedbinding.CompilerIdentityV1 {
 	return sealed
 }
 
-// v10Prepared is a paired preparation under expanded evidence, matching the
-// prepared target digests the V9 fixture's target records already carry.
-func v10Prepared(t *testing.T, hasCompanion bool) preparedbinding.PreparedOperationBindingV1 {
+// preparedOperationFixture is a preparation under expanded evidence, sealed
+// against the prepared-target digests the fixture's target records carry.
+func preparedOperationFixture(t *testing.T, hasCompanion bool) preparedbinding.PreparedOperationBindingV1 {
 	t.Helper()
 	binding := preparedbinding.PreparedOperationBindingV1{
 		HasCompanion: hasCompanion, Grouped: true, ExpandedEvidence: hasCompanion,
@@ -37,7 +39,7 @@ func v10Prepared(t *testing.T, hasCompanion bool) preparedbinding.PreparedOperat
 		CatalogSHA256:            fixedDigest("16"),
 		SnapshotBindingSetSHA256: fixedDigest("17"),
 		PlanSHA256:               fixedDigest("18"),
-		CompilerIdentitySHA256:   v10Compiler(t).SHA256,
+		CompilerIdentitySHA256:   executionCompiler(t).SHA256,
 		PolicyGrantSHA256:        fixedDigest("19"),
 		NormalFormSHA256:         fixedDigest("1a"),
 		OrdinalProgramSHA256:     fixedDigest("1b"),
@@ -57,66 +59,22 @@ func v10Prepared(t *testing.T, hasCompanion bool) preparedbinding.PreparedOperat
 	return sealed
 }
 
-// validV10ArtifactReceipt is the artifact-delivery shape: the same paired-novel
-// execution the V9 fixture describes, with the preparation carried whole and the
-// result written to a registered object.
+// validV10ArtifactReceipt is the artifact-delivery shape: the result was written
+// to a registered object.
 func validV10ArtifactReceipt(t *testing.T) QueryReceiptV1 {
 	t.Helper()
-	receipt := validV9Receipt(t)
-	receipt.Version = VersionV10
-	receipt.ResultDeliveryMode = DeliveryArtifact
-
-	binding := v10BindingFrom(t, *receipt.ExecutionBinding, v10Prepared(t, true))
-	receipt.ExecutionBinding = nil
-	receipt.ExecutionBindingV2 = &binding
-	return receipt
+	return validExecutionReceipt(t)
 }
 
-// validV10InlineReceipt is the shape V9 could not represent: a governed
-// operation that returns its rows in the response and registers no result
-// object. This is what a Scale or ProvSQL TaskGate produces.
+// validV10InlineReceipt is the shape an artifact-bearing receipt could not
+// represent: a governed operation that returns its rows in the response and
+// registers no result object. This is what a Scale or ProvSQL TaskGate produces.
 func validV10InlineReceipt(t *testing.T) QueryReceiptV1 {
 	t.Helper()
-	receipt := validV10ArtifactReceipt(t)
+	receipt := validExecutionReceipt(t)
 	receipt.ResultDeliveryMode = DeliveryInline
 	receipt.ArtifactIntent = nil
 	return receipt
-}
-
-// v10BindingFrom rebuilds a V1 binding's runtime half as a V2, so the two
-// fixtures describe one execution and a difference between them is the version
-// rather than the operation.
-func v10BindingFrom(t *testing.T, v1 querybinding.QueryExecutionBindingV1,
-	prepared preparedbinding.PreparedOperationBindingV1) querybinding.QueryExecutionBindingV2 {
-	t.Helper()
-	compiler := v10Compiler(t)
-	visible := v1.Visible
-	visible.PolicyRendererVersion = compiler.PolicyRendererVersion
-	visible.PolicyRendererDigest = compiler.PolicyRendererSHA256
-
-	candidate := querybinding.QueryExecutionBindingV2{
-		PathKind:                   v1.PathKind,
-		PreparedOperation:          prepared,
-		Compiler:                   compiler,
-		ExposureProfileVersion:     v1.ExposureProfileVersion,
-		VisibleRowLimit:            v1.VisibleRowLimit,
-		BudgetBeforeSHA256:         v1.BudgetBeforeSHA256,
-		ExposureLedgerBeforeSHA256: v1.ExposureLedgerBeforeSHA256,
-		Visible:                    visible,
-	}
-	if v1.Companion != nil && prepared.HasCompanion {
-		companion := *v1.Companion
-		companion.PolicyRendererVersion = compiler.PolicyRendererVersion
-		companion.PolicyRendererDigest = compiler.PolicyRendererSHA256
-		candidate.Companion = &companion
-		candidate.CompanionEvidenceRows = v1.CompanionEvidenceRows
-		candidate.CompanionPolicyRows = v1.CompanionPolicyRows
-	}
-	sealed, err := candidate.Seal()
-	if err != nil {
-		t.Fatalf("seal execution binding v2: %v", err)
-	}
-	return sealed
 }
 
 func TestV10SignsAndVerifiesInBothDeliveryModes(t *testing.T) {
@@ -172,11 +130,21 @@ func TestV10DeliveryModeDecidesTheArtifactIntent(t *testing.T) {
 			}
 		}
 	})
-	t.Run("earlier versions must not carry a mode", func(t *testing.T) {
-		receipt := validV9Receipt(t)
-		receipt.ResultDeliveryMode = DeliveryArtifact
+	t.Run("a query that did not complete delivered nothing", func(t *testing.T) {
+		for _, status := range []string{StatusReleased, StatusFailed, StatusIndeterminate} {
+			receipt := validV10ArtifactReceipt(t)
+			receipt.Status = status
+			if err := receipt.ValidateUnsigned(); err == nil {
+				t.Fatalf("a %s query claiming an artifact delivery was accepted", status)
+			}
+		}
+	})
+	t.Run("a completed query delivered something", func(t *testing.T) {
+		receipt := validV10ArtifactReceipt(t)
+		receipt.ResultDeliveryMode = DeliveryNone
+		receipt.ArtifactIntent = nil
 		if err := receipt.ValidateUnsigned(); err == nil {
-			t.Fatal("a V9 receipt carrying a result_delivery_mode was accepted")
+			t.Fatal("a completed query claiming it delivered no result was accepted")
 		}
 	})
 }
@@ -200,71 +168,47 @@ func TestV10DeliveryModeIsCoveredByTheSignature(t *testing.T) {
 	}
 }
 
-// V9 and V10 must not be able to borrow each other's execution evidence, in
-// either direction. This is the separation that stops a V10 binding from being
-// presented under a V9 signature that never covered it.
-func TestV9AndV10ExecutionBindingsAreStrictlySeparated(t *testing.T) {
-	v9 := validV9Receipt(t)
-	v10 := validV10ArtifactReceipt(t)
+// A receipt naming any version but the current one is refused outright, before
+// anything is read out of it.
+//
+// This is the whole of what version checking does now. There is one version and
+// no reader for another, so a document naming a different one is not an older
+// receipt to be handled leniently -- it has no contract in this build.
+func TestOnlyTheCurrentVersionValidates(t *testing.T) {
+	for _, version := range []string{"", "1", "8", "9", "11", "10 ", "V10"} {
+		receipt := validV10ArtifactReceipt(t)
+		receipt.Version = version
+		if err := receipt.ValidateUnsigned(); err == nil {
+			t.Fatalf("a receipt naming version %q was accepted", version)
+		}
+		if IsCurrentVersion(version) {
+			t.Fatalf("version %q was reported as current", version)
+		}
+	}
+	if !IsCurrentVersion(Version) {
+		t.Fatal("the current version was not reported as current")
+	}
+}
 
-	t.Run("V10 with a V1 binding", func(t *testing.T) {
+// The execution binding and its pre-state are two halves of one statement.
+// Neither validates without the other, whichever way round it is missing.
+func TestTheExecutionBindingAndItsPreStateAreCarriedTogether(t *testing.T) {
+	t.Run("binding without the pre-state", func(t *testing.T) {
+		receipt := validV10ArtifactReceipt(t)
+		receipt.ExposureLedgerBefore = nil
+		if err := receipt.ValidateUnsigned(); err == nil {
+			t.Fatal("a receipt carrying a binding but no pre-state was accepted")
+		}
+	})
+	t.Run("pre-state without the binding", func(t *testing.T) {
 		receipt := validV10ArtifactReceipt(t)
 		receipt.ExecutionBindingV2 = nil
-		receipt.ExecutionBinding = v9.ExecutionBinding
 		if err := receipt.ValidateUnsigned(); err == nil {
-			t.Fatal("a V10 receipt carrying a QueryExecutionBindingV1 was accepted")
-		}
-	})
-	t.Run("V10 carrying both", func(t *testing.T) {
-		receipt := validV10ArtifactReceipt(t)
-		receipt.ExecutionBinding = v9.ExecutionBinding
-		if err := receipt.ValidateUnsigned(); err == nil {
-			t.Fatal("a V10 receipt carrying both binding versions was accepted")
-		}
-	})
-	t.Run("V9 with a V2 binding", func(t *testing.T) {
-		receipt := validV9Receipt(t)
-		receipt.ExecutionBinding = nil
-		receipt.ExecutionBindingV2 = v10.ExecutionBindingV2
-		if err := receipt.ValidateUnsigned(); err == nil {
-			t.Fatal("a V9 receipt carrying a QueryExecutionBindingV2 was accepted")
-		}
-	})
-	t.Run("V9 carrying both", func(t *testing.T) {
-		receipt := validV9Receipt(t)
-		receipt.ExecutionBindingV2 = v10.ExecutionBindingV2
-		if err := receipt.ValidateUnsigned(); err == nil {
-			t.Fatal("a V9 receipt carrying both binding versions was accepted")
-		}
-	})
-	t.Run("V8 with a V2 binding", func(t *testing.T) {
-		receipt := validV8Receipt(t)
-		receipt.GatewayKeyID = "gateway-demo-ed25519-v1"
-		receipt.ExecutionBindingV2 = v10.ExecutionBindingV2
-		receipt.ExposureLedgerBefore = v10.ExposureLedgerBefore
-		if err := receipt.ValidateUnsigned(); err == nil {
-			t.Fatal("a V8 receipt carrying a QueryExecutionBindingV2 was accepted")
-		}
-	})
-	t.Run("V10 relabelled as V9", func(t *testing.T) {
-		receipt := validV10ArtifactReceipt(t)
-		receipt.Version = VersionV9
-		if err := receipt.ValidateUnsigned(); err == nil {
-			t.Fatal("a V10 receipt relabelled as V9 was accepted")
-		}
-	})
-	t.Run("V9 relabelled as V10", func(t *testing.T) {
-		receipt := validV9Receipt(t)
-		receipt.Version = VersionV10
-		if err := receipt.ValidateUnsigned(); err == nil {
-			t.Fatal("a V9 receipt relabelled as V10 was accepted")
+			t.Fatal("a receipt carrying a pre-state but no binding was accepted")
 		}
 	})
 }
 
-// V10's binding must still be checkable against the pre-states the receipt
-// signs. These are V9's cross-checks, and they must not have been lost in the
-// move to a shared implementation.
 func TestV10BindingMustAgreeWithTheSignedPreStates(t *testing.T) {
 	for name, mutate := range map[string]func(*testing.T, *QueryReceiptV1){
 		"binding names another exposure pre-state": func(t *testing.T, r *QueryReceiptV1) {

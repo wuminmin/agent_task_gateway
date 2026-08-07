@@ -239,11 +239,9 @@ func TestPersistenceAndQueryBindingTakeTheCanonicalTypeDirectly(t *testing.T) {
 	if got := reflect.TypeOf(prepared).PkgPath(); got != modulePath+"/internal/preparedbinding" {
 		t.Errorf("persistence exposes a preparation defined in %s", got)
 	}
-	// A V1 row must say it cannot answer, rather than answering with a zero
-	// binding that would read as a mismatch against everything.
-	if _, answered := (control.QueryExecutionBinding{
-		Binding: &querybinding.QueryExecutionBindingV1{},
-	}).PreparedOperation(); answered {
-		t.Error("a stored V1 row claims to carry a preparation document")
+	// A row with no document must say it cannot answer, rather than answering
+	// with a zero binding that would read as a mismatch against everything.
+	if _, answered := (control.QueryExecutionBinding{}).PreparedOperation(); answered {
+		t.Error("a stored row with no document claims to carry a preparation")
 	}
 }

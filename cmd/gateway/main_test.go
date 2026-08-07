@@ -390,20 +390,23 @@ func testQueryReceipt(signedAt time.Time) queryreceipt.QueryReceiptV1 {
 	completedAt := signedAt.Add(-time.Second)
 	createdAt := completedAt.Add(-time.Minute)
 	return queryreceipt.QueryReceiptV1{
-		Version:        queryreceipt.VersionV3,
-		ReceiptID:      "query-publish-test",
-		TaskID:         "task-publish-test",
-		QueryID:        "query-publish-test",
-		RequestID:      "request-publish-test",
-		ManifestDigest: strings.Repeat("1", 64),
-		GrantDigest:    strings.Repeat("2", 64),
-		CatalogDigest:  strings.Repeat("3", 64),
-		CatalogVersion: "catalog-v1",
-		DatasourceID:   "taskgate-test",
-		SchemaDigest:   strings.Repeat("4", 64),
-		RequestDigest:  strings.Repeat("5", 64),
-		SQLFingerprint: "select-total",
-		PolicyDecision: "ALLOW",
+		Version: queryreceipt.Version,
+		// A completed operation that returned its rows in the response and
+		// registered no result object.
+		ResultDeliveryMode: queryreceipt.DeliveryInline,
+		ReceiptID:          "query-publish-test",
+		TaskID:             "task-publish-test",
+		QueryID:            "query-publish-test",
+		RequestID:          "request-publish-test",
+		ManifestDigest:     strings.Repeat("1", 64),
+		GrantDigest:        strings.Repeat("2", 64),
+		CatalogDigest:      strings.Repeat("3", 64),
+		CatalogVersion:     "catalog-v1",
+		DatasourceID:       "taskgate-test",
+		SchemaDigest:       strings.Repeat("4", 64),
+		RequestDigest:      strings.Repeat("5", 64),
+		SQLFingerprint:     "select-total",
+		PolicyDecision:     "ALLOW",
 		BudgetBefore: queryreceipt.BudgetStateV1{
 			Limits: queryreceipt.BudgetVectorV1{Queries: 3, Rows: 100, DBMS: 1000},
 			Used:   queryreceipt.BudgetVectorV1{Queries: 0, Rows: 0, DBMS: 0},

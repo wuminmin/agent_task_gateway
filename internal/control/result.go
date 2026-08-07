@@ -359,7 +359,7 @@ func (s *Store) finalizePreparedQueryAttempt(ctx context.Context, settlement Bud
 		return QueryRecord{}, PersistedQueryReceipt{}, metrics, opErr(op, ErrConflict,
 			fmt.Errorf("artifact registration audit does not immediately follow terminal audit"))
 	}
-	// Result registration and its V8 inclusion coordinates must immediately
+	// Result registration and its inclusion coordinates must immediately
 	// follow the terminal query audit. If this settlement reaches a hard
 	// resource limit, archive the task only after that pair; all three writes
 	// still commit atomically in this transaction.
@@ -393,7 +393,7 @@ func (s *Store) finalizePreparedQueryAttempt(ctx context.Context, settlement Bud
 
 func resultArtifactRegistrationPayload(artifact ResultArtifact) map[string]any {
 	// Registration audit coordinates cannot be embedded in the event that
-	// creates them. Receipt V8 adds those coordinates and seals the resulting
+	// creates them. The receipt adds those coordinates and seals the resulting
 	// complete intent after appendAuditTx returns.
 	payload := map[string]any{
 		"version": "taskgate-artifact-intent-v1", "result_id": artifact.ResultID,

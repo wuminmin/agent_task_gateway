@@ -1,4 +1,4 @@
-package queryreceiptv9
+package queryreceiptv10
 
 import (
 	"bytes"
@@ -44,8 +44,8 @@ func TestFixturesValidateAndVerify(t *testing.T) {
 			if err != nil {
 				t.Fatalf("build: %v", err)
 			}
-			if receipt.Version != queryreceipt.VersionV9 {
-				t.Fatalf("fixture is V%s, want V9", receipt.Version)
+			if receipt.Version != queryreceipt.Version {
+				t.Fatalf("fixture is V%s, want V10", receipt.Version)
 			}
 			if err := receipt.Validate(); err != nil {
 				t.Fatalf("receipt does not validate: %v", err)
@@ -53,10 +53,10 @@ func TestFixturesValidateAndVerify(t *testing.T) {
 			if err := verifier.Verify(receipt); err != nil {
 				t.Fatalf("receipt does not verify: %v", err)
 			}
-			if receipt.ExecutionBinding == nil || receipt.ExposureLedgerBefore == nil {
+			if receipt.ExecutionBindingV2 == nil || receipt.ExposureLedgerBefore == nil {
 				t.Fatal("fixture carries no execution binding or pre-state")
 			}
-			if err := receipt.ExecutionBinding.Validate(); err != nil {
+			if err := receipt.ExecutionBindingV2.Validate(); err != nil {
 				t.Fatalf("execution binding does not validate: %v", err)
 			}
 		})
@@ -70,7 +70,7 @@ func TestSemanticReplayAuthorizesWithoutExecuting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build: %v", err)
 	}
-	binding := receipt.ExecutionBinding
+	binding := receipt.ExecutionBindingV2
 	if binding.PathKind != querybinding.PathSemanticReplay {
 		t.Fatalf("path kind is %q", binding.PathKind)
 	}
@@ -121,13 +121,13 @@ func TestMutationResealsAndResigns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build: %v", err)
 	}
-	mutated, err := Mutate(receipt, func(b *querybinding.QueryExecutionBindingV1) {
+	mutated, err := Mutate(receipt, func(b *querybinding.QueryExecutionBindingV2) {
 		b.Visible.ExactSQLSHA256 = digest("another-visible-exact")
 	})
 	if err != nil {
 		t.Fatalf("mutate: %v", err)
 	}
-	if err := mutated.ExecutionBinding.Validate(); err != nil {
+	if err := mutated.ExecutionBindingV2.Validate(); err != nil {
 		t.Fatalf("a mutated binding must still be internally valid: %v", err)
 	}
 	verifier, err := Verifier()
@@ -137,12 +137,12 @@ func TestMutationResealsAndResigns(t *testing.T) {
 	if err := verifier.Verify(mutated); err != nil {
 		t.Fatalf("a mutated receipt must still verify: %v", err)
 	}
-	if mutated.ExecutionBinding.SHA256 == receipt.ExecutionBinding.SHA256 {
+	if mutated.ExecutionBindingV2.SHA256 == receipt.ExecutionBindingV2.SHA256 {
 		t.Fatal("the mutation did not change the binding digest")
 	}
 	// The original must be untouched: a mutation helper that edited in place
 	// would silently corrupt every later case in a table-driven test.
-	if receipt.ExecutionBinding.Visible.ExactSQLSHA256 != digest("visible-exact") {
+	if receipt.ExecutionBindingV2.Visible.ExactSQLSHA256 != digest("visible-exact") {
 		t.Fatal("Mutate edited the original receipt")
 	}
 }
@@ -187,7 +187,7 @@ func TestFixtureCarriesNoSQL(t *testing.T) {
 
 	// And the source itself, so a future edit cannot introduce a statement in a
 	// field this receipt shape does not currently have.
-	source, err := os.ReadFile("queryreceiptv9.go")
+	source, err := os.ReadFile("queryreceiptv10.go")
 	if err != nil {
 		t.Fatalf("read fixture source: %v", err)
 	}
@@ -209,7 +209,7 @@ func TestFixtureCarriesNoSQL(t *testing.T) {
 // deterministic signing key and a receipt builder into the shipped binary.
 func TestFixtureIsNotImportedByProduction(t *testing.T) {
 	root := moduleRoot(t)
-	const importPath = "taskbound.local/agent-data-gateway/internal/testfixture/queryreceiptv9"
+	const importPath = "taskbound.local/agent-data-gateway/internal/testfixture/queryreceiptv10"
 
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -231,7 +231,7 @@ func TestFixtureIsNotImportedByProduction(t *testing.T) {
 		for _, imported := range parsed.Imports {
 			if strings.Trim(imported.Path.Value, `"`) == importPath {
 				relative, _ := filepath.Rel(root, path)
-				t.Errorf("non-test production file %s imports the V9 test fixture; "+
+				t.Errorf("non-test production file %s imports the receipt test fixture; "+
 					"it would ship a deterministic signing key", filepath.ToSlash(relative))
 			}
 		}

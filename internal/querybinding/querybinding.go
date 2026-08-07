@@ -3,16 +3,16 @@
 //
 // # Why this exists
 //
-// Query Receipt V8 binds the authorization, the budget and the exposure
-// accounting, but nothing in it says which physical statements ran. The
-// evaluation filled that gap by re-deriving the statements after the fact and
-// treating the result as though the Gateway had signed it. That is not evidence
-// about the execution; it is a second opinion about it, and the two can differ
-// in exactly the case the evidence exists to detect -- a constant-only mutation
-// that pg_stat_statements has normalized away.
+// A receipt that binds the authorization, the budget and the exposure
+// accounting still says nothing about which physical statements ran. The
+// evaluation used to fill that gap by re-deriving the statements after the fact
+// and treating the result as though the Gateway had signed it. That is not
+// evidence about the execution; it is a second opinion about it, and the two can
+// differ in exactly the case the evidence exists to detect -- a constant-only
+// mutation that pg_stat_statements has normalized away.
 //
-// QueryExecutionBindingV1 is constructed by the Gateway from the decisions it
-// actually passes to the Connector, and is covered by the V9 receipt signature.
+// QueryExecutionBindingV2 is constructed by the Gateway from the decisions it
+// actually passes to the Connector, and is covered by the receipt signature.
 //
 // # Why there is no SQL here
 //
@@ -39,17 +39,13 @@ import (
 	"strings"
 )
 
-// Versions of the two structures. They are separate because the ledger pre-state
-// is meaningful on its own: it is what the finalizer needs to reproduce the row
-// limits, and it is signed even when no statement executed.
-const (
-	ExposureLedgerBeforeV1Version  = "taskgate-exposure-ledger-before-v1"
-	QueryExecutionBindingV1Version = "taskgate-query-execution-binding-v1"
-)
+// The ledger pre-state is versioned separately from the execution binding
+// because it is meaningful on its own: it is what the finalizer needs to
+// reproduce the row limits, and it is signed even when no statement executed.
+const ExposureLedgerBeforeV1Version = "taskgate-exposure-ledger-before-v1"
 
 const (
 	exposureLedgerDomain = "TASKGATE-EXPOSURE-LEDGER-BEFORE-V1"
-	executionDomain      = "TASKGATE-QUERY-EXECUTION-BINDING-V1"
 	targetDomain         = "TASKGATE-QUERY-EXECUTION-TARGET-V1"
 )
 
@@ -333,253 +329,6 @@ func (target TargetRecordV1) digest() (string, error) {
 	writeString(hash, "policy_renderer_digest", target.PolicyRendererDigest)
 	writeString(hash, "prepared_target_binding_sha256", target.PreparedTargetBindingSHA256)
 	return hex.EncodeToString(hash.Sum(nil)), nil
-}
-
-// QueryExecutionBindingV1 is what one operation executed.
-type QueryExecutionBindingV1 struct {
-	Version  string   `json:"version"`
-	PathKind PathKind `json:"path_kind"`
-	// PreparedOperationBindingSHA256 ties the whole binding to the operation the
-	// compiler prepared.
-	PreparedOperationBindingSHA256 string `json:"prepared_operation_binding_sha256"`
-	ExposureProfileVersion         string `json:"exposure_profile_version"`
-	UsesExpandedEvidence           bool   `json:"uses_expanded_evidence"`
-	// The three derived limits. They are signed rather than recomputed on
-	// reading, so a finalizer that recomputes them is checking the Gateway
-	// rather than agreeing with itself.
-	VisibleRowLimit       int64 `json:"visible_row_limit"`
-	CompanionEvidenceRows int64 `json:"companion_evidence_rows"`
-	CompanionPolicyRows   int64 `json:"companion_policy_rows"`
-	// The signed pre-state these limits were derived from.
-	BudgetBeforeSHA256         string `json:"budget_before_sha256"`
-	ExposureLedgerBeforeSHA256 string `json:"exposure_ledger_before_sha256"`
-	// The compilation identities. Together they say which plan, compiled by
-	// which compiler, against which dictionary and sidecar grants, produced the
-	// statements below.
-	PlanSHA256                 string `json:"plan_sha256"`
-	CompilerVersion            string `json:"compiler_version"`
-	CompilerSHA256             string `json:"compiler_sha256"`
-	OrdinalDictionarySetSHA256 string `json:"ordinal_dictionary_set_sha256,omitempty"`
-	SidecarGrantsSHA256        string `json:"sidecar_grants_sha256,omitempty"`
-
-	Visible   TargetRecordV1  `json:"visible"`
-	Companion *TargetRecordV1 `json:"companion,omitempty"`
-
-	SHA256 string `json:"query_execution_binding_sha256"`
-}
-
-// Seal fills SHA256 and validates the result.
-func (binding QueryExecutionBindingV1) Seal() (QueryExecutionBindingV1, error) {
-	binding.Version = QueryExecutionBindingV1Version
-	binding.SHA256 = ""
-	digest, err := binding.digest()
-	if err != nil {
-		return QueryExecutionBindingV1{}, err
-	}
-	binding.SHA256 = digest
-	if err := binding.Validate(); err != nil {
-		return QueryExecutionBindingV1{}, err
-	}
-	return binding, nil
-}
-
-// Validate rejects a binding that does not describe a coherent execution.
-//
-// The path semantics are enforced here rather than left to the caller, because
-// every consumer would otherwise have to re-derive them and one of them would
-// eventually get it wrong in the permissive direction.
-func (binding QueryExecutionBindingV1) Validate() error {
-	if binding.Version != QueryExecutionBindingV1Version {
-		return fmt.Errorf("query execution binding version %q is unsupported; want %s",
-			binding.Version, QueryExecutionBindingV1Version)
-	}
-	if !binding.PathKind.valid() {
-		return fmt.Errorf("path_kind %q is not one of %v", binding.PathKind, PathKinds())
-	}
-	// An idempotent replay executes nothing and creates no new binding; it
-	// returns the original signed receipt. A binding claiming that path is
-	// therefore a contradiction.
-	if binding.PathKind == PathIdempotentReplay {
-		return errors.New("idempotent_replay produces no new execution binding; " +
-			"the original signed receipt is returned unchanged")
-	}
-	for name, digest := range map[string]string{
-		"prepared_operation_binding_sha256": binding.PreparedOperationBindingSHA256,
-		"budget_before_sha256":              binding.BudgetBeforeSHA256,
-		"exposure_ledger_before_sha256":     binding.ExposureLedgerBeforeSHA256,
-		"plan_sha256":                       binding.PlanSHA256,
-		"compiler_sha256":                   binding.CompilerSHA256,
-	} {
-		if !validSHA256(digest) {
-			return fmt.Errorf("%s is not a lowercase SHA-256", name)
-		}
-	}
-	for name, value := range map[string]string{
-		"exposure_profile_version": binding.ExposureProfileVersion,
-		"compiler_version":         binding.CompilerVersion,
-	} {
-		if strings.TrimSpace(value) == "" {
-			return fmt.Errorf("the execution binding carries no %s", name)
-		}
-	}
-	for name, digest := range map[string]string{
-		"ordinal_dictionary_set_sha256": binding.OrdinalDictionarySetSHA256,
-		"sidecar_grants_sha256":         binding.SidecarGrantsSHA256,
-	} {
-		if digest != "" && !validSHA256(digest) {
-			return fmt.Errorf("%s is not a lowercase SHA-256", name)
-		}
-	}
-	if binding.Visible.Role != RoleVisible {
-		return fmt.Errorf("the visible target carries role %q", binding.Visible.Role)
-	}
-	if err := binding.Visible.validate(); err != nil {
-		return err
-	}
-	if binding.Companion != nil {
-		if binding.Companion.Role != RoleCompanion {
-			return fmt.Errorf("the companion target carries role %q", binding.Companion.Role)
-		}
-		if err := binding.Companion.validate(); err != nil {
-			return err
-		}
-	}
-	if err := binding.validatePathSemantics(); err != nil {
-		return err
-	}
-	if err := binding.validateLimits(); err != nil {
-		return err
-	}
-	expected, err := binding.digest()
-	if err != nil {
-		return err
-	}
-	if binding.SHA256 != expected {
-		return fmt.Errorf("query_execution_binding_sha256 is %s but the binding's members digest to %s",
-			short(binding.SHA256), short(expected))
-	}
-	return nil
-}
-
-func (binding QueryExecutionBindingV1) validatePathSemantics() error {
-	switch binding.PathKind {
-	case PathPairedNovel:
-		if binding.Companion == nil {
-			return errors.New("paired_novel executes a companion statement but none is bound")
-		}
-		if !binding.Visible.Executed || !binding.Companion.Executed {
-			return errors.New("paired_novel executes both targets; one is bound as not executed")
-		}
-	case PathSingleQuery:
-		if binding.Companion != nil {
-			return errors.New("single_query executes no companion statement but one is bound")
-		}
-		if !binding.Visible.Executed {
-			return errors.New("single_query executes its visible statement; it is bound as not executed")
-		}
-	case PathSemanticReplay:
-		// The targets may be authorized -- deriving the semantic key requires
-		// authorizing them -- but nothing runs, so the observer must see a zero
-		// target delta. A replay that executed is not a replay.
-		if binding.Visible.Executed {
-			return errors.New("semantic_replay executes no statement but the visible target is bound as executed")
-		}
-		if binding.Companion != nil && binding.Companion.Executed {
-			return errors.New("semantic_replay executes no statement but the companion target is bound as executed")
-		}
-	}
-	return nil
-}
-
-func (binding QueryExecutionBindingV1) validateLimits() error {
-	if binding.VisibleRowLimit != binding.Visible.RowLimit {
-		return fmt.Errorf("the binding's visible row limit is %d but its visible target rendered %d",
-			binding.VisibleRowLimit, binding.Visible.RowLimit)
-	}
-	if binding.Companion == nil {
-		if binding.CompanionEvidenceRows != 0 || binding.CompanionPolicyRows != 0 {
-			return errors.New("companion row limits are set on a binding with no companion target")
-		}
-		if binding.UsesExpandedEvidence {
-			return errors.New("expanded evidence settles against the companion, but no companion is bound")
-		}
-		return nil
-	}
-	if binding.CompanionPolicyRows != binding.Companion.RowLimit {
-		return fmt.Errorf("the binding's companion policy rows are %d but its companion target rendered %d",
-			binding.CompanionPolicyRows, binding.Companion.RowLimit)
-	}
-	if binding.CompanionEvidenceRows < 1 {
-		return fmt.Errorf("companion evidence rows are %d; the exposure budget left no evidence row",
-			binding.CompanionEvidenceRows)
-	}
-	// Under expanded evidence the policy limit is one more than the evidence
-	// rows, so a truncated result is distinguishable from a complete one.
-	// Otherwise the two are the same number.
-	wantPolicyRows := binding.CompanionEvidenceRows
-	if binding.UsesExpandedEvidence {
-		wantPolicyRows = binding.CompanionEvidenceRows + 1
-	}
-	if binding.CompanionPolicyRows != wantPolicyRows {
-		return fmt.Errorf("companion policy rows are %d but %d evidence rows under expanded=%t derive %d",
-			binding.CompanionPolicyRows, binding.CompanionEvidenceRows,
-			binding.UsesExpandedEvidence, wantPolicyRows)
-	}
-	return nil
-}
-
-func (binding QueryExecutionBindingV1) digest() (string, error) {
-	hash := sha256.New()
-	hash.Write([]byte(executionDomain))
-	hash.Write([]byte{0})
-	writeString(hash, "version", QueryExecutionBindingV1Version)
-	if err := writeChecked(hash, "path_kind", string(binding.PathKind)); err != nil {
-		return "", err
-	}
-	writeString(hash, "prepared_operation_binding_sha256", binding.PreparedOperationBindingSHA256)
-	if err := writeChecked(hash, "exposure_profile_version", binding.ExposureProfileVersion); err != nil {
-		return "", err
-	}
-	writeBool(hash, "uses_expanded_evidence", binding.UsesExpandedEvidence)
-	writeInt(hash, "visible_row_limit", binding.VisibleRowLimit)
-	writeInt(hash, "companion_evidence_rows", binding.CompanionEvidenceRows)
-	writeInt(hash, "companion_policy_rows", binding.CompanionPolicyRows)
-	writeString(hash, "budget_before_sha256", binding.BudgetBeforeSHA256)
-	writeString(hash, "exposure_ledger_before_sha256", binding.ExposureLedgerBeforeSHA256)
-	writeString(hash, "plan_sha256", binding.PlanSHA256)
-	if err := writeChecked(hash, "compiler_version", binding.CompilerVersion); err != nil {
-		return "", err
-	}
-	writeString(hash, "compiler_sha256", binding.CompilerSHA256)
-	writeString(hash, "ordinal_dictionary_set_sha256", binding.OrdinalDictionarySetSHA256)
-	writeString(hash, "sidecar_grants_sha256", binding.SidecarGrantsSHA256)
-
-	visible, err := binding.Visible.digest()
-	if err != nil {
-		return "", err
-	}
-	writeString(hash, "visible", visible)
-	// The absent companion is framed explicitly rather than skipped. Skipping it
-	// would let a binding with no companion collide with one whose companion
-	// digested to the empty string.
-	if binding.Companion == nil {
-		writeString(hash, "companion", "")
-	} else {
-		companion, err := binding.Companion.digest()
-		if err != nil {
-			return "", err
-		}
-		writeString(hash, "companion", companion)
-	}
-	return hex.EncodeToString(hash.Sum(nil)), nil
-}
-
-// Equal reports whether two bindings are the same execution.
-//
-// Compared through the canonical digest rather than field by field, so a member
-// added later cannot be silently excluded from the comparison.
-func (binding QueryExecutionBindingV1) Equal(other QueryExecutionBindingV1) bool {
-	return binding.SHA256 != "" && binding.SHA256 == other.SHA256
 }
 
 // --- canonical framing -------------------------------------------------------

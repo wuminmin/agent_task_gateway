@@ -25,12 +25,12 @@ func (environment *finalV5CycleEnvironment) verifyQuery(ctx context.Context,
 	var evidence experiment.RQ5QueryEvidence
 	var receipt queryreceipt.QueryReceiptV1
 	if err := json.Unmarshal(response.Receipt, &receipt); err != nil {
-		return evidence, fmt.Errorf("decode RQ5 V8 receipt: %w", err)
+		return evidence, fmt.Errorf("decode RQ5 receipt: %w", err)
 	}
-	if !queryreceipt.SupportsArtifactIntent(receipt.Version) || receipt.TaskID != task.ID || receipt.QueryID != response.QueryID ||
+	if !receipt.RequiresArtifactInclusionProofs() || receipt.TaskID != task.ID || receipt.QueryID != response.QueryID ||
 		receipt.ArtifactIntent == nil || receipt.Exposure == nil || receipt.CatalogDigest != binding.evidence.CatalogSHA256 ||
 		receipt.CatalogVersion != task.CatalogVersion || receipt.Exposure.RootTaskID != task.RootTaskID {
-		return evidence, errors.New("RQ5 query receipt is not a V8 attestation for the active Catalog-bound task")
+		return evidence, errors.New("RQ5 query receipt is not an artifact attestation for the active Catalog-bound task")
 	}
 	if response.SemanticReplay {
 		if businessDelta != 0 || before.ledgerSHA256() != after.ledgerSHA256() || before.Epoch != after.Epoch {

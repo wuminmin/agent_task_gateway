@@ -1982,15 +1982,14 @@ func (s *Service) getAuditReceipt(ctx context.Context, _ mcp.Principal, raw json
 	}
 	result := map[string]any{"receipt": receipt, "audit_chain_events": chain, "audit_inclusion": publicProof}
 	// The inclusion proofs belong to receipts that registered a result object.
-	// This was an equality against V8, which made a V9 receipt skip them entirely
-	// even though V9 carries the same artifact intent, so an auditor saw the
-	// artifact evidence disappear from a receipt that says strictly more. A range
-	// would have made the opposite mistake at V10: an inline V10 registers no
-	// result object, and demanding its registration proof would fail every
-	// operation that returns its rows in the response.
+	// This was a comparison against a receipt version, which was wrong in both
+	// directions: an equality made a later receipt skip the proofs even though it
+	// carried the same artifact intent, and a range would have demanded a
+	// registration proof from an inline operation that registers no result object.
+	// The signed delivery mode answers it, and answers it per operation.
 	if signed.RequiresArtifactInclusionProofs() {
 		if evidence.ArtifactRegistrationAudit == nil {
-			return nil, fmt.Errorf("a V%s receipt is missing artifact registration audit evidence", signed.Version)
+			return nil, fmt.Errorf("an artifact-delivery receipt is missing artifact registration audit evidence")
 		}
 		registrationPublicProof, registrationTypedProof, err := s.auditInclusionProof(ctx, *evidence.ArtifactRegistrationAudit)
 		if err != nil {
@@ -2014,7 +2013,7 @@ func (s *Service) getAuditReceipt(ctx context.Context, _ mcp.Principal, raw json
 }
 
 // artifactAvailabilityInclusion gives auditors a direct, verified inclusion
-// proof for the post-settlement event that makes a V8 artifact logically
+// proof for the post-settlement event that makes an artifact logically
 // AVAILABLE. PENDING crash-window receipts correctly have no such proof yet.
 func (s *Service) artifactAvailabilityInclusion(ctx context.Context, receipt queryreceipt.QueryReceiptV1,
 	events []control.AuditEvent) (map[string]any, error) {
@@ -2152,18 +2151,16 @@ func BuildQueryReceiptRequest(evidence control.QueryReceipt, signer *queryreceip
 		// adjusted backwards between settlement and signing.
 		signedAt = record.CompletedAt.UTC()
 	}
-	version := queryreceipt.VersionV3
+	// The exposure profile is an experiment condition, not a receipt version.
+	//
+	// This used to choose a receipt version per profile -- V4 for the profiles
+	// without outcomes, V5 for v3, V6 for v4, V7 for v5 -- which made the
+	// accounting mechanism under test and the evidence format one variable. They
+	// are separate variables: every profile now signs the same receipt, and which
+	// one accounted the operation is stated inside the signed exposure block.
 	var exposureEvidence *queryreceipt.ExposureEvidenceV1
 	var artifactIntent *queryreceipt.ArtifactIntentEvidenceV1
 	if evidence.Exposure != nil {
-		version = queryreceipt.VersionV4
-		if evidence.Exposure.ProfileVersion == exposure.ProfileV3 {
-			version = queryreceipt.VersionV5
-		} else if evidence.Exposure.ProfileVersion == exposure.ProfileV4 {
-			version = queryreceipt.VersionV6
-		} else if evidence.Exposure.ProfileVersion == exposure.ProfileV5 {
-			version = queryreceipt.VersionV7
-		}
 		exposureEvidence = &queryreceipt.ExposureEvidenceV1{
 			RootTaskID: evidence.Exposure.RootTaskID, ProfileVersion: evidence.Exposure.ProfileVersion,
 			ActualReleaseFacts: evidence.Exposure.ActualReleaseFacts, ActualInfluenceFacts: evidence.Exposure.ActualInfluenceFacts,
@@ -2191,7 +2188,12 @@ func BuildQueryReceiptRequest(evidence control.QueryReceipt, signer *queryreceip
 	if (evidence.Artifact == nil) != (evidence.ArtifactRegistrationAudit == nil) {
 		return control.SaveQueryReceiptRequest{}, fmt.Errorf("artifact and registration audit evidence must be provided together")
 	}
-	if evidence.Artifact != nil && evidence.Exposure != nil && evidence.Exposure.ProfileVersion == exposure.ProfileV5 {
+	// Whether a result object was registered is a property of the operation, not
+	// of the accounting profile it settled under. This used to also require
+	// exposure v5, which was the same profile/format conflation the receipt ladder
+	// was: an artifact-enabled deployment on any other profile registered a result
+	// object the receipt then described as an inline delivery.
+	if evidence.Artifact != nil {
 		artifact := evidence.Artifact
 		registration := evidence.ArtifactRegistrationAudit
 		intent, err := queryreceipt.BuildArtifactIntent(queryreceipt.ArtifactIntentEvidenceV1{
@@ -2213,68 +2215,37 @@ func BuildQueryReceiptRequest(evidence control.QueryReceipt, signer *queryreceip
 			return control.SaveQueryReceiptRequest{}, err
 		}
 		artifactIntent = &intent
-		version = queryreceipt.VersionV8
 	}
-	// V9 selection.
+	// The execution evidence, and the delivery mode that says what came back.
 	//
-	// V9 is emitted exactly when the query has a persisted execution binding AND
-	// the receipt already qualifies for V8, because V9 is V8 plus the execution
-	// evidence and ValidateUnsigned requires the artifact intent for both. The
-	// binding comes from the row loaded inside this transaction, never from a
-	// caller's memory.
-	//
-	// The two failure modes are deliberately asymmetric:
-	//
-	//   - a historical query with no binding stays at the version it earned. The
-	//     execution evidence is not stapled onto it; a receipt must not claim to
-	//     describe an execution nothing recorded.
-	//   - a query that HAS a binding but cannot carry it is refused outright. That
-	//     is the silent downgrade this whole path exists to prevent: the Gateway
-	//     built and persisted a description of what it executed, and emitting the
-	//     earlier version would drop it while still looking like a valid receipt.
-	//
-	// The version the binding earns is the binding's own, not an ordering: a
-	// persisted QueryExecutionBindingV1 earns V9 and a V2 earns V10, and neither
-	// may be emitted under the other's signature.
-	var executionBinding *querybinding.QueryExecutionBindingV1
+	// The binding comes from the row loaded inside this transaction, never from a
+	// caller's memory. A query with no binding carries none: the receipt must not
+	// claim to describe an execution nothing recorded, and it does not have to,
+	// because the absence is signed.
 	var executionBindingV2 *querybinding.QueryExecutionBindingV2
 	var exposureLedgerBefore *querybinding.ExposureLedgerBeforeV1
-	var deliveryMode queryreceipt.ResultDeliveryMode
 	if evidence.ExecutionBinding != nil {
 		if err := evidence.ExecutionBinding.Validate(); err != nil {
 			return control.SaveQueryReceiptRequest{}, fmt.Errorf("persisted execution binding: %w", err)
 		}
 		ledger := evidence.ExecutionBinding.ExposureLedgerBefore
 		exposureLedgerBefore = &ledger
-		switch {
-		case evidence.ExecutionBinding.BindingV2 != nil:
-			// V10 states the delivery mode instead of requiring an artifact. It is
-			// read from whether a result object was in fact registered, which is the
-			// same evidence the intent above was built from -- so the mode cannot
-			// describe a delivery the settlement did not perform.
-			deliveryMode = queryreceipt.DeliveryInline
-			if artifactIntent != nil {
-				deliveryMode = queryreceipt.DeliveryArtifact
-			}
-			executionBindingV2 = evidence.ExecutionBinding.BindingV2
-			version = queryreceipt.VersionV10
-		default:
-			// V9 inherits V8's rule, so a binding it cannot carry alongside an
-			// artifact intent is refused rather than downgraded. Asked of the intent
-			// rather than of the version: they agree here -- the only way to reach V8
-			// above is to have built one -- but the intent is the fact and the
-			// version is a proxy for it.
-			if artifactIntent == nil {
-				return control.SaveQueryReceiptRequest{}, fmt.Errorf(
-					"query %s carries a persisted execution binding but its evidence only supports a V%s receipt; "+
-						"emitting one would silently drop the execution binding", record.ID, version)
-			}
-			executionBinding = evidence.ExecutionBinding.Binding
-			version = queryreceipt.VersionV9
+		executionBindingV2 = evidence.ExecutionBinding.BindingV2
+	}
+	// The delivery mode is read from what the settlement actually did -- whether a
+	// result object was registered -- and is cross-bound to the terminal status by
+	// the receipt, so it cannot describe a delivery the settlement did not
+	// perform.
+	deliveryMode := queryreceipt.DeliveryNone
+	if record.Status == control.QueryCompleted {
+		deliveryMode = queryreceipt.DeliveryInline
+		if artifactIntent != nil {
+			deliveryMode = queryreceipt.DeliveryArtifact
 		}
 	}
+
 	receipt := queryreceipt.QueryReceiptV1{
-		Version: version, ReceiptID: record.ID,
+		Version: queryreceipt.Version, ReceiptID: record.ID,
 		TaskID: record.TaskID, QueryID: record.ID, RequestID: record.RequestID,
 		ManifestDigest: record.ManifestDigest, GrantDigest: record.GrantDigest,
 		CatalogDigest: record.CatalogDigest, CatalogVersion: record.CatalogVersion,
@@ -2294,7 +2265,7 @@ func BuildQueryReceiptRequest(evidence control.QueryReceipt, signer *queryreceip
 		Exposure: exposureEvidence, ArtifactIntent: artifactIntent,
 		ResultDeliveryMode:   deliveryMode,
 		ExposureLedgerBefore: exposureLedgerBefore,
-		ExecutionBinding:     executionBinding, ExecutionBindingV2: executionBindingV2,
+		ExecutionBindingV2:   executionBindingV2,
 	}
 	signed, err := signer.Sign(receipt)
 	if err != nil {
