@@ -23,72 +23,22 @@ import (
 // from tests only until every named shape passes here; that is what keeps a
 // second implementation out of the running system while it is being verified.
 
-// preparationInputsFor builds the immutable inputs Prepare reads, the way the
-// Gateway will build them at T1d.
+// preparationInputsFor builds the immutable inputs Prepare reads.
 //
-// The snapshot bindings come from the Gateway's own verified registry, which is
-// the point of the descriptor: the Gateway resolves them from the registry it
-// has already checked against the Catalog, and the finalizer will resolve the
-// same values from retained Publication evidence, so neither depends on the
-// other's copy.
+// It calls the production mapping rather than reconstructing it. While this
+// harness owned its own copy, a passing comparison proved that Prepare agreed
+// with the Gateway's derivation given inputs the harness built -- which is not
+// the claim anyone wanted. What matters is that Prepare agrees given the inputs
+// production actually builds, and the only way to assert that is to build them
+// the same way production does.
 func preparationInputsFor(t *testing.T, service *Service, test parityCase) physicalquery.PreparationInputs {
 	t.Helper()
 	resolved := resolveParityCase(t, service, test)
-	grant := resolved.grant()
-
-	// The one supported constructor, not a hand-assembled view: every member has
-	// to come from the same loaded Catalog, and building it here field by field
-	// is exactly the pairing CatalogViewFromCatalog exists to prevent.
-	view, err := physicalquery.CatalogViewFromCatalog(*service.catalog)
+	inputs, err := service.preparationInputs(resolved.grant(), resolved.plan)
 	if err != nil {
-		t.Fatalf("build catalog view from the Gateway's own catalog: %v", err)
-	}
-
-	inputs := physicalquery.PreparationInputs{
-		Plan: resolved.plan,
-		Grant: physicalquery.Grant{
-			ApprovedProducts: grant.ApprovedProducts,
-			ApprovedColumns:  grant.ApprovedColumns,
-			MandatoryScope:   grant.MandatoryScope,
-			ExposureProfile:  grant.Exposure.ProfileVersion,
-			PredicateLimits:  predicateLimitsForGrant(grant.Exposure),
-		},
-		Catalog: view,
-	}
-	if inputs.Grant.UsesOrdinalProgram() {
-		inputs.SnapshotBindings = gatewaySnapshotBindings(t, service)
+		t.Fatalf("build preparation inputs: %v", err)
 	}
 	return inputs
-}
-
-// gatewaySnapshotBindings reads the verified registry into descriptors.
-//
-// This is the code the Gateway will keep after the extraction: resolving and
-// verifying the artifact stays here, because that is what the Gateway's registry
-// is for, and only the resolved values cross into preparation.
-func gatewaySnapshotBindings(t *testing.T, service *Service) map[string]physicalquery.SnapshotBinding {
-	t.Helper()
-	bindings := make(map[string]physicalquery.SnapshotBinding, len(service.catalog.SnapshotPublications))
-	for _, publication := range service.catalog.SnapshotPublications {
-		index, err := service.snapshotRegistry.Resolve(ordinal.PublicationKey{
-			CatalogDigest: service.catalog.SHA256, PublicationName: publication.Name,
-		})
-		if err != nil {
-			t.Fatalf("resolve snapshot publication %s: %v", publication.Name, err)
-		}
-		manifest := index.Manifest()
-		bindings[publication.Name] = physicalquery.SnapshotBinding{
-			PublicationName:  publication.Name,
-			DictionaryDigest: index.DictionaryDigest(),
-			ManifestDigest:   index.ManifestDigest(),
-			SidecarDigest:    manifest.SidecarDigest,
-			SourceNamespace:  manifest.SourceNamespace,
-			Snapshot:         manifest.Snapshot,
-			OrdinalSidecar:   publication.OrdinalSidecar,
-			RowCount:         index.RowCount(),
-		}
-	}
-	return bindings
 }
 
 // extractedShapeOf reads the same properties off a physicalquery preparation.

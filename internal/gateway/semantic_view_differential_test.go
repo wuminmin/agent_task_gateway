@@ -117,7 +117,13 @@ func semanticViewInputsFor(t *testing.T, parity semanticViewParity) physicalquer
 		Composition:            parity.composition,
 	}
 	if inputs.Grant.UsesOrdinalProgram() {
-		inputs.SnapshotBindings = gatewaySnapshotBindings(t, fixture.service)
+		// The production resolver, so the View harness and the ordinary
+		// preparation harness bind the same universe from the same registry.
+		bindings, err := fixture.service.snapshotBindings()
+		if err != nil {
+			t.Fatalf("resolve snapshot bindings: %v", err)
+		}
+		inputs.SnapshotBindings = bindings
 	}
 	return inputs
 }
