@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"taskbound.local/agent-data-gateway/internal/control"
-	"taskbound.local/agent-data-gateway/internal/exposure"
 	"taskbound.local/agent-data-gateway/internal/physicalquery"
 	"taskbound.local/agent-data-gateway/internal/preparedbinding"
 	"taskbound.local/agent-data-gateway/internal/querybinding"
@@ -78,7 +77,7 @@ type preparedExecution struct {
 // replay authorizes both targets in order to derive its key and then executes
 // neither; inferring would make that path indistinguishable from a novel one.
 func buildQueryExecutionBinding(queryID string, path querybinding.PathKind, operation preparedExecution,
-	query derivedQuery, ledger querybinding.ExposureLedgerBeforeV1, budgetBefore control.BudgetSnapshot,
+	query derivedQuery, ledger *querybinding.ExposureLedgerBeforeV1, budgetBefore control.BudgetSnapshot,
 	executed bool) (control.QueryExecutionBinding, error) {
 	budgetDigest, err := queryreceipt.BudgetStateSHA256(queryReceiptBudget(budgetBefore))
 	if err != nil {
@@ -97,15 +96,21 @@ func buildQueryExecutionBinding(queryID string, path querybinding.PathKind, oper
 	if err != nil {
 		return control.QueryExecutionBinding{}, err
 	}
+	// The profile and the pre-state digest are filled from the same absence. An
+	// operation on a task with no exposure grant read no ledger, so both stay
+	// empty and V2's own Validate holds them to each other; filling one from the
+	// operation and the other from a nil check is how they would come apart.
 	binding := querybinding.QueryExecutionBindingV2{
-		PathKind:                   path,
-		PreparedOperation:          operation.binding,
-		Compiler:                   operation.compiler,
-		ExposureProfileVersion:     operation.profile,
-		VisibleRowLimit:            query.derivation.Limits.VisibleRowLimit,
-		BudgetBeforeSHA256:         budgetDigest,
-		ExposureLedgerBeforeSHA256: ledger.SHA256,
-		Visible:                    visible,
+		PathKind:               path,
+		PreparedOperation:      operation.binding,
+		Compiler:               operation.compiler,
+		ExposureProfileVersion: operation.profile,
+		VisibleRowLimit:        query.derivation.Limits.VisibleRowLimit,
+		BudgetBeforeSHA256:     budgetDigest,
+		Visible:                visible,
+	}
+	if ledger != nil {
+		binding.ExposureLedgerBeforeSHA256 = ledger.SHA256
 	}
 	if query.companion != nil {
 		if query.derivation.Companion == nil {
@@ -162,59 +167,51 @@ func targetRecord(role querybinding.TargetRole, operation preparedExecution, pre
 // prepareExecutionBinding resolves the compile-time identities and seals the
 // pre-state, before anything executes.
 //
-// It returns an error rather than a zero value when the operation has no
-// exposure context: a plain query has no plan digest, no exposure profile and no
-// ledger, so it has nothing a Query Execution Binding could describe. Callers
-// check for an exposure context first.
+// # Why there is no longer a gate in front of it
 //
-// Since T1d it resolves nothing about the preparation. The sealed binding it
-// carries is the one physicalquery produced and the Gateway executed from, so
-// the finalizer compares against a document rather than against a digest of one
-// it was never handed.
-func (s *Service) prepareExecutionBinding(exposureContext *planExposureContext,
-	state physicalquery.LedgerPreState, ledger control.ExposureLedgerSnapshot,
-	budgetBefore control.BudgetSnapshot) (preparedExecution, querybinding.ExposureLedgerBeforeV1, error) {
-	if exposureContext == nil {
-		return preparedExecution{}, querybinding.ExposureLedgerBeforeV1{}, nil
-	}
+// This used to be reached only for exposure profile v5 with a non-empty plan
+// digest, through an executionBindingApplies predicate that is now gone. That
+// predicate was a description of how far the extraction had got, not of what the
+// receipt contract permits: a v1 operation and a plain query execute a statement
+// the same way a v5 one does, and each was left describing nothing.
+//
+// The receipt now requires an execution binding from every completed query, so
+// there is nothing left for a gate to decide. What remains is the one real
+// distinction -- whether the operation accounted exposure -- and it is carried
+// as the presence of the sealed ledger rather than as a reason not to build a
+// binding at all.
+//
+// It resolves nothing about the preparation. The sealed binding it carries is
+// the one physicalquery produced and the Gateway executed from, so the finalizer
+// compares against a document rather than against a digest of one it was never
+// handed.
+func (s *Service) prepareExecutionBinding(prepared physicalquery.PreparedOperation,
+	accountsExposure bool, state physicalquery.LedgerPreState, ledger control.ExposureLedgerSnapshot,
+	budgetBefore control.BudgetSnapshot) (preparedExecution, *querybinding.ExposureLedgerBeforeV1, error) {
 	compiler, err := physicalquery.LocalCompilerIdentity()
 	if err != nil {
-		return preparedExecution{}, querybinding.ExposureLedgerBeforeV1{}, err
+		return preparedExecution{}, nil, err
 	}
-	operation := preparedExecution{
-		binding: exposureContext.prepared.Binding(), compiler: compiler, profile: ledger.ProfileVersion,
-	}
+	operation := preparedExecution{binding: prepared.Binding(), compiler: compiler}
 	// The preparation must have been compiled by this binary. It was -- Prepare
 	// seals the local identity and preparePlan already required it -- so this is
 	// the statement of that fact at the point where the two are signed together,
 	// not a second chance to notice.
 	if operation.binding.CompilerIdentitySHA256 != compiler.SHA256 {
-		return preparedExecution{}, querybinding.ExposureLedgerBeforeV1{}, fmt.Errorf(
+		return preparedExecution{}, nil, fmt.Errorf(
 			"this operation was prepared by compiler %s but this binary is %s",
 			operation.binding.CompilerIdentitySHA256[:12], compiler.SHA256[:12])
 	}
+	if !accountsExposure {
+		// No profile and no pre-state: the visible row limit derives from the row
+		// budget, which the receipt signs as budget_before, and the binding names
+		// that budget by digest. There is nothing else this operation read.
+		return operation, nil, nil
+	}
+	operation.profile = ledger.ProfileVersion
 	sealed, err := exposureLedgerBefore(ledger, budgetBefore, state)
 	if err != nil {
-		return preparedExecution{}, querybinding.ExposureLedgerBeforeV1{}, err
+		return preparedExecution{}, nil, err
 	}
-	return operation, sealed, nil
-}
-
-// executionBindingApplies reports whether this operation can produce a Query
-// Execution Binding at all.
-//
-// The gate is what the receipt contract permits, not a policy choice. It used to
-// require result artifacts to be enabled as well, because the receipt that
-// carried the execution evidence also required a completed artifact intent -- so
-// an inline delivery could carry no execution binding at all. V10 states the
-// delivery mode instead of requiring an artifact, which is what removes that
-// condition: an inline V5 execution now describes itself as one rather than
-// going undescribed.
-//
-// Exposure profiles V1--V4 keep their existing receipt versions untouched.
-func (s *Service) executionBindingApplies(exposureContext *planExposureContext,
-	ledger control.ExposureLedgerSnapshot) bool {
-	return exposureContext != nil &&
-		ledger.ProfileVersion == exposure.ProfileV5 &&
-		exposureContext.planDigest != ""
+	return operation, &sealed, nil
 }

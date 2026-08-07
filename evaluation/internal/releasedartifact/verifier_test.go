@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"taskbound.local/agent-data-gateway/internal/auditchain"
+	"taskbound.local/agent-data-gateway/internal/preparedbinding"
+	"taskbound.local/agent-data-gateway/internal/querybinding"
 	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 	"taskbound.local/agent-data-gateway/internal/resultartifact"
 )
@@ -268,6 +270,7 @@ func newReleaseFixture(t *testing.T, suffix string) releaseFixture {
 		},
 		ArtifactIntent: &intent,
 	}
+	receipt.ExposureLedgerBefore, receipt.ExecutionBindingV2 = testExecutionEvidence(t, receipt)
 	signer, err := queryreceipt.NewSigner("test-key-"+suffix,
 		ed25519.NewKeyFromSeed(bytes.Repeat([]byte{suffix[0]}, ed25519.SeedSize)))
 	if err != nil {
@@ -378,4 +381,76 @@ func auditHash(t *testing.T, previous string, event auditchain.Event) string {
 func shaHex(value []byte) string {
 	digest := sha256.Sum256(value)
 	return hex.EncodeToString(digest[:])
+}
+
+// testExecutionEvidence is the execution binding and ledger pre-state a
+// completed exposure operation carries.
+//
+// The digests are fixtures; the arithmetic is not. The binding names the budget
+// the receipt signs, the pre-state's remaining rows are that budget's, and the
+// visible row limit is inside what the pre-state authorizes -- which is what the
+// receipt re-derives before it will validate.
+func testExecutionEvidence(t *testing.T, receipt queryreceipt.QueryReceiptV1) (
+	*querybinding.ExposureLedgerBeforeV1, *querybinding.QueryExecutionBindingV2) {
+	t.Helper()
+	fixture := func(seed string) string { return strings.Repeat(seed, 64/len(seed)) }
+	compiler, err := preparedbinding.CompilerIdentityV1{
+		QueryPlanVersion: "queryplan-v7", QueryPlanSHA256: fixture("c2"),
+		PolicyRendererVersion: "sqlpolicy-v3", PolicyRendererSHA256: fixture("a3"),
+	}.Seal()
+	if err != nil {
+		t.Fatalf("seal compiler identity: %v", err)
+	}
+	prepared, err := preparedbinding.PreparedOperationBindingV1{
+		// Not grouped: PreparedOperationBindingV1.UsesExpandedEvidence is the
+		// disjunction of Grouped and ExpandedEvidence, and a fixture that set
+		// one of them would have to seal a pre-state that agrees.
+		VisibleFieldCount: 2, FactFieldCount: 1,
+		VisibleFieldsSHA256:     fixture("11"),
+		FactFieldsSHA256:        fixture("12"),
+		PreparationInputsSHA256: fixture("14"),
+		GrantSHA256:             fixture("15"),
+		CatalogSHA256:           fixture("16"),
+		PlanSHA256:              fixture("18"),
+		CompilerIdentitySHA256:  compiler.SHA256,
+		PolicyGrantSHA256:       fixture("19"),
+		VisibleTargetSHA256:     fixture("a4"),
+	}.Seal()
+	if err != nil {
+		t.Fatalf("seal prepared operation: %v", err)
+	}
+	remainingRows := receipt.BudgetBefore.Limits.Rows -
+		receipt.BudgetBefore.Used.Rows - receipt.BudgetBefore.Reserved.Rows
+	ledger, err := querybinding.ExposureLedgerBeforeV1{
+		ProfileVersion: receipt.Exposure.ProfileVersion, RootTaskID: receipt.Exposure.RootTaskID,
+		RootEpoch:     receipt.Exposure.RootEpoch,
+		Limits:        querybinding.FactVector{ReleaseFacts: 500, InfluenceFacts: 100, OutcomeFacts: 10},
+		Remaining:     querybinding.FactVector{ReleaseFacts: 500, InfluenceFacts: 100, OutcomeFacts: 10},
+		RemainingRows: remainingRows, HasExposureContext: true,
+	}.Seal()
+	if err != nil {
+		t.Fatalf("seal exposure ledger pre-state: %v", err)
+	}
+	budgetDigest, err := queryreceipt.BudgetStateSHA256(receipt.BudgetBefore)
+	if err != nil {
+		t.Fatalf("budget digest: %v", err)
+	}
+	binding, err := querybinding.QueryExecutionBindingV2{
+		PathKind: querybinding.PathSingleQuery, PreparedOperation: prepared, Compiler: compiler,
+		ExposureProfileVersion: ledger.ProfileVersion,
+		VisibleRowLimit:        receipt.BudgetReserved.Rows,
+		BudgetBeforeSHA256:     budgetDigest, ExposureLedgerBeforeSHA256: ledger.SHA256,
+		Visible: querybinding.TargetRecordV1{
+			Role: querybinding.RoleVisible, Authorized: true, Executed: true,
+			ExactSQLSHA256: fixture("a1"), StrictASTSHA256: fixture("a2"),
+			RowLimit: receipt.BudgetReserved.Rows, PolicyFingerprint: receipt.SQLFingerprint,
+			PolicyRendererVersion:       compiler.PolicyRendererVersion,
+			PolicyRendererDigest:        compiler.PolicyRendererSHA256,
+			PreparedTargetBindingSHA256: fixture("a4"),
+		},
+	}.Seal()
+	if err != nil {
+		t.Fatalf("seal execution binding: %v", err)
+	}
+	return &ledger, &binding
 }

@@ -427,7 +427,11 @@ func mustSealCompiler() preparedbinding.CompilerIdentityV1 {
 func preparedOperation(visible querybinding.TargetRecordV1, companion *querybinding.TargetRecordV1,
 	expanded bool) (preparedbinding.PreparedOperationBindingV1, error) {
 	binding := preparedbinding.PreparedOperationBindingV1{
-		HasCompanion: companion != nil, Grouped: true, ExpandedEvidence: expanded,
+		// Grouped is false because the caller states the expanded-evidence
+		// condition through `expanded`, and UsesExpandedEvidence is the
+		// disjunction of the two: a grouped preparation would be expanded whatever
+		// the caller asked for, and the pre-state sealed beside it would disagree.
+		HasCompanion: companion != nil, ExpandedEvidence: expanded,
 		VisibleFieldCount: 4, FactFieldCount: 2, ProvenanceFieldCount: 3,
 		VisibleFieldsSHA256:      digest("visible-fields"),
 		FactFieldsSHA256:         digest("fact-fields"),

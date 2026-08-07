@@ -14,6 +14,12 @@ import (
 
 func bindingDigest(seed string) string { return strings.Repeat(seed, 64/len(seed)) }
 
+// ptrExposureLedgerBefore is the address of a sealed pre-state, for the struct
+// literals that carry it as the optional member it now is.
+func ptrExposureLedgerBefore(ledger querybinding.ExposureLedgerBeforeV1) *querybinding.ExposureLedgerBeforeV1 {
+	return &ledger
+}
+
 func testExposureLedgerBefore(t *testing.T) querybinding.ExposureLedgerBeforeV1 {
 	t.Helper()
 	sealed, err := querybinding.ExposureLedgerBeforeV1{
@@ -67,7 +73,7 @@ func testPairedNovelBinding(t *testing.T, queryID string) QueryExecutionBinding 
 	if err != nil {
 		t.Fatalf("seal execution binding: %v", err)
 	}
-	return QueryExecutionBinding{QueryID: queryID, BindingV2: &binding, ExposureLedgerBefore: ledger}
+	return QueryExecutionBinding{QueryID: queryID, BindingV2: &binding, ExposureLedgerBefore: &ledger}
 }
 
 // writeBinding writes one binding through the same transaction-scoped helper the
@@ -234,7 +240,7 @@ func TestExecutionBindingRejectsIncoherentRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mismatched.ExposureLedgerBefore = resealed
+	mismatched.ExposureLedgerBefore = &resealed
 	if err := writeBinding(t, store, mismatched); err == nil {
 		t.Fatal("a binding whose pre-state it does not name was persisted")
 	}
@@ -321,13 +327,13 @@ func TestDifferentExecutionBindingForOneQueryConflicts(t *testing.T) {
 			binding.BindingV2 = resealBindingV2(t, document)
 		},
 		"different pre-state": func(t *testing.T, binding *QueryExecutionBinding) {
-			ledger := binding.ExposureLedgerBefore
+			ledger := *binding.ExposureLedgerBefore
 			ledger.RootEpoch++
 			sealed, err := ledger.Seal()
 			if err != nil {
 				t.Fatal(err)
 			}
-			binding.ExposureLedgerBefore = sealed
+			binding.ExposureLedgerBefore = &sealed
 			document := *binding.BindingV2
 			document.ExposureLedgerBeforeSHA256 = sealed.SHA256
 			binding.BindingV2 = resealBindingV2(t, document)

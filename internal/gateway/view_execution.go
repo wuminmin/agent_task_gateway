@@ -345,5 +345,6 @@ func (s *Service) prepareSemanticViewPlan(grant control.TaskGrant, artifact view
 	// The raw revision, which the binding carries only as a digest. executeSQL
 	// compares it against the revision the registry reports at execution time.
 	context.viewRegistryRevision = binding.Expectation.ExpectedRevisionDigest
-	return preparedQueryPlan{SQL: context.mainSQL, PolicyGrant: prepared.PolicyGrant(), Exposure: context}, nil
+	return preparedQueryPlan{SQL: context.mainSQL, PolicyGrant: prepared.PolicyGrant(),
+		Exposure: context, Prepared: prepared}, nil
 }

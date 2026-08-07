@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"taskbound.local/agent-data-gateway/internal/auditchain"
+	"taskbound.local/agent-data-gateway/internal/querybinding"
 )
 
 func TestQueryReceiptSignatureBindsEveryEvidenceField(t *testing.T) {
@@ -19,7 +20,7 @@ func TestQueryReceiptSignatureBindsEveryEvidenceField(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVerifier: %v", err)
 	}
-	receipt, err := signer.Sign(validReceipt())
+	receipt, err := signer.Sign(validReceipt(t))
 	if err != nil {
 		t.Fatalf("Sign: %v", err)
 	}
@@ -60,7 +61,7 @@ func TestExposureV3BindsOutcomeCharge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	receipt, err := signer.Sign(exposureV3Receipt())
+	receipt, err := signer.Sign(exposureV3Receipt(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +82,7 @@ func TestExposureV4BindsOrdinalLedgerEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	receipt, err := signer.Sign(exposureV4Receipt())
+	receipt, err := signer.Sign(exposureV4Receipt(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +112,7 @@ func TestExposureV5BindsPredicateAndCompositeEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	receipt, err := signer.Sign(exposureV5Receipt())
+	receipt, err := signer.Sign(exposureV5Receipt(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +183,7 @@ func TestArtifactDeliveryBindsCompleteArtifactIntent(t *testing.T) {
 		t.Fatalf("missing result metadata digest error = %v, want invalid receipt", err)
 	}
 
-	legacy := exposureV5Receipt()
+	legacy := exposureV5Receipt(t)
 	legacy.ArtifactIntent = receipt.ArtifactIntent
 	if _, err := signer.Sign(legacy); !errors.Is(err, ErrInvalidReceipt) {
 		t.Fatalf("V7 artifact intent error = %v, want invalid receipt", err)
@@ -203,7 +204,7 @@ func TestSignatureBindsExposureEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVerifier: %v", err)
 	}
-	receipt, err := signer.Sign(exposureV1Receipt())
+	receipt, err := signer.Sign(exposureV1Receipt(t))
 	if err != nil {
 		t.Fatalf("Sign: %v", err)
 	}
@@ -235,11 +236,11 @@ func TestQueryReceiptSemanticValidation(t *testing.T) {
 		t.Fatalf("NewVerifier: %v", err)
 	}
 	for _, receipt := range []QueryReceiptV1{
-		validReceipt(),
-		exposureV1Receipt(),
-		validReleasedReceipt(StatusReleased, "AUTHORIZATION_EXPIRED"),
-		validFailedReceipt(),
-		validIndeterminateReceipt(),
+		validReceipt(t),
+		exposureV1Receipt(t),
+		validReleasedReceipt(t, StatusReleased, "AUTHORIZATION_EXPIRED"),
+		validFailedReceipt(t),
+		validIndeterminateReceipt(t),
 	} {
 		signed, err := signer.Sign(receipt)
 		if err != nil {
@@ -258,46 +259,46 @@ func TestQueryReceiptSemanticValidation(t *testing.T) {
 		{name: "reservation not released", mutate: func(receipt *QueryReceiptV1) { receipt.BudgetAfter.Reserved.Queries = 1 }},
 		{name: "completed missing result hash", mutate: func(receipt *QueryReceiptV1) { receipt.ResultHash = "" }},
 		{name: "released charged budget", mutate: func(receipt *QueryReceiptV1) {
-			*receipt = validReleasedReceipt(StatusReleased, "AUTHORIZATION_EXPIRED")
+			*receipt = validReleasedReceipt(t, StatusReleased, "AUTHORIZATION_EXPIRED")
 			receipt.BudgetCharged.Queries = 1
 		}},
 		{name: "failed missing error", mutate: func(receipt *QueryReceiptV1) {
-			*receipt = validFailedReceipt()
+			*receipt = validFailedReceipt(t)
 			receipt.ErrorCode = ""
 		}},
 		{name: "failed with result hash", mutate: func(receipt *QueryReceiptV1) {
-			*receipt = validFailedReceipt()
-			receipt.ResultHash = validReceipt().ResultHash
+			*receipt = validFailedReceipt(t)
+			receipt.ResultHash = validReceipt(t).ResultHash
 		}},
 		{name: "indeterminate partial charge", mutate: func(receipt *QueryReceiptV1) {
-			*receipt = validIndeterminateReceipt()
+			*receipt = validIndeterminateReceipt(t)
 			receipt.BudgetCharged.Rows--
 		}},
 		{name: "unsupported status", mutate: func(receipt *QueryReceiptV1) { receipt.Status = "MAYBE_DONE" }},
 		{name: "v3 missing signed_at", mutate: func(receipt *QueryReceiptV1) {
-			*receipt = validReceipt()
+			*receipt = validReceipt(t)
 			receipt.SignedAt = nil
 		}},
 		{name: "v3 signed before terminal evidence", mutate: func(receipt *QueryReceiptV1) {
-			*receipt = validReceipt()
+			*receipt = validReceipt(t)
 			signedAt := receipt.CompletedAt.Add(-time.Nanosecond)
 			receipt.SignedAt = &signedAt
 		}},
 		{name: "exposure names a profile with no stated shape", mutate: func(receipt *QueryReceiptV1) {
-			*receipt = exposureV1Receipt()
+			*receipt = exposureV1Receipt(t)
 			receipt.Exposure.ProfileVersion = "taskgate-exposure-v6"
 		}},
 		{name: "exposure charge exceeds actual", mutate: func(receipt *QueryReceiptV1) {
-			*receipt = exposureV1Receipt()
+			*receipt = exposureV1Receipt(t)
 			receipt.Exposure.ChargedInfluenceFacts = receipt.Exposure.ActualInfluenceFacts + 1
 		}},
 		{name: "outcome profile with no outcome", mutate: func(receipt *QueryReceiptV1) {
-			*receipt = exposureV3Receipt()
+			*receipt = exposureV3Receipt(t)
 			receipt.Exposure.ActualOutcomeFacts = 0
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			receipt := validReceipt()
+			receipt := validReceipt(t)
 			test.mutate(&receipt)
 			if _, err := signer.Sign(receipt); !errors.Is(err, ErrInvalidReceipt) {
 				t.Fatalf("Sign invalid receipt error = %v, want %v", err, ErrInvalidReceipt)
@@ -320,7 +321,7 @@ func TestQueryReceiptKeyringHonorsOverlapAndRetirement(t *testing.T) {
 		t.Fatalf("NewKeyring: %v", err)
 	}
 
-	oldReceipt, err := oldSigner.Sign(validReceiptAt(time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)))
+	oldReceipt, err := oldSigner.Sign(validReceiptAt(t, time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)))
 	if err != nil {
 		t.Fatalf("sign old receipt: %v", err)
 	}
@@ -328,7 +329,7 @@ func TestQueryReceiptKeyringHonorsOverlapAndRetirement(t *testing.T) {
 		t.Fatalf("old receipt signed before retirement did not verify: %v", err)
 	}
 
-	newReceipt, err := keyring.Sign(validReceiptAt(time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC)))
+	newReceipt, err := keyring.Sign(validReceiptAt(t, time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC)))
 	if err != nil {
 		t.Fatalf("sign new receipt: %v", err)
 	}
@@ -336,7 +337,7 @@ func TestQueryReceiptKeyringHonorsOverlapAndRetirement(t *testing.T) {
 		t.Fatalf("active-key receipt did not verify: %v", err)
 	}
 
-	tooLate, err := oldSigner.Sign(validReceiptAt(oldRetiredAt.Add(time.Nanosecond)))
+	tooLate, err := oldSigner.Sign(validReceiptAt(t, oldRetiredAt.Add(time.Nanosecond)))
 	if err != nil {
 		t.Fatalf("sign post-retirement receipt: %v", err)
 	}
@@ -344,7 +345,7 @@ func TestQueryReceiptKeyringHonorsOverlapAndRetirement(t *testing.T) {
 		t.Fatalf("post-retirement receipt error = %v, want %v", err, ErrKeyNotValid)
 	}
 
-	tooEarly, err := oldSigner.Sign(validReceiptAt(validFrom.Add(-time.Nanosecond)))
+	tooEarly, err := oldSigner.Sign(validReceiptAt(t, validFrom.Add(-time.Nanosecond)))
 	if err != nil {
 		t.Fatalf("sign pre-validity receipt: %v", err)
 	}
@@ -385,21 +386,21 @@ func TestPublicKeyBundleBuildsVerifierForDistributedKeys(t *testing.T) {
 		t.Fatalf("bundle Verifier: %v", err)
 	}
 
-	oldReceipt, err := oldSigner.Sign(validReceiptAt(time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)))
+	oldReceipt, err := oldSigner.Sign(validReceiptAt(t, time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)))
 	if err != nil {
 		t.Fatalf("sign old receipt: %v", err)
 	}
 	if err := verifier.Verify(oldReceipt); err != nil {
 		t.Fatalf("old receipt from bundle verifier: %v", err)
 	}
-	newReceipt, err := newSigner.Sign(validReceiptAt(time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC)))
+	newReceipt, err := newSigner.Sign(validReceiptAt(t, time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC)))
 	if err != nil {
 		t.Fatalf("sign new receipt: %v", err)
 	}
 	if err := verifier.Verify(newReceipt); err != nil {
 		t.Fatalf("new receipt from bundle verifier: %v", err)
 	}
-	late, err := oldSigner.Sign(validReceiptAt(oldRetiredAt.Add(time.Nanosecond)))
+	late, err := oldSigner.Sign(validReceiptAt(t, oldRetiredAt.Add(time.Nanosecond)))
 	if err != nil {
 		t.Fatalf("sign late old receipt: %v", err)
 	}
@@ -418,7 +419,7 @@ func TestQueryReceiptVerifiesAuditInclusionProof(t *testing.T) {
 	events := receiptAuditEvents(t, 5)
 	terminal := events[2]
 	predecessor := events[1]
-	receipt := validReceipt()
+	receipt := validReceipt(t)
 	receipt.AuditSequence = terminal.Sequence
 	receipt.PreviousAuditHash = terminal.PreviousHash
 	receipt.AuditHash = terminal.CurrentHash
@@ -612,11 +613,20 @@ func TestArtifactDeliveryVerifiesAvailabilityInclusion(t *testing.T) {
 // Every other fixture below is this one plus the evidence a condition adds. They
 // are not a version ladder -- there is one version -- they are the experiment
 // conditions the same receipt describes.
-func validReceipt() QueryReceiptV1 {
-	return validReceiptAt(time.Date(2026, 7, 22, 0, 0, 0, int(time.Millisecond), time.UTC))
+func validReceipt(t *testing.T) QueryReceiptV1 {
+	t.Helper()
+	return validReceiptAt(t, time.Date(2026, 7, 22, 0, 0, 0, int(time.Millisecond), time.UTC))
 }
 
-func validReceiptAt(signedAt time.Time) QueryReceiptV1 {
+// validReceiptAt takes a *testing.T because the smallest receipt now carries a
+// sealed execution binding, and sealing can fail.
+//
+// That is the whole of what changed here. A completed query describes its
+// execution whether or not it accounted exposure, so the binding belongs to the
+// baseline rather than to the exposure fixtures built on top of it -- and the
+// non-exposure shape, with no profile and no ledger, is what the baseline is.
+func validReceiptAt(t *testing.T, signedAt time.Time) QueryReceiptV1 {
+	t.Helper()
 	digest := sha256.Sum256([]byte("evidence"))
 	hexDigest := fmt.Sprintf("%x", digest)
 	signedAt = signedAt.UTC()
@@ -634,12 +644,86 @@ func validReceiptAt(signedAt time.Time) QueryReceiptV1 {
 		SignedAt: &signedAt, AuditSequence: 7,
 		PreviousAuditHash: hexDigest, AuditHash: hexDigest,
 		ResultDeliveryMode: DeliveryInline,
+		ExecutionBindingV2: nonExposureExecutionBinding(t, hexDigest),
 	}
 }
 
+// nonExposureExecutionBinding is what a plain query signs: one statement, no
+// companion, no exposure profile and no ledger pre-state.
+//
+// The visible row limit is 10, which is exactly what validReceiptAt's
+// budget_before leaves, because that budget is the only thing this operation
+// derived a limit from.
+func nonExposureExecutionBinding(t *testing.T, fingerprint string) *querybinding.QueryExecutionBindingV2 {
+	t.Helper()
+	budget := BudgetStateV1{Limits: BudgetVectorV1{Queries: 2, Rows: 10, DBMS: 100}, Used: BudgetVectorV1{}}
+	budgetDigest, err := BudgetStateSHA256(budget)
+	if err != nil {
+		t.Fatalf("budget digest: %v", err)
+	}
+	compiler := executionCompiler(t)
+	binding, err := querybinding.QueryExecutionBindingV2{
+		PathKind:           querybinding.PathSingleQuery,
+		PreparedOperation:  preparedOperationFixture(t, false),
+		Compiler:           compiler,
+		VisibleRowLimit:    10,
+		BudgetBeforeSHA256: budgetDigest,
+		Visible: querybinding.TargetRecordV1{
+			Role: querybinding.RoleVisible, Authorized: true, Executed: true,
+			ExactSQLSHA256: fixedDigest("a1"), StrictASTSHA256: fixedDigest("a2"),
+			RowLimit: 10, PolicyFingerprint: "select-fingerprint",
+			PolicyRendererVersion:       compiler.PolicyRendererVersion,
+			PolicyRendererDigest:        compiler.PolicyRendererSHA256,
+			PreparedTargetBindingSHA256: fixedDigest("a4"),
+		},
+	}.Seal()
+	if err != nil {
+		t.Fatalf("seal non-exposure execution binding: %v", err)
+	}
+	return &binding
+}
+
+// sealExposureExecution replaces the baseline's non-exposure binding with one
+// derived under the profile the receipt's exposure evidence names.
+//
+// Every exposure fixture calls it last, because the profile is signed in three
+// places -- the charge, the ledger pre-state and the binding -- and the receipt
+// requires all three to agree. Deriving the other two from the charge is what
+// keeps a fixture that changes the profile from silently describing an operation
+// whose limits were authorized under a different one.
+func sealExposureExecution(t *testing.T, receipt *QueryReceiptV1) {
+	t.Helper()
+	ledger, err := querybinding.ExposureLedgerBeforeV1{
+		ProfileVersion: receipt.Exposure.ProfileVersion,
+		RootTaskID:     receipt.Exposure.RootTaskID,
+		RootEpoch:      receipt.Exposure.RootEpoch,
+		Limits:         querybinding.FactVector{ReleaseFacts: 500, InfluenceFacts: 100, OutcomeFacts: 10},
+		Used:           querybinding.FactVector{ReleaseFacts: 100, InfluenceFacts: 20, OutcomeFacts: 2},
+		Remaining:      querybinding.FactVector{ReleaseFacts: 400, InfluenceFacts: 80, OutcomeFacts: 8},
+		RemainingRows:  10,
+		// A single-query exposure operation: the observation is read from the
+		// visible result alone, so no companion statement is prepared and the
+		// evidence is not expanded.
+		HasExposureContext: true,
+	}.Seal()
+	if err != nil {
+		t.Fatalf("seal exposure ledger pre-state: %v", err)
+	}
+	receipt.ExposureLedgerBefore = &ledger
+	document := *receipt.ExecutionBindingV2
+	document.ExposureProfileVersion = ledger.ProfileVersion
+	document.ExposureLedgerBeforeSHA256 = ledger.SHA256
+	resealed, err := document.Seal()
+	if err != nil {
+		t.Fatalf("seal exposure execution binding: %v", err)
+	}
+	receipt.ExecutionBindingV2 = &resealed
+}
+
 // exposureV1Receipt accounts under a profile with no outcome dimension.
-func exposureV1Receipt() QueryReceiptV1 {
-	receipt := validReceipt()
+func exposureV1Receipt(t *testing.T) QueryReceiptV1 {
+	t.Helper()
+	receipt := validReceipt(t)
 	digest := sha256.Sum256([]byte("normalized exposure observation"))
 	receipt.Exposure = &ExposureEvidenceV1{
 		RootTaskID: "task-root", ProfileVersion: "taskgate-exposure-v1",
@@ -647,33 +731,39 @@ func exposureV1Receipt() QueryReceiptV1 {
 		ChargedReleaseFacts: 2, ChargedInfluenceFacts: 5,
 		ObservationSHA256: fmt.Sprintf("%x", digest),
 	}
+	sealExposureExecution(t, &receipt)
 	return receipt
 }
 
 // exposureV3Receipt adds the outcome dimension.
-func exposureV3Receipt() QueryReceiptV1 {
-	receipt := exposureV1Receipt()
+func exposureV3Receipt(t *testing.T) QueryReceiptV1 {
+	t.Helper()
+	receipt := exposureV1Receipt(t)
 	receipt.Exposure.ProfileVersion = "taskgate-exposure-v3"
 	receipt.Exposure.ActualOutcomeFacts = 1
 	receipt.Exposure.ChargedOutcomeFacts = 1
+	sealExposureExecution(t, &receipt)
 	return receipt
 }
 
 // exposureV4Receipt adds the ordinal ledger identities and the root epoch.
-func exposureV4Receipt() QueryReceiptV1 {
-	receipt := exposureV3Receipt()
+func exposureV4Receipt(t *testing.T) QueryReceiptV1 {
+	t.Helper()
+	receipt := exposureV3Receipt(t)
 	receipt.Exposure.ProfileVersion = "taskgate-exposure-v4"
 	receipt.Exposure.DictionarySetSHA256 = fmt.Sprintf("%064x", 10)
 	receipt.Exposure.ReleaseSetSHA256 = fmt.Sprintf("%064x", 11)
 	receipt.Exposure.InfluenceSetSHA256 = fmt.Sprintf("%064x", 12)
 	receipt.Exposure.OutcomeSetSHA256 = fmt.Sprintf("%064x", 13)
 	receipt.Exposure.RootEpoch = 7
+	sealExposureExecution(t, &receipt)
 	return receipt
 }
 
 // exposureV5Receipt adds the predicate footprint and the composite outcome.
-func exposureV5Receipt() QueryReceiptV1 {
-	receipt := exposureV4Receipt()
+func exposureV5Receipt(t *testing.T) QueryReceiptV1 {
+	t.Helper()
+	receipt := exposureV4Receipt(t)
 	receipt.Exposure.ProfileVersion = "taskgate-exposure-v5"
 	receipt.Exposure.PredicateProfileVersion = "taskgate-predicate-footprint-v1"
 	receipt.Exposure.PredicateContextSHA256 = fmt.Sprintf("%064x", 14)
@@ -685,13 +775,14 @@ func exposureV5Receipt() QueryReceiptV1 {
 	receipt.Exposure.ChargedCompositeCount = 1
 	receipt.Exposure.ActualOutcomeFacts = 2
 	receipt.Exposure.ChargedOutcomeFacts = 2
+	sealExposureExecution(t, &receipt)
 	return receipt
 }
 
 // validArtifactReceipt delivered its result to a registered result object.
 func validArtifactReceipt(t *testing.T) QueryReceiptV1 {
 	t.Helper()
-	receipt := exposureV5Receipt()
+	receipt := exposureV5Receipt(t)
 	receipt.ResultDeliveryMode = DeliveryArtifact
 	expires := receipt.CompletedAt.Add(time.Hour)
 	intent, err := BuildArtifactIntent(ArtifactIntentEvidenceV1{
@@ -768,8 +859,9 @@ func receiptAuditEvents(t *testing.T, count int) []auditchain.Event {
 	return events
 }
 
-func validReleasedReceipt(status, errorCode string) QueryReceiptV1 {
-	receipt := validReceipt()
+func validReleasedReceipt(t *testing.T, status, errorCode string) QueryReceiptV1 {
+	t.Helper()
+	receipt := validReceipt(t)
 	receipt.Status = status
 	receipt.ErrorCode = errorCode
 	receipt.ResultHash = ""
@@ -777,23 +869,29 @@ func validReleasedReceipt(status, errorCode string) QueryReceiptV1 {
 	receipt.DatabaseMS = 0
 	receipt.BudgetCharged = BudgetVectorV1{}
 	receipt.BudgetAfter = receipt.BudgetBefore
-	// A query that did not complete has no result to have delivered.
+	// A query that did not complete has no result to have delivered, and no
+	// execution to describe.
 	receipt.ResultDeliveryMode = DeliveryNone
+	receipt.ExecutionBindingV2 = nil
 	return receipt
 }
 
-func validFailedReceipt() QueryReceiptV1 {
-	receipt := validReceipt()
+func validFailedReceipt(t *testing.T) QueryReceiptV1 {
+	t.Helper()
+	receipt := validReceipt(t)
 	receipt.Status = StatusFailed
 	receipt.ErrorCode = "RESULT_ENCODING_FAILED"
 	receipt.ResultHash = ""
-	// A query that did not complete has no result to have delivered.
+	// A query that did not complete has no result to have delivered, and no
+	// execution to describe.
 	receipt.ResultDeliveryMode = DeliveryNone
+	receipt.ExecutionBindingV2 = nil
 	return receipt
 }
 
-func validIndeterminateReceipt() QueryReceiptV1 {
-	receipt := validReceipt()
+func validIndeterminateReceipt(t *testing.T) QueryReceiptV1 {
+	t.Helper()
+	receipt := validReceipt(t)
 	receipt.Status = StatusIndeterminate
 	receipt.ErrorCode = "GATEWAY_RESTART"
 	receipt.ResultHash = ""
@@ -802,7 +900,9 @@ func validIndeterminateReceipt() QueryReceiptV1 {
 	receipt.BudgetCharged = receipt.BudgetReserved
 	receipt.BudgetAfter.Used = addVector(receipt.BudgetBefore.Used, receipt.BudgetCharged)
 	receipt.BudgetAfter.Reserved = receipt.BudgetBefore.Reserved
-	// A query that did not complete has no result to have delivered.
+	// A query that did not complete has no result to have delivered, and no
+	// execution to describe.
 	receipt.ResultDeliveryMode = DeliveryNone
+	receipt.ExecutionBindingV2 = nil
 	return receipt
 }

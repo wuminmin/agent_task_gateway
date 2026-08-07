@@ -17,6 +17,8 @@ import (
 	"taskbound.local/agent-data-gateway/internal/dataconnector"
 	"taskbound.local/agent-data-gateway/internal/domain"
 	"taskbound.local/agent-data-gateway/internal/exposure"
+	"taskbound.local/agent-data-gateway/internal/preparedbinding"
+	"taskbound.local/agent-data-gateway/internal/querybinding"
 	"taskbound.local/agent-data-gateway/internal/queryplan"
 	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 	"taskbound.local/agent-data-gateway/internal/resultartifact"
@@ -68,6 +70,86 @@ func TestFinalizePipelineResponseHasNonOverlappingTopLevelPhases(t *testing.T) {
 	}
 }
 
+// testExecutionBinding is the persisted execution evidence a completed query
+// carries, built for a receipt-builder test rather than by executing anything.
+//
+// The digests are fixtures; what has to be real is the arithmetic the receipt
+// re-checks, so the ledger's remaining rows are the budget's and the visible row
+// limit is inside what that ledger authorizes.
+func testExecutionBinding(t *testing.T, record control.QueryRecord,
+	profile string, rootEpoch int64) *control.QueryExecutionBinding {
+	t.Helper()
+	fixture := func(seed string) string { return strings.Repeat(seed, 64/len(seed)) }
+	compiler, err := preparedbinding.CompilerIdentityV1{
+		QueryPlanVersion: "queryplan-v7", QueryPlanSHA256: fixture("c2"),
+		PolicyRendererVersion: "sqlpolicy-v3", PolicyRendererSHA256: fixture("a3"),
+	}.Seal()
+	if err != nil {
+		t.Fatalf("seal compiler identity: %v", err)
+	}
+	prepared, err := preparedbinding.PreparedOperationBindingV1{
+		// Not grouped: PreparedOperationBindingV1.UsesExpandedEvidence is the
+		// disjunction of Grouped and ExpandedEvidence, and a fixture that set
+		// one of them would have to seal a pre-state that agrees.
+		VisibleFieldCount: 2, FactFieldCount: 1,
+		VisibleFieldsSHA256:     fixture("11"),
+		FactFieldsSHA256:        fixture("12"),
+		PreparationInputsSHA256: fixture("14"),
+		GrantSHA256:             fixture("15"),
+		CatalogSHA256:           fixture("16"),
+		PlanSHA256:              fixture("18"),
+		CompilerIdentitySHA256:  compiler.SHA256,
+		PolicyGrantSHA256:       fixture("19"),
+		VisibleTargetSHA256:     fixture("a4"),
+	}.Seal()
+	if err != nil {
+		t.Fatalf("seal prepared operation: %v", err)
+	}
+	remainingRows := record.BudgetBefore.Limits.Rows -
+		record.BudgetBefore.Usage.UsedRows - record.BudgetBefore.Usage.ReservedRows
+	budgetDigest, err := queryreceipt.BudgetStateSHA256(queryReceiptBudget(record.BudgetBefore))
+	if err != nil {
+		t.Fatalf("budget digest: %v", err)
+	}
+	document := querybinding.QueryExecutionBindingV2{
+		PathKind: querybinding.PathSingleQuery, PreparedOperation: prepared, Compiler: compiler,
+		VisibleRowLimit: record.ReservedRows, BudgetBeforeSHA256: budgetDigest,
+		Visible: querybinding.TargetRecordV1{
+			Role: querybinding.RoleVisible, Authorized: true, Executed: true,
+			ExactSQLSHA256: fixture("a1"), StrictASTSHA256: fixture("a2"),
+			RowLimit: record.ReservedRows, PolicyFingerprint: record.SQLFingerprint,
+			PolicyRendererVersion:       compiler.PolicyRendererVersion,
+			PolicyRendererDigest:        compiler.PolicyRendererSHA256,
+			PreparedTargetBindingSHA256: fixture("a4"),
+		},
+	}
+	binding := &control.QueryExecutionBinding{QueryID: record.ID}
+	if profile != "" {
+		ledger, ledgerErr := querybinding.ExposureLedgerBeforeV1{
+			ProfileVersion: profile, RootTaskID: record.TaskID, RootEpoch: rootEpoch,
+			Limits:        querybinding.FactVector{ReleaseFacts: 500, InfluenceFacts: 100, OutcomeFacts: 10},
+			Used:          querybinding.FactVector{},
+			Remaining:     querybinding.FactVector{ReleaseFacts: 500, InfluenceFacts: 100, OutcomeFacts: 10},
+			RemainingRows: remainingRows, HasExposureContext: true,
+		}.Seal()
+		if ledgerErr != nil {
+			t.Fatalf("seal exposure ledger pre-state: %v", ledgerErr)
+		}
+		document.ExposureProfileVersion = profile
+		document.ExposureLedgerBeforeSHA256 = ledger.SHA256
+		binding.ExposureLedgerBefore = &ledger
+	}
+	sealed, err := document.Seal()
+	if err != nil {
+		t.Fatalf("seal execution binding: %v", err)
+	}
+	binding.BindingV2 = &sealed
+	if err := binding.Validate(); err != nil {
+		t.Fatalf("the fixture binding does not validate: %v", err)
+	}
+	return binding
+}
+
 func TestBuildQueryReceiptRequestEmitsV8ArtifactIntent(t *testing.T) {
 	digest64 := fmt.Sprintf("%064x", 1)
 	created := time.Date(2026, 8, 1, 1, 0, 0, 0, time.UTC)
@@ -111,12 +193,22 @@ func TestBuildQueryReceiptRequestEmitsV8ArtifactIntent(t *testing.T) {
 		InfluenceSetSHA256: fmt.Sprintf("%064x", 10), OutcomeSetSHA256: fmt.Sprintf("%064x", 11), RootEpoch: 1,
 	}
 	signer := queryreceipt.DemoSigner([]byte("gateway-v8-builder-test"))
-	request, err := BuildQueryReceiptRequest(control.QueryReceipt{
+	evidence := control.QueryReceipt{
 		Query: record, Audit: terminal, Exposure: &exposureCharge,
 		Artifact: &artifact, ArtifactRegistrationAudit: &registration,
-	}, signer, completed)
+		ExecutionBinding: testExecutionBinding(t, record, exposure.ProfileV5, exposureCharge.RootEpoch),
+	}
+	request, err := BuildQueryReceiptRequest(evidence, signer, completed)
 	if err != nil {
 		t.Fatal(err)
+	}
+	// The same evidence without the persisted binding is not a receipt this
+	// build signs. A completed query that describes no execution is refused at
+	// the builder, not merely at a later reader.
+	undescribed := evidence
+	undescribed.ExecutionBinding = nil
+	if _, err := BuildQueryReceiptRequest(undescribed, signer, completed); err == nil {
+		t.Fatal("a completed query with no persisted execution binding was signed")
 	}
 	var signed queryreceipt.QueryReceiptV1
 	if err := json.Unmarshal(request.ReceiptJSON, &signed); err != nil {
@@ -1253,6 +1345,16 @@ func TestDatasourceMismatchFailsQueryClosedBeforeReservation(t *testing.T) {
 	}
 }
 
+// An unapproved column is refused before the Connector and before any
+// reservation, on the plain path as well as the exposure ones.
+//
+// The code changed with the routing: a plain task now lowers its SQL to a
+// canonical plan like every other path, so the refusal comes from lowering
+// (COLUMN_NOT_APPROVED) rather than from the SQL authorizer one layer later
+// (SQL_COLUMN_NOT_ALLOWED). It is the same code an exposure task has always
+// received for this statement, so the change makes the two agree rather than
+// introducing a third answer. What the test is actually about -- that nothing
+// reaches the Business database and no budget is consumed -- is unchanged.
 func TestPolicyDenialFailsBeforeConnectorAndReservation(t *testing.T) {
 	harness := newGatewayHarness(t)
 	harness.createActiveSummaryTask(t, "task-policy-denied")
@@ -1261,7 +1363,7 @@ func TestPolicyDenialFailsBeforeConnectorAndReservation(t *testing.T) {
 		"task_id": "task-policy-denied", "request_id": "policy-denied-1",
 		"sql": "SELECT employee_name FROM expense_summary",
 	})
-	requireToolCode(t, err, string(sqlpolicy.CodeColumnNotAllowed))
+	requireToolCode(t, err, "COLUMN_NOT_APPROVED")
 	if len(harness.connector.requests) != 0 {
 		t.Fatalf("policy-denied query reached connector: %d calls", len(harness.connector.requests))
 	}

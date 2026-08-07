@@ -102,6 +102,10 @@ FOR EACH ROW EXECUTE FUNCTION block_result_commit_until_test_unlock()`); err != 
 		t.Fatal(err)
 	}
 
+	// Built before the goroutine starts, because the helper fails the test on a
+	// bad fixture and a t.Fatalf off the test goroutine is undefined.
+	semanticBinding := replaySemanticBinding(t, reservation)
+
 	type toolOutcome struct {
 		result  map[string]any
 		outcome ordinalReplayOutcome
@@ -111,7 +115,7 @@ FOR EACH ROW EXECUTE FUNCTION block_result_commit_until_test_unlock()`); err != 
 	go func() {
 		result, replayOutcome, callErr := harness.service.tryOrdinalSemanticReplay(context.Background(), fixture.task,
 			reservation.RequestID, reservation.QueryID, fixture.grantDigest, fixture.cacheKey,
-			fixture.dictionarySetDigest, reservation, map[string]float64{})
+			fixture.dictionarySetDigest, reservation, map[string]float64{}, semanticBinding)
 		completed <- toolOutcome{result: result, outcome: replayOutcome, err: callErr}
 	}()
 
@@ -289,7 +293,8 @@ func TestOrdinalSemanticReplayReadsChunkedMaterializationAndWritesFreshChunkedRe
 	}
 	result, replayOutcome, err := harness.service.tryOrdinalSemanticReplay(context.Background(), task,
 		"request-v4-chunked-replay", replayReservation.QueryID, grantDigest, cacheKey,
-		dictionarySetDigest, replayReservation, map[string]float64{})
+		dictionarySetDigest, replayReservation, map[string]float64{},
+		replaySemanticBinding(t, replayReservation))
 	if err != nil || replayOutcome != ordinalReplayCompleted || result["semantic_replay"] != true {
 		t.Fatalf("chunked semantic replay outcome=%v result=%#v err=%v", replayOutcome, result, err)
 	}

@@ -23,8 +23,15 @@ import "fmt"
 //   - which exposure profile accounted the operation is read from
 //     Exposure.ProfileVersion, and decides the shape its evidence must satisfy;
 //   - whether a result object was registered is read from ResultDeliveryMode;
-//   - whether an execution is described is read from whether the binding and its
-//     pre-state are present, which the signature covers as a presence.
+//   - whether an execution is described is not read at all. Every completed
+//     query describes one and nothing else may, so the binding's presence is an
+//     equivalence with the status rather than a variable.
+//
+// Whether the described execution ACCOUNTED exposure is read from the binding's
+// own ExposureProfileVersion, which is empty exactly when the task held no
+// exposure grant. That member decides the presence of both the ledger pre-state
+// and the exposure charge, so a completed non-exposure query is expressible
+// without being handed a fabricated empty ledger to claim it read.
 //
 // The last point is what makes reading the shape from the content safe. Every
 // optional member is signed whether or not it is there -- an inline operation

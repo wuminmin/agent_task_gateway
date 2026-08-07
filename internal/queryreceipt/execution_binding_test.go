@@ -86,79 +86,163 @@ func validExecutionReceipt(t *testing.T) QueryReceiptV1 {
 	return receipt
 }
 
-// V8 keeps working exactly as before. Adding V9 must not have moved any V8
-// signature, so a V8 receipt signs and verifies unchanged.
-func TestV8RemainsValidUnderItsOwnSemantics(t *testing.T) {
-	receipt := validArtifactReceipt(t)
-	signer := DemoSigner([]byte("v8-unchanged"))
-	signed, err := signer.Sign(receipt)
-	if err != nil {
-		t.Fatalf("sign V8: %v", err)
-	}
-	keyring, err := NewKeyring(signer, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := keyring.Verify(signed); err != nil {
-		t.Fatalf("a signed V8 receipt did not verify: %v", err)
-	}
-}
-
 // A receipt that describes no execution must not be able to acquire one.
 //
-// The absence is itself signed -- the payload carries a null binding and a null
-// pre-state -- so stapling one on breaks the signature. ValidateUnsigned catches
-// the incoherent halves before that: a binding without the pre-state its limits
-// derive from, or a pre-state describing no execution.
+// The only receipt that describes none is one that did not complete, which is
+// what makes this test's baseline a released query rather than the completed
+// one it used to be. The absence is itself signed -- the payload carries a null
+// binding and a null pre-state -- so stapling one on breaks the signature.
+// ValidateUnsigned catches it before that: execution evidence on a query that
+// never invoked the Connector is a description of something that did not happen.
 func TestAReceiptWithoutExecutionEvidenceCannotAcquireIt(t *testing.T) {
-	plain := validArtifactReceipt(t)
-	if plain.ExecutionBindingV2 != nil || plain.ExposureLedgerBefore != nil {
+	released := validReleasedReceipt(t, StatusReleased, "BUDGET_EXHAUSTED")
+	if released.ExecutionBindingV2 != nil || released.ExposureLedgerBefore != nil {
 		t.Fatal("the baseline already carries execution evidence")
 	}
-	plain.GatewayKeyID = "gateway-demo-ed25519-v1"
-	if err := plain.ValidateUnsigned(); err != nil {
+	released.GatewayKeyID = "gateway-demo-ed25519-v1"
+	if err := released.ValidateUnsigned(); err != nil {
 		t.Fatalf("the baseline does not validate, so the cases below prove nothing: %v", err)
 	}
 
 	executing := validExecutionReceipt(t)
 	for name, staple := range map[string]func(*QueryReceiptV1){
-		"a binding with no pre-state": func(r *QueryReceiptV1) {
+		"an execution binding": func(r *QueryReceiptV1) {
 			r.ExecutionBindingV2 = executing.ExecutionBindingV2
 		},
 		"a pre-state with no binding": func(r *QueryReceiptV1) {
 			r.ExposureLedgerBefore = executing.ExposureLedgerBefore
 		},
+		"both": func(r *QueryReceiptV1) {
+			r.ExecutionBindingV2 = executing.ExecutionBindingV2
+			r.ExposureLedgerBefore = executing.ExposureLedgerBefore
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			stapled := plain
+			stapled := released
 			staple(&stapled)
 			if err := stapled.ValidateUnsigned(); err == nil {
-				t.Fatalf("a receipt carrying %s was accepted", name)
+				t.Fatalf("a released receipt carrying %s was accepted", name)
 			}
 		})
 	}
 
-	// And stapling both is refused by the signature rather than by the shape,
-	// because both together are a coherent shape -- just not the one that was
-	// signed.
-	t.Run("both, past the signature", func(t *testing.T) {
+	// And a completed receipt cannot shed the evidence it was signed with. The
+	// shape rule refuses it first; past that, the signature covers the absence.
+	t.Run("a completed receipt cannot shed its binding", func(t *testing.T) {
 		signer := DemoSigner([]byte("staple"))
 		keyring, err := NewKeyring(signer, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		signed, err := signer.Sign(plain)
+		signed, err := signer.Sign(executing)
 		if err != nil {
-			t.Fatalf("sign the baseline: %v", err)
+			t.Fatalf("sign the execution receipt: %v", err)
 		}
 		if err := keyring.Verify(signed); err != nil {
-			t.Fatalf("the signed baseline does not verify: %v", err)
+			t.Fatalf("the signed execution receipt does not verify: %v", err)
 		}
-		stapled := signed
-		stapled.ExecutionBindingV2 = executing.ExecutionBindingV2
-		stapled.ExposureLedgerBefore = executing.ExposureLedgerBefore
-		if err := keyring.Verify(stapled); err == nil {
-			t.Fatal("a receipt that acquired execution evidence after signing still verified")
+		stripped := signed
+		stripped.ExecutionBindingV2 = nil
+		stripped.ExposureLedgerBefore = nil
+		if err := keyring.Verify(stripped); err == nil {
+			t.Fatal("a completed receipt that shed its execution evidence still verified")
+		}
+	})
+}
+
+// The contract's forward direction, stated on its own: a completed query that
+// carries no execution binding is refused, whatever else about it is well
+// formed.
+//
+// This is the transitional opening the single-receipt collapse left behind. The
+// validator returned success for a missing binding, which meant every claim the
+// paper makes about reconstructible execution evidence held only for the
+// receipts that happened to carry it.
+func TestACompletedReceiptMustDescribeItsExecution(t *testing.T) {
+	for name, build := range map[string]func(*testing.T) QueryReceiptV1{
+		"no exposure":  validReceipt,
+		"exposure v3":  exposureV3Receipt,
+		"exposure v5":  exposureV5Receipt,
+		"artifact":     validArtifactReceipt,
+		"paired novel": validExecutionReceipt,
+	} {
+		t.Run(name, func(t *testing.T) {
+			receipt := build(t)
+			receipt.GatewayKeyID = "gateway-demo-ed25519-v1"
+			if err := receipt.ValidateUnsigned(); err != nil {
+				t.Fatalf("the baseline does not validate: %v", err)
+			}
+			receipt.ExecutionBindingV2 = nil
+			receipt.ExposureLedgerBefore = nil
+			if err := receipt.ValidateUnsigned(); err == nil {
+				t.Fatal("a completed receipt describing no execution was accepted")
+			}
+		})
+	}
+}
+
+// A completed operation that accounted no exposure is expressible, and is held
+// to the shape that says so.
+//
+// Its limits reproduce from budget_before alone, which is the whole reason it
+// needs no fabricated empty ledger: there is a real pre-state it derived from,
+// and the receipt already signs it.
+func TestTheNonExposureCompletedShape(t *testing.T) {
+	baseline := validReceipt(t)
+	baseline.GatewayKeyID = "gateway-demo-ed25519-v1"
+	if err := baseline.ValidateUnsigned(); err != nil {
+		t.Fatalf("the non-exposure completed shape was rejected: %v", err)
+	}
+	if baseline.ExecutionBindingV2.ExposureProfileVersion != "" ||
+		baseline.ExecutionBindingV2.ExposureLedgerBeforeSHA256 != "" {
+		t.Fatal("the non-exposure binding names an exposure profile or pre-state")
+	}
+
+	exposureReceipt := exposureV3Receipt(t)
+	for name, mutate := range map[string]func(*QueryReceiptV1){
+		"a ledger pre-state it did not read": func(r *QueryReceiptV1) {
+			r.ExposureLedgerBefore = exposureReceipt.ExposureLedgerBefore
+		},
+		"an exposure charge it did not settle": func(r *QueryReceiptV1) {
+			r.Exposure = exposureReceipt.Exposure
+		},
+		"a visible limit above what the budget left": func(r *QueryReceiptV1) {
+			document := *r.ExecutionBindingV2
+			document.VisibleRowLimit = r.BudgetBefore.Limits.Rows + 1
+			document.Visible.RowLimit = document.VisibleRowLimit
+			resealed, err := document.Seal()
+			if err != nil {
+				t.Fatalf("reseal: %v", err)
+			}
+			r.ExecutionBindingV2 = &resealed
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			receipt := baseline
+			mutate(&receipt)
+			if err := receipt.ValidateUnsigned(); err == nil {
+				t.Fatalf("a non-exposure completed receipt carrying %s was accepted", name)
+			}
+		})
+	}
+
+	// The mirror image: an exposure operation cannot drop the profile from its
+	// binding and keep the charge, which is how it would borrow the non-exposure
+	// shape's freedom from having to reproduce its limits.
+	t.Run("an exposure operation cannot claim the non-exposure shape", func(t *testing.T) {
+		receipt := exposureV3Receipt(t)
+		document := *receipt.ExecutionBindingV2
+		document.ExposureProfileVersion = ""
+		document.ExposureLedgerBeforeSHA256 = ""
+		resealed, err := document.Seal()
+		if err != nil {
+			// V2's own shape rule refuses this before it can be sealed, which is
+			// the outcome this case wants.
+			return
+		}
+		receipt.ExecutionBindingV2 = &resealed
+		if err := receipt.ValidateUnsigned(); err == nil {
+			t.Fatal("an exposure receipt whose binding named no profile was accepted")
 		}
 	})
 }

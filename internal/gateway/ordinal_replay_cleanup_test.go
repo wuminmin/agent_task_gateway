@@ -14,7 +14,11 @@ import (
 	"taskbound.local/agent-data-gateway/internal/dataconnector"
 	"taskbound.local/agent-data-gateway/internal/exposure"
 	"taskbound.local/agent-data-gateway/internal/ordinal"
+	"taskbound.local/agent-data-gateway/internal/physicalquery"
+	"taskbound.local/agent-data-gateway/internal/preparedbinding"
+	"taskbound.local/agent-data-gateway/internal/querybinding"
 	"taskbound.local/agent-data-gateway/internal/queryplan"
+	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 )
 
 type ordinalReplayTestFixture struct {
@@ -189,7 +193,7 @@ func TestOrdinalSemanticReplayNormalMissKeepsReservationForNovelPath(t *testing.
 
 	result, outcome, err := fixture.harness.service.tryOrdinalSemanticReplay(context.Background(), fixture.task,
 		reservation.RequestID, reservation.QueryID, fixture.grantDigest, missingKey,
-		fixture.dictionarySetDigest, reservation, map[string]float64{})
+		fixture.dictionarySetDigest, reservation, map[string]float64{}, nil)
 	if err != nil || outcome != ordinalReplayContinueNovel || result != nil {
 		t.Fatalf("normal miss result=%#v outcome=%v err=%v", result, outcome, err)
 	}
@@ -222,7 +226,7 @@ func TestOrdinalSemanticReplayRejectsChangedPublicationBindingEvenWithReusedCach
 	reservation := fixture.reserve(t, "query-v4-replay-publication-change", "request-v4-replay-publication-change")
 	result, outcome, err := fixture.harness.service.tryOrdinalSemanticReplay(context.Background(), fixture.task,
 		reservation.RequestID, reservation.QueryID, fixture.grantDigest, fixture.cacheKey,
-		changedDigest, reservation, map[string]float64{})
+		changedDigest, reservation, map[string]float64{}, nil)
 	if err != nil || outcome != ordinalReplayContinueNovel || result != nil {
 		t.Fatalf("changed-publication replay result=%#v outcome=%v err=%v", result, outcome, err)
 	}
@@ -245,7 +249,7 @@ func TestOrdinalSemanticReplayPreservesExactJSONNumbers(t *testing.T) {
 
 	result, outcome, err := fixture.harness.service.tryOrdinalSemanticReplay(context.Background(), fixture.task,
 		reservation.RequestID, reservation.QueryID, fixture.grantDigest, fixture.cacheKey,
-		fixture.dictionarySetDigest, reservation, map[string]float64{})
+		fixture.dictionarySetDigest, reservation, map[string]float64{}, replaySemanticBinding(t, reservation))
 	if err != nil || outcome != ordinalReplayCompleted || result["semantic_replay"] != true {
 		t.Fatalf("exact-number replay outcome=%v result=%#v err=%v", outcome, result, err)
 	}
@@ -277,7 +281,7 @@ func TestOrdinalSemanticReplayDoesNotReuseResultAboveFreshRowAllowance(t *testin
 
 	result, outcome, err := fixture.harness.service.tryOrdinalSemanticReplay(context.Background(), fixture.task,
 		reservation.RequestID, reservation.QueryID, fixture.grantDigest, fixture.cacheKey,
-		fixture.dictionarySetDigest, reservation, map[string]float64{})
+		fixture.dictionarySetDigest, reservation, map[string]float64{}, nil)
 	if err != nil || outcome != ordinalReplayContinueNovel || result != nil {
 		t.Fatalf("over-allowance replay result=%#v outcome=%v err=%v", result, outcome, err)
 	}
@@ -293,7 +297,7 @@ func TestOrdinalSemanticReplayInvalidMaterializationEvictsAndKeepsReservationFor
 
 	result, outcome, err := fixture.harness.service.tryOrdinalSemanticReplay(context.Background(), fixture.task,
 		reservation.RequestID, reservation.QueryID, fixture.grantDigest, fixture.cacheKey,
-		fixture.dictionarySetDigest, reservation, map[string]float64{})
+		fixture.dictionarySetDigest, reservation, map[string]float64{}, nil)
 	if err != nil || outcome != ordinalReplayContinueNovel || result != nil {
 		t.Fatalf("invalid materialization result=%#v outcome=%v err=%v", result, outcome, err)
 	}
@@ -317,7 +321,7 @@ func TestOrdinalSemanticReplayOperationalLookupErrorReleasesReservation(t *testi
 
 	_, outcome, err := fixture.harness.service.tryOrdinalSemanticReplay(canceled, fixture.task,
 		reservation.RequestID, reservation.QueryID, fixture.grantDigest, fixture.cacheKey,
-		fixture.dictionarySetDigest, reservation, map[string]float64{})
+		fixture.dictionarySetDigest, reservation, map[string]float64{}, nil)
 	if err == nil || outcome != ordinalReplayTerminated {
 		t.Fatalf("lookup error outcome=%v err=%v", outcome, err)
 	}
@@ -344,7 +348,7 @@ FOR EACH ROW EXECUTE FUNCTION force_replay_eviction_failure_fn()`); err != nil {
 
 	_, outcome, err := fixture.harness.service.tryOrdinalSemanticReplay(context.Background(), fixture.task,
 		reservation.RequestID, reservation.QueryID, fixture.grantDigest, fixture.cacheKey,
-		fixture.dictionarySetDigest, reservation, map[string]float64{})
+		fixture.dictionarySetDigest, reservation, map[string]float64{}, nil)
 	if err == nil || outcome != ordinalReplayTerminated {
 		t.Fatalf("eviction error outcome=%v err=%v", outcome, err)
 	}
@@ -406,7 +410,7 @@ func TestOrdinalSemanticReplaySpoolErrorsFailReservation(t *testing.T) {
 
 			_, outcome, err := fixture.harness.service.tryOrdinalSemanticReplayWithSpool(context.Background(), fixture.task,
 				reservation.RequestID, reservation.QueryID, fixture.grantDigest, fixture.cacheKey,
-				fixture.dictionarySetDigest, reservation, map[string]float64{}, factory)
+				fixture.dictionarySetDigest, reservation, map[string]float64{}, factory, nil)
 			if err == nil || outcome != ordinalReplayTerminated {
 				t.Fatalf("spool %s outcome=%v err=%v", phase, outcome, err)
 			}
@@ -434,7 +438,8 @@ func TestOrdinalSemanticReplayPostCommitReadbackErrorDoesNotCleanCompletedQuery(
 
 	_, outcome, err := fixture.harness.service.tryOrdinalSemanticReplayWithSpool(replayCtx, fixture.task,
 		reservation.RequestID, reservation.QueryID, fixture.grantDigest, fixture.cacheKey,
-		fixture.dictionarySetDigest, reservation, map[string]float64{}, factory)
+		fixture.dictionarySetDigest, reservation, map[string]float64{}, factory,
+		replaySemanticBinding(t, reservation))
 	if err == nil || outcome != ordinalReplayCompleted {
 		t.Fatalf("post-commit readback outcome=%v err=%v", outcome, err)
 	}
@@ -444,4 +449,91 @@ func TestOrdinalSemanticReplayPostCommitReadbackErrorDoesNotCleanCompletedQuery(
 		reservation.QueryID); resultErr != nil {
 		t.Fatalf("committed replay result unavailable: %v", resultErr)
 	}
+}
+
+// replaySemanticBinding is the execution binding a semantic-replay settlement
+// carries, for the tests that drive tryOrdinalSemanticReplay directly.
+//
+// It is built from the reservation's own authoritative pre-states -- the same
+// budget snapshot and exposure ledger production reads under the task lock --
+// through the same exposureLedgerBefore that production uses, so the receipt's
+// limit reproduction is checked against real numbers rather than fixture ones.
+// Only the preparation is synthetic: these fixtures materialize an observation
+// directly in the store and never compile a statement.
+func replaySemanticBinding(t *testing.T, reservation control.BudgetReservation) *control.QueryExecutionBinding {
+	t.Helper()
+	if reservation.ExposureLedgerBefore == nil {
+		t.Fatal("the reservation carries no exposure ledger pre-state")
+	}
+	fixture := func(seed string) string { return strings.Repeat(seed, 64/len(seed)) }
+	compiler, err := preparedbinding.CompilerIdentityV1{
+		QueryPlanVersion: "queryplan-v7", QueryPlanSHA256: fixture("c2"),
+		PolicyRendererVersion: "sqlpolicy-v3", PolicyRendererSHA256: fixture("a3"),
+	}.Seal()
+	if err != nil {
+		t.Fatalf("seal compiler identity: %v", err)
+	}
+	prepared, err := preparedbinding.PreparedOperationBindingV1{
+		Grouped: true, VisibleFieldCount: 2, FactFieldCount: 1,
+		VisibleFieldsSHA256:     fixture("11"),
+		FactFieldsSHA256:        fixture("12"),
+		PreparationInputsSHA256: fixture("14"),
+		GrantSHA256:             fixture("15"),
+		CatalogSHA256:           fixture("16"),
+		PlanSHA256:              fixture("18"),
+		CompilerIdentitySHA256:  compiler.SHA256,
+		PolicyGrantSHA256:       fixture("19"),
+		VisibleTargetSHA256:     fixture("a4"),
+	}.Seal()
+	if err != nil {
+		t.Fatalf("seal prepared operation: %v", err)
+	}
+	ledgerSnapshot := *reservation.ExposureLedgerBefore
+	remainingRows := reservation.Before.Remaining().Rows
+	state := physicalquery.LedgerPreState{
+		RemainingRows: remainingRows, HasExposureContext: true,
+		InfluenceFacts:       ledgerSnapshot.Limits.InfluenceFacts,
+		UsesExpandedEvidence: prepared.UsesExpandedEvidence(),
+	}
+	ledger, err := exposureLedgerBefore(ledgerSnapshot, reservation.Before, state)
+	if err != nil {
+		t.Fatalf("seal exposure ledger pre-state: %v", err)
+	}
+	budgetDigest, err := queryreceipt.BudgetStateSHA256(queryReceiptBudget(reservation.Before))
+	if err != nil {
+		t.Fatalf("budget digest: %v", err)
+	}
+	// The limit the signed pre-state authorizes, derived the way the receipt
+	// re-derives it: the row budget, narrowed by the influence limit when the
+	// evidence is not expanded.
+	visibleRowLimit := remainingRows
+	if !state.UsesExpandedEvidence && ledgerSnapshot.Limits.InfluenceFacts < visibleRowLimit {
+		visibleRowLimit = ledgerSnapshot.Limits.InfluenceFacts
+	}
+	document, err := querybinding.QueryExecutionBindingV2{
+		PathKind: querybinding.PathSemanticReplay, PreparedOperation: prepared, Compiler: compiler,
+		ExposureProfileVersion: ledger.ProfileVersion,
+		VisibleRowLimit:        visibleRowLimit,
+		BudgetBeforeSHA256:     budgetDigest, ExposureLedgerBeforeSHA256: ledger.SHA256,
+		Visible: querybinding.TargetRecordV1{
+			// Authorized but not executed: deriving the replay key requires
+			// authorizing the statement, and nothing reaches the Connector.
+			Role: querybinding.RoleVisible, Authorized: true, Executed: false,
+			ExactSQLSHA256: fixture("a1"), StrictASTSHA256: fixture("a2"),
+			RowLimit: visibleRowLimit, PolicyFingerprint: "replay-fingerprint",
+			PolicyRendererVersion:       compiler.PolicyRendererVersion,
+			PolicyRendererDigest:        compiler.PolicyRendererSHA256,
+			PreparedTargetBindingSHA256: fixture("a4"),
+		},
+	}.Seal()
+	if err != nil {
+		t.Fatalf("seal semantic replay binding: %v", err)
+	}
+	binding := &control.QueryExecutionBinding{
+		QueryID: reservation.QueryID, BindingV2: &document, ExposureLedgerBefore: &ledger,
+	}
+	if err := binding.Validate(); err != nil {
+		t.Fatalf("the fixture replay binding does not validate: %v", err)
+	}
+	return binding
 }

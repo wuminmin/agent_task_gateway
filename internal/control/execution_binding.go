@@ -21,9 +21,17 @@ import (
 // could differ from what was signed while every individual field still looked
 // right.
 type QueryExecutionBinding struct {
-	QueryID              string
-	BindingV2            *querybinding.QueryExecutionBindingV2
-	ExposureLedgerBefore querybinding.ExposureLedgerBeforeV1
+	QueryID   string
+	BindingV2 *querybinding.QueryExecutionBindingV2
+	// ExposureLedgerBefore is present exactly when the binding derives its limits
+	// under an exposure profile.
+	//
+	// It is a pointer rather than a value because an operation on a task with no
+	// exposure grant reads no ledger, and the alternative is to store a zero one.
+	// A zero ledger is not "no ledger": it is a document saying limits and used
+	// counts were read and were zero, which is a stronger and false claim, and it
+	// would be signed into the receipt as though it had been.
+	ExposureLedgerBefore *querybinding.ExposureLedgerBeforeV1
 	CreatedAt            time.Time
 }
 
@@ -49,6 +57,15 @@ func (binding QueryExecutionBinding) SHA256() string {
 		return ""
 	}
 	return binding.BindingV2.SHA256
+}
+
+// LedgerSHA256 is the stored pre-state's digest, or the empty string when the
+// operation accounted no exposure and read none.
+func (binding QueryExecutionBinding) LedgerSHA256() string {
+	if binding.ExposureLedgerBefore == nil {
+		return ""
+	}
+	return binding.ExposureLedgerBefore.SHA256
 }
 
 // PreparedOperation is the sealed preparation the stored row describes, and
@@ -82,20 +99,58 @@ func (binding QueryExecutionBinding) Validate() error {
 	if binding.BindingV2 == nil {
 		return fmt.Errorf("execution binding for %s carries no execution binding document", binding.QueryID)
 	}
-	if err := binding.ExposureLedgerBefore.Validate(); err != nil {
-		return fmt.Errorf("exposure ledger pre-state: %w", err)
-	}
 	if err := binding.BindingV2.Validate(); err != nil {
 		return fmt.Errorf("query execution binding v2: %w", err)
+	}
+	// The document says whether this operation accounted exposure, and the stored
+	// pre-state must be there exactly when it did. Deciding from the row's own
+	// nilness instead would let the two disagree: a binding derived under a
+	// profile could be stored beside no pre-state, and the limits would be
+	// reproducible against nothing.
+	if (binding.ExposureLedgerBefore != nil) != (binding.BindingV2.ExposureProfileVersion != "") {
+		if binding.ExposureLedgerBefore == nil {
+			return fmt.Errorf("the execution binding for %s derives under exposure profile %q but the row "+
+				"carries no pre-state", binding.QueryID, binding.BindingV2.ExposureProfileVersion)
+		}
+		return fmt.Errorf("the execution binding for %s accounts no exposure but the row carries a "+
+			"ledger pre-state", binding.QueryID)
+	}
+	if binding.ExposureLedgerBefore == nil {
+		return nil
+	}
+	if err := binding.ExposureLedgerBefore.Validate(); err != nil {
+		return fmt.Errorf("exposure ledger pre-state: %w", err)
 	}
 	namedLedger := binding.BindingV2.ExposureLedgerBeforeSHA256
 	// The binding must name the pre-state stored beside it. Without this the two
 	// rows could describe different operations while each validated alone.
-	if namedLedger != binding.ExposureLedgerBefore.SHA256 {
+	if namedLedger != binding.LedgerSHA256() {
 		return fmt.Errorf("the execution binding names exposure pre-state %s but the row carries %s",
-			shortDigestValue(namedLedger), shortDigestValue(binding.ExposureLedgerBefore.SHA256))
+			shortDigestValue(namedLedger), shortDigestValue(binding.LedgerSHA256()))
 	}
 	return nil
+}
+
+// nullString and nullBytes send an absent pre-state as SQL NULL rather than as
+// an empty value.
+//
+// The distinction is the whole point of the column being nullable: '' and a
+// zero-length BYTEA are values a row can carry, and the CHECK constraints that
+// keep a present pre-state well-formed would have to be relaxed to admit them.
+// NULL is refused by those constraints only when the other column is non-NULL,
+// which is exactly the pairing the schema states.
+func nullString(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
+}
+
+func nullBytes(value []byte) any {
+	if len(value) == 0 {
+		return nil
+	}
+	return value
 }
 
 func shortDigestValue(digest string) string {
@@ -120,7 +175,13 @@ func (binding QueryExecutionBinding) canonicalDocuments() (bindingJSON, ledgerJS
 	if err != nil {
 		return nil, nil, fmt.Errorf("canonicalize query execution binding: %w", err)
 	}
-	ledgerJSON, err = canonicalDocument(binding.ExposureLedgerBefore)
+	// A nil ledger renders as nil bytes, not as the encoding of a zero ledger.
+	// The column is NULL for the same reason the member is a pointer: the row
+	// must say that no pre-state was read, not that one was read and was empty.
+	if binding.ExposureLedgerBefore == nil {
+		return bindingJSON, nil, nil
+	}
+	ledgerJSON, err = canonicalDocument(*binding.ExposureLedgerBefore)
 	if err != nil {
 		return nil, nil, fmt.Errorf("canonicalize exposure ledger pre-state: %w", err)
 	}
@@ -176,7 +237,7 @@ INSERT INTO query_execution_bindings
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 ON CONFLICT (query_id) DO NOTHING`,
 		binding.QueryID, binding.Version(), bindingJSON, binding.SHA256(),
-		ledgerJSON, binding.ExposureLedgerBefore.SHA256,
+		nullBytes(ledgerJSON), nullString(binding.LedgerSHA256()),
 		string(binding.PathKind()), dbTime(now))
 	if err != nil {
 		return err
@@ -247,7 +308,7 @@ func requireIdenticalStoredBindingTx(ctx context.Context, tx *sql.Tx, binding Qu
 		stored, wanted string
 	}{
 		{"binding_sha256", stored.SHA256(), binding.SHA256()},
-		{"exposure_ledger_before_sha256", stored.ExposureLedgerBefore.SHA256, binding.ExposureLedgerBefore.SHA256},
+		{"exposure_ledger_before_sha256", stored.LedgerSHA256(), binding.LedgerSHA256()},
 		{"path_kind", string(stored.PathKind()), string(binding.PathKind())},
 	} {
 		if field.stored != field.wanted {
@@ -320,13 +381,23 @@ func scanStoredExecutionBinding(row rowScanner) (QueryExecutionBinding, []byte, 
 		bindingJSON    []byte
 		bindingSHA     string
 		ledgerJSON     []byte
-		ledgerSHA      string
+		ledgerSHA      sql.NullString
 		pathKind       string
 		createdAt      time.Time
 	)
 	if err := row.Scan(&binding.QueryID, &bindingVersion, &bindingJSON, &bindingSHA, &ledgerJSON,
 		&ledgerSHA, &pathKind, &createdAt); err != nil {
 		return QueryExecutionBinding{}, nil, nil, err
+	}
+	// The two pre-state columns are NULL together or neither. The schema states
+	// it as a constraint; stating it again here is what keeps a row written by
+	// some other client from decoding into a binding with a digest and no
+	// document, which would then compare equal to nothing and read as corruption
+	// rather than as the violation it is.
+	if ledgerSHA.Valid != (len(ledgerJSON) > 0) {
+		return QueryExecutionBinding{}, nil, nil, fmt.Errorf(
+			"the stored execution binding for %s carries only half of its exposure pre-state",
+			binding.QueryID)
 	}
 	// The stored version is checked rather than assumed, and a row naming
 	// anything else is refused outright rather than decoded on the chance that it
@@ -341,8 +412,12 @@ func scanStoredExecutionBinding(row rowScanner) (QueryExecutionBinding, []byte, 
 		return QueryExecutionBinding{}, nil, nil, fmt.Errorf("decode query execution binding v2: %w", err)
 	}
 	binding.BindingV2 = &decoded
-	if err := strictUnmarshal(ledgerJSON, &binding.ExposureLedgerBefore); err != nil {
-		return QueryExecutionBinding{}, nil, nil, fmt.Errorf("decode exposure ledger pre-state: %w", err)
+	if len(ledgerJSON) > 0 {
+		var ledger querybinding.ExposureLedgerBeforeV1
+		if err := strictUnmarshal(ledgerJSON, &ledger); err != nil {
+			return QueryExecutionBinding{}, nil, nil, fmt.Errorf("decode exposure ledger pre-state: %w", err)
+		}
+		binding.ExposureLedgerBefore = &ledger
 	}
 	binding.CreatedAt = createdAt.UTC()
 	// The denormalized columns are redundant with the documents on purpose. A
@@ -361,10 +436,10 @@ func scanStoredExecutionBinding(row rowScanner) (QueryExecutionBinding, []byte, 
 			"stored execution binding digests to %s but its row records %s",
 			shortDigestValue(binding.SHA256()), shortDigestValue(bindingSHA))
 	}
-	if binding.ExposureLedgerBefore.SHA256 != ledgerSHA {
+	if binding.LedgerSHA256() != ledgerSHA.String {
 		return QueryExecutionBinding{}, nil, nil, fmt.Errorf(
 			"stored exposure pre-state digests to %s but its row records %s",
-			shortDigestValue(binding.ExposureLedgerBefore.SHA256), shortDigestValue(ledgerSHA))
+			shortDigestValue(binding.LedgerSHA256()), shortDigestValue(ledgerSHA.String))
 	}
 	if string(binding.PathKind()) != pathKind {
 		return QueryExecutionBinding{}, nil, nil, fmt.Errorf(

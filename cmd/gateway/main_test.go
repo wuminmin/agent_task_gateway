@@ -22,6 +22,8 @@ import (
 	"taskbound.local/agent-data-gateway/internal/auditchain"
 	"taskbound.local/agent-data-gateway/internal/control"
 	"taskbound.local/agent-data-gateway/internal/domain"
+	"taskbound.local/agent-data-gateway/internal/preparedbinding"
+	"taskbound.local/agent-data-gateway/internal/querybinding"
 	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 	"taskbound.local/agent-data-gateway/internal/testpostgres"
 )
@@ -99,14 +101,14 @@ func TestQueryReceiptPublicKeyBundleFromEnvPublishesActiveAndHistoricalKeys(t *t
 	if err != nil {
 		t.Fatalf("bundle Verifier: %v", err)
 	}
-	oldReceipt, err := oldSigner.Sign(testQueryReceipt(time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)))
+	oldReceipt, err := oldSigner.Sign(testQueryReceipt(t, time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)))
 	if err != nil {
 		t.Fatalf("sign old receipt: %v", err)
 	}
 	if err := verifier.Verify(oldReceipt); err != nil {
 		t.Fatalf("old receipt did not verify from published bundle: %v", err)
 	}
-	activeReceipt, err := activeSigner.Sign(testQueryReceipt(time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC)))
+	activeReceipt, err := activeSigner.Sign(testQueryReceipt(t, time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC)))
 	if err != nil {
 		t.Fatalf("sign active receipt: %v", err)
 	}
@@ -151,7 +153,7 @@ func TestQueryReceiptKeyringHandlerPublishesVerifierBundle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("published bundle Verifier: %v", err)
 	}
-	receipt, err := signer.Sign(testQueryReceipt(time.Date(2026, 7, 22, 1, 0, 0, 0, time.UTC)))
+	receipt, err := signer.Sign(testQueryReceipt(t, time.Date(2026, 7, 22, 1, 0, 0, 0, time.UTC)))
 	if err != nil {
 		t.Fatalf("sign receipt: %v", err)
 	}
@@ -386,10 +388,11 @@ func testAuditAnchorSigner(t *testing.T, keyID string, fill byte) *auditchain.An
 	return signer
 }
 
-func testQueryReceipt(signedAt time.Time) queryreceipt.QueryReceiptV1 {
+func testQueryReceipt(t *testing.T, signedAt time.Time) queryreceipt.QueryReceiptV1 {
+	t.Helper()
 	completedAt := signedAt.Add(-time.Second)
 	createdAt := completedAt.Add(-time.Minute)
-	return queryreceipt.QueryReceiptV1{
+	receipt := queryreceipt.QueryReceiptV1{
 		Version: queryreceipt.Version,
 		// A completed operation that returned its rows in the response and
 		// registered no result object.
@@ -428,6 +431,8 @@ func testQueryReceipt(signedAt time.Time) queryreceipt.QueryReceiptV1 {
 		AuditHash:         strings.Repeat("8", 64),
 		SignedAt:          &signedAt,
 	}
+	receipt.ExecutionBindingV2 = testExecutionBinding(t, receipt)
+	return receipt
 }
 
 func openGatewayTestStore(t *testing.T) *control.Store {
@@ -454,4 +459,60 @@ func testApprovalReceipt(issuedAt time.Time) approval.ApprovalReceiptV1 {
 		ApproverID:     "bob",
 		IssuedAt:       issuedAt,
 	}
+}
+
+// testExecutionBinding is the execution evidence every completed receipt now
+// carries, in its simplest shape: one statement, no companion, no exposure.
+//
+// The digests are fixtures. What has to be real is the arithmetic the receipt
+// re-checks -- the binding names the budget the receipt signs, and its visible
+// row limit is inside what that budget left.
+func testExecutionBinding(t *testing.T, receipt queryreceipt.QueryReceiptV1) *querybinding.QueryExecutionBindingV2 {
+	t.Helper()
+	fixture := func(seed string) string { return strings.Repeat(seed, 64/len(seed)) }
+	compiler, err := preparedbinding.CompilerIdentityV1{
+		QueryPlanVersion: "queryplan-v7", QueryPlanSHA256: fixture("c2"),
+		PolicyRendererVersion: "sqlpolicy-v3", PolicyRendererSHA256: fixture("a3"),
+	}.Seal()
+	if err != nil {
+		t.Fatalf("seal compiler identity: %v", err)
+	}
+	prepared, err := preparedbinding.PreparedOperationBindingV1{
+		// Not grouped: PreparedOperationBindingV1.UsesExpandedEvidence is the
+		// disjunction of Grouped and ExpandedEvidence, and a fixture that set
+		// one of them would have to seal a pre-state that agrees.
+		VisibleFieldCount: 2, FactFieldCount: 1,
+		VisibleFieldsSHA256:     fixture("11"),
+		FactFieldsSHA256:        fixture("12"),
+		PreparationInputsSHA256: fixture("14"),
+		GrantSHA256:             fixture("15"),
+		CatalogSHA256:           fixture("16"),
+		PlanSHA256:              fixture("18"),
+		CompilerIdentitySHA256:  compiler.SHA256,
+		PolicyGrantSHA256:       fixture("19"),
+		VisibleTargetSHA256:     fixture("a4"),
+	}.Seal()
+	if err != nil {
+		t.Fatalf("seal prepared operation: %v", err)
+	}
+	budgetDigest, err := queryreceipt.BudgetStateSHA256(receipt.BudgetBefore)
+	if err != nil {
+		t.Fatalf("budget digest: %v", err)
+	}
+	binding, err := querybinding.QueryExecutionBindingV2{
+		PathKind: querybinding.PathSingleQuery, PreparedOperation: prepared, Compiler: compiler,
+		VisibleRowLimit: receipt.BudgetReserved.Rows, BudgetBeforeSHA256: budgetDigest,
+		Visible: querybinding.TargetRecordV1{
+			Role: querybinding.RoleVisible, Authorized: true, Executed: true,
+			ExactSQLSHA256: fixture("a1"), StrictASTSHA256: fixture("a2"),
+			RowLimit: receipt.BudgetReserved.Rows, PolicyFingerprint: receipt.SQLFingerprint,
+			PolicyRendererVersion:       compiler.PolicyRendererVersion,
+			PolicyRendererDigest:        compiler.PolicyRendererSHA256,
+			PreparedTargetBindingSHA256: fixture("a4"),
+		},
+	}.Seal()
+	if err != nil {
+		t.Fatalf("seal execution binding: %v", err)
+	}
+	return &binding
 }

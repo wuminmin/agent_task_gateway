@@ -377,8 +377,17 @@ func (context *planExposureContext) deriveObservationV2(visible, provenance data
 	return exposure.ObserveV2(aggregated, context.visibleFields...)
 }
 
+// usesExpandedEvidence is asked of the sealed preparation, not recomputed from
+// the members copied off it.
+//
+// The disjunction used to be written here as well as inside the receipt's
+// binding, and the two spellings disagreed: this one combined grouped with
+// expanded evidence, the binding read expanded evidence alone. Production
+// derived its limits by this rule and then signed a binding whose own
+// arithmetic rejected them -- which only showed up once every profile began
+// signing one.
 func (context *planExposureContext) usesExpandedEvidence() bool {
-	return context.grouped || context.expandedEvidence
+	return context.prepared.Binding().UsesExpandedEvidence()
 }
 
 func catalogFieldByName(fields []catalog.Field, name string) (catalog.Field, bool) {

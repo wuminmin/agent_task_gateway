@@ -29,7 +29,11 @@ func executionCompiler(t *testing.T) preparedbinding.CompilerIdentityV1 {
 func preparedOperationFixture(t *testing.T, hasCompanion bool) preparedbinding.PreparedOperationBindingV1 {
 	t.Helper()
 	binding := preparedbinding.PreparedOperationBindingV1{
-		HasCompanion: hasCompanion, Grouped: true, ExpandedEvidence: hasCompanion,
+		// Grouped is false so that UsesExpandedEvidence -- the disjunction of
+		// Grouped and ExpandedEvidence -- is decided by hasCompanion alone. The
+		// disjunction itself is proved in internal/querybinding, where it can be
+		// varied without every receipt fixture having to re-derive its limits.
+		HasCompanion: hasCompanion, ExpandedEvidence: hasCompanion,
 		VisibleFieldCount: 4, FactFieldCount: 2, ProvenanceFieldCount: 3,
 		VisibleFieldsSHA256:      fixedDigest("11"),
 		FactFieldsSHA256:         fixedDigest("12"),

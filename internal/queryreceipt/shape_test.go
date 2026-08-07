@@ -78,29 +78,44 @@ func TestTheDeclaredShapeContract(t *testing.T) {
 		describesAnExecution   bool
 		accountsExposure       bool
 	}{
-		"inline, no exposure, no execution described": {
-			receipt: func(t *testing.T) QueryReceiptV1 { return validReceipt() },
+		"inline, no exposure": {
+			receipt:              func(t *testing.T) QueryReceiptV1 { return validReceipt(t) },
+			describesAnExecution: true,
 		},
 		"inline under exposure v3": {
-			receipt:          func(t *testing.T) QueryReceiptV1 { return exposureV3Receipt() },
-			accountsExposure: true,
+			receipt:              func(t *testing.T) QueryReceiptV1 { return exposureV3Receipt(t) },
+			describesAnExecution: true,
+			accountsExposure:     true,
 		},
 		"inline under exposure v5": {
-			receipt:          func(t *testing.T) QueryReceiptV1 { return exposureV5Receipt() },
-			accountsExposure: true,
+			receipt:              func(t *testing.T) QueryReceiptV1 { return exposureV5Receipt(t) },
+			describesAnExecution: true,
+			accountsExposure:     true,
 		},
 		"artifact delivery": {
 			receipt:                validArtifactReceipt,
 			carriesArtifactIntent:  true,
 			requiresArtifactProofs: true,
+			describesAnExecution:   true,
 			accountsExposure:       true,
 		},
-		"artifact delivery describing its execution": {
+		"paired novel under expanded evidence": {
 			receipt:                validExecutionReceipt,
 			carriesArtifactIntent:  true,
 			requiresArtifactProofs: true,
 			describesAnExecution:   true,
 			accountsExposure:       true,
+		},
+		"released, nothing executed": {
+			receipt: func(t *testing.T) QueryReceiptV1 {
+				return validReleasedReceipt(t, StatusReleased, "BUDGET_EXHAUSTED")
+			},
+		},
+		"failed": {
+			receipt: func(t *testing.T) QueryReceiptV1 { return validFailedReceipt(t) },
+		},
+		"indeterminate": {
+			receipt: func(t *testing.T) QueryReceiptV1 { return validIndeterminateReceipt(t) },
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -119,9 +134,17 @@ func TestTheDeclaredShapeContract(t *testing.T) {
 					t.Errorf("%s: got %t, want %t", label, pair[0], pair[1])
 				}
 			}
-			// The execution evidence travels as a pair, always.
-			if (receipt.ExecutionBindingV2 == nil) != (receipt.ExposureLedgerBefore == nil) {
-				t.Error("the binding and its pre-state disagree about whether an execution is described")
+			// Describing an execution is the same fact as having completed. The
+			// table states the two independently so that a row where they came
+			// apart would have to be written down to pass.
+			if receipt.DescribesAnExecution() != (receipt.Status == StatusCompleted) {
+				t.Errorf("a %s receipt describes an execution: %t", receipt.Status, receipt.DescribesAnExecution())
+			}
+			// The ledger pre-state belongs to the exposure charge, not to the
+			// binding: a completed non-exposure query describes an execution and
+			// carries no ledger at all.
+			if (receipt.ExposureLedgerBefore != nil) != (receipt.Exposure != nil) {
+				t.Error("the ledger pre-state and the exposure charge disagree about whether exposure was accounted")
 			}
 		})
 	}

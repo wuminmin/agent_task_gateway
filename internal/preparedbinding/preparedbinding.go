@@ -128,7 +128,11 @@ func (identity CompilerIdentityV1) Validate() error {
 type PreparedOperationBindingV1 struct {
 	Version string `json:"version"`
 
-	HasCompanion     bool `json:"has_companion"`
+	HasCompanion bool `json:"has_companion"`
+	// Grouped and ExpandedEvidence are two independent properties of the compiled
+	// shape, and neither alone is the flag the row-limit derivation branches on.
+	// UsesExpandedEvidence is that flag; see its comment for why they are stored
+	// apart and combined in one place.
 	Grouped          bool `json:"grouped"`
 	ExpandedEvidence bool `json:"expanded_evidence"`
 
@@ -330,6 +334,27 @@ func (binding PreparedOperationBindingV1) Validate() error {
 			ShortDigest(binding.SHA256), ShortDigest(sealed.SHA256))
 	}
 	return nil
+}
+
+// UsesExpandedEvidence is the flag the row-limit derivation branches on: whether
+// the companion is authorized for one row more than it is expected to yield, so
+// a truncated evidence result is distinguishable from a complete one.
+//
+// It is a disjunction rather than a member because two different compilations
+// need the wider companion. An aggregating or grouping plan does -- the visible
+// rows are groups and the evidence rows are the facts underneath them -- and so
+// does a relational compilation that declares it outright. Storing the two
+// causes separately keeps the binding a description of what was compiled;
+// combining them here, once, keeps everything that reads the flag reading the
+// same function.
+//
+// Everything that derives, reproduces or checks a companion limit must ask this
+// rather than read ExpandedEvidence. The Gateway computed the disjunction while
+// QueryExecutionBindingV2 read the member, which meant a grouped operation
+// derived its limits one way and described them another; it went unnoticed
+// because the only profile that signed a binding also set the member.
+func (binding PreparedOperationBindingV1) UsesExpandedEvidence() bool {
+	return binding.Grouped || binding.ExpandedEvidence
 }
 
 // TargetSHA256 is one prepared target's binding.

@@ -64,6 +64,13 @@ type QueryExecutionBindingV2 struct {
 	// ExposureProfileVersion is the profile the row limits below were derived
 	// under. The preparation does not carry it: preparation is what the compiler
 	// produced, and the profile belongs to the ledger the limits came from.
+	//
+	// It is empty exactly when the operation accounted no exposure. A task with
+	// no exposure grant reads no ledger, so there is no profile to name and no
+	// pre-state to digest -- the visible row limit derives from the row budget
+	// alone. Empty is therefore a statement about the operation rather than a
+	// missing value, and Validate binds it to ExposureLedgerBeforeSHA256 in both
+	// directions so neither can be dropped without the other.
 	ExposureProfileVersion string `json:"exposure_profile_version"`
 
 	// The three derived limits. They are signed rather than recomputed on
@@ -88,8 +95,13 @@ type QueryExecutionBindingV2 struct {
 // It is a method rather than a member. V1 carried the flag beside the prepared
 // digest and had to check the two against each other; here the preparation is
 // the only place it is written down, so there is nothing left to disagree.
+//
+// It delegates rather than reading ExpandedEvidence directly, because the flag
+// the limits branch on is the disjunction with Grouped -- see
+// PreparedOperationBindingV1.UsesExpandedEvidence. Reading the member here made
+// every grouped operation's binding contradict the limits it carried.
 func (binding QueryExecutionBindingV2) UsesExpandedEvidence() bool {
-	return binding.PreparedOperation.ExpandedEvidence
+	return binding.PreparedOperation.UsesExpandedEvidence()
 }
 
 // Seal fills SHA256 and validates the result.
@@ -139,16 +151,13 @@ func (binding QueryExecutionBindingV2) Validate() error {
 		return fmt.Errorf("the binding carries compiler identity %s but its preparation was compiled by %s",
 			short(binding.Compiler.SHA256), short(binding.PreparedOperation.CompilerIdentitySHA256))
 	}
-	for name, digest := range map[string]string{
-		"budget_before_sha256":          binding.BudgetBeforeSHA256,
-		"exposure_ledger_before_sha256": binding.ExposureLedgerBeforeSHA256,
-	} {
-		if !validSHA256(digest) {
-			return fmt.Errorf("%s is not a lowercase SHA-256", name)
-		}
+	// The budget pre-state is named by every binding. Every operation spends the
+	// task's row budget, so there is always a budget the limits derived from.
+	if !validSHA256(binding.BudgetBeforeSHA256) {
+		return errors.New("budget_before_sha256 is not a lowercase SHA-256")
 	}
-	if strings.TrimSpace(binding.ExposureProfileVersion) == "" {
-		return errors.New("the execution binding carries no exposure_profile_version")
+	if err := binding.validateExposureIdentity(); err != nil {
+		return err
 	}
 	if binding.Visible.Role != RoleVisible {
 		return fmt.Errorf("the visible target carries role %q", binding.Visible.Role)
@@ -183,6 +192,49 @@ func (binding QueryExecutionBindingV2) Validate() error {
 	if binding.SHA256 != expected {
 		return fmt.Errorf("query_execution_binding_sha256 is %s but the binding's members digest to %s",
 			short(binding.SHA256), short(expected))
+	}
+	return nil
+}
+
+// validateExposureIdentity holds the binding to one of the two exposure shapes,
+// and refuses everything between them.
+//
+// An operation either accounted exposure or it did not, and the two members that
+// say so are the profile the limits derived under and the digest of the ledger
+// they derived from. Binding them to each other in both directions is what stops
+// a binding from naming a profile with no pre-state to reproduce its limits from,
+// or a pre-state under no profile that would say what its numbers mean.
+//
+// The non-exposure shape carries the further restrictions because they are not
+// choices. The companion statement IS the provenance half of an exposure
+// observation, so an operation that accounts none has nothing to pair with; and
+// the semantic replay key is derived from an exposure plan identity, so a
+// non-exposure operation has no replay to hit. Both are stated here rather than
+// left implied, so a binding that claims one is refused where it is written down
+// rather than wherever it first fails to make sense.
+func (binding QueryExecutionBindingV2) validateExposureIdentity() error {
+	profile := strings.TrimSpace(binding.ExposureProfileVersion)
+	if (profile == "") != (binding.ExposureLedgerBeforeSHA256 == "") {
+		if profile == "" {
+			return errors.New("the execution binding names an exposure ledger pre-state but no " +
+				"exposure_profile_version, so nothing says what its numbers mean")
+		}
+		return fmt.Errorf("the execution binding derives its limits under profile %q but names no "+
+			"exposure ledger pre-state to derive them from", profile)
+	}
+	if profile != "" {
+		if !validSHA256(binding.ExposureLedgerBeforeSHA256) {
+			return errors.New("exposure_ledger_before_sha256 is not a lowercase SHA-256")
+		}
+		return nil
+	}
+	if binding.PathKind != PathSingleQuery {
+		return fmt.Errorf("an operation that accounts no exposure executes one statement, but this "+
+			"binding claims path_kind %q", binding.PathKind)
+	}
+	if binding.Companion != nil {
+		return errors.New("an operation that accounts no exposure has no provenance half, " +
+			"but this binding carries a companion target")
 	}
 	return nil
 }

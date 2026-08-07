@@ -188,7 +188,7 @@ func TestExecutionBindingRequiresItsDocument(t *testing.T) {
 	seedQueryRecord(t, store, "task-v2-shape", "query-v2-shape")
 
 	neither := QueryExecutionBinding{
-		QueryID: "query-v2-shape", ExposureLedgerBefore: testExposureLedgerBefore(t),
+		QueryID: "query-v2-shape", ExposureLedgerBefore: ptrExposureLedgerBefore(testExposureLedgerBefore(t)),
 	}
 	if err := writeBinding(t, store, neither); err == nil {
 		t.Fatal("a binding carrying no document was written")

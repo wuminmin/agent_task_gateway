@@ -46,11 +46,21 @@ func newOrdinalReplaySpool(baseDir, taskID, queryID string, threshold int64) (or
 // resource reservation. A hit reuses only committed observation/result
 // materialization; the new request receives a fresh query record, audit event,
 // receipt, query-AAD encryption and query/row resource charge.
+// tryOrdinalSemanticReplay is the entry point for callers that hold no prepared
+// operation, and therefore for callers whose replay may not complete.
+//
+// semanticBinding is a parameter rather than nil because a replay that hits
+// settles a COMPLETED query, and a completed query states which physical
+// statements it authorized. A caller with no binding to supply can still use
+// this to exercise a miss or a failure; a hit will be refused when the receipt
+// is signed, which is the right place for that refusal rather than a silently
+// undescribed settlement.
 func (s *Service) tryOrdinalSemanticReplay(ctx context.Context, task control.Task, requestID, queryID,
 	grantDigest, cacheKey, dictionarySetDigest string, reservation control.BudgetReservation,
-	componentMS map[string]float64) (map[string]any, ordinalReplayOutcome, error) {
+	componentMS map[string]float64, semanticBinding *control.QueryExecutionBinding) (
+	map[string]any, ordinalReplayOutcome, error) {
 	return s.tryOrdinalSemanticReplayWithSpoolAndMetadata(ctx, task, requestID, queryID, grantDigest, cacheKey,
-		dictionarySetDigest, reservation, componentMS, nil, newOrdinalReplaySpool, nil, nil)
+		dictionarySetDigest, reservation, componentMS, nil, newOrdinalReplaySpool, nil, semanticBinding)
 }
 
 func (s *Service) tryOrdinalSemanticReplayForQuery(ctx context.Context, task control.Task, requestID, queryID,
@@ -63,10 +73,11 @@ func (s *Service) tryOrdinalSemanticReplayForQuery(ctx context.Context, task con
 
 func (s *Service) tryOrdinalSemanticReplayWithSpool(ctx context.Context, task control.Task, requestID, queryID,
 	grantDigest, cacheKey, dictionarySetDigest string, reservation control.BudgetReservation,
-	componentMS map[string]float64, spoolFactory ordinalReplaySpoolFactory) (
+	componentMS map[string]float64, spoolFactory ordinalReplaySpoolFactory,
+	semanticBinding *control.QueryExecutionBinding) (
 	response map[string]any, outcome ordinalReplayOutcome, replayErr error) {
 	return s.tryOrdinalSemanticReplayWithSpoolAndMetadata(ctx, task, requestID, queryID, grantDigest, cacheKey,
-		dictionarySetDigest, reservation, componentMS, nil, spoolFactory, nil, nil)
+		dictionarySetDigest, reservation, componentMS, nil, spoolFactory, nil, semanticBinding)
 }
 
 func (s *Service) tryOrdinalSemanticReplayWithSpoolAndMetadata(ctx context.Context, task control.Task, requestID, queryID,

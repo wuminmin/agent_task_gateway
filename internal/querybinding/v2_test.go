@@ -428,9 +428,13 @@ func TestV2CompanionRowLimitsFollowTheExpandedEvidenceRule(t *testing.T) {
 
 	// Without expanded evidence the two are equal, and the preparation is the
 	// only place that state is written down.
+	// Both causes have to be cleared: UsesExpandedEvidence is the disjunction of
+	// Grouped and ExpandedEvidence, because an aggregating plan needs the wider
+	// companion whether or not the compilation declared it.
 	unexpanded := pairedNovelV2(t).withCopiedCompanion()
 	prepared := unexpanded.PreparedOperation
 	prepared.ExpandedEvidence = false
+	prepared.Grouped = false
 	resealed, err := prepared.Seal()
 	if err != nil {
 		t.Fatal(err)
@@ -443,6 +447,24 @@ func TestV2CompanionRowLimitsFollowTheExpandedEvidenceRule(t *testing.T) {
 	unexpanded.Companion.RowLimit = 32
 	if _, err := unexpanded.Seal(); err != nil {
 		t.Fatalf("a coherent unexpanded companion was refused: %v", err)
+	}
+
+	// Grouping alone is enough. A plan that aggregates gets the wider companion
+	// even when the compilation did not declare expanded evidence, so a binding
+	// whose limits were derived without it is refused.
+	grouped := unexpanded.withCopiedCompanion()
+	groupedPrepared := grouped.PreparedOperation
+	groupedPrepared.Grouped = true
+	groupedSealed, err := groupedPrepared.Seal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	grouped.PreparedOperation = groupedSealed
+	if !grouped.UsesExpandedEvidence() {
+		t.Fatal("a grouped preparation does not report expanded evidence")
+	}
+	if _, err := grouped.Seal(); err == nil {
+		t.Fatal("a grouped operation kept the equal-limit companion and was sealed")
 	}
 }
 

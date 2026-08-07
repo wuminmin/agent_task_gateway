@@ -443,3 +443,106 @@ func TestLiveV10PreStateChangedBetweenPreparationAndReservation(t *testing.T) {
 			receipt.ExecutionBindingV2.VisibleRowLimit, wantRemaining)
 	}
 }
+
+// A completed query on a task with no exposure grant describes its execution
+// too, and describes it in the shape that says it accounted none.
+//
+// This is the case the contract had no way to express. The binding and its
+// exposure pre-state used to travel as a pair, so a plain query could either
+// carry a fabricated empty ledger -- a signed claim that a ledger was read when
+// none was -- or carry nothing and go undescribed. It went undescribed, which is
+// why "every completed query states which physical statements produced its rows"
+// was not an invariant before this.
+func TestLiveNonExposureCompletedQueryDescribesItsExecution(t *testing.T) {
+	harness := newGatewayHarness(t)
+	harness.createActiveSummaryTask(t, "task-plain-binding")
+
+	result := mustCallGatewayTool(t, harness.service, harness.alice, "query_sql", map[string]any{
+		"task_id": "task-plain-binding", "request_id": "plain-binding-1",
+		"sql": "SELECT month, total_amount FROM expense_summary",
+	})
+	queryID, _ := result["query_id"].(string)
+	if queryID == "" {
+		t.Fatalf("query_sql returned no query id: %+v", result)
+	}
+
+	persisted, err := harness.store.GetPersistedQueryReceipt(t.Context(), queryID)
+	if err != nil {
+		t.Fatalf("persisted receipt: %v", err)
+	}
+	var receipt queryreceipt.QueryReceiptV1
+	if err := json.Unmarshal(persisted.ReceiptJSON, &receipt); err != nil {
+		t.Fatalf("decode persisted receipt: %v", err)
+	}
+	keyring, err := queryreceipt.NewKeyring(harness.service.queryReceiptSigner, nil)
+	if err != nil {
+		t.Fatalf("build verifying keyring: %v", err)
+	}
+	if err := keyring.Verify(receipt); err != nil {
+		t.Fatalf("the plain receipt does not verify: %v", err)
+	}
+
+	binding := receipt.ExecutionBindingV2
+	if binding == nil {
+		t.Fatal("a completed plain query carries no execution binding")
+	}
+	// The non-exposure shape, member by member. Each of these is what the
+	// receipt's own validator holds it to; asserting them here is what proves
+	// production BUILDS the shape rather than merely tolerating it.
+	if binding.ExposureProfileVersion != "" || binding.ExposureLedgerBeforeSHA256 != "" {
+		t.Fatalf("a plain query's binding names profile %q and pre-state %q",
+			binding.ExposureProfileVersion, binding.ExposureLedgerBeforeSHA256)
+	}
+	if receipt.ExposureLedgerBefore != nil || receipt.Exposure != nil {
+		t.Fatal("a plain query's receipt carries exposure evidence")
+	}
+	if binding.PathKind != querybinding.PathSingleQuery || binding.Companion != nil {
+		t.Fatalf("a plain query bound path_kind %q with %d companions",
+			binding.PathKind, boolCount(binding.Companion != nil))
+	}
+	if !binding.Visible.Executed {
+		t.Fatal("the visible target is not recorded as executed")
+	}
+	if receipt.ResultDeliveryMode != queryreceipt.DeliveryInline {
+		t.Fatalf("delivery mode is %q, want inline", receipt.ResultDeliveryMode)
+	}
+	// The executed statement is the one the binding names. This is the whole
+	// point of describing the execution: the Connector's bytes and the signed
+	// identity are the same statement.
+	if len(harness.connector.requests) != 1 {
+		t.Fatalf("connector calls = %d, want 1", len(harness.connector.requests))
+	}
+	executed := harness.connector.requests[0].SQL
+	if got := physicalquery.ExactDigest(executed); got != binding.Visible.ExactSQLSHA256 {
+		t.Fatalf("the binding names visible statement %s but the Connector received %s",
+			binding.Visible.ExactSQLSHA256, got)
+	}
+	strict, err := sqlidentity.StrictASTDigest(executed)
+	if err != nil {
+		t.Fatalf("strict AST digest: %v", err)
+	}
+	if strict != binding.Visible.StrictASTSHA256 {
+		t.Fatalf("the binding names strict AST %s but the executed statement is %s",
+			binding.Visible.StrictASTSHA256, strict)
+	}
+
+	// And the row it is stored under carries no pre-state at all, rather than an
+	// empty one.
+	stored, err := harness.store.GetQueryExecutionBinding(t.Context(), queryID)
+	if err != nil {
+		t.Fatalf("stored execution binding: %v", err)
+	}
+	if stored.ExposureLedgerBefore != nil {
+		t.Fatal("the stored row carries an exposure pre-state for a plain query")
+	}
+	if stored.BindingV2 == nil || stored.BindingV2.SHA256 != binding.SHA256 {
+		t.Fatal("the stored binding is not the one the receipt carries")
+	}
+}
+
+func boolCount(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
+}

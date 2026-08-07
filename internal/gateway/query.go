@@ -422,6 +422,24 @@ func (s *Service) querySQL(ctx context.Context, principal mcp.Principal, raw jso
 	if err != nil {
 		return nil, err
 	}
+	// A task with no exposure grant used to skip everything below and hand the
+	// agent's own SQL straight to the authorizer. That was the last path in the
+	// Gateway that executed a statement nothing had prepared, and it is why a
+	// plain query could complete while describing no execution: there was no
+	// canonical plan, no sealed preparation and therefore nothing a finalizer
+	// could reproduce from frozen inputs.
+	//
+	// It now lowers and prepares like every other path. The narrowing is real and
+	// deliberate: SQL outside taskgate-reporting-sql-v1 no longer executes on a
+	// plain task, because a statement that cannot be lowered to a canonical plan
+	// cannot carry the execution evidence every completed query is now required
+	// to sign. The exposure paths have been held to this profile all along; what
+	// ends here is the exemption, not a capability the plain path was using for a
+	// reason.
+	//
+	// All that remains of the branch is the semantic View refusal, which has to be
+	// made here because a View task without an exposure profile is refused for
+	// that reason rather than for anything lowering would find.
 	if !grant.Exposure.Enabled() {
 		for _, name := range grant.ApprovedProducts {
 			if product, present := s.catalog.LookupProduct(name); present && product.ViewContract != nil {
@@ -430,7 +448,6 @@ func (s *Service) querySQL(ctx context.Context, principal mcp.Principal, raw jso
 					viewQueryUnsupported("SEMANTIC_VIEW_EXPOSURE_PROFILE"))
 			}
 		}
-		return s.executeSQL(ctx, principal, task, args.RequestID, args.SQL, requestSummary, nil, nil, requestStarted)
 	}
 
 	products := make(map[string]queryplan.Product, len(grant.ApprovedProducts))
@@ -465,7 +482,7 @@ func (s *Service) querySQL(ctx context.Context, principal mcp.Principal, raw jso
 		metadata.PlanDigest = prepared.Exposure.planDigest
 		metadata.PredicateFootprint = predicateFootprintResponseFor(prepared.Exposure)
 	}
-	return s.executeSQL(ctx, principal, task, args.RequestID, prepared.SQL, requestSummary, prepared.Exposure, metadata, requestStarted)
+	return s.executeSQL(ctx, principal, task, args.RequestID, prepared, requestSummary, metadata, requestStarted)
 }
 
 func sqlLoweringToolError(err error) error {
@@ -581,7 +598,7 @@ func (s *Service) executePlan(ctx context.Context, principal mcp.Principal, raw 
 		metadata.PlanDigest = prepared.Exposure.planDigest
 		metadata.PredicateFootprint = predicateFootprintResponseFor(prepared.Exposure)
 	}
-	return s.executeSQL(ctx, principal, task, args.RequestID, prepared.SQL, requestSummary, prepared.Exposure, metadata, requestStarted)
+	return s.executeSQL(ctx, principal, task, args.RequestID, prepared, requestSummary, metadata, requestStarted)
 }
 
 func predicateFootprintResponseFor(context *planExposureContext) *predicateFootprintResponse {
@@ -604,6 +621,27 @@ type preparedQueryPlan struct {
 	SQL         string
 	PolicyGrant sqlpolicy.Grant
 	Exposure    *planExposureContext
+	// Prepared is the sealed preparation the statement was compiled by, and it is
+	// here for every operation rather than only for the ones that account
+	// exposure.
+	//
+	// It used to be reachable only through Exposure, which is why a plain query
+	// signed no execution binding: the one document a binding is built from was
+	// discarded the moment the caller had the SQL. The receipt now requires every
+	// completed query to describe its execution, and describing it means carrying
+	// the preparation a finalizer reproduces -- so a path that prepares and then
+	// forgets is a path that cannot complete.
+	Prepared physicalquery.PreparedOperation
+}
+
+// operationPrepared reports whether this value carries a real preparation.
+//
+// Asked of the sealed binding's digest rather than of a separate flag: the seal
+// is filled by Prepare and by nothing else, so a zero PreparedOperation --
+// which is what a caller that skipped preparation would hold -- is exactly the
+// value with no digest.
+func (prepared preparedQueryPlan) operationPrepared() bool {
+	return prepared.Prepared.Binding().SHA256 != ""
 }
 
 // preparePlan is the only QueryPlan-to-execution boundary. Both the advanced
@@ -649,10 +687,12 @@ func (s *Service) preparePlan(grant control.TaskGrant, plan queryplan.QueryPlan)
 		return preparedQueryPlan{}, &mcp.ToolError{Code: apierr.CodeConflict,
 			Message: "准备结果拒绝交出可执行语句"}
 	}
-	result := preparedQueryPlan{SQL: visibleSQL, PolicyGrant: prepared.PolicyGrant()}
+	result := preparedQueryPlan{SQL: visibleSQL, PolicyGrant: prepared.PolicyGrant(), Prepared: prepared}
 	if !grant.Exposure.Enabled() {
 		// A plain query has no companion, no plan identity and no ledger, so there
-		// is nothing for an exposure context to hold.
+		// is nothing for an exposure context to hold. The preparation itself is
+		// still carried: the execution binding is built from it, and a plain query
+		// describes its execution like every other completed one.
 		return result, nil
 	}
 	context, err := s.planExposureContextFrom(prepared, plan)
@@ -674,8 +714,19 @@ func predicateLimitsForGrant(grant control.ExposureGrant) queryplan.PredicateLim
 		MaxTotalAtomPayloadBytes: int(grant.PredicateFootprint.MaxTotalAtomPayloadBytes)}
 }
 
-func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task control.Task, requestID, agentSQL, requestSummary string,
-	exposureContext *planExposureContext, responseMetadata *queryResponseMetadata, requestStarted time.Time) (any, error) {
+// executeSQL runs one prepared operation and settles it.
+//
+// It takes the whole preparedQueryPlan rather than the statement and an optional
+// exposure context. The statement alone was enough while a plain query was
+// allowed to complete undescribed; it is not enough now that every completed
+// query signs the preparation its statement was compiled by, and passing the
+// members separately is how the one that mattered came to be dropped at a call
+// site that had it in hand.
+func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task control.Task,
+	requestID string, operation preparedQueryPlan, requestSummary string,
+	responseMetadata *queryResponseMetadata, requestStarted time.Time) (any, error) {
+	agentSQL := operation.SQL
+	exposureContext := operation.Exposure
 	if requestStarted.IsZero() {
 		requestStarted = time.Now()
 	}
@@ -709,6 +760,15 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 	}
 	if grant.Exposure.Enabled() && exposureContext == nil {
 		return nil, toolError(control.ErrExposureEvidenceRequired)
+	}
+	// Nothing executes unprepared. A completed query must sign the preparation its
+	// statement was compiled by, so an operation that reached here without one
+	// could only settle as a receipt the contract refuses -- after the Connector
+	// had already run. Refusing before the reservation is what keeps that from
+	// being discovered at signing time.
+	if !operation.operationPrepared() {
+		return nil, &mcp.ToolError{Code: apierr.CodeConflict,
+			Message: "查询未经共享准备，无法产生可独立重建的执行证据；已关闭式拒绝"}
 	}
 	protocolGrant, err := approval.DecodeTaskGrantV1(grant.ApprovalReceipt)
 	if err != nil || approval.VerifyTaskGrantV1(s.receiptVerifier, protocolGrant) != nil {
@@ -988,32 +1048,24 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 	// limits above were derived from. Both are needed before anything runs: the
 	// binding written with the terminal evidence must describe the statements
 	// that were actually sent, and it must name the state that authorized them.
-	bindsExecution := s.executionBindingApplies(exposureContext, exposureLedger)
-	var preparedOp preparedExecution
-	var ledgerBefore querybinding.ExposureLedgerBeforeV1
-	if bindsExecution {
-		preparedOp, ledgerBefore, err = s.prepareExecutionBinding(exposureContext, executionState, exposureLedger,
-			reservation.Before)
-		if err != nil {
-			s.releaseQueryBudget(ctx, queryID, "EXECUTION_BINDING_UNAVAILABLE")
-			return nil, &mcp.ToolError{Code: apierr.CodeConflict,
-				Message: "执行绑定无法按已签名的前置状态构造；查询未执行"}
-		}
+	preparedOp, ledgerBefore, err := s.prepareExecutionBinding(operation.Prepared, exposureContext != nil,
+		executionState, exposureLedger, reservation.Before)
+	if err != nil {
+		s.releaseQueryBudget(ctx, queryID, "EXECUTION_BINDING_UNAVAILABLE")
+		return nil, &mcp.ToolError{Code: apierr.CodeConflict,
+			Message: "执行绑定无法按已签名的前置状态构造；查询未执行"}
 	}
 	if ordinalCacheKey != "" {
 		// The replay's own binding, built before the lookup so a hit settles with
 		// it. executed=false on both targets: nothing reaches the Connector.
-		var semanticBinding *control.QueryExecutionBinding
-		if bindsExecution {
-			built, bindingErr := buildQueryExecutionBinding(queryID, querybinding.PathSemanticReplay, preparedOp,
-				executed, ledgerBefore, reservation.Before, false)
-			if bindingErr != nil {
-				s.releaseQueryBudget(ctx, queryID, "EXECUTION_BINDING_INVALID")
-				return nil, &mcp.ToolError{Code: apierr.CodeConflict,
-					Message: "语义重放的执行绑定无法构造；查询未执行"}
-			}
-			semanticBinding = &built
+		built, bindingErr := buildQueryExecutionBinding(queryID, querybinding.PathSemanticReplay, preparedOp,
+			executed, ledgerBefore, reservation.Before, false)
+		if bindingErr != nil {
+			s.releaseQueryBudget(ctx, queryID, "EXECUTION_BINDING_INVALID")
+			return nil, &mcp.ToolError{Code: apierr.CodeConflict,
+				Message: "语义重放的执行绑定无法构造；查询未执行"}
 		}
+		semanticBinding := &built
 		replayed, replayOutcome, replayErr := s.tryOrdinalSemanticReplayForQuery(ctx, task, requestID, queryID, grantDigest,
 			ordinalCacheKey, exposureContext.ordinal.DictionarySetDigest, reservation, componentMS, responseMetadata, pipeline,
 			semanticBinding)
@@ -1135,7 +1187,7 @@ func (s *Service) executeSQL(ctx context.Context, principal mcp.Principal, task 
 	// prove which of its targets ran, and a binding that claimed paired-novel
 	// semantics for a sequence that may have stopped after the visible statement
 	// would be a false description rather than a missing one.
-	if bindsExecution && queryErr == nil {
+	if queryErr == nil {
 		path := querybinding.PathPairedNovel
 		if executed.companion == nil {
 			path = querybinding.PathSingleQuery
@@ -1594,6 +1646,13 @@ func (s *Service) failQueryBudget(ctx context.Context, settlement control.Budget
 	// value untouched and retain the sanitized copy for every background retry.
 	failure := settlement
 	failure.OrdinalMaterialization = nil
+	// The execution binding is dropped for the same reason, and it is not merely
+	// tidiness: the Control Store refuses to write one for a query that did not
+	// complete, so a failure settlement that carried it would be rejected whole
+	// and retried forever. The refusal is right -- a FAILED query cannot prove
+	// which of its targets ran -- and the caller's binding was built before the
+	// failure was known.
+	failure.ExecutionBinding = nil
 	failCtx, cancel := s.detachedContext(ctx)
 	_, _, err := s.store.FailBudgetWithReceipt(failCtx, failure, s.terminalReceiptBuilder())
 	cancel()
@@ -2115,6 +2174,12 @@ func (s *Service) queryReceipt(ctx context.Context, record control.QueryRecord) 
 	request, err := s.buildQueryReceiptRequest(control.QueryReceipt{
 		Query: record, Audit: evidence.Audit, Exposure: evidence.Exposure,
 		Artifact: evidence.Artifact, ArtifactRegistrationAudit: evidence.ArtifactRegistrationAudit,
+		// The execution binding is part of the evidence being recovered, not
+		// something the recovery may leave behind. Reassembling the struct member
+		// by member is how it came to be dropped: the loaded evidence carried the
+		// binding and this literal did not name it, so a recovered receipt
+		// described no execution while the settled one it replaced did.
+		ExecutionBinding: evidence.ExecutionBinding,
 	}, s.clock().UTC())
 	if err != nil {
 		return nil, err
@@ -2228,8 +2293,7 @@ func BuildQueryReceiptRequest(evidence control.QueryReceipt, signer *queryreceip
 		if err := evidence.ExecutionBinding.Validate(); err != nil {
 			return control.SaveQueryReceiptRequest{}, fmt.Errorf("persisted execution binding: %w", err)
 		}
-		ledger := evidence.ExecutionBinding.ExposureLedgerBefore
-		exposureLedgerBefore = &ledger
+		exposureLedgerBefore = evidence.ExecutionBinding.ExposureLedgerBefore
 		executionBindingV2 = evidence.ExecutionBinding.BindingV2
 	}
 	// The delivery mode is read from what the settlement actually did -- whether a
