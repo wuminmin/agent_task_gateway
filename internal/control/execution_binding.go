@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"taskbound.local/agent-data-gateway/internal/approval"
+	"taskbound.local/agent-data-gateway/internal/preparedbinding"
 	"taskbound.local/agent-data-gateway/internal/querybinding"
 )
 
@@ -66,6 +67,26 @@ func (binding QueryExecutionBinding) SHA256() string {
 	default:
 		return ""
 	}
+}
+
+// PreparedOperation is the sealed preparation the stored row describes, and
+// whether the row can describe one at all.
+//
+// A V1 row cannot: it carries only a digest of the preparation, so the document
+// a caller would have to compare against is not in the database. Returning false
+// rather than a zero binding is what keeps that distinguishable -- a zero
+// binding would compare unequal to everything and read like a mismatch rather
+// than like an absence.
+//
+// It returns the canonical preparedbinding type directly. Reaching it through
+// physicalquery's alias would make persistence depend on the compiler and the
+// authorizer for a value that is a version, some flags, some counts and some
+// digests.
+func (binding QueryExecutionBinding) PreparedOperation() (preparedbinding.PreparedOperationBindingV1, bool) {
+	if binding.BindingV2 == nil {
+		return preparedbinding.PreparedOperationBindingV1{}, false
+	}
+	return binding.BindingV2.PreparedOperation, true
 }
 
 // document is whichever of the two is present, for encoding.
