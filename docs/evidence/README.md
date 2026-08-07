@@ -10,7 +10,7 @@ and validates one.
 
 | File | What it records |
 | --- | --- |
-| `dbtest-suite-<commit>.json` | One complete DSN-enabled `go test -json` run, summarized and accepted by `evaluation/cmd/final-v5-dbtest-report`. |
+| `dbtest-suite-<commit>.json` | One complete DSN-enabled `go test -json` run, summarized and accepted by `evaluation/cmd/final-v5-dbtest-report`. Newest first: `e406536`, then `5cac17e`. |
 
 ## What `"accepted": true` means, and what it does not
 
@@ -28,16 +28,24 @@ session reads to know what acceptance here did *not* establish.
 
 ## The current record is development qualification
 
-`dbtest-suite-5cac17e.json` names commit `5cac17e`, which is the code the suite
-ran against; the harness fixes that made four of those tests execute at all
-landed in the commit that retained it. That is deliberate and does not need
-rerunning — the runtime cutover requires a fresh full suite anyway.
+`dbtest-suite-e406536.json` names commit `e406536`, the QueryExecutionBindingV2
+and Query Receipt V10 persistence commit, and unlike the record before it that
+commit is the code the suite actually ran against: the tree was committed first
+and the suite run afterwards, so the name and the run agree without a caveat.
 
-Treat it as **Phase-0 development qualification**. The report that supports
+`dbtest-suite-5cac17e.json` is retained beside it. It names commit `5cac17e`,
+which is the code that suite ran against; the harness fixes that made four of
+those tests execute at all landed in the commit that retained it. That mismatch
+is why it was never rerun — the runtime cutover requires a fresh full suite
+anyway.
+
+Treat both as **Phase-0 development qualification**. The report that supports
 `V3 RUNTIME INTEGRATION PASS` must come from a clean published integrated commit
 and additionally bind `HEAD == origin`, a clean worktree, the complete
 tracked-tree source-manifest SHA-256, the exact test command and the allowlist
-digest.
+digest. `e406536` binds none of those, and it was taken before the Gateway
+delegates preparation to `physicalquery.Prepare`, so the V10 receipts it accepts
+carry a synthesized preparation rather than one the Gateway produced.
 
 ## Deferral schedule
 
