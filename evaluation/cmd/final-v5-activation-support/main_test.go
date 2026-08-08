@@ -125,10 +125,65 @@ func TestRegistryClaimsNoSupportWithoutAManifest(t *testing.T) {
 		t.Skip("this contract release has an activation support manifest")
 	}
 	for _, profile := range committedRegistry(t).Profiles {
-		if profile.Status.ActivationSupported || profile.Status.ActivationSmokePassed ||
-			profile.TargetedRunEligible || profile.Routable {
+		if profileClaimsActivationSupport(profile) {
 			t.Errorf("%s claims activation support with no manifest for this release", profile.Alias)
 		}
+	}
+}
+
+func writeRegistryFixture(t *testing.T, root string, mutate func(map[string]any)) {
+	t.Helper()
+	profile := map[string]any{
+		"profile_id": "profile-test", "alias": "test",
+		"closure":        map[string]any{"closure_sha256": strings.Repeat("b", 64)},
+		"status":         map[string]any{},
+		"catalog_sha256": strings.Repeat("a", 64),
+	}
+	if mutate != nil {
+		mutate(profile)
+	}
+	writeFixtureDocument(t, root, registryPath, map[string]any{
+		"schema_version": 1, "registry_version": finalv5profile.RegistryVersion,
+		"contract_release": "final-v5-contracts-v1.4", "profiles": []any{profile},
+	})
+}
+
+// The no-manifest invariant is exercised independently of the repository's
+// current release state. The committed-state test above becomes runnable again
+// at P4; this fixture keeps every form of the invariant covered now.
+func TestNoManifestRejectsEveryRegistryActivationClaim(t *testing.T) {
+	t.Run("no support claim", func(t *testing.T) {
+		root := t.TempDir()
+		writeRegistryFixture(t, root, nil)
+		if err := run(root, "", true); err != nil {
+			t.Fatalf("an unsupported registry was rejected without a manifest: %v", err)
+		}
+	})
+
+	mutations := map[string]func(map[string]any){
+		"activation supported": func(profile map[string]any) {
+			profile["status"].(map[string]any)["activation_supported"] = true
+		},
+		"activation smoke passed": func(profile map[string]any) {
+			profile["status"].(map[string]any)["activation_smoke_passed"] = true
+		},
+		"targeted run eligible": func(profile map[string]any) {
+			profile["targeted_run_eligible"] = true
+		},
+		"routable": func(profile map[string]any) {
+			profile["routable"] = true
+		},
+	}
+	for name, mutate := range mutations {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			writeRegistryFixture(t, root, mutate)
+			err := run(root, "", true)
+			if err == nil || !strings.Contains(err.Error(),
+				"profile test claims activation support with no manifest") {
+				t.Fatalf("activation claim without a manifest error = %v", err)
+			}
+		})
 	}
 }
 

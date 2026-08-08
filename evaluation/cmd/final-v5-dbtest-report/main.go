@@ -30,7 +30,7 @@ import (
 
 // SkipCategory says why a declared skip cannot run in this harness. It is
 // carried into the report so a reviewer can tell "needs a deployment we do not
-// build here" from "the evidence it checks does not exist yet".
+// build here" from "the current tree excludes this test's premise".
 type SkipCategory string
 
 const (
@@ -44,6 +44,10 @@ const (
 	// SkipEvidenceNotYetProduced is a test whose subject does not exist at this
 	// contract release. It is not DB-backed.
 	SkipEvidenceNotYetProduced SkipCategory = "evidence_not_yet_produced"
+	// SkipPremiseExcludedByState is a test whose complementary repository state
+	// is not active at this HEAD. The allowance must name the milestone that flips
+	// the state and makes the test runnable again.
+	SkipPremiseExcludedByState SkipCategory = "premise_excluded_by_state"
 )
 
 // DeferredUntil names the milestone by which a declared skip must have been run
@@ -174,35 +178,13 @@ var allowedSkips = []AllowedSkip{
 	},
 	{
 		Package: "taskbound.local/agent-data-gateway/evaluation/cmd/final-v5-activation-support",
-		Test:    "TestCommittedManifestSupportsExactlyTheCurrentReleaseProvenProfiles", Category: SkipEvidenceNotYetProduced,
-		ReasonSubstring: "no activation support manifest for this contract release yet",
-		Why:             "not DB-backed; the activation-support manifest is produced at the contract release this HEAD precedes",
-		Scope:           phase0Scope, DeferredUntil: DeferredTargetedRunEligible,
-		RequiredExternalGate: "the activation-support manifest produced after contracts v1.5 freeze",
-	},
-	{
-		Package: "taskbound.local/agent-data-gateway/evaluation/cmd/final-v5-activation-support",
-		Test:    "TestCommittedRegistryMatchesTheManifest", Category: SkipEvidenceNotYetProduced,
-		ReasonSubstring: "no activation support manifest for this contract release yet",
-		Why:             "not DB-backed; same absent manifest",
-		Scope:           phase0Scope, DeferredUntil: DeferredTargetedRunEligible,
-		RequiredExternalGate: "the activation-support manifest produced after contracts v1.5 freeze",
-	},
-	{
-		Package: "taskbound.local/agent-data-gateway/evaluation/cmd/final-v5-activation-support",
-		Test:    "TestResultHeavyCarriesTheCurrentReleaseActivationEvidence", Category: SkipEvidenceNotYetProduced,
-		ReasonSubstring: "no activation support manifest for this contract release yet",
-		Why:             "not DB-backed; same absent manifest",
-		Scope:           phase0Scope, DeferredUntil: DeferredTargetedRunEligible,
-		RequiredExternalGate: "the activation-support manifest produced after contracts v1.5 freeze",
-	},
-	{
-		Package: "taskbound.local/agent-data-gateway/evaluation/cmd/final-v5-activation-support",
-		Test:    "TestCommittedManifestCarriesNoSecretsOrBusinessData", Category: SkipEvidenceNotYetProduced,
-		ReasonSubstring: "no activation support manifest for this contract release yet",
-		Why:             "not DB-backed; same absent manifest",
-		Scope:           phase0Scope, DeferredUntil: DeferredTargetedRunEligible,
-		RequiredExternalGate: "the activation-support manifest produced after contracts v1.5 freeze",
+		Test:    "TestRegistryClaimsNoSupportWithoutAManifest", Category: SkipPremiseExcludedByState,
+		ReasonSubstring: "this contract release has an activation support manifest",
+		Why: "the current v1.4 tree carries its fresh-live activation-support manifest, so the " +
+			"repository-state test's no-manifest premise is false; a state-independent fixture covers " +
+			"the invariant now, and P4 makes this repository-state gate runnable again",
+		Scope: phase0Scope, DeferredUntil: DeferredContractsV15Freeze,
+		RequiredExternalGate: "P4 removes activation-support-v1.json before regenerating v1.5 activation evidence; rerun this repository-state gate then",
 	},
 }
 
@@ -263,6 +245,10 @@ type Report struct {
 	// UndeclaredSkips is the acceptance condition. A non-empty list is a failure
 	// however green the exit code was.
 	UndeclaredSkips []SkipRecord `json:"undeclared_skips"`
+	// UnmatchedAllowances are configured exceptions that matched no observed skip.
+	// They are failures too: an allowance that outlives its premise is a silent
+	// waiver unless the report makes the stale entry visible.
+	UnmatchedAllowances []AllowedSkip `json:"unmatched_allowances"`
 
 	// ReportSHA256 digests the go test -json stream this was derived from, so the
 	// summary points at its own source.
@@ -270,7 +256,7 @@ type Report struct {
 	Accepted     bool   `json:"accepted"`
 }
 
-const reportVersion = "taskgate-final-v5-dbtest-report-v1"
+const reportVersion = "taskgate-final-v5-dbtest-report-v2"
 
 func main() {
 	var (
@@ -305,10 +291,16 @@ func main() {
 	}
 	if !report.Accepted {
 		fmt.Fprintf(os.Stderr,
-			"final-v5 dbtest report: NOT accepted -- %d failed package(s), %d failed test(s), %d undeclared skip(s)\n",
-			report.PackagesFailed, report.TestsFailed, len(report.UndeclaredSkips))
+			"final-v5 dbtest report: NOT accepted -- %d failed package(s), %d failed test(s), "+
+				"%d undeclared skip(s), %d unmatched allowance(s)\n",
+			report.PackagesFailed, report.TestsFailed, len(report.UndeclaredSkips),
+			len(report.UnmatchedAllowances))
 		for _, skip := range report.UndeclaredSkips {
 			fmt.Fprintf(os.Stderr, "  undeclared skip %s %s: %s\n", skip.Package, skip.Test, skip.Reason)
+		}
+		for _, allowance := range report.UnmatchedAllowances {
+			fmt.Fprintf(os.Stderr, "  unmatched allowance %s %s: reason contains %q; due %s\n",
+				allowance.Package, allowance.Test, allowance.ReasonSubstring, allowance.DeferredUntil)
 		}
 		os.Exit(1)
 	}
@@ -316,6 +308,11 @@ func main() {
 
 // summarize reads a go test -json stream and settles acceptance.
 func summarize(input io.Reader, base Report) (Report, error) {
+	return summarizeWithAllowances(input, base, allowedSkips)
+}
+
+func summarizeWithAllowances(input io.Reader, base Report,
+	allowances []AllowedSkip) (Report, error) {
 	report := base
 	digest := sha256.New()
 	scanner := bufio.NewScanner(io.TeeReader(input, digest))
@@ -355,9 +352,10 @@ func summarize(input io.Reader, base Report) (Report, error) {
 	report.ReportSHA256 = hex.EncodeToString(digest.Sum(nil))
 
 	declared := map[[2]string]AllowedSkip{}
-	for _, skip := range allowedSkips {
+	for _, skip := range allowances {
 		declared[[2]string{skip.Package, skip.Test}] = skip
 	}
+	matched := map[[2]string]bool{}
 
 	report.Packages = len(packages)
 	for name, result := range packages {
@@ -379,6 +377,7 @@ func summarize(input io.Reader, base Report) (Report, error) {
 			record := SkipRecord{Package: key[0], Test: key[1], Reason: skipReason(output[key])}
 			if allowance, ok := declared[key]; ok &&
 				strings.Contains(record.Reason, allowance.ReasonSubstring) {
+				matched[key] = true
 				record.Declared, record.Category, record.Why = true, allowance.Category, allowance.Why
 				record.Scope, record.DeferredUntil = allowance.Scope, allowance.DeferredUntil
 				record.SatisfiedByEvidence = allowance.SatisfiedByEvidence
@@ -397,6 +396,12 @@ func summarize(input io.Reader, base Report) (Report, error) {
 			}
 		}
 	}
+	for _, allowance := range allowances {
+		key := [2]string{allowance.Package, allowance.Test}
+		if !matched[key] {
+			report.UnmatchedAllowances = append(report.UnmatchedAllowances, allowance)
+		}
+	}
 	sort.Strings(report.FailedPackages)
 	sort.Strings(report.FailedTests)
 	for milestone := range report.OutstandingObligations {
@@ -404,8 +409,10 @@ func summarize(input io.Reader, base Report) (Report, error) {
 	}
 	sortSkips(report.Skips)
 	sortSkips(report.UndeclaredSkips)
+	sortAllowances(report.UnmatchedAllowances)
 
-	report.Accepted = report.PackagesFailed == 0 && report.TestsFailed == 0 && len(report.UndeclaredSkips) == 0
+	report.Accepted = report.PackagesFailed == 0 && report.TestsFailed == 0 &&
+		len(report.UndeclaredSkips) == 0 && len(report.UnmatchedAllowances) == 0
 	return report, nil
 }
 
@@ -429,5 +436,14 @@ func sortSkips(skips []SkipRecord) {
 			return skips[left].Package < skips[right].Package
 		}
 		return skips[left].Test < skips[right].Test
+	})
+}
+
+func sortAllowances(allowances []AllowedSkip) {
+	sort.Slice(allowances, func(left, right int) bool {
+		if allowances[left].Package != allowances[right].Package {
+			return allowances[left].Package < allowances[right].Package
+		}
+		return allowances[left].Test < allowances[right].Test
 	})
 }

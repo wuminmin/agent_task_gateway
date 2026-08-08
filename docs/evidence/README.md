@@ -17,6 +17,7 @@ and validates one.
     accepted = zero failed packages
              + zero failed tests
              + zero UNDECLARED skips
+             + zero UNMATCHED allowances
              within the harness the run was executed on
 
 It does **not** mean the v1.5 qualification is complete. A declared skip is a
@@ -24,7 +25,10 @@ scheduled debt, not a waiver: every one carries a `scope` (the harness it could
 not run on), a `deferred_until` milestone, and either the evidence that already
 covers it or the external gate that must eventually run it. The report's
 `outstanding_obligations` groups them by milestone, and that list is what a later
-session reads to know what acceptance here did *not* establish.
+session reads to know what acceptance here did *not* establish. The v2 report
+also rejects an allowance that matched no observed skip, so a state flip cannot
+leave a silent exception behind. The retained v1 reports preserve their
+historical semantics and are not rewritten.
 
 ## The current record is development qualification
 
@@ -54,8 +58,11 @@ carry a synthesized preparation rather than one the Gateway produced.
 | already satisfied at this HEAD | the two `finalv5sqlcheck` probe-equivalence tests, covered by `run-sql-executability-gate.sh` against a disposable empty PostgreSQL 16.14 |
 | `V3 RUNTIME INTEGRATION PASS` | `TestProvSQLLiveExternalPair`, in its own `compose.provsql.yaml` project |
 | the Result-heavy 100x4 v3 canary | the three `experiment` formal-window live gates |
-| contracts v1.5 freeze | `TestAttackAdapterLivePreflight`, `TestRLSAdapterLivePreflight` |
-| satisfied by the 2026-08-08 v1.4 fresh-live requalification | the four `final-v5-activation-support` tests; the generated manifest supports the seven live-route profiles and the focused package tests pass |
+| contracts v1.5 freeze | `TestAttackAdapterLivePreflight`, `TestRLSAdapterLivePreflight`; `TestRegistryClaimsNoSupportWithoutAManifest` becomes runnable when P4 removes the v1.4 manifest |
+
+The four positive `final-v5-activation-support` tests are no longer allowances:
+the v1.4 manifest exists and they run in the two-server suite. Their 2026-08-08
+fresh-live qualification remains recorded below as historical evidence.
 
 ## v1.4 fresh-live raw evidence inventory
 

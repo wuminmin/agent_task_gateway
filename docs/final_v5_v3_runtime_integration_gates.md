@@ -415,7 +415,9 @@ all exited zero.
 the `go test -json` stream, emits the committed summary, and **fails on any skip
 it does not declare** — with a reason that must match what the test actually
 printed, so an allowance stops covering a test that starts skipping for a
-different reason.
+different reason. Report v2 also fails on any configured allowance that matched
+no observed skip; the reverse check exposes an obsolete exception when a test
+starts running, is renamed, or disappears.
 
 The retained historical summary for commit `5cac17e` is
 `docs/evidence/dbtest-suite-5cac17e.json`: 96 packages, 2736 tests, **0 failed
@@ -456,7 +458,11 @@ reviewer can check.
 | --- | --- | --- |
 | `separate_database_required` | the two `finalv5sqlcheck` probe-equivalence tests | They provision their own benchmark dataset and require a database that does **not** already carry the frozen `final_v5_benchmark` schema, which `db/init` installs here. `scripts/db-test-env.sh env` printed their DSN and `test` did not, and that asymmetry was hiding a real incompatibility rather than an oversight: exporting it turns a visible, explained skip into `schema "final_v5_benchmark" already exists`, which says nothing about the probe rename under test. **Allowlisted only because `run-sql-executability-gate.sh` passes on this same HEAD** against its disposable empty PostgreSQL 16.14 — `final-v5-contracts-v1.4`, 28 artifacts, 71 rendered cells, 0 failed. |
 | `separate_deployment_required` | `TestProvSQLLiveExternalPair`; `TestAttackAdapterLivePreflight`; `TestRLSAdapterLivePreflight`; the three `experiment.formal_window_live` gates | The ProvSQL pair needs `compose.provsql.yaml`, whose `final-v5-direct-postgres` binds `127.0.0.1:25534` — the port this harness's business server uses — and whose ProvSQL server is a source-built image; the two projects cannot run side by side. The rest need a full formal topology (OA, Gateway, Control store, MinIO) that this two-server harness does not start. |
-| `evidence_not_yet_produced` | the four `final-v5-activation-support` tests | At retained commit `5cac17e` these were not DB-backed and the activation-support manifest had not yet been produced. The later v1.4 fresh-live state is recorded in `docs/evidence/README.md`. |
+| `premise_excluded_by_state` | `TestRegistryClaimsNoSupportWithoutAManifest` | The v1.4 tree carries its current-release manifest, so the repository-state test's premise is false. A state-independent fixture covers the invariant now; P4 removes the manifest and makes this gate runnable before v1.5 freeze. |
+
+The retained v1 reports still contain the former `evidence_not_yet_produced`
+allowances for four positive activation-support tests. They are historical
+records, not the current allowlist: after `017e73a` those tests run and pass.
 
 ## Canary prerequisite
 

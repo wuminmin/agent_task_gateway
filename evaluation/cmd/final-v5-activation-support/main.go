@@ -267,7 +267,7 @@ func verifyCommitted(root string, registry finalv5profile.Registry) error {
 		// exactly where a fresh contract release starts -- so verification
 		// checks that the registry agrees rather than demanding a file.
 		for _, profile := range registry.Profiles {
-			if profile.Status.ActivationSupported {
+			if profileClaimsActivationSupport(profile) {
 				return fmt.Errorf("profile %s claims activation support with no manifest", profile.Alias)
 			}
 		}
@@ -312,6 +312,11 @@ func verifyCommitted(root string, registry finalv5profile.Registry) error {
 	}
 	fmt.Printf("activation support manifest: consistent with %d registry profiles\n", len(registry.Profiles))
 	return nil
+}
+
+func profileClaimsActivationSupport(profile finalv5profile.Profile) bool {
+	return profile.Status.ActivationSupported || profile.Status.ActivationSmokePassed ||
+		profile.TargetedRunEligible || profile.Routable
 }
 
 func loadRegistry(path string) (finalv5profile.Registry, error) {

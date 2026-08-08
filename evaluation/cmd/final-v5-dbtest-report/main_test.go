@@ -9,8 +9,14 @@ import (
 func stream(lines ...string) string { return strings.Join(lines, "\n") + "\n" }
 
 func summarizeStream(t *testing.T, text string) Report {
+	return summarizeStreamWithAllowances(t, text, nil)
+}
+
+func summarizeStreamWithAllowances(t *testing.T, text string,
+	allowances []AllowedSkip) Report {
 	t.Helper()
-	report, err := summarize(strings.NewReader(text), Report{Version: reportVersion})
+	report, err := summarizeWithAllowances(strings.NewReader(text),
+		Report{Version: reportVersion}, allowances)
 	if err != nil {
 		t.Fatalf("summarize: %v", err)
 	}
@@ -56,11 +62,11 @@ func TestAnUndeclaredSkipIsNotAccepted(t *testing.T) {
 // into the report rather than merely disappearing from it.
 func TestADeclaredSkipIsAcceptedAndExplained(t *testing.T) {
 	allowance := allowedSkips[0]
-	report := summarizeStream(t, stream(
+	report := summarizeStreamWithAllowances(t, stream(
 		`{"Action":"output","Package":"`+allowance.Package+`","Test":"`+allowance.Test+
 			`","Output":"    probe_equivalence_test.go:26: `+allowance.ReasonSubstring+` for the probe check\n"}`,
 		`{"Action":"skip","Package":"`+allowance.Package+`","Test":"`+allowance.Test+`"}`,
-		`{"Action":"pass","Package":"`+allowance.Package+`"}`))
+		`{"Action":"pass","Package":"`+allowance.Package+`"}`), []AllowedSkip{allowance})
 	if !report.Accepted {
 		t.Fatalf("a declared skip was not accepted: %+v", report.UndeclaredSkips)
 	}
@@ -77,13 +83,52 @@ func TestADeclaredSkipIsAcceptedAndExplained(t *testing.T) {
 // allowance must not cover it -- otherwise an allowance outlives its cause.
 func TestAnAllowanceDoesNotCoverADifferentReason(t *testing.T) {
 	allowance := allowedSkips[0]
-	report := summarizeStream(t, stream(
+	report := summarizeStreamWithAllowances(t, stream(
 		`{"Action":"output","Package":"`+allowance.Package+`","Test":"`+allowance.Test+
 			`","Output":"    probe_equivalence_test.go:26: the fixture table is missing\n"}`,
 		`{"Action":"skip","Package":"`+allowance.Package+`","Test":"`+allowance.Test+`"}`,
-		`{"Action":"pass","Package":"`+allowance.Package+`"}`))
+		`{"Action":"pass","Package":"`+allowance.Package+`"}`), []AllowedSkip{allowance})
 	if report.Accepted {
 		t.Fatal("an allowance covered a skip that happened for another reason")
+	}
+	if len(report.UndeclaredSkips) != 1 || len(report.UnmatchedAllowances) != 1 {
+		t.Fatalf("a reason mismatch must expose both sides: %+v", report)
+	}
+}
+
+// An allowance that matches nothing is not harmless configuration. It means
+// the state may have flipped while an obsolete exception kept circulating.
+func TestAnUnmatchedAllowanceIsNotAcceptedAndIsReported(t *testing.T) {
+	allowance := AllowedSkip{
+		Package: "p", Test: "TestFormerlySkipped", Category: SkipPremiseExcludedByState,
+		ReasonSubstring: "the old state is active", Why: "fixture allowance",
+		Scope: "fixture", DeferredUntil: DeferredContractsV15Freeze,
+		RequiredExternalGate: "fixture gate",
+	}
+	report := summarizeStreamWithAllowances(t, stream(passingRun), []AllowedSkip{allowance})
+	if report.Accepted {
+		t.Fatal("a run with an unmatched allowance was accepted")
+	}
+	if len(report.UnmatchedAllowances) != 1 ||
+		report.UnmatchedAllowances[0].Test != allowance.Test {
+		t.Fatalf("the unmatched allowance was not reported: %+v", report.UnmatchedAllowances)
+	}
+}
+
+func TestUnmatchedAllowancesAreSorted(t *testing.T) {
+	allowances := []AllowedSkip{
+		{Package: "z", Test: "TestB"},
+		{Package: "a", Test: "TestZ"},
+		{Package: "a", Test: "TestA"},
+	}
+	report := summarizeStreamWithAllowances(t, stream(passingRun), allowances)
+	got := make([]string, 0, len(report.UnmatchedAllowances))
+	for _, allowance := range report.UnmatchedAllowances {
+		got = append(got, allowance.Package+" "+allowance.Test)
+	}
+	want := []string{"a TestA", "a TestZ", "z TestB"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("unmatched allowance order = %v, want %v", got, want)
 	}
 }
 
@@ -102,7 +147,8 @@ func TestFailuresAreNotAccepted(t *testing.T) {
 // A build failure is printed raw rather than as a JSON record. Skipping such a
 // line would turn a package that never compiled into an empty, accepted summary.
 func TestARawBuildFailureLineIsFatal(t *testing.T) {
-	_, err := summarize(strings.NewReader("# taskbound.local/pkg\nsome.go:1: undefined: X\n"), Report{})
+	_, err := summarizeWithAllowances(
+		strings.NewReader("# taskbound.local/pkg\nsome.go:1: undefined: X\n"), Report{}, nil)
 	if err == nil {
 		t.Fatal("a non-JSON line in the report was ignored")
 	}
@@ -129,7 +175,8 @@ func TestEveryAllowanceIsCompleteAndUnique(t *testing.T) {
 			t.Errorf("%s carries no justification", allowance.Test)
 		}
 		switch allowance.Category {
-		case SkipSeparateDatabase, SkipSeparateDeployment, SkipEvidenceNotYetProduced:
+		case SkipSeparateDatabase, SkipSeparateDeployment, SkipEvidenceNotYetProduced,
+			SkipPremiseExcludedByState:
 		default:
 			t.Errorf("%s carries unknown category %q", allowance.Test, allowance.Category)
 		}
@@ -172,7 +219,7 @@ func TestDeferredSkipsBecomeOutstandingObligations(t *testing.T) {
 	if deferred.Test == "" || satisfied.Test == "" {
 		t.Skip("the allowlist no longer contains one of each kind")
 	}
-	report := summarizeStream(t, stream(
+	report := summarizeStreamWithAllowances(t, stream(
 		`{"Action":"output","Package":"`+deferred.Package+`","Test":"`+deferred.Test+
 			`","Output":"    live_test.go:1: `+deferred.ReasonSubstring+`\n"}`,
 		`{"Action":"skip","Package":"`+deferred.Package+`","Test":"`+deferred.Test+`"}`,
@@ -180,7 +227,7 @@ func TestDeferredSkipsBecomeOutstandingObligations(t *testing.T) {
 			`","Output":"    probe_test.go:1: `+satisfied.ReasonSubstring+`\n"}`,
 		`{"Action":"skip","Package":"`+satisfied.Package+`","Test":"`+satisfied.Test+`"}`,
 		`{"Action":"pass","Package":"`+deferred.Package+`"}`,
-		`{"Action":"pass","Package":"`+satisfied.Package+`"}`))
+		`{"Action":"pass","Package":"`+satisfied.Package+`"}`), []AllowedSkip{deferred, satisfied})
 	if !report.Accepted {
 		t.Fatalf("declared skips were not accepted: %+v", report.UndeclaredSkips)
 	}
