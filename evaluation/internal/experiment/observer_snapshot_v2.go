@@ -400,6 +400,78 @@ func (window ObserverWindowV2) Delta(classifier *CompiledClassifier) (ObservedDe
 	return delta, nil
 }
 
+// ObserverResourceDeltaV2 is what a window cost outside the statement
+// accounting.
+//
+// None of it participates in acceptance: no class count, no plan and no
+// classifier reads any of these. They are here because a sample whose Gateway
+// was starved, restarted or OOM-killed is not a clean measurement of anything,
+// and because the paper reports memory and CPU per operation.
+type ObserverResourceDeltaV2 struct {
+	GatewayMemoryPeakBytes int64
+	GatewayCPUUsecDelta    int64
+	GatewayNetworkRXDelta  int64
+	GatewayNetworkTXDelta  int64
+	ControlWALBytesDelta   int64
+	BusinessWALBytesDelta  int64
+}
+
+// ResourceDelta subtracts the two snapshots' resource evidence.
+//
+// The disturbance checks are refusals rather than reported numbers. A restart or
+// an OOM inside the window means the interval does not describe one continuous
+// execution, so there is no delta to report -- the counters on either side of it
+// belong to two different processes. ObserverWindowV2.Delta refuses the same
+// transitions for the statement census; this is the same rule for the resource
+// half, stated where the resource half is computed rather than left to whichever
+// caller remembered.
+func (window ObserverWindowV2) ResourceDelta() (ObserverResourceDeltaV2, error) {
+	var delta ObserverResourceDeltaV2
+	if err := window.Before.Validate(); err != nil {
+		return delta, fmt.Errorf("before snapshot: %w", err)
+	}
+	if err := window.After.Validate(); err != nil {
+		return delta, fmt.Errorf("after snapshot: %w", err)
+	}
+	before, after := window.Before.Resource, window.After.Resource
+	if before.PostmasterStartTime != after.PostmasterStartTime {
+		return delta, errors.New("PostgreSQL restarted inside the observer window")
+	}
+	if after.GatewayRestartCount != before.GatewayRestartCount || after.ContainerRestarts != before.ContainerRestarts {
+		return delta, errors.New("a container restarted inside the observer window")
+	}
+	if after.GatewayOOMKilled || after.OOMEvents != before.OOMEvents {
+		return delta, errors.New("the Gateway was OOM-killed inside the observer window")
+	}
+	// The memory peak is a high-water mark rather than a counter, so it is taken
+	// from the after snapshot rather than subtracted. Subtracting two peaks would
+	// report zero for a window whose peak was set before it opened, which is the
+	// common case for a warm process. A high-water mark that went DOWN is not a
+	// smaller peak; it is a different process or a reset counter.
+	if after.GatewayMemoryPeakBytes < before.GatewayMemoryPeakBytes {
+		return delta, errors.New("the Gateway memory peak regressed across the observer window")
+	}
+	delta.GatewayMemoryPeakBytes = after.GatewayMemoryPeakBytes
+	for _, counter := range []struct {
+		name          string
+		target        *int64
+		before, after int64
+	}{
+		{"gateway cpu", &delta.GatewayCPUUsecDelta, before.GatewayCPUUsec, after.GatewayCPUUsec},
+		{"gateway network rx", &delta.GatewayNetworkRXDelta, before.GatewayNetworkRXBytes, after.GatewayNetworkRXBytes},
+		{"gateway network tx", &delta.GatewayNetworkTXDelta, before.GatewayNetworkTXBytes, after.GatewayNetworkTXBytes},
+		{"control WAL", &delta.ControlWALBytesDelta, before.ControlWALBytes, after.ControlWALBytes},
+		{"business WAL", &delta.BusinessWALBytesDelta, before.BusinessWALBytes, after.BusinessWALBytes},
+	} {
+		if counter.after < counter.before {
+			return ObserverResourceDeltaV2{}, fmt.Errorf("the %s counter went backwards across the window",
+				counter.name)
+		}
+		*counter.target = counter.after - counter.before
+	}
+	return delta, nil
+}
+
 // Accept compares an observed delta against a plan, class by class and key by
 // key.
 //

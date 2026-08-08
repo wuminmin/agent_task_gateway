@@ -190,7 +190,54 @@ call-graph tests rather than by measurement.
 | No active package references the v1.4 accounting types or functions. | `experiment.TestNoActiveReferenceToV14Accounting` | Ratchet; must become a zero assertion |
 | The v3 acceptance wrapper has real non-test callers from all three TaskGate paths. | `experiment.TestFinalizeObservationV3HasProductionCallers` | Reports; must become a failure |
 | No Adapter file constructs `TrustedInputsV3` or `IndependentInputsV3`. | `experiment.TestAdapterCannotConstructTrustedInputs` | PASS |
+| The finalizer's sources are chosen inside `package experiment`, never by a caller. | `experiment.TestNoExportedWayToChooseTheFinalizersSources`, `experiment.TestTheDeploymentConstructorSelectsNoContent` | PASS |
 | The V9 test-fixture package is not imported by production files. | `testfixture.TestFixtureIsNotImportedByProduction` | PASS |
+
+## Cutover state
+
+The cutover is per TaskGate path, and only the Artifact path has moved.
+
+| Path | Accounting | v1.4 ratchet entry |
+| --- | --- | --- |
+| Artifact (`result-heavy`) | v3, through `RuntimeFinalizerV3.FinalizeTaskGateObservationV3` | removed |
+| Scale (`dependency_e2e`) | v1.4 | `NewGatewayControlPlan` |
+| ProvSQL | v1.4 | `NewGatewayControlPlan` |
+
+What the Artifact path does now, in order: the finalizer pre-registers the
+classification for the frozen cell **before** the operation runs; the observer is
+invoked for both phases under that window id and that classifier commitment; the
+Adapter submits the receipt, the window and the statement identities it read off
+the signed execution binding; and the finalizer fetches its own contract,
+Catalog, qualification, runtime identity and Control Store evidence, reproduces
+the execution, and accepts or refuses. The Adapter's `experiment.Sample` retains
+the finalizer's own `FinalizationV3` as `taskgate_acceptance_v3`.
+
+Three consequences worth stating rather than leaving to be rediscovered:
+
+- **The Artifact evidence envelope changed shape.** `ArtifactVerificationEvidence`
+  carries an `observer_window` (a `ObserverWindowV2` pair) in place of
+  `observer_before`/`observer_after` schema-v1 snapshots, and
+  `sample-v1.schema.json` moves with it. The v1 pair could not be produced on
+  this path any more, and a zero-valued snapshot retained in its place would read
+  as evidence that was collected.
+- **The Adapter carries the pre-registration rather than deriving it.** A
+  classifier manifest is built from the operation's rendered target statements,
+  which is precisely the material an Adapter may not hold, so there is no version
+  of this where it derives its own classification. What the carried copy
+  establishes is that the operation the Gateway signed is the one whose
+  classification was committed before it ran — the two are reached by different
+  routes, a selector beforehand and a signed preparation afterwards. It is not a
+  second derivation and must not be cited as one.
+- **The artifact evidence invariant no longer re-derives acceptance.**
+  `validateArtifactVerification` cannot: acceptance needs the verified receipt,
+  the frozen contracts, the activated Catalog, the retained qualification and the
+  Control Store, none of which a Sample carries. What it now checks is that the
+  sample IS the one that was accepted — the finalizer's record is present, the
+  retained window is the window it was settled over, and the sample's Business
+  and resource numbers are the ones that window and that record produce.
+
+The Artifact path's own gate is a real deployment run, and it has not happened.
+Nothing in this section is evidence that the cutover works end to end.
 
 ## The shared target preparation — approved, in progress
 

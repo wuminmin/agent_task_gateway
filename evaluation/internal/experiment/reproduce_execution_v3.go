@@ -403,35 +403,65 @@ func prepareNominalStatementsV3(material FrozenOperationMaterialV3) (string, str
 	return visible, companion, nil
 }
 
-// classifierManifestDigestV3 builds the manifest the observer window commits to.
+// preRegisterObservationV3 builds the classification the observer window commits
+// to, before the operation runs.
 //
 // It is the same construction FinalizeObservationV3 performs after the fact,
 // reached through the same functions, so the two agree by sharing code rather
 // than by two implementations happening to match.
-func classifierManifestDigestV3(candidate frozenOperationCandidateV3, profile profileMaterialV3,
-	footprint AttestationFootprintV2, visibleSQL, companionSQL string) (string, error) {
+//
+// It returns the whole commitment rather than only the manifest digest. The
+// observer needs the digest, but the Adapter has to CARRY the commitment into
+// its evidence, and it cannot derive one for itself: a classifier manifest is
+// built from the rendered target statements, which is exactly the material an
+// Adapter may not hold. See PreRegisteredObservationV3 for what the carried copy
+// is then worth.
+func preRegisterObservationV3(candidate frozenOperationCandidateV3, profile profileMaterialV3,
+	footprint AttestationFootprintV2, visibleSQL, companionSQL string) (PreRegisteredObservationV3, error) {
+	var registered PreRegisteredObservationV3
 	logicalCatalog, err := catalog.Load(profile.CatalogPath)
 	if err != nil {
-		return "", fmt.Errorf("load activated Profile Catalog: %w", err)
+		return registered, fmt.Errorf("load activated Profile Catalog: %w", err)
 	}
 	built, err := catalogschema.Build(logicalCatalog)
 	if err != nil {
-		return "", fmt.Errorf("build ExpectedSchema: %w", err)
+		return registered, fmt.Errorf("build ExpectedSchema: %w", err)
 	}
 	plan, err := planFor(candidate.PathKind, built.Count, built.Digest, footprint)
 	if err != nil {
-		return "", fmt.Errorf("derive control plan: %w", err)
+		return registered, fmt.Errorf("derive control plan: %w", err)
 	}
 	targets, err := deriveTargets(IndependentInputsV3{
 		PathKind: candidate.PathKind, ContractIdentity: candidate.ContractIdentity,
 		VisibleSQL: visibleSQL, CompanionSQL: companionSQL,
 	}, StrictASTDigest)
 	if err != nil {
-		return "", err
+		return registered, err
 	}
 	manifest, err := BuildClassifierManifestV2(plan, &footprint, targets)
 	if err != nil {
-		return "", fmt.Errorf("build classifier manifest: %w", err)
+		return registered, fmt.Errorf("build classifier manifest: %w", err)
 	}
-	return manifest.SHA256()
+	footprintDigest, err := footprint.SHA256()
+	if err != nil {
+		return registered, err
+	}
+	operation := OperationIdentity{
+		OperationID: candidate.OperationID, PathKind: candidate.PathKind,
+		ContractIdentity:     candidate.ContractIdentity,
+		ExpectedSchemaDigest: built.Digest, AttestationFootprintSHA256: footprintDigest,
+	}
+	// Compiled rather than digested member by member: compilation is what requires
+	// the operation, the plan and the manifest to describe one execution path and
+	// one qualification, so a commitment that compiles is one finalization can
+	// reach at all.
+	classifier, err := CompileClassifierV2(operation, plan, manifest)
+	if err != nil {
+		return registered, fmt.Errorf("compile the pre-registered classifier: %w", err)
+	}
+	return PreRegisteredObservationV3{
+		Operation: operation, Plan: plan,
+		ClassifierManifestSHA256: classifier.ManifestSHA256(),
+		ClassifierBindingSHA256:  classifier.BindingSHA256(),
+	}, nil
 }

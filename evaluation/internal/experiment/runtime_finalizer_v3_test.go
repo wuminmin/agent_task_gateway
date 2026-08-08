@@ -218,11 +218,29 @@ func TestThePreRegisteredClassificationIsTheOneFinalizationDerives(t *testing.T)
 
 	// What finalization independently derives for the same operation, from the
 	// operation's real pre-state rather than a nominal one.
-	derived := carriedFor(t, finalizerInputs(t)).ClassifierManifestSHA256
-	if committed != derived {
-		t.Fatalf("the classification committed before the window is %s but finalization derives %s;\n"+
-			"the digest sealed into the observer window would be a commitment to a different standard",
-			committed, derived)
+	//
+	// The whole commitment is compared, not only the manifest digest. The Adapter
+	// carries every member of it into CarriedEvidenceV3 and finalization compares
+	// every member against its own derivation, so a member that agreed only by
+	// not being checked here would fail at acceptance instead.
+	derived := carriedFor(t, finalizerInputs(t))
+	for _, member := range []struct {
+		name               string
+		committed, derived any
+	}{
+		{"operation identity", committed.Operation, derived.Operation},
+		{"classifier manifest", committed.ClassifierManifestSHA256, derived.ClassifierManifestSHA256},
+		{"classifier binding", committed.ClassifierBindingSHA256, derived.ClassifierBindingSHA256},
+	} {
+		if member.committed != member.derived {
+			t.Errorf("the %s committed before the window is %v but finalization derives %v;\n"+
+				"the commitment sealed into the observer window would be to a different standard",
+				member.name, member.committed, member.derived)
+		}
+	}
+	if !committed.Plan.Equal(derived.Plan) {
+		t.Errorf("the control plan committed before the window differs from the derived one on %v",
+			derived.Plan.MismatchedFields(committed.Plan))
 	}
 }
 

@@ -277,13 +277,39 @@ func captureBoundObserver(ctx context.Context, phase string) (experiment.Observe
 	if err != nil {
 		return experiment.ObserverSnapshot{}, err
 	}
+	return experiment.RunObserver(ctx, []string{executable, "--phase", phase}, observerEnvironment())
+}
+
+// captureBoundObserverV2 runs the observer for one phase of one pre-registered
+// window.
+//
+// The invocation is a value rather than a phase string because the v3 observer
+// is told which window it is in and which classification that window is judged
+// by, and seals both into the snapshot it returns. The argv is built in one
+// place -- experiment.ObserverInvocationV3.Argv -- so an Adapter cannot spell a
+// flag two ways or omit one, which is exactly how the v1 capture came to pass
+// only --phase to an observer that requires three arguments.
+func captureBoundObserverV2(ctx context.Context,
+	invocation experiment.ObserverInvocationV3) (experiment.ObserverSnapshotV2, error) {
+	executable, err := validateObserverRuntimeBinding()
+	if err != nil {
+		return experiment.ObserverSnapshotV2{}, err
+	}
+	return experiment.RunObserverV2(ctx, executable, invocation, observerEnvironment())
+}
+
+// observerEnvironment is the minimal environment the out-of-process observer is
+// run with. It carries no DSN, no token and no credential: the observer opens
+// its own connections from its own configuration, which is what keeps it
+// independent of the Adapter that invokes it.
+func observerEnvironment() []string {
 	environment := []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}
 	for _, name := range []string{"COMPOSE_PROJECT_NAME", "DOCKER_HOST", "XDG_RUNTIME_DIR"} {
 		if value := strings.TrimSpace(os.Getenv(name)); value != "" {
 			environment = append(environment, name+"="+value)
 		}
 	}
-	return experiment.RunObserver(ctx, []string{executable, "--phase", phase}, environment)
+	return environment
 }
 
 // applyObserverDelta binds the independent observer's measurements to the sample

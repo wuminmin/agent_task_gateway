@@ -363,6 +363,45 @@ func (finalizer *RuntimeFinalizerV3) identifyOperation(request FinalizationReque
 	}
 }
 
+// PreRegisteredObservationV3 is the classification one operation is committed to
+// before it runs.
+//
+// # Why the Adapter is given all of it
+//
+// The observer only needs ClassifierManifestSHA256: that is the digest it seals
+// into both snapshots, and the one ObserverWindowV2.Delta later enforces. The
+// other three members exist because CarriedEvidenceV3 requires them and the
+// Adapter cannot derive them.
+//
+// That is not an oversight in the carried type. A classifier manifest is built
+// from the operation's rendered target statements, and an Adapter that held
+// those would be holding the material its own claim is checked against -- which
+// is the whole reason the finalizer reproduces them instead. So there is no
+// version of this where the Adapter derives its own classification.
+//
+// What the carried copy is worth is therefore not "a second derivation". It is
+// the binding between the classification committed BEFORE the operation ran and
+// the operation finalization identifies AFTER it ran, by the Gateway's
+// signature. Those two are reached by different routes -- a selector beforehand,
+// a signed preparation afterwards -- so requiring them to be equal is a real
+// check: an operation that executed something other than the cell whose
+// classification was pre-registered produces a different plan, a different
+// operation identity and a different binding digest, and finalization rejects
+// it. What it is not is evidence that the Adapter derived anything, and nothing
+// downstream may read it as such.
+type PreRegisteredObservationV3 struct {
+	// Operation is the identity the classifier is bound to.
+	Operation OperationIdentity
+	// Plan is the independently derived control plan the class set came from.
+	Plan GatewayControlPlanV3
+	// ClassifierManifestSHA256 is what the observer is invoked with and seals.
+	ClassifierManifestSHA256 string
+	// ClassifierBindingSHA256 ties the operation, the plan and the manifest
+	// together; it is the digest a manifest presented for another operation or
+	// under another plan cannot reproduce.
+	ClassifierBindingSHA256 string
+}
+
 // OpenObserverWindowV3 is the pre-registration step, and it runs BEFORE the
 // operation does.
 //
@@ -404,37 +443,38 @@ func (finalizer *RuntimeFinalizerV3) identifyOperation(request FinalizationReque
 // cell produces a manifest that the finalization then rebuilds differently and
 // rejects.
 func (finalizer *RuntimeFinalizerV3) OpenObserverWindowV3(ctx context.Context,
-	selector FrozenContractSelectorV3) (string, error) {
+	selector FrozenContractSelectorV3) (PreRegisteredObservationV3, error) {
+	var registered PreRegisteredObservationV3
 	if finalizer == nil {
-		return "", errors.New("opening an observer window requires an opened runtime finalizer")
+		return registered, errors.New("opening an observer window requires an opened runtime finalizer")
 	}
 	candidates, err := finalizer.contracts.ResolveCandidates(selector)
 	if err != nil {
-		return "", fmt.Errorf("resolve frozen contract candidates for %s: %w", selector, err)
+		return registered, fmt.Errorf("resolve frozen contract candidates for %s: %w", selector, err)
 	}
 	if len(candidates) != 1 {
-		return "", fmt.Errorf("pre-registering a classification requires the selector to name exactly one "+
-			"frozen operation; %s names %d", selector, len(candidates))
+		return registered, fmt.Errorf("pre-registering a classification requires the selector to name exactly "+
+			"one frozen operation; %s names %d", selector, len(candidates))
 	}
 	candidate := candidates[0]
 	profile, err := finalizer.profiles.Resolve(candidate.ProfileID)
 	if err != nil {
-		return "", fmt.Errorf("resolve deployment profile %q: %w", candidate.ProfileID, err)
+		return registered, fmt.Errorf("resolve deployment profile %q: %w", candidate.ProfileID, err)
 	}
 	postgres, err := finalizer.runtime.ReadPostgreSQLIdentity(ctx)
 	if err != nil {
-		return "", fmt.Errorf("read the deployment's PostgreSQL identity: %w", err)
+		return registered, fmt.Errorf("read the deployment's PostgreSQL identity: %w", err)
 	}
 	footprint, err := finalizer.footprints.Resolve(profile.CatalogPath, postgres)
 	if err != nil {
-		return "", fmt.Errorf("resolve the qualified Attestation footprint: %w", err)
+		return registered, fmt.Errorf("resolve the qualified Attestation footprint: %w", err)
 	}
 	material := frozenOperationMaterialV3ForCandidate(candidate, profile)
 	visibleSQL, companionSQL, err := prepareNominalStatementsV3(material)
 	if err != nil {
-		return "", err
+		return registered, err
 	}
-	return classifierManifestDigestV3(candidate, profile, footprint, visibleSQL, companionSQL)
+	return preRegisterObservationV3(candidate, profile, footprint, visibleSQL, companionSQL)
 }
 
 func frozenOperationMaterialV3ForCandidate(candidate frozenOperationCandidateV3,

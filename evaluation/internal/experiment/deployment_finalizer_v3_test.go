@@ -362,8 +362,14 @@ func TestTheDeploymentResolversPreRegisterAClassification(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pre-register the classification from deployment material: %v", err)
 	}
-	if !validSHA256(committed) {
-		t.Fatalf("the pre-registered classification is %q", committed)
+	if !validSHA256(committed.ClassifierManifestSHA256) || !validSHA256(committed.ClassifierBindingSHA256) {
+		t.Fatalf("the pre-registered classification is %+v", committed)
+	}
+	if err := committed.Operation.Validate(); err != nil {
+		t.Fatalf("the pre-registered operation identity: %v", err)
+	}
+	if err := committed.Plan.Validate(); err != nil {
+		t.Fatalf("the pre-registered control plan: %v", err)
 	}
 
 	// The window identity is derived from the operation, and the two sides have to
@@ -384,7 +390,7 @@ func TestTheDeploymentResolversPreRegisterAClassification(t *testing.T) {
 		t.Fatalf("derive the observer window id: %v", err)
 	}
 	if err := (ObserverInvocationV3{Phase: "before", ObserverWindowID: windowID,
-		ClassifierManifestSHA256: committed}).Validate(); err != nil {
+		ClassifierManifestSHA256: committed.ClassifierManifestSHA256}).Validate(); err != nil {
 		t.Fatalf("the deployment material does not produce a runnable observer invocation: %v", err)
 	}
 }

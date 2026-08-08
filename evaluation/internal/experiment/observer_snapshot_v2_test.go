@@ -578,3 +578,59 @@ func TestAWindowClassifiedByAnUncommittedManifestIsRefused(t *testing.T) {
 		t.Fatal("a window that committed to no classifier at all was classified")
 	}
 }
+
+// The resource half of a window is subtracted, except the peak, and every
+// disturbance that makes the interval two intervals is a refusal.
+//
+// It matters that these are refusals rather than reported numbers: a Gateway
+// that restarted mid-window still produces counters, they are just counters for
+// a different process, and a subtraction over them looks like an unusually cheap
+// operation rather than like a broken measurement.
+func TestTheResourceDeltaSubtractsAndRefusesADisturbedWindow(t *testing.T) {
+	before := snapshotOf(t, "before", nil)
+	before.Resource = ObserverResourceEvidence{
+		PostmasterStartTime: "2026-08-04 10:40:00+00",
+		BusinessWALBytes:    100, ControlWALBytes: 200,
+		GatewayCPUUsec: 300, GatewayNetworkRXBytes: 400, GatewayNetworkTXBytes: 500,
+		GatewayMemoryPeakBytes: 600,
+	}
+	after := snapshotOf(t, "after", nil)
+	after.Resource = before.Resource
+	after.Resource.BusinessWALBytes = 111
+	after.Resource.ControlWALBytes = 222
+	after.Resource.GatewayCPUUsec = 333
+	after.Resource.GatewayNetworkRXBytes = 444
+	after.Resource.GatewayNetworkTXBytes = 555
+	after.Resource.GatewayMemoryPeakBytes = 666
+
+	delta, err := ObserverWindowV2{Before: before, After: after}.ResourceDelta()
+	if err != nil {
+		t.Fatalf("subtract the window's resource evidence: %v", err)
+	}
+	want := ObserverResourceDeltaV2{
+		GatewayMemoryPeakBytes: 666, GatewayCPUUsecDelta: 33,
+		GatewayNetworkRXDelta: 44, GatewayNetworkTXDelta: 55,
+		ControlWALBytesDelta: 22, BusinessWALBytesDelta: 11,
+	}
+	if delta != want {
+		t.Fatalf("the window's resource delta is %+v, want %+v", delta, want)
+	}
+
+	for name, disturb := range map[string]func(*ObserverResourceEvidence){
+		"a PostgreSQL restart":  func(r *ObserverResourceEvidence) { r.PostmasterStartTime = "2026-08-04 11:00:00+00" },
+		"a Gateway restart":     func(r *ObserverResourceEvidence) { r.GatewayRestartCount++ },
+		"a container restart":   func(r *ObserverResourceEvidence) { r.ContainerRestarts++ },
+		"an OOM kill":           func(r *ObserverResourceEvidence) { r.GatewayOOMKilled = true },
+		"an OOM event":          func(r *ObserverResourceEvidence) { r.OOMEvents++ },
+		"a counter regression":  func(r *ObserverResourceEvidence) { r.GatewayCPUUsec = 1 },
+		"a peak that went down": func(r *ObserverResourceEvidence) { r.GatewayMemoryPeakBytes = 1 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			disturbed := after
+			disturb(&disturbed.Resource)
+			if _, err := (ObserverWindowV2{Before: before, After: disturbed}).ResourceDelta(); err == nil {
+				t.Fatalf("%s inside the window produced a resource delta", name)
+			}
+		})
+	}
+}

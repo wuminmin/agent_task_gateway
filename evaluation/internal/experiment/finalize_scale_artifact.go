@@ -447,7 +447,7 @@ func validateArtifactVerification(sample Sample) error {
 	if sample.BusinessSQLDelta != 2 || sample.SemanticReplay || sample.IdempotentReplay {
 		return errors.New("artifact execution markers or Business SQL delta are inconsistent")
 	}
-	if err := validateObserverTransition(sample, &evidence.ObserverBefore, &evidence.ObserverAfter); err != nil {
+	if err := validateArtifactObservationV3(sample, evidence); err != nil {
 		return err
 	}
 	for _, name := range []string{"parquet_encode_encrypt", "local_staging_sync", "staging_object_put", "receipt_signing",
@@ -470,6 +470,85 @@ func ValidateArtifactEvidence(sample Sample) error {
 		return errors.New("artifact evidence validation requires a passing artifact sample")
 	}
 	return validateArtifactVerification(sample)
+}
+
+// validateArtifactObservationV3 is the artifact arm's observer gate after the v3
+// cutover.
+//
+// # What it does and does not establish
+//
+// It does NOT re-derive acceptance. Acceptance for a v3 path is
+// FinalizeTaskGateObservationV3, which needs the verified receipt, the frozen
+// contracts, the activated Catalog, the retained qualification and the Control
+// Store -- none of which a Sample carries, and deliberately so: a sample that
+// carried them would be carrying the material its own claim was checked against.
+//
+// What it establishes is that this sample IS the one that was accepted. The
+// finalizer's own record is present; the window it was settled over is the
+// window the sample retains; and the numbers the sample reports elsewhere -- the
+// Business SQL delta, the Gateway resource counters -- are the ones that window
+// and that record produce. A sample assembled from one run's receipt and another
+// run's window fails here.
+func validateArtifactObservationV3(sample Sample, evidence *ArtifactVerificationEvidence) error {
+	accepted := sample.TaskGateAcceptanceV3
+	if accepted == nil {
+		return errors.New("the artifact sample carries no v3 acceptance record; a result-heavy sample " +
+			"is accepted by the finalizer, not by the Adapter that produced it")
+	}
+	window := evidence.ObserverWindow
+	if err := window.Before.Validate(); err != nil {
+		return fmt.Errorf("artifact observer window before snapshot: %w", err)
+	}
+	if err := window.After.Validate(); err != nil {
+		return fmt.Errorf("artifact observer window after snapshot: %w", err)
+	}
+	// The classification the window was opened under has to be the one the
+	// finalizer accepted it by. ObserverWindowV2.Delta enforces this during
+	// acceptance; restating it against the RETAINED pair is what stops a sample
+	// pairing an accepted record with a different window afterwards.
+	if window.Before.ClassifierManifestSHA256 != accepted.ClassifierManifestSHA256 {
+		return fmt.Errorf("the retained observer window was opened under classifier manifest %s, "+
+			"the finalizer accepted %s", shortDigest(window.Before.ClassifierManifestSHA256),
+			shortDigest(accepted.ClassifierManifestSHA256))
+	}
+	if accepted.Plan.PathKind != PathPairedNovel {
+		return fmt.Errorf("a result-heavy artifact operation is a paired novel execution, "+
+			"the acceptance record carries path_kind %s", accepted.Plan.PathKind)
+	}
+	// The plan's targets and the sample's targeted counter are two independent
+	// readings of the same two statements: one derived from the path, one counted
+	// against the bound relations. Requiring them equal is what ties the closed
+	// world back to the counter the rest of the finalizer reasons about.
+	if targeted := accepted.Plan.ExpectedVisibleCalls + accepted.Plan.ExpectedCompanionCall; targeted !=
+		sample.BusinessSQLDelta {
+		return fmt.Errorf("the accepted plan settles %d targeted statements, the sample records %d",
+			targeted, sample.BusinessSQLDelta)
+	}
+	if total := window.After.Total - window.Before.Total; total != accepted.Delta.Total {
+		return fmt.Errorf("the retained window moved the role total by %d, the acceptance record "+
+			"settled %d", total, accepted.Delta.Total)
+	}
+	resource, err := window.ResourceDelta()
+	if err != nil {
+		return err
+	}
+	for _, counter := range []struct {
+		name             string
+		observed, stated int64
+	}{
+		{"gateway memory peak", resource.GatewayMemoryPeakBytes, sample.GatewayMemoryPeakBytes},
+		{"gateway cpu", resource.GatewayCPUUsecDelta, sample.GatewayCPUUsecDelta},
+		{"gateway network rx", resource.GatewayNetworkRXDelta, sample.GatewayNetworkRXDelta},
+		{"gateway network tx", resource.GatewayNetworkTXDelta, sample.GatewayNetworkTXDelta},
+		{"control WAL", resource.ControlWALBytesDelta, sample.ControlWALBytesDelta},
+		{"business WAL", resource.BusinessWALBytesDelta, sample.BusinessWALBytesDelta},
+	} {
+		if counter.observed != counter.stated {
+			return fmt.Errorf("the retained window reports %s %d, the sample states %d",
+				counter.name, counter.observed, counter.stated)
+		}
+	}
+	return nil
 }
 
 func validateObserverTransition(sample Sample, before, after *ObserverSnapshot) error {

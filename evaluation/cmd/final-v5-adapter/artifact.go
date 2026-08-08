@@ -14,6 +14,9 @@ import (
 
 	"taskbound.local/agent-data-gateway/evaluation/finalv5contracts"
 	"taskbound.local/agent-data-gateway/evaluation/internal/experiment"
+	"taskbound.local/agent-data-gateway/internal/physicalquery"
+	"taskbound.local/agent-data-gateway/internal/querybinding"
+	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 )
 
 const artifactVerificationVersion = "taskgate-final-v5-artifact-verification-v1"
@@ -27,6 +30,13 @@ type artifactAdapter struct {
 	real    *realAdapter
 	runtime *finalv5contracts.Runtime
 	live    finalv5contracts.LiveDeployment
+	// finalizer is the acceptance authority for every cell this adapter runs.
+	//
+	// It is received already opened. The Adapter cannot assemble one, cannot name
+	// the sources it reads, and cannot supply any of the material it judges by;
+	// what it can do is pre-register a classification before an operation runs and
+	// submit evidence about that operation afterwards.
+	finalizer *experiment.RuntimeFinalizerV3
 }
 
 // newArtifactAdapter binds the frozen contracts to the running deployment.
@@ -41,13 +51,21 @@ func newArtifactAdapter(ctx context.Context) (sourceControlledAdapter, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Opened here rather than per cell, and refused rather than deferred. A
+	// deployment that cannot produce a finalizer cannot accept a sample either, so
+	// discovering that after running six measured cells would waste the run and
+	// tempt a later reader into treating the unaccepted samples as data.
+	finalizer, err := experiment.OpenDeploymentFinalizerV3(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("open the v3 acceptance authority: %w", err)
+	}
 	real, err := newRealAdapter(ctx)
 	if err != nil {
 		return nil, err
 	}
 	real.timeout = 30 * time.Minute
 	real.http.Timeout = real.timeout
-	return &artifactAdapter{real: real, runtime: runtime, live: live}, nil
+	return &artifactAdapter{real: real, runtime: runtime, live: live, finalizer: finalizer}, nil
 }
 
 // liveDeploymentBinding reads the Catalog the Gateway is actually running. The
@@ -170,13 +188,22 @@ func (adapter *artifactAdapter) executeResultHeavy(ctx context.Context, operatio
 	if err != nil {
 		return experiment.Sample{}, err
 	}
-	// Taken next to the targeted snapshot so the census and the visible/companion
-	// counters describe the same instant of pg_stat_statements.
-	censusBefore, err := adapter.statementCensus(ctx, binding)
+	// The classification this window will be judged by, committed before there
+	// are any observations to choose it against. The finalizer computes it: a
+	// manifest the measured party chose is a standard the measured party set.
+	selector := artifactContractSelector(cell.Identity)
+	registered, err := adapter.finalizer.OpenObserverWindowV3(ctx, selector)
 	if err != nil {
 		return experiment.Sample{}, err
 	}
-	observerBefore, err := captureBoundObserver(ctx, "before")
+	windowID, err := experiment.DeriveObserverWindowID(registered.Operation.OperationID)
+	if err != nil {
+		return experiment.Sample{}, err
+	}
+	observerBefore, err := captureBoundObserverV2(ctx, experiment.ObserverInvocationV3{
+		Phase: "before", ObserverWindowID: windowID,
+		ClassifierManifestSHA256: registered.ClassifierManifestSHA256,
+	})
 	if err != nil {
 		return experiment.Sample{}, err
 	}
@@ -192,10 +219,6 @@ func (adapter *artifactAdapter) executeResultHeavy(ctx context.Context, operatio
 	partial := observedTaskgateQueryPrefix(operation, state.taskID, query.BDG.SQL, started, availableMS,
 		response, beforeRoot, beforeRoot)
 	businessAfter, err := adapter.businessSnapshot(ctx, binding)
-	if err != nil {
-		return partial, err
-	}
-	censusAfter, err := adapter.statementCensus(ctx, binding)
 	if err != nil {
 		return partial, err
 	}
@@ -224,16 +247,33 @@ func (adapter *artifactAdapter) executeResultHeavy(ctx context.Context, operatio
 	// independently reducible digest rather than the JSON-shaped baseline hash.
 	sample.ResultSHA256 = comparison.BDGResultSHA256
 	sample.BaselineVerification.ParsedResultSHA256 = comparison.BDGResultSHA256
+	observerAfter, err := captureBoundObserverV2(ctx, experiment.ObserverInvocationV3{
+		Phase: "after", ObserverWindowID: windowID,
+		ClassifierManifestSHA256: registered.ClassifierManifestSHA256,
+	})
+	if err != nil {
+		return sample, err
+	}
+	window := experiment.ObserverWindowV2{Before: observerBefore, After: observerAfter}
 	sample.ArtifactVerification, err = adapter.artifactEvidence(sample, binding, query, comparison,
-		businessBefore, businessAfter, beforeRoot, afterRoot, observerBefore)
+		businessBefore, businessAfter, beforeRoot, afterRoot, window)
 	if err != nil {
 		return sample, err
 	}
-	observerAfter, err := captureBoundObserver(ctx, "after")
+	// The resource counters come from the window's own snapshots. They used to be
+	// filled by the v1.4 accounting pass; the window carries the same readings and
+	// refuses the same disturbances -- a restart or an OOM inside it is not a
+	// smaller delta, it is two different processes.
+	resource, err := window.ResourceDelta()
 	if err != nil {
 		return sample, err
 	}
-	sample.ArtifactVerification.ObserverAfter = observerAfter
+	sample.GatewayMemoryPeakBytes = resource.GatewayMemoryPeakBytes
+	sample.GatewayCPUUsecDelta = resource.GatewayCPUUsecDelta
+	sample.GatewayNetworkRXDelta = resource.GatewayNetworkRXDelta
+	sample.GatewayNetworkTXDelta = resource.GatewayNetworkTXDelta
+	sample.ControlWALBytesDelta = resource.ControlWALBytesDelta
+	sample.BusinessWALBytesDelta = resource.BusinessWALBytesDelta
 	// Bind the sample to the activated Result-heavy profile. The Catalog digest
 	// comes from the Receipt the Gateway signed, so this is an observation of
 	// what actually served the query, not a declaration about it.
@@ -247,19 +287,103 @@ func (adapter *artifactAdapter) executeResultHeavy(ctx context.Context, operatio
 	if visibleDelta != 1 || companionDelta != 1 {
 		return sample, errors.New("artifact query did not execute exactly one visible and companion Business statement")
 	}
-	// A governed artifact query settles two transactions -- the visible statement
-	// and its provenance companion -- and the reporting-view count comes from the
-	// Catalog the Gateway signed, so the control multiplicity is derived from the
-	// activated profile rather than fixed at 14.
-	schema, err := servedExpectedSchema(sample.BaselineVerification.Receipt.CatalogDigest)
+	// Acceptance. Everything above this line is measurement; this is where the
+	// sample stops being the Adapter's opinion of itself.
+	//
+	// The Adapter submits the receipt, what it observed and the case number. The
+	// finalizer fetches the frozen contract, the activated Catalog, the retained
+	// qualification, the runtime identity and the Control Store's account of the
+	// request, reproduces the execution for itself and compares. Nothing the
+	// Adapter passes here feeds a derivation -- see the header of
+	// experiment/runtime_finalizer_v3.go for why the request can carry nothing
+	// else.
+	carried, err := carriedArtifactEvidence(registered, window, sample.BaselineVerification.Receipt)
 	if err != nil {
 		return sample, err
 	}
-	plan := experiment.NewGatewayControlPlan(2, schema.Count, visibleDelta, companionDelta)
-	if err := applyObserverDelta(&sample, observerBefore, observerAfter, plan, censusBefore, censusAfter); err != nil {
+	finalized, err := adapter.finalizer.FinalizeTaskGateObservationV3(ctx, experiment.FinalizationRequestV3{
+		Receipt: sample.BaselineVerification.Receipt, Carried: carried, ContractSelector: selector,
+		// ReturnedReceiptJSON is deliberately absent. It is read only where the
+		// Control Store reports an exact request-ID replay, and this path issues a
+		// fresh request id per sample; a replay reported here would therefore be a
+		// finalization failure, which is the correct outcome for an artifact cell
+		// that did not execute.
+	})
+	if err != nil {
 		return sample, err
 	}
+	sample.TaskGateAcceptanceV3 = &finalized
 	return sample, nil
+}
+
+// artifactContractSelector narrows the frozen contract search to one cell.
+//
+// It is a hint and carries no authority: finalization prepares every candidate
+// the selector admits and keeps the one whose preparation the Gateway signed, so
+// naming the wrong cell can only cause a rejection. Pre-registration is the one
+// place it has to name exactly one, because there is no receipt yet to identify
+// the operation by -- and a wrong name there produces a classification the
+// finalization then rebuilds differently and refuses.
+func artifactContractSelector(cell finalv5contracts.CellIdentity) experiment.FrozenContractSelectorV3 {
+	return experiment.FrozenContractSelectorV3{
+		ExperimentID: cell.ExperimentID, WorkloadID: cell.WorkloadID,
+		Scale: cell.Scale, Mode: cell.Mode,
+	}
+}
+
+// carriedArtifactEvidence assembles what the Adapter submits for one operation.
+//
+// Every member is either an observation the Adapter made or a value it is
+// transcribing, and none of it is trusted material:
+//
+//   - the window is what the independent observer produced, sealed under the
+//     classification committed before it opened;
+//   - the statement identities are read off the Gateway's own signed execution
+//     binding, and the finalizer compares them against statements it reproduces
+//     for itself -- so transcribing them wrongly is a rejection;
+//   - the operation, plan and classifier identities are the pre-registration,
+//     carried back unchanged. The Adapter cannot derive them, because a
+//     classifier manifest is built from the rendered target statements and an
+//     Adapter holding those would hold the material its claim is checked
+//     against. What carrying them establishes is that the operation the Gateway
+//     signed is the one whose classification was pre-registered.
+func carriedArtifactEvidence(registered experiment.PreRegisteredObservationV3,
+	window experiment.ObserverWindowV2,
+	receipt queryreceipt.QueryReceiptV1) (experiment.CarriedEvidenceV3, error) {
+	signed := receipt.ExecutionBindingV2
+	if signed == nil {
+		return experiment.CarriedEvidenceV3{},
+			errors.New("the receipt describes no execution, so there is nothing to submit about one")
+	}
+	if signed.Companion == nil {
+		return experiment.CarriedEvidenceV3{},
+			errors.New("a governed artifact query settles a provenance companion, and the receipt signs none")
+	}
+	return experiment.CarriedEvidenceV3{
+		Arm:                                  experiment.ArmTaskGate,
+		Operation:                            registered.Operation,
+		Plan:                                 registered.Plan,
+		ClassifierManifestSHA256:             registered.ClassifierManifestSHA256,
+		ClassifierBindingSHA256:              registered.ClassifierBindingSHA256,
+		Window:                               window,
+		VisibleStatement:                     signedTargetStatement(signed.Visible),
+		CompanionStatement:                   signedTargetStatement(*signed.Companion),
+		VisiblePreparedTargetBindingSHA256:   signed.Visible.PreparedTargetBindingSHA256,
+		CompanionPreparedTargetBindingSHA256: signed.Companion.PreparedTargetBindingSHA256,
+	}, nil
+}
+
+// signedTargetStatement transcribes one signed target record as the statement
+// identity the finalizer compares against its own reproduction.
+//
+// The prepared target binding is not part of it: physicalquery.StatementIdentity
+// describes a statement, not its place in a compiled operation, and it is carried
+// beside the identity so a statement cannot be presented as another target's.
+func signedTargetStatement(record querybinding.TargetRecordV1) *physicalquery.StatementIdentity {
+	return &physicalquery.StatementIdentity{
+		ExactSHA256: record.ExactSQLSHA256, StrictASTSHA256: record.StrictASTSHA256,
+		RowLimit: record.RowLimit, Fingerprint: record.PolicyFingerprint,
+	}
 }
 
 // artifactEvidence binds the measured sample to the contract, the live Catalog
@@ -271,7 +395,7 @@ func (adapter *artifactAdapter) artifactEvidence(sample experiment.Sample, bindi
 	query finalv5contracts.QueryContract, comparison finalv5contracts.ResultComparison,
 	businessBefore, businessAfter experiment.BusinessSQLSnapshot,
 	beforeRoot, afterRoot experiment.RootLedgerSnapshot,
-	observerBefore experiment.ObserverSnapshot) (*experiment.ArtifactVerificationEvidence, error) {
+	window experiment.ObserverWindowV2) (*experiment.ArtifactVerificationEvidence, error) {
 	if sample.BaselineVerification == nil || sample.BaselineVerification.Receipt.CatalogDigest != binding.CatalogSHA256 {
 		return nil, errors.New("the Gateway signed a different Catalog digest than the live Catalog this Adapter bound")
 	}
@@ -294,7 +418,7 @@ func (adapter *artifactAdapter) artifactEvidence(sample experiment.Sample, bindi
 		ObservedRows:         comparison.BDGRows, ObservedColumns: comparison.BDGColumns,
 		ObservedResultSHA256: comparison.BDGResultSHA256,
 		BusinessBefore:       businessBefore, BusinessAfter: businessAfter,
-		RootBefore: beforeRoot, RootAfter: afterRoot, ObserverBefore: observerBefore,
+		RootBefore: beforeRoot, RootAfter: afterRoot, ObserverWindow: window,
 	}, nil
 }
 
@@ -391,13 +515,6 @@ func (adapter *artifactAdapter) businessSnapshot(ctx context.Context,
 		VisibleRelation:   binding.ReportingView,
 		CompanionRelation: binding.OrdinalSidecar,
 	})
-}
-
-// statementCensus decomposes every gateway_reader statement into the closed
-// class set against the same bound relations the targeted counters use.
-func (adapter *artifactAdapter) statementCensus(ctx context.Context,
-	binding finalv5contracts.Binding) (experiment.GatewayStatementCensus, error) {
-	return adapter.real.gatewayStatementCensus(ctx, binding.ReportingView, binding.OrdinalSidecar)
 }
 
 // provisionArtifactTask requests exactly the Product, ordered projection and

@@ -29,9 +29,6 @@ var retiredV14ActiveReferences = map[string][]string{
 		"CensusFromTemplates", "GatewayControlPlan", "GatewayStatementCensus",
 		"ObserverAccounting", "ObserverAccountingVersion", "ValidateObserverAccounting",
 	},
-	"evaluation/cmd/final-v5-adapter/artifact.go": {
-		"GatewayStatementCensus", "NewGatewayControlPlan",
-	},
 	"evaluation/cmd/final-v5-adapter/provsql.go": {
 		"NewGatewayControlPlan",
 	},

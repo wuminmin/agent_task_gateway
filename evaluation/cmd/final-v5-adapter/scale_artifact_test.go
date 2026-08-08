@@ -200,11 +200,19 @@ func TestPostAssertionFailuresRetainIndependentRuntimeSnapshots(t *testing.T) {
 	operation.ExperimentID, operation.WorkloadID, operation.Scale = "artifact", "result-heavy", "100x4"
 	artifact := baseSample(operation, "taskgate")
 	artifact.BusinessSQLDelta = 2
+	// The artifact arm retains a V2 window rather than a pair of v1 snapshots
+	// since the v3 cutover. What is asserted is unchanged: a post-assertion
+	// failure keeps every safely collected boundary instead of discarding it.
+	window := experiment.ObserverWindowV2{
+		Before: experiment.ObserverSnapshotV2{Phase: "before", Total: 11},
+		After:  experiment.ObserverSnapshotV2{Phase: "after", Total: 29},
+	}
 	artifact.ArtifactVerification = &experiment.ArtifactVerificationEvidence{BindingSHA256: digest,
 		BusinessBefore: businessBefore, BusinessAfter: businessAfter, RootBefore: rootBefore, RootAfter: rootAfter,
-		ObserverBefore: observerBefore, ObserverAfter: observerAfter}
+		ObserverWindow: window}
 	failedArtifact := retainedArtifactFailure(operation, artifact, "artifact_measurement_failed")
-	if failedArtifact.ArtifactVerification == nil || failedArtifact.ArtifactVerification.ObserverAfter != observerAfter ||
+	if failedArtifact.ArtifactVerification == nil ||
+		failedArtifact.ArtifactVerification.ObserverWindow.After.Total != window.After.Total ||
 		failedArtifact.ArtifactVerification.BusinessAfter != businessAfter || failedArtifact.ArtifactVerification.RootAfter != rootAfter {
 		t.Fatalf("artifact post-assertion failure discarded safe snapshots: %+v", failedArtifact)
 	}

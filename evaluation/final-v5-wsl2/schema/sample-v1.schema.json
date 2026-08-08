@@ -994,8 +994,7 @@
             "business_after",
             "root_before",
             "root_after",
-            "observer_before",
-            "observer_after"
+            "observer_window"
           ],
           "properties": {
             "version": {
@@ -1057,10 +1056,7 @@
             "root_after": {
               "type": "object"
             },
-            "observer_before": {
-              "type": "object"
-            },
-            "observer_after": {
+            "observer_window": {
               "type": "object"
             }
           }
@@ -1901,8 +1897,7 @@
           "observed_columns",
           "observed_result_sha256",
           "observed_rows",
-          "observer_after",
-          "observer_before",
+          "observer_window",
           "query_sha256",
           "root_after",
           "root_before",

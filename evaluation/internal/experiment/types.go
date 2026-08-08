@@ -366,7 +366,21 @@ type Sample struct {
 	// ObserverAccounting explains every gateway_reader statement the independent
 	// observer counted, not only the targeted ones BusinessSQLDelta records. It
 	// is absent on arms that never reach the Gateway.
-	ObserverAccounting        *ObserverAccounting               `json:"observer_accounting,omitempty"`
+	ObserverAccounting *ObserverAccounting `json:"observer_accounting,omitempty"`
+	// TaskGateAcceptanceV3 is the finalizer's own acceptance record for this
+	// operation, retained on the paths that have been cut over to v3.
+	//
+	// It is the finalizer's OUTPUT, not the Adapter's claim: every member of it
+	// was derived from frozen contract material and independently obtained
+	// deployment evidence, and the Adapter never sees the inputs it came from.
+	// A sample carries it so a later reader can see which plan, classification
+	// and observed delta the operation was accepted under, rather than only that
+	// it was.
+	//
+	// It coexists with ObserverAccounting rather than replacing it because the
+	// cutover is per path: an arm still on the v1.4 accounting carries that, an
+	// arm on v3 carries this, and neither may stand in for the other.
+	TaskGateAcceptanceV3      *FinalizationV3                   `json:"taskgate_acceptance_v3,omitempty"`
 	RootEpochBefore           int64                             `json:"root_epoch_before"`
 	RootEpochAfter            int64                             `json:"root_epoch_after"`
 	RootTaskIDHash            string                            `json:"root_task_id_hash,omitempty"`
@@ -549,8 +563,15 @@ type ArtifactVerificationEvidence struct {
 	BusinessAfter        BusinessSQLSnapshot `json:"business_after"`
 	RootBefore           RootLedgerSnapshot  `json:"root_before"`
 	RootAfter            RootLedgerSnapshot  `json:"root_after"`
-	ObserverBefore       ObserverSnapshot    `json:"observer_before"`
-	ObserverAfter        ObserverSnapshot    `json:"observer_after"`
+	// ObserverWindow is the interval the v3 accounting was settled over.
+	//
+	// It replaced a pair of schema-v1 ObserverSnapshots. Those carried the
+	// role-wide total and the structural census as separate readings, so the two
+	// could describe different instants with nothing able to tell; and they left
+	// the runtime and image identities to the Adapter, which is the party the
+	// finalizer is supposed to be independent of. A window is the pair, and
+	// ObserverSnapshotV2.Validate makes its atomicity checkable.
+	ObserverWindow ObserverWindowV2 `json:"observer_window"`
 }
 
 // BusinessSQLSnapshot is an independently observed pg_stat_statements sample.
