@@ -243,7 +243,7 @@ func deriveSemanticViewPreparation(inputs SemanticViewPreparationInputsV1) (
 	queryProducts := make(map[string]queryplan.Product, len(governance.products))
 	for name, product := range governance.products {
 		columns := requiredColumns[name]
-		queryProduct := relationalQueryProduct(product, columns)
+		queryProduct := QueryProductFromCatalog(product, columns)
 		if inputs.Grant.UsesOrdinalProgram() {
 			if queryProduct, err = ordinalQueryProduct(sources, product, columns); err != nil {
 				return OperationDraft{}, semanticViewGovernance{}, err

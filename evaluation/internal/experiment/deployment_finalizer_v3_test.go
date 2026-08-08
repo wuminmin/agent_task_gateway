@@ -1,0 +1,426 @@
+package experiment
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"taskbound.local/agent-data-gateway/evaluation/finalv5contracts"
+	"taskbound.local/agent-data-gateway/internal/catalog"
+	fixture "taskbound.local/agent-data-gateway/internal/testfixture/queryreceiptv10"
+)
+
+// These tests run the deployment resolvers against the repository's own
+// retained material: the embedded Contract Index, the source-controlled profile
+// registry and Catalog, the published snapshot artifacts, and one retained
+// qualification run with the PostgreSQL identity it was measured against.
+//
+// That is deliberate rather than convenient. A resolver nothing has ever
+// executed is worse evidence than none, and three of the five can be executed
+// here for real -- only the Control Store reader and the keyring fetch need a
+// running deployment. What cannot be established without one is whether the
+// deployment is serving this material; what can be, and is, is that the material
+// resolves and that the frozen contract prepares from it.
+
+// retainedQualificationRun is the qualification whose footprint and PostgreSQL
+// identity the repository retains together. Both files come from one run, which
+// is what makes them usable as a pair: a footprint is only evidence while it is
+// bound to the server it was measured on.
+const retainedQualificationRun = "diagnosis-attestation-footprint-qualification-02-" +
+	"20260804T154235Z-818c481ebe5b"
+
+func retainedQualificationDirectory(t *testing.T) string {
+	t.Helper()
+	path, err := filepath.Abs(filepath.Join("..", "..", "final-v5-wsl2", "raw", retainedQualificationRun))
+	if err != nil {
+		t.Fatalf("resolve the retained qualification: %v", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Skipf("the retained qualification is not present: %v", err)
+	}
+	return path
+}
+
+func repositoryRootForDeployment(t *testing.T) string {
+	t.Helper()
+	root, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatalf("resolve the repository root: %v", err)
+	}
+	return root
+}
+
+func sourceControlledRegistryPath(t *testing.T) string {
+	t.Helper()
+	return filepath.Join(repositoryRootForDeployment(t), "config", "profiles", "registry.json")
+}
+
+// deploymentProfilesForTest points the profile resolver at a registry that has
+// cleared the Result-heavy profile, and at everything else real: the
+// source-controlled Catalog, the retained publication artifacts, and a served
+// Catalog digest taken from the Catalog file itself.
+//
+// The registry is a copy with two flags flipped, and that is the honest shape of
+// this test rather than a convenience. At this HEAD the source-controlled
+// registry records NO live activation smoke for the profile -- activation
+// support does not carry across a contract release -- so the resolver refuses
+// it, which is what TestTheProfileResolverRefusesAnUncleared... asserts. Every
+// other input below is the real one, so what is being exercised is the
+// resolution, not the clearance.
+func deploymentProfilesForTest(t *testing.T) deploymentProfilesV3 {
+	t.Helper()
+	root := repositoryRootForDeployment(t)
+	digest, err := FileSHA256(resultHeavyCatalogPath(t))
+	if err != nil {
+		t.Fatalf("digest the profile Catalog: %v", err)
+	}
+	return deploymentProfilesV3{
+		registryPath:        clearedRegistryPath(t),
+		repositoryRoot:      root,
+		artifactDir:         retainedSnapshotArtifacts(t),
+		servedCatalogSHA256: digest,
+	}
+}
+
+// clearedRegistryPath writes a copy of the source-controlled registry with the
+// Result-heavy profile's activation clearances set, and returns its path.
+func clearedRegistryPath(t *testing.T) string {
+	t.Helper()
+	payload, err := os.ReadFile(sourceControlledRegistryPath(t))
+	if err != nil {
+		t.Fatalf("read the profile registry: %v", err)
+	}
+	var registry map[string]any
+	if err := json.Unmarshal(payload, &registry); err != nil {
+		t.Fatalf("decode the profile registry: %v", err)
+	}
+	profiles, _ := registry["profiles"].([]any)
+	cleared := false
+	for _, entry := range profiles {
+		profile, _ := entry.(map[string]any)
+		if profile == nil || profile["alias"] != artifactDeploymentProfileAlias {
+			continue
+		}
+		profile["targeted_run_eligible"] = true
+		status, _ := profile["status"].(map[string]any)
+		if status == nil {
+			t.Fatal("the registry profile carries no status")
+		}
+		status["activation_supported"] = true
+		cleared = true
+	}
+	if !cleared {
+		t.Fatalf("the profile registry declares no %q profile", artifactDeploymentProfileAlias)
+	}
+	edited, err := json.Marshal(registry)
+	if err != nil {
+		t.Fatalf("re-encode the profile registry: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "registry.json")
+	if err := os.WriteFile(path, edited, 0o600); err != nil {
+		t.Fatalf("write the cleared registry: %v", err)
+	}
+	return path
+}
+
+// The clearance gates are load bearing, and at this HEAD the source-controlled
+// registry does not pass them.
+//
+// That is not a defect in the registry: a contract release invalidates activation
+// support, and the Result-heavy profile's live activation smoke has not been run
+// against this one. What this asserts is that the finalizer refuses to resolve
+// material for an uncleared profile at all -- so a measured run cannot be used to
+// bootstrap the readiness it depends on, which is the same gate the Adapter's own
+// profile binding applies.
+func TestTheProfileResolverRefusesAnUnclearedProfile(t *testing.T) {
+	profiles := deploymentProfilesForTest(t)
+	profiles.registryPath = sourceControlledRegistryPath(t)
+	_, err := profiles.Resolve(artifactDeploymentProfileAlias)
+	if err == nil {
+		t.Fatal("the finalizer resolved material for a profile with no recorded live activation smoke")
+	}
+	if !strings.Contains(err.Error(), artifactDeploymentProfileAlias) {
+		t.Fatalf("the refusal does not name the profile: %v", err)
+	}
+}
+
+// The profile resolver returns the registry's own copy of the activated Catalog,
+// and refuses one whose bytes are not the ones the deployment serves.
+func TestTheProfileResolverBindsTheRegistryCatalogToTheServedOne(t *testing.T) {
+	profiles := deploymentProfilesForTest(t)
+	material, err := profiles.Resolve(artifactDeploymentProfileAlias)
+	if err != nil {
+		t.Fatalf("resolve the activated profile: %v", err)
+	}
+	if material.CatalogPath == "" || material.SnapshotArtifactDir == "" {
+		t.Fatalf("the activated profile resolved to %+v", material)
+	}
+	digest, err := FileSHA256(material.CatalogPath)
+	if err != nil {
+		t.Fatalf("digest the resolved Catalog: %v", err)
+	}
+	if digest != profiles.servedCatalogSHA256 {
+		t.Fatalf("the resolver returned Catalog %s, the deployment serves %s",
+			shortDigest(digest), shortDigest(profiles.servedCatalogSHA256))
+	}
+
+	// A deployment serving different bytes is refused rather than resolved. This
+	// is the check that stops a finalization attesting against a Catalog nobody
+	// activated -- the profile would still be eligible, still have an activation
+	// smoke, and still name a Catalog that exists.
+	other := profiles
+	other.servedCatalogSHA256 = strings.Repeat("a", 64)
+	if _, err := other.Resolve(artifactDeploymentProfileAlias); err == nil {
+		t.Fatal("a profile was resolved for a deployment serving a different Catalog")
+	}
+	if _, err := profiles.Resolve("a-profile-no-registry-declares"); err == nil {
+		t.Fatal("an undeclared profile resolved to material")
+	}
+}
+
+// The retained qualification is accepted only where its own recorded digest
+// agrees with the footprint it carries, and where that footprint qualifies the
+// ExpectedSchema and the server this run uses.
+func TestTheQualificationResolverSelfChecksAndBinds(t *testing.T) {
+	directory := retainedQualificationDirectory(t)
+	qualification := retainedQualificationV3{
+		documentPath: filepath.Join(directory, "attestation-footprint-v2.json"),
+	}
+	identity := retainedPostgreSQLIdentityV3{
+		documentPath: filepath.Join(directory, "postgresql-identity.json"),
+	}
+	postgres, err := identity.ReadPostgreSQLIdentity(context.Background())
+	if err != nil {
+		t.Fatalf("read the retained PostgreSQL identity: %v", err)
+	}
+	footprint, err := qualification.Resolve(resultHeavyCatalogPath(t), postgres)
+	if err != nil {
+		t.Fatalf("resolve the qualified footprint: %v", err)
+	}
+	if len(footprint.InternalKeys()) == 0 {
+		t.Fatal("the qualified footprint measured no PostgreSQL-internal statement")
+	}
+
+	// A different server is refused. The footprint scales with the ExpectedSchema
+	// and is a property of one server build, so a qualification carried across
+	// either binding would be asserting a measurement that was never made.
+	if _, err := qualification.Resolve(resultHeavyCatalogPath(t), testRuntimeIdentity()); err == nil {
+		t.Fatal("a footprint qualified elsewhere was accepted for this deployment")
+	}
+
+	// And a document whose footprint no longer digests to what it records is
+	// refused, which is what makes the retained file self-checking rather than
+	// merely present.
+	payload, err := os.ReadFile(qualification.documentPath)
+	if err != nil {
+		t.Fatalf("read the retained qualification: %v", err)
+	}
+	var document map[string]any
+	if err := json.Unmarshal(payload, &document); err != nil {
+		t.Fatalf("decode the retained qualification: %v", err)
+	}
+	document["footprint_sha256"] = strings.Repeat("b", 64)
+	edited, err := json.Marshal(document)
+	if err != nil {
+		t.Fatalf("re-encode the retained qualification: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "attestation-footprint-v2.json")
+	if err := os.WriteFile(path, edited, 0o600); err != nil {
+		t.Fatalf("write the edited qualification: %v", err)
+	}
+	if _, err := (retainedQualificationV3{documentPath: path}).Resolve(
+		resultHeavyCatalogPath(t), postgres); err == nil {
+		t.Fatal("a qualification that disagrees with its own recorded digest was accepted")
+	}
+}
+
+// deploymentContractsForTest binds the embedded Contract Index to the
+// source-controlled Catalog.
+//
+// The dataset probe is a placeholder here and nowhere else: BindDeployment
+// requires a SHA-256-shaped deployment observation and records it, and nothing
+// downstream of the binding reads it. Every other input is the real one.
+func deploymentContractsForTest(t *testing.T) deploymentContractsV3 {
+	t.Helper()
+	runtime, err := finalv5contracts.LoadRuntime()
+	if err != nil {
+		t.Fatalf("load the frozen Contract Index: %v", err)
+	}
+	catalogPath := resultHeavyCatalogPath(t)
+	digest, err := FileSHA256(catalogPath)
+	if err != nil {
+		t.Fatalf("digest the Catalog: %v", err)
+	}
+	liveCatalog, err := catalog.Load(catalogPath)
+	if err != nil {
+		t.Fatalf("load the Catalog: %v", err)
+	}
+	return deploymentContractsV3{
+		runtime: runtime,
+		live: finalv5contracts.LiveDeployment{
+			CatalogPath: catalogPath, CatalogSHA256: digest,
+			DatasetProbeSHA256: strings.Repeat("c", 64),
+		},
+		catalog: liveCatalog,
+	}
+}
+
+// The contract resolver produces an operation the finalizer can actually
+// prepare, and the selector narrows it exactly.
+//
+// The plan is not written out anywhere in this test. It is lowered from the
+// frozen BDG statement through the production lowering, which is the property
+// that matters: a finalizer that transcribed the plan would agree with itself
+// about a step it is supposed to be reproducing.
+func TestTheContractResolverLowersTheFrozenStatement(t *testing.T) {
+	contracts := deploymentContractsForTest(t)
+	all, err := contracts.ResolveCandidates(FrozenContractSelectorV3{})
+	if err != nil {
+		t.Fatalf("resolve every frozen Artifact cell: %v", err)
+	}
+	if len(all) == 0 {
+		t.Fatal("the frozen Contract Index defines no Artifact cell")
+	}
+	for _, candidate := range all {
+		if candidate.PathKind != PathPairedNovel {
+			t.Errorf("%s resolved to path_kind %s", candidate.OperationID, candidate.PathKind)
+		}
+		if candidate.Plan.Product == "" || len(candidate.Plan.Columns) == 0 {
+			t.Errorf("%s lowered to an empty plan", candidate.OperationID)
+		}
+		if err := candidate.Grant.Validate(); err != nil {
+			t.Errorf("%s resolved to an unusable approved surface: %v", candidate.OperationID, err)
+		}
+		if candidate.Grant.ExposureProfile == "" || !candidate.Grant.UsesOrdinalProgram() {
+			t.Errorf("%s resolved to exposure profile %q, which compiles no ordinal program",
+				candidate.OperationID, candidate.Grant.ExposureProfile)
+		}
+	}
+
+	// The selector narrows rather than decides: naming one cell must leave one
+	// candidate, and naming a cell the contract does not define must leave none.
+	one := all[0]
+	coordinates := strings.Split(one.OperationID, "/")
+	if len(coordinates) != 4 {
+		t.Fatalf("operation id %q is not a protocol coordinate", one.OperationID)
+	}
+	narrowed, err := contracts.ResolveCandidates(FrozenContractSelectorV3{
+		ExperimentID: coordinates[0], WorkloadID: coordinates[1],
+		Scale: coordinates[2], Mode: coordinates[3],
+	})
+	if err != nil {
+		t.Fatalf("resolve one frozen cell: %v", err)
+	}
+	if len(narrowed) != 1 || narrowed[0].OperationID != one.OperationID {
+		t.Fatalf("a selector naming %s admitted %d candidate(s)", one.OperationID, len(narrowed))
+	}
+	absent, err := contracts.ResolveCandidates(FrozenContractSelectorV3{ExperimentID: "scale"})
+	if err != nil {
+		t.Fatalf("resolve a selector this resolver does not serve: %v", err)
+	}
+	if len(absent) != 0 {
+		t.Fatalf("the Artifact contract resolver admitted %d candidate(s) for another experiment", len(absent))
+	}
+}
+
+// The whole deployment side, assembled: the contract resolver, the profile
+// resolver and the retained qualification together produce a pre-registered
+// classification.
+//
+// This is the test that says the five resolvers are wired to material that
+// works. OpenObserverWindowV3 prepares the operation from the resolved plan and
+// grant, against the resolved Catalog and the published artifacts, derives the
+// control plan from the resolved footprint, and builds the classifier manifest
+// -- so a digest coming back means every one of those steps ran on real
+// material rather than on a value a test wrote down.
+func TestTheDeploymentResolversPreRegisterAClassification(t *testing.T) {
+	verifier, err := fixture.Verifier()
+	if err != nil {
+		t.Fatalf("verifier: %v", err)
+	}
+	directory := retainedQualificationDirectory(t)
+	finalizer, err := openRuntimeFinalizerV3(verifier,
+		deploymentContractsForTest(t),
+		deploymentProfilesForTest(t),
+		retainedQualificationV3{documentPath: filepath.Join(directory, "attestation-footprint-v2.json")},
+		retainedPostgreSQLIdentityV3{documentPath: filepath.Join(directory, "postgresql-identity.json")},
+		// The Control Store is the one collaborator this test cannot run: it needs
+		// a settled request in a running deployment. Pre-registration reaches none
+		// of it -- it happens before the request exists.
+		stubControl{state: requestSettlementStateV3{WroteExecutionBindingRow: true}})
+	if err != nil {
+		t.Fatalf("open the finalizer: %v", err)
+	}
+	committed, err := finalizer.OpenObserverWindowV3(context.Background(), FrozenContractSelectorV3{
+		ExperimentID: finalv5contracts.ArtifactExperimentID,
+		WorkloadID:   finalv5contracts.ArtifactWorkloadID,
+		Scale:        "100x4", Mode: "novel",
+	})
+	if err != nil {
+		t.Fatalf("pre-register the classification from deployment material: %v", err)
+	}
+	if !validSHA256(committed) {
+		t.Fatalf("the pre-registered classification is %q", committed)
+	}
+
+	// The window identity is derived from the operation, and the two sides have to
+	// name that operation identically or the derived id is a different window.
+	runtime, err := finalv5contracts.LoadRuntime()
+	if err != nil {
+		t.Fatalf("load the frozen Contract Index: %v", err)
+	}
+	operation, err := ArtifactOperationV3(runtime, finalv5contracts.CellIdentity{
+		ExperimentID: finalv5contracts.ArtifactExperimentID,
+		WorkloadID:   finalv5contracts.ArtifactWorkloadID, Scale: "100x4", Mode: "novel",
+	})
+	if err != nil {
+		t.Fatalf("name the frozen operation: %v", err)
+	}
+	windowID, err := DeriveObserverWindowID(operation.OperationID)
+	if err != nil {
+		t.Fatalf("derive the observer window id: %v", err)
+	}
+	if err := (ObserverInvocationV3{Phase: "before", ObserverWindowID: windowID,
+		ClassifierManifestSHA256: committed}).Validate(); err != nil {
+		t.Fatalf("the deployment material does not produce a runnable observer invocation: %v", err)
+	}
+}
+
+// A frozen operation is named from the contract release and the Index digest, so
+// the same cell coordinate re-frozen under a different release is a different
+// contract. Without that a target rendered from one release would classify for
+// the other, and no class count would notice.
+func TestAFrozenOperationIsNamedByItsContractRelease(t *testing.T) {
+	runtime, err := finalv5contracts.LoadRuntime()
+	if err != nil {
+		t.Fatalf("load the frozen Contract Index: %v", err)
+	}
+	cell := finalv5contracts.CellIdentity{
+		ExperimentID: finalv5contracts.ArtifactExperimentID,
+		WorkloadID:   finalv5contracts.ArtifactWorkloadID, Scale: "100x4", Mode: "novel",
+	}
+	operation, err := ArtifactOperationV3(runtime, cell)
+	if err != nil {
+		t.Fatalf("name the frozen operation: %v", err)
+	}
+	if operation.OperationID != cell.String() {
+		t.Fatalf("the operation is named %q, the protocol coordinate is %q",
+			operation.OperationID, cell.String())
+	}
+	for _, member := range []string{runtime.ContractRelease(), runtime.IndexSHA256(), cell.String()} {
+		if !strings.Contains(operation.ContractIdentity, member) {
+			t.Errorf("the contract identity %q does not carry %q", operation.ContractIdentity, member)
+		}
+	}
+	if _, err := ArtifactOperationV3(runtime, finalv5contracts.CellIdentity{
+		ExperimentID: finalv5contracts.ArtifactExperimentID,
+	}); err == nil {
+		t.Fatal("an incomplete protocol coordinate was named as a frozen operation")
+	}
+	if _, err := ArtifactOperationV3(nil, cell); err == nil {
+		t.Fatal("a frozen operation was named without the Contract Index")
+	}
+}

@@ -11,6 +11,7 @@ import (
 	"taskbound.local/agent-data-gateway/internal/catalog"
 	"taskbound.local/agent-data-gateway/internal/dataconnector"
 	"taskbound.local/agent-data-gateway/internal/exposure"
+	"taskbound.local/agent-data-gateway/internal/physicalquery"
 	"taskbound.local/agent-data-gateway/internal/queryplan"
 )
 
@@ -22,32 +23,21 @@ type relationalExposureContext struct {
 // relationalQueryProduct is the compilation product carrying a Catalog Product's
 // canonical semantic identity.
 //
-// It survives the preparation extraction because its two remaining callers are
-// not preparing anything: SQL lowering needs it to resolve identifiers in an
-// agent's raw statement before there is a QueryPlan at all, and View binding
-// needs it to compile the registry snapshot before any task references the
-// result. Preparation has its own copy over the same Catalog values, and neither
-// of these paths reaches it.
+// Its two remaining callers here are not preparing anything: SQL lowering needs
+// it to resolve identifiers in an agent's raw statement before there is a
+// QueryPlan at all, and View binding needs it to compile the registry snapshot
+// before any task references the result. It used to build the value itself, over
+// the same Catalog members preparation reads, on the argument that neither path
+// reaches preparation's copy.
+//
+// That argument stopped holding when a finalizer had to lower the same statement
+// this path lowers. The product enters the plan the preparation is sealed
+// against, so two constructions that spelled one member differently would
+// produce a preparation the finalizer could not reproduce -- and the difference
+// would surface as a failed acceptance rather than as the duplication it is.
+// There is now one construction, and this is a call to it.
 func relationalQueryProduct(product catalog.Product, approved map[string]struct{}) queryplan.Product {
-	types := make(map[string]string, len(product.Fields))
-	collations := make(map[string]string, len(product.Fields))
-	versions := make(map[string]string, len(product.Fields))
-	for _, field := range product.Fields {
-		types[field.Name] = field.Type
-		collations[field.Name] = field.Collation
-		versions[field.Name] = field.CollationVersion
-	}
-	aggregates := make(map[string]struct{}, len(product.AllowedAggregates))
-	for _, aggregate := range product.AllowedAggregates {
-		aggregates[strings.ToLower(strings.TrimSpace(aggregate))] = struct{}{}
-	}
-	return queryplan.Product{
-		Name: product.Name, Columns: approved, AllowedAggregates: aggregates,
-		ColumnTypes: types, ColumnCollations: collations, CollationVersions: versions,
-		SourceNamespace: product.FactNamespace, Snapshot: product.Snapshot,
-		StableRole: product.StableRelationRole, StableEntityKey: append([]string(nil), product.EntityKey...),
-		LineageDigest: product.LineageManifestDigest, RequiredEvidence: append([]string(nil), product.Scopes...),
-	}
+	return physicalquery.QueryProductFromCatalog(product, approved)
 }
 
 func relationalAlgebraPlan(plan queryplan.QueryPlan, compilation queryplan.RelationalCompilation, products map[string]catalog.Product) (queryplan.AlgebraPlanV2, error) {

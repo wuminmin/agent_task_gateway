@@ -249,34 +249,89 @@ func TestNoExportedWayToChooseTheFinalizersSources(t *testing.T) {
 	}
 
 	root := repositoryRoot(t)
-	path := filepath.Join(root, "evaluation", "internal", "experiment", "runtime_finalizer_v3.go")
-	fileSet := token.NewFileSet()
-	parsed, err := parser.ParseFile(fileSet, path, nil, 0)
-	if err != nil {
-		t.Fatalf("parse the runtime finalizer: %v", err)
-	}
 	selectors := map[string]bool{}
 	for _, name := range finalizerSourceSelectors {
 		selectors[name] = true
 	}
-	// And no exported function or method may take one, which is the way an
-	// unexported type still reaches a caller: through a parameter it can satisfy
-	// with a value obtained elsewhere.
+	// Both files: the one that declares the collaborators and the one that
+	// implements them for a real deployment. The second is where the pressure
+	// actually is -- it is the file a later change would be tempted to give an
+	// "override the Catalog for this run" parameter, and that parameter is a
+	// caller choosing the standard.
+	for _, name := range []string{"runtime_finalizer_v3.go", "deployment_finalizer_v3.go"} {
+		path := filepath.Join(root, "evaluation", "internal", "experiment", name)
+		fileSet := token.NewFileSet()
+		parsed, err := parser.ParseFile(fileSet, path, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+		// No exported function or method may take a source, which is the way an
+		// unexported type still reaches a caller: through a parameter it can
+		// satisfy with a value obtained elsewhere.
+		for _, declaration := range parsed.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if !ok || !ast.IsExported(function.Name.Name) {
+				continue
+			}
+			for _, parameter := range function.Type.Params.List {
+				ast.Inspect(parameter.Type, func(node ast.Node) bool {
+					identifier, ok := node.(*ast.Ident)
+					if ok && selectors[identifier.Name] {
+						t.Errorf("exported %s in %s takes %s; the finalizer's sources are chosen "+
+							"inside this package, never by a caller", function.Name.Name, name, identifier.Name)
+					}
+					return true
+				})
+			}
+		}
+	}
+}
+
+// TestTheDeploymentConstructorSelectsNoContent is the guard the deployment
+// resolvers make necessary.
+//
+// The five collaborators are unexported, so no caller can implement one. What a
+// caller could still do is ask the ONE exported constructor for a finalizer
+// pointed at material of its choosing -- "open one against this Catalog", "against
+// this qualification document" -- and every existing guard would pass, because
+// nothing about the request type or the collaborator types would have changed.
+//
+// So the constructor's parameter list is pinned. It may take a context, because a
+// context selects nothing; everything else comes from the environment the
+// operator started the deployment with, which the measured party does not choose
+// at the moment it submits its evidence.
+func TestTheDeploymentConstructorSelectsNoContent(t *testing.T) {
+	root := repositoryRoot(t)
+	path := filepath.Join(root, "evaluation", "internal", "experiment", "deployment_finalizer_v3.go")
+	fileSet := token.NewFileSet()
+	parsed, err := parser.ParseFile(fileSet, path, nil, 0)
+	if err != nil {
+		t.Fatalf("parse the deployment finalizer: %v", err)
+	}
+	found := false
 	for _, declaration := range parsed.Decls {
 		function, ok := declaration.(*ast.FuncDecl)
-		if !ok || !ast.IsExported(function.Name.Name) {
+		if !ok || function.Recv != nil || function.Name.Name != "OpenDeploymentFinalizerV3" {
 			continue
 		}
+		found = true
+		var parameters []string
 		for _, parameter := range function.Type.Params.List {
-			ast.Inspect(parameter.Type, func(node ast.Node) bool {
-				identifier, ok := node.(*ast.Ident)
-				if ok && selectors[identifier.Name] {
-					t.Errorf("exported %s takes %s; the finalizer's sources are chosen inside this "+
-						"package, never by a caller", function.Name.Name, identifier.Name)
-				}
-				return true
-			})
+			selector, ok := parameter.Type.(*ast.SelectorExpr)
+			if !ok || selector.Sel.Name != "Context" {
+				parameters = append(parameters, "a non-context parameter")
+				continue
+			}
+			parameters = append(parameters, "context.Context")
 		}
+		if len(parameters) != 1 || parameters[0] != "context.Context" {
+			t.Errorf("OpenDeploymentFinalizerV3 takes %v; a constructor that takes anything a caller "+
+				"chooses lets the measured party pick which archive its own claim is checked against",
+				parameters)
+		}
+	}
+	if !found {
+		t.Fatal("OpenDeploymentFinalizerV3 is not declared where this guard looks")
 	}
 }
 

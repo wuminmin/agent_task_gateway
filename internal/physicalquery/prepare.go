@@ -231,7 +231,7 @@ func deriveRelationalPreparation(inputs PreparationInputs) (OperationDraft, erro
 				"this relational plan reads data product %q, which the task does not approve", name)
 		}
 		columns := stringSet(inputs.Grant.ApprovedColumns[name])
-		queryProduct := relationalQueryProduct(product, columns)
+		queryProduct := QueryProductFromCatalog(product, columns)
 		if inputs.Grant.UsesOrdinalProgram() {
 			if queryProduct, err = ordinalQueryProduct(inputs.sources(), product, columns); err != nil {
 				return OperationDraft{}, err
@@ -371,7 +371,7 @@ func deriveRelationalShape(plan queryplan.QueryPlan, approvedColumns map[string]
 	// give two tasks running one query two identities.
 	semantic := make(map[string]queryplan.Product, len(products))
 	for name, product := range products {
-		semantic[name] = relationalQueryProduct(product, stringSet(product.FieldNames()))
+		semantic[name] = QueryProductFromCatalog(product, stringSet(product.FieldNames()))
 	}
 	normal, err := queryplan.SemanticNormalForm(plan, compiled, semantic)
 	if err != nil {
@@ -751,16 +751,26 @@ func ordinalQueryProduct(sources preparationSources, product catalog.Product,
 		return queryplan.Product{}, fmt.Errorf(
 			"product %q has no matching immutable snapshot publication", product.Name)
 	}
-	result := relationalQueryProduct(product, approved)
+	result := QueryProductFromCatalog(product, approved)
 	result.RequiredEvidence = append([]string(nil), product.Scopes...)
 	result.SnapshotPublication = publication.Name
 	result.SidecarManifestDigest = publication.ManifestDigest
 	return result, nil
 }
 
-// relationalQueryProduct is the compilation product carrying the canonical
+// QueryProductFromCatalog is the compilation product carrying the canonical
 // semantic identity every profile from V2 onward requires.
-func relationalQueryProduct(product catalog.Product, approved map[string]struct{}) queryplan.Product {
+//
+// It is exported because it is not only preparation's. SQL lowering resolves an
+// agent's raw statement against it before there is a QueryPlan at all, View
+// binding compiles the registry snapshot against it, and a finalizer holding
+// frozen contract material has to lower the same statement the Gateway lowered.
+// Each of those used to build the value itself, from the same Catalog members,
+// which is three constructions of one identity: the product enters the plan
+// digest, so a member spelled differently in one of them would produce a
+// preparation the others do not reproduce -- and that difference would surface
+// as a finalization failure rather than as the duplication it is.
+func QueryProductFromCatalog(product catalog.Product, approved map[string]struct{}) queryplan.Product {
 	types := make(map[string]string, len(product.Fields))
 	collations := make(map[string]string, len(product.Fields))
 	versions := make(map[string]string, len(product.Fields))
