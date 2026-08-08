@@ -13,32 +13,32 @@ import (
 // evidence, the running database and the Control Store.
 type (
 	stubContracts struct {
-		candidates []FrozenOperationCandidateV3
+		candidates []frozenOperationCandidateV3
 		err        error
 	}
-	stubProfiles  struct{ material ProfileMaterialV3 }
+	stubProfiles  struct{ material profileMaterialV3 }
 	stubFootprint struct{ footprint AttestationFootprintV2 }
 	stubRuntime   struct{ identity PostgreSQLRuntimeIdentity }
-	stubControl   struct{ state RequestSettlementStateV3 }
+	stubControl   struct{ state requestSettlementStateV3 }
 )
 
-func (s stubContracts) ResolveCandidates(FrozenContractSelectorV3) ([]FrozenOperationCandidateV3, error) {
+func (s stubContracts) ResolveCandidates(FrozenContractSelectorV3) ([]frozenOperationCandidateV3, error) {
 	return s.candidates, s.err
 }
-func (s stubProfiles) Resolve(string) (ProfileMaterialV3, error) { return s.material, nil }
+func (s stubProfiles) Resolve(string) (profileMaterialV3, error) { return s.material, nil }
 func (s stubFootprint) Resolve(string, PostgreSQLRuntimeIdentity) (AttestationFootprintV2, error) {
 	return s.footprint, nil
 }
 func (s stubRuntime) ReadPostgreSQLIdentity(context.Context) (PostgreSQLRuntimeIdentity, error) {
 	return s.identity, nil
 }
-func (s stubControl) ReadRequestState(context.Context, string, string) (RequestSettlementStateV3, error) {
+func (s stubControl) ReadRequestState(context.Context, string, string) (requestSettlementStateV3, error) {
 	return s.state, nil
 }
 
 // runtimeFinalizerFor builds a finalizer whose contract registry offers the
 // given candidates.
-func runtimeFinalizerFor(t *testing.T, candidates ...FrozenOperationCandidateV3) *RuntimeFinalizerV3 {
+func runtimeFinalizerFor(t *testing.T, candidates ...frozenOperationCandidateV3) *RuntimeFinalizerV3 {
 	t.Helper()
 	operation := prepareOperationV3(t)
 	footprint, _ := realSchemaFootprint(t)
@@ -46,15 +46,15 @@ func runtimeFinalizerFor(t *testing.T, candidates ...FrozenOperationCandidateV3)
 	if err != nil {
 		t.Fatalf("verifier: %v", err)
 	}
-	finalizer, err := OpenRuntimeFinalizerV3(verifier,
+	finalizer, err := openRuntimeFinalizerV3(verifier,
 		stubContracts{candidates: candidates},
-		stubProfiles{material: ProfileMaterialV3{
+		stubProfiles{material: profileMaterialV3{
 			CatalogPath:         operation.Material.CatalogPath,
 			SnapshotArtifactDir: operation.Material.SnapshotArtifactDir,
 		}},
 		stubFootprint{footprint: footprint},
 		stubRuntime{identity: testRuntimeIdentity()},
-		stubControl{state: RequestSettlementStateV3{WroteExecutionBindingRow: true}})
+		stubControl{state: requestSettlementStateV3{WroteExecutionBindingRow: true}})
 	if err != nil {
 		t.Fatalf("open runtime finalizer: %v", err)
 	}
@@ -62,10 +62,10 @@ func runtimeFinalizerFor(t *testing.T, candidates ...FrozenOperationCandidateV3)
 }
 
 // honestCandidate is the frozen operation the receipt actually describes.
-func honestCandidate(t *testing.T) FrozenOperationCandidateV3 {
+func honestCandidate(t *testing.T) frozenOperationCandidateV3 {
 	t.Helper()
 	operation := prepareOperationV3(t)
-	return FrozenOperationCandidateV3{
+	return frozenOperationCandidateV3{
 		OperationID: finalizerOperationID, ContractIdentity: finalizerContract,
 		ProfileID: "result-heavy", Plan: operation.Material.Plan, Grant: operation.Material.Grant,
 	}
@@ -78,11 +78,11 @@ func TestOpenRuntimeFinalizerRefusesAMissingCollaborator(t *testing.T) {
 	if err != nil {
 		t.Fatalf("verifier: %v", err)
 	}
-	if _, err := OpenRuntimeFinalizerV3(verifier, nil, stubProfiles{}, stubFootprint{},
+	if _, err := openRuntimeFinalizerV3(verifier, nil, stubProfiles{}, stubFootprint{},
 		stubRuntime{}, stubControl{}); err == nil {
 		t.Fatal("a finalizer with no contract resolver was opened")
 	}
-	if _, err := OpenRuntimeFinalizerV3(nil, stubContracts{}, stubProfiles{}, stubFootprint{},
+	if _, err := openRuntimeFinalizerV3(nil, stubContracts{}, stubProfiles{}, stubFootprint{},
 		stubRuntime{}, stubControl{}); err == nil {
 		t.Fatal("a finalizer with no receipt verifier was opened")
 	}

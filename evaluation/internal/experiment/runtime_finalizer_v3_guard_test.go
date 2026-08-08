@@ -210,3 +210,126 @@ func TestTheAcceptanceCoreIsNotExported(t *testing.T) {
 		}
 	}
 }
+
+// finalizerSourceSelectors are the identifiers through which the finalizer's
+// trusted material is chosen: the constructor and the five collaborator types.
+//
+// They are listed rather than discovered so that adding a sixth source is a
+// decision recorded here. A source that nothing guards is a source a caller can
+// eventually be given.
+var finalizerSourceSelectors = []string{
+	"openRuntimeFinalizerV3",
+	"contractResolverV3",
+	"profileMaterialResolverV3",
+	"footprintResolverV3",
+	"runtimeIdentityReaderV3",
+	"controlEvidenceReaderV3",
+}
+
+// TestNoExportedWayToChooseTheFinalizersSources closes the half a guard on the
+// request type cannot see.
+//
+// Keeping trusted material out of FinalizationRequestV3 stops a caller supplying
+// the answer. It does not stop a caller ASSEMBLING THE FINALIZER -- picking
+// which contract registry, which Catalog, which qualification evidence it reads
+// -- which is choosing the standard rather than the answer, and is the same
+// defect one level up.
+//
+// The property asserted is structural rather than behavioural: every identifier
+// through which a source could be chosen is unexported, so no code outside this
+// package can name one, implement one that would be accepted, or call the
+// constructor.
+func TestNoExportedWayToChooseTheFinalizersSources(t *testing.T) {
+	for _, name := range finalizerSourceSelectors {
+		if ast.IsExported(name) {
+			t.Errorf("%s is exported; a caller that can name it can decide where the finalizer "+
+				"reads its trusted material, which is choosing the standard its own evidence "+
+				"is judged by", name)
+		}
+	}
+
+	root := repositoryRoot(t)
+	path := filepath.Join(root, "evaluation", "internal", "experiment", "runtime_finalizer_v3.go")
+	fileSet := token.NewFileSet()
+	parsed, err := parser.ParseFile(fileSet, path, nil, 0)
+	if err != nil {
+		t.Fatalf("parse the runtime finalizer: %v", err)
+	}
+	selectors := map[string]bool{}
+	for _, name := range finalizerSourceSelectors {
+		selectors[name] = true
+	}
+	// And no exported function or method may take one, which is the way an
+	// unexported type still reaches a caller: through a parameter it can satisfy
+	// with a value obtained elsewhere.
+	for _, declaration := range parsed.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || !ast.IsExported(function.Name.Name) {
+			continue
+		}
+		for _, parameter := range function.Type.Params.List {
+			ast.Inspect(parameter.Type, func(node ast.Node) bool {
+				identifier, ok := node.(*ast.Ident)
+				if ok && selectors[identifier.Name] {
+					t.Errorf("exported %s takes %s; the finalizer's sources are chosen inside this "+
+						"package, never by a caller", function.Name.Name, identifier.Name)
+				}
+				return true
+			})
+		}
+	}
+}
+
+// TestAdapterCannotAssembleAFinalizer states the same property from the other
+// end, in the vocabulary of the packages it protects.
+//
+// The identifiers are unexported, so this cannot currently fail -- which is the
+// point. It fails the moment somebody exports one "for convenience", and it says
+// why that is not a convenience.
+func TestAdapterCannotAssembleAFinalizer(t *testing.T) {
+	root := repositoryRoot(t)
+	forbidden := map[string]bool{}
+	for _, name := range finalizerSourceSelectors {
+		forbidden[name] = true
+		// The exported spelling too, so re-exporting one is caught here rather
+		// than only by the structural test above.
+		forbidden[strings.ToUpper(name[:1])+name[1:]] = true
+	}
+	for _, pkg := range adapterPackages {
+		err := filepath.Walk(filepath.Join(root, pkg), func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			if info.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+			fileSet := token.NewFileSet()
+			parsed, parseErr := parser.ParseFile(fileSet, path, nil, 0)
+			if parseErr != nil {
+				t.Fatalf("parse %s: %v", path, parseErr)
+			}
+			relative, _ := filepath.Rel(root, path)
+			ast.Inspect(parsed, func(node ast.Node) bool {
+				selector, ok := node.(*ast.SelectorExpr)
+				if !ok {
+					return true
+				}
+				identifier, ok := selector.X.(*ast.Ident)
+				if !ok || identifier.Name != "experiment" {
+					return true
+				}
+				if forbidden[selector.Sel.Name] {
+					t.Errorf("%s names experiment.%s; an Adapter receives an opened finalizer and "+
+						"submits evidence to it. Assembling one would let the measured party choose "+
+						"which archive its own claim is checked against.",
+						filepath.ToSlash(relative), selector.Sel.Name)
+				}
+				return true
+			})
+			return nil
+		})
+		if err != nil && !os.IsNotExist(err) {
+			t.Fatalf("walk %s: %v", pkg, err)
+		}
+	}
+}

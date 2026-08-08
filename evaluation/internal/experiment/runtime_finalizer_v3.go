@@ -35,6 +35,28 @@ import (
 // The public surface takes no trusted material of any kind. That is the whole
 // design: not a rule about how callers should behave, but a shape in which the
 // wrong call cannot be written.
+//
+// # Why the construction surface is closed too
+//
+// Keeping trusted material out of the REQUEST is only half of it. The finalizer
+// reads its material through collaborators, so whoever constructs the finalizer
+// chooses where that material comes from -- and an Adapter that assembled its
+// own finalizer would have picked the archive it is then judged against. That is
+// the same defect one level up, and a guard on the request type would not see
+// it.
+//
+// So the collaborators, their types and the constructor are all package-private.
+// An Adapter cannot name them, cannot implement one that would be accepted, and
+// cannot call the constructor; it receives an already-opened *RuntimeFinalizerV3
+// and can do nothing with it but submit evidence. The exported surface of this
+// package offers no way to decide what the finalizer reads.
+//
+// The deployment constructor that wires the real registries -- frozen contracts,
+// activated profiles, retained qualification evidence, the running database and
+// the Control Store -- belongs in this package and lands with the first cutover,
+// which is the first caller that needs a real one. It is deliberately not a stub
+// here: an artifact that ships a resolver nothing has ever executed is worse
+// evidence than one that ships none.
 
 // FrozenContractSelectorV3 narrows the search for the frozen contract this
 // operation was defined by.
@@ -56,13 +78,13 @@ func (selector FrozenContractSelectorV3) String() string {
 		selector.Scale, selector.Mode}, "/")
 }
 
-// FrozenOperationCandidateV3 is one operation the frozen contracts define.
+// frozenOperationCandidateV3 is one operation the frozen contracts define.
 //
 // The plan and the approved surface come from the contract, never from the
 // request. ProfileID names which activated deployment profile the operation runs
 // under, resolved separately, so a contract cannot also decide which Catalog it
 // is attested against.
-type FrozenOperationCandidateV3 struct {
+type frozenOperationCandidateV3 struct {
 	OperationID      string
 	ContractIdentity string
 	ProfileID        string
@@ -70,19 +92,19 @@ type FrozenOperationCandidateV3 struct {
 	Grant            physicalquery.Grant
 }
 
-// ProfileMaterialV3 is one activated deployment profile's immutable material.
-type ProfileMaterialV3 struct {
+// profileMaterialV3 is one activated deployment profile's immutable material.
+type profileMaterialV3 struct {
 	CatalogPath         string
 	SnapshotArtifactDir string
 }
 
-// RequestSettlementStateV3 is the Control Store's account of one request.
+// requestSettlementStateV3 is the Control Store's account of one request.
 //
 // It is read finalizer-side and never accepted from a caller. An Adapter that
 // could assert "this was a replay" or "no binding row was written" would be
 // deciding how the finalizer interprets the execution, which is the same defect
 // as supplying the statements.
-type RequestSettlementStateV3 struct {
+type requestSettlementStateV3 struct {
 	// Replay is non-nil when the store recorded this request as an exact
 	// request-ID replay. Its ReturnedReceiptJSON is filled by the finalizer from
 	// the transport, because the store cannot know what came back over the wire.
@@ -99,51 +121,55 @@ type RequestSettlementStateV3 struct {
 // deterministic one. None of them is reachable from a request: a caller chooses
 // nothing about which implementation answers.
 type (
-	// ContractResolverV3 returns every frozen operation a selector admits.
+	// contractResolverV3 returns every frozen operation a selector admits.
 	// Returning candidates rather than one operation is deliberate -- see
 	// FrozenContractSelectorV3.
-	ContractResolverV3 interface {
-		ResolveCandidates(FrozenContractSelectorV3) ([]FrozenOperationCandidateV3, error)
+	contractResolverV3 interface {
+		ResolveCandidates(FrozenContractSelectorV3) ([]frozenOperationCandidateV3, error)
 	}
-	// ProfileMaterialResolverV3 maps a deployment profile to the Catalog and
+	// profileMaterialResolverV3 maps a deployment profile to the Catalog and
 	// artifacts it was activated with.
-	ProfileMaterialResolverV3 interface {
-		Resolve(profileID string) (ProfileMaterialV3, error)
+	profileMaterialResolverV3 interface {
+		Resolve(profileID string) (profileMaterialV3, error)
 	}
-	// FootprintResolverV3 loads the qualified Attestation footprint from its own
+	// footprintResolverV3 loads the qualified Attestation footprint from its own
 	// retained qualification evidence, for this Catalog and this runtime.
-	FootprintResolverV3 interface {
+	footprintResolverV3 interface {
 		Resolve(catalogPath string, runtime PostgreSQLRuntimeIdentity) (AttestationFootprintV2, error)
 	}
-	// RuntimeIdentityReaderV3 reads what the deployment is actually running.
-	RuntimeIdentityReaderV3 interface {
+	// runtimeIdentityReaderV3 reads what the deployment is actually running.
+	runtimeIdentityReaderV3 interface {
 		ReadPostgreSQLIdentity(context.Context) (PostgreSQLRuntimeIdentity, error)
 	}
-	// ControlEvidenceReaderV3 reads the Control Store's account of one request.
-	ControlEvidenceReaderV3 interface {
-		ReadRequestState(ctx context.Context, taskID, requestID string) (RequestSettlementStateV3, error)
+	// controlEvidenceReaderV3 reads the Control Store's account of one request.
+	controlEvidenceReaderV3 interface {
+		ReadRequestState(ctx context.Context, taskID, requestID string) (requestSettlementStateV3, error)
 	}
 )
 
 // RuntimeFinalizerV3 is the production entry point to v3 acceptance.
 type RuntimeFinalizerV3 struct {
 	verifier   ReceiptVerifierV3
-	contracts  ContractResolverV3
-	profiles   ProfileMaterialResolverV3
-	footprints FootprintResolverV3
-	runtime    RuntimeIdentityReaderV3
-	control    ControlEvidenceReaderV3
+	contracts  contractResolverV3
+	profiles   profileMaterialResolverV3
+	footprints footprintResolverV3
+	runtime    runtimeIdentityReaderV3
+	control    controlEvidenceReaderV3
 }
 
-// OpenRuntimeFinalizerV3 builds the finalizer, refusing any missing
+// openRuntimeFinalizerV3 builds the finalizer, refusing any missing
 // collaborator.
 //
-// Every one of them is a source of trusted material, so a nil is not a
-// degraded mode to fall back from -- it is a finalizer that would have to take
-// that material from somewhere else, and the only other place is the caller.
-func OpenRuntimeFinalizerV3(verifier ReceiptVerifierV3, contracts ContractResolverV3,
-	profiles ProfileMaterialResolverV3, footprints FootprintResolverV3,
-	runtime RuntimeIdentityReaderV3, control ControlEvidenceReaderV3) (*RuntimeFinalizerV3, error) {
+// Every one of them is a source of trusted material, so a nil is not a degraded
+// mode to fall back from -- it is a finalizer that would have to take that
+// material from somewhere else, and the only other place is the caller.
+//
+// It is package-private on purpose. Exporting it would let a caller choose which
+// registry answers, which is choosing the standard the evidence is judged by;
+// see the file comment.
+func openRuntimeFinalizerV3(verifier ReceiptVerifierV3, contracts contractResolverV3,
+	profiles profileMaterialResolverV3, footprints footprintResolverV3,
+	runtime runtimeIdentityReaderV3, control controlEvidenceReaderV3) (*RuntimeFinalizerV3, error) {
 	for name, present := range map[string]bool{
 		"a receipt verifier":          verifier != nil,
 		"a frozen contract resolver":  contracts != nil,
@@ -279,18 +305,18 @@ func (finalizer *RuntimeFinalizerV3) deriveTrustedInputs(ctx context.Context,
 // preparation, so the evidence cannot say which ran -- and picking either would
 // be the finalizer guessing.
 func (finalizer *RuntimeFinalizerV3) identifyOperation(request FinalizationRequestV3) (
-	FrozenOperationCandidateV3, FrozenOperationMaterialV3, error) {
+	frozenOperationCandidateV3, FrozenOperationMaterialV3, error) {
 	candidates, err := finalizer.contracts.ResolveCandidates(request.ContractSelector)
 	if err != nil {
-		return FrozenOperationCandidateV3{}, FrozenOperationMaterialV3{},
+		return frozenOperationCandidateV3{}, FrozenOperationMaterialV3{},
 			fmt.Errorf("resolve frozen contract candidates for %s: %w", request.ContractSelector, err)
 	}
 	if len(candidates) == 0 {
-		return FrozenOperationCandidateV3{}, FrozenOperationMaterialV3{},
+		return frozenOperationCandidateV3{}, FrozenOperationMaterialV3{},
 			fmt.Errorf("no frozen contract operation matches selector %s", request.ContractSelector)
 	}
 	var (
-		matched   []FrozenOperationCandidateV3
+		matched   []frozenOperationCandidateV3
 		materials []FrozenOperationMaterialV3
 		refusals  []string
 	)
@@ -316,7 +342,7 @@ func (finalizer *RuntimeFinalizerV3) identifyOperation(request FinalizationReque
 		return matched[0], materials[0], nil
 	case 0:
 		sort.Strings(refusals)
-		return FrozenOperationCandidateV3{}, FrozenOperationMaterialV3{},
+		return frozenOperationCandidateV3{}, FrozenOperationMaterialV3{},
 			fmt.Errorf("no frozen contract operation reproduces the signed execution; %d candidate(s) "+
 				"were refused: %s", len(refusals), strings.Join(refusals, "; "))
 	default:
@@ -325,7 +351,7 @@ func (finalizer *RuntimeFinalizerV3) identifyOperation(request FinalizationReque
 			names = append(names, candidate.OperationID)
 		}
 		sort.Strings(names)
-		return FrozenOperationCandidateV3{}, FrozenOperationMaterialV3{},
+		return frozenOperationCandidateV3{}, FrozenOperationMaterialV3{},
 			fmt.Errorf("%v all reproduce the signed execution, so the evidence does not say which ran",
 				names)
 	}
