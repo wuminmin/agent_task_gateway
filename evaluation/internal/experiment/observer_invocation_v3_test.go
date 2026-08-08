@@ -7,12 +7,8 @@ import (
 
 func testInvocationV3(t *testing.T) ObserverInvocationV3 {
 	t.Helper()
-	windowID, err := DeriveObserverWindowID("artifact-result-heavy-100x4-op-0001")
-	if err != nil {
-		t.Fatalf("derive observer window id: %v", err)
-	}
 	return ObserverInvocationV3{
-		Phase: "before", ObserverWindowID: windowID,
+		Phase: "before", ObserverWindowID: strings.Repeat("a1", 32),
 		ClassifierManifestSHA256: strings.Repeat("b2", 32),
 	}
 }
@@ -109,33 +105,5 @@ func TestASnapshotMustDescribeTheInvocationThatProducedIt(t *testing.T) {
 				t.Fatalf("a snapshot reporting %s was accepted", name)
 			}
 		})
-	}
-}
-
-// The window id is a name, and names have to be stable and distinct.
-func TestTheObserverWindowIDIsDerivedFromTheOperation(t *testing.T) {
-	first, err := DeriveObserverWindowID("operation-a")
-	if err != nil {
-		t.Fatal(err)
-	}
-	again, err := DeriveObserverWindowID("operation-a")
-	if err != nil {
-		t.Fatal(err)
-	}
-	other, err := DeriveObserverWindowID("operation-b")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if first != again {
-		t.Fatal("one operation produced two window ids; a before/after pair could not be tied together")
-	}
-	if first == other {
-		t.Fatal("two operations share a window id; two measurements could be paired across each other")
-	}
-	if !isLowercaseSHA256(first) {
-		t.Fatalf("the window id %q is not the lowercase SHA-256 the observer requires", first)
-	}
-	if _, err := DeriveObserverWindowID("  "); err == nil {
-		t.Fatal("a window was named after no operation")
 	}
 }

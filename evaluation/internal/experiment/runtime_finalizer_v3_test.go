@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 	fixture "taskbound.local/agent-data-gateway/internal/testfixture/queryreceiptv10"
 )
 
@@ -72,6 +73,35 @@ func honestCandidate(t *testing.T) frozenOperationCandidateV3 {
 	}
 }
 
+// ticketedFinalizationRequestV3 gives tests of the runtime finalizer an honest
+// issued ticket without forcing the contract resolver under test to also satisfy
+// OpenObserverWindowV3's exactly-one-candidate rule. Dedicated ticket tests below
+// exercise the public Open path itself.
+func ticketedFinalizationRequestV3(t *testing.T, finalizer *RuntimeFinalizerV3,
+	receipt queryreceipt.QueryReceiptV1, carried CarriedEvidenceV3,
+	selector FrozenContractSelectorV3) FinalizationRequestV3 {
+	t.Helper()
+	registered := PreRegisteredObservationV3{
+		Operation: carried.Operation, Plan: carried.Plan,
+		ClassifierManifestSHA256: carried.ClassifierManifestSHA256,
+		ClassifierBindingSHA256:  carried.ClassifierBindingSHA256,
+	}
+	ticket, err := finalizer.observerWindows.issue(ObserverAttemptV3{
+		TaskID: receipt.TaskID, RequestID: receipt.RequestID,
+	}, registered)
+	if err != nil {
+		t.Fatalf("issue test observer window ticket: %v", err)
+	}
+	carried.Window.Before.ObserverWindowID = ticket.ObserverWindowID
+	carried.Window.After.ObserverWindowID = ticket.ObserverWindowID
+	carried.Window.Before.ClassifierManifestSHA256 = ticket.ClassifierManifestSHA256
+	carried.Window.After.ClassifierManifestSHA256 = ticket.ClassifierManifestSHA256
+	return FinalizationRequestV3{
+		Receipt: receipt, Carried: carried, ContractSelector: selector,
+		ObserverWindowTicket: ticket,
+	}
+}
+
 // A finalizer with no collaborator is not a degraded finalizer, it is one whose
 // trusted material would have to come from its caller.
 func TestOpenRuntimeFinalizerRefusesAMissingCollaborator(t *testing.T) {
@@ -110,10 +140,9 @@ func TestTheContractSelectorHasNoAuthority(t *testing.T) {
 	wrong.OperationID = "some-other-operation"
 	wrong.Plan.Columns = []string{"row_id"}
 	finalizer := runtimeFinalizerFor(t, wrong)
-	_, err = finalizer.FinalizeTaskGateObservationV3(context.Background(), FinalizationRequestV3{
-		Receipt: receipt, Carried: carriedFor(t, finalizerInputs(t)),
-		ContractSelector: FrozenContractSelectorV3{ExperimentID: "artifact", WorkloadID: "result-heavy"},
-	})
+	request := ticketedFinalizationRequestV3(t, finalizer, receipt, carriedFor(t, finalizerInputs(t)),
+		FrozenContractSelectorV3{ExperimentID: "artifact", WorkloadID: "result-heavy"})
+	_, err = finalizer.FinalizeTaskGateObservationV3(context.Background(), request)
 	if err == nil {
 		t.Fatal("the finalizer accepted a contract whose preparation the Gateway did not sign")
 	}
@@ -121,10 +150,9 @@ func TestTheContractSelectorHasNoAuthority(t *testing.T) {
 	// And a registry offering the right one alongside the wrong one identifies
 	// the right one, without the selector distinguishing them.
 	finalizer = runtimeFinalizerFor(t, wrong, honest)
-	if _, err := finalizer.FinalizeTaskGateObservationV3(context.Background(), FinalizationRequestV3{
-		Receipt: receipt, Carried: carriedFor(t, finalizerInputs(t)),
-		ContractSelector: FrozenContractSelectorV3{ExperimentID: "artifact", WorkloadID: "result-heavy"},
-	}); err != nil {
+	request = ticketedFinalizationRequestV3(t, finalizer, receipt, carriedFor(t, finalizerInputs(t)),
+		FrozenContractSelectorV3{ExperimentID: "artifact", WorkloadID: "result-heavy"})
+	if _, err := finalizer.FinalizeTaskGateObservationV3(context.Background(), request); err != nil {
 		t.Fatalf("the finalizer did not identify the operation the receipt describes: %v", err)
 	}
 }
@@ -144,10 +172,9 @@ func TestAmbiguousContractCandidatesAreRefused(t *testing.T) {
 	second.OperationID = "a-second-cell-compiling-the-same-way"
 
 	finalizer := runtimeFinalizerFor(t, first, second)
-	_, err = finalizer.FinalizeTaskGateObservationV3(context.Background(), FinalizationRequestV3{
-		Receipt: receipt, Carried: carriedFor(t, finalizerInputs(t)),
-		ContractSelector: FrozenContractSelectorV3{ExperimentID: "artifact"},
-	})
+	request := ticketedFinalizationRequestV3(t, finalizer, receipt, carriedFor(t, finalizerInputs(t)),
+		FrozenContractSelectorV3{ExperimentID: "artifact"})
+	_, err = finalizer.FinalizeTaskGateObservationV3(context.Background(), request)
 	if err == nil {
 		t.Fatal("the finalizer chose between two contracts the evidence cannot distinguish")
 	}
@@ -172,8 +199,9 @@ func TestAnUndefinedOperationIsRefused(t *testing.T) {
 		}(),
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := finalizer.FinalizeTaskGateObservationV3(context.Background(),
-				FinalizationRequestV3{Receipt: receipt, Carried: carriedFor(t, finalizerInputs(t))}); err == nil {
+			request := ticketedFinalizationRequestV3(t, finalizer, receipt,
+				carriedFor(t, finalizerInputs(t)), FrozenContractSelectorV3{})
+			if _, err := finalizer.FinalizeTaskGateObservationV3(context.Background(), request); err == nil {
 				t.Fatal("acceptance succeeded with no frozen contract behind it")
 			}
 		})
@@ -192,8 +220,9 @@ func TestAnUnverifiableReceiptNeverReachesTheRegistry(t *testing.T) {
 	}
 	receipt.Signature = "not-the-signature-that-was-made"
 	finalizer := runtimeFinalizerFor(t, honestCandidate(t))
-	if _, err := finalizer.FinalizeTaskGateObservationV3(context.Background(),
-		FinalizationRequestV3{Receipt: receipt, Carried: carriedFor(t, finalizerInputs(t))}); err == nil {
+	request := ticketedFinalizationRequestV3(t, finalizer, receipt,
+		carriedFor(t, finalizerInputs(t)), FrozenContractSelectorV3{})
+	if _, err := finalizer.FinalizeTaskGateObservationV3(context.Background(), request); err == nil {
 		t.Fatal("an unverifiable receipt was finalized")
 	}
 }
@@ -211,7 +240,8 @@ func TestThePreRegisteredClassificationIsTheOneFinalizationDerives(t *testing.T)
 	finalizer := runtimeFinalizerFor(t, honest)
 
 	committed, err := finalizer.OpenObserverWindowV3(context.Background(),
-		FrozenContractSelectorV3{ExperimentID: "artifact", WorkloadID: "result-heavy"})
+		FrozenContractSelectorV3{ExperimentID: "artifact", WorkloadID: "result-heavy"},
+		ObserverAttemptV3{TaskID: "task-preregister-classification", RequestID: "request-preregister-classification"})
 	if err != nil {
 		t.Fatalf("pre-register the classification: %v", err)
 	}
@@ -254,11 +284,13 @@ func TestPreRegistrationRefusesAnAmbiguousSelector(t *testing.T) {
 	second.OperationID = "a-second-cell"
 	finalizer := runtimeFinalizerFor(t, first, second)
 	if _, err := finalizer.OpenObserverWindowV3(context.Background(),
-		FrozenContractSelectorV3{ExperimentID: "artifact"}); err == nil {
+		FrozenContractSelectorV3{ExperimentID: "artifact"},
+		ObserverAttemptV3{TaskID: "task-ambiguous", RequestID: "request-ambiguous"}); err == nil {
 		t.Fatal("a classification was pre-registered for a selector naming two operations")
 	}
 	if _, err := runtimeFinalizerFor(t).OpenObserverWindowV3(context.Background(),
-		FrozenContractSelectorV3{ExperimentID: "artifact"}); err == nil {
+		FrozenContractSelectorV3{ExperimentID: "artifact"},
+		ObserverAttemptV3{TaskID: "task-absent", RequestID: "request-absent"}); err == nil {
 		t.Fatal("a classification was pre-registered for a selector naming none")
 	}
 }

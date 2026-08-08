@@ -2,8 +2,6 @@ package experiment
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -126,25 +124,6 @@ func requireSnapshotMatchesInvocationV3(snapshot ObserverSnapshotV2,
 		}
 	}
 	return nil
-}
-
-// DeriveObserverWindowID names one measurement window.
-//
-// It is derived from the operation identity rather than issued by the finalizer,
-// because it carries no scientific claim: it exists so that a before snapshot
-// cannot be paired with an after snapshot from a different measurement. What the
-// window is judged BY is the classifier manifest, and that one the finalizer
-// computes -- see OpenObserverWindowV3.
-//
-// It is hashed because the observer requires a lowercase SHA-256, and domain
-// separated so a window id cannot collide with another identifier derived from
-// the same operation.
-func DeriveObserverWindowID(operationID string) (string, error) {
-	if strings.TrimSpace(operationID) == "" {
-		return "", errors.New("an observer window is named after an operation, and none was given")
-	}
-	sum := sha256.Sum256([]byte("taskgate-final-v5-observer-window-v3\x00" + operationID))
-	return hex.EncodeToString(sum[:]), nil
 }
 
 func isLowercaseSHA256(value string) bool {

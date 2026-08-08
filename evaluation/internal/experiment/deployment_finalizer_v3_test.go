@@ -358,7 +358,7 @@ func TestTheDeploymentResolversPreRegisterAClassification(t *testing.T) {
 		ExperimentID: finalv5contracts.ArtifactExperimentID,
 		WorkloadID:   finalv5contracts.ArtifactWorkloadID,
 		Scale:        "100x4", Mode: "novel",
-	})
+	}, ObserverAttemptV3{TaskID: "task-deployment-preregistration", RequestID: "request-deployment-preregistration"})
 	if err != nil {
 		t.Fatalf("pre-register the classification from deployment material: %v", err)
 	}
@@ -372,24 +372,9 @@ func TestTheDeploymentResolversPreRegisterAClassification(t *testing.T) {
 		t.Fatalf("the pre-registered control plan: %v", err)
 	}
 
-	// The window identity is derived from the operation, and the two sides have to
-	// name that operation identically or the derived id is a different window.
-	runtime, err := finalv5contracts.LoadRuntime()
-	if err != nil {
-		t.Fatalf("load the frozen Contract Index: %v", err)
-	}
-	operation, err := ArtifactOperationV3(runtime, finalv5contracts.CellIdentity{
-		ExperimentID: finalv5contracts.ArtifactExperimentID,
-		WorkloadID:   finalv5contracts.ArtifactWorkloadID, Scale: "100x4", Mode: "novel",
-	})
-	if err != nil {
-		t.Fatalf("name the frozen operation: %v", err)
-	}
-	windowID, err := DeriveObserverWindowID(operation.OperationID)
-	if err != nil {
-		t.Fatalf("derive the observer window id: %v", err)
-	}
-	if err := (ObserverInvocationV3{Phase: "before", ObserverWindowID: windowID,
+	// The finalizer also issues the random window identity needed to make the
+	// deployment material a runnable observer invocation for this one attempt.
+	if err := (ObserverInvocationV3{Phase: "before", ObserverWindowID: committed.ObserverWindowID,
 		ClassifierManifestSHA256: committed.ClassifierManifestSHA256}).Validate(); err != nil {
 		t.Fatalf("the deployment material does not produce a runnable observer invocation: %v", err)
 	}

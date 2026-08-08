@@ -119,9 +119,11 @@ func TestFinalizerRequestCarriesNoTrustedMaterial(t *testing.T) {
 	// Everything an Adapter may submit, stated once here so that adding a member
 	// is a decision recorded in this test rather than a field appearing.
 	allowed := map[string]bool{
-		"Receipt": true, "Carried": true, "ContractSelector": true, "ReturnedReceiptJSON": true,
+		"Receipt": true, "Carried": true, "ContractSelector": true, "ObserverWindowTicket": true,
+		"ReturnedReceiptJSON": true,
 	}
 	var members []string
+	ticketHasIssuedType := false
 	ast.Inspect(parsed, func(node ast.Node) bool {
 		spec, ok := node.(*ast.TypeSpec)
 		if !ok || spec.Name.Name != "FinalizationRequestV3" {
@@ -134,6 +136,10 @@ func TestFinalizerRequestCarriesNoTrustedMaterial(t *testing.T) {
 		for _, field := range structure.Fields.List {
 			for _, name := range field.Names {
 				members = append(members, name.Name)
+				if name.Name == "ObserverWindowTicket" {
+					identifier, ok := field.Type.(*ast.Ident)
+					ticketHasIssuedType = ok && identifier.Name == "ObserverWindowTicketV3"
+				}
 			}
 		}
 		return false
@@ -146,6 +152,9 @@ func TestFinalizerRequestCarriesNoTrustedMaterial(t *testing.T) {
 			t.Errorf("FinalizationRequestV3 carries %q, which is not evidence or a lookup hint.\n"+
 				"A caller that can supply it is deciding part of the finalizer's answer.", member)
 		}
+	}
+	if !ticketHasIssuedType {
+		t.Error("FinalizationRequestV3.ObserverWindowTicket is not the finalizer-issued ObserverWindowTicketV3 evidence type")
 	}
 	// And the type names of those members must not be trusted material either: a
 	// member called Carried whose type is TrustedInputsV3 would pass the name

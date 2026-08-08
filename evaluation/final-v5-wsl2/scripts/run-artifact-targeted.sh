@@ -73,6 +73,14 @@ PROFILE_REGISTRY="${PROFILE_REGISTRY:-config/profiles/registry.json}"
 SAMPLES="${SAMPLES:-1}"
 WARMUPS="${WARMUPS:-0}"
 KEEP_UP="${KEEP_UP:-0}"
+[[ "$RUN_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] || {
+  echo "RUN_ID must be a path-safe campaign identity" >&2; exit 2; }
+[[ "$SAMPLES" =~ ^[1-3]$ ]] || {
+  echo "SAMPLES must be an integer from 1 through 3 for a pilot" >&2; exit 2; }
+[[ "$WARMUPS" =~ ^[0-9]+$ ]] || {
+  echo "WARMUPS must be a non-negative integer" >&2; exit 2; }
+[[ "$KEEP_UP" == 0 || "$KEEP_UP" == 1 ]] || {
+  echo "KEEP_UP must be 0 or 1" >&2; exit 2; }
 
 repo="$(git rev-parse --show-toplevel)"
 cd "$repo"
@@ -89,7 +97,6 @@ export TASKGATE_SUBMISSION_COMMIT="$commit"
 
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 run_name="${RUN_ID}-${stamp}-${commit:0:12}"
-project="taskgate-artifact-${RUN_ID}-${commit:0:12}"
 outdir="evaluation/final-v5-wsl2/raw/targeted-${run_name}"
 [[ -e "$outdir" ]] && { echo "refusing to overwrite $outdir" >&2; exit 2; }
 
@@ -109,6 +116,22 @@ jq -e 'has("image_reference") and has("repo_digest") and has("local_image_id") a
        has("container_image_id") and has("platform")' "$POSTGRESQL_IDENTITY" >/dev/null || {
   echo "$POSTGRESQL_IDENTITY is not a complete PostgreSQL runtime identity" >&2; exit 2; }
 
+# The operator-facing alias, the profile ID used to materialize artifacts and
+# the Catalog bytes mounted into the Gateway must name one registry entry. Do
+# this before the clearance gate and before creating the run directory: a stale
+# hard-coded ID or a changed Catalog is a bad invocation, not run evidence.
+profile_catalog_sha256="$(sha256sum "$PROFILE_CATALOG" | awk '{print $1}')"
+jq -e --arg alias "$PROFILE_ALIAS" --arg profile_id "$PROFILE_ID" \
+  --arg catalog_sha256 "$profile_catalog_sha256" '
+  [.profiles[] | select(.alias == $alias)] as $matches |
+  ($matches | length) == 1 and
+  $matches[0].profile_id == $profile_id and
+  $matches[0].catalog_sha256 == $catalog_sha256
+' "$PROFILE_REGISTRY" >/dev/null || {
+  echo "profile alias, ID, registry Catalog digest and $PROFILE_CATALOG bytes do not agree" >&2
+  exit 2
+}
+
 # ------------------------------------------------- the clearance, checked first
 #
 # Refused here rather than inside the adapter. Both the profile resolver and the
@@ -118,7 +141,9 @@ jq -e 'has("image_reference") and has("repo_digest") and has("local_image_id") a
 # prerequisite.
 jq -e --arg alias "$PROFILE_ALIAS" '
   .profiles | map(select(.alias == $alias)) | length == 1 and
-  (.[0].targeted_run_eligible == true and .[0].status.activation_supported == true)
+  (.[0].targeted_run_eligible == true and
+   .[0].status.activation_supported == true and
+   .[0].status.activation_smoke_passed == true)
 ' "$PROFILE_REGISTRY" >/dev/null || {
   cat >&2 <<CLEARANCE
 profile "$PROFILE_ALIAS" is not cleared for a targeted run in $PROFILE_REGISTRY.
@@ -138,6 +163,19 @@ $(jq -r --arg alias "$PROFILE_ALIAS" '.profiles[] | select(.alias == $alias) | .
 CLEARANCE
   exit 2
 }
+
+# Runner identity and observer ownership are deployment inputs. Export them
+# before Compose resolves the Gateway environment and retain exactly the same
+# values for the runner. First bind the campaign to this commit, then let the
+# shared helper bind that identity to the deployment in the observer's formal
+# project namespace. A retry at another commit can never alias this project.
+deployment_id=deployment-01
+export TASKGATE_EXPERIMENT_CLASS=pilot
+export TASKGATE_CAMPAIGN_ID="$RUN_ID"
+project_campaign_identity="$(printf '%s\0%s' "$TASKGATE_CAMPAIGN_ID" "$commit" | sha256sum | awk '{print $1}')"
+project="$(bash evaluation/final-v5-wsl2/scripts/deployment-project-name.sh \
+  "$project_campaign_identity" "$deployment_id")"
+export COMPOSE_PROJECT_NAME="$project"
 
 mkdir -m 700 -p "$outdir" "$outdir/raw" "$outdir/environment"
 cat >"$outdir/TARGETED-NOT-FOR-PUBLICATION" <<MARKER
@@ -208,6 +246,49 @@ export TASKGATE_FINAL_V5_BINDING_SECTION_SHA256="$(jq -er .final_v5_adapter_sha2
 # digest; it is the same value, named for what the profile binding calls it.
 export TASKGATE_FINAL_V5_DATASET_BINDING_SHA256="$TASKGATE_FINAL_V5_BINDING_FILE_SHA256"
 
+# Resolve the orchestrator-owned binding through the same Go implementation the
+# Adapter uses. The runner passes this complete identity into every operation;
+# the Adapter may only echo it back. Cross-check the two operator-visible
+# members here so a future CLI or registry change cannot silently select a
+# different profile or Catalog.
+profile_binding="$outdir/profile-binding.json"
+GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-profile-binding \
+  --registry "$PROFILE_REGISTRY" \
+  --alias "$PROFILE_ALIAS" \
+  --dataset-binding-sha256 "$TASKGATE_FINAL_V5_BINDING_FILE_SHA256" \
+  --out "$profile_binding"
+[[ -f "$profile_binding" && ! -L "$profile_binding" ]] || {
+  echo "profile binding resolver did not create a safe regular file" >&2; exit 1; }
+chmod 600 "$profile_binding"
+jq -e --arg profile_id "$PROFILE_ID" --arg catalog_sha256 "$profile_catalog_sha256" \
+  --arg dataset_binding_sha256 "$TASKGATE_FINAL_V5_BINDING_FILE_SHA256" '
+  .version == "taskgate-final-v5-profile-binding-v1" and
+  .profile_id == $profile_id and
+  .catalog_sha256 == $catalog_sha256 and
+  .dataset_binding_sha256 == $dataset_binding_sha256
+' "$profile_binding" >/dev/null || {
+  echo "resolved ProfileBinding differs from the selected profile, Catalog or Dataset Binding" >&2
+  exit 1
+}
+
+# The observer accepts only a Gateway built by the tracked-file-only formal
+# build path. Select that verified local image through a last-wins Compose
+# override; --no-build at Gateway startup prevents Compose from replacing it
+# with the ordinary Dockerfile build declared by compose.yaml. This expensive
+# build comes only after the Dataset and Profile bindings have passed.
+formal_gateway_tag="taskgate-final-v5-gateway:${commit}"
+GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-gateway-build build \
+  -root "$repo" \
+  -tag "$formal_gateway_tag" | tee "$outdir/formal-gateway-build.log"
+formal_gateway_override="$outdir/compose.formal-gateway.yaml"
+cat >"$formal_gateway_override" <<COMPOSE_OVERRIDE
+services:
+  gateway:
+    image: "${formal_gateway_tag}"
+    pull_policy: never
+COMPOSE_OVERRIDE
+chmod 600 "$formal_gateway_override"
+
 # ----------------------------------------------------------------- bring-up
 
 # The Gateway must activate exactly the Profile Catalog this run is judged
@@ -219,7 +300,9 @@ compose=(docker compose --project-name "$project"
   --file compose.yaml
   --file compose.debug.yaml
   --file evaluation/final-v5-wsl2/compose.real-pilot.yaml
-  --file evaluation/final-v5-wsl2/compose.observer-v3.yaml)
+  --file evaluation/final-v5-wsl2/compose.provsql.yaml
+  --file evaluation/final-v5-wsl2/compose.observer-v3.yaml
+  --file "$formal_gateway_override")
 
 cleanup() {
   local status=$?
@@ -248,8 +331,9 @@ echo "== ${RUN_ID}: fresh deployment ${project}"
 phase1_services=(business-postgres control-postgres oa-demo
   result-object-store result-object-store-init
   snapshot-index-detail snapshot-index-summary snapshot-index-result-heavy
-  snapshot-sidecar-install)
-phase1_healthy=(business-postgres control-postgres oa-demo result-object-store)
+  snapshot-sidecar-install final-v5-direct-postgres final-v5-provsql-postgres)
+phase1_healthy=(business-postgres control-postgres oa-demo result-object-store
+  final-v5-direct-postgres final-v5-provsql-postgres)
 phase1_jobs=(result-object-store-init snapshot-index-detail snapshot-index-summary
   snapshot-index-result-heavy snapshot-sidecar-install)
 
@@ -314,7 +398,7 @@ export TASKGATE_PROFILE_ARTIFACT_DIR="$(cd "$profile_dir" && pwd)"
 echo "profile artifact dir: $TASKGATE_PROFILE_ARTIFACT_DIR"
 
 # Phase 2: the Gateway, against exactly its own closure.
-"${compose[@]}" up -d --wait --wait-timeout 600 --no-deps gateway >>"$outdir/compose-up.log" 2>&1 || {
+"${compose[@]}" up -d --wait --wait-timeout 600 --no-build --no-deps gateway >>"$outdir/compose-up.log" 2>&1 || {
   echo "gateway failed to start; see $outdir/compose-up.log" >&2; retain_failure; exit 1; }
 
 gateway_container="$("${compose[@]}" ps -q gateway)"
@@ -434,21 +518,36 @@ chmod 600 "$config"
 echo "== running the six frozen artifact/result-heavy cells through v3 acceptance"
 GOFLAGS=-buildvcs=false go run ./evaluation/cmd/v5-artifact \
   -config "$config" \
-  -deployment-id deployment-01 \
+  -deployment-id "$deployment_id" \
   -adapter "$(realpath "$adapter_binary")" \
+  -profile-binding "$(realpath "$profile_binding")" \
   -output "$outdir/raw/deployment-01.jsonl" | tee "$outdir/run.log"
 
-# Every retained sample must carry the finalizer's own acceptance record. A
-# sample without one was never adjudicated, whatever its status says.
-jq -e -s '
-  length > 0 and
-  (map(select(.system == "taskgate")) | length > 0) and
-  (map(select(.system == "taskgate")) | all(.taskgate_acceptance_v3 != null))
-' "$outdir/raw/deployment-01.jsonl" >/dev/null || {
-  echo "a retained TaskGate sample carries no v3 acceptance record" >&2
-  exit 1
-}
+# A process-level zero exit retains failed measured samples by design, so the
+# targeted launcher must adjudicate the complete result set itself. Exactly six
+# frozen cells are requested per sample replicate, and every retained record
+# must be a non-publication TaskGate PASS carrying the finalizer's acceptance.
+expected=$((6 * SAMPLES))
 passed="$(jq -s '[.[] | select(.status == "pass")] | length' "$outdir/raw/deployment-01.jsonl")"
 total="$(jq -s 'length' "$outdir/raw/deployment-01.jsonl")"
+[[ "$total" -eq "$expected" ]] || {
+  echo "retained $total measured samples, expected $expected" >&2
+  exit 1
+}
+[[ "$passed" -eq "$expected" ]] || {
+  echo "artifact targeted run failed: only $passed/$expected samples passed" >&2
+  exit 1
+}
+jq -e -s --argjson expected "$expected" '
+  length == $expected and
+  all(.[];
+    .status == "pass" and
+    .system == "taskgate" and
+    .taskgate_acceptance_v3 != null and
+    .publication_eligible == false)
+' "$outdir/raw/deployment-01.jsonl" >/dev/null || {
+  echo "a retained sample is not an accepted, non-publication TaskGate PASS" >&2
+  exit 1
+}
 echo "== ${RUN_ID} complete: ${passed}/${total} samples passed"
 echo "   evidence: $outdir"

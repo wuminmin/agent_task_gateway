@@ -161,6 +161,10 @@ type RuntimeFinalizerV3 struct {
 	footprints footprintResolverV3
 	runtime    runtimeIdentityReaderV3
 	control    controlEvidenceReaderV3
+	// observerWindows owns the ephemeral signing key and the one-use attempt
+	// registry. Keeping both behind the already-opened finalizer is what prevents
+	// the Adapter from minting or resetting its own preregistration tickets.
+	observerWindows *observerWindowTicketsV3
 }
 
 // openRuntimeFinalizerV3 builds the finalizer, refusing any missing
@@ -189,8 +193,12 @@ func openRuntimeFinalizerV3(verifier ReceiptVerifierV3, contracts contractResolv
 				"could only come from the party being checked", name)
 		}
 	}
+	observerWindows, err := newObserverWindowTicketsV3()
+	if err != nil {
+		return nil, err
+	}
 	return &RuntimeFinalizerV3{verifier: verifier, contracts: contracts, profiles: profiles,
-		footprints: footprints, runtime: runtime, control: control}, nil
+		footprints: footprints, runtime: runtime, control: control, observerWindows: observerWindows}, nil
 }
 
 // FinalizationRequestV3 is everything an Adapter may submit.
@@ -208,6 +216,11 @@ type FinalizationRequestV3 struct {
 	// ContractSelector narrows the frozen contract search. A hint, not an
 	// authority -- see FrozenContractSelectorV3.
 	ContractSelector FrozenContractSelectorV3
+	// ObserverWindowTicket is the finalizer-issued one-use preregistration for
+	// this exact task/request attempt. It is verified and atomically consumed
+	// after the receipt signature is verified and before any acceptance material
+	// is derived.
+	ObserverWindowTicket ObserverWindowTicketV3
 	// ReturnedReceiptJSON is the response document byte for byte, needed only on
 	// the idempotent replay path, where the question is whether the stored
 	// document came back unchanged. The bytes come from the transport because
@@ -239,6 +252,9 @@ func (finalizer *RuntimeFinalizerV3) FinalizeTaskGateObservationV3(ctx context.C
 	}
 	if err := finalizer.verifier.Verify(request.Receipt); err != nil {
 		return result, fmt.Errorf("verify receipt: %w", err)
+	}
+	if err := finalizer.verifyAndConsumeObserverWindowTicketV3(request); err != nil {
+		return result, err
 	}
 	trusted, err := finalizer.deriveTrustedInputs(ctx, request)
 	if err != nil {
@@ -400,6 +416,13 @@ type PreRegisteredObservationV3 struct {
 	// together; it is the digest a manifest presented for another operation or
 	// under another plan cannot reproduce.
 	ClassifierBindingSHA256 string
+	// ObserverWindowID is a fresh random identity issued for this attempt, not a
+	// stable derivative of the frozen operation. It is sealed into both observer
+	// snapshots.
+	ObserverWindowID string
+	// ObserverWindowTicket binds that window and classification to the exact
+	// task/request pair and can be consumed once at finalization.
+	ObserverWindowTicket ObserverWindowTicketV3
 }
 
 // OpenObserverWindowV3 is the pre-registration step, and it runs BEFORE the
@@ -443,7 +466,7 @@ type PreRegisteredObservationV3 struct {
 // cell produces a manifest that the finalization then rebuilds differently and
 // rejects.
 func (finalizer *RuntimeFinalizerV3) OpenObserverWindowV3(ctx context.Context,
-	selector FrozenContractSelectorV3) (PreRegisteredObservationV3, error) {
+	selector FrozenContractSelectorV3, attempt ObserverAttemptV3) (PreRegisteredObservationV3, error) {
 	var registered PreRegisteredObservationV3
 	if finalizer == nil {
 		return registered, errors.New("opening an observer window requires an opened runtime finalizer")
@@ -474,7 +497,17 @@ func (finalizer *RuntimeFinalizerV3) OpenObserverWindowV3(ctx context.Context,
 	if err != nil {
 		return registered, err
 	}
-	return preRegisterObservationV3(candidate, profile, footprint, visibleSQL, companionSQL)
+	registered, err = preRegisterObservationV3(candidate, profile, footprint, visibleSQL, companionSQL)
+	if err != nil {
+		return PreRegisteredObservationV3{}, err
+	}
+	ticket, err := finalizer.observerWindows.issue(attempt, registered)
+	if err != nil {
+		return PreRegisteredObservationV3{}, fmt.Errorf("issue observer window ticket: %w", err)
+	}
+	registered.ObserverWindowID = ticket.ObserverWindowID
+	registered.ObserverWindowTicket = ticket
+	return registered, nil
 }
 
 func frozenOperationMaterialV3ForCandidate(candidate frozenOperationCandidateV3,

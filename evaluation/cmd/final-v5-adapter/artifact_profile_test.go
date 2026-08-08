@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"taskbound.local/agent-data-gateway/evaluation/internal/experiment"
@@ -28,7 +29,8 @@ func writeTestRegistry(t *testing.T, mutate func(*finalv5profile.Profile)) strin
 		mutate(&profile)
 	}
 	payload, err := json.Marshal(finalv5profile.Registry{SchemaVersion: 1,
-		Profiles: []finalv5profile.Profile{profile}})
+		RegistryVersion: finalv5profile.RegistryVersion,
+		Profiles:        []finalv5profile.Profile{profile}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,6 +48,14 @@ func TestArtifactProfileBindingIsDerivedFromTheClearedRegistryProfile(t *testing
 	binding, err := resolveArtifactProfileBinding(testArtifactCatalog)
 	if err != nil {
 		t.Fatalf("a cleared profile produced no binding: %v", err)
+	}
+	shared, err := experiment.ResolveProfileBinding(os.Getenv("TASKGATE_FINAL_V5_PROFILE_REGISTRY"),
+		artifactProfileAlias, os.Getenv("TASKGATE_FINAL_V5_DATASET_BINDING_SHA256"))
+	if err != nil {
+		t.Fatalf("the shared resolver rejected the same inputs: %v", err)
+	}
+	if !binding.Equal(*shared) {
+		t.Fatalf("adapter binding %+v differs from shared resolver %+v", *binding, *shared)
 	}
 	if binding.ProfileID != finalv5profile.ProfileID(testArtifactClosure) ||
 		binding.ClosureSHA256 != testArtifactClosure || binding.CatalogSHA256 != testArtifactCatalog {
@@ -110,5 +120,38 @@ func TestArtifactProfileBindingRequiresTheRegistry(t *testing.T) {
 	t.Setenv("TASKGATE_FINAL_V5_DATASET_BINDING_SHA256", strings.Repeat("a", 64))
 	if _, err := resolveArtifactProfileBinding(testArtifactCatalog); err == nil {
 		t.Fatal("a missing profile registry produced a binding")
+	}
+}
+
+func TestArtifactProfileBindingCacheRejectsCatalogDrift(t *testing.T) {
+	artifactProfileOnce = sync.Once{}
+	artifactProfileBinding = nil
+	artifactProfileErr = nil
+	t.Cleanup(func() {
+		artifactProfileOnce = sync.Once{}
+		artifactProfileBinding = nil
+		artifactProfileErr = nil
+	})
+	t.Setenv("TASKGATE_FINAL_V5_PROFILE_REGISTRY", writeTestRegistry(t, nil))
+	t.Setenv("TASKGATE_FINAL_V5_DATASET_BINDING_SHA256", strings.Repeat("a", 64))
+
+	first, err := artifactProfileBindingFor(testArtifactCatalog)
+	if err != nil {
+		t.Fatalf("resolve the first Catalog: %v", err)
+	}
+	// Callers receive a copy, so mutating one sample cannot corrupt the cached
+	// deployment binding used by later cells.
+	first.ProfileID = "profile-0000000000000000"
+	second, err := artifactProfileBindingFor(testArtifactCatalog)
+	if err != nil {
+		t.Fatalf("reuse the unchanged Catalog: %v", err)
+	}
+	if second.ProfileID != finalv5profile.ProfileID(testArtifactClosure) {
+		t.Fatal("a caller mutated the cached deployment binding")
+	}
+
+	if _, err := artifactProfileBindingFor(strings.Repeat("b", 64)); err == nil ||
+		!strings.Contains(err.Error(), "Catalog digest changed") {
+		t.Fatalf("mid-run Catalog drift error = %v", err)
 	}
 }

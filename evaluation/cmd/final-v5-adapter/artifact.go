@@ -192,22 +192,23 @@ func (adapter *artifactAdapter) executeResultHeavy(ctx context.Context, operatio
 	// are any observations to choose it against. The finalizer computes it: a
 	// manifest the measured party chose is a standard the measured party set.
 	selector := artifactContractSelector(cell.Identity)
-	registered, err := adapter.finalizer.OpenObserverWindowV3(ctx, selector)
-	if err != nil {
-		return experiment.Sample{}, err
-	}
-	windowID, err := experiment.DeriveObserverWindowID(registered.Operation.OperationID)
+	// The request identity is fixed before the observer window opens. The
+	// finalizer's one-use ticket binds this exact task/request attempt to the
+	// random window it issues, so another sample of the same stable contract cell
+	// cannot donate either half of its measurement.
+	requestID := "final-v5-artifact-" + sha(operation.SampleID)[:24]
+	registered, err := adapter.finalizer.OpenObserverWindowV3(ctx, selector,
+		experiment.ObserverAttemptV3{TaskID: state.taskID, RequestID: requestID})
 	if err != nil {
 		return experiment.Sample{}, err
 	}
 	observerBefore, err := captureBoundObserverV2(ctx, experiment.ObserverInvocationV3{
-		Phase: "before", ObserverWindowID: windowID,
+		Phase: "before", ObserverWindowID: registered.ObserverWindowID,
 		ClassifierManifestSHA256: registered.ClassifierManifestSHA256,
 	})
 	if err != nil {
 		return experiment.Sample{}, err
 	}
-	requestID := "final-v5-artifact-" + sha(operation.SampleID)[:24]
 	started := time.Now()
 	var response queryResponse
 	if err := adapter.real.alice.call(ctx, finalv5contracts.PublicBDGTool, map[string]any{
@@ -248,7 +249,7 @@ func (adapter *artifactAdapter) executeResultHeavy(ctx context.Context, operatio
 	sample.ResultSHA256 = comparison.BDGResultSHA256
 	sample.BaselineVerification.ParsedResultSHA256 = comparison.BDGResultSHA256
 	observerAfter, err := captureBoundObserverV2(ctx, experiment.ObserverInvocationV3{
-		Phase: "after", ObserverWindowID: windowID,
+		Phase: "after", ObserverWindowID: registered.ObserverWindowID,
 		ClassifierManifestSHA256: registered.ClassifierManifestSHA256,
 	})
 	if err != nil {
@@ -303,6 +304,7 @@ func (adapter *artifactAdapter) executeResultHeavy(ctx context.Context, operatio
 	}
 	finalized, err := adapter.finalizer.FinalizeTaskGateObservationV3(ctx, experiment.FinalizationRequestV3{
 		Receipt: sample.BaselineVerification.Receipt, Carried: carried, ContractSelector: selector,
+		ObserverWindowTicket: registered.ObserverWindowTicket,
 		// ReturnedReceiptJSON is deliberately absent. It is read only where the
 		// Control Store reports an exact request-ID replay, and this path issues a
 		// fresh request id per sample; a replay reported here would therefore be a
