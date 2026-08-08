@@ -579,25 +579,41 @@ func TestSecretRootCleanupFailsClosedAndRemovesOnlyExactTemporaryRoot(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = os.Chmod(filepath.Join(root, "locked"), 0o700); _ = os.RemoveAll(root) })
-	locked := filepath.Join(root, "locked")
-	if err := os.Mkdir(locked, 0o700); err != nil {
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	secret := filepath.Join(root, "deployment-secrets.json")
+	if err := os.WriteFile(secret, []byte("secret"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(locked, "deployment-secrets.json"), []byte("secret"), 0o600); err != nil {
+	fakeBin := t.TempDir()
+	logPath := filepath.Join(t.TempDir(), "rm-argv.log")
+	fakeRM := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$RQ5_TEST_RM_LOG\"\n"
+	if err := os.WriteFile(filepath.Join(fakeBin, "rm"), []byte(fakeRM), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chmod(locked, 0o500); err != nil {
-		t.Fatal(err)
-	}
-	if output, err := exec.Command("bash", helper, root).CombinedOutput(); err == nil {
+	command := exec.Command("bash", helper, root)
+	command.Env = replaceEnvironment(os.Environ(),
+		"PATH="+fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"RQ5_TEST_RM_LOG="+logPath)
+	output, err := command.CombinedOutput()
+	if err == nil {
 		t.Fatalf("injected secret cleanup failure passed (%s)", output)
+	}
+	if !strings.Contains(string(output), "RQ5 secret root survived cleanup") {
+		t.Fatalf("cleanup failed before checking its postcondition: %v (%s)", err, output)
 	}
 	if _, err := os.Lstat(root); err != nil {
 		t.Fatalf("failed cleanup did not retain its target for diagnosis: %v", err)
 	}
-	if err := os.Chmod(locked, 0o700); err != nil {
+	if value, err := os.ReadFile(secret); err != nil || string(value) != "secret" {
+		t.Fatalf("failed cleanup did not retain its secret: %q, %v", value, err)
+	}
+	argv, err := os.ReadFile(logPath)
+	if err != nil {
 		t.Fatal(err)
+	}
+	wantArgv := strings.Join([]string{"--recursive", "--force", "--one-file-system", "--", root, ""}, "\n")
+	if string(argv) != wantArgv {
+		t.Fatalf("secret cleanup rm argv = %q, want %q", argv, wantArgv)
 	}
 	if output, err := exec.Command("bash", helper, root).CombinedOutput(); err != nil {
 		t.Fatalf("exact secret cleanup failed: %v (%s)", err, output)

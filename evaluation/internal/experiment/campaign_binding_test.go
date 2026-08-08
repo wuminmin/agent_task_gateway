@@ -2,6 +2,7 @@ package experiment
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -62,9 +63,28 @@ func TestRunDeploymentBuildCommandsMatchCampaignFinalizer(t *testing.T) {
 		t.Fatal("adapter, observer, and RQ5 build manifests must each bind the complete tracked-file inventory")
 	}
 	repoRoot := filepath.Join("..", "..", "..")
-	for _, path := range rq5RequiredRuntimeSources {
-		if output, err := exec.Command("git", "-C", repoRoot, "ls-files", "--error-unmatch", path).CombinedOutput(); err != nil {
-			t.Fatalf("required RQ5 runtime input %q is outside the complete tracked inventory: %v: %s", path, err, output)
+	var complete strings.Builder
+	for index, path := range rq5RequiredRuntimeSources {
+		info, err := os.Lstat(filepath.Join(repoRoot, filepath.FromSlash(path)))
+		if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+			t.Fatalf("required RQ5 runtime input %q is absent or unsafe: %v", path, err)
+		}
+		fmt.Fprintf(&complete, "%064x  %s\n", index+1, path)
+	}
+	if err := validateBoundSourceListing(complete.String(), rq5RequiredRuntimeSources); err != nil {
+		t.Fatalf("complete RQ5 source inventory was rejected: %v", err)
+	}
+	for omitted, path := range rq5RequiredRuntimeSources {
+		var incomplete strings.Builder
+		for index, candidate := range rq5RequiredRuntimeSources {
+			if index != omitted {
+				fmt.Fprintf(&incomplete, "%064x  %s\n", index+1, candidate)
+			}
+		}
+		err := validateBoundSourceListing(incomplete.String(), rq5RequiredRuntimeSources)
+		want := "source listing omits required runtime input " + path
+		if err == nil || err.Error() != want {
+			t.Fatalf("inventory without %q error = %v, want %q", path, err, want)
 		}
 	}
 }
@@ -321,9 +341,20 @@ func TestFreshDeploymentRejectsPublicationComposeOverrideBeforeStartup(t *testin
 		t.Fatalf("derive project name: %v: %s", err, projectBytes)
 	}
 	launcher := filepath.Join("evaluation", "final-v5-wsl2", "scripts", "start-fresh-deployment.sh")
+	toolPath := t.TempDir()
+	for _, name := range []string{"awk", "bash", "sha256sum"} {
+		target, err := exec.LookPath(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, filepath.Join(toolPath, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
 	command := exec.Command("bash", launcher)
 	command.Dir = repoRoot
-	command.Env = append(os.Environ(),
+	command.Env = append(environmentWithout("PATH"),
+		"PATH="+toolPath,
 		"TASKGATE_EXPERIMENT_CLASS=publication",
 		"TASKGATE_CAMPAIGN_ID="+campaignID,
 		"TASKGATE_DEPLOYMENT_ID="+deploymentID,
@@ -338,4 +369,20 @@ func TestFreshDeploymentRejectsPublicationComposeOverrideBeforeStartup(t *testin
 	if !strings.Contains(string(output), "publication Compose files differ from the frozen formal topology") {
 		t.Fatalf("publication Compose override failed for the wrong reason: %s", output)
 	}
+}
+
+func environmentWithout(names ...string) []string {
+	excluded := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		excluded[name] = struct{}{}
+	}
+	result := make([]string, 0, len(os.Environ()))
+	for _, entry := range os.Environ() {
+		name, _, found := strings.Cut(entry, "=")
+		if _, skip := excluded[name]; found && skip {
+			continue
+		}
+		result = append(result, entry)
+	}
+	return result
 }

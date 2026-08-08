@@ -19,8 +19,15 @@ expected_compose_project="$(
 [[ "$TASKGATE_FRESH_PROOF_OUTPUT" != / ]] || {
   echo "unsafe proof output" >&2; exit 2;
 }
-command -v jq >/dev/null
-command -v sha256sum >/dev/null
+if [[ "${TASKGATE_EXPERIMENT_CLASS:-pilot}" == publication ]]; then
+  formal_compose_files=compose.yaml:compose.debug.yaml:evaluation/final-v5-wsl2/compose.real-pilot.yaml:evaluation/final-v5-wsl2/compose.provsql.yaml
+  [[ "${TASKGATE_COMPOSE_FILES:-}" == "$formal_compose_files" ]] || {
+    echo "publication Compose files differ from the frozen formal topology" >&2; exit 2;
+  }
+fi
+command -v jq >/dev/null || { echo "jq is required" >&2; exit 2; }
+command -v sha256sum >/dev/null || { echo "sha256sum is required" >&2; exit 2; }
+command -v git >/dev/null || { echo "git is required" >&2; exit 2; }
 
 repo="$(git rev-parse --show-toplevel)"
 cd "$repo"
@@ -33,13 +40,6 @@ if [[ -n "${TASKGATE_COMPOSE_FILES:-}" ]]; then
     compose+=(--file "$taskgate_compose_file")
   done
 fi
-if [[ "${TASKGATE_EXPERIMENT_CLASS:-pilot}" == publication ]]; then
-  formal_compose_files=compose.yaml:compose.debug.yaml:evaluation/final-v5-wsl2/compose.real-pilot.yaml:evaluation/final-v5-wsl2/compose.provsql.yaml
-  [[ "${TASKGATE_COMPOSE_FILES:-}" == "$formal_compose_files" ]] || {
-    echo "publication Compose files differ from the frozen formal topology" >&2; exit 2;
-  }
-fi
-
 # Refuse the deployment before its exact deletion boundary is touched unless
 # Compose proves that the ready Gateway must load the one frozen Catalog path
 # from the one source-controlled read-only bind mount. The resolved JSON stays
