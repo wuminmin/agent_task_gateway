@@ -1,7 +1,11 @@
 package main
 
 import (
+	"bytes"
+	"compress/gzip"
+	"encoding/base64"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -145,17 +149,24 @@ func TestDeploymentEvidenceDoesNotCarryAcrossAContractRelease(t *testing.T) {
 }
 
 type deploymentEvidenceFixture struct {
-	root                 string
-	intersection, matrix map[string]any
-	isolation            map[string]any
-	intersectionDigest   string
-	matrixDigest         string
-	isolationDigest      string
+	root                           string
+	registry, intersection, matrix map[string]any
+	isolation, production          map[string]any
+	registryDigest                 string
+	intersectionDigest             string
+	matrixDigest                   string
+	isolationDigest                string
+	productionDigest               string
 }
 
 func newDeploymentEvidenceFixture(t *testing.T, contractRelease string) *deploymentEvidenceFixture {
 	t.Helper()
 	fixture := &deploymentEvidenceFixture{root: t.TempDir()}
+	fixture.registry = map[string]any{
+		"schema_version": 1, "contract_release": contractRelease,
+	}
+	fixture.registryDigest = writeFixtureDocument(t, fixture.root, registryPath,
+		fixture.registry)
 	fixture.intersection = map[string]any{
 		"record":            "taskgate-final-v5-product-intersection-v1",
 		"contracts_version": contractRelease,
@@ -165,18 +176,24 @@ func newDeploymentEvidenceFixture(t *testing.T, contractRelease string) *deploym
 	fixture.matrix = map[string]any{
 		"record":                             "taskgate-final-v5-outside-product-route-matrix-v1",
 		"contract_release":                   contractRelease,
-		"profile_registry_sha256":            strings.Repeat("a", 64),
+		"profile_registry_sha256":            fixture.registryDigest,
 		"product_intersection_matrix_sha256": fixture.intersectionDigest,
 		"status":                             "pass",
 		"failed_probe_count":                 0,
 	}
 	fixture.matrixDigest = writeFixtureDocument(t, fixture.root, routeMatrixPath, fixture.matrix)
+	fixture.production = map[string]any{
+		"record": "taskgate-final-v5-production-semantic-cache-lookup-v1",
+	}
+	fixture.productionDigest = writeFixtureDocument(t, fixture.root, productionLookupPath,
+		fixture.production)
 	fixture.isolation = map[string]any{
 		"record":                              "taskgate-final-v5-semantic-cache-isolation-evidence-v1",
 		"contract_release":                    contractRelease,
-		"profile_registry_sha256":             strings.Repeat("a", 64),
+		"profile_registry_sha256":             fixture.registryDigest,
 		"product_intersection_matrix_sha256":  fixture.intersectionDigest,
 		"outside_product_route_matrix_sha256": fixture.matrixDigest,
+		"production_lookup_manifest_sha256":   fixture.productionDigest,
 		"status":                              "pass",
 		"semantic_cache_catalog_bound":        true,
 	}
@@ -249,6 +266,22 @@ func TestLoadDeploymentEvidenceRequiresAConsistentCurrentReleaseChain(t *testing
 			f.isolation["profile_registry_sha256"] = strings.Repeat("b", 64)
 			writeFixtureDocument(t, f.root, isolationPath, f.isolation)
 		},
+		"route matrix names another profile registry": func(f *deploymentEvidenceFixture) {
+			f.matrix["profile_registry_sha256"] = strings.Repeat("b", 64)
+			writeFixtureDocument(t, f.root, routeMatrixPath, f.matrix)
+		},
+		"isolation names another production lookup manifest": func(f *deploymentEvidenceFixture) {
+			f.isolation["production_lookup_manifest_sha256"] = strings.Repeat("b", 64)
+			writeFixtureDocument(t, f.root, isolationPath, f.isolation)
+		},
+		"profile registry bytes changed": func(f *deploymentEvidenceFixture) {
+			f.registry["changed"] = true
+			writeFixtureDocument(t, f.root, registryPath, f.registry)
+		},
+		"production lookup manifest bytes changed": func(f *deploymentEvidenceFixture) {
+			f.production["changed"] = true
+			writeFixtureDocument(t, f.root, productionLookupPath, f.production)
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			fixture := newDeploymentEvidenceFixture(t, current)
@@ -258,6 +291,60 @@ func TestLoadDeploymentEvidenceRequiresAConsistentCurrentReleaseChain(t *testing
 			}
 		})
 	}
+}
+
+func TestV13GoldenPassesTheActivationSupportDigestConsumer(t *testing.T) {
+	root := t.TempDir()
+	fixtures := map[string]string{
+		"registry": registryPath, "intersection": intersectionPath,
+		"route": routeMatrixPath, "production": productionLookupPath,
+		"isolation": isolationPath,
+	}
+	for name, target := range fixtures {
+		payload := readCacheIsolationGolden(t, name)
+		path := filepath.Join(root, target)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, payload, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	evidence, err := loadDeploymentEvidence(root, "final-v5-contracts-v1.3")
+	if err != nil {
+		t.Fatalf("byte-exact v1.3 command output failed the consumer digest chain: %v", err)
+	}
+	if evidence.matrixDigest != "342d257718a58bf3e084c7d776f5dc169b6a9d67f5063f72caff5cc1d1694bad" ||
+		evidence.isolationDigest != "6d6f281a43512ebe07bd53329c0e275e8c48d6a82587c731b7bde05a574e1712" ||
+		evidence.productionDigest != "c959d611e01ff8d8c089477c932ff7e7adcc8f9555140396e5b1ef55512af6a4" {
+		t.Fatalf("v1.3 consumer digests were not recomputed: %+v", evidence)
+	}
+}
+
+func readCacheIsolationGolden(t *testing.T, name string) []byte {
+	t.Helper()
+	path := filepath.Join("..", "final-v5-cache-isolation", "testdata", "v1.3",
+		name+".json.gz.base64")
+	encoded, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compressed, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(encoded)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, err := gzip.NewReader(bytes.NewReader(compressed))
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reader.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return payload
 }
 
 func unsupportedRegistry(contractRelease string) finalv5profile.Registry {

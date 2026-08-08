@@ -24,12 +24,13 @@ import (
 )
 
 const (
-	registryPath     = "config/profiles/registry.json"
-	supportPath      = "config/profiles/activation-support-v1.json"
-	intersectionPath = "evaluation/final-v5-wsl2/profiles/product-intersection-v1.json"
-	routeMatrixPath  = "evaluation/final-v5-wsl2/profiles/outside-product-route-matrix-v1.json"
-	isolationPath    = "evaluation/final-v5-wsl2/profiles/semantic-cache-isolation-evidence-v1.json"
-	attestationsPath = "config/profiles/schema-attestations-v1.json"
+	registryPath         = "config/profiles/registry.json"
+	supportPath          = "config/profiles/activation-support-v1.json"
+	intersectionPath     = "evaluation/final-v5-wsl2/profiles/product-intersection-v1.json"
+	routeMatrixPath      = "evaluation/final-v5-wsl2/profiles/outside-product-route-matrix-v1.json"
+	isolationPath        = "evaluation/final-v5-wsl2/profiles/semantic-cache-isolation-evidence-v1.json"
+	productionLookupPath = "evaluation/final-v5-wsl2/profiles/production-lookup-manifest-v1.json"
+	attestationsPath     = "config/profiles/schema-attestations-v1.json"
 )
 
 func main() {
@@ -361,8 +362,8 @@ func loadJSONWithDigest(path string) (map[string]any, string, error) {
 }
 
 type deploymentEvidence struct {
-	intersection, matrix, isolation                   map[string]any
-	intersectionDigest, matrixDigest, isolationDigest string
+	intersection, matrix, isolation                                     map[string]any
+	intersectionDigest, matrixDigest, isolationDigest, productionDigest string
 }
 
 // loadDeploymentEvidence enforces the same release boundary as the per-profile
@@ -373,6 +374,10 @@ type deploymentEvidence struct {
 func loadDeploymentEvidence(root, contractRelease string) (deploymentEvidence, error) {
 	var evidence deploymentEvidence
 	var err error
+	registryDigest, err := fileSHA256(filepath.Join(root, registryPath))
+	if err != nil {
+		return deploymentEvidence{}, fmt.Errorf("profile registry digest: %w", err)
+	}
 	evidence.intersection, evidence.intersectionDigest, err = loadJSONWithDigest(
 		filepath.Join(root, intersectionPath))
 	if err != nil {
@@ -398,9 +403,12 @@ func loadDeploymentEvidence(root, contractRelease string) (deploymentEvidence, e
 		contractRelease); err != nil {
 		return deploymentEvidence{}, err
 	}
-	registryDigest := strings.TrimSpace(stringField(evidence.matrix, "profile_registry_sha256"))
-	if err := requireEvidenceSHA256("outside-product route matrix profile registry",
-		registryDigest); err != nil {
+	_, evidence.productionDigest, err = loadJSONWithDigest(filepath.Join(root, productionLookupPath))
+	if err != nil {
+		return deploymentEvidence{}, err
+	}
+	if err := requireEvidenceDigest("outside-product route matrix profile registry",
+		stringField(evidence.matrix, "profile_registry_sha256"), registryDigest); err != nil {
 		return deploymentEvidence{}, err
 	}
 	if err := requireEvidenceDigest("semantic-cache isolation profile registry",
@@ -420,6 +428,11 @@ func loadDeploymentEvidence(root, contractRelease string) (deploymentEvidence, e
 	if err := requireEvidenceDigest("semantic-cache isolation outside-product route matrix",
 		stringField(evidence.isolation, "outside_product_route_matrix_sha256"),
 		evidence.matrixDigest); err != nil {
+		return deploymentEvidence{}, err
+	}
+	if err := requireEvidenceDigest("semantic-cache isolation production lookup manifest",
+		stringField(evidence.isolation, "production_lookup_manifest_sha256"),
+		evidence.productionDigest); err != nil {
 		return deploymentEvidence{}, err
 	}
 	return evidence, nil
