@@ -136,8 +136,7 @@ Gateway 当前仍只允许单实例部署。行锁保证请求并发安全，但
 
 ```text
 所有权 / ACTIVE / Grant / TTL / Catalog 与实时 Schema Attestation
-  -> resource-only Grant: 现有 pg_query_go/v6 AST 安全 SQL policy
-  -> exposure Grant: taskgate-reporting-sql-v1 AST -> canonical QueryPlan
+  -> 所有 Grant: taskgate-reporting-sql-v1 AST -> canonical QueryPlan
   -> 从 QueryPlan 重新生成 visible SQL + provenance companion
   -> 生成 SQL 再经 pg_query_go/v6 AST 白名单
   -> 获批字段与 Scope CTE

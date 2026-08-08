@@ -1231,8 +1231,9 @@ new approvals to $P_{e+1}$; active tasks never change in place.
 
 MCP tools cover Product discovery, task approval/execution/delegation, View
 rebind, budgets, results, and receipts; an external adapter signs Grants.
-Direct SQL remains resource-only and fails closed when exposure evidence is
-required. Control PostgreSQL persists versioned set metadata, a
+Direct SQL is lowered to the same canonical plan under every grant and fails
+closed when it cannot be, so no path executes agent-authored text; a
+resource-only grant differs in accounting, not in accepted syntax. Control PostgreSQL persists versioned set metadata, a
 three-dimensional root head, observations, and monotonic View bindings;
 canonical payloads remain cold. Results use AES-GCM, audits a hash chain, and
 high-cardinality work an isolated semaphore and encrypted spill path.

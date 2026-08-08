@@ -206,8 +206,9 @@ binding 单向标记为 `REQUIRE_REBIND`，且不执行 visible/provenance SQL�
 
 Catalog 中的 SQL allowlist 仍可包含更宽的传统资源控制片段，但 exposure
 Profile 额外收窄到上表。默认 Demo Profile 已启用 exposure，因此
-`query_sql` 必须先 lowering，不会绕开 provenance 路径；仅迁移前或明确禁用 exposure 的
-resource-only grant 保留直接 SQL 兼容行为。原始 SQL 派生的 request digest 只用于
+`query_sql` 必须先 lowering，不会绕开 provenance 路径。**禁用 exposure 的 resource-only
+grant 同样必须先 lowering**：直接 SQL 兼容行为已经取消，因为无法 lowering 的语句没有
+canonical plan，也就没有 finalizer 能独立重建的执行证据。原始 SQL 派生的 request digest 只用于
 审计和幂等；FactID、OutcomeFact 和 semantic replay 始终绑定 canonical
 QueryPlan/`plan_digest`，不绑定 SQL 文本哈希。
 

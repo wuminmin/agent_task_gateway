@@ -2,13 +2,12 @@
 
 ## 决策链
 
-普通 Agent 默认使用 `query_sql`。Resource-only Grant 保留现有安全 SQL policy；exposure-enabled Grant 先按 `taskgate-reporting-sql-v1` 无损 lowering 为 canonical QueryPlan。高级 `execute_plan` 不在普通 `tools/list` 中列出，但与 SQL lowering 共用后半段信任边界：
+普通 Agent 默认使用 `query_sql`。**所有** Grant——resource-only 与 exposure-enabled——都先按 `taskgate-reporting-sql-v1` 无损 lowering 为 canonical QueryPlan，再由共享 preparation 重新生成执行语句。高级 `execute_plan` 不在普通 `tools/list` 中列出，但与 SQL lowering 共用后半段信任边界：
 
 ```text
 Agent SQL
   → 所有权、任务状态、签名 Grant、TTL、Catalog/Schema 与 task View binding
-  → resource-only: pg_query_go/v6 安全 SQL policy
-  → exposure: PostgreSQL AST 解析 → canonical QueryPlan
+  → PostgreSQL AST 解析 → canonical QueryPlan
   → 重新生成 visible + ordinal companion SQL
   → 语句/对象/字段/函数/运算符/特性白名单
   → 为每个执行产品生成 TaskGrant 约束 CTE（semantic root 为每查询派生的 terminal internal grants）
@@ -21,22 +20,17 @@ Agent SQL
   → 同事务保存结果/materialization、V6 Ed25519 回执和审计，commit 后释放
 ```
 
-安全判断不使用正则或注释剥离来猜测 SQL。解析失败或出现未识别 AST 节点时关闭式拒绝。Exposure 路径不直接执行 Agent 原始 SQL；lowering 成功后只执行 QueryPlan 重新生成并再经 policy 的 SQL。
+安全判断不使用正则或注释剥离来猜测 SQL。解析失败或出现未识别 AST 节点时关闭式拒绝。**任何路径都不直接执行 Agent 原始 SQL**；lowering 成功后只执行 QueryPlan 重新生成并再经 policy 的 SQL。
+
+这一点以前只对 exposure 路径成立。Resource-only Grant 曾经把 Agent 原文交给 SQL policy 直接执行，那是 Gateway 里最后一条"未经准备就执行语句"的路径，也是它签发的回执无法描述执行的原因：没有 canonical plan，就没有 finalizer 能独立重建的 preparation。现在每个 COMPLETED 查询都必须签署它所执行语句的 preparation（见 `docs/architecture.md` 与 Query Receipt 合同），因此 resource-only 与 exposure 走同一条准备路径。代价是 resource-only 也被收窄到 `taskgate-reporting-sql-v1`：无法 lowering 的语句不再执行，而不是降级执行。
 
 `query_sql` 和 `execute_plan` 都要求客户端提供任务内唯一的 `request_id`。相同 ID/相同请求摘要只观察首次持久化结果或状态；相同 ID/不同摘要返回冲突，绝不再次执行或消费预算。
 
-## Resource-only SQL 兼容片段
+## Resource-only Grant 接受什么
 
-- 恰好一条 PostgreSQL `SELECT`。
-- 非递归 `WITH ... SELECT`、子查询、Join、`UNION ALL`、分组、排序及策略白名单支持的表达式。
-- 只引用本次 Grant 中的未限定逻辑产品名，例如 `expense_summary`。
-- 只引用获批字段或查询内确定生成的别名。
-- 函数、聚合与运算符必须处于当前获批产品 Catalog 允许列表和引擎安全集合内。
-- 白名单标量类型的普通 Cast，例如 `CAST(amount AS numeric)`。
-- 显式选择列。普通 `SELECT *` 和 `product.*` 禁止；聚合参数中的 `count(*)` 是特意允许的例外。
-- 字符串、布尔、数字和 `NULL` 等普通常量。QueryPlan 的 literal 由 Go 编译器转义，不把客户端值当 SQL 片段。
+与 exposure-enabled Grant 完全相同的 `taskgate-reporting-sql-v1`，见下一节。Resource-only 与 exposure 的区别只在**记账**：resource-only 不读 exposure ledger、不执行 companion 语句、回执里没有 exposure charge。它**不再**是一个更宽的 SQL 接受面。
 
-下例在 SQL policy 的 resource-only 兼容模式中合法：
+下例在两种 Grant 下都合法：
 
 ```sql
 SELECT department, expense_type, sum(total_amount) AS amount
@@ -45,7 +39,13 @@ GROUP BY department, expense_type
 ORDER BY amount DESC
 ```
 
-这个兼容片段不定义 exposure FactID，也不会扩大下面的 reporting SQL profile。
+一处例外：多产品 `FROM`（online join graph）仍要求 exposure profile v2–v5。Resource-only Grant 提交多产品计划会得到 `RELATIONAL_EXPOSURE_PROFILE_UNSUPPORTED`。
+
+### 已退役的 resource-only 兼容片段
+
+Resource-only Grant 曾经接受一个更宽的片段——非递归 `WITH ... SELECT`、子查询、`UNION ALL`，以及策略白名单支持的其它表达式——由 SQL policy 直接对 Agent 原文授权后执行。这个片段已经取消。它接受的构造正是 `taskgate-reporting-sql-v1` 明确拒绝的那些（子查询、CTE、set operation、窗口函数、`HAVING`、`SELECT DISTINCT`），也就是无法无损转换为 canonical QueryPlan 的构造；而无法转换为 canonical plan 的语句，finalizer 无法独立重建，因此不能携带每个 COMPLETED 查询都必须签署的执行证据。
+
+SQL policy 引擎本身没有取消，它的位置变了：它现在授权的是**由 QueryPlan 重新生成的语句**，而不是 Agent 原文，作为编译之后的纵深防御。因此下面"一律拒绝"表中的 `SQL_*` 稳定码仍然有效，但 Agent 直接触发它们的机会已经很少——大多数越权在 lowering 阶段就被拒绝，返回 lowering 码。
 
 ## Exposure reporting SQL profile
 
@@ -156,6 +156,8 @@ Grant 让它指向新摘要。恢复方式是用更新后的 Catalog 创建新 t
 
 ## 一律拒绝
 
+下表是 SQL policy 引擎的稳定码。自 resource-only 也走 lowering 起，这些码大多在**编译之后**才可能触发（纵深防御）；Agent 提交的原文通常先在 lowering 阶段被拒绝，返回上面那组 lowering 码。两层都拒绝的构造，Agent 看到的是 lowering 码。
+
 | 类别 | 示例 | 稳定策略码 |
 |---|---|---|
 | 多语句 | `SELECT ...; DELETE ...`，包括注释混淆 | `SQL_MULTIPLE_STATEMENTS` |
@@ -165,7 +167,7 @@ Grant 让它指向新摘要。恢复方式是用更新后的 Catalog 创建新 t
 | 物理或系统对象 | `reporting.expense_detail`、`legacy.*`、`pg_catalog.*`、`information_schema.*`、任何 `pg_*` Relation | `SQL_SYSTEM_OBJECT_FORBIDDEN` |
 | 未发布对象 | 任意非 Grant 逻辑产品或非查询内 CTE | `SQL_OBJECT_NOT_ALLOWED` |
 | 通配符 | `SELECT *`、`x.*` | `SQL_WILDCARD_FORBIDDEN` |
-| 越权字段 | 未列入该 TaskGrant 的列 | `SQL_COLUMN_NOT_ALLOWED` |
+| 越权字段 | 未列入该 TaskGrant 的列 | `COLUMN_NOT_APPROVED`（lowering）；编译后语句仍由 `SQL_COLUMN_NOT_ALLOWED` 兜底 |
 | 参数与 Session 值 | `$1`、客户端参数、`current_user`、`current_setting(...)` | `SQL_PARAMETER_FORBIDDEN` / `SQL_FUNCTION_NOT_ALLOWED` |
 | 危险或未知函数 | `pg_sleep`、文件/网络/大对象/后台管理函数、执行字符串 SQL 的 `query_to_xml`/`ts_stat`、整表/Schema/数据库 XML 导出族、Catalog 未允许函数 | `SQL_FUNCTION_NOT_ALLOWED` |
 | 未允许运算符 | Catalog/引擎白名单外运算符 | `SQL_OPERATOR_NOT_ALLOWED` |
