@@ -31,6 +31,7 @@ import (
 	"fmt"
 	"time"
 
+	"taskbound.local/agent-data-gateway/internal/physicalquery"
 	"taskbound.local/agent-data-gateway/internal/preparedbinding"
 	"taskbound.local/agent-data-gateway/internal/querybinding"
 	"taskbound.local/agent-data-gateway/internal/queryreceipt"
@@ -107,13 +108,19 @@ type Target struct {
 	PreparedTargetBindingSHA256 string
 }
 
-func (target Target) record(role querybinding.TargetRole, executed bool, rowLimit int64) querybinding.TargetRecordV1 {
+// record renders one target against the compiler the preparation was sealed
+// with. The renderer members are taken from that compiler rather than restated,
+// because QueryExecutionBindingV2 requires the two to agree: a target rendered
+// by a renderer the preparation was not compiled against is refused, which is
+// exactly the drift the cross-check exists to catch.
+func (target Target) record(role querybinding.TargetRole, executed bool, rowLimit int64,
+	sealedBy preparedbinding.CompilerIdentityV1) querybinding.TargetRecordV1 {
 	record := querybinding.TargetRecordV1{
 		Role: role, Authorized: true, Executed: executed,
 		ExactSQLSHA256: target.ExactSQLSHA256, StrictASTSHA256: target.StrictASTSHA256,
 		RowLimit: rowLimit, PolicyFingerprint: target.PolicyFingerprint,
-		PolicyRendererVersion:       policyRendererVersion,
-		PolicyRendererDigest:        digest("policy-renderer"),
+		PolicyRendererVersion:       sealedBy.PolicyRendererVersion,
+		PolicyRendererDigest:        sealedBy.PolicyRendererSHA256,
 		PreparedTargetBindingSHA256: target.PreparedTargetBindingSHA256,
 	}
 	if record.PolicyFingerprint == "" {
@@ -135,6 +142,41 @@ type Options struct {
 	// TaskID, QueryID and RequestID identify the settled request. Empty values
 	// take fixture defaults.
 	TaskID, QueryID, RequestID string
+
+	// Prepared and Compiler let a caller seal the receipt around a REAL
+	// preparation instead of the fixture's digest-shaped one.
+	//
+	// They exist because a finalizer that reproduces a preparation has to have
+	// something it can agree with. A fixture preparation is a coherent document
+	// with invented digests: it validates, and no independent derivation will
+	// ever equal it, so a receipt built that way can only be used by a finalizer
+	// that is told the answer. A caller that has actually prepared the operation
+	// passes what it prepared, and the reproduction becomes a real comparison.
+	//
+	// They are supplied together or not at all: the preparation names the
+	// compiler that produced it, and a preparation paired with some other
+	// compiler describes an operation nobody compiled.
+	Prepared *preparedbinding.PreparedOperationBindingV1
+	Compiler *preparedbinding.CompilerIdentityV1
+	// Limits are the row limits the caller's own derivation produced from
+	// PreState. Required with Prepared, and forbidden without it: the fixture
+	// derives its own limits from its own pre-state, and a caller that brings a
+	// real preparation has already had to derive the real ones to render the
+	// statements it is passing digests of.
+	Limits *physicalquery.Limits
+}
+
+// PreState is the exposure ledger state every fixture receipt is sealed against.
+//
+// It is exported so a caller building a real preparation can authorize its
+// statements against the same state the receipt will sign. Without it such a
+// caller would have to guess the numbers the fixture uses, and a guess that was
+// wrong would surface as a limit mismatch rather than as the mistake it is.
+func PreState(usesExpandedEvidence bool) physicalquery.LedgerPreState {
+	return physicalquery.LedgerPreState{
+		RemainingRows: ledgerRemainingRows, InfluenceFacts: ledgerInfluenceFacts,
+		UsesExpandedEvidence: usesExpandedEvidence, HasExposureContext: true,
+	}
 }
 
 // unsignedBase is the receipt with every member the execution evidence does not
@@ -234,10 +276,18 @@ func build(options Options, pathKind querybinding.PathKind, executed bool) (quer
 		return empty, err
 	}
 
+	if err := options.validate(); err != nil {
+		return empty, err
+	}
 	// Expanded evidence settles against the companion, so it is exactly the
-	// paths that bind one. The pre-state and the binding must agree, and the
-	// receipt validator checks that they do.
+	// paths that bind one -- unless the caller brought a real preparation, in
+	// which case the preparation decides, because it is the compilation that
+	// knows. The pre-state and the binding must agree, and the receipt validator
+	// checks that they do.
 	expanded := options.Companion != nil
+	if options.Prepared != nil {
+		expanded = options.Prepared.UsesExpandedEvidence()
+	}
 
 	ledger, err := querybinding.ExposureLedgerBeforeV1{
 		ProfileVersion: receipt.Exposure.ProfileVersion,
@@ -263,14 +313,26 @@ func build(options Options, pathKind querybinding.PathKind, executed bool) (quer
 		return empty, fmt.Errorf("budget digest: %w", err)
 	}
 
-	visibleLimit := VisibleRowLimit
+	visibleLimit, companionLimit := VisibleRowLimit, CompanionRowLimit
 	if !expanded {
 		visibleLimit = SingleQueryVisibleRowLimit
 	}
-	visible := options.Visible.record(querybinding.RoleVisible, executed, visibleLimit)
+	if options.Limits != nil {
+		visibleLimit, companionLimit = options.Limits.VisibleRowLimit, options.Limits.CompanionPolicyRows
+	}
+	// The compiler this receipt is sealed against: the fixture's own, unless the
+	// caller brought a real preparation, in which case it is the one that
+	// produced it. It is a local rather than an assignment to the package
+	// variable, so one caller's real preparation cannot change what the next
+	// fixture receipt is sealed with.
+	sealedBy := compiler
+	if options.Compiler != nil {
+		sealedBy = *options.Compiler
+	}
+	visible := options.Visible.record(querybinding.RoleVisible, executed, visibleLimit, sealedBy)
 	var companionRecord *querybinding.TargetRecordV1
 	if options.Companion != nil {
-		record := options.Companion.record(querybinding.RoleCompanion, executed, CompanionRowLimit)
+		record := options.Companion.record(querybinding.RoleCompanion, executed, companionLimit, sealedBy)
 		companionRecord = &record
 	}
 	// The preparation is sealed against the same prepared-target digests the
@@ -281,10 +343,13 @@ func build(options Options, pathKind querybinding.PathKind, executed bool) (quer
 	if err != nil {
 		return empty, err
 	}
+	if options.Prepared != nil {
+		prepared = *options.Prepared
+	}
 	binding := querybinding.QueryExecutionBindingV2{
 		PathKind:                   pathKind,
 		PreparedOperation:          prepared,
-		Compiler:                   compiler,
+		Compiler:                   sealedBy,
 		ExposureProfileVersion:     ledger.ProfileVersion,
 		VisibleRowLimit:            visible.RowLimit,
 		BudgetBeforeSHA256:         budgetDigest,
@@ -297,6 +362,9 @@ func build(options Options, pathKind querybinding.PathKind, executed bool) (quer
 		// facts and the policy limit is one more, so a truncated companion result
 		// is distinguishable from a complete one.
 		binding.CompanionEvidenceRows = ledgerInfluenceFacts
+		if options.Limits != nil {
+			binding.CompanionEvidenceRows = options.Limits.CompanionEvidenceRows
+		}
 		binding.CompanionPolicyRows = companionRecord.RowLimit
 	}
 	sealed, err := binding.Seal()
@@ -459,4 +527,27 @@ func preparedOperation(visible querybinding.TargetRecordV1, companion *querybind
 		return preparedbinding.PreparedOperationBindingV1{}, fmt.Errorf("seal prepared operation: %w", err)
 	}
 	return sealed, nil
+}
+
+// validate rejects a half-supplied real preparation.
+//
+// The three members are one statement -- "this receipt describes an operation
+// somebody actually compiled" -- and any subset of them describes an operation
+// nobody did.
+func (options Options) validate() error {
+	supplied := 0
+	for _, present := range []bool{options.Prepared != nil, options.Compiler != nil, options.Limits != nil} {
+		if present {
+			supplied++
+		}
+	}
+	if supplied != 0 && supplied != 3 {
+		return fmt.Errorf("a real preparation needs the preparation, its compiler and its derived limits; "+
+			"%d of the 3 were supplied", supplied)
+	}
+	if options.Prepared != nil && options.Prepared.CompilerIdentitySHA256 != options.Compiler.SHA256 {
+		return fmt.Errorf("the supplied preparation was compiled by %s but the supplied compiler is %s",
+			options.Prepared.CompilerIdentitySHA256, options.Compiler.SHA256)
+	}
+	return nil
 }

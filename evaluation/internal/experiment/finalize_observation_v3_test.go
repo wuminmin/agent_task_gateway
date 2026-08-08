@@ -22,10 +22,8 @@ func resultHeavyCatalogPath(t *testing.T) string {
 }
 
 const (
-	finalizerVisibleSQL   = `SELECT row_id, category FROM reporting.final_v5_result_heavy WHERE row_id <= 100 ORDER BY row_id LIMIT 100`
-	finalizerCompanionSQL = `SELECT ordinal FROM taskgate_ordinal.final_v5_result_heavy_v1 WHERE row_id <= 100 LIMIT 101`
-	finalizerOperationID  = "artifact-result-heavy-100x4-op-0001"
-	finalizerContract     = "artifact/result-heavy/100x4"
+	finalizerOperationID = "artifact-result-heavy-100x4-op-0001"
+	finalizerContract    = "artifact/result-heavy/100x4"
 )
 
 // realSchemaFootprint qualifies the Stage N4 footprint against the REAL
@@ -54,14 +52,21 @@ func realSchemaFootprint(t *testing.T) (AttestationFootprintV2, catalogschema.Re
 	return footprint, built
 }
 
+// finalizerInputs is what the finalizer derives for one paired-novel operation.
+//
+// The two statements used to be hand-written constants standing in for "what
+// the finalizer reproduced". They are now the statements it actually
+// reproduces, prepared and authorized from the frozen material through the same
+// production code the Gateway runs.
 func finalizerInputs(t *testing.T) IndependentInputsV3 {
 	t.Helper()
 	footprint, _ := realSchemaFootprint(t)
+	operation := prepareOperationV3(t)
 	return IndependentInputsV3{
 		CatalogPath: resultHeavyCatalogPath(t), Footprint: footprint,
 		PostgreSQL: testRuntimeIdentity(), PathKind: PathPairedNovel,
 		OperationID: finalizerOperationID, ContractIdentity: finalizerContract,
-		VisibleSQL: finalizerVisibleSQL, CompanionSQL: finalizerCompanionSQL,
+		VisibleSQL: operation.VisibleSQL, CompanionSQL: operation.CompanionSQL,
 	}
 }
 
@@ -214,7 +219,7 @@ func TestConstantOnlyMutationIsDetected(t *testing.T) {
 	carried := honestCarriedEvidence(t, inputs)
 	// Same shape, different constant. pg_stat_statements would normalize both to
 	// one entry, so no observer count changes.
-	mutated := strings.Replace(finalizerVisibleSQL, "row_id <= 100", "row_id <= 999", 1)
+	mutated := strings.Replace(inputs.VisibleSQL, "E'alpha'", "E'beta'", 1)
 	carried.VisibleStatement.ExactSHA256 = physicalquery.ExactDigest(mutated)
 	structural, err := StrictASTDigest(mutated)
 	if err != nil {

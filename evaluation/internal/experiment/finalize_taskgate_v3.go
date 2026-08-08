@@ -27,14 +27,14 @@ type ReceiptVerifierV3 interface {
 // PathKind is deliberately absent. It is read from the Gateway's own signed
 // execution binding inside the wrapper, because a path kind supplied alongside
 // the evidence is a claim about the evidence rather than a property of it.
-// VisibleSQL and CompanionSQL are the statements the finalizer reproduced
-// through internal/physicalquery from signed pre-state; they are compared with
-// the signed bytes rather than trusted.
-// CatalogPath, Footprint, VisibleSQL and CompanionSQL describe an execution
-// against Business PostgreSQL. An exact request-ID replay performs none, so for
-// it all four must be EMPTY: they are not ignored on that path, they are
-// rejected, because supplying them would mean finalizing a replay against schema
-// and qualification material belonging to some other request.
+// The executed statements are likewise absent: the wrapper reproduces them from
+// Material through internal/physicalquery and compares them with the signed
+// bytes, rather than accepting them from a caller.
+// CatalogPath, Footprint and Material describe an execution against Business
+// PostgreSQL. An exact request-ID replay performs none, so for it all three must
+// be EMPTY: they are not ignored on that path, they are rejected, because
+// supplying them would mean finalizing a replay against schema and qualification
+// material belonging to some other request.
 type TrustedInputsV3 struct {
 	// CatalogPath is the activated Profile Catalog. The ExpectedSchema is built
 	// from it rather than accepted as a digest. Empty on an idempotent replay.
@@ -47,10 +47,15 @@ type TrustedInputsV3 struct {
 	// OperationID and ContractIdentity come from the frozen workload contract.
 	OperationID      string
 	ContractIdentity string
-	// VisibleSQL and CompanionSQL are independently reproduced statements. Empty
-	// on an idempotent replay.
-	VisibleSQL   string
-	CompanionSQL string
+	// Material is the frozen contract material the finalizer prepares the
+	// operation from. Required on every executing path and forbidden on an
+	// idempotent replay, which prepared nothing.
+	//
+	// It replaced a pair of string fields that claimed to hold "the statements
+	// the finalizer reproduced" and held whatever the caller put there. Taking
+	// the material instead means the wrapper does the reproducing, so there is no
+	// longer a way to reach acceptance while skipping it.
+	Material *FrozenOperationMaterialV3
 	// StrictAST computes structural identities; nil uses the package default.
 	StrictAST physicalquery.StrictASTDigester
 
@@ -234,12 +239,22 @@ func FinalizeTaskGateObservationV3(receipt queryreceipt.QueryReceiptV1, verifier
 		}
 	}
 
-	// 4. Everything else is derived independently.
+	// 4. The statements, reproduced rather than received. This is the step the
+	// string fields used to stand in for: the finalizer prepares the operation
+	// from frozen material, requires the sealed result to be the preparation the
+	// Gateway signed, and authorizes it against the receipt's own pre-state. What
+	// comes back is compared with the signature by everything below.
+	reproduced, err := reproduceForPath(receipt, pathKind, trusted)
+	if err != nil {
+		return result, err
+	}
+
+	// 5. Everything else is derived independently.
 	inputs := IndependentInputsV3{
 		CatalogPath: trusted.CatalogPath, Footprint: trusted.Footprint,
 		PostgreSQL: trusted.PostgreSQL, PathKind: pathKind,
 		OperationID: trusted.OperationID, ContractIdentity: trusted.ContractIdentity,
-		VisibleSQL: trusted.VisibleSQL, CompanionSQL: trusted.CompanionSQL,
+		VisibleSQL: reproduced.VisibleSQL, CompanionSQL: reproduced.CompanionSQL,
 		StrictAST: trusted.StrictAST,
 	}
 	finalized, err := FinalizeObservationV3(carried, inputs)
@@ -420,4 +435,31 @@ func requireCarriedMatchesSigned(role string, signed querybinding.TargetRecordV1
 			role, shortDigest(preparedTargetBinding), shortDigest(signed.PreparedTargetBindingSHA256))
 	}
 	return nil
+}
+
+// reproduceForPath runs the finalizer's own preparation for the paths that have
+// one, and requires the material to be absent for the paths that do not.
+//
+// The absence is checked rather than tolerated, for the same reason CatalogPath
+// and Footprint are: an idempotent replay reached Business PostgreSQL not at
+// all, so material offered to finalize one describes a different request, and
+// preparing from it would produce statements this request never ran.
+func reproduceForPath(receipt queryreceipt.QueryReceiptV1, pathKind GatewayPathKind,
+	trusted TrustedInputsV3) (ReproducedExecutionV3, error) {
+	dimensions, known := dimensionsFor(pathKind)
+	if !known {
+		return ReproducedExecutionV3{}, fmt.Errorf("path_kind %q is not a derivable execution path", pathKind)
+	}
+	if !dimensions.requiresSchema {
+		if trusted.Material != nil {
+			return ReproducedExecutionV3{}, fmt.Errorf("path_kind %s prepares no operation, but frozen "+
+				"preparation material was supplied to finalize it", pathKind)
+		}
+		return ReproducedExecutionV3{}, nil
+	}
+	if trusted.Material == nil {
+		return ReproducedExecutionV3{}, fmt.Errorf("path_kind %s executes prepared statements, but no "+
+			"frozen material was supplied for the finalizer to reproduce them from", pathKind)
+	}
+	return ReproduceExecutionV3(receipt, *trusted.Material)
 }

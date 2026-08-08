@@ -3,6 +3,8 @@ package experiment
 import (
 	"crypto/ed25519"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +16,7 @@ import (
 	"taskbound.local/agent-data-gateway/internal/queryplan"
 	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 	"taskbound.local/agent-data-gateway/internal/sqlpolicy"
+	fixture "taskbound.local/agent-data-gateway/internal/testfixture/queryreceiptv10"
 )
 
 // The pre-state every receipt in this file is sealed against, and the budget it
@@ -25,19 +28,48 @@ const (
 	reproInfluenceFacts = int64(4)
 )
 
+// retainedSnapshotArtifacts is the published artifact directory for the
+// Result-heavy publication, retained in the repository as evidence.
+//
+// A V5 operation compiles an ordinal program and therefore binds the
+// Catalog-wide dictionary universe, so it cannot be prepared at all without the
+// published artifacts. That is not a testing inconvenience: it is the property
+// that makes the reproduction meaningful, because the artifacts are immutable
+// and the Catalog pins their digests, so both sides are bound to one universe.
+func retainedSnapshotArtifacts(t *testing.T) string {
+	t.Helper()
+	path, err := filepath.Abs(filepath.Join("..", "..", "final-v5-wsl2", "raw",
+		"diagnosis-attestation-footprint-qualification-02-20260804T154235Z-818c481ebe5b",
+		"snapshot-index-artifacts-full"))
+	if err != nil {
+		t.Fatalf("resolve retained snapshot artifacts: %v", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Skipf("the retained snapshot artifacts are not present: %v", err)
+	}
+	return path
+}
+
 // reproMaterial is one operation's frozen contract material: a real activated
-// Profile Catalog, a plan, and the approved surface it runs under.
+// Profile Catalog, the retained publication artifacts, a plan, and the approved
+// surface it runs under.
+//
+// It is exposure V5 because that is the profile the frozen workloads run and the
+// hardest one to reproduce: it compiles an ordinal program, binds snapshot
+// sidecars into the companion statement and derives a predicate footprint. A
+// reproduction that holds here holds for the simpler profiles by construction.
 func reproMaterial(t *testing.T) FrozenOperationMaterialV3 {
 	t.Helper()
 	return FrozenOperationMaterialV3{
-		CatalogPath: resultHeavyCatalogPath(t),
+		CatalogPath:         resultHeavyCatalogPath(t),
+		SnapshotArtifactDir: retainedSnapshotArtifacts(t),
 		Plan: queryplan.QueryPlan{
 			Product: "final_v5_result_heavy", Columns: []string{"row_id", "category"},
 		},
 		Grant: physicalquery.Grant{
 			ApprovedProducts: []string{"final_v5_result_heavy"},
 			ApprovedColumns:  map[string][]string{"final_v5_result_heavy": {"row_id", "category"}},
-			ExposureProfile:  "taskgate-exposure-v2",
+			ExposureProfile:  "taskgate-exposure-v5",
 			MandatoryScope:   []byte(`{"category":"alpha"}`),
 		},
 	}
@@ -62,8 +94,20 @@ func gatewayReceiptFor(t *testing.T, material FrozenOperationMaterialV3) queryre
 	if err != nil {
 		t.Fatalf("catalog view: %v", err)
 	}
-	prepared, err := physicalquery.Prepare(physicalquery.PreparationInputs{
-		Plan: material.Plan, Grant: material.Grant, Catalog: view})
+	inputs := physicalquery.PreparationInputs{Plan: material.Plan, Grant: material.Grant, Catalog: view}
+	if material.Grant.UsesOrdinalProgram() {
+		// The dictionary universe is read from the same retained artifacts the
+		// finalizer reads. That is the Gateway's own acquisition in this test --
+		// production resolves it through a live registry -- and it is the one
+		// input the two sides genuinely share, because it is the immutable
+		// published artifact both are supposed to be bound to.
+		bindings, bindingErr := snapshotBindingsFromArtifactsV3(*logicalCatalog, material.SnapshotArtifactDir)
+		if bindingErr != nil {
+			t.Fatalf("snapshot bindings: %v", bindingErr)
+		}
+		inputs.SnapshotBindings = bindings
+	}
+	prepared, err := physicalquery.Prepare(inputs)
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
 	}
@@ -184,10 +228,17 @@ func reproReceiptBase(t *testing.T) queryreceipt.QueryReceiptV1 {
 		GatewayKeyID:       "repro-key",
 		ResultDeliveryMode: queryreceipt.DeliveryInline,
 		Exposure: &queryreceipt.ExposureEvidenceV1{
-			RootTaskID: "task-repro-1", ProfileVersion: "taskgate-exposure-v2",
+			RootTaskID: "task-repro-1", ProfileVersion: "taskgate-exposure-v5",
 			ActualReleaseFacts: 2, ActualInfluenceFacts: 2,
+			ActualOutcomeFacts: 2, ChargedOutcomeFacts: 2,
 			ChargedReleaseFacts: 2, ChargedInfluenceFacts: 2,
-			ObservationSHA256: common, RootEpoch: 0,
+			ObservationSHA256: common, RootEpoch: 1,
+			DictionarySetSHA256: common, ReleaseSetSHA256: common,
+			InfluenceSetSHA256: common, OutcomeSetSHA256: common,
+			PredicateProfileVersion: "taskgate-predicate-footprint-v1",
+			PredicateContextSHA256:  common, PredicateSetSHA256: common,
+			ActualPredicateAtomCount: 1, ChargedPredicateAtomCount: 1,
+			CompositeOutcomeSHA256: common, ActualCompositeCount: 1, ChargedCompositeCount: 1,
 		},
 	}
 }
@@ -250,7 +301,7 @@ func TestReproductionRejectsMaterialTheGatewayDidNotPrepareFrom(t *testing.T) {
 			m.Grant.MandatoryScope = []byte(`{"category":"beta"}`)
 		},
 		"a different exposure profile": func(m *FrozenOperationMaterialV3) {
-			m.Grant.ExposureProfile = "taskgate-exposure-v3"
+			m.Grant.ExposureProfile = "taskgate-exposure-v4"
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -288,5 +339,113 @@ func TestReproductionRejectsALimitTheAuthorizerDoesNotDerive(t *testing.T) {
 	receipt.ExecutionBindingV2 = &resealed
 	if _, err := ReproduceExecutionV3(receipt, material); err == nil {
 		t.Fatal("the finalizer accepted a visible row limit the authorizer does not derive")
+	}
+}
+
+// preparedOperationV3 is one operation prepared and authorized the way the
+// Gateway prepares and authorizes it, for the tests that need every value a
+// signed receipt carries about it.
+//
+// It exists so the gate fixtures can seal a receipt around a REAL preparation.
+// A receipt sealed around fixture digests is a document no independent
+// derivation can ever equal, so the acceptance path could only be exercised by
+// telling the finalizer its own answer -- which is the state this arc set out to
+// end.
+type preparedOperationV3 struct {
+	Material     FrozenOperationMaterialV3
+	Prepared     preparedbinding.PreparedOperationBindingV1
+	Compiler     preparedbinding.CompilerIdentityV1
+	Limits       physicalquery.Limits
+	Visible      physicalquery.StatementIdentity
+	Companion    *physicalquery.StatementIdentity
+	VisibleSQL   string
+	CompanionSQL string
+	Fingerprints map[querybinding.TargetRole]string
+	Targets      map[querybinding.TargetRole]string
+}
+
+// prepareOperationV3 prepares the frozen material and authorizes it against the
+// receipt fixture's own signed pre-state, so a receipt built from the result
+// validates for the reason under test rather than on a limit nobody derived.
+func prepareOperationV3(t *testing.T) preparedOperationV3 {
+	t.Helper()
+	material := reproMaterial(t)
+	logicalCatalog, err := catalog.Load(material.CatalogPath)
+	if err != nil {
+		t.Fatalf("load catalog: %v", err)
+	}
+	view, err := physicalquery.CatalogViewFromCatalog(*logicalCatalog)
+	if err != nil {
+		t.Fatalf("catalog view: %v", err)
+	}
+	bindings, err := snapshotBindingsFromArtifactsV3(*logicalCatalog, material.SnapshotArtifactDir)
+	if err != nil {
+		t.Fatalf("snapshot bindings: %v", err)
+	}
+	prepared, err := physicalquery.Prepare(physicalquery.PreparationInputs{
+		Plan: material.Plan, Grant: material.Grant, Catalog: view, SnapshotBindings: bindings})
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	compiler, err := physicalquery.LocalCompilerIdentity()
+	if err != nil {
+		t.Fatalf("compiler identity: %v", err)
+	}
+	visibleSQL, companionSQL, err := prepared.ExecutableStatements()
+	if err != nil {
+		t.Fatalf("executable statements: %v", err)
+	}
+	derivation, err := physicalquery.Derive(sqlpolicy.New(sqlpolicy.Config{}), StrictASTDigest,
+		physicalquery.Request{VisibleSQL: visibleSQL, CompanionSQL: companionSQL,
+			Grant: prepared.PolicyGrant(), State: fixture.PreState(prepared.Binding().UsesExpandedEvidence())})
+	if err != nil {
+		t.Fatalf("derive: %v", err)
+	}
+	visibleTarget, err := prepared.Binding().TargetSHA256(preparedbinding.RoleVisible)
+	if err != nil {
+		t.Fatalf("prepared visible target: %v", err)
+	}
+	operation := preparedOperationV3{
+		Material: material, Prepared: prepared.Binding(), Compiler: compiler,
+		Limits: derivation.Limits, Visible: derivation.Visible,
+		VisibleSQL: derivation.VisibleDecision.SQL,
+		Fingerprints: map[querybinding.TargetRole]string{
+			querybinding.RoleVisible: derivation.VisibleDecision.Fingerprint},
+		Targets: map[querybinding.TargetRole]string{querybinding.RoleVisible: visibleTarget},
+	}
+	if derivation.CompanionDecision != nil {
+		companionTarget, targetErr := prepared.Binding().TargetSHA256(preparedbinding.RoleCompanion)
+		if targetErr != nil {
+			t.Fatalf("prepared companion target: %v", targetErr)
+		}
+		operation.Companion = derivation.Companion
+		operation.CompanionSQL = derivation.CompanionDecision.SQL
+		operation.Fingerprints[querybinding.RoleCompanion] = derivation.CompanionDecision.Fingerprint
+		operation.Targets[querybinding.RoleCompanion] = companionTarget
+	}
+	return operation
+}
+
+// fixtureOptions is the receipt fixture bound to this real preparation.
+func (operation preparedOperationV3) fixtureOptions() fixture.Options {
+	return fixture.Options{
+		Prepared: &operation.Prepared, Compiler: &operation.Compiler, Limits: &operation.Limits,
+		Visible: fixture.Target{
+			ExactSQLSHA256: operation.Visible.ExactSHA256, StrictASTSHA256: operation.Visible.StrictASTSHA256,
+			PolicyFingerprint:           operation.Fingerprints[querybinding.RoleVisible],
+			PreparedTargetBindingSHA256: operation.Targets[querybinding.RoleVisible],
+		},
+	}
+}
+
+// companionTarget is the companion half of the same preparation.
+func (operation preparedOperationV3) companionTarget() *fixture.Target {
+	if operation.Companion == nil {
+		return nil
+	}
+	return &fixture.Target{
+		ExactSQLSHA256: operation.Companion.ExactSHA256, StrictASTSHA256: operation.Companion.StrictASTSHA256,
+		PolicyFingerprint:           operation.Fingerprints[querybinding.RoleCompanion],
+		PreparedTargetBindingSHA256: operation.Targets[querybinding.RoleCompanion],
 	}
 }

@@ -28,20 +28,26 @@ func (c gateCase) finalize() (FinalizationV3, error) {
 	return FinalizeTaskGateObservationV3(c.receipt, c.verifier, c.carried, c.trusted)
 }
 
-func trustedFrom(inputs IndependentInputsV3) TrustedInputsV3 {
+func trustedFrom(t *testing.T, inputs IndependentInputsV3) TrustedInputsV3 {
+	t.Helper()
 	trusted := TrustedInputsV3{
 		CatalogPath: inputs.CatalogPath, Footprint: inputs.Footprint,
 		PostgreSQL: inputs.PostgreSQL, OperationID: inputs.OperationID,
-		ContractIdentity: inputs.ContractIdentity,
-		VisibleSQL:       inputs.VisibleSQL, CompanionSQL: inputs.CompanionSQL,
+		ContractIdentity:                   inputs.ContractIdentity,
 		SettlementWroteExecutionBindingRow: true,
+	}
+	// The material the finalizer prepares from, not the statements it produced.
+	// Supplying the statements is what TrustedInputsV3 used to allow, and it is
+	// the reason the reproduction could be skipped.
+	if dimensions, _ := dimensionsFor(inputs.PathKind); dimensions.requiresSchema {
+		material := reproMaterial(t)
+		trusted.Material = &material
 	}
 	// A path that reaches Business PostgreSQL not at all builds no
 	// ExpectedSchema, performs no Attestation and renders no target statement, so
 	// it must be finalized with none of that material.
 	if dimensions, _ := dimensionsFor(inputs.PathKind); !dimensions.requiresSchema {
 		trusted.CatalogPath, trusted.Footprint = "", AttestationFootprintV2{}
-		trusted.VisibleSQL, trusted.CompanionSQL = "", ""
 	}
 	return trusted
 }
@@ -123,21 +129,27 @@ func carriedFor(t *testing.T, inputs IndependentInputsV3) CarriedEvidenceV3 {
 			Before: snapshotOf(t, "before", nil), After: snapshotOf(t, "after", rows),
 		},
 	}
+	// The carried identities are read off the real preparation, because that is
+	// what a correct Adapter reads off the receipt. Restating fixture constants
+	// here would make the honest case disagree with a signature derived from a
+	// real authorization on exactly the two members -- the row limit and the
+	// policy fingerprint -- that a structural digest cannot see.
+	prep := prepareOperationV3(t)
 	if dimensions.visible > 0 {
-		strict, _ := StrictASTDigest(inputs.VisibleSQL)
 		carried.VisibleStatement = &physicalquery.StatementIdentity{
-			ExactSHA256: physicalquery.ExactDigest(inputs.VisibleSQL), StrictASTSHA256: strict,
-			RowLimit: fixture.VisibleRowLimit, Fingerprint: "fixture-visible-fingerprint",
+			ExactSHA256: prep.Visible.ExactSHA256, StrictASTSHA256: prep.Visible.StrictASTSHA256,
+			RowLimit:    prep.Limits.VisibleRowLimit,
+			Fingerprint: prep.Fingerprints[querybinding.RoleVisible],
 		}
-		carried.VisiblePreparedTargetBindingSHA256 = fixture.PreparedTargetBinding(querybinding.RoleVisible)
+		carried.VisiblePreparedTargetBindingSHA256 = prep.Targets[querybinding.RoleVisible]
 	}
 	if dimensions.companion > 0 {
-		strict, _ := StrictASTDigest(inputs.CompanionSQL)
 		carried.CompanionStatement = &physicalquery.StatementIdentity{
-			ExactSHA256: physicalquery.ExactDigest(inputs.CompanionSQL), StrictASTSHA256: strict,
-			RowLimit: fixture.CompanionRowLimit, Fingerprint: "fixture-companion-fingerprint",
+			ExactSHA256: prep.Companion.ExactSHA256, StrictASTSHA256: prep.Companion.StrictASTSHA256,
+			RowLimit:    prep.Limits.CompanionPolicyRows,
+			Fingerprint: prep.Fingerprints[querybinding.RoleCompanion],
 		}
-		carried.CompanionPreparedTargetBindingSHA256 = fixture.PreparedTargetBinding(querybinding.RoleCompanion)
+		carried.CompanionPreparedTargetBindingSHA256 = prep.Targets[querybinding.RoleCompanion]
 	}
 	return carried
 }
@@ -151,17 +163,10 @@ func pairedNovelCase(t *testing.T) gateCase {
 	inputs := finalizerInputs(t)
 	carried := carriedFor(t, inputs)
 
-	companionTarget := fixture.Target{
-		ExactSQLSHA256:  carried.CompanionStatement.ExactSHA256,
-		StrictASTSHA256: carried.CompanionStatement.StrictASTSHA256,
-	}
-	receipt, err := fixture.PairedNovel(fixture.Options{
-		Visible: fixture.Target{
-			ExactSQLSHA256:  carried.VisibleStatement.ExactSHA256,
-			StrictASTSHA256: carried.VisibleStatement.StrictASTSHA256,
-		},
-		Companion: &companionTarget,
-	})
+	operation := prepareOperationV3(t)
+	options := operation.fixtureOptions()
+	options.Companion = operation.companionTarget()
+	receipt, err := fixture.PairedNovel(options)
 	if err != nil {
 		t.Fatalf("build signed V9: %v", err)
 	}
@@ -169,7 +174,7 @@ func pairedNovelCase(t *testing.T) gateCase {
 	if err != nil {
 		t.Fatalf("verifier: %v", err)
 	}
-	return gateCase{receipt: receipt, verifier: verifier, carried: carried, trusted: trustedFrom(inputs)}
+	return gateCase{receipt: receipt, verifier: verifier, carried: carried, trusted: trustedFrom(t, inputs)}
 }
 
 // The honest case must pass, or every rejection below proves nothing.
@@ -277,17 +282,10 @@ func TestGate21SemanticReplayAuthorizesWithoutExecuting(t *testing.T) {
 	inputs.PathKind = PathSemanticReplay
 	carried := carriedFor(t, inputs)
 
-	companionTarget := fixture.Target{
-		ExactSQLSHA256:  fmt.Sprintf("%x", sha256.Sum256([]byte("replay companion"))),
-		StrictASTSHA256: fmt.Sprintf("%x", sha256.Sum256([]byte("replay companion strict"))),
-	}
-	receipt, err := fixture.SemanticReplay(fixture.Options{
-		Visible: fixture.Target{
-			ExactSQLSHA256:  fmt.Sprintf("%x", sha256.Sum256([]byte("replay visible"))),
-			StrictASTSHA256: fmt.Sprintf("%x", sha256.Sum256([]byte("replay visible strict"))),
-		},
-		Companion: &companionTarget,
-	})
+	operation := prepareOperationV3(t)
+	options := operation.fixtureOptions()
+	options.Companion = operation.companionTarget()
+	receipt, err := fixture.SemanticReplay(options)
 	if err != nil {
 		t.Fatalf("build semantic replay: %v", err)
 	}
@@ -295,7 +293,7 @@ func TestGate21SemanticReplayAuthorizesWithoutExecuting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("verifier: %v", err)
 	}
-	replay := gateCase{receipt: receipt, verifier: verifier, carried: carried, trusted: trustedFrom(inputs)}
+	replay := gateCase{receipt: receipt, verifier: verifier, carried: carried, trusted: trustedFrom(t, inputs)}
 
 	finalized, err := replay.finalize()
 	if err != nil {
@@ -484,8 +482,8 @@ func TestGate22IdempotentReplayReturnsOriginalReceiptByteForByte(t *testing.T) {
 			"the safety session pin":    structuralRowFor(t, dataconnector.SafetySessionPinSQL, true),
 			"the datasource identity":   structuralRowFor(t, dataconnector.DatasourceIdentitySQL, true),
 			"a view column attestation": structuralRowFor(t, dataconnector.ViewColumnAttestationSQL, true),
-			"the visible target":        structuralRowFor(t, finalizerVisibleSQL, true),
-			"the companion target":      structuralRowFor(t, finalizerCompanionSQL, true),
+			"the visible target":        structuralRowFor(t, prepareOperationV3(t).VisibleSQL, true),
+			"the companion target":      structuralRowFor(t, prepareOperationV3(t).CompanionSQL, true),
 			"a qualified internal key": {
 				StrictASTSHA256: testInternalKeyA, TopLevel: false, Calls: 1,
 			},
@@ -543,16 +541,18 @@ func TestGate22IdempotentReplayReturnsOriginalReceiptByteForByte(t *testing.T) {
 				footprint, _ := realSchemaFootprint(t)
 				c.trusted.Footprint = footprint
 			},
-			"reproduced visible SQL":   func(c *gateCase) { c.trusted.VisibleSQL = finalizerVisibleSQL },
-			"reproduced companion SQL": func(c *gateCase) { c.trusted.CompanionSQL = finalizerCompanionSQL },
+			"frozen preparation material": func(c *gateCase) {
+				material := reproMaterial(t)
+				c.trusted.Material = &material
+			},
 			"a carried visible statement": func(c *gateCase) {
 				c.carried.VisibleStatement = &physicalquery.StatementIdentity{
-					ExactSHA256: physicalquery.ExactDigest(finalizerVisibleSQL),
+					ExactSHA256: physicalquery.ExactDigest(prepareOperationV3(t).VisibleSQL),
 				}
 			},
 			"a carried companion statement": func(c *gateCase) {
 				c.carried.CompanionStatement = &physicalquery.StatementIdentity{
-					ExactSHA256: physicalquery.ExactDigest(finalizerCompanionSQL),
+					ExactSHA256: physicalquery.ExactDigest(prepareOperationV3(t).CompanionSQL),
 				}
 			},
 			"a carried visible prepared target binding": func(c *gateCase) {
@@ -600,17 +600,10 @@ func idempotentReplayCase(t *testing.T) gateCase {
 	// The document that comes back is the ORIGINAL execution's receipt. Its
 	// signed binding describes that execution and names its path kind, which is
 	// exactly why the replay is established from the Control Store instead.
-	companionTarget := fixture.Target{
-		ExactSQLSHA256:  physicalquery.ExactDigest(finalizerCompanionSQL),
-		StrictASTSHA256: mustStrictDigest(t, finalizerCompanionSQL),
-	}
-	receipt, err := fixture.PairedNovel(fixture.Options{
-		Visible: fixture.Target{
-			ExactSQLSHA256:  physicalquery.ExactDigest(finalizerVisibleSQL),
-			StrictASTSHA256: mustStrictDigest(t, finalizerVisibleSQL),
-		},
-		Companion: &companionTarget,
-	})
+	operation := prepareOperationV3(t)
+	options := operation.fixtureOptions()
+	options.Companion = operation.companionTarget()
+	receipt, err := fixture.PairedNovel(options)
 	if err != nil {
 		t.Fatalf("build the original signed V9: %v", err)
 	}
@@ -623,7 +616,7 @@ func idempotentReplayCase(t *testing.T) gateCase {
 		t.Fatalf("persist the original receipt: %v", err)
 	}
 
-	trusted := trustedFrom(inputs)
+	trusted := trustedFrom(t, inputs)
 	trusted.SettlementWroteExecutionBindingRow = false
 	trusted.Replay = &IdempotentReplayEvidenceV1{
 		TaskID: receipt.TaskID, RequestID: receipt.RequestID,

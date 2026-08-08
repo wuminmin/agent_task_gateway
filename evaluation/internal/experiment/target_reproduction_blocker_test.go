@@ -58,17 +58,19 @@ import (
 // So "the statements the finalizer reproduced", which TrustedInputsV3 has
 // asserted in a doc comment since it was written, is now a thing that happens.
 //
+// FinalizeTaskGateObservationV3 calls it. TrustedInputsV3 no longer has string
+// fields for the statements; it carries the frozen material and the wrapper does
+// the reproducing, so there is no longer a way to reach acceptance while
+// skipping it. Every gate below now runs against a receipt sealed around a real
+// exposure-V5 preparation -- ordinal program, snapshot sidecars and all -- built
+// from the published artifacts this repository retains.
+//
 // # What is still blocking
 //
-// The acceptance wrapper does not call it yet: FinalizeTaskGateObservationV3
-// still takes VisibleSQL and CompanionSQL as strings, so the reproduction exists
-// beside the acceptance path rather than inside it. And nothing in the active
-// tree constructs TrustedInputsV3 or IndependentInputsV3, so acceptance remains
-// reachable only from tests.
-//
-// Wiring the wrapper means the gate fixtures must seal their receipts around a
-// REAL preparation rather than fixture digests -- otherwise the reproduction has
-// nothing it can agree with -- which is the next contiguous piece of work.
+// Nothing in the active tree constructs TrustedInputsV3 or IndependentInputsV3,
+// so acceptance is still reachable only from tests. The finalizer can now do the
+// work; no production path asks it to. That is the cutover, and it is the whole
+// of what this blocker now pins.
 //
 // See docs/final_v5_v3_runtime_integration_gates.md.
 
