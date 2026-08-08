@@ -102,10 +102,9 @@ docker run --rm --network "$POSTGRES_NETWORK" \
 raw_log="$SCRIPT_DIR/exposure/raw/rq3-postgres-go-test.jsonl"
 artifact="$SCRIPT_DIR/exposure/rq3-integration.json"
 mkdir -p "$SCRIPT_DIR/exposure/raw"
-cp "$integration_tmp" "$raw_log"
 go_version=$(docker run --rm "$BUILD_IMAGE" go version)
 python3 "$SCRIPT_DIR/exposure/record_integration.py" \
-  --report "$tmp" --log "$raw_log" --artifact "$artifact" \
+  --report "$tmp" --log "$integration_tmp" --raw-output "$raw_log" --artifact "$artifact" \
   --output "$SCRIPT_DIR/exposure/results.json" --exit-code "$integration_status" \
   --command "$integration_command" --go-version "$go_version"
 cat "$SCRIPT_DIR/exposure/results.json"

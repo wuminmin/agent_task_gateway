@@ -14,14 +14,26 @@ Run it with:
 make eval-exposure
 ```
 
-The command builds a disposable PostgreSQL 16 instance, emits one JSON report
-to standard output, and refreshes `results.json`. It also retains the RQ3
-`go test -race -json` log and a digest-bound integration artifact. The report
-records the SHA-256 of `corpus.json`, both independent-oracle identities, the
-normalized rewrite-pair-set digest, exact PostgreSQL version, and campaign seeds
-where randomized or generated trials are used.
-A nonzero exit means a ground-truth set, rewrite comparison, integration pass,
-or anti-arbitrage case did not match.
+The command builds a disposable, digest-pinned PostgreSQL 16.14 instance and
+emits one JSON report to standard output. It publishes `results.json`, the RQ3
+`go test -race -json` log, and the digest-bound RQ3 integration artifact only
+after the schema-v7 RQ1--RQ4 acceptance summary is complete and the integration
+has exactly five named test passes plus the two expected package-level terminal
+passes. An attempt rejected before publication because the integration exited
+nonzero, a package or named-test pass is missing, its JSONL is malformed, or
+the evaluation summary is incomplete leaves those three canonical files
+unchanged. The raw log and artifact are replaced before `results.json`, which
+is published last; readers start from `results.json` and verify its artifact
+SHA-256, then the artifact's raw-log SHA-256. The individual replacements are
+atomic, but the three-file sequence is not a multi-file transaction and
+provides neither group nor power-loss atomicity.
+
+The report records the SHA-256 of `corpus.json`, both independent-oracle
+identities, the normalized rewrite-pair-set digest, exact PostgreSQL version,
+and campaign seeds where randomized or generated trials are used. A nonzero
+exit must not be recorded as a pass; mismatch, incomplete or malformed
+evidence, infrastructure, and publication diagnostics are written to stderr,
+and the canonical digest chain must be checked independently.
 
 ## Research-question coverage
 
