@@ -4,7 +4,11 @@ Working worktree `/home/wmm/worktrees/taskgate-artifact-rerun`, branch
 `tkde-artifact-rerun`. The primary worktree `/home/wmm/agent-scope/task_gateway`
 stays on `main @ 804d65d` and is never touched.
 
-## Current HEAD
+## Continuation-record HEAD (historical)
+
+This section preserves the checkpoint at which the continuation record began.
+For the later 2026-08-08 fresh-live activation state, see the update at the end
+of this document.
 
 `468dbe4` — worktree clean, equal to `origin/tkde-artifact-rerun` at session
 start (`b50637e`) and ahead by the T1a.2 commit. Tags `final-v5-contracts-v1` …
@@ -1273,3 +1277,36 @@ Previously run at `50c3cb8`, `e3622a5` and `865ae8c` in turn. The DB-backed test
 `evaluation/security`) **skipped** at all three, so the physicalquery delegation
 in `865ae8c` is verified by the unit and policy tests only. A green
 `go test ./...` at those commits is not evidence about database behaviour.
+
+## 2026-08-08 fresh-live activation update
+
+The capability snapshot above records the earlier N4 checkpoint. A separately
+authorized v1.4 rerun later activated all seven live-route profiles in one
+isolated pilot deployment and executed the exhaustive 54-probe outside-Product
+matrix. All probes were refused, all 540 negative assertions passed, and the
+semantic-cache isolation record passed all 21 profile pairs and both production
+lookup tests.
+
+The canonical evidence now consists of:
+
+- route matrix file SHA-256
+  `6e8883fcd41c2cbf0dd1efe11d1ee4725e8c33feab7607154929796c50c42bb1`;
+- semantic-cache isolation file SHA-256
+  `d8442d569212acae9ee025a40b6907ca2a319633e0529b1edf9feb276e0e01c8`;
+- activation-support file SHA-256
+  `c7f10b07efb443e739daaa4768aae0af52a94e5d98aea92874a9a1886bcac7a2`;
+- fixed-point registry SHA-256
+  `ca84cba9810d378ea513bdadbf8cb9516a8bc3feaeb26b61af0156d857aee537`.
+
+Exactly seven profiles are now activation-supported, smoke-passed, and
+targeted-run eligible. This is readiness evidence, not targeted measurement
+evidence: all eleven profiles remain `targeted_validation_passed=false` and
+`routable=false`, `artifactRealSystemValidated` remains false, Artifact remains
+false, and overall capability remains 6/9.
+
+The six-cell Artifact targeted pilot was not run in this update. Its launcher
+requires a clean HEAD already published to the same-named origin branch, a
+retained non-diagnostic Attestation qualification plus its matching PostgreSQL
+identity, and the private Dataset Binding. The available qualification pair is
+explicitly diagnosis-only and no private Dataset Binding was supplied, so
+substituting those inputs would overstate the evidence.

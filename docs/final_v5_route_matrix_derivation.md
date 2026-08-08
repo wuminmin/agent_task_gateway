@@ -14,15 +14,17 @@ implementation. The isolation record is a second aggregator over the formal
 Product-intersection record, the route matrix, and the production lookup test
 manifest.
 
-This work does not amend a contract, regenerate or edit
-`config/profiles/registry.json`, generate `activation-support-v1.json`, or
-change a profile's activation/targeted-validation state. The four profile
-readiness cells `status.activation_supported`,
-`status.activation_smoke_passed`, `targeted_run_eligible`, and `routable`
-remain false for every profile. The diagnostic run-status flags
-`publication_eligible`, `capability_changing`, `activation_support_changing`,
-and `formal_campaign` also remain false. The repository remains on contract
-release v1.4; the v1.3 material below is test-only historical input.
+The two aggregation commands do not themselves amend a contract or mutate
+profile readiness. A separately authorized live follow-up did consume their
+validated records to generate `activation-support-v1.json` and regenerate the
+registry. The seven live-route profiles now have
+`status.activation_supported=true`, `status.activation_smoke_passed=true`, and
+`targeted_run_eligible=true`; all eleven profiles still have
+`targeted_validation_passed=false` and `routable=false`. The evidence
+run-status flags `publication_eligible`, `capability_changing`,
+`activation_support_changing`, and `formal_campaign` remain false. The
+repository remains on contract release v1.4; the v1.3 material below is
+test-only historical input.
 
 ## Executable derivation rule
 
@@ -318,10 +320,11 @@ freeze. The exact inputs and expected outputs are:
 | expected route file | `342d257718a58bf3e084c7d776f5dc169b6a9d67f5063f72caff5cc1d1694bad` |
 | expected isolation file | `6d6f281a43512ebe07bd53329c0e275e8c48d6a82587c731b7bde05a574e1712` |
 
-The two expected files currently committed under
-`evaluation/final-v5-wsl2/profiles/` are still byte-identical to their v1.3
-versions. The current registry and Product-intersection file are v1.4 and must
-not be substituted for the historical inputs.
+The v1.3 expected bytes are frozen under the two commands' `testdata/v1.3`
+directories. The canonical files under `evaluation/final-v5-wsl2/profiles/`
+now carry fresh v1.4 evidence, so they must not be used as the historical
+golden. The current registry and Product-intersection file are likewise v1.4
+and must not be substituted for the historical inputs.
 
 Seven matching v1.3 raw route activation records do exist on the present host
 at:
@@ -377,29 +380,39 @@ consistent. No other identity, count, assertion, classification, or digest
 link is waived. A difference in one of those stable fields is recorded as a
 golden defect and the rerun stops.
 
-## Environment finding for this rerun
+## Environment used for the authorized live rerun
 
-The read-only environment check on 2026-08-08 found Docker 29.1.3, Docker
-Compose 2.40.3, and the existing `taskgate-dbtest` Control and Business
-PostgreSQL containers healthy. `scripts/db-test-env.sh verify` passed for both
-PostgreSQL 16.14 servers, the ordinal sidecars, `pg_stat_statements`, and the
-required roles. The two production lookup tests can therefore be run through
-`scripts/db-test-env.sh test`, which exports their test DSNs.
+The initial read-only check on 2026-08-08 found Docker 29.1.3, Docker Compose
+2.40.3, and the existing `taskgate-dbtest` Control and Business PostgreSQL 16.14
+containers healthy. After separate operator authorization, the rerun created
+the unique Compose project `taskgate-v14-live-20260808t133622z` with new project
+volumes and the following Compose files:
 
-The complete activation deployment is not running: only the two db-test
-PostgreSQL services are present. `GATEWAY_ADMIN_TOKEN`,
-`TASKBOUND_ALICE_TOKEN`, and `TASKGATE_FINAL_V5_BUSINESS_DSN` are unset. The 54
-fresh live route probes are therefore `skipped_environment` for this rerun
-unless a separately authorized step supplies and starts the complete isolated
-deployment. This skip is not a pass and does not weaken the offline golden.
+```text
+compose.yaml
+compose.debug.yaml
+evaluation/final-v5-wsl2/compose.real-pilot.yaml
+evaluation/final-v5-wsl2/compose.observer-v3.yaml
+```
 
-No service was started or stopped for this rerun. The production tests later
-used the two existing db-test containers; no Gateway or activation deployment
-was started.
+The two-phase bring-up started the complete activation substrate without first
+starting a master-Catalog Gateway. All four long-running substrate services
+became healthy and all five snapshot/object-store initialization jobs exited
+zero. The resulting snapshot volume was copied read-only and materialized into
+nine per-profile artifact directories; the live driver selected the seven
+participating profiles. Credentials were resolved from the in-memory Compose
+configuration and the Business DSN was derived from the isolated deployment's
+loopback port. No interpolated Compose configuration or secret was persisted.
+
+This two-phase pilot path proves new project volumes and an isolated live
+deployment, but it does not emit the formal `start-fresh-deployment.sh`
+freshness-proof document. The pre-existing db-test project was not stopped or
+modified; it was used only by the two production semantic-cache lookup tests.
 
 ## Rerun result
 
-The 2026-08-08 rerun completed the available lanes with these outcomes:
+The 2026-08-08 rerun completed the offline and authorized live lanes with these
+outcomes:
 
 - the current v1.4 offline plan derived 7 profiles, 9 unique Products, and 54
   probes without an allowlist;
@@ -410,15 +423,42 @@ The 2026-08-08 rerun completed the available lanes with these outcomes:
   production manifest reproduced the committed isolation file byte for byte,
   with file SHA-256
   `6d6f281a43512ebe07bd53329c0e275e8c48d6a82587c731b7bde05a574e1712`;
+- seven v1.4 activations passed and emitted exactly 54 fresh HTTP probes with
+  per-profile counts `8/8/8/6/8/8/8`; all 540 negative assertions were true,
+  all classifications were `tool_error`, and every response carried a valid
+  lowercase SHA-256;
+- after removing only the predeclared release/digest links and per-response
+  SHA-256 values, the fresh route and isolation objects were semantically equal
+  to the v1.3 records;
+- the first live route file, bound to the unsupported v1.4 registry, had file
+  SHA-256 `ca70175bedb2fdddc669f66758be7d24881c873bb598cd1100bf750d8f9db965`;
+  the corresponding staged isolation file was
+  `b754d66552377e4a56257c73a104ee6421392fc6762580cb5692a29283f60877`;
 - both production lookup tests executed through the db-test harness and passed;
-- the activation-support consumer accepted the complete recomputed digest
-  chain, including the current-registry and production-manifest links;
-- fresh activation and 54 new HTTP requests were `skipped_environment`, because
-  the complete Gateway deployment and required credentials were absent.
+- activation support changed the registry digest, so the same seven raw live
+  records were aggregated a second time to reach a digest fixed point. The
+  canonical v1.4 route file is
+  `6e8883fcd41c2cbf0dd1efe11d1ee4725e8c33feab7607154929796c50c42bb1`
+  with internal `matrix_sha256`
+  `af2450e96a92e0b67797856bd705f4ffcda7315928d782c2b361723c90136d88`;
+  the canonical isolation file is
+  `d8442d569212acae9ee025a40b6907ca2a319633e0529b1edf9feb276e0e01c8`;
+- the final registry digest is
+  `ca84cba9810d378ea513bdadbf8cb9516a8bc3feaeb26b61af0156d857aee537`;
+  regenerating it a second time was byte-identical;
+- `config/profiles/activation-support-v1.json` has file SHA-256
+  `c7f10b07efb443e739daaa4768aae0af52a94e5d98aea92874a9a1886bcac7a2`
+  and activation-smoke-manifest SHA-256
+  `eb239f271dfdf314559445541283468ad012ccbf77f30791a49840c68cdd152d`;
+  it supports exactly the seven live-route profiles;
+- the regenerated Product intersection remained
+  `a6b5eb7cf9e6da53172348572722491c3cf0a3e3854f333db251a017437e0688`,
+  while the regenerated coverage file is
+  `a151412c7d2013414dfce9f4b2b9a9c827d0997f49f5a75ab89c10430cd6a603`.
 
-The skip is not recorded as a live PASS. No v1.4 live evidence, activation
-support manifest, or pilot output was generated. The registry and profile
-evidence inputs remain unchanged at contract release v1.4; all 11 profiles
-still have `activation_supported=false`, `activation_smoke_passed=false`,
-`targeted_run_eligible=false`, and `routable=false`, and
-`config/profiles/activation-support-v1.json` remains absent.
+Those seven profiles now have `activation_supported=true`,
+`activation_smoke_passed=true`, `targeted_run_eligible=true`, and
+`routable=false`. The remaining four profiles are unsupported. No targeted
+Artifact pilot result is claimed here: `targeted_validation_passed` remains
+false for every profile, so the fresh activation evidence does not promote a
+profile to routable.

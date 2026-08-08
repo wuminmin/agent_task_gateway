@@ -55,4 +55,18 @@ carry a synthesized preparation rather than one the Gateway produced.
 | `V3 RUNTIME INTEGRATION PASS` | `TestProvSQLLiveExternalPair`, in its own `compose.provsql.yaml` project |
 | the Result-heavy 100x4 v3 canary | the three `experiment` formal-window live gates |
 | contracts v1.5 freeze | `TestAttackAdapterLivePreflight`, `TestRLSAdapterLivePreflight` |
-| `targeted_run_eligible` becoming true, after v1.5 freeze | the four `final-v5-activation-support` tests |
+| satisfied by the 2026-08-08 v1.4 fresh-live requalification | the four `final-v5-activation-support` tests; the generated manifest supports the seven live-route profiles and the focused package tests pass |
+
+## v1.4 fresh-live raw evidence inventory
+
+The 2026-08-08 fresh-live rerun retained its body outside Git at
+`/home/wmm/taskgate-final-v14-live.MDIXO55U`. At inventory time it contained 93
+regular files with 8,840,681,978 total content bytes and no empty directories.
+The repository retains
+`final-v5-v14-live-raw-evidence.sha256`, a relative-path SHA-256 inventory of
+every file. The inventory itself has SHA-256
+`0752539b2318f831be20aba84ad7f0b9c43940c5909a7c576734a7ebfe2f3090`.
+
+To detect loss or mutation, run `sha256sum -c` against that committed inventory
+from the retained directory. This index authenticates the retained bytes but is
+not a backup; the 8.3 GiB evidence body remains outside the repository.

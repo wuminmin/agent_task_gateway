@@ -2,10 +2,13 @@
 
 **Status: V1.4 OBSERVER ACCOUNTING INVALID — FORWARD CORRECTION REQUIRED**
 
-This is an audit record, not an amendment. It states what `final-v5-contracts-v1.4`
-is and why it must not be used to produce live evidence. The release and its tag
-are preserved unchanged as an immutable audit record; the correction is made by
-forward commits only.
+This is an audit record, not an amendment. It states what
+`final-v5-contracts-v1.4` is and why it must not be used to produce
+accounting-bearing targeted-validation or publication evidence. The release and
+its tag are preserved unchanged as an immutable audit record; the correction is
+made by forward commits only. Activation smoke and outside-Product refusal
+evidence that stops before task issuance does not exercise or validate the
+observer accounting audited here.
 
 ## Identity of the audited release
 
@@ -22,14 +25,22 @@ Nothing above is moved, deleted, recreated or force-updated.
 
 ## What v1.4 has, and has not
 
-v1.4 has **no live activation evidence**, **no targeted-validation evidence**,
-and **no publication-eligible samples**. Its correctness was never exercised
-against a running deployment. The deletion of the v1.3 activation-support
-manifest at `b5bc1e7` was correct and must remain: it left every profile
-`activation_supported=false` and `targeted_run_eligible=false`, which is what
-prevented a known-invalid accounting contract from ever producing live evidence.
+At the audited tag, v1.4 had **no live activation evidence**, **no
+targeted-validation evidence**, and **no publication-eligible samples**. Its
+observer-accounting correctness was never exercised against a running measured
+deployment. The deletion of the v1.3 activation-support manifest at `b5bc1e7`
+was correct: it prevented older activation evidence from crossing a release
+boundary and prevented a known-invalid accounting contract from producing a
+measured sample.
 
-That is the only reason this defect is an audit note rather than a retraction.
+A 2026-08-08 forward commit later produced fresh v1.4 activation and
+outside-Product refusal evidence. All 54 requests were refused before task
+issuance; the records assert no targeted validation, measured sample, or
+publication eligibility. That evidence therefore does not rehabilitate or
+test the invalid observer accounting described below.
+
+The absence of accounting-bearing evidence at the audited tag is the reason
+this defect is an audit note rather than a retraction.
 
 ## Defects
 
