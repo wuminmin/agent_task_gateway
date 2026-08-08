@@ -510,3 +510,4 @@ make paper-final-check       # 干净树 + final 模式 + evidence.tex 无 diff
 | P6.4 安全/fuzz | TODO | | 先确认 TKDE 是否依赖 |
 | P7.1–P7.9 论文与投稿 | TODO | | |
 | PX.1–PX.4 支线 | TODO | | |
+| P0.1 环境自检 | DONE | 2026-08-09 | `export GOFLAGS=-buildvcs=false`; `docker version`: Client/Server 29.1.3, Server Docker Desktop 4.55.0; `go version`: `go1.25.12 linux/amd64`; `./scripts/db-test-env.sh up` 达到 `Running 12/12`; `eval "$(./scripts/db-test-env.sh env)"`; `./scripts/db-test-env.sh verify`: control/business `server_version_num=160014  OK`, `taskgate_ordinal relations=31  OK` |
