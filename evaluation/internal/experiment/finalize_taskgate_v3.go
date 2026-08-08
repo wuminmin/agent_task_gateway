@@ -188,11 +188,22 @@ func FinalizeTaskGateObservationV3(receipt queryreceipt.QueryReceiptV1, verifier
 		return result, fmt.Errorf("verify receipt: %w", err)
 	}
 	binding := receipt.ExecutionBindingV2
-	if binding == nil || receipt.ExposureLedgerBefore == nil {
-		return result, errors.New("receipt carries no execution binding or signed exposure pre-state")
+	if binding == nil {
+		return result, errors.New("receipt describes no execution; a completed query states which " +
+			"physical statements produced its rows")
 	}
 	if err := binding.Validate(); err != nil {
 		return result, fmt.Errorf("signed execution binding does not validate: %w", err)
+	}
+	// The exposure pre-state is required because these are exposure workloads,
+	// not because carrying a binding implies carrying one. The receipt now admits
+	// a completed operation that accounted no exposure -- it signs an empty
+	// profile and no ledger -- and such an operation produces no exposure
+	// evidence for this finalization to be about. Coupling the two would have
+	// reported it as a malformed receipt rather than as the wrong workload.
+	if binding.ExposureProfileVersion == "" || receipt.ExposureLedgerBefore == nil {
+		return result, errors.New("this receipt accounts no exposure; v3 finalization is about " +
+			"exposure-accounted operations and has nothing to derive for one")
 	}
 
 	// 2. The path kind. For an idempotent replay it comes from the control

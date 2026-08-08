@@ -43,12 +43,32 @@ import (
 // reach the same two statements without asking the Gateway and without writing
 // a second derivation.
 //
+// # What T1e delivered
+//
+// ReproduceExecutionV3 is the finalizer doing it. Given frozen contract material
+// -- an activated Profile Catalog read as a file, a retained snapshot artifact
+// directory, the contract's plan and approved surface -- it prepares through
+// physicalquery.Prepare, requires the sealed result to equal the preparation the
+// receipt signed, authorizes both statements against the receipt's own signed
+// pre-state, and requires the derived row limits to be the signed ones. Its
+// tests show every one of those inputs is load-bearing: change the projection,
+// the ordering, the approved columns, the mandatory scope or the profile, and
+// the reproduction stops agreeing with the signature.
+//
+// So "the statements the finalizer reproduced", which TrustedInputsV3 has
+// asserted in a doc comment since it was written, is now a thing that happens.
+//
 // # What is still blocking
 //
-// Nothing calls it. No finalizer path reproduces a preparation, and nothing in
-// the active tree constructs TrustedInputsV3 or IndependentInputsV3, so
-// acceptance remains reachable only from tests. That is the remaining work and
-// it is the whole of what this blocker now pins.
+// The acceptance wrapper does not call it yet: FinalizeTaskGateObservationV3
+// still takes VisibleSQL and CompanionSQL as strings, so the reproduction exists
+// beside the acceptance path rather than inside it. And nothing in the active
+// tree constructs TrustedInputsV3 or IndependentInputsV3, so acceptance remains
+// reachable only from tests.
+//
+// Wiring the wrapper means the gate fixtures must seal their receipts around a
+// REAL preparation rather than fixture digests -- otherwise the reproduction has
+// nothing it can agree with -- which is the next contiguous piece of work.
 //
 // See docs/final_v5_v3_runtime_integration_gates.md.
 
