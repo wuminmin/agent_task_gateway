@@ -3,7 +3,9 @@ package queryplan
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 )
 
@@ -13,18 +15,18 @@ import (
 // asked for, and the compiler identity says what turned it into SQL. Two
 // compilers can agree on a plan and disagree on the statement, and without this
 // the executed bytes would move for a reason nothing recorded.
-const CompilerVersion = "taskgate-query-compiler-v5"
+const CompilerVersion = "taskgate-query-compiler-v6"
 
 const compilerIdentityDomain = "TASKGATE-QUERY-COMPILER-IDENTITY-V1"
 
 // CompilerSHA256 is the compiler's behavioural identity.
 //
 // It is computed rather than declared, and it is computed from what the compiler
-// actually does: a frozen probe plan is compiled, normalized and footprinted,
-// and the outputs are hashed together with the frozen contract versions. A
-// change to the emitted SQL, to the normal form, or to the predicate footprint
-// therefore moves this digest even when every version constant is untouched --
-// which is exactly the case a declared constant would miss.
+// actually does: frozen single-product and relational probe plans are compiled,
+// normalized and footprinted, and the outputs are hashed together with the
+// frozen contract versions. A change covered by those probes therefore moves
+// this digest even when every version constant is untouched -- exactly the case
+// a declared constant would miss.
 //
 // TestCompilerIdentityIsPinnedToItsSource keeps the value honest by pinning it;
 // the failure tells the reader to bump CompilerVersion deliberately rather than
@@ -34,8 +36,10 @@ func CompilerSHA256() (string, error) { return compilerIdentity() }
 var compilerIdentity = sync.OnceValues(computeCompilerIdentity)
 
 // compilerIdentityProbe is deliberately small and deliberately frozen. It
-// exercises projection, aggregation, filtering, grouping, ordering and paging --
-// the constructs whose rendering the executed statement depends on.
+// exercises projection, aggregation, filtering, grouping, ordering and paging.
+// compilerIdentityRelationalProbe separately covers role-qualified relational
+// SQL and the V5 predicate footprint, including a repeated Product under two
+// UNION branch roles.
 func compilerIdentityProbe() (QueryPlan, Product) {
 	plan := QueryPlan{
 		Product:    "expense",
@@ -70,6 +74,21 @@ func compilerIdentityProbe() (QueryPlan, Product) {
 	return plan, product
 }
 
+func compilerIdentityRelationalProbe() (QueryPlan, map[string]Product) {
+	_, product := compilerIdentityProbe()
+	plan := QueryPlan{From: &From{UnionDistinct: &UnionDistinct{
+		Role: "expense", Columns: []string{"month", "department"},
+		Left: Scan{Product: product.Name, Role: "left_branch", Filters: []Filter{{
+			Column: "department", Op: "=", Value: "sales",
+		}}},
+		Right: Scan{Product: product.Name, Role: "right_branch", Filters: []Filter{{
+			Column: "department", Op: "=", Value: "engineering",
+		}}},
+	}}, Columns: []string{"expense.month"}}
+	products := map[string]Product{product.Name: product}
+	return plan, products
+}
+
 func computeCompilerIdentity() (string, error) {
 	plan, product := compilerIdentityProbe()
 	compiled, err := Compile(plan, product)
@@ -92,6 +111,26 @@ func computeCompilerIdentity() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("compiler identity probe V4 normal form does not digest: %w", err)
 	}
+	relationalPlan, relationalProducts := compilerIdentityRelationalProbe()
+	relational, err := CompileRelational(relationalPlan, relationalProducts)
+	if err != nil {
+		return "", fmt.Errorf("compiler identity relational probe does not compile: %w", err)
+	}
+	predicateProducts, err := PredicateProductsForSources(relationalProducts, relational.Sources)
+	if err != nil {
+		return "", fmt.Errorf("compiler identity relational sources do not bind: %w", err)
+	}
+	footprint, err := BuildPredicateFootprint(relationalPlan, PredicateBindings{
+		CatalogSHA256: strings.Repeat("a", 64), Products: predicateProducts,
+	},
+		strings.Repeat("b", 64), PredicateLimits{})
+	if err != nil {
+		return "", fmt.Errorf("compiler identity relational probe does not footprint: %w", err)
+	}
+	footprintBytes, err := json.Marshal(footprint)
+	if err != nil {
+		return "", fmt.Errorf("compiler identity predicate footprint does not encode: %w", err)
+	}
 	hash := sha256.New()
 	writeIdentityField(hash, "domain", compilerIdentityDomain)
 	writeIdentityField(hash, "compiler_version", CompilerVersion)
@@ -102,6 +141,9 @@ func computeCompilerIdentity() (string, error) {
 	writeIdentityField(hash, "probe_sql", compiled)
 	writeIdentityField(hash, "probe_normal_form_v2", normalV2Digest)
 	writeIdentityField(hash, "probe_normal_form_v4", normalV4Digest)
+	writeIdentityField(hash, "probe_relational_visible_sql", relational.VisibleSQL)
+	writeIdentityField(hash, "probe_relational_provenance_sql", relational.ProvenanceSQL)
+	writeIdentityField(hash, "probe_predicate_footprint", string(footprintBytes))
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 

@@ -541,8 +541,9 @@ func compileJoinMany(join JoinMany, plan QueryPlan, products map[string]Product)
 }
 
 func compileUnion(union UnionDistinct, outerFilters []Filter, products map[string]Product) (compiledRelation, map[string]relationalField, string, string, error) {
-	if !safeRole(union.Role) || union.Left.Role == union.Right.Role || union.Left.Product != union.Right.Product {
-		return compiledRelation{}, nil, "", "", errors.New("UNION DISTINCT requires one product, distinct branch roles, and a valid output role")
+	if !safeRole(union.Role) || !safeRole(union.Left.Role) || !safeRole(union.Right.Role) ||
+		union.Left.Role == union.Right.Role || union.Left.Product != union.Right.Product {
+		return compiledRelation{}, nil, "", "", errors.New("UNION DISTINCT requires one product and distinct valid branch and output roles")
 	}
 	product, present := products[union.Left.Product]
 	if !present {
@@ -781,7 +782,9 @@ func countFromMembers(from From) int {
 	}
 	return n
 }
-func safeRole(role string) bool { return safeIdentifier(role) && !strings.HasPrefix(role, "tg_") }
+func safeRole(role string) bool {
+	return len(role) <= 63 && safeIdentifier(role) && !strings.HasPrefix(role, "tg_")
+}
 func qualified(role, column string) string {
 	return quoteIdentifier(role) + "." + quoteIdentifier(column)
 }

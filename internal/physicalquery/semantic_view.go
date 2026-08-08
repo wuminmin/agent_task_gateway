@@ -303,7 +303,7 @@ func deriveSemanticViewPreparation(inputs SemanticViewPreparationInputsV1) (
 		draft.EstimatedBaseFacts = bound.estimatedBaseFacts
 	}
 	if inputs.Grant.UsesPredicateFootprint() {
-		footprint, footprintErr := deriveViewPredicateFootprint(inputs, root, queryProducts)
+		footprint, footprintErr := deriveViewPredicateFootprint(inputs, root, queryProducts, compiled.Sources)
 		if footprintErr != nil {
 			return OperationDraft{}, semanticViewGovernance{}, footprintErr
 		}
@@ -439,7 +439,11 @@ func containsScopePredicate(predicates []sqlpolicy.ScopePredicate, want sqlpolic
 // compilation and leaving this behind would have left the Gateway and the
 // finalizer preparing one View with two different predicate footprints.
 func deriveViewPredicateFootprint(inputs SemanticViewPreparationInputsV1, root catalog.Product,
-	queryProducts map[string]queryplan.Product) (*queryplan.PredicateFootprint, error) {
+	queryProducts map[string]queryplan.Product, sources []queryplan.RelationalSource) (*queryplan.PredicateFootprint, error) {
+	predicateProducts, err := queryplan.PredicateProductsForSources(queryProducts, sources)
+	if err != nil {
+		return nil, err
+	}
 	outputByName := make(map[string]viewcompiler.Output, len(inputs.Artifact.Outputs))
 	for _, output := range inputs.Artifact.Outputs {
 		outputByName[output.Name] = output
@@ -477,7 +481,7 @@ func deriveViewPredicateFootprint(inputs SemanticViewPreparationInputsV1, root c
 	scope := sha256.Sum256(append([]byte("TASKGATE-EFFECTIVE-MANDATORY-SCOPE-V1\x00"),
 		inputs.Grant.MandatoryScope...))
 	footprint, err := queryplan.BuildPredicateFootprint(inputs.Composition.Plan, queryplan.PredicateBindings{
-		CatalogSHA256: inputs.Catalog.Digest, Products: queryProducts,
+		CatalogSHA256: inputs.Catalog.Digest, Products: predicateProducts,
 		ViewBindingSHA256: inputs.ViewBindingDigest,
 		CallerFilters:     callerFilters, Fields: fieldBindings,
 		SemanticProductID: root.Name,

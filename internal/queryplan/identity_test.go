@@ -8,12 +8,12 @@ import "testing"
 // signed afterwards makes a claim about a compiler that no longer exists.
 //
 // This test recomputes the digest from the compiler's own behaviour. It fails
-// when the emitted SQL, either normal form, or any frozen contract version
-// changes -- which is the point. Do NOT update the expectation to make it pass:
-// bump CompilerVersion, so that old and new bindings are distinguishable, and
-// then record the new value here.
+// when probe SQL, either normal form, the predicate footprint, or any frozen
+// contract version changes -- which is the point. Do NOT update the expectation
+// to make it pass: bump CompilerVersion, so that old and new bindings are
+// distinguishable, and then record the new value here.
 func TestCompilerIdentityIsPinnedToItsSource(t *testing.T) {
-	const want = "1a94f9802691c76d3660b4d72b39ab5cf3be4a3cbfecd7512cbd4741bc7b38ed"
+	const want = "13fd7f3bf8c21209354d04b82c5006c5f29a5b0dd568b820fc2ef43a81f641ed"
 	got, err := CompilerSHA256()
 	if err != nil {
 		t.Fatalf("compiler identity: %v", err)

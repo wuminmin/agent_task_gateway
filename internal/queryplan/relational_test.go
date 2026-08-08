@@ -58,6 +58,12 @@ func TestCompileRelationalUnionPreservesHiddenDistinctMembers(t *testing.T) {
 	if !strings.Contains(compiled.ProvenanceSQL, " UNION ALL ") || !strings.Contains(compiled.ProvenanceSQL, `AS "tg_branch"`) {
 		t.Fatalf("provenance did not retain every branch member: %s", compiled.ProvenanceSQL)
 	}
+	for _, fragment := range []string{`"left_branch"."month" =`, `"right_branch"."month" =`} {
+		if !strings.Contains(compiled.VisibleSQL, fragment) || !strings.Contains(compiled.ProvenanceSQL, fragment) {
+			t.Fatalf("branch filter is not role-qualified by %q: visible=%s provenance=%s",
+				fragment, compiled.VisibleSQL, compiled.ProvenanceSQL)
+		}
+	}
 	if !compiled.ExpandedEvidence {
 		t.Fatal("union provenance was not marked as membership-expanded")
 	}
@@ -72,6 +78,22 @@ func TestCompileRelationalRejectsAliasDefinedSemanticRoleAndUnionAllShape(t *tes
 	_, err = CompileRelational(QueryPlan{From: &From{UnionDistinct: &UnionDistinct{Role: "summary", Columns: []string{"department"}, Left: Scan{Product: "summary", Role: "same"}, Right: Scan{Product: "summary", Role: "same"}}}, Columns: []string{"summary.department"}}, products)
 	if err == nil {
 		t.Fatal("union accepted indistinguishable branch aliases")
+	}
+	for name, roles := range map[string][2]string{
+		"unsafe left":  {`left"branch`, "right_branch"},
+		"unsafe right": {"left_branch", "tg_right_branch"},
+		"long left":    {strings.Repeat("a", 64), "right_branch"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := CompileRelational(QueryPlan{From: &From{UnionDistinct: &UnionDistinct{
+				Role: "summary", Columns: []string{"department"},
+				Left:  Scan{Product: "summary", Role: roles[0]},
+				Right: Scan{Product: "summary", Role: roles[1]},
+			}}, Columns: []string{"summary.department"}}, products)
+			if err == nil {
+				t.Fatal("UNION DISTINCT accepted an unsafe branch role")
+			}
+		})
 	}
 }
 

@@ -237,7 +237,9 @@ func TestRLSOracleMatchesProductionV5AccountingContract(t *testing.T) {
 		}
 
 		footprint, footprintErr := queryplan.BuildPredicateFootprint(lowered.Plan, queryplan.PredicateBindings{
-			CatalogSHA256: strings.Repeat("3", 64), Products: products,
+			CatalogSHA256: strings.Repeat("3", 64), Products: map[queryplan.PredicateProductKey]queryplan.Product{
+				{Role: product.StableRole, Product: product.Name}: product,
+			},
 		}, strings.Repeat("4", 64), queryplan.DefaultPredicateLimits())
 		if footprintErr != nil {
 			t.Fatalf("step %d production V5 predicate footprint: %v", step.Index, footprintErr)

@@ -56,8 +56,9 @@ const (
 // binary contains.
 //
 // Both the Gateway and the finalizer call it. Two processes built from one
-// commit therefore agree by construction, and two built from different commits
-// disagree in the binding rather than silently producing different SQL.
+// commit therefore agree by construction, while a compiler or renderer change
+// covered by the frozen behavioural probes disagrees in the binding rather than
+// silently producing different prepared material.
 func LocalCompilerIdentity() (CompilerIdentityV1, error) {
 	compiler, err := queryplan.CompilerSHA256()
 	if err != nil {

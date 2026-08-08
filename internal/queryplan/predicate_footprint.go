@@ -89,14 +89,48 @@ type PredicateFilterBinding struct {
 	Filter Filter
 }
 
+// PredicateProductKey binds a plan-local source role to the Catalog Product it
+// reads. Product alone is insufficient for repeated inputs such as the two
+// branches of UNION DISTINCT, while role alone would allow two Products with
+// different type or collation contracts to collide.
+type PredicateProductKey struct {
+	Role    string
+	Product string
+}
+
 type PredicateBindings struct {
 	CatalogSHA256     string
 	PublicationBundle []PredicatePublicationBinding
 	ViewBindingSHA256 string
-	Products          map[string]Product
+	Products          map[PredicateProductKey]Product
 	Fields            map[string]PredicateFieldBinding
 	CallerFilters     []PredicateFilterBinding
 	SemanticProductID string
+}
+
+// PredicateProductsForSources converts compiler-validated relational sources
+// into the exact composite bindings consumed by predicate accounting. Keeping
+// the conversion here lets the production preparer and compiler-identity probe
+// exercise one implementation without giving Gateway a second preparation
+// path.
+func PredicateProductsForSources(products map[string]Product,
+	sources []RelationalSource) (map[PredicateProductKey]Product, error) {
+	result := make(map[PredicateProductKey]Product, len(sources))
+	for _, source := range sources {
+		product, present := products[source.Product]
+		if !present || product.Name != source.Product {
+			return nil, fmt.Errorf("predicate source role %q names unbound product %q", source.Role, source.Product)
+		}
+		key := PredicateProductKey{Role: source.Role, Product: source.Product}
+		if key.Role == "" || key.Product == "" {
+			return nil, errors.New("predicate source binding is incomplete")
+		}
+		if _, duplicate := result[key]; duplicate {
+			return nil, fmt.Errorf("predicate source role %q repeats product %q", key.Role, key.Product)
+		}
+		result[key] = product
+	}
+	return result, nil
 }
 
 type PredicateFootprint struct {
@@ -138,8 +172,10 @@ type predicateEdge struct {
 }
 
 type footprintFilter struct {
-	field  string
-	filter Filter
+	field          string
+	filter         Filter
+	product        PredicateProductKey
+	productIsBound bool
 }
 
 // BuildPredicateFootprint atomizes only caller-controlled literal filters,
@@ -166,7 +202,7 @@ func BuildPredicateFootprint(plan QueryPlan, bindings PredicateBindings, effecti
 	atoms := make(map[string]atomEntry)
 	totalPayload := 0
 	for _, item := range filters {
-		field, err := resolvePredicateField(plan, bindings, item.field)
+		field, err := resolvePredicateField(plan, bindings, item)
 		if err != nil {
 			return PredicateFootprint{}, err
 		}
@@ -307,26 +343,32 @@ func callerPredicateFilters(plan QueryPlan, bindings PredicateBindings) ([]footp
 	}
 	result := make([]footprintFilter, 0, len(plan.Filters))
 	defaultRole := ""
+	var defaultProduct PredicateProductKey
 	if plan.From == nil {
-		product, present := bindings.Products[plan.Product]
-		if !present {
-			return nil, fmt.Errorf("predicate bindings omit product %q", plan.Product)
+		key, _, err := legacyPredicateProduct(bindings.Products, plan.Product)
+		if err != nil {
+			return nil, err
 		}
-		defaultRole = product.StableRole
-		if defaultRole == "" {
-			defaultRole = product.Name
-		}
+		defaultProduct = key
+		defaultRole = key.Role
 	}
 	for _, filter := range plan.Filters {
 		field := filter.Column
 		if !strings.Contains(field, ".") && defaultRole != "" {
 			field = defaultRole + "." + field
 		}
-		result = append(result, footprintFilter{field: field, filter: filter})
+		item := footprintFilter{field: field, filter: filter}
+		if plan.From == nil {
+			item.product, item.productIsBound = defaultProduct, true
+		}
+		result = append(result, item)
 	}
 	appendScan := func(scan Scan) {
 		for _, filter := range scan.Filters {
-			result = append(result, footprintFilter{field: scan.Role + "." + filter.Column, filter: filter})
+			result = append(result, footprintFilter{
+				field: scan.Role + "." + filter.Column, filter: filter,
+				product: PredicateProductKey{Role: scan.Role, Product: scan.Product}, productIsBound: true,
+			})
 		}
 	}
 	if plan.From != nil {
@@ -348,32 +390,42 @@ func callerPredicateFilters(plan QueryPlan, bindings PredicateBindings) ([]footp
 	return result, nil
 }
 
-func resolvePredicateField(plan QueryPlan, bindings PredicateBindings, fieldID string) (PredicateFieldBinding, error) {
+func resolvePredicateField(plan QueryPlan, bindings PredicateBindings, item footprintFilter) (PredicateFieldBinding, error) {
+	fieldID := item.field
 	if binding, present := bindings.Fields[fieldID]; present {
 		return canonicalPredicateField(binding)
 	}
 	role, column, ok := splitFieldID(fieldID)
-	if !ok && plan.From == nil {
-		product := bindings.Products[plan.Product]
-		role, column, ok = product.StableRole, fieldID, true
-	}
 	if !ok {
 		return PredicateFieldBinding{}, fmt.Errorf("predicate field %q has no stable role", fieldID)
 	}
-	var matches []Product
-	for _, product := range bindings.Products {
-		if product.StableRole == role {
-			if _, present := product.ColumnTypes[column]; present {
-				matches = append(matches, product)
-			}
+	var keys []PredicateProductKey
+	if item.productIsBound {
+		if item.product.Role != role {
+			return PredicateFieldBinding{}, fmt.Errorf(
+				"predicate field %q disagrees with its bound source role %q", fieldID, item.product.Role)
 		}
+		keys = []PredicateProductKey{item.product}
+	} else if plan.From == nil {
+		key, _, err := legacyPredicateProduct(bindings.Products, plan.Product)
+		if err != nil {
+			return PredicateFieldBinding{}, err
+		}
+		keys = []PredicateProductKey{key}
+	} else {
+		keys = predicateProductKeysForRole(plan, role)
 	}
-	if len(matches) == 0 && plan.From != nil && plan.From.UnionDistinct != nil && plan.From.UnionDistinct.Role == role {
-		for _, name := range []string{plan.From.UnionDistinct.Left.Product, plan.From.UnionDistinct.Right.Product} {
-			product := bindings.Products[name]
-			if _, present := product.ColumnTypes[column]; present {
-				matches = append(matches, product)
-			}
+	if len(keys) == 0 {
+		return PredicateFieldBinding{}, fmt.Errorf("predicate field %q is absent from its bound relation", fieldID)
+	}
+	matches := make([]Product, 0, len(keys))
+	for _, key := range keys {
+		product, err := boundPredicateProduct(bindings.Products, key)
+		if err != nil {
+			return PredicateFieldBinding{}, err
+		}
+		if _, present := product.ColumnTypes[column]; present {
+			matches = append(matches, product)
 		}
 	}
 	if len(matches) == 0 {
@@ -384,22 +436,105 @@ func resolvePredicateField(plan QueryPlan, bindings PredicateBindings, fieldID s
 	if err != nil {
 		return PredicateFieldBinding{}, err
 	}
+	distinctProducts := false
 	for _, product := range matches[1:] {
 		other, typeErr := exposure.CanonicalSQLTypeV2(product.ColumnTypes[column])
 		if typeErr != nil || other != typeName || product.ColumnCollations[column] != first.ColumnCollations[column] ||
 			product.CollationVersions[column] != first.CollationVersions[column] {
 			return PredicateFieldBinding{}, fmt.Errorf("predicate field %q has ambiguous union type or collation", fieldID)
 		}
+		if product.Name != first.Name {
+			distinctProducts = true
+		}
 	}
 	productID := first.Name
 	if bindings.SemanticProductID != "" {
 		productID = bindings.SemanticProductID
-	} else if len(matches) > 1 {
+	} else if distinctProducts {
 		productID = "union:" + role
 	}
 	return canonicalPredicateField(PredicateFieldBinding{SemanticProductID: productID, StableRole: role,
 		PublicFieldID: column, SQLType: typeName, CollationName: first.ColumnCollations[column],
 		CollationVersion: first.CollationVersions[column]})
+}
+
+func predicateProductKeysForRole(plan QueryPlan, role string) []PredicateProductKey {
+	if plan.From == nil {
+		return nil
+	}
+	key := func(scan Scan) PredicateProductKey {
+		return PredicateProductKey{Role: scan.Role, Product: scan.Product}
+	}
+	var result []PredicateProductKey
+	appendScan := func(scan Scan) {
+		if scan.Role == role {
+			result = append(result, key(scan))
+		}
+	}
+	switch {
+	case plan.From.Scan != nil:
+		appendScan(*plan.From.Scan)
+	case plan.From.Join != nil:
+		appendScan(plan.From.Join.Left)
+		appendScan(plan.From.Join.Right)
+	case plan.From.JoinMany != nil:
+		for _, scan := range plan.From.JoinMany.Sources {
+			appendScan(scan)
+		}
+	case plan.From.UnionDistinct != nil:
+		union := plan.From.UnionDistinct
+		if union.Role == role {
+			return []PredicateProductKey{key(union.Left), key(union.Right)}
+		}
+		appendScan(union.Left)
+		appendScan(union.Right)
+	}
+	return result
+}
+
+func boundPredicateProduct(products map[PredicateProductKey]Product, key PredicateProductKey) (Product, error) {
+	product, present := products[key]
+	if !present {
+		return Product{}, fmt.Errorf("predicate bindings omit source role %q for product %q", key.Role, key.Product)
+	}
+	if product.Name != key.Product {
+		return Product{}, fmt.Errorf(
+			"predicate binding for source role %q and product %q contains product %q",
+			key.Role, key.Product, product.Name)
+	}
+	return product, nil
+}
+
+func legacyPredicateProduct(products map[PredicateProductKey]Product, name string) (PredicateProductKey, Product, error) {
+	var expected *PredicateProductKey
+	for key, product := range products {
+		if key.Product != name {
+			continue
+		}
+		if product.Name != name {
+			return PredicateProductKey{}, Product{}, fmt.Errorf(
+				"predicate binding for product %q contains product %q", name, product.Name)
+		}
+		role := product.StableRole
+		if role == "" {
+			role = product.Name
+		}
+		candidate := PredicateProductKey{Role: role, Product: name}
+		if key != candidate {
+			return PredicateProductKey{}, Product{}, fmt.Errorf(
+				"predicate binding for product %q does not use its stable role", name)
+		}
+		if expected != nil {
+			return PredicateProductKey{}, Product{}, fmt.Errorf(
+				"predicate bindings repeat product %q", name)
+		}
+		expected = &candidate
+	}
+	if expected == nil {
+		return PredicateProductKey{}, Product{}, fmt.Errorf("predicate bindings omit product %q", name)
+	}
+	product, err := boundPredicateProduct(products, *expected)
+	return *expected, product, err
 }
 
 func canonicalPredicateField(field PredicateFieldBinding) (PredicateFieldBinding, error) {
@@ -424,7 +559,12 @@ func buildPredicateContext(plan QueryPlan, bindings PredicateBindings, scopeDige
 	if len(publications) == 0 {
 		seen := make(map[string]struct{})
 		for _, relation := range graph.Relations {
-			product := bindings.Products[relation.Product]
+			product, productErr := boundPredicateProduct(bindings.Products, PredicateProductKey{
+				Role: relation.StableRole, Product: relation.Product,
+			})
+			if productErr != nil {
+				return "", productErr
+			}
 			binding := PredicatePublicationBinding{SemanticProductID: product.Name, StableRole: relation.StableRole,
 				SourceNamespace: product.SourceNamespace, Snapshot: product.Snapshot,
 				Publication: product.SnapshotPublication, PublicationSHA256: product.SidecarManifestDigest,
@@ -452,12 +592,12 @@ func buildPredicateContext(plan QueryPlan, bindings PredicateBindings, scopeDige
 	return hex.EncodeToString(digest[:]), nil
 }
 
-func predicateGraph(plan QueryPlan, products map[string]Product) (predicateFromGraph, error) {
+func predicateGraph(plan QueryPlan, products map[PredicateProductKey]Product) (predicateFromGraph, error) {
 	graph := predicateFromGraph{Kind: "scan"}
 	addScan := func(scan Scan) error {
-		product, present := products[scan.Product]
-		if !present {
-			return fmt.Errorf("predicate context omits product %q", scan.Product)
+		product, err := boundPredicateProduct(products, PredicateProductKey{Role: scan.Role, Product: scan.Product})
+		if err != nil {
+			return err
 		}
 		role := scan.Role
 		if role == "" {
@@ -468,12 +608,12 @@ func predicateGraph(plan QueryPlan, products map[string]Product) (predicateFromG
 		return nil
 	}
 	if plan.From == nil {
-		product, present := products[plan.Product]
-		if !present {
-			return graph, fmt.Errorf("predicate context omits product %q", plan.Product)
+		key, product, err := legacyPredicateProduct(products, plan.Product)
+		if err != nil {
+			return graph, err
 		}
 		return predicateFromGraph{Kind: "scan", Relations: []predicateRelation{{Product: product.Name,
-			StableRole: product.StableRole, SourceNamespace: product.SourceNamespace, Snapshot: product.Snapshot}}}, nil
+			StableRole: key.Role, SourceNamespace: product.SourceNamespace, Snapshot: product.Snapshot}}}, nil
 	}
 	switch {
 	case plan.From.Scan != nil:

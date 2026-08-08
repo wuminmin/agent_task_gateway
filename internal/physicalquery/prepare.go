@@ -166,7 +166,8 @@ func derivePreparation(inputs PreparationInputs) (OperationDraft, error) {
 		}
 		if inputs.Grant.UsesPredicateFootprint() {
 			footprint, footprintErr := derivePredicateFootprint(inputs,
-				map[string]queryplan.Product{inputs.Plan.Product: ordinalProduct})
+				map[string]queryplan.Product{inputs.Plan.Product: ordinalProduct},
+				[]queryplan.RelationalSource{{Product: ordinalProduct.Name, Role: predicateStableRole(ordinalProduct)}})
 			if footprintErr != nil {
 				return OperationDraft{}, footprintErr
 			}
@@ -282,7 +283,7 @@ func deriveRelationalPreparation(inputs PreparationInputs) (OperationDraft, erro
 		draft.SourcePublications = bound.sourcePublications
 		draft.EstimatedBaseFacts = bound.estimatedBaseFacts
 		if inputs.Grant.UsesPredicateFootprint() {
-			footprint, footprintErr := derivePredicateFootprint(inputs, queryProducts)
+			footprint, footprintErr := derivePredicateFootprint(inputs, queryProducts, compiled.Sources)
 			if footprintErr != nil {
 				return OperationDraft{}, footprintErr
 			}
@@ -1030,19 +1031,31 @@ func estimateBaseFacts(sources preparationSources, bound boundOrdinalPreparation
 	return total
 }
 
-// derivePredicateFootprint builds the V5 footprint for a single-product plan.
+// derivePredicateFootprint builds the V5 footprint from compiler-resolved
+// source roles and Products.
 func derivePredicateFootprint(inputs PreparationInputs,
-	products map[string]queryplan.Product) (*queryplan.PredicateFootprint, error) {
+	products map[string]queryplan.Product, sources []queryplan.RelationalSource) (*queryplan.PredicateFootprint, error) {
+	predicateProducts, err := queryplan.PredicateProductsForSources(products, sources)
+	if err != nil {
+		return nil, err
+	}
 	scope := sha256.Sum256(append([]byte("TASKGATE-EFFECTIVE-MANDATORY-SCOPE-V1\x00"),
 		inputs.Grant.MandatoryScope...))
 	footprint, err := queryplan.BuildPredicateFootprint(inputs.Plan, queryplan.PredicateBindings{
-		CatalogSHA256: inputs.Catalog.Digest, Products: products,
+		CatalogSHA256: inputs.Catalog.Digest, Products: predicateProducts,
 		ViewBindingSHA256: inputs.Grant.ViewBindingDigest,
 	}, hex.EncodeToString(scope[:]), inputs.Grant.PredicateLimits)
 	if err != nil {
 		return nil, err
 	}
 	return &footprint, nil
+}
+
+func predicateStableRole(product queryplan.Product) string {
+	if product.StableRole != "" {
+		return product.StableRole
+	}
+	return product.Name
 }
 
 // ---------------------------------------------------------------- identifiers
