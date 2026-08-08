@@ -23,6 +23,7 @@ func TestGate02SnapshotV1Rejected(t *testing.T) {
 	// And it must not enter a window either -- there is no fallback anywhere.
 	window, classifier, _ := pairedNovelWindow(t)
 	window.After.Version = "taskgate-final-v5-observer-snapshot-v1"
+	window = commitWindowTo(window, classifier.ManifestSHA256())
 	if _, err := window.Delta(classifier); err == nil {
 		t.Fatal("a v1 snapshot was accepted as half of a v3 window")
 	}
@@ -89,6 +90,9 @@ func TestGate07CounterRegressionOrDisappearanceRejected(t *testing.T) {
 		// The before snapshot already holds counts the after snapshot undercuts.
 		window.Before = snapshotOf(t, "before", window.After.Structural)
 		window.After = snapshotOf(t, "after", nil)
+		// Rebuilding both snapshots drops the commitment, so restate it: the
+		// case under test is the counter regression, not a missing commitment.
+		window = commitWindowTo(window, classifier.ManifestSHA256())
 		requireWindowRejected(t, window, classifier)
 	})
 	t.Run("disappearing structural key", func(t *testing.T) {
@@ -99,6 +103,7 @@ func TestGate07CounterRegressionOrDisappearanceRejected(t *testing.T) {
 		}
 		window.Before = snapshotOf(t, "before", rows)
 		window.After = snapshotOf(t, "after", rows[1:])
+		window = commitWindowTo(window, classifier.ManifestSHA256())
 		err := requireWindowRejected(t, window, classifier)
 		if !strings.Contains(err.Error(), "disappeared") && !strings.Contains(err.Error(), "backwards") {
 			t.Fatalf("the rejection %q names neither disappearance nor regression", err)
@@ -269,6 +274,7 @@ func TestGate14SameTotalControlSubstitutionRejected(t *testing.T) {
 			window.After.Structural[index].Calls += 1
 		}
 	}
+	window = commitWindowTo(window, classifier.ManifestSHA256())
 	delta, err := window.Delta(classifier)
 	if err != nil {
 		t.Fatalf("delta: %v", err)
@@ -294,6 +300,7 @@ func TestGate15SameTotalInternalKeySubstitutionRejected(t *testing.T) {
 		}
 	}
 	sortStructural(window.After.Structural)
+	window = commitWindowTo(window, classifier.ManifestSHA256())
 	delta, err := window.Delta(classifier)
 	if err != nil {
 		t.Fatalf("delta: %v", err)
@@ -315,6 +322,7 @@ func TestGate16MissingRequiredControlRejected(t *testing.T) {
 	// call, and a total that disagrees with its rows would be rejected by the
 	// atomicity invariant instead of by the missing control.
 	window.After = resealSnapshot(t, window.After)
+	window = commitWindowTo(window, classifier.ManifestSHA256())
 	delta, err := window.Delta(classifier)
 	if err != nil {
 		t.Fatalf("delta: %v", err)
@@ -330,6 +338,7 @@ func TestGate17UnexpectedStatementRejected(t *testing.T) {
 		window, classifier, plan := pairedNovelWindow(t)
 		window.After.Structural[0].Calls++
 		window.After = resealSnapshot(t, window.After)
+		window = commitWindowTo(window, classifier.ManifestSHA256())
 		delta, err := window.Delta(classifier)
 		if err != nil {
 			t.Fatalf("delta: %v", err)
@@ -345,6 +354,7 @@ func TestGate17UnexpectedStatementRejected(t *testing.T) {
 			ObserverStructuralRow{StrictASTSHA256: intruder, TopLevel: true, Calls: 1})
 		sortStructural(window.After.Structural)
 		window.After.Total++
+		window = commitWindowTo(window, classifier.ManifestSHA256())
 		delta, err := window.Delta(classifier)
 		if err != nil {
 			t.Fatalf("delta: %v", err)
@@ -553,6 +563,13 @@ func TestGate30BindingDigestMutationRejected(t *testing.T) {
 
 // requireWindowRejected fails the test unless the window is refused, and returns
 // the refusal so a caller can assert what it named.
+// requireWindowRejected classifies a window that has already had one thing
+// broken, and requires the rejection.
+//
+// It deliberately does NOT stamp the commitment: pairedNovelWindow already
+// opens the window under the right classifier, and stamping here would undo
+// whichever mutation the caller made to the manifest digest -- which is one of
+// the mutations under test.
 func requireWindowRejected(t *testing.T, window ObserverWindowV2, classifier *CompiledClassifier) error {
 	t.Helper()
 	_, err := window.Delta(classifier)

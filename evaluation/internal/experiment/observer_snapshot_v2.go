@@ -301,6 +301,24 @@ func (window ObserverWindowV2) Delta(classifier *CompiledClassifier) (ObservedDe
 				identity.name, shortDigest(identity.before), shortDigest(identity.after))
 		}
 	}
+	// The commitment the observer was invoked under must be the classification it
+	// is now being judged by.
+	//
+	// This is what makes the sealed digest mean anything. The observer records
+	// which manifest it was told about before it took the "before" reading, and
+	// the checks above only require the two snapshots to agree with EACH OTHER --
+	// so without this a window could be classified by a manifest built after the
+	// fact, from a derivation that had already seen what ran, while both
+	// snapshots agreed on a digest nothing ever compared. The classification
+	// would then be chosen with knowledge of the observations, which is precisely
+	// what pre-registering it exists to rule out.
+	committed := classifier.ManifestSHA256()
+	if committed != window.Before.ClassifierManifestSHA256 {
+		return ObservedDelta{}, fmt.Errorf("the observer window was opened under classifier manifest %s "+
+			"but is being classified by %s; the classification was not the one committed before the "+
+			"observations were taken", shortDigest(window.Before.ClassifierManifestSHA256),
+			shortDigest(committed))
+	}
 	for _, invariant := range []struct {
 		name          string
 		before, after any

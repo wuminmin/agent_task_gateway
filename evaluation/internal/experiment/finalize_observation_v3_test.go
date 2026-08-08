@@ -126,7 +126,7 @@ func honestCarriedEvidence(t *testing.T, inputs IndependentInputsV3) CarriedEvid
 		Arm: ArmTaskGate, Operation: operation, Plan: plan,
 		ClassifierManifestSHA256: classifier.ManifestSHA256(),
 		ClassifierBindingSHA256:  classifier.BindingSHA256(),
-		Window:                   ObserverWindowV2{Before: before, After: after},
+		Window:                   commitWindowTo(ObserverWindowV2{Before: before, After: after}, classifier.ManifestSHA256()),
 		VisibleStatement: &physicalquery.StatementIdentity{
 			ExactSHA256:     physicalquery.ExactDigest(inputs.VisibleSQL),
 			StrictASTSHA256: visibleStrict, RowLimit: 100,

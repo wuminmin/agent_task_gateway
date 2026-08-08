@@ -125,9 +125,9 @@ func carriedFor(t *testing.T, inputs IndependentInputsV3) CarriedEvidenceV3 {
 		Arm: ArmTaskGate, Operation: operation, Plan: plan,
 		ClassifierManifestSHA256: classifier.ManifestSHA256(),
 		ClassifierBindingSHA256:  classifier.BindingSHA256(),
-		Window: ObserverWindowV2{
+		Window: commitWindowTo(ObserverWindowV2{
 			Before: snapshotOf(t, "before", nil), After: snapshotOf(t, "after", rows),
-		},
+		}, classifier.ManifestSHA256()),
 	}
 	// The carried identities are read off the real preparation, because that is
 	// what a correct Adapter reads off the receipt. Restating fixture constants

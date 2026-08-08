@@ -92,6 +92,21 @@ func snapshotOf(t *testing.T, label string, rows []ObserverStructuralRow) Observ
 	}
 }
 
+// commitWindowTo stamps the classifier a window was opened under onto both of
+// its snapshots.
+//
+// Every window a test classifies has to carry the commitment, because Delta now
+// requires the classification to be the one the observer was invoked with. The
+// helper exists so that stating the commitment is one line rather than two
+// stanzas, NOT so that it can be forgotten: a window built without it fails, and
+// TestAWindowClassifiedByAnUncommittedManifestIsRefused is the case that proves
+// the requirement is real rather than satisfied by this helper's existence.
+func commitWindowTo(window ObserverWindowV2, manifestSHA256 string) ObserverWindowV2 {
+	window.Before.ClassifierManifestSHA256 = manifestSHA256
+	window.After.ClassifierManifestSHA256 = manifestSHA256
+	return window
+}
+
 func sortStructural(rows []ObserverStructuralRow) {
 	for i := 1; i < len(rows); i++ {
 		for j := i; j > 0 && structuralRowLess(rows[j], rows[j-1]); j-- {
@@ -127,11 +142,16 @@ func pairedNovelWindow(t *testing.T) (ObserverWindowV2, *CompiledClassifier, Gat
 	}
 	before := snapshotOf(t, "before", nil)
 	after := snapshotOf(t, "after", rows)
-	return ObserverWindowV2{Before: before, After: after}, classifier, plan
+	// The window is opened under the classifier it will be judged by, which is
+	// what a real run does: the observer is invoked with this digest before the
+	// "before" reading is taken.
+	return commitWindowTo(ObserverWindowV2{Before: before, After: after},
+		classifier.ManifestSHA256()), classifier, plan
 }
 
 func TestCorrectWindowIsAccepted(t *testing.T) {
 	window, classifier, plan := pairedNovelWindow(t)
+	window = commitWindowTo(window, classifier.ManifestSHA256())
 	delta, err := window.Delta(classifier)
 	if err != nil {
 		t.Fatalf("delta: %v", err)
@@ -227,6 +247,9 @@ func TestWindowBindsItsInvariants(t *testing.T) {
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			window, classifier, _ := pairedNovelWindow(t)
+			// Committed first, then mutated: the mutation is the thing under
+			// test, and stamping afterwards would undo it for the manifest case.
+			window = commitWindowTo(window, classifier.ManifestSHA256())
 			testCase.mutate(&window.After)
 			_, err := window.Delta(classifier)
 			if err == nil {
@@ -248,6 +271,7 @@ func TestUnexpectedStatementFailsClosed(t *testing.T) {
 		ObserverStructuralRow{StrictASTSHA256: intruder, TopLevel: true, Calls: 1})
 	sortStructural(window.After.Structural)
 	window.After.Total++
+	window = commitWindowTo(window, classifier.ManifestSHA256())
 	delta, err := window.Delta(classifier)
 	if err != nil {
 		t.Fatalf("delta: %v", err)
@@ -274,6 +298,7 @@ func TestSameTotalInternalSubstitutionFails(t *testing.T) {
 		}
 	}
 	sortStructural(window.After.Structural)
+	window = commitWindowTo(window, classifier.ManifestSHA256())
 	delta, err := window.Delta(classifier)
 	if err != nil {
 		t.Fatalf("delta: %v", err)
@@ -312,6 +337,7 @@ func TestSameTotalControlSubstitutionFails(t *testing.T) {
 		}
 	}
 	sortStructural(window.After.Structural)
+	window = commitWindowTo(window, classifier.ManifestSHA256())
 	delta, err := window.Delta(classifier)
 	if err != nil {
 		t.Fatalf("delta: %v", err)
@@ -342,6 +368,7 @@ func TestMissingAndExtraControlsBothFail(t *testing.T) {
 					window.After.Total += adjust
 				}
 			}
+			window = commitWindowTo(window, classifier.ManifestSHA256())
 			delta, err := window.Delta(classifier)
 			if err != nil {
 				t.Fatalf("delta: %v", err)
@@ -360,6 +387,7 @@ func TestUnaccountedRoleCallFails(t *testing.T) {
 	window.After.Total += 5
 	// Validate would catch this on its own, so bypass it by adding a row the
 	// classifier knows nothing about and then correcting only the total.
+	window = commitWindowTo(window, classifier.ManifestSHA256())
 	if _, err := window.Delta(classifier); err == nil {
 		t.Fatal("a role total exceeding the census was accepted")
 	}
@@ -369,6 +397,7 @@ func TestWindowRejectsCountsGoingBackwards(t *testing.T) {
 	window, classifier, _ := pairedNovelWindow(t)
 	window.Before = window.After
 	window.After = snapshotOf(t, "after", nil)
+	window = commitWindowTo(window, classifier.ManifestSHA256())
 	if _, err := window.Delta(classifier); err == nil {
 		t.Fatal("a census that shrank across the window was accepted")
 	}
@@ -440,6 +469,9 @@ func TestWindowIdentitiesMustMatchAcrossThePair(t *testing.T) {
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			window, classifier, _ := pairedNovelWindow(t)
+			// Committed first, then mutated: the mutation is the thing under
+			// test, and stamping afterwards would undo it for the manifest case.
+			window = commitWindowTo(window, classifier.ManifestSHA256())
 			testCase.mutate(&window.After)
 			_, err := window.Delta(classifier)
 			if err == nil {
@@ -465,6 +497,7 @@ func TestWindowRequiresOneBeforeAndOneAfter(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			window, classifier, _ := pairedNovelWindow(t)
 			window.Before.Phase, window.After.Phase = testCase.before, testCase.after
+			window = commitWindowTo(window, classifier.ManifestSHA256())
 			if _, err := window.Delta(classifier); err == nil {
 				t.Fatal("a window without one before and one after was accepted")
 			}
@@ -511,5 +544,37 @@ func TestOperationBindingIsOptionalButTyped(t *testing.T) {
 	snapshot.OperationBindingSHA256 = ""
 	if err := snapshot.Validate(); err != nil {
 		t.Fatalf("an absent operation binding must be legal: %v", err)
+	}
+}
+
+// A window classified by a manifest it was not opened under is refused.
+//
+// This is the case that makes the sealed digest a commitment rather than a
+// decoration. Every other window test stamps the commitment through
+// commitWindowTo, so without this one the requirement could be satisfied by that
+// helper existing rather than by Delta enforcing it -- and a classification
+// chosen after the observations would pass unnoticed.
+func TestAWindowClassifiedByAnUncommittedManifestIsRefused(t *testing.T) {
+	window, classifier, _ := pairedNovelWindow(t)
+	// The window is honest and would classify cleanly; only the commitment is
+	// somebody else's.
+	if _, err := window.Delta(classifier); err != nil {
+		t.Fatalf("the baseline window does not classify, so this case proves nothing: %v", err)
+	}
+	uncommitted := commitWindowTo(window, strings.Repeat("5", 64))
+	_, err := uncommitted.Delta(classifier)
+	if err == nil {
+		t.Fatal("a window opened under one classifier was classified by another")
+	}
+	if !strings.Contains(err.Error(), "committed") {
+		t.Fatalf("the rejection %q does not say the classification was not the committed one", err)
+	}
+	// And the direction that matters most: an observer window opened under NO
+	// manifest at all cannot be classified by any.
+	none := window
+	none.Before.ClassifierManifestSHA256 = ""
+	none.After.ClassifierManifestSHA256 = ""
+	if _, err := none.Delta(classifier); err == nil {
+		t.Fatal("a window that committed to no classifier at all was classified")
 	}
 }
