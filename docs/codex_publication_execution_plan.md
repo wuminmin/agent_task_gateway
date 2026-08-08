@@ -81,8 +81,9 @@
   分支限定列解析不到）。**Baseline 能力因此拿不到。**
 - 在线 inner equijoin 未实现（需要 qualified-column 解析 + 双源 provenance 重建），
   论文当前把 Join 限定为 algebra/oracle-only。
-- 5 个 `internal/gateway` 测试在接真库时失败（`provsql-orders-v1` publication 无法
-  持久化），历史遗留，非本次引入。
+- ~~5 个 `internal/gateway` 测试在接真库时失败~~ —— **已被 P0.2 推翻**：祖先提交
+  `81bab97` 已修复该 5 项，带库 gateway 全包复跑无失败（需 `-timeout=60m`，
+  默认 10m 会超时）。P2.6 相应作废，见台账 P0.2 行。
 - 契约 release 停在 v1.4；能力 6/9；`artifactRealSystemValidated=false`；
   11 个 profile 全部 `targeted_validation_passed=false`；`.NOT_READY` 在位；
   无 Campaign ID；论文数字未更新。
@@ -388,6 +389,41 @@ DataPort / Code Ocean（非强制，但对这篇是加分）。
   （历史上 18/19/21/22/25 曾缺失，现已补齐 —— 确认没有再退化）。
 - **PX.4** README 按 `codex_taskgate_tkde_revision_plan.md` §Phase 10 的顺序整理。
 
+**PX.5 修复 skip 审计器的陈旧 allowlist（优先做——它让门禁 exit 1，挡住下游一切）**
+
+- **裁决（2026-08-09，作者）：这不是红线违规，不是绕过，也不是范围蔓延。**
+  `evaluation/cmd/final-v5-dbtest-report` 的 allowlist 是**设计成可扩展的**：每条
+  allowance 必须带 `Category`、`ReasonSubstring`、`Why`、`Scope` 和 `DeferredUntil`。
+  构成绕过的是**无期限、无理由**的条目；带到期里程碑的条目是"被排期的债"，
+  正是该审计器要的东西。红线 9 的措辞是"**冻结时**"skip 不记为通过——现在是 P1a，
+  不是 P4。
+- **根因**：`017e73a`（记录 v1.4 全新活体激活）写入了
+  `config/profiles/activation-support-v1.json`，**翻转了这一对测试能跑的那一半**，
+  却没同步 allowlist。于是：
+  - `TestRegistryClaimsNoSupportWithoutAManifest` 现在 skip 且**无 allowance** ⇒ 审计 exit 1；
+  - 反过来，四条兄弟 allowance（`TestCommittedManifestSupportsExactly…`、
+    `TestCommittedRegistryMatchesTheManifest`、
+    `TestResultHeavyCarriesTheCurrentReleaseActivationEvidence`、
+    `TestCommittedManifestCarriesNoSecretsOrBusinessData`）现在**匹配不到任何 skip**，
+    其 `Why` 写着"manifest 产生于本 HEAD 之后的 release"——这句话现在是**假的**，
+    manifest 就产生于本 release。审计器抓不到这一半。
+- **三部分修复，缺一不可**：
+  1. **补 allowance**：给 `TestRegistryClaimsNoSupportWithoutAManifest` 加条目，
+     `DeferredUntil: DeferredContractsV15Freeze`——P4 删除 manifest 后它必然运行且
+     必须通过，这是真实到期日不是永久豁免。`SkipEvidenceNotYetProduced` 这个类别
+     **词不达意**（它跳过恰恰因为证据*存在*），需要新类别，例如
+     `SkipPremiseExcludedByState`：树当前不处于该测试断言的那个状态。
+  2. **清理四条陈旧 allowance**：那四个测试现在真的在跑并通过，条目应删除而非改写。
+  3. **补审计器自身的洞**：报告"匹配不到任何 skip 的 allowance"。目前只有
+     `ReasonSubstring` 变化会被发现，allowance 整条空转不会。补上之后，
+     未来任何一次状态翻转都会当场暴露，而不是留下一条静默豁免。
+- **更强的做法（推荐一并做）**：该文件已有 `t.TempDir()` + `writeFixtureDocument`
+  的 fixture 模式。用它加一个**不依赖仓库状态**的测试，直接证明机制
+  （无 manifest ⇒ registry 不得声称任何 support），于是这条不变式**现在**就有覆盖，
+  而仓库态那条测试的 skip 退化为一个有期限的义务。这把"覆盖空洞"变成"覆盖 + 排期"。
+- **验收**：审计器 `accepted: true` 退出 0；把新旧两份报告 SHA-256 都写进台账。
+- **单独提交**，不要混进 P1a.2。
+
 ---
 
 ## 6. 需要你（作者/操作员）提供的输入 — 阻塞清单
@@ -510,6 +546,8 @@ make paper-final-check       # 干净树 + final 模式 + evidence.tex 无 diff
 | P6.4 安全/fuzz | TODO | | 先确认 TKDE 是否依赖 |
 | P7.1–P7.9 论文与投稿 | TODO | | |
 | PX.1–PX.4 支线 | TODO | | |
+| PX.5 skip 审计器陈旧 allowlist | TODO | 2026-08-09 提出 | Codex 按红线停在此处，**裁决为非违规**；根因是 `017e73a` 翻转状态未同步 allowlist。三部分修复见 §5 PX.5，单独提交 |
+| P2.6 修 5 个带库测试 | DROPPED | 2026-08-09 | 前提不成立：`81bab97` 已修复，P0.2 复跑无失败 |
 | P0.1 环境自检 | DONE | 2026-08-09 | `export GOFLAGS=-buildvcs=false`; `docker version`: Client/Server 29.1.3, Server Docker Desktop 4.55.0; `go version`: `go1.25.12 linux/amd64`; `./scripts/db-test-env.sh up` 达到 `Running 12/12`; `eval "$(./scripts/db-test-env.sh env)"`; `./scripts/db-test-env.sh verify`: control/business `server_version_num=160014  OK`, `taskgate_ordinal relations=31  OK` |
 | P0.2 带库全量回归 | DONE | 2026-08-09 | 基线采集完成，**原始全量未通过**：在已 `eval "$(./scripts/db-test-env.sh env)"` 的同一 shell 中，`gofmt -l $(git ls-files '*.go')` 非空：`internal/control/execution_binding.go`（起始 HEAD 已存在，引入于 `9f59b0cf`）；`go build ./...` 与 `go vet ./...` 均 exit 0；`go test -count=1 ./...` exit 1：`TestBenchmarkProbeRenameIsSemanticsPreserving` / `TestReservedKeywordCTEIsRejectedByPostgreSQL` 均报 `schema "final_v5_benchmark" already exists`，`internal/gateway` 在默认 10m 超时，当时正运行 `TestLiveV10PreStateChangedBetweenPreparationAndReservation` 的 `snapshotbundle.Compile` / `VerifyColdDictionary`。原因已查清：`db-test-env.sh env` 导出的 SQL-check DSN 指向已含 benchmark schema 的模板库，而脚本 `test` 分支明确不导出它；同分支也明确为真库 gateway 套件加 60m timeout。诊断复跑 `go test -timeout=60m -count=1 ./internal/gateway/...` exit 0：`ok taskbound.local/agent-data-gateway/internal/gateway 2442.799s`。计划 §3/P2.6 所称当前 5 个 publication 失败与当前 HEAD 冲突：祖先提交 `81bab97` 已修复该 5 项，本次 gateway 全包复跑也无失败。遗留：gofmt 非空与 P0.2 配方的 SQL-check DSN/default-timeout 冲突；未伪装为通过。 |
 | P0.3 门禁基线 | DONE | 2026-08-09 | 干净 shell（`GOFLAGS=-buildvcs=false`，未设 SQL-check DSN）中 `./evaluation/final-v5-wsl2/scripts/validate.sh` exit 0：protocol/config/schema、profile regeneration、11-profile activation consistency 和 Pilot harness 均报 `pass`；**`contract SQL executability: SKIPPED (TASKGATE_FINAL_V5_SQLCHECK_ADMIN_DSN is not set)`，明确不记为通过**。`go test ./evaluation/internal/experiment/ -run 'V14|Cutover|ProductionCallers' -v` exit 0，5 个顶层测试全部实际 PASS、无 SKIP；`TestV3CutoverIsBlockedByTheUnwiredFinalizer` 存在且 PASS。`TestFinalizeObservationV3HasProductionCallers` 日志仍指出 Scale/ProvSQL 无 v3 production caller，因此 blocker PASS 表示切换未完成，不表示 cutover 完成。 |
