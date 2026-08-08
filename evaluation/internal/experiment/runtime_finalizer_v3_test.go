@@ -67,7 +67,8 @@ func honestCandidate(t *testing.T) frozenOperationCandidateV3 {
 	operation := prepareOperationV3(t)
 	return frozenOperationCandidateV3{
 		OperationID: finalizerOperationID, ContractIdentity: finalizerContract,
-		ProfileID: "result-heavy", Plan: operation.Material.Plan, Grant: operation.Material.Grant,
+		ProfileID: "result-heavy", PathKind: PathPairedNovel,
+		Plan: operation.Material.Plan, Grant: operation.Material.Grant,
 	}
 }
 
@@ -194,5 +195,52 @@ func TestAnUnverifiableReceiptNeverReachesTheRegistry(t *testing.T) {
 	if _, err := finalizer.FinalizeTaskGateObservationV3(context.Background(),
 		FinalizationRequestV3{Receipt: receipt, Carried: carriedFor(t, finalizerInputs(t))}); err == nil {
 		t.Fatal("an unverifiable receipt was finalized")
+	}
+}
+
+// The property the pre-registration rests on: the classification committed
+// BEFORE the operation ran is the one finalization derives AFTER it ran.
+//
+// If these two could differ, the digest sealed into the observer window would be
+// a commitment to nothing -- every sample would fail, or worse, the finalizer
+// would have to accept whichever one it liked. They agree because the manifest
+// keys on structural statement identity, which is invariant to the row limits
+// the authorizer renders from the operation's real ledger state.
+func TestThePreRegisteredClassificationIsTheOneFinalizationDerives(t *testing.T) {
+	honest := honestCandidate(t)
+	finalizer := runtimeFinalizerFor(t, honest)
+
+	committed, err := finalizer.OpenObserverWindowV3(context.Background(),
+		FrozenContractSelectorV3{ExperimentID: "artifact", WorkloadID: "result-heavy"})
+	if err != nil {
+		t.Fatalf("pre-register the classification: %v", err)
+	}
+
+	// What finalization independently derives for the same operation, from the
+	// operation's real pre-state rather than a nominal one.
+	derived := carriedFor(t, finalizerInputs(t)).ClassifierManifestSHA256
+	if committed != derived {
+		t.Fatalf("the classification committed before the window is %s but finalization derives %s;\n"+
+			"the digest sealed into the observer window would be a commitment to a different standard",
+			committed, derived)
+	}
+}
+
+// Pre-registration needs the selector to name one operation, because there is no
+// signature yet to identify it by. An ambiguous selector is refused rather than
+// resolved, so a window is never opened against a classification that might
+// belong to another cell.
+func TestPreRegistrationRefusesAnAmbiguousSelector(t *testing.T) {
+	first := honestCandidate(t)
+	second := first
+	second.OperationID = "a-second-cell"
+	finalizer := runtimeFinalizerFor(t, first, second)
+	if _, err := finalizer.OpenObserverWindowV3(context.Background(),
+		FrozenContractSelectorV3{ExperimentID: "artifact"}); err == nil {
+		t.Fatal("a classification was pre-registered for a selector naming two operations")
+	}
+	if _, err := runtimeFinalizerFor(t).OpenObserverWindowV3(context.Background(),
+		FrozenContractSelectorV3{ExperimentID: "artifact"}); err == nil {
+		t.Fatal("a classification was pre-registered for a selector naming none")
 	}
 }

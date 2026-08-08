@@ -88,8 +88,14 @@ type frozenOperationCandidateV3 struct {
 	OperationID      string
 	ContractIdentity string
 	ProfileID        string
-	Plan             queryplan.QueryPlan
-	Grant            physicalquery.Grant
+	// PathKind is the execution path the contract defines for this cell. It is
+	// needed BEFORE the operation runs, to pre-register the classification, and
+	// it is a contract fact rather than an observation: a cell that then takes a
+	// different path fails finalization, which is the correct outcome and not a
+	// defect in the commitment.
+	PathKind GatewayPathKind
+	Plan     queryplan.QueryPlan
+	Grant    physicalquery.Grant
 }
 
 // profileMaterialV3 is one activated deployment profile's immutable material.
@@ -354,5 +360,87 @@ func (finalizer *RuntimeFinalizerV3) identifyOperation(request FinalizationReque
 		return frozenOperationCandidateV3{}, FrozenOperationMaterialV3{},
 			fmt.Errorf("%v all reproduce the signed execution, so the evidence does not say which ran",
 				names)
+	}
+}
+
+// OpenObserverWindowV3 is the pre-registration step, and it runs BEFORE the
+// operation does.
+//
+// # Why the classification is committed before the observations exist
+//
+// The observer is invoked with the digest of the classifier manifest its window
+// will be judged against, and it seals that digest into the snapshot. So the
+// question "which statements counted as expected" is answered before there are
+// any statements to look at.
+//
+// Without that, the manifest could be built after the window closed -- from a
+// derivation that has already seen what ran. Nothing in the resulting evidence
+// would distinguish "the observations matched the classification" from "the
+// classification was chosen to match the observations", and that is the standard
+// objection to any measurement whose analysis is fixed after the data.
+//
+// It is the FINALIZER that computes it, for the same reason it computes
+// everything else: a manifest the measured party chose is a standard the
+// measured party set.
+//
+// # Why a nominal pre-state is sound here
+//
+// The manifest keys on the STRUCTURAL identity of each target statement, and
+// structure is invariant to the row limits the authorizer renders -- the limits
+// are literals, which the strict AST digest normalizes away. So the statements
+// can be derived against a nominal ledger state before the real one exists.
+//
+// This is not taken on trust. FinalizeObservationV3 rebuilds the manifest from
+// the operation's REAL pre-state and requires the carried digest to equal it, so
+// an assumption that turned out to be false shows up as a rejected sample rather
+// than as a commitment that quietly meant nothing.
+//
+// # Why the selector decides here, and does not later
+//
+// There is no receipt yet, so there is no signature to identify the operation
+// by; the selector has to name exactly one candidate. That is a real difference
+// from finalization, where a wrong selector cannot cause a wrong acceptance --
+// and it does not weaken the result, because a selector that named the wrong
+// cell produces a manifest that the finalization then rebuilds differently and
+// rejects.
+func (finalizer *RuntimeFinalizerV3) OpenObserverWindowV3(ctx context.Context,
+	selector FrozenContractSelectorV3) (string, error) {
+	if finalizer == nil {
+		return "", errors.New("opening an observer window requires an opened runtime finalizer")
+	}
+	candidates, err := finalizer.contracts.ResolveCandidates(selector)
+	if err != nil {
+		return "", fmt.Errorf("resolve frozen contract candidates for %s: %w", selector, err)
+	}
+	if len(candidates) != 1 {
+		return "", fmt.Errorf("pre-registering a classification requires the selector to name exactly one "+
+			"frozen operation; %s names %d", selector, len(candidates))
+	}
+	candidate := candidates[0]
+	profile, err := finalizer.profiles.Resolve(candidate.ProfileID)
+	if err != nil {
+		return "", fmt.Errorf("resolve deployment profile %q: %w", candidate.ProfileID, err)
+	}
+	postgres, err := finalizer.runtime.ReadPostgreSQLIdentity(ctx)
+	if err != nil {
+		return "", fmt.Errorf("read the deployment's PostgreSQL identity: %w", err)
+	}
+	footprint, err := finalizer.footprints.Resolve(profile.CatalogPath, postgres)
+	if err != nil {
+		return "", fmt.Errorf("resolve the qualified Attestation footprint: %w", err)
+	}
+	material := frozenOperationMaterialV3ForCandidate(candidate, profile)
+	visibleSQL, companionSQL, err := prepareNominalStatementsV3(material)
+	if err != nil {
+		return "", err
+	}
+	return classifierManifestDigestV3(candidate, profile, footprint, visibleSQL, companionSQL)
+}
+
+func frozenOperationMaterialV3ForCandidate(candidate frozenOperationCandidateV3,
+	profile profileMaterialV3) FrozenOperationMaterialV3 {
+	return FrozenOperationMaterialV3{
+		CatalogPath: profile.CatalogPath, SnapshotArtifactDir: profile.SnapshotArtifactDir,
+		Plan: candidate.Plan, Grant: candidate.Grant,
 	}
 }

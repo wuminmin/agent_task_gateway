@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"taskbound.local/agent-data-gateway/internal/catalog"
+	"taskbound.local/agent-data-gateway/internal/catalogschema"
 	"taskbound.local/agent-data-gateway/internal/physicalquery"
 	"taskbound.local/agent-data-gateway/internal/preparedbinding"
 	"taskbound.local/agent-data-gateway/internal/querybinding"
@@ -342,4 +343,95 @@ func boolCountV3(value bool) int {
 		return 1
 	}
 	return 0
+}
+
+// prepareNominalStatementsV3 derives the executed statements against a nominal
+// ledger state, for the pre-registration step that has no real one yet.
+//
+// The state is nominal in its NUMBERS only. The statements it produces are the
+// statements the operation will execute, differing at most in the row limits
+// rendered into them -- and the strict AST digest, which is what the classifier
+// keys on, normalizes those away. See OpenObserverWindowV3 for why that is
+// sound and for what would happen if it were not.
+func prepareNominalStatementsV3(material FrozenOperationMaterialV3) (string, string, error) {
+	if err := material.Validate(); err != nil {
+		return "", "", err
+	}
+	logicalCatalog, err := catalog.Load(material.CatalogPath)
+	if err != nil {
+		return "", "", fmt.Errorf("load activated Profile Catalog: %w", err)
+	}
+	view, err := physicalquery.CatalogViewFromCatalog(*logicalCatalog)
+	if err != nil {
+		return "", "", fmt.Errorf("build catalog view: %w", err)
+	}
+	inputs := physicalquery.PreparationInputs{Plan: material.Plan, Grant: material.Grant, Catalog: view}
+	if material.Grant.UsesOrdinalProgram() {
+		bindings, bindingErr := snapshotBindingsFromArtifactsV3(*logicalCatalog, material.SnapshotArtifactDir)
+		if bindingErr != nil {
+			return "", "", bindingErr
+		}
+		inputs.SnapshotBindings = bindings
+	}
+	prepared, err := physicalquery.Prepare(inputs)
+	if err != nil {
+		return "", "", fmt.Errorf("prepare the frozen operation: %w", err)
+	}
+	visibleSQL, companionSQL, err := prepared.ExecutableStatements()
+	if err != nil {
+		return "", "", err
+	}
+	// One evidence row is the smallest state that renders both statements. It is
+	// deliberately not the operation's real budget: using a plausible-looking one
+	// would invite a reader to think the numbers matter.
+	nominal := physicalquery.LedgerPreState{
+		RemainingRows: 1, InfluenceFacts: 1,
+		UsesExpandedEvidence: prepared.Binding().UsesExpandedEvidence(),
+		HasExposureContext:   material.Grant.ExposureEnabled(),
+	}
+	derivation, err := physicalquery.Derive(sqlpolicy.New(sqlpolicy.Config{}), StrictASTDigest,
+		physicalquery.Request{VisibleSQL: visibleSQL, CompanionSQL: companionSQL,
+			Grant: prepared.PolicyGrant(), State: nominal})
+	if err != nil {
+		return "", "", fmt.Errorf("authorize the frozen operation against a nominal pre-state: %w", err)
+	}
+	visible := derivation.VisibleDecision.SQL
+	companion := ""
+	if derivation.CompanionDecision != nil {
+		companion = derivation.CompanionDecision.SQL
+	}
+	return visible, companion, nil
+}
+
+// classifierManifestDigestV3 builds the manifest the observer window commits to.
+//
+// It is the same construction FinalizeObservationV3 performs after the fact,
+// reached through the same functions, so the two agree by sharing code rather
+// than by two implementations happening to match.
+func classifierManifestDigestV3(candidate frozenOperationCandidateV3, profile profileMaterialV3,
+	footprint AttestationFootprintV2, visibleSQL, companionSQL string) (string, error) {
+	logicalCatalog, err := catalog.Load(profile.CatalogPath)
+	if err != nil {
+		return "", fmt.Errorf("load activated Profile Catalog: %w", err)
+	}
+	built, err := catalogschema.Build(logicalCatalog)
+	if err != nil {
+		return "", fmt.Errorf("build ExpectedSchema: %w", err)
+	}
+	plan, err := planFor(candidate.PathKind, built.Count, built.Digest, footprint)
+	if err != nil {
+		return "", fmt.Errorf("derive control plan: %w", err)
+	}
+	targets, err := deriveTargets(IndependentInputsV3{
+		PathKind: candidate.PathKind, ContractIdentity: candidate.ContractIdentity,
+		VisibleSQL: visibleSQL, CompanionSQL: companionSQL,
+	}, StrictASTDigest)
+	if err != nil {
+		return "", err
+	}
+	manifest, err := BuildClassifierManifestV2(plan, &footprint, targets)
+	if err != nil {
+		return "", fmt.Errorf("build classifier manifest: %w", err)
+	}
+	return manifest.SHA256()
 }
