@@ -25,7 +25,7 @@ type gateCase struct {
 }
 
 func (c gateCase) finalize() (FinalizationV3, error) {
-	return FinalizeTaskGateObservationV3(c.receipt, c.verifier, c.carried, c.trusted)
+	return finalizeTaskGateObservationV3Core(c.receipt, c.verifier, c.carried, c.trusted)
 }
 
 func trustedFrom(t *testing.T, inputs IndependentInputsV3) TrustedInputsV3 {

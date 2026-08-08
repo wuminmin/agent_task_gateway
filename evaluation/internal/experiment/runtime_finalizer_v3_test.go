@@ -1,0 +1,198 @@
+package experiment
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	fixture "taskbound.local/agent-data-gateway/internal/testfixture/queryreceiptv10"
+)
+
+// The finalizer's collaborators, as deterministic test doubles. They stand in
+// for a contract registry, a deployment profile, retained qualification
+// evidence, the running database and the Control Store.
+type (
+	stubContracts struct {
+		candidates []FrozenOperationCandidateV3
+		err        error
+	}
+	stubProfiles  struct{ material ProfileMaterialV3 }
+	stubFootprint struct{ footprint AttestationFootprintV2 }
+	stubRuntime   struct{ identity PostgreSQLRuntimeIdentity }
+	stubControl   struct{ state RequestSettlementStateV3 }
+)
+
+func (s stubContracts) ResolveCandidates(FrozenContractSelectorV3) ([]FrozenOperationCandidateV3, error) {
+	return s.candidates, s.err
+}
+func (s stubProfiles) Resolve(string) (ProfileMaterialV3, error) { return s.material, nil }
+func (s stubFootprint) Resolve(string, PostgreSQLRuntimeIdentity) (AttestationFootprintV2, error) {
+	return s.footprint, nil
+}
+func (s stubRuntime) ReadPostgreSQLIdentity(context.Context) (PostgreSQLRuntimeIdentity, error) {
+	return s.identity, nil
+}
+func (s stubControl) ReadRequestState(context.Context, string, string) (RequestSettlementStateV3, error) {
+	return s.state, nil
+}
+
+// runtimeFinalizerFor builds a finalizer whose contract registry offers the
+// given candidates.
+func runtimeFinalizerFor(t *testing.T, candidates ...FrozenOperationCandidateV3) *RuntimeFinalizerV3 {
+	t.Helper()
+	operation := prepareOperationV3(t)
+	footprint, _ := realSchemaFootprint(t)
+	verifier, err := fixture.Verifier()
+	if err != nil {
+		t.Fatalf("verifier: %v", err)
+	}
+	finalizer, err := OpenRuntimeFinalizerV3(verifier,
+		stubContracts{candidates: candidates},
+		stubProfiles{material: ProfileMaterialV3{
+			CatalogPath:         operation.Material.CatalogPath,
+			SnapshotArtifactDir: operation.Material.SnapshotArtifactDir,
+		}},
+		stubFootprint{footprint: footprint},
+		stubRuntime{identity: testRuntimeIdentity()},
+		stubControl{state: RequestSettlementStateV3{WroteExecutionBindingRow: true}})
+	if err != nil {
+		t.Fatalf("open runtime finalizer: %v", err)
+	}
+	return finalizer
+}
+
+// honestCandidate is the frozen operation the receipt actually describes.
+func honestCandidate(t *testing.T) FrozenOperationCandidateV3 {
+	t.Helper()
+	operation := prepareOperationV3(t)
+	return FrozenOperationCandidateV3{
+		OperationID: finalizerOperationID, ContractIdentity: finalizerContract,
+		ProfileID: "result-heavy", Plan: operation.Material.Plan, Grant: operation.Material.Grant,
+	}
+}
+
+// A finalizer with no collaborator is not a degraded finalizer, it is one whose
+// trusted material would have to come from its caller.
+func TestOpenRuntimeFinalizerRefusesAMissingCollaborator(t *testing.T) {
+	verifier, err := fixture.Verifier()
+	if err != nil {
+		t.Fatalf("verifier: %v", err)
+	}
+	if _, err := OpenRuntimeFinalizerV3(verifier, nil, stubProfiles{}, stubFootprint{},
+		stubRuntime{}, stubControl{}); err == nil {
+		t.Fatal("a finalizer with no contract resolver was opened")
+	}
+	if _, err := OpenRuntimeFinalizerV3(nil, stubContracts{}, stubProfiles{}, stubFootprint{},
+		stubRuntime{}, stubControl{}); err == nil {
+		t.Fatal("a finalizer with no receipt verifier was opened")
+	}
+}
+
+// The selector is a hint. A caller that names the wrong cell gets a rejection,
+// never a finalization against the contract it named.
+//
+// This is what lets an Adapter supply the selector at all: it cannot be used to
+// choose which standard the evidence is judged by, because the standard is
+// chosen by agreeing with the Gateway's signature instead.
+func TestTheContractSelectorHasNoAuthority(t *testing.T) {
+	operation := prepareOperationV3(t)
+	options := operation.fixtureOptions()
+	options.Companion = operation.companionTarget()
+	receipt, err := fixture.PairedNovel(options)
+	if err != nil {
+		t.Fatalf("build the signed receipt: %v", err)
+	}
+	honest := honestCandidate(t)
+
+	// A registry that offers only an operation this receipt does not describe.
+	wrong := honest
+	wrong.OperationID = "some-other-operation"
+	wrong.Plan.Columns = []string{"row_id"}
+	finalizer := runtimeFinalizerFor(t, wrong)
+	_, err = finalizer.FinalizeTaskGateObservationV3(context.Background(), FinalizationRequestV3{
+		Receipt: receipt, Carried: carriedFor(t, finalizerInputs(t)),
+		ContractSelector: FrozenContractSelectorV3{ExperimentID: "artifact", WorkloadID: "result-heavy"},
+	})
+	if err == nil {
+		t.Fatal("the finalizer accepted a contract whose preparation the Gateway did not sign")
+	}
+
+	// And a registry offering the right one alongside the wrong one identifies
+	// the right one, without the selector distinguishing them.
+	finalizer = runtimeFinalizerFor(t, wrong, honest)
+	if _, err := finalizer.FinalizeTaskGateObservationV3(context.Background(), FinalizationRequestV3{
+		Receipt: receipt, Carried: carriedFor(t, finalizerInputs(t)),
+		ContractSelector: FrozenContractSelectorV3{ExperimentID: "artifact", WorkloadID: "result-heavy"},
+	}); err != nil {
+		t.Fatalf("the finalizer did not identify the operation the receipt describes: %v", err)
+	}
+}
+
+// Two contract cells that compile to one preparation leave the evidence unable
+// to say which ran, and the finalizer says so rather than picking.
+func TestAmbiguousContractCandidatesAreRefused(t *testing.T) {
+	operation := prepareOperationV3(t)
+	options := operation.fixtureOptions()
+	options.Companion = operation.companionTarget()
+	receipt, err := fixture.PairedNovel(options)
+	if err != nil {
+		t.Fatalf("build the signed receipt: %v", err)
+	}
+	first := honestCandidate(t)
+	second := first
+	second.OperationID = "a-second-cell-compiling-the-same-way"
+
+	finalizer := runtimeFinalizerFor(t, first, second)
+	_, err = finalizer.FinalizeTaskGateObservationV3(context.Background(), FinalizationRequestV3{
+		Receipt: receipt, Carried: carriedFor(t, finalizerInputs(t)),
+		ContractSelector: FrozenContractSelectorV3{ExperimentID: "artifact"},
+	})
+	if err == nil {
+		t.Fatal("the finalizer chose between two contracts the evidence cannot distinguish")
+	}
+}
+
+// A registry that offers nothing is a finalization failure, not a lookup miss:
+// the receipt describes an operation no frozen contract defines.
+func TestAnUndefinedOperationIsRefused(t *testing.T) {
+	operation := prepareOperationV3(t)
+	options := operation.fixtureOptions()
+	options.Companion = operation.companionTarget()
+	receipt, err := fixture.PairedNovel(options)
+	if err != nil {
+		t.Fatalf("build the signed receipt: %v", err)
+	}
+	for name, finalizer := range map[string]*RuntimeFinalizerV3{
+		"no candidates": runtimeFinalizerFor(t),
+		"a resolver that errs": func() *RuntimeFinalizerV3 {
+			f := runtimeFinalizerFor(t, honestCandidate(t))
+			f.contracts = stubContracts{err: errors.New("registry unavailable")}
+			return f
+		}(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := finalizer.FinalizeTaskGateObservationV3(context.Background(),
+				FinalizationRequestV3{Receipt: receipt, Carried: carriedFor(t, finalizerInputs(t))}); err == nil {
+				t.Fatal("acceptance succeeded with no frozen contract behind it")
+			}
+		})
+	}
+}
+
+// An unverifiable receipt is refused before any material is fetched, so a forged
+// document cannot even cause a contract lookup.
+func TestAnUnverifiableReceiptNeverReachesTheRegistry(t *testing.T) {
+	operation := prepareOperationV3(t)
+	options := operation.fixtureOptions()
+	options.Companion = operation.companionTarget()
+	receipt, err := fixture.PairedNovel(options)
+	if err != nil {
+		t.Fatalf("build the signed receipt: %v", err)
+	}
+	receipt.Signature = "not-the-signature-that-was-made"
+	finalizer := runtimeFinalizerFor(t, honestCandidate(t))
+	if _, err := finalizer.FinalizeTaskGateObservationV3(context.Background(),
+		FinalizationRequestV3{Receipt: receipt, Carried: carriedFor(t, finalizerInputs(t))}); err == nil {
+		t.Fatal("an unverifiable receipt was finalized")
+	}
+}

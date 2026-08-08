@@ -165,8 +165,13 @@ func pathKindForBinding(kind querybinding.PathKind) (GatewayPathKind, error) {
 	}
 }
 
-// FinalizeTaskGateObservationV3 is the production acceptance entry point, and
-// the only one. Every TaskGate call site reaches acceptance through it.
+// finalizeTaskGateObservationV3Core adjudicates one operation.
+//
+// It is package-private, and that is the boundary. It takes TrustedInputsV3,
+// which is the finalizer's own answer, so any caller able to reach it could
+// supply that answer -- and the party whose claim is being checked is a caller
+// like any other once the function is exported. RuntimeFinalizerV3 is the public
+// entry point; it constructs the trusted inputs and then calls this.
 //
 // The order is the point. The receipt is verified first, the path kind and the
 // signed target records are read from it, the Adapter's carried evidence is
@@ -175,7 +180,7 @@ func pathKindForBinding(kind querybinding.PathKind) (GatewayPathKind, error) {
 // point does an Adapter-supplied value feed a derivation, and the Adapter's own
 // verdict is never read at all -- there is no parameter through which it could
 // be passed.
-func FinalizeTaskGateObservationV3(receipt queryreceipt.QueryReceiptV1, verifier ReceiptVerifierV3,
+func finalizeTaskGateObservationV3Core(receipt queryreceipt.QueryReceiptV1, verifier ReceiptVerifierV3,
 	carried CarriedEvidenceV3, trusted TrustedInputsV3) (FinalizationV3, error) {
 	var result FinalizationV3
 

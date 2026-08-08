@@ -218,28 +218,23 @@ func TestNoActiveReferenceToV14Accounting(t *testing.T) {
 // is not a guard, it is a reminder that makes the suite red. The names it counts
 // are the ones the migration has to change.
 //
-// The three files it names are where the TaskGate workloads live, not
-// necessarily where the CALL will end up. An Adapter file cannot call the
-// wrapper directly -- TestAdapterCannotConstructTrustedInputs forbids it from
-// naming TrustedInputsV3 -- so acceptance has to be reached through a
-// finalizer-side entry point that constructs its own. Whichever shape the
-// migration takes, it is blocked on the missing shared target derivation pinned
-// by TestV3CutoverIsBlockedByTheUnsharedTargetDerivation.
+// The three files it names are where the TaskGate workloads live, and the call
+// they must make is RuntimeFinalizerV3.FinalizeTaskGateObservationV3 -- the
+// finalizer-side entry point that constructs its own trusted inputs. An Adapter
+// cannot call the core directly: the core is package-private, and
+// TestAdapterCannotConstructTrustedInputs forbids naming what it takes. The two
+// requirements used to look contradictory; the façade is what makes them one
+// design.
 func TestFinalizeObservationV3HasProductionCallers(t *testing.T) {
 	root := repositoryRoot(t)
-	wrapper := "FinalizeTaskGateObservationV3"
 	callers := map[string]bool{}
 	for _, path := range activeGoFiles(t, root) {
 		relative, _ := filepath.Rel(root, path)
 		relative = filepath.ToSlash(relative)
-		if relative == "evaluation/internal/experiment/finalize_taskgate_v3.go" {
+		if strings.HasPrefix(relative, "evaluation/internal/experiment/") {
 			continue
 		}
-		contents, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("read %s: %v", path, err)
-		}
-		if strings.Contains(string(contents), wrapper) {
+		if callsAcceptanceEntryPoint(t, path) {
 			callers[relative] = true
 		}
 	}
@@ -260,10 +255,43 @@ func TestFinalizeObservationV3HasProductionCallers(t *testing.T) {
 	}
 	// Not a failure yet: the migration that adds these callers is in progress,
 	// and the canary prerequisite -- not this test -- is what forbids measuring
-	// before it lands.
-	t.Logf("the v3 acceptance wrapper has no production caller in %v; "+
+	// before it lands. It becomes a hard failure with the third cutover.
+	t.Logf("the v3 acceptance entry point has no production caller in %v; "+
 		"the canary prerequisite in docs/final_v5_v3_runtime_integration_gates.md "+
 		"is not satisfied until all three call it", missing)
+}
+
+// callsAcceptanceEntryPoint reports whether a file contains a real call to the
+// acceptance entry point.
+//
+// It is an AST check over CallExpr rather than a substring search, and the
+// difference is not pedantry: the substring version accepted
+//
+//	// TODO: call FinalizeTaskGateObservationV3
+//
+// as a production caller, which is precisely the false positive a guard on
+// "acceptance is actually reached" must not have. A comment, a string literal
+// and a mention in a doc comment now all count for nothing.
+func callsAcceptanceEntryPoint(t *testing.T, path string) bool {
+	t.Helper()
+	fileSet := token.NewFileSet()
+	parsed, err := parser.ParseFile(fileSet, path, nil, 0)
+	if err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+	called := false
+	ast.Inspect(parsed, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		selector, ok := call.Fun.(*ast.SelectorExpr)
+		if ok && selector.Sel.Name == "FinalizeTaskGateObservationV3" {
+			called = true
+		}
+		return true
+	})
+	return called
 }
 
 func contains(values []string, want string) bool {
@@ -276,9 +304,14 @@ func contains(values []string, want string) bool {
 }
 
 // adapterPackages are the packages that produce evidence rather than accept it.
-// They may construct CarriedEvidenceV3 and nothing else: TrustedInputsV3 and
-// IndependentInputsV3 are the finalizer's own, and an Adapter that could build
+// They may construct CarriedEvidenceV3 and nothing else: everything in
+// trustedMaterialTypes is the finalizer's own, and an Adapter that could build
 // one would be supplying the material its claim is checked against.
+//
+// They reach acceptance through RuntimeFinalizerV3, which takes evidence and a
+// lookup hint and constructs the trusted material itself. That is what makes
+// this restriction satisfiable rather than a contradiction with the caller
+// requirement below.
 var adapterPackages = []string{
 	"evaluation/cmd/final-v5-adapter",
 	"evaluation/cmd/final-v5-observer",
@@ -286,7 +319,10 @@ var adapterPackages = []string{
 
 func TestAdapterCannotConstructTrustedInputs(t *testing.T) {
 	root := repositoryRoot(t)
-	forbidden := map[string]bool{"TrustedInputsV3": true, "IndependentInputsV3": true}
+	forbidden := map[string]bool{}
+	for _, name := range trustedMaterialTypes {
+		forbidden[name] = true
+	}
 
 	for _, pkg := range adapterPackages {
 		err := filepath.Walk(filepath.Join(root, pkg), func(path string, info os.FileInfo, err error) error {
