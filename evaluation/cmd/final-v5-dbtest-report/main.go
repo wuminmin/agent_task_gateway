@@ -174,7 +174,7 @@ var allowedSkips = []AllowedSkip{
 	},
 	{
 		Package: "taskbound.local/agent-data-gateway/evaluation/cmd/final-v5-activation-support",
-		Test:    "TestCommittedManifestSupportsExactlyTheSevenProvenProfiles", Category: SkipEvidenceNotYetProduced,
+		Test:    "TestCommittedManifestSupportsExactlyTheCurrentReleaseProvenProfiles", Category: SkipEvidenceNotYetProduced,
 		ReasonSubstring: "no activation support manifest for this contract release yet",
 		Why:             "not DB-backed; the activation-support manifest is produced at the contract release this HEAD precedes",
 		Scope:           phase0Scope, DeferredUntil: DeferredTargetedRunEligible,
@@ -190,7 +190,7 @@ var allowedSkips = []AllowedSkip{
 	},
 	{
 		Package: "taskbound.local/agent-data-gateway/evaluation/cmd/final-v5-activation-support",
-		Test:    "TestResultHeavyCarriesBothActivationEvidenceDigests", Category: SkipEvidenceNotYetProduced,
+		Test:    "TestResultHeavyCarriesTheCurrentReleaseActivationEvidence", Category: SkipEvidenceNotYetProduced,
 		ReasonSubstring: "no activation support manifest for this contract release yet",
 		Why:             "not DB-backed; same absent manifest",
 		Scope:           phase0Scope, DeferredUntil: DeferredTargetedRunEligible,

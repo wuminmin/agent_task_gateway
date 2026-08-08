@@ -67,9 +67,9 @@ type ProfileActivationSupport struct {
 	PublicationIdentities []string `json:"publication_identities,omitempty"`
 	ActivationSupported   bool     `json:"activation_supported"`
 	ActivationSmokePassed bool     `json:"activation_smoke_passed"`
-	// ActivationEvidenceSHA256 lists the redacted digests of the PASS activation
-	// evidence documents behind the claim. Result-heavy legitimately carries two
-	// (its initial activation and its switch-back).
+	// ActivationEvidenceSHA256 lists the redacted digests of all current-release
+	// PASS activation evidence documents behind the claim. A run with a
+	// switch-back can legitimately contribute more than one.
 	ActivationEvidenceSHA256 []string `json:"activation_evidence_sha256"`
 	// Reason is empty for a supported profile and is a structured explanation
 	// for an unsupported one.

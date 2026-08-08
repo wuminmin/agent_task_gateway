@@ -26,6 +26,7 @@ import (
 const (
 	registryPath     = "config/profiles/registry.json"
 	supportPath      = "config/profiles/activation-support-v1.json"
+	intersectionPath = "evaluation/final-v5-wsl2/profiles/product-intersection-v1.json"
 	routeMatrixPath  = "evaluation/final-v5-wsl2/profiles/outside-product-route-matrix-v1.json"
 	isolationPath    = "evaluation/final-v5-wsl2/profiles/semantic-cache-isolation-evidence-v1.json"
 	attestationsPath = "config/profiles/schema-attestations-v1.json"
@@ -65,11 +66,7 @@ func run(root, evidenceDir string, verifyOnly bool) error {
 	if evidenceDir == "" {
 		return errors.New("evidence-dir is required to generate the manifest")
 	}
-	matrix, matrixDigest, err := loadJSONWithDigest(filepath.Join(root, routeMatrixPath))
-	if err != nil {
-		return err
-	}
-	isolation, isolationDigest, err := loadJSONWithDigest(filepath.Join(root, isolationPath))
+	deployment, err := loadDeploymentEvidence(root, registry.ContractRelease)
 	if err != nil {
 		return err
 	}
@@ -92,12 +89,12 @@ func run(root, evidenceDir string, verifyOnly bool) error {
 		ProfileRegistrySHA256:                registryDigest,
 		ActivationImplementationAvailable:    true,
 		ActivationSmokeManifestSHA256:        smokeDigest,
-		OutsideProductRouteMatrixSHA256:      matrixDigest,
-		SemanticCacheIsolationEvidenceSHA256: isolationDigest,
-		OutsideProductRouteMatrixStatus:      stringField(matrix, "status"),
-		SemanticCacheIsolationStatus:         stringField(isolation, "status"),
-		SemanticCacheCatalogBound:            boolField(isolation, "semantic_cache_catalog_bound"),
-		OutsideProductRouteMatrixFailedCount: intField(matrix, "failed_probe_count"),
+		OutsideProductRouteMatrixSHA256:      deployment.matrixDigest,
+		SemanticCacheIsolationEvidenceSHA256: deployment.isolationDigest,
+		OutsideProductRouteMatrixStatus:      stringField(deployment.matrix, "status"),
+		SemanticCacheIsolationStatus:         stringField(deployment.isolation, "status"),
+		SemanticCacheCatalogBound:            boolField(deployment.isolation, "semantic_cache_catalog_bound"),
+		OutsideProductRouteMatrixFailedCount: intField(deployment.matrix, "failed_probe_count"),
 	}
 
 	for _, profile := range registry.Profiles {
@@ -288,6 +285,18 @@ func verifyCommitted(root string, registry finalv5profile.Registry) error {
 		return fmt.Errorf("activation support manifest pins contract %s, the registry is %s",
 			support.ContractRelease, registry.ContractRelease)
 	}
+	deployment, err := loadDeploymentEvidence(root, registry.ContractRelease)
+	if err != nil {
+		return err
+	}
+	if support.OutsideProductRouteMatrixSHA256 != deployment.matrixDigest ||
+		support.SemanticCacheIsolationEvidenceSHA256 != deployment.isolationDigest ||
+		support.OutsideProductRouteMatrixStatus != stringField(deployment.matrix, "status") ||
+		support.OutsideProductRouteMatrixFailedCount != intField(deployment.matrix, "failed_probe_count") ||
+		support.SemanticCacheIsolationStatus != stringField(deployment.isolation, "status") ||
+		support.SemanticCacheCatalogBound != boolField(deployment.isolation, "semantic_cache_catalog_bound") {
+		return errors.New("activation support manifest does not reproduce from the current-release deployment-wide evidence")
+	}
 	byID, err := support.SupportedProfiles()
 	if err != nil {
 		return err
@@ -349,6 +358,106 @@ func loadJSONWithDigest(path string) (map[string]any, string, error) {
 	}
 	digest := sha256.Sum256(payload)
 	return document, hex.EncodeToString(digest[:]), nil
+}
+
+type deploymentEvidence struct {
+	intersection, matrix, isolation                   map[string]any
+	intersectionDigest, matrixDigest, isolationDigest string
+}
+
+// loadDeploymentEvidence enforces the same release boundary as the per-profile
+// smoke. The route matrix and semantic-cache isolation records are execution
+// evidence too; carrying their PASS bits across a contract amendment would let a
+// fresh profile smoke silently inherit deployment-wide claims from an older
+// protocol.
+func loadDeploymentEvidence(root, contractRelease string) (deploymentEvidence, error) {
+	var evidence deploymentEvidence
+	var err error
+	evidence.intersection, evidence.intersectionDigest, err = loadJSONWithDigest(
+		filepath.Join(root, intersectionPath))
+	if err != nil {
+		return deploymentEvidence{}, err
+	}
+	if err := requireEvidenceContract("product-intersection matrix", evidence.intersection,
+		"contracts_version", contractRelease); err != nil {
+		return deploymentEvidence{}, err
+	}
+	evidence.matrix, evidence.matrixDigest, err = loadJSONWithDigest(filepath.Join(root, routeMatrixPath))
+	if err != nil {
+		return deploymentEvidence{}, err
+	}
+	if err := requireEvidenceContractRelease("outside-product route matrix", evidence.matrix,
+		contractRelease); err != nil {
+		return deploymentEvidence{}, err
+	}
+	evidence.isolation, evidence.isolationDigest, err = loadJSONWithDigest(filepath.Join(root, isolationPath))
+	if err != nil {
+		return deploymentEvidence{}, err
+	}
+	if err := requireEvidenceContractRelease("semantic-cache isolation evidence", evidence.isolation,
+		contractRelease); err != nil {
+		return deploymentEvidence{}, err
+	}
+	registryDigest := strings.TrimSpace(stringField(evidence.matrix, "profile_registry_sha256"))
+	if err := requireEvidenceSHA256("outside-product route matrix profile registry",
+		registryDigest); err != nil {
+		return deploymentEvidence{}, err
+	}
+	if err := requireEvidenceDigest("semantic-cache isolation profile registry",
+		stringField(evidence.isolation, "profile_registry_sha256"), registryDigest); err != nil {
+		return deploymentEvidence{}, err
+	}
+	if err := requireEvidenceDigest("outside-product route matrix product-intersection matrix",
+		stringField(evidence.matrix, "product_intersection_matrix_sha256"),
+		evidence.intersectionDigest); err != nil {
+		return deploymentEvidence{}, err
+	}
+	if err := requireEvidenceDigest("semantic-cache isolation product-intersection matrix",
+		stringField(evidence.isolation, "product_intersection_matrix_sha256"),
+		evidence.intersectionDigest); err != nil {
+		return deploymentEvidence{}, err
+	}
+	if err := requireEvidenceDigest("semantic-cache isolation outside-product route matrix",
+		stringField(evidence.isolation, "outside_product_route_matrix_sha256"),
+		evidence.matrixDigest); err != nil {
+		return deploymentEvidence{}, err
+	}
+	return evidence, nil
+}
+
+func requireEvidenceContractRelease(label string, document map[string]any, expected string) error {
+	return requireEvidenceContract(label, document, "contract_release", expected)
+}
+
+func requireEvidenceContract(label string, document map[string]any, field, expected string) error {
+	observed := strings.TrimSpace(stringField(document, field))
+	if observed == "" {
+		return fmt.Errorf("%s does not pin a contract release", label)
+	}
+	if observed != expected {
+		return fmt.Errorf("%s pins contract %s, current profile registry is %s; execution evidence does not carry across a contract release",
+			label, observed, expected)
+	}
+	return nil
+}
+
+func requireEvidenceDigest(label, observed, expected string) error {
+	observed = strings.TrimSpace(observed)
+	if err := requireEvidenceSHA256(label, observed); err != nil {
+		return err
+	}
+	if observed != expected {
+		return fmt.Errorf("%s pins %s, expected %s", label, observed, expected)
+	}
+	return nil
+}
+
+func requireEvidenceSHA256(label, observed string) error {
+	decoded, err := hex.DecodeString(observed)
+	if err != nil || len(decoded) != sha256.Size || hex.EncodeToString(decoded) != observed {
+		return fmt.Errorf("%s does not pin a lowercase SHA-256", label)
+	}
+	return nil
 }
 
 func fileSHA256(path string) (string, error) {

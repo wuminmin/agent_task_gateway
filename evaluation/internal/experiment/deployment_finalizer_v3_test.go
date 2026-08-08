@@ -58,18 +58,12 @@ func sourceControlledRegistryPath(t *testing.T) string {
 	return filepath.Join(repositoryRootForDeployment(t), "config", "profiles", "registry.json")
 }
 
-// deploymentProfilesForTest points the profile resolver at a registry that has
-// cleared the Result-heavy profile, and at everything else real: the
-// source-controlled Catalog, the retained publication artifacts, and a served
-// Catalog digest taken from the Catalog file itself.
-//
-// The registry is a copy with two flags flipped, and that is the honest shape of
-// this test rather than a convenience. At this HEAD the source-controlled
-// registry records NO live activation smoke for the profile -- activation
-// support does not carry across a contract release -- so the resolver refuses
-// it, which is what TestTheProfileResolverRefusesAnUncleared... asserts. Every
-// other input below is the real one, so what is being exercised is the
-// resolution, not the clearance.
+// deploymentProfilesForTest points the profile resolver at a copy of the
+// source-controlled registry with Result-heavy cleared, and at everything else
+// real: the Catalog, retained publication artifacts and a served Catalog digest
+// taken from the Catalog file itself. The copy keeps these resolver mechanics
+// independent of whether this checkout has recorded its release-specific live
+// smoke yet.
 func deploymentProfilesForTest(t *testing.T) deploymentProfilesV3 {
 	t.Helper()
 	root := repositoryRootForDeployment(t)
@@ -78,16 +72,18 @@ func deploymentProfilesForTest(t *testing.T) deploymentProfilesV3 {
 		t.Fatalf("digest the profile Catalog: %v", err)
 	}
 	return deploymentProfilesV3{
-		registryPath:        clearedRegistryPath(t),
+		registryPath:        registryPathWithResultHeavyClearance(t, true),
 		repositoryRoot:      root,
 		artifactDir:         retainedSnapshotArtifacts(t),
 		servedCatalogSHA256: digest,
 	}
 }
 
-// clearedRegistryPath writes a copy of the source-controlled registry with the
-// Result-heavy profile's activation clearances set, and returns its path.
-func clearedRegistryPath(t *testing.T) string {
+// registryPathWithResultHeavyClearance writes a registry copy with an explicit
+// Result-heavy clearance state. Positive and negative resolver tests therefore
+// exercise the same real registry material without hand-editing committed
+// readiness or depending on which activation evidence this release has recorded.
+func registryPathWithResultHeavyClearance(t *testing.T, clearance bool) string {
 	t.Helper()
 	payload, err := os.ReadFile(sourceControlledRegistryPath(t))
 	if err != nil {
@@ -98,21 +94,22 @@ func clearedRegistryPath(t *testing.T) string {
 		t.Fatalf("decode the profile registry: %v", err)
 	}
 	profiles, _ := registry["profiles"].([]any)
-	cleared := false
+	found := false
 	for _, entry := range profiles {
 		profile, _ := entry.(map[string]any)
 		if profile == nil || profile["alias"] != artifactDeploymentProfileAlias {
 			continue
 		}
-		profile["targeted_run_eligible"] = true
+		profile["targeted_run_eligible"] = clearance
 		status, _ := profile["status"].(map[string]any)
 		if status == nil {
 			t.Fatal("the registry profile carries no status")
 		}
-		status["activation_supported"] = true
-		cleared = true
+		status["activation_supported"] = clearance
+		status["activation_smoke_passed"] = clearance
+		found = true
 	}
-	if !cleared {
+	if !found {
 		t.Fatalf("the profile registry declares no %q profile", artifactDeploymentProfileAlias)
 	}
 	edited, err := json.Marshal(registry)
@@ -121,23 +118,17 @@ func clearedRegistryPath(t *testing.T) string {
 	}
 	path := filepath.Join(t.TempDir(), "registry.json")
 	if err := os.WriteFile(path, edited, 0o600); err != nil {
-		t.Fatalf("write the cleared registry: %v", err)
+		t.Fatalf("write the registry clearance fixture: %v", err)
 	}
 	return path
 }
 
-// The clearance gates are load bearing, and at this HEAD the source-controlled
-// registry does not pass them.
-//
-// That is not a defect in the registry: a contract release invalidates activation
-// support, and the Result-heavy profile's live activation smoke has not been run
-// against this one. What this asserts is that the finalizer refuses to resolve
-// material for an uncleared profile at all -- so a measured run cannot be used to
-// bootstrap the readiness it depends on, which is the same gate the Adapter's own
-// profile binding applies.
+// The clearance gates are load bearing. Removing the current-release activation
+// clearance from a registry copy must make resolution fail, so a measured run
+// cannot bootstrap the readiness it depends on.
 func TestTheProfileResolverRefusesAnUnclearedProfile(t *testing.T) {
 	profiles := deploymentProfilesForTest(t)
-	profiles.registryPath = sourceControlledRegistryPath(t)
+	profiles.registryPath = registryPathWithResultHeavyClearance(t, false)
 	_, err := profiles.Resolve(artifactDeploymentProfileAlias)
 	if err == nil {
 		t.Fatal("the finalizer resolved material for a profile with no recorded live activation smoke")

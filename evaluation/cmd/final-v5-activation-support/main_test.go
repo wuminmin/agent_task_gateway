@@ -48,16 +48,18 @@ func committedSupport(t *testing.T) finalv5profile.ActivationSupport {
 	return support
 }
 
-// The seven profiles that completed a live activation smoke are supported, and
-// the four that did not are not. This is the whole point of the change: a
-// working activator is not evidence about a profile it never activated.
-func TestCommittedManifestSupportsExactlyTheSevenProvenProfiles(t *testing.T) {
+// Only result-heavy has completed a live smoke under the current contract
+// release. Evidence from an earlier release does not carry forward, so every
+// other profile remains unsupported until it is activated again.
+func TestCommittedManifestSupportsExactlyTheCurrentReleaseProvenProfiles(t *testing.T) {
 	support := committedSupport(t)
-	proven := map[string]bool{"result-heavy": true, "provsql-nonce-join": true, "expense-detail": true,
-		"attack-expense-detail": true, "concurrency-expense-detail": true,
-		"rls-unlimited": true, "rls-bounded": true}
-	unproven := map[string]bool{"analytics-orders": true, "analytics-orders-lineitem": true,
-		"depth4-semantic-view": true, "exposure-scale": true}
+	proven := map[string]bool{"result-heavy": true}
+	unproven := map[string]bool{
+		"rls-unlimited": true, "expense-detail": true, "attack-expense-detail": true,
+		"rls-bounded": true, "concurrency-expense-detail": true, "depth4-semantic-view": true,
+		"analytics-orders-lineitem": true, "exposure-scale": true, "provsql-nonce-join": true,
+		"analytics-orders": true,
+	}
 
 	seen := map[string]bool{}
 	for _, profile := range support.Profiles {
@@ -93,19 +95,16 @@ func TestCommittedManifestSupportsExactlyTheSevenProvenProfiles(t *testing.T) {
 	}
 }
 
-// Result-heavy was activated twice in one smoke -- an initial activation and a
-// switch-back -- and both digests belong in its claim.
-func TestResultHeavyCarriesBothActivationEvidenceDigests(t *testing.T) {
+// Result-heavy's current-release claim is backed by the one live activation
+// smoke that established this release's targeted-run prerequisite.
+func TestResultHeavyCarriesTheCurrentReleaseActivationEvidence(t *testing.T) {
 	for _, profile := range committedSupport(t).Profiles {
 		if profile.ProfileAlias != "result-heavy" {
 			continue
 		}
-		if len(profile.ActivationEvidenceSHA256) != 2 {
-			t.Fatalf("result-heavy carries %d evidence digests, want 2 (activation and switch-back)",
+		if len(profile.ActivationEvidenceSHA256) != 1 {
+			t.Fatalf("result-heavy carries %d evidence digests, want 1 current-release activation",
 				len(profile.ActivationEvidenceSHA256))
-		}
-		if profile.ActivationEvidenceSHA256[0] == profile.ActivationEvidenceSHA256[1] {
-			t.Fatal("result-heavy's two evidence digests are the same document")
 		}
 		return
 	}
@@ -125,6 +124,203 @@ func TestRegistryClaimsNoSupportWithoutAManifest(t *testing.T) {
 			t.Errorf("%s claims activation support with no manifest for this release", profile.Alias)
 		}
 	}
+}
+
+func TestDeploymentEvidenceDoesNotCarryAcrossAContractRelease(t *testing.T) {
+	const current = "final-v5-contracts-v1.4"
+	for name, document := range map[string]map[string]any{
+		"missing release":  {},
+		"previous release": {"contract_release": "final-v5-contracts-v1.3"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := requireEvidenceContractRelease("route matrix", document, current); err == nil {
+				t.Fatal("deployment-wide execution evidence crossed a contract-release boundary")
+			}
+		})
+	}
+	if err := requireEvidenceContractRelease("route matrix",
+		map[string]any{"contract_release": current}, current); err != nil {
+		t.Fatalf("current-release deployment evidence was rejected: %v", err)
+	}
+}
+
+type deploymentEvidenceFixture struct {
+	root                 string
+	intersection, matrix map[string]any
+	isolation            map[string]any
+	intersectionDigest   string
+	matrixDigest         string
+	isolationDigest      string
+}
+
+func newDeploymentEvidenceFixture(t *testing.T, contractRelease string) *deploymentEvidenceFixture {
+	t.Helper()
+	fixture := &deploymentEvidenceFixture{root: t.TempDir()}
+	fixture.intersection = map[string]any{
+		"record":            "taskgate-final-v5-product-intersection-v1",
+		"contracts_version": contractRelease,
+	}
+	fixture.intersectionDigest = writeFixtureDocument(t, fixture.root, intersectionPath,
+		fixture.intersection)
+	fixture.matrix = map[string]any{
+		"record":                             "taskgate-final-v5-outside-product-route-matrix-v1",
+		"contract_release":                   contractRelease,
+		"profile_registry_sha256":            strings.Repeat("a", 64),
+		"product_intersection_matrix_sha256": fixture.intersectionDigest,
+		"status":                             "pass",
+		"failed_probe_count":                 0,
+	}
+	fixture.matrixDigest = writeFixtureDocument(t, fixture.root, routeMatrixPath, fixture.matrix)
+	fixture.isolation = map[string]any{
+		"record":                              "taskgate-final-v5-semantic-cache-isolation-evidence-v1",
+		"contract_release":                    contractRelease,
+		"profile_registry_sha256":             strings.Repeat("a", 64),
+		"product_intersection_matrix_sha256":  fixture.intersectionDigest,
+		"outside_product_route_matrix_sha256": fixture.matrixDigest,
+		"status":                              "pass",
+		"semantic_cache_catalog_bound":        true,
+	}
+	fixture.isolationDigest = writeFixtureDocument(t, fixture.root, isolationPath,
+		fixture.isolation)
+	return fixture
+}
+
+func writeFixtureDocument(t *testing.T, root, relativePath string, document map[string]any) string {
+	t.Helper()
+	payload, err := json.MarshalIndent(document, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload = append(payload, '\n')
+	path := filepath.Join(root, relativePath)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, payload, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	digest, err := fileSHA256(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return digest
+}
+
+func TestLoadDeploymentEvidenceRequiresAConsistentCurrentReleaseChain(t *testing.T) {
+	const current = "final-v5-contracts-v1.4"
+	if _, err := loadDeploymentEvidence(newDeploymentEvidenceFixture(t, current).root, current); err != nil {
+		t.Fatalf("valid current-release deployment evidence was rejected: %v", err)
+	}
+
+	for name, mutate := range map[string]func(*deploymentEvidenceFixture){
+		"intersection missing release": func(f *deploymentEvidenceFixture) {
+			delete(f.intersection, "contracts_version")
+			writeFixtureDocument(t, f.root, intersectionPath, f.intersection)
+		},
+		"intersection stale release": func(f *deploymentEvidenceFixture) {
+			f.intersection["contracts_version"] = "final-v5-contracts-v1.3"
+			writeFixtureDocument(t, f.root, intersectionPath, f.intersection)
+		},
+		"route matrix missing release": func(f *deploymentEvidenceFixture) {
+			delete(f.matrix, "contract_release")
+			writeFixtureDocument(t, f.root, routeMatrixPath, f.matrix)
+		},
+		"route matrix stale release": func(f *deploymentEvidenceFixture) {
+			f.matrix["contract_release"] = "final-v5-contracts-v1.3"
+			writeFixtureDocument(t, f.root, routeMatrixPath, f.matrix)
+		},
+		"isolation missing release": func(f *deploymentEvidenceFixture) {
+			delete(f.isolation, "contract_release")
+			writeFixtureDocument(t, f.root, isolationPath, f.isolation)
+		},
+		"isolation stale release": func(f *deploymentEvidenceFixture) {
+			f.isolation["contract_release"] = "final-v5-contracts-v1.3"
+			writeFixtureDocument(t, f.root, isolationPath, f.isolation)
+		},
+		"isolation names another route matrix": func(f *deploymentEvidenceFixture) {
+			f.isolation["outside_product_route_matrix_sha256"] = strings.Repeat("b", 64)
+			writeFixtureDocument(t, f.root, isolationPath, f.isolation)
+		},
+		"route matrix names another intersection matrix": func(f *deploymentEvidenceFixture) {
+			f.matrix["product_intersection_matrix_sha256"] = strings.Repeat("b", 64)
+			writeFixtureDocument(t, f.root, routeMatrixPath, f.matrix)
+		},
+		"isolation names another profile registry": func(f *deploymentEvidenceFixture) {
+			f.isolation["profile_registry_sha256"] = strings.Repeat("b", 64)
+			writeFixtureDocument(t, f.root, isolationPath, f.isolation)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fixture := newDeploymentEvidenceFixture(t, current)
+			mutate(fixture)
+			if _, err := loadDeploymentEvidence(fixture.root, current); err == nil {
+				t.Fatal("inconsistent deployment-wide evidence was accepted")
+			}
+		})
+	}
+}
+
+func unsupportedRegistry(contractRelease string) finalv5profile.Registry {
+	return finalv5profile.Registry{ContractRelease: contractRelease, Profiles: []finalv5profile.Profile{{
+		ID: "profile-test", Alias: "test",
+	}}}
+}
+
+func writeFixtureSupport(t *testing.T, fixture *deploymentEvidenceFixture,
+	contractRelease string) {
+	t.Helper()
+	support := finalv5profile.ActivationSupport{
+		SchemaVersion: 1, Record: finalv5profile.ActivationSupportRecord,
+		ContractRelease: contractRelease, ProfileRegistrySHA256: strings.Repeat("c", 64),
+		ActivationImplementationAvailable:    true,
+		ActivationSmokeManifestSHA256:        strings.Repeat("d", 64),
+		OutsideProductRouteMatrixSHA256:      fixture.matrixDigest,
+		SemanticCacheIsolationEvidenceSHA256: fixture.isolationDigest,
+		OutsideProductRouteMatrixStatus:      "pass",
+		SemanticCacheIsolationStatus:         "pass",
+		SemanticCacheCatalogBound:            true,
+		Profiles: []finalv5profile.ProfileActivationSupport{{
+			ProfileID: "profile-test", ProfileAlias: "test", Reason: "not activated",
+		}},
+	}
+	payload, err := finalv5profile.EncodeActivationSupport(support)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(fixture.root, supportPath)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, payload, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestVerifyCommittedEnforcesDeploymentEvidenceReleaseAndLinks(t *testing.T) {
+	const current = "final-v5-contracts-v1.4"
+	t.Run("absent manifest permits retained previous-release evidence", func(t *testing.T) {
+		fixture := newDeploymentEvidenceFixture(t, "final-v5-contracts-v1.3")
+		if err := verifyCommitted(fixture.root, unsupportedRegistry(current)); err != nil {
+			t.Fatalf("an absent manifest tried to consume retained evidence: %v", err)
+		}
+	})
+	t.Run("manifest cannot consume previous-release evidence", func(t *testing.T) {
+		fixture := newDeploymentEvidenceFixture(t, "final-v5-contracts-v1.3")
+		writeFixtureSupport(t, fixture, current)
+		if err := verifyCommitted(fixture.root, unsupportedRegistry(current)); err == nil {
+			t.Fatal("a current-release support manifest consumed previous-release evidence")
+		}
+	})
+	t.Run("manifest cannot consume an inconsistent digest chain", func(t *testing.T) {
+		fixture := newDeploymentEvidenceFixture(t, current)
+		fixture.isolation["outside_product_route_matrix_sha256"] = strings.Repeat("b", 64)
+		fixture.isolationDigest = writeFixtureDocument(t, fixture.root, isolationPath,
+			fixture.isolation)
+		writeFixtureSupport(t, fixture, current)
+		if err := verifyCommitted(fixture.root, unsupportedRegistry(current)); err == nil {
+			t.Fatal("a support manifest consumed an inconsistent deployment evidence chain")
+		}
+	})
 }
 
 // The committed registry must be exactly what the committed manifest derives.
@@ -160,11 +356,11 @@ func TestCommittedRegistryMatchesTheManifest(t *testing.T) {
 			t.Errorf("%s: routable is not derived", profile.Alias)
 		}
 	}
-	if supported != 7 {
-		t.Errorf("registry reports %d activation-supported profiles, want 7", supported)
+	if supported != 1 {
+		t.Errorf("registry reports %d activation-supported profiles, want 1", supported)
 	}
-	if eligible != 7 {
-		t.Errorf("registry reports %d targeted-run-eligible profiles, want 7", eligible)
+	if eligible != 1 {
+		t.Errorf("registry reports %d targeted-run-eligible profiles, want 1", eligible)
 	}
 	if routable != 0 {
 		t.Errorf("registry reports %d routable profiles, want 0", routable)
