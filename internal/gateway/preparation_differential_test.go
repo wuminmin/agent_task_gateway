@@ -8,7 +8,6 @@ import (
 	"taskbound.local/agent-data-gateway/internal/ordinal"
 	"taskbound.local/agent-data-gateway/internal/physicalquery"
 	"taskbound.local/agent-data-gateway/internal/preparedbinding"
-	"taskbound.local/agent-data-gateway/internal/queryplan"
 )
 
 // This began as T1b-B, the differential half of the parity harness, and became
@@ -216,31 +215,6 @@ func sortedPendingShapes() []string {
 	}
 	sort.Strings(names)
 	return names
-}
-
-// A shape the extraction cannot prepare must fail closed, not prepare
-// something else.
-//
-// This is the same property internal/gateway's V5 union test states about the
-// legacy path, asserted against the new one so the two cannot diverge on it.
-func TestTheExtractionRefusesTheBranchFilteredUnionUnderV5(t *testing.T) {
-	service := parityService(t, true)
-	test := parityCase{
-		name: "union_branch_filtered", profile: "taskgate-exposure-v5",
-		products: []string{"expense_summary"},
-		columns:  map[string][]string{"expense_summary": summaryColumns},
-		plan: queryplan.QueryPlan{From: &queryplan.From{UnionDistinct: &queryplan.UnionDistinct{
-			Role: "expense_summary", Columns: []string{"department", "month"},
-			Left: queryplan.Scan{Product: "expense_summary", Role: "left_branch",
-				Filters: []queryplan.Filter{{Column: "expense_type", Op: "=", Value: "机票"}}},
-			Right: queryplan.Scan{Product: "expense_summary", Role: "right_branch",
-				Filters: []queryplan.Filter{{Column: "expense_type", Op: "=", Value: "酒店"}}},
-		}}, Columns: []string{"expense_summary.department"}},
-		needsRegistry: true,
-	}
-	if _, err := physicalquery.Prepare(preparationInputsFor(t, service, test)); err == nil {
-		t.Fatal("the extraction prepared a branch-filtered V5 union")
-	}
 }
 
 // Preparation must not reach a registry, a store or a clock.

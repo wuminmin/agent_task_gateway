@@ -13,7 +13,6 @@ import (
 	"sync"
 	"testing"
 
-	"taskbound.local/agent-data-gateway/internal/apierr"
 	"taskbound.local/agent-data-gateway/internal/approval"
 	"taskbound.local/agent-data-gateway/internal/catalog"
 	"taskbound.local/agent-data-gateway/internal/control"
@@ -443,6 +442,16 @@ var (
 	resultHeavyColumns  = []string{"row_id", "category", "amount", "event_date", "sequence_no"}
 )
 
+func branchFilteredUnionPlan() queryplan.QueryPlan {
+	return queryplan.QueryPlan{From: &queryplan.From{UnionDistinct: &queryplan.UnionDistinct{
+		Role: "expense_summary", Columns: []string{"department", "month"},
+		Left: queryplan.Scan{Product: "expense_summary", Role: "left_branch",
+			Filters: []queryplan.Filter{{Column: "expense_type", Op: "=", Value: "机票"}}},
+		Right: queryplan.Scan{Product: "expense_summary", Role: "right_branch",
+			Filters: []queryplan.Filter{{Column: "expense_type", Op: "=", Value: "酒店"}}},
+	}}, Columns: []string{"expense_summary.department"}}
+}
+
 // parityCases is the named shape set.
 //
 // Each entry is here because it exercises an independent property of the
@@ -466,23 +475,10 @@ func parityCases() []parityCase {
 		On: []queryplan.JoinPredicate{{
 			Left: "expense_detail.department", Right: "expense_summary.department"}},
 	}}, Columns: []string{"expense_detail.receipt_no", "expense_summary.total_amount"}}
-	// Two forms of the same UNION shape. The branch-filtered one is what a V4
-	// duplicate-product binding is checked with; the unfiltered one is what the
-	// V5 Union case uses, because a branch-role-qualified predicate field cannot
-	// be prepared under V5 today -- see
-	// TestUnionBranchFilteredPredicatesFailClosedUnderV5, which pins that gap.
-	branchFilteredUnion := queryplan.QueryPlan{From: &queryplan.From{UnionDistinct: &queryplan.UnionDistinct{
-		Role: "expense_summary", Columns: []string{"department", "month"},
-		Left: queryplan.Scan{Product: "expense_summary", Role: "left_branch",
-			Filters: []queryplan.Filter{{Column: "expense_type", Op: "=", Value: "机票"}}},
-		Right: queryplan.Scan{Product: "expense_summary", Role: "right_branch",
-			Filters: []queryplan.Filter{{Column: "expense_type", Op: "=", Value: "酒店"}}},
-	}}, Columns: []string{"expense_summary.department"}}
-	union := queryplan.QueryPlan{From: &queryplan.From{UnionDistinct: &queryplan.UnionDistinct{
-		Role: "expense_summary", Columns: []string{"department", "month"},
-		Left:  queryplan.Scan{Product: "expense_summary", Role: "left_branch"},
-		Right: queryplan.Scan{Product: "expense_summary", Role: "right_branch"},
-	}}, Columns: []string{"expense_summary.department"}}
+	// Both profiles exercise the same branch-filtered shape. Under V5 the two
+	// branch-local literals must become distinct predicate atoms; under V4 the
+	// duplicate-product case continues to pin one shared publication binding.
+	union := branchFilteredUnionPlan()
 
 	summaryOnly := map[string][]string{"expense_summary": summaryColumns}
 	bothProducts := map[string][]string{
@@ -543,7 +539,7 @@ func parityCases() []parityCase {
 			// publication through both branches.
 			name: "duplicate_product_binding", profile: exposure.ProfileV4,
 			products: []string{"expense_summary"}, columns: summaryOnly,
-			plan: branchFilteredUnion, needsRegistry: true, executable: true,
+			plan: union, needsRegistry: true, executable: true,
 		},
 		{
 			// A wider scope is a different authorization, so it must be a
@@ -861,55 +857,47 @@ func TestTheGrantIsWidenedOnlyByWhatMeteringRequires(t *testing.T) {
 	}
 }
 
-// A branch-role-qualified predicate cannot be prepared under V5, and must fail
-// closed rather than prepare something the footprint does not describe.
-//
-// This is a real limit of the current derivation, found by this harness and
-// recorded here rather than routed around. queryplan.PredicateBindings keys its
-// products by product NAME, while a UNION DISTINCT branch qualifies its columns
-// by branch ROLE, so `left_branch.expense_type` resolves to nothing. The V4 path
-// has no footprint and prepares the same plan; the V5 path refuses it.
-//
-// The property under test is the refusal, not the message: a preparation that
-// silently produced a footprint omitting the branch predicates would under-count
-// the atoms the query actually reveals. When the qualified-column work lands,
-// this test fails, and the V5 Union parity case must then be promoted from the
-// unfiltered form back to the branch-filtered one.
-func TestUnionBranchFilteredPredicatesFailClosedUnderV5(t *testing.T) {
+// A V5 preparation of a branch-filtered UNION must account for both branches.
+// Preparing successfully is not enough: omitting either literal would
+// under-count the atoms the query actually reveals.
+func TestUnionBranchFilteredPredicatesAreAccountedUnderV5(t *testing.T) {
 	test := parityCase{
 		name: "union_branch_filtered", profile: exposure.ProfileV5,
-		products: []string{"expense_summary"},
-		columns:  map[string][]string{"expense_summary": summaryColumns},
-		plan: queryplan.QueryPlan{From: &queryplan.From{UnionDistinct: &queryplan.UnionDistinct{
-			Role: "expense_summary", Columns: []string{"department", "month"},
-			Left: queryplan.Scan{Product: "expense_summary", Role: "left_branch",
-				Filters: []queryplan.Filter{{Column: "expense_type", Op: "=", Value: "机票"}}},
-			Right: queryplan.Scan{Product: "expense_summary", Role: "right_branch",
-				Filters: []queryplan.Filter{{Column: "expense_type", Op: "=", Value: "酒店"}}},
-		}}, Columns: []string{"expense_summary.department"}},
+		products:      []string{"expense_summary"},
+		columns:       map[string][]string{"expense_summary": summaryColumns},
+		plan:          branchFilteredUnionPlan(),
 		needsRegistry: true,
 	}
 	service := parityService(t, true)
 	resolved := resolveParityCase(t, service, test)
 	shape, err := productionPrepareForParity(context.Background(), service, control.Task{},
 		resolved.grant(), resolved.plan)
-	if err == nil {
-		t.Fatalf("a V5 union with branch-qualified predicates prepared; "+
-			"promote the V5 Union parity case back to the branch-filtered plan "+
-			"(footprint atoms=%d)", len(shape.PredicateFootprint.Atoms))
+	if err != nil {
+		t.Fatalf("prepare a V5 union with branch-qualified predicates: %v", err)
 	}
-	requireToolCode(t, err, apierr.CodePolicyDenied)
-
-	// The same plan under V4, which accounts no predicate footprint, prepares.
-	// Without this half the test would be satisfied by a union that cannot be
-	// prepared at all, which is a different and much weaker claim.
-	v4 := test
-	v4.profile = exposure.ProfileV4
-	resolvedV4 := resolveParityCase(t, service, v4)
-	if _, err := productionPrepareForParity(context.Background(), service, control.Task{},
-		resolvedV4.grant(), resolvedV4.plan); err != nil {
-		t.Fatalf("the same union is not preparable under V4 either, so the V5 refusal "+
-			"is not about the predicate footprint: %v", err)
+	footprint := shape.PredicateFootprint
+	if footprint == nil {
+		t.Fatal("the V5 union prepared without a predicate footprint")
+	}
+	if footprint.RawLiteralCount != 2 || footprint.UniqueAtomCount != 2 ||
+		footprint.DuplicateCount != 0 || footprint.NullAtomCount != 0 || len(footprint.Atoms) != 2 {
+		t.Fatalf("branch-filtered V5 union footprint counts = %+v", footprint)
+	}
+	wantLiteral := map[string]string{"left_branch": "s:机票", "right_branch": "s:酒店"}
+	for _, atom := range footprint.Atoms {
+		literal, present := wantLiteral[atom.StableRole]
+		if !present {
+			t.Fatalf("unexpected branch predicate atom: %+v", atom)
+		}
+		if atom.Profile != exposure.ProfileV5 || atom.Kind != exposure.FactPredicateAtom ||
+			atom.SemanticProductID != "expense_summary" || atom.PublicFieldID != "expense_type" ||
+			atom.Operator != "EQ" || atom.CanonicalLiteral != literal {
+			t.Fatalf("branch predicate atom for %s = %+v", atom.StableRole, atom)
+		}
+		delete(wantLiteral, atom.StableRole)
+	}
+	if len(wantLiteral) != 0 {
+		t.Fatalf("predicate footprint omitted branch roles: %v", wantLiteral)
 	}
 }
 

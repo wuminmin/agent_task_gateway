@@ -101,56 +101,38 @@ or fail closed — thirteen input changes and twelve binding-input changes, with
 `failsClosed` stated per entry rather than accepting "moved or refused" for all
 of them.
 
-**A real limit was found and is pinned, not routed around.** A V5 preparation
-cannot build a predicate footprint for a UNION DISTINCT whose branches carry
-filters: `queryplan.PredicateBindings` keys its products by product name while a
-branch qualifies its columns by branch role, so `left_branch.expense_type`
-resolves to nothing and the preparation fails closed with `POLICY_DENIED`. The
-same plan prepares under V4, which accounts no footprint.
-`TestUnionBranchFilteredPredicatesFailClosedUnderV5` asserts both halves, so the
-gap cannot be mistaken for a union that is simply unpreparable. The V5 Union
-parity case therefore uses the unfiltered form; when the qualified-column work
-lands, that test fails and forces the case to be promoted back.
+**The former branch-filtered V5 UNION limit is closed.** Author decision 16
+selected qualified-column resolution, and the implementation now binds each
+predicate source by `(branch role, product)`. The V5 `relational_union` parity
+case therefore uses the filtered form again. Its dedicated positive test
+requires exactly two predicate atoms, one for `left_branch.expense_type` and one
+for `right_branch.expense_type`; preparation without either atom fails the test.
+The same shape also runs through the production-vs-`Prepare` parity and
+reproducibility loops, so the old standalone differential refusal test was
+removed instead of preserving a duplicate fixture.
 
-#### The frozen workloads are not all clear of it
+#### Baseline S5 keeps its approved filtered shape
 
-The coverage check over the frozen contracts
-(`evaluation/finalv5contracts/union_coverage_test.go`) returns a **mixed**
-result, and the negative half is the important one.
-
-**Artifact is clean. Scale dependency-e2e is clean.** No cell in
-`contracts/artifact-v1.json`, and no `dependency-e2e` cell in
-`contracts/scale-v1.json`, submits a branch-filtered UNION DISTINCT. The
-Artifact mainline is therefore not blocked on the qualified-column work.
-
-**ProvSQL is not clean.** `contracts/baseline-v1.json` workload **S5** carries
-six active BDG arms — SF1 and SF10 × {novel, semantic_replay,
-idempotent_replay} — whose `execute_plan` template
-`sql/contracts/S5-bdg-plan.json` is exactly the unsupported shape: a
-`union_distinct` over `provsql_orders` with `partition_key` and `orderkey`
-filters on both `left_branch` and `right_branch`. `provsql_orders` routes to
-budget profile `final-v5-provsql-low-v1`, which is `taskgate-exposure-v5`, so
-**these six arms cannot execute as written.**
+`contracts/baseline-v1.json` workload **S5** still carries the six active BDG
+arms required by author decision 8: SF1 and SF10 × {novel, semantic_replay,
+idempotent_replay}. Their `execute_plan` template remains a two-branch
+`union_distinct` over `provsql_orders`, with `partition_key` and `orderkey`
+filters on both branches. Those filters were not lifted, removed, or replaced
+with plain SQL; the runtime can now prepare them under
+`taskgate-exposure-v5`.
 
 Nothing has silently passed: all eight S5 cells are `PENDING_IMPLEMENTATION`
 with `generated_digest_review: NOT_GENERATED`, so no measurement has been taken
-against a shape the runtime refuses. The two `direct` arms are raw PostgreSQL
-and are unaffected — they never reach the Gateway's preparation.
+against the newly supported shape, and no capability is flipped by this code
+change. The two `direct` arms remain raw PostgreSQL and never enter Gateway
+preparation. The obsolete unsupported-dependency scanner was removed; the
+actual S5 template shape remains guarded by
+`TestBenchmarkS5StructuredPlanRendersAndCompiles`.
 
-`TestTheBranchFilteredUnionDependencySetIsExactlyBaselineS5` pins the affected
-set exactly, in both directions: a new cell acquiring the dependency fails, and a
-cell losing it fails with instructions to empty the list, delete the test and
-promote the parity case. Asserting only that Artifact and Scale are clean would
-have let the dependency spread unnoticed and left the affected set recorded
-nowhere.
-
-**Consequence for v1.5.** The contract release may claim support only for the
-relational fragment actually covered — two-branch UNION DISTINCT **without**
-branch filters, and Join — and must not be written as "arbitrary V5 Union".
-Baseline S5 needs one of: the qualified-column refactor, a restatement of the S5
-plan that puts its predicates outside the branches, or an explicit exclusion of
-S5 from the V5 BDG arms. That is a Final-V5 baseline obligation, not an Artifact
-blocker, and it is recorded here rather than left in a test.
+**Consequence for v1.5.** Subject to the later freeze and live campaign gates,
+the contract release may state support for the fragment actually covered:
+two-branch UNION DISTINCT with branch-local predicates. It still must not claim
+arbitrary UNION support.
 
 What T1b-A does **not** contain is the old-vs-new comparison itself, because
 `physicalquery.Prepare` does not exist. `requireLegacyParity` is defined beside
