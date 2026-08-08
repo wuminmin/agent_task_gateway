@@ -1,0 +1,85 @@
+{
+  "activation_support_changing": false,
+  "branch": "tkde-artifact-rerun",
+  "capability_changing": false,
+  "commit": "017e73a3a7493649fe3404670d13c6c9e1ef5dcd",
+  "development_runs_retained": true,
+  "expected_schema_identical": true,
+  "formal_campaign": false,
+  "full_digests_differ_as_designed": true,
+  "head_equals_origin": true,
+  "measurement_environment": {
+    "pg_stat_statements_track": "all",
+    "pg_stat_statements_track_planning": "off",
+    "pg_stat_statements_track_utility": "on",
+    "postgresql_version_num": 160014
+  },
+  "per_scope_multisets_identical": true,
+  "portable_digests_identical": true,
+  "postgresql_portable_identity_identical": true,
+  "postgresql_runtime_identity_portable": {
+    "image_reference": "postgres@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55",
+    "platform": "linux/amd64",
+    "repo_digest": "postgres@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55"
+  },
+  "profile_binding": {
+    "catalog_sha256": "533837084c0df141a0fac6e74788a4c2b9eb84611c1f96d4c760806745b4f709",
+    "expected_schema_digest": "e2a3796fb3f5c50f97ebf02a40996b9c95a50e5b028a975cfccd4cf80407d40c",
+    "expected_schema_entries": 1,
+    "profile_alias": "result-heavy",
+    "profile_artifact_directory_sha256": "814d4df9971f41b649289aa8b4b3c42f86b588b50c5691f21cf0ec010659f99b",
+    "profile_id": "profile-a86cd4df5cad6e26",
+    "profile_registry_release": "final-v5-contracts-v1.4",
+    "profile_registry_sha256": "ca84cba9810d378ea513bdadbf8cb9516a8bc3feaeb26b61af0156d857aee537"
+  },
+  "publication_eligible": false,
+  "record": "taskgate-final-v5-attestation-footprint-i2b-agreement-v1",
+  "runs": [
+    {
+      "diagnosis_id": "attestation-footprint-qualification-i2b-01-20260808T152236Z-017e73a3a749",
+      "footprint_sha256": "df95e5e2ffe2f3de328cc01ee5d08754010a74b4558d2330566a01294eadf246",
+      "portable_footprint_sha256": "032e9c53704d8df270693c291d36893e46e6c587b95c59bef2c6d198181ceacf",
+      "profile_artifact_manifest_sha256": "294f23afb00a3203d74ec486a0d7c39e591867382edabb739486eb17a893cb0c",
+      "qualification": "diagnosis-attestation-footprint-qualification-i2b-01-20260808T152236Z-017e73a3a749"
+    },
+    {
+      "diagnosis_id": "attestation-footprint-qualification-i2b-02-20260808T152703Z-017e73a3a749",
+      "footprint_sha256": "a70e616653989d49eee5640bc672f6aaea82ebd12c9893990f7322d95d7e67c4",
+      "portable_footprint_sha256": "032e9c53704d8df270693c291d36893e46e6c587b95c59bef2c6d198181ceacf",
+      "profile_artifact_manifest_sha256": "19bf7cc8cb251302ebf958260357780aadf90d463d8183d8c3b1f1679a8fca65",
+      "qualification": "diagnosis-attestation-footprint-qualification-i2b-02-20260808T152703Z-017e73a3a749"
+    }
+  ],
+  "schema_version": 2,
+  "scopes": {
+    "constructor_or_cold_pool": [
+      {
+        "calls_per_attestation": 1,
+        "strict_ast_sha256": "e5738df1650276a7f20e677172e067bc62bab12d48c18a378c9b6ed602433842"
+      }
+    ],
+    "explicit_preflight_pool": [
+      {
+        "calls_per_attestation": 1,
+        "strict_ast_sha256": "e5738df1650276a7f20e677172e067bc62bab12d48c18a378c9b6ed602433842"
+      }
+    ],
+    "paired_query_transaction": [
+      {
+        "calls_per_attestation": 1,
+        "strict_ast_sha256": "e5738df1650276a7f20e677172e067bc62bab12d48c18a378c9b6ed602433842"
+      }
+    ],
+    "single_query_transaction": [
+      {
+        "calls_per_attestation": 1,
+        "strict_ast_sha256": "e5738df1650276a7f20e677172e067bc62bab12d48c18a378c9b6ed602433842"
+      }
+    ]
+  },
+  "source_dependencies_bound": 8,
+  "source_dependencies_identical": true,
+  "source_manifest_sha256": "2831e532190f1f7b560d6a8fa9a81216ee14052be56971323fcce33ca3c60f94",
+  "supersedes_development_qualification": "evaluation/final-v5-wsl2/raw/attestation-footprint-i2a-agreement.json",
+  "worktree_clean": true
+}

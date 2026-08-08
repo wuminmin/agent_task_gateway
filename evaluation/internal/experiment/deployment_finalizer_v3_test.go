@@ -25,12 +25,12 @@ import (
 // deployment is serving this material; what can be, and is, is that the material
 // resolves and that the frozen contract prepares from it.
 
-// retainedQualificationRun is the qualification whose footprint and PostgreSQL
-// identity the repository retains together. Both files come from one run, which
-// is what makes them usable as a pair: a footprint is only evidence while it is
-// bound to the server it was measured on.
-const retainedQualificationRun = "diagnosis-attestation-footprint-qualification-02-" +
-	"20260804T154235Z-818c481ebe5b"
+// retainedQualificationRun is the current qualification whose footprint and
+// PostgreSQL identity the repository retains together. Both files come from one
+// run, and a second independent run reproduces its portable footprint in the
+// active i2b agreement.
+const retainedQualificationRun = "diagnosis-attestation-footprint-qualification-i2b-01-" +
+	"20260808T152236Z-017e73a3a749"
 
 func retainedQualificationDirectory(t *testing.T) string {
 	t.Helper()

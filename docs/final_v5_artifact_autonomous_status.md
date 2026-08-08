@@ -1306,7 +1306,50 @@ false, and overall capability remains 6/9.
 
 The six-cell Artifact targeted pilot was not run in this update. Its launcher
 requires a clean HEAD already published to the same-named origin branch, a
-retained non-diagnostic Attestation qualification plus its matching PostgreSQL
-identity, and the private Dataset Binding. The available qualification pair is
-explicitly diagnosis-only and no private Dataset Binding was supplied, so
-substituting those inputs would overstate the evidence.
+retained Attestation qualification plus its matching PostgreSQL identity, and
+the private Dataset Binding. The qualification input was refreshed in the
+portable requalification below; no private Dataset Binding was supplied.
+
+## 2026-08-08 current-HEAD portable requalification
+
+Two fresh isolated qualifications ran sequentially from clean, published commit
+`017e73a3a749`. They refresh both differences between the earlier i2a reports
+and the activation-ready tree: the eight-file source manifest now binds
+`2831e532190f1f7b560d6a8fa9a81216ee14052be56971323fcce33ca3c60f94`,
+and the profile binding now binds fixed-point registry
+`ca84cba9810d378ea513bdadbf8cb9516a8bc3feaeb26b61af0156d857aee537`.
+
+| | qualification-i2b-01 | qualification-i2b-02 |
+| --- | --- | --- |
+| portable footprint | `032e9c53704d` | `032e9c53704d` |
+| full footprint | `df95e5e2ffe2` | `a70e61665398` |
+| report file | `ece61b673fc8` | `747504f7d369` |
+| PostgreSQL identity file | `cd3c6386581f` | `cd3c6386581f` |
+| ExpectedSchema | `e2a3796fb3f5`, E=1 | same |
+| artifact directory | `814d4df9971f` | same |
+| artifact manifest | `294f23afb00a` | `19bf7cc8cb25` |
+
+The agreement was recomputed from the JSON reports rather than their logs.
+Portable digests, every per-scope multiset, ExpectedSchema, measurement
+environment, portable PostgreSQL identity, all eight source identities and the
+portable profile binding are identical. Both reports contain all four stable
+scopes, including `paired_query_transaction`, with the one structural key at
+one call per Attestation. The full digests differ because they bind distinct
+qualification IDs; the deployment-local artifact-manifest digests also differ
+while their content-directory digest agrees.
+
+`raw/attestation-footprint-i2b-agreement.json` is the active agreement and
+supersedes the retained i2a agreement. The first i2b run is the selected launcher
+pair; its `attestation-footprint-v2.json` and `postgresql-identity.json` were
+created by the same run, while the second run independently corroborates the
+portable footprint. Both remain non-publication development qualifications.
+
+The seven small report files from each run are retained in Git. Their two 5.2
+GiB artifact trees remain ignored; each tree is content-bound by its retained
+profile-artifact manifest. The standing db-test containers were stopped without
+removing their containers or volumes to release the qualification's fixed port,
+then restarted with the same container IDs and passed the complete
+`scripts/db-test-env.sh verify` check.
+
+No Artifact targeted cell was run. The remaining operator input is the private
+six-cell `TASKGATE_DATASET_BINDINGS` file.
