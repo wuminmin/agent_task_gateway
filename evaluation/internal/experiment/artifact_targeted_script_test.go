@@ -1,20 +1,46 @@
 package experiment
 
 import (
+	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-func TestArtifactTargetedLauncherWiresTheFormalRuntimeContract(t *testing.T) {
-	path := filepath.Join("..", "..", "final-v5-wsl2", "scripts", "run-artifact-targeted.sh")
-	payload, err := os.ReadFile(path)
+const artifactTargetedLauncherPath = "../../final-v5-wsl2/scripts/run-artifact-targeted.sh"
+
+func artifactTargetedLauncherBody(t *testing.T) string {
+	t.Helper()
+	payload, err := os.ReadFile(filepath.Clean(artifactTargetedLauncherPath))
 	if err != nil {
 		t.Fatal(err)
 	}
-	body := string(payload)
+	return string(payload)
+}
+
+func launcherShellBlock(t *testing.T, body, name string) string {
+	t.Helper()
+	begin := "# " + name + "_BEGIN"
+	end := "# " + name + "_END"
+	start := strings.Index(body, begin)
+	finish := strings.Index(body, end)
+	if start < 0 || finish < 0 || finish <= start {
+		t.Fatalf("targeted Artifact launcher has no complete %s block", name)
+	}
+	return body[start : finish+len(end)]
+}
+
+func runLauncherShellBlock(block, invocation string, args ...string) ([]byte, error) {
+	commandArgs := append([]string{"-c", block + "\n" + invocation, "launcher-contract-test"}, args...)
+	return exec.Command("bash", commandArgs...).CombinedOutput()
+}
+
+func TestArtifactTargetedLauncherWiresTheFormalRuntimeContract(t *testing.T) {
+	body := artifactTargetedLauncherBody(t)
 	for _, required := range []string{
+		`set -euo pipefail`,
 		`export TASKGATE_EXPERIMENT_CLASS=pilot`,
 		`export TASKGATE_CAMPAIGN_ID="$RUN_ID"`,
 		`printf '%s\0%s' "$TASKGATE_CAMPAIGN_ID" "$commit"`,
@@ -30,7 +56,26 @@ func TestArtifactTargetedLauncherWiresTheFormalRuntimeContract(t *testing.T) {
 		`go run ./evaluation/cmd/final-v5-profile-binding`,
 		`--dataset-binding-sha256 "$TASKGATE_FINAL_V5_BINDING_FILE_SHA256"`,
 		`-profile-binding "$(realpath "$profile_binding")"`,
-		`expected=$((6 * SAMPLES))`,
+		`if [[ -z "${SCALES+x}" ]]`,
+		`selected_scales_json="$(resolve_artifact_scales "$SCALES")"`,
+		`--argjson scales "$selected_scales_json"`,
+		`.workloads[0].id != "result-heavy"`,
+		`.workloads[0].modes != ["novel"]`,
+		`.workloads[0].scales != $frozen_scales`,
+		`.workloads[0].scales = $scales`,
+		`jq -e '.schema_version == 1 and .status == "valid" and .artifact_cells == 6' <<< "$binding_validation" >/dev/null || {`,
+		`expected=$((selected_scale_count * SAMPLES))`,
+		`export TASKGATE_FINAL_V5_FORMAL_WINDOW_PROJECT="$project"`,
+		`export TASKGATE_FINAL_V5_FORMAL_WINDOW_GATEWAY="http://127.0.0.1:8082"`,
+		`go test -count=1 -json`,
+		`if ! require_formal_window_gate_passes`,
+		`TestFormalDeploymentRunsTheApprovedHealthcheckLive`,
+		`TestPeriodicLivenessProbesAddNoBusinessStatements`,
+		`TestExplicitReadinessOutsideTheWindowStillAttests`,
+		`.experiment_id == "artifact"`,
+		`.workload_id == "result-heavy"`,
+		`(.scale as $scale | ($scales | index($scale)) != null)`,
+		`([$records[] | select(.scale == $scale)] | length) == $samples`,
 		`.status == "pass"`,
 		`.system == "taskgate"`,
 		`.taskgate_acceptance_v3 != null`,
@@ -39,6 +84,9 @@ func TestArtifactTargetedLauncherWiresTheFormalRuntimeContract(t *testing.T) {
 		if !strings.Contains(body, required) {
 			t.Fatalf("targeted Artifact launcher omits runtime contract %q", required)
 		}
+	}
+	if strings.Contains(body, `SCALES="${SCALES:-`) {
+		t.Fatal("targeted Artifact launcher silently defaults an explicitly empty SCALES selection")
 	}
 
 	clearance := strings.Index(body, `# ------------------------------------------------- the clearance, checked first`)
@@ -72,5 +120,184 @@ func TestArtifactTargetedLauncherWiresTheFormalRuntimeContract(t *testing.T) {
 		if position < clearance || position > gatewayStart || position > runnerStart {
 			t.Fatalf("%s is not bound after clearance and before Gateway/runner startup", name)
 		}
+	}
+
+	scaleResolution := strings.Index(body, `selected_scales_json="$(resolve_artifact_scales "$SCALES")"`)
+	firstSideEffect := strings.Index(body, `mkdir -m 700 -p "$outdir"`)
+	if scaleResolution < 0 || firstSideEffect < 0 || scaleResolution > firstSideEffect {
+		t.Fatal("scale selection is not rejected before the launcher creates run state")
+	}
+	for _, sideEffect := range []string{
+		`mkdir -m 700 -p "$outdir"`,
+		`go run ./evaluation/cmd/final-v5-gateway-build build`,
+		`build_sealed ./evaluation/cmd/final-v5-adapter`,
+		`"${compose[@]}" up`,
+	} {
+		if position := strings.Index(body, sideEffect); position < scaleResolution {
+			t.Fatalf("targeted Artifact launcher performs %q before scale selection", sideEffect)
+		}
+	}
+	readiness := strings.Index(body, `echo "== proving readiness explicitly (outside every measurement window)"`)
+	formalGate := strings.Index(body, `# FORMAL_WINDOW_LIVE_GATE_RUN_BEGIN`)
+	formalGateEnd := strings.Index(body, `# FORMAL_WINDOW_LIVE_GATE_RUN_END`)
+	readinessLoopEnd := -1
+	if readiness >= 0 {
+		if relative := strings.Index(body[readiness:], "\ndone\n"); relative >= 0 {
+			readinessLoopEnd = readiness + relative + len("\ndone\n")
+		}
+	}
+	if readiness < 0 || readinessLoopEnd < 0 || formalGate < readinessLoopEnd ||
+		formalGateEnd < formalGate || formalGateEnd > runnerStart {
+		t.Fatal("formal-window live gates are not between explicit readiness and the measurement runner")
+	}
+	gateBlock := body[formalGate:formalGateEnd]
+	if !strings.Contains(gateBlock, `unset TASKGATE_FINAL_V5_FORMAL_WINDOW_PROJECT`) {
+		t.Fatal("formal-window live gate environment is not cleared after adjudication")
+	}
+	if strings.Contains(gateBlock, `|| true`) {
+		t.Fatal("formal-window live gate block contains a fail-open command")
+	}
+	goTest := strings.Index(gateBlock, `go test -count=1 -json`)
+	adjudication := strings.Index(gateBlock, `if ! require_formal_window_gate_passes`)
+	projectExport := strings.Index(gateBlock, `export TASKGATE_FINAL_V5_FORMAL_WINDOW_PROJECT="$project"`)
+	gatewayExport := strings.Index(gateBlock, `export TASKGATE_FINAL_V5_FORMAL_WINDOW_GATEWAY="http://127.0.0.1:8082"`)
+	measurementRefusal := -1
+	if adjudication >= 0 {
+		measurementRefusal = strings.Index(gateBlock[adjudication:], `exit 1`)
+	}
+	if goTest < 0 || projectExport < 0 || projectExport > goTest ||
+		gatewayExport < 0 || gatewayExport > goTest ||
+		adjudication < goTest || measurementRefusal < 0 {
+		t.Fatal("formal-window live gate report is not fail-closed after the live go test")
+	}
+
+	bindingValidation := strings.Index(body, `binding_validation="$("$adapter_binary" --validate-binding)"`)
+	bindingExport := strings.Index(body, `export TASKGATE_FINAL_V5_BINDING_FILE_SHA256=`)
+	if bindingValidation < 0 || bindingExport < bindingValidation {
+		t.Fatal("targeted Artifact launcher has no bounded Dataset Binding validation stage")
+	}
+	bindingBlock := body[bindingValidation:bindingExport]
+	if !strings.Contains(bindingBlock,
+		`jq -e '.schema_version == 1 and .status == "valid" and .artifact_cells == 6' <<< "$binding_validation" >/dev/null || {`) ||
+		strings.Contains(bindingBlock, `selected_scale`) {
+		t.Fatal("cell selection weakens the complete six-cell Dataset Binding validation")
+	}
+	finalAdjudication := strings.Index(body[runnerStart:], `# A process-level zero exit retains failed measured samples`)
+	if finalAdjudication < 0 ||
+		!strings.Contains(body[runnerStart+finalAdjudication:],
+			".taskgate_acceptance_v3 != null and\n    .publication_eligible == false") {
+		t.Fatal("the post-run adjudicator does not require v3 acceptance")
+	}
+}
+
+func TestArtifactTargetedScaleSelectionIsAValidatedFrozenSubset(t *testing.T) {
+	body := artifactTargetedLauncherBody(t)
+	block := launcherShellBlock(t, body, "ARTIFACT_SCALE_SELECTION")
+
+	defaultOutput, err := runLauncherShellBlock(block, `artifact_default_scales`)
+	if err != nil {
+		t.Fatalf("default scale selection: %v\n%s", err, defaultOutput)
+	}
+	const allScales = "100x4,10k-x4,100k-x4,100x16,10k-x16,100k-x16"
+	if got := strings.TrimSpace(string(defaultOutput)); got != allScales {
+		t.Fatalf("default scale selection = %q, want %q", got, allScales)
+	}
+
+	for _, test := range []struct {
+		name      string
+		selection string
+		want      []string
+	}{
+		{name: "single canary cell", selection: "100x4", want: []string{"100x4"}},
+		{name: "two cells retain frozen order", selection: "100k-x16,100x4", want: []string{"100x4", "100k-x16"}},
+		{name: "all cells", selection: allScales, want: strings.Split(allScales, ",")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			output, err := runLauncherShellBlock(block, `resolve_artifact_scales "$1"`, test.selection)
+			if err != nil {
+				t.Fatalf("resolve %q: %v\n%s", test.selection, err, output)
+			}
+			var got []string
+			if err := json.Unmarshal(output, &got); err != nil {
+				t.Fatalf("decode scale selection %q: %v\n%s", test.selection, err, output)
+			}
+			if strings.Join(got, ",") != strings.Join(test.want, ",") {
+				t.Fatalf("resolve %q = %v, want %v", test.selection, got, test.want)
+			}
+		})
+	}
+
+	for _, selection := range []string{
+		"",
+		"unknown",
+		"100x4,100x4",
+		"100x4,",
+		",100x4",
+		"100x4, 10k-x4",
+	} {
+		t.Run("reject "+selection, func(t *testing.T) {
+			if output, err := runLauncherShellBlock(block, `resolve_artifact_scales "$1"`, selection); err == nil {
+				t.Fatalf("resolve %q unexpectedly succeeded: %s", selection, output)
+			}
+		})
+	}
+}
+
+func TestArtifactTargetedFormalWindowGateRequiresThreeExactPasses(t *testing.T) {
+	body := artifactTargetedLauncherBody(t)
+	block := launcherShellBlock(t, body, "FORMAL_WINDOW_GATE_ADJUDICATION")
+	tests := []string{
+		"TestFormalDeploymentRunsTheApprovedHealthcheckLive",
+		"TestPeriodicLivenessProbesAddNoBusinessStatements",
+		"TestExplicitReadinessOutsideTheWindowStillAttests",
+	}
+	expected, err := json.Marshal(tests)
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := func(name, action string) string {
+		payload, err := json.Marshal(map[string]string{"Action": action, "Test": name})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(payload)
+	}
+	packageEvent := func(action string) string {
+		payload, err := json.Marshal(map[string]string{"Action": action})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(payload)
+	}
+	passes := []string{event(tests[0], "pass"), event(tests[1], "pass"), event(tests[2], "pass")}
+
+	for _, test := range []struct {
+		name    string
+		events  []string
+		wantErr bool
+	}{
+		{name: "three exact passes", events: passes},
+		{name: "skip", events: []string{passes[0], event(tests[1], "skip"), passes[2]}, wantErr: true},
+		{name: "failure", events: []string{passes[0], event(tests[1], "fail"), passes[2]}, wantErr: true},
+		{name: "missing", events: passes[:2], wantErr: true},
+		{name: "duplicate terminal", events: append(append([]string{}, passes...), passes[2]), wantErr: true},
+		{name: "unexpected terminal", events: []string{passes[0], passes[1], event("TestUnexpected", "pass")}, wantErr: true},
+		{name: "package skip", events: append(append([]string{}, passes...), packageEvent("skip")), wantErr: true},
+		{name: "package failure", events: append(append([]string{}, passes...), packageEvent("fail")), wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			report := filepath.Join(t.TempDir(), "formal-window.jsonl")
+			if err := os.WriteFile(report, []byte(strings.Join(test.events, "\n")+"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			output, err := runLauncherShellBlock(block,
+				`require_formal_window_gate_passes "$1" "$2"`, report, string(expected))
+			if test.wantErr && err == nil {
+				t.Fatalf("gate adjudication unexpectedly succeeded: %s", output)
+			}
+			if !test.wantErr && err != nil {
+				t.Fatalf("gate adjudication failed: %v\n%s", err, output)
+			}
+		})
 	}
 }

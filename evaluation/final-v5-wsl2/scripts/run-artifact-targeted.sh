@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# Targeted validation of the six frozen artifact/result-heavy cells, through v3
-# acceptance, against a fresh isolated full topology.
+# Targeted validation of an explicit subset of the six frozen
+# artifact/result-heavy cells, through v3 acceptance, against a fresh isolated
+# full topology. SCALES defaults to all six so this targeted launcher's existing
+# six-cell behavior is unchanged; a canary must name its narrower selection
+# explicitly.
 #
 # NOT a Campaign, NOT publication-eligible, NOT an activation smoke. It changes
 # no capability, no activation support and no contract state. It runs with
@@ -47,6 +50,62 @@
 set -euo pipefail
 umask 077
 
+# ARTIFACT_SCALE_SELECTION_BEGIN
+readonly -a frozen_artifact_scales=(
+  100x4 10k-x4 100k-x4 100x16 10k-x16 100k-x16
+)
+
+artifact_default_scales() {
+  local IFS=,
+  printf '%s' "${frozen_artifact_scales[*]}"
+}
+
+resolve_artifact_scales() {
+  local selection="$1"
+  local scale_alternation scale_list_pattern scale
+  local -a requested_scales=() selected_scales=()
+  local -A requested_scale_set=()
+
+  scale_alternation="$(IFS='|'; printf '%s' "${frozen_artifact_scales[*]}")"
+  scale_list_pattern="^(${scale_alternation})(,(${scale_alternation}))*$"
+  if ! [[ "$selection" =~ $scale_list_pattern ]]; then
+    echo "SCALES must be a comma-separated subset of: $(artifact_default_scales)" >&2
+    return 2
+  fi
+  IFS=, read -r -a requested_scales <<< "$selection"
+  for scale in "${requested_scales[@]}"; do
+    if [[ -n "${requested_scale_set[$scale]+present}" ]]; then
+      echo "SCALES repeats $scale" >&2
+      return 2
+    fi
+    requested_scale_set["$scale"]=1
+  done
+  for scale in "${frozen_artifact_scales[@]}"; do
+    [[ -n "${requested_scale_set[$scale]+present}" ]] && selected_scales+=("$scale")
+  done
+  jq -cn --args '$ARGS.positional' "${selected_scales[@]}"
+}
+# ARTIFACT_SCALE_SELECTION_END
+
+# FORMAL_WINDOW_GATE_ADJUDICATION_BEGIN
+require_formal_window_gate_passes() {
+  local report="$1" expected_tests_json="$2"
+  jq -e -s --argjson expected "$expected_tests_json" '
+    . as $events |
+    def terminal: .Action == "pass" or .Action == "fail" or .Action == "skip";
+    def terminals($name):
+      [$events[] | select(.Test == $name and terminal) | .Action];
+    [$events[] | select(.Test != null and terminal)] as $test_terminals |
+    ($expected | length) == 3 and
+    ($expected | unique | length) == 3 and
+    all($events[]; .Action != "fail" and .Action != "skip") and
+    ($test_terminals | length) == 3 and
+    all($test_terminals[]; .Test as $name | ($expected | index($name)) != null) and
+    all($expected[]; . as $name | terminals($name) == ["pass"])
+  ' "$report" >/dev/null
+}
+# FORMAL_WINDOW_GATE_ADJUDICATION_END
+
 # ---------------------------------------------------------- operator inputs
 
 # The retained qualification and the PostgreSQL identity it was measured
@@ -84,6 +143,17 @@ KEEP_UP="${KEEP_UP:-0}"
 
 repo="$(git rev-parse --show-toplevel)"
 cd "$repo"
+
+artifact_config="evaluation/final-v5-wsl2/config/artifact.example.json"
+if [[ -z "${SCALES+x}" ]]; then
+  SCALES="$(artifact_default_scales)"
+fi
+if ! selected_scales_json="$(resolve_artifact_scales "$SCALES")"; then
+  exit 2
+fi
+selected_scale_count="$(jq -er 'length' <<< "$selected_scales_json")"
+selected_scales_csv="$(jq -er 'join(",")' <<< "$selected_scales_json")"
+frozen_scales_json="$(jq -cn --args '$ARGS.positional' "${frozen_artifact_scales[@]}")"
 
 # The evidence is commit-bound, so it is only meaningful from a clean tree: a
 # Sample naming a commit whose worktree had uncommitted changes names bytes
@@ -136,8 +206,8 @@ jq -e --arg alias "$PROFILE_ALIAS" --arg profile_id "$PROFILE_ID" \
 #
 # Refused here rather than inside the adapter. Both the profile resolver and the
 # Adapter's own profile binding apply this gate, so a run that fails it fails
-# anyway -- but only after a full topology has been built and six cells
-# attempted, which reads as a measurement failure rather than as a missing
+# anyway -- but only after a full topology has been built and every selected
+# cell attempted, which reads as a measurement failure rather than as a missing
 # prerequisite.
 jq -e --arg alias "$PROFILE_ALIAS" '
   .profiles | map(select(.alias == $alias)) | length == 1 and
@@ -188,6 +258,7 @@ run_id=${RUN_ID}
 commit=${commit}
 compose_project=${project}
 profile_id=${PROFILE_ID}
+scales=${selected_scales_csv}
 attestation_qualification=${ATTESTATION_QUALIFICATION}
 postgresql_identity=${POSTGRESQL_IDENTITY}
 MARKER
@@ -417,6 +488,38 @@ for attempt in $(seq 1 60); do
   sleep 2
 done
 
+# FORMAL_WINDOW_LIVE_GATE_RUN_BEGIN
+# A green go test process is insufficient here because Go reports an all-SKIP
+# selection as success. Retain the JSON event stream, then require exactly one
+# PASS terminal for each due live gate and no other test terminal before the
+# first measured operation is allowed to start.
+formal_window_gate_tests_json='[
+  "TestFormalDeploymentRunsTheApprovedHealthcheckLive",
+  "TestPeriodicLivenessProbesAddNoBusinessStatements",
+  "TestExplicitReadinessOutsideTheWindowStillAttests"
+]'
+formal_window_gate_regex="$(jq -er '"^(" + join("|") + ")$"' <<< "$formal_window_gate_tests_json")"
+formal_window_gate_log="$outdir/formal-window-live-gates.jsonl"
+export TASKGATE_FINAL_V5_FORMAL_WINDOW_PROJECT="$project"
+export TASKGATE_FINAL_V5_FORMAL_WINDOW_GATEWAY="http://127.0.0.1:8082"
+echo "== proving all formal-window live gates before any measurement"
+if ! GOFLAGS=-buildvcs=false go test -count=1 -json \
+    -run "$formal_window_gate_regex" ./evaluation/internal/experiment \
+    | tee "$formal_window_gate_log"; then
+  echo "formal-window live gates failed; no measurement was started" >&2
+  retain_failure
+  exit 1
+fi
+if ! require_formal_window_gate_passes \
+    "$formal_window_gate_log" "$formal_window_gate_tests_json"; then
+  echo "formal-window gate report did not record exactly three PASS terminals (FAIL/SKIP/missing refused)" >&2
+  retain_failure
+  exit 1
+fi
+unset TASKGATE_FINAL_V5_FORMAL_WINDOW_PROJECT TASKGATE_FINAL_V5_FORMAL_WINDOW_GATEWAY
+echo "formal-window live gates: 3/3 pass, 0 skip"
+# FORMAL_WINDOW_LIVE_GATE_RUN_END
+
 # ------------------------------------------- the server the footprint qualifies
 #
 # The finalizer reads the retained identity and then requires the observer's own
@@ -508,14 +611,24 @@ export TASKGATE_FINAL_V5_REPO_ROOT="$repo"
 
 config="$outdir/config.json"
 jq --arg campaign "$RUN_ID" --arg commit "$commit" \
-   --argjson samples "$SAMPLES" --argjson warmups "$WARMUPS" '
-  .campaign_class = "pilot" | .pilot_kind = "artifact_targeted" |
-  .campaign_id = $campaign | .submission_commit = $commit |
-  .deployments = 1 | .samples = $samples | .warmups = $warmups
-' evaluation/final-v5-wsl2/config/artifact.example.json > "$config"
+   --argjson samples "$SAMPLES" --argjson warmups "$WARMUPS" \
+   --argjson scales "$selected_scales_json" \
+   --argjson frozen_scales "$frozen_scales_json" '
+  if ((.workloads | length) != 1 or
+      .workloads[0].id != "result-heavy" or
+      .workloads[0].modes != ["novel"] or
+      .workloads[0].scales != $frozen_scales)
+  then error("artifact example no longer carries the exact six frozen result-heavy/novel cells")
+  else
+    .campaign_class = "pilot" | .pilot_kind = "artifact_targeted" |
+    .campaign_id = $campaign | .submission_commit = $commit |
+    .deployments = 1 | .samples = $samples | .warmups = $warmups |
+    .workloads[0].scales = $scales
+  end
+' "$artifact_config" > "$config"
 chmod 600 "$config"
 
-echo "== running the six frozen artifact/result-heavy cells through v3 acceptance"
+echo "== running ${selected_scale_count}/6 frozen artifact/result-heavy cells (${selected_scales_csv}) through v3 acceptance"
 GOFLAGS=-buildvcs=false go run ./evaluation/cmd/v5-artifact \
   -config "$config" \
   -deployment-id "$deployment_id" \
@@ -524,10 +637,11 @@ GOFLAGS=-buildvcs=false go run ./evaluation/cmd/v5-artifact \
   -output "$outdir/raw/deployment-01.jsonl" | tee "$outdir/run.log"
 
 # A process-level zero exit retains failed measured samples by design, so the
-# targeted launcher must adjudicate the complete result set itself. Exactly six
-# frozen cells are requested per sample replicate, and every retained record
-# must be a non-publication TaskGate PASS carrying the finalizer's acceptance.
-expected=$((6 * SAMPLES))
+# targeted launcher must adjudicate the complete selected result set itself.
+# Every selected scale is requested once per sample replicate, and every
+# retained record must be a non-publication TaskGate PASS carrying the
+# finalizer's acceptance.
+expected=$((selected_scale_count * SAMPLES))
 passed="$(jq -s '[.[] | select(.status == "pass")] | length' "$outdir/raw/deployment-01.jsonl")"
 total="$(jq -s 'length' "$outdir/raw/deployment-01.jsonl")"
 [[ "$total" -eq "$expected" ]] || {
@@ -538,13 +652,21 @@ total="$(jq -s 'length' "$outdir/raw/deployment-01.jsonl")"
   echo "artifact targeted run failed: only $passed/$expected samples passed" >&2
   exit 1
 }
-jq -e -s --argjson expected "$expected" '
-  length == $expected and
-  all(.[];
+jq -e -s --argjson expected "$expected" --argjson samples "$SAMPLES" \
+  --argjson scales "$selected_scales_json" '
+  . as $records |
+  ($records | length) == $expected and
+  all($records[];
+    .experiment_id == "artifact" and
+    .workload_id == "result-heavy" and
+    .mode == "novel" and
+    (.scale as $scale | ($scales | index($scale)) != null) and
     .status == "pass" and
     .system == "taskgate" and
     .taskgate_acceptance_v3 != null and
-    .publication_eligible == false)
+    .publication_eligible == false) and
+  all($scales[]; . as $scale |
+    ([$records[] | select(.scale == $scale)] | length) == $samples)
 ' "$outdir/raw/deployment-01.jsonl" >/dev/null || {
   echo "a retained sample is not an accepted, non-publication TaskGate PASS" >&2
   exit 1
