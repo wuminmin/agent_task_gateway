@@ -45,8 +45,8 @@ oracles, campaigns, or the paper are complete.
     drained BDG rows, and read-back Parquet values use the same typed,
     length-delimited SHA-256 contract with explicit NULLs. S1/S3/S6 and
     Artifact use query order; S2/S4/S5 use a canonical typed-row lexical order
-    because the production relational/View grammar deliberately forbids
-    `ORDER BY` there.
+    because those frozen queries define no total result order and therefore do
+    not rely on returned row order.
 11. **Keep oracles independent.** Expected rows and FactSets cannot be copied
     from production output. Oracle manifests contain counts and digests, not
     credentials, sensitive rows, or raw Fact-ID lists.
