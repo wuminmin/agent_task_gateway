@@ -1,28 +1,28 @@
-{"Time":"2026-08-08T21:52:18.880676866Z","Action":"start","Package":"taskbound.local/agent-data-gateway/internal/control"}
-{"Time":"2026-08-08T21:52:18.889120884Z","Action":"run","Package":"taskbound.local/agent-data-gateway/internal/control","Test":"TestDelegatedTasksShareRootAccountingState"}
-{"Time":"2026-08-08T21:52:18.889161993Z","Action":"output","Package":"taskbound.local/agent-data-gateway/internal/control","Test":"TestDelegatedTasksShareRootAccountingState","Output":"=== RUN   TestDelegatedTasksShareRootAccountingState\n"}
-{"Time":"2026-08-08T21:52:19.305509493Z","Action":"output","Package":"taskbound.local/agent-data-gateway/internal/control","Test":"TestDelegatedTasksShareRootAccountingState","Output":"--- PASS: TestDelegatedTasksShareRootAccountingState (0.42s)\n"}
-{"Time":"2026-08-08T21:52:19.305566784Z","Action":"pass","Package":"taskbound.local/agent-data-gateway/internal/control","Test":"TestDelegatedTasksShareRootAccountingState","Elapsed":0.42}
-{"Time":"2026-08-08T21:52:19.305581872Z","Action":"run","Package":"taskbound.local/agent-data-gateway/internal/control","Test":"TestConcurrentTaskFamilySettlementCannotOverspend"}
-{"Time":"2026-08-08T21:52:19.305584959Z","Action":"output","Package":"taskbound.local/agent-data-gateway/internal/control","Test":"TestConcurrentTaskFamilySettlementCannotOverspend","Output":"=== RUN   TestConcurrentTaskFamilySettlementCannotOverspend\n"}
-{"Time":"2026-08-08T21:52:19.779450482Z","Action":"output","Package":"taskbound.local/agent-data-gateway/internal/control","Test":"TestConcurrentTaskFamilySettlementCannotOverspend","Output":"--- PASS: TestConcurrentTaskFamilySettlementCannotOverspend (0.47s)\n"}
-{"Time":"2026-08-08T21:52:19.779487829Z","Action":"pass","Package":"taskbound.local/agent-data-gateway/internal/control","Test":"TestConcurrentTaskFamilySettlementCannotOverspend","Elapsed":0.47}
-{"Time":"2026-08-08T21:52:19.779671456Z","Action":"output","Package":"taskbound.local/agent-data-gateway/internal/control","Output":"PASS\n"}
-{"Time":"2026-08-08T21:52:20.782162032Z","Action":"output","Package":"taskbound.local/agent-data-gateway/internal/control","Output":"ok  \ttaskbound.local/agent-data-gateway/internal/control\t1.901s\n"}
-{"Time":"2026-08-08T21:52:20.782202955Z","Action":"pass","Package":"taskbound.local/agent-data-gateway/internal/control","Elapsed":1.9020000000000001}
-{"Time":"2026-08-08T21:52:37.651878759Z","Action":"start","Package":"taskbound.local/agent-data-gateway/internal/gateway"}
-{"Time":"2026-08-08T21:52:37.666315151Z","Action":"run","Package":"taskbound.local/agent-data-gateway/internal/gateway","Test":"TestExposureV3ChargesDistinctZeroResultPredicates"}
-{"Time":"2026-08-08T21:52:37.666349231Z","Action":"output","Package":"taskbound.local/agent-data-gateway/internal/gateway","Test":"TestExposureV3ChargesDistinctZeroResultPredicates","Output":"=== RUN   TestExposureV3ChargesDistinctZeroResultPredicates\n"}
-{"Time":"2026-08-08T21:52:38.270361335Z","Action":"output","Package":"taskbound.local/agent-data-gateway/internal/gateway","Test":"TestExposureV3ChargesDistinctZeroResultPredicates","Output":"--- PASS: TestExposureV3ChargesDistinctZeroResultPredicates (0.60s)\n"}
-{"Time":"2026-08-08T21:52:38.270396571Z","Action":"pass","Package":"taskbound.local/agent-data-gateway/internal/gateway","Test":"TestExposureV3ChargesDistinctZeroResultPredicates","Elapsed":0.6}
-{"Time":"2026-08-08T21:52:38.270478644Z","Action":"run","Package":"taskbound.local/agent-data-gateway/internal/gateway","Test":"TestRelationalOnlinePathAgainstPostgreSQL"}
-{"Time":"2026-08-08T21:52:38.270499Z","Action":"output","Package":"taskbound.local/agent-data-gateway/internal/gateway","Test":"TestRelationalOnlinePathAgainstPostgreSQL","Output":"=== RUN   TestRelationalOnlinePathAgainstPostgreSQL\n"}
-{"Time":"2026-08-08T21:52:38.516035681Z","Action":"output","Package":"taskbound.local/agent-data-gateway/internal/gateway","Test":"TestRelationalOnlinePathAgainstPostgreSQL","Output":"--- PASS: TestRelationalOnlinePathAgainstPostgreSQL (0.25s)\n"}
-{"Time":"2026-08-08T21:52:38.516070604Z","Action":"pass","Package":"taskbound.local/agent-data-gateway/internal/gateway","Test":"TestRelationalOnlinePathAgainstPostgreSQL","Elapsed":0.25}
-{"Time":"2026-08-08T21:52:38.516079909Z","Action":"run","Package":"taskbound.local/agent-data-gateway/internal/gateway","Test":"TestRelationalGatewayEndToEndAgainstPostgreSQL"}
-{"Time":"2026-08-08T21:52:38.51608573Z","Action":"output","Package":"taskbound.local/agent-data-gateway/internal/gateway","Test":"TestRelationalGatewayEndToEndAgainstPostgreSQL","Output":"=== RUN   TestRelationalGatewayEndToEndAgainstPostgreSQL\n"}
-{"Time":"2026-08-08T21:52:39.137139086Z","Action":"output","Package":"taskbound.local/agent-data-gateway/internal/gateway","Test":"TestRelationalGatewayEndToEndAgainstPostgreSQL","Output":"--- PASS: TestRelationalGatewayEndToEndAgainstPostgreSQL (0.62s)\n"}
-{"Time":"2026-08-08T21:52:39.137171908Z","Action":"pass","Package":"taskbound.local/agent-data-gateway/internal/gateway","Test":"TestRelationalGatewayEndToEndAgainstPostgreSQL","Elapsed":0.62}
-{"Time":"2026-08-08T21:52:39.137283233Z","Action":"output","Package":"taskbound.local/agent-data-gateway/internal/gateway","Output":"PASS\n"}
-{"Time":"2026-08-08T21:52:40.141442053Z","Action":"output","Package":"taskbound.local/agent-data-gateway/internal/gateway","Output":"ok  \ttaskbound.local/agent-data-gateway/internal/gateway\t2.489s\n"}
-{"Time":"2026-08-08T21:52:40.141477994Z","Action":"pass","Package":"taskbound.local/agent-data-gateway/internal/gateway","Elapsed":2.49}
+{"Time":"2026-08-09T12:17:33.859728091Z","Action":"start","Package":"taskbound.local/agent-data-gateway/internal/control"}
+{"Time":"2026-08-09T12:17:33.869997852Z","Action":"run","Package":"taskbound.local/agent-data-gateway/internal/control","Test":"TestDelegatedTasksShareRootAccountingState"}
+{"Time":"2026-08-09T12:17:33.870049146Z","Action":"output","Package":"taskbound.local/agent-data-gateway/internal/control","Test":"TestDelegatedTasksShareRootAccountingState","Output":"=== RUN   TestDelegatedTasksShareRootAccountingState\n"}
+{"Time":"2026-08-09T12:17:34.334659038Z","Action":"output","Package":"taskbound.local/agent-data-gateway/internal/control","Test":"TestDelegatedTasksShareRootAccountingState","Output":"--- PASS: TestDelegatedTasksShareRootAccountingState (0.46s)\n"}
+{"Time":"2026-08-09T12:17:34.334693309Z","Action":"pass","Package":"taskbound.local/agent-data-gateway/internal/control","Test":"TestDelegatedTasksShareRootAccountingState","Elapsed":0.46}
+{"Time":"2026-08-09T12:17:34.33472818Z","Action":"run","Package":"taskbound.local/agent-data-gateway/internal/control","Test":"TestConcurrentTaskFamilySettlementCannotOverspend"}
+{"Time":"2026-08-09T12:17:34.334729727Z","Action":"output","Package":"taskbound.local/agent-data-gateway/internal/control","Test":"TestConcurrentTaskFamilySettlementCannotOverspend","Output":"=== RUN   TestConcurrentTaskFamilySettlementCannotOverspend\n"}
+{"Time":"2026-08-09T12:17:34.819819049Z","Action":"output","Package":"taskbound.local/agent-data-gateway/internal/control","Test":"TestConcurrentTaskFamilySettlementCannotOverspend","Output":"--- PASS: TestConcurrentTaskFamilySettlementCannotOverspend (0.48s)\n"}
+{"Time":"2026-08-09T12:17:34.819867702Z","Action":"pass","Package":"taskbound.local/agent-data-gateway/internal/control","Test":"TestConcurrentTaskFamilySettlementCannotOverspend","Elapsed":0.48}
+{"Time":"2026-08-09T12:17:34.819997813Z","Action":"output","Package":"taskbound.local/agent-data-gateway/internal/control","Output":"PASS\n"}
+{"Time":"2026-08-09T12:17:35.822106585Z","Action":"output","Package":"taskbound.local/agent-data-gateway/internal/control","Output":"ok  \ttaskbound.local/agent-data-gateway/internal/control\t1.962s\n"}
+{"Time":"2026-08-09T12:17:35.822160529Z","Action":"pass","Package":"taskbound.local/agent-data-gateway/internal/control","Elapsed":1.962}
+{"Time":"2026-08-09T12:17:54.005544163Z","Action":"start","Package":"taskbound.local/agent-data-gateway/internal/gateway"}
+{"Time":"2026-08-09T12:17:54.020270716Z","Action":"run","Package":"taskbound.local/agent-data-gateway/internal/gateway","Test":"TestExposureV3ChargesDistinctZeroResultPredicates"}
+{"Time":"2026-08-09T12:17:54.02032683Z","Action":"output","Package":"taskbound.local/agent-data-gateway/internal/gateway","Test":"TestExposureV3ChargesDistinctZeroResultPredicates","Output":"=== RUN   TestExposureV3ChargesDistinctZeroResultPredicates\n"}
+{"Time":"2026-08-09T12:17:54.584415336Z","Action":"output","Package":"taskbound.local/agent-data-gateway/internal/gateway","Test":"TestExposureV3ChargesDistinctZeroResultPredicates","Output":"--- PASS: TestExposureV3ChargesDistinctZeroResultPredicates (0.56s)\n"}
+{"Time":"2026-08-09T12:17:54.584451495Z","Action":"pass","Package":"taskbound.local/agent-data-gateway/internal/gateway","Test":"TestExposureV3ChargesDistinctZeroResultPredicates","Elapsed":0.56}
+{"Time":"2026-08-09T12:17:54.584520684Z","Action":"run","Package":"taskbound.local/agent-data-gateway/internal/gateway","Test":"TestRelationalOnlinePathAgainstPostgreSQL"}
+{"Time":"2026-08-09T12:17:54.584546652Z","Action":"output","Package":"taskbound.local/agent-data-gateway/internal/gateway","Test":"TestRelationalOnlinePathAgainstPostgreSQL","Output":"=== RUN   TestRelationalOnlinePathAgainstPostgreSQL\n"}
+{"Time":"2026-08-09T12:17:54.895809321Z","Action":"output","Package":"taskbound.local/agent-data-gateway/internal/gateway","Test":"TestRelationalOnlinePathAgainstPostgreSQL","Output":"--- PASS: TestRelationalOnlinePathAgainstPostgreSQL (0.31s)\n"}
+{"Time":"2026-08-09T12:17:54.89585593Z","Action":"pass","Package":"taskbound.local/agent-data-gateway/internal/gateway","Test":"TestRelationalOnlinePathAgainstPostgreSQL","Elapsed":0.31}
+{"Time":"2026-08-09T12:17:54.895860278Z","Action":"run","Package":"taskbound.local/agent-data-gateway/internal/gateway","Test":"TestRelationalGatewayEndToEndAgainstPostgreSQL"}
+{"Time":"2026-08-09T12:17:54.895869716Z","Action":"output","Package":"taskbound.local/agent-data-gateway/internal/gateway","Test":"TestRelationalGatewayEndToEndAgainstPostgreSQL","Output":"=== RUN   TestRelationalGatewayEndToEndAgainstPostgreSQL\n"}
+{"Time":"2026-08-09T12:17:55.562023778Z","Action":"output","Package":"taskbound.local/agent-data-gateway/internal/gateway","Test":"TestRelationalGatewayEndToEndAgainstPostgreSQL","Output":"--- PASS: TestRelationalGatewayEndToEndAgainstPostgreSQL (0.67s)\n"}
+{"Time":"2026-08-09T12:17:55.562065283Z","Action":"pass","Package":"taskbound.local/agent-data-gateway/internal/gateway","Test":"TestRelationalGatewayEndToEndAgainstPostgreSQL","Elapsed":0.67}
+{"Time":"2026-08-09T12:17:55.562143421Z","Action":"output","Package":"taskbound.local/agent-data-gateway/internal/gateway","Output":"PASS\n"}
+{"Time":"2026-08-09T12:17:56.56601669Z","Action":"output","Package":"taskbound.local/agent-data-gateway/internal/gateway","Output":"ok  \ttaskbound.local/agent-data-gateway/internal/gateway\t2.560s\n"}
+{"Time":"2026-08-09T12:17:56.566065876Z","Action":"pass","Package":"taskbound.local/agent-data-gateway/internal/gateway","Elapsed":2.561}
