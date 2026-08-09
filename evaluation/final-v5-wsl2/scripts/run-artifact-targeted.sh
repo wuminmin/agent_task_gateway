@@ -119,7 +119,6 @@ require_formal_window_gate_passes() {
 # was measured on.
 ATTESTATION_QUALIFICATION="${ATTESTATION_QUALIFICATION:?set ATTESTATION_QUALIFICATION to the retained attestation-footprint-v2.json this run is judged against}"
 POSTGRESQL_IDENTITY="${POSTGRESQL_IDENTITY:?set POSTGRESQL_IDENTITY to the postgresql-identity.json from the SAME qualification run}"
-: "${TASKGATE_DATASET_BINDINGS:?set TASKGATE_DATASET_BINDINGS to the private deployment dataset binding}"
 RUN_ID="${RUN_ID:?set RUN_ID, e.g. artifact-targeted-01}"
 
 PROFILE_CATALOG="${PROFILE_CATALOG:-config/profiles/result-heavy.catalog.yaml}"
@@ -170,7 +169,7 @@ run_name="${RUN_ID}-${stamp}-${commit:0:12}"
 outdir="evaluation/final-v5-wsl2/raw/targeted-${run_name}"
 [[ -e "$outdir" ]] && { echo "refusing to overwrite $outdir" >&2; exit 2; }
 
-for input in "$ATTESTATION_QUALIFICATION" "$POSTGRESQL_IDENTITY" "$TASKGATE_DATASET_BINDINGS" "$PROFILE_CATALOG" "$PROFILE_REGISTRY"; do
+for input in "$ATTESTATION_QUALIFICATION" "$POSTGRESQL_IDENTITY" "$PROFILE_CATALOG" "$PROFILE_REGISTRY"; do
   [[ -f "$input" && ! -L "$input" ]] || { echo "required input is missing or unsafe: $input" >&2; exit 2; }
 done
 
@@ -248,20 +247,6 @@ project="$(bash evaluation/final-v5-wsl2/scripts/deployment-project-name.sh \
 export COMPOSE_PROJECT_NAME="$project"
 
 mkdir -m 700 -p "$outdir" "$outdir/raw" "$outdir/environment"
-cat >"$outdir/TARGETED-NOT-FOR-PUBLICATION" <<MARKER
-publication_eligible=false
-capability_changing=false
-activation_support_changing=false
-formal_campaign=false
-pilot_kind=artifact_targeted
-run_id=${RUN_ID}
-commit=${commit}
-compose_project=${project}
-profile_id=${PROFILE_ID}
-scales=${selected_scales_csv}
-attestation_qualification=${ATTESTATION_QUALIFICATION}
-postgresql_identity=${POSTGRESQL_IDENTITY}
-MARKER
 
 # ------------------------------------------- the adapter and the observer
 
@@ -305,48 +290,12 @@ export TASKGATE_FINAL_V5_OBSERVER_SHA256="$observer_digest"
 export TASKGATE_FINAL_V5_OBSERVER_BUILD_MANIFEST="$(realpath "$observer_manifest")"
 export TASKGATE_FINAL_V5_OBSERVER_BUILD_MANIFEST_SHA256="$(sha256sum "$observer_manifest" | awk '{print $1}')"
 
-# The Adapter refuses a dataset binding whose file and section digests differ
-# from the ones frozen before the run started, so they are established here from
-# its own strict validation rather than asserted.
-binding_validation="$("$adapter_binary" --validate-binding)"
-jq -e '.schema_version == 1 and .status == "valid" and .artifact_cells == 6' <<< "$binding_validation" >/dev/null || {
-  echo "strict dataset binding validation did not report six artifact cells" >&2; exit 1; }
-export TASKGATE_FINAL_V5_BINDING_FILE_SHA256="$(jq -er .dataset_binding_sha256 <<< "$binding_validation")"
-export TASKGATE_FINAL_V5_BINDING_SECTION_SHA256="$(jq -er .final_v5_adapter_sha256 <<< "$binding_validation")"
-# artifact_profile.go binds every sample to the run's Dataset Binding by this
-# digest; it is the same value, named for what the profile binding calls it.
-export TASKGATE_FINAL_V5_DATASET_BINDING_SHA256="$TASKGATE_FINAL_V5_BINDING_FILE_SHA256"
-
-# Resolve the orchestrator-owned binding through the same Go implementation the
-# Adapter uses. The runner passes this complete identity into every operation;
-# the Adapter may only echo it back. Cross-check the two operator-visible
-# members here so a future CLI or registry change cannot silently select a
-# different profile or Catalog.
-profile_binding="$outdir/profile-binding.json"
-GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-profile-binding \
-  --registry "$PROFILE_REGISTRY" \
-  --alias "$PROFILE_ALIAS" \
-  --dataset-binding-sha256 "$TASKGATE_FINAL_V5_BINDING_FILE_SHA256" \
-  --out "$profile_binding"
-[[ -f "$profile_binding" && ! -L "$profile_binding" ]] || {
-  echo "profile binding resolver did not create a safe regular file" >&2; exit 1; }
-chmod 600 "$profile_binding"
-jq -e --arg profile_id "$PROFILE_ID" --arg catalog_sha256 "$profile_catalog_sha256" \
-  --arg dataset_binding_sha256 "$TASKGATE_FINAL_V5_BINDING_FILE_SHA256" '
-  .version == "taskgate-final-v5-profile-binding-v1" and
-  .profile_id == $profile_id and
-  .catalog_sha256 == $catalog_sha256 and
-  .dataset_binding_sha256 == $dataset_binding_sha256
-' "$profile_binding" >/dev/null || {
-  echo "resolved ProfileBinding differs from the selected profile, Catalog or Dataset Binding" >&2
-  exit 1
-}
-
 # The observer accepts only a Gateway built by the tracked-file-only formal
 # build path. Select that verified local image through a last-wins Compose
 # override; --no-build at Gateway startup prevents Compose from replacing it
 # with the ordinary Dockerfile build declared by compose.yaml. This expensive
-# build comes only after the Dataset and Profile bindings have passed.
+# build is source-bound to the clean submission commit; the live targeted
+# binding is created later, only after fresh Business PostgreSQL is ready.
 formal_gateway_tag="taskgate-final-v5-gateway:${commit}"
 GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-gateway-build build \
   -root "$repo" \
@@ -435,6 +384,135 @@ for service in "${phase1_jobs[@]}"; do
   done
 done
 echo "phase 1: all services healthy, all jobs completed"
+
+# ------------------------------------------------------- deployment bindings
+#
+# Read the fresh deployment's credentials only after its backing services are
+# healthy. The Artifact-targeted binding command receives the Business DSN
+# through its environment, probes that live database once, and writes no
+# credential into the retained binding.
+compose_json="$("${compose[@]}" config --format json)"
+service_env() { jq -r --arg service "$1" --arg name "$2" '.services[$service].environment[$name] // empty' <<< "$compose_json"; }
+urlencode() { printf '%s' "$1" | jq -sRr '@uri'; }
+
+alice_token="$(service_env gateway TASKBOUND_ALICE_TOKEN)"
+carol_token="$(service_env gateway TASKBOUND_CAROL_TOKEN)"
+alice_password="$(service_env oa-demo OA_ALICE_PASSWORD)"
+bob_password="$(service_env oa-demo OA_BOB_PASSWORD)"
+control_password="$(service_env control-postgres POSTGRES_PASSWORD)"
+control_database="$(service_env control-postgres POSTGRES_DB)"
+business_password="$(service_env gateway GATEWAY_DB_PASSWORD)"
+business_database="$(service_env business-postgres POSTGRES_DB)"
+business_admin_password="$(service_env business-postgres POSTGRES_PASSWORD)"
+object_access_key="$(service_env gateway GATEWAY_OBJECT_STORE_ACCESS_KEY)"
+object_secret_key="$(service_env gateway GATEWAY_OBJECT_STORE_SECRET_KEY)"
+object_bucket="$(service_env gateway GATEWAY_OBJECT_STORE_BUCKET)"
+control_port="$("${compose[@]}" port control-postgres 5432 | awk -F: 'END{print $NF}')"
+business_port="$("${compose[@]}" port business-postgres 5432 | awk -F: 'END{print $NF}')"
+object_port="$("${compose[@]}" port result-object-store 9000 | awk -F: 'END{print $NF}')"
+for value in "$alice_token" "$carol_token" "$alice_password" "$bob_password" "$control_password" \
+  "$control_database" "$business_password" "$business_database" "$business_admin_password" \
+  "$object_access_key" "$object_secret_key" "$object_bucket" \
+  "$control_port" "$business_port" "$object_port"; do
+  [[ -n "$value" ]] || { echo "Compose omitted a required deployment binding" >&2; exit 1; }
+done
+
+export TASKBOUND_ALICE_TOKEN="$alice_token" TASKBOUND_CAROL_TOKEN="$carol_token"
+export OA_ALICE_PASSWORD="$alice_password" OA_BOB_PASSWORD="$bob_password"
+export TASKGATE_FINAL_V5_CONTROL_DSN="postgres://postgres:$(urlencode "$control_password")@127.0.0.1:$control_port/$(urlencode "$control_database")?sslmode=disable"
+export TASKGATE_FINAL_V5_BUSINESS_DSN="postgres://gateway_reader:$(urlencode "$business_password")@127.0.0.1:$business_port/$(urlencode "$business_database")?sslmode=disable"
+export TASKGATE_FINAL_V5_BUSINESS_OBSERVER_DSN="postgres://postgres:$(urlencode "$business_admin_password")@127.0.0.1:$business_port/$(urlencode "$business_database")?sslmode=disable"
+export TASKGATE_FINAL_V5_GATEWAY_URL=http://127.0.0.1:8082
+export TASKGATE_FINAL_V5_OA_URL=http://127.0.0.1:8092
+export TASKGATE_FINAL_V5_OBJECT_STORE_URL="http://127.0.0.1:$object_port"
+export TASKGATE_FINAL_V5_OBJECT_STORE_ACCESS_KEY="$object_access_key"
+export TASKGATE_FINAL_V5_OBJECT_STORE_SECRET_KEY="$object_secret_key"
+export TASKGATE_FINAL_V5_OBJECT_STORE_BUCKET="$object_bucket"
+unset alice_token carol_token alice_password bob_password control_password \
+  business_password business_admin_password object_access_key object_secret_key
+
+# ------------------------------------ Artifact-targeted deployment binding
+#
+# This credential-free record binds only the six frozen Artifact cells and the
+# selected subset to the fresh deployment. It is not the publication-wide
+# private Scale/ProvSQL binding and is never exposed through those private
+# binding environment variables.
+artifact_targeted_binding="$outdir/artifact-targeted-deployment-binding.json"
+artifact_targeted_binding_report="$outdir/artifact-targeted-deployment-binding.validation.json"
+artifact_targeted_binding_validation="$(
+  GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-artifact-targeted-binding \
+    --registry "$PROFILE_REGISTRY" \
+    --profile-alias "$PROFILE_ALIAS" \
+    --catalog "$PROFILE_CATALOG" \
+    --selected-scales "$selected_scales_csv" \
+    --attestation-qualification "$ATTESTATION_QUALIFICATION" \
+    --postgresql-identity "$POSTGRESQL_IDENTITY" \
+    --out "$artifact_targeted_binding"
+)"
+printf '%s\n' "$artifact_targeted_binding_validation" >"$artifact_targeted_binding_report"
+chmod 600 "$artifact_targeted_binding_report"
+
+[[ -f "$artifact_targeted_binding" && ! -L "$artifact_targeted_binding" ]] || {
+  echo "Artifact-targeted binding generator did not create a safe regular file" >&2; exit 1; }
+[[ "$(stat -c '%a' "$artifact_targeted_binding")" == "600" ]] || {
+  echo "Artifact-targeted binding generator did not create a mode-0600 file" >&2; exit 1; }
+artifact_targeted_binding_sha256="$(sha256sum "$artifact_targeted_binding" | awk '{print $1}')"
+jq -e --arg binding_file_sha256 "$artifact_targeted_binding_sha256" \
+  --argjson selected_cells "$selected_scale_count" '
+  .schema_version == 1 and
+  .status == "valid" and
+  .artifact_cells == 6 and
+  .selected_cells == $selected_cells and
+  (.dataset_probe_sha256 | test("^[0-9a-f]{64}$")) and
+  .binding_file_sha256 == $binding_file_sha256
+' <<< "$artifact_targeted_binding_validation" >/dev/null || {
+  echo "Artifact-targeted binding validation report is incomplete or disagrees with the retained file" >&2
+  exit 1
+}
+export TASKGATE_FINAL_V5_DATASET_BINDING_SHA256="$artifact_targeted_binding_sha256"
+
+# Resolve the orchestrator-owned profile binding through the same Go
+# implementation the Adapter uses, keyed by the exact targeted binding bytes.
+profile_binding="$outdir/profile-binding.json"
+GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-profile-binding \
+  --registry "$PROFILE_REGISTRY" \
+  --alias "$PROFILE_ALIAS" \
+  --dataset-binding-sha256 "$TASKGATE_FINAL_V5_DATASET_BINDING_SHA256" \
+  --out "$profile_binding"
+[[ -f "$profile_binding" && ! -L "$profile_binding" ]] || {
+  echo "profile binding resolver did not create a safe regular file" >&2; exit 1; }
+chmod 600 "$profile_binding"
+jq -e --arg profile_id "$PROFILE_ID" --arg catalog_sha256 "$profile_catalog_sha256" \
+  --arg dataset_binding_sha256 "$TASKGATE_FINAL_V5_DATASET_BINDING_SHA256" '
+  .version == "taskgate-final-v5-profile-binding-v1" and
+  .profile_id == $profile_id and
+  .catalog_sha256 == $catalog_sha256 and
+  .dataset_binding_sha256 == $dataset_binding_sha256
+' "$profile_binding" >/dev/null || {
+  echo "resolved ProfileBinding differs from the selected profile, Catalog or targeted binding" >&2
+  exit 1
+}
+
+artifact_targeted_binding_path="$(realpath "$artifact_targeted_binding")"
+cat >"$outdir/TARGETED-NOT-FOR-PUBLICATION" <<MARKER
+publication_eligible=false
+capability_changing=false
+activation_support_changing=false
+formal_campaign=false
+pilot_kind=artifact_targeted
+run_id=${RUN_ID}
+commit=${commit}
+compose_project=${project}
+profile_id=${PROFILE_ID}
+scales=${selected_scales_csv}
+attestation_qualification=${ATTESTATION_QUALIFICATION}
+postgresql_identity=${POSTGRESQL_IDENTITY}
+artifact_targeted_binding_path=${artifact_targeted_binding_path}
+artifact_targeted_binding_sha256=${artifact_targeted_binding_sha256}
+claim_scope=artifact_path_and_v3_observer_acceptance_only
+publication_factset_oracle_ready=false
+MARKER
+chmod 600 "$outdir/TARGETED-NOT-FOR-PUBLICATION"
 
 # The per-profile artifact directory, materialized from the verified full one.
 # It is what the deployment mounts AND what the finalizer reads its retained
@@ -551,48 +629,6 @@ print(running["image_reference"])
 PYCHECK
 )" || exit 1
 echo "postgresql runtime identity matches the retained qualification: $running_identity"
-
-# ------------------------------------------------------- deployment bindings
-
-compose_json="$("${compose[@]}" config --format json)"
-service_env() { jq -r --arg service "$1" --arg name "$2" '.services[$service].environment[$name] // empty' <<< "$compose_json"; }
-urlencode() { printf '%s' "$1" | jq -sRr '@uri'; }
-
-alice_token="$(service_env gateway TASKBOUND_ALICE_TOKEN)"
-carol_token="$(service_env gateway TASKBOUND_CAROL_TOKEN)"
-alice_password="$(service_env oa-demo OA_ALICE_PASSWORD)"
-bob_password="$(service_env oa-demo OA_BOB_PASSWORD)"
-control_password="$(service_env control-postgres POSTGRES_PASSWORD)"
-control_database="$(service_env control-postgres POSTGRES_DB)"
-business_password="$(service_env gateway GATEWAY_DB_PASSWORD)"
-business_database="$(service_env business-postgres POSTGRES_DB)"
-business_admin_password="$(service_env business-postgres POSTGRES_PASSWORD)"
-object_access_key="$(service_env gateway GATEWAY_OBJECT_STORE_ACCESS_KEY)"
-object_secret_key="$(service_env gateway GATEWAY_OBJECT_STORE_SECRET_KEY)"
-object_bucket="$(service_env gateway GATEWAY_OBJECT_STORE_BUCKET)"
-control_port="$("${compose[@]}" port control-postgres 5432 | awk -F: 'END{print $NF}')"
-business_port="$("${compose[@]}" port business-postgres 5432 | awk -F: 'END{print $NF}')"
-object_port="$("${compose[@]}" port result-object-store 9000 | awk -F: 'END{print $NF}')"
-for value in "$alice_token" "$carol_token" "$alice_password" "$bob_password" "$control_password" \
-  "$control_database" "$business_password" "$business_database" "$business_admin_password" \
-  "$object_access_key" "$object_secret_key" "$object_bucket" \
-  "$control_port" "$business_port" "$object_port"; do
-  [[ -n "$value" ]] || { echo "Compose omitted a required deployment binding" >&2; exit 1; }
-done
-
-export TASKBOUND_ALICE_TOKEN="$alice_token" TASKBOUND_CAROL_TOKEN="$carol_token"
-export OA_ALICE_PASSWORD="$alice_password" OA_BOB_PASSWORD="$bob_password"
-export TASKGATE_FINAL_V5_CONTROL_DSN="postgres://postgres:$(urlencode "$control_password")@127.0.0.1:$control_port/$(urlencode "$control_database")?sslmode=disable"
-export TASKGATE_FINAL_V5_BUSINESS_DSN="postgres://gateway_reader:$(urlencode "$business_password")@127.0.0.1:$business_port/$(urlencode "$business_database")?sslmode=disable"
-export TASKGATE_FINAL_V5_BUSINESS_OBSERVER_DSN="postgres://postgres:$(urlencode "$business_admin_password")@127.0.0.1:$business_port/$(urlencode "$business_database")?sslmode=disable"
-export TASKGATE_FINAL_V5_GATEWAY_URL=http://127.0.0.1:8082
-export TASKGATE_FINAL_V5_OA_URL=http://127.0.0.1:8092
-export TASKGATE_FINAL_V5_OBJECT_STORE_URL="http://127.0.0.1:$object_port"
-export TASKGATE_FINAL_V5_OBJECT_STORE_ACCESS_KEY="$object_access_key"
-export TASKGATE_FINAL_V5_OBJECT_STORE_SECRET_KEY="$object_secret_key"
-export TASKGATE_FINAL_V5_OBJECT_STORE_BUCKET="$object_bucket"
-unset alice_token carol_token alice_password bob_password control_password \
-  business_password business_admin_password object_access_key object_secret_key
 
 # ------------------------------------------------ the v3 finalizer's material
 #

@@ -328,6 +328,83 @@ func TestTheContractResolverLowersTheFrozenStatement(t *testing.T) {
 	}
 }
 
+func unsetDeploymentEnvironmentForTest(t *testing.T, names ...string) {
+	t.Helper()
+	for _, name := range names {
+		value, present := os.LookupEnv(name)
+		if err := os.Unsetenv(name); err != nil {
+			t.Fatalf("unset %s: %v", name, err)
+		}
+		name, value, present := name, value, present
+		t.Cleanup(func() {
+			var err error
+			if present {
+				err = os.Setenv(name, value)
+			} else {
+				err = os.Unsetenv(name)
+			}
+			if err != nil {
+				t.Errorf("restore %s: %v", name, err)
+			}
+		})
+	}
+}
+
+func TestDeploymentFinalizerContractSelectorsAcquirePrivateBindingOnlyWhenAdmitted(t *testing.T) {
+	privateBindingEnvironment := []string{
+		deploymentBindingFileEnv,
+		deploymentBindingFileSHAEnv,
+		deploymentBindingSectionSHAEnv,
+	}
+	unsetDeploymentEnvironmentForTest(t, privateBindingEnvironment...)
+
+	contracts := deploymentContractsForTest(t)
+	contracts.bindingSource = deploymentBindingSourceFromEnvironmentV3()
+	if contracts.bindingSource != (deploymentBindingSourceV3{}) {
+		t.Fatalf("private binding source was captured from an unset environment: %+v", contracts.bindingSource)
+	}
+
+	artifact, err := contracts.ResolveCandidates(FrozenContractSelectorV3{
+		ExperimentID: finalv5contracts.ArtifactExperimentID,
+		WorkloadID:   finalv5contracts.ArtifactWorkloadID,
+		Scale:        "100x4",
+		Mode:         "novel",
+	})
+	if err != nil {
+		t.Fatalf("resolve an Artifact candidate with no publication-wide private binding: %v", err)
+	}
+	if len(artifact) != 1 || artifact[0].OperationID != "artifact/result-heavy/100x4/novel" {
+		t.Fatalf("exact Artifact selector resolved %+v", artifact)
+	}
+
+	for _, test := range []struct {
+		name     string
+		selector FrozenContractSelectorV3
+	}{
+		{
+			name: "Scale",
+			selector: FrozenContractSelectorV3{
+				ExperimentID: "scale", WorkloadID: "dependency-e2e",
+			},
+		},
+		{
+			name: "ProvSQL",
+			selector: FrozenContractSelectorV3{
+				ExperimentID: "provsql", WorkloadID: "nonce-join-group",
+			},
+		},
+		{name: "wildcard", selector: FrozenContractSelectorV3{}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if candidates, err := contracts.ResolveCandidates(test.selector); err == nil {
+				t.Fatalf("selector resolved %d candidate(s) without private binding material", len(candidates))
+			} else if !strings.Contains(err.Error(), deploymentBindingFileEnv) {
+				t.Fatalf("selector failed for a reason other than missing private binding material: %v", err)
+			}
+		})
+	}
+}
+
 const scaleResolverTestProduct = "final_v5_exposure_scale"
 
 // scaleBindingForResolverTest is synthetic, non-evidence private material whose

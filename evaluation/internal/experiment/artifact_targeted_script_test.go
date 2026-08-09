@@ -53,9 +53,23 @@ func TestArtifactTargetedLauncherWiresTheFormalRuntimeContract(t *testing.T) {
 		`formal_gateway_tag="taskgate-final-v5-gateway:${commit}"`,
 		`image: "${formal_gateway_tag}"`,
 		`--no-build --no-deps gateway`,
+		`go run ./evaluation/cmd/final-v5-artifact-targeted-binding`,
+		`--registry "$PROFILE_REGISTRY"`,
+		`--profile-alias "$PROFILE_ALIAS"`,
+		`--catalog "$PROFILE_CATALOG"`,
+		`--selected-scales "$selected_scales_csv"`,
+		`--attestation-qualification "$ATTESTATION_QUALIFICATION"`,
+		`--postgresql-identity "$POSTGRESQL_IDENTITY"`,
+		`--out "$artifact_targeted_binding"`,
+		`artifact_targeted_binding_sha256="$(sha256sum "$artifact_targeted_binding" | awk '{print $1}')"`,
+		`export TASKGATE_FINAL_V5_DATASET_BINDING_SHA256="$artifact_targeted_binding_sha256"`,
 		`go run ./evaluation/cmd/final-v5-profile-binding`,
-		`--dataset-binding-sha256 "$TASKGATE_FINAL_V5_BINDING_FILE_SHA256"`,
+		`--dataset-binding-sha256 "$TASKGATE_FINAL_V5_DATASET_BINDING_SHA256"`,
 		`-profile-binding "$(realpath "$profile_binding")"`,
+		`artifact_targeted_binding_path=${artifact_targeted_binding_path}`,
+		`artifact_targeted_binding_sha256=${artifact_targeted_binding_sha256}`,
+		`claim_scope=artifact_path_and_v3_observer_acceptance_only`,
+		`publication_factset_oracle_ready=false`,
 		`if [[ -z "${SCALES+x}" ]]`,
 		`selected_scales_json="$(resolve_artifact_scales "$SCALES")"`,
 		`--argjson scales "$selected_scales_json"`,
@@ -63,7 +77,9 @@ func TestArtifactTargetedLauncherWiresTheFormalRuntimeContract(t *testing.T) {
 		`.workloads[0].modes != ["novel"]`,
 		`.workloads[0].scales != $frozen_scales`,
 		`.workloads[0].scales = $scales`,
-		`jq -e '.schema_version == 1 and .status == "valid" and .artifact_cells == 6' <<< "$binding_validation" >/dev/null || {`,
+		`.artifact_cells == 6 and`,
+		`.selected_cells == $selected_cells and`,
+		`.binding_file_sha256 == $binding_file_sha256`,
 		`expected=$((selected_scale_count * SAMPLES))`,
 		`export TASKGATE_FINAL_V5_FORMAL_WINDOW_PROJECT="$project"`,
 		`export TASKGATE_FINAL_V5_FORMAL_WINDOW_GATEWAY="http://127.0.0.1:8082"`,
@@ -87,6 +103,16 @@ func TestArtifactTargetedLauncherWiresTheFormalRuntimeContract(t *testing.T) {
 	}
 	if strings.Contains(body, `SCALES="${SCALES:-`) {
 		t.Fatal("targeted Artifact launcher silently defaults an explicitly empty SCALES selection")
+	}
+	for _, forbidden := range []string{
+		`--validate-binding`,
+		`TASKGATE_DATASET_BINDINGS`,
+		`TASKGATE_FINAL_V5_BINDING_FILE_SHA256`,
+		`TASKGATE_FINAL_V5_BINDING_SECTION_SHA256`,
+	} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("targeted Artifact launcher still reads publication-wide private binding material %q", forbidden)
+		}
 	}
 
 	clearance := strings.Index(body, `# ------------------------------------------------- the clearance, checked first`)
@@ -120,6 +146,21 @@ func TestArtifactTargetedLauncherWiresTheFormalRuntimeContract(t *testing.T) {
 		if position < clearance || position > gatewayStart || position > runnerStart {
 			t.Fatalf("%s is not bound after clearance and before Gateway/runner startup", name)
 		}
+	}
+
+	phaseOneReady := strings.Index(body, `echo "phase 1: all services healthy, all jobs completed"`)
+	businessDSN := strings.Index(body, `export TASKGATE_FINAL_V5_BUSINESS_DSN=`)
+	targetedBinding := strings.Index(body, `go run ./evaluation/cmd/final-v5-artifact-targeted-binding`)
+	targetedDigest := strings.Index(body, `artifact_targeted_binding_sha256="$(sha256sum`)
+	datasetDigestExport := strings.Index(body,
+		`export TASKGATE_FINAL_V5_DATASET_BINDING_SHA256="$artifact_targeted_binding_sha256"`)
+	profileBinding := strings.Index(body, `go run ./evaluation/cmd/final-v5-profile-binding`)
+	marker := strings.Index(body, `artifact_targeted_binding_path=${artifact_targeted_binding_path}`)
+	if phaseOneReady < 0 || businessDSN <= phaseOneReady || targetedBinding <= businessDSN ||
+		targetedDigest <= targetedBinding || datasetDigestExport <= targetedDigest ||
+		profileBinding <= datasetDigestExport || marker <= profileBinding ||
+		gatewayStart <= marker || runnerStart <= gatewayStart {
+		t.Fatal("fresh DB, targeted binding, exact digest, profile binding and marker are not ordered before Gateway/measurement startup")
 	}
 
 	scaleResolution := strings.Index(body, `selected_scales_json="$(resolve_artifact_scales "$SCALES")"`)
@@ -171,16 +212,24 @@ func TestArtifactTargetedLauncherWiresTheFormalRuntimeContract(t *testing.T) {
 		t.Fatal("formal-window live gate report is not fail-closed after the live go test")
 	}
 
-	bindingValidation := strings.Index(body, `binding_validation="$("$adapter_binary" --validate-binding)"`)
-	bindingExport := strings.Index(body, `export TASKGATE_FINAL_V5_BINDING_FILE_SHA256=`)
+	bindingValidation := strings.Index(body, `artifact_targeted_binding_validation="$(`)
+	bindingExport := strings.Index(body,
+		`export TASKGATE_FINAL_V5_DATASET_BINDING_SHA256="$artifact_targeted_binding_sha256"`)
 	if bindingValidation < 0 || bindingExport < bindingValidation {
-		t.Fatal("targeted Artifact launcher has no bounded Dataset Binding validation stage")
+		t.Fatal("targeted Artifact launcher has no bounded Artifact-targeted binding validation stage")
 	}
 	bindingBlock := body[bindingValidation:bindingExport]
-	if !strings.Contains(bindingBlock,
-		`jq -e '.schema_version == 1 and .status == "valid" and .artifact_cells == 6' <<< "$binding_validation" >/dev/null || {`) ||
-		strings.Contains(bindingBlock, `selected_scale`) {
-		t.Fatal("cell selection weakens the complete six-cell Dataset Binding validation")
+	for _, required := range []string{
+		`.schema_version == 1`,
+		`.status == "valid"`,
+		`.artifact_cells == 6`,
+		`.selected_cells == $selected_cells`,
+		`(.dataset_probe_sha256 | test("^[0-9a-f]{64}$"))`,
+		`.binding_file_sha256 == $binding_file_sha256`,
+	} {
+		if !strings.Contains(bindingBlock, required) {
+			t.Fatalf("Artifact-targeted binding validation omits %q", required)
+		}
 	}
 	finalAdjudication := strings.Index(body[runnerStart:], `# A process-level zero exit retains failed measured samples`)
 	if finalAdjudication < 0 ||

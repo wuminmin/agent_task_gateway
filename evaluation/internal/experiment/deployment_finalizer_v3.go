@@ -203,8 +203,8 @@ func gatewayKeyringVerifierV3(ctx context.Context, gatewayURL string) (ReceiptVe
 
 // ---------------------------------------------------------- the frozen contracts
 
-// deploymentContractsV3 resolves frozen Artifact and Scale operations against
-// the Catalog the Gateway is actually running.
+// deploymentContractsV3 resolves frozen Artifact, Scale and ProvSQL operations
+// against the Catalog the Gateway is actually running.
 //
 // The Contract Index is embedded in this binary and its digests are revalidated
 // by LoadRuntime, so the contract half needs no deployment at all. What does is
@@ -218,8 +218,9 @@ type deploymentContractsV3 struct {
 	live    finalv5contracts.LiveDeployment
 	// bindingSource freezes where this deployment keeps Scale and ProvSQL's private material
 	// and the identities captured before startup, but does not read it until a
-	// selector can actually admit Scale. Artifact therefore keeps no dependency
-	// on Scale material; a wildcard selector, correctly, requires both workloads.
+	// selector can actually admit Scale or ProvSQL. Artifact therefore keeps no
+	// dependency on private Scale/ProvSQL material; a wildcard selector,
+	// correctly, requires both private-backed workloads.
 	bindingSource deploymentBindingSourceV3
 	// catalog is the live Catalog, loaded once. It is the same file
 	// live.CatalogPath names, kept parsed because every candidate reads its
@@ -341,9 +342,28 @@ func datasetProbeDigestV3(ctx context.Context, runtime *finalv5contracts.Runtime
 		return "", fmt.Errorf("connect Business PostgreSQL for the dataset probe: %w", err)
 	}
 	defer connection.Close(context.Background())
-	var fingerprint string
-	if err := connection.QueryRow(ctx, probe).Scan(&fingerprint); err != nil {
+	tx, err := connection.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return "", fmt.Errorf("begin the read-only contract dataset probe: %w", err)
+	}
+	defer tx.Rollback(context.Background())
+	rows, err := tx.Query(ctx, probe)
+	if err != nil {
 		return "", fmt.Errorf("run the contract dataset probe: %w", err)
+	}
+	defer rows.Close()
+	if len(rows.FieldDescriptions()) != 1 || !rows.Next() {
+		return "", errors.New("the contract dataset probe must return exactly one scalar row")
+	}
+	var fingerprint string
+	if err := rows.Scan(&fingerprint); err != nil || strings.TrimSpace(fingerprint) == "" || rows.Next() {
+		return "", errors.New("the contract dataset probe must return exactly one non-empty scalar row")
+	}
+	if err := rows.Err(); err != nil {
+		return "", fmt.Errorf("read the contract dataset probe: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", fmt.Errorf("commit the read-only contract dataset probe: %w", err)
 	}
 	return sha256Hex([]byte(fingerprint)), nil
 }
@@ -773,8 +793,8 @@ func (contracts deploymentContractsV3) provSQLCandidateForV3(cell finalv5contrac
 
 // operationMaterialV3 lowers one frozen SQL statement and maps its independently
 // acquired approved task surface onto the input shared with Gateway preparation.
-// Artifact and Scale both call this function so there is one trusted construction
-// of Plan and Grant; executable statements remain exclusively in
+// Artifact, Scale and ProvSQL all call this function so there is one trusted
+// construction of Plan and Grant; executable statements remain exclusively in
 // physicalquery.Prepare/Derive.
 func (contracts deploymentContractsV3) operationMaterialV3(sql string, products []string,
 	columns map[string][]string, scopes map[string][]string) (queryplan.QueryPlan, physicalquery.Grant, error) {

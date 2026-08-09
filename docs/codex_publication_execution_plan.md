@@ -114,13 +114,17 @@ P0 基线复核
           (Scale/ProvSQL/observer/ratchet)
                                           │
                                           ▼
-                                     P3 形式化 + N4 + 100×4 canary
+                                     P3 形式化 + N4 + Artifact-targeted 100×4 canary
                                           │
+                                          ▼
+                                     P4.0 publication oracle closure
+                                          │
+                                          ├─► 自动生成、作者审阅完整 12/6/105 binding
                                           ▼
                                      P4 契约 v1.5 冻结  ◄── 作者批准
                                           │
                                           ▼
-                                     P5 正式实测 → 9/9  ◄── 私有 dataset binding
+                                     P5 正式实测 → 9/9
                                           │
                                           ▼
                                      P6 证据合并 + 论文数字
@@ -358,30 +362,71 @@ V5 要建 predicate footprint，而 `queryplan.PredicateBindings` 按 product �
 **P3.3-prep 100×4-only runner 准备**：只准备可恢复、可审计的运行入口，不产生
 canary evidence。`run-artifact-targeted.sh` 接受显式 cell 白名单；白名单只能是经严格
 校验的冻结六格子集（可为完整集合），未设置时仍默认六格，且只改变本轮请求格和
-`expected`。完整 binding 的
-`.artifact_cells == 6` 校验与终局 `.taskgate_acceptance_v3 != null` 断言不得放宽。
+`expected`。终局 `.taskgate_acceptance_v3 != null` 断言不得放宽。
 在 readiness 之后、第一格 measurement 之前，runner 必须导出本轮 Compose project 并
 fail-closed 真跑 `TestFormalDeploymentRunsTheApprovedHealthcheckLive`、
 `TestPeriodicLivenessProbesAddNoBusinessStatements`、
 `TestExplicitReadinessOutsideTheWindowStillAttests`；任一 FAIL、SKIP、缺失或重复 terminal
 都不得开跑，10 秒 liveness 检查本身位于所有 measurement window 之外。
-除同步本计划、runner 守卫测试与 append-only 台账外，实施文件只改 runner；不得改 registry、
-capability、activation、contract 或既有 evidence。
-**P3.3 Result-heavy 100×4 v3 canary**（活体）：从完成 P3.3-prep 后 clean、已推送的
-新 HEAD 重建 formal Gateway image，显式选择 `SCALES=100x4`。虽只请求一格，仍须提供
-与 P5.1 相同、字节完整且 mode 为 `0600` 的私有 `TASKGATE_DATASET_BINDINGS` 常规文件
-（完整 deployment binding：Artifact 段恰六格，Scale/ProvSQL 段也不得裁剪）；Attestation
-输入必须显式使用
+
+**P3.3-prep2 Artifact-targeted deployment binding**：为非发表 Artifact canary 新增
+credential-free 的 `taskgate-final-v5-artifact-targeted-deployment-binding-v1`。生成器必须
+从 embedded `finalv5contracts.LoadRuntime` 加载并重验 Contract Index，要求 Artifact 恰为
+冻结六格，并逐格通过既有 Bridge 的 `ArtifactCell`、`QueryContract` 与 `OracleManifest`
+核对 SQL SHA、NxC、oracle manifest SHA 和 canonical result SHA。它还必须绑定当前
+Result-heavy Profile Registry 的 profile/closure/Catalog/Publication-set identity、
+activation/targeted-run clearance、所选冻结 scale 子集、fresh Business PostgreSQL 的
+pre-measurement dataset probe SHA，以及 Attestation qualification 与 PostgreSQL identity
+文件的 SHA-256。输出必须 create-exclusive、普通非 symlink、mode `0600`、拒绝 unknown
+fields，且不得含 credential、DSN、token、原始 SQL 结果或对象密钥。
+
+Artifact selector 在 `TASKGATE_DATASET_BINDINGS`、
+`TASKGATE_FINAL_V5_BINDING_FILE_SHA256`、
+`TASKGATE_FINAL_V5_BINDING_SECTION_SHA256` 均未设置时仍须解析 Artifact candidate；只有
+可能命中 Scale 或 ProvSQL 的 selector 才能加载完整 private material，并在缺失时
+fail closed。runner 不得读取完整 publication binding、调用 Adapter `--validate-binding`
+或设置上述三个变量。fresh Business PostgreSQL ready 后、任何 measurement 前生成 targeted
+binding，把其 exact file SHA-256 设为 `TASKGATE_FINAL_V5_DATASET_BINDING_SHA256` 并交给
+`final-v5-profile-binding`。`TARGETED-NOT-FOR-PUBLICATION` marker 必须记录 targeted binding
+路径/摘要、`claim_scope=artifact_path_and_v3_observer_acceptance_only` 和
+`publication_factset_oracle_ready=false`。P3.3-prep 的三项 formal-window live gate、严格
+`SCALES` 白名单、动态 `expected` 及逐 sample 终局断言全部保持原样。
+
+**P3.3 Result-heavy 100×4 v3 canary**（活体）：从完成 P3.3-prep2 后 clean、已推送的
+新 HEAD 重建 formal Gateway image，显式选择 `SCALES=100x4`。它不依赖、也不得读取完整
+12/6/105 publication binding；只使用 fresh deployment 现场生成的 Artifact-targeted binding。
+Attestation 输入必须显式使用
 P3.2 的 `diagnosis-attestation-footprint-qualification-p32-01-20260809T130103Z-f5fc9811eef8`
 目录内 `attestation-footprint-v2.json` 与同目录 `postgresql-identity.json`，不得跨轮拼接。
-这是 v3 路径第一次真跑量；失败即 `fail`，不降级。
+这是 v3 路径第一次真跑量；失败即 `fail`，不降级。通过只能声明 Artifact path 与 V3
+observer acceptance，不得声明 independent FactSet oracle closure、publication readiness
+或任何 capability/registry 状态翻转；每个 sample 仍必须是
+`publication_eligible=false`。
 
 验收：P3.1、P3.2、P3.3 三项各自的证据文件入库（`raw/` 是 `.gitignore *`，值得留的
-用 `git add -f`，入库前必须查凭据）；P3.3-prep 不产生 canary evidence。
+用 `git add -f`，入库前必须查凭据）；P3.3-prep/P3.3-prep2 不产生 canary evidence。
 
 ---
 
-### P4 — 契约 v1.5 冻结（前置：P3；需作者批准）
+### P4 — Publication oracle closure、完整 binding 与契约 v1.5 冻结（前置：P3；需作者批准）
+
+**P4.0 publication-wide oracle closure and binding generation**：P3.3 不依赖本任务；
+它是任何 P5 publication measurement 的硬前置，且必须按顺序完成：
+
+1. 裁决 Scale contract 的 `existing=N` 与当前 validator 的 `history=K` /
+   zero-overlap 无 history 冲突，不得在未裁决时任选一边生成摘要。
+2. 建立独立 Scale FactSet oracle；expected rows/FactSets 不得复制生产输出。
+3. 建立 ProvSQL 105 格 independent FactSet oracle。
+4. 裁决 Artifact private dependency section 是删除，还是实现真正 independent oracle；
+   P3.3 targeted binding 不替代该裁决。
+5. 上述 closure 完成后，由程序从已闭合的 contract/oracle material 自动生成完整
+   12/6/105 publication binding `REVIEW_CANDIDATE`，再由作者逐字节审阅。该文件不是让
+   作者手工填写 123 个 SHA 的普通输入；不得用 placeholder、测试摘要或运行后反填生成。
+
+完整 publication binding 的最早需求时间是 P4.0 oracle closure 完成后、任何 P5 正式
+实测之前。
+
+**P4 契约 v1.5 冻结**：
 
 1. **删除** `config/profiles/activation-support-v1.json` 并重新生成 registry。
    release 一 bump，所有既有 activation smoke 全部作废——这是设计好的路径，
@@ -404,15 +449,21 @@ P3.2 的 `diagnosis-attestation-footprint-qualification-p32-01-20260809T130103Z-
 
 ---
 
-### P5 — 正式实测（前置：P4；含操作员输入）
+### P5 — 正式实测（前置：P4；P5.1 为非发表前置）
 
 | 任务 | 内容 | 阻塞输入 |
 |---|---|---|
-| **P5.1** | Artifact 六格 `result-heavy` 定向跑：`SCALES` 未设置，`run-artifact-targeted.sh` 按默认完整六格执行；需 `ATTESTATION_QUALIFICATION`、`POSTGRESQL_IDENTITY`、`TASKGATE_DATASET_BINDINGS`、`RUN_ID`（四者无默认值，故意的）。HEAD 必须干净且已推到同名 origin 分支 | **私有六格 Dataset Binding 文件（必须作者提供）** |
-| **P5.2** | Scale：`dependency-e2e` + `outcome-merkle` 全格，不得缩格或改标签 | 数据集绑定 |
-| **P5.3** | Baseline：S1–S6，真实不可变数据集 + 真实 Task/OA 执行 + 独立 Oracle | 数据集绑定 + P1a 完成 |
-| **P5.4** | 正式九实验 campaign：`run-deployment.sh`（服务 MASTER catalog），`campaign-finalize` 出 Campaign ID | 作者批准 Campaign ID |
+| **P5.1** | Artifact 六格 `result-heavy` 非发表定向验收：`SCALES` 未设置，`run-artifact-targeted.sh` 按默认完整六格执行；需 `ATTESTATION_QUALIFICATION`、`POSTGRESQL_IDENTITY`、`RUN_ID`，HEAD 必须干净且已推到同名 origin 分支。runner 现场生成 Artifact-targeted binding；所有 sample 仍为 `publication_eligible=false`，不能作为 publication evidence | 同轮 Attestation/PostgreSQL identity 配对 + RUN_ID；**不需要完整 publication binding** |
+| **P5.2** | Scale：`dependency-e2e` + `outcome-merkle` 全格，不得缩格或改标签 | P4.0 自动生成且作者审阅的完整 12/6/105 publication binding |
+| **P5.3** | Baseline：S1–S6，真实不可变数据集 + 真实 Task/OA 执行 + 独立 Oracle | 完整 publication binding + P1a 完成 |
+| **P5.4** | 正式九实验 campaign：`run-deployment.sh`（服务 MASTER catalog），其中包含 Artifact 的正式 publication samples；`campaign-finalize` 出 Campaign ID | 完整 publication binding + 作者批准 Campaign ID |
 | **P5.5** | 目标状态：9/9、`artifactRealSystemValidated=true`、相关 profile `targeted_validation_passed=true`、移除 `.NOT_READY` | 作者确认 |
+
+`run-deployment.sh` 对完整 12/6/105 publication binding 的校验不得放宽。该 binding 只在
+P4.0 oracle closure 后自动生成并提交作者审阅，不是 P3.3/P5.1 runner 从操作者读取的手填
+123-SHA 文件。为保持既有任务编号，P5.1 留在本节，但它只是非发表 targeted acceptance
+前置，不属于 P5 publication measurement，也不能满足任何 P5 正式证据要求；Artifact 的
+正式 publication 样本只来自 P5.4 campaign。
 
 失败处置：任何一格失败 ⇒ 保留失败目录作为证据（现在 `raw/` 下已有三个这样的目录
 是正确做法），分析根因，**不得**换更小规模的数据集顶替一个失败的请求规模。
@@ -519,18 +570,19 @@ Codex 无法自行解决，请按需要的时间点提供：
 |---|---|---|---|
 | ~~1~~ | ~~P1a 三选一裁决~~ | — | **已裁决**：限定列重构（决策 16） |
 | ~~2~~ | ~~是否投入在线 Join~~ | — | **已裁决**：要做（决策 17） |
-| 3 | **私有六格 `TASKGATE_DATASET_BINDINGS` 0600 常规文件** | P3.3/P5.1/P5.2/P5.3 | P3.3 canary 开跑前（P3.3-prep 不需要） |
+| 3 | P4.0 两项作者裁决：Scale `existing=N` 与 `history=K`/zero-history；Artifact private dependency section 删除或真正 independent oracle | P4.0 | P3.3 后、相应 oracle 实施前 |
 | 4 | v1.5 冻结批准 + tag 打点 | P4 | P3 全绿后 |
-| 5 | Campaign ID 批准 | P5.4 | P5 中 |
-| 6 | 24h fuzz 算力排期 / 或确认 TKDE 不依赖 | P6.4 | P6 前 |
-| 7 | `final_v5_author_review_manifest.md` 逐字节确认 | P7.6 | 投稿前 |
+| 5 | 自动生成的完整 12/6/105 publication binding 逐字节审阅 | P5.2/P5.3/P5.4 | P4.0 oracle closure 与自动生成后、任何 P5 publication measurement 前 |
+| 6 | Campaign ID 批准 | P5.4 | P5 中 |
+| 7 | 24h fuzz 算力排期 / 或确认 TKDE 不依赖 | P6.4 | P6 前 |
+| 8 | `final_v5_author_review_manifest.md` 逐字节确认 | P7.6 | 投稿前 |
 
 ---
 
 ## 7. 降级预案（B 计划）
 
 如果 P5 的完整九实验 campaign 在可接受时间内拿不下来（最可能的原因：算力、
-数据集绑定、或某一格反复失败）：
+P4.0 oracle closure / 完整 binding 审阅、或某一格反复失败）：
 
 1. **不要**为了凑数缩小规模再按原规模叙述。
 2. 走"诚实收缩"路线：把论文的定量主张收缩到实际跑完的能力集合，
@@ -582,7 +634,7 @@ go run ./evaluation/cmd/final-v5-activation-support -verify
 go run ./evaluation/cmd/final-v5-contract-sql-check      # 需 SQLCHECK_ADMIN_DSN
 
 # 活体
-./evaluation/final-v5-wsl2/scripts/run-artifact-targeted.sh   # Artifact 定向
+./evaluation/final-v5-wsl2/scripts/run-artifact-targeted.sh   # Artifact 非发表定向
 ./evaluation/final-v5-wsl2/scripts/run-deployment.sh          # 九实验 campaign
 make eval-v5-final-campaign-finalize CAMPAIGN_ROOT=...
 
@@ -660,3 +712,8 @@ make paper-final-check       # 干净树 + final 模式 + evidence.tex 无 diff
 | P3.2 N4 重认证 | DONE | 2026-08-09 | 从 clean、已推送且本地/远端均实查等于 `origin/tkde-artifact-rerun` 的起始 HEAD `f5fc9811eef882ec8fc9de5cdf5da24861a31784` 串行执行两次 `KEEP_UP=0 ./evaluation/final-v5-wsl2/scripts/qualify-attestation-footprint.sh`，资格 ID 为 `qualification-p32-01` / `qualification-p32-02`；Docker Client/Server 实测 29.1.3，红线前置的 v1.4 active-surface/production-import/source-closure、finalizer caller/shared-derivation 与 footprint/schema non-scaling 聚焦测试均实际 PASS、0 SKIP。两次真实独立拓扑均 exit 0：目录 `diagnosis-attestation-footprint-qualification-p32-01-20260809T130103Z-f5fc9811eef8` / `diagnosis-attestation-footprint-qualification-p32-02-20260809T130727Z-f5fc9811eef8`；外层 stdout/stderr `/tmp/taskgate-p32-n4-01.log` SHA-256 `35598b1bce9572f6ec47459a4f187734ac1e5604c0bfdcf072e48b2fc6fe45f0`、`/tmp/taskgate-p32-n4-02.log` SHA-256 `d63112123986c859d888dbbb913168d4d7b65b59c7415fd56e38cd2e6d6010bc`。两份 report 文件 SHA-256 为 `e460138559acce31d332cbdba424fa4b15a502c56ddecc359fca2f0563fb1178` / `cfa81d10d1df5b2b2b14fb27764361490e2a64394bc6fc9b5d1ed8e849854645`，full footprint 按设计不同：`ca6c3a769650d6f574078fc61280b50aef6d4ff67ff2569e5aadb77abd02d4f7` / `5ba06cc7d59c1832e0e68bcb72e1ae03cd82dbc87f65fd55c982717970ea80aa`；portable footprint 两轮及 i2b 精确同为 `032e9c53704d8df270693c291d36893e46e6c587b95c59bef2c6d198181ceacf`。独立 JSON 比较不是按总 calls：先锁定 ExpectedSchema digest `e2a3796fb3f5c50f97ebf02a40996b9c95a50e5b028a975cfccd4cf80407d40c`、E=1 与唯一 ordered relation `reporting.final_v5_result_heavy`，再逐 scope 比较精确 `(strict_ast_sha256,calls_per_attestation)` 多重集；constructor/cold-pool、explicit preflight、single-query、paired-query 四 scope 均且仅含 key `e5738df1650276a7f20e677172e067bc62bab12d48c18a378c9b6ed602433842` × 1，全部 stable，constructor==preflight true，11 snapshots / 10 intervals。两轮环境均为 PostgreSQL `160014`、track=`all`、utility=`on`、planning=`off`；load-bearing PostgreSQL ref/repo 均为 `postgres@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55` / `linux/amd64`，每轮 local/container image ID 自洽，独立 identity 文件字节相同（SHA-256 `cd3c6386581f30785080bc292ecd4fa1fc83edafd622329099073b995b7bc215`）。profile registry v1.4 SHA `ca84cba9810d378ea513bdadbf8cb9516a8bc3feaeb26b61af0156d857aee537`、Catalog SHA `533837084c0df141a0fac6e74788a4c2b9eb84611c1f96d4c760806745b4f709`、artifact content-directory SHA `814d4df9971f41b649289aa8b4b3c42f86b588b50c5691f21cf0ec010659f99b` 均与 i2b 相同；run-local manifest digest 按设计不同（`987e773b1b5b31443487bc3e068524e49a723912987501c48254f3afcaf1338a` / `2d0ce4b5478c5c57553ec8aeb535c8914ea6f4185b5b25298fd4e170323ef82d`）。report 列出的 8 项 source identity 及 manifest `2831e532190f1f7b560d6a8fa9a81216ee14052be56971323fcce33ca3c60f94` 两轮/i2b 一致；**边界：这 8 项不是完整 build/runtime 依赖闭包**（未枚举 `internal/sqlidentity`、`internal/dataconnector/statements.go`、其余 Compose overlay/materializer），本轮可追溯性另依赖 report 的 clean/published 完整 commit，不把 8 项表述为完整闭包。新 `attestation-footprint-p32-agreement.json` 由 fail-closed `jq` 比较从两份 report 派生而非复制/手改旧字节，SHA-256 `bb97df1764ecaa06ff08aaae70f383350fc44dc077848dadea818e0813413acf`；比较 transcript `/tmp/taskgate-p32-n4-comparison.json` SHA-256 `fab517d788babb498bd39891378ec02bf442390b7844cd74a36ab7c0347b2af0`，旧 i2b agreement（SHA-256 `7a44d1e1f5bfa7a625a60655b10b148d5358a2f598348f299481de2478e11c27`）及两组旧证据字节未改。生产 `AttestationFootprintV2.SHA256()` / `PortableSHA256()` 对两份新 report 重算均 PASS，日志 `/tmp/taskgate-p32-production-digest-check-rerun.log` SHA-256 `9bc420d72de27ad6da47344ee8a91899b655fc7a60d46bca077091f40012787d`；第一次临时 audit 测试因传入相对路径、从 package 工作目录找不到 report 而明确 FAIL（日志 SHA-256 `cfed293ce03f794ba9f6ee6f124ead5ec1776a405c50e302f6a4dc875e880b46`），改用绝对路径后才计为通过。独立 report↔PostgreSQL identity 与嵌套 profile manifest 配对最终 PASS；前两次审计命令因误认 manifest 顶层字段/record 而 exit 1，不记为通过。两轮脚本退出后的 Compose project containers/volumes/networks 均独立核验 `0/0/0`；两轮各约 5.3 GiB 的 `profile-artifacts` / `snapshot-index-artifacts-full` 保持 ignored，绝未暂存，只 force-add 每轮 7 个小文件及新 agreement（共 15 份 evidence）。15 evidence + 5 transcripts 对 2 份 `.env` secret-like 精确值与 URL-userinfo/PEM/secret-assignment heuristic 终态扫描均 0 命中；第一次 heuristic 命令因本机 `rg` 无 PCRE2 而未执行，不计为通过，随后用默认正则引擎重跑。test-only `retainedQualificationRun` 原子推进到 p32-01，使仓库 resolver 自检实际读取同一轮 report/identity；生产 launcher 仍无默认值，P3.3 必须显式使用同一轮配对文件，不得跨轮拼接。两份 report 的 publication/capability/activation/formal flags 均 false；P3.1 formal image不是本任务输入，未运行 P3.3 canary/P4/campaign，未翻 capability、registry、activation 或 contract，未推 tag。 |
 | P3.3-prep 100×4-only runner 准备 | DONE | 2026-08-09 | 从 clean、已推送且本地/远端均为 `f8cc56522189c97d5aa10e8746a6d53141053731` 的起始 HEAD 实施，Docker Client/Server 开工实测 29.1.3。审计确认开工时唯一 Artifact launcher 只能从 `artifact.example.json` 请求默认六格、终局写死 `6 * SAMPLES`，没有 P3.3 单格入口；本任务没有把六格运行冒充 canary。runner 新增严格 `SCALES` 白名单：仅允许冻结六格的非空无重复子集，拒绝显式空值、未知格、首尾空项与空白，按冻结顺序规范化；未设置仍精确默认六格。生成 pilot config 前要求 source-controlled example 仍恰为单一 `result-heavy` / `novel` / 完整六格，再只替换本轮请求 scales；`expected` 改为 `selected_scale_count * SAMPLES`，终局同时要求总数、每个所选 scale 恰 `SAMPLES` 条，以及每条 exact Artifact/Result-heavy/novel/TaskGate PASS、非 publication 且 `taskgate_acceptance_v3 != null`。完整 Dataset Binding 的 `.schema_version == 1` / `.status == "valid"` / `.artifact_cells == 6` 校验保持不变，selector 不参与或放宽 binding。显式 readiness 完成后、任何 measured operation 前新增 fail-closed formal-window live-gate 阶段：导出本轮 Compose project 与固定 Gateway endpoint，以 `go test -count=1 -json` 精确选择三项到期测试，并要求全事件流 0 FAIL/0 SKIP、三个且仅三个 test terminal 各唯一 PASS；go test、tee、FAIL/SKIP/缺失/重复/额外 terminal 任一异常都在 measurement 前 exit 1。由于作者尚未提供私有 binding，本任务**没有启动拓扑或 canary，三个 live gate 也未实际运行、不记为 PASS**；通过的是 launcher 守卫与合成 JSONL 判决器测试。`bash -n evaluation/final-v5-wsl2/scripts/run-artifact-targeted.sh`、`GOFLAGS=-buildvcs=false go test -count=1 ./evaluation/internal/experiment -run '^TestArtifactTargeted' -v`（3 个顶层测试及全部正负子测试 PASS、0 SKIP）、`go vet ./evaluation/internal/experiment`、`go build ./...`、改动 Go 文件 gofmt 与 `git diff --check` 均 exit 0/无输出。实施文件只改 runner，另同步其守卫测试、权威计划 §P3/§6 与本 append-only 台账；`evaluation/final-v5-wsl2/raw/`、registry、capability、activation、contract、既有 evidence/tag 均零 diff。未运行 formal build、N4、P3.3/P5.1、campaign 或 P4，未翻任何能力。计划已纠正：P3.3 与 P5.1 共用字节完整、mode 0600 的私有 deployment binding（Artifact 恰六格且其余段不得裁剪）；P3.3 必须从本提交完成后 clean、已推送的新 HEAD 重建 formal Gateway image，不能复用 P3.1 image。 |
 | P3.3 Result-heavy 100×4 v3 canary | BLOCKED | 2026-08-09 | 唯一阻塞输入是作者尚未提供的字节完整、mode 0600 私有 `TASKGATE_DATASET_BINDINGS` 常规文件路径；不存在合法的 100×4-only/cropped/fixture 替代，未绕过。输入到位后须从 clean、已推送的 P3.3-prep HEAD 重建 image，显式 `SCALES=100x4`，并成对传入 P3.2 `diagnosis-attestation-footprint-qualification-p32-01-20260809T130103Z-f5fc9811eef8` 同目录的 `attestation-footprint-v2.json` + `postgresql-identity.json`；三项 live gate 必须届时实际 PASS、0 SKIP 才能开测。当前 canary 未运行，不记为通过。 |
+| P3.3-prep2 Artifact canary / publication binding 分离 | DOING | 2026-08-09 | 按 C16 实施 credential-free Artifact-targeted deployment binding 与 selector/runner 边界；本行只记录开工，不声称实现或验证完成。P3.3 未运行，三项 live gate 未运行，无 measured sample；完整 publication binding 仍不可用，未授权 capability/registry/contract-release/evidence/tag 变更。 |
+| P3.3 Result-heavy 100×4 v3 canary | TODO | 2026-08-09 | **append-only 口径校正，取代上一条 BLOCKED 行的当前状态：**完整 12/6/105 publication binding 不再是 P3.3 输入；旧行“唯一阻塞是作者提供 binding”的前提已被 C16 与 P3.3-prep2 裁决取代。canary 仍未运行，须等待 prep2 完成后从 clean、已推送 HEAD 以 `SCALES=100x4`、同轮 P3.2 配对文件及三项实际 PASS/0 SKIP live gate 开跑。 |
+| P4.0 publication-wide oracle closure and binding generation | TODO | 2026-08-09 | 待裁决 Scale N/K 冲突，建立独立 Scale 与 ProvSQL 105 格 FactSet oracle，裁决 Artifact private dependency section，并在 closure 后自动生成完整 12/6/105 binding 交作者逐字节审阅；禁止 placeholder、测试摘要或运行后反填。 |
+| P5.1 Artifact 六格 | TODO | 2026-08-09 | **append-only 口径校正：**旧“需私有 dataset binding”备注不再是当前要求；P5.1 是使用现场生成 Artifact-targeted binding 的非发表 targeted acceptance，全部 sample 保持 `publication_eligible=false`。Artifact 正式 publication samples 与完整 12/6/105 binding 硬门属于 P5.4 `run-deployment.sh` campaign。 |
+| P3.3-prep2 Artifact canary / publication binding 分离 | DONE | 2026-08-10 | 实际开工 HEAD 为与 origin 同步的 `71bf925490852e902711cea29037e45151c61493`；附件所列 `b6eb34a` 是其父提交，差异仅 `.gitignore` 与本工作树 `AGENTS.md`。新增 credential-free、canonical、create-exclusive、普通非 symlink/mode 0600 的 Artifact-targeted binding：embedded Contract Index 重验、冻结六格 Bridge query/oracle/NxC/SQL/result identity、Result-heavy profile/clearance、同一 shared read-only live dataset probe、qualification/identity exact file SHA 全部 fail closed；validation report 绑定 exact file SHA。targeted runner 在 fresh Business PostgreSQL ready 后、Gateway/live gates/measurement 前生成并核验该文件，只把 exact SHA 交给 ProfileBinding，marker 限定 Artifact path + V3 observer acceptance 且明确 FactSet oracle 未闭合；三个 publication-private env 与 Adapter `--validate-binding` 已从该 runner 移除。Artifact selector 在三个 env 真正 unset 时成功，Scale/ProvSQL/wildcard 仍 fail closed；`run-deployment.sh`、Adapter、完整 publication binding、Scale/ProvSQL private-load 分支零 diff。离线负例覆盖六格/subset、contract/oracle/Catalog/registry/qualification/identity byte drift、missing/invalid/placeholder probe、canonical/unknown/duplicate、0600/symlink/exclusive 与 secret-free output。规定的 bash、两组 `go test`、`go vet ./...`、`go build ./...`、`git diff --check` 均 exit 0；experiment filter 的 JSON 审计为 100 PASS / 0 SKIP / 0 FAIL。Adapter 全包仍有 4 个既有 live 测试因未设置其显式 live/DSN 开关而 SKIP（Attack、Compiler PostgreSQL、ProvSQL external pair、RLS），明确不记为通过；本任务 command tests 实际 PASS。全仓规定 `gofmt -l` 仍只报 P0.2 已登记的既有 `internal/control/execution_binding.go`，本任务 Go 文件无输出。**P3.3 未运行，三项 live gates 未运行，无 measured sample；完整 publication binding 仍因 C16 所列 oracle/Scale 冲突不可用。**未修改 capability、registry、contract release、dependency oracle、既有 evidence 或 tag，也未运行 P5 formal campaign。 |

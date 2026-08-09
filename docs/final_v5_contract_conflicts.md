@@ -339,6 +339,47 @@ Confirmed fixed by this canary, independently of C15:
 - C14's schema-drift gate is cleared: the connector no longer reports
   `DATA_CONNECTOR_SCHEMA_DRIFT`.
 
+## C16 — Artifact targeted canary is circularly blocked by publication-wide private binding
+
+At the start of P3.3-prep2, `run-artifact-targeted.sh` required
+`TASKGATE_DATASET_BINDINGS` and invoked `final-v5-adapter --validate-binding`.
+That strict path accepts only a complete publication-wide binding with exactly
+12 Scale dependency cells, six Artifact cells, and 105 ProvSQL cells. Therefore
+even `SCALES=100x4` was blocked on material for workloads the canary does not
+exercise.
+
+This coupling is not an Artifact V3 acceptance requirement. The Artifact
+Adapter takes its cell from the revalidated embedded Contract Index, and the
+Artifact candidate path in `RuntimeFinalizerV3` binds that contract through the
+live Result-heavy Catalog. Neither consumes the private Scale/ProvSQL material;
+the deployment resolver loads the private binding only when a selector may
+admit Scale or ProvSQL.
+
+A complete publication binding cannot be generated honestly at the current
+HEAD. The Scale contract fixes existing=candidate=N and overlap=K, while the
+validator requires `history.DependencyFacts=K` and no history for zero-overlap
+cells. Artifact and ProvSQL also lack an independent dependency FactSet oracle.
+Placeholder digests, test-derived summaries, or values copied or backfilled
+after measured execution are not resolutions.
+
+Author resolution for P3.3: the non-publication Artifact canary must use a
+credential-free `taskgate-final-v5-artifact-targeted-deployment-binding-v1`,
+generated against the fresh Business PostgreSQL before measurement and bound to
+the six source-controlled Artifact cell identities, the live dataset probe, the
+profile Registry/Catalog, and the exact SHA-256 identities of the retained
+qualification and PostgreSQL identity files. Its only admissible claim is the
+Artifact path plus V3 observer acceptance; it records
+`publication_factset_oracle_ready=false` and is neither a publication binding
+nor publication readiness.
+
+Remaining publication conflict: P4.0 must settle the Scale semantic mismatch,
+establish independent Scale and 105-cell ProvSQL FactSet oracles, decide whether
+Artifact's private dependency section is removed or backed by a genuine
+independent oracle, and then generate the complete publication binding for
+exact-byte author review before any P5 publication campaign. The P3.3
+separation does not relax Scale, ProvSQL, P5, capability, Registry, or
+contract-release gates.
+
 No generated digest is frozen by this register. A generated value first becomes
 a `REVIEW_CANDIDATE`; only explicit author review may change its status to
 approved/frozen. Until every conflict required by a claim is resolved,
