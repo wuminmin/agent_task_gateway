@@ -22,6 +22,10 @@ const ObserverSnapshotV2Version = "taskgate-final-v5-observer-snapshot-v2"
 // observerSnapshotDomain domain-separates the snapshot digest.
 const observerSnapshotDomain = "TASKGATE-FINAL-V5-OBSERVER-SNAPSHOT-V2"
 
+// observerWindowDomain domain-separates the retained before/after pair from
+// either member's standalone identity.
+const observerWindowDomain = "TASKGATE-FINAL-V5-OBSERVER-WINDOW-V2"
+
 // ObserverStructuralRow is one classified row of the gateway_reader census.
 type ObserverStructuralRow struct {
 	StrictASTSHA256 string `json:"strict_ast_sha256"`
@@ -250,6 +254,80 @@ type ObserverWindowV2 struct {
 	After  ObserverSnapshotV2 `json:"after"`
 }
 
+// ValidateInterval checks the invariants that make two snapshots one continuous
+// measurement. It is shared by classification, resource accounting, and the
+// retained-window audit gate so none of those paths can silently accept a pair
+// the others would call a reset, restart, or cross-runtime splice.
+func (window ObserverWindowV2) ValidateInterval() error {
+	if err := window.Before.Validate(); err != nil {
+		return fmt.Errorf("before snapshot: %w", err)
+	}
+	if err := window.After.Validate(); err != nil {
+		return fmt.Errorf("after snapshot: %w", err)
+	}
+	if window.Before.Role != window.After.Role {
+		return fmt.Errorf("the window changed role from %q to %q",
+			window.Before.Role, window.After.Role)
+	}
+	if window.Before.Phase != "before" || window.After.Phase != "after" {
+		return fmt.Errorf("a window requires a before and an after snapshot, got %q and %q",
+			window.Before.Phase, window.After.Phase)
+	}
+	for _, identity := range []struct {
+		name          string
+		before, after string
+	}{
+		{"observer window id", window.Before.ObserverWindowID, window.After.ObserverWindowID},
+		{"classifier manifest", window.Before.ClassifierManifestSHA256, window.After.ClassifierManifestSHA256},
+		{"operation binding", window.Before.OperationBindingSHA256, window.After.OperationBindingSHA256},
+		{"observer source identity", window.Before.ObserverSourceSHA256, window.After.ObserverSourceSHA256},
+	} {
+		if identity.before != identity.after {
+			return fmt.Errorf("the %s differs between the before and after snapshots (%s vs %s); "+
+				"these are two halves of two different measurements",
+				identity.name, shortDigest(identity.before), shortDigest(identity.after))
+		}
+	}
+	for _, invariant := range []struct {
+		name          string
+		before, after any
+	}{
+		{"pg_stat_statements reset", window.Before.StatsReset, window.After.StatsReset},
+		{"pg_stat_statements dealloc", window.Before.Dealloc, window.After.Dealloc},
+		{"measurement environment", window.Before.Environment, window.After.Environment},
+		{"runtime identity", window.Before.Runtime, window.After.Runtime},
+		{"postmaster start time", window.Before.Resource.PostmasterStartTime, window.After.Resource.PostmasterStartTime},
+		{"gateway restart count", window.Before.Resource.GatewayRestartCount, window.After.Resource.GatewayRestartCount},
+		{"gateway OOM state", window.Before.Resource.GatewayOOMKilled, window.After.Resource.GatewayOOMKilled},
+		{"project container restart count", window.Before.Resource.ContainerRestarts, window.After.Resource.ContainerRestarts},
+		{"gateway cgroup OOM events", window.Before.Resource.OOMEvents, window.After.Resource.OOMEvents},
+	} {
+		if invariant.before != invariant.after {
+			return fmt.Errorf("the %s changed inside the observer window", invariant.name)
+		}
+	}
+	if window.After.Dealloc != 0 {
+		return fmt.Errorf("pg_stat_statements evicted %d entries; the census is incomplete",
+			window.After.Dealloc)
+	}
+	return nil
+}
+
+// SHA256 is the canonical identity of the complete retained interval.
+func (window ObserverWindowV2) SHA256() (string, error) {
+	if err := window.ValidateInterval(); err != nil {
+		return "", err
+	}
+	canonical, err := approval.CanonicalJSON(window)
+	if err != nil {
+		return "", fmt.Errorf("canonicalize observer window: %w", err)
+	}
+	hash := sha256.New()
+	hash.Write([]byte(observerWindowDomain + "\x00"))
+	hash.Write(canonical)
+	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
 // ObservedDelta is the classified result of one window.
 type ObservedDelta struct {
 	// Total is the role-wide call delta.
@@ -269,37 +347,11 @@ type ObservedDelta struct {
 // a restart, an environment change or a runtime/image change inside the window
 // invalidates the measurement outright rather than skewing a count.
 func (window ObserverWindowV2) Delta(classifier *CompiledClassifier) (ObservedDelta, error) {
-	if err := window.Before.Validate(); err != nil {
-		return ObservedDelta{}, fmt.Errorf("before snapshot: %w", err)
-	}
-	if err := window.After.Validate(); err != nil {
-		return ObservedDelta{}, fmt.Errorf("after snapshot: %w", err)
+	if err := window.ValidateInterval(); err != nil {
+		return ObservedDelta{}, err
 	}
 	if classifier == nil {
 		return ObservedDelta{}, errors.New("a window cannot be classified without a compiled classifier")
-	}
-	if window.Before.Role != window.After.Role {
-		return ObservedDelta{}, fmt.Errorf("the window changed role from %q to %q",
-			window.Before.Role, window.After.Role)
-	}
-	if window.Before.Phase != "before" || window.After.Phase != "after" {
-		return ObservedDelta{}, fmt.Errorf("a window requires a before and an after snapshot, got %q and %q",
-			window.Before.Phase, window.After.Phase)
-	}
-	for _, identity := range []struct {
-		name          string
-		before, after string
-	}{
-		{"observer window id", window.Before.ObserverWindowID, window.After.ObserverWindowID},
-		{"classifier manifest", window.Before.ClassifierManifestSHA256, window.After.ClassifierManifestSHA256},
-		{"operation binding", window.Before.OperationBindingSHA256, window.After.OperationBindingSHA256},
-		{"observer source identity", window.Before.ObserverSourceSHA256, window.After.ObserverSourceSHA256},
-	} {
-		if identity.before != identity.after {
-			return ObservedDelta{}, fmt.Errorf("the %s differs between the before and after snapshots (%s vs %s); "+
-				"these are two halves of two different measurements",
-				identity.name, shortDigest(identity.before), shortDigest(identity.after))
-		}
 	}
 	// The commitment the observer was invoked under must be the classification it
 	// is now being judged by.
@@ -319,29 +371,6 @@ func (window ObserverWindowV2) Delta(classifier *CompiledClassifier) (ObservedDe
 			"observations were taken", shortDigest(window.Before.ClassifierManifestSHA256),
 			shortDigest(committed))
 	}
-	for _, invariant := range []struct {
-		name          string
-		before, after any
-	}{
-		{"pg_stat_statements reset", window.Before.StatsReset, window.After.StatsReset},
-		{"pg_stat_statements dealloc", window.Before.Dealloc, window.After.Dealloc},
-		{"measurement environment", window.Before.Environment, window.After.Environment},
-		{"runtime identity", window.Before.Runtime, window.After.Runtime},
-		{"postmaster start time", window.Before.Resource.PostmasterStartTime, window.After.Resource.PostmasterStartTime},
-		{"gateway restart count", window.Before.Resource.GatewayRestartCount, window.After.Resource.GatewayRestartCount},
-		{"gateway OOM state", window.Before.Resource.GatewayOOMKilled, window.After.Resource.GatewayOOMKilled},
-	} {
-		if invariant.before != invariant.after {
-			return ObservedDelta{}, fmt.Errorf("the %s changed inside the observer window", invariant.name)
-		}
-	}
-	// A non-zero dealloc means pg_stat_statements evicted entries, so a count
-	// this window depends on may simply be missing.
-	if window.After.Dealloc != 0 {
-		return ObservedDelta{}, fmt.Errorf("pg_stat_statements evicted %d entries; the census is incomplete",
-			window.After.Dealloc)
-	}
-
 	delta := ObservedDelta{
 		Total:    window.After.Total - window.Before.Total,
 		PerClass: map[GatewayStatementClassV3]int64{},
@@ -427,11 +456,8 @@ type ObserverResourceDeltaV2 struct {
 // caller remembered.
 func (window ObserverWindowV2) ResourceDelta() (ObserverResourceDeltaV2, error) {
 	var delta ObserverResourceDeltaV2
-	if err := window.Before.Validate(); err != nil {
-		return delta, fmt.Errorf("before snapshot: %w", err)
-	}
-	if err := window.After.Validate(); err != nil {
-		return delta, fmt.Errorf("after snapshot: %w", err)
+	if err := window.ValidateInterval(); err != nil {
+		return delta, err
 	}
 	before, after := window.Before.Resource, window.After.Resource
 	if before.PostmasterStartTime != after.PostmasterStartTime {
@@ -493,11 +519,26 @@ func (delta ObservedDelta) Accept(plan GatewayControlPlanV3) error {
 			len(delta.Unexpected), keys)
 	}
 	expected := plan.Expected()
+	if len(delta.PerClass) != len(expected) {
+		return fmt.Errorf("the observed delta carries %d statement classes, the closed world defines %d",
+			len(delta.PerClass), len(expected))
+	}
+	for class := range delta.PerClass {
+		if _, known := expected[class]; !known {
+			return fmt.Errorf("the observed delta carries unknown statement class %q", class)
+		}
+	}
 	for _, class := range GatewayStatementClassesV3() {
+		if _, present := delta.PerClass[class]; !present {
+			return fmt.Errorf("the observed delta omits closed-world statement class %s", class)
+		}
 		if delta.PerClass[class] != expected[class] {
 			return fmt.Errorf("class %s observed %d, the plan expects %d",
 				class, delta.PerClass[class], expected[class])
 		}
+	}
+	if err := validateInternalExpectation(delta.Internal); err != nil {
+		return fmt.Errorf("observed PostgreSQL-internal accounting: %w", err)
 	}
 	if err := requireSameInternalExpectation(delta.Internal, plan.InternalExpectation); err != nil {
 		return fmt.Errorf("PostgreSQL-internal accounting: %w", err)

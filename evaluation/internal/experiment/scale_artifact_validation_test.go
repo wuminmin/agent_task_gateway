@@ -3,6 +3,8 @@ package experiment
 import (
 	"strings"
 	"testing"
+
+	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 )
 
 func TestFrozenScaleParsersRejectRenamedOrApproximateCells(t *testing.T) {
@@ -124,6 +126,10 @@ func TestOutcomeMerkleValidatorCrossChecksProductionOracleReplayAndCounters(t *t
 		}},
 		{name: "counter", mutate: func(value *Sample, _ *OutcomeMerkleEvidence) { value.Counters["novelty"]++ }},
 		{name: "fake Task root", mutate: func(value *Sample, _ *OutcomeMerkleEvidence) { value.RootTaskIDHash = digest("e") }},
+		{name: "fake governed acceptance", mutate: func(value *Sample, _ *OutcomeMerkleEvidence) {
+			value.TaskGateAcceptanceV3 = &FinalizationV3{}
+			value.ScaleVerification.ObserverWindow = &ObserverWindowV2{}
+		}},
 		{name: "cold relabel", mutate: func(_ *Sample, value *OutcomeMerkleEvidence) { value.ContentCachePolicy = "cold" }},
 	}
 	for _, test := range tests {
@@ -176,6 +182,14 @@ func TestKernelStorageValidatorRejectsDigestAndRootTaskRelabeling(t *testing.T) 
 	if err := validateScaleVerification(mutated); err == nil {
 		t.Fatal("kernel storage digest tamper was accepted")
 	}
+	mutated = sample
+	evidence = *sample.ScaleVerification
+	evidence.ObserverWindow = &ObserverWindowV2{}
+	mutated.ScaleVerification = &evidence
+	mutated.TaskGateAcceptanceV3 = &FinalizationV3{}
+	if err := validateScaleVerification(mutated); err == nil {
+		t.Fatal("kernel control evidence was accepted as a governed v3 operation")
+	}
 }
 
 func TestArtifactAndDependencyValidatorsFailClosedBeforeRawVerifierEvidence(t *testing.T) {
@@ -192,13 +206,278 @@ func TestArtifactAndDependencyValidatorsFailClosedBeforeRawVerifierEvidence(t *t
 	dependency := Sample{ExperimentID: "scale", WorkloadID: "dependency-e2e", Scale: "10k-overlap-50",
 		Mode: "novel", System: "taskgate", ActualDependencyFacts: 9_999, ResultSHA256: digest,
 		ScaleVerification: &ScaleVerificationEvidence{Version: scaleEvidenceVersion, Boundary: "dependency_e2e",
-			BindingSHA256: digest, DatasetSHA256: digest, CatalogSHA256: digest, DatasetProbeSHA256: digest,
+			BindingFileSHA256: digest, BindingSHA256: digest,
+			DatasetSHA256: digest, CatalogSHA256: digest, DatasetProbeSHA256: digest,
 			QuerySHA256: digest, ExpectedResultSHA256: digest, CandidateDependencySHA256: digest,
 			ExpectedCandidateFacts: 10_000, ObservedCandidateFacts: 9_999, ExpectedOverlapFacts: 5_000,
 			ObservedOverlapFacts: 5_000}}
 	if err := validateScaleVerification(dependency); err == nil {
 		t.Fatal("mislabeled dependency cardinality was accepted")
 	}
+}
+
+func TestDependencyScaleV3ObservationValidation(t *testing.T) {
+	for _, mode := range []string{"novel", "semantic_replay"} {
+		t.Run(mode, func(t *testing.T) {
+			sample, evidence := dependencyScaleV3ObservationFixture(t, mode)
+			if err := validateScaleObservationV3(sample, evidence); err != nil {
+				t.Fatalf("honest %s observation was rejected: %v", mode, err)
+			}
+		})
+	}
+
+	mutations := []struct {
+		name   string
+		mutate func(*Sample, *ScaleVerificationEvidence)
+	}{
+		{"missing acceptance", func(sample *Sample, _ *ScaleVerificationEvidence) {
+			sample.TaskGateAcceptanceV3 = nil
+		}},
+		{"accepted receipt substitution", func(sample *Sample, _ *ScaleVerificationEvidence) {
+			sample.TaskGateAcceptanceV3.ReceiptSHA256 = strings.Repeat("6", 64)
+		}},
+		{"sample receipt substitution", func(sample *Sample, _ *ScaleVerificationEvidence) {
+			sample.ReceiptSHA256 = strings.Repeat("6", 64)
+		}},
+		{"retained receipt substitution", func(sample *Sample, _ *ScaleVerificationEvidence) {
+			sample.BaselineVerification.Receipt.RequestID = "another-retained-attempt"
+		}},
+		{"wrong path", func(sample *Sample, _ *ScaleVerificationEvidence) {
+			sample.TaskGateAcceptanceV3.Operation.PathKind = PathSemanticReplay
+		}},
+		{"classifier substitution", func(sample *Sample, _ *ScaleVerificationEvidence) {
+			sample.TaskGateAcceptanceV3.ClassifierManifestSHA256 = strings.Repeat("7", 64)
+		}},
+		{"classifier binding substitution", func(sample *Sample, _ *ScaleVerificationEvidence) {
+			sample.TaskGateAcceptanceV3.ClassifierBindingSHA256 = strings.Repeat("6", 64)
+		}},
+		{"operation contract substitution", func(sample *Sample, _ *ScaleVerificationEvidence) {
+			sample.TaskGateAcceptanceV3.Operation.ContractIdentity = "another-contract"
+		}},
+		{"operation coordinate substitution", func(sample *Sample, _ *ScaleVerificationEvidence) {
+			sample.TaskGateAcceptanceV3.Operation.OperationID = "scale/dependency-e2e/100k-overlap-0/novel"
+		}},
+		{"split window identity", func(_ *Sample, evidence *ScaleVerificationEvidence) {
+			evidence.ObserverWindow.After.ObserverWindowID = strings.Repeat("8", 64)
+		}},
+		{"different retained total", func(_ *Sample, evidence *ScaleVerificationEvidence) {
+			evidence.ObserverWindow.After.Structural[0].Calls++
+			evidence.ObserverWindow.After.Total++
+		}},
+		{"different retained structure", func(_ *Sample, evidence *ScaleVerificationEvidence) {
+			evidence.ObserverWindow.After.Structural[0].StrictASTSHA256 = strings.Repeat("9", 64)
+		}},
+		{"different accepted attempt", func(_ *Sample, evidence *ScaleVerificationEvidence) {
+			evidence.ObserverWindow.Before.ObserverWindowID = strings.Repeat("8", 64)
+			evidence.ObserverWindow.After.ObserverWindowID = strings.Repeat("8", 64)
+		}},
+		{"reset inside retained interval", func(_ *Sample, evidence *ScaleVerificationEvidence) {
+			evidence.ObserverWindow.After.StatsReset = "2026-08-04 10:42:00+00"
+		}},
+		{"resource relabel", func(sample *Sample, _ *ScaleVerificationEvidence) {
+			sample.GatewayCPUUsecDelta++
+		}},
+		{"edited accepted delta", func(sample *Sample, _ *ScaleVerificationEvidence) {
+			sample.TaskGateAcceptanceV3.Delta.Total++
+		}},
+		{"extra accepted delta class", func(sample *Sample, _ *ScaleVerificationEvidence) {
+			sample.TaskGateAcceptanceV3.Delta.PerClass[GatewayStatementClassV3("invented")] = 0
+		}},
+		{"duplicate accepted internal expectation", func(sample *Sample, _ *ScaleVerificationEvidence) {
+			entry := sample.TaskGateAcceptanceV3.InternalExpectation[0]
+			sample.TaskGateAcceptanceV3.InternalExpectation = append(
+				sample.TaskGateAcceptanceV3.InternalExpectation, entry)
+		}},
+		{"legacy snapshot mixed in", func(_ *Sample, evidence *ScaleVerificationEvidence) {
+			evidence.ObserverBefore = &ObserverSnapshot{}
+		}},
+		{"legacy accounting mixed in", func(sample *Sample, _ *ScaleVerificationEvidence) {
+			sample.ObserverAccounting = &ObserverAccounting{}
+		}},
+		{"Outcome control mixed in", func(_ *Sample, evidence *ScaleVerificationEvidence) {
+			evidence.OutcomeMerkle = &OutcomeMerkleEvidence{}
+		}},
+		{"kernel control mixed in", func(_ *Sample, evidence *ScaleVerificationEvidence) {
+			evidence.KernelStorage = &KernelStorageEvidence{}
+		}},
+	}
+	for _, test := range mutations {
+		t.Run(test.name, func(t *testing.T) {
+			sample, evidence := dependencyScaleV3ObservationFixture(t, "novel")
+			test.mutate(&sample, evidence)
+			if err := validateScaleObservationV3(sample, evidence); err == nil {
+				t.Fatal("mutated Scale observation was accepted")
+			}
+		})
+	}
+}
+
+func TestDependencyScaleAcceptanceRefusesAnotherAttemptsCoherentAcceptanceAndWindow(t *testing.T) {
+	for _, direction := range []string{"a_accepts_b", "b_accepts_a"} {
+		t.Run(direction, func(t *testing.T) {
+			first, firstEvidence := dependencyScaleV3ObservationFixture(t, "novel")
+			second, secondEvidence := dependencyScaleV3ObservationFixture(t, "novel")
+			retargetDependencyScaleAttempt(t, &second, secondEvidence, "8")
+
+			target, targetEvidence := &first, firstEvidence
+			donor, donorEvidence := &second, secondEvidence
+			if direction == "b_accepts_a" {
+				target, targetEvidence, donor, donorEvidence = &second, secondEvidence, &first, firstEvidence
+			}
+			accepted := *donor.TaskGateAcceptanceV3
+			window := *donorEvidence.ObserverWindow
+			target.TaskGateAcceptanceV3 = &accepted
+			targetEvidence.ObserverWindow = &window
+			if err := validateScaleObservationV3(*target, targetEvidence); err == nil {
+				t.Fatal("one attempt accepted another attempt's coherent acceptance/window pair")
+			}
+		})
+	}
+}
+
+func TestDependencyScaleAcceptanceClosesPrivateContractIdentity(t *testing.T) {
+	for name, mutate := range map[string]func(string) string{
+		"binding prefix": func(identity string) string {
+			return strings.Replace(identity, ":binding-file=", ":private-file=", 1)
+		},
+		"binding file": func(identity string) string {
+			return strings.Replace(identity, strings.Repeat("7", 64), strings.Repeat("6", 64), 1)
+		},
+		"binding section": func(identity string) string {
+			return strings.Replace(identity, strings.Repeat("8", 64), strings.Repeat("5", 64), 1)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			sample, evidence := dependencyScaleV3ObservationFixture(t, "novel")
+			sample.TaskGateAcceptanceV3.Operation.ContractIdentity = mutate(
+				sample.TaskGateAcceptanceV3.Operation.ContractIdentity)
+			resealAcceptedClassifierForTest(t, sample.TaskGateAcceptanceV3)
+			if err := validateScaleObservationV3(sample, evidence); err == nil {
+				t.Fatal("a private contract identity mutation survived retained validation")
+			}
+		})
+	}
+}
+
+func dependencyScaleV3ObservationFixture(t *testing.T, mode string) (Sample, *ScaleVerificationEvidence) {
+	t.Helper()
+	var plan GatewayControlPlanV3
+	switch mode {
+	case "novel":
+		plan = mustPairedNovel(t, 1)
+	case "semantic_replay":
+		plan = mustSemanticReplay(t, 1)
+	default:
+		t.Fatalf("unsupported Scale mode %q", mode)
+	}
+	planSHA256, err := plan.SHA256()
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := ObserverStructuralRow{StrictASTSHA256: strings.Repeat("e", 64), TopLevel: true, Calls: plan.ExpectedTotal()}
+	before := snapshotOf(t, "before", nil)
+	after := snapshotOf(t, "after", []ObserverStructuralRow{row})
+	before.Resource.GatewayMemoryPeakBytes = 100
+	before.Resource.GatewayCPUUsec = 10
+	before.Resource.GatewayNetworkRXBytes = 20
+	before.Resource.GatewayNetworkTXBytes = 30
+	before.Resource.ControlWALBytes = 40
+	before.Resource.BusinessWALBytes = 50
+	after.Resource.GatewayMemoryPeakBytes = 200
+	after.Resource.GatewayCPUUsec = 11
+	after.Resource.GatewayNetworkRXBytes = 22
+	after.Resource.GatewayNetworkTXBytes = 33
+	after.Resource.ControlWALBytes = 44
+	after.Resource.BusinessWALBytes = 55
+	window := ObserverWindowV2{Before: before, After: after}
+	windowSHA256, err := window.SHA256()
+	if err != nil {
+		t.Fatal(err)
+	}
+	operationID := "scale/dependency-e2e/10k-overlap-0/" + mode
+	bindingFileSHA256 := strings.Repeat("7", 64)
+	bindingSectionSHA256 := strings.Repeat("8", 64)
+	operation := OperationIdentity{
+		OperationID: operationID,
+		PathKind:    plan.PathKind,
+		ContractIdentity: "final-v5-contracts-v1.4:" + strings.Repeat("9", 64) +
+			":binding-file=" + bindingFileSHA256 + ":binding-section=" + bindingSectionSHA256 + ":" + operationID,
+		ExpectedSchemaDigest:       plan.ExpectedSchemaDigest,
+		AttestationFootprintSHA256: plan.AttestationFootprintSHA256,
+	}
+	classifierBinding, err := classifierBindingSHA256(operation, planSHA256,
+		before.ClassifierManifestSHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt := queryreceipt.QueryReceiptV1{Version: "fixture", RequestID: "scale-attempt-a"}
+	receiptSHA256, err := queryreceipt.DocumentSHA256(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	accepted := FinalizationV3{
+		Operation: operation,
+		Plan:      plan, PlanSHA256: planSHA256,
+		ReceiptSHA256:            receiptSHA256,
+		ExpectedSchemaDigest:     plan.ExpectedSchemaDigest,
+		ExpectedSchemaEntries:    plan.ExpectedSchemaEntries,
+		ClassifierManifestSHA256: before.ClassifierManifestSHA256,
+		ClassifierBindingSHA256:  classifierBinding,
+		ObserverWindowID:         before.ObserverWindowID,
+		ObserverWindowSHA256:     windowSHA256,
+		InternalExpectation:      append([]InternalExpectation(nil), plan.InternalExpectation...),
+		Delta: ObservedDelta{
+			Total: plan.ExpectedTotal(), PerClass: plan.Expected(),
+			Internal: append([]InternalExpectation(nil), plan.InternalExpectation...),
+		},
+	}
+	sample := Sample{
+		ExperimentID: "scale", WorkloadID: "dependency-e2e", Scale: "10k-overlap-0", Mode: mode,
+		BusinessSQLDelta:       plan.ExpectedVisibleCalls + plan.ExpectedCompanionCall,
+		GatewayMemoryPeakBytes: 200, GatewayCPUUsecDelta: 1,
+		GatewayNetworkRXDelta: 2, GatewayNetworkTXDelta: 3,
+		ControlWALBytesDelta: 4, BusinessWALBytesDelta: 5,
+		ReceiptSHA256: receiptSHA256, BaselineVerification: &BaselineVerificationEvidence{Receipt: receipt},
+		TaskGateAcceptanceV3: &accepted,
+	}
+	evidence := &ScaleVerificationEvidence{
+		BindingFileSHA256: bindingFileSHA256, BindingSHA256: bindingSectionSHA256,
+		ObserverWindow: &window,
+	}
+	return sample, evidence
+}
+
+func retargetDependencyScaleAttempt(t *testing.T, sample *Sample, evidence *ScaleVerificationEvidence,
+	hexDigit string) {
+	t.Helper()
+	receipt := sample.BaselineVerification.Receipt
+	receipt.RequestID = "scale-attempt-" + hexDigit
+	receiptSHA256, err := queryreceipt.DocumentSHA256(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sample.BaselineVerification.Receipt = receipt
+	sample.ReceiptSHA256 = receiptSHA256
+	sample.TaskGateAcceptanceV3.ReceiptSHA256 = receiptSHA256
+	windowID := strings.Repeat(hexDigit, 64)
+	evidence.ObserverWindow.Before.ObserverWindowID = windowID
+	evidence.ObserverWindow.After.ObserverWindowID = windowID
+	windowSHA256, err := evidence.ObserverWindow.SHA256()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sample.TaskGateAcceptanceV3.ObserverWindowID = windowID
+	sample.TaskGateAcceptanceV3.ObserverWindowSHA256 = windowSHA256
+}
+
+func resealAcceptedClassifierForTest(t *testing.T, accepted *FinalizationV3) {
+	t.Helper()
+	binding, err := classifierBindingSHA256(accepted.Operation, accepted.PlanSHA256,
+		accepted.ClassifierManifestSHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	accepted.ClassifierBindingSHA256 = binding
 }
 
 // The observer's total gateway_reader delta is not required to equal the

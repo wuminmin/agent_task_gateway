@@ -1525,8 +1525,14 @@ func shaBytes(value []byte) string {
 	return hex.EncodeToString(digest[:])
 }
 func receiptDigest(receipt queryreceipt.QueryReceiptV1) string {
-	encoded, _ := json.Marshal(receipt)
-	return shaBytes(encoded)
+	digest, err := queryreceipt.DocumentSHA256(receipt)
+	if err != nil {
+		// QueryReceiptV1 has a closed typed JSON shape, so encoding cannot fail in
+		// normal operation. Returning the empty identity keeps every downstream
+		// evidence gate fail-closed if that invariant ever changes.
+		return ""
+	}
+	return digest
 }
 func saltedTaskHash(operation experiment.AdapterOperation, taskID string) string {
 	return sha(operation.CampaignID + "\x00" + operation.DeploymentID + "\x00" + taskID)

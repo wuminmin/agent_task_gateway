@@ -12,16 +12,28 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"taskbound.local/agent-data-gateway/evaluation/internal/experiment"
 	"taskbound.local/agent-data-gateway/internal/control"
 	"taskbound.local/agent-data-gateway/internal/ordinal"
+	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 )
 
 const scaleVerificationVersion = "taskgate-final-v5-scale-verification-v1"
 
-type scaleAdapter struct{ real *realAdapter }
+type scaleAdapter struct {
+	real *realAdapter
+
+	// Only dependency-e2e is a governed TaskGate arm. Delay construction of its
+	// acceptance authority until that arm is selected so Outcome-radix and the
+	// kernel/storage microbenchmark do not acquire a Catalog, qualification, or
+	// Control-Store dependency they never use.
+	finalizerOnce sync.Once
+	finalizer     *experiment.RuntimeFinalizerV3
+	finalizerErr  error
+}
 
 // newScaleAdapter wires the frozen Scale workloads to real TaskGate,
 // PostgreSQL Outcome-radix, and production ordinal implementations. Missing
@@ -37,6 +49,16 @@ func newScaleAdapter(ctx context.Context) (sourceControlledAdapter, error) {
 }
 
 func (adapter *scaleAdapter) Close() { adapter.real.Close() }
+
+func (adapter *scaleAdapter) dependencyFinalizer(ctx context.Context) (*experiment.RuntimeFinalizerV3, error) {
+	adapter.finalizerOnce.Do(func() {
+		adapter.finalizer, adapter.finalizerErr = experiment.OpenDeploymentFinalizerV3(ctx)
+		if adapter.finalizerErr != nil {
+			adapter.finalizerErr = fmt.Errorf("open the Scale v3 acceptance authority: %w", adapter.finalizerErr)
+		}
+	})
+	return adapter.finalizer, adapter.finalizerErr
+}
 
 func (adapter *scaleAdapter) Execute(ctx context.Context, operation experiment.AdapterOperation) experiment.Sample {
 	if operation.ExperimentID != "scale" {
@@ -165,14 +187,37 @@ func (adapter *scaleAdapter) executeDependencyE2E(ctx context.Context, operation
 		if err != nil {
 			return experiment.Sample{}, err
 		}
-		if cell.History != nil {
-			if err := adapter.prefillDependencyHistory(ctx, operation, state, cell.Task, *cell.History); err != nil {
-				return experiment.Sample{}, err
-			}
-		}
 	}
 	if state.taskID == "" {
 		return experiment.Sample{}, errors.New("dependency query lacks an approved task")
+	}
+
+	// The request identity exists before pre-registration: the one-use observer
+	// ticket binds this exact task/request attempt, not merely the stable Scale
+	// cell. Opening the deployment finalizer here keeps it lazy and leaves both
+	// non-TaskGate Scale boundaries independent of v3 deployment material.
+	requestID := "final-v5-scale-" + sha(operation.SampleID)[:24]
+	finalizer, err := adapter.dependencyFinalizer(ctx)
+	if err != nil {
+		return experiment.Sample{}, err
+	}
+	selector := scaleContractSelector(operation)
+	registered, err := finalizer.OpenObserverWindowV3(ctx, selector,
+		experiment.ObserverAttemptV3{TaskID: state.taskID, RequestID: requestID})
+	if err != nil {
+		return experiment.Sample{}, err
+	}
+	// History is setup for the measured candidate, not part of its observer
+	// interval. It nevertheless changes the task root and executes Business SQL,
+	// so it may happen only after the finalizer has resolved the frozen cell and
+	// its deployment profile. The committed exposure-scale profile is deliberately
+	// unroutable; OpenObserverWindowV3 rejects it here before prefill can mutate
+	// anything. Task provisioning is the sole allowed predecessor because the
+	// finalizer-issued ticket must bind a real task/request pair.
+	if operation.Mode == "novel" && cell.History != nil {
+		if err := adapter.prefillDependencyHistory(ctx, operation, state, cell.Task, *cell.History); err != nil {
+			return experiment.Sample{}, err
+		}
 	}
 
 	beforeRoot, err := adapter.real.rootLedgerSnapshot(ctx, state.taskID)
@@ -183,17 +228,13 @@ func (adapter *scaleAdapter) executeDependencyE2E(ctx context.Context, operation
 	if err != nil {
 		return experiment.Sample{}, err
 	}
-	// Taken next to the targeted snapshot so the census and the visible/companion
-	// counters describe the same instant of pg_stat_statements.
-	censusBefore, err := adapter.real.gatewayStatementCensus(ctx, cell.Task.VisibleRelation, cell.Task.CompanionRelation)
+	observerBefore, err := captureBoundObserverV2(ctx, experiment.ObserverInvocationV3{
+		Phase: "before", ObserverWindowID: registered.ObserverWindowID,
+		ClassifierManifestSHA256: registered.ClassifierManifestSHA256,
+	})
 	if err != nil {
 		return experiment.Sample{}, err
 	}
-	observerBefore, err := captureBoundObserver(ctx, "before")
-	if err != nil {
-		return experiment.Sample{}, err
-	}
-	requestID := "final-v5-scale-" + sha(operation.SampleID)[:24]
 	started := time.Now()
 	var response queryResponse
 	if err := adapter.real.alice.call(ctx, "query_sql", map[string]any{
@@ -205,10 +246,6 @@ func (adapter *scaleAdapter) executeDependencyE2E(ctx context.Context, operation
 	partial := observedTaskgateQueryPrefix(operation, state.taskID, cell.Candidate.SQL, started, availableMS,
 		response, beforeRoot, beforeRoot)
 	businessAfter, err := adapter.real.businessSQLSnapshotFor(ctx, cell.Task)
-	if err != nil {
-		return partial, err
-	}
-	censusAfter, err := adapter.real.gatewayStatementCensus(ctx, cell.Task.VisibleRelation, cell.Task.CompanionRelation)
 	if err != nil {
 		return partial, err
 	}
@@ -227,9 +264,11 @@ func (adapter *scaleAdapter) executeDependencyE2E(ctx context.Context, operation
 	if cell.History != nil {
 		historyDigest = cell.History.DependencySetSHA256
 	}
+	window := experiment.ObserverWindowV2{Before: observerBefore}
 	evidence := &experiment.ScaleVerificationEvidence{
 		Version: scaleVerificationVersion, Boundary: "dependency_e2e",
-		BindingSHA256: binding.SectionSHA256, DatasetSHA256: binding.DatasetSHA256,
+		BindingFileSHA256: binding.FileSHA256, BindingSHA256: binding.SectionSHA256,
+		DatasetSHA256: binding.DatasetSHA256,
 		CatalogSHA256: binding.CatalogSHA256, DatasetProbeSHA256: probeDigest,
 		QuerySHA256: sha(cell.Candidate.SQL), ExpectedRows: cell.Candidate.ExpectedRows,
 		ExpectedColumns: cell.Candidate.ExpectedColumns, ExpectedResultSHA256: cell.Candidate.ExpectedResultSHA256,
@@ -237,36 +276,53 @@ func (adapter *scaleAdapter) executeDependencyE2E(ctx context.Context, operation
 		ExpectedOverlapFacts: spec.OverlapFacts, ObservedOverlapFacts: spec.OverlapFacts,
 		HistoryDependencySHA256: historyDigest, CandidateDependencySHA256: cell.Candidate.DependencySetSHA256,
 		BusinessBefore: businessBefore, BusinessAfter: businessAfter, RootBefore: beforeRoot, RootAfter: afterRoot,
-		ObserverBefore: &observerBefore,
+		ObserverWindow: &window,
 	}
 	if operation.Mode == "semantic_replay" {
 		evidence.SourceObservationSHA256 = state.novelObservationSHA256
 		evidence.ReplayObservationSHA256 = response.Exposure.ObservationSHA256
 	}
 	sample.ScaleVerification = evidence
-	observerAfter, err := captureBoundObserver(ctx, "after")
+	observerAfter, err := captureBoundObserverV2(ctx, experiment.ObserverInvocationV3{
+		Phase: "after", ObserverWindowID: registered.ObserverWindowID,
+		ClassifierManifestSHA256: registered.ClassifierManifestSHA256,
+	})
 	if err != nil {
 		return sample, err
 	}
-	evidence.ObserverAfter = &observerAfter
+	window.After = observerAfter
+	resource, err := window.ResourceDelta()
+	if err != nil {
+		return sample, err
+	}
+	sample.GatewayMemoryPeakBytes = resource.GatewayMemoryPeakBytes
+	sample.GatewayCPUUsecDelta = resource.GatewayCPUUsecDelta
+	sample.GatewayNetworkRXDelta = resource.GatewayNetworkRXDelta
+	sample.GatewayNetworkTXDelta = resource.GatewayNetworkTXDelta
+	sample.ControlWALBytesDelta = resource.ControlWALBytesDelta
+	sample.BusinessWALBytesDelta = resource.BusinessWALBytesDelta
 	visibleDelta := businessAfter.VisibleCalls - businessBefore.VisibleCalls
 	companionDelta := businessAfter.CompanionCalls - businessBefore.CompanionCalls
-	observedBusiness := visibleDelta + companionDelta
-	sample.BusinessSQLDelta = observedBusiness
-	schema, err := servedExpectedSchema(response.Receipt.CatalogDigest)
-	if err != nil {
-		return sample, err
-	}
-	// Each targeted statement is settled by its own governed transaction, so a
-	// served-from-cache replay derives the empty plan and a novel query derives
-	// one transaction per visible and companion statement.
-	plan := experiment.NewGatewayControlPlan(observedBusiness, schema.Count, visibleDelta, companionDelta)
-	if err := applyObserverDelta(&sample, observerBefore, observerAfter, plan, censusBefore, censusAfter); err != nil {
-		return sample, err
-	}
+	sample.BusinessSQLDelta = visibleDelta + companionDelta
 	if err := validateBoundSampleResult(sample, cell.Candidate); err != nil {
 		return sample, err
 	}
+	if sample.BaselineVerification == nil {
+		return sample, errors.New("verified Scale sample omitted its receipt evidence")
+	}
+	carried, err := carriedScaleEvidence(operation.Mode, registered, window,
+		sample.BaselineVerification.Receipt)
+	if err != nil {
+		return sample, err
+	}
+	finalized, err := finalizer.FinalizeTaskGateObservationV3(ctx, experiment.FinalizationRequestV3{
+		Receipt: sample.BaselineVerification.Receipt, Carried: carried, ContractSelector: selector,
+		ObserverWindowTicket: registered.ObserverWindowTicket,
+	})
+	if err != nil {
+		return sample, err
+	}
+	sample.TaskGateAcceptanceV3 = &finalized
 	if operation.Mode == "novel" {
 		state.novelRequestID = requestID
 		state.novelQueryID = response.QueryID
@@ -275,6 +331,62 @@ func (adapter *scaleAdapter) executeDependencyE2E(ctx context.Context, operation
 		state.novelGrantSHA256 = response.Receipt.GrantDigest
 	}
 	return sample, nil
+}
+
+// scaleContractSelector names one frozen dependency-e2e cell in all four
+// coordinates. It is only a hint to the finalizer, but pre-registration happens
+// before a receipt exists and therefore requires this hint to admit exactly one
+// candidate.
+func scaleContractSelector(operation experiment.AdapterOperation) experiment.FrozenContractSelectorV3 {
+	return experiment.FrozenContractSelectorV3{
+		ExperimentID: operation.ExperimentID, WorkloadID: operation.WorkloadID,
+		Scale: operation.Scale, Mode: operation.Mode,
+	}
+}
+
+// carriedScaleEvidence transcribes the pre-registration and the evidence the
+// Adapter observed. A novel query carries the two target identities it actually
+// executed. A semantic replay carries neither: its signed binding authorizes the
+// pair so the finalizer can independently reproduce it, but this request executes
+// zero targets and an authorized-only record is not execution evidence.
+func carriedScaleEvidence(mode string, registered experiment.PreRegisteredObservationV3,
+	window experiment.ObserverWindowV2,
+	receipt queryreceipt.QueryReceiptV1) (experiment.CarriedEvidenceV3, error) {
+	carried := experiment.CarriedEvidenceV3{
+		Arm: experiment.ArmTaskGate, Operation: registered.Operation, Plan: registered.Plan,
+		ClassifierManifestSHA256: registered.ClassifierManifestSHA256,
+		ClassifierBindingSHA256:  registered.ClassifierBindingSHA256,
+		Window:                   window,
+	}
+	signed := receipt.ExecutionBindingV2
+	if signed == nil {
+		return experiment.CarriedEvidenceV3{},
+			errors.New("the Scale receipt describes no prepared execution")
+	}
+	if signed.Companion == nil {
+		return experiment.CarriedEvidenceV3{},
+			errors.New("a dependency query signs no provenance companion")
+	}
+	switch mode {
+	case "novel":
+		if !signed.Visible.Executed || !signed.Companion.Executed {
+			return experiment.CarriedEvidenceV3{},
+				errors.New("a novel dependency query did not execute both signed targets")
+		}
+		carried.VisibleStatement = signedTargetStatement(signed.Visible)
+		carried.CompanionStatement = signedTargetStatement(*signed.Companion)
+		carried.VisiblePreparedTargetBindingSHA256 = signed.Visible.PreparedTargetBindingSHA256
+		carried.CompanionPreparedTargetBindingSHA256 = signed.Companion.PreparedTargetBindingSHA256
+		return carried, nil
+	case "semantic_replay":
+		if signed.Visible.Executed || signed.Companion.Executed {
+			return experiment.CarriedEvidenceV3{},
+				errors.New("a semantic replay signed a target as executed by the current request")
+		}
+		return carried, nil
+	default:
+		return experiment.CarriedEvidenceV3{}, fmt.Errorf("unsupported Scale execution mode %q", mode)
+	}
 }
 
 func (adapter *scaleAdapter) prefillDependencyHistory(ctx context.Context, operation experiment.AdapterOperation,

@@ -479,6 +479,9 @@
       "type": "integer",
       "minimum": 0
     },
+    "taskgate_acceptance_v3": {
+      "type": "object"
+    },
     "root_epoch_before": {
       "type": "integer",
       "minimum": 0
@@ -611,6 +614,10 @@
               "type": "string",
               "pattern": "^[0-9a-f]{64}$"
             },
+            "binding_file_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
             "dataset_sha256": {
               "type": "string",
               "pattern": "^[0-9a-f]{64}$"
@@ -686,6 +693,9 @@
               "type": "object"
             },
             "observer_after": {
+              "type": "object"
+            },
+            "observer_window": {
               "type": "object"
             },
             "outcome_merkle": {
@@ -1852,6 +1862,7 @@
       "type": "object",
       "propertyNames": {
         "enum": [
+          "binding_file_sha256",
           "binding_sha256",
           "boundary",
           "business_after",
@@ -1871,6 +1882,7 @@
           "observed_overlap_facts",
           "observer_after",
           "observer_before",
+          "observer_window",
           "outcome_merkle",
           "query_sha256",
           "replay_observation_sha256",

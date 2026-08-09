@@ -137,7 +137,8 @@ func honestCarriedEvidence(t *testing.T, inputs IndependentInputsV3) CarriedEvid
 
 func TestFinalizerAcceptsHonestEvidence(t *testing.T) {
 	inputs := finalizerInputs(t)
-	result, err := FinalizeObservationV3(honestCarriedEvidence(t, inputs), inputs)
+	carried := honestCarriedEvidence(t, inputs)
+	result, err := FinalizeObservationV3(carried, inputs)
 	if err != nil {
 		t.Fatalf("honest evidence was rejected: %v", err)
 	}
@@ -148,6 +149,16 @@ func TestFinalizerAcceptsHonestEvidence(t *testing.T) {
 	}
 	if result.ExpectedSchemaEntries != built.Count {
 		t.Fatalf("finalizer derived E=%d, the Catalog builds %d", result.ExpectedSchemaEntries, built.Count)
+	}
+	windowSHA256, err := carried.Window.SHA256()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ObserverWindowID != carried.Window.Before.ObserverWindowID ||
+		result.ObserverWindowSHA256 != windowSHA256 {
+		t.Fatalf("finalizer retained window identity %s/%s, want %s/%s",
+			result.ObserverWindowID, result.ObserverWindowSHA256,
+			carried.Window.Before.ObserverWindowID, windowSHA256)
 	}
 }
 

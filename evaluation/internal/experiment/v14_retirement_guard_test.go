@@ -32,9 +32,6 @@ var retiredV14ActiveReferences = map[string][]string{
 	"evaluation/cmd/final-v5-adapter/provsql.go": {
 		"NewGatewayControlPlan",
 	},
-	"evaluation/cmd/final-v5-adapter/scale.go": {
-		"NewGatewayControlPlan",
-	},
 	"evaluation/internal/experiment/finalize_scale_artifact.go": {
 		"ObserverAccounting", "ValidateObserverAccounting",
 	},
@@ -59,6 +56,53 @@ var retiredV14Symbols = map[string]bool{
 	"GatewayStatementClasses":    true,
 	"ClassifyGatewayStatement":   true,
 	"CensusFromTemplates":        true,
+}
+
+func TestP22V14RetirementRatchetShape(t *testing.T) {
+	want := map[string][]string{
+		"evaluation/cmd/final-v5-adapter/adapter_bindings.go": {
+			"CensusFromTemplates", "GatewayControlPlan", "GatewayStatementCensus",
+			"ObserverAccounting", "ObserverAccountingVersion", "ValidateObserverAccounting",
+		},
+		"evaluation/cmd/final-v5-adapter/provsql.go": {
+			"NewGatewayControlPlan",
+		},
+		"evaluation/internal/experiment/finalize_scale_artifact.go": {
+			"ObserverAccounting", "ValidateObserverAccounting",
+		},
+		"evaluation/internal/experiment/types.go": {
+			"ObserverAccounting",
+		},
+	}
+
+	if got := len(retiredV14ActiveReferences); got != 4 {
+		t.Fatalf("P2.2 must leave exactly 4 v1.4 allowance files, got %d: %v", got, retiredV14ActiveReferences)
+	}
+	total := 0
+	for _, names := range retiredV14ActiveReferences {
+		total += len(names)
+	}
+	if total != 10 {
+		t.Fatalf("P2.2 must leave exactly 10 v1.4 allowance symbols, got %d: %v", total, retiredV14ActiveReferences)
+	}
+
+	for file, wantNames := range want {
+		gotNames, present := retiredV14ActiveReferences[file]
+		if !present {
+			t.Errorf("P2.2 v1.4 ratchet is missing required allowance %s", file)
+			continue
+		}
+		if len(gotNames) != len(wantNames) {
+			t.Errorf("P2.2 v1.4 allowance %s = %v, want exactly %v", file, gotNames, wantNames)
+			continue
+		}
+		for _, name := range wantNames {
+			if !contains(gotNames, name) {
+				t.Errorf("P2.2 v1.4 allowance %s = %v, want exactly %v", file, gotNames, wantNames)
+				break
+			}
+		}
+	}
 }
 
 // repositoryRoot walks up from the test's directory to the module root.
@@ -208,12 +252,9 @@ func TestNoActiveReferenceToV14Accounting(t *testing.T) {
 }
 
 // TestFinalizeObservationV3HasProductionCallers records the other half of the
-// canary prerequisite: acceptance must actually be reached.
-//
-// It asserts the current state rather than the target state, for the same reason
-// the reference guard is a ratchet: a test that fails until unrelated work lands
-// is not a guard, it is a reminder that makes the suite red. The names it counts
-// are the ones the migration has to change.
+// canary prerequisite: acceptance must actually be reached. Artifact and Scale
+// have crossed this boundary and are now hard requirements. ProvSQL remains a
+// logged prerequisite until its later cutover.
 //
 // The three files it names are where the TaskGate workloads live, and the call
 // they must make is RuntimeFinalizerV3.FinalizeTaskGateObservationV3 -- the
@@ -236,26 +277,80 @@ func TestFinalizeObservationV3HasProductionCallers(t *testing.T) {
 		}
 	}
 
-	required := []string{
+	requiredNow := []string{
 		"evaluation/cmd/final-v5-adapter/artifact.go",
 		"evaluation/cmd/final-v5-adapter/scale.go",
-		"evaluation/cmd/final-v5-adapter/provsql.go",
 	}
-	var missing []string
-	for _, path := range required {
+	for _, path := range requiredNow {
 		if !callers[path] {
-			missing = append(missing, path)
+			t.Errorf("the v3 acceptance entry point has no production caller in %s", path)
 		}
 	}
-	if len(missing) == 0 {
-		return
+	provSQL := "evaluation/cmd/final-v5-adapter/provsql.go"
+	if !callers[provSQL] {
+		t.Logf("the v3 acceptance entry point has no production caller in %s; "+
+			"the canary prerequisite in docs/final_v5_v3_runtime_integration_gates.md "+
+			"remains unsatisfied until the ProvSQL cutover", provSQL)
 	}
-	// Not a failure yet: the migration that adds these callers is in progress,
-	// and the canary prerequisite -- not this test -- is what forbids measuring
-	// before it lands. It becomes a hard failure with the third cutover.
-	t.Logf("the v3 acceptance entry point has no production caller in %v; "+
-		"the canary prerequisite in docs/final_v5_v3_runtime_integration_gates.md "+
-		"is not satisfied until all three call it", missing)
+}
+
+func TestScaleV3CutoverHasProductionCaller(t *testing.T) {
+	path := filepath.Join(repositoryRoot(t), "evaluation", "cmd", "final-v5-adapter", "scale.go")
+	calls := functionCallCounts(t, path, "executeDependencyE2E")
+
+	required := map[string]int{
+		"OpenObserverWindowV3":          1,
+		"captureBoundObserverV2":        2,
+		"FinalizeTaskGateObservationV3": 1,
+	}
+	for name, want := range required {
+		if got := calls[name]; got != want {
+			t.Errorf("executeDependencyE2E calls %s %d times, want exactly %d", name, got, want)
+		}
+	}
+
+	for _, name := range []string{"captureBoundObserver", "NewGatewayControlPlan", "applyObserverDelta"} {
+		if got := calls[name]; got != 0 {
+			t.Errorf("executeDependencyE2E still calls retired v1 accounting entry point %s %d times", name, got)
+		}
+	}
+}
+
+func functionCallCounts(t *testing.T, path, function string) map[string]int {
+	t.Helper()
+	fileSet := token.NewFileSet()
+	parsed, err := parser.ParseFile(fileSet, path, nil, 0)
+	if err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+
+	var body *ast.BlockStmt
+	for _, declaration := range parsed.Decls {
+		functionDeclaration, ok := declaration.(*ast.FuncDecl)
+		if ok && functionDeclaration.Name.Name == function {
+			body = functionDeclaration.Body
+			break
+		}
+	}
+	if body == nil {
+		t.Fatalf("%s has no function %s", path, function)
+	}
+
+	calls := map[string]int{}
+	ast.Inspect(body, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		switch called := call.Fun.(type) {
+		case *ast.Ident:
+			calls[called.Name]++
+		case *ast.SelectorExpr:
+			calls[called.Sel.Name]++
+		}
+		return true
+	})
+	return calls
 }
 
 // callsAcceptanceEntryPoint reports whether a file contains a real call to the

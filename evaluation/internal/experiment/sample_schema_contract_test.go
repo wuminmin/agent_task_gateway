@@ -133,6 +133,14 @@ func TestSampleJSONSchemaRequiresProcessAndWarmupIdentity(t *testing.T) {
 	}
 }
 
+func TestSampleJSONSchemaRetainsV3FinalizerAcceptance(t *testing.T) {
+	sample := validTestSample()
+	sample.TaskGateAcceptanceV3 = &FinalizationV3{}
+	if err := sampleSchemaValidator(t)(sampleJSONInstance(t, sample)); err != nil {
+		t.Fatalf("sample schema rejected the retained v3 finalizer output: %v", err)
+	}
+}
+
 func resolveDefinition(t *testing.T, schema, definitions map[string]any) map[string]any {
 	t.Helper()
 	reference, _ := schema["$ref"].(string)

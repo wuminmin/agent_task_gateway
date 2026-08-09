@@ -99,13 +99,20 @@ type IndependentInputsV3 struct {
 
 // FinalizationV3 is the finalizer's independently derived result.
 type FinalizationV3 struct {
-	Operation                OperationIdentity     `json:"operation"`
-	Plan                     GatewayControlPlanV3  `json:"plan"`
-	PlanSHA256               string                `json:"plan_sha256"`
+	Operation  OperationIdentity    `json:"operation"`
+	Plan       GatewayControlPlanV3 `json:"plan"`
+	PlanSHA256 string               `json:"plan_sha256"`
+	// ReceiptSHA256 is the typed identity of the complete Gateway-signed receipt
+	// this acceptance adjudicated. The runtime wrapper fills it only after receipt
+	// validation and signature verification; retaining it makes another attempt's
+	// coherent acceptance/window pair distinguishable from this sample's receipt.
+	ReceiptSHA256            string                `json:"receipt_sha256"`
 	ExpectedSchemaDigest     string                `json:"expected_schema_digest,omitempty"`
 	ExpectedSchemaEntries    int64                 `json:"expected_schema_entries,omitempty"`
 	ClassifierManifestSHA256 string                `json:"classifier_manifest_sha256"`
 	ClassifierBindingSHA256  string                `json:"classifier_binding_sha256"`
+	ObserverWindowID         string                `json:"observer_window_id"`
+	ObserverWindowSHA256     string                `json:"observer_window_sha256"`
 	Delta                    ObservedDelta         `json:"observed_delta"`
 	InternalExpectation      []InternalExpectation `json:"internal_expectation,omitempty"`
 }
@@ -266,6 +273,12 @@ func FinalizeObservationV3(carried CarriedEvidenceV3, inputs IndependentInputsV3
 	if err := delta.Accept(derivedPlan); err != nil {
 		return result, err
 	}
+	windowSHA256, err := carried.Window.SHA256()
+	if err != nil {
+		return result, fmt.Errorf("digest accepted observer window: %w", err)
+	}
+	result.ObserverWindowID = carried.Window.Before.ObserverWindowID
+	result.ObserverWindowSHA256 = windowSHA256
 
 	// 8. The window's runtime identity must be the deployment the footprint was
 	// qualified against.

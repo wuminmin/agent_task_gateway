@@ -21,6 +21,7 @@ const adapterBindingSectionName = finalv5binding.SectionName
 type adapterDeploymentBinding struct {
 	DatasetSHA256 string
 	CatalogSHA256 string
+	FileSHA256    string
 	SectionSHA256 string
 	Section       adapterBindingSection
 }
@@ -73,7 +74,7 @@ func loadAdapterDeploymentBinding() (adapterDeploymentBinding, error) {
 		return result, err
 	}
 	return adapterDeploymentBinding{DatasetSHA256: binding.DatasetSHA256, CatalogSHA256: binding.CatalogSHA256,
-		SectionSHA256: binding.SectionSHA256, Section: binding.Section}, nil
+		FileSHA256: binding.FileSHA256, SectionSHA256: binding.SectionSHA256, Section: binding.Section}, nil
 }
 
 func validateFrozenAdapterBindingIdentity(binding finalv5binding.Binding) error {

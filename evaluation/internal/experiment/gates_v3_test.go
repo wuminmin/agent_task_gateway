@@ -180,8 +180,18 @@ func pairedNovelCase(t *testing.T) gateCase {
 
 // The honest case must pass, or every rejection below proves nothing.
 func TestGateBaselineHonestCaseIsAccepted(t *testing.T) {
-	if _, err := pairedNovelCase(t).finalize(); err != nil {
+	testCase := pairedNovelCase(t)
+	accepted, err := testCase.finalize()
+	if err != nil {
 		t.Fatalf("the honest paired-novel case was rejected: %v", err)
+	}
+	receiptSHA256, err := queryreceipt.DocumentSHA256(testCase.receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if accepted.ReceiptSHA256 != receiptSHA256 {
+		t.Fatalf("acceptance retained receipt %s, verified receipt identity is %s",
+			accepted.ReceiptSHA256, receiptSHA256)
 	}
 }
 

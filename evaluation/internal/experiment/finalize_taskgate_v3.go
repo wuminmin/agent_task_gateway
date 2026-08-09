@@ -197,6 +197,10 @@ func finalizeTaskGateObservationV3Core(receipt queryreceipt.QueryReceiptV1, veri
 	if err := verifier.Verify(receipt); err != nil {
 		return result, fmt.Errorf("verify receipt: %w", err)
 	}
+	receiptSHA256, err := queryreceipt.DocumentSHA256(receipt)
+	if err != nil {
+		return result, fmt.Errorf("identify verified receipt document: %w", err)
+	}
 	binding := receipt.ExecutionBindingV2
 	if binding == nil {
 		return result, errors.New("receipt describes no execution; a completed query states which " +
@@ -279,6 +283,7 @@ func finalizeTaskGateObservationV3Core(receipt queryreceipt.QueryReceiptV1, veri
 		return result, fmt.Errorf("an idempotent replay moved the observer Business total by %d; "+
 			"it must reach Business PostgreSQL not at all", finalized.Delta.Total)
 	}
+	finalized.ReceiptSHA256 = receiptSHA256
 	return finalized, nil
 }
 

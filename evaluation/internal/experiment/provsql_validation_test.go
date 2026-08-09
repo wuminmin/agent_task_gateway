@@ -262,6 +262,9 @@ func TestProvSQLIndependentValidatorRejectsCriticalMutations(t *testing.T) {
 			sample.ProvSQLVerification.ObserverAfter.RuntimeIdentitySHA256 = strings.Repeat("6", 64)
 		},
 		"root transition": func(sample *Sample) { sample.ProvSQLVerification.RootAfter.Epoch++ },
+		"v3 acceptance hybrid": func(sample *Sample) {
+			sample.TaskGateAcceptanceV3 = &FinalizationV3{}
+		},
 	} {
 		sample := cloneProvSQLValidationSample(taskgate)
 		mutate(&sample)

@@ -164,35 +164,19 @@ func TestPostAssertionFailuresRetainIndependentRuntimeSnapshots(t *testing.T) {
 	businessAfter.CompanionCalls++
 	rootBefore := experiment.RootLedgerSnapshot{RootObservationSetSHA256: digest}
 	rootAfter := experiment.RootLedgerSnapshot{Epoch: 1, DependencySetSHA256: digest}
-	observerBefore := experiment.ObserverSnapshot{SchemaVersion: 1, MemoryScope: "cgroup_v2_memory_peak_including_mmap",
-		Phase: "before", RuntimeIdentitySHA256: digest, GatewayMemoryPeakBytes: 100, GatewayCPUUsec: 10,
-		GatewayNetworkRXBytes: 20, GatewayNetworkTXBytes: 30, BusinessSQLQueries: 40,
-		ControlWALBytes: 50, BusinessWALBytes: 60}
-	observerAfter := observerBefore
-	observerAfter.Phase = "after"
-	observerAfter.GatewayMemoryPeakBytes = 200
-	// The independent observer saw three gateway_reader statements, but the
-	// census below classifies the sixteen a one-view profile derives over two
-	// governed transactions. The accounting must refuse to reconcile them.
-	observerAfter.BusinessSQLQueries = 43
-
-	plan := experiment.NewGatewayControlPlan(2, 1, 1, 1)
-	censusBefore := experiment.NewGatewayStatementCensus()
-	censusAfter := experiment.NewGatewayStatementCensus()
-	for class, count := range plan.Expected() {
-		censusAfter.Counts[class] = censusBefore.Counts[class] + count
+	window := experiment.ObserverWindowV2{
+		Before: experiment.ObserverSnapshotV2{Phase: "before", Total: 11},
+		After:  experiment.ObserverSnapshotV2{Phase: "after", Total: 29},
 	}
 
 	scale := baseSample(operation, "taskgate")
 	scale.BusinessSQLDelta = 2
 	scale.ScaleVerification = &experiment.ScaleVerificationEvidence{BindingSHA256: digest,
 		BusinessBefore: businessBefore, BusinessAfter: businessAfter, RootBefore: rootBefore, RootAfter: rootAfter,
-		ObserverBefore: &observerBefore, ObserverAfter: &observerAfter}
-	if err := applyObserverDelta(&scale, observerBefore, observerAfter, plan, censusBefore, censusAfter); err == nil {
-		t.Fatal("an observer total the statement accounting does not explain was accepted")
-	}
+		ObserverWindow: &window}
 	failedScale := retainedScaleFailure(operation, scale, "dependency_e2e_measurement_failed")
-	if failedScale.ScaleVerification == nil || failedScale.ScaleVerification.ObserverAfter == nil ||
+	if failedScale.ScaleVerification == nil || failedScale.ScaleVerification.ObserverWindow == nil ||
+		failedScale.ScaleVerification.ObserverWindow.After.Total != window.After.Total ||
 		failedScale.ScaleVerification.BusinessAfter != businessAfter || failedScale.ScaleVerification.RootAfter != rootAfter {
 		t.Fatalf("scale post-assertion failure discarded safe snapshots: %+v", failedScale)
 	}
@@ -203,7 +187,7 @@ func TestPostAssertionFailuresRetainIndependentRuntimeSnapshots(t *testing.T) {
 	// The artifact arm retains a V2 window rather than a pair of v1 snapshots
 	// since the v3 cutover. What is asserted is unchanged: a post-assertion
 	// failure keeps every safely collected boundary instead of discarding it.
-	window := experiment.ObserverWindowV2{
+	window = experiment.ObserverWindowV2{
 		Before: experiment.ObserverSnapshotV2{Phase: "before", Total: 11},
 		After:  experiment.ObserverSnapshotV2{Phase: "after", Total: 29},
 	}
@@ -217,6 +201,10 @@ func TestPostAssertionFailuresRetainIndependentRuntimeSnapshots(t *testing.T) {
 		t.Fatalf("artifact post-assertion failure discarded safe snapshots: %+v", failedArtifact)
 	}
 
+	// ProvSQL remains on v1.4 until P2.3, so its retained failure still carries
+	// the legacy observer pair even though Scale now carries a V2 window.
+	observerBefore := experiment.ObserverSnapshot{Phase: "before"}
+	observerAfter := experiment.ObserverSnapshot{Phase: "after"}
 	retained := &experiment.ProvSQLVerificationEvidence{BusinessBefore: &businessBefore, BusinessAfter: &businessAfter,
 		RootBefore: &rootBefore, RootAfter: &rootAfter, ObserverBefore: &observerBefore, ObserverAfter: &observerAfter}
 	finalEvidence := &experiment.ProvSQLVerificationEvidence{}

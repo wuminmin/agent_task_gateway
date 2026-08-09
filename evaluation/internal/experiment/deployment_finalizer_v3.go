@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"taskbound.local/agent-data-gateway/evaluation/finalv5contracts"
+	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5binding"
 	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5profile"
 	"taskbound.local/agent-data-gateway/internal/catalog"
 	"taskbound.local/agent-data-gateway/internal/catalogschema"
@@ -83,6 +84,9 @@ const (
 	deploymentQualificationEnv      = "TASKGATE_FINAL_V5_ATTESTATION_QUALIFICATION"
 	deploymentPostgreSQLIdentityEnv = "TASKGATE_FINAL_V5_POSTGRESQL_IDENTITY"
 	deploymentRepositoryRootEnv     = "TASKGATE_FINAL_V5_REPO_ROOT"
+	deploymentBindingFileEnv        = "TASKGATE_DATASET_BINDINGS"
+	deploymentBindingFileSHAEnv     = "TASKGATE_FINAL_V5_BINDING_FILE_SHA256"
+	deploymentBindingSectionSHAEnv  = "TASKGATE_FINAL_V5_BINDING_SECTION_SHA256"
 )
 
 // artifactDeploymentProfileAlias is the activated deployment profile the frozen
@@ -95,7 +99,10 @@ const (
 // regenerations; what stops the alias from being loose is that the resolver then
 // requires the profile's Catalog to be byte-identical to the one the Gateway is
 // actually serving.
-const artifactDeploymentProfileAlias = "result-heavy"
+const (
+	artifactDeploymentProfileAlias = "result-heavy"
+	scaleDeploymentProfileAlias    = "exposure-scale"
+)
 
 // OpenDeploymentFinalizerV3 opens the finalizer this deployment's environment
 // describes.
@@ -195,8 +202,8 @@ func gatewayKeyringVerifierV3(ctx context.Context, gatewayURL string) (ReceiptVe
 
 // ---------------------------------------------------------- the frozen contracts
 
-// deploymentContractsV3 resolves frozen Artifact operations against the Catalog
-// the Gateway is actually running.
+// deploymentContractsV3 resolves frozen Artifact and Scale operations against
+// the Catalog the Gateway is actually running.
 //
 // The Contract Index is embedded in this binary and its digests are revalidated
 // by LoadRuntime, so the contract half needs no deployment at all. What does is
@@ -208,6 +215,11 @@ func gatewayKeyringVerifierV3(ctx context.Context, gatewayURL string) (ReceiptVe
 type deploymentContractsV3 struct {
 	runtime *finalv5contracts.Runtime
 	live    finalv5contracts.LiveDeployment
+	// bindingSource freezes where this deployment keeps Scale's private material
+	// and the identities captured before startup, but does not read it until a
+	// selector can actually admit Scale. Artifact therefore keeps no dependency
+	// on Scale material; a wildcard selector, correctly, requires both workloads.
+	bindingSource deploymentBindingSourceV3
 	// catalog is the live Catalog, loaded once. It is the same file
 	// live.CatalogPath names, kept parsed because every candidate reads its
 	// Product, its scopes and its task policy.
@@ -250,8 +262,64 @@ func openDeploymentContractsV3(ctx context.Context) (deploymentContractsV3, erro
 		live: finalv5contracts.LiveDeployment{
 			CatalogPath: catalogPath, CatalogSHA256: catalogDigest, DatasetProbeSHA256: probe,
 		},
-		catalog: liveCatalog,
+		catalog: liveCatalog, bindingSource: deploymentBindingSourceFromEnvironmentV3(),
 	}, nil
+}
+
+type deploymentBindingSourceV3 struct {
+	path, fileSHA256, sectionSHA256 string
+}
+
+func deploymentBindingSourceFromEnvironmentV3() deploymentBindingSourceV3 {
+	return deploymentBindingSourceV3{
+		path:          strings.TrimSpace(os.Getenv(deploymentBindingFileEnv)),
+		fileSHA256:    strings.TrimSpace(os.Getenv(deploymentBindingFileSHAEnv)),
+		sectionSHA256: strings.TrimSpace(os.Getenv(deploymentBindingSectionSHAEnv)),
+	}
+}
+
+// load independently acquires the private binding and pins it to the identities
+// frozen before this process started.
+//
+// LoadPublicationFile validates the binding against the source-controlled
+// master Catalog because that is what the private review covers. Candidate
+// construction below separately resolves every requested Product, column,
+// scope and budget against the Catalog this deployment is actually serving.
+// Those Catalogs may be byte-different profile closures, so equating their
+// digests would reject a legitimate single-profile deployment rather than bind
+// it more tightly.
+func (source deploymentBindingSourceV3) load() (finalv5binding.Binding, error) {
+	for _, required := range [][2]string{
+		{deploymentBindingFileEnv, source.path},
+		{deploymentBindingFileSHAEnv, source.fileSHA256},
+		{deploymentBindingSectionSHAEnv, source.sectionSHA256},
+	} {
+		if required[1] == "" {
+			return finalv5binding.Binding{}, fmt.Errorf("%s must name where this deployment keeps Scale's "+
+				"finalizer material", required[0])
+		}
+	}
+	binding, err := finalv5binding.LoadPublicationFile(source.path, finalv5binding.CatalogPath)
+	if err != nil {
+		return finalv5binding.Binding{}, fmt.Errorf("load the private deployment binding: %w", err)
+	}
+	if err := requireDeploymentBindingIdentityV3(binding, source.fileSHA256, source.sectionSHA256); err != nil {
+		return finalv5binding.Binding{}, err
+	}
+	return binding, nil
+}
+
+func requireDeploymentBindingIdentityV3(binding finalv5binding.Binding,
+	expectedFile, expectedSection string) error {
+	if !validSHA256(expectedFile) || !validSHA256(expectedSection) {
+		return errors.New("the frozen private deployment binding identities are not lowercase SHA-256 values")
+	}
+	if binding.FileSHA256 != expectedFile || binding.SectionSHA256 != expectedSection {
+		return fmt.Errorf("the private deployment binding changed after it was frozen: file %s/%s, section %s/%s",
+			shortDigest(binding.FileSHA256), shortDigest(expectedFile),
+			shortDigest(binding.SectionSHA256), shortDigest(expectedSection))
+	}
+	return nil
 }
 
 // datasetProbeDigestV3 runs the contract-indexed dataset probe against Business
@@ -279,7 +347,8 @@ func datasetProbeDigestV3(ctx context.Context, runtime *finalv5contracts.Runtime
 	return sha256Hex([]byte(fingerprint)), nil
 }
 
-// ResolveCandidates returns every frozen Artifact operation the selector admits.
+// ResolveCandidates returns every frozen Artifact or Scale dependency operation
+// the selector admits.
 //
 // An empty selector member is a wildcard, because the selector is a hint whose
 // only job is to narrow the search: finalization identifies the operation by
@@ -292,23 +361,64 @@ func datasetProbeDigestV3(ctx context.Context, runtime *finalv5contracts.Runtime
 // Catalog, which is a different fault and a much harder one to find.
 func (contracts deploymentContractsV3) ResolveCandidates(
 	selector FrozenContractSelectorV3) ([]frozenOperationCandidateV3, error) {
-	cells, err := contracts.runtime.ArtifactCells()
+	var candidates []frozenOperationCandidateV3
+	if selectorMayAdmitWorkloadV3(selector,
+		finalv5contracts.ArtifactExperimentID, finalv5contracts.ArtifactWorkloadID) {
+		cells, err := contracts.runtime.ArtifactCells()
+		if err != nil {
+			return nil, fmt.Errorf("read the frozen Artifact cells: %w", err)
+		}
+		for _, cell := range cells {
+			if !selectorAdmitsCellV3(selector, cell.Identity) {
+				continue
+			}
+			candidate, candidateErr := contracts.candidateFor(cell)
+			if candidateErr != nil {
+				return nil, fmt.Errorf("bind frozen Artifact cell %s to this deployment: %w",
+					cell.Identity, candidateErr)
+			}
+			candidates = append(candidates, candidate)
+		}
+	}
+	if selectorMayAdmitWorkloadV3(selector, "scale", "dependency-e2e") {
+		binding, err := contracts.bindingSource.load()
+		if err != nil {
+			return nil, err
+		}
+		scaleCandidates, err := contracts.resolveScaleCandidatesV3(selector, binding)
+		if err != nil {
+			return nil, err
+		}
+		candidates = append(candidates, scaleCandidates...)
+	}
+	return candidates, nil
+}
+
+func (contracts deploymentContractsV3) resolveScaleCandidatesV3(selector FrozenContractSelectorV3,
+	binding finalv5binding.Binding) ([]frozenOperationCandidateV3, error) {
+	cells, err := contracts.scaleDependencyCellsV3(binding)
 	if err != nil {
-		return nil, fmt.Errorf("read the frozen Artifact cells: %w", err)
+		return nil, err
 	}
 	var candidates []frozenOperationCandidateV3
 	for _, cell := range cells {
 		if !selectorAdmitsCellV3(selector, cell.Identity) {
 			continue
 		}
-		candidate, candidateErr := contracts.candidateFor(cell)
+		cellBinding := binding.Section.Scale.DependencyE2E[cell.Identity.Scale]
+		candidate, candidateErr := contracts.scaleCandidateForV3(cell, cellBinding, binding)
 		if candidateErr != nil {
-			return nil, fmt.Errorf("bind frozen Artifact cell %s to this deployment: %w",
+			return nil, fmt.Errorf("bind frozen Scale cell %s to this deployment: %w",
 				cell.Identity, candidateErr)
 		}
 		candidates = append(candidates, candidate)
 	}
 	return candidates, nil
+}
+
+func selectorMayAdmitWorkloadV3(selector FrozenContractSelectorV3, experimentID, workloadID string) bool {
+	return (selector.ExperimentID == "" || selector.ExperimentID == experimentID) &&
+		(selector.WorkloadID == "" || selector.WorkloadID == workloadID)
 }
 
 func selectorAdmitsCellV3(selector FrozenContractSelectorV3, identity finalv5contracts.CellIdentity) bool {
@@ -319,6 +429,86 @@ func selectorAdmitsCellV3(selector FrozenContractSelectorV3, identity finalv5con
 		{selector.Mode, identity.Mode},
 	} {
 		if coordinate[0] != "" && coordinate[0] != coordinate[1] {
+			return false
+		}
+	}
+	return true
+}
+
+// scaleDependencyCellsV3 crosses the public Contract Index with the private
+// deployment binding before returning any candidate.
+//
+// The Contract Index is authoritative for the 24 protocol coordinates and
+// their Product request. The private binding is authoritative for the 12 exact
+// candidate statements and approved task surfaces shared by novel and semantic
+// replay. Building the cross-product from either source alone would let that
+// source silently invent the half the other is meant to freeze.
+func (contracts deploymentContractsV3) scaleDependencyCellsV3(
+	binding finalv5binding.Binding) ([]finalv5contracts.ContractCell, error) {
+	if contracts.runtime == nil {
+		return nil, errors.New("resolving frozen Scale cells requires the loaded Contract Index")
+	}
+	if binding.Section.Scale == nil {
+		return nil, errors.New("the private deployment binding carries no Scale section")
+	}
+	all, err := contracts.runtime.ContractWorkloadCells()
+	if err != nil {
+		return nil, fmt.Errorf("read the frozen Scale cells: %w", err)
+	}
+	cells := make([]finalv5contracts.ContractCell, 0, 24)
+	for _, cell := range all {
+		if cell.Identity.ExperimentID == "scale" && cell.Identity.WorkloadID == "dependency-e2e" {
+			cells = append(cells, cell)
+		}
+	}
+	sort.Slice(cells, func(left, right int) bool {
+		return cells[left].Identity.String() < cells[right].Identity.String()
+	})
+	if len(cells) != 24 || len(binding.Section.Scale.DependencyE2E) != 12 {
+		return nil, fmt.Errorf("Scale dependency material is incomplete: contract cells=%d, private cells=%d; want 24/12",
+			len(cells), len(binding.Section.Scale.DependencyE2E))
+	}
+
+	modesByScale := make(map[string]map[string]bool, 12)
+	seenCoordinates := make(map[string]bool, len(cells))
+	for _, cell := range cells {
+		coordinate := cell.Identity.String()
+		if seenCoordinates[coordinate] {
+			return nil, fmt.Errorf("the frozen Scale contract lists %s twice", coordinate)
+		}
+		seenCoordinates[coordinate] = true
+		if cell.Identity.Mode != "novel" && cell.Identity.Mode != "semantic_replay" {
+			return nil, fmt.Errorf("Scale dependency cell %s names unsupported mode %q",
+				coordinate, cell.Identity.Mode)
+		}
+		cellBinding, found := binding.Section.Scale.DependencyE2E[cell.Identity.Scale]
+		if !found {
+			return nil, fmt.Errorf("the private deployment binding omits Scale cell %s", cell.Identity.Scale)
+		}
+		if !sameStringsInOrderV3(cell.Products, cellBinding.Task.DataProducts) {
+			return nil, fmt.Errorf("Scale cell %s requests Products %v in the Contract Index but %v in the private binding",
+				coordinate, cell.Products, cellBinding.Task.DataProducts)
+		}
+		if modesByScale[cell.Identity.Scale] == nil {
+			modesByScale[cell.Identity.Scale] = map[string]bool{}
+		}
+		modesByScale[cell.Identity.Scale][cell.Identity.Mode] = true
+	}
+	for scale := range binding.Section.Scale.DependencyE2E {
+		modes := modesByScale[scale]
+		if len(modes) != 2 || !modes["novel"] || !modes["semantic_replay"] {
+			return nil, fmt.Errorf("private Scale cell %s is not named by both frozen execution modes", scale)
+		}
+	}
+	return cells, nil
+}
+
+func sameStringsInOrderV3(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
 			return false
 		}
 	}
@@ -347,21 +537,10 @@ func (contracts deploymentContractsV3) candidateFor(
 	if err != nil {
 		return candidate, err
 	}
-	product, found := contracts.catalog.LookupProduct(binding.ProductID)
-	if !found {
-		return candidate, fmt.Errorf("the live Catalog declares no Product %q", binding.ProductID)
-	}
-	approved := make(map[string]struct{}, len(binding.Columns))
-	for _, column := range binding.Columns {
-		approved[column] = struct{}{}
-	}
-	lowered, err := sqllowering.Lower(query.BDG.SQL, map[string]queryplan.Product{
-		binding.ProductID: physicalquery.QueryProductFromCatalog(product, approved),
-	})
-	if err != nil {
-		return candidate, fmt.Errorf("lower the frozen BDG statement: %w", err)
-	}
-	grant, err := contracts.grantFor(binding)
+	plan, grant, err := contracts.operationMaterialV3(query.BDG.SQL,
+		[]string{binding.ProductID}, map[string][]string{
+			binding.ProductID: append([]string(nil), binding.Columns...),
+		}, binding.Scopes)
 	if err != nil {
 		return candidate, err
 	}
@@ -378,11 +557,95 @@ func (contracts deploymentContractsV3) candidateFor(
 		// the operation runs; a cell that then took a different path fails
 		// finalization, which is the correct outcome.
 		PathKind: PathPairedNovel,
-		Plan:     lowered.Plan, Grant: grant,
+		Plan:     plan, Grant: grant,
 	}, nil
 }
 
-// grantFor maps the deployment binding onto the authorization preparation reads.
+// scaleCandidateForV3 turns one crossed public/private Scale cell into the same
+// frozen operation material the Artifact path supplies to the finalizer.
+func (contracts deploymentContractsV3) scaleCandidateForV3(cell finalv5contracts.ContractCell,
+	cellBinding finalv5binding.DependencyCellBinding,
+	deploymentBinding finalv5binding.Binding) (frozenOperationCandidateV3, error) {
+	var candidate frozenOperationCandidateV3
+	if err := finalv5binding.ValidateBoundTask(cellBinding.Task); err != nil {
+		return candidate, fmt.Errorf("validate the private Scale task: %w", err)
+	}
+	if err := finalv5binding.ValidateBoundQuery(cellBinding.Candidate); err != nil {
+		return candidate, fmt.Errorf("validate the private Scale candidate: %w", err)
+	}
+	plan, grant, err := contracts.operationMaterialV3(cellBinding.Candidate.SQL,
+		cellBinding.Task.DataProducts, cellBinding.Task.Columns, cellBinding.Task.Scopes)
+	if err != nil {
+		return candidate, err
+	}
+	pathKind := PathPairedNovel
+	switch cell.Identity.Mode {
+	case "novel":
+	case "semantic_replay":
+		pathKind = PathSemanticReplay
+	default:
+		return candidate, fmt.Errorf("Scale dependency mode %q has no v3 path", cell.Identity.Mode)
+	}
+	operationID, contractIdentity, err := scaleOperationIdentityV3(
+		contracts.runtime, deploymentBinding, cell.Identity)
+	if err != nil {
+		return candidate, err
+	}
+	return frozenOperationCandidateV3{
+		OperationID: operationID, ContractIdentity: contractIdentity,
+		ProfileID: scaleDeploymentProfileAlias, PathKind: pathKind,
+		Plan: plan, Grant: grant,
+	}, nil
+}
+
+// operationMaterialV3 lowers one frozen SQL statement and maps its independently
+// acquired approved task surface onto the input shared with Gateway preparation.
+// Artifact and Scale both call this function so there is one trusted construction
+// of Plan and Grant; executable statements remain exclusively in
+// physicalquery.Prepare/Derive.
+func (contracts deploymentContractsV3) operationMaterialV3(sql string, products []string,
+	columns map[string][]string, scopes map[string][]string) (queryplan.QueryPlan, physicalquery.Grant, error) {
+	if contracts.catalog == nil {
+		return queryplan.QueryPlan{}, physicalquery.Grant{}, errors.New("the deployment resolver has no live Catalog")
+	}
+	if len(products) == 0 || len(columns) != len(products) {
+		return queryplan.QueryPlan{}, physicalquery.Grant{},
+			errors.New("the frozen approved surface has inconsistent Products and columns")
+	}
+	queryProducts := make(map[string]queryplan.Product, len(products))
+	seen := make(map[string]bool, len(products))
+	for _, productID := range products {
+		approvedColumns, found := columns[productID]
+		if strings.TrimSpace(productID) == "" || seen[productID] || !found || len(approvedColumns) == 0 {
+			return queryplan.QueryPlan{}, physicalquery.Grant{},
+				fmt.Errorf("the frozen approved surface is inconsistent for Product %q", productID)
+		}
+		seen[productID] = true
+		product, found := contracts.catalog.LookupProduct(productID)
+		if !found {
+			return queryplan.QueryPlan{}, physicalquery.Grant{},
+				fmt.Errorf("the live Catalog declares no Product %q", productID)
+		}
+		approved := make(map[string]struct{}, len(approvedColumns))
+		for _, column := range approvedColumns {
+			approved[column] = struct{}{}
+		}
+		queryProducts[productID] = physicalquery.QueryProductFromCatalog(product, approved)
+	}
+	lowered, err := sqllowering.Lower(sql, queryProducts)
+	if err != nil {
+		return queryplan.QueryPlan{}, physicalquery.Grant{},
+			fmt.Errorf("lower the frozen BDG statement: %w", err)
+	}
+	grant, err := contracts.grantForApprovedSurfaceV3(products, columns, scopes)
+	if err != nil {
+		return queryplan.QueryPlan{}, physicalquery.Grant{}, err
+	}
+	return lowered.Plan, grant, nil
+}
+
+// grantForApprovedSurfaceV3 maps the deployment binding onto the authorization
+// preparation reads.
 //
 // It is the finalizer's counterpart of internal/gateway.preparationGrant, over
 // different sources: the Gateway maps the Control Store's stored TaskGrant, this
@@ -390,20 +653,20 @@ func (contracts deploymentContractsV3) candidateFor(
 // values to the same type, which is the only reason the two preparations
 // agreeing means anything.
 //
-// The scope is the Catalog's complete enumerated domain for every scope the
-// Product declares, sorted, exactly as the Gateway normalizes an incoming task's
-// scopes before sealing them into the authorization manifest. Sorting matters
-// because the grant digest is over canonical JSON and RFC 8785 preserves array
-// order: two orderings of one domain would be two authorizations.
-func (contracts deploymentContractsV3) grantFor(
-	binding finalv5contracts.Binding) (physicalquery.Grant, error) {
-	policy, err := contracts.catalog.ResolveTaskPolicy([]string{binding.ProductID})
+// The scope is the exact frozen task scope, whose values LoadPublicationFile
+// already checked against the source-controlled Catalog, sorted exactly as the
+// Gateway normalizes an incoming task before sealing it into the authorization
+// manifest. Sorting matters because the grant digest is over canonical JSON and
+// RFC 8785 preserves array order: two orderings of one approved scope would be
+// two authorizations.
+func (contracts deploymentContractsV3) grantForApprovedSurfaceV3(products []string,
+	columns map[string][]string, scopes map[string][]string) (physicalquery.Grant, error) {
+	policy, err := contracts.catalog.ResolveTaskPolicy(products)
 	if err != nil {
-		return physicalquery.Grant{}, fmt.Errorf("resolve the live task policy for %q: %w",
-			binding.ProductID, err)
+		return physicalquery.Grant{}, fmt.Errorf("resolve the live task policy for %v: %w", products, err)
 	}
-	scope := make(map[string][]string, len(binding.Scopes))
-	for name, values := range binding.Scopes {
+	scope := make(map[string][]string, len(scopes))
+	for name, values := range scopes {
 		sorted := append([]string(nil), values...)
 		sort.Strings(sorted)
 		scope[name] = sorted
@@ -412,9 +675,13 @@ func (contracts deploymentContractsV3) grantFor(
 	if err != nil {
 		return physicalquery.Grant{}, fmt.Errorf("encode the mandatory scope: %w", err)
 	}
+	approvedColumns := make(map[string][]string, len(columns))
+	for product, approved := range columns {
+		approvedColumns[product] = append([]string(nil), approved...)
+	}
 	grant := physicalquery.Grant{
-		ApprovedProducts: []string{binding.ProductID},
-		ApprovedColumns:  map[string][]string{binding.ProductID: append([]string(nil), binding.Columns...)},
+		ApprovedProducts: append([]string(nil), products...),
+		ApprovedColumns:  approvedColumns,
 		MandatoryScope:   encoded,
 		ExposureProfile:  policy.Budget.ExposureProfileVersion,
 		PredicateLimits:  predicateLimitsFromBudgetV3(policy.Budget),
@@ -486,6 +753,27 @@ func ArtifactOperationV3(runtime *finalv5contracts.Runtime,
 		OperationID:      cell.String(),
 		ContractIdentity: release + ":" + index + ":" + cell.String(),
 	}, nil
+}
+
+// scaleOperationIdentityV3 binds a Scale operation to both public contract
+// bytes and the private file/section bytes that contain its exact executable
+// candidate. The coordinate alone cannot distinguish two private freezes of the
+// same public design cell.
+func scaleOperationIdentityV3(runtime *finalv5contracts.Runtime, binding finalv5binding.Binding,
+	cell finalv5contracts.CellIdentity) (string, string, error) {
+	if cell.ExperimentID != "scale" || cell.WorkloadID != "dependency-e2e" {
+		return "", "", fmt.Errorf("cell %s is not a Scale dependency operation", cell)
+	}
+	base, err := ArtifactOperationV3(runtime, cell)
+	if err != nil {
+		return "", "", err
+	}
+	if !validSHA256(binding.FileSHA256) || !validSHA256(binding.SectionSHA256) {
+		return "", "", errors.New("the private Scale binding carries no frozen file/section identity")
+	}
+	return base.OperationID, fmt.Sprintf("%s:%s:binding-file=%s:binding-section=%s:%s",
+		runtime.ContractRelease(), runtime.IndexSHA256(), binding.FileSHA256,
+		binding.SectionSHA256, cell.String()), nil
 }
 
 // --------------------------------------------------------- the activated profile

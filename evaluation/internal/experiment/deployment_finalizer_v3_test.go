@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"taskbound.local/agent-data-gateway/evaluation/finalv5contracts"
+	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5binding"
 	"taskbound.local/agent-data-gateway/internal/catalog"
 	fixture "taskbound.local/agent-data-gateway/internal/testfixture/queryreceiptv10"
 )
@@ -268,7 +269,16 @@ func deploymentContractsForTest(t *testing.T) deploymentContractsV3 {
 // about a step it is supposed to be reproducing.
 func TestTheContractResolverLowersTheFrozenStatement(t *testing.T) {
 	contracts := deploymentContractsForTest(t)
-	all, err := contracts.ResolveCandidates(FrozenContractSelectorV3{})
+	// An explicit Artifact selector must never acquire Scale's private binding.
+	// Point its captured source at a missing file so this test proves that
+	// separation instead of merely running with a convenient environment.
+	contracts.bindingSource = deploymentBindingSourceV3{
+		path:       "/a-scale-binding-artifact-must-not-read",
+		fileSHA256: strings.Repeat("1", 64), sectionSHA256: strings.Repeat("2", 64),
+	}
+	all, err := contracts.ResolveCandidates(FrozenContractSelectorV3{
+		ExperimentID: finalv5contracts.ArtifactExperimentID,
+	})
 	if err != nil {
 		t.Fatalf("resolve every frozen Artifact cell: %v", err)
 	}
@@ -308,12 +318,203 @@ func TestTheContractResolverLowersTheFrozenStatement(t *testing.T) {
 	if len(narrowed) != 1 || narrowed[0].OperationID != one.OperationID {
 		t.Fatalf("a selector naming %s admitted %d candidate(s)", one.OperationID, len(narrowed))
 	}
-	absent, err := contracts.ResolveCandidates(FrozenContractSelectorV3{ExperimentID: "scale"})
-	if err != nil {
-		t.Fatalf("resolve a selector this resolver does not serve: %v", err)
+	if _, err := contracts.ResolveCandidates(FrozenContractSelectorV3{
+		ExperimentID: "scale", WorkloadID: "dependency-e2e",
+	}); err == nil || !strings.Contains(err.Error(), "private dataset binding") {
+		t.Fatalf("a Scale selector did not acquire its independently frozen private binding: %v", err)
 	}
-	if len(absent) != 0 {
-		t.Fatalf("the Artifact contract resolver admitted %d candidate(s) for another experiment", len(absent))
+}
+
+const scaleResolverTestProduct = "final_v5_exposure_scale"
+
+// scaleBindingForResolverTest is synthetic, non-evidence private material whose
+// coordinates and Products are read from the real embedded Contract Index. It
+// exists only to exercise the dormant resolver without making the committed
+// exposure-scale profile routable.
+func scaleBindingForResolverTest(t *testing.T) finalv5binding.Binding {
+	t.Helper()
+	runtime, err := finalv5contracts.LoadRuntime()
+	if err != nil {
+		t.Fatalf("load the frozen Contract Index: %v", err)
+	}
+	cells, err := runtime.ContractWorkloadCells()
+	if err != nil {
+		t.Fatalf("read the frozen workload cells: %v", err)
+	}
+	dependency := make(map[string]finalv5binding.DependencyCellBinding, 12)
+	for _, cell := range cells {
+		if cell.Identity.ExperimentID != "scale" || cell.Identity.WorkloadID != "dependency-e2e" {
+			continue
+		}
+		if len(cell.Products) != 1 || cell.Products[0] != scaleResolverTestProduct {
+			t.Fatalf("Scale cell %s requests unexpected Products %v", cell.Identity, cell.Products)
+		}
+		if _, present := dependency[cell.Identity.Scale]; present {
+			continue
+		}
+		dependency[cell.Identity.Scale] = finalv5binding.DependencyCellBinding{
+			Task: finalv5binding.BoundTaskRequest{
+				Objective:    "synthetic resolver-only Scale task",
+				DataProducts: []string{scaleResolverTestProduct},
+				Columns: map[string][]string{
+					scaleResolverTestProduct: {"row_id", "category"},
+				},
+				Scopes: map[string][]string{
+					"category": {"alpha", "beta", "gamma", "delta"},
+				},
+				VisibleRelation:   "reporting.final_v5_result_heavy",
+				CompanionRelation: "taskgate_ordinal.final_v5_result_heavy_v1",
+			},
+			Candidate: finalv5binding.BoundQueryExpectation{
+				SQL:          "SELECT row_id FROM final_v5_exposure_scale ORDER BY row_id",
+				ExpectedRows: 1, ExpectedColumns: 1,
+				ExpectedResultSHA256: strings.Repeat("3", 64),
+				DependencyFacts:      1, DependencySetSHA256: strings.Repeat("4", 64),
+			},
+		}
+	}
+	if len(dependency) != 12 {
+		t.Fatalf("the embedded Scale contract resolved to %d dependency scales", len(dependency))
+	}
+	return finalv5binding.Binding{
+		DatasetSHA256: strings.Repeat("5", 64), CatalogSHA256: strings.Repeat("6", 64),
+		FileSHA256: strings.Repeat("7", 64), SectionSHA256: strings.Repeat("a", 64),
+		Section: finalv5binding.Section{SchemaVersion: 1,
+			Scale: &finalv5binding.ScaleBinding{DependencyE2E: dependency, EnableOutcomeMerkle: true}},
+	}
+}
+
+func scaleCapableContractsForTest(t *testing.T) deploymentContractsV3 {
+	t.Helper()
+	contracts := deploymentContractsForTest(t)
+	product, found := contracts.catalog.LookupProduct("final_v5_result_heavy")
+	if !found {
+		t.Fatal("the test Catalog declares no result-heavy Product to clone")
+	}
+	product.Name = scaleResolverTestProduct
+	contracts.catalog.Products = []catalog.Product{product}
+	return contracts
+}
+
+// The Scale resolver obtains 24 exact public coordinates from the Contract
+// Index, crosses them with 12 private candidate cells, and lowers both modes
+// through the same production-derived material construction Artifact uses.
+func TestTheScaleResolverCrossesEveryFrozenDependencyCell(t *testing.T) {
+	contracts := scaleCapableContractsForTest(t)
+	binding := scaleBindingForResolverTest(t)
+	candidates, err := contracts.resolveScaleCandidatesV3(FrozenContractSelectorV3{
+		ExperimentID: "scale", WorkloadID: "dependency-e2e",
+	}, binding)
+	if err != nil {
+		t.Fatalf("resolve every frozen Scale dependency cell: %v", err)
+	}
+	if len(candidates) != 24 {
+		t.Fatalf("the resolver produced %d Scale candidates, want 24", len(candidates))
+	}
+	modesByScale := make(map[string]map[GatewayPathKind]bool, 12)
+	previous := ""
+	for _, candidate := range candidates {
+		if previous != "" && candidate.OperationID <= previous {
+			t.Fatalf("Scale candidates are not stably ordered: %q then %q", previous, candidate.OperationID)
+		}
+		previous = candidate.OperationID
+		coordinates := strings.Split(candidate.OperationID, "/")
+		if len(coordinates) != 4 || coordinates[0] != "scale" || coordinates[1] != "dependency-e2e" {
+			t.Fatalf("Scale operation %q is not an exact protocol coordinate", candidate.OperationID)
+		}
+		if modesByScale[coordinates[2]] == nil {
+			modesByScale[coordinates[2]] = map[GatewayPathKind]bool{}
+		}
+		modesByScale[coordinates[2]][candidate.PathKind] = true
+		if candidate.ProfileID != scaleDeploymentProfileAlias || candidate.Plan.Product != scaleResolverTestProduct {
+			t.Errorf("candidate %s resolved to profile/plan %q/%q",
+				candidate.OperationID, candidate.ProfileID, candidate.Plan.Product)
+		}
+		if err := candidate.Grant.Validate(); err != nil || !candidate.Grant.UsesOrdinalProgram() {
+			t.Errorf("candidate %s resolved to an unusable V4/V5 grant: %v", candidate.OperationID, err)
+		}
+		for _, member := range []string{contracts.runtime.ContractRelease(), contracts.runtime.IndexSHA256(),
+			binding.FileSHA256, binding.SectionSHA256, candidate.OperationID} {
+			if !strings.Contains(candidate.ContractIdentity, member) {
+				t.Errorf("candidate %s contract identity omits %q", candidate.OperationID, member)
+			}
+		}
+	}
+	if len(modesByScale) != 12 {
+		t.Fatalf("the 24 candidates cover %d scales, want 12", len(modesByScale))
+	}
+	for scale, modes := range modesByScale {
+		if !modes[PathPairedNovel] || !modes[PathSemanticReplay] || len(modes) != 2 {
+			t.Errorf("Scale %s resolved to paths %v", scale, modes)
+		}
+	}
+
+	one, err := contracts.resolveScaleCandidatesV3(FrozenContractSelectorV3{
+		ExperimentID: "scale", WorkloadID: "dependency-e2e",
+		Scale: "10k-overlap-0", Mode: "semantic_replay",
+	}, binding)
+	if err != nil {
+		t.Fatalf("resolve one exact Scale cell: %v", err)
+	}
+	if len(one) != 1 || one[0].OperationID != "scale/dependency-e2e/10k-overlap-0/semantic_replay" ||
+		one[0].PathKind != PathSemanticReplay {
+		t.Fatalf("the exact selector resolved to %+v", one)
+	}
+}
+
+// Product ownership is split deliberately: the public contract says which
+// Product a coordinate requests, while the private binding says which approved
+// task was actually frozen. A disagreement is an error, not a dropped cell.
+func TestTheScaleResolverRefusesContractBindingProductDrift(t *testing.T) {
+	contracts := scaleCapableContractsForTest(t)
+	binding := scaleBindingForResolverTest(t)
+	scale := *binding.Section.Scale
+	scale.DependencyE2E = make(map[string]finalv5binding.DependencyCellBinding, len(binding.Section.Scale.DependencyE2E))
+	for name, cell := range binding.Section.Scale.DependencyE2E {
+		scale.DependencyE2E[name] = cell
+	}
+	drifted := scale.DependencyE2E["10k-overlap-0"]
+	drifted.Task.DataProducts = []string{"final_v5_result_heavy"}
+	scale.DependencyE2E["10k-overlap-0"] = drifted
+	binding.Section.Scale = &scale
+	if _, err := contracts.scaleDependencyCellsV3(binding); err == nil ||
+		!strings.Contains(err.Error(), "Contract Index") {
+		t.Fatalf("contract/private Product drift was not refused: %v", err)
+	}
+}
+
+// The committed tree deliberately has neither a live exposure-scale Product nor
+// targeted-run clearance. Resolver wiring must therefore remain dormant even
+// though its synthetic positive test above proves all 24 candidates are real.
+func TestTheCommittedExposureScaleProfileRemainsFailClosed(t *testing.T) {
+	contracts := deploymentContractsForTest(t)
+	binding := scaleBindingForResolverTest(t)
+	if _, err := contracts.resolveScaleCandidatesV3(FrozenContractSelectorV3{
+		ExperimentID: "scale", WorkloadID: "dependency-e2e",
+		Scale: "10k-overlap-0", Mode: "novel",
+	}, binding); err == nil || !strings.Contains(err.Error(), "declares no Product") {
+		t.Fatalf("the committed Catalog unexpectedly materializes exposure-scale: %v", err)
+	}
+	profiles := deploymentProfilesV3{registryPath: sourceControlledRegistryPath(t)}
+	if _, err := profiles.Resolve(scaleDeploymentProfileAlias); err == nil ||
+		!strings.Contains(err.Error(), "not eligible for a targeted run") {
+		t.Fatalf("the committed exposure-scale profile unexpectedly resolved: %v", err)
+	}
+}
+
+func TestTheScaleBindingIdentityIsFrozenBeforeResolution(t *testing.T) {
+	binding := scaleBindingForResolverTest(t)
+	if err := requireDeploymentBindingIdentityV3(
+		binding, binding.FileSHA256, binding.SectionSHA256); err != nil {
+		t.Fatalf("the exact frozen binding identity was refused: %v", err)
+	}
+	if err := requireDeploymentBindingIdentityV3(
+		binding, strings.Repeat("9", 64), binding.SectionSHA256); err == nil {
+		t.Fatal("a changed private binding file was accepted")
+	}
+	if err := requireDeploymentBindingIdentityV3(
+		binding, binding.FileSHA256, strings.ToUpper(binding.SectionSHA256)); err == nil {
+		t.Fatal("a non-canonical private binding identity was accepted")
 	}
 }
 

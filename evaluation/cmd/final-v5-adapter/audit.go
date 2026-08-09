@@ -55,9 +55,15 @@ func (adapter *realAdapter) loadAuditEvidence(ctx context.Context, response quer
 	if err := adapter.carol.call(ctx, "get_audit_receipt", map[string]string{"receipt_id": response.QueryID}, &evidence); err != nil {
 		return verifiedAuditEvidence{}, err
 	}
-	left, _ := json.Marshal(response.Receipt)
-	right, _ := json.Marshal(evidence.Receipt)
-	if shaBytes(left) != shaBytes(right) {
+	left, err := queryreceipt.DocumentSHA256(response.Receipt)
+	if err != nil {
+		return verifiedAuditEvidence{}, errors.New("query response receipt has no typed document identity")
+	}
+	right, err := queryreceipt.DocumentSHA256(evidence.Receipt)
+	if err != nil {
+		return verifiedAuditEvidence{}, errors.New("audit response receipt has no typed document identity")
+	}
+	if left != right {
 		return verifiedAuditEvidence{}, errors.New("audit receipt differs from query receipt")
 	}
 	auditProof := evidence.AuditInclusion.proof()

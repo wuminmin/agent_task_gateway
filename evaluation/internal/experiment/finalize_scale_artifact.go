@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 )
 
 const (
@@ -53,7 +55,8 @@ func validateDependencyScaleVerification(sample Sample, evidence *ScaleVerificat
 		(sample.Mode != "novel" && sample.Mode != "semantic_replay") {
 		return errors.New("dependency E2E identity or boundary is invalid")
 	}
-	for _, digest := range []string{evidence.BindingSHA256, evidence.DatasetSHA256, evidence.CatalogSHA256,
+	for _, digest := range []string{evidence.BindingFileSHA256, evidence.BindingSHA256,
+		evidence.DatasetSHA256, evidence.CatalogSHA256,
 		evidence.DatasetProbeSHA256, evidence.QuerySHA256, evidence.ExpectedResultSHA256,
 		evidence.CandidateDependencySHA256} {
 		if !validSHA256(digest) {
@@ -115,7 +118,7 @@ func validateDependencyScaleVerification(sample Sample, evidence *ScaleVerificat
 	if sample.BaselineVerification.Receipt.CatalogDigest != evidence.CatalogSHA256 {
 		return errors.New("signed Catalog digest differs from the deployment binding")
 	}
-	if err := validateObserverTransition(sample, evidence.ObserverBefore, evidence.ObserverAfter); err != nil {
+	if err := validateScaleObservationV3(sample, evidence); err != nil {
 		return err
 	}
 	if sample.Mode == "novel" {
@@ -154,6 +157,8 @@ func validateOutcomeMerkleVerification(sample Sample, evidence *ScaleVerificatio
 	merkle := evidence.OutcomeMerkle
 	if err != nil || evidence.Boundary != "outcome_merkle_control" || merkle == nil || sample.Mode != "merkle_control" ||
 		sample.System != "taskgate" || sample.KernelOnly || merkle.ProductionPath != outcomeProductionPath ||
+		evidence.KernelStorage != nil || evidence.ObserverWindow != nil || evidence.ObserverBefore != nil ||
+		evidence.ObserverAfter != nil || sample.TaskGateAcceptanceV3 != nil || sample.ObserverAccounting != nil ||
 		merkle.ContentCachePolicy != "warm_immutable_content_after_fixture_prefill" ||
 		merkle.OverlapRounding != "nearest_integer_half_up" {
 		return errors.New("Outcome-Merkle identity or production boundary is invalid")
@@ -366,7 +371,9 @@ func validateKernelStorageVerification(sample Sample, evidence *ScaleVerificatio
 	facts, err := ParseExtremeScale(sample.Scale)
 	kernel := evidence.KernelStorage
 	if err != nil || evidence.Boundary != "kernel_storage_only" || kernel == nil || sample.Mode != "kernel_storage_only" ||
-		!sample.KernelOnly || sample.System != "taskgate" || kernel.ProductionPath != kernelProductionPath {
+		!sample.KernelOnly || sample.System != "taskgate" || kernel.ProductionPath != kernelProductionPath ||
+		evidence.OutcomeMerkle != nil || evidence.ObserverWindow != nil || evidence.ObserverBefore != nil ||
+		evidence.ObserverAfter != nil || sample.TaskGateAcceptanceV3 != nil || sample.ObserverAccounting != nil {
 		return errors.New("kernel/storage identity or boundary is invalid")
 	}
 	for _, digest := range []string{kernel.FixtureSHA256, kernel.RunIdentitySHA256, kernel.CandidateSHA256,
@@ -490,17 +497,163 @@ func ValidateArtifactEvidence(sample Sample) error {
 // and that record produce. A sample assembled from one run's receipt and another
 // run's window fails here.
 func validateArtifactObservationV3(sample Sample, evidence *ArtifactVerificationEvidence) error {
+	if sample.ObserverAccounting != nil {
+		return errors.New("the artifact sample mixes v3 acceptance with legacy v1.4 observer accounting")
+	}
+	return validateAcceptedObservationV3(sample, evidence.ObserverWindow, PathPairedNovel, "artifact")
+}
+
+// validateScaleObservationV3 closes the Scale dependency path over the same v3
+// retained-window contract as Artifact. The legacy snapshots and accounting
+// envelope are mutually exclusive with v3 acceptance: retaining both would let
+// a later reader choose whichever account happened to pass.
+func validateScaleObservationV3(sample Sample, evidence *ScaleVerificationEvidence) error {
+	if evidence.ObserverWindow == nil {
+		return errors.New("the dependency Scale sample retains no v3 observer window")
+	}
+	if evidence.ObserverBefore != nil || evidence.ObserverAfter != nil || sample.ObserverAccounting != nil {
+		return errors.New("the dependency Scale sample mixes v3 acceptance with legacy v1.4 observer evidence")
+	}
+	if evidence.OutcomeMerkle != nil || evidence.KernelStorage != nil {
+		return errors.New("the dependency Scale sample mixes a governed operation with control-only evidence")
+	}
+	if sample.TaskGateAcceptanceV3 != nil {
+		if err := requireScaleContractIdentityV3(sample, evidence,
+			sample.TaskGateAcceptanceV3.Operation.ContractIdentity); err != nil {
+			return err
+		}
+	}
+	expectedPath := PathPairedNovel
+	if sample.Mode == "semantic_replay" {
+		expectedPath = PathSemanticReplay
+	}
+	return validateAcceptedObservationV3(sample, *evidence.ObserverWindow, expectedPath, "dependency Scale")
+}
+
+type scaleContractIdentityV3 struct {
+	release, indexSHA256, bindingFileSHA256, bindingSectionSHA256, operationID string
+}
+
+// requireScaleContractIdentityV3 closes the public/private resolver identity
+// against the two independently retained binding identities. The resolver emits
+// one strict five-part form; accepting an arbitrary prefix plus the right cell
+// suffix would discard the file and section identities after live acceptance.
+func requireScaleContractIdentityV3(sample Sample, evidence *ScaleVerificationEvidence,
+	contractIdentity string) error {
+	parts := strings.Split(contractIdentity, ":")
+	if len(parts) != 5 || strings.TrimSpace(parts[0]) == "" || parts[0] != strings.TrimSpace(parts[0]) ||
+		!validSHA256(parts[1]) {
+		return errors.New("the dependency Scale acceptance has no exact contract release/index identity")
+	}
+	fileSHA256, fileOK := strings.CutPrefix(parts[2], "binding-file=")
+	sectionSHA256, sectionOK := strings.CutPrefix(parts[3], "binding-section=")
+	identity := scaleContractIdentityV3{
+		release: parts[0], indexSHA256: parts[1], bindingFileSHA256: fileSHA256,
+		bindingSectionSHA256: sectionSHA256, operationID: parts[4],
+	}
+	if !fileOK || !sectionOK || !validSHA256(identity.bindingFileSHA256) ||
+		!validSHA256(identity.bindingSectionSHA256) {
+		return errors.New("the dependency Scale acceptance has no exact private binding file/section identity")
+	}
+	expectedOperationID := sampleOperationIDV3(sample)
+	if identity.operationID != expectedOperationID ||
+		identity.bindingFileSHA256 != evidence.BindingFileSHA256 ||
+		identity.bindingSectionSHA256 != evidence.BindingSHA256 {
+		return fmt.Errorf("the dependency Scale acceptance contract identity does not bind sample %s and private file/section %s/%s",
+			expectedOperationID, shortDigest(evidence.BindingFileSHA256), shortDigest(evidence.BindingSHA256))
+	}
+	return nil
+}
+
+// validateAcceptedObservationV3 binds a retained observer window to the
+// finalizer output carried by the same sample. Acceptance itself is not
+// re-derived here: that requires trusted deployment material which the sample
+// deliberately does not contain. This gate instead rejects any post-acceptance
+// splice between a different path, classifier, window, delta, or resource
+// reading.
+func validateAcceptedObservationV3(sample Sample, window ObserverWindowV2,
+	expectedPath GatewayPathKind, subject string) error {
 	accepted := sample.TaskGateAcceptanceV3
 	if accepted == nil {
-		return errors.New("the artifact sample carries no v3 acceptance record; a result-heavy sample " +
-			"is accepted by the finalizer, not by the Adapter that produced it")
+		return fmt.Errorf("the %s sample carries no v3 acceptance record; it is accepted by the finalizer, "+
+			"not by the Adapter that produced it", subject)
 	}
-	window := evidence.ObserverWindow
-	if err := window.Before.Validate(); err != nil {
-		return fmt.Errorf("artifact observer window before snapshot: %w", err)
+	if sample.BaselineVerification == nil {
+		return fmt.Errorf("the %s sample retains no receipt for its v3 acceptance", subject)
 	}
-	if err := window.After.Validate(); err != nil {
-		return fmt.Errorf("artifact observer window after snapshot: %w", err)
+	receiptSHA256, err := queryreceipt.DocumentSHA256(sample.BaselineVerification.Receipt)
+	if err != nil {
+		return fmt.Errorf("identify the retained %s receipt: %w", subject, err)
+	}
+	if !validSHA256(accepted.ReceiptSHA256) || accepted.ReceiptSHA256 != receiptSHA256 ||
+		sample.ReceiptSHA256 != receiptSHA256 {
+		return fmt.Errorf("the %s acceptance receipt %s, retained receipt %s, and sample receipt %s are not one identity",
+			subject, shortDigest(accepted.ReceiptSHA256), shortDigest(receiptSHA256),
+			shortDigest(sample.ReceiptSHA256))
+	}
+	if err := accepted.Operation.Validate(); err != nil {
+		return fmt.Errorf("the %s acceptance operation is invalid: %w", subject, err)
+	}
+	if err := accepted.Plan.Validate(); err != nil {
+		return fmt.Errorf("the %s acceptance plan is invalid: %w", subject, err)
+	}
+	planSHA256, err := accepted.Plan.SHA256()
+	if err != nil {
+		return fmt.Errorf("digest the %s acceptance plan: %w", subject, err)
+	}
+	if accepted.PlanSHA256 != planSHA256 {
+		return fmt.Errorf("the %s acceptance plan digest is %s, the retained plan hashes to %s", subject,
+			shortDigest(accepted.PlanSHA256), shortDigest(planSHA256))
+	}
+	if accepted.Operation.PathKind != expectedPath || accepted.Plan.PathKind != expectedPath {
+		return fmt.Errorf("the %s operation requires path_kind %s, the acceptance operation/plan carry %s/%s",
+			subject, expectedPath, accepted.Operation.PathKind, accepted.Plan.PathKind)
+	}
+	expectedOperationID := sampleOperationIDV3(sample)
+	if accepted.Operation.OperationID != expectedOperationID ||
+		!strings.HasSuffix(accepted.Operation.ContractIdentity, ":"+expectedOperationID) {
+		return fmt.Errorf("the %s acceptance operation %q does not bind sample coordinate %q",
+			subject, accepted.Operation.OperationID, expectedOperationID)
+	}
+	if accepted.Operation.ExpectedSchemaDigest != accepted.Plan.ExpectedSchemaDigest ||
+		accepted.Operation.AttestationFootprintSHA256 != accepted.Plan.AttestationFootprintSHA256 {
+		return fmt.Errorf("the %s acceptance operation and plan disagree on their schema qualification", subject)
+	}
+	if accepted.ExpectedSchemaDigest != accepted.Plan.ExpectedSchemaDigest ||
+		accepted.ExpectedSchemaEntries != accepted.Plan.ExpectedSchemaEntries {
+		return fmt.Errorf("the %s acceptance record and plan disagree on ExpectedSchema", subject)
+	}
+	classifierBinding, err := classifierBindingSHA256(accepted.Operation, planSHA256,
+		accepted.ClassifierManifestSHA256)
+	if err != nil {
+		return fmt.Errorf("bind the %s acceptance classifier: %w", subject, err)
+	}
+	if accepted.ClassifierBindingSHA256 != classifierBinding {
+		return fmt.Errorf("the %s acceptance classifier binding is %s, its operation/plan/manifest bind to %s",
+			subject, shortDigest(accepted.ClassifierBindingSHA256), shortDigest(classifierBinding))
+	}
+	if err := validateInternalExpectation(accepted.InternalExpectation); err != nil {
+		return fmt.Errorf("the %s acceptance record has an invalid internal expectation: %w", subject, err)
+	}
+	if err := requireSameInternalExpectation(accepted.InternalExpectation,
+		accepted.Plan.InternalExpectation); err != nil {
+		return fmt.Errorf("the %s acceptance record and plan disagree on internal expectations: %w", subject, err)
+	}
+	if err := accepted.Delta.Accept(accepted.Plan); err != nil {
+		return fmt.Errorf("the %s acceptance delta does not settle its plan: %w", subject, err)
+	}
+	if err := window.ValidateInterval(); err != nil {
+		return fmt.Errorf("the retained %s observer window is not one continuous interval: %w", subject, err)
+	}
+	windowSHA256, err := window.SHA256()
+	if err != nil {
+		return fmt.Errorf("digest the retained %s observer window: %w", subject, err)
+	}
+	if accepted.ObserverWindowID != window.Before.ObserverWindowID ||
+		accepted.ObserverWindowSHA256 != windowSHA256 {
+		return fmt.Errorf("the retained %s observer window %s/%s is not the window the finalizer accepted %s/%s",
+			subject, shortDigest(window.Before.ObserverWindowID), shortDigest(windowSHA256),
+			shortDigest(accepted.ObserverWindowID), shortDigest(accepted.ObserverWindowSHA256))
 	}
 	// The classification the window was opened under has to be the one the
 	// finalizer accepted it by. ObserverWindowV2.Delta enforces this during
@@ -511,22 +664,18 @@ func validateArtifactObservationV3(sample Sample, evidence *ArtifactVerification
 			"the finalizer accepted %s", shortDigest(window.Before.ClassifierManifestSHA256),
 			shortDigest(accepted.ClassifierManifestSHA256))
 	}
-	if accepted.Plan.PathKind != PathPairedNovel {
-		return fmt.Errorf("a result-heavy artifact operation is a paired novel execution, "+
-			"the acceptance record carries path_kind %s", accepted.Plan.PathKind)
-	}
 	// The plan's targets and the sample's targeted counter are two independent
 	// readings of the same two statements: one derived from the path, one counted
 	// against the bound relations. Requiring them equal is what ties the closed
 	// world back to the counter the rest of the finalizer reasons about.
 	if targeted := accepted.Plan.ExpectedVisibleCalls + accepted.Plan.ExpectedCompanionCall; targeted !=
 		sample.BusinessSQLDelta {
-		return fmt.Errorf("the accepted plan settles %d targeted statements, the sample records %d",
-			targeted, sample.BusinessSQLDelta)
+		return fmt.Errorf("the accepted %s plan settles %d targeted statements, the sample records %d",
+			subject, targeted, sample.BusinessSQLDelta)
 	}
 	if total := window.After.Total - window.Before.Total; total != accepted.Delta.Total {
-		return fmt.Errorf("the retained window moved the role total by %d, the acceptance record "+
-			"settled %d", total, accepted.Delta.Total)
+		return fmt.Errorf("the retained %s window moved the role total by %d, the acceptance record "+
+			"settled %d", subject, total, accepted.Delta.Total)
 	}
 	resource, err := window.ResourceDelta()
 	if err != nil {
@@ -544,11 +693,15 @@ func validateArtifactObservationV3(sample Sample, evidence *ArtifactVerification
 		{"business WAL", resource.BusinessWALBytesDelta, sample.BusinessWALBytesDelta},
 	} {
 		if counter.observed != counter.stated {
-			return fmt.Errorf("the retained window reports %s %d, the sample states %d",
-				counter.name, counter.observed, counter.stated)
+			return fmt.Errorf("the retained %s window reports %s %d, the sample states %d",
+				subject, counter.name, counter.observed, counter.stated)
 		}
 	}
 	return nil
+}
+
+func sampleOperationIDV3(sample Sample) string {
+	return strings.Join([]string{sample.ExperimentID, sample.WorkloadID, sample.Scale, sample.Mode}, "/")
 }
 
 func validateObserverTransition(sample Sample, before, after *ObserverSnapshot) error {

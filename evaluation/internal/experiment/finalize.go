@@ -724,6 +724,14 @@ func validateExperimentEvidence(sample Sample) ([]string, bool) {
 	if !sample.Rejected && sample.ExperimentID != "compiler" && !validSHA256(sample.ResultSHA256) {
 		fail("non-rejected pass sample lacks canonical result digest")
 	}
+	if sample.TaskGateAcceptanceV3 != nil {
+		cutOver := sample.System == "taskgate" &&
+			(sample.ExperimentID == "artifact" ||
+				(sample.ExperimentID == "scale" && sample.WorkloadID == "dependency-e2e"))
+		if !cutOver {
+			fail("v3 finalizer acceptance is present outside an explicitly cut-over TaskGate path")
+		}
+	}
 	switch sample.ExperimentID {
 	case "baseline":
 		requireDigests(map[string]string{"physical SQL": sample.PhysicalSQLSHA256, "logical SQL": sample.LogicalSQLSHA256, "query plan": sample.QueryPlanSHA256})
@@ -856,6 +864,9 @@ func validateProvSQLVerification(sample Sample) error {
 }
 
 func validateProvSQLVerificationForWarmup(sample Sample, warmup bool) error {
+	if sample.TaskGateAcceptanceV3 != nil {
+		return errors.New("ProvSQL remains on v1.4 accounting until P2.3 and cannot carry a v3 acceptance record")
+	}
 	evidence := sample.ProvSQLVerification
 	if evidence == nil {
 		return errors.New("ProvSQL verification evidence is absent")
@@ -1367,10 +1378,13 @@ func validateBaselineVerification(sample Sample) error {
 		evidence.Receipt.ArtifactIntent == nil || evidence.Receipt.Exposure == nil {
 		return errors.New("verified evidence is not an AVAILABLE artifact delivery with exposure evidence")
 	}
-	receiptBytes, _ := json.Marshal(evidence.Receipt)
+	receiptSHA256, err := queryreceipt.DocumentSHA256(evidence.Receipt)
+	if err != nil {
+		return err
+	}
 	availabilityBytes, _ := json.Marshal(evidence.AvailabilityProof)
-	if sha256Hex(receiptBytes) != sample.ReceiptSHA256 || sha256Hex(availabilityBytes) != sample.AvailabilityAuditSHA256 {
-		return errors.New("raw receipt/audit digest differs from sample")
+	if receiptSHA256 != sample.ReceiptSHA256 || sha256Hex(availabilityBytes) != sample.AvailabilityAuditSHA256 {
+		return errors.New("typed receipt/audit identity differs from sample")
 	}
 	intent, exposure := evidence.Receipt.ArtifactIntent, evidence.Receipt.Exposure
 	if err := validateBaselineSignedSample(intent, exposure, sample); err != nil {
@@ -1577,7 +1591,7 @@ func validateRedactedVerifierManifest(sample Sample) error {
 		return err
 	}
 	receipt, intent, exposure := evidence.Receipt, evidence.Receipt.ArtifactIntent, evidence.Receipt.Exposure
-	receiptBytes, err := json.Marshal(receipt)
+	receiptSHA256, err := queryreceipt.DocumentSHA256(receipt)
 	if err != nil {
 		return err
 	}
@@ -1585,7 +1599,7 @@ func validateRedactedVerifierManifest(sample Sample) error {
 	resultIDHash := redactedIdentitySHA256(sample, "result", intent.ResultID)
 	rootTaskIDHash := redactedTaskSHA256(sample, exposure.RootTaskID)
 	if manifest.QueryIDHash != queryIDHash || manifest.ResultIDHash != resultIDHash || manifest.RootTaskIDHash != rootTaskIDHash ||
-		manifest.RootTaskIDHash != sample.RootTaskIDHash || manifest.ReceiptSHA256 != sha256Hex(receiptBytes) || manifest.ReceiptSHA256 != sample.ReceiptSHA256 ||
+		manifest.RootTaskIDHash != sample.RootTaskIDHash || manifest.ReceiptSHA256 != receiptSHA256 || manifest.ReceiptSHA256 != sample.ReceiptSHA256 ||
 		manifest.ObservationSHA256 != exposure.ObservationSHA256 || manifest.ReleaseSetSHA256 != exposure.ReleaseSetSHA256 ||
 		manifest.DependencySetSHA256 != exposure.InfluenceSetSHA256 || manifest.OutcomeSetSHA256 != exposure.OutcomeSetSHA256 ||
 		manifest.ArtifactIntentSHA256 != intent.IntentSHA256 || manifest.ArtifactIntentSHA256 != sample.ArtifactIntentSHA256 ||
@@ -1751,13 +1765,13 @@ func validateIdempotentVerification(sample Sample) error {
 		return errors.New("idempotent replay lacks signed result evidence")
 	}
 	intent, exposure := baseline.Receipt.ArtifactIntent, baseline.Receipt.Exposure
-	receiptBytes, err := json.Marshal(baseline.Receipt)
+	receiptSHA256, err := queryreceipt.DocumentSHA256(baseline.Receipt)
 	if err != nil {
 		return err
 	}
 	want := TerminalIdentitySnapshot{
 		Found: true, QueryIDHash: redactedIdentitySHA256(sample, "query", baseline.Receipt.QueryID),
-		ResultIDHash: redactedIdentitySHA256(sample, "result", intent.ResultID), ReceiptSHA256: sha256Hex(receiptBytes),
+		ResultIDHash: redactedIdentitySHA256(sample, "result", intent.ResultID), ReceiptSHA256: receiptSHA256,
 		IntentSHA256: intent.IntentSHA256, ObjectKeySHA256: intent.ObjectKeySHA256,
 		CommittedObjectSHA256: intent.ObjectSHA256, CanonicalCiphertextSHA256: intent.ObjectSHA256,
 		CanonicalCiphertextSize: intent.ObjectSize, ArtifactStatus: "AVAILABLE", ObservationSHA256: exposure.ObservationSHA256,

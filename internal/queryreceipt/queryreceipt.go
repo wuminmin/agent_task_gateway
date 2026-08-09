@@ -170,6 +170,26 @@ type QueryReceiptV1 struct {
 	ExecutionBindingV2   *querybinding.QueryExecutionBindingV2 `json:"execution_binding_v2,omitempty"`
 }
 
+// DocumentSHA256 is the stable identity of the complete signed receipt value as
+// it is retained in experiment samples. It deliberately uses QueryReceiptV1's
+// deterministic typed JSON re-encoding rather than the unsigned signing payload:
+// the signature and every other retained member distinguish two receipts, and
+// Sample.ReceiptSHA256 has always named this typed identity.
+//
+// Keeping this construction here gives the Gateway adapter, runtime finalizer,
+// and retained-evidence validator one receipt-identity rule. A caller must not
+// rebuild it from a partial receipt or substitute the unsigned signing payload.
+// It is also distinct from the SHA-256 of raw persisted receipt_json bytes, whose
+// byte-for-byte replay semantics intentionally preserve wire formatting.
+func DocumentSHA256(receipt QueryReceiptV1) (string, error) {
+	document, err := json.Marshal(receipt)
+	if err != nil {
+		return "", fmt.Errorf("encode query receipt document: %w", err)
+	}
+	digest := sha256.Sum256(document)
+	return hex.EncodeToString(digest[:]), nil
+}
+
 // BuildArtifactIntent validates the supplied immutable evidence and seals it
 // with a digest over every field except intent_sha256 itself.
 func BuildArtifactIntent(intent ArtifactIntentEvidenceV1) (ArtifactIntentEvidenceV1, error) {

@@ -449,32 +449,43 @@ type BaselineVerificationEvidence struct {
 // fields returned by Gateway. Boundary selects exactly one of DependencyE2E,
 // OutcomeMerkle, or KernelStorage.
 type ScaleVerificationEvidence struct {
-	Version                   string                 `json:"version"`
-	Boundary                  string                 `json:"boundary"`
-	BindingSHA256             string                 `json:"binding_sha256,omitempty"`
-	DatasetSHA256             string                 `json:"dataset_sha256,omitempty"`
-	CatalogSHA256             string                 `json:"catalog_sha256,omitempty"`
-	DatasetProbeSHA256        string                 `json:"dataset_probe_sha256,omitempty"`
-	QuerySHA256               string                 `json:"query_sha256,omitempty"`
-	ExpectedRows              int64                  `json:"expected_rows,omitempty"`
-	ExpectedColumns           int                    `json:"expected_columns,omitempty"`
-	ExpectedResultSHA256      string                 `json:"expected_result_sha256,omitempty"`
-	ExpectedCandidateFacts    int64                  `json:"expected_candidate_facts,omitempty"`
-	ObservedCandidateFacts    int64                  `json:"observed_candidate_facts,omitempty"`
-	ExpectedOverlapFacts      int64                  `json:"expected_overlap_facts,omitempty"`
-	ObservedOverlapFacts      int64                  `json:"observed_overlap_facts,omitempty"`
-	HistoryDependencySHA256   string                 `json:"history_dependency_sha256,omitempty"`
-	CandidateDependencySHA256 string                 `json:"candidate_dependency_sha256,omitempty"`
-	BusinessBefore            BusinessSQLSnapshot    `json:"business_before,omitempty"`
-	BusinessAfter             BusinessSQLSnapshot    `json:"business_after,omitempty"`
-	RootBefore                RootLedgerSnapshot     `json:"root_before,omitempty"`
-	RootAfter                 RootLedgerSnapshot     `json:"root_after,omitempty"`
-	SourceObservationSHA256   string                 `json:"source_observation_sha256,omitempty"`
-	ReplayObservationSHA256   string                 `json:"replay_observation_sha256,omitempty"`
-	ObserverBefore            *ObserverSnapshot      `json:"observer_before,omitempty"`
-	ObserverAfter             *ObserverSnapshot      `json:"observer_after,omitempty"`
-	OutcomeMerkle             *OutcomeMerkleEvidence `json:"outcome_merkle,omitempty"`
-	KernelStorage             *KernelStorageEvidence `json:"kernel_storage,omitempty"`
+	Version  string `json:"version"`
+	Boundary string `json:"boundary"`
+	// BindingFileSHA256 is the Adapter-retained exact private input file identity.
+	// The deployment finalizer independently embeds that identity in its accepted
+	// operation, and retained validation requires the two copies to agree exactly.
+	// BindingSHA256 remains the canonical final_v5_adapter_v1 section identity so
+	// harmless top-level formatting and executable section material cannot be
+	// conflated.
+	BindingFileSHA256         string              `json:"binding_file_sha256,omitempty"`
+	BindingSHA256             string              `json:"binding_sha256,omitempty"`
+	DatasetSHA256             string              `json:"dataset_sha256,omitempty"`
+	CatalogSHA256             string              `json:"catalog_sha256,omitempty"`
+	DatasetProbeSHA256        string              `json:"dataset_probe_sha256,omitempty"`
+	QuerySHA256               string              `json:"query_sha256,omitempty"`
+	ExpectedRows              int64               `json:"expected_rows,omitempty"`
+	ExpectedColumns           int                 `json:"expected_columns,omitempty"`
+	ExpectedResultSHA256      string              `json:"expected_result_sha256,omitempty"`
+	ExpectedCandidateFacts    int64               `json:"expected_candidate_facts,omitempty"`
+	ObservedCandidateFacts    int64               `json:"observed_candidate_facts,omitempty"`
+	ExpectedOverlapFacts      int64               `json:"expected_overlap_facts,omitempty"`
+	ObservedOverlapFacts      int64               `json:"observed_overlap_facts,omitempty"`
+	HistoryDependencySHA256   string              `json:"history_dependency_sha256,omitempty"`
+	CandidateDependencySHA256 string              `json:"candidate_dependency_sha256,omitempty"`
+	BusinessBefore            BusinessSQLSnapshot `json:"business_before,omitempty"`
+	BusinessAfter             BusinessSQLSnapshot `json:"business_after,omitempty"`
+	RootBefore                RootLedgerSnapshot  `json:"root_before,omitempty"`
+	RootAfter                 RootLedgerSnapshot  `json:"root_after,omitempty"`
+	SourceObservationSHA256   string              `json:"source_observation_sha256,omitempty"`
+	ReplayObservationSHA256   string              `json:"replay_observation_sha256,omitempty"`
+	ObserverBefore            *ObserverSnapshot   `json:"observer_before,omitempty"`
+	ObserverAfter             *ObserverSnapshot   `json:"observer_after,omitempty"`
+	// ObserverWindow retains the v3 finalizer interval for dependency-e2e
+	// TaskGate cells. It is absent on the Outcome-Merkle and kernel-storage
+	// controls, which do not execute a fresh governed Task operation.
+	ObserverWindow *ObserverWindowV2      `json:"observer_window,omitempty"`
+	OutcomeMerkle  *OutcomeMerkleEvidence `json:"outcome_merkle,omitempty"`
+	KernelStorage  *KernelStorageEvidence `json:"kernel_storage,omitempty"`
 }
 
 // OutcomeMerkleEvidence is emitted only by the production PostgreSQL-backed

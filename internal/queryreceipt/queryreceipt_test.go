@@ -14,6 +14,51 @@ import (
 	"taskbound.local/agent-data-gateway/internal/querybinding"
 )
 
+func TestDocumentSHA256IsTheCompleteTypedReceiptIdentity(t *testing.T) {
+	receipt, err := DemoSigner([]byte("document-identity-test")).Sign(validReceipt(t))
+	if err != nil {
+		t.Fatalf("sign receipt: %v", err)
+	}
+	document, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := fmt.Sprintf("%x", sha256.Sum256(document))
+	got, err := DocumentSHA256(receipt)
+	if err != nil {
+		t.Fatalf("digest receipt document: %v", err)
+	}
+	if got != want {
+		t.Fatalf("receipt document identity = %s, want %s", got, want)
+	}
+
+	var decoded QueryReceiptV1
+	if err := json.Unmarshal(document, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	roundTrip, err := DocumentSHA256(decoded)
+	if err != nil || roundTrip != got {
+		t.Fatalf("typed JSON round trip changed receipt identity: %s/%v", roundTrip, err)
+	}
+	decoded.RequestID += "-another-attempt"
+	changed, err := DocumentSHA256(decoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed == got {
+		t.Fatal("another request attempt retained the same receipt document identity")
+	}
+	decoded = receipt
+	decoded.Signature = "another-signature"
+	changed, err = DocumentSHA256(decoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed == got {
+		t.Fatal("changing only the receipt signature retained the same document identity")
+	}
+}
+
 func TestQueryReceiptSignatureBindsEveryEvidenceField(t *testing.T) {
 	signer := DemoSigner([]byte("unit-test-secret"))
 	verifier, err := NewVerifier(map[string]ed25519.PublicKey{signer.KeyID(): signer.PublicKey()})

@@ -450,6 +450,12 @@ func (plan GatewayControlPlanV3) RequireFootprint(footprint AttestationFootprint
 // call count leaves every aggregate identical, and that substitution is exactly
 // what this must reject.
 func requireSameInternalExpectation(carried, derived []InternalExpectation) error {
+	if err := validateInternalExpectation(carried); err != nil {
+		return fmt.Errorf("carried internal expectation: %w", err)
+	}
+	if err := validateInternalExpectation(derived); err != nil {
+		return fmt.Errorf("derived internal expectation: %w", err)
+	}
 	carriedByKey := map[InternalExpectation]bool{}
 	for _, entry := range carried {
 		carriedByKey[entry] = true

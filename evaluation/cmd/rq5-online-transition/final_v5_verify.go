@@ -67,8 +67,18 @@ func (environment *finalV5CycleEnvironment) verifyQuery(ctx context.Context,
 		return evidence, errors.New("RQ5 persisted receipt bytes differ from their Control digest")
 	}
 	var persisted queryreceipt.QueryReceiptV1
-	if err := json.Unmarshal(storedReceipt.Receipt.ReceiptJSON, &persisted); err != nil ||
-		finalV5ReceiptSHA256(persisted) != finalV5ReceiptSHA256(receipt) {
+	if err := json.Unmarshal(storedReceipt.Receipt.ReceiptJSON, &persisted); err != nil {
+		return evidence, errors.New("RQ5 persisted Control receipt is not valid typed JSON")
+	}
+	persistedReceiptSHA, err := queryreceipt.DocumentSHA256(persisted)
+	if err != nil {
+		return evidence, fmt.Errorf("identify RQ5 persisted Control receipt: %w", err)
+	}
+	receiptSHA, err := queryreceipt.DocumentSHA256(receipt)
+	if err != nil {
+		return evidence, fmt.Errorf("identify RQ5 response receipt: %w", err)
+	}
+	if persistedReceiptSHA != receiptSHA {
 		return evidence, errors.New("RQ5 response receipt differs from the co-committed Control receipt")
 	}
 	events, err := environment.store.ListAuditEventsForQuery(ctx, response.QueryID)
@@ -151,7 +161,6 @@ func (environment *finalV5CycleEnvironment) verifyQuery(ctx context.Context,
 		return evidence, errors.New("RQ5 production response omitted pipeline, diagnostic, SQL, or plan evidence")
 	}
 	availabilityBytes, _ := json.Marshal(*availability)
-	receiptSHA := finalV5ReceiptSHA256(receipt)
 	exposure := receipt.Exposure
 	manifest := &experiment.RedactedVerifierManifest{VerifierVersion: "taskgate-final-v5-composite-verifier-v1",
 		QueryIDHash:    finalV5IdentityHash(environment.request, "query", response.QueryID),
@@ -194,11 +203,6 @@ func (environment *finalV5CycleEnvironment) verifyQuery(ctx context.Context,
 		AvailabilityAuditSHA256: finalV5Hash(availabilityBytes), ReceiptVerified: true,
 		ArtifactAvailable: true, VerifierManifest: manifest}
 	return evidence, nil
-}
-
-func finalV5ReceiptSHA256(receipt queryreceipt.QueryReceiptV1) string {
-	encoded, _ := json.Marshal(receipt)
-	return finalV5Hash(encoded)
 }
 
 func finalV5AuditProof(ctx context.Context, store *control.Store,
