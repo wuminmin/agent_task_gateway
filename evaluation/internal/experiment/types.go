@@ -1087,6 +1087,7 @@ type AttackRejectedQueryEvidence struct {
 type ProvSQLVerificationEvidence struct {
 	Version                       string   `json:"version"`
 	Boundary                      string   `json:"boundary"`
+	BindingFileSHA256             string   `json:"binding_file_sha256"`
 	BindingSHA256                 string   `json:"binding_sha256"`
 	FixtureVersion                string   `json:"fixture_version"`
 	FixtureSQLSHA256              string   `json:"fixture_sql_sha256"`
@@ -1135,14 +1136,26 @@ type ProvSQLVerificationEvidence struct {
 	ArtifactBytesAfter            int64    `json:"artifact_bytes_after,omitempty"`
 	RepresentationSHA256          string   `json:"representation_sha256,omitempty"`
 	// Only the TaskGate arm carries these independent runtime boundaries. The
-	// direct PostgreSQL and ProvSQL arms must leave all six pointers nil.
+	// direct PostgreSQL and ProvSQL arms must leave every pointer nil.
 	BusinessBefore *BusinessSQLSnapshot `json:"business_before,omitempty"`
 	BusinessAfter  *BusinessSQLSnapshot `json:"business_after,omitempty"`
 	RootBefore     *RootLedgerSnapshot  `json:"root_before,omitempty"`
 	RootAfter      *RootLedgerSnapshot  `json:"root_after,omitempty"`
-	ObserverBefore *ObserverSnapshot    `json:"observer_before,omitempty"`
-	ObserverAfter  *ObserverSnapshot    `json:"observer_after,omitempty"`
-	FailureStage   string               `json:"failure_stage,omitempty"`
+	ObserverWindow *ObserverWindowV2    `json:"observer_window,omitempty"`
+	// ObserverBefore/After remain decodable only until P2.4 moves the complete
+	// v1.4 schema into legacyv14. No active ProvSQL arm may produce them after
+	// the P2.3 cutover.
+	ObserverBefore *ObserverSnapshot `json:"observer_before,omitempty"`
+	ObserverAfter  *ObserverSnapshot `json:"observer_after,omitempty"`
+	FailureStage   string            `json:"failure_stage,omitempty"`
+}
+
+// carriesLegacyV14ObserverAccounting centralizes the one transitional presence
+// check shared by v3 and control-only validators. The v1.4 type itself remains
+// in Sample only until P2.4 moves the decoder into legacyv14; active validators
+// must not inspect or accept its contents.
+func (sample Sample) carriesLegacyV14ObserverAccounting() bool {
+	return sample.ObserverAccounting != nil
 }
 
 type CompilerVerificationEvidence struct {

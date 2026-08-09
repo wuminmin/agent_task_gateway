@@ -235,13 +235,13 @@ func VerifyRepository(root string) error {
 	if err != nil {
 		return fmt.Errorf("workload protocol: %w", err)
 	}
-	if err := compareProfile("baseline", baseline.Cells, protocol.Profiles["baseline"]); err != nil {
+	if err := compareProfile("baseline", baseline.Cells, protocol); err != nil {
 		return err
 	}
-	if err := compareProfile("scale", scale.Cells, protocol.Profiles["scale"]); err != nil {
+	if err := compareProfile("scale", scale.Cells, protocol); err != nil {
 		return err
 	}
-	if err := compareProfile("artifact", artifact.Cells, protocol.Profiles["artifact"]); err != nil {
+	if err := compareProfile("artifact", artifact.Cells, protocol); err != nil {
 		return err
 	}
 
@@ -432,7 +432,18 @@ func loadWorkloadProtocol(path string) (workloadProtocol, error) {
 		return workloadProtocol{}, err
 	}
 	defer file.Close()
-	decoder := yaml.NewDecoder(io.LimitReader(file, maxContractBytes+1))
+	return decodeWorkloadProtocol(file)
+}
+
+func decodeWorkloadProtocol(reader io.Reader) (workloadProtocol, error) {
+	value, err := io.ReadAll(io.LimitReader(reader, maxContractBytes+1))
+	if err != nil {
+		return workloadProtocol{}, err
+	}
+	if len(value) > maxContractBytes {
+		return workloadProtocol{}, fmt.Errorf("workload protocol exceeds %d bytes", maxContractBytes)
+	}
+	decoder := yaml.NewDecoder(bytes.NewReader(value))
 	decoder.KnownFields(true)
 	var result workloadProtocol
 	if err := decoder.Decode(&result); err != nil {
@@ -448,23 +459,41 @@ func loadWorkloadProtocol(path string) (workloadProtocol, error) {
 	return result, nil
 }
 
-func compareProfile(name string, cells []cell, profile protocolProfile) error {
-	var expected []orderedCell
+func expandProtocolProfile(name string, protocol workloadProtocol) ([]orderedCell, error) {
+	profile, present := protocol.Profiles[name]
+	if !present {
+		return nil, fmt.Errorf("%s protocol profile is missing", name)
+	}
+	if name == "" || len(profile.Workloads) == 0 {
+		return nil, fmt.Errorf("%s protocol profile is incomplete", name)
+	}
+	expected := make([]orderedCell, 0)
 	seen := map[orderedCell]bool{}
 	for _, workload := range profile.Workloads {
 		if workload.ID == "" || len(workload.Scales) == 0 || len(workload.Modes) == 0 {
-			return fmt.Errorf("%s protocol profile is incomplete", name)
+			return nil, fmt.Errorf("%s protocol profile is incomplete", name)
 		}
 		for _, scale := range workload.Scales {
 			for _, mode := range workload.Modes {
 				entry := orderedCell{workload.ID, scale, mode}
+				if entry.Scale == "" || entry.Mode == "" {
+					return nil, fmt.Errorf("%s protocol profile is incomplete", name)
+				}
 				if seen[entry] {
-					return fmt.Errorf("%s protocol profile duplicates a cell", name)
+					return nil, fmt.Errorf("%s protocol profile duplicates a cell", name)
 				}
 				seen[entry] = true
 				expected = append(expected, entry)
 			}
 		}
+	}
+	return expected, nil
+}
+
+func compareProfile(name string, cells []cell, protocol workloadProtocol) error {
+	expected, err := expandProtocolProfile(name, protocol)
+	if err != nil {
+		return err
 	}
 	actual := make([]orderedCell, len(cells))
 	for index, current := range cells {

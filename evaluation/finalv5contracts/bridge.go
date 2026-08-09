@@ -1,6 +1,7 @@
 package finalv5contracts
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -250,6 +251,34 @@ type CellIdentity struct {
 
 func (identity CellIdentity) String() string {
 	return identity.ExperimentID + "/" + identity.WorkloadID + "/" + identity.Scale + "/" + identity.Mode
+}
+
+// ProtocolProfileCells expands one hash-locked public workload profile in
+// manifest order. Each returned identity is complete and unique; malformed,
+// missing, or drifted manifest contents fail closed.
+func (runtime *Runtime) ProtocolProfileCells(profileID string) ([]CellIdentity, error) {
+	value, err := runtime.readContract(workloadManifestPath)
+	if err != nil {
+		return nil, fmt.Errorf("workload protocol: %w", err)
+	}
+	if actual := digestBytes(value); actual != workloadManifestSHA {
+		return nil, fmt.Errorf("hash-locked workload reference drifted: expected=%s actual=%s",
+			workloadManifestSHA, actual)
+	}
+	protocol, err := decodeWorkloadProtocol(bytes.NewReader(value))
+	if err != nil {
+		return nil, fmt.Errorf("workload protocol: %w", err)
+	}
+	ordered, err := expandProtocolProfile(profileID, protocol)
+	if err != nil {
+		return nil, err
+	}
+	identities := make([]CellIdentity, 0, len(ordered))
+	for _, cell := range ordered {
+		identities = append(identities, CellIdentity{ExperimentID: profileID,
+			WorkloadID: cell.Workload, Scale: cell.Scale, Mode: cell.Mode})
+	}
+	return identities, nil
 }
 
 type contractParameters struct {

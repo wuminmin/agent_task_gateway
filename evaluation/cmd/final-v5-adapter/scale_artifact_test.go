@@ -201,15 +201,15 @@ func TestPostAssertionFailuresRetainIndependentRuntimeSnapshots(t *testing.T) {
 		t.Fatalf("artifact post-assertion failure discarded safe snapshots: %+v", failedArtifact)
 	}
 
-	// ProvSQL remains on v1.4 until P2.3, so its retained failure still carries
-	// the legacy observer pair even though Scale now carries a V2 window.
-	observerBefore := experiment.ObserverSnapshot{Phase: "before"}
-	observerAfter := experiment.ObserverSnapshot{Phase: "after"}
+	// ProvSQL carries the same pre-registered V2 interval after its v3 cutover.
+	// Failure conversion must retain the exact window pointer alongside the
+	// independently sampled Business and root boundaries.
 	retained := &experiment.ProvSQLVerificationEvidence{BusinessBefore: &businessBefore, BusinessAfter: &businessAfter,
-		RootBefore: &rootBefore, RootAfter: &rootAfter, ObserverBefore: &observerBefore, ObserverAfter: &observerAfter}
+		RootBefore: &rootBefore, RootAfter: &rootAfter, ObserverWindow: &window}
 	finalEvidence := &experiment.ProvSQLVerificationEvidence{}
 	copyProvSQLTaskGateSnapshots(finalEvidence, retained)
-	if finalEvidence.BusinessAfter == nil || finalEvidence.RootAfter == nil || finalEvidence.ObserverAfter == nil {
+	if finalEvidence.BusinessAfter == nil || finalEvidence.RootAfter == nil || finalEvidence.ObserverWindow == nil ||
+		finalEvidence.ObserverWindow.After.Total != window.After.Total {
 		t.Fatal("ProvSQL failure conversion discarded independently sampled runtime boundaries")
 	}
 }

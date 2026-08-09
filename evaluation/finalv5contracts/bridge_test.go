@@ -97,6 +97,49 @@ func TestBridgeCompletenessIsFailClosed(t *testing.T) {
 	}
 }
 
+func TestBridgeExpandsExactProvSQLProtocolProfile(t *testing.T) {
+	runtime := loadBridge(t)
+	cells, err := runtime.ProtocolProfileCells("provsql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := []CellIdentity{
+		{ExperimentID: "provsql", WorkloadID: "nonce-join-group", Scale: "1k", Mode: "direct"},
+		{ExperimentID: "provsql", WorkloadID: "nonce-join-group", Scale: "1k", Mode: "provsql"},
+		{ExperimentID: "provsql", WorkloadID: "nonce-join-group", Scale: "1k", Mode: "taskgate"},
+		{ExperimentID: "provsql", WorkloadID: "nonce-join-group", Scale: "10k", Mode: "direct"},
+		{ExperimentID: "provsql", WorkloadID: "nonce-join-group", Scale: "10k", Mode: "provsql"},
+		{ExperimentID: "provsql", WorkloadID: "nonce-join-group", Scale: "10k", Mode: "taskgate"},
+		{ExperimentID: "provsql", WorkloadID: "nonce-join-group", Scale: "45k", Mode: "direct"},
+		{ExperimentID: "provsql", WorkloadID: "nonce-join-group", Scale: "45k", Mode: "provsql"},
+		{ExperimentID: "provsql", WorkloadID: "nonce-join-group", Scale: "45k", Mode: "taskgate"},
+	}
+	if len(cells) != len(expected) {
+		t.Fatalf("provsql profile expanded to %d cells, want %d", len(cells), len(expected))
+	}
+	for index := range expected {
+		if cells[index] != expected[index] {
+			t.Fatalf("provsql cell %d = %s, want %s", index, cells[index], expected[index])
+		}
+	}
+}
+
+func TestBridgeProtocolProfileCellsFailsClosed(t *testing.T) {
+	runtime := loadBridge(t)
+	if _, err := runtime.ProtocolProfileCells("missing"); err == nil || !strings.Contains(err.Error(), "profile is missing") {
+		t.Fatalf("missing profile was not rejected: %v", err)
+	}
+
+	runtime = loadBridge(t)
+	runtime.contents[workloadManifestPath] = bytes.Replace(
+		append([]byte(nil), runtime.contents[workloadManifestPath]...),
+		[]byte("modes: [direct, provsql, taskgate]"),
+		[]byte("modes: [direct, taskgate]"), 1)
+	if _, err := runtime.ProtocolProfileCells("provsql"); err == nil || !strings.Contains(err.Error(), "hash-locked workload reference drifted") {
+		t.Fatalf("drifted workload profile was not rejected: %v", err)
+	}
+}
+
 // A contract edited without a matching index update must fail closed rather
 // than silently change what an Adapter executes.
 func TestBridgeRejectsTamperedContractsAndManifests(t *testing.T) {

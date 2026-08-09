@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -20,6 +21,8 @@ import (
 
 	"taskbound.local/agent-data-gateway/evaluation/internal/experiment"
 	"taskbound.local/agent-data-gateway/evaluation/internal/provsqlfixture"
+	"taskbound.local/agent-data-gateway/internal/querybinding"
+	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 )
 
 const provSQLVerificationVersion = "taskgate-final-v5-provsql-verification-v1"
@@ -85,6 +88,13 @@ type provSQLAdapter struct {
 	provSQLSystem provSQLSystem
 	datasetSHA256 string
 	sequence      provSQLSequenceState
+
+	// Only the TaskGate arm is governed by the v3 acceptance authority. Keep it
+	// lazy so the raw PostgreSQL and native ProvSQL controls remain independent
+	// of the Catalog, qualification, and Control-Store inputs they never use.
+	finalizerOnce sync.Once
+	finalizer     *experiment.RuntimeFinalizerV3
+	finalizerErr  error
 }
 
 // newProvSQLAdapter wires three independent real systems: pinned direct
@@ -185,6 +195,16 @@ func (adapter *provSQLAdapter) Close() {
 	}
 }
 
+func (adapter *provSQLAdapter) provSQLFinalizer(ctx context.Context) (*experiment.RuntimeFinalizerV3, error) {
+	adapter.finalizerOnce.Do(func() {
+		adapter.finalizer, adapter.finalizerErr = experiment.OpenDeploymentFinalizerV3(ctx)
+		if adapter.finalizerErr != nil {
+			adapter.finalizerErr = fmt.Errorf("open the ProvSQL v3 acceptance authority: %w", adapter.finalizerErr)
+		}
+	})
+	return adapter.finalizer, adapter.finalizerErr
+}
+
 func (adapter *provSQLAdapter) Execute(ctx context.Context, operation experiment.AdapterOperation) experiment.Sample {
 	if !validProvSQLCell(operation) {
 		return invalidSample(operation, "unsupported_frozen_provsql_cell")
@@ -271,7 +291,7 @@ func copyProvSQLTaskGateSnapshots(target, source *experiment.ProvSQLVerification
 	}
 	target.BusinessBefore, target.BusinessAfter = source.BusinessBefore, source.BusinessAfter
 	target.RootBefore, target.RootAfter = source.RootBefore, source.RootAfter
-	target.ObserverBefore, target.ObserverAfter = source.ObserverBefore, source.ObserverAfter
+	target.ObserverWindow = source.ObserverWindow
 }
 
 func retainedProvSQLInvariantFailure(sample experiment.Sample) experiment.Sample {
@@ -293,7 +313,8 @@ func (adapter *provSQLAdapter) provSQLVerification(operation experiment.AdapterO
 		physicalSHA = sha(logical)
 	}
 	return &experiment.ProvSQLVerificationEvidence{
-		Version: provSQLVerificationVersion, Boundary: boundary, BindingSHA256: adapter.binding.SectionSHA256,
+		Version: provSQLVerificationVersion, Boundary: boundary,
+		BindingFileSHA256: adapter.binding.FileSHA256, BindingSHA256: adapter.binding.SectionSHA256,
 		FixtureVersion: provsqlfixture.Version, FixtureSQLSHA256: provsqlfixture.FixtureSQLSHA256(),
 		EnableSQLSHA256: provsqlfixture.EnableSQLSHA256(), DatasetSHA256: adapter.datasetSHA256,
 		DatasetProbeSQLSHA256: provsqlfixture.DatasetProbeSQLSHA256(), DatasetRows: provsqlfixture.DatasetRowCount,
@@ -307,7 +328,10 @@ func (adapter *provSQLAdapter) provSQLVerification(operation experiment.AdapterO
 		ExpectedResultSHA256: expected.ExpectedResultSHA256, ObservedResultSHA256: execution.ResultSHA256,
 		ExpectedDependencyFacts: expected.DependencyFacts, ExpectedDependencySHA256: expected.DependencySetSHA256,
 		TypedDrainFields: execution.TypedDrainFields, TypedDrainSHA256: execution.TypedDrainSHA256,
-		FieldOIDs: execution.FieldOIDs, PostgreSQLVersion: system.PostgreSQLVersion,
+		// A TaskGate Parquet drain has no PostgreSQL field OIDs. Retain that as
+		// the schema-valid empty array, not JSON null (which would make an
+		// otherwise accepted sample impossible to publish).
+		FieldOIDs: append([]uint32{}, execution.FieldOIDs...), PostgreSQLVersion: system.PostgreSQLVersion,
 		PostgreSQLVersionNum: system.PostgreSQLVersionNum, StatementTimeoutMS: system.StatementTimeoutMS,
 		MaxParallelWorkers: system.MaxParallelWorkers, ClientMinMessages: system.ClientMinMessages,
 		LogMinMessages: system.LogMinMessages, ProvSQLVersion: system.ProvSQLVersion,
@@ -386,6 +410,21 @@ func (adapter *provSQLAdapter) executeProvSQLTaskGate(ctx context.Context, opera
 	if err != nil {
 		return partial, err
 	}
+	// The one-use observer ticket binds the exact task/request attempt. The
+	// private binding key narrows this public ProvSQL cell from its 35 frozen
+	// nonce variants to exactly the statement this sample is about; it remains a
+	// hint, and the finalizer independently loads and verifies the binding bytes.
+	requestID := "final-v5-provsql-" + sha(operation.SampleID)[:24]
+	finalizer, err := adapter.provSQLFinalizer(ctx)
+	if err != nil {
+		return partial, err
+	}
+	selector := provSQLContractSelector(operation, provSQLBindingKey(operation.Scale, mustProvSQLNonce(operation)))
+	registered, err := finalizer.OpenObserverWindowV3(ctx, selector,
+		experiment.ObserverAttemptV3{TaskID: state.taskID, RequestID: requestID})
+	if err != nil {
+		return partial, err
+	}
 	beforeRoot, err := adapter.real.rootLedgerSnapshot(ctx, state.taskID)
 	if err != nil || beforeRoot.Epoch != 0 {
 		return partial, errors.New("ProvSQL TaskGate root is not fresh")
@@ -394,45 +433,42 @@ func (adapter *provSQLAdapter) executeProvSQLTaskGate(ctx context.Context, opera
 	if err != nil {
 		return partial, err
 	}
-	// Taken next to the targeted snapshot so the census and the visible/companion
-	// counters describe the same instant of pg_stat_statements.
-	censusBefore, err := adapter.real.gatewayStatementCensus(ctx,
-		adapter.binding.Section.ProvSQL.Task.VisibleRelation, adapter.binding.Section.ProvSQL.Task.CompanionRelation)
+	observerBefore, err := captureBoundObserverV2(ctx, experiment.ObserverInvocationV3{
+		Phase: "before", ObserverWindowID: registered.ObserverWindowID,
+		ClassifierManifestSHA256: registered.ClassifierManifestSHA256,
+	})
 	if err != nil {
 		return partial, err
 	}
-	observerBefore, err := captureBoundObserver(ctx, "before")
-	if err != nil {
-		return partial, err
+	window := experiment.ObserverWindowV2{Before: observerBefore}
+	evidence := &experiment.ProvSQLVerificationEvidence{
+		BusinessBefore: &businessBefore, RootBefore: &beforeRoot, ObserverWindow: &window,
 	}
+	partial.ProvSQLVerification = evidence
 	started := time.Now()
 	var response queryResponse
-	requestID := "final-v5-provsql-" + sha(operation.SampleID)[:24]
 	if err := adapter.real.alice.call(ctx, "query_sql", map[string]any{
 		"task_id": state.taskID, "request_id": requestID, "sql": expected.SQL,
 	}, &response); err != nil {
 		return partial, err
 	}
 	availableMS := durationMS(time.Since(started))
+	partial = observedTaskgateQueryPrefix(operation, state.taskID, expected.SQL, started, availableMS,
+		response, beforeRoot, beforeRoot)
+	partial.ProvSQLVerification = evidence
 	businessAfter, err := adapter.real.businessSQLSnapshotFor(ctx, adapter.binding.Section.ProvSQL.Task)
 	if err != nil {
 		return partial, err
 	}
-	censusAfter, err := adapter.real.gatewayStatementCensus(ctx,
-		adapter.binding.Section.ProvSQL.Task.VisibleRelation, adapter.binding.Section.ProvSQL.Task.CompanionRelation)
-	if err != nil {
-		return partial, err
-	}
+	evidence.BusinessAfter = &businessAfter
 	afterRoot, err := adapter.real.rootLedgerSnapshot(ctx, state.taskID)
 	if err != nil {
 		return partial, err
 	}
+	evidence.RootAfter = &afterRoot
 	partial = observedTaskgateQueryPrefix(operation, state.taskID, expected.SQL, started, availableMS,
 		response, beforeRoot, afterRoot)
-	partial.ProvSQLVerification = &experiment.ProvSQLVerificationEvidence{
-		BusinessBefore: &businessBefore, BusinessAfter: &businessAfter,
-		RootBefore: &beforeRoot, RootAfter: &afterRoot, ObserverBefore: &observerBefore,
-	}
+	partial.ProvSQLVerification = evidence
 	sample, err := adapter.real.completeTaskgateSample(ctx, operation, state, beforeRoot, afterRoot,
 		started, availableMS, expected.SQL, response)
 	if err != nil {
@@ -440,12 +476,25 @@ func (adapter *provSQLAdapter) executeProvSQLTaskGate(ctx context.Context, opera
 	}
 	sample.ProvSQLVerification = partial.ProvSQLVerification
 	partial = sample
-	observerAfter, err := captureBoundObserver(ctx, "after")
+	observerAfter, err := captureBoundObserverV2(ctx, experiment.ObserverInvocationV3{
+		Phase: "after", ObserverWindowID: registered.ObserverWindowID,
+		ClassifierManifestSHA256: registered.ClassifierManifestSHA256,
+	})
 	if err != nil {
 		return partial, err
 	}
-	sample.ProvSQLVerification.ObserverAfter = &observerAfter
+	window.After = observerAfter
 	partial = sample
+	resource, err := window.ResourceDelta()
+	if err != nil {
+		return partial, err
+	}
+	sample.GatewayMemoryPeakBytes = resource.GatewayMemoryPeakBytes
+	sample.GatewayCPUUsecDelta = resource.GatewayCPUUsecDelta
+	sample.GatewayNetworkRXDelta = resource.GatewayNetworkRXDelta
+	sample.GatewayNetworkTXDelta = resource.GatewayNetworkTXDelta
+	sample.ControlWALBytesDelta = resource.ControlWALBytesDelta
+	sample.BusinessWALBytesDelta = resource.BusinessWALBytesDelta
 	visibleDelta := businessAfter.VisibleCalls - businessBefore.VisibleCalls
 	companionDelta := businessAfter.CompanionCalls - businessBefore.CompanionCalls
 	sample.BusinessSQLDelta = visibleDelta + companionDelta
@@ -453,16 +502,6 @@ func (adapter *provSQLAdapter) executeProvSQLTaskGate(ctx context.Context, opera
 	if visibleDelta != 1 || companionDelta != 1 ||
 		expected.ExpectedVisibleCalls != 1 || expected.ExpectedCompanionCalls != 1 {
 		return partial, errors.New("ProvSQL TaskGate Business statement counts differ from the private exact binding")
-	}
-	schema, err := servedExpectedSchema(response.Receipt.CatalogDigest)
-	if err != nil {
-		return partial, err
-	}
-	// The exact private binding pins one visible and one companion statement, so
-	// this settles two governed transactions.
-	plan := experiment.NewGatewayControlPlan(visibleDelta+companionDelta, schema.Count, visibleDelta, companionDelta)
-	if err := applyObserverDelta(&sample, observerBefore, observerAfter, plan, censusBefore, censusAfter); err != nil {
-		return partial, err
 	}
 	partial = sample
 	if err := validateBoundSampleResult(sample, expected); err != nil {
@@ -475,7 +514,71 @@ func (adapter *provSQLAdapter) executeProvSQLTaskGate(ctx context.Context, opera
 	}
 	sample.GenerationBoundaryMS, sample.FullTaskGateMS = generation, sample.ClientFullDrainMS
 	sample.PhysicalSQLSHA256, sample.LogicalSQLSHA256 = sha(expected.SQL), sha(expected.SQL)
+	partial = sample
+	if sample.BaselineVerification == nil {
+		return partial, errors.New("verified ProvSQL sample omitted its receipt evidence")
+	}
+	carried, err := carriedProvSQLEvidence(registered, window, sample.BaselineVerification.Receipt)
+	if err != nil {
+		return partial, err
+	}
+	finalized, err := finalizer.FinalizeTaskGateObservationV3(ctx, experiment.FinalizationRequestV3{
+		Receipt: sample.BaselineVerification.Receipt, Carried: carried, ContractSelector: selector,
+		ObserverWindowTicket: registered.ObserverWindowTicket,
+	})
+	if err != nil {
+		return partial, err
+	}
+	sample.TaskGateAcceptanceV3 = &finalized
 	return sample, nil
+}
+
+// provSQLContractSelector names one public ProvSQL cell plus its exact private
+// nonce variant. Every coordinate is a narrowing hint; finalization accepts only
+// the candidate whose independently reproduced preparation the Gateway signed.
+func provSQLContractSelector(operation experiment.AdapterOperation, bindingKey string) experiment.FrozenContractSelectorV3 {
+	return experiment.FrozenContractSelectorV3{
+		ExperimentID: operation.ExperimentID, WorkloadID: operation.WorkloadID,
+		Scale: operation.Scale, Mode: operation.Mode, BindingKey: bindingKey,
+	}
+}
+
+// carriedProvSQLEvidence transcribes the two executed targets signed by the
+// Gateway. ProvSQL's TaskGate control is always a paired novel execution: an
+// absent companion, another path kind, or an authorized-but-unexecuted target
+// is not evidence that the measured operation ran.
+func carriedProvSQLEvidence(registered experiment.PreRegisteredObservationV3,
+	window experiment.ObserverWindowV2,
+	receipt queryreceipt.QueryReceiptV1) (experiment.CarriedEvidenceV3, error) {
+	if registered.Operation.PathKind != experiment.PathPairedNovel ||
+		registered.Plan.PathKind != experiment.PathPairedNovel {
+		return experiment.CarriedEvidenceV3{}, errors.New("the ProvSQL registration is not a paired novel operation")
+	}
+	signed := receipt.ExecutionBindingV2
+	if signed == nil {
+		return experiment.CarriedEvidenceV3{}, errors.New("the ProvSQL receipt describes no prepared execution")
+	}
+	if signed.PathKind != querybinding.PathPairedNovel {
+		return experiment.CarriedEvidenceV3{}, errors.New("the ProvSQL receipt did not sign a paired novel execution")
+	}
+	if signed.Companion == nil {
+		return experiment.CarriedEvidenceV3{}, errors.New("the ProvSQL receipt signs no provenance companion")
+	}
+	if !signed.Visible.Executed || !signed.Companion.Executed {
+		return experiment.CarriedEvidenceV3{}, errors.New("the ProvSQL receipt did not execute both signed targets")
+	}
+	return experiment.CarriedEvidenceV3{
+		Arm:                                  experiment.ArmTaskGate,
+		Operation:                            registered.Operation,
+		Plan:                                 registered.Plan,
+		ClassifierManifestSHA256:             registered.ClassifierManifestSHA256,
+		ClassifierBindingSHA256:              registered.ClassifierBindingSHA256,
+		Window:                               window,
+		VisibleStatement:                     signedTargetStatement(signed.Visible),
+		CompanionStatement:                   signedTargetStatement(*signed.Companion),
+		VisiblePreparedTargetBindingSHA256:   signed.Visible.PreparedTargetBindingSHA256,
+		CompanionPreparedTargetBindingSHA256: signed.Companion.PreparedTargetBindingSHA256,
+	}, nil
 }
 
 func (adapter *provSQLAdapter) validateAndAdvanceProvSQLSequence(nonce int64, execution provSQLExecution) error {

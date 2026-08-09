@@ -580,7 +580,8 @@ func validateProvSQLCrossEvidence(pairs map[string]map[string]*ProvSQLVerificati
 		for _, mode := range []string{"provsql", "taskgate"} {
 			one := modes[mode]
 			if one.Nonce != anchor.Nonce || one.NonceBindingSHA256 != anchor.NonceBindingSHA256 ||
-				one.BindingSHA256 != anchor.BindingSHA256 || one.DatasetSHA256 != anchor.DatasetSHA256 ||
+				one.BindingFileSHA256 != anchor.BindingFileSHA256 || one.BindingSHA256 != anchor.BindingSHA256 ||
+				one.DatasetSHA256 != anchor.DatasetSHA256 ||
 				one.LogicalSQLSHA256 != anchor.LogicalSQLSHA256 || one.ExpectedResultSHA256 != anchor.ExpectedResultSHA256 ||
 				one.ObservedResultSHA256 != anchor.ObservedResultSHA256 ||
 				one.ExpectedDependencyFacts != anchor.ExpectedDependencyFacts ||
@@ -727,7 +728,8 @@ func validateExperimentEvidence(sample Sample) ([]string, bool) {
 	if sample.TaskGateAcceptanceV3 != nil {
 		cutOver := sample.System == "taskgate" &&
 			(sample.ExperimentID == "artifact" ||
-				(sample.ExperimentID == "scale" && sample.WorkloadID == "dependency-e2e"))
+				(sample.ExperimentID == "scale" && sample.WorkloadID == "dependency-e2e") ||
+				(sample.ExperimentID == "provsql" && sample.Mode == "taskgate"))
 		if !cutOver {
 			fail("v3 finalizer acceptance is present outside an explicitly cut-over TaskGate path")
 		}
@@ -864,9 +866,6 @@ func validateProvSQLVerification(sample Sample) error {
 }
 
 func validateProvSQLVerificationForWarmup(sample Sample, warmup bool) error {
-	if sample.TaskGateAcceptanceV3 != nil {
-		return errors.New("ProvSQL remains on v1.4 accounting until P2.3 and cannot carry a v3 acceptance record")
-	}
 	evidence := sample.ProvSQLVerification
 	if evidence == nil {
 		return errors.New("ProvSQL verification evidence is absent")
@@ -908,7 +907,8 @@ func validateProvSQLVerificationForWarmup(sample Sample, warmup bool) error {
 		!validSHA256(evidence.TypedDrainSHA256) || evidence.FailureStage != "" {
 		return errors.New("ProvSQL fixture/query/result/drain binding differs from the frozen oracle")
 	}
-	for _, digest := range []string{evidence.BindingSHA256, evidence.CacheConditionSHA256, evidence.ExecutionOrderSHA256} {
+	for _, digest := range []string{evidence.BindingFileSHA256, evidence.BindingSHA256,
+		evidence.CacheConditionSHA256, evidence.ExecutionOrderSHA256} {
 		if !validSHA256(digest) {
 			return errors.New("ProvSQL paired execution binding is invalid")
 		}
@@ -929,6 +929,7 @@ func validateProvSQLVerificationForWarmup(sample Sample, warmup bool) error {
 			evidence.CarrierGateType != "" || evidence.RowGateType != "" || evidence.RootTypesVerified || evidence.AggregateTokens != 0 ||
 			evidence.RowTokens != 0 || evidence.GatesBefore != 0 || evidence.GatesAfter != 0 ||
 			evidence.ArtifactBytesBefore != 0 || evidence.ArtifactBytesAfter != 0 || evidence.RepresentationSHA256 != "" ||
+			sample.TaskGateAcceptanceV3 != nil || sample.carriesLegacyV14ObserverAccounting() ||
 			!emptyProvSQLTaskGateSnapshots(evidence) {
 			return errors.New("direct PostgreSQL arm contains invalid ProvSQL/system evidence")
 		}
@@ -943,7 +944,8 @@ func validateProvSQLVerificationForWarmup(sample Sample, warmup bool) error {
 			evidence.AggregateTokens != provsqlfixture.ExpectedRows*provsqlfixture.CarrierColumns ||
 			evidence.RowTokens != provsqlfixture.ExpectedRows || evidence.GatesAfter <= evidence.GatesBefore ||
 			evidence.ArtifactBytesBefore <= 0 || evidence.ArtifactBytesAfter < evidence.ArtifactBytesBefore ||
-			!validSHA256(evidence.RepresentationSHA256) || !emptyProvSQLTaskGateSnapshots(evidence) {
+			!validSHA256(evidence.RepresentationSHA256) || sample.TaskGateAcceptanceV3 != nil ||
+			sample.carriesLegacyV14ObserverAccounting() || !emptyProvSQLTaskGateSnapshots(evidence) {
 			return errors.New("ProvSQL arm lacks pinned agg_token/gate/representation evidence")
 		}
 	case "taskgate":
@@ -959,7 +961,8 @@ func validateProvSQLVerificationForWarmup(sample Sample, warmup bool) error {
 			sample.ActualDependencyFacts != evidence.ExpectedDependencyFacts || sample.DependencySetSHA256 != evidence.ExpectedDependencySHA256 ||
 			sample.GenerationBoundaryMS <= 0 || sample.FullTaskGateMS != sample.ClientFullDrainMS ||
 			evidence.BusinessBefore == nil || evidence.BusinessAfter == nil || evidence.RootBefore == nil ||
-			evidence.RootAfter == nil || evidence.ObserverBefore == nil || evidence.ObserverAfter == nil {
+			evidence.RootAfter == nil || evidence.ObserverWindow == nil || sample.TaskGateAcceptanceV3 == nil ||
+			evidence.ObserverBefore != nil || evidence.ObserverAfter != nil || sample.carriesLegacyV14ObserverAccounting() {
 			return errors.New("TaskGate arm lacks exact V8/Parquet/FactSet boundary evidence")
 		}
 		if err := validateBusinessSQLTransition(*evidence.BusinessBefore, *evidence.BusinessAfter, 1, 1); err != nil {
@@ -982,7 +985,7 @@ func validateProvSQLVerificationForWarmup(sample Sample, warmup bool) error {
 			sample.RootSetSHA256After != rootLedgerSetSHA256(*evidence.RootAfter) {
 			return errors.New("TaskGate ProvSQL root transition differs from independent snapshots")
 		}
-		if err := validateObserverTransition(sample, evidence.ObserverBefore, evidence.ObserverAfter); err != nil {
+		if err := validateProvSQLObservationV3(sample, evidence); err != nil {
 			return err
 		}
 	default:
@@ -991,9 +994,73 @@ func validateProvSQLVerificationForWarmup(sample Sample, warmup bool) error {
 	return nil
 }
 
+type provSQLContractIdentityV3 struct {
+	release, indexSHA256, bindingFileSHA256, bindingSectionSHA256 string
+	bindingKey, bindingQuerySHA256, operationID                   string
+}
+
+// validateProvSQLObservationV3 closes the retained ProvSQL TaskGate evidence
+// over both levels of its frozen definition. The public protocol coordinate
+// names one scale cell, while binding-key and binding-query identify the exact
+// private nonce variant beneath that cell. Keeping all seven fields exact is
+// what prevents a coherent acceptance for another nonce in the same public
+// cell from being spliced into this sample after finalization.
+func validateProvSQLObservationV3(sample Sample, evidence *ProvSQLVerificationEvidence) error {
+	if evidence.ObserverWindow == nil {
+		return errors.New("the ProvSQL TaskGate sample retains no v3 observer window")
+	}
+	if evidence.ObserverBefore != nil || evidence.ObserverAfter != nil ||
+		sample.carriesLegacyV14ObserverAccounting() {
+		return errors.New("the ProvSQL TaskGate sample mixes v3 acceptance with legacy v1.4 observer evidence")
+	}
+	if sample.TaskGateAcceptanceV3 != nil {
+		if err := requireProvSQLContractIdentityV3(sample, evidence,
+			sample.TaskGateAcceptanceV3.Operation.ContractIdentity); err != nil {
+			return err
+		}
+	}
+	return validateAcceptedObservationV3(sample, *evidence.ObserverWindow, PathPairedNovel, "ProvSQL")
+}
+
+func requireProvSQLContractIdentityV3(sample Sample, evidence *ProvSQLVerificationEvidence,
+	contractIdentity string) error {
+	parts := strings.Split(contractIdentity, ":")
+	if len(parts) != 7 || strings.TrimSpace(parts[0]) == "" || parts[0] != strings.TrimSpace(parts[0]) ||
+		!validSHA256(parts[1]) {
+		return errors.New("the ProvSQL acceptance has no exact contract release/index identity")
+	}
+	fileSHA256, fileOK := strings.CutPrefix(parts[2], "binding-file=")
+	sectionSHA256, sectionOK := strings.CutPrefix(parts[3], "binding-section=")
+	bindingKey, keyOK := strings.CutPrefix(parts[4], "binding-key=")
+	querySHA256, queryOK := strings.CutPrefix(parts[5], "binding-query=")
+	identity := provSQLContractIdentityV3{
+		release: parts[0], indexSHA256: parts[1], bindingFileSHA256: fileSHA256,
+		bindingSectionSHA256: sectionSHA256, bindingKey: bindingKey,
+		bindingQuerySHA256: querySHA256, operationID: parts[6],
+	}
+	if !fileOK || !sectionOK || !keyOK || !queryOK ||
+		!validSHA256(identity.bindingFileSHA256) || !validSHA256(identity.bindingSectionSHA256) ||
+		identity.bindingKey == "" || !validSHA256(identity.bindingQuerySHA256) {
+		return errors.New("the ProvSQL acceptance has no exact private binding file/section/key/query identity")
+	}
+	expectedOperationID := sampleOperationIDV3(sample)
+	expectedBindingKey := sample.Scale + "/" + strconv.FormatInt(evidence.Nonce, 10)
+	if identity.operationID != expectedOperationID ||
+		identity.bindingFileSHA256 != evidence.BindingFileSHA256 ||
+		identity.bindingSectionSHA256 != evidence.BindingSHA256 ||
+		identity.bindingKey != expectedBindingKey ||
+		identity.bindingQuerySHA256 != evidence.LogicalSQLSHA256 {
+		return fmt.Errorf("the ProvSQL acceptance contract identity does not bind sample %s and private file/section/key/query %s/%s/%s/%s",
+			expectedOperationID, shortDigest(evidence.BindingFileSHA256), shortDigest(evidence.BindingSHA256),
+			expectedBindingKey, shortDigest(evidence.LogicalSQLSHA256))
+	}
+	return nil
+}
+
 func emptyProvSQLTaskGateSnapshots(evidence *ProvSQLVerificationEvidence) bool {
 	return evidence.BusinessBefore == nil && evidence.BusinessAfter == nil && evidence.RootBefore == nil &&
-		evidence.RootAfter == nil && evidence.ObserverBefore == nil && evidence.ObserverAfter == nil
+		evidence.RootAfter == nil && evidence.ObserverWindow == nil && evidence.ObserverBefore == nil &&
+		evidence.ObserverAfter == nil
 }
 
 func validExternalProvSQLSession(evidence *ProvSQLVerificationEvidence) bool {

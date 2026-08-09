@@ -141,6 +141,19 @@ func TestSampleJSONSchemaRetainsV3FinalizerAcceptance(t *testing.T) {
 	}
 }
 
+func TestSampleJSONSchemaAcceptsAllThreeValidProvSQLArms(t *testing.T) {
+	validate := sampleSchemaValidator(t)
+	for _, mode := range []string{"direct", "provsql", "taskgate"} {
+		t.Run(mode, func(t *testing.T) {
+			sample := validProvSQLValidationSample(t, mode)
+			sample.DiagnosticMS = map[string]float64{}
+			if err := validate(sampleJSONInstance(t, sample)); err != nil {
+				t.Fatalf("sample schema rejected valid %s ProvSQL evidence: %v", mode, err)
+			}
+		})
+	}
+}
+
 func resolveDefinition(t *testing.T, schema, definitions map[string]any) map[string]any {
 	t.Helper()
 	reference, _ := schema["$ref"].(string)

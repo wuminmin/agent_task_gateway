@@ -188,21 +188,41 @@ call-graph tests rather than by measurement.
 
 | Condition | Test symbol | State |
 | --- | --- | --- |
-| No active package references the v1.4 accounting types or functions. | `experiment.TestNoActiveReferenceToV14Accounting` | Ratchet; must become a zero assertion |
-| The v3 acceptance wrapper has real non-test callers from all three TaskGate paths. | `experiment.TestFinalizeObservationV3HasProductionCallers` | Reports; must become a failure |
+| No active package references the v1.4 accounting types or functions. | `experiment.TestNoActiveReferenceToV14Accounting` | Ratchet: 2 files / 7 symbols remain; P2.4 must make this zero |
+| The v3 acceptance wrapper has real non-test callers from all three TaskGate paths. | `experiment.TestFinalizeObservationV3HasProductionCallers` | All three production source callers are present; P2.5 must turn the generic report-only guard into a hard assertion |
 | No Adapter file constructs `TrustedInputsV3` or `IndependentInputsV3`. | `experiment.TestAdapterCannotConstructTrustedInputs` | PASS |
 | The finalizer's sources are chosen inside `package experiment`, never by a caller. | `experiment.TestNoExportedWayToChooseTheFinalizersSources`, `experiment.TestTheDeploymentConstructorSelectsNoContent` | PASS |
 | The V9 test-fixture package is not imported by production files. | `testfixture.TestFixtureIsNotImportedByProduction` | PASS |
 
 ## Cutover state
 
-The cutover is per TaskGate path, and only the Artifact path has moved.
+The cutover is per TaskGate path. All three production source paths now use the
+v3 acceptance facade. This is code-level wiring, not evidence that every path is
+currently runnable or has passed a live deployment.
 
 | Path | Accounting | v1.4 ratchet entry |
 | --- | --- | --- |
 | Artifact (`result-heavy`) | v3, through `RuntimeFinalizerV3.FinalizeTaskGateObservationV3` | removed |
-| Scale (`dependency_e2e`) | v1.4 | `NewGatewayControlPlan` |
-| ProvSQL | v1.4 | `NewGatewayControlPlan` |
+| Scale (`dependency_e2e`) | v3, through `RuntimeFinalizerV3.FinalizeTaskGateObservationV3`; dormant | removed |
+| ProvSQL (`nonce-join-group`, `taskgate` arm only) | v3 source path; dormant and fail-closed before measurement | removed |
+
+The hash-locked ProvSQL profile manifest contains exactly nine public cells:
+three scales times direct/native/taskgate. The finalizer admits only the three
+TaskGate cells and crosses them with 105 exact private nonce variants, 35 per
+scale. `BindingKey` narrows the descriptor set to one exact private variant
+before executable candidate construction; the retained contract identity binds
+release, index, private binding file, section, key, logical-query digest and
+public operation ID. The Adapter supplies none of the SQL, plan, grant or
+classifier derivation.
+
+This wiring is intentionally not runnable at this HEAD. The exact frozen
+multi-product ProvSQL query contains `ORDER BY`, and the sole production
+`sqllowering.Lower` path rejects it as `PAGINATION_UNSUPPORTED`.
+`OpenObserverWindowV3` therefore fails closed before the observer window or
+measured query can run. No clause was stripped, no alternate derivation was
+introduced, and no synthetic query was substituted. The
+`provsql-nonce-join` profile remains `routable:false`; no registry or capability
+state changed, and this cutover is not a targeted or live pass.
 
 What the Artifact path does now, in order: the finalizer pre-registers the
 classification for the frozen cell **before** the operation runs; the observer is
@@ -237,8 +257,9 @@ Three consequences worth stating rather than leaving to be rediscovered:
   retained window is the window it was settled over, and the sample's Business
   and resource numbers are the ones that window and that record produce.
 
-The Artifact path's own gate is a real deployment run, and it has not happened.
-Nothing in this section is evidence that the cutover works end to end.
+No real-deployment run has established end-to-end acceptance for this cutover,
+and ProvSQL cannot currently reach measurement because of the lowering refusal
+above. Nothing in this section is evidence of a live or publication-grade pass.
 
 ## The shared target preparation — approved, in progress
 
@@ -383,18 +404,20 @@ and its own derivation is deleted, so there is no second derivation to drift
 against. A finalizer holding frozen contract material can reach the same two
 statements without asking the Gateway and without reimplementing anything.
 
-**What still blocks the cutover is that nothing calls it.** No finalizer path
-reproduces a preparation, and nothing in the active tree constructs
-`TrustedInputsV3` or `IndependentInputsV3`, so acceptance remains reachable only
-from tests. The remaining conflict is pinned by
-`experiment.TestV3CutoverIsBlockedByTheUnwiredFinalizer`, which also refuses a
-regression that re-hides the shared derivation or grows a second one back inside
-`internal/gateway`.
+The production facade is now called by Artifact, Scale and ProvSQL, so the old
+unwired-source-call diagnosis no longer describes the tree.
+`TestV3CutoverIsBlockedByTheUnwiredFinalizer` remains only as a transitional
+structural regression check until P2.5 deletes it; it must not be cited as
+evidence that the acceptance facade has no caller.
 
-Everything downstream of the cutover therefore remains unreached: the v1.4
-retirement ratchet is still non-empty, the three TaskGate paths still have no v3
-production caller, and the boundary
-`V3 RUNTIME INTEGRATION PASS — CONTRACTS V1.5 FREEZE PENDING`
+The remaining migration obligations are explicit: P2.4 must remove the final
+two-file/seven-symbol v1.4 declaration/construction surface, and P2.5 must turn
+the generic production-caller reporter into a hard guard. ProvSQL also remains
+fail-closed at the shared multi-product `ORDER BY` lowering boundary described
+above. Therefore the boundary
+
+    V3 RUNTIME INTEGRATION PASS — CONTRACTS V1.5 FREEZE PENDING
+
 must not be declared.
 
 `TestNoActiveReferenceToV14Accounting` is a **ratchet** while the cutover is in
@@ -404,6 +427,8 @@ compilable reference counts. The count can only fall: a new reference fails, and
 *removing* one also fails, with an instruction to tighten the inventory, so an
 allowance cannot outlive the reason for it. **At the end of the cutover the
 inventory is empty and the ratchet becomes a plain zero-reference assertion.**
+At P2.3 the pinned inventory is exactly two files and seven symbols; it is not
+the zero-reference state required by the canary prerequisite.
 
 ## DSN-enabled suite — acceptance is machine-checked, not an exit code
 

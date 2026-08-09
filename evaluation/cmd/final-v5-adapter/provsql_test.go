@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -136,6 +137,36 @@ func TestProvSQLFieldDescriptionsBindEveryCarrierOID(t *testing.T) {
 	badOID[2].DataTypeOID = 2950
 	if err := validateProvSQLFieldDescriptions(badOID, true, system); err == nil {
 		t.Fatal("aggregate carrier with UUID OID was accepted as agg_token")
+	}
+}
+
+func TestProvSQLTaskGateEvidenceEncodesNoFieldOIDsAsAnEmptyArray(t *testing.T) {
+	operation := provSQLTestOperation("taskgate")
+	spec, err := provsqlfixture.ParseScale(operation.Scale)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nonce, err := provsqlfixture.Nonce(operation.Scale, operation.ProcessReplicate,
+		operation.Iteration, operation.Warmup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter := &provSQLAdapter{binding: adapterDeploymentBinding{
+		FileSHA256: strings.Repeat("7", 64), SectionSHA256: strings.Repeat("8", 64),
+	}, datasetSHA256: provsqlfixture.ExpectedDatasetSHA256()}
+	evidence := adapter.provSQLVerification(operation, boundQueryExpectation{}, spec, nonce,
+		"taskgate_released_parquet_v8", provSQLSystem{}, provSQLExecution{})
+	encoded, err := json.Marshal(evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]any
+	if err := json.Unmarshal(encoded, &document); err != nil {
+		t.Fatal(err)
+	}
+	fieldOIDs, ok := document["field_oids"].([]any)
+	if !ok || len(fieldOIDs) != 0 {
+		t.Fatalf("TaskGate field_oids = %#v, want a schema-valid empty array", document["field_oids"])
 	}
 }
 

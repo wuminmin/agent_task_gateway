@@ -71,11 +71,21 @@ type FrozenContractSelectorV3 struct {
 	WorkloadID   string
 	Scale        string
 	Mode         string
+	// BindingKey narrows a public protocol cell to one exact private operation
+	// variant when that cell deliberately covers more than one executable
+	// statement. Like the four public coordinates it is only a hint: the
+	// finalizer independently loads and validates the private binding, prepares
+	// every admitted candidate, and accepts only the one the Gateway signed.
+	BindingKey string
 }
 
 func (selector FrozenContractSelectorV3) String() string {
-	return strings.Join([]string{selector.ExperimentID, selector.WorkloadID,
+	coordinate := strings.Join([]string{selector.ExperimentID, selector.WorkloadID,
 		selector.Scale, selector.Mode}, "/")
+	if selector.BindingKey == "" {
+		return coordinate
+	}
+	return coordinate + "#binding-key=" + selector.BindingKey
 }
 
 // frozenOperationCandidateV3 is one operation the frozen contracts define.
@@ -87,7 +97,11 @@ func (selector FrozenContractSelectorV3) String() string {
 type frozenOperationCandidateV3 struct {
 	OperationID      string
 	ContractIdentity string
-	ProfileID        string
+	// BindingKey is empty for one-operation public cells. A non-empty key names
+	// one independently validated private variant beneath a public cell and is
+	// compared only as a selector hint.
+	BindingKey string
+	ProfileID  string
 	// PathKind is the execution path the contract defines for this cell. It is
 	// needed BEFORE the operation runs, to pre-register the classification, and
 	// it is a contract fact rather than an observation: a cell that then takes a

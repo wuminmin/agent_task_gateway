@@ -20,7 +20,6 @@ const (
 	artifactEvidenceVersion = "taskgate-final-v5-artifact-verification-v1"
 	outcomeProductionPath   = "control.differenceAndUnionV5Tx+persistV5SetObjectsTx"
 	kernelProductionPath    = "ordinal.BitmapSet.Difference+Union+PortableContainers"
-	observerMemoryScope     = "cgroup_v2_memory_peak_including_mmap"
 )
 
 func validateScaleVerification(sample Sample) error {
@@ -158,7 +157,7 @@ func validateOutcomeMerkleVerification(sample Sample, evidence *ScaleVerificatio
 	if err != nil || evidence.Boundary != "outcome_merkle_control" || merkle == nil || sample.Mode != "merkle_control" ||
 		sample.System != "taskgate" || sample.KernelOnly || merkle.ProductionPath != outcomeProductionPath ||
 		evidence.KernelStorage != nil || evidence.ObserverWindow != nil || evidence.ObserverBefore != nil ||
-		evidence.ObserverAfter != nil || sample.TaskGateAcceptanceV3 != nil || sample.ObserverAccounting != nil ||
+		evidence.ObserverAfter != nil || sample.TaskGateAcceptanceV3 != nil || sample.carriesLegacyV14ObserverAccounting() ||
 		merkle.ContentCachePolicy != "warm_immutable_content_after_fixture_prefill" ||
 		merkle.OverlapRounding != "nearest_integer_half_up" {
 		return errors.New("Outcome-Merkle identity or production boundary is invalid")
@@ -373,7 +372,7 @@ func validateKernelStorageVerification(sample Sample, evidence *ScaleVerificatio
 	if err != nil || evidence.Boundary != "kernel_storage_only" || kernel == nil || sample.Mode != "kernel_storage_only" ||
 		!sample.KernelOnly || sample.System != "taskgate" || kernel.ProductionPath != kernelProductionPath ||
 		evidence.OutcomeMerkle != nil || evidence.ObserverWindow != nil || evidence.ObserverBefore != nil ||
-		evidence.ObserverAfter != nil || sample.TaskGateAcceptanceV3 != nil || sample.ObserverAccounting != nil {
+		evidence.ObserverAfter != nil || sample.TaskGateAcceptanceV3 != nil || sample.carriesLegacyV14ObserverAccounting() {
 		return errors.New("kernel/storage identity or boundary is invalid")
 	}
 	for _, digest := range []string{kernel.FixtureSHA256, kernel.RunIdentitySHA256, kernel.CandidateSHA256,
@@ -497,7 +496,7 @@ func ValidateArtifactEvidence(sample Sample) error {
 // and that record produce. A sample assembled from one run's receipt and another
 // run's window fails here.
 func validateArtifactObservationV3(sample Sample, evidence *ArtifactVerificationEvidence) error {
-	if sample.ObserverAccounting != nil {
+	if sample.carriesLegacyV14ObserverAccounting() {
 		return errors.New("the artifact sample mixes v3 acceptance with legacy v1.4 observer accounting")
 	}
 	return validateAcceptedObservationV3(sample, evidence.ObserverWindow, PathPairedNovel, "artifact")
@@ -511,7 +510,7 @@ func validateScaleObservationV3(sample Sample, evidence *ScaleVerificationEviden
 	if evidence.ObserverWindow == nil {
 		return errors.New("the dependency Scale sample retains no v3 observer window")
 	}
-	if evidence.ObserverBefore != nil || evidence.ObserverAfter != nil || sample.ObserverAccounting != nil {
+	if evidence.ObserverBefore != nil || evidence.ObserverAfter != nil || sample.carriesLegacyV14ObserverAccounting() {
 		return errors.New("the dependency Scale sample mixes v3 acceptance with legacy v1.4 observer evidence")
 	}
 	if evidence.OutcomeMerkle != nil || evidence.KernelStorage != nil {
@@ -702,48 +701,4 @@ func validateAcceptedObservationV3(sample Sample, window ObserverWindowV2,
 
 func sampleOperationIDV3(sample Sample) string {
 	return strings.Join([]string{sample.ExperimentID, sample.WorkloadID, sample.Scale, sample.Mode}, "/")
-}
-
-func validateObserverTransition(sample Sample, before, after *ObserverSnapshot) error {
-	if before == nil || after == nil || before.SchemaVersion != 1 || after.SchemaVersion != 1 ||
-		before.MemoryScope != observerMemoryScope || after.MemoryScope != observerMemoryScope {
-		return errors.New("out-of-process observer evidence is absent or has the wrong memory scope")
-	}
-	delta, err := DifferenceObserver(*before, *after)
-	if err != nil {
-		return err
-	}
-	if delta.GatewayMemoryPeakBytes <= 0 || delta.OOMDelta != 0 || delta.ContainerRestartDelta != 0 ||
-		delta.GatewayMemoryPeakBytes != sample.GatewayMemoryPeakBytes || delta.GatewayCPUUsecDelta != sample.GatewayCPUUsecDelta ||
-		delta.GatewayNetworkRXDelta != sample.GatewayNetworkRXDelta || delta.GatewayNetworkTXDelta != sample.GatewayNetworkTXDelta ||
-		delta.ControlWALBytesDelta != sample.ControlWALBytesDelta || delta.BusinessWALBytesDelta != sample.BusinessWALBytesDelta {
-		return errors.New("observer delta differs from the sample or records OOM/restart")
-	}
-	return validateSampleObserverAccounting(sample, delta)
-}
-
-// validateSampleObserverAccounting is the finalizer-side twin of the Adapter
-// gate. The finalizer deliberately re-derives rather than trusting the Adapter's
-// verdict, so a sample whose accounting was never settled -- or was settled
-// against a different observer transition -- cannot reach a published cell.
-func validateSampleObserverAccounting(sample Sample, delta ObserverDelta) error {
-	accounting := sample.ObserverAccounting
-	if accounting == nil {
-		return errors.New("sample carries no closed-world observer statement accounting")
-	}
-	if err := ValidateObserverAccounting(*accounting); err != nil {
-		return err
-	}
-	if accounting.ObserverTotalDelta != delta.BusinessSQLDelta {
-		return fmt.Errorf("statement accounting was settled against %d gateway_reader statements, this transition shows %d",
-			accounting.ObserverTotalDelta, delta.BusinessSQLDelta)
-	}
-	// Tie the accounting back to the targeted counter the rest of the finalizer
-	// reasons about, so the two cannot describe different executions.
-	targeted := accounting.Plan.ExpectedVisibleCalls + accounting.Plan.ExpectedCompanionCalls
-	if targeted != sample.BusinessSQLDelta {
-		return fmt.Errorf("statement accounting expects %d targeted statements, the sample records %d",
-			targeted, sample.BusinessSQLDelta)
-	}
-	return nil
 }

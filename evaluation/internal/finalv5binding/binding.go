@@ -578,7 +578,7 @@ func validateProvSQLCellExpectation(expected BoundQueryExpectation, task BoundTa
 	if err != nil || validateBoundQueryForTask(expected, task) != nil || expected.SQL != logical ||
 		expected.ExpectedRows != provsqlfixture.ExpectedRows || expected.ExpectedColumns != provsqlfixture.ExpectedColumns ||
 		expected.DependencyFacts <= 0 || !ValidDigest(expected.DependencySetSHA256) ||
-		expected.ExpectedVisibleCalls+expected.ExpectedCompanionCalls == 0 {
+		expected.ExpectedVisibleCalls != 1 || expected.ExpectedCompanionCalls != 1 {
 		return errors.New("ProvSQL TaskGate cell lacks its exact frozen query/FactSet oracle")
 	}
 	rows, err := provsqlfixture.ExpectedResultRows(scale)

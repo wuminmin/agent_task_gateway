@@ -11,10 +11,10 @@ import (
 	"testing"
 )
 
-// The v1.4 accounting is being retired from the active runtime. Until the three
-// TaskGate call sites emit CarriedEvidenceV3 and reach acceptance through
-// FinalizeTaskGateObservationV3, the old symbols still have callers, so a test
-// asserting zero references would fail rather than protect anything.
+// The v1.4 accounting is being retired from the active runtime. All three
+// TaskGate call sites now emit CarriedEvidenceV3 and reach acceptance through
+// FinalizeTaskGateObservationV3. What remains is the declaration/construction
+// surface scheduled for the P2.4 schema move, not an active measurement path.
 //
 // This is therefore a ratchet, not an aspiration. It pins the exact set of
 // active references that remain, so the count can only fall. A new reference to
@@ -28,12 +28,6 @@ var retiredV14ActiveReferences = map[string][]string{
 	"evaluation/cmd/final-v5-adapter/adapter_bindings.go": {
 		"CensusFromTemplates", "GatewayControlPlan", "GatewayStatementCensus",
 		"ObserverAccounting", "ObserverAccountingVersion", "ValidateObserverAccounting",
-	},
-	"evaluation/cmd/final-v5-adapter/provsql.go": {
-		"NewGatewayControlPlan",
-	},
-	"evaluation/internal/experiment/finalize_scale_artifact.go": {
-		"ObserverAccounting", "ValidateObserverAccounting",
 	},
 	"evaluation/internal/experiment/types.go": {
 		"ObserverAccounting",
@@ -58,47 +52,41 @@ var retiredV14Symbols = map[string]bool{
 	"CensusFromTemplates":        true,
 }
 
-func TestP22V14RetirementRatchetShape(t *testing.T) {
+func TestP23V14RetirementRatchetShape(t *testing.T) {
 	want := map[string][]string{
 		"evaluation/cmd/final-v5-adapter/adapter_bindings.go": {
 			"CensusFromTemplates", "GatewayControlPlan", "GatewayStatementCensus",
 			"ObserverAccounting", "ObserverAccountingVersion", "ValidateObserverAccounting",
-		},
-		"evaluation/cmd/final-v5-adapter/provsql.go": {
-			"NewGatewayControlPlan",
-		},
-		"evaluation/internal/experiment/finalize_scale_artifact.go": {
-			"ObserverAccounting", "ValidateObserverAccounting",
 		},
 		"evaluation/internal/experiment/types.go": {
 			"ObserverAccounting",
 		},
 	}
 
-	if got := len(retiredV14ActiveReferences); got != 4 {
-		t.Fatalf("P2.2 must leave exactly 4 v1.4 allowance files, got %d: %v", got, retiredV14ActiveReferences)
+	if got := len(retiredV14ActiveReferences); got != 2 {
+		t.Fatalf("P2.3 must leave exactly 2 v1.4 allowance files, got %d: %v", got, retiredV14ActiveReferences)
 	}
 	total := 0
 	for _, names := range retiredV14ActiveReferences {
 		total += len(names)
 	}
-	if total != 10 {
-		t.Fatalf("P2.2 must leave exactly 10 v1.4 allowance symbols, got %d: %v", total, retiredV14ActiveReferences)
+	if total != 7 {
+		t.Fatalf("P2.3 must leave exactly 7 v1.4 allowance symbols, got %d: %v", total, retiredV14ActiveReferences)
 	}
 
 	for file, wantNames := range want {
 		gotNames, present := retiredV14ActiveReferences[file]
 		if !present {
-			t.Errorf("P2.2 v1.4 ratchet is missing required allowance %s", file)
+			t.Errorf("P2.3 v1.4 ratchet is missing required allowance %s", file)
 			continue
 		}
 		if len(gotNames) != len(wantNames) {
-			t.Errorf("P2.2 v1.4 allowance %s = %v, want exactly %v", file, gotNames, wantNames)
+			t.Errorf("P2.3 v1.4 allowance %s = %v, want exactly %v", file, gotNames, wantNames)
 			continue
 		}
 		for _, name := range wantNames {
 			if !contains(gotNames, name) {
-				t.Errorf("P2.2 v1.4 allowance %s = %v, want exactly %v", file, gotNames, wantNames)
+				t.Errorf("P2.3 v1.4 allowance %s = %v, want exactly %v", file, gotNames, wantNames)
 				break
 			}
 		}
@@ -252,9 +240,10 @@ func TestNoActiveReferenceToV14Accounting(t *testing.T) {
 }
 
 // TestFinalizeObservationV3HasProductionCallers records the other half of the
-// canary prerequisite: acceptance must actually be reached. Artifact and Scale
-// have crossed this boundary and are now hard requirements. ProvSQL remains a
-// logged prerequisite until its later cutover.
+// canary prerequisite: acceptance must actually be reached. All three source
+// callers now exist. Artifact and Scale remain hard requirements here; the
+// ProvSQL branch stays report-only in this generic guard until P2.5 promotes it,
+// while its path-specific cutover guard already fails on a missing call.
 //
 // The three files it names are where the TaskGate workloads live, and the call
 // they must make is RuntimeFinalizerV3.FinalizeTaskGateObservationV3 -- the
@@ -288,9 +277,11 @@ func TestFinalizeObservationV3HasProductionCallers(t *testing.T) {
 	}
 	provSQL := "evaluation/cmd/final-v5-adapter/provsql.go"
 	if !callers[provSQL] {
+		// The ProvSQL path-specific cutover guard already fails on a missing
+		// call. This generic report remains transitional until P2.5 promotes it
+		// after the v1.4 schema and construction surface are gone.
 		t.Logf("the v3 acceptance entry point has no production caller in %s; "+
-			"the canary prerequisite in docs/final_v5_v3_runtime_integration_gates.md "+
-			"remains unsatisfied until the ProvSQL cutover", provSQL)
+			"the generic canary prerequisite remains report-only until P2.5", provSQL)
 	}
 }
 

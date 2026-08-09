@@ -102,6 +102,7 @@ const (
 const (
 	artifactDeploymentProfileAlias = "result-heavy"
 	scaleDeploymentProfileAlias    = "exposure-scale"
+	provSQLDeploymentProfileAlias  = "provsql-nonce-join"
 )
 
 // OpenDeploymentFinalizerV3 opens the finalizer this deployment's environment
@@ -215,7 +216,7 @@ func gatewayKeyringVerifierV3(ctx context.Context, gatewayURL string) (ReceiptVe
 type deploymentContractsV3 struct {
 	runtime *finalv5contracts.Runtime
 	live    finalv5contracts.LiveDeployment
-	// bindingSource freezes where this deployment keeps Scale's private material
+	// bindingSource freezes where this deployment keeps Scale and ProvSQL's private material
 	// and the identities captured before startup, but does not read it until a
 	// selector can actually admit Scale. Artifact therefore keeps no dependency
 	// on Scale material; a wildcard selector, correctly, requires both workloads.
@@ -295,7 +296,7 @@ func (source deploymentBindingSourceV3) load() (finalv5binding.Binding, error) {
 		{deploymentBindingSectionSHAEnv, source.sectionSHA256},
 	} {
 		if required[1] == "" {
-			return finalv5binding.Binding{}, fmt.Errorf("%s must name where this deployment keeps Scale's "+
+			return finalv5binding.Binding{}, fmt.Errorf("%s must name where this deployment keeps Scale/ProvSQL "+
 				"finalizer material", required[0])
 		}
 	}
@@ -347,7 +348,7 @@ func datasetProbeDigestV3(ctx context.Context, runtime *finalv5contracts.Runtime
 	return sha256Hex([]byte(fingerprint)), nil
 }
 
-// ResolveCandidates returns every frozen Artifact or Scale dependency operation
+// ResolveCandidates returns every frozen Artifact, Scale dependency, or ProvSQL operation
 // the selector admits.
 //
 // An empty selector member is a wildcard, because the selector is a hint whose
@@ -362,6 +363,18 @@ func datasetProbeDigestV3(ctx context.Context, runtime *finalv5contracts.Runtime
 func (contracts deploymentContractsV3) ResolveCandidates(
 	selector FrozenContractSelectorV3) ([]frozenOperationCandidateV3, error) {
 	var candidates []frozenOperationCandidateV3
+	var loadedBinding *finalv5binding.Binding
+	loadBinding := func() (finalv5binding.Binding, error) {
+		if loadedBinding != nil {
+			return *loadedBinding, nil
+		}
+		binding, err := contracts.bindingSource.load()
+		if err != nil {
+			return finalv5binding.Binding{}, err
+		}
+		loadedBinding = &binding
+		return binding, nil
+	}
 	if selectorMayAdmitWorkloadV3(selector,
 		finalv5contracts.ArtifactExperimentID, finalv5contracts.ArtifactWorkloadID) {
 		cells, err := contracts.runtime.ArtifactCells()
@@ -369,7 +382,7 @@ func (contracts deploymentContractsV3) ResolveCandidates(
 			return nil, fmt.Errorf("read the frozen Artifact cells: %w", err)
 		}
 		for _, cell := range cells {
-			if !selectorAdmitsCellV3(selector, cell.Identity) {
+			if !selectorAdmitsCellV3(selector, cell.Identity) || selector.BindingKey != "" {
 				continue
 			}
 			candidate, candidateErr := contracts.candidateFor(cell)
@@ -381,7 +394,7 @@ func (contracts deploymentContractsV3) ResolveCandidates(
 		}
 	}
 	if selectorMayAdmitWorkloadV3(selector, "scale", "dependency-e2e") {
-		binding, err := contracts.bindingSource.load()
+		binding, err := loadBinding()
 		if err != nil {
 			return nil, err
 		}
@@ -390,6 +403,17 @@ func (contracts deploymentContractsV3) ResolveCandidates(
 			return nil, err
 		}
 		candidates = append(candidates, scaleCandidates...)
+	}
+	if selectorMayAdmitWorkloadV3(selector, "provsql", "nonce-join-group") {
+		binding, err := loadBinding()
+		if err != nil {
+			return nil, err
+		}
+		provSQLCandidates, err := contracts.resolveProvSQLCandidatesV3(selector, binding)
+		if err != nil {
+			return nil, err
+		}
+		candidates = append(candidates, provSQLCandidates...)
 	}
 	return candidates, nil
 }
@@ -402,7 +426,7 @@ func (contracts deploymentContractsV3) resolveScaleCandidatesV3(selector FrozenC
 	}
 	var candidates []frozenOperationCandidateV3
 	for _, cell := range cells {
-		if !selectorAdmitsCellV3(selector, cell.Identity) {
+		if !selectorAdmitsCellV3(selector, cell.Identity) || selector.BindingKey != "" {
 			continue
 		}
 		cellBinding := binding.Section.Scale.DependencyE2E[cell.Identity.Scale]
@@ -414,6 +438,71 @@ func (contracts deploymentContractsV3) resolveScaleCandidatesV3(selector FrozenC
 		candidates = append(candidates, candidate)
 	}
 	return candidates, nil
+}
+
+// resolveProvSQLCandidatesV3 crosses the three public TaskGate protocol cells
+// with the 105 exact private nonce statements. The public coordinate remains
+// the operation ID; BindingKey distinguishes the 35 independently frozen
+// variants below each scale without giving the Adapter authority over their
+// SQL, plan, grant, or expected result.
+func (contracts deploymentContractsV3) resolveProvSQLCandidatesV3(selector FrozenContractSelectorV3,
+	binding finalv5binding.Binding) ([]frozenOperationCandidateV3, error) {
+	variants, err := contracts.provSQLVariantsV3(selector, binding)
+	if err != nil {
+		return nil, err
+	}
+	candidates := make([]frozenOperationCandidateV3, 0, len(variants))
+	for _, variant := range variants {
+		candidate, candidateErr := contracts.provSQLCandidateForV3(
+			variant.Cell, variant.BindingKey, variant.Expected, binding)
+		if candidateErr != nil {
+			return nil, fmt.Errorf("bind frozen ProvSQL cell %s variant %s to this deployment: %w",
+				variant.Cell, variant.BindingKey, candidateErr)
+		}
+		candidates = append(candidates, candidate)
+	}
+	return candidates, nil
+}
+
+type provSQLVariantV3 struct {
+	Cell       finalv5contracts.CellIdentity
+	BindingKey string
+	Expected   finalv5binding.BoundQueryExpectation
+}
+
+// provSQLVariantsV3 performs the public/private matrix crossing before any
+// executable material is lowered. Keeping this step explicit matters while the
+// public profile is dormant: the finalizer can prove that all 105 reviewed
+// variants are present without manufacturing a plan for SQL the running
+// Gateway cannot yet lower. resolveProvSQLCandidatesV3 remains the only path
+// that turns a selected variant into executable candidate material.
+func (contracts deploymentContractsV3) provSQLVariantsV3(selector FrozenContractSelectorV3,
+	binding finalv5binding.Binding) ([]provSQLVariantV3, error) {
+	cells, err := contracts.provSQLTaskGateCellsV3(binding)
+	if err != nil {
+		return nil, err
+	}
+	keys := make([]string, 0, len(binding.Section.ProvSQL.TaskGate))
+	for key := range binding.Section.ProvSQL.TaskGate {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	var variants []provSQLVariantV3
+	for _, cell := range cells {
+		if !selectorAdmitsCellV3(selector, cell) {
+			continue
+		}
+		prefix := cell.Scale + "/"
+		for _, key := range keys {
+			if !strings.HasPrefix(key, prefix) || (selector.BindingKey != "" && selector.BindingKey != key) {
+				continue
+			}
+			variants = append(variants, provSQLVariantV3{
+				Cell: cell, BindingKey: key, Expected: binding.Section.ProvSQL.TaskGate[key],
+			})
+		}
+	}
+	return variants, nil
 }
 
 func selectorMayAdmitWorkloadV3(selector FrozenContractSelectorV3, experimentID, workloadID string) bool {
@@ -515,6 +604,58 @@ func sameStringsInOrderV3(left, right []string) bool {
 	return true
 }
 
+// provSQLTaskGateCellsV3 obtains the public matrix only from the workload
+// manifest whose bytes LoadRuntime already checked against the Contract Index.
+// The private binding may fill the 35 statement variants below each TaskGate
+// cell, but it cannot add, remove, or rename a public coordinate.
+func (contracts deploymentContractsV3) provSQLTaskGateCellsV3(
+	binding finalv5binding.Binding) ([]finalv5contracts.CellIdentity, error) {
+	if contracts.runtime == nil {
+		return nil, errors.New("resolving frozen ProvSQL cells requires the loaded Contract Index")
+	}
+	if err := finalv5binding.ValidateProvSQLBinding(binding.Section.ProvSQL); err != nil {
+		return nil, fmt.Errorf("validate the private ProvSQL binding: %w", err)
+	}
+	all, err := contracts.runtime.ProtocolProfileCells("provsql")
+	if err != nil {
+		return nil, fmt.Errorf("read the frozen ProvSQL protocol cells: %w", err)
+	}
+	if len(all) != 9 {
+		return nil, fmt.Errorf("ProvSQL protocol material is incomplete: cells=%d, want 9", len(all))
+	}
+	modesByScale := make(map[string]map[string]bool, 3)
+	seen := make(map[string]bool, len(all))
+	var taskGate []finalv5contracts.CellIdentity
+	for _, cell := range all {
+		coordinate := cell.String()
+		if cell.ExperimentID != "provsql" || cell.WorkloadID != "nonce-join-group" || seen[coordinate] {
+			return nil, fmt.Errorf("the frozen ProvSQL protocol contains invalid or duplicate cell %s", coordinate)
+		}
+		seen[coordinate] = true
+		if modesByScale[cell.Scale] == nil {
+			modesByScale[cell.Scale] = map[string]bool{}
+		}
+		modesByScale[cell.Scale][cell.Mode] = true
+		if cell.Mode == "taskgate" {
+			taskGate = append(taskGate, cell)
+		}
+	}
+	for _, scale := range []string{"1k", "10k", "45k"} {
+		modes := modesByScale[scale]
+		if len(modes) != 3 || !modes["direct"] || !modes["provsql"] || !modes["taskgate"] {
+			return nil, fmt.Errorf("ProvSQL scale %s is not named by the exact direct/provsql/taskgate protocol matrix", scale)
+		}
+	}
+	if len(modesByScale) != 3 || len(taskGate) != 3 {
+		return nil, fmt.Errorf("ProvSQL protocol scale/mode matrix drifted: scales=%d taskgate=%d, want 3/3",
+			len(modesByScale), len(taskGate))
+	}
+	sort.Slice(taskGate, func(left, right int) bool {
+		return taskGate[left].String() < taskGate[right].String()
+	})
+	return taskGate, nil
+}
+
 // candidateFor turns one frozen cell into the plan and approved surface the
 // finalizer prepares from.
 //
@@ -594,6 +735,40 @@ func (contracts deploymentContractsV3) scaleCandidateForV3(cell finalv5contracts
 	return frozenOperationCandidateV3{
 		OperationID: operationID, ContractIdentity: contractIdentity,
 		ProfileID: scaleDeploymentProfileAlias, PathKind: pathKind,
+		Plan: plan, Grant: grant,
+	}, nil
+}
+
+// provSQLCandidateForV3 lowers one exact private nonce statement under the
+// public TaskGate coordinate it belongs to. The identity binds both sources:
+// public release/index bytes plus private file/section/key/query bytes.
+func (contracts deploymentContractsV3) provSQLCandidateForV3(cell finalv5contracts.CellIdentity,
+	bindingKey string, expected finalv5binding.BoundQueryExpectation,
+	deploymentBinding finalv5binding.Binding) (frozenOperationCandidateV3, error) {
+	var candidate frozenOperationCandidateV3
+	if cell.ExperimentID != "provsql" || cell.WorkloadID != "nonce-join-group" || cell.Mode != "taskgate" {
+		return candidate, fmt.Errorf("cell %s is not a ProvSQL TaskGate operation", cell)
+	}
+	provSQL := deploymentBinding.Section.ProvSQL
+	if err := finalv5binding.ValidateProvSQLBinding(provSQL); err != nil {
+		return candidate, err
+	}
+	if frozen, present := provSQL.TaskGate[bindingKey]; !present || frozen.SQL != expected.SQL {
+		return candidate, errors.New("the ProvSQL candidate is not the exact private binding entry")
+	}
+	plan, grant, err := contracts.operationMaterialV3(expected.SQL,
+		provSQL.Task.DataProducts, provSQL.Task.Columns, provSQL.Task.Scopes)
+	if err != nil {
+		return candidate, err
+	}
+	operationID, contractIdentity, err := provSQLOperationIdentityV3(
+		contracts.runtime, deploymentBinding, cell, bindingKey, expected.SQL)
+	if err != nil {
+		return candidate, err
+	}
+	return frozenOperationCandidateV3{
+		OperationID: operationID, ContractIdentity: contractIdentity, BindingKey: bindingKey,
+		ProfileID: provSQLDeploymentProfileAlias, PathKind: PathPairedNovel,
 		Plan: plan, Grant: grant,
 	}, nil
 }
@@ -774,6 +949,28 @@ func scaleOperationIdentityV3(runtime *finalv5contracts.Runtime, binding finalv5
 	return base.OperationID, fmt.Sprintf("%s:%s:binding-file=%s:binding-section=%s:%s",
 		runtime.ContractRelease(), runtime.IndexSHA256(), binding.FileSHA256,
 		binding.SectionSHA256, cell.String()), nil
+}
+
+// provSQLOperationIdentityV3 closes a public ProvSQL coordinate over one exact
+// private nonce query. File and section identities prevent a re-frozen binding
+// being attributed to this run; key and query identities prevent two variants
+// beneath the same public scale from being spliced after acceptance.
+func provSQLOperationIdentityV3(runtime *finalv5contracts.Runtime, binding finalv5binding.Binding,
+	cell finalv5contracts.CellIdentity, bindingKey, sql string) (string, string, error) {
+	if cell.ExperimentID != "provsql" || cell.WorkloadID != "nonce-join-group" || cell.Mode != "taskgate" {
+		return "", "", fmt.Errorf("cell %s is not a ProvSQL TaskGate operation", cell)
+	}
+	base, err := ArtifactOperationV3(runtime, cell)
+	if err != nil {
+		return "", "", err
+	}
+	if !validSHA256(binding.FileSHA256) || !validSHA256(binding.SectionSHA256) ||
+		strings.TrimSpace(bindingKey) == "" || strings.Contains(bindingKey, ":") || strings.TrimSpace(sql) == "" {
+		return "", "", errors.New("the private ProvSQL binding carries no exact file/section/key/query identity")
+	}
+	return base.OperationID, fmt.Sprintf("%s:%s:binding-file=%s:binding-section=%s:binding-key=%s:binding-query=%s:%s",
+		runtime.ContractRelease(), runtime.IndexSHA256(), binding.FileSHA256, binding.SectionSHA256,
+		bindingKey, sha256Hex([]byte(sql)), cell.String()), nil
 }
 
 // --------------------------------------------------------- the activated profile

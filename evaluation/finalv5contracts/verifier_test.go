@@ -1,6 +1,7 @@
 package finalv5contracts
 
 import (
+	"bytes"
 	"encoding/json"
 	"path/filepath"
 	"strings"
@@ -34,6 +35,61 @@ func TestStrictJSONRejectsDuplicateUnknownAndTrailingContent(t *testing.T) {
 		if err := decodeStrictJSON([]byte(input), &target); err == nil {
 			t.Fatalf("decodeStrictJSON accepted invalid input %s", input)
 		}
+	}
+}
+
+func TestWorkloadProtocolExpansionRejectsDuplicateAndIncompleteCells(t *testing.T) {
+	for name, input := range map[string]string{
+		"duplicate cell": `
+schema_version: 2
+profiles:
+  provsql:
+    workloads:
+      - id: nonce-join-group
+        scales: [1k, 1k]
+        modes: [taskgate]
+`,
+		"missing scales": `
+schema_version: 2
+profiles:
+  provsql:
+    workloads:
+      - id: nonce-join-group
+        scales: []
+        modes: [taskgate]
+`,
+		"empty mode": `
+schema_version: 2
+profiles:
+  provsql:
+    workloads:
+      - id: nonce-join-group
+        scales: [1k]
+        modes: [""]
+`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			protocol, err := decodeWorkloadProtocol(bytes.NewBufferString(input))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := expandProtocolProfile("provsql", protocol); err == nil {
+				t.Fatal("invalid protocol profile was accepted")
+			}
+		})
+	}
+}
+
+func TestWorkloadProtocolDecodeRejectsUnknownAndTrailingYAML(t *testing.T) {
+	for name, input := range map[string]string{
+		"unknown field":     "schema_version: 2\nprofiles: {}\nunknown: true\n",
+		"trailing document": "schema_version: 2\nprofiles: {}\n---\nschema_version: 2\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := decodeWorkloadProtocol(bytes.NewBufferString(input)); err == nil {
+				t.Fatal("invalid workload protocol was accepted")
+			}
+		})
 	}
 }
 

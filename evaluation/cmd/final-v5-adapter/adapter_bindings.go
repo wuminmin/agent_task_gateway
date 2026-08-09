@@ -270,17 +270,6 @@ func validateObserverRuntimeBinding() (string, error) {
 	return executable, nil
 }
 
-func captureBoundObserver(ctx context.Context, phase string) (experiment.ObserverSnapshot, error) {
-	if phase != "before" && phase != "after" {
-		return experiment.ObserverSnapshot{}, errors.New("observer phase must be before or after")
-	}
-	executable, err := validateObserverRuntimeBinding()
-	if err != nil {
-		return experiment.ObserverSnapshot{}, err
-	}
-	return experiment.RunObserver(ctx, []string{executable, "--phase", phase}, observerEnvironment())
-}
-
 // captureBoundObserverV2 runs the observer for one phase of one pre-registered
 // window.
 //

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"taskbound.local/agent-data-gateway/evaluation/internal/provsqlfixture"
+	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 )
 
 func validProvSQLValidationSample(t *testing.T, mode string) Sample {
@@ -34,13 +35,20 @@ func validProvSQLValidationSample(t *testing.T, mode string) Sample {
 		OrderPosition: positions[mode], RandomSeed: 20260801, PairID: "pair-1",
 		PairedSystemOrder: "direct,provsql,taskgate", RootGroupID: "root-1",
 		System: systems[mode], Mode: mode, WorkloadID: "nonce-join-group", Scale: "1k",
-		ClientAvailableMS: 1, ClientFullDrainMS: 3, PipelineMS: map[string]float64{"execute_and_derive": 3, "server_total": 3},
-		RowCount: provsqlfixture.ExpectedRows, ColumnCount: provsqlfixture.ExpectedColumns,
+		ClientAvailableMS: 1, ClientFullDrainMS: 3,
+		PipelineMS: map[string]float64{
+			"prepare": 0, "execute_and_derive": 3, "artifact_stage": 0,
+			"control_settlement": 0, "artifact_publication": 0,
+			"response_finalize": 0, "server_total": 3,
+		},
+		DiagnosticMS: map[string]float64{},
+		RowCount:     provsqlfixture.ExpectedRows, ColumnCount: provsqlfixture.ExpectedColumns,
 		ResultSHA256: resultSHA, PhysicalSQLSHA256: physical, LogicalSQLSHA256: sha256Hex([]byte(logical)),
 		Status: "pass", PublicationEligible: true,
 	}
 	evidence := &ProvSQLVerificationEvidence{
-		Version: "taskgate-final-v5-provsql-verification-v1", BindingSHA256: strings.Repeat("a", 64),
+		Version:           "taskgate-final-v5-provsql-verification-v1",
+		BindingFileSHA256: strings.Repeat("7", 64), BindingSHA256: strings.Repeat("a", 64),
 		FixtureVersion: provsqlfixture.Version, FixtureSQLSHA256: provsqlfixture.FixtureSQLSHA256(),
 		EnableSQLSHA256: provsqlfixture.EnableSQLSHA256(), DatasetSHA256: provsqlfixture.ExpectedDatasetSHA256(),
 		DatasetProbeSQLSHA256:         provsqlfixture.DatasetProbeSQLSHA256(),
@@ -77,6 +85,7 @@ func validProvSQLValidationSample(t *testing.T, mode string) Sample {
 	case "taskgate":
 		evidence.Boundary = "taskgate_released_parquet_v8"
 		evidence.TypedDrainFields, evidence.TypedDrainSHA256 = 12, resultSHA
+		evidence.FieldOIDs = []uint32{}
 		sample.ActualDependencyFacts, sample.DependencySetSHA256 = evidence.ExpectedDependencyFacts, evidence.ExpectedDependencySHA256
 		sample.GenerationBoundaryMS, sample.FullTaskGateMS = 2, sample.ClientFullDrainMS
 		businessBefore := BusinessSQLSnapshot{StatsResetUnixMicro: 100, Dealloc: 2, VisibleCalls: 10, CompanionCalls: 20}
@@ -89,33 +98,16 @@ func validProvSQLValidationSample(t *testing.T, mode string) Sample {
 			DependencySetSHA256: evidence.ExpectedDependencySHA256, DependencyCardinality: evidence.ExpectedDependencyFacts,
 			OutcomeSetSHA256: strings.Repeat("3", 64), OutcomeCardinality: 0,
 			RootObservationSetSHA256: strings.Repeat("4", 64), RootObservationCount: 1}
-		observerBefore := ObserverSnapshot{SchemaVersion: 1, MemoryScope: observerMemoryScope,
-			Phase: "before", RuntimeIdentitySHA256: strings.Repeat("5", 64), GatewayMemoryPeakBytes: 100,
-			GatewayCPUUsec: 10, GatewayNetworkRXBytes: 20, GatewayNetworkTXBytes: 30,
-			BusinessSQLQueries: 40, ControlWALBytes: 50, BusinessWALBytes: 60}
-		observerAfter := observerBefore
-		observerAfter.Phase = "after"
-		observerAfter.GatewayMemoryPeakBytes = 200
-		observerAfter.GatewayCPUUsec++
-		observerAfter.GatewayNetworkRXBytes += 2
-		observerAfter.GatewayNetworkTXBytes += 3
-		// Two targeted statements plus the fourteen controls a one-view profile
-		// derives over two governed transactions.
-		accounting := resultHeavyAccounting()
-		observerAfter.BusinessSQLQueries += accounting.ObserverTotalDelta
-		observerAfter.ControlWALBytes += 4
-		observerAfter.BusinessWALBytes += 5
 		evidence.BusinessBefore, evidence.BusinessAfter = &businessBefore, &businessAfter
 		evidence.RootBefore, evidence.RootAfter = &rootBefore, &rootAfter
-		evidence.ObserverBefore, evidence.ObserverAfter = &observerBefore, &observerAfter
 		sample.BusinessSQLDelta = 2
-		sample.ObserverAccounting = &accounting
 		sample.RootEpochBefore, sample.RootEpochAfter = rootBefore.Epoch, rootAfter.Epoch
 		sample.ReleaseSetSHA256, sample.OutcomeSetSHA256 = rootAfter.ReleaseSetSHA256, rootAfter.OutcomeSetSHA256
 		sample.RootSetSHA256Before, sample.RootSetSHA256After = rootLedgerSetSHA256(rootBefore), rootLedgerSetSHA256(rootAfter)
 		sample.GatewayMemoryPeakBytes = 200
 		sample.GatewayCPUUsecDelta, sample.GatewayNetworkRXDelta, sample.GatewayNetworkTXDelta = 1, 2, 3
 		sample.ControlWALBytesDelta, sample.BusinessWALBytesDelta = 4, 5
+		attachProvSQLV3ObservationFixture(t, &sample, evidence)
 	}
 	sample.ProvSQLVerification = evidence
 	return sample
@@ -128,6 +120,82 @@ func setProvSQLExternalSession(evidence *ProvSQLVerificationEvidence) {
 	evidence.MaxParallelWorkers = 0
 	evidence.ClientMinMessages, evidence.LogMinMessages = "error", "error"
 	evidence.UUIDOID = 2950
+}
+
+func attachProvSQLV3ObservationFixture(t *testing.T, sample *Sample,
+	evidence *ProvSQLVerificationEvidence) {
+	t.Helper()
+	plan := mustPairedNovel(t, 1)
+	planSHA256, err := plan.SHA256()
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := ObserverStructuralRow{StrictASTSHA256: strings.Repeat("e", 64),
+		TopLevel: true, Calls: plan.ExpectedTotal()}
+	before := snapshotOf(t, "before", nil)
+	after := snapshotOf(t, "after", []ObserverStructuralRow{row})
+	before.Resource.GatewayMemoryPeakBytes = 100
+	before.Resource.GatewayCPUUsec = 10
+	before.Resource.GatewayNetworkRXBytes = 20
+	before.Resource.GatewayNetworkTXBytes = 30
+	before.Resource.ControlWALBytes = 40
+	before.Resource.BusinessWALBytes = 50
+	after.Resource.GatewayMemoryPeakBytes = 200
+	after.Resource.GatewayCPUUsec = 11
+	after.Resource.GatewayNetworkRXBytes = 22
+	after.Resource.GatewayNetworkTXBytes = 33
+	after.Resource.ControlWALBytes = 44
+	after.Resource.BusinessWALBytes = 55
+	window := ObserverWindowV2{Before: before, After: after}
+	windowSHA256, err := window.SHA256()
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation := OperationIdentity{
+		OperationID:                sampleOperationIDV3(*sample),
+		PathKind:                   PathPairedNovel,
+		ExpectedSchemaDigest:       plan.ExpectedSchemaDigest,
+		AttestationFootprintSHA256: plan.AttestationFootprintSHA256,
+	}
+	operation.ContractIdentity = provSQLContractIdentityForTest(*sample, evidence)
+	classifierBinding, err := classifierBindingSHA256(operation, planSHA256,
+		before.ClassifierManifestSHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt := queryreceipt.QueryReceiptV1{Version: "fixture", RequestID: "provsql-attempt-a"}
+	receiptSHA256, err := queryreceipt.DocumentSHA256(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	accepted := FinalizationV3{
+		Operation: operation, Plan: plan, PlanSHA256: planSHA256,
+		ReceiptSHA256:            receiptSHA256,
+		ExpectedSchemaDigest:     plan.ExpectedSchemaDigest,
+		ExpectedSchemaEntries:    plan.ExpectedSchemaEntries,
+		ClassifierManifestSHA256: before.ClassifierManifestSHA256,
+		ClassifierBindingSHA256:  classifierBinding,
+		ObserverWindowID:         before.ObserverWindowID,
+		ObserverWindowSHA256:     windowSHA256,
+		InternalExpectation:      append([]InternalExpectation(nil), plan.InternalExpectation...),
+		Delta: ObservedDelta{
+			Total: plan.ExpectedTotal(), PerClass: plan.Expected(),
+			Internal: append([]InternalExpectation(nil), plan.InternalExpectation...),
+		},
+	}
+	evidence.ObserverWindow = &window
+	sample.ReceiptSHA256 = receiptSHA256
+	sample.BaselineVerification = &BaselineVerificationEvidence{Receipt: receipt}
+	sample.TaskGateAcceptanceV3 = &accepted
+}
+
+func provSQLContractIdentityForTest(sample Sample, evidence *ProvSQLVerificationEvidence) string {
+	operationID := sampleOperationIDV3(sample)
+	return "final-v5-contracts-v1.4:" + strings.Repeat("9", 64) +
+		":binding-file=" + evidence.BindingFileSHA256 +
+		":binding-section=" + evidence.BindingSHA256 +
+		":binding-key=" + sample.Scale + "/" + strconv.FormatInt(evidence.Nonce, 10) +
+		":binding-query=" + evidence.LogicalSQLSHA256 + ":" + operationID
 }
 
 func validProvSQLWarmupValidationSample(t *testing.T, mode string) Sample {
@@ -160,6 +228,11 @@ func validProvSQLWarmupValidationSample(t *testing.T, mode string) Sample {
 		provsqlfixture.Version, "execution-order-v2", sample.PairID, sample.PairedSystemOrder,
 		strconv.Itoa(sample.OrderPosition), mode, strconv.FormatInt(nonce, 10),
 	}, "\x00")))
+	if mode == "taskgate" {
+		sample.TaskGateAcceptanceV3.Operation.ContractIdentity =
+			provSQLContractIdentityForTest(sample, sample.ProvSQLVerification)
+		resealAcceptedClassifierForTest(t, sample.TaskGateAcceptanceV3)
+	}
 	return sample
 }
 
@@ -183,15 +256,29 @@ func cloneProvSQLValidationSample(source Sample) Sample {
 		value := *evidence.RootAfter
 		evidence.RootAfter = &value
 	}
-	if evidence.ObserverBefore != nil {
-		value := *evidence.ObserverBefore
-		evidence.ObserverBefore = &value
-	}
-	if evidence.ObserverAfter != nil {
-		value := *evidence.ObserverAfter
-		evidence.ObserverAfter = &value
+	if evidence.ObserverWindow != nil {
+		value := *evidence.ObserverWindow
+		value.Before.Structural = append([]ObserverStructuralRow(nil), value.Before.Structural...)
+		value.After.Structural = append([]ObserverStructuralRow(nil), value.After.Structural...)
+		evidence.ObserverWindow = &value
 	}
 	result.ProvSQLVerification = &evidence
+	if source.BaselineVerification != nil {
+		value := *source.BaselineVerification
+		result.BaselineVerification = &value
+	}
+	if source.TaskGateAcceptanceV3 != nil {
+		value := *source.TaskGateAcceptanceV3
+		value.Plan.InternalExpectation = append([]InternalExpectation(nil), value.Plan.InternalExpectation...)
+		value.InternalExpectation = append([]InternalExpectation(nil), value.InternalExpectation...)
+		value.Delta.PerClass = make(map[GatewayStatementClassV3]int64, len(source.TaskGateAcceptanceV3.Delta.PerClass))
+		for class, count := range source.TaskGateAcceptanceV3.Delta.PerClass {
+			value.Delta.PerClass[class] = count
+		}
+		value.Delta.Internal = append([]InternalExpectation(nil), value.Delta.Internal...)
+		value.Delta.Unexpected = append([]ObserverStructuralRow(nil), value.Delta.Unexpected...)
+		result.TaskGateAcceptanceV3 = &value
+	}
 	return result
 }
 
@@ -212,6 +299,7 @@ func TestProvSQLIndependentValidatorRejectsCriticalMutations(t *testing.T) {
 		"result oracle":   func(sample *Sample) { sample.ProvSQLVerification.ExpectedResultSHA256 = strings.Repeat("0", 64) },
 		"dependency":      func(sample *Sample) { sample.ProvSQLVerification.ExpectedDependencyFacts = 0 },
 		"typed drain":     func(sample *Sample) { sample.ProvSQLVerification.TypedDrainSHA256 = "bad" },
+		"binding file":    func(sample *Sample) { sample.ProvSQLVerification.BindingFileSHA256 = "bad" },
 		"binding":         func(sample *Sample) { sample.ProvSQLVerification.BindingSHA256 = "bad" },
 		"cache":           func(sample *Sample) { sample.ProvSQLVerification.CacheConditionSHA256 = strings.Repeat("0", 64) },
 		"order":           func(sample *Sample) { sample.ProvSQLVerification.ExecutionOrderSHA256 = strings.Repeat("0", 64) },
@@ -255,15 +343,35 @@ func TestProvSQLIndependentValidatorRejectsCriticalMutations(t *testing.T) {
 		"circuit leak":         func(sample *Sample) { sample.ProvSQLVerification.GatesAfter = 1 },
 		"missing SQL snapshot": func(sample *Sample) { sample.ProvSQLVerification.BusinessBefore = nil },
 		"targeted visible SQL": func(sample *Sample) { sample.ProvSQLVerification.BusinessAfter.VisibleCalls++ },
-		"observer total SQL": func(sample *Sample) {
-			sample.ProvSQLVerification.ObserverAfter.BusinessSQLQueries++
+		"missing observer window": func(sample *Sample) {
+			sample.ProvSQLVerification.ObserverWindow = nil
 		},
-		"observer identity": func(sample *Sample) {
-			sample.ProvSQLVerification.ObserverAfter.RuntimeIdentitySHA256 = strings.Repeat("6", 64)
+		"missing acceptance": func(sample *Sample) { sample.TaskGateAcceptanceV3 = nil },
+		"retained receipt": func(sample *Sample) {
+			sample.BaselineVerification.Receipt.RequestID = "another-attempt"
 		},
+		"accepted receipt": func(sample *Sample) {
+			sample.TaskGateAcceptanceV3.ReceiptSHA256 = strings.Repeat("6", 64)
+		},
+		"wrong path": func(sample *Sample) { sample.TaskGateAcceptanceV3.Operation.PathKind = PathSemanticReplay },
+		"classifier": func(sample *Sample) {
+			sample.TaskGateAcceptanceV3.ClassifierManifestSHA256 = strings.Repeat("6", 64)
+		},
+		"window identity": func(sample *Sample) {
+			sample.ProvSQLVerification.ObserverWindow.After.ObserverWindowID = strings.Repeat("6", 64)
+		},
+		"window total": func(sample *Sample) {
+			sample.ProvSQLVerification.ObserverWindow.After.Structural[0].Calls++
+			sample.ProvSQLVerification.ObserverWindow.After.Total++
+		},
+		"accepted delta":  func(sample *Sample) { sample.TaskGateAcceptanceV3.Delta.Total++ },
+		"resource":        func(sample *Sample) { sample.GatewayCPUUsecDelta++ },
 		"root transition": func(sample *Sample) { sample.ProvSQLVerification.RootAfter.Epoch++ },
-		"v3 acceptance hybrid": func(sample *Sample) {
-			sample.TaskGateAcceptanceV3 = &FinalizationV3{}
+		"legacy snapshot hybrid": func(sample *Sample) {
+			sample.ProvSQLVerification.ObserverBefore = &ObserverSnapshot{}
+		},
+		"legacy accounting hybrid": func(sample *Sample) {
+			sample.ObserverAccounting = &ObserverAccounting{}
 		},
 	} {
 		sample := cloneProvSQLValidationSample(taskgate)
@@ -279,6 +387,156 @@ func TestProvSQLIndependentValidatorRejectsCriticalMutations(t *testing.T) {
 	if err := ValidateProvSQLEvidence(directWithTaskGateEvidence); err == nil {
 		t.Fatal("direct arm accepted manufactured TaskGate runtime evidence")
 	}
+	directWithAcceptance := cloneProvSQLValidationSample(base)
+	directWithAcceptance.TaskGateAcceptanceV3 = &FinalizationV3{}
+	if err := ValidateProvSQLEvidence(directWithAcceptance); err == nil {
+		t.Fatal("direct arm accepted a manufactured v3 acceptance")
+	}
+	directWithLegacyAccounting := cloneProvSQLValidationSample(base)
+	directWithLegacyAccounting.ObserverAccounting = &ObserverAccounting{}
+	if err := ValidateProvSQLEvidence(directWithLegacyAccounting); err == nil {
+		t.Fatal("direct arm accepted legacy observer accounting")
+	}
+}
+
+func TestProvSQLAcceptanceClosesExactPrivateNonceContractIdentity(t *testing.T) {
+	base := validProvSQLValidationSample(t, "taskgate")
+	original := base.TaskGateAcceptanceV3.Operation.ContractIdentity
+	expectedKey := "binding-key=" + base.Scale + "/" +
+		strconv.FormatInt(base.ProvSQLVerification.Nonce, 10)
+	for name, mutate := range map[string]func(string) string{
+		"part count": func(identity string) string { return identity + ":extra" },
+		"release": func(identity string) string {
+			return strings.TrimPrefix(identity, "final-v5-contracts-v1.4")
+		},
+		"index": func(identity string) string {
+			return strings.Replace(identity, ":"+strings.Repeat("9", 64)+":binding-file=",
+				":bad:binding-file=", 1)
+		},
+		"binding file prefix": func(identity string) string {
+			return strings.Replace(identity, ":binding-file=", ":private-file=", 1)
+		},
+		"binding file": func(identity string) string {
+			return strings.Replace(identity, "binding-file="+strings.Repeat("7", 64),
+				"binding-file="+strings.Repeat("6", 64), 1)
+		},
+		"binding section prefix": func(identity string) string {
+			return strings.Replace(identity, ":binding-section=", ":private-section=", 1)
+		},
+		"binding section": func(identity string) string {
+			return strings.Replace(identity, "binding-section="+strings.Repeat("a", 64),
+				"binding-section="+strings.Repeat("6", 64), 1)
+		},
+		"binding key prefix": func(identity string) string {
+			return strings.Replace(identity, ":binding-key=", ":private-key=", 1)
+		},
+		"binding key": func(identity string) string {
+			return strings.Replace(identity, expectedKey,
+				"binding-key="+base.Scale+"/"+strconv.FormatInt(base.ProvSQLVerification.Nonce+1, 10), 1)
+		},
+		"binding query prefix": func(identity string) string {
+			return strings.Replace(identity, ":binding-query=", ":private-query=", 1)
+		},
+		"binding query": func(identity string) string {
+			return strings.Replace(identity, "binding-query="+base.ProvSQLVerification.LogicalSQLSHA256,
+				"binding-query="+strings.Repeat("6", 64), 1)
+		},
+		"operation": func(identity string) string {
+			return strings.TrimSuffix(identity, sampleOperationIDV3(base)) +
+				"provsql/nonce-join-group/10k/taskgate"
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			sample := cloneProvSQLValidationSample(base)
+			sample.TaskGateAcceptanceV3.Operation.ContractIdentity = mutate(original)
+			resealAcceptedClassifierForTest(t, sample.TaskGateAcceptanceV3)
+			if err := ValidateProvSQLEvidence(sample); err == nil {
+				t.Fatal("a private ProvSQL contract identity mutation survived retained validation")
+			}
+		})
+	}
+}
+
+func TestProvSQLV3AcceptanceIsWhitelistedOnlyForTheTaskGateArm(t *testing.T) {
+	taskgate := validProvSQLValidationSample(t, "taskgate")
+	if reasons, failed := validateExperimentEvidence(taskgate); failed {
+		t.Fatalf("valid ProvSQL TaskGate v3 evidence was rejected: %v", reasons)
+	}
+	direct := validProvSQLValidationSample(t, "direct")
+	direct.TaskGateAcceptanceV3 = taskgate.TaskGateAcceptanceV3
+	if reasons, failed := validateExperimentEvidence(direct); !failed ||
+		!containsReason(reasons, "outside an explicitly cut-over TaskGate path") {
+		t.Fatalf("direct ProvSQL arm with v3 acceptance reasons = %v, failed = %v", reasons, failed)
+	}
+}
+
+func TestProvSQLAcceptanceRefusesAnotherNonceFromTheSamePublicCell(t *testing.T) {
+	target := validProvSQLValidationSample(t, "taskgate")
+	donor := validProvSQLValidationSample(t, "taskgate")
+	retargetProvSQLMeasuredIteration(t, &donor, 2, "8")
+	if err := ValidateProvSQLEvidence(donor); err != nil {
+		t.Fatalf("valid donor nonce: %v", err)
+	}
+
+	spliced := cloneProvSQLValidationSample(target)
+	donor = cloneProvSQLValidationSample(donor)
+	spliced.TaskGateAcceptanceV3 = donor.TaskGateAcceptanceV3
+	spliced.ProvSQLVerification.ObserverWindow = donor.ProvSQLVerification.ObserverWindow
+	spliced.BaselineVerification = donor.BaselineVerification
+	spliced.ReceiptSHA256 = donor.ReceiptSHA256
+	if err := ValidateProvSQLEvidence(spliced); err == nil {
+		t.Fatal("one ProvSQL nonce accepted another nonce's coherent acceptance/window/receipt")
+	}
+}
+
+func retargetProvSQLMeasuredIteration(t *testing.T, sample *Sample, iteration int,
+	hexDigit string) {
+	t.Helper()
+	sample.Iteration = iteration
+	nonce, err := provsqlfixture.Nonce(sample.Scale, sample.ProcessReplicate, iteration, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nonceBinding, err := provsqlfixture.NonceBindingSHA256(sample.Scale,
+		sample.ProcessReplicate, iteration, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logical, err := provsqlfixture.LogicalSQL(sample.Scale, nonce)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logicalSHA256 := sha256Hex([]byte(logical))
+	sample.PhysicalSQLSHA256, sample.LogicalSQLSHA256 = logicalSHA256, logicalSHA256
+	evidence := sample.ProvSQLVerification
+	evidence.Nonce, evidence.NonceBindingSHA256 = nonce, nonceBinding
+	evidence.PhysicalSQLSHA256, evidence.LogicalSQLSHA256 = logicalSHA256, logicalSHA256
+	evidence.ExecutionOrderSHA256 = sha256Hex([]byte(strings.Join([]string{
+		provsqlfixture.Version, "execution-order-v2", sample.PairID, sample.PairedSystemOrder,
+		strconv.Itoa(sample.OrderPosition), sample.Mode, strconv.FormatInt(nonce, 10),
+	}, "\x00")))
+	sample.TaskGateAcceptanceV3.Operation.ContractIdentity =
+		provSQLContractIdentityForTest(*sample, evidence)
+	resealAcceptedClassifierForTest(t, sample.TaskGateAcceptanceV3)
+
+	receipt := sample.BaselineVerification.Receipt
+	receipt.RequestID = "provsql-attempt-" + hexDigit
+	receiptSHA256, err := queryreceipt.DocumentSHA256(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sample.BaselineVerification.Receipt = receipt
+	sample.ReceiptSHA256 = receiptSHA256
+	sample.TaskGateAcceptanceV3.ReceiptSHA256 = receiptSHA256
+	windowID := strings.Repeat(hexDigit, 64)
+	evidence.ObserverWindow.Before.ObserverWindowID = windowID
+	evidence.ObserverWindow.After.ObserverWindowID = windowID
+	windowSHA256, err := evidence.ObserverWindow.SHA256()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sample.TaskGateAcceptanceV3.ObserverWindowID = windowID
+	sample.TaskGateAcceptanceV3.ObserverWindowSHA256 = windowSHA256
 }
 
 func TestProvSQLWarmupUsesSameIndependentGateAndDisjointNonceDomain(t *testing.T) {
@@ -337,6 +595,13 @@ func TestProvSQLFinalizerCrossEvidenceRejectsPairAndSequenceMutations(t *testing
 		"direct": direct, "provsql": prov, "taskgate": &badTaskGate,
 	}}, sequences); !containsReason(reasons, "binding mismatch") {
 		t.Fatalf("nonce mismatch reasons = %v", reasons)
+	}
+	badBindingFile := *taskgate
+	badBindingFile.BindingFileSHA256 = strings.Repeat("f", 64)
+	if reasons := validateProvSQLCrossEvidence(map[string]map[string]*ProvSQLVerificationEvidence{"pair": {
+		"direct": direct, "provsql": prov, "taskgate": &badBindingFile,
+	}}, sequences); !containsReason(reasons, "binding mismatch") {
+		t.Fatalf("binding-file mismatch reasons = %v", reasons)
 	}
 	badSequence := append([]provSQLSequenceObservation(nil), sequences["deployment/provsql"]...)
 	badSequence[1].nonce = badSequence[0].nonce

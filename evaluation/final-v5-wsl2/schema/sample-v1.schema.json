@@ -1116,6 +1116,7 @@
           "required": [
             "version",
             "boundary",
+            "binding_file_sha256",
             "binding_sha256",
             "fixture_version",
             "fixture_sql_sha256",
@@ -1160,6 +1161,9 @@
               ]
             },
             "binding_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "binding_file_sha256": {
               "$ref": "#/$defs/sha256"
             },
             "fixture_version": {
@@ -1335,6 +1339,9 @@
               "type": "object"
             },
             "root_after": {
+              "type": "object"
+            },
+            "observer_window": {
               "type": "object"
             },
             "observer_before": {
@@ -2006,6 +2013,7 @@
           "aggregate_tokens",
           "artifact_bytes_after",
           "artifact_bytes_before",
+          "binding_file_sha256",
           "binding_sha256",
           "boundary",
           "business_after",
@@ -2036,6 +2044,7 @@
           "nonce",
           "nonce_binding_sha256",
           "observed_result_sha256",
+          "observer_window",
           "observer_after",
           "observer_before",
           "physical_sql_sha256",

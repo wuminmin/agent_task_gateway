@@ -3,6 +3,7 @@ package experiment
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,7 +11,9 @@ import (
 
 	"taskbound.local/agent-data-gateway/evaluation/finalv5contracts"
 	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5binding"
+	"taskbound.local/agent-data-gateway/evaluation/internal/provsqlfixture"
 	"taskbound.local/agent-data-gateway/internal/catalog"
+	"taskbound.local/agent-data-gateway/internal/sqllowering"
 	fixture "taskbound.local/agent-data-gateway/internal/testfixture/queryreceiptv10"
 )
 
@@ -515,6 +518,194 @@ func TestTheScaleBindingIdentityIsFrozenBeforeResolution(t *testing.T) {
 	if err := requireDeploymentBindingIdentityV3(
 		binding, binding.FileSHA256, strings.ToUpper(binding.SectionSHA256)); err == nil {
 		t.Fatal("a non-canonical private binding identity was accepted")
+	}
+}
+
+func provSQLBindingForResolverTest(t *testing.T) finalv5binding.Binding {
+	t.Helper()
+	task := finalv5binding.BoundTaskRequest{
+		Objective:    "synthetic resolver-only ProvSQL task",
+		DataProducts: []string{"provsql_orders", "provsql_lineitem", "provsql_nonce"},
+		Columns: map[string][]string{
+			"provsql_orders":   {"orderkey", "status", "partition_key"},
+			"provsql_lineitem": {"orderkey", "linenumber", "extendedprice", "partition_key"},
+			"provsql_nonce":    {"nonce_id", "partition_key"},
+		},
+		Scopes:            map[string][]string{"partition_key": {"1"}},
+		VisibleRelation:   "reporting.provsql_orders",
+		CompanionRelation: "taskgate_ordinal.provsql_orders_v1",
+	}
+	provSQL := &finalv5binding.ProvSQLBinding{
+		FixtureVersion: provsqlfixture.Version, FixtureSQLSHA256: provsqlfixture.FixtureSQLSHA256(),
+		EnableSQLSHA256: provsqlfixture.EnableSQLSHA256(), DatasetSHA256: provsqlfixture.ExpectedDatasetSHA256(),
+		DatasetProbeSQLSHA256:         provsqlfixture.DatasetProbeSQLSHA256(),
+		BusinessDatasetProbeSQLSHA256: provsqlfixture.BusinessDatasetProbeSQLSHA256(),
+		Task:                          task, TaskGate: map[string]finalv5binding.BoundQueryExpectation{},
+	}
+	for _, scale := range []string{"1k", "10k", "45k"} {
+		rows, err := provsqlfixture.ExpectedResultRows(scale)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resultSHA256, err := CanonicalResultHash(rows)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, phase := range []struct {
+			warmup bool
+			count  int
+		}{{warmup: true, count: 5}, {warmup: false, count: 30}} {
+			for iteration := 1; iteration <= phase.count; iteration++ {
+				nonce, err := provsqlfixture.Nonce(scale, 1, iteration, phase.warmup)
+				if err != nil {
+					t.Fatal(err)
+				}
+				logical, err := provsqlfixture.LogicalSQL(scale, nonce)
+				if err != nil {
+					t.Fatal(err)
+				}
+				key := finalv5binding.ProvSQLBindingKey(scale, nonce)
+				provSQL.TaskGate[key] = finalv5binding.BoundQueryExpectation{
+					SQL: logical, ExpectedRows: provsqlfixture.ExpectedRows,
+					ExpectedColumns: provsqlfixture.ExpectedColumns, ExpectedResultSHA256: resultSHA256,
+					DependencyFacts: int64(len(provSQL.TaskGate) + 1), DependencySetSHA256: sha256Hex([]byte(key)),
+					ExpectedVisibleCalls: 1, ExpectedCompanionCalls: 1,
+				}
+			}
+		}
+	}
+	return finalv5binding.Binding{
+		DatasetSHA256: strings.Repeat("5", 64), CatalogSHA256: strings.Repeat("6", 64),
+		FileSHA256: strings.Repeat("7", 64), SectionSHA256: strings.Repeat("a", 64),
+		Section: finalv5binding.Section{SchemaVersion: 1, ProvSQL: provSQL},
+	}
+}
+
+func provSQLCapableContractsForTest(t *testing.T) deploymentContractsV3 {
+	t.Helper()
+	contracts := deploymentContractsForTest(t)
+	catalogPath := filepath.Join(repositoryRootForDeployment(t), "config", "profiles", "provsql-nonce-join.catalog.yaml")
+	liveCatalog, err := catalog.Load(catalogPath)
+	if err != nil {
+		t.Fatalf("load the ProvSQL profile Catalog: %v", err)
+	}
+	digest, err := FileSHA256(catalogPath)
+	if err != nil {
+		t.Fatalf("digest the ProvSQL profile Catalog: %v", err)
+	}
+	contracts.catalog = liveCatalog
+	contracts.live.CatalogPath = catalogPath
+	contracts.live.CatalogSHA256 = digest
+	return contracts
+}
+
+// One public ProvSQL TaskGate cell intentionally covers 35 nonce-specific
+// statements. This synthetic, non-evidence binding proves the crossing
+// algorithm over a complete validated matrix; only bindingSource.load proves
+// the deployment's pinned private bytes. The opaque binding-key hint narrows
+// the descriptor set to exactly one private variant without supplying plan or
+// SQL authority; executable candidate construction remains on the production
+// lowering path tested separately below.
+func TestTheProvSQLResolverCrossesACompleteValidatedMatrix(t *testing.T) {
+	contracts := provSQLCapableContractsForTest(t)
+	binding := provSQLBindingForResolverTest(t)
+	variants, err := contracts.provSQLVariantsV3(FrozenContractSelectorV3{
+		ExperimentID: "provsql", WorkloadID: "nonce-join-group", Mode: "taskgate",
+	}, binding)
+	if err != nil {
+		t.Fatalf("cross every frozen ProvSQL TaskGate variant: %v", err)
+	}
+	if len(variants) != 105 {
+		t.Fatalf("the resolver crossed %d ProvSQL variants, want 105", len(variants))
+	}
+	perScale := map[string]int{}
+	previous := ""
+	for _, variant := range variants {
+		perScale[variant.Cell.Scale]++
+		operationID, contractIdentity, err := provSQLOperationIdentityV3(
+			contracts.runtime, binding, variant.Cell, variant.BindingKey, variant.Expected.SQL)
+		if err != nil {
+			t.Fatalf("name ProvSQL variant %s/%s: %v", variant.Cell, variant.BindingKey, err)
+		}
+		stableIdentity := operationID + "#" + variant.BindingKey
+		if previous != "" && stableIdentity <= previous {
+			t.Fatalf("ProvSQL candidates are not stably ordered: %q then %q", previous, stableIdentity)
+		}
+		previous = stableIdentity
+		for _, member := range []string{contracts.runtime.ContractRelease(), contracts.runtime.IndexSHA256(),
+			binding.FileSHA256, binding.SectionSHA256, "binding-key=" + variant.BindingKey,
+			"binding-query=" + sha256Hex([]byte(variant.Expected.SQL)), operationID} {
+			if !strings.Contains(contractIdentity, member) {
+				t.Errorf("candidate %s/%s contract identity omits %q",
+					operationID, variant.BindingKey, member)
+			}
+		}
+	}
+	for _, scale := range []string{"1k", "10k", "45k"} {
+		if perScale[scale] != 35 {
+			t.Fatalf("the resolver crossed %d ProvSQL variants at %s, want 35", perScale[scale], scale)
+		}
+	}
+
+	selector := FrozenContractSelectorV3{ExperimentID: "provsql", WorkloadID: "nonce-join-group",
+		Scale: "1k", Mode: "taskgate", BindingKey: finalv5binding.ProvSQLBindingKey("1k", 101)}
+	one, err := contracts.provSQLVariantsV3(selector, binding)
+	if err != nil {
+		t.Fatalf("select one exact ProvSQL nonce variant: %v", err)
+	}
+	if len(one) != 1 || one[0].Cell.String() != "provsql/nonce-join-group/1k/taskgate" ||
+		one[0].BindingKey != selector.BindingKey {
+		t.Fatalf("the exact selector resolved to %+v", one)
+	}
+
+	withoutKey, err := contracts.provSQLVariantsV3(FrozenContractSelectorV3{
+		ExperimentID: "provsql", WorkloadID: "nonce-join-group", Scale: "1k", Mode: "taskgate",
+	}, binding)
+	if err != nil || len(withoutKey) != 35 {
+		t.Fatalf("the public cell resolved to %d variants, want 35: %v", len(withoutKey), err)
+	}
+
+	for name, selector := range map[string]FrozenContractSelectorV3{
+		"wrong key":  {ExperimentID: "provsql", WorkloadID: "nonce-join-group", Scale: "1k", Mode: "taskgate", BindingKey: "1k/999"},
+		"direct arm": {ExperimentID: "provsql", WorkloadID: "nonce-join-group", Scale: "1k", Mode: "direct", BindingKey: finalv5binding.ProvSQLBindingKey("1k", 101)},
+		"native arm": {ExperimentID: "provsql", WorkloadID: "nonce-join-group", Scale: "1k", Mode: "provsql", BindingKey: finalv5binding.ProvSQLBindingKey("1k", 101)},
+	} {
+		resolved, err := contracts.provSQLVariantsV3(selector, binding)
+		if err != nil {
+			t.Fatalf("%s selector errored: %v", name, err)
+		}
+		if len(resolved) != 0 {
+			t.Fatalf("%s selector resolved %d candidates", name, len(resolved))
+		}
+	}
+}
+
+// The current SQL profile cannot materialize the exact frozen ProvSQL
+// operation because multi-product ORDER BY is unsupported. The resolver must
+// fail at the shared production lowering boundary, never strip the clause,
+// transcribe a plan, or substitute a synthetic query to make dormant wiring
+// look runnable.
+func TestTheCommittedProvSQLResolverFailsClosedOnUnsupportedMultiProductOrder(t *testing.T) {
+	contracts := provSQLCapableContractsForTest(t)
+	binding := provSQLBindingForResolverTest(t)
+	selector := FrozenContractSelectorV3{ExperimentID: "provsql", WorkloadID: "nonce-join-group",
+		Scale: "1k", Mode: "taskgate", BindingKey: finalv5binding.ProvSQLBindingKey("1k", 101)}
+	_, err := contracts.resolveProvSQLCandidatesV3(selector, binding)
+	var loweringError *sqllowering.Error
+	if !errors.As(err, &loweringError) || loweringError.Code != sqllowering.CodeNotLowerable ||
+		loweringError.Reason != "PAGINATION_UNSUPPORTED" {
+		t.Fatalf("the dormant ProvSQL resolver bypassed the production multi-product lowering boundary: %v", err)
+	}
+}
+
+func TestTheProvSQLResolverRefusesPrivateMatrixDrift(t *testing.T) {
+	contracts := provSQLCapableContractsForTest(t)
+	binding := provSQLBindingForResolverTest(t)
+	delete(binding.Section.ProvSQL.TaskGate, finalv5binding.ProvSQLBindingKey("1k", 101))
+	if _, err := contracts.resolveProvSQLCandidatesV3(FrozenContractSelectorV3{
+		ExperimentID: "provsql", WorkloadID: "nonce-join-group", Mode: "taskgate",
+	}, binding); err == nil || !strings.Contains(err.Error(), "private ProvSQL binding") {
+		t.Fatalf("incomplete private ProvSQL matrix was not refused: %v", err)
 	}
 }
 

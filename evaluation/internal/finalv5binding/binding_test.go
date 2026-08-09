@@ -246,6 +246,38 @@ func TestParseRejectsMissingAndExtraFrozenCells(t *testing.T) {
 	}
 }
 
+func TestValidateProvSQLBindingRequiresOneVisibleAndOneCompanionCall(t *testing.T) {
+	binding := completeTestProvSQL(t)
+	if err := ValidateProvSQLBinding(binding); err != nil {
+		t.Fatalf("exact one-visible/one-companion binding was rejected: %v", err)
+	}
+
+	key := ProvSQLBindingKey("1k", 1)
+	original := binding.TaskGate[key]
+	for _, test := range []struct {
+		name      string
+		visible   int64
+		companion int64
+	}{
+		{name: "missing visible", visible: 0, companion: 1},
+		{name: "extra visible", visible: 2, companion: 1},
+		{name: "missing companion", visible: 1, companion: 0},
+		{name: "extra companion", visible: 1, companion: 2},
+		{name: "nonzero total with wrong split", visible: 2, companion: 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			mutated := original
+			mutated.ExpectedVisibleCalls = test.visible
+			mutated.ExpectedCompanionCalls = test.companion
+			binding.TaskGate[key] = mutated
+			t.Cleanup(func() { binding.TaskGate[key] = original })
+			if err := ValidateProvSQLBinding(binding); err == nil {
+				t.Fatalf("visible=%d companion=%d was accepted", test.visible, test.companion)
+			}
+		})
+	}
+}
+
 func TestBoundSQLUsesPostgreSQLASTAndApprovedTaskGrant(t *testing.T) {
 	for _, sqlText := range []string{
 		"INSERT INTO result_heavy(column_01) VALUES (1)",
