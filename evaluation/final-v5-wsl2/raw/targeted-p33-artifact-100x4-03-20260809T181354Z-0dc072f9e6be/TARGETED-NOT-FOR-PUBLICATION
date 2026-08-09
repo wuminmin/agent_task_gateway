@@ -1,0 +1,16 @@
+publication_eligible=false
+capability_changing=false
+activation_support_changing=false
+formal_campaign=false
+pilot_kind=artifact_targeted
+run_id=p33-artifact-100x4-03
+commit=0dc072f9e6be8ba6792bcac9b11b7925224d9e44
+compose_project=taskgate-final-v5-deployment-01-cefaeccb753fb1891023
+profile_id=profile-a86cd4df5cad6e26
+scales=100x4
+attestation_qualification=evaluation/final-v5-wsl2/raw/diagnosis-attestation-footprint-qualification-p32-01-20260809T130103Z-f5fc9811eef8/attestation-footprint-v2.json
+postgresql_identity=evaluation/final-v5-wsl2/raw/diagnosis-attestation-footprint-qualification-p32-01-20260809T130103Z-f5fc9811eef8/postgresql-identity.json
+artifact_targeted_binding_path=/home/wmm/worktrees/taskgate-artifact-rerun/evaluation/final-v5-wsl2/raw/targeted-p33-artifact-100x4-03-20260809T181354Z-0dc072f9e6be/artifact-targeted-deployment-binding.json
+artifact_targeted_binding_sha256=a0fee13660160cc94f4ef65f413ebb47dd72a3234ceb55f5c88c33c2b30cea6d
+claim_scope=artifact_path_and_v3_observer_acceptance_only
+publication_factset_oracle_ready=false
