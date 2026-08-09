@@ -114,6 +114,19 @@ func TestRelationalOnlinePathAgainstPostgreSQL(t *testing.T) {
 	if len(groupedJoinObservation.Release) != 1 || len(groupedJoinObservation.Influence) <= len(groupedJoinObservation.Release) {
 		t.Fatalf("grouped join did not compose online annotations: release=%d dependency=%d", len(groupedJoinObservation.Release), len(groupedJoinObservation.Influence))
 	}
+	encodedOrderedGroupedJoin := join
+	encodedOrderedGroupedJoin.Columns = []string{"expense_detail.department"}
+	encodedOrderedGroupedJoin.Aggregates = []queryplan.Aggregate{{
+		Function: "sum", Column: "expense_detail.amount", Alias: "total",
+		ResultEncoding: queryplan.NumericTextResultEncoding,
+	}}
+	encodedOrderedGroupedJoin.GroupBy = []string{"expense_detail.department"}
+	encodedOrderedGroupedJoin.OrderBy = []queryplan.Order{{Column: "expense_detail.department", Direction: "DESC"}}
+	encodedOrderedObservation := executeRelationalPostgresObservation(t, ctx, connector, loaded, encodedOrderedGroupedJoin)
+	if len(encodedOrderedObservation.Release) == 0 || len(encodedOrderedObservation.Influence) <= len(encodedOrderedObservation.Release) {
+		t.Fatalf("encoded ordered grouped join did not derive PostgreSQL-backed annotations: release=%d dependency=%d",
+			len(encodedOrderedObservation.Release), len(encodedOrderedObservation.Influence))
+	}
 
 	union := queryplan.QueryPlan{From: &queryplan.From{UnionDistinct: &queryplan.UnionDistinct{
 		Role: "expense_summary", Columns: []string{"department", "month"},

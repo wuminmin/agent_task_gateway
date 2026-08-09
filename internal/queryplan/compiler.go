@@ -97,10 +97,16 @@ type UnionDistinct struct {
 }
 
 type Aggregate struct {
-	Function string `json:"function"`
-	Column   string `json:"column"`
-	Alias    string `json:"alias"`
+	Function       string `json:"function"`
+	Column         string `json:"column"`
+	Alias          string `json:"alias"`
+	ResultEncoding string `json:"result_encoding,omitempty"`
 }
+
+// NumericTextResultEncoding is the one non-identity aggregate presentation
+// admitted by the ordered grouped-join profile. It preserves an exact NUMERIC SUM's
+// mathematical exposure type while PostgreSQL emits its wire text form.
+const NumericTextResultEncoding = "postgresql-numeric-text-v1"
 
 type Filter struct {
 	Column string `json:"column"`
@@ -144,6 +150,9 @@ func Compile(plan QueryPlan, product Product) (string, error) {
 		selects = append(selects, quoteIdentifier(column))
 	}
 	for _, aggregate := range plan.Aggregates {
+		if aggregate.ResultEncoding != "" {
+			return "", errors.New("aggregate result casts are outside the single-product QueryPlan fragment")
+		}
 		fn := strings.ToLower(aggregate.Function)
 		if _, ok := product.AllowedAggregates[fn]; !ok || !safeIdentifier(fn) {
 			return "", fmt.Errorf("aggregate %q is not allowed", aggregate.Function)

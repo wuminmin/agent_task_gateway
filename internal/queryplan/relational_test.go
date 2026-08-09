@@ -142,6 +142,133 @@ func TestCompileRelationalJoinManyRejectsDisconnectedGraph(t *testing.T) {
 	}
 }
 
+func TestGroupedRelationalOrderAndResultEncodingAreBoundAtEveryCompilerLayer(t *testing.T) {
+	products := relationalTestProducts()
+	ordered := groupedOrderedRelationalPlan("DESC", NumericTextResultEncoding)
+	compiled, normal, err := CompileSemantic(ordered, products)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(compiled.VisibleSQL, `CAST(sum("detail"."amount") AS text) AS "total"`) ||
+		!strings.Contains(compiled.VisibleSQL, `ORDER BY "`+compiled.OutputAliases["summary.department"]+`" DESC`) {
+		t.Fatalf("ordered encoded visible SQL = %s", compiled.VisibleSQL)
+	}
+	if strings.Contains(compiled.ProvenanceSQL, " DESC") ||
+		!strings.Contains(compiled.ProvenanceSQL, `ORDER BY "summary"."department" ASC`) {
+		t.Fatalf("provenance order followed result delivery: %s", compiled.ProvenanceSQL)
+	}
+	if len(compiled.OrdinalProgram.Aggregates) != 1 ||
+		compiled.OrdinalProgram.Aggregates[0].SQLType != "numeric" ||
+		compiled.OrdinalProgram.Aggregates[0].ResultEncoding != NumericTextResultEncoding {
+		t.Fatalf("ordinal aggregate = %#v", compiled.OrdinalProgram.Aggregates)
+	}
+	if len(compiled.OrdinalProgram.Visible) != 2 ||
+		compiled.OrdinalProgram.Visible[1].ResultEncoding != NumericTextResultEncoding {
+		t.Fatalf("ordinal visible outputs = %#v", compiled.OrdinalProgram.Visible)
+	}
+
+	ascending := groupedOrderedRelationalPlan("ASC", NumericTextResultEncoding)
+	_, ascNormal, err := CompileSemantic(ascending, products)
+	if err != nil {
+		t.Fatal(err)
+	}
+	withoutOrder := groupedOrderedRelationalPlan("", "")
+	withoutOrder.OrderBy = nil
+	_, unorderedNormal, err := CompileSemantic(withoutOrder, products)
+	if err != nil {
+		t.Fatal(err)
+	}
+	withoutEncoding := groupedOrderedRelationalPlan("DESC", "")
+	withoutEncodingCompilation, unencodedNormal, err := CompileSemantic(withoutEncoding, products)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for label, digest := range map[string]string{
+		"ascending": ascNormal.SHA256, "unordered": unorderedNormal.SHA256, "unencoded": unencodedNormal.SHA256,
+	} {
+		if digest == normal.SHA256 {
+			t.Fatalf("%s semantic identity collided with ordered encoded plan: %s", label, digest)
+		}
+	}
+	if unorderedNormal.SHA256 == unencodedNormal.SHA256 {
+		t.Fatalf("relational ORDER BY did not move semantic identity: %s", unorderedNormal.SHA256)
+	}
+	encodedProgramSHA, err := compiled.OrdinalProgram.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	unencodedProgramSHA, err := withoutEncodingCompilation.OrdinalProgram.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if encodedProgramSHA == unencodedProgramSHA {
+		t.Fatalf("ordinal program ignored result encoding: %s", encodedProgramSHA)
+	}
+	malformedProgram := compiled.OrdinalProgram
+	malformedProgram.Visible = append([]OrdinalVisibleSpec(nil), compiled.OrdinalProgram.Visible...)
+	malformedProgram.Visible[0].ResultEncoding = NumericTextResultEncoding
+	if _, err := malformedProgram.Digest(); err == nil {
+		t.Fatal("ordinal program accepted result encoding on a non-aggregate output")
+	}
+
+	renamed := groupedOrderedRelationalPlan("DESC", NumericTextResultEncoding)
+	renamed.Aggregates[0].Alias = "renamed_total"
+	_, renamedNormal, err := CompileSemantic(renamed, products)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if renamedNormal.SHA256 != normal.SHA256 {
+		t.Fatalf("display alias changed semantic identity: %s != %s", renamedNormal.SHA256, normal.SHA256)
+	}
+}
+
+func groupedOrderedRelationalPlan(direction, encoding string) QueryPlan {
+	return QueryPlan{
+		From: &From{Join: &Join{
+			Left: Scan{Product: "detail", Role: "detail"}, Right: Scan{Product: "summary", Role: "summary"},
+			On: []JoinPredicate{{Left: "detail.department", Right: "summary.department"}},
+		}},
+		Columns: []string{"summary.department"},
+		Aggregates: []Aggregate{{Function: "sum", Column: "detail.amount", Alias: "total",
+			ResultEncoding: encoding}},
+		GroupBy: []string{"summary.department"},
+		OrderBy: []Order{{Column: "summary.department", Direction: direction}},
+	}
+}
+
+func TestRelationalOrderAndResultEncodingRejectBroaderShapes(t *testing.T) {
+	products := relationalTestProducts()
+	products["detail"].AllowedAggregates["min"] = struct{}{}
+	ungroupedEncoding := groupedOrderedRelationalPlan("", NumericTextResultEncoding)
+	ungroupedEncoding.GroupBy = nil
+	ungroupedEncoding.OrderBy = nil
+	groupedUnorderedEncoding := groupedOrderedRelationalPlan("", NumericTextResultEncoding)
+	groupedUnorderedEncoding.OrderBy = nil
+	minEncoding := groupedOrderedRelationalPlan("ASC", NumericTextResultEncoding)
+	minEncoding.Aggregates[0].Function = "min"
+	groupedUnionOrder := QueryPlan{
+		From: &From{UnionDistinct: &UnionDistinct{
+			Role: "summary", Columns: []string{"department", "month"},
+			Left:  Scan{Product: "summary", Role: "left_branch"},
+			Right: Scan{Product: "summary", Role: "right_branch"},
+		}},
+		Columns: []string{"summary.department"}, Aggregates: []Aggregate{{Function: "count", Column: "*", Alias: "members"}},
+		GroupBy: []string{"summary.department"}, OrderBy: []Order{{Column: "summary.department", Direction: "ASC"}},
+	}
+	for name, plan := range map[string]QueryPlan{
+		"ungrouped encoding":         ungroupedEncoding,
+		"grouped unordered encoding": groupedUnorderedEncoding,
+		"min encoding":               minEncoding,
+		"union order":                groupedUnionOrder,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := CompileRelational(plan, products); err == nil {
+				t.Fatal("broader relational presentation shape compiled")
+			}
+		})
+	}
+}
+
 func relationalTestProducts() map[string]Product {
 	textCollation := map[string]string{"department": "C", "month": "C", "receipt_no": "C", "region_code": "C"}
 	versions := map[string]string{"department": "builtin", "month": "builtin", "receipt_no": "builtin", "region_code": "builtin"}

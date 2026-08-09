@@ -471,11 +471,9 @@ type provSQLVariantV3 struct {
 }
 
 // provSQLVariantsV3 performs the public/private matrix crossing before any
-// executable material is lowered. Keeping this step explicit matters while the
-// public profile is dormant: the finalizer can prove that all 105 reviewed
-// variants are present without manufacturing a plan for SQL the running
-// Gateway cannot yet lower. resolveProvSQLCandidatesV3 remains the only path
-// that turns a selected variant into executable candidate material.
+// executable material is lowered. Keeping this step explicit proves that all
+// 105 reviewed variants are present before resolveProvSQLCandidatesV3, the
+// only path that turns a selected variant into executable candidate material.
 func (contracts deploymentContractsV3) provSQLVariantsV3(selector FrozenContractSelectorV3,
 	binding finalv5binding.Binding) ([]provSQLVariantV3, error) {
 	cells, err := contracts.provSQLTaskGateCellsV3(binding)

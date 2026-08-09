@@ -3,7 +3,6 @@ package experiment
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,7 +12,8 @@ import (
 	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5binding"
 	"taskbound.local/agent-data-gateway/evaluation/internal/provsqlfixture"
 	"taskbound.local/agent-data-gateway/internal/catalog"
-	"taskbound.local/agent-data-gateway/internal/sqllowering"
+	"taskbound.local/agent-data-gateway/internal/physicalquery"
+	"taskbound.local/agent-data-gateway/internal/queryplan"
 	fixture "taskbound.local/agent-data-gateway/internal/testfixture/queryreceiptv10"
 )
 
@@ -680,21 +680,146 @@ func TestTheProvSQLResolverCrossesACompleteValidatedMatrix(t *testing.T) {
 	}
 }
 
-// The current SQL profile cannot materialize the exact frozen ProvSQL
-// operation because multi-product ORDER BY is unsupported. The resolver must
-// fail at the shared production lowering boundary, never strip the clause,
-// transcribe a plan, or substitute a synthetic query to make dormant wiring
-// look runnable.
-func TestTheCommittedProvSQLResolverFailsClosedOnUnsupportedMultiProductOrder(t *testing.T) {
+// This synthetic, non-evidence binding matrix proves that production resolution
+// lowers every reviewed fixture statement without modifying its frozen input
+// bytes. The
+// only non-identity presentation in that SQL is NUMERIC SUM as text; the bigint
+// casts are identities and therefore disappear from the canonical plan.
+// Preparation then has to reproduce the encoded, ordered visible statement
+// while retaining an independently ordered companion.
+func TestTheProductionProvSQLResolverPreparesEveryValidatedExactFixtureVariant(t *testing.T) {
 	contracts := provSQLCapableContractsForTest(t)
 	binding := provSQLBindingForResolverTest(t)
-	selector := FrozenContractSelectorV3{ExperimentID: "provsql", WorkloadID: "nonce-join-group",
-		Scale: "1k", Mode: "taskgate", BindingKey: finalv5binding.ProvSQLBindingKey("1k", 101)}
-	_, err := contracts.resolveProvSQLCandidatesV3(selector, binding)
-	var loweringError *sqllowering.Error
-	if !errors.As(err, &loweringError) || loweringError.Code != sqllowering.CodeNotLowerable ||
-		loweringError.Reason != "PAGINATION_UNSUPPORTED" {
-		t.Fatalf("the dormant ProvSQL resolver bypassed the production multi-product lowering boundary: %v", err)
+	frozenSQL := make(map[string]string, 105)
+	for _, scale := range []string{"1k", "10k", "45k"} {
+		for _, phase := range []struct {
+			warmup bool
+			count  int
+		}{{warmup: true, count: 5}, {warmup: false, count: 30}} {
+			for iteration := 1; iteration <= phase.count; iteration++ {
+				nonce, err := provsqlfixture.Nonce(scale, 1, iteration, phase.warmup)
+				if err != nil {
+					t.Fatalf("name frozen %s variant %d: %v", scale, iteration, err)
+				}
+				logical, err := provsqlfixture.LogicalSQL(scale, nonce)
+				if err != nil {
+					t.Fatalf("render frozen %s/%d SQL: %v", scale, nonce, err)
+				}
+				key := finalv5binding.ProvSQLBindingKey(scale, nonce)
+				if got := binding.Section.ProvSQL.TaskGate[key].SQL; got != logical {
+					t.Fatalf("private binding SQL %s differs from the frozen fixture", key)
+				}
+				frozenSQL[key] = logical
+			}
+		}
+	}
+
+	candidates, err := contracts.resolveProvSQLCandidatesV3(FrozenContractSelectorV3{
+		ExperimentID: "provsql", WorkloadID: "nonce-join-group", Mode: "taskgate",
+	}, binding)
+	if err != nil {
+		t.Fatalf("resolve every exact ProvSQL candidate through production lowering: %v", err)
+	}
+	if len(candidates) != len(frozenSQL) {
+		t.Fatalf("production resolution returned %d candidates, want %d", len(candidates), len(frozenSQL))
+	}
+	queryProducts := make(map[string]queryplan.Product, len(binding.Section.ProvSQL.Task.DataProducts))
+	for _, productID := range binding.Section.ProvSQL.Task.DataProducts {
+		product, present := contracts.catalog.LookupProduct(productID)
+		if !present {
+			t.Fatalf("live Catalog omits frozen Product %q", productID)
+		}
+		approved := make(map[string]struct{}, len(binding.Section.ProvSQL.Task.Columns[productID]))
+		for _, column := range binding.Section.ProvSQL.Task.Columns[productID] {
+			approved[column] = struct{}{}
+		}
+		queryProducts[productID] = physicalquery.QueryProductFromCatalog(product, approved)
+	}
+	profile := profileMaterialV3{
+		CatalogPath: contracts.live.CatalogPath, SnapshotArtifactDir: retainedSnapshotArtifacts(t),
+	}
+	seen := make(map[string]bool, len(candidates))
+	for _, candidate := range candidates {
+		exactSQL, present := frozenSQL[candidate.BindingKey]
+		if !present || seen[candidate.BindingKey] {
+			t.Fatalf("production resolution returned invalid or duplicate binding key %q", candidate.BindingKey)
+		}
+		seen[candidate.BindingKey] = true
+		if got := binding.Section.ProvSQL.TaskGate[candidate.BindingKey].SQL; got != exactSQL {
+			t.Fatalf("production resolution changed frozen binding SQL %s", candidate.BindingKey)
+		}
+
+		plan := candidate.Plan
+		if len(plan.Columns) != 1 || plan.Columns[0] != "provsql_orders.status" ||
+			len(plan.GroupBy) != 1 || plan.GroupBy[0] != plan.Columns[0] ||
+			len(plan.OrderBy) != 1 || plan.OrderBy[0].Column != plan.GroupBy[0] ||
+			plan.OrderBy[0].Direction != "ASC" {
+			t.Fatalf("candidate %s lost its complete grouped order: columns=%v groups=%v order=%v",
+				candidate.BindingKey, plan.Columns, plan.GroupBy, plan.OrderBy)
+		}
+		if len(plan.Aggregates) != 3 {
+			t.Fatalf("candidate %s has aggregates %#v", candidate.BindingKey, plan.Aggregates)
+		}
+		wantAggregates := map[string]struct {
+			function, column, encoding string
+		}{
+			"price":   {"sum", "provsql_lineitem.extendedprice", queryplan.NumericTextResultEncoding},
+			"lines":   {"sum", "provsql_lineitem.linenumber", ""},
+			"members": {"count", "*", ""},
+		}
+		encoded := 0
+		for _, aggregate := range plan.Aggregates {
+			want, present := wantAggregates[aggregate.Alias]
+			if !present || aggregate.Function != want.function || aggregate.Column != want.column ||
+				aggregate.ResultEncoding != want.encoding {
+				t.Fatalf("candidate %s retained an invalid aggregate cast: %#v", candidate.BindingKey, aggregate)
+			}
+			if aggregate.ResultEncoding != "" {
+				encoded++
+			}
+		}
+		if encoded != 1 {
+			t.Fatalf("candidate %s binds %d result encodings, want only numeric SUM", candidate.BindingKey, encoded)
+		}
+		compiled, err := queryplan.CompileRelational(plan, queryProducts)
+		if err != nil {
+			t.Fatalf("compile exact candidate %s: %v", candidate.BindingKey, err)
+		}
+		if !strings.Contains(compiled.VisibleSQL, `CAST(sum("provsql_lineitem"."extendedprice") AS text)`) ||
+			!strings.Contains(compiled.VisibleSQL, " ORDER BY ") || !strings.Contains(compiled.VisibleSQL, " ASC") {
+			t.Fatalf("candidate %s compiled visible SQL lost its text encoding or grouped order: %s",
+				candidate.BindingKey, compiled.VisibleSQL)
+		}
+
+		visible, companion, err := prepareNominalStatementsV3(
+			frozenOperationMaterialV3ForCandidate(candidate, profile))
+		if err != nil {
+			t.Fatalf("prepare exact candidate %s through physicalquery: %v", candidate.BindingKey, err)
+		}
+		if !strings.Contains(visible, `sum(provsql_lineitem.extendedprice)::text`) ||
+			!strings.Contains(visible, " ORDER BY ") || !strings.Contains(visible, " ASC") {
+			t.Fatalf("candidate %s prepared visible SQL lost its text encoding or grouped order: %s",
+				candidate.BindingKey, visible)
+		}
+		for _, erased := range []string{
+			`provsql_orders.status::bigint`,
+			`sum(provsql_lineitem.linenumber)::bigint`,
+			`count(*)::bigint`,
+		} {
+			if strings.Contains(visible, erased) {
+				t.Fatalf("candidate %s retained identity cast %q: %s", candidate.BindingKey, erased, visible)
+			}
+		}
+		if companion == "" || strings.Contains(companion, " DESC") ||
+			!strings.Contains(companion, "ORDER BY provsql_orders.status ASC, "+
+				"provsql_lineitem.orderkey ASC, provsql_lineitem.linenumber ASC, "+
+				"provsql_nonce.nonce_id ASC, provsql_orders.orderkey ASC") {
+			t.Fatalf("candidate %s companion lost its independent canonical order: %s",
+				candidate.BindingKey, companion)
+		}
+	}
+	if len(seen) != len(frozenSQL) {
+		t.Fatalf("production resolution prepared %d unique frozen variants, want %d", len(seen), len(frozenSQL))
 	}
 }
 

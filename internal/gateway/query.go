@@ -183,6 +183,9 @@ func queryPlanSemanticColumns(plan queryplan.QueryPlan) []string {
 	occurrences := make(map[string]int, len(plan.Aggregates))
 	for _, aggregate := range plan.Aggregates {
 		expression := strings.ToLower(strings.TrimSpace(aggregate.Function)) + "(" + aggregate.Column + ")"
+		if aggregate.ResultEncoding != "" {
+			expression += "@" + aggregate.ResultEncoding
+		}
 		occurrence := occurrences[expression]
 		occurrences[expression] = occurrence + 1
 		columns = append(columns, "aggregate:"+expression+"#"+strconv.Itoa(occurrence))
@@ -534,6 +537,12 @@ func (s *Service) executePlan(ctx context.Context, principal mcp.Principal, raw 
 	}
 	if err := decodeArgs(raw, &args); err != nil {
 		return nil, err
+	}
+	for _, aggregate := range args.Plan.Aggregates {
+		if aggregate.ResultEncoding != "" {
+			return nil, &mcp.ToolError{Code: apierr.CodeInvalidRequest,
+				Message: "result_encoding 仅由 query_sql 的受审 SQL lowering 生成，execute_plan 不接受该字段"}
+		}
 	}
 	if args.OutputFormat != "" && args.OutputFormat != "json" && args.OutputFormat != "table" {
 		return nil, &mcp.ToolError{Code: apierr.CodeInvalidRequest, Message: "output_format 仅支持 json 或 table"}

@@ -105,8 +105,8 @@ func (l *lowerer) lowerSelect(statement *pg_query.SelectStmt) (queryplan.QueryPl
 		return queryplan.QueryPlan{}, reject(CodeNotLowerable, "FROM_REQUIRED", "A reporting query requires an approved data product.", "FROM", -1, "", "Add one approved product to FROM.")
 	}
 	l.multi = len(l.sources) > 1
-	if l.multi && (len(statement.GetSortClause()) != 0 || statement.GetLimitCount() != nil || statement.GetLimitOffset() != nil) {
-		return queryplan.QueryPlan{}, reject(CodeNotLowerable, "PAGINATION_UNSUPPORTED", "ORDER BY, LIMIT, and OFFSET are outside the multi-product exposure-accounted SQL profile.", "ORDER BY", -1, "", "Remove pagination or query an approved bounded reporting product.")
+	if l.multi && (statement.GetLimitCount() != nil || statement.GetLimitOffset() != nil) {
+		return queryplan.QueryPlan{}, reject(CodeNotLowerable, "PAGINATION_UNSUPPORTED", "LIMIT and OFFSET are outside the multi-product exposure-accounted SQL profile.", "LIMIT", -1, "", "Remove pagination or query an approved bounded reporting product.")
 	}
 
 	var graph JoinGraph
@@ -134,10 +134,22 @@ func (l *lowerer) lowerSelect(statement *pg_query.SelectStmt) (queryplan.QueryPl
 		if target == nil || len(target.GetIndirection()) != 0 {
 			return queryplan.QueryPlan{}, reject(CodeNotLowerable, "PROJECTION_EXPRESSION_UNSUPPORTED", "A projection must be an approved column or an approved aggregate.", "SELECT", nodeLocation(targetNode), "", "Project a column directly or use COUNT, SUM, MIN, or MAX.")
 		}
-		if columnRef := target.GetVal().GetColumnRef(); columnRef != nil {
+		value, resultCast, castErr := lowerProjectionCast(target.GetVal())
+		if castErr != nil {
+			return queryplan.QueryPlan{}, castErr
+		}
+		if columnRef := value.GetColumnRef(); columnRef != nil {
 			column, resolveErr := l.resolveColumn(columnRef, "SELECT")
 			if resolveErr != nil {
 				return queryplan.QueryPlan{}, resolveErr
+			}
+			if resultCast != "" {
+				naturalType, typeErr := exposure.CanonicalSQLTypeV2(l.sources[column.Source].Product.ColumnTypes[column.Column])
+				if typeErr != nil || resultCast != naturalType {
+					return queryplan.QueryPlan{}, reject(CodeNotLowerable, "PROJECTION_CAST_UNSUPPORTED",
+						"A projected column may carry only an identity cast.", "SELECT", target.GetLocation(),
+						l.sources[column.Source].Product.Name, "Remove the cast or use the column's approved Catalog type.")
+				}
 			}
 			l.projectionOrder = append(l.projectionOrder, projectionSlot{Index: len(plan.Columns)})
 			plan.Columns = append(plan.Columns, l.planColumn(column))
@@ -148,13 +160,26 @@ func (l *lowerer) lowerSelect(statement *pg_query.SelectStmt) (queryplan.QueryPl
 			l.displayColumns = append(l.displayColumns, display)
 			continue
 		}
-		function := target.GetVal().GetFuncCall()
+		function := value.GetFuncCall()
 		if function == nil {
 			return queryplan.QueryPlan{}, reject(CodeNotLowerable, "PROJECTION_EXPRESSION_UNSUPPORTED", "A projection must be an approved column or an approved aggregate.", "SELECT", target.GetLocation(), "", "Project a column directly or use COUNT, SUM, MIN, or MAX.")
 		}
 		aggregate, aggregateErr := l.lowerAggregate(function, target)
 		if aggregateErr != nil {
 			return queryplan.QueryPlan{}, aggregateErr
+		}
+		if resultCast != "" {
+			naturalType := l.aggregateOutputType(aggregate)
+			switch {
+			case naturalType == resultCast:
+				// Identity casts do not change the canonical plan or emitted type.
+			case l.multi && strings.EqualFold(aggregate.Function, "sum") && naturalType == "numeric" && resultCast == "text":
+				aggregate.ResultEncoding = queryplan.NumericTextResultEncoding
+			default:
+				return queryplan.QueryPlan{}, reject(CodeNotLowerable, "PROJECTION_CAST_UNSUPPORTED",
+					"The reporting profile admits only identity casts and PostgreSQL wire text for an exact NUMERIC aggregate in an ordered grouped relational query.",
+					"SELECT", target.GetLocation(), "", "Remove the cast or use the closed grouped relational result-encoding profile.")
+			}
 		}
 		l.projectionOrder = append(l.projectionOrder, projectionSlot{Aggregate: true, Index: len(plan.Aggregates)})
 		plan.Aggregates = append(plan.Aggregates, aggregate)
@@ -180,10 +205,13 @@ func (l *lowerer) lowerSelect(statement *pg_query.SelectStmt) (queryplan.QueryPl
 		}
 		plan.GroupBy = append(plan.GroupBy, l.planColumn(column))
 	}
-	if !l.multi {
-		if paginationErr := l.lowerSinglePagination(statement, &plan); paginationErr != nil {
-			return queryplan.QueryPlan{}, paginationErr
-		}
+	if hasResultEncoding(plan.Aggregates) && len(plan.GroupBy) == 0 {
+		return queryplan.QueryPlan{}, reject(CodeNotLowerable, "PROJECTION_CAST_UNSUPPORTED",
+			"PostgreSQL wire text is limited to an exact NUMERIC SUM in an ordered grouped joined query.",
+			"GROUP BY", -1, "", "Group by the complete selected result key or remove the cast.")
+	}
+	if paginationErr := l.lowerPagination(statement, &plan); paginationErr != nil {
+		return queryplan.QueryPlan{}, paginationErr
 	}
 
 	if l.multi {
@@ -395,7 +423,10 @@ func sourceInRange(source, start, end int) bool {
 }
 
 func (l *lowerer) lowerAggregate(function *pg_query.FuncCall, target *pg_query.ResTarget) (queryplan.Aggregate, *Error) {
-	name := strings.ToLower(operatorName(function.GetFuncname()))
+	// pg_query has already folded unquoted identifiers to lower case. Preserve
+	// the returned spelling here so a quoted lookalike such as "SUM" cannot be
+	// reinterpreted as PostgreSQL's built-in sum aggregate.
+	name := operatorName(function.GetFuncname())
 	if name != "count" && name != "sum" && name != "min" && name != "max" {
 		return queryplan.Aggregate{}, reject(CodeNotLowerable, "AGGREGATE_UNSUPPORTED", fmt.Sprintf("Aggregate %q is outside the reporting SQL profile.", name), "SELECT", function.GetLocation(), "", "Use COUNT, SUM, MIN, or MAX when approved by the Catalog.")
 	}
@@ -632,7 +663,7 @@ func (l *lowerer) planColumn(column resolvedColumn) string {
 	return column.Column
 }
 
-func (l *lowerer) lowerSinglePagination(statement *pg_query.SelectStmt, plan *queryplan.QueryPlan) *Error {
+func (l *lowerer) lowerPagination(statement *pg_query.SelectStmt, plan *queryplan.QueryPlan) *Error {
 	if statement.GetLimitOption() == pg_query.LimitOption_LIMIT_OPTION_WITH_TIES {
 		return reject(CodeNotLowerable, "FETCH_WITH_TIES_UNSUPPORTED", "FETCH ... WITH TIES cannot be represented by QueryPlan pagination.", "LIMIT", -1, "", "Use LIMIT with a positive integer and no WITH TIES modifier.")
 	}
@@ -677,10 +708,11 @@ func (l *lowerer) lowerSinglePagination(statement *pg_query.SelectStmt, plan *qu
 		if resolveErr != nil {
 			return resolveErr
 		}
-		if _, selected := selectedColumns[column.Column]; !selected {
+		planColumn := l.planColumn(column)
+		if _, selected := selectedColumns[planColumn]; !selected {
 			return reject(CodeNotLowerable, "ORDER_FIELD_NOT_SELECTED", fmt.Sprintf("ORDER BY column %q is not selected.", column.Column), "ORDER BY", reference.GetLocation(), l.sources[column.Source].Product.Name, "Add the column to SELECT or order by a selected aggregate alias.")
 		}
-		plan.OrderBy = append(plan.OrderBy, queryplan.Order{Column: column.Column, Direction: direction})
+		plan.OrderBy = append(plan.OrderBy, queryplan.Order{Column: planColumn, Direction: direction})
 	}
 
 	if statement.GetLimitCount() != nil {
@@ -701,6 +733,80 @@ func (l *lowerer) lowerSinglePagination(statement *pg_query.SelectStmt, plan *qu
 		plan.Offset = offset
 	}
 	return nil
+}
+
+func lowerProjectionCast(node *pg_query.Node) (*pg_query.Node, string, *Error) {
+	if node == nil || node.GetTypeCast() == nil {
+		return node, "", nil
+	}
+	cast := node.GetTypeCast()
+	typeName := cast.GetTypeName()
+	if typeName == nil || typeName.GetSetof() || typeName.GetPctType() ||
+		len(typeName.GetTypmods()) != 0 || len(typeName.GetArrayBounds()) != 0 || cast.GetArg() == nil ||
+		cast.GetArg().GetTypeCast() != nil {
+		return nil, "", reject(CodeNotLowerable, "PROJECTION_CAST_UNSUPPORTED",
+			"Projection casts must name one unmodified pg_catalog scalar type and cannot be nested.",
+			"SELECT", nodeLocation(node), "", "Use a direct scalar cast with no type modifiers.")
+	}
+	parts := make([]string, 0, len(typeName.GetNames()))
+	for _, partNode := range typeName.GetNames() {
+		part, ok := stringNode(partNode)
+		if !ok {
+			return nil, "", reject(CodeNotLowerable, "PROJECTION_CAST_UNSUPPORTED",
+				"Projection cast type is invalid.", "SELECT", nodeLocation(node), "", "Use bigint, numeric, or text.")
+		}
+		// pg_query already folds unquoted PostgreSQL identifiers. Preserve the
+		// returned spelling so quoted identifiers such as "TEXT" are not
+		// reinterpreted as the builtin text type.
+		parts = append(parts, part)
+	}
+	if len(parts) == 2 && parts[0] == "pg_catalog" {
+		parts = parts[1:]
+	}
+	if len(parts) != 1 {
+		return nil, "", reject(CodeNotLowerable, "PROJECTION_CAST_UNSUPPORTED",
+			"Projection casts must name a pg_catalog scalar type.", "SELECT", nodeLocation(node), "", "Use bigint, numeric, or text.")
+	}
+	aliases := map[string]string{"int8": "bigint", "bigint": "bigint", "numeric": "numeric", "text": "text"}
+	canonical := aliases[parts[0]]
+	if canonical == "" {
+		return nil, "", reject(CodeNotLowerable, "PROJECTION_CAST_UNSUPPORTED",
+			"Projection cast type is outside the closed reporting profile.", "SELECT", nodeLocation(node), "", "Use bigint, numeric, or text.")
+	}
+	return cast.GetArg(), canonical, nil
+}
+
+func (l *lowerer) aggregateOutputType(aggregate queryplan.Aggregate) string {
+	function := strings.ToLower(strings.TrimSpace(aggregate.Function))
+	if function == "count" {
+		return "bigint"
+	}
+	column := aggregate.Column
+	inputType := ""
+	if l.multi {
+		parts := strings.Split(column, ".")
+		if len(parts) != 2 {
+			return ""
+		}
+		for _, source := range l.sources {
+			if source.Scan.Role == parts[0] {
+				inputType = source.Product.ColumnTypes[parts[1]]
+				break
+			}
+		}
+	} else if len(l.sources) == 1 {
+		inputType = l.sources[0].Product.ColumnTypes[column]
+	}
+	return queryplan.AggregateOutputType(function, inputType)
+}
+
+func hasResultEncoding(aggregates []queryplan.Aggregate) bool {
+	for _, aggregate := range aggregates {
+		if aggregate.ResultEncoding != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func nonnegativeIntegerLiteral(node *pg_query.Node, clause string) (int, *Error) {

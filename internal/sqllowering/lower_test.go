@@ -226,6 +226,75 @@ func TestLowerRecordsPublicOrderForInterleavedAggregateProjection(t *testing.T) 
 	}
 }
 
+func TestLowerPreservesClosedGroupedRelationalOrderAndNumericTextEncoding(t *testing.T) {
+	result, err := Lower(`
+		SELECT o.status_id::bigint AS status,
+		       SUM(l.extended_price)::text AS price,
+		       SUM(l.line_number)::bigint AS lines,
+		       COUNT(*)::bigint AS members
+		FROM orders AS o
+		JOIN lineitem AS l ON l.order_id = o.order_id
+		GROUP BY o.status_id
+		ORDER BY o.status_id DESC`, loweringTestProducts())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(result.Plan.Columns, []string{"orders.status_id"}) ||
+		!reflect.DeepEqual(result.Plan.OrderBy, []queryplan.Order{{Column: "orders.status_id", Direction: "DESC"}}) {
+		t.Fatalf("grouped relational projection/order = %#v / %#v", result.Plan.Columns, result.Plan.OrderBy)
+	}
+	if len(result.Plan.Aggregates) != 3 ||
+		result.Plan.Aggregates[0].ResultEncoding != queryplan.NumericTextResultEncoding ||
+		result.Plan.Aggregates[1].ResultEncoding != "" || result.Plan.Aggregates[2].ResultEncoding != "" {
+		t.Fatalf("aggregate encodings = %#v", result.Plan.Aggregates)
+	}
+	compiled, err := queryplan.CompileRelational(result.Plan, loweringTestProducts())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fragment := range []string{
+		`CAST(sum("lineitem"."extended_price") AS text) AS "price"`,
+		`sum("lineitem"."line_number") AS "lines"`,
+		`count(*) AS "members"`,
+		`ORDER BY "` + compiled.OutputAliases["orders.status_id"] + `" DESC`,
+	} {
+		if !strings.Contains(compiled.VisibleSQL, fragment) {
+			t.Fatalf("visible SQL misses %q: %s", fragment, compiled.VisibleSQL)
+		}
+	}
+	if strings.Contains(compiled.ProvenanceSQL, " DESC") || !strings.Contains(compiled.ProvenanceSQL, `ORDER BY "orders"."status_id" ASC`) {
+		t.Fatalf("the provenance companion followed delivery order: %s", compiled.ProvenanceSQL)
+	}
+}
+
+func TestLowerRejectsRelationalOrderAndProjectionCastsOutsideClosedShape(t *testing.T) {
+	products := loweringTestProducts()
+	tests := []struct {
+		name string
+		sql  string
+	}{
+		{name: "non identity column cast", sql: `SELECT o.status_id::text FROM orders o`},
+		{name: "quoted uppercase builtin lookalike", sql: `SELECT o.status_id::"BIGINT" FROM orders o`},
+		{name: "quoted qualified builtin lookalike", sql: `SELECT SUM(l.extended_price)::pg_catalog."TEXT" AS total FROM orders o JOIN lineitem l ON l.order_id=o.order_id GROUP BY o.status_id ORDER BY o.status_id`},
+		{name: "quoted uppercase aggregate lookalike", sql: `SELECT o.status_id, "SUM"(l.extended_price)::text AS total FROM orders o JOIN lineitem l ON l.order_id=o.order_id GROUP BY o.status_id ORDER BY o.status_id`},
+		{name: "single product numeric text cast", sql: `SELECT SUM(l.extended_price)::text AS total FROM lineitem l`},
+		{name: "ungrouped joined numeric text cast", sql: `SELECT SUM(l.extended_price)::text AS total FROM orders o JOIN lineitem l ON l.order_id=o.order_id`},
+		{name: "grouped unordered numeric text cast", sql: `SELECT o.status_id, SUM(l.extended_price)::text AS total FROM orders o JOIN lineitem l ON l.order_id=o.order_id GROUP BY o.status_id`},
+		{name: "non sum numeric text cast", sql: `SELECT o.status_id, MIN(l.extended_price)::text AS total FROM orders o JOIN lineitem l ON l.order_id=o.order_id GROUP BY o.status_id ORDER BY o.status_id`},
+		{name: "non encoding aggregate cast", sql: `SELECT SUM(l.extended_price)::bigint AS total FROM lineitem l`},
+		{name: "aggregate order", sql: `SELECT o.status_id, SUM(l.extended_price) AS total FROM orders o JOIN lineitem l ON l.order_id=o.order_id GROUP BY o.status_id ORDER BY total`},
+		{name: "partial group order", sql: `SELECT o.status_id, l.supplier_id, COUNT(*) AS n FROM orders o JOIN lineitem l ON l.order_id=o.order_id GROUP BY o.status_id,l.supplier_id ORDER BY o.status_id`},
+		{name: "joined limit", sql: `SELECT o.status_id FROM orders o JOIN lineitem l ON l.order_id=o.order_id LIMIT 1`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := Lower(test.sql, products); err == nil {
+				t.Fatal("unsupported relational shape was lowered")
+			}
+		})
+	}
+}
+
 func TestLowerSingleProductPreservesSupportedPagination(t *testing.T) {
 	result, err := Lower(`
 		SELECT o.status
@@ -305,8 +374,8 @@ func loweringTestProducts() map[string]queryplan.Product {
 		"orders": {
 			Name: "orders", StableRole: "orders", SourceNamespace: "sales.orders", Snapshot: "snapshot-1",
 			StableEntityKey: []string{"order_id"},
-			Columns:         map[string]struct{}{"order_id": {}, "status": {}, "region": {}},
-			ColumnTypes:     map[string]string{"order_id": "integer", "status": "text", "region": "text"},
+			Columns:         map[string]struct{}{"order_id": {}, "status": {}, "status_id": {}, "region": {}},
+			ColumnTypes:     map[string]string{"order_id": "integer", "status": "text", "status_id": "bigint", "region": "text"},
 			ColumnCollations: map[string]string{
 				"status": "C", "region": "C",
 			},
@@ -316,8 +385,8 @@ func loweringTestProducts() map[string]queryplan.Product {
 		"lineitem": {
 			Name: "lineitem", StableRole: "lineitem", SourceNamespace: "sales.lineitem", Snapshot: "snapshot-1",
 			StableEntityKey:  []string{"line_id"},
-			Columns:          map[string]struct{}{"line_id": {}, "order_id": {}, "supplier_id": {}, "extended_price": {}, "ratio": {}},
-			ColumnTypes:      map[string]string{"line_id": "integer", "order_id": "integer", "supplier_id": "integer", "extended_price": "numeric", "ratio": "double precision"},
+			Columns:          map[string]struct{}{"line_id": {}, "line_number": {}, "order_id": {}, "supplier_id": {}, "extended_price": {}, "ratio": {}},
+			ColumnTypes:      map[string]string{"line_id": "integer", "line_number": "integer", "order_id": "integer", "supplier_id": "integer", "extended_price": "numeric", "ratio": "double precision"},
 			ColumnCollations: map[string]string{}, CollationVersions: map[string]string{},
 			AllowedAggregates: map[string]struct{}{"count": {}, "sum": {}, "min": {}, "max": {}},
 		},

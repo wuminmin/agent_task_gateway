@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"testing"
 
+	"taskbound.local/agent-data-gateway/internal/apierr"
 	"taskbound.local/agent-data-gateway/internal/dataconnector"
 	"taskbound.local/agent-data-gateway/internal/mcp"
 	"taskbound.local/agent-data-gateway/internal/queryplan"
@@ -83,4 +84,38 @@ func TestSemanticReplayAlignsCanonicalColumnsToCurrentProjection(t *testing.T) {
 	if !reflect.DeepEqual(result["rows"], [][]any{{"B", "A"}}) {
 		t.Fatalf("aligned semantic replay rows = %#v", result["rows"])
 	}
+}
+
+func TestSemanticResultColumnsBindAggregateWireEncoding(t *testing.T) {
+	base := queryplan.QueryPlan{Aggregates: []queryplan.Aggregate{{
+		Function: "sum", Column: "lineitem.extended_price", Alias: "revenue",
+	}}}
+	encoded := base
+	encoded.Aggregates = append([]queryplan.Aggregate(nil), base.Aggregates...)
+	encoded.Aggregates[0].ResultEncoding = queryplan.NumericTextResultEncoding
+
+	plainColumns := queryPlanSemanticColumns(base)
+	encodedColumns := queryPlanSemanticColumns(encoded)
+	if reflect.DeepEqual(plainColumns, encodedColumns) ||
+		!reflect.DeepEqual(encodedColumns, []string{
+			"aggregate:sum(lineitem.extended_price)@" + queryplan.NumericTextResultEncoding + "#0",
+		}) {
+		t.Fatalf("semantic columns ignored aggregate encoding: plain=%#v encoded=%#v", plainColumns, encodedColumns)
+	}
+}
+
+func TestExecutePlanCannotInjectInternalAggregateResultEncoding(t *testing.T) {
+	harness := newGatewayHarness(t)
+	_, err := callGatewayTool(harness.service, harness.alice, "execute_plan", map[string]any{
+		"task_id": "unresolved-task", "request_id": "result-encoding-injection",
+		"plan": map[string]any{
+			"product": "expense_summary",
+			"columns": []string{"month"},
+			"aggregates": []map[string]any{{
+				"function": "sum", "column": "total_amount", "alias": "total",
+				"result_encoding": queryplan.NumericTextResultEncoding,
+			}},
+		},
+	})
+	requireToolCode(t, err, apierr.CodeInvalidRequest)
 }

@@ -12,7 +12,11 @@ import (
 
 const (
 	// OrdinalProgramVersion identifies the deterministic dependency program
-	// consumed by the snapshot-indexed V4 execution path.
+	// consumed by the snapshot-indexed V4 execution path. Compiler v7 adds only
+	// optional result-presentation metadata: when absent, the v1 program bytes
+	// and digest remain identical; when present, the v7 compiler identity and
+	// the program's own canonical digest bind it without renaming the unchanged
+	// dependency-program semantics.
 	OrdinalProgramVersion = "taskgate-ordinal-program-v1"
 	ordinalProgramDomain  = "TASKGATE-ORDINAL-PROGRAM-V1\x00"
 )
@@ -119,6 +123,7 @@ type OrdinalVisibleSpec struct {
 	ResultAlias         string `json:"result_alias"`
 	FieldID             string `json:"field_id,omitempty"`
 	SQLType             string `json:"sql_type"`
+	ResultEncoding      string `json:"result_encoding,omitempty"`
 	CanonicalExpression string `json:"canonical_expression"`
 }
 
@@ -136,6 +141,7 @@ type OrdinalAggregateSpec struct {
 	OutputID            string          `json:"output_id"`
 	ResultAlias         string          `json:"result_alias"`
 	SQLType             string          `json:"sql_type"`
+	ResultEncoding      string          `json:"result_encoding,omitempty"`
 	CanonicalExpression string          `json:"canonical_expression"`
 	WitnessMultiplicity uint64          `json:"witness_multiplicity"`
 }
@@ -414,7 +420,8 @@ func singleVisibleSpecs(plan QueryPlan, product Product, bindings map[string]Ord
 	}
 	for _, aggregate := range aggregates {
 		result = append(result, OrdinalVisibleSpec{Kind: "aggregate", OutputID: aggregate.OutputID,
-			ResultAlias: aggregate.ResultAlias, SQLType: aggregate.SQLType, CanonicalExpression: aggregate.CanonicalExpression})
+			ResultAlias: aggregate.ResultAlias, SQLType: aggregate.SQLType, ResultEncoding: aggregate.ResultEncoding,
+			CanonicalExpression: aggregate.CanonicalExpression})
 	}
 	return result, nil
 }
@@ -838,7 +845,8 @@ func relationalVisibleSpecs(plan QueryPlan, products map[string]Product, compila
 	}
 	for _, aggregate := range aggregates {
 		result = append(result, OrdinalVisibleSpec{Kind: "aggregate", OutputID: aggregate.OutputID,
-			ResultAlias: aggregate.ResultAlias, SQLType: aggregate.SQLType, CanonicalExpression: aggregate.CanonicalExpression})
+			ResultAlias: aggregate.ResultAlias, SQLType: aggregate.SQLType, ResultEncoding: aggregate.ResultEncoding,
+			CanonicalExpression: aggregate.CanonicalExpression})
 	}
 	return result, nil
 }
@@ -882,12 +890,17 @@ func ordinalAggregateSpecs(aggregates []Aggregate, product Product, bindings map
 			}
 			spec.InputKind = "field"
 			spec.Input = fieldUse(binding, 1)
-			spec.SQLType = aggregateOutputType(function, product.ColumnTypes[aggregate.Column])
+			spec.SQLType = AggregateOutputType(function, product.ColumnTypes[aggregate.Column])
 			spec.CanonicalExpression = function + "(" + binding.CanonicalExpression + ")"
 		}
 		if spec.SQLType == "" {
 			return nil, fmt.Errorf("aggregate %s has no canonical output type", spec.CanonicalExpression)
 		}
+		resultEncoding, err := canonicalAggregateResultEncoding(function, spec.SQLType, aggregate.ResultEncoding)
+		if err != nil {
+			return nil, err
+		}
+		spec.ResultEncoding = resultEncoding
 		result = append(result, spec)
 	}
 	return result, nil
@@ -915,7 +928,7 @@ func relationalAggregateSpecs(aggregates []Aggregate, products map[string]Produc
 				}
 				role, _, _ := splitFieldID(aggregate.Column)
 				if semanticRole == role {
-					spec.SQLType = aggregateOutputType(function, products[source.Product].ColumnTypes[column])
+					spec.SQLType = AggregateOutputType(function, products[source.Product].ColumnTypes[column])
 					break
 				}
 			}
@@ -923,6 +936,11 @@ func relationalAggregateSpecs(aggregates []Aggregate, products map[string]Produc
 		if spec.SQLType == "" {
 			return nil, fmt.Errorf("aggregate %s has no canonical output type", spec.CanonicalExpression)
 		}
+		resultEncoding, err := canonicalAggregateResultEncoding(function, spec.SQLType, aggregate.ResultEncoding)
+		if err != nil {
+			return nil, err
+		}
+		spec.ResultEncoding = resultEncoding
 		result = append(result, spec)
 	}
 	return result, nil
@@ -1165,6 +1183,30 @@ func normalizeOrdinalProgram(program OrdinalProgram) (OrdinalProgram, error) {
 		return result.Groups[i].CanonicalExpression < result.Groups[j].CanonicalExpression
 	})
 	result.Aggregates = append([]OrdinalAggregateSpec(nil), program.Aggregates...)
+	visibleEncodings := make(map[string]string, len(result.Visible))
+	encodedVisible := make(map[string]struct{})
+	for _, visible := range result.Visible {
+		if _, duplicate := visibleEncodings[visible.OutputID]; duplicate {
+			return OrdinalProgram{}, errors.New("ordinal visible outputs repeat an output ID")
+		}
+		if visible.ResultEncoding != "" && visible.Kind != "aggregate" {
+			return OrdinalProgram{}, errors.New("ordinal field output carries aggregate result encoding")
+		}
+		visibleEncodings[visible.OutputID] = visible.ResultEncoding
+		if visible.ResultEncoding != "" {
+			encodedVisible[visible.OutputID] = struct{}{}
+		}
+	}
+	for _, aggregate := range result.Aggregates {
+		encoding, err := canonicalAggregateResultEncoding(aggregate.Function, aggregate.SQLType, aggregate.ResultEncoding)
+		if err != nil || encoding != aggregate.ResultEncoding || visibleEncodings[aggregate.OutputID] != encoding {
+			return OrdinalProgram{}, errors.New("ordinal aggregate result encoding is invalid or differs from its visible output")
+		}
+		delete(encodedVisible, aggregate.OutputID)
+	}
+	if len(encodedVisible) != 0 {
+		return OrdinalProgram{}, errors.New("ordinal encoded visible output has no matching aggregate")
+	}
 	sort.Slice(result.Aggregates, func(i, j int) bool {
 		return ordinalAggregateKey(result.Aggregates[i]) < ordinalAggregateKey(result.Aggregates[j])
 	})
@@ -1314,7 +1356,7 @@ func ordinalPredicateKey(value OrdinalPredicateSpec) string {
 	return value.Scope + "\x00" + value.CanonicalExpression
 }
 func ordinalAggregateKey(value OrdinalAggregateSpec) string {
-	return value.CanonicalExpression + "\x00" + value.OutputID + "\x00" + value.ResultAlias
+	return value.CanonicalExpression + "\x00" + value.OutputID + "\x00" + value.ResultAlias + "\x00" + value.ResultEncoding
 }
 func ordinalWitnessRuleKey(value OrdinalWitnessRule) string {
 	return fmt.Sprintf("%010d", value.StageOrder) + "\x00" + value.Stage + "\x00" + value.TargetID + "\x00" + value.TargetExpression + "\x00" + value.SourceAlias + "\x00" + value.InputKind + "\x00" +

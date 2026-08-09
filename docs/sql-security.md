@@ -61,13 +61,15 @@ business-database execution and exposure reservation.
 - 恰好一条 `SELECT`，只引用 Grant 中的未限定逻辑产品名和获批字段；
 - 单产品 projection、literal filter 合取、`GROUP BY`、`ORDER BY`、`LIMIT/OFFSET` 和 `COUNT/SUM/MIN/MAX`；
 - 2–16 个不同 Catalog 稳定角色组成的任意 connected INNER equi-join graph 形状；每条 edge 必须有一个或多个 column-to-column equality predicate；
+- 多产品 `ORDER BY` 只接受带非空 `GROUP BY` 的上述 Join 形状：每个 group key 都必须作为 direct column 投影，并在 `ORDER BY` 中恰好出现一次，且不得出现 group key 之外的项；方向只允许 `ASC`/`DESC`（省略方向等价于 `ASC`），同时禁止 `LIMIT/OFFSET`。Visible SQL 按请求的 group-key 顺序交付；ordinal companion 始终保持独立的 canonical group/entity 升序，绝不继承展示顺序；
+- 顶层 projection cast 只接受未修饰、非嵌套的 `bigint`/`int8`、`numeric` 或 `text`。当目标类型等于 direct column 或 aggregate 的自然 canonical 类型时，cast 被证明为 identity 并从 canonical plan 中消除。唯一非 identity 形式是：满足上一条完整 group-key 排序形状的多产品 Join 中，自然精确结果类型为 PostgreSQL `numeric` 的 `SUM` 可投影为 wire `text`，由 `postgresql-numeric-text-v1` 编码标识；记账和 aggregate identity 仍使用自然 `numeric` 类型；
 - SQL table alias 先映射为 Catalog stable role；JoinGraph 的 nodes、无向 edges、edge 内 predicates 及 equality 两端按稳定字段 ID 规范排序并转换为现有 `join_many`，再 deterministic binary fold 为现有二元 Join 代数。Filter 合取同样按语义规范化；展示列顺序仍保持用户可见语义。
 
 16-source 上限是限制生成 SQL 宽度、provenance 行和 PostgreSQL planning work 的 operational complexity/DoS ceiling，不限制 16 个 source 以内的 graph 形状，并显式覆盖 10 表 Join。整个 MCP 请求体仍限为 1 MiB，SQL 仍须通过 PostgreSQL parser 和 AST 白名单/结构校验，执行仍受获批资源预算、statement timeout 和行数上限约束。
 
 内部计划和 FactID 始终使用稳定字段 ID；响应层单独保存并恢复原 SQL 的输出 alias 与 target-list 顺序（包括列/聚合交错）。这些展示元数据保存在 Control PG 的 artifact schema/查询元数据中，加密 Parquet bytes 保存在 TaskGate 对象存储中；因此 `get_query_result`、幂等 replay 和 V4 semantic replay 返回与首次调用一致的列名、列值顺序、`query_plan`、`sql_profile` 和 `plan_digest`。Semantic replay 在复用结果前按稳定语义列身份重排；旧结果缺少该身份时按 cache miss 重新执行，不猜测映射。普通 query/get 仅返回 `result_id` 和摘要，不因这些展示元数据而返回完整行。
 
-Self-join、outer/cross/non-equality join、断开的 join graph、子查询、CTE、set operation、窗口函数、`HAVING`、`SELECT DISTINCT`、位置式 group/order 引用和多输入分页不可 lowering。Gateway 不会删除 predicate、忽略不可表达的输出语义，也不会把 `LEFT JOIN` 改为 `INNER JOIN`。
+Self-join、outer/cross/non-equality/`NATURAL`/`USING` join、断开的 join graph、子查询、CTE、set operation、窗口函数、`HAVING`、`SELECT DISTINCT`、位置式 group/order 引用不可 lowering。多产品查询还拒绝无分组排序、部分/重复/未投影 group key 排序、aggregate/表达式排序、显式 `NULLS FIRST/LAST`、`ORDER BY USING` 以及全部 `LIMIT/OFFSET`。除上述 identity cast 和 `postgresql-numeric-text-v1` 外，其它 projection cast，以及未分组或 Union 结果编码，都关闭式拒绝。Gateway 不会删除 predicate、忽略不可表达的输出语义，也不会把 `LEFT JOIN` 改为 `INNER JOIN`。
 
 ## Nested View definition profile
 
@@ -214,6 +216,8 @@ Agent 自己写的内层 `LIMIT` 只能进一步缩小结果。外层限制按�
 
 `execute_plan` 接受声明式 `QueryPlan`：单产品计划支持选择、聚合、过滤、分组、排序、Limit 和 Offset；V2 还接受 2–16 源、任意 connected INNER equi-join graph 形状的 `join_many`，或同产品双分支 `union_distinct`。每条 Join edge 可有多个 column-to-column equality predicate；规范排序后的 graph deterministic binary fold 为现有二元代数。确定性的 Go 编译器校验产品必须已获批、角色来自 Catalog、字段和聚合位于 Catalog/Grant 白名单、Join graph 连通、Join 键类型/排序规则一致、Union 完整去重 schema、别名不重复、Filter 运算符与 literal 类型安全，再把编译结果送入完整 AST 策略。`COUNT(*)` 与 `COUNT(column)` 是不同的规范表达式；只有 `COUNT` 可接受 `*`。
 
+多源 QueryPlan 的排序边界与 SQL profile 相同：只有 grouped Join 可按完整且直接投影的 group-key 集合排序，每个 key 恰好一次、方向为 `ASC`/`DESC`，并且不能分页；Union、未分组 Join、部分或额外排序项均拒绝。此排序只控制 visible SQL，ordinal companion 继续使用 canonical group/entity 升序。SQL lowering 中可证明的 identity cast 不进入 QueryPlan；`postgresql-numeric-text-v1` 也只表示同一完整排序 grouped Join 上自然 `numeric` `SUM` 的 wire presentation，不改变其记账类型，无 `ORDER BY` 时不得出现。
+
 启用 exposure 时，第二个编译阶段接受上述单产品片段和受限 Join/Union，并允许
 `COUNT(*)/COUNT(column)/SUM/MIN/MAX`（可带 `GROUP BY`）。它加入 Catalog `entity_key`、Scope、
 谓词和聚合输入字段来生成 ordinal provenance companion。未获批的实体键仅在策略
@@ -225,7 +229,7 @@ Gateway 不包含模型客户端、Prompt 或自然语言翻译器。Gateway 外
 ## 已知限制
 
 - SQL 是保守子集。合法但 AST 节点未列入白名单的 PostgreSQL 特性会被拒绝；这属于预期的关闭式行为。
-- 多输入在线 SQL 片段限于 2–16 源的 connected INNER equi-join graph，在该 operational complexity/DoS ceiling 内不限 graph 形状；每条 edge 是一个或多个 column-to-column equality predicate。Self-join、outer/cross/non-equality join、`NATURAL JOIN`、`JOIN ... USING`、断开的 join graph 和多输入分页关闭式拒绝。高级 QueryPlan 另保留双分支 Union-Distinct，但 SQL profile 不接受 set operation。
+- 多输入在线 SQL 片段限于 2–16 源的 connected INNER equi-join graph，在该 operational complexity/DoS ceiling 内不限 graph 形状；每条 edge 是一个或多个 column-to-column equality predicate。Grouped Join 只可按完整、直接投影且不重复的 group-key 集合排序，visible 顺序不影响 canonical companion；非 identity result encoding 也必须依附该完整排序，全部多输入分页仍拒绝。Self-join、outer/cross/non-equality join、`NATURAL JOIN`、`JOIN ... USING`、断开的 join graph、其它多输入排序形状和 profile 外 projection cast 关闭式拒绝。高级 QueryPlan 另保留双分支 Union-Distinct，但 SQL profile 不接受 set operation，Union 也不接受 result encoding。
 - `AVG` 可出现在传统 SQL Catalog allowlist，但不属于 exposure V1 精确计量片段；窗口函数、递归、任意子查询 provenance 和负信息计量也不支持。
 - 直接 SQL 不支持客户端占位符。调用方必须提交完整 SQL；Gateway 不提供任意 Session 变量入口。
 - Connector 在启动、readiness 和每次新查询前，对没有 `view_contract` 的 legacy/terminal products 执行 source-level Catalog-pinned Schema Attestation；semantic roots 排除在该全局 digest 外，改用 task-scoped transitive binding 和同事务 registry revision 检查。任一路径的相关漂移都会关闭式拒绝，但无关 semantic View 不会全局关闭 readiness。

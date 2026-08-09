@@ -58,8 +58,8 @@ func CompileRelational(plan QueryPlan, products map[string]Product) (RelationalC
 		return RelationalCompilation{}, err
 	}
 	plan = canonical
-	if plan.Limit != 0 || plan.Offset != 0 || len(plan.OrderBy) != 0 {
-		return RelationalCompilation{}, errors.New("pagination is outside the online Join/Union fragment")
+	if plan.Limit != 0 || plan.Offset != 0 {
+		return RelationalCompilation{}, errors.New("LIMIT and OFFSET are outside the online Join/Union fragment")
 	}
 	if len(plan.Columns)+len(plan.Aggregates) == 0 {
 		return RelationalCompilation{}, errors.New("empty select list")
@@ -98,11 +98,25 @@ func CompileRelational(plan QueryPlan, products map[string]Product) (RelationalC
 		result.ExpandedEvidence = true
 		fields, fromSQL, provenanceFrom = schema, visibleFrom, provenanceSQL
 	}
+	if (len(plan.OrderBy) != 0 || hasAggregateResultEncoding(plan.Aggregates)) && result.Kind != "join" {
+		return RelationalCompilation{}, errors.New("group-key delivery order and aggregate result encoding are limited to joined relational plans")
+	}
+	if hasAggregateResultEncoding(plan.Aggregates) && len(plan.GroupBy) == 0 {
+		return RelationalCompilation{}, errors.New("aggregate result encoding requires a grouped joined relational plan")
+	}
+	if hasAggregateResultEncoding(plan.Aggregates) && len(plan.OrderBy) == 0 {
+		return RelationalCompilation{}, errors.New("aggregate result encoding requires the complete grouped result order")
+	}
 
 	selectSQL, internal, visible, aliases, err := compileRelationalSelect(plan, fields, fromSQL)
 	if err != nil {
 		return RelationalCompilation{}, err
 	}
+	orderSQL, err := compileRelationalVisibleOrder(plan, fields, aliases)
+	if err != nil {
+		return RelationalCompilation{}, err
+	}
+	selectSQL += orderSQL
 	result.VisibleSQL = selectSQL
 	result.OutputAliases = aliases
 	result.InternalFields = internal
@@ -692,6 +706,7 @@ func compileRelationalSelect(plan QueryPlan, fields map[string]relationalField, 
 			return "", nil, nil, nil, fmt.Errorf("duplicate select name %q", aggregate.Alias)
 		}
 		argument := "*"
+		inputType := ""
 		if aggregate.Column != "*" {
 			field, present := fields[aggregate.Column]
 			if !present {
@@ -701,6 +716,7 @@ func compileRelationalSelect(plan QueryPlan, fields map[string]relationalField, 
 				return "", nil, nil, nil, fmt.Errorf("aggregate %q is not approved", fn)
 			}
 			argument = fieldSQL(field)
+			inputType = field.SQLType
 		} else if fn != "count" {
 			return "", nil, nil, nil, fmt.Errorf("aggregate %q does not accept *", fn)
 		}
@@ -711,7 +727,19 @@ func compileRelationalSelect(plan QueryPlan, fields map[string]relationalField, 
 				}
 			}
 		}
-		selects = append(selects, fn+"("+argument+") AS "+quoteIdentifier(aggregate.Alias))
+		naturalType := AggregateOutputType(fn, inputType)
+		if naturalType == "" {
+			return "", nil, nil, nil, fmt.Errorf("aggregate %q has no canonical output type", fn)
+		}
+		resultEncoding, encodingErr := canonicalAggregateResultEncoding(fn, naturalType, aggregate.ResultEncoding)
+		if encodingErr != nil {
+			return "", nil, nil, nil, encodingErr
+		}
+		expression := fn + "(" + argument + ")"
+		if resultEncoding != "" {
+			expression = "CAST(" + expression + " AS text)"
+		}
+		selects = append(selects, expression+" AS "+quoteIdentifier(aggregate.Alias))
 		aliases[aggregate.Alias] = aggregate.Alias
 		internal = append(internal, aggregate.Alias)
 		visible = append(visible, aggregate.Alias)
@@ -759,6 +787,81 @@ func compileRelationalSelect(plan QueryPlan, fields map[string]relationalField, 
 		}
 	}
 	return b.String(), internal, visible, aliases, nil
+}
+
+// canonicalAggregateResultEncoding is deliberately not PostgreSQL's general
+// cast graph. It admits one named wire representation for an exact NUMERIC
+// SUM; identity casts are erased by SQL lowering before QueryPlan.
+func canonicalAggregateResultEncoding(function, naturalType, requested string) (string, error) {
+	requested = strings.ToLower(strings.TrimSpace(requested))
+	if requested == "" {
+		return "", nil
+	}
+	if strings.ToLower(strings.TrimSpace(function)) == "sum" && naturalType == "numeric" && requested == NumericTextResultEncoding {
+		return NumericTextResultEncoding, nil
+	}
+	return "", fmt.Errorf("aggregate result encoding %q for %s returning %q is outside the relational profile",
+		requested, function, naturalType)
+}
+
+func hasAggregateResultEncoding(aggregates []Aggregate) bool {
+	for _, aggregate := range aggregates {
+		if strings.TrimSpace(aggregate.ResultEncoding) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// compileRelationalVisibleOrder admits the one closed ordering form needed by
+// a grouped relational result: every group key must be selected and ordered
+// exactly once. With no LIMIT/OFFSET, this changes delivery order only; the
+// provenance companion retains its independent canonical group/member order.
+func compileRelationalVisibleOrder(plan QueryPlan, fields map[string]relationalField, aliases map[string]string) (string, error) {
+	if len(plan.OrderBy) == 0 {
+		return "", nil
+	}
+	if len(plan.GroupBy) == 0 || len(plan.OrderBy) != len(plan.GroupBy) {
+		return "", errors.New("relational ORDER BY requires every grouped key exactly once")
+	}
+	selected := make(map[string]struct{}, len(plan.Columns))
+	for _, field := range plan.Columns {
+		selected[field] = struct{}{}
+	}
+	groups := make(map[string]struct{}, len(plan.GroupBy))
+	for _, field := range plan.GroupBy {
+		if _, present := fields[field]; !present {
+			return "", fmt.Errorf("group field %q is absent", field)
+		}
+		groups[field] = struct{}{}
+	}
+	seen := make(map[string]struct{}, len(plan.OrderBy))
+	parts := make([]string, 0, len(plan.OrderBy))
+	for _, order := range plan.OrderBy {
+		if _, grouped := groups[order.Column]; !grouped {
+			return "", fmt.Errorf("relational ORDER BY field %q is not a group key", order.Column)
+		}
+		if _, projected := selected[order.Column]; !projected {
+			return "", fmt.Errorf("relational ORDER BY field %q is not selected", order.Column)
+		}
+		if _, duplicate := seen[order.Column]; duplicate {
+			return "", fmt.Errorf("relational ORDER BY repeats %q", order.Column)
+		}
+		seen[order.Column] = struct{}{}
+		direction := strings.ToUpper(strings.TrimSpace(order.Direction))
+		if direction == "" {
+			direction = "ASC"
+		}
+		if direction != "ASC" && direction != "DESC" {
+			return "", errors.New("relational ORDER BY direction must be ASC or DESC")
+		}
+		alias := aliases[order.Column]
+		if alias == "" {
+			return "", fmt.Errorf("relational ORDER BY field %q has no output alias", order.Column)
+		}
+		parts = append(parts, quoteIdentifier(alias)+" "+direction)
+	}
+	return " ORDER BY " + strings.Join(parts, ", "), nil
 }
 
 func relationalOutputAlias(id string) string {

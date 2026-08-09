@@ -98,10 +98,10 @@ and configs. The default Catalog remains unchanged.
   thresholds.
 - **S2:** connected orders--lineitem inner equijoin, grouped by `status`, with
   `sum(extendedprice)` and `count(*)`. Direct and BDG use identical data and
-  parameters. Because the closed multi-source grammar forbids `ORDER BY`, the
-  independent normalizer sorts complete typed row encodings before hashing.
-  This is also the common frozen data basis for the separately registered
-  ProvSQL comparison.
+  parameters. The frozen query defines no total result order and does not rely
+  on returned row order; the independent normalizer sorts complete typed row
+  encodings before hashing. This is also the common frozen data basis for the
+  separately registered ProvSQL comparison.
 - **S3:** one-column ordered `member_rank` result over prefixes of 1,000,
   10,000, and 45,000 Exposure rows. The exact release/dependency candidate
   counts are 1,000/5,000, 10,000/50,000, and 45,000/225,000. The four predicate

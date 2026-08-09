@@ -204,7 +204,7 @@ currently runnable or has passed a live deployment.
 | --- | --- | --- |
 | Artifact (`result-heavy`) | v3, through `RuntimeFinalizerV3.FinalizeTaskGateObservationV3` | removed |
 | Scale (`dependency_e2e`) | v3, through `RuntimeFinalizerV3.FinalizeTaskGateObservationV3`; dormant | removed |
-| ProvSQL (`nonce-join-group`, `taskgate` arm only) | v3 source path; dormant and fail-closed before measurement | removed |
+| ProvSQL (`nonce-join-group`, `taskgate` arm only) | v3 source path; exact SQL lowering and preparation closed, but dormant and unroutable | removed |
 
 The hash-locked ProvSQL profile manifest contains exactly nine public cells:
 three scales times direct/native/taskgate. The finalizer admits only the three
@@ -215,14 +215,25 @@ release, index, private binding file, section, key, logical-query digest and
 public operation ID. The Adapter supplies none of the SQL, plan, grant or
 classifier derivation.
 
-This wiring is intentionally not runnable at this HEAD. The exact frozen
-multi-product ProvSQL query contains `ORDER BY`, and the sole production
-`sqllowering.Lower` path rejects it as `PAGINATION_UNSUPPORTED`.
-`OpenObserverWindowV3` therefore fails closed before the observer window or
-measured query can run. No clause was stripped, no alternate derivation was
-introduced, and no synthetic query was substituted. The
-`provsql-nonce-join` profile remains `routable:false`; no registry or capability
-state changed, and this cutover is not a targeted or live pass.
+The exact frozen multi-product ProvSQL SQL is now structurally admitted by the
+shape-defined SQL profile: it is a joined grouped query whose `ORDER BY` is the
+complete selected group key, with no pagination. Admission depends only on
+that query shape, not on an experiment or workload identity. The frozen input
+and private-binding SQL bytes remain unchanged across all 105 exact nonce
+variants. Production lowering and `physicalquery.Prepare` derive the canonical
+visible/companion pair from those bytes without semantic loss: the complete
+visible order and named NUMERIC-to-text presentation remain, while provable
+identity casts are erased;
+`TestTheProductionProvSQLResolverPreparesEveryValidatedExactFixtureVariant`
+guards that matrix. `TestExactProvSQLPreparedPairAgainstPostgreSQL` additionally
+executes one exact prepared visible/companion pair against the digest-pinned
+PostgreSQL 16.14 test database and checks the visible rows against the
+independent oracle while requiring a non-empty companion result. Its private
+binding is an explicitly synthetic resolver fixture: it is not a targeted or
+live run, a P1b.2 full-exposure rerun, or deployment/publication evidence. No
+clause was stripped, no alternate derivation was introduced, and no substitute
+query was used. The `provsql-nonce-join` profile remains `routable:false`;
+registry, capability and routing state are unchanged.
 
 What the Artifact path does now, in order: the finalizer pre-registers the
 classification for the frozen cell **before** the operation runs; the observer is
@@ -257,9 +268,10 @@ Three consequences worth stating rather than leaving to be rediscovered:
   retained window is the window it was settled over, and the sample's Business
   and resource numbers are the ones that window and that record produce.
 
-No real-deployment run has established end-to-end acceptance for this cutover,
-and ProvSQL cannot currently reach measurement because of the lowering refusal
-above. Nothing in this section is evidence of a live or publication-grade pass.
+No real-deployment run has established end-to-end acceptance for this cutover.
+The source-level preparation closure and synthetic PostgreSQL slice above do
+not establish targeted measurement, full exposure, or activation. Nothing in
+this section is evidence of a live or publication-grade pass.
 
 ## The shared target preparation — approved, in progress
 
@@ -417,9 +429,11 @@ P2.4 removed the final two-file/seven-symbol v1.4
 declaration/construction surface. The current sample wire rejects the legacy
 members, while the archived decoder is confined to `internal/legacyv14` and
 cannot enter the v1.5 observer source closure. P2.5 converted the production
-caller and internal finalizer edges into hard structural guards. This proves
-source wiring only: ProvSQL remains fail-closed at the shared multi-product
-`ORDER BY` lowering boundary described above. Therefore the boundary
+caller and internal finalizer edges into hard structural guards. The
+shape-defined lowering and preparation closure described above removes the old
+source blocker, but does not supply the required P1b.2 full-exposure rerun,
+contract-release and activation renewal, registry/capability/routing activation,
+or the separate live-deployment pair. Therefore the boundary
 
     V3 RUNTIME INTEGRATION PASS — CONTRACTS V1.5 FREEZE PENDING
 

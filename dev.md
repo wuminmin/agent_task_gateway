@@ -72,14 +72,19 @@ QueryPlan
 ├── product
 ├── from.scan | from.join_many[sources<=16] | from.union_distinct
 ├── columns[]
-├── aggregates[{function,column,alias}]
+├── aggregates[{function,column,alias,(internal result_encoding)}]
 ├── filters[{column,op,value}]
 ├── group_by[]
 ├── order_by[{column,direction}]
-└── limit
+├── limit
+└── offset
 ```
 
-编译器验证产品、字段、聚合、别名、过滤运算符/literal、排序引用和 Limit。SQL lowering 先将 alias 映射为 Catalog 稳定角色，再构造 2–16 源的 connected INNER equi-join graph；graph 可为任意形状，每条 edge 包含一个或多个 column-to-column equality predicate。Nodes、edges 和 predicates 规范排序后转换为现有 `join_many`，再 deterministic binary fold 为现有二元代数，并验证 join key 类型、collation 和版本。`MaxJoinSources=16` 是限制生成 SQL、provenance 和 PostgreSQL planning work 的 operational complexity/DoS ceiling，因此 10 表 Join 在受支持范围内；请求仍受 1 MiB MCP 请求体、AST 白名单校验和现有资源预算/超时/行数上限约束。编译后的 SQL 仍必须通过完整 PostgreSQL AST 策略；`execute_plan` 不是策略旁路。
+编译器验证产品、字段、聚合、别名、过滤运算符/literal、排序引用和 Limit。SQL lowering 先将 alias 映射为 Catalog 稳定角色，再构造 2–16 源的 connected INNER equi-join graph；graph 可为任意形状，每条 edge 包含一个或多个 column-to-column equality predicate。Nodes、edges 和 predicates 规范排序后转换为现有 `join_many`，再 deterministic binary fold 为现有二元代数，并验证 join key 类型、collation 和版本。`MaxJoinSources=16` 是限制生成 SQL、provenance 和 PostgreSQL planning work 的 operational complexity/DoS ceiling，因此 10 表 Join 在受支持范围内；请求仍受 1 MiB MCP 请求体、AST 白名单校验和现有资源预算/超时/行数上限约束。
+
+多源排序只接受 grouped connected INNER equi-join：每个 group key 必须直接投影，并在 `order_by` 中恰好出现一次，方向为 `ASC`/`DESC`，同时 `limit/offset` 必须为空。Visible SQL 采用该展示顺序，ordinal companion 独立保持 canonical group/entity 升序；未分组 Join、部分/重复/未投影 key、aggregate/表达式排序和 Union 排序均拒绝。SQL lowering 只接纳未修饰、非嵌套的 `bigint`/`int8`、`numeric`、`text` 顶层 cast；可证明的 identity cast 被消除。唯一非 identity presentation 是同一完整排序 grouped Join 中自然精确结果为 `numeric` 的 `SUM` 使用内部 `postgresql-numeric-text-v1` 输出 PostgreSQL wire `text`，其 aggregate identity 与记账类型仍为 `numeric`；无 `order_by`、未分组或 Union encoding 以及其它 cast 均拒绝。
+
+公共 MCP `execute_plan` schema **不暴露** `result_encoding`，且对象 schema 拒绝额外字段；客户端不能用高级入口请求 presentation encoding。该内部字段只能由 `query_sql` 对上述精确 cast 形状无损 lowering 得出。编译后的 SQL 仍必须通过完整 PostgreSQL AST 策略；`execute_plan` 不是策略旁路。
 
 ## 任务、审批与 Grant
 

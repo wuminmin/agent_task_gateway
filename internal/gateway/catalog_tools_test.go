@@ -61,6 +61,21 @@ func TestCatalogDiscoveryToolsExposeSQLContract(t *testing.T) {
 	if !ok || !equalStrings(joinTypes, []string{"INNER"}) {
 		t.Fatalf("join types = %#v", join["types"])
 	}
+	ordering, ok := capabilities["ordering"].(map[string]any)
+	if !ok || ordering["single_product"] != true ||
+		ordering["joined_grouped_complete_selected_key"] != true ||
+		ordering["joined_ungrouped"] != false ||
+		ordering["joined_partial_or_unselected_group_key"] != false ||
+		ordering["joined_aggregate_expression"] != false {
+		t.Fatalf("unexpected ordering capabilities: %#v", capabilities["ordering"])
+	}
+	casts, ok := capabilities["projection_casts"].(map[string]any)
+	identityCasts, identityOK := casts["identity_scalar"].([]string)
+	if !ok || !identityOK || !equalStrings(identityCasts, []string{"bigint", "int8", "numeric", "text"}) ||
+		casts["joined_ordered_grouped_numeric_sum_to_wire_text"] != queryplan.NumericTextResultEncoding ||
+		casts["general_expression_casts"] != false {
+		t.Fatalf("unexpected projection cast capabilities: %#v", capabilities["projection_casts"])
+	}
 	semanticViews, ok := capabilities["semantic_views"].(map[string]any)
 	if !ok || semanticViews["query_time_join_with_other_product"] != false ||
 		semanticViews["order_by"] != false || semanticViews["limit"] != false ||

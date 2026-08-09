@@ -195,7 +195,8 @@ binding 单向标记为 `REQUIRE_REBIND`，且不执行 visible/provenance SQL�
 
 | 能力 | 可执行代数 V2 | 在线 Gateway V2 |
 |---|---:|---:|
-| Projection / filter / order / limit | 是 | 单产品 SQL/QueryPlan；多输入不分页 |
+| Projection / filter / order / limit | 是 | 单产品 SQL/QueryPlan；多输入只有 grouped connected INNER equi-join 可排序：完整 group-key 集合必须全部直接投影，每个 key 恰好排序一次且仅用 `ASC`/`DESC`，无 `LIMIT/OFFSET`；visible 顺序不改变 canonical companion |
+| Projection cast / result presentation | 不新增代数 | `bigint`/`int8`、`numeric`、`text` identity cast 消除；唯一非 identity 是上述完整排序 grouped Join 的自然 `numeric` `SUM` 通过 `postgresql-numeric-text-v1` 输出 wire `text`，记账仍为 `numeric`；无 order、未分组/Union encoding 及其它 cast 拒绝 |
 | `GROUP BY`, `COUNT`, `SUM`, `MIN`, `MAX` | 是 | 单产品、Join 或 Union-Distinct 输入 |
 | Join | 是 | SQL 及 QueryPlan `join_many`：2–16 个不同 Catalog 稳定角色的 connected INNER equi-join graph，operational complexity/DoS ceiling 内不限 graph 形状；每 edge 一个或多个 column-to-column equality；支持 10 表 Join，仍受 1 MiB 请求体、AST 和资源边界 |
 | Nested View DAG | 不新增运算 | task-scoped ordinary View recursive expansion；governed materialized Product terminal；仅接受可 flatten 到本表 Projection/Selection/Join/Group/Aggregate 的 closure，最多一道 aggregate barrier，受 16/16/64/128/1 MiB sources/depth/nodes/edges/definition ceilings；展开计划实际进入 relational/V4 terminal ordinal 路径，query-time root Join/order/page 暂拒绝 |

@@ -171,7 +171,12 @@ func semanticAlgebraPlan(plan QueryPlan, compilation RelationalCompilation, prod
 			if err != nil {
 				return node, err
 			}
-			aggregates = append(aggregates, AlgebraAggregateV2{Function: strings.ToLower(aggregate.Function), Field: aggregate.Column, OutputType: outputType})
+			resultEncoding, encodingErr := canonicalAggregateResultEncoding(aggregate.Function, outputType, aggregate.ResultEncoding)
+			if encodingErr != nil {
+				return node, encodingErr
+			}
+			aggregates = append(aggregates, AlgebraAggregateV2{Function: strings.ToLower(aggregate.Function),
+				Field: aggregate.Column, OutputType: outputType, ResultEncoding: resultEncoding})
 		}
 		input := node
 		node = AlgebraPlanV2{Op: "group", Input: &input, GroupBy: append([]string(nil), plan.GroupBy...), Aggregates: aggregates}
@@ -183,6 +188,22 @@ func semanticAlgebraPlan(plan QueryPlan, compilation RelationalCompilation, prod
 	if len(fields) != 0 {
 		input := node
 		node = AlgebraPlanV2{Op: "project", Input: &input, Fields: fields}
+	}
+	if len(plan.OrderBy) != 0 {
+		aliases := make(map[string]string, len(plan.Aggregates))
+		for _, aggregate := range plan.Aggregates {
+			aliases[aggregate.Alias] = strings.ToLower(strings.TrimSpace(aggregate.Function)) + "(" + aggregate.Column + ")"
+		}
+		orders := make([]NormalizedOrder, 0, len(plan.OrderBy))
+		for _, order := range plan.OrderBy {
+			expression := order.Column
+			if aggregateExpression := aliases[order.Column]; aggregateExpression != "" {
+				expression = aggregateExpression
+			}
+			orders = append(orders, NormalizedOrder{Expression: expression, Direction: order.Direction})
+		}
+		input := node
+		node = AlgebraPlanV2{Op: "page", Input: &input, OrderBy: orders}
 	}
 	return node, nil
 }
@@ -254,7 +275,7 @@ func semanticAggregateType(aggregate Aggregate, products map[string]Product, com
 		}
 		if semanticRole == role {
 			if typeName := products[source.Product].ColumnTypes[column]; typeName != "" {
-				output := aggregateOutputType(function, typeName)
+				output := AggregateOutputType(function, typeName)
 				if output == "" {
 					return "", errors.New("aggregate input type is unsupported")
 				}

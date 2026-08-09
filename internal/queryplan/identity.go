@@ -15,7 +15,7 @@ import (
 // asked for, and the compiler identity says what turned it into SQL. Two
 // compilers can agree on a plan and disagree on the statement, and without this
 // the executed bytes would move for a reason nothing recorded.
-const CompilerVersion = "taskgate-query-compiler-v6"
+const CompilerVersion = "taskgate-query-compiler-v7"
 
 const compilerIdentityDomain = "TASKGATE-QUERY-COMPILER-IDENTITY-V1"
 
@@ -39,7 +39,9 @@ var compilerIdentity = sync.OnceValues(computeCompilerIdentity)
 // exercises projection, aggregation, filtering, grouping, ordering and paging.
 // compilerIdentityRelationalProbe separately covers role-qualified relational
 // SQL and the V5 predicate footprint, including a repeated Product under two
-// UNION branch roles.
+// UNION branch roles. compilerIdentityGroupedRelationalProbe binds the grouped
+// relational statement pair, complete group-key delivery order, NUMERIC text
+// result encoding, semantic identity, and ordinal dependency program.
 func compilerIdentityProbe() (QueryPlan, Product) {
 	plan := QueryPlan{
 		Product:    "expense",
@@ -89,6 +91,65 @@ func compilerIdentityRelationalProbe() (QueryPlan, map[string]Product) {
 	return plan, products
 }
 
+func compilerIdentityGroupedRelationalProbe() (QueryPlan, map[string]Product) {
+	lines := Product{
+		Name: "identity_lines",
+		Columns: map[string]struct{}{
+			"id": {}, "order_id": {}, "amount": {},
+		},
+		AllowedAggregates: map[string]struct{}{"sum": {}},
+		ColumnTypes: map[string]string{
+			"id": "bigint", "order_id": "bigint", "amount": "numeric",
+		},
+		SourceNamespace: "taskgate.compiler.identity.lines",
+		Snapshot:        "taskgate-compiler-identity-grouped-probe",
+		StableRole:      "identity_lines",
+		StableEntityKey: []string{"id"},
+	}
+	orders := Product{
+		Name: "identity_orders",
+		Columns: map[string]struct{}{
+			"id": {}, "status": {}, "partition_key": {},
+		},
+		AllowedAggregates: map[string]struct{}{"sum": {}},
+		ColumnTypes: map[string]string{
+			"id": "bigint", "status": "bigint", "partition_key": "integer",
+		},
+		SourceNamespace: "taskgate.compiler.identity.orders",
+		Snapshot:        "taskgate-compiler-identity-grouped-probe",
+		StableRole:      "identity_orders",
+		StableEntityKey: []string{"id"},
+	}
+	plan := QueryPlan{
+		From: &From{JoinMany: &JoinMany{
+			Sources: []Scan{
+				{Product: lines.Name, Role: lines.StableRole},
+				{Product: orders.Name, Role: orders.StableRole},
+			},
+			On: []JoinPredicate{{
+				Left: lines.StableRole + ".order_id", Right: orders.StableRole + ".id",
+			}},
+		}},
+		Columns: []string{
+			orders.StableRole + ".status",
+			orders.StableRole + ".partition_key",
+		},
+		Aggregates: []Aggregate{{
+			Function: "sum", Column: lines.StableRole + ".amount", Alias: "price",
+			ResultEncoding: NumericTextResultEncoding,
+		}},
+		GroupBy: []string{
+			orders.StableRole + ".status",
+			orders.StableRole + ".partition_key",
+		},
+		OrderBy: []Order{
+			{Column: orders.StableRole + ".status", Direction: "asc"},
+			{Column: orders.StableRole + ".partition_key", Direction: "desc"},
+		},
+	}
+	return plan, map[string]Product{lines.Name: lines, orders.Name: orders}
+}
+
 func computeCompilerIdentity() (string, error) {
 	plan, product := compilerIdentityProbe()
 	compiled, err := Compile(plan, product)
@@ -131,6 +192,23 @@ func computeCompilerIdentity() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("compiler identity predicate footprint does not encode: %w", err)
 	}
+	groupedPlan, groupedProducts := compilerIdentityGroupedRelationalProbe()
+	grouped, err := CompileRelational(groupedPlan, groupedProducts)
+	if err != nil {
+		return "", fmt.Errorf("compiler identity grouped relational probe does not compile: %w", err)
+	}
+	groupedSemantic, err := SemanticNormalFormV4(groupedPlan, grouped, groupedProducts)
+	if err != nil {
+		return "", fmt.Errorf("compiler identity grouped relational probe does not normalize: %w", err)
+	}
+	groupedOrdinalJSON, err := grouped.OrdinalProgram.CanonicalJSON()
+	if err != nil {
+		return "", fmt.Errorf("compiler identity grouped relational ordinal program does not encode: %w", err)
+	}
+	groupedOrdinalDigest, err := grouped.OrdinalProgram.Digest()
+	if err != nil {
+		return "", fmt.Errorf("compiler identity grouped relational ordinal program does not digest: %w", err)
+	}
 	hash := sha256.New()
 	writeIdentityField(hash, "domain", compilerIdentityDomain)
 	writeIdentityField(hash, "compiler_version", CompilerVersion)
@@ -144,6 +222,11 @@ func computeCompilerIdentity() (string, error) {
 	writeIdentityField(hash, "probe_relational_visible_sql", relational.VisibleSQL)
 	writeIdentityField(hash, "probe_relational_provenance_sql", relational.ProvenanceSQL)
 	writeIdentityField(hash, "probe_predicate_footprint", string(footprintBytes))
+	writeIdentityField(hash, "probe_grouped_relational_visible_sql", grouped.VisibleSQL)
+	writeIdentityField(hash, "probe_grouped_relational_provenance_sql", grouped.ProvenanceSQL)
+	writeIdentityField(hash, "probe_grouped_relational_semantic_v4", groupedSemantic.SHA256)
+	writeIdentityField(hash, "probe_grouped_relational_ordinal_program", string(groupedOrdinalJSON))
+	writeIdentityField(hash, "probe_grouped_relational_ordinal_program_sha256", groupedOrdinalDigest)
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 

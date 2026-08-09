@@ -170,7 +170,11 @@ exposure 上限写入审批 Manifest。Agent 不申请更小预算，也不因�
 }
 ```
 
-Exposure-enabled `query_sql` 使用 PostgreSQL AST 解析 `taskgate-reporting-sql-v1`，将 SQL alias 映射为 Catalog 稳定角色，并无损 lowering 为 canonical QueryPlan。单产品支持 projection/filter/group/order/limit/offset 与 `COUNT/SUM/MIN/MAX`；多产品支持 2–16 源内的任意 connected INNER equi-join graph 形状，每条 edge 可包含多个 column-to-column equality predicate。Lowering 对 nodes、edges、predicates 及 equality 两端规范排序并转换为现有 `join_many`，再 deterministic binary fold 为现有二元代数。16-source 上限是 operational complexity/DoS ceiling，所以 10 表 Join 在支持范围内；请求还受 1 MiB MCP 请求体、AST 白名单校验和现有资源预算/超时/行数上限约束。Self-join、outer/cross/non-equality join、断开的 join graph、子查询、CTE、set operation、窗口、`HAVING` 和多输入分页关闭式拒绝；Gateway 不会静默修改查询语义。
+Exposure-enabled `query_sql` 使用 PostgreSQL AST 解析 `taskgate-reporting-sql-v1`，将 SQL alias 映射为 Catalog 稳定角色，并无损 lowering 为 canonical QueryPlan。单产品支持 projection/filter/group/order/limit/offset 与 `COUNT/SUM/MIN/MAX`；多产品支持 2–16 源内的任意 connected INNER equi-join graph 形状，每条 edge 可包含多个 column-to-column equality predicate。Lowering 对 nodes、edges、predicates 及 equality 两端规范排序并转换为现有 `join_many`，再 deterministic binary fold 为现有二元代数。16-source 上限是 operational complexity/DoS ceiling，所以 10 表 Join 在支持范围内；请求还受 1 MiB MCP 请求体、AST 白名单校验和现有资源预算/超时/行数上限约束。
+
+多产品排序按结构开放：查询必须是带非空 `GROUP BY` 的 connected INNER equi-join，每个 group key 都要直接投影，并在 `ORDER BY` 中恰好出现一次且仅出现一次；方向只允许 `ASC`/`DESC`（省略等价于 `ASC`），不能带 `LIMIT/OFFSET`。Visible SQL 遵循请求的 group-key 顺序，ordinal companion 独立保持 canonical group/entity 升序。顶层 projection cast 只接受未修饰、非嵌套的 `bigint`/`int8`、`numeric`、`text`：与自然 canonical 类型相同的 identity cast 会被消除；唯一非 identity 形式是同一完整排序 grouped Join 中自然结果为 `numeric` 的精确 `SUM` 通过 `postgresql-numeric-text-v1` 以 PostgreSQL wire `text` 展示，记账类型仍为 `numeric`，无 `ORDER BY` 时不得使用。
+
+Self-join、outer/cross/non-equality/`NATURAL`/`USING` join、断开的 join graph、子查询、CTE、set operation、窗口、`HAVING`、位置式 group/order、显式 `NULLS FIRST/LAST` 和 `ORDER BY USING` 关闭式拒绝。多产品查询还拒绝未分组、部分/重复/未投影 group key、aggregate/表达式排序和全部分页；未分组或 Union result encoding 及其它 projection cast 同样拒绝。Gateway 不会静默修改查询语义。
 
 lowering 成功后，Gateway 丢弃原始 SQL 作为执行来源，只执行 QueryPlan 重新生成的 visible SQL 和 ordinal provenance companion，两者还会再经完整 SQL policy。高级 `execute_plan` 也共用这一编译/记账边界，并且仍可表示同产品双分支 `union_distinct`；该 set operation 不属于 SQL profile。Gateway 不调用外部模型。
 

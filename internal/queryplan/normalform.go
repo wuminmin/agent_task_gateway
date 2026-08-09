@@ -106,6 +106,9 @@ func NormalizeV2(plan QueryPlan, product Product) (NormalForm, error) {
 	}
 	aliases := make(map[string]string, len(plan.Aggregates))
 	for _, aggregate := range plan.Aggregates {
+		if aggregate.ResultEncoding != "" {
+			return NormalForm{}, errors.New("aggregate result casts are outside the single-product normal form")
+		}
 		function := strings.ToLower(strings.TrimSpace(aggregate.Function))
 		column := "*"
 		if aggregate.Column != "*" {
@@ -113,7 +116,7 @@ func NormalizeV2(plan QueryPlan, product Product) (NormalForm, error) {
 		}
 		expression := function + "(" + column + ")"
 		aliases[aggregate.Alias] = expression
-		outputType, err := exposure.CanonicalSQLTypeV2(aggregateOutputType(function, product.ColumnTypes[aggregate.Column]))
+		outputType, err := exposure.CanonicalSQLTypeV2(AggregateOutputType(function, product.ColumnTypes[aggregate.Column]))
 		if err != nil {
 			return NormalForm{}, err
 		}
@@ -282,7 +285,10 @@ func canonicalField(namespace, field string) string {
 	return namespace + "." + strings.ToLower(strings.TrimSpace(field))
 }
 
-func aggregateOutputType(function, input string) string {
+// AggregateOutputType returns PostgreSQL's canonical result type for the
+// closed aggregate/type fragment shared by SQL lowering, compilation, and the
+// semantic normal forms.
+func AggregateOutputType(function, input string) string {
 	canonical, err := exposure.CanonicalSQLTypeV2(input)
 	if err == nil {
 		input = canonical
@@ -429,9 +435,10 @@ type AlgebraJoinPredicateV2 struct {
 }
 
 type AlgebraAggregateV2 struct {
-	Function   string `json:"function"`
-	Field      string `json:"field"`
-	OutputType string `json:"output_type"`
+	Function       string `json:"function"`
+	Field          string `json:"field"`
+	OutputType     string `json:"output_type"`
+	ResultEncoding string `json:"result_encoding,omitempty"`
 }
 
 type AlgebraNormalFormV2 struct {
@@ -862,7 +869,7 @@ func normalizeAlgebraAggregatesV2(input []AlgebraAggregateV2, fields map[string]
 		if err != nil {
 			return nil, nil, err
 		}
-		expectedType := aggregateOutputType(function, inputType)
+		expectedType := AggregateOutputType(function, inputType)
 		if expectedType != outputType {
 			return nil, nil, fmt.Errorf("V2 aggregate %s(%s) output type must be %q", function, field, expectedType)
 		}
@@ -871,7 +878,15 @@ func normalizeAlgebraAggregatesV2(input []AlgebraAggregateV2, fields map[string]
 			return nil, nil, fmt.Errorf("V2 group repeats aggregate %q", expression)
 		}
 		seen[expression] = struct{}{}
-		result = append(result, map[string]string{"function": function, "field": field, "output_type": outputType})
+		normalized := map[string]string{"function": function, "field": field, "output_type": outputType}
+		resultEncoding, encodingErr := canonicalAggregateResultEncoding(function, outputType, aggregate.ResultEncoding)
+		if encodingErr != nil {
+			return nil, nil, encodingErr
+		}
+		if resultEncoding != "" {
+			normalized["result_encoding"] = resultEncoding
+		}
+		result = append(result, normalized)
 		outputField := AlgebraFieldV2{ID: expression, SQLType: outputType}
 		if isCollatableSQLTypeV2(outputType) {
 			outputField.Collation = inputDefinition.Collation

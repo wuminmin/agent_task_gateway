@@ -76,6 +76,18 @@ func (s *Service) getSQLCapabilities(_ context.Context, _ mcp.Principal, raw jso
 			"single_product": true,
 			"joined_query":   false,
 		},
+		"ordering": map[string]any{
+			"single_product":                         true,
+			"joined_grouped_complete_selected_key":   true,
+			"joined_ungrouped":                       false,
+			"joined_partial_or_unselected_group_key": false,
+			"joined_aggregate_expression":            false,
+		},
+		"projection_casts": map[string]any{
+			"identity_scalar": []string{"bigint", "int8", "numeric", "text"},
+			"joined_ordered_grouped_numeric_sum_to_wire_text": queryplan.NumericTextResultEncoding,
+			"general_expression_casts":                        false,
+		},
 		"semantic_views": map[string]any{
 			"profile_version":                    catalog.ViewContractV1,
 			"nested_dag":                         true,

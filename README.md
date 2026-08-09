@@ -147,7 +147,9 @@ LIMIT 20;
 
 `taskgate-reporting-sql-v1` 包含单产品 projection/filter/order/limit/offset、`COUNT(*)`、`COUNT(column)`、`SUM`、`MIN`、`MAX`，以及由 2–16 个不同 Catalog 稳定角色构成的 connected INNER equi-join graph。每条 edge 可以包含一个或多个 column-to-column equality predicate。16-source 上限是限制生成 SQL 宽度、provenance 行数和 PostgreSQL planning work 的 operational complexity/DoS ceiling；请求还受 1 MiB transport 请求体、PostgreSQL AST 白名单校验、资源预算、超时和行数上限约束。
 
-Full SQL intentionally remains unsupported. Self-join、outer/cross/non-equality join、断开的 join graph、子查询、CTE、set operation、窗口、`HAVING` 和多输入分页均在该 profile 外；执行层不会把 `LEFT JOIN` 静默改为 `INNER JOIN`。Resource-only Grant 接受同一个 profile：它与 exposure-enabled 的区别在记账，不在 SQL 接受面。它以前直接执行 Agent 原文，那条路径已经取消——每个 COMPLETED 查询都必须签署它所执行语句的 preparation，而无法 lowering 的语句没有 canonical plan 可供独立重建。
+多产品 `ORDER BY` 只接受带非空 `GROUP BY` 的上述 Join：所有 group key 都必须直接投影，并各自在排序列表中恰好出现一次，方向只允许 `ASC`/`DESC`（省略等价于 `ASC`）；多产品 `LIMIT/OFFSET` 始终拒绝。Visible SQL 采用请求的 group-key 顺序，ordinal companion 独立保持 canonical group/entity 升序。顶层 projection cast 只接受未修饰、非嵌套的 `bigint`/`int8`、`numeric`、`text`；可证明与自然 canonical 类型相同的 identity cast 会被消除。唯一非 identity 形式是同一完整排序 grouped Join 中自然结果为 `numeric` 的精确 `SUM` 以 `postgresql-numeric-text-v1` 产生 PostgreSQL wire `text`；aggregate identity 和记账类型仍为 `numeric`，无 `ORDER BY` 时不得使用。
+
+Full SQL intentionally remains unsupported. Self-join、outer/cross/non-equality/`NATURAL`/`USING` join、断开的 join graph、子查询、CTE、set operation、窗口、`HAVING`、位置式 group/order、显式 `NULLS FIRST/LAST` 和 `ORDER BY USING` 均在该 profile 外。多产品未分组、部分/重复/未投影 group key、aggregate/表达式排序、全部分页、未分组或 Union result encoding 及其它 projection cast 也关闭式拒绝；执行层不会把 `LEFT JOIN` 静默改为 `INNER JOIN`。Resource-only Grant 接受同一个 profile：它与 exposure-enabled 的区别在记账，不在 SQL 接受面。它以前直接执行 Agent 原文，那条路径已经取消——每个 COMPLETED 查询都必须签署它所执行语句的 preparation，而无法 lowering 的语句没有 canonical plan 可供独立重建。
 
 普通 Agent 的 `tools/list` 不默认列出 `execute_plan`。该入口仅保留给 SDK、内部测试、基准、调试和确定性工作流，并与 SQL lowering 共用同一 QueryPlan 编译和 Exposure Accounting 边界，不是策略旁路。
 
