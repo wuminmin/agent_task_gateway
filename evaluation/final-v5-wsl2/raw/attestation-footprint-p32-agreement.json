@@ -1,0 +1,100 @@
+{
+  "activation_support_changing": false,
+  "branch": "tkde-artifact-rerun",
+  "capability_changing": false,
+  "commit": "f5fc9811eef882ec8fc9de5cdf5da24861a31784",
+  "compared_against": "evaluation/final-v5-wsl2/raw/attestation-footprint-i2b-agreement.json",
+  "development_runs_retained": true,
+  "expected_schema": {
+    "digest": "e2a3796fb3f5c50f97ebf02a40996b9c95a50e5b028a975cfccd4cf80407d40c",
+    "entries": 1,
+    "relations": [
+      "reporting.final_v5_result_heavy"
+    ]
+  },
+  "expected_schema_identical": true,
+  "formal_campaign": false,
+  "full_digests_differ_as_designed": true,
+  "head_equals_origin": true,
+  "i2b_portable_digest_identical": true,
+  "measurement_environment": {
+    "pg_stat_statements_track": "all",
+    "pg_stat_statements_track_planning": "off",
+    "pg_stat_statements_track_utility": "on",
+    "postgresql_version_num": 160014
+  },
+  "per_scope_multisets_identical": true,
+  "portable_digests_identical": true,
+  "postgresql_identity_files_identical": true,
+  "postgresql_portable_identity_identical": true,
+  "postgresql_runtime_identity_portable": {
+    "image_reference": "postgres@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55",
+    "platform": "linux/amd64",
+    "repo_digest": "postgres@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55"
+  },
+  "profile_binding": {
+    "catalog_sha256": "533837084c0df141a0fac6e74788a4c2b9eb84611c1f96d4c760806745b4f709",
+    "expected_schema_digest": "e2a3796fb3f5c50f97ebf02a40996b9c95a50e5b028a975cfccd4cf80407d40c",
+    "expected_schema_entries": 1,
+    "profile_alias": "result-heavy",
+    "profile_artifact_directory_sha256": "814d4df9971f41b649289aa8b4b3c42f86b588b50c5691f21cf0ec010659f99b",
+    "profile_id": "profile-a86cd4df5cad6e26",
+    "profile_registry_release": "final-v5-contracts-v1.4",
+    "profile_registry_sha256": "ca84cba9810d378ea513bdadbf8cb9516a8bc3feaeb26b61af0156d857aee537"
+  },
+  "profile_manifest_digests_differ_as_designed": true,
+  "publication_eligible": false,
+  "record": "taskgate-final-v5-attestation-footprint-p32-agreement-v1",
+  "report_files_differ": true,
+  "runs": [
+    {
+      "diagnosis_id": "attestation-footprint-qualification-p32-01-20260809T130103Z-f5fc9811eef8",
+      "footprint_sha256": "ca6c3a769650d6f574078fc61280b50aef6d4ff67ff2569e5aadb77abd02d4f7",
+      "portable_footprint_sha256": "032e9c53704d8df270693c291d36893e46e6c587b95c59bef2c6d198181ceacf",
+      "postgresql_identity_file_sha256": "cd3c6386581f30785080bc292ecd4fa1fc83edafd622329099073b995b7bc215",
+      "profile_artifact_manifest_sha256": "987e773b1b5b31443487bc3e068524e49a723912987501c48254f3afcaf1338a",
+      "qualification": "diagnosis-attestation-footprint-qualification-p32-01-20260809T130103Z-f5fc9811eef8",
+      "report_file_sha256": "e460138559acce31d332cbdba424fa4b15a502c56ddecc359fca2f0563fb1178"
+    },
+    {
+      "diagnosis_id": "attestation-footprint-qualification-p32-02-20260809T130727Z-f5fc9811eef8",
+      "footprint_sha256": "5ba06cc7d59c1832e0e68bcb72e1ae03cd82dbc87f65fd55c982717970ea80aa",
+      "portable_footprint_sha256": "032e9c53704d8df270693c291d36893e46e6c587b95c59bef2c6d198181ceacf",
+      "postgresql_identity_file_sha256": "cd3c6386581f30785080bc292ecd4fa1fc83edafd622329099073b995b7bc215",
+      "profile_artifact_manifest_sha256": "2d0ce4b5478c5c57553ec8aeb535c8914ea6f4185b5b25298fd4e170323ef82d",
+      "qualification": "diagnosis-attestation-footprint-qualification-p32-02-20260809T130727Z-f5fc9811eef8",
+      "report_file_sha256": "cfa81d10d1df5b2b2b14fb27764361490e2a64394bc6fc9b5d1ed8e849854645"
+    }
+  ],
+  "schema_version": 2,
+  "scopes": {
+    "constructor_or_cold_pool": [
+      {
+        "calls_per_attestation": 1,
+        "strict_ast_sha256": "e5738df1650276a7f20e677172e067bc62bab12d48c18a378c9b6ed602433842"
+      }
+    ],
+    "explicit_preflight_pool": [
+      {
+        "calls_per_attestation": 1,
+        "strict_ast_sha256": "e5738df1650276a7f20e677172e067bc62bab12d48c18a378c9b6ed602433842"
+      }
+    ],
+    "paired_query_transaction": [
+      {
+        "calls_per_attestation": 1,
+        "strict_ast_sha256": "e5738df1650276a7f20e677172e067bc62bab12d48c18a378c9b6ed602433842"
+      }
+    ],
+    "single_query_transaction": [
+      {
+        "calls_per_attestation": 1,
+        "strict_ast_sha256": "e5738df1650276a7f20e677172e067bc62bab12d48c18a378c9b6ed602433842"
+      }
+    ]
+  },
+  "source_dependencies_bound": 8,
+  "source_dependencies_identical": true,
+  "source_manifest_sha256": "2831e532190f1f7b560d6a8fa9a81216ee14052be56971323fcce33ca3c60f94",
+  "worktree_clean": true
+}

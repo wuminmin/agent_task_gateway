@@ -32,9 +32,9 @@ import (
 // retainedQualificationRun is the current qualification whose footprint and
 // PostgreSQL identity the repository retains together. Both files come from one
 // run, and a second independent run reproduces its portable footprint in the
-// active i2b agreement.
-const retainedQualificationRun = "diagnosis-attestation-footprint-qualification-i2b-01-" +
-	"20260808T152236Z-017e73a3a749"
+// active P3.2 agreement.
+const retainedQualificationRun = "diagnosis-attestation-footprint-qualification-p32-01-" +
+	"20260809T130103Z-f5fc9811eef8"
 
 func retainedQualificationDirectory(t *testing.T) string {
 	t.Helper()
