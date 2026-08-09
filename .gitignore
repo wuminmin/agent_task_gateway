@@ -17,7 +17,7 @@ tmp/
 .agents/
 .claude/
 .codex/
-AGENTS.md
+
 # Go writes a main package's executable into the working directory, so
 # `go build ./evaluation/cmd/<command>` from the repository root leaves the
 # binary at the root where `git add -A` will sweep it in. Build into
