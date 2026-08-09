@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "status": "passed",
-  "checked_at": "2026-08-01T08:01:44Z",
+  "checked_at": "2026-08-09T12:44:39Z",
   "tool": "TLC",
   "tool_version": "1.7.1",
   "model": "formal/ReceiptAudit.tla",
@@ -9,7 +9,7 @@
   "model_sha256": "1cbf10f9304175e235a84b28d8fc318b5ea8e1961411d44665aca154dd329477",
   "config_sha256": "b3998ffda8898323842e4c89a360f1f1971dad8e2d3954486841cb0dcca646f7",
   "raw_log": "formal/results/receipt_audit.log",
-  "log_sha256": "166dc5561215accde12f29c455bf29da36a7c4023880c00a621ad94c126d1652",
+  "log_sha256": "1e0d114ea377a7d6c5bca9788e558a674868f1ad5f986d85d667a3751681da5f",
   "states_generated": 3281,
   "distinct_states": 3281,
   "search_depth": 3,

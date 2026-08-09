@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "status": "passed",
-  "checked_at": "2026-08-01T08:01:40Z",
+  "checked_at": "2026-08-09T12:44:33Z",
   "tool": "TLC",
   "tool_version": "1.7.1",
   "model": "formal/VectorBudget.tla",
@@ -9,7 +9,7 @@
   "model_sha256": "884d7499ad0b9fc826add70e35bd14c747cd6dd928c4e0f154f5872bbd49f40b",
   "config_sha256": "875202e13f08e13a5075e613bee9256b835b1bb3f610166dc8b1d7667ac3b575",
   "raw_log": "formal/results/vector_budget.log",
-  "log_sha256": "f656db9d5b35579919e58154f73e582729fd771d53b213275448b8978f001017",
+  "log_sha256": "8dd68b6c0719312119dfdf38a8b1aed4a19a4d4702c7b86fb2143d8677c6da73",
   "states_generated": 263229,
   "distinct_states": 201134,
   "search_depth": 6,

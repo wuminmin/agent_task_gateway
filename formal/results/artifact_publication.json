@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "status": "passed",
-  "checked_at": "2026-08-01T10:56:15Z",
+  "checked_at": "2026-08-09T12:44:44Z",
   "tool": "TLC",
   "tool_version": "1.7.1",
   "model": "formal/ArtifactPublication.tla",
@@ -9,7 +9,7 @@
   "model_sha256": "c9f459c0e134c9d87a1ff4ca60f82e9107f2dba5baa81c89c51b50fcbbec0081",
   "config_sha256": "abe69bc904eae577fae19ed7be3c002fd7a8237e039287f0fc727b216f89f869",
   "raw_log": "formal/results/artifact_publication.log",
-  "log_sha256": "f9f4c19ac1fffb722442338c16603f4257b72cc5761b6ba875ea3e78ea697b8f",
+  "log_sha256": "ccf03f9d26be0cc15b82ada5413805150043632052898efeb58942620a17184c",
   "states_generated": 1324,
   "distinct_states": 441,
   "search_depth": 17,

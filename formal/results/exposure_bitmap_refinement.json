@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "status": "passed",
-  "checked_at": "2026-08-01T08:01:53Z",
+  "checked_at": "2026-08-09T12:44:46Z",
   "tool": "TLC",
   "tool_version": "1.7.1",
   "model": "formal/ExposureBitmapRefinement.tla",
@@ -9,9 +9,9 @@
   "model_sha256": "126ffc68017768f3aa620341109d7881cd86bb67f129514deff5e5131764b2f6",
   "config_sha256": "cbdbfd9b13374f662e1d62f952d813e71f1aa06baeec8fc43ecb2d258cbb0f56",
   "raw_log": "formal/results/exposure_bitmap_refinement.log",
-  "log_sha256": "0e23cfc92781ceadc0b65b8058fed752816152b355034b3a50eb90cab4589a4f",
+  "log_sha256": "32069a320322bc08ccc9d888a93d40de75d62615d0a2f829384dde422cde622f",
   "states_generated": 122976,
   "distinct_states": 60680,
-  "search_depth": 9,
+  "search_depth": 10,
   "exit_code": 0
 }
