@@ -61,7 +61,7 @@
   `RequirePreparedSame` → `Derive` → 三个行上限必须等于签名值）。
 - `RuntimeFinalizerV3` 是唯一生产入口；构造函数与五个 collaborator 全部包私有，
   Adapter 只能提交证据，无法选择自己被对照的档案。
-- 30 条 v3 集成门全部 PASS；分类器 manifest v2（路径感知闭世界）已定案。
+- 31 条 v3 集成门全部 PASS；分类器 manifest v2（路径感知闭世界）已定案。
 - Artifact（`result-heavy`）路径代码级已切到 v3；`run-artifact-targeted.sh` 存在。
 - 2026-08-08 全新活体激活：7 个 live-route profile 已 activation-supported /
   smoke-passed / targeted-run eligible；54 探针外产品矩阵全拒绝，540 条负断言通过。
@@ -233,18 +233,43 @@ V5 要建 predicate footprint，而 `queryplan.PredicateBindings` 按 product �
 - 验收：`grep -rn "captureBoundObserver\b" evaluation/` 无生产命中；
   observer 相关测试绿。
 
+**P1.9 闭合 finalizer 重放身份（P2.2 的新前置）**
+- 前置：P0；与已 `DROPPED` 的 P2.1 无依赖。
+- 目标：保留 `ReproduceExecutionV3` 产出的 visible/companion
+  `StatementIdentity`，并在 `paired_novel`、`single_query` 和
+  `semantic_replay` 上闭合 signed↔reproduced 的 exact SQL、strict AST、
+  row limit、policy fingerprint 与 companion presence。比较由签名实际存在的
+  target 驱动，不按路径执行计数跳过 semantic replay 的已授权未执行 target。
+  本任务只补 S–R 边；不扩展 Adapter carried evidence，不改生产推导，不碰
+  P2.2/P2.3 cutover。
+- 验收：`go build ./...` 与 `go test ./evaluation/internal/experiment/...` 通过。
+  临时删除 S–R 调用点时，Gate 31 的八个独占 mutation 格全部失败，而 gate 1–30
+  保持通过；恢复后 Gate 31 通过。Gate 31 八格为 paired visible/companion 的
+  policy fingerprint，以及 semantic replay visible/companion 各自的 exact、
+  strict、policy fingerprint。row-limit receipt mutation 由既有 binding、pre-state
+  与 authorizer limit 不变量提前拒绝，不冒充 Gate 31；生产 comparator 的 visible /
+  companion × exact / strict / row limit / policy fingerprint 分支由直接单元测试覆盖，
+  并以独立 no-op mutation 证实。v1.4 ratchet 条目不得增删。
+
 **P2.2 Scale 切换（`executeDependencyE2E`，仅 TaskGate 臂）**
-- 前置：P2.1
+- 前置：P1.9
 - 步骤：调用 `RuntimeFinalizerV3.OpenObserverWindowV3` → 执行 → 提交
   `CarriedEvidenceV3` + `FrozenContractSelectorV3`；删除该路径的
   `NewGatewayControlPlan` / `applyObserverDelta`；
   该 cutover 需要的 resolver 真实实现落在 `evaluation/internal/experiment`。
-- 验收：`retiredV14ActiveReferences` 中 `scale.go` 与
-  `finalize_scale_artifact.go` 两项可删；v14 ratchet 测试绿。
+  本任务只落 dormant、fail-closed 的 wiring。`exposure-scale`
+  （`config/profiles/registry.json`）保持当前不可路由状态，不宣称 live pass，
+  不翻任何 capability，不改 registry。
+- 验收：`retiredV14ActiveReferences` 中仅 `scale.go` 一项可删；
+  `finalize_scale_artifact.go` 一项保留至 P2.3；v14 ratchet 测试绿。
+  原因：`finalize_scale_artifact.go:554` 的 `validateObserverTransition`
+  仍被 `finalize.go:973` 的 ProvSQL 分支调用，该 allowance 在 P2.2 阶段
+  无法诚实删除；不得通过移动文件位置来满足 grep 验收。
 
 **P2.3 ProvSQL 切换（`executeProvSQLTaskGate`，仅 `taskgate` 臂）**
 - 同 P2.2 形式。`direct` 臂是裸 PostgreSQL，不进 Gateway，不动。
-- 验收：`provsql.go` 从 ratchet 移除。
+- 验收：`provsql.go` 从 ratchet 移除；同时删除
+  `finalize_scale_artifact.go` 的遗留 allowance 与共用 helper。
 
 **P2.4 清空 ratchet 与遗留**
 - 前置：P2.2 + P2.3
@@ -385,7 +410,7 @@ DataPort / Code Ocean（非强制，但对这篇是加分）。
 - **PX.1** `result-object-store` / `-init` 还在用 MinIO `RELEASE.*` tag，改成 digest pin。
 - **PX.2** `docs/tkde_revision_status.md` 已经落后于工作树（还在写 V8 receipt、
   6/9 等），随每个阶段同步更新；它自称是"当前投稿状态快照"，就必须真的是。
-- **PX.3** 把 30 条 v3 集成门的完整需求文本补进 `docs/final_v5_v3_runtime_integration_gates.md`
+- **PX.3** 把 31 条 v3 集成门的完整需求文本补进 `docs/final_v5_v3_runtime_integration_gates.md`
   （历史上 18/19/21/22/25 曾缺失，现已补齐 —— 确认没有再退化）。
 - **PX.4** README 按 `codex_taskgate_tkde_revision_plan.md` §Phase 10 的顺序整理。
 
@@ -563,3 +588,4 @@ make paper-final-check       # 干净树 + final 模式 + evidence.tex 无 diff
 | P1b.2 settlement 无回归验证 | DONE | 2026-08-09 | 从已推送且 clean 的 `b55b830` 启动 `GOFLAGS=-buildvcs=false TASKGATE_EXPOSURE_POSTGRES_IMAGE=postgres@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55 make eval-exposure`，完整命令 exit 0；日志 `/tmp/p1b2-eval-exposure-b55b830.log` SHA-256 `d9348f6f85b70306e0f74e9b31733c9bfbe6c49dc1ed434bcfcafd9a099cf4bc`。同次运行的 Docker build-stage `gofmt`、`go test ./evaluation/...` 与全部 evaluation binaries build 通过；认证 oracle 精确报告 PostgreSQL `16.14 (Debian 16.14-1.pgdg12+1)`。fresh schema-v7 evidence 为 RQ1 21/21；PostgreSQL RQ2 generated/unique/executed 1024/1024/1024、duplicate 0、1152 differential checks、1024 metamorphic checks、2176 statements、0 mismatch；exposure rewrite complete/0 mismatch；RQ3 deterministic 5/5，`-race` integration 的两个 control 与三个 gateway named tests 精确 5/5/0、两个 package terminal PASS、raw 中 0 fail/skip，其中 `TestRelationalOnlinePathAgainstPostgreSQL` 与 `TestRelationalGatewayEndToEndAgainstPostgreSQL` 均真实 PASS；in-process RQ4 三条 scaling curve complete。独立、不导入 recorder 的 raw 重放验证五身份、实际 command、时间窗 `2026-08-08T21:52:18.880676866Z`–`21:52:40.141477994Z`、canonical refs 与 results→artifact→raw 两级 SHA 均 PASS；论文侧 `validate_exposure()`、corpus SHA `8b87db47e51db7db42c759155c8581f95af93e766e7731a0174087ce110f2967`、RQ1 oracle SHA `4548b9ae4ce46e056a39ff6cffafc6cd615a7d34966786f03cc59e749b0e064b` 亦闭合。新 `results.json` / `rq3-integration.json` / raw JSONL SHA 分别为 `3b46d5dc4219295b8d9bf29a33c443b9cad875ec57ec8bdc783721a592a1df40` / `931ae57c421c1522510b195ee1713534c49b0b974b25660118b707d83b20a277` / `fa4cce99d2ac7f23803f144bdf4925f221e4197ce2d22370d581f2b515496608`，三者均离开旧基线；本次真实 runner 仅刷新这三份 evidence，credential scan 无命中，oracle 容器/网络无残留。**本任务没有运行 `run-exposure-performance.sh`，没有刷新三部署 31,296-sample 历史性能 campaign（7,896 full-path + 23,400 ablations）；`evaluation/exposure-performance/results.json` 保持 SHA `7c223c3520e5f059039af55435c4b29cd172145e79c44ac93da300a19a4191ad`，不得把本轮 in-process 三曲线表述为 current-HEAD latency/throughput campaign 重测。** |
 | P1b.3 论文 Join 限界对账 | DONE | 2026-08-09 | 计划称论文仍把 Join 限于 algebra/oracle-only，但逐提交与逐行审计证明该前提在计划写入时已过时：`e49d346` 已删除四处“未接在线 provenance / 非 end-to-end online Join”旧限界并接入公开在线、Business PostgreSQL 与 Control PostgreSQL settlement，`ff293fdc` 统一 SQL→canonical plan，`9d746cfc` 扩展为 connected 2–16-role equijoin graph，`722c5a7e` 固化 online compiler→materialized-oracle refinement，`332d42ed` 汇总当前 Evaluation/Limitations；这些提交均为计划提交 `73da8ae` 的祖先。当前 `paper/tkde/main.tex` 明确陈述 operational multi-source SQL、2–16-source online lowering、paired PostgreSQL join fanout 及 AST/Catalog→JoinMany→SQL/effect fold，`oracle-only` / `algebra-only` 扫描零命中；“materialized algebra remains the oracle”处于在线实现的差分验证语境，不是执行替代或能力收缩。能力上限是 2–16 个角色，而当前保留的真实 PostgreSQL end-to-end evidence 明确只是代表性 two-source Join–Group；P1b.2 的 fresh PG16.14 `-race` evidence（提交 `36bd815`）已真实通过 online relational 与双库 gateway settlement 两项，因此正文没有把两源实测冒充 16-way live campaign。审计未发现需删除或改写的陈词，故本任务只追加证据对账：TeX/补充材料/论文 README 字节未变、未运行无源码变化所不需要的论文构建；P7.2 的最终范围复核仍保留为后续独立任务。 |
 | P2.1 observer V2 化任务重分区 | DROPPED | 2026-08-09 | P2.1 作为独立机械任务的依赖顺序被历史与当前 authority 边界推翻，余量重分区进 P2.2/P2.3，而不是用假 digest 或 V2→V1 降格来满足 grep。计划祖先 `6a0fce5` 已集中实现并测试 `ObserverInvocationV3` / `RunObserverV2`，其提交正文明确“three adapter call sites are deliberately unchanged”且每个 caller 必须随自己的 finalizer cutover 切换；`4418ce5` 随后已把 Artifact 原子迁成 `OpenObserverWindowV3`→同一 window/classifier 的 before/after V2 capture→`FinalizeTaskGateObservationV3`。当前剩余恰为 Scale `executeDependencyE2E` 两处与 ProvSQL `executeProvSQLTaskGate` 两处 schema-v1 caller；其 evidence/validator 仍收 `*ObserverSnapshot` 并走 `NewGatewayControlPlan` / `applyObserverDelta`。可信 V2 window/classifier 只能由 finalizer 预注册，当前 `deploymentContractsV3.ResolveCandidates` 又只枚举 Artifact cells，且测试明确要求 `ExperimentID:"scale"` 解析为零候选；因此单独替换 helper 只能让 Adapter 自行推导分类器、伪造承诺或留下未被 v3 接受的 hybrid，均不允许。**本行不声称原 P2.1 的全局零命中验收已满足**：Scale 两处随 P2.2 的 resolver/evidence/finalizer 原子 cutover 删除；ProvSQL 两处随 P2.3 原子 cutover 删除，并在同一任务删除最后的 legacy helper，届时才执行 `captureBoundObserver` 生产零命中验收；schema-v1 声明迁入 `legacyv14` 仍属于 P2.4。聚焦 observer invocation、strict V2 emission、Artifact carried evidence 与 v1.4 ratchet 测试实际 PASS；未运行 formal build、N4、canary、freeze，未翻任何 capability。 |
+| P1.9 finalizer 重放身份闭合 | DONE | 2026-08-09 | `ReproduceExecutionV3` 直接保留授权器产出的 visible/companion `StatementIdentity`；finalizer 在三个 `requiresSchema` 路径上按签名实际存在的 target 闭合 signed↔reproduced 的 exact、strict、row limit、policy fingerprint 与 companion presence，不按执行计数跳过 semantic replay，未改 `physicalquery.Derive` 参数、任何生产包、Adapter carried evidence 或既有 S–C/C–R helper。Gate 31 精确覆盖新边独占的八格：paired visible/companion fingerprint 与 semantic visible/companion 各 exact/strict/fingerprint；direct comparator 测试覆盖两个角色×四字段及 presence 双向。调用点 mutation 后八格逐项明确 FAIL 为 `mutation was accepted`，同时 gate 1–30（含 observer 1/27/28）全部 PASS；comparator no-op mutation 后 2×4 八格及 presence 明确 FAIL；两轮恢复后当前树 38 个 gate/support 顶层测试 PASS、0 SKIP。`GOFLAGS=-buildvcs=false go build ./...`、`go vet ./...` 均 exit 0；`go test -count=1 ./evaluation/internal/experiment/...` package exit 0，但 `TASKGATE_FINAL_V5_FORMAL_WINDOW_PROJECT` 未设置使 3 个既有 formal-deployment live 测试明确 SKIP，**不记为通过**。v1.4 ratchet 文件与起始 `d42100e` 无 diff，SHA-256 仍为 `85b96783ce7c5fd44393ec5d72280cb5b9d808d20e3d85e88e70b12964dc7b82`，保持 5 文件/11 allowance，聚焦 ratchet/cutover 五项 PASS。改动文件 gofmt 无输出，`git diff --check` 通过；全仓 gofmt 仍只报 P0.2 已有的 `internal/control/execution_binding.go`。P2.2/P2.3 仅修订计划裁决，未碰 cutover、registry、capability、formal build、N4、canary 或 freeze。 |

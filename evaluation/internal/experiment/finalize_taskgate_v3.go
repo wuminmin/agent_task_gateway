@@ -253,6 +253,11 @@ func finalizeTaskGateObservationV3Core(receipt queryreceipt.QueryReceiptV1, veri
 	if err != nil {
 		return result, err
 	}
+	if dimensions, _ := dimensionsFor(pathKind); dimensions.requiresSchema {
+		if err := requireReproducedMatchesSigned(pathKind, *binding, reproduced); err != nil {
+			return result, err
+		}
+	}
 
 	// 5. Everything else is derived independently.
 	inputs := IndependentInputsV3{
@@ -438,6 +443,64 @@ func requireCarriedMatchesSigned(role string, signed querybinding.TargetRecordV1
 		return fmt.Errorf("the carried %s target is prepared as %s, the Gateway signed %s; "+
 			"a statement cannot be presented as another target's",
 			role, shortDigest(preparedTargetBinding), shortDigest(signed.PreparedTargetBindingSHA256))
+	}
+	return nil
+}
+
+// requireReproducedMatchesSigned closes the missing signed-to-reproduced (S-R)
+// edge: each target identity the Gateway signed must equal the identity emitted
+// by the finalizer's own physicalquery authorization. On semantic replay this is
+// the only comparison of authorized-but-not-executed target statement identity.
+//
+// The comparison is deliberately driven by what the binding actually signed,
+// not by requiredTargets or dimensionsFor target counts. The original hole
+// existed because those counts describe how many statements a path EXECUTES;
+// semantic replay executes zero while still signing two authorized targets, so
+// a count-driven loop skips exactly the records this edge exists to check.
+func requireReproducedMatchesSigned(pathKind GatewayPathKind,
+	binding querybinding.QueryExecutionBindingV2, reproduced ReproducedExecutionV3) error {
+	compare := func(role string, signed querybinding.TargetRecordV1,
+		actual physicalquery.StatementIdentity) error {
+		if signed.ExactSQLSHA256 != actual.ExactSHA256 {
+			return fmt.Errorf("path_kind %s: the finalizer itself reproduced %s exact SQL SHA-256 %s, "+
+				"but the Gateway signed %s", pathKind, role,
+				shortDigest(actual.ExactSHA256), shortDigest(signed.ExactSQLSHA256))
+		}
+		if signed.StrictASTSHA256 != actual.StrictASTSHA256 {
+			return fmt.Errorf("path_kind %s: the finalizer itself reproduced %s strict AST SHA-256 %s, "+
+				"but the Gateway signed %s", pathKind, role,
+				shortDigest(actual.StrictASTSHA256), shortDigest(signed.StrictASTSHA256))
+		}
+		// Keep row limit on the direct S-R edge even though Gate 31 cannot light
+		// this branch: its raised-limit mutations fail requireReproducibleLimits
+		// or querybinding.validateLimits while sealing, and any otherwise coherent
+		// signed limit mismatch loses to requireDerivedLimitsSignedV3 before this
+		// call. Those invariants live in different packages and may evolve
+		// independently, so direct comparator tests retain this defense in depth.
+		if signed.RowLimit != actual.RowLimit {
+			return fmt.Errorf("path_kind %s: the finalizer itself reproduced %s row limit %d, "+
+				"but the Gateway signed %d", pathKind, role, actual.RowLimit, signed.RowLimit)
+		}
+		if signed.PolicyFingerprint != actual.Fingerprint {
+			return fmt.Errorf("path_kind %s: the finalizer itself reproduced %s policy fingerprint %s, "+
+				"but the Gateway signed %s", pathKind, role,
+				shortDigest(actual.Fingerprint), shortDigest(signed.PolicyFingerprint))
+		}
+		return nil
+	}
+
+	if err := compare("visible", binding.Visible, reproduced.Visible); err != nil {
+		return err
+	}
+	if (binding.Companion != nil) != (reproduced.Companion != nil) {
+		return fmt.Errorf("path_kind %s: the finalizer itself reproduced companion target presence=%t, "+
+			"but the Gateway signed presence=%t", pathKind,
+			reproduced.Companion != nil, binding.Companion != nil)
+	}
+	if binding.Companion != nil {
+		if err := compare("companion", *binding.Companion, *reproduced.Companion); err != nil {
+			return err
+		}
 	}
 	return nil
 }

@@ -13,7 +13,7 @@ criterion for publication evidence that lives only in a session's working memory
 is not an acceptance criterion; a reviewer holding the commit could not check
 what "gate 22" meant, and neither could a later session.
 
-**All thirty gates are mandatory before the v3 canary is publication-grade.** A
+**All thirty-one gates are mandatory before the v3 canary is publication-grade.** A
 Result-heavy 100x4 diagnosis run whose gates are not all passing is a
 diagnosis-only measurement and must not be cited as evidence for the v3
 accounting, for the Artifact capability, or for any numeric cell in the paper.
@@ -69,10 +69,10 @@ recorded with the gate rather than silently fixed.
 | 15 | **Same-total PostgreSQL-internal-key substitution.** Missing one qualified internal key plus another key at the same total must fail. | `experiment.TestGate15SameTotalInternalKeySubstitutionRejected` | PASS |
 | 16 | **Missing required control.** Any control class or internal key below exact expected multiplicity fails. | `experiment.TestGate16MissingRequiredControlRejected` | PASS |
 | 17 | **Extra or unexpected statement.** Any class/key above expected multiplicity or absent from the classifier fails. | `experiment.TestGate17UnexpectedStatementRejected` | PASS |
-| 18 | **Wrong visible target.** Independently mutate the visible target's prepared binding, exact digest, strict digest, row limit, role and contract identity. Every mutation must fail finalization. | `experiment.TestGate18WrongVisibleTargetFailsFinalization` + `experiment.TestGate18And19RejectAnotherContractIdentityForATarget` | PASS |
-| 19 | **Wrong companion target.** Perform the same six mutations independently on the companion target. Every mutation must fail finalization. | `experiment.TestGate19WrongCompanionTargetFailsFinalization` + `experiment.TestGate18And19RejectAnotherContractIdentityForATarget` | PASS |
+| 18 | **Wrong visible target.** Independently mutate six visible target-record members across the signed-to-carried transcription edge: prepared binding, exact digest, strict digest, row limit, role and policy fingerprint. Every mutation must fail finalization; a separate mutation binding the target classification to another contract identity must also fail. | `experiment.TestGate18WrongVisibleTargetFailsFinalization` + `experiment.TestGate18And19RejectAnotherContractIdentityForATarget` | PASS |
+| 19 | **Wrong companion target.** Independently perform the same six signed-to-carried target-record mutations on the companion target. Every mutation must fail finalization; the separate another-contract-identity mutation must also fail. | `experiment.TestGate19WrongCompanionTargetFailsFinalization` + `experiment.TestGate18And19RejectAnotherContractIdentityForATarget` | PASS |
 | 20 | **Another workload's target.** A target belonging to another operation/cell/workload cannot classify for this operation. | `experiment.TestGate20AnotherWorkloadTargetRejected` | PASS |
-| 21 | **Semantic replay.** Targets `authorized=true`/`executed=false`; zero visible and companion delta; any `executed=true` or target statement must fail. | `experiment.TestGate21SemanticReplayAuthorizesWithoutExecuting` | PASS |
+| 21 | **Semantic-replay execution state only.** Signed targets are authorized but not executed, and the observer records zero visible and companion target delta. Marking either target executed or observing any target statement must fail. This gate does not compare the authorized target statement identities; gate 31 does. | `experiment.TestGate21SemanticReplayAuthorizesWithoutExecuting` | PASS |
 | 22 | **Idempotent replay.** The original persisted V9 receipt document is returned unchanged; no new query, binding or reservation; zero Business delta; any Business statement must fail. | `experiment.TestGate22IdempotentReplayReturnsOriginalReceiptByteForByte` + `experiment.TestIdempotentReplayEvidenceRequiresEveryMember` (wrapper half) | PASS |
 | 23 | **Adapter-supplied wrong plan.** A carried plan differing from independent finalizer derivation fails. | `experiment.TestGate23AdapterWrongPlanRejected` | PASS |
 | 24 | **Adapter-supplied wrong manifest.** A carried manifest or binding differing from independent derivation fails. | `experiment.TestGate24AdapterWrongManifestRejected` | PASS |
@@ -82,8 +82,9 @@ recorded with the gate rather than silently fixed.
 | 28 | **SQL leak through errors.** Errors may reveal only safe codes and deployment-local `queryid`, never SQL. | `main.TestGate28ErrorsLeakNoSQL` | PASS |
 | 29 | **Legacy v1.4 accounting rejected.** v1.4/v2 accounting evidence cannot satisfy v1.5/v3 acceptance. | `experiment.TestGate29LegacyV14EvidenceRejected` | PASS |
 | 30 | **Binding-digest mutation.** Mutation of any window, operation, manifest, classifier, target, execution, pre-state, receipt, runtime, image or footprint digest fails. | `experiment.TestGate30BindingDigestMutationRejected` | PASS |
+| 31 | **Finalizer-reproduced target identity.** The signed-to-reproduced edge consists of exactly eight independently mutated cells: (1) `paired_novel` visible policy fingerprint; (2) `paired_novel` companion policy fingerprint; (3–5) `semantic_replay` visible exact digest, strict digest and policy fingerprint; and (6–8) `semantic_replay` companion exact digest, strict digest and policy fingerprint. Every cell must reach and fail specifically at the finalizer's direct comparison with the signed target. Row limit remains in the production comparator, but binding/pre-state/authorizer limit invariants reject a signed mismatch before this new edge; it is covered directly and is not a gate 31 mutation cell. Signed and reproduced companion presence must also agree. | `experiment.TestGate31ReproducedTargetIdentityMustMatchSignature`; direct member/presence coverage: `experiment.TestRequireReproducedMatchesSignedComparesEveryTargetIdentityMember` + `experiment.TestRequireReproducedMatchesSignedRequiresCompanionPresence` | PASS |
 
-All thirty gates PASS at this HEAD.
+All thirty-one gates PASS at this HEAD.
 
 ### Gate 22's blocker was resolved by author decision: a path-aware class set
 
@@ -469,7 +470,7 @@ records, not the current allowlist: after `017e73a` those tests run and pass.
 The Result-heavy 100x4 diagnosis-only v3 canary must not run until every one of
 the following holds:
 
-1. all 30 gates pass;
+1. all 31 gates pass;
 2. the full DSN-enabled suite passes, with zero failures and zero required skips;
 3. the v1.4 active symbols are unreachable and the reference set is empty;
 4. the finalizer production wrapper has real callers;

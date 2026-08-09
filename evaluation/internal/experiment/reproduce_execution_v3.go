@@ -105,6 +105,12 @@ type ReproducedExecutionV3 struct {
 	// limits rendered in. CompanionSQL is empty when the operation prepares none.
 	VisibleSQL   string
 	CompanionSQL string
+	// Visible is the authorizer's own StatementIdentity output. It is retained
+	// directly from physicalquery.Derive, not reconstructed from VisibleSQL.
+	Visible physicalquery.StatementIdentity
+	// Companion is the authorizer's own optional StatementIdentity output. It is
+	// retained directly from physicalquery.Derive, not inferred from CompanionSQL.
+	Companion *physicalquery.StatementIdentity
 	// Prepared is the sealed preparation the finalizer produced. It has already
 	// been required to equal the one the receipt carries.
 	Prepared preparedbinding.PreparedOperationBindingV1
@@ -215,8 +221,11 @@ func ReproduceExecutionV3(receipt queryreceipt.QueryReceiptV1,
 	}
 
 	result = ReproducedExecutionV3{
-		VisibleSQL: derivation.VisibleDecision.SQL, Prepared: prepared.Binding(),
-		Limits: derivation.Limits,
+		VisibleSQL: derivation.VisibleDecision.SQL,
+		Visible:    derivation.Visible,
+		Companion:  derivation.Companion,
+		Prepared:   prepared.Binding(),
+		Limits:     derivation.Limits,
 	}
 	if derivation.CompanionDecision != nil {
 		result.CompanionSQL = derivation.CompanionDecision.SQL

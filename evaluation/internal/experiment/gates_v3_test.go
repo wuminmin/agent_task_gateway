@@ -2,6 +2,7 @@ package experiment
 
 import (
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -204,6 +205,54 @@ func (c gateCase) mutateTarget(t *testing.T, role querybinding.TargetRole,
 	return c, nil
 }
 
+// colludeTarget mutates one signed target and the Adapter's transcription to
+// the same wrong value, then re-seals and re-signs the receipt. A semantic
+// replay carries no execution identity, so on that path the same helper mutates
+// only the signed authorized target. In either case the signed-to-carried edge
+// remains satisfied; only an independent reproduction can expose the lie.
+func (c gateCase) colludeTarget(t *testing.T, role querybinding.TargetRole,
+	fn func(*querybinding.TargetRecordV1, *physicalquery.StatementIdentity)) (gateCase, error) {
+	t.Helper()
+	if c.receipt.ExecutionBindingV2 == nil {
+		return gateCase{}, errors.New("receipt carries no target binding to mutate")
+	}
+	var carried *physicalquery.StatementIdentity
+	switch role {
+	case querybinding.RoleVisible:
+		if c.carried.VisibleStatement != nil {
+			copy := *c.carried.VisibleStatement
+			c.carried.VisibleStatement = &copy
+			carried = c.carried.VisibleStatement
+		}
+	case querybinding.RoleCompanion:
+		if c.carried.CompanionStatement != nil {
+			copy := *c.carried.CompanionStatement
+			c.carried.CompanionStatement = &copy
+			carried = c.carried.CompanionStatement
+		}
+		if c.receipt.ExecutionBindingV2.Companion == nil {
+			return gateCase{}, errors.New("receipt carries no companion target to mutate")
+		}
+	default:
+		return gateCase{}, fmt.Errorf("unknown target role %q", role)
+	}
+
+	mutated, err := fixture.Mutate(c.receipt, func(b *querybinding.QueryExecutionBindingV2) {
+		if role == querybinding.RoleVisible {
+			fn(&b.Visible, carried)
+			b.VisibleRowLimit = b.Visible.RowLimit
+			return
+		}
+		fn(b.Companion, carried)
+		b.CompanionPolicyRows = b.Companion.RowLimit
+	})
+	if err != nil {
+		return gateCase{}, err
+	}
+	c.receipt = mutated
+	return c, nil
+}
+
 // targetMutations are the six ways a signed target can be wrong. Each is applied
 // independently to a case that otherwise passes.
 func targetMutations() map[string]func(*querybinding.TargetRecordV1) {
@@ -227,6 +276,34 @@ func targetMutations() map[string]func(*querybinding.TargetRecordV1) {
 		},
 		"policy fingerprint": func(r *querybinding.TargetRecordV1) {
 			r.PolicyFingerprint = "another-fingerprint"
+		},
+	}
+}
+
+// gate31ColludingMutations are the identity members that can reach the finalizer
+// with a wrong signed value. Row-limit mutations are intentionally absent: the
+// receipt and binding sealing invariants reject them before finalization, so the
+// comparator's row-limit branch is covered by its direct unit test instead.
+func gate31ColludingMutations() map[string]func(*querybinding.TargetRecordV1,
+	*physicalquery.StatementIdentity) {
+	return map[string]func(*querybinding.TargetRecordV1, *physicalquery.StatementIdentity){
+		"exact digest": func(signed *querybinding.TargetRecordV1, carried *physicalquery.StatementIdentity) {
+			signed.ExactSQLSHA256 = fmt.Sprintf("%x", sha256.Sum256([]byte("colluding exact statement")))
+			if carried != nil {
+				carried.ExactSHA256 = signed.ExactSQLSHA256
+			}
+		},
+		"strict digest": func(signed *querybinding.TargetRecordV1, carried *physicalquery.StatementIdentity) {
+			signed.StrictASTSHA256 = fmt.Sprintf("%x", sha256.Sum256([]byte("colluding structural identity")))
+			if carried != nil {
+				carried.StrictASTSHA256 = signed.StrictASTSHA256
+			}
+		},
+		"policy fingerprint": func(signed *querybinding.TargetRecordV1, carried *physicalquery.StatementIdentity) {
+			signed.PolicyFingerprint = "colluding-policy-fingerprint"
+			if carried != nil {
+				carried.Fingerprint = signed.PolicyFingerprint
+			}
 		},
 	}
 }
@@ -336,6 +413,158 @@ func TestGate21SemanticReplayAuthorizesWithoutExecuting(t *testing.T) {
 			t.Fatal("a semantic replay that executed a target statement was accepted")
 		}
 	})
+}
+
+// Gate 31. These are exactly the eight colluding mutations only the direct
+// signed-to-reproduced edge rejects. Paired execution already closes exact and
+// strict through compareStatement; existing binding, pre-state and authorizer
+// limit invariants close row-limit mismatches before this new edge. Semantic
+// replay carries no execution identity, so its six signed-only mutations are
+// the hole a target-count-driven comparison used to skip.
+func TestGate31ReproducedTargetIdentityMustMatchSignature(t *testing.T) {
+	semanticReplayCase := func(t *testing.T) gateCase {
+		t.Helper()
+		inputs := finalizerInputs(t)
+		inputs.PathKind = PathSemanticReplay
+		operation := prepareOperationV3(t)
+		options := operation.fixtureOptions()
+		options.Companion = operation.companionTarget()
+		receipt, err := fixture.SemanticReplay(options)
+		if err != nil {
+			t.Fatalf("build semantic replay: %v", err)
+		}
+		verifier, err := fixture.Verifier()
+		if err != nil {
+			t.Fatalf("verifier: %v", err)
+		}
+		carried := carriedFor(t, inputs)
+		if carried.VisibleStatement != nil || carried.CompanionStatement != nil ||
+			carried.VisiblePreparedTargetBindingSHA256 != "" ||
+			carried.CompanionPreparedTargetBindingSHA256 != "" {
+			t.Fatal("semantic replay fixture carries an execution identity for an authorized-only target")
+		}
+		return gateCase{
+			receipt: receipt, verifier: verifier,
+			carried: carried, trusted: trustedFrom(t, inputs),
+		}
+	}
+
+	mutations := gate31ColludingMutations()
+	for _, test := range []struct {
+		name, field, want string
+		role              querybinding.TargetRole
+		base              func(*testing.T) gateCase
+	}{
+		{"paired_novel/visible/policy_fingerprint", "policy fingerprint", "visible policy fingerprint", querybinding.RoleVisible, pairedNovelCase},
+		{"paired_novel/companion/policy_fingerprint", "policy fingerprint", "companion policy fingerprint", querybinding.RoleCompanion, pairedNovelCase},
+		{"semantic_replay/visible/exact_digest", "exact digest", "visible exact SQL SHA-256", querybinding.RoleVisible, semanticReplayCase},
+		{"semantic_replay/visible/strict_digest", "strict digest", "visible strict AST SHA-256", querybinding.RoleVisible, semanticReplayCase},
+		{"semantic_replay/visible/policy_fingerprint", "policy fingerprint", "visible policy fingerprint", querybinding.RoleVisible, semanticReplayCase},
+		{"semantic_replay/companion/exact_digest", "exact digest", "companion exact SQL SHA-256", querybinding.RoleCompanion, semanticReplayCase},
+		{"semantic_replay/companion/strict_digest", "strict digest", "companion strict AST SHA-256", querybinding.RoleCompanion, semanticReplayCase},
+		{"semantic_replay/companion/policy_fingerprint", "policy fingerprint", "companion policy fingerprint", querybinding.RoleCompanion, semanticReplayCase},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			broken, err := test.base(t).colludeTarget(t, test.role, mutations[test.field])
+			if err != nil {
+				t.Fatalf("construct colluding %s mutation: %v", test.field, err)
+			}
+			_, err = broken.finalize()
+			if err == nil {
+				t.Fatalf("colluding %s %s mutation was accepted", test.role, test.field)
+			}
+			if !strings.Contains(err.Error(), "the finalizer itself reproduced") ||
+				!strings.Contains(err.Error(), test.want) {
+				t.Fatalf("colluding %s %s mutation was rejected outside its signed-to-reproduced field: %v",
+					test.role, test.field, err)
+			}
+		})
+	}
+}
+
+func reproducedComparatorFixture() (querybinding.QueryExecutionBindingV2, ReproducedExecutionV3) {
+	visible := querybinding.TargetRecordV1{
+		Role: querybinding.RoleVisible, ExactSQLSHA256: strings.Repeat("1", 64),
+		StrictASTSHA256: strings.Repeat("2", 64), RowLimit: 4,
+		PolicyFingerprint: "visible-policy-fingerprint",
+	}
+	companion := querybinding.TargetRecordV1{
+		Role: querybinding.RoleCompanion, ExactSQLSHA256: strings.Repeat("3", 64),
+		StrictASTSHA256: strings.Repeat("4", 64), RowLimit: 5,
+		PolicyFingerprint: "companion-policy-fingerprint",
+	}
+	binding := querybinding.QueryExecutionBindingV2{Visible: visible, Companion: &companion}
+	reproducedCompanion := physicalquery.StatementIdentity{
+		ExactSHA256: companion.ExactSQLSHA256, StrictASTSHA256: companion.StrictASTSHA256,
+		RowLimit: companion.RowLimit, Fingerprint: companion.PolicyFingerprint,
+	}
+	return binding, ReproducedExecutionV3{
+		Visible: physicalquery.StatementIdentity{
+			ExactSHA256: visible.ExactSQLSHA256, StrictASTSHA256: visible.StrictASTSHA256,
+			RowLimit: visible.RowLimit, Fingerprint: visible.PolicyFingerprint,
+		},
+		Companion: &reproducedCompanion,
+	}
+}
+
+func TestRequireReproducedMatchesSignedComparesEveryTargetIdentityMember(t *testing.T) {
+	binding, baseline := reproducedComparatorFixture()
+	reproducedFromBinding := func() ReproducedExecutionV3 {
+		reproduced := baseline
+		companion := *baseline.Companion
+		reproduced.Companion = &companion
+		return reproduced
+	}
+	if err := requireReproducedMatchesSigned(PathPairedNovel, binding, reproducedFromBinding()); err != nil {
+		t.Fatalf("matching reproduced identities were rejected: %v", err)
+	}
+
+	for _, role := range []querybinding.TargetRole{querybinding.RoleVisible, querybinding.RoleCompanion} {
+		for _, field := range []struct {
+			name, want string
+			mutate     func(*physicalquery.StatementIdentity)
+		}{
+			{"exact digest", "exact SQL SHA-256", func(v *physicalquery.StatementIdentity) { v.ExactSHA256 = strings.Repeat("a", 64) }},
+			{"strict digest", "strict AST SHA-256", func(v *physicalquery.StatementIdentity) { v.StrictASTSHA256 = strings.Repeat("b", 64) }},
+			{"row limit", "row limit", func(v *physicalquery.StatementIdentity) { v.RowLimit++ }},
+			{"policy fingerprint", "policy fingerprint", func(v *physicalquery.StatementIdentity) { v.Fingerprint = "another-policy-fingerprint" }},
+		} {
+			t.Run(string(role)+"/"+field.name, func(t *testing.T) {
+				reproduced := reproducedFromBinding()
+				identity := &reproduced.Visible
+				if role == querybinding.RoleCompanion {
+					identity = reproduced.Companion
+				}
+				field.mutate(identity)
+				err := requireReproducedMatchesSigned(PathPairedNovel, binding, reproduced)
+				if err == nil {
+					t.Fatalf("a reproduced %s %s mismatch was accepted", role, field.name)
+				}
+				if !strings.Contains(err.Error(), "the finalizer itself reproduced") ||
+					!strings.Contains(err.Error(), string(role)+" "+field.want) {
+					t.Fatalf("the %s %s mismatch was reported by the wrong comparison: %v", role, field.name, err)
+				}
+			})
+		}
+	}
+}
+
+func TestRequireReproducedMatchesSignedRequiresCompanionPresence(t *testing.T) {
+	binding, reproduced := reproducedComparatorFixture()
+	reproduced.Companion = nil
+	if err := requireReproducedMatchesSigned(PathPairedNovel, binding, reproduced); err == nil ||
+		!strings.Contains(err.Error(), "the finalizer itself reproduced companion target presence=false") {
+		t.Fatalf("a missing reproduced companion was not reported by the S-R edge: %v", err)
+	}
+
+	withoutSignedCompanion := binding
+	withoutSignedCompanion.Companion = nil
+	companion := physicalquery.StatementIdentity{}
+	reproduced.Companion = &companion
+	if err := requireReproducedMatchesSigned(PathSingleQuery, withoutSignedCompanion, reproduced); err == nil ||
+		!strings.Contains(err.Error(), "the finalizer itself reproduced companion target presence=true") {
+		t.Fatalf("an invented reproduced companion was not reported by the S-R edge: %v", err)
+	}
 }
 
 // Gate 22. An exact request-ID replay returns the original document unchanged,
