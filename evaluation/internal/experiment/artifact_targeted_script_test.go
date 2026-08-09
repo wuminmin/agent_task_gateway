@@ -1,7 +1,12 @@
 package experiment
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -35,6 +40,11 @@ func launcherShellBlock(t *testing.T, body, name string) string {
 func runLauncherShellBlock(block, invocation string, args ...string) ([]byte, error) {
 	commandArgs := append([]string{"-c", block + "\n" + invocation, "launcher-contract-test"}, args...)
 	return exec.Command("bash", commandArgs...).CombinedOutput()
+}
+
+func artifactTargetedBuildSealedFunction(t *testing.T, body string) string {
+	t.Helper()
+	return launcherShellBlock(t, body, "SOURCE_BUILD_MANIFEST")
 }
 
 func TestArtifactTargetedLauncherWiresTheFormalRuntimeContract(t *testing.T) {
@@ -349,4 +359,150 @@ func TestArtifactTargetedFormalWindowGateRequiresThreeExactPasses(t *testing.T) 
 			}
 		})
 	}
+}
+
+func TestArtifactTargetedBuildManifestStreamsSourceListingInsteadOfUsingArgv(t *testing.T) {
+	block := artifactTargetedBuildSealedFunction(t, artifactTargetedLauncherBody(t))
+	for _, forbidden := range []string{
+		`--arg source_files "$source_listing"`,
+		`--arg source_files`,
+		`source_files:$source_files`,
+	} {
+		if strings.Contains(block, forbidden) {
+			t.Fatalf("build_sealed still puts source_listing in jq argv via %q", forbidden)
+		}
+	}
+	for _, required := range []string{
+		`printf '%s' "$source_listing"`,
+		`jq -Rs`,
+		`source_files:.`,
+	} {
+		if !strings.Contains(block, required) {
+			t.Fatalf("streaming build manifest helper omits %q", required)
+		}
+	}
+	printfPosition := strings.Index(block, `printf '%s' "$source_listing"`)
+	jqPosition := strings.Index(block, `jq -Rs`)
+	sourceFilesPosition := strings.Index(block, `source_files:.`)
+	if printfPosition < 0 || jqPosition <= printfPosition || sourceFilesPosition <= jqPosition ||
+		!strings.Contains(block[printfPosition:jqPosition], "|") {
+		t.Fatal("source listing is not piped through jq raw-input mode into source_files")
+	}
+}
+
+func TestArtifactTargetedBuildManifestPreservesALargeSourceListingOffArgv(t *testing.T) {
+	block := artifactTargetedBuildSealedFunction(t, artifactTargetedLauncherBody(t))
+	directory := t.TempDir()
+	binaryPath := filepath.Join(directory, "sealed-binary")
+	manifestPath := filepath.Join(directory, "sealed-binary.build.json")
+	listingPath := filepath.Join(directory, "source-listing.txt")
+	const commit = "0123456789abcdef0123456789abcdef01234567"
+	const buildCommand = "go build -buildvcs=false -trimpath -o sealed-binary ./synthetic-target"
+	const goVersion = "go version go-test-only linux/amd64"
+
+	shell := "set -euo pipefail\n" + block + `
+go() {
+  if [[ "$1" == "version" ]]; then
+    printf '%s\n' '` + goVersion + `'
+    return 0
+  fi
+  if [[ "$1" != "build" ]]; then
+    return 64
+  fi
+  shift
+  local output=""
+  while (( $# > 0 )); do
+    if [[ "$1" == "-o" ]]; then
+      output="$2"
+      shift 2
+      continue
+    fi
+    shift
+  done
+  [[ -n "$output" ]]
+  printf '%s' 'SEALED-BINARY-CONTENT' > "$output"
+}
+
+binary="$1"
+manifest="$2"
+listing="$3"
+commit="$4"
+build_command="$5"
+export LC_ALL=C
+source_listing="$(awk 'BEGIN {
+  for (i = 0; i < 4096; i++) {
+    printf "%064d  tracked/path/%06d.go\n", 0, i
+  }
+}')"
+printf '%s' "$source_listing" > "$listing"
+source_sha="$(printf '%s' "$source_listing" | sha256sum | awk '{print $1}')"
+build_sealed ./synthetic-target "$binary" "$manifest" "$build_command" >/dev/null
+`
+	command := exec.Command("bash", "-c", shell, "large-listing-build-manifest-test",
+		binaryPath, manifestPath, listingPath, commit, buildCommand)
+	argvBytes := 0
+	for index, argument := range command.Args {
+		argvBytes += len(argument)
+		if len(argument) >= 256*1024 {
+			t.Fatalf("test process argv[%d] carries a large source listing (%d bytes)", index, len(argument))
+		}
+	}
+	if argvBytes >= 64*1024 {
+		t.Fatalf("test process argv carries %d bytes; the large listing must be generated inside bash", argvBytes)
+	}
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("execute exact build_sealed helper with a large in-shell listing: %v\n%s", err, output)
+	}
+
+	listing, err := os.ReadFile(listingPath)
+	if err != nil {
+		t.Fatalf("read generated source listing: %v", err)
+	}
+	if len(listing) < 256*1024 {
+		t.Fatalf("source listing is only %d bytes; want at least 256 KiB", len(listing))
+	}
+	manifestBytes, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("read build manifest: %v", err)
+	}
+	var manifest struct {
+		SchemaVersion    int    `json:"schema_version"`
+		SubmissionCommit string `json:"submission_commit"`
+		BinarySHA256     string `json:"binary_sha256"`
+		SourceSHA256     string `json:"source_sha256"`
+		GoVersion        string `json:"go_version"`
+		BuildCommand     string `json:"build_command"`
+		SourceFiles      string `json:"source_files"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(manifestBytes))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&manifest); err != nil {
+		t.Fatalf("strict-decode build manifest: %v", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		t.Fatalf("build manifest has a trailing JSON value: %v", err)
+	}
+	if manifest.SchemaVersion != 1 || manifest.SubmissionCommit != commit ||
+		manifest.BuildCommand != buildCommand || manifest.GoVersion != goVersion {
+		t.Fatalf("build manifest fixed identity = %+v", manifest)
+	}
+	if !bytes.Equal([]byte(manifest.SourceFiles), listing) {
+		t.Fatal("build manifest source_files does not preserve the in-shell listing byte for byte")
+	}
+	if manifest.SourceSHA256 != artifactTargetedScriptSHA256(listing) {
+		t.Fatalf("source SHA-256 = %q, want digest of exact source_files", manifest.SourceSHA256)
+	}
+	binary, err := os.ReadFile(binaryPath)
+	if err != nil {
+		t.Fatalf("read fake sealed binary: %v", err)
+	}
+	if manifest.BinarySHA256 != artifactTargetedScriptSHA256(binary) {
+		t.Fatalf("binary SHA-256 = %q, want digest of exact binary", manifest.BinarySHA256)
+	}
+}
+
+func artifactTargetedScriptSHA256(payload []byte) string {
+	digest := sha256.Sum256(payload)
+	return hex.EncodeToString(digest[:])
 }

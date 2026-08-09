@@ -82,8 +82,8 @@ else
   install -m 700 "$adapter_tmp" "$adapter_binary"
   source_listing="$(git ls-files | sort | while IFS= read -r source_file; do printf '%s  %s\n' "$(sha256sum "$source_file" | awk '{print $1}')" "$source_file"; done)"
   source_sha="$(printf '%s' "$source_listing" | sha256sum | awk '{print $1}')"
-  jq -n --arg submission_commit "$TASKGATE_SUBMISSION_COMMIT" --arg binary_sha256 "$adapter_digest" --arg source_sha256 "$source_sha" --arg go_version "$(go version)" --arg build_command "go build -buildvcs=false -trimpath -o final-v5-adapter ./evaluation/cmd/final-v5-adapter" --arg source_files "$source_listing" \
-    '{schema_version:1,submission_commit:$submission_commit,binary_sha256:$binary_sha256,source_sha256:$source_sha256,go_version:$go_version,build_command:$build_command,source_files:$source_files}' > "$adapter_build_manifest"
+  printf '%s' "$source_listing" | jq -Rs --arg submission_commit "$TASKGATE_SUBMISSION_COMMIT" --arg binary_sha256 "$adapter_digest" --arg source_sha256 "$source_sha" --arg go_version "$(go version)" --arg build_command "go build -buildvcs=false -trimpath -o final-v5-adapter ./evaluation/cmd/final-v5-adapter" \
+    '{schema_version:1,submission_commit:$submission_commit,binary_sha256:$binary_sha256,source_sha256:$source_sha256,go_version:$go_version,build_command:$build_command,source_files:.}' > "$adapter_build_manifest"
   chmod 600 "$adapter_build_manifest"
 fi
 [[ -f "$adapter_build_manifest" && ! -L "$adapter_build_manifest" && "$(stat -c '%a' "$adapter_build_manifest")" == 600 ]] || { echo "adapter build manifest is missing or unsafe" >&2; exit 1; }
@@ -104,8 +104,8 @@ else
   install -m 700 "$observer_tmp" "$observer_binary"
   observer_source_listing="$(git ls-files | sort | while IFS= read -r source_file; do printf '%s  %s\n' "$(sha256sum "$source_file" | awk '{print $1}')" "$source_file"; done)"
   observer_source_sha="$(printf '%s' "$observer_source_listing" | sha256sum | awk '{print $1}')"
-  jq -n --arg submission_commit "$TASKGATE_SUBMISSION_COMMIT" --arg binary_sha256 "$observer_digest" --arg source_sha256 "$observer_source_sha" --arg go_version "$(go version)" --arg build_command "go build -buildvcs=false -trimpath -o final-v5-observer ./evaluation/cmd/final-v5-observer" --arg source_files "$observer_source_listing" \
-    '{schema_version:1,submission_commit:$submission_commit,binary_sha256:$binary_sha256,source_sha256:$source_sha256,go_version:$go_version,build_command:$build_command,source_files:$source_files}' > "$observer_build_manifest"
+  printf '%s' "$observer_source_listing" | jq -Rs --arg submission_commit "$TASKGATE_SUBMISSION_COMMIT" --arg binary_sha256 "$observer_digest" --arg source_sha256 "$observer_source_sha" --arg go_version "$(go version)" --arg build_command "go build -buildvcs=false -trimpath -o final-v5-observer ./evaluation/cmd/final-v5-observer" \
+    '{schema_version:1,submission_commit:$submission_commit,binary_sha256:$binary_sha256,source_sha256:$source_sha256,go_version:$go_version,build_command:$build_command,source_files:.}' > "$observer_build_manifest"
   chmod 600 "$observer_build_manifest"
 fi
 rm -f "$observer_tmp"
@@ -136,8 +136,8 @@ else
   # covered by the same manifest instead of a hand-maintained narrow list.
   rq5_source_listing="$(git ls-files | sort | while IFS= read -r source_file; do printf '%s  %s\n' "$(sha256sum "$source_file" | awk '{print $1}')" "$source_file"; done)"
   rq5_source_sha="$(printf '%s' "$rq5_source_listing" | sha256sum | awk '{print $1}')"
-  jq -n --arg submission_commit "$TASKGATE_SUBMISSION_COMMIT" --arg binary_sha256 "$rq5_driver_digest" --arg source_sha256 "$rq5_source_sha" --arg go_version "$(go version)" --arg build_command "go build -buildvcs=false -trimpath -o rq5-sequential-driver ./evaluation/cmd/rq5-sequential-driver" --arg source_files "$rq5_source_listing" \
-    '{schema_version:1,submission_commit:$submission_commit,binary_sha256:$binary_sha256,source_sha256:$source_sha256,go_version:$go_version,build_command:$build_command,source_files:$source_files}' > "$rq5_driver_build_manifest"
+  printf '%s' "$rq5_source_listing" | jq -Rs --arg submission_commit "$TASKGATE_SUBMISSION_COMMIT" --arg binary_sha256 "$rq5_driver_digest" --arg source_sha256 "$rq5_source_sha" --arg go_version "$(go version)" --arg build_command "go build -buildvcs=false -trimpath -o rq5-sequential-driver ./evaluation/cmd/rq5-sequential-driver" \
+    '{schema_version:1,submission_commit:$submission_commit,binary_sha256:$binary_sha256,source_sha256:$source_sha256,go_version:$go_version,build_command:$build_command,source_files:.}' > "$rq5_driver_build_manifest"
   chmod 600 "$rq5_driver_build_manifest"
 fi
 [[ -f "$rq5_driver_build_manifest" && ! -L "$rq5_driver_build_manifest" && "$(stat -c '%a' "$rq5_driver_build_manifest")" == 600 ]] || { echo "RQ5 build manifest is missing or unsafe" >&2; exit 1; }

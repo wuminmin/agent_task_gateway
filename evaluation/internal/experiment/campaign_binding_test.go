@@ -47,7 +47,7 @@ func TestSourceBuildBindingVerifiesBinarySourceCommitAndCommand(t *testing.T) {
 	}
 }
 
-func TestRunDeploymentBuildCommandsMatchCampaignFinalizer(t *testing.T) {
+func TestSourceBuildManifestRunDeploymentBuildCommandsMatchCampaignFinalizer(t *testing.T) {
 	value, err := os.ReadFile(filepath.Join("..", "..", "final-v5-wsl2", "scripts", "run-deployment.sh"))
 	if err != nil {
 		t.Fatal(err)
@@ -57,6 +57,18 @@ func TestRunDeploymentBuildCommandsMatchCampaignFinalizer(t *testing.T) {
 		if !strings.Contains(script, `--arg build_command "`+command+`"`) {
 			t.Fatalf("run-deployment build manifest does not record %q", command)
 		}
+	}
+	if strings.Contains(script, `--arg source_files`) {
+		t.Fatal("run-deployment still puts a tracked-file listing in one jq argv element")
+	}
+	for _, listing := range []string{"source_listing", "observer_source_listing", "rq5_source_listing"} {
+		stream := `printf '%s' "$` + listing + `" | jq -Rs`
+		if !strings.Contains(script, stream) {
+			t.Fatalf("run-deployment does not stream %s byte for byte into jq raw-input mode", listing)
+		}
+	}
+	if strings.Count(script, `source_files:.`) != 3 {
+		t.Fatal("adapter, observer, and RQ5 build manifests must take source_files from stdin")
 	}
 	const fullInventory = `git ls-files | sort | while IFS= read -r source_file`
 	if strings.Count(script, fullInventory) != 3 {

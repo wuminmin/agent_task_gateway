@@ -259,21 +259,24 @@ source_listing="$(git ls-files | sort | while IFS= read -r file; do
 done)"
 source_sha="$(printf '%s' "$source_listing" | sha256sum | awk '{print $1}')"
 
+# SOURCE_BUILD_MANIFEST_BEGIN
 build_sealed() { # target, out-binary, out-manifest, build-command
   local target="$1" binary="$2" manifest="$3" command="$4"
   GOFLAGS=-buildvcs=false go build -buildvcs=false -trimpath -o "$binary" "$target"
   chmod 700 "$binary"
   local digest
   digest="$(sha256sum "$binary" | awk '{print $1}')"
-  jq -n --arg submission_commit "$commit" --arg binary_sha256 "$digest" \
+  printf '%s' "$source_listing" | jq -Rs \
+    --arg submission_commit "$commit" --arg binary_sha256 "$digest" \
     --arg source_sha256 "$source_sha" --arg go_version "$(go version)" \
-    --arg build_command "$command" --arg source_files "$source_listing" \
+    --arg build_command "$command" \
     '{schema_version:1,submission_commit:$submission_commit,binary_sha256:$binary_sha256,
       source_sha256:$source_sha256,go_version:$go_version,build_command:$build_command,
-      source_files:$source_files}' > "$manifest"
+      source_files:.}' > "$manifest"
   chmod 600 "$manifest"
   printf '%s' "$digest"
 }
+# SOURCE_BUILD_MANIFEST_END
 
 adapter_binary="$outdir/final-v5-adapter"
 observer_binary="$outdir/final-v5-observer"
