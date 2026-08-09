@@ -1,10 +1,11 @@
-package experiment
+package legacyv14
 
 import (
-	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"os/exec"
+	"io"
 	"strings"
 )
 
@@ -36,18 +37,12 @@ type ObserverDelta struct {
 	ContainerRestartDelta  int64
 }
 
-func RunObserver(ctx context.Context, argv []string, environment []string) (ObserverSnapshot, error) {
-	if len(argv) == 0 || strings.TrimSpace(argv[0]) == "" {
-		return ObserverSnapshot{}, errors.New("observer exact argv is required")
-	}
-	command := exec.CommandContext(ctx, argv[0], argv[1:]...)
-	command.Env = environment
-	value, err := command.Output()
-	if err != nil {
-		return ObserverSnapshot{}, err
-	}
+// DecodeObserverSnapshot strictly decodes one archived schema-v1 snapshot.
+// It is intentionally bytes-only: the legacy package cannot launch the live
+// observer, and a v2/v1.5 document is rejected rather than treated as v1.
+func DecodeObserverSnapshot(value []byte) (ObserverSnapshot, error) {
 	var snapshot ObserverSnapshot
-	if err := StrictJSON(value, &snapshot); err != nil {
+	if err := strictJSON(value, &snapshot); err != nil {
 		return snapshot, err
 	}
 	if err := validateObserverSnapshot(snapshot); err != nil {
@@ -91,4 +86,22 @@ func validateObserverSnapshot(snapshot ObserverSnapshot) error {
 	return nil
 }
 
-func observerJSON(snapshot ObserverSnapshot) ([]byte, error) { return json.Marshal(snapshot) }
+func strictJSON(value []byte, target any) error {
+	decoder := json.NewDecoder(strings.NewReader(string(value)))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err == nil {
+		return errors.New("trailing JSON value")
+	} else if !errors.Is(err, io.EOF) {
+		return err
+	}
+	return nil
+}
+
+func validSHA256(value string) bool {
+	decoded, err := hex.DecodeString(value)
+	return err == nil && len(decoded) == sha256.Size && value == strings.ToLower(value)
+}

@@ -363,10 +363,6 @@ type Sample struct {
 	SemanticReplay         bool               `json:"semantic_replay"`
 	IdempotentReplay       bool               `json:"idempotent_replay"`
 	BusinessSQLDelta       int64              `json:"business_sql_delta"`
-	// ObserverAccounting explains every gateway_reader statement the independent
-	// observer counted, not only the targeted ones BusinessSQLDelta records. It
-	// is absent on arms that never reach the Gateway.
-	ObserverAccounting *ObserverAccounting `json:"observer_accounting,omitempty"`
 	// TaskGateAcceptanceV3 is the finalizer's own acceptance record for this
 	// operation, retained on the paths that have been cut over to v3.
 	//
@@ -377,9 +373,6 @@ type Sample struct {
 	// and observed delta the operation was accepted under, rather than only that
 	// it was.
 	//
-	// It coexists with ObserverAccounting rather than replacing it because the
-	// cutover is per path: an arm still on the v1.4 accounting carries that, an
-	// arm on v3 carries this, and neither may stand in for the other.
 	TaskGateAcceptanceV3      *FinalizationV3                   `json:"taskgate_acceptance_v3,omitempty"`
 	RootEpochBefore           int64                             `json:"root_epoch_before"`
 	RootEpochAfter            int64                             `json:"root_epoch_after"`
@@ -478,8 +471,6 @@ type ScaleVerificationEvidence struct {
 	RootAfter                 RootLedgerSnapshot  `json:"root_after,omitempty"`
 	SourceObservationSHA256   string              `json:"source_observation_sha256,omitempty"`
 	ReplayObservationSHA256   string              `json:"replay_observation_sha256,omitempty"`
-	ObserverBefore            *ObserverSnapshot   `json:"observer_before,omitempty"`
-	ObserverAfter             *ObserverSnapshot   `json:"observer_after,omitempty"`
 	// ObserverWindow retains the v3 finalizer interval for dependency-e2e
 	// TaskGate cells. It is absent on the Outcome-Merkle and kernel-storage
 	// controls, which do not execute a fresh governed Task operation.
@@ -1142,20 +1133,7 @@ type ProvSQLVerificationEvidence struct {
 	RootBefore     *RootLedgerSnapshot  `json:"root_before,omitempty"`
 	RootAfter      *RootLedgerSnapshot  `json:"root_after,omitempty"`
 	ObserverWindow *ObserverWindowV2    `json:"observer_window,omitempty"`
-	// ObserverBefore/After remain decodable only until P2.4 moves the complete
-	// v1.4 schema into legacyv14. No active ProvSQL arm may produce them after
-	// the P2.3 cutover.
-	ObserverBefore *ObserverSnapshot `json:"observer_before,omitempty"`
-	ObserverAfter  *ObserverSnapshot `json:"observer_after,omitempty"`
-	FailureStage   string            `json:"failure_stage,omitempty"`
-}
-
-// carriesLegacyV14ObserverAccounting centralizes the one transitional presence
-// check shared by v3 and control-only validators. The v1.4 type itself remains
-// in Sample only until P2.4 moves the decoder into legacyv14; active validators
-// must not inspect or accept its contents.
-func (sample Sample) carriesLegacyV14ObserverAccounting() bool {
-	return sample.ObserverAccounting != nil
+	FailureStage   string               `json:"failure_stage,omitempty"`
 }
 
 type CompilerVerificationEvidence struct {

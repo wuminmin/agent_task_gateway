@@ -1,6 +1,7 @@
-package experiment
+package legacyv14
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -42,6 +43,25 @@ func TestResultHeavyAccountingClosesTheBooks(t *testing.T) {
 	}
 	if err := ValidateObserverAccounting(resultHeavyAccounting()); err != nil {
 		t.Fatalf("the derived Result-heavy accounting was rejected: %v", err)
+	}
+}
+
+func TestArchivedAccountingDecoderIsStrict(t *testing.T) {
+	encoded, err := json.Marshal(resultHeavyAccounting())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DecodeObserverAccounting(encoded); err != nil {
+		t.Fatalf("the archived v1.4 accounting did not decode: %v", err)
+	}
+	var hybrid map[string]any
+	if err := json.Unmarshal(encoded, &hybrid); err != nil {
+		t.Fatal(err)
+	}
+	hybrid["taskgate_acceptance_v3"] = map[string]any{}
+	encoded, _ = json.Marshal(hybrid)
+	if _, err := DecodeObserverAccounting(encoded); err == nil {
+		t.Fatal("the legacy decoder accepted a current v3 acceptance member")
 	}
 }
 

@@ -689,12 +689,6 @@
               "type": "string",
               "pattern": "^[0-9a-f]{64}$"
             },
-            "observer_before": {
-              "type": "object"
-            },
-            "observer_after": {
-              "type": "object"
-            },
             "observer_window": {
               "type": "object"
             },
@@ -1344,12 +1338,6 @@
             "observer_window": {
               "type": "object"
             },
-            "observer_before": {
-              "type": "object"
-            },
-            "observer_after": {
-              "type": "object"
-            },
             "failure_stage": {
               "type": "string"
             }
@@ -1887,8 +1875,6 @@
           "kernel_storage",
           "observed_candidate_facts",
           "observed_overlap_facts",
-          "observer_after",
-          "observer_before",
           "observer_window",
           "outcome_merkle",
           "query_sha256",
@@ -2045,8 +2031,6 @@
           "nonce_binding_sha256",
           "observed_result_sha256",
           "observer_window",
-          "observer_after",
-          "observer_before",
           "physical_sql_sha256",
           "postgresql_version",
           "postgresql_version_num",

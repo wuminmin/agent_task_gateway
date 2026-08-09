@@ -141,6 +141,61 @@ func TestSampleJSONSchemaRetainsV3FinalizerAcceptance(t *testing.T) {
 	}
 }
 
+func TestCurrentSampleWireHasNoLegacyV14Surface(t *testing.T) {
+	for label, check := range map[string]struct {
+		typeOf    reflect.Type
+		forbidden []string
+	}{
+		"sample":  {reflect.TypeOf(Sample{}), []string{"observer_accounting"}},
+		"scale":   {reflect.TypeOf(ScaleVerificationEvidence{}), []string{"observer_before", "observer_after"}},
+		"provsql": {reflect.TypeOf(ProvSQLVerificationEvidence{}), []string{"observer_before", "observer_after"}},
+	} {
+		t.Run(label+" type", func(t *testing.T) {
+			fields, _ := jsonFields(check.typeOf)
+			for _, forbidden := range check.forbidden {
+				if contains(fields, forbidden) {
+					t.Fatalf("current %s wire type still exposes legacy field %s", label, forbidden)
+				}
+			}
+		})
+	}
+
+	validateSchema := sampleSchemaValidator(t)
+	for name, inject := range map[string]func(map[string]any){
+		"top-level accounting": func(value map[string]any) {
+			value["observer_accounting"] = map[string]any{}
+		},
+		"Scale before snapshot": func(value map[string]any) {
+			value["scale_verification"] = map[string]any{"observer_before": map[string]any{}}
+		},
+		"Scale after snapshot": func(value map[string]any) {
+			value["scale_verification"] = map[string]any{"observer_after": map[string]any{}}
+		},
+		"ProvSQL before snapshot": func(value map[string]any) {
+			value["provsql_verification"] = map[string]any{"observer_before": map[string]any{}}
+		},
+		"ProvSQL after snapshot": func(value map[string]any) {
+			value["provsql_verification"] = map[string]any{"observer_after": map[string]any{}}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			instance := sampleJSONInstance(t, validTestSample())
+			inject(instance)
+			encoded, err := json.Marshal(instance)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var sample Sample
+			if err := StrictJSON(encoded, &sample); err == nil {
+				t.Fatal("the current strict decoder accepted a legacy v1.4 wire member")
+			}
+			if err := validateSchema(instance); err == nil {
+				t.Fatal("the current JSON Schema accepted a legacy v1.4 wire member")
+			}
+		})
+	}
+}
+
 func TestSampleJSONSchemaAcceptsAllThreeValidProvSQLArms(t *testing.T) {
 	validate := sampleSchemaValidator(t)
 	for _, mode := range []string{"direct", "provsql", "taskgate"} {

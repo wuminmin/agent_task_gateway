@@ -156,8 +156,7 @@ func validateOutcomeMerkleVerification(sample Sample, evidence *ScaleVerificatio
 	merkle := evidence.OutcomeMerkle
 	if err != nil || evidence.Boundary != "outcome_merkle_control" || merkle == nil || sample.Mode != "merkle_control" ||
 		sample.System != "taskgate" || sample.KernelOnly || merkle.ProductionPath != outcomeProductionPath ||
-		evidence.KernelStorage != nil || evidence.ObserverWindow != nil || evidence.ObserverBefore != nil ||
-		evidence.ObserverAfter != nil || sample.TaskGateAcceptanceV3 != nil || sample.carriesLegacyV14ObserverAccounting() ||
+		evidence.KernelStorage != nil || evidence.ObserverWindow != nil || sample.TaskGateAcceptanceV3 != nil ||
 		merkle.ContentCachePolicy != "warm_immutable_content_after_fixture_prefill" ||
 		merkle.OverlapRounding != "nearest_integer_half_up" {
 		return errors.New("Outcome-Merkle identity or production boundary is invalid")
@@ -371,8 +370,7 @@ func validateKernelStorageVerification(sample Sample, evidence *ScaleVerificatio
 	kernel := evidence.KernelStorage
 	if err != nil || evidence.Boundary != "kernel_storage_only" || kernel == nil || sample.Mode != "kernel_storage_only" ||
 		!sample.KernelOnly || sample.System != "taskgate" || kernel.ProductionPath != kernelProductionPath ||
-		evidence.OutcomeMerkle != nil || evidence.ObserverWindow != nil || evidence.ObserverBefore != nil ||
-		evidence.ObserverAfter != nil || sample.TaskGateAcceptanceV3 != nil || sample.carriesLegacyV14ObserverAccounting() {
+		evidence.OutcomeMerkle != nil || evidence.ObserverWindow != nil || sample.TaskGateAcceptanceV3 != nil {
 		return errors.New("kernel/storage identity or boundary is invalid")
 	}
 	for _, digest := range []string{kernel.FixtureSHA256, kernel.RunIdentitySHA256, kernel.CandidateSHA256,
@@ -496,22 +494,16 @@ func ValidateArtifactEvidence(sample Sample) error {
 // and that record produce. A sample assembled from one run's receipt and another
 // run's window fails here.
 func validateArtifactObservationV3(sample Sample, evidence *ArtifactVerificationEvidence) error {
-	if sample.carriesLegacyV14ObserverAccounting() {
-		return errors.New("the artifact sample mixes v3 acceptance with legacy v1.4 observer accounting")
-	}
 	return validateAcceptedObservationV3(sample, evidence.ObserverWindow, PathPairedNovel, "artifact")
 }
 
 // validateScaleObservationV3 closes the Scale dependency path over the same v3
-// retained-window contract as Artifact. The legacy snapshots and accounting
-// envelope are mutually exclusive with v3 acceptance: retaining both would let
-// a later reader choose whichever account happened to pass.
+// retained-window contract as Artifact. The current Sample wire schema has no
+// legacy snapshot or accounting members; strict decoding rejects those before
+// an active validator can see the sample.
 func validateScaleObservationV3(sample Sample, evidence *ScaleVerificationEvidence) error {
 	if evidence.ObserverWindow == nil {
 		return errors.New("the dependency Scale sample retains no v3 observer window")
-	}
-	if evidence.ObserverBefore != nil || evidence.ObserverAfter != nil || sample.carriesLegacyV14ObserverAccounting() {
-		return errors.New("the dependency Scale sample mixes v3 acceptance with legacy v1.4 observer evidence")
 	}
 	if evidence.OutcomeMerkle != nil || evidence.KernelStorage != nil {
 		return errors.New("the dependency Scale sample mixes a governed operation with control-only evidence")

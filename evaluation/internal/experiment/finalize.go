@@ -929,8 +929,7 @@ func validateProvSQLVerificationForWarmup(sample Sample, warmup bool) error {
 			evidence.CarrierGateType != "" || evidence.RowGateType != "" || evidence.RootTypesVerified || evidence.AggregateTokens != 0 ||
 			evidence.RowTokens != 0 || evidence.GatesBefore != 0 || evidence.GatesAfter != 0 ||
 			evidence.ArtifactBytesBefore != 0 || evidence.ArtifactBytesAfter != 0 || evidence.RepresentationSHA256 != "" ||
-			sample.TaskGateAcceptanceV3 != nil || sample.carriesLegacyV14ObserverAccounting() ||
-			!emptyProvSQLTaskGateSnapshots(evidence) {
+			sample.TaskGateAcceptanceV3 != nil || !emptyProvSQLTaskGateRuntimeEvidence(evidence) {
 			return errors.New("direct PostgreSQL arm contains invalid ProvSQL/system evidence")
 		}
 	case "provsql":
@@ -945,7 +944,7 @@ func validateProvSQLVerificationForWarmup(sample Sample, warmup bool) error {
 			evidence.RowTokens != provsqlfixture.ExpectedRows || evidence.GatesAfter <= evidence.GatesBefore ||
 			evidence.ArtifactBytesBefore <= 0 || evidence.ArtifactBytesAfter < evidence.ArtifactBytesBefore ||
 			!validSHA256(evidence.RepresentationSHA256) || sample.TaskGateAcceptanceV3 != nil ||
-			sample.carriesLegacyV14ObserverAccounting() || !emptyProvSQLTaskGateSnapshots(evidence) {
+			!emptyProvSQLTaskGateRuntimeEvidence(evidence) {
 			return errors.New("ProvSQL arm lacks pinned agg_token/gate/representation evidence")
 		}
 	case "taskgate":
@@ -961,8 +960,7 @@ func validateProvSQLVerificationForWarmup(sample Sample, warmup bool) error {
 			sample.ActualDependencyFacts != evidence.ExpectedDependencyFacts || sample.DependencySetSHA256 != evidence.ExpectedDependencySHA256 ||
 			sample.GenerationBoundaryMS <= 0 || sample.FullTaskGateMS != sample.ClientFullDrainMS ||
 			evidence.BusinessBefore == nil || evidence.BusinessAfter == nil || evidence.RootBefore == nil ||
-			evidence.RootAfter == nil || evidence.ObserverWindow == nil || sample.TaskGateAcceptanceV3 == nil ||
-			evidence.ObserverBefore != nil || evidence.ObserverAfter != nil || sample.carriesLegacyV14ObserverAccounting() {
+			evidence.RootAfter == nil || evidence.ObserverWindow == nil || sample.TaskGateAcceptanceV3 == nil {
 			return errors.New("TaskGate arm lacks exact V8/Parquet/FactSet boundary evidence")
 		}
 		if err := validateBusinessSQLTransition(*evidence.BusinessBefore, *evidence.BusinessAfter, 1, 1); err != nil {
@@ -1009,10 +1007,6 @@ func validateProvSQLObservationV3(sample Sample, evidence *ProvSQLVerificationEv
 	if evidence.ObserverWindow == nil {
 		return errors.New("the ProvSQL TaskGate sample retains no v3 observer window")
 	}
-	if evidence.ObserverBefore != nil || evidence.ObserverAfter != nil ||
-		sample.carriesLegacyV14ObserverAccounting() {
-		return errors.New("the ProvSQL TaskGate sample mixes v3 acceptance with legacy v1.4 observer evidence")
-	}
 	if sample.TaskGateAcceptanceV3 != nil {
 		if err := requireProvSQLContractIdentityV3(sample, evidence,
 			sample.TaskGateAcceptanceV3.Operation.ContractIdentity); err != nil {
@@ -1057,10 +1051,9 @@ func requireProvSQLContractIdentityV3(sample Sample, evidence *ProvSQLVerificati
 	return nil
 }
 
-func emptyProvSQLTaskGateSnapshots(evidence *ProvSQLVerificationEvidence) bool {
+func emptyProvSQLTaskGateRuntimeEvidence(evidence *ProvSQLVerificationEvidence) bool {
 	return evidence.BusinessBefore == nil && evidence.BusinessAfter == nil && evidence.RootBefore == nil &&
-		evidence.RootAfter == nil && evidence.ObserverWindow == nil && evidence.ObserverBefore == nil &&
-		evidence.ObserverAfter == nil
+		evidence.RootAfter == nil && evidence.ObserverWindow == nil
 }
 
 func validExternalProvSQLSession(evidence *ProvSQLVerificationEvidence) bool {

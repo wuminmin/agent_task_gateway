@@ -288,12 +288,6 @@ func TestDependencyScaleV3ObservationValidation(t *testing.T) {
 			sample.TaskGateAcceptanceV3.InternalExpectation = append(
 				sample.TaskGateAcceptanceV3.InternalExpectation, entry)
 		}},
-		{"legacy snapshot mixed in", func(_ *Sample, evidence *ScaleVerificationEvidence) {
-			evidence.ObserverBefore = &ObserverSnapshot{}
-		}},
-		{"legacy accounting mixed in", func(sample *Sample, _ *ScaleVerificationEvidence) {
-			sample.ObserverAccounting = &ObserverAccounting{}
-		}},
 		{"Outcome control mixed in", func(_ *Sample, evidence *ScaleVerificationEvidence) {
 			evidence.OutcomeMerkle = &OutcomeMerkleEvidence{}
 		}},
@@ -478,24 +472,4 @@ func resealAcceptedClassifierForTest(t *testing.T, accepted *FinalizationV3) {
 		t.Fatal(err)
 	}
 	accepted.ClassifierBindingSHA256 = binding
-}
-
-// The observer's total gateway_reader delta is not required to equal the
-// targeted visible/companion counters -- on a governed deployment it never can,
-// because the Connector re-establishes the controls that make a read
-// attributable inside every governed transaction. What is required is that the
-// closed-world accounting explains the total exactly.
-// The equality this replaced is now proven impossible rather than merely
-// dropped: on the derived Result-heavy cell the observer counts 16 statements
-// while the targeted counters count 2, so no correct run could ever have
-// satisfied the v1 rule.
-func TestTargetedCountersCannotEqualTheGovernedObserverTotal(t *testing.T) {
-	plan := resultHeavyPlan()
-	targeted := plan.ExpectedVisibleCalls + plan.ExpectedCompanionCalls
-	if plan.ExpectedTotal() == targeted {
-		t.Fatal("a governed profile must issue controls beyond its targeted statements")
-	}
-	if plan.ExpectedTotal()-targeted != plan.RequiredGatewayControls() {
-		t.Fatal("the gap between the observer total and the targeted counters is not the derived control count")
-	}
 }

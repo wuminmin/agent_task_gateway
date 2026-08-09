@@ -188,7 +188,7 @@ call-graph tests rather than by measurement.
 
 | Condition | Test symbol | State |
 | --- | --- | --- |
-| No active package references the v1.4 accounting types or functions. | `experiment.TestNoActiveReferenceToV14Accounting` | Ratchet: 2 files / 7 symbols remain; P2.4 must make this zero |
+| No active package references the v1.4 accounting types or functions. | `experiment.TestNoActiveReferenceToV14Accounting`, `experiment.TestNoProductionPackageImportsLegacyV14`, `experiment.TestLegacyV14HasNoModuleDependencies` | PASS: the active inventory is empty; the archived decoder is import-isolated from production and the current module |
 | The v3 acceptance wrapper has real non-test callers from all three TaskGate paths. | `experiment.TestFinalizeObservationV3HasProductionCallers` | All three production source callers are present; P2.5 must turn the generic report-only guard into a hard assertion |
 | No Adapter file constructs `TrustedInputsV3` or `IndependentInputsV3`. | `experiment.TestAdapterCannotConstructTrustedInputs` | PASS |
 | The finalizer's sources are chosen inside `package experiment`, never by a caller. | `experiment.TestNoExportedWayToChooseTheFinalizersSources`, `experiment.TestTheDeploymentConstructorSelectsNoContent` | PASS |
@@ -410,25 +410,25 @@ unwired-source-call diagnosis no longer describes the tree.
 structural regression check until P2.5 deletes it; it must not be cited as
 evidence that the acceptance facade has no caller.
 
-The remaining migration obligations are explicit: P2.4 must remove the final
-two-file/seven-symbol v1.4 declaration/construction surface, and P2.5 must turn
-the generic production-caller reporter into a hard guard. ProvSQL also remains
-fail-closed at the shared multi-product `ORDER BY` lowering boundary described
-above. Therefore the boundary
+P2.4 removed the final two-file/seven-symbol v1.4
+declaration/construction surface. The current sample wire rejects the legacy
+members, while the archived decoder is confined to `internal/legacyv14` and
+cannot enter the v1.5 observer source closure. P2.5 must still turn the generic
+production-caller reporter into a hard guard. ProvSQL also remains fail-closed
+at the shared multi-product `ORDER BY` lowering boundary described above.
+Therefore the boundary
 
     V3 RUNTIME INTEGRATION PASS — CONTRACTS V1.5 FREEZE PENDING
 
 must not be declared.
 
-`TestNoActiveReferenceToV14Accounting` is a **ratchet** while the cutover is in
-progress. It pins the exact set of active v1.4 references that remain, parsed
-from the AST rather than grepped, so a comment is discussion and only a
-compilable reference counts. The count can only fall: a new reference fails, and
-*removing* one also fails, with an instruction to tighten the inventory, so an
-allowance cannot outlive the reason for it. **At the end of the cutover the
-inventory is empty and the ratchet becomes a plain zero-reference assertion.**
-At P2.3 the pinned inventory is exactly two files and seven symbols; it is not
-the zero-reference state required by the canary prerequisite.
+`TestNoActiveReferenceToV14Accounting` began as a decreasing ratchet during the
+cutover. P2.4 emptied that inventory and converted it to a plain zero-reference
+assertion: any compilable retired symbol now fails the test. Separate import
+guards reject production imports of `internal/legacyv14`, reject dependencies
+from the archived decoder back into the current module, and reject legacy files
+from the observer source-build closure. The zero-reference canary prerequisite
+is therefore satisfied, but the other prerequisite gates above remain open.
 
 ## DSN-enabled suite — acceptance is machine-checked, not an exit code
 

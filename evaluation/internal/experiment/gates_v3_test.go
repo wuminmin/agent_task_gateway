@@ -974,11 +974,11 @@ func TestGate7DisappearingStructuralKeyFails(t *testing.T) {
 // own; a carried plan wearing the older version is rejected before any number is
 // compared.
 func TestGate29LegacyV14AccountingCannotSatisfyV3(t *testing.T) {
-	if ObserverAccountingVersion == ObserverAccountingV3Version {
+	if legacyV14ObserverAccountingVersion == ObserverAccountingV3Version {
 		t.Fatal("the v1.4/v2 and v3 accounting versions are the same string")
 	}
 	base := pairedNovelCase(t)
-	base.carried.Plan.Version = ObserverAccountingVersion
+	base.carried.Plan.Version = legacyV14ObserverAccountingVersion
 	if _, err := base.finalize(); err == nil {
 		t.Fatal("a carried plan wearing the v1.4/v2 accounting version was accepted")
 	}

@@ -188,7 +188,7 @@ func TestPlanRejectsStructurallyImpossiblePaths(t *testing.T) {
 	for name, mutate := range map[string]func(*GatewayControlPlanV3){
 		"version cleared": func(p *GatewayControlPlanV3) { p.Version = "" },
 		"v2 version": func(p *GatewayControlPlanV3) {
-			p.Version = ObserverAccountingVersion
+			p.Version = legacyV14ObserverAccountingVersion
 		},
 		"a transaction without a preflight attestation": func(p *GatewayControlPlanV3) {
 			p.PreflightAttestationPasses = 0

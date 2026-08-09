@@ -367,12 +367,6 @@ func TestProvSQLIndependentValidatorRejectsCriticalMutations(t *testing.T) {
 		"accepted delta":  func(sample *Sample) { sample.TaskGateAcceptanceV3.Delta.Total++ },
 		"resource":        func(sample *Sample) { sample.GatewayCPUUsecDelta++ },
 		"root transition": func(sample *Sample) { sample.ProvSQLVerification.RootAfter.Epoch++ },
-		"legacy snapshot hybrid": func(sample *Sample) {
-			sample.ProvSQLVerification.ObserverBefore = &ObserverSnapshot{}
-		},
-		"legacy accounting hybrid": func(sample *Sample) {
-			sample.ObserverAccounting = &ObserverAccounting{}
-		},
 	} {
 		sample := cloneProvSQLValidationSample(taskgate)
 		mutate(&sample)
@@ -391,11 +385,6 @@ func TestProvSQLIndependentValidatorRejectsCriticalMutations(t *testing.T) {
 	directWithAcceptance.TaskGateAcceptanceV3 = &FinalizationV3{}
 	if err := ValidateProvSQLEvidence(directWithAcceptance); err == nil {
 		t.Fatal("direct arm accepted a manufactured v3 acceptance")
-	}
-	directWithLegacyAccounting := cloneProvSQLValidationSample(base)
-	directWithLegacyAccounting.ObserverAccounting = &ObserverAccounting{}
-	if err := ValidateProvSQLEvidence(directWithLegacyAccounting); err == nil {
-		t.Fatal("direct arm accepted legacy observer accounting")
 	}
 }
 

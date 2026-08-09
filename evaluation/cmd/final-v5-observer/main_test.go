@@ -14,6 +14,7 @@ import (
 
 	"taskbound.local/agent-data-gateway/evaluation/internal/experiment"
 	"taskbound.local/agent-data-gateway/evaluation/internal/formalbuild"
+	"taskbound.local/agent-data-gateway/evaluation/internal/legacyv14"
 )
 
 const testProject = "taskgate-final-v5-deployment-02-0123456789abcdefabcd"
@@ -239,11 +240,10 @@ func TestRunEmitsSchemaTwoAndNeverSchemaOne(t *testing.T) {
 	if decoded.SchemaVersion != 2 || decoded.Version != experiment.ObserverSnapshotV2Version {
 		t.Fatalf("the observer emitted schema %d version %q", decoded.SchemaVersion, decoded.Version)
 	}
-	// A v1 reader keys on schema_version, so a v1 consumer of this document must
-	// refuse it rather than silently reading a v2 body as v1.
-	var asV1 experiment.ObserverSnapshot
-	if err := json.Unmarshal([]byte(out.String()), &asV1); err == nil && asV1.SchemaVersion == 1 {
-		t.Fatal("the v2 document decoded as a valid v1 snapshot")
+	// The archived reader is strict, so a current document cannot be accepted
+	// after silently discarding all of its v2-only identity members.
+	if _, err := legacyv14.DecodeObserverSnapshot([]byte(out.String())); err == nil {
+		t.Fatal("the v2 document decoded as a valid legacy snapshot")
 	}
 }
 

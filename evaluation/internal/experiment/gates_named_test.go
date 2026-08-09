@@ -3,7 +3,11 @@ package experiment
 import (
 	"strings"
 	"testing"
+
+	"taskbound.local/agent-data-gateway/evaluation/internal/legacyv14"
 )
+
+const legacyV14ObserverAccountingVersion = legacyv14.ObserverAccountingVersion
 
 // The stable gate names from docs/final_v5_v3_runtime_integration_gates.md.
 //
@@ -446,22 +450,22 @@ func TestGate26BaselineArmObserverEvidenceRejected(t *testing.T) {
 // Gate 29. Legacy accounting cannot satisfy v3 acceptance even when its own
 // counters are internally consistent.
 func TestGate29LegacyV14EvidenceRejected(t *testing.T) {
-	if ObserverAccountingVersion == ObserverAccountingV3Version {
+	if legacyV14ObserverAccountingVersion == ObserverAccountingV3Version {
 		t.Fatal("the v1.4/v2 and v3 accounting versions are the same string")
 	}
 	t.Run("a plan wearing the v1.4/v2 version", func(t *testing.T) {
 		broken := pairedNovelCase(t)
-		broken.carried.Plan.Version = ObserverAccountingVersion
+		broken.carried.Plan.Version = legacyV14ObserverAccountingVersion
 		if _, err := broken.finalize(); err == nil {
 			t.Fatal("a carried plan wearing the legacy accounting version was accepted")
 		}
 	})
 	t.Run("an internally consistent v1.4 accounting", func(t *testing.T) {
 		// The legacy document validates under its own rules...
-		legacy := ObserverAccounting{
-			Version: ObserverAccountingVersion,
-			Plan:    NewGatewayControlPlan(2, 1, 1, 1),
-			Before:  NewGatewayStatementCensus(), After: NewGatewayStatementCensus(),
+		legacy := legacyv14.ObserverAccounting{
+			Version: legacyV14ObserverAccountingVersion,
+			Plan:    legacyv14.NewGatewayControlPlan(2, 1, 1, 1),
+			Before:  legacyv14.NewGatewayStatementCensus(), After: legacyv14.NewGatewayStatementCensus(),
 		}
 		if legacy.Plan.Validate() != nil {
 			t.Fatal("precondition: the legacy plan is not internally consistent")

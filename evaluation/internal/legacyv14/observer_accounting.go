@@ -1,4 +1,4 @@
-package experiment
+package legacyv14
 
 import (
 	"errors"
@@ -17,6 +17,19 @@ import (
 // assigned to exactly one class, and every class is compared with a
 // multiplicity derived from the activated profile.
 const ObserverAccountingVersion = "taskgate-final-v5-observer-accounting-v2"
+
+// DecodeObserverAccounting strictly decodes and validates one archived v1.4
+// accounting document. It has no current Sample parameter or conversion path.
+func DecodeObserverAccounting(value []byte) (ObserverAccounting, error) {
+	var accounting ObserverAccounting
+	if err := strictJSON(value, &accounting); err != nil {
+		return accounting, err
+	}
+	if err := ValidateObserverAccounting(accounting); err != nil {
+		return accounting, err
+	}
+	return accounting, nil
+}
 
 // GatewayStatementClass names one class of gateway_reader statement. The set is
 // closed: a statement that matches no control template and neither targeted

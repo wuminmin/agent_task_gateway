@@ -11,28 +11,18 @@ import (
 	"testing"
 )
 
-// The v1.4 accounting is being retired from the active runtime. All three
-// TaskGate call sites now emit CarriedEvidenceV3 and reach acceptance through
-// FinalizeTaskGateObservationV3. What remains is the declaration/construction
-// surface scheduled for the P2.4 schema move, not an active measurement path.
+// The v1.4 accounting is retired from the active runtime. All three TaskGate
+// call sites emit CarriedEvidenceV3 and reach acceptance through
+// FinalizeTaskGateObservationV3; its historical schema and decoder live only in
+// the import-isolated legacyv14 package.
 //
-// This is therefore a ratchet, not an aspiration. It pins the exact set of
-// active references that remain, so the count can only fall. A new reference to
-// a retired symbol fails the build; removing one fails it too, with an
-// instruction to tighten the ratchet, so the inventory cannot silently rot into
-// a stale allowance that permits references nobody meant to keep.
+// This remains a ratchet after reaching zero. A new reference to a retired
+// symbol fails the build, and the explicit empty shape prevents a future change
+// from reintroducing an allowance as though the migration were still underway.
 //
 // The canary prerequisite is that this set is EMPTY. See
 // docs/final_v5_v3_runtime_integration_gates.md.
-var retiredV14ActiveReferences = map[string][]string{
-	"evaluation/cmd/final-v5-adapter/adapter_bindings.go": {
-		"CensusFromTemplates", "GatewayControlPlan", "GatewayStatementCensus",
-		"ObserverAccounting", "ObserverAccountingVersion", "ValidateObserverAccounting",
-	},
-	"evaluation/internal/experiment/types.go": {
-		"ObserverAccounting",
-	},
-}
+var retiredV14ActiveReferences = map[string][]string{}
 
 // retiredV14Symbols is the closed set of v1.4 accounting identifiers that must
 // not survive into the v3 runtime. It is written out rather than derived from
@@ -41,6 +31,7 @@ var retiredV14ActiveReferences = map[string][]string{
 var retiredV14Symbols = map[string]bool{
 	"ObserverAccounting":         true,
 	"ObserverAccountingVersion":  true,
+	"DecodeObserverAccounting":   true,
 	"ValidateObserverAccounting": true,
 	"GatewayControlPlan":         true,
 	"NewGatewayControlPlan":      true,
@@ -50,47 +41,100 @@ var retiredV14Symbols = map[string]bool{
 	"GatewayStatementClasses":    true,
 	"ClassifyGatewayStatement":   true,
 	"CensusFromTemplates":        true,
+	"ObserverSnapshot":           true,
+	"ObserverDelta":              true,
+	"RunObserver":                true,
+	"DecodeObserverSnapshot":     true,
+	"DifferenceObserver":         true,
 }
 
-func TestP23V14RetirementRatchetShape(t *testing.T) {
-	want := map[string][]string{
-		"evaluation/cmd/final-v5-adapter/adapter_bindings.go": {
-			"CensusFromTemplates", "GatewayControlPlan", "GatewayStatementCensus",
-			"ObserverAccounting", "ObserverAccountingVersion", "ValidateObserverAccounting",
-		},
-		"evaluation/internal/experiment/types.go": {
-			"ObserverAccounting",
-		},
+func TestP24V14RetirementRatchetIsEmpty(t *testing.T) {
+	if len(retiredV14ActiveReferences) != 0 {
+		t.Fatalf("P2.4 requires an empty v1.4 active-reference set, got %v", retiredV14ActiveReferences)
 	}
+}
 
-	if got := len(retiredV14ActiveReferences); got != 2 {
-		t.Fatalf("P2.3 must leave exactly 2 v1.4 allowance files, got %d: %v", got, retiredV14ActiveReferences)
-	}
-	total := 0
-	for _, names := range retiredV14ActiveReferences {
-		total += len(names)
-	}
-	if total != 7 {
-		t.Fatalf("P2.3 must leave exactly 7 v1.4 allowance symbols, got %d: %v", total, retiredV14ActiveReferences)
-	}
+const legacyV14ImportPath = "taskbound.local/agent-data-gateway/evaluation/internal/legacyv14"
 
-	for file, wantNames := range want {
-		gotNames, present := retiredV14ActiveReferences[file]
-		if !present {
-			t.Errorf("P2.3 v1.4 ratchet is missing required allowance %s", file)
-			continue
+// The archived decoder is not a compatibility fallback. Test files may import
+// it to prove rejection, but no binary built from a production file may reach
+// the legacy schema or its historical validation rules.
+func TestNoProductionPackageImportsLegacyV14(t *testing.T) {
+	root := repositoryRoot(t)
+	for _, path := range activeGoFiles(t, root) {
+		if importsPackage(t, path, legacyV14ImportPath) {
+			relative, _ := filepath.Rel(root, path)
+			t.Errorf("production file %s imports legacyv14; the archived v1.4 decoder must not be a runtime fallback",
+				filepath.ToSlash(relative))
 		}
-		if len(gotNames) != len(wantNames) {
-			t.Errorf("P2.3 v1.4 allowance %s = %v, want exactly %v", file, gotNames, wantNames)
-			continue
+	}
+}
+
+// legacyv14 is a current-module-free leaf. In particular it cannot import the
+// current Sample/finalizer runtime and grow a conversion that accepts or emits
+// current evidence under the historical schema.
+func TestLegacyV14HasNoModuleDependencies(t *testing.T) {
+	root := repositoryRoot(t)
+	directory := filepath.Join(root, "evaluation", "internal", "legacyv14")
+	files := 0
+	err := filepath.Walk(directory, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
 		}
-		for _, name := range wantNames {
-			if !contains(gotNames, name) {
-				t.Errorf("P2.3 v1.4 allowance %s = %v, want exactly %v", file, gotNames, wantNames)
-				break
+		if info.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		files++
+		parsed, parseErr := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
+		if parseErr != nil {
+			return parseErr
+		}
+		for _, imported := range parsed.Imports {
+			name := strings.Trim(imported.Path.Value, `"`)
+			if strings.HasPrefix(name, "taskbound.local/agent-data-gateway/") {
+				relative, _ := filepath.Rel(root, path)
+				t.Errorf("legacy file %s imports current module package %s",
+					filepath.ToSlash(relative), name)
 			}
 		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
+	if files == 0 {
+		t.Fatal("legacyv14 contains no archived production decoder")
+	}
+}
+
+func TestObserverRuntimeSourceClosureExcludesLegacyV14(t *testing.T) {
+	foundInvocation := false
+	for _, source := range observerRequiredSources {
+		if strings.Contains(filepath.ToSlash(source), "/legacyv14/") ||
+			source == "evaluation/internal/experiment/observer.go" {
+			t.Errorf("v1.5 observer source closure retains legacy source %s", source)
+		}
+		if source == "evaluation/internal/experiment/observer_invocation_v3.go" {
+			foundInvocation = true
+		}
+	}
+	if !foundInvocation {
+		t.Fatal("v1.5 observer source closure omits observer_invocation_v3.go")
+	}
+}
+
+func importsPackage(t *testing.T, path, importPath string) bool {
+	t.Helper()
+	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
+	if err != nil {
+		t.Fatalf("parse imports in %s: %v", path, err)
+	}
+	for _, imported := range parsed.Imports {
+		if strings.Trim(imported.Path.Value, `"`) == importPath {
+			return true
+		}
+	}
+	return false
 }
 
 // repositoryRoot walks up from the test's directory to the module root.
@@ -181,8 +225,6 @@ func referencedRetiredSymbols(t *testing.T, path string) []string {
 
 func TestNoActiveReferenceToV14Accounting(t *testing.T) {
 	root := repositoryRoot(t)
-	// The declarations themselves live here and are not references to retire.
-	declarations := filepath.Join("evaluation", "internal", "experiment", "observer_accounting.go")
 
 	observed := map[string][]string{}
 	for _, path := range activeGoFiles(t, root) {
@@ -191,9 +233,6 @@ func TestNoActiveReferenceToV14Accounting(t *testing.T) {
 			t.Fatalf("relative path for %s: %v", path, err)
 		}
 		relative = filepath.ToSlash(relative)
-		if relative == filepath.ToSlash(declarations) {
-			continue
-		}
 		if names := referencedRetiredSymbols(t, path); len(names) > 0 {
 			observed[relative] = names
 		}
@@ -234,8 +273,7 @@ func TestNoActiveReferenceToV14Accounting(t *testing.T) {
 	}
 
 	if len(retiredV14ActiveReferences) == 0 {
-		t.Log("the v1.4 active surface is empty; this guard can become a plain zero assertion " +
-			"and the canary prerequisite on it is satisfied")
+		t.Log("the v1.4 active surface remains empty; the canary prerequisite on this ratchet is satisfied")
 	}
 }
 

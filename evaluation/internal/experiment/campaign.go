@@ -47,7 +47,7 @@ var observerRequiredSources = []string{
 	// under. A build that dropped any of these would still produce a snapshot,
 	// and it would mean something different.
 	"evaluation/cmd/final-v5-observer/snapshot_v2.go",
-	"evaluation/internal/experiment/observer.go",
+	"evaluation/internal/experiment/observer_invocation_v3.go",
 	"evaluation/internal/experiment/observer_snapshot_v2.go",
 	"evaluation/internal/experiment/formal_window.go",
 	// The strict AST digest decides every structural identity the snapshot
@@ -57,6 +57,13 @@ var observerRequiredSources = []string{
 	// snapshot is validated against.
 	"evaluation/internal/experiment/observer_accounting_v3.go",
 	"evaluation/internal/experiment/attestation_footprint.go",
+}
+
+// ObserverRuntimeRequiredSources returns the single source-closure contract
+// used by both the Adapter's pre-start gate and campaign finalization. Returning
+// a copy prevents a caller from weakening the later verification in place.
+func ObserverRuntimeRequiredSources() []string {
+	return append([]string(nil), observerRequiredSources...)
 }
 
 type CampaignExperimentEvidence struct {
