@@ -277,49 +277,378 @@ func TestNoActiveReferenceToV14Accounting(t *testing.T) {
 	}
 }
 
-// TestFinalizeObservationV3HasProductionCallers records the other half of the
-// canary prerequisite: acceptance must actually be reached. All three source
-// callers now exist. Artifact and Scale remain hard requirements here; the
-// ProvSQL branch stays report-only in this generic guard until P2.5 promotes it,
-// while its path-specific cutover guard already fails on a missing call.
-//
-// The three files it names are where the TaskGate workloads live, and the call
-// they must make is RuntimeFinalizerV3.FinalizeTaskGateObservationV3 -- the
-// finalizer-side entry point that constructs its own trusted inputs. An Adapter
-// cannot call the core directly: the core is package-private, and
-// TestAdapterCannotConstructTrustedInputs forbids naming what it takes. The two
-// requirements used to look contradictory; the façade is what makes them one
-// design.
+// TestFinalizeObservationV3HasProductionCallers pins the two finalizer-side
+// edges that make acceptance reachable without letting an Adapter construct
+// trusted inputs. The runtime façade must enter the package-private TaskGate
+// core, and that core must call the acceptance implementation exactly once.
 func TestFinalizeObservationV3HasProductionCallers(t *testing.T) {
 	root := repositoryRoot(t)
-	callers := map[string]bool{}
-	for _, path := range activeGoFiles(t, root) {
-		relative, _ := filepath.Rel(root, path)
-		relative = filepath.ToSlash(relative)
-		if strings.HasPrefix(relative, "evaluation/internal/experiment/") {
-			continue
-		}
-		if callsAcceptanceEntryPoint(t, path) {
-			callers[relative] = true
-		}
-	}
+	requireProductionSymbolClosure(t, root, "finalizeTaskGateObservationV3Core", productionDeclaration{
+		path: "evaluation/internal/experiment/finalize_taskgate_v3.go",
+	}, []productionCallSite{
+		{
+			path:             "evaluation/internal/experiment/runtime_finalizer_v3.go",
+			function:         "FinalizeTaskGateObservationV3",
+			functionReceiver: "*RuntimeFinalizerV3",
+			callForm:         "identifier",
+			statement:        "return",
+			resultBinding:    "return-direct",
+		},
+	})
+	requireProductionSymbolClosure(t, root, "FinalizeObservationV3", productionDeclaration{
+		path: "evaluation/internal/experiment/finalize_observation_v3.go",
+	}, []productionCallSite{
+		{
+			path:          "evaluation/internal/experiment/finalize_taskgate_v3.go",
+			function:      "finalizeTaskGateObservationV3Core",
+			callForm:      "identifier",
+			statement:     "assignment",
+			resultBinding: "finalized,err:=direct",
+		},
+	})
+}
 
-	requiredNow := []string{
-		"evaluation/cmd/final-v5-adapter/artifact.go",
-		"evaluation/cmd/final-v5-adapter/scale.go",
+// TestRuntimeFinalizerV3HasTaskGateProductionCallers separately pins the three
+// workload façades. Adapter code may submit carried evidence to the runtime
+// finalizer, but the finalizer-side test above owns the trusted acceptance
+// chain.
+func TestRuntimeFinalizerV3HasTaskGateProductionCallers(t *testing.T) {
+	root := repositoryRoot(t)
+	requireProductionSymbolClosure(t, root, "FinalizeTaskGateObservationV3", productionDeclaration{
+		path:             "evaluation/internal/experiment/runtime_finalizer_v3.go",
+		functionReceiver: "*RuntimeFinalizerV3",
+	}, []productionCallSite{
+		{
+			path:             "evaluation/cmd/final-v5-adapter/artifact.go",
+			function:         "executeResultHeavy",
+			functionReceiver: "*artifactAdapter",
+			callForm:         "selector",
+			callReceiver:     "adapter.finalizer",
+			statement:        "assignment",
+			resultBinding:    "finalized,err:=direct",
+		},
+		{
+			path:             "evaluation/cmd/final-v5-adapter/scale.go",
+			function:         "executeDependencyE2E",
+			functionReceiver: "*scaleAdapter",
+			callForm:         "selector",
+			callReceiver:     "finalizer",
+			statement:        "assignment",
+			resultBinding:    "finalized,err:=direct",
+		},
+		{
+			path:             "evaluation/cmd/final-v5-adapter/provsql.go",
+			function:         "executeProvSQLTaskGate",
+			functionReceiver: "*provSQLAdapter",
+			callForm:         "selector",
+			callReceiver:     "finalizer",
+			statement:        "assignment",
+			resultBinding:    "finalized,err:=direct",
+		},
+	})
+}
+
+type productionCallSite struct {
+	path             string
+	function         string
+	functionReceiver string
+	callForm         string
+	callReceiver     string
+	statement        string
+	resultBinding    string
+	functionLiteral  bool
+}
+
+type productionDeclaration struct {
+	path             string
+	functionReceiver string
+}
+
+type productionSymbolReference struct {
+	path string
+	line int
+}
+
+func requireProductionSymbolClosure(t *testing.T, root, symbol string, declaration productionDeclaration,
+	wantCalls []productionCallSite) {
+	t.Helper()
+	requireExactProductionCallSites(t, root, symbol, wantCalls)
+	declarations, indirect := productionSymbolSurface(t, root, symbol)
+	if len(declarations) != 1 || declarations[0] != declaration {
+		t.Fatalf("production declaration of %s is %+v, want exactly %+v", symbol, declarations, declaration)
 	}
-	for _, path := range requiredNow {
-		if !callers[path] {
-			t.Errorf("the v3 acceptance entry point has no production caller in %s", path)
+	if len(indirect) != 0 {
+		t.Fatalf("production references to %s outside a direct guarded call are %+v", symbol, indirect)
+	}
+}
+
+func requireExactProductionCallSites(t *testing.T, root, callee string, want []productionCallSite) {
+	t.Helper()
+	got := productionCallSites(t, root, callee)
+	sort.Slice(got, func(left, right int) bool {
+		return productionCallSiteKey(got[left]) < productionCallSiteKey(got[right])
+	})
+	sort.Slice(want, func(left, right int) bool {
+		return productionCallSiteKey(want[left]) < productionCallSiteKey(want[right])
+	})
+	if len(got) != len(want) {
+		t.Fatalf("production calls to %s are %+v, want exact closed set %+v", callee, got, want)
+	}
+	for index := range want {
+		if got[index] != want[index] {
+			t.Fatalf("production calls to %s are %+v, want exact closed set %+v", callee, got, want)
 		}
 	}
-	provSQL := "evaluation/cmd/final-v5-adapter/provsql.go"
-	if !callers[provSQL] {
-		// The ProvSQL path-specific cutover guard already fails on a missing
-		// call. This generic report remains transitional until P2.5 promotes it
-		// after the v1.4 schema and construction surface are gone.
-		t.Logf("the v3 acceptance entry point has no production caller in %s; "+
-			"the generic canary prerequisite remains report-only until P2.5", provSQL)
+}
+
+func productionCallSites(t *testing.T, root, callee string) []productionCallSite {
+	t.Helper()
+	var sites []productionCallSite
+	for _, path := range activeGoFiles(t, root) {
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			t.Fatalf("relative path for %s: %v", path, err)
+		}
+		relative = filepath.ToSlash(relative)
+		parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", path, err)
+		}
+
+		recordCalls := func(rootNode ast.Node, function, functionReceiver, statement string) {
+			var ancestors []ast.Node
+			ast.Inspect(rootNode, func(node ast.Node) bool {
+				if node == nil {
+					ancestors = ancestors[:len(ancestors)-1]
+					return true
+				}
+				if call, ok := node.(*ast.CallExpr); ok {
+					site := productionCallSite{
+						path: relative, function: function, functionReceiver: functionReceiver,
+						statement: statement, resultBinding: productionResultBinding(rootNode, call),
+					}
+					for _, ancestor := range ancestors {
+						if _, nestedFunction := ancestor.(*ast.FuncLit); nestedFunction {
+							site.functionLiteral = true
+							break
+						}
+					}
+					matched := false
+					switch called := call.Fun.(type) {
+					case *ast.Ident:
+						if called.Name == callee {
+							site.callForm = "identifier"
+							matched = true
+						}
+					case *ast.SelectorExpr:
+						if called.Sel.Name == callee {
+							site.callForm = "selector"
+							site.callReceiver = expressionPath(called.X)
+							matched = true
+						}
+					}
+					if matched {
+						sites = append(sites, site)
+					}
+				}
+				ancestors = append(ancestors, node)
+				return true
+			})
+		}
+
+		for _, declaration := range parsed.Decls {
+			switch typed := declaration.(type) {
+			case *ast.FuncDecl:
+				if typed.Body == nil {
+					continue
+				}
+				receiver := ""
+				if typed.Recv != nil && len(typed.Recv.List) == 1 {
+					receiver = expressionPath(typed.Recv.List[0].Type)
+				}
+				for _, statement := range typed.Body.List {
+					recordCalls(statement, typed.Name.Name, receiver, productionStatementKind(statement))
+				}
+			case *ast.GenDecl:
+				for _, specification := range typed.Specs {
+					value, ok := specification.(*ast.ValueSpec)
+					if !ok {
+						continue
+					}
+					for _, expression := range value.Values {
+						recordCalls(expression, "<package>", "", "initializer")
+					}
+				}
+			}
+		}
+	}
+	return sites
+}
+
+func productionSymbolSurface(t *testing.T, root, symbol string) ([]productionDeclaration,
+	[]productionSymbolReference) {
+	t.Helper()
+	var declarations []productionDeclaration
+	var indirect []productionSymbolReference
+	for _, path := range activeGoFiles(t, root) {
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			t.Fatalf("relative path for %s: %v", path, err)
+		}
+		relative = filepath.ToSlash(relative)
+		fileSet := token.NewFileSet()
+		parsed, err := parser.ParseFile(fileSet, path, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", path, err)
+		}
+		var ancestors []ast.Node
+		ast.Inspect(parsed, func(node ast.Node) bool {
+			if node == nil {
+				ancestors = ancestors[:len(ancestors)-1]
+				return true
+			}
+			var parent ast.Node
+			if len(ancestors) != 0 {
+				parent = ancestors[len(ancestors)-1]
+			}
+			switch typed := node.(type) {
+			case *ast.SelectorExpr:
+				if typed.Sel.Name == symbol && !isDirectCallCallee(parent, typed) {
+					indirect = append(indirect, productionSymbolReference{
+						path: relative, line: fileSet.Position(typed.Sel.Pos()).Line,
+					})
+				}
+			case *ast.Ident:
+				if typed.Name != symbol {
+					break
+				}
+				if selector, ok := parent.(*ast.SelectorExpr); ok && selector.Sel == typed {
+					break
+				}
+				if function, ok := parent.(*ast.FuncDecl); ok && function.Name == typed {
+					receiver := ""
+					if function.Recv != nil && len(function.Recv.List) == 1 {
+						receiver = expressionPath(function.Recv.List[0].Type)
+					}
+					declarations = append(declarations, productionDeclaration{
+						path: relative, functionReceiver: receiver,
+					})
+					break
+				}
+				if !isDirectCallCallee(parent, typed) {
+					indirect = append(indirect, productionSymbolReference{
+						path: relative, line: fileSet.Position(typed.Pos()).Line,
+					})
+				}
+			}
+			ancestors = append(ancestors, node)
+			return true
+		})
+	}
+	sort.Slice(declarations, func(left, right int) bool {
+		if declarations[left].path != declarations[right].path {
+			return declarations[left].path < declarations[right].path
+		}
+		return declarations[left].functionReceiver < declarations[right].functionReceiver
+	})
+	sort.Slice(indirect, func(left, right int) bool {
+		if indirect[left].path != indirect[right].path {
+			return indirect[left].path < indirect[right].path
+		}
+		return indirect[left].line < indirect[right].line
+	})
+	return declarations, indirect
+}
+
+func isDirectCallCallee(parent ast.Node, expression ast.Expr) bool {
+	call, ok := parent.(*ast.CallExpr)
+	return ok && call.Fun == expression
+}
+
+func productionCallSiteKey(site productionCallSite) string {
+	literal := "top-level"
+	if site.functionLiteral {
+		literal = "function-literal"
+	}
+	return strings.Join([]string{
+		site.path, site.function, site.functionReceiver, site.callForm, site.callReceiver, site.statement,
+		site.resultBinding, literal,
+	}, "\x00")
+}
+
+func productionResultBinding(root ast.Node, call *ast.CallExpr) string {
+	switch typed := root.(type) {
+	case *ast.ReturnStmt:
+		if len(typed.Results) == 1 && typed.Results[0] == call {
+			return "return-direct"
+		}
+		return "return-nested"
+	case *ast.AssignStmt:
+		var targets []string
+		for _, target := range typed.Lhs {
+			targets = append(targets, expressionPath(target))
+		}
+		position := "nested"
+		if len(typed.Rhs) == 1 && typed.Rhs[0] == call {
+			position = "direct"
+		}
+		return strings.Join(targets, ",") + typed.Tok.String() + position
+	case *ast.ExprStmt:
+		if typed.X == call {
+			return "expression-direct"
+		}
+		return "expression-nested"
+	case *ast.DeferStmt:
+		if typed.Call == call {
+			return "defer-direct"
+		}
+		return "defer-nested"
+	case *ast.GoStmt:
+		if typed.Call == call {
+			return "go-direct"
+		}
+		return "go-nested"
+	default:
+		if root == call {
+			return "initializer-direct"
+		}
+		return "nested-control"
+	}
+}
+
+func expressionPath(expression ast.Expr) string {
+	switch typed := expression.(type) {
+	case *ast.Ident:
+		return typed.Name
+	case *ast.SelectorExpr:
+		prefix := expressionPath(typed.X)
+		if prefix == "<unsupported>" {
+			return prefix
+		}
+		return prefix + "." + typed.Sel.Name
+	case *ast.ParenExpr:
+		return expressionPath(typed.X)
+	case *ast.StarExpr:
+		return "*" + expressionPath(typed.X)
+	default:
+		return "<unsupported>"
+	}
+}
+
+func productionStatementKind(statement ast.Stmt) string {
+	switch statement.(type) {
+	case *ast.AssignStmt:
+		return "assignment"
+	case *ast.ReturnStmt:
+		return "return"
+	case *ast.ExprStmt:
+		return "expression"
+	case *ast.DeferStmt:
+		return "defer"
+	case *ast.GoStmt:
+		return "go"
+	default:
+		return "nested-control"
 	}
 }
 
@@ -380,39 +709,6 @@ func functionCallCounts(t *testing.T, path, function string) map[string]int {
 		return true
 	})
 	return calls
-}
-
-// callsAcceptanceEntryPoint reports whether a file contains a real call to the
-// acceptance entry point.
-//
-// It is an AST check over CallExpr rather than a substring search, and the
-// difference is not pedantry: the substring version accepted
-//
-//	// TODO: call FinalizeTaskGateObservationV3
-//
-// as a production caller, which is precisely the false positive a guard on
-// "acceptance is actually reached" must not have. A comment, a string literal
-// and a mention in a doc comment now all count for nothing.
-func callsAcceptanceEntryPoint(t *testing.T, path string) bool {
-	t.Helper()
-	fileSet := token.NewFileSet()
-	parsed, err := parser.ParseFile(fileSet, path, nil, 0)
-	if err != nil {
-		t.Fatalf("parse %s: %v", path, err)
-	}
-	called := false
-	ast.Inspect(parsed, func(node ast.Node) bool {
-		call, ok := node.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		selector, ok := call.Fun.(*ast.SelectorExpr)
-		if ok && selector.Sel.Name == "FinalizeTaskGateObservationV3" {
-			called = true
-		}
-		return true
-	})
-	return called
 }
 
 func contains(values []string, want string) bool {

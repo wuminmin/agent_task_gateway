@@ -189,7 +189,7 @@ call-graph tests rather than by measurement.
 | Condition | Test symbol | State |
 | --- | --- | --- |
 | No active package references the v1.4 accounting types or functions. | `experiment.TestNoActiveReferenceToV14Accounting`, `experiment.TestNoProductionPackageImportsLegacyV14`, `experiment.TestLegacyV14HasNoModuleDependencies` | PASS: the active inventory is empty; the archived decoder is import-isolated from production and the current module |
-| The v3 acceptance wrapper has real non-test callers from all three TaskGate paths. | `experiment.TestFinalizeObservationV3HasProductionCallers` | All three production source callers are present; P2.5 must turn the generic report-only guard into a hard assertion |
+| All three TaskGate paths call the runtime façade, whose two finalizer-side edges reach v3 acceptance. | `experiment.TestRuntimeFinalizerV3HasTaskGateProductionCallers`, `experiment.TestFinalizeObservationV3HasProductionCallers` | PASS: each workload façade call and each internal finalizer edge is an exact hard assertion |
 | No Adapter file constructs `TrustedInputsV3` or `IndependentInputsV3`. | `experiment.TestAdapterCannotConstructTrustedInputs` | PASS |
 | The finalizer's sources are chosen inside `package experiment`, never by a caller. | `experiment.TestNoExportedWayToChooseTheFinalizersSources`, `experiment.TestTheDeploymentConstructorSelectsNoContent` | PASS |
 | The V9 test-fixture package is not imported by production files. | `testfixture.TestFixtureIsNotImportedByProduction` | PASS |
@@ -404,19 +404,22 @@ and its own derivation is deleted, so there is no second derivation to drift
 against. A finalizer holding frozen contract material can reach the same two
 statements without asking the Gateway and without reimplementing anything.
 
-The production facade is now called by Artifact, Scale and ProvSQL, so the old
-unwired-source-call diagnosis no longer describes the tree.
-`TestV3CutoverIsBlockedByTheUnwiredFinalizer` remains only as a transitional
-structural regression check until P2.5 deletes it; it must not be cited as
-evidence that the acceptance facade has no caller.
+The production facade is now called exactly once by Artifact, Scale and
+ProvSQL. `TestRuntimeFinalizerV3HasTaskGateProductionCallers` hard-guards those
+three workload calls, while `TestFinalizeObservationV3HasProductionCallers`
+hard-guards the runtime façade-to-core and core-to-acceptance edges. The obsolete
+unwired-finalizer blocker is gone; the permanent
+`TestFinalizerRetainsTheSingleSharedTargetDerivation` guard still requires the
+extracted physical-query API and rejects restoration of the deleted
+Gateway-local derivation surface.
 
 P2.4 removed the final two-file/seven-symbol v1.4
 declaration/construction surface. The current sample wire rejects the legacy
 members, while the archived decoder is confined to `internal/legacyv14` and
-cannot enter the v1.5 observer source closure. P2.5 must still turn the generic
-production-caller reporter into a hard guard. ProvSQL also remains fail-closed
-at the shared multi-product `ORDER BY` lowering boundary described above.
-Therefore the boundary
+cannot enter the v1.5 observer source closure. P2.5 converted the production
+caller and internal finalizer edges into hard structural guards. This proves
+source wiring only: ProvSQL remains fail-closed at the shared multi-product
+`ORDER BY` lowering boundary described above. Therefore the boundary
 
     V3 RUNTIME INTEGRATION PASS — CONTRACTS V1.5 FREEZE PENDING
 
