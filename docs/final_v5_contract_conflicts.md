@@ -372,13 +372,79 @@ Artifact path plus V3 observer acceptance; it records
 `publication_factset_oracle_ready=false` and is neither a publication binding
 nor publication readiness.
 
-Remaining publication conflict: P4.0 must settle the Scale semantic mismatch,
-establish independent Scale and 105-cell ProvSQL FactSet oracles, decide whether
-Artifact's private dependency section is removed or backed by a genuine
-independent oracle, and then generate the complete publication binding for
-exact-byte author review before any P5 publication campaign. The P3.3
-separation does not relax Scale, ProvSQL, P5, capability, Registry, or
-contract-release gates.
+Remaining publication conflict: P4.0 must still establish independent Scale and
+105-cell ProvSQL FactSet oracles and then generate the complete publication
+binding for exact-byte author review before any P5 publication campaign. Two of
+the adjudications this paragraph originally deferred were taken on 2026-08-10
+and are no longer open: the Scale semantic mismatch is settled by decision 18
+and registered separately as C17, and the Artifact private dependency section is
+**removed** by decision 19 and registered separately as C18. The P3.3 separation
+does not relax Scale, ProvSQL, P5, capability, Registry, or contract-release
+gates.
+
+## C17 — Dependency Scale history is modeled as the overlap, not as `existing`
+
+The Scale contract fixes existing=candidate=`N`, intersection `5K`, and union
+`2N-5K` (decision 4). The runtime models history as the intersection itself.
+`validateDependencyCellBinding` requires
+`cell.History.DependencyFacts == spec.OverlapFacts` and rejects any history on a
+zero-overlap cell; `ValidateScaleEvidence` requires
+`RootBefore.DependencyCardinality == spec.OverlapFacts` — a verified-empty root
+at zero overlap — and `RootAfter.DependencyCardinality == spec.CandidateFacts`
+under the candidate digest. Existing is therefore a subset of candidate and the
+union equals candidate, which is the modeling C6 rejected in this same
+experiment. `DependencyScaleSpec` carries `CandidateFacts` and `OverlapFacts`
+and no `ExistingFacts`, so the contract's existing set was never implemented.
+Two further facts bear on the adjudication: the frozen 414,000-row
+`final_v5_exposure_scale` Product is sized for `candidate (0,M]` beside
+`existing (M-K,2M-K]`, and under the runtime's reading its second half is never
+written; and a history sized at the intersection makes store size a function of
+overlap, so the zero-overlap cell measures insertion into an empty store rather
+than deduplication against a populated one.
+
+Author resolution (decision 18): the runtime moves to the contract, not the
+reverse. `DependencyScaleSpec` gains `ExistingFacts` (= `CandidateFacts`); every
+cell declares a history of `ExistingFacts`, the zero-overlap cell included,
+where it does not intersect the candidate; `RootBefore.DependencyCardinality`
+becomes `ExistingFacts`; `RootAfter` becomes the union `2N-5K` under its own
+independent digest, which may no longer equal the candidate digest. The
+accounting invariant is preserved unchanged: charged `== N - 5K`, actual minus
+charged `== 5K`. History keeps the decision 5 `sum(metric)` identity over
+`(M-K,2M-K]`.
+
+Remaining conflict: the independent Scale oracle must produce three FactSet
+digests — existing, candidate, union — none copied or backfilled from
+production output. This changes measured runtime behaviour and must land before
+the v1.5 freeze and any P5 measurement; per-cell prefill rises from `5K` to `N`
+Facts. No Scale sample measured under the pre-decision model may be carried
+forward.
+
+## C18 — Artifact cells bind dependency material that nothing verifies
+
+Each Artifact cell binding carries `dependency_facts` and
+`dependency_set_sha256` through the shared `BoundQueryExpectation`. No consumer
+checks either value: the Artifact adapter copies the production response's
+`ActualInfluenceFacts` and `InfluenceSetSHA256` into the Sample, and no
+finalizer compares the Sample against the bound values the way the Scale
+finalizer compares `CandidateDependencySHA256`. The fields are load-validated
+for internal consistency only, which is not oracle verification.
+
+Author resolution (decision 19): the section is **removed** rather than backed
+by an independent oracle. Building oracle material that no assertion consumes
+carries full cost and no evidential value, while leaving in the binding
+something that reads as verified Artifact exposure accounting — the failure C8
+names. The P3.3-prep2 `ArtifactTargetedCellBinding` carries no dependency
+material and reaches V3 acceptance on the oracle manifest and canonical result
+digests alone, so the publication binding is aligned to a shape already proven
+sufficient.
+
+Remaining conflict: the Artifact cells must use a query expectation that cannot
+express dependency material, or the Artifact branch must require
+`dependency_facts == 0` with an empty digest and reject unknown fields, so the
+generic `ValidateBoundQuery` rule cannot admit it silently; a negative test must
+prove an Artifact cell carrying dependency material fails closed. Artifact
+exposure figures remain Sample observations and must not be cited as verified
+quantities in the paper.
 
 No generated digest is frozen by this register. A generated value first becomes
 a `REVIEW_CANDIDATE`; only explicit author review may change its status to
