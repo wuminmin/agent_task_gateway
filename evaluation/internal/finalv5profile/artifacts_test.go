@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -70,6 +71,30 @@ func TestMaterializeCopiesExactlyTheClosure(t *testing.T) {
 	}
 	if err := VerifyProfileArtifactDirectory(directory, manifest); err != nil {
 		t.Fatalf("verify: %v", err)
+	}
+}
+
+func TestMaterializePublicationDirectoryModeIgnoresProcessUmask(t *testing.T) {
+	source := buildSourceArtifacts(t, "final-v5-result-heavy-v1")
+	destination := t.TempDir()
+	profile := testProfile("final-v5-result-heavy-v1")
+
+	previousUmask := syscall.Umask(0o077)
+	defer syscall.Umask(previousUmask)
+	if _, err := MaterializeProfileArtifacts(profile, "final-v5-contracts-v1.2", source, destination,
+		strings.Repeat("c", 64)); err != nil {
+		t.Fatalf("materialize under umask 077: %v", err)
+	}
+	publication := filepath.Join(destination, profile.ID, "final-v5-result-heavy-v1")
+	info, err := os.Lstat(publication)
+	if err != nil {
+		t.Fatalf("stat materialized publication: %v", err)
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		t.Fatalf("materialized publication mode = %v, want a real directory", info.Mode())
+	}
+	if got := info.Mode().Perm(); got != 0o755 {
+		t.Fatalf("materialized publication mode = %04o, want 0755 under umask 077", got)
 	}
 }
 

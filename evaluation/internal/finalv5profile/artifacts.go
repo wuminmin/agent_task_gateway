@@ -114,6 +114,11 @@ func MaterializeProfileArtifacts(profile Profile, contractRelease, sourceRoot, d
 		if err := os.Mkdir(targetDirectory, 0o755); err != nil {
 			return ArtifactManifest{}, err
 		}
+		// Mkdir applies the caller's umask. The Gateway traverses this directory
+		// through a read-only mount under a different UID, so enforce the mode.
+		if err := os.Chmod(targetDirectory, 0o755); err != nil {
+			return ArtifactManifest{}, err
+		}
 		for _, name := range publicationBundleFiles(publication) {
 			file, err := copyRegularFile(filepath.Join(sourceDirectory, name), filepath.Join(targetDirectory, name))
 			if err != nil {
