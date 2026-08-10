@@ -105,6 +105,23 @@
       },
       "then": {
         "properties": {
+          "scale": {
+            "enum": [
+              "10k-overlap-0",
+              "10k-overlap-50",
+              "10k-overlap-90",
+              "10k-overlap-100",
+              "100k-overlap-0",
+              "100k-overlap-50",
+              "100k-overlap-90",
+              "100k-overlap-100",
+              "1035000-overlap-0",
+              "1035000-overlap-50",
+              "1035000-overlap-90",
+              "1035000-overlap-100"
+            ]
+          },
+          "mode": { "enum": ["novel", "semantic_replay"] },
           "expected": {
             "required": [
               "row_count",
@@ -115,8 +132,6 @@
               "release_candidate_set_sha256",
               "dependency_candidate_cardinality",
               "dependency_candidate_set_sha256",
-              "outcome_candidate_cardinality",
-              "outcome_candidate_set_sha256",
               "existing_cardinality",
               "existing_set_sha256",
               "overlap_cardinality",
@@ -125,7 +140,13 @@
               "novel_set_sha256",
               "union_cardinality",
               "union_set_sha256"
-            ]
+            ],
+            "not": {
+              "anyOf": [
+                { "required": ["outcome_candidate_cardinality"] },
+                { "required": ["outcome_candidate_set_sha256"] }
+              ]
+            }
           }
         }
       }
@@ -167,7 +188,7 @@
     "token": {
       "type": "string",
       "minLength": 1,
-      "pattern": "^[^\\u0000\\r\\n\\t ](?:[^\\u0000\\r\\n\\t]*[^\\u0000\\r\\n\\t ])?$"
+      "pattern": "^[^\\x00\\r\\n\\t ](?:[^\\x00\\r\\n\\t]*[^\\x00\\r\\n\\t ])?$"
     },
     "nonnegativeInteger": {
       "type": "integer",
@@ -230,7 +251,7 @@
         "command": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^[^\\u0000\\r\\n]+$"
+          "pattern": "^[^\\x00\\r\\n]+$"
         }
       }
     }

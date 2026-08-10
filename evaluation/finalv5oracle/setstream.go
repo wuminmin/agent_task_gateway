@@ -68,6 +68,47 @@ func SummarizeSemanticSet(role string, stream SemanticMemberStream, options Stre
 // commitments for multiple manifest roles. Memory is O(chunk size + run
 // count), never O(set cardinality). Runtime spill files are removed on return.
 func SummarizeSemanticSetRoles(roles []string, stream SemanticMemberStream, options StreamSetOptions) (map[string]StreamSetSummary, error) {
+	return summarizeSemanticSetRoles(roles, stream, options, nil)
+}
+
+// SummarizeUnitWitnessSemanticSetRoles sorts one duplicate-free semantic
+// member stream once and returns both its role-bound set summaries and the V2
+// witness-multiset commitment in which every member has multiplicity one.
+// Scale count(*) release facts use this because a role label is not a witness.
+func SummarizeUnitWitnessSemanticSetRoles(roles []string, stream SemanticMemberStream, options StreamSetOptions) (map[string]StreamSetSummary, string, error) {
+	var witness string
+	summaries, err := summarizeSemanticSetRoles(roles, stream, options,
+		func(cardinality int64, members func(func([sha256.Size]byte) error) error) error {
+			if cardinality > int64(^uint(0)>>1)/2 {
+				return errors.New("unit witness member count exceeds the platform integer range")
+			}
+			target := sha256.New()
+			oracleWriteHashString(target, "witness-multiset")
+			if cardinality == 0 {
+				writeUint64(target, 1)
+				oracleWriteHashString(target, "empty")
+				witness = hex.EncodeToString(target.Sum(nil))
+				return nil
+			}
+			writeUint64(target, uint64(cardinality)*2)
+			err := members(func(member [sha256.Size]byte) error {
+				oracleWriteHashString(target, hex.EncodeToString(member[:]))
+				oracleWriteHashString(target, "00000000000000000001")
+				return nil
+			})
+			if err != nil {
+				return err
+			}
+			witness = hex.EncodeToString(target.Sum(nil))
+			return nil
+		})
+	return summaries, witness, err
+}
+
+type orderedSemanticMemberSink func(int64, func(func([sha256.Size]byte) error) error) error
+
+func summarizeSemanticSetRoles(roles []string, stream SemanticMemberStream, options StreamSetOptions,
+	orderedSink orderedSemanticMemberSink) (map[string]StreamSetSummary, error) {
 	if len(roles) == 0 || stream == nil {
 		return nil, errors.New("streaming semantic set requires roles and a member stream")
 	}
@@ -171,16 +212,35 @@ func SummarizeSemanticSetRoles(roles []string, stream SemanticMemberStream, opti
 			}
 		}
 		stats.DuplicateMembers = stats.InputMembers - int64(len(unique))
+		if orderedSink != nil {
+			if stats.DuplicateMembers != 0 {
+				return nil, errors.New("unit witness semantic stream contains duplicate members")
+			}
+			if err := orderedSink(int64(len(unique)), func(yield func([sha256.Size]byte) error) error {
+				for _, member := range unique {
+					decoded, _ := hex.DecodeString(member)
+					var value [sha256.Size]byte
+					copy(value[:], decoded)
+					if err := yield(value); err != nil {
+						return err
+					}
+				}
+				return nil
+			}); err != nil {
+				return nil, err
+			}
+		}
 		return streamSummariesFromHex(roles, unique, options.CaptureMembers, stats), nil
 	}
 	if err := flush(); err != nil {
 		return nil, err
 	}
 	stats.SpillRuns = len(runPaths)
-	return mergeStreamSetRuns(roles, runPaths, spillDirectory, options.CaptureMembers, stats)
+	return mergeStreamSetRuns(roles, runPaths, spillDirectory, options.CaptureMembers, stats, orderedSink)
 }
 
-func mergeStreamSetRuns(roles, runPaths []string, spillDirectory string, captureLimit int, stats StreamSetStats) (map[string]StreamSetSummary, error) {
+func mergeStreamSetRuns(roles, runPaths []string, spillDirectory string, captureLimit int, stats StreamSetStats,
+	orderedSink orderedSemanticMemberSink) (map[string]StreamSetSummary, error) {
 	runs := make([]streamSetRun, len(runPaths))
 	for index, path := range runPaths {
 		file, err := os.Open(path)
@@ -248,11 +308,43 @@ func mergeStreamSetRuns(roles, runPaths []string, spillDirectory string, capture
 		return nil, fmt.Errorf("close merged semantic-set stream: %w", err)
 	}
 	stats.DuplicateMembers = stats.InputMembers - cardinality
+	if orderedSink != nil {
+		if stats.DuplicateMembers != 0 {
+			return nil, errors.New("unit witness semantic stream contains duplicate members")
+		}
+		if err := orderedSink(cardinality, func(yield func([sha256.Size]byte) error) error {
+			file, err := os.Open(uniquePath)
+			if err != nil {
+				return fmt.Errorf("open merged semantic-set stream for witness: %w", err)
+			}
+			defer file.Close()
+			reader := bufio.NewReaderSize(file, 128*1024)
+			for {
+				member, found, readErr := readStreamSetMember(reader)
+				if readErr != nil {
+					return readErr
+				}
+				if !found {
+					return nil
+				}
+				if err := yield(member); err != nil {
+					return err
+				}
+			}
+		}); err != nil {
+			return nil, err
+		}
+	}
 	digests, err := streamSetRoleDigestsFromRaw(roles, uniquePath, cardinality)
 	if err != nil {
 		return nil, err
 	}
 	return assembleStreamSummaries(roles, digests, cardinality, sample, captureLimit, stats), nil
+}
+
+func oracleWriteHashString(target hash.Hash, value string) {
+	writeUint64(target, uint64(len(value)))
+	_, _ = target.Write([]byte(value))
 }
 
 func streamSummariesFromHex(roles, members []string, captureLimit int, stats StreamSetStats) map[string]StreamSetSummary {

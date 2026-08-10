@@ -169,6 +169,14 @@ func validateManifestIdentity(manifest OracleManifest) error {
 		if manifest.WorkloadID != "dependency-e2e" && manifest.WorkloadID != "outcome-merkle" {
 			return errors.New("scale oracle manifest workload_id is unsupported")
 		}
+		if manifest.WorkloadID == "dependency-e2e" {
+			if _, err := ParseExposureScaleDependencyCell(manifest.Scale); err != nil {
+				return err
+			}
+			if manifest.Mode != ExposureScaleModeNovel && manifest.Mode != ExposureScaleModeSemanticReplay {
+				return errors.New("scale dependency oracle manifest mode is unsupported")
+			}
+		}
 	case "artifact":
 		if manifest.WorkloadID != "result-heavy" {
 			return errors.New("artifact oracle manifest workload_id must be result-heavy")
@@ -290,6 +298,14 @@ func validateExpectedForWorkload(manifest OracleManifest) error {
 		if err := requireLogical(); err != nil {
 			return err
 		}
+		// Outcome identity additionally binds the final publication digest,
+		// exact Catalog bytes, and task scope. Those inputs remain explicitly
+		// NOT_GENERATED/NOT_APPROVED, so decision 14 forbids C1 from emitting an
+		// outcome digest. C1 closes the independently fixed release/dependency
+		// material only.
+		if expected.OutcomeCandidateCardinality != nil || expected.OutcomeCandidateSetSHA256 != "" {
+			return errors.New("Scale dependency outcome identity requires frozen publication, Catalog, and scope inputs")
+		}
 		for _, input := range []struct {
 			name        string
 			cardinality *int64
@@ -297,7 +313,6 @@ func validateExpectedForWorkload(manifest OracleManifest) error {
 		}{
 			{"release", expected.ReleaseCandidateCardinality, expected.ReleaseCandidateSetSHA256},
 			{"dependency", expected.DependencyCandidateCardinality, expected.DependencyCandidateSetSHA256},
-			{"outcome", expected.OutcomeCandidateCardinality, expected.OutcomeCandidateSetSHA256},
 		} {
 			if err := requireCandidate(input.name, input.cardinality, input.digest); err != nil {
 				return err

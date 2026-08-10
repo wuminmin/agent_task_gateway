@@ -1,5 +1,7 @@
-// Command final-v5-oracle exposes the independent Final-V5 oracle without
-// connecting to PostgreSQL, reading credentials, or writing campaign evidence.
+// Command final-v5-oracle exposes the independent Final-V5 oracle. Its Scale
+// adapter performs one fixed, read-only PostgreSQL Dataset stream check; no
+// subcommand accepts credential-bearing flags, emits credentials, or writes
+// campaign evidence.
 package main
 
 import (
@@ -38,12 +40,18 @@ func main() {
 
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: final-v5-oracle <artifact-manifest|verify-manifest|dataset-fingerprint|dependency-report|outcome-schedule>")
+		fmt.Fprintln(stderr, "usage: final-v5-oracle <artifact-manifest|scale-dataset-agreement|scale-manifests|verify-scale-manifests|verify-manifest|dataset-fingerprint|dependency-report|outcome-schedule>")
 		return 2
 	}
 	switch args[0] {
 	case "artifact-manifest":
 		return runArtifactManifest(args[1:], stdout, stderr)
+	case "scale-dataset-agreement":
+		return runScaleDatasetAgreement(args[1:], stdout, stderr)
+	case "scale-manifests":
+		return runScaleManifests(args[1:], stdout, stderr)
+	case "verify-scale-manifests":
+		return runVerifyScaleManifests(args[1:], stdout, stderr)
 	case "verify-manifest":
 		return runVerifyManifest(args[1:], stdin, stdout, stderr)
 	case "dataset-fingerprint":
@@ -281,8 +289,13 @@ func artifactManifest(rowCount int64, columnCount int, scale string, specs artif
 }
 
 func verifyGeneratedManifest(manifest finalv5oracle.OracleManifest) error {
-	if manifest.ExperimentID != "artifact" || manifest.WorkloadID != "result-heavy" {
-		return nil
+	switch {
+	case manifest.ExperimentID == "scale" && manifest.WorkloadID == "dependency-e2e":
+		return finalv5oracle.VerifyExposureScaleDependencyManifest(manifest, finalv5oracle.StreamSetOptions{
+			MaxInMemoryMembers: dependencyMemoryMembers, CaptureMembers: dependencyCapturedMembers,
+		})
+	case manifest.ExperimentID != "artifact" || manifest.WorkloadID != "result-heavy":
+		return errors.New("manifest workload has no implemented independent semantic verifier")
 	}
 	rowCount, columnCount, err := parseArtifactScale(manifest.Scale)
 	if err != nil {

@@ -2,6 +2,7 @@ package finalv5oracle
 
 import (
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -25,6 +26,19 @@ func TestExposureScaleDependencySmallFixtureHasCompleteExactSets(t *testing.T) {
 			report.Candidate.Cardinality, report.Existing.Cardinality, report.Overlap.Cardinality,
 			report.Novel.Cardinality, report.Union.Cardinality)
 	}
+	witnessMembers := append([]string(nil), report.Candidate.Members...)
+	sort.Strings(witnessMembers)
+	witnessValues := make([]string, 0, len(witnessMembers)*2)
+	for _, member := range witnessMembers {
+		witnessValues = append(witnessValues, member, "00000000000000000001")
+	}
+	wantWitness, err := ComposeOracleCanonicalKeyV2("witness-multiset", witnessValues...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.CandidateWitnessCommitment != wantWitness {
+		t.Fatalf("candidate witness = %s, want %s", report.CandidateWitnessCommitment, wantWitness)
+	}
 	for name, summary := range map[string]StreamSetSummary{
 		"candidate": report.Candidate, "existing": report.Existing, "overlap": report.Overlap,
 		"novel": report.Novel, "union": report.Union,
@@ -37,14 +51,50 @@ func TestExposureScaleDependencySmallFixtureHasCompleteExactSets(t *testing.T) {
 	if !slices.Equal(intersection, report.Overlap.Members) {
 		t.Fatalf("candidate/existing intersection differs from overlap:\nintersection=%v\noverlap=%v", intersection, report.Overlap.Members)
 	}
-	if report.Candidate.SetSHA256 != "13cd87b50d7039be9cc39ce820070286645b6b438853d9f526daaa4407214cf4" ||
-		report.Existing.SetSHA256 != "27709e244da98c88c2e80e0e30f851e199c00d4b96a9826d86f5bb9a9469ef1d" ||
-		report.Overlap.SetSHA256 != "22f74305701263c3ffbc4dcc47d9f6a0eceeb3da210276f2f7333cf3eea97c87" ||
-		report.Novel.SetSHA256 != "b45355a7b5d8426bf0440f2938e2decf4e0b964339ebb8f01c446425807a06c9" ||
-		report.Union.SetSHA256 != "7621aa9d2b67ccbabf7765296d5dab31c8f15c9d23c43c2a6dcaa7cb6ba74ead" {
+	if report.Candidate.SetSHA256 != "ba1e95a0c1ad8aaca1785c172d4baa711f714112fe4fe3886ef12f43be264bc4" ||
+		report.Existing.SetSHA256 != "a515a24a84acceb19bf3c0cc16eb39b0caa6e60843ee1f425c8f2180668e9997" ||
+		report.Overlap.SetSHA256 != "8c6d30299ea443a54663a28c7f2186f98619ddcea2272151026ff1d2d90b5e06" ||
+		report.Novel.SetSHA256 != "f63509d2051d9ec3ea7c6865c7069d18d52094f88f51561be14add4bca39addf" ||
+		report.Union.SetSHA256 != "bfd4a6d9cd54c1a51c27e9c02d8cb7248c1ae403ed9fc2c8dc12af1e9e13d2cb" {
 		t.Fatalf("small fixed digests candidate=%s existing=%s overlap=%s novel=%s union=%s",
 			report.Candidate.SetSHA256, report.Existing.SetSHA256, report.Overlap.SetSHA256,
 			report.Novel.SetSHA256, report.Union.SetSHA256)
+	}
+}
+
+func TestExposureScaleSingleProductFactsUseBareFieldIDs(t *testing.T) {
+	actual, err := buildExposureScaleRowFacts(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entityKey := exposureScaleEntityKeyForTest(t, 1)
+	inputs := []V2BaseCellInput{
+		{SourceNamespace: ExposureScaleSourceNamespace, Snapshot: ExposureScaleSnapshot, EntityKey: entityKey,
+			Field: "member_rank", SQLType: "bigint", CanonicalValue: "i:1"},
+		{SourceNamespace: ExposureScaleSourceNamespace, Snapshot: ExposureScaleSnapshot, EntityKey: entityKey,
+			Field: "metric", SQLType: "numeric", CanonicalValue: "n:113/100"},
+		{SourceNamespace: ExposureScaleSourceNamespace, Snapshot: ExposureScaleSnapshot, EntityKey: entityKey,
+			Field: "family_id", SQLType: "integer", CanonicalValue: "i:1"},
+		{SourceNamespace: ExposureScaleSourceNamespace, Snapshot: ExposureScaleSnapshot, EntityKey: entityKey,
+			Field: "partition_key", SQLType: "integer", CanonicalValue: "i:1"},
+	}
+	for index, input := range inputs {
+		want, err := BuildV2BaseCellFact(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if actual[index+1].SHA256 != want.SHA256 || !slices.Equal(actual[index+1].Payload, want.Payload) {
+			t.Fatalf("fixed single-Product field %q has the wrong Fact identity", input.Field)
+		}
+		qualified := input
+		qualified.Field = ExposureScaleStableRole + "." + input.Field
+		other, err := BuildV2BaseCellFact(qualified)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if other.SHA256 == actual[index+1].SHA256 {
+			t.Fatalf("role-qualified field %q collapsed onto the fixed bare FieldID", qualified.Field)
+		}
 	}
 }
 
@@ -81,13 +131,13 @@ func TestExposureScaleDependencyDetectsFootprintAndBindingMutations(t *testing.T
 	}
 	mutations := []V2BaseCellInput{
 		{SourceNamespace: ExposureScaleSourceNamespace, Snapshot: ExposureScaleSnapshot,
-			EntityKey: strings.Repeat("f", 64), Field: ExposureScaleStableRole + ".partition_key", SQLType: "integer", CanonicalValue: "i:1"},
+			EntityKey: strings.Repeat("f", 64), Field: "partition_key", SQLType: "integer", CanonicalValue: "i:1"},
 		{SourceNamespace: ExposureScaleSourceNamespace, Snapshot: "final-v5-exposure-scale-2026-v2",
-			EntityKey: exposureScaleEntityKeyForTest(t, 1), Field: ExposureScaleStableRole + ".partition_key", SQLType: "integer", CanonicalValue: "i:1"},
+			EntityKey: exposureScaleEntityKeyForTest(t, 1), Field: "partition_key", SQLType: "integer", CanonicalValue: "i:1"},
 		{SourceNamespace: ExposureScaleSourceNamespace, Snapshot: ExposureScaleSnapshot,
-			EntityKey: exposureScaleEntityKeyForTest(t, 1), Field: ExposureScaleStableRole + ".family_id", SQLType: "integer", CanonicalValue: "i:1"},
+			EntityKey: exposureScaleEntityKeyForTest(t, 1), Field: "family_id", SQLType: "integer", CanonicalValue: "i:1"},
 		{SourceNamespace: ExposureScaleSourceNamespace, Snapshot: ExposureScaleSnapshot,
-			EntityKey: exposureScaleEntityKeyForTest(t, 1), Field: ExposureScaleStableRole + ".partition_key", SQLType: "integer", CanonicalValue: "i:2"},
+			EntityKey: exposureScaleEntityKeyForTest(t, 1), Field: "partition_key", SQLType: "integer", CanonicalValue: "i:2"},
 	}
 	for index, input := range mutations {
 		changed, err := BuildV2BaseCellFact(input)

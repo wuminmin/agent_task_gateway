@@ -308,11 +308,7 @@ func benchmarkDatasetProducts() []benchmarkDatasetProduct {
 				{Name: "family_id", SQLType: SQLInteger},
 				{Name: "partition_key", SQLType: SQLInteger},
 			},
-			row: func(index int64) ([]any, error) {
-				rank := index + 1
-				cents := (rank*13)%100_000 + 100
-				return []any{rank, artifactDecimal(cents, 2), int32(1), int32(1)}, nil
-			},
+			row: exposureScaleDatasetRow,
 		},
 		{
 			productID: "final_v5_result_heavy", sourceNamespace: "final_v5.result_heavy",
@@ -321,6 +317,20 @@ func benchmarkDatasetProducts() []benchmarkDatasetProduct {
 			row:    func(index int64) ([]any, error) { return ArtifactRow(index, 16) },
 		},
 	}
+}
+
+// exposureScaleDatasetRow is the sole evaluation-side implementation of the
+// frozen Product formula. Both typed PostgreSQL agreement and independent Fact
+// generation consume these values, so formula drift cannot split the evidence
+// chain into two self-consistent models.
+func exposureScaleDatasetRow(index int64) ([]any, error) {
+	rowCount := ExposureScaleMaximumDatasetFacts / ExposureScaleFactsPerRow
+	if index < 0 || index >= rowCount {
+		return nil, errors.New("exposure-scale row is outside the source-controlled dataset")
+	}
+	rank := index + 1
+	cents := (rank*13)%100_000 + 100
+	return []any{rank, artifactDecimal(cents, 2), int32(1), int32(1)}, nil
 }
 
 func resultHeavyDatasetFields() []DatasetField {

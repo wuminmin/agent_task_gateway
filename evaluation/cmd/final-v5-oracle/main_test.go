@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -111,6 +113,49 @@ func TestVerifyManifestRejectsCanonicalMemberMutations(t *testing.T) {
 	code, output, errorsOutput := invokeCLI([]string{"verify-manifest", "--input", "-"}, " "+canonical)
 	if code == 0 || output != "" || errorsOutput == "" {
 		t.Fatalf("non-canonical verify code=%d stdout=%q stderr=%q", code, output, errorsOutput)
+	}
+}
+
+func TestVerifyManifestDispatchesScaleAndFailsClosedForUnsupportedWorkloads(t *testing.T) {
+	manifestPath := filepath.Join("..", "..", "final-v5-wsl2", "oracle-manifests", "scale",
+		"dependency-e2e", "10k-overlap-50", "novel.json")
+	canonical, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := finalv5oracle.DecodeManifest(canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantSHA, err := finalv5oracle.ManifestSHA256(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, output, errorsOutput := invokeCLI([]string{"verify-manifest", "--input", "-"}, string(canonical))
+	if code != 0 || output != wantSHA+"\n" || errorsOutput != "" {
+		t.Fatalf("Scale verify code=%d stdout=%q stderr=%q", code, output, errorsOutput)
+	}
+
+	mutated := manifest
+	mutated.Expected.ExistingSetSHA256 = testSHA('a')
+	changed, err := finalv5oracle.CanonicalManifest(mutated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, output, errorsOutput = invokeCLI([]string{"verify-manifest", "--input", "-"}, string(changed))
+	if code == 0 || output != "" || errorsOutput == "" {
+		t.Fatalf("mutated Scale verify code=%d stdout=%q stderr=%q", code, output, errorsOutput)
+	}
+
+	unsupported := manifest
+	unsupported.ExperimentID, unsupported.WorkloadID, unsupported.Scale = "baseline", "S1", "SF1"
+	changed, err = finalv5oracle.CanonicalManifest(unsupported)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, output, errorsOutput = invokeCLI([]string{"verify-manifest", "--input", "-"}, string(changed))
+	if code == 0 || output != "" || errorsOutput == "" {
+		t.Fatalf("unsupported verifier code=%d stdout=%q stderr=%q", code, output, errorsOutput)
 	}
 }
 

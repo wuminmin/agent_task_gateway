@@ -67,6 +67,41 @@ func TestStreamingSemanticSetMutationAndRoleBinding(t *testing.T) {
 	}
 }
 
+func TestStreamingUnitWitnessMatchesV2AcrossSpillAndEmpty(t *testing.T) {
+	members := []string{testDigest(30), testDigest(10), testDigest(20)}
+	summaries, witness, err := SummarizeUnitWitnessSemanticSetRoles([]string{"candidate"}, digestSliceStream(members),
+		StreamSetOptions{MaxInMemoryMembers: 2, CaptureMembers: 3, TempDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := ComposeOracleCanonicalKeyV2("witness-multiset",
+		testDigest(10), "00000000000000000001",
+		testDigest(20), "00000000000000000001",
+		testDigest(30), "00000000000000000001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if witness != want || summaries["candidate"].Cardinality != 3 || summaries["candidate"].Stats.SpillRuns != 2 {
+		t.Fatalf("spilled unit witness = %s summaries=%+v; want %s", witness, summaries, want)
+	}
+
+	_, empty, err := SummarizeUnitWitnessSemanticSetRoles([]string{"candidate"}, digestSliceStream(nil), StreamSetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantEmpty, err := ComposeOracleCanonicalKeyV2("witness-multiset", "empty")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if empty != wantEmpty {
+		t.Fatalf("empty unit witness = %s, want %s", empty, wantEmpty)
+	}
+	if _, _, err := SummarizeUnitWitnessSemanticSetRoles([]string{"candidate"},
+		digestSliceStream([]string{testDigest(1), testDigest(1)}), StreamSetOptions{}); err == nil {
+		t.Fatal("unit witness accepted a duplicate semantic member")
+	}
+}
+
 func TestStreamingSemanticSetRejectsMalformedInputAndInvalidBounds(t *testing.T) {
 	if _, err := SummarizeSemanticSet("candidate", digestSliceStream([]string{"not-a-hash"}), StreamSetOptions{}); err == nil {
 		t.Fatal("malformed member was accepted")

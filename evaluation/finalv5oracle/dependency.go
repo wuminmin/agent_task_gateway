@@ -3,6 +3,7 @@ package finalv5oracle
 import (
 	"errors"
 	"fmt"
+	"math/big"
 	"strconv"
 )
 
@@ -58,19 +59,20 @@ type DependencyGenerationStats struct {
 // ranks (0,M]; history uses (M-K,2M-K]. Thus both contain N=5M facts, their
 // exact overlap is K rows (5K facts), and no physical database order matters.
 type DependencyOracleReport struct {
-	GeneratorVersion string                    `json:"generator_version"`
-	ProductID        string                    `json:"product_id"`
-	SourceNamespace  string                    `json:"source_namespace"`
-	Snapshot         string                    `json:"snapshot"`
-	CandidateRows    int64                     `json:"candidate_rows"`
-	ExistingRows     int64                     `json:"existing_rows"`
-	FormalScale      bool                      `json:"formal_scale"`
-	Candidate        StreamSetSummary          `json:"candidate"`
-	Existing         StreamSetSummary          `json:"existing"`
-	Overlap          StreamSetSummary          `json:"overlap"`
-	Novel            StreamSetSummary          `json:"novel"`
-	Union            StreamSetSummary          `json:"union"`
-	Stats            DependencyGenerationStats `json:"stats"`
+	GeneratorVersion           string                    `json:"generator_version"`
+	ProductID                  string                    `json:"product_id"`
+	SourceNamespace            string                    `json:"source_namespace"`
+	Snapshot                   string                    `json:"snapshot"`
+	CandidateRows              int64                     `json:"candidate_rows"`
+	ExistingRows               int64                     `json:"existing_rows"`
+	FormalScale                bool                      `json:"formal_scale"`
+	Candidate                  StreamSetSummary          `json:"candidate"`
+	CandidateWitnessCommitment string                    `json:"candidate_witness_commitment"`
+	Existing                   StreamSetSummary          `json:"existing"`
+	Overlap                    StreamSetSummary          `json:"overlap"`
+	Novel                      StreamSetSummary          `json:"novel"`
+	Union                      StreamSetSummary          `json:"union"`
+	Stats                      DependencyGenerationStats `json:"stats"`
 }
 
 // GenerateExposureScaleDependency derives facts from the source-controlled
@@ -106,11 +108,18 @@ func GenerateExposureScaleDependency(request ExposureScaleDependencyRequest) (De
 		FormalScale:      isFormalDependencyScale(n),
 	}
 	emissions := int64(0)
-	summarize := func(roles []string, first, last int64) (map[string]StreamSetSummary, error) {
+	summarize := func(roles []string, first, last int64, withCandidateWitness bool) (map[string]StreamSetSummary, error) {
 		emissions += last - first
-		summaries, err := SummarizeSemanticSetRoles(roles, func(yield func(string) error) error {
+		stream := func(yield func(string) error) error {
 			return StreamExposureScaleFacts(first, last, func(fact CanonicalFact) error { return yield(fact.SHA256) })
-		}, request.SetOptions)
+		}
+		var summaries map[string]StreamSetSummary
+		var err error
+		if withCandidateWitness {
+			summaries, report.CandidateWitnessCommitment, err = SummarizeUnitWitnessSemanticSetRoles(roles, stream, request.SetOptions)
+		} else {
+			summaries, err = SummarizeSemanticSetRoles(roles, stream, request.SetOptions)
+		}
 		if err == nil {
 			stats := summaries[roles[0]].Stats
 			if stats.PeakBufferedMembers > report.Stats.PeakBufferedMembers {
@@ -129,15 +138,15 @@ func GenerateExposureScaleDependency(request ExposureScaleDependencyRequest) (De
 
 	switch k {
 	case 0:
-		candidate, err := summarize([]string{"candidate", "novel"}, 0, n)
+		candidate, err := summarize([]string{"candidate", "novel"}, 0, n, true)
 		if err != nil {
 			return DependencyOracleReport{}, fmt.Errorf("summarize candidate dependency set: %w", err)
 		}
-		existing, err := summarize([]string{"existing"}, n, 2*n)
+		existing, err := summarize([]string{"existing"}, n, 2*n, false)
 		if err != nil {
 			return DependencyOracleReport{}, fmt.Errorf("summarize existing dependency set: %w", err)
 		}
-		union, err := summarize([]string{"union"}, 0, 2*n)
+		union, err := summarize([]string{"union"}, 0, 2*n, false)
 		if err != nil {
 			return DependencyOracleReport{}, fmt.Errorf("summarize union dependency set: %w", err)
 		}
@@ -148,7 +157,7 @@ func GenerateExposureScaleDependency(request ExposureScaleDependencyRequest) (De
 		report.Candidate, report.Novel = candidate["candidate"], candidate["novel"]
 		report.Existing, report.Overlap, report.Union = existing["existing"], zero["overlap"], union["union"]
 	case n:
-		full, err := summarize([]string{"candidate", "existing", "overlap", "union"}, 0, n)
+		full, err := summarize([]string{"candidate", "existing", "overlap", "union"}, 0, n, true)
 		if err != nil {
 			return DependencyOracleReport{}, fmt.Errorf("summarize replay dependency set: %w", err)
 		}
@@ -160,23 +169,23 @@ func GenerateExposureScaleDependency(request ExposureScaleDependencyRequest) (De
 			full["candidate"], full["existing"], full["overlap"], full["union"]
 		report.Novel = zero["novel"]
 	default:
-		candidate, err := summarize([]string{"candidate"}, 0, n)
+		candidate, err := summarize([]string{"candidate"}, 0, n, true)
 		if err != nil {
 			return DependencyOracleReport{}, fmt.Errorf("summarize candidate dependency set: %w", err)
 		}
-		existing, err := summarize([]string{"existing"}, n-k, 2*n-k)
+		existing, err := summarize([]string{"existing"}, n-k, 2*n-k, false)
 		if err != nil {
 			return DependencyOracleReport{}, fmt.Errorf("summarize existing dependency set: %w", err)
 		}
-		overlap, err := summarize([]string{"overlap"}, n-k, n)
+		overlap, err := summarize([]string{"overlap"}, n-k, n, false)
 		if err != nil {
 			return DependencyOracleReport{}, fmt.Errorf("summarize overlap dependency set: %w", err)
 		}
-		novel, err := summarize([]string{"novel"}, 0, n-k)
+		novel, err := summarize([]string{"novel"}, 0, n-k, false)
 		if err != nil {
 			return DependencyOracleReport{}, fmt.Errorf("summarize novel dependency set: %w", err)
 		}
-		union, err := summarize([]string{"union"}, 0, 2*n-k)
+		union, err := summarize([]string{"union"}, 0, 2*n-k, false)
 		if err != nil {
 			return DependencyOracleReport{}, fmt.Errorf("summarize union dependency set: %w", err)
 		}
@@ -187,6 +196,9 @@ func GenerateExposureScaleDependency(request ExposureScaleDependencyRequest) (De
 	if report.Candidate.Cardinality != n || report.Existing.Cardinality != n ||
 		report.Overlap.Cardinality != k || report.Novel.Cardinality != n-k || report.Union.Cardinality != 2*n-k {
 		return DependencyOracleReport{}, errors.New("exposure-scale dependency generator violated exact set algebra")
+	}
+	if !validSHA256(report.CandidateWitnessCommitment) {
+		return DependencyOracleReport{}, errors.New("exposure-scale dependency generator omitted the candidate witness commitment")
 	}
 	report.Stats.FactEmissions = emissions
 	return report, nil
@@ -228,13 +240,26 @@ func ExposureScaleFactAt(factIndex int64) (CanonicalFact, error) {
 }
 
 func buildExposureScaleRowFacts(rowIndex int64) ([5]CanonicalFact, error) {
-	memberRank := rowIndex + 1
-	if memberRank > ExposureScaleMaximumDatasetFacts/ExposureScaleFactsPerRow {
-		return [5]CanonicalFact{}, errors.New("exposure-scale row is outside the source-controlled dataset")
+	values, err := exposureScaleDatasetRow(rowIndex)
+	if err != nil {
+		return [5]CanonicalFact{}, err
 	}
-	rankValue := "i:" + strconv.FormatInt(memberRank, 10)
-	metricCents := (memberRank*13)%100_000 + 100
-	metricValue := canonicalExposureScaleNumericCents(metricCents)
+	rankValue, err := exposureScaleFactCanonicalValue(SQLBigInt, values[0])
+	if err != nil {
+		return [5]CanonicalFact{}, err
+	}
+	metricValue, err := exposureScaleFactCanonicalValue(SQLNumeric, values[1])
+	if err != nil {
+		return [5]CanonicalFact{}, err
+	}
+	familyValue, err := exposureScaleFactCanonicalValue(SQLInteger, values[2])
+	if err != nil {
+		return [5]CanonicalFact{}, err
+	}
+	partitionValue, err := exposureScaleFactCanonicalValue(SQLInteger, values[3])
+	if err != nil {
+		return [5]CanonicalFact{}, err
+	}
 	entityKey, err := ComposeOracleCanonicalKeyV2("base-entity",
 		ExposureScaleSourceNamespace, "member_rank", "bigint", rankValue)
 	if err != nil {
@@ -248,7 +273,9 @@ func buildExposureScaleRowFacts(rowIndex int64) ([5]CanonicalFact, error) {
 	cell := func(field, sqlType, value string) (CanonicalFact, error) {
 		return BuildV2BaseCellFact(V2BaseCellInput{SourceNamespace: ExposureScaleSourceNamespace,
 			Snapshot: ExposureScaleSnapshot, EntityKey: entityKey,
-			Field: ExposureScaleStableRole + "." + field, SQLType: sqlType, CanonicalValue: value})
+			// The fixed Scale templates lower through the single-Product plan,
+			// whose public base-cell identity is the unqualified field ID.
+			Field: field, SQLType: sqlType, CanonicalValue: value})
 	}
 	rank, err := cell("member_rank", "bigint", rankValue)
 	if err != nil {
@@ -258,25 +285,47 @@ func buildExposureScaleRowFacts(rowIndex int64) ([5]CanonicalFact, error) {
 	if err != nil {
 		return [5]CanonicalFact{}, err
 	}
-	family, err := cell("family_id", "integer", "i:1")
+	family, err := cell("family_id", "integer", familyValue)
 	if err != nil {
 		return [5]CanonicalFact{}, err
 	}
-	partition, err := cell("partition_key", "integer", "i:1")
+	partition, err := cell("partition_key", "integer", partitionValue)
 	if err != nil {
 		return [5]CanonicalFact{}, err
 	}
 	return [5]CanonicalFact{row, rank, metric, family, partition}, nil
 }
 
-func canonicalExposureScaleNumericCents(cents int64) string {
-	divisor := int64(100)
-	common := dependencyGCD(cents, divisor)
-	numerator, denominator := cents/common, divisor/common
-	if denominator == 1 {
-		return "n:" + strconv.FormatInt(numerator, 10)
+func exposureScaleFactCanonicalValue(sqlType SQLType, raw any) (string, error) {
+	typed, err := NormalizeTypedValue(sqlType, raw)
+	if err != nil {
+		return "", err
 	}
-	return "n:" + strconv.FormatInt(numerator, 10) + "/" + strconv.FormatInt(denominator, 10)
+	if typed.IsNull() {
+		return "", errors.New("exposure-scale frozen Dataset row contains NULL")
+	}
+	switch sqlType {
+	case SQLBigInt:
+		value, err := canonicalSignedInteger(raw, 64)
+		if err != nil {
+			return "", err
+		}
+		return "i:" + strconv.FormatInt(value, 10), nil
+	case SQLInteger:
+		value, err := canonicalSignedInteger(raw, 32)
+		if err != nil {
+			return "", err
+		}
+		return "i:" + strconv.FormatInt(value, 10), nil
+	case SQLNumeric:
+		rational, ok := new(big.Rat).SetString(string(typed.CanonicalBytes()))
+		if !ok {
+			return "", errors.New("exposure-scale numeric value is not an exact rational")
+		}
+		return "n:" + rational.RatString(), nil
+	default:
+		return "", fmt.Errorf("exposure-scale Fact field type %q is unsupported", sqlType)
+	}
 }
 
 func dependencyGCD(left, right int64) int64 {

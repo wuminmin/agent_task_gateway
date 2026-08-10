@@ -22,14 +22,21 @@ func TestOracleImportBoundary(t *testing.T) {
 	}
 	for _, dependency := range strings.Fields(string(output)) {
 		for _, forbidden := range []string{
+			"taskbound.local/agent-data-gateway/evaluation/internal/experiment",
+			"taskbound.local/agent-data-gateway/evaluation/internal/finalv5binding",
 			"taskbound.local/agent-data-gateway/internal/exposure",
 			"taskbound.local/agent-data-gateway/internal/control",
 			"taskbound.local/agent-data-gateway/internal/gateway",
+			"taskbound.local/agent-data-gateway/internal/physicalquery",
+			"taskbound.local/agent-data-gateway/internal/preparedbinding",
 			"taskbound.local/agent-data-gateway/internal/semanticcache",
 			"taskbound.local/agent-data-gateway/internal/ordinal",
 			"taskbound.local/agent-data-gateway/internal/queryplan",
 			"taskbound.local/agent-data-gateway/internal/sqlpolicy",
+			"taskbound.local/agent-data-gateway/internal/sqlidentity",
+			"taskbound.local/agent-data-gateway/internal/sqllowering",
 			"taskbound.local/agent-data-gateway/internal/queryreceipt",
+			"github.com/pganalyze/pg_query_go",
 		} {
 			if dependency == forbidden || strings.HasPrefix(dependency, forbidden+"/") {
 				t.Fatalf("independent oracle imports forbidden production dependency %q", dependency)
