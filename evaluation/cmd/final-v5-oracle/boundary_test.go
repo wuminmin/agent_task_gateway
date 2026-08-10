@@ -127,3 +127,68 @@ func TestExposureScaleAdapterHasOneFixedReadOnlyQuery(t *testing.T) {
 		}
 	}
 }
+
+func TestProvSQLAdapterHasThreeFixedReadOnlyQueries(t *testing.T) {
+	wantOrders := "SELECT orderkey, status, partition_key\n" +
+		"FROM reporting.provsql_orders\n" +
+		"ORDER BY orderkey"
+	wantLineitem := "SELECT orderkey, linenumber, extendedprice, partition_key\n" +
+		"FROM reporting.provsql_lineitem\n" +
+		"ORDER BY orderkey, linenumber"
+	wantNonce := "SELECT nonce_id, partition_key\n" +
+		"FROM reporting.provsql_nonce\n" +
+		"ORDER BY nonce_id"
+	if provSQLOrdersDatasetQuery != wantOrders || provSQLLineitemDatasetQuery != wantLineitem ||
+		provSQLNonceDatasetQuery != wantNonce {
+		t.Fatalf("fixed ProvSQL Dataset queries changed: orders=%q lineitem=%q nonce=%q",
+			provSQLOrdersDatasetQuery, provSQLLineitemDatasetQuery, provSQLNonceDatasetQuery)
+	}
+	_, source, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("cannot locate oracle CLI boundary test")
+	}
+	value, err := os.ReadFile(filepath.Join(filepath.Dir(source), "provsql.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := parser.ParseFile(token.NewFileSet(), "provsql.go", value, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queryCalls, simpleProtocolCalls := 0, 0
+	ast.Inspect(parsed, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		selector, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok || (selector.Sel.Name != "Query" && selector.Sel.Name != "QueryRow") {
+			return true
+		}
+		queryCalls++
+		if len(call.Args) == 0 {
+			return true
+		}
+		mode, ok := call.Args[len(call.Args)-1].(*ast.SelectorExpr)
+		packageName, packageOK := mode.X.(*ast.Ident)
+		if ok && packageOK && packageName.Name == "pgx" && mode.Sel.Name == "QueryExecModeSimpleProtocol" {
+			simpleProtocolCalls++
+		}
+		return true
+	})
+	if queryCalls != 4 || simpleProtocolCalls != queryCalls {
+		t.Fatalf("ProvSQL adapter has %d query calls / %d explicit simple-protocol calls; expected 4/4",
+			queryCalls, simpleProtocolCalls)
+	}
+	for _, arguments := range [][]string{
+		{"provsql-dataset-agreement", "--sql", "SELECT 1"},
+		{"provsql-dataset-agreement", "--dsn", "postgres://forbidden"},
+		{"provsql-manifests", "--sql-file", "query.sql"},
+	} {
+		code, stdout, stderr := invokeCLI(arguments, "")
+		if code == 0 || stdout != "" || stderr == "" {
+			t.Fatalf("forbidden ProvSQL adapter arguments %v: code=%d stdout=%q stderr=%q",
+				arguments, code, stdout, stderr)
+		}
+	}
+}

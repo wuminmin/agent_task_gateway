@@ -23,10 +23,11 @@
     "schema_version": { "const": 1 },
     "oracle_version": { "const": "taskgate-final-v5-independent-oracle-v1" },
     "contract_version": { "const": "taskgate-final-v5-author-contract-v1" },
-    "experiment_id": { "enum": ["baseline", "scale", "artifact"] },
+    "experiment_id": { "enum": ["baseline", "scale", "artifact", "provsql"] },
     "workload_id": { "$ref": "#/$defs/token" },
     "scale": { "$ref": "#/$defs/token" },
     "mode": { "$ref": "#/$defs/token" },
+    "binding_key": { "$ref": "#/$defs/token" },
     "dataset_spec_sha256": { "$ref": "#/$defs/sha256" },
     "catalog_spec_sha256": { "$ref": "#/$defs/sha256" },
     "query_spec_sha256": { "$ref": "#/$defs/sha256" },
@@ -178,6 +179,71 @@
           }
         }
       }
+    },
+    {
+      "if": {
+        "properties": { "experiment_id": { "const": "provsql" } },
+        "required": ["experiment_id"]
+      },
+      "then": {
+        "required": ["binding_key"],
+        "properties": {
+          "workload_id": { "const": "nonce-join-group" },
+          "scale": { "enum": ["1k", "10k", "45k"] },
+          "mode": { "const": "taskgate" },
+          "binding_key": {
+            "pattern": "^(?:1k/(?:[1-5]|10[1-9]|1[12][0-9]|130)|10k/(?:30[1-5]|40[1-9]|4[12][0-9]|430)|45k/(?:60[1-5]|70[1-9]|7[12][0-9]|730))$"
+          },
+          "expected": {
+            "required": [
+              "row_count",
+              "column_count",
+              "normalized_schema_sha256",
+              "canonical_result_sha256",
+              "release_candidate_cardinality",
+              "release_candidate_set_sha256",
+              "dependency_candidate_cardinality",
+              "dependency_candidate_set_sha256"
+            ],
+            "not": {
+              "anyOf": [
+                { "required": ["outcome_candidate_cardinality"] },
+                { "required": ["outcome_candidate_set_sha256"] },
+                { "required": ["existing_cardinality"] },
+                { "required": ["existing_set_sha256"] },
+                { "required": ["overlap_cardinality"] },
+                { "required": ["overlap_set_sha256"] },
+                { "required": ["novel_cardinality"] },
+                { "required": ["novel_set_sha256"] },
+                { "required": ["union_cardinality"] },
+                { "required": ["union_set_sha256"] },
+                { "required": ["schedule_sha256"] }
+              ]
+            }
+          }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "scale": { "const": "1k" } }, "required": ["scale"] },
+            "then": { "properties": { "binding_key": { "pattern": "^1k/(?:[1-5]|10[1-9]|1[12][0-9]|130)$" } } }
+          },
+          {
+            "if": { "properties": { "scale": { "const": "10k" } }, "required": ["scale"] },
+            "then": { "properties": { "binding_key": { "pattern": "^10k/(?:30[1-5]|40[1-9]|4[12][0-9]|430)$" } } }
+          },
+          {
+            "if": { "properties": { "scale": { "const": "45k" } }, "required": ["scale"] },
+            "then": { "properties": { "binding_key": { "pattern": "^45k/(?:60[1-5]|70[1-9]|7[12][0-9]|730)$" } } }
+          }
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": { "experiment_id": { "enum": ["baseline", "scale", "artifact"] } },
+        "required": ["experiment_id"]
+      },
+      "then": { "not": { "required": ["binding_key"] } }
     }
   ],
   "$defs": {

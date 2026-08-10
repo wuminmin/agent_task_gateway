@@ -54,6 +54,11 @@ func TestManifestRejectsNonCanonicalUnknownAndDuplicateJSON(t *testing.T) {
 	if _, err := DecodeManifest(duplicate); err == nil {
 		t.Fatal("duplicate field was accepted")
 	}
+	wrongIdentity := testManifest()
+	wrongIdentity.BindingKey = "1k/101"
+	if _, err := CanonicalManifest(wrongIdentity); err == nil {
+		t.Fatal("a non-ProvSQL manifest carried a private binding key")
+	}
 }
 
 func TestManifestWorkloadSpecificRequirements(t *testing.T) {

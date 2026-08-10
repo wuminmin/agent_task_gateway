@@ -29,6 +29,7 @@ type OracleManifest struct {
 	WorkloadID              string             `json:"workload_id"`
 	Scale                   string             `json:"scale"`
 	Mode                    string             `json:"mode"`
+	BindingKey              string             `json:"binding_key,omitempty"`
 	DatasetSpecSHA256       string             `json:"dataset_spec_sha256"`
 	CatalogSpecSHA256       string             `json:"catalog_spec_sha256"`
 	QuerySpecSHA256         string             `json:"query_spec_sha256"`
@@ -136,6 +137,10 @@ func (manifest OracleManifest) Validate() error {
 			return fmt.Errorf("oracle manifest %s is not a canonical token", name)
 		}
 	}
+	if manifest.BindingKey != "" && (manifest.BindingKey != strings.TrimSpace(manifest.BindingKey) ||
+		strings.ContainsAny(manifest.BindingKey, "\x00\r\n\t ")) {
+		return errors.New("oracle manifest binding_key is not a canonical token")
+	}
 	if strings.TrimSpace(manifest.Generation.Command) == "" || strings.ContainsAny(manifest.Generation.Command, "\x00\r\n") {
 		return errors.New("oracle manifest generation command is invalid")
 	}
@@ -181,8 +186,22 @@ func validateManifestIdentity(manifest OracleManifest) error {
 		if manifest.WorkloadID != "result-heavy" {
 			return errors.New("artifact oracle manifest workload_id must be result-heavy")
 		}
+	case "provsql":
+		if manifest.WorkloadID != "nonce-join-group" || manifest.Mode != "taskgate" {
+			return errors.New("ProvSQL oracle manifest must be the nonce-join-group TaskGate workload")
+		}
+		cell, err := ParseProvSQLBindingKey(manifest.BindingKey)
+		if err != nil {
+			return err
+		}
+		if cell.Scale != manifest.Scale || ProvSQLBindingKey(cell.Scale, cell.Nonce) != manifest.BindingKey {
+			return errors.New("ProvSQL oracle manifest scale and binding_key disagree")
+		}
 	default:
 		return errors.New("oracle manifest experiment_id is unsupported")
+	}
+	if manifest.ExperimentID != "provsql" && manifest.BindingKey != "" {
+		return errors.New("only ProvSQL oracle manifests may carry a binding_key")
 	}
 	return nil
 }
@@ -327,6 +346,29 @@ func validateExpectedForWorkload(manifest OracleManifest) error {
 			return errors.New("outcome-merkle workload requires an exact overlap schedule digest")
 		}
 		return requireAlgebra(expected.OutcomeCandidateCardinality)
+	case manifest.ExperimentID == "provsql" && manifest.WorkloadID == "nonce-join-group":
+		if err := requireLogical(); err != nil {
+			return err
+		}
+		for _, input := range []struct {
+			name        string
+			cardinality *int64
+			digest      string
+		}{
+			{"release", expected.ReleaseCandidateCardinality, expected.ReleaseCandidateSetSHA256},
+			{"dependency", expected.DependencyCandidateCardinality, expected.DependencyCandidateSetSHA256},
+		} {
+			if err := requireCandidate(input.name, input.cardinality, input.digest); err != nil {
+				return err
+			}
+		}
+		if expected.OutcomeCandidateCardinality != nil || expected.OutcomeCandidateSetSHA256 != "" ||
+			expected.ExistingCardinality != nil || expected.ExistingSetSHA256 != "" ||
+			expected.OverlapCardinality != nil || expected.OverlapSetSHA256 != "" ||
+			expected.NovelCardinality != nil || expected.NovelSetSHA256 != "" ||
+			expected.UnionCardinality != nil || expected.UnionSetSHA256 != "" || expected.ScheduleSHA256 != "" {
+			return errors.New("ProvSQL oracle manifest contains unfrozen outcome or set-algebra expectations")
+		}
 	}
 	return nil
 }
