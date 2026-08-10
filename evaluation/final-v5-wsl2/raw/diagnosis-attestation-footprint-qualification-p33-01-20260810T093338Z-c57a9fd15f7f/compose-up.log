@@ -1,0 +1,409 @@
+#1 [internal] load local bake definitions
+#1 reading from stdin 4.20kB done
+#1 DONE 0.0s
+
+#2 [snapshot-sidecar-install internal] load build definition from Dockerfile
+#2 transferring dockerfile: 1.02kB done
+#2 DONE 0.0s
+
+#3 [final-v5-provsql-postgres internal] load build definition from Dockerfile.provsql
+#3 transferring dockerfile: 1.81kB done
+#3 DONE 0.1s
+
+#4 [final-v5-provsql-postgres] resolve image config for docker-image://docker.io/docker/dockerfile:1.7
+#4 DONE 4.3s
+
+#5 [oa-demo] docker-image://docker.io/docker/dockerfile:1.7@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
+#5 CACHED
+
+#6 [final-v5-provsql-postgres internal] load metadata for docker.io/library/postgres@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55
+#6 DONE 0.0s
+
+#7 [snapshot-index-summary internal] load build definition from Dockerfile
+#7 transferring dockerfile: 1.02kB done
+#7 DONE 0.0s
+
+#8 [oa-demo internal] load build definition from Dockerfile
+#8 transferring dockerfile: 1.02kB done
+#8 DONE 0.0s
+
+#9 [snapshot-index-detail internal] load build definition from Dockerfile
+#9 transferring dockerfile: 1.02kB done
+#9 DONE 0.0s
+
+#10 [snapshot-index-result-heavy internal] load build definition from Dockerfile
+#10 transferring dockerfile: 1.02kB done
+#10 DONE 0.1s
+
+#11 [final-v5-provsql-postgres internal] load .dockerignore
+#11 transferring context: 1.37kB done
+#11 DONE 0.1s
+
+#12 [snapshot-index-result-heavy internal] load metadata for docker.io/library/debian:bookworm-slim
+#12 DONE 0.0s
+
+#13 [snapshot-index-result-heavy internal] load metadata for docker.io/library/golang:1.25-bookworm
+#13 DONE 0.0s
+
+#14 [snapshot-index-detail internal] load .dockerignore
+#14 transferring context: 1.37kB done
+#14 DONE 0.0s
+
+#15 [snapshot-index-result-heavy internal] load .dockerignore
+#15 transferring context: 1.37kB done
+#15 DONE 0.0s
+
+#16 [final-v5-provsql-postgres stage-1 1/4] FROM docker.io/library/postgres@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55
+#16 DONE 0.0s
+
+#17 [snapshot-sidecar-install internal] load build definition from Dockerfile
+#17 transferring dockerfile: 1.02kB done
+#17 DONE 0.1s
+
+#18 [oa-demo internal] load .dockerignore
+#18 transferring context: 1.37kB done
+#18 DONE 0.1s
+
+#19 [snapshot-index-summary internal] load .dockerignore
+#19 transferring context: 1.37kB done
+#19 DONE 0.1s
+
+#20 [final-v5-provsql-postgres build 3/3] RUN git init /tmp/provsql     && git -C /tmp/provsql remote add origin https://github.com/PierreSenellart/provsql.git     && git -C /tmp/provsql fetch --depth 1 origin "6388fd06b79b7d247b4ff4dad4959374d0e92358"     && git -C /tmp/provsql checkout --detach FETCH_HEAD     && test "$(git -C /tmp/provsql rev-parse HEAD)" = "6388fd06b79b7d247b4ff4dad4959374d0e92358"     && make -C /tmp/provsql -j"$(nproc)"     && make -C /tmp/provsql DESTDIR=/opt/provsql-root install     && install -d /opt/provsql-root/usr/local/share/taskgate-evaluation     && printf '%s' "6388fd06b79b7d247b4ff4dad4959374d0e92358" > /opt/provsql-root/usr/local/share/taskgate-evaluation/provsql-source-commit
+#20 CACHED
+
+#21 [final-v5-provsql-postgres stage-1 3/4] COPY --from=build /usr/lib/x86_64-linux-gnu/libboost_serialization.so.1.74.0 /usr/lib/x86_64-linux-gnu/
+#21 CACHED
+
+#22 [final-v5-provsql-postgres build 2/3] RUN apt-get update     && apt-get install -y --no-install-recommends         build-essential ca-certificates git libboost-dev libboost-serialization-dev         postgresql-server-dev-16=16.14-1.pgdg12+1     && rm -rf /var/lib/apt/lists/*
+#22 CACHED
+
+#23 [final-v5-provsql-postgres stage-1 2/4] COPY --from=build /opt/provsql-root/ /
+#23 CACHED
+
+#24 [final-v5-provsql-postgres stage-1 4/4] RUN ! ldd /usr/lib/postgresql/16/lib/provsql.so | grep -q 'not found'
+#24 CACHED
+
+#25 [snapshot-sidecar-install base 1/6] FROM docker.io/library/golang:1.25-bookworm
+#25 DONE 0.0s
+
+#26 [snapshot-sidecar-install runtime 1/3] FROM docker.io/library/debian:bookworm-slim
+#26 DONE 0.0s
+
+#13 [snapshot-sidecar-install internal] load metadata for docker.io/library/golang:1.25-bookworm
+#13 DONE 0.0s
+
+#12 [snapshot-sidecar-install internal] load metadata for docker.io/library/debian:bookworm-slim
+#12 DONE 0.0s
+
+#27 [final-v5-provsql-postgres] exporting to image
+#27 exporting layers done
+#27 writing image sha256:6654d7ce968f7304536375b4b7a15f2cf21a2a6f82472143bdcfddd23c047f36 done
+#27 naming to docker.io/library/taskgate-n4-qualification-p33-01-c57a9fd15f7f-final-v5-provsql-postgres done
+#27 DONE 0.0s
+
+#28 [snapshot-sidecar-install internal] load .dockerignore
+#28 transferring context: 1.37kB done
+#28 DONE 0.0s
+
+#29 [snapshot-index-result-heavy internal] load build context
+#29 ...
+
+#30 [final-v5-provsql-postgres] resolving provenance for metadata file
+#30 DONE 0.0s
+
+#31 [snapshot-index-detail internal] load build context
+#31 transferring context: 405.34kB 0.1s done
+#31 DONE 0.1s
+
+#32 [snapshot-index-detail base 4/6] COPY go.mod go.sum ./
+#32 CACHED
+
+#33 [snapshot-index-detail base 2/6] RUN apt-get update     && apt-get install -y --no-install-recommends build-essential ca-certificates     && rm -rf /var/lib/apt/lists/*
+#33 CACHED
+
+#34 [snapshot-index-detail base 3/6] WORKDIR /src
+#34 CACHED
+
+#35 [snapshot-index-detail base 5/6] RUN go mod download
+#35 CACHED
+
+#36 [oa-demo internal] load build context
+#36 transferring context: 405.34kB 0.1s done
+#36 DONE 0.1s
+
+#29 [snapshot-index-result-heavy internal] load build context
+#29 transferring context: 405.34kB 0.1s done
+#29 DONE 0.2s
+
+#35 [snapshot-index-result-heavy base 5/6] RUN go mod download
+#35 CACHED
+
+#37 [snapshot-index-summary internal] load build context
+#37 transferring context: 405.34kB 0.1s done
+#37 DONE 0.2s
+
+#38 [snapshot-sidecar-install internal] load build context
+#38 transferring context: 405.34kB 0.1s done
+#38 DONE 0.1s
+
+#39 [snapshot-index-result-heavy base 6/6] COPY . .
+#39 DONE 0.6s
+
+#40 [snapshot-sidecar-install base 5/6] RUN go mod download
+#40 CACHED
+
+#41 [snapshot-sidecar-install base 6/6] COPY . .
+#41 CACHED
+
+#42 [snapshot-sidecar-install base 4/6] COPY go.mod go.sum ./
+#42 CACHED
+
+#34 [oa-demo base 3/6] WORKDIR /src
+#34 CACHED
+
+#43 [oa-demo base 4/6] COPY go.mod go.sum ./
+#43 CACHED
+
+#44 [oa-demo base 6/6] COPY . .
+#44 CACHED
+
+#33 [oa-demo base 2/6] RUN apt-get update     && apt-get install -y --no-install-recommends build-essential ca-certificates     && rm -rf /var/lib/apt/lists/*
+#33 CACHED
+
+#45 [oa-demo base 5/6] RUN go mod download
+#45 CACHED
+
+#46 [snapshot-index-detail build 1/1] RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /out/app ./cmd/snapshot-index
+#46 ...
+
+#47 [oa-demo build 1/1] RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /out/app ./cmd/oa-demo
+#47 DONE 10.6s
+
+#48 [snapshot-sidecar-install build 1/1] RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /out/app ./cmd/snapshot-sidecar-install
+#48 DONE 10.6s
+
+#49 [oa-demo runtime 3/3] COPY --from=build /out/app /usr/local/bin/app
+#49 CACHED
+
+#50 [snapshot-sidecar-install runtime 3/3] COPY --from=build /out/app /usr/local/bin/app
+#50 CACHED
+
+#51 [oa-demo] exporting to image
+#51 exporting layers done
+#51 writing image sha256:1bd55d816165adb82d5426e4d1208c86c1af3728d2975325d1c97b25365235a9 done
+#51 naming to docker.io/library/taskgate-n4-qualification-p33-01-c57a9fd15f7f-oa-demo done
+#51 DONE 0.0s
+
+#46 [snapshot-index-result-heavy build 1/1] RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /out/app ./cmd/snapshot-index
+#46 DONE 10.6s
+
+#52 [snapshot-index-detail runtime 2/3] RUN apt-get update     && apt-get install -y --no-install-recommends ca-certificates curl     && rm -rf /var/lib/apt/lists/*     && groupadd --system --gid 10001 taskbound     && useradd --system --uid 10001 --gid taskbound --home-dir /nonexistent --shell /usr/sbin/nologin taskbound     && mkdir -p /data/snapshot-index     && chown -R 10001:10001 /data
+#52 CACHED
+
+#53 [snapshot-index-result-heavy runtime 3/3] COPY --from=build /out/app /usr/local/bin/app
+#53 CACHED
+
+#54 [snapshot-index-detail] exporting to image
+#54 exporting layers done
+#54 writing image sha256:3425cc485ea60443a285073b4323a745f04a696dfc0b75e55265d23903300b89
+#54 writing image sha256:3425cc485ea60443a285073b4323a745f04a696dfc0b75e55265d23903300b89 done
+#54 naming to docker.io/library/taskgate-n4-qualification-p33-01-c57a9fd15f7f-snapshot-index-detail done
+#54 DONE 0.0s
+
+#55 [snapshot-sidecar-install] exporting to image
+#55 exporting layers done
+#55 writing image sha256:879ed93cbaa349e54e2ffd94e14484886f84d90683ced6e6b569590483356685 0.0s done
+#55 naming to docker.io/library/taskgate-n4-qualification-p33-01-c57a9fd15f7f-snapshot-sidecar-install done
+#55 DONE 0.1s
+
+#56 [snapshot-index-summary] exporting to image
+#56 exporting layers done
+#56 writing image sha256:5f78897f3f969a51f2068d22e7414d2dbf7a26b3cc1c18669203cf0edfc76dbd done
+#56 naming to docker.io/library/taskgate-n4-qualification-p33-01-c57a9fd15f7f-snapshot-index-summary done
+#56 DONE 0.0s
+
+#57 [snapshot-index-result-heavy] exporting to image
+#57 exporting layers done
+#57 writing image sha256:0ca6945089015424e048edf1797924627b5e9d7c2856491e94a3bb5fce2fd63e done
+#57 naming to docker.io/library/taskgate-n4-qualification-p33-01-c57a9fd15f7f-snapshot-index-result-heavy done
+#57 DONE 0.0s
+
+#58 [oa-demo] resolving provenance for metadata file
+#58 DONE 0.0s
+
+#59 [snapshot-sidecar-install] resolving provenance for metadata file
+#59 DONE 0.0s
+
+#60 [snapshot-index-detail] resolving provenance for metadata file
+#60 DONE 0.0s
+
+#61 [snapshot-index-summary] resolving provenance for metadata file
+#61 DONE 0.0s
+
+#62 [snapshot-index-result-heavy] resolving provenance for metadata file
+#62 DONE 0.0s
+ taskgate-n4-qualification-p33-01-c57a9fd15f7f-snapshot-index-detail  Built
+ taskgate-n4-qualification-p33-01-c57a9fd15f7f-snapshot-index-summary  Built
+ taskgate-n4-qualification-p33-01-c57a9fd15f7f-snapshot-index-result-heavy  Built
+ taskgate-n4-qualification-p33-01-c57a9fd15f7f-snapshot-sidecar-install  Built
+ taskgate-n4-qualification-p33-01-c57a9fd15f7f-oa-demo  Built
+ taskgate-n4-qualification-p33-01-c57a9fd15f7f-final-v5-provsql-postgres  Built
+ Network taskgate-n4-qualification-p33-01-c57a9fd15f7f_provsql-evaluation  Creating
+ Network taskgate-n4-qualification-p33-01-c57a9fd15f7f_provsql-evaluation  Created
+ Network taskgate-n4-qualification-p33-01-c57a9fd15f7f_result-storage  Creating
+ Network taskgate-n4-qualification-p33-01-c57a9fd15f7f_result-storage  Created
+ Network taskgate-n4-qualification-p33-01-c57a9fd15f7f_public-edge  Creating
+ Network taskgate-n4-qualification-p33-01-c57a9fd15f7f_public-edge  Created
+ Network taskgate-n4-qualification-p33-01-c57a9fd15f7f_control-plane  Creating
+ Network taskgate-n4-qualification-p33-01-c57a9fd15f7f_control-plane  Created
+ Network taskgate-n4-qualification-p33-01-c57a9fd15f7f_business-data  Creating
+ Network taskgate-n4-qualification-p33-01-c57a9fd15f7f_business-data  Created
+ Network taskgate-n4-qualification-p33-01-c57a9fd15f7f_debug-host  Creating
+ Network taskgate-n4-qualification-p33-01-c57a9fd15f7f_debug-host  Created
+ Volume taskgate-n4-qualification-p33-01-c57a9fd15f7f_business-pg-data  Creating
+ Volume taskgate-n4-qualification-p33-01-c57a9fd15f7f_business-pg-data  Created
+ Volume taskgate-n4-qualification-p33-01-c57a9fd15f7f_final-v5-direct-data  Creating
+ Volume taskgate-n4-qualification-p33-01-c57a9fd15f7f_final-v5-direct-data  Created
+ Volume taskgate-n4-qualification-p33-01-c57a9fd15f7f_snapshot-index-artifacts  Creating
+ Volume taskgate-n4-qualification-p33-01-c57a9fd15f7f_snapshot-index-artifacts  Created
+ Volume taskgate-n4-qualification-p33-01-c57a9fd15f7f_result-object-data  Creating
+ Volume taskgate-n4-qualification-p33-01-c57a9fd15f7f_result-object-data  Created
+ Volume taskgate-n4-qualification-p33-01-c57a9fd15f7f_final-v5-provsql-data  Creating
+ Volume taskgate-n4-qualification-p33-01-c57a9fd15f7f_final-v5-provsql-data  Created
+ Volume taskgate-n4-qualification-p33-01-c57a9fd15f7f_control-pg-data  Creating
+ Volume taskgate-n4-qualification-p33-01-c57a9fd15f7f_control-pg-data  Created
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-business-postgres-1  Creating
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-final-v5-provsql-postgres-1  Creating
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-final-v5-direct-postgres-1  Creating
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-control-postgres-1  Creating
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-result-object-store-1  Creating
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-oa-demo-1  Creating
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-business-postgres-1  Created
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-snapshot-index-detail-1  Creating
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-final-v5-provsql-postgres-1  Created
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-control-postgres-1  Created
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-oa-demo-1  Created
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-final-v5-direct-postgres-1  Created
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-result-object-store-1  Created
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-result-object-store-init-1  Creating
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-snapshot-index-detail-1  Created
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-snapshot-index-summary-1  Creating
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-result-object-store-init-1  Created
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-snapshot-index-summary-1  Created
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-snapshot-index-result-heavy-1  Creating
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-snapshot-index-result-heavy-1  Created
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-snapshot-sidecar-install-1  Creating
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-snapshot-sidecar-install-1  Created
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-final-v5-direct-postgres-1  Starting
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-control-postgres-1  Starting
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-final-v5-provsql-postgres-1  Starting
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-oa-demo-1  Starting
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-result-object-store-1  Starting
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-business-postgres-1  Starting
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-control-postgres-1  Started
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-business-postgres-1  Started
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-business-postgres-1  Waiting
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-oa-demo-1  Started
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-final-v5-direct-postgres-1  Started
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-final-v5-provsql-postgres-1  Started
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-result-object-store-1  Started
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-result-object-store-1  Waiting
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-result-object-store-1  Healthy
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-result-object-store-init-1  Starting
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-result-object-store-init-1  Started
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-business-postgres-1  Healthy
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-snapshot-index-detail-1  Starting
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-snapshot-index-detail-1  Started
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-business-postgres-1  Waiting
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-snapshot-index-detail-1  Waiting
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-snapshot-index-detail-1  Exited
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-business-postgres-1  Healthy
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-snapshot-index-summary-1  Starting
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-snapshot-index-summary-1  Started
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-snapshot-index-summary-1  Waiting
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-business-postgres-1  Waiting
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-business-postgres-1  Healthy
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-snapshot-index-summary-1  Exited
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-snapshot-index-result-heavy-1  Starting
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-snapshot-index-result-heavy-1  Started
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-business-postgres-1  Waiting
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-snapshot-index-result-heavy-1  Waiting
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-business-postgres-1  Healthy
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-snapshot-index-result-heavy-1  Exited
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-snapshot-sidecar-install-1  Starting
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-snapshot-sidecar-install-1  Started
+#1 [internal] load local bake definitions
+#1 reading from stdin 672B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 1.02kB done
+#2 DONE 0.0s
+
+#3 resolve image config for docker-image://docker.io/docker/dockerfile:1.7
+#3 DONE 2.8s
+
+#4 docker-image://docker.io/docker/dockerfile:1.7@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
+#4 CACHED
+
+#5 [internal] load metadata for docker.io/library/debian:bookworm-slim
+#5 DONE 0.0s
+
+#6 [internal] load metadata for docker.io/library/golang:1.25-bookworm
+#6 DONE 0.0s
+
+#7 [internal] load .dockerignore
+#7 transferring context: 1.37kB done
+#7 DONE 0.0s
+
+#8 [base 1/6] FROM docker.io/library/golang:1.25-bookworm
+#8 DONE 0.0s
+
+#9 [runtime 1/3] FROM docker.io/library/debian:bookworm-slim
+#9 DONE 0.0s
+
+#10 [internal] load build context
+#10 transferring context: 75.22kB 0.0s done
+#10 DONE 0.1s
+
+#11 [base 2/6] RUN apt-get update     && apt-get install -y --no-install-recommends build-essential ca-certificates     && rm -rf /var/lib/apt/lists/*
+#11 CACHED
+
+#12 [base 3/6] WORKDIR /src
+#12 CACHED
+
+#13 [base 4/6] COPY go.mod go.sum ./
+#13 CACHED
+
+#14 [base 5/6] RUN go mod download
+#14 CACHED
+
+#15 [base 6/6] COPY . .
+#15 CACHED
+
+#16 [build 1/1] RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /out/app ./cmd/gateway
+#16 DONE 33.4s
+
+#17 [runtime 2/3] RUN apt-get update     && apt-get install -y --no-install-recommends ca-certificates curl     && rm -rf /var/lib/apt/lists/*     && groupadd --system --gid 10001 taskbound     && useradd --system --uid 10001 --gid taskbound --home-dir /nonexistent --shell /usr/sbin/nologin taskbound     && mkdir -p /data/snapshot-index     && chown -R 10001:10001 /data
+#17 CACHED
+
+#18 [runtime 3/3] COPY --from=build /out/app /usr/local/bin/app
+#18 DONE 0.1s
+
+#19 exporting to image
+#19 exporting layers 0.1s done
+#19 writing image sha256:cb3aeff789d7708dbe33ad5f13be7f255142604378b1d1587db591c89cd0c18c done
+#19 naming to docker.io/library/taskgate-n4-qualification-p33-01-c57a9fd15f7f-gateway done
+#19 DONE 0.1s
+
+#20 resolving provenance for metadata file
+#20 DONE 0.0s
+ taskgate-n4-qualification-p33-01-c57a9fd15f7f-gateway  Built
+ Volume taskgate-n4-qualification-p33-01-c57a9fd15f7f_gateway-encrypted-spool  Creating
+ Volume taskgate-n4-qualification-p33-01-c57a9fd15f7f_gateway-encrypted-spool  Created
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-gateway-1  Creating
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-gateway-1  Created
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-gateway-1  Starting
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-gateway-1  Started
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-gateway-1  Waiting
+ Container taskgate-n4-qualification-p33-01-c57a9fd15f7f-gateway-1  Healthy

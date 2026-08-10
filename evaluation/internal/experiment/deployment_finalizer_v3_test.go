@@ -33,8 +33,8 @@ import (
 // PostgreSQL identity the repository retains together. Both files come from one
 // run, and a second independent run reproduces its portable footprint in the
 // active P3.2 agreement.
-const retainedQualificationRun = "diagnosis-attestation-footprint-qualification-p32-01-" +
-	"20260809T130103Z-f5fc9811eef8"
+const retainedQualificationRun = "diagnosis-attestation-footprint-qualification-p33-01-" +
+	"20260810T093338Z-c57a9fd15f7f"
 
 func retainedQualificationDirectory(t *testing.T) string {
 	t.Helper()

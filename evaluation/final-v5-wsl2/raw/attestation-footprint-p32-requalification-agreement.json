@@ -1,0 +1,108 @@
+{
+  "activation_support_changing": false,
+  "branch": "tkde-artifact-rerun",
+  "capability_changing": false,
+  "commit": "c57a9fd15f7fd1d20830f87bf8f495fbc20acf1e",
+  "development_runs_retained": true,
+  "digest_space": {
+    "previous_p32_agreement": "evaluation/final-v5-wsl2/raw/attestation-footprint-p32-agreement.json",
+    "previous_portable_digest_differs": true,
+    "previous_portable_footprint_sha256": "032e9c53704d8df270693c291d36893e46e6c587b95c59bef2c6d198181ceacf",
+    "previous_qualification_pairing_eligible": false,
+    "strict_ast_schema_version": 2
+  },
+  "expected_schema": {
+    "digest": "e2a3796fb3f5c50f97ebf02a40996b9c95a50e5b028a975cfccd4cf80407d40c",
+    "entries": 1,
+    "relations": [
+      "reporting.final_v5_result_heavy"
+    ]
+  },
+  "expected_schema_identical": true,
+  "formal_campaign": false,
+  "full_digests_differ_as_designed": true,
+  "head_equals_origin": true,
+  "intervals_per_run": 10,
+  "measurement_environment": {
+    "pg_stat_statements_track": "all",
+    "pg_stat_statements_track_planning": "off",
+    "pg_stat_statements_track_utility": "on",
+    "postgresql_version_num": 160014
+  },
+  "per_scope_multisets_identical": true,
+  "portable_digests_identical": true,
+  "postgresql_identity_files_identical": true,
+  "postgresql_portable_identity_identical": true,
+  "postgresql_runtime_identity_portable": {
+    "image_reference": "postgres@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55",
+    "platform": "linux/amd64",
+    "repo_digest": "postgres@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55"
+  },
+  "production_digests_recomputed": true,
+  "profile_binding": {
+    "catalog_sha256": "533837084c0df141a0fac6e74788a4c2b9eb84611c1f96d4c760806745b4f709",
+    "expected_schema_digest": "e2a3796fb3f5c50f97ebf02a40996b9c95a50e5b028a975cfccd4cf80407d40c",
+    "expected_schema_entries": 1,
+    "profile_alias": "result-heavy",
+    "profile_artifact_directory_sha256": "814d4df9971f41b649289aa8b4b3c42f86b588b50c5691f21cf0ec010659f99b",
+    "profile_id": "profile-a86cd4df5cad6e26",
+    "profile_registry_release": "final-v5-contracts-v1.4",
+    "profile_registry_sha256": "ca84cba9810d378ea513bdadbf8cb9516a8bc3feaeb26b61af0156d857aee537"
+  },
+  "profile_manifest_digests_differ_as_designed": true,
+  "publication_eligible": false,
+  "record": "taskgate-final-v5-attestation-footprint-p32-requalification-agreement-v1",
+  "report_files_differ": true,
+  "runs": [
+    {
+      "diagnosis_id": "attestation-footprint-qualification-p33-01-20260810T093338Z-c57a9fd15f7f",
+      "footprint_sha256": "e28d61d4a1f7b8c27e7c3573524e21b0f2b655c3a7efc1f9a405c66ad00d7e87",
+      "portable_footprint_sha256": "58d58d30326e712910a2cdef9c56fbd0f6e558d6c92c24af9949bfb718b55947",
+      "postgresql_identity_file_sha256": "cd3c6386581f30785080bc292ecd4fa1fc83edafd622329099073b995b7bc215",
+      "profile_artifact_manifest_sha256": "a82bb9d33a3f53e8c2487334602784c71b09eb47f2cdddeebe03d4fa106e35dc",
+      "qualification": "diagnosis-attestation-footprint-qualification-p33-01-20260810T093338Z-c57a9fd15f7f",
+      "report_file_sha256": "21d0bf6e657fe2881e6f8c00803e4ee2a2db39d4dd348097887282976ba2ad8c"
+    },
+    {
+      "diagnosis_id": "attestation-footprint-qualification-p33-02-20260810T093808Z-c57a9fd15f7f",
+      "footprint_sha256": "658452b1a8ca8974ccd267d7d00819a9c5eb228fd3e75bc56e9249a0e32c2ecc",
+      "portable_footprint_sha256": "58d58d30326e712910a2cdef9c56fbd0f6e558d6c92c24af9949bfb718b55947",
+      "postgresql_identity_file_sha256": "cd3c6386581f30785080bc292ecd4fa1fc83edafd622329099073b995b7bc215",
+      "profile_artifact_manifest_sha256": "e9f7bd410a5938bbe34547cf4e0af1a1cfdb4a71ad4ea04fdfbac40492c08b1a",
+      "qualification": "diagnosis-attestation-footprint-qualification-p33-02-20260810T093808Z-c57a9fd15f7f",
+      "report_file_sha256": "7c6a6b9856855181255b05a0f0cfd6bac1c7ccb0777c49558d1f8d8e25d24990"
+    }
+  ],
+  "schema_version": 2,
+  "scopes": {
+    "constructor_or_cold_pool": [
+      {
+        "calls_per_attestation": 1,
+        "strict_ast_sha256": "8258e53289cbcaf0e18cf828725bbd23da953145bea8f873fcbe165b7c85dca7"
+      }
+    ],
+    "explicit_preflight_pool": [
+      {
+        "calls_per_attestation": 1,
+        "strict_ast_sha256": "8258e53289cbcaf0e18cf828725bbd23da953145bea8f873fcbe165b7c85dca7"
+      }
+    ],
+    "paired_query_transaction": [
+      {
+        "calls_per_attestation": 1,
+        "strict_ast_sha256": "8258e53289cbcaf0e18cf828725bbd23da953145bea8f873fcbe165b7c85dca7"
+      }
+    ],
+    "single_query_transaction": [
+      {
+        "calls_per_attestation": 1,
+        "strict_ast_sha256": "8258e53289cbcaf0e18cf828725bbd23da953145bea8f873fcbe165b7c85dca7"
+      }
+    ]
+  },
+  "snapshots_per_run": 11,
+  "source_dependencies_bound": 12,
+  "source_dependencies_identical": true,
+  "source_manifest_sha256": "249b34e2ecfc473517e51c16dfaaa9f0d48d7aebec7b347d68afda93f2efeb81",
+  "worktree_clean": true
+}
