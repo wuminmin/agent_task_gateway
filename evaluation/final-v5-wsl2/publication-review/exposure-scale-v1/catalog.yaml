@@ -1,0 +1,83 @@
+# REVIEW_CANDIDATE; author_approved=false; runtime_activation=forbidden
+catalog_version: "2026-08-11.final-v5-exposure-scale-review-v1"
+
+sources:
+  - name: travel_demo
+    datasource_id: taskgate-demo-travel
+    type: postgres
+    address: business-postgres
+    port: 5432
+    database: travel_demo
+    user: gateway_reader
+    postgres_major_version: 16
+    schema_digest: a9743362fa4bf67eeba2de18b8e8660435298a30acddcbbc93719f80b40f7a92
+    secretRef: GATEWAY_DB_PASSWORD
+
+snapshot_publications:
+  - name: final-v5-exposure-scale-v1
+    source: travel_demo
+    source_namespace: final_v5.exposure_scale
+    snapshot: final-v5-exposure-scale-2026-v1
+    ordinal_sidecar: taskgate_ordinal.final_v5_exposure_scale_v1
+    sidecar_digest: 8f3d4d1b82baa5095d14abc32b4e9c11cfc2790f6337040d6e17b927fe9209df
+    dictionary_digest: 2b8ff3c1676aafbde834e491e856537f186ff6844d5dfd757760d5f908bc22c5
+    manifest_digest: 3af007b8f7d935d8320fee8bf59352c0922dba66666f8ebd53d500cd7d5956ff
+
+scopes:
+  - name: partition_key
+    type: enum
+    description: Frozen exposure-scale partition key
+    allowed_values: ["1"]
+
+products:
+  - name: final_v5_exposure_scale
+    source: travel_demo
+    reporting_view: reporting.final_v5_exposure_scale
+    description: Final-V5 controlled exposure and dependency scale relation
+    sensitivity: low
+    snapshot: final-v5-exposure-scale-2026-v1
+    snapshot_publication: final-v5-exposure-scale-v1
+    entity_key: [member_rank]
+    fact_namespace: final_v5.exposure_scale
+    stable_relation_role: final_v5_exposure_scale
+    scopes: [partition_key]
+    allowed_functions: []
+    allowed_operators: ["=", ">", "<="]
+    allowed_aggregates: [sum, count]
+    fields:
+      - name: member_rank
+        type: bigint
+        description: Stable deterministic exposure member rank
+      - name: metric
+        type: numeric
+        description: Deterministic aggregate metric
+      - name: family_id
+        type: integer
+        description: Fixed benchmark family identifier
+      - name: partition_key
+        type: integer
+        description: Mandatory frozen partition key
+
+approval_routes:
+  - sensitivity: low
+    mode: manual
+    approver: final-v5-reviewer
+    budget_profile: final-v5-exposure-scale-review-v1
+
+budget_profiles:
+  - name: final-v5-exposure-scale-review-v1
+    max_queries: 128
+    max_rows: 100000
+    max_db_time: 30m
+    query_timeout: 30m
+    task_ttl: 2h
+    max_release_facts: 2000000
+    max_influence_facts: 3000000
+    max_outcome_facts: 128
+    exposure_profile_version: taskgate-exposure-v5
+    predicate_footprint:
+      version: taskgate-predicate-footprint-v1
+      max_raw_literals_per_query: 64
+      max_unique_atoms_per_query: 16
+      max_atom_payload_bytes: 4096
+      max_total_atom_payload_bytes: 65536

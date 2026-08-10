@@ -1,0 +1,253 @@
+{
+  "version": "taskgate-final-v5-exposure-scale-publication-review-v1",
+  "status": "REVIEW_CANDIDATE",
+  "author_approved": false,
+  "outcome_identity": "NOT_GENERATED",
+  "set_algebra": "NOT_GENERATED",
+  "provsql_manifest_set": {
+    "files": 105,
+    "verifier": "VerifyProvSQLNonceJoinManifestSet",
+    "path_root": "evaluation/final-v5-wsl2/oracle-manifests",
+    "aggregate_record": "\u003cpath\u003e\u003cTAB\u003e\u003cmanifest-sha256\u003e\u003cLF\u003e",
+    "aggregate_sha256": "c1ceb1459c8cc74c5fee8392ea5eb0fac3eacbf319b73e98c145ce64ba527ad1"
+  },
+  "scale_manifest_set": {
+    "files": 24,
+    "verifier": "VerifyExposureScaleDependencyManifestSet",
+    "path_root": ".",
+    "aggregate_record": "\u003cmanifest-sha256\u003e\u003cSPACE\u003e\u003cSPACE\u003e\u003cpath\u003e\u003cLF\u003e",
+    "aggregate_sha256": "f30f705ec23ec98c814595cf6bde0eb9ac6d8a3c2ebb18850122c4ce3b992cb9"
+  },
+  "scale_union": {
+    "role": "union",
+    "scale": "1035000-overlap-0",
+    "cardinality": 2070000,
+    "set_sha256": "4354d04853af871bc62d3eba9d51b2da2b1abe9e8e365bcf307e3d7ccd50f02f",
+    "manifests": [
+      {
+        "path": "scale/dependency-e2e/1035000-overlap-0/novel.json",
+        "sha256": "4391a09c1f08cb0dcd924aca12f74d3beb575e996530c76009e9a023b80a13d9"
+      },
+      {
+        "path": "scale/dependency-e2e/1035000-overlap-0/semantic_replay.json",
+        "sha256": "8f4184197adbc85022c018ca2abd02c3fbd76faa310a9e8f11f36a508e528227"
+      }
+    ]
+  },
+  "database": {
+    "datasource_id": "taskgate-demo-travel",
+    "database": "travel_demo",
+    "user": "gateway_reader",
+    "postgresql_major_version": 16,
+    "schema_sha256": "a9743362fa4bf67eeba2de18b8e8660435298a30acddcbbc93719f80b40f7a92",
+    "query_exec_mode": "simple_protocol",
+    "session_count": 4,
+    "maximum_prepared_statement_count": 0
+  },
+  "publication": {
+    "version": "taskgate-snapshot-index-bundle-v1",
+    "publication_name": "final-v5-exposure-scale-v1",
+    "catalog_source": "travel_demo",
+    "ordinal_sidecar": "taskgate_ordinal.final_v5_exposure_scale_v1",
+    "manifest_digest": "3af007b8f7d935d8320fee8bf59352c0922dba66666f8ebd53d500cd7d5956ff",
+    "dictionary_manifest": {
+      "version": "taskgate-ordinal-dictionary-v1",
+      "source_id": "taskgate-demo-travel",
+      "source_namespace": "final_v5.exposure_scale",
+      "snapshot": "final-v5-exposure-scale-2026-v1",
+      "schema_digest": "a9743362fa4bf67eeba2de18b8e8660435298a30acddcbbc93719f80b40f7a92",
+      "dictionary_digest": "2b8ff3c1676aafbde834e491e856537f186ff6844d5dfd757760d5f908bc22c5",
+      "sidecar_digest": "8f3d4d1b82baa5095d14abc32b4e9c11cfc2790f6337040d6e17b927fe9209df",
+      "cold_payload_digest": "c1bcc70da4183ba602e151e4316445236081403d2e32d1ab5058b48aabd01f6c",
+      "hot_index_digest": "43903bcf8f8e708982ba05dbc10a04df71237c525a1014b88c102d5e3021a11f",
+      "segments": [
+        {
+          "id": "cell:family_id",
+          "kind": "base-cell",
+          "field": "family_id",
+          "shard": 0,
+          "fact_count": 414000,
+          "hashes_digest": "9fb822dc98be6b23f64cc91534b56239962bbc744e96e4a3b0abea2ce1626657",
+          "payloads_digest": "0fb07c4bcfcf46a5ccb05d63051567f3103e2091104cc9b190c69f9010c12c4e"
+        },
+        {
+          "id": "cell:member_rank",
+          "kind": "base-cell",
+          "field": "member_rank",
+          "shard": 0,
+          "fact_count": 414000,
+          "hashes_digest": "d1fe129694d5d989a23de84bee1aff3c2c4222ad71029d9e9cb402837f89ba85",
+          "payloads_digest": "382f5327c2f8013d085f6ba53780bf652c64924b6aa6d2b6fa5bcf1c9a4e384d"
+        },
+        {
+          "id": "cell:metric",
+          "kind": "base-cell",
+          "field": "metric",
+          "shard": 0,
+          "fact_count": 414000,
+          "hashes_digest": "2d5600de99ae1b547c6935faad29c50b56c566c3104947d82744d4b88cd35606",
+          "payloads_digest": "b5b6d1418327468493f61313bf43becbd53f4edb08c00274fc8a2171aba670ca"
+        },
+        {
+          "id": "cell:partition_key",
+          "kind": "base-cell",
+          "field": "partition_key",
+          "shard": 0,
+          "fact_count": 414000,
+          "hashes_digest": "d7a51fe5dde080d3a186c9535cc40d9769ae4db1d71bf7c916493fcda6992996",
+          "payloads_digest": "d63be90ed82f1839be9d200ee8c1425a31afbe7bf416b72fa6368056f8d516e1"
+        },
+        {
+          "id": "row",
+          "kind": "base-row",
+          "shard": 0,
+          "fact_count": 414000,
+          "hashes_digest": "1090060ef3bf973d2cd068839c7a174ad49db528ca75cde9cd78e7d026738ef6",
+          "payloads_digest": "0ebc91506a718e311a88c910f092532eb0c9b84cb39602860ca128a1def8761b"
+        }
+      ]
+    },
+    "row_count": 414000,
+    "hot": {
+      "name": "final-v5-exposure-scale-v1.hot.tgord",
+      "sha256": "d3f37b2a93acf59eb9ff303fb9f4d6ff6aa053577c0578272a8b5a76b8e00d62",
+      "bytes": 107642350
+    },
+    "cold": {
+      "name": "final-v5-exposure-scale-v1.cold.tgord",
+      "sha256": "e28c9107d814d92dae6a38f26517452efd73ed1b8df70aa364e6036bb97c7e91",
+      "bytes": 1071149936
+    },
+    "sidecar": {
+      "name": "final-v5-exposure-scale-v1.sidecar.ndjson",
+      "sha256": "d4e6e7e0838bd895a9088a5a37dd130a0df6924d1c32fd7f56185a33306c9a1a",
+      "bytes": 56496367
+    }
+  },
+  "semantic_ordinal_link": {
+    "version": "taskgate-final-v5-semantic-ordinal-link-v1",
+    "match": true,
+    "role": "union",
+    "catalog_sha256": "8bad5660a09b2de497dde9c038f05e115bfa20385f54590b8a87e418fa6ee4f3",
+    "dictionary_set": {
+      "version": "taskgate-ordinal-dictionary-set-v1",
+      "catalog_digest": "8bad5660a09b2de497dde9c038f05e115bfa20385f54590b8a87e418fa6ee4f3",
+      "members": [
+        {
+          "publication_name": "final-v5-exposure-scale-v1",
+          "dictionary_digest": "2b8ff3c1676aafbde834e491e856537f186ff6844d5dfd757760d5f908bc22c5",
+          "manifest_digest": "3af007b8f7d935d8320fee8bf59352c0922dba66666f8ebd53d500cd7d5956ff"
+        }
+      ]
+    },
+    "dictionary_set_sha256": "5c4f2d86adf0d986d11fd439806a33fb1e3eb76b3955c3eefda3b7a0093a1259",
+    "dictionaries": [
+      {
+        "publication_name": "final-v5-exposure-scale-v1",
+        "source_id": "taskgate-demo-travel",
+        "source_namespace": "final_v5.exposure_scale",
+        "snapshot": "final-v5-exposure-scale-2026-v1",
+        "schema_sha256": "a9743362fa4bf67eeba2de18b8e8660435298a30acddcbbc93719f80b40f7a92",
+        "dictionary_sha256": "2b8ff3c1676aafbde834e491e856537f186ff6844d5dfd757760d5f908bc22c5",
+        "manifest_sha256": "3af007b8f7d935d8320fee8bf59352c0922dba66666f8ebd53d500cd7d5956ff",
+        "sidecar_sha256": "8f3d4d1b82baa5095d14abc32b4e9c11cfc2790f6337040d6e17b927fe9209df",
+        "cold_payload_sha256": "c1bcc70da4183ba602e151e4316445236081403d2e32d1ab5058b48aabd01f6c",
+        "hot_index_sha256": "43903bcf8f8e708982ba05dbc10a04df71237c525a1014b88c102d5e3021a11f",
+        "fact_count": 2070000,
+        "payload_verification_mode": "exact_canonical_payload"
+      }
+    ],
+    "reviewed": {
+      "cardinality": 2070000,
+      "set_sha256": "4354d04853af871bc62d3eba9d51b2da2b1abe9e8e365bcf307e3d7ccd50f02f"
+    },
+    "oracle_semantic": {
+      "role": "union",
+      "cardinality": 2070000,
+      "set_sha256": "4354d04853af871bc62d3eba9d51b2da2b1abe9e8e365bcf307e3d7ccd50f02f",
+      "members_complete": false,
+      "sample_members": [
+        "0000018a228350b4669a802ddfcc90545ef1b740dba10e85108e990733660837",
+        "000001ba6adc1c4e2909891b444a74df6e3e6af5f1956231926dd79147eddaeb",
+        "000001c8a99d2538c678bfe6e63bf0164c8a66ae3405c0f0fc1d640c2e80a1c6",
+        "00001233cf5d3b270b4a22e3808759414b0b0481d863d5027ca769303307204d",
+        "00001d936c0fde18e4ef27ea5e948c25533bf3a80c82188740244937ba9994f7",
+        "0000264895b3068320f97b3f9b20d9a9c7066e1b004c35b28ced870f9306a95e",
+        "00002fe270b02a94e338e52a537da6f5d25655fb30332a64c349d0cbe9fe41b1",
+        "000036dfba9d6ac475ed7d1137f88ec90b158a02bf4e20360033f99e68b5352d"
+      ],
+      "stats": {
+        "input_members": 2070000,
+        "duplicate_members": 0,
+        "peak_buffered_members": 65536,
+        "spill_runs": 32,
+        "peak_merge_heads": 32
+      }
+    },
+    "actual_semantic": {
+      "role": "union",
+      "cardinality": 2070000,
+      "set_sha256": "4354d04853af871bc62d3eba9d51b2da2b1abe9e8e365bcf307e3d7ccd50f02f",
+      "members_complete": false,
+      "sample_members": [
+        "0000018a228350b4669a802ddfcc90545ef1b740dba10e85108e990733660837",
+        "000001ba6adc1c4e2909891b444a74df6e3e6af5f1956231926dd79147eddaeb",
+        "000001c8a99d2538c678bfe6e63bf0164c8a66ae3405c0f0fc1d640c2e80a1c6",
+        "00001233cf5d3b270b4a22e3808759414b0b0481d863d5027ca769303307204d",
+        "00001d936c0fde18e4ef27ea5e948c25533bf3a80c82188740244937ba9994f7",
+        "0000264895b3068320f97b3f9b20d9a9c7066e1b004c35b28ced870f9306a95e",
+        "00002fe270b02a94e338e52a537da6f5d25655fb30332a64c349d0cbe9fe41b1",
+        "000036dfba9d6ac475ed7d1137f88ec90b158a02bf4e20360033f99e68b5352d"
+      ],
+      "stats": {
+        "input_members": 2070000,
+        "duplicate_members": 0,
+        "peak_buffered_members": 65536,
+        "spill_runs": 32,
+        "peak_merge_heads": 32
+      }
+    },
+    "expected_ordinal_cardinality": 2070000,
+    "actual_ordinal_cardinality": 2070000,
+    "actual_ordinal_source": "reviewed_publication_universe",
+    "expected_ordinal_set_sha256": "91df8d59a665f7b9fc24f65d66902656b40e65f6bdbf29d44f38621b4bd87e77",
+    "actual_ordinal_set_sha256": "91df8d59a665f7b9fc24f65d66902656b40e65f6bdbf29d44f38621b4bd87e77",
+    "reviewed_ordinal_set_sha256": "91df8d59a665f7b9fc24f65d66902656b40e65f6bdbf29d44f38621b4bd87e77",
+    "ordinal_set_equal": true,
+    "mismatches": {
+      "oracle_duplicates": 0,
+      "missing_from_dictionaries": 0,
+      "canonical_payload_mismatches": 0,
+      "canonical_payload_unavailable": 0,
+      "expected_ordinals_missing_in_actual": 0,
+      "unexpected_actual_ordinals": 0,
+      "reviewed_cardinality_mismatch": false,
+      "reviewed_semantic_digest_mismatch": false,
+      "semantic_set_mismatch": false,
+      "reviewed_ordinal_digest_mismatch": false,
+      "details_truncated": false
+    },
+    "payload_verification": {
+      "exact_canonical_payload_members": 2070000,
+      "cached_exact_payload_members": 0,
+      "verified_cold_closure_members": 0
+    }
+  },
+  "files": [
+    {
+      "name": "compiler-input.json",
+      "sha256": "4eab30c6cc64a2d19984b962139671534a2a21360a9a0875aa6240fd2c475007",
+      "bytes": 1398
+    },
+    {
+      "name": "final-v5-exposure-scale-v1.bundle.json",
+      "sha256": "d77a014b611ad9a6adab7dd6cd6314e8279fed81cb7aca1431a192e80a5792b5",
+      "bytes": 3245
+    },
+    {
+      "name": "catalog.yaml",
+      "sha256": "8bad5660a09b2de497dde9c038f05e115bfa20385f54590b8a87e418fa6ee4f3",
+      "bytes": 2768
+    }
+  ]
+}

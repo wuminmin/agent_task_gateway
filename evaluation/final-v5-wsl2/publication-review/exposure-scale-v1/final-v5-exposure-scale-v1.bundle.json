@@ -1,0 +1,80 @@
+{
+  "version": "taskgate-snapshot-index-bundle-v1",
+  "publication_name": "final-v5-exposure-scale-v1",
+  "catalog_source": "travel_demo",
+  "ordinal_sidecar": "taskgate_ordinal.final_v5_exposure_scale_v1",
+  "manifest_digest": "3af007b8f7d935d8320fee8bf59352c0922dba66666f8ebd53d500cd7d5956ff",
+  "dictionary_manifest": {
+    "version": "taskgate-ordinal-dictionary-v1",
+    "source_id": "taskgate-demo-travel",
+    "source_namespace": "final_v5.exposure_scale",
+    "snapshot": "final-v5-exposure-scale-2026-v1",
+    "schema_digest": "a9743362fa4bf67eeba2de18b8e8660435298a30acddcbbc93719f80b40f7a92",
+    "dictionary_digest": "2b8ff3c1676aafbde834e491e856537f186ff6844d5dfd757760d5f908bc22c5",
+    "sidecar_digest": "8f3d4d1b82baa5095d14abc32b4e9c11cfc2790f6337040d6e17b927fe9209df",
+    "cold_payload_digest": "c1bcc70da4183ba602e151e4316445236081403d2e32d1ab5058b48aabd01f6c",
+    "hot_index_digest": "43903bcf8f8e708982ba05dbc10a04df71237c525a1014b88c102d5e3021a11f",
+    "segments": [
+      {
+        "id": "cell:family_id",
+        "kind": "base-cell",
+        "field": "family_id",
+        "shard": 0,
+        "fact_count": 414000,
+        "hashes_digest": "9fb822dc98be6b23f64cc91534b56239962bbc744e96e4a3b0abea2ce1626657",
+        "payloads_digest": "0fb07c4bcfcf46a5ccb05d63051567f3103e2091104cc9b190c69f9010c12c4e"
+      },
+      {
+        "id": "cell:member_rank",
+        "kind": "base-cell",
+        "field": "member_rank",
+        "shard": 0,
+        "fact_count": 414000,
+        "hashes_digest": "d1fe129694d5d989a23de84bee1aff3c2c4222ad71029d9e9cb402837f89ba85",
+        "payloads_digest": "382f5327c2f8013d085f6ba53780bf652c64924b6aa6d2b6fa5bcf1c9a4e384d"
+      },
+      {
+        "id": "cell:metric",
+        "kind": "base-cell",
+        "field": "metric",
+        "shard": 0,
+        "fact_count": 414000,
+        "hashes_digest": "2d5600de99ae1b547c6935faad29c50b56c566c3104947d82744d4b88cd35606",
+        "payloads_digest": "b5b6d1418327468493f61313bf43becbd53f4edb08c00274fc8a2171aba670ca"
+      },
+      {
+        "id": "cell:partition_key",
+        "kind": "base-cell",
+        "field": "partition_key",
+        "shard": 0,
+        "fact_count": 414000,
+        "hashes_digest": "d7a51fe5dde080d3a186c9535cc40d9769ae4db1d71bf7c916493fcda6992996",
+        "payloads_digest": "d63be90ed82f1839be9d200ee8c1425a31afbe7bf416b72fa6368056f8d516e1"
+      },
+      {
+        "id": "row",
+        "kind": "base-row",
+        "shard": 0,
+        "fact_count": 414000,
+        "hashes_digest": "1090060ef3bf973d2cd068839c7a174ad49db528ca75cde9cd78e7d026738ef6",
+        "payloads_digest": "0ebc91506a718e311a88c910f092532eb0c9b84cb39602860ca128a1def8761b"
+      }
+    ]
+  },
+  "row_count": 414000,
+  "hot": {
+    "name": "final-v5-exposure-scale-v1.hot.tgord",
+    "sha256": "d3f37b2a93acf59eb9ff303fb9f4d6ff6aa053577c0578272a8b5a76b8e00d62",
+    "bytes": 107642350
+  },
+  "cold": {
+    "name": "final-v5-exposure-scale-v1.cold.tgord",
+    "sha256": "e28c9107d814d92dae6a38f26517452efd73ed1b8df70aa364e6036bb97c7e91",
+    "bytes": 1071149936
+  },
+  "sidecar": {
+    "name": "final-v5-exposure-scale-v1.sidecar.ndjson",
+    "sha256": "d4e6e7e0838bd895a9088a5a37dd130a0df6924d1c32fd7f56185a33306c9a1a",
+    "bytes": 56496367
+  }
+}

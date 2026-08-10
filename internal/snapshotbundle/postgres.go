@@ -54,6 +54,11 @@ func ScanPostgresSnapshot(ctx context.Context, input CompilerInput, dsn string) 
 	if err != nil {
 		return CompilerInput{}, errors.New("parse SNAPSHOT_POSTGRES_DSN")
 	}
+	// Publication scans are offline evidence production, not an execution
+	// workload. Keep every statement on PostgreSQL's simple protocol so this
+	// pre-run tool cannot create a prepared statement that could be mistaken
+	// for a measured Gateway operation.
+	connectionConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
 	connectionConfig.ConnectTimeout = 10 * time.Second
 	if connectionConfig.RuntimeParams == nil {
 		connectionConfig.RuntimeParams = make(map[string]string)
@@ -112,6 +117,14 @@ func ScanPostgresSnapshot(ctx context.Context, input CompilerInput, dsn string) 
 	}
 	if len(rows) == 0 {
 		return CompilerInput{}, errors.New("frozen source relation contains no rows")
+	}
+	var preparedStatementCount int64
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM pg_prepared_statements`).Scan(&preparedStatementCount); err != nil {
+		return CompilerInput{}, fmt.Errorf("verify snapshot scan prepared-statement state: %w", err)
+	}
+	if preparedStatementCount != 0 {
+		return CompilerInput{}, fmt.Errorf("snapshot scan session contains %d prepared statements; expected zero",
+			preparedStatementCount)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return CompilerInput{}, fmt.Errorf("commit snapshot scan transaction: %w", err)
