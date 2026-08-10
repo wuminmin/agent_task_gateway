@@ -257,7 +257,7 @@ func (adapter *provSQLAdapter) Execute(ctx context.Context, operation experiment
 				"taskgate_released_parquet_v8", provSQLSystem{}, execution)
 			copyProvSQLTaskGateSnapshots(failed.ProvSQLVerification, retainedSnapshots)
 			failed.ProvSQLVerification.FailureStage = "taskgate_query_or_verifier"
-			return failed
+			return retainTaskGateRejection(failed, executeErr)
 		}
 		execution := provSQLExecution{Rows: sample.RowCount, Columns: sample.ColumnCount,
 			ResultSHA256: sample.ResultSHA256, TypedDrainFields: sample.RowCount * int64(sample.ColumnCount),

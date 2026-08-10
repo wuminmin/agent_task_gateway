@@ -348,10 +348,14 @@ type ObservedDelta struct {
 // invalidates the measurement outright rather than skewing a count.
 func (window ObserverWindowV2) Delta(classifier *CompiledClassifier) (ObservedDelta, error) {
 	if err := window.ValidateInterval(); err != nil {
-		return ObservedDelta{}, err
+		return ObservedDelta{}, rejectTaskGateAt(err, rejectionGateObserverSnapshotInterval,
+			rejectionFailureInvalidValue, rejectionSourceObserverWindow, rejectionSourceObserverWindow)
 	}
 	if classifier == nil {
-		return ObservedDelta{}, errors.New("a window cannot be classified without a compiled classifier")
+		return ObservedDelta{}, rejectTaskGateAt(
+			errors.New("a window cannot be classified without a compiled classifier"),
+			rejectionGateClassifierBinding, rejectionFailureMissing,
+			rejectionSourceClassifierPlan, rejectionSourceClassifierPlan)
 	}
 	// The commitment the observer was invoked under must be the classification it
 	// is now being judged by.
@@ -366,10 +370,12 @@ func (window ObserverWindowV2) Delta(classifier *CompiledClassifier) (ObservedDe
 	// what pre-registering it exists to rule out.
 	committed := classifier.ManifestSHA256()
 	if committed != window.Before.ClassifierManifestSHA256 {
-		return ObservedDelta{}, fmt.Errorf("the observer window was opened under classifier manifest %s "+
+		return ObservedDelta{}, rejectTaskGateAt(fmt.Errorf("the observer window was opened under classifier manifest %s "+
 			"but is being classified by %s; the classification was not the one committed before the "+
 			"observations were taken", shortDigest(window.Before.ClassifierManifestSHA256),
-			shortDigest(committed))
+			shortDigest(committed)), rejectionGateClassifierCommitment,
+			rejectionFailureMismatch, rejectionSourceClassifierPlan, rejectionSourceObserverWindow,
+			rejectionSHA256Pair(committed, window.Before.ClassifierManifestSHA256)...)
 	}
 	delta := ObservedDelta{
 		Total:    window.After.Total - window.Before.Total,
@@ -385,8 +391,11 @@ func (window ObserverWindowV2) Delta(classifier *CompiledClassifier) (ObservedDe
 		key := classifierKey{digest: row.StrictASTSHA256, topLevel: row.TopLevel}
 		change := row.Calls - before[key]
 		if change < 0 {
-			return ObservedDelta{}, fmt.Errorf("key %s went backwards by %d across the window",
-				shortDigest(row.StrictASTSHA256), -change)
+			return ObservedDelta{}, rejectTaskGateAt(
+				fmt.Errorf("key %s went backwards by %d across the window",
+					shortDigest(row.StrictASTSHA256), -change),
+				rejectionGateCensusMonotonicity, rejectionFailureMismatch,
+				rejectionSourceObserverWindow, rejectionSourceObserverWindow)
 		}
 		if change == 0 {
 			continue
@@ -408,13 +417,24 @@ func (window ObserverWindowV2) Delta(classifier *CompiledClassifier) (ObservedDe
 			continue
 		}
 		if _, present := window.After.callsByKey()[key]; !present {
-			return ObservedDelta{}, fmt.Errorf("key %s disappeared from the census inside the window",
-				shortDigest(key.digest))
+			return ObservedDelta{}, rejectTaskGateAt(
+				fmt.Errorf("key %s disappeared from the census inside the window", shortDigest(key.digest)),
+				rejectionGateCensusMonotonicity, rejectionFailureMismatch,
+				rejectionSourceObserverWindow, rejectionSourceObserverWindow)
 		}
 	}
 	if classified != delta.Total {
-		return ObservedDelta{}, fmt.Errorf("the role total moved by %d but the classified rows account for %d; "+
-			"a call was counted outside the census", delta.Total, classified)
+		differences := []rejectionDifferenceV1(nil)
+		if delta.Total >= 0 && classified >= 0 {
+			differences = append(differences,
+				rejectionCountDifference(rejectionDifferenceExpectedCount, delta.Total),
+				rejectionCountDifference(rejectionDifferenceActualCount, classified))
+		}
+		return ObservedDelta{}, rejectTaskGateAt(
+			fmt.Errorf("the role total moved by %d but the classified rows account for %d; "+
+				"a call was counted outside the census", delta.Total, classified),
+			rejectionGateCensusMonotonicity, rejectionFailureMismatch,
+			rejectionSourceObserverWindow, rejectionSourceObserverWindow, differences...)
 	}
 	for key, calls := range internal {
 		delta.Internal = append(delta.Internal,
@@ -507,7 +527,8 @@ func (window ObserverWindowV2) ResourceDelta() (ObserverResourceDeltaV2, error) 
 // replaced by another.
 func (delta ObservedDelta) Accept(plan GatewayControlPlanV3) error {
 	if err := plan.Validate(); err != nil {
-		return err
+		return rejectTaskGateAt(err, rejectionGateControlPlan, rejectionFailureInvalidValue,
+			rejectionSourceClassifierPlan, rejectionSourceClassifierPlan)
 	}
 	if len(delta.Unexpected) > 0 {
 		keys := make([]string, 0, len(delta.Unexpected))
@@ -515,36 +536,71 @@ func (delta ObservedDelta) Accept(plan GatewayControlPlanV3) error {
 			keys = append(keys, fmt.Sprintf("%s(toplevel=%t)x%d",
 				shortDigest(row.StrictASTSHA256), row.TopLevel, row.Calls))
 		}
-		return fmt.Errorf("the window contains %d unexpected structural statement(s): %v",
-			len(delta.Unexpected), keys)
+		return rejectTaskGateStatementClassAt(fmt.Errorf("the window contains %d unexpected structural statement(s): %v",
+			len(delta.Unexpected), keys), rejectionGateUnexpectedStructuralStatements,
+			rejectionFailureMismatch, rejectionSourceClassifierPlan, rejectionSourceObserverWindow,
+			V3Unexpected,
+			rejectionUnexpectedDifferences(delta.Unexpected)...)
 	}
 	expected := plan.Expected()
 	if len(delta.PerClass) != len(expected) {
-		return fmt.Errorf("the observed delta carries %d statement classes, the closed world defines %d",
-			len(delta.PerClass), len(expected))
+		return rejectTaskGateAt(
+			fmt.Errorf("the observed delta carries %d statement classes, the closed world defines %d",
+				len(delta.PerClass), len(expected)),
+			rejectionGateClosedWorldClasses, rejectionFailureMismatch,
+			rejectionSourceClassifierPlan, rejectionSourceObserverWindow,
+			rejectionCountDifference(rejectionDifferenceExpectedCount, int64(len(expected))),
+			rejectionCountDifference(rejectionDifferenceActualCount, int64(len(delta.PerClass))))
 	}
 	for class := range delta.PerClass {
 		if _, known := expected[class]; !known {
-			return fmt.Errorf("the observed delta carries unknown statement class %q", class)
+			return rejectTaskGateAt(
+				fmt.Errorf("the observed delta carries unknown statement class %q", class),
+				rejectionGateClosedWorldClasses, rejectionFailureInvalidValue,
+				rejectionSourceClassifierPlan, rejectionSourceObserverWindow)
 		}
 	}
 	for _, class := range GatewayStatementClassesV3() {
 		if _, present := delta.PerClass[class]; !present {
-			return fmt.Errorf("the observed delta omits closed-world statement class %s", class)
+			return rejectTaskGateStatementClassAt(
+				fmt.Errorf("the observed delta omits closed-world statement class %s", class),
+				rejectionGateClosedWorldClasses, rejectionFailureMissing,
+				rejectionSourceClassifierPlan, rejectionSourceObserverWindow, class)
 		}
 		if delta.PerClass[class] != expected[class] {
-			return fmt.Errorf("class %s observed %d, the plan expects %d",
-				class, delta.PerClass[class], expected[class])
+			differences := []rejectionDifferenceV1(nil)
+			if delta.PerClass[class] >= 0 && expected[class] >= 0 {
+				differences = append(differences,
+					rejectionCountDifference(rejectionDifferenceExpectedCount, expected[class]),
+					rejectionCountDifference(rejectionDifferenceActualCount, delta.PerClass[class]))
+			}
+			return rejectTaskGateStatementClassAt(fmt.Errorf("class %s observed %d, the plan expects %d",
+				class, delta.PerClass[class], expected[class]),
+				rejectionGateClosedWorldClasses, rejectionFailureMismatch,
+				rejectionSourceClassifierPlan, rejectionSourceObserverWindow, class, differences...)
 		}
 	}
 	if err := validateInternalExpectation(delta.Internal); err != nil {
-		return fmt.Errorf("observed PostgreSQL-internal accounting: %w", err)
+		return rejectTaskGateAt(fmt.Errorf("observed PostgreSQL-internal accounting: %w", err),
+			rejectionGateInternalStatementMultiset, rejectionFailureInvalidValue,
+			rejectionSourceClassifierPlan, rejectionSourceObserverWindow)
 	}
 	if err := requireSameInternalExpectation(delta.Internal, plan.InternalExpectation); err != nil {
-		return fmt.Errorf("PostgreSQL-internal accounting: %w", err)
+		return rejectTaskGateAt(fmt.Errorf("PostgreSQL-internal accounting: %w", err),
+			rejectionGateInternalStatementMultiset, rejectionFailureMismatch,
+			rejectionSourceClassifierPlan, rejectionSourceObserverWindow)
 	}
 	if delta.Total != plan.ExpectedTotal() {
-		return fmt.Errorf("the window total is %d, the plan expects %d", delta.Total, plan.ExpectedTotal())
+		differences := []rejectionDifferenceV1(nil)
+		if delta.Total >= 0 && plan.ExpectedTotal() >= 0 {
+			differences = append(differences,
+				rejectionCountDifference(rejectionDifferenceExpectedCount, plan.ExpectedTotal()),
+				rejectionCountDifference(rejectionDifferenceActualCount, delta.Total))
+		}
+		return rejectTaskGateAt(
+			fmt.Errorf("the window total is %d, the plan expects %d", delta.Total, plan.ExpectedTotal()),
+			rejectionGateObserverTotal, rejectionFailureMismatch,
+			rejectionSourceClassifierPlan, rejectionSourceObserverWindow, differences...)
 	}
 	return nil
 }

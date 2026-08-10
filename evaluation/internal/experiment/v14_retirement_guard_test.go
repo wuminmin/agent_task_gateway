@@ -309,8 +309,12 @@ func TestFinalizeObservationV3HasProductionCallers(t *testing.T) {
 			function:         "FinalizeTaskGateObservationV3",
 			functionReceiver: "*RuntimeFinalizerV3",
 			callForm:         "identifier",
-			statement:        "return",
-			resultBinding:    "return-direct",
+			// The façade binds the result so its one final fail-closed boundary
+			// can attach a credential-free rejection to any future core error
+			// that was not classified at its own gate. The closed call set is
+			// unchanged: there is still exactly one private-core edge.
+			statement:     "assignment",
+			resultBinding: "finalized,err:=direct",
 		},
 	})
 	requireProductionSymbolClosure(t, root, "FinalizeObservationV3", productionDeclaration{
@@ -362,6 +366,25 @@ func TestRuntimeFinalizerV3HasTaskGateProductionCallers(t *testing.T) {
 			callReceiver:     "finalizer",
 			statement:        "assignment",
 			resultBinding:    "finalized,err:=direct",
+		},
+	})
+	requireProductionSymbolClosure(t, root, "retainTaskGateRejection", productionDeclaration{
+		path: "evaluation/cmd/final-v5-adapter/adapter_bindings.go",
+	}, []productionCallSite{
+		{
+			path: "evaluation/cmd/final-v5-adapter/artifact.go", function: "Execute",
+			functionReceiver: "*artifactAdapter", callForm: "identifier",
+			statement: "nested-control", resultBinding: "nested-control",
+		},
+		{
+			path: "evaluation/cmd/final-v5-adapter/scale.go", function: "Execute",
+			functionReceiver: "*scaleAdapter", callForm: "identifier",
+			statement: "nested-control", resultBinding: "nested-control",
+		},
+		{
+			path: "evaluation/cmd/final-v5-adapter/provsql.go", function: "Execute",
+			functionReceiver: "*provSQLAdapter", callForm: "identifier",
+			statement: "nested-control", resultBinding: "nested-control",
 		},
 	})
 }

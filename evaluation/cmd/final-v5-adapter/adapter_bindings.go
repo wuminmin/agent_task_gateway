@@ -274,6 +274,21 @@ func failedSample(operation experiment.AdapterOperation, code string) experiment
 	return sample
 }
 
+// retainTaskGateRejection attaches only the finalizer's opaque typed marker.
+// Ordinary errors -- including pre-registration, observation, execution and
+// evidence-validation failures that never called FinalizeTaskGateObservationV3
+// -- leave both acceptance and rejection absent.
+func retainTaskGateRejection(sample experiment.Sample, err error) experiment.Sample {
+	rejection, rejected := experiment.TaskGateRejectionFromError(err)
+	if !rejected {
+		return sample
+	}
+	sample.SchemaVersion = experiment.TaskGateRejectionSampleSchemaVersion
+	sample.TaskGateAcceptanceV3 = nil
+	sample.TaskGateRejectionV1 = rejection
+	return sample
+}
+
 // requireVerifiedReceipt is the v3 path's receipt acceptance rule.
 //
 // The Adapter used to accept a receipt that described no execution and then

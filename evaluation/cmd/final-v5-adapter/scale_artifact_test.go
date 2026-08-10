@@ -1,7 +1,10 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -111,6 +114,54 @@ func TestAdapterFailureTaxonomyRetainsAttemptedFailureAndInvalidBinding(t *testi
 	}
 	if err := failed.Validate(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRetainTaskGateRejectionDistinguishesFinalizerRefusal(t *testing.T) {
+	operation := experiment.AdapterOperation{SchemaVersion: 1, CampaignClass: "pilot", CampaignID: "c",
+		DeploymentID: "deployment-01", ExperimentID: "artifact", CellID: "result-heavy/100x4/novel",
+		SampleID: "s", Iteration: 1, ProcessReplicate: 1, OrderPosition: 1, RandomSeed: 1,
+		PairID: "p", PairedSystemOrder: "novel", RootGroupID: "novel", WorkloadID: "result-heavy",
+		Scale: "100x4", Mode: "novel"}
+	failed := failedSample(operation, "artifact_measurement_failed")
+	failed.TaskGateAcceptanceV3 = &experiment.FinalizationV3{}
+
+	var unopened *experiment.RuntimeFinalizerV3
+	_, refusal := unopened.FinalizeTaskGateObservationV3(context.Background(), experiment.FinalizationRequestV3{})
+	retained := retainTaskGateRejection(failed, refusal)
+	if retained.SchemaVersion != experiment.TaskGateRejectionSampleSchemaVersion ||
+		retained.Status != "fail" || retained.TaskGateRejectionV1 == nil ||
+		retained.TaskGateAcceptanceV3 != nil {
+		t.Fatalf("finalizer refusal did not become an exclusive sample-v2 rejection: %+v", retained)
+	}
+	if _, ok := experiment.TaskGateRejectionFromError(refusal); !ok {
+		t.Fatal("finalizer refusal omitted the typed rejection marker")
+	}
+	secretSentinels := []string{
+		"TASKGATE_FULL_SAMPLE_SENTINEL_7f18c3",
+		"postgres://taxonomy:Only-In-Error@private.invalid/evidence",
+		"-----BEGIN PRIVATE KEY-----taxonomy-only-----END PRIVATE KEY-----",
+	}
+	wrapped := errors.Join(errors.New(secretSentinels[0]),
+		fmt.Errorf("operator DSN %s and key %s: %w", secretSentinels[1], secretSentinels[2], refusal))
+	credentialFree := retainTaskGateRejection(failed, wrapped)
+	if err := credentialFree.Validate(); err != nil {
+		t.Fatalf("credential-free retained Sample does not validate: %v", err)
+	}
+	encoded, err := json.Marshal(credentialFree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, sentinel := range secretSentinels {
+		if strings.Contains(string(encoded), sentinel) {
+			t.Fatalf("serialized retained Sample contains error-chain sentinel %q", sentinel)
+		}
+	}
+
+	ordinary := retainTaskGateRejection(failed, errors.New("failure before finalization"))
+	if ordinary.SchemaVersion != experiment.SampleSchemaVersion || ordinary.TaskGateRejectionV1 != nil ||
+		ordinary.TaskGateAcceptanceV3 == nil {
+		t.Fatalf("pre-finalizer error changed the sample wire state: %+v", ordinary)
 	}
 }
 

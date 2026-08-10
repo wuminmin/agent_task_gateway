@@ -400,7 +400,192 @@ func (binding PreparedOperationBindingV1) RequireSame(other PreparedOperationBin
 			"PreparedOperationBindingV1 has a member RequireSame does not compare",
 			ShortDigest(binding.SHA256), ShortDigest(other.SHA256))
 	}
-	return fmt.Errorf("two independent preparations of one operation disagree on %v", differences)
+	return &PreparedOperationMismatchError{members: differences}
+}
+
+// PreparedOperationMember is one closed member of PreparedOperationBindingV1.
+//
+// It is numeric rather than a string alias so arbitrary text cannot become a
+// member name. Durable encoders still reject values whose Code is empty. Code
+// is the stable wire spelling; String retains the operator-facing spelling.
+type PreparedOperationMember uint8
+
+const (
+	PreparedMemberHasCompanion PreparedOperationMember = iota + 1
+	PreparedMemberGrouped
+	PreparedMemberExpandedEvidence
+	PreparedMemberVisibleFieldCount
+	PreparedMemberFactFieldCount
+	PreparedMemberProvenanceFieldCount
+	PreparedMemberVisibleFields
+	PreparedMemberFactFields
+	PreparedMemberProvenanceFields
+	PreparedMemberPreparationInputs
+	PreparedMemberGrant
+	PreparedMemberCatalog
+	PreparedMemberSnapshotBindingSet
+	PreparedMemberPlan
+	PreparedMemberCompilerIdentity
+	PreparedMemberPolicyGrant
+	PreparedMemberNormalForm
+	PreparedMemberOrdinalProgram
+	PreparedMemberDictionarySet
+	PreparedMemberSidecarGrants
+	PreparedMemberSourcePublications
+	PreparedMemberViewBinding
+	PreparedMemberViewRegistryRevision
+	PreparedMemberViewArtifact
+	PreparedMemberViewComposition
+	PreparedMemberTerminalProductClosure
+	PreparedMemberGovernanceEnvelope
+	PreparedMemberPredicateFootprint
+	PreparedMemberEstimatedBaseFacts
+	PreparedMemberVisibleTarget
+	PreparedMemberCompanionTarget
+	preparedOperationMemberCount
+)
+
+var preparedOperationMembers = [...]PreparedOperationMember{
+	PreparedMemberHasCompanion,
+	PreparedMemberGrouped,
+	PreparedMemberExpandedEvidence,
+	PreparedMemberVisibleFieldCount,
+	PreparedMemberFactFieldCount,
+	PreparedMemberProvenanceFieldCount,
+	PreparedMemberVisibleFields,
+	PreparedMemberFactFields,
+	PreparedMemberProvenanceFields,
+	PreparedMemberPreparationInputs,
+	PreparedMemberGrant,
+	PreparedMemberCatalog,
+	PreparedMemberSnapshotBindingSet,
+	PreparedMemberPlan,
+	PreparedMemberCompilerIdentity,
+	PreparedMemberPolicyGrant,
+	PreparedMemberNormalForm,
+	PreparedMemberOrdinalProgram,
+	PreparedMemberDictionarySet,
+	PreparedMemberSidecarGrants,
+	PreparedMemberSourcePublications,
+	PreparedMemberViewBinding,
+	PreparedMemberViewRegistryRevision,
+	PreparedMemberViewArtifact,
+	PreparedMemberViewComposition,
+	PreparedMemberTerminalProductClosure,
+	PreparedMemberGovernanceEnvelope,
+	PreparedMemberPredicateFootprint,
+	PreparedMemberEstimatedBaseFacts,
+	PreparedMemberVisibleTarget,
+	PreparedMemberCompanionTarget,
+}
+
+const preparedOperationMemberCardinality = int(preparedOperationMemberCount) - 1
+
+// Both directions are intentional: adding an enum without adding it to the
+// closed list, or adding a list entry without an enum, fails compilation.
+var _ [preparedOperationMemberCardinality - len(preparedOperationMembers)]struct{}
+var _ [len(preparedOperationMembers) - preparedOperationMemberCardinality]struct{}
+
+// PreparedOperationMembers returns the complete closed member enumeration.
+func PreparedOperationMembers() []PreparedOperationMember {
+	return append([]PreparedOperationMember(nil), preparedOperationMembers[:]...)
+}
+
+// Code is the stable lowercase wire spelling used by rejection evidence.
+func (member PreparedOperationMember) Code() string {
+	switch member {
+	case PreparedMemberHasCompanion:
+		return "has_companion"
+	case PreparedMemberGrouped:
+		return "grouped"
+	case PreparedMemberExpandedEvidence:
+		return "expanded_evidence"
+	case PreparedMemberVisibleFieldCount:
+		return "visible_field_count"
+	case PreparedMemberFactFieldCount:
+		return "fact_field_count"
+	case PreparedMemberProvenanceFieldCount:
+		return "provenance_field_count"
+	case PreparedMemberVisibleFields:
+		return "visible_fields"
+	case PreparedMemberFactFields:
+		return "fact_fields"
+	case PreparedMemberProvenanceFields:
+		return "provenance_fields"
+	case PreparedMemberPreparationInputs:
+		return "preparation_inputs"
+	case PreparedMemberGrant:
+		return "grant"
+	case PreparedMemberCatalog:
+		return "catalog"
+	case PreparedMemberSnapshotBindingSet:
+		return "snapshot_binding_set"
+	case PreparedMemberPlan:
+		return "plan"
+	case PreparedMemberCompilerIdentity:
+		return "compiler_identity"
+	case PreparedMemberPolicyGrant:
+		return "policy_grant"
+	case PreparedMemberNormalForm:
+		return "normal_form"
+	case PreparedMemberOrdinalProgram:
+		return "ordinal_program"
+	case PreparedMemberDictionarySet:
+		return "dictionary_set"
+	case PreparedMemberSidecarGrants:
+		return "sidecar_grants"
+	case PreparedMemberSourcePublications:
+		return "source_publications"
+	case PreparedMemberViewBinding:
+		return "view_binding"
+	case PreparedMemberViewRegistryRevision:
+		return "view_registry_revision"
+	case PreparedMemberViewArtifact:
+		return "view_artifact"
+	case PreparedMemberViewComposition:
+		return "view_composition"
+	case PreparedMemberTerminalProductClosure:
+		return "terminal_product_closure"
+	case PreparedMemberGovernanceEnvelope:
+		return "governance_envelope"
+	case PreparedMemberPredicateFootprint:
+		return "predicate_footprint"
+	case PreparedMemberEstimatedBaseFacts:
+		return "estimated_base_facts"
+	case PreparedMemberVisibleTarget:
+		return "visible_target"
+	case PreparedMemberCompanionTarget:
+		return "companion_target"
+	default:
+		return ""
+	}
+}
+
+func (member PreparedOperationMember) String() string {
+	return strings.ReplaceAll(member.Code(), "_", " ")
+}
+
+// PreparedOperationMismatchError is the typed form of a whole-binding
+// mismatch. Members is the one list RequireSame itself computes; finalizer
+// evidence therefore never parses or restates an error string to learn what
+// differed.
+type PreparedOperationMismatchError struct {
+	members []PreparedOperationMember
+}
+
+func (mismatch *PreparedOperationMismatchError) Error() string {
+	if mismatch == nil {
+		return "two independent preparations disagree"
+	}
+	return fmt.Sprintf("two independent preparations of one operation disagree on %v", mismatch.members)
+}
+
+// Members returns every differing member in stable order.
+func (mismatch *PreparedOperationMismatchError) Members() []PreparedOperationMember {
+	if mismatch == nil {
+		return nil
+	}
+	return append([]PreparedOperationMember(nil), mismatch.members...)
 }
 
 // differences names every member two bindings disagree on, in a stable order.
@@ -408,46 +593,48 @@ func (binding PreparedOperationBindingV1) RequireSame(other PreparedOperationBin
 // It is separate from RequireSame so the Query Execution Binding can report the
 // same member names when the finalizer's preparation disagrees with the signed
 // one, rather than growing a second, drifting copy of this list.
-func (binding PreparedOperationBindingV1) differences(other PreparedOperationBindingV1) []string {
-	var differences []string
-	for name, pair := range map[string][2]any{
-		"has companion":            {binding.HasCompanion, other.HasCompanion},
-		"grouped":                  {binding.Grouped, other.Grouped},
-		"expanded evidence":        {binding.ExpandedEvidence, other.ExpandedEvidence},
-		"visible field count":      {binding.VisibleFieldCount, other.VisibleFieldCount},
-		"fact field count":         {binding.FactFieldCount, other.FactFieldCount},
-		"provenance field count":   {binding.ProvenanceFieldCount, other.ProvenanceFieldCount},
-		"visible fields":           {binding.VisibleFieldsSHA256, other.VisibleFieldsSHA256},
-		"fact fields":              {binding.FactFieldsSHA256, other.FactFieldsSHA256},
-		"provenance fields":        {binding.ProvenanceFieldsSHA256, other.ProvenanceFieldsSHA256},
-		"preparation inputs":       {binding.PreparationInputsSHA256, other.PreparationInputsSHA256},
-		"grant":                    {binding.GrantSHA256, other.GrantSHA256},
-		"catalog":                  {binding.CatalogSHA256, other.CatalogSHA256},
-		"snapshot binding set":     {binding.SnapshotBindingSetSHA256, other.SnapshotBindingSetSHA256},
-		"plan":                     {binding.PlanSHA256, other.PlanSHA256},
-		"compiler identity":        {binding.CompilerIdentitySHA256, other.CompilerIdentitySHA256},
-		"policy grant":             {binding.PolicyGrantSHA256, other.PolicyGrantSHA256},
-		"normal form":              {binding.NormalFormSHA256, other.NormalFormSHA256},
-		"ordinal program":          {binding.OrdinalProgramSHA256, other.OrdinalProgramSHA256},
-		"dictionary set":           {binding.DictionarySetSHA256, other.DictionarySetSHA256},
-		"sidecar grants":           {binding.SidecarGrantsSHA256, other.SidecarGrantsSHA256},
-		"source publications":      {binding.SourcePublicationsSHA256, other.SourcePublicationsSHA256},
-		"view binding":             {binding.ViewBindingSHA256, other.ViewBindingSHA256},
-		"view registry revision":   {binding.ViewRegistryRevisionSHA256, other.ViewRegistryRevisionSHA256},
-		"view artifact":            {binding.ViewArtifactSHA256, other.ViewArtifactSHA256},
-		"view composition":         {binding.ViewCompositionSHA256, other.ViewCompositionSHA256},
-		"terminal product closure": {binding.TerminalProductClosureSHA256, other.TerminalProductClosureSHA256},
-		"governance envelope":      {binding.GovernanceEnvelopeSHA256, other.GovernanceEnvelopeSHA256},
-		"predicate footprint":      {binding.PredicateFootprintSHA256, other.PredicateFootprintSHA256},
-		"estimated base facts":     {binding.EstimatedBaseFacts, other.EstimatedBaseFacts},
-		"visible target":           {binding.VisibleTargetSHA256, other.VisibleTargetSHA256},
-		"companion target":         {binding.CompanionTargetSHA256, other.CompanionTargetSHA256},
+func (binding PreparedOperationBindingV1) differences(other PreparedOperationBindingV1) []PreparedOperationMember {
+	var differences []PreparedOperationMember
+	for member, pair := range map[PreparedOperationMember][2]any{
+		PreparedMemberHasCompanion:           {binding.HasCompanion, other.HasCompanion},
+		PreparedMemberGrouped:                {binding.Grouped, other.Grouped},
+		PreparedMemberExpandedEvidence:       {binding.ExpandedEvidence, other.ExpandedEvidence},
+		PreparedMemberVisibleFieldCount:      {binding.VisibleFieldCount, other.VisibleFieldCount},
+		PreparedMemberFactFieldCount:         {binding.FactFieldCount, other.FactFieldCount},
+		PreparedMemberProvenanceFieldCount:   {binding.ProvenanceFieldCount, other.ProvenanceFieldCount},
+		PreparedMemberVisibleFields:          {binding.VisibleFieldsSHA256, other.VisibleFieldsSHA256},
+		PreparedMemberFactFields:             {binding.FactFieldsSHA256, other.FactFieldsSHA256},
+		PreparedMemberProvenanceFields:       {binding.ProvenanceFieldsSHA256, other.ProvenanceFieldsSHA256},
+		PreparedMemberPreparationInputs:      {binding.PreparationInputsSHA256, other.PreparationInputsSHA256},
+		PreparedMemberGrant:                  {binding.GrantSHA256, other.GrantSHA256},
+		PreparedMemberCatalog:                {binding.CatalogSHA256, other.CatalogSHA256},
+		PreparedMemberSnapshotBindingSet:     {binding.SnapshotBindingSetSHA256, other.SnapshotBindingSetSHA256},
+		PreparedMemberPlan:                   {binding.PlanSHA256, other.PlanSHA256},
+		PreparedMemberCompilerIdentity:       {binding.CompilerIdentitySHA256, other.CompilerIdentitySHA256},
+		PreparedMemberPolicyGrant:            {binding.PolicyGrantSHA256, other.PolicyGrantSHA256},
+		PreparedMemberNormalForm:             {binding.NormalFormSHA256, other.NormalFormSHA256},
+		PreparedMemberOrdinalProgram:         {binding.OrdinalProgramSHA256, other.OrdinalProgramSHA256},
+		PreparedMemberDictionarySet:          {binding.DictionarySetSHA256, other.DictionarySetSHA256},
+		PreparedMemberSidecarGrants:          {binding.SidecarGrantsSHA256, other.SidecarGrantsSHA256},
+		PreparedMemberSourcePublications:     {binding.SourcePublicationsSHA256, other.SourcePublicationsSHA256},
+		PreparedMemberViewBinding:            {binding.ViewBindingSHA256, other.ViewBindingSHA256},
+		PreparedMemberViewRegistryRevision:   {binding.ViewRegistryRevisionSHA256, other.ViewRegistryRevisionSHA256},
+		PreparedMemberViewArtifact:           {binding.ViewArtifactSHA256, other.ViewArtifactSHA256},
+		PreparedMemberViewComposition:        {binding.ViewCompositionSHA256, other.ViewCompositionSHA256},
+		PreparedMemberTerminalProductClosure: {binding.TerminalProductClosureSHA256, other.TerminalProductClosureSHA256},
+		PreparedMemberGovernanceEnvelope:     {binding.GovernanceEnvelopeSHA256, other.GovernanceEnvelopeSHA256},
+		PreparedMemberPredicateFootprint:     {binding.PredicateFootprintSHA256, other.PredicateFootprintSHA256},
+		PreparedMemberEstimatedBaseFacts:     {binding.EstimatedBaseFacts, other.EstimatedBaseFacts},
+		PreparedMemberVisibleTarget:          {binding.VisibleTargetSHA256, other.VisibleTargetSHA256},
+		PreparedMemberCompanionTarget:        {binding.CompanionTargetSHA256, other.CompanionTargetSHA256},
 	} {
 		if pair[0] != pair[1] {
-			differences = append(differences, name)
+			differences = append(differences, member)
 		}
 	}
-	sort.Strings(differences)
+	sort.Slice(differences, func(left, right int) bool {
+		return differences[left].Code() < differences[right].Code()
+	})
 	return differences
 }
 

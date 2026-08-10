@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"taskbound.local/agent-data-gateway/internal/physicalquery"
+	"taskbound.local/agent-data-gateway/internal/preparedbinding"
 	"taskbound.local/agent-data-gateway/internal/queryplan"
 	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 )
@@ -253,28 +254,47 @@ func (finalizer *RuntimeFinalizerV3) FinalizeTaskGateObservationV3(ctx context.C
 	request FinalizationRequestV3) (FinalizationV3, error) {
 	var result FinalizationV3
 	if finalizer == nil {
-		return result, errors.New("v3 finalization requires an opened runtime finalizer")
+		return result, rejectTaskGateAt(
+			errors.New("v3 finalization requires an opened runtime finalizer"),
+			rejectionGateFinalizerInstance, rejectionFailureUnavailable,
+			rejectionSourceFinalizerDerivation, rejectionSourceFinalizerDerivation)
 	}
 	// The signature first, because everything below reads the receipt: the
 	// request state is looked up by ITS task and request id, and the contract
 	// candidate is chosen by comparing against ITS signed preparation.
 	if err := queryreceipt.RequireCurrentVersion(request.Receipt.Version); err != nil {
-		return result, fmt.Errorf("v3 finalization requires the current receipt: %w", err)
+		return result, rejectTaskGateAt(fmt.Errorf("v3 finalization requires the current receipt: %w", err),
+			rejectionGateReceiptCurrentVersion, rejectionFailureInvalidValue,
+			rejectionSourceFinalizerVerifier, rejectionSourceGatewayReceipt)
 	}
 	if err := request.Receipt.Validate(); err != nil {
-		return result, fmt.Errorf("receipt does not validate: %w", err)
+		return result, rejectTaskGateAt(fmt.Errorf("receipt does not validate: %w", err),
+			rejectionGateReceiptDocument, rejectionFailureInvalidValue,
+			rejectionSourceFinalizerVerifier, rejectionSourceGatewayReceipt)
 	}
 	if err := finalizer.verifier.Verify(request.Receipt); err != nil {
-		return result, fmt.Errorf("verify receipt: %w", err)
+		return result, rejectTaskGateAt(fmt.Errorf("verify receipt: %w", err),
+			rejectionGateReceiptSignature, rejectionFailureInvalidValue,
+			rejectionSourceFinalizerVerifier, rejectionSourceGatewayReceipt)
 	}
 	if err := finalizer.verifyAndConsumeObserverWindowTicketV3(request); err != nil {
-		return result, err
+		return result, rejectTaskGateAt(err, rejectionGateObserverTicket,
+			rejectionFailureInvalidValue, rejectionSourceObserverTicket, rejectionSourceCarriedEvidence)
 	}
 	trusted, err := finalizer.deriveTrustedInputs(ctx, request)
 	if err != nil {
-		return result, err
+		return result, rejectTaskGateAt(err, rejectionGateFinalizerInternal,
+			rejectionFailureInvalidValue, rejectionSourceFinalizerDerivation,
+			rejectionSourceFinalizerDerivation)
 	}
-	return finalizeTaskGateObservationV3Core(request.Receipt, finalizer.verifier, request.Carried, trusted)
+	finalized, err := finalizeTaskGateObservationV3Core(
+		request.Receipt, finalizer.verifier, request.Carried, trusted)
+	if err != nil {
+		return result, rejectTaskGateAt(err, rejectionGateFinalizerInternal,
+			rejectionFailureInvalidValue, rejectionSourceFinalizerDerivation,
+			rejectionSourceFinalizerDerivation)
+	}
+	return finalized, nil
 }
 
 // deriveTrustedInputs assembles the finalizer's own answer.
@@ -289,11 +309,15 @@ func (finalizer *RuntimeFinalizerV3) deriveTrustedInputs(ctx context.Context,
 	var trusted TrustedInputsV3
 	state, err := finalizer.control.ReadRequestState(ctx, request.Receipt.TaskID, request.Receipt.RequestID)
 	if err != nil {
-		return trusted, fmt.Errorf("read the Control Store's account of this request: %w", err)
+		return trusted, rejectTaskGateAt(fmt.Errorf("read the Control Store's account of this request: %w", err),
+			rejectionGateControlRequestState, rejectionFailureUnavailable,
+			rejectionSourceControlStore, rejectionSourceControlStore)
 	}
 	postgres, err := finalizer.runtime.ReadPostgreSQLIdentity(ctx)
 	if err != nil {
-		return trusted, fmt.Errorf("read the deployment's PostgreSQL identity: %w", err)
+		return trusted, rejectTaskGateAt(fmt.Errorf("read the deployment's PostgreSQL identity: %w", err),
+			rejectionGateDeploymentPostgreSQLIdentity, rejectionFailureUnavailable,
+			rejectionSourceDeploymentRuntime, rejectionSourceDeploymentRuntime)
 	}
 	trusted.PostgreSQL = postgres
 	trusted.SettlementWroteExecutionBindingRow = state.WroteExecutionBindingRow
@@ -306,8 +330,11 @@ func (finalizer *RuntimeFinalizerV3) deriveTrustedInputs(ctx context.Context,
 		replay := *state.Replay
 		replay.ReturnedReceiptJSON = request.ReturnedReceiptJSON
 		if len(replay.ReturnedReceiptJSON) == 0 {
-			return trusted, errors.New("an idempotent replay is finalized on whether the stored document " +
-				"came back unchanged, and the returned bytes were not submitted")
+			return trusted, rejectTaskGateAt(
+				errors.New("an idempotent replay is finalized on whether the stored document "+
+					"came back unchanged, and the returned bytes were not submitted"),
+				rejectionGateReplayReturnedReceipt, rejectionFailureMissing,
+				rejectionSourceControlStore, rejectionSourceCarriedEvidence)
 		}
 		trusted.Replay = &replay
 		trusted.OperationID, trusted.ContractIdentity = replay.OriginalQueryID, request.Carried.Operation.ContractIdentity
@@ -320,11 +347,15 @@ func (finalizer *RuntimeFinalizerV3) deriveTrustedInputs(ctx context.Context,
 	}
 	profile, err := finalizer.profiles.Resolve(candidate.ProfileID)
 	if err != nil {
-		return trusted, fmt.Errorf("resolve deployment profile %q: %w", candidate.ProfileID, err)
+		return trusted, rejectTaskGateAt(fmt.Errorf("resolve deployment profile %q: %w", candidate.ProfileID, err),
+			rejectionGateProfileMaterial, rejectionFailureUnavailable,
+			rejectionSourceActivatedProfile, rejectionSourceActivatedProfile)
 	}
 	footprint, err := finalizer.footprints.Resolve(profile.CatalogPath, postgres)
 	if err != nil {
-		return trusted, fmt.Errorf("resolve the qualified Attestation footprint: %w", err)
+		return trusted, rejectTaskGateAt(fmt.Errorf("resolve the qualified Attestation footprint: %w", err),
+			rejectionGateQualifiedFootprintResolve, rejectionFailureUnavailable,
+			rejectionSourceRetainedQualification, rejectionSourceDeploymentRuntime)
 	}
 	trusted.CatalogPath, trusted.Footprint = profile.CatalogPath, footprint
 	trusted.OperationID, trusted.ContractIdentity = candidate.OperationID, candidate.ContractIdentity
@@ -345,16 +376,23 @@ func (finalizer *RuntimeFinalizerV3) identifyOperation(request FinalizationReque
 	candidates, err := finalizer.contracts.ResolveCandidates(request.ContractSelector)
 	if err != nil {
 		return frozenOperationCandidateV3{}, FrozenOperationMaterialV3{},
-			fmt.Errorf("resolve frozen contract candidates for %s: %w", request.ContractSelector, err)
+			rejectTaskGateAt(fmt.Errorf("resolve frozen contract candidates for %s: %w", request.ContractSelector, err),
+				rejectionGateCandidateResolution, rejectionFailureUnavailable,
+				rejectionSourceFrozenContract, rejectionSourceFrozenContract)
 	}
 	if len(candidates) == 0 {
 		return frozenOperationCandidateV3{}, FrozenOperationMaterialV3{},
-			fmt.Errorf("no frozen contract operation matches selector %s", request.ContractSelector)
+			rejectTaskGateAt(fmt.Errorf("no frozen contract operation matches selector %s", request.ContractSelector),
+				rejectionGateCandidateSelectorCount, rejectionFailureMissing,
+				rejectionSourceFrozenContract, rejectionSourceCarriedEvidence,
+				rejectionCountDifference(rejectionDifferenceExpectedCount, 1),
+				rejectionCountDifference(rejectionDifferenceActualCount, 0))
 	}
 	var (
 		matched   []frozenOperationCandidateV3
 		materials []FrozenOperationMaterialV3
 		refusals  []string
+		members   = make(map[preparedbinding.PreparedOperationMember]bool)
 	)
 	for _, candidate := range candidates {
 		profile, profileErr := finalizer.profiles.Resolve(candidate.ProfileID)
@@ -368,6 +406,12 @@ func (finalizer *RuntimeFinalizerV3) identifyOperation(request FinalizationReque
 		}
 		if _, reproduceErr := ReproduceExecutionV3(request.Receipt, material); reproduceErr != nil {
 			refusals = append(refusals, fmt.Sprintf("%s: %v", candidate.OperationID, reproduceErr))
+			var mismatch *preparedbinding.PreparedOperationMismatchError
+			if errors.As(reproduceErr, &mismatch) {
+				for _, member := range mismatch.Members() {
+					members[member] = true
+				}
+			}
 			continue
 		}
 		matched = append(matched, candidate)
@@ -378,9 +422,21 @@ func (finalizer *RuntimeFinalizerV3) identifyOperation(request FinalizationReque
 		return matched[0], materials[0], nil
 	case 0:
 		sort.Strings(refusals)
+		differences := []rejectionDifferenceV1{
+			rejectionCountDifference(rejectionDifferenceCandidateCount, int64(len(candidates))),
+			rejectionCountDifference(rejectionDifferenceRefusedCandidateCount, int64(len(refusals))),
+			rejectionCountDifference(rejectionDifferenceMatchedCandidateCount, 0),
+		}
+		preparedMembers := make([]preparedbinding.PreparedOperationMember, 0, len(members))
+		for member := range members {
+			preparedMembers = append(preparedMembers, member)
+		}
+		differences = append(differences, rejectionPreparedMemberDifferences(preparedMembers)...)
 		return frozenOperationCandidateV3{}, FrozenOperationMaterialV3{},
-			fmt.Errorf("no frozen contract operation reproduces the signed execution; %d candidate(s) "+
-				"were refused: %s", len(refusals), strings.Join(refusals, "; "))
+			rejectTaskGateAt(fmt.Errorf("no frozen contract operation reproduces the signed execution; %d candidate(s) "+
+				"were refused: %s", len(refusals), strings.Join(refusals, "; ")),
+				rejectionGateCandidateMatchCount, rejectionFailureMismatch,
+				rejectionSourceFrozenContract, rejectionSourceGatewayReceipt, differences...)
 	default:
 		names := make([]string, 0, len(matched))
 		for _, candidate := range matched {
@@ -388,8 +444,11 @@ func (finalizer *RuntimeFinalizerV3) identifyOperation(request FinalizationReque
 		}
 		sort.Strings(names)
 		return frozenOperationCandidateV3{}, FrozenOperationMaterialV3{},
-			fmt.Errorf("%v all reproduce the signed execution, so the evidence does not say which ran",
-				names)
+			rejectTaskGateAt(fmt.Errorf("%v all reproduce the signed execution, so the evidence does not say which ran",
+				names), rejectionGateCandidateMatchCount, rejectionFailureAmbiguous,
+				rejectionSourceFrozenContract, rejectionSourceGatewayReceipt,
+				rejectionCountDifference(rejectionDifferenceCandidateCount, int64(len(candidates))),
+				rejectionCountDifference(rejectionDifferenceMatchedCandidateCount, int64(len(matched))))
 	}
 }
 

@@ -186,28 +186,42 @@ func finalizeTaskGateObservationV3Core(receipt queryreceipt.QueryReceiptV1, veri
 
 	// 1. The receipt, before anything is read out of it.
 	if verifier == nil {
-		return result, errors.New("finalization requires a receipt verifier; an unverified receipt is not evidence")
+		return result, rejectTaskGateAt(
+			errors.New("finalization requires a receipt verifier; an unverified receipt is not evidence"),
+			rejectionGateFinalizerInstance, rejectionFailureUnavailable,
+			rejectionSourceFinalizerVerifier, rejectionSourceFinalizerVerifier)
 	}
 	if err := queryreceipt.RequireCurrentVersion(receipt.Version); err != nil {
-		return result, fmt.Errorf("v3 finalization requires the current receipt: %w", err)
+		return result, rejectTaskGateAt(fmt.Errorf("v3 finalization requires the current receipt: %w", err),
+			rejectionGateReceiptCurrentVersion, rejectionFailureInvalidValue,
+			rejectionSourceFinalizerVerifier, rejectionSourceGatewayReceipt)
 	}
 	if err := receipt.Validate(); err != nil {
-		return result, fmt.Errorf("receipt does not validate: %w", err)
+		return result, rejectTaskGateAt(fmt.Errorf("receipt does not validate: %w", err),
+			rejectionGateReceiptDocument, rejectionFailureInvalidValue,
+			rejectionSourceFinalizerVerifier, rejectionSourceGatewayReceipt)
 	}
 	if err := verifier.Verify(receipt); err != nil {
-		return result, fmt.Errorf("verify receipt: %w", err)
+		return result, rejectTaskGateAt(fmt.Errorf("verify receipt: %w", err),
+			rejectionGateReceiptSignature, rejectionFailureInvalidValue,
+			rejectionSourceFinalizerVerifier, rejectionSourceGatewayReceipt)
 	}
 	receiptSHA256, err := queryreceipt.DocumentSHA256(receipt)
 	if err != nil {
-		return result, fmt.Errorf("identify verified receipt document: %w", err)
+		return result, rejectTaskGateAt(fmt.Errorf("identify verified receipt document: %w", err),
+			rejectionGateReceiptDocumentIdentity, rejectionFailureInvalidValue,
+			rejectionSourceFinalizerVerifier, rejectionSourceGatewayReceipt)
 	}
 	binding := receipt.ExecutionBindingV2
 	if binding == nil {
-		return result, errors.New("receipt describes no execution; a completed query states which " +
-			"physical statements produced its rows")
+		return result, rejectTaskGateAt(errors.New("receipt describes no execution; a completed query states which "+
+			"physical statements produced its rows"), rejectionGateExecutionBinding,
+			rejectionFailureMissing, rejectionSourceFinalizerVerifier, rejectionSourceGatewayReceipt)
 	}
 	if err := binding.Validate(); err != nil {
-		return result, fmt.Errorf("signed execution binding does not validate: %w", err)
+		return result, rejectTaskGateAt(fmt.Errorf("signed execution binding does not validate: %w", err),
+			rejectionGateExecutionBinding, rejectionFailureInvalidValue,
+			rejectionSourceFinalizerVerifier, rejectionSourceGatewayReceipt)
 	}
 	// The exposure pre-state is required because these are exposure workloads,
 	// not because carrying a binding implies carrying one. The receipt now admits
@@ -216,8 +230,10 @@ func finalizeTaskGateObservationV3Core(receipt queryreceipt.QueryReceiptV1, veri
 	// evidence for this finalization to be about. Coupling the two would have
 	// reported it as a malformed receipt rather than as the wrong workload.
 	if binding.ExposureProfileVersion == "" || receipt.ExposureLedgerBefore == nil {
-		return result, errors.New("this receipt accounts no exposure; v3 finalization is about " +
-			"exposure-accounted operations and has nothing to derive for one")
+		return result, rejectTaskGateAt(errors.New("this receipt accounts no exposure; v3 finalization is about "+
+			"exposure-accounted operations and has nothing to derive for one"),
+			rejectionGateExposureAccounting, rejectionFailureMissing,
+			rejectionSourceFinalizerVerifier, rejectionSourceGatewayReceipt)
 	}
 
 	// 2. The path kind. For an idempotent replay it comes from the control
@@ -227,16 +243,21 @@ func finalizeTaskGateObservationV3Core(receipt queryreceipt.QueryReceiptV1, veri
 	var pathKind GatewayPathKind
 	if trusted.Replay != nil {
 		if err := requireIdempotentReplay(receipt, trusted); err != nil {
-			return result, err
+			return result, rejectTaskGateAt(err, rejectionGateReplayEvidence,
+				rejectionFailureMismatch, rejectionSourceControlStore, rejectionSourceGatewayReceipt)
 		}
 		pathKind = PathIdempotentReplay
 	} else {
 		if !trusted.SettlementWroteExecutionBindingRow {
-			return result, errors.New("a non-replay settlement wrote no execution binding row")
+			return result, rejectTaskGateAt(
+				errors.New("a non-replay settlement wrote no execution binding row"),
+				rejectionGateSettlementExecutionBinding, rejectionFailureMissing,
+				rejectionSourceControlStore, rejectionSourceGatewayReceipt)
 		}
 		derived, err := pathKindForBinding(binding.PathKind)
 		if err != nil {
-			return result, err
+			return result, rejectTaskGateAt(err, rejectionGateSettlementExecutionBinding,
+				rejectionFailureInvalidValue, rejectionSourceControlStore, rejectionSourceGatewayReceipt)
 		}
 		pathKind = derived
 		// 3. The signed target records must match the path the Gateway signed,
@@ -244,7 +265,8 @@ func finalizeTaskGateObservationV3Core(receipt queryreceipt.QueryReceiptV1, veri
 		// records. An idempotent replay settles no target of its own, so there
 		// is nothing here to check for it.
 		if err := requireSignedTargets(pathKind, *binding, carried); err != nil {
-			return result, err
+			return result, rejectTaskGateAt(err, rejectionGateSignedTargets,
+				rejectionFailureMismatch, rejectionSourceGatewayReceipt, rejectionSourceCarriedEvidence)
 		}
 	}
 
@@ -255,11 +277,13 @@ func finalizeTaskGateObservationV3Core(receipt queryreceipt.QueryReceiptV1, veri
 	// comes back is compared with the signature by everything below.
 	reproduced, err := reproduceForPath(receipt, pathKind, trusted)
 	if err != nil {
-		return result, err
+		return result, rejectTaskGateAt(err, rejectionGateFrozenMaterial,
+			rejectionFailureInvalidValue, rejectionSourceFrozenContract, rejectionSourceGatewayReceipt)
 	}
 	if dimensions, _ := dimensionsFor(pathKind); dimensions.requiresSchema {
 		if err := requireReproducedMatchesSigned(pathKind, *binding, reproduced); err != nil {
-			return result, err
+			return result, rejectTaskGateAt(err, rejectionGateSignedReproducedTargets,
+				rejectionFailureMismatch, rejectionSourceFinalizerDerivation, rejectionSourceGatewayReceipt)
 		}
 	}
 
@@ -280,8 +304,12 @@ func finalizeTaskGateObservationV3Core(receipt queryreceipt.QueryReceiptV1, veri
 	// this class by class; restating it on the total is what makes the failure
 	// say the thing gate 22 is about rather than naming one class.
 	if pathKind == PathIdempotentReplay && finalized.Delta.Total != 0 {
-		return result, fmt.Errorf("an idempotent replay moved the observer Business total by %d; "+
-			"it must reach Business PostgreSQL not at all", finalized.Delta.Total)
+		return result, rejectTaskGateAt(fmt.Errorf("an idempotent replay moved the observer Business total by %d; "+
+			"it must reach Business PostgreSQL not at all", finalized.Delta.Total),
+			rejectionGateIdempotentBusinessTotal, rejectionFailureMismatch,
+			rejectionSourceClassifierPlan, rejectionSourceObserverWindow,
+			rejectionCountDifference(rejectionDifferenceExpectedCount, 0),
+			rejectionCountDifference(rejectionDifferenceActualCount, finalized.Delta.Total))
 	}
 	finalized.ReceiptSHA256 = receiptSHA256
 	return finalized, nil
@@ -298,11 +326,15 @@ func finalizeTaskGateObservationV3Core(receipt queryreceipt.QueryReceiptV1, veri
 func requireIdempotentReplay(receipt queryreceipt.QueryReceiptV1, trusted TrustedInputsV3) error {
 	evidence := *trusted.Replay
 	if err := evidence.Validate(); err != nil {
-		return err
+		return rejectTaskGateAt(err, rejectionGateReplayEvidence,
+			rejectionFailureInvalidValue, rejectionSourceControlStore, rejectionSourceControlStore)
 	}
 	if trusted.SettlementWroteExecutionBindingRow {
-		return errors.New("the trusted settlement evidence and the replay evidence disagree " +
-			"about whether an execution binding row was written")
+		return rejectTaskGateAt(errors.New("the trusted settlement evidence and the replay evidence disagree "+
+			"about whether an execution binding row was written"), rejectionGateReplayEvidence,
+			rejectionFailureMismatch, rejectionSourceControlStore, rejectionSourceControlStore,
+			rejectionBoolDifference(rejectionDifferenceExpectedBool, false),
+			rejectionBoolDifference(rejectionDifferenceActualBool, true))
 	}
 	// Nothing may have been created. Each of these is a separate row a replay
 	// must not produce, and naming them separately is what makes a partial
@@ -313,28 +345,44 @@ func requireIdempotentReplay(receipt queryreceipt.QueryReceiptV1, trusted Truste
 		"a new reservation":           evidence.WroteNewReservation,
 	} {
 		if written {
-			return fmt.Errorf("an idempotent replay wrote %s; the original receipt is "+
-				"returned unchanged and nothing is settled", name)
+			return rejectTaskGateAt(fmt.Errorf("an idempotent replay wrote %s; the original receipt is "+
+				"returned unchanged and nothing is settled", name), rejectionGateReplayEvidence,
+				rejectionFailureMismatch, rejectionSourceControlStore, rejectionSourceControlStore,
+				rejectionBoolDifference(rejectionDifferenceExpectedBool, false),
+				rejectionBoolDifference(rejectionDifferenceActualBool, true))
 		}
 	}
 	// The returned document must be the stored one, byte for byte.
 	if !bytes.Equal(evidence.ReturnedReceiptJSON, evidence.PersistedReceiptJSON) {
-		return errors.New("the returned receipt document is not the persisted document byte for byte")
+		return rejectTaskGateAt(
+			errors.New("the returned receipt document is not the persisted document byte for byte"),
+			rejectionGateReplayEvidence, rejectionFailureMismatch,
+			rejectionSourceControlStore, rejectionSourceCarriedEvidence)
 	}
 	// And the stored document's own identity must be unchanged, so a row
 	// rewritten to re-encode identically is still detectable.
 	storedDigest := fmt.Sprintf("%x", sha256.Sum256(evidence.PersistedReceiptJSON))
 	if storedDigest != evidence.PersistedReceiptSHA256 {
-		return fmt.Errorf("the persisted receipt document digests to %s but the store records %s",
-			shortDigest(storedDigest), shortDigest(evidence.PersistedReceiptSHA256))
+		return rejectTaskGateAt(
+			fmt.Errorf("the persisted receipt document digests to %s but the store records %s",
+				shortDigest(storedDigest), shortDigest(evidence.PersistedReceiptSHA256)),
+			rejectionGateReplayEvidence, rejectionFailureInvalidValue,
+			rejectionSourceFinalizerDerivation, rejectionSourceControlStore,
+			rejectionSHA256Pair(storedDigest, evidence.PersistedReceiptSHA256)...)
 	}
 	if receipt.Signature != evidence.PersistedSignature {
-		return errors.New("the replayed receipt's signature differs from the persisted signature")
+		return rejectTaskGateAt(
+			errors.New("the replayed receipt's signature differs from the persisted signature"),
+			rejectionGateReplayEvidence, rejectionFailureMismatch,
+			rejectionSourceControlStore, rejectionSourceGatewayReceipt)
 	}
 	// The receipt that came back must be the one this request settled.
 	if receipt.TaskID != evidence.TaskID || receipt.RequestID != evidence.RequestID ||
 		receipt.RequestDigest != evidence.RequestDigest || receipt.QueryID != evidence.OriginalQueryID {
-		return errors.New("the replayed receipt does not identify the request the store recorded")
+		return rejectTaskGateAt(
+			errors.New("the replayed receipt does not identify the request the store recorded"),
+			rejectionGateReplayEvidence, rejectionFailureMismatch,
+			rejectionSourceControlStore, rejectionSourceGatewayReceipt)
 	}
 	return nil
 }
@@ -365,9 +413,13 @@ func requireSignedTargets(pathKind GatewayPathKind, binding querybinding.QueryEx
 			return err
 		}
 		if carried.VisibleStatement == nil {
-			return fmt.Errorf("path_kind %s settles a visible statement but none was carried", pathKind)
+			return rejectTaskGateTargetAt(
+				fmt.Errorf("path_kind %s settles a visible statement but none was carried", pathKind),
+				rejectionGateCarriedTargets, rejectionFailureMissing,
+				rejectionSourceGatewayReceipt, rejectionSourceCarriedEvidence,
+				rejectionTargetRoleVisible)
 		}
-		if err := requireCarriedMatchesSigned("visible", binding.Visible, *carried.VisibleStatement,
+		if err := requireCarriedMatchesSigned(rejectionTargetRoleVisible, binding.Visible, *carried.VisibleStatement,
 			carried.VisiblePreparedTargetBindingSHA256); err != nil {
 			return err
 		}
@@ -384,9 +436,13 @@ func requireSignedTargets(pathKind GatewayPathKind, binding querybinding.QueryEx
 			return err
 		}
 		if carried.CompanionStatement == nil {
-			return fmt.Errorf("path_kind %s settles a companion statement but none was carried", pathKind)
+			return rejectTaskGateTargetAt(
+				fmt.Errorf("path_kind %s settles a companion statement but none was carried", pathKind),
+				rejectionGateCarriedTargets, rejectionFailureMissing,
+				rejectionSourceGatewayReceipt, rejectionSourceCarriedEvidence,
+				rejectionTargetRoleCompanion)
 		}
-		if err := requireCarriedMatchesSigned("companion", *binding.Companion, *carried.CompanionStatement,
+		if err := requireCarriedMatchesSigned(rejectionTargetRoleCompanion, *binding.Companion, *carried.CompanionStatement,
 			carried.CompanionPreparedTargetBindingSHA256); err != nil {
 			return err
 		}
@@ -426,28 +482,58 @@ func requireTargetExecution(role string, target querybinding.TargetRecordV1, exe
 // placeholder, and a renderer or policy change alters the executed bytes without
 // altering the plan. The prepared target binding is checked because it is what
 // stops one target's statement being presented as another's.
-func requireCarriedMatchesSigned(role string, signed querybinding.TargetRecordV1,
+func requireCarriedMatchesSigned(targetRole rejectionTargetRole, signed querybinding.TargetRecordV1,
 	statement physicalquery.StatementIdentity, preparedTargetBinding string) error {
+	role := enumName(rejectionTargetRoleNames[:], int(targetRole))
+	if role == "" {
+		return rejectTaskGateAt(errors.New("carried target has no closed target role"),
+			rejectionGateCarriedTargets, rejectionFailureInvalidValue,
+			rejectionSourceGatewayReceipt, rejectionSourceCarriedEvidence)
+	}
 	if signed.ExactSQLSHA256 != statement.ExactSHA256 {
-		return fmt.Errorf("the carried %s statement is %s, the Gateway signed %s; the executed bytes differ",
-			role, shortDigest(statement.ExactSHA256), shortDigest(signed.ExactSQLSHA256))
+		return rejectTaskGateTargetAt(
+			fmt.Errorf("the carried %s statement is %s, the Gateway signed %s; the executed bytes differ",
+				role, shortDigest(statement.ExactSHA256), shortDigest(signed.ExactSQLSHA256)),
+			rejectionGateCarriedTargets, rejectionFailureMismatch,
+			rejectionSourceGatewayReceipt, rejectionSourceCarriedEvidence, targetRole,
+			rejectionSHA256Pair(signed.ExactSQLSHA256, statement.ExactSHA256)...)
 	}
 	if signed.StrictASTSHA256 != statement.StrictASTSHA256 {
-		return fmt.Errorf("the carried %s statement has structural identity %s, the Gateway signed %s",
-			role, shortDigest(statement.StrictASTSHA256), shortDigest(signed.StrictASTSHA256))
+		return rejectTaskGateTargetAt(
+			fmt.Errorf("the carried %s statement has structural identity %s, the Gateway signed %s",
+				role, shortDigest(statement.StrictASTSHA256), shortDigest(signed.StrictASTSHA256)),
+			rejectionGateCarriedTargets, rejectionFailureMismatch,
+			rejectionSourceGatewayReceipt, rejectionSourceCarriedEvidence, targetRole,
+			rejectionSHA256Pair(signed.StrictASTSHA256, statement.StrictASTSHA256)...)
 	}
 	if signed.RowLimit != statement.RowLimit {
-		return fmt.Errorf("the carried %s statement was rendered with row limit %d, the Gateway signed %d",
-			role, statement.RowLimit, signed.RowLimit)
+		differences := []rejectionDifferenceV1(nil)
+		if signed.RowLimit >= 0 && statement.RowLimit >= 0 {
+			differences = append(differences,
+				rejectionCountDifference(rejectionDifferenceExpectedCount, signed.RowLimit),
+				rejectionCountDifference(rejectionDifferenceActualCount, statement.RowLimit))
+		}
+		return rejectTaskGateTargetAt(
+			fmt.Errorf("the carried %s statement was rendered with row limit %d, the Gateway signed %d",
+				role, statement.RowLimit, signed.RowLimit),
+			rejectionGateCarriedTargets, rejectionFailureMismatch,
+			rejectionSourceGatewayReceipt, rejectionSourceCarriedEvidence, targetRole, differences...)
 	}
 	if signed.PolicyFingerprint != statement.Fingerprint {
-		return fmt.Errorf("the carried %s statement carries policy fingerprint %s, the Gateway signed %s",
-			role, shortDigest(statement.Fingerprint), shortDigest(signed.PolicyFingerprint))
+		return rejectTaskGateTargetAt(
+			fmt.Errorf("the carried %s statement carries policy fingerprint %s, the Gateway signed %s",
+				role, shortDigest(statement.Fingerprint), shortDigest(signed.PolicyFingerprint)),
+			rejectionGateCarriedTargets, rejectionFailureMismatch,
+			rejectionSourceGatewayReceipt, rejectionSourceCarriedEvidence, targetRole,
+			rejectionSHA256Pair(signed.PolicyFingerprint, statement.Fingerprint)...)
 	}
 	if signed.PreparedTargetBindingSHA256 != preparedTargetBinding {
-		return fmt.Errorf("the carried %s target is prepared as %s, the Gateway signed %s; "+
+		return rejectTaskGateTargetAt(fmt.Errorf("the carried %s target is prepared as %s, the Gateway signed %s; "+
 			"a statement cannot be presented as another target's",
-			role, shortDigest(preparedTargetBinding), shortDigest(signed.PreparedTargetBindingSHA256))
+			role, shortDigest(preparedTargetBinding), shortDigest(signed.PreparedTargetBindingSHA256)),
+			rejectionGateCarriedTargets, rejectionFailureMismatch,
+			rejectionSourceGatewayReceipt, rejectionSourceCarriedEvidence, targetRole,
+			rejectionSHA256Pair(signed.PreparedTargetBindingSHA256, preparedTargetBinding)...)
 	}
 	return nil
 }
@@ -521,18 +607,27 @@ func reproduceForPath(receipt queryreceipt.QueryReceiptV1, pathKind GatewayPathK
 	trusted TrustedInputsV3) (ReproducedExecutionV3, error) {
 	dimensions, known := dimensionsFor(pathKind)
 	if !known {
-		return ReproducedExecutionV3{}, fmt.Errorf("path_kind %q is not a derivable execution path", pathKind)
+		return ReproducedExecutionV3{}, rejectTaskGateAt(
+			fmt.Errorf("path_kind %q is not a derivable execution path", pathKind),
+			rejectionGateMaterialPresence, rejectionFailureInvalidValue,
+			rejectionSourceFinalizerDerivation, rejectionSourceGatewayReceipt)
 	}
 	if !dimensions.requiresSchema {
 		if trusted.Material != nil {
-			return ReproducedExecutionV3{}, fmt.Errorf("path_kind %s prepares no operation, but frozen "+
-				"preparation material was supplied to finalize it", pathKind)
+			return ReproducedExecutionV3{}, rejectTaskGateAt(
+				fmt.Errorf("path_kind %s prepares no operation, but frozen "+
+					"preparation material was supplied to finalize it", pathKind),
+				rejectionGateMaterialPresence, rejectionFailureInvalidValue,
+				rejectionSourceFinalizerDerivation, rejectionSourceFrozenContract)
 		}
 		return ReproducedExecutionV3{}, nil
 	}
 	if trusted.Material == nil {
-		return ReproducedExecutionV3{}, fmt.Errorf("path_kind %s executes prepared statements, but no "+
-			"frozen material was supplied for the finalizer to reproduce them from", pathKind)
+		return ReproducedExecutionV3{}, rejectTaskGateAt(
+			fmt.Errorf("path_kind %s executes prepared statements, but no "+
+				"frozen material was supplied for the finalizer to reproduce them from", pathKind),
+			rejectionGateMaterialPresence, rejectionFailureMissing,
+			rejectionSourceFinalizerDerivation, rejectionSourceFrozenContract)
 	}
 	return ReproduceExecutionV3(receipt, *trusted.Material)
 }

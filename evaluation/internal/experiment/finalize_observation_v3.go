@@ -136,12 +136,15 @@ func FinalizeObservationV3(carried CarriedEvidenceV3, inputs IndependentInputsV3
 
 	// A baseline arm must never present observer evidence.
 	if !carried.Arm.CarriesObserverEvidence() {
-		return result, fmt.Errorf("arm %q does not execute through the governed Connector and cannot carry observer evidence",
-			carried.Arm)
+		return result, rejectTaskGateAt(fmt.Errorf("arm %q does not execute through the governed Connector and cannot carry observer evidence",
+			carried.Arm), rejectionGateCarriedOperation, rejectionFailureInvalidValue,
+			rejectionSourceFinalizerDerivation, rejectionSourceCarriedEvidence)
 	}
 	dimensions, known := dimensionsFor(inputs.PathKind)
 	if !known {
-		return result, fmt.Errorf("path_kind %q is not a derivable execution path", inputs.PathKind)
+		return result, rejectTaskGateAt(fmt.Errorf("path_kind %q is not a derivable execution path", inputs.PathKind),
+			rejectionGateControlPlan, rejectionFailureInvalidValue,
+			rejectionSourceFinalizerDerivation, rejectionSourceGatewayReceipt)
 	}
 
 	digester := inputs.StrictAST
@@ -161,30 +164,40 @@ func FinalizeObservationV3(carried CarriedEvidenceV3, inputs IndependentInputsV3
 		// the sample carries.
 		logicalCatalog, err := catalog.Load(inputs.CatalogPath)
 		if err != nil {
-			return result, fmt.Errorf("load activated Profile Catalog: %w", err)
+			return result, rejectTaskGateAt(fmt.Errorf("load activated Profile Catalog: %w", err),
+				rejectionGateExpectedSchema, rejectionFailureUnavailable,
+				rejectionSourceActivatedProfile, rejectionSourceActivatedProfile)
 		}
 		built, err := catalogschema.Build(logicalCatalog)
 		if err != nil {
-			return result, fmt.Errorf("build ExpectedSchema: %w", err)
+			return result, rejectTaskGateAt(fmt.Errorf("build ExpectedSchema: %w", err),
+				rejectionGateExpectedSchema, rejectionFailureInvalidValue,
+				rejectionSourceFinalizerDerivation, rejectionSourceActivatedProfile)
 		}
 		result.ExpectedSchemaDigest, result.ExpectedSchemaEntries = built.Digest, built.Count
 
 		// 2. The qualified footprint must be valid for this deployment.
 		if err := inputs.Footprint.Require(built.Digest, built.Count,
 			RequiredMeasurementEnvironment(), inputs.PostgreSQL); err != nil {
-			return result, fmt.Errorf("qualified footprint: %w", err)
+			return result, rejectTaskGateAt(fmt.Errorf("qualified footprint: %w", err),
+				rejectionGateFootprintQualification, rejectionFailureMismatch,
+				rejectionSourceFinalizerDerivation, rejectionSourceRetainedQualification)
 		}
 
 		// 3. The plan, from the path kind and the footprint.
 		derivedPlan, err = planFor(inputs.PathKind, built.Count, built.Digest, inputs.Footprint)
 		if err != nil {
-			return result, fmt.Errorf("derive control plan: %w", err)
+			return result, rejectTaskGateAt(fmt.Errorf("derive control plan: %w", err),
+				rejectionGateControlPlan, rejectionFailureInvalidValue,
+				rejectionSourceFinalizerDerivation, rejectionSourceRetainedQualification)
 		}
 
 		// 4. The operation identity, from frozen contract material.
 		footprintDigest, err := inputs.Footprint.SHA256()
 		if err != nil {
-			return result, err
+			return result, rejectTaskGateAt(err, rejectionGateFootprintQualification,
+				rejectionFailureInvalidValue, rejectionSourceRetainedQualification,
+				rejectionSourceRetainedQualification)
 		}
 		derivedOperation = OperationIdentity{
 			OperationID: inputs.OperationID, PathKind: inputs.PathKind,
@@ -196,7 +209,9 @@ func FinalizeObservationV3(carried CarriedEvidenceV3, inputs IndependentInputsV3
 		// through shared production logic.
 		targets, err = deriveTargets(inputs, digester)
 		if err != nil {
-			return result, err
+			return result, rejectTaskGateAt(err, rejectionGateClassifierTargets,
+				rejectionFailureInvalidValue, rejectionSourceFinalizerDerivation,
+				rejectionSourceFrozenContract)
 		}
 		footprint := inputs.Footprint
 		manifestFootprint = &footprint
@@ -208,12 +223,16 @@ func FinalizeObservationV3(carried CarriedEvidenceV3, inputs IndependentInputsV3
 		// request, and accepting a footprint would attach a qualification to a
 		// window in which no Attestation occurred.
 		if err := requireNoSchemaMaterial(inputs); err != nil {
-			return result, err
+			return result, rejectTaskGateAt(err, rejectionGateExpectedSchema,
+				rejectionFailureInvalidValue, rejectionSourceFinalizerDerivation,
+				rejectionSourceFrozenContract)
 		}
 		var err error
 		derivedPlan, err = planFor(inputs.PathKind, 0, "", AttestationFootprintV2{})
 		if err != nil {
-			return result, fmt.Errorf("derive control plan: %w", err)
+			return result, rejectTaskGateAt(fmt.Errorf("derive control plan: %w", err),
+				rejectionGateControlPlan, rejectionFailureInvalidValue,
+				rejectionSourceFinalizerDerivation, rejectionSourceGatewayReceipt)
 		}
 		derivedOperation = OperationIdentity{
 			OperationID: inputs.OperationID, PathKind: inputs.PathKind,
@@ -223,17 +242,23 @@ func FinalizeObservationV3(carried CarriedEvidenceV3, inputs IndependentInputsV3
 
 	result.Plan, result.InternalExpectation = derivedPlan, derivedPlan.InternalExpectation
 	if err := derivedOperation.Validate(); err != nil {
-		return result, fmt.Errorf("derive operation identity: %w", err)
+		return result, rejectTaskGateAt(fmt.Errorf("derive operation identity: %w", err),
+			rejectionGateOperationIdentity, rejectionFailureInvalidValue,
+			rejectionSourceFinalizerDerivation, rejectionSourceFrozenContract)
 	}
 	result.Operation = derivedOperation
 
 	derivedManifest, err := BuildClassifierManifestV2(derivedPlan, manifestFootprint, targets)
 	if err != nil {
-		return result, fmt.Errorf("derive classifier manifest: %w", err)
+		return result, rejectTaskGateAt(fmt.Errorf("derive classifier manifest: %w", err),
+			rejectionGateClassifierManifest, rejectionFailureInvalidValue,
+			rejectionSourceFinalizerDerivation, rejectionSourceClassifierPlan)
 	}
 	classifier, err := CompileClassifierV2(derivedOperation, derivedPlan, derivedManifest)
 	if err != nil {
-		return result, fmt.Errorf("compile derived classifier: %w", err)
+		return result, rejectTaskGateAt(fmt.Errorf("compile derived classifier: %w", err),
+			rejectionGateClassifierBinding, rejectionFailureInvalidValue,
+			rejectionSourceFinalizerDerivation, rejectionSourceClassifierPlan)
 	}
 	result.PlanSHA256 = classifier.PlanSHA256()
 	result.ClassifierManifestSHA256 = classifier.ManifestSHA256()
@@ -241,41 +266,58 @@ func FinalizeObservationV3(carried CarriedEvidenceV3, inputs IndependentInputsV3
 
 	// Only now is the Adapter's evidence looked at, and only to reject it.
 	if !carried.Operation.equalTo(derivedOperation) {
-		return result, fmt.Errorf("the Adapter's operation identity differs from the finalizer's derivation: %v",
-			operationMismatches(carried.Operation, derivedOperation))
+		return result, rejectTaskGateAt(fmt.Errorf("the Adapter's operation identity differs from the finalizer's derivation: %v",
+			operationMismatches(carried.Operation, derivedOperation)),
+			rejectionGateCarriedOperation, rejectionFailureMismatch,
+			rejectionSourceFinalizerDerivation, rejectionSourceCarriedEvidence)
 	}
 	if !carried.Plan.Equal(derivedPlan) {
-		return result, fmt.Errorf("the Adapter's plan differs from the finalizer's derivation on %v",
-			derivedPlan.MismatchedFields(carried.Plan))
+		return result, rejectTaskGateAt(fmt.Errorf("the Adapter's plan differs from the finalizer's derivation on %v",
+			derivedPlan.MismatchedFields(carried.Plan)),
+			rejectionGateCarriedPlan, rejectionFailureMismatch,
+			rejectionSourceFinalizerDerivation, rejectionSourceCarriedEvidence)
 	}
 	if carried.ClassifierManifestSHA256 != classifier.ManifestSHA256() {
-		return result, fmt.Errorf("the Adapter's classifier manifest is %s, the finalizer derives %s",
-			shortDigest(carried.ClassifierManifestSHA256), shortDigest(classifier.ManifestSHA256()))
+		return result, rejectTaskGateAt(fmt.Errorf("the Adapter's classifier manifest is %s, the finalizer derives %s",
+			shortDigest(carried.ClassifierManifestSHA256), shortDigest(classifier.ManifestSHA256())),
+			rejectionGateCarriedClassifierManifest, rejectionFailureMismatch,
+			rejectionSourceFinalizerDerivation, rejectionSourceCarriedEvidence,
+			rejectionSHA256Pair(classifier.ManifestSHA256(), carried.ClassifierManifestSHA256)...)
 	}
 	if carried.ClassifierBindingSHA256 != classifier.BindingSHA256() {
-		return result, fmt.Errorf("the Adapter's classifier binding is %s, the finalizer derives %s",
-			shortDigest(carried.ClassifierBindingSHA256), shortDigest(classifier.BindingSHA256()))
+		return result, rejectTaskGateAt(fmt.Errorf("the Adapter's classifier binding is %s, the finalizer derives %s",
+			shortDigest(carried.ClassifierBindingSHA256), shortDigest(classifier.BindingSHA256())),
+			rejectionGateCarriedClassifierBinding, rejectionFailureMismatch,
+			rejectionSourceFinalizerDerivation, rejectionSourceCarriedEvidence,
+			rejectionSHA256Pair(classifier.BindingSHA256(), carried.ClassifierBindingSHA256)...)
 	}
 
 	// 6. The runtime execution identity. The observer classifies structure; this
 	// is what pins the constants a structural digest deliberately ignores.
 	if err := requireStatementIdentities(carried, inputs, digester); err != nil {
-		return result, err
+		return result, rejectTaskGateAt(err, rejectionGateStatementIdentity,
+			rejectionFailureMismatch, rejectionSourceFinalizerDerivation,
+			rejectionSourceCarriedEvidence)
 	}
 
 	// 7. The window is classified with the FINALIZER's classifier and accepted
 	// against the FINALIZER's plan.
 	delta, err := carried.Window.Delta(classifier)
 	if err != nil {
-		return result, fmt.Errorf("classify observer window: %w", err)
+		return result, rejectTaskGateAt(fmt.Errorf("classify observer window: %w", err),
+			rejectionGateObserverSnapshotInterval, rejectionFailureInvalidValue,
+			rejectionSourceClassifierPlan, rejectionSourceObserverWindow)
 	}
 	result.Delta = delta
 	if err := delta.Accept(derivedPlan); err != nil {
-		return result, err
+		return result, rejectTaskGateAt(err, rejectionGateClosedWorldClasses,
+			rejectionFailureMismatch, rejectionSourceClassifierPlan, rejectionSourceObserverWindow)
 	}
 	windowSHA256, err := carried.Window.SHA256()
 	if err != nil {
-		return result, fmt.Errorf("digest accepted observer window: %w", err)
+		return result, rejectTaskGateAt(fmt.Errorf("digest accepted observer window: %w", err),
+			rejectionGateObserverSnapshotInterval, rejectionFailureInvalidValue,
+			rejectionSourceObserverWindow, rejectionSourceObserverWindow)
 	}
 	result.ObserverWindowID = carried.Window.Before.ObserverWindowID
 	result.ObserverWindowSHA256 = windowSHA256
@@ -283,7 +325,10 @@ func FinalizeObservationV3(carried CarriedEvidenceV3, inputs IndependentInputsV3
 	// 8. The window's runtime identity must be the deployment the footprint was
 	// qualified against.
 	if carried.Window.After.Runtime.PostgreSQL != inputs.PostgreSQL {
-		return result, errors.New("the observer window ran against a different PostgreSQL runtime than the qualification")
+		return result, rejectTaskGateAt(
+			errors.New("the observer window ran against a different PostgreSQL runtime than the qualification"),
+			rejectionGatePostgreSQLQualificationRuntime, rejectionFailureMismatch,
+			rejectionSourceDeploymentRuntime, rejectionSourceObserverWindow)
 	}
 	return result, nil
 }

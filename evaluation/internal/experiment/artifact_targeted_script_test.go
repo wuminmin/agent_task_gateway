@@ -105,6 +105,8 @@ func TestArtifactTargetedLauncherWiresTheFormalRuntimeContract(t *testing.T) {
 		`.status == "pass"`,
 		`.system == "taskgate"`,
 		`.taskgate_acceptance_v3 != null`,
+		`taskgate_acceptance_v3_present:(.taskgate_acceptance_v3 != null)`,
+		`capture_artifact_runner_status "$outdir/run.log"`,
 		`.publication_eligible == false`,
 	} {
 		if !strings.Contains(body, required) {
@@ -242,10 +244,74 @@ func TestArtifactTargetedLauncherWiresTheFormalRuntimeContract(t *testing.T) {
 		}
 	}
 	finalAdjudication := strings.Index(body[runnerStart:], `# A process-level zero exit retains failed measured samples`)
-	if finalAdjudication < 0 ||
-		!strings.Contains(body[runnerStart+finalAdjudication:],
-			".taskgate_acceptance_v3 != null and\n    .publication_eligible == false") {
-		t.Fatal("the post-run adjudicator does not require v3 acceptance")
+	if finalAdjudication < 0 {
+		t.Fatal("the post-run adjudicator is absent")
+	}
+	adjudicator := body[runnerStart+finalAdjudication:]
+	for _, required := range []string{
+		".taskgate_acceptance_v3 != null and\n    .taskgate_rejection_v1 == null and",
+		`report_retained_artifact_rejections "$outdir/raw/deployment-01.jsonl"`,
+	} {
+		if !strings.Contains(adjudicator, required) {
+			t.Fatalf("the post-run adjudicator omits %q", required)
+		}
+	}
+}
+
+func TestArtifactTargetedRunnerFailureStillReachesAdjudication(t *testing.T) {
+	body := artifactTargetedLauncherBody(t)
+	block := launcherShellBlock(t, body, "ARTIFACT_RUNNER_STATUS")
+	runLog := filepath.Join(t.TempDir(), "run.log")
+	output, err := runLauncherShellBlock(block, `
+set -euo pipefail
+artifact_run_log="$1"
+capture_artifact_runner_status "$artifact_run_log" bash -c 'printf "retained runner output\n"; exit 23'
+printf 'runner=%s tee=%s\n' "$artifact_runner_status" "$artifact_tee_status"
+`, runLog)
+	if err != nil {
+		t.Fatalf("captured nonzero runner pipeline exited before adjudication: %v\n%s", err, output)
+	}
+	if !bytes.Contains(output, []byte("runner=23 tee=0")) {
+		t.Fatalf("captured pipeline statuses = %q", output)
+	}
+	retained, err := os.ReadFile(runLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(retained) != "retained runner output\n" {
+		t.Fatalf("tee retained %q", retained)
+	}
+}
+
+func TestArtifactTargetedRejectionReportDisambiguatesFinalizerOutcomes(t *testing.T) {
+	body := artifactTargetedLauncherBody(t)
+	block := launcherShellBlock(t, body, "ARTIFACT_REJECTION_REPORT")
+	samples := filepath.Join(t.TempDir(), "samples.jsonl")
+	rows := strings.Join([]string{
+		`{"sample_id":"rejected","scale":"100x4","status":"fail","error_code":"artifact_measurement_failed","taskgate_rejection_v1":{"version":"taskgate-rejection-v1"}}`,
+		`{"sample_id":"postcheck","scale":"100x4","status":"fail","error_code":"artifact_evidence_invariant_failed","taskgate_acceptance_v3":{"version":"taskgate-finalization-v3"}}`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(samples, []byte(rows), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	output, err := runLauncherShellBlock(block, `
+set -euo pipefail
+report_retained_artifact_rejections "$1"
+`, samples)
+	if err != nil {
+		t.Fatalf("rejection report failed: %v\n%s", err, output)
+	}
+	for _, required := range []string{
+		`"sample_id":"rejected"`,
+		`"taskgate_acceptance_v3_present":false`,
+		`"taskgate_rejection_v1":{"version":"taskgate-rejection-v1"}`,
+		`"sample_id":"postcheck"`,
+		`"taskgate_acceptance_v3_present":true`,
+		`"taskgate_rejection_v1":null`,
+	} {
+		if !bytes.Contains(output, []byte(required)) {
+			t.Errorf("machine rejection report %q omits %q", output, required)
+		}
 	}
 }
 

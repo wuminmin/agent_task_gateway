@@ -86,7 +86,8 @@ func (adapter *scaleAdapter) Execute(ctx context.Context, operation experiment.A
 		}
 		sample, err := adapter.executeDependencyE2E(ctx, operation, binding, cell)
 		if err != nil {
-			return retainedScaleFailure(operation, sample, "dependency_e2e_measurement_failed")
+			return retainTaskGateRejection(
+				retainedScaleFailure(operation, sample, "dependency_e2e_measurement_failed"), err)
 		}
 		return validateScalePass(sample)
 	case "outcome-merkle":

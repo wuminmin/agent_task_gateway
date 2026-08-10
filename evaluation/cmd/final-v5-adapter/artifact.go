@@ -101,7 +101,7 @@ func (adapter *artifactAdapter) Execute(ctx context.Context, operation experimen
 		// the deployment, so the underlying error goes to this process's stderr,
 		// which never enters a sample, an evidence file or an agent context.
 		fmt.Fprintf(os.Stderr, "artifact cell %s: %v\n", cell.Identity, err)
-		return retainedArtifactFailure(operation, sample, artifactFailureCode(err))
+		return retainTaskGateRejection(retainedArtifactFailure(operation, sample, artifactFailureCode(err)), err)
 	}
 	return validateArtifactPass(sample)
 }

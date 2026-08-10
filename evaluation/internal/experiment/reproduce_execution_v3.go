@@ -129,10 +129,14 @@ func ReproduceExecutionV3(receipt queryreceipt.QueryReceiptV1,
 	var result ReproducedExecutionV3
 	binding := receipt.ExecutionBindingV2
 	if binding == nil {
-		return result, errors.New("the receipt describes no execution, so there is nothing to reproduce")
+		return result, rejectTaskGateAt(
+			errors.New("the receipt describes no execution, so there is nothing to reproduce"),
+			rejectionGateExecutionBinding, rejectionFailureMissing,
+			rejectionSourceFinalizerVerifier, rejectionSourceGatewayReceipt)
 	}
 	if err := material.Validate(); err != nil {
-		return result, err
+		return result, rejectTaskGateAt(err, rejectionGateFrozenMaterial,
+			rejectionFailureInvalidValue, rejectionSourceFrozenContract, rejectionSourceFrozenContract)
 	}
 
 	// 1. The compiler. The finalizer reproduces by RUNNING the compiler, so a
@@ -142,22 +146,32 @@ func ReproduceExecutionV3(receipt queryreceipt.QueryReceiptV1,
 	// surfacing as a statement mismatch nobody can act on.
 	compiler, err := physicalquery.LocalCompilerIdentity()
 	if err != nil {
-		return result, fmt.Errorf("this finalizer cannot determine its own compiler identity: %w", err)
+		return result, rejectTaskGateAt(
+			fmt.Errorf("this finalizer cannot determine its own compiler identity: %w", err),
+			rejectionGateCompilerIdentity, rejectionFailureUnavailable,
+			rejectionSourceFinalizerDerivation, rejectionSourceFinalizerDerivation)
 	}
 	if compiler.SHA256 != binding.Compiler.SHA256 {
-		return result, fmt.Errorf("the operation was compiled by %s but this finalizer is %s; "+
+		return result, rejectTaskGateAt(fmt.Errorf("the operation was compiled by %s but this finalizer is %s; "+
 			"a reproduction by a different build proves nothing about this execution",
-			shortDigest(binding.Compiler.SHA256), shortDigest(compiler.SHA256))
+			shortDigest(binding.Compiler.SHA256), shortDigest(compiler.SHA256)),
+			rejectionGateCompilerIdentity, rejectionFailureMismatch,
+			rejectionSourceFinalizerDerivation, rejectionSourceGatewayReceipt,
+			rejectionSHA256Pair(compiler.SHA256, binding.Compiler.SHA256)...)
 	}
 
 	// 2. The preparation inputs, assembled finalizer-side.
 	logicalCatalog, err := catalog.Load(material.CatalogPath)
 	if err != nil {
-		return result, fmt.Errorf("load activated Profile Catalog: %w", err)
+		return result, rejectTaskGateAt(fmt.Errorf("load activated Profile Catalog: %w", err),
+			rejectionGateCatalogMaterial, rejectionFailureUnavailable,
+			rejectionSourceActivatedProfile, rejectionSourceActivatedProfile)
 	}
 	view, err := physicalquery.CatalogViewFromCatalog(*logicalCatalog)
 	if err != nil {
-		return result, fmt.Errorf("build catalog view: %w", err)
+		return result, rejectTaskGateAt(fmt.Errorf("build catalog view: %w", err),
+			rejectionGateCatalogMaterial, rejectionFailureInvalidValue,
+			rejectionSourceFinalizerDerivation, rejectionSourceActivatedProfile)
 	}
 	inputs := physicalquery.PreparationInputs{
 		Plan: material.Plan, Grant: material.Grant, Catalog: view,
@@ -165,7 +179,9 @@ func ReproduceExecutionV3(receipt queryreceipt.QueryReceiptV1,
 	if material.Grant.UsesOrdinalProgram() {
 		bindings, bindingErr := snapshotBindingsFromArtifactsV3(*logicalCatalog, material.SnapshotArtifactDir)
 		if bindingErr != nil {
-			return result, bindingErr
+			return result, rejectTaskGateAt(bindingErr, rejectionGateCatalogMaterial,
+				rejectionFailureInvalidValue, rejectionSourceFinalizerDerivation,
+				rejectionSourceFrozenContract)
 		}
 		inputs.SnapshotBindings = bindings
 	}
@@ -175,17 +191,28 @@ func ReproduceExecutionV3(receipt queryreceipt.QueryReceiptV1,
 	// is not evidence about them.
 	prepared, err := physicalquery.Prepare(inputs)
 	if err != nil {
-		return result, fmt.Errorf("the finalizer could not prepare this operation from frozen material: %w", err)
+		return result, rejectTaskGateAt(
+			fmt.Errorf("the finalizer could not prepare this operation from frozen material: %w", err),
+			rejectionGateOperationPreparation, rejectionFailureInvalidValue,
+			rejectionSourceFinalizerDerivation, rejectionSourceFrozenContract)
 	}
 	if err := prepared.RequireInputs(inputs, compiler); err != nil {
-		return result, fmt.Errorf("the finalizer's preparation disagrees with its own inputs: %w", err)
+		return result, rejectTaskGateAt(
+			fmt.Errorf("the finalizer's preparation disagrees with its own inputs: %w", err),
+			rejectionGateOperationPreparation, rejectionFailureMismatch,
+			rejectionSourceFinalizerDerivation, rejectionSourceFrozenContract)
 	}
 
 	// 4. The comparison this file exists for. RequirePreparedSame compares the
 	// whole sealed document member by member rather than its digest, so a
 	// difference names the member that moved.
 	if err := binding.RequirePreparedSame(prepared.Binding()); err != nil {
-		return result, fmt.Errorf("the Gateway signed a preparation the finalizer does not reproduce: %w", err)
+		cause := fmt.Errorf("the Gateway signed a preparation the finalizer does not reproduce: %w", err)
+		if rejection, ok := rejectionFromPreparedMismatch(err); ok {
+			return result, withTaskGateRejection(cause, rejection)
+		}
+		return result, rejectTaskGateAt(cause, rejectionGatePreparedBindingMembers,
+			rejectionFailureMismatch, rejectionSourceFrozenContract, rejectionSourceGatewayReceipt)
 	}
 
 	// 5. The statements, authorized against the pre-state the receipt signs.
@@ -196,11 +223,16 @@ func ReproduceExecutionV3(receipt queryreceipt.QueryReceiptV1,
 	// at ExecutableStatements.
 	visibleSQL, companionSQL, err := prepared.ExecutableStatements()
 	if err != nil {
-		return result, fmt.Errorf("the finalizer's preparation refuses to yield its statements: %w", err)
+		return result, rejectTaskGateAt(
+			fmt.Errorf("the finalizer's preparation refuses to yield its statements: %w", err),
+			rejectionGatePreparedStatements, rejectionFailureInvalidValue,
+			rejectionSourceFinalizerDerivation, rejectionSourceFrozenContract)
 	}
 	state, err := preStateFromReceiptV3(receipt, prepared.Binding())
 	if err != nil {
-		return result, err
+		return result, rejectTaskGateAt(err, rejectionGateSignedPrestate,
+			rejectionFailureInvalidValue, rejectionSourceFinalizerDerivation,
+			rejectionSourceGatewayReceipt)
 	}
 	derivation, err := physicalquery.Derive(sqlpolicy.New(sqlpolicy.Config{}), StrictASTDigest,
 		physicalquery.Request{
@@ -208,7 +240,10 @@ func ReproduceExecutionV3(receipt queryreceipt.QueryReceiptV1,
 			Grant: prepared.PolicyGrant(), State: state,
 		})
 	if err != nil {
-		return result, fmt.Errorf("the finalizer could not authorize the prepared statements: %w", err)
+		return result, rejectTaskGateAt(
+			fmt.Errorf("the finalizer could not authorize the prepared statements: %w", err),
+			rejectionGateStatementAuthorization, rejectionFailureInvalidValue,
+			rejectionSourceFinalizerDerivation, rejectionSourceFrozenContract)
 	}
 
 	// 6. The derived limits must be the signed ones. The receipt has already
@@ -235,8 +270,13 @@ func ReproduceExecutionV3(receipt queryreceipt.QueryReceiptV1,
 	// derivation catches an authorizer that dropped or invented a statement
 	// between the two.
 	if (result.CompanionSQL != "") != (binding.Companion != nil) {
-		return result, fmt.Errorf("the finalizer derived %d companion statements but the Gateway signed %d",
-			boolCountV3(result.CompanionSQL != ""), boolCountV3(binding.Companion != nil))
+		return result, rejectTaskGateAt(
+			fmt.Errorf("the finalizer derived %d companion statements but the Gateway signed %d",
+				boolCountV3(result.CompanionSQL != ""), boolCountV3(binding.Companion != nil)),
+			rejectionGateCompanionPresence, rejectionFailureMismatch,
+			rejectionSourceFinalizerDerivation, rejectionSourceGatewayReceipt,
+			rejectionBoolDifference(rejectionDifferenceExpectedBool, result.CompanionSQL != ""),
+			rejectionBoolDifference(rejectionDifferenceActualBool, binding.Companion != nil))
 	}
 	return result, nil
 }
@@ -290,8 +330,16 @@ func requireDerivedLimitsSignedV3(derived physicalquery.Limits,
 		{"companion policy rows", derived.CompanionPolicyRows, binding.CompanionPolicyRows},
 	} {
 		if limit.derived != limit.signed {
-			return fmt.Errorf("the finalizer derives %s %d but the Gateway signed %d",
-				limit.name, limit.derived, limit.signed)
+			differences := []rejectionDifferenceV1(nil)
+			if limit.derived >= 0 && limit.signed >= 0 {
+				differences = append(differences,
+					rejectionCountDifference(rejectionDifferenceExpectedCount, limit.derived),
+					rejectionCountDifference(rejectionDifferenceActualCount, limit.signed))
+			}
+			return rejectTaskGateAt(fmt.Errorf("the finalizer derives %s %d but the Gateway signed %d",
+				limit.name, limit.derived, limit.signed), rejectionGateDerivedLimits,
+				rejectionFailureMismatch, rejectionSourceFinalizerDerivation,
+				rejectionSourceGatewayReceipt, differences...)
 		}
 	}
 	return nil

@@ -667,13 +667,57 @@ jq --arg campaign "$RUN_ID" --arg commit "$commit" \
 ' "$artifact_config" > "$config"
 chmod 600 "$config"
 
+# ARTIFACT_RUNNER_STATUS_BEGIN
+# Capture both sides of the evidence-runner pipeline without letting errexit
+# bypass the retained-sample adjudicator. A nonzero runner remains a failure;
+# this only makes its already-retained credential-free rejection reachable.
+capture_artifact_runner_status() {
+  local run_log=$1
+  shift
+  local -a statuses
+  set +e
+  "$@" | tee "$run_log"
+  statuses=("${PIPESTATUS[@]}")
+  set -e
+  artifact_runner_status="${statuses[0]}"
+  artifact_tee_status="${statuses[1]}"
+}
+# ARTIFACT_RUNNER_STATUS_END
+
+# ARTIFACT_REJECTION_REPORT_BEGIN
+report_retained_artifact_rejections() {
+  local samples_path=$1
+  echo "machine-readable retained rejection records (null rejection means the finalizer did not reject; acceptance presence distinguishes post-acceptance failure):" >&2
+  if [[ ! -s "$samples_path" ]]; then
+    echo "no retained sample JSONL was written" >&2
+    return 0
+  fi
+  if ! jq -c 'select(.status != "pass") |
+    {sample_id,scale,status,error_code,
+     taskgate_acceptance_v3_present:(.taskgate_acceptance_v3 != null),
+     taskgate_rejection_v1:(.taskgate_rejection_v1 // null)}' "$samples_path" >&2; then
+    echo "retained sample JSONL could not be decoded for rejection reporting" >&2
+  fi
+}
+# ARTIFACT_REJECTION_REPORT_END
+
 echo "== running ${selected_scale_count}/6 frozen artifact/result-heavy cells (${selected_scales_csv}) through v3 acceptance"
-GOFLAGS=-buildvcs=false go run ./evaluation/cmd/v5-artifact \
+capture_artifact_runner_status "$outdir/run.log" env GOFLAGS=-buildvcs=false \
+  go run ./evaluation/cmd/v5-artifact \
   -config "$config" \
   -deployment-id "$deployment_id" \
   -adapter "$(realpath "$adapter_binary")" \
   -profile-binding "$(realpath "$profile_binding")" \
-  -output "$outdir/raw/deployment-01.jsonl" | tee "$outdir/run.log"
+  -output "$outdir/raw/deployment-01.jsonl"
+if [[ "$artifact_tee_status" -ne 0 ]]; then
+  echo "tee failed while retaining the artifact evidence-runner log" >&2
+  exit 1
+fi
+if [[ "$artifact_runner_status" -ne 0 ]]; then
+  echo "artifact evidence runner exited $artifact_runner_status" >&2
+  report_retained_artifact_rejections "$outdir/raw/deployment-01.jsonl"
+  exit "$artifact_runner_status"
+fi
 
 # A process-level zero exit retains failed measured samples by design, so the
 # targeted launcher must adjudicate the complete selected result set itself.
@@ -689,6 +733,7 @@ total="$(jq -s 'length' "$outdir/raw/deployment-01.jsonl")"
 }
 [[ "$passed" -eq "$expected" ]] || {
   echo "artifact targeted run failed: only $passed/$expected samples passed" >&2
+  report_retained_artifact_rejections "$outdir/raw/deployment-01.jsonl"
   exit 1
 }
 jq -e -s --argjson expected "$expected" --argjson samples "$SAMPLES" \
@@ -703,6 +748,7 @@ jq -e -s --argjson expected "$expected" --argjson samples "$SAMPLES" \
     .status == "pass" and
     .system == "taskgate" and
     .taskgate_acceptance_v3 != null and
+    .taskgate_rejection_v1 == null and
     .publication_eligible == false) and
   all($scales[]; . as $scale |
     ([$records[] | select(.scale == $scale)] | length) == $samples)

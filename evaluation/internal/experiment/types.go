@@ -1,11 +1,13 @@
 package experiment
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -20,7 +22,15 @@ import (
 	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 )
 
-const SampleSchemaVersion = 1
+const (
+	// SampleSchemaVersion is the original retained sample contract. It remains
+	// the default for passes and failures that never reached v3 finalization.
+	SampleSchemaVersion = 1
+	// TaskGateRejectionSampleSchemaVersion is the explicit, rejection-only wire
+	// revision. A v2 sample proves FinalizeTaskGateObservationV3 was reached and
+	// refused the operation; it can carry neither a pass nor an acceptance.
+	TaskGateRejectionSampleSchemaVersion = 2
+)
 
 var fullSHA = regexp.MustCompile(`^[0-9a-f]{40}$`)
 var campaignIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
@@ -216,17 +226,106 @@ func (config Config) ValidateProtocol(root string) error {
 }
 
 func StrictJSON(value []byte, target any) error {
-	decoder := json.NewDecoder(strings.NewReader(string(value)))
+	if len(value) == 0 {
+		return errors.New("empty JSON")
+	}
+	tokens := json.NewDecoder(bytes.NewReader(value))
+	tokens.UseNumber()
+	if err := consumeStrictJSONValue(tokens); err != nil {
+		return err
+	}
+	if _, err := tokens.Token(); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return errors.New("trailing JSON value")
+		}
+		return fmt.Errorf("trailing JSON: %w", err)
+	}
+
+	decoder := json.NewDecoder(bytes.NewReader(value))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
 		return err
 	}
-	if decoder.More() {
-		return errors.New("multiple JSON values")
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return errors.New("trailing JSON value")
+		}
+		return fmt.Errorf("trailing JSON: %w", err)
 	}
-	var extra any
-	if err := decoder.Decode(&extra); err == nil {
-		return errors.New("trailing JSON value")
+	return nil
+}
+
+// rejectExplicitNullObjectMembers distinguishes an omitted optional member
+// from a member that is present with JSON null. Pointer-backed Go fields alone
+// cannot make that distinction, while the evidence schemas deliberately do.
+func rejectExplicitNullObjectMembers(value []byte, names ...string) error {
+	var members map[string]json.RawMessage
+	if err := StrictJSON(value, &members); err != nil {
+		return err
+	}
+	for _, name := range names {
+		member, present := members[name]
+		if present && bytes.Equal(bytes.TrimSpace(member), []byte("null")) {
+			return fmt.Errorf("JSON object member %q cannot be null", name)
+		}
+	}
+	return nil
+}
+
+// consumeStrictJSONValue rejects duplicate object members recursively. Go's
+// typed decoder intentionally accepts the last duplicate member, which is not
+// an acceptable ambiguity in an evidence contract.
+func consumeStrictJSONValue(decoder *json.Decoder) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	delimiter, compound := token.(json.Delim)
+	if !compound {
+		return nil
+	}
+	switch delimiter {
+	case '{':
+		seen := make(map[string]struct{})
+		for decoder.More() {
+			keyToken, err := decoder.Token()
+			if err != nil {
+				return err
+			}
+			key, ok := keyToken.(string)
+			if !ok {
+				return errors.New("JSON object member name is not a string")
+			}
+			if _, duplicate := seen[key]; duplicate {
+				return fmt.Errorf("duplicate JSON object member %q", key)
+			}
+			seen[key] = struct{}{}
+			if err := consumeStrictJSONValue(decoder); err != nil {
+				return err
+			}
+		}
+		end, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		if end != json.Delim('}') {
+			return errors.New("unterminated JSON object")
+		}
+	case '[':
+		for decoder.More() {
+			if err := consumeStrictJSONValue(decoder); err != nil {
+				return err
+			}
+		}
+		end, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		if end != json.Delim(']') {
+			return errors.New("unterminated JSON array")
+		}
+	default:
+		return fmt.Errorf("unexpected JSON delimiter %q", delimiter)
 	}
 	return nil
 }
@@ -374,6 +473,7 @@ type Sample struct {
 	// it was.
 	//
 	TaskGateAcceptanceV3      *FinalizationV3                   `json:"taskgate_acceptance_v3,omitempty"`
+	TaskGateRejectionV1       *TaskGateRejectionV1              `json:"taskgate_rejection_v1,omitempty"`
 	RootEpochBefore           int64                             `json:"root_epoch_before"`
 	RootEpochAfter            int64                             `json:"root_epoch_after"`
 	RootTaskIDHash            string                            `json:"root_task_id_hash,omitempty"`
@@ -422,6 +522,27 @@ type Sample struct {
 	// arm of one cell must agree, including a Direct arm that never reaches the
 	// Gateway but must still read the same Dataset, Catalog and Publication.
 	ProfileBinding *ProfileBinding `json:"profile_binding,omitempty"`
+}
+
+// UnmarshalJSON preserves the schema distinction between absence and explicit
+// null for the mutually exclusive finalizer adjudication records. The alias
+// keeps StrictJSON's recursive duplicate-member and unknown-field checks
+// without recursively invoking this method.
+func (sample *Sample) UnmarshalJSON(value []byte) error {
+	if sample == nil {
+		return errors.New("cannot decode a sample into nil")
+	}
+	if err := rejectExplicitNullObjectMembers(value,
+		"taskgate_acceptance_v3", "taskgate_rejection_v1"); err != nil {
+		return err
+	}
+	type sampleWire Sample
+	var decoded sampleWire
+	if err := StrictJSON(value, &decoded); err != nil {
+		return err
+	}
+	*sample = Sample(decoded)
+	return nil
 }
 
 type BaselineVerificationEvidence struct {
@@ -1487,12 +1608,32 @@ type TraceStep struct {
 var requiredPipeline = []string{"prepare", "execute_and_derive", "artifact_stage", "control_settlement", "artifact_publication", "response_finalize", "server_total"}
 
 func (sample Sample) Validate() error {
-	if sample.SchemaVersion != SampleSchemaVersion || sample.CampaignID == "" || sample.DeploymentID == "" || sample.ExperimentID == "" ||
+	if (sample.SchemaVersion != SampleSchemaVersion && sample.SchemaVersion != TaskGateRejectionSampleSchemaVersion) ||
+		sample.CampaignID == "" || sample.DeploymentID == "" || sample.ExperimentID == "" ||
 		sample.CellID == "" || sample.SampleID == "" || sample.Iteration < 1 || sample.ProcessReplicate < 1 || sample.OrderPosition < 1 || sample.RandomSeed == 0 ||
 		sample.PairID == "" || strings.TrimSpace(sample.PairedSystemOrder) == "" || strings.TrimSpace(sample.RootGroupID) == "" ||
 		sample.System == "" || sample.Mode == "" || sample.WorkloadID == "" || sample.Scale == "" ||
 		(sample.Status != "pass" && sample.Status != "fail" && sample.Status != "invalid") {
 		return errors.New("sample is missing required identity/status fields")
+	}
+	if sample.TaskGateAcceptanceV3 != nil && sample.TaskGateRejectionV1 != nil {
+		return errors.New("sample cannot carry both taskgate_acceptance_v3 and taskgate_rejection_v1")
+	}
+	switch sample.SchemaVersion {
+	case SampleSchemaVersion:
+		if sample.TaskGateRejectionV1 != nil {
+			return errors.New("sample-v1 cannot carry taskgate_rejection_v1")
+		}
+	case TaskGateRejectionSampleSchemaVersion:
+		if sample.Status != "fail" || sample.TaskGateRejectionV1 == nil || sample.TaskGateAcceptanceV3 != nil {
+			return errors.New("sample-v2 is reserved for a finalizer-rejected FAIL with no acceptance")
+		}
+		if err := sample.TaskGateRejectionV1.Validate(); err != nil {
+			return fmt.Errorf("taskgate_rejection_v1: %w", err)
+		}
+	}
+	if sample.Status == "pass" && sample.TaskGateRejectionV1 != nil {
+		return errors.New("passing sample cannot carry taskgate_rejection_v1")
 	}
 	var sum float64
 	for _, name := range requiredPipeline {
