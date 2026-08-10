@@ -1,6 +1,8 @@
 package gateway
 
 import (
+	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -242,6 +244,61 @@ func TestSemanticViewPreparationMatchesTheGateway(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestSemanticViewPredicateFootprintIgnoresScopeJSONEncoding(t *testing.T) {
+	var selected semanticViewCase
+	for _, test := range semanticViewCases() {
+		if test.name == "projection_v5_filtered" {
+			selected = test
+			break
+		}
+	}
+	if selected.name == "" {
+		t.Fatal("the semantic View V5 filtered fixture is missing")
+	}
+	inputs := semanticViewInputsFor(t, resolveSemanticViewCase(t, selected))
+	var decoded any
+	if err := json.Unmarshal(inputs.Grant.MandatoryScope, &decoded); err != nil {
+		t.Fatalf("decode semantic View mandatory scope: %v", err)
+	}
+	compact, err := json.Marshal(decoded)
+	if err != nil {
+		t.Fatalf("compact semantic View mandatory scope: %v", err)
+	}
+	spaced, err := json.MarshalIndent(decoded, "", "  ")
+	if err != nil {
+		t.Fatalf("indent semantic View mandatory scope: %v", err)
+	}
+	if string(compact) == string(spaced) {
+		t.Fatal("semantic View scope fixtures are not byte-distinct")
+	}
+	compactInputs, spacedInputs := inputs, inputs
+	compactInputs.Grant.MandatoryScope = compact
+	spacedInputs.Grant.MandatoryScope = spaced
+	compactPrepared, err := physicalquery.PrepareSemanticView(compactInputs)
+	if err != nil {
+		t.Fatalf("prepare semantic View with compact scope: %v", err)
+	}
+	spacedPrepared, err := physicalquery.PrepareSemanticView(spacedInputs)
+	if err != nil {
+		t.Fatalf("prepare semantic View with spaced scope: %v", err)
+	}
+	if err := compactPrepared.Binding().RequireSame(spacedPrepared.Binding()); err != nil {
+		t.Fatalf("semantic View full prepared bindings differ by scope encoding: %v", err)
+	}
+	compactFootprint, err := compactPrepared.PredicateFootprint()
+	if err != nil {
+		t.Fatalf("read compact semantic View footprint: %v", err)
+	}
+	spacedFootprint, err := spacedPrepared.PredicateFootprint()
+	if err != nil {
+		t.Fatalf("read spaced semantic View footprint: %v", err)
+	}
+	if !reflect.DeepEqual(compactFootprint, spacedFootprint) {
+		t.Fatalf("semantic View footprint differs by scope encoding\ncompact: %+v\nspaced:  %+v",
+			compactFootprint, spacedFootprint)
 	}
 }
 

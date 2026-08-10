@@ -1031,6 +1031,21 @@ func estimateBaseFacts(sources preparationSources, bound boundOrdinalPreparation
 	return total
 }
 
+const effectiveMandatoryScopeDomain = "TASKGATE-EFFECTIVE-MANDATORY-SCOPE-V1\x00"
+
+// canonicalEffectiveScopeSHA256 identifies the effective mandatory scope from
+// the Grant's canonical representation. PostgreSQL JSONB and a frozen contract
+// can render the same scope with different whitespace; neither rendering is a
+// semantic input to the predicate footprint.
+func canonicalEffectiveScopeSHA256(grant Grant) (string, error) {
+	canonical, err := grant.Canonical()
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(append([]byte(effectiveMandatoryScopeDomain), canonical.MandatoryScope...))
+	return hex.EncodeToString(digest[:]), nil
+}
+
 // derivePredicateFootprint builds the V5 footprint from compiler-resolved
 // source roles and Products.
 func derivePredicateFootprint(inputs PreparationInputs,
@@ -1039,12 +1054,14 @@ func derivePredicateFootprint(inputs PreparationInputs,
 	if err != nil {
 		return nil, err
 	}
-	scope := sha256.Sum256(append([]byte("TASKGATE-EFFECTIVE-MANDATORY-SCOPE-V1\x00"),
-		inputs.Grant.MandatoryScope...))
+	scopeSHA256, err := canonicalEffectiveScopeSHA256(inputs.Grant)
+	if err != nil {
+		return nil, err
+	}
 	footprint, err := queryplan.BuildPredicateFootprint(inputs.Plan, queryplan.PredicateBindings{
 		CatalogSHA256: inputs.Catalog.Digest, Products: predicateProducts,
 		ViewBindingSHA256: inputs.Grant.ViewBindingDigest,
-	}, hex.EncodeToString(scope[:]), inputs.Grant.PredicateLimits)
+	}, scopeSHA256, inputs.Grant.PredicateLimits)
 	if err != nil {
 		return nil, err
 	}

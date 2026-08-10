@@ -478,14 +478,16 @@ func deriveViewPredicateFootprint(inputs SemanticViewPreparationInputsV1, root c
 			Filter: queryplan.Filter{Column: output.FieldID, Op: filter.Op, Value: filter.Value},
 		})
 	}
-	scope := sha256.Sum256(append([]byte("TASKGATE-EFFECTIVE-MANDATORY-SCOPE-V1\x00"),
-		inputs.Grant.MandatoryScope...))
+	scopeSHA256, err := canonicalEffectiveScopeSHA256(inputs.Grant)
+	if err != nil {
+		return nil, err
+	}
 	footprint, err := queryplan.BuildPredicateFootprint(inputs.Composition.Plan, queryplan.PredicateBindings{
 		CatalogSHA256: inputs.Catalog.Digest, Products: predicateProducts,
 		ViewBindingSHA256: inputs.ViewBindingDigest,
 		CallerFilters:     callerFilters, Fields: fieldBindings,
 		SemanticProductID: root.Name,
-	}, hex.EncodeToString(scope[:]), inputs.Grant.PredicateLimits)
+	}, scopeSHA256, inputs.Grant.PredicateLimits)
 	if err != nil {
 		return nil, err
 	}
