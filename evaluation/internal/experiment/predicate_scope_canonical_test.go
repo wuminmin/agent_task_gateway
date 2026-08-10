@@ -12,10 +12,13 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"taskbound.local/agent-data-gateway/evaluation/finalv5contracts"
+	"taskbound.local/agent-data-gateway/internal/dataconnector"
 	"taskbound.local/agent-data-gateway/internal/exposure"
 	"taskbound.local/agent-data-gateway/internal/physicalquery"
 	"taskbound.local/agent-data-gateway/internal/querybinding"
 	"taskbound.local/agent-data-gateway/internal/queryplan"
+	"taskbound.local/agent-data-gateway/internal/sqlpolicy"
+	fixture "taskbound.local/agent-data-gateway/internal/testfixture/queryreceiptv10"
 )
 
 const (
@@ -227,5 +230,82 @@ func TestRun04PreparedBindingMatchesPostgreSQLJSONBRoundTrip(t *testing.T) {
 	requireRun04BindingsSame(t, compact, postgres)
 	if !reflect.DeepEqual(compactFootprint, postgresFootprint) {
 		t.Fatal("PostgreSQL JSONB round-trip changed the structured predicate footprint")
+	}
+}
+
+// The retained statements are regression fixtures transcribed from the run-05
+// diagnosis pg_stat_statements capture. They are not new evidence. The source
+// side is rebuilt from the exact frozen 100x4 operation, then passed through the
+// same Derive call the Gateway uses to sign its visible and companion targets.
+func TestRun05SourceAndRetainedStructuralIdentitiesAgree(t *testing.T) {
+	prepared, err := physicalquery.Prepare(run04ArtifactInputs(t, json.RawMessage(run04CompactScope)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	visible, companion, err := prepared.ExecutableStatements()
+	if err != nil {
+		t.Fatal(err)
+	}
+	derived, err := physicalquery.Derive(sqlpolicy.New(sqlpolicy.Config{}), StrictASTDigest,
+		physicalquery.Request{
+			VisibleSQL: visible, CompanionSQL: companion, Grant: prepared.PolicyGrant(),
+			State: fixture.PreState(prepared.Binding().UsesExpandedEvidence()),
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const retainedVisible = `WITH "final_v5_result_heavy" AS (
+  SELECT "amount", "category", "event_date", "row_id"
+  FROM "reporting"."final_v5_result_heavy"
+  WHERE "category" IN ($1, $2, $3, $4)
+)
+SELECT *
+FROM (
+SELECT row_id, category, amount, event_date FROM final_v5_result_heavy WHERE category IN ($5, $6, $7, $8) AND row_id <= $9 ORDER BY row_id ASC
+) AS "__taskbound_result"
+LIMIT $10`
+	const retainedCompanion = `WITH "final_v5_result_heavy" AS (
+  SELECT "amount", "category", "event_date", "row_id"
+  FROM "reporting"."final_v5_result_heavy"
+  WHERE "category" IN ($1, $2, $3, $4)
+),
+"ordinal_sidecar_1be2bf8b1a3ce28d" AS (
+  SELECT "row_handle", "row_id"
+  FROM "taskgate_ordinal"."final_v5_result_heavy_v1"
+)
+SELECT *
+FROM (
+SELECT tg_v4_provenance.row_id AS row_id, tg_v4_provenance.category AS category, tg_v4_provenance.amount AS amount, tg_v4_provenance.event_date AS event_date, tg_v4_sidecar_0.row_handle AS tg_h_a6ee88e89f9997c9 FROM (SELECT row_id, category, amount, event_date FROM final_v5_result_heavy WHERE category IN ($5, $6, $7, $8) AND row_id <= $9 ORDER BY row_id ASC) tg_v4_provenance JOIN ordinal_sidecar_1be2bf8b1a3ce28d tg_v4_sidecar_0 ON tg_v4_provenance.row_id = tg_v4_sidecar_0.row_id ORDER BY tg_v4_provenance.row_id ASC
+) AS "__taskbound_result"
+LIMIT $10`
+	const retainedViewDefinition = `WITH taskgate_schema_digest_path AS (
+	SELECT set_config($3, $4, $5)
+)
+SELECT pg_get_viewdef(format($6, $1::text, $2::text)::regclass, $7)
+FROM taskgate_schema_digest_path`
+
+	for _, testCase := range []struct {
+		name             string
+		source, retained string
+	}{
+		{"visible", derived.VisibleDecision.SQL, retainedVisible},
+		{"companion", derived.CompanionDecision.SQL, retainedCompanion},
+		{"view definition", dataconnector.ViewDefinitionAttestationSQL, retainedViewDefinition},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			source, err := StrictASTDigest(testCase.source)
+			if err != nil {
+				t.Fatalf("source digest: %v", err)
+			}
+			retained, err := StrictASTDigest(testCase.retained)
+			if err != nil {
+				t.Fatalf("retained digest: %v", err)
+			}
+			if source != retained {
+				t.Fatalf("source digest %s != retained digest %s", source, retained)
+			}
+			t.Logf("source and retained strict AST digest = %s", source)
+		})
 	}
 }

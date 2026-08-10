@@ -62,6 +62,55 @@ func TestStrictASTDigestIgnoresConstantValues(t *testing.T) {
 	}
 }
 
+func TestStrictASTDigestPreservesBindAliasingAndOrder(t *testing.T) {
+	digests := map[string]string{
+		"repeated $1": mustDigest(t, `SELECT * FROM reporting.t WHERE a = $1 AND b = $1`),
+		"$1 then $2":  mustDigest(t, `SELECT * FROM reporting.t WHERE a = $1 AND b = $2`),
+		"$2 then $1":  mustDigest(t, `SELECT * FROM reporting.t WHERE a = $2 AND b = $1`),
+	}
+	seen := map[string]string{}
+	for name, digest := range digests {
+		if other, present := seen[digest]; present {
+			t.Fatalf("%s and %s share digest %s; real bind parameters were alpha-renumbered", name, other, digest)
+		}
+		seen[digest] = name
+	}
+}
+
+func TestStrictASTDigestRenumbersOnlyLiteralParameters(t *testing.T) {
+	bound := mustDigest(t, `SELECT pg_catalog.set_config('statement_timeout', $1, true)`)
+	boundRetained := mustDigest(t, `SELECT pg_catalog.set_config($2, $1, $3)`)
+	if bound != boundRetained {
+		t.Fatal("a real bind parameter did not retain its number around normalized literals")
+	}
+
+	literal := mustDigest(t, `SELECT pg_catalog.set_config('work_mem', '64MB', true)`)
+	literalRetained := mustDigest(t, `SELECT pg_catalog.set_config($1, $2, $3)`)
+	if literal != literalRetained {
+		t.Fatal("all-literal set_config did not use source-order parameter numbering")
+	}
+	if bound == literal {
+		t.Fatal("bound set_config($2,$1,$3) merged with all-literal set_config($1,$2,$3)")
+	}
+}
+
+func TestStrictASTDigestPreservesSchemaAndViewBindOrder(t *testing.T) {
+	forward := mustDigest(t, `SELECT pg_get_viewdef(format($3, $1::text, $2::text)::regclass, $4)`)
+	swapped := mustDigest(t, `SELECT pg_get_viewdef(format($3, $2::text, $1::text)::regclass, $4)`)
+	if forward == swapped {
+		t.Fatal("schema $1 and view $2 bindings were alpha-renumbered")
+	}
+
+	const retained = `WITH taskgate_schema_digest_path AS (
+	SELECT set_config($3, $4, $5)
+)
+SELECT pg_get_viewdef(format($6, $1::text, $2::text)::regclass, $7)
+FROM taskgate_schema_digest_path`
+	if source, observed := mustDigest(t, dataconnector.ViewDefinitionAttestationSQL), mustDigest(t, retained); source != observed {
+		t.Fatalf("view-definition source and PostgreSQL-retained identities differ: %s != %s", source, observed)
+	}
+}
+
 // Target-list length must matter. This is the exact property pg_query.Fingerprint
 // collapses, which is why it cannot be the classification key: under Fingerprint
 // the two-call safety pin and the one-call timeout pin share a value.

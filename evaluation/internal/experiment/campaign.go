@@ -51,8 +51,12 @@ var observerRequiredSources = []string{
 	"evaluation/internal/experiment/observer_snapshot_v2.go",
 	"evaluation/internal/experiment/formal_window.go",
 	// The strict AST digest decides every structural identity the snapshot
-	// carries, so its bytes are part of what a snapshot means.
+	// carries. Keep both the evaluation alias and the actual implementation in
+	// the closure: pinning only the alias would let the construction move while
+	// this source identity stayed unchanged.
 	"evaluation/internal/experiment/strict_ast.go",
+	"internal/approval/protocol.go",
+	"internal/sqlidentity/strict_ast.go",
 	// The measurement environment and the PostgreSQL runtime identity the
 	// snapshot is validated against.
 	"evaluation/internal/experiment/observer_accounting_v3.go",

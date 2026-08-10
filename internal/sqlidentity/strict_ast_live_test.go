@@ -67,6 +67,15 @@ func TestSourceDerivedDigestsMatchLivePostgreSQL(t *testing.T) {
 	if _, err := tx.Exec(ctx, dataconnector.StatementTimeoutPinSQL, "1000ms"); err != nil {
 		t.Fatalf("statement timeout pin: %v", err)
 	}
+	if _, err := tx.Exec(ctx, dataconnector.DatasourceIdentitySQL); err != nil {
+		t.Fatalf("datasource identity: %v", err)
+	}
+	if _, err := tx.Exec(ctx, dataconnector.ViewColumnAttestationSQL, "reporting", "final_v5_result_heavy"); err != nil {
+		t.Fatalf("view column attestation: %v", err)
+	}
+	if _, err := tx.Exec(ctx, dataconnector.ViewDefinitionAttestationSQL, "reporting", "final_v5_result_heavy"); err != nil {
+		t.Fatalf("view definition attestation: %v", err)
+	}
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatalf("commit: %v", err)
 	}
@@ -97,9 +106,12 @@ WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())`)
 	}
 
 	for name, source := range map[string]string{
-		"safety pin":         dataconnector.SafetySessionPinSQL,
-		"representation pin": dataconnector.RepresentationPinSQL,
-		"timeout pin":        dataconnector.StatementTimeoutPinSQL,
+		"safety pin":                  dataconnector.SafetySessionPinSQL,
+		"representation pin":          dataconnector.RepresentationPinSQL,
+		"timeout pin":                 dataconnector.StatementTimeoutPinSQL,
+		"datasource identity":         dataconnector.DatasourceIdentitySQL,
+		"view column attestation":     dataconnector.ViewColumnAttestationSQL,
+		"view definition attestation": dataconnector.ViewDefinitionAttestationSQL,
 	} {
 		want, err := sqlidentity.StrictASTDigest(source)
 		if err != nil {

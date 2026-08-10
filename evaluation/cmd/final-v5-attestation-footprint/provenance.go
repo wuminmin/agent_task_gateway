@@ -72,8 +72,12 @@ func requiredSourcePaths() []string {
 		"evaluation/final-v5-wsl2/scripts/qualify-attestation-footprint.sh",
 		"evaluation/internal/experiment/attestation_footprint.go",
 		"evaluation/internal/experiment/strict_ast.go",
+		"internal/approval/protocol.go",
 		"internal/catalogschema/catalogschema.go",
+		"internal/dataconnector/pins.go",
 		"internal/dataconnector/postgres.go",
+		"internal/dataconnector/statements.go",
+		"internal/sqlidentity/strict_ast.go",
 		"evaluation/final-v5-wsl2/compose.observer-v3.yaml",
 	}
 }

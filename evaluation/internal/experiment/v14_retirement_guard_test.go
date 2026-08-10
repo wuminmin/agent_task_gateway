@@ -109,7 +109,17 @@ func TestLegacyV14HasNoModuleDependencies(t *testing.T) {
 
 func TestObserverRuntimeSourceClosureExcludesLegacyV14(t *testing.T) {
 	foundInvocation := false
+	required := map[string]bool{
+		"evaluation/internal/experiment/strict_ast.go": false,
+		"internal/approval/protocol.go":                false,
+		"internal/sqlidentity/strict_ast.go":           false,
+	}
+	seen := map[string]bool{}
 	for _, source := range observerRequiredSources {
+		if seen[source] {
+			t.Errorf("observer source closure lists %s twice", source)
+		}
+		seen[source] = true
 		if strings.Contains(filepath.ToSlash(source), "/legacyv14/") ||
 			source == "evaluation/internal/experiment/observer.go" {
 			t.Errorf("v1.5 observer source closure retains legacy source %s", source)
@@ -117,9 +127,17 @@ func TestObserverRuntimeSourceClosureExcludesLegacyV14(t *testing.T) {
 		if source == "evaluation/internal/experiment/observer_invocation_v3.go" {
 			foundInvocation = true
 		}
+		if _, present := required[source]; present {
+			required[source] = true
+		}
 	}
 	if !foundInvocation {
 		t.Fatal("v1.5 observer source closure omits observer_invocation_v3.go")
+	}
+	for source, present := range required {
+		if !present {
+			t.Errorf("observer source closure omits %s", source)
+		}
 	}
 }
 

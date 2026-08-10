@@ -17,46 +17,47 @@ import (
 // qualifications that were run against the old space would silently become
 // evidence about a different key.
 //
-// These vectors were produced by the pre-move implementation in
-// evaluation/internal/experiment and reproduced byte for byte by this package.
-// They pin the construction so a future edit has to be a deliberate
-// StrictASTSchemaVersion bump rather than an accident.
+// The original vectors were produced by the pre-move v1 implementation. The
+// values below are the deliberately reissued v2 space after source-order
+// normalization of only synthetic ParamRefs. They pin that construction so a
+// future edit has to be another StrictASTSchemaVersion bump rather than an
+// accident.
 func TestStrictASTDigestGoldenVectors(t *testing.T) {
 	for _, testCase := range []struct{ name, sql, digest string }{
 		{
 			name:   "safety session pin",
 			sql:    dataconnector.SafetySessionPinSQL,
-			digest: "ba22d865c6543e00d12dea192639fcf809ce9be57ee4ef5c0ef51f2a6d415f2d",
+			digest: "fa50290e772fc3b97eca7f4a90f61928059cdcbcb3dfe1e8120baa0a39efa1c5",
 		},
 		{
 			name:   "representation pin",
 			sql:    dataconnector.RepresentationPinSQL,
-			digest: "d474bfd147403663d0cd702d219f0576a91aa3ddbd6e1de169fc5b9886a87c3b",
+			digest: "14d2999dc94ba0cce01174f4543b819bfea95268723ea5339bdfb1fa65f9449d",
 		},
 		{
 			name:   "statement timeout pin",
 			sql:    dataconnector.StatementTimeoutPinSQL,
-			digest: "a8acade16a6702d05e7b894a642d44f3cea0f1b713fbe17a62713335c6f00c83",
+			digest: "67d7f0472443a515b9f0a9fa2b765683555eb1cb27d0541acecd497f28efedbb",
 		},
 		{
 			name:   "nested pg_rewrite lookup",
 			sql:    `SELECT * FROM pg_catalog.pg_rewrite WHERE ev_class = $1 AND rulename = $2`,
-			digest: "e5738df1650276a7f20e677172e067bc62bab12d48c18a378c9b6ed602433842",
+			digest: "8258e53289cbcaf0e18cf828725bbd23da953145bea8f873fcbe165b7c85dca7",
 		},
 		{
 			name:   "repeatable read begin",
 			sql:    `begin isolation level repeatable read read only`,
-			digest: "91d4316ad8bb8cf839ccd8b0445e35496b2604c1ef2b434b66a482f20527f0c0",
+			digest: "c6d11346b1589b2f7461a2ee39091073cb2119abdef4caf752e220b29c83283f",
 		},
 		{
 			name:   "commit",
 			sql:    `commit`,
-			digest: "f440d0cec958ea7cf465a67c131f197101a6c780a60c31aaec8368e47398832e",
+			digest: "211bdf2747c37282f656cb81b3bc041f63ffa5e8ce77f3dc32300215324b274f",
 		},
 		{
 			name:   "limited projection",
 			sql:    `SELECT id, amount FROM reporting.expense ORDER BY id LIMIT 100`,
-			digest: "99f2e8633019b99a6695362186f1ba9f9ad3152953ca51484d1919462708a346",
+			digest: "29bedfe521cabb9bec129e6ac1e8c617651c68607e1630a0ea063d39ced64591",
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -81,7 +82,7 @@ func TestStrictASTConstructionIdentityIsPinned(t *testing.T) {
 	if sqlidentity.StrictASTDomain != "TASKGATE-FINAL-V5-STRICT-PG-AST-V1" {
 		t.Fatalf("digest domain changed: %s", sqlidentity.StrictASTDomain)
 	}
-	if sqlidentity.StrictASTSchemaVersion != 1 {
+	if sqlidentity.StrictASTSchemaVersion != 2 {
 		t.Fatalf("digest schema version changed: %d", sqlidentity.StrictASTSchemaVersion)
 	}
 	if want := []string{"location", "stmt_len", "stmt_location"}; !reflect.DeepEqual(sqlidentity.PositionOnlyASTFields(), want) {
