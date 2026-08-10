@@ -45,7 +45,7 @@ func TestBenchmarkS2S4S5QueriesAndCanonicalNormalizerRemainFrozen(t *testing.T) 
 	}
 	normalizerImplementations := map[string]string{
 		"canonical.go": "b12743ea60de2c7f02ae66a3f55623a1b2159eeac55ba9c603e5d02287ae7069",
-		"result.go":    "3704a5180883d542f6ca155cb9157e8d66e16a24a257096424079817c1407fb9",
+		"result.go":    "fba875ed8372c39a92b1999be8e6668c9250de5429e5dd7c82c93cd3afafeedf",
 	}
 	for file, want := range normalizerImplementations {
 		path := filepath.Join(runtimeCompatibilityRoot(t), "evaluation", "finalv5oracle", file)

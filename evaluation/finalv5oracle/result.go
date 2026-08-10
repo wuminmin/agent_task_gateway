@@ -42,11 +42,10 @@ const (
 	maximumSortedResultEncodedBytes = int64(256 << 20)
 )
 
-// SortedResultHasher provides the deterministic total-order fallback required
-// by the approved Join, semantic-View, and UNION contracts. Production's
-// closed relational grammar intentionally forbids ORDER BY for those shapes,
-// so this evaluation-only path sorts complete canonical typed-row payloads
-// lexicographically. Duplicate rows are retained.
+// SortedResultHasher provides the deterministic total-order fallback used by
+// the approved Join, semantic-View, and UNION contracts whose frozen queries do
+// not supply a total result order. This evaluation-only path sorts complete
+// canonical typed-row payloads lexicographically. Duplicate rows are retained.
 type SortedResultHasher struct {
 	columns      []ResultColumn
 	rows         [][]byte
@@ -190,7 +189,8 @@ func (hasher *ResultHasher) Finalize() (ResultSummary, error) {
 }
 
 // NewSortedResultHasher starts a bounded canonical-row sorter. It exists only
-// for registered workloads whose production grammar cannot express ORDER BY.
+// for registered workloads whose frozen queries do not supply a total result
+// order.
 func NewSortedResultHasher(columns []ResultColumn) (*SortedResultHasher, error) {
 	normalized, err := NormalizeResultSchema(columns)
 	if err != nil {
