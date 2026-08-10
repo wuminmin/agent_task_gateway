@@ -43,7 +43,7 @@ func retainedQualificationDirectory(t *testing.T) string {
 		t.Fatalf("resolve the retained qualification: %v", err)
 	}
 	if _, err := os.Stat(path); err != nil {
-		t.Skipf("the retained qualification is not present: %v", err)
+		t.Fatalf("the retained qualification is not present: %v", err)
 	}
 	return path
 }

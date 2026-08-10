@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 FROM golang:1.25-bookworm AS build
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential ca-certificates \
+    && apt-get install -y --no-install-recommends build-essential ca-certificates jq \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 COPY go.mod go.sum ./

@@ -22,6 +22,13 @@ evaluation/v4-acceptance/raw
 evaluation/daily-publication/raw
 evaluation/daily-publication-online/raw
 evaluation/final-v5-wsl2/raw
+# Build-stage tests consume only these credential-free retained P3.2 fixtures.
+!evaluation/final-v5-wsl2/raw
+evaluation/final-v5-wsl2/raw/*
+!evaluation/final-v5-wsl2/raw/diagnosis-attestation-footprint-qualification-p32-01-20260809T130103Z-f5fc9811eef8
+evaluation/final-v5-wsl2/raw/diagnosis-attestation-footprint-qualification-p32-01-20260809T130103Z-f5fc9811eef8/*
+!evaluation/final-v5-wsl2/raw/diagnosis-attestation-footprint-qualification-p32-01-20260809T130103Z-f5fc9811eef8/attestation-footprint-v2.json
+!evaluation/final-v5-wsl2/raw/diagnosis-attestation-footprint-qualification-p32-01-20260809T130103Z-f5fc9811eef8/postgresql-identity.json
 evaluation/final-v5-wsl2/generated
 evaluation/generated
 formal/results
