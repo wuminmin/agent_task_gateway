@@ -44,10 +44,9 @@ const (
 
 // SortedResultHasher provides the deterministic total-order fallback required
 // by the approved Join, semantic-View, and UNION contracts. Production's
-// frozen queries for these shapes do not depend on returned row order, so this
-// evaluation-only path sorts complete canonical typed-row payloads lexicographically;
-// its existence is not because the grammar forbids ORDER BY. Duplicate rows are
-// retained.
+// closed relational grammar intentionally forbids ORDER BY for those shapes,
+// so this evaluation-only path sorts complete canonical typed-row payloads
+// lexicographically. Duplicate rows are retained.
 type SortedResultHasher struct {
 	columns      []ResultColumn
 	rows         [][]byte
