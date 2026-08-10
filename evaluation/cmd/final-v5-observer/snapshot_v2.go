@@ -44,7 +44,7 @@ SELECT 'S'
      , (SELECT stats_reset::text FROM pg_stat_statements_info)
      , (SELECT dealloc::text FROM pg_stat_statements_info)
      , pg_postmaster_start_time()::text
-     , pg_current_wal_lsn() - '0/0'::pg_lsn
+     , pg_wal_lsn_diff(pg_current_wal_lsn(), '0/0')::bigint::text
 UNION ALL
 SELECT 'T', (SELECT COALESCE(sum(c.calls), 0)::text FROM census c), '', '', ''
 UNION ALL
@@ -102,8 +102,13 @@ func readBusinessCensus(ctx context.Context, docker statementExecutor, container
 	if err != nil {
 		return census, fmt.Errorf("read Business PostgreSQL census: %w", err)
 	}
+	// The production Docker exec allocates a TTY, which renders psql newlines as
+	// CRLF. Normalize the transport framing before parsing fields; otherwise the
+	// fifth field retains a trailing carriage return and a valid WAL position is
+	// rejected as non-decimal.
+	normalized := strings.ReplaceAll(string(raw), "\r\n", "\n")
 	var sawEnvironment, sawState, sawTotal bool
-	for _, line := range strings.Split(strings.TrimRight(string(raw), "\n"), "\n") {
+	for _, line := range strings.Split(strings.TrimRight(normalized, "\n"), "\n") {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
