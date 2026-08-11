@@ -172,3 +172,21 @@ oracles, campaigns, or the paper are complete.
     quantities** in the paper. Independent verification of Artifact exposure,
     if ever wanted, is a new experiment with a new oracle — not this section
     retained as a placeholder.
+
+20. **Approve the exact C2 exposure-scale review candidate as E1 input.**
+    (Taken 2026-08-11 by author wuminmin; this approves one existing byte
+    string, not a future generated binding.) The approved object is
+    `evaluation/final-v5-wsl2/publication-review/exposure-scale-v1/review.json`
+    at exact SHA-256
+    `8c4fe7c322e9e2e8f1afc282487866451c2f9717d68fb1c261a8296013f973f8`.
+    At approval it remained `status=REVIEW_CANDIDATE`,
+    `author_approved=false`, `outcome_identity=NOT_GENERATED`, and
+    `set_algebra=NOT_GENERATED`. The separate immutable-reference approval
+    record is
+    `evaluation/final-v5-wsl2/publication-approvals/exposure-scale-v1/approval-v1.json`;
+    it preserves the candidate bytes and binds their path, SHA-256, byte
+    length, and observed state. Scope: P4.0-E1 may use this approved material
+    to generate a complete 12/6/105 publication-binding review candidate.
+    This decision does **not** approve any generated final binding, P4.0-E2,
+    activation, registry, capability, contract release, campaign, or tag.
+    The final binding still requires author byte-for-byte review after E2.

@@ -1,0 +1,40 @@
+{
+  "version": "taskgate-final-v5-exposure-scale-review-approval-v1",
+  "approval_id": "APPROVE-C2",
+  "approval_status": "AUTHOR_APPROVED",
+  "author": {
+    "name": "wuminmin",
+    "approved_on": "2026-08-11",
+    "decision_document": "docs/final_v5_author_decisions.md",
+    "decision_number": 20
+  },
+  "approved_candidate": {
+    "path": "evaluation/final-v5-wsl2/publication-review/exposure-scale-v1/review.json",
+    "sha256": "8c4fe7c322e9e2e8f1afc282487866451c2f9717d68fb1c261a8296013f973f8",
+    "bytes": 10824
+  },
+  "approved_candidate_state": {
+    "version": "taskgate-final-v5-exposure-scale-publication-review-v1",
+    "status": "REVIEW_CANDIDATE",
+    "author_approved": false,
+    "outcome_identity": "NOT_GENERATED",
+    "set_algebra": "NOT_GENERATED"
+  },
+  "scope": {
+    "task": "P4.0-E1",
+    "output_status": "REVIEW_CANDIDATE",
+    "scale_cells": 12,
+    "artifact_cells": 6,
+    "provsql_cells": 105
+  },
+  "exclusions": {
+    "final_binding_exact_bytes": "NOT_APPROVED",
+    "p4_0_e2_author_exact_byte_review": "REQUIRED",
+    "activation": "NOT_APPROVED",
+    "registry": "NOT_APPROVED",
+    "capability": "NOT_APPROVED",
+    "contract_release": "NOT_APPROVED",
+    "campaign": "NOT_APPROVED",
+    "tag": "NOT_APPROVED"
+  }
+}
