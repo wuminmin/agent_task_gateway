@@ -86,9 +86,13 @@ digest-pinned 的 PostgreSQL 16.14 容器对就是整套记账被认证against�
 - **Sample schema 有三代并存**：v1（早期 run）、v2（rejection-only）、v3（当前）。
   旧字节一律不动、按各自版本读取，永久兼容回归必须原样通过；
   新增能力走显式新版本，**不得静默重解释旧样本**。
-- **finalizer 拒绝必须携带 `TaskGateRejectionV1`**（12 phases / 54 个闭式 gate code），
-  与 `taskgate_acceptance_v3` 互斥。**已知覆盖空洞**：pre-finalizer 的
-  phase-1 启动失败没有 sample 当载体，taxonomy 不适用——这类失败仍需人读日志。
+- **finalizer 拒绝必须携带 `TaskGateRejectionV1`**：phase / gate_code / failure_kind /
+  source / path_kind / target_role / statement_class / difference_kind / difference_field
+  九张闭式枚举表，拒绝 unknown 值；与 `taskgate_acceptance_v3` 互斥。
+  （不在此处写具体条目数：计数会随新增 gate code 漂移，而没人会记得同步；
+  要遵守的属性是"闭式 + 拒绝 unknown"，不是某个数字。）
+  **已知覆盖空洞**：pre-finalizer 的 phase-1 启动失败没有 sample 当载体，
+  taxonomy 不适用——这类失败仍需人读日志。
 
 ## 反复踩过的那个坑
 
