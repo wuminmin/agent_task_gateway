@@ -56,7 +56,7 @@ func TestArtifactTargetedLauncherWiresTheFormalRuntimeContract(t *testing.T) {
 		`printf '%s\0%s' "$TASKGATE_CAMPAIGN_ID" "$commit"`,
 		`deployment-project-name.sh`,
 		`export COMPOSE_PROJECT_NAME="$project"`,
-		`--file evaluation/final-v5-wsl2/compose.provsql.yaml`,
+		`evaluation/final-v5-wsl2/compose.provsql.yaml`,
 		`snapshot-sidecar-install final-v5-direct-postgres final-v5-provsql-postgres`,
 		`final-v5-direct-postgres final-v5-provsql-postgres)`,
 		`go run ./evaluation/cmd/final-v5-gateway-build build`,

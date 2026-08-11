@@ -245,6 +245,17 @@ project_campaign_identity="$(printf '%s\0%s' "$TASKGATE_CAMPAIGN_ID" "$commit" |
 project="$(bash evaluation/final-v5-wsl2/scripts/deployment-project-name.sh \
   "$project_campaign_identity" "$deployment_id")"
 export COMPOSE_PROJECT_NAME="$project"
+export TASKGATE_PROFILE_CATALOG="./${PROFILE_CATALOG#./}"
+
+artifact_compose_files=(
+  compose.yaml
+  compose.debug.yaml
+  evaluation/final-v5-wsl2/compose.real-pilot.yaml
+  evaluation/final-v5-wsl2/compose.provsql.yaml
+  evaluation/final-v5-wsl2/compose.observer-v3.yaml
+)
+bash evaluation/final-v5-wsl2/scripts/compose-host-preflight.sh \
+  "$project" "${artifact_compose_files[@]}"
 
 mkdir -m 700 -p "$outdir" "$outdir/raw" "$outdir/environment"
 
@@ -317,15 +328,11 @@ chmod 600 "$formal_gateway_override"
 # The Gateway must activate exactly the Profile Catalog this run is judged
 # against. compose.yaml defaults TASKGATE_PROFILE_CATALOG to the master
 # config/catalog.yaml, which is a different ExpectedSchema.
-export TASKGATE_PROFILE_CATALOG="./${PROFILE_CATALOG#./}"
-
-compose=(docker compose --project-name "$project"
-  --file compose.yaml
-  --file compose.debug.yaml
-  --file evaluation/final-v5-wsl2/compose.real-pilot.yaml
-  --file evaluation/final-v5-wsl2/compose.provsql.yaml
-  --file evaluation/final-v5-wsl2/compose.observer-v3.yaml
-  --file "$formal_gateway_override")
+compose=(docker compose --project-name "$project")
+for compose_file in "${artifact_compose_files[@]}"; do
+  compose+=(--file "$compose_file")
+done
+compose+=(--file "$formal_gateway_override")
 
 cleanup() {
   local status=$?
@@ -344,7 +351,6 @@ retain_failure() {
 }
 
 echo "== ${RUN_ID}: fresh deployment ${project}"
-"${compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
 
 # Phase 1: everything except the Gateway. The snapshot-index services populate
 # one shared artifact volume with every publication in the repository, and the
