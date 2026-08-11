@@ -1,0 +1,187 @@
+result-object-store-1  | INFO: Formatting 1st pool, 1 set(s), 1 drives per set.
+result-object-store-1  | INFO: WARNING: Host local has more than 0 drives of set. A host failure will result in data becoming unavailable.
+result-object-store-1  | MinIO Object Storage Server
+result-object-store-1  | Copyright: 2015-2026 MinIO, Inc.
+result-object-store-1  | License: GNU AGPLv3 - https://www.gnu.org/licenses/agpl-3.0.html
+result-object-store-1  | Version: RELEASE.2025-04-22T22-12-26Z (go1.24.2 linux/amd64)
+result-object-store-1  | 
+result-object-store-1  | API: http://192.168.0.3:9000  http://172.24.0.2:9000  http://127.0.0.1:9000 
+result-object-store-1  | WebUI: http://192.168.0.3:9001 http://172.24.0.2:9001 http://127.0.0.1:9001  
+result-object-store-1  | 
+result-object-store-1  | Docs: https://docs.min.io
+result-object-store-1  | INFO: 
+result-object-store-1  |  You are running an older version of MinIO released 4 months before the latest release 
+result-object-store-1  |  Update: Run `mc admin update ALIAS` 
+result-object-store-1  | 
+result-object-store-1  | 
+final-v5-provsql-postgres-1  | The files belonging to this database system will be owned by user "postgres".
+final-v5-provsql-postgres-1  | This user must also own the server process.
+final-v5-provsql-postgres-1  | 
+final-v5-provsql-postgres-1  | The database cluster will be initialized with locale "en_US.utf8".
+final-v5-provsql-postgres-1  | The default database encoding has accordingly been set to "UTF8".
+final-v5-provsql-postgres-1  | The default text search configuration will be set to "english".
+final-v5-provsql-postgres-1  | 
+final-v5-provsql-postgres-1  | Data page checksums are disabled.
+final-v5-provsql-postgres-1  | 
+final-v5-provsql-postgres-1  | fixing permissions on existing directory /var/lib/postgresql/data ... ok
+final-v5-provsql-postgres-1  | creating subdirectories ... ok
+final-v5-provsql-postgres-1  | selecting dynamic shared memory implementation ... posix
+final-v5-provsql-postgres-1  | selecting default max_connections ... 100
+final-v5-provsql-postgres-1  | selecting default shared_buffers ... 128MB
+final-v5-provsql-postgres-1  | selecting default time zone ... Etc/UTC
+final-v5-provsql-postgres-1  | creating configuration files ... ok
+final-v5-provsql-postgres-1  | running bootstrap script ... ok
+final-v5-provsql-postgres-1  | performing post-bootstrap initialization ... ok
+final-v5-provsql-postgres-1  | initdb: warning: enabling "trust" authentication for local connections
+final-v5-provsql-postgres-1  | syncing data to disk ... ok
+final-v5-provsql-postgres-1  | initdb: hint: You can change this by editing pg_hba.conf or using the option -A, or --auth-local and --auth-host, the next time you run initdb.
+final-v5-provsql-postgres-1  | 
+final-v5-provsql-postgres-1  | 
+final-v5-provsql-postgres-1  | Success. You can now start the database server using:
+final-v5-provsql-postgres-1  | 
+final-v5-provsql-postgres-1  |     pg_ctl -D /var/lib/postgresql/data -l logfile start
+final-v5-provsql-postgres-1  | 
+final-v5-provsql-postgres-1  | waiting for server to start....2026-08-11 00:40:23.423 UTC [48] LOG:  starting PostgreSQL 16.14 (Debian 16.14-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit
+final-v5-provsql-postgres-1  | 2026-08-11 00:40:23.425 UTC [48] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+final-v5-provsql-postgres-1  | 2026-08-11 00:40:23.429 UTC [51] LOG:  database system was shut down at 2026-08-11 00:40:22 UTC
+final-v5-provsql-postgres-1  | 2026-08-11 00:40:23.430 UTC [53] LOG:  ProvSQL: ProvSQL MMap Worker initialized
+final-v5-provsql-postgres-1  | 2026-08-11 00:40:23.433 UTC [48] LOG:  database system is ready to accept connections
+final-v5-provsql-postgres-1  |  done
+final-v5-provsql-postgres-1  | server started
+final-v5-provsql-postgres-1  | CREATE DATABASE
+final-v5-provsql-postgres-1  | 
+final-v5-provsql-postgres-1  | 
+final-v5-provsql-postgres-1  | /usr/local/bin/docker-entrypoint.sh: running /docker-entrypoint-initdb.d/10-final-v5-provsql-fixture.sql
+final-v5-provsql-postgres-1  | BEGIN
+final-v5-provsql-postgres-1  | CREATE SCHEMA
+final-v5-provsql-postgres-1  | CREATE SCHEMA
+final-v5-provsql-postgres-1  | CREATE TABLE
+final-v5-provsql-postgres-1  | CREATE TABLE
+final-v5-provsql-postgres-1  | CREATE TABLE
+final-v5-provsql-postgres-1  | INSERT 0 50000
+oa-demo-1                    | {"time":"2026-08-11T00:40:22.570546224Z","level":"INFO","msg":"oa demo listening","address":":8092"}
+business-postgres-1          | The files belonging to this database system will be owned by user "postgres".
+business-postgres-1          | This user must also own the server process.
+business-postgres-1          | 
+business-postgres-1          | The database cluster will be initialized with locale "en_US.utf8".
+business-postgres-1          | The default database encoding has accordingly been set to "UTF8".
+business-postgres-1          | The default text search configuration will be set to "english".
+business-postgres-1          | 
+business-postgres-1          | Data page checksums are disabled.
+business-postgres-1          | 
+business-postgres-1          | fixing permissions on existing directory /var/lib/postgresql/data ... ok
+business-postgres-1          | creating subdirectories ... ok
+business-postgres-1          | selecting dynamic shared memory implementation ... posix
+business-postgres-1          | selecting default max_connections ... 100
+business-postgres-1          | selecting default shared_buffers ... 128MB
+business-postgres-1          | selecting default time zone ... Etc/UTC
+business-postgres-1          | creating configuration files ... ok
+business-postgres-1          | running bootstrap script ... ok
+business-postgres-1          | performing post-bootstrap initialization ... ok
+business-postgres-1          | initdb: warning: enabling "trust" authentication for local connections
+business-postgres-1          | initdb: hint: You can change this by editing pg_hba.conf or using the option -A, or --auth-local and --auth-host, the next time you run initdb.
+business-postgres-1          | syncing data to disk ... ok
+business-postgres-1          | 
+business-postgres-1          | 
+business-postgres-1          | Success. You can now start the database server using:
+business-postgres-1          | 
+business-postgres-1          |     pg_ctl -D /var/lib/postgresql/data -l logfile start
+business-postgres-1          | 
+business-postgres-1          | waiting for server to start....2026-08-11 00:40:23.395 UTC [48] LOG:  starting PostgreSQL 16.14 (Debian 16.14-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit
+business-postgres-1          | 2026-08-11 00:40:23.398 UTC [48] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+business-postgres-1          | 2026-08-11 00:40:23.403 UTC [51] LOG:  database system was shut down at 2026-08-11 00:40:22 UTC
+business-postgres-1          | 2026-08-11 00:40:23.408 UTC [48] LOG:  database system is ready to accept connections
+business-postgres-1          |  done
+business-postgres-1          | server started
+business-postgres-1          | CREATE DATABASE
+business-postgres-1          | 
+business-postgres-1          | 
+business-postgres-1          | /usr/local/bin/docker-entrypoint.sh: running /docker-entrypoint-initdb.d/00-schema.sql
+business-postgres-1          | BEGIN
+business-postgres-1          | CREATE SCHEMA
+business-postgres-1          | CREATE SCHEMA
+business-postgres-1          | CREATE TABLE
+business-postgres-1          | INSERT 0 1
+business-postgres-1          | CREATE TABLE
+business-postgres-1          | CREATE TABLE
+business-postgres-1          | INSERT 0 4
+business-postgres-1          | INSERT 0 10
+business-postgres-1          | SELECT 10
+business-postgres-1          | SELECT 10
+business-postgres-1          | SELECT 10
+business-postgres-1          | SELECT 10
+business-postgres-1          | REVOKE
+business-postgres-1          | REVOKE
+business-postgres-1          | REVOKE
+business-postgres-1          | REVOKE
+business-postgres-1          | COMMIT
+business-postgres-1          | 
+business-postgres-1          | 
+business-postgres-1          | /usr/local/bin/docker-entrypoint.sh: running /docker-entrypoint-initdb.d/01-final-v5-provsql-fixture.sql
+business-postgres-1          | BEGIN
+business-postgres-1          | psql:/docker-entrypoint-initdb.d/01-final-v5-provsql-fixture.sql:5: NOTICE:  schema "reporting" already exists, skipping
+business-postgres-1          | CREATE SCHEMA
+business-postgres-1          | CREATE SCHEMA
+business-postgres-1          | CREATE TABLE
+business-postgres-1          | CREATE TABLE
+business-postgres-1          | CREATE TABLE
+business-postgres-1          | INSERT 0 50000
+control-postgres-1           | The files belonging to this database system will be owned by user "postgres".
+control-postgres-1           | This user must also own the server process.
+control-postgres-1           | 
+control-postgres-1           | The database cluster will be initialized with locale "en_US.utf8".
+control-postgres-1           | The default database encoding has accordingly been set to "UTF8".
+control-postgres-1           | The default text search configuration will be set to "english".
+control-postgres-1           | 
+control-postgres-1           | Data page checksums are disabled.
+control-postgres-1           | 
+control-postgres-1           | fixing permissions on existing directory /var/lib/postgresql/data ... ok
+control-postgres-1           | creating subdirectories ... ok
+control-postgres-1           | selecting dynamic shared memory implementation ... posix
+control-postgres-1           | selecting default max_connections ... 100
+control-postgres-1           | selecting default shared_buffers ... 128MB
+control-postgres-1           | selecting default time zone ... Etc/UTC
+control-postgres-1           | creating configuration files ... ok
+control-postgres-1           | running bootstrap script ... ok
+control-postgres-1           | performing post-bootstrap initialization ... ok
+control-postgres-1           | initdb: warning: enabling "trust" authentication for local connections
+control-postgres-1           | initdb: hint: You can change this by editing pg_hba.conf or using the option -A, or --auth-local and --auth-host, the next time you run initdb.
+control-postgres-1           | syncing data to disk ... ok
+control-postgres-1           | 
+control-postgres-1           | 
+control-postgres-1           | Success. You can now start the database server using:
+control-postgres-1           | 
+control-postgres-1           |     pg_ctl -D /var/lib/postgresql/data -l logfile start
+control-postgres-1           | 
+control-postgres-1           | waiting for server to start....2026-08-11 00:40:23.363 UTC [47] LOG:  starting PostgreSQL 16.14 (Debian 16.14-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit
+control-postgres-1           | 2026-08-11 00:40:23.365 UTC [47] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+control-postgres-1           | 2026-08-11 00:40:23.371 UTC [50] LOG:  database system was shut down at 2026-08-11 00:40:22 UTC
+control-postgres-1           | 2026-08-11 00:40:23.374 UTC [47] LOG:  database system is ready to accept connections
+control-postgres-1           |  done
+control-postgres-1           | server started
+control-postgres-1           | CREATE DATABASE
+control-postgres-1           | 
+control-postgres-1           | 
+control-postgres-1           | /usr/local/bin/docker-entrypoint.sh: running /docker-entrypoint-initdb.d/10-control-role.sh
+control-postgres-1           | CREATE ROLE
+control-postgres-1           | GRANT
+control-postgres-1           | GRANT
+control-postgres-1           | 
+control-postgres-1           | 2026-08-11 00:40:23.567 UTC [47] LOG:  received fast shutdown request
+control-postgres-1           | waiting for server to shut down....2026-08-11 00:40:23.568 UTC [47] LOG:  aborting any active transactions
+control-postgres-1           | 2026-08-11 00:40:23.570 UTC [47] LOG:  background worker "logical replication launcher" (PID 53) exited with exit code 1
+control-postgres-1           | 2026-08-11 00:40:23.571 UTC [48] LOG:  shutting down
+control-postgres-1           | 2026-08-11 00:40:23.576 UTC [48] LOG:  checkpoint starting: shutdown immediate
+control-postgres-1           | 2026-08-11 00:40:23.694 UTC [48] LOG:  checkpoint complete: wrote 931 buffers (5.7%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.020 s, sync=0.089 s, total=0.123 s; sync files=308, longest=0.002 s, average=0.001 s; distance=4260 kB, estimate=4260 kB; lsn=0/19132B0, redo lsn=0/19132B0
+control-postgres-1           | 2026-08-11 00:40:23.699 UTC [47] LOG:  database system is shut down
+control-postgres-1           |  done
+control-postgres-1           | server stopped
+control-postgres-1           | 
+control-postgres-1           | PostgreSQL init process complete; ready for start up.
+control-postgres-1           | 
+control-postgres-1           | 2026-08-11 00:40:23.785 UTC [1] LOG:  starting PostgreSQL 16.14 (Debian 16.14-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit
+control-postgres-1           | 2026-08-11 00:40:23.786 UTC [1] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+control-postgres-1           | 2026-08-11 00:40:23.786 UTC [1] LOG:  listening on IPv6 address "::", port 5432
+control-postgres-1           | 2026-08-11 00:40:23.789 UTC [1] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+control-postgres-1           | 2026-08-11 00:40:23.793 UTC [66] LOG:  database system was shut down at 2026-08-11 00:40:23 UTC
+control-postgres-1           | 2026-08-11 00:40:23.797 UTC [1] LOG:  database system is ready to accept connections
