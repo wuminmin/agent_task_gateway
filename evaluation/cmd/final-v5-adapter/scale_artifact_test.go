@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"taskbound.local/agent-data-gateway/evaluation/finalv5contracts"
+	"taskbound.local/agent-data-gateway/evaluation/finalv5oracle"
 	"taskbound.local/agent-data-gateway/evaluation/internal/experiment"
 	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5binding"
 )
@@ -25,11 +26,80 @@ func testBoundTask(columns int) boundTaskRequest {
 		VisibleRelation: "reporting.result_heavy", CompanionRelation: "taskgate_ordinal.result_heavy_v1"}
 }
 
+func TestRetainScaleOutcomeCandidateVerificationCopiesOnlyFinalizerOutput(t *testing.T) {
+	members := []string{
+		fmt.Sprintf("%064x", 1), fmt.Sprintf("%064x", 2), fmt.Sprintf("%064x", 3),
+		fmt.Sprintf("%064x", 4), fmt.Sprintf("%064x", 5),
+	}
+	summary, err := finalv5oracle.SummarizeSemanticSet("candidate", func(yield func(string) error) error {
+		for _, member := range members {
+			if err := yield(member); err != nil {
+				return err
+			}
+		}
+		return nil
+	}, finalv5oracle.StreamSetOptions{MaxInMemoryMembers: 5, CaptureMembers: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectation := experiment.OutcomeCandidateExpectationV1{
+		Cardinality: summary.Cardinality, Members: summary.Members, OrdinarySetSHA256: summary.SetSHA256,
+	}
+	finalized := experiment.FinalizationV3{OutcomeCandidateVerification: &experiment.OutcomeCandidateVerificationV1{
+		Version:  experiment.OutcomeCandidateVerificationV1Version,
+		Expected: expectation, Observed: expectation,
+	}}
+	evidence := &experiment.ScaleVerificationEvidence{Version: scaleDependencyVerificationVersion}
+	if err := retainScaleOutcomeCandidateVerification(evidence, finalized); err != nil {
+		t.Fatalf("retain finalizer verification: %v", err)
+	}
+	if evidence.Version != scaleDependencyVerificationV3 ||
+		evidence.ExpectedOutcomeMemberCardinality != 5 || evidence.ObservedOutcomeMemberCardinality != 5 ||
+		evidence.ExpectedOutcomeCandidateSetSHA256 != summary.SetSHA256 ||
+		evidence.ObservedOutcomeCandidateSetSHA256 != summary.SetSHA256 {
+		t.Fatalf("retained Scale evidence did not copy the finalizer result exactly: %+v", evidence)
+	}
+	if err := retainScaleOutcomeCandidateVerification(&experiment.ScaleVerificationEvidence{},
+		experiment.FinalizationV3{}); err == nil {
+		t.Fatal("Adapter accepted a finalization with no Outcome member verification")
+	}
+	mutated := finalized
+	verification := *finalized.OutcomeCandidateVerification
+	verification.Observed = expectation
+	verification.Observed.Members = append([]string(nil), expectation.Members...)
+	verification.Observed.Members[0] = fmt.Sprintf("%064x", 99)
+	mutated.OutcomeCandidateVerification = &verification
+	if err := retainScaleOutcomeCandidateVerification(&experiment.ScaleVerificationEvidence{}, mutated); err == nil {
+		t.Fatal("Adapter retained an invalid finalizer Outcome member verification")
+	}
+}
+
 func testBoundQuery(rows int64, columns int, dependencies int64) boundQueryExpectation {
 	digest := strings.Repeat("a", 64)
 	return boundQueryExpectation{SQL: "SELECT column_a FROM result_heavy ORDER BY column_a LIMIT 100",
 		ExpectedRows: rows, ExpectedColumns: columns, ExpectedResultSHA256: digest,
 		DependencyFacts: dependencies, DependencySetSHA256: digest}
+}
+
+func testBoundOutcomeCandidate(t *testing.T) finalv5binding.BoundOutcomeCandidateExpectation {
+	t.Helper()
+	members := []string{
+		fmt.Sprintf("%064x", 1), fmt.Sprintf("%064x", 2), fmt.Sprintf("%064x", 3),
+		fmt.Sprintf("%064x", 4), fmt.Sprintf("%064x", 5),
+	}
+	summary, err := finalv5oracle.SummarizeSemanticSet("candidate", func(yield func(string) error) error {
+		for _, member := range members {
+			if err := yield(member); err != nil {
+				return err
+			}
+		}
+		return nil
+	}, finalv5oracle.StreamSetOptions{MaxInMemoryMembers: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return finalv5binding.BoundOutcomeCandidateExpectation{Cardinality: summary.Cardinality,
+		Members: members, OrdinarySetSHA256: summary.SetSHA256}
 }
 
 // The Artifact experiment no longer carries a hand-written cell binding: its
@@ -74,6 +144,7 @@ func TestFrozenCellBindingsCrossCheckExactScale(t *testing.T) {
 		Union: finalv5binding.BoundDependencySetExpectation{
 			DependencyFacts: 15_000, DependencySetSHA256: digest,
 		},
+		OutcomeCandidate: testBoundOutcomeCandidate(t),
 	}
 	if err := validateDependencyCellBinding("10k-overlap-50", dependency); err != nil {
 		t.Fatal(err)
@@ -81,6 +152,11 @@ func TestFrozenCellBindingsCrossCheckExactScale(t *testing.T) {
 	dependency.History.DependencyFacts = 9_999
 	if err := validateDependencyCellBinding("10k-overlap-50", dependency); err == nil {
 		t.Fatal("dependency binding with a shrunken existing set was accepted")
+	}
+	dependency.History.DependencyFacts = 10_000
+	dependency.OutcomeCandidate.Members = dependency.OutcomeCandidate.Members[:4]
+	if err := validateDependencyCellBinding("10k-overlap-50", dependency); err == nil {
+		t.Fatal("dependency binding without the exact Outcome candidate members was accepted")
 	}
 }
 

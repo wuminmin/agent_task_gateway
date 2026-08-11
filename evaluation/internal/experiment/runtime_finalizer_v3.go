@@ -98,6 +98,11 @@ func (selector FrozenContractSelectorV3) String() string {
 type frozenOperationCandidateV3 struct {
 	OperationID      string
 	ContractIdentity string
+	// OutcomeCandidate is the independent ordinary-set oracle for the exact
+	// Scale Outcome candidate. It is private contract material: the Adapter
+	// cannot supply it and the Gateway's production radix set cannot derive it.
+	// Nil means this frozen operation is outside the strict Scale binding.
+	OutcomeCandidate *OutcomeCandidateExpectationV1
 	// BindingKey is empty for one-operation public cells. A non-empty key names
 	// one independently validated private variant beneath a public cell and is
 	// compared only as a selector hint.
@@ -359,6 +364,7 @@ func (finalizer *RuntimeFinalizerV3) deriveTrustedInputs(ctx context.Context,
 	}
 	trusted.CatalogPath, trusted.Footprint = profile.CatalogPath, footprint
 	trusted.OperationID, trusted.ContractIdentity = candidate.OperationID, candidate.ContractIdentity
+	trusted.OutcomeCandidate = cloneOutcomeCandidateExpectationV1(candidate.OutcomeCandidate)
 	trusted.Material = &material
 	return trusted, nil
 }

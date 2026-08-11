@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"taskbound.local/agent-data-gateway/internal/catalog"
@@ -114,6 +115,15 @@ type ReproducedExecutionV3 struct {
 	// Prepared is the sealed preparation the finalizer produced. It has already
 	// been required to equal the one the receipt carries.
 	Prepared preparedbinding.PreparedOperationBindingV1
+	// PreparedPredicateAtomSHA256 are the individual V5 Fact identities from
+	// the finalizer's own prepared predicate footprint. They are actual operands
+	// for the strict ordinary-set comparison; they are not read from the receipt
+	// and never serve as the expected oracle.
+	PreparedPredicateAtomSHA256 []string
+	// These are the aggregate identities of that same prepared footprint. They
+	// cross-bind the receipt's signed composite context to the actual members.
+	PreparedPredicateContextSHA256 string
+	PreparedPredicateSetSHA256     string
 	// Limits are the row limits the finalizer derived from the signed pre-state.
 	Limits physicalquery.Limits
 }
@@ -254,13 +264,23 @@ func ReproduceExecutionV3(receipt queryreceipt.QueryReceiptV1,
 	if err := requireDerivedLimitsSignedV3(derivation.Limits, *binding); err != nil {
 		return result, err
 	}
+	preparedPredicateAtomSHA256, preparedPredicateContextSHA256, preparedPredicateSetSHA256, err :=
+		preparedPredicateIdentityV3(prepared)
+	if err != nil {
+		return result, rejectTaskGateAt(fmt.Errorf("identify the finalizer's prepared predicate atoms: %w", err),
+			rejectionGateOperationPreparation, rejectionFailureInvalidValue,
+			rejectionSourceFinalizerDerivation, rejectionSourceFrozenContract)
+	}
 
 	result = ReproducedExecutionV3{
-		VisibleSQL: derivation.VisibleDecision.SQL,
-		Visible:    derivation.Visible,
-		Companion:  derivation.Companion,
-		Prepared:   prepared.Binding(),
-		Limits:     derivation.Limits,
+		VisibleSQL:                     derivation.VisibleDecision.SQL,
+		Visible:                        derivation.Visible,
+		Companion:                      derivation.Companion,
+		Prepared:                       prepared.Binding(),
+		PreparedPredicateAtomSHA256:    preparedPredicateAtomSHA256,
+		PreparedPredicateContextSHA256: preparedPredicateContextSHA256,
+		PreparedPredicateSetSHA256:     preparedPredicateSetSHA256,
+		Limits:                         derivation.Limits,
 	}
 	if derivation.CompanionDecision != nil {
 		result.CompanionSQL = derivation.CompanionDecision.SQL
@@ -279,6 +299,26 @@ func ReproduceExecutionV3(receipt queryreceipt.QueryReceiptV1,
 			rejectionBoolDifference(rejectionDifferenceActualBool, binding.Companion != nil))
 	}
 	return result, nil
+}
+
+func preparedPredicateIdentityV3(prepared physicalquery.PreparedOperation) ([]string, string, string, error) {
+	footprint, err := prepared.PredicateFootprint()
+	if err != nil {
+		return nil, "", "", err
+	}
+	if footprint == nil {
+		return nil, "", "", nil
+	}
+	result := make([]string, 0, len(footprint.Atoms))
+	for index, atom := range footprint.Atoms {
+		digest, hashErr := atom.Hash()
+		if hashErr != nil {
+			return nil, "", "", fmt.Errorf("hash predicate atom %d: %w", index+1, hashErr)
+		}
+		result = append(result, digest)
+	}
+	sort.Strings(result)
+	return result, footprint.ContextSHA256, footprint.AtomSetSHA256, nil
 }
 
 // preStateFromReceiptV3 reads the ledger state the operation began at off the

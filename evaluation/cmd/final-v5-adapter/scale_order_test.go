@@ -71,6 +71,35 @@ func TestDependencyE2EPreregistersBeforeHistoryPrefill(t *testing.T) {
 	prefill := requireCalls("prefillDependencyHistory", 1)[0]
 	captures := requireCalls("captureBoundObserverV2", 2)
 	query := requireCalls("call", 1)[0]
+	finalize := requireCalls("FinalizeTaskGateObservationV3", 1)[0]
+	retainOutcome := requireCalls("retainScaleOutcomeCandidateVerification", 1)[0]
+	var acceptanceAssignment, schemaAssignment token.Pos
+	ast.Inspect(body, func(node ast.Node) bool {
+		assignment, ok := node.(*ast.AssignStmt)
+		if !ok {
+			return true
+		}
+		for _, left := range assignment.Lhs {
+			selector, ok := left.(*ast.SelectorExpr)
+			if !ok {
+				continue
+			}
+			receiver, ok := selector.X.(*ast.Ident)
+			if !ok || receiver.Name != "sample" {
+				continue
+			}
+			switch selector.Sel.Name {
+			case "TaskGateAcceptanceV3":
+				acceptanceAssignment = assignment.Pos()
+			case "SchemaVersion":
+				schemaAssignment = assignment.Pos()
+			}
+		}
+		return true
+	})
+	if acceptanceAssignment == token.NoPos || schemaAssignment == token.NoPos {
+		t.Fatal("dependency finalization does not establish the post-acceptance Sample wire")
+	}
 
 	// Merely placing prefill text after Open is insufficient: the Open error must
 	// be checked first, otherwise an unroutable profile could still fall through
@@ -106,8 +135,11 @@ func TestDependencyE2EPreregistersBeforeHistoryPrefill(t *testing.T) {
 		t.Fatal("OpenObserverWindowV3 is not fail-closed before history prefill")
 	}
 	if !(provision < open && open < openErrorGuard && openErrorGuard < prefill &&
-		prefill < captures[0] && captures[0] < query && query < captures[1]) {
-		t.Fatalf("unsafe dependency order: provision=%d open=%d guard=%d prefill=%d captures=%v query=%d",
-			provision, open, openErrorGuard, prefill, captures, query)
+		prefill < captures[0] && captures[0] < query && query < captures[1] &&
+		captures[1] < finalize && finalize < acceptanceAssignment && acceptanceAssignment < schemaAssignment &&
+		schemaAssignment < retainOutcome) {
+		t.Fatalf("unsafe dependency order: provision=%d open=%d guard=%d prefill=%d captures=%v query=%d finalize=%d acceptance=%d schema=%d retain=%d",
+			provision, open, openErrorGuard, prefill, captures, query, finalize,
+			acceptanceAssignment, schemaAssignment, retainOutcome)
 	}
 }

@@ -47,6 +47,10 @@ type TrustedInputsV3 struct {
 	// OperationID and ContractIdentity come from the frozen workload contract.
 	OperationID      string
 	ContractIdentity string
+	// OutcomeCandidate is the frozen ordinary-set oracle for a strict Scale
+	// operation. It is resolved with the operation and never accepted from the
+	// Adapter. Nil means this operation has no strict Outcome binding.
+	OutcomeCandidate *OutcomeCandidateExpectationV1
 	// Material is the frozen contract material the finalizer prepares the
 	// operation from. Required on every executing path and forbidden on an
 	// idempotent replay, which prepared nothing.
@@ -286,6 +290,14 @@ func finalizeTaskGateObservationV3Core(receipt queryreceipt.QueryReceiptV1, veri
 				rejectionFailureMismatch, rejectionSourceFinalizerDerivation, rejectionSourceGatewayReceipt)
 		}
 	}
+	var outcomeVerification *OutcomeCandidateVerificationV1
+	if trusted.OutcomeCandidate != nil {
+		verified, verifyErr := verifyOutcomeCandidateV1(*trusted.OutcomeCandidate, reproduced, receipt.Exposure)
+		if verifyErr != nil {
+			return result, verifyErr
+		}
+		outcomeVerification = &verified
+	}
 
 	// 5. Everything else is derived independently.
 	inputs := IndependentInputsV3{
@@ -311,6 +323,7 @@ func finalizeTaskGateObservationV3Core(receipt queryreceipt.QueryReceiptV1, veri
 			rejectionCountDifference(rejectionDifferenceExpectedCount, 0),
 			rejectionCountDifference(rejectionDifferenceActualCount, finalized.Delta.Total))
 	}
+	finalized.OutcomeCandidateVerification = outcomeVerification
 	finalized.ReceiptSHA256 = receiptSHA256
 	return finalized, nil
 }

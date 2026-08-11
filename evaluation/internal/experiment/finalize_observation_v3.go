@@ -115,6 +115,9 @@ type FinalizationV3 struct {
 	ObserverWindowSHA256     string                `json:"observer_window_sha256"`
 	Delta                    ObservedDelta         `json:"observed_delta"`
 	InternalExpectation      []InternalExpectation `json:"internal_expectation,omitempty"`
+	// OutcomeCandidateVerification is present only for a strict Scale operation
+	// and is authored by the finalizer after exact member-level comparison.
+	OutcomeCandidateVerification *OutcomeCandidateVerificationV1 `json:"outcome_candidate_verification,omitempty"`
 }
 
 // FinalizeObservationV3 independently rebuilds every expected identity and then

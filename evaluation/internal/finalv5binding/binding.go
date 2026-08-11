@@ -20,6 +20,7 @@ import (
 	pg_query "github.com/pganalyze/pg_query_go/v6"
 
 	contractfs "taskbound.local/agent-data-gateway/evaluation/final-v5-wsl2"
+	"taskbound.local/agent-data-gateway/evaluation/finalv5oracle"
 	"taskbound.local/agent-data-gateway/evaluation/internal/provsqlfixture"
 	"taskbound.local/agent-data-gateway/internal/catalog"
 	"taskbound.local/agent-data-gateway/internal/sqlpolicy"
@@ -111,11 +112,22 @@ type BoundDependencySetExpectation struct {
 	DependencySetSHA256 string `json:"dependency_set_sha256"`
 }
 
+// BoundOutcomeCandidateExpectation is the independent ordinary-set identity
+// of the exact V5 Outcome candidate: four predicate-atom Facts plus the one
+// composite-outcome Fact. It is deliberately not the production OutcomeRadix
+// digest, and retaining the sorted members makes equality member-verifiable.
+type BoundOutcomeCandidateExpectation struct {
+	Cardinality       int64    `json:"cardinality"`
+	Members           []string `json:"members"`
+	OrdinarySetSHA256 string   `json:"ordinary_set_sha256"`
+}
+
 type DependencyCellBinding struct {
-	Task      BoundTaskRequest              `json:"task"`
-	Candidate BoundQueryExpectation         `json:"candidate"`
-	History   BoundQueryExpectation         `json:"history"`
-	Union     BoundDependencySetExpectation `json:"union"`
+	Task             BoundTaskRequest                 `json:"task"`
+	Candidate        BoundQueryExpectation            `json:"candidate"`
+	History          BoundQueryExpectation            `json:"history"`
+	Union            BoundDependencySetExpectation    `json:"union"`
+	OutcomeCandidate BoundOutcomeCandidateExpectation `json:"outcome_candidate"`
 }
 
 type ScaleBinding struct {
@@ -472,6 +484,34 @@ func ValidateBoundResult(query BoundResultExpectation) error {
 	return nil
 }
 
+// ValidateBoundOutcomeCandidate rejects aggregates without their members and
+// proves that the retained digest is the ordinary candidate-set summary of the
+// exact sorted five-member closure. A production radix root is not admitted by
+// this shape and cannot be relabelled as the oracle expectation.
+func ValidateBoundOutcomeCandidate(expected BoundOutcomeCandidateExpectation) error {
+	if expected.Cardinality != 5 || len(expected.Members) != 5 || !ValidDigest(expected.OrdinarySetSHA256) {
+		return errors.New("bound Outcome candidate must contain exactly five members and an ordinary-set digest")
+	}
+	members := append([]string(nil), expected.Members...)
+	for index, member := range members {
+		if !ValidDigest(member) || (index > 0 && member <= members[index-1]) {
+			return errors.New("bound Outcome candidate members must be unique lowercase SHA-256 values in sorted order")
+		}
+	}
+	summary, err := finalv5oracle.SummarizeSemanticSet("candidate", func(yield func(string) error) error {
+		for _, member := range members {
+			if err := yield(member); err != nil {
+				return err
+			}
+		}
+		return nil
+	}, finalv5oracle.StreamSetOptions{MaxInMemoryMembers: len(members)})
+	if err != nil || summary.Cardinality != expected.Cardinality || summary.SetSHA256 != expected.OrdinarySetSHA256 {
+		return errors.New("bound Outcome candidate ordinary-set summary differs from its exact members")
+	}
+	return nil
+}
+
 func validateBoundQueryForTask(query BoundQueryExpectation, task BoundTaskRequest) error {
 	if err := ValidateBoundQuery(query); err != nil {
 		return err
@@ -608,6 +648,9 @@ func validateScaleBinding(binding *ScaleBinding) error {
 		}
 		if cell.Union.DependencyFacts != spec.union || !ValidDigest(cell.Union.DependencySetSHA256) {
 			return errors.New("union binding differs from frozen dependency set algebra")
+		}
+		if err := ValidateBoundOutcomeCandidate(cell.OutcomeCandidate); err != nil {
+			return fmt.Errorf("scale %s Outcome candidate differs from the strict five-member oracle: %w", scale, err)
 		}
 	}
 	for scale := range binding.DependencyE2E {

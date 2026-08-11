@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"taskbound.local/agent-data-gateway/evaluation/finalv5contracts"
+	"taskbound.local/agent-data-gateway/evaluation/finalv5oracle"
 	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5binding"
 	"taskbound.local/agent-data-gateway/evaluation/internal/provsqlfixture"
 	"taskbound.local/agent-data-gateway/internal/catalog"
@@ -458,6 +459,25 @@ func TestDeploymentFinalizerBindsPrivateDatasetMaterialToIndependentLiveObservat
 
 const scaleResolverTestProduct = "final_v5_exposure_scale"
 
+func scaleResolverOutcomeCandidate(t *testing.T) finalv5binding.BoundOutcomeCandidateExpectation {
+	t.Helper()
+	members := []string{strings.Repeat("1", 64), strings.Repeat("2", 64), strings.Repeat("3", 64),
+		strings.Repeat("4", 64), strings.Repeat("5", 64)}
+	summary, err := finalv5oracle.SummarizeSemanticSet("candidate", func(yield func(string) error) error {
+		for _, member := range members {
+			if err := yield(member); err != nil {
+				return err
+			}
+		}
+		return nil
+	}, finalv5oracle.StreamSetOptions{MaxInMemoryMembers: len(members)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return finalv5binding.BoundOutcomeCandidateExpectation{Cardinality: summary.Cardinality,
+		Members: members, OrdinarySetSHA256: summary.SetSHA256}
+}
+
 // scaleBindingForResolverTest is synthetic, non-evidence private material whose
 // coordinates and Products are read from the real embedded Contract Index. It
 // exists only to exercise the dormant resolver without making the committed
@@ -531,6 +551,7 @@ WHERE partition_key = 1
 				DependencyFacts:     spec.UnionFacts,
 				DependencySetSHA256: sha256Hex([]byte(cell.Identity.Scale + "/union")),
 			},
+			OutcomeCandidate: scaleResolverOutcomeCandidate(t),
 		}
 	}
 	if len(dependency) != 12 {

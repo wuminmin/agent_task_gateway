@@ -771,6 +771,9 @@ func (contracts deploymentContractsV3) scaleCandidateForV3(cell finalv5contracts
 	if err := finalv5binding.ValidateBoundQuery(cellBinding.Candidate); err != nil {
 		return candidate, fmt.Errorf("validate the private Scale candidate: %w", err)
 	}
+	if err := finalv5binding.ValidateBoundOutcomeCandidate(cellBinding.OutcomeCandidate); err != nil {
+		return candidate, fmt.Errorf("validate the private Scale Outcome candidate: %w", err)
+	}
 	plan, grant, err := contracts.operationMaterialV3(cellBinding.Candidate.SQL,
 		cellBinding.Task.DataProducts, cellBinding.Task.Columns, cellBinding.Task.Scopes)
 	if err != nil {
@@ -793,6 +796,11 @@ func (contracts deploymentContractsV3) scaleCandidateForV3(cell finalv5contracts
 		OperationID: operationID, ContractIdentity: contractIdentity,
 		ProfileID: scaleDeploymentProfileAlias, PathKind: pathKind,
 		Plan: plan, Grant: grant,
+		OutcomeCandidate: &OutcomeCandidateExpectationV1{
+			Cardinality:       cellBinding.OutcomeCandidate.Cardinality,
+			Members:           append([]string(nil), cellBinding.OutcomeCandidate.Members...),
+			OrdinarySetSHA256: cellBinding.OutcomeCandidate.OrdinarySetSHA256,
+		},
 	}, nil
 }
 

@@ -18,6 +18,7 @@ import (
 const (
 	scaleEvidenceVersion             = "taskgate-final-v5-scale-verification-v1"
 	scaleDependencyEvidenceVersionV2 = "taskgate-final-v5-scale-verification-v2"
+	scaleDependencyEvidenceVersionV3 = "taskgate-final-v5-scale-verification-v3"
 	artifactEvidenceVersionV1        = "taskgate-final-v5-artifact-verification-v1"
 	artifactEvidenceVersionV2        = "taskgate-final-v5-artifact-verification-v2"
 	outcomeProductionPath            = "control.differenceAndUnionV5Tx+persistV5SetObjectsTx"
@@ -36,6 +37,8 @@ func validateScaleVerification(sample Sample) error {
 			return validateDependencyScaleVerificationV1(sample, evidence)
 		case sample.SchemaVersion == FinalizedSampleSchemaVersion && evidence.Version == scaleDependencyEvidenceVersionV2:
 			return validateDependencyScaleVerificationV2(sample, evidence)
+		case sample.SchemaVersion == FinalizedSampleSchemaVersion && evidence.Version == scaleDependencyEvidenceVersionV3:
+			return validateDependencyScaleVerificationV3(sample, evidence)
 		default:
 			return errors.New("dependency scale sample/evidence versions are incompatible")
 		}
@@ -52,6 +55,57 @@ func validateScaleVerification(sample Sample) error {
 	default:
 		return errors.New("scale workload is not frozen")
 	}
+}
+
+// validateDependencyScaleVerificationV3 retains every Decision-18 dependency
+// check and additionally binds the accepted operation to the finalizer's
+// member-level Outcome comparison. The two ordinary-set digests are deliberately
+// separate from the production radix digest retained on Sample and the receipt.
+func validateDependencyScaleVerificationV3(sample Sample, evidence *ScaleVerificationEvidence) error {
+	if err := validateDependencyScaleVerificationDecision18(sample, evidence); err != nil {
+		return err
+	}
+	return validateOutcomeCandidateScaleEvidenceV3(sample, evidence)
+}
+
+func validateOutcomeCandidateScaleEvidenceV3(sample Sample, evidence *ScaleVerificationEvidence) error {
+	if evidence == nil || sample.TaskGateAcceptanceV3 == nil {
+		return errors.New("dependency Scale retains no accepted Outcome candidate evidence")
+	}
+	verification := sample.TaskGateAcceptanceV3.OutcomeCandidateVerification
+	if verification == nil {
+		return errors.New("dependency Scale acceptance retains no Outcome candidate member verification")
+	}
+	if err := verification.Validate(); err != nil {
+		return fmt.Errorf("dependency Scale Outcome candidate member verification: %w", err)
+	}
+	if sample.BaselineVerification == nil {
+		return errors.New("dependency Scale sample retains no signed receipt for Outcome members")
+	}
+	receiptExposure := sample.BaselineVerification.Receipt.Exposure
+	if receiptExposure == nil || !validSHA256(receiptExposure.CompositeOutcomeSHA256) {
+		return errors.New("dependency Scale receipt carries no signed composite Outcome member")
+	}
+	memberIndex := sort.SearchStrings(verification.Observed.Members, receiptExposure.CompositeOutcomeSHA256)
+	if memberIndex == len(verification.Observed.Members) ||
+		verification.Observed.Members[memberIndex] != receiptExposure.CompositeOutcomeSHA256 {
+		return errors.New("finalizer-observed Outcome members omit this sample's signed composite")
+	}
+	if evidence.ExpectedOutcomeMemberCardinality != verification.Expected.Cardinality ||
+		evidence.ObservedOutcomeMemberCardinality != verification.Observed.Cardinality ||
+		evidence.ExpectedOutcomeCandidateSetSHA256 != verification.Expected.OrdinarySetSHA256 ||
+		evidence.ObservedOutcomeCandidateSetSHA256 != verification.Observed.OrdinarySetSHA256 {
+		return errors.New("retained Outcome candidate evidence differs from the finalizer-authored member comparison")
+	}
+	if evidence.ExpectedOutcomeMemberCardinality != outcomeCandidateMemberCardinalityV1 ||
+		evidence.ObservedOutcomeMemberCardinality != evidence.ExpectedOutcomeMemberCardinality ||
+		sample.ActualOutcomeFacts != evidence.ObservedOutcomeMemberCardinality ||
+		sample.PredicateAtomCount != outcomeCandidateMemberCardinalityV1-1 || sample.CompositeCount != 1 ||
+		!validSHA256(evidence.ExpectedOutcomeCandidateSetSHA256) ||
+		evidence.ObservedOutcomeCandidateSetSHA256 != evidence.ExpectedOutcomeCandidateSetSHA256 {
+		return errors.New("dependency Scale Outcome candidate cardinality or ordinary-set identity is inconsistent")
+	}
+	return nil
 }
 
 // ValidateScaleEvidence is the adapter-side fail-closed gate. FinalizeRun
@@ -175,6 +229,14 @@ func validateDependencyScaleVerificationV1(sample Sample, evidence *ScaleVerific
 // is N, and RootAfter is the independently bound union 2N-5K. The Dataset
 // identity and live SQL sanity probe are separate domains.
 func validateDependencyScaleVerificationV2(sample Sample, evidence *ScaleVerificationEvidence) error {
+	if evidence.hasOutcomeCandidateEvidenceV3() ||
+		(sample.TaskGateAcceptanceV3 != nil && sample.TaskGateAcceptanceV3.OutcomeCandidateVerification != nil) {
+		return errors.New("dependency Scale evidence-v2 cannot carry Outcome candidate evidence-v3 members")
+	}
+	return validateDependencyScaleVerificationDecision18(sample, evidence)
+}
+
+func validateDependencyScaleVerificationDecision18(sample Sample, evidence *ScaleVerificationEvidence) error {
 	spec, err := ParseDependencyScale(sample.Scale)
 	if err != nil || evidence.Boundary != "dependency_e2e" || sample.KernelOnly || sample.System != "taskgate" ||
 		(sample.Mode != "novel" && sample.Mode != "semantic_replay") {

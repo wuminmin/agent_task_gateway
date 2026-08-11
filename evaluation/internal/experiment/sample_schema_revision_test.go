@@ -98,9 +98,12 @@ func TestSampleV3IsAnExplicitPostAcceptanceRevision(t *testing.T) {
 	}
 	scaleSchema := objectMap(t, scaleAlternatives[0], "sample-v3 scale verification current alternative")
 	scaleProperties := objectMap(t, scaleSchema["properties"], "sample-v3 scale verification properties")
-	if objectMap(t, scaleProperties["version"], "sample-v3 scale version")["const"] != scaleDependencyEvidenceVersionV2 ||
+	versions := stringArray(t, objectMap(t, scaleProperties["version"], "sample-v3 scale version")["enum"],
+		"sample-v3 scale versions")
+	sort.Strings(versions)
+	if !reflect.DeepEqual(versions, []string{scaleDependencyEvidenceVersionV2, scaleDependencyEvidenceVersionV3}) ||
 		objectMap(t, scaleProperties["boundary"], "sample-v3 scale boundary")["const"] != "dependency_e2e" {
-		t.Fatal("sample-v3 does not select the Decision-18 Scale evidence version")
+		t.Fatal("sample-v3 does not keep historical Scale evidence-v2 separate from current evidence-v3")
 	}
 	requiredScale := stringArray(t, scaleSchema["required"], "sample-v3 scale required")
 	for _, name := range []string{"expected_existing_facts", "expected_union_facts", "existing_dependency_sha256", "union_dependency_sha256"} {
@@ -155,23 +158,84 @@ func TestSampleV3IsAnExplicitPostAcceptanceRevision(t *testing.T) {
 	}
 }
 
-func TestSampleV3ScaleRequiresDecision18FieldsAndRejectsLegacyHistory(t *testing.T) {
+func TestOutcomeCandidateVerificationCannotLeakIntoLegacyOrNonScaleWires(t *testing.T) {
+	expectation := outcomeCandidateTestExpectation(t,
+		outcomeCandidateTestDigest(1), outcomeCandidateTestDigest(2), outcomeCandidateTestDigest(3),
+		outcomeCandidateTestDigest(4), outcomeCandidateTestDigest(5))
+	verification := &OutcomeCandidateVerificationV1{
+		Version: OutcomeCandidateVerificationV1Version, Expected: expectation, Observed: expectation,
+	}
+
+	legacy := validTestSample()
+	legacy.TaskGateAcceptanceV3 = &FinalizationV3{OutcomeCandidateVerification: verification}
+	encodedLegacy, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decodedLegacy Sample
+	if err := StrictJSON(encodedLegacy, &decodedLegacy); err == nil {
+		t.Fatal("sample-v1 strict reader silently acquired Outcome candidate verification")
+	}
+	if err := legacy.Validate(); err == nil {
+		t.Fatal("sample-v1 Go validation silently acquired Outcome candidate verification")
+	}
+
+	nonScale := validTestSample()
+	nonScale.SchemaVersion = FinalizedSampleSchemaVersion
+	nonScale.TaskGateAcceptanceV3 = &FinalizationV3{OutcomeCandidateVerification: verification}
+	nonScaleInstance := sampleJSONInstance(t, nonScale)
+	if err := sampleV3SchemaValidator(t)(nonScaleInstance); err == nil {
+		t.Fatal("sample-v3 schema accepted Outcome candidate verification on a non-Scale experiment")
+	}
+	encodedNonScale, err := json.Marshal(nonScaleInstance)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decodedNonScale Sample
+	if err := StrictJSON(encodedNonScale, &decodedNonScale); err == nil {
+		t.Fatal("sample-v3 strict reader accepted Outcome candidate verification on a non-Scale experiment")
+	}
+	if err := nonScale.Validate(); err == nil {
+		t.Fatal("sample-v3 Go validation accepted Outcome candidate verification on a non-Scale experiment")
+	}
+
+	nullVerification := sampleJSONInstance(t, validTestSample())
+	nullVerification["taskgate_acceptance_v3"] = map[string]any{"outcome_candidate_verification": nil}
+	encodedNull, err := json.Marshal(nullVerification)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decodedNull Sample
+	if err := StrictJSON(encodedNull, &decodedNull); err == nil {
+		t.Fatal("sample-v1 strict reader accepted explicit-null Outcome candidate verification")
+	}
+}
+
+func TestSampleV3ScaleRequiresDecision18AndOutcomeCandidateFields(t *testing.T) {
 	digest := strings.Repeat("a", 64)
 	sample := validTestSample()
 	sample.SchemaVersion = FinalizedSampleSchemaVersion
-	sample.TaskGateAcceptanceV3 = &FinalizationV3{}
+	outcome := outcomeCandidateTestExpectation(t,
+		outcomeCandidateTestDigest(1), outcomeCandidateTestDigest(2), outcomeCandidateTestDigest(3),
+		outcomeCandidateTestDigest(4), outcomeCandidateTestDigest(5))
+	sample.TaskGateAcceptanceV3 = &FinalizationV3{OutcomeCandidateVerification: &OutcomeCandidateVerificationV1{
+		Version: OutcomeCandidateVerificationV1Version, Expected: outcome, Observed: outcome,
+	}}
 	sample.ExperimentID = "scale"
 	sample.WorkloadID = "dependency-e2e"
 	sample.Scale = "10k-overlap-0"
 	sample.Mode = "novel"
 	sample.ScaleVerification = &ScaleVerificationEvidence{
-		Version: scaleDependencyEvidenceVersionV2, Boundary: "dependency_e2e",
+		Version: scaleDependencyEvidenceVersionV3, Boundary: "dependency_e2e",
 		BindingFileSHA256: digest, BindingSHA256: digest, DatasetSHA256: digest,
 		DatasetProbeSHA256: strings.Repeat("b", 64), CatalogSHA256: digest, QuerySHA256: digest,
 		ExpectedRows: 1, ExpectedColumns: 1, ExpectedResultSHA256: digest,
 		ExpectedCandidateFacts: 10_000, ObservedCandidateFacts: 10_000,
 		ExpectedExistingFacts: 10_000, ExpectedUnionFacts: 20_000,
-		ExistingDependencySHA256: digest, CandidateDependencySHA256: digest, UnionDependencySHA256: digest,
+		ExpectedOutcomeMemberCardinality: 5, ObservedOutcomeMemberCardinality: 5,
+		ExpectedOutcomeCandidateSetSHA256: outcome.OrdinarySetSHA256,
+		ObservedOutcomeCandidateSetSHA256: outcome.OrdinarySetSHA256,
+		ExistingDependencySHA256:          digest, CandidateDependencySHA256: digest, UnionDependencySHA256: digest,
 		ObserverWindow: &ObserverWindowV2{},
 	}
 	instance := sampleJSONInstance(t, sample)
@@ -183,7 +247,11 @@ func TestSampleV3ScaleRequiresDecision18FieldsAndRejectsLegacyHistory(t *testing
 		t.Fatalf("sample-v3 Go reader rejected complete Decision-18 Scale evidence: %v", err)
 	}
 
-	for _, field := range []string{"expected_existing_facts", "expected_union_facts", "existing_dependency_sha256", "union_dependency_sha256"} {
+	for _, field := range []string{
+		"expected_existing_facts", "expected_union_facts", "existing_dependency_sha256", "union_dependency_sha256",
+		"expected_outcome_member_cardinality", "observed_outcome_member_cardinality",
+		"expected_outcome_candidate_set_sha256", "observed_outcome_candidate_set_sha256",
+	} {
 		t.Run("missing "+field, func(t *testing.T) {
 			mutated := sampleJSONInstance(t, sample)
 			delete(objectMap(t, mutated["scale_verification"], "scale verification"), field)
@@ -192,6 +260,94 @@ func TestSampleV3ScaleRequiresDecision18FieldsAndRejectsLegacyHistory(t *testing
 			}
 		})
 	}
+	withoutFinalizerMembers := sampleJSONInstance(t, sample)
+	delete(objectMap(t, withoutFinalizerMembers["taskgate_acceptance_v3"], "Scale acceptance"),
+		"outcome_candidate_verification")
+	if err := validate(withoutFinalizerMembers); err == nil {
+		t.Fatal("sample-v3 schema accepted Scale evidence-v3 without finalizer member verification")
+	}
+	withoutFinalizerMembersSample := sample
+	withoutFinalizerMembersSample.TaskGateAcceptanceV3 = &FinalizationV3{}
+	if err := withoutFinalizerMembersSample.Validate(); err == nil {
+		t.Fatal("sample-v3 Go reader accepted Scale evidence-v3 without finalizer member verification")
+	}
+	malformedFinalizerMembers := sampleJSONInstance(t, sample)
+	verification := objectMap(t,
+		objectMap(t, malformedFinalizerMembers["taskgate_acceptance_v3"], "Scale acceptance")["outcome_candidate_verification"],
+		"Outcome member verification")
+	delete(objectMap(t, verification["expected"], "expected Outcome members"), "members")
+	if err := validate(malformedFinalizerMembers); err == nil {
+		t.Fatal("sample-v3 schema accepted an incomplete finalizer Outcome member set")
+	}
+	historicalV2 := sampleJSONInstance(t, sample)
+	historicalScale := objectMap(t, historicalV2["scale_verification"], "historical scale verification")
+	historicalScale["version"] = scaleDependencyEvidenceVersionV2
+	for _, field := range []string{
+		"expected_outcome_member_cardinality", "observed_outcome_member_cardinality",
+		"expected_outcome_candidate_set_sha256", "observed_outcome_candidate_set_sha256",
+	} {
+		delete(historicalScale, field)
+	}
+	delete(objectMap(t, historicalV2["taskgate_acceptance_v3"], "historical acceptance"),
+		"outcome_candidate_verification")
+	if err := validate(historicalV2); err != nil {
+		t.Fatalf("sample-v3 schema rejected historical Scale evidence-v2: %v", err)
+	}
+	historicalSample := sample
+	historicalSample.TaskGateAcceptanceV3 = &FinalizationV3{}
+	historicalEvidence := *sample.ScaleVerification
+	historicalEvidence.Version = scaleDependencyEvidenceVersionV2
+	historicalEvidence.ExpectedOutcomeMemberCardinality = 0
+	historicalEvidence.ObservedOutcomeMemberCardinality = 0
+	historicalEvidence.ExpectedOutcomeCandidateSetSHA256 = ""
+	historicalEvidence.ObservedOutcomeCandidateSetSHA256 = ""
+	historicalSample.ScaleVerification = &historicalEvidence
+	if err := historicalSample.Validate(); err != nil {
+		t.Fatalf("sample-v3 Go reader rejected historical Scale evidence-v2: %v", err)
+	}
+	v2WithFinalizerMembers := sampleJSONInstance(t, historicalSample)
+	currentAcceptance := objectMap(t, sampleJSONInstance(t, sample)["taskgate_acceptance_v3"], "current acceptance")
+	objectMap(t, v2WithFinalizerMembers["taskgate_acceptance_v3"], "historical acceptance")["outcome_candidate_verification"] =
+		currentAcceptance["outcome_candidate_verification"]
+	if err := validate(v2WithFinalizerMembers); err == nil {
+		t.Fatal("sample-v3 schema silently added Outcome member verification to historical evidence-v2")
+	}
+	encodedV2WithFinalizerMembers, err := json.Marshal(v2WithFinalizerMembers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decodedV2WithFinalizerMembers Sample
+	if err := StrictJSON(encodedV2WithFinalizerMembers, &decodedV2WithFinalizerMembers); err == nil {
+		t.Fatal("sample-v3 strict reader silently added Outcome member verification to historical evidence-v2")
+	}
+	historicalSample.TaskGateAcceptanceV3 = sample.TaskGateAcceptanceV3
+	if err := historicalSample.Validate(); err == nil {
+		t.Fatal("sample-v3 Go validation silently added Outcome member verification to historical evidence-v2")
+	}
+	historicalSample.TaskGateAcceptanceV3 = &FinalizationV3{}
+	for field, explicitValue := range map[string]any{
+		"expected_outcome_member_cardinality":   float64(0),
+		"observed_outcome_member_cardinality":   float64(0),
+		"expected_outcome_candidate_set_sha256": "",
+		"observed_outcome_candidate_set_sha256": "",
+	} {
+		t.Run("evidence-v2 rejects "+field, func(t *testing.T) {
+			mutated := sampleJSONInstance(t, historicalSample)
+			objectMap(t, mutated["scale_verification"], "historical scale verification")[field] = explicitValue
+			if err := validate(mutated); err == nil {
+				t.Fatalf("sample-v3 schema accepted evidence-v2 with explicit evidence-v3 member %s", field)
+			}
+			encoded, err := json.Marshal(mutated)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var decoded Sample
+			if err := StrictJSON(encoded, &decoded); err == nil {
+				t.Fatalf("sample-v3 strict reader accepted evidence-v2 with explicit evidence-v3 member %s", field)
+			}
+		})
+	}
+
 	legacy := sampleJSONInstance(t, sample)
 	legacyScale := objectMap(t, legacy["scale_verification"], "legacy scale verification")
 	legacyScale["version"] = scaleEvidenceVersion
@@ -227,10 +383,14 @@ func TestSampleV1V2RejectDecision18ScaleMembersByWirePresence(t *testing.T) {
 	}
 	for _, test := range tests {
 		for field, explicitZero := range map[string]any{
-			"expected_existing_facts":    float64(0),
-			"expected_union_facts":       float64(0),
-			"existing_dependency_sha256": "",
-			"union_dependency_sha256":    "",
+			"expected_existing_facts":               float64(0),
+			"expected_union_facts":                  float64(0),
+			"existing_dependency_sha256":            "",
+			"union_dependency_sha256":               "",
+			"expected_outcome_member_cardinality":   float64(0),
+			"observed_outcome_member_cardinality":   float64(0),
+			"expected_outcome_candidate_set_sha256": "",
+			"observed_outcome_candidate_set_sha256": "",
 		} {
 			t.Run(test.name+"/"+field, func(t *testing.T) {
 				instance := test.instance(t)
@@ -285,6 +445,35 @@ func TestSampleV3SchemaMatchesCurrentGoWire(t *testing.T) {
 				t.Fatalf("sample-v3 retained-failure properties = %v, Go evidence wire = %v", partialNames, wantFields)
 			}
 		})
+	}
+
+	acceptanceProperties := objectMap(t,
+		objectMap(t, properties["taskgate_acceptance_v3"], "taskgate acceptance")["properties"],
+		"taskgate acceptance properties")
+	verificationSchema := resolveDefinition(t,
+		objectMap(t, acceptanceProperties["outcome_candidate_verification"], "Outcome verification"), definitions)
+	wantVerification, wantVerificationRequired := jsonFields(reflect.TypeOf(OutcomeCandidateVerificationV1{}))
+	if got := sortedKeys(objectMap(t, verificationSchema["properties"], "Outcome verification properties")); !reflect.DeepEqual(got, wantVerification) {
+		t.Fatalf("Outcome verification schema properties = %v, Go wire = %v", got, wantVerification)
+	}
+	gotVerificationRequired := stringArray(t, verificationSchema["required"], "Outcome verification required")
+	sort.Strings(gotVerificationRequired)
+	if !reflect.DeepEqual(gotVerificationRequired, wantVerificationRequired) {
+		t.Fatalf("Outcome verification required = %v, Go wire = %v",
+			gotVerificationRequired, wantVerificationRequired)
+	}
+	expectedSchema := resolveDefinition(t,
+		objectMap(t, objectMap(t, verificationSchema["properties"], "Outcome verification properties")["expected"],
+			"expected Outcome members"), definitions)
+	wantExpectation, wantExpectationRequired := jsonFields(reflect.TypeOf(OutcomeCandidateExpectationV1{}))
+	if got := sortedKeys(objectMap(t, expectedSchema["properties"], "Outcome expectation properties")); !reflect.DeepEqual(got, wantExpectation) {
+		t.Fatalf("Outcome expectation schema properties = %v, Go wire = %v", got, wantExpectation)
+	}
+	gotExpectationRequired := stringArray(t, expectedSchema["required"], "Outcome expectation required")
+	sort.Strings(gotExpectationRequired)
+	if !reflect.DeepEqual(gotExpectationRequired, wantExpectationRequired) {
+		t.Fatalf("Outcome expectation required = %v, Go wire = %v",
+			gotExpectationRequired, wantExpectationRequired)
 	}
 }
 

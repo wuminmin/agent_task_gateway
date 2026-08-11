@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"taskbound.local/agent-data-gateway/evaluation/internal/experiment"
+	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5binding"
 	"taskbound.local/agent-data-gateway/internal/control"
 	"taskbound.local/agent-data-gateway/internal/ordinal"
 	"taskbound.local/agent-data-gateway/internal/queryreceipt"
@@ -24,6 +25,7 @@ import (
 const (
 	scaleVerificationVersion           = "taskgate-final-v5-scale-verification-v1"
 	scaleDependencyVerificationVersion = "taskgate-final-v5-scale-verification-v2"
+	scaleDependencyVerificationV3      = "taskgate-final-v5-scale-verification-v3"
 )
 
 type scaleAdapter struct {
@@ -163,6 +165,9 @@ func validateDependencyCellBinding(scale string, cell dependencyCellBinding) err
 	}
 	if cell.Union.DependencyFacts != spec.UnionFacts || !validDigest(cell.Union.DependencySetSHA256) {
 		return errors.New("union binding differs from the frozen dependency set algebra")
+	}
+	if err := finalv5binding.ValidateBoundOutcomeCandidate(cell.OutcomeCandidate); err != nil {
+		return fmt.Errorf("Outcome candidate binding differs from the strict five-member oracle: %w", err)
 	}
 	return nil
 }
@@ -324,9 +329,13 @@ func (adapter *scaleAdapter) executeDependencyE2E(ctx context.Context, operation
 		return sample, err
 	}
 	sample.TaskGateAcceptanceV3 = &finalized
-	// Only a completed, accepted operation uses the new success wire. Any
-	// finalizer refusal is converted by retainTaskGateRejection to sample-v2.
+	// Finalization has already accepted this operation. Establish the explicit
+	// post-acceptance wire before retaining the Scale summary so any subsequent
+	// evidence invariant failure cannot be misclassified as pre-finalization.
 	sample.SchemaVersion = experiment.FinalizedSampleSchemaVersion
+	if err := retainScaleOutcomeCandidateVerification(evidence, finalized); err != nil {
+		return sample, err
+	}
 	if operation.Mode == "novel" {
 		state.novelRequestID = requestID
 		state.novelQueryID = response.QueryID
@@ -335,6 +344,26 @@ func (adapter *scaleAdapter) executeDependencyE2E(ctx context.Context, operation
 		state.novelGrantSHA256 = response.Receipt.GrantDigest
 	}
 	return sample, nil
+}
+
+func retainScaleOutcomeCandidateVerification(evidence *experiment.ScaleVerificationEvidence,
+	finalized experiment.FinalizationV3) error {
+	if evidence == nil {
+		return errors.New("the accepted Scale operation has no retained Scale evidence")
+	}
+	verification := finalized.OutcomeCandidateVerification
+	if verification == nil {
+		return errors.New("the accepted Scale operation omitted its Outcome candidate member verification")
+	}
+	if err := verification.Validate(); err != nil {
+		return fmt.Errorf("validate the accepted Scale Outcome candidate member verification: %w", err)
+	}
+	evidence.Version = scaleDependencyVerificationV3
+	evidence.ExpectedOutcomeMemberCardinality = verification.Expected.Cardinality
+	evidence.ObservedOutcomeMemberCardinality = verification.Observed.Cardinality
+	evidence.ExpectedOutcomeCandidateSetSHA256 = verification.Expected.OrdinarySetSHA256
+	evidence.ObservedOutcomeCandidateSetSHA256 = verification.Observed.OrdinarySetSHA256
+	return nil
 }
 
 // scaleContractSelector names one frozen dependency-e2e cell in all four

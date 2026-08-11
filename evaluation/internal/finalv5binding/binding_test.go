@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"taskbound.local/agent-data-gateway/evaluation/finalv5oracle"
 	"taskbound.local/agent-data-gateway/evaluation/internal/provsqlfixture"
 	"taskbound.local/agent-data-gateway/internal/catalog"
 )
@@ -44,6 +45,28 @@ func testResult(sql string, rows int64, columns int, marker string) BoundResultE
 		ExpectedResultSHA256: shaBytes([]byte("result/" + marker))}
 }
 
+func testOutcomeCandidate(t *testing.T, marker string) BoundOutcomeCandidateExpectation {
+	t.Helper()
+	members := make([]string, 5)
+	for index := range members {
+		members[index] = shaBytes([]byte(fmt.Sprintf("outcome/%s/%d", marker, index)))
+	}
+	sort.Strings(members)
+	summary, err := finalv5oracle.SummarizeSemanticSet("candidate", func(yield func(string) error) error {
+		for _, member := range members {
+			if err := yield(member); err != nil {
+				return err
+			}
+		}
+		return nil
+	}, finalv5oracle.StreamSetOptions{MaxInMemoryMembers: len(members)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return BoundOutcomeCandidateExpectation{Cardinality: summary.Cardinality,
+		Members: members, OrdinarySetSHA256: summary.SetSHA256}
+}
+
 func completeTestBinding(t *testing.T) []byte {
 	t.Helper()
 	section := Section{SchemaVersion: 2,
@@ -67,6 +90,7 @@ func completeTestBinding(t *testing.T) []byte {
 					prefix.facts, 1, scale+"/history"),
 				Union: BoundDependencySetExpectation{DependencyFacts: 2*prefix.facts - overlapFacts,
 					DependencySetSHA256: shaBytes([]byte("dependency/" + scale + "/union"))},
+				OutcomeCandidate: testOutcomeCandidate(t, scale),
 			}
 			section.Scale.DependencyE2E[scale] = cell
 		}
@@ -224,6 +248,17 @@ func TestScaleBindingV2RequiresExistingAndIndependentUnionFields(t *testing.T) {
 		}},
 		{name: "missing union digest", mutate: func(cell map[string]any) {
 			cell["union"].(map[string]any)["dependency_set_sha256"] = ""
+		}},
+		{name: "missing Outcome member", mutate: func(cell map[string]any) {
+			outcome := cell["outcome_candidate"].(map[string]any)
+			outcome["members"] = outcome["members"].([]any)[:4]
+		}},
+		{name: "Outcome member order drift", mutate: func(cell map[string]any) {
+			members := cell["outcome_candidate"].(map[string]any)["members"].([]any)
+			members[0], members[1] = members[1], members[0]
+		}},
+		{name: "Outcome ordinary-set digest drift", mutate: func(cell map[string]any) {
+			cell["outcome_candidate"].(map[string]any)["ordinary_set_sha256"] = strings.Repeat("f", 64)
 		}},
 		{name: "candidate aggregate drift", mutate: func(cell map[string]any) {
 			cell["candidate"].(map[string]any)["sql"] = dependencyCandidateSQL(2_001)

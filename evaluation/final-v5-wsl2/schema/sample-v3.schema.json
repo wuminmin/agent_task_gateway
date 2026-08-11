@@ -29,6 +29,117 @@
     {
       "if": {
         "properties": {
+          "taskgate_acceptance_v3": {
+            "type": "object",
+            "required": [
+              "outcome_candidate_verification"
+            ]
+          }
+        },
+        "required": [
+          "taskgate_acceptance_v3"
+        ]
+      },
+      "then": {
+        "properties": {
+          "experiment_id": {
+            "const": "scale"
+          },
+          "scale_verification": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "const": "taskgate-final-v5-scale-verification-v3"
+              }
+            },
+            "required": [
+              "version"
+            ]
+          }
+        },
+        "required": [
+          "experiment_id",
+          "scale_verification"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "experiment_id": {
+            "const": "scale"
+          },
+          "scale_verification": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "const": "taskgate-final-v5-scale-verification-v2"
+              }
+            },
+            "required": [
+              "version"
+            ]
+          }
+        },
+        "required": [
+          "experiment_id",
+          "scale_verification"
+        ]
+      },
+      "then": {
+        "properties": {
+          "taskgate_acceptance_v3": {
+            "not": {
+              "required": [
+                "outcome_candidate_verification"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "experiment_id": {
+            "const": "scale"
+          },
+          "scale_verification": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "const": "taskgate-final-v5-scale-verification-v3"
+              }
+            },
+            "required": [
+              "version"
+            ]
+          }
+        },
+        "required": [
+          "experiment_id",
+          "scale_verification"
+        ]
+      },
+      "then": {
+        "properties": {
+          "taskgate_acceptance_v3": {
+            "type": "object",
+            "required": [
+              "outcome_candidate_verification"
+            ],
+            "properties": {
+              "outcome_candidate_verification": {
+                "$ref": "#/$defs/outcomeCandidateVerificationV1"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
           "experiment_id": {
             "const": "artifact"
           }
@@ -473,7 +584,12 @@
       "minimum": 0
     },
     "taskgate_acceptance_v3": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "outcome_candidate_verification": {
+          "$ref": "#/$defs/outcomeCandidateVerificationV1"
+        }
+      }
     },
     "root_epoch_before": {
       "type": "integer",
@@ -631,9 +747,72 @@
               }
             ]
           },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "version": {
+                    "const": "taskgate-final-v5-scale-verification-v3"
+                  }
+                },
+                "required": [
+                  "version"
+                ]
+              },
+              "then": {
+                "required": [
+                  "expected_outcome_member_cardinality",
+                  "observed_outcome_member_cardinality",
+                  "expected_outcome_candidate_set_sha256",
+                  "observed_outcome_candidate_set_sha256"
+                ]
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "version": {
+                    "const": "taskgate-final-v5-scale-verification-v2"
+                  }
+                },
+                "required": [
+                  "version"
+                ]
+              },
+              "then": {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "expected_outcome_member_cardinality"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "observed_outcome_member_cardinality"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "expected_outcome_candidate_set_sha256"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "observed_outcome_candidate_set_sha256"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ],
           "properties": {
             "version": {
-              "const": "taskgate-final-v5-scale-verification-v2"
+              "enum": [
+                "taskgate-final-v5-scale-verification-v2",
+                "taskgate-final-v5-scale-verification-v3"
+              ]
             },
             "boundary": {
               "const": "dependency_e2e"
@@ -697,6 +876,22 @@
             "expected_union_facts": {
               "type": "integer",
               "minimum": 0
+            },
+            "expected_outcome_member_cardinality": {
+              "type": "integer",
+              "const": 5
+            },
+            "observed_outcome_member_cardinality": {
+              "type": "integer",
+              "const": 5
+            },
+            "expected_outcome_candidate_set_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "observed_outcome_candidate_set_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
             },
             "history_dependency_sha256": {
               "type": "string"
@@ -1897,6 +2092,54 @@
     }
   },
   "$defs": {
+    "outcomeCandidateExpectationV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cardinality",
+        "members",
+        "ordinary_set_sha256"
+      ],
+      "properties": {
+        "cardinality": {
+          "const": 5
+        },
+        "members": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "ordinary_set_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "outcomeCandidateVerificationV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "expected",
+        "observed"
+      ],
+      "properties": {
+        "version": {
+          "const": "taskgate-outcome-candidate-verification-v1"
+        },
+        "expected": {
+          "$ref": "#/$defs/outcomeCandidateExpectationV1"
+        },
+        "observed": {
+          "$ref": "#/$defs/outcomeCandidateExpectationV1"
+        }
+      }
+    },
     "partialScaleVerification": {
       "type": "object",
       "propertyNames": {
@@ -1914,6 +2157,8 @@
           "expected_candidate_facts",
           "expected_columns",
           "expected_existing_facts",
+          "expected_outcome_candidate_set_sha256",
+          "expected_outcome_member_cardinality",
           "expected_overlap_facts",
           "expected_result_sha256",
           "expected_rows",
@@ -1921,6 +2166,8 @@
           "history_dependency_sha256",
           "kernel_storage",
           "observed_candidate_facts",
+          "observed_outcome_candidate_set_sha256",
+          "observed_outcome_member_cardinality",
           "observed_overlap_facts",
           "observer_window",
           "outcome_merkle",

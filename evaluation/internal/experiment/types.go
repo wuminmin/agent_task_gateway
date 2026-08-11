@@ -555,22 +555,66 @@ func (sample *Sample) UnmarshalJSON(value []byte) error {
 			return fmt.Errorf("decode sample schema_version: %w", err)
 		}
 	}
-	if schemaVersion == SampleSchemaVersion || schemaVersion == TaskGateRejectionSampleSchemaVersion {
-		if encoded, present := members["scale_verification"]; present &&
-			!bytes.Equal(bytes.TrimSpace(encoded), []byte("null")) {
-			var evidenceMembers map[string]json.RawMessage
-			if err := StrictJSON(encoded, &evidenceMembers); err != nil {
-				return fmt.Errorf("decode scale_verification wire: %w", err)
-			}
+	var experimentID string
+	if encoded, present := members["experiment_id"]; present {
+		if err := json.Unmarshal(encoded, &experimentID); err != nil {
+			return fmt.Errorf("decode sample experiment_id: %w", err)
+		}
+	}
+	outcomeVerificationPresent := false
+	if encoded, present := members["taskgate_acceptance_v3"]; present {
+		var acceptanceMembers map[string]json.RawMessage
+		if err := StrictJSON(encoded, &acceptanceMembers); err != nil {
+			return fmt.Errorf("decode taskgate_acceptance_v3 wire: %w", err)
+		}
+		_, outcomeVerificationPresent = acceptanceMembers["outcome_candidate_verification"]
+	}
+	var scaleVerificationVersion string
+	if encoded, present := members["scale_verification"]; present &&
+		!bytes.Equal(bytes.TrimSpace(encoded), []byte("null")) {
+		var evidenceMembers map[string]json.RawMessage
+		if err := StrictJSON(encoded, &evidenceMembers); err != nil {
+			return fmt.Errorf("decode scale_verification wire: %w", err)
+		}
+		outcomeNames := []string{
+			"expected_outcome_member_cardinality", "observed_outcome_member_cardinality",
+			"expected_outcome_candidate_set_sha256", "observed_outcome_candidate_set_sha256",
+		}
+		if schemaVersion == SampleSchemaVersion || schemaVersion == TaskGateRejectionSampleSchemaVersion {
 			for _, name := range []string{
 				"expected_existing_facts", "expected_union_facts",
 				"existing_dependency_sha256", "union_dependency_sha256",
+				outcomeNames[0], outcomeNames[1], outcomeNames[2], outcomeNames[3],
 			} {
 				if _, present := evidenceMembers[name]; present {
 					return fmt.Errorf("sample-v1/v2 cannot carry sample-v3 Scale member %q", name)
 				}
 			}
 		}
+		if encodedVersion, present := evidenceMembers["version"]; present {
+			if err := json.Unmarshal(encodedVersion, &scaleVerificationVersion); err != nil {
+				return fmt.Errorf("decode scale_verification version: %w", err)
+			}
+		}
+		switch scaleVerificationVersion {
+		case scaleEvidenceVersion, scaleDependencyEvidenceVersionV2:
+			for _, name := range outcomeNames {
+				if _, present := evidenceMembers[name]; present {
+					return fmt.Errorf("Scale evidence version %q cannot carry evidence-v3 member %q", scaleVerificationVersion, name)
+				}
+			}
+		case scaleDependencyEvidenceVersionV3:
+			for _, name := range outcomeNames {
+				if _, present := evidenceMembers[name]; !present {
+					return fmt.Errorf("Scale evidence-v3 omits required member %q", name)
+				}
+			}
+		}
+	}
+	if outcomeVerificationPresent &&
+		(schemaVersion != FinalizedSampleSchemaVersion || experimentID != "scale" ||
+			scaleVerificationVersion != scaleDependencyEvidenceVersionV3) {
+		return errors.New("Outcome candidate verification is reserved for sample-v3 Scale evidence-v3")
 	}
 	type sampleWire Sample
 	var decoded sampleWire
@@ -607,31 +651,39 @@ type ScaleVerificationEvidence struct {
 	// BindingSHA256 remains the canonical versioned final_v5_adapter section identity so
 	// harmless top-level formatting and executable section material cannot be
 	// conflated.
-	BindingFileSHA256         string              `json:"binding_file_sha256,omitempty"`
-	BindingSHA256             string              `json:"binding_sha256,omitempty"`
-	DatasetSHA256             string              `json:"dataset_sha256,omitempty"`
-	CatalogSHA256             string              `json:"catalog_sha256,omitempty"`
-	DatasetProbeSHA256        string              `json:"dataset_probe_sha256,omitempty"`
-	QuerySHA256               string              `json:"query_sha256,omitempty"`
-	ExpectedRows              int64               `json:"expected_rows,omitempty"`
-	ExpectedColumns           int                 `json:"expected_columns,omitempty"`
-	ExpectedResultSHA256      string              `json:"expected_result_sha256,omitempty"`
-	ExpectedCandidateFacts    int64               `json:"expected_candidate_facts,omitempty"`
-	ObservedCandidateFacts    int64               `json:"observed_candidate_facts,omitempty"`
-	ExpectedExistingFacts     int64               `json:"expected_existing_facts,omitempty"`
-	ExpectedOverlapFacts      int64               `json:"expected_overlap_facts,omitempty"`
-	ObservedOverlapFacts      int64               `json:"observed_overlap_facts,omitempty"`
-	ExpectedUnionFacts        int64               `json:"expected_union_facts,omitempty"`
-	HistoryDependencySHA256   string              `json:"history_dependency_sha256,omitempty"`
-	ExistingDependencySHA256  string              `json:"existing_dependency_sha256,omitempty"`
-	CandidateDependencySHA256 string              `json:"candidate_dependency_sha256,omitempty"`
-	UnionDependencySHA256     string              `json:"union_dependency_sha256,omitempty"`
-	BusinessBefore            BusinessSQLSnapshot `json:"business_before,omitempty"`
-	BusinessAfter             BusinessSQLSnapshot `json:"business_after,omitempty"`
-	RootBefore                RootLedgerSnapshot  `json:"root_before,omitempty"`
-	RootAfter                 RootLedgerSnapshot  `json:"root_after,omitempty"`
-	SourceObservationSHA256   string              `json:"source_observation_sha256,omitempty"`
-	ReplayObservationSHA256   string              `json:"replay_observation_sha256,omitempty"`
+	BindingFileSHA256      string `json:"binding_file_sha256,omitempty"`
+	BindingSHA256          string `json:"binding_sha256,omitempty"`
+	DatasetSHA256          string `json:"dataset_sha256,omitempty"`
+	CatalogSHA256          string `json:"catalog_sha256,omitempty"`
+	DatasetProbeSHA256     string `json:"dataset_probe_sha256,omitempty"`
+	QuerySHA256            string `json:"query_sha256,omitempty"`
+	ExpectedRows           int64  `json:"expected_rows,omitempty"`
+	ExpectedColumns        int    `json:"expected_columns,omitempty"`
+	ExpectedResultSHA256   string `json:"expected_result_sha256,omitempty"`
+	ExpectedCandidateFacts int64  `json:"expected_candidate_facts,omitempty"`
+	ObservedCandidateFacts int64  `json:"observed_candidate_facts,omitempty"`
+	ExpectedExistingFacts  int64  `json:"expected_existing_facts,omitempty"`
+	ExpectedOverlapFacts   int64  `json:"expected_overlap_facts,omitempty"`
+	ObservedOverlapFacts   int64  `json:"observed_overlap_facts,omitempty"`
+	ExpectedUnionFacts     int64  `json:"expected_union_facts,omitempty"`
+	// The Outcome members are the four exact predicate-atom Fact identities and
+	// their signed composite Fact identity. These digests use the independent
+	// ordinary-set oracle domain, not the production radix-set domain carried by
+	// Sample.OutcomeSetSHA256 and the signed receipt.
+	ExpectedOutcomeMemberCardinality  int64               `json:"expected_outcome_member_cardinality,omitempty"`
+	ObservedOutcomeMemberCardinality  int64               `json:"observed_outcome_member_cardinality,omitempty"`
+	ExpectedOutcomeCandidateSetSHA256 string              `json:"expected_outcome_candidate_set_sha256,omitempty"`
+	ObservedOutcomeCandidateSetSHA256 string              `json:"observed_outcome_candidate_set_sha256,omitempty"`
+	HistoryDependencySHA256           string              `json:"history_dependency_sha256,omitempty"`
+	ExistingDependencySHA256          string              `json:"existing_dependency_sha256,omitempty"`
+	CandidateDependencySHA256         string              `json:"candidate_dependency_sha256,omitempty"`
+	UnionDependencySHA256             string              `json:"union_dependency_sha256,omitempty"`
+	BusinessBefore                    BusinessSQLSnapshot `json:"business_before,omitempty"`
+	BusinessAfter                     BusinessSQLSnapshot `json:"business_after,omitempty"`
+	RootBefore                        RootLedgerSnapshot  `json:"root_before,omitempty"`
+	RootAfter                         RootLedgerSnapshot  `json:"root_after,omitempty"`
+	SourceObservationSHA256           string              `json:"source_observation_sha256,omitempty"`
+	ReplayObservationSHA256           string              `json:"replay_observation_sha256,omitempty"`
 	// ObserverWindow retains the v3 finalizer interval for dependency-e2e
 	// TaskGate cells. It is absent on the Outcome-Merkle and kernel-storage
 	// controls, which do not execute a fresh governed Task operation.
@@ -1668,6 +1720,9 @@ func (sample Sample) Validate() error {
 		if sample.TaskGateRejectionV1 != nil {
 			return errors.New("sample-v1 cannot carry taskgate_rejection_v1")
 		}
+		if sample.TaskGateAcceptanceV3 != nil && sample.TaskGateAcceptanceV3.OutcomeCandidateVerification != nil {
+			return errors.New("sample-v1 cannot carry Outcome candidate verification")
+		}
 		if err := sample.validateLegacyEvidenceWire(); err != nil {
 			return err
 		}
@@ -1692,10 +1747,30 @@ func (sample Sample) Validate() error {
 		if sample.ExperimentID == "artifact" && sample.ArtifactVerification == nil {
 			return errors.New("sample-v3 Artifact sample requires retained Artifact evidence")
 		}
-		if sample.ScaleVerification != nil &&
-			(sample.ScaleVerification.Version != scaleDependencyEvidenceVersionV2 ||
-				sample.ScaleVerification.HistoryDependencySHA256 != "") {
-			return errors.New("sample-v3 Scale evidence must use Decision-18 evidence-v2 without legacy history")
+		if sample.TaskGateAcceptanceV3.OutcomeCandidateVerification != nil &&
+			(sample.ExperimentID != "scale" || sample.ScaleVerification == nil ||
+				sample.ScaleVerification.Version != scaleDependencyEvidenceVersionV3) {
+			return errors.New("Outcome candidate verification is reserved for sample-v3 Scale evidence-v3")
+		}
+		if evidence := sample.ScaleVerification; evidence != nil {
+			if (evidence.Version != scaleDependencyEvidenceVersionV2 &&
+				evidence.Version != scaleDependencyEvidenceVersionV3) ||
+				evidence.HistoryDependencySHA256 != "" {
+				return errors.New("sample-v3 Scale evidence must use Decision-18 evidence-v2/v3 without legacy history")
+			}
+			if evidence.Version == scaleDependencyEvidenceVersionV2 &&
+				(evidence.hasOutcomeCandidateEvidenceV3() ||
+					sample.TaskGateAcceptanceV3.OutcomeCandidateVerification != nil) {
+				return errors.New("sample-v3 Scale evidence-v2 cannot carry Outcome candidate evidence-v3 members")
+			}
+			if evidence.Version == scaleDependencyEvidenceVersionV3 &&
+				(sample.TaskGateAcceptanceV3.OutcomeCandidateVerification == nil ||
+					evidence.ExpectedOutcomeMemberCardinality == 0 ||
+					evidence.ObservedOutcomeMemberCardinality == 0 ||
+					evidence.ExpectedOutcomeCandidateSetSHA256 == "" ||
+					evidence.ObservedOutcomeCandidateSetSHA256 == "") {
+				return errors.New("sample-v3 Scale evidence-v3 requires complete finalizer Outcome candidate verification")
+			}
 		}
 		if sample.ArtifactVerification != nil && sample.ArtifactVerification.Version != artifactEvidenceVersionV2 {
 			return errors.New("sample-v3 Artifact evidence must use evidence-v2")
@@ -1755,7 +1830,8 @@ func (sample Sample) Validate() error {
 func (sample Sample) validateLegacyEvidenceWire() error {
 	if evidence := sample.ScaleVerification; evidence != nil {
 		if evidence.ExpectedExistingFacts != 0 || evidence.ExpectedUnionFacts != 0 ||
-			evidence.ExistingDependencySHA256 != "" || evidence.UnionDependencySHA256 != "" {
+			evidence.ExistingDependencySHA256 != "" || evidence.UnionDependencySHA256 != "" ||
+			evidence.hasOutcomeCandidateEvidenceV3() {
 			return errors.New("sample-v1/v2 cannot carry sample-v3 Decision-18 Scale members")
 		}
 		if sample.Status == "pass" && evidence.Version != scaleEvidenceVersion {
@@ -1767,6 +1843,11 @@ func (sample Sample) validateLegacyEvidenceWire() error {
 		return errors.New("passing sample-v1 Artifact evidence must use evidence-v1")
 	}
 	return nil
+}
+
+func (evidence ScaleVerificationEvidence) hasOutcomeCandidateEvidenceV3() bool {
+	return evidence.ExpectedOutcomeMemberCardinality != 0 || evidence.ObservedOutcomeMemberCardinality != 0 ||
+		evidence.ExpectedOutcomeCandidateSetSHA256 != "" || evidence.ObservedOutcomeCandidateSetSHA256 != ""
 }
 
 func validSHA256(value string) bool {
