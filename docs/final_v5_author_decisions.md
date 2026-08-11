@@ -190,3 +190,44 @@ oracles, campaigns, or the paper are complete.
     This decision does **not** approve any generated final binding, P4.0-E2,
     activation, registry, capability, contract release, campaign, or tag.
     The final binding still requires author byte-for-byte review after E2.
+
+21. **Require strict member-level OutcomeSet semantics for Scale exact
+    candidates.** (Taken 2026-08-11 by author wuminmin after reviewing the
+    OUTCOME-scope findings; this changes binding/finalizer acceptance semantics
+    and approves no generated binding, measurement, capability, release, or
+    tag.) For every Scale exact candidate, the evaluation-only pre-run oracle
+    must independently construct the ordinary-set identity of all five expected
+    Fact members: the four predicate atoms and the signed composite. The
+    finalizer must reconstruct the actual ordinary set from the four actual
+    atoms already prepared for validation plus the signed actual composite, and
+    compare it member-for-member with the independent expectation. The
+    production radix `OutcomeSetSHA256` is a different digest domain and cannot
+    be compared directly with the ordinary-set oracle digest. Production output
+    may supply only the actual comparison operands; it must never become the
+    source of the expected members.
+
+    The decision is required because the current Scale finalizer stops at the
+    three dependency identities and their cardinalities
+    (`evaluation/internal/experiment/finalize_scale_artifact.go:183` and
+    `:191`). `ScaleVerificationEvidence` has expected dependency/result fields
+    but no expected Outcome cardinality or observed-member summary
+    (`evaluation/internal/experiment/types.go:597`). On the Outcome side,
+    `evaluation/internal/experiment/finalize.go:1488` only checks that Gateway,
+    receipt, and Sample repeat the same production exposure fields, while
+    `internal/queryreceipt/queryreceipt.go:282` requires only
+    `actualOutcome = atomCount + 1`; neither requires exactly four atoms nor
+    validates the identities of the five members. Consequently an entire
+    five-member set can be wrong while Gateway, receipt, Sample, radix digest,
+    and shared finalizer derivations remain mutually consistent.
+
+    The in-progress E1 aggregate called `OutcomeIdentity`, explicitly marked
+    `ProductionV5OutcomeSet=false`
+    (`evaluation/internal/finalv5publication/generate.go:94` and `:472`), is a
+    binding-input aggregation and is not the independent five-member Outcome
+    candidate set. It must not be named or serialized as
+    `OutcomeCandidateSetSHA256`; if retained, it must use a name that cannot be
+    read as verified Outcome membership. Timing constraint: because this
+    decision changes binding/finalizer acceptance semantics, it must be fully
+    implemented before the v1.5 freeze and before any P5 measurement. If strict
+    member identity could not be implemented, the honest paper boundary would
+    be to leave it unverified; an aggregate identity must never be substituted.
