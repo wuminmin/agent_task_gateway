@@ -20,10 +20,16 @@ expected_compose_project="$(
   echo "unsafe proof output" >&2; exit 2;
 }
 if [[ "${TASKGATE_EXPERIMENT_CLASS:-pilot}" == publication ]]; then
-  formal_compose_files=compose.yaml:compose.debug.yaml:evaluation/final-v5-wsl2/compose.real-pilot.yaml:evaluation/final-v5-wsl2/compose.provsql.yaml
+  formal_compose_files=compose.yaml:compose.debug.yaml:evaluation/final-v5-wsl2/compose.real-pilot.yaml:evaluation/final-v5-wsl2/compose.provsql.yaml:evaluation/final-v5-wsl2/compose.observer-v3.yaml
   [[ "${TASKGATE_COMPOSE_FILES:-}" == "$formal_compose_files" ]] || {
     echo "publication Compose files differ from the frozen formal topology" >&2; exit 2;
   }
+  : "${TASKGATE_FORMAL_GATEWAY_BUILD_MANIFEST:?publication formal Gateway build manifest is required}"
+  : "${TASKGATE_FORMAL_GATEWAY_COMPOSE_OVERRIDE:?publication formal Gateway Compose override is required}"
+  : "${TASKGATE_DATASET_BINDINGS:?publication Dataset Binding file is required}"
+  : "${TASKGATE_FINAL_V5_BINDING_FILE_SHA256:?publication validated Dataset Binding digest is required}"
+  : "${TASKGATE_FINAL_V5_PROFILE_REGISTRY:?publication profile registry is required}"
+  : "${TASKGATE_FINAL_V5_PROFILE_REGISTRY_SHA256:?publication frozen profile registry digest is required}"
 fi
 command -v jq >/dev/null || { echo "jq is required" >&2; exit 2; }
 command -v sha256sum >/dev/null || { echo "sha256sum is required" >&2; exit 2; }
@@ -34,12 +40,43 @@ repo="$(git rev-parse --show-toplevel)"
 cd "$repo"
 compose=(docker compose --project-name "$COMPOSE_PROJECT_NAME")
 if [[ -n "${TASKGATE_COMPOSE_FILES:-}" ]]; then
-  compose=(docker compose --project-name "$COMPOSE_PROJECT_NAME")
   IFS=: read -r -a taskgate_compose_files <<< "$TASKGATE_COMPOSE_FILES"
-  for taskgate_compose_file in "${taskgate_compose_files[@]}"; do
-    [[ -f "$taskgate_compose_file" ]] || { echo "missing Compose file: $taskgate_compose_file" >&2; exit 2; }
-    compose+=(--file "$taskgate_compose_file")
-  done
+  if [[ "${TASKGATE_EXPERIMENT_CLASS:-pilot}" == publication ]]; then
+    for private_formal_file in "$TASKGATE_FORMAL_GATEWAY_BUILD_MANIFEST" "$TASKGATE_FORMAL_GATEWAY_COMPOSE_OVERRIDE"; do
+      [[ -f "$private_formal_file" && ! -L "$private_formal_file" && "$(stat -c '%a' "$private_formal_file")" == 600 ]] || {
+        echo "formal Gateway deployment input is missing or unsafe: $private_formal_file" >&2; exit 2;
+      }
+    done
+    # shellcheck source=formal-campaign-compose.sh
+    source evaluation/final-v5-wsl2/scripts/formal-campaign-compose.sh
+    taskgate_formal_campaign_compose compose "$COMPOSE_PROJECT_NAME" \
+      "$TASKGATE_FORMAL_GATEWAY_COMPOSE_OVERRIDE" "${taskgate_compose_files[@]}"
+  else
+    for taskgate_compose_file in "${taskgate_compose_files[@]}"; do
+      [[ -f "$taskgate_compose_file" ]] || { echo "missing Compose file: $taskgate_compose_file" >&2; exit 2; }
+      compose+=(--file "$taskgate_compose_file")
+    done
+  fi
+fi
+# Recompute source and deployment-input identities and inspect the exact local
+# image before the destructive fresh-deployment boundary. Missing bytes,
+# malformed bytes, a moved image tag, or an unavailable image all stop here;
+# there is no path back to Compose's ordinary Gateway build.
+if [[ "${TASKGATE_EXPERIMENT_CLASS:-pilot}" == publication ]]; then
+  GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-gateway-build verify-build \
+    -root "$repo" \
+    -manifest "$TASKGATE_FORMAL_GATEWAY_BUILD_MANIFEST" \
+    -compose-override "$TASKGATE_FORMAL_GATEWAY_COMPOSE_OVERRIDE" \
+    -dataset-binding "$TASKGATE_DATASET_BINDINGS" \
+    -profile-registry "$TASKGATE_FINAL_V5_PROFILE_REGISTRY"
+  jq -e \
+    --arg dataset "$TASKGATE_FINAL_V5_BINDING_FILE_SHA256" \
+    --arg registry "$TASKGATE_FINAL_V5_PROFILE_REGISTRY_SHA256" '
+      .dataset_binding_sha256 == $dataset and .profile_registry_sha256 == $registry
+    ' "$TASKGATE_FORMAL_GATEWAY_BUILD_MANIFEST" >/dev/null || {
+    echo "formal Gateway build manifest differs from the strictly validated Dataset/Profile identities" >&2; exit 2;
+  }
+  formal_gateway_image_id="$(jq -er '.image_id' "$TASKGATE_FORMAL_GATEWAY_BUILD_MANIFEST")"
 fi
 # Refuse the deployment before its exact deletion boundary is touched unless
 # Compose proves that the ready Gateway must load the one frozen Catalog path
@@ -55,12 +92,30 @@ jq -e --arg source "$expected_catalog_source" --arg target /etc/taskbound/catalo
 ' <<< "$compose_runtime_json" >/dev/null || {
   echo "Gateway Catalog path/mount differs from the frozen source topology" >&2; exit 2;
 }
+if [[ "${TASKGATE_EXPERIMENT_CLASS:-pilot}" == publication ]]; then
+  jq -e --arg image "$formal_gateway_image_id" '
+    .services.gateway.image == $image and .services.gateway.pull_policy == "never"
+  ' <<< "$compose_runtime_json" >/dev/null || {
+    echo "resolved deployment does not select the verified formal Gateway image ID" >&2; exit 2;
+  }
+fi
 unset compose_runtime_json
 
 # The exact campaign/deployment project is the deletion boundary. A stale
 # partial attempt is removed before creating new named volumes.
 "${compose[@]}" down --volumes --remove-orphans
 "${compose[@]}" up --no-build --detach --wait
+if [[ "${TASKGATE_EXPERIMENT_CLASS:-pilot}" == publication ]]; then
+  gateway_container_id="$("${compose[@]}" ps -q gateway)"
+  [[ "$gateway_container_id" =~ ^[0-9a-f]{64}$ ]] || {
+    echo "formal deployment did not resolve exactly one Gateway container" >&2; exit 1;
+  }
+  running_gateway_image_id="$(docker container inspect --format '{{.Image}}' "$gateway_container_id")"
+  [[ "$running_gateway_image_id" == "$formal_gateway_image_id" ]] || {
+    echo "running Gateway image ID differs from the verified formal build manifest" >&2; exit 1;
+  }
+  unset gateway_container_id running_gateway_image_id
+fi
 
 proof_dir="$(dirname "$TASKGATE_FRESH_PROOF_OUTPUT")"
 mkdir -m 700 -p "$proof_dir"

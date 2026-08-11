@@ -38,7 +38,7 @@ export COMPOSE_PROJECT_NAME="$(
 [[ "$COMPOSE_PROJECT_NAME" =~ ^taskgate-final-v5-deployment-0[1-3]-[0-9a-f]{20}$ ]] || {
   echo "derived Compose project name violates the exact deployment contract" >&2; exit 1;
 }
-formal_compose_files=compose.yaml:compose.debug.yaml:evaluation/final-v5-wsl2/compose.real-pilot.yaml:evaluation/final-v5-wsl2/compose.provsql.yaml
+formal_compose_files=compose.yaml:compose.debug.yaml:evaluation/final-v5-wsl2/compose.real-pilot.yaml:evaluation/final-v5-wsl2/compose.provsql.yaml:evaluation/final-v5-wsl2/compose.observer-v3.yaml
 if [[ -n "${TASKGATE_COMPOSE_FILES:-}" && "$TASKGATE_COMPOSE_FILES" != "$formal_compose_files" ]]; then
   echo "publication Compose files are source-controlled and cannot be overridden" >&2
   exit 2
@@ -209,7 +209,20 @@ export TASKGATE_FINAL_V5_BINDING_SECTION_SHA256="$binding_section_sha"
 export TASKGATE_FINAL_V5_DATASET_SHA256="$binding_dataset_sha"
 export TASKGATE_FINAL_V5_DATASET_PROBE_SQL_SHA256="$binding_dataset_probe_sql_sha"
 export TASKGATE_FINAL_V5_DATASET_PROBE_SHA256="$binding_dataset_probe_sha"
-for identity in "dataset-binding:$binding_file_sha" "final-v5-adapter-binding:$binding_section_sha"; do
+profile_registry="$repo/config/profiles/registry.json"
+[[ -f "$profile_registry" && ! -L "$profile_registry" ]] || {
+  echo "source-controlled profile registry is missing or unsafe" >&2; exit 1;
+}
+profile_registry_sha="$(sha256sum "$profile_registry" | awk '{print $1}')"
+[[ "$profile_registry_sha" =~ ^[0-9a-f]{64}$ ]] || { echo "invalid profile registry digest" >&2; exit 1; }
+# Existing Adapter/finalizer resolvers consume these exact names. This wires the
+# already-validated Dataset Binding into ProfileBinding resolution without
+# asserting that E2's per-experiment profile activation/echo work is complete.
+export TASKGATE_FINAL_V5_DATASET_BINDING_SHA256="$binding_file_sha"
+export TASKGATE_FINAL_V5_PROFILE_REGISTRY="$profile_registry"
+export TASKGATE_FINAL_V5_PROFILE_REGISTRY_SHA256="$profile_registry_sha"
+for identity in "dataset-binding:$binding_file_sha" "final-v5-adapter-binding:$binding_section_sha" \
+  "profile-registry:$profile_registry_sha"; do
   identity_name="${identity%%:*}"
   identity_sha="${identity#*:}"
   identity_path="$adapter_dir/$identity_name.sha256"
@@ -236,11 +249,50 @@ fresh_dataset_identity_path="$campaign_root/environment/$TASKGATE_DEPLOYMENT_ID.
 fresh_dataset_probe_sql_path="$campaign_root/environment/$TASKGATE_DEPLOYMENT_ID.fresh.dataset-probe.sql"
 fresh_dataset_probe_path="$campaign_root/environment/$TASKGATE_DEPLOYMENT_ID.fresh.dataset-probe.txt"
 fresh_catalog_path="$campaign_root/environment/$TASKGATE_DEPLOYMENT_ID.fresh.catalog.yaml"
+formal_gateway_build_manifest="$campaign_root/environment/$TASKGATE_DEPLOYMENT_ID.formal-gateway-build.json"
+formal_gateway_compose_override="$campaign_root/environment/$TASKGATE_DEPLOYMENT_ID.compose.formal-gateway.yaml"
+formal_gateway_build_log="$campaign_root/environment/$TASKGATE_DEPLOYMENT_ID.formal-gateway-build.log"
 windows_host_path="$campaign_root/environment/windows-host.json"
 vmstat_before_path="$campaign_root/environment/$TASKGATE_DEPLOYMENT_ID.vmstat-before.txt"
 vmstat_after_path="$campaign_root/environment/$TASKGATE_DEPLOYMENT_ID.vmstat-after.txt"
 marker="$campaign_root/deployment-markers/$TASKGATE_DEPLOYMENT_ID.STARTED"
 mkdir -m 700 -p "$campaign_root/environment" "$campaign_root/deployment-markers"
+
+# Use the same tracked-tree/no-cache formal builder as the targeted Artifact
+# runner. The builder itself creates the typed manifest and an image-only
+# override that names the immutable image ID; no shell path reimplements either
+# derivation. Both private deployment identities are sealed into the manifest.
+[[ "$(sha256sum "$TASKGATE_DATASET_BINDINGS" | awk '{print $1}')" == "$TASKGATE_FINAL_V5_BINDING_FILE_SHA256" ]] || {
+  echo "Dataset Binding changed after strict validation" >&2; exit 1;
+}
+[[ "$(sha256sum "$TASKGATE_FINAL_V5_PROFILE_REGISTRY" | awk '{print $1}')" == "$TASKGATE_FINAL_V5_PROFILE_REGISTRY_SHA256" ]] || {
+  echo "profile registry changed after its identity was frozen" >&2; exit 1;
+}
+formal_gateway_tag="taskgate-final-v5-gateway:${TASKGATE_SUBMISSION_COMMIT}"
+GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-gateway-build build \
+  -root "$repo" \
+  -tag "$formal_gateway_tag" \
+  -manifest-out "$formal_gateway_build_manifest" \
+  -compose-override-out "$formal_gateway_compose_override" \
+  -dataset-binding "$TASKGATE_DATASET_BINDINGS" \
+  -profile-registry "$TASKGATE_FINAL_V5_PROFILE_REGISTRY" | tee "$formal_gateway_build_log"
+chmod 600 "$formal_gateway_build_log"
+GOFLAGS=-buildvcs=false go run ./evaluation/cmd/final-v5-gateway-build verify-build \
+  -root "$repo" \
+  -manifest "$formal_gateway_build_manifest" \
+  -compose-override "$formal_gateway_compose_override" \
+  -dataset-binding "$TASKGATE_DATASET_BINDINGS" \
+  -profile-registry "$TASKGATE_FINAL_V5_PROFILE_REGISTRY"
+jq -e \
+  --arg dataset "$TASKGATE_FINAL_V5_BINDING_FILE_SHA256" \
+  --arg registry "$TASKGATE_FINAL_V5_PROFILE_REGISTRY_SHA256" '
+    .dataset_binding_sha256 == $dataset and .profile_registry_sha256 == $registry
+  ' "$formal_gateway_build_manifest" >/dev/null || {
+  echo "formal Gateway build manifest does not bind the strictly validated Dataset/Profile identities" >&2; exit 1;
+}
+export TASKGATE_FORMAL_GATEWAY_BUILD_MANIFEST="$(realpath "$formal_gateway_build_manifest")"
+export TASKGATE_FORMAL_GATEWAY_COMPOSE_OVERRIDE="$(realpath "$formal_gateway_compose_override")"
+
 (set -o noclobber; printf '%s\n' "$(date -u +%FT%TZ)" > "$marker") || { echo "deployment directory already used" >&2; exit 1; }
 windows_host_tmp="$(mktemp /tmp/taskgate-windows-host.XXXXXX)"
 trap 'rm -f "$windows_host_tmp"' EXIT
@@ -437,9 +489,11 @@ cleanup_rq5_secret_root() {
     "$TASKGATE_FINAL_V5_RQ5_SECRET_ROOT"
 }
 
-compose_build=(docker compose --project-name "$COMPOSE_PROJECT_NAME")
 IFS=: read -r -a build_files <<< "$TASKGATE_COMPOSE_FILES"
-for build_file in "${build_files[@]}"; do compose_build+=(--file "$build_file"); done
+# shellcheck source=formal-campaign-compose.sh
+source evaluation/final-v5-wsl2/scripts/formal-campaign-compose.sh
+taskgate_formal_campaign_compose compose_build "$COMPOSE_PROJECT_NAME" \
+  "$TASKGATE_FORMAL_GATEWAY_COMPOSE_OVERRIDE" "${build_files[@]}"
 cleanup_early_deployment() {
   status=$?
   trap - EXIT
@@ -450,7 +504,22 @@ cleanup_early_deployment() {
 }
 trap - EXIT
 trap cleanup_early_deployment EXIT
-"${compose_build[@]}" build
+compose_build_json="$("${compose_build[@]}" config --format json)"
+formal_gateway_image_id="$(jq -er '.image_id' "$TASKGATE_FORMAL_GATEWAY_BUILD_MANIFEST")"
+jq -e --arg image "$formal_gateway_image_id" '
+  .services.gateway.image == $image and .services.gateway.pull_policy == "never"
+' <<< "$compose_build_json" >/dev/null || {
+  echo "resolved campaign topology does not select the formal Gateway image ID" >&2; exit 1;
+}
+mapfile -t ordinary_build_services < <(jq -r '
+  .services | to_entries[] | select(.value.build != null and .key != "gateway") | .key
+' <<< "$compose_build_json")
+(( ${#ordinary_build_services[@]} > 0 )) || { echo "formal campaign has no non-Gateway services to build" >&2; exit 1; }
+unset compose_build_json
+# Compose still builds the campaign's auxiliary source images. Gateway is
+# deliberately absent: its only permitted image was already built and verified
+# through the formal path, and startup below is --no-build.
+"${compose_build[@]}" build "${ordinary_build_services[@]}"
 evaluation/final-v5-wsl2/scripts/start-fresh-deployment.sh
 
 # Resolve the exact values already consumed by Compose without sourcing .env
@@ -628,10 +697,7 @@ finish_deployment() {
   # carried by exit_status and cannot be finalized as a passing deployment.
   finalize_rq5_cleanup || status=1
   cleanup_rq5_secret_root || status=1
-  compose_cleanup=(docker compose --project-name "$COMPOSE_PROJECT_NAME")
-  IFS=: read -r -a cleanup_files <<< "$TASKGATE_COMPOSE_FILES"
-  for cleanup_file in "${cleanup_files[@]}"; do compose_cleanup+=(--file "$cleanup_file"); done
-  "${compose_cleanup[@]}" down >/dev/null 2>&1 || status=1
+  "${compose_build[@]}" down >/dev/null 2>&1 || status=1
 
   for experiment_root in "${experiment_roots[@]}"; do
     mkdir -m 700 -p "$experiment_root/environment" "$experiment_root/deployments" || status=1
@@ -664,6 +730,12 @@ finish_deployment() {
     fi
     if [[ ! -e "$experiment_root/environment/$TASKGATE_DEPLOYMENT_ID.fresh.catalog.yaml" ]]; then
       install -m 600 "$fresh_catalog_path" "$experiment_root/environment/$TASKGATE_DEPLOYMENT_ID.fresh.catalog.yaml" || status=1
+    fi
+    if [[ ! -e "$experiment_root/environment/$TASKGATE_DEPLOYMENT_ID.formal-gateway-build.json" ]]; then
+      install -m 600 "$formal_gateway_build_manifest" "$experiment_root/environment/$TASKGATE_DEPLOYMENT_ID.formal-gateway-build.json" || status=1
+    fi
+    if [[ ! -e "$experiment_root/environment/$TASKGATE_DEPLOYMENT_ID.compose.formal-gateway.yaml" ]]; then
+      install -m 600 "$formal_gateway_compose_override" "$experiment_root/environment/$TASKGATE_DEPLOYMENT_ID.compose.formal-gateway.yaml" || status=1
     fi
     if [[ ! -e "$experiment_root/environment/windows-host.json" ]]; then
       install -m 600 "$windows_host_path" "$experiment_root/environment/windows-host.json" || status=1

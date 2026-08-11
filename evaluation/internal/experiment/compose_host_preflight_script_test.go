@@ -33,8 +33,9 @@ func TestLiveRunnersPreflightHostBeforeCreatingOrBuildingAnything(t *testing.T) 
 				`mkdir -m 700 -p "$preflight_experiment_root"`,
 				`go run "./evaluation/cmd/${commands[$index]}"`,
 				`go build -buildvcs=false -trimpath -o "$adapter_tmp"`,
+				`go run ./evaluation/cmd/final-v5-gateway-build build`,
 				`> "$marker"`,
-				`"${compose_build[@]}" build`,
+				`"${compose_build[@]}" build "${ordinary_build_services[@]}"`,
 			},
 		},
 	}

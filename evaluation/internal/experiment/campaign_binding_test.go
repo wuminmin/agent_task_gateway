@@ -108,14 +108,18 @@ func TestPublicationPrivateInputsAndObserverFailClosedBeforeMeasurement(t *testi
 	}
 	script := string(value)
 	marker := strings.Index(script, `(set -o noclobber; printf '%s\n' "$(date -u +%FT%TZ)" > "$marker")`)
-	composeBuild := strings.Index(script, `"${compose_build[@]}" build`)
+	formalBuild := strings.Index(script, `go run ./evaluation/cmd/final-v5-gateway-build build`)
+	formalVerify := strings.Index(script, `go run ./evaluation/cmd/final-v5-gateway-build verify-build`)
+	composeBuild := strings.Index(script, `"${compose_build[@]}" build "${ordinary_build_services[@]}"`)
 	validateBinding := strings.Index(script, `binding_validation="$($adapter_binary --validate-binding)"`)
 	validateObserver := strings.Index(script, `$adapter_binary --validate-observer-runtime`)
 	freezeConfig := strings.Index(script, `install -m 600 "$config_source" "$frozen_config"`)
 	exportExpectedBinding := strings.Index(script, `export TASKGATE_FINAL_V5_BINDING_FILE_SHA256=`)
-	if marker < 0 || composeBuild < 0 || validateBinding < 0 || validateObserver < 0 || freezeConfig < 0 || exportExpectedBinding < 0 ||
-		validateBinding > marker || validateObserver > marker || freezeConfig > marker || exportExpectedBinding > marker || marker > composeBuild {
-		t.Fatal("private config/binding/observer identity is not frozen and validated before marker/Compose")
+	if marker < 0 || formalBuild < 0 || formalVerify < 0 || composeBuild < 0 || validateBinding < 0 ||
+		validateObserver < 0 || freezeConfig < 0 || exportExpectedBinding < 0 ||
+		validateBinding > formalBuild || validateObserver > formalBuild || freezeConfig > formalBuild ||
+		exportExpectedBinding > formalBuild || formalBuild > formalVerify || formalVerify > marker || marker > composeBuild {
+		t.Fatal("private config/binding/observer identity and formal image are not frozen and validated before marker/Compose")
 	}
 	startFresh := strings.Index(script, `evaluation/final-v5-wsl2/scripts/start-fresh-deployment.sh`)
 	bootstrapBefore := strings.Index(script, `"$TASKGATE_FINAL_V5_OBSERVER" --phase before`)
@@ -148,6 +152,116 @@ func TestPublicationPrivateInputsAndObserverFailClosedBeforeMeasurement(t *testi
 		!strings.Contains(powerShell, `deployment binding bytes differ`) ||
 		!strings.Contains(powerShell, `"$(stat -c %a "$binding")" == 600`) {
 		t.Fatal("PowerShell controller does not verify all three byte-identical 0600 bindings before deployment-01")
+	}
+}
+
+func TestPublicationCampaignUsesOnlyVerifiedFormalGatewayImage(t *testing.T) {
+	readScript := func(name string) string {
+		t.Helper()
+		value, err := os.ReadFile(filepath.Join("..", "..", "final-v5-wsl2", "scripts", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(value)
+	}
+	runner := readScript("run-deployment.sh")
+	fresh := readScript("start-fresh-deployment.sh")
+
+	for _, required := range []string{
+		`-manifest-out "$formal_gateway_build_manifest"`,
+		`-compose-override-out "$formal_gateway_compose_override"`,
+		`-dataset-binding "$TASKGATE_DATASET_BINDINGS"`,
+		`-profile-registry "$TASKGATE_FINAL_V5_PROFILE_REGISTRY"`,
+		`export TASKGATE_FINAL_V5_DATASET_BINDING_SHA256="$binding_file_sha"`,
+		`export TASKGATE_FINAL_V5_PROFILE_REGISTRY="$profile_registry"`,
+		`export TASKGATE_FINAL_V5_PROFILE_REGISTRY_SHA256="$profile_registry_sha"`,
+		`.dataset_binding_sha256 == $dataset and .profile_registry_sha256 == $registry`,
+		`.value.build != null and .key != "gateway"`,
+		`"${compose_build[@]}" build "${ordinary_build_services[@]}"`,
+		`source evaluation/final-v5-wsl2/scripts/formal-campaign-compose.sh`,
+		`taskgate_formal_campaign_compose compose_build "$COMPOSE_PROJECT_NAME"`,
+	} {
+		if !strings.Contains(runner, required) {
+			t.Fatalf("campaign runner omits formal image/binding wiring %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		`docker build`,
+		`image: "${formal_gateway_tag}"`,
+	} {
+		if strings.Contains(runner, forbidden) {
+			t.Fatalf("campaign runner retains an ordinary or duplicated Gateway build path %q", forbidden)
+		}
+	}
+	for _, line := range strings.Split(runner, "\n") {
+		if strings.TrimSpace(line) == `"${compose_build[@]}" build` {
+			t.Fatal("campaign runner retains the broad ordinary Compose build fallback")
+		}
+	}
+
+	verify := strings.Index(fresh, `go run ./evaluation/cmd/final-v5-gateway-build verify-build`)
+	down := strings.Index(fresh, `"${compose[@]}" down --volumes --remove-orphans`)
+	up := strings.Index(fresh, `"${compose[@]}" up --no-build --detach --wait`)
+	runtimeImage := strings.Index(fresh, `running_gateway_image_id="$(docker container inspect --format '{{.Image}}' "$gateway_container_id")"`)
+	if verify < 0 || down < 0 || up < 0 || runtimeImage < 0 || verify > down || down > up || up > runtimeImage {
+		t.Fatal("fresh deployment does not fail closed before mutation and bind the running Gateway image after startup")
+	}
+	for _, required := range []string{
+		`.services.gateway.image == $image and .services.gateway.pull_policy == "never"`,
+		`[[ "$running_gateway_image_id" == "$formal_gateway_image_id" ]]`,
+		`.dataset_binding_sha256 == $dataset and .profile_registry_sha256 == $registry`,
+		`source evaluation/final-v5-wsl2/scripts/formal-campaign-compose.sh`,
+		`taskgate_formal_campaign_compose compose "$COMPOSE_PROJECT_NAME"`,
+	} {
+		if !strings.Contains(fresh, required) {
+			t.Fatalf("fresh deployment omits formal runtime guard %q", required)
+		}
+	}
+	helper := readScript("formal-campaign-compose.sh")
+	imageOverride := strings.Index(helper, `output+=(--file "$image_override")`)
+	observerOverride := strings.Index(helper, `output+=(--file "${source_files[$observer_index]}")`)
+	if imageOverride < 0 || observerOverride < 0 || imageOverride > observerOverride {
+		t.Fatal("shared formal Compose glue does not insert the image override before observer-v3")
+	}
+	for _, exactSource := range []string{
+		"compose.yaml", "compose.debug.yaml", "compose.real-pilot.yaml", "compose.provsql.yaml", "compose.observer-v3.yaml",
+	} {
+		if !strings.Contains(helper, exactSource) {
+			t.Fatalf("shared formal Compose glue omits frozen source %q", exactSource)
+		}
+	}
+}
+
+func TestFormalCampaignWiringLiveTestCleansOnlyItsOwnedContainer(t *testing.T) {
+	value, err := os.ReadFile(filepath.Join("..", "..", "final-v5-wsl2", "scripts",
+		"test-formal-campaign-image-wiring-live.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(value)
+	preflight := strings.Index(script, `bash evaluation/final-v5-wsl2/scripts/compose-host-preflight.sh`)
+	workspace := strings.Index(script, `workspace="$(mktemp -d /tmp/taskgate-p41-formal-wiring.XXXXXXXX)"`)
+	build := strings.Index(script, `"${gateway_build[@]}" build`)
+	if preflight < 0 || workspace < 0 || build < 0 || preflight > workspace || workspace > build {
+		t.Fatal("live wiring test creates state or builds before its read-only host preflight")
+	}
+	for _, required := range []string{
+		`project_nonce=`,
+		`existing_container_ids=`,
+		`created_container_id=""`,
+		`cleanup_project=`,
+		`cleanup_service=`,
+		`[[ "$cleanup_project" == "$project" && "$cleanup_service" == gateway ]]`,
+		`docker container rm --force --volumes "$created_container_id"`,
+		`[[ "$container_project" == "$project" && "$container_service" == gateway ]]`,
+		`taskgate_formal_campaign_compose compose "$project" "$override"`,
+	} {
+		if !strings.Contains(script, required) {
+			t.Fatalf("live wiring cleanup omits ownership guard %q", required)
+		}
+	}
+	if strings.Contains(script, `docker container rm --force --volumes "$container_name"`) {
+		t.Fatal("live wiring cleanup deletes by a predictable name instead of an owned exact container ID")
 	}
 }
 

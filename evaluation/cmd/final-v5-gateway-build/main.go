@@ -7,7 +7,11 @@
 //
 //	build                 materialize a tracked-file-only context from the
 //	                      published HEAD, build Dockerfile.formal from it, and
-//	                      verify the labels on the result
+//	                      verify the labels on the result; publication callers
+//	                      may also create an immutable deployment manifest and
+//	                      image-only Compose override
+//	verify-build          revalidate that manifest, override, source, optional
+//	                      deployment bindings, and local image before startup
 //	verify                inspect a running Gateway container through Docker
 //	                      Engine and emit its typed runtime identity
 //	record-base-images    resolve the base image tags once and write the digest
@@ -22,6 +26,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"taskbound.local/agent-data-gateway/evaluation/internal/experiment"
@@ -43,11 +48,13 @@ func main() {
 
 func run(args []string, getenv func(string) string, stdout *os.File) error {
 	if len(args) < 2 {
-		return errors.New("usage: final-v5-gateway-build build|verify|record-base-images [flags]")
+		return errors.New("usage: final-v5-gateway-build build|verify-build|verify|record-base-images [flags]")
 	}
 	switch args[1] {
 	case "build":
 		return runBuild(args[2:], getenv, stdout)
+	case "verify-build":
+		return runVerifyBuild(args[2:], getenv, stdout)
 	case "verify":
 		return runVerify(args[2:], getenv, stdout)
 	case "record-base-images":
@@ -61,8 +68,30 @@ func runBuild(args []string, getenv func(string) string, stdout *os.File) error 
 	flags := flag.NewFlagSet("build", flag.ContinueOnError)
 	root := flags.String("root", ".", "repository root to build the formal context from")
 	tag := flags.String("tag", defaultTag, "local tag to give the built image")
+	manifestOut := flags.String("manifest-out", "", "create the machine-readable build manifest here")
+	composeOverrideOut := flags.String("compose-override-out", "", "create the immutable-ID Compose override here")
+	datasetBinding := flags.String("dataset-binding", "", "optional validated deployment Dataset Binding file")
+	profileRegistry := flags.String("profile-registry", "", "optional source-controlled profile registry file")
 	if err := flags.Parse(args); err != nil {
 		return err
+	}
+	if (*manifestOut == "") != (*composeOverrideOut == "") {
+		return errors.New("build needs both -manifest-out and -compose-override-out, or neither")
+	}
+	if *manifestOut == "" && (*datasetBinding != "" || *profileRegistry != "") {
+		return errors.New("deployment bindings require -manifest-out and -compose-override-out")
+	}
+	bindingsBefore, err := loadBuildBindings(*datasetBinding, *profileRegistry)
+	if err != nil {
+		return err
+	}
+	if *manifestOut != "" {
+		if err := requireAbsentOutput(*manifestOut, "formal Gateway build manifest"); err != nil {
+			return err
+		}
+		if err := requireAbsentOutput(*composeOverrideOut, "formal Gateway Compose override"); err != nil {
+			return err
+		}
 	}
 
 	// Materialized before anything else: a dirty tree or an unpublished commit
@@ -102,9 +131,81 @@ func runBuild(args []string, getenv func(string) string, stdout *os.File) error 
 	if err != nil {
 		return err
 	}
+	if *manifestOut != "" {
+		bindingsAfter, err := loadBuildBindings(*datasetBinding, *profileRegistry)
+		if err != nil {
+			return err
+		}
+		if bindingsAfter != bindingsBefore {
+			return errors.New("deployment binding inputs changed during the formal Gateway build")
+		}
+		manifest, err := formalbuild.NewBuildManifest(materialized, image, *tag, bindingsAfter)
+		if err != nil {
+			return err
+		}
+		if err := formalbuild.WriteBuildDeployment(*manifestOut, *composeOverrideOut, manifest); err != nil {
+			return err
+		}
+		manifestSHA, err := formalbuild.ArtifactSHA256(*manifestOut, "formal Gateway build manifest")
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "  build manifest %s (%s)\n", *manifestOut, manifestSHA)
+		fmt.Fprintf(stdout, "  compose image  %s\n", image.ID)
+	}
 	fmt.Fprintf(stdout, "  image         %s (%s)\n", image.ID, image.Platform())
 	fmt.Fprintf(stdout, "  tag           %s\n", *tag)
 	fmt.Fprintf(stdout, "formal Gateway build: pass\n")
+	return nil
+}
+
+func runVerifyBuild(args []string, getenv func(string) string, stdout *os.File) error {
+	flags := flag.NewFlagSet("verify-build", flag.ContinueOnError)
+	root := flags.String("root", ".", "repository root the image must have been built from")
+	manifestPath := flags.String("manifest", "", "machine-readable formal build manifest")
+	composeOverride := flags.String("compose-override", "", "immutable-ID Compose override")
+	datasetBinding := flags.String("dataset-binding", "", "optional validated deployment Dataset Binding file")
+	profileRegistry := flags.String("profile-registry", "", "optional source-controlled profile registry file")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *manifestPath == "" || *composeOverride == "" {
+		return errors.New("verify-build needs -manifest and -compose-override")
+	}
+	bindings, err := loadBuildBindings(*datasetBinding, *profileRegistry)
+	if err != nil {
+		return err
+	}
+	materialized, err := formalbuild.MaterializeHead(*root)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), verifyTimeout)
+	defer cancel()
+	engine, err := dialEngine(ctx, getenv)
+	if err != nil {
+		return err
+	}
+	manifest, err := formalbuild.VerifyBuildDeployment(ctx, engine, *manifestPath, *composeOverride,
+		formalbuild.FromContext(materialized), bindings)
+	if err != nil {
+		return err
+	}
+	manifestSHA, err := formalbuild.ArtifactSHA256(*manifestPath, "formal Gateway build manifest")
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "formal Gateway build deployment: pass\n")
+	fmt.Fprintf(stdout, "  image          %s\n", manifest.ImageID)
+	fmt.Fprintf(stdout, "  build manifest %s\n", manifestSHA)
+	fmt.Fprintf(stdout, "  context        %s\n", manifest.BuildContextSHA256)
+	fmt.Fprintf(stdout, "  source manifest %s\n", manifest.SourceManifestSHA256)
+	if manifest.DatasetBindingSHA256 != "" {
+		fmt.Fprintf(stdout, "  Dataset binding %s\n", manifest.DatasetBindingSHA256)
+	}
+	if manifest.ProfileRegistrySHA256 != "" {
+		fmt.Fprintf(stdout, "  profile registry %s\n", manifest.ProfileRegistrySHA256)
+	}
 	return nil
 }
 
@@ -245,4 +346,39 @@ func dialEngine(ctx context.Context, getenv func(string) string) (*formalbuild.H
 		return nil, err
 	}
 	return formalbuild.NewHTTPEngine(ctx, socket)
+}
+
+func loadBuildBindings(datasetBinding, profileRegistry string) (formalbuild.BuildBindings, error) {
+	datasetSHA, err := formalbuild.RegularFileSHA256(datasetBinding, "Dataset Binding")
+	if err != nil {
+		return formalbuild.BuildBindings{}, err
+	}
+	registrySHA, err := formalbuild.RegularFileSHA256(profileRegistry, "profile registry")
+	if err != nil {
+		return formalbuild.BuildBindings{}, err
+	}
+	return formalbuild.BuildBindings{
+		DatasetBindingSHA256:  datasetSHA,
+		ProfileRegistrySHA256: registrySHA,
+	}, nil
+}
+
+func requireAbsentOutput(path, label string) error {
+	if strings.TrimSpace(path) == "" {
+		return fmt.Errorf("%s path is empty", label)
+	}
+	if _, err := os.Lstat(path); err == nil {
+		return fmt.Errorf("%s already exists: %s", label, path)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("inspect %s output: %w", label, err)
+	}
+	parent := filepath.Dir(path)
+	info, err := os.Stat(parent)
+	if err != nil {
+		return fmt.Errorf("%s parent directory: %w", label, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s parent is not a directory", label)
+	}
+	return nil
 }
