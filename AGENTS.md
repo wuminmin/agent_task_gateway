@@ -38,7 +38,10 @@ gofmt -l $(git ls-files '*.go'); go build ./...; go vet ./...; go test -count=1 
 
 不接 DSN 时 DB 测试**静默 skip**，而 skip 不算 pass。不得安装宿主机 PostgreSQL：
 digest-pinned 的 PostgreSQL 16.14 容器对就是整套记账被认证against的那个环境。
-论文只能容器内构建（宿主缺 `texlive-publishers`）。
+论文构建走容器（`make paper-tkde`）：论文字节必须与 evidence 出自同一受控构建环境，
+**不要绕过它在宿主直接编译**。宿主已装用户级 TeX Live 2026，`kpsewhich` 能找到
+`IEEEtran.cls` 与 `IEEEtran.bst`，缺的只是 Debian 包 `texlive-publishers`——
+所以"宿主编译不了"已不是理由，理由是构建环境一致性。
 
 **跑活体（canary / N4 / campaign）之前必须先 `./scripts/db-test-env.sh down`**：
 带库测试环境与活体部署争同一批宿主端口，残留会让 phase 1 直接起不来。
