@@ -14,13 +14,14 @@ import (
 	"strings"
 
 	"taskbound.local/agent-data-gateway/evaluation/finalv5contracts"
+	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5dataset"
 	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5profile"
 	"taskbound.local/agent-data-gateway/internal/approval"
 )
 
 // ArtifactTargetedDeploymentBindingVersion identifies the credential-free
 // binding used only by the non-publication Artifact targeted runner.
-const ArtifactTargetedDeploymentBindingVersion = "taskgate-final-v5-artifact-targeted-deployment-binding-v1"
+const ArtifactTargetedDeploymentBindingVersion = "taskgate-final-v5-artifact-targeted-deployment-binding-v2"
 
 var frozenArtifactTargetedScales = [...]string{
 	"100x4", "10k-x4", "100k-x4", "100x16", "10k-x16", "100k-x16",
@@ -88,6 +89,7 @@ type ArtifactTargetedDeploymentBinding struct {
 	Profile                        ArtifactTargetedProfileBinding `json:"profile"`
 	ArtifactCells                  []ArtifactTargetedCellBinding  `json:"artifact_cells"`
 	SelectedScales                 []string                       `json:"selected_scales"`
+	DatasetSHA256                  string                         `json:"dataset_sha256"`
 	DatasetProbeSQLSHA256          string                         `json:"dataset_probe_sql_sha256"`
 	DatasetProbeSHA256             string                         `json:"dataset_probe_sha256"`
 	AttestationQualificationSHA256 string                         `json:"attestation_qualification_sha256"`
@@ -97,28 +99,33 @@ type ArtifactTargetedDeploymentBinding struct {
 // ArtifactTargetedBindingValidation is the non-sensitive report printed after
 // the create-exclusive output has been re-opened and validated.
 type ArtifactTargetedBindingValidation struct {
-	SchemaVersion      int    `json:"schema_version"`
-	Status             string `json:"status"`
-	ArtifactCells      int    `json:"artifact_cells"`
-	SelectedCells      int    `json:"selected_cells"`
-	DatasetProbeSHA256 string `json:"dataset_probe_sha256"`
-	BindingFileSHA256  string `json:"binding_file_sha256"`
+	SchemaVersion         int    `json:"schema_version"`
+	Status                string `json:"status"`
+	ArtifactCells         int    `json:"artifact_cells"`
+	SelectedCells         int    `json:"selected_cells"`
+	DatasetSHA256         string `json:"dataset_sha256"`
+	DatasetProbeSQLSHA256 string `json:"dataset_probe_sql_sha256"`
+	DatasetProbeSHA256    string `json:"dataset_probe_sha256"`
+	BindingFileSHA256     string `json:"binding_file_sha256"`
 }
 
 type artifactTargetedBindingDependencies struct {
 	loadRuntime func() (*finalv5contracts.Runtime, error)
+	dataset     func(context.Context, string) (finalv5dataset.BenchmarkAgreement, error)
 	probe       func(context.Context, *finalv5contracts.Runtime, string) (string, error)
 }
 
 var productionArtifactTargetedBindingDependencies = artifactTargetedBindingDependencies{
 	loadRuntime: finalv5contracts.LoadRuntime,
+	dataset:     finalv5dataset.VerifyBenchmarkPostgreSQL,
 	// The targeted record and RuntimeFinalizerV3 must identify one deployment
 	// through the same independently acquired probe derivation.
 	probe: datasetProbeDigestV3,
 }
 
 // BuildArtifactTargetedDeploymentBinding loads and revalidates every source,
-// then executes exactly one pre-measurement dataset probe.
+// then executes one full five-Product Dataset verification and one independent
+// scalar probe before measurement.
 func BuildArtifactTargetedDeploymentBinding(ctx context.Context,
 	input ArtifactTargetedBindingInput) (ArtifactTargetedDeploymentBinding, error) {
 	return buildArtifactTargetedDeploymentBinding(ctx, input, productionArtifactTargetedBindingDependencies)
@@ -130,7 +137,7 @@ func buildArtifactTargetedDeploymentBinding(ctx context.Context, input ArtifactT
 	if ctx == nil {
 		return result, errors.New("Artifact targeted binding requires a context")
 	}
-	if dependencies.loadRuntime == nil || dependencies.probe == nil {
+	if dependencies.loadRuntime == nil || dependencies.dataset == nil || dependencies.probe == nil {
 		return result, errors.New("Artifact targeted binding dependencies are incomplete")
 	}
 	if !validArtifactTargetedCommit(strings.TrimSpace(input.SubmissionCommit)) {
@@ -206,11 +213,25 @@ func buildArtifactTargetedDeploymentBinding(ctx context.Context, input ArtifactT
 		return result, fmt.Errorf("validate the retained qualification and PostgreSQL identity pair: %w", err)
 	}
 
-	probeSQL, err := runtime.DatasetProbeSQL()
+	probeSQLSHA, err := runtime.DatasetProbeSourceSHA256()
 	if err != nil {
-		return result, fmt.Errorf("load the Contract Index dataset probe: %w", err)
+		return result, fmt.Errorf("load the Contract Index dataset probe identity: %w", err)
 	}
-	probeSQLSHA := sha256String(probeSQL)
+	referenceDatasetSHA, err := runtime.DatasetIdentitySHA256()
+	if err != nil {
+		return result, fmt.Errorf("derive the reviewed typed benchmark Dataset identity: %w", err)
+	}
+	datasetAgreement, err := dependencies.dataset(ctx, input.BusinessDSN)
+	if err != nil {
+		return result, fmt.Errorf("verify the full live typed benchmark Dataset: %w", err)
+	}
+	if err := finalv5dataset.ValidateBenchmarkAgreement(datasetAgreement); err != nil {
+		return result, fmt.Errorf("validate the full live typed benchmark Dataset agreement: %w", err)
+	}
+	if datasetAgreement.Reference.SHA256 != referenceDatasetSHA {
+		return result, errors.New("live Dataset verifier used a different reviewed benchmark formula")
+	}
+	datasetSHA := datasetAgreement.Observed.SHA256
 	probeResultSHA, err := dependencies.probe(ctx, runtime, input.BusinessDSN)
 	if err != nil {
 		return result, err
@@ -219,12 +240,12 @@ func buildArtifactTargetedDeploymentBinding(ctx context.Context, input ArtifactT
 		return result, errors.New("live dataset probe produced no lowercase SHA-256 identity")
 	}
 
-	cells, err := artifactTargetedCells(runtime, input.CatalogPath, catalogSHA, probeResultSHA)
+	cells, err := artifactTargetedCells(runtime, input.CatalogPath, catalogSHA, datasetSHA, probeResultSHA)
 	if err != nil {
 		return result, err
 	}
 	result = ArtifactTargetedDeploymentBinding{
-		SchemaVersion:         1,
+		SchemaVersion:         2,
 		Record:                ArtifactTargetedDeploymentBindingVersion,
 		SubmissionCommit:      strings.TrimSpace(input.SubmissionCommit),
 		ContractRelease:       runtime.ContractRelease(),
@@ -238,7 +259,7 @@ func buildArtifactTargetedDeploymentBinding(ctx context.Context, input ArtifactT
 			ActivationSmokePassed: profile.ActivationSmokePassed,
 			TargetedRunEligible:   profile.TargetedRunEligible,
 		},
-		ArtifactCells: cells, SelectedScales: selected,
+		ArtifactCells: cells, SelectedScales: selected, DatasetSHA256: datasetSHA,
 		DatasetProbeSQLSHA256: probeSQLSHA, DatasetProbeSHA256: probeResultSHA,
 		AttestationQualificationSHA256: qualificationSHA,
 		PostgreSQLIdentitySHA256:       identitySHA,
@@ -328,7 +349,7 @@ func requireArtifactTargetedQualificationBinding(payload []byte, profile Targete
 }
 
 func artifactTargetedCells(runtime *finalv5contracts.Runtime, catalogPath, catalogSHA,
-	probeSHA string) ([]ArtifactTargetedCellBinding, error) {
+	datasetSHA, probeSHA string) ([]ArtifactTargetedCellBinding, error) {
 	all, err := runtime.ArtifactCells()
 	if err != nil {
 		return nil, fmt.Errorf("read the frozen Artifact matrix: %w", err)
@@ -348,7 +369,8 @@ func artifactTargetedCells(runtime *finalv5contracts.Runtime, catalogPath, catal
 
 	result := make([]ArtifactTargetedCellBinding, 0, len(frozenArtifactTargetedScales))
 	live := finalv5contracts.LiveDeployment{
-		CatalogPath: catalogPath, CatalogSHA256: catalogSHA, DatasetProbeSHA256: probeSHA,
+		CatalogPath: catalogPath, CatalogSHA256: catalogSHA,
+		DatasetSHA256: datasetSHA, DatasetProbeSHA256: probeSHA,
 	}
 	for _, scale := range frozenArtifactTargetedScales {
 		cell, err := runtime.ArtifactCell(scale, "novel")
@@ -384,6 +406,7 @@ func artifactTargetedCells(runtime *finalv5contracts.Runtime, catalogPath, catal
 		if len(cell.ProductIDs) != 1 || len(cell.PublicationIDs) != 1 ||
 			bound.ProductID != cell.ProductIDs[0] || bound.PublicationID != cell.PublicationIDs[0] ||
 			bound.IndexSHA256 != runtime.IndexSHA256() || bound.CatalogSHA256 != catalogSHA ||
+			bound.DatasetSHA256 != datasetSHA ||
 			bound.DatasetProbeSHA256 != probeSHA {
 			return nil, fmt.Errorf("Artifact cell %s live Catalog binding disagrees", cell.Identity)
 		}
@@ -433,7 +456,7 @@ func normalizeArtifactTargetedScales(scales []string) ([]string, error) {
 
 // Validate rejects a partial, reordered, overclaiming or malformed record.
 func (binding ArtifactTargetedDeploymentBinding) Validate() error {
-	if binding.SchemaVersion != 1 || binding.Record != ArtifactTargetedDeploymentBindingVersion {
+	if binding.SchemaVersion != 2 || binding.Record != ArtifactTargetedDeploymentBindingVersion {
 		return errors.New("Artifact targeted deployment binding header is invalid")
 	}
 	if !validArtifactTargetedCommit(binding.SubmissionCommit) || strings.TrimSpace(binding.ContractRelease) == "" {
@@ -445,6 +468,7 @@ func (binding ArtifactTargetedDeploymentBinding) Validate() error {
 		"closure_sha256":                   binding.Profile.ClosureSHA256,
 		"catalog_sha256":                   binding.Profile.CatalogSHA256,
 		"publication_identity":             binding.Profile.PublicationIdentity,
+		"dataset_sha256":                   binding.DatasetSHA256,
 		"dataset_probe_sql_sha256":         binding.DatasetProbeSQLSHA256,
 		"dataset_probe_sha256":             binding.DatasetProbeSHA256,
 		"attestation_qualification_sha256": binding.AttestationQualificationSHA256,
@@ -639,9 +663,11 @@ func ValidateArtifactTargetedDeploymentBindingFile(path string,
 		return report, errors.New("Artifact targeted deployment binding bytes differ from the validated sources")
 	}
 	return ArtifactTargetedBindingValidation{
-		SchemaVersion: 1, Status: "valid", ArtifactCells: len(decoded.ArtifactCells),
-		SelectedCells: len(decoded.SelectedScales), DatasetProbeSHA256: decoded.DatasetProbeSHA256,
-		BindingFileSHA256: sha256Hex(payload),
+		SchemaVersion: 2, Status: "valid", ArtifactCells: len(decoded.ArtifactCells),
+		SelectedCells: len(decoded.SelectedScales), DatasetSHA256: decoded.DatasetSHA256,
+		DatasetProbeSQLSHA256: decoded.DatasetProbeSQLSHA256,
+		DatasetProbeSHA256:    decoded.DatasetProbeSHA256,
+		BindingFileSHA256:     sha256Hex(payload),
 	}, nil
 }
 

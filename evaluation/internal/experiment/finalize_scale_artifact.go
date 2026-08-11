@@ -16,23 +16,38 @@ import (
 )
 
 const (
-	scaleEvidenceVersion    = "taskgate-final-v5-scale-verification-v1"
-	artifactEvidenceVersion = "taskgate-final-v5-artifact-verification-v1"
-	outcomeProductionPath   = "control.differenceAndUnionV5Tx+persistV5SetObjectsTx"
-	kernelProductionPath    = "ordinal.BitmapSet.Difference+Union+PortableContainers"
+	scaleEvidenceVersion             = "taskgate-final-v5-scale-verification-v1"
+	scaleDependencyEvidenceVersionV2 = "taskgate-final-v5-scale-verification-v2"
+	artifactEvidenceVersionV1        = "taskgate-final-v5-artifact-verification-v1"
+	artifactEvidenceVersionV2        = "taskgate-final-v5-artifact-verification-v2"
+	outcomeProductionPath            = "control.differenceAndUnionV5Tx+persistV5SetObjectsTx"
+	kernelProductionPath             = "ordinal.BitmapSet.Difference+Union+PortableContainers"
 )
 
 func validateScaleVerification(sample Sample) error {
 	evidence := sample.ScaleVerification
-	if evidence == nil || evidence.Version != scaleEvidenceVersion {
-		return errors.New("scale verification evidence is absent or versioned incorrectly")
+	if evidence == nil {
+		return errors.New("scale verification evidence is absent")
 	}
 	switch sample.WorkloadID {
 	case "dependency-e2e":
-		return validateDependencyScaleVerification(sample, evidence)
+		switch {
+		case sample.SchemaVersion == SampleSchemaVersion && evidence.Version == scaleEvidenceVersion:
+			return validateDependencyScaleVerificationV1(sample, evidence)
+		case sample.SchemaVersion == FinalizedSampleSchemaVersion && evidence.Version == scaleDependencyEvidenceVersionV2:
+			return validateDependencyScaleVerificationV2(sample, evidence)
+		default:
+			return errors.New("dependency scale sample/evidence versions are incompatible")
+		}
 	case "outcome-merkle":
+		if sample.SchemaVersion != SampleSchemaVersion || evidence.Version != scaleEvidenceVersion {
+			return errors.New("Outcome-Merkle sample/evidence versions are incompatible")
+		}
 		return validateOutcomeMerkleVerification(sample, evidence)
 	case "taskgate_scale_extreme":
+		if sample.SchemaVersion != SampleSchemaVersion || evidence.Version != scaleEvidenceVersion {
+			return errors.New("kernel/storage sample/evidence versions are incompatible")
+		}
 		return validateKernelStorageVerification(sample, evidence)
 	default:
 		return errors.New("scale workload is not frozen")
@@ -48,7 +63,11 @@ func ValidateScaleEvidence(sample Sample) error {
 	return validateScaleVerification(sample)
 }
 
-func validateDependencyScaleVerification(sample Sample, evidence *ScaleVerificationEvidence) error {
+// validateDependencyScaleVerificationV1 permanently retains the historical
+// sample-v1 interpretation. Its history represented only the overlap (and was
+// absent at zero overlap), and it conflated Dataset identity with the SQL
+// sanity-probe result. New runtime output must never enter this branch.
+func validateDependencyScaleVerificationV1(sample Sample, evidence *ScaleVerificationEvidence) error {
 	spec, err := ParseDependencyScale(sample.Scale)
 	if err != nil || evidence.Boundary != "dependency_e2e" || sample.KernelOnly || sample.System != "taskgate" ||
 		(sample.Mode != "novel" && sample.Mode != "semantic_replay") {
@@ -147,6 +166,126 @@ func validateDependencyScaleVerification(sample Sample, evidence *ScaleVerificat
 		evidence.BusinessAfter.CompanionCalls - evidence.BusinessBefore.CompanionCalls
 	if observedBusiness != sample.BusinessSQLDelta {
 		return errors.New("dependency Business SQL delta differs from independent counters")
+	}
+	return nil
+}
+
+// validateDependencyScaleVerificationV2 is the sample-v3 Decision-18 model:
+// history is the complete existing set N in every cell, the measured candidate
+// is N, and RootAfter is the independently bound union 2N-5K. The Dataset
+// identity and live SQL sanity probe are separate domains.
+func validateDependencyScaleVerificationV2(sample Sample, evidence *ScaleVerificationEvidence) error {
+	spec, err := ParseDependencyScale(sample.Scale)
+	if err != nil || evidence.Boundary != "dependency_e2e" || sample.KernelOnly || sample.System != "taskgate" ||
+		(sample.Mode != "novel" && sample.Mode != "semantic_replay") {
+		return errors.New("dependency E2E identity or boundary is invalid")
+	}
+	for _, digest := range []string{evidence.BindingFileSHA256, evidence.BindingSHA256,
+		evidence.DatasetSHA256, evidence.CatalogSHA256, evidence.DatasetProbeSHA256,
+		evidence.QuerySHA256, evidence.ExpectedResultSHA256, evidence.ExistingDependencySHA256,
+		evidence.CandidateDependencySHA256, evidence.UnionDependencySHA256} {
+		if !validSHA256(digest) {
+			return errors.New("dependency E2E binding contains an invalid digest")
+		}
+	}
+	if evidence.HistoryDependencySHA256 != "" ||
+		evidence.ExpectedCandidateFacts != spec.CandidateFacts ||
+		evidence.ExpectedExistingFacts != spec.ExistingFacts ||
+		evidence.ExpectedOverlapFacts != spec.OverlapFacts ||
+		evidence.ExpectedUnionFacts != spec.UnionFacts ||
+		evidence.ObservedCandidateFacts != sample.ActualDependencyFacts ||
+		evidence.ObservedOverlapFacts != spec.OverlapFacts ||
+		evidence.ExpectedRows != sample.RowCount || evidence.ExpectedColumns != sample.ColumnCount ||
+		evidence.ExpectedResultSHA256 != sample.ResultSHA256 ||
+		evidence.CandidateDependencySHA256 != sample.DependencySetSHA256 {
+		return errors.New("dependency E2E label/result/oracle binding differs from the observed sample")
+	}
+	if err := validateDependencyScaleAccountingV3(sample, evidence, spec); err != nil {
+		return err
+	}
+	if err := validateBaselineVerification(sample); err != nil {
+		return err
+	}
+	if err := validateRedactedVerifierManifest(sample); err != nil {
+		return err
+	}
+	if sample.BaselineVerification.Receipt.CatalogDigest != evidence.CatalogSHA256 {
+		return errors.New("signed Catalog digest differs from the deployment binding")
+	}
+	if err := validateScaleObservationV3(sample, evidence); err != nil {
+		return err
+	}
+	if sample.Mode == "novel" {
+		if err := validateBusinessSQLTransition(evidence.BusinessBefore, evidence.BusinessAfter, 1, 1); err != nil {
+			return err
+		}
+	} else {
+		if err := validateBusinessSQLTransition(evidence.BusinessBefore, evidence.BusinessAfter, 0, 0); err != nil {
+			return err
+		}
+		receipt := sample.BaselineVerification.Receipt
+		if receipt.Exposure == nil || !validSHA256(evidence.SourceObservationSHA256) ||
+			evidence.SourceObservationSHA256 != evidence.ReplayObservationSHA256 ||
+			evidence.ReplayObservationSHA256 != receipt.Exposure.ObservationSHA256 {
+			return errors.New("semantic replay observation is not bound to its novel source")
+		}
+	}
+	observedBusiness := evidence.BusinessAfter.VisibleCalls - evidence.BusinessBefore.VisibleCalls +
+		evidence.BusinessAfter.CompanionCalls - evidence.BusinessBefore.CompanionCalls
+	if observedBusiness != sample.BusinessSQLDelta {
+		return errors.New("dependency Business SQL delta differs from independent counters")
+	}
+	return nil
+}
+
+// validateDependencyScaleAccountingV3 is the one production-used transition
+// rule exercised by the permanent twelve-cell Decision-18 table test. It keeps
+// current-query facts separate from the cumulative task root: the sample binds
+// the candidate, while the root snapshots bind existing and union.
+func validateDependencyScaleAccountingV3(sample Sample, evidence *ScaleVerificationEvidence,
+	spec DependencyScaleSpec) error {
+	if sample.ActualDependencyFacts != spec.CandidateFacts ||
+		evidence.ExpectedCandidateFacts != spec.CandidateFacts ||
+		evidence.ExpectedExistingFacts != spec.ExistingFacts ||
+		evidence.ExpectedOverlapFacts != spec.OverlapFacts ||
+		evidence.ExpectedUnionFacts != spec.UnionFacts {
+		return errors.New("dependency scale cardinality labels differ from Decision 18")
+	}
+	if err := validateRootLedgerSnapshot(evidence.RootBefore); err != nil {
+		return err
+	}
+	if err := validateRootLedgerSnapshot(evidence.RootAfter); err != nil {
+		return err
+	}
+	if sample.RootEpochBefore != evidence.RootBefore.Epoch || sample.RootEpochAfter != evidence.RootAfter.Epoch ||
+		sample.RootSetSHA256Before != rootLedgerSetSHA256(evidence.RootBefore) ||
+		sample.RootSetSHA256After != rootLedgerSetSHA256(evidence.RootAfter) {
+		return errors.New("dependency root transition differs from its independent snapshots")
+	}
+	if sample.Mode == "novel" {
+		if evidence.RootBefore.DependencyCardinality != spec.ExistingFacts ||
+			evidence.RootBefore.DependencySetSHA256 != evidence.ExistingDependencySHA256 {
+			return errors.New("novel dependency root does not begin at the complete existing set")
+		}
+		if evidence.RootAfter.DependencyCardinality != spec.UnionFacts ||
+			evidence.RootAfter.DependencySetSHA256 != evidence.UnionDependencySHA256 {
+			return errors.New("novel dependency root does not end at the independent union")
+		}
+		if sample.SemanticReplay || sample.IdempotentReplay ||
+			sample.ChargedDependencyFacts != spec.CandidateFacts-spec.OverlapFacts ||
+			sample.ActualDependencyFacts-sample.ChargedDependencyFacts != spec.OverlapFacts {
+			return errors.New("novel dependency charge does not equal candidate minus overlap")
+		}
+		return nil
+	}
+	if evidence.RootBefore.DependencyCardinality != spec.UnionFacts ||
+		evidence.RootBefore.DependencySetSHA256 != evidence.UnionDependencySHA256 ||
+		evidence.RootAfter != evidence.RootBefore {
+		return errors.New("semantic replay did not preserve the complete union root")
+	}
+	if !sample.SemanticReplay || sample.IdempotentReplay || sample.ChargedReleaseFacts != 0 ||
+		sample.ChargedDependencyFacts != 0 || sample.ChargedOutcomeFacts != 0 {
+		return errors.New("semantic replay charged or changed the complete root")
 	}
 	return nil
 }
@@ -404,7 +543,7 @@ func validateKernelStorageVerification(sample Sample, evidence *ScaleVerificatio
 func validateArtifactVerification(sample Sample) error {
 	evidence := sample.ArtifactVerification
 	spec, err := ParseArtifactScale(sample.Scale)
-	if err != nil || evidence == nil || evidence.Version != artifactEvidenceVersion || sample.WorkloadID != "result-heavy" ||
+	if err != nil || validateArtifactDatasetIdentity(sample, evidence) != nil || sample.WorkloadID != "result-heavy" ||
 		sample.Mode != "novel" || sample.System != "taskgate" || sample.KernelOnly {
 		return errors.New("artifact identity or verification version is invalid")
 	}
@@ -415,7 +554,7 @@ func validateArtifactVerification(sample Sample) error {
 			return errors.New("artifact binding contains an invalid digest")
 		}
 	}
-	if evidence.DatasetProbeSHA256 != evidence.DatasetSHA256 || evidence.ExpectedRows != spec.Rows ||
+	if evidence.ExpectedRows != spec.Rows ||
 		evidence.ExpectedColumns != spec.Columns || evidence.ObservedRows != sample.RowCount ||
 		evidence.ObservedColumns != sample.ColumnCount || evidence.ObservedResultSHA256 != sample.ResultSHA256 ||
 		evidence.ExpectedRows != sample.RowCount || evidence.ExpectedColumns != sample.ColumnCount ||
@@ -466,6 +605,30 @@ func validateArtifactVerification(sample Sample) error {
 	return nil
 }
 
+// validateArtifactDatasetIdentity is the wire-version seam for the Dataset
+// correction. sample-v1/evidence-v1 permanently retains the historical
+// dataset==probe assertion. sample-v3/evidence-v2 records the typed full-Dataset
+// identity and deployment SQL sanity probe independently; equality is neither
+// required nor evidence of agreement between those different domains.
+func validateArtifactDatasetIdentity(sample Sample, evidence *ArtifactVerificationEvidence) error {
+	if evidence == nil || !validSHA256(evidence.DatasetSHA256) || !validSHA256(evidence.DatasetProbeSHA256) {
+		return errors.New("artifact Dataset identity or deployment probe is invalid")
+	}
+	switch sample.SchemaVersion {
+	case SampleSchemaVersion:
+		if evidence.Version != artifactEvidenceVersionV1 || evidence.DatasetSHA256 != evidence.DatasetProbeSHA256 {
+			return errors.New("sample-v1 requires evidence-v1 with its historical dataset/probe identity")
+		}
+	case FinalizedSampleSchemaVersion:
+		if evidence.Version != artifactEvidenceVersionV2 {
+			return errors.New("sample-v3 requires artifact evidence-v2")
+		}
+	default:
+		return errors.New("artifact Dataset identity has no semantics for this sample version")
+	}
+	return nil
+}
+
 // ValidateArtifactEvidence is the adapter-side fail-closed gate. Keeping the
 // wrapper here prevents the production adapter and finalizer from drifting to
 // two different definitions of a passing result-heavy sample.
@@ -494,7 +657,44 @@ func ValidateArtifactEvidence(sample Sample) error {
 // and that record produce. A sample assembled from one run's receipt and another
 // run's window fails here.
 func validateArtifactObservationV3(sample Sample, evidence *ArtifactVerificationEvidence) error {
+	if sample.SchemaVersion == FinalizedSampleSchemaVersion && sample.TaskGateAcceptanceV3 != nil {
+		if err := requireArtifactContractIdentityV3(sample, evidence,
+			sample.TaskGateAcceptanceV3.Operation.ContractIdentity); err != nil {
+			return err
+		}
+	}
 	return validateAcceptedObservationV3(sample, evidence.ObserverWindow, PathPairedNovel, "artifact")
+}
+
+// requireArtifactContractIdentityV3 closes the public Bridge binding acquired
+// independently by the finalizer against the Adapter-retained evidence. This is
+// the Decision-19 replacement for the deleted private Artifact section: it
+// binds Dataset, probe, Catalog and result contract without reintroducing a
+// private dependency oracle.
+func requireArtifactContractIdentityV3(sample Sample, evidence *ArtifactVerificationEvidence,
+	contractIdentity string) error {
+	if evidence == nil || !validSHA256(evidence.BindingSHA256) {
+		return errors.New("Artifact evidence carries no public deployment binding identity")
+	}
+	parts := strings.Split(contractIdentity, ":")
+	if len(parts) != 7 || strings.TrimSpace(parts[0]) == "" || parts[0] != strings.TrimSpace(parts[0]) ||
+		!validSHA256(parts[1]) {
+		return errors.New("Artifact acceptance has no exact contract release/index identity")
+	}
+	bindingSHA256, bindingOK := strings.CutPrefix(parts[2], "binding=")
+	datasetSHA256, datasetOK := strings.CutPrefix(parts[3], "dataset=")
+	probeSHA256, probeOK := strings.CutPrefix(parts[4], "probe=")
+	catalogSHA256, catalogOK := strings.CutPrefix(parts[5], "catalog=")
+	expectedOperationID := sampleOperationIDV3(sample)
+	if !bindingOK || !validSHA256(bindingSHA256) || bindingSHA256 != evidence.BindingSHA256 ||
+		!datasetOK || !validSHA256(datasetSHA256) || datasetSHA256 != evidence.DatasetSHA256 ||
+		!probeOK || !validSHA256(probeSHA256) || probeSHA256 != evidence.DatasetProbeSHA256 ||
+		!catalogOK || !validSHA256(catalogSHA256) || catalogSHA256 != evidence.CatalogSHA256 ||
+		parts[6] != expectedOperationID {
+		return fmt.Errorf("Artifact acceptance does not bind sample %s and public deployment binding %s",
+			expectedOperationID, shortDigest(evidence.BindingSHA256))
+	}
+	return nil
 }
 
 // validateScaleObservationV3 closes the Scale dependency path over the same v3

@@ -21,7 +21,10 @@ import (
 	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 )
 
-const scaleVerificationVersion = "taskgate-final-v5-scale-verification-v1"
+const (
+	scaleVerificationVersion           = "taskgate-final-v5-scale-verification-v1"
+	scaleDependencyVerificationVersion = "taskgate-final-v5-scale-verification-v2"
+)
 
 type scaleAdapter struct {
 	real *realAdapter
@@ -154,15 +157,12 @@ func validateDependencyCellBinding(scale string, cell dependencyCellBinding) err
 		cell.Candidate.DependencyFacts != spec.CandidateFacts || !validDigest(cell.Candidate.DependencySetSHA256) {
 		return errors.New("candidate binding differs from frozen dependency scale")
 	}
-	if spec.OverlapFacts == 0 {
-		if cell.History != nil {
-			return errors.New("zero-overlap cell unexpectedly declares history")
-		}
-		return nil
-	}
-	if cell.History == nil || validateBoundQuery(*cell.History) != nil || cell.History.DependencyFacts != spec.OverlapFacts ||
+	if validateBoundQuery(cell.History) != nil || cell.History.DependencyFacts != spec.ExistingFacts ||
 		!validDigest(cell.History.DependencySetSHA256) {
-		return errors.New("history binding differs from frozen dependency overlap")
+		return errors.New("history binding differs from the complete frozen existing set")
+	}
+	if cell.Union.DependencyFacts != spec.UnionFacts || !validDigest(cell.Union.DependencySetSHA256) {
+		return errors.New("union binding differs from the frozen dependency set algebra")
 	}
 	return nil
 }
@@ -215,8 +215,8 @@ func (adapter *scaleAdapter) executeDependencyE2E(ctx context.Context, operation
 	// unroutable; OpenObserverWindowV3 rejects it here before prefill can mutate
 	// anything. Task provisioning is the sole allowed predecessor because the
 	// finalizer-issued ticket must bind a real task/request pair.
-	if operation.Mode == "novel" && cell.History != nil {
-		if err := adapter.prefillDependencyHistory(ctx, operation, state, cell.Task, *cell.History); err != nil {
+	if operation.Mode == "novel" {
+		if err := adapter.prefillDependencyHistory(ctx, operation, state, cell.Task, cell.History); err != nil {
 			return experiment.Sample{}, err
 		}
 	}
@@ -261,22 +261,22 @@ func (adapter *scaleAdapter) executeDependencyE2E(ctx context.Context, operation
 	if err != nil {
 		return partial, err
 	}
-	historyDigest := ""
-	if cell.History != nil {
-		historyDigest = cell.History.DependencySetSHA256
-	}
 	window := experiment.ObserverWindowV2{Before: observerBefore}
 	evidence := &experiment.ScaleVerificationEvidence{
-		Version: scaleVerificationVersion, Boundary: "dependency_e2e",
+		Version: scaleDependencyVerificationVersion, Boundary: "dependency_e2e",
 		BindingFileSHA256: binding.FileSHA256, BindingSHA256: binding.SectionSHA256,
 		DatasetSHA256: binding.DatasetSHA256,
 		CatalogSHA256: binding.CatalogSHA256, DatasetProbeSHA256: probeDigest,
 		QuerySHA256: sha(cell.Candidate.SQL), ExpectedRows: cell.Candidate.ExpectedRows,
 		ExpectedColumns: cell.Candidate.ExpectedColumns, ExpectedResultSHA256: cell.Candidate.ExpectedResultSHA256,
 		ExpectedCandidateFacts: spec.CandidateFacts, ObservedCandidateFacts: sample.ActualDependencyFacts,
-		ExpectedOverlapFacts: spec.OverlapFacts, ObservedOverlapFacts: spec.OverlapFacts,
-		HistoryDependencySHA256: historyDigest, CandidateDependencySHA256: cell.Candidate.DependencySetSHA256,
-		BusinessBefore: businessBefore, BusinessAfter: businessAfter, RootBefore: beforeRoot, RootAfter: afterRoot,
+		ExpectedExistingFacts: spec.ExistingFacts,
+		ExpectedOverlapFacts:  spec.OverlapFacts, ObservedOverlapFacts: spec.OverlapFacts,
+		ExpectedUnionFacts:        spec.UnionFacts,
+		ExistingDependencySHA256:  cell.History.DependencySetSHA256,
+		CandidateDependencySHA256: cell.Candidate.DependencySetSHA256,
+		UnionDependencySHA256:     cell.Union.DependencySetSHA256,
+		BusinessBefore:            businessBefore, BusinessAfter: businessAfter, RootBefore: beforeRoot, RootAfter: afterRoot,
 		ObserverWindow: &window,
 	}
 	if operation.Mode == "semantic_replay" {
@@ -324,6 +324,9 @@ func (adapter *scaleAdapter) executeDependencyE2E(ctx context.Context, operation
 		return sample, err
 	}
 	sample.TaskGateAcceptanceV3 = &finalized
+	// Only a completed, accepted operation uses the new success wire. Any
+	// finalizer refusal is converted by retainTaskGateRejection to sample-v2.
+	sample.SchemaVersion = experiment.FinalizedSampleSchemaVersion
 	if operation.Mode == "novel" {
 		state.novelRequestID = requestID
 		state.novelQueryID = response.QueryID

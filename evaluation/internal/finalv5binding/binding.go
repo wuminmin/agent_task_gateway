@@ -19,39 +19,49 @@ import (
 
 	pg_query "github.com/pganalyze/pg_query_go/v6"
 
+	contractfs "taskbound.local/agent-data-gateway/evaluation/final-v5-wsl2"
 	"taskbound.local/agent-data-gateway/evaluation/internal/provsqlfixture"
 	"taskbound.local/agent-data-gateway/internal/catalog"
 	"taskbound.local/agent-data-gateway/internal/sqlpolicy"
 )
 
 const (
-	SectionName = "final_v5_adapter_v1"
-	CatalogPath = "config/catalog.yaml"
-
-	// DatasetProbeSQL is the query in
-	// evaluation/final-v5-wsl2/sql/datasets/default-fingerprint.sql, without
-	// its terminating semicolon/newline.  A repository test compares these
-	// bytes so the built adapter and fresh-deployment launcher cannot drift.
-	DatasetProbeSQL = `SELECT jsonb_build_object(
-  'database', current_database(),
-  'expense_detail_rows', (SELECT count(*) FROM reporting.expense_detail),
-  'expense_detail_keys', (SELECT md5(string_agg(receipt_no, E'\n' ORDER BY receipt_no)) FROM reporting.expense_detail),
-  'expense_summary_rows', (SELECT count(*) FROM reporting.expense_summary),
-  'expense_summary_keys', (SELECT md5(string_agg(month || E'\t' || department || E'\t' || expense_type, E'\n' ORDER BY month, department, expense_type)) FROM reporting.expense_summary)
-)::text`
+	SectionName      = "final_v5_adapter_v2"
+	CatalogPath      = "config/catalog.yaml"
+	datasetProbePath = "sql/datasets/benchmark-v1-probe.sql"
 )
 
 var digestPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
+// datasetProbeSource is the exact psql source, including its leading
+// ON_ERROR_STOP meta-command. datasetProbeSQL is the executable SQL sent
+// through pgx after removing that command. Both come from the one embedded,
+// contract-indexed five-Product benchmark probe rather than a copied query.
+var datasetProbeSource, datasetProbeSQL = mustDatasetProbe()
+
+func mustDatasetProbe() (string, string) {
+	value, err := contractfs.FS.ReadFile(datasetProbePath)
+	if err != nil {
+		panic(fmt.Sprintf("read embedded Dataset probe: %v", err))
+	}
+	source := string(value)
+	const prefix = "\\set ON_ERROR_STOP on\n"
+	if !strings.HasPrefix(source, prefix) {
+		panic("embedded Dataset probe omits the required ON_ERROR_STOP preamble")
+	}
+	return source, strings.TrimPrefix(source, prefix)
+}
 
 // Binding is the validated representation. FileSHA256 identifies exact input
 // bytes while SectionSHA256 identifies deterministic JSON bytes for the strict
 // adapter section, independent of harmless top-level JSON formatting.
 type Binding struct {
-	DatasetSHA256 string
-	CatalogSHA256 string
-	FileSHA256    string
-	SectionSHA256 string
-	Section       Section
+	DatasetSHA256      string
+	DatasetProbeSHA256 string
+	CatalogSHA256      string
+	FileSHA256         string
+	SectionSHA256      string
+	Section            Section
 }
 
 type Section struct {
@@ -81,10 +91,31 @@ type BoundQueryExpectation struct {
 	ExpectedCompanionCalls int64  `json:"expected_companion_calls,omitempty"`
 }
 
+// BoundResultExpectation is deliberately unable to express dependency
+// material. Artifact validates its query/result oracle and records production
+// exposure only as an observation; it does not claim an independent FactSet
+// assertion.
+type BoundResultExpectation struct {
+	SQL                    string `json:"sql"`
+	ExpectedRows           int64  `json:"expected_rows"`
+	ExpectedColumns        int    `json:"expected_columns"`
+	ExpectedResultSHA256   string `json:"expected_result_sha256"`
+	ExpectedVisibleCalls   int64  `json:"expected_visible_calls,omitempty"`
+	ExpectedCompanionCalls int64  `json:"expected_companion_calls,omitempty"`
+}
+
+// BoundDependencySetExpectation carries a set-algebra result, not a query.
+// Scale uses it to bind RootAfter to the independently summarized union.
+type BoundDependencySetExpectation struct {
+	DependencyFacts     int64  `json:"dependency_facts"`
+	DependencySetSHA256 string `json:"dependency_set_sha256"`
+}
+
 type DependencyCellBinding struct {
-	Task      BoundTaskRequest       `json:"task"`
-	Candidate BoundQueryExpectation  `json:"candidate"`
-	History   *BoundQueryExpectation `json:"history,omitempty"`
+	Task      BoundTaskRequest              `json:"task"`
+	Candidate BoundQueryExpectation         `json:"candidate"`
+	History   BoundQueryExpectation         `json:"history"`
+	Union     BoundDependencySetExpectation `json:"union"`
 }
 
 type ScaleBinding struct {
@@ -94,8 +125,8 @@ type ScaleBinding struct {
 }
 
 type ArtifactCellBinding struct {
-	Task  BoundTaskRequest      `json:"task"`
-	Query BoundQueryExpectation `json:"query"`
+	Task  BoundTaskRequest       `json:"task"`
+	Query BoundResultExpectation `json:"query"`
 }
 
 type ArtifactBinding struct {
@@ -113,7 +144,15 @@ type ProvSQLBinding struct {
 	TaskGate                      map[string]BoundQueryExpectation `json:"taskgate"`
 }
 
-func DatasetProbeSHA256() string { return shaBytes([]byte(DatasetProbeSQL)) }
+// DatasetProbeSQLSHA256 identifies the exact source-controlled psql sanity
+// probe, including its fail-closed preamble. It is neither the typed Dataset
+// identity nor the digest of the scalar row returned by that query.
+func DatasetProbeSQLSHA256() string { return shaBytes([]byte(datasetProbeSource)) }
+
+// DatasetProbeSQL returns the immutable executable SQL form of the embedded
+// sanity probe. The psql-only fail-closed preamble remains covered by
+// DatasetProbeSQLSHA256.
+func DatasetProbeSQL() string { return datasetProbeSQL }
 
 // LoadFile reads and validates one bounded non-symlink input file. It performs
 // no transient runtime checks, so author review does not depend on a campaign
@@ -176,16 +215,13 @@ func ValidateAgainstCatalog(binding Binding, source *catalog.Catalog) error {
 		return errors.New("binding/Catalog identity is invalid")
 	}
 	for scale, cell := range binding.Section.Scale.DependencyE2E {
-		queries := []BoundQueryExpectation{cell.Candidate, cell.Candidate}
-		if cell.History != nil {
-			queries = append(queries, *cell.History)
-		}
+		queries := []BoundQueryExpectation{cell.Candidate, cell.Candidate, cell.History}
 		if err := validateTaskCatalogCapacity(source, cell.Task, queries); err != nil {
 			return fmt.Errorf("scale %s is not realizable by frozen Catalog: %w", scale, err)
 		}
 	}
 	for scale, cell := range binding.Section.Artifact.ResultHeavy {
-		if err := validateTaskCatalogCapacity(source, cell.Task, []BoundQueryExpectation{cell.Query}); err != nil {
+		if err := validateTaskCatalogCapacity(source, cell.Task, []BoundQueryExpectation{boundResultAsQuery(cell.Query)}); err != nil {
 			return fmt.Errorf("artifact %s is not realizable by frozen Catalog: %w", scale, err)
 		}
 	}
@@ -347,11 +383,15 @@ func Parse(value []byte) (Binding, error) {
 	if err := strictJSON(value, &top); err != nil {
 		return result, fmt.Errorf("decode dataset binding: %w", err)
 	}
-	if len(top) != 3 || top["dataset_sha256"] == nil || top["catalog_sha256"] == nil || top[SectionName] == nil {
-		return result, errors.New("dataset binding must contain exactly dataset_sha256, catalog_sha256, and final_v5_adapter_v1")
+	if len(top) != 4 || top["dataset_sha256"] == nil || top["dataset_probe_sha256"] == nil ||
+		top["catalog_sha256"] == nil || top[SectionName] == nil {
+		return result, errors.New("dataset binding must contain exactly dataset_sha256, dataset_probe_sha256, catalog_sha256, and final_v5_adapter_v2")
 	}
 	if err := json.Unmarshal(top["dataset_sha256"], &result.DatasetSHA256); err != nil || !ValidDigest(result.DatasetSHA256) {
 		return result, errors.New("dataset binding lacks dataset_sha256")
+	}
+	if err := json.Unmarshal(top["dataset_probe_sha256"], &result.DatasetProbeSHA256); err != nil || !ValidDigest(result.DatasetProbeSHA256) {
+		return result, errors.New("dataset binding lacks dataset_probe_sha256")
 	}
 	if err := json.Unmarshal(top["catalog_sha256"], &result.CatalogSHA256); err != nil || !ValidDigest(result.CatalogSHA256) {
 		return result, errors.New("dataset binding lacks catalog_sha256")
@@ -359,7 +399,7 @@ func Parse(value []byte) (Binding, error) {
 	if err := strictJSON(top[SectionName], &result.Section); err != nil {
 		return result, fmt.Errorf("decode strict adapter binding section: %w", err)
 	}
-	if result.Section.SchemaVersion != 1 {
+	if result.Section.SchemaVersion != 2 {
 		return result, errors.New("adapter binding section schema is unsupported")
 	}
 	if err := validateScaleBinding(result.Section.Scale); err != nil {
@@ -421,6 +461,17 @@ func ValidateBoundQuery(query BoundQueryExpectation) error {
 	return nil
 }
 
+func ValidateBoundResult(query BoundResultExpectation) error {
+	if err := validateReadOnlySQL(query.SQL); err != nil {
+		return err
+	}
+	if query.ExpectedRows < 0 || query.ExpectedColumns <= 0 || !ValidDigest(query.ExpectedResultSHA256) ||
+		query.ExpectedVisibleCalls < 0 || query.ExpectedCompanionCalls < 0 {
+		return errors.New("bound result expectation is incomplete")
+	}
+	return nil
+}
+
 func validateBoundQueryForTask(query BoundQueryExpectation, task BoundTaskRequest) error {
 	if err := ValidateBoundQuery(query); err != nil {
 		return err
@@ -438,6 +489,21 @@ func validateBoundQueryForTask(query BoundQueryExpectation, task BoundTaskReques
 		return fmt.Errorf("bound query exceeds its approved task SQL grant: %w", err)
 	}
 	return nil
+}
+
+func validateBoundResultForTask(query BoundResultExpectation, task BoundTaskRequest) error {
+	if err := ValidateBoundResult(query); err != nil {
+		return err
+	}
+	return validateBoundQueryForTask(boundResultAsQuery(query), task)
+}
+
+func boundResultAsQuery(query BoundResultExpectation) BoundQueryExpectation {
+	return BoundQueryExpectation{
+		SQL: query.SQL, ExpectedRows: query.ExpectedRows, ExpectedColumns: query.ExpectedColumns,
+		ExpectedResultSHA256: query.ExpectedResultSHA256, ExpectedVisibleCalls: query.ExpectedVisibleCalls,
+		ExpectedCompanionCalls: query.ExpectedCompanionCalls,
+	}
 }
 
 func ProvSQLBindingKey(scale string, nonce int64) string {
@@ -503,32 +569,45 @@ func validateScaleBinding(binding *ScaleBinding) error {
 	if binding == nil || !binding.EnableOutcomeMerkle || len(binding.DependencyE2E) != 12 {
 		return errors.New("scale deployment binding must contain the exact 12 dependency cells and enable Outcome-Merkle")
 	}
-	wanted := map[string]int64{}
+	wanted := map[string]struct {
+		candidate    int64
+		union        int64
+		candidateSQL string
+		historySQL   string
+	}{}
 	for _, prefix := range []struct {
 		name  string
 		facts int64
 	}{{"10k", 10_000}, {"100k", 100_000}, {"1035000", 1_035_000}} {
 		for _, overlap := range []int64{0, 50, 90, 100} {
-			wanted[fmt.Sprintf("%s-overlap-%d", prefix.name, overlap)] = prefix.facts * overlap / 100
+			overlapFacts := prefix.facts * overlap / 100
+			m, k := prefix.facts/5, overlapFacts/5
+			wanted[fmt.Sprintf("%s-overlap-%d", prefix.name, overlap)] = struct {
+				candidate    int64
+				union        int64
+				candidateSQL string
+				historySQL   string
+			}{candidate: prefix.facts, union: 2*prefix.facts - overlapFacts,
+				candidateSQL: dependencyCandidateSQL(m), historySQL: dependencyHistorySQL(m-k, 2*m-k)}
 		}
 	}
-	for scale, overlapFacts := range wanted {
+	for scale, spec := range wanted {
 		cell, present := binding.DependencyE2E[scale]
 		if !present || ValidateBoundTask(cell.Task) != nil || validateBoundQueryForTask(cell.Candidate, cell.Task) != nil {
 			return errors.New("scale deployment binding omits or invalidates a frozen dependency cell")
 		}
-		parts := strings.Split(scale, "-overlap-")
-		candidateFacts := map[string]int64{"10k": 10_000, "100k": 100_000, "1035000": 1_035_000}[parts[0]]
-		if cell.Candidate.DependencyFacts != candidateFacts || !ValidDigest(cell.Candidate.DependencySetSHA256) {
+		if cell.Candidate.SQL != spec.candidateSQL || cell.Candidate.ExpectedRows != 1 ||
+			cell.Candidate.ExpectedColumns != 1 || cell.Candidate.DependencyFacts != spec.candidate ||
+			!ValidDigest(cell.Candidate.DependencySetSHA256) {
 			return errors.New("candidate binding differs from frozen dependency scale")
 		}
-		if overlapFacts == 0 {
-			if cell.History != nil {
-				return errors.New("zero-overlap cell unexpectedly declares history")
-			}
-		} else if cell.History == nil || validateBoundQueryForTask(*cell.History, cell.Task) != nil ||
-			cell.History.DependencyFacts != overlapFacts || !ValidDigest(cell.History.DependencySetSHA256) {
-			return errors.New("history binding differs from frozen dependency overlap")
+		if validateBoundQueryForTask(cell.History, cell.Task) != nil ||
+			cell.History.SQL != spec.historySQL || cell.History.ExpectedRows != 1 || cell.History.ExpectedColumns != 1 ||
+			cell.History.DependencyFacts != spec.candidate || !ValidDigest(cell.History.DependencySetSHA256) {
+			return errors.New("history binding differs from frozen existing dependency scale")
+		}
+		if cell.Union.DependencyFacts != spec.union || !ValidDigest(cell.Union.DependencySetSHA256) {
+			return errors.New("union binding differs from frozen dependency set algebra")
 		}
 	}
 	for scale := range binding.DependencyE2E {
@@ -537,6 +616,25 @@ func validateScaleBinding(binding *ScaleBinding) error {
 		}
 	}
 	return nil
+}
+
+func dependencyCandidateSQL(upperInclusive int64) string {
+	return fmt.Sprintf(`SELECT count(*) AS member_count
+FROM final_v5_exposure_scale
+WHERE partition_key = 1
+  AND family_id = 1
+  AND member_rank <= %d
+  AND metric <= 1001.00`, upperInclusive)
+}
+
+func dependencyHistorySQL(lowerExclusive, upperInclusive int64) string {
+	return fmt.Sprintf(`SELECT sum(metric) AS history_total
+FROM final_v5_exposure_scale
+WHERE partition_key = 1
+  AND family_id = 1
+  AND member_rank > %d
+  AND member_rank <= %d
+  AND metric <= 1001.00`, lowerExclusive, upperInclusive)
 }
 
 func validateArtifactBinding(binding *ArtifactBinding) error {
@@ -552,10 +650,9 @@ func validateArtifactBinding(binding *ArtifactBinding) error {
 	}
 	for scale, spec := range wanted {
 		cell, present := binding.ResultHeavy[scale]
-		if !present || ValidateBoundTask(cell.Task) != nil || validateBoundQueryForTask(cell.Query, cell.Task) != nil ||
-			cell.Query.ExpectedRows != spec.rows || cell.Query.ExpectedColumns != spec.columns ||
-			cell.Query.DependencyFacts <= 0 || !ValidDigest(cell.Query.DependencySetSHA256) {
-			return errors.New("artifact cell binding differs from frozen NxC or Dependency oracle")
+		if !present || ValidateBoundTask(cell.Task) != nil || validateBoundResultForTask(cell.Query, cell.Task) != nil ||
+			cell.Query.ExpectedRows != spec.rows || cell.Query.ExpectedColumns != spec.columns {
+			return errors.New("artifact cell binding differs from frozen NxC or result oracle")
 		}
 		approvedColumns := 0
 		for _, columns := range cell.Task.Columns {

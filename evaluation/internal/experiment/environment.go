@@ -12,11 +12,14 @@ import (
 	"time"
 
 	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5binding"
+	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5dataset"
 )
 
 const (
 	finalV5AdapterBindingSHAKey = "final_v5_adapter_sha256"
 	datasetBindingFileSHAKey    = "dataset_binding_sha256"
+	datasetProbeSQLSHAKey       = "dataset_probe_sql_sha256"
+	datasetProbeSHAKey          = "dataset_probe_sha256"
 )
 
 type EnvironmentManifest struct {
@@ -151,6 +154,8 @@ func ReadDatasetBindings(path string) (map[string]any, error) {
 	// identities.
 	return map[string]any{
 		"dataset_sha256":            binding.DatasetSHA256,
+		datasetProbeSQLSHAKey:       finalv5binding.DatasetProbeSQLSHA256(),
+		datasetProbeSHAKey:          binding.DatasetProbeSHA256,
 		"catalog_sha256":            binding.CatalogSHA256,
 		finalV5AdapterBindingSHAKey: binding.SectionSHA256,
 		datasetBindingFileSHAKey:    binding.FileSHA256,
@@ -174,7 +179,7 @@ func validPostgresSystemIdentifier(value string) bool {
 }
 
 func validEnvironmentDatasetBindings(datasets map[string]any) bool {
-	if len(datasets) != 5 {
+	if len(datasets) != 5 && len(datasets) != 7 {
 		return false
 	}
 	for _, name := range []string{"dataset_sha256", "catalog_sha256", "deployment_volume_id_sha256",
@@ -182,6 +187,14 @@ func validEnvironmentDatasetBindings(datasets map[string]any) bool {
 		value, ok := datasets[name].(string)
 		if !ok || !validSHA256(value) {
 			return false
+		}
+	}
+	if len(datasets) == 7 {
+		for _, name := range []string{datasetProbeSQLSHAKey, datasetProbeSHAKey} {
+			value, ok := datasets[name].(string)
+			if !ok || !validSHA256(value) {
+				return false
+			}
 		}
 	}
 	return true
@@ -211,7 +224,7 @@ func BindPublicationDatasets(bindings map[string]any, proofPath, campaignID, dep
 	catalog, catalogOK := bindings["catalog_sha256"].(string)
 	sectionSHA, sectionOK := bindings[finalV5AdapterBindingSHAKey].(string)
 	fileSHA, fileOK := bindings[datasetBindingFileSHAKey].(string)
-	if len(bindings) != 4 || !datasetOK || !catalogOK || !sectionOK || !fileOK || !validSHA256(dataset) ||
+	if !datasetOK || !catalogOK || !sectionOK || !fileOK || !validSHA256(dataset) ||
 		!validSHA256(catalog) || !validSHA256(sectionSHA) || !validSHA256(fileSHA) {
 		return nil, errors.New("publication dataset/Catalog bindings are missing or invalid")
 	}
@@ -228,21 +241,22 @@ func BindPublicationDatasets(bindings map[string]any, proofPath, campaignID, dep
 		return nil, fmt.Errorf("decode fresh-deployment proof: %w", err)
 	}
 	derivedVolume := deriveDeploymentVolumeID(proof)
-	if proof.SchemaVersion != 1 || proof.CampaignID != campaignID || proof.DeploymentID != deploymentID ||
+	if (proof.SchemaVersion != legacyFreshDeploymentProofSchemaVersion &&
+		proof.SchemaVersion != freshDeploymentProofSchemaVersion) ||
+		proof.CampaignID != campaignID || proof.DeploymentID != deploymentID ||
 		!validSHA256(proof.VolumeSetSHA256) || !validPostgresSystemIdentifier(proof.ControlPGSystemIdentifier) ||
 		!validPostgresSystemIdentifier(proof.BusinessPGSystemIdentifier) || proof.ControlPGSystemIdentifier == proof.BusinessPGSystemIdentifier ||
 		!validSHA256(proof.DeploymentVolumeIDSHA256) || proof.DeploymentVolumeIDSHA256 != derivedVolume ||
-		!validSHA256(proof.DatasetFingerprintSHA256) || !validSHA256(proof.CatalogSHA256) {
+		!validSHA256(proof.CatalogSHA256) || validateFreshDeploymentDatasetIdentity(proof) != nil {
 		return nil, errors.New("fresh-deployment proof identity/digests are invalid")
 	}
 	proofPrefix := strings.TrimSuffix(proofPath, ".json")
 	if proofPrefix == proofPath {
 		return nil, errors.New("fresh-deployment proof path must end in .json")
 	}
-	for suffix, expected := range map[string]string{
-		".dataset-fingerprint.txt": proof.DatasetFingerprintSHA256,
-		".catalog.yaml":            proof.CatalogSHA256,
-	} {
+	companions := freshDeploymentDatasetCompanions(proof)
+	companions[".catalog.yaml"] = proof.CatalogSHA256
+	for suffix, expected := range companions {
 		companionPath := proofPrefix + suffix
 		companionInfo, statErr := os.Lstat(companionPath)
 		if statErr != nil || !companionInfo.Mode().IsRegular() || companionInfo.Mode()&os.ModeSymlink != 0 || companionInfo.Size() > 16<<20 {
@@ -253,11 +267,29 @@ func BindPublicationDatasets(bindings map[string]any, proofPath, campaignID, dep
 			return nil, errors.New("fresh-deployment digest companion differs from proof")
 		}
 	}
-	if dataset != proof.DatasetFingerprintSHA256 {
-		return nil, errors.New("reviewed dataset digest differs from the live dataset fingerprint")
+	if proof.SchemaVersion == freshDeploymentProofSchemaVersion {
+		if err := validateFreshDeploymentDatasetAgreement(proof,
+			proofPrefix+".dataset-identity.json"); err != nil {
+			return nil, err
+		}
+	}
+	if dataset != freshDeploymentDatasetSHA256(proof) {
+		return nil, errors.New("reviewed typed Dataset identity differs from the fresh-deployment proof")
 	}
 	if catalog != proof.CatalogSHA256 {
 		return nil, errors.New("reviewed Catalog digest differs from the live Gateway Catalog")
+	}
+	if proof.SchemaVersion == legacyFreshDeploymentProofSchemaVersion {
+		if len(bindings) != 4 {
+			return nil, errors.New("fresh-deployment proof v1 requires the frozen four-field reviewed binding")
+		}
+	} else {
+		probeSQL, probeSQLOK := bindings[datasetProbeSQLSHAKey].(string)
+		probe, probeOK := bindings[datasetProbeSHAKey].(string)
+		if len(bindings) != 6 || !probeSQLOK || !probeOK || !validSHA256(probeSQL) || !validSHA256(probe) ||
+			probeSQL != proof.DatasetProbeSQLSHA256 || probe != proof.DatasetProbeSHA256 {
+			return nil, errors.New("reviewed Dataset sanity-probe identities differ from the fresh-deployment proof")
+		}
 	}
 	bound := make(map[string]any, len(bindings)+1)
 	for key, one := range bindings {
@@ -265,4 +297,67 @@ func BindPublicationDatasets(bindings map[string]any, proofPath, campaignID, dep
 	}
 	bound["deployment_volume_id_sha256"] = derivedVolume
 	return bound, nil
+}
+
+func validateFreshDeploymentDatasetIdentity(proof FreshDeploymentProof) error {
+	switch proof.SchemaVersion {
+	case legacyFreshDeploymentProofSchemaVersion:
+		if !validSHA256(proof.DatasetFingerprintSHA256) || proof.DatasetSHA256 != "" ||
+			proof.DatasetIdentityEvidenceSHA256 != "" || proof.DatasetProbeSQLSHA256 != "" ||
+			proof.DatasetProbeSHA256 != "" {
+			return errors.New("fresh-deployment proof v1 Dataset fingerprint is invalid")
+		}
+	case freshDeploymentProofSchemaVersion:
+		if proof.DatasetFingerprintSHA256 != "" || !validSHA256(proof.DatasetSHA256) ||
+			!validSHA256(proof.DatasetIdentityEvidenceSHA256) ||
+			!validSHA256(proof.DatasetProbeSQLSHA256) || !validSHA256(proof.DatasetProbeSHA256) {
+			return errors.New("fresh-deployment proof v2 Dataset/probe identities are invalid")
+		}
+	default:
+		return errors.New("fresh-deployment proof Dataset identity has no versioned semantics")
+	}
+	return nil
+}
+
+func freshDeploymentDatasetSHA256(proof FreshDeploymentProof) string {
+	if proof.SchemaVersion == freshDeploymentProofSchemaVersion {
+		return proof.DatasetSHA256
+	}
+	return proof.DatasetFingerprintSHA256
+}
+
+func freshDeploymentDatasetCompanions(proof FreshDeploymentProof) map[string]string {
+	if proof.SchemaVersion == freshDeploymentProofSchemaVersion {
+		return map[string]string{
+			".dataset-identity.json": proof.DatasetIdentityEvidenceSHA256,
+			".dataset-probe.sql":     proof.DatasetProbeSQLSHA256,
+			".dataset-probe.txt":     proof.DatasetProbeSHA256,
+		}
+	}
+	return map[string]string{".dataset-fingerprint.txt": proof.DatasetFingerprintSHA256}
+}
+
+func validateFreshDeploymentDatasetAgreement(proof FreshDeploymentProof, agreementPath string) error {
+	if proof.SchemaVersion != freshDeploymentProofSchemaVersion {
+		return errors.New("full live Dataset agreement is only defined for fresh-deployment proof v2")
+	}
+	info, err := os.Lstat(agreementPath)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() > 1<<20 {
+		return errors.New("fresh-deployment full Dataset agreement is missing or unsafe")
+	}
+	payload, err := os.ReadFile(agreementPath)
+	if err != nil {
+		return fmt.Errorf("read fresh-deployment full Dataset agreement: %w", err)
+	}
+	var agreement finalv5dataset.BenchmarkAgreement
+	if err := StrictJSON(payload, &agreement); err != nil {
+		return fmt.Errorf("decode fresh-deployment full Dataset agreement: %w", err)
+	}
+	if err := finalv5dataset.ValidateBenchmarkAgreement(agreement); err != nil {
+		return fmt.Errorf("validate fresh-deployment full Dataset agreement: %w", err)
+	}
+	if agreement.Observed.SHA256 != proof.DatasetSHA256 {
+		return errors.New("fresh-deployment Dataset digest differs from its full live agreement")
+	}
+	return nil
 }

@@ -30,6 +30,13 @@ const (
 	// revision. A v2 sample proves FinalizeTaskGateObservationV3 was reached and
 	// refused the operation; it can carry neither a pass nor an acceptance.
 	TaskGateRejectionSampleSchemaVersion = 2
+	// FinalizedSampleSchemaVersion is the explicit current post-acceptance wire.
+	// It retains both a completed PASS and a failure found by the independent
+	// evidence gate after finalizer acceptance. It keeps typed Dataset identity
+	// distinct from the live deployment probe and carries the decision-18 root
+	// model. Historical sample-v1 and rejection-only v2 are always decoded and
+	// validated under their original meanings.
+	FinalizedSampleSchemaVersion = 3
 )
 
 var fullSHA = regexp.MustCompile(`^[0-9a-f]{40}$`)
@@ -532,9 +539,38 @@ func (sample *Sample) UnmarshalJSON(value []byte) error {
 	if sample == nil {
 		return errors.New("cannot decode a sample into nil")
 	}
-	if err := rejectExplicitNullObjectMembers(value,
-		"taskgate_acceptance_v3", "taskgate_rejection_v1"); err != nil {
+	var members map[string]json.RawMessage
+	if err := StrictJSON(value, &members); err != nil {
 		return err
+	}
+	for _, name := range []string{"taskgate_acceptance_v3", "taskgate_rejection_v1"} {
+		member, present := members[name]
+		if present && bytes.Equal(bytes.TrimSpace(member), []byte("null")) {
+			return fmt.Errorf("JSON object member %q cannot be null", name)
+		}
+	}
+	var schemaVersion int
+	if encoded, present := members["schema_version"]; present {
+		if err := json.Unmarshal(encoded, &schemaVersion); err != nil {
+			return fmt.Errorf("decode sample schema_version: %w", err)
+		}
+	}
+	if schemaVersion == SampleSchemaVersion || schemaVersion == TaskGateRejectionSampleSchemaVersion {
+		if encoded, present := members["scale_verification"]; present &&
+			!bytes.Equal(bytes.TrimSpace(encoded), []byte("null")) {
+			var evidenceMembers map[string]json.RawMessage
+			if err := StrictJSON(encoded, &evidenceMembers); err != nil {
+				return fmt.Errorf("decode scale_verification wire: %w", err)
+			}
+			for _, name := range []string{
+				"expected_existing_facts", "expected_union_facts",
+				"existing_dependency_sha256", "union_dependency_sha256",
+			} {
+				if _, present := evidenceMembers[name]; present {
+					return fmt.Errorf("sample-v1/v2 cannot carry sample-v3 Scale member %q", name)
+				}
+			}
+		}
 	}
 	type sampleWire Sample
 	var decoded sampleWire
@@ -568,7 +604,7 @@ type ScaleVerificationEvidence struct {
 	// BindingFileSHA256 is the Adapter-retained exact private input file identity.
 	// The deployment finalizer independently embeds that identity in its accepted
 	// operation, and retained validation requires the two copies to agree exactly.
-	// BindingSHA256 remains the canonical final_v5_adapter_v1 section identity so
+	// BindingSHA256 remains the canonical versioned final_v5_adapter section identity so
 	// harmless top-level formatting and executable section material cannot be
 	// conflated.
 	BindingFileSHA256         string              `json:"binding_file_sha256,omitempty"`
@@ -582,10 +618,14 @@ type ScaleVerificationEvidence struct {
 	ExpectedResultSHA256      string              `json:"expected_result_sha256,omitempty"`
 	ExpectedCandidateFacts    int64               `json:"expected_candidate_facts,omitempty"`
 	ObservedCandidateFacts    int64               `json:"observed_candidate_facts,omitempty"`
+	ExpectedExistingFacts     int64               `json:"expected_existing_facts,omitempty"`
 	ExpectedOverlapFacts      int64               `json:"expected_overlap_facts,omitempty"`
 	ObservedOverlapFacts      int64               `json:"observed_overlap_facts,omitempty"`
+	ExpectedUnionFacts        int64               `json:"expected_union_facts,omitempty"`
 	HistoryDependencySHA256   string              `json:"history_dependency_sha256,omitempty"`
+	ExistingDependencySHA256  string              `json:"existing_dependency_sha256,omitempty"`
 	CandidateDependencySHA256 string              `json:"candidate_dependency_sha256,omitempty"`
+	UnionDependencySHA256     string              `json:"union_dependency_sha256,omitempty"`
 	BusinessBefore            BusinessSQLSnapshot `json:"business_before,omitempty"`
 	BusinessAfter             BusinessSQLSnapshot `json:"business_after,omitempty"`
 	RootBefore                RootLedgerSnapshot  `json:"root_before,omitempty"`
@@ -670,7 +710,10 @@ type KernelStorageEvidence struct {
 // completely drained. Raw SQL, rows, object keys, and credentials are never
 // retained.
 type ArtifactVerificationEvidence struct {
-	Version              string              `json:"version"`
+	Version string `json:"version"`
+	// BindingSHA256 identifies the public Contract-Bridge deployment record.
+	// It is not the private final_v5_adapter section identity consumed by Scale
+	// and ProvSQL, and publication finalization must not compare the two.
 	BindingSHA256        string              `json:"binding_sha256"`
 	DatasetSHA256        string              `json:"dataset_sha256"`
 	CatalogSHA256        string              `json:"catalog_sha256"`
@@ -1608,7 +1651,8 @@ type TraceStep struct {
 var requiredPipeline = []string{"prepare", "execute_and_derive", "artifact_stage", "control_settlement", "artifact_publication", "response_finalize", "server_total"}
 
 func (sample Sample) Validate() error {
-	if (sample.SchemaVersion != SampleSchemaVersion && sample.SchemaVersion != TaskGateRejectionSampleSchemaVersion) ||
+	if (sample.SchemaVersion != SampleSchemaVersion && sample.SchemaVersion != TaskGateRejectionSampleSchemaVersion &&
+		sample.SchemaVersion != FinalizedSampleSchemaVersion) ||
 		sample.CampaignID == "" || sample.DeploymentID == "" || sample.ExperimentID == "" ||
 		sample.CellID == "" || sample.SampleID == "" || sample.Iteration < 1 || sample.ProcessReplicate < 1 || sample.OrderPosition < 1 || sample.RandomSeed == 0 ||
 		sample.PairID == "" || strings.TrimSpace(sample.PairedSystemOrder) == "" || strings.TrimSpace(sample.RootGroupID) == "" ||
@@ -1624,12 +1668,37 @@ func (sample Sample) Validate() error {
 		if sample.TaskGateRejectionV1 != nil {
 			return errors.New("sample-v1 cannot carry taskgate_rejection_v1")
 		}
+		if err := sample.validateLegacyEvidenceWire(); err != nil {
+			return err
+		}
 	case TaskGateRejectionSampleSchemaVersion:
 		if sample.Status != "fail" || sample.TaskGateRejectionV1 == nil || sample.TaskGateAcceptanceV3 != nil {
 			return errors.New("sample-v2 is reserved for a finalizer-rejected FAIL with no acceptance")
 		}
 		if err := sample.TaskGateRejectionV1.Validate(); err != nil {
 			return fmt.Errorf("taskgate_rejection_v1: %w", err)
+		}
+		if err := sample.validateLegacyEvidenceWire(); err != nil {
+			return err
+		}
+	case FinalizedSampleSchemaVersion:
+		if (sample.Status != "pass" && sample.Status != "fail") || sample.TaskGateRejectionV1 != nil ||
+			sample.TaskGateAcceptanceV3 == nil {
+			return errors.New("sample-v3 is reserved for a post-acceptance PASS or retained evidence FAIL")
+		}
+		if sample.ExperimentID == "scale" && sample.ScaleVerification == nil {
+			return errors.New("sample-v3 Scale sample requires retained Scale evidence")
+		}
+		if sample.ExperimentID == "artifact" && sample.ArtifactVerification == nil {
+			return errors.New("sample-v3 Artifact sample requires retained Artifact evidence")
+		}
+		if sample.ScaleVerification != nil &&
+			(sample.ScaleVerification.Version != scaleDependencyEvidenceVersionV2 ||
+				sample.ScaleVerification.HistoryDependencySHA256 != "") {
+			return errors.New("sample-v3 Scale evidence must use Decision-18 evidence-v2 without legacy history")
+		}
+		if sample.ArtifactVerification != nil && sample.ArtifactVerification.Version != artifactEvidenceVersionV2 {
+			return errors.New("sample-v3 Artifact evidence must use evidence-v2")
 		}
 	}
 	if sample.Status == "pass" && sample.TaskGateRejectionV1 != nil {
@@ -1679,6 +1748,23 @@ func (sample Sample) Validate() error {
 	}
 	if sample.Status == "pass" && sample.ResultSHA256 != "" && !validSHA256(sample.ResultSHA256) {
 		return errors.New("invalid result SHA-256")
+	}
+	return nil
+}
+
+func (sample Sample) validateLegacyEvidenceWire() error {
+	if evidence := sample.ScaleVerification; evidence != nil {
+		if evidence.ExpectedExistingFacts != 0 || evidence.ExpectedUnionFacts != 0 ||
+			evidence.ExistingDependencySHA256 != "" || evidence.UnionDependencySHA256 != "" {
+			return errors.New("sample-v1/v2 cannot carry sample-v3 Decision-18 Scale members")
+		}
+		if sample.Status == "pass" && evidence.Version != scaleEvidenceVersion {
+			return errors.New("passing sample-v1 Scale evidence must use evidence-v1")
+		}
+	}
+	if sample.Status == "pass" && sample.ArtifactVerification != nil &&
+		sample.ArtifactVerification.Version != artifactEvidenceVersionV1 {
+		return errors.New("passing sample-v1 Artifact evidence must use evidence-v1")
 	}
 	return nil
 }

@@ -86,24 +86,39 @@ type DockerVolumeProof struct {
 	InspectSHA256 string `json:"inspect_sha256"`
 }
 
+const (
+	legacyFreshDeploymentProofSchemaVersion = 1
+	freshDeploymentProofSchemaVersion       = 2
+)
+
 type FreshDeploymentProof struct {
-	SchemaVersion                int                 `json:"schema_version"`
-	CampaignID                   string              `json:"campaign_id"`
-	DeploymentID                 string              `json:"deployment_id"`
-	CapturedAt                   string              `json:"captured_at"`
-	ComposeProjectName           string              `json:"compose_project_name"`
-	ComposeConfigSHA256          string              `json:"compose_config_sha256"`
-	Volumes                      []DockerVolumeProof `json:"volumes"`
-	VolumeSetSHA256              string              `json:"volume_set_sha256"`
-	VolumeInspectSHA256          string              `json:"volume_inspect_sha256"`
-	ControlPGSystemIdentifier    string              `json:"control_pg_system_identifier"`
-	BusinessPGSystemIdentifier   string              `json:"business_pg_system_identifier"`
-	DeploymentVolumeIDSHA256     string              `json:"deployment_volume_id_sha256"`
-	CatalogSHA256                string              `json:"catalog_sha256"`
-	ControlInitialCounts         map[string]int64    `json:"control_initial_counts"`
-	DatasetFingerprintSHA256     string              `json:"dataset_fingerprint_sha256"`
-	MinIOInitialObjectCount      int64               `json:"minio_initial_object_count"`
-	SnapshotArtifactVolumeSHA256 string              `json:"snapshot_artifact_volume_sha256"`
+	SchemaVersion              int                 `json:"schema_version"`
+	CampaignID                 string              `json:"campaign_id"`
+	DeploymentID               string              `json:"deployment_id"`
+	CapturedAt                 string              `json:"captured_at"`
+	ComposeProjectName         string              `json:"compose_project_name"`
+	ComposeConfigSHA256        string              `json:"compose_config_sha256"`
+	Volumes                    []DockerVolumeProof `json:"volumes"`
+	VolumeSetSHA256            string              `json:"volume_set_sha256"`
+	VolumeInspectSHA256        string              `json:"volume_inspect_sha256"`
+	ControlPGSystemIdentifier  string              `json:"control_pg_system_identifier"`
+	BusinessPGSystemIdentifier string              `json:"business_pg_system_identifier"`
+	DeploymentVolumeIDSHA256   string              `json:"deployment_volume_id_sha256"`
+	CatalogSHA256              string              `json:"catalog_sha256"`
+	ControlInitialCounts       map[string]int64    `json:"control_initial_counts"`
+	// DatasetFingerprintSHA256 is the frozen v1 field. Historical proofs used it
+	// for the digest of SQL probe output; v2 leaves it absent and names all three
+	// identities explicitly below. DatasetSHA256 is the observed typed-stream
+	// identity of all five live Products; DatasetIdentityEvidenceSHA256 binds the
+	// credential-free agreement that compares it with the reviewed formula. The
+	// two probe identities independently name the source SQL and its scalar result.
+	DatasetFingerprintSHA256      string `json:"dataset_fingerprint_sha256,omitempty"`
+	DatasetSHA256                 string `json:"dataset_sha256,omitempty"`
+	DatasetIdentityEvidenceSHA256 string `json:"dataset_identity_evidence_sha256,omitempty"`
+	DatasetProbeSQLSHA256         string `json:"dataset_probe_sql_sha256,omitempty"`
+	DatasetProbeSHA256            string `json:"dataset_probe_sha256,omitempty"`
+	MinIOInitialObjectCount       int64  `json:"minio_initial_object_count"`
+	SnapshotArtifactVolumeSHA256  string `json:"snapshot_artifact_volume_sha256"`
 }
 type Summary struct {
 	SchemaVersion       int                     `json:"schema_version"`
@@ -516,7 +531,11 @@ func FinalizeRun(runDir string) (Summary, error) {
 
 func validatePublicationSampleBindingDigests(experimentID string, expected map[string]string,
 	observed map[string]map[string]bool) []string {
-	if experimentID != "scale" && experimentID != "artifact" && experimentID != "provsql" {
+	// Only Scale and ProvSQL consume the private final_v5_adapter section.
+	// Artifact's evidence binds the public Contract-Bridge deployment record;
+	// comparing that different object with the private section digest would
+	// resurrect Decision 19's deleted dead input and reject every Artifact run.
+	if experimentID != "scale" && experimentID != "provsql" {
 		return nil
 	}
 	var reasons []string
@@ -534,10 +553,6 @@ func sampleAdapterBindingSHA256(sample Sample) string {
 	case "scale":
 		if sample.ScaleVerification != nil && sample.ScaleVerification.Boundary == "dependency_e2e" {
 			return sample.ScaleVerification.BindingSHA256
-		}
-	case "artifact":
-		if sample.ArtifactVerification != nil {
-			return sample.ArtifactVerification.BindingSHA256
 		}
 	case "provsql":
 		if sample.ProvSQLVerification != nil {
@@ -2094,7 +2109,10 @@ func validateDeploymentEvidence(runDir string, config Config) []string {
 	seenComposeProjects := map[string]bool{}
 	seenDeploymentVolumeIDs := map[string]bool{}
 	frozenDatasetSHA256 := ""
+	frozenDatasetProbeSQLSHA256 := ""
+	frozenDatasetProbeSHA256 := ""
 	frozenCatalogSHA256 := ""
+	frozenFreshProofSchemaVersion := 0
 	frozenAdapterBindingSHA256 := ""
 	frozenBindingFileSHA256 := ""
 	windowsEnvironmentSHA256 := ""
@@ -2133,7 +2151,7 @@ func validateDeploymentEvidence(runDir string, config Config) []string {
 			reasons = append(reasons, "fresh-deployment proof digest mismatch: "+deployment.DeploymentID)
 		}
 		reasons = append(reasons, proofReasons...)
-		if proof.SchemaVersion == 1 {
+		if proof.SchemaVersion == legacyFreshDeploymentProofSchemaVersion || proof.SchemaVersion == freshDeploymentProofSchemaVersion {
 			if seenVolumes[proof.VolumeSetSHA256] || seenControlSystems[proof.ControlPGSystemIdentifier] || seenBusinessSystems[proof.BusinessPGSystemIdentifier] || seenComposeProjects[proof.ComposeProjectName] || seenDeploymentVolumeIDs[proof.DeploymentVolumeIDSHA256] {
 				reasons = append(reasons, "fresh-deployment identity reused: "+deployment.DeploymentID)
 			}
@@ -2142,6 +2160,11 @@ func validateDeploymentEvidence(runDir string, config Config) []string {
 			seenBusinessSystems[proof.BusinessPGSystemIdentifier] = true
 			seenComposeProjects[proof.ComposeProjectName] = true
 			seenDeploymentVolumeIDs[proof.DeploymentVolumeIDSHA256] = true
+			if frozenFreshProofSchemaVersion == 0 {
+				frozenFreshProofSchemaVersion = proof.SchemaVersion
+			} else if proof.SchemaVersion != frozenFreshProofSchemaVersion {
+				reasons = append(reasons, "fresh-deployment proof schema changed across deployments")
+			}
 		}
 		for suffix, expected := range map[string]string{"vmstat-before.txt": deployment.VMStatBeforeSHA256, "vmstat-after.txt": deployment.VMStatAfterSHA256} {
 			actual, hashErr := FileSHA256(filepath.Join(runDir, "environment", deployment.DeploymentID+"."+suffix))
@@ -2173,9 +2196,27 @@ func validateDeploymentEvidence(runDir string, config Config) []string {
 			reasons = append(reasons, "strict adapter binding identity failed: "+deployment.DeploymentID)
 			continue
 		}
-		if dataset != proof.DatasetFingerprintSHA256 || catalog != proof.CatalogSHA256 || volumeID != proof.DeploymentVolumeIDSHA256 {
+		if dataset != freshDeploymentDatasetSHA256(proof) || catalog != proof.CatalogSHA256 || volumeID != proof.DeploymentVolumeIDSHA256 {
 			reasons = append(reasons, "environment/fresh-deployment binding mismatch: "+deployment.DeploymentID)
 			continue
+		}
+		if proof.SchemaVersion == freshDeploymentProofSchemaVersion {
+			probeSQL, probeSQLOK := environment.Datasets[datasetProbeSQLSHAKey].(string)
+			probe, probeOK := environment.Datasets[datasetProbeSHAKey].(string)
+			if !probeSQLOK || !probeOK || probeSQL != proof.DatasetProbeSQLSHA256 || probe != proof.DatasetProbeSHA256 {
+				reasons = append(reasons, "environment/fresh-deployment Dataset probe binding mismatch: "+deployment.DeploymentID)
+				continue
+			}
+			if frozenDatasetProbeSQLSHA256 == "" {
+				frozenDatasetProbeSQLSHA256 = probeSQL
+			} else if probeSQL != frozenDatasetProbeSQLSHA256 {
+				reasons = append(reasons, "Dataset sanity-probe SQL digest changed across deployments")
+			}
+			if frozenDatasetProbeSHA256 == "" {
+				frozenDatasetProbeSHA256 = probe
+			} else if probe != frozenDatasetProbeSHA256 {
+				reasons = append(reasons, "Dataset sanity-probe result digest changed across deployments")
+			}
 		}
 		if frozenDatasetSHA256 == "" {
 			frozenDatasetSHA256 = dataset
@@ -2213,11 +2254,12 @@ func readFreshDeploymentProof(path, runDir string, config Config, deploymentID s
 		return proof, []string{"fresh-deployment proof is missing or invalid: " + deploymentID}
 	}
 	var reasons []string
-	if proof.SchemaVersion != 1 || proof.CampaignID != config.CampaignID || proof.DeploymentID != deploymentID || proof.CapturedAt == "" || proof.ComposeProjectName == "" ||
+	if (proof.SchemaVersion != legacyFreshDeploymentProofSchemaVersion && proof.SchemaVersion != freshDeploymentProofSchemaVersion) ||
+		proof.CampaignID != config.CampaignID || proof.DeploymentID != deploymentID || proof.CapturedAt == "" || proof.ComposeProjectName == "" ||
 		!validSHA256(proof.ComposeConfigSHA256) || !validSHA256(proof.VolumeSetSHA256) || !validSHA256(proof.VolumeInspectSHA256) ||
 		!validPostgresSystemIdentifier(proof.ControlPGSystemIdentifier) || !validPostgresSystemIdentifier(proof.BusinessPGSystemIdentifier) || proof.ControlPGSystemIdentifier == proof.BusinessPGSystemIdentifier ||
 		!validSHA256(proof.DeploymentVolumeIDSHA256) || proof.DeploymentVolumeIDSHA256 != deriveDeploymentVolumeID(proof) ||
-		!validSHA256(proof.CatalogSHA256) || !validSHA256(proof.DatasetFingerprintSHA256) ||
+		!validSHA256(proof.CatalogSHA256) || validateFreshDeploymentDatasetIdentity(proof) != nil ||
 		proof.MinIOInitialObjectCount != 0 || !validSHA256(proof.SnapshotArtifactVolumeSHA256) || len(proof.Volumes) < 5 {
 		reasons = append(reasons, "fresh-deployment proof acceptance failed: "+deploymentID)
 	}
@@ -2271,9 +2313,17 @@ func readFreshDeploymentProof(path, runDir string, config Config, deploymentID s
 	if digest, err := FileSHA256(composePath); err != nil || digest != proof.ComposeConfigSHA256 {
 		reasons = append(reasons, "Compose config bytes do not match proof: "+deploymentID)
 	}
-	datasetPath := filepath.Join(runDir, "environment", deploymentID+".fresh.dataset-fingerprint.txt")
-	if digest, err := FileSHA256(datasetPath); err != nil || digest != proof.DatasetFingerprintSHA256 {
-		reasons = append(reasons, "dataset fingerprint bytes do not match proof: "+deploymentID)
+	for suffix, expected := range freshDeploymentDatasetCompanions(proof) {
+		datasetPath := filepath.Join(runDir, "environment", deploymentID+".fresh"+suffix)
+		if digest, err := FileSHA256(datasetPath); err != nil || digest != expected {
+			reasons = append(reasons, "Dataset identity/probe companion bytes do not match proof: "+deploymentID)
+		}
+	}
+	if proof.SchemaVersion == freshDeploymentProofSchemaVersion {
+		agreementPath := filepath.Join(runDir, "environment", deploymentID+".fresh.dataset-identity.json")
+		if err := validateFreshDeploymentDatasetAgreement(proof, agreementPath); err != nil {
+			reasons = append(reasons, "full live Dataset agreement does not match proof: "+deploymentID)
+		}
 	}
 	catalogPath := filepath.Join(runDir, "environment", deploymentID+".fresh.catalog.yaml")
 	if digest, err := FileSHA256(catalogPath); err != nil || digest != proof.CatalogSHA256 {

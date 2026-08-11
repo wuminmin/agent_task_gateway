@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -14,12 +13,13 @@ import (
 
 	"taskbound.local/agent-data-gateway/evaluation/finalv5contracts"
 	"taskbound.local/agent-data-gateway/evaluation/internal/experiment"
+	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5dataset"
 	"taskbound.local/agent-data-gateway/internal/physicalquery"
 	"taskbound.local/agent-data-gateway/internal/querybinding"
 	"taskbound.local/agent-data-gateway/internal/queryreceipt"
 )
 
-const artifactVerificationVersion = "taskgate-final-v5-artifact-verification-v1"
+const artifactVerificationVersion = "taskgate-final-v5-artifact-verification-v2"
 
 // artifactAdapter executes the six frozen result-heavy cells. Everything it
 // runs -- the workload matrix, the rendered query text, the Product and
@@ -47,7 +47,7 @@ func newArtifactAdapter(ctx context.Context) (sourceControlledAdapter, error) {
 	if err != nil {
 		return nil, fmt.Errorf("contract bridge: %w", err)
 	}
-	live, err := liveDeploymentBinding()
+	live, err := liveDeploymentBinding(ctx, runtime)
 	if err != nil {
 		return nil, err
 	}
@@ -68,11 +68,18 @@ func newArtifactAdapter(ctx context.Context) (sourceControlledAdapter, error) {
 	return &artifactAdapter{real: real, runtime: runtime, live: live, finalizer: finalizer}, nil
 }
 
-// liveDeploymentBinding reads the Catalog the Gateway is actually running. The
-// Adapter never assumes the reviewed candidate is installed: the digest is
-// recomputed here and cross-checked against the digest the Gateway signed into
-// the Receipt of every measured query.
-func liveDeploymentBinding() (finalv5contracts.LiveDeployment, error) {
+// liveDeploymentBinding reads the Catalog and all five typed Dataset Products
+// the Gateway is actually running. The Adapter never assumes the reviewed
+// candidate is installed: both live identities are independently acquired and
+// the Catalog digest is later cross-checked against every measured Receipt.
+func liveDeploymentBinding(ctx context.Context,
+	runtime *finalv5contracts.Runtime) (finalv5contracts.LiveDeployment, error) {
+	if ctx == nil {
+		return finalv5contracts.LiveDeployment{}, errors.New("live deployment binding requires a context")
+	}
+	if runtime == nil {
+		return finalv5contracts.LiveDeployment{}, errors.New("verified Contract Runtime is required")
+	}
 	path := strings.TrimSpace(os.Getenv("TASKGATE_FINAL_V5_CATALOG"))
 	if path == "" {
 		return finalv5contracts.LiveDeployment{}, errors.New("TASKGATE_FINAL_V5_CATALOG is required")
@@ -81,7 +88,25 @@ func liveDeploymentBinding() (finalv5contracts.LiveDeployment, error) {
 	if err != nil {
 		return finalv5contracts.LiveDeployment{}, fmt.Errorf("live catalog: %w", err)
 	}
-	return finalv5contracts.LiveDeployment{CatalogPath: path, CatalogSHA256: digest}, nil
+	dsn := strings.TrimSpace(os.Getenv("TASKGATE_FINAL_V5_BUSINESS_DSN"))
+	if dsn == "" {
+		return finalv5contracts.LiveDeployment{}, errors.New("TASKGATE_FINAL_V5_BUSINESS_DSN is required")
+	}
+	referenceDatasetSHA, err := runtime.DatasetIdentitySHA256()
+	if err != nil {
+		return finalv5contracts.LiveDeployment{}, fmt.Errorf("reviewed typed benchmark Dataset identity: %w", err)
+	}
+	agreement, err := finalv5dataset.VerifyBenchmarkPostgreSQL(ctx, dsn)
+	if err != nil {
+		return finalv5contracts.LiveDeployment{}, fmt.Errorf("full live typed benchmark Dataset: %w", err)
+	}
+	if agreement.Reference.SHA256 != referenceDatasetSHA {
+		return finalv5contracts.LiveDeployment{}, errors.New(
+			"live Dataset verifier used a different reviewed benchmark formula")
+	}
+	return finalv5contracts.LiveDeployment{
+		CatalogPath: path, CatalogSHA256: digest, DatasetSHA256: agreement.Observed.SHA256,
+	}, nil
 }
 
 func (adapter *artifactAdapter) Close() { adapter.real.Close() }
@@ -315,6 +340,10 @@ func (adapter *artifactAdapter) executeResultHeavy(ctx context.Context, operatio
 		return sample, err
 	}
 	sample.TaskGateAcceptanceV3 = &finalized
+	// Dataset identity and the deployment probe have independent meanings only on
+	// the explicit sample-v3 wire. Historical sample-v1 bytes retain their former
+	// evidence-v1 equality rule, and finalizer refusals remain rejection-only v2.
+	sample.SchemaVersion = experiment.FinalizedSampleSchemaVersion
 	return sample, nil
 }
 
@@ -407,13 +436,13 @@ func (adapter *artifactAdapter) artifactEvidence(sample experiment.Sample, bindi
 	if sample.ParquetBytes <= 0 || sample.EncryptedObjectBytes <= 0 {
 		return nil, errors.New("released artifact byte observations are absent")
 	}
-	bindingRecord, err := json.Marshal(binding)
+	bindingSHA256, err := binding.SHA256()
 	if err != nil {
 		return nil, err
 	}
 	return &experiment.ArtifactVerificationEvidence{
-		Version: artifactVerificationVersion, BindingSHA256: shaBytes(bindingRecord),
-		DatasetSHA256: binding.DatasetProbeSHA256, CatalogSHA256: binding.CatalogSHA256,
+		Version: artifactVerificationVersion, BindingSHA256: bindingSHA256,
+		DatasetSHA256: binding.DatasetSHA256, CatalogSHA256: binding.CatalogSHA256,
 		DatasetProbeSHA256: binding.DatasetProbeSHA256, QuerySHA256: query.BDG.SQLSHA256,
 		ExpectedRows: comparison.ExpectedRows, ExpectedColumns: comparison.ExpectedColumns,
 		ExpectedResultSHA256: comparison.ExpectedResultSHA256,

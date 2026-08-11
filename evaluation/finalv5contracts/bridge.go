@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	contractfs "taskbound.local/agent-data-gateway/evaluation/final-v5-wsl2"
 	"taskbound.local/agent-data-gateway/evaluation/finalv5oracle"
@@ -239,6 +240,54 @@ func (runtime *Runtime) DatasetProbeSQL() (string, error) {
 	}
 	// The probe is authored for psql; the leading meta-command is not SQL.
 	return strings.TrimPrefix(string(value), "\\set ON_ERROR_STOP on\n"), nil
+}
+
+// DatasetProbeSourceSHA256 identifies the exact contract-indexed psql source,
+// including its ON_ERROR_STOP preamble. It is the one SQL identity recorded by
+// fresh-deployment, targeted, and publication-wide bindings; DatasetProbeSQL
+// returns only the executable portion for pgx.
+func (runtime *Runtime) DatasetProbeSourceSHA256() (string, error) {
+	return runtime.ContractSHA256(datasetProbePath)
+}
+
+var benchmarkDatasetIdentityCache struct {
+	sync.Once
+	sha256 string
+	err    error
+}
+
+// DatasetIdentitySHA256 returns the reviewed reference identity of the complete
+// benchmark Dataset formula: all five Products, their
+// namespaces and snapshots, ordered schemas, SQL types, collations and 815,000
+// logical rows. It does not inspect a deployment; runtime callers must compare a
+// full live typed stream with this reference. It is deliberately independent of
+// DatasetProbeSQL, whose scalar result is only a deployment sanity observation.
+func (runtime *Runtime) DatasetIdentitySHA256() (string, error) {
+	if runtime == nil {
+		return "", errors.New("contract runtime is nil")
+	}
+	if _, indexed := runtime.digests[datasetGeneratorPath]; !indexed {
+		return "", errors.New("contract index does not cover the benchmark dataset generator")
+	}
+	benchmarkDatasetIdentityCache.Do(func() {
+		summary, err := finalv5oracle.BenchmarkDatasetFingerprint()
+		if err != nil {
+			benchmarkDatasetIdentityCache.err = err
+			return
+		}
+		if summary.DatasetSpecID != finalv5oracle.BenchmarkDatasetSpecID ||
+			summary.GeneratorVersion != finalv5oracle.BenchmarkDatasetGeneratorVersion ||
+			summary.ProductCount != 5 || summary.RowCount != 815_000 ||
+			!sha256Pattern.MatchString(summary.SHA256) {
+			benchmarkDatasetIdentityCache.err = errors.New("typed benchmark dataset identity is incomplete")
+			return
+		}
+		benchmarkDatasetIdentityCache.sha256 = summary.SHA256
+	})
+	if benchmarkDatasetIdentityCache.err != nil {
+		return "", fmt.Errorf("derive the typed benchmark dataset identity: %w", benchmarkDatasetIdentityCache.err)
+	}
+	return benchmarkDatasetIdentityCache.sha256, nil
 }
 
 // CellIdentity is the protocol coordinate of one preregistered cell.
@@ -668,6 +717,7 @@ func renderPositionalInt64(template string, rows int64) (string, []RenderedParam
 type LiveDeployment struct {
 	CatalogPath        string
 	CatalogSHA256      string
+	DatasetSHA256      string
 	DatasetProbeSHA256 string
 }
 
@@ -692,8 +742,22 @@ type Binding struct {
 	CatalogSHA256          string                       `json:"catalog_sha256"`
 	CatalogCandidateSHA256 string                       `json:"catalog_candidate_sha256"`
 	DatasetGeneratorSHA256 string                       `json:"dataset_generator_sha256"`
+	DatasetSHA256          string                       `json:"dataset_sha256"`
 	DatasetProbeSHA256     string                       `json:"dataset_probe_sha256"`
 	IndexSHA256            string                       `json:"contract_index_sha256"`
+}
+
+// SHA256 identifies the complete public Contract-Bridge deployment record for
+// one Artifact cell. The record binds the cell/result contract to the live
+// Catalog, full typed Dataset and independent scalar probe without importing
+// the private Scale/ProvSQL adapter section deleted from Artifact by Decision 19.
+func (binding Binding) SHA256() (string, error) {
+	payload, err := json.Marshal(binding)
+	if err != nil {
+		return "", fmt.Errorf("encode public Artifact deployment binding: %w", err)
+	}
+	digest := sha256.Sum256(payload)
+	return hex.EncodeToString(digest[:]), nil
 }
 
 // BindDeployment binds one frozen cell to the Catalog the Gateway is actually
@@ -702,8 +766,16 @@ type Binding struct {
 // candidate, when a placeholder digest is still installed, or when the
 // approved budget profile cannot carry the cell's rows and release Facts.
 func (runtime *Runtime) BindDeployment(target ArtifactCell, live LiveDeployment) (Binding, error) {
-	if !sha256Pattern.MatchString(live.CatalogSHA256) || !sha256Pattern.MatchString(live.DatasetProbeSHA256) {
-		return Binding{}, errors.New("live deployment digests are not SHA-256")
+	if !sha256Pattern.MatchString(live.CatalogSHA256) || !sha256Pattern.MatchString(live.DatasetSHA256) ||
+		!sha256Pattern.MatchString(live.DatasetProbeSHA256) {
+		return Binding{}, errors.New("deployment binding digests are not SHA-256")
+	}
+	datasetIdentity, err := runtime.DatasetIdentitySHA256()
+	if err != nil {
+		return Binding{}, err
+	}
+	if live.DatasetSHA256 != datasetIdentity {
+		return Binding{}, errors.New("bound typed Dataset identity differs from the reviewed benchmark Dataset formula")
 	}
 	liveCatalog, err := catalog.Load(live.CatalogPath)
 	if err != nil {
@@ -776,7 +848,8 @@ func (runtime *Runtime) BindDeployment(target ArtifactCell, live LiveDeployment)
 		BudgetProfile: policy.BudgetProfile, MaxRows: policy.Budget.MaxRows,
 		MaxReleaseFacts: policy.Budget.MaxReleaseFacts, CatalogSHA256: live.CatalogSHA256,
 		CatalogCandidateSHA256: candidateDigest, DatasetGeneratorSHA256: generatorDigest,
-		DatasetProbeSHA256: live.DatasetProbeSHA256, IndexSHA256: runtime.indexSHA256,
+		DatasetSHA256: live.DatasetSHA256, DatasetProbeSHA256: live.DatasetProbeSHA256,
+		IndexSHA256: runtime.indexSHA256,
 	}, nil
 }
 

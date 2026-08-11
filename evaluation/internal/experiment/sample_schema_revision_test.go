@@ -65,6 +65,229 @@ func TestSampleV1SchemaAndTrackedEvidenceRemainByteCompatible(t *testing.T) {
 	}
 }
 
+func TestSampleV2RejectionSchemaRemainsByteCompatible(t *testing.T) {
+	const schemaSHA256 = "0184b99b69c4c2dc9ffbed4b35734e45c73cf04e6880a9fea2e8633a4ced94ed"
+	path := filepath.Join("..", "..", "final-v5-wsl2", "schema", "sample-v2.schema.json")
+	got, err := FileSHA256(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != schemaSHA256 {
+		t.Fatalf("sample-v2 rejection schema SHA-256 = %s, want frozen %s", got, schemaSHA256)
+	}
+}
+
+func TestSampleV3IsAnExplicitPostAcceptanceRevision(t *testing.T) {
+	v3 := readSampleSchemaObject(t, "sample-v3.schema.json")
+	v3Properties := objectMap(t, v3["properties"], "sample-v3 properties")
+	statusValues := stringArray(t, objectMap(t, v3Properties["status"], "sample-v3 status")["enum"], "sample-v3 status enum")
+	sort.Strings(statusValues)
+	if v3["$id"] != "taskgate-final-v5-sample-v3" ||
+		objectMap(t, v3Properties["schema_version"], "sample-v3 schema_version")["const"] != float64(FinalizedSampleSchemaVersion) ||
+		!reflect.DeepEqual(statusValues, []string{"fail", "pass"}) ||
+		!containsString(stringArray(t, v3["required"], "sample-v3 required"), "taskgate_acceptance_v3") {
+		t.Fatal("sample-v3 does not declare its own post-acceptance PASS/FAIL wire")
+	}
+	if _, present := v3Properties["taskgate_rejection_v1"]; present {
+		t.Fatal("sample-v3 exposes the rejection-only sample-v2 member")
+	}
+
+	scaleAlternatives, ok := objectMap(t, v3Properties["scale_verification"], "sample-v3 scale verification")["anyOf"].([]any)
+	if !ok || len(scaleAlternatives) == 0 {
+		t.Fatal("sample-v3 scale verification has no current alternative")
+	}
+	scaleSchema := objectMap(t, scaleAlternatives[0], "sample-v3 scale verification current alternative")
+	scaleProperties := objectMap(t, scaleSchema["properties"], "sample-v3 scale verification properties")
+	if objectMap(t, scaleProperties["version"], "sample-v3 scale version")["const"] != scaleDependencyEvidenceVersionV2 ||
+		objectMap(t, scaleProperties["boundary"], "sample-v3 scale boundary")["const"] != "dependency_e2e" {
+		t.Fatal("sample-v3 does not select the Decision-18 Scale evidence version")
+	}
+	requiredScale := stringArray(t, scaleSchema["required"], "sample-v3 scale required")
+	for _, name := range []string{"expected_existing_facts", "expected_union_facts", "existing_dependency_sha256", "union_dependency_sha256"} {
+		if !containsString(requiredScale, name) {
+			t.Fatalf("sample-v3 Scale evidence does not require %s", name)
+		}
+	}
+	artifactAlternatives, ok := objectMap(t, v3Properties["artifact_verification"], "sample-v3 artifact verification")["anyOf"].([]any)
+	if !ok || len(artifactAlternatives) == 0 {
+		t.Fatal("sample-v3 artifact verification has no current alternative")
+	}
+	artifactSchema := objectMap(t, artifactAlternatives[0], "sample-v3 artifact verification current alternative")
+	artifactProperties := objectMap(t, artifactSchema["properties"], "sample-v3 artifact verification properties")
+	if objectMap(t, artifactProperties["version"], "sample-v3 artifact version")["const"] != artifactEvidenceVersionV2 {
+		t.Fatal("sample-v3 does not select Artifact evidence-v2")
+	}
+
+	current := validTestSample()
+	current.SchemaVersion = FinalizedSampleSchemaVersion
+	current.TaskGateAcceptanceV3 = &FinalizationV3{}
+	if err := sampleV3SchemaValidator(t)(sampleJSONInstance(t, current)); err != nil {
+		t.Fatalf("sample-v3 JSON Schema rejected a current PASS: %v", err)
+	}
+	if err := current.Validate(); err != nil {
+		t.Fatalf("Go validation rejected a current sample-v3 PASS: %v", err)
+	}
+	withoutAcceptance := current
+	withoutAcceptance.TaskGateAcceptanceV3 = nil
+	if err := sampleV3SchemaValidator(t)(sampleJSONInstance(t, withoutAcceptance)); err == nil {
+		t.Fatal("sample-v3 JSON Schema accepted a sample without finalizer acceptance")
+	}
+	if err := withoutAcceptance.Validate(); err == nil {
+		t.Fatal("Go validation accepted sample-v3 without finalizer acceptance")
+	}
+	if err := sampleSchemaValidator(t)(sampleJSONInstance(t, current)); err == nil {
+		t.Fatal("sample-v1 JSON Schema silently reinterpreted sample-v3")
+	}
+	current.Status = "fail"
+	current.ErrorCode = "post_acceptance_evidence_invariant_failed"
+	if err := sampleV3SchemaValidator(t)(sampleJSONInstance(t, current)); err != nil {
+		t.Fatalf("sample-v3 JSON Schema rejected a retained post-acceptance FAIL: %v", err)
+	}
+	if err := current.Validate(); err != nil {
+		t.Fatalf("Go validation rejected a retained post-acceptance FAIL: %v", err)
+	}
+	current.Status = "invalid"
+	if err := sampleV3SchemaValidator(t)(sampleJSONInstance(t, current)); err == nil {
+		t.Fatal("sample-v3 JSON Schema accepted INVALID")
+	}
+	if err := current.Validate(); err == nil {
+		t.Fatal("Go validation accepted INVALID on the finalized sample-v3 wire")
+	}
+}
+
+func TestSampleV3ScaleRequiresDecision18FieldsAndRejectsLegacyHistory(t *testing.T) {
+	digest := strings.Repeat("a", 64)
+	sample := validTestSample()
+	sample.SchemaVersion = FinalizedSampleSchemaVersion
+	sample.TaskGateAcceptanceV3 = &FinalizationV3{}
+	sample.ExperimentID = "scale"
+	sample.WorkloadID = "dependency-e2e"
+	sample.Scale = "10k-overlap-0"
+	sample.Mode = "novel"
+	sample.ScaleVerification = &ScaleVerificationEvidence{
+		Version: scaleDependencyEvidenceVersionV2, Boundary: "dependency_e2e",
+		BindingFileSHA256: digest, BindingSHA256: digest, DatasetSHA256: digest,
+		DatasetProbeSHA256: strings.Repeat("b", 64), CatalogSHA256: digest, QuerySHA256: digest,
+		ExpectedRows: 1, ExpectedColumns: 1, ExpectedResultSHA256: digest,
+		ExpectedCandidateFacts: 10_000, ObservedCandidateFacts: 10_000,
+		ExpectedExistingFacts: 10_000, ExpectedUnionFacts: 20_000,
+		ExistingDependencySHA256: digest, CandidateDependencySHA256: digest, UnionDependencySHA256: digest,
+		ObserverWindow: &ObserverWindowV2{},
+	}
+	instance := sampleJSONInstance(t, sample)
+	validate := sampleV3SchemaValidator(t)
+	if err := validate(instance); err != nil {
+		t.Fatalf("sample-v3 schema rejected complete Decision-18 Scale evidence: %v", err)
+	}
+	if err := sample.Validate(); err != nil {
+		t.Fatalf("sample-v3 Go reader rejected complete Decision-18 Scale evidence: %v", err)
+	}
+
+	for _, field := range []string{"expected_existing_facts", "expected_union_facts", "existing_dependency_sha256", "union_dependency_sha256"} {
+		t.Run("missing "+field, func(t *testing.T) {
+			mutated := sampleJSONInstance(t, sample)
+			delete(objectMap(t, mutated["scale_verification"], "scale verification"), field)
+			if err := validate(mutated); err == nil {
+				t.Fatalf("sample-v3 schema accepted Scale evidence without %s", field)
+			}
+		})
+	}
+	legacy := sampleJSONInstance(t, sample)
+	legacyScale := objectMap(t, legacy["scale_verification"], "legacy scale verification")
+	legacyScale["version"] = scaleEvidenceVersion
+	legacyScale["history_dependency_sha256"] = digest
+	if err := validate(legacy); err == nil {
+		t.Fatal("sample-v3 schema silently reinterpreted legacy Scale history/evidence-v1")
+	}
+	legacySample := sample
+	legacyEvidence := *sample.ScaleVerification
+	legacyEvidence.Version = scaleEvidenceVersion
+	legacyEvidence.HistoryDependencySHA256 = digest
+	legacySample.ScaleVerification = &legacyEvidence
+	if err := legacySample.Validate(); err == nil {
+		t.Fatal("sample-v3 Go reader silently reinterpreted legacy Scale history/evidence-v1")
+	}
+	legacySample = sample
+	legacySample.SchemaVersion = SampleSchemaVersion
+	if err := legacySample.Validate(); err == nil {
+		t.Fatal("sample-v1 Go reader accepted sample-v3 Decision-18 Scale members")
+	}
+}
+
+func TestSampleV1V2RejectDecision18ScaleMembersByWirePresence(t *testing.T) {
+	tests := []struct {
+		name     string
+		instance func(*testing.T) map[string]any
+		validate func(*testing.T) func(any) error
+	}{
+		{name: "sample-v1", instance: func(t *testing.T) map[string]any {
+			return sampleJSONInstance(t, validTestSample())
+		}, validate: sampleSchemaValidator},
+		{name: "sample-v2", instance: validSampleV2JSON, validate: sampleV2SchemaValidator},
+	}
+	for _, test := range tests {
+		for field, explicitZero := range map[string]any{
+			"expected_existing_facts":    float64(0),
+			"expected_union_facts":       float64(0),
+			"existing_dependency_sha256": "",
+			"union_dependency_sha256":    "",
+		} {
+			t.Run(test.name+"/"+field, func(t *testing.T) {
+				instance := test.instance(t)
+				instance["scale_verification"] = map[string]any{field: explicitZero}
+				if err := test.validate(t)(instance); err == nil {
+					t.Fatalf("%s JSON Schema accepted explicitly present %s", test.name, field)
+				}
+				encoded, err := json.Marshal(instance)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var sample Sample
+				if err := StrictJSON(encoded, &sample); err == nil {
+					t.Fatalf("%s strict reader accepted explicitly present %s", test.name, field)
+				}
+			})
+		}
+	}
+}
+
+func TestSampleV3SchemaMatchesCurrentGoWire(t *testing.T) {
+	schema := readSampleSchemaObject(t, "sample-v3.schema.json")
+	properties := objectMap(t, schema["properties"], "sample-v3 properties")
+	definitions := objectMap(t, schema["$defs"], "sample-v3 definitions")
+
+	wantSample, _ := jsonFields(reflect.TypeOf(Sample{}))
+	wantSample = withoutStrings(wantSample, "taskgate_rejection_v1")
+	if got := sortedKeys(properties); !reflect.DeepEqual(got, wantSample) {
+		t.Fatalf("sample-v3 properties = %v, current Go Sample wire = %v", got, wantSample)
+	}
+
+	for propertyName, evidenceType := range map[string]reflect.Type{
+		"scale_verification":    reflect.TypeOf(ScaleVerificationEvidence{}),
+		"artifact_verification": reflect.TypeOf(ArtifactVerificationEvidence{}),
+	} {
+		t.Run(propertyName, func(t *testing.T) {
+			branches, ok := objectMap(t, properties[propertyName], propertyName)["anyOf"].([]any)
+			if !ok || len(branches) != 2 {
+				t.Fatal("sample-v3 evidence envelope must have current and retained-failure branches")
+			}
+			strict := resolveDefinition(t, objectMap(t, branches[0], propertyName+" current"), definitions)
+			partial := resolveDefinition(t, objectMap(t, branches[1], propertyName+" partial"), definitions)
+			wantFields, _ := jsonFields(evidenceType)
+			if got := sortedKeys(objectMap(t, strict["properties"], propertyName+" properties")); !reflect.DeepEqual(got, wantFields) {
+				t.Fatalf("sample-v3 current properties = %v, Go evidence wire = %v", got, wantFields)
+			}
+			partialNames := stringArray(t,
+				objectMap(t, partial["propertyNames"], propertyName+" partial propertyNames")["enum"],
+				propertyName+" partial property names")
+			sort.Strings(partialNames)
+			if !reflect.DeepEqual(partialNames, wantFields) {
+				t.Fatalf("sample-v3 retained-failure properties = %v, Go evidence wire = %v", partialNames, wantFields)
+			}
+		})
+	}
+}
+
 func TestSampleV1RejectsTaskGateRejectionV1(t *testing.T) {
 	instance := validSampleV2JSON(t)
 	instance["schema_version"] = float64(SampleSchemaVersion)
@@ -488,9 +711,32 @@ func sampleV2SchemaValidator(t *testing.T) func(any) error {
 	return resolved.Validate
 }
 
-func readSampleV2SchemaObject(t *testing.T) map[string]any {
+func sampleV3SchemaValidator(t *testing.T) func(any) error {
 	t.Helper()
-	path := filepath.Join("..", "..", "final-v5-wsl2", "schema", "sample-v2.schema.json")
+	schemaObject := readSampleSchemaObject(t, "sample-v3.schema.json")
+	schemaBytes, err := json.Marshal(schemaObject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema jsonschema.Schema
+	if err := json.Unmarshal(schemaBytes, &schema); err != nil {
+		t.Fatal(err)
+	}
+	schema.ID = "https://taskgate.local/schema/sample-v3"
+	resolved, err := schema.Resolve(&jsonschema.ResolveOptions{ValidateDefaults: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resolved.Validate
+}
+
+func readSampleV2SchemaObject(t *testing.T) map[string]any {
+	return readSampleSchemaObject(t, "sample-v2.schema.json")
+}
+
+func readSampleSchemaObject(t *testing.T, name string) map[string]any {
+	t.Helper()
+	path := filepath.Join("..", "..", "final-v5-wsl2", "schema", name)
 	value, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)

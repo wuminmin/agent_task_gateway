@@ -15,6 +15,8 @@ import (
 
 	contractfs "taskbound.local/agent-data-gateway/evaluation/final-v5-wsl2"
 	"taskbound.local/agent-data-gateway/evaluation/finalv5contracts"
+	"taskbound.local/agent-data-gateway/evaluation/finalv5oracle"
+	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5dataset"
 )
 
 const (
@@ -24,9 +26,10 @@ const (
 )
 
 type artifactTargetedBindingFixture struct {
-	input      ArtifactTargetedBindingInput
-	deps       artifactTargetedBindingDependencies
-	probeCalls int
+	input        ArtifactTargetedBindingInput
+	deps         artifactTargetedBindingDependencies
+	datasetCalls int
+	probeCalls   int
 }
 
 func newArtifactTargetedBindingFixture(t *testing.T) *artifactTargetedBindingFixture {
@@ -61,6 +64,16 @@ func newArtifactTargetedBindingFixture(t *testing.T) *artifactTargetedBindingFix
 	}
 	fixture.deps = artifactTargetedBindingDependencies{
 		loadRuntime: finalv5contracts.LoadRuntime,
+		dataset: func(ctx context.Context, dsn string) (finalv5dataset.BenchmarkAgreement, error) {
+			fixture.datasetCalls++
+			if ctx == nil {
+				t.Fatal("fake Dataset verifier received a nil context")
+			}
+			if dsn != artifactTargetedTestDSN {
+				t.Fatal("fake Dataset verifier received a different DSN")
+			}
+			return artifactTargetedTestDatasetAgreement(t)
+		},
 		probe: func(ctx context.Context, runtime *finalv5contracts.Runtime, dsn string) (string, error) {
 			fixture.probeCalls++
 			if ctx == nil {
@@ -85,6 +98,26 @@ func newArtifactTargetedBindingFixture(t *testing.T) *artifactTargetedBindingFix
 	return fixture
 }
 
+func artifactTargetedTestDatasetAgreement(t *testing.T) (finalv5dataset.BenchmarkAgreement, error) {
+	t.Helper()
+	reference, err := finalv5oracle.BenchmarkDatasetFingerprint()
+	if err != nil {
+		return finalv5dataset.BenchmarkAgreement{}, err
+	}
+	definitions, err := finalv5dataset.ProductDefinitions()
+	if err != nil {
+		return finalv5dataset.BenchmarkAgreement{}, err
+	}
+	products := make([]finalv5dataset.PostgreSQLProduct, len(definitions))
+	for index, definition := range definitions {
+		products[index] = definition.PostgreSQLProduct
+	}
+	return finalv5dataset.BenchmarkAgreement{
+		Version: finalv5dataset.BenchmarkAgreementVersion, Products: products,
+		Reference: reference, Observed: reference, PreparedStatementCount: 0, Agreed: true,
+	}, nil
+}
+
 func buildArtifactTargetedFixture(t *testing.T, fixture *artifactTargetedBindingFixture) ArtifactTargetedDeploymentBinding {
 	t.Helper()
 	binding, err := buildArtifactTargetedDeploymentBinding(context.Background(), fixture.input, fixture.deps)
@@ -94,9 +127,12 @@ func buildArtifactTargetedFixture(t *testing.T, fixture *artifactTargetedBinding
 	return binding
 }
 
-func TestArtifactTargetedBindingBuildsTheSixFrozenCellsWithoutPostgreSQL(t *testing.T) {
+func TestArtifactTargetedBindingBuildsTheSixFrozenCellsFromIndependentLiveInputs(t *testing.T) {
 	fixture := newArtifactTargetedBindingFixture(t)
 	binding := buildArtifactTargetedFixture(t, fixture)
+	if fixture.datasetCalls != 1 {
+		t.Fatalf("full live Dataset verification calls = %d, want exactly 1", fixture.datasetCalls)
+	}
 	if fixture.probeCalls != 1 {
 		t.Fatalf("dataset probe calls = %d, want exactly 1", fixture.probeCalls)
 	}
@@ -105,16 +141,24 @@ func TestArtifactTargetedBindingBuildsTheSixFrozenCellsWithoutPostgreSQL(t *test
 	if err != nil {
 		t.Fatalf("load the embedded Contract Index independently: %v", err)
 	}
-	probeSQL, err := runtime.DatasetProbeSQL()
+	probeSQLSHA256, err := runtime.DatasetProbeSourceSHA256()
 	if err != nil {
-		t.Fatalf("load the indexed dataset probe independently: %v", err)
+		t.Fatalf("load the indexed dataset probe identity independently: %v", err)
 	}
-	if binding.SchemaVersion != 1 || binding.Record != ArtifactTargetedDeploymentBindingVersion ||
+	datasetSHA256, err := runtime.DatasetIdentitySHA256()
+	if err != nil {
+		t.Fatalf("derive the typed benchmark Dataset identity independently: %v", err)
+	}
+	if binding.SchemaVersion != 2 || binding.Record != ArtifactTargetedDeploymentBindingVersion ||
 		binding.SubmissionCommit != artifactTargetedTestCommit || binding.ContractRelease != runtime.ContractRelease() ||
 		binding.ContractIndexSHA256 != runtime.IndexSHA256() ||
-		binding.DatasetProbeSQLSHA256 != sha256String(probeSQL) ||
+		binding.DatasetSHA256 != datasetSHA256 ||
+		binding.DatasetProbeSQLSHA256 != probeSQLSHA256 ||
 		binding.DatasetProbeSHA256 != sha256String(artifactTargetedRawProbe) {
 		t.Fatalf("binding header or probe identity is not derived from the embedded runtime: %+v", binding)
+	}
+	if binding.DatasetSHA256 == binding.DatasetProbeSHA256 {
+		t.Fatal("typed Dataset identity was conflated with the deployment sanity probe")
 	}
 	wantSelected := []string{"100x4", "10k-x16", "100k-x16"}
 	if !reflect.DeepEqual(binding.SelectedScales, wantSelected) {
@@ -196,6 +240,10 @@ func TestArtifactTargetedBindingBuildsTheSixFrozenCellsWithoutPostgreSQL(t *test
 	if err != nil || !reflect.DeepEqual(decoded, binding) {
 		t.Fatalf("canonical binding did not round trip: decoded=%+v err=%v", decoded, err)
 	}
+	probeSQL, err := runtime.DatasetProbeSQL()
+	if err != nil {
+		t.Fatalf("load executable Dataset probe for redaction check: %v", err)
+	}
 	assertArtifactTargetedOutputContainsNoSecrets(t, canonical, fixture, probeSQL)
 }
 
@@ -255,7 +303,46 @@ func TestArtifactTargetedBindingRequiresOneValidLiveDatasetProbe(t *testing.T) {
 		if fixture.probeCalls != 0 {
 			t.Fatalf("probe ran %d times with no Business DSN", fixture.probeCalls)
 		}
+		if fixture.datasetCalls != 0 {
+			t.Fatalf("full Dataset verifier ran %d times with no Business DSN", fixture.datasetCalls)
+		}
 	})
+
+	for _, testCase := range []struct {
+		name   string
+		mutate func(*finalv5dataset.BenchmarkAgreement)
+		err    error
+	}{
+		{name: "verification failed", err: errors.New("Dataset unavailable")},
+		{name: "agreement false", mutate: func(agreement *finalv5dataset.BenchmarkAgreement) { agreement.Agreed = false }},
+		{name: "observed digest drifted", mutate: func(agreement *finalv5dataset.BenchmarkAgreement) {
+			agreement.Observed.SHA256 = strings.Repeat("a", 64)
+		}},
+		{name: "prepared statement present", mutate: func(agreement *finalv5dataset.BenchmarkAgreement) {
+			agreement.PreparedStatementCount = 1
+		}},
+	} {
+		t.Run("full Dataset "+testCase.name, func(t *testing.T) {
+			fixture := newArtifactTargetedBindingFixture(t)
+			fixture.deps.dataset = func(context.Context, string) (finalv5dataset.BenchmarkAgreement, error) {
+				agreement, agreementErr := artifactTargetedTestDatasetAgreement(t)
+				if agreementErr != nil {
+					return agreement, agreementErr
+				}
+				if testCase.mutate != nil {
+					testCase.mutate(&agreement)
+				}
+				return agreement, testCase.err
+			}
+			if _, err := buildArtifactTargetedDeploymentBinding(
+				context.Background(), fixture.input, fixture.deps); err == nil {
+				t.Fatal("a failed or invalid full live Dataset verification was accepted")
+			}
+			if fixture.probeCalls != 0 {
+				t.Fatalf("scalar probe ran %d times after Dataset verification failed", fixture.probeCalls)
+			}
+		})
+	}
 
 	for _, testCase := range []struct {
 		name   string
@@ -357,7 +444,7 @@ func TestArtifactTargetedBindingDecoderRequiresExactCanonicalJSON(t *testing.T) 
 
 	mutations := map[string][]byte{
 		"unknown field":    append([]byte(`{"unknown":true,`), canonical[1:]...),
-		"duplicate field":  append([]byte(`{"schema_version":1,`), canonical[1:]...),
+		"duplicate field":  append([]byte(`{"schema_version":2,`), canonical[1:]...),
 		"trailing newline": append(append([]byte(nil), canonical...), '\n'),
 		"leading space":    append([]byte{' '}, canonical...),
 	}
@@ -403,8 +490,10 @@ func TestArtifactTargetedBindingFilesAreExclusiveRegularMode0600(t *testing.T) {
 		if err != nil {
 			t.Fatalf("validate safe binding: %v", err)
 		}
-		if report.SchemaVersion != 1 || report.Status != "valid" || report.ArtifactCells != 6 ||
+		if report.SchemaVersion != 2 || report.Status != "valid" || report.ArtifactCells != 6 ||
 			report.SelectedCells != len(binding.SelectedScales) ||
+			report.DatasetSHA256 != binding.DatasetSHA256 ||
+			report.DatasetProbeSQLSHA256 != binding.DatasetProbeSQLSHA256 ||
 			report.DatasetProbeSHA256 != binding.DatasetProbeSHA256 || report.BindingFileSHA256 != sha256Hex(payload) {
 			t.Fatalf("validation report = %+v", report)
 		}

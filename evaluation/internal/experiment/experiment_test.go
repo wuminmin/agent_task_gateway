@@ -1332,6 +1332,81 @@ func TestPublicationFinalizerRejectsSelfConsistentEnvironmentBindingDrift(t *tes
 	}
 }
 
+func TestPublicationFinalizerAcceptsFreshDeploymentProofV2WithIndependentDatasetProbe(t *testing.T) {
+	runDir := buildPublicationEvidence(t, false)
+	upgradePublicationEvidenceToFreshProofV2(t, runDir)
+
+	summary, err := FinalizeRun(runDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Status != "pass" || !summary.PublicationEligible {
+		t.Fatalf("fresh proof v2 summary=%+v", summary)
+	}
+}
+
+func TestPublicationFinalizerRejectsCoherentFreshDeploymentProbeDrift(t *testing.T) {
+	runDir := buildPublicationEvidence(t, false)
+	upgradePublicationEvidenceToFreshProofV2(t, runDir)
+	deploymentID := "deployment-02"
+	probePath := filepath.Join(runDir, "environment", deploymentID+".fresh.dataset-probe.txt")
+	if err := os.WriteFile(probePath, []byte("different-live-sanity-result"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	probeSHA, err := FileSHA256(probePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rewritePublicationFreshProof(t, runDir, deploymentID, func(proof *FreshDeploymentProof) {
+		proof.DatasetProbeSHA256 = probeSHA
+	})
+	rewritePublicationEnvironment(t, runDir, deploymentID, func(environment *EnvironmentManifest) {
+		environment.Datasets[datasetProbeSHAKey] = probeSHA
+	})
+
+	summary, err := FinalizeRun(runDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Status == "pass" || summary.PublicationEligible ||
+		!containsReason(summary.Reasons, "Dataset sanity-probe result digest changed across deployments") {
+		t.Fatalf("coherent Dataset probe drift was not rejected: %+v", summary)
+	}
+}
+
+func TestPublicationFinalizerRejectsByteBoundInvalidLiveDatasetAgreement(t *testing.T) {
+	runDir := buildPublicationEvidence(t, false)
+	upgradePublicationEvidenceToFreshProofV2(t, runDir)
+	deploymentID := "deployment-02"
+	agreementPath := filepath.Join(runDir, "environment", deploymentID+".fresh.dataset-identity.json")
+	payload, err := os.ReadFile(agreementPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var agreement map[string]any
+	if err := json.Unmarshal(payload, &agreement); err != nil {
+		t.Fatal(err)
+	}
+	agreement["prepared_statement_count"] = float64(1)
+	writePublicationFixtureJSON(t, agreementPath, agreement)
+	agreementSHA, err := FileSHA256(agreementPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rewritePublicationFreshProof(t, runDir, deploymentID, func(proof *FreshDeploymentProof) {
+		proof.DatasetIdentityEvidenceSHA256 = agreementSHA
+	})
+
+	summary, err := FinalizeRun(runDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Status == "pass" || summary.PublicationEligible ||
+		!containsReason(summary.Reasons, "full live Dataset agreement does not match proof") {
+		t.Fatalf("byte-bound invalid live Dataset agreement was not rejected: %+v", summary)
+	}
+}
+
 func rewritePublicationEnvironment(t *testing.T, runDir, deploymentID string, mutate func(*EnvironmentManifest)) {
 	t.Helper()
 	path := filepath.Join(runDir, "environment", deploymentID+".json")
@@ -1399,6 +1474,57 @@ func writePublicationFixtureJSON(t *testing.T, path string, value any) {
 	}
 	if err := os.WriteFile(path, append(encoded, '\n'), 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func upgradePublicationEvidenceToFreshProofV2(t *testing.T, runDir string) {
+	t.Helper()
+	agreement, err := artifactTargetedTestDatasetAgreement(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agreementBytes, err := json.MarshalIndent(agreement, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	agreementBytes = append(agreementBytes, '\n')
+	typedDatasetSHA := agreement.Observed.SHA256
+	agreementSHA := sha256Hex(agreementBytes)
+	probeSQL := []byte("SELECT 'live-sanity-probe';\n")
+	probeResult := []byte("live-sanity-result")
+	probeSQLSHA := sha256Hex(probeSQL)
+	probeSHA := sha256Hex(probeResult)
+	if typedDatasetSHA == probeSQLSHA || typedDatasetSHA == probeSHA {
+		t.Fatal("fresh proof v2 fixture conflates typed Dataset and probe identities")
+	}
+	for deployment := 1; deployment <= 3; deployment++ {
+		deploymentID := fmt.Sprintf("deployment-%02d", deployment)
+		prefix := filepath.Join(runDir, "environment", deploymentID+".fresh")
+		if err := os.Remove(prefix + ".dataset-fingerprint.txt"); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(prefix+".dataset-probe.sql", probeSQL, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(prefix+".dataset-probe.txt", probeResult, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(prefix+".dataset-identity.json", agreementBytes, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		rewritePublicationFreshProof(t, runDir, deploymentID, func(proof *FreshDeploymentProof) {
+			proof.SchemaVersion = freshDeploymentProofSchemaVersion
+			proof.DatasetFingerprintSHA256 = ""
+			proof.DatasetSHA256 = typedDatasetSHA
+			proof.DatasetIdentityEvidenceSHA256 = agreementSHA
+			proof.DatasetProbeSQLSHA256 = probeSQLSHA
+			proof.DatasetProbeSHA256 = probeSHA
+		})
+		rewritePublicationEnvironment(t, runDir, deploymentID, func(environment *EnvironmentManifest) {
+			environment.Datasets["dataset_sha256"] = typedDatasetSHA
+			environment.Datasets[datasetProbeSQLSHAKey] = probeSQLSHA
+			environment.Datasets[datasetProbeSHAKey] = probeSHA
+		})
 	}
 }
 

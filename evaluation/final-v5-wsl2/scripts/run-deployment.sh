@@ -167,8 +167,9 @@ rq5_config_sha="$(rq5_manifest_source_digest evaluation/daily-publication/config
 $adapter_binary --validate-observer-runtime >/dev/null
 binding_validation="$($adapter_binary --validate-binding)"
 jq -e '
-  .schema_version == 1 and .status == "valid" and
+  .schema_version == 2 and .status == "valid" and
   (.dataset_sha256 | test("^[0-9a-f]{64}$")) and
+  (.dataset_probe_sha256 | test("^[0-9a-f]{64}$")) and
   (.catalog_sha256 | test("^[0-9a-f]{64}$")) and
   (.dataset_binding_sha256 | test("^[0-9a-f]{64}$")) and
   (.final_v5_adapter_sha256 | test("^[0-9a-f]{64}$")) and
@@ -177,11 +178,17 @@ jq -e '
 ' <<< "$binding_validation" >/dev/null || { echo "strict dataset binding validation report is invalid" >&2; exit 1; }
 binding_file_sha="$(jq -er .dataset_binding_sha256 <<< "$binding_validation")"
 binding_section_sha="$(jq -er .final_v5_adapter_sha256 <<< "$binding_validation")"
+binding_dataset_sha="$(jq -er .dataset_sha256 <<< "$binding_validation")"
+binding_dataset_probe_sql_sha="$(jq -er .dataset_probe_sql_sha256 <<< "$binding_validation")"
+binding_dataset_probe_sha="$(jq -er .dataset_probe_sha256 <<< "$binding_validation")"
 [[ "$(sha256sum "$TASKGATE_DATASET_BINDINGS" | awk '{print $1}')" == "$binding_file_sha" ]] || {
   echo "dataset binding changed during strict validation" >&2; exit 1;
 }
 export TASKGATE_FINAL_V5_BINDING_FILE_SHA256="$binding_file_sha"
 export TASKGATE_FINAL_V5_BINDING_SECTION_SHA256="$binding_section_sha"
+export TASKGATE_FINAL_V5_DATASET_SHA256="$binding_dataset_sha"
+export TASKGATE_FINAL_V5_DATASET_PROBE_SQL_SHA256="$binding_dataset_probe_sql_sha"
+export TASKGATE_FINAL_V5_DATASET_PROBE_SHA256="$binding_dataset_probe_sha"
 for identity in "dataset-binding:$binding_file_sha" "final-v5-adapter-binding:$binding_section_sha"; do
   identity_name="${identity%%:*}"
   identity_sha="${identity#*:}"
@@ -205,7 +212,9 @@ environment_path="$campaign_root/environment/$TASKGATE_DEPLOYMENT_ID.json"
 fresh_proof_path="$campaign_root/environment/$TASKGATE_DEPLOYMENT_ID.fresh.json"
 fresh_volume_inspect_path="$campaign_root/environment/$TASKGATE_DEPLOYMENT_ID.fresh.volume-inspect.json"
 fresh_compose_config_path="$campaign_root/environment/$TASKGATE_DEPLOYMENT_ID.fresh.compose-config.yaml"
-fresh_dataset_fingerprint_path="$campaign_root/environment/$TASKGATE_DEPLOYMENT_ID.fresh.dataset-fingerprint.txt"
+fresh_dataset_identity_path="$campaign_root/environment/$TASKGATE_DEPLOYMENT_ID.fresh.dataset-identity.json"
+fresh_dataset_probe_sql_path="$campaign_root/environment/$TASKGATE_DEPLOYMENT_ID.fresh.dataset-probe.sql"
+fresh_dataset_probe_path="$campaign_root/environment/$TASKGATE_DEPLOYMENT_ID.fresh.dataset-probe.txt"
 fresh_catalog_path="$campaign_root/environment/$TASKGATE_DEPLOYMENT_ID.fresh.catalog.yaml"
 windows_host_path="$campaign_root/environment/windows-host.json"
 vmstat_before_path="$campaign_root/environment/$TASKGATE_DEPLOYMENT_ID.vmstat-before.txt"
@@ -634,11 +643,17 @@ finish_deployment() {
     if [[ ! -e "$experiment_root/environment/$TASKGATE_DEPLOYMENT_ID.fresh.volume-inspect.json" ]]; then
       install -m 600 "$fresh_volume_inspect_path" "$experiment_root/environment/$TASKGATE_DEPLOYMENT_ID.fresh.volume-inspect.json" || status=1
     fi
-    if [[ ! -e "$experiment_root/environment/$TASKGATE_DEPLOYMENT_ID.fresh.compose-config.yaml" ]]; then
-      install -m 600 "$fresh_compose_config_path" "$experiment_root/environment/$TASKGATE_DEPLOYMENT_ID.fresh.compose-config.yaml" || status=1
+	    if [[ ! -e "$experiment_root/environment/$TASKGATE_DEPLOYMENT_ID.fresh.compose-config.yaml" ]]; then
+	      install -m 600 "$fresh_compose_config_path" "$experiment_root/environment/$TASKGATE_DEPLOYMENT_ID.fresh.compose-config.yaml" || status=1
+	    fi
+	    if [[ ! -e "$experiment_root/environment/$TASKGATE_DEPLOYMENT_ID.fresh.dataset-identity.json" ]]; then
+	      install -m 600 "$fresh_dataset_identity_path" "$experiment_root/environment/$TASKGATE_DEPLOYMENT_ID.fresh.dataset-identity.json" || status=1
+	    fi
+	    if [[ ! -e "$experiment_root/environment/$TASKGATE_DEPLOYMENT_ID.fresh.dataset-probe.sql" ]]; then
+      install -m 600 "$fresh_dataset_probe_sql_path" "$experiment_root/environment/$TASKGATE_DEPLOYMENT_ID.fresh.dataset-probe.sql" || status=1
     fi
-    if [[ ! -e "$experiment_root/environment/$TASKGATE_DEPLOYMENT_ID.fresh.dataset-fingerprint.txt" ]]; then
-      install -m 600 "$fresh_dataset_fingerprint_path" "$experiment_root/environment/$TASKGATE_DEPLOYMENT_ID.fresh.dataset-fingerprint.txt" || status=1
+    if [[ ! -e "$experiment_root/environment/$TASKGATE_DEPLOYMENT_ID.fresh.dataset-probe.txt" ]]; then
+      install -m 600 "$fresh_dataset_probe_path" "$experiment_root/environment/$TASKGATE_DEPLOYMENT_ID.fresh.dataset-probe.txt" || status=1
     fi
     if [[ ! -e "$experiment_root/environment/$TASKGATE_DEPLOYMENT_ID.fresh.catalog.yaml" ]]; then
       install -m 600 "$fresh_catalog_path" "$experiment_root/environment/$TASKGATE_DEPLOYMENT_ID.fresh.catalog.yaml" || status=1

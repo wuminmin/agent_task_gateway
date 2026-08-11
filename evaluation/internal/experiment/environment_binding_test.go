@@ -31,6 +31,92 @@ func TestBindPublicationDatasetsInjectsProofDerivedVolumeIdentity(t *testing.T) 
 	}
 }
 
+func TestBindPublicationDatasetsV2SeparatesTypedDatasetIdentityAndProbe(t *testing.T) {
+	proofPath, proof := writePublicationBindingProofV2(t, "binding-campaign", "deployment-01")
+	bindings := testReviewedBindingsV2(proof)
+
+	bound, err := BindPublicationDatasets(bindings, proofPath, proof.CampaignID, proof.DeploymentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proof.DatasetSHA256 == proof.DatasetProbeSQLSHA256 || proof.DatasetSHA256 == proof.DatasetProbeSHA256 {
+		t.Fatal("v2 fixture did not separate the typed Dataset identity from both probe identities")
+	}
+	for key, want := range map[string]string{
+		"dataset_sha256":      proof.DatasetSHA256,
+		datasetProbeSQLSHAKey: proof.DatasetProbeSQLSHA256,
+		datasetProbeSHAKey:    proof.DatasetProbeSHA256,
+	} {
+		if got := bound[key]; got != want {
+			t.Fatalf("bound %s = %v, want %s", key, got, want)
+		}
+	}
+	if len(bound) != 7 {
+		t.Fatalf("v2 environment binding has %d fields, want 7", len(bound))
+	}
+}
+
+func TestBindPublicationDatasetsV2RejectsIndependentIdentityMismatch(t *testing.T) {
+	proofPath, proof := writePublicationBindingProofV2(t, "binding-campaign", "deployment-01")
+	for _, key := range []string{"dataset_sha256", datasetProbeSQLSHAKey, datasetProbeSHAKey} {
+		t.Run(key, func(t *testing.T) {
+			bindings := testReviewedBindingsV2(proof)
+			bindings[key] = strings.Repeat("f", 64)
+			if _, err := BindPublicationDatasets(bindings, proofPath, proof.CampaignID, proof.DeploymentID); err == nil {
+				t.Fatalf("mismatched %s was accepted", key)
+			}
+		})
+	}
+}
+
+func TestBindPublicationDatasetsV2RejectsInvalidFullLiveDatasetAgreement(t *testing.T) {
+	proofPath, proof := writePublicationBindingProofV2(t, "binding-campaign", "deployment-01")
+	agreementPath := strings.TrimSuffix(proofPath, ".json") + ".dataset-identity.json"
+	payload, err := os.ReadFile(agreementPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var agreement map[string]any
+	if err := json.Unmarshal(payload, &agreement); err != nil {
+		t.Fatal(err)
+	}
+	agreement["agreed"] = false
+	payload, err = json.MarshalIndent(agreement, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload = append(payload, '\n')
+	if err := os.WriteFile(agreementPath, payload, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	proof.DatasetIdentityEvidenceSHA256 = bindingTestSHA256(payload)
+	rewriteBindingProof(t, proofPath, proof)
+	if _, err := BindPublicationDatasets(testReviewedBindingsV2(proof), proofPath,
+		proof.CampaignID, proof.DeploymentID); err == nil {
+		t.Fatal("a byte-bound but semantically invalid full live Dataset agreement was accepted")
+	}
+}
+
+func TestBindPublicationDatasetsProofDatasetFieldsAreVersioned(t *testing.T) {
+	t.Run("v1 rejects v2 fields", func(t *testing.T) {
+		proofPath, proof := writePublicationBindingProof(t, "binding-campaign", "deployment-01")
+		proof.DatasetSHA256 = strings.Repeat("1", 64)
+		rewriteBindingProof(t, proofPath, proof)
+		if _, err := BindPublicationDatasets(testReviewedBindings(proof.DatasetFingerprintSHA256, proof.CatalogSHA256),
+			proofPath, proof.CampaignID, proof.DeploymentID); err == nil {
+			t.Fatal("v1 proof with a v2 Dataset field was accepted")
+		}
+	})
+	t.Run("v2 rejects v1 field", func(t *testing.T) {
+		proofPath, proof := writePublicationBindingProofV2(t, "binding-campaign", "deployment-01")
+		proof.DatasetFingerprintSHA256 = strings.Repeat("2", 64)
+		rewriteBindingProof(t, proofPath, proof)
+		if _, err := BindPublicationDatasets(testReviewedBindingsV2(proof), proofPath, proof.CampaignID, proof.DeploymentID); err == nil {
+			t.Fatal("v2 proof with the legacy Dataset fingerprint field was accepted")
+		}
+	})
+}
+
 func TestBindPublicationDatasetsRejectsAuthorSuppliedVolumeIdentity(t *testing.T) {
 	proofPath, proof := writePublicationBindingProof(t, "binding-campaign", "deployment-01")
 	bindings := map[string]any{
@@ -99,6 +185,13 @@ func testReviewedBindings(datasetSHA256, catalogSHA256 string) map[string]any {
 		finalV5AdapterBindingSHAKey: strings.Repeat("7", 64),
 		datasetBindingFileSHAKey:    strings.Repeat("8", 64),
 	}
+}
+
+func testReviewedBindingsV2(proof FreshDeploymentProof) map[string]any {
+	bindings := testReviewedBindings(proof.DatasetSHA256, proof.CatalogSHA256)
+	bindings[datasetProbeSQLSHAKey] = proof.DatasetProbeSQLSHA256
+	bindings[datasetProbeSHAKey] = proof.DatasetProbeSHA256
+	return bindings
 }
 
 func TestWriteEnvironmentRejectsMissingDeploymentVolumeIdentity(t *testing.T) {
@@ -212,6 +305,54 @@ func writePublicationBindingProof(t *testing.T, campaignID, deploymentID string)
 		t.Fatal(err)
 	}
 	return proofPath, proof
+}
+
+func writePublicationBindingProofV2(t *testing.T, campaignID, deploymentID string) (string, FreshDeploymentProof) {
+	t.Helper()
+	proofPath, proof := writePublicationBindingProof(t, campaignID, deploymentID)
+	prefix := strings.TrimSuffix(proofPath, ".json")
+	if err := os.Remove(prefix + ".dataset-fingerprint.txt"); err != nil {
+		t.Fatal(err)
+	}
+	probeSQL := []byte("SELECT 'live-sanity-probe';\n")
+	probeResult := []byte("live-sanity-result")
+	if err := os.WriteFile(prefix+".dataset-probe.sql", probeSQL, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(prefix+".dataset-probe.txt", probeResult, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	agreement, err := artifactTargetedTestDatasetAgreement(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agreementBytes, err := json.MarshalIndent(agreement, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	agreementBytes = append(agreementBytes, '\n')
+	if err := os.WriteFile(prefix+".dataset-identity.json", agreementBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	proof.SchemaVersion = freshDeploymentProofSchemaVersion
+	proof.DatasetFingerprintSHA256 = ""
+	proof.DatasetSHA256 = agreement.Observed.SHA256
+	proof.DatasetIdentityEvidenceSHA256 = bindingTestSHA256(agreementBytes)
+	proof.DatasetProbeSQLSHA256 = bindingTestSHA256(probeSQL)
+	proof.DatasetProbeSHA256 = bindingTestSHA256(probeResult)
+	rewriteBindingProof(t, proofPath, proof)
+	return proofPath, proof
+}
+
+func rewriteBindingProof(t *testing.T, proofPath string, proof FreshDeploymentProof) {
+	t.Helper()
+	proofBytes, err := json.MarshalIndent(proof, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(proofPath, append(proofBytes, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func expectedBindingDeploymentVolumeID(proof FreshDeploymentProof) string {

@@ -10,6 +10,9 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"taskbound.local/agent-data-gateway/evaluation/finalv5oracle"
+	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5dataset"
 )
 
 func TestOracleCLIPreRunBoundary(t *testing.T) {
@@ -73,12 +76,30 @@ func TestOracleCLIPreRunBoundary(t *testing.T) {
 	}
 }
 
-func TestExposureScaleAdapterHasOneFixedReadOnlyQuery(t *testing.T) {
+func TestFullDatasetAdapterRejectsCallerSQLAndConnectionMaterial(t *testing.T) {
+	for _, arguments := range [][]string{
+		{"dataset-fingerprint-live", "--sql", "SELECT 1"},
+		{"dataset-fingerprint-live", "--dsn", "postgres://forbidden"},
+		{"dataset-fingerprint-live", "--query-file", "query.sql"},
+	} {
+		code, stdout, stderr := invokeCLI(arguments, "")
+		if code == 0 || stdout != "" || stderr == "" {
+			t.Fatalf("forbidden full Dataset adapter arguments %v: code=%d stdout=%q stderr=%q",
+				arguments, code, stdout, stderr)
+		}
+	}
+}
+
+func TestExposureScaleAdapterUsesTheSharedFixedReadOnlyQuery(t *testing.T) {
 	want := "SELECT member_rank, metric, family_id, partition_key\n" +
 		"FROM reporting.final_v5_exposure_scale\n" +
 		"ORDER BY member_rank"
-	if exposureScaleDatasetQuery != want {
-		t.Fatalf("fixed exposure-scale Dataset query = %q", exposureScaleDatasetQuery)
+	definition, err := finalv5dataset.ProductDefinitionFor(finalv5oracle.ExposureScaleProductID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if definition.Query != want {
+		t.Fatalf("fixed exposure-scale Dataset query = %q", definition.Query)
 	}
 	_, source, _, ok := runtime.Caller(0)
 	if !ok {
@@ -92,29 +113,29 @@ func TestExposureScaleAdapterHasOneFixedReadOnlyQuery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	queryCalls, simpleProtocolCalls := 0, 0
+	queryCalls, streamCalls, preparedCountCalls := 0, 0, 0
 	ast.Inspect(parsed, func(node ast.Node) bool {
 		call, ok := node.(*ast.CallExpr)
 		if !ok {
 			return true
 		}
 		selector, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok || (selector.Sel.Name != "Query" && selector.Sel.Name != "QueryRow") {
+		if !ok {
 			return true
 		}
-		queryCalls++
-		if len(call.Args) == 0 {
-			return true
-		}
-		mode, ok := call.Args[len(call.Args)-1].(*ast.SelectorExpr)
-		packageName, packageOK := mode.X.(*ast.Ident)
-		if ok && packageOK && packageName.Name == "pgx" && mode.Sel.Name == "QueryExecModeSimpleProtocol" {
-			simpleProtocolCalls++
+		switch selector.Sel.Name {
+		case "Query", "QueryRow":
+			queryCalls++
+		case "ProductStream":
+			streamCalls++
+		case "PreparedStatementCount":
+			preparedCountCalls++
 		}
 		return true
 	})
-	if queryCalls != 2 || simpleProtocolCalls != queryCalls {
-		t.Fatalf("Scale adapter has %d query calls / %d explicit simple-protocol calls; expected 2/2", queryCalls, simpleProtocolCalls)
+	if queryCalls != 0 || streamCalls != 1 || preparedCountCalls != 1 {
+		t.Fatalf("Scale adapter has direct queries/shared streams/prepared checks = %d/%d/%d; want 0/1/1",
+			queryCalls, streamCalls, preparedCountCalls)
 	}
 	for _, arguments := range [][]string{
 		{"scale-dataset-agreement", "--sql", "SELECT 1"},
@@ -128,7 +149,7 @@ func TestExposureScaleAdapterHasOneFixedReadOnlyQuery(t *testing.T) {
 	}
 }
 
-func TestProvSQLAdapterHasThreeFixedReadOnlyQueries(t *testing.T) {
+func TestProvSQLAdapterUsesTheThreeSharedFixedReadOnlyQueries(t *testing.T) {
 	wantOrders := "SELECT orderkey, status, partition_key\n" +
 		"FROM reporting.provsql_orders\n" +
 		"ORDER BY orderkey"
@@ -138,10 +159,15 @@ func TestProvSQLAdapterHasThreeFixedReadOnlyQueries(t *testing.T) {
 	wantNonce := "SELECT nonce_id, partition_key\n" +
 		"FROM reporting.provsql_nonce\n" +
 		"ORDER BY nonce_id"
-	if provSQLOrdersDatasetQuery != wantOrders || provSQLLineitemDatasetQuery != wantLineitem ||
-		provSQLNonceDatasetQuery != wantNonce {
+	orders, ordersErr := finalv5dataset.ProductDefinitionFor(finalv5oracle.ProvSQLOrdersProductID)
+	lineitem, lineitemErr := finalv5dataset.ProductDefinitionFor(finalv5oracle.ProvSQLLineitemProductID)
+	nonce, nonceErr := finalv5dataset.ProductDefinitionFor(finalv5oracle.ProvSQLNonceProductID)
+	if ordersErr != nil || lineitemErr != nil || nonceErr != nil {
+		t.Fatalf("load shared ProvSQL Product definitions: %v/%v/%v", ordersErr, lineitemErr, nonceErr)
+	}
+	if orders.Query != wantOrders || lineitem.Query != wantLineitem || nonce.Query != wantNonce {
 		t.Fatalf("fixed ProvSQL Dataset queries changed: orders=%q lineitem=%q nonce=%q",
-			provSQLOrdersDatasetQuery, provSQLLineitemDatasetQuery, provSQLNonceDatasetQuery)
+			orders.Query, lineitem.Query, nonce.Query)
 	}
 	_, source, _, ok := runtime.Caller(0)
 	if !ok {
@@ -155,30 +181,29 @@ func TestProvSQLAdapterHasThreeFixedReadOnlyQueries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	queryCalls, simpleProtocolCalls := 0, 0
+	queryCalls, streamCalls, preparedCountCalls := 0, 0, 0
 	ast.Inspect(parsed, func(node ast.Node) bool {
 		call, ok := node.(*ast.CallExpr)
 		if !ok {
 			return true
 		}
 		selector, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok || (selector.Sel.Name != "Query" && selector.Sel.Name != "QueryRow") {
+		if !ok {
 			return true
 		}
-		queryCalls++
-		if len(call.Args) == 0 {
-			return true
-		}
-		mode, ok := call.Args[len(call.Args)-1].(*ast.SelectorExpr)
-		packageName, packageOK := mode.X.(*ast.Ident)
-		if ok && packageOK && packageName.Name == "pgx" && mode.Sel.Name == "QueryExecModeSimpleProtocol" {
-			simpleProtocolCalls++
+		switch selector.Sel.Name {
+		case "Query", "QueryRow":
+			queryCalls++
+		case "ProductStream":
+			streamCalls++
+		case "PreparedStatementCount":
+			preparedCountCalls++
 		}
 		return true
 	})
-	if queryCalls != 4 || simpleProtocolCalls != queryCalls {
-		t.Fatalf("ProvSQL adapter has %d query calls / %d explicit simple-protocol calls; expected 4/4",
-			queryCalls, simpleProtocolCalls)
+	if queryCalls != 0 || streamCalls != 1 || preparedCountCalls != 1 {
+		t.Fatalf("ProvSQL adapter has direct queries/shared streams/prepared checks = %d/%d/%d; want 0/1/1",
+			queryCalls, streamCalls, preparedCountCalls)
 	}
 	for _, arguments := range [][]string{
 		{"provsql-dataset-agreement", "--sql", "SELECT 1"},

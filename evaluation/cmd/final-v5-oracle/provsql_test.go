@@ -15,7 +15,10 @@ import (
 )
 
 func TestProvSQLFixedDatasetShapesAgreeWithFrozenProducts(t *testing.T) {
-	shapes := provSQLDatasetStreamShapes()
+	shapes, err := provSQLDatasetStreamShapes()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := validateProvSQLDatasetStreamShapes(shapes); err != nil {
 		t.Fatal(err)
 	}
@@ -24,12 +27,18 @@ func TestProvSQLFixedDatasetShapesAgreeWithFrozenProducts(t *testing.T) {
 		shapes[2].ProductID != finalv5oracle.ProvSQLNonceProductID {
 		t.Fatalf("fixed ProvSQL query shapes = %+v", shapes)
 	}
-	changed := provSQLDatasetStreamShapes()
+	changed, err := provSQLDatasetStreamShapes()
+	if err != nil {
+		t.Fatal(err)
+	}
 	changed[0].Columns[0].Name = "changed"
 	if err := validateProvSQLDatasetStreamShapes(changed); err == nil {
 		t.Fatal("typed Product/query-shape guard accepted a changed column")
 	}
-	changed = provSQLDatasetStreamShapes()
+	changed, err = provSQLDatasetStreamShapes()
+	if err != nil {
+		t.Fatal(err)
+	}
 	changed[1].Columns[2].PostgreSQLOID = 25
 	if err := validateProvSQLDatasetStreamShapes(changed); err == nil {
 		t.Fatal("typed Product/query-shape guard accepted a changed PostgreSQL OID")

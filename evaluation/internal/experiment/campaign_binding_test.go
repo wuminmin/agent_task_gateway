@@ -308,8 +308,16 @@ func TestPublicationEnvironmentBindsFreshDatasetCatalogAndVolumeEvidence(t *test
 		"TASKGATE-FINAL-V5-DEPLOYMENT-VOLUME-ID-V1",
 		"deployment_volume_id_sha256",
 		"catalog_sha256",
+		"dataset_sha256",
+		"dataset_identity_evidence_sha256",
+		"dataset_probe_sql_sha256",
+		"dataset_probe_sha256",
+		"sql/datasets/benchmark-v1-probe.sql",
 		`gateway cat /etc/taskbound/catalog.yaml`,
-		`publication dataset fingerprint SQL is source-controlled and cannot be overridden`,
+		`publication dataset sanity-probe SQL is source-controlled and cannot be overridden`,
+		`< "$dataset_probe_sql_output")`,
+		`env -u BUSINESS_TEST_POSTGRES_DSN TASKGATE_FINAL_V5_BUSINESS_DSN="$dataset_live_dsn"`,
+		`go run ./evaluation/cmd/final-v5-oracle dataset-fingerprint-live`,
 		`publication Compose files differ from the frozen formal topology`,
 		`.services.gateway.environment.CATALOG_PATH == $target`,
 		`$mounts[0].source == $source`,
@@ -323,7 +331,12 @@ func TestPublicationEnvironmentBindsFreshDatasetCatalogAndVolumeEvidence(t *test
 		t.Fatal("publication environment recorder does not consume the fresh-deployment proof")
 	}
 	run := readScript("run-deployment.sh")
-	for _, required := range []string{`fresh.catalog.yaml`, `publication Compose files are source-controlled and cannot be overridden`} {
+	for _, required := range []string{
+		`fresh.catalog.yaml`, `fresh.dataset-identity.json`, `fresh.dataset-probe.sql`, `fresh.dataset-probe.txt`,
+		`.schema_version == 2`, `TASKGATE_FINAL_V5_DATASET_SHA256`,
+		`TASKGATE_FINAL_V5_DATASET_PROBE_SQL_SHA256`, `TASKGATE_FINAL_V5_DATASET_PROBE_SHA256`,
+		`publication Compose files are source-controlled and cannot be overridden`,
+	} {
 		if !strings.Contains(run, required) {
 			t.Fatalf("formal deployment omits binding guard %q", required)
 		}

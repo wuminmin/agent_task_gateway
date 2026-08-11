@@ -3,6 +3,7 @@ package experiment
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -236,8 +237,8 @@ func TestTheQualificationResolverSelfChecksAndBinds(t *testing.T) {
 // source-controlled Catalog.
 //
 // The dataset probe is a placeholder here and nowhere else: BindDeployment
-// requires a SHA-256-shaped deployment observation and records it, and nothing
-// downstream of the binding reads it. Every other input is the real one.
+// records it as a deployment observation independently from the real typed
+// Dataset identity derived below. Every other input is the real one.
 func deploymentContractsForTest(t *testing.T) deploymentContractsV3 {
 	t.Helper()
 	runtime, err := finalv5contracts.LoadRuntime()
@@ -253,10 +254,14 @@ func deploymentContractsForTest(t *testing.T) deploymentContractsV3 {
 	if err != nil {
 		t.Fatalf("load the Catalog: %v", err)
 	}
+	datasetSHA256, err := runtime.DatasetIdentitySHA256()
+	if err != nil {
+		t.Fatalf("derive the typed Dataset identity: %v", err)
+	}
 	return deploymentContractsV3{
 		runtime: runtime,
 		live: finalv5contracts.LiveDeployment{
-			CatalogPath: catalogPath, CatalogSHA256: digest,
+			CatalogPath: catalogPath, CatalogSHA256: digest, DatasetSHA256: datasetSHA256,
 			DatasetProbeSHA256: strings.Repeat("c", 64),
 		},
 		catalog: liveCatalog,
@@ -301,6 +306,33 @@ func TestTheContractResolverLowersTheFrozenStatement(t *testing.T) {
 		if candidate.Grant.ExposureProfile == "" || !candidate.Grant.UsesOrdinalProgram() {
 			t.Errorf("%s resolved to exposure profile %q, which compiles no ordinal program",
 				candidate.OperationID, candidate.Grant.ExposureProfile)
+		}
+		coordinates := strings.Split(candidate.OperationID, "/")
+		if len(coordinates) != 4 {
+			t.Fatalf("operation id %q is not a protocol coordinate", candidate.OperationID)
+		}
+		cell, err := contracts.runtime.ArtifactCell(coordinates[2], coordinates[3])
+		if err != nil {
+			t.Fatal(err)
+		}
+		binding, err := contracts.runtime.BindDeployment(cell, contracts.live)
+		if err != nil {
+			t.Fatal(err)
+		}
+		bindingSHA256, err := binding.SHA256()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, member := range []string{
+			":binding=" + bindingSHA256 + ":",
+			":dataset=" + binding.DatasetSHA256 + ":",
+			":probe=" + binding.DatasetProbeSHA256 + ":",
+			":catalog=" + binding.CatalogSHA256 + ":",
+		} {
+			if !strings.Contains(candidate.ContractIdentity, member) {
+				t.Errorf("%s contract identity omits public deployment member %s",
+					candidate.OperationID, member)
+			}
 		}
 	}
 
@@ -405,6 +437,25 @@ func TestDeploymentFinalizerContractSelectorsAcquirePrivateBindingOnlyWhenAdmitt
 	}
 }
 
+func TestDeploymentFinalizerBindsPrivateDatasetMaterialToIndependentLiveObservations(t *testing.T) {
+	dataset, probe := strings.Repeat("5", 64), strings.Repeat("b", 64)
+	binding := finalv5binding.Binding{DatasetSHA256: dataset, DatasetProbeSHA256: probe}
+	live := finalv5contracts.LiveDeployment{DatasetSHA256: dataset, DatasetProbeSHA256: probe}
+	if err := requireLiveDeploymentBindingV3(binding, live); err != nil {
+		t.Fatalf("matching live Dataset/probe identities were rejected: %v", err)
+	}
+	for _, mutate := range []func(*finalv5contracts.LiveDeployment){
+		func(value *finalv5contracts.LiveDeployment) { value.DatasetSHA256 = strings.Repeat("6", 64) },
+		func(value *finalv5contracts.LiveDeployment) { value.DatasetProbeSHA256 = strings.Repeat("c", 64) },
+	} {
+		drifted := live
+		mutate(&drifted)
+		if err := requireLiveDeploymentBindingV3(binding, drifted); err == nil {
+			t.Fatal("a private binding that differs from independent live Dataset material was accepted")
+		}
+	}
+}
+
 const scaleResolverTestProduct = "final_v5_exposure_scale"
 
 // scaleBindingForResolverTest is synthetic, non-evidence private material whose
@@ -432,24 +483,53 @@ func scaleBindingForResolverTest(t *testing.T) finalv5binding.Binding {
 		if _, present := dependency[cell.Identity.Scale]; present {
 			continue
 		}
+		spec, err := ParseDependencyScale(cell.Identity.Scale)
+		if err != nil {
+			t.Fatalf("parse frozen Scale cell %s: %v", cell.Identity, err)
+		}
+		m := spec.CandidateFacts / 5
+		k := spec.OverlapFacts / 5
 		dependency[cell.Identity.Scale] = finalv5binding.DependencyCellBinding{
 			Task: finalv5binding.BoundTaskRequest{
 				Objective:    "synthetic resolver-only Scale task",
 				DataProducts: []string{scaleResolverTestProduct},
 				Columns: map[string][]string{
-					scaleResolverTestProduct: {"row_id", "category"},
+					scaleResolverTestProduct: {"member_rank", "metric", "family_id", "partition_key"},
 				},
 				Scopes: map[string][]string{
-					"category": {"alpha", "beta", "gamma", "delta"},
+					"partition_key": {"1"},
 				},
-				VisibleRelation:   "reporting.final_v5_result_heavy",
-				CompanionRelation: "taskgate_ordinal.final_v5_result_heavy_v1",
+				VisibleRelation:   "reporting.final_v5_exposure_scale",
+				CompanionRelation: "taskgate_ordinal.final_v5_exposure_scale_v1",
 			},
 			Candidate: finalv5binding.BoundQueryExpectation{
-				SQL:          "SELECT row_id FROM final_v5_exposure_scale ORDER BY row_id",
+				SQL: fmt.Sprintf(`SELECT count(*) AS member_count
+FROM final_v5_exposure_scale
+WHERE partition_key = 1
+  AND family_id = 1
+  AND member_rank <= %d
+  AND metric <= 1001.00`, m),
 				ExpectedRows: 1, ExpectedColumns: 1,
 				ExpectedResultSHA256: strings.Repeat("3", 64),
-				DependencyFacts:      1, DependencySetSHA256: strings.Repeat("4", 64),
+				DependencyFacts:      spec.CandidateFacts,
+				DependencySetSHA256:  sha256Hex([]byte(cell.Identity.Scale + "/candidate")),
+			},
+			History: finalv5binding.BoundQueryExpectation{
+				SQL: fmt.Sprintf(`SELECT sum(metric) AS history_total
+FROM final_v5_exposure_scale
+WHERE partition_key = 1
+  AND family_id = 1
+  AND member_rank > %d
+  AND member_rank <= %d
+  AND metric <= 1001.00`, m-k, 2*m-k),
+				ExpectedRows: 1, ExpectedColumns: 1,
+				ExpectedResultSHA256: strings.Repeat("3", 64),
+				DependencyFacts:      spec.ExistingFacts,
+				DependencySetSHA256:  sha256Hex([]byte(cell.Identity.Scale + "/existing")),
+			},
+			Union: finalv5binding.BoundDependencySetExpectation{
+				DependencyFacts:     spec.UnionFacts,
+				DependencySetSHA256: sha256Hex([]byte(cell.Identity.Scale + "/union")),
 			},
 		}
 	}
@@ -457,9 +537,10 @@ func scaleBindingForResolverTest(t *testing.T) finalv5binding.Binding {
 		t.Fatalf("the embedded Scale contract resolved to %d dependency scales", len(dependency))
 	}
 	return finalv5binding.Binding{
-		DatasetSHA256: strings.Repeat("5", 64), CatalogSHA256: strings.Repeat("6", 64),
-		FileSHA256: strings.Repeat("7", 64), SectionSHA256: strings.Repeat("a", 64),
-		Section: finalv5binding.Section{SchemaVersion: 1,
+		DatasetSHA256: strings.Repeat("5", 64), DatasetProbeSHA256: strings.Repeat("b", 64),
+		CatalogSHA256: strings.Repeat("6", 64),
+		FileSHA256:    strings.Repeat("7", 64), SectionSHA256: strings.Repeat("a", 64),
+		Section: finalv5binding.Section{SchemaVersion: 2,
 			Scale: &finalv5binding.ScaleBinding{DependencyE2E: dependency, EnableOutcomeMerkle: true}},
 	}
 }
@@ -467,11 +548,19 @@ func scaleBindingForResolverTest(t *testing.T) finalv5binding.Binding {
 func scaleCapableContractsForTest(t *testing.T) deploymentContractsV3 {
 	t.Helper()
 	contracts := deploymentContractsForTest(t)
-	product, found := contracts.catalog.LookupProduct("final_v5_result_heavy")
-	if !found {
-		t.Fatal("the test Catalog declares no result-heavy Product to clone")
+	candidateCatalogPath := filepath.Join(repositoryRootForDeployment(t),
+		"evaluation", "final-v5-wsl2", "catalog", "benchmark-contract-v1.yaml")
+	candidateCatalog, err := catalog.Load(candidateCatalogPath)
+	if err != nil {
+		t.Fatalf("load the source-controlled benchmark candidate Catalog: %v", err)
 	}
-	product.Name = scaleResolverTestProduct
+	product, found := candidateCatalog.LookupProduct(scaleResolverTestProduct)
+	if !found {
+		t.Fatal("the benchmark candidate Catalog declares no exposure-scale Product")
+	}
+	// Only the Product's query surface is transplanted. The candidate Catalog is
+	// never installed, activated, or treated as publication evidence by this
+	// synthetic resolver test.
 	contracts.catalog.Products = []catalog.Product{product}
 	return contracts
 }
@@ -652,9 +741,10 @@ func provSQLBindingForResolverTest(t *testing.T) finalv5binding.Binding {
 		}
 	}
 	return finalv5binding.Binding{
-		DatasetSHA256: strings.Repeat("5", 64), CatalogSHA256: strings.Repeat("6", 64),
-		FileSHA256: strings.Repeat("7", 64), SectionSHA256: strings.Repeat("a", 64),
-		Section: finalv5binding.Section{SchemaVersion: 1, ProvSQL: provSQL},
+		DatasetSHA256: strings.Repeat("5", 64), DatasetProbeSHA256: strings.Repeat("b", 64),
+		CatalogSHA256: strings.Repeat("6", 64),
+		FileSHA256:    strings.Repeat("7", 64), SectionSHA256: strings.Repeat("a", 64),
+		Section: finalv5binding.Section{SchemaVersion: 2, ProvSQL: provSQL},
 	}
 }
 

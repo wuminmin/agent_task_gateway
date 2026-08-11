@@ -28,6 +28,7 @@ fi
 command -v jq >/dev/null || { echo "jq is required" >&2; exit 2; }
 command -v sha256sum >/dev/null || { echo "sha256sum is required" >&2; exit 2; }
 command -v git >/dev/null || { echo "git is required" >&2; exit 2; }
+command -v go >/dev/null || { echo "go is required" >&2; exit 2; }
 
 repo="$(git rev-parse --show-toplevel)"
 cd "$repo"
@@ -121,18 +122,70 @@ jq -e '.tasks == 0 and .query_records == 0 and .root_heads == 0 and .result_arti
   echo "fresh Control PostgreSQL is not empty" >&2; exit 1;
 }
 
-default_fingerprint_sql=evaluation/final-v5-wsl2/sql/datasets/default-fingerprint.sql
+default_probe_sql=evaluation/final-v5-wsl2/sql/datasets/benchmark-v1-probe.sql
 if [[ "${TASKGATE_EXPERIMENT_CLASS:-pilot}" == publication && -n "${TASKGATE_DATASET_FINGERPRINT_SQL:-}" ]]; then
-  echo "publication dataset fingerprint SQL is source-controlled and cannot be overridden" >&2
+  echo "publication dataset sanity-probe SQL is source-controlled and cannot be overridden" >&2
   exit 2
 fi
-fingerprint_sql="${TASKGATE_DATASET_FINGERPRINT_SQL:-$default_fingerprint_sql}"
-[[ -f "$fingerprint_sql" && ! -L "$fingerprint_sql" ]] || { echo "dataset fingerprint SQL is missing or unsafe" >&2; exit 2; }
-dataset_fingerprint_raw="$("${compose[@]}" exec -T business-postgres psql -XAt -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-travel_demo}" < "$fingerprint_sql")"
-dataset_fingerprint_output="${TASKGATE_FRESH_PROOF_OUTPUT%.json}.dataset-fingerprint.txt"
-printf '%s' "$dataset_fingerprint_raw" > "$dataset_fingerprint_output"
-chmod 600 "$dataset_fingerprint_output"
-dataset_fingerprint_sha="$(sha256sum "$dataset_fingerprint_output" | awk '{print $1}')"
+probe_sql="${TASKGATE_DATASET_FINGERPRINT_SQL:-$default_probe_sql}"
+[[ -f "$probe_sql" && ! -L "$probe_sql" ]] || { echo "dataset sanity-probe SQL is missing or unsafe" >&2; exit 2; }
+dataset_probe_sql_output="${TASKGATE_FRESH_PROOF_OUTPUT%.json}.dataset-probe.sql"
+install -m 600 "$probe_sql" "$dataset_probe_sql_output"
+dataset_probe_sql_sha="$(sha256sum "$dataset_probe_sql_output" | awk '{print $1}')"
+dataset_probe_raw="$("${compose[@]}" exec -T business-postgres psql -XAt -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-travel_demo}" < "$dataset_probe_sql_output")"
+dataset_probe_output="${TASKGATE_FRESH_PROOF_OUTPUT%.json}.dataset-probe.txt"
+printf '%s' "$dataset_probe_raw" > "$dataset_probe_output"
+chmod 600 "$dataset_probe_output"
+dataset_probe_sha="$(sha256sum "$dataset_probe_output" | awk '{print $1}')"
+
+# Dataset identity is computed from a complete typed stream of all five live
+# Products. The reviewed generator is regenerated only as the independent side
+# of the retained agreement. The SQL query above remains a scalar sanity probe;
+# neither its source bytes nor its result bytes may substitute for Dataset.
+# Resolve the already-consumed Compose values in-process and discard them as
+# soon as the credential-free agreement has been written.
+compose_runtime_json="$("${compose[@]}" config --format json)"
+business_reader_password="$(jq -er '.services["business-postgres"].environment.GATEWAY_DB_PASSWORD' <<< "$compose_runtime_json")"
+business_database="$(jq -er '.services["business-postgres"].environment.POSTGRES_DB' <<< "$compose_runtime_json")"
+business_port="$("${compose[@]}" port business-postgres 5432 | awk -F: 'END{print $NF}')"
+[[ -n "$business_reader_password" && -n "$business_database" && "$business_port" =~ ^[0-9]+$ ]] || {
+  echo "Compose omitted a live Dataset connection binding" >&2; exit 1;
+}
+urlencode() { printf '%s' "$1" | jq -sRr '@uri'; }
+dataset_live_dsn="postgres://gateway_reader:$(urlencode "$business_reader_password")@127.0.0.1:$business_port/$(urlencode "$business_database")?sslmode=disable"
+dataset_identity_output="${TASKGATE_FRESH_PROOF_OUTPUT%.json}.dataset-identity.json"
+env -u BUSINESS_TEST_POSTGRES_DSN TASKGATE_FINAL_V5_BUSINESS_DSN="$dataset_live_dsn" GOFLAGS=-buildvcs=false \
+  go run ./evaluation/cmd/final-v5-oracle dataset-fingerprint-live > "$dataset_identity_output"
+chmod 600 "$dataset_identity_output"
+unset compose_runtime_json business_reader_password business_database business_port dataset_live_dsn
+dataset_identity="$(<"$dataset_identity_output")"
+jq -e '
+  .version == "taskgate-final-v5-benchmark-dataset-agreement-v1" and
+  .agreed == true and .prepared_statement_count == 0 and (.products | length) == 5 and
+  .reference.dataset_spec_id == "taskgate-final-v5-benchmark-dataset-v1" and
+  .observed.dataset_spec_id == .reference.dataset_spec_id and
+  .reference.generator_version == "taskgate-final-v5-benchmark-generator-v1" and
+  .observed.generator_version == .reference.generator_version and
+  .reference.seed == 20260803 and .observed.seed == .reference.seed and
+  .reference.product_count == 5 and .observed.product_count == 5 and
+  .reference.row_count == 815000 and .observed.row_count == 815000 and
+  .reference.peak_buffered_rows == 1 and .observed.peak_buffered_rows == 1 and
+  (.reference.sha256 | test("^[0-9a-f]{64}$")) and .observed.sha256 == .reference.sha256
+' <<< "$dataset_identity" >/dev/null || { echo "typed Dataset identity is invalid" >&2; exit 1; }
+dataset_sha="$(jq -er .observed.sha256 <<< "$dataset_identity")"
+dataset_identity_evidence_sha="$(sha256sum "$dataset_identity_output" | awk '{print $1}')"
+
+if [[ "${TASKGATE_EXPERIMENT_CLASS:-pilot}" == publication ]]; then
+  : "${TASKGATE_FINAL_V5_DATASET_SHA256:?publication typed Dataset identity binding is required}"
+  : "${TASKGATE_FINAL_V5_DATASET_PROBE_SQL_SHA256:?publication Dataset probe SQL binding is required}"
+  : "${TASKGATE_FINAL_V5_DATASET_PROBE_SHA256:?publication Dataset probe result binding is required}"
+fi
+[[ -z "${TASKGATE_FINAL_V5_DATASET_SHA256:-}" || "$dataset_sha" == "$TASKGATE_FINAL_V5_DATASET_SHA256" ]] || {
+  echo "typed Dataset identity differs from the reviewed binding" >&2; exit 1; }
+[[ -z "${TASKGATE_FINAL_V5_DATASET_PROBE_SQL_SHA256:-}" || "$dataset_probe_sql_sha" == "$TASKGATE_FINAL_V5_DATASET_PROBE_SQL_SHA256" ]] || {
+  echo "Dataset sanity-probe SQL differs from the reviewed binding" >&2; exit 1; }
+[[ -z "${TASKGATE_FINAL_V5_DATASET_PROBE_SHA256:-}" || "$dataset_probe_sha" == "$TASKGATE_FINAL_V5_DATASET_PROBE_SHA256" ]] || {
+  echo "live Dataset sanity-probe result differs from the reviewed binding" >&2; exit 1; }
 
 bucket="${GATEWAY_OBJECT_STORE_BUCKET:-taskgate-results}"
 minio_object_count="$("${compose[@]}" exec -T result-object-store sh -ec 'mc find "local/'"$bucket"'" 2>/dev/null | wc -l')"
@@ -149,16 +202,20 @@ jq -n \
   --arg compose_config_sha256 "$compose_sha" --arg volume_set_sha256 "$volume_set_sha" \
   --arg volume_inspect_sha256 "$volume_inspect_sha" \
   --arg control_pg_system_identifier "$control_system_id" --arg business_pg_system_identifier "$business_system_id" \
-  --arg deployment_volume_id_sha256 "$deployment_volume_id_sha" --arg catalog_sha256 "$catalog_sha" \
-  --arg dataset_fingerprint_sha256 "$dataset_fingerprint_sha" --arg snapshot_artifact_volume_sha256 "$snapshot_sha" \
+	  --arg deployment_volume_id_sha256 "$deployment_volume_id_sha" --arg catalog_sha256 "$catalog_sha" \
+	  --arg dataset_sha256 "$dataset_sha" --arg dataset_identity_evidence_sha256 "$dataset_identity_evidence_sha" \
+	  --arg dataset_probe_sql_sha256 "$dataset_probe_sql_sha" \
+  --arg dataset_probe_sha256 "$dataset_probe_sha" --arg snapshot_artifact_volume_sha256 "$snapshot_sha" \
   --argjson volumes "$(<"$tmp_dir/volumes.json")" --argjson control_initial_counts "$control_counts" \
   --argjson minio_initial_object_count "$minio_object_count" \
-  '{schema_version:1,campaign_id:$campaign_id,deployment_id:$deployment_id,captured_at:$captured_at,
+  '{schema_version:2,campaign_id:$campaign_id,deployment_id:$deployment_id,captured_at:$captured_at,
     compose_project_name:$compose_project_name,compose_config_sha256:$compose_config_sha256,
     volumes:$volumes,volume_set_sha256:$volume_set_sha256,volume_inspect_sha256:$volume_inspect_sha256,
     control_pg_system_identifier:$control_pg_system_identifier,business_pg_system_identifier:$business_pg_system_identifier,
-    deployment_volume_id_sha256:$deployment_volume_id_sha256,catalog_sha256:$catalog_sha256,
-    control_initial_counts:$control_initial_counts,dataset_fingerprint_sha256:$dataset_fingerprint_sha256,
+	    deployment_volume_id_sha256:$deployment_volume_id_sha256,catalog_sha256:$catalog_sha256,
+	    control_initial_counts:$control_initial_counts,dataset_sha256:$dataset_sha256,
+	    dataset_identity_evidence_sha256:$dataset_identity_evidence_sha256,
+	    dataset_probe_sql_sha256:$dataset_probe_sql_sha256,dataset_probe_sha256:$dataset_probe_sha256,
     minio_initial_object_count:$minio_initial_object_count,snapshot_artifact_volume_sha256:$snapshot_artifact_volume_sha256}' \
   > "$TASKGATE_FRESH_PROOF_OUTPUT"
 chmod 600 "$TASKGATE_FRESH_PROOF_OUTPUT"

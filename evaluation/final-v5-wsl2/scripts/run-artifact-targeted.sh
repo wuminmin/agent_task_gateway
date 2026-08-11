@@ -462,10 +462,12 @@ chmod 600 "$artifact_targeted_binding_report"
 artifact_targeted_binding_sha256="$(sha256sum "$artifact_targeted_binding" | awk '{print $1}')"
 jq -e --arg binding_file_sha256 "$artifact_targeted_binding_sha256" \
   --argjson selected_cells "$selected_scale_count" '
-  .schema_version == 1 and
+  .schema_version == 2 and
   .status == "valid" and
   .artifact_cells == 6 and
   .selected_cells == $selected_cells and
+  (.dataset_sha256 | test("^[0-9a-f]{64}$")) and
+  (.dataset_probe_sql_sha256 | test("^[0-9a-f]{64}$")) and
   (.dataset_probe_sha256 | test("^[0-9a-f]{64}$")) and
   .binding_file_sha256 == $binding_file_sha256
 ' <<< "$artifact_targeted_binding_validation" >/dev/null || {

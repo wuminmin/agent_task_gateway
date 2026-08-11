@@ -30,7 +30,7 @@ var testFrozenArtifactScales = []string{
 func testArtifactTargetedBinding(selected []string) experiment.ArtifactTargetedDeploymentBinding {
 	digest := strings.Repeat("a", 64)
 	binding := experiment.ArtifactTargetedDeploymentBinding{
-		SchemaVersion:         1,
+		SchemaVersion:         2,
 		Record:                experiment.ArtifactTargetedDeploymentBindingVersion,
 		SubmissionCommit:      testSubmissionCommit,
 		ContractRelease:       "final-v5-contracts-v1.4",
@@ -47,6 +47,7 @@ func testArtifactTargetedBinding(selected []string) experiment.ArtifactTargetedD
 			TargetedRunEligible:   true,
 		},
 		SelectedScales:                 append([]string(nil), selected...),
+		DatasetSHA256:                  strings.Repeat("c", 64),
 		DatasetProbeSQLSHA256:          digest,
 		DatasetProbeSHA256:             strings.Repeat("b", 64),
 		AttestationQualificationSHA256: digest,
@@ -194,12 +195,14 @@ func TestRunBuildsWritesReopensAndReports(t *testing.T) {
 	}
 	digest := sha256.Sum256(payload)
 	wantReport := experiment.ArtifactTargetedBindingValidation{
-		SchemaVersion:      1,
-		Status:             "valid",
-		ArtifactCells:      6,
-		SelectedCells:      len(selected),
-		DatasetProbeSHA256: wantBinding.DatasetProbeSHA256,
-		BindingFileSHA256:  fmt.Sprintf("%x", digest),
+		SchemaVersion:         2,
+		Status:                "valid",
+		ArtifactCells:         6,
+		SelectedCells:         len(selected),
+		DatasetSHA256:         wantBinding.DatasetSHA256,
+		DatasetProbeSQLSHA256: wantBinding.DatasetProbeSQLSHA256,
+		DatasetProbeSHA256:    wantBinding.DatasetProbeSHA256,
+		BindingFileSHA256:     fmt.Sprintf("%x", digest),
 	}
 	if report != wantReport {
 		t.Fatalf("validation report = %+v, want %+v", report, wantReport)

@@ -213,12 +213,44 @@ func TestDatasetFingerprintIsDeterministicStreamingJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(outputOne), &summary); err != nil {
 		t.Fatal(err)
 	}
-	if summary.ProductCount != 5 || summary.RowCount != 815_000 || summary.PeakBufferedRows != 1 || len(summary.Products) != 5 {
+	if summary.ProductCount != 5 || summary.RowCount != 815_000 || summary.PeakBufferedRows != 1 || len(summary.Products) != 5 ||
+		summary.SHA256 != "f90239bb32ef9542089ca8f1bd7c30c7870cbe627e835698364bdb9b4dc15978" {
 		t.Fatalf("dataset fingerprint = %+v", summary)
 	}
 	code, output, errorsOutput := invokeCLI([]string{"dataset-fingerprint", "unexpected"}, "")
 	if code == 0 || output != "" || errorsOutput == "" {
 		t.Fatalf("unexpected argument code=%d stdout=%q stderr=%q", code, output, errorsOutput)
+	}
+}
+
+func TestDatasetFingerprintLiveRequiresEnvironmentAndRejectsConnectionFlags(t *testing.T) {
+	t.Setenv("BUSINESS_TEST_POSTGRES_DSN", "")
+	t.Setenv("TASKGATE_FINAL_V5_BUSINESS_DSN", "")
+	code, output, errorsOutput := invokeCLI([]string{"dataset-fingerprint-live"}, "")
+	if code != 1 || output != "" ||
+		!strings.Contains(errorsOutput, "BUSINESS_TEST_POSTGRES_DSN or TASKGATE_FINAL_V5_BUSINESS_DSN is required") {
+		t.Fatalf("missing live Dataset environment code=%d stdout=%q stderr=%q", code, output, errorsOutput)
+	}
+	for _, args := range [][]string{
+		{"dataset-fingerprint-live", "--dsn", "postgres://forbidden"},
+		{"dataset-fingerprint-live", "--sql", "SELECT 1"},
+	} {
+		code, output, errorsOutput = invokeCLI(args, "")
+		if code != 2 || output != "" || errorsOutput == "" {
+			t.Fatalf("forbidden live Dataset arguments %v: code=%d stdout=%q stderr=%q",
+				args, code, output, errorsOutput)
+		}
+	}
+}
+
+func TestDatasetFingerprintLiveRejectsAmbiguousEnvironment(t *testing.T) {
+	t.Setenv("BUSINESS_TEST_POSTGRES_DSN", "postgres://db-test.invalid/example")
+	t.Setenv("TASKGATE_FINAL_V5_BUSINESS_DSN", "postgres://fresh.invalid/example")
+	code, output, errorsOutput := invokeCLI([]string{"dataset-fingerprint-live"}, "")
+	if code != 1 || output != "" ||
+		!strings.Contains(errorsOutput, "select different databases") {
+		t.Fatalf("ambiguous live Dataset environment code=%d stdout=%q stderr=%q",
+			code, output, errorsOutput)
 	}
 }
 

@@ -74,6 +74,84 @@ func TestScaleMicrobenchmarksNeverClaimFreshTaskRoots(t *testing.T) {
 	}
 }
 
+func TestArtifactPublicationDoesNotConsumePrivateBindingSection(t *testing.T) {
+	privateSection := strings.Repeat("a", 64)
+	publicBridgeBinding := strings.Repeat("b", 64)
+	artifact := Sample{
+		ExperimentID: "artifact",
+		ArtifactVerification: &ArtifactVerificationEvidence{
+			BindingSHA256: publicBridgeBinding,
+		},
+	}
+	if got := sampleAdapterBindingSHA256(artifact); got != "" {
+		t.Fatalf("Artifact public Bridge binding was treated as private section identity: %s", got)
+	}
+	if reasons := validatePublicationSampleBindingDigests("artifact",
+		map[string]string{"deployment-01": privateSection},
+		map[string]map[string]bool{"deployment-01": {publicBridgeBinding: true}}); len(reasons) != 0 {
+		t.Fatalf("Artifact publication consumed the deleted private section input: %v", reasons)
+	}
+
+	for _, experimentID := range []string{"scale", "provsql"} {
+		if reasons := validatePublicationSampleBindingDigests(experimentID,
+			map[string]string{"deployment-01": privateSection},
+			map[string]map[string]bool{"deployment-01": {publicBridgeBinding: true}}); len(reasons) != 1 {
+			t.Fatalf("%s no longer enforces its private section identity: %v", experimentID, reasons)
+		}
+	}
+}
+
+func TestArtifactAcceptanceClosesPublicDeploymentBinding(t *testing.T) {
+	sample, scaleEvidence := dependencyScaleV3ObservationFixture(t, "novel")
+	operationID := "artifact/result-heavy/100x4/novel"
+	bindingSHA256 := strings.Repeat("b", 64)
+	datasetSHA256 := strings.Repeat("c", 64)
+	probeSHA256 := strings.Repeat("d", 64)
+	catalogSHA256 := strings.Repeat("e", 64)
+	sample.ExperimentID = "artifact"
+	sample.WorkloadID = "result-heavy"
+	sample.Scale = "100x4"
+	sample.SchemaVersion = FinalizedSampleSchemaVersion
+	sample.TaskGateAcceptanceV3.Operation.OperationID = operationID
+	sample.TaskGateAcceptanceV3.Operation.ContractIdentity = "final-v5-contracts-v1.4:" +
+		strings.Repeat("9", 64) + ":binding=" + bindingSHA256 + ":dataset=" + datasetSHA256 +
+		":probe=" + probeSHA256 + ":catalog=" + catalogSHA256 + ":" + operationID
+	resealAcceptedClassifierForTest(t, sample.TaskGateAcceptanceV3)
+	evidence := &ArtifactVerificationEvidence{
+		BindingSHA256: bindingSHA256, DatasetSHA256: datasetSHA256,
+		DatasetProbeSHA256: probeSHA256, CatalogSHA256: catalogSHA256,
+		ObserverWindow: *scaleEvidence.ObserverWindow,
+	}
+	if err := validateArtifactObservationV3(sample, evidence); err != nil {
+		t.Fatalf("honest public Artifact binding was rejected: %v", err)
+	}
+
+	for name, mutate := range map[string]func(*ArtifactVerificationEvidence){
+		"binding": func(value *ArtifactVerificationEvidence) { value.BindingSHA256 = strings.Repeat("1", 64) },
+		"Dataset": func(value *ArtifactVerificationEvidence) { value.DatasetSHA256 = strings.Repeat("2", 64) },
+		"probe":   func(value *ArtifactVerificationEvidence) { value.DatasetProbeSHA256 = strings.Repeat("3", 64) },
+		"Catalog": func(value *ArtifactVerificationEvidence) { value.CatalogSHA256 = strings.Repeat("4", 64) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			mutatedEvidence := *evidence
+			mutate(&mutatedEvidence)
+			if err := validateArtifactObservationV3(sample, &mutatedEvidence); err == nil {
+				t.Fatalf("Artifact evidence substituted another public %s identity", name)
+			}
+		})
+	}
+
+	mutatedSample := sample
+	accepted := *sample.TaskGateAcceptanceV3
+	mutatedSample.TaskGateAcceptanceV3 = &accepted
+	accepted.Operation.ContractIdentity = strings.Replace(accepted.Operation.ContractIdentity,
+		":binding="+bindingSHA256+":", ":binding="+strings.Repeat("5", 64)+":", 1)
+	resealAcceptedClassifierForTest(t, &accepted)
+	if err := validateArtifactObservationV3(mutatedSample, evidence); err == nil {
+		t.Fatal("Artifact acceptance substituted another public deployment binding")
+	}
+}
+
 func TestOutcomeMerkleValidatorCrossChecksProductionOracleReplayAndCounters(t *testing.T) {
 	digest := func(character string) string { return strings.Repeat(character, 64) }
 	spec, err := ParseOutcomeMerkleScale("10k-x100-o50")
@@ -85,7 +163,7 @@ func TestOutcomeMerkleValidatorCrossChecksProductionOracleReplayAndCounters(t *t
 		t.Fatal(err)
 	}
 	sample := Sample{
-		ExperimentID: "scale", WorkloadID: "outcome-merkle", Scale: "10k-x100-o50", Mode: "merkle_control",
+		SchemaVersion: SampleSchemaVersion, ExperimentID: "scale", WorkloadID: "outcome-merkle", Scale: "10k-x100-o50", Mode: "merkle_control",
 		RandomSeed: 20260801,
 		System:     "taskgate", ResultSHA256: digest("a"), Counters: map[string]int64{
 			"blocks_loaded": 2, "leaves_loaded": 3, "hashes_loaded": 51, "blocks_reused": 254,
@@ -153,7 +231,7 @@ func TestOutcomeMerkleValidatorCrossChecksProductionOracleReplayAndCounters(t *t
 
 func TestKernelStorageValidatorRejectsDigestAndRootTaskRelabeling(t *testing.T) {
 	digest := strings.Repeat("a", 64)
-	sample := Sample{ExperimentID: "scale", WorkloadID: "taskgate_scale_extreme", Scale: "10m",
+	sample := Sample{SchemaVersion: SampleSchemaVersion, ExperimentID: "scale", WorkloadID: "taskgate_scale_extreme", Scale: "10m",
 		Mode: "kernel_storage_only", System: "taskgate", KernelOnly: true, ResultSHA256: digest,
 		Counters: map[string]int64{"candidate_facts": 10_000_000, "difference_facts": 10_000_000,
 			"union_facts": 10_000_000, "segments": 4, "containers": 160, "storage_bytes": 1000,
@@ -196,7 +274,7 @@ func TestArtifactAndDependencyValidatorsFailClosedBeforeRawVerifierEvidence(t *t
 	digest := strings.Repeat("a", 64)
 	artifact := Sample{ExperimentID: "artifact", WorkloadID: "result-heavy", Scale: "100x4", Mode: "novel",
 		System: "taskgate", RowCount: 99, ColumnCount: 4, ResultSHA256: digest,
-		ArtifactVerification: &ArtifactVerificationEvidence{Version: artifactEvidenceVersion,
+		ArtifactVerification: &ArtifactVerificationEvidence{Version: artifactEvidenceVersionV1,
 			BindingSHA256: digest, DatasetSHA256: digest, CatalogSHA256: digest, DatasetProbeSHA256: digest,
 			QuerySHA256: digest, ExpectedRows: 100, ExpectedColumns: 4, ExpectedResultSHA256: digest,
 			ObservedRows: 99, ObservedColumns: 4, ObservedResultSHA256: digest}}
@@ -213,6 +291,52 @@ func TestArtifactAndDependencyValidatorsFailClosedBeforeRawVerifierEvidence(t *t
 			ObservedOverlapFacts: 5_000}}
 	if err := validateScaleVerification(dependency); err == nil {
 		t.Fatal("mislabeled dependency cardinality was accepted")
+	}
+}
+
+func TestArtifactDatasetIdentityAndProbeHaveVersionedSemantics(t *testing.T) {
+	dataset := strings.Repeat("a", 64)
+	probe := strings.Repeat("b", 64)
+
+	legacy := Sample{SchemaVersion: SampleSchemaVersion}
+	legacyEvidence := &ArtifactVerificationEvidence{
+		Version: artifactEvidenceVersionV1, DatasetSHA256: dataset, DatasetProbeSHA256: dataset,
+	}
+	if err := validateArtifactDatasetIdentity(legacy, legacyEvidence); err != nil {
+		t.Fatalf("sample-v1 rejected its frozen evidence-v1 equality rule: %v", err)
+	}
+	legacyEvidence.DatasetProbeSHA256 = probe
+	if err := validateArtifactDatasetIdentity(legacy, legacyEvidence); err == nil {
+		t.Fatal("sample-v1 silently acquired the sample-v3 independent-probe meaning")
+	}
+
+	current := Sample{SchemaVersion: FinalizedSampleSchemaVersion}
+	currentEvidence := &ArtifactVerificationEvidence{
+		Version: artifactEvidenceVersionV2, DatasetSHA256: dataset, DatasetProbeSHA256: probe,
+	}
+	if err := validateArtifactDatasetIdentity(current, currentEvidence); err != nil {
+		t.Fatalf("sample-v3 rejected independent typed Dataset and probe identities: %v", err)
+	}
+	currentEvidence.DatasetProbeSHA256 = dataset
+	if err := validateArtifactDatasetIdentity(current, currentEvidence); err != nil {
+		t.Fatalf("sample-v3 imposed an equality or inequality relation between independent domains: %v", err)
+	}
+
+	for _, test := range []struct {
+		name     string
+		sample   Sample
+		evidence *ArtifactVerificationEvidence
+	}{
+		{"v1 with evidence-v2", legacy, currentEvidence},
+		{"v3 with evidence-v1", current, legacyEvidence},
+		{"v3 malformed Dataset", current, &ArtifactVerificationEvidence{
+			Version: artifactEvidenceVersionV2, DatasetSHA256: "not-a-digest", DatasetProbeSHA256: probe}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := validateArtifactDatasetIdentity(test.sample, test.evidence); err == nil {
+				t.Fatal("cross-version or malformed Artifact Dataset evidence was accepted")
+			}
+		})
 	}
 }
 

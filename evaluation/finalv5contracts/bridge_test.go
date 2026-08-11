@@ -285,8 +285,13 @@ func TestBridgeRejectsCatalogBindingMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	datasetSHA256, err := runtime.DatasetIdentitySHA256()
+	if err != nil {
+		t.Fatal(err)
+	}
 	live := LiveDeployment{CatalogPath: liveCatalogPath,
 		CatalogSHA256:      strings.Repeat("a", 64),
+		DatasetSHA256:      datasetSHA256,
 		DatasetProbeSHA256: strings.Repeat("b", 64)}
 	source, err := os.ReadFile(liveCatalogPath)
 	if err != nil {
@@ -297,8 +302,19 @@ func TestBridgeRejectsCatalogBindingMismatch(t *testing.T) {
 		t.Fatalf("the live Catalog does not bind the frozen cell: %v", err)
 	}
 	if bound.ProductID != "final_v5_result_heavy" || bound.PublicationID != "final-v5-result-heavy-v1" ||
+		bound.DatasetSHA256 != datasetSHA256 || bound.DatasetProbeSHA256 != live.DatasetProbeSHA256 ||
 		len(bound.Columns) != 16 || bound.MaxRows < 100_000 || bound.MaxReleaseFacts < 100_000*16 {
 		t.Fatalf("live binding = %+v", bound)
+	}
+	bindingSHA256, err := bound.SHA256()
+	if err != nil || !sha256Pattern.MatchString(bindingSHA256) {
+		t.Fatalf("public Artifact deployment binding digest = %q, err=%v", bindingSHA256, err)
+	}
+	mutatedBinding := bound
+	mutatedBinding.DatasetProbeSHA256 = strings.Repeat("c", 64)
+	mutatedSHA256, err := mutatedBinding.SHA256()
+	if err != nil || mutatedSHA256 == bindingSHA256 {
+		t.Fatal("public Artifact deployment binding digest did not close the independent probe identity")
 	}
 	for name, mutate := range map[string]func(string) string{
 		"missing Product": func(text string) string {
@@ -345,19 +361,62 @@ func TestBridgeRejectsCatalogBindingMismatch(t *testing.T) {
 	}
 }
 
+func TestBridgeSeparatesReviewedDatasetReferenceFromDeploymentProbe(t *testing.T) {
+	runtime := loadBridge(t)
+	got, err := runtime.DatasetIdentitySHA256()
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = "f90239bb32ef9542089ca8f1bd7c30c7870cbe627e835698364bdb9b4dc15978"
+	if got != want {
+		t.Fatalf("typed benchmark Dataset SHA-256 = %s, want %s", got, want)
+	}
+	formula, err := finalv5oracle.BenchmarkDatasetFingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if formula.ProductCount != 5 || formula.RowCount != 815_000 || formula.SHA256 != got {
+		t.Fatalf("bridge reference is not the complete typed Dataset formula: %+v", formula)
+	}
+	probeSQL, err := runtime.DatasetProbeSQL()
+	if err != nil {
+		t.Fatal(err)
+	}
+	probeSourceSHA, err := runtime.DatasetProbeSourceSHA256()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if probeSourceSHA != "bb2f717996259b3f64e248381810c3e2970f951eb06f8334a98792407d6aa06f" {
+		t.Fatalf("contract Dataset probe source SHA-256 = %s", probeSourceSHA)
+	}
+	if digestBytes([]byte(probeSQL)) == got {
+		t.Fatal("typed Dataset identity was replaced by the deployment probe SQL identity")
+	}
+}
+
 func TestBridgeRejectsNonSHA256LiveDigests(t *testing.T) {
 	runtime := loadBridge(t)
 	cell, err := runtime.ArtifactCell("100x4", "novel")
 	if err != nil {
 		t.Fatal(err)
 	}
+	datasetSHA256, err := runtime.DatasetIdentitySHA256()
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, live := range []LiveDeployment{
-		{CatalogPath: liveCatalogPath, CatalogSHA256: "", DatasetProbeSHA256: strings.Repeat("b", 64)},
-		{CatalogPath: liveCatalogPath, CatalogSHA256: strings.Repeat("a", 64), DatasetProbeSHA256: "not-a-digest"},
+		{CatalogPath: liveCatalogPath, CatalogSHA256: "", DatasetSHA256: datasetSHA256, DatasetProbeSHA256: strings.Repeat("b", 64)},
+		{CatalogPath: liveCatalogPath, CatalogSHA256: strings.Repeat("a", 64), DatasetSHA256: "not-a-digest", DatasetProbeSHA256: strings.Repeat("b", 64)},
+		{CatalogPath: liveCatalogPath, CatalogSHA256: strings.Repeat("a", 64), DatasetSHA256: datasetSHA256, DatasetProbeSHA256: "not-a-digest"},
 	} {
 		if _, err := runtime.BindDeployment(cell, live); err == nil {
 			t.Fatalf("live deployment %+v was accepted", live)
 		}
+	}
+	wrongIdentity := LiveDeployment{CatalogPath: liveCatalogPath, CatalogSHA256: strings.Repeat("a", 64),
+		DatasetSHA256: strings.Repeat("c", 64), DatasetProbeSHA256: strings.Repeat("b", 64)}
+	if _, err := runtime.BindDeployment(cell, wrongIdentity); err == nil {
+		t.Fatal("a well-formed but incorrect typed Dataset identity was accepted")
 	}
 }
 

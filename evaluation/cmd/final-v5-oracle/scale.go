@@ -13,11 +13,8 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"taskbound.local/agent-data-gateway/evaluation/finalv5oracle"
+	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5dataset"
 )
-
-const exposureScaleDatasetQuery = `SELECT member_rank, metric, family_id, partition_key
-FROM reporting.final_v5_exposure_scale
-ORDER BY member_rank`
 
 type scaleManifestBatchOutput struct {
 	DatasetAgreement finalv5oracle.ExposureScaleDatasetAgreement   `json:"dataset_agreement"`
@@ -170,44 +167,20 @@ func liveExposureScaleDatasetAgreement(ctx context.Context) (finalv5oracle.Expos
 		return finalv5oracle.ExposureScaleDatasetAgreement{}, errors.New("begin read-only exposure-scale Dataset transaction failed")
 	}
 	defer tx.Rollback(ctx)
-	rows, err := tx.Query(ctx, exposureScaleDatasetQuery, pgx.QueryExecModeSimpleProtocol)
+	columns, err := finalv5dataset.DatasetStreamColumns(finalv5oracle.ExposureScaleProductID)
 	if err != nil {
-		return finalv5oracle.ExposureScaleDatasetAgreement{}, errors.New("execute fixed exposure-scale Dataset query failed")
+		return finalv5oracle.ExposureScaleDatasetAgreement{}, err
 	}
-	fields := rows.FieldDescriptions()
-	columns := make([]finalv5oracle.DatasetStreamColumn, len(fields))
-	for index, field := range fields {
-		typeName, typeErr := finalv5oracle.SQLTypeFromPostgresOID(field.DataTypeOID)
-		if typeErr != nil {
-			rows.Close()
-			return finalv5oracle.ExposureScaleDatasetAgreement{}, typeErr
-		}
-		columns[index] = finalv5oracle.DatasetStreamColumn{
-			Name: string(field.Name), PostgreSQLOID: field.DataTypeOID, SQLType: typeName,
-		}
+	stream, err := finalv5dataset.ProductStream(ctx, tx, finalv5oracle.ExposureScaleProductID)
+	if err != nil {
+		return finalv5oracle.ExposureScaleDatasetAgreement{}, err
 	}
-	agreement, err := finalv5oracle.AgreeExposureScaleDatasetStream(columns, func(yield func([]any) error) error {
-		defer rows.Close()
-		for rows.Next() {
-			values, valuesErr := rows.Values()
-			if valuesErr != nil {
-				return errors.New("read fixed exposure-scale Dataset row failed")
-			}
-			if err := yield(values); err != nil {
-				return err
-			}
-		}
-		if rows.Err() != nil {
-			return errors.New("drain fixed exposure-scale Dataset rows failed")
-		}
-		return nil
-	})
+	agreement, err := finalv5oracle.AgreeExposureScaleDatasetStream(columns, stream)
 	if err != nil {
 		return agreement, err
 	}
-	var preparedStatements int64
-	if err := tx.QueryRow(ctx, "SELECT count(*) FROM pg_prepared_statements", pgx.QueryExecModeSimpleProtocol).
-		Scan(&preparedStatements); err != nil {
+	preparedStatements, err := finalv5dataset.PreparedStatementCount(ctx, tx)
+	if err != nil {
 		return agreement, errors.New("verify exposure-scale session prepared-statement state failed")
 	}
 	if preparedStatements != 0 {

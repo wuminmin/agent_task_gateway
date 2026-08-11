@@ -15,7 +15,9 @@ import (
 // TestStageBVerificationSchemaMatchesEvidenceStructs prevents an adapter from
 // adding evidence that the retained JSON contract silently treats as an
 // unconstrained object.  The runtime validators remain the semantic gate; this
-// test binds the eight Stage-B evidence envelopes to their exact Go wire shape.
+// test binds the eight sample-v1 Stage-B envelopes to their exact legacy wire
+// shape. Scale's four Decision-18 members are sample-v3-only and are checked
+// against sample-v3 by TestSampleV3IsAnExplicitSuccessRevision.
 func TestStageBVerificationSchemaMatchesEvidenceStructs(t *testing.T) {
 	path := filepath.Join("..", "..", "final-v5-wsl2", "schema", "sample-v1.schema.json")
 	value, err := os.ReadFile(path)
@@ -53,6 +55,11 @@ func TestStageBVerificationSchemaMatchesEvidenceStructs(t *testing.T) {
 			}
 
 			wantProperties, wantRequired := jsonFields(evidenceType)
+			if propertyName == "scale_verification" {
+				wantProperties = withoutStrings(wantProperties,
+					"expected_existing_facts", "expected_union_facts",
+					"existing_dependency_sha256", "union_dependency_sha256")
+			}
 			gotProperties := sortedKeys(objectMap(t, strictSchema["properties"], propertyName+" properties"))
 			gotRequired := stringArray(t, strictSchema["required"], propertyName+" required")
 			sort.Strings(gotRequired)
@@ -73,6 +80,20 @@ func TestStageBVerificationSchemaMatchesEvidenceStructs(t *testing.T) {
 			}
 		})
 	}
+}
+
+func withoutStrings(values []string, excluded ...string) []string {
+	blocked := make(map[string]bool, len(excluded))
+	for _, value := range excluded {
+		blocked[value] = true
+	}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if !blocked[value] {
+			result = append(result, value)
+		}
+	}
+	return result
 }
 
 func TestStageBJSONSchemaRetainsPartialFailuresAndRejectsPartialPasses(t *testing.T) {

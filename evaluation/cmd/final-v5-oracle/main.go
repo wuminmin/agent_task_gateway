@@ -6,6 +6,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -18,6 +19,7 @@ import (
 	"strings"
 
 	"taskbound.local/agent-data-gateway/evaluation/finalv5oracle"
+	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5dataset"
 )
 
 const (
@@ -40,7 +42,7 @@ func main() {
 
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: final-v5-oracle <artifact-manifest|scale-dataset-agreement|scale-manifests|verify-scale-manifests|provsql-dataset-agreement|provsql-manifests|verify-provsql-manifests|verify-manifest|dataset-fingerprint|dependency-report|outcome-schedule>")
+		fmt.Fprintln(stderr, "usage: final-v5-oracle <artifact-manifest|scale-dataset-agreement|scale-manifests|verify-scale-manifests|provsql-dataset-agreement|provsql-manifests|verify-provsql-manifests|verify-manifest|dataset-fingerprint|dataset-fingerprint-live|dependency-report|outcome-schedule>")
 		return 2
 	}
 	switch args[0] {
@@ -62,6 +64,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runVerifyManifest(args[1:], stdin, stdout, stderr)
 	case "dataset-fingerprint":
 		return runDatasetFingerprint(args[1:], stdout, stderr)
+	case "dataset-fingerprint-live":
+		return runDatasetFingerprintLive(args[1:], stdout, stderr)
 	case "dependency-report":
 		return runDependencyReport(args[1:], stdout, stderr)
 	case "outcome-schedule":
@@ -70,6 +74,41 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "unknown subcommand %q\n", args[0])
 		return 2
 	}
+}
+
+// runDatasetFingerprintLive keeps the formula-only dataset-fingerprint command
+// byte-compatible and makes the full five-Product PostgreSQL probe explicit.
+// Connection material is accepted only through the established environment.
+func runDatasetFingerprintLive(args []string, stdout, stderr io.Writer) int {
+	flags := newFlagSet("dataset-fingerprint-live", stderr)
+	if err := parseFlags(flags, args); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	testDSN := strings.TrimSpace(os.Getenv("BUSINESS_TEST_POSTGRES_DSN"))
+	runtimeDSN := strings.TrimSpace(os.Getenv("TASKGATE_FINAL_V5_BUSINESS_DSN"))
+	if testDSN != "" && runtimeDSN != "" && testDSN != runtimeDSN {
+		fmt.Fprintln(stderr, "BUSINESS_TEST_POSTGRES_DSN and TASKGATE_FINAL_V5_BUSINESS_DSN select different databases")
+		return 1
+	}
+	dsn := testDSN
+	if dsn == "" {
+		dsn = runtimeDSN
+	}
+	if dsn == "" {
+		fmt.Fprintln(stderr, "BUSINESS_TEST_POSTGRES_DSN or TASKGATE_FINAL_V5_BUSINESS_DSN is required")
+		return 1
+	}
+	agreement, err := finalv5dataset.VerifyBenchmarkPostgreSQL(context.Background(), dsn)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if err := writeJSON(stdout, agreement); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	return 0
 }
 
 func runDatasetFingerprint(args []string, stdout, stderr io.Writer) int {

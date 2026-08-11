@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -22,15 +23,30 @@ func testTask(columns int) BoundTaskRequest {
 		VisibleRelation: "reporting.result_heavy", CompanionRelation: "taskgate_ordinal.result_heavy_v1"}
 }
 
+func testScaleTask() BoundTaskRequest {
+	return BoundTaskRequest{Objective: "reviewed dependency-scale unit-test oracle",
+		DataProducts: []string{"final_v5_exposure_scale"},
+		Columns: map[string][]string{"final_v5_exposure_scale": {
+			"member_rank", "metric", "family_id", "partition_key",
+		}}, Scopes: map[string][]string{"partition_key": {"1"}},
+		VisibleRelation:   "reporting.final_v5_exposure_scale",
+		CompanionRelation: "taskgate_ordinal.final_v5_exposure_scale_v1"}
+}
+
 func testQuery(sql string, rows, dependencies int64, columns int, marker string) BoundQueryExpectation {
 	return BoundQueryExpectation{SQL: sql, ExpectedRows: rows, ExpectedColumns: columns,
 		ExpectedResultSHA256: shaBytes([]byte("result/" + marker)), DependencyFacts: dependencies,
 		DependencySetSHA256: shaBytes([]byte("dependency/" + marker))}
 }
 
+func testResult(sql string, rows int64, columns int, marker string) BoundResultExpectation {
+	return BoundResultExpectation{SQL: sql, ExpectedRows: rows, ExpectedColumns: columns,
+		ExpectedResultSHA256: shaBytes([]byte("result/" + marker))}
+}
+
 func completeTestBinding(t *testing.T) []byte {
 	t.Helper()
-	section := Section{SchemaVersion: 1,
+	section := Section{SchemaVersion: 2,
 		Scale:    &ScaleBinding{DependencyE2E: map[string]DependencyCellBinding{}, EnableOutcomeMerkle: true},
 		Artifact: &ArtifactBinding{ResultHeavy: map[string]ArtifactCellBinding{}},
 		ProvSQL:  completeTestProvSQL(t),
@@ -41,12 +57,16 @@ func completeTestBinding(t *testing.T) []byte {
 	}{{"10k", 10_000}, {"100k", 100_000}, {"1035000", 1_035_000}} {
 		for _, overlap := range []int64{0, 50, 90, 100} {
 			scale := fmt.Sprintf("%s-overlap-%d", prefix.name, overlap)
-			cell := DependencyCellBinding{Task: testTask(1), Candidate: testQuery(
-				"SELECT column_01 FROM result_heavy ORDER BY column_01", 1, prefix.facts, 1, scale+"/candidate")}
-			if overlap != 0 {
-				history := testQuery("SELECT column_01 FROM result_heavy ORDER BY column_01 LIMIT 1", 1,
-					prefix.facts*overlap/100, 1, scale+"/history")
-				cell.History = &history
+			overlapFacts := prefix.facts * overlap / 100
+			m, k := prefix.facts/5, overlapFacts/5
+			cell := DependencyCellBinding{
+				Task: testScaleTask(),
+				Candidate: testQuery(dependencyCandidateSQL(m), 1,
+					prefix.facts, 1, scale+"/candidate"),
+				History: testQuery(dependencyHistorySQL(m-k, 2*m-k), 1,
+					prefix.facts, 1, scale+"/history"),
+				Union: BoundDependencySetExpectation{DependencyFacts: 2*prefix.facts - overlapFacts,
+					DependencySetSHA256: shaBytes([]byte("dependency/" + scale + "/union"))},
 			}
 			section.Scale.DependencyE2E[scale] = cell
 		}
@@ -59,12 +79,13 @@ func completeTestBinding(t *testing.T) []byte {
 		{"100x16", 100, 16}, {"10k-x16", 10_000, 16}, {"100k-x16", 100_000, 16}} {
 		task := testTask(spec.columns)
 		section.Artifact.ResultHeavy[spec.scale] = ArtifactCellBinding{Task: task,
-			Query: testQuery("SELECT "+strings.Join(task.Columns["result_heavy"], ",")+
-				" FROM result_heavy ORDER BY column_01", spec.rows, spec.rows, spec.columns, spec.scale)}
+			Query: testResult("SELECT "+strings.Join(task.Columns["result_heavy"], ",")+
+				" FROM result_heavy ORDER BY column_01", spec.rows, spec.columns, spec.scale)}
 	}
 	value, err := json.Marshal(map[string]any{
-		"dataset_sha256": shaBytes([]byte("dataset")), "catalog_sha256": shaBytes([]byte("catalog")),
-		SectionName: section,
+		"dataset_sha256": shaBytes([]byte("dataset")), "dataset_probe_sha256": shaBytes([]byte("probe")),
+		"catalog_sha256": shaBytes([]byte("catalog")),
+		SectionName:      section,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -126,7 +147,8 @@ func TestParseRequiresCompleteExactPublicationBinding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(binding.Section.Scale.DependencyE2E) != 12 || len(binding.Section.Artifact.ResultHeavy) != 6 ||
+	if binding.Section.SchemaVersion != 2 || len(binding.Section.Scale.DependencyE2E) != 12 ||
+		len(binding.Section.Artifact.ResultHeavy) != 6 ||
 		len(binding.Section.ProvSQL.TaskGate) != 105 || !ValidDigest(binding.SectionSHA256) ||
 		!ValidDigest(binding.FileSHA256) {
 		t.Fatalf("incomplete validation result: %+v", binding)
@@ -143,6 +165,145 @@ func TestParseRequiresCompleteExactPublicationBinding(t *testing.T) {
 	}
 	if formatted.SectionSHA256 != binding.SectionSHA256 || formatted.FileSHA256 == binding.FileSHA256 {
 		t.Fatal("canonical section identity or exact file identity does not distinguish formatting correctly")
+	}
+}
+
+func TestParseRejectsBindingV1AndConflatedDatasetProbe(t *testing.T) {
+	value := completeTestBinding(t)
+	var top map[string]any
+	if err := json.Unmarshal(value, &top); err != nil {
+		t.Fatal(err)
+	}
+
+	legacy := make(map[string]any, len(top))
+	for key, child := range top {
+		legacy[key] = child
+	}
+	legacy["final_v5_adapter_v1"] = legacy[SectionName]
+	delete(legacy, SectionName)
+	encoded, _ := json.Marshal(legacy)
+	if _, err := Parse(encoded); err == nil {
+		t.Fatal("binding-v1 was silently reinterpreted as binding-v2")
+	}
+
+	withoutProbe := make(map[string]any, len(top)-1)
+	for key, child := range top {
+		if key != "dataset_probe_sha256" {
+			withoutProbe[key] = child
+		}
+	}
+	encoded, _ = json.Marshal(withoutProbe)
+	if _, err := Parse(encoded); err == nil {
+		t.Fatal("binding that conflates logical Dataset identity with the live probe was accepted")
+	}
+
+	invalidProbe := make(map[string]any, len(top))
+	for key, child := range top {
+		invalidProbe[key] = child
+	}
+	invalidProbe["dataset_probe_sha256"] = "not-a-digest"
+	encoded, _ = json.Marshal(invalidProbe)
+	if _, err := Parse(encoded); err == nil {
+		t.Fatal("invalid live dataset probe digest was accepted")
+	}
+}
+
+func TestScaleBindingV2RequiresExistingAndIndependentUnionFields(t *testing.T) {
+	value := completeTestBinding(t)
+	mutations := []struct {
+		name   string
+		mutate func(map[string]any)
+	}{
+		{name: "missing zero-overlap history", mutate: func(cell map[string]any) { delete(cell, "history") }},
+		{name: "history is overlap not existing", mutate: func(cell map[string]any) {
+			cell["history"].(map[string]any)["dependency_facts"] = float64(0)
+		}},
+		{name: "missing union", mutate: func(cell map[string]any) { delete(cell, "union") }},
+		{name: "union cardinality equals candidate", mutate: func(cell map[string]any) {
+			cell["union"].(map[string]any)["dependency_facts"] = float64(10_000)
+		}},
+		{name: "missing union digest", mutate: func(cell map[string]any) {
+			cell["union"].(map[string]any)["dependency_set_sha256"] = ""
+		}},
+		{name: "candidate aggregate drift", mutate: func(cell map[string]any) {
+			cell["candidate"].(map[string]any)["sql"] = dependencyCandidateSQL(2_001)
+		}},
+		{name: "history interval drift", mutate: func(cell map[string]any) {
+			cell["history"].(map[string]any)["sql"] = dependencyHistorySQL(2_000, 4_001)
+		}},
+		{name: "history aggregate drift", mutate: func(cell map[string]any) {
+			cell["history"].(map[string]any)["sql"] = strings.Replace(
+				dependencyHistorySQL(2_000, 4_000), "sum(metric)", "count(*)", 1)
+		}},
+	}
+	for _, test := range mutations {
+		t.Run(test.name, func(t *testing.T) {
+			var top map[string]any
+			if err := json.Unmarshal(value, &top); err != nil {
+				t.Fatal(err)
+			}
+			cell := top[SectionName].(map[string]any)["scale"].(map[string]any)["dependency_e2e"].(map[string]any)["10k-overlap-0"].(map[string]any)
+			test.mutate(cell)
+			encoded, _ := json.Marshal(top)
+			if _, err := Parse(encoded); err == nil {
+				t.Fatal("invalid binding-v2 Scale cell was accepted")
+			}
+		})
+	}
+}
+
+func TestScaleBindingV2RejectsSQLDriftInEveryCell(t *testing.T) {
+	base, err := Parse(completeTestBinding(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	scales := make([]string, 0, len(base.Section.Scale.DependencyE2E))
+	for scale := range base.Section.Scale.DependencyE2E {
+		scales = append(scales, scale)
+	}
+	sort.Strings(scales)
+	for _, scale := range scales {
+		for _, query := range []string{"candidate", "history"} {
+			t.Run(scale+"/"+query, func(t *testing.T) {
+				mutated := *base.Section.Scale
+				mutated.DependencyE2E = make(map[string]DependencyCellBinding, len(base.Section.Scale.DependencyE2E))
+				for key, cell := range base.Section.Scale.DependencyE2E {
+					mutated.DependencyE2E[key] = cell
+				}
+				cell := mutated.DependencyE2E[scale]
+				if query == "candidate" {
+					cell.Candidate.SQL += " "
+				} else {
+					cell.History.SQL += " "
+				}
+				mutated.DependencyE2E[scale] = cell
+				if err := validateScaleBinding(&mutated); err == nil {
+					t.Fatal("non-canonical concrete dependency SQL was accepted")
+				}
+			})
+		}
+	}
+}
+
+func TestArtifactResultBindingCannotExpressDependencyMaterial(t *testing.T) {
+	value := completeTestBinding(t)
+	for _, field := range []string{"dependency_facts", "dependency_set_sha256"} {
+		t.Run(field, func(t *testing.T) {
+			var top map[string]any
+			if err := json.Unmarshal(value, &top); err != nil {
+				t.Fatal(err)
+			}
+			query := top[SectionName].(map[string]any)["artifact"].(map[string]any)["result_heavy"].(map[string]any)["100x4"].(map[string]any)["query"].(map[string]any)
+			if field == "dependency_facts" {
+				query[field] = float64(400)
+			} else {
+				query[field] = strings.Repeat("a", 64)
+			}
+			encoded, _ := json.Marshal(top)
+			if _, err := Parse(encoded); err == nil {
+				t.Fatalf("Artifact result binding accepted forbidden %s", field)
+			}
+		})
 	}
 }
 
@@ -206,7 +367,7 @@ func TestParseRejectsUnknownForbiddenAndAmbiguousFields(t *testing.T) {
 	if _, err := Parse([]byte(duplicateTop)); err == nil {
 		t.Fatal("duplicate top-level key was accepted")
 	}
-	duplicateNested := strings.Replace(string(value), `"schema_version":1`, `"schema_version":1,"schema_version":1`, 1)
+	duplicateNested := strings.Replace(string(value), `"schema_version":2`, `"schema_version":2,"schema_version":2`, 1)
 	if _, err := Parse([]byte(duplicateNested)); err == nil {
 		t.Fatal("duplicate nested key was accepted")
 	}
@@ -304,14 +465,16 @@ func TestBoundSQLUsesPostgreSQLASTAndApprovedTaskGrant(t *testing.T) {
 }
 
 func TestCompiledDatasetProbeMatchesFreshDeploymentSource(t *testing.T) {
-	path := filepath.Join("..", "..", "final-v5-wsl2", "sql", "datasets", "default-fingerprint.sql")
+	path := filepath.Join("..", "..", "final-v5-wsl2", "sql", "datasets", "benchmark-v1-probe.sql")
 	value, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	fromFile := strings.TrimSuffix(strings.TrimSpace(string(value)), ";")
-	if fromFile != DatasetProbeSQL {
-		t.Fatal("compiled dataset probe differs from the SQL executed by fresh deployment")
+	if string(value) != datasetProbeSource || strings.TrimPrefix(string(value), "\\set ON_ERROR_STOP on\n") != DatasetProbeSQL() {
+		t.Fatal("embedded Dataset probe source or executable SQL differs from fresh deployment")
+	}
+	if got, want := DatasetProbeSQLSHA256(), "bb2f717996259b3f64e248381810c3e2970f951eb06f8334a98792407d6aa06f"; got != want {
+		t.Fatalf("dataset probe SQL SHA-256 = %s, want source bytes %s", got, want)
 	}
 }
 

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -68,14 +67,20 @@ func TestFrozenArtifactCellsMatchTheContractIndex(t *testing.T) {
 }
 
 func TestFrozenCellBindingsCrossCheckExactScale(t *testing.T) {
-	dependency := dependencyCellBinding{Task: testBoundTask(4), Candidate: testBoundQuery(10, 4, 10_000),
-		History: func() *boundQueryExpectation { value := testBoundQuery(5, 4, 5_000); return &value }()}
+	digest := strings.Repeat("b", 64)
+	dependency := dependencyCellBinding{
+		Task: testBoundTask(4), Candidate: testBoundQuery(10, 4, 10_000),
+		History: testBoundQuery(5, 4, 10_000),
+		Union: finalv5binding.BoundDependencySetExpectation{
+			DependencyFacts: 15_000, DependencySetSHA256: digest,
+		},
+	}
 	if err := validateDependencyCellBinding("10k-overlap-50", dependency); err != nil {
 		t.Fatal(err)
 	}
-	dependency.History.DependencyFacts = 4_999
+	dependency.History.DependencyFacts = 9_999
 	if err := validateDependencyCellBinding("10k-overlap-50", dependency); err == nil {
-		t.Fatal("dependency binding with a shrunken overlap was accepted")
+		t.Fatal("dependency binding with a shrunken existing set was accepted")
 	}
 }
 
@@ -202,6 +207,55 @@ func TestScaleAndArtifactInvariantFailuresRetainMeasuredEvidence(t *testing.T) {
 	}
 }
 
+func TestPostAcceptanceV3InvariantFailureSurvivesJSONL(t *testing.T) {
+	digest := strings.Repeat("a", 64)
+	probe := strings.Repeat("b", 64)
+	operation := experiment.AdapterOperation{SchemaVersion: 1, CampaignClass: "publication", CampaignID: "c",
+		DeploymentID: "deployment-01", ExperimentID: "artifact", CellID: "result-heavy/100x4/novel",
+		SampleID: "sample", Iteration: 1, ProcessReplicate: 1, OrderPosition: 1, RandomSeed: 1,
+		PairID: "pair", PairedSystemOrder: "novel", RootGroupID: "novel", WorkloadID: "result-heavy",
+		Scale: "100x4", Mode: "novel"}
+	sample := baseSample(operation, "taskgate")
+	sample.SchemaVersion = experiment.FinalizedSampleSchemaVersion
+	sample.Status = "pass"
+	sample.ClientFullDrainMS = 7
+	sample.RowCount, sample.ColumnCount, sample.ResultSHA256 = 3, 4, digest
+	sample.Counters = map[string]int64{"retained_marker": 13}
+	sample.TaskGateAcceptanceV3 = &experiment.FinalizationV3{ReceiptSHA256: digest}
+	sample.ArtifactVerification = &experiment.ArtifactVerificationEvidence{
+		Version: artifactVerificationVersion, BindingSHA256: digest,
+		DatasetSHA256: digest, CatalogSHA256: digest, DatasetProbeSHA256: probe, QuerySHA256: digest,
+		ExpectedRows: 3, ExpectedColumns: 4, ExpectedResultSHA256: digest,
+		ObservedRows: 4, ObservedColumns: 4, ObservedResultSHA256: digest,
+	}
+
+	failed := validateArtifactPass(sample)
+	if failed.Status != "fail" || failed.ErrorCode != "artifact_evidence_invariant_failed" {
+		t.Fatalf("post-acceptance invariant failure was not retained: %+v", failed)
+	}
+	path := filepath.Join(t.TempDir(), "post-acceptance-v3.jsonl")
+	writer, err := experiment.NewJSONLWriter(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Write(failed); err != nil {
+		t.Fatalf("JSONL writer would force the runner to replace v3 evidence: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	retained, err := experiment.ReadSamples([]string{path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(retained) != 1 || retained[0].SchemaVersion != experiment.FinalizedSampleSchemaVersion ||
+		retained[0].Status != "fail" || retained[0].TaskGateAcceptanceV3 == nil ||
+		retained[0].ArtifactVerification == nil || retained[0].ArtifactVerification.ObservedRows != 4 ||
+		retained[0].Counters["retained_marker"] != 13 || retained[0].ClientFullDrainMS != 7 {
+		t.Fatalf("v3 JSONL round trip discarded post-acceptance evidence: %+v", retained)
+	}
+}
+
 func TestPostAssertionFailuresRetainIndependentRuntimeSnapshots(t *testing.T) {
 	digest := strings.Repeat("a", 64)
 	operation := experiment.AdapterOperation{SchemaVersion: 1, CampaignClass: "publication", CampaignID: "c",
@@ -286,38 +340,6 @@ func TestObservedTaskGatePrefixNeverClaimsUnverifiedArtifact(t *testing.T) {
 		failed.ClientFullDrainMS <= 0 || failed.QueryPlanSHA256 != digest || failed.RootEpochAfter != 2 ||
 		failed.ReceiptVerified || failed.ArtifactAvailable || failed.ResultSHA256 != "" {
 		t.Fatalf("observed-but-unverified TaskGate prefix was lost or overclaimed: %+v", failed)
-	}
-}
-
-func TestStrictAdapterBindingSectionRejectsUnknownCredentialField(t *testing.T) {
-	executable, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	executable, err = filepath.EvalSymlinks(executable)
-	if err != nil {
-		t.Fatal(err)
-	}
-	executableSHA, err := experiment.FileSHA256(executable)
-	if err != nil {
-		t.Fatal(err)
-	}
-	digest := strings.Repeat("a", 64)
-	section := map[string]any{"schema_version": 1, "dataset_probe_sql": "SELECT 'fixture'",
-		"observer": map[string]any{"argv": []string{executable, "-test.run=^$"}, "executable_sha256": executableSHA},
-		"password": "must-never-be-accepted"}
-	top := map[string]any{"dataset_sha256": digest, "catalog_sha256": digest, adapterBindingSectionName: section}
-	value, err := json.Marshal(top)
-	if err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(t.TempDir(), "binding.json")
-	if err := os.WriteFile(path, value, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("TASKGATE_DATASET_BINDINGS", path)
-	if _, err := loadAdapterDeploymentBinding(); err == nil {
-		t.Fatal("unknown credential field in strict adapter section was accepted")
 	}
 }
 

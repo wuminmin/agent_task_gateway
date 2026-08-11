@@ -15,21 +15,10 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"taskbound.local/agent-data-gateway/evaluation/finalv5oracle"
+	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5dataset"
 )
 
-const (
-	provSQLDatasetAgreementVersion = "taskgate-final-v5-provsql-dataset-agreement-v1"
-
-	provSQLOrdersDatasetQuery = `SELECT orderkey, status, partition_key
-FROM reporting.provsql_orders
-ORDER BY orderkey`
-	provSQLLineitemDatasetQuery = `SELECT orderkey, linenumber, extendedprice, partition_key
-FROM reporting.provsql_lineitem
-ORDER BY orderkey, linenumber`
-	provSQLNonceDatasetQuery = `SELECT nonce_id, partition_key
-FROM reporting.provsql_nonce
-ORDER BY nonce_id`
-)
+const provSQLDatasetAgreementVersion = "taskgate-final-v5-provsql-dataset-agreement-v1"
 
 type provSQLDatasetStreamShape struct {
 	ProductID string                              `json:"product_id"`
@@ -184,7 +173,11 @@ func (values provSQLManifestSpecFlagValues) validate() error {
 }
 
 func liveProvSQLDatasetAgreement(ctx context.Context) (provSQLDatasetAgreement, error) {
-	agreement := provSQLDatasetAgreement{Version: provSQLDatasetAgreementVersion, Columns: provSQLDatasetStreamShapes()}
+	shapes, err := provSQLDatasetStreamShapes()
+	if err != nil {
+		return provSQLDatasetAgreement{}, err
+	}
+	agreement := provSQLDatasetAgreement{Version: provSQLDatasetAgreementVersion, Columns: shapes}
 	if err := validateProvSQLDatasetStreamShapes(agreement.Columns); err != nil {
 		return agreement, err
 	}
@@ -211,29 +204,13 @@ func liveProvSQLDatasetAgreement(ctx context.Context) (provSQLDatasetAgreement, 
 	}
 	defer tx.Rollback(ctx)
 
-	shapes := agreement.Columns
-	streams := map[string]finalv5oracle.DatasetRowStream{
-		finalv5oracle.ProvSQLOrdersProductID: func(yield func([]any) error) error {
-			rows, queryErr := tx.Query(ctx, provSQLOrdersDatasetQuery, pgx.QueryExecModeSimpleProtocol)
-			if queryErr != nil {
-				return errors.New("execute fixed provsql_orders Dataset query failed")
-			}
-			return drainProvSQLDatasetRows(rows, shapes[0], yield)
-		},
-		finalv5oracle.ProvSQLLineitemProductID: func(yield func([]any) error) error {
-			rows, queryErr := tx.Query(ctx, provSQLLineitemDatasetQuery, pgx.QueryExecModeSimpleProtocol)
-			if queryErr != nil {
-				return errors.New("execute fixed provsql_lineitem Dataset query failed")
-			}
-			return drainProvSQLDatasetRows(rows, shapes[1], yield)
-		},
-		finalv5oracle.ProvSQLNonceProductID: func(yield func([]any) error) error {
-			rows, queryErr := tx.Query(ctx, provSQLNonceDatasetQuery, pgx.QueryExecModeSimpleProtocol)
-			if queryErr != nil {
-				return errors.New("execute fixed provsql_nonce Dataset query failed")
-			}
-			return drainProvSQLDatasetRows(rows, shapes[2], yield)
-		},
+	streams := make(map[string]finalv5oracle.DatasetRowStream, len(shapes))
+	for _, shape := range shapes {
+		stream, streamErr := finalv5dataset.ProductStream(ctx, tx, shape.ProductID)
+		if streamErr != nil {
+			return agreement, streamErr
+		}
+		streams[shape.ProductID] = stream
 	}
 	observed, err := finalv5oracle.ProvSQLDatasetFingerprintFromStreams(streams)
 	if err != nil {
@@ -244,8 +221,8 @@ func liveProvSQLDatasetAgreement(ctx context.Context) (provSQLDatasetAgreement, 
 	if !agreement.Agreed {
 		return agreement, errors.New("live ProvSQL typed Products disagree with the frozen formulas")
 	}
-	if err := tx.QueryRow(ctx, "SELECT count(*) FROM pg_prepared_statements", pgx.QueryExecModeSimpleProtocol).
-		Scan(&agreement.PreparedStatementCount); err != nil {
+	agreement.PreparedStatementCount, err = finalv5dataset.PreparedStatementCount(ctx, tx)
+	if err != nil {
 		return agreement, errors.New("verify ProvSQL session prepared-statement state failed")
 	}
 	if agreement.PreparedStatementCount != 0 {
@@ -258,24 +235,20 @@ func liveProvSQLDatasetAgreement(ctx context.Context) (provSQLDatasetAgreement, 
 	return agreement, nil
 }
 
-func provSQLDatasetStreamShapes() []provSQLDatasetStreamShape {
-	return []provSQLDatasetStreamShape{
-		{ProductID: finalv5oracle.ProvSQLOrdersProductID, Columns: []finalv5oracle.DatasetStreamColumn{
-			{Name: "orderkey", PostgreSQLOID: 20, SQLType: finalv5oracle.SQLBigInt},
-			{Name: "status", PostgreSQLOID: 20, SQLType: finalv5oracle.SQLBigInt},
-			{Name: "partition_key", PostgreSQLOID: 23, SQLType: finalv5oracle.SQLInteger},
-		}},
-		{ProductID: finalv5oracle.ProvSQLLineitemProductID, Columns: []finalv5oracle.DatasetStreamColumn{
-			{Name: "orderkey", PostgreSQLOID: 20, SQLType: finalv5oracle.SQLBigInt},
-			{Name: "linenumber", PostgreSQLOID: 23, SQLType: finalv5oracle.SQLInteger},
-			{Name: "extendedprice", PostgreSQLOID: 1700, SQLType: finalv5oracle.SQLNumeric},
-			{Name: "partition_key", PostgreSQLOID: 23, SQLType: finalv5oracle.SQLInteger},
-		}},
-		{ProductID: finalv5oracle.ProvSQLNonceProductID, Columns: []finalv5oracle.DatasetStreamColumn{
-			{Name: "nonce_id", PostgreSQLOID: 20, SQLType: finalv5oracle.SQLBigInt},
-			{Name: "partition_key", PostgreSQLOID: 23, SQLType: finalv5oracle.SQLInteger},
-		}},
+func provSQLDatasetStreamShapes() ([]provSQLDatasetStreamShape, error) {
+	result := make([]provSQLDatasetStreamShape, 0, 3)
+	for _, productID := range []string{
+		finalv5oracle.ProvSQLOrdersProductID,
+		finalv5oracle.ProvSQLLineitemProductID,
+		finalv5oracle.ProvSQLNonceProductID,
+	} {
+		columns, err := finalv5dataset.DatasetStreamColumns(productID)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, provSQLDatasetStreamShape{ProductID: productID, Columns: columns})
 	}
+	return result, nil
 }
 
 func validateProvSQLDatasetStreamShapes(shapes []provSQLDatasetStreamShape) error {
@@ -297,39 +270,6 @@ func validateProvSQLDatasetStreamShapes(shapes []provSQLDatasetStreamShape) erro
 					product.ProductID, fieldIndex+1)
 			}
 		}
-	}
-	return nil
-}
-
-func drainProvSQLDatasetRows(rows pgx.Rows, want provSQLDatasetStreamShape, yield func([]any) error) error {
-	defer rows.Close()
-	fields := rows.FieldDescriptions()
-	if len(fields) != len(want.Columns) {
-		return fmt.Errorf("fixed %s Dataset stream has %d columns; expected %d", want.ProductID, len(fields), len(want.Columns))
-	}
-	for index, field := range fields {
-		resolved, err := finalv5oracle.SQLTypeFromPostgresOID(field.DataTypeOID)
-		if err != nil {
-			return fmt.Errorf("fixed %s Dataset column %d: %w", want.ProductID, index+1, err)
-		}
-		got := finalv5oracle.DatasetStreamColumn{
-			Name: string(field.Name), PostgreSQLOID: field.DataTypeOID, SQLType: resolved,
-		}
-		if got != want.Columns[index] {
-			return fmt.Errorf("fixed %s Dataset column %d is %+v; expected %+v", want.ProductID, index+1, got, want.Columns[index])
-		}
-	}
-	for rows.Next() {
-		values, err := rows.Values()
-		if err != nil {
-			return fmt.Errorf("read fixed %s Dataset row failed", want.ProductID)
-		}
-		if err := yield(values); err != nil {
-			return err
-		}
-	}
-	if rows.Err() != nil {
-		return fmt.Errorf("drain fixed %s Dataset rows failed", want.ProductID)
 	}
 	return nil
 }

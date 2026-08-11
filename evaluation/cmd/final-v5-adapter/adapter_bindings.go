@@ -19,24 +19,26 @@ import (
 const adapterBindingSectionName = finalv5binding.SectionName
 
 type adapterDeploymentBinding struct {
-	DatasetSHA256 string
-	CatalogSHA256 string
-	FileSHA256    string
-	SectionSHA256 string
-	Section       adapterBindingSection
+	DatasetSHA256      string
+	DatasetProbeSHA256 string
+	CatalogSHA256      string
+	FileSHA256         string
+	SectionSHA256      string
+	Section            adapterBindingSection
 }
 
 type adapterBindingValidation struct {
-	SchemaVersion        int    `json:"schema_version"`
-	Status               string `json:"status"`
-	DatasetSHA256        string `json:"dataset_sha256"`
-	CatalogSHA256        string `json:"catalog_sha256"`
-	BindingFileSHA256    string `json:"dataset_binding_sha256"`
-	AdapterSectionSHA256 string `json:"final_v5_adapter_sha256"`
-	DatasetProbeSHA256   string `json:"dataset_probe_sql_sha256"`
-	ScaleCells           int    `json:"scale_cells"`
-	ArtifactCells        int    `json:"artifact_cells"`
-	ProvSQLCells         int    `json:"provsql_cells"`
+	SchemaVersion         int    `json:"schema_version"`
+	Status                string `json:"status"`
+	DatasetSHA256         string `json:"dataset_sha256"`
+	DatasetProbeSHA256    string `json:"dataset_probe_sha256"`
+	CatalogSHA256         string `json:"catalog_sha256"`
+	BindingFileSHA256     string `json:"dataset_binding_sha256"`
+	AdapterSectionSHA256  string `json:"final_v5_adapter_sha256"`
+	DatasetProbeSQLSHA256 string `json:"dataset_probe_sql_sha256"`
+	ScaleCells            int    `json:"scale_cells"`
+	ArtifactCells         int    `json:"artifact_cells"`
+	ProvSQLCells          int    `json:"provsql_cells"`
 }
 
 type adapterBindingSection = finalv5binding.Section
@@ -73,8 +75,9 @@ func loadAdapterDeploymentBinding() (adapterDeploymentBinding, error) {
 	if err := validateFrozenAdapterBindingIdentity(binding); err != nil {
 		return result, err
 	}
-	return adapterDeploymentBinding{DatasetSHA256: binding.DatasetSHA256, CatalogSHA256: binding.CatalogSHA256,
-		FileSHA256: binding.FileSHA256, SectionSHA256: binding.SectionSHA256, Section: binding.Section}, nil
+	return adapterDeploymentBinding{DatasetSHA256: binding.DatasetSHA256, DatasetProbeSHA256: binding.DatasetProbeSHA256,
+		CatalogSHA256: binding.CatalogSHA256,
+		FileSHA256:    binding.FileSHA256, SectionSHA256: binding.SectionSHA256, Section: binding.Section}, nil
 }
 
 func validateFrozenAdapterBindingIdentity(binding finalv5binding.Binding) error {
@@ -96,12 +99,13 @@ func validateAdapterBindingInput() (adapterBindingValidation, error) {
 	if err != nil {
 		return adapterBindingValidation{}, err
 	}
-	return adapterBindingValidation{SchemaVersion: 1, Status: "valid",
-		DatasetSHA256: binding.DatasetSHA256, CatalogSHA256: binding.CatalogSHA256,
+	return adapterBindingValidation{SchemaVersion: 2, Status: "valid",
+		DatasetSHA256: binding.DatasetSHA256, DatasetProbeSHA256: binding.DatasetProbeSHA256,
+		CatalogSHA256:     binding.CatalogSHA256,
 		BindingFileSHA256: binding.FileSHA256, AdapterSectionSHA256: binding.SectionSHA256,
-		DatasetProbeSHA256: finalv5binding.DatasetProbeSHA256(),
-		ScaleCells:         len(binding.Section.Scale.DependencyE2E),
-		ArtifactCells:      len(binding.Section.Artifact.ResultHeavy), ProvSQLCells: len(binding.Section.ProvSQL.TaskGate)}, nil
+		DatasetProbeSQLSHA256: finalv5binding.DatasetProbeSQLSHA256(),
+		ScaleCells:            len(binding.Section.Scale.DependencyE2E),
+		ArtifactCells:         len(binding.Section.Artifact.ResultHeavy), ProvSQLCells: len(binding.Section.ProvSQL.TaskGate)}, nil
 }
 
 func validateBoundTask(task boundTaskRequest) error {
@@ -118,7 +122,7 @@ func (adapter *realAdapter) verifyDatasetProbe(ctx context.Context, binding adap
 		return "", err
 	}
 	defer tx.Rollback(context.Background())
-	rows, err := tx.Query(ctx, finalv5binding.DatasetProbeSQL)
+	rows, err := tx.Query(ctx, finalv5binding.DatasetProbeSQL())
 	if err != nil {
 		return "", err
 	}
@@ -134,8 +138,8 @@ func (adapter *realAdapter) verifyDatasetProbe(ctx context.Context, binding adap
 		return "", err
 	}
 	digest := sha(fingerprint)
-	if digest != binding.DatasetSHA256 {
-		return digest, errors.New("live dataset probe differs from dataset_sha256")
+	if digest != binding.DatasetProbeSHA256 {
+		return digest, errors.New("live dataset sanity probe differs from dataset_probe_sha256")
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return "", err

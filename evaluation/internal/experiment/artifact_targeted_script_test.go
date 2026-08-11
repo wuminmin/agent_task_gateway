@@ -232,10 +232,12 @@ func TestArtifactTargetedLauncherWiresTheFormalRuntimeContract(t *testing.T) {
 	}
 	bindingBlock := body[bindingValidation:bindingExport]
 	for _, required := range []string{
-		`.schema_version == 1`,
+		`.schema_version == 2`,
 		`.status == "valid"`,
 		`.artifact_cells == 6`,
 		`.selected_cells == $selected_cells`,
+		`(.dataset_sha256 | test("^[0-9a-f]{64}$"))`,
+		`(.dataset_probe_sql_sha256 | test("^[0-9a-f]{64}$"))`,
 		`(.dataset_probe_sha256 | test("^[0-9a-f]{64}$"))`,
 		`.binding_file_sha256 == $binding_file_sha256`,
 	} {

@@ -17,6 +17,7 @@ import (
 
 	"taskbound.local/agent-data-gateway/evaluation/finalv5contracts"
 	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5binding"
+	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5dataset"
 	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5profile"
 	"taskbound.local/agent-data-gateway/internal/catalog"
 	"taskbound.local/agent-data-gateway/internal/catalogschema"
@@ -250,11 +251,26 @@ func openDeploymentContractsV3(ctx context.Context) (deploymentContractsV3, erro
 	if err != nil {
 		return contracts, err
 	}
-	// The dataset fingerprint is read once, here, because it is a property of the
-	// deployment rather than of a cell: BindDeployment records it in the binding
-	// and nothing downstream of it depends on when it was taken. Reading it in
-	// the constructor is also what keeps ResolveCandidates -- which has no
-	// context, by interface -- from having to open a database.
+	// Dataset is the typed identity observed by streaming every row of all five
+	// Products from this deployment. The reviewed generator is an independently
+	// regenerated reference which that live observation must match. The scalar SQL
+	// probe below remains a separate deployment observation and is not required to
+	// equal either typed-stream digest.
+	referenceDatasetIdentity, err := runtime.DatasetIdentitySHA256()
+	if err != nil {
+		return contracts, err
+	}
+	datasetAgreement, err := finalv5dataset.VerifyBenchmarkPostgreSQL(ctx, businessDSN)
+	if err != nil {
+		return contracts, fmt.Errorf("verify the full live typed benchmark Dataset: %w", err)
+	}
+	if datasetAgreement.Reference.SHA256 != referenceDatasetIdentity {
+		return contracts, errors.New("live Dataset verifier used a different reviewed benchmark formula")
+	}
+	datasetIdentity := datasetAgreement.Observed.SHA256
+	// The probe is read once because it is a deployment observation rather than a
+	// cell property. Reading it in the constructor also keeps ResolveCandidates --
+	// which has no context, by interface -- from opening a database.
 	probe, err := datasetProbeDigestV3(ctx, runtime, businessDSN)
 	if err != nil {
 		return contracts, err
@@ -262,7 +278,8 @@ func openDeploymentContractsV3(ctx context.Context) (deploymentContractsV3, erro
 	return deploymentContractsV3{
 		runtime: runtime,
 		live: finalv5contracts.LiveDeployment{
-			CatalogPath: catalogPath, CatalogSHA256: catalogDigest, DatasetProbeSHA256: probe,
+			CatalogPath: catalogPath, CatalogSHA256: catalogDigest,
+			DatasetSHA256: datasetIdentity, DatasetProbeSHA256: probe,
 		},
 		catalog: liveCatalog, bindingSource: deploymentBindingSourceFromEnvironmentV3(),
 	}, nil
@@ -392,6 +409,9 @@ func (contracts deploymentContractsV3) ResolveCandidates(
 		if err != nil {
 			return finalv5binding.Binding{}, err
 		}
+		if err := requireLiveDeploymentBindingV3(binding, contracts.live); err != nil {
+			return finalv5binding.Binding{}, err
+		}
 		loadedBinding = &binding
 		return binding, nil
 	}
@@ -436,6 +456,14 @@ func (contracts deploymentContractsV3) ResolveCandidates(
 		candidates = append(candidates, provSQLCandidates...)
 	}
 	return candidates, nil
+}
+
+func requireLiveDeploymentBindingV3(binding finalv5binding.Binding,
+	live finalv5contracts.LiveDeployment) error {
+	if binding.DatasetSHA256 != live.DatasetSHA256 || binding.DatasetProbeSHA256 != live.DatasetProbeSHA256 {
+		return errors.New("private deployment binding Dataset identity/probe differs from independent live observations")
+	}
+	return nil
 }
 
 func (contracts deploymentContractsV3) resolveScaleCandidatesV3(selector FrozenContractSelectorV3,
@@ -707,8 +735,19 @@ func (contracts deploymentContractsV3) candidateFor(
 	if err != nil {
 		return candidate, err
 	}
+	bindingSHA256, err := binding.SHA256()
+	if err != nil {
+		return candidate, err
+	}
+	baseContractIdentity, ok := strings.CutSuffix(operation.ContractIdentity, ":"+operation.OperationID)
+	if !ok {
+		return candidate, errors.New("public Artifact operation identity is malformed")
+	}
 	return frozenOperationCandidateV3{
-		OperationID: operation.OperationID, ContractIdentity: operation.ContractIdentity,
+		OperationID: operation.OperationID,
+		ContractIdentity: baseContractIdentity + ":binding=" + bindingSHA256 +
+			":dataset=" + binding.DatasetSHA256 + ":probe=" + binding.DatasetProbeSHA256 +
+			":catalog=" + binding.CatalogSHA256 + ":" + operation.OperationID,
 		ProfileID: artifactDeploymentProfileAlias,
 		// Every Artifact cell is an Exposure V4/V5 novel execution: one preflight
 		// attestation, one QueryPairStream transaction, a visible statement and
