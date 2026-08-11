@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -61,6 +62,25 @@ func TestFixtureBindingsAreNonemptyAndStable(t *testing.T) {
 	}
 	if DatasetRowCount != 301000 {
 		t.Fatalf("dataset row count = %d", DatasetRowCount)
+	}
+}
+
+func TestBusinessSQLChangesOnlyTheFixedRelations(t *testing.T) {
+	logical, err := LogicalSQL("10k", 401)
+	if err != nil {
+		t.Fatal(err)
+	}
+	business, err := BusinessSQL("10k", 401)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := strings.NewReplacer(
+		"FROM provsql_orders AS o", "FROM reporting.provsql_orders AS o",
+		"JOIN provsql_lineitem AS l", "JOIN reporting.provsql_lineitem AS l",
+		"JOIN provsql_nonce AS nonce", "JOIN reporting.provsql_nonce AS nonce",
+	).Replace(logical)
+	if business != want {
+		t.Fatalf("Business SQL differs outside fixed relations:\n%s", business)
 	}
 }
 

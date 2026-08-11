@@ -8,7 +8,8 @@ import (
 
 func TestExpectedSchemasBuildsSingleSourceContract(t *testing.T) {
 	logical := &catalog.Catalog{
-		Sources: []catalog.Source{{Name: "approved", User: "gateway_reader"}},
+		Sources: []catalog.Source{{Name: "approved", User: "gateway_reader",
+			SchemaDigest: "bf4c3fe0897000f7673250e5fe0131a03019b49e9c3839e9fc4911c3716290b4"}},
 		Products: []catalog.Product{
 			{Name: "expense", Source: "approved", ReportingView: "reporting.expense", Fields: []catalog.Field{{Name: "id", Type: "bigint"}}},
 			{Name: "summary", Source: "approved", ReportingView: "reporting.summary", Fields: []catalog.Field{{Name: "month", Type: "date"}}},

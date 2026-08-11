@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math/big"
 	"path"
 	"reflect"
 	"strconv"
@@ -102,6 +103,38 @@ func ExposureScaleQuerySpecSHA256() string {
 
 func ExposureScaleDependencyCells() []ExposureScaleDependencyCell {
 	return append([]ExposureScaleDependencyCell(nil), exposureScaleDependencyCells...)
+}
+
+// ExposureScaleHistoryResultSummary independently evaluates the fixed
+// history sum for one of the twelve Scale cells. It consumes the same sole
+// source-controlled Product row formula as Dataset agreement and FactSet
+// generation; it neither executes SQL nor consumes a production result.
+func ExposureScaleHistoryResultSummary(scale string) (ResultSummary, error) {
+	cell, err := ParseExposureScaleDependencyCell(scale)
+	if err != nil {
+		return ResultSummary{}, err
+	}
+	m := cell.CandidateFacts / ExposureScaleFactsPerRow
+	k := cell.OverlapFacts / ExposureScaleFactsPerRow
+	lowerExclusive, upperInclusive := m-k, 2*m-k
+	total := new(big.Rat)
+	for rank := lowerExclusive + 1; rank <= upperInclusive; rank++ {
+		row, rowErr := exposureScaleDatasetRow(rank - 1)
+		if rowErr != nil {
+			return ResultSummary{}, fmt.Errorf("history row %d: %w", rank, rowErr)
+		}
+		metric, ok := row[1].(string)
+		if !ok {
+			return ResultSummary{}, errors.New("exposure-scale metric formula did not return exact numeric text")
+		}
+		value, ok := new(big.Rat).SetString(metric)
+		if !ok {
+			return ResultSummary{}, errors.New("exposure-scale metric formula returned invalid exact numeric text")
+		}
+		total.Add(total, value)
+	}
+	return CanonicalResult([]ResultColumn{{Name: "history_total", Type: SQLNumeric}},
+		[][]any{{total.FloatString(2)}})
 }
 
 func ParseExposureScaleDependencyCell(scale string) (ExposureScaleDependencyCell, error) {

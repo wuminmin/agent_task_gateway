@@ -137,7 +137,7 @@ func completeTestProvSQL(t *testing.T) *ProvSQLBinding {
 		if err != nil {
 			t.Fatal(err)
 		}
-		resultSHA, err := canonicalResultHash(rows)
+		resultSHA256, err := canonicalAdapterResultHash(rows)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -156,7 +156,7 @@ func completeTestProvSQL(t *testing.T) *ProvSQLBinding {
 				}
 				key := ProvSQLBindingKey(scale, nonce)
 				binding.TaskGate[key] = BoundQueryExpectation{SQL: logical, ExpectedRows: provsqlfixture.ExpectedRows,
-					ExpectedColumns: provsqlfixture.ExpectedColumns, ExpectedResultSHA256: resultSHA,
+					ExpectedColumns: provsqlfixture.ExpectedColumns, ExpectedResultSHA256: resultSHA256,
 					DependencyFacts: int64(1 + len(binding.TaskGate)), DependencySetSHA256: shaBytes([]byte(key)),
 					ExpectedVisibleCalls: 1, ExpectedCompanionCalls: 1}
 			}

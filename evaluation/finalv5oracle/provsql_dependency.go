@@ -237,6 +237,12 @@ func provSQLResultColumns() []ResultColumn {
 		{Name: "lines", Type: SQLBigInt}, {Name: "members", Type: SQLBigInt}}
 }
 
+// ProvSQLResultSchema returns the fixed four-column logical result contract
+// shared by the independent oracle and publication binding live comparison.
+func ProvSQLResultSchema() []ResultColumn {
+	return append([]ResultColumn(nil), provSQLResultColumns()...)
+}
+
 func provSQLLogicalRows(limit int64) ([][]any, [3]provSQLAggregate, error) {
 	if !provSQLFormalLimit(limit) {
 		return nil, [3]provSQLAggregate{}, errors.New("ProvSQL logical result requires a formal limit")

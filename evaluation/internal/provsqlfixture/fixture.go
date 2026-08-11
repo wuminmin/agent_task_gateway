@@ -140,6 +140,17 @@ func NonceBindingSHA256(scale string, processReplicate, iteration int, warmup bo
 }
 
 func LogicalSQL(scale string, nonce int64) (string, error) {
+	return logicalSQL(scale, nonce, "provsql_orders", "provsql_lineitem", "provsql_nonce")
+}
+
+// BusinessSQL returns the fixed direct PostgreSQL counterpart of LogicalSQL.
+// Only the three relation names differ; all projection, join, predicate,
+// grouping, and ordering bytes are produced by the same implementation.
+func BusinessSQL(scale string, nonce int64) (string, error) {
+	return logicalSQL(scale, nonce, "reporting.provsql_orders", "reporting.provsql_lineitem", "reporting.provsql_nonce")
+}
+
+func logicalSQL(scale string, nonce int64, orders, lineitem, nonceRelation string) (string, error) {
 	spec, err := ParseScale(scale)
 	if err != nil {
 		return "", err
@@ -151,12 +162,12 @@ func LogicalSQL(scale string, nonce int64) (string, error) {
        sum(l.extendedprice)::text AS price,
        sum(l.linenumber)::bigint AS lines,
        count(*)::bigint AS members
-FROM provsql_orders AS o
-JOIN provsql_lineitem AS l ON l.orderkey = o.orderkey AND l.partition_key = o.partition_key
-JOIN provsql_nonce AS nonce ON nonce.partition_key = o.partition_key
+FROM %s AS o
+JOIN %s AS l ON l.orderkey = o.orderkey AND l.partition_key = o.partition_key
+JOIN %s AS nonce ON nonce.partition_key = o.partition_key
 WHERE o.orderkey <= %d AND nonce.nonce_id = %d
 GROUP BY o.status
-ORDER BY o.status`, spec.Limit, nonce), nil
+ORDER BY o.status`, orders, lineitem, nonceRelation, spec.Limit, nonce), nil
 }
 
 func FixtureSQLSHA256() string              { return SHA256String(FixtureSQL) }

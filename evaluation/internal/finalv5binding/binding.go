@@ -725,7 +725,7 @@ func validateProvSQLCellExpectation(expected BoundQueryExpectation, task BoundTa
 	if err != nil {
 		return err
 	}
-	resultSHA256, err := canonicalResultHash(rows)
+	resultSHA256, err := canonicalAdapterResultHash(rows)
 	if err != nil || expected.ExpectedResultSHA256 != resultSHA256 {
 		return errors.New("ProvSQL TaskGate result oracle differs from the source fixture")
 	}
@@ -794,7 +794,11 @@ func validateUniqueStrings(values []string) error {
 	return nil
 }
 
-func canonicalResultHash(rows [][]any) (string, error) {
+// canonicalAdapterResultHash retains the result identity consumed by the
+// existing Adapter/finalizer path. Publication manifests use a distinct typed
+// result identity; keeping the domains named prevents either digest from being
+// substituted for the other while both are independently checked.
+func canonicalAdapterResultHash(rows [][]any) (string, error) {
 	encoded := make([][]byte, len(rows))
 	for index, row := range rows {
 		value, err := json.Marshal(row)
