@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "record": "taskgate-final-v5-publication-binding-regeneration-v1",
+  "status": "REVIEW_CANDIDATE",
+  "author_approved": false,
+  "statement": "Regeneration of the decision-22 publication binding under contract release final-v5-contracts-v1.5. The approved binding and Catalog bytes reproduced exactly; only the generation provenance changed.",
+  "regenerated_at_commit": "f46ed76a9e0ec252411b274481ff0cf95b287256",
+  "previous": {
+    "directory": "evaluation/final-v5-wsl2/publication-review/publication-binding-v1",
+    "contract_release": "final-v5-contracts-v1.4",
+    "source_commit": "e842ea84111c8e9747731372f2aa06ef2181a7d8",
+    "publication_binding_sha256": "0ff346769cc0d988a5d7b0dcc4fe066b81fdd8ca528e0893f6fc178f3d5bab7a",
+    "catalog_sha256": "9546ffcfb263d947f0b5f10c08b2a878a6b97f5ed5e9d7ed8e6a8a0d21072e96",
+    "provenance_sha256": "2529e1be3985d5350569e016538e59a231d839ce63cea4ffc204177e7bf0cd74"
+  },
+  "regenerated": {
+    "directory": "evaluation/final-v5-wsl2/publication-review/publication-binding-v1.5",
+    "contract_release": "final-v5-contracts-v1.5",
+    "publication_binding_sha256": "0ff346769cc0d988a5d7b0dcc4fe066b81fdd8ca528e0893f6fc178f3d5bab7a",
+    "catalog_sha256": "9546ffcfb263d947f0b5f10c08b2a878a6b97f5ed5e9d7ed8e6a8a0d21072e96",
+    "provenance_sha256": "0c7e57c21b575c62e68d6d8607d390c7c4da367e780940c01301d75b3b0554e3"
+  },
+  "unchanged_approved_bytes": {
+    "publication_binding_json": true,
+    "catalog_yaml": true,
+    "note": "Author decision 22 approved publication-binding.json at 0ff34676... 110584 bytes; the v1.5 regeneration reproduces those exact bytes, so the approval of the binding bytes is not invalidated."
+  },
+  "provenance_delta": {
+    "differing_leaf_paths": 343,
+    "by_group": {
+      "/binding_input_identity/cell_input_set_sha256": 1,
+      "/binding_input_identity/live_observation_sha256": 1,
+      "/binding_input_identity/set_algebra_sha256": 1,
+      "/binding_input_identity/sha256": 1,
+      "/inputs/author_decision/bytes": 1,
+      "/inputs/author_decision/sha256": 1,
+      "/inputs/cell_input_set_sha256": 1,
+      "/inputs/cells/N/identities/N/sha256": 6,
+      "/inputs/cells/N/oracle_inputs/N/sha256": 135,
+      "/inputs/contract/artifacts/N/bytes": 2,
+      "/inputs/contract/artifacts/N/sha256": 2,
+      "/inputs/contract/index/sha256": 1,
+      "/inputs/contract/release": 1,
+      "/live_observation/completed_at_utc": 1,
+      "/live_observation/observation_sha256": 1,
+      "/live_observation/queries/N/oracle_inputs/N/sha256": 159,
+      "/live_observation/session_identity_sha256": 1,
+      "/live_observation/started_at_utc": 1,
+      "/set_algebra/cells/N/oracle_inputs/N/sha256": 24,
+      "/set_algebra/live_observation_sha256": 1,
+      "/set_algebra/sha256": 1
+    },
+    "interpretation": "Contract release/index/two contract artifact digests, the pinned author-decision document digest, every oracle-manifest reference, the derived aggregates over them, and the new live-run timestamps. No expectation value changed: no result, dependency, outcome, row, column or schema digest appears in the delta."
+  },
+  "validation": {
+    "command": "final-v5-publication-binding validate",
+    "exit_code": 0,
+    "binding_input_identity_sha256": "b21d75681471786e16a57f303887c8d93248e88bee07ab45a8ad31b47532a51d",
+    "set_algebra_sha256": "4523c7a83cc5c30e9b5f78f13573b6648dab2b6347e88eecc92b37b8ba73f23f"
+  },
+  "not_claimed": [
+    "author approval of the regenerated provenance",
+    "publication eligibility",
+    "any measured TaskGate runtime output",
+    "a completed campaign"
+  ]
+}
