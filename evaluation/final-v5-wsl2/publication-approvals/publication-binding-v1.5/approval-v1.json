@@ -1,0 +1,72 @@
+{
+  "version": "taskgate-final-v5-publication-binding-provenance-approval-v1",
+  "approval_id": "APPROVE_PUBLICATION_BINDING_V1_5_REGENERATED_PROVENANCE",
+  "approval_status": "AUTHOR_APPROVED",
+  "author": {
+    "name": "wuminmin",
+    "approved_on": "2026-08-12",
+    "decision_record": "docs/codex_publication_execution_plan.md",
+    "decision_note": "Recorded in the plan ledger rather than docs/final_v5_author_decisions.md: that document is a pinned generation input of this provenance, so appending to it would invalidate the record being approved."
+  },
+  "approved_candidate": {
+    "path": "evaluation/final-v5-wsl2/publication-review/publication-binding-v1.5/publication-binding.provenance.json",
+    "sha256": "0c7e57c21b575c62e68d6d8607d390c7c4da367e780940c01301d75b3b0554e3",
+    "bytes": 240256
+  },
+  "approved_candidate_state": {
+    "version": "taskgate-final-v5-publication-binding-provenance-v1",
+    "status": "REVIEW_CANDIDATE",
+    "author_approved": false,
+    "e2_exact_byte_review": "REQUIRED"
+  },
+  "companion_bytes_unchanged": {
+    "publication_binding_json": {
+      "sha256": "0ff346769cc0d988a5d7b0dcc4fe066b81fdd8ca528e0893f6fc178f3d5bab7a",
+      "bytes": 110584,
+      "already_approved_by_decision": 22
+    },
+    "catalog_yaml": {
+      "sha256": "9546ffcfb263d947f0b5f10c08b2a878a6b97f5ed5e9d7ed8e6a8a0d21072e96",
+      "bytes": 24621
+    },
+    "statement": "The regeneration reproduced the decision-22 binding and Catalog bytes exactly. This approval adds only the generation provenance; it does not re-approve, alter or supersede the binding bytes."
+  },
+  "commits": {
+    "generation_source": "f46ed76a9e0ec252411b274481ff0cf95b287256",
+    "review_artifact": "c84721faa83efca6f63d54dac3ead5dd1b9bda4d"
+  },
+  "contract_release": "final-v5-contracts-v1.5",
+  "approved_scope": {
+    "statement": "Approves the exact provenance bytes recording that the decision-22 publication binding regenerates unchanged under contract release final-v5-contracts-v1.5.",
+    "provenance_delta_from_v1": {
+      "differing_leaf_paths": 343,
+      "classes": [
+        "contract release, contract index digest and the two contract artifacts v1.5 rewrote",
+        "the pinned author-decision document digest and byte length",
+        "all 324 oracle-manifest references",
+        "the aggregates derived over them",
+        "the new run's timestamps and session identity"
+      ],
+      "no_expectation_changed": true
+    },
+    "independent_oracle_coverage": "Unchanged from decision 22: Scale candidate and history Result; Scale candidate, history and union Dependency; candidate-only five-member ordinary Outcome sets; Artifact Result only; ProvSQL Result and candidate Dependency."
+  },
+  "exclusions": {
+    "publication_eligibility": "NOT_APPROVED",
+    "completed_formal_campaign": "NOT_CLAIMED",
+    "taskgate_runtime_observations": "NOT_CLAIMED",
+    "artifact_dependency_identity": "NOT_APPROVED",
+    "artifact_outcome_identity": "NOT_APPROVED",
+    "provsql_outcome_identity": "NOT_APPROVED",
+    "scale_outcome_history_union_novelty_delta": "NOT_APPROVED",
+    "performance_stability_paper_conclusions": "NOT_APPROVED",
+    "p5_measurement": "NOT_RUN"
+  },
+  "reproduction": {
+    "command": "final-v5-publication-binding validate --repo-root <repo> --input-dir <copy of publication-binding-v1.5>",
+    "observed_exit_code": 0,
+    "binding_input_identity_sha256": "b21d75681471786e16a57f303887c8d93248e88bee07ab45a8ad31b47532a51d",
+    "set_algebra_sha256": "4523c7a83cc5c30e9b5f78f13573b6648dab2b6347e88eecc92b37b8ba73f23f",
+    "caveat": "This command re-derives every pinned input from the tree. Appending to docs/final_v5_author_decisions.md after this approval changes a digest the provenance pins and will make the command fail; run-deployment.sh does not call this validator, so P5 is unaffected."
+  }
+}
