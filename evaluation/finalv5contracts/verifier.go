@@ -46,6 +46,7 @@ const (
 	contractReleaseV13 = "final-v5-contracts-v1.3"
 	contractReleaseV14 = "final-v5-contracts-v1.4"
 	contractReleaseV15 = "final-v5-contracts-v1.5"
+	contractReleaseV16 = "final-v5-contracts-v1.6"
 )
 
 var (
@@ -1103,6 +1104,7 @@ func validateContractRelease(index indexDocument, evaluationRoot string) error {
 		contractReleaseV13: {contractReleaseV12, "contracts/AMENDMENT-v1.3.md"},
 		contractReleaseV14: {contractReleaseV13, "contracts/AMENDMENT-v1.4.md"},
 		contractReleaseV15: {contractReleaseV14, "contracts/AMENDMENT-v1.5.md"},
+		contractReleaseV16: {contractReleaseV15, "contracts/AMENDMENT-v1.6.md"},
 	}
 	expected, reviewed := chain[index.ContractRelease]
 	if !reviewed || index.SupersedesContractRelease != expected[0] {
