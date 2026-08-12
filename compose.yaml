@@ -119,8 +119,8 @@ services:
   # The Final-V5 result-heavy Publication compiles 100,000 rows over sixteen
   # fields, so it gets its own offline compiler with a larger ceiling instead of
   # raising the limit of the existing publications. This is a build-time
-  # compiler, not a governed runtime component: the Gateway keeps its 512 MiB
-  # cgroup ceiling, which is what the memory evidence is about.
+  # compiler, not a governed runtime component: the Gateway carries its own
+  # separate cgroup ceiling, which is what the memory evidence is about.
   snapshot-index-result-heavy:
     build:
       context: .
@@ -307,6 +307,16 @@ services:
       GATEWAY_AUDIT_ANCHOR_PRIVATE_KEY: ${GATEWAY_AUDIT_ANCHOR_PRIVATE_KEY:-}
       GATEWAY_SNAPSHOT_ARTIFACT_DIR: /var/lib/taskgate/snapshot-index
       GATEWAY_CONNECTOR_MAX_ROWS: ${GATEWAY_CONNECTOR_MAX_ROWS:-1200000}
+      # The code default is 5s, which is a sensible bound for interactive
+      # queries but not for the result-heavy Publication: reading 100,000 rows
+      # over sixteen fields exceeds it in the database alone, so every wide
+      # Artifact cell failed with DATA_CONNECTOR_QUERY_TIMEOUT before it could
+      # reach exposure accounting. Ten minutes is the value the exposure-scale
+      # attestation path already uses (final-v5-publication-review/review.go).
+      # This is a declared governance parameter of the deployment, not a
+      # measurement convenience: a longer permitted statement is a larger
+      # window in which a single authorized request may draw data.
+      GATEWAY_CONNECTOR_STATEMENT_TIMEOUT: ${GATEWAY_CONNECTOR_STATEMENT_TIMEOUT:-10m}
       GATEWAY_CONNECTOR_MAX_CONNECTIONS: ${GATEWAY_CONNECTOR_MAX_CONNECTIONS:-4}
       GATEWAY_CONTROL_MAX_OPEN_CONNECTIONS: ${GATEWAY_CONTROL_MAX_OPEN_CONNECTIONS:-10}
       GATEWAY_CONTROL_MAX_IDLE_CONNECTIONS: ${GATEWAY_CONTROL_MAX_IDLE_CONNECTIONS:-4}
@@ -356,10 +366,20 @@ services:
       # Adaptive query spools and Parquet upload staging contain only
       # authenticated ciphertext. Keep them on disk: a 16 MiB tmpfs makes the
       # mandatory >128 MiB spill path impossible and would also count against
-      # the Gateway's 512 MiB cgroup memory ceiling.
+      # the Gateway's cgroup memory ceiling.
       - gateway-encrypted-spool:/tmp
     read_only: true
-    mem_limit: 512m
+    # Cumulative exposure accounting keeps one Fact resident per exposed
+    # (row x visible field) for the life of a derivation, so peak RSS tracks
+    # the exposed-cell count rather than the serialized result size. Measured
+    # across three orders of magnitude, peak ~= 443 MiB + ~3.6 KiB per exposed
+    # cell; the widest frozen Artifact cell (100,000 x 16 = 1,600,000 cells)
+    # measured 6,607,790,080 B = 6.15 GiB. That memory is live, not garbage --
+    # GOMEMLIMIT at 384 MiB and at 224 MiB was measured and still OOM-killed
+    # the process, because GC cannot reclaim a growing accounting set.
+    # 8g leaves ~30% headroom over the measured peak. It replaces the former
+    # 512m, which no wide Artifact cell could satisfy.
+    mem_limit: 8g
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8082/health/ready"]
       interval: 3s
