@@ -231,3 +231,49 @@ oracles, campaigns, or the paper are complete.
     implemented before the v1.5 freeze and before any P5 measurement. If strict
     member identity could not be implemented, the honest paper boundary would
     be to leave it unverified; an aggregate identity must never be substituted.
+
+22. **Approve the exact P4.0-E2 publication-binding review candidate with an
+    explicit coverage scope.** (Taken 2026-08-12 by author wuminmin as
+    `APPROVE_PUBLICATION_BINDING_V1_5_WITH_EXPLICIT_SCOPE`; this approves one
+    existing byte string and its review checklist, not a measurement, release,
+    or campaign.) The approved object is
+    `evaluation/final-v5-wsl2/publication-review/publication-binding-v1/publication-binding.json`
+    at exact SHA-256
+    `0ff346769cc0d988a5d7b0dcc4fe066b81fdd8ca528e0893f6fc178f3d5bab7a`,
+    110,584 bytes, reviewed against the checklist
+    `review-checklist.json` at exact SHA-256
+    `51d04d72cdae0a2f6d4ad9251053b2c9a69bbc3b02884865e94863bf05794d9a`.
+    Generation source commit `e842ea84111c8e9747731372f2aa06ef2181a7d8`;
+    the immutable commit containing the reviewed candidate is
+    `5c20ad810998b4286c8cb111488fa27c36a6969e`. At approval the candidate
+    remained `status=REVIEW_CANDIDATE`, `author_approved=false`,
+    `e2_exact_byte_review=REQUIRED`, and `approval_record_generated=false`.
+    The separate immutable-reference approval record is
+    `evaluation/final-v5-wsl2/publication-approvals/publication-binding-v1/approval-v1.json`;
+    the approved candidate bytes remain unchanged, exactly as the checklist's
+    own `approval_model` requires.
+
+    The approval freezes the exact schema-version-2 publication-binding
+    universe of 12 Scale `dependency-e2e` cells, 6 Artifact `result-heavy`
+    cells, and 105 ProvSQL `taskgate` cells. The approved independent-oracle
+    coverage is limited to: Scale candidate and history Result expectations,
+    Scale candidate, history, and union Dependency expectations, and
+    candidate-only five-member ordinary Outcome sets generated for three
+    candidate sizes and projected across twelve overlap cells; Artifact Result
+    expectations only; ProvSQL Result and candidate Dependency expectations.
+    The 135 matched live comparisons (24 Scale candidate/history + 6 Artifact
+    + 105 ProvSQL) refer only to direct Business PostgreSQL result
+    observations and are **not** measured TaskGate runtime outputs.
+
+    The decision does **not** approve or claim the full nine-experiment
+    Evaluation universe, a completed formal campaign, TaskGate runtime Result,
+    Dependency, or Outcome observations, Artifact Dependency identity,
+    Artifact or ProvSQL Outcome identity, Scale Outcome history, union,
+    novelty, or delta, publication eligibility, or any performance,
+    stability, or paper conclusion. The approval text addresses the binding
+    universe only; it does not act on the separate P4 contract-release v1.5
+    freeze steps (activation-support deletion and registry regeneration,
+    `contractReleaseVxx` bump, SQL-executability re-export, the seven
+    live-route activation smokes, zero-SKIP `validate.sh`, and the
+    author-only tag), which remain unstarted and require their own
+    go-ahead.

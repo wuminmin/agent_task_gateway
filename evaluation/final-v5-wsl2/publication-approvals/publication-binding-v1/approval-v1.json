@@ -1,0 +1,96 @@
+{
+  "version": "taskgate-final-v5-publication-binding-review-approval-v1",
+  "approval_id": "APPROVE_PUBLICATION_BINDING_V1_5_WITH_EXPLICIT_SCOPE",
+  "approval_status": "AUTHOR_APPROVED",
+  "author": {
+    "name": "wuminmin",
+    "approved_on": "2026-08-12",
+    "decision_document": "docs/final_v5_author_decisions.md",
+    "decision_number": 22
+  },
+  "approved_candidate": {
+    "path": "evaluation/final-v5-wsl2/publication-review/publication-binding-v1/publication-binding.json",
+    "sha256": "0ff346769cc0d988a5d7b0dcc4fe066b81fdd8ca528e0893f6fc178f3d5bab7a",
+    "bytes": 110584
+  },
+  "approved_checklist": {
+    "path": "evaluation/final-v5-wsl2/publication-review/publication-binding-v1/review-checklist.json",
+    "sha256": "51d04d72cdae0a2f6d4ad9251053b2c9a69bbc3b02884865e94863bf05794d9a",
+    "bytes": 468727
+  },
+  "approved_candidate_state": {
+    "version": "taskgate-final-v5-publication-binding-provenance-v1",
+    "status": "REVIEW_CANDIDATE",
+    "author_approved": false,
+    "e2_exact_byte_review": "REQUIRED",
+    "approval_record_generated": false
+  },
+  "commits": {
+    "generation_source": "e842ea84111c8e9747731372f2aa06ef2181a7d8",
+    "review_artifact": "5c20ad810998b4286c8cb111488fa27c36a6969e"
+  },
+  "approved_universe": {
+    "schema_version": 2,
+    "scale_dependency_e2e_cells": 12,
+    "artifact_result_heavy_cells": 6,
+    "provsql_taskgate_cells": 105
+  },
+  "approved_oracle_coverage": {
+    "scale": {
+      "result_roles": ["candidate", "history"],
+      "dependency_roles": ["candidate", "history", "union"],
+      "outcome": {
+        "roles": ["candidate"],
+        "form": "ordinary_sorted_unique_member_set",
+        "cardinality": 5,
+        "distinct_candidate_sizes": 3,
+        "projected_over_overlap_cells": 12
+      }
+    },
+    "artifact": {
+      "result_roles": ["query"],
+      "dependency_roles": [],
+      "outcome_roles": []
+    },
+    "provsql": {
+      "result_roles": ["candidate"],
+      "dependency_roles": ["candidate"],
+      "outcome_roles": []
+    }
+  },
+  "live_comparisons": {
+    "matched": 135,
+    "composition": {
+      "scale_candidate_and_history": 24,
+      "artifact_direct": 6,
+      "provsql_direct": 105
+    },
+    "operand": "direct_business_postgresql_result_observation",
+    "is_measured_taskgate_runtime_output": false
+  },
+  "exclusions": {
+    "full_nine_experiment_evaluation_universe": "NOT_APPROVED",
+    "completed_formal_campaign": "NOT_CLAIMED",
+    "taskgate_runtime_result_observations": "NOT_CLAIMED",
+    "taskgate_runtime_dependency_observations": "NOT_CLAIMED",
+    "taskgate_runtime_outcome_observations": "NOT_CLAIMED",
+    "artifact_dependency_identity": "NOT_APPROVED",
+    "artifact_outcome_identity": "NOT_APPROVED",
+    "provsql_outcome_identity": "NOT_APPROVED",
+    "scale_outcome_history": "NOT_APPROVED",
+    "scale_outcome_union": "NOT_APPROVED",
+    "scale_outcome_novelty": "NOT_APPROVED",
+    "scale_outcome_delta": "NOT_APPROVED",
+    "publication_eligibility": "NOT_APPROVED",
+    "performance_claims": "NOT_APPROVED",
+    "stability_claims": "NOT_APPROVED",
+    "paper_conclusions": "NOT_APPROVED"
+  },
+  "authority_boundary": {
+    "statement": "This record carries the author approval text and nothing beyond it. The approval freezes the exact schema-version-2 publication-binding universe identified above; it does not act on the separate P4 contract-release v1.5 freeze steps, which the approval text does not address.",
+    "contract_release_v1_5_freeze": "NOT_ADDRESSED_BY_THIS_APPROVAL",
+    "activation_smoke_rerun": "NOT_ADDRESSED_BY_THIS_APPROVAL",
+    "contract_tag": "NOT_ADDRESSED_BY_THIS_APPROVAL",
+    "approved_candidate_bytes_modified": false
+  }
+}
