@@ -74,26 +74,37 @@ depends on the queries does not. Regenerated as:
 not rely on returned row order
 ```
 
-### Scope of correction 2, and what it deliberately does not touch
+The same historical rationale is the authoritative one in the `total_order_rule`
+of `contracts/result-normalization-v1.json`, and v1.5 regenerates it there too:
 
-The same historical rationale also appears in the `total_order_rule` of
-`contracts/result-normalization-v1.json`. **v1.5 does not regenerate those
-bytes**, and the correction is therefore confined to the frozen baseline
-metadata.
+```text
+S1, S3, S6, Artifact, and single-Product Scale results use query_order_v1;
+S2, S4, and S5 use canonical_typed_row_lexicographic_v1 because those frozen
+queries define no total result order and therefore do not rely on returned row
+order
+```
 
-The reason is not cosmetic. Every one of the 135 oracle manifests pins
-`normalization_spec_sha256` to the indexed digest of the normalization
-contract, and the bridge rejects any manifest whose pin is not the indexed
-digest. Regenerating that one prose string therefore forces all 135 manifests
-to be regenerated against a live PostgreSQL, and their new digests are oracle
-inputs to the publication binding. That is a live oracle regeneration, not a
-text edit, and it is not what a text correction should smuggle in.
+### What that costs, and why it is paid in this release
 
-`TestBenchmarkS2S4S5QueriesAndCanonicalNormalizerRemainFrozen` continues to pin
-the v1.4 `result-normalization-v1.json` bytes, and
-`TestResultNormalizationContractIsCompatible` continues to pin the v1.4
-`total_order_rule` literal. A future release may regenerate them, together with
-the manifest set they govern.
+Regenerating that one prose string is not a local edit. Every one of the 135
+oracle manifests pins `normalization_spec_sha256` to the indexed digest of the
+normalization contract, and the bridge rejects any manifest whose pin is not
+the indexed digest. Changing the string therefore obliges this release to:
+
+- update `ExposureScaleNormalizationSpecSHA256` and
+  `ProvSQLNormalizationSpecSHA256`;
+- regenerate all 135 oracle manifests against a live PostgreSQL;
+- regenerate the publication binding, whose oracle inputs are those manifest
+  digests, for a fresh author byte review.
+
+All of that is done in this release rather than deferred, so no manifest and no
+binding is left claiming a normalization spec that no longer exists. The
+manifests' expectations are unchanged by the correction: the regeneration moves
+`normalization_spec_sha256` and the manifest digests that contain it, and
+nothing else.
+
+`TestBenchmarkS2S4S5QueriesAndCanonicalNormalizerRemainFrozen` and
+`TestResultNormalizationContractIsCompatible` now pin the v1.5 bytes.
 
 ## What did not change
 
@@ -117,10 +128,10 @@ FactID; Receipt; Exposure settlement; PENDING/AVAILABLE; the observer runtime
 schema, source-build manifest and digest binding; and the closed-world observer
 accounting introduced by v1.4.
 
-One of the 28 indexed artifacts changes bytes and was recomputed:
-`contracts/baseline-v1.json`. The other 27 digests are unchanged. The
-hash-locked protocol, workload manifest, acceptance rules and statistics
-references are byte-identical to v1.2.
+Two of the 28 indexed artifacts change bytes and were recomputed:
+`contracts/baseline-v1.json` and `contracts/result-normalization-v1.json`. The
+other 26 digests are unchanged. The hash-locked protocol, workload manifest,
+acceptance rules and statistics references are byte-identical to v1.2.
 
 ## Activation support does not carry across this release
 

@@ -60,7 +60,7 @@
     "timestamp without time zone": ["timestamp", "timestamp without time zone"],
     "boolean": ["boolean", "bool"]
   },
-  "total_order_rule": "S1, S3, S6, Artifact, and single-Product Scale results use query_order_v1; S2, S4, and S5 use canonical_typed_row_lexicographic_v1 because production Join/semantic-View/UNION grammar forbids ORDER BY",
+  "total_order_rule": "S1, S3, S6, Artifact, and single-Product Scale results use query_order_v1; S2, S4, and S5 use canonical_typed_row_lexicographic_v1 because those frozen queries define no total result order and therefore do not rely on returned row order",
   "input_adapters": {
     "direct": "fully drained PostgreSQL typed rows plus field descriptions",
     "bdg": "fully drained public BDG typed rows plus field descriptions",

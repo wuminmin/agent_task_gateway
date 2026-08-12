@@ -2,7 +2,7 @@
   "schema_version": 1,
   "record": "taskgate-final-v5-contract-sql-executability-v1",
   "contract_release": "final-v5-contracts-v1.5",
-  "contract_index_sha256": "4a239606972d6f0d4e4322533476888b77d1d2171b682f44eac5a1a8c0dd3fd7",
+  "contract_index_sha256": "caa9925efbc9c8a7e5b0aded96a45900b95e79bfe30a49aac18ee23d70b785be",
   "postgresql_version": "16.14 (Debian 16.14-1.pgdg12+1)",
   "postgresql_server_version_num": "160014",
   "checked_artifacts": [
@@ -75,7 +75,7 @@
     {
       "kind": "normalization_contract",
       "path": "contracts/result-normalization-v1.json",
-      "sha256": "2eb64f136ffc164f078517e9604db907543ff02ae86a1249b0cb90bb44cf0f64",
+      "sha256": "9e78abdc2130b19cb414d520edeb6da4dfac0f481609efd244f22f6ba2b1e816",
       "check_type": "not_sql",
       "rendered_cells": 0,
       "parse_status": "not_applicable",

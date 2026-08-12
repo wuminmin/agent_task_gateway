@@ -19,7 +19,7 @@
     {"kind": "product_contract", "path": "contracts/benchmark-products-v1.json", "sha256": "fa7f50e1dd0999c72d521d7e139d1b47d42eaec582c4af8070d99920f9e9f108"},
     {"kind": "profile_activation_policy", "path": "contracts/profile-activation-v1.json", "sha256": "2a058c6d16b48fab07b3e0541884a81352166d885d966055f621578728f3424e"},
     {"kind": "oracle_policy", "path": "contracts/oracle-policy-v1.json", "sha256": "1c0d2a8ff6b6654f6cc0577cf4e6277d5c6fd3f440b4264d4f20300f8d01c1f8"},
-    {"kind": "normalization_contract", "path": "contracts/result-normalization-v1.json", "sha256": "2eb64f136ffc164f078517e9604db907543ff02ae86a1249b0cb90bb44cf0f64"},
+    {"kind": "normalization_contract", "path": "contracts/result-normalization-v1.json", "sha256": "9e78abdc2130b19cb414d520edeb6da4dfac0f481609efd244f22f6ba2b1e816"},
     {"kind": "catalog_candidate", "path": "catalog/benchmark-contract-v1.yaml", "sha256": "dcb26eaabe6e5612d4d58ddf09dcfbf9e7db00e1a37570ced6e6af0259bbd243"},
     {"kind": "dataset_generator", "path": "sql/datasets/benchmark-v1-generate.sql", "sha256": "2f67aa9ee55dd6eb2d7da4eaf1c8d50fd7e5e65f65492f7f1bb231d1c1f25027"},
     {"kind": "dataset_probe", "path": "sql/datasets/benchmark-v1-probe.sql", "sha256": "bb2f717996259b3f64e248381810c3e2970f951eb06f8334a98792407d6aa06f"},

@@ -16,7 +16,7 @@ const (
 
 	ProvSQLDatasetSpecSHA256       = "2f67aa9ee55dd6eb2d7da4eaf1c8d50fd7e5e65f65492f7f1bb231d1c1f25027"
 	ProvSQLCatalogSpecSHA256       = "dcb26eaabe6e5612d4d58ddf09dcfbf9e7db00e1a37570ced6e6af0259bbd243"
-	ProvSQLNormalizationSpecSHA256 = "2eb64f136ffc164f078517e9604db907543ff02ae86a1249b0cb90bb44cf0f64"
+	ProvSQLNormalizationSpecSHA256 = "9e78abdc2130b19cb414d520edeb6da4dfac0f481609efd244f22f6ba2b1e816"
 	ProvSQLCombinedQuerySpecSHA256 = "017c9a9e8b51ac41c9ee4a26e1e4f47c63934c170a37a4e7d066ba30bb4ac1fb"
 	ProvSQLOrdersSnapshotSHA256    = "830f9584a2a919af819131420ee4fc33c795095302387312c92349164b094ef1"
 	ProvSQLLineitemSnapshotSHA256  = "97b86d4f7b51be2ca3cbbb90214043c00ca5e2526ca8a886ed3150d98f48a658"
