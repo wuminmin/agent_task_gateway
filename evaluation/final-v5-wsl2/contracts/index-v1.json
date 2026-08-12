@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "index_version": "taskgate-final-v5-contract-index-v1",
-  "contract_release": "final-v5-contracts-v1.4",
-  "supersedes_contract_release": "final-v5-contracts-v1.3",
-  "amendment": "contracts/AMENDMENT-v1.4.md",
+  "contract_release": "final-v5-contracts-v1.5",
+  "supersedes_contract_release": "final-v5-contracts-v1.4",
+  "amendment": "contracts/AMENDMENT-v1.5.md",
   "status": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
   "digest_status": "REVIEW_CANDIDATE",
   "exact_generated_bytes_freeze_status": "NOT_APPROVED",
@@ -13,7 +13,7 @@
     "protocol_and_matrix_bytes_unchanged_by_this_contract": true
   },
   "artifacts": [
-    {"kind": "experiment_contract", "path": "contracts/baseline-v1.json", "sha256": "67aff3dcb464bd9ebadd893a7b2cf98fbcab5148af3f906b9904151ca5661bf2"},
+    {"kind": "experiment_contract", "path": "contracts/baseline-v1.json", "sha256": "d9ace81d1430565d3500a6263ce5a15f3676095ecb21a5e4d323537bb2d6518d"},
     {"kind": "experiment_contract", "path": "contracts/scale-v1.json", "sha256": "b3f7655b45f955484f15268dbe1271f07655e573364f53e83580748d2da48e1b"},
     {"kind": "experiment_contract", "path": "contracts/artifact-v1.json", "sha256": "400d68e8a3a286bf024a731d3ba29125d8db206cae9a45cdeaa267cd2c0f85e8"},
     {"kind": "product_contract", "path": "contracts/benchmark-products-v1.json", "sha256": "fa7f50e1dd0999c72d521d7e139d1b47d42eaec582c4af8070d99920f9e9f108"},

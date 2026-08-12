@@ -40,7 +40,7 @@
       "query": "single Product; SF1/SF10 are 5,000/50,000 key thresholds on frozen provsql_orders"
     },
     "S2": {
-      "query": "connected inner equijoin plus status grouping on frozen provsql_orders/provsql_lineitem; same thresholds; no nonce; the evaluation normalizer applies canonical typed-row ordering because production multi-source lowering forbids ORDER BY"
+      "query": "connected inner equijoin plus status grouping on frozen provsql_orders/provsql_lineitem; same thresholds; no nonce; the evaluation normalizer applies canonical typed-row ordering because this frozen query defines no total result order and therefore does not rely on returned row order"
     },
     "S3": {
       "query": "one member_rank result column from final_v5_exposure_scale; four predicate fields plus base row produce exactly five dependency Facts per retained row"
@@ -3941,7 +3941,7 @@
       ],
       "claims": {
         "allowed": [
-          "registered two-branch UNION DISTINCT behavior"
+          "registered two-branch UNION DISTINCT behavior with branch-local predicates"
         ],
         "prohibited": [
           "arbitrary set-operation support",
@@ -4041,7 +4041,7 @@
       ],
       "claims": {
         "allowed": [
-          "registered two-branch UNION DISTINCT behavior"
+          "registered two-branch UNION DISTINCT behavior with branch-local predicates"
         ],
         "prohibited": [
           "arbitrary set-operation support",
@@ -4141,7 +4141,7 @@
       ],
       "claims": {
         "allowed": [
-          "registered two-branch UNION DISTINCT behavior"
+          "registered two-branch UNION DISTINCT behavior with branch-local predicates"
         ],
         "prohibited": [
           "arbitrary set-operation support",
@@ -4241,7 +4241,7 @@
       ],
       "claims": {
         "allowed": [
-          "registered two-branch UNION DISTINCT behavior"
+          "registered two-branch UNION DISTINCT behavior with branch-local predicates"
         ],
         "prohibited": [
           "arbitrary set-operation support",
@@ -4341,7 +4341,7 @@
       ],
       "claims": {
         "allowed": [
-          "registered two-branch UNION DISTINCT behavior"
+          "registered two-branch UNION DISTINCT behavior with branch-local predicates"
         ],
         "prohibited": [
           "arbitrary set-operation support",
@@ -4441,7 +4441,7 @@
       ],
       "claims": {
         "allowed": [
-          "registered two-branch UNION DISTINCT behavior"
+          "registered two-branch UNION DISTINCT behavior with branch-local predicates"
         ],
         "prohibited": [
           "arbitrary set-operation support",
@@ -4541,7 +4541,7 @@
       ],
       "claims": {
         "allowed": [
-          "registered two-branch UNION DISTINCT behavior"
+          "registered two-branch UNION DISTINCT behavior with branch-local predicates"
         ],
         "prohibited": [
           "arbitrary set-operation support",
@@ -4641,7 +4641,7 @@
       ],
       "claims": {
         "allowed": [
-          "registered two-branch UNION DISTINCT behavior"
+          "registered two-branch UNION DISTINCT behavior with branch-local predicates"
         ],
         "prohibited": [
           "arbitrary set-operation support",
