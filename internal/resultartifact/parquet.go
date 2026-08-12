@@ -31,6 +31,12 @@ type ColumnSchema struct {
 	ParquetType  string `json:"parquet_type"`
 }
 
+// maxBufferedValuesPerRowGroup bounds how many result values a single Parquet
+// row group may buffer in memory before it is flushed. It is a value bound
+// rather than a row bound so that a wide result cannot buffer proportionally
+// more than a narrow one; see WriteParquet for the measurements that fixed it.
+const maxBufferedValuesPerRowGroup = 1 << 13
+
 type columnEncoding struct {
 	schema         ColumnSchema
 	typeOf         reflect.Type
@@ -48,13 +54,25 @@ func WriteParquet(output io.Writer, resultID string, columns []Column, rows [][]
 		return nil, err
 	}
 	schema := parquet.SchemaOf(reflect.New(structType).Interface())
-	writer := parquet.NewGenericWriter[any](output, schema, parquet.MaxRowsPerRowGroup(64*1024))
+	// A row group is buffered in memory until it is flushed, so the buffered
+	// footprint scales with rows x columns. Bounding it by rows alone let a
+	// wide result buffer proportionally more: measured on the Final-V5
+	// Artifact cells, a 64Ki-row bound cost ~392 MiB of resident Gateway
+	// memory for 10k x 16 and ~1359 MiB for 100k x 4 -- 231-338x the
+	// serialized result -- and OOM-killed the Gateway at its 512 MiB ceiling.
+	// Bounding by values keeps the buffer flat in the column count instead.
+	rowsPerRowGroup := int64(maxBufferedValuesPerRowGroup / len(encodings))
+	if rowsPerRowGroup < 1 {
+		rowsPerRowGroup = 1
+	}
+	writer := parquet.NewGenericWriter[any](output, schema, parquet.MaxRowsPerRowGroup(rowsPerRowGroup))
 	writer.SetKeyValueMetadata("taskgate.format", "taskgate-result-parquet-v1")
 	writer.SetKeyValueMetadata("taskgate.result_id", resultID)
 	schemaJSON, _ := json.Marshal(columnSchemas(encodings))
 	writer.SetKeyValueMetadata("taskgate.schema", string(schemaJSON))
 	builder := parquet.NewRowBuilder(schema)
 	batch := make([]parquet.Row, 0, 128)
+	bufferedRows := int64(0)
 	flush := func() error {
 		if len(batch) == 0 {
 			return nil
@@ -66,7 +84,17 @@ func WriteParquet(output io.Writer, resultID string, columns []Column, rows [][]
 		if written != len(batch) {
 			return io.ErrShortWrite
 		}
+		bufferedRows += int64(written)
 		batch = batch[:0]
+		// Close the row group explicitly rather than relying only on the
+		// configured maximum, so the buffer is released on a bound this
+		// function controls.
+		if bufferedRows >= rowsPerRowGroup {
+			if err := writer.Flush(); err != nil {
+				return err
+			}
+			bufferedRows = 0
+		}
 		return nil
 	}
 	for rowIndex, row := range rows {

@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"math/big"
@@ -22,6 +23,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/parquet-go/parquet-go"
 )
 
 func TestParquetRoundTripPreservesNullUnicodeAndExactNumbers(t *testing.T) {
@@ -67,6 +69,73 @@ func TestParquetRoundTripPreservesNullUnicodeAndExactNumbers(t *testing.T) {
 	}
 	if len(beyond) != 0 {
 		t.Fatalf("ReadParquet beyond end returned %d rows", len(beyond))
+	}
+}
+
+// A row group is buffered in memory until it is flushed, so its bound is what
+// keeps the Gateway's footprint flat. Bounding by rows alone let a wide result
+// buffer proportionally more and OOM-killed the Gateway on the Final-V5
+// Artifact cells. This pins both halves of the fix: the bound is on values so
+// it tightens as columns widen, and a result spanning many row groups still
+// round-trips exactly.
+func TestParquetBoundsBufferedValuesPerRowGroupAndRoundTripsAcrossThem(t *testing.T) {
+	for _, width := range []int{1, 4, 16} {
+		columns := make([]Column, width)
+		for index := range columns {
+			columns[index] = Column{Name: fmt.Sprintf("c%d", index), DataTypeOID: pgtype.Int8OID}
+		}
+		// Enough rows to span several row groups at this width.
+		rowCount := (maxBufferedValuesPerRowGroup/width)*3 + 7
+		rows := make([][]any, rowCount)
+		expected := make([][]any, rowCount)
+		for rowIndex := range rows {
+			row := make([]any, width)
+			want := make([]any, width)
+			for columnIndex := range row {
+				value := int64(rowIndex*width + columnIndex)
+				row[columnIndex] = value
+				want[columnIndex] = value
+			}
+			rows[rowIndex] = row
+			expected[rowIndex] = want
+		}
+
+		var encoded bytes.Buffer
+		schema, err := WriteParquet(&encoded, "res_row_group_bound", columns, rows)
+		if err != nil {
+			t.Fatalf("width %d: WriteParquet: %v", width, err)
+		}
+		value := encoded.Bytes()
+
+		file, err := parquet.OpenFile(bytes.NewReader(value), int64(len(value)))
+		if err != nil {
+			t.Fatalf("width %d: OpenFile: %v", width, err)
+		}
+		groups := file.RowGroups()
+		if len(groups) < 2 {
+			t.Fatalf("width %d: %d row group(s); the fixture must span several", width, len(groups))
+		}
+		for index, group := range groups {
+			buffered := group.NumRows() * int64(width)
+			if buffered > maxBufferedValuesPerRowGroup {
+				t.Fatalf("width %d: row group %d buffers %d values, above the %d bound",
+					width, index, buffered, maxBufferedValuesPerRowGroup)
+			}
+		}
+
+		decoded, err := ReadParquet(value, "res_row_group_bound", schema, 0, int64(rowCount))
+		if err != nil {
+			t.Fatalf("width %d: ReadParquet: %v", width, err)
+		}
+		assertArtifactRowsEqual(t, decoded, expected)
+
+		// A page that straddles a row-group boundary must still be exact.
+		straddle := int64(maxBufferedValuesPerRowGroup/width) - 2
+		page, err := ReadParquet(value, "res_row_group_bound", schema, straddle, 5)
+		if err != nil {
+			t.Fatalf("width %d: ReadParquet straddling page: %v", width, err)
+		}
+		assertArtifactRowsEqual(t, page, expected[straddle:straddle+5])
 	}
 }
 
