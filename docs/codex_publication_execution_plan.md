@@ -456,14 +456,43 @@ observer acceptance，不得声明 independent FactSet oracle closure、publicat
      aggregate。若 `scale_union.set_sha256`、`semantic_ordinal_link` 三个 `set_sha256`、
      cardinality、row/column count 有任何变化，**立即停手上报**——那与 `f46ed76`
      提交信息「Every expectation is unchanged」直接冲突，属新发现的漂移。
-  5. 只改 `review.go:46-48` 三行常量。**禁止**修改 `validateScaleUnionReview` 的比较
-     集合、禁止删断言、禁止把精确比较改宽松（红线 6）。
-  6. 安装再生成字节，重跑该测试至 PASS，再跑 `gofmt -l`（本轮文件应无输出）、
-     `go build ./... && go vet ./... && go test -count=1 ./...`、`validate.sh`。
-  7. **不得自行宣布 closure 完成**：旧批准是 byte-exact 的，新字节必须由作者重新逐字节
-     批准。把新 `review.json` 的 SHA-256 报作者，状态记「待作者批准」（红线 3）。
-- 产出：台账一行 `P4.0-C3`，含失败原文、diff 的完整 JSON path 清单、新旧三个 digest、
-  待批准状态。提交末行 `Task ID: P4.0-C3`。
+  5. **按 `DECIDE-CLAUDE-01` 的原则更新常量**：由 manifest 字节派生的 `:47` novel、
+     `:48` replay、`:52` `provSQLManifestSetSHA`、`:53` `scaleManifestSetSHA` 全部更新；
+     `:46` `reviewScaleUnionSHA`、`Files == 105` / `== 24`、两条 `AggregateRecord`
+     格式串一个不动。**禁止**修改 `validateScaleUnionReview` / `validateReviewReport`
+     的比较集合、禁止删断言、禁止把精确比较改宽松（红线 6）。两个 aggregate 必须按
+     记录格式**独立复算**后与生产 summarizer 比对相等，不得直接抄生产函数输出。
+  6. **不得安装再生成的 candidate 字节，不得改 `finalv5publication/approval.go`**
+     （理由见下）。跑 `gofmt -l`（本轮文件应无输出）、
+     `go build ./... && go vet ./... && go test -count=1 ./...`、`validate.sh`，
+     如实记录失败归类。
+  7. 产出一份**待签署清单**：新 candidate 的 SHA-256 与字节数、完整 diff 的 JSON path
+     清单、四个新旧 digest 对照。**不写任何 approval 文件**（红线 1：approval 记录写的
+     是作者姓名与决策编号，代签即伪造证据）。
+
+**为什么本任务到此为止（2026-08-13 实查定，不是保守）**
+
+`evaluation/internal/finalv5publication/approval.go:30` 把已批准 candidate 的摘要
+`8c4fe7c322e9…` 与字节数 10824 写成**代码常量**，并在 `:242-244` 硬校验，注释明写
+"The candidate remains immutable"。该摘要另嵌在两处**作者已逐字节签署**的记录里：
+`publication-approvals/exposure-scale-v1/approval-v1.json`（APPROVE-C2 / 决策 20）与
+`publication-binding-v1.5/publication-binding.provenance.json` 的
+`/inputs/approval/candidate/sha256`（DECIDE-23）。**一旦安装新 candidate 字节，
+approval.go 立刻以「C2 approved candidate bytes differ from Decision 20」失败，
+并同时使那两份已签署记录自我误述。**
+
+由此两个必须记住的事实：
+
+1. **`TestTrackedExposureScaleReviewRegeneratesAgainstPostgreSQL` 在重新密封前不可能变绿**
+   ——它比较"live 重生成"与"tracked 字节"，而 tracked 字节按设计不可变。本任务**不以
+   该测试 PASS 为验收**；它继续作为已归类的已知失败，直到 v1.8 的重新密封步骤。
+2. **重新密封是一次级联**：新 candidate → `approval.go` 两个常量 → 新 approval 记录
+   （作者签）→ 重生成 publication binding provenance（作者签）。**并入 v1.8 一次做完、
+   作者一次签署**，比现在单做再到 v1.8 重做便宜一轮，且与"证据命名它所运行的 release"
+   的既有不变式一致。
+
+- 产出：台账一行 `P4.0-C3`，含带库失败原文、diff 的完整 JSON path 清单、四个新旧 digest、
+  独立复算的比对结果、待签署清单。提交末行 `Task ID: P4.0-C3`。
 
 **P4 契约 v1.5 冻结**：
 
@@ -501,6 +530,15 @@ v1.5→v1.6→v1.7 连开三轮的教训是前置条件散在正文里，跑到�
    `sql-executability-v1.json` 重跑重导 → 七个 live-route profile 全新部署重跑至
    `-verify` 双 PASS 的不动点 → `validate.sh` 零 SKIP 退出 0 → `AMENDMENT-v1.8.md`），
    `index-v1.json` 仍只改 release/supersedes/amendment 三行。
+
+6. `P4-fix-atb` 完成（见下），六个 `TestArtifactTargetedBinding*` 实际 PASS 且四个 probe
+   负控制真正执行。
+7. **exposure-scale candidate 重新密封（v1.8 内唯一需要作者签署的一步）**：安装
+   `P4.0-C3` 备好的新 candidate → 同步 `finalv5publication/approval.go` 的
+   `C2CandidateSHA256` 与 `c2CandidateBytes` → 作者签署新 approval 记录 →
+   重生成并由作者签署 publication binding provenance。四步是一个原子事务，
+   做完 `TestTrackedExposureScaleReviewRegeneratesAgainstPostgreSQL` 才可能变绿；
+   **在此之前它是已归类的已知失败，不得被当成新缺陷重新调查。**
 
 **v1.8 与 v1.6/v1.7 的关键差别，以及由此得到的最强判据：**
 v1.6/v1.7 只改部署参数，故 qualification 重跑得到的 `portable` 三轮逐字节相同
@@ -975,3 +1013,4 @@ make paper-final-check       # 干净树 + final 模式 + evidence.tex 无 diff
 | DOC-agents-workflow 交互链路写入 AGENTS.md | DONE | 2026-08-13 | **作者裁决入档，不含任何测量。**作者 2026-08-13 定：**作者只与 Claude 对话，Claude 自己驱动 Codex，作者只听 Claude 的汇总汇报**，不直接给 Codex 派工也不逐条盯其输出。据此在 `AGENTS.md` §分工 追加"交互链路"一节，写明四条推论：(1) Claude 负责项目管控而非被动答题——派工读台账尾部不读表首种子行、发现缺陷要扫同一缺陷类、把前置条件写成显式清单、主动盘点失败项与欠账；(2) **Claude 必须核对 Codex 的台账行与实际证据一致后再放行下一项**，这条链路上 Claude 是唯一审计者；(3) 需作者裁决的岔口仍只能由作者裁决，Claude 不得代批——典型是冻结字节的逐字节批准（红线 3）、能力 false 翻 true、扩大范围、放宽验收；(4) 汇报以证据为准，未经复核的 Codex 结论不得转述为已验证。并记下驱动方式 `codex exec -C <worktree> -s danger-full-access "<任务书>"`，要求任务书自带起始 HEAD、环境命令、范围边界、停手判据、验收命令与提交格式。**本行不改变任何红线，也不改变作者保留全部裁决权与 tag 的既有约定。** |
 | P4.0-C3 重新密封 exposure-scale review candidate | WAITING_AUTHOR | 2026-08-13 | **命中任务书停手判据，未安装任何 tracked candidate 字节，未改 `oracle-manifests/`。**起始 HEAD `58e783440420b08847427e0e2a0608e839cf1f3e` clean 且已推送；Docker 实测正常，digest-pinned control/business PostgreSQL 均为 `server_version_num=160014`。两份 Scale manifest 经 `DecodeManifest` + `ManifestSHA256` 复算：novel `4391a09c1f08cb0dcd924aca12f74d3beb575e996530c76009e9a023b80a13d9` → `c0dc2d9f588bd57a2bcbded3fbdb85abf09f29d2cb3551bf75a7d1346a304cb9`，semantic replay `8f4184197adbc85022c018ca2abd02c3fbd76faa310a9e8f11f36a508e528227` → `3d1037c6dbfb1f4a33793b062f100bf35e71b2818a164e14eb0569178f323679`；`git show f46ed76 -- <两份 manifest>` 确认每份唯一差异路径均为 `normalization_spec_sha256` 与 `generation.command` 中嵌入值。**要求留存的带库原始失败原文：**`--- FAIL: TestTrackedExposureScaleReviewRegeneratesAgainstPostgreSQL (333.43s)`；`review_test.go:125: generate live exposure-scale review: bind reviewed exposure-scale union: review report does not bind the two sealed maximum zero-overlap Scale union commitments`；`FAIL taskbound.local/agent-data-gateway/evaluation/cmd/final-v5-publication-review 333.432s`。在 `/tmp` 的起始 HEAD 归档副本中仅临时更新任务书预期三项，生产 summarizer 实算 Scale manifest-set aggregate `f30f705ec23ec98c814595cf6bde0eb9ac6d8a3c2ebb18850122c4ce3b992cb9` → `024e19897d8cd035de8419ffe5c8952b3e43cb194359b62d3d0af6002f18adf1`；但 generator 随即关闭式失败：`validate generated review report: review report does not bind both exact oracle manifest closed sets`。进一步用同一 `summarizeProvSQLManifestSet` 实算发现 f46ed76 再生成 105 份 ProvSQL manifest 还使 aggregate `c1ceb1459c8cc74c5fee8392ea5eb0fac3eacbf319b73e98c145ce64ba527ad1` → `c7b2a8db21a8c2516ee667780d53e5a485be8e12a16907463727a69e8a2b7f8d`。因此预期完整 JSON path 差异为 `/scale_union/manifests/0/sha256`、`/scale_union/manifests/1/sha256`、`/scale_manifest_set/aggregate_sha256`，以及**任务书范围外**的 `/provsql_manifest_set/aggregate_sha256`；后者触发停手，尚无通过 validation 的新候选可安装或计算 review SHA-256。已通过 CATM 决策 D1 请求作者裁决：是否授权把 `provSQLManifestSetSHA` 作为第四个常量及第四个允许 path 一并更新；状态**待作者裁决**，不是 P4.0 closure，不是验收通过。 |
 | DECIDE-CLAUDE-01 决策权下放 + P4.0-C3 范围按原则重写 | DONE | 2026-08-13 | **作者裁决入档并立即行使。**作者 2026-08-13 定：**项目交给 Claude，Claude 做决策**；不影响论文核心架构与指标的事不要问作者；只有(一)会影响论文发表的、(二)环境严重故障不可继续的、(三)必须人类手工完成的，才通知作者。已写入 `AGENTS.md` §分工「交互链路」第 3 条，并明确**逐字节批准记录永不下放**——approval 文件写的是作者姓名与决策编号，Claude 代签即伪造证据（红线 1）。**（一）就上一行 P4.0-C3 的停手点行使决策权：授权扩大范围，但不按"第几个常量"授权，按原则授权。**判据：`review.go` 的五个相关常量分两类——**由 manifest 字节派生**的 `:47` novel、`:48` replay、`:52` `provSQLManifestSetSHA`、`:53` `scaleManifestSetSHA` **全部更新**；**由期望值派生**的 `:46` `reviewScaleUnionSHA`（fact 清点结果 `4354d048…`）、`ProvSQLManifestSet.Files == 105`、`ScaleManifestSet.Files == 24`、两条 `AggregateRecord` 格式串（`<path><TAB><manifest-sha256><LF>` 与 `<manifest-sha256><SPACE><SPACE><path><LF>`）**一个都不许动，任何一项变化即停手**——那才意味着 `f46ed76` 的「Every expectation is unchanged」不成立。**（二）为什么这属于可下放范围：**105 份 ProvSQL manifest 的 aggregate 变化是作者自己提交的合法更正 `f46ed76` 的机械派生值，不改任何论文指标、不改主张范围、不翻任何能力位；拒绝授权只会得到一个无收益的 BLOCKED。**（三）我原任务书写"只改 :46-48 三个常量"是推导不足，本行更正：**规划方扫的是 135 个 manifest 的旧 digest，而 aggregate 是**"digest 的 digest"**，不在被扫的那一层，因此 `PLAN-scan` 行"同类缺陷已闭合"的结论**只对直接 pin 成立，不覆盖派生/聚合 pin**，以本行为准。**（四）附加的独立性要求（红线 6 与"用自己验自己"的坑）：**新 aggregate **不得直接抄生产函数输出**，须按上述记录格式独立复算一遍，与 `summarizeProvSQLManifestSet` / Scale summarizer 的结果比对相等后才写入常量。**（五）两条 CATM 决策作废：**Codex 的 D1 与规划方的 D2 均已被本行取代，作者无需答复。**（六）本行不产生任何 acceptance 证据，不是 P4.0 closure。** |
+| DECIDE-CLAUDE-02 P4.0-C3 降级为准备任务，重新密封并入 v1.8 | DONE | 2026-08-13 | **行使已下放的决策权，无需作者答复；本行同时否决我自己原任务书里的一步。****（一）实查发现的硬约束：**`evaluation/internal/finalv5publication/approval.go:30` 把已批准 candidate 的摘要 `8c4fe7c322e9e2e8f1afc282487866451c2f9717d68fb1c261a8296013f973f8` 与字节数 `10824` 写成**代码常量**，`:242-244` 硬校验并在不符时报「C2 approved candidate bytes differ from Decision 20」，源码注释明写 "The candidate remains immutable"。同一摘要另嵌在两处**作者已逐字节签署**的记录：`publication-approvals/exposure-scale-v1/approval-v1.json`（APPROVE-C2 / 决策 20）与 `publication-review/publication-binding-v1.5/publication-binding.provenance.json` 的 `/inputs/approval/candidate/sha256`（DECIDE-23）。**（二）由此否决我原任务书的第 6 步「安装再生成字节」：**照它做会立刻打断 `approval.go`，并使两份已签署记录自我误述——那是红线 1 与红线 3 同时受损，且是我写任务书时未查到的。**以本行为准。****（三）随之澄清一个会被误当缺陷反复调查的事实：`TestTrackedExposureScaleReviewRegeneratesAgainstPostgreSQL` 在重新密封前不可能变绿**——它比较"live 重生成"与"tracked 字节"，而 tracked 字节按设计不可变。故 `P4.0-C3` **不以该测试 PASS 为验收**，它继续作为已归类的已知失败。**（四）裁决：`P4.0-C3` 降级为准备任务**——只落 `review.go` 四个 manifest 派生常量（`:47`/`:48`/`:52`/`:53`，两个 aggregate 须独立复算后与生产 summarizer 比对），生成候选并报出 SHA-256、字节数与完整 diff path 清单，**不安装 candidate、不改 approval.go、不写任何 approval 文件**。**（五）重新密封并入 v1.8 作为第 7 条前置**，四步为一个原子事务：安装新 candidate → 同步 `approval.go` 两个常量 → 作者签新 approval → 重生成并由作者签 binding provenance。**理由：**现在单做一次、v1.8 再做一次要赔两轮作者签署与两轮 binding 重生成；并入后作者只签一次，且与"证据命名它所运行的 release"的既有不变式一致。**（六）通知口径：**按 `AGENTS.md` 新增的下放规则，本裁决属"不影响论文核心架构与指标"，不通知作者；**唯一会通知的是 v1.8 那一次逐字节签署本身**——approval 记录写作者姓名与决策编号，Claude 代签即伪造证据，这条永不下放。 |
