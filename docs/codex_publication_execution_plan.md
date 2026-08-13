@@ -426,6 +426,45 @@ observer acceptance，不得声明 independent FactSet oracle closure、publicat
 完整 publication binding 的最早需求时间是 P4.0 oracle closure 完成后、任何 P5 正式
 实测之前。
 
+**P4.0-C3 重新密封 exposure-scale review candidate（2026-08-13 新增；closure 的剩余缺口）**
+
+根因已实查，不是待查谜团：`TestTrackedExposureScaleReviewRegeneratesAgainstPostgreSQL`
+失败于 `evaluation/cmd/final-v5-publication-review/review.go:1026`。`review.go:46-48`
+密封 union `4354d048…` / novel `4391a09c…` / replay `8f418419…`，tracked
+`publication-review/exposure-scale-v1/review.json` 的 `scale_union` 与之逐字段相同；
+而两份 manifest 的**canonical** digest（`DecodeManifest` + `ManifestSHA256` 实算，
+不是裸文件 sha）现为 novel `c0dc2d9f…`、replay `3d1037c6…`。原因是 `f46ed76`
+（2026-08-12，v1.5 correction-2）把 `normalization_spec_sha256` 移到 `9e78abdc…`
+并再生成全部 135 份 manifest，而该 review candidate 在 `1fe51a5`（08-11）密封、
+经 APPROVE-C2（本文件 §10 台账）逐字节批准——批准的是被取代前的字节。
+**即审阅快照落后于一次合法的契约更正，不是 oracle 逻辑损坏。**
+
+- 前置：clean 且已推送的 HEAD；`./scripts/db-test-env.sh up` 后 `verify` 得
+  `server_version_num=160014`。
+- 范围：仅 `review.go` 的三个常量与 `publication-review/exposure-scale-v1/` 的再生成
+  字节。**不得触碰 `oracle-manifests/` 下任何字节。**
+- 步骤：
+  1. 零改动复核：复算两份 manifest 的 `ManifestSHA256`；`git show f46ed76 -- <两份
+     manifest>` 确认唯一差异路径只有 `normalization_spec_sha256` 与嵌入它的 generation
+     命令串。
+  2. 取原始失败输出：`go test -count=1 -run
+     TestTrackedExposureScaleReviewRegeneratesAgainstPostgreSQL
+     ./evaluation/cmd/final-v5-publication-review/`，原文贴台账。该测试缺 DSN 时是
+     `t.Fatal` 不是 skip，不得以缺环境搪塞（红线 7）。
+  3. 用 generator 把候选生成到临时目录，不覆盖 tracked，逐字段 diff。
+  4. **停手判据**：差异必须只限于两处 manifest `sha256` 及由它们导出的 manifest-set
+     aggregate。若 `scale_union.set_sha256`、`semantic_ordinal_link` 三个 `set_sha256`、
+     cardinality、row/column count 有任何变化，**立即停手上报**——那与 `f46ed76`
+     提交信息「Every expectation is unchanged」直接冲突，属新发现的漂移。
+  5. 只改 `review.go:46-48` 三行常量。**禁止**修改 `validateScaleUnionReview` 的比较
+     集合、禁止删断言、禁止把精确比较改宽松（红线 6）。
+  6. 安装再生成字节，重跑该测试至 PASS，再跑 `gofmt -l`（本轮文件应无输出）、
+     `go build ./... && go vet ./... && go test -count=1 ./...`、`validate.sh`。
+  7. **不得自行宣布 closure 完成**：旧批准是 byte-exact 的，新字节必须由作者重新逐字节
+     批准。把新 `review.json` 的 SHA-256 报作者，状态记「待作者批准」（红线 3）。
+- 产出：台账一行 `P4.0-C3`，含失败原文、diff 的完整 JSON path 清单、新旧三个 digest、
+  待批准状态。提交末行 `Task ID: P4.0-C3`。
+
 **P4 契约 v1.5 冻结**：
 
 1. **删除** `config/profiles/activation-support-v1.json` 并重新生成 registry。
@@ -498,7 +537,20 @@ observer acceptance，不得声明 independent FactSet oracle closure、publicat
   go build ./... && go vet ./... && go test -count=1 ./...
   ```
   差分测试证明 digest 恒等，无回归。
-- 产出：FactSet 定义改为 `map[[32]byte]FactID`，台账注明 `P5-mem.1`。
+- **叠加约束（2026-08-13 补，必须全部满足）**：
+  1. 只允许一份散列实现（红线 6）：`Hash()` 必须实现为 `hex(HashBytes())`，
+     不得出现第二条独立散列路径。
+  2. **顺序恒等要实测，不许靠推理**：hex 编码保序，故 `[32]byte` 字节序与 hex 字典序
+     理应一致——但必须由差分测试逐元素证明。`Values()` 输出须逐元素、逐字节与 oracle
+     相同，集合相等不算过。
+  3. wire 格式不变：JSON / 样本输出仍是 hex string；样本 schema 三代并存，
+     不得静默重解释旧样本。
+  4. 差分测试须由「集合比较」升级为「序列比较」后，`FactSet.*Differential` /
+     `.*Randomized` / `.*NegativeControl` 全部实际 PASS，不得 SKIP。
+  5. 验收除上列命令外，另需带库 `go test -count=1 ./...` 与 `validate.sh` 零 SKIP 退出 0。
+  6. 不得顺手修 `internal/control/execution_binding.go` 的既有 gofmt 失败项（P0.2 已登记）。
+- 产出：FactSet 定义改为 `map[[32]byte]FactID`，台账注明 `P5-mem.1`，
+  并写明差分证明覆盖了顺序而不只是集合。
 
 **P5-mem.2 FactSet value 落盘（待启动，需作者裁决后再细化）**
 - 前置：P5-mem.0 + P5-mem.1
@@ -845,3 +897,4 @@ make paper-final-check       # 干净树 + final 模式 + evidence.tex 无 diff
 | P4-freeze-v1.6 契约 v1.6 冻结 + P5.1 六格全绿（作者裁决：只落两项配置） | DONE | 2026-08-13 | **作者裁决：只落两项配置并重新冻结 v1.6，保留 Parquet 修复 `4ebec76`（去留问题就此关闭）。**七步全部完成，**tag 未打，留给作者**（红线 3）。**（一）两项配置（`7233eaf`）：**`compose.yaml` Gateway `mem_limit: 512m → 8g`、新增 `GATEWAY_CONNECTOR_STATEMENT_TIMEOUT: ${...:-10m}`（代码默认 `cmd/gateway/main.go:185` 仍为 5s，未改，产品默认保持保守，由部署显式声明）。10m 不是新数字：`evaluation/cmd/final-v5-publication-review/review.go:731` 早已用 `600000ms`，publication live 路径用 30m。**（二）第三项参数被实测证明不需要，纠正我此前的漏报：**P5.1-truepeak 一次同时改了三项（含 `GATEWAY_HTTP_REQUEST_TIMEOUT` 130s→20m）却从未逐项隔离，我据此向作者只报了两项。本轮单跑 `100k-x16` 并**显式不设** HTTP timeout（`env -u`，用 130s 默认）：`1/1 samples passed`、`taskgate_acceptance_v3` 非空、`receipt_verified=True`、cgroup peak `6,630,240,256 B = 6.17 GiB`、**端到端 `client_full_drain_ms=18,653`（18.7 秒）**。130s 有约 7 倍余量，从来不是约束。故 v1.5 时代"必须放宽 HTTP timeout"的说法作废，以本行为准。**（三）两项配置对身份零扰动（实测非假设）：**`StatementTimeoutPinSQL`（`internal/dataconnector/pins.go:39`）以 `$1` 绑定该值，不入语句文本，对 schema-v2 StrictAST 不可见；footprint 只数 `statement_timeout_pin` 调用数不数值。配置落地后重跑 qualification 得 `portable=58d58d30326e`，与配置前**逐字节相同**；v1.6 冻结后再跑一次仍为 `58d58d30326e`。**（四）v1.6 契约（`b3a71f3`）：**28 个 indexed digest **一个都没动**，`index-v1.json` 只改 release/supersedes/amendment 三行；`verifier.go` 加 `contractReleaseV16` 与 chain 项、`bridge.go` accept-list、`bridge_test.go` 断言同步；新增 `AMENDMENT-v1.6.md`。`sql-executability-v1.json` 的 `contract_index_sha256` 由**重跑 gate** 重导为 `8266b8c7d451…`（`caa9925efbc9…` → 新值），不是手改：`contract SQL executability: pass (final-v5-contracts-v1.6, PostgreSQL 16.14, 28 artifacts, 71 rendered cells, 0 failed)`。**（五）激活 smoke 重跑（`f8ca75b`）：**七个 live-route profile 在全新隔离部署上重跑，七份 evidence 全部 `status=pass`、`activation_smoke_passed=true`、`contract_release=final-v5-contracts-v1.6`、`publication_eligible=false`；route matrix `status=pass` 0 failed；semantic-cache isolation `pass`（21 profile pairs / 54 route probes / 0 failures，两个 production lookup test 实跑）；support `7 of 11`；registry `7 targeted_run_eligible`、11 个 `routable=false`。**生成顺序不是我选的，是 generator 逼出来的**：先导 support 时 fail-closed 报「semantic-cache isolation evidence pins contract v1.5, current profile registry is v1.6; execution evidence does not carry across a contract release」，故必须先在 v1.6 下重生 isolation，再 support/registry，再 `-mode aggregate` 重聚合使 matrix 钉住已存在的 registry，再重导 isolation/support；`final-v5-profile -verify` 与 `final-v5-activation-support -verify` 均 PASS 即到达不动点。**（六）`validate.sh` 零 SKIP 退出 0：**protocol/config/schema、profile regeneration、activation support、contract SQL executability(live)、Pilot harness 五项全 pass，`grep -ci skip` = **0**。**（七）P5.1 六格在 v1.6 下 `6/6 samples passed`**（`targeted-p51-v16-six-cell-01-…-f8ca75b7c87a`，evidence 已 `git add -f` 入库——上一轮 truepeak 的 6/6 字节正是因为只落在一次性 worktree 且从未提交而灭失）：逐格 `status=pass`、`taskgate_acceptance_v3` 非空、`receipt_verified=True`、`publication_eligible=false`；parquet 分别 6,235 / 426,765 / 4,263,795 / 24,195 / 1,865,381 / 18,743,852 B。**（八）必须记的一个反直觉读数：`memory.peak` 是部署内累计 HWM，六格同部署顺序执行时会叠加。**按 `order_position` 实测：`100x16`(1)→472.5 MiB、`100x4`(2)→472.5、`100k-x16`(3)→**6,506.4**（+6,033.9）、`10k-x16`(4)→6,506.4、`10k-x4`(5)→6,506.4、`100k-x4`(6)→**7,521.5 MiB**（+1,015.1）。即**六格累计峰值 7,886,876,672 B = 7.35 GiB，占 8g 上限的 91.8%，余量仅 8.2%**。单格 `100k-x16` 只要 6.17 GiB，但顺序跑完六格需要 7.35 GiB——Go 不及时把已释放内存还给 OS，后续大格在旧 arena 之上继续分配。**故本行不宣称 8g 有充裕余量**；是否上调由作者裁决（作者原话是「ceiling ≥ 6.5 GiB」，8g 是我在该约束内的取值，上调不构成新决策，但要付一整轮重认证+重跑的代价）。**（九）如实记录的两类既有失败（均已证明非本轮引入）：**`TestArtifactTargetedBinding*` 报「retained qualification names a different profile registry, release or Catalog」——测试夹具用的是旧 release 的 retained qualification，v1.6 qualification 已重跑，该类失败属冻结中间态；`TestTrackedExposureScaleReviewRegeneratesAgainstPostgreSQL` 报「review report does not bind the two sealed maximum zero-overlap Scale union commitments」——**在 `f6989ff`（本轮全部改动之前）以同一 DSN 重跑得逐字相同失败**，属 P4.0 oracle closure 未闭合的既有缺口，按计划 §P5 它阻塞 P5.2/P5.3/P5.4，不阻塞 P5.1。**（十）并发内存实测仍 BLOCKED**（无现成入口，红线 10，未自造）；`AMENDMENT-v1.6.md` 已显式声明 8g 是按**单次派生**实测峰值定的，不是对 N 路并发宽结果派生的承诺。 |
 | P5.1-concurrency2 并发内存实测（作者授权解除红线 10） | DONE | 2026-08-13 | **口径校正，取代 P5.1-concurrency 行的 BLOCKED 与其中的纯代码推导。**作者明示「要实测并发，我同意解除红线」，以设计裁决身份授权建测量 harness；红线 10 的约束对象是 Codex 不得自行造入口，作者裁决即解除条件。**（一）被测系统零改动。**harness 只做驱动：用 `KEEP_UP=1` 起一套普通部署，然后把**未经修改的** `evaluation/cmd/v5-artifact` 同时起 N 份打同一个 Gateway。唯一的脚本差异是 tracked runner 的一份 scratchpad 副本多了一行 `export -p > $TASKGATE_HARNESS_ENV_DUMP`（把已派生的部署环境导出给外部驱动用）；formal Gateway image 仍由 `git ls-files` 的干净 tracked 树构建，工作树全程 `git status` 为空，harness 不进 `git ls-files`，故 v1.6 qualification 与 P5.1 证据不受影响。读数为 Gateway 容器内 `/sys/fs/cgroup/memory.peak`（observer 读的同一文件）；该值累计不复位，故**每个 trial 前 `--force-recreate` 重建 Gateway 拿全新 cgroup**。**（二）`100k-x4`（估算 500,000 < 1M，无车道）实测：**N=1 `1,877,254,144 B = 1,790.3 MiB = 1.75 GiB`（wall 7.9s）；N=2 `3,424,505,856 B = 3,265.9 MiB = 3.19 GiB`（20.7s）；N=4 `6,737,903,616 B = 6,425.8 MiB = 6.28 GiB`（25.7s）。三点最小二乘：**peak ≈ 210 MiB + N × 1,550 MiB**，即**内存随并发数线性叠加**，与 P5.1-concurrency 行的代码推导（`443 + N × 1,391 MiB`）同量级且斜率更陡。**全部 N 份实例都真取到完整 100,000 × 4 结果**（逐份 sample `row_count=100000 column_count=4`），故不是"部分工作"造成的假象。**（三）`100k-x16`（估算 1,700,000 ≥ 1M，单车道）实测：**N=1 `6,623,100,928 B = 6.17 GiB`（wall 36.0s，sample **pass**，drain 18,580 ms）；N=2 `7,966,765,056 B = 7.42 GiB`（wall 55.2s）。**若不串行，N=2 应为约 2×6.17 = 12.3 GiB，远超 8g 上限必然 OOM；实测未 OOM（`OOMKilled=false ExitCode=0 Status=running`），内存只涨 1.20 倍。**更直接的证据在 drain 时间：两份实例分别为 **37,233 ms 与 18,201 ms**，即一份立即执行（18.2s）、另一份排队后在 37.2s ≈ 18.2+18.6 完成——这是容量为 1 的信号量的教科书特征。**故单车道确实生效，`highCardinalityDerivations` 的串行化被实测确认，不再是代码推导。**（四）由此对 8g 上限的定量结论（8,192 MiB）：**按拟合式，`100k-x4` 并发 **N=4 用 78.3%、N=5 用 97.2%、N=6 需 9,511 MiB 即超限**。**即当前 8g 只安全支撑约 4 路并发无车道宽结果请求，第 5 路已在 97% 边缘，第 6 路必 OOM。**（五）N≥2 的 sample 全部 `status=fail`，但**失败原因与系统缺陷无关，是 harness 的固有限制**：并发实例共享同一部署级 observer window，finalizer 以 `TaskGateRejectionV1` 明确报出 `phase=closed_world_accounting`、`gate_code=closed_world_classes`、`statement_class=transaction_begin`、`actual_count=2` vs `expected_count=1`。**这正是闭世界记账按设计工作**——它拒绝接受一个被第二个并发查询污染了观测窗口的样本。**故本行的并发样本一律不得计为 PASS，也不是 cell failure；本行只主张内存读数，不主张任何 acceptance。**（六）N=1 两格 sample 均 `status=pass`、`taskgate_acceptance_v3` 非空，证明 harness 未破坏正常路径。**（七）遗留：**本行未测 x4 与 x16 混合并发，也未测 N>4；`AMENDMENT-v1.6.md` 中"8g 是按单次派生定的、不是对 N 路并发的承诺"这句话现在有了实测支撑，且**该句应据本行更新为定量表述**（约 4 路）。是否上调 ceiling 由作者裁决。 |
 | P4-freeze-v1.7 ceiling 按 campaign 定为 12g + P5.1 六格 6/6（作者裁决） | DONE | 2026-08-13 | **作者同意"先把 ceiling 调到 12g、待 P5.2 可跑时先单量 scale、只有放不下才上 FactSet 落盘"三步走，本行完成第 1 步。**七步做完六步，**tag 未打，留作者**（红线 3）。**（一）为何是 v1.7 而不是原地改 v1.6：**v1.6 未被打 tag、字节未被作者冻结，本可原地改；但 v1.6 自己写下的不变式是"证据命名它所运行的 release，旧参数模型下的样本不得被读作新模型的证据"。已提交的 P5.1 v1.6 证据（`targeted-p51-v16-six-cell-01`）是在 **8g** 下测的，若把 v1.6 改成 12g，那份证据就会自我误述。**故按自己定的规则切 v1.7**，并把 v1.6 证据保留、不重贴标签、重跑而非改判。**（二）唯一改动仍是一个部署参数：`mem_limit 8g → 12g`**（`312c367`）。`GATEWAY_CONNECTOR_STATEMENT_TIMEOUT` 保持 10m；记账机制、1,000,000 车道阈值、28 个 indexed digest **全部零改动**，`index-v1.json` 仍只动 release/supersedes/amendment 三行。**（三）定 12g 的依据是 campaign 口径不是单格口径：**`memory.peak` 累计不复位，而 `run-deployment.sh:56` 让九个实验（`baseline scale artifact rls attack provsql compiler concurrency rq5`）跑在**同一个 Gateway**，且 `:604` 要求 `container_restarts == 0`、`:603` 要求 `oom_events == 0`，`finalize.go:2135` 更规定 `SwapInDelta/SwapOutDelta` 非零即令该 deployment 不被接受。**没有任何让 cgroup 重新开始的口子，一次 OOM 或一页换页就废掉整个 deployment。**而 Artifact 单实验从全新 Gateway 起就实测 7.35 GiB（本轮复现 **7,583.4 MiB = 7.41 GiB**，比上轮 7,521.5 更高），已占旧 8g 的 **92.6%**；它在 campaign 里还是**第三个**跑，前面的 scale 最大单次派生带 1,035,000 个 Influence fact（`finalv5oracle/dependency.go:17`）。**（四）为何不取 16g：**宿主机 25 GiB / 可用 22 GiB，允许 Gateway 涨到 16 GiB 后叠加两个 PostgreSQL 工作集会贴换页悬崖，而**换页与 OOM 同样致命**；12g 对唯一硬实测留约 63% 余量，同时宿主留足不换页的空间。**（五）v1.6 明确声明"不主张并发"的空洞已由实测补上并写入 `AMENDMENT-v1.7.md`：**无车道的 `100k-x4` 线性叠加 `peak ≈ 210 MiB + N × 1,550 MiB`（N=1/2/4 实测 1.75/3.19/6.28 GiB）；单车道的 `100k-x16` **不叠加**（N=2 只涨 1.20 倍，drain 37,233 / 18,201 ms 直接显示排队）。**（六）七步执行：**activation-support 删除并重生 registry（11 个全 false）→ verifier/bridge/bridge_test 同步 → `sql-executability-v1.json` 的 `contract_index_sha256` 由**重跑 live gate** 重导为 `ea687bea59ee…`（pass，28 artifacts / 71 rendered cells / 0 failed）→ 七个 live-route profile 在 v1.7 下全新部署重跑，七份 evidence 全 `status=pass`、`contract_release=v1.7`，isolation `pass`（21 pairs / 54 probes / 0 failures，两个 production lookup test 实跑），support `7 of 11`，registry 7 eligible / 11 routable=false，`-verify` 双双 PASS 即不动点（`2ec0a3a`）→ `validate.sh` **退出 0 且 `grep -ci skip` = 0**。**（七）红线 9 重认证：**在 v1.7 HEAD 重跑 qualification 得 `portable=58d58d30326e`——**与 512m 时代、8g 时代逐字节相同**，再次证明 ceiling 与 statement timeout 对 Attestation 语义零扰动。**（八）P5.1 六格在 v1.7 下 `6/6 samples passed`**（`targeted-p51-v17-six-cell-01-…-2ec0a3af05fa`，evidence 已 `git add -f` 入库并过凭据扫描：URL-userinfo / PEM / secret-assignment 均为 0）：逐格 `status=pass`、`taskgate_acceptance_v3` 非空、`receipt_verified=True`、`publication_eligible=false`。累计峰值 `7,951,777,792 B = 7.41 GiB`，**占新 12g 上限 61.7%**。**（九）如实记录的一次 SKIP 未被接受：**首次生成 isolation 时因 db-test-env 起容期 verify 瞬时失败而报 SKIPPED；按红线 7 skip 不计通过，遂重跑 verify 至 exit 0 后重新生成直到真正 pass。**（十）仍未解除：**campaign 累计峰值**未实测**（P5.2/P5.3/P5.4 仍卡 P4.0 publication binding closure），故 12g 是对单实验实测的工程余量、**不是已证明的充分性**；`AMENDMENT-v1.7.md` 已把这句写进"仍不主张"一节，并写明若累计需求超过宿主机不换页可承载量，出路是**约束常驻记账集（FactSet 落盘）而非继续抬 ceiling**。按作者三步走，下一验证点是 P4.0 closure 后**先单跑 scale 实验量一次 Gateway 峰值**。 |
+| PLAN-C3+mem1 任务书入队 + 关键路径口径校正 | DONE | 2026-08-13 | **本行只记录规划入队与口径校正，不含任何测量、不含任何 acceptance 证据；未跑带库测试、未改一个证据字节。****（一）口径校正（会致命误工）：**§10 表首 `P0.1`–`P5.5` 的 `TODO` 行是 2026-08-08 的**初始种子行**，早已被后续行推翻——`P0.1/0.2/0.3`、`P1a.1/1a.2`、`P1b.0/1b.1/1b.2`、`P2.2`–`P2.7` 均在 2026-08-09 DONE（`P2.1`/`P2.6` DROPPED），`P4 v1.5 冻结` 已被 v1.6、v1.7 两次冻结取代，`P5.1` 在 v1.7 下 6/6 passed。**任何据表首 TODO 行派工的行为都是重开已完成任务**；派工一律以台账尾部为准。**（二）P4.0 closure 剩余缺口的根因已实查定位（零改动审计）：**`TestTrackedExposureScaleReviewRegeneratesAgainstPostgreSQL` 失败于 `review.go:1026`，因为 `review.go:46-48` 与经 APPROVE-C2 逐字节批准的 `publication-review/exposure-scale-v1/review.json` 同时 pin 了 novel `4391a09c…` / replay `8f4184197…`，而两份 manifest 的 canonical digest（以 `DecodeManifest`+`ManifestSHA256` 实算，与裸文件 sha 相同）现为 novel `c0dc2d9f588bd57a2bcbded3fbdb85abf09f29d2cb3551bf75a7d1346a304cb9`、replay `3d1037c6dbfb1f4a33793b062f100bf35e71b2818a164e14eb0569178f323679`。差异由 `f46ed76`（2026-08-12，v1.5 correction-2 把 `normalization_spec_sha256` 移到 `9e78abdc…` 并再生成 135 份 manifest）引入，晚于该 review candidate 的密封（`1fe51a5`，08-11）与批准。**结论：审阅快照落后于一次合法契约更正，不是 oracle 逻辑损坏，也不是冻结字节被非作者篡改**；出路是重新生成候选并请作者重新逐字节批准，**不是放宽断言**。**（三）新增任务书两份：**§P4 新增 `P4.0-C3`（范围限于 `review.go` 三个常量与 `exposure-scale-v1/` 再生成字节，明令不得触碰 `oracle-manifests/`，含"差异若超出两处 manifest sha256 与其 aggregate 即停手上报"的判据，且不得自行宣布 closure 完成）；§P5-mem 的 `P5-mem.1` 补六条叠加约束（`Hash()` 必须由 `HashBytes()` 派生以免出现第二份散列实现；顺序恒等必须逐元素实测不得靠 hex 保序推理；wire 仍为 hex string；差分测试升级为序列比较；验收含带库全量与 `validate.sh` 零 SKIP；不得顺手修 `execution_binding.go`）。**（四）作者裁决（本会话）：**两件都做，落地后**只冻一次 v1.8**（含 `593ce83` + P5-mem.1）再按红线 9 重认证并重跑 P5.1；建议派发顺序 `P4.0-C3` 在先，因其中途须停下等作者逐字节批准。**（五）已欠账的事实：**`593ce83` 改了 `internal/exposure/outcome_v3.go` 且晚于 v1.7 冻结完成（`ba066d7`），故 HEAD 已推离 v1.7 认证的树，v1.8 重认证在本轮规划之前就已欠着，不是 P5-mem.1 引入的新成本；在 v1.8 落地前，`targeted-p51-v17-six-cell-01` 保留原样、不重贴标签，且一旦 P5-mem.1 入树即不再覆盖 HEAD。 |
