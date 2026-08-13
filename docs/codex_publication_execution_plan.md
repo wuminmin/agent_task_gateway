@@ -449,6 +449,71 @@ observer acceptance，不得声明 independent FactSet oracle closure、publicat
 
 ---
 
+### P5-mem — 内存优化：约束常驻记账集（前置：无；2026-08-13 新增）
+
+**背景**：RQ4 空间门槛（Gateway cgroup peak ≤ 512 MiB）在宽结果 Artifact 上不成立，
+成因是记账机制线性且无界。落盘若能压常驻到 1/5–1/7，可能把这条门槛救回来。
+**这不是性能优化，是用延迟换余量**。RQ4 延迟数会显示更慢，论文不要写成性能提升。
+
+**红线 6 约束**：
+1. 只允许替换，禁止并存——不得出现"小的走内存、大的走磁盘"两条派生实现。
+2. 关键推导只允许一份实现——FactSet 承载 28 个 indexed digest、123 格 binding，
+   任何改动必须证出 digest 恒等，否则下桌。
+3. 改运行时决策先于冻结（红线 8）。
+
+---
+
+**P5-mem.0 建立差分恒等判据**
+- 前置：无
+- 目标：照抄 593ce83 的 oracle 模式，保留旧 FactSet 实现作为 oracle。
+- 步骤：
+  1. 读 `internal/exposure/outcome_digest_streaming_test.go`
+  2. 创建 `internal/exposure/factset_differential_test.go`
+  3. 旧实现 `bufferedFactSet*` 作为 oracle，覆盖 NewFactSet/Add/Values/Clone/MergeChecked
+  4. 用例：空集合/单元素/已排序/未排序/重复坍缩/大集合/随机化 300 轮
+  5. 负控制：证明 oracle 能检测差异
+- 验收：
+  ```bash
+  go test -v -run 'FactSet.*Differential' ./internal/exposure
+  go test -v -run 'FactSet.*Randomized' ./internal/exposure
+  go test -v -run 'FactSet.*NegativeControl' ./internal/exposure
+  go test -count=1 ./internal/exposure/...
+  ```
+  所有测试必须实际 PASS，不得 SKIP。
+- 产出：`factset_differential_test.go`，台账注明 `P5-mem.0`。
+
+**P5-mem.1 FactSet key 改 [32]byte**
+- 前置：P5-mem.0
+- 目标：去掉 `hex.EncodeToString` 开销，每约 Fact 节省 80 B。
+  这是小改动，用同一套差分证明验证路子。
+- 步骤：
+  1. 扩展 Hash() API：保留 `Hash() (string, error)`，新增 `HashBytes() ([32]byte, error)`
+  2. 修改 FactSet 定义：`type FactSet map[string]FactID` → `map[[32]byte]FactID`
+  3. 更新 Add()/Values() 方法
+  4. 逐文件修改调用方（预估 98 处，19 文件）：exposure → gateway → evaluation
+  5. 确保 JSON 序列化兼容（输出仍用 hex string）
+- 验收：
+  ```bash
+  go test -v -run 'FactSet.*Differential' ./internal/exposure
+  go build ./... && go vet ./... && go test -count=1 ./...
+  ```
+  差分测试证明 digest 恒等，无回归。
+- 产出：FactSet 定义改为 `map[[32]byte]FactID`，台账注明 `P5-mem.1`。
+
+**P5-mem.2 FactSet value 落盘（待启动，需作者裁决后再细化）**
+- 前置：P5-mem.0 + P5-mem.1
+- 目标：参照 `internal/gateway/encrypted_spool.go` 模式实现自适应落盘。
+  阈值以下纯内存，以上 AES-GCM 分块落盘，独立认证目录，临时密钥不持久化。
+- 约束：必须是替换不是并存；必须复用 encrypted_spool 模式；必须证出 digest 恒等。
+- 草案步骤：读 encrypted_spool.go → 设计自适应结构 → 实现落盘后备 → 更新调用方 → 差分验证
+- 草案验收：差分测试 + 压力测试 + 全量门禁 + 内存实测
+- 产出：自适应 FactSet，台账注明 `P5-mem.2`。
+
+**后续**：阶段 0+1 完成后，岔口二的 A 案需重生成（evaluation/exposure/ 直接用 FactSet），
+然后 v1.8 冻结（含 593ce83 + 阶段 0+1），再重认证 + P5.1 重跑。阶段 2 另起一轮。
+
+---
+
 ### P5 — 正式实测（前置：P4；P5.1 为非发表前置）
 
 | 任务 | 内容 | 阻塞输入 |
@@ -674,6 +739,9 @@ make paper-final-check       # 干净树 + final 模式 + evidence.tex 无 diff
 | P3.2 N4 重认证 | TODO | | 前置未满足 |
 | P3.3 100×4 canary | TODO | | 前置未满足 |
 | P4 v1.5 冻结 | TODO | | 需作者批准 |
+| P5-mem.0 差分判据 | TODO | 2026-08-13 | 照抄 593ce83 模式；任务书见 docs/factset_spool_plan.md |
+| P5-mem.1 key 改 [32]byte | TODO | 2026-08-13 | 前置 P5-mem.0；每约 Fact 节省 80 B |
+| P5-mem.2 value 落盘 | TODO | 2026-08-13 | 前置 P5-mem.0+1；照抄 encrypted_spool 模式；待启动 |
 | P5.1 Artifact 六格 | TODO | | 需私有 dataset binding |
 | P5.2 Scale 全格 | TODO | | |
 | P5.3 Baseline S1–S6 | TODO | | |
