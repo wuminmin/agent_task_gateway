@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "index_version": "taskgate-final-v5-contract-index-v1",
-  "contract_release": "final-v5-contracts-v1.6",
-  "supersedes_contract_release": "final-v5-contracts-v1.5",
-  "amendment": "contracts/AMENDMENT-v1.6.md",
+  "contract_release": "final-v5-contracts-v1.7",
+  "supersedes_contract_release": "final-v5-contracts-v1.6",
+  "amendment": "contracts/AMENDMENT-v1.7.md",
   "status": "AUTHOR_APPROVED_FOR_IMPLEMENTATION",
   "digest_status": "REVIEW_CANDIDATE",
   "exact_generated_bytes_freeze_status": "NOT_APPROVED",

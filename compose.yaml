@@ -377,9 +377,17 @@ services:
     # measured 6,607,790,080 B = 6.15 GiB. That memory is live, not garbage --
     # GOMEMLIMIT at 384 MiB and at 224 MiB was measured and still OOM-killed
     # the process, because GC cannot reclaim a growing accounting set.
-    # 8g leaves ~30% headroom over the measured peak. It replaces the former
-    # 512m, which no wide Artifact cell could satisfy.
-    mem_limit: 8g
+    #
+    # The ceiling is sized for the CAMPAIGN, not for one cell. memory.peak is a
+    # cumulative high-water mark and run-deployment.sh forbids restarts, so all
+    # nine experiments accumulate in one cgroup; an OOM or any swap invalidates
+    # the deployment outright. The Artifact experiment alone, from a fresh
+    # Gateway, measured 7,886,876,672 B = 7.35 GiB -- already 91.8% of the
+    # former 8g -- and it runs third, after baseline and scale, whose largest
+    # derivation carries 1,035,000 Influence facts. 12g keeps ~63% headroom
+    # over that measurement while leaving the 25 GiB host enough slack that it
+    # never swaps, which a 16g ceiling would not.
+    mem_limit: 12g
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8082/health/ready"]
       interval: 3s
