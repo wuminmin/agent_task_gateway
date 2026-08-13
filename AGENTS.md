@@ -57,14 +57,27 @@ TaskGate：agentic 数据库系统的累计数据暴露记账与控制原型。�
 ```bash
 export GOFLAGS=-buildvcs=false
 docker version                                  # Docker 反复上下线，每次实测，不要假设
-./scripts/db-test-env.sh up && eval "$(./scripts/db-test-env.sh env)"
+./scripts/db-test-env.sh up
 ./scripts/db-test-env.sh verify                 # 期望 server_version_num=160014
-gofmt -l $(git ls-files '*.go'); go build ./...; go vet ./...; go test -count=1 ./...
-./evaluation/final-v5-wsl2/scripts/validate.sh
+gofmt -l $(git ls-files '*.go'); go build ./...; go vet ./...
+./scripts/db-test-env.sh test -count=1 ./...     # 带库全量的唯一支持写法
+env -u TASKGATE_FINAL_V5_SQLCHECK_ADMIN_DSN ./evaluation/final-v5-wsl2/scripts/validate.sh
+# 真正执行 contract SQL executability gate（自建一次性空库）：
+./evaluation/final-v5-wsl2/scripts/run-sql-executability-gate.sh
 ```
 
 不接 DSN 时 DB 测试**静默 skip**，而 skip 不算 pass。不得安装宿主机 PostgreSQL：
 digest-pinned 的 PostgreSQL 16.14 容器对就是整套记账被认证against的那个环境。
+带库全量**不要**使用 `eval "$(./scripts/db-test-env.sh env)"` 后裸跑 `go test`：`env`
+会导出 `TASKGATE_FINAL_V5_SQLCHECK_ADMIN_DSN`，`test` 则故意不导出；这个不对称是设计，
+不是疏漏。错用 `env` 会稳定制造三类假失败：`finalv5sqlcheck` 的两个 probe 因已有
+`final_v5_benchmark` schema 而失败，`internal/gateway` 因裸 `go test` 的 10 分钟默认预算
+而 timeout panic，以及 `validate.sh` 的 contract SQL executability gate 在被污染的
+business 库上失败。`validate.sh` 必须在没有该变量的环境里运行；真正执行该门禁须走
+`run-sql-executability-gate.sh`，由它自建一次性空库。Claude 实测 `internal/gateway`
+耗时 2777s，而 `test` 默认 `-timeout=60m`，余量仅约 23%；将来若超时，先怀疑预算，
+不要先判断为 hang。
+
 论文构建走容器（`make paper-tkde`）：论文字节必须与 evidence 出自同一受控构建环境，
 **不要绕过它在宿主直接编译**。宿主已装用户级 TeX Live 2026，`kpsewhich` 能找到
 `IEEEtran.cls` 与 `IEEEtran.bst`，缺的只是 Debian 包 `texlive-publishers`——
@@ -75,8 +88,9 @@ digest-pinned 的 PostgreSQL 16.14 容器对就是整套记账被认证against�
 活体 runner 现有开跑前自检会 fail fast 并报出占用者，但它**只报告、不代劳**，
 不会替你删任何容器。
 
-全仓 `gofmt -l` 会稳定报告 `internal/control/execution_binding.go`，这是 P0.2 已登记的
-既有失败项，**不要顺手修**；只需确认本轮改动的 Go 文件无输出。
+全仓 `gofmt -l` 会稳定报告 `internal/control/execution_binding.go` 与
+`internal/exposure/factset_differential_test.go` 两个既有失败项，**不要顺手修**；
+只需确认本轮改动的 Go 文件无输出。
 
 ## 红线（违反则此前工作作废，完整版见计划 §2）
 
