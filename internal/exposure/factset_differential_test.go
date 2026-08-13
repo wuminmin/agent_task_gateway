@@ -102,7 +102,10 @@ func testPredicateFact(t *testing.T, i int) FactID {
 		PublicFieldID:          fmt.Sprintf("field-%d", i%7),
 		ResolvedExpressionSHA256: strings.Repeat("c", 64),
 		SQLType:                "text",
-		StableValue:            fmt.Sprintf("value-%d", i),
+		CanonicalLiteral:       fmt.Sprintf("s:value-%d", i),
+		Operator:               "EQ",
+		CollationName:         "C",
+		CollationVersion:      "1.0.0",
 		AtomizerVersion:        PredicateFootprintVersion,
 	})
 	if err != nil {
@@ -497,11 +500,11 @@ func TestBufferedFactSetAgreesWithCurrentImplementationOnLargeSet(t *testing.T) 
 	}
 }
 
-// TestDifferentialOracleCanDetectADifference
+// TestFactSetDifferentialOracleCanDetectADifference
 // Negative control: the differential oracle must be capable of disagreeing.
 // Feed the two implementations different inputs and require a mismatch,
 // so a vacuously-passing comparison cannot go unnoticed.
-func TestDifferentialOracleCanDetectADifference(t *testing.T) {
+func TestFactSetDifferentialOracleCanDetectADifference(t *testing.T) {
 	fact := testFact(t, "e1", "f1", "v1")
 
 	oracle, _ := newBufferedFactSet(fact)
