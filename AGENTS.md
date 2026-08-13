@@ -50,8 +50,9 @@ TaskGate：agentic 数据库系统的累计数据暴露记账与控制原型。�
 
 ## 环境
 
-工作树 `/home/wmm/worktrees/taskgate-artifact-rerun`，分支 `tkde-artifact-rerun`。
-主工作树 `/home/wmm/agent-scope/task_gateway` 停在 `main`，**永不触碰**。
+工作树 `/home/wmm/worktrees/agent_task_gateway`，分支 `tkde-artifact-rerun`。
+（旧路径 `/home/wmm/worktrees/taskgate-artifact-rerun` 已不存在，2026-08-13 校正；
+分支未变。）主工作树 `/home/wmm/agent-scope/task_gateway` 停在 `main`，**永不触碰**。
 
 ```bash
 export GOFLAGS=-buildvcs=false
