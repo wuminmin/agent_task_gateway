@@ -739,7 +739,7 @@ make paper-final-check       # 干净树 + final 模式 + evidence.tex 无 diff
 | P3.2 N4 重认证 | TODO | | 前置未满足 |
 | P3.3 100×4 canary | TODO | | 前置未满足 |
 | P4 v1.5 冻结 | TODO | | 需作者批准 |
-| P5-mem.0 差分判据 | DONE | 2026-08-13 | 提交 `bcc2c92`；代码完成，测试待 Go 环境验证；照抄 593ce83 模式 |
+| P5-mem.0 差分判据 | DONE | 2026-08-13 | 提交 `bcc2c92` + `332addb`；11 个测试全部 PASS，300 轮随机 + 200 facts 压力 |
 | P5-mem.1 key 改 [32]byte | TODO | 2026-08-13 | 前置 P5-mem.0；每约 Fact 节省 80 B |
 | P5-mem.2 value 落盘 | TODO | 2026-08-13 | 前置 P5-mem.0+1；照抄 encrypted_spool 模式；待启动 |
 | P5.1 Artifact 六格 | TODO | | 需私有 dataset binding |
