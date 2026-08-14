@@ -49,7 +49,9 @@ cells and 58 baseline cells are still not implemented.
 The recorded v1.8 smokes did not carry into v1.9. The v1.8 activation-support
 manifest was removed rather than relabelled, and the registry was regenerated
 with all profiles initially ineligible. No old evidence byte received a v1.9
-label.
+label. Eight live-route profiles were then activated against a fresh v1.9
+deployment and regenerated to a byte-stable fixed point: 8 of 11 profiles are
+eligible, while all 11 remain `routable=false`.
 
 ## SQL executability record
 
@@ -70,6 +72,6 @@ once by the author; this release does not regenerate it or alter an approval.
 ## Execution status
 
 v1 through v1.8 remain preserved for audit. v1.9 supersedes v1.8. Fresh
-activation, SQL executability, and Attestation portable-identity
-requalification remain release-task gates before handoff for the author-owned
-tag.
+activation and SQL executability have completed. Attestation portable-identity
+requalification remains a release-task gate before handoff for the
+author-owned tag.
