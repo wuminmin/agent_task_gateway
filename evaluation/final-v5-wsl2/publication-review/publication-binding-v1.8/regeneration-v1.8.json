@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "record": "taskgate-final-v5-publication-binding-regeneration-v1",
+  "status": "REVIEW_CANDIDATE",
+  "author_approved": false,
+  "statement": "Regeneration of the decision-22 publication binding under contract release final-v5-contracts-v1.8 after the decision-23 exposure-scale reseal. The approved binding and Catalog bytes reproduced exactly; only the generation provenance changed.",
+  "regenerated_at_commit": "858c2a4d229e4337461db3636cdf3ee9d06a2afb",
+  "previous": {
+    "directory": "evaluation/final-v5-wsl2/publication-review/publication-binding-v1.5",
+    "contract_release": "final-v5-contracts-v1.5",
+    "source_commit": "f46ed76a9e0ec252411b274481ff0cf95b287256",
+    "publication_binding_sha256": "0ff346769cc0d988a5d7b0dcc4fe066b81fdd8ca528e0893f6fc178f3d5bab7a",
+    "catalog_sha256": "9546ffcfb263d947f0b5f10c08b2a878a6b97f5ed5e9d7ed8e6a8a0d21072e96",
+    "provenance_sha256": "0c7e57c21b575c62e68d6d8607d390c7c4da367e780940c01301d75b3b0554e3"
+  },
+  "regenerated": {
+    "directory": "evaluation/final-v5-wsl2/publication-review/publication-binding-v1.8",
+    "contract_release": "final-v5-contracts-v1.8",
+    "publication_binding_sha256": "0ff346769cc0d988a5d7b0dcc4fe066b81fdd8ca528e0893f6fc178f3d5bab7a",
+    "catalog_sha256": "9546ffcfb263d947f0b5f10c08b2a878a6b97f5ed5e9d7ed8e6a8a0d21072e96",
+    "provenance_sha256": "50696eae5231676b2fe7cc5e677818e0bc7f43317eae90bcb418b84e3c8b4874"
+  },
+  "unchanged_approved_bytes": {
+    "publication_binding_json": true,
+    "catalog_yaml": true,
+    "note": "Author decision 22 approved the publication-binding.json bytes; the v1.8 regeneration reproduces those exact binding and Catalog bytes, so the approval of the binding bytes is not invalidated."
+  },
+  "provenance_delta": {
+    "total_leaves": {
+      "previous": 4270,
+      "regenerated": 4270
+    },
+    "added_or_removed_leaves": {
+      "added": 0,
+      "removed": 0
+    },
+    "differing_leaf_paths": 20,
+    "by_group": {
+      "/inputs/approval": 7,
+      "/inputs/author_decision": 2,
+      "/inputs/contract": 2,
+      "/live_observation + /set_algebra + /binding_input_identity": 9
+    },
+    "interpretation": "The 20 changed values are limited to the decision-23 approval reseal, the appended author-decision bytes and digest, the contract release/index digest, the new live-observation identity, and its derived set-algebra and binding-input-identity summaries. No result, dependency, outcome, row, column or schema digest appears in the delta; cardinalities and coverage are unchanged."
+  },
+  "validation": {
+    "command": "final-v5-publication-binding validate --repo-root <repo> --input-dir <private 0700 copy of publication-binding-v1.8 containing exactly the three closed files>",
+    "note": "The tracked directory also contains this regeneration record as a fourth file, and Git does not record directory permissions, so in-place validation is not the recomputation path; this is consistent with Decision 23's private-copy procedure for v1.5.",
+    "exit_code": 0,
+    "binding_input_identity_sha256": "f35748f8f94209b29cc55883e956f8169096c13ddf0cc13ee556f184763c2462",
+    "set_algebra_sha256": "fb4c65295bb6f829b805bf458aaca3dad740b118dff62bbc2285423ca07a4706"
+  },
+  "author_approval": {
+    "path": "evaluation/final-v5-wsl2/publication-approvals/publication-binding-v1.8/approval-v1.json",
+    "sha256": "8e61f08956974a57f939ce3062442a8a831ebdeb50bee3799eaca27963552f57",
+    "approval_id": "APPROVE_PUBLICATION_BINDING_V1_8_REGENERATED_PROVENANCE",
+    "approved_on": "2026-08-14"
+  },
+  "not_claimed": [
+    "publication eligibility",
+    "any measured TaskGate runtime output",
+    "a completed campaign",
+    "contract release tag"
+  ]
+}
