@@ -16,11 +16,13 @@ exposure-scale review candidate re-sealed under Decision 23 and
 `APPROVE-C2-v1.8` after the v1.5 normalization-spec correction.
 
 The three runtime changes claim to preserve every digest and output byte. That
-claim is not accepted from implementation reasoning alone. The fresh-live
-activation and Attestation-footprint qualification required for this release
-must independently reproduce the historical portable identity before this
-freeze is complete. This pre-activation amendment does not claim that result
-has already been measured.
+claim is not accepted from implementation reasoning alone. A fresh v1.8
+Attestation-footprint qualification at clean, published commit `3617dc3`
+measured portable identity `58d58d30326e` (full SHA-256
+`58d58d30326e712910a2cdef9c56fbd0f6e558d6c92c24af9949bfb718b55947`),
+byte-identical to the historical v1.6 and v1.7 value. This independent
+reproduction supports the digest-preserving claim for the streaming outcome
+digest, binary FactSet key and adaptive encrypted spill together.
 
 ## What did not change
 
@@ -52,18 +54,22 @@ input and is not a paper conclusion.
 
 ## Activation support does not carry across this release
 
-The recorded smokes ran under v1.7. `config/profiles/activation-support-v1.json`
-is removed rather than relabelled, and the registry is regenerated with all 11
-profiles initially ineligible. No old evidence byte receives a v1.8 label. The
-seven live-route profiles must be activated against a fresh v1.8 deployment and
-regenerated to a byte-stable fixed point before this freeze is complete.
+The recorded v1.7 smokes did not carry into v1.8.
+`config/profiles/activation-support-v1.json` was removed rather than relabelled,
+and the registry was regenerated with all 11 profiles initially ineligible. No
+old evidence byte received a v1.8 label. Seven live-route profiles were then
+activated against a fresh v1.8 deployment and regenerated to a byte-stable
+fixed point: 7 of 11 profiles are eligible, while all 11 remain
+`routable=false`.
 
 ## SQL executability record
 
 `contracts/sql-executability-v1.json` embeds the Contract Index digest, which
-the release bump invalidates. It is re-derived by executing the indexed SQL
+the release bump invalidated. It was re-derived by executing the indexed SQL
 against a disposable PostgreSQL 16.14 database, never by editing the digest.
-The measured v1.8 result is recorded after that live gate runs.
+The measured result was:
+
+`contract SQL executability: pass (final-v5-contracts-v1.8, PostgreSQL 16.14 (Debian 16.14-1.pgdg12+1), 28 artifacts, 71 rendered cells, 0 failed)`
 
 ## Publication evidence affected
 
@@ -75,6 +81,7 @@ back Decision 23 nor rewrites the signed provenance.
 
 ## Execution status
 
-v1 through v1.7 remain preserved for audit. v1.8 is not complete until fresh
-activation, SQL executability, Attestation portable-identity requalification,
-the combined validation gate, and the freeze ledger entry all pass.
+v1 through v1.7 remain preserved for audit. v1.8 supersedes v1.7. Fresh
+activation, SQL executability and Attestation portable-identity
+requalification have completed; the combined validation gate and freeze ledger
+entry are recorded by the release task before handoff for the author-owned tag.
