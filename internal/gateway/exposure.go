@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"sort"
@@ -543,7 +544,7 @@ func sourceHashesByGroupAndField(relation exposure.Relation, groupFields []strin
 				sets[key][field] = make(map[string]struct{})
 			}
 			for hash := range cell.Sources {
-				sets[key][field][hash] = struct{}{}
+				sets[key][field][hex.EncodeToString(hash[:])] = struct{}{}
 			}
 		}
 	}

@@ -185,7 +185,7 @@ func sameFactIDSet(left, right []exposure.FactID) bool {
 	}
 	leftSet, _ := exposure.NewFactSet(left...)
 	for _, fact := range right {
-		hash, err := fact.Hash()
+		hash, err := fact.HashBytes()
 		if err != nil {
 			return false
 		}

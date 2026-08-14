@@ -58,7 +58,7 @@ func TestJoinMultiplicityDoesNotMultiplyUniqueInfluence(t *testing.T) {
 	}
 	set, _ := NewFactSet(observation.Influence...)
 	leftDepartment, _ := NewFact("employees", "snapshot-1", "e1", "department", "sales")
-	hash, _ := leftDepartment.Hash()
+	hash, _ := leftDepartment.HashBytes()
 	if _, ok := set[hash]; !ok {
 		t.Fatal("left join key is absent from source influence")
 	}

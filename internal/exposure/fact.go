@@ -425,11 +425,11 @@ func (f FactID) CanonicalPayload() ([]byte, error) {
 	return payload.Bytes(), nil
 }
 
-// Hash returns the durable PostgreSQL ledger index for the semantic payload.
-func (f FactID) Hash() (string, error) {
+// HashBytes returns the binary PostgreSQL ledger index for the semantic payload.
+func (f FactID) HashBytes() ([32]byte, error) {
 	payload, err := f.CanonicalPayload()
 	if err != nil {
-		return "", err
+		return [32]byte{}, err
 	}
 	if f.IsV2() {
 		payload = append([]byte(factDomainV2), payload...)
@@ -438,7 +438,15 @@ func (f FactID) Hash() (string, error) {
 	} else if f.IsV5() {
 		payload = append([]byte(factDomainV5), payload...)
 	}
-	digest := sha256.Sum256(payload)
+	return sha256.Sum256(payload), nil
+}
+
+// Hash returns the durable hexadecimal PostgreSQL ledger index for the semantic payload.
+func (f FactID) Hash() (string, error) {
+	digest, err := f.HashBytes()
+	if err != nil {
+		return "", err
+	}
 	return hex.EncodeToString(digest[:]), nil
 }
 
@@ -1525,7 +1533,7 @@ func NewFact(product, snapshot, entityKey, field string, value any) (FactID, err
 
 // FactSet is keyed by hash but collision-aware: the full canonical payload is
 // compared before a repeated hash is accepted.
-type FactSet map[string]FactID
+type FactSet map[[32]byte]FactID
 
 func NewFactSet(facts ...FactID) (FactSet, error) {
 	result := make(FactSet, len(facts))
@@ -1541,7 +1549,7 @@ func (s FactSet) Add(fact FactID) error {
 	if s == nil {
 		return fmt.Errorf("%w: nil fact set", ErrInvalid)
 	}
-	hash, err := fact.Hash()
+	hash, err := fact.HashBytes()
 	if err != nil {
 		return err
 	}
@@ -1549,7 +1557,7 @@ func (s FactSet) Add(fact FactID) error {
 		left, leftErr := existing.CanonicalPayload()
 		right, rightErr := fact.CanonicalPayload()
 		if leftErr != nil || rightErr != nil || !bytes.Equal(left, right) {
-			return fmt.Errorf("%w: fact hash collision for %s", ErrInvalid, hash)
+			return fmt.Errorf("%w: fact hash collision for %s", ErrInvalid, hex.EncodeToString(hash[:]))
 		}
 		return nil
 	}
@@ -1581,11 +1589,13 @@ func (s FactSet) MergeChecked(other FactSet) error {
 }
 
 func (s FactSet) Values() []FactID {
-	hashes := make([]string, 0, len(s))
+	hashes := make([][32]byte, 0, len(s))
 	for hash := range s {
 		hashes = append(hashes, hash)
 	}
-	sort.Strings(hashes)
+	sort.Slice(hashes, func(i, j int) bool {
+		return bytes.Compare(hashes[i][:], hashes[j][:]) < 0
+	})
 	result := make([]FactID, 0, len(hashes))
 	for _, hash := range hashes {
 		result = append(result, s[hash])

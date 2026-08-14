@@ -698,7 +698,7 @@ func runOutcomeProbing() (OutcomeProbeSummary, error) {
 func addNovelFacts(known exposure.FactSet, facts []exposure.FactID) int {
 	novel := 0
 	for _, fact := range facts {
-		hash, err := fact.Hash()
+		hash, err := fact.HashBytes()
 		if err != nil {
 			continue
 		}

@@ -3,6 +3,7 @@ package gateway
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"errors"
 	"sort"
 	"strings"
@@ -888,9 +889,9 @@ func assertFactSetsEqual(t *testing.T, label string, got, want exposure.FactSet)
 	for hash, wantFact := range want {
 		gotFact, present := got[hash]
 		if !present {
-			t.Fatalf("%s misses FactHash %s", label, hash)
+			t.Fatalf("%s misses FactHash %s", label, hex.EncodeToString(hash[:]))
 		}
-		assertFactsEqual(t, label+"/"+hash, gotFact, wantFact)
+		assertFactsEqual(t, label+"/"+hex.EncodeToString(hash[:]), gotFact, wantFact)
 	}
 }
 
@@ -910,7 +911,7 @@ func assertFactsEqual(t *testing.T, label string, got, want exposure.FactID) {
 func factHashes(set exposure.FactSet) []string {
 	result := make([]string, 0, len(set))
 	for hash := range set {
-		result = append(result, hash)
+		result = append(result, hex.EncodeToString(hash[:]))
 	}
 	sort.Strings(result)
 	return result

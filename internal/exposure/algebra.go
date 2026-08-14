@@ -1,6 +1,7 @@
 package exposure
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -336,7 +337,7 @@ func Observe(profile string, input Relation, visibleFields ...string) (Observati
 				factField = cell.factField
 				sourceHashes := make([]string, 0, len(cell.Sources))
 				for hash := range cell.Sources {
-					sourceHashes = append(sourceHashes, hash)
+					sourceHashes = append(sourceHashes, hex.EncodeToString(hash[:]))
 				}
 				sort.Strings(sourceHashes)
 				version, versionErr := ValueVersion(map[string]any{"value": cell.Value, "sources": sourceHashes})

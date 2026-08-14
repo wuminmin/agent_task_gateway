@@ -1051,7 +1051,7 @@ func validateReleaseProvenanceV2(cell CellV2) error {
 	release := *cell.ReleaseFact
 	switch release.Kind {
 	case FactBaseCell:
-		hash, err := release.Hash()
+		hash, err := release.HashBytes()
 		if err != nil {
 			return err
 		}
@@ -1078,7 +1078,7 @@ func validateSupportWitnessV2(support FactSet, witness WitnessMultiset, bundle [
 		return fmt.Errorf("%w: nil V2 support or witness", ErrInvalid)
 	}
 	for hash, fact := range support {
-		actual, err := fact.Hash()
+		actual, err := fact.HashBytes()
 		if err != nil || actual != hash || !isBaseFactV2(fact) || !factCoveredByBundleV2(fact, bundle) {
 			return fmt.Errorf("%w: invalid V2 support fact", ErrInvalid)
 		}
@@ -1091,7 +1091,11 @@ func validateSupportWitnessV2(support FactSet, witness WitnessMultiset, bundle [
 		if err != nil || actual != hash || item.Multiplicity == 0 || !isBaseFactV2(item.Fact) || !factCoveredByBundleV2(item.Fact, bundle) {
 			return fmt.Errorf("%w: invalid V2 witness fact", ErrInvalid)
 		}
-		if fact, present := support[hash]; !present || !sameFactV2(fact, item.Fact) {
+		supportHash, err := item.Fact.HashBytes()
+		if err != nil {
+			return err
+		}
+		if fact, present := support[supportHash]; !present || !sameFactV2(fact, item.Fact) {
 			return fmt.Errorf("%w: witness support differs from set support", ErrInvalid)
 		}
 	}
