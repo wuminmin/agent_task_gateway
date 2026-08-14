@@ -416,8 +416,13 @@ func ProfileID(closureSHA256 string) string {
 
 // BuildInput carries everything Build needs to classify a profile.
 type BuildInput struct {
-	Master              *catalog.Catalog
-	Live                *catalog.Catalog
+	Master *catalog.Catalog
+	Live   *catalog.Catalog
+	// ProfileCatalogs are independently activatable Catalogs keyed by closure
+	// digest. They take precedence over the default live Catalog for status
+	// evaluation, because a per-profile deployment is not required to publish
+	// the union of every workload closure.
+	ProfileCatalogs     map[string]*catalog.Catalog
 	Cells               []WorkloadCell
 	Aliases             map[string]string
 	Hot                 map[string]HotArtifact
@@ -447,7 +452,17 @@ func Build(input BuildInput) ([]Profile, error) {
 		}
 		profile, present := byDigest[closure.SHA256]
 		if !present {
-			status, budgets := EvaluateStatus(closure, reasons, input.Live, input.Hot, input.ActivationSupported)
+			status, budgets := EvaluateStatus(closure, reasons, input.Live, input.Hot,
+				input.ActivationSupported)
+			// A standalone profile Catalog is an alternate materialization source,
+			// not an alternate route evaluator for closures the default Catalog
+			// already publishes. This preserves existing no-route classifications.
+			if !status.CatalogMaterializable {
+				if profileCatalog, found := input.ProfileCatalogs[closure.SHA256]; found {
+					status, budgets = EvaluateStatus(closure, reasons, profileCatalog, input.Hot,
+						input.ActivationSupported)
+				}
+			}
 			profile = &Profile{ID: ProfileID(closure.SHA256), Closure: closure, Status: status,
 				Routable: status.Routable(), TargetedRunEligible: status.TargetedRunEligible(), BudgetProfiles: budgets,
 				MaxHotLimitBytes: MaxHotBytesPerInstance, ActivationPolicy: ActivationPolicy}

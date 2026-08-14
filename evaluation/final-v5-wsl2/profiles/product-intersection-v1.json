@@ -3,8 +3,8 @@
   "record": "taskgate-final-v5-product-intersection-v1",
   "contracts_version": "final-v5-contracts-v1.8",
   "registry_version": "taskgate-final-v5-workload-closure-profile-v2",
-  "profile_count": 7,
-  "pair_count": 21,
+  "profile_count": 8,
+  "pair_count": 28,
   "overlapping_pair_count": 0,
   "pairs": [
     {
@@ -69,6 +69,21 @@
     },
     {
       "left_profile_id": "profile-00bc8f7d5633f596",
+      "right_profile_id": "profile-794efc2159ffaa5f",
+      "left_alias": "rls-unlimited",
+      "right_alias": "exposure-scale",
+      "left_products": [
+        "final_v5_rls_unlimited_expense_detail"
+      ],
+      "right_products": [
+        "final_v5_exposure_scale"
+      ],
+      "intersection": [],
+      "intersection_count": 0,
+      "same_query_live_test_applicable": false
+    },
+    {
+      "left_profile_id": "profile-00bc8f7d5633f596",
       "right_profile_id": "profile-a60a787c64c95451",
       "left_alias": "rls-unlimited",
       "right_alias": "provsql-nonce-join",
@@ -146,6 +161,21 @@
     },
     {
       "left_profile_id": "profile-0d88c4e9d8b7561b",
+      "right_profile_id": "profile-794efc2159ffaa5f",
+      "left_alias": "expense-detail",
+      "right_alias": "exposure-scale",
+      "left_products": [
+        "expense_detail"
+      ],
+      "right_products": [
+        "final_v5_exposure_scale"
+      ],
+      "intersection": [],
+      "intersection_count": 0,
+      "same_query_live_test_applicable": false
+    },
+    {
+      "left_profile_id": "profile-0d88c4e9d8b7561b",
       "right_profile_id": "profile-a60a787c64c95451",
       "left_alias": "expense-detail",
       "right_alias": "provsql-nonce-join",
@@ -208,6 +238,21 @@
     },
     {
       "left_profile_id": "profile-158c6ffcccef2383",
+      "right_profile_id": "profile-794efc2159ffaa5f",
+      "left_alias": "attack-expense-detail",
+      "right_alias": "exposure-scale",
+      "left_products": [
+        "final_v5_attack_expense_detail"
+      ],
+      "right_products": [
+        "final_v5_exposure_scale"
+      ],
+      "intersection": [],
+      "intersection_count": 0,
+      "same_query_live_test_applicable": false
+    },
+    {
+      "left_profile_id": "profile-158c6ffcccef2383",
       "right_profile_id": "profile-a60a787c64c95451",
       "left_alias": "attack-expense-detail",
       "right_alias": "provsql-nonce-join",
@@ -255,6 +300,21 @@
     },
     {
       "left_profile_id": "profile-18c12d9c4dc04fc5",
+      "right_profile_id": "profile-794efc2159ffaa5f",
+      "left_alias": "rls-bounded",
+      "right_alias": "exposure-scale",
+      "left_products": [
+        "final_v5_rls_bounded_expense_detail"
+      ],
+      "right_products": [
+        "final_v5_exposure_scale"
+      ],
+      "intersection": [],
+      "intersection_count": 0,
+      "same_query_live_test_applicable": false
+    },
+    {
+      "left_profile_id": "profile-18c12d9c4dc04fc5",
       "right_profile_id": "profile-a60a787c64c95451",
       "left_alias": "rls-bounded",
       "right_alias": "provsql-nonce-join",
@@ -287,6 +347,21 @@
     },
     {
       "left_profile_id": "profile-3947f508ef5e9677",
+      "right_profile_id": "profile-794efc2159ffaa5f",
+      "left_alias": "concurrency-expense-detail",
+      "right_alias": "exposure-scale",
+      "left_products": [
+        "final_v5_concurrency_expense_detail"
+      ],
+      "right_products": [
+        "final_v5_exposure_scale"
+      ],
+      "intersection": [],
+      "intersection_count": 0,
+      "same_query_live_test_applicable": false
+    },
+    {
+      "left_profile_id": "profile-3947f508ef5e9677",
       "right_profile_id": "profile-a60a787c64c95451",
       "left_alias": "concurrency-expense-detail",
       "right_alias": "provsql-nonce-join",
@@ -309,6 +384,38 @@
       "right_alias": "result-heavy",
       "left_products": [
         "final_v5_concurrency_expense_detail"
+      ],
+      "right_products": [
+        "final_v5_result_heavy"
+      ],
+      "intersection": [],
+      "intersection_count": 0,
+      "same_query_live_test_applicable": false
+    },
+    {
+      "left_profile_id": "profile-794efc2159ffaa5f",
+      "right_profile_id": "profile-a60a787c64c95451",
+      "left_alias": "exposure-scale",
+      "right_alias": "provsql-nonce-join",
+      "left_products": [
+        "final_v5_exposure_scale"
+      ],
+      "right_products": [
+        "provsql_lineitem",
+        "provsql_nonce",
+        "provsql_orders"
+      ],
+      "intersection": [],
+      "intersection_count": 0,
+      "same_query_live_test_applicable": false
+    },
+    {
+      "left_profile_id": "profile-794efc2159ffaa5f",
+      "right_profile_id": "profile-a86cd4df5cad6e26",
+      "left_alias": "exposure-scale",
+      "right_alias": "result-heavy",
+      "left_products": [
+        "final_v5_exposure_scale"
       ],
       "right_products": [
         "final_v5_result_heavy"

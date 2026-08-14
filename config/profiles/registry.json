@@ -501,35 +501,12 @@
       },
       "status": {
         "closure_complete": true,
-        "catalog_materializable": false,
-        "live_route_available": false,
-        "activation_supported": false,
-        "activation_smoke_passed": false,
+        "catalog_materializable": true,
+        "live_route_available": true,
+        "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "live_activation_smoke_not_executed",
-            "subject": "profile-794efc2159ffaa5f",
-            "detail": "catalog_materializable_false; live_activation_smoke_not_executed; live_route_available_false; no_approval_route_for_exact_product_closure; product_absent_from_live_catalog; publication_absent_from_live_catalog; route_not_evaluable"
-          },
-          {
-            "state": "catalog_materializable",
-            "code": "product_absent_from_live_catalog",
-            "subject": "final_v5_exposure_scale",
-            "detail": "the live Catalog does not publish this Product"
-          },
-          {
-            "state": "catalog_materializable",
-            "code": "publication_absent_from_live_catalog",
-            "subject": "final-v5-exposure-scale-v1",
-            "detail": "the live Catalog does not declare this Publication"
-          },
-          {
-            "state": "live_route_available",
-            "code": "route_not_evaluable",
-            "detail": "the closure is not materializable, so no live route can be resolved"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -538,8 +515,10 @@
         ]
       },
       "routable": false,
-      "targeted_run_eligible": false,
-      "budget_profiles": null,
+      "targeted_run_eligible": true,
+      "budget_profiles": [
+        "final-v5-benchmark-low-v1"
+      ],
       "workload_cells": [
         "baseline/S3/10k-50k/direct",
         "baseline/S3/10k-50k/idempotent_replay",
@@ -585,13 +564,19 @@
         "baseline",
         "scale"
       ],
-      "catalog_sha256": "",
-      "catalog_path": "",
-      "hot_artifacts": null,
-      "total_hot_bytes": 0,
+      "catalog_sha256": "afb7782d520792d534c5a50f3d685e763a1c724675ff31c49e8bb5be77e8d584",
+      "catalog_path": "config/profiles/exposure-scale.catalog.yaml",
+      "hot_artifacts": [
+        {
+          "publication": "final-v5-exposure-scale-v1",
+          "hot_index_digest": "43903bcf8f8e708982ba05dbc10a04df71237c525a1014b88c102d5e3021a11f",
+          "bytes": 107642350
+        }
+      ],
+      "total_hot_bytes": 107642350,
       "max_hot_limit_bytes": 167772160,
       "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
-      "within_hot_limit": false
+      "within_hot_limit": true
     },
     {
       "profile_id": "profile-a60a787c64c95451",

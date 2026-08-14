@@ -320,6 +320,90 @@ func TestIdenticalClosuresMergeAndDifferentClosuresDoNot(t *testing.T) {
 	}
 }
 
+func TestPerProfileCatalogCanMaterializeAClosureAbsentFromTheDefaultCatalog(t *testing.T) {
+	full := fullCatalog(t)
+	closure, reasons, err := ComputeClosure(full, []string{"final_v5_result_heavy"})
+	if err != nil || len(reasons) != 0 {
+		t.Fatalf("compute closure: reasons=%+v err=%v", reasons, err)
+	}
+	live := *full
+	live.Products = append([]catalog.Product(nil), full.Products...)
+	live.SnapshotPublications = append([]catalog.SnapshotPublication(nil), full.SnapshotPublications...)
+	for index := range live.Products {
+		if live.Products[index].Name == "final_v5_result_heavy" {
+			live.Products = append(live.Products[:index], live.Products[index+1:]...)
+			break
+		}
+	}
+	for index := range live.SnapshotPublications {
+		if live.SnapshotPublications[index].Name == "final-v5-result-heavy-v1" {
+			live.SnapshotPublications = append(live.SnapshotPublications[:index],
+				live.SnapshotPublications[index+1:]...)
+			break
+		}
+	}
+	hot := map[string]HotArtifact{"final-v5-result-heavy-v1": {
+		Publication: "final-v5-result-heavy-v1", SHA256: strings.Repeat("a", 64), Bytes: 1}}
+	profiles, err := Build(BuildInput{Master: full, Live: &live,
+		ProfileCatalogs: map[string]*catalog.Catalog{closure.SHA256: full},
+		Cells: []WorkloadCell{{ExperimentID: "artifact", WorkloadID: "result-heavy", Scale: "100x4",
+			Mode: "novel", Products: []string{"final_v5_result_heavy"},
+			ProfileRequirement: RequirementCatalogBound}},
+		Aliases: map[string]string{closure.SHA256: "result-heavy"}, Hot: hot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(profiles) != 1 || !profiles[0].Status.CatalogMaterializable ||
+		!profiles[0].Status.LiveRouteAvailable {
+		t.Fatalf("per-profile Catalog did not clear the closure: %+v", profiles)
+	}
+}
+
+func TestExposureScaleCatalogCarriesTheExactClosureAndSufficientPairBudget(t *testing.T) {
+	registry := loadRegistry(t)
+	profile := profileByAlias(t, registry, "exposure-scale")
+	if profile.CatalogPath != "config/profiles/exposure-scale.catalog.yaml" ||
+		!profile.Status.CatalogMaterializable || !profile.Status.LiveRouteAvailable {
+		t.Fatalf("exposure-scale Catalog state = %+v", profile)
+	}
+	loaded, err := catalog.Load(filepath.Join(repositoryRoot, profile.CatalogPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.Products) != 1 || loaded.Products[0].Name != "final_v5_exposure_scale" {
+		t.Fatalf("exposure-scale Products = %+v", loaded.Products)
+	}
+	product := loaded.Products[0]
+	wantFields := []struct{ name, fieldType string }{
+		{"member_rank", "bigint"},
+		{"metric", "numeric"},
+		{"family_id", "integer"},
+		{"partition_key", "integer"},
+	}
+	if len(product.Fields) != len(wantFields) {
+		t.Fatalf("exposure-scale fields = %+v", product.Fields)
+	}
+	for index, want := range wantFields {
+		if product.Fields[index].Name != want.name || product.Fields[index].Type != want.fieldType {
+			t.Fatalf("exposure-scale field %d = %+v, want %s %s",
+				index, product.Fields[index], want.name, want.fieldType)
+		}
+	}
+	if len(loaded.SnapshotPublications) != 1 ||
+		loaded.SnapshotPublications[0].Name != "final-v5-exposure-scale-v1" {
+		t.Fatalf("exposure-scale Publications = %+v", loaded.SnapshotPublications)
+	}
+	policy, err := loaded.ResolveTaskPolicy([]string{"final_v5_exposure_scale"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if policy.BudgetProfile != "final-v5-benchmark-low-v1" || policy.Budget.MaxQueries < 2 ||
+		policy.Budget.MaxInfluenceFacts < 2070000 || policy.Budget.MaxReleaseFacts < 1035000 ||
+		policy.Budget.MaxOutcomeFacts < 5 {
+		t.Fatalf("exposure-scale pair budget = %+v", policy)
+	}
+}
+
 func TestRegistryValidationRejectsAnOverLimitProfile(t *testing.T) {
 	registry := loadRegistry(t)
 	over := registry

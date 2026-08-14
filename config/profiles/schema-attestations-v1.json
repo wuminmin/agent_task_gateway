@@ -98,6 +98,21 @@
       "generated_from_fresh_deployment": true
     },
     {
+      "profile_id": "profile-794efc2159ffaa5f",
+      "profile_alias": "exposure-scale",
+      "closure_sha256": "794efc2159ffaa5f87406c8e3e22610d316a7413a0626a7c8130a332fb260906",
+      "source": "travel_demo",
+      "postgres_major_version": 16,
+      "product_set_sha256": "b4f2ef2a1f7c137a2791c46932b10532618998176a79f7737427baa6a7a8b1b0",
+      "reporting_view_set_sha256": "3e0665740703cfd15d382720a72deaafbfd19bd30bceb2db52e64e70bce33e62",
+      "reporting_views": [
+        "reporting.final_v5_exposure_scale"
+      ],
+      "schema_digest": "a9743362fa4bf67eeba2de18b8e8660435298a30acddcbbc93719f80b40f7a92",
+      "schema_digest_tool_sha256": "264f811c5c83bd07d0a2357c1ac9414d62467d11fd1b2a7f70677cf4d995506f",
+      "generated_from_fresh_deployment": true
+    },
+    {
       "profile_id": "profile-a60a787c64c95451",
       "profile_alias": "provsql-nonce-join",
       "closure_sha256": "a60a787c64c9545177fa6b47e3723eb01725b71945b8a196753f90f2f2e05c79",

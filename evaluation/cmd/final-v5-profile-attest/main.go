@@ -66,8 +66,8 @@ func run(root, dsn, out string) error {
 	}
 	for _, profile := range registry.Profiles {
 		if !profile.Status.CatalogMaterializable {
-			// depth4 and exposure-scale have no live Catalog; a fabricated
-			// digest for them would be worse than none.
+			// A profile without a live per-profile Catalog must not acquire a
+			// fabricated digest merely because its abstract closure exists.
 			continue
 		}
 		attestation, err := attest(root, dsn, profile, toolDigest)

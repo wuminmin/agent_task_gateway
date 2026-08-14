@@ -45,8 +45,8 @@ func TestEveryMaterializableProfileIsAttested(t *testing.T) {
 			}
 			continue
 		}
-		// depth4-semantic-view and exposure-scale are not materializable. A
-		// fabricated digest for them would be worse than none.
+		// A profile without a live per-profile Catalog must not acquire a
+		// fabricated attestation merely because its abstract closure exists.
 		if found {
 			t.Fatalf("non-materializable profile %q carries a schema attestation", profile.Alias)
 		}

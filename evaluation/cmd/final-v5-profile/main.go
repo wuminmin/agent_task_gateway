@@ -115,16 +115,29 @@ func run(root string, verifyOnly bool) error {
 	if err != nil {
 		return err
 	}
+	profileCatalogs, err := loadProfileCatalogs(root, declared.Aliases)
+	if err != nil {
+		return err
+	}
 	// Build leaves activation_supported false for every profile. It is applied
 	// below, once each profile Catalog has been materialized and its digest is
 	// known, so a claim can be rejected when it names a different Catalog.
 	profiles, err := finalv5profile.Build(finalv5profile.BuildInput{Master: master, Live: live,
-		Cells: cells, Aliases: declared.Aliases, Hot: hot, ActivationSupported: false})
+		ProfileCatalogs: profileCatalogs, Cells: cells, Aliases: declared.Aliases, Hot: hot,
+		ActivationSupported: false})
 	if err != nil {
 		return err
 	}
 	for index := range profiles {
-		if err := materializeProfile(root, live, &profiles[index], hot, attestations, verifyOnly); err != nil {
+		deploymentCatalog := live
+		defaultStatus, _ := finalv5profile.EvaluateStatus(profiles[index].Closure, nil, live, hot, false)
+		if !defaultStatus.CatalogMaterializable {
+			if profileCatalog, found := profileCatalogs[profiles[index].Closure.SHA256]; found {
+				deploymentCatalog = profileCatalog
+			}
+		}
+		if err := materializeProfile(root, deploymentCatalog, &profiles[index], hot, attestations,
+			verifyOnly); err != nil {
 			return err
 		}
 	}
@@ -142,6 +155,44 @@ func run(root string, verifyOnly bool) error {
 		return err
 	}
 	return writeCanonicalJSON(filepath.Join(root, intersectionPath), buildIntersection(registry), verifyOnly)
+}
+
+// loadProfileCatalogs discovers source-controlled per-profile Catalogs by the
+// reviewed alias map. A Catalog is keyed by the closure it actually declares,
+// not merely by its filename, so an alias/file mismatch cannot authorize a
+// different Product set. Missing files are legitimate for unresolved profiles
+// and for the initial bootstrap from the default live Catalog.
+func loadProfileCatalogs(root string, aliases map[string]string) (map[string]*catalog.Catalog, error) {
+	loaded := make(map[string]*catalog.Catalog)
+	for closureSHA, alias := range aliases {
+		path := filepath.Join(root, profileDirectory, alias+".catalog.yaml")
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			continue
+		} else if err != nil {
+			return nil, fmt.Errorf("inspect profile Catalog %q: %w", alias, err)
+		}
+		document, err := catalog.Load(path)
+		if err != nil {
+			return nil, fmt.Errorf("load profile Catalog %q: %w", alias, err)
+		}
+		products := make([]string, 0, len(document.Products))
+		for _, product := range document.Products {
+			products = append(products, product.Name)
+		}
+		closure, reasons, err := finalv5profile.ComputeClosure(document, products)
+		if err != nil {
+			return nil, fmt.Errorf("profile Catalog %q closure: %w", alias, err)
+		}
+		if len(reasons) != 0 {
+			return nil, fmt.Errorf("profile Catalog %q has an incomplete closure: %+v", alias, reasons)
+		}
+		if closure.SHA256 != closureSHA {
+			return nil, fmt.Errorf("profile Catalog %q declares closure %s, reviewed alias maps to %s",
+				alias, closure.SHA256, closureSHA)
+		}
+		loaded[closureSHA] = document
+	}
+	return loaded, nil
 }
 
 // coverageReport is the source-controlled cell completeness audit. Every count

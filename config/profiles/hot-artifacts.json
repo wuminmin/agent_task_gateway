@@ -11,6 +11,11 @@
       "hot_index_digest": "d28b74a651b333db57fbb3a75dc00fef60ea5c9041a1f0b765c1380db27f2028",
       "publication": "expense-summary-v1"
     },
+    "final-v5-exposure-scale-v1": {
+      "bytes": 107642350,
+      "hot_index_digest": "43903bcf8f8e708982ba05dbc10a04df71237c525a1014b88c102d5e3021a11f",
+      "publication": "final-v5-exposure-scale-v1"
+    },
     "final-v5-result-heavy-v1": {
       "bytes": 126813361,
       "hot_index_digest": "ae4ea784dfee65958a4db790d686ed19a803c5e371f13880561bc7387b1020d8",

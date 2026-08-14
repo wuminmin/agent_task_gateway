@@ -752,10 +752,10 @@ func TestTheScaleResolverRefusesContractBindingProductDrift(t *testing.T) {
 	}
 }
 
-// The committed tree deliberately has neither a live exposure-scale Product nor
-// targeted-run clearance. Resolver wiring must therefore remain dormant even
-// though its synthetic positive test above proves all 24 candidates are real.
-func TestTheCommittedExposureScaleProfileRemainsFailClosed(t *testing.T) {
+// The default Catalog deliberately omits exposure-scale, while the independently
+// activated profile Catalog now clears the profile for a targeted run. Targeted
+// validation remains a later, separate state.
+func TestTheCommittedExposureScaleProfileUsesOnlyItsActivatedProfileCatalog(t *testing.T) {
 	contracts := deploymentContractsForTest(t)
 	binding := scaleBindingForResolverTest(t)
 	if _, err := contracts.resolveScaleCandidatesV3(FrozenContractSelectorV3{
@@ -764,10 +764,32 @@ func TestTheCommittedExposureScaleProfileRemainsFailClosed(t *testing.T) {
 	}, binding); err == nil || !strings.Contains(err.Error(), "declares no Product") {
 		t.Fatalf("the committed Catalog unexpectedly materializes exposure-scale: %v", err)
 	}
-	profiles := deploymentProfilesV3{registryPath: sourceControlledRegistryPath(t)}
-	if _, err := profiles.Resolve(scaleDeploymentProfileAlias); err == nil ||
-		!strings.Contains(err.Error(), "not eligible for a targeted run") {
-		t.Fatalf("the committed exposure-scale profile unexpectedly resolved: %v", err)
+	profile, err := ResolveTargetedProfileIdentity(sourceControlledRegistryPath(t), scaleDeploymentProfileAlias)
+	if err != nil {
+		t.Fatalf("resolve the activated exposure-scale profile: %v", err)
+	}
+	if !profile.TargetedRunEligible || !profile.ActivationSupported || !profile.ActivationSmokePassed {
+		t.Fatalf("the committed exposure-scale profile is not activation-cleared: %+v", profile)
+	}
+	payload, err := os.ReadFile(sourceControlledRegistryPath(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var registry struct {
+		Profiles []struct {
+			Alias  string `json:"alias"`
+			Status struct {
+				TargetedValidationPassed bool `json:"targeted_validation_passed"`
+			} `json:"status"`
+		} `json:"profiles"`
+	}
+	if err := json.Unmarshal(payload, &registry); err != nil {
+		t.Fatal(err)
+	}
+	for _, candidate := range registry.Profiles {
+		if candidate.Alias == scaleDeploymentProfileAlias && candidate.Status.TargetedValidationPassed {
+			t.Fatal("the activation smoke was promoted into targeted validation")
+		}
 	}
 }
 
