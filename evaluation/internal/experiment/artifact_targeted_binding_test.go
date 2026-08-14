@@ -35,7 +35,7 @@ type artifactTargetedBindingFixture struct {
 func newArtifactTargetedBindingFixture(t *testing.T) *artifactTargetedBindingFixture {
 	t.Helper()
 	root := repositoryRootForDeployment(t)
-	qualificationRoot := filepath.Join(root, "evaluation", "final-v5-wsl2", "raw", retainedQualificationRun)
+	qualificationRoot := artifactTargetedQualificationDirectory(t)
 	temporary := t.TempDir()
 
 	copySource := func(name, source string) string {
@@ -416,14 +416,16 @@ func TestArtifactTargetedBindingRejectsContractAndOracleMutation(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			fixture := newArtifactTargetedBindingFixture(t)
 			files := artifactTargetedEmbeddedContractFS(t)
+			fixture.deps.loadRuntime = func() (*finalv5contracts.Runtime, error) {
+				return finalv5contracts.LoadRuntimeFS(files)
+			}
+			buildArtifactTargetedFixture(t, fixture)
+
 			original, present := files[testCase.path]
 			if !present {
 				t.Fatalf("embedded contract tree has no %s", testCase.path)
 			}
 			files[testCase.path] = &fstest.MapFile{Data: append(append([]byte(nil), original.Data...), '\n')}
-			fixture.deps.loadRuntime = func() (*finalv5contracts.Runtime, error) {
-				return finalv5contracts.LoadRuntimeFS(files)
-			}
 			if _, err := buildArtifactTargetedDeploymentBinding(context.Background(), fixture.input, fixture.deps); err == nil {
 				t.Fatalf("one-byte mutation of %s was accepted", testCase.path)
 			}

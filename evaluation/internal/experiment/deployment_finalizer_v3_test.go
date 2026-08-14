@@ -50,6 +50,85 @@ func retainedQualificationDirectory(t *testing.T) string {
 	return path
 }
 
+// artifactTargetedQualificationDirectory resolves the retained qualification
+// that names the release this tree currently freezes. Keeping this lookup
+// separate from retainedQualificationRun preserves the paired P3.3 fixture
+// while preventing the Artifact targeted fixture from expiring at every
+// contract release bump.
+func artifactTargetedQualificationDirectory(t *testing.T) string {
+	t.Helper()
+	runtime, err := finalv5contracts.LoadRuntime()
+	if err != nil {
+		t.Fatalf("load the frozen Contract Index: %v", err)
+	}
+	rawDirectory := filepath.Join(repositoryRootForDeployment(t), "evaluation", "final-v5-wsl2", "raw")
+	entries, err := os.ReadDir(rawDirectory)
+	if err != nil {
+		t.Fatalf("read retained evidence directory: %v", err)
+	}
+
+	type qualificationCandidate struct {
+		directory      string
+		release        string
+		registrySHA256 string
+	}
+	candidates := make([]qualificationCandidate, 0)
+	matches := make([]qualificationCandidate, 0, 1)
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		directory := filepath.Join(rawDirectory, entry.Name())
+		qualificationPath := filepath.Join(directory, "attestation-footprint-v2.json")
+		payload, err := os.ReadFile(qualificationPath)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			t.Fatalf("read retained qualification %s: %v", entry.Name(), err)
+		}
+		var document struct {
+			Profile struct {
+				Release        string `json:"profile_registry_release"`
+				RegistrySHA256 string `json:"profile_registry_sha256"`
+			} `json:"profile_binding"`
+		}
+		if err := json.Unmarshal(payload, &document); err != nil {
+			t.Fatalf("decode retained qualification %s: %v", entry.Name(), err)
+		}
+		candidate := qualificationCandidate{
+			directory: directory, release: document.Profile.Release,
+			registrySHA256: document.Profile.RegistrySHA256,
+		}
+		candidates = append(candidates, candidate)
+		if candidate.release == runtime.ContractRelease() {
+			matches = append(matches, candidate)
+		}
+	}
+	if len(matches) != 1 {
+		t.Fatalf("retained qualifications matching release %q = %d, want exactly 1; candidates: %+v",
+			runtime.ContractRelease(), len(matches), candidates)
+	}
+	match := matches[0]
+	registrySHA256, err := FileSHA256(sourceControlledRegistryPath(t))
+	if err != nil {
+		t.Fatalf("digest the source-controlled profile registry: %v", err)
+	}
+	if match.registrySHA256 != registrySHA256 {
+		t.Fatalf("qualification for release %q names profile registry %s, current registry is %s",
+			runtime.ContractRelease(), match.registrySHA256, registrySHA256)
+	}
+	for _, name := range []string{"attestation-footprint-v2.json", "postgresql-identity.json"} {
+		path := filepath.Join(match.directory, name)
+		if info, err := os.Stat(path); err != nil {
+			t.Fatalf("qualification for release %q lacks %s: %v", runtime.ContractRelease(), name, err)
+		} else if !info.Mode().IsRegular() {
+			t.Fatalf("qualification for release %q has non-regular %s", runtime.ContractRelease(), name)
+		}
+	}
+	return match.directory
+}
+
 func repositoryRootForDeployment(t *testing.T) string {
 	t.Helper()
 	root, err := filepath.Abs(filepath.Join("..", "..", ".."))
