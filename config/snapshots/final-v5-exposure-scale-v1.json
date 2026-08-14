@@ -1,0 +1,42 @@
+{
+  "version": "taskgate-snapshot-index-input-v1",
+  "publication_name": "final-v5-exposure-scale-v1",
+  "catalog_source": "travel_demo",
+  "source_relation": "reporting.final_v5_exposure_scale",
+  "ordinal_sidecar": "taskgate_ordinal.final_v5_exposure_scale_v1",
+  "entity_key_fields": [
+    "member_rank"
+  ],
+  "snapshot": {
+    "source_id": "taskgate-demo-travel",
+    "source_namespace": "final_v5.exposure_scale",
+    "snapshot": "final-v5-exposure-scale-2026-v1",
+    "schema_digest": "a9743362fa4bf67eeba2de18b8e8660435298a30acddcbbc93719f80b40f7a92",
+    "fields": [
+      {
+        "name": "member_rank",
+        "sql_type": "bigint"
+      },
+      {
+        "name": "metric",
+        "sql_type": "numeric"
+      },
+      {
+        "name": "family_id",
+        "sql_type": "integer"
+      },
+      {
+        "name": "partition_key",
+        "sql_type": "integer"
+      }
+    ],
+    "rows": []
+  },
+  "expected_digests": {
+    "sidecar_digest": "8f3d4d1b82baa5095d14abc32b4e9c11cfc2790f6337040d6e17b927fe9209df",
+    "dictionary_digest": "2b8ff3c1676aafbde834e491e856537f186ff6844d5dfd757760d5f908bc22c5",
+    "manifest_digest": "3af007b8f7d935d8320fee8bf59352c0922dba66666f8ebd53d500cd7d5956ff",
+    "cold_payload_digest": "c1bcc70da4183ba602e151e4316445236081403d2e32d1ab5058b48aabd01f6c",
+    "hot_index_digest": "43903bcf8f8e708982ba05dbc10a04df71237c525a1014b88c102d5e3021a11f"
+  }
+}

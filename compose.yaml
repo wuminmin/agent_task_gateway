@@ -150,6 +150,38 @@ services:
     networks:
       - business-data
 
+  # The Final-V5 exposure-scale Publication compiles all 414,000 immutable
+  # rows into the shared artifact volume. Keep it separate from result-heavy so
+  # each large compiler has an explicit resource ceiling and completion gate.
+  snapshot-index-exposure-scale:
+    build:
+      context: .
+      args:
+        TARGET: snapshot-index
+    command:
+      - -input
+      - /input/final-v5-exposure-scale-v1.json
+      - -output-dir
+      - /data/snapshot-index
+      - -allow-existing-identical
+    environment:
+      SNAPSHOT_POSTGRES_DSN: postgres://gateway_reader:${GATEWAY_DB_PASSWORD:?set GATEWAY_DB_PASSWORD in .env}@business-postgres:5432/${POSTGRES_DB:-travel_demo}?sslmode=disable
+    depends_on:
+      business-postgres:
+        condition: service_healthy
+      snapshot-index-result-heavy:
+        condition: service_completed_successfully
+    volumes:
+      - ./config/snapshots/final-v5-exposure-scale-v1.json:/input/final-v5-exposure-scale-v1.json:ro
+      - snapshot-index-artifacts:/data/snapshot-index
+    read_only: true
+    mem_limit: 16g
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - business-data
+
   snapshot-sidecar-install:
     build:
       context: .
@@ -170,12 +202,14 @@ services:
       - /input/provsql-nonce-v1.json
       - -input
       - /input/final-v5-result-heavy-v1.json
+      - -input
+      - /input/final-v5-exposure-scale-v1.json
     environment:
       SNAPSHOT_INSTALL_POSTGRES_DSN: postgres://postgres:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@business-postgres:5432/${POSTGRES_DB:-travel_demo}?sslmode=disable
     depends_on:
       business-postgres:
         condition: service_healthy
-      snapshot-index-result-heavy:
+      snapshot-index-exposure-scale:
         condition: service_completed_successfully
     volumes:
       - ./config/snapshots/expense-detail-v1.json:/input/expense-detail-v1.json:ro
@@ -184,6 +218,7 @@ services:
       - ./config/snapshots/provsql-lineitem-v1.json:/input/provsql-lineitem-v1.json:ro
       - ./config/snapshots/provsql-nonce-v1.json:/input/provsql-nonce-v1.json:ro
       - ./config/snapshots/final-v5-result-heavy-v1.json:/input/final-v5-result-heavy-v1.json:ro
+      - ./config/snapshots/final-v5-exposure-scale-v1.json:/input/final-v5-exposure-scale-v1.json:ro
       - snapshot-index-artifacts:/data/snapshot-index:ro
     read_only: true
     tmpfs:
