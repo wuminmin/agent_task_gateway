@@ -9,14 +9,14 @@
     "verifier": "VerifyProvSQLNonceJoinManifestSet",
     "path_root": "evaluation/final-v5-wsl2/oracle-manifests",
     "aggregate_record": "\u003cpath\u003e\u003cTAB\u003e\u003cmanifest-sha256\u003e\u003cLF\u003e",
-    "aggregate_sha256": "c1ceb1459c8cc74c5fee8392ea5eb0fac3eacbf319b73e98c145ce64ba527ad1"
+    "aggregate_sha256": "c7b2a8db21a8c2516ee667780d53e5a485be8e12a16907463727a69e8a2b7f8d"
   },
   "scale_manifest_set": {
     "files": 24,
     "verifier": "VerifyExposureScaleDependencyManifestSet",
     "path_root": ".",
     "aggregate_record": "\u003cmanifest-sha256\u003e\u003cSPACE\u003e\u003cSPACE\u003e\u003cpath\u003e\u003cLF\u003e",
-    "aggregate_sha256": "f30f705ec23ec98c814595cf6bde0eb9ac6d8a3c2ebb18850122c4ce3b992cb9"
+    "aggregate_sha256": "024e19897d8cd035de8419ffe5c8952b3e43cb194359b62d3d0af6002f18adf1"
   },
   "scale_union": {
     "role": "union",
@@ -26,11 +26,11 @@
     "manifests": [
       {
         "path": "scale/dependency-e2e/1035000-overlap-0/novel.json",
-        "sha256": "4391a09c1f08cb0dcd924aca12f74d3beb575e996530c76009e9a023b80a13d9"
+        "sha256": "c0dc2d9f588bd57a2bcbded3fbdb85abf09f29d2cb3551bf75a7d1346a304cb9"
       },
       {
         "path": "scale/dependency-e2e/1035000-overlap-0/semantic_replay.json",
-        "sha256": "8f4184197adbc85022c018ca2abd02c3fbd76faa310a9e8f11f36a508e528227"
+        "sha256": "3d1037c6dbfb1f4a33793b062f100bf35e71b2818a164e14eb0569178f323679"
       }
     ]
   },

@@ -277,3 +277,44 @@ oracles, campaigns, or the paper are complete.
     live-route activation smokes, zero-SKIP `validate.sh`, and the
     author-only tag), which remain unstarted and require their own
     go-ahead.
+
+23. **Re-approve the exposure-scale review candidate after the v1.5
+    normalization-spec correction.** (Taken 2026-08-14 by author wuminmin;
+    this approves one existing byte string, not a future generated binding.
+    It supersedes Decision 20 only as to which bytes are approved; Decision
+    20 itself is not reopened and its record is retained unchanged.) Commit
+    `f46ed76` moved `normalization_spec_sha256` to
+    `9e78abdc2130b19cb414d520edeb6da4dfac0f481609efd244f22f6ba2b1e816` and
+    regenerated all 135 oracle manifests, which changed four digests that the
+    Decision 20 candidate had sealed. The newly approved object is the same
+    path
+    `evaluation/final-v5-wsl2/publication-review/exposure-scale-v1/review.json`
+    at exact SHA-256
+    `f39e31dbc1fd8f2c4d33b98aa9734282eeb8fba22c78b238b42991f43345015f`,
+    10824 bytes. The complete difference against the Decision 20 bytes is
+    exactly four JSON pointers, all of them 64-hex digests:
+    `/scale_union/manifests/0/sha256`
+    (`4391a09c…a13d9` to `c0dc2d9f…04cb9`),
+    `/scale_union/manifests/1/sha256`
+    (`8f418419…28227` to `3d1037c6…23679`),
+    `/scale_manifest_set/aggregate_sha256`
+    (`f30f705e…92cb9` to `024e1989…18adf1`), and
+    `/provsql_manifest_set/aggregate_sha256`
+    (`c1ceb145…27ad1` to `c7b2a8db…b7f8d`). Each new value was recomputed
+    independently from the manifest bytes on disk before this approval: the
+    two Scale values are the file digests themselves, and the two aggregates
+    were rebuilt from the record formats the candidate states, over 24 and
+    105 manifests respectively. Every expectation, cardinality, set identity,
+    row and column count, and the pre-generation state
+    (`status=REVIEW_CANDIDATE`, `author_approved=false`,
+    `outcome_identity=NOT_GENERATED`, `set_algebra=NOT_GENERATED`) is
+    unchanged, and the three companion files are byte-identical. The
+    immutable-reference approval record is
+    `evaluation/final-v5-wsl2/publication-approvals/exposure-scale-v1/approval-v2.json`
+    (`APPROVE-C2-v1.8`); the Decision 20 record `approval-v1.json` stays in
+    the tree unchanged as the historical signature. Scope: P4.0-E1 may use
+    this approved material to regenerate the 12/6/105 publication-binding
+    review candidate. This decision does **not** approve any generated final
+    binding, P4.0-E2, activation, registry, capability, contract release,
+    campaign, or tag, and it makes no measurement, performance, or paper
+    claim.

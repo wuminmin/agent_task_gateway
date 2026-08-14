@@ -18,8 +18,8 @@ func TestValidateC2Approval(t *testing.T) {
 	if evidence.Approval.SHA256 != C2ApprovalSHA256 || evidence.Candidate.SHA256 != C2CandidateSHA256 {
 		t.Fatalf("wrong approval anchors: %+v", evidence)
 	}
-	if evidence.ApprovalID != "APPROVE-C2" || evidence.Author != "wuminmin" ||
-		evidence.ApprovedOn != "2026-08-11" || evidence.DecisionNumber != 20 || len(evidence.CompanionFiles) != 3 {
+	if evidence.ApprovalID != "APPROVE-C2-v1.8" || evidence.Author != "wuminmin" ||
+		evidence.ApprovedOn != "2026-08-14" || evidence.DecisionNumber != 23 || len(evidence.CompanionFiles) != 3 {
 		t.Fatalf("incomplete Decision-20 evidence: %+v", evidence)
 	}
 	if evidence.CandidateState.Status != "REVIEW_CANDIDATE" || evidence.CandidateState.AuthorApproved ||

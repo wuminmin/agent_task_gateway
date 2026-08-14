@@ -19,17 +19,17 @@ import (
 )
 
 const (
-	// C2ApprovalRelativePath is the only approval record accepted for P4.0-E1.
-	C2ApprovalRelativePath = "evaluation/final-v5-wsl2/publication-approvals/exposure-scale-v1/approval-v1.json"
-	// C2CandidateRelativePath is the exact pre-generation candidate approved by
-	// Decision 20. The candidate remains immutable; generated evidence refers
-	// back to these bytes instead of changing author_approved in place.
+	// C2ApprovalRelativePath is the v1.8 reseal approval accepted for P4.0-E1.
+	C2ApprovalRelativePath = "evaluation/final-v5-wsl2/publication-approvals/exposure-scale-v1/approval-v2.json"
+	// C2CandidateRelativePath is the exact pre-generation candidate re-approved
+	// by Decision 23 for the v1.8 reseal. Generated evidence refers back to these
+	// bytes instead of changing author_approved in place.
 	C2CandidateRelativePath = "evaluation/final-v5-wsl2/publication-review/exposure-scale-v1/review.json"
 
-	C2ApprovalSHA256  = "351d6bcd31a58e54df22c8bfebdc723480c7667cc6f41c8e17afd5e9264b51b3"
-	C2CandidateSHA256 = "8c4fe7c322e9e2e8f1afc282487866451c2f9717d68fb1c261a8296013f973f8"
+	C2ApprovalSHA256  = "68ba0292d01b445041295e29ecf9c54fbb8f5fa8b901f8f5f53f3ea75949a317"
+	C2CandidateSHA256 = "f39e31dbc1fd8f2c4d33b98aa9734282eeb8fba22c78b238b42991f43345015f"
 
-	c2ApprovalBytes  = 1254
+	c2ApprovalBytes  = 1259
 	c2CandidateBytes = 10824
 	inputMaxBytes    = 1 << 20
 )
@@ -144,13 +144,13 @@ type reviewFile struct {
 
 var expectedC2Approval = approvalDocument{
 	Version:        "taskgate-final-v5-exposure-scale-review-approval-v1",
-	ApprovalID:     "APPROVE-C2",
+	ApprovalID:     "APPROVE-C2-v1.8",
 	ApprovalStatus: "AUTHOR_APPROVED",
 	Author: approvalAuthor{
 		Name:             "wuminmin",
-		ApprovedOn:       "2026-08-11",
+		ApprovedOn:       "2026-08-14",
 		DecisionDocument: "docs/final_v5_author_decisions.md",
-		DecisionNumber:   20,
+		DecisionNumber:   23,
 	},
 	ApprovedCandidate: approvalCandidate{
 		Path: C2CandidateRelativePath, SHA256: C2CandidateSHA256, Bytes: c2CandidateBytes,
@@ -178,8 +178,8 @@ var expectedC2Approval = approvalDocument{
 	},
 }
 
-// ValidateC2Approval validates the fixed Decision-20 approval and the exact
-// four-file C2 review closure below repositoryRoot. It accepts tracked 0644
+// ValidateC2Approval validates the fixed Decision-23 v1.8 reseal approval and
+// the exact four-file C2 review closure below repositoryRoot. It accepts tracked 0644
 // inputs but rejects group/world-writable inputs; generated private outputs
 // have the stricter mode-0600 contract implemented in io.go.
 func ValidateC2Approval(repositoryRoot string) (ApprovalEvidence, error) {
