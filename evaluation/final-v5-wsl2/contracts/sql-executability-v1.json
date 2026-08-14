@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "record": "taskgate-final-v5-contract-sql-executability-v1",
-  "contract_release": "final-v5-contracts-v1.8",
-  "contract_index_sha256": "d7721f83e12cea02310b086847c38be9c6e8c08a85c00d804cbca4cf3d6098d1",
+  "contract_release": "final-v5-contracts-v1.9",
+  "contract_index_sha256": "566013cb7920c9676cd0d13b5426d23d40c71ba0eb3851da9715fd50b62ed4d8",
   "postgresql_version": "16.14 (Debian 16.14-1.pgdg12+1)",
   "postgresql_server_version_num": "160014",
   "checked_artifacts": [
