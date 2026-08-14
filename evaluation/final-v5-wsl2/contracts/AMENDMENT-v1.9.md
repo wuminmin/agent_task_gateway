@@ -19,6 +19,12 @@ Catalog surface and authorized per-profile activation. This release records
 the resulting profile-Catalog and activation surface without changing runtime
 code or opening a capability claim.
 
+A fresh v1.9 Attestation-footprint qualification at clean, published commit
+`5b6d117` measured portable identity `58d58d30326e` (full SHA-256
+`58d58d30326e712910a2cdef9c56fbd0f6e558d6c92c24af9949bfb718b55947`),
+byte-identical to v1.8. This confirms that the registry and activation-surface
+change did not alter the portable Attestation semantics.
+
 ## What did not change
 
 The default `config/catalog.yaml`, `maxGatewayHotArtifactsBytes = 160 << 20`,
@@ -72,6 +78,6 @@ once by the author; this release does not regenerate it or alter an approval.
 ## Execution status
 
 v1 through v1.8 remain preserved for audit. v1.9 supersedes v1.8. Fresh
-activation and SQL executability have completed. Attestation portable-identity
-requalification remains a release-task gate before handoff for the
-author-owned tag.
+activation, SQL executability, and Attestation portable-identity
+requalification have completed. The combined validation gate and freeze ledger
+entry are recorded by the release task before handoff for the author-owned tag.
