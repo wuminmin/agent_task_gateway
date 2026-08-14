@@ -59,14 +59,17 @@ func TestJoinMultiplicityDoesNotMultiplyUniqueInfluence(t *testing.T) {
 	set, _ := NewFactSet(observation.Influence...)
 	leftDepartment, _ := NewFact("employees", "snapshot-1", "e1", "department", "sales")
 	hash, _ := leftDepartment.HashBytes()
-	if _, ok := set[hash]; !ok {
+	if _, ok, err := set.Contains(hash); err != nil || !ok {
 		t.Fatal("left join key is absent from source influence")
 	}
 	count := 0
-	for candidateHash := range set {
+	if err := set.Range(func(candidateHash [32]byte, _ FactID) error {
 		if candidateHash == hash {
 			count++
 		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
 	if count != 1 {
 		t.Fatalf("left join key charged %d times, want once", count)
@@ -218,15 +221,20 @@ func assertSameObservation(t *testing.T, left, right Observation) {
 }
 
 func sameHashes(left, right FactSet) bool {
-	if len(left) != len(right) {
+	if left.Len() != right.Len() {
 		return false
 	}
-	for hash := range left {
-		if _, ok := right[hash]; !ok {
-			return false
+	equal := true
+	if err := left.Range(func(hash [32]byte, _ FactID) error {
+		_, present, err := right.Contains(hash)
+		if err != nil || !present {
+			equal = false
 		}
+		return err
+	}); err != nil {
+		return false
 	}
-	return true
+	return equal
 }
 
 func mustFactSet(t *testing.T, facts []FactID) FactSet {

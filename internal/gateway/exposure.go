@@ -168,8 +168,14 @@ func (context *planExposureContext) deriveObservation(visible, provenance dataco
 		return exposure.Observation{}, err
 	}
 
-	release := make(exposure.FactSet)
-	groupSources := sourceHashesByGroupAndField(relation, context.plan.GroupBy)
+	release, err := exposure.NewFactSet()
+	if err != nil {
+		return exposure.Observation{}, err
+	}
+	groupSources, err := sourceHashesByGroupAndField(relation, context.plan.GroupBy)
+	if err != nil {
+		return exposure.Observation{}, err
+	}
 	if !context.grouped && len(visible.Rows) != len(provenance.Rows) {
 		return exposure.Observation{}, fmt.Errorf("visible and provenance row sets differ")
 	}
@@ -231,7 +237,11 @@ func (context *planExposureContext) deriveObservation(visible, provenance dataco
 			}
 		}
 	}
-	return (exposure.Observation{ProfileVersion: profile, Release: release.Values(), Influence: sourceObservation.Influence}).Normalize()
+	releaseValues, err := release.Values()
+	if err != nil {
+		return exposure.Observation{}, err
+	}
+	return (exposure.Observation{ProfileVersion: profile, Release: releaseValues, Influence: sourceObservation.Influence}).Normalize()
 }
 
 func (context *planExposureContext) deriveObservationV2(visible, provenance dataconnector.Result) (exposure.Observation, error) {
@@ -528,7 +538,7 @@ func (context *planExposureContext) visibleResult(result dataconnector.Result) (
 	return trimmed, nil
 }
 
-func sourceHashesByGroupAndField(relation exposure.Relation, groupFields []string) map[string]map[string][]string {
+func sourceHashesByGroupAndField(relation exposure.Relation, groupFields []string) (map[string]map[string][]string, error) {
 	sets := make(map[string]map[string]map[string]struct{})
 	for _, row := range relation.Rows {
 		values := make([]any, 0, len(groupFields))
@@ -543,8 +553,11 @@ func sourceHashesByGroupAndField(relation exposure.Relation, groupFields []strin
 			if sets[key][field] == nil {
 				sets[key][field] = make(map[string]struct{})
 			}
-			for hash := range cell.Sources {
+			if err := cell.Sources.Range(func(hash [32]byte, _ exposure.FactID) error {
 				sets[key][field][hex.EncodeToString(hash[:])] = struct{}{}
+				return nil
+			}); err != nil {
+				return nil, err
 			}
 		}
 	}
@@ -555,7 +568,7 @@ func sourceHashesByGroupAndField(relation exposure.Relation, groupFields []strin
 			result[key][field] = sortedStringSet(set)
 		}
 	}
-	return result
+	return result, nil
 }
 
 func composeExposureGroupKey(values []any) string {

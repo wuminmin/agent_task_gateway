@@ -803,12 +803,12 @@ func Decode(set BitmapSet, resolver Resolver) (exposure.FactSet, error) {
 			decodeErr = err
 			return false
 		}
-		before := len(result)
+		before := result.Len()
 		if err := result.Add(fact); err != nil {
 			decodeErr = err
 			return false
 		}
-		if len(result) == before {
+		if result.Len() == before {
 			decodeErr = fmt.Errorf("%w: distinct ordinals decode to one FactID", ErrInvalid)
 			return false
 		}
@@ -817,7 +817,7 @@ func Decode(set BitmapSet, resolver Resolver) (exposure.FactSet, error) {
 	if decodeErr != nil {
 		return nil, decodeErr
 	}
-	if uint64(len(result)) != set.Cardinality() {
+	if uint64(result.Len()) != set.Cardinality() {
 		return nil, fmt.Errorf("%w: decoded cardinality differs from bitmap", ErrInvalid)
 	}
 	return result, nil

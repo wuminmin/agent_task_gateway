@@ -116,6 +116,15 @@ func assertFactSequencesEqual(t *testing.T, label string, oracle, current []Fact
 	}
 }
 
+func mustFactSetValues(t *testing.T, set FactSet) []FactID {
+	t.Helper()
+	values, err := set.Values()
+	if err != nil {
+		t.Fatalf("read FactSet values: %v", err)
+	}
+	return values
+}
+
 // Helper to create a test fact
 func testFact(t *testing.T, entity, field, value string) FactID {
 	t.Helper()
@@ -174,11 +183,11 @@ func TestFactSetDifferentialEmptySet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("current empty: %v", err)
 	}
-	if oracle.len() != len(current) {
-		t.Fatalf("length differs: oracle=%d current=%d", oracle.len(), len(current))
+	if oracle.len() != current.Len() {
+		t.Fatalf("length differs: oracle=%d current=%d", oracle.len(), current.Len())
 	}
 	oracleValues := oracle.values()
-	currentValues := current.Values()
+	currentValues := mustFactSetValues(t, current)
 	assertFactSequencesEqual(t, "empty", oracleValues, currentValues)
 }
 
@@ -193,11 +202,11 @@ func TestFactSetDifferentialSingleFact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("current: %v", err)
 	}
-	if oracle.len() != len(current) {
-		t.Fatalf("length differs: oracle=%d current=%d", oracle.len(), len(current))
+	if oracle.len() != current.Len() {
+		t.Fatalf("length differs: oracle=%d current=%d", oracle.len(), current.Len())
 	}
 	oracleValues := oracle.values()
-	currentValues := current.Values()
+	currentValues := mustFactSetValues(t, current)
 	assertFactSequencesEqual(t, "single", oracleValues, currentValues)
 }
 
@@ -213,7 +222,7 @@ func TestFactSetDifferentialAlreadySortedSet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sorted set: %v", err)
 	}
-	sortedValues := sortedSet.Values()
+	sortedValues := mustFactSetValues(t, sortedSet)
 
 	oracle, err := newBufferedFactSet(sortedValues...)
 	if err != nil {
@@ -225,7 +234,7 @@ func TestFactSetDifferentialAlreadySortedSet(t *testing.T) {
 	}
 
 	oracleValues := oracle.values()
-	currentValues := current.Values()
+	currentValues := mustFactSetValues(t, current)
 
 	assertFactSequencesEqual(t, "already sorted", oracleValues, currentValues)
 }
@@ -247,7 +256,7 @@ func TestFactSetDifferentialUnsortedSlice(t *testing.T) {
 	}
 
 	oracleValues := oracle.values()
-	currentValues := current.Values()
+	currentValues := mustFactSetValues(t, current)
 
 	assertFactSequencesEqual(t, "unsorted input", oracleValues, currentValues)
 }
@@ -267,13 +276,13 @@ func TestFactSetDifferentialDeduplication(t *testing.T) {
 		t.Fatalf("current: %v", err)
 	}
 
-	if oracle.len() != len(current) {
-		t.Fatalf("length after dedup differs: oracle=%d current=%d", oracle.len(), len(current))
+	if oracle.len() != current.Len() {
+		t.Fatalf("length after dedup differs: oracle=%d current=%d", oracle.len(), current.Len())
 	}
 	if oracle.len() != 2 {
 		t.Fatalf("expected 2 unique facts, got %d", oracle.len())
 	}
-	assertFactSequencesEqual(t, "deduplication", oracle.values(), current.Values())
+	assertFactSequencesEqual(t, "deduplication", oracle.values(), mustFactSetValues(t, current))
 }
 
 // TestBufferedFactSetAgreesWithCurrentImplementationOnMixedFactTypes
@@ -297,7 +306,7 @@ func TestFactSetDifferentialV2V3V5DomainOrdering(t *testing.T) {
 	}
 
 	oracleValues := oracle.values()
-	currentValues := current.Values()
+	currentValues := mustFactSetValues(t, current)
 
 	assertFactSequencesEqual(t, "V2/V3/V5 domain ordering", oracleValues, currentValues)
 }
@@ -320,12 +329,12 @@ func TestFactSetDifferentialClone(t *testing.T) {
 	oracleClone := oracle.clone()
 	currentClone := current.Clone()
 
-	if oracleClone.len() != len(currentClone) {
-		t.Fatalf("clone length differs: oracle=%d current=%d", oracleClone.len(), len(currentClone))
+	if oracleClone.len() != currentClone.Len() {
+		t.Fatalf("clone length differs: oracle=%d current=%d", oracleClone.len(), currentClone.Len())
 	}
 
 	oracleValues := oracleClone.values()
-	currentValues := currentClone.Values()
+	currentValues := mustFactSetValues(t, currentClone)
 
 	assertFactSequencesEqual(t, "clone", oracleValues, currentValues)
 }
@@ -357,15 +366,15 @@ func TestFactSetDifferentialMergeChecked(t *testing.T) {
 		t.Fatalf("oracle merge failed: %v", errOracle)
 	}
 
-	if oracleLeft.len() != len(currentLeft) {
-		t.Fatalf("merged length differs: oracle=%d current=%d", oracleLeft.len(), len(currentLeft))
+	if oracleLeft.len() != currentLeft.Len() {
+		t.Fatalf("merged length differs: oracle=%d current=%d", oracleLeft.len(), currentLeft.Len())
 	}
 	if oracleLeft.len() != 3 {
 		t.Fatalf("expected 3 facts after merge, got %d", oracleLeft.len())
 	}
 
 	oracleValues := oracleLeft.values()
-	currentValues := currentLeft.Values()
+	currentValues := mustFactSetValues(t, currentLeft)
 
 	assertFactSequencesEqual(t, "merge", oracleValues, currentValues)
 }
@@ -391,15 +400,15 @@ func TestFactSetDifferentialHashCollision(t *testing.T) {
 		t.Fatalf("oracle identical fact did not collapse: %d entries", oracleSet.len())
 	}
 
-	currentSet := make(FactSet)
+	currentSet := newEmptyFactSet()
 	if err := currentSet.Add(fact); err != nil {
 		t.Fatal(err)
 	}
 	if err := currentSet.Add(fact); err != nil {
 		t.Fatalf("re-adding identical fact to current must succeed: %v", err)
 	}
-	if len(currentSet) != 1 {
-		t.Fatalf("current identical fact did not collapse: %d entries", len(currentSet))
+	if currentSet.Len() != 1 {
+		t.Fatalf("current identical fact did not collapse: %d entries", currentSet.Len())
 	}
 
 	// Collision path: we can't easily forge a real SHA-256 collision, but both
@@ -441,13 +450,13 @@ func TestFactSetRandomizedDuplicationAndOrder(t *testing.T) {
 			t.Fatalf("trial %d current: %v", trial, err)
 		}
 
-		if oracle.len() != len(current) {
+		if oracle.len() != current.Len() {
 			t.Fatalf("trial %d length differs (size=%d): oracle=%d current=%d",
-				trial, size, oracle.len(), len(current))
+				trial, size, oracle.len(), current.Len())
 		}
 
 		oracleValues := oracle.values()
-		currentValues := current.Values()
+		currentValues := mustFactSetValues(t, current)
 
 		assertFactSequencesEqual(t, fmt.Sprintf("random trial %d size %d", trial, size), oracleValues, currentValues)
 	}
@@ -471,12 +480,12 @@ func TestFactSetDifferentialLargeSet(t *testing.T) {
 		t.Fatalf("current: %v", err)
 	}
 
-	if oracle.len() != len(current) {
-		t.Fatalf("large set length differs: oracle=%d current=%d", oracle.len(), len(current))
+	if oracle.len() != current.Len() {
+		t.Fatalf("large set length differs: oracle=%d current=%d", oracle.len(), current.Len())
 	}
 
 	oracleValues := oracle.values()
-	currentValues := current.Values()
+	currentValues := mustFactSetValues(t, current)
 
 	assertFactSequencesEqual(t, "large set", oracleValues, currentValues)
 }
@@ -498,7 +507,7 @@ func TestFactSetNegativeControlDetectsSequenceDifference(t *testing.T) {
 	}
 
 	// Establish an unmutated baseline before exercising the negative control.
-	assertFactSequencesEqual(t, "negative-control baseline", oracle.values(), current.Values())
+	assertFactSequencesEqual(t, "negative-control baseline", oracle.values(), mustFactSetValues(t, current))
 
 	mutated := second
 	mutated.OutcomeRows++
@@ -506,7 +515,7 @@ func TestFactSetNegativeControlDetectsSequenceDifference(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if equal, _ := factSequencesEqual(oracle.values(), current.Values()); equal {
+	if equal, _ := factSequencesEqual(oracle.values(), mustFactSetValues(t, current)); equal {
 		t.Fatal("negative control failed: a field mutation did not change the compared FactID sequence")
 	}
 }

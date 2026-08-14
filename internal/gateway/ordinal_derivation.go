@@ -324,13 +324,17 @@ func newOrdinalDeriver(program queryplan.OrdinalProgram, indexes map[string]ordi
 	if err != nil {
 		return nil, err
 	}
+	facts, err := exposure.NewFactSet()
+	if err != nil {
+		return nil, err
+	}
 	result := &ordinalDeriver{
 		program: program, indexes: indexes, multi: multi, visible: visible, visiblePos: visiblePos,
 		planDigest: planDigest, bundle: bundle,
 		grouped:     len(program.Groups) != 0 || len(program.Aggregates) != 0,
 		leafFields:  make(map[string][]string, len(program.Sources)),
 		outerFields: uniqueOrdinalPredicateFields(program.OuterPredicates),
-		release:     ordinal.NewBuilder(), influence: ordinal.NewBuilder(), facts: make(exposure.FactSet),
+		release:     ordinal.NewBuilder(), influence: ordinal.NewBuilder(), facts: facts,
 		visibleRows: make(map[string]ordinalVisibleRow), groupKeys: make(map[string]string),
 		seenGroups: make(map[string]struct{}), closedGroup: make(map[string]struct{}),
 	}
@@ -1022,6 +1026,7 @@ func (d *ordinalDeriver) Finish() (ordinalEffect, error) {
 	if d == nil || d.provenance == nil || d.finished {
 		return ordinalEffect{}, errors.New("ordinal derivation is not finishable")
 	}
+	defer d.facts.Close()
 	if err := d.flushUnion(); err != nil {
 		return ordinalEffect{}, err
 	}
@@ -1070,7 +1075,10 @@ func (d *ordinalDeriver) Finish() (ordinalEffect, error) {
 	if err := d.multi.ValidateSetBounds(release.Union(influence)); err != nil {
 		return ordinalEffect{}, err
 	}
-	releaseFacts := d.facts.Values()
+	releaseFacts, err := d.facts.Values()
+	if err != nil {
+		return ordinalEffect{}, err
+	}
 	outcomeDigest, err := exposure.ReleaseOutcomeDigest(releaseFacts, d.visible.RowCount)
 	if err != nil {
 		return ordinalEffect{}, err
@@ -1101,7 +1109,10 @@ func (d *ordinalDeriver) Finish() (ordinalEffect, error) {
 		if setErr != nil {
 			return ordinalEffect{}, setErr
 		}
-		outcomes = set.Values()
+		outcomes, setErr = set.Values()
+		if setErr != nil {
+			return ordinalEffect{}, setErr
+		}
 	}
 	dynamic := make([]exposure.FactID, 0)
 	for _, fact := range releaseFacts {

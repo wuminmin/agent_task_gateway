@@ -102,7 +102,7 @@ func (w WitnessMultiset) Clone() WitnessMultiset {
 }
 
 func (w WitnessMultiset) Support() (FactSet, error) {
-	result := make(FactSet, len(w))
+	result := newEmptyFactSet()
 	for _, item := range w {
 		if err := result.Add(item.Fact); err != nil {
 			return nil, err
@@ -686,7 +686,7 @@ func AggregateFromResultsV2(input RelationV2, groupFields []string, specs []Aggr
 		if len(groupFields) > 0 && len(members) == 0 {
 			return RelationV2{}, fmt.Errorf("%w: aggregate output group has no positive source row", ErrInvalid)
 		}
-		row := AnnotatedRowV2{Key: key, Cells: make(map[string]CellV2, len(result.Fields)), RowSupport: make(FactSet), RowWitness: make(WitnessMultiset)}
+		row := AnnotatedRowV2{Key: key, Cells: make(map[string]CellV2, len(result.Fields)), RowSupport: newEmptyFactSet(), RowWitness: make(WitnessMultiset)}
 		for _, member := range members {
 			if err := row.RowSupport.MergeChecked(member.RowSupport); err != nil {
 				return RelationV2{}, err
@@ -708,7 +708,7 @@ func AggregateFromResultsV2(input RelationV2, groupFields []string, specs []Aggr
 			}
 		}
 		for _, field := range groupFields {
-			support := make(FactSet)
+			support := newEmptyFactSet()
 			witness := make(WitnessMultiset)
 			for _, member := range members {
 				if err := support.MergeChecked(member.Cells[field].Support); err != nil {
@@ -725,7 +725,7 @@ func AggregateFromResultsV2(input RelationV2, groupFields []string, specs []Aggr
 			if _, present := output[spec.OutputID]; !present {
 				return RelationV2{}, fmt.Errorf("%w: aggregate output misses value %q", ErrInvalid, spec.OutputID)
 			}
-			support := make(FactSet)
+			support := newEmptyFactSet()
 			witness := make(WitnessMultiset)
 			for _, member := range members {
 				if spec.Field == "*" {
@@ -834,8 +834,8 @@ func ObserveV2(input RelationV2, visibleFields ...string) (Observation, error) {
 	if err := requireFieldsV2(input, visibleFields); err != nil {
 		return Observation{}, err
 	}
-	release := make(FactSet)
-	influence := make(FactSet)
+	release := newEmptyFactSet()
+	influence := newEmptyFactSet()
 	for _, row := range input.Rows {
 		if err := influence.MergeChecked(row.RowSupport); err != nil {
 			return Observation{}, err
@@ -854,7 +854,15 @@ func ObserveV2(input RelationV2, visibleFields ...string) (Observation, error) {
 			}
 		}
 	}
-	return (Observation{ProfileVersion: ProfileV2, Release: release.Values(), Influence: influence.Values()}).Normalize()
+	releaseValues, err := release.Values()
+	if err != nil {
+		return Observation{}, err
+	}
+	influenceValues, err := influence.Values()
+	if err != nil {
+		return Observation{}, err
+	}
+	return (Observation{ProfileVersion: ProfileV2, Release: releaseValues, Influence: influenceValues}).Normalize()
 }
 
 func joinRowKeyV2(leftIdentity, rightIdentity string) (string, error) {
@@ -1055,8 +1063,8 @@ func validateReleaseProvenanceV2(cell CellV2) error {
 		if err != nil {
 			return err
 		}
-		supported, present := cell.Support[hash]
-		if !present || !sameFactV2(supported, release) {
+		supported, present, err := cell.Support.Contains(hash)
+		if err != nil || !present || !sameFactV2(supported, release) {
 			return fmt.Errorf("%w: V2 base release fact is absent from cell support", ErrInvalid)
 		}
 	case FactDerived:
@@ -1077,13 +1085,16 @@ func validateSupportWitnessV2(support FactSet, witness WitnessMultiset, bundle [
 	if support == nil || witness == nil {
 		return fmt.Errorf("%w: nil V2 support or witness", ErrInvalid)
 	}
-	for hash, fact := range support {
+	if err := support.Range(func(hash [32]byte, fact FactID) error {
 		actual, err := fact.HashBytes()
 		if err != nil || actual != hash || !isBaseFactV2(fact) || !factCoveredByBundleV2(fact, bundle) {
 			return fmt.Errorf("%w: invalid V2 support fact", ErrInvalid)
 		}
+		return nil
+	}); err != nil {
+		return err
 	}
-	if len(support) != len(witness) {
+	if support.Len() != len(witness) {
 		return fmt.Errorf("%w: witness support differs from set support", ErrInvalid)
 	}
 	for hash, item := range witness {
@@ -1095,7 +1106,8 @@ func validateSupportWitnessV2(support FactSet, witness WitnessMultiset, bundle [
 		if err != nil {
 			return err
 		}
-		if fact, present := support[supportHash]; !present || !sameFactV2(fact, item.Fact) {
+		fact, present, err := support.Contains(supportHash)
+		if err != nil || !present || !sameFactV2(fact, item.Fact) {
 			return fmt.Errorf("%w: witness support differs from set support", ErrInvalid)
 		}
 	}

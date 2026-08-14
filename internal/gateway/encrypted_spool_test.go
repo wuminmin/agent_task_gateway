@@ -354,8 +354,8 @@ func TestEncryptedQuerySpoolCrossingThresholdAuthenticatesAndCleans(t *testing.T
 		}
 		offset = end
 	}
-	if !spool.Spilled() || spool.chunks != 1 {
-		t.Fatalf("spilled=%v chunks=%d before seal", spool.Spilled(), spool.chunks)
+	if !spool.Spilled() || spool.ChunkCount() != 1 {
+		t.Fatalf("spilled=%v chunks=%d before seal", spool.Spilled(), spool.ChunkCount())
 	}
 	reader, err := spool.Open()
 	if err != nil {
@@ -368,7 +368,7 @@ func TestEncryptedQuerySpoolCrossingThresholdAuthenticatesAndCleans(t *testing.T
 	if err != nil || !bytes.Equal(actual, payload) {
 		t.Fatalf("spool round trip length=%d err=%v", len(actual), err)
 	}
-	path, directory := spool.path, spool.dir
+	path, directory := spool.CiphertextPath(), spool.Directory()
 	if err := spool.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -392,7 +392,7 @@ func TestEncryptedQuerySpoolRejectsTampering(t *testing.T) {
 	if err := spool.Seal(); err != nil {
 		t.Fatal(err)
 	}
-	file, err := os.OpenFile(spool.path, os.O_RDWR, 0)
+	file, err := os.OpenFile(spool.CiphertextPath(), os.O_RDWR, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -485,11 +485,11 @@ func TestEncryptedQuerySpoolUsesPrivateModes(t *testing.T) {
 	if _, err := spool.Write([]byte("spill")); err != nil {
 		t.Fatal(err)
 	}
-	directory, err := os.Stat(spool.dir)
+	directory, err := os.Stat(spool.Directory())
 	if err != nil {
 		t.Fatal(err)
 	}
-	file, err := os.Stat(filepath.Join(spool.dir, "payload.spool"))
+	file, err := os.Stat(filepath.Join(spool.Directory(), "payload.spool"))
 	if err != nil {
 		t.Fatal(err)
 	}

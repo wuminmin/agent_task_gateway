@@ -162,8 +162,8 @@ func TestSnapshotHashPrefixShardingIsDeterministicAndRoundTrips(t *testing.T) {
 		t.Fatalf("cross-shard bitmap round-trip: equal=%t err=%v", set.Equal(roundTripSet), err)
 	}
 	decoded, err := Decode(set, loadedCold)
-	if err != nil || len(decoded) != 24 {
-		t.Fatalf("cross-shard decode cardinality = %d, err=%v", len(decoded), err)
+	if err != nil || decoded.Len() != 24 {
+		t.Fatalf("cross-shard decode cardinality = %d, err=%v", decoded.Len(), err)
 	}
 	var previous [sha256.Size]byte
 	seenHashes := 0

@@ -3,6 +3,7 @@ package exposure
 
 import (
 	"bytes"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -12,6 +13,8 @@ import (
 	"io"
 	"math"
 	"math/big"
+	"os"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,6 +22,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"taskbound.local/agent-data-gateway/internal/encryptedspool"
 )
 
 var ErrInvalid = errors.New("invalid exposure value")
@@ -1531,77 +1535,405 @@ func NewFact(product, snapshot, entityKey, field string, value any) (FactID, err
 	return fact, nil
 }
 
-// FactSet is keyed by hash but collision-aware: the full canonical payload is
-// compared before a repeated hash is accepted.
-type FactSet map[[32]byte]FactID
+const (
+	// factSetSpoolThresholdBytes reserves at most 32 MiB (1/16 of the 512 MiB
+	// Gateway RQ4 ceiling) for encoded resident Fact values. That is about
+	// 65,536 typical 512-byte Facts; after crossing it, only the 32-byte digest
+	// index and one 1 MiB authenticated plaintext chunk remain resident.
+	factSetSpoolThresholdBytes = int64(32 << 20)
+	factSetSpoolChunkSize      = 1 << 20
+	factSetSpoolMagic          = "TGFSET1"
+	maxFactSetRecordBytes      = 16 << 20
+)
+
+// FactSet is one collision-aware adaptive structure. The in-memory map is its
+// below-threshold state, not a second derivation: crossing the threshold moves
+// every Fact value into the shared authenticated spool and retains only the
+// binary digest-to-record index.
+type FactSet = *factSet
+
+type factSet struct {
+	memory       map[[32]byte]FactID
+	index        map[[32]byte]uint64
+	encodedBytes int64
+	threshold    int64
+	baseDir      string
+	chunkSize    int
+	keepNamed    bool
+	spool        *encryptedspool.Spool
+	err          error
+	closed       bool
+}
 
 func NewFactSet(facts ...FactID) (FactSet, error) {
-	result := make(FactSet, len(facts))
+	return newFactSet(factSetSpoolThresholdBytes, "", factSetSpoolChunkSize, false, facts...)
+}
+
+func newEmptyFactSet() FactSet {
+	result, _ := newFactSet(factSetSpoolThresholdBytes, "", factSetSpoolChunkSize, false)
+	return result
+}
+
+func newFactSet(threshold int64, baseDir string, chunkSize int, keepNamed bool, facts ...FactID) (FactSet, error) {
+	if threshold < 1 || chunkSize < 1 {
+		return nil, fmt.Errorf("%w: FactSet threshold and chunk size must be positive", ErrInvalid)
+	}
+	result := &factSet{
+		memory: make(map[[32]byte]FactID, len(facts)), threshold: threshold,
+		baseDir: baseDir, chunkSize: chunkSize, keepNamed: keepNamed,
+	}
 	for _, fact := range facts {
 		if err := result.Add(fact); err != nil {
+			_ = result.Close()
 			return nil, err
 		}
 	}
 	return result, nil
 }
 
-func (s FactSet) Add(fact FactID) error {
+func (s *factSet) Add(fact FactID) error {
 	if s == nil {
 		return fmt.Errorf("%w: nil fact set", ErrInvalid)
 	}
+	if s.closed {
+		return os.ErrClosed
+	}
+	if s.err != nil {
+		return s.err
+	}
+	fact = cloneFactID(fact)
 	hash, err := fact.HashBytes()
 	if err != nil {
 		return err
 	}
-	if existing, present := s[hash]; present {
-		left, leftErr := existing.CanonicalPayload()
-		right, rightErr := fact.CanonicalPayload()
-		if leftErr != nil || rightErr != nil || !bytes.Equal(left, right) {
-			return fmt.Errorf("%w: fact hash collision for %s", ErrInvalid, hex.EncodeToString(hash[:]))
+	if s.spool == nil {
+		if existing, present := s.memory[hash]; present {
+			return compareFactSetCollision(hash, existing, fact)
+		}
+		encoded, err := encodeFactSetRecord(fact)
+		if err != nil {
+			return err
+		}
+		if s.encodedBytes+int64(len(encoded)) <= s.threshold {
+			s.memory[hash] = fact
+			s.encodedBytes += int64(len(encoded))
+			return nil
+		}
+		if err := s.startSpool(); err != nil {
+			s.err = err
+			return err
+		}
+		if err := s.writeDiskRecord(hash, encoded); err != nil {
+			s.err = err
+			return err
 		}
 		return nil
 	}
-	s[hash] = fact
+	if ordinal, present := s.index[hash]; present {
+		existing, err := s.diskFact(ordinal)
+		if err != nil {
+			s.err = err
+			return err
+		}
+		return compareFactSetCollision(hash, existing, fact)
+	}
+	encoded, err := encodeFactSetRecord(fact)
+	if err != nil {
+		return err
+	}
+	if err := s.writeDiskRecord(hash, encoded); err != nil {
+		s.err = err
+		return err
+	}
 	return nil
 }
 
-func (s FactSet) Clone() FactSet {
-	result := make(FactSet, len(s))
-	for hash, fact := range s {
-		result[hash] = fact
+func (s *factSet) startSpool() error {
+	setID := make([]byte, 16)
+	if _, err := io.ReadFull(rand.Reader, setID); err != nil {
+		return fmt.Errorf("create FactSet spool identity: %w", err)
+	}
+	aad := append([]byte("taskgate-fact-set-v1\x00"), setID...)
+	spool, err := encryptedspool.New(encryptedspool.Config{
+		BaseDir: s.baseDir, DirectoryPrefix: ".taskgate-fact-set-", FileName: "facts.spool",
+		Magic: factSetSpoolMagic, AAD: aad, Threshold: 1, ChunkSize: s.chunkSize,
+		UnlinkImmediately: !s.keepNamed,
+	})
+	if err != nil {
+		return err
+	}
+	s.spool = spool
+	runtime.SetFinalizer(s, (*factSet).finalize)
+	s.index = make(map[[32]byte]uint64, len(s.memory)+1)
+	hashes := make([][32]byte, 0, len(s.memory))
+	for hash := range s.memory {
+		hashes = append(hashes, hash)
+	}
+	sort.Slice(hashes, func(i, j int) bool { return bytes.Compare(hashes[i][:], hashes[j][:]) < 0 })
+	for _, hash := range hashes {
+		fact := s.memory[hash]
+		record, err := encodeFactSetRecord(fact)
+		if err != nil {
+			return err
+		}
+		if err := s.writeDiskRecord(hash, record); err != nil {
+			return err
+		}
+	}
+	clear(s.memory)
+	s.memory = nil
+	s.encodedBytes = 0
+	return nil
+}
+
+func (s *factSet) writeDiskRecord(hash [32]byte, record []byte) error {
+	if _, err := s.spool.Write(record); err != nil {
+		return fmt.Errorf("write encrypted FactSet record: %w", err)
+	}
+	s.index[hash] = uint64(len(s.index))
+	for index := range record {
+		record[index] = 0
+	}
+	return nil
+}
+
+func encodeFactSetRecord(fact FactID) ([]byte, error) {
+	payload, err := json.Marshal(fact)
+	if err != nil {
+		return nil, fmt.Errorf("encode FactSet record: %w", err)
+	}
+	if len(payload) == 0 || len(payload) > maxFactSetRecordBytes {
+		return nil, fmt.Errorf("%w: FactSet record length is invalid", ErrInvalid)
+	}
+	record := make([]byte, 4+len(payload))
+	binary.BigEndian.PutUint32(record[:4], uint32(len(payload)))
+	copy(record[4:], payload)
+	return record, nil
+}
+
+func cloneFactID(fact FactID) FactID {
+	fact.SnapshotBundle = append([]SnapshotBinding(nil), fact.SnapshotBundle...)
+	return fact
+}
+
+func compareFactSetCollision(hash [32]byte, existing, fact FactID) error {
+	left, leftErr := existing.CanonicalPayload()
+	right, rightErr := fact.CanonicalPayload()
+	if leftErr != nil || rightErr != nil || !bytes.Equal(left, right) {
+		return fmt.Errorf("%w: fact hash collision for %s", ErrInvalid, hex.EncodeToString(hash[:]))
+	}
+	return nil
+}
+
+func (s *factSet) Len() int {
+	if s == nil {
+		return 0
+	}
+	if s.spool != nil {
+		return len(s.index)
+	}
+	return len(s.memory)
+}
+
+func (s *factSet) Contains(hash [32]byte) (FactID, bool, error) {
+	if s == nil {
+		return FactID{}, false, fmt.Errorf("%w: nil fact set", ErrInvalid)
+	}
+	if s.closed {
+		return FactID{}, false, os.ErrClosed
+	}
+	if s.err != nil {
+		return FactID{}, false, s.err
+	}
+	if s.spool == nil {
+		fact, present := s.memory[hash]
+		return fact, present, nil
+	}
+	ordinal, present := s.index[hash]
+	if !present {
+		return FactID{}, false, nil
+	}
+	fact, err := s.diskFact(ordinal)
+	return fact, err == nil, err
+}
+
+func (s *factSet) Clone() FactSet {
+	result, _ := newFactSet(s.threshold, s.baseDir, s.chunkSize, s.keepNamed)
+	values, err := s.Values()
+	if err != nil {
+		result.err = err
+		return result
+	}
+	for _, fact := range values {
+		if err := result.Add(fact); err != nil {
+			result.err = err
+			return result
+		}
 	}
 	return result
 }
 
 // Merge is retained for V1 call sites. New V2 code should use MergeChecked so
 // a hypothetical hash collision cannot be silently discarded in memory.
-func (s FactSet) Merge(other FactSet) {
-	_ = s.MergeChecked(other)
+func (s *factSet) Merge(other FactSet) {
+	if err := s.MergeChecked(other); err != nil && s != nil {
+		s.err = err
+	}
 }
 
-func (s FactSet) MergeChecked(other FactSet) error {
-	for _, fact := range other {
-		if err := s.Add(fact); err != nil {
+func (s *factSet) MergeChecked(other FactSet) error {
+	if other == nil {
+		return fmt.Errorf("%w: nil fact set", ErrInvalid)
+	}
+	return other.Range(func(_ [32]byte, fact FactID) error { return s.Add(fact) })
+}
+
+func (s *factSet) Range(visit func([32]byte, FactID) error) error {
+	if visit == nil {
+		return fmt.Errorf("%w: FactSet visitor is required", ErrInvalid)
+	}
+	values, err := s.Values()
+	if err != nil {
+		return err
+	}
+	for _, fact := range values {
+		hash, err := fact.HashBytes()
+		if err != nil {
+			return err
+		}
+		if err := visit(hash, fact); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (s FactSet) Values() []FactID {
-	hashes := make([][32]byte, 0, len(s))
-	for hash := range s {
+func (s *factSet) Values() ([]FactID, error) {
+	if s == nil {
+		return nil, fmt.Errorf("%w: nil fact set", ErrInvalid)
+	}
+	if s.closed {
+		return nil, os.ErrClosed
+	}
+	if s.err != nil {
+		return nil, s.err
+	}
+	if s.spool != nil {
+		return s.diskValues()
+	}
+	hashes := make([][32]byte, 0, len(s.memory))
+	for hash := range s.memory {
 		hashes = append(hashes, hash)
 	}
-	sort.Slice(hashes, func(i, j int) bool {
-		return bytes.Compare(hashes[i][:], hashes[j][:]) < 0
-	})
+	sort.Slice(hashes, func(i, j int) bool { return bytes.Compare(hashes[i][:], hashes[j][:]) < 0 })
 	result := make([]FactID, 0, len(hashes))
 	for _, hash := range hashes {
-		result = append(result, s[hash])
+		result = append(result, cloneFactID(s.memory[hash]))
 	}
-	return result
+	return result, nil
 }
+
+func (s *factSet) diskValues() ([]FactID, error) {
+	reader, err := s.spool.Snapshot()
+	if err != nil {
+		return nil, fmt.Errorf("open encrypted FactSet: %w", err)
+	}
+	defer reader.Close()
+	hashes := make([][32]byte, 0, len(s.index))
+	for hash := range s.index {
+		hashes = append(hashes, hash)
+	}
+	sort.Slice(hashes, func(i, j int) bool { return bytes.Compare(hashes[i][:], hashes[j][:]) < 0 })
+	positionByHash := make(map[[32]byte]int, len(hashes))
+	for position, hash := range hashes {
+		positionByHash[hash] = position
+	}
+	result := make([]FactID, len(hashes))
+	for ordinal := uint64(0); ordinal < uint64(len(s.index)); ordinal++ {
+		fact, hash, err := readFactSetRecord(reader)
+		if err != nil {
+			return nil, err
+		}
+		expected, present := s.index[hash]
+		if !present || expected != ordinal {
+			return nil, errors.New("encrypted FactSet index disagrees with authenticated records")
+		}
+		result[positionByHash[hash]] = fact
+	}
+	var extra [1]byte
+	if count, err := reader.Read(extra[:]); count != 0 || (err != nil && !errors.Is(err, io.EOF)) {
+		return nil, errors.New("encrypted FactSet contains trailing plaintext")
+	}
+	return result, nil
+}
+
+func (s *factSet) diskFact(wanted uint64) (FactID, error) {
+	reader, err := s.spool.Snapshot()
+	if err != nil {
+		return FactID{}, fmt.Errorf("open encrypted FactSet: %w", err)
+	}
+	defer reader.Close()
+	for ordinal := uint64(0); ordinal <= wanted; ordinal++ {
+		fact, _, err := readFactSetRecord(reader)
+		if err != nil {
+			return FactID{}, err
+		}
+		if ordinal == wanted {
+			return fact, nil
+		}
+	}
+	return FactID{}, errors.New("encrypted FactSet record is absent")
+}
+
+func readFactSetRecord(reader io.Reader) (FactID, [32]byte, error) {
+	var header [4]byte
+	if _, err := io.ReadFull(reader, header[:]); err != nil {
+		return FactID{}, [32]byte{}, fmt.Errorf("read encrypted FactSet record length: %w", err)
+	}
+	length := int(binary.BigEndian.Uint32(header[:]))
+	if length < 1 || length > maxFactSetRecordBytes {
+		return FactID{}, [32]byte{}, errors.New("encrypted FactSet record length is invalid")
+	}
+	payload := make([]byte, length)
+	if _, err := io.ReadFull(reader, payload); err != nil {
+		return FactID{}, [32]byte{}, fmt.Errorf("read encrypted FactSet record: %w", err)
+	}
+	var fact FactID
+	if err := json.Unmarshal(payload, &fact); err != nil {
+		return FactID{}, [32]byte{}, fmt.Errorf("decode encrypted FactSet record: %w", err)
+	}
+	for index := range payload {
+		payload[index] = 0
+	}
+	hash, err := fact.HashBytes()
+	if err != nil {
+		return FactID{}, [32]byte{}, err
+	}
+	return fact, hash, nil
+}
+
+func (s *factSet) Spilled() bool { return s != nil && s.spool != nil }
+
+func (s *factSet) Close() error {
+	if s == nil || s.closed {
+		return nil
+	}
+	s.closed = true
+	runtime.SetFinalizer(s, nil)
+	var err error
+	if s.spool != nil {
+		err = s.spool.Close()
+	}
+	s.spool = nil
+	clear(s.memory)
+	s.memory = nil
+	clear(s.index)
+	s.index = nil
+	s.encodedBytes = 0
+	return err
+}
+
+func (s *factSet) finalize() { _ = s.Close() }
 
 // Observation is the ledger effect of a buffered result. Influence is the
 // compatibility wire/storage label for the positive-output dependency
@@ -1632,19 +1964,22 @@ func (o Observation) Normalize() (Observation, error) {
 		return Observation{}, err
 	}
 	for _, set := range []FactSet{release, influence} {
-		for _, fact := range set {
+		if err := set.Range(func(_ [32]byte, fact FactID) error {
 			if (o.ProfileVersion == ProfileV2 || o.ProfileVersion == ProfileV3 || o.ProfileVersion == ProfileV4 || o.ProfileVersion == ProfileV5) && !fact.IsV2() {
-				return Observation{}, fmt.Errorf("%w: V2/V3/V4/V5 release or influence set contains a non-V2 fact", ErrInvalid)
+				return fmt.Errorf("%w: V2/V3/V4/V5 release or influence set contains a non-V2 fact", ErrInvalid)
 			}
 			if o.ProfileVersion != ProfileV2 && o.ProfileVersion != ProfileV3 && o.ProfileVersion != ProfileV4 && o.ProfileVersion != ProfileV5 && fact.isVersioned() {
-				return Observation{}, fmt.Errorf("%w: V2 fact cannot enter profile %q", ErrInvalid, o.ProfileVersion)
+				return fmt.Errorf("%w: V2 fact cannot enter profile %q", ErrInvalid, o.ProfileVersion)
 			}
+			return nil
+		}); err != nil {
+			return Observation{}, err
 		}
 	}
 	if o.ProfileVersion == ProfileV5 {
-		atoms := make([]FactID, 0, len(outcome))
+		atoms := make([]FactID, 0, outcome.Len())
 		var composite *FactID
-		for _, fact := range outcome {
+		if err := outcome.Range(func(_ [32]byte, fact FactID) error {
 			switch {
 			case fact.IsV5() && fact.Kind == FactPredicateAtom:
 				atoms = append(atoms, fact)
@@ -1652,10 +1987,13 @@ func (o Observation) Normalize() (Observation, error) {
 				copy := fact
 				composite = &copy
 			default:
-				return Observation{}, fmt.Errorf("%w: V5 outcome requires predicate atoms and exactly one composite", ErrInvalid)
+				return fmt.Errorf("%w: V5 outcome requires predicate atoms and exactly one composite", ErrInvalid)
 			}
+			return nil
+		}); err != nil {
+			return Observation{}, err
 		}
-		if composite == nil || len(outcome) != len(atoms)+1 || composite.PredicateAtomCount != int64(len(atoms)) {
+		if composite == nil || outcome.Len() != len(atoms)+1 || composite.PredicateAtomCount != int64(len(atoms)) {
 			return Observation{}, fmt.Errorf("%w: V5 outcome cardinality is not atoms plus one composite", ErrInvalid)
 		}
 		setDigest, err := PredicateSetHashV1(atoms)
@@ -1668,22 +2006,37 @@ func (o Observation) Normalize() (Observation, error) {
 			}
 		}
 	} else {
-		for _, fact := range outcome {
+		if err := outcome.Range(func(_ [32]byte, fact FactID) error {
 			if (o.ProfileVersion != ProfileV3 && o.ProfileVersion != ProfileV4) || !fact.IsV3() || fact.Kind != FactOutcome {
-				return Observation{}, fmt.Errorf("%w: outcome facts require profile %q or %q", ErrInvalid, ProfileV3, ProfileV4)
+				return fmt.Errorf("%w: outcome facts require profile %q or %q", ErrInvalid, ProfileV3, ProfileV4)
 			}
+			return nil
+		}); err != nil {
+			return Observation{}, err
 		}
 	}
-	if o.ProfileVersion != ProfileV3 && o.ProfileVersion != ProfileV4 && o.ProfileVersion != ProfileV5 && len(outcome) != 0 {
+	if o.ProfileVersion != ProfileV3 && o.ProfileVersion != ProfileV4 && o.ProfileVersion != ProfileV5 && outcome.Len() != 0 {
 		return Observation{}, fmt.Errorf("%w: profile %q cannot carry outcome facts", ErrInvalid, o.ProfileVersion)
 	}
-	return Observation{ProfileVersion: o.ProfileVersion, Release: release.Values(), Influence: influence.Values(), Outcome: outcome.Values()}, nil
+	releaseValues, err := release.Values()
+	if err != nil {
+		return Observation{}, err
+	}
+	influenceValues, err := influence.Values()
+	if err != nil {
+		return Observation{}, err
+	}
+	outcomeValues, err := outcome.Values()
+	if err != nil {
+		return Observation{}, err
+	}
+	return Observation{ProfileVersion: o.ProfileVersion, Release: releaseValues, Influence: influenceValues, Outcome: outcomeValues}, nil
 }
 
 func MergeObservations(profile string, observations ...Observation) (Observation, error) {
-	release := make(FactSet)
-	influence := make(FactSet)
-	outcome := make(FactSet)
+	release := newEmptyFactSet()
+	influence := newEmptyFactSet()
+	outcome := newEmptyFactSet()
 	for _, observation := range observations {
 		normalized, err := observation.Normalize()
 		if err != nil {
@@ -1705,5 +2058,17 @@ func MergeObservations(profile string, observations ...Observation) (Observation
 			return Observation{}, err
 		}
 	}
-	return Observation{ProfileVersion: profile, Release: release.Values(), Influence: influence.Values(), Outcome: outcome.Values()}, nil
+	releaseValues, err := release.Values()
+	if err != nil {
+		return Observation{}, err
+	}
+	influenceValues, err := influence.Values()
+	if err != nil {
+		return Observation{}, err
+	}
+	outcomeValues, err := outcome.Values()
+	if err != nil {
+		return Observation{}, err
+	}
+	return Observation{ProfileVersion: profile, Release: releaseValues, Influence: influenceValues, Outcome: outcomeValues}, nil
 }

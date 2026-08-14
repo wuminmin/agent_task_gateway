@@ -628,9 +628,9 @@ func runOutcomeProbing() (OutcomeProbeSummary, error) {
 		return OutcomeProbeSummary{}, err
 	}
 	base := exposure.Observation{ProfileVersion: exposure.ProfileV2, Release: []exposure.FactID{zeroFact}}
-	knownRelease := make(exposure.FactSet)
-	knownInfluence := make(exposure.FactSet)
-	knownOutcome := make(exposure.FactSet)
+	knownRelease, _ := exposure.NewFactSet()
+	knownInfluence, _ := exposure.NewFactSet()
+	knownOutcome, _ := exposure.NewFactSet()
 	planDigests := make(map[string]struct{}, len(thresholds))
 	outcomeHashes := make(map[string]struct{}, len(thresholds))
 	summary := OutcomeProbeSummary{ProfileVersion: exposure.ProfileV3, ThresholdQuestions: len(thresholds), IdenticalReleaseSets: true}
@@ -702,7 +702,7 @@ func addNovelFacts(known exposure.FactSet, facts []exposure.FactID) int {
 		if err != nil {
 			continue
 		}
-		if _, present := known[hash]; present {
+		if _, present, err := known.Contains(hash); err != nil || present {
 			continue
 		}
 		_ = known.Add(fact)

@@ -290,12 +290,12 @@ func Aggregate(input Relation, groupFields []string, specs []AggregateSpec) (Rel
 	result := Relation{Product: input.Product, Snapshot: input.Snapshot, Fields: fields, Rows: make([]Row, 0, len(order))}
 	for _, key := range order {
 		current := groups[key]
-		row := Row{Key: key, Cells: make(map[string]Cell, len(fields)), Lineage: make(FactSet)}
+		row := Row{Key: key, Cells: make(map[string]Cell, len(fields)), Lineage: newEmptyFactSet()}
 		for _, source := range current.rows {
 			row.Lineage.Merge(source.Lineage)
 		}
 		for index, field := range groupFields {
-			sources := make(FactSet)
+			sources := newEmptyFactSet()
 			for _, source := range current.rows {
 				sources.Merge(source.Cells[field].Sources)
 			}
@@ -324,8 +324,8 @@ func Observe(profile string, input Relation, visibleFields ...string) (Observati
 	if err := requireFields(input, visibleFields); err != nil {
 		return Observation{}, err
 	}
-	release := make(FactSet)
-	influence := make(FactSet)
+	release := newEmptyFactSet()
+	influence := newEmptyFactSet()
 	for _, row := range input.Rows {
 		influence.Merge(row.Lineage)
 		for _, field := range visibleFields {
@@ -335,9 +335,12 @@ func Observe(profile string, input Relation, visibleFields ...string) (Observati
 			var err error
 			if cell.sourceBound {
 				factField = cell.factField
-				sourceHashes := make([]string, 0, len(cell.Sources))
-				for hash := range cell.Sources {
+				sourceHashes := make([]string, 0, cell.Sources.Len())
+				if err := cell.Sources.Range(func(hash [32]byte, _ FactID) error {
 					sourceHashes = append(sourceHashes, hex.EncodeToString(hash[:]))
+					return nil
+				}); err != nil {
+					return Observation{}, err
 				}
 				sort.Strings(sourceHashes)
 				version, versionErr := ValueVersion(map[string]any{"value": cell.Value, "sources": sourceHashes})
@@ -359,11 +362,19 @@ func Observe(profile string, input Relation, visibleFields ...string) (Observati
 			influence.Merge(cell.Sources)
 		}
 	}
-	return Observation{ProfileVersion: profile, Release: release.Values(), Influence: influence.Values()}, nil
+	releaseValues, err := release.Values()
+	if err != nil {
+		return Observation{}, err
+	}
+	influenceValues, err := influence.Values()
+	if err != nil {
+		return Observation{}, err
+	}
+	return Observation{ProfileVersion: profile, Release: releaseValues, Influence: influenceValues}, nil
 }
 
 func evaluateAggregate(rows []Row, spec AggregateSpec) (any, FactSet, error) {
-	sources := make(FactSet)
+	sources := newEmptyFactSet()
 	values := make([]any, 0, len(rows))
 	for _, row := range rows {
 		if spec.Field == "*" {

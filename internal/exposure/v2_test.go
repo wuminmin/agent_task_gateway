@@ -54,10 +54,13 @@ func TestV2ProjectionReusesBaseCellFactsAndAggregateOverlapsInfluence(t *testing
 	rawInfluence, _ := NewFactSet(baseObservation.Influence...)
 	aggregateInfluence, _ := NewFactSet(aggregateObservation.Influence...)
 	overlap := 0
-	for hash := range rawInfluence {
-		if _, present := aggregateInfluence[hash]; present {
+	if err := rawInfluence.Range(func(hash [32]byte, _ FactID) error {
+		if _, present, err := aggregateInfluence.Contains(hash); err == nil && present {
 			overlap++
 		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
 	if overlap == 0 {
 		t.Fatal("aggregate and raw effects have no influence overlap")
@@ -608,8 +611,8 @@ func TestV2HiddenGroupKeyIsPositiveOutputDependency(t *testing.T) {
 		t.Fatal(err)
 	}
 	dependency := mustFactSet(t, effect.Influence)
-	if len(effect.Release) != 2 || len(dependency) != 9 {
-		t.Fatalf("hidden-key group release=%d dependency=%d, want 2/9", len(effect.Release), len(dependency))
+	if len(effect.Release) != 2 || dependency.Len() != 9 {
+		t.Fatalf("hidden-key group release=%d dependency=%d, want 2/9", len(effect.Release), dependency.Len())
 	}
 	for _, row := range base.Rows {
 		assertFactSetContainsV2(t, dependency, row.RowSupport)
@@ -657,8 +660,8 @@ func TestV2UnionDistinctIncludesHiddenEquivalenceFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	dependency := mustFactSet(t, effect.Influence)
-	if len(effect.Release) != 2 || len(dependency) != 6 {
-		t.Fatalf("hidden-dedup union release=%d dependency=%d, want 2/6", len(effect.Release), len(dependency))
+	if len(effect.Release) != 2 || dependency.Len() != 6 {
+		t.Fatalf("hidden-dedup union release=%d dependency=%d, want 2/6", len(effect.Release), dependency.Len())
 	}
 	for _, row := range base.Rows {
 		assertFactSetContainsV2(t, dependency, row.RowSupport)
@@ -691,8 +694,8 @@ func TestV2AggregateArgumentsConservativelyIncludeNullAndNonExtrema(t *testing.T
 		t.Fatal(err)
 	}
 	dependency := mustFactSet(t, effect.Influence)
-	if len(effect.Release) != 3 || len(dependency) != 8 {
-		t.Fatalf("aggregate release=%d dependency=%d, want 3/8", len(effect.Release), len(dependency))
+	if len(effect.Release) != 3 || dependency.Len() != 8 {
+		t.Fatalf("aggregate release=%d dependency=%d, want 3/8", len(effect.Release), dependency.Len())
 	}
 	for _, row := range base.Rows {
 		assertFactSetContainsV2(t, dependency, row.RowSupport)
@@ -732,8 +735,8 @@ func TestV2SelectionAndPageExcludeNegativeAndOrderInformation(t *testing.T) {
 		t.Fatal(err)
 	}
 	selectedDependency := mustFactSet(t, selectedEffect.Influence)
-	if len(selectedDependency) != 3 {
-		t.Fatalf("selection dependency=%d, want retained row/predicate/payload only", len(selectedDependency))
+	if selectedDependency.Len() != 3 {
+		t.Fatalf("selection dependency=%d, want retained row/predicate/payload only", selectedDependency.Len())
 	}
 	assertFactSetContainsV2(t, selectedDependency, base.Rows[0].RowSupport)
 	assertFactSetContainsV2(t, selectedDependency, base.Rows[0].Cells["predicate"].Support)
@@ -749,8 +752,8 @@ func TestV2SelectionAndPageExcludeNegativeAndOrderInformation(t *testing.T) {
 		t.Fatal(err)
 	}
 	pageDependency := mustFactSet(t, pageEffect.Influence)
-	if len(pageDependency) != 2 {
-		t.Fatalf("page dependency=%d, want delivered row/payload only", len(pageDependency))
+	if pageDependency.Len() != 2 {
+		t.Fatalf("page dependency=%d, want delivered row/payload only", pageDependency.Len())
 	}
 	assertFactSetContainsV2(t, pageDependency, base.Rows[1].RowSupport)
 	assertFactSetContainsV2(t, pageDependency, base.Rows[1].Cells["payload"].Support)
@@ -829,9 +832,12 @@ func v2Fact(t *testing.T, entity string) FactID {
 
 func assertFactSetContainsV2(t *testing.T, actual FactSet, expected FactSet) {
 	t.Helper()
-	for hash := range expected {
-		if _, present := actual[hash]; !present {
+	if err := expected.Range(func(hash [32]byte, _ FactID) error {
+		if _, present, err := actual.Contains(hash); err != nil || !present {
 			t.Fatalf("dependency FactSet is missing %s", hash)
 		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -167,8 +167,8 @@ func TestDecodeBoundsRegistryAndHashOrderedStreaming(t *testing.T) {
 		t.Fatalf("NewBitmapSet: %v", err)
 	}
 	decoded, err := Decode(set, artifact.Cold)
-	if err != nil || len(decoded) != int(set.Cardinality()) {
-		t.Fatalf("Decode cardinality = %d, err=%v, want %d", len(decoded), err, set.Cardinality())
+	if err != nil || decoded.Len() != int(set.Cardinality()) {
+		t.Fatalf("Decode cardinality = %d, err=%v, want %d", decoded.Len(), err, set.Cardinality())
 	}
 	if err := artifact.Hot.ValidateSetBounds(set); err != nil {
 		t.Fatalf("ValidateSetBounds(valid): %v", err)

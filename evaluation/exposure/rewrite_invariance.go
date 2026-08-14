@@ -166,16 +166,18 @@ func symmetricDifference(left, right []exposure.FactID) int {
 	leftSet, _ := exposure.NewFactSet(left...)
 	rightSet, _ := exposure.NewFactSet(right...)
 	delta := 0
-	for hash := range leftSet {
-		if _, present := rightSet[hash]; !present {
+	_ = leftSet.Range(func(hash [32]byte, _ exposure.FactID) error {
+		if _, present, err := rightSet.Contains(hash); err != nil || !present {
 			delta++
 		}
-	}
-	for hash := range rightSet {
-		if _, present := leftSet[hash]; !present {
+		return nil
+	})
+	_ = rightSet.Range(func(hash [32]byte, _ exposure.FactID) error {
+		if _, present, err := leftSet.Contains(hash); err != nil || !present {
 			delta++
 		}
-	}
+		return nil
+	})
 	return delta
 }
 
@@ -189,7 +191,7 @@ func sameFactIDSet(left, right []exposure.FactID) bool {
 		if err != nil {
 			return false
 		}
-		if _, present := leftSet[hash]; !present {
+		if _, present, err := leftSet.Contains(hash); err != nil || !present {
 			return false
 		}
 	}

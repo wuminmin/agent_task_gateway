@@ -132,10 +132,14 @@ func scaleNovelVsReplay() ScalingCurve {
 func scalingNovelty(candidate, history []exposure.FactID) int {
 	release, _ := exposure.NewFactSet(candidate...)
 	hist, _ := exposure.NewFactSet(history...)
-	for hash := range hist {
-		delete(release, hash)
-	}
-	return len(release)
+	novel := 0
+	_ = release.Range(func(hash [32]byte, _ exposure.FactID) error {
+		if _, present, err := hist.Contains(hash); err == nil && !present {
+			novel++
+		}
+		return nil
+	})
+	return novel
 }
 
 func scalingFactSet(prefix string, size int) []exposure.FactID {

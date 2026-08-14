@@ -27,7 +27,10 @@ func bufferedReleaseOutcomeDigest(release []FactID, visibleRows int64) (string, 
 	var payload bytes.Buffer
 	payload.WriteString(outcomeDigestDomainV1)
 	writeCanonicalUint64(&payload, uint64(visibleRows))
-	values := set.Values()
+	values, err := set.Values()
+	if err != nil {
+		return "", err
+	}
 	writeCanonicalUint64(&payload, uint64(len(values)))
 	for _, fact := range values {
 		if !fact.IsV2() {
@@ -71,7 +74,7 @@ func TestReleaseOutcomeDigestMatchesTheBufferedImplementationByteForByte(t *test
 			if err != nil {
 				t.Fatal(err)
 			}
-			return set.Values()
+			return mustFactSetValues(t, set)
 		}, 3},
 		{"unsorted slice", func(t *testing.T) []FactID {
 			return []FactID{
@@ -189,15 +192,15 @@ func TestReleaseOutcomeDigestStillFailsClosedOnHashCollision(t *testing.T) {
 	// Both implementations treat differing payloads under one hash as fatal.
 	// FactSet.Add is the shared gate, so assert the property there and confirm
 	// the streaming digest reaches the same verdict on a real duplicate.
-	set := make(FactSet)
+	set := newEmptyFactSet()
 	if err := set.Add(fact); err != nil {
 		t.Fatal(err)
 	}
 	if err := set.Add(fact); err != nil {
 		t.Fatalf("re-adding an identical fact must succeed: %v", err)
 	}
-	if len(set) != 1 {
-		t.Fatalf("identical fact did not collapse: %d entries", len(set))
+	if set.Len() != 1 {
+		t.Fatalf("identical fact did not collapse: %d entries", set.Len())
 	}
 }
 

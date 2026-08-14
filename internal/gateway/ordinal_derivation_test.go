@@ -883,15 +883,21 @@ func assertOrdinalEffectEqualsOracle(t *testing.T, effect ordinalEffect, resolve
 
 func assertFactSetsEqual(t *testing.T, label string, got, want exposure.FactSet) {
 	t.Helper()
-	if len(got) != len(want) {
-		t.Fatalf("%s cardinality = %d, want %d\ngot=%v\nwant=%v", label, len(got), len(want), factHashes(got), factHashes(want))
+	if got.Len() != want.Len() {
+		t.Fatalf("%s cardinality = %d, want %d\ngot=%v\nwant=%v", label, got.Len(), want.Len(), factHashes(got), factHashes(want))
 	}
-	for hash, wantFact := range want {
-		gotFact, present := got[hash]
+	if err := want.Range(func(hash [32]byte, wantFact exposure.FactID) error {
+		gotFact, present, err := got.Contains(hash)
+		if err != nil {
+			return err
+		}
 		if !present {
 			t.Fatalf("%s misses FactHash %s", label, hex.EncodeToString(hash[:]))
 		}
 		assertFactsEqual(t, label+"/"+hex.EncodeToString(hash[:]), gotFact, wantFact)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -909,9 +915,12 @@ func assertFactsEqual(t *testing.T, label string, got, want exposure.FactID) {
 }
 
 func factHashes(set exposure.FactSet) []string {
-	result := make([]string, 0, len(set))
-	for hash := range set {
+	result := make([]string, 0, set.Len())
+	if err := set.Range(func(hash [32]byte, _ exposure.FactID) error {
 		result = append(result, hex.EncodeToString(hash[:]))
+		return nil
+	}); err != nil {
+		return []string{"ERROR: " + err.Error()}
 	}
 	sort.Strings(result)
 	return result

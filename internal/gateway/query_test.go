@@ -932,15 +932,20 @@ func sameExposureFactIDs(t *testing.T, left, right []exposure.FactID) bool {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(leftSet) != len(rightSet) {
+	if leftSet.Len() != rightSet.Len() {
 		return false
 	}
-	for hash := range leftSet {
-		if _, present := rightSet[hash]; !present {
-			return false
+	equal := true
+	if err := leftSet.Range(func(hash [32]byte, _ exposure.FactID) error {
+		_, present, err := rightSet.Contains(hash)
+		if err != nil || !present {
+			equal = false
 		}
+		return err
+	}); err != nil {
+		t.Fatal(err)
 	}
-	return true
+	return equal
 }
 
 func TestExposureTaskLowersSQLIntoPairedQueryPlanExecution(t *testing.T) {
