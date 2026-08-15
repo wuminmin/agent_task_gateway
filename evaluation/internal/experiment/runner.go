@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -58,6 +59,8 @@ func RunCommand(experimentID string) int {
 	outputPath := flags.String("output", "", "create-exclusive measured JSONL output")
 	deploymentID := flags.String("deployment-id", "", "fresh deployment identity")
 	adapterPath := flags.String("adapter", "", "exact executable implementing the JSONL adapter protocol")
+	adapterStderrPath := flags.String("adapter-stderr-output", "",
+		"create-exclusive private file retaining exact adapter stderr; targeted diagnostic runs only")
 	profilePath := flags.String("profile-binding", "",
 		"activated deployment profile binding JSON; required for publication and profile-bound pilot runs")
 	if err := flags.Parse(os.Args[1:]); err != nil {
@@ -102,7 +105,8 @@ func RunCommand(experimentID string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	if err := ExecuteAdapterCampaignWithProfile(config, *deploymentID, *adapterPath, *outputPath, profile); err != nil {
+	if err := executeAdapterCampaignWithProfile(config, *deploymentID, *adapterPath, *outputPath, profile,
+		*adapterStderrPath); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
@@ -129,6 +133,11 @@ func ExecuteAdapterCampaign(config Config, deploymentID, adapterPath, outputPath
 // binding, or let a sample claim one the operation did not carry.
 func ExecuteAdapterCampaignWithProfile(config Config, deploymentID, adapterPath, outputPath string,
 	profile *ProfileBinding) error {
+	return executeAdapterCampaignWithProfile(config, deploymentID, adapterPath, outputPath, profile, "")
+}
+
+func executeAdapterCampaignWithProfile(config Config, deploymentID, adapterPath, outputPath string,
+	profile *ProfileBinding, adapterStderrPath string) error {
 	if err := config.Validate(config.ExperimentID); err != nil {
 		return err
 	}
@@ -161,6 +170,19 @@ func ExecuteAdapterCampaignWithProfile(config Config, deploymentID, adapterPath,
 		return errors.New("adapter must be an executable regular file, not a symlink")
 	}
 
+	var adapterStderr io.WriteCloser
+	if adapterStderrPath != "" {
+		if config.CampaignClass != "pilot" || config.PilotKind != "artifact_targeted" ||
+			config.ExperimentID != "artifact" {
+			return errors.New("adapter stderr output is restricted to targeted Artifact diagnostics")
+		}
+		adapterStderr, err = os.OpenFile(adapterStderrPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err != nil {
+			return fmt.Errorf("create adapter stderr output: %w", err)
+		}
+		defer adapterStderr.Close()
+	}
+
 	writer, err := NewJSONLWriter(outputPath)
 	if err != nil {
 		return err
@@ -182,7 +204,7 @@ func ExecuteAdapterCampaignWithProfile(config Config, deploymentID, adapterPath,
 	var campaignErrors []error
 	for processReplicate := 1; processReplicate <= processes; processReplicate++ {
 		operations := buildOperations(config, deploymentID, deploymentNumber, processReplicate, &orderPosition, profile)
-		samples, processErr := runAdapterProcess(absAdapter, config.ExperimentID, operations)
+		samples, processErr := runAdapterProcess(absAdapter, config.ExperimentID, operations, adapterStderr)
 		for index := range operations {
 			op := operations[index]
 			if samples[index] == nil {
@@ -488,7 +510,7 @@ func freshRootAnchor(mode string) bool {
 	}
 }
 
-func runAdapterProcess(path, experimentID string, operations []AdapterOperation) ([]*Sample, error) {
+func runAdapterProcess(path, experimentID string, operations []AdapterOperation, adapterStderr io.Writer) ([]*Sample, error) {
 	var input bytes.Buffer
 	encoder := json.NewEncoder(&input)
 	for _, operation := range operations {
@@ -507,6 +529,11 @@ func runAdapterProcess(path, experimentID string, operations []AdapterOperation)
 		processErrors = append(processErrors, fmt.Errorf("exited unsuccessfully: %w", err))
 	}
 	if stderr.Len() != 0 {
+		if adapterStderr != nil {
+			if _, err := adapterStderr.Write(stderr.Bytes()); err != nil {
+				processErrors = append(processErrors, fmt.Errorf("retain adapter stderr: %w", err))
+			}
+		}
 		processErrors = append(processErrors, errors.New("adapter wrote stderr; content was suppressed by the evidence secret boundary"))
 	}
 	scanner := bufio.NewScanner(&output)

@@ -40,6 +40,9 @@ func TestValidateOnlyConfigDigestCoversExactConfigBytes(t *testing.T) {
 }
 
 func runTestAdapter() {
+	if message := os.Getenv("TASKGATE_TEST_ADAPTER_STDERR"); message != "" {
+		_, _ = fmt.Fprintln(os.Stderr, message)
+	}
 	scanner := bufio.NewScanner(os.Stdin)
 	encoder := json.NewEncoder(os.Stdout)
 	status := os.Getenv("TASKGATE_TEST_ADAPTER_STATUS")
@@ -110,6 +113,50 @@ func runTestAdapter() {
 	}
 	if scanner.Err() != nil {
 		os.Exit(1)
+	}
+}
+
+func TestTargetedRunnerCanRetainExactAdapterStderrPrivately(t *testing.T) {
+	config := artifactTargetedConfig()
+	config.CampaignID = "retained-adapter-stderr"
+	t.Setenv("TASKGATE_TEST_ADAPTER", "1")
+	t.Setenv("TASKGATE_TEST_ADAPTER_STDERR", "exact adapter diagnostic")
+	t.Setenv("TASKGATE_EXPERIMENT_CLASS", "pilot")
+	t.Setenv("TASKGATE_CAMPAIGN_ID", config.CampaignID)
+	directory := t.TempDir()
+	output := filepath.Join(directory, "samples.jsonl")
+	stderrPath := filepath.Join(directory, "adapter-stderr.log")
+	err := executeAdapterCampaignWithProfile(config, "deployment-01", os.Args[0], output,
+		testActivatedProfile(), stderrPath)
+	if err == nil || !strings.Contains(err.Error(), "content was suppressed by the evidence secret boundary") {
+		t.Fatalf("runner error = %v, want the unchanged secret-boundary failure", err)
+	}
+	retained, readErr := os.ReadFile(stderrPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(retained) != "exact adapter diagnostic\n" {
+		t.Fatalf("retained adapter stderr = %q", retained)
+	}
+	info, statErr := os.Stat(stderrPath)
+	if statErr != nil {
+		t.Fatal(statErr)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("adapter stderr mode = %o, want 600", info.Mode().Perm())
+	}
+	if err := executeAdapterCampaignWithProfile(config, "deployment-01", os.Args[0],
+		filepath.Join(directory, "second.jsonl"), testActivatedProfile(), stderrPath); err == nil ||
+		!strings.Contains(err.Error(), "file exists") {
+		t.Fatalf("existing adapter stderr output was not refused create-exclusive: %v", err)
+	}
+	nonTargeted := config
+	nonTargeted.PilotKind = "real_system"
+	nonTargeted.ExperimentID = "attack"
+	nonTargeted.Workloads = []Workload{{ID: "retention", Scales: []string{"tiny"}, Modes: []string{"novel"}}}
+	if err := executeAdapterCampaignWithProfile(nonTargeted, "deployment-01", os.Args[0],
+		filepath.Join(directory, "non-targeted.jsonl"), nil, filepath.Join(directory, "forbidden.log")); err == nil || !strings.Contains(err.Error(), "restricted to targeted Artifact diagnostics") {
+		t.Fatalf("non-targeted stderr retention was not refused: %v", err)
 	}
 }
 

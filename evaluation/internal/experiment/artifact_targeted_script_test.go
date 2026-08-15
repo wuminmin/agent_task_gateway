@@ -107,6 +107,7 @@ func TestArtifactTargetedLauncherWiresTheFormalRuntimeContract(t *testing.T) {
 		`.taskgate_acceptance_v3 != null`,
 		`taskgate_acceptance_v3_present:(.taskgate_acceptance_v3 != null)`,
 		`capture_artifact_runner_status "$outdir/run.log"`,
+		`-adapter-stderr-output "$outdir/adapter-stderr.log"`,
 		`.publication_eligible == false`,
 	} {
 		if !strings.Contains(body, required) {
@@ -267,7 +268,7 @@ func TestArtifactTargetedRunnerFailureStillReachesAdjudication(t *testing.T) {
 	output, err := runLauncherShellBlock(block, `
 set -euo pipefail
 artifact_run_log="$1"
-capture_artifact_runner_status "$artifact_run_log" bash -c 'printf "retained runner output\n"; exit 23'
+capture_artifact_runner_status "$artifact_run_log" bash -c 'printf "retained runner output\n"; printf "retained runner error\n" >&2; exit 23'
 printf 'runner=%s tee=%s\n' "$artifact_runner_status" "$artifact_tee_status"
 `, runLog)
 	if err != nil {
@@ -280,7 +281,7 @@ printf 'runner=%s tee=%s\n' "$artifact_runner_status" "$artifact_tee_status"
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(retained) != "retained runner output\n" {
+	if string(retained) != "retained runner output\nretained runner error\n" {
 		t.Fatalf("tee retained %q", retained)
 	}
 }

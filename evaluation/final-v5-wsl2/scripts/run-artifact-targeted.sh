@@ -684,7 +684,7 @@ capture_artifact_runner_status() {
   shift
   local -a statuses
   set +e
-  "$@" | tee "$run_log"
+  "$@" 2>&1 | tee "$run_log"
   statuses=("${PIPESTATUS[@]}")
   set -e
   artifact_runner_status="${statuses[0]}"
@@ -715,6 +715,7 @@ capture_artifact_runner_status "$outdir/run.log" env GOFLAGS=-buildvcs=false \
   -config "$config" \
   -deployment-id "$deployment_id" \
   -adapter "$(realpath "$adapter_binary")" \
+  -adapter-stderr-output "$outdir/adapter-stderr.log" \
   -profile-binding "$(realpath "$profile_binding")" \
   -output "$outdir/raw/deployment-01.jsonl"
 if [[ "$artifact_tee_status" -ne 0 ]]; then
