@@ -103,6 +103,21 @@ negative controls、以及**允许与禁止的主张**。全部 118 格统一为
 **A3 的验收**：改造后一次完整带库全量 exit 0，且 `internal/gateway` 的 PASS 集合与改造前
 逐个测试名一致——只准变快，不准变少。
 
+### A4 — 停止每轮复制两份完整产物（作者 2026-08-16 批准的清理暴露出来的）
+
+`run-artifact-targeted.sh` 每轮把完整产物复制出两份：`snapshot-index-artifacts-full/` 约 4.5 GB
+与 `profile-artifacts/` 约 1.9 GB，合计每轮 6.4 GB 落盘；其中 `final-v5-result-heavy-v1.cold.tgord`
+（1,859,323,393 bytes）**在同一个运行目录里存了两份**。而每轮真正入库留证的只有 16 个小文件、
+合计 845,008 bytes。
+
+2026-08-16 按作者批准清理了 16 个被 ignore 的大产物子目录，回收 51 GB（`raw/` 69 GB → 19 GB）。
+清理后复核：两个已入库运行目录各 16 个 tracked 文件全部在位，`git diff HEAD -- raw/` 为空，
+v1.10 qualification 的两个活输入 SHA-256 与台账逐字节一致。
+
+**待改**：让 launcher 按需保留，而不是每轮无条件复制两份。改完每轮少写约 6.4 GB。
+注意 WSL2 的 `ext4.vhdx` 只涨不缩，`/`、`/var/lib/docker`、`/home` 同在一个 `/dev/sdd` 上，
+所以「少写」比「事后删」有效得多。
+
 ---
 
 ## 四、计划 B：走向 9/9（76 格）
