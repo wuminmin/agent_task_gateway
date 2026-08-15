@@ -225,3 +225,104 @@ A1 必须最先做：它决定 B1–B3 每一步的回归成本。A2/A3 与 B �
   耗了三轮、两次六格全灭（ProfileBinding 假象、observer 拓扑漂移、DSN 字符集各一次）。
 - baseline S3 三个档位标签 `1k-5k`/`10k-50k`/`45k-225k` 的含义为**推断**（1:5 比例与决策
   D3「每保留行派生五个 Fact」吻合），代码中无解析器。
+
+---
+
+## 九、性能与规模实验方案的进一步优化（2026-08-16 追加）
+
+作者要求从时间、空间、资源三方面再想。以下逐条附实测与出处；未实测的标注为估算或未知。
+
+### 9.1 先纠正一个直觉：固定开销不是瓶颈
+
+2026-08-16 那轮 targeted 运行的阶段时间由留存文件 mtime 反推：
+
+| 阶段 | 时长 |
+|---|---|
+| formal Gateway build（`--no-cache`） | 2:09 |
+| 部署 + 快照编译 + 产物复制 | 3:55 |
+| 三条 live gate | 0:21 |
+| **固定开销小计** | **6:25** |
+| 测量窗口（6 格 × 1 样本） | 0:58 |
+| 总计 | 7:27 |
+
+campaign 的结构是 `run-three-deployments.ps1` 循环 3 次部署，每次部署内跑完九个实验
+（`run-deployment.sh:20` 限定 `deployment-01..03`），**不是每格一次部署**。所以固定开销
+全程约 19 分钟。**在这里优化收益极小，不要把力气花在这。**
+
+### 9.2 真正的时间瓶颈：scale 的 fresh_root 与 history_prefill
+
+scale 契约 60 格**全部** `fresh_root: true`，且 `history_prefill: BEFORE_MEASUREMENT`
+（`contracts/scale-v1.json`）。dependency-e2e 有 8 格落在 `1035000` Fact 量级
+（4 个 overlap × novel/semantic_replay），每格 30 样本。
+
+**若每个样本都重新预填 103.5 万 Fact，就是 240 次百万级预填。** 以今天 100k 行走完整路径
+17.7 s 作线性外推，单次预填约 3 分钟量级，240 次即约 12 小时——且这是**每次部署**，
+乘 3。**这是一个估算，不是实测**，线性外推本身也未验证。
+
+关键在于：这部分**尚未实现**（60 格状态为 `PENDING_QUERY_IDENTITY_ADAPTER` /
+`PENDING_30_SAMPLE_SCHEDULE_REPLACEMENT`），所以**预填与 root 复位策略现在还是自由选择**。
+它是全局最大的时间杠杆，应当在 B1a 里作为**显式设计决策**定下来，而不是让它从实现里长出来。
+`measured.include_prefill: false` 说明预填不计入测量值，但仍占墙钟。
+
+**B1a 的第一件事应是一次预填标定**：单格跑满 35 次执行，实测预填与测量各占多少，
+再决定策略。不做标定就实现，等于把最大的成本项交给运气。
+
+### 9.3 可以直接拿的小项
+
+- **formal build 复用**：`run-deployment.sh:261` 明确使用 `--no-cache` 构建。同一
+  submission commit 下三次部署产出同一镜像，可建一次后按 digest 复用，省约 4 分钟。
+- **不要并行三次部署**：会污染性能测量（这是性能实验，不是功能实验），且主机只有
+  23 GB 内存扛不住。此条写进计划，防止以后被当成「优化」。
+
+### 9.4 空间
+
+| 项 | 实测 | 处置 |
+|---|---|---|
+| 每轮复制两份完整产物 | 6.4 GB/轮 | 见 A4，待改 launcher |
+| Docker build cache | 27.44 GB（可回收 25.22） | `--no-cache` 构建仍写缓存，无上限增长；给 runner cleanup 加 `docker builder prune --keep-storage` |
+| 每次部署的 `snapshot-index-artifacts` 卷 | 约 4.5 GB | 见 9.5 |
+| 被取代的 v1.8 / v1.9 qualification 目录 | 11.6 GB | 保留中，等作者发话 |
+
+### 9.5 待作者裁决：快照产物能否跨部署按 digest 复用
+
+快照 publication 产物是**确定性**的，其 `sidecar_digest`、`dictionary_digest`、
+`manifest_digest` 已在 `config/catalog.yaml` 中逐个 pin，`cmd/snapshot-index` 本身也带
+`-allow-existing-identical`。理论上可以用一个**按 digest 校验的共享卷**跨部署复用，
+而不是每次部署从 PostgreSQL 重新编译——同时省时间与空间。
+
+**论证**：`fresh_deployment` 约束的应是数据库与账本状态，而 publication 产物是不可变、
+digest 已 pin、且 Gateway 启动时会校验的。**但这确实改变了「fresh」的含义，属实验协议改动，
+不由 Claude 裁决。** 若作者认可，收益是每次部署省掉快照编译（今天实测部署+编译共 3:55 中的大头）
+与每部署 4.5 GB 卷。
+
+### 9.6 资源：一个必须在 B1a 之前验的风险
+
+主机实测：**32 核 / 23 GB 内存**（可用 19 GB）。compose 里 `snapshot-index-result-heavy`、
+`snapshot-index-exposure-scale`、`snapshot-sidecar-install` 各 `mem_limit: 16g`（顺序执行、
+不并发），Gateway `mem_limit: 12g`。
+
+2026-08-16 那轮 Gateway cgroup 峰值实测 **3,636,482,048 B（3.39 GiB）**，工作量是
+100k 行 × 16 列。
+
+**风险原文**（`docs/getting-started.md:213`）：
+
+> 当前实现的 Connector/可见结果到 Parquet 的部分路径仍会**在内存中持有完整结果**……
+> 因此 `GATEWAY_CONNECTOR_MAX_ROWS=1200000` 是关闭式行上限，**不是百万行路径已具备有界内存的证明**。
+
+dependency-e2e 的 `1035000` Fact 格正好落在这个「未被证明」的区间里，且 `.env` 实测
+`GATEWAY_CONNECTOR_MAX_ROWS=1200000` 只比它高 16%。**Gateway 内存是否随 Fact 数线性增长
+尚未测过**；若线性，103.5 万相对今天 10 万即 10 倍，会逼近甚至超过 12g 容器上限，
+在 23 GB 主机上没有多少余量。
+
+**结论：B1a 实现之前，应先用一格 `1035000-overlap-0` 做一次内存标定。**
+这比实现完再发现 OOM 便宜得多。另：32 核在测量阶段基本闲置（测量本身串行），
+多核只对 A3 的测试套件优化有用。
+
+### 9.7 归口
+
+| 项 | 谁定 |
+|---|---|
+| 9.3 build 复用、不并行、9.4 build cache 上限 | Claude 直接做 |
+| 9.2 预填标定、9.6 内存标定 | Claude 直接做，结果上报 |
+| 9.5 快照产物跨部署复用 | **作者裁决**（改实验协议含义） |
+| 9.4 删 v1.8/v1.9 qualification | **作者裁决** |
