@@ -1,5 +1,8 @@
 # TaskGate V4：Snapshot-Indexed Hybrid Bitmap Ledger
 
+> **2026-08-16 现状说明**：本文记录的是 **V4 时期**的 SLO 与门槛。其中 `Gateway cgroup peak ≤ 512 MiB` 经查既非作者决策、也不在论文中，已由台账 `AUDIT-decisions` 判定**不再作为任何门禁**；本文保留该行仅作 V4 历史记录。`160 MiB` HOT 上限已由作者决策 25 抬到 `1024 MiB`。当前实测的内存事实（主机 31.7 GiB 物理 / WSL 29.4 GiB / swap 0 / Gateway 容器 `mem_limit: 12g` / 实测峰值 3.39 GiB）见 `docs/dbtest_and_9of9_plan.md` 第 9.8 节。
+
+
 V4 不改变 FactID 的业务含义，也不改变安全公式；它只替换百万级事实的在线表示和结算方式。人类审批的是 Catalog 预定义的完整预算，Agent 可以使用其中全部容量。系统不自动寻找“最小预算”，唯一的 admission 条件是三个 root-family ledger 在提交后仍不越界。
 
 \[

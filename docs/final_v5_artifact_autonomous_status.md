@@ -1,5 +1,8 @@
 # Final-V5 Artifact completion — continuation record
 
+> **2026-08-16 现状更正**：本文写作时能力为 `6/9`、`artifact` 为 false。**当前实测为 `7/9`，`artifact` 已于 2026-08-16 翻 true**（依据 `evaluation/cmd/final-v5-adapter/capability.go` 自身定义的口径，留证运行 `p8-artifact-observerfix-v110-six-cell-02`，提交 `5666775`）。本文其余内容作为当时的历史记录保留，不回改。
+
+
 Working worktree `/home/wmm/worktrees/taskgate-artifact-rerun`, branch
 `tkde-artifact-rerun`. The primary worktree `/home/wmm/agent-scope/task_gateway`
 stays on `main @ 804d65d` and is never touched.

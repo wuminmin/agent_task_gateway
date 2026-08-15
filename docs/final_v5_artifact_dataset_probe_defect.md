@@ -1,5 +1,8 @@
 # Artifact targeted validation is blocked by the frozen dataset probe
 
+> **2026-08-16 现状更正**：本文写作时能力为 `6/9`、`artifact` 为 false。**当前实测为 `7/9`，`artifact` 已于 2026-08-16 翻 true**（依据 `evaluation/cmd/final-v5-adapter/capability.go` 自身定义的口径，留证运行 `p8-artifact-observerfix-v110-six-cell-02`，提交 `5666775`）。本文其余内容作为当时的历史记录保留，不回改。
+
+
 Stage B.2b attempted the non-publication Artifact targeted validation of the six
 frozen `artifact/result-heavy/*` cells. All six cells failed identically, before
 any query reached the Gateway. The cause is a defect in a contract-frozen file,

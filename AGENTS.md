@@ -60,11 +60,29 @@ docker version                                  # Docker 反复上下线，每�
 ./scripts/db-test-env.sh up
 ./scripts/db-test-env.sh verify                 # 期望 server_version_num=160014
 gofmt -l $(git ls-files '*.go'); go build ./...; go vet ./...
-./scripts/db-test-env.sh test -count=1 ./...     # 带库全量的唯一支持写法
+./scripts/db-test-env.sh test -count=1 ./...     # 带库全量的唯一支持写法（只在门禁点跑，见下）
 env -u TASKGATE_FINAL_V5_SQLCHECK_ADMIN_DSN ./evaluation/final-v5-wsl2/scripts/validate.sh
 # 真正执行 contract SQL executability gate（自建一次性空库）：
 ./evaluation/final-v5-wsl2/scripts/run-sql-executability-gate.sh
 ```
+
+## 带库全量什么时候跑（2026-08-16 定，取代「每任务一次」）
+
+带库全量**不再每个任务跑一次**，改为三层：
+
+| 层 | 触发时机 | 跑什么 |
+|---|---|---|
+| 每次代码改动 | 每个任务 | 只跑**受影响的包** + 该改动的聚焦测试，仍用 `-count=1` |
+| **门禁** | 契约冻结、翻 capability、正式 campaign、打 tag 之前 | **完整带库全量一次** |
+| 明确不做 | — | 不靠 Go 测试缓存省时间，而是明确不跑未受影响的包 |
+
+依据是实测量级差：`internal/gateway` 单包 `3630.35 s`，占全量墙钟约 89%；而 2026-08-16
+两个 observer 提交的受影响包合计 `89 s`（`final-v5-observer` 0.269 s +
+`internal/experiment` 89.060 s）——**40 倍差距**。逐测试榜单显示 148 个顶层测试里
+126 个各自不到 10 s、合计仅 56.2 s，而 22 个超过 100 s 的占了 98.5%。
+
+受影响包判定：改了哪个包就跑哪个包，加上直接依赖它的包。拿不准就往宽里跑，
+但**不要**因为拿不准就退回全量。
 
 不接 DSN 时 DB 测试**静默 skip**，而 skip 不算 pass。不得安装宿主机 PostgreSQL：
 digest-pinned 的 PostgreSQL 16.14 容器对就是整套记账被认证against的那个环境。

@@ -1,5 +1,7 @@
 # Audit: contracts v1.4 observer accounting is invalid
 
+> **2026-08-16 现状更正**：本文写作时能力为 `6/9`、`artifact` 为 false。**当前实测为 `7/9`，`artifact` 已于 2026-08-16 翻 true**（依据 `evaluation/cmd/final-v5-adapter/capability.go` 自身定义的口径，留证运行 `p8-artifact-observerfix-v110-six-cell-02`，提交 `5666775`）。本文其余内容作为当时的历史记录保留，不回改。
+
 **Status: V1.4 OBSERVER ACCOUNTING INVALID — FORWARD CORRECTION REQUIRED**
 
 This is an audit record, not an amendment. It states what
