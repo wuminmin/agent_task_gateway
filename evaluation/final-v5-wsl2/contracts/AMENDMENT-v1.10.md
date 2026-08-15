@@ -22,6 +22,12 @@ Author Decision 25 raised the Gateway HOT artifact limit from 160 MiB to
 therefore changed, so the current tree requires a named v1.10 qualification;
 v1.9 activation or qualification evidence cannot be inherited or relabelled.
 
+A fresh v1.10 Attestation-footprint qualification at clean, published commit
+`c9de118` measured portable identity `58d58d30326e` (full SHA-256
+`58d58d30326e712910a2cdef9c56fbd0f6e558d6c92c24af9949bfb718b55947`),
+byte-identical to v1.9. This confirms that the master Catalog, registry and HOT
+activation boundary changes did not alter portable Attestation semantics.
+
 ## What did not change
 
 Capability remains **6/9**. The Gateway cgroup ceiling remains `12g`, and
@@ -53,9 +59,10 @@ campaign under Author Decision 25.
 
 The recorded v1.9 smokes did not carry into v1.10. The v1.9 activation-support
 manifest was removed rather than relabelled, and the registry was regenerated
-with all profiles initially ineligible. Fresh live-route activation evidence
-is generated under v1.10 and must reach a byte-stable fixed point before this
-release is handed off.
+with all profiles initially ineligible. Eight live-route profiles were then
+activated against a fresh v1.10 deployment and regenerated to a byte-stable
+fixed point: 8 of 11 profiles are eligible, while all 11 remain
+`routable=false`.
 
 ## SQL executability record
 
@@ -77,4 +84,5 @@ by the author; this release does not regenerate it or alter an approval.
 
 v1 through v1.9 remain preserved for audit. v1.10 supersedes v1.9. Fresh
 activation, SQL executability and Attestation portable-identity requalification
-must complete before the combined validation gate and author-owned tag handoff.
+have completed. The combined validation gate and freeze ledger entry are
+recorded by the release task before handoff for the author-owned tag.
