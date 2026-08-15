@@ -1,0 +1,466 @@
+ Image taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-sidecar-install Building 
+ Image taskgate-final-v5-deployment-01-27599c84cd758b10e61a-oa-demo Building 
+ Image taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-index-detail Building 
+ Image taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-index-exposure-scale Building 
+ Image taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-index-result-heavy Building 
+ Image taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-index-summary Building 
+ Image taskgate-final-v5-deployment-01-27599c84cd758b10e61a-final-v5-provsql-postgres Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 4.90kB done
+#1 DONE 0.0s
+
+#2 [snapshot-index-result-heavy internal] load build definition from Dockerfile
+#2 DONE 0.0s
+
+#3 [final-v5-provsql-postgres internal] load build definition from Dockerfile.provsql
+#3 transferring dockerfile: 1.81kB done
+#3 DONE 0.0s
+
+#2 [snapshot-index-exposure-scale internal] load build definition from Dockerfile
+#2 transferring dockerfile: 1.02kB done
+#2 DONE 0.0s
+
+#4 [snapshot-index-exposure-scale] resolve image config for docker-image://docker.io/docker/dockerfile:1.7
+#4 DONE 0.9s
+
+#5 [snapshot-index-result-heavy] docker-image://docker.io/docker/dockerfile:1.7@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
+#5 resolve docker.io/docker/dockerfile:1.7@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e 0.0s done
+#5 CACHED
+
+#6 [final-v5-provsql-postgres internal] load metadata for docker.io/library/postgres@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55
+#6 DONE 0.0s
+
+#7 [snapshot-sidecar-install internal] load build definition from Dockerfile
+#7 transferring dockerfile: 1.02kB done
+#7 DONE 0.1s
+
+#8 [oa-demo internal] load build definition from Dockerfile
+#8 ...
+
+#9 [final-v5-provsql-postgres internal] load .dockerignore
+#9 transferring context: 1.37kB done
+#9 DONE 0.1s
+
+#10 [snapshot-index-exposure-scale internal] load build definition from Dockerfile
+#10 transferring dockerfile: 1.02kB done
+#10 DONE 0.1s
+
+#11 [snapshot-index-detail internal] load build definition from Dockerfile
+#11 transferring dockerfile: 1.02kB done
+#11 DONE 0.1s
+
+#8 [oa-demo internal] load build definition from Dockerfile
+#8 transferring dockerfile: 1.02kB done
+#8 DONE 0.1s
+
+#12 [snapshot-index-result-heavy internal] load build definition from Dockerfile
+#12 transferring dockerfile: 1.02kB done
+#12 DONE 0.2s
+
+#13 [final-v5-provsql-postgres build 1/3] FROM docker.io/library/postgres@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55
+#13 resolve docker.io/library/postgres@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55 0.1s done
+#13 DONE 0.1s
+
+#14 [snapshot-index-summary internal] load build definition from Dockerfile
+#14 transferring dockerfile: 1.02kB done
+#14 DONE 0.3s
+
+#15 [final-v5-provsql-postgres build 3/3] RUN git init /tmp/provsql     && git -C /tmp/provsql remote add origin https://github.com/PierreSenellart/provsql.git     && git -C /tmp/provsql fetch --depth 1 origin "6388fd06b79b7d247b4ff4dad4959374d0e92358"     && git -C /tmp/provsql checkout --detach FETCH_HEAD     && test "$(git -C /tmp/provsql rev-parse HEAD)" = "6388fd06b79b7d247b4ff4dad4959374d0e92358"     && make -C /tmp/provsql -j"$(nproc)"     && make -C /tmp/provsql DESTDIR=/opt/provsql-root install     && install -d /opt/provsql-root/usr/local/share/taskgate-evaluation     && printf '%s' "6388fd06b79b7d247b4ff4dad4959374d0e92358" > /opt/provsql-root/usr/local/share/taskgate-evaluation/provsql-source-commit
+#15 CACHED
+
+#16 [final-v5-provsql-postgres stage-1 3/4] COPY --from=build /usr/lib/x86_64-linux-gnu/libboost_serialization.so.1.74.0 /usr/lib/x86_64-linux-gnu/
+#16 CACHED
+
+#17 [final-v5-provsql-postgres stage-1 2/4] COPY --from=build /opt/provsql-root/ /
+#17 CACHED
+
+#18 [final-v5-provsql-postgres build 2/3] RUN apt-get update     && apt-get install -y --no-install-recommends         build-essential ca-certificates git libboost-dev libboost-serialization-dev         postgresql-server-dev-16=16.14-1.pgdg12+1     && rm -rf /var/lib/apt/lists/*
+#18 CACHED
+
+#19 [final-v5-provsql-postgres stage-1 4/4] RUN ! ldd /usr/lib/postgresql/16/lib/provsql.so | grep -q 'not found'
+#19 CACHED
+
+#20 [final-v5-provsql-postgres] exporting to image
+#20 exporting layers done
+#20 exporting manifest sha256:54904564492e98215a3bd5847ed230487d94d5b58fb20dae5ee2ff4e0fc575c5 0.0s done
+#20 exporting config sha256:8ce61f35b482b3c0da85d994f37f4b340c7a14c0ec587719a75be0eae048c296 0.0s done
+#20 exporting attestation manifest sha256:f549be8751efd8dca9b7198c5c42db277436afab26b1823f6976e304375ae57d 0.0s done
+#20 exporting manifest list sha256:beb275174b3ebb47a8998418c1a214dc144608029cb3aa8d4921a6b8d88311e3
+#20 exporting manifest list sha256:beb275174b3ebb47a8998418c1a214dc144608029cb3aa8d4921a6b8d88311e3 0.0s done
+#20 naming to docker.io/library/taskgate-final-v5-deployment-01-27599c84cd758b10e61a-final-v5-provsql-postgres:latest 0.0s done
+#20 unpacking to docker.io/library/taskgate-final-v5-deployment-01-27599c84cd758b10e61a-final-v5-provsql-postgres:latest 0.0s done
+#20 DONE 0.2s
+
+#21 [snapshot-index-summary internal] load metadata for docker.io/library/debian:bookworm-slim
+#21 ...
+
+#22 [final-v5-provsql-postgres] resolving provenance for metadata file
+#22 DONE 0.0s
+
+#23 [snapshot-index-summary internal] load metadata for docker.io/library/golang:1.25-bookworm
+#23 DONE 1.7s
+
+#21 [oa-demo internal] load metadata for docker.io/library/debian:bookworm-slim
+#21 DONE 1.8s
+
+#24 [snapshot-index-exposure-scale internal] load .dockerignore
+#24 transferring context: 1.37kB done
+#24 DONE 0.0s
+
+#25 [snapshot-index-summary internal] load .dockerignore
+#25 transferring context: 1.37kB done
+#25 DONE 0.0s
+
+#26 [snapshot-index-result-heavy internal] load .dockerignore
+#26 transferring context: 1.37kB done
+#26 DONE 0.1s
+
+#27 [oa-demo internal] load .dockerignore
+#27 transferring context: 1.37kB done
+#27 DONE 0.1s
+
+#28 [snapshot-index-exposure-scale internal] load build context
+#28 DONE 0.0s
+
+#29 [snapshot-index-summary internal] load build context
+#29 DONE 0.0s
+
+#30 [snapshot-index-result-heavy internal] load build context
+#30 DONE 0.0s
+
+#31 [oa-demo runtime 1/3] FROM docker.io/library/debian:bookworm-slim@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241
+#31 resolve docker.io/library/debian:bookworm-slim@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241
+#31 resolve docker.io/library/debian:bookworm-slim@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241 0.1s done
+#31 DONE 0.1s
+
+#32 [snapshot-sidecar-install base 1/6] FROM docker.io/library/golang:1.25-bookworm@sha256:e401dae1bf814e29204a8cb7915682e1780951e609ca0dd8865ee1937f510c48
+#32 resolve docker.io/library/golang:1.25-bookworm@sha256:e401dae1bf814e29204a8cb7915682e1780951e609ca0dd8865ee1937f510c48 0.1s done
+#32 DONE 0.1s
+
+#33 [snapshot-sidecar-install internal] load .dockerignore
+#33 transferring context: 1.37kB done
+#33 DONE 0.2s
+
+#34 [snapshot-index-detail internal] load .dockerignore
+#34 transferring context: 1.37kB done
+#34 DONE 0.2s
+
+#35 [oa-demo internal] load build context
+#35 transferring context: 99.89kB 0.0s done
+#35 DONE 0.1s
+
+#36 [snapshot-sidecar-install internal] load build context
+#36 transferring context: 99.89kB 0.0s done
+#36 DONE 0.1s
+
+#31 [snapshot-index-detail runtime 1/3] FROM docker.io/library/debian:bookworm-slim@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241
+#31 resolve docker.io/library/debian:bookworm-slim@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241 0.1s done
+#31 DONE 0.1s
+
+#32 [snapshot-index-detail base 1/6] FROM docker.io/library/golang:1.25-bookworm@sha256:e401dae1bf814e29204a8cb7915682e1780951e609ca0dd8865ee1937f510c48
+#32 resolve docker.io/library/golang:1.25-bookworm@sha256:e401dae1bf814e29204a8cb7915682e1780951e609ca0dd8865ee1937f510c48 0.1s done
+#32 DONE 0.1s
+
+#29 [snapshot-index-summary internal] load build context
+#29 transferring context: 99.89kB 0.0s done
+#29 DONE 0.1s
+
+#28 [snapshot-index-exposure-scale internal] load build context
+#28 transferring context: 99.89kB 0.0s done
+#28 DONE 0.1s
+
+#30 [snapshot-index-result-heavy internal] load build context
+#30 transferring context: 99.89kB 0.0s done
+#30 DONE 0.1s
+
+#37 [oa-demo base 4/6] COPY go.mod go.sum ./
+#37 CACHED
+
+#38 [oa-demo base 5/6] RUN go mod download
+#38 CACHED
+
+#39 [oa-demo build 1/1] RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /out/app ./cmd/oa-demo
+#39 CACHED
+
+#40 [oa-demo base 6/6] COPY . .
+#40 CACHED
+
+#41 [oa-demo runtime 3/3] COPY --from=build /out/app /usr/local/bin/app
+#41 CACHED
+
+#42 [snapshot-index-summary build 1/1] RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /out/app ./cmd/snapshot-index
+#42 CACHED
+
+#43 [snapshot-index-summary base 4/6] COPY go.mod go.sum ./
+#43 CACHED
+
+#44 [snapshot-index-summary base 2/6] RUN apt-get update     && apt-get install -y --no-install-recommends build-essential ca-certificates     && rm -rf /var/lib/apt/lists/*
+#44 CACHED
+
+#45 [snapshot-index-summary base 5/6] RUN go mod download
+#45 CACHED
+
+#46 [snapshot-index-summary base 3/6] WORKDIR /src
+#46 CACHED
+
+#47 [snapshot-index-summary base 6/6] COPY . .
+#47 CACHED
+
+#48 [snapshot-index-exposure-scale runtime 2/3] RUN apt-get update     && apt-get install -y --no-install-recommends ca-certificates curl     && rm -rf /var/lib/apt/lists/*     && groupadd --system --gid 10001 taskbound     && useradd --system --uid 10001 --gid taskbound --home-dir /nonexistent --shell /usr/sbin/nologin taskbound     && mkdir -p /data/snapshot-index     && chown -R 10001:10001 /data
+#48 CACHED
+
+#49 [snapshot-index-exposure-scale runtime 3/3] COPY --from=build /out/app /usr/local/bin/app
+#49 CACHED
+
+#50 [snapshot-index-exposure-scale] exporting to image
+#50 exporting layers done
+#50 exporting manifest sha256:6e94ce001b325a3e3c569c266a00d0a045e1b819033ccf96a7b2572189e55bf8
+#50 ...
+
+#49 [snapshot-index-detail runtime 3/3] COPY --from=build /out/app /usr/local/bin/app
+#49 CACHED
+
+#51 [snapshot-sidecar-install base 4/6] COPY go.mod go.sum ./
+#51 CACHED
+
+#52 [snapshot-sidecar-install base 5/6] RUN go mod download
+#52 CACHED
+
+#46 [snapshot-sidecar-install base 3/6] WORKDIR /src
+#46 CACHED
+
+#48 [snapshot-index-detail runtime 2/3] RUN apt-get update     && apt-get install -y --no-install-recommends ca-certificates curl     && rm -rf /var/lib/apt/lists/*     && groupadd --system --gid 10001 taskbound     && useradd --system --uid 10001 --gid taskbound --home-dir /nonexistent --shell /usr/sbin/nologin taskbound     && mkdir -p /data/snapshot-index     && chown -R 10001:10001 /data
+#48 CACHED
+
+#53 [snapshot-sidecar-install build 1/1] RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /out/app ./cmd/snapshot-sidecar-install
+#53 CACHED
+
+#54 [snapshot-sidecar-install base 6/6] COPY . .
+#54 CACHED
+
+#44 [snapshot-sidecar-install base 2/6] RUN apt-get update     && apt-get install -y --no-install-recommends build-essential ca-certificates     && rm -rf /var/lib/apt/lists/*
+#44 CACHED
+
+#55 [snapshot-index-detail internal] load build context
+#55 transferring context: 99.89kB 0.0s done
+#55 DONE 0.1s
+
+#56 [snapshot-sidecar-install runtime 3/3] COPY --from=build /out/app /usr/local/bin/app
+#56 CACHED
+
+#57 [snapshot-sidecar-install] exporting to image
+#57 exporting layers done
+#57 exporting manifest sha256:d2df5291605375b707e6fec312f14b9070dcf8fcfcb23c4e6d2163e8668d4166 0.1s done
+#57 exporting config sha256:9b6546ee4ced35b2d1bb8e86773494786bfb4f5a4511523abdea3d200f766258
+#57 exporting config sha256:9b6546ee4ced35b2d1bb8e86773494786bfb4f5a4511523abdea3d200f766258 0.1s done
+#57 exporting attestation manifest sha256:55f09866cb777b4518570bfecea574b6f233e29d435ca9c7a53795507343eb2d
+#57 exporting attestation manifest sha256:55f09866cb777b4518570bfecea574b6f233e29d435ca9c7a53795507343eb2d 0.2s done
+#57 exporting manifest list sha256:39042a9f7f801fb138b499d9c346815b7286c49f68e0f1cdd2342c157724988d 0.1s done
+#57 naming to docker.io/library/taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-sidecar-install:latest
+#57 ...
+
+#58 [oa-demo] exporting to image
+#58 exporting layers done
+#58 exporting manifest sha256:b72f83b173f99a1a4fb31baebbaa1e1d63a2cc9123ea229b5e5b044c49a1984b 0.1s done
+#58 exporting config sha256:4aade6425181b0bf25f39677f7138e48ffbaa194af9fe9e6fecd0bc8679c4bad 0.2s done
+#58 exporting attestation manifest sha256:8af72b855e3e6e2314012b98942975ffee70afea9c59887780a1ed29c5aa629e 0.2s done
+#58 exporting manifest list sha256:d6cb833f3be8f0e60858d59ad8b758b3b842cd9d03433f18173e641ca56d6f2b 0.1s done
+#58 naming to docker.io/library/taskgate-final-v5-deployment-01-27599c84cd758b10e61a-oa-demo:latest 0.1s done
+#58 unpacking to docker.io/library/taskgate-final-v5-deployment-01-27599c84cd758b10e61a-oa-demo:latest 0.1s done
+#58 DONE 1.0s
+
+#59 [snapshot-index-result-heavy] exporting to image
+#59 exporting layers done
+#59 exporting manifest sha256:b673d5865b7c9ff6de4ad4888c9e896c3dd78ceb87bf1188d02b06c154065595 0.1s done
+#59 exporting config sha256:9c6e626b5e661238ee1b2ebac1ba1f474657645709b44cb9a5db1a9e7773f481 0.2s done
+#59 exporting attestation manifest sha256:10f93989ee799a75a71e739018ce6fea0884fb1938d22fe130a1a9090eae5482 0.2s done
+#59 exporting manifest list sha256:1b669696d58475c745000ede526a6dde54f3d518d2da042f4ccb4600fb25fc56 0.1s done
+#59 naming to docker.io/library/taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-index-result-heavy:latest 0.1s done
+#59 unpacking to docker.io/library/taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-index-result-heavy:latest 0.1s done
+#59 DONE 1.0s
+
+#50 [snapshot-index-exposure-scale] exporting to image
+#50 exporting manifest sha256:6e94ce001b325a3e3c569c266a00d0a045e1b819033ccf96a7b2572189e55bf8 0.1s done
+#50 exporting config sha256:84b51a2f0f93a09a019e52749f63a79608287f6e876fbf240e39bc74b023aa4c 0.2s done
+#50 exporting attestation manifest sha256:94d1627c9860ed9c36c3b444c78a1209617e0d4a4754b28193a579ccde2e31cb 0.2s done
+#50 exporting manifest list sha256:0146ae31b2df0dfca324ebf3a3d80df536f14e7722626ce32b34b09695f6e624 0.2s done
+#50 naming to docker.io/library/taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-index-exposure-scale:latest 0.1s done
+#50 unpacking to docker.io/library/taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-index-exposure-scale:latest 0.1s done
+#50 DONE 1.0s
+
+#60 [snapshot-index-summary] exporting to image
+#60 exporting layers done
+#60 exporting manifest sha256:c764a24ed02ec4d5c822af15f2420959f278ba8bb206b5096f416205f0b109d9 0.1s done
+#60 exporting config sha256:136b4ca121e959a8eb92b571a0f8c563b1474c72e05334a4cea795b3baf067da 0.2s done
+#60 exporting attestation manifest sha256:c5be857a8d40902d94c10ad12100a302372da6e2f1e618e8594f8934e180b065 0.2s done
+#60 exporting manifest list sha256:19c72402feb09dda50883a2bf622ac2a09bcafc7dbfdc66bfa35ae0a8abbee4e 0.2s done
+#60 naming to docker.io/library/taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-index-summary:latest 0.1s done
+#60 unpacking to docker.io/library/taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-index-summary:latest 0.1s done
+#60 DONE 1.0s
+
+#57 [snapshot-sidecar-install] exporting to image
+#57 naming to docker.io/library/taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-sidecar-install:latest 0.1s done
+#57 unpacking to docker.io/library/taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-sidecar-install:latest
+#57 unpacking to docker.io/library/taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-sidecar-install:latest 0.1s done
+#57 DONE 1.0s
+
+#61 [snapshot-index-detail] exporting to image
+#61 exporting layers done
+#61 exporting manifest sha256:d43dbd7862ad39367156f8e6e72952ad17c25008e5b5cbe7ead9b27fbe820073 0.1s done
+#61 exporting config sha256:a6e58aecd3f0871f7d6529ce97469c09fd7c0c3e26787b7c090b3a32ee4d7eb6 0.2s done
+#61 exporting attestation manifest sha256:c93afac3fabcc541b6b7fa5ec63059721317d6ff901205fcc240c4c8b56614b9 0.2s done
+#61 exporting manifest list sha256:1591a91bd2abcf596b42b092e96f964f1ebe3a634eda2c5e5c82c0de00258474 0.1s done
+#61 naming to docker.io/library/taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-index-detail:latest 0.1s done
+#61 unpacking to docker.io/library/taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-index-detail:latest 0.1s done
+#61 DONE 1.0s
+
+#62 [oa-demo] resolving provenance for metadata file
+#62 DONE 0.6s
+
+#63 [snapshot-index-result-heavy] resolving provenance for metadata file
+#63 DONE 0.5s
+
+#64 [snapshot-index-exposure-scale] resolving provenance for metadata file
+#64 DONE 0.3s
+
+#65 [snapshot-index-summary] resolving provenance for metadata file
+#65 DONE 0.2s
+
+#66 [snapshot-sidecar-install] resolving provenance for metadata file
+#66 DONE 0.1s
+
+#67 [snapshot-index-detail] resolving provenance for metadata file
+#67 DONE 0.0s
+ Image taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-sidecar-install Built 
+ Image taskgate-final-v5-deployment-01-27599c84cd758b10e61a-final-v5-provsql-postgres Built 
+ Image taskgate-final-v5-deployment-01-27599c84cd758b10e61a-oa-demo Built 
+ Image taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-index-detail Built 
+ Image taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-index-summary Built 
+ Image taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-index-result-heavy Built 
+ Image taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-index-exposure-scale Built 
+ Volume taskgate-final-v5-deployment-01-27599c84cd758b10e61a_final-v5-direct-data Creating 
+ Volume taskgate-final-v5-deployment-01-27599c84cd758b10e61a_control-pg-data Creating 
+ Volume taskgate-final-v5-deployment-01-27599c84cd758b10e61a_final-v5-direct-data Creating 
+ Volume taskgate-final-v5-deployment-01-27599c84cd758b10e61a_control-pg-data Creating 
+ Volume taskgate-final-v5-deployment-01-27599c84cd758b10e61a_final-v5-provsql-data Creating 
+ Volume taskgate-final-v5-deployment-01-27599c84cd758b10e61a_final-v5-provsql-data Creating 
+ Volume taskgate-final-v5-deployment-01-27599c84cd758b10e61a_result-object-data Creating 
+ Network taskgate-final-v5-deployment-01-27599c84cd758b10e61a_business-data Creating 
+ Volume taskgate-final-v5-deployment-01-27599c84cd758b10e61a_result-object-data Creating 
+ Network taskgate-final-v5-deployment-01-27599c84cd758b10e61a_business-data Creating 
+ Volume taskgate-final-v5-deployment-01-27599c84cd758b10e61a_snapshot-index-artifacts Creating 
+ Volume taskgate-final-v5-deployment-01-27599c84cd758b10e61a_snapshot-index-artifacts Creating 
+ Network taskgate-final-v5-deployment-01-27599c84cd758b10e61a_result-storage Creating 
+ Network taskgate-final-v5-deployment-01-27599c84cd758b10e61a_provsql-evaluation Creating 
+ Network taskgate-final-v5-deployment-01-27599c84cd758b10e61a_result-storage Creating 
+ Network taskgate-final-v5-deployment-01-27599c84cd758b10e61a_public-edge Creating 
+ Network taskgate-final-v5-deployment-01-27599c84cd758b10e61a_public-edge Creating 
+ Network taskgate-final-v5-deployment-01-27599c84cd758b10e61a_provsql-evaluation Creating 
+ Volume taskgate-final-v5-deployment-01-27599c84cd758b10e61a_business-pg-data Creating 
+ Volume taskgate-final-v5-deployment-01-27599c84cd758b10e61a_business-pg-data Creating 
+ Network taskgate-final-v5-deployment-01-27599c84cd758b10e61a_control-plane Creating 
+ Network taskgate-final-v5-deployment-01-27599c84cd758b10e61a_control-plane Creating 
+ Network taskgate-final-v5-deployment-01-27599c84cd758b10e61a_debug-host Creating 
+ Network taskgate-final-v5-deployment-01-27599c84cd758b10e61a_debug-host Creating 
+ Volume taskgate-final-v5-deployment-01-27599c84cd758b10e61a_result-object-data Created 
+ Volume taskgate-final-v5-deployment-01-27599c84cd758b10e61a_result-object-data Created 
+ Volume taskgate-final-v5-deployment-01-27599c84cd758b10e61a_business-pg-data Created 
+ Volume taskgate-final-v5-deployment-01-27599c84cd758b10e61a_business-pg-data Created 
+ Volume taskgate-final-v5-deployment-01-27599c84cd758b10e61a_final-v5-direct-data Created 
+ Volume taskgate-final-v5-deployment-01-27599c84cd758b10e61a_final-v5-direct-data Created 
+ Volume taskgate-final-v5-deployment-01-27599c84cd758b10e61a_control-pg-data Created 
+ Volume taskgate-final-v5-deployment-01-27599c84cd758b10e61a_control-pg-data Created 
+ Volume taskgate-final-v5-deployment-01-27599c84cd758b10e61a_snapshot-index-artifacts Created 
+ Volume taskgate-final-v5-deployment-01-27599c84cd758b10e61a_snapshot-index-artifacts Created 
+ Network taskgate-final-v5-deployment-01-27599c84cd758b10e61a_provsql-evaluation Created 
+ Network taskgate-final-v5-deployment-01-27599c84cd758b10e61a_provsql-evaluation Created 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-final-v5-direct-postgres-1 Creating 
+ Volume taskgate-final-v5-deployment-01-27599c84cd758b10e61a_final-v5-provsql-data Created 
+ Volume taskgate-final-v5-deployment-01-27599c84cd758b10e61a_final-v5-provsql-data Created 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-final-v5-provsql-postgres-1 Creating 
+ Network taskgate-final-v5-deployment-01-27599c84cd758b10e61a_debug-host Created 
+ Network taskgate-final-v5-deployment-01-27599c84cd758b10e61a_debug-host Created 
+ Network taskgate-final-v5-deployment-01-27599c84cd758b10e61a_control-plane Created 
+ Network taskgate-final-v5-deployment-01-27599c84cd758b10e61a_control-plane Created 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-control-postgres-1 Creating 
+ Network taskgate-final-v5-deployment-01-27599c84cd758b10e61a_public-edge Created 
+ Network taskgate-final-v5-deployment-01-27599c84cd758b10e61a_public-edge Created 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-oa-demo-1 Creating 
+ Network taskgate-final-v5-deployment-01-27599c84cd758b10e61a_business-data Created 
+ Network taskgate-final-v5-deployment-01-27599c84cd758b10e61a_business-data Created 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-business-postgres-1 Creating 
+ Network taskgate-final-v5-deployment-01-27599c84cd758b10e61a_result-storage Created 
+ Network taskgate-final-v5-deployment-01-27599c84cd758b10e61a_result-storage Created 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-result-object-store-1 Creating 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-final-v5-direct-postgres-1 Created 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-final-v5-provsql-postgres-1 Created 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-control-postgres-1 Created 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-oa-demo-1 Created 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-business-postgres-1 Created 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-index-detail-1 Creating 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-result-object-store-1 Created 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-result-object-store-init-1 Creating 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-index-detail-1 Created 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-index-summary-1 Creating 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-result-object-store-init-1 Created 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-index-summary-1 Created 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-index-result-heavy-1 Creating 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-index-result-heavy-1 Created 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-index-exposure-scale-1 Creating 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-index-exposure-scale-1 Created 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-sidecar-install-1 Creating 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-sidecar-install-1 Created 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-result-object-store-1 Starting 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-business-postgres-1 Starting 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-oa-demo-1 Starting 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-control-postgres-1 Starting 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-final-v5-provsql-postgres-1 Starting 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-final-v5-direct-postgres-1 Starting 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-final-v5-direct-postgres-1 Started 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-final-v5-provsql-postgres-1 Started 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-oa-demo-1 Started 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-control-postgres-1 Started 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-business-postgres-1 Started 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-business-postgres-1 Waiting 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-result-object-store-1 Started 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-result-object-store-1 Waiting 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-result-object-store-1 Healthy 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-result-object-store-init-1 Starting 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-result-object-store-init-1 Started 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-business-postgres-1 Healthy 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-index-detail-1 Starting 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-index-detail-1 Started 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-business-postgres-1 Waiting 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-index-detail-1 Waiting 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-index-detail-1 Exited 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-business-postgres-1 Healthy 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-index-summary-1 Starting 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-index-summary-1 Started 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-index-summary-1 Waiting 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-business-postgres-1 Waiting 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-business-postgres-1 Healthy 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-index-summary-1 Exited 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-index-result-heavy-1 Starting 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-index-result-heavy-1 Started 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-index-result-heavy-1 Waiting 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-business-postgres-1 Waiting 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-business-postgres-1 Healthy 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-index-result-heavy-1 Exited 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-index-exposure-scale-1 Starting 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-index-exposure-scale-1 Started 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-business-postgres-1 Waiting 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-index-exposure-scale-1 Waiting 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-business-postgres-1 Healthy 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-index-exposure-scale-1 Exited 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-sidecar-install-1 Starting 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-snapshot-sidecar-install-1 Started 
+ Volume taskgate-final-v5-deployment-01-27599c84cd758b10e61a_gateway-encrypted-spool Creating 
+ Volume taskgate-final-v5-deployment-01-27599c84cd758b10e61a_gateway-encrypted-spool Creating 
+ Volume taskgate-final-v5-deployment-01-27599c84cd758b10e61a_gateway-encrypted-spool Created 
+ Volume taskgate-final-v5-deployment-01-27599c84cd758b10e61a_gateway-encrypted-spool Created 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-gateway-1 Creating 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-gateway-1 Created 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-gateway-1 Starting 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-gateway-1 Started 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-gateway-1 Waiting 
+ Container taskgate-final-v5-deployment-01-27599c84cd758b10e61a-gateway-1 Healthy 

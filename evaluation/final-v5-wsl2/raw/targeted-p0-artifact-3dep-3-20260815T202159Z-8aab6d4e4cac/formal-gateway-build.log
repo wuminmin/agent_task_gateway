@@ -1,0 +1,7 @@
+formal Gateway build
+  commit        8aab6d4e4cac (clean, equals origin/tkde-artifact-rerun)
+  context       95cd6db621de over 1849 tracked files
+  manifest      fe8dbfd4bb68
+  image         sha256:9c5e40b0915b4900ad94568f21d2971c14b4e8751e4f674c8bf8582a55b67e64 (linux/amd64)
+  tag           taskgate-final-v5-gateway:8aab6d4e4cacbbbced0e2fa7f592fd3d530a9c9b
+formal Gateway build: pass
