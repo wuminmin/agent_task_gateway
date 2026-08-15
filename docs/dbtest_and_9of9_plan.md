@@ -339,3 +339,44 @@ dependency-e2e 的 `1035000` Fact 格正好落在这个「未被证明」的区�
 | 9.2 预填标定、9.6 内存标定 | Claude 直接做，结果上报 |
 | 9.5 快照产物跨部署复用 | ~~作者裁决~~ **已收回，不做** |
 | 9.4 删 v1.8/v1.9 qualification | 作者 2026-08-16 批准，已执行，回收 12 GB |
+
+### 9.8 内存：主机真实约束与对 9.6 的两处更正（作者 2026-08-16 问「12 GB 提到 18 GB 够吗」后实查）
+
+**主机实测（此前只记了 WSL 内部数字，未查 Windows 侧）：**
+
+| 项 | 实测 |
+|---|---|
+| Windows 物理内存 | `34,081,603,584` B = 31.7 GiB |
+| WSL2 上限 | `/mnt/c/Users/buckw/.wslconfig` 的 `memory=24GB`，`MemTotal` 实测 24,604,380 kB = 23.5 GiB |
+| WSL2 swap | `swap=24GB`，`swapfile=D:\\wsl-swap.vhdx` |
+| `autoMemoryReclaim` | disabled |
+| Gateway 容器 | `mem_limit: 12g`（`compose.yaml:425`） |
+
+**（一）18g 作为上限无害，作为实际用量主机给不起。** 24 GB 的 VM 里还要装 4 个 PostgreSQL
+（business/control/direct/provsql）、MinIO、oa-demo，加宿主侧 runner/adapter/observer 进程，
+以及 PostgreSQL 强依赖的 page cache（当前 buff/cache 实测 10 GiB）。若 Gateway 真吃到 18 GB，
+其余只剩约 5 GB。**上限的作用是 fail-closed，不是配额**；设成 18g 只会让内存耗尽发生得更晚、
+并落到别的进程头上。
+
+**（二）swap 是比 OOM 更严重的隐患。** 配了 24 GB swap。**在性能测量期间发生 swap 比 OOM 更糟**
+——OOM 会失败并被发现，swap 会产出看似合理、实则被污染的时序数据。建议正式 campaign 期间
+把 swap 关掉或调到很小，让内存不足以失败的形式暴露，而不是悄悄污染数字。
+
+**（三）比改容器上限更实在的一步**：`.wslconfig` 的 `memory` 从 24GB 提到 26–28GB
+（物理 32 GB，给 Windows 留 4–6 GB）。这同时惠及 PostgreSQL 与 page cache。改完需 `wsl --shutdown`。
+
+**（四）更正 9.6 的两处，均为 Claude 自己讲错：**
+
+1. **「10 倍于今天」讲错了。** `1,035,000` 是 **Fact** 数不是行数；按每保留行派生五个 Fact
+   （decision D3，`compose.yaml:153` 亦记 exposure-scale 为 414,000 行），1,035,000 Fact ≈
+   **207,000 行**，只有今天 100k 行那格的约 2 倍，不是 10 倍。
+2. **把风险机制安错了地方。** dependency-e2e 的两条查询实为聚合：
+   `scale-dependency-history-bdg.sql` 是 `SELECT sum(metric)`，candidate 是 `SELECT count(*)`,
+   **可见结果各只有一行一列**。而 Gateway 是「缓冲可见查询、流式读取 ordinal companion」
+   （`docs/getting-started.md`），所以「在内存中持有完整结果」这条风险主要落在
+   **result-heavy 那类 100k 行 × 16 列的 artifact 格**（今天实测峰值 3.39 GiB），
+   **不是 dependency-e2e**。dependency-e2e 的内存压力在记账结构侧——重叠度 0 时
+   `UnionFacts = 2 × 1,035,000 = 2,070,000` 个 Fact 的 bitmap 与 Merkle-radix 集合。
+
+**结论不变但警戒级别下调**：仍需一次 `1035000-overlap-0` 内存标定，但它测的是记账结构的
+内存曲线，不是「百万行结果撑爆内存」。**在标定出数字之前，不建议凭猜把 12g 改成 18g。**
