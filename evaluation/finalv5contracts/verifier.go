@@ -40,16 +40,17 @@ const (
 	// with closed-world statement accounting; see contracts/AMENDMENT-v1.4.md.
 	// It changes gate code only: every indexed artifact is byte-identical to
 	// v1.3.
-	contractReleaseV1  = "final-v5-contracts-v1"
-	contractReleaseV11 = "final-v5-contracts-v1.1"
-	contractReleaseV12 = "final-v5-contracts-v1.2"
-	contractReleaseV13 = "final-v5-contracts-v1.3"
-	contractReleaseV14 = "final-v5-contracts-v1.4"
-	contractReleaseV15 = "final-v5-contracts-v1.5"
-	contractReleaseV16 = "final-v5-contracts-v1.6"
-	contractReleaseV17 = "final-v5-contracts-v1.7"
-	contractReleaseV18 = "final-v5-contracts-v1.8"
-	contractReleaseV19 = "final-v5-contracts-v1.9"
+	contractReleaseV1   = "final-v5-contracts-v1"
+	contractReleaseV11  = "final-v5-contracts-v1.1"
+	contractReleaseV12  = "final-v5-contracts-v1.2"
+	contractReleaseV13  = "final-v5-contracts-v1.3"
+	contractReleaseV14  = "final-v5-contracts-v1.4"
+	contractReleaseV15  = "final-v5-contracts-v1.5"
+	contractReleaseV16  = "final-v5-contracts-v1.6"
+	contractReleaseV17  = "final-v5-contracts-v1.7"
+	contractReleaseV18  = "final-v5-contracts-v1.8"
+	contractReleaseV19  = "final-v5-contracts-v1.9"
+	contractReleaseV110 = "final-v5-contracts-v1.10"
 )
 
 var (
@@ -1102,15 +1103,16 @@ func validateContractRelease(index indexDocument, evaluationRoot string) error {
 	// and ships its own record, so evidence can never attribute corrected bytes
 	// to an earlier release.
 	chain := map[string][2]string{
-		contractReleaseV11: {contractReleaseV1, "contracts/AMENDMENT-v1.1.md"},
-		contractReleaseV12: {contractReleaseV11, "contracts/AMENDMENT-v1.2.md"},
-		contractReleaseV13: {contractReleaseV12, "contracts/AMENDMENT-v1.3.md"},
-		contractReleaseV14: {contractReleaseV13, "contracts/AMENDMENT-v1.4.md"},
-		contractReleaseV15: {contractReleaseV14, "contracts/AMENDMENT-v1.5.md"},
-		contractReleaseV16: {contractReleaseV15, "contracts/AMENDMENT-v1.6.md"},
-		contractReleaseV17: {contractReleaseV16, "contracts/AMENDMENT-v1.7.md"},
-		contractReleaseV18: {contractReleaseV17, "contracts/AMENDMENT-v1.8.md"},
-		contractReleaseV19: {contractReleaseV18, "contracts/AMENDMENT-v1.9.md"},
+		contractReleaseV11:  {contractReleaseV1, "contracts/AMENDMENT-v1.1.md"},
+		contractReleaseV12:  {contractReleaseV11, "contracts/AMENDMENT-v1.2.md"},
+		contractReleaseV13:  {contractReleaseV12, "contracts/AMENDMENT-v1.3.md"},
+		contractReleaseV14:  {contractReleaseV13, "contracts/AMENDMENT-v1.4.md"},
+		contractReleaseV15:  {contractReleaseV14, "contracts/AMENDMENT-v1.5.md"},
+		contractReleaseV16:  {contractReleaseV15, "contracts/AMENDMENT-v1.6.md"},
+		contractReleaseV17:  {contractReleaseV16, "contracts/AMENDMENT-v1.7.md"},
+		contractReleaseV18:  {contractReleaseV17, "contracts/AMENDMENT-v1.8.md"},
+		contractReleaseV19:  {contractReleaseV18, "contracts/AMENDMENT-v1.9.md"},
+		contractReleaseV110: {contractReleaseV19, "contracts/AMENDMENT-v1.10.md"},
 	}
 	expected, reviewed := chain[index.ContractRelease]
 	if !reviewed || index.SupersedesContractRelease != expected[0] {

@@ -201,12 +201,17 @@ case "${1:-}" in
     # about the probe rename it is supposed to check.
     export EXPOSURE_TEST_POSTGRES_DSN="$(control_dsn)"
     export GOFLAGS=${GOFLAGS:--buildvcs=false}
-    # go test applies a 10-minute per-package timeout by default, and
-    # internal/gateway alone takes ~20 minutes against a real control store:
-    # each V9 live test installs a Catalog V4 snapshot registry, and compiling
-    # those ordinal artifacts is genuinely expensive. Without an explicit
-    # timeout the DSN-enabled suite panics mid-package and reports a failure
-    # that looks like a hang but is only a budget.
+    # go test -timeout is a per-test-binary budget, not a wall-clock budget for
+    # the whole invocation: `go help testflag` says, "If a test binary runs
+    # longer than duration d, panic." internal/gateway alone took 4016.427s in
+    # P6-scale-C2 against a real control store, and its runtime grows with the
+    # number of publications in the master Catalog. The 120-minute default
+    # leaves about 1.8x headroom; if this package times out again, suspect the
+    # budget before treating it as a hang. Each V9 live test installs a Catalog
+    # V4 snapshot registry, and compiling those ordinal artifacts is genuinely
+    # expensive. Without an explicit timeout the DSN-enabled suite panics
+    # mid-package and reports a failure that looks like a hang but is only a
+    # budget.
     #
     # This was invisible while the DB-backed tests skipped for want of these
     # DSNs: the first run that actually exercised them was the first run that
@@ -220,7 +225,7 @@ case "${1:-}" in
     if [ "$timeout_supplied" = true ]; then
       exec go test "$@"
     fi
-    exec go test -timeout="${TASKGATE_DB_TEST_TIMEOUT:-60m}" "$@"
+    exec go test -timeout="${TASKGATE_DB_TEST_TIMEOUT:-120m}" "$@"
     ;;
 
   down)
