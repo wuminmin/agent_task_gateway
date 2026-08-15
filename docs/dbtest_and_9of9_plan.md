@@ -281,19 +281,32 @@ scale 契约 60 格**全部** `fresh_root: true`，且 `history_prefill: BEFORE_
 | 每轮复制两份完整产物 | 6.4 GB/轮 | 见 A4，待改 launcher |
 | Docker build cache | 27.44 GB（可回收 25.22） | `--no-cache` 构建仍写缓存，无上限增长；给 runner cleanup 加 `docker builder prune --keep-storage` |
 | 每次部署的 `snapshot-index-artifacts` 卷 | 约 4.5 GB | 见 9.5 |
-| 被取代的 v1.8 / v1.9 qualification 目录 | 11.6 GB | 保留中，等作者发话 |
+| 被取代的 v1.8 / v1.9 qualification 目录 | 11.7 GB | 作者已批准，2026-08-16 删除其 ignored 大产物子目录，回收 12 GB；四个已入库文件各自保留 |
 
-### 9.5 待作者裁决：快照产物能否跨部署按 digest 复用
+### 9.5 快照产物跨部署复用——**已由 Claude 收回，不做**
 
-快照 publication 产物是**确定性**的，其 `sidecar_digest`、`dictionary_digest`、
-`manifest_digest` 已在 `config/catalog.yaml` 中逐个 pin，`cmd/snapshot-index` 本身也带
-`-allow-existing-identical`。理论上可以用一个**按 digest 校验的共享卷**跨部署复用，
-而不是每次部署从 PostgreSQL 重新编译——同时省时间与空间。
+原提议：快照 publication 产物是确定性的，`sidecar_digest`/`dictionary_digest`/`manifest_digest`
+已在 `config/catalog.yaml` 逐个 pin，故可用按 digest 校验的共享卷跨部署复用，省编译时间与卷空间。
 
-**论证**：`fresh_deployment` 约束的应是数据库与账本状态，而 publication 产物是不可变、
-digest 已 pin、且 Gateway 启动时会校验的。**但这确实改变了「fresh」的含义，属实验协议改动，
-不由 Claude 裁决。** 若作者认可，收益是每次部署省掉快照编译（今天实测部署+编译共 3:55 中的大头）
-与每部署 4.5 GB 卷。
+**收回理由（作者 2026-08-16 追问「改实验协议是否影响论文思想」后实查得出）：**
+
+1. **不影响论文思想**：摘要与五条贡献全是语义与机制，没有一条依赖索引编译了几次。
+2. **但影响一个已报数字**：`\RQFourVFourBuildRuns` = `1`（`paper/tkde/generated/evidence.tex:147`），
+   直接印在 `main.tex:1397`「Only 1 build and one fixed-host deployment were measured.」，
+   `main.tex:1365-1366` 亦写「one index build and deployment rather than 140 independent deployments」。
+   **索引构建次数是论文里的已报量。** 跨部署复用等于 V5 campaign 只有 1 次索引构建被 3 次部署共享，
+   而不是 3 次独立构建——主动放弃一个本可改善的数字。
+3. **收益量级不成比例**：今天实测「部署 + 快照编译 + 产物复制」合计 3:55，复用最多省其中一部分，
+   3 次部署合计**分钟级**；而 9.2 的预填是**小时级**估算。差两个数量级。
+4. **另有必须隔离处**：RQ5 的 `\RQFiveTotalBuildRuns` = `12` 是**被测对象**
+   （`supplement.tex:953`「All 12 measured cycles satisfy the declared five-minute…」），
+   任何复用都绝不能触及 RQ5 那条构建路径。
+
+**结论：不做复用，保留每部署独立编译，据实报 3 次独立索引构建。**
+
+**根因登记（CLAUDE.md 第 7 条）：** 提出 9.5 时未先查论文报了哪些数字，也未把收益与 9.2 的
+量级作对比。这是本轮第三次同类根因——提建议前没查权威来源。补一条具体做法：
+**任何拿工程代价换论文内容的建议，必须先查论文实际报了哪些数、并给出收益量级，再提出。**
 
 ### 9.6 资源：一个必须在 B1a 之前验的风险
 
@@ -324,5 +337,5 @@ dependency-e2e 的 `1035000` Fact 格正好落在这个「未被证明」的区�
 |---|---|
 | 9.3 build 复用、不并行、9.4 build cache 上限 | Claude 直接做 |
 | 9.2 预填标定、9.6 内存标定 | Claude 直接做，结果上报 |
-| 9.5 快照产物跨部署复用 | **作者裁决**（改实验协议含义） |
-| 9.4 删 v1.8/v1.9 qualification | **作者裁决** |
+| 9.5 快照产物跨部署复用 | ~~作者裁决~~ **已收回，不做** |
+| 9.4 删 v1.8/v1.9 qualification | 作者 2026-08-16 批准，已执行，回收 12 GB |
