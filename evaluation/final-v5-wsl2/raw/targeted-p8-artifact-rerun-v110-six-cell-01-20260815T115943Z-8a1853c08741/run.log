@@ -1,0 +1,8 @@
+adapter sample deployment-01-p01-sample-0001: sample carries no deployment profile binding
+adapter sample deployment-01-p01-sample-0002: sample carries no deployment profile binding
+adapter sample deployment-01-p01-sample-0003: sample carries no deployment profile binding
+adapter sample deployment-01-p01-sample-0004: sample carries no deployment profile binding
+adapter sample deployment-01-p01-sample-0005: sample carries no deployment profile binding
+adapter sample deployment-01-p01-sample-0006: sample carries no deployment profile binding
+adapter process replicate 1: adapter wrote stderr; content was suppressed by the evidence secret boundary
+exit status 1

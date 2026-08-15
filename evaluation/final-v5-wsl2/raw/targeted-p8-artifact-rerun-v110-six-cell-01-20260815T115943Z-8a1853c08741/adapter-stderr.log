@@ -1,0 +1,6 @@
+artifact cell artifact/result-heavy/100x16/novel: run observer before: exit status 1
+artifact cell artifact/result-heavy/100x4/novel: run observer before: exit status 1
+artifact cell artifact/result-heavy/100k-x16/novel: run observer before: exit status 1
+artifact cell artifact/result-heavy/10k-x16/novel: run observer before: exit status 1
+artifact cell artifact/result-heavy/10k-x4/novel: run observer before: exit status 1
+artifact cell artifact/result-heavy/100k-x4/novel: run observer before: exit status 1
