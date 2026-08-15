@@ -1,0 +1,4 @@
+services:
+  gateway:
+    image: "taskgate-final-v5-gateway:eaddd967b80f2bb384d452368194edacd52bcf2e"
+    pull_policy: never
