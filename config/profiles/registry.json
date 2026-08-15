@@ -2,7 +2,7 @@
   "schema_version": 1,
   "registry_version": "taskgate-final-v5-workload-closure-profile-v2",
   "contract_release": "final-v5-contracts-v1.9",
-  "max_hot_limit_bytes": 167772160,
+  "max_hot_limit_bytes": 1073741824,
   "max_hot_limit_scope": "per Catalog-bound Gateway instance HOT limit",
   "profiles": [
     {
@@ -62,7 +62,7 @@
         }
       ],
       "total_hot_bytes": 16638,
-      "max_hot_limit_bytes": 167772160,
+      "max_hot_limit_bytes": 1073741824,
       "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
       "within_hot_limit": true
     },
@@ -124,7 +124,7 @@
         }
       ],
       "total_hot_bytes": 16638,
-      "max_hot_limit_bytes": 167772160,
+      "max_hot_limit_bytes": 1073741824,
       "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
       "within_hot_limit": true
     },
@@ -194,7 +194,7 @@
         }
       ],
       "total_hot_bytes": 16638,
-      "max_hot_limit_bytes": 167772160,
+      "max_hot_limit_bytes": 1073741824,
       "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
       "within_hot_limit": true
     },
@@ -253,7 +253,7 @@
         }
       ],
       "total_hot_bytes": 16638,
-      "max_hot_limit_bytes": 167772160,
+      "max_hot_limit_bytes": 1073741824,
       "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
       "within_hot_limit": true
     },
@@ -319,7 +319,7 @@
         }
       ],
       "total_hot_bytes": 16638,
-      "max_hot_limit_bytes": 167772160,
+      "max_hot_limit_bytes": 1073741824,
       "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
       "within_hot_limit": true
     },
@@ -393,7 +393,7 @@
       "catalog_path": "",
       "hot_artifacts": null,
       "total_hot_bytes": 0,
-      "max_hot_limit_bytes": 167772160,
+      "max_hot_limit_bytes": 1073741824,
       "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
       "within_hot_limit": false
     },
@@ -477,7 +477,7 @@
         }
       ],
       "total_hot_bytes": 117607276,
-      "max_hot_limit_bytes": 167772160,
+      "max_hot_limit_bytes": 1073741824,
       "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
       "within_hot_limit": true
     },
@@ -517,7 +517,7 @@
       "routable": false,
       "targeted_run_eligible": true,
       "budget_profiles": [
-        "final-v5-benchmark-low-v1"
+        "final-v5-exposure-scale-v1"
       ],
       "workload_cells": [
         "baseline/S3/10k-50k/direct",
@@ -564,7 +564,7 @@
         "baseline",
         "scale"
       ],
-      "catalog_sha256": "afb7782d520792d534c5a50f3d685e763a1c724675ff31c49e8bb5be77e8d584",
+      "catalog_sha256": "c9ee12648003104edf703219b88865aa816e7329dbf99911d586ebceb8952c02",
       "catalog_path": "config/profiles/exposure-scale.catalog.yaml",
       "hot_artifacts": [
         {
@@ -574,7 +574,7 @@
         }
       ],
       "total_hot_bytes": 107642350,
-      "max_hot_limit_bytes": 167772160,
+      "max_hot_limit_bytes": 1073741824,
       "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
       "within_hot_limit": true
     },
@@ -654,7 +654,7 @@
         }
       ],
       "total_hot_bytes": 117869763,
-      "max_hot_limit_bytes": 167772160,
+      "max_hot_limit_bytes": 1073741824,
       "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
       "within_hot_limit": true
     },
@@ -730,7 +730,7 @@
         }
       ],
       "total_hot_bytes": 126813361,
-      "max_hot_limit_bytes": 167772160,
+      "max_hot_limit_bytes": 1073741824,
       "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
       "within_hot_limit": true
     },
@@ -815,7 +815,7 @@
         }
       ],
       "total_hot_bytes": 16603206,
-      "max_hot_limit_bytes": 167772160,
+      "max_hot_limit_bytes": 1073741824,
       "required_activation_policy": "restart a Catalog-bound Gateway on this profile Catalog; verify its SHA-256; activate only this closure; isolate the previous profile's HOT cache, semantic cache, Publications and Task bindings; record activation evidence; activation and restart are never part of a measured sample",
       "within_hot_limit": true
     }

@@ -416,7 +416,7 @@
           "detail": "no targeted non-publication run has executed this profile's cells"
         }
       ],
-      "catalog_sha256": "afb7782d520792d534c5a50f3d685e763a1c724675ff31c49e8bb5be77e8d584",
+      "catalog_sha256": "c9ee12648003104edf703219b88865aa816e7329dbf99911d586ebceb8952c02",
       "total_hot_bytes": 107642350,
       "cells": [
         "baseline/S3/10k-50k/direct",

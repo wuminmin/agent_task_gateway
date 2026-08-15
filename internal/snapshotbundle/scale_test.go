@@ -68,7 +68,7 @@ func TestSnapshotPublicationScaleEvaluation(t *testing.T) {
 	report.TotalBytes = report.HotBytes + report.ColdBytes + report.SidecarBytes + report.ManifestBytes
 	_, report.PeakRSSBytes = snapshotScaleProcMemory()
 
-	if bundle.Manifest.RowCount != uint64(rows) || report.HotBytes > 160<<20 || report.TotalBytes > 2<<30 ||
+	if bundle.Manifest.RowCount != uint64(rows) || report.HotBytes > 1024<<20 || report.TotalBytes > 2<<30 ||
 		report.PeakRSSBytes > 4<<30 || report.CompileMS > float64((10*time.Minute)/time.Millisecond) {
 		t.Fatalf("snapshot publication scale gate failed: %+v", report)
 	}

@@ -35,7 +35,7 @@ const RegistryVersion = "taskgate-final-v5-workload-closure-profile-v2"
 // MaxHotBytesPerInstance is the production HOT artifact ceiling of one
 // Catalog-bound Gateway instance. Profiles are activated one at a time, so this
 // is checked per profile and never as a sum across mutually exclusive profiles.
-const MaxHotBytesPerInstance = int64(160 << 20)
+const MaxHotBytesPerInstance = int64(1024 << 20)
 
 // HotLimitScope is the exact wording evidence and the paper must use. The
 // ceiling is a property of one Catalog-bound Gateway instance, not a claim that

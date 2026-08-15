@@ -185,7 +185,7 @@ func TestIncompleteScaleAndArtifactProfilesCannotEnableCapabilities(t *testing.T
 // legally resolve to a task policy. It prevents an adapter constructor or a
 // syntactically valid private binding from hiding the absence of an executable
 // formal task route.
-func TestFrozenCatalogCannotBackCompleteScaleOrArtifactProfiles(t *testing.T) {
+func TestFrozenCatalogBacksTheReviewedScaleRouteWithoutAdvertisingIt(t *testing.T) {
 	frozen, err := catalog.Load("../../../config/catalog.yaml")
 	if err != nil {
 		t.Fatal(err)
@@ -193,6 +193,7 @@ func TestFrozenCatalogCannotBackCompleteScaleOrArtifactProfiles(t *testing.T) {
 	policies := legalCatalogTaskPolicies(t, frozen)
 
 	largeInfluenceRoutes := 0
+	reviewedScaleRoutes := 0
 	for _, policy := range policies {
 		if policy.Budget.MaxInfluenceFacts < 1_035_000 {
 			continue
@@ -201,20 +202,54 @@ func TestFrozenCatalogCannotBackCompleteScaleOrArtifactProfiles(t *testing.T) {
 		// Even the zero-overlap formal cell performs novel followed by a
 		// semantic replay on the same approved task. A one-query grant cannot
 		// execute that pair; nonzero-overlap cells additionally need history.
-		// The reviewed result-heavy route does grant many queries, but the
-		// Catalog publishes no exposure-scale Product for it to read, so it
-		// still cannot carry a dependency-e2e cell.
-		if policy.Budget.MaxQueries >= 2 && !onlyResultHeavy(policy) {
-			t.Fatalf("Catalog now has a large-influence two-query route %q; implement and review the complete scale profile before changing its gate", policy.BudgetProfile)
+		// The reviewed result-heavy route also grants many queries; the Scale
+		// route must instead bind the exposure-scale Product alone to its narrow
+		// aggregate-result budget.
+		if policy.Budget.MaxQueries < 2 || onlyResultHeavy(policy) {
+			continue
+		}
+		reviewedScaleRoutes++
+		if policy.BudgetProfile != "final-v5-exposure-scale-v1" {
+			t.Fatalf("Scale route uses budget profile %q, want final-v5-exposure-scale-v1", policy.BudgetProfile)
+		}
+		if len(policy.Products) != 1 || policy.Products[0].Name != "final_v5_exposure_scale" {
+			t.Fatalf("reviewed Scale route resolved for %d products; it must bind final_v5_exposure_scale alone", len(policy.Products))
+		}
+		budget := policy.Budget
+		if budget.MaxQueries != 8 || budget.MaxRows != 16 || budget.MaxDBTime.String() != "30m0s" ||
+			budget.PerQueryTimeout.String() != "30m0s" || budget.TaskTTL.String() != "2h0m0s" ||
+			budget.MaxReleaseFacts != 1_250_000 || budget.MaxInfluenceFacts != 2_500_000 ||
+			budget.MaxOutcomeFacts != 128 || budget.ExposureProfileVersion != "taskgate-exposure-v5" {
+			t.Fatalf("Scale route resolved the wrong narrow budget: %+v", budget)
+		}
+		footprint := budget.PredicateFootprint
+		if footprint == nil || footprint.Version != "taskgate-predicate-footprint-v1" ||
+			footprint.MaxRawLiteralsPerQuery != 64 || footprint.MaxUniqueAtomsPerQuery != 16 ||
+			footprint.MaxAtomPayloadBytes != 4096 || footprint.MaxTotalAtomPayloadBytes != 65536 {
+			t.Fatalf("Scale route resolved the wrong predicate footprint: %+v", footprint)
 		}
 	}
 	if largeInfluenceRoutes == 0 {
 		t.Fatal("Catalog evidence premise changed: no route reaches the frozen 1,035,000-Fact scale")
 	}
+	if reviewedScaleRoutes != 1 {
+		t.Fatalf("Catalog resolves %d reviewed large-influence two-query Scale routes, want 1", reviewedScaleRoutes)
+	}
+	scaleProductPublished := false
 	for _, product := range frozen.Products {
 		if product.Name == "final_v5_exposure_scale" {
-			t.Fatal("Catalog now publishes the exposure-scale Product; implement and review the complete scale profile before changing its gate")
+			scaleProductPublished = true
+			break
 		}
+	}
+	if !scaleProductPublished {
+		t.Fatal("Catalog does not publish the reviewed final_v5_exposure_scale Product")
+	}
+	if implementedCapabilities()["scale"] {
+		t.Fatal("Scale capability was advertised when only its reviewed Catalog route is available")
+	}
+	if implemented := len(publicationCoverageGates["scale"].implemented); implemented != 0 {
+		t.Fatalf("Scale coverage advertises %d implemented cells before real full-profile support", implemented)
 	}
 
 	// The reviewed benchmark route deliberately reaches the frozen 100,000-row,

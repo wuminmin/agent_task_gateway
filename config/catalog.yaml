@@ -12,7 +12,7 @@ sources:
     # Live attested reporting-view digest. Adding the Final-V5 result-heavy
     # Product changes the source attestation, so it was regenerated with
     # evaluation/cmd/schema-digest against a fresh deployment.
-    schema_digest: ebedbecf4f8fbc4eaf150d32fd260fe9b902549367abee880cc02d4b6c3ff96b
+    schema_digest: f11b51d9b3dd8ab5332d2f059da13472407527e7c2d2f49df1fef5e09df7e9bd
     secretRef: GATEWAY_DB_PASSWORD
 
 snapshot_publications:
@@ -68,6 +68,14 @@ snapshot_publications:
     sidecar_digest: f50d45943e4388bc9cbc897be0ff337bf76cf004cd55e553fdab8695b567a1fc
     dictionary_digest: 9d014210da03effded9c72f42fe1af370c9a563fbee6315c298c10560a7254c0
     manifest_digest: 80238c32b6773b623efd48730cb31e4375faff4430aabe19436e78a9b2eb88fd
+  - name: final-v5-exposure-scale-v1
+    source: travel_demo
+    source_namespace: final_v5.exposure_scale
+    snapshot: final-v5-exposure-scale-2026-v1
+    ordinal_sidecar: taskgate_ordinal.final_v5_exposure_scale_v1
+    sidecar_digest: 8f3d4d1b82baa5095d14abc32b4e9c11cfc2790f6337040d6e17b927fe9209df
+    dictionary_digest: 2b8ff3c1676aafbde834e491e856537f186ff6844d5dfd757760d5f908bc22c5
+    manifest_digest: 3af007b8f7d935d8320fee8bf59352c0922dba66666f8ebd53d500cd7d5956ff
 
 scopes:
   - name: department
@@ -473,6 +481,33 @@ products:
         type: boolean
         description: Deterministic active flag
 
+  - name: final_v5_exposure_scale
+    source: travel_demo
+    reporting_view: reporting.final_v5_exposure_scale
+    description: Final-V5 controlled exposure and dependency scale relation
+    sensitivity: low
+    fields:
+      - name: member_rank
+        type: bigint
+        description: Stable deterministic exposure member rank
+      - name: metric
+        type: numeric
+        description: Deterministic aggregate metric
+      - name: family_id
+        type: integer
+        description: Fixed benchmark family identifier
+      - name: partition_key
+        type: integer
+        description: Mandatory frozen partition key
+    scopes: [partition_key]
+    allowed_operators: ["=", ">", "<="]
+    allowed_aggregates: [sum, count]
+    snapshot: final-v5-exposure-scale-2026-v1
+    snapshot_publication: final-v5-exposure-scale-v1
+    entity_key: [member_rank]
+    fact_namespace: final_v5.exposure_scale
+    stable_relation_role: final_v5_exposure_scale
+
 
 approval_routes:
   - sensitivity: low
@@ -521,6 +556,11 @@ approval_routes:
     mode: manual
     approver: bob
     budget_profile: final-v5-benchmark-low-v1
+  - sensitivity: low
+    products: [final_v5_exposure_scale]
+    mode: manual
+    approver: bob
+    budget_profile: final-v5-exposure-scale-v1
 
 budget_profiles:
   - name: summary-manual-v5
@@ -647,6 +687,25 @@ budget_profiles:
     task_ttl: 2h
     max_release_facts: 2000000
     max_influence_facts: 3000000
+    max_outcome_facts: 128
+    exposure_profile_version: taskgate-exposure-v5
+    predicate_footprint:
+      version: taskgate-predicate-footprint-v1
+      max_raw_literals_per_query: 64
+      max_unique_atoms_per_query: 16
+      max_atom_payload_bytes: 4096
+      max_total_atom_payload_bytes: 65536
+  # Scale's candidate/history queries are ungrouped aggregates that each return
+  # one row. Keep their authority narrow while covering one preregistered pair's
+  # history, novel, and semantic-replay operations and worst-case Fact sets.
+  - name: final-v5-exposure-scale-v1
+    max_queries: 8
+    max_rows: 16
+    max_db_time: 30m
+    query_timeout: 30m
+    task_ttl: 2h
+    max_release_facts: 1250000
+    max_influence_facts: 2500000
     max_outcome_facts: 128
     exposure_profile_version: taskgate-exposure-v5
     predicate_footprint:

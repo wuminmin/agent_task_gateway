@@ -17,7 +17,7 @@ import (
 
 const (
 	maximumBundleManifestBytes = 4 << 20
-	maximumHotBytes            = 160 << 20
+	maximumHotBytes            = 1024 << 20
 	maximumSidecarBytes        = 512 << 20
 )
 

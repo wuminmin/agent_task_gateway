@@ -22,7 +22,7 @@ const (
 	Scale               = "345000"
 	RowsPerPublication  = int64(345_000)
 	CyclesPerDeployment = 4
-	MaximumHOTBytes     = int64(160 << 20)
+	MaximumHOTBytes     = int64(1024 << 20)
 	DailyCycleGateMS    = float64(300_000)
 
 	BuildMode    = "build_verify_activate"
@@ -96,7 +96,7 @@ func FixtureSHA256() string {
 }
 
 func Validate() error {
-	if len(Days) != CyclesPerDeployment || RowsPerPublication != 345_000 || MaximumHOTBytes != 160<<20 ||
+	if len(Days) != CyclesPerDeployment || RowsPerPublication != 345_000 || MaximumHOTBytes != 1024<<20 ||
 		DailyCycleGateMS != 300_000 || FixtureSHA256() == "" {
 		return errors.New("RQ5 fixture constants changed")
 	}

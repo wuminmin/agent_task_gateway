@@ -397,9 +397,9 @@ func TestExposureScaleCatalogCarriesTheExactClosureAndSufficientPairBudget(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if policy.BudgetProfile != "final-v5-benchmark-low-v1" || policy.Budget.MaxQueries < 2 ||
-		policy.Budget.MaxInfluenceFacts < 2070000 || policy.Budget.MaxReleaseFacts < 1035000 ||
-		policy.Budget.MaxOutcomeFacts < 5 {
+	if policy.BudgetProfile != "final-v5-exposure-scale-v1" || policy.Budget.MaxQueries < 3 ||
+		policy.Budget.MaxInfluenceFacts < 2_070_000 || policy.Budget.MaxReleaseFacts < 1_035_000 ||
+		policy.Budget.MaxOutcomeFacts < 5 || policy.Budget.MaxRows >= 10_000 {
 		t.Fatalf("exposure-scale pair budget = %+v", policy)
 	}
 }

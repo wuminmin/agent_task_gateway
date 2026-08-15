@@ -449,7 +449,7 @@ func TestCompileOwnedToDirectoryEnforcesExactHotAndTotalBounds(t *testing.T) {
 	if _, err := CompileOwnedToDirectory(&input, t.TempDir(), PublicationLimits{
 		MaxBytes: int64(maxPublishedBytes), MaxHotBytes: int64(maxHotPublishedBytes) + 1,
 	}); err == nil || !strings.Contains(err.Error(), "limits are invalid") {
-		t.Fatalf("core accepted HOT cap above 160 MiB: %v", err)
+		t.Fatalf("core accepted HOT cap above 1024 MiB: %v", err)
 	}
 }
 

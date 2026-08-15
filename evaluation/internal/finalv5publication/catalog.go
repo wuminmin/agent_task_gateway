@@ -17,6 +17,7 @@ import (
 	"taskbound.local/agent-data-gateway/internal/catalog"
 	"taskbound.local/agent-data-gateway/internal/catalogschema"
 	"taskbound.local/agent-data-gateway/internal/dataconnector"
+	"taskbound.local/agent-data-gateway/internal/domain"
 )
 
 const CatalogCandidateVersion = "2026-08-11.final-v5-publication-binding-review-v1"
@@ -196,6 +197,9 @@ func mergeCatalogModel(baseBytes, approvedScaleBytes []byte, schemaSHA256 string
 	if err != nil {
 		return nil, nil, fmt.Errorf("parse approved Scale Catalog: %w", err)
 	}
+	if err := normalizeActivatedScaleBase(base, scale); err != nil {
+		return nil, nil, err
+	}
 	if err := validateCatalogMergeInputs(base, scale); err != nil {
 		return nil, nil, err
 	}
@@ -218,6 +222,83 @@ func mergeCatalogModel(baseBytes, approvedScaleBytes []byte, schemaSHA256 string
 		return nil, nil, fmt.Errorf("validate complete Catalog candidate: %w", err)
 	}
 	return &merged, scale, nil
+}
+
+// normalizeActivatedScaleBase recognizes only the exact Decision-24 live
+// Scale closure and removes it before reconstructing the independently
+// approved C2 review candidate. A partial, duplicate, or widened live closure
+// fails closed instead of being silently folded into historical review bytes.
+func normalizeActivatedScaleBase(base, scale *catalog.Catalog) error {
+	if base == nil || scale == nil || len(scale.Products) != 1 || len(scale.SnapshotPublications) != 1 {
+		return errors.New("cannot normalize an incomplete Scale Catalog")
+	}
+	const liveBudgetName = "final-v5-exposure-scale-v1"
+	wantProduct := scale.Products[0]
+	wantProduct.AllowedFunctions = nil
+	wantPublication := scale.SnapshotPublications[0]
+	wantRoute := catalog.ApprovalRoute{Sensitivity: domain.SensitivityLow,
+		Products: []string{wantProduct.Name}, Mode: domain.ApprovalModeManual,
+		Approver: "bob", BudgetProfile: liveBudgetName}
+	wantBudget := catalog.BudgetProfile{Name: liveBudgetName, MaxQueries: 8, MaxRows: 16,
+		MaxDBTime: catalog.Duration{Duration: 30 * time.Minute}, QueryTimeout: catalog.Duration{Duration: 30 * time.Minute},
+		TaskTTL: catalog.Duration{Duration: 2 * time.Hour}, MaxReleaseFacts: 1_250_000,
+		MaxInfluenceFacts: 2_500_000, MaxOutcomeFacts: 128, ExposureProfileVersion: "taskgate-exposure-v5",
+		PredicateFootprint: &domain.PredicateFootprintLimitsV1{Version: domain.PredicateFootprintV1,
+			MaxRawLiteralsPerQuery: 64, MaxUniqueAtomsPerQuery: 16, MaxAtomPayloadBytes: 4096,
+			MaxTotalAtomPayloadBytes: 65536}}
+
+	productIndex, publicationIndex, routeIndex, budgetIndex := -1, -1, -1, -1
+	for index, product := range base.Products {
+		if product.Name != wantProduct.Name {
+			continue
+		}
+		if productIndex >= 0 {
+			return errors.New("live base Catalog contains duplicate Scale Products")
+		}
+		product.AllowedFunctions = nil
+		if !reflect.DeepEqual(product, wantProduct) {
+			return errors.New("live base Catalog Scale Product differs from the exact Decision-24 closure")
+		}
+		productIndex = index
+	}
+	for index, publication := range base.SnapshotPublications {
+		if publication.Name != wantPublication.Name {
+			continue
+		}
+		if publicationIndex >= 0 || !reflect.DeepEqual(publication, wantPublication) {
+			return errors.New("live base Catalog Scale publication is duplicate or drifted")
+		}
+		publicationIndex = index
+	}
+	for index, route := range base.ApprovalRoutes {
+		if len(route.Products) == 1 && route.Products[0] == wantProduct.Name {
+			if routeIndex >= 0 || !reflect.DeepEqual(route, wantRoute) {
+				return errors.New("live base Catalog Scale route is duplicate or wider than the exact Decision-24 route")
+			}
+			routeIndex = index
+		}
+	}
+	for index, profile := range base.BudgetProfiles {
+		if profile.Name == liveBudgetName {
+			if budgetIndex >= 0 || !reflect.DeepEqual(profile, wantBudget) {
+				return errors.New("live base Catalog Scale budget is duplicate or differs from the exact narrow profile")
+			}
+			budgetIndex = index
+		}
+	}
+	present := []bool{productIndex >= 0, publicationIndex >= 0, routeIndex >= 0, budgetIndex >= 0}
+	if !present[0] && !present[1] && !present[2] && !present[3] {
+		return nil
+	}
+	if !present[0] || !present[1] || !present[2] || !present[3] {
+		return errors.New("live base Catalog contains only part of the exact Decision-24 Scale closure")
+	}
+	base.Products = append(base.Products[:productIndex], base.Products[productIndex+1:]...)
+	base.SnapshotPublications = append(base.SnapshotPublications[:publicationIndex],
+		base.SnapshotPublications[publicationIndex+1:]...)
+	base.ApprovalRoutes = append(base.ApprovalRoutes[:routeIndex], base.ApprovalRoutes[routeIndex+1:]...)
+	base.BudgetProfiles = append(base.BudgetProfiles[:budgetIndex], base.BudgetProfiles[budgetIndex+1:]...)
+	return nil
 }
 
 func validateCatalogMergeInputs(base, scale *catalog.Catalog) error {

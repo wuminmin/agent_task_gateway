@@ -255,9 +255,10 @@ func ValidateActivationEvidence(evidence ActivationEvidence, profile Profile) er
 		return fmt.Errorf("profile %q activated %d HOT bytes, the registry records %d",
 			profile.Alias, evidence.ActualHotBytes, evidence.ExpectedHotBytes)
 	}
-	if evidence.HotLimitBytes != MaxHotBytesPerInstance || evidence.ActualHotBytes > MaxHotBytesPerInstance {
+	hotLimitBytes := activationHotLimitBytes(evidence.ContractRelease)
+	if evidence.HotLimitBytes != hotLimitBytes || evidence.ActualHotBytes > hotLimitBytes {
 		return fmt.Errorf("profile %q activated %d HOT bytes against the %d byte %s",
-			profile.Alias, evidence.ActualHotBytes, MaxHotBytesPerInstance, HotLimitScope)
+			profile.Alias, evidence.ActualHotBytes, hotLimitBytes, HotLimitScope)
 	}
 	// An unobserved drain is a failure, not an empty one.
 	if evidence.DrainObservationStatus != DrainObservationObserved {
@@ -308,6 +309,16 @@ func ValidateActivationEvidence(evidence ActivationEvidence, profile Profile) er
 			profile.Alias, evidence.Status, strings.Join(evidence.Failures, "; "))
 	}
 	return nil
+}
+
+// The immutable v1.3 activation fixtures retain the limit under which they
+// were produced. Every other contract release is checked against the current
+// limit, so the historical exception cannot authorize a current activation.
+func activationHotLimitBytes(contractRelease string) int64 {
+	if contractRelease == "final-v5-contracts-v1.3" {
+		return MaxHotBytesPerInstance / 32 * 5
+	}
+	return MaxHotBytesPerInstance
 }
 
 // ExpectedArtifacts converts registry HOT artifacts into the evidence shape.

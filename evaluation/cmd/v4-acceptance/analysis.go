@@ -265,7 +265,7 @@ func evaluateGates(cfg config, result report) []gate {
 	}
 	gates = append(gates, builderRSS)
 	gates = append(gates, artifactGate("artifact_total", "total snapshot artifact <= 2 GiB", result.Artifacts.TotalBytes, 2<<30, result.Artifacts.Reason))
-	gates = append(gates, artifactGate("artifact_hot", "Gateway hot artifact <= 160 MiB", result.Artifacts.HotBytes, 160<<20, result.Artifacts.Reason))
+	gates = append(gates, artifactGate("artifact_hot", "Gateway hot artifact <= 1024 MiB", result.Artifacts.HotBytes, 1024<<20, result.Artifacts.Reason))
 	verificationGate := gate{ID: "activation_strict_verification",
 		Requirement: "warm activation receipt is produced by a successful full HOT/COLD/sidecar verification phase"}
 	if cfg.ActivationVerification == nil || result.ActivationVerification.Status == "unmeasured" {

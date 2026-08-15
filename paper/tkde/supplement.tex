@@ -952,9 +952,9 @@ Day 3 & 10\% update; 1\% insert/delete & \RQFiveDayThreeBuildMedianS{} &
 
 All \RQFiveTotalBuildRuns{} measured cycles satisfy the declared five-minute
 local daily-cycle gate; the observed maximum is \RQFiveMaxCycleS{}~s. The
-largest recorded builder peak is \RQFiveBuilderPeakGiB{}~GiB and the largest
-HOT artifact is \RQFiveHotArtifactMiB{}~MiB; every artifact remains below the
-compiler's 2~GiB total and 160~MiB HOT limits. The memory value is the direct
+largest recorded builder peak is \RQFiveBuilderPeakGiB{}~GiB. The largest
+measured HOT artifact is \RQFiveHotArtifactMiB{}~MiB, well below the
+compiler's 2~GiB total-artifact and 1024~MiB HOT limits. The memory value is the direct
 offline compiler child process's Linux \code{VmHWM}, sampled at 1~ms; it is not
 a cgroup, PostgreSQL, page-cache, swap, or full-system peak. It exceeds the
 the configured builder envelope; this run instead has a 6~GiB Compose

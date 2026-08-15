@@ -130,11 +130,14 @@ func run(root string, verifyOnly bool) error {
 	}
 	for index := range profiles {
 		deploymentCatalog := live
-		defaultStatus, _ := finalv5profile.EvaluateStatus(profiles[index].Closure, nil, live, hot, false)
-		if !defaultStatus.CatalogMaterializable {
-			if profileCatalog, found := profileCatalogs[profiles[index].Closure.SHA256]; found {
-				deploymentCatalog = profileCatalog
-			}
+		// Once a profile Catalog exists, keep projecting that independently
+		// activatable declaration. Adding the same closure to the master Catalog
+		// must not silently rewrite the already activated profile Catalog from
+		// unrelated shared master metadata and invalidate its activation evidence.
+		// Build still derives materializability and live-route status from the
+		// master Catalog first; this choice only preserves generated profile bytes.
+		if profileCatalog, found := profileCatalogs[profiles[index].Closure.SHA256]; found {
+			deploymentCatalog = profileCatalog
 		}
 		if err := materializeProfile(root, deploymentCatalog, &profiles[index], hot, attestations,
 			verifyOnly); err != nil {

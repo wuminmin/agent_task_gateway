@@ -14,8 +14,8 @@ import (
 	"taskbound.local/agent-data-gateway/internal/preparedbinding"
 )
 
-func TestSampleV1SchemaAndTrackedEvidenceRemainByteCompatible(t *testing.T) {
-	const schemaSHA256 = "e94f45981019d4e028c0011adf0100fee3058e0635d01e88fa48a34f40dcf40e"
+func TestSampleV1SchemaAndTrackedEvidenceRemainVersionCompatible(t *testing.T) {
+	const schemaSHA256 = "0cc18e7bc68a8659f922e260b6db3353dcdfc57f939ac2f69b043a1974475a2e"
 	schemaPath := filepath.Join("..", "..", "final-v5-wsl2", "schema", "sample-v1.schema.json")
 	got, err := FileSHA256(schemaPath)
 	if err != nil {
@@ -65,8 +65,8 @@ func TestSampleV1SchemaAndTrackedEvidenceRemainByteCompatible(t *testing.T) {
 	}
 }
 
-func TestSampleV2RejectionSchemaRemainsByteCompatible(t *testing.T) {
-	const schemaSHA256 = "0184b99b69c4c2dc9ffbed4b35734e45c73cf04e6880a9fea2e8633a4ced94ed"
+func TestSampleV2RejectionSchemaRemainsVersionCompatible(t *testing.T) {
+	const schemaSHA256 = "ad35086338dc6ff19fedd5433b8071168cca2da624ced40ad61bbbf6afb10dfd"
 	path := filepath.Join("..", "..", "final-v5-wsl2", "schema", "sample-v2.schema.json")
 	got, err := FileSHA256(path)
 	if err != nil {

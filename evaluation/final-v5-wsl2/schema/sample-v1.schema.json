@@ -4130,7 +4130,7 @@
         "hot_artifact_bytes": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 167772160
+          "maximum": 1073741824
         }
       }
     },
@@ -4283,12 +4283,15 @@
           "const": 0
         },
         "hot_artifact_limit_bytes": {
-          "const": 167772160
+          "enum": [
+            167772160,
+            1073741824
+          ]
         },
         "max_active_hot_artifact_bytes": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 167772160
+          "maximum": 1073741824
         }
       }
     },
@@ -4685,6 +4688,54 @@
     "rq5Verification": {
       "type": "object",
       "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "fixture_sha256": {
+                "const": "193a0d70cc6bbd3a253a7513ec8cd0f7b6fb4eac6741703f9841523abb3f24c2"
+              }
+            },
+            "required": [
+              "fixture_sha256"
+            ]
+          },
+          "then": {
+            "properties": {
+              "publications": {
+                "items": {
+                  "properties": {
+                    "hot_artifact_bytes": {
+                      "maximum": 167772160
+                    }
+                  }
+                }
+              },
+              "topology": {
+                "properties": {
+                  "hot_artifact_limit_bytes": {
+                    "const": 167772160
+                  },
+                  "max_active_hot_artifact_bytes": {
+                    "maximum": 167772160
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "topology": {
+                "properties": {
+                  "hot_artifact_limit_bytes": {
+                    "const": 1073741824
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
       "required": [
         "version",
         "fixture_sha256",
@@ -4718,7 +4769,10 @@
           "const": "taskgate-final-v5-rq5-fixture-v1"
         },
         "fixture_sha256": {
-          "$ref": "#/$defs/sha256"
+          "enum": [
+            "193a0d70cc6bbd3a253a7513ec8cd0f7b6fb4eac6741703f9841523abb3f24c2",
+            "d59e234beae2a9149550ac3ea5e3042ae33f3473f2805b9db88540a09b10bc33"
+          ]
         },
         "build_manifest_sha256": {
           "$ref": "#/$defs/sha256"

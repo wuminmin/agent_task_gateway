@@ -18,8 +18,9 @@ func TestFrozenRQ5Cycles(t *testing.T) {
 			t.Fatalf("cycle %d = %#v, %v; want %#v", index+1, actual, err, expected)
 		}
 	}
-	if FixtureSHA256() != FixtureSHA256() || len(FixtureSHA256()) != 64 {
-		t.Fatal("fixture digest is unstable")
+	const wantFixtureSHA256 = "d59e234beae2a9149550ac3ea5e3042ae33f3473f2805b9db88540a09b10bc33"
+	if FixtureSHA256() != wantFixtureSHA256 {
+		t.Fatalf("fixture digest = %s, want %s", FixtureSHA256(), wantFixtureSHA256)
 	}
 }
 

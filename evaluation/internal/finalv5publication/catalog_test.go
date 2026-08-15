@@ -69,6 +69,30 @@ func TestBuildCatalogCandidateRejectsPlaceholderAndByteDrift(t *testing.T) {
 	}
 }
 
+func TestBuildCatalogCandidateRejectsDriftInActivatedScaleClosure(t *testing.T) {
+	root := repositoryRoot(t)
+	base := string(readFile(t, filepath.Join(root, "config", "catalog.yaml")))
+	scalePath := filepath.Join(root, filepath.FromSlash(filepath.Join(filepath.Dir(C2CandidateRelativePath), "catalog.yaml")))
+	scale := readFile(t, scalePath)
+	for name, drifted := range map[string]string{
+		"wider live budget": strings.Replace(base,
+			"  - name: final-v5-exposure-scale-v1\n    max_queries: 8\n    max_rows: 16\n",
+			"  - name: final-v5-exposure-scale-v1\n    max_queries: 8\n    max_rows: 10000\n", 1),
+		"different live route": strings.Replace(base,
+			"    products: [final_v5_exposure_scale]\n    mode: manual\n    approver: bob\n    budget_profile: final-v5-exposure-scale-v1\n",
+			"    products: [final_v5_exposure_scale]\n    mode: manual\n    approver: bob\n    budget_profile: final-v5-benchmark-low-v1\n", 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if drifted == base {
+				t.Fatal("test mutation did not change the live Scale closure")
+			}
+			if _, err := BuildCatalogCandidate([]byte(drifted), scale, strings.Repeat("b", 64)); err == nil {
+				t.Fatal("drifted activated Scale closure was accepted")
+			}
+		})
+	}
+}
+
 func TestCatalogSimpleProtocolDSNDisablesStatementCaches(t *testing.T) {
 	for _, dsn := range []string{
 		"postgres://reader:password@example.test/travel_demo?sslmode=disable",

@@ -47,6 +47,23 @@ func TestRQ5CompleteSampleMatchesStrictJSONSchema(t *testing.T) {
 			}
 		}
 	}
+	const historicalFixtureSHA256 = "193a0d70cc6bbd3a253a7513ec8cd0f7b6fb4eac6741703f9841523abb3f24c2"
+	historicalLimit := rq5fixture.MaximumHOTBytes / 32 * 5
+	historical := validRQ5SampleForTest(1, rq5fixture.BuildMode)
+	historical.RQ5Verification.FixtureSHA256 = historicalFixtureSHA256
+	historical.RQ5Verification.Topology.HOTArtifactLimitBytes = historicalLimit
+	if err := validate(historical); err != nil {
+		t.Fatalf("historical RQ5 fixture was reinterpreted or rejected: %v", err)
+	}
+	historical.RQ5Verification.Topology.HOTArtifactLimitBytes = rq5fixture.MaximumHOTBytes
+	if err := validate(historical); err == nil {
+		t.Fatal("historical fixture identity was accepted with the current HOT limit")
+	}
+	currentWithHistoricalLimit := validRQ5SampleForTest(1, rq5fixture.BuildMode)
+	currentWithHistoricalLimit.RQ5Verification.Topology.HOTArtifactLimitBytes = historicalLimit
+	if err := validate(currentWithHistoricalLimit); err == nil {
+		t.Fatal("current fixture identity was accepted with the historical HOT limit")
+	}
 	mutated := validRQ5SampleForTest(1, rq5fixture.BuildMode)
 	mutated.RQ5Verification.Lifecycle[0].Reason = "start old Catalog for retained baseline"
 	if err := validate(mutated); err == nil {

@@ -65,6 +65,23 @@ func TestActivationEvidenceAcceptsAnExactActivation(t *testing.T) {
 	}
 }
 
+func TestActivationEvidencePreservesOnlyTheExactV13HOTLimit(t *testing.T) {
+	profile := activationProfile(t)
+	legacyLimit := MaxHotBytesPerInstance / 32 * 5
+	evidence := passingEvidence(t, profile)
+	evidence.ContractRelease = "final-v5-contracts-v1.3"
+	evidence.HotLimitBytes = legacyLimit
+	if err := ValidateActivationEvidence(evidence, profile); err != nil {
+		t.Fatalf("exact v1.3 activation was rejected: %v", err)
+	}
+	for _, release := range []string{"final-v5-contracts-v1.2", "final-v5-contracts-v1.30", ""} {
+		evidence.ContractRelease = release
+		if err := ValidateActivationEvidence(evidence, profile); err == nil {
+			t.Fatalf("historical HOT limit was accepted for contract release %q", release)
+		}
+	}
+}
+
 // Every way an activation can be wrong must fail closed.
 func TestActivationEvidenceFailsClosed(t *testing.T) {
 	profile := activationProfile(t)

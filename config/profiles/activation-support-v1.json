@@ -2,11 +2,11 @@
   "schema_version": 1,
   "record": "taskgate-final-v5-profile-activation-support-v1",
   "contract_release": "final-v5-contracts-v1.9",
-  "profile_registry_sha256": "5c1b04933e2a19d48561529ea2c34723f54a0357ea8dc31ad86cce6b2ef192c4",
+  "profile_registry_sha256": "7e54c0f324e05a00573decbf814f94db67bd5a6e40f23262286f6eb544799198",
   "activation_implementation_available": true,
-  "activation_smoke_manifest_sha256": "3082c339b2a2d86f55bee7a9c690089e86d9c45af9021d6c788941f267c1c1b2",
-  "outside_product_route_matrix_sha256": "b49d17293ee6d09c1ea7356635b0eaf0422363ba00d34e00709ae984c6228651",
-  "semantic_cache_isolation_evidence_sha256": "5af5a02737674c5cc435c300a2969221b15eaa2957824dd12ea6d55a5a93fcc9",
+  "activation_smoke_manifest_sha256": "c78c8942edd9822c1e7b0b538b5cc998059442f3222e74ff557898ce562b9cf4",
+  "outside_product_route_matrix_sha256": "7b4222bdcc556e717a0ea489b393ef58c9d689489d62924d4fd885710f75fffe",
+  "semantic_cache_isolation_evidence_sha256": "ef14154316ec73c43897cf3fed5b4c00ebb69c487e88e6b793f6dc4292779cd1",
   "outside_product_route_matrix_status": "pass",
   "semantic_cache_isolation_status": "pass",
   "semantic_cache_catalog_bound": true,
@@ -24,7 +24,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "5792bcf1995c2cac05b0b95fb3d400604c55ff8012fc447e661d54bbe692dbbf"
+        "55af1e5bc9c60e2bde80e28d8332f9986ba1726eca5032a75056265b587fdebb"
       ],
       "reason": ""
     },
@@ -40,7 +40,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "9575a96703af1264e907ba743ea692592fcb63dc37706ad4f36042d5f4bfbb7b"
+        "c897a01d47ae6e3f7a92bd647eba31afaf032ed624b11eaf17caaea879954f90"
       ],
       "reason": ""
     },
@@ -56,7 +56,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "406b2184e1a503080b83a826402b9c231e3a098b1f8755d3caf2af0b66efab1a"
+        "327ae938cf3c28ec6a74dac2313b174462520510d4373f86cde31a00f5290751"
       ],
       "reason": ""
     },
@@ -72,7 +72,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "420be56548a412394340e74ff9264ba43021060a6251376511e454932fb42b4b"
+        "39d20ed6f50fafcf0d8c237f036d173f5a1f320cb880aab06637140d22d6d042"
       ],
       "reason": ""
     },
@@ -88,7 +88,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "f476a487ab8a79aa30c17109de6866c8a6116da01683afaedd30357c5c2fe279"
+        "59270df36a322d7dc99aa7deef15d00f396f5b4c635ee5781b0af090448143a8"
       ],
       "reason": ""
     },
@@ -138,7 +138,7 @@
     {
       "profile_id": "profile-794efc2159ffaa5f",
       "profile_alias": "exposure-scale",
-      "catalog_sha256": "afb7782d520792d534c5a50f3d685e763a1c724675ff31c49e8bb5be77e8d584",
+      "catalog_sha256": "c9ee12648003104edf703219b88865aa816e7329dbf99911d586ebceb8952c02",
       "closure_sha256": "794efc2159ffaa5f87406c8e3e22610d316a7413a0626a7c8130a332fb260906",
       "profile_schema_attestation": "a9743362fa4bf67eeba2de18b8e8660435298a30acddcbbc93719f80b40f7a92",
       "publication_identities": [
@@ -147,7 +147,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "1b27e49120b78f0ab024dbe40fde5bd7f1a36637f28b09104037571646a87563"
+        "066f24ea5e0c3864cb9b127659f3cd384314ee8014e368039859f8fcfe1a600c"
       ],
       "reason": ""
     },
@@ -165,7 +165,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "fa7c218e8932f0df9be51d0b4678bfff91f17c0df83b368aa978b461616870f4"
+        "fdd9b40b0fb27c9ee1da8e54e8eb948fb20299ab2bea2b609524b7884ff6d409"
       ],
       "reason": ""
     },
@@ -181,7 +181,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "733db8bc43e9f7a038f6ed6b237f2a1223478e73b0494cc5add09535d65562bc"
+        "d7c89d022c9f6af768241f93ff86baca9742a3bbc96db64177b76a87efe7fe2c"
       ],
       "reason": ""
     },

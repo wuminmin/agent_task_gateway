@@ -25,7 +25,7 @@ const (
 	// The accepted deployment as a whole must satisfy the V4 hot-artifact
 	// threshold. COLD envelopes and sidecar semantics are streamed through
 	// bounded verifiers and are never retained in the Gateway heap.
-	maxGatewayHotArtifactsBytes = 160 << 20
+	maxGatewayHotArtifactsBytes = 1024 << 20
 	// Streaming COLD verification must not turn the complete audit artifact
 	// into charged cgroup page cache.  Drop already-consumed pages in bounded
 	// windows; the verifier retains only its fixed-size userspace buffer.
@@ -176,7 +176,7 @@ func loadSnapshotPublication(baseDirectory string, logicalCatalog *catalog.Catal
 		return loadedSnapshotPublication{}, 0, err
 	}
 	if bundleManifest.Hot.Bytes > remainingHotBytes || remainingHotBytes < 0 {
-		return loadedSnapshotPublication{}, 0, errors.New("Catalog hot artifacts exceed the 160 MiB activation boundary")
+		return loadedSnapshotPublication{}, 0, errors.New("Catalog hot artifacts exceed the 1024 MiB activation boundary")
 	}
 	hotPath := filepath.Join(directory, bundleManifest.Hot.Name)
 	hotBytes, err := readVerifiedRegularFile(hotPath, remainingHotBytes)

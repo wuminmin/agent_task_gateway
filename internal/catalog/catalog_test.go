@@ -71,8 +71,31 @@ func TestRepositoryCatalog(t *testing.T) {
 	if _, _, err := parsed.ResolveProducts([]string{"expense_summary", "expense_detail"}); err != nil {
 		t.Fatalf("repository products cannot be resolved: %v", err)
 	}
-	if len(parsed.SnapshotPublications) != 6 {
-		t.Fatalf("repository snapshot publications = %d, want 6", len(parsed.SnapshotPublications))
+	wantPublications := map[string]bool{
+		"expense-summary-v1":         false,
+		"expense-detail-v1":          false,
+		"provsql-orders-v1":          false,
+		"provsql-lineitem-v1":        false,
+		"provsql-nonce-v1":           false,
+		"final-v5-result-heavy-v1":   false,
+		"final-v5-exposure-scale-v1": false,
+	}
+	if len(parsed.SnapshotPublications) != len(wantPublications) {
+		t.Fatalf("repository snapshot publications = %d, want exact set of %d", len(parsed.SnapshotPublications), len(wantPublications))
+	}
+	for _, publication := range parsed.SnapshotPublications {
+		if _, found := wantPublications[publication.Name]; !found {
+			t.Fatalf("repository contains unexpected snapshot publication %q", publication.Name)
+		}
+		if wantPublications[publication.Name] {
+			t.Fatalf("repository contains duplicate snapshot publication %q", publication.Name)
+		}
+		wantPublications[publication.Name] = true
+	}
+	for publication, found := range wantPublications {
+		if !found {
+			t.Fatalf("repository is missing snapshot publication %q", publication)
+		}
 	}
 	if !parsed.V4Enabled() {
 		t.Fatal("repository Catalog did not select V4 deployment mode")

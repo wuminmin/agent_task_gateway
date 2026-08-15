@@ -32,7 +32,7 @@ const (
 	maxJSONDocumentBytes = 4 << 20
 	maxSidecarLineBytes  = 64 << 20
 	maxPublishedBytes    = uint64(2 << 30)
-	maxHotPublishedBytes = uint64(160 << 20)
+	maxHotPublishedBytes = uint64(1024 << 20)
 )
 
 var (

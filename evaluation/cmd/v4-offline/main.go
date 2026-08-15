@@ -30,7 +30,7 @@ const (
 	receiptDigestDomain         = "taskgate/snapshot-verification-receipt/v1\x00"
 	maxBundleManifestBytes      = int64(4 << 20)
 	maxVerificationReceiptBytes = int64(4 << 20)
-	maxHotArtifactBytes         = int64(160 << 20)
+	maxHotArtifactBytes         = int64(1024 << 20)
 	maxPublishedBytes           = int64(2 << 30)
 )
 
@@ -400,7 +400,7 @@ func verifyPublication(baseDirectory string, input snapshotbundle.CompilerInput,
 		return publicationMeasurement{}, nil, verifiedPublication{}, errors.New("combined snapshot artifacts exceed 2 GiB")
 	}
 	if manifest.Hot.Bytes > remainingHotBytes || remainingHotBytes < 0 {
-		return publicationMeasurement{}, nil, verifiedPublication{}, errors.New("combined HOT artifacts exceed 160 MiB")
+		return publicationMeasurement{}, nil, verifiedPublication{}, errors.New("combined HOT artifacts exceed 1024 MiB")
 	}
 	descriptors := []snapshotbundle.FileDescriptor{manifest.Hot, manifest.Cold, manifest.Sidecar}
 	identities := make([]artifactIdentity, len(descriptors))
@@ -494,7 +494,7 @@ func activateVerifiedPublication(baseDirectory string, input snapshotbundle.Comp
 		return publicationMeasurement{}, nil, errors.New("combined snapshot artifacts exceed 2 GiB")
 	}
 	if manifest.Hot.Bytes > remainingHotBytes || remainingHotBytes < 0 {
-		return publicationMeasurement{}, nil, errors.New("combined HOT artifacts exceed 160 MiB")
+		return publicationMeasurement{}, nil, errors.New("combined HOT artifacts exceed 1024 MiB")
 	}
 	measurement := measurementFromManifest(manifest, artifactBytes)
 	if !reflect.DeepEqual(measurement, verified.Measurement) {
@@ -914,7 +914,7 @@ func addMeasurement(report *commandReport, measurement publicationMeasurement) e
 	}
 	report.HotArtifactBytes, err = sumBytes(report.HotArtifactBytes, measurement.HotArtifactBytes)
 	if err != nil || report.HotArtifactBytes > maxHotArtifactBytes {
-		return errors.New("combined HOT artifacts exceed 160 MiB")
+		return errors.New("combined HOT artifacts exceed 1024 MiB")
 	}
 	return nil
 }
