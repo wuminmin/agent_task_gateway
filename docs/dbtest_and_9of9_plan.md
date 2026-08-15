@@ -380,3 +380,75 @@ dependency-e2e 的 `1035000` Fact 格正好落在这个「未被证明」的区�
 
 **结论不变但警戒级别下调**：仍需一次 `1035000-overlap-0` 内存标定，但它测的是记账结构的
 内存曲线，不是「百万行结果撑爆内存」。**在标定出数字之前，不建议凭猜把 12g 改成 18g。**
+
+---
+
+## 十、内存共享与 NAS 方案设计（作者 2026-08-16 提出）
+
+作者提出两条：让 WSL 与宿主机共享 32 GB 内存；把 PostgreSQL 迁到 NAS。
+下面按这两条设计。**第一条可做且应做；第二条对被测数据库不可行，原因逐条列出，
+并给出 NAS 真正该承担的角色。** NAS 侧凭据与地址一律不写入本仓库，只引用
+`/home/wmm/auth/nas/` 下的私有文档。
+
+### 10.1 内存：双档 `.wslconfig`
+
+当前实测：Windows 物理 `34,081,603,584` B（31.7 GiB）；`.wslconfig` 为
+`memory=24GB`、`swap=24GB`、`swapfile=D:\\wsl-swap.vhdx`、`autoMemoryReclaim=disabled`。
+
+**问题不只是总量，还有 swap。** 24 GB swap 意味着内存吃紧时系统会静默换页而不是失败。
+**在性能测量期间，swap 比 OOM 严重得多**：OOM 会失败并被发现，swap 产出的是看似合理、
+实则被污染的时序数据，而那正是要写进论文的数字。
+
+设计为两档，按用途切换（改后需 `wsl --shutdown`）：
+
+| 档 | memory | swap | autoMemoryReclaim | 用途 |
+|---|---|---|---|---|
+| 日常档 | `28GB` | `8GB` | `gradual` | 写代码、跑聚焦测试、构建。空闲内存交还 Windows，真正实现「共享」 |
+| 测量档 | `28GB` | `0` | `disabled` | 正式 campaign 与任何要留证的性能测量。宁可 OOM，不要静默换页 |
+
+`28GB` 的取法：物理 31.7 GiB 留约 4 GiB 给 Windows。相对现状净增约 4 GB 可用。
+**测量档必须关 reclaim**：回收与再缺页会在测量窗口内引入方差。
+
+配套：`compose.yaml` 的 Gateway `mem_limit` 在 9.6 的标定出数字前不动（今日实测峰值
+3.39 GiB，距 12g 仍有约 3.5 倍余量）。上限是 fail-closed，不是配额。
+
+### 10.2 NAS 不能承载被测数据库——五条实查依据
+
+| # | 依据 | 出处 |
+|---|---|---|
+| 1 | **版本不符且不可绕过。** 契约要求 `postgresql_version_num = 160014`（PostgreSQL 16.14），硬编码在 `observer_accounting_v3.go:84` 的 `RequiredMeasurementEnvironment`，并由 `finalv5publication/validate.go:212`、`generate.go:207` 各自复验；`db-test-env.sh verify` 也断言该值。**NAS 上是 PostgreSQL 12.7**，差四个大版本，而 observer 的记账正建立在 `pg_stat_statements` 的字段与 `track_planning` 等设置上 | `/home/wmm/auth/nas/DATABASE-STATUS.md` |
+| 2 | **内存不够且有前科。** DS423+ 总内存 9.6 GB + swap 8.1 GB = 17.7 GB，低于当前 WSL 的 24 GB；而 `compose.yaml` 里三个快照编译器各 `mem_limit: 16g`。NAS 已于 2026-08-10 因内存暴涨发生 OOM、Docker 连锁崩溃 | `nas-config.md`、`OOM-INCIDENT-20260810.md` |
+| 3 | **这是性能实验。** 数据库跨网络后，RQ4 的 p50/p95 测到的是局域网往返，不是 BDG 的开销 | 论文 `main.tex:1348` 的 RQ4 行 |
+| 4 | **拓扑与存证同时失效。** observer 的封闭服务集要求 `business-postgres` 等作为部署内的 Compose 服务（2026-08-16 刚修的那条）；qualification 还 pin 了 PostgreSQL 的 `image_reference`/`repo_digest`/`local_image_id`/`container_image_id`/`platform`。数据库搬出部署，这两条一起断 | `evaluation/cmd/final-v5-observer/main.go:67-90`、`run-artifact-targeted.sh` 的 identity 校验 |
+| 5 | **它是家里的生产库。** NAS 上运行着 15 个 MySQL 业务库与 PostgreSQL `rd_studio`（373 张表）。而实验要求 `fresh_deployment`——每次 campaign 清库重建 35 个 `taskgate_ordinal` relation。在生产 NAS 上做这件事风险不可接受 | `DATABASE-STATUS.md` |
+
+**补充**：即使只把 A3 的 `db-test-env` 挪到 NAS 也无收益——同样卡在 16.14，且把
+`internal/gateway` 那 4000 秒的数据库往返搬到网络上只会更慢。
+
+### 10.3 NAS 该承担的角色：证据归档
+
+作者真正的痛点是磁盘，而 NAS 恰好适合解决它，且完全不触碰任何测量或门禁。
+
+实测依据：每轮 targeted 运行落盘 6.4 GB（`snapshot-index-artifacts-full` 4.5 GB +
+`profile-artifacts` 1.9 GB），`raw/` 一度到 69 GB；而每轮真正入库留证的只有 16 个小文件、
+845,008 bytes。这些大产物**写一次、之后只读**，正是归档负载。
+
+设计：
+
+1. **A4 落地**：让 launcher 默认不复制完整产物；需要时按 catalog 中已 pin 的
+   `sidecar_digest`/`dictionary_digest`/`manifest_digest` 校验后再取。
+2. **归档而非留在本地**：确需保留的整份产物，运行结束后同步到 NAS 的归档目录，
+   本地只留 16 个入库小文件。同步后按 digest 复核再删本地副本。
+3. **不放**：`.env`、任何凭据、任何未经作者批准的 approval 字节。
+4. **不依赖**：measurement 路径不得从 NAS 读取任何东西——归档是单向的，
+   NAS 不可用不影响任何实验。
+
+这条能把 `raw/` 的稳态占用压到 GB 以下，且**不改变任何被测语义**。
+
+### 10.4 若作者坚持在 NAS 上跑被测数据库
+
+唯一不破坏论文的前提是：在 NAS 上另起 **PostgreSQL 16.14** 容器并复现全部
+`RequiredMeasurementEnvironment` 设置，且接受 (a) 网络往返进入测量值、
+(b) DS423+ 9.6 GB 内存扛四个实例、(c) qualification 的容器 identity 需重新定义。
+**Claude 的判断是不值**：第 3 条使测得的数字无法支撑论文的性能主张，
+而痛点（磁盘）用 10.3 已能解决。此判断可由作者推翻，但需连带裁决 RQ4 的口径。
