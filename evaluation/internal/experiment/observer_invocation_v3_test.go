@@ -1,6 +1,11 @@
 package experiment
 
 import (
+	"context"
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -105,5 +110,32 @@ func TestASnapshotMustDescribeTheInvocationThatProducedIt(t *testing.T) {
 				t.Fatalf("a snapshot reporting %s was accepted", name)
 			}
 		})
+	}
+}
+
+// Observer failures are written only to the Adapter's stderr. The runner
+// suppresses that stream from samples and ordinary output, while the explicitly
+// enabled targeted-Artifact diagnostic channel can retain it in its private
+// create-exclusive file. Preserve the source-built observer's exact stderr here
+// so that channel can expose the real failure rather than only exit status 1.
+func TestObserverExitPreservesItsStderrForTheControlledDiagnosticChannel(t *testing.T) {
+	executable := filepath.Join(t.TempDir(), "observer")
+	const stderr = "final-v5 observer: exact diagnostic from the observer\nsecond line\n"
+	if err := os.WriteFile(executable, []byte("#!/bin/sh\nprintf '"+stderr+"' >&2\nexit 23\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := RunObserverV2(context.Background(), executable, testInvocationV3(t),
+		[]string{"PATH=/usr/bin:/bin"})
+	if err == nil {
+		t.Fatal("an observer that exited unsuccessfully was accepted")
+	}
+	var exitError *exec.ExitError
+	if !errors.As(err, &exitError) || exitError.ExitCode() != 23 {
+		t.Fatalf("observer error does not retain exit status 23: %v", err)
+	}
+	want := "run observer before: exit status 23\nobserver stderr:\n" + stderr
+	if err.Error() != want {
+		t.Fatalf("observer error = %q, want exact stderr-bearing error %q", err, want)
 	}
 }

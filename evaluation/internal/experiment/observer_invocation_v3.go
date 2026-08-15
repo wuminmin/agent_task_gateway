@@ -91,6 +91,11 @@ func RunObserverV2(ctx context.Context, executable string, invocation ObserverIn
 	command.Env = environment
 	value, err := command.Output()
 	if err != nil {
+		var exitError *exec.ExitError
+		if errors.As(err, &exitError) && len(exitError.Stderr) != 0 {
+			return ObserverSnapshotV2{}, fmt.Errorf("run observer %s: %w\nobserver stderr:\n%s",
+				invocation.Phase, err, exitError.Stderr)
+		}
 		return ObserverSnapshotV2{}, fmt.Errorf("run observer %s: %w", invocation.Phase, err)
 	}
 	var snapshot ObserverSnapshotV2
