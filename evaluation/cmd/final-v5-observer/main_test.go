@@ -7,11 +7,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
 	"testing"
 
+	"gopkg.in/yaml.v3"
 	"taskbound.local/agent-data-gateway/evaluation/internal/experiment"
 	"taskbound.local/agent-data-gateway/evaluation/internal/formalbuild"
 	"taskbound.local/agent-data-gateway/evaluation/internal/legacyv14"
@@ -569,6 +571,47 @@ func TestFormalProjectTopologyRejectsMissingAndExtraServices(t *testing.T) {
 	extra.counts["unexpected-id"] = 0
 	if err := validateFormalProjectSnapshot(extra); err == nil || !strings.Contains(err.Error(), "topology") {
 		t.Fatalf("extra formal service accepted: %v", err)
+	}
+}
+
+// The observer's closed service set is independent of Docker's report, but it
+// must still name the deployment this repository can build. Derive the union
+// only in this test so a Compose service addition cannot leave the production
+// exact-topology check permanently rejecting every formal run.
+func TestFormalProjectServicesMatchTheDeploymentComposeUnion(t *testing.T) {
+	repoRoot := filepath.Join("..", "..", "..")
+	composeFiles := []string{
+		"compose.yaml",
+		"compose.debug.yaml",
+		"evaluation/final-v5-wsl2/compose.real-pilot.yaml",
+		"evaluation/final-v5-wsl2/compose.provsql.yaml",
+		"evaluation/final-v5-wsl2/compose.observer-v3.yaml",
+	}
+	wantSet := make(map[string]struct{})
+	for _, relative := range composeFiles {
+		value, err := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(relative)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var document struct {
+			Services map[string]any `yaml:"services"`
+		}
+		if err := yaml.Unmarshal(value, &document); err != nil {
+			t.Fatalf("decode %s: %v", relative, err)
+		}
+		for service := range document.Services {
+			wantSet[service] = struct{}{}
+		}
+	}
+	want := make([]string, 0, len(wantSet))
+	for service := range wantSet {
+		want = append(want, service)
+	}
+	got := append([]string(nil), formalProjectServices...)
+	sort.Strings(want)
+	sort.Strings(got)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("formal observer services = %v, deployment Compose union = %v", got, want)
 	}
 }
 
