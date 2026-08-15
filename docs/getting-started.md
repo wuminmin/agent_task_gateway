@@ -14,6 +14,8 @@ openssl rand -base64 32
 
 - 控制库：`CONTROL_POSTGRES_ADMIN_PASSWORD`、`CONTROL_DB_PASSWORD`
 - 业务库：`POSTGRES_PASSWORD`、`GATEWAY_DB_PASSWORD`
+
+上述数据库口令**必须用 URL-safe 字符集生成**，例如 `openssl rand -hex 32`，不要用 `openssl rand -base64 32`。Compose 把它们原样插入 `postgres://user:${PASSWORD}@host:5432/db` 形式的 DSN 且无法百分号编码，口令中的 `/`、`+`、`@`、`:`、`?`、`#` 会截断 userinfo，snapshot 编译等 sidecar 会在任何测量开始前以 `parse SNAPSHOT_POSTGRES_DSN` 退出。其余密钥（`GATEWAY_DATA_KEY`、各 Ed25519 seed 等）不进 DSN，仍按 base64 生成。
 - 对象存储：`MINIO_ROOT_USER`/`MINIO_ROOT_PASSWORD` 仅供 MinIO 与一次性初始化器使用；Gateway 使用 bucket-scoped 的 `GATEWAY_OBJECT_STORE_ACCESS_KEY`/`GATEWAY_OBJECT_STORE_SECRET_KEY`
 
 `.env` 已被 Git 忽略。不要把真实值复制到提交、提示词、日志或截图中。同一批加密查询结果必须继续使用原 `GATEWAY_DATA_KEY` 和 `GATEWAY_DATA_KEY_ID`，否则对象存储中的 Parquet 无法解密；管理员擦除 key ID 后，即使对象仍存在，Gateway 也会拒绝读取。生产部署还应独立设置 `GATEWAY_DELIVERY_SIGNING_KEY`；`GATEWAY_RESULT_DELIVERY_TTL` 默认 `5m`。
