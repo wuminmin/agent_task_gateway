@@ -19,10 +19,16 @@ set now present in the repository.
   PASS and must be independently revalidated and rerun before it is treated as
   current evidence
 - **Experiment orchestration/evidence skeleton:** complete
-- **Source-controlled formal capabilities:** `6/9` are currently true: RLS,
-  adaptive attacks, ProvSQL, compiler, concurrency, and RQ5.  Baseline, Scale,
-  and Artifact correctly remain false.  Baseline has only the non-publication
-  `S1/tiny` Real-Pilot path; Scale and Artifact have handler code but no
+- **Source-controlled formal capabilities:** `7/9` are currently true: RLS,
+  adaptive attacks, ProvSQL, compiler, concurrency, RQ5, and Artifact.
+  Artifact flipped on 2026-08-16 because the criterion its source defines was
+  met and retained: `evaluation/cmd/final-v5-adapter/capability.go` requires one
+  targeted, non-publication real-system run of all six frozen result-heavy cells
+  end to end, and campaign `p8-artifact-observerfix-v110-six-cell-02` executed
+  exactly that.  The run stays `campaign_class=pilot` and
+  `publication_eligible=false`; a true capability is not publication evidence.
+  Baseline and Scale correctly remain false: Baseline has only the
+  non-publication `S1/tiny` Real-Pilot path, and Scale has handler code but no
   launcher-selected, live-bound complete formal matrix with reviewed datasets and oracles
 - **Author contract decision:** the current instruction fixes the research
   design of the Baseline, Scale, and Artifact contracts, the three-family

@@ -166,8 +166,10 @@ func TestEveryFormalBaselineCellFailsClosedUntilImplemented(t *testing.T) {
 	}
 }
 
-func TestIncompleteScaleAndArtifactProfilesCannotEnableCapabilities(t *testing.T) {
-	for _, experimentID := range []string{"scale", "artifact"} {
+// Artifact left this guard on 2026-08-16 by completing its profile, so the
+// guard now covers Scale alone. Baseline keeps its own fail-closed test above.
+func TestIncompleteScaleProfileCannotEnableCapabilities(t *testing.T) {
+	for _, experimentID := range []string{"scale"} {
 		coverage := publicationCoverageGates[experimentID]
 		if coverage.complete() {
 			t.Fatalf("%s partial formal profile was reported complete", experimentID)
@@ -178,6 +180,24 @@ func TestIncompleteScaleAndArtifactProfilesCannotEnableCapabilities(t *testing.T
 		if len(coverage.implemented) != 0 {
 			t.Fatalf("%s registry contains %d cells before real full-profile support", experimentID, len(coverage.implemented))
 		}
+	}
+}
+
+// The complement of the guard above: Artifact may advertise true only while its
+// implemented set covers every preregistered cell exactly. A cell added to the
+// requirements without an implementation must pull the capability back down.
+func TestArtifactCapabilityRequiresItsCompleteProfile(t *testing.T) {
+	coverage := publicationCoverageGates["artifact"]
+	if !coverage.complete() {
+		t.Fatalf("artifact profile is incomplete: %d implemented of %d required",
+			len(coverage.implemented), len(coverage.required))
+	}
+	if len(coverage.implemented) != len(artifactPublicationRequirements) {
+		t.Fatalf("artifact implemented %d cells, required %d",
+			len(coverage.implemented), len(artifactPublicationRequirements))
+	}
+	if !implementedCapabilities()["artifact"] {
+		t.Fatal("artifact capability is false despite a complete profile")
 	}
 }
 

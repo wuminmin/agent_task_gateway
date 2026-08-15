@@ -81,9 +81,16 @@ var baselineImplementedPublicationCells = []publicationCell{}
 
 // Scale has real handler code for its microbenchmark arms, but the frozen
 // Catalog cannot currently grant a task that carries the complete
-// dependency-e2e pair at the 1,035,000-Fact scale. In particular, the only
-// route with a sufficient influence ceiling grants one query, while every
-// preregistered pair contains novel plus semantic replay on the same task.
+// dependency-e2e pair at the 1,035,000-Fact scale.
+//
+// The route ceiling that used to block this is no longer the reason. 7e705a9
+// added the final_v5_exposure_scale route and the final-v5-exposure-scale-v1
+// budget profile to the master Catalog, where max_queries is 8 and
+// max_influence_facts is 2,500,000 -- enough to carry novel plus semantic
+// replay on one task at that scale. That commit did not update this comment,
+// which kept describing a gate that had already been opened. Whether the pair
+// actually executes is untested, so the cells stay unimplemented on evidence,
+// not on a ceiling.
 // Do not register a partial scale matrix as a publication capability.
 var scalePublicationRequirements = append(
 	expandPublicationWorkloads([]publicationWorkload{
@@ -118,7 +125,17 @@ var scaleImplementedPublicationCells = []publicationCell{}
 // composite Receipt/Object/Audit verification, and the independent Artifact
 // Oracle. Source-controlled cell resolution is necessary but never sufficient:
 // flip this only together with retained evidence of that run.
-const artifactRealSystemValidated = false
+//
+// That run is retained. Campaign p8-artifact-observerfix-v110-six-cell-02
+// executed all six frozen cells on 2026-08-16 from clean commit 59e035ecd67c
+// against contract release final-v5-contracts-v1.10: six samples, every status
+// pass, every Receipt verified, every v3 acceptance non-null with zero
+// unexpected calls, and non-zero Parquet and encrypted object bytes per cell.
+// The evidence directory is retained under evaluation/final-v5-wsl2/raw/ and
+// its sixteen first-hand files are committed. The run remains a pilot: it is
+// campaign_class=pilot, publication_eligible=false, and this constant does not
+// make it publication evidence.
+const artifactRealSystemValidated = true
 
 // artifactContractRuntime is the verified Contract Index. The Artifact matrix
 // is derived from it rather than from a second hand-maintained table, so the

@@ -26,9 +26,12 @@ func TestCapabilitiesRequireRealFactoriesAndCompletePublicationProfiles(t *testi
 	if len(capabilities) != len(experimentIDs) {
 		t.Fatalf("capability count = %d, want %d", len(capabilities), len(experimentIDs))
 	}
+	// Artifact turned true on 2026-08-16 when the retained six-cell real-system
+	// run its constant requires was executed and committed. Baseline and Scale
+	// stay false: their publication cells are unimplemented, not merely unrun.
 	want := map[string]bool{
 		"baseline": false,
-		"scale":    false, "artifact": false, "rls": true, "attack": true,
+		"scale":    false, "artifact": true, "rls": true, "attack": true,
 		"provsql": true, "compiler": true, "concurrency": true, "rq5": true,
 	}
 	for _, experimentID := range experimentIDs {
