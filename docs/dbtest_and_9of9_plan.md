@@ -452,3 +452,102 @@ dependency-e2e 的 `1035000` Fact 格正好落在这个「未被证明」的区�
 (b) DS423+ 9.6 GB 内存扛四个实例、(c) qualification 的容器 identity 需重新定义。
 **Claude 的判断是不值**：第 3 条使测得的数字无法支撑论文的性能主张，
 而痛点（磁盘）用 10.3 已能解决。此判断可由作者推翻，但需连带裁决 RQ4 的口径。
+
+---
+
+## 十一、24 小时交付方案（作者 2026-08-16 03:05 定目标）
+
+作者目标：**24 小时内交付一篇带实验结果的论文**。截止约 2026-08-17 03:00。
+本节是对全部讨论的收敛，也是唯一的执行清单。
+
+### 11.1 先说清楚：24 小时内做不到什么
+
+**做不到 9/9，做不到 76 格，做不到任何一个未实现的 baseline / scale 格。** 依据：
+
+- 118 格全部处于 `PENDING_IMPLEMENTATION` / `PENDING_QUERY_IDENTITY_ADAPTER` /
+  `PENDING_30_SAMPLE_SCHEDULE_REPLACEMENT`；每格除实现执行路径外，还要 dataset binding、
+  oracle manifest、task 定义，再加生成期望字节与**作者逐字节签署**（红线 1，不可代签）。
+- 摩擦系数的唯一实测参照：artifact 那 6 格在契约早已解析、执行路径早已存在的前提下，
+  从开跑到真跑通仍耗了三轮、两次六格全灭（ProfileBinding 假象、observer 拓扑漂移、
+  DSN 字符集各一次）。
+
+把这些塞进 24 小时只有两种结果：交不出，或者交出未经验证的东西。两者都不可接受。
+
+### 11.2 24 小时内能交付什么
+
+**一篇带真实、有分布的 Artifact / result-heavy 实验结果的论文**，并把论文里三处
+「评测未完成」的散文改写成与实测一致的范围声明。
+
+具体证据形态：**6 个冻结 cell × 3 次独立部署 × 3 样本 = 每格 9 个测量**，每次部署前
+5 次预热。这是 targeted launcher 允许的上限（`SAMPLES` 硬校验 1–3）。
+
+可产出的论文数字：
+
+- 每格 `client_full_drain_ms` 的中位数与全距（9 个测量）
+- Gateway cgroup 峰值（今日单样本实测 3.39 GiB，多样本可给区间）
+- `parquet_bytes` / `encrypted_object_bytes`（今日实测 6,235 → 18,743,852 B）
+- v3 acceptance 通过率、`receipt_verified` 通过率、`unexpected` 调用数
+- **3 次独立部署**——直接改写 `main.tex:1365-1366` 那句「one index build and deployment」
+
+### 11.3 时间预算（基于实测，非估计）
+
+单次 targeted 运行实测分解：固定开销 6:25（build 2:09 + 部署与快照编译 3:55 + gates 0:21），
+测量窗口 6 格 × 1 样本 = 58 s。
+
+| 项 | 计算 | 时长 |
+|---|---|---|
+| 每次部署固定开销 | 实测 | 6:25 |
+| 每次部署测量窗口 | (5 预热 + 3 样本) × 58 s | 7:44 |
+| 单次部署合计 | | **≈ 14:10** |
+| 三次独立部署 | × 3 | **≈ 43 分钟** |
+
+**43 分钟的实验，24 小时的窗口。** 时间不是瓶颈，失败重试和论文改写才是。
+
+### 11.4 执行清单（按小时）
+
+| 时段 | 动作 | 阻塞 |
+|---|---|---|
+| **H0–H1** | `.wslconfig` 改 `memory=30GB` / `swap=0` / `autoMemoryReclaim=disabled`；作者执行 `wsl --shutdown`；A1 三层规则落到 `AGENTS.md` 与任务模板；证据归档改指 `/mnt/d/wsl-data/taskgate-evidence` | 需作者执行 shutdown |
+| **H1–H2** | B0：翻 `artifactRealSystemValidated`、修 `capability.go` 过期注释、`tkde_revision_status.md` 对齐；跑受影响包验收 | **需作者批准翻 capability** |
+| **H2–H3** | 三次独立 targeted 运行（`SAMPLES=3`、`WARMUPS=5`，三个不同 `RUN_ID`），实测约 43 分钟 | 无 |
+| **H3–H6** | **失败缓冲**。按摩擦系数，这一段大概率会用掉 | 无 |
+| **H6–H10** | 从 9 个样本生成论文宏；改写 `main.tex:1363`、`1365-1366`、`1397-1399`；新增 Artifact 证据行 | 无 |
+| **H10–H14** | 容器化 IEEE 构建、复核页数与摘要字数、`git diff --check`、凭据扫描 | 无 |
+| **H14–H20** | **作者审阅与签署**（若决定把该轮升为 publication 证据） | **需作者** |
+| **H20–H24** | 终稿构建与留证 | 无 |
+
+### 11.5 一个必须作者拍板的口径问题
+
+targeted launcher 产出的样本恒为 `campaign_class=pilot`、`publication_eligible=false`。
+两条路，**必须二选一，不能含糊**：
+
+- **(A) 如实报为 pilot**：论文写「Artifact 路径在三次独立部署上完成端到端验证，
+  每格 9 个测量」，并明说这是 pilot、不是冻结 campaign。**不需要签署，24 小时内可交付。**
+- **(B) 升为 publication 证据**：需要改运行类并由作者逐字节签署生成的期望摘要与 oracle
+  manifest（红线 1）。**能不能在 24 小时内完成取决于作者何时签。**
+
+**Claude 建议 (A)。** 理由：论文摘要与五条贡献都不靠性能立论，pilot 级的真实端到端证据
+已经能把 `1363` 那句欠条换成有内容的范围声明；而 (B) 的收益是标签，代价是签署往返。
+
+### 11.6 证据归档改到 `/mnt/d/wsl-data`
+
+作者定：不进 git 的存档放 `/mnt/d/wsl-data`，比 NAS 快。**实测支持这个判断**：
+`D:\` 剩余 1.5 TB，顺序写 **169 MB/s**（256 MiB / 1.59 s），6.4 GB 的一轮产物约 38 秒。
+更关键的是它在 Windows 卷上，**不进 `ext4.vhdx`，所以不会再推高 C 盘占用**。
+
+落地：
+1. 归档根目录 `/mnt/d/wsl-data/taskgate-evidence/`（已建）。
+2. 每轮运行结束后，把 `snapshot-index-artifacts-full/` 与 `profile-artifacts/` 移到
+   归档根下按 `RUN_ID` 分目录，本地只留 16 个入库小文件。
+3. **单向**：measurement 路径不得从 `/mnt/d` 读任何东西；归档不可用不影响任何实验。
+4. 不放 `.env`、任何凭据、任何未经作者批准的 approval 字节。
+
+注意 `/mnt/d` 是 9p/drvfs，**大量小文件很慢，大文件顺序写很快**——归档正好是后者。
+
+### 11.7 24 小时内明确不做
+
+- A3（`internal/gateway` 测试提速）：收益在未来每次全量，但改造加验证要一次完整跑，
+  在冲刺窗口里是风险而非收益。**榜单已留存，改造留到交付之后。**
+- A4 的 launcher 改造：用 11.6 的归档脚本先顶住，改代码留到交付之后。
+- NAS：作者已定不考虑。
+- B1 / B2 / B3 / B4：见 11.1。
