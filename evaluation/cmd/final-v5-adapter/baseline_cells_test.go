@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"taskbound.local/agent-data-gateway/internal/catalog"
+
 	"taskbound.local/agent-data-gateway/evaluation/internal/experiment"
 )
 
@@ -186,5 +188,40 @@ func TestBaselineSFiveRendersAQueryPlan(t *testing.T) {
 	}
 	if !strings.Contains(cell.DirectSQL, "50000") || !strings.Contains(cell.DirectSQL, "25000") {
 		t.Fatalf("S5/SF10 Direct arm does not carry both thresholds: %s", cell.DirectSQL)
+	}
+}
+
+// TestBaselineClientTimeoutCoversItsApprovedQueryTimeout pins the relationship
+// the S5/SF10 failure exposed: the Adapter must not abandon a governed query
+// before the authorization the Gateway is working under expires. A client
+// budget shorter than the route's query_timeout measures the client's patience
+// and leaves a half-executed query behind for the replays to trip over.
+func TestBaselineClientTimeoutCoversItsApprovedQueryTimeout(t *testing.T) {
+	frozen, err := catalog.Load("../../../config/catalog.yaml")
+	if err != nil {
+		t.Fatalf("load Catalog: %v", err)
+	}
+	seen := map[string]bool{}
+	for _, cell := range baselineImplementedPublicationCells {
+		resolved, err := resolveBaselineExecutionCell(baselineOperation(cell.WorkloadID, cell.Scale, cell.Mode))
+		if err != nil {
+			t.Fatalf("resolve %+v: %v", cell, err)
+		}
+		key := strings.Join(resolved.Task.DataProducts, ",")
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		policy, err := frozen.ResolveTaskPolicy(resolved.Task.DataProducts)
+		if err != nil {
+			t.Fatalf("resolve policy for %v: %v", resolved.Task.DataProducts, err)
+		}
+		if baselineClientTimeout < policy.Budget.PerQueryTimeout {
+			t.Fatalf("client timeout %s is shorter than the %s query timeout granted to %v",
+				baselineClientTimeout, policy.Budget.PerQueryTimeout, resolved.Task.DataProducts)
+		}
+	}
+	if len(seen) == 0 {
+		t.Fatal("no Baseline closure was checked")
 	}
 }

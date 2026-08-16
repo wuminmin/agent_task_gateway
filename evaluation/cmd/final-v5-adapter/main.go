@@ -25,7 +25,7 @@ type adapterFactory func(context.Context) (sourceControlledAdapter, error)
 // is necessary but not always sufficient for a formal capability: adapters
 // that also serve a narrower Pilot must pass their publication profile gate.
 var adapterFactories = map[string]adapterFactory{
-	"baseline":    func(ctx context.Context) (sourceControlledAdapter, error) { return newRealAdapter(ctx) },
+	"baseline":    func(ctx context.Context) (sourceControlledAdapter, error) { return newBaselineAdapter(ctx) },
 	"scale":       func(ctx context.Context) (sourceControlledAdapter, error) { return newScaleAdapter(ctx) },
 	"artifact":    func(ctx context.Context) (sourceControlledAdapter, error) { return newArtifactAdapter(ctx) },
 	"rls":         func(ctx context.Context) (sourceControlledAdapter, error) { return newRLSAdapter(ctx) },

@@ -136,9 +136,9 @@ jq -s -e --argjson samples "$samples" '
     $before.visible_calls == $after.visible_calls and
     $before.companion_calls == $after.companion_calls;
   ([.[] | select(.warmup | not)]) as $measured |
-  ($measured | length) == 4 * $samples and
+  ($measured | length) == 55 * $samples and
   all($measured[]; .status == "pass" and .publication_eligible == false) and
-  ([$measured[] | .cell_id] | unique | length) == 4 and
+  ([$measured[] | .cell_id] | unique | length) == 55 and
   all($measured[] | select(.mode == "direct"); .system == "postgresql") and
   all($measured[] | select(.mode != "direct"); .system == "taskgate" and .receipt_verified) and
   all($measured[] | select(.mode == "novel");

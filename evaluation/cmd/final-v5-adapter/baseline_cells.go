@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"taskbound.local/agent-data-gateway/evaluation/finalv5contracts"
 	"taskbound.local/agent-data-gateway/evaluation/internal/experiment"
@@ -196,4 +198,27 @@ func baselineImplementedPublicationCellsFromContract() []publicationCell {
 			WorkloadID: identity.WorkloadID, Scale: identity.Scale, Mode: identity.Mode})
 	}
 	return cells
+}
+
+// baselineClientTimeout is how long the Adapter waits for a governed Baseline
+// query. It is not a guess: it matches the query_timeout the frozen Baseline
+// routes grant, so the client never gives up before the authorization the
+// Gateway is working under does. A shorter client budget measures the client's
+// patience rather than the system, and did: on 2026-08-16 the thirty-second
+// default abandoned S5/SF10's union while the Gateway was still serving it,
+// then its replays failed on the wreckage of that abandoned query.
+const baselineClientTimeout = 30 * time.Minute
+
+// newBaselineAdapter is the Baseline factory. It exists so the longer timeout
+// belongs to Baseline rather than to every family that embeds the shared
+// adapter: a family whose cells are small keeps the short default, where a hung
+// request surfaces in seconds instead of half an hour.
+func newBaselineAdapter(ctx context.Context) (sourceControlledAdapter, error) {
+	real, err := newRealAdapter(ctx)
+	if err != nil {
+		return nil, err
+	}
+	real.timeout = baselineClientTimeout
+	real.http.Timeout = real.timeout
+	return real, nil
 }
