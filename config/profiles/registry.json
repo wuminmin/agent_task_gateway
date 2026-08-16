@@ -420,7 +420,7 @@
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
-        "live_route_available": true,
+        "live_route_available": false,
         "activation_supported": false,
         "activation_smoke_passed": false,
         "targeted_validation_passed": false,
@@ -432,6 +432,12 @@
             "detail": "live_activation_smoke_not_executed; live_route_available_false; no_approval_route_for_closure; no_approval_route_for_exact_product_closure"
           },
           {
+            "state": "live_route_available",
+            "code": "no_approval_route_for_closure",
+            "subject": "provsql_lineitem,provsql_orders",
+            "detail": "the live Catalog resolves no approval route for this exact Product closure: invalid approval route: no route for sensitivity"
+          },
+          {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
             "detail": "no targeted non-publication run has executed this profile's cells"
@@ -440,9 +446,7 @@
       },
       "routable": false,
       "targeted_run_eligible": false,
-      "budget_profiles": [
-        "final-v5-baseline-low-v1"
-      ],
+      "budget_profiles": null,
       "workload_cells": [
         "baseline/S2/SF1/direct",
         "baseline/S2/SF1/idempotent_replay",
@@ -614,7 +618,7 @@
       "routable": false,
       "targeted_run_eligible": true,
       "budget_profiles": [
-        "final-v5-baseline-low-v1"
+        "final-v5-provsql-low-v1"
       ],
       "workload_cells": [
         "provsql/nonce-join-group/10k/direct",
@@ -751,7 +755,7 @@
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
-        "live_route_available": true,
+        "live_route_available": false,
         "activation_supported": false,
         "activation_smoke_passed": false,
         "targeted_validation_passed": false,
@@ -763,6 +767,12 @@
             "detail": "live_activation_smoke_not_executed; live_route_available_false; no_approval_route_for_closure; no_approval_route_for_exact_product_closure"
           },
           {
+            "state": "live_route_available",
+            "code": "no_approval_route_for_closure",
+            "subject": "provsql_orders",
+            "detail": "the live Catalog resolves no approval route for this exact Product closure: invalid approval route: no route for sensitivity"
+          },
+          {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
             "detail": "no targeted non-publication run has executed this profile's cells"
@@ -771,9 +781,7 @@
       },
       "routable": false,
       "targeted_run_eligible": false,
-      "budget_profiles": [
-        "final-v5-baseline-low-v1"
-      ],
+      "budget_profiles": null,
       "workload_cells": [
         "baseline/S1/SF1/direct",
         "baseline/S1/SF1/idempotent_replay",
