@@ -25,6 +25,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5profile"
 )
 
 const (
@@ -158,7 +160,6 @@ func run(ctx context.Context, opts options, testRunner productionTestRunner) err
 	if err != nil {
 		return err
 	}
-
 	var intersection intersectionDocument
 	if err := decodeJSON(intersectionBytes, &intersection, true); err != nil {
 		return fmt.Errorf("decode product-intersection matrix: %w", err)
@@ -204,8 +205,15 @@ func run(ctx context.Context, opts options, testRunner productionTestRunner) err
 		if err := decodeJSON(liveBytes, &live, true); err != nil {
 			return fmt.Errorf("decode same-query cross-profile live evidence: %w", err)
 		}
+		routingIdentity := ""
+		if live.SchemaVersion == 2 && live.Record == sameQueryLiveRecordV2 {
+			routingIdentity, err = finalv5profile.ProfileRoutingIdentitySHA256(registryBytes)
+			if err != nil {
+				return err
+			}
+		}
 		liveResult, err := analyzeSameQueryLive(live, registry, profiles, intersection,
-			registryDigest, intersectionDigest)
+			registryDigest, routingIdentity, intersectionDigest)
 		if err != nil {
 			return err
 		}
@@ -322,14 +330,19 @@ type registryProfile struct {
 	ProfileID     string `json:"profile_id"`
 	Alias         string `json:"alias"`
 	CatalogSHA256 string `json:"catalog_sha256"`
+	CatalogPath   string `json:"catalog_path"`
 	Closure       struct {
 		Products []string `json:"products"`
+		SHA256   string   `json:"closure_sha256"`
 	} `json:"closure"`
 	Status struct {
 		ClosureComplete       bool `json:"closure_complete"`
 		CatalogMaterializable bool `json:"catalog_materializable"`
 		LiveRouteAvailable    bool `json:"live_route_available"`
+		ActivationSupported   bool `json:"activation_supported"`
+		ActivationSmokePassed bool `json:"activation_smoke_passed"`
 	} `json:"status"`
+	TargetedRunEligible bool `json:"targeted_run_eligible"`
 }
 
 func validateRegistry(registry registryDocument) (map[string]registryProfile, error) {
@@ -541,6 +554,7 @@ type sameQueryLiveDocument struct {
 	Record                          string              `json:"record"`
 	ContractRelease                 string              `json:"contract_release"`
 	ProfileRegistrySHA256           string              `json:"profile_registry_sha256"`
+	ProfileRoutingIdentitySHA256    string              `json:"profile_routing_identity_sha256,omitempty"`
 	ProductIntersectionMatrixSHA256 string              `json:"product_intersection_matrix_sha256"`
 	DeploymentID                    string              `json:"deployment_id"`
 	QueryTemplateSHA256             string              `json:"query_template_sha256"`
@@ -603,13 +617,15 @@ type sameQueryLiveAnalysis struct {
 
 func analyzeSameQueryLive(document sameQueryLiveDocument, registry registryDocument,
 	profiles map[string]registryProfile, intersection intersectionDocument,
-	registryDigest, intersectionDigest string) (sameQueryLiveAnalysis, error) {
+	registryDigest, routingIdentity, intersectionDigest string) (sameQueryLiveAnalysis, error) {
 	legacy := document.SchemaVersion == 1 && document.Record == sameQueryLiveRecord
 	policyBound := document.SchemaVersion == 2 && document.Record == sameQueryLiveRecordV2
 	if !legacy && !policyBound {
 		return sameQueryLiveAnalysis{}, errors.New("same-query live evidence identity is not recognised")
 	}
-	if document.ContractRelease != registry.ContractRelease || document.ProfileRegistrySHA256 != registryDigest ||
+	registryBound := legacy && document.ProfileRegistrySHA256 == registryDigest || policyBound &&
+		isSHA256(document.ProfileRegistrySHA256) && document.ProfileRoutingIdentitySHA256 == routingIdentity
+	if document.ContractRelease != registry.ContractRelease || !registryBound ||
 		document.ProductIntersectionMatrixSHA256 != intersectionDigest {
 		return sameQueryLiveAnalysis{}, errors.New("same-query live evidence does not bind the current contract, registry and product-intersection bytes")
 	}

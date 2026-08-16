@@ -46,7 +46,9 @@ func newCommandFixture(t *testing.T) *commandFixture {
 		profile.ProfileID = "profile-" + string(rune('a'+index))
 		profile.Alias = "alias-" + string(rune('a'+index))
 		profile.CatalogSHA256 = strings.Repeat(string(rune('a'+index)), 64)
+		profile.CatalogPath = "config/profiles/" + profile.Alias + ".catalog.yaml"
 		profile.Closure.Products = []string{product}
+		profile.Closure.SHA256 = strings.Repeat(string(rune('1'+index)), 64)
 		profile.Status.ClosureComplete = true
 		profile.Status.CatalogMaterializable = true
 		profile.Status.LiveRouteAvailable = true

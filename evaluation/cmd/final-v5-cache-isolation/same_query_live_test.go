@@ -2,9 +2,13 @@ package main
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+
+	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5profile"
 )
 
 func installSingleOverlap(t *testing.T, fixture *commandFixture) sameQueryLiveDocument {
@@ -146,6 +150,7 @@ func TestSameQueryLiveV2RequiresPolicyBoundTaskFinalization(t *testing.T) {
 		fixture := newCommandFixture(t)
 		live := installSingleOverlap(t, fixture)
 		live.SchemaVersion, live.Record = 2, sameQueryLiveRecordV2
+		live.ProfileRoutingIdentitySHA256 = fixtureRoutingIdentity(t, fixture)
 		live.Pairs[0].LeftTaskFinalization = passingFinalization(128)
 		live.Pairs[0].RightTaskFinalization = passingFinalization(128)
 		fixture.opts.sameQueryLivePath = "live-v2.json"
@@ -173,6 +178,7 @@ func TestSameQueryLiveV2RequiresPolicyBoundTaskFinalization(t *testing.T) {
 			fixture := newCommandFixture(t)
 			live := installSingleOverlap(t, fixture)
 			live.SchemaVersion, live.Record = 2, sameQueryLiveRecordV2
+			live.ProfileRoutingIdentitySHA256 = fixtureRoutingIdentity(t, fixture)
 			live.Pairs[0].LeftTaskFinalization = passingFinalization(128)
 			live.Pairs[0].RightTaskFinalization = passingFinalization(128)
 			mutate(&live.Pairs[0].RightTaskFinalization)
@@ -197,4 +203,61 @@ func TestSameQueryLiveV2RequiresPolicyBoundTaskFinalization(t *testing.T) {
 			t.Fatal("source-controlled max_queries=1 automatic archive was rejected")
 		}
 	})
+}
+
+func TestSameQueryLiveV2SurvivesRegistryReadinessFixedPoint(t *testing.T) {
+	fixture := newCommandFixture(t)
+	live := installSingleOverlap(t, fixture)
+	live.SchemaVersion, live.Record = 2, sameQueryLiveRecordV2
+	live.ProfileRoutingIdentitySHA256 = fixtureRoutingIdentity(t, fixture)
+	live.Pairs[0].LeftTaskFinalization = passingActiveFinalization(128)
+	live.Pairs[0].RightTaskFinalization = passingActiveFinalization(128)
+	originalRegistryDigest := live.ProfileRegistrySHA256
+
+	fixture.registry.Profiles[0].Status.ActivationSupported = true
+	fixture.registry.Profiles[0].Status.ActivationSmokePassed = true
+	fixture.registry.Profiles[0].TargetedRunEligible = true
+	registryBytes := writeJSONFixture(t, fixture.root, fixture.opts.registryPath, fixture.registry)
+	currentRegistryDigest := digestBytes(registryBytes)
+	if currentRegistryDigest == originalRegistryDigest {
+		t.Fatal("test readiness mutation did not move the full registry digest")
+	}
+	if currentRouting := fixtureRoutingIdentity(t, fixture); currentRouting != live.ProfileRoutingIdentitySHA256 {
+		t.Fatal("readiness-only registry fixed point moved the routing identity")
+	}
+	fixture.route.ProfileRegistrySHA256 = currentRegistryDigest
+	refreshRouteMatrixDigest(t, &fixture.route)
+	writeJSONFixture(t, fixture.root, fixture.opts.routeMatrixPath, fixture.route)
+	fixture.opts.sameQueryLivePath = "live-v2-pre-fixed-point.json"
+	writeJSONFixture(t, fixture.root, fixture.opts.sameQueryLivePath, live)
+	if err := run(context.Background(), fixture.opts, runProductionTests); err != nil {
+		t.Fatal(err)
+	}
+	evidence, _ := readEvidence(t, fixture)
+	if evidence.ProfileRegistrySHA256 != currentRegistryDigest || evidence.SameQueryLiveTestStatus != passedStatus {
+		t.Fatalf("fixed-point composition did not bind the current registry: %+v", evidence)
+	}
+}
+
+func passingActiveFinalization(maxQueries int64) sameQueryTaskFinalization {
+	return sameQueryTaskFinalization{
+		BudgetProfile: "source-controlled-budget", PolicyMaxQueries: maxQueries,
+		PolicySource: "config/profiles/test.catalog.yaml:42", ObservedTaskState: "ACTIVE",
+		UsedQueries: 1, RemainingQueries: maxQueries - 1, SemanticVerdictCaptured: true,
+		CompleteTaskCalled: true, FinalTaskState: "ARCHIVED", FinalTerminalReason: "completed",
+		Disposition: "complete_active_task", Status: passedStatus,
+	}
+}
+
+func fixtureRoutingIdentity(t *testing.T, fixture *commandFixture) string {
+	t.Helper()
+	payload, err := os.ReadFile(filepath.Join(fixture.root, fixture.opts.registryPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, err := finalv5profile.ProfileRoutingIdentitySHA256(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return identity
 }

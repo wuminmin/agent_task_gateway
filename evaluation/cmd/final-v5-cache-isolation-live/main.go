@@ -28,6 +28,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"gopkg.in/yaml.v3"
 
+	"taskbound.local/agent-data-gateway/evaluation/internal/finalv5profile"
 	"taskbound.local/agent-data-gateway/internal/catalog"
 )
 
@@ -120,6 +121,7 @@ type evidenceDocument struct {
 	Record                          string         `json:"record"`
 	ContractRelease                 string         `json:"contract_release"`
 	ProfileRegistrySHA256           string         `json:"profile_registry_sha256"`
+	ProfileRoutingIdentitySHA256    string         `json:"profile_routing_identity_sha256"`
 	ProductIntersectionMatrixSHA256 string         `json:"product_intersection_matrix_sha256"`
 	DeploymentID                    string         `json:"deployment_id"`
 	QueryTemplateSHA256             string         `json:"query_template_sha256"`
@@ -260,6 +262,10 @@ func run(ctx context.Context, opts options) error {
 	if len(pairs) == 0 {
 		return errors.New("no overlapping profile pairs require live evidence")
 	}
+	routingIdentity, err := finalv5profile.ProfileRoutingIdentitySHA256(registryBytes)
+	if err != nil {
+		return err
+	}
 	authorizations := map[string]taskAuthorization{}
 	for _, pair := range pairs {
 		for _, profileID := range []string{pair.leftID, pair.rightID} {
@@ -287,6 +293,7 @@ func run(ctx context.Context, opts options) error {
 	query := strings.Replace(string(template), "$1", selectedRows, 1)
 	document := evidenceDocument{SchemaVersion: 2, Record: recordName,
 		ContractRelease: registry.ContractRelease, ProfileRegistrySHA256: digest(registryBytes),
+		ProfileRoutingIdentitySHA256:    routingIdentity,
 		ProductIntersectionMatrixSHA256: digest(intersectionBytes), DeploymentID: opts.deploymentID,
 		QueryTemplateSHA256: digest(template), PairCount: len(pairs), Pairs: []pairEvidence{},
 		Failures: []string{}, Status: "fail"}
