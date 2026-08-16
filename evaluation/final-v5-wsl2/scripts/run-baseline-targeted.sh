@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Targeted execution of Baseline S1 and S2's twenty frozen cells against a
-# fresh isolated full topology.
+# Targeted execution of every implemented Baseline cell against a fresh
+# isolated full topology. S4 is absent because it binds a Product the live
+# Catalog does not publish.
 #
 # NOT a Campaign and NOT publication-eligible. It runs with
 # campaign_class=pilot and pilot_kind=baseline_targeted, changes no capability
@@ -45,7 +46,7 @@ jq --arg submission_commit "$submission_commit" \
    '.submission_commit = $submission_commit | .warmups = $warmups | .samples = $samples' \
   evaluation/final-v5-wsl2/config/baseline-targeted.example.json > "$run_dir/config.json"
 chmod 600 "$run_dir/config.json"
-printf '%s\n' 'publication_eligible=false' 'real_system=true' 'scope=baseline-S1-S2' > "$run_dir/PILOT-NOT-FOR-PUBLICATION"
+printf '%s\n' 'publication_eligible=false' 'real_system=true' 'scope=baseline-implemented' > "$run_dir/PILOT-NOT-FOR-PUBLICATION"
 
 export TASKGATE_EXPERIMENT_CLASS=pilot
 export TASKGATE_CAMPAIGN_ID=pilot-local-only
@@ -134,9 +135,9 @@ jq -s -e --argjson samples "$samples" '
     $before.visible_calls == $after.visible_calls and
     $before.companion_calls == $after.companion_calls;
   ([.[] | select(.warmup | not)]) as $measured |
-  ($measured | length) == 20 * $samples and
+  ($measured | length) == 55 * $samples and
   all($measured[]; .status == "pass" and .publication_eligible == false) and
-  ([$measured[] | .cell_id] | unique | length) == 20 and
+  ([$measured[] | .cell_id] | unique | length) == 55 and
   all($measured[] | select(.mode == "direct"); .system == "postgresql") and
   all($measured[] | select(.mode != "direct"); .system == "taskgate" and .receipt_verified) and
   all($measured[] | select(.mode == "novel");

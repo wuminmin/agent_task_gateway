@@ -38,6 +38,49 @@
         "idempotent_replay",
         "normalized_rewrite_replay"
       ]
+    },
+    {
+      "id": "S3",
+      "scales": [
+        "1k-5k",
+        "10k-50k",
+        "45k-225k"
+      ],
+      "modes": [
+        "direct",
+        "novel",
+        "semantic_replay",
+        "idempotent_replay",
+        "normalized_rewrite_replay"
+      ]
+    },
+    {
+      "id": "S5",
+      "scales": [
+        "SF1",
+        "SF10"
+      ],
+      "modes": [
+        "direct",
+        "novel",
+        "semantic_replay",
+        "idempotent_replay"
+      ]
+    },
+    {
+      "id": "S6",
+      "scales": [
+        "100x4",
+        "10k-x4",
+        "100k-x4",
+        "100x16",
+        "10k-x16",
+        "100k-x16"
+      ],
+      "modes": [
+        "direct",
+        "novel"
+      ]
     }
   ]
 }
