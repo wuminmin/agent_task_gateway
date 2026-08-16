@@ -85,14 +85,15 @@ var baselineImplementedPublicationCells = baselineImplementedPublicationCellsFro
 // baselineRealSystemValidated records whether a retained, non-publication
 // real-system run has executed every frozen Baseline cell end to end. It
 // mirrors artifactRealSystemValidated and exists for the same reason: source
-// resolution proves the Adapter would attempt a cell, never that the cell runs.
+// parseability is necessary and never sufficient: it proves the Adapter would
+// attempt a cell, never that the cell runs.
 //
-// S1, S2, S3, S5 and S6 have such a run (baseline-targeted-20260816T114115Z:
-// 55 samples, every status pass, every workload/scale pair agreeing between its
-// Direct and governed arms). S4's three cells resolve but have never executed,
-// so this stays false and Baseline stays false with it. Flip it only together
-// with retained evidence of a run covering all 58.
-const baselineRealSystemValidated = false
+// Retained run baseline-targeted-20260816T151201Z rebuilt its image at launch
+// from HEAD 7b15512 and supplies the required evidence: all 58 frozen cells
+// reached v3 acceptance and passed; all 16 workload/scale groups have one
+// result_sha256 across every mode; and S4/depth-4/semantic_replay records
+// cross_binding_verification with visible delta 0 plus companion delta 1 = 1.
+const baselineRealSystemValidated = true
 
 // Scale has real handler code for its microbenchmark arms, but the frozen
 // Catalog cannot currently grant a task that carries the complete

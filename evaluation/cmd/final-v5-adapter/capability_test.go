@@ -138,72 +138,41 @@ func TestMissingGateOrFutureCellDisablesCapability(t *testing.T) {
 	}
 }
 
-func TestBaselinePilotCannotEnableFormalCapability(t *testing.T) {
-	if publicationCoverageGates["baseline"].complete() {
-		t.Fatal("Baseline coverage was reported complete without a retained run covering every frozen cell")
-	}
-	if implementedCapabilities()["baseline"] {
-		t.Fatal("baseline formal capability was advertised before a retained run covered every cell")
-	}
-	// Resolution alone must never satisfy the gate. Every frozen cell now
-	// resolves, so what keeps Baseline false is the evidence requirement, and
-	// this asserts that distinction rather than assuming it.
+func TestBaselineRetainedRunEnablesCapability(t *testing.T) {
+	// Resolution alone must never satisfy the gate. Every frozen cell resolves,
+	// but author-approved retained-run evidence is independently required.
 	if len(baselineImplementedPublicationCells) != len(baselinePublicationRequirements) {
-		t.Fatalf("%d of %d frozen Baseline cells resolve; the gate below is meant to be the only thing holding the capability",
+		t.Fatalf("%d of %d frozen Baseline cells resolve; source parseability is necessary before applying retained-run evidence",
 			len(baselineImplementedPublicationCells), len(baselinePublicationRequirements))
 	}
-	if baselineRealSystemValidated {
-		t.Fatal("baselineRealSystemValidated is true; this guard must be restated together with the retained evidence")
+	if !baselineRealSystemValidated {
+		t.Fatal("baselineRealSystemValidated is false after author approval of the retained 58-cell run")
 	}
-	if len(publicationCoverageGates["baseline"].implemented) != 0 {
-		t.Fatal("the coverage gate advertised cells while no retained run covers them all")
+	if !publicationCoverageGates["baseline"].complete() {
+		t.Fatal("Baseline coverage stayed incomplete after the retained run covered every frozen cell")
 	}
-	// Every frozen workload resolves as of 2026-08-16, so the two
-	// assertions above continue to hold. A cell registered from any other
-	// workload would mean the resolver accepted something Execute cannot run.
+	if !implementedCapabilities()["baseline"] {
+		t.Fatal("baseline capability stayed false after resolution and retained-run evidence both completed")
+	}
 }
 
-// TestEveryUnimplementedBaselineCellFailsClosed holds the resolver to the
-// workloads that really have an execution path. S1 and S2 must resolve, and
-// every other frozen cell must still be refused by name rather than attempted
-// with a substituted query.
-func TestEveryUnimplementedBaselineCellFailsClosed(t *testing.T) {
-	adapter := &realAdapter{}
-	implemented := map[publicationCell]bool{}
-	for _, cell := range baselineImplementedPublicationCells {
-		implemented[cell] = true
-	}
-	refused := 0
+// Every Baseline cell credited by the retained run must still resolve through
+// the source-controlled execution path; the evidence bit cannot substitute a
+// query for a frozen cell that the Adapter no longer implements.
+func TestEveryValidatedBaselineCellResolves(t *testing.T) {
+	assertSamePublicationCells(t, baselineImplementedPublicationCells, baselinePublicationRequirements)
 	for _, cell := range baselinePublicationRequirements {
-		if implemented[cell] {
-			if _, err := resolveBaselineExecutionCell(experiment.AdapterOperation{
-				ExperimentID: "baseline", WorkloadID: cell.WorkloadID,
-				Scale: cell.Scale, Mode: cell.Mode,
-			}); err != nil {
-				t.Fatalf("registered cell %+v does not resolve: %v", cell, err)
-			}
-			continue
+		if _, err := resolveBaselineExecutionCell(experiment.AdapterOperation{
+			ExperimentID: "baseline", WorkloadID: cell.WorkloadID,
+			Scale: cell.Scale, Mode: cell.Mode,
+		}); err != nil {
+			t.Fatalf("validated cell %+v does not resolve: %v", cell, err)
 		}
-		operation := experiment.AdapterOperation{
-			ExperimentID: "baseline",
-			WorkloadID:   cell.WorkloadID,
-			Scale:        cell.Scale,
-			Mode:         cell.Mode,
-		}
-		sample := adapter.Execute(t.Context(), operation)
-		if sample.Status != "invalid" || sample.ErrorCode != "unsupported_source_controlled_baseline_cell" {
-			t.Fatalf("formal cell %+v returned status=%q code=%q", cell, sample.Status, sample.ErrorCode)
-		}
-		refused++
-	}
-	if refused != len(baselinePublicationRequirements)-len(baselineImplementedPublicationCells) {
-		t.Fatalf("%d unimplemented cells failed closed, want %d",
-			refused, len(baselinePublicationRequirements)-len(baselineImplementedPublicationCells))
 	}
 }
 
-// Artifact left this guard on 2026-08-16 by completing its profile, so the
-// guard now covers Scale alone. Baseline keeps its own fail-closed test above.
+// Artifact and Baseline left this guard on 2026-08-16 by completing their
+// profiles, so the guard now covers Scale alone.
 func TestIncompleteScaleProfileCannotEnableCapabilities(t *testing.T) {
 	for _, experimentID := range []string{"scale"} {
 		coverage := publicationCoverageGates[experimentID]
