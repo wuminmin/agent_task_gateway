@@ -1,54 +1,36 @@
-# AGENTS.md
+# AGENTS.md — 项目事实
 
-TaskGate：agentic 数据库系统的累计数据暴露记账与控制原型。当前全部工作服务于一个
-目标——TKDE 投稿。**这不是产品代码，是论文证据链**：一段无法追溯到真实运行的证据，
-比没有证据更糟。
-
-这份文件是**项目事实的唯一出处**：环境、门禁、红线、当前状态、派工与提交规范。
-**Claude 自己的作业纪律**（第一原则、决策权与上报边界、持续主动工作、30 分钟心跳）
-在 `CLAUDE.md`，本文件不复述——同一条规则只留一个出处，免得两边漂移。
+TaskGate：agentic 数据库系统的累计数据暴露记账与控制原型。全部工作服务于 TKDE 投稿。
+**这不是产品代码，是论文证据链**：一段无法追溯到真实运行的证据，比没有证据更糟。
+本文件是**项目事实的唯一出处**；Claude 的作业纪律（第一原则、决策权、工作循环、心跳）
+在 `CLAUDE.md`，互不复述。
 
 ## 分工
 
-作者（wuminmin）保留全部裁决权与 tag。规划、审计、任务下发由 Claude 出；代码、运行、
-提交由 Codex 执行。**Codex 不自行扩大任务范围**：任务书没写的改动不要顺手做；发现该做
-但不在范围内的事，写进台账"遗留"并上报。
+作者（wuminmin）保留全部裁决权与 tag；规划、审计、派工由 Claude 出；代码、运行、提交由
+Codex 执行。作者只与 Claude 对话，Claude 驱动 Codex（2026-08-13 作者定）。Codex 两条纪律：
 
-**交互链路（2026-08-13 作者定）：作者只与 Claude 对话，Claude 自己驱动 Codex。**
-作者不直接给 Codex 派工，也不逐条盯 Codex 的输出。Codex 侧只需记住两条推论：
+1. **不自行扩大范围**：任务书没写的不顺手做；该做但不在范围的写进台账"遗留"上报。
+2. **自报"通过"不作数**：台账留可复核证据（命令 + 关键输出摘要），不是结论词；
+   需要裁决的岔口停下列选项，不自行决定。
 
-1. **Codex 自报"通过"不作数。** 每一行台账都要由 Claude 拿实际证据复核过才算数——
-   这条链路上 Claude 是唯一的审计者。所以台账里要留下**可复核的证据**（命令 + 关键
-   输出摘要），不是结论词。
-2. **需要作者裁决的岔口，停下列选项，不要自行决定。** 判断哪些岔口需要上报，是 Claude
-   的事；Codex 只负责停下来说清楚。
-
-（Claude 侧的决策权边界、上报三类、汇报与心跳纪律见 `CLAUDE.md`，Codex 不据此行动。）
-
-驱动方式：`codex exec -C <worktree> -s danger-full-access "<任务书>"`。任务书须自带
-起始 HEAD、环境命令、范围边界、停手判据、验收命令与提交格式。
-
-**长任务后台化（2026-08-16 定）**：预计超过几分钟的 `codex exec` 与带库测试，一律后台
-执行（`run_in_background` / `Monitor`），Claude 前台不死等——前台被占住就发不出 30 分钟
-心跳（`CLAUDE.md`）。相应地，**任务书要求 Codex 分阶段打出关键行**（每完成一个验收命令
-就打一行带数字的结论），使 Claude 能在任务跑完之前就取到可汇报的事实。
+驱动方式：`codex exec -C <worktree> -s danger-full-access "<任务书>"`。任务书自带起始
+HEAD、环境命令、范围边界、停手判据、验收命令与提交格式。预计超过几分钟的任务一律
+后台执行，且任务书要求 Codex **每完成一个验收命令就打一行带数字的结论行**，
+使 Claude 在跑完前就能取到可汇报的事实。
 
 ## 权威文档（开工必读，按此顺序）
 
-1. `docs/codex_publication_execution_plan.md` — **唯一权威任务队列**。
-   §2 红线、§3 已封存决策、§8 会话协议、§10 进度台账。
-   开工先读台账**最后五行**，接着做，不要重开已完成任务。
-   台账是 append-only，**后面的行会对前面的行做"口径校正"，以最新一行为准**。
-   例：P3.3 曾有一行 BLOCKED 写"唯一阻塞是作者提供完整 publication binding"，
-   已被后续 C16 与 P3.3-prep2 推翻——照旧行做就会去等一个不需要的输入。
-2. `docs/final_v5_author_decisions.md` — 作者决策 1–19。**不得重开已裁决项**。
+1. `docs/codex_publication_execution_plan.md` — **唯一权威任务队列**。§2 红线完整版、
+   §3 已封存决策、§8 会话协议、§10 进度台账。**开工先读台账最后五行**；台账
+   append-only，后行对前行做口径校正，**以最新一行为准**（照旧行做会去等不需要的输入）。
+2. `docs/final_v5_author_decisions.md` — 作者决策 1–19，**不得重开已裁决项**。
 3. `dev.md` — 系统拓扑与接口。
 
 ## 环境
 
 工作树 `/home/wmm/worktrees/agent_task_gateway`，分支 `tkde-artifact-rerun`。
-（旧路径 `/home/wmm/worktrees/taskgate-artifact-rerun` 已不存在，2026-08-13 校正；
-分支未变。）主工作树 `/home/wmm/agent-scope/task_gateway` 停在 `main`，**永不触碰**。
+主工作树 `/home/wmm/agent-scope/task_gateway` 停在 `main`，**永不触碰**。
 
 ```bash
 export GOFLAGS=-buildvcs=false
@@ -56,70 +38,55 @@ docker version                                  # Docker 反复上下线，每�
 ./scripts/db-test-env.sh up
 ./scripts/db-test-env.sh verify                 # 期望 server_version_num=160014
 gofmt -l $(git ls-files '*.go'); go build ./...; go vet ./...
-./scripts/db-test-env.sh test -count=1 ./...     # 带库全量的唯一支持写法（只在门禁点跑，见下）
+./scripts/db-test-env.sh test -count=1 ./...    # 带库全量的唯一支持写法（只在门禁点跑）
 env -u TASKGATE_FINAL_V5_SQLCHECK_ADMIN_DSN ./evaluation/final-v5-wsl2/scripts/validate.sh
-# 真正执行 contract SQL executability gate（自建一次性空库）：
-./evaluation/final-v5-wsl2/scripts/run-sql-executability-gate.sh
+./evaluation/final-v5-wsl2/scripts/run-sql-executability-gate.sh  # 真执行 SQL 门禁（自建一次性空库）
 ```
 
-## 带库全量什么时候跑（2026-08-16 定，取代「每任务一次」）
-
-带库全量**不再每个任务跑一次**，改为三层：
+### 测试分层（2026-08-16 定，取代「每任务一次全量」）
 
 | 层 | 触发时机 | 跑什么 |
-|---|---|---|
-| 每次代码改动 | 每个任务 | 只跑**受影响的包** + 该改动的聚焦测试，仍用 `-count=1` |
-| **门禁** | 契约冻结、翻 capability、正式 campaign、打 tag 之前 | **完整带库全量一次** |
-| 明确不做 | — | 不靠 Go 测试缓存省时间，而是明确不跑未受影响的包 |
+| --- | --- | --- |
+| 每个任务 | 每次代码改动 | 受影响的包 + 聚焦测试，`-count=1` |
+| 门禁 | 契约冻结、翻 capability、正式 campaign、打 tag 之前 | 完整带库全量一次 |
 
-依据是实测量级差：`internal/gateway` 单包 `3630.35 s`，占全量墙钟约 89%；而 2026-08-16
-两个 observer 提交的受影响包合计 `89 s`（`final-v5-observer` 0.269 s +
-`internal/experiment` 89.060 s）——**40 倍差距**。逐测试榜单显示 148 个顶层测试里
-126 个各自不到 10 s、合计仅 56.2 s，而 22 个超过 100 s 的占了 98.5%。
+受影响包 = 改动的包 + 直接依赖它的包；拿不准往宽跑，但不退回全量。依据是实测量级差
+（`internal/gateway` 单包 3630s ≈ 全量墙钟 89%，典型改动受影响包约差 40 倍；
+全部数字见台账 DOC-dbtest-recipe 行）。
 
-受影响包判定：改了哪个包就跑哪个包，加上直接依赖它的包。拿不准就往宽里跑，
-但**不要**因为拿不准就退回全量。
+### 带库测试与运行的坑（每条都实翻过车，出处在台账）
 
-不接 DSN 时 DB 测试**静默 skip**，而 skip 不算 pass。不得安装宿主机 PostgreSQL：
-digest-pinned 的 PostgreSQL 16.14 容器对就是整套记账被认证against的那个环境。
-带库全量**不要**使用 `eval "$(./scripts/db-test-env.sh env)"` 后裸跑 `go test`：`env`
-会导出 `TASKGATE_FINAL_V5_SQLCHECK_ADMIN_DSN`，`test` 则故意不导出；这个不对称是设计，
-不是疏漏。错用 `env` 会稳定制造三类假失败：`finalv5sqlcheck` 的两个 probe 因已有
-`final_v5_benchmark` schema 而失败，`internal/gateway` 因裸 `go test` 的 10 分钟默认预算
-而 timeout panic，以及 `validate.sh` 的 contract SQL executability gate 在被污染的
-business 库上失败。`validate.sh` 必须在没有该变量的环境里运行；真正执行该门禁须走
-`run-sql-executability-gate.sh`，由它自建一次性空库。Claude 实测 `internal/gateway`
-耗时 2777s，而 `test` 默认 `-timeout=60m`，余量仅约 23%；将来若超时，先怀疑预算，
-不要先判断为 hang。
+- 全量必须走 `test` 子命令，**不得** `eval "$(./scripts/db-test-env.sh env)"` 后裸跑
+  `go test`：`env` 导出 SQLCHECK 管理 DSN、裸跑用 10 分钟默认预算，稳定制造三类假失败
+  （probe 撞已有 schema、`internal/gateway` timeout panic、validate.sh 门禁跑进被污染的
+  business 库）。`env`/`test` 的不对称是设计，不是疏漏；`validate.sh` 必须在没有该
+  变量的环境里跑，真执行 SQL 门禁走 `run-sql-executability-gate.sh`。
+- `internal/gateway` 实测 2777s，`test` 默认 `-timeout=60m` 余量约 23%——将来超时
+  **先怀疑预算，不要先判 hang**。
+- 不接 DSN 时 DB 测试**静默 skip，skip 不算 pass**（红线 7）。
+- **不得安装宿主机 PostgreSQL**：digest-pinned 的 16.14 容器就是整套记账被认证的环境。
+- **跑活体（canary / N4 / campaign）前必须 `./scripts/db-test-env.sh down`**：
+  与测试环境争同一批宿主端口；runner 自检只报告占用者、不代劳删除。
+- **改了 `internal/` 的实跑必须带 `TASKGATE_REAL_PILOT_BUILD=1`**：Compose 镜像不自动
+  重建，不带等于跑旧代码，而运行照样成功照样出数字——假结论比没数据更危险
+  （台账 P15-image-staleness）。pilot 类运行现不记录镜像 ID，此缺口未补前尤其要小心。
+- **实跑期间不得修改该运行依赖的任何文件**（脚本被读到半截会中止运行）。
+- **创建任何具名产物（Product、视图、schema）之前先全仓 grep 这个名字**——
+  已有方案或视图链可能早就存在（台账 P17 记过同根因两次）。
+- 全仓 `gofmt -l` 稳定报 `internal/control/execution_binding.go` 与
+  `internal/exposure/factset_differential_test.go` 两个既有失败项，**不要顺手修**；
+  只需确认本轮改动的 Go 文件无输出。
 
-论文构建分两用（2026-08-16 实测后改写，取代原"一律走容器"）：
+### 论文构建（2026-08-16 实测定）
 
-| 用途 | 用哪个 | 依据 |
-|---|---|---|
-| 迭代、排版判断（页数、溢出、断行） | 宿主 `paper/tkde/compile.sh` | 实测两边页数一致，宿主快得多 |
-| **交付字节、留证、打 tag** | **容器 `make paper-tkde`** | **两边字节必然不同，交付必须出自受控环境** |
+| 用途 | 用哪个 |
+| --- | --- |
+| 迭代、排版预判（页数、溢出、断行） | 宿主 `paper/tkde/compile.sh` |
+| **交付字节、留证、打 tag** | **容器 `make paper-tkde`** |
 
-改写的依据是实测，不是推断。同一棵树（提交 `12a4c71`）两边各构建一次：
-宿主 TeX Live 2026 用 pdfTeX `1.40.29`，容器 `debian:bookworm-slim` 用 pdfTeX `1.40.24`，
-**main 与 supplement 都是 12 页、两边一致**，但 PDF 的 SHA-256 不同。
-所以宿主可以用来判断排版是否放得下，**不能**用来产出交付字节。
-
-原规则写的是"一律走容器"，理由已写明**不是**宿主缺包（宿主早已装好 TeX Live 2026，
-`kpsewhich` 能找到 `IEEEtran.cls` 与 `IEEEtran.bst`），而是构建环境一致性。装插件
-不改变这一点：一致性要求的是**可复现的受控环境**，宿主那套是本机的、别人复现不了的。
-本次改写只是把"宿主能干什么"说准，没有放松"交付字节必须出自容器"这条。
-
-**注意引擎版本差四年**：宿主 2026 与容器 2022 的排版在本次实测中一致，但这不是保证。
-凡是把内容改到刚好卡页数边界的改动，**以容器构建的页数为准**，宿主只作快速预判。
-
-**跑活体（canary / N4 / campaign）之前必须先 `./scripts/db-test-env.sh down`**：
-带库测试环境与活体部署争同一批宿主端口，残留会让 phase 1 直接起不来。
-活体 runner 现有开跑前自检会 fail fast 并报出占用者，但它**只报告、不代劳**，
-不会替你删任何容器。
-
-全仓 `gofmt -l` 会稳定报告 `internal/control/execution_binding.go` 与
-`internal/exposure/factset_differential_test.go` 两个既有失败项，**不要顺手修**；
-只需确认本轮改动的 Go 文件无输出。
+实测同一提交两边页数一致（main 12 页 + supplement 12 页）但 PDF 字节必不同
+（宿主 pdfTeX 1.40.29 vs 容器 1.40.24）。交付必须出自受控可复现环境；
+**卡页数边界的改动以容器页数为准**，宿主只作快速预判。
 
 ## 红线（违反则此前工作作废，完整版见计划 §2）
 
@@ -159,8 +126,7 @@ business 库上失败。`validate.sh` 必须在没有该变量的环境里运行
 - **finalizer 拒绝必须携带 `TaskGateRejectionV1`**：phase / gate_code / failure_kind /
   source / path_kind / target_role / statement_class / difference_kind / difference_field
   九张闭式枚举表，拒绝 unknown 值；与 `taskgate_acceptance_v3` 互斥。
-  （不在此处写具体条目数：计数会随新增 gate code 漂移，而没人会记得同步；
-  要遵守的属性是"闭式 + 拒绝 unknown"，不是某个数字。）
+  （不写具体条目数：计数会漂移；要遵守的属性是"闭式 + 拒绝 unknown"。）
   **已知覆盖空洞**：pre-finalizer 的 phase-1 启动失败没有 sample 当载体，
   taxonomy 不适用——这类失败仍需人读日志。
 
@@ -175,21 +141,20 @@ observer census 混用 `text` 与未 cast 的 `numeric`；predicate footprint �
 
 ## 汇报纪律
 
-跑过并通过才写"通过"；失败就贴失败输出；跳过的明说跳过。与既有文档冲突时以**证据**
-为准，把冲突写进台账，不要静默改文档。触到红线立即停下上报，不要绕过。
+跑过并通过才写"通过"；失败贴失败输出；跳过明说跳过。与既有文档冲突时以**证据**为准，
+冲突写进台账，不静默改文档。触到红线立即停下上报，不绕过。
 
-**pre-measurement failure 不是 cell failure，二者必须分开记。** runner、构建、部署、
-binding 生成阶段的失败属于前者：允许最小修复、单独提交、从新的 clean 已推送 HEAD
-**完整重启**，台账单独记一行，写清 `failure_stage` 与 `formal_gateway_built` /
-`live_gates_run` / `measurement_started` / `measured_samples` 的真实值，并注明不得记作
-canary 或 live gate 的 PASS/FAIL。measurement 开始之后的 cell 失败属于后者：
-**即 fail，不重试到过、不改判定条件、不降级**，保留失败目录与日志后停下上报。
-**只有真正到达 v3 acceptance 并被判否，才准表述为"未通过验收"**；未到达就中止的，
-一律表述为"在 X 阶段中止，未产生验收判定"。
+**pre-measurement failure 不是 cell failure，必须分开记。** runner、构建、部署、binding
+生成阶段的失败属于前者：允许最小修复、单独提交、从新的 clean 已推送 HEAD **完整重启**，
+台账单独记一行，写清 `failure_stage` 与 `formal_gateway_built` / `live_gates_run` /
+`measurement_started` / `measured_samples` 的真实值，不得记作 canary 或 live gate 的
+PASS/FAIL。measurement 开始之后的 cell 失败属于后者：**即 fail，不重试到过、不改判定
+条件、不降级**，保留失败目录与日志后停下上报。**只有真正到达 v3 acceptance 并被判否，
+才准表述为"未通过验收"**；未到达就中止的，一律表述为"在 X 阶段中止，未产生验收判定"。
 
-**凭据门禁口径**：exact-value 子串命中允许非零，但**每一个命中都必须在台账里被证明为
-source-controlled 公开常量的子串**（给出常量、文件:行号、命中字段逐字节等于该常量的证明）；
-URL-userinfo / PEM / secret-assignment / JSON-scalar 完整相等 四类必须严格为 0。
+**凭据门禁口径**：exact-value 子串命中允许非零，但每一个命中都必须在台账里被证明为
+source-controlled 公开常量的子串（给出常量、文件:行号、命中字段逐字节等于该常量的
+证明）；URL-userinfo / PEM / secret-assignment / JSON-scalar 完整相等 四类必须严格为 0。
 
 ## 提交
 
