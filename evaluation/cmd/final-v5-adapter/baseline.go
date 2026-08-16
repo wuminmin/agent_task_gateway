@@ -1413,12 +1413,31 @@ func (adapter *realAdapter) crossBindingVerification(ctx context.Context, operat
 	if err != nil {
 		return evidence, err
 	}
-	if first.taskID == second.taskID || first.rootTaskID == second.rootTaskID || first.queryID == second.queryID ||
-		first.grantDigest == second.grantDigest || first.cacheKeySHA256 == second.cacheKeySHA256 ||
-		second.sourceQueryID != second.queryID || second.rootFirstQueryID != second.queryID ||
-		businessAfter.VisibleCalls-businessBefore.VisibleCalls != 1 ||
-		businessAfter.CompanionCalls-businessBefore.CompanionCalls != 1 {
-		return evidence, errors.New("cross-binding negative evidence is incomplete")
+	// Each condition is named. The combined check used to report one sentence
+	// for a dozen distinct failures, which is the same problem as swallowing an
+	// error: a run could see that cross-binding evidence was incomplete and
+	// never learn which part of it was.
+	for _, incomplete := range []struct {
+		failed bool
+		reason string
+	}{
+		{first.taskID == second.taskID, "the two tasks share an identity"},
+		{first.rootTaskID == second.rootTaskID, "the two tasks share an exposure root"},
+		{first.queryID == second.queryID, "the two queries share an identity"},
+		{first.grantDigest == second.grantDigest, "the two tasks share a signed grant"},
+		{first.cacheKeySHA256 == second.cacheKeySHA256, "the two queries share a semantic cache key"},
+		{second.sourceQueryID != second.queryID, "the second query did not originate itself"},
+		{second.rootFirstQueryID != second.queryID, "the second query is not its root's first"},
+		{businessAfter.VisibleCalls-businessBefore.VisibleCalls != 1,
+			fmt.Sprintf("visible Business SQL calls moved by %d, want 1",
+				businessAfter.VisibleCalls-businessBefore.VisibleCalls)},
+		{businessAfter.CompanionCalls-businessBefore.CompanionCalls != 1,
+			fmt.Sprintf("ordinal companion calls moved by %d, want 1",
+				businessAfter.CompanionCalls-businessBefore.CompanionCalls)},
+	} {
+		if incomplete.failed {
+			return evidence, fmt.Errorf("cross-binding negative evidence is incomplete: %s", incomplete.reason)
+		}
 	}
 	if verifiedSample.BaselineVerification == nil || verifiedSample.BaselineVerification.VerifierManifest == nil {
 		return evidence, errors.New("cross-binding released-artifact manifest is absent")
