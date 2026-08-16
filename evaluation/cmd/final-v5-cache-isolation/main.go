@@ -32,14 +32,19 @@ const (
 	defaultIntersectionPath     = "evaluation/final-v5-wsl2/profiles/product-intersection-v1.json"
 	defaultRouteMatrixPath      = "evaluation/final-v5-wsl2/profiles/outside-product-route-matrix-v1.json"
 	defaultProductionLookupPath = "evaluation/final-v5-wsl2/profiles/production-lookup-manifest-v1.json"
+	defaultSameQueryLivePath    = ""
 
 	intersectionRecord     = "taskgate-final-v5-product-intersection-v1"
 	routeMatrixRecord      = "taskgate-final-v5-outside-product-route-matrix-v1"
 	productionLookupRecord = "taskgate-final-v5-production-semantic-cache-lookup-v1"
 	isolationRecord        = "taskgate-final-v5-semantic-cache-isolation-evidence-v1"
+	isolationRecordV2      = "taskgate-final-v5-semantic-cache-isolation-evidence-v2"
+	sameQueryLiveRecord    = "taskgate-final-v5-same-query-cross-profile-live-evidence-v1"
 	proofMode              = "disjoint_formal_profiles_plus_exhaustive_live_route_refusal_plus_production_lookup"
+	proofModeV2            = "formal_profile_intersection_plus_same_query_cross_profile_live_plus_exhaustive_live_route_refusal_plus_production_lookup"
 	notApplicableStatus    = "not_applicable_by_formal_profile_contract"
 	requiredStatus         = "required_but_not_provided"
+	passedStatus           = "pass"
 
 	productionTestPackage         = "taskbound.local/agent-data-gateway/internal/control"
 	productionTestPackageArgument = "./internal/control"
@@ -60,6 +65,7 @@ type options struct {
 	intersectionPath     string
 	routeMatrixPath      string
 	productionLookupPath string
+	sameQueryLivePath    string
 	outputPath           string
 	runProductionTests   bool
 }
@@ -74,6 +80,8 @@ func main() {
 		"outside-Product route-matrix input")
 	flag.StringVar(&opts.productionLookupPath, "production-lookup-manifest", defaultProductionLookupPath,
 		"production semantic-cache lookup manifest input")
+	flag.StringVar(&opts.sameQueryLivePath, "same-query-live-evidence", defaultSameQueryLivePath,
+		"same-query cross-profile live evidence input (required when profile closures overlap)")
 	flag.StringVar(&opts.outputPath, "out", "", "semantic-cache isolation output (required)")
 	flag.BoolVar(&opts.runProductionTests, "run-production-tests", false,
 		"rerun the two PostgreSQL production-lookup tests before composing evidence")
@@ -118,6 +126,10 @@ func run(ctx context.Context, opts options, testRunner productionTestRunner) err
 	intersectionPath := resolvePath(opts.root, opts.intersectionPath)
 	routeMatrixPath := resolvePath(opts.root, opts.routeMatrixPath)
 	productionLookupPath := resolvePath(opts.root, opts.productionLookupPath)
+	var sameQueryLivePath string
+	if strings.TrimSpace(opts.sameQueryLivePath) != "" {
+		sameQueryLivePath = resolvePath(opts.root, opts.sameQueryLivePath)
+	}
 	outputPath := resolvePath(opts.root, opts.outputPath)
 
 	registryBytes, registryDigest, err := readWithDigest(registryPath)
@@ -176,9 +188,31 @@ func run(ctx context.Context, opts options, testRunner productionTestRunner) err
 	failures := append([]string{}, intersectionResult.Failures...)
 	failures = append(failures, routeResult.Failures...)
 	failures = append(failures, productionFailures...)
-	if intersectionResult.SameQueryLiveTestApplicable {
+	var sameQueryLiveDigest string
+	var sameQueryLivePairCount, sameQueryLivePairFailures int
+	var sameQueryLivePassed bool
+	if intersectionResult.SameQueryLiveTestApplicable && sameQueryLivePath == "" {
 		failures = append(failures,
 			"same-query cross-profile live test is applicable but no such live evidence was provided")
+	} else if intersectionResult.SameQueryLiveTestApplicable {
+		liveBytes, digest, readErr := readWithDigest(sameQueryLivePath)
+		if readErr != nil {
+			return readErr
+		}
+		var live sameQueryLiveDocument
+		if err := decodeJSON(liveBytes, &live, true); err != nil {
+			return fmt.Errorf("decode same-query cross-profile live evidence: %w", err)
+		}
+		liveResult, err := analyzeSameQueryLive(live, registry, profiles, intersection,
+			registryDigest, intersectionDigest)
+		if err != nil {
+			return err
+		}
+		sameQueryLiveDigest = digest
+		sameQueryLivePairCount = liveResult.PairCount
+		sameQueryLivePairFailures = liveResult.FailedPairCount
+		sameQueryLivePassed = len(liveResult.Failures) == 0
+		failures = append(failures, liveResult.Failures...)
 	}
 
 	evidence := semanticCacheIsolationEvidence{
@@ -207,6 +241,17 @@ func run(ctx context.Context, opts options, testRunner productionTestRunner) err
 	}
 	if evidence.SameQueryLiveTestApplicable {
 		evidence.SameQueryLiveTestStatus = requiredStatus
+		if sameQueryLivePath != "" {
+			evidence.SchemaVersion = 2
+			evidence.Record = isolationRecordV2
+			evidence.ProofMode = proofModeV2
+			evidence.SameQueryLiveEvidenceSHA256 = sameQueryLiveDigest
+			evidence.SameQueryLivePairCount = &sameQueryLivePairCount
+			evidence.SameQueryLivePairFailures = &sameQueryLivePairFailures
+			if sameQueryLivePassed {
+				evidence.SameQueryLiveTestStatus = passedStatus
+			}
+		}
 	}
 	evidence.SemanticCacheCatalogBound = len(evidence.Failures) == 0
 	if evidence.SemanticCacheCatalogBound {
@@ -488,6 +533,129 @@ func intersectProducts(left, right []string) []string {
 	}
 	sort.Strings(intersection)
 	return intersection
+}
+
+type sameQueryLiveDocument struct {
+	SchemaVersion                   int                 `json:"schema_version"`
+	Record                          string              `json:"record"`
+	ContractRelease                 string              `json:"contract_release"`
+	ProfileRegistrySHA256           string              `json:"profile_registry_sha256"`
+	ProductIntersectionMatrixSHA256 string              `json:"product_intersection_matrix_sha256"`
+	DeploymentID                    string              `json:"deployment_id"`
+	QueryTemplateSHA256             string              `json:"query_template_sha256"`
+	PairCount                       int                 `json:"pair_count"`
+	PassedPairCount                 int                 `json:"passed_pair_count"`
+	FailedPairCount                 int                 `json:"failed_pair_count"`
+	Pairs                           []sameQueryLivePair `json:"pairs"`
+	Failures                        []string            `json:"failures"`
+	Status                          string              `json:"status"`
+}
+
+type sameQueryLivePair struct {
+	LeftProfileID                     string   `json:"left_profile_id"`
+	RightProfileID                    string   `json:"right_profile_id"`
+	LeftAlias                         string   `json:"left_alias"`
+	RightAlias                        string   `json:"right_alias"`
+	SharedProducts                    []string `json:"shared_products"`
+	SelectedProduct                   string   `json:"selected_product"`
+	QuerySHA256                       string   `json:"query_sha256"`
+	LeftCatalogSHA256                 string   `json:"left_catalog_sha256"`
+	RightCatalogSHA256                string   `json:"right_catalog_sha256"`
+	FirstCacheKeySHA256               string   `json:"first_cache_key_sha256"`
+	SecondCacheKeySHA256              string   `json:"second_cache_key_sha256"`
+	FirstSQLFingerprintSHA256         string   `json:"first_sql_fingerprint_sha256"`
+	SecondSQLFingerprintSHA256        string   `json:"second_sql_fingerprint_sha256"`
+	SecondSourceQueryIsSelf           bool     `json:"second_source_query_is_self"`
+	SecondSemanticReplayAudits        int      `json:"second_semantic_replay_audits"`
+	SecondSettlementAudits            int      `json:"second_settlement_audits"`
+	SecondBusinessVisibleCallsDelta   int64    `json:"second_business_visible_calls_delta"`
+	SecondBusinessCompanionCallsDelta int64    `json:"second_business_companion_calls_delta"`
+	SecondSemanticReplay              bool     `json:"second_semantic_replay"`
+	SecondIdempotentReplay            bool     `json:"second_idempotent_replay"`
+	SecondNovelExecution              bool     `json:"second_novel_execution"`
+	Status                            string   `json:"status"`
+}
+
+type sameQueryLiveAnalysis struct {
+	PairCount       int
+	FailedPairCount int
+	Failures        []string
+}
+
+func analyzeSameQueryLive(document sameQueryLiveDocument, registry registryDocument,
+	profiles map[string]registryProfile, intersection intersectionDocument,
+	registryDigest, intersectionDigest string) (sameQueryLiveAnalysis, error) {
+	if document.SchemaVersion != 1 || document.Record != sameQueryLiveRecord {
+		return sameQueryLiveAnalysis{}, errors.New("same-query live evidence identity is not recognised")
+	}
+	if document.ContractRelease != registry.ContractRelease || document.ProfileRegistrySHA256 != registryDigest ||
+		document.ProductIntersectionMatrixSHA256 != intersectionDigest {
+		return sameQueryLiveAnalysis{}, errors.New("same-query live evidence does not bind the current contract, registry and product-intersection bytes")
+	}
+	if strings.TrimSpace(document.DeploymentID) == "" || !isSHA256(document.QueryTemplateSHA256) {
+		return sameQueryLiveAnalysis{}, errors.New("same-query live evidence omits deployment or query-template identity")
+	}
+	expected := map[string]intersectionPair{}
+	for _, pair := range intersection.Pairs {
+		if pair.SameQueryLiveTestApplicable {
+			expected[pair.LeftProfileID+"/"+pair.RightProfileID] = pair
+		}
+	}
+	result := sameQueryLiveAnalysis{PairCount: len(document.Pairs), Failures: []string{}}
+	seen := map[string]bool{}
+	passed := 0
+	for _, pair := range document.Pairs {
+		key := pair.LeftProfileID + "/" + pair.RightProfileID
+		want, found := expected[key]
+		if !found || seen[key] {
+			result.Failures = append(result.Failures, "same-query live pair "+key+" is unexpected or duplicated")
+			continue
+		}
+		seen[key] = true
+		left, leftOK := profiles[pair.LeftProfileID]
+		right, rightOK := profiles[pair.RightProfileID]
+		selected := false
+		for _, product := range want.Intersection {
+			selected = selected || product == pair.SelectedProduct
+		}
+		novel := leftOK && rightOK && pair.LeftAlias == want.LeftAlias && pair.RightAlias == want.RightAlias &&
+			reflect.DeepEqual(pair.SharedProducts, want.Intersection) && selected &&
+			pair.LeftCatalogSHA256 == left.CatalogSHA256 && pair.RightCatalogSHA256 == right.CatalogSHA256 &&
+			pair.LeftCatalogSHA256 != pair.RightCatalogSHA256 && isSHA256(pair.QuerySHA256) &&
+			isSHA256(pair.FirstCacheKeySHA256) && isSHA256(pair.SecondCacheKeySHA256) &&
+			pair.FirstCacheKeySHA256 != pair.SecondCacheKeySHA256 &&
+			isSHA256(pair.FirstSQLFingerprintSHA256) &&
+			pair.FirstSQLFingerprintSHA256 == pair.SecondSQLFingerprintSHA256 &&
+			pair.SecondSourceQueryIsSelf && pair.SecondSemanticReplayAudits == 0 &&
+			pair.SecondSettlementAudits == 1 && pair.SecondBusinessVisibleCallsDelta == 1 &&
+			pair.SecondBusinessCompanionCallsDelta == 1 && !pair.SecondSemanticReplay &&
+			!pair.SecondIdempotentReplay
+		if !novel || pair.SecondNovelExecution != novel || pair.Status != passedStatus {
+			result.Failures = append(result.Failures, "same-query live pair "+key+" did not prove a catalog-bound novel second execution")
+			continue
+		}
+		passed++
+	}
+	keys := make([]string, 0, len(expected))
+	for key := range expected {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		if !seen[key] {
+			result.Failures = append(result.Failures, "same-query live pair "+key+" is missing")
+		}
+	}
+	result.FailedPairCount = len(expected) - passed
+	if result.FailedPairCount < 0 {
+		result.FailedPairCount = len(result.Failures)
+	}
+	if document.PairCount != len(document.Pairs) || document.PassedPairCount != passed ||
+		document.FailedPairCount != result.FailedPairCount || document.Status != passedStatus ||
+		len(document.Failures) != 0 {
+		result.Failures = append(result.Failures, "same-query live evidence summary does not match the derived pair results")
+	}
+	return result, nil
 }
 
 type routeMatrixDocument struct {
@@ -806,6 +974,9 @@ type semanticCacheIsolationEvidence struct {
 	PublicationEligible                   bool     `json:"publication_eligible"`
 	Record                                string   `json:"record"`
 	SameBindingHit                        bool     `json:"same_binding_hit"`
+	SameQueryLiveEvidenceSHA256           string   `json:"same_query_live_evidence_sha256,omitempty"`
+	SameQueryLivePairCount                *int     `json:"same_query_live_pair_count,omitempty"`
+	SameQueryLivePairFailures             *int     `json:"same_query_live_pair_failures,omitempty"`
 	SameQueryLiveTestApplicable           bool     `json:"same_query_live_test_applicable"`
 	SameQueryLiveTestStatus               string   `json:"same_query_live_test_status"`
 	SchemaVersion                         int      `json:"schema_version"`
