@@ -293,6 +293,9 @@ type baselinePlan struct {
 	// reduce through it, so the digests being compared describe the same
 	// logical rows rather than two Go representations of them.
 	resultSchema []finalv5oracle.ResultColumn
+	// semanticView identifies the merged statement shape emitted when the
+	// driving Product is expanded from a Catalog view_contract.
+	semanticView bool
 	// visibleRelation and companionRelation are the two names the Observer
 	// filters on, carried here only so a failed call-count assertion can show
 	// which statements it was counting.
@@ -323,6 +326,7 @@ func (adapter *realAdapter) contractPlan(cell baselineExecutionCell) baselinePla
 		expectedRows:      cell.Contract.ExpectedRows,
 		expectedColumns:   cell.Contract.ExpectedColumns,
 		resultSchema:      cell.ResultSchema,
+		semanticView:      cell.SemanticView,
 		visibleRelation:   cell.Task.VisibleRelation,
 		companionRelation: cell.Task.CompanionRelation,
 		provision: func(ctx context.Context, operation experiment.AdapterOperation) (string, error) {
@@ -1420,6 +1424,8 @@ func (adapter *realAdapter) crossBindingVerification(ctx context.Context, operat
 	if err != nil {
 		return evidence, err
 	}
+	visibleCallsDelta := businessAfter.VisibleCalls - businessBefore.VisibleCalls
+	companionCallsDelta := businessAfter.CompanionCalls - businessBefore.CompanionCalls
 	// Each condition is named. The combined check used to report one sentence
 	// for a dozen distinct failures, which is the same problem as swallowing an
 	// error: a run could see that cross-binding evidence was incomplete and
@@ -1435,12 +1441,15 @@ func (adapter *realAdapter) crossBindingVerification(ctx context.Context, operat
 		{first.cacheKeySHA256 == second.cacheKeySHA256, "the two queries share a semantic cache key"},
 		{second.sourceQueryID != second.queryID, "the second query did not originate itself"},
 		{second.rootFirstQueryID != second.queryID, "the second query is not its root's first"},
-		{businessAfter.VisibleCalls-businessBefore.VisibleCalls != 1,
+		{!plan.semanticView && visibleCallsDelta != 1,
 			fmt.Sprintf("visible Business SQL calls moved by %d, want 1",
-				businessAfter.VisibleCalls-businessBefore.VisibleCalls)},
-		{businessAfter.CompanionCalls-businessBefore.CompanionCalls != 1,
+				visibleCallsDelta)},
+		{!plan.semanticView && companionCallsDelta != 1,
 			fmt.Sprintf("ordinal companion calls moved by %d, want 1",
-				businessAfter.CompanionCalls-businessBefore.CompanionCalls)},
+				companionCallsDelta)},
+		{plan.semanticView && visibleCallsDelta+companionCallsDelta != 1,
+			fmt.Sprintf("semantic View Business SQL calls moved by visible=%d companion=%d, want combined 1",
+				visibleCallsDelta, companionCallsDelta)},
 	} {
 		if incomplete.failed {
 			// Print what the Observer actually saw. A call-count assertion that

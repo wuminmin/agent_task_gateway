@@ -135,6 +135,30 @@ func TestBaselineSFourReadsTheSemanticView(t *testing.T) {
 	if got := cell.Task.Scopes; len(got["orders_partition_key"]) != 1 || len(got["lineitem_partition_key"]) != 1 {
 		t.Fatalf("S4 scopes = %v, want one partition key per joined side", got)
 	}
+	if !cell.SemanticView || !new(realAdapter).contractPlan(cell).semanticView {
+		t.Fatal("S4 did not carry its semantic View shape through the execution plan")
+	}
+}
+
+// TestBaselineSemanticViewBindingsMatchCatalog prevents the Adapter's
+// statement-shape classification from drifting away from the authoritative
+// Catalog view_contract. A mismatch would apply the wrong cross-binding call
+// count to a real database execution.
+func TestBaselineSemanticViewBindingsMatchCatalog(t *testing.T) {
+	frozen, err := catalog.Load("../../../config/catalog.yaml")
+	if err != nil {
+		t.Fatalf("load Catalog: %v", err)
+	}
+	for name, binding := range baselineProductBindings {
+		product, found := frozen.LookupProduct(name)
+		if !found {
+			t.Fatalf("baseline Product %q is absent from the Catalog", name)
+		}
+		if want := product.ViewContract != nil; binding.SemanticView != want {
+			t.Fatalf("baseline Product %q SemanticView = %t, Catalog view_contract present = %t",
+				name, binding.SemanticView, want)
+		}
+	}
 }
 
 // TestBaselineSSixReusesTheArtifactBinding records why S6 was the cheapest

@@ -36,6 +36,7 @@ type baselineProductBinding struct {
 	Columns           []string
 	VisibleRelation   string
 	CompanionRelation string
+	SemanticView      bool
 }
 
 var baselineProductBindings = map[string]baselineProductBinding{
@@ -66,6 +67,8 @@ var baselineProductBindings = map[string]baselineProductBinding{
 		Columns:           []string{"status", "total_extendedprice", "line_count", "orders_partition_key", "lineitem_partition_key"},
 		VisibleRelation:   "reporting.final_v5_analytics_depth4",
 		CompanionRelation: "taskgate_ordinal.provsql_orders_v1",
+		// The Catalog view_contract is authoritative for this classification.
+		SemanticView: true,
 	},
 	// S6 shares this Product and these templates with the Artifact cells, which
 	// have already executed them end to end. Its sixteen fields are the frozen
@@ -126,6 +129,7 @@ type baselineExecutionCell struct {
 	// mismatch for every rich type. S6 shares the Artifact schema because the
 	// contract makes it execute byte-identical Artifact templates.
 	ResultSchema []finalv5oracle.ResultColumn
+	SemanticView bool
 }
 
 // resolveBaselineExecutionCell turns one AdapterOperation into the frozen cell
@@ -180,7 +184,7 @@ func resolveBaselineExecutionCell(operation experiment.AdapterOperation) (baseli
 	cell := baselineExecutionCell{
 		Contract: contract, Task: task,
 		DirectSQL: rendered.Direct.SQL, BDGSQL: rendered.BDG.SQL, PlanEntrypoint: plan,
-		ResultSchema: schema,
+		ResultSchema: schema, SemanticView: driving.SemanticView,
 	}
 	// A normalized rewrite only means anything for a text query: it proves the
 	// Gateway recognises an equivalent statement it has already settled. A
