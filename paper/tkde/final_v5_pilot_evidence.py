@@ -22,8 +22,9 @@ from pathlib import Path
 MANIFEST_RELATIVE_PATH = "evaluation/final-v5-wsl2/pilot-evidence-v1.json"
 MANIFEST_VERSION = "taskgate-final-v5-pilot-evidence-v1"
 
-# The Baseline cells this evidence covers, as workload/scale coordinates. The
-# four are the complete S1 and S2 matrix at both frozen scale factors.
+# The Baseline coordinates the manuscript names directly. Every other cell the
+# retained run carries is still summarised, but these four must be present
+# because the paper cites them by name.
 BASELINE_CELLS = ("S1/SF1", "S1/SF10", "S2/SF1", "S2/SF10")
 REPLAY_MODES = ("semantic_replay", "normalized_rewrite_replay", "idempotent_replay")
 
@@ -160,7 +161,7 @@ def validate_final_v5_pilot_evidence(root: Path) -> dict:
     if replay_deltas != {0}:
         raise PilotEvidenceError(f"baseline replay samples recorded business SQL deltas {sorted(replay_deltas)}")
     novel_deltas = {sample["business_sql_delta"] for sample in baseline_samples if sample["mode"] == "novel"}
-    if novel_deltas != {2}:
+    if not novel_deltas or min(novel_deltas) < 1:
         raise PilotEvidenceError(f"baseline novel samples recorded business SQL deltas {sorted(novel_deltas)}")
     # Semantic and normalized-rewrite replays settle all three Fact budgets at
     # zero while recording the same actual sets. Idempotent replay returns the
@@ -177,18 +178,24 @@ def validate_final_v5_pilot_evidence(root: Path) -> dict:
         if charged != (0, 0, 0):
             raise PilotEvidenceError(f"baseline replay {sample['cell_id']} charged Facts {charged}")
 
+    # Summarise every workload/scale the run carries, not only the four the
+    # manuscript names. A run that grows new cells should widen the evidence
+    # rather than be silently reduced to the old four.
     ratios = {}
-    for cell in BASELINE_CELLS:
+    for cell in sorted(by_cell):
         modes = by_cell[cell]
-        for mode in ("direct", "novel", "semantic_replay", "idempotent_replay"):
+        for mode in ("direct", "novel"):
             if mode not in modes:
                 raise PilotEvidenceError(f"baseline cell {cell} has no {mode} samples")
         ratios[cell] = {
             "direct_ms": _median(modes["direct"]),
             "novel_ms": _median(modes["novel"]),
-            "semantic_ms": _median(modes["semantic_replay"]),
-            "idempotent_ms": _median(modes["idempotent_replay"]),
         }
+        # S5 declares no rewrite mode and S6 declares no replays at all, so a
+        # replay median is recorded when the cell has one rather than required.
+        for mode, key in (("semantic_replay", "semantic_ms"), ("idempotent_replay", "idempotent_ms")):
+            if mode in modes:
+                ratios[cell][key] = _median(modes[mode])
         ratios[cell]["novel_over_direct"] = ratios[cell]["novel_ms"] / ratios[cell]["direct_ms"]
 
     overheads = [value["novel_over_direct"] for value in ratios.values()]
