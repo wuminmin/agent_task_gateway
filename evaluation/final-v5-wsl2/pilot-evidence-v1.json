@@ -34,10 +34,10 @@
       "id": "baseline-s1-s2",
       "family": "baseline",
       "pilot_kind": "baseline_targeted",
-      "path": "evaluation/final-v5-wsl2/raw/baseline-targeted-20260816T025100Z",
-      "samples_sha256": "c1993059cef5f12cd6ecad209f659cd83e66bf26a3aed501b55f36eee775a8c1",
-      "submission_commit": "b22850e60d0ab5e823b2a0581932cb84df8bcd99",
-      "measured_samples": 60
+      "path": "evaluation/final-v5-wsl2/raw/baseline-targeted-20260816T114115Z",
+      "samples_sha256": "dfcab4e88daf181ece3df8c6428257c14c0010483e8c4f0200df57b10e8bec19",
+      "submission_commit": "372ef816a7267483fc2837eeb31dfa5ee02019ad",
+      "measured_samples": 55
     }
   ]
 }

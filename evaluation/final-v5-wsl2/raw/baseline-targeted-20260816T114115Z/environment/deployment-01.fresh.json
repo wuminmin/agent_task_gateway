@@ -1,0 +1,58 @@
+{
+  "schema_version": 2,
+  "campaign_id": "pilot-local-only",
+  "deployment_id": "deployment-01",
+  "captured_at": "2026-08-16T11:45:30Z",
+  "compose_project_name": "taskgate-final-v5-deployment-01-0924f190d67b6b6e94fc",
+  "compose_config_sha256": "658319c06d9817c6dfe42bae649264beaf0ad5125e14fa8e89e298683322fcee",
+  "volumes": [
+    {
+      "name": "taskgate-final-v5-deployment-01-0924f190d67b6b6e94fc_business-pg-data",
+      "created_at": "2026-08-16T19:42:01+08:00",
+      "driver": "local",
+      "inspect_sha256": "fb22d0556c5247219390b61fe4d4bbb9c75d23e90ec166fd11a8eb5108c25b7d"
+    },
+    {
+      "name": "taskgate-final-v5-deployment-01-0924f190d67b6b6e94fc_control-pg-data",
+      "created_at": "2026-08-16T19:42:01+08:00",
+      "driver": "local",
+      "inspect_sha256": "e65857e093ff0b6dee8c4084be107f9342368f7f11757f90359e879ef8781768"
+    },
+    {
+      "name": "taskgate-final-v5-deployment-01-0924f190d67b6b6e94fc_gateway-encrypted-spool",
+      "created_at": "2026-08-16T19:42:01+08:00",
+      "driver": "local",
+      "inspect_sha256": "1f63a616c01864ed24d0efa1fc2b3432cf858f1dcdcb531cd2125c28e80be094"
+    },
+    {
+      "name": "taskgate-final-v5-deployment-01-0924f190d67b6b6e94fc_result-object-data",
+      "created_at": "2026-08-16T19:42:01+08:00",
+      "driver": "local",
+      "inspect_sha256": "0103608a72db6408716d6e8b2ee7a0333d859cf800222973a3cf35c667beb81b"
+    },
+    {
+      "name": "taskgate-final-v5-deployment-01-0924f190d67b6b6e94fc_snapshot-index-artifacts",
+      "created_at": "2026-08-16T19:42:01+08:00",
+      "driver": "local",
+      "inspect_sha256": "d8a0b35d45a5272971116ffb4b2dd8497e4ea0fd13449dca17df2dcfd0f36b22"
+    }
+  ],
+  "volume_set_sha256": "549c70f850e639576fb9ba03770d4203a3b1520173b1a70609995d8e9aca9f09",
+  "volume_inspect_sha256": "71ac42a23bef50ea5bb3cae8d142dfb3fdc55cdbb5057d93c29c43db8cb6703f",
+  "control_pg_system_identifier": "7674593406104338470",
+  "business_pg_system_identifier": "7674593406239543334",
+  "deployment_volume_id_sha256": "c22fe6e74a2a86577e06ed08a2226c8b7b87cdf5bc689e9237ae71563660b88b",
+  "catalog_sha256": "3fff5ce1d3594dd75c24fe310ceaae6fdb887ebd7ff63316efa5c7b571364ed8",
+  "control_initial_counts": {
+    "tasks": 0,
+    "root_heads": 0,
+    "query_records": 0,
+    "result_artifacts": 0
+  },
+  "dataset_sha256": "f90239bb32ef9542089ca8f1bd7c30c7870cbe627e835698364bdb9b4dc15978",
+  "dataset_identity_evidence_sha256": "631e64f3c048e4b68acc0b410d7b0a48f165baf831d50f3d9f7bb2adabee7f37",
+  "dataset_probe_sql_sha256": "bb2f717996259b3f64e248381810c3e2970f951eb06f8334a98792407d6aa06f",
+  "dataset_probe_sha256": "f989e7f046da46833da2f844ee3a874404e4219074946e7a20373879db16db21",
+  "minio_initial_object_count": 0,
+  "snapshot_artifact_volume_sha256": "b3053f8f4060826d0f63b4d1405d24b753fac789b02ff90b24d265ba8022ec35"
+}

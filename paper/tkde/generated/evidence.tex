@@ -294,50 +294,35 @@
 \newcommand{\FinalVFivePilotArtifactSamples}{54}
 \newcommand{\FinalVFivePilotArtifactPerCell}{9}
 \newcommand{\FinalVFivePilotArtifactCommit}{\texttt{8aab6d4e4cac}}
-\newcommand{\FinalVFivePilotBaselineCells}{20}
-\newcommand{\FinalVFivePilotBaselineSamples}{60}
-\newcommand{\FinalVFivePilotBaselinePerCell}{3}
-\newcommand{\FinalVFivePilotReplayZeroSQLSamples}{36}
-\newcommand{\FinalVFivePilotOverheadMin}{40.2}
-\newcommand{\FinalVFivePilotOverheadMax}{125.5}
-\newcommand{\FinalVFivePilotSOneSFOneDirectMS}{2.51}
-\newcommand{\FinalVFivePilotSOneSFOneNovelMS}{166.99}
-\newcommand{\FinalVFivePilotSOneSFOneSemanticMS}{79.56}
-\newcommand{\FinalVFivePilotSOneSFOneIdempotentMS}{22.50}
-\newcommand{\FinalVFivePilotSOneSFOneOverhead}{66.4}
-\newcommand{\FinalVFivePilotSOneSFOneRows}{5,000}
-\newcommand{\FinalVFivePilotSOneSFOneReleaseFacts}{10,000}
-\newcommand{\FinalVFivePilotSOneSFOneDependencyFacts}{20,000}
-\newcommand{\FinalVFivePilotSOneSFTenDirectMS}{11.68}
-\newcommand{\FinalVFivePilotSOneSFTenNovelMS}{755.38}
-\newcommand{\FinalVFivePilotSOneSFTenSemanticMS}{121.41}
-\newcommand{\FinalVFivePilotSOneSFTenIdempotentMS}{43.45}
-\newcommand{\FinalVFivePilotSOneSFTenOverhead}{64.7}
-\newcommand{\FinalVFivePilotSOneSFTenRows}{50,000}
-\newcommand{\FinalVFivePilotSOneSFTenReleaseFacts}{100,000}
-\newcommand{\FinalVFivePilotSOneSFTenDependencyFacts}{200,000}
-\newcommand{\FinalVFivePilotSTwoSFOneDirectMS}{11.38}
-\newcommand{\FinalVFivePilotSTwoSFOneNovelMS}{457.43}
-\newcommand{\FinalVFivePilotSTwoSFOneSemanticMS}{81.82}
-\newcommand{\FinalVFivePilotSTwoSFOneIdempotentMS}{21.60}
-\newcommand{\FinalVFivePilotSTwoSFOneOverhead}{40.2}
-\newcommand{\FinalVFivePilotSTwoSFOneRows}{3}
-\newcommand{\FinalVFivePilotSTwoSFOneReleaseFacts}{9}
-\newcommand{\FinalVFivePilotSTwoSFOneDependencyFacts}{120,000}
-\newcommand{\FinalVFivePilotSTwoSFTenDirectMS}{24.98}
-\newcommand{\FinalVFivePilotSTwoSFTenNovelMS}{3134.87}
-\newcommand{\FinalVFivePilotSTwoSFTenSemanticMS}{82.47}
-\newcommand{\FinalVFivePilotSTwoSFTenIdempotentMS}{21.41}
-\newcommand{\FinalVFivePilotSTwoSFTenOverhead}{125.5}
-\newcommand{\FinalVFivePilotSTwoSFTenRows}{3}
-\newcommand{\FinalVFivePilotSTwoSFTenReleaseFacts}{9}
-\newcommand{\FinalVFivePilotSTwoSFTenDependencyFacts}{1,200,000}
-\newcommand{\FinalVFivePilotSOneNovelS}{0.755}
+\newcommand{\FinalVFivePilotBaselineCells}{55}
+\newcommand{\FinalVFivePilotBaselineSamples}{55}
+\newcommand{\FinalVFivePilotBaselinePerCell}{1}
+\newcommand{\FinalVFivePilotReplayZeroSQLSamples}{25}
+\newcommand{\FinalVFivePilotOverheadMin}{41.5}
+\newcommand{\FinalVFivePilotOverheadMax}{208.8}
+\newcommand{\FinalVFivePilotBaselineTableBody}{%
+S1/SF1 & 5,000 & 10,000 & 20,000 & 2.65 & 174.05 & 81.97 & 25.89 & 65.7$\times$ \\
+S1/SF10 & 50,000 & 100,000 & 200,000 & 12.34 & 769.80 & 121.47 & 44.38 & 62.4$\times$ \\
+S2/SF1 & 3 & 9 & 120,000 & 11.67 & 483.96 & 83.07 & 21.83 & 41.5$\times$ \\
+S2/SF10 & 3 & 9 & 1,200,000 & 24.93 & 3272.63 & 78.80 & 22.88 & 131.2$\times$ \\
+S3/10k-50k & 10,000 & 10,000 & 50,000 & 2.50 & 237.58 & 83.38 & 25.15 & 95.1$\times$ \\
+S3/1k-5k & 1,000 & 1,000 & 5,000 & 0.61 & 121.74 & 76.88 & 22.07 & 198.1$\times$ \\
+S3/45k-225k & 45,000 & 45,000 & 225,000 & 7.25 & 580.45 & 105.71 & 39.29 & 80.0$\times$ \\
+S5/SF1 & 5,000 & 10,000 & 20,000 & 4.48 & 308.86 & 91.07 & 25.15 & 69.0$\times$ \\
+S5/SF10 & 50,000 & 100,000 & 200,000 & 17.59 & 1744.28 & 128.24 & 42.76 & 99.2$\times$ \\
+S6/100k-x16 & 100,000 & 1,600,000 & 1,700,000 & 137.30 & 16976.27 & -- & -- & 123.6$\times$ \\
+S6/100k-x4 & 100,000 & 400,000 & 500,000 & 38.23 & 4033.32 & -- & -- & 105.5$\times$ \\
+S6/100x16 & 100 & 1,600 & 1,700 & 0.67 & 137.07 & -- & -- & 206.1$\times$ \\
+S6/100x4 & 100 & 400 & 500 & 0.48 & 100.32 & -- & -- & 208.8$\times$ \\
+S6/10k-x16 & 10,000 & 160,000 & 170,000 & 13.48 & 1737.33 & -- & -- & 128.8$\times$ \\
+S6/10k-x4 & 10,000 & 40,000 & 50,000 & 4.98 & 377.61 & -- & -- & 75.8$\times$ \\%
+}
+\newcommand{\FinalVFivePilotSOneNovelS}{0.770}
 \newcommand{\FinalVFivePilotSOneReleaseFacts}{100,000}
 \newcommand{\FinalVFivePilotSOneDependencyFacts}{200,000}
-\newcommand{\FinalVFivePilotSTwoDirectMS}{24.98}
-\newcommand{\FinalVFivePilotSTwoNovelS}{3.135}
-\newcommand{\FinalVFivePilotSTwoIdempotentMS}{21.41}
+\newcommand{\FinalVFivePilotSTwoDirectMS}{24.93}
+\newcommand{\FinalVFivePilotSTwoNovelS}{3.273}
+\newcommand{\FinalVFivePilotSTwoIdempotentMS}{22.88}
 \newcommand{\FinalVFivePilotSTwoReleaseFacts}{9}
 \newcommand{\FinalVFivePilotSTwoDependencyFacts}{1,200,000}
 \newcommand{\FinalVFivePilotSTwoRows}{3}

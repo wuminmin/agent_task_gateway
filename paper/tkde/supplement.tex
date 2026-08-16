@@ -900,10 +900,11 @@ every governed arm. It is not a completed publication campaign and must not be
 described as one.
 
 Two properties are visible per cell. First, governed cost tracks the Dependency
-set rather than the released answer: S2 returns \FinalVFivePilotSTwoSFTenRows{}
-grouped rows at either scale factor, yet its SF10 novel query is the most
-expensive cell in the table because it depends on
-\FinalVFivePilotSTwoSFTenDependencyFacts{} Facts. Second, replay latency is
+set rather than the released answer: S2 returns \FinalVFivePilotSTwoRows{}
+grouped rows at either scale factor, yet its SF10 query depends on
+\FinalVFivePilotSTwoDependencyFacts{} Facts and costs more than cells returning
+tens of thousands of rows. A dash marks a mode the cell's contract does not
+declare: S5 has no normalized rewrite and S6 declares no replays at all. Second, replay latency is
 near-constant in result size, so the ratio between a governed replay and direct
 re-execution improves as the underlying query grows: at S2/SF10 the idempotent
 replay is already faster than re-running the query against PostgreSQL, while
@@ -920,10 +921,7 @@ publication evidence.}
 \toprule
 Cell & Rows & Release & Dependency & Direct & Novel & Semantic & Idempotent & Overhead \\
 \midrule
-S1/SF1 & \FinalVFivePilotSOneSFOneRows{} & \FinalVFivePilotSOneSFOneReleaseFacts{} & \FinalVFivePilotSOneSFOneDependencyFacts{} & \FinalVFivePilotSOneSFOneDirectMS{} & \FinalVFivePilotSOneSFOneNovelMS{} & \FinalVFivePilotSOneSFOneSemanticMS{} & \FinalVFivePilotSOneSFOneIdempotentMS{} & \FinalVFivePilotSOneSFOneOverhead{}$\times$ \\
-S1/SF10 & \FinalVFivePilotSOneSFTenRows{} & \FinalVFivePilotSOneSFTenReleaseFacts{} & \FinalVFivePilotSOneSFTenDependencyFacts{} & \FinalVFivePilotSOneSFTenDirectMS{} & \FinalVFivePilotSOneSFTenNovelMS{} & \FinalVFivePilotSOneSFTenSemanticMS{} & \FinalVFivePilotSOneSFTenIdempotentMS{} & \FinalVFivePilotSOneSFTenOverhead{}$\times$ \\
-S2/SF1 & \FinalVFivePilotSTwoSFOneRows{} & \FinalVFivePilotSTwoSFOneReleaseFacts{} & \FinalVFivePilotSTwoSFOneDependencyFacts{} & \FinalVFivePilotSTwoSFOneDirectMS{} & \FinalVFivePilotSTwoSFOneNovelMS{} & \FinalVFivePilotSTwoSFOneSemanticMS{} & \FinalVFivePilotSTwoSFOneIdempotentMS{} & \FinalVFivePilotSTwoSFOneOverhead{}$\times$ \\
-S2/SF10 & \FinalVFivePilotSTwoSFTenRows{} & \FinalVFivePilotSTwoSFTenReleaseFacts{} & \FinalVFivePilotSTwoSFTenDependencyFacts{} & \FinalVFivePilotSTwoSFTenDirectMS{} & \FinalVFivePilotSTwoSFTenNovelMS{} & \FinalVFivePilotSTwoSFTenSemanticMS{} & \FinalVFivePilotSTwoSFTenIdempotentMS{} & \FinalVFivePilotSTwoSFTenOverhead{}$\times$ \\
+\FinalVFivePilotBaselineTableBody
 \bottomrule
 \end{tabular}
 \end{table}

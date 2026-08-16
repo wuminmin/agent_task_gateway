@@ -1475,25 +1475,29 @@ def main(argv: list[str] | None = None) -> None:
         rf"\newcommand{{\FinalVFivePilotOverheadMax}}{{{decimal(pilot_baseline['overhead_max'], 1)}}}",
     ])
     # Per-cell detail. The main paper cites the range and one illustration; the
-    # supplement tabulates every cell, so both come from the same validated run.
-    for cell, label in (
-        ("S1/SF1", "SOneSFOne"),
-        ("S1/SF10", "SOneSFTen"),
-        ("S2/SF1", "STwoSFOne"),
-        ("S2/SF10", "STwoSFTen"),
-    ):
+    # supplement tabulates every cell. The whole table body is emitted as one
+    # macro rather than a macro per cell, so a run that gains a workload widens
+    # the supplement automatically instead of silently showing a stale subset.
+    rows = []
+    for cell in sorted(pilot_baseline["cell_medians"]):
         medians = pilot_baseline["cell_medians"][cell]
         facts = pilot_baseline["exposure"][cell]
-        lines.extend([
-            rf"\newcommand{{\FinalVFivePilot{label}DirectMS}}{{{decimal(medians['direct_ms'], 2)}}}",
-            rf"\newcommand{{\FinalVFivePilot{label}NovelMS}}{{{decimal(medians['novel_ms'], 2)}}}",
-            rf"\newcommand{{\FinalVFivePilot{label}SemanticMS}}{{{decimal(medians['semantic_ms'], 2)}}}",
-            rf"\newcommand{{\FinalVFivePilot{label}IdempotentMS}}{{{decimal(medians['idempotent_ms'], 2)}}}",
-            rf"\newcommand{{\FinalVFivePilot{label}Overhead}}{{{decimal(medians['novel_over_direct'], 1)}}}",
-            rf"\newcommand{{\FinalVFivePilot{label}Rows}}{{{comma(facts['rows'])}}}",
-            rf"\newcommand{{\FinalVFivePilot{label}ReleaseFacts}}{{{comma(facts['release'])}}}",
-            rf"\newcommand{{\FinalVFivePilot{label}DependencyFacts}}{{{comma(facts['dependency'])}}}",
-        ])
+        # A cell records a replay median only for the modes its contract
+        # declares: S5 has no rewrite and S6 has no replays at all.
+        def replay(key: str) -> str:
+            return decimal(medians[key], 2) if key in medians else "--"
+        rows.append(" & ".join([
+            cell.replace("_", r"\_"),
+            comma(facts["rows"]), comma(facts["release"]), comma(facts["dependency"]),
+            decimal(medians["direct_ms"], 2), decimal(medians["novel_ms"], 2),
+            replay("semantic_ms"), replay("idempotent_ms"),
+            decimal(medians["novel_over_direct"], 1) + r"$\times$",
+        ]) + r" \\")
+    # Every row carries its terminator, and the body ends with a comment so the
+    # closing brace adds no trailing token: booktabs' \bottomrule is a \noalign
+    # and anything between it and the last terminator lands inside a cell.
+    lines.append(r"\newcommand{\FinalVFivePilotBaselineTableBody}{%" + "\n" +
+                 "\n".join(rows) + "%\n}")
     lines.extend([
         rf"\newcommand{{\FinalVFivePilotSOneNovelS}}{{{decimal(pilot_s_one['novel_ms'] / 1000, 3)}}}",
         rf"\newcommand{{\FinalVFivePilotSOneReleaseFacts}}{{{comma(pilot_baseline['exposure']['S1/SF10']['release'])}}}",
