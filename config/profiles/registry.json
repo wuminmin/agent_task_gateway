@@ -380,7 +380,7 @@
       "experiments": [
         "baseline"
       ],
-      "catalog_sha256": "3a14024492dcb86927215bd04fa04627e6470b00c463400ff1cb0e29cfd6881d",
+      "catalog_sha256": "9ccc84b22033ccba2f9e5281c69ee37b97296c5eb4a0162a6150ed65caaebb27",
       "catalog_path": "config/profiles/depth4-semantic-view.catalog.yaml",
       "hot_artifacts": [
         {
