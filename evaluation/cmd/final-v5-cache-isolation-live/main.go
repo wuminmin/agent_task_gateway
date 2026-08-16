@@ -35,13 +35,14 @@ const (
 )
 
 type options struct {
-	root, registryPath, intersectionPath, outputPath                string
-	composeProject, composeFiles, deploymentID, currentProfileID    string
-	artifactRoot, artifactManifest, activationEvidenceDir           string
-	gatewayURL, oaURL, controlDSNEnv, observerDSNEnv                string
-	aliceTokenEnv, alicePasswordEnv, bobPasswordEnv, businessDSNEnv string
-	sequence                                                        int
-	readyTimeout                                                    time.Duration
+	root, registryPath, intersectionPath, outputPath               string
+	composeProject, composeFiles, deploymentID, currentProfileID   string
+	artifactRoot, artifactManifest, activationEvidenceDir          string
+	gatewayURL, oaURL, controlDSNEnv, observerDSNEnv               string
+	adminTokenEnv, aliceTokenEnv, alicePasswordEnv, bobPasswordEnv string
+	businessDSNEnv                                                 string
+	sequence                                                       int
+	readyTimeout                                                   time.Duration
 }
 
 func main() {
@@ -62,6 +63,7 @@ func main() {
 	flag.StringVar(&opts.controlDSNEnv, "control-dsn-env", "TASKGATE_FINAL_V5_CONTROL_DSN", "Control DSN environment variable")
 	flag.StringVar(&opts.observerDSNEnv, "observer-dsn-env", "TASKGATE_FINAL_V5_BUSINESS_OBSERVER_DSN", "Business observer DSN environment variable")
 	flag.StringVar(&opts.businessDSNEnv, "business-dsn-env", "TASKGATE_FINAL_V5_BUSINESS_DSN", "Business re-attestation DSN environment variable")
+	flag.StringVar(&opts.adminTokenEnv, "admin-token-env", "GATEWAY_ADMIN_TOKEN", "Gateway admin token environment variable")
 	flag.StringVar(&opts.aliceTokenEnv, "alice-token-env", "TASKBOUND_ALICE_TOKEN", "Alice token environment variable")
 	flag.StringVar(&opts.alicePasswordEnv, "alice-password-env", "OA_ALICE_PASSWORD", "Alice OA password environment variable")
 	flag.StringVar(&opts.bobPasswordEnv, "bob-password-env", "OA_BOB_PASSWORD", "Bob OA password environment variable")
@@ -277,7 +279,7 @@ func run(ctx context.Context, opts options) error {
 		entry := pairEvidence{LeftProfileID: pair.leftID, RightProfileID: pair.rightID,
 			LeftAlias: pair.leftAlias, RightAlias: pair.rightAlias, SharedProducts: pair.shared,
 			SelectedProduct: "provsql_orders", QuerySHA256: digest([]byte(query)),
-			LeftCatalogSHA256: left.catalog, RightCatalogSHA256: right.catalog,
+			LeftCatalogSHA256: first.CatalogSHA256, RightCatalogSHA256: second.CatalogSHA256,
 			FirstCacheKeySHA256: first.CacheKeySHA256, SecondCacheKeySHA256: second.CacheKeySHA256,
 			FirstSQLFingerprintSHA256: first.SQLFingerprintSHA256, SecondSQLFingerprintSHA256: second.SQLFingerprintSHA256,
 			SecondSourceQueryIsSelf:    second.SourceQueryID == second.QueryID,
@@ -293,7 +295,10 @@ func run(ctx context.Context, opts options) error {
 			return err
 		}
 		if !novel {
-			return writeFailure(fmt.Errorf("semantic cache crossed profile pair %s/%s", pair.leftAlias, pair.rightAlias))
+			if second.SemanticReplay || second.SemanticReplayAudits > 0 || second.SourceQueryID != second.QueryID {
+				return writeFailure(fmt.Errorf("semantic cache crossed profile pair %s/%s", pair.leftAlias, pair.rightAlias))
+			}
+			return writeFailure(fmt.Errorf("profile pair %s/%s did not prove a novel second execution", pair.leftAlias, pair.rightAlias))
 		}
 	}
 	document.PassedPairCount = countPassed(document.Pairs)
@@ -322,11 +327,35 @@ func activate(ctx context.Context, opts options, previous, profile string, seque
 		"-activation-sequence", fmt.Sprint(sequence), "-evidence-out", output,
 		"-profile-artifact-dir", filepath.Join(opts.artifactRoot, profile),
 		"-profile-artifact-manifest", opts.artifactManifest, "-business-dsn-env", opts.businessDSNEnv,
+		"-admin-token-env", opts.adminTokenEnv,
 		"-ready-timeout", opts.readyTimeout.String()}
 	command := exec.CommandContext(ctx, "go", args...)
 	command.Dir = opts.root
 	command.Stdout, command.Stderr = os.Stdout, os.Stderr
-	return command.Run()
+	if err := command.Run(); err != nil {
+		return err
+	}
+	payload, err := os.ReadFile(output)
+	if err != nil {
+		return fmt.Errorf("read activation evidence: %w", err)
+	}
+	var evidence struct {
+		ProfileID             string `json:"profile_id"`
+		PreviousProfileID     string `json:"previous_profile_id"`
+		ActivationSequence    int    `json:"activation_sequence"`
+		CatalogSHA256         string `json:"catalog_sha256"`
+		ActivationSmokePassed bool   `json:"activation_smoke_passed"`
+		Status                string `json:"status"`
+	}
+	if err := json.Unmarshal(payload, &evidence); err != nil {
+		return fmt.Errorf("decode activation evidence: %w", err)
+	}
+	if evidence.ProfileID != profile || evidence.PreviousProfileID != previous ||
+		evidence.ActivationSequence != sequence || !isSHA256(evidence.CatalogSHA256) ||
+		!evidence.ActivationSmokePassed || evidence.Status != "pass" {
+		return errors.New("profile activation evidence did not pass")
+	}
+	return nil
 }
 
 func executeQuery(ctx context.Context, opts options, alice *mcpClient,
