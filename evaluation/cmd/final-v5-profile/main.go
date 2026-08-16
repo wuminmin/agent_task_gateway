@@ -136,8 +136,17 @@ func run(root string, verifyOnly bool) error {
 		// unrelated shared master metadata and invalidate its activation evidence.
 		// Build still derives materializability and live-route status from the
 		// master Catalog first; this choice only preserves generated profile bytes.
+		//
+		// The preservation is scoped to what it protects. A profile that has
+		// never been activated has no activation evidence to invalidate, and
+		// freezing its bytes only preserves a projection of a Catalog that has
+		// since moved -- which is how the analytics-orders profile came to carry
+		// a five-hundred-row ceiling its own workload cells cannot run under.
+		// Such a profile is reprojected from the live Catalog.
 		if profileCatalog, found := profileCatalogs[profiles[index].Closure.SHA256]; found {
-			deploymentCatalog = profileCatalog
+			if activated, known := support[profiles[index].ID]; known && activated.ActivationSmokePassed {
+				deploymentCatalog = profileCatalog
+			}
 		}
 		if err := materializeProfile(root, deploymentCatalog, &profiles[index], hot, attestations,
 			verifyOnly); err != nil {

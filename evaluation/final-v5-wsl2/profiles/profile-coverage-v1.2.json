@@ -361,7 +361,7 @@
           "detail": "no targeted non-publication run has executed this profile's cells"
         }
       ],
-      "catalog_sha256": "6dedb81d8db5071f3795df10f1d8597712cc6e7e8c8e070cbedeb6e546470f5d",
+      "catalog_sha256": "4764a69897d79cd283a1d5044bf858fb31047a51dbf1877273648e75e4688733",
       "total_hot_bytes": 117607276,
       "cells": [
         "baseline/S2/SF1/direct",
@@ -581,7 +581,7 @@
           "detail": "no targeted non-publication run has executed this profile's cells"
         }
       ],
-      "catalog_sha256": "a1c9f76be6e15016c2e31b46481814e86eef099e3f7ad3b330bbedb86f80db10",
+      "catalog_sha256": "b6a5aaf7c03d82f820b57f49d27363677049966b001efde2972aa3f4d3485325",
       "total_hot_bytes": 16603206,
       "cells": [
         "baseline/S1/SF1/direct",

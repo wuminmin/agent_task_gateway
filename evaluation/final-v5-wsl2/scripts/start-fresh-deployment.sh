@@ -83,7 +83,32 @@ fi
 # from the one source-controlled read-only bind mount. The resolved JSON stays
 # in-process because it may also contain Compose-resolved credentials.
 compose_runtime_json="$("${compose[@]}" config --format json)"
-expected_catalog_source="$repo/config/catalog.yaml"
+# A deployment serves either the master Catalog or exactly one profile Catalog.
+# The profile case is not a relaxation: the bytes must match the digest the
+# source-controlled profile registry pins for that profile, so a hand-edited or
+# stale profile Catalog is refused here rather than discovered by an Adapter
+# after the topology is up.
+catalog_path=config/catalog.yaml
+if [[ -n "${TASKGATE_PROFILE_CATALOG:-}" ]]; then
+  catalog_path="${TASKGATE_PROFILE_CATALOG#./}"
+  [[ -f "$catalog_path" && ! -L "$catalog_path" ]] || {
+    echo "profile Catalog is missing or unsafe: $catalog_path" >&2; exit 2;
+  }
+  profile_registry_path="${TASKGATE_FINAL_V5_PROFILE_REGISTRY:-config/profiles/registry.json}"
+  [[ -f "$profile_registry_path" && ! -L "$profile_registry_path" ]] || {
+    echo "profile registry is missing or unsafe: $profile_registry_path" >&2; exit 2;
+  }
+  pinned_catalog_sha="$(jq -r --arg path "$catalog_path" \
+    '[.profiles[] | select(.catalog_path == $path) | .catalog_sha256] | unique | if length == 1 then .[0] else empty end' \
+    "$profile_registry_path")"
+  [[ "$pinned_catalog_sha" =~ ^[0-9a-f]{64}$ ]] || {
+    echo "profile registry pins no unique digest for $catalog_path" >&2; exit 2;
+  }
+  [[ "$(sha256sum "$catalog_path" | awk '{print $1}')" == "$pinned_catalog_sha" ]] || {
+    echo "profile Catalog bytes differ from the digest the profile registry pins" >&2; exit 1;
+  }
+fi
+expected_catalog_source="$repo/$catalog_path"
 jq -e --arg source "$expected_catalog_source" --arg target /etc/taskbound/catalog.yaml '
   .services.gateway.environment.CATALOG_PATH == $target and
   ([.services.gateway.volumes[] | select(.target == $target)] as $mounts |
@@ -162,7 +187,6 @@ deployment_volume_id_sha="$(
 # Bind the exact source-controlled Catalog bytes to the bytes consumed by the
 # live Gateway. A Compose override that replaces or omits the read-only mount
 # therefore fails before any measured operation can start.
-catalog_path=config/catalog.yaml
 [[ -f "$catalog_path" && ! -L "$catalog_path" ]] || { echo "source Catalog is missing or unsafe" >&2; exit 2; }
 catalog_sha="$(sha256sum "$catalog_path" | awk '{print $1}')"
 catalog_output="${TASKGATE_FRESH_PROOF_OUTPUT%.json}.catalog.yaml"
