@@ -40,6 +40,7 @@ const (
 	isolationRecord        = "taskgate-final-v5-semantic-cache-isolation-evidence-v1"
 	isolationRecordV2      = "taskgate-final-v5-semantic-cache-isolation-evidence-v2"
 	sameQueryLiveRecord    = "taskgate-final-v5-same-query-cross-profile-live-evidence-v1"
+	sameQueryLiveRecordV2  = "taskgate-final-v5-same-query-cross-profile-live-evidence-v2"
 	proofMode              = "disjoint_formal_profiles_plus_exhaustive_live_route_refusal_plus_production_lookup"
 	proofModeV2            = "formal_profile_intersection_plus_same_query_cross_profile_live_plus_exhaustive_live_route_refusal_plus_production_lookup"
 	notApplicableStatus    = "not_applicable_by_formal_profile_contract"
@@ -552,28 +553,46 @@ type sameQueryLiveDocument struct {
 }
 
 type sameQueryLivePair struct {
-	LeftProfileID                     string   `json:"left_profile_id"`
-	RightProfileID                    string   `json:"right_profile_id"`
-	LeftAlias                         string   `json:"left_alias"`
-	RightAlias                        string   `json:"right_alias"`
-	SharedProducts                    []string `json:"shared_products"`
-	SelectedProduct                   string   `json:"selected_product"`
-	QuerySHA256                       string   `json:"query_sha256"`
-	LeftCatalogSHA256                 string   `json:"left_catalog_sha256"`
-	RightCatalogSHA256                string   `json:"right_catalog_sha256"`
-	FirstCacheKeySHA256               string   `json:"first_cache_key_sha256"`
-	SecondCacheKeySHA256              string   `json:"second_cache_key_sha256"`
-	FirstSQLFingerprintSHA256         string   `json:"first_sql_fingerprint_sha256"`
-	SecondSQLFingerprintSHA256        string   `json:"second_sql_fingerprint_sha256"`
-	SecondSourceQueryIsSelf           bool     `json:"second_source_query_is_self"`
-	SecondSemanticReplayAudits        int      `json:"second_semantic_replay_audits"`
-	SecondSettlementAudits            int      `json:"second_settlement_audits"`
-	SecondBusinessVisibleCallsDelta   int64    `json:"second_business_visible_calls_delta"`
-	SecondBusinessCompanionCallsDelta int64    `json:"second_business_companion_calls_delta"`
-	SecondSemanticReplay              bool     `json:"second_semantic_replay"`
-	SecondIdempotentReplay            bool     `json:"second_idempotent_replay"`
-	SecondNovelExecution              bool     `json:"second_novel_execution"`
-	Status                            string   `json:"status"`
+	LeftProfileID                     string                    `json:"left_profile_id"`
+	RightProfileID                    string                    `json:"right_profile_id"`
+	LeftAlias                         string                    `json:"left_alias"`
+	RightAlias                        string                    `json:"right_alias"`
+	SharedProducts                    []string                  `json:"shared_products"`
+	SelectedProduct                   string                    `json:"selected_product"`
+	QuerySHA256                       string                    `json:"query_sha256"`
+	LeftCatalogSHA256                 string                    `json:"left_catalog_sha256"`
+	RightCatalogSHA256                string                    `json:"right_catalog_sha256"`
+	FirstCacheKeySHA256               string                    `json:"first_cache_key_sha256"`
+	SecondCacheKeySHA256              string                    `json:"second_cache_key_sha256"`
+	FirstSQLFingerprintSHA256         string                    `json:"first_sql_fingerprint_sha256"`
+	SecondSQLFingerprintSHA256        string                    `json:"second_sql_fingerprint_sha256"`
+	SecondSourceQueryIsSelf           bool                      `json:"second_source_query_is_self"`
+	SecondSemanticReplayAudits        int                       `json:"second_semantic_replay_audits"`
+	SecondSettlementAudits            int                       `json:"second_settlement_audits"`
+	SecondBusinessVisibleCallsDelta   int64                     `json:"second_business_visible_calls_delta"`
+	SecondBusinessCompanionCallsDelta int64                     `json:"second_business_companion_calls_delta"`
+	SecondSemanticReplay              bool                      `json:"second_semantic_replay"`
+	SecondIdempotentReplay            bool                      `json:"second_idempotent_replay"`
+	SecondNovelExecution              bool                      `json:"second_novel_execution"`
+	LeftTaskFinalization              sameQueryTaskFinalization `json:"left_task_finalization,omitempty"`
+	RightTaskFinalization             sameQueryTaskFinalization `json:"right_task_finalization,omitempty"`
+	Status                            string                    `json:"status"`
+}
+
+type sameQueryTaskFinalization struct {
+	BudgetProfile           string `json:"budget_profile"`
+	PolicyMaxQueries        int64  `json:"policy_max_queries"`
+	PolicySource            string `json:"policy_source"`
+	ObservedTaskState       string `json:"observed_task_state"`
+	ObservedTerminalReason  string `json:"observed_terminal_reason"`
+	UsedQueries             int64  `json:"used_queries"`
+	RemainingQueries        int64  `json:"remaining_queries"`
+	SemanticVerdictCaptured bool   `json:"semantic_verdict_captured"`
+	CompleteTaskCalled      bool   `json:"complete_task_called"`
+	FinalTaskState          string `json:"final_task_state"`
+	FinalTerminalReason     string `json:"final_terminal_reason"`
+	Disposition             string `json:"disposition"`
+	Status                  string `json:"status"`
 }
 
 type sameQueryLiveAnalysis struct {
@@ -585,7 +604,9 @@ type sameQueryLiveAnalysis struct {
 func analyzeSameQueryLive(document sameQueryLiveDocument, registry registryDocument,
 	profiles map[string]registryProfile, intersection intersectionDocument,
 	registryDigest, intersectionDigest string) (sameQueryLiveAnalysis, error) {
-	if document.SchemaVersion != 1 || document.Record != sameQueryLiveRecord {
+	legacy := document.SchemaVersion == 1 && document.Record == sameQueryLiveRecord
+	policyBound := document.SchemaVersion == 2 && document.Record == sameQueryLiveRecordV2
+	if !legacy && !policyBound {
 		return sameQueryLiveAnalysis{}, errors.New("same-query live evidence identity is not recognised")
 	}
 	if document.ContractRelease != registry.ContractRelease || document.ProfileRegistrySHA256 != registryDigest ||
@@ -618,6 +639,8 @@ func analyzeSameQueryLive(document sameQueryLiveDocument, registry registryDocum
 		for _, product := range want.Intersection {
 			selected = selected || product == pair.SelectedProduct
 		}
+		finalizationValid := legacy || (validSameQueryTaskFinalization(pair.LeftTaskFinalization) &&
+			validSameQueryTaskFinalization(pair.RightTaskFinalization))
 		novel := leftOK && rightOK && pair.LeftAlias == want.LeftAlias && pair.RightAlias == want.RightAlias &&
 			reflect.DeepEqual(pair.SharedProducts, want.Intersection) && selected &&
 			pair.LeftCatalogSHA256 == left.CatalogSHA256 && pair.RightCatalogSHA256 == right.CatalogSHA256 &&
@@ -629,7 +652,7 @@ func analyzeSameQueryLive(document sameQueryLiveDocument, registry registryDocum
 			pair.SecondSourceQueryIsSelf && pair.SecondSemanticReplayAudits == 0 &&
 			pair.SecondSettlementAudits == 1 && pair.SecondBusinessVisibleCallsDelta == 1 &&
 			pair.SecondBusinessCompanionCallsDelta == 1 && !pair.SecondSemanticReplay &&
-			!pair.SecondIdempotentReplay
+			!pair.SecondIdempotentReplay && finalizationValid
 		if !novel || pair.SecondNovelExecution != novel || pair.Status != passedStatus {
 			result.Failures = append(result.Failures, "same-query live pair "+key+" did not prove a catalog-bound novel second execution")
 			continue
@@ -656,6 +679,37 @@ func analyzeSameQueryLive(document sameQueryLiveDocument, registry registryDocum
 		result.Failures = append(result.Failures, "same-query live evidence summary does not match the derived pair results")
 	}
 	return result, nil
+}
+
+func validSameQueryTaskFinalization(evidence sameQueryTaskFinalization) bool {
+	if evidence.BudgetProfile == "" || evidence.PolicyMaxQueries < 1 ||
+		!validPolicySource(evidence.PolicySource) || !evidence.SemanticVerdictCaptured ||
+		evidence.UsedQueries != 1 || evidence.RemainingQueries != evidence.PolicyMaxQueries-1 ||
+		evidence.FinalTaskState != "ARCHIVED" || evidence.Status != passedStatus {
+		return false
+	}
+	switch evidence.Disposition {
+	case "complete_active_task":
+		return evidence.PolicyMaxQueries > 1 && evidence.ObservedTaskState == "ACTIVE" &&
+			evidence.ObservedTerminalReason == "" && evidence.CompleteTaskCalled &&
+			evidence.FinalTerminalReason == "completed"
+	case "accept_automatic_budget_archive":
+		return evidence.PolicyMaxQueries == 1 && evidence.ObservedTaskState == "ARCHIVED" &&
+			evidence.ObservedTerminalReason == "budget_exhausted" && !evidence.CompleteTaskCalled &&
+			evidence.FinalTerminalReason == "budget_exhausted"
+	default:
+		return false
+	}
+}
+
+func validPolicySource(source string) bool {
+	separator := strings.LastIndexByte(source, ':')
+	if separator <= 0 || !strings.HasPrefix(source, "config/profiles/") ||
+		!strings.HasSuffix(source[:separator], ".catalog.yaml") {
+		return false
+	}
+	line, err := strconv.Atoi(source[separator+1:])
+	return err == nil && line > 0
 }
 
 type routeMatrixDocument struct {

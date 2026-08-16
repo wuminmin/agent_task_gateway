@@ -130,3 +130,71 @@ func TestSameQueryLiveEvidenceThreeStates(t *testing.T) {
 		}
 	})
 }
+
+func TestSameQueryLiveV2RequiresPolicyBoundTaskFinalization(t *testing.T) {
+	passingFinalization := func(maxQueries int64) sameQueryTaskFinalization {
+		return sameQueryTaskFinalization{
+			BudgetProfile: "source-controlled-budget", PolicyMaxQueries: maxQueries,
+			PolicySource: "config/profiles/test.catalog.yaml:42", ObservedTaskState: "ACTIVE",
+			UsedQueries: 1, RemainingQueries: maxQueries - 1, SemanticVerdictCaptured: true,
+			CompleteTaskCalled: true, FinalTaskState: "ARCHIVED", FinalTerminalReason: "completed",
+			Disposition: "complete_active_task", Status: passedStatus,
+		}
+	}
+
+	t.Run("complete source-controlled finalization passes", func(t *testing.T) {
+		fixture := newCommandFixture(t)
+		live := installSingleOverlap(t, fixture)
+		live.SchemaVersion, live.Record = 2, sameQueryLiveRecordV2
+		live.Pairs[0].LeftTaskFinalization = passingFinalization(128)
+		live.Pairs[0].RightTaskFinalization = passingFinalization(128)
+		fixture.opts.sameQueryLivePath = "live-v2.json"
+		writeJSONFixture(t, fixture.root, fixture.opts.sameQueryLivePath, live)
+		if err := run(context.Background(), fixture.opts, runProductionTests); err != nil {
+			t.Fatal(err)
+		}
+		evidence, _ := readEvidence(t, fixture)
+		if evidence.Status != passedStatus || evidence.SameQueryLiveTestStatus != passedStatus {
+			t.Fatalf("policy-bound v2 live evidence did not pass: %+v", evidence)
+		}
+	})
+
+	for name, mutate := range map[string]func(*sameQueryTaskFinalization){
+		"missing Catalog source": func(value *sameQueryTaskFinalization) { value.PolicySource = "" },
+		"verdict not captured":   func(value *sameQueryTaskFinalization) { value.SemanticVerdictCaptured = false },
+		"TASK_NOT_ACTIVE swallowed": func(value *sameQueryTaskFinalization) {
+			value.ObservedTaskState = "ARCHIVED"
+			value.ObservedTerminalReason = "completed"
+			value.CompleteTaskCalled = false
+		},
+		"query count is not one": func(value *sameQueryTaskFinalization) { value.UsedQueries = 2 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			fixture := newCommandFixture(t)
+			live := installSingleOverlap(t, fixture)
+			live.SchemaVersion, live.Record = 2, sameQueryLiveRecordV2
+			live.Pairs[0].LeftTaskFinalization = passingFinalization(128)
+			live.Pairs[0].RightTaskFinalization = passingFinalization(128)
+			mutate(&live.Pairs[0].RightTaskFinalization)
+			fixture.opts.sameQueryLivePath = "live-v2-invalid.json"
+			writeJSONFixture(t, fixture.root, fixture.opts.sameQueryLivePath, live)
+			requireIsolationFailure(t, run(context.Background(), fixture.opts, runProductionTests))
+			evidence, _ := readEvidence(t, fixture)
+			if evidence.SameQueryLiveTestStatus == passedStatus ||
+				!containsText(evidence.Failures, "did not prove a catalog-bound novel second execution") {
+				t.Fatalf("invalid policy-bound task finalization passed: %+v", evidence)
+			}
+		})
+	}
+
+	t.Run("one-query automatic archive passes without complete_task", func(t *testing.T) {
+		value := passingFinalization(1)
+		value.ObservedTaskState, value.ObservedTerminalReason = "ARCHIVED", "budget_exhausted"
+		value.CompleteTaskCalled = false
+		value.FinalTerminalReason = "budget_exhausted"
+		value.Disposition = "accept_automatic_budget_archive"
+		if !validSameQueryTaskFinalization(value) {
+			t.Fatal("source-controlled max_queries=1 automatic archive was rejected")
+		}
+	})
+}

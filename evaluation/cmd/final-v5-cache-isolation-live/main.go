@@ -26,12 +26,13 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"gopkg.in/yaml.v3"
 
 	"taskbound.local/agent-data-gateway/internal/catalog"
 )
 
 const (
-	recordName           = "taskgate-final-v5-same-query-cross-profile-live-evidence-v1"
+	recordName           = "taskgate-final-v5-same-query-cross-profile-live-evidence-v2"
 	queryPath            = "evaluation/final-v5-wsl2/sql/contracts/S1-bdg.sql"
 	selectedRows         = "5000"
 	negativeProbeProduct = "expense_detail"
@@ -131,28 +132,30 @@ type evidenceDocument struct {
 }
 
 type pairEvidence struct {
-	LeftProfileID                     string   `json:"left_profile_id"`
-	RightProfileID                    string   `json:"right_profile_id"`
-	LeftAlias                         string   `json:"left_alias"`
-	RightAlias                        string   `json:"right_alias"`
-	SharedProducts                    []string `json:"shared_products"`
-	SelectedProduct                   string   `json:"selected_product"`
-	QuerySHA256                       string   `json:"query_sha256"`
-	LeftCatalogSHA256                 string   `json:"left_catalog_sha256"`
-	RightCatalogSHA256                string   `json:"right_catalog_sha256"`
-	FirstCacheKeySHA256               string   `json:"first_cache_key_sha256"`
-	SecondCacheKeySHA256              string   `json:"second_cache_key_sha256"`
-	FirstSQLFingerprintSHA256         string   `json:"first_sql_fingerprint_sha256"`
-	SecondSQLFingerprintSHA256        string   `json:"second_sql_fingerprint_sha256"`
-	SecondSourceQueryIsSelf           bool     `json:"second_source_query_is_self"`
-	SecondSemanticReplayAudits        int      `json:"second_semantic_replay_audits"`
-	SecondSettlementAudits            int      `json:"second_settlement_audits"`
-	SecondBusinessVisibleCallsDelta   int64    `json:"second_business_visible_calls_delta"`
-	SecondBusinessCompanionCallsDelta int64    `json:"second_business_companion_calls_delta"`
-	SecondSemanticReplay              bool     `json:"second_semantic_replay"`
-	SecondIdempotentReplay            bool     `json:"second_idempotent_replay"`
-	SecondNovelExecution              bool     `json:"second_novel_execution"`
-	Status                            string   `json:"status"`
+	LeftProfileID                     string                   `json:"left_profile_id"`
+	RightProfileID                    string                   `json:"right_profile_id"`
+	LeftAlias                         string                   `json:"left_alias"`
+	RightAlias                        string                   `json:"right_alias"`
+	SharedProducts                    []string                 `json:"shared_products"`
+	SelectedProduct                   string                   `json:"selected_product"`
+	QuerySHA256                       string                   `json:"query_sha256"`
+	LeftCatalogSHA256                 string                   `json:"left_catalog_sha256"`
+	RightCatalogSHA256                string                   `json:"right_catalog_sha256"`
+	FirstCacheKeySHA256               string                   `json:"first_cache_key_sha256"`
+	SecondCacheKeySHA256              string                   `json:"second_cache_key_sha256"`
+	FirstSQLFingerprintSHA256         string                   `json:"first_sql_fingerprint_sha256"`
+	SecondSQLFingerprintSHA256        string                   `json:"second_sql_fingerprint_sha256"`
+	SecondSourceQueryIsSelf           bool                     `json:"second_source_query_is_self"`
+	SecondSemanticReplayAudits        int                      `json:"second_semantic_replay_audits"`
+	SecondSettlementAudits            int                      `json:"second_settlement_audits"`
+	SecondBusinessVisibleCallsDelta   int64                    `json:"second_business_visible_calls_delta"`
+	SecondBusinessCompanionCallsDelta int64                    `json:"second_business_companion_calls_delta"`
+	SecondSemanticReplay              bool                     `json:"second_semantic_replay"`
+	SecondIdempotentReplay            bool                     `json:"second_idempotent_replay"`
+	SecondNovelExecution              bool                     `json:"second_novel_execution"`
+	LeftTaskFinalization              taskFinalizationEvidence `json:"left_task_finalization"`
+	RightTaskFinalization             taskFinalizationEvidence `json:"right_task_finalization"`
+	Status                            string                   `json:"status"`
 }
 
 type executionSnapshot struct {
@@ -164,9 +167,53 @@ type executionSnapshot struct {
 type businessSnapshot struct{ visible, companion, dealloc, reset int64 }
 
 type taskAuthorization struct {
-	Products []string
-	Columns  map[string][]string
-	Scopes   map[string]any
+	Products         []string
+	Columns          map[string][]string
+	Scopes           map[string]any
+	BudgetProfile    string
+	MaxQueries       int64
+	MaxQueriesSource string
+}
+
+type taskExecution struct {
+	TaskID   string
+	Snapshot executionSnapshot
+	Delta    businessSnapshot
+}
+
+type taskFinalizationEvidence struct {
+	BudgetProfile           string `json:"budget_profile"`
+	PolicyMaxQueries        int64  `json:"policy_max_queries"`
+	PolicySource            string `json:"policy_source"`
+	ObservedTaskState       string `json:"observed_task_state"`
+	ObservedTerminalReason  string `json:"observed_terminal_reason"`
+	UsedQueries             int64  `json:"used_queries"`
+	RemainingQueries        int64  `json:"remaining_queries"`
+	SemanticVerdictCaptured bool   `json:"semantic_verdict_captured"`
+	CompleteTaskCalled      bool   `json:"complete_task_called"`
+	FinalTaskState          string `json:"final_task_state"`
+	FinalTerminalReason     string `json:"final_terminal_reason"`
+	Disposition             string `json:"disposition"`
+	Status                  string `json:"status"`
+}
+
+type taskStatus struct {
+	State          string `json:"state"`
+	TerminalReason string `json:"terminal_reason"`
+}
+
+type taskBudget struct {
+	Budget struct {
+		Limits struct {
+			Queries int64 `json:"queries"`
+		} `json:"limits"`
+		Used struct {
+			Queries int64 `json:"queries"`
+		} `json:"used"`
+		Remaining struct {
+			Queries int64 `json:"queries"`
+		} `json:"remaining"`
+	} `json:"budget"`
 }
 
 func run(ctx context.Context, opts options) error {
@@ -238,7 +285,7 @@ func run(ctx context.Context, opts options) error {
 		return errors.New("S1 live-evidence query template does not bind exactly one parameter")
 	}
 	query := strings.Replace(string(template), "$1", selectedRows, 1)
-	document := evidenceDocument{SchemaVersion: 1, Record: recordName,
+	document := evidenceDocument{SchemaVersion: 2, Record: recordName,
 		ContractRelease: registry.ContractRelease, ProfileRegistrySHA256: digest(registryBytes),
 		ProductIntersectionMatrixSHA256: digest(intersectionBytes), DeploymentID: opts.deploymentID,
 		QueryTemplateSHA256: digest(template), PairCount: len(pairs), Pairs: []pairEvidence{},
@@ -289,7 +336,7 @@ func run(ctx context.Context, opts options) error {
 			return writeFailure(fmt.Errorf("activate left profile for pair %d: %w", index, err))
 		}
 		current, sequence = pair.leftID, sequence+1
-		first, _, err := executeQuery(ctx, opts, alice, control, observer,
+		firstRun, err := executeQuery(ctx, opts, alice, control, observer,
 			pairKey(pair), "left", query, authorizations[pair.leftID])
 		if err != nil {
 			return writeFailure(fmt.Errorf("execute left profile for pair %d: %w", index, err))
@@ -298,11 +345,12 @@ func run(ctx context.Context, opts options) error {
 			return writeFailure(fmt.Errorf("activate right profile for pair %d: %w", index, err))
 		}
 		current, sequence = pair.rightID, sequence+1
-		second, delta, err := executeQuery(ctx, opts, alice, control, observer,
+		secondRun, err := executeQuery(ctx, opts, alice, control, observer,
 			pairKey(pair), "right", query, authorizations[pair.rightID])
 		if err != nil {
 			return writeFailure(fmt.Errorf("execute right profile for pair %d: %w", index, err))
 		}
+		first, second, delta := firstRun.Snapshot, secondRun.Snapshot, secondRun.Delta
 		novel := first.CatalogSHA256 == left.CatalogSHA256 && second.CatalogSHA256 == right.CatalogSHA256 &&
 			isSHA256(first.CacheKeySHA256) && isSHA256(second.CacheKeySHA256) &&
 			isSHA256(first.SQLFingerprintSHA256) && isSHA256(second.SQLFingerprintSHA256) &&
@@ -320,6 +368,19 @@ func run(ctx context.Context, opts options) error {
 			SecondBusinessVisibleCallsDelta: delta.visible, SecondBusinessCompanionCallsDelta: delta.companion,
 			SecondSemanticReplay: second.SemanticReplay, SecondIdempotentReplay: second.IdempotentReplay,
 			SecondNovelExecution: novel, Status: "fail"}
+		if novel {
+			entry.LeftTaskFinalization, err = finalizeTask(ctx, alice, firstRun.TaskID,
+				authorizations[pair.leftID], true)
+			if err == nil {
+				entry.RightTaskFinalization, err = finalizeTask(ctx, alice, secondRun.TaskID,
+					authorizations[pair.rightID], true)
+			}
+			if err != nil {
+				document.Pairs = append(document.Pairs, entry)
+				return writeFailure(fmt.Errorf("finalize profile pair %s/%s after semantic verdict: %w",
+					pair.leftAlias, pair.rightAlias, err))
+			}
+		}
 		if novel {
 			entry.Status = "pass"
 		}
@@ -397,7 +458,51 @@ func deriveTaskAuthorization(root string, profile registryProfile, selectedProdu
 			return taskAuthorization{}, fmt.Errorf("profile scope %s has unsupported type", name)
 		}
 	}
-	return taskAuthorization{Products: products, Columns: columns, Scopes: scopes}, nil
+	policySource, err := budgetPolicySource(filepath.Join(root, profile.CatalogPath),
+		profile.CatalogPath, policy.BudgetProfile)
+	if err != nil {
+		return taskAuthorization{}, err
+	}
+	return taskAuthorization{Products: products, Columns: columns, Scopes: scopes,
+		BudgetProfile: policy.BudgetProfile, MaxQueries: policy.Budget.MaxQueries,
+		MaxQueriesSource: policySource}, nil
+}
+
+func budgetPolicySource(absolutePath, relativePath, budgetProfile string) (string, error) {
+	payload, err := os.ReadFile(absolutePath)
+	if err != nil {
+		return "", err
+	}
+	var document yaml.Node
+	if err := yaml.Unmarshal(payload, &document); err != nil {
+		return "", fmt.Errorf("decode Catalog policy source: %w", err)
+	}
+	if len(document.Content) != 1 || document.Content[0].Kind != yaml.MappingNode {
+		return "", errors.New("Catalog policy source has no root mapping")
+	}
+	budgets := mappingValue(document.Content[0], "budget_profiles")
+	if budgets == nil || budgets.Kind != yaml.SequenceNode {
+		return "", errors.New("Catalog policy source omits budget_profiles")
+	}
+	for _, item := range budgets.Content {
+		if item.Kind != yaml.MappingNode {
+			continue
+		}
+		name, maxQueries := mappingValue(item, "name"), mappingValue(item, "max_queries")
+		if name != nil && name.Value == budgetProfile && maxQueries != nil && maxQueries.Line > 0 {
+			return filepath.ToSlash(relativePath) + ":" + fmt.Sprint(maxQueries.Line), nil
+		}
+	}
+	return "", fmt.Errorf("Catalog policy source omits max_queries for budget profile %s", budgetProfile)
+}
+
+func mappingValue(mapping *yaml.Node, key string) *yaml.Node {
+	for index := 0; index+1 < len(mapping.Content); index += 2 {
+		if mapping.Content[index].Value == key {
+			return mapping.Content[index+1]
+		}
+	}
+	return nil
 }
 
 func catalogScope(logical *catalog.Catalog, name string) (catalog.Scope, bool) {
@@ -459,14 +564,14 @@ func activate(ctx context.Context, opts options, previous, profile string, seque
 
 func executeQuery(ctx context.Context, opts options, alice *mcpClient,
 	control, observer *pgxpool.Pool, pair, side, query string,
-	authorization taskAuthorization) (executionSnapshot, businessSnapshot, error) {
+	authorization taskAuthorization) (taskExecution, error) {
 	aliceOA, err := oaClient(opts.oaURL, "alice", os.Getenv(opts.alicePasswordEnv), opts.readyTimeout)
 	if err != nil {
-		return executionSnapshot{}, businessSnapshot{}, err
+		return taskExecution{}, err
 	}
 	bobOA, err := oaClient(opts.oaURL, "bob", os.Getenv(opts.bobPasswordEnv), opts.readyTimeout)
 	if err != nil {
-		return executionSnapshot{}, businessSnapshot{}, err
+		return taskExecution{}, err
 	}
 	var created struct {
 		TaskID string `json:"task_id"`
@@ -478,27 +583,27 @@ func executeQuery(ctx context.Context, opts options, alice *mcpClient,
 		"columns":       authorization.Columns,
 		"scopes":        authorization.Scopes,
 	}, &created); err != nil {
-		return executionSnapshot{}, businessSnapshot{}, err
+		return taskExecution{}, err
 	}
 	if created.TaskID == "" || created.OAURL == "" {
-		return executionSnapshot{}, businessSnapshot{}, errors.New("task request omitted identity")
+		return taskExecution{}, errors.New("task request omitted identity")
 	}
 	draft := filepath.Base(created.OAURL)
 	if err := oaAction(ctx, aliceOA, opts.oaURL, draft, "submit", ""); err != nil {
-		return executionSnapshot{}, businessSnapshot{}, err
+		return taskExecution{}, err
 	}
 	if err := waitTask(ctx, alice, created.TaskID, "AWAITING_APPROVAL", opts.readyTimeout); err != nil {
-		return executionSnapshot{}, businessSnapshot{}, err
+		return taskExecution{}, err
 	}
 	if err := oaAction(ctx, bobOA, opts.oaURL, draft, "decision", "approved"); err != nil {
-		return executionSnapshot{}, businessSnapshot{}, err
+		return taskExecution{}, err
 	}
 	if err := waitTask(ctx, alice, created.TaskID, "ACTIVE", opts.readyTimeout); err != nil {
-		return executionSnapshot{}, businessSnapshot{}, err
+		return taskExecution{}, err
 	}
 	before, err := businessSQLSnapshot(ctx, observer)
 	if err != nil {
-		return executionSnapshot{}, businessSnapshot{}, err
+		return taskExecution{}, err
 	}
 	requestID := "p26-" + digest([]byte(pair + "/" + side))[:20]
 	var response struct {
@@ -513,16 +618,16 @@ func executeQuery(ctx context.Context, opts options, alice *mcpClient,
 	}
 	if err := alice.call(ctx, "query_sql", map[string]any{"task_id": created.TaskID,
 		"request_id": requestID, "sql": query}, &decoded); err != nil {
-		return executionSnapshot{}, businessSnapshot{}, err
+		return taskExecution{}, err
 	}
 	response.QueryID, response.TaskID = decoded.QueryID, decoded.TaskID
 	response.SemanticReplay, response.IdempotentReplay = decoded.SemanticReplay, decoded.IdempotentReplay
 	after, err := businessSQLSnapshot(ctx, observer)
 	if err != nil {
-		return executionSnapshot{}, businessSnapshot{}, err
+		return taskExecution{}, err
 	}
 	if before.reset != after.reset || before.dealloc != after.dealloc {
-		return executionSnapshot{}, businessSnapshot{}, errors.New("pg_stat_statements changed identity during query")
+		return taskExecution{}, errors.New("pg_stat_statements changed identity during query")
 	}
 	var snapshot executionSnapshot
 	var cacheKey, sourceQuery string
@@ -537,21 +642,86 @@ WHERE q.task_id=$1 AND q.request_id=$2`, created.TaskID, requestID).Scan(&snapsh
 		&snapshot.CatalogSHA256, &snapshot.SQLFingerprintSHA256, &cacheKey, &sourceQuery,
 		&snapshot.SemanticReplayAudits, &snapshot.SettlementAudits)
 	if err != nil {
-		return executionSnapshot{}, businessSnapshot{}, err
+		return taskExecution{}, err
 	}
 	if snapshot.QueryID == "" || snapshot.QueryID != response.QueryID || response.TaskID != created.TaskID ||
 		snapshot.CatalogSHA256 == "" || snapshot.SQLFingerprintSHA256 == "" {
-		return executionSnapshot{}, businessSnapshot{}, errors.New("query response and persisted execution identity differ")
+		return taskExecution{}, errors.New("query response and persisted execution identity differ")
 	}
 	snapshot.CacheKeySHA256, snapshot.SourceQueryID = cacheKey, sourceQuery
 	snapshot.SemanticReplay, snapshot.IdempotentReplay = response.SemanticReplay, response.IdempotentReplay
-	var ignored map[string]any
-	if err := alice.call(ctx, "complete_task", map[string]any{"task_id": created.TaskID,
-		"summary": "P26 same-query live probe complete"}, &ignored); err != nil {
-		return executionSnapshot{}, businessSnapshot{}, err
+	return taskExecution{TaskID: created.TaskID, Snapshot: snapshot,
+		Delta: businessSnapshot{visible: after.visible - before.visible,
+			companion: after.companion - before.companion, reset: after.reset, dealloc: after.dealloc}}, nil
+}
+
+func finalizeTask(ctx context.Context, alice *mcpClient, taskID string,
+	authorization taskAuthorization, semanticVerdictCaptured bool) (taskFinalizationEvidence, error) {
+	evidence := taskFinalizationEvidence{BudgetProfile: authorization.BudgetProfile,
+		PolicyMaxQueries: authorization.MaxQueries, PolicySource: authorization.MaxQueriesSource,
+		SemanticVerdictCaptured: semanticVerdictCaptured, Status: "fail"}
+	var status taskStatus
+	if err := alice.call(ctx, "get_task_status", map[string]string{"task_id": taskID}, &status); err != nil {
+		return evidence, fmt.Errorf("read task state: %w", err)
 	}
-	return snapshot, businessSnapshot{visible: after.visible - before.visible,
-		companion: after.companion - before.companion, reset: after.reset, dealloc: after.dealloc}, nil
+	var budget taskBudget
+	if err := alice.call(ctx, "get_budget", map[string]string{"task_id": taskID}, &budget); err != nil {
+		return evidence, fmt.Errorf("read task budget: %w", err)
+	}
+	evidence.ObservedTaskState, evidence.ObservedTerminalReason = status.State, status.TerminalReason
+	evidence.UsedQueries, evidence.RemainingQueries = budget.Budget.Used.Queries, budget.Budget.Remaining.Queries
+	disposition, err := taskFinalizationDisposition(authorization, status, budget, semanticVerdictCaptured)
+	evidence.Disposition = disposition
+	if err != nil {
+		return evidence, err
+	}
+	if disposition == "complete_active_task" {
+		evidence.CompleteTaskCalled = true
+		var completed taskStatus
+		if err := alice.call(ctx, "complete_task", map[string]any{"task_id": taskID,
+			"summary": "P28 same-query live probe complete after semantic verdict"}, &completed); err != nil {
+			return evidence, fmt.Errorf("complete ACTIVE task: %w", err)
+		}
+		evidence.FinalTaskState, evidence.FinalTerminalReason = completed.State, completed.TerminalReason
+		if completed.State != "ARCHIVED" || completed.TerminalReason != "completed" {
+			return evidence, errors.New("complete_task did not return the expected completed ARCHIVED state")
+		}
+	} else {
+		evidence.FinalTaskState, evidence.FinalTerminalReason = status.State, status.TerminalReason
+	}
+	evidence.Status = "pass"
+	return evidence, nil
+}
+
+func taskFinalizationDisposition(authorization taskAuthorization, status taskStatus,
+	budget taskBudget, semanticVerdictCaptured bool) (string, error) {
+	if authorization.BudgetProfile == "" || authorization.MaxQueries <= 0 || authorization.MaxQueriesSource == "" {
+		return "", errors.New("source-controlled query policy identity is incomplete")
+	}
+	limits, used, remaining := budget.Budget.Limits.Queries, budget.Budget.Used.Queries, budget.Budget.Remaining.Queries
+	if limits != authorization.MaxQueries || used < 0 || remaining < 0 || used+remaining != limits {
+		return "", errors.New("live task budget does not match the source-controlled max_queries policy")
+	}
+	if !semanticVerdictCaptured {
+		return "", errors.New("task finalization was attempted before the semantic verdict was captured")
+	}
+	switch status.State {
+	case "ACTIVE":
+		if remaining == 0 {
+			return "", errors.New("query budget is exhausted but the task is unexpectedly ACTIVE")
+		}
+		if status.TerminalReason != "" {
+			return "", errors.New("ACTIVE task unexpectedly carries a terminal reason")
+		}
+		return "complete_active_task", nil
+	case "ARCHIVED":
+		if used != limits || remaining != 0 || status.TerminalReason != "budget_exhausted" {
+			return "", errors.New("ARCHIVED task is not the source-policy-derived query-budget exhaustion case")
+		}
+		return "accept_automatic_budget_archive", nil
+	default:
+		return "", fmt.Errorf("task is neither ACTIVE nor ARCHIVED after query: %s", status.State)
+	}
 }
 
 func businessSQLSnapshot(ctx context.Context, observer *pgxpool.Pool) (businessSnapshot, error) {
