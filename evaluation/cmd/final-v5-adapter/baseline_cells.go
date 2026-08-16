@@ -21,7 +21,7 @@ var (
 // frozen cells but no implementation, and advertising them would turn an unrun
 // cell into a claimed capability. S6 joined the list because its Product, route
 // and templates are the ones the Artifact cells already execute end to end.
-var baselineImplementedWorkloads = map[string]bool{"S1": true, "S2": true, "S6": true}
+var baselineImplementedWorkloads = map[string]bool{"S1": true, "S2": true, "S3": true, "S5": true, "S6": true}
 
 // baselineProductBinding is how one frozen Product reaches a real deployment:
 // the columns the OA approves, and the two relations the Observer counts calls
@@ -45,6 +45,14 @@ var baselineProductBindings = map[string]baselineProductBinding{
 		Columns:           []string{"orderkey", "linenumber", "extendedprice", "partition_key"},
 		VisibleRelation:   "reporting.provsql_lineitem",
 		CompanionRelation: "taskgate_ordinal.provsql_lineitem_v1",
+	},
+	// S3 walks the same frozen exposure-scale relation Scale's dependency-e2e
+	// arm binds. They share one Product and therefore one route, which is why
+	// that route's row ceiling had to cover S3's 45,000-row result.
+	"final_v5_exposure_scale": {
+		Columns:           []string{"member_rank", "metric", "family_id", "partition_key"},
+		VisibleRelation:   "reporting.final_v5_exposure_scale",
+		CompanionRelation: "taskgate_ordinal.final_v5_exposure_scale_v1",
 	},
 	// S6 shares this Product and these templates with the Artifact cells, which
 	// have already executed them end to end. Its sixteen fields are the frozen
@@ -82,11 +90,15 @@ func baselineScopesFor(productIDs []string) map[string][]string {
 // measured sample runs: the contract coordinate, the approved task, and the
 // three rendered SQL strings the modes need.
 type baselineExecutionCell struct {
-	Contract   finalv5contracts.BaselineCell
-	Task       boundTaskRequest
-	DirectSQL  string
-	BDGSQL     string
-	RewriteSQL string
+	Contract  finalv5contracts.BaselineCell
+	Task      boundTaskRequest
+	DirectSQL string
+	// BDGSQL is the governed arm's payload. For S5 it is a rendered QueryPlan
+	// document rather than SQL, which is why PlanEntrypoint exists: the caller
+	// must send it to execute_plan and must not rewrite it as text.
+	BDGSQL         string
+	RewriteSQL     string
+	PlanEntrypoint bool
 }
 
 // resolveBaselineExecutionCell turns one AdapterOperation into the frozen cell
@@ -130,12 +142,19 @@ func resolveBaselineExecutionCell(operation experiment.AdapterOperation) (baseli
 	if err := validateBoundTask(task); err != nil {
 		return baselineExecutionCell{}, fmt.Errorf("baseline cell %s task: %w", contract.Identity, err)
 	}
-	return baselineExecutionCell{
+	plan := rendered.BDG.Entrypoint == finalv5contracts.EntrypointExecutePlan
+	cell := baselineExecutionCell{
 		Contract: contract, Task: task,
-		DirectSQL:  rendered.Direct.SQL,
-		BDGSQL:     rendered.BDG.SQL,
-		RewriteSQL: normalizedRewriteOf(rendered.BDG.SQL),
-	}, nil
+		DirectSQL: rendered.Direct.SQL, BDGSQL: rendered.BDG.SQL, PlanEntrypoint: plan,
+	}
+	// A normalized rewrite only means anything for a text query: it proves the
+	// Gateway recognises an equivalent statement it has already settled. A
+	// QueryPlan has no layout to vary, and S5 declares no rewrite mode, so the
+	// rewrite stays empty rather than being faked from the plan JSON.
+	if !plan {
+		cell.RewriteSQL = normalizedRewriteOf(rendered.BDG.SQL)
+	}
+	return cell, nil
 }
 
 // normalizedRewriteOf produces a semantically identical rewrite of a frozen

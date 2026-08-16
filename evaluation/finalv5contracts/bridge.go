@@ -42,6 +42,15 @@ const (
 // Artifact cell that resolves to it is not an OA-approved public BDG query.
 const PublicBDGTool = "query_sql"
 
+// PublicExecutePlanTool is the declarative entrypoint Baseline S5's governed arm
+// uses. The comment above still holds for Artifact: execute_plan is not the
+// advertised public query tool, and a cell reaching it is exercising the
+// declarative plan path on purpose rather than the ordinary Agent path.
+const PublicExecutePlanTool = "execute_plan"
+
+// EntrypointExecutePlan is how a contract names that path.
+const EntrypointExecutePlan = "execute_plan"
+
 const (
 	ArtifactExperimentID = "artifact"
 	ArtifactWorkloadID   = "result-heavy"

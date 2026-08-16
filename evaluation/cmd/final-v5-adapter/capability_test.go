@@ -145,13 +145,14 @@ func TestBaselinePilotCannotEnableFormalCapability(t *testing.T) {
 	if implementedCapabilities()["baseline"] {
 		t.Fatal("baseline formal capability was advertised before all publication cells were implemented")
 	}
-	// S1, S2 and S6 gained a real execution path on 2026-08-16. Every implemented
-	// cell must be one of theirs, and 32 of 58 is still incomplete, so the two
+	// Every workload except S4 gained a real execution path on 2026-08-16. S4
+	// binds a Product the live Catalog does not publish, so 55 of 58 is still
+	// incomplete, so the two
 	// assertions above continue to hold. A cell registered from any other
 	// workload would mean the resolver accepted something Execute cannot run.
-	implementedWorkloads := map[string]bool{"S1": true, "S2": true, "S6": true}
-	if len(baselineImplementedPublicationCells) != 32 {
-		t.Fatalf("formal baseline registry contains %d cells, want S1, S2 and S6's 32",
+	implementedWorkloads := map[string]bool{"S1": true, "S2": true, "S3": true, "S5": true, "S6": true}
+	if len(baselineImplementedPublicationCells) != 55 {
+		t.Fatalf("formal baseline registry contains %d cells, want every workload but S4's 55",
 			len(baselineImplementedPublicationCells))
 	}
 	for _, cell := range baselineImplementedPublicationCells {
@@ -413,10 +414,12 @@ func TestFrozenCatalogBacksTheReviewedScaleRouteWithoutAdvertisingIt(t *testing.
 // onlyDefaultLowBenchmarkProducts reports whether every Product in the policy is
 // one the reviewed shape leaves on the default low route. It is a closed
 // membership test on purpose: a new Product added there would not satisfy it.
+// expense_summary is a member because this Catalog deliberately does not scope
+// it -- scoping would make it unusable alongside expense_detail.
 func onlyDefaultLowBenchmarkProducts(policy catalog.TaskPolicy) bool {
 	frozen := map[string]bool{
 		"provsql_orders": true, "provsql_lineitem": true, "provsql_nonce": true,
-		"final_v5_analytics_depth4": true,
+		"final_v5_analytics_depth4": true, "expense_summary": true,
 	}
 	if len(policy.Products) == 0 {
 		return false

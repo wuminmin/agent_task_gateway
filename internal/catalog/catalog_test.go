@@ -130,11 +130,17 @@ func TestRepositoryCatalog(t *testing.T) {
 				closure, provsql.Budget.MaxRows, 4*50_000)
 		}
 	}
-	// expense_summary keeps the historical summary ceiling through its own
-	// scoped route, so the wider default low route did not widen it.
+	// expense_summary deliberately carries no scoped route of its own, so it
+	// shares the default low route. That is what keeps it requestable together
+	// with expense_detail: a Product named by a scoped route can only ever be
+	// requested as exactly that set.
 	summary, err := parsed.ResolveTaskPolicy([]string{"expense_summary"})
-	if err != nil || summary.BudgetProfile != "summary-manual-v5" {
+	if err != nil || summary.BudgetProfile != "final-v5-baseline-low-v1" {
 		t.Fatalf("repository expense_summary policy = %#v, err=%v", summary, err)
+	}
+	mixed, err := parsed.ResolveTaskPolicy([]string{"expense_summary", "expense_detail"})
+	if err != nil || mixed.Sensitivity != domain.SensitivityHigh {
+		t.Fatalf("summary and detail can no longer be requested together: %#v, err=%v", mixed, err)
 	}
 }
 
@@ -302,11 +308,29 @@ func TestV5CatalogRejectsMixedLegacyApprovalRoute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Keep the profile internally well-formed (V3 also requires Outcome), but
-	// make one reachable route legacy while the other routes remain V5.
-	mixed := strings.Replace(string(data),
+	// Make one reachable route legacy while the others stay V5, and keep the
+	// mutated profile internally well-formed: a predicate footprint requires V5,
+	// so leaving one behind would raise a budget error before the route mix is
+	// ever examined. Targeting the profile by name rather than by first
+	// occurrence keeps this test measuring the route rule when the Catalog's
+	// budget order changes.
+	const mutated = "final-v5-baseline-low-v1"
+	profile := strings.Index(string(data), "  - name: "+mutated+"\n")
+	if profile < 0 {
+		t.Fatalf("Catalog no longer carries the %s budget profile", mutated)
+	}
+	end := strings.Index(string(data)[profile+1:], "\n  - name: ")
+	if end < 0 {
+		t.Fatal("could not bound the mutated budget profile")
+	}
+	block := string(data)[profile : profile+1+end]
+	legacy := strings.Replace(block,
 		"exposure_profile_version: taskgate-exposure-v5",
 		"exposure_profile_version: taskgate-exposure-v3", 1)
+	if footprint := strings.Index(legacy, "    predicate_footprint:"); footprint >= 0 {
+		legacy = legacy[:footprint]
+	}
+	mixed := strings.Replace(string(data), block, legacy, 1)
 	if _, err := Parse([]byte(mixed)); !errors.Is(err, ErrInvalidApprovalRoute) {
 		t.Fatalf("mixed V5/legacy Catalog error = %v, want ErrInvalidApprovalRoute", err)
 	}

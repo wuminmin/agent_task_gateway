@@ -1,6 +1,12 @@
 package finalv5contracts
 
-import "fmt"
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strconv"
+	"strings"
+)
 
 // BaselineExperimentID is the protocol identifier of the Baseline family.
 const BaselineExperimentID = "baseline"
@@ -21,8 +27,11 @@ type BaselineCell struct {
 	// this decoder does not yet render. RenderParameter is its value.
 	RenderParameterName string
 	RenderParameter     int64
-	ExpectedRows        int64
-	ExpectedColumns     int
+	// SecondaryParameter is S5's overlap branch bound. Every other Baseline
+	// workload freezes exactly one threshold and leaves this zero.
+	SecondaryParameter int64
+	ExpectedRows       int64
+	ExpectedColumns    int
 	// QueryTemplate is the arm this cell measures: the Direct template for a
 	// direct cell and the BDG template for every governed mode. BDGTemplate and
 	// DirectTemplate are both always present, because the two arms are rendered
@@ -149,6 +158,17 @@ func (runtime *Runtime) decodeBaselineCell(source cell) (BaselineCell, error) {
 	switch identity.WorkloadID {
 	case "S1", "S2":
 		renderName, renderValue = "orderkey_max", query.Parameters.OrderkeyMax
+	case "S5":
+		// S5 unions two branches of the same relation at different thresholds,
+		// so it is the one Baseline workload with two frozen parameters.
+		renderName, renderValue = "orderkey_max", query.Parameters.OrderkeyMax
+		if query.Parameters.OverlapBranchMax <= 0 {
+			return BaselineCell{}, fmt.Errorf("baseline cell %s carries no overlap branch bound", identity)
+		}
+	case "S3":
+		// S3 walks a frozen family's members, so its threshold is a member rank
+		// rather than an order key.
+		renderName, renderValue = "member_max", query.Parameters.MemberMax
 	case "S6":
 		// S6 parameterises on rows, like the Artifact cells that execute its
 		// templates byte-identically, and its projection is carried by which of
@@ -179,7 +199,8 @@ func (runtime *Runtime) decodeBaselineCell(source cell) (BaselineCell, error) {
 		ProductIDs:          append([]string(nil), product.IDs...),
 		PublicationIDs:      append([]string(nil), publication.IDs...),
 		RenderParameterName: renderName, RenderParameter: renderValue,
-		ExpectedRows: expected.RowCount, ExpectedColumns: expected.ColumnCount,
+		SecondaryParameter: query.Parameters.OverlapBranchMax,
+		ExpectedRows:       expected.RowCount, ExpectedColumns: expected.ColumnCount,
 		QueryTemplate: query.Template, BDGTemplate: bdg.Template, DirectTemplate: direct.Template,
 		DirectActive: direct.Active, BDGActive: bdg.Active,
 		BDGEntrypoint: bdg.Entrypoint, ModeSemantics: bdg.ModeSemantics,
@@ -198,12 +219,18 @@ func (runtime *Runtime) BaselineQueryContract(target BaselineCell) (QueryContrac
 	if target.RenderParameterName == "" {
 		return QueryContract{}, fmt.Errorf("baseline cell %s has no renderable frozen parameter", target.Identity)
 	}
-	bdg, err := runtime.RenderIndexedTemplate(target.BDGTemplate, target.RenderParameter)
+	var bdg RenderedQuery
+	if target.SecondaryParameter > 0 {
+		// S5's governed arm is a declarative plan, not SQL.
+		bdg, err = runtime.BaselinePlanContract(target)
+	} else {
+		bdg, err = runtime.RenderIndexedTemplate(target.BDGTemplate, target.RenderParameter)
+		bdg.Role, bdg.Entrypoint, bdg.PublicTool = "bdg", EntrypointBDGQuery, PublicBDGTool
+	}
 	if err != nil {
 		return QueryContract{}, err
 	}
-	bdg.Role, bdg.Entrypoint, bdg.PublicTool = "bdg", EntrypointBDGQuery, PublicBDGTool
-	direct, err := runtime.RenderIndexedTemplate(target.DirectTemplate, target.RenderParameter)
+	direct, err := runtime.renderBaselineDirect(target)
 	if err != nil {
 		return QueryContract{}, err
 	}
@@ -225,4 +252,166 @@ func (runtime *Runtime) BaselineRequirements() ([]CellIdentity, error) {
 		identities = append(identities, decoded.Identity)
 	}
 	return identities, nil
+}
+
+// BaselinePlanContract renders Baseline S5's frozen QueryPlan. S5 is the one
+// Baseline workload whose governed arm is a declarative plan rather than SQL,
+// and the one that carries two thresholds, so it needs a renderer of its own:
+// the positional SQL renderer takes a single parameter and would silently drop
+// the overlap branch bound.
+//
+// The render rule is the template's own: every complete {"$parameter": name}
+// object becomes a JSON integer. Anything else in the template is copied
+// verbatim, so the plan the Gateway receives differs from the frozen bytes only
+// where the contract says a threshold goes.
+func (runtime *Runtime) BaselinePlanContract(target BaselineCell) (RenderedQuery, error) {
+	if target.Identity.WorkloadID != "S5" {
+		return RenderedQuery{}, fmt.Errorf("baseline cell %s does not render a QueryPlan", target.Identity)
+	}
+	digest, err := runtime.ContractSHA256(target.BDGTemplate)
+	if err != nil {
+		return RenderedQuery{}, err
+	}
+	template, err := runtime.readContract(target.BDGTemplate)
+	if err != nil {
+		return RenderedQuery{}, err
+	}
+	var document struct {
+		Entrypoint string          `json:"entrypoint"`
+		Parameters map[string]any  `json:"parameters"`
+		Plan       json.RawMessage `json:"plan"`
+	}
+	if err := json.Unmarshal(template, &document); err != nil {
+		return RenderedQuery{}, fmt.Errorf("plan template %s: %w", target.BDGTemplate, err)
+	}
+	if document.Entrypoint != EntrypointExecutePlan {
+		return RenderedQuery{}, fmt.Errorf("plan template %s declares entrypoint %q",
+			target.BDGTemplate, document.Entrypoint)
+	}
+	if len(document.Plan) == 0 {
+		return RenderedQuery{}, fmt.Errorf("plan template %s carries no plan", target.BDGTemplate)
+	}
+	values := map[string]int64{
+		"orderkey_max":       target.RenderParameter,
+		"overlap_branch_max": target.SecondaryParameter,
+	}
+	for name := range document.Parameters {
+		if values[name] <= 0 {
+			return RenderedQuery{}, fmt.Errorf("plan template %s parameter %q has no frozen value",
+				target.BDGTemplate, name)
+		}
+	}
+	var plan any
+	if err := json.Unmarshal(document.Plan, &plan); err != nil {
+		return RenderedQuery{}, fmt.Errorf("plan template %s plan section: %w", target.BDGTemplate, err)
+	}
+	rendered, substitutions, err := substitutePlanParameters(plan, values, document.Parameters)
+	if err != nil {
+		return RenderedQuery{}, fmt.Errorf("plan template %s: %w", target.BDGTemplate, err)
+	}
+	if substitutions != len(document.Parameters) {
+		return RenderedQuery{}, fmt.Errorf("plan template %s substituted %d of %d declared parameters",
+			target.BDGTemplate, substitutions, len(document.Parameters))
+	}
+	encoded, err := json.Marshal(rendered)
+	if err != nil {
+		return RenderedQuery{}, err
+	}
+	parameters := make([]RenderedParameter, 0, len(values))
+	for _, name := range []string{"orderkey_max", "overlap_branch_max"} {
+		if _, declared := document.Parameters[name]; declared {
+			parameters = append(parameters, RenderedParameter{
+				Ordinal: len(parameters) + 1, Name: name, SQLType: "bigint",
+				Literal: strconv.FormatInt(values[name], 10)})
+		}
+	}
+	return RenderedQuery{
+		Role: "bdg", Entrypoint: EntrypointExecutePlan, PublicTool: PublicExecutePlanTool,
+		TemplatePath: target.BDGTemplate, TemplateSHA256: digest,
+		SQL: string(encoded), SQLSHA256: digestBytes(encoded), Parameters: parameters,
+	}, nil
+}
+
+// substitutePlanParameters replaces every complete {"$parameter": name} object
+// with its frozen integer. An object that carries the marker together with any
+// other member is refused rather than partially rendered.
+func substitutePlanParameters(node any, values map[string]int64, declared map[string]any) (any, int, error) {
+	switch typed := node.(type) {
+	case map[string]any:
+		if marker, carries := typed["$parameter"]; carries {
+			if len(typed) != 1 {
+				return nil, 0, errors.New("a $parameter object carries additional members")
+			}
+			name, ok := marker.(string)
+			if !ok {
+				return nil, 0, errors.New("a $parameter name is not a string")
+			}
+			if _, isDeclared := declared[name]; !isDeclared {
+				return nil, 0, fmt.Errorf("undeclared parameter %q", name)
+			}
+			return values[name], 1, nil
+		}
+		result := make(map[string]any, len(typed))
+		total := 0
+		for key, child := range typed {
+			value, count, err := substitutePlanParameters(child, values, declared)
+			if err != nil {
+				return nil, 0, err
+			}
+			result[key], total = value, total+count
+		}
+		return result, total, nil
+	case []any:
+		result := make([]any, len(typed))
+		total := 0
+		for index, child := range typed {
+			value, count, err := substitutePlanParameters(child, values, declared)
+			if err != nil {
+				return nil, 0, err
+			}
+			result[index], total = value, total+count
+		}
+		return result, total, nil
+	default:
+		return node, 0, nil
+	}
+}
+
+// renderBaselineDirect renders the Direct arm. S5's Direct template unions two
+// branches at two thresholds, so it is the one Baseline template with a second
+// positional parameter; every other workload renders through the shared
+// single-parameter renderer.
+func (runtime *Runtime) renderBaselineDirect(target BaselineCell) (RenderedQuery, error) {
+	if target.SecondaryParameter <= 0 {
+		rendered, err := runtime.RenderIndexedTemplate(target.DirectTemplate, target.RenderParameter)
+		if err != nil {
+			return RenderedQuery{}, err
+		}
+		rendered.Role, rendered.Entrypoint = "direct", EntrypointDirectSQL
+		return rendered, nil
+	}
+	digest, err := runtime.ContractSHA256(target.DirectTemplate)
+	if err != nil {
+		return RenderedQuery{}, err
+	}
+	template, err := runtime.readContract(target.DirectTemplate)
+	if err != nil {
+		return RenderedQuery{}, err
+	}
+	text := string(template)
+	if strings.Count(text, "$1") != 1 || strings.Count(text, "$2") != 1 || strings.Contains(text, "$3") {
+		return RenderedQuery{}, fmt.Errorf("template %s does not carry exactly the two frozen parameters",
+			target.DirectTemplate)
+	}
+	rendered := strings.ReplaceAll(text, "$1", strconv.FormatInt(target.RenderParameter, 10))
+	rendered = strings.ReplaceAll(rendered, "$2", strconv.FormatInt(target.SecondaryParameter, 10))
+	return RenderedQuery{
+		Role: "direct", Entrypoint: EntrypointDirectSQL,
+		TemplatePath: target.DirectTemplate, TemplateSHA256: digest,
+		SQL: rendered, SQLSHA256: digestBytes([]byte(rendered)),
+		Parameters: []RenderedParameter{
+			{Ordinal: 1, Name: "orderkey_max", SQLType: "bigint", Literal: strconv.FormatInt(target.RenderParameter, 10)},
+			{Ordinal: 2, Name: "overlap_branch_max", SQLType: "bigint", Literal: strconv.FormatInt(target.SecondaryParameter, 10)},
+		},
+	}, nil
 }

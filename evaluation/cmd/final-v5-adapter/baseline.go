@@ -278,9 +278,13 @@ func (adapter *realAdapter) Close() {
 // counts against. The non-publication S1/tiny Pilot and the frozen contract
 // cells differ only in this value, so both run the same measured code.
 type baselinePlan struct {
-	directSQL       string
-	taskGateSQL     string
-	rewriteSQL      string
+	directSQL   string
+	taskGateSQL string
+	rewriteSQL  string
+	// planEntrypoint routes the governed arm to execute_plan with a QueryPlan
+	// document instead of query_sql with SQL text. Baseline S5 is the only
+	// workload whose contract names that entrypoint.
+	planEntrypoint  bool
 	expectedRows    int64
 	expectedColumns int
 	provision       func(context.Context, experiment.AdapterOperation) (string, error)
@@ -304,6 +308,7 @@ func (adapter *realAdapter) contractPlan(cell baselineExecutionCell) baselinePla
 		directSQL:       cell.DirectSQL,
 		taskGateSQL:     cell.BDGSQL,
 		rewriteSQL:      cell.RewriteSQL,
+		planEntrypoint:  cell.PlanEntrypoint,
 		expectedRows:    cell.Contract.ExpectedRows,
 		expectedColumns: cell.Contract.ExpectedColumns,
 		provision: func(ctx context.Context, operation experiment.AdapterOperation) (string, error) {
@@ -453,8 +458,8 @@ func (adapter *realAdapter) taskgate(ctx context.Context, operation experiment.A
 		idempotentBefore.Business = businessBefore
 	}
 	started := time.Now()
-	var response queryResponse
-	if err := adapter.alice.call(ctx, "query_sql", map[string]any{"task_id": state.taskID, "request_id": requestID, "sql": sqlText}, &response); err != nil {
+	response, err := adapter.callGovernedArm(ctx, plan, state.taskID, requestID, sqlText)
+	if err != nil {
 		return experiment.Sample{}, err
 	}
 	availableMS := durationMS(time.Since(started))
@@ -513,6 +518,28 @@ func (adapter *realAdapter) taskgate(ctx context.Context, operation experiment.A
 		}
 	}
 	return sample, nil
+}
+
+// callGovernedArm sends the governed arm through the entrypoint its contract
+// names. A plan cell submits the rendered QueryPlan document; every other cell
+// submits SQL text. The plan is decoded here rather than forwarded as a string
+// because execute_plan takes a structured plan, and a cell that sent JSON as
+// SQL would fail for a reason that reads like a different fault.
+func (adapter *realAdapter) callGovernedArm(ctx context.Context, plan baselinePlan,
+	taskID, requestID, payload string) (queryResponse, error) {
+	var response queryResponse
+	if !plan.planEntrypoint {
+		err := adapter.alice.call(ctx, "query_sql",
+			map[string]any{"task_id": taskID, "request_id": requestID, "sql": payload}, &response)
+		return response, err
+	}
+	var document any
+	if err := json.Unmarshal([]byte(payload), &document); err != nil {
+		return response, fmt.Errorf("rendered QueryPlan is not a JSON document: %w", err)
+	}
+	err := adapter.alice.call(ctx, "execute_plan",
+		map[string]any{"task_id": taskID, "request_id": requestID, "plan": document}, &response)
+	return response, err
 }
 
 func (adapter *realAdapter) completeTaskgateSample(ctx context.Context, operation experiment.AdapterOperation, state *pairState,
@@ -1332,10 +1359,8 @@ func (adapter *realAdapter) crossBindingVerification(ctx context.Context, operat
 	}
 	requestID := "final-v5-" + sha(operation.SampleID)[:20] + "-cross-binding"
 	started := time.Now()
-	var response queryResponse
-	if err := adapter.alice.call(ctx, "query_sql", map[string]any{
-		"task_id": secondTaskID, "request_id": requestID, "sql": plan.taskGateSQL,
-	}, &response); err != nil {
+	response, err := adapter.callGovernedArm(ctx, plan, secondTaskID, requestID, plan.taskGateSQL)
+	if err != nil {
 		return evidence, err
 	}
 	availableMS := durationMS(time.Since(started))

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -96,13 +97,11 @@ func TestNormalizedRewriteChangesOnlyLayout(t *testing.T) {
 }
 
 // TestUnimplementedBaselineWorkloadsDoNotResolve keeps the resolver honest
-// about its own coverage: S3, S4 and S5 are frozen in the contract but have no
-// execution path, and a substituted query would be worse than a refusal.
+// about its own coverage: S4 is frozen in the contract but binds a Product the
+// live Catalog does not publish, so it has no execution path, and a substituted query would be worse than a refusal.
 func TestUnimplementedBaselineWorkloadsDoNotResolve(t *testing.T) {
 	for _, cell := range []struct{ workload, scale, mode string }{
-		{"S3", "10k-50k", "novel"},
 		{"S4", "depth-4", "novel"},
-		{"S5", "SF10", "novel"},
 	} {
 		if _, err := resolveBaselineExecutionCell(baselineOperation(cell.workload, cell.scale, cell.mode)); err == nil {
 			t.Fatalf("%s/%s/%s resolved without an execution path", cell.workload, cell.scale, cell.mode)
@@ -134,5 +133,58 @@ func TestBaselineSSixReusesTheArtifactBinding(t *testing.T) {
 				t.Fatalf("S6/%s expects %d columns", scale, cell.Contract.ExpectedColumns)
 			}
 		}
+	}
+}
+
+// TestBaselineSThreeSharesTheScaleProduct records the coupling that forced the
+// exposure-scale route's row ceiling up: S3 and Scale's dependency-e2e arm bind
+// the same Product, and a Product may hold at most one route.
+func TestBaselineSThreeSharesTheScaleProduct(t *testing.T) {
+	for _, scale := range []string{"1k-5k", "10k-50k", "45k-225k"} {
+		cell, err := resolveBaselineExecutionCell(baselineOperation("S3", scale, "novel"))
+		if err != nil {
+			t.Fatalf("resolve S3/%s/novel: %v", scale, err)
+		}
+		if got := cell.Task.DataProducts; len(got) != 1 || got[0] != "final_v5_exposure_scale" {
+			t.Fatalf("S3/%s approved products %v", scale, got)
+		}
+		if cell.Contract.RenderParameterName != "member_max" {
+			t.Fatalf("S3/%s renders on %q, want member_max", scale, cell.Contract.RenderParameterName)
+		}
+		if !strings.Contains(cell.DirectSQL, "reporting.final_v5_exposure_scale") ||
+			strings.Contains(cell.BDGSQL, "reporting.") {
+			t.Fatalf("S3/%s arms do not split on the reporting schema", scale)
+		}
+	}
+}
+
+// TestBaselineSFiveRendersAQueryPlan covers the one Baseline workload whose
+// governed arm is declarative. Its two thresholds must both reach the plan, and
+// the plan must stay a document rather than being flattened into text.
+func TestBaselineSFiveRendersAQueryPlan(t *testing.T) {
+	cell, err := resolveBaselineExecutionCell(baselineOperation("S5", "SF10", "novel"))
+	if err != nil {
+		t.Fatalf("resolve S5/SF10/novel: %v", err)
+	}
+	if !cell.PlanEntrypoint {
+		t.Fatal("S5's governed arm is not marked as the plan entrypoint")
+	}
+	if cell.RewriteSQL != "" {
+		t.Fatal("S5 produced a normalized rewrite; a QueryPlan has no layout to vary")
+	}
+	var plan map[string]any
+	if err := json.Unmarshal([]byte(cell.BDGSQL), &plan); err != nil {
+		t.Fatalf("S5's governed arm is not a JSON document: %v", err)
+	}
+	if strings.Contains(cell.BDGSQL, "$parameter") {
+		t.Fatal("an unsubstituted $parameter object survived into the rendered plan")
+	}
+	// Both frozen thresholds must appear: SF10 unions branches at 50,000 and
+	// 25,000, and a single-parameter renderer would have dropped the second.
+	if !strings.Contains(cell.BDGSQL, "50000") || !strings.Contains(cell.BDGSQL, "25000") {
+		t.Fatalf("S5/SF10 plan does not carry both thresholds: %s", cell.BDGSQL)
+	}
+	if !strings.Contains(cell.DirectSQL, "50000") || !strings.Contains(cell.DirectSQL, "25000") {
+		t.Fatalf("S5/SF10 Direct arm does not carry both thresholds: %s", cell.DirectSQL)
 	}
 }
