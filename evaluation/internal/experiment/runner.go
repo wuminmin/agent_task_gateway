@@ -63,6 +63,8 @@ func RunCommand(experimentID string) int {
 		"create-exclusive private file retaining exact adapter stderr; targeted diagnostic runs only")
 	profilePath := flags.String("profile-binding", "",
 		"activated deployment profile binding JSON; required for publication and profile-bound pilot runs")
+	selectedCellsPath := flags.String("selected-cells", "",
+		"strict JSON array of experiment/cell identities assigned to this profile deployment")
 	if err := flags.Parse(os.Args[1:]); err != nil {
 		return 2
 	}
@@ -75,9 +77,15 @@ func RunCommand(experimentID string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
+	selectedCells, err := loadSelectedCells(*selectedCellsPath, experimentID, config)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
 	if *validateOnly {
 		digest := sha256Hex(configBytes)
-		out := map[string]any{"status": "valid", "experiment_id": experimentID, "config_sha256": digest, "config_bytes": len(configBytes)}
+		out := map[string]any{"status": "valid", "experiment_id": experimentID, "config_sha256": digest,
+			"config_bytes": len(configBytes), "selected_cells": len(selectedCells)}
 		_ = json.NewEncoder(os.Stdout).Encode(out)
 		return 0
 	}
@@ -105,8 +113,8 @@ func RunCommand(experimentID string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	if err := executeAdapterCampaignWithProfile(config, *deploymentID, *adapterPath, *outputPath, profile,
-		*adapterStderrPath); err != nil {
+	if err := executeAdapterCampaignWithProfileSelection(config, *deploymentID, *adapterPath, *outputPath,
+		profile, *adapterStderrPath, selectedCells); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
@@ -138,6 +146,12 @@ func ExecuteAdapterCampaignWithProfile(config Config, deploymentID, adapterPath,
 
 func executeAdapterCampaignWithProfile(config Config, deploymentID, adapterPath, outputPath string,
 	profile *ProfileBinding, adapterStderrPath string) error {
+	return executeAdapterCampaignWithProfileSelection(config, deploymentID, adapterPath, outputPath,
+		profile, adapterStderrPath, nil)
+}
+
+func executeAdapterCampaignWithProfileSelection(config Config, deploymentID, adapterPath, outputPath string,
+	profile *ProfileBinding, adapterStderrPath string, selectedCells map[string]bool) error {
 	if err := config.Validate(config.ExperimentID); err != nil {
 		return err
 	}
@@ -209,7 +223,8 @@ func executeAdapterCampaignWithProfile(config Config, deploymentID, adapterPath,
 	orderPosition := 0
 	var campaignErrors []error
 	for processReplicate := 1; processReplicate <= processes; processReplicate++ {
-		operations := buildOperations(config, deploymentID, deploymentNumber, processReplicate, &orderPosition, profile)
+		operations := buildOperationsSelected(config, deploymentID, deploymentNumber, processReplicate,
+			&orderPosition, profile, selectedCells)
 		samples, processErr := runAdapterProcess(absAdapter, config.ExperimentID, operations, adapterStderr)
 		for index := range operations {
 			op := operations[index]
@@ -322,8 +337,50 @@ func validateRunnerEnvironment(config Config) error {
 	return nil
 }
 
+func loadSelectedCells(path, experimentID string, config Config) (map[string]bool, error) {
+	if strings.TrimSpace(path) == "" {
+		return nil, nil
+	}
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read selected cells: %w", err)
+	}
+	var identities []string
+	if err := StrictJSON(payload, &identities); err != nil {
+		return nil, fmt.Errorf("decode selected cells: %w", err)
+	}
+	if len(identities) == 0 {
+		return nil, errors.New("selected cells must not be empty")
+	}
+	available := make(map[string]bool)
+	for _, workload := range config.Workloads {
+		for _, scale := range workload.Scales {
+			for _, mode := range workload.Modes {
+				available[experimentID+"/"+workload.ID+"/"+scale+"/"+mode] = true
+			}
+		}
+	}
+	selected := make(map[string]bool, len(identities))
+	for _, identity := range identities {
+		if identity == "" || identity != strings.TrimSpace(identity) || !available[identity] {
+			return nil, fmt.Errorf("selected cell %q is not in experiment %s config", identity, experimentID)
+		}
+		if selected[identity] {
+			return nil, fmt.Errorf("selected cell %q is duplicated", identity)
+		}
+		selected[identity] = true
+	}
+	return selected, nil
+}
+
 func buildOperations(config Config, deploymentID string, deploymentNumber, processReplicate int, orderPosition *int,
 	profile *ProfileBinding) []AdapterOperation {
+	return buildOperationsSelected(config, deploymentID, deploymentNumber, processReplicate, orderPosition,
+		profile, nil)
+}
+
+func buildOperationsSelected(config Config, deploymentID string, deploymentNumber, processReplicate int,
+	orderPosition *int, profile *ProfileBinding, selectedCells map[string]bool) []AdapterOperation {
 	seed := config.RandomSeed + int64(deploymentNumber*100_000+processReplicate*1_000)
 	type cell struct {
 		workload string
@@ -342,6 +399,19 @@ func buildOperations(config Config, deploymentID string, deploymentNumber, proce
 			selected := cells[cellIndex]
 			for _, groupIndex := range DeterministicOrder(len(selected.groups), roundSeed+int64(cellIndex+1)*97) {
 				declaredGroup := selected.groups[groupIndex]
+				if selectedCells != nil {
+					filtered := make([]string, 0, len(declaredGroup))
+					for _, mode := range declaredGroup {
+						identity := config.ExperimentID + "/" + selected.workload + "/" + selected.scale + "/" + mode
+						if selectedCells[identity] {
+							filtered = append(filtered, mode)
+						}
+					}
+					declaredGroup = filtered
+				}
+				if len(declaredGroup) == 0 {
+					continue
+				}
 				group := append([]string(nil), declaredGroup...)
 				if containsMode(group, "direct") && containsMode(group, "novel") {
 					if DeterministicOrder(2, roundSeed+int64(cellIndex+1)*193)[0] == 0 {

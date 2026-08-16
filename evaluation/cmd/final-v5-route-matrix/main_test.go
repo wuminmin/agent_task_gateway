@@ -164,7 +164,7 @@ func TestParseFlagsHelpAndDeriveOnly(t *testing.T) {
 		t.Fatalf("-h error = %v", err)
 	}
 	for _, flagName := range []string{"-derive-only", "-mode", "-activation-evidence-dir",
-		"-activator-binary", "-probe-token-env"} {
+		"-activator-binary", "-probe-token-env", "-profile-alias"} {
 		if !strings.Contains(help.String(), flagName) {
 			t.Fatalf("help omitted %s:\n%s", flagName, help.String())
 		}

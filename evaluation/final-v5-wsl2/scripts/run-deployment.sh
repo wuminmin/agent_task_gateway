@@ -2,6 +2,13 @@
 set -euo pipefail
 umask 077
 
+# P30 pilot mechanism: the profile-split launcher owns one fresh Compose
+# project per profile/repetition and merges its evidence. The publication
+# launcher below remains frozen until a later author-approved formal campaign.
+if [[ "${TASKGATE_EXPERIMENT_CLASS:-}" == pilot ]]; then
+  exec evaluation/final-v5-wsl2/scripts/run-profile-campaign.sh "$@"
+fi
+
 : "${TASKGATE_EXPERIMENT_CLASS:?TASKGATE_EXPERIMENT_CLASS is required}"
 : "${TASKGATE_SUBMISSION_COMMIT:?TASKGATE_SUBMISSION_COMMIT is required}"
 : "${TASKGATE_CAMPAIGN_ID:?TASKGATE_CAMPAIGN_ID is required}"

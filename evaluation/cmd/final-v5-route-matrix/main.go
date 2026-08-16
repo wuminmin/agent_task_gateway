@@ -69,6 +69,7 @@ type options struct {
 	readyTimeout            time.Duration
 	activationSequenceStart int
 	previousProfileID       string
+	profileAlias            string
 }
 
 func main() {
@@ -131,6 +132,8 @@ func parseFlags(arguments []string, output io.Writer) (options, error) {
 		"first activation sequence number")
 	flags.StringVar(&opts.previousProfileID, "previous-profile-id", "",
 		"profile active before the first live matrix activation")
+	flags.StringVar(&opts.profileAlias, "profile-alias", "",
+		"activate exactly one planned profile; live mode only and no route-matrix aggregate")
 	if err := flags.Parse(arguments); err != nil {
 		return options{}, err
 	}
@@ -172,6 +175,21 @@ func execute(ctx context.Context, opts options, stdout, stderr io.Writer, runner
 	if err != nil {
 		return err
 	}
+	if opts.profileAlias != "" {
+		if opts.mode != "live" {
+			return errors.New("profile-alias is accepted only in live mode")
+		}
+		filtered := plan.Profiles[:0]
+		for _, profile := range plan.Profiles {
+			if profile.ProfileAlias == opts.profileAlias {
+				filtered = append(filtered, profile)
+			}
+		}
+		if len(filtered) != 1 {
+			return fmt.Errorf("profile alias %q is not uniquely planned", opts.profileAlias)
+		}
+		plan.Profiles = filtered
+	}
 
 	switch opts.mode {
 	case "plan":
@@ -202,6 +220,9 @@ func execute(ctx context.Context, opts options, stdout, stderr io.Writer, runner
 			// No matrix is encoded or published on a subprocess failure. In
 			// particular, a stale or partial run can never become a new PASS.
 			return err
+		}
+		if opts.profileAlias != "" {
+			return nil
 		}
 	default:
 		return fmt.Errorf("unsupported mode %q", opts.mode)
@@ -814,7 +835,7 @@ func runSubprocess(ctx context.Context, directory, executable string, arguments 
 }
 
 func validateLiveOptions(opts options) error {
-	if opts.evidenceDir == "" || opts.outputPath == "" || opts.composeProject == "" ||
+	if opts.evidenceDir == "" || (opts.outputPath == "" && opts.profileAlias == "") || opts.composeProject == "" ||
 		opts.deploymentID == "" || opts.profileArtifactRoot == "" || opts.profileArtifactManifest == "" {
 		return errors.New("live requires activation-evidence-dir, out, compose-project, deployment-id, " +
 			"profile-artifact-root, and profile-artifact-manifest")
