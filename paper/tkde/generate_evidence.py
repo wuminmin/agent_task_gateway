@@ -16,6 +16,7 @@ from pathlib import Path
 from v4_evidence import validate_v4_evidence
 from v4_supplemental_evidence import validate_v4_supplemental_evidence
 from rq5_evidence import validate_rq5_evidence
+from final_v5_pilot_evidence import validate_final_v5_pilot_evidence
 
 
 PAPER_DIR = Path(__file__).resolve().parent
@@ -1110,6 +1111,7 @@ def main(argv: list[str] | None = None) -> None:
     v4 = validate_v4_evidence(ROOT)
     v4_supplemental = validate_v4_supplemental_evidence(ROOT)
     rq5 = validate_rq5_evidence()
+    pilot = validate_final_v5_pilot_evidence(ROOT)
     formal = validate_formal(FORMAL, "exposure ledger")
     bitmap_formal = validate_formal(FORMAL_BITMAP, "bitmap refinement")
     outcome_formal = validate_formal(FORMAL_OUTCOME, "abstract outcome-set settlement")
@@ -1451,6 +1453,58 @@ def main(argv: list[str] | None = None) -> None:
             rf"\newcommand{{\RQFive{label}FirstQueryMS}}{{{decimal(timing['first_query_ms'], 3)}}}",
             rf"\newcommand{{\RQFive{label}ReplayMS}}{{{decimal(timing['replay_ms'], 3)}}}",
         ])
+    # Retained Final-V5 pilot runs. These are real measurements of a real
+    # deployment and are cited as such, but they are campaign_class=pilot and
+    # publication_eligible=false, so the manuscript names their class wherever
+    # it uses them and never calls them a completed publication campaign.
+    pilot_artifact = pilot["artifact"]
+    pilot_baseline = pilot["baseline"]
+    pilot_s_one = pilot_baseline["cell_medians"]["S1/SF10"]
+    pilot_s_two = pilot_baseline["cell_medians"]["S2/SF10"]
+    lines.extend([
+        rf"\newcommand{{\FinalVFivePilotArtifactDeployments}}{{{pilot_artifact['deployments']}}}",
+        rf"\newcommand{{\FinalVFivePilotArtifactCells}}{{{pilot_artifact['cells']}}}",
+        rf"\newcommand{{\FinalVFivePilotArtifactSamples}}{{{pilot_artifact['samples']}}}",
+        rf"\newcommand{{\FinalVFivePilotArtifactPerCell}}{{{pilot_artifact['samples_per_cell']}}}",
+        rf"\newcommand{{\FinalVFivePilotArtifactCommit}}{{\texttt{{{pilot_artifact['commit'][:12]}}}}}",
+        rf"\newcommand{{\FinalVFivePilotBaselineCells}}{{{pilot_baseline['cells']}}}",
+        rf"\newcommand{{\FinalVFivePilotBaselineSamples}}{{{pilot_baseline['samples']}}}",
+        rf"\newcommand{{\FinalVFivePilotBaselinePerCell}}{{{pilot_baseline['samples_per_cell']}}}",
+        rf"\newcommand{{\FinalVFivePilotReplayZeroSQLSamples}}{{{pilot_baseline['replay_zero_sql_samples']}}}",
+        rf"\newcommand{{\FinalVFivePilotOverheadMin}}{{{decimal(pilot_baseline['overhead_min'], 1)}}}",
+        rf"\newcommand{{\FinalVFivePilotOverheadMax}}{{{decimal(pilot_baseline['overhead_max'], 1)}}}",
+    ])
+    # Per-cell detail. The main paper cites the range and one illustration; the
+    # supplement tabulates every cell, so both come from the same validated run.
+    for cell, label in (
+        ("S1/SF1", "SOneSFOne"),
+        ("S1/SF10", "SOneSFTen"),
+        ("S2/SF1", "STwoSFOne"),
+        ("S2/SF10", "STwoSFTen"),
+    ):
+        medians = pilot_baseline["cell_medians"][cell]
+        facts = pilot_baseline["exposure"][cell]
+        lines.extend([
+            rf"\newcommand{{\FinalVFivePilot{label}DirectMS}}{{{decimal(medians['direct_ms'], 2)}}}",
+            rf"\newcommand{{\FinalVFivePilot{label}NovelMS}}{{{decimal(medians['novel_ms'], 2)}}}",
+            rf"\newcommand{{\FinalVFivePilot{label}SemanticMS}}{{{decimal(medians['semantic_ms'], 2)}}}",
+            rf"\newcommand{{\FinalVFivePilot{label}IdempotentMS}}{{{decimal(medians['idempotent_ms'], 2)}}}",
+            rf"\newcommand{{\FinalVFivePilot{label}Overhead}}{{{decimal(medians['novel_over_direct'], 1)}}}",
+            rf"\newcommand{{\FinalVFivePilot{label}Rows}}{{{comma(facts['rows'])}}}",
+            rf"\newcommand{{\FinalVFivePilot{label}ReleaseFacts}}{{{comma(facts['release'])}}}",
+            rf"\newcommand{{\FinalVFivePilot{label}DependencyFacts}}{{{comma(facts['dependency'])}}}",
+        ])
+    lines.extend([
+        rf"\newcommand{{\FinalVFivePilotSOneNovelS}}{{{decimal(pilot_s_one['novel_ms'] / 1000, 3)}}}",
+        rf"\newcommand{{\FinalVFivePilotSOneReleaseFacts}}{{{comma(pilot_baseline['exposure']['S1/SF10']['release'])}}}",
+        rf"\newcommand{{\FinalVFivePilotSOneDependencyFacts}}{{{comma(pilot_baseline['exposure']['S1/SF10']['dependency'])}}}",
+        rf"\newcommand{{\FinalVFivePilotSTwoDirectMS}}{{{decimal(pilot_s_two['direct_ms'], 2)}}}",
+        rf"\newcommand{{\FinalVFivePilotSTwoNovelS}}{{{decimal(pilot_s_two['novel_ms'] / 1000, 3)}}}",
+        rf"\newcommand{{\FinalVFivePilotSTwoIdempotentMS}}{{{decimal(pilot_s_two['idempotent_ms'], 2)}}}",
+        rf"\newcommand{{\FinalVFivePilotSTwoReleaseFacts}}{{{comma(pilot_baseline['exposure']['S2/SF10']['release'])}}}",
+        rf"\newcommand{{\FinalVFivePilotSTwoDependencyFacts}}{{{comma(pilot_baseline['exposure']['S2/SF10']['dependency'])}}}",
+        rf"\newcommand{{\FinalVFivePilotSTwoRows}}{{{pilot_baseline['exposure']['S2/SF10']['rows']}}}",
+    ])
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     OUTPUT.write_text("\n".join(lines) + "\n", encoding="ascii")
     print(f"ok - generated {OUTPUT.relative_to(ROOT)}")

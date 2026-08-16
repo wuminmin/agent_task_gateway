@@ -1,0 +1,43 @@
+{
+  "version": "taskgate-final-v5-pilot-evidence-v1",
+  "purpose": "Names the retained non-publication runs the manuscript is allowed to cite, and binds each one to the exact sample bytes it was computed from. A rerun writes a new directory and a new digest, so a paper number can never drift onto evidence nobody reviewed.",
+  "publication_eligible": false,
+  "runs": [
+    {
+      "id": "artifact-3dep-1",
+      "family": "artifact",
+      "pilot_kind": "artifact_targeted",
+      "path": "evaluation/final-v5-wsl2/raw/targeted-p0-artifact-3dep-1-20260815T195911Z-8aab6d4e4cac",
+      "samples_sha256": "2ffc3aa6d0d9d78008ea31a0d14960d31d6b38e187e249d3a36805d74e51fc64",
+      "submission_commit": "8aab6d4e4cacbbbced0e2fa7f592fd3d530a9c9b",
+      "measured_samples": 18
+    },
+    {
+      "id": "artifact-3dep-2",
+      "family": "artifact",
+      "pilot_kind": "artifact_targeted",
+      "path": "evaluation/final-v5-wsl2/raw/targeted-p0-artifact-3dep-2-20260815T201040Z-8aab6d4e4cac",
+      "samples_sha256": "7fc007de32d51fea7576836e80fcedb1d59df6ee3a50abe2df6c85ab2700c02b",
+      "submission_commit": "8aab6d4e4cacbbbced0e2fa7f592fd3d530a9c9b",
+      "measured_samples": 18
+    },
+    {
+      "id": "artifact-3dep-3",
+      "family": "artifact",
+      "pilot_kind": "artifact_targeted",
+      "path": "evaluation/final-v5-wsl2/raw/targeted-p0-artifact-3dep-3-20260815T202159Z-8aab6d4e4cac",
+      "samples_sha256": "f3704123b36fdddd7fa2e35b1d90da41d4909de8f1f97758c6a03847649169f9",
+      "submission_commit": "8aab6d4e4cacbbbced0e2fa7f592fd3d530a9c9b",
+      "measured_samples": 18
+    },
+    {
+      "id": "baseline-s1-s2",
+      "family": "baseline",
+      "pilot_kind": "baseline_targeted",
+      "path": "evaluation/final-v5-wsl2/raw/baseline-targeted-20260816T025100Z",
+      "samples_sha256": "c1993059cef5f12cd6ecad209f659cd83e66bf26a3aed501b55f36eee775a8c1",
+      "submission_commit": "b22850e60d0ab5e823b2a0581932cb84df8bcd99",
+      "measured_samples": 60
+    }
+  ]
+}

@@ -1327,9 +1327,8 @@ invariance; RQ3 conservation under adaptive execution, delegation, and
 concurrency; RQ4 ordinal/bitmap full-path acceptance; and RQ5 daily publication
 and retained routing. RQ1--RQ3 regenerate digest-bound corpus
 \ExposureCorpusHash{}. Every call uses a complete signed profile; no
-representation or budget planner is evaluated. The study measures database
-semantics and release mechanisms, not enterprise integration effort or
-organizational productivity. Passant is a semantic comparator, not a latency
+representation or budget planner is evaluated. Passant is a semantic
+comparator, not a latency
 baseline \cite{summers2026passant}: its per-query rewrite excludes BDG's
 cumulative ledger, Parquet, receipt, and promotion path.
 
@@ -1358,15 +1357,32 @@ races. Outcome regressions cover empty probes, replay, radix tamper, and digest
 binding. Detailed fixtures, logs, and broad-SQL result-equivalence tests are
 supplemental.
 
+A retained non-publication run measured Baseline S1/S2's
+\FinalVFivePilotBaselineCells{} frozen cells. A novel governed query costs
+\FinalVFivePilotOverheadMin{}--\FinalVFivePilotOverheadMax{} times its direct
+PostgreSQL equivalent, and that cost follows the Dependency set, not the answer:
+S2/SF10 returns \FinalVFivePilotSTwoRows{} grouped rows over
+\FinalVFivePilotSTwoDependencyFacts{} dependencies in
+\FinalVFivePilotSTwoNovelS{}~s, longer than S1/SF10 needs to release
+\FinalVFivePilotSOneReleaseFacts{} Facts (\FinalVFivePilotSOneNovelS{}~s). All
+\FinalVFivePilotReplayZeroSQLSamples{} replay samples issued zero business SQL;
+the supplement tabulates every cell.
+
 \subsection{Reproducibility Boundary}
 
-Publication-scale performance remains pending the final frozen WSL2 campaign.
+The frozen publication campaign has not run, so no measurement here is
+publication-class: the runs above are \FinalVFivePilotArtifactSamples{} artifact
+samples over
+\FinalVFivePilotArtifactCells{} result-heavy cells across
+\FinalVFivePilotArtifactDeployments{} deployments of commit
+\FinalVFivePilotArtifactCommit{}, plus one Baseline deployment.
 RQ1--RQ3 use small fixtures; ordinal/bitmap evidence is warm, single-host, and
-TPC-H-derived (not official), with one index build and deployment rather than
-\RQFourVFourRoots{} independent deployments. Retained raw data reconstructs
-each digest gate. RQ5 sums three sequential warm child intervals, and its
-router is an experiment controller, not a production load balancer. No result
-is generalized to cold-cache, multi-node, or production-SLO behavior.
+TPC-H-derived (not official). Archived V4 used one index build and deployment rather than
+\RQFourVFourRoots{} independent deployments. Retained raw data reconstructs each
+digest gate. RQ5 sums
+three sequential warm child intervals, and its router is an experiment
+controller, not a production load balancer. No result is generalized to
+cold-cache, multi-node, or production-SLO behavior.
 
 \section{Limitations and Threats to Validity}
 \label{sec:limits}
@@ -1394,8 +1410,8 @@ plus supported semantics and settlement; it does not decide policy
 appropriateness. Its single primary database path and demo approval adapter
 provide no production Data Lake/IAM/workflow/SIEM study or integration-cost
 measurement; multi-engine connectors and Policy Studio remain future work.
-Only \RQFourVFourBuildRuns{} build and one fixed-host deployment were measured.
-The radix results establish touched-branch I/O shape, not million-scale latency,
+Archived V4 used \RQFourVFourBuildRuns{} build; every run reported here is
+single-host. The radix results establish touched-branch I/O shape, not million-scale latency,
 sustained contention, distributed behavior, or live-agent performance.
 
 \section{Conclusion}
@@ -1411,10 +1427,7 @@ latency remain outside scope.
 
 BDG is a task-to-data release layer for existing enterprise data estates, not
 another lake or agent framework. It makes governed reporting Products usable
-by adaptive agents without broad, persistent database identities. Longer term,
-an agent-ready data utility could unite human approval, Catalog semantics,
-cumulative accounting, and auditable release through a reusable logical
-contract across domains and agent implementations.
+by adaptive agents without broad, persistent database identities.
 
 BDG turns governed data at rest into governed agent capability in use. It does
 not determine the correct organizational policy; it makes an approved policy

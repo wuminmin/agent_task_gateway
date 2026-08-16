@@ -888,6 +888,56 @@ Full, replay $(r,i)$ & \BaseReplay{} \\
 \end{table}
 
 
+\section{Retained Baseline Pilot: Per-Cell Governed Cost}
+\label{sec:baseline-pilot-supp}
+
+Table~\ref{tab:baseline-pilot} expands the main text's summary of the retained
+Baseline run. It is \texttt{campaign\_class=pilot} and
+\texttt{publication\_eligible=false}: one deployment,
+\FinalVFivePilotBaselinePerCell{} samples per cell after warmups, all
+\FinalVFivePilotBaselineSamples{} samples passing with a verified Receipt on
+every governed arm. It is not a completed publication campaign and must not be
+described as one.
+
+Two properties are visible per cell. First, governed cost tracks the Dependency
+set rather than the released answer: S2 returns \FinalVFivePilotSTwoSFTenRows{}
+grouped rows at either scale factor, yet its SF10 novel query is the most
+expensive cell in the table because it depends on
+\FinalVFivePilotSTwoSFTenDependencyFacts{} Facts. Second, replay latency is
+near-constant in result size, so the ratio between a governed replay and direct
+re-execution improves as the underlying query grows: at S2/SF10 the idempotent
+replay is already faster than re-running the query against PostgreSQL, while
+issuing no business SQL at all.
+
+\begin{table}[t]
+\centering
+\caption{Retained Baseline pilot, per cell. Medians in milliseconds over
+\FinalVFivePilotBaselinePerCell{} samples. Overhead is novel over direct. Not
+publication evidence.}
+\label{tab:baseline-pilot}
+\small
+\begin{tabular}{lrrrrrrrr}
+\toprule
+Cell & Rows & Release & Dependency & Direct & Novel & Semantic & Idempotent & Overhead \\
+\midrule
+S1/SF1 & \FinalVFivePilotSOneSFOneRows{} & \FinalVFivePilotSOneSFOneReleaseFacts{} & \FinalVFivePilotSOneSFOneDependencyFacts{} & \FinalVFivePilotSOneSFOneDirectMS{} & \FinalVFivePilotSOneSFOneNovelMS{} & \FinalVFivePilotSOneSFOneSemanticMS{} & \FinalVFivePilotSOneSFOneIdempotentMS{} & \FinalVFivePilotSOneSFOneOverhead{}$\times$ \\
+S1/SF10 & \FinalVFivePilotSOneSFTenRows{} & \FinalVFivePilotSOneSFTenReleaseFacts{} & \FinalVFivePilotSOneSFTenDependencyFacts{} & \FinalVFivePilotSOneSFTenDirectMS{} & \FinalVFivePilotSOneSFTenNovelMS{} & \FinalVFivePilotSOneSFTenSemanticMS{} & \FinalVFivePilotSOneSFTenIdempotentMS{} & \FinalVFivePilotSOneSFTenOverhead{}$\times$ \\
+S2/SF1 & \FinalVFivePilotSTwoSFOneRows{} & \FinalVFivePilotSTwoSFOneReleaseFacts{} & \FinalVFivePilotSTwoSFOneDependencyFacts{} & \FinalVFivePilotSTwoSFOneDirectMS{} & \FinalVFivePilotSTwoSFOneNovelMS{} & \FinalVFivePilotSTwoSFOneSemanticMS{} & \FinalVFivePilotSTwoSFOneIdempotentMS{} & \FinalVFivePilotSTwoSFOneOverhead{}$\times$ \\
+S2/SF10 & \FinalVFivePilotSTwoSFTenRows{} & \FinalVFivePilotSTwoSFTenReleaseFacts{} & \FinalVFivePilotSTwoSFTenDependencyFacts{} & \FinalVFivePilotSTwoSFTenDirectMS{} & \FinalVFivePilotSTwoSFTenNovelMS{} & \FinalVFivePilotSTwoSFTenSemanticMS{} & \FinalVFivePilotSTwoSFTenIdempotentMS{} & \FinalVFivePilotSTwoSFTenOverhead{}$\times$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Charging separates cleanly from latency. Across every replay sample the business
+database was not contacted, and the semantic and normalized-rewrite modes
+settled all three Fact budgets at zero while recording the same actual Result,
+Dependency, and Outcome sets as the novel query they replay. Idempotent replay
+instead returns the original terminal record, and its no-recharge property is
+carried by the control-plane snapshot being byte-identical before and after.
+One qualification belongs with these numbers: the per-Task row budget is a
+cumulative ledger and is charged on replay, so replay is free of Fact charges
+but not of row budget.
+
 \section{RQ5: Daily Publication and Retained-Publication Routing}
 \label{sec:rq5-supp}
 
