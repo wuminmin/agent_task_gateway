@@ -333,11 +333,10 @@ func TestFrozenCatalogBacksTheReviewedScaleRouteWithoutAdvertisingIt(t *testing.
 		if !wide || (len(policy.Products) == 1 && policy.Products[0].Name == "final_v5_exposure_scale") {
 			continue
 		}
-		if policy.BudgetProfile != "final-v5-benchmark-low-v1" {
-			t.Fatalf("Catalog profile %q now grants %d rows and %d columns; only the reviewed benchmark ceiling may",
-				policy.BudgetProfile, policy.Budget.MaxRows, columns)
-		}
 		if onlyResultHeavy(policy) {
+			if policy.BudgetProfile != "final-v5-benchmark-low-v1" {
+				t.Fatalf("result-heavy resolved budget %q, want the reviewed benchmark ceiling", policy.BudgetProfile)
+			}
 			if policy.Budget.MaxRows != 100_000 || columns != 16 {
 				t.Fatalf("reviewed result-heavy route grants %d rows and %d columns; the frozen cells need exactly 100000 and 16",
 					policy.Budget.MaxRows, columns)
@@ -349,20 +348,32 @@ func TestFrozenCatalogBacksTheReviewedScaleRouteWithoutAdvertisingIt(t *testing.
 			continue
 		}
 		// Baseline S1/SF10 releases the whole 50,000-row frozen orders relation
-		// and S2 joins it to lineitem, so the reviewed ceiling is now reachable
-		// from the three frozen ProvSQL relations as well. A Product may belong
-		// to at most one scoped route and routes match an exact set, so those
-		// closures cannot be given a route of their own while ProvSQL's
-		// nonce-join keeps one; they share the default low route instead. The
-		// widening is therefore bounded to exactly those three reviewed
-		// relations, and every other product set must still fail this check.
+		// and S2 joins it to lineitem, so a second wide ceiling is now reachable
+		// from the three frozen ProvSQL relations. A Product may belong to at
+		// most one scoped route and routes match an exact set, so those closures
+		// cannot be given a route of their own while ProvSQL's nonce-join keeps
+		// one; they share the default low route instead. The widening is bounded
+		// to exactly those three reviewed relations, and every other product set
+		// must still fail this check.
 		if !onlyFrozenProvSQLRelations(policy) {
-			t.Fatalf("the reviewed benchmark ceiling resolved for %v; only final_v5_result_heavy alone or the frozen ProvSQL relations may reach it",
+			t.Fatalf("a wide ceiling resolved for %v; only final_v5_result_heavy alone or the frozen ProvSQL relations may reach one",
 				productNames(policy))
+		}
+		if policy.BudgetProfile != "final-v5-baseline-low-v1" {
+			t.Fatalf("the Baseline closure resolved budget %q, want the Baseline ceiling", policy.BudgetProfile)
 		}
 		if policy.Budget.MaxReleaseFacts < 50_000*2 {
 			t.Fatalf("the Baseline closure grants %d release Facts; S1/SF10 releases %d",
 				policy.Budget.MaxReleaseFacts, 50_000*2)
+		}
+		// One Baseline Task settles a cell's novel query and its three replays,
+		// and max_rows is a cumulative per-Task ledger, so the ceiling has to
+		// cover four S1/SF10 results rather than one. The first targeted run
+		// failed exactly here: under the 100,000-row result-heavy ceiling,
+		// S1/SF10's third governed query was refused and no other cell was.
+		if policy.Budget.MaxRows < 4*50_000 {
+			t.Fatalf("the Baseline closure grants %d rows; one S1/SF10 Task settles %d",
+				policy.Budget.MaxRows, 4*50_000)
 		}
 	}
 }

@@ -441,7 +441,7 @@
       "routable": false,
       "targeted_run_eligible": false,
       "budget_profiles": [
-        "final-v5-benchmark-low-v1"
+        "final-v5-baseline-low-v1"
       ],
       "workload_cells": [
         "baseline/S2/SF1/direct",
@@ -614,7 +614,7 @@
       "routable": false,
       "targeted_run_eligible": true,
       "budget_profiles": [
-        "final-v5-benchmark-low-v1"
+        "final-v5-baseline-low-v1"
       ],
       "workload_cells": [
         "provsql/nonce-join-group/10k/direct",
@@ -772,7 +772,7 @@
       "routable": false,
       "targeted_run_eligible": false,
       "budget_profiles": [
-        "final-v5-benchmark-low-v1"
+        "final-v5-baseline-low-v1"
       ],
       "workload_cells": [
         "baseline/S1/SF1/direct",

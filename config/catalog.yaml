@@ -518,7 +518,7 @@ approval_routes:
   - sensitivity: low
     mode: manual
     approver: bob
-    budget_profile: final-v5-benchmark-low-v1
+    budget_profile: final-v5-baseline-low-v1
   - sensitivity: medium
     mode: manual
     approver: bob
@@ -681,6 +681,34 @@ budget_profiles:
       max_unique_atoms_per_query: 8
       max_atom_payload_bytes: 4096
       max_total_atom_payload_bytes: 32768
+  # The default low ceiling, sized from the Baseline cells that reach it rather
+  # than copied. It is separate from the reviewed result-heavy ceiling below
+  # because max_rows is a cumulative per-Task ledger, not a per-query limit:
+  # internal/control/budget.go charges settlement.Rows into used_rows on every
+  # completed query and refuses the settlement once the total passes the limit.
+  # The harness puts the iteration number in PairID, so one Task carries a
+  # cell's novel query and its three replays, and a replay charges rows even
+  # though it contacts no database. S1/SF10 therefore needs 4 x 50,000 = 200,000
+  # rows on one Task; under the 100,000-row result-heavy ceiling its third
+  # governed query was refused, which is exactly the one cell that failed the
+  # first targeted run. The doubled figure is headroom for a fifth query, not
+  # for a wider result: no frozen Baseline cell releases more than 50,000 rows.
+  - name: final-v5-baseline-low-v1
+    max_queries: 16
+    max_rows: 400000
+    max_db_time: 30m
+    query_timeout: 30m
+    task_ttl: 2h
+    max_release_facts: 2000000
+    max_influence_facts: 8000000
+    max_outcome_facts: 128
+    exposure_profile_version: taskgate-exposure-v5
+    predicate_footprint:
+      version: taskgate-predicate-footprint-v1
+      max_raw_literals_per_query: 64
+      max_unique_atoms_per_query: 16
+      max_atom_payload_bytes: 4096
+      max_total_atom_payload_bytes: 65536
   # Reviewed Final-V5 benchmark ceiling, copied verbatim from the Catalog
   # candidate. It is the only profile that can carry the frozen 100000-row,
   # 16-column Artifact cell (1,600,000 release Facts) on a manual OA route.

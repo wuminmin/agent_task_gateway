@@ -121,8 +121,16 @@ func TestRepositoryCatalog(t *testing.T) {
 		{"provsql_lineitem", "provsql_nonce", "provsql_orders"},
 	} {
 		provsql, err := parsed.ResolveTaskPolicy(closure)
-		if err != nil || provsql.BudgetProfile != "final-v5-benchmark-low-v1" || provsql.Budget.MaxInfluenceFacts < 1_000_000 {
+		if err != nil || provsql.BudgetProfile != "final-v5-baseline-low-v1" || provsql.Budget.MaxInfluenceFacts < 1_000_000 {
 			t.Fatalf("repository closure %v policy = %#v, err=%v", closure, provsql, err)
+		}
+		// max_rows is a cumulative per-Task ledger, and one Baseline Task
+		// carries a cell's novel query plus its three replays. S1/SF10 is the
+		// largest at 50,000 rows each, so anything below 200,000 refuses the
+		// cell's third governed query.
+		if provsql.Budget.MaxRows < 4*50_000 {
+			t.Fatalf("closure %v grants %d rows; one S1/SF10 Task settles %d",
+				closure, provsql.Budget.MaxRows, 4*50_000)
 		}
 	}
 	// expense_summary keeps the historical summary ceiling through its own
