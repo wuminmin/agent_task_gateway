@@ -11,7 +11,7 @@
   "missing_catalog_bound_cells": 0,
   "duplicate_catalog_bound_cells": 0,
   "routable_cells": 0,
-  "targeted_run_eligible_cells": 98,
+  "targeted_run_eligible_cells": 129,
   "unresolved_cells": 129,
   "duplicate_cell_ids": [],
   "missing_cell_ids": [],
@@ -256,21 +256,15 @@
       "alias": "depth4-semantic-view",
       "closure_sha256": "46b22367d138656780ed27942f4717904aa0eb8fae9e956bf79ebfe1cdb6a1a2",
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
-        "activation_smoke_passed": false,
+        "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "live_activation_smoke_not_executed",
-            "subject": "profile-46b22367d1386567",
-            "detail": "catalog_materializable_false; live_activation_smoke_not_executed; live_route_available_false; no_approval_route_for_exact_product_closure; product_absent_from_live_catalog; route_not_evaluable"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -279,12 +273,6 @@
         ]
       },
       "unresolved_reason": [
-        {
-          "state": "activation_supported",
-          "code": "live_activation_smoke_not_executed",
-          "subject": "profile-46b22367d1386567",
-          "detail": "catalog_materializable_false; live_activation_smoke_not_executed; live_route_available_false; no_approval_route_for_exact_product_closure; product_absent_from_live_catalog; route_not_evaluable"
-        },
         {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
@@ -304,21 +292,15 @@
       "alias": "analytics-orders-lineitem",
       "closure_sha256": "5b48ad2a02c5446d07cd2c837428be7e10b9b2bff675d5df94868f828058e380",
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
-        "activation_smoke_passed": false,
+        "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "live_activation_smoke_not_executed",
-            "subject": "profile-5b48ad2a02c5446d",
-            "detail": "live_activation_smoke_not_executed; live_route_available_false; no_approval_route_for_closure; no_approval_route_for_exact_product_closure"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -327,12 +309,6 @@
         ]
       },
       "unresolved_reason": [
-        {
-          "state": "activation_supported",
-          "code": "live_activation_smoke_not_executed",
-          "subject": "profile-5b48ad2a02c5446d",
-          "detail": "live_activation_smoke_not_executed; live_route_available_false; no_approval_route_for_closure; no_approval_route_for_exact_product_closure"
-        },
         {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",
@@ -524,21 +500,15 @@
       "alias": "analytics-orders",
       "closure_sha256": "f60ec5752f501da0147f9d2789234af64de4d98f7542c63b472c8aaecb26214d",
       "routable": false,
-      "targeted_run_eligible": false,
+      "targeted_run_eligible": true,
       "status": {
         "closure_complete": true,
         "catalog_materializable": true,
         "live_route_available": true,
-        "activation_supported": false,
-        "activation_smoke_passed": false,
+        "activation_supported": true,
+        "activation_smoke_passed": true,
         "targeted_validation_passed": false,
         "unresolved_reasons": [
-          {
-            "state": "activation_supported",
-            "code": "live_activation_smoke_not_executed",
-            "subject": "profile-f60ec5752f501da0",
-            "detail": "live_activation_smoke_not_executed; live_route_available_false; no_approval_route_for_closure; no_approval_route_for_exact_product_closure"
-          },
           {
             "state": "targeted_validation_passed",
             "code": "targeted_run_not_executed",
@@ -547,12 +517,6 @@
         ]
       },
       "unresolved_reason": [
-        {
-          "state": "activation_supported",
-          "code": "live_activation_smoke_not_executed",
-          "subject": "profile-f60ec5752f501da0",
-          "detail": "live_activation_smoke_not_executed; live_route_available_false; no_approval_route_for_closure; no_approval_route_for_exact_product_closure"
-        },
         {
           "state": "targeted_validation_passed",
           "code": "targeted_run_not_executed",

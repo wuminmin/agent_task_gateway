@@ -2,11 +2,11 @@
   "schema_version": 1,
   "record": "taskgate-final-v5-profile-activation-support-v1",
   "contract_release": "final-v5-contracts-v1.10",
-  "profile_registry_sha256": "25d8b2003e34f28d159d5f91cd57fd0471de21921eccbaee7ed1b027ef1f1ef6",
+  "profile_registry_sha256": "431929640981faf2b6069d32bb1a068da4d22d6e8a089aa633c6056296c1dc9c",
   "activation_implementation_available": true,
-  "activation_smoke_manifest_sha256": "227427ccf2e3f66f2fa13e39b6a2e8b7d3a642c7ff8cce3468ff7fea91fc5363",
-  "outside_product_route_matrix_sha256": "7784d8be84f668df0afd992c5ea72f05050f1d3bd02cb79b1cb2c4ae3b1280b8",
-  "semantic_cache_isolation_evidence_sha256": "b596a22fe0aa757492131fa9f62e37dd1bfb00c77f4832d2a490df920d8bc0b8",
+  "activation_smoke_manifest_sha256": "516aaa25a7b82332053738c8ca4a3b398349b3ba5cf1feefd08b9c2e8a163a8b",
+  "outside_product_route_matrix_sha256": "36578eacd3657dac72fee8984058507b6578824e6725ab6c3ed1a6f6b7edc796",
+  "semantic_cache_isolation_evidence_sha256": "6a1b25d0a10f6b00ffa3f70b17c76a9824b8d161a2ede4ac2fa96948ceea39b6",
   "outside_product_route_matrix_status": "pass",
   "semantic_cache_isolation_status": "pass",
   "semantic_cache_catalog_bound": true,
@@ -24,7 +24,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "26cf2b6069a74c9d818f32489fd196bcb7bf62b0e282b2c7607e40a20eb51752"
+        "2c9bff7966d358fe3d3f85d0a7a7335e3dea805a28e4925c29bd2b753ab70f6f"
       ],
       "reason": ""
     },
@@ -40,7 +40,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "21228ee4f96ec3d1c291f251cd8cee0385caac673f0895353cfe41bae684c8e7"
+        "d475b16151445346150afa71cf7b227d39a832b7eaa45aedb691f558ccf7b1fd"
       ],
       "reason": ""
     },
@@ -56,7 +56,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "d3c373b7ce96cc41576d786578e0a4803b721fe199cfec2df603844aed986b29"
+        "ea0559d4fe0a154aee4fc365c8f1ca4cdc343b5531661b3517cef46f25725a35"
       ],
       "reason": ""
     },
@@ -72,7 +72,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "387bd57f1dcc2537afd72da65d95f943120db7462da948a29111073adba9f66a"
+        "3429cf9585dbd4c86fa14be51f452f85d6005120ed34fc86da8cbf1a12c5c1d2"
       ],
       "reason": ""
     },
@@ -88,52 +88,43 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "a3109d216c8c0906971d2f213b0501591c2ec15992de281dfc16d04a919d19d6"
+        "d6dadf8dbf9cb190a5c72d37c8be60647336cad8eb35ec26e3ccfd60e86b7b28"
       ],
       "reason": ""
     },
     {
       "profile_id": "profile-46b22367d1386567",
       "profile_alias": "depth4-semantic-view",
-      "catalog_sha256": "",
+      "catalog_sha256": "9ccc84b22033ccba2f9e5281c69ee37b97296c5eb4a0162a6150ed65caaebb27",
       "closure_sha256": "46b22367d138656780ed27942f4717904aa0eb8fae9e956bf79ebfe1cdb6a1a2",
+      "profile_schema_attestation": "e13e08ecbe35e85206a37f07f387bbf25a66fef4ed2897c8abe8a1bd9d3c7701",
       "publication_identities": [
         "provsql-lineitem-v1",
         "provsql-orders-v1"
       ],
-      "activation_supported": false,
-      "activation_smoke_passed": false,
-      "activation_evidence_sha256": null,
-      "reason": "catalog_materializable_false; live_activation_smoke_not_executed; live_route_available_false; no_approval_route_for_exact_product_closure; product_absent_from_live_catalog; route_not_evaluable",
-      "blocked_by": [
-        "catalog_materializable_false",
-        "live_activation_smoke_not_executed",
-        "live_route_available_false",
-        "no_approval_route_for_exact_product_closure",
-        "product_absent_from_live_catalog",
-        "route_not_evaluable"
-      ]
+      "activation_supported": true,
+      "activation_smoke_passed": true,
+      "activation_evidence_sha256": [
+        "bd59db9b1f1c236b42b635d3b794b095495395c16d8d9d07a95bcb45799af02f"
+      ],
+      "reason": ""
     },
     {
       "profile_id": "profile-5b48ad2a02c5446d",
       "profile_alias": "analytics-orders-lineitem",
-      "catalog_sha256": "6dedb81d8db5071f3795df10f1d8597712cc6e7e8c8e070cbedeb6e546470f5d",
+      "catalog_sha256": "4764a69897d79cd283a1d5044bf858fb31047a51dbf1877273648e75e4688733",
       "closure_sha256": "5b48ad2a02c5446d07cd2c837428be7e10b9b2bff675d5df94868f828058e380",
       "profile_schema_attestation": "e13e08ecbe35e85206a37f07f387bbf25a66fef4ed2897c8abe8a1bd9d3c7701",
       "publication_identities": [
         "provsql-lineitem-v1",
         "provsql-orders-v1"
       ],
-      "activation_supported": false,
-      "activation_smoke_passed": false,
-      "activation_evidence_sha256": null,
-      "reason": "live_activation_smoke_not_executed; live_route_available_false; no_approval_route_for_closure; no_approval_route_for_exact_product_closure",
-      "blocked_by": [
-        "live_activation_smoke_not_executed",
-        "live_route_available_false",
-        "no_approval_route_for_closure",
-        "no_approval_route_for_exact_product_closure"
-      ]
+      "activation_supported": true,
+      "activation_smoke_passed": true,
+      "activation_evidence_sha256": [
+        "6cdd74b496147e6395ad133d3dfa672360cfe94072a69e1278df911799eb9587"
+      ],
+      "reason": ""
     },
     {
       "profile_id": "profile-794efc2159ffaa5f",
@@ -147,7 +138,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "16f4760f62e82e7ac1e38bcbcbbf94bf21c40d9ed52a838e5ca4d38220eae147"
+        "7e803c85ed8a1da06c26d7c0b14247e34bdc40e81da0f2c99175cde089661a17"
       ],
       "reason": ""
     },
@@ -165,7 +156,7 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "483a9d77ebf451ccdddf83eb2bad70193205bc4b9a906872d2f5d1700b49d396"
+        "747a0ccfebc5b0124f183eaf017878a4ac6d53cbae22b0e8d486df66c80db8c7"
       ],
       "reason": ""
     },
@@ -181,29 +172,25 @@
       "activation_supported": true,
       "activation_smoke_passed": true,
       "activation_evidence_sha256": [
-        "fe1ad24eb45328c698318daa5146ee28d5d97a49979a452c86ad8990f1ef59bd"
+        "f14a2cab6a9809b014f15daa3fbe21e61b5a4811aab34ed4d7c1323847b13953"
       ],
       "reason": ""
     },
     {
       "profile_id": "profile-f60ec5752f501da0",
       "profile_alias": "analytics-orders",
-      "catalog_sha256": "a1c9f76be6e15016c2e31b46481814e86eef099e3f7ad3b330bbedb86f80db10",
+      "catalog_sha256": "b6a5aaf7c03d82f820b57f49d27363677049966b001efde2972aa3f4d3485325",
       "closure_sha256": "f60ec5752f501da0147f9d2789234af64de4d98f7542c63b472c8aaecb26214d",
       "profile_schema_attestation": "2f503bdc932295871e82b64f0d346613a6ee4eb01ef99fd52e329ee81fad5a36",
       "publication_identities": [
         "provsql-orders-v1"
       ],
-      "activation_supported": false,
-      "activation_smoke_passed": false,
-      "activation_evidence_sha256": null,
-      "reason": "live_activation_smoke_not_executed; live_route_available_false; no_approval_route_for_closure; no_approval_route_for_exact_product_closure",
-      "blocked_by": [
-        "live_activation_smoke_not_executed",
-        "live_route_available_false",
-        "no_approval_route_for_closure",
-        "no_approval_route_for_exact_product_closure"
-      ]
+      "activation_supported": true,
+      "activation_smoke_passed": true,
+      "activation_evidence_sha256": [
+        "33c54cbd01e2bdae8d9d6d861e5f478e22bc1531ae465008d96cb48fde863d8c"
+      ],
+      "reason": ""
     }
   ]
 }
