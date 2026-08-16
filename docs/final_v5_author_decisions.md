@@ -386,3 +386,21 @@ oracles, campaigns, or the paper are complete.
 
     What this decision does not do: it does not flip any capability, approve any
     generated evidence, release or tag, or weaken any oracle. Decision 15 stands.
+
+26. **Flip baselineRealSystemValidated on the retained 58-cell run.** (Taken
+    2026-08-16, answered "A" in the agent conversation to the reported
+    options.) The Baseline evidence gate in
+    evaluation/cmd/final-v5-adapter/capability.go:95 may be flipped from false
+    to true on the strength of the retained run
+    baseline-targeted-20260816T151201Z (HEAD 7b15512, image rebuilt at
+    launch): 58 of 58 cells reached v3 acceptance and passed, all 16
+    workload/scale pairs report one identical result_sha256 across every mode
+    including the direct arm, and the S4 depth-4 semantic_replay cell carries
+    cross_binding_verification whose visible-plus-companion call delta is
+    exactly one, matching the merged-statement shape a semantic View executes.
+    Ledger row P19-run58 records the verification.
+
+    What this decision does not do: it does not flip the scale capability,
+    does not make the pilot-class run publication-eligible, and does not
+    approve any tag or freeze. Source-parseability remains necessary and
+    never sufficient; the constant's comment must keep saying so.
