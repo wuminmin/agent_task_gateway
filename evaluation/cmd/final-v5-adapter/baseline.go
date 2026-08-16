@@ -293,8 +293,13 @@ type baselinePlan struct {
 	// reduce through it, so the digests being compared describe the same
 	// logical rows rather than two Go representations of them.
 	resultSchema []finalv5oracle.ResultColumn
-	provision    func(context.Context, experiment.AdapterOperation) (string, error)
-	snapshot     func(context.Context) (experiment.BusinessSQLSnapshot, error)
+	// visibleRelation and companionRelation are the two names the Observer
+	// filters on, carried here only so a failed call-count assertion can show
+	// which statements it was counting.
+	visibleRelation   string
+	companionRelation string
+	provision         func(context.Context, experiment.AdapterOperation) (string, error)
+	snapshot          func(context.Context) (experiment.BusinessSQLSnapshot, error)
 }
 
 // pilotPlan is the retained non-publication S1/tiny path. Its expected shape is
@@ -311,13 +316,15 @@ func (adapter *realAdapter) pilotPlan() baselinePlan {
 
 func (adapter *realAdapter) contractPlan(cell baselineExecutionCell) baselinePlan {
 	return baselinePlan{
-		directSQL:       cell.DirectSQL,
-		taskGateSQL:     cell.BDGSQL,
-		rewriteSQL:      cell.RewriteSQL,
-		planEntrypoint:  cell.PlanEntrypoint,
-		expectedRows:    cell.Contract.ExpectedRows,
-		expectedColumns: cell.Contract.ExpectedColumns,
-		resultSchema:    cell.ResultSchema,
+		directSQL:         cell.DirectSQL,
+		taskGateSQL:       cell.BDGSQL,
+		rewriteSQL:        cell.RewriteSQL,
+		planEntrypoint:    cell.PlanEntrypoint,
+		expectedRows:      cell.Contract.ExpectedRows,
+		expectedColumns:   cell.Contract.ExpectedColumns,
+		resultSchema:      cell.ResultSchema,
+		visibleRelation:   cell.Task.VisibleRelation,
+		companionRelation: cell.Task.CompanionRelation,
 		provision: func(ctx context.Context, operation experiment.AdapterOperation) (string, error) {
 			return adapter.provisionBoundTask(ctx, operation, cell.Task)
 		},
@@ -1436,6 +1443,10 @@ func (adapter *realAdapter) crossBindingVerification(ctx context.Context, operat
 				businessAfter.CompanionCalls-businessBefore.CompanionCalls)},
 	} {
 		if incomplete.failed {
+			// Print what the Observer actually saw. A call-count assertion that
+			// fails without showing the statements behind it forces the reader
+			// to guess which relation names the executed SQL carried.
+			adapter.reportObservedStatements(ctx, plan)
 			return evidence, fmt.Errorf("cross-binding negative evidence is incomplete: %s", incomplete.reason)
 		}
 	}
@@ -1721,4 +1732,39 @@ func baselineResultDigest(schema []finalv5oracle.ResultColumn, values [][]any) (
 		return "", err
 	}
 	return observed.Summary.CanonicalResultSHA256, nil
+}
+
+// reportObservedStatements dumps the Business statements the Observer's filter
+// can see, to the diagnostic channel only. It exists because the visible count
+// is "contains the visible relation and does not contain the companion", so a
+// zero can mean the statement never ran, ran against different relation names,
+// or ran while also naming the companion -- three very different faults that
+// the count alone cannot distinguish.
+func (adapter *realAdapter) reportObservedStatements(ctx context.Context, plan baselinePlan) {
+	const query = `SELECT s.calls::bigint,
+  position($1 in replace(lower(s.query),'"','')) > 0 AS names_visible,
+  position($2 in replace(lower(s.query),'"','')) > 0 AS names_companion,
+  left(replace(replace(lower(s.query),'"',''), E'\n', ' '), 180)
+FROM pg_stat_statements s
+WHERE s.dbid=(SELECT oid FROM pg_database WHERE datname=current_database())
+  AND s.userid=(SELECT oid FROM pg_roles WHERE rolname='gateway_reader')
+  AND (position($1 in replace(lower(s.query),'"','')) > 0
+       OR position($2 in replace(lower(s.query),'"','')) > 0)
+ORDER BY s.calls DESC LIMIT 8`
+	rows, err := adapter.observer.Query(ctx, query, plan.visibleRelation, plan.companionRelation)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "observed-statement diagnostic unavailable: %v\n", err)
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var calls int64
+		var visible, companion bool
+		var text string
+		if err := rows.Scan(&calls, &visible, &companion, &text); err != nil {
+			return
+		}
+		fmt.Fprintf(os.Stderr, "  observed calls=%d visible=%v companion=%v :: %s\n",
+			calls, visible, companion, text)
+	}
 }
