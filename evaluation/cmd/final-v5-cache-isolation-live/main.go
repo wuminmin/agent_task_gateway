@@ -29,9 +29,10 @@ import (
 )
 
 const (
-	recordName   = "taskgate-final-v5-same-query-cross-profile-live-evidence-v1"
-	queryPath    = "evaluation/final-v5-wsl2/sql/contracts/S1-bdg.sql"
-	selectedRows = "5000"
+	recordName           = "taskgate-final-v5-same-query-cross-profile-live-evidence-v1"
+	queryPath            = "evaluation/final-v5-wsl2/sql/contracts/S1-bdg.sql"
+	selectedRows         = "5000"
+	negativeProbeProduct = "expense_detail"
 )
 
 type options struct {
@@ -89,6 +90,9 @@ type registryDocument struct {
 		ID            string `json:"profile_id"`
 		Alias         string `json:"alias"`
 		CatalogSHA256 string `json:"catalog_sha256"`
+		Closure       struct {
+			Products []string `json:"products"`
+		} `json:"closure"`
 	} `json:"profiles"`
 }
 
@@ -184,9 +188,15 @@ func run(ctx context.Context, opts options) error {
 	if wire.SchemaVersion != 1 || wire.Record != "taskgate-final-v5-product-intersection-v1" {
 		return errors.New("product-intersection identity is not recognised")
 	}
-	profiles := map[string]struct{ alias, catalog string }{}
+	profiles := map[string]struct {
+		alias, catalog string
+		products       []string
+	}{}
 	for _, profile := range registry.Profiles {
-		profiles[profile.ID] = struct{ alias, catalog string }{profile.Alias, profile.CatalogSHA256}
+		profiles[profile.ID] = struct {
+			alias, catalog string
+			products       []string
+		}{profile.Alias, profile.CatalogSHA256, profile.Closure.Products}
 	}
 	var pairs []intersectionWirePair
 	for _, pair := range wire.Pairs {
@@ -249,7 +259,8 @@ func run(ctx context.Context, opts options) error {
 	for index, pair := range pairs {
 		left, leftOK := profiles[pair.leftID]
 		right, rightOK := profiles[pair.rightID]
-		if !leftOK || !rightOK || !contains(pair.shared, "provsql_orders") {
+		if !leftOK || !rightOK || !contains(pair.shared, "provsql_orders") ||
+			contains(left.products, negativeProbeProduct) || contains(right.products, negativeProbeProduct) {
 			return writeFailure(fmt.Errorf("pair %s/%s is not a resolvable provsql_orders overlap", pair.leftID, pair.rightID))
 		}
 		if err := activate(ctx, opts, current, pair.leftID, sequence); err != nil {
@@ -328,6 +339,7 @@ func activate(ctx context.Context, opts options, previous, profile string, seque
 		"-profile-artifact-dir", filepath.Join(opts.artifactRoot, profile),
 		"-profile-artifact-manifest", opts.artifactManifest, "-business-dsn-env", opts.businessDSNEnv,
 		"-admin-token-env", opts.adminTokenEnv,
+		"-outside-products", negativeProbeProduct,
 		"-ready-timeout", opts.readyTimeout.String()}
 	command := exec.CommandContext(ctx, "go", args...)
 	command.Dir = opts.root
