@@ -90,6 +90,7 @@ type ordinalDeriver struct {
 	leafFields         map[string][]string
 	outerFields        []string
 	visibleRows        map[string]ordinalVisibleRow
+	visibleUnionRows   map[string]ordinalVisibleRow
 	groupKeys          map[string]string
 	lastGroupSignature string
 	lastGroupKey       string
@@ -880,13 +881,29 @@ func (d *ordinalDeriver) observeUngrouped(member ordinalMember, visible ordinalV
 }
 
 func (d *ordinalDeriver) visibleUnionRow(member ordinalMember) (ordinalVisibleRow, bool) {
-	for _, row := range d.visible.Rows {
-		key, err := d.unionKeyFromVisible(row)
-		if err == nil && key == member.key {
-			return ordinalVisibleRow{values: row, key: key}, true
+	// Index the visible tuples once. This was a linear scan that recomputed
+	// every row's union key on every member, which made UNION DISTINCT
+	// derivation quadratic in result size and dominated everything else:
+	// Baseline S5/SF1 spent 18.2 s of an 18.3 s query here for five thousand
+	// rows, against 67 ms for the same rows and the same Dependency count on a
+	// plain scan, and S5/SF10 did not finish inside its approved thirty-minute
+	// budget at all.
+	if d.visibleUnionRows == nil {
+		d.visibleUnionRows = make(map[string]ordinalVisibleRow, len(d.visible.Rows))
+		for _, row := range d.visible.Rows {
+			key, err := d.unionKeyFromVisible(row)
+			if err != nil {
+				continue
+			}
+			// The scan returned the first row carrying a repeated key; keeping
+			// the first indexed entry preserves that behaviour exactly.
+			if _, indexed := d.visibleUnionRows[key]; !indexed {
+				d.visibleUnionRows[key] = ordinalVisibleRow{values: row, key: key}
+			}
 		}
 	}
-	return ordinalVisibleRow{}, false
+	row, present := d.visibleUnionRows[member.key]
+	return row, present
 }
 
 func (d *ordinalDeriver) unionKeyFromVisible(row []any) (string, error) {
